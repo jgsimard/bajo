@@ -1,0 +1,12 @@
+[workspace]
+authors = ["jgsimard <jeangab23@gmail.com>"]
+channels = ["https://conda.modular.com/max-nightly", "conda-forge"]
+name = "core"
+platforms = ["linux-64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+python = ">=3.13.7,<3.14"
+mojo = ">=25.6.0.dev2025090305,<26"

@@ -11,9 +11,6 @@ struct Matrix[dim: Int](Copyable, Movable, Stringable):
     fn __init__(out self, data: InlineArray[Float32, dim * dim]):
         self.data = data
 
-    fn __init__(out self, uninitialized: Bool):
-        self.data = InlineArray[Float32, dim * dim](uninitialized=True)
-
     fn __getitem__(self, row: Int, col: Int) -> Float32:
         return self.data[row * dim + col]
 

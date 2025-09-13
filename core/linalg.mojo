@@ -1,5 +1,9 @@
 import benchmark
 
+struct Vector[dim: Int](Movable):
+    var data : InlineArray[Float32, dim*dim]
+
+
 struct Matrix[dim: Int](Copyable, Movable, Stringable):
     var data : InlineArray[Float32, dim*dim]
 
@@ -15,21 +19,24 @@ struct Matrix[dim: Int](Copyable, Movable, Stringable):
     fn __setitem__(var self, row: Int, col: Int, value: Float32):
         self.data[row * dim + col] = value
 
-    fn inverse[use_simd: Bool](self) raises -> Self:
+    fn inverse[use_simd: Bool](self: Matrix[2]) raises -> Matrix[2]:
         @parameter
-        if dim == 4:
-            ref mat4 = rebind[Matrix[4]](self)
-            @parameter
-            if use_simd:
-                return rebind[Self](inverse_m44_simd(mat4)).copy()
-            else:
-                return rebind[Self](inverse_m44(mat4)).copy()
+        if use_simd:
+            return inverse_m22_simd(self)
         else:
-            raise Error("Only support dim == 4")        
+            return inverse_m22(self)
+
+    fn inverse[use_simd: Bool](self: Matrix[4]) raises -> Matrix[4]:
+        @parameter
+        if use_simd:
+            return inverse_m44_simd(self)
+        else:
+            return inverse_m44(self)
+      
 
     fn __str__(self) -> String:
         var str = ""
-        for r in range(4):
+        for r in range(dim):
             str += String(self[r, 0], "\t", self[r, 1], "\t", self[r, 2], "\t", self[r, 3], "\n")
         return str
 
@@ -39,7 +46,7 @@ struct Matrix[dim: Int](Copyable, Movable, Stringable):
                 return False
         return True
 
-fn bench_inv[use_simd: Bool]() raises:
+fn bench_inv4[use_simd: Bool]() raises:
     var matrix_data = InlineArray[Float32, 16](
         2, -1,  0,  0,
         -5,  2, -1,  0,
@@ -87,16 +94,40 @@ fn main() raises:
     print(String(mat_inv_simd))
     print(mat_inv == mat_inv_simd)
 
-    var report = benchmark.run[bench_inv[False]]()
+    var report = benchmark.run[bench_inv4[False]]()
     report.print()
 
-    var report_simd = benchmark.run[bench_inv[True]]()
+    var report_simd = benchmark.run[bench_inv4[True]]()
     report_simd.print()
 
     var speedup = report.mean() / report_simd.mean()
     print(speedup)
 
+fn inverse_m22(mat : Matrix[2]) raises -> Matrix[2]:
+    ref m = mat.data
+    
+    var det = 1.0
 
+    if abs(det) < 1e-6: 
+        raise Error("Matrix2 is not invertable")
+
+    var inv_det = 1.0 / det
+    var inv_data = InlineArray[Float32, 4](uninitialized=True)
+
+    return Matrix[2](inv_data)
+
+fn inverse_m22_simd(mat : Matrix[2]) raises -> Matrix[2]:
+    ref m = mat.data
+    
+    var det = 1.0
+
+    if abs(det) < 1e-6: 
+        raise Error("Matrix2 is not invertable")
+
+    var inv_det = 1.0 / det
+    var inv_data = InlineArray[Float32, 4](uninitialized=True)
+
+    return Matrix[2](inv_data)
 
 
 fn inverse_m44(mat : Matrix[4]) raises -> Matrix[4]:

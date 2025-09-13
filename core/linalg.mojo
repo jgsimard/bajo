@@ -57,34 +57,22 @@ struct Matrix[dim: Int](Copyable, Movable, Stringable):
 
 
 fn bench_inv4[use_simd: Bool]() raises:
-    #fmt: off
+    # fmt: off
     var matrix_data = InlineArray[Float32, 16](
         2, -1, 0, 0, 
         -5, 2, -1, 0, 
         0, -1, 2, -1, 
         0, 0, -1, 2,
     )
-    #fmt: on
+    # fmt: on
 
     var mat = Matrix[4](matrix_data)
     for _ in range(1e6):
         var mat_inv = mat.inverse[use_simd]()
-        benchmark.keep(mat_inv.data[0])
-        benchmark.keep(mat_inv.data[1])
-        benchmark.keep(mat_inv.data[2])
-        benchmark.keep(mat_inv.data[3])
-        benchmark.keep(mat_inv.data[4])
-        benchmark.keep(mat_inv.data[5])
-        benchmark.keep(mat_inv.data[6])
-        benchmark.keep(mat_inv.data[7])
-        benchmark.keep(mat_inv.data[8])
-        benchmark.keep(mat_inv.data[9])
-        benchmark.keep(mat_inv.data[10])
-        benchmark.keep(mat_inv.data[11])
-        benchmark.keep(mat_inv.data[12])
-        benchmark.keep(mat_inv.data[13])
-        benchmark.keep(mat_inv.data[14])
-        benchmark.keep(mat_inv.data[15])
+
+        @parameter
+        for i in range(16):
+            benchmark.keep(mat_inv.data[0])
 
 
 fn main() raises:

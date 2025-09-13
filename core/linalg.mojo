@@ -1,17 +1,18 @@
 import benchmark
 
+
 struct Vector[dim: Int](Movable):
-    var data : InlineArray[Float32, dim*dim]
+    var data: InlineArray[Float32, dim * dim]
 
 
 struct Matrix[dim: Int](Copyable, Movable, Stringable):
-    var data : InlineArray[Float32, dim*dim]
+    var data: InlineArray[Float32, dim * dim]
 
-    fn __init__(out self, data: InlineArray[Float32, dim*dim]):
+    fn __init__(out self, data: InlineArray[Float32, dim * dim]):
         self.data = data
 
     fn __init__(out self, uninitialized: Bool):
-        self.data = InlineArray[Float32, dim*dim](uninitialized=True)
+        self.data = InlineArray[Float32, dim * dim](uninitialized=True)
 
     fn __getitem__(self, row: Int, col: Int) -> Float32:
         return self.data[row * dim + col]
@@ -32,27 +33,38 @@ struct Matrix[dim: Int](Copyable, Movable, Stringable):
             return inverse_m44_simd(self)
         else:
             return inverse_m44(self)
-      
 
     fn __str__(self) -> String:
         var str = ""
         for r in range(dim):
-            str += String(self[r, 0], "\t", self[r, 1], "\t", self[r, 2], "\t", self[r, 3], "\n")
+            str += String(
+                self[r, 0],
+                "\t",
+                self[r, 1],
+                "\t",
+                self[r, 2],
+                "\t",
+                self[r, 3],
+                "\n",
+            )
         return str
 
-    fn __eq__(self, other:Self) -> Bool:
+    fn __eq__(self, other: Self) -> Bool:
         for i in range(0, 16):
             if self.data[i] != other.data[i]:
                 return False
         return True
 
+
 fn bench_inv4[use_simd: Bool]() raises:
+    #fmt: off
     var matrix_data = InlineArray[Float32, 16](
-        2, -1,  0,  0,
-        -5,  2, -1,  0,
-        0, -1,  2, -1,
-        0,  0, -1,  2,
+        2, -1, 0, 0, 
+        -5, 2, -1, 0, 
+        0, -1, 2, -1, 
+        0, 0, -1, 2,
     )
+    #fmt: on
 
     var mat = Matrix[4](matrix_data)
     for _ in range(1e6):
@@ -74,16 +86,19 @@ fn bench_inv4[use_simd: Bool]() raises:
         benchmark.keep(mat_inv.data[14])
         benchmark.keep(mat_inv.data[15])
 
+
 fn main() raises:
+    # fmt: off
     var matrix_data = InlineArray[Float32, 16](
          2, -1,  0,  0,
         -5,  2, -1,  0,
          0, -1,  2, -1,
          0,  0, -1,  2,
     )
+    # fmt: on
 
     var mat = Matrix[4](matrix_data)
-    
+
     print("Original Matrix:")
     print(String(mat))
 
@@ -103,25 +118,13 @@ fn main() raises:
     var speedup = report.mean() / report_simd.mean()
     print(speedup)
 
-fn inverse_m22(mat : Matrix[2]) raises -> Matrix[2]:
+
+fn inverse_m22(mat: Matrix[2]) raises -> Matrix[2]:
     ref m = mat.data
-    
+
     var det = 1.0
 
-    if abs(det) < 1e-6: 
-        raise Error("Matrix2 is not invertable")
-
-    var inv_det = 1.0 / det
-    var inv_data = InlineArray[Float32, 4](uninitialized=True)
-
-    return Matrix[2](inv_data)
-
-fn inverse_m22_simd(mat : Matrix[2]) raises -> Matrix[2]:
-    ref m = mat.data
-    
-    var det = 1.0
-
-    if abs(det) < 1e-6: 
+    if abs(det) < 1e-6:
         raise Error("Matrix2 is not invertable")
 
     var inv_det = 1.0 / det
@@ -130,13 +133,27 @@ fn inverse_m22_simd(mat : Matrix[2]) raises -> Matrix[2]:
     return Matrix[2](inv_data)
 
 
-fn inverse_m44(mat : Matrix[4]) raises -> Matrix[4]:
+fn inverse_m22_simd(mat: Matrix[2]) raises -> Matrix[2]:
+    ref m = mat.data
+
+    var det = 1.0
+
+    if abs(det) < 1e-6:
+        raise Error("Matrix2 is not invertable")
+
+    var inv_det = 1.0 / det
+    var inv_data = InlineArray[Float32, 4](uninitialized=True)
+
+    return Matrix[2](inv_data)
+
+
+fn inverse_m44(mat: Matrix[4]) raises -> Matrix[4]:
     """
     Computes the inverse of a 4x4 matrix using the adjugate method.
     This is a direct, loop-unrolled implementation for maximum efficiency.
     """
     ref m = mat.data
-    
+    # fmt: off
     var cofactor00 = m[5] * m[10] * m[15] - m[5] * m[11] * m[14] - m[9] * m[6] * m[15] + m[9] * m[7] * m[14] + m[13] * m[6] * m[11] - m[13] * m[7] * m[10]
     var cofactor01 = -m[4] * m[10] * m[15] + m[4] * m[11] * m[14] + m[8] * m[6] * m[15] - m[8] * m[7] * m[14] - m[12] * m[6] * m[11] + m[12] * m[7] * m[10]
     var cofactor02 = m[4] * m[9] * m[15] - m[4] * m[11] * m[13] - m[8] * m[5] * m[15] + m[8] * m[7] * m[13] + m[12] * m[5] * m[11] - m[12] * m[7] * m[9]
@@ -171,10 +188,11 @@ fn inverse_m44(mat : Matrix[4]) raises -> Matrix[4]:
     inv_data[7] = (m[0] * m[6] * m[11] - m[0] * m[7] * m[10] - m[4] * m[2] * m[11] + m[4] * m[3] * m[10] + m[8] * m[2] * m[7] - m[8] * m[3] * m[6]) * inv_det
     inv_data[11] = (-m[0] * m[5] * m[11] + m[0] * m[7] * m[9] + m[4] * m[1] * m[11] - m[4] * m[3] * m[9] - m[8] * m[1] * m[7] + m[8] * m[3] * m[5]) * inv_det
     inv_data[15] = (m[0] * m[5] * m[10] - m[0] * m[6] * m[9] - m[4] * m[1] * m[10] + m[4] * m[2] * m[9] + m[8] * m[1] * m[6] - m[8] * m[2] * m[5]) * inv_det
-
+    # fmt: on
     return Matrix[4](inv_data)
 
-fn inverse_m44_simd(mat : Matrix[4]) raises -> Matrix[4]:
+
+fn inverse_m44_simd(mat: Matrix[4]) raises -> Matrix[4]:
     """
     Computes the inverse of a 4x4 matrix using a SIMD algorithm that is a
     direct translation of a classic, highly-optimized C/LLVM implementation.
@@ -196,7 +214,7 @@ fn inverse_m44_simd(mat : Matrix[4]) raises -> Matrix[4]:
 
     var col0 = row1 * tmp1
     var col1 = row0 * tmp1
-    
+
     tmp1 = tmp1.shuffle[2, 3, 0, 1]()
 
     col0 = row1 * tmp1 - col0
@@ -260,7 +278,7 @@ fn inverse_m44_simd(mat : Matrix[4]) raises -> Matrix[4]:
 
     col1 = col1 - row3 * tmp1
     col3 = row1 * tmp1 + col3
-    
+
     # End Adjugate Calculation.
     # The adjugate matrix is now stored in col0, col1, col2, col3.
 
@@ -285,7 +303,7 @@ fn inverse_m44_simd(mat : Matrix[4]) raises -> Matrix[4]:
     var tmp_t1 = col2.shuffle[0, 1, 4, 5](col3)
     var tmp_t2 = col0.shuffle[2, 3, 6, 7](col1)
     var tmp_t3 = col2.shuffle[2, 3, 6, 7](col3)
-    
+
     var res_R0 = tmp_t0.shuffle[0, 2, 4, 6](tmp_t1)
     var res_R1 = tmp_t0.shuffle[1, 3, 5, 7](tmp_t1)
     var res_R2 = tmp_t2.shuffle[0, 2, 4, 6](tmp_t3)

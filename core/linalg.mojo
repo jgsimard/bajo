@@ -37,16 +37,9 @@ struct Matrix[dim: Int](Copyable, Movable, Stringable):
     fn __str__(self) -> String:
         var str = ""
         for r in range(dim):
-            str += String(
-                self[r, 0],
-                "\t",
-                self[r, 1],
-                "\t",
-                self[r, 2],
-                "\t",
-                self[r, 3],
-                "\n",
-            )
+            for c in range(dim):
+                str += String(self[r, c], "\t")
+            str += String("\n")
         return str
 
     fn __eq__(self, other: Self) -> Bool:

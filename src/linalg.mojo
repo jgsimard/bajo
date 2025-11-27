@@ -2,20 +2,20 @@ import benchmark
 
 
 struct Vector[dim: Int](Movable):
-    var data: InlineArray[Float32, dim * dim]
+    var data: InlineArray[Float32, Self.dim * Self.dim]
 
 
 struct Matrix[dim: Int](Copyable, Movable, Stringable):
-    var data: InlineArray[Float32, dim * dim]
+    var data: InlineArray[Float32, Self.dim * Self.dim]
 
-    fn __init__(out self, data: InlineArray[Float32, dim * dim]):
+    fn __init__(out self, data: InlineArray[Float32, Self.dim * Self.dim]):
         self.data = data
 
     fn __getitem__(self, row: Int, col: Int) -> Float32:
-        return self.data[row * dim + col]
+        return self.data[row * Self.dim + col]
 
     fn __setitem__(var self, row: Int, col: Int, value: Float32):
-        self.data[row * dim + col] = value
+        self.data[row * Self.dim + col] = value
 
     fn inverse[use_simd: Bool](self: Matrix[2]) raises -> Matrix[2]:
         @parameter
@@ -33,8 +33,8 @@ struct Matrix[dim: Int](Copyable, Movable, Stringable):
 
     fn __str__(self) -> String:
         var str = ""
-        for r in range(dim):
-            for c in range(dim):
+        for r in range(Self.dim):
+            for c in range(Self.dim):
                 str += String(self[r, c], "\t")
             str += String("\n")
         return str

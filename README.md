@@ -1,2 +1,2 @@
-# simo
-high performance simulation in mojo
+# bajo
+bajo = low (... level) = batch mojo

@@ -11,7 +11,7 @@ comptime pi_m2 = pi * 2.0
 # ----------------------------------------------------------------------
 # Helper Functions
 # ----------------------------------------------------------------------
-fn to_radians[
+fn deg_to_radians[
     type: DType, size: Int
 ](degrees: SIMD[type, size]) -> SIMD[type, size]:
     return degrees * pi_d180

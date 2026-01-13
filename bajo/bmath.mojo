@@ -261,6 +261,18 @@ struct Vector[type: DType, size: Int](
 # ----------------------------------------------------------------------
 # Quat
 # ----------------------------------------------------------------------
+fn length2[type: DType](q: Quaternion[type]) -> Scalar[type]:
+    return (q.data * q.data).reduce_add()
+
+fn length[type: DType](q: Quaternion[type]) -> Scalar[type]:
+    return sqrt(length2(q))
+
+fn inv_length[type: DType](q: Quaternion[type]) -> Scalar[type]:
+    return 1.0 / length(q)
+
+fn normalize[type: DType](q: Quaternion[type]) -> Quaternion[type]:
+    return Quaternion[type](q.data * inv_length(q))
+
 @fieldwise_init
 @register_passable("trivial")
 struct Quaternion[type: DType]:
@@ -278,22 +290,6 @@ struct Quaternion[type: DType]:
     @staticmethod
     fn id() -> Self:
         return Self([1, 0, 0, 0])
-
-    @always_inline
-    fn length2(self) -> Scalar[Self.type]:
-        return (self.data * self.data).reduce_add()
-
-    @always_inline
-    fn length(self) -> Scalar[Self.type]:
-        return sqrt(self.length2())
-
-    @always_inline
-    fn inv_length(self) -> Scalar[Self.type]:
-        return 1.0 / self.length()
-
-    fn normalize(self) -> Self:
-        var inv = self.inv_length()
-        return Self(self.data * inv)
 
     fn w(self) -> Scalar[Self.type]:
         return self.data[0]

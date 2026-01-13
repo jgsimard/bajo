@@ -23,7 +23,7 @@ comptime Diag3 = Diag3x3[DType.float32]
 comptime Mat33 = Mat3x3[DType.float32]
 comptime Mat34 = Mat3x4[DType.float32]
 comptime Mat44 = Mat4x4[DType.float32]
- 
+
 comptime Quat = Quaternion[DType.float32]
 
 comptime AABB = AxisAlignedBoundingBox[DType.float32]
@@ -31,6 +31,7 @@ comptime AABB = AxisAlignedBoundingBox[DType.float32]
 # ----------------------------------------------------------------------
 # Helper Functions
 # ----------------------------------------------------------------------
+
 
 fn deg_to_radians[
     type: DType, size: Int
@@ -56,7 +57,6 @@ fn solve_quadratic[
     return Optional(Tuple(t1, t2))
 
 
-
 # ----------------------------------------------------------------------
 # Vector
 # ----------------------------------------------------------------------
@@ -68,26 +68,34 @@ comptime Vector4[type: DType] = Vector[type, 4]
 fn dot[t: DType, s: Int](a: Vector[t, s], b: Vector[t, s]) -> Scalar[t]:
     return (a.data * b.data).reduce_add()
 
+
 fn length2[t: DType, s: Int](a: Vector[t, s]) -> Scalar[t]:
     return (a.data * a.data).reduce_add()
+
 
 fn length[t: DType, s: Int](a: Vector[t, s]) -> Scalar[t]:
     return sqrt(length2(a))
 
+
 fn inv_length[t: DType, s: Int](a: Vector[t, s]) -> Scalar[t]:
     return 1.0 / length(a)
+
 
 fn normalize[t: DType, s: Int](a: Vector[t, s]) -> Vector[t, s]:
     return a * inv_length(a)
 
+
 fn distance[t: DType, s: Int](a: Vector[t, s], b: Vector[t, s]) -> Scalar[t]:
     return length(a - b)
+
 
 fn distance2[t: DType, s: Int](a: Vector[t, s], b: Vector[t, s]) -> Scalar[t]:
     return length2(a - b)
 
+
 fn max[t: DType, s: Int](a: Vector[t, s], b: Vector[t, s]) -> Vector[t, s]:
     return Vector[t, s](builtin_max(a.data, b.data))
+
 
 fn min[t: DType, s: Int](a: Vector[t, s], b: Vector[t, s]) -> Vector[t, s]:
     return Vector[t, s](builtin_min(a.data, b.data))
@@ -100,16 +108,23 @@ fn cross[type: DType](a: Vector3[type], b: Vector3[type]) -> Vector3[type]:
         a.x() * b.y() - a.y() * b.x(),
     )
 
-fn lerp[t: DType, s: Int](a: Vector[t, s], b: Vector[t, s], u: Scalar[t]) -> Vector[t, s]:
+
+fn lerp[
+    t: DType, s: Int
+](a: Vector[t, s], b: Vector[t, s], u: Scalar[t]) -> Vector[t, s]:
     return a * (Scalar[t](1.0) - u) + b * u
+
 
 @fieldwise_init
 @register_passable("trivial")
-struct Vector[type: DType, size: Int](Copyable, Stringable, Representable, Writable):
+struct Vector[type: DType, size: Int](
+    Copyable, Representable, Stringable, Writable
+):
     """A wrapper around SIMD."""
+
     comptime storage_size = next_power_of_two(Self.size)
     comptime data_type = SIMD[Self.type, Self.storage_size]
-    
+
     var data: Self.data_type
 
     fn __init__(out self, v: Scalar[Self.type]):
@@ -183,7 +198,7 @@ struct Vector[type: DType, size: Int](Copyable, Stringable, Representable, Writa
     # accessors
     fn __getitem__(self, i: Int) -> Scalar[Self.type]:
         return self.data[i]
-    
+
     fn __setitem__(mut self, i: Int, v: Scalar[Self.type]):
         self.data[i] = v
 
@@ -231,7 +246,7 @@ struct Vector[type: DType, size: Int](Copyable, Stringable, Representable, Writa
     # print
     fn __str__(self) -> String:
         @parameter
-        if Self.size == 3: # to not print the 0 padding
+        if Self.size == 3:  # to not print the 0 padding
             return "Vec3[{}, {}, {}]".format(self.x(), self.y(), self.z())
         else:
             return "Vec{}{}".format(Self.size, self.data)
@@ -307,14 +322,15 @@ struct Quaternion[type: DType]:
         return v + (pure_x_v * scalar + pure_x_pure_x_v) * 2.0
 
     @staticmethod
-    fn angle_axis(
-        angle: Scalar[Self.type], normal: Vector3[Self.type]
-    ) -> Self:
+    fn angle_axis(angle: Scalar[Self.type], normal: Vector3[Self.type]) -> Self:
         var half_angle = angle / 2.0
         var coshalf = cos(half_angle)
         var sinhalf = sin(half_angle)
         return Self(
-            coshalf, normal.x() * sinhalf, normal.y() * sinhalf, normal.z() * sinhalf
+            coshalf,
+            normal.x() * sinhalf,
+            normal.y() * sinhalf,
+            normal.z() * sinhalf,
         )
 
     @staticmethod
@@ -411,6 +427,7 @@ struct Quaternion[type: DType]:
     fn __imul__(mut self, f: Scalar[Self.type]):
         self.wxyz *= f
 
+
 # ----------------------------------------------------------------------
 # Diag3x3
 # ----------------------------------------------------------------------
@@ -437,12 +454,12 @@ struct Diag3x3[type: DType]:
         return Self(1.0 / self.d0, 1.0 / self.d1, 1.0 / self.d2)
 
     fn __mul__(self, o: Self) -> Self:
-        return Self(
-            self.d0 * o.d0, self.d1 * o.d1, self.d2 * o.d2
-        )
+        return Self(self.d0 * o.d0, self.d1 * o.d1, self.d2 * o.d2)
 
     fn __mul__(self, v: Vector3[Self.type]) -> Vector3[Self.type]:
-        return Vector3[Self.type](self.d0 * v.x(), self.d1 * v.y(), self.d2 * v.z())
+        return Vector3[Self.type](
+            self.d0 * v.x(), self.d1 * v.y(), self.d2 * v.z()
+        )
 
     fn __mul__(self, f: Scalar[Self.type]) -> Diag3x3[Self.type]:
         return Diag3x3[Self.type](self.d0 * f, self.d1 * f, self.d2 * f)
@@ -468,9 +485,12 @@ struct Mat3x3[type: DType]:
 
     fn determinant(self) -> Scalar[Self.type]:
         return (
-            self.c0.x() * (self.c1.y() * self.c2.z() - self.c2.y() * self.c1.z())
-            - self.c0.y() * (self.c1.x() * self.c2.z() - self.c2.x() * self.c1.z())
-            + self.c0.z() * (self.c1.x() * self.c2.y() - self.c2.x() * self.c1.y())
+            self.c0.x()
+            * (self.c1.y() * self.c2.z() - self.c2.y() * self.c1.z())
+            - self.c0.y()
+            * (self.c1.x() * self.c2.z() - self.c2.x() * self.c1.z())
+            + self.c0.z()
+            * (self.c1.x() * self.c2.y() - self.c2.x() * self.c1.y())
         )
 
     fn transpose(self) -> Self:
@@ -560,8 +580,8 @@ struct Mat3x4[type: DType]:
     var c3: Vector3[Self.type]
 
     @staticmethod
-    fn identity() -> Mat3x4[Self.type]:
-        return Mat3x4[Self.type](
+    fn identity() -> Self:
+        return Self(
             Vector3[Self.type](1, 0, 0),
             Vector3[Self.type](0, 1, 0),
             Vector3[Self.type](0, 0, 1),
@@ -574,8 +594,8 @@ struct Mat3x4[type: DType]:
     fn txfm_dir(self, p: Vector3[Self.type]) -> Vector3[Self.type]:
         return self.c0 * p.x() + self.c1 * p.y() + self.c2 * p.z()
 
-    fn compose(self, o: Mat3x4[Self.type]) -> Mat3x4[Self.type]:
-        return Mat3x4[Self.type](
+    fn compose(self, o: Self) -> Self:
+        return Self(
             self.txfm_dir(o.c0),
             self.txfm_dir(o.c1),
             self.txfm_dir(o.c2),
@@ -607,7 +627,7 @@ struct Mat3x4[type: DType]:
     @staticmethod
     fn from_trs(
         t: Vector3[Self.type], r: Quaternion[Self.type], s: Diag3x3[Self.type]
-    ) -> Mat3x4[Self.type]:
+    ) -> Self:
         var x2 = r.x() * r.x()
         var y2 = r.y() * r.y()
         var z2 = r.z() * r.z()
@@ -619,7 +639,7 @@ struct Mat3x4[type: DType]:
         var wz = r.w() * r.z()
         var ds = s * 2.0
 
-        return Mat3x4[Self.type](
+        return Self(
             Vector3[Self.type](
                 s.d0 - ds.d0 * (y2 + z2), ds.d0 * (xy + wz), ds.d0 * (xz - wy)
             ),
@@ -740,11 +760,12 @@ struct AxisAlignedBoundingBox[type: DType where type.is_floating_point()]:
         var t_max_vec = max(t_lower, t_upper)
 
         var t_box_min = builtin_max(
-            t_min_vec.x(), t_min_vec.y(), t_min_vec.z(), ray_t_min)
-        
+            t_min_vec.x(), t_min_vec.y(), t_min_vec.z(), ray_t_min
+        )
+
         var t_box_max = builtin_min(
-            t_max_vec.x(), t_max_vec.y(), t_max_vec.z(), ray_t_max)
-        
+            t_max_vec.x(), t_max_vec.y(), t_max_vec.z(), ray_t_max
+        )
 
         return t_box_min <= t_box_max
 
@@ -792,7 +813,6 @@ struct AxisAlignedBoundingBox[type: DType where type.is_floating_point()]:
                     txfmed.pMin[i] += f
                     txfmed.pMax[i] += e
         return txfmed
-
 
 
 fn main() raises:

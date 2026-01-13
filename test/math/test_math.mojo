@@ -10,10 +10,10 @@ fn test_quaternions() raises:
     var q1 = Quat.angle_axis(0, Vec3f(0, 1, 0))
     assert_quat_equal(q1, Quat(1, 0, 0, 0))
 
-    var q2 = Quat.angle_axis(deg_to_radians(Scalar[f32](45)), Vec3f(0, 1, 0))
+    var q2 = Quat.angle_axis(deg_to_radians(Scalar[DType.float32](45)), Vec3f(0, 1, 0))
     assert_quat_equal(q2, Quat(0.9238795, 0, 0.3826834, 0))
 
-    var q3 = Quat.angle_axis(deg_to_radians(Scalar[f32](45)), Vec3f(1, 0, 0))
+    var q3 = Quat.angle_axis(deg_to_radians(Scalar[DType.float32](45)), Vec3f(1, 0, 0))
     assert_quat_equal(q3, Quat(0.9238795, 0.3826834, 0, 0))
 
     var m1 = q2 * q3

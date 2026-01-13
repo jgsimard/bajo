@@ -106,6 +106,7 @@ fn lerp[t: DType, s: Int](a: Vector[t, s], b: Vector[t, s], u: Scalar[t]) -> Vec
 @fieldwise_init
 @register_passable("trivial")
 struct Vector[type: DType, size: Int](Copyable, Stringable, Representable, Writable):
+    """A wrapper around SIMD."""
     comptime storage_size = next_power_of_two(Self.size)
     comptime data_type = SIMD[Self.type, Self.storage_size]
     
@@ -156,11 +157,11 @@ struct Vector[type: DType, size: Int](Copyable, Stringable, Representable, Writa
         return self.data[1]
 
     fn z(self) -> Scalar[Self.type]:
-        __comptime_assert Self.size in [3, 4]
+        __comptime_assert Self.size >= 3
         return self.data[2]
 
     fn w(self) -> Scalar[Self.type]:
-        __comptime_assert Self.size == 4
+        __comptime_assert Self.size >= 4
         return self.data[3]
 
     # Swizzles
@@ -168,14 +169,16 @@ struct Vector[type: DType, size: Int](Copyable, Stringable, Representable, Writa
         return Vector2[self.type](self.x(), self.y())
 
     fn yz(self) -> Vector2[Self.type]:
+        __comptime_assert Self.size >= 3
         return Vector2[self.type](self.y(), self.z())
 
     fn xz(self) -> Vector2[Self.type]:
+        __comptime_assert Self.size >= 3
         return Vector2[self.type](self.x(), self.z())
 
     fn xyz(self) -> Vector[Self.type, 3]:
-        __comptime_assert Self.size in [3, 4]
-        return Vector[Self.type, 3](self.data[0], self.data[1], self.data[2])
+        __comptime_assert Self.size >= 3
+        return Vector[Self.type, 3](self.x(), self.y(), self.z())
 
     # accessors
     fn __getitem__(self, i: Int) -> Scalar[Self.type]:
@@ -225,8 +228,13 @@ struct Vector[type: DType, size: Int](Copyable, Stringable, Representable, Writa
     fn __truediv__(self, s: Scalar[Self.type]) -> Self:
         return Self(self.data / s)
 
+    # print
     fn __str__(self) -> String:
-        return "Vec{}{}".format(Self.size, self.data)
+        @parameter
+        if Self.size == 3: # to not print the 0 padding
+            return "Vec3[{}, {}, {}]".format(self.x(), self.y(), self.z())
+        else:
+            return "Vec{}{}".format(Self.size, self.data)
 
     fn __repr__(self) -> String:
         return String(self)
@@ -414,22 +422,22 @@ struct Diag3x3[type: DType]:
     var d2: Scalar[Self.type]
 
     @staticmethod
-    fn id() -> Diag3x3[Self.type]:
-        return Diag3x3[Self.type](1, 1, 1)
+    fn id() -> Self:
+        return Self(1, 1, 1)
 
     @staticmethod
-    fn uniform(scale: Scalar[Self.type]) -> Diag3x3[Self.type]:
+    fn uniform(scale: Scalar[Self.type]) -> Self:
         return Diag3x3[Self.type](scale, scale, scale)
 
     @staticmethod
-    fn from_vec(v: Vector3[Self.type]) -> Diag3x3[Self.type]:
-        return Diag3x3[Self.type](v.x(), v.y(), v.z())
+    fn from_vec(v: Vector3[Self.type]) -> Self:
+        return Self(v.x(), v.y(), v.z())
 
-    fn inv(self) -> Diag3x3[Self.type]:
-        return Diag3x3[Self.type](1.0 / self.d0, 1.0 / self.d1, 1.0 / self.d2)
+    fn inv(self) -> Self:
+        return Self(1.0 / self.d0, 1.0 / self.d1, 1.0 / self.d2)
 
-    fn __mul__(self, o: Diag3x3[Self.type]) -> Diag3x3[Self.type]:
-        return Diag3x3[Self.type](
+    fn __mul__(self, o: Self) -> Self:
+        return Self(
             self.d0 * o.d0, self.d1 * o.d1, self.d2 * o.d2
         )
 
@@ -465,15 +473,15 @@ struct Mat3x3[type: DType]:
             + self.c0.z() * (self.c1.x() * self.c2.y() - self.c2.x() * self.c1.y())
         )
 
-    fn transpose(self) -> Mat3x3[Self.type]:
-        return Mat3x3[Self.type](
+    fn transpose(self) -> Self:
+        return Self(
             Vector3[Self.type](self.c0.x(), self.c1.x(), self.c2.x()),
             Vector3[Self.type](self.c0.y(), self.c1.y(), self.c2.y()),
             Vector3[Self.type](self.c0.z(), self.c1.z(), self.c2.z()),
         )
 
     @staticmethod
-    fn from_quat(r: Quaternion[Self.type]) -> Mat3x3[Self.type]:
+    fn from_quat(r: Quaternion[Self.type]) -> Self:
         var x2 = r.x() * r.x()
         var y2 = r.y() * r.y()
         var z2 = r.z() * r.z()
@@ -486,7 +494,7 @@ struct Mat3x3[type: DType]:
         var wy = r.w() * r.y()
         var wz = r.w() * r.z()
 
-        return Mat3x3[Self.type](
+        return Self(
             Vector3[Self.type](
                 1.0 - 2.0 * (y2 + z2), 2.0 * (xy + wz), 2.0 * (xz - wy)
             ),
@@ -499,7 +507,7 @@ struct Mat3x3[type: DType]:
         )
 
     @staticmethod
-    fn from_rs(r: Quaternion[Self.type], s: Diag3x3[Self.type]) -> Mat3x3[Self.type]:
+    fn from_rs(r: Quaternion[Self.type], s: Diag3x3[Self.type]) -> Self:
         var x2 = r.x() * r.x()
         var y2 = r.y() * r.y()
         var z2 = r.z() * r.z()
@@ -512,7 +520,7 @@ struct Mat3x3[type: DType]:
 
         var ds = s * 2.0
 
-        return Mat3x3[Self.type](
+        return Self(
             Vector3[Self.type](
                 s.d0 - ds.d0 * (y2 + z2), ds.d0 * (xy + wz), ds.d0 * (xz - wy)
             ),
@@ -524,20 +532,20 @@ struct Mat3x3[type: DType]:
             ),
         )
 
-    fn __add__(self, o: Mat3x3[Self.type]) -> Mat3x3[Self.type]:
-        return Mat3x3[Self.type](self.c0 + o.c0, self.c1 + o.c1, self.c2 + o.c2)
+    fn __add__(self, o: Self) -> Self:
+        return Self(self.c0 + o.c0, self.c1 + o.c1, self.c2 + o.c2)
 
-    fn __sub__(self, o: Mat3x3[Self.type]) -> Mat3x3[Self.type]:
-        return Mat3x3[Self.type](self.c0 - o.c0, self.c1 - o.c1, self.c2 - o.c2)
+    fn __sub__(self, o: Self) -> Self:
+        return Self(self.c0 - o.c0, self.c1 - o.c1, self.c2 - o.c2)
 
     fn __mul__(self, v: Vector3[Self.type]) -> Vector3[Self.type]:
         return self.c0 * v.x() + self.c1 * v.y() + self.c2 * v.z()
 
-    fn __mul__(self, o: Mat3x3[Self.type]) -> Mat3x3[Self.type]:
-        return Mat3x3[Self.type](self * o.c0, self * o.c1, self * o.c2)
+    fn __mul__(self, o: Self) -> Self:
+        return Self(self * o.c0, self * o.c1, self * o.c2)
 
-    fn __mul__(self, s: Scalar[Self.type]) -> Mat3x3[Self.type]:
-        return Mat3x3[Self.type](self.c0 * s, self.c1 * s, self.c2 * s)
+    fn __mul__(self, s: Scalar[Self.type]) -> Self:
+        return Self(self.c0 * s, self.c1 * s, self.c2 * s)
 
 
 # ----------------------------------------------------------------------
@@ -637,8 +645,8 @@ struct Mat4x4[type: DType]:
     var c3: Vector4[Self.type]
 
     @staticmethod
-    fn identity() -> Mat4x4[Self.type]:
-        return Mat4x4[Self.type](
+    fn identity() -> Self:
+        return Self(
             Vector4[Self.type](1, 0, 0, 0),
             Vector4[Self.type](0, 1, 0, 0),
             Vector4[Self.type](0, 0, 1, 0),
@@ -653,7 +661,7 @@ struct Mat4x4[type: DType]:
             + self.c3 * p.w()
         )
 
-    fn compose(self, o: Mat4x4[Self.type]) -> Mat4x4[Self.type]:
+    fn compose(self, o: Mat4x4[Self.type]) -> Self:
         return Mat4x4[Self.type](
             self.txfm_point(o.c0),
             self.txfm_point(o.c1),

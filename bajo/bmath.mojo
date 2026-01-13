@@ -264,14 +264,18 @@ struct Vector[type: DType, size: Int](
 fn length2[type: DType](q: Quaternion[type]) -> Scalar[type]:
     return (q.data * q.data).reduce_add()
 
+
 fn length[type: DType](q: Quaternion[type]) -> Scalar[type]:
     return sqrt(length2(q))
+
 
 fn inv_length[type: DType](q: Quaternion[type]) -> Scalar[type]:
     return 1.0 / length(q)
 
+
 fn normalize[type: DType](q: Quaternion[type]) -> Quaternion[type]:
     return Quaternion[type](q.data * inv_length(q))
+
 
 @fieldwise_init
 @register_passable("trivial")

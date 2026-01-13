@@ -264,7 +264,7 @@ struct Vector[type: DType, size: Int](
 @fieldwise_init
 @register_passable("trivial")
 struct Quaternion[type: DType]:
-    var wxyz: SIMD[Self.type, 4]
+    var data: SIMD[Self.type, 4]
 
     fn __init__(
         out self,
@@ -273,7 +273,7 @@ struct Quaternion[type: DType]:
         y: Scalar[Self.type],
         z: Scalar[Self.type],
     ):
-        self.wxyz = SIMD[Self.type, 4](w, x, y, z)
+        self.data = SIMD[Self.type, 4](w, x, y, z)
 
     @staticmethod
     fn id() -> Self:
@@ -281,7 +281,7 @@ struct Quaternion[type: DType]:
 
     @always_inline
     fn length2(self) -> Scalar[Self.type]:
-        return (self.wxyz * self.wxyz).reduce_add()
+        return (self.data * self.data).reduce_add()
 
     @always_inline
     fn length(self) -> Scalar[Self.type]:
@@ -293,22 +293,22 @@ struct Quaternion[type: DType]:
 
     fn normalize(self) -> Self:
         var inv = self.inv_length()
-        return Self(self.wxyz * inv)
+        return Self(self.data * inv)
 
     fn w(self) -> Scalar[Self.type]:
-        return self.wxyz[0]
+        return self.data[0]
 
     fn x(self) -> Scalar[Self.type]:
-        return self.wxyz[1]
+        return self.data[1]
 
     fn y(self) -> Scalar[Self.type]:
-        return self.wxyz[2]
+        return self.data[2]
 
     fn z(self) -> Scalar[Self.type]:
-        return self.wxyz[3]
+        return self.data[3]
 
     fn xyz(self) -> Vector3[Self.type]:
-        return Vector3[Self.type](self.wxyz[1], self.wxyz[2], self.wxyz[3])
+        return Vector3[Self.type](self.x(), self.y(), self.z())
 
     fn inv(self) -> Self:
         return Self([self.w(), -self.x(), -self.y(), -self.z()])
@@ -390,16 +390,16 @@ struct Quaternion[type: DType]:
             )
 
     fn __add__(self, o: Self) -> Self:
-        return Self(self.wxyz + o.wxyz)
+        return Self(self.data + o.data)
 
     fn __iadd__(mut self, o: Self):
-        self.wxyz += o.wxyz
+        self.data += o.data
 
     fn __sub__(self, o: Self) -> Self:
-        return Self(self.wxyz - o.wxyz)
+        return Self(self.data - o.data)
 
     fn __isub__(mut self, o: Self):
-        self.wxyz -= o.wxyz
+        self.data -= o.data
 
     fn __mul__(self, b: Self) -> Self:
         return Self(
@@ -422,10 +422,10 @@ struct Quaternion[type: DType]:
         )
 
     fn __mul__(self, f: Scalar[Self.type]) -> Self:
-        return Self(self.wxyz * f)
+        return Self(self.data * f)
 
     fn __imul__(mut self, f: Scalar[Self.type]):
-        self.wxyz *= f
+        self.data *= f
 
 
 # ----------------------------------------------------------------------

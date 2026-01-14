@@ -1,3 +1,19 @@
+# Ray Tracing
+The Gold Standard: Aras Pranckevičius’s "Toy Path Tracer"
+Makes Raytracing in a weekend in DOD
+https://github.com/aras-p/ToyPathTracer
+https://aras-p.info/blog/2018/03/28/Daily-Pathtracer-Part-0-Intro/
+
+
+The Architectural Foundation: Jacco Bikker’s "Lighthouse" Series
+https://jacco.ompf2.com/2022/04/13/how-to-build-a-bvh-part-1-basics/
+https://github.com/jbikker/tinybvh
+
+Yocto/GL: Tiny C++ Libraries for Data-Driven Physically-based Graphics 
+https://xelatihy.github.io/yocto-gl/
+https://github.com/xelatihy/yocto-gl
+
+
 # Tomography
 https://github.com/astra-toolbox/astra-toolbox
 https://github.com/antonyvam/nDTomo

@@ -3,7 +3,7 @@ from bajo.bmath import Quat, deg_to_radians, cross, Vec3f
 
 
 fn assert_quat_equal(a: Quat, b: Quat) raises:
-    assert_almost_equal(a.data, b.data, atol=1e-4)
+    assert_almost_equal(a.data, b.data, atol=1e-6)
 
 
 fn test_quaternions() raises:

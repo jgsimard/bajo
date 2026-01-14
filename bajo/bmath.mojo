@@ -1,7 +1,10 @@
 from math import pi, sqrt, sin, cos, tan, acos, atan2
 from std.utils.numerics import max_finite, min_finite
 from builtin.math import max as builtin_max, min as builtin_min
+from math import fma
 from std.bit import next_power_of_two
+from benchmark import run, Unit, keep
+from testing import TestSuite, assert_equal, assert_almost_equal
 
 # ----------------------------------------------------------------------
 # Constants
@@ -280,6 +283,9 @@ fn normalize[type: DType](q: Quaternion[type]) -> Quaternion[type]:
 @fieldwise_init
 @register_passable("trivial")
 struct Quaternion[type: DType]:
+    """TODO: Should we use wxyz or xyzw ? i heard gpu expect xyzw. but eigen uses wxyz.
+    """
+
     var data: SIMD[Self.type, 4]
 
     fn __init__(
@@ -292,7 +298,7 @@ struct Quaternion[type: DType]:
         self.data = SIMD[Self.type, 4](w, x, y, z)
 
     @staticmethod
-    fn id() -> Self:
+    fn identity() -> Self:
         return Self([1, 0, 0, 0])
 
     fn w(self) -> Scalar[Self.type]:
@@ -311,7 +317,7 @@ struct Quaternion[type: DType]:
         return Vector3[Self.type](self.x(), self.y(), self.z())
 
     fn inv(self) -> Self:
-        return Self([self.w(), -self.x(), -self.y(), -self.z()])
+        return Self(self.w(), -self.x(), -self.y(), -self.z())
 
     fn rotate_vec(self, v: Vector3[Self.type]) -> Vector3[Self.type]:
         var pure = self.xyz()
@@ -324,14 +330,9 @@ struct Quaternion[type: DType]:
     @staticmethod
     fn angle_axis(angle: Scalar[Self.type], normal: Vector3[Self.type]) -> Self:
         var half_angle = angle / 2.0
-        var coshalf = cos(half_angle)
-        var sinhalf = sin(half_angle)
-        return Self(
-            coshalf,
-            normal.x() * sinhalf,
-            normal.y() * sinhalf,
-            normal.z() * sinhalf,
-        )
+        var w = cos(half_angle)
+        var xyz = normal * sin(half_angle)
+        return Self(w, xyz.x(), xyz.y(), xyz.z())
 
     @staticmethod
     fn from_basis(
@@ -360,34 +361,31 @@ struct Quaternion[type: DType]:
         var biggest_val = sqrt(four_biggest_sq_m1 + 1.0) * 0.5
         var mult = 0.25 / biggest_val
 
+        var w: Scalar[Self.type]
+        var x: Scalar[Self.type]
+        var y: Scalar[Self.type]
+        var z: Scalar[Self.type]
         if biggest_index == 0:
-            return Self(
-                biggest_val,
-                (b.z() - c.y()) * mult,
-                (c.x() - a.z()) * mult,
-                (a.y() - b.x()) * mult,
-            )
+            w = biggest_val
+            x = (b.z() - c.y()) * mult
+            y = (c.x() - a.z()) * mult
+            z = (a.y() - b.x()) * mult
         elif biggest_index == 1:
-            return Self(
-                (b.z() - c.y()) * mult,
-                biggest_val,
-                (a.y() + b.x()) * mult,
-                (c.x() + a.z()) * mult,
-            )
+            w = (b.z() - c.y()) * mult
+            x = biggest_val
+            y = (a.y() + b.x()) * mult
+            z = (c.x() + a.z()) * mult
         elif biggest_index == 2:
-            return Self(
-                (c.x() - a.z()) * mult,
-                (a.y() + b.x()) * mult,
-                biggest_val,
-                (b.z() + c.y()) * mult,
-            )
+            w = (c.x() - a.z()) * mult
+            x = (a.y() + b.x()) * mult
+            y = biggest_val
+            z = (b.z() + c.y()) * mult
         else:
-            return Self(
-                (a.y() - b.x()) * mult,
-                (c.x() + a.z()) * mult,
-                (b.z() + c.y()) * mult,
-                biggest_val,
-            )
+            w = (a.y() - b.x()) * mult
+            x = (c.x() + a.z()) * mult
+            y = (b.z() + c.y()) * mult
+            z = biggest_val
+        return Self(w, x, y, z)
 
     fn __add__(self, o: Self) -> Self:
         return Self(self.data + o.data)
@@ -401,25 +399,88 @@ struct Quaternion[type: DType]:
     fn __isub__(mut self, o: Self):
         self.data -= o.data
 
-    fn __mul__(self, b: Self) -> Self:
-        return Self(
-            self.w() * b.w()
-            - self.x() * b.x()
-            - self.y() * b.y()
-            - self.z() * b.z(),
-            self.w() * b.x()
-            + self.x() * b.w()
-            + self.y() * b.z()
-            - self.z() * b.y(),
-            self.w() * b.y()
-            - self.x() * b.z()
-            + self.y() * b.w()
-            + self.z() * b.x(),
-            self.w() * b.z()
-            + self.x() * b.y()
-            - self.y() * b.x()
-            + self.z() * b.w(),
-        )
+    @always_inline
+    fn __mul__[version: Int = 4](self, b: Self) -> Self:
+        @parameter
+        if version == 1:
+            # Version 1: 16 mul, 12 add
+            var w = (
+                self.w() * b.w()
+                - self.x() * b.x()
+                - self.y() * b.y()
+                - self.z() * b.z()
+            )
+            var x = (
+                self.w() * b.x()
+                + self.x() * b.w()
+                + self.y() * b.z()
+                - self.z() * b.y()
+            )
+            var y = (
+                self.w() * b.y()
+                - self.x() * b.z()
+                + self.y() * b.w()
+                + self.z() * b.x()
+            )
+            var z = (
+                self.w() * b.z()
+                + self.x() * b.y()
+                - self.y() * b.x()
+                + self.z() * b.w()
+            )
+            return Self(w, x, y, z)
+
+        elif version == 2:
+            # Version 2 : more SIMD: 3 shuffles, 4 mul, 12 add
+            var t0 = self.data[0] * b.data
+            var t1 = self.data[1] * b.data.shuffle[1, 0, 3, 2]()
+            var t2 = self.data[2] * b.data.shuffle[2, 3, 0, 1]()
+            var t3 = self.data[3] * b.data.shuffle[3, 2, 1, 0]()
+
+            # Apply the standard Hamilton sign patterns
+            var w = t0[0] - t1[0] - t2[0] - t3[0]
+            var x = t0[1] + t1[1] + t2[1] - t3[1]
+            var y = t0[2] - t1[2] + t2[2] + t3[2]
+            var z = t0[3] + t1[3] - t2[3] + t3[3]
+
+            return Self(w, x, y, z)
+
+        elif version == 3:
+            # Version 3: SIMD FMA : 3 shuffles, 4 mul, 3 fma
+            comptime s1 = SIMD[Self.type, 4](-1.0, 1.0, -1.0, 1.0)
+            comptime s2 = SIMD[Self.type, 4](-1.0, 1.0, 1.0, -1.0)
+            comptime s3 = SIMD[Self.type, 4](-1.0, -1.0, 1.0, 1.0)
+
+            var res = self.data[0] * b.data
+            res = fma(self.data[1] * s1, b.data.shuffle[1, 0, 3, 2](), res)
+            res = fma(self.data[2] * s2, b.data.shuffle[2, 3, 0, 1](), res)
+            res = fma(self.data[3] * s3, b.data.shuffle[3, 2, 1, 0](), res)
+            return Self(res)
+
+        else:
+            comptime s1 = SIMD[Self.type, 4](-1.0, 1.0, -1.0, 1.0)
+            comptime s2 = SIMD[Self.type, 4](-1.0, 1.0, 1.0, -1.0)
+            comptime s3 = SIMD[Self.type, 4](-1.0, -1.0, 1.0, 1.0)
+
+            # two independent branches to maximize Instruction Level Parallelism (ILP).
+
+            # Branch A
+            var a_w = self.data[0]
+            var a_x_signed = self.data[1] * s1
+            var res_a = fma(
+                a_x_signed, b.data.shuffle[1, 0, 3, 2](), a_w * b.data
+            )
+
+            # Branch B
+            var a_y_signed = self.data[2] * s2
+            var a_z_signed = self.data[3] * s3
+            var res_b = fma(
+                a_y_signed,
+                b.data.shuffle[2, 3, 0, 1](),
+                a_z_signed * b.data.shuffle[3, 2, 1, 0](),
+            )
+
+            return Self(res_a + res_b)
 
     fn __mul__(self, f: Scalar[Self.type]) -> Self:
         return Self(self.data * f)
@@ -439,7 +500,7 @@ struct Diag3x3[type: DType]:
     var d2: Scalar[Self.type]
 
     @staticmethod
-    fn id() -> Self:
+    fn identity() -> Self:
         return Self(1, 1, 1)
 
     @staticmethod
@@ -815,7 +876,103 @@ struct AxisAlignedBoundingBox[type: DType where type.is_floating_point()]:
         return txfmed
 
 
+from benchmark import run, Unit, keep
+from math import fma
+from random import random_float64
+from memory import UnsafePointer
+
+comptime f32 = DType.float32
+comptime num_elements = 100000
+
+
+struct BenchmarkData(Copyable):
+    var src_a: UnsafePointer[Quat, MutAnyOrigin]
+    var src_b: UnsafePointer[Quat, MutAnyOrigin]
+    var dst: UnsafePointer[Quat, MutAnyOrigin]
+
+    fn __init__(out self):
+        self.src_a = alloc[Quat](num_elements)
+        self.src_b = alloc[Quat](num_elements)
+        self.dst = alloc[Quat](num_elements)
+
+        for i in range(num_elements):
+            # Fill with random-ish normalized quaternions
+            self.src_a[i] = Quat.angle_axis(
+                Float32(random_float64()), Vec3f(1, 0, 0)
+            )
+            self.src_b[i] = Quat.angle_axis(
+                Float32(random_float64()), Vec3f(0, 1, 0)
+            )
+
+    fn __del__(deinit self):
+        self.src_a.free()
+        self.src_b.free()
+        self.dst.free()
+
+
 fn main() raises:
-    a = Vec2f(0.1, 0.2)
-    print(a)
-    print("hello")
+    @parameter
+    fn bench_throughput[version: Int]() raises:
+        var data = BenchmarkData()
+
+        fn wrapper() raises capturing:
+            for i in range(num_elements):
+                data.dst[i] = data.src_a[i].__mul__[version](data.src_b[i])
+            keep(data.dst[0].data)  # Ensure work isn't optimized away
+
+        var report = run[func3=wrapper](max_iters=1000)
+        var avg_time_us = report.mean(Unit.us)
+        # Calculate Millions of Operations Per Second
+        var mops = num_elements / avg_time_us
+
+        print(
+            "Throughput:",
+            round(mops, 2),
+            "Mops/s | Avg Time:",
+            round(avg_time_us, 2),
+            "us",
+        )
+
+    bench_throughput[1]()
+    bench_throughput[2]()
+    bench_throughput[3]()
+    bench_throughput[4]()
+
+    @parameter
+    fn bench_latency[version: Int]() raises:
+        var q2 = Quat.angle_axis(
+            deg_to_radians(Scalar[DType.float32](45)), Vec3f(0, 1, 0)
+        )
+
+        var q3 = Quat.angle_axis(
+            deg_to_radians(Scalar[DType.float32](45)), Vec3f(1, 0, 0)
+        )
+        var a = q2.__mul__[version](q3)
+        var b = Quat(0.853553, 0.353553, 0.353553, -0.146447)
+        assert_almost_equal(a.data, b.data, atol=1e-6)
+
+        var q = a
+
+        fn bench_fn() raises capturing:
+            for _ in range(1e6):
+                q = q.__mul__[version](q2)
+                q = q.__mul__[version](q3)
+            keep(q)
+
+        var time_us = round(run[func3=bench_fn](max_iters=100).mean(Unit.us), 1)
+
+        print("v{} : {} us".format(version, time_us))
+
+    bench_latency[1]()
+    bench_latency[2]()
+    bench_latency[3]()
+    bench_latency[4]()
+
+    # Throughput: 1176.84 Mops/s | Avg Time: 84.97 us
+    # Throughput: 1380.21 Mops/s | Avg Time: 72.45 us
+    # Throughput: 1519.97 Mops/s | Avg Time: 65.79 us
+    # Throughput: 1514.84 Mops/s | Avg Time: 66.01 us
+    # v1 : 6668.1 us
+    # v2 : 6079.7 us
+    # v3 : 6342.2 us
+    # v4 : 6061.5 us

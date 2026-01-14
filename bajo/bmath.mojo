@@ -878,8 +878,5 @@ struct AxisAlignedBoundingBox[type: DType where type.is_floating_point()]:
         return txfmed
 
 
-
-
-
 fn main() raises:
     print("hello bmath")

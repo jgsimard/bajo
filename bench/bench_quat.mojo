@@ -34,7 +34,6 @@ struct BenchmarkData(Copyable):
 
 
 fn main() raises:
-
     @parameter
     fn bench_throughput[version: Int]() raises:
         var data = BenchmarkData()

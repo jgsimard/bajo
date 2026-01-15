@@ -1,6 +1,5 @@
 from math import pi, sqrt, sin, cos, tan, acos, atan2
 from std.utils.numerics import max_finite, min_finite
-from builtin.math import max as builtin_max, min as builtin_min
 from math import fma
 from std.bit import next_power_of_two
 
@@ -19,6 +18,9 @@ comptime Vec4f = Vector4[DType.float32]
 
 comptime Vec2i = Vector2[DType.int32]
 comptime Vec3i = Vector3[DType.int32]
+
+comptime Vec4b = Vector4[DType.uint8]
+
 
 comptime Diag3 = Diag3x3[DType.float32]
 comptime Mat33 = Mat3x3[DType.float32]
@@ -94,14 +96,6 @@ fn distance2[t: DType, s: Int](a: Vector[t, s], b: Vector[t, s]) -> Scalar[t]:
     return length2(a - b)
 
 
-fn max[t: DType, s: Int](a: Vector[t, s], b: Vector[t, s]) -> Vector[t, s]:
-    return Vector[t, s](builtin_max(a.data, b.data))
-
-
-fn min[t: DType, s: Int](a: Vector[t, s], b: Vector[t, s]) -> Vector[t, s]:
-    return Vector[t, s](builtin_min(a.data, b.data))
-
-
 fn cross[type: DType](a: Vector3[type], b: Vector3[type]) -> Vector3[type]:
     return Vector3[type](
         a.y() * b.z() - a.z() * b.y(),
@@ -123,7 +117,11 @@ fn lerp[
 @fieldwise_init
 @register_passable("trivial")
 struct Vector[type: DType, size: Int](
-    Copyable, Representable, Stringable, Writable
+    Copyable,
+    Equatable,
+    Powable,
+    Stringable,
+    Writable,
 ):
     """A wrapper around SIMD."""
 
@@ -150,7 +148,7 @@ struct Vector[type: DType, size: Int](
         z: Scalar[Self.type],
     ):
         __comptime_assert Self.size == 3
-        self.data = Self.data_type(x, y, z)
+        self.data = Self.data_type(x, y, z, Scalar[Self.type](0))
 
     fn __init__(
         out self,
@@ -169,6 +167,25 @@ struct Vector[type: DType, size: Int](
     @staticmethod
     fn one() -> Self:
         return Self(Scalar[Self.type](1))
+
+    @staticmethod
+    fn max(a: Self, b: Self) -> Self:
+        return Self(max(a.data, b.data))
+
+    @staticmethod
+    fn min(a: Self, b: Self) -> Self:
+        return Self(min(a.data, b.data))
+
+    fn __pow__(a: Self, b: Self) -> Self:
+        return Self(pow(a.data, b.data))
+
+    fn mean(self) -> Scalar[Self.type]:
+        var data = self.data
+
+        @parameter
+        if not Self.size.is_power_of_two():
+            data[-1] = 0
+        return data.reduce_add() / Scalar[Self.type](Self.size)
 
     fn x(self) -> Scalar[Self.type]:
         return self.data[0]
@@ -248,6 +265,31 @@ struct Vector[type: DType, size: Int](
     fn __truediv__(self, s: Scalar[Self.type]) -> Self:
         return Self(self.data / s)
 
+    fn __itruediv__(mut self, s: Scalar[Self.type]):
+        self.data /= s
+
+    # reverse scalar
+    fn __radd__(self, s: Scalar[Self.type]) -> Self:
+        return Self(self.data + s)
+
+    fn __riadd__(mut self, s: Scalar[Self.type]):
+        self.data += s
+
+    fn __rsub__(self, s: Scalar[Self.type]) -> Self:
+        return Self(self.data - s)
+
+    fn __risub__(mut self, s: Scalar[Self.type]):
+        self.data -= s
+
+    fn __rmul__(self, s: Scalar[Self.type]) -> Self:
+        return Self(self.data * s)
+
+    fn __rimul__(mut self, s: Scalar[Self.type]):
+        self.data *= s
+
+    fn __eq__(self, o: Self) -> Bool:
+        return self.data == o.data
+
     # print
     fn __str__(self) -> String:
         @parameter
@@ -255,9 +297,6 @@ struct Vector[type: DType, size: Int](
             return "Vec3[{}, {}, {}]".format(self.x(), self.y(), self.z())
         else:
             return "Vec{}{}".format(Self.size, self.data)
-
-    fn __repr__(self) -> String:
-        return String(self)
 
     fn write_to(self, mut writer: Some[Writer]):
         writer.write(String(self))
@@ -577,16 +616,11 @@ struct Mat3x3[type: DType]:
         var wy = r.w() * r.y()
         var wz = r.w() * r.z()
 
+        comptime v3 = Vector3[Self.type]
         return Self(
-            Vector3[Self.type](
-                1.0 - 2.0 * (y2 + z2), 2.0 * (xy + wz), 2.0 * (xz - wy)
-            ),
-            Vector3[Self.type](
-                2.0 * (xy - wz), 1.0 - 2.0 * (x2 + z2), 2.0 * (yz + wx)
-            ),
-            Vector3[Self.type](
-                2.0 * (xz + wy), 2.0 * (yz - wx), 1.0 - 2.0 * (x2 + y2)
-            ),
+            v3(1.0 - 2.0 * (y2 + z2), 2.0 * (xy + wz), 2.0 * (xz - wy)),
+            v3(2.0 * (xy - wz), 1.0 - 2.0 * (x2 + z2), 2.0 * (yz + wx)),
+            v3(2.0 * (xz + wy), 2.0 * (yz - wx), 1.0 - 2.0 * (x2 + y2)),
         )
 
     @staticmethod
@@ -603,16 +637,11 @@ struct Mat3x3[type: DType]:
 
         var ds = s * 2.0
 
+        comptime v3 = Vector3[Self.type]
         return Self(
-            Vector3[Self.type](
-                s.d0 - ds.d0 * (y2 + z2), ds.d0 * (xy + wz), ds.d0 * (xz - wy)
-            ),
-            Vector3[Self.type](
-                ds.d1 * (xy - wz), s.d1 - ds.d1 * (x2 + z2), ds.d1 * (yz + wx)
-            ),
-            Vector3[Self.type](
-                ds.d2 * (xz + wy), ds.d2 * (yz - wx), s.d2 - ds.d2 * (x2 + y2)
-            ),
+            v3(s.d0 - ds.d0 * (y2 + z2), ds.d0 * (xy + wz), ds.d0 * (xz - wy)),
+            v3(ds.d1 * (xy - wz), s.d1 - ds.d1 * (x2 + z2), ds.d1 * (yz + wx)),
+            v3(ds.d2 * (xz + wy), ds.d2 * (yz - wx), s.d2 - ds.d2 * (x2 + y2)),
         )
 
     fn __add__(self, o: Self) -> Self:
@@ -702,16 +731,11 @@ struct Mat3x4[type: DType]:
         var wz = r.w() * r.z()
         var ds = s * 2.0
 
+        comptime v3 = Vector3[Self.type]
         return Self(
-            Vector3[Self.type](
-                s.d0 - ds.d0 * (y2 + z2), ds.d0 * (xy + wz), ds.d0 * (xz - wy)
-            ),
-            Vector3[Self.type](
-                ds.d1 * (xy - wz), s.d1 - ds.d1 * (x2 + z2), ds.d1 * (yz + wx)
-            ),
-            Vector3[Self.type](
-                ds.d2 * (xz + wy), ds.d2 * (yz - wx), s.d2 - ds.d2 * (x2 + y2)
-            ),
+            v3(s.d0 - ds.d0 * (y2 + z2), ds.d0 * (xy + wz), ds.d0 * (xz - wy)),
+            v3(ds.d1 * (xy - wz), s.d1 - ds.d1 * (x2 + z2), ds.d1 * (yz + wx)),
+            v3(ds.d2 * (xz + wy), ds.d2 * (yz - wx), s.d2 - ds.d2 * (x2 + y2)),
             t,
         )
 
@@ -767,8 +791,8 @@ struct AxisAlignedBoundingBox[type: DType where type.is_floating_point()]:
         comptime flt_max = max_finite[Self.type]()
         comptime flt_min = min_finite[Self.type]()
         return Self(
-            Vector3[Self.type](flt_max, flt_max, flt_max),
-            Vector3[Self.type](flt_min, flt_min, flt_min),
+            Vector3[Self.type](flt_max),
+            Vector3[Self.type](flt_min),
         )
 
     @staticmethod
@@ -778,8 +802,8 @@ struct AxisAlignedBoundingBox[type: DType where type.is_floating_point()]:
     @staticmethod
     fn merge(a: Self, b: Self) -> Self:
         return Self(
-            min(a.pMin, b.pMin),
-            max(a.pMax, b.pMax),
+            Vector.min(a.pMin, b.pMin),
+            Vector.max(a.pMax, b.pMax),
         )
 
     fn surface_area(self) -> Scalar[Self.type]:
@@ -819,14 +843,14 @@ struct AxisAlignedBoundingBox[type: DType where type.is_floating_point()]:
         var t_lower = inv_ray_d * (self.pMin - ray_o)
         var t_upper = inv_ray_d * (self.pMax - ray_o)
 
-        var t_min_vec = min(t_lower, t_upper)
-        var t_max_vec = max(t_lower, t_upper)
+        var t_min_vec = Vector.min(t_lower, t_upper)
+        var t_max_vec = Vector.max(t_lower, t_upper)
 
-        var t_box_min = builtin_max(
+        var t_box_min = max(
             t_min_vec.x(), t_min_vec.y(), t_min_vec.z(), ray_t_min
         )
 
-        var t_box_max = builtin_min(
+        var t_box_max = min(
             t_max_vec.x(), t_max_vec.y(), t_max_vec.z(), ray_t_max
         )
 

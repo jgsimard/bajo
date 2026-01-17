@@ -14,6 +14,20 @@ https://xelatihy.github.io/yocto-gl/
 https://github.com/xelatihy/yocto-gl
 
 
+ an implementation of parallel linear BVH (LBVH) on GPU 
+ https://github.com/ToruNiina/lbvh
+
+
+NVIDIA: Thinking Parallel series
+ https://developer.nvidia.com/blog/thinking-parallel-part-i-collision-detection-gpu/
+ https://developer.nvidia.com/blog/thinking-parallel-part-ii-tree-traversal-gpu/
+ https://developer.nvidia.com/blog/thinking-parallel-part-iii-tree-construction-gpu/
+
+# Graphics
+https://www.sebastianaaltonen.com/blog/no-graphics-api
+
+
+
 # Tomography
 https://github.com/astra-toolbox/astra-toolbox
 https://github.com/antonyvam/nDTomo

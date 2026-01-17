@@ -1,7 +1,8 @@
-from math import pi, sqrt, sin, cos, tan, acos, atan2
+from math import pi, sqrt, sin, cos, tan, acos, atan2, clamp
 from std.utils.numerics import max_finite, min_finite
 from math import fma
 from std.bit import next_power_of_two
+from random import random_float64
 
 # ----------------------------------------------------------------------
 # Constants
@@ -31,11 +32,10 @@ comptime Quat = Quaternion[DType.float32]
 
 comptime AABB = AxisAlignedBoundingBox[DType.float32]
 
+
 # ----------------------------------------------------------------------
 # Helper Functions
 # ----------------------------------------------------------------------
-
-
 fn deg_to_radians[
     type: DType, size: Int
 ](degrees: SIMD[type, size]) -> SIMD[type, size]:
@@ -187,6 +187,17 @@ struct Vector[type: DType, size: Int](
             data[-1] = 0
         return data.reduce_add() / Scalar[Self.type](Self.size)
 
+    fn clamp(self, min: Scalar[Self.type], max: Scalar[Self.type]) -> Self:
+        return Self(clamp(self.data, min, max))
+    
+    @staticmethod
+    fn random(min: Scalar[Self.type], max: Scalar[Self.type]) -> Self:
+        var rng = Self.zero()
+        @parameter
+        for i in range(Self.size):
+            rng[i] = Scalar[Self.type](random_float64(Float64(min), Float64(max)))
+        return rng
+
     fn x(self) -> Scalar[Self.type]:
         return self.data[0]
 
@@ -225,6 +236,9 @@ struct Vector[type: DType, size: Int](
         self.data[i] = v
 
     # operators
+    fn __neg__(self) -> Self:
+        return Self(-self.data)
+
     fn __add__(self, other: Self) -> Self:
         return Self(self.data + other.data)
 

@@ -276,44 +276,52 @@ struct Camera(Copyable):
             self.pixel_delta_u + self.pixel_delta_v
         )
 
-    fn ray_color(self, ray: Ray, depth: Int, world: HitableList) -> Color:
-        if depth <= 0:
-            return Color.zero()
+    fn ray_color(self, ray: Ray, world: HitableList) -> Color:
+        var cur_ray = ray
+        var accumulated_attenuation = Color(1.0, 1.0, 1.0)
 
-        comptime infinity = max_finite[DType.float32]()
-        var hit_res = world.hit(ray, Interval(Float32(0.001), infinity))
-        if hit_res:
-            var hit = hit_res.value()
-            var material_id = hit.material_id
+        for bounce in range(self.max_depth):
+            comptime infinity = max_finite[DType.float32]()
+            var hit_res = world.hit(cur_ray, Interval(Float32(0.001), infinity))
 
-            var scatter_res: Optional[Tuple[Ray, Color]]
-            ref material = world.materials[material_id]
-            if material.isa[Lambertian]():
-                scatter_res = material[Lambertian].scatter(ray, hit)
-            elif material.isa[Metal]():
-                scatter_res = material[Metal].scatter(ray, hit)
-            elif material.isa[Dielectric]():
-                scatter_res = material[Dielectric].scatter(ray, hit)
+            if hit_res:
+                var hit = hit_res.value()
+                var material_id = hit.material_id
+
+                var scatter_res: Optional[Tuple[Ray, Color]]
+                ref material = world.materials[material_id]
+                if material.isa[Lambertian]():
+                    scatter_res = material[Lambertian].scatter(cur_ray, hit)
+                elif material.isa[Metal]():
+                    scatter_res = material[Metal].scatter(cur_ray, hit)
+                elif material.isa[Dielectric]():
+                    scatter_res = material[Dielectric].scatter(cur_ray, hit)
+                else:
+                    print("Material not implemented yet")
+                    abort()
+
+                if scatter_res:
+                    var scatter = scatter_res.value()
+                    var scattered_ray = scatter[0]
+                    var attenuation = scatter[1]
+
+                    cur_ray = scattered_ray
+                    accumulated_attenuation *= attenuation
+                else:
+                    return Color.zero()
             else:
-                print("Material not implemented yet")
-                abort()
+                # RAY HIT THE SKY
+                comptime start_value = Color(1.0, 1.0, 1.0)
+                comptime end_value = Color(0.5, 0.7, 1.0)
 
-            if scatter_res:
-                var scatter = scatter_res.value()
-                var scattered_ray = scatter[0]
-                var attenuation = scatter[1]
-                return attenuation * self.ray_color(
-                    scattered_ray, depth - 1, world
-                )
+                var unit_direction = cur_ray.direction
+                var a = 0.5 * (unit_direction.y() + 1.0)
+                var sky_color = (1.0 - a) * start_value + a * end_value
+                # Final result is the sky color tinted by all previous bounces
+                return accumulated_attenuation * sky_color
 
-            return Color.zero()
-
-        comptime start_value = Color(1.0, 1.0, 1.0)
-        comptime end_value = Color(0.5, 0.7, 1.0)
-
-        var unit_direction = ray.direction
-        var a = 0.5 * (unit_direction.y() + 1.0)
-        return (1.0 - a) * start_value + a * end_value
+        # If we exceeded the depth without hitting the sky, return black
+        return Color.zero()
 
     fn render(self, world: HitableList) raises:
         with open("rtiaw_1.ppm", "w") as f:
@@ -330,9 +338,7 @@ struct Camera(Copyable):
                     for sample in range(self.samples_per_pixel):
                         var r = self.get_ray(i, j)
 
-                        pixel_color += factor * self.ray_color(
-                            r, self.max_depth, world
-                        )
+                        pixel_color += factor * self.ray_color(r, world)
 
                     write_color(f, pixel_color)
 

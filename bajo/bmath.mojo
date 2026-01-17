@@ -261,6 +261,9 @@ struct Vector[type: DType, size: Int](
     fn __mul__(self, other: Self) -> Self:
         return Self(self.data * other.data)
 
+    fn __imul__(mut self, other: Self):
+        self.data *= other.data
+
     fn __truediv__(self, other: Self) -> Self:
         return Self(self.data / other.data)
 

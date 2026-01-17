@@ -36,8 +36,10 @@ fn main() raises:
     var cam = Camera(image_width, aspect_ratio, n_samples, max_depth)
     cam.render(world)
 
+
 fn linear_to_gamma(color: Color) -> Color:
     return Color(sqrt(color.data))
+
 
 fn write_color(mut f: FileHandle, color: Color):
     var out_color = linear_to_gamma(color).clamp(0.0, 0.999)
@@ -203,7 +205,7 @@ struct Camera(Copyable):
     """Offset to pixel below."""
     var samples_per_pixel: Int
     """Count of random samples for each pixel."""
-    var max_depth: Int 
+    var max_depth: Int
     """Maximum number of ray bounces into scene."""
 
     fn __init__(
@@ -258,7 +260,7 @@ struct Camera(Copyable):
         var hit_res = world.hit(ray, Interval(Float32(0.001), infinity))
         if hit_res:
             var hit = hit_res.value()
-            var direction  = hit.normal + random_in_unit_vector()
+            var direction = hit.normal + random_in_unit_vector()
             var new_ray = Ray(hit.p, direction)
             return 0.5 * self.ray_color(new_ray, depth - 1, world)
 
@@ -283,8 +285,10 @@ struct Camera(Copyable):
 
                     for sample in range(self.samples_per_pixel):
                         var r = self.get_ray(i, j)
-                         
-                        pixel_color += factor * self.ray_color(r, self.max_depth, world)
+
+                        pixel_color += factor * self.ray_color(
+                            r, self.max_depth, world
+                        )
 
                     write_color(f, pixel_color)
 
@@ -300,7 +304,6 @@ struct Camera(Copyable):
         var direction = pixel_sample - origin
 
         return Ray(origin, direction)
-
 
 
 # IMAGE_NB==7
@@ -326,9 +329,12 @@ fn random_in_unit_vector() -> Vec3f:
         if Float32(1e-160) <= dot(p, p) < 1.0:
             return normalize(p)
 
+
 fn random_on_hemisphere(normal: Vec3f) -> Vec3f:
     var on_unit_sphere = random_in_unit_vector()
-    if dot(on_unit_sphere, normal) > 0.0: # In the same hemisphere as the normal
+    if (
+        dot(on_unit_sphere, normal) > 0.0
+    ):  # In the same hemisphere as the normal
         return on_unit_sphere
     else:
         return -on_unit_sphere

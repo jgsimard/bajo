@@ -201,6 +201,10 @@ struct Vector[type: DType, size: Int](
             )
         return rng
 
+    fn near_zero(self) -> Bool:
+        comptime s = 1e-8
+        return abs(self.data).le(s).reduce_and()
+
     fn x(self) -> Scalar[Self.type]:
         return self.data[0]
 

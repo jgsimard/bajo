@@ -1,4 +1,4 @@
-from math import sqrt, tan, pi, sqrt, clamp
+from math import sqrt, tan, pi, clamp
 from random import random_float64
 from algorithm import parallelize
 from utils import Variant
@@ -29,8 +29,29 @@ fn main() raises:
     comptime n_samples = 10
     comptime max_depth = 10
 
+    var material_ground = Lambertian(Color(0.8, 0.8, 0.0))
+    var material_center = Lambertian(Color(0.1, 0.2, 0.5))
+    var material_left = Dielectric(1.5)
+    var material_bubble = Dielectric(1.0 / 1.5)
+    var material_right = Metal(Color(0.8, 0.6, 0.2), 1.0)
+
+    var materials: List[MaterialVariant] = [
+        material_ground^,
+        material_center^,
+        material_left^,
+        material_bubble^,
+        material_right^,
+    ]
+
     var world = HitableList(
-        [Sphere(Point3(0, -100.5, -1), 100), Sphere(Point3(0, 0, -1), 0.5)]
+        [
+            Sphere(Point3(0, -100.5, -1), 100, 0),
+            Sphere(Point3(0, 0, -1.2), 0.5, 1),
+            Sphere(Point3(-1, 0, -1), 0.5, 2),
+            Sphere(Point3(-1, 0, -1), 0.4, 3),
+            Sphere(Point3(1, 0, -1), 0.5, 4),
+        ],
+        materials^,
     )
 
     var cam = Camera(image_width, aspect_ratio, n_samples, max_depth)
@@ -70,6 +91,7 @@ struct Ray(Copyable, Writable):
 struct HitRecord(Copyable):
     var p: Point3
     var normal: Vec3f
+    var material_id: Int
     var t: Float32
     var front_face: Bool
 
@@ -77,8 +99,8 @@ struct HitRecord(Copyable):
         # Sets the hit record normal vector.
         # NOTE: the parameter `outward_normal` is assumed to have unit length.
 
-        var front_face = dot(r.direction, outward_normal) < 0
-        self.normal = outward_normal if front_face else -outward_normal
+        self.front_face = dot(r.direction, outward_normal) < 0
+        self.normal = outward_normal if self.front_face else -outward_normal
 
 
 trait Hittable(Copyable):
@@ -92,6 +114,7 @@ trait Hittable(Copyable):
 struct Sphere(Hittable, Writable):
     var center: Point3
     var radius: Float32
+    var material_id: Int
 
     fn hit(
         self, ray: Ray, ray_t: Interval[DType.float32]
@@ -117,19 +140,20 @@ struct Sphere(Hittable, Writable):
         var t = root
         var p = ray.at(t)
         var normal = (p - self.center) / self.radius
-        var rec = HitRecord(p, normal, t, False)
+        var rec = HitRecord(p, normal, self.material_id, t, False)
         var outward_normal = (rec.p - self.center) / self.radius
         rec.set_face_normal(ray, outward_normal)
 
         return rec
 
 
-comptime Hittables = Variant[Sphere]
+comptime HittableVariant = Variant[Sphere]
 
 
 @fieldwise_init
 struct HitableList(Hittable, Writable):
-    var objects: List[Hittables]
+    var objects: List[HittableVariant]
+    var materials: List[MaterialVariant]
 
     fn hit(
         self, ray: Ray, ray_t: Interval[DType.float32]
@@ -260,9 +284,29 @@ struct Camera(Copyable):
         var hit_res = world.hit(ray, Interval(Float32(0.001), infinity))
         if hit_res:
             var hit = hit_res.value()
-            var direction = hit.normal + random_in_unit_vector()
-            var new_ray = Ray(hit.p, direction)
-            return 0.5 * self.ray_color(new_ray, depth - 1, world)
+            var material_id = hit.material_id
+
+            var scatter_res: Optional[Tuple[Ray, Color]]
+            ref material = world.materials[material_id]
+            if material.isa[Lambertian]():
+                scatter_res = material[Lambertian].scatter(ray, hit)
+            elif material.isa[Metal]():
+                scatter_res = material[Metal].scatter(ray, hit)
+            elif material.isa[Dielectric]():
+                scatter_res = material[Dielectric].scatter(ray, hit)
+            else:
+                print("Material not implemented yet")
+                abort()
+
+            if scatter_res:
+                var scatter = scatter_res.value()
+                var scattered_ray = scatter[0]
+                var attenuation = scatter[1]
+                return attenuation * self.ray_color(
+                    scattered_ray, depth - 1, world
+                )
+
+            return Color.zero()
 
         comptime start_value = Color(1.0, 1.0, 1.0)
         comptime end_value = Color(0.5, 0.7, 1.0)
@@ -306,24 +350,7 @@ struct Camera(Copyable):
         return Ray(origin, direction)
 
 
-# IMAGE_NB==7
-# IMAGE_NB==8
-# IMAGE_NB==9
-# IMAGE_NB==10
-# IMAGE_NB==11
-# IMAGE_NB==12
-# IMAGE_NB==13
-# IMAGE_NB==14
-# IMAGE_NB==15
-# IMAGE_NB==16
-# IMAGE_NB==17
-# IMAGE_NB==18
-# IMAGE_NB==19
-# IMAGE_NB==20
-# IMAGE_NB==21
-# IMAGE_NB==22
-# IMAGE_NB==23
-fn random_in_unit_vector() -> Vec3f:
+fn random_unit_vector() -> Vec3f:
     while True:
         var p = Vec3f.random(-1.0, 1.0)
         if Float32(1e-160) <= dot(p, p) < 1.0:
@@ -331,7 +358,7 @@ fn random_in_unit_vector() -> Vec3f:
 
 
 fn random_on_hemisphere(normal: Vec3f) -> Vec3f:
-    var on_unit_sphere = random_in_unit_vector()
+    var on_unit_sphere = random_unit_vector()
     if (
         dot(on_unit_sphere, normal) > 0.0
     ):  # In the same hemisphere as the normal
@@ -362,110 +389,86 @@ fn random_in_unit_sphere() -> Vec3f:
 
 
 fn reflect(v: Vec3f, n: Vec3f) -> Vec3f:
-    return v - n * dot(v, n) * 2.0
+    return v - 2.0 * dot(v, n) * n
 
 
-fn refract(v: Vec3f, n: Vec3f, ni_over_nt: Float32) -> Optional[Vec3f]:
-    var uv = normalize(v)
-    var dt = dot(uv, n)
-    var discriminant = 1.0 - ni_over_nt * ni_over_nt * (1.0 - dt * dt)
-    if discriminant > 0.0:
-        return ni_over_nt * (uv - n * dt) - n * sqrt(discriminant)
-    return None
-
-
-fn schlick(cosine: Float32, ref_idx: Float32) -> Float32:
-    var r0 = pow(((1.0 - ref_idx) / (1.0 + ref_idx)), 2)
-    return r0 + (1.0 - r0) * pow(1.0 - cosine, 5)
+fn refract(uv: Vec3f, n: Vec3f, etai_over_etat: Float32) -> Vec3f:
+    var cos_theta = min(dot(-uv, n), 1.0)
+    var r_out_perp = etai_over_etat * (uv + cos_theta * n)
+    var r_out_parallel = -sqrt(abs(1.0 - length2(r_out_perp))) * n
+    return r_out_perp + r_out_parallel
 
 
 trait Material(Copyable):
-    fn scatter(self, ray: Ray, hit: HitRecord) -> Optional[Tuple[Ray, Vec3f]]:
+    fn scatter(self, ray: Ray, hit: HitRecord) -> Optional[Tuple[Ray, Color]]:
         ...
+
+
+comptime MaterialVariant = Variant[Lambertian, Metal, Dielectric]
 
 
 @fieldwise_init
 struct Lambertian(Material, Writable):
     var albedo: Vec3f
 
-    fn scatter(self, ray: Ray, hit: HitRecord) -> Optional[Tuple[Ray, Vec3f]]:
-        var target = hit.p + hit.normal + random_in_unit_sphere()
-        var scattered = Ray(hit.p, target - hit.p)
+    fn scatter(self, ray: Ray, hit: HitRecord) -> Optional[Tuple[Ray, Color]]:
+        var scatter_direction = hit.normal + random_unit_vector()
+
+        # Catch degenerate scatter direction
+        if scatter_direction.near_zero():
+            scatter_direction = hit.normal
+
+        var scattered = Ray(hit.p, scatter_direction)
         return (scattered, self.albedo)
 
 
-# fn random_scene() -> HitableList:
-#     var list_spheres = List[Sphere]()
-#     var list_mat = List[Lambertian]()
-#     # var origin = Vec3f(4.0, 0.2, 0.0)
+@fieldwise_init
+struct Metal(Material, Writable):
+    var albedo: Vec3f
+    var fuzz: Float32
 
-#     # Ground
-#     list_spheres.append(Sphere(Vec3f(0.0, -1000.0, 0.0), 1000.0, len(list_mat)))
-#     list_mat.append(Lambertian(Vec3f(0.5, 0.8, 0.5)))
+    fn scatter(self, ray: Ray, hit: HitRecord) -> Optional[Tuple[Ray, Color]]:
+        var reflected = reflect(ray.direction, hit.normal)
+        reflected = normalize(reflected) + (self.fuzz * random_unit_vector())
+        var scattered = Ray(hit.p, reflected)
 
-#     # for a in range(-11, 11):
-#     #     for b in range(-11, 11):
-#     #         var choose_mat = random_float64()
+        if dot(scattered.direction, hit.normal) < 0:
+            return None
 
-#     # var center = Vec3f(
-#     #     a + 0.9 * random_float64().cast[DType.float32](),
-#     #     0.2,
-#     #     b + 0.9 * random_float64().cast[DType.float32]()
-#     # )
-
-#     # if length(center - origin) > 0.9:
-#     #     # if choose_mat < 0.8:  # Diffuse
-#     #     var albedo = Vec3f(
-#     #         random_float64().cast[DType.float32]() * random_float64().cast[DType.float32](),
-#     #         random_float64().cast[DType.float32]() * random_float64().cast[DType.float32](),
-#     #         random_float64().cast[DType.float32]() * random_float64().cast[DType.float32]()
-#     #     )
-#     #     var mat = Lambertian(albedo)
-#     #     world.append(Sphere(center, 0.2, UnsafePointer(to=mat))
-#     # elif choose_mat < 0.95: # Metal
-#     #     let albedo = Vec3(
-#     #         0.5 * (1.0 + random_float64().cast[DType.float32]()),
-#     #         0.5 * (1.0 + random_float64().cast[DType.float32]()),
-#     #         0.5 * (1.0 + random_float64().cast[DType.float32]())
-#     #     )
-#     #     let fuzz = 0.5 * random_float64().cast[DType.float32]()
-#     #     world.push(Sphere(center, 0.2, Metal(albedo, fuzz)))
-#     # else: # Glass
-#     #     world.push(Sphere(center, 0.2, Dielectric(1.5)))
-
-#     # world.append(Sphere(Vec3f(0.0, 1.0, 0.0), 1.0, Dielectric(1.5)))
-
-#     list_spheres.append(Sphere(Vec3f(-4.0, 1.0, 0.0), 1.0, len(list_mat)))
-#     list_mat.append(Lambertian(Vec3f(0.4, 0.2, 0.1)))
-#     # world.append(Sphere(Vec3f(4.0, 1.0, 0.0), 1.0, Metal(Vec3(0.7, 0.6, 0.5), 0.0)))
-
-#     return HitableList(list_spheres^, list_mat^)
+        return (scattered, self.albedo)
 
 
-# fn ray_color(ray: Ray, world: HitableList, depth: Int) -> Vec3f:
-#     @parameter
-#     if IMAGE_NB == 2:
-#         comptime start_value = Color(1.0, 1.0, 1.0)
-#         comptime end_value = Color(0.5, 0.7, 1.0)
-#         var unit_direction = ray.direction
-#         var a = 0.5 * (unit_direction.y() + 1.0)
-#         return (1.0 - a) * start_value + a * end_value
-#     else:
-#         var hit_opt = world.hit(ray, 0.001, 3.4028235e38)
+@fieldwise_init
+struct Dielectric(Material, Writable):
+    var refraction_index: Float32
 
-#         if hit_opt:
-#             var hit = hit_opt.value()
-#             if depth < 50:
-#                 ref mat = world.list_mat[hit.material_id]
-#                 var scatter_res = mat.scatter(ray, hit)
-#                 if scatter_res:
-#                     var scattered = scatter_res.value()[0]
-#                     var attenuation = scatter_res.value()[1]
-#                     return attenuation * ray_color(scattered, world, depth + 1)
-#             return Vec3f.zero()
-#         else:
-#             var unit_direction = normalize(ray.direction)
-#             var t = 0.5 * (unit_direction[1] + 1.0)
-#             comptime start_value = Vec3f(1.0, 1.0, 1.0)
-#             comptime end_value = Vec3f(0.5, 0.7, 1.0)
-#             return (1.0 - t) * start_value + t * end_value
+    fn scatter(self, ray: Ray, hit: HitRecord) -> Optional[Tuple[Ray, Color]]:
+        var attenuation = Color.one()
+        var ri = (
+            1.0
+            / self.refraction_index if hit.front_face else self.refraction_index
+        )
+
+        var unit_direction = normalize(ray.direction)
+        var cos_theta = min(dot(-unit_direction, hit.normal), 1.0)
+        var sin_theta = sqrt(1.0 - cos_theta * cos_theta)
+
+        var cannot_refract = ri * sin_theta > 1.0
+        var direction: Vec3f
+
+        # total internal reflection
+        if cannot_refract or reflectance(cos_theta, ri) > Float32(
+            random_float64()
+        ):  # Must Reflect
+            direction = reflect(unit_direction, hit.normal)
+        else:  # can refract
+            direction = refract(unit_direction, hit.normal, ri)
+
+        scattered = Ray(hit.p, direction)
+        return (scattered, attenuation)
+
+
+fn reflectance(cosine: Float32, ref_idx: Float32) -> Float32:
+    """Schlick's approximation for reflectance."""
+    var r0 = pow(((1.0 - ref_idx) / (1.0 + ref_idx)), 2)
+    return r0 + (1.0 - r0) * pow(1.0 - cosine, 5)

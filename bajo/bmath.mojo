@@ -191,7 +191,10 @@ struct Vector[type: DType, size: Int](
         return Self(clamp(self.data, min, max))
 
     @staticmethod
-    fn random(min: Scalar[Self.type], max: Scalar[Self.type]) -> Self:
+    fn random(
+        min: Scalar[Self.type] = Scalar[Self.type](0),
+        max: Scalar[Self.type] = Scalar[Self.type](1),
+    ) -> Self:
         var rng = Self.zero()
 
         @parameter

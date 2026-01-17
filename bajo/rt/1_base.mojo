@@ -1,4 +1,4 @@
-from math import sqrt, tan, pi, clamp
+from math import sqrt, tan, pi, clamp, cos
 from random import random_float64
 from algorithm import parallelize
 from utils import Variant
@@ -24,37 +24,69 @@ comptime Color = Vec3f
 fn main() raises:
     print(" Ray Tracing in One Weekend - Part 1")
 
-    comptime aspect_ratio = 16.0 / 9.0
-    comptime image_width = 600
-    comptime n_samples = 10
-    comptime max_depth = 10
+    # comptime aspect_ratio = 16.0 / 9.0
+    # comptime image_width = 400
+    # comptime samples_per_pixel = 10
+    # comptime max_depth = 10
+    # comptime vfov = 20
+    # comptime lookfrom = Point3(-2, 2, 1)
+    # comptime lookat = Point3(0, 0, -1)
+    # comptime vup = Vec3f(0, 1, 0)
+    # comptime defocus_angle = 10.0
+    # comptime focus_dist = 3.4
 
-    var material_ground = Lambertian(Color(0.8, 0.8, 0.0))
-    var material_center = Lambertian(Color(0.1, 0.2, 0.5))
-    var material_left = Dielectric(1.5)
-    var material_bubble = Dielectric(1.0 / 1.5)
-    var material_right = Metal(Color(0.8, 0.6, 0.2), 1.0)
+    # var material_ground = Lambertian(Color(0.8, 0.8, 0.0))
+    # var material_center = Lambertian(Color(0.1, 0.2, 0.5))
+    # var material_left = Dielectric(1.5)
+    # var material_bubble = Dielectric(1.0 / 1.5)
+    # var material_right = Metal(Color(0.8, 0.6, 0.2), 1.0)
 
-    var materials: List[MaterialVariant] = [
-        material_ground^,
-        material_center^,
-        material_left^,
-        material_bubble^,
-        material_right^,
-    ]
+    # var materials: List[MaterialVariant] = [
+    #     material_ground^,
+    #     material_center^,
+    #     material_left^,
+    #     material_bubble^,
+    #     material_right^,
+    # ]
 
-    var world = HitableList(
-        [
-            Sphere(Point3(0, -100.5, -1), 100, 0),
-            Sphere(Point3(0, 0, -1.2), 0.5, 1),
-            Sphere(Point3(-1, 0, -1), 0.5, 2),
-            Sphere(Point3(-1, 0, -1), 0.4, 3),
-            Sphere(Point3(1, 0, -1), 0.5, 4),
-        ],
-        materials^,
-    )
+    # var world = HitableList(
+    #     [
+    #         Sphere(Point3(0, -100.5, -1), 100, 0),
+    #         Sphere(Point3(0, 0, -1.2), 0.5, 1),
+    #         Sphere(Point3(-1, 0, -1), 0.5, 2),
+    #         Sphere(Point3(-1, 0, -1), 0.4, 3),
+    #         Sphere(Point3(1, 0, -1), 0.5, 4),
+    #     ],
+    #     materials^,
+    # )
 
-    var cam = Camera(image_width, aspect_ratio, n_samples, max_depth)
+    # var R = Float32(cos(pi/4))
+    # var materials : List[MaterialVariant] = [
+    #     Lambertian(Color(0,0,1)),
+    #     Lambertian(Color(1, 0, 0))
+    # ]
+    # var objects : List[HittableVariant] = [
+    #     Sphere(Point3(-R, 0, -1), R, 0),
+    #     Sphere(Point3(R, 0, -1), R, 1)
+    # ]
+    # var world = HitableList(objects^, materials^)
+    # var cam = Camera(
+    #     image_width,
+    #     aspect_ratio,
+    #     samples_per_pixel,
+    #     max_depth,
+    #     vfov,
+    #     lookfrom,
+    #     lookat,
+    #     vup,
+    #     defocus_angle,
+    #     focus_dist,
+    # )
+
+    scene = create_random_scene()
+    cam = scene[0].copy()
+    world = scene[1].copy()
+
     cam.render(world)
 
 
@@ -231,6 +263,25 @@ struct Camera(Copyable):
     """Count of random samples for each pixel."""
     var max_depth: Int
     """Maximum number of ray bounces into scene."""
+    var vfov: Float32
+    """ Vertical view angle (field of view)."""
+    var lookfrom: Point3
+    # Point camera is looking from
+    var lookat: Point3
+    # // Point camera is looking at
+    var vup: Vec3f
+    # // Camera-relative "up" direction
+    var u: Vec3f
+    var v: Vec3f
+    var w: Vec3f
+    var defocus_angle: Float32
+    """Variation angle of rays through each pixel."""
+    var focus_dist: Float32
+    """Distance from camera lookfrom point to plane of perfect focus."""
+    var defocus_disk_u: Vec3f
+    # // Defocus disk horizontal radius
+    var defocus_disk_v: Vec3f
+    # // Defocus disk vertical radius
 
     fn __init__(
         out self,
@@ -238,27 +289,45 @@ struct Camera(Copyable):
         aspect_ratio: Float32,
         samples_per_pixel: Int,
         max_depth: Int,
+        vfov: Float32,
+        lookfrom: Point3,
+        lookat: Point3,
+        vup: Vec3f,
+        defocus_angle: Float32,
+        focus_dist: Float32,
     ):
         self.samples_per_pixel = samples_per_pixel
         self.max_depth = max_depth
+        self.vfov = vfov
+        self.lookfrom = lookfrom
+        self.lookat = lookat
+        self.vup = vup
+        self.defocus_angle = defocus_angle
+        self.focus_dist = focus_dist
         self.aspect_ratio = aspect_ratio
         self.image_width = image_width
         self.image_height = max(1, Int(self.image_width / aspect_ratio))
 
-        self.center = Point3.zero()
+        self.center = lookfrom
 
         # Camera
-        var focal_length = Float32(1.0)
-        var viewport_height = Float32(2.0)
+        var theta = deg_to_radians(vfov)
+        var h = tan(theta / 2)
+        var viewport_height = 2 * h * focus_dist
         var viewport_width = (
             viewport_height
             * Float32(self.image_width)
             / Float32(self.image_height)
         )
 
+        # Calculate the u,v,w unit basis vectors for the camera coordinate frame.
+        self.w = normalize(lookfrom - lookat)
+        self.u = normalize(cross(vup, self.w))
+        self.v = cross(self.w, self.u)
+
         # Calculate the vectors across the horizontal and down the vertical viewport edges.
-        var viewport_u = Vec3f(viewport_width, 0, 0)
-        var viewport_v = Vec3f(0, -viewport_height, 0)
+        var viewport_u = viewport_width * self.u
+        var viewport_v = viewport_height * -self.v
 
         # Calculate the horizontal and vertical delta vectors from pixel to pixel.
         self.pixel_delta_u = viewport_u / self.image_width
@@ -267,7 +336,7 @@ struct Camera(Copyable):
         # Calculate the location of the upper left pixel.
         var viewport_upper_left = (
             self.center
-            - Vec3f(0, 0, focal_length)
+            - (focus_dist * self.w)
             - viewport_u / 2
             - viewport_v / 2
         )
@@ -275,6 +344,11 @@ struct Camera(Copyable):
         self.pixel00_loc = viewport_upper_left + 0.5 * (
             self.pixel_delta_u + self.pixel_delta_v
         )
+
+        # // Calculate the camera defocus disk basis vectors.
+        var defocus_radius = focus_dist * tan(deg_to_radians(defocus_angle / 2))
+        self.defocus_disk_u = self.u * defocus_radius
+        self.defocus_disk_v = self.v * defocus_radius
 
     fn ray_color(self, ray: Ray, world: HitableList) -> Color:
         var cur_ray = ray
@@ -350,10 +424,22 @@ struct Camera(Copyable):
             + ((j + offset.y()) * self.pixel_delta_v)
         )
 
-        var origin = self.center
+        var origin = (
+            self.center if self.defocus_angle
+            <= 0 else self.defocus_disk_sample()
+        )
         var direction = pixel_sample - origin
 
         return Ray(origin, direction)
+
+    fn defocus_disk_sample(self) -> Vec3f:
+        """Returns a random point in the camera defocus disk."""
+        var p = random_in_unit_disk()
+        return (
+            self.center
+            + (p[0] * self.defocus_disk_u)
+            + (p[1] * self.defocus_disk_v)
+        )
 
 
 fn random_unit_vector() -> Vec3f:
@@ -374,11 +460,10 @@ fn random_on_hemisphere(normal: Vec3f) -> Vec3f:
 
 
 fn random_in_unit_disk() -> Vec3f:
-    var unit = Vec3f(1.0, 1.0, 0.0)
     while True:
-        r1 = Float32(random_float64())
-        r2 = Float32(random_float64())
-        var p = 2.0 * Vec3f(r1, r2, 0.0) - unit
+        r1 = Float32(random_float64(-1, 1))
+        r2 = Float32(random_float64(-1, 1))
+        var p = 2.0 * Vec3f(r1, r2, 0.0)
         if dot(p, p) < 1.0:
             return p
 
@@ -478,3 +563,70 @@ fn reflectance(cosine: Float32, ref_idx: Float32) -> Float32:
     """Schlick's approximation for reflectance."""
     var r0 = pow(((1.0 - ref_idx) / (1.0 + ref_idx)), 2)
     return r0 + (1.0 - r0) * pow(1.0 - cosine, 5)
+
+
+fn create_random_scene() -> Tuple[Camera, HitableList]:
+    var materials = List[MaterialVariant]()
+    var objects = List[HittableVariant]()
+
+    # Ground material
+    materials.append(Lambertian(Color(0.5, 0.5, 0.5)))
+    objects.append(Sphere(Point3(0, -1000, 0), 1000, 0))
+
+    # Random small spheres
+    for a in range(-11, 11):
+        for b in range(-11, 11):
+            var choose_mat = random_float64()
+            var center = Point3(
+                Float32(a) + 0.9 * Float32(random_float64()),
+                0.2,
+                Float32(b) + 0.9 * Float32(random_float64()),
+            )
+
+            if length(center - Point3(4, 0.2, 0)) > 0.9:
+                if choose_mat < 0.8:
+                    # Diffuse (Lambertian)
+                    var albedo = Vec3f.random() * Vec3f.random()
+                    materials.append(Lambertian(albedo))
+                    objects.append(Sphere(center, 0.2, len(materials) - 1))
+
+                elif choose_mat < 0.95:
+                    # Metal
+                    var albedo = Vec3f.random(0.5, 1.0)
+                    var fuzz = Float32(random_float64(0, 0.5))
+                    materials.append(Metal(albedo, fuzz))
+                    objects.append(Sphere(center, 0.2, len(materials) - 1))
+
+                else:
+                    # Glass (Dielectric)
+                    materials.append(Dielectric(1.5))
+                    objects.append(Sphere(center, 0.2, len(materials) - 1))
+
+    # Glass Sphere
+    materials.append(Dielectric(1.5))
+    objects.append(Sphere(Point3(0, 1, 0), 1.0, len(materials) - 1))
+
+    # Matte Sphere
+    materials.append(Lambertian(Color(0.4, 0.2, 0.1)))
+    objects.append(Sphere(Point3(-4, 1, 0), 1.0, len(materials) - 1))
+
+    # Metal Sphere
+    materials.append(Metal(Color(0.7, 0.6, 0.5), 0.0))
+    objects.append(Sphere(Point3(4, 1, 0), 1.0, len(materials) - 1))
+
+    var world = HitableList(objects^, materials^)
+
+    var cam = Camera(
+        image_width=400,
+        aspect_ratio=16.0 / 9.0,
+        samples_per_pixel=10,
+        max_depth=10,
+        vfov=20,
+        lookfrom=Point3(13, 2, 3),
+        lookat=Point3(0, 0, 0),
+        vup=Vec3f(0, 1, 0),
+        defocus_angle=0.6,
+        focus_dist=10.0,
+    )
+
+    return (cam^, world^)

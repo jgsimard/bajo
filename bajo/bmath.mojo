@@ -155,6 +155,17 @@ struct Vector[type: DType, size: Int](
     fn __init__(out self, v: Scalar[Self.type]):
         self.data = Self.data_type(v)
 
+    # ugly but it works, TODO: change this
+    fn __init__(out self: Vec3f, v: Int):
+        self.data = rebind[Vector[DType.float32, 3].data_type](
+            SIMD[DType.float32, 4](Float32(v), Float32(v), Float32(v), 0)
+        )
+
+    fn __init__(out self: Vec3f, v: Float64):
+        self.data = rebind[Vector[DType.float32, 3].data_type](
+            SIMD[DType.float32, 4](Float32(v), Float32(v), Float32(v), 0)
+        )
+
     fn __init__(
         out self,
         x: Scalar[Self.type],

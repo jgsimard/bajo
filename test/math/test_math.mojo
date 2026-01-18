@@ -152,18 +152,14 @@ fn test_vec3_operations() raises:
     assert_vec_equal(cross(v1, v2), Vec3f(-3, 6, -3))
 
 
-def main():
-    TestSuite.discover_tests[__functions_in_module()]().run()
-
-
 fn test_aabb_logic() raises:
-    var box = AABB(Vec3f.zeros(), Vec3f(2, 2, 2))
+    var box = AABB(Vec3f(0), Vec3f(2, 2, 2))
 
-    assert_true(box.contains(Vec3f(1, 1, 1)))
+    assert_true(box.contains(Vec3f(1)))
     assert_false(box.contains(Vec3f(3, 1, 1)))
 
-    var box_overlap = AABB(Vec3f(1, 1, 1), Vec3f(3, 3, 3))
-    var box_far = AABB(Vec3f(4, 4, 4), Vec3f(5, 5, 5))
+    var box_overlap = AABB(Vec3f(1), Vec3f(3))
+    var box_far = AABB(Vec3f(4), Vec3f(5))
     assert_true(box.overlaps(box_overlap))
     assert_false(box.overlaps(box_far))
 
@@ -177,13 +173,12 @@ fn test_aabb_logic() raises:
 
 
 fn test_aabb_apply_trs_rotated() raises:
-    # A box from [-1, -1, -1] to [1, 1, 1]
-    var box = AABB(Vec3f(-1, -1, -1), Vec3f(1, 1, 1))
+    var box = AABB(Vec3f(-1), Vec3f(1))
 
     # Rotate 45 degrees around Z
     var angle = degrees_to_radians(Scalar[DType.float32](45))
     var r = Quat.angle_axis(angle, Vec3f(0, 0, 1))
-    var t = Vec3f(0, 0, 0)
+    var t = Vec3f(0)
     var s = Diag3f(1, 1, 1)
 
     var new_box = box.apply_trs(t, r, s)
@@ -254,12 +249,12 @@ fn test_matrix_roundtrip() raises:
 
 
 fn test_vector_near_zero() raises:
-    var v_tiny = Vec3f(1e-9, 1e-9, 1e-9)
-    var v_zero = Vec3f(0, 0, 0)
+    var v_tiny = Vec3f(1e-9)
+    var v_zero = Vec3f(0)
     assert_true(v_tiny.near_zero())
     assert_true(v_zero.near_zero())
 
-    var v_large = Vec3f(0.1, 0.1, 0.1)
+    var v_large = Vec3f(0.1)
     assert_false(v_large.near_zero())
 
 
@@ -271,8 +266,12 @@ fn test_cross_product_2d() raises:
 
 
 fn test_aabb_merge() raises:
-    var a = AABB(Vec3f(0, 0, 0), Vec3f(1, 1, 1))
-    var b = AABB(Vec3f(-1, -1, -1), Vec3f(0.5, 0.5, 0.5))
+    var a = AABB(Vec3f(0), Vec3f(1))
+    var b = AABB(Vec3f(-1), Vec3f(0.5))
     var merged = AABB.merge(a, b)
-    assert_vec_equal(merged.pMin, Vec3f(-1, -1, -1))
-    assert_vec_equal(merged.pMax, Vec3f(1, 1, 1))
+    assert_vec_equal(merged.pMin, Vec3f(-1))
+    assert_vec_equal(merged.pMax, Vec3f(1))
+
+
+def main():
+    TestSuite.discover_tests[__functions_in_module()]().run()

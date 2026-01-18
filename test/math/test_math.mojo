@@ -21,6 +21,7 @@ from bajo.bmath import (
     normalize,
     lerp,
     solve_quadratic,
+    QuadraticSolutions,
 )
 
 
@@ -45,9 +46,9 @@ fn test_solve_quadratic() raises:
     var c = SIMD[DType.float32, 2](6.0, 1.0)
 
     var res = solve_quadratic(a, b, c)
-    var t0 = res[0]
-    var t1 = res[1]
-    var mask = res[2]
+    var t0 = res.roots_0
+    var t1 = res.roots_1
+    var mask = res.mask
 
     # Lane 0 should be solved
     assert_true(mask[0])

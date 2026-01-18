@@ -42,15 +42,24 @@ fn degrees_to_radians[
     return degrees * pi_d180
 
 
+@fieldwise_init
+@register_passable("trivial")
+struct QuadraticSolutions[type: DType, size: Int](Copyable):
+    var roots_0: SIMD[Self.type, Self.size]
+    var roots_1: SIMD[Self.type, Self.size]
+    var mask: SIMD[DType.bool, Self.size]
+
+
 fn solve_quadratic[
     type: DType, size: Int
-](a: SIMD[type, size], b: SIMD[type, size], c: SIMD[type, size]) -> Tuple[
-    SIMD[type, size], SIMD[type, size], SIMD[DType.bool, size]
-]:
+](
+    a: SIMD[type, size], b: SIMD[type, size], c: SIMD[type, size]
+) -> QuadraticSolutions[type, size]:
     """Solves the quadratic equation ax^2 + bx + c = 0 element-wise for SIMD vectors.
 
     This function uses a numerically stable implementation (Citardauq's formula)
     to prevent catastrophic cancellation when 'b' is much larger than 'ac'.
+    see: https://en.wikipedia.org/wiki/Quadratic_formula#Square_root_in_the_denominator
 
     Args:
         a: The quadratic coefficients.
@@ -58,27 +67,19 @@ fn solve_quadratic[
         c: The constant terms.
 
     Returns:
-        A Tuple containing:
-            0: SIMD[type, size] - The first set of potential roots (t0).
-            1: SIMD[type, size] - The second set of potential roots (t1).
-            2: SIMD[bool, size] - A validity mask. If a lane is False, no real
-               roots exist for that equation (discriminant < 0) and the
-               corresponding roots in t0/t1 should be ignored.
+        QuadraticSolutions[roots_0, roots_1, mask].
     """
     var det = b * b - 4.0 * a * c
     var mask = det.ge(0.0)  # Element-wise >= 0.0
 
-    # Ensure we don't sqrt a negative number
     var sqrt_det = sqrt(max(det, 0.0))
 
-    # Numerically stable quadratic solution:
-    # q = -0.5 * (b + sign(b) * sqrt(det))
     var q = -0.5 * (b + b.ge(0.0).select(sqrt_det, -sqrt_det))
 
     var t0 = q / a
     var t1 = c / q
 
-    return (t0, t1, mask)
+    return QuadraticSolutions(t0, t1, mask)
 
 
 # ----------------------------------------------------------------------

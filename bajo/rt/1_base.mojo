@@ -452,7 +452,7 @@ struct Lambertian(Material, Writable):
         var scatter_direction = hit.normal + random_unit_vector()
 
         # Catch degenerate scatter direction
-        if scatter_direction.near_zeros():
+        if scatter_direction.near_zero():
             scatter_direction = hit.normal
 
         var scattered = Ray(hit.p, scatter_direction)

@@ -10,9 +10,9 @@ from bajo.bmath import (
     Vector,
     Vec3f,
     Vec2f,
-    Diag3,
-    Mat33,
-    Mat34,
+    Diag3f,
+    Mat3f,
+    Mat3x4f,
     AABB,
     degrees_to_radians,
     cross,
@@ -78,13 +78,13 @@ fn test_vector_math() raises:
 
 fn test_matrix_basics() raises:
     # Transpose check
-    var m = Mat33(Vec3f(1, 2, 3), Vec3f(4, 5, 6), Vec3f(7, 8, 9))
+    var m = Mat3f(Vec3f(1, 2, 3), Vec3f(4, 5, 6), Vec3f(7, 8, 9))
     var mt = m.transpose()
     assert_almost_equal(mt[0].y(), 4.0)
     assert_almost_equal(mt[1].x(), 2.0)
 
     # Determinant of Identity
-    var identity = Mat33(Vec3f(1, 0, 0), Vec3f(0, 1, 0), Vec3f(0, 0, 1))
+    var identity = Mat3f(Vec3f(1, 0, 0), Vec3f(0, 1, 0), Vec3f(0, 0, 1))
     assert_almost_equal(identity.determinant(), 1.0)
 
 
@@ -102,10 +102,10 @@ fn test_trs_composition_decomposition() raises:
     var r = Quat.angle_axis(
         degrees_to_radians(Scalar[DType.float32](45)), Vec3f(0, 0, 1)
     )
-    var s = Diag3(2, 2, 2)
+    var s = Diag3f(2, 2, 2)
 
     # Create Mat3x4 from TRS
-    var mat = Mat34.from_trs(t, r, s)
+    var mat = Mat3x4f.from_trs(t, r, s)
 
     # Transform a point
     var p = Vec3f(1, 0, 0)
@@ -170,7 +170,7 @@ fn test_aabb_logic() raises:
     var ray_o = Vec3f(-1, 1, 1)
     var ray_d = Vec3f(1, 0, 0)
     # Diag3.inv handles the 1/d calculation used in ray_intersects
-    var inv_d = Diag3.from_vec(ray_d).inv()
+    var inv_d = Diag3f.from_vec(ray_d).inv()
 
     assert_true(box.ray_intersects(ray_o, inv_d, 0.0, 10.0))
 
@@ -183,7 +183,7 @@ fn test_aabb_apply_trs_rotated() raises:
     var angle = degrees_to_radians(Scalar[DType.float32](45))
     var r = Quat.angle_axis(angle, Vec3f(0, 0, 1))
     var t = Vec3f(0, 0, 0)
-    var s = Diag3(1, 1, 1)
+    var s = Diag3f(1, 1, 1)
 
     var new_box = box.apply_trs(t, r, s)
 
@@ -226,11 +226,11 @@ fn test_swizzles() raises:
 
 
 fn test_matrix_composition() raises:
-    var parent_mat = Mat34.from_trs(
-        Vec3f(10, 0, 0), Quat.identity(), Diag3(1, 1, 1)
+    var parent_mat = Mat3x4f.from_trs(
+        Vec3f(10, 0, 0), Quat.identity(), Diag3f(1, 1, 1)
     )
-    var child_mat = Mat34.from_trs(
-        Vec3f(5, 0, 0), Quat.identity(), Diag3(1, 1, 1)
+    var child_mat = Mat3x4f.from_trs(
+        Vec3f(5, 0, 0), Quat.identity(), Diag3f(1, 1, 1)
     )
 
     var combined = parent_mat.compose(child_mat)
@@ -246,7 +246,7 @@ fn test_matrix_roundtrip() raises:
     var r = Quat.angle_axis(
         degrees_to_radians(Scalar[DType.float32](30)), Vec3f(1, 0, 0)
     )
-    var m = Mat33.from_quat(r)
+    var m = Mat3f.from_quat(r)
     # Rotating a vector by the matrix should match rotating by the quaternion
     var v = Vec3f(0, 1, 0)
     assert_vec_equal(m * v, r.rotate_vec(v))

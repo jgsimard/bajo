@@ -23,10 +23,10 @@ comptime Vec3i = Vector3[DType.int32]
 comptime Vec4b = Vector4[DType.uint8]
 
 
-comptime Diag3 = Diag3x3[DType.float32]
-comptime Mat33 = Mat3x3[DType.float32]
-comptime Mat34 = Mat3x4[DType.float32]
-comptime Mat44 = Mat4x4[DType.float32]
+comptime Diag3f = Diag3x3[DType.float32]
+comptime Mat3f = Mat3x3[DType.float32]
+comptime Mat3x4f = Mat3x4[DType.float32]
+comptime Mat4f = Mat4x4[DType.float32]
 
 comptime Quat = Quaternion[DType.float32]
 

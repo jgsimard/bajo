@@ -89,17 +89,19 @@ fn dispatch_mul[version: Int](q1: Quat, q2: Quat) -> Quat:
     elif version == 3:
         return quat_mul_3(q1, q2)
     else:
-        return q1 * q2 # Quat.__mul__
-        
+        return q1 * q2  # Quat.__mul__
+
+
 fn main() raises:
     @parameter
     fn bench_throughput[version: Int]() raises:
         var data = BenchmarkData()
 
-
         fn wrapper() raises capturing:
             for i in range(num_elements):
-                data.dst[i] = dispatch_mul[version](data.src_a[i], (data.src_b[i]))
+                data.dst[i] = dispatch_mul[version](
+                    data.src_a[i], (data.src_b[i])
+                )
             keep(data.dst[0].data)
 
         var report = run[func3=wrapper](max_iters=1000)
@@ -121,7 +123,6 @@ fn main() raises:
 
     @parameter
     fn bench_latency[version: Int]() raises:
-
         var q2 = Quat.angle_axis(
             degrees_to_radians(Scalar[DType.float32](45)), Vec3f(0, 1, 0)
         )

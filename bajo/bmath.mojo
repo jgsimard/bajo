@@ -926,44 +926,33 @@ struct AxisAlignedBoundingBox[type: DType where type.is_floating_point()]:
         rotation: Quaternion[Self.type],
         scale: Diag3x3[Self.type],
     ) -> Self:
-        var rot_mat = Mat3x3[Self.type].from_rs(rotation, scale)
-        var txfmed = Self(translation, translation)
+        """
+        Transforms the AABB using Jim Arvo algorithm (from "Graphics Gems", Academic Press, 1990) with explicit SIMD.
+        """
+        var mat = Mat3x3[Self.type].from_rs(rotation, scale)
 
-        for i in range(3):
-            for j in range(3):
-                # Manual indexing since we use fields
-                var val_min: Scalar[Self.type]
-                var val_max: Scalar[Self.type]
-                if j == 0:
-                    val_min = self.pMin.x()
-                    val_max = self.pMax.x()
-                elif j == 1:
-                    val_min = self.pMin.y()
-                    val_max = self.pMax.y()
-                else:
-                    val_min = self.pMin.z()
-                    val_max = self.pMax.z()
+        var new_min = translation
+        var new_max = translation
 
-                # rot_mat is col major, so rot_mat[j][i]
-                var col_j = rot_mat[j]
-                var mat_val: Scalar[Self.type]
-                if i == 0:
-                    mat_val = col_j.x()
-                elif i == 1:
-                    mat_val = col_j.y()
-                else:
-                    mat_val = col_j.z()
+        # X
+        var c0_a = mat.c0 * self.pMin.x()
+        var c0_b = mat.c0 * self.pMax.x()
+        new_min += Vector.min(c0_a, c0_b)
+        new_max += Vector.max(c0_a, c0_b)
 
-                var e = mat_val * val_min
-                var f = mat_val * val_max
+        # Y
+        var c1_a = mat.c1 * self.pMin.y()
+        var c1_b = mat.c1 * self.pMax.y()
+        new_min += Vector.min(c1_a, c1_b)
+        new_max += Vector.max(c1_a, c1_b)
 
-                if e < f:
-                    txfmed.pMin[i] += e
-                    txfmed.pMax[i] += f
-                else:
-                    txfmed.pMin[i] += f
-                    txfmed.pMax[i] += e
-        return txfmed
+        # Z
+        var c2_a = mat.c2 * self.pMin.z()
+        var c2_b = mat.c2 * self.pMax.z()
+        new_min += Vector.min(c2_a, c2_b)
+        new_max += Vector.max(c2_a, c2_b)
+
+        return AxisAlignedBoundingBox(new_min, new_max)
 
 
 fn main() raises:

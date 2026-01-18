@@ -100,9 +100,9 @@ fn test_quaternion_rotation() raises:
 
 fn test_trs_composition_decomposition() raises:
     var t = Vec3f(10, 20, 30)
-    var r = Quat.angle_axis(
-        degrees_to_radians(Scalar[DType.float32](45)), Vec3f(0, 0, 1)
-    )
+
+    var angle = degrees_to_radians(Scalar[DType.float32](45))
+    var r = Quat.angle_axis(angle, Vec3f(0, 0, 1))
     var s = Diag3f(2, 2, 2)
 
     # Create Mat3x4 from TRS
@@ -128,14 +128,11 @@ fn test_quaternions() raises:
     var q1 = Quat.angle_axis(0, Vec3f(0, 1, 0))
     assert_quat_equal(q1, Quat(1, 0, 0, 0))
 
-    var q2 = Quat.angle_axis(
-        degrees_to_radians(Scalar[DType.float32](45)), Vec3f(0, 1, 0)
-    )
+    var angle = degrees_to_radians(Scalar[DType.float32](45))
+    var q2 = Quat.angle_axis(angle, Vec3f(0, 1, 0))
     assert_quat_equal(q2, Quat(0.9238795, 0, 0.3826834, 0))
 
-    var q3 = Quat.angle_axis(
-        degrees_to_radians(Scalar[DType.float32](45)), Vec3f(1, 0, 0)
-    )
+    var q3 = Quat.angle_axis(angle, Vec3f(1, 0, 0))
     assert_quat_equal(q3, Quat(0.9238795, 0.3826834, 0, 0))
 
     var m1 = q2 * q3
@@ -186,19 +183,16 @@ fn test_aabb_apply_trs_rotated() raises:
     # After 45 deg rotation, the corners move to ±sqrt(2)
     # The new AABB should expand to fit the diamond shape
     var expected_limit = Float32(1.41421356)
-    assert_almost_equal(new_box.pMax.x(), expected_limit, atol=1e-5)
-    assert_almost_equal(new_box.pMax.y(), expected_limit, atol=1e-5)
+    assert_almost_equal(new_box.max.x(), expected_limit, atol=1e-5)
+    assert_almost_equal(new_box.max.y(), expected_limit, atol=1e-5)
     # Z should remain 1.0
-    assert_almost_equal(new_box.pMax.z(), 1.0, atol=1e-5)
+    assert_almost_equal(new_box.max.z(), 1.0, atol=1e-5)
 
     fn test_quat_multiplication() raises:
         # Rotate 90 X then 90 Y
-        var qx = Quat.angle_axis(
-            degrees_to_radians(Scalar[DType.float32](90)), Vec3f(1, 0, 0)
-        )
-        var qy = Quat.angle_axis(
-            degrees_to_radians(Scalar[DType.float32](90)), Vec3f(0, 1, 0)
-        )
+        var angle = degrees_to_radians(Scalar[DType.float32](90))
+        var qx = Quat.angle_axis(angle, Vec3f(1, 0, 0))
+        var qy = Quat.angle_axis(angle, Vec3f(0, 1, 0))
 
         var q_combined = qy * qx  # Note: Order matters (Local vs World)
 
@@ -269,8 +263,8 @@ fn test_aabb_merge() raises:
     var a = AABB(Vec3f(0), Vec3f(1))
     var b = AABB(Vec3f(-1), Vec3f(0.5))
     var merged = AABB.merge(a, b)
-    assert_vec_equal(merged.pMin, Vec3f(-1))
-    assert_vec_equal(merged.pMax, Vec3f(1))
+    assert_vec_equal(merged.min, Vec3f(-1))
+    assert_vec_equal(merged.max, Vec3f(1))
 
 
 def main():

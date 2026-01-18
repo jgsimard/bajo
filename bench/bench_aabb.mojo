@@ -18,14 +18,14 @@ fn apply_trs_naive(
             var val_min: Scalar[DType.float32]
             var val_max: Scalar[DType.float32]
             if j == 0:
-                val_min = box.pMin.x()
-                val_max = box.pMax.x()
+                val_min = box.min.x()
+                val_max = box.max.x()
             elif j == 1:
-                val_min = box.pMin.y()
-                val_max = box.pMax.y()
+                val_min = box.min.y()
+                val_max = box.max.y()
             else:
-                val_min = box.pMin.z()
-                val_max = box.pMax.z()
+                val_min = box.min.z()
+                val_max = box.max.z()
 
             var col_j = rot_mat[j]
             var mat_val: Scalar[DType.float32]
@@ -40,11 +40,11 @@ fn apply_trs_naive(
             var f = mat_val * val_max
 
             if e < f:
-                txfmed.pMin[i] += e
-                txfmed.pMax[i] += f
+                txfmed.min[i] += e
+                txfmed.max[i] += f
             else:
-                txfmed.pMin[i] += f
-                txfmed.pMax[i] += e
+                txfmed.min[i] += f
+                txfmed.max[i] += e
     return txfmed
 
 
@@ -56,20 +56,20 @@ fn apply_trs_arvo(
     var new_max = translation
 
     # X column
-    var c0_a = mat.c0 * box.pMin.x()
-    var c0_b = mat.c0 * box.pMax.x()
+    var c0_a = mat.c0 * box.min.x()
+    var c0_b = mat.c0 * box.max.x()
     new_min += Vector.min(c0_a, c0_b)
     new_max += Vector.max(c0_a, c0_b)
 
     # Y column
-    var c1_a = mat.c1 * box.pMin.y()
-    var c1_b = mat.c1 * box.pMax.y()
+    var c1_a = mat.c1 * box.min.y()
+    var c1_b = mat.c1 * box.max.y()
     new_min += Vector.min(c1_a, c1_b)
     new_max += Vector.max(c1_a, c1_b)
 
     # Z column
-    var c2_a = mat.c2 * box.pMin.z()
-    var c2_b = mat.c2 * box.pMax.z()
+    var c2_a = mat.c2 * box.min.z()
+    var c2_b = mat.c2 * box.max.z()
     new_min += Vector.min(c2_a, c2_b)
     new_max += Vector.max(c2_a, c2_b)
 
@@ -130,7 +130,7 @@ fn main() raises:
                     data.rotations[i],
                     data.scales[i],
                 )
-            keep(data.dst[0].pMin.data)
+            keep(data.dst[0].min.data)
 
         var report = run[wrapper](max_iters=200)
         var avg_time = report.mean(Unit.us)

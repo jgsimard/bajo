@@ -837,8 +837,8 @@ struct Mat4x4[type: DType]:
 @fieldwise_init
 @register_passable("trivial")
 struct AxisAlignedBoundingBox[type: DType where type.is_floating_point()]:
-    var pMin: Vector3[Self.type]
-    var pMax: Vector3[Self.type]
+    var min: Vector3[Self.type]
+    var max: Vector3[Self.type]
 
     @staticmethod
     fn invalid() -> Self:
@@ -856,35 +856,35 @@ struct AxisAlignedBoundingBox[type: DType where type.is_floating_point()]:
     @staticmethod
     fn merge(a: Self, b: Self) -> Self:
         return Self(
-            Vector.min(a.pMin, b.pMin),
-            Vector.max(a.pMax, b.pMax),
+            Vector.min(a.min, b.min),
+            Vector.max(a.max, b.max),
         )
 
     fn surface_area(self) -> Scalar[Self.type]:
-        var d = self.pMax - self.pMin
+        var d = self.max - self.min
         return 2.0 * (d.x() * d.y() + d.x() * d.z() + d.y() * d.z())
 
     fn centroid(self) -> Vector3[Self.type]:
-        return (self.pMin + self.pMax) * 0.5
+        return (self.min + self.max) * 0.5
 
     fn overlaps(self, o: Self) -> Bool:
         return (
-            self.pMin.x() < o.pMax.x()
-            and o.pMin.x() < self.pMax.x()
-            and self.pMin.y() < o.pMax.y()
-            and o.pMin.y() < self.pMax.y()
-            and self.pMin.z() < o.pMax.z()
-            and o.pMin.z() < self.pMax.z()
+            self.min.x() < o.max.x()
+            and o.min.x() < self.max.x()
+            and self.min.y() < o.max.y()
+            and o.min.y() < self.max.y()
+            and self.min.z() < o.max.z()
+            and o.min.z() < self.max.z()
         )
 
     fn contains(self, p: Vector3[Self.type]) -> Bool:
         return (
-            self.pMin.x() <= p.x()
-            and self.pMin.y() <= p.y()
-            and self.pMin.z() <= p.z()
-            and self.pMax.x() >= p.x()
-            and self.pMax.y() >= p.y()
-            and self.pMax.z() >= p.z()
+            self.min.x() <= p.x()
+            and self.min.y() <= p.y()
+            and self.min.z() <= p.z()
+            and self.max.x() >= p.x()
+            and self.max.y() >= p.y()
+            and self.max.z() >= p.z()
         )
 
     fn ray_intersects(
@@ -894,8 +894,8 @@ struct AxisAlignedBoundingBox[type: DType where type.is_floating_point()]:
         ray_t_min: Scalar[Self.type],
         ray_t_max: Scalar[Self.type],
     ) -> Bool:
-        var t_lower = inv_ray_d * (self.pMin - ray_o)
-        var t_upper = inv_ray_d * (self.pMax - ray_o)
+        var t_lower = inv_ray_d * (self.min - ray_o)
+        var t_upper = inv_ray_d * (self.max - ray_o)
 
         var t_min_vec = Vector.min(t_lower, t_upper)
         var t_max_vec = Vector.max(t_lower, t_upper)
@@ -925,20 +925,20 @@ struct AxisAlignedBoundingBox[type: DType where type.is_floating_point()]:
         var new_max = translation
 
         # X
-        var c0_a = mat.c0 * self.pMin.x()
-        var c0_b = mat.c0 * self.pMax.x()
+        var c0_a = mat.c0 * self.min.x()
+        var c0_b = mat.c0 * self.max.x()
         new_min += Vector.min(c0_a, c0_b)
         new_max += Vector.max(c0_a, c0_b)
 
         # Y
-        var c1_a = mat.c1 * self.pMin.y()
-        var c1_b = mat.c1 * self.pMax.y()
+        var c1_a = mat.c1 * self.min.y()
+        var c1_b = mat.c1 * self.max.y()
         new_min += Vector.min(c1_a, c1_b)
         new_max += Vector.max(c1_a, c1_b)
 
         # Z
-        var c2_a = mat.c2 * self.pMin.z()
-        var c2_b = mat.c2 * self.pMax.z()
+        var c2_a = mat.c2 * self.min.z()
+        var c2_b = mat.c2 * self.max.z()
         new_min += Vector.min(c2_a, c2_b)
         new_max += Vector.max(c2_a, c2_b)
 

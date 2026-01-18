@@ -225,8 +225,8 @@ struct Vector[type: DType, size: Int](
 
     @staticmethod
     fn random(
-        min: Scalar[Self.type] = Scalar[Self.type](0),
-        max: Scalar[Self.type] = Scalar[Self.type](1),
+        min: Scalar[Self.type] = 0,
+        max: Scalar[Self.type] = 1,
     ) -> Self:
         var rng = Self.zeros()
 
@@ -529,7 +529,7 @@ struct Quaternion[type: DType]:
             var qy = S(diff[1], sum[2], v, sum[0])
             var qz = S(diff[2], sum[1], sum[0], v)
 
-            # 5. Branchless Selection
+            # branchless Selection
             var mask = traces.eq(max_trace)
             var res = qz
             res = SIMD[DType.bool, 4](mask[2]).select(qy, res)

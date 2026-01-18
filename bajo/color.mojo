@@ -1,8 +1,8 @@
-from math import log, exp, log2, exp2, sqrt
+from math import log, exp, log2, exp2, sqrt, clamp
 from std.utils.numerics import max_finite, min_finite
 from utils.variant import Variant
 
-from bajo.bmath import Vector, Vec2f, Vec3f, Vec4f, Vec4b, dot, Mat33
+from bajo.bmath import Vector, Vec2f, Vec3f, Vec4f, Vec4b, dot, Mat3f
 
 # Constants for Luminance and sRGB
 comptime REC709_LUM = Vec3f(0.2126, 0.7152, 0.0722)
@@ -17,9 +17,7 @@ fn float_to_byte[
     size: Int
 ](a: SIMD[DType.float32, size]) -> SIMD[DType.uint8, size]:
     comptime sInt = SIMD[DType.int, size]
-    return SIMD[DType.uint8, size](
-        max(sInt(0), min(sInt(255), sInt(a * 256.0)))
-    )
+    return SIMD[DType.uint8, size](clamp(a * 256.0, 0, 255))
 
 
 fn byte_to_float[
@@ -193,7 +191,7 @@ fn rgb_to_hsv(rgb: Vec3f) -> Vec3f:
 
 
 fn rgb_to_xyz(rgb: Vec3f) -> Vec3f:
-    comptime mat = Mat33(
+    comptime mat = Mat3f(
         Vec3f(0.4124, 0.2126, 0.0193),
         Vec3f(0.3576, 0.7152, 0.1192),
         Vec3f(0.1805, 0.0722, 0.9504),
@@ -202,7 +200,7 @@ fn rgb_to_xyz(rgb: Vec3f) -> Vec3f:
 
 
 fn xyz_to_rgb(xyz: Vec3f) -> Vec3f:
-    comptime mat = Mat33(
+    comptime mat = Mat3f(
         Vec3f(3.2406, -1.5372, -0.4986),
         Vec3f(-0.9689, 1.8758, 0.0415),
         Vec3f(0.0557, -0.2040, 1.0570),
@@ -430,16 +428,16 @@ struct CurveType:
 
 @fieldwise_init
 struct ColorSpaceParams:
-    var rgb_to_xyz_mat: Mat33
-    var xyz_to_rgb_mat: Mat33
+    var rgb_to_xyz_mat: Mat3f
+    var xyz_to_rgb_mat: Mat3f
     var curve_type: Int
     var curve_gamma: Float32
     var curve_abcd: Vec4f  # a, b, c, d constants for specialized curves
 
 
 # Internal matrix helper (SMPTE RP 177-1993)
-fn _calculate_rgb_to_xyz(rc: Vec2f, gc: Vec2f, bc: Vec2f, wc: Vec2f) -> Mat33:
-    var rgb = Mat33(
+fn _calculate_rgb_to_xyz(rc: Vec2f, gc: Vec2f, bc: Vec2f, wc: Vec2f) -> Mat3f:
+    var rgb = Mat3f(
         Vec3f(rc.x(), rc.y(), 1.0 - rc.x() - rc.y()),
         Vec3f(gc.x(), gc.y(), 1.0 - gc.x() - gc.y()),
         Vec3f(bc.x(), bc.y(), 1.0 - bc.x() - bc.y()),
@@ -451,12 +449,12 @@ fn _calculate_rgb_to_xyz(rc: Vec2f, gc: Vec2f, bc: Vec2f, wc: Vec2f) -> Mat33:
     )  # dummy placeholder if inverse is missing
     # Porting from C++: c = inverse(rgb) * Vec3f(w.x/w.y, 1, w.z/w.y)
     # Using your library's Mat33 and assuming inverse(Mat33) -> Mat33 exists:
-    var inv_rgb = Mat33(
+    var inv_rgb = Mat3f(
         Vec3f(0), Vec3f(0), Vec3f(0)
     )  # Actual inverse implementation needed if not in math.mojo
     # For now, we assume standard library matrix ops or user provided inverse.
     var col_scales = inv_rgb * Vec3f(w.x() / w.y(), 1.0, w.z() / w.y())
-    return Mat33(
+    return Mat3f(
         rgb.c0 * col_scales.x(),
         rgb.c1 * col_scales.y(),
         rgb.c2 * col_scales.z(),
@@ -525,7 +523,7 @@ fn get_color_space_params(space: Int) -> ColorSpaceParams:
     # ... Other spaces follow same pattern ...
 
     # Ideally these matrices would be precomputed/cached as static constants
-    var m = Mat33(Vec3f(1, 0, 0), Vec3f(0, 1, 0), Vec3f(0, 0, 1))  # Placeholder
+    var m = Mat3f(Vec3f(1, 0, 0), Vec3f(0, 1, 0), Vec3f(0, 0, 1))  # Placeholder
     # m = _calculate_rgb_to_xyz(rc, gc, bc, wc)
     # var inv_m = inverse(m)
 

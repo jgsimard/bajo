@@ -56,14 +56,14 @@ fn quat_mul_3(q1: Quat, q2: Quat) -> Quat:
 
 
 struct BenchmarkData(Copyable):
-    var src_a: UnsafePointer[Quat, MutAnyOrigin]
-    var src_b: UnsafePointer[Quat, MutAnyOrigin]
-    var dst: UnsafePointer[Quat, MutAnyOrigin]
+    var src_a: List[Quat]
+    var src_b: List[Quat]
+    var dst: List[Quat]
 
     fn __init__(out self):
-        self.src_a = alloc[Quat](num_elements)
-        self.src_b = alloc[Quat](num_elements)
-        self.dst = alloc[Quat](num_elements)
+        self.src_a = List[Quat](length=num_elements, fill=Quat.identity())
+        self.src_b = List[Quat](length=num_elements, fill=Quat.identity())
+        self.dst = List[Quat](length=num_elements, fill=Quat.identity())
 
         for i in range(num_elements):
             self.src_a[i] = Quat.angle_axis(
@@ -72,11 +72,6 @@ struct BenchmarkData(Copyable):
             self.src_b[i] = Quat.angle_axis(
                 Float32(random_float64()), Vec3f(0, 1, 0)
             )
-
-    fn __del__(deinit self):
-        self.src_a.free()
-        self.src_b.free()
-        self.dst.free()
 
 
 @always_inline

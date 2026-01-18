@@ -4,11 +4,11 @@ from math import clamp, sin, cos
 from random import randn, randn_float64, random_float64
 from testing import assert_false
 
-from src.math import pi, deg_to_radians
+from src.math import pi, degrees_to_radians
 
 
 comptime X_THRESHOLD: Float32 = 2.4
-comptime THETA_THRESHOLD_RADIANS: Float32 = Float32(deg_to_radians(12.0))
+comptime THETA_THRESHOLD_RADIANS: Float32 = Float32(degrees_to_radians(12.0))
 comptime MAX_STEPS = 200
 comptime WIDTH = 600
 comptime HEIGHT = 200

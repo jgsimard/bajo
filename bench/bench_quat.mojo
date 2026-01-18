@@ -3,7 +3,7 @@ from random import random_float64
 from memory import UnsafePointer
 from testing import TestSuite, assert_equal, assert_almost_equal
 
-from bajo.bmath import Quat, deg_to_radians, Vec3f
+from bajo.bmath import Quat, degrees_to_radians, Vec3f
 
 comptime f32 = DType.float32
 comptime num_elements = 100000
@@ -63,11 +63,11 @@ fn main() raises:
     @parameter
     fn bench_latency[version: Int]() raises:
         var q2 = Quat.angle_axis(
-            deg_to_radians(Scalar[DType.float32](45)), Vec3f(0, 1, 0)
+            degrees_to_radians(Scalar[DType.float32](45)), Vec3f(0, 1, 0)
         )
 
         var q3 = Quat.angle_axis(
-            deg_to_radians(Scalar[DType.float32](45)), Vec3f(1, 0, 0)
+            degrees_to_radians(Scalar[DType.float32](45)), Vec3f(1, 0, 0)
         )
         var a = q2.__mul__[version](q3)
         var b = Quat(0.853553, 0.353553, 0.353553, -0.146447)

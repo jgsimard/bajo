@@ -36,7 +36,7 @@ comptime AABB = AxisAlignedBoundingBox[DType.float32]
 # ----------------------------------------------------------------------
 # Helper Functions
 # ----------------------------------------------------------------------
-fn deg_to_radians[
+fn degrees_to_radians[
     type: DType, size: Int
 ](degrees: SIMD[type, size]) -> SIMD[type, size]:
     return degrees * pi_d180
@@ -44,20 +44,41 @@ fn deg_to_radians[
 
 fn solve_quadratic[
     type: DType, size: Int
-](a: SIMD[type, size], b: SIMD[type, size], c: SIMD[type, size]) -> Optional[
-    Tuple[SIMD[type, size], SIMD[type, size]]
+](a: SIMD[type, size], b: SIMD[type, size], c: SIMD[type, size]) -> Tuple[
+    SIMD[type, size], SIMD[type, size], SIMD[DType.bool, size]
 ]:
+    """Solves the quadratic equation ax^2 + bx + c = 0 element-wise for SIMD vectors.
+
+    This function uses a numerically stable implementation (Citardauq's formula)
+    to prevent catastrophic cancellation when 'b' is much larger than 'ac'.
+
+    Args:
+        a: The quadratic coefficients.
+        b: The linear coefficients.
+        c: The constant terms.
+
+    Returns:
+        A Tuple containing:
+            0: SIMD[type, size] - The first set of potential roots (t0).
+            1: SIMD[type, size] - The second set of potential roots (t1).
+            2: SIMD[bool, size] - A validity mask. If a lane is False, no real
+               roots exist for that equation (discriminant < 0) and the
+               corresponding roots in t0/t1 should be ignored.
+    """
     var det = b * b - 4.0 * a * c
-    if det < 0.0:
-        return None
+    var mask = det.ge(0.0)  # Element-wise >= 0.0
 
-    var sqrt_det = sqrt(det)
-    var rcp_2a = 1.0 / (2.0 * a)
+    # Ensure we don't sqrt a negative number
+    var sqrt_det = sqrt(max(det, 0.0))
 
-    var t1 = (-b - sqrt_det) * rcp_2a
-    var t2 = (-b + sqrt_det) * rcp_2a
+    # Numerically stable quadratic solution:
+    # q = -0.5 * (b + sign(b) * sqrt(det))
+    var q = -0.5 * (b + b.ge(0.0).select(sqrt_det, -sqrt_det))
 
-    return Optional(Tuple(t1, t2))
+    var t0 = q / a
+    var t1 = c / q
+
+    return (t0, t1, mask)
 
 
 # ----------------------------------------------------------------------
@@ -161,11 +182,11 @@ struct Vector[type: DType, size: Int](
         self.data = Self.data_type(x, y, z, w)
 
     @staticmethod
-    fn zero() -> Self:
+    fn zeros() -> Self:
         return Self(Scalar[Self.type](0))
 
     @staticmethod
-    fn one() -> Self:
+    fn ones() -> Self:
         return Self(Scalar[Self.type](1))
 
     @staticmethod
@@ -195,7 +216,7 @@ struct Vector[type: DType, size: Int](
         min: Scalar[Self.type] = Scalar[Self.type](0),
         max: Scalar[Self.type] = Scalar[Self.type](1),
     ) -> Self:
-        var rng = Self.zero()
+        var rng = Self.zeros()
 
         @parameter
         for i in range(Self.size):
@@ -330,7 +351,7 @@ struct Vector[type: DType, size: Int](
 
 
 # ----------------------------------------------------------------------
-# Quat
+# Quaternion
 # ----------------------------------------------------------------------
 fn length2[type: DType](q: Quaternion[type]) -> Scalar[type]:
     return (q.data * q.data).reduce_add()
@@ -639,9 +660,10 @@ struct Mat3x3[type: DType]:
         var xy = r.x() * r.y()
         var yz = r.y() * r.z()
 
-        var wx = r.w() * r.x()
-        var wy = r.w() * r.y()
-        var wz = r.w() * r.z()
+        var r_rw = r * r.w()
+        var wx = r_rw.x()
+        var wy = r_rw.y()
+        var wz = r_rw.z()
 
         comptime v3 = Vector3[Self.type]
         return Self(
@@ -655,12 +677,15 @@ struct Mat3x3[type: DType]:
         var x2 = r.x() * r.x()
         var y2 = r.y() * r.y()
         var z2 = r.z() * r.z()
+
         var xz = r.x() * r.z()
         var xy = r.x() * r.y()
         var yz = r.y() * r.z()
-        var wx = r.w() * r.x()
-        var wy = r.w() * r.y()
-        var wz = r.w() * r.z()
+
+        var r_rw = r * r.w()
+        var wx = r_rw.x()
+        var wy = r_rw.y()
+        var wz = r_rw.z()
 
         var ds = s * 2.0
 

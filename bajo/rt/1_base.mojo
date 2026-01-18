@@ -13,7 +13,7 @@ from bajo.bmath import (
     normalize,
     dot,
     cross,
-    deg_to_radians,
+    degrees_to_radians,
 )
 from bajo.color import rgb_to_srgb
 
@@ -255,7 +255,7 @@ struct Camera(Copyable):
         self.center = lookfrom
 
         # Camera
-        var theta = deg_to_radians(vfov)
+        var theta = degrees_to_radians(vfov)
         var h = tan(theta / 2)
         var viewport_height = 2 * h * focus_dist
         var viewport_width = (
@@ -290,7 +290,9 @@ struct Camera(Copyable):
         )
 
         # // Calculate the camera defocus disk basis vectors.
-        var defocus_radius = focus_dist * tan(deg_to_radians(defocus_angle / 2))
+        var defocus_radius = focus_dist * tan(
+            degrees_to_radians(defocus_angle / 2)
+        )
         self.defocus_disk_u = self.u * defocus_radius
         self.defocus_disk_v = self.v * defocus_radius
 
@@ -326,7 +328,7 @@ struct Camera(Copyable):
                     cur_ray = scattered_ray
                     accumulated_attenuation *= attenuation
                 else:
-                    return Color.zero()
+                    return Color.zeros()
             else:
                 # RAY HIT THE SKY
                 comptime start_value = Color(1.0, 1.0, 1.0)
@@ -339,7 +341,7 @@ struct Camera(Copyable):
                 return accumulated_attenuation * sky_color
 
         # If we exceeded the depth without hitting the sky, return black
-        return Color.zero()
+        return Color.zeros()
 
     fn render(self, world: HitableList) raises:
         with open("rtiaw_1.ppm", "w") as f:
@@ -351,7 +353,7 @@ struct Camera(Copyable):
             var factor = Float32(1.0 / self.samples_per_pixel)
             for j in range(self.image_height):
                 for i in range(self.image_width):
-                    var pixel_color = Color.zero()
+                    var pixel_color = Color.zeros()
 
                     for sample in range(self.samples_per_pixel):
                         var r = self.get_ray(i, j)
@@ -450,7 +452,7 @@ struct Lambertian(Material, Writable):
         var scatter_direction = hit.normal + random_unit_vector()
 
         # Catch degenerate scatter direction
-        if scatter_direction.near_zero():
+        if scatter_direction.near_zeros():
             scatter_direction = hit.normal
 
         var scattered = Ray(hit.p, scatter_direction)
@@ -478,7 +480,7 @@ struct Dielectric(Material, Writable):
     var refraction_index: Float32
 
     fn scatter(self, ray: Ray, hit: HitRecord) -> Optional[Tuple[Ray, Color]]:
-        var attenuation = Color.one()
+        var attenuation = Color.ones()
         var ri = (
             1.0
             / self.refraction_index if hit.front_face else self.refraction_index

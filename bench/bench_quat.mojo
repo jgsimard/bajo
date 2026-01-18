@@ -123,13 +123,9 @@ fn main() raises:
 
     @parameter
     fn bench_latency[version: Int]() raises:
-        var q2 = Quat.angle_axis(
-            degrees_to_radians(Scalar[DType.float32](45)), Vec3f(0, 1, 0)
-        )
-
-        var q3 = Quat.angle_axis(
-            degrees_to_radians(Scalar[DType.float32](45)), Vec3f(1, 0, 0)
-        )
+        var angle = degrees_to_radians(Scalar[DType.float32](45))
+        var q2 = Quat.angle_axis(angle, Vec3f(0, 1, 0))
+        var q3 = Quat.angle_axis(angle, Vec3f(1, 0, 0))
         var a = dispatch_mul[version](q2, q3)
         var b = Quat(0.853553, 0.353553, 0.353553, -0.146447)
         assert_almost_equal(a.data, b.data, atol=1e-6)

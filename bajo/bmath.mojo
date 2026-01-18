@@ -436,57 +436,107 @@ struct Quaternion[type: DType]:
         return Self(w, xyz.x(), xyz.y(), xyz.z())
 
     @staticmethod
-    fn from_basis(
+    fn from_basis[
+        version: Int = 0
+    ](
         a: Vector3[Self.type], b: Vector3[Self.type], c: Vector3[Self.type]
     ) -> Self:
-        var four_x_sq_m1 = a.x() - b.y() - c.z()
-        var four_y_sq_m1 = b.y() - a.x() - c.z()
-        var four_z_sq_m1 = c.z() - a.x() - b.y()
-        var four_w_sq_m1 = a.x() + b.y() + c.z()
+        @parameter
+        if version == 0:
+            var four_x_sq_m1 = a.x() - b.y() - c.z()
+            var four_y_sq_m1 = b.y() - a.x() - c.z()
+            var four_z_sq_m1 = c.z() - a.x() - b.y()
+            var four_w_sq_m1 = a.x() + b.y() + c.z()
 
-        var biggest_index = 0
-        var four_biggest_sq_m1 = four_w_sq_m1
+            var biggest_index = 0
+            var four_biggest_sq_m1 = four_w_sq_m1
 
-        if four_x_sq_m1 > four_biggest_sq_m1:
-            four_biggest_sq_m1 = four_x_sq_m1
-            biggest_index = 1
+            if four_x_sq_m1 > four_biggest_sq_m1:
+                four_biggest_sq_m1 = four_x_sq_m1
+                biggest_index = 1
 
-        if four_y_sq_m1 > four_biggest_sq_m1:
-            four_biggest_sq_m1 = four_y_sq_m1
-            biggest_index = 2
+            if four_y_sq_m1 > four_biggest_sq_m1:
+                four_biggest_sq_m1 = four_y_sq_m1
+                biggest_index = 2
 
-        if four_z_sq_m1 > four_biggest_sq_m1:
-            four_biggest_sq_m1 = four_z_sq_m1
-            biggest_index = 3
+            if four_z_sq_m1 > four_biggest_sq_m1:
+                four_biggest_sq_m1 = four_z_sq_m1
+                biggest_index = 3
 
-        var biggest_val = sqrt(four_biggest_sq_m1 + 1.0) * 0.5
-        var mult = 0.25 / biggest_val
+            var biggest_val = sqrt(four_biggest_sq_m1 + 1.0) * 0.5
+            var mult = 0.25 / biggest_val
 
-        var w: Scalar[Self.type]
-        var x: Scalar[Self.type]
-        var y: Scalar[Self.type]
-        var z: Scalar[Self.type]
-        if biggest_index == 0:
-            w = biggest_val
-            x = (b.z() - c.y()) * mult
-            y = (c.x() - a.z()) * mult
-            z = (a.y() - b.x()) * mult
-        elif biggest_index == 1:
-            w = (b.z() - c.y()) * mult
-            x = biggest_val
-            y = (a.y() + b.x()) * mult
-            z = (c.x() + a.z()) * mult
-        elif biggest_index == 2:
-            w = (c.x() - a.z()) * mult
-            x = (a.y() + b.x()) * mult
-            y = biggest_val
-            z = (b.z() + c.y()) * mult
+            var w: Scalar[Self.type]
+            var x: Scalar[Self.type]
+            var y: Scalar[Self.type]
+            var z: Scalar[Self.type]
+            if biggest_index == 0:
+                w = biggest_val
+                x = (b.z() - c.y()) * mult
+                y = (c.x() - a.z()) * mult
+                z = (a.y() - b.x()) * mult
+            elif biggest_index == 1:
+                w = (b.z() - c.y()) * mult
+                x = biggest_val
+                y = (a.y() + b.x()) * mult
+                z = (c.x() + a.z()) * mult
+            elif biggest_index == 2:
+                w = (c.x() - a.z()) * mult
+                x = (a.y() + b.x()) * mult
+                y = biggest_val
+                z = (b.z() + c.y()) * mult
+            else:
+                w = (a.y() - b.x()) * mult
+                x = (c.x() + a.z()) * mult
+                y = (b.z() + c.y()) * mult
+                z = biggest_val
+            return Self(w, x, y, z)
+
         else:
-            w = (a.y() - b.x()) * mult
-            x = (c.x() + a.z()) * mult
-            y = (b.z() + c.y()) * mult
-            z = biggest_val
-        return Self(w, x, y, z)
+            comptime S = SIMD[Self.type, 4]
+
+            # We compute all 4 traces (4w^2, 4x^2, 4y^2, 4z^2)
+            var diag = S(a.x(), b.y(), c.z(), 0.0)
+            comptime s_w = S(1, 1, 1, 1)
+            comptime s_x = S(1, -1, -1, 1)
+            comptime s_y = S(-1, 1, -1, 1)
+            comptime s_z = S(-1, -1, 1, 1)
+
+            # traces = [w_trace, x_trace, y_trace, z_trace]
+            var traces = (
+                1.0 + (diag[0] * s_x) + (diag[1] * s_y) + (diag[2] * s_z)
+            )
+            var max_trace = traces.reduce_max()
+
+            # compute the chosen component value and multiplier
+            var v = sqrt(max_trace) * 0.5
+            var mult = 0.25 / v
+
+            # Bulk Off-Diagonal Arithmetic
+            # indices: m_rc where r=row, c=col.
+            # m21 is a.z(), m02 is c.x(), m10 is b.x() etc.
+            var m_left = S(b.z(), c.x(), a.y(), 0.0)  # [m12, m20, m01, 0]
+            var m_right = S(c.y(), a.z(), b.x(), 0.0)  # [m21, m02, m10, 0]
+
+            # d = [ (m21-m12), (m02-m20), (m10-m01), 0 ]
+            # s = [ (m21+m12), (m02+m20), (m10+m01), 0 ]
+            var diff = (m_right - m_left) * mult
+            var sum = (m_right + m_left) * mult
+
+            # construct candidates
+            var qw = S(v, diff[0], diff[1], diff[2])
+            var qx = S(diff[0], v, sum[2], sum[1])
+            var qy = S(diff[1], sum[2], v, sum[0])
+            var qz = S(diff[2], sum[1], sum[0], v)
+
+            # 5. Branchless Selection
+            var mask = traces.eq(max_trace)
+            var res = qz
+            res = SIMD[DType.bool, 4](mask[2]).select(qy, res)
+            res = SIMD[DType.bool, 4](mask[1]).select(qx, res)
+            res = SIMD[DType.bool, 4](mask[0]).select(qw, res)
+
+            return Self(res)
 
     fn __add__(self, o: Self) -> Self:
         return Self(self.data + o.data)

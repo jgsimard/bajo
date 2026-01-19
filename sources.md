@@ -14,18 +14,23 @@ https://xelatihy.github.io/yocto-gl/
 https://github.com/xelatihy/yocto-gl
 
 
- an implementation of parallel linear BVH (LBVH) on GPU 
- https://github.com/ToruNiina/lbvh
+an implementation of parallel linear BVH (LBVH) on GPU 
+https://github.com/ToruNiina/lbvh
 
 
 NVIDIA: Thinking Parallel series
- https://developer.nvidia.com/blog/thinking-parallel-part-i-collision-detection-gpu/
- https://developer.nvidia.com/blog/thinking-parallel-part-ii-tree-traversal-gpu/
- https://developer.nvidia.com/blog/thinking-parallel-part-iii-tree-construction-gpu/
+https://developer.nvidia.com/blog/thinking-parallel-part-i-collision-detection-gpu/
+https://developer.nvidia.com/blog/thinking-parallel-part-ii-tree-traversal-gpu/
+https://developer.nvidia.com/blog/thinking-parallel-part-iii-tree-construction-gpu/
 
 # Graphics
 https://www.sebastianaaltonen.com/blog/no-graphics-api
 
+https://www.realtimerendering.com/
+
+# Robotics
+https://github.com/calderpg/common_robotics_utilities
+https://royfeatherstone.org/spatial/index.html#spatial-software
 
 
 # Tomography
@@ -36,8 +41,6 @@ https://github.com/matteo-ronchetti/torch-radon
 
 
 # Sparse
-
-
 
 
 # Physics
@@ -60,26 +63,6 @@ https://graphics.stanford.edu/courses/cs448b-00-winter/papers/phys_model.pdf
 
 https://chrishecker.com/Rigid_Body_Dynamics
 
-# ECS
-Entity Component System FAQ : https://github.com/SanderMertens/ecs-faq
-ECS overwatch: https://www.youtube.com/watch?v=W3aieHjyNvw&t=7s
-madrona: https://madrona-engine.github.io/#faq
-https://www.richardlord.net/blog/ecs/what-is-an-entity-framework
-
-zig game engine & graphics toolkit
-https://machengine.org/
-https://devlog.hexops.com/categories/build-an-ecs/
-https://github.com/hexops/mach/blob/main/src/module.zig
-
-https://github.com/skypjack/entt/wiki
-https://skypjack.github.io/entt/md_docs_md_entity.html
-https://gist.github.com/dakom/82551fff5d2b843cbe1601bbaff2acbf <
-
-https://github.com/hexops/mach/issues/127
-https://github.com/abeimler/ecs_benchmark
-https://github.com/empyreanx/pico_headers
-
-
 
 Fast and Accurate Computation of Polyhedral Mass
 Properties
@@ -99,3 +82,31 @@ Additional references
 
 Polyhedral Mass Properties (Revisited)
 https://www.geometrictools.com/Docume...
+
+
+# ECS
+ECS overwatch: https://www.youtube.com/watch?v=W3aieHjyNvw&t=7s
+madrona: https://madrona-engine.github.io/#faq
+https://www.richardlord.net/blog/ecs/what-is-an-entity-framework
+
+zig game engine & graphics toolkit
+https://machengine.org/
+https://devlog.hexops.com/categories/build-an-ecs/
+https://github.com/hexops/mach/blob/main/src/module.zig
+
+https://github.com/skypjack/entt/wiki
+https://skypjack.github.io/entt/md_docs_md_entity.html
+https://gist.github.com/dakom/82551fff5d2b843cbe1601bbaff2acbf <
+
+https://github.com/hexops/mach/issues/127
+https://github.com/abeimler/ecs_benchmark
+https://github.com/empyreanx/pico_headers
+
+##  Sander Mertens (the goat)
+Entity Component System FAQ : https://github.com/SanderMertens/ecs-faq
+https://ajmmertens.medium.com/building-an-ecs-1-where-are-my-entities-and-components-63d07c7da742
+https://ajmmertens.medium.com/building-an-ecs-2-archetypes-and-vectorization-fe21690805f9
+https://ajmmertens.medium.com/doing-a-lot-with-a-little-ecs-identifiers-25a72bd2647
+https://ajmmertens.medium.com/building-an-ecs-storage-in-pictures-642b8bfd6e04
+
+https://github.com/SanderMertens/ecs-faq?tab=readme-ov-file#resources

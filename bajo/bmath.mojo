@@ -1,4 +1,4 @@
-from math import pi, sqrt, sin, cos, tan, acos, atan2, clamp
+from math import pi, sqrt, sin, cos, tan, asin, acos, atan2, clamp
 from std.utils.numerics import max_finite, min_finite
 from math import fma
 from std.bit import next_power_of_two
@@ -7,11 +7,19 @@ from random import random_float64
 # ----------------------------------------------------------------------
 # Constants
 # ----------------------------------------------------------------------
+# How constants are named
+# numerator = before _
+# denominator = after _
+# _ at the start if number at the numerator
+comptime _2pi = pi * 2.0
+comptime pi_2 = pi / 2.0
+comptime pi_4 = pi / 4.0
+comptime pi_180 = pi / 180.0
+comptime _180_pi = pi / 180.0
 
-comptime pi_d2 = pi / 2.0
-comptime pi_d180 = pi / 180.0
-comptime pi_m2 = pi * 2.0
-
+comptime Vector2[type: DType] = Vector[type, 2]
+comptime Vector3[type: DType] = Vector[type, 3]
+comptime Vector4[type: DType] = Vector[type, 4]
 
 comptime Vec2f = Vector2[DType.float32]
 comptime Vec3f = Vector3[DType.float32]
@@ -21,7 +29,6 @@ comptime Vec2i = Vector2[DType.int32]
 comptime Vec3i = Vector3[DType.int32]
 
 comptime Vec4b = Vector4[DType.uint8]
-
 
 comptime Diag3f = Diag3x3[DType.float32]
 comptime Mat3f = Mat3x3[DType.float32]
@@ -39,7 +46,13 @@ comptime AABB = AxisAlignedBoundingBox[DType.float32]
 fn degrees_to_radians[
     type: DType, size: Int
 ](degrees: SIMD[type, size]) -> SIMD[type, size]:
-    return degrees * pi_d180
+    return degrees * pi_180
+
+
+fn radians_to_degrees[
+    type: DType, size: Int
+](radian: SIMD[type, size]) -> SIMD[type, size]:
+    return radian * _180_pi
 
 
 @fieldwise_init
@@ -85,11 +98,6 @@ fn solve_quadratic[
 # ----------------------------------------------------------------------
 # Vector
 # ----------------------------------------------------------------------
-comptime Vector2[type: DType] = Vector[type, 2]
-comptime Vector3[type: DType] = Vector[type, 3]
-comptime Vector4[type: DType] = Vector[type, 4]
-
-
 fn dot[t: DType, s: Int](a: Vector[t, s], b: Vector[t, s]) -> Scalar[t]:
     return (a.data * b.data).reduce_add()
 
@@ -537,6 +545,51 @@ struct Quaternion[type: DType]:
             res = SIMD[DType.bool, 4](mask[0]).select(qw, res)
 
             return Self(res)
+
+    @staticmethod
+    fn from_euler(
+        roll: Scalar[Self.type],
+        pitch: Scalar[Self.type],
+        yaw: Scalar[Self.type],
+    ) -> Self:
+        """
+        Converts Euler angles (Roll, Pitch, Yaw) to a Quaternion.
+        Order: Z (Yaw) -> Y (Pitch) -> X (Roll).
+        """
+        var cr = cos(roll * 0.5)
+        var sr = sin(roll * 0.5)
+        var cp = cos(pitch * 0.5)
+        var sp = sin(pitch * 0.5)
+        var cy = cos(yaw * 0.5)
+        var sy = sin(yaw * 0.5)
+
+        var w = cr * cp * cy + sr * sp * sy
+        var x = sr * cp * cy - cr * sp * sy
+        var y = cr * sp * cy + sr * cp * sy
+        var z = cr * cp * sy - sr * sp * cy
+
+        return Self(w, x, y, z)
+
+    fn to_euler(self) -> Vector3[Self.type]:
+        """
+        Converts Quaternion back to Euler angles (Roll, Pitch, Yaw).
+        """
+        var sinr_cosp = 2 * (self.w() * self.x() + self.y() * self.z())
+        var cosr_cosp = 1 - 2 * (self.x() * self.x() + self.y() * self.y())
+        var roll = atan2(sinr_cosp, cosr_cosp)
+
+        var sinp = 2 * (self.w() * self.y() - self.z() * self.x())
+        var pitch: Scalar[Self.type]
+        if abs(sinp) >= 1:
+            pitch = Scalar[Self.type](1.0 if sinp > 0 else -1.0) * pi_2
+        else:
+            pitch = asin(sinp)
+
+        var siny_cosp = 2 * (self.w() * self.z() + self.x() * self.y())
+        var cosy_cosp = 1 - 2 * (self.y() * self.y() + self.z() * self.z())
+        var yaw = atan2(siny_cosp, cosy_cosp)
+
+        return Vector3[Self.type](roll, pitch, yaw)
 
     fn __add__(self, o: Self) -> Self:
         return Self(self.data + o.data)

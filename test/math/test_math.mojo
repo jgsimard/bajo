@@ -38,27 +38,24 @@ fn assert_vec_equal[
 
 # Tests
 fn test_solve_quadratic() raises:
-    # x^2 - 5x + 6 = 0 -> roots 2, 3
-    var a = SIMD[DType.float32, 2](1.0, 1.0)
-    var b = SIMD[DType.float32, 2](
-        -5.0, 0.0
-    )  # Lane 0: has roots, Lane 1: no roots
-    var c = SIMD[DType.float32, 2](6.0, 1.0)
+    # Lane 0: x^2 - 5x + 6 = 0 -> roots 2, 3
+    # Lane 1: x^2 + 0x + 1 = 0 -> no real roots
+    comptime T = SIMD[DType.float32, 2]
+    var a = T(1.0, 1.0)
+    var b = T(-5.0, 0.0)
+    var c = T(6.0, 1.0)
 
     var res = solve_quadratic(a, b, c)
-    var t0 = res.roots_0
-    var t1 = res.roots_1
-    var mask = res.mask
 
-    # Lane 0 should be solved
-    assert_true(mask[0])
-    var root_a = t0[0]
-    var root_b = t1[0]
-    assert_almost_equal(min(root_a, root_b), 2.0)
-    assert_almost_equal(max(root_a, root_b), 3.0)
+    # Lane 0
+    assert_true(res.mask[0])
+    var root_0 = min(res.roots_0[0], res.roots_1[0])
+    var root_1 = max(res.roots_0[0], res.roots_1[0])
+    assert_almost_equal(root_0, 2.0)
+    assert_almost_equal(root_1, 3.0)
 
-    # Lane 1 (x^2 + 1 = 0) should not be solved
-    assert_false(mask[1])
+    # Lane 1
+    assert_false(res.mask[1])
 
 
 fn test_vector_math() raises:
@@ -233,9 +230,8 @@ fn test_matrix_composition() raises:
 
 
 fn test_matrix_roundtrip() raises:
-    var r = Quat.angle_axis(
-        degrees_to_radians(Scalar[DType.float32](30)), Vec3f(1, 0, 0)
-    )
+    var angle = degrees_to_radians(Scalar[DType.float32](30))
+    var r = Quat.angle_axis(angle, Vec3f(1, 0, 0))
     var m = Mat3f.from_quat(r)
     # Rotating a vector by the matrix should match rotating by the quaternion
     var v = Vec3f(0, 1, 0)

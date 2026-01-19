@@ -70,8 +70,8 @@ fn test_vector_math() raises:
     assert_almost_equal(dot(a, b), 32.0)
 
     # Test Lerp
-    var mid = lerp(Vec3f(0, 0, 0), Vec3f(10, 10, 10), 0.5)
-    assert_vec_equal(mid, Vec3f(5, 5, 5))
+    var mid = lerp(Vec3f(1, 2, 3), Vec3f(11, 12, 13), 0.5)
+    assert_vec_equal(mid, Vec3f(6, 7, 8))
 
 
 fn test_matrix_basics() raises:

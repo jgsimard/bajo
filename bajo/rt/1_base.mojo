@@ -15,7 +15,6 @@ from bajo.bmath import (
     cross,
     degrees_to_radians,
 )
-from bajo.color import rgb_to_srgb
 
 comptime Point3 = Vec3f
 comptime Color = Vec3f
@@ -29,8 +28,9 @@ struct Scene:
 
 fn main() raises:
     print(" Ray Tracing in One Weekend - Part 1")
+    scene = create_top_scene()
     # scene = create_basic_scene()
-    scene = create_random_scene()
+    # scene = create_random_scene()
     scene.camera.render(scene.world)
 
 
@@ -579,31 +579,6 @@ fn create_random_scene() -> Scene:
 
 
 fn create_basic_scene() -> Scene:
-    comptime aspect_ratio = 16.0 / 9.0
-    comptime image_width = 400
-    comptime samples_per_pixel = 10
-    comptime max_depth = 10
-    comptime vfov = 20
-    comptime lookfrom = Point3(-2, 2, 1)
-    comptime lookat = Point3(0, 0, -1)
-    comptime vup = Vec3f(0, 1, 0)
-    comptime defocus_angle = 10.0
-    comptime focus_dist = 3.4
-
-    var material_ground = Lambertian(Color(0.8, 0.8, 0.0))
-    var material_center = Lambertian(Color(0.1, 0.2, 0.5))
-    var material_left = Dielectric(1.5)
-    var material_bubble = Dielectric(1.0 / 1.5)
-    var material_right = Metal(Color(0.8, 0.6, 0.2), 1.0)
-
-    var materials: List[MaterialVariant] = [
-        material_ground^,
-        material_center^,
-        material_left^,
-        material_bubble^,
-        material_right^,
-    ]
-
     var world = HitableList(
         [
             Sphere(Point3(0, -100.5, -1), 100, 0),
@@ -612,29 +587,47 @@ fn create_basic_scene() -> Scene:
             Sphere(Point3(-1, 0, -1), 0.4, 3),
             Sphere(Point3(1, 0, -1), 0.5, 4),
         ],
-        materials^,
+        [
+            Lambertian(Color(0.8, 0.8, 0.0)),  # ground
+            Lambertian(Color(0.1, 0.2, 0.5)),  # center
+            Dielectric(1.5),  # left
+            Dielectric(1.0 / 1.5),  # bubble
+            Metal(Color(0.8, 0.6, 0.2), 1.0),  # right
+        ],
     )
 
-    # var R = Float32(cos(pi/4))
-    # var materials : List[MaterialVariant] = [
-    #     Lambertian(Color(0,0,1)),
-    #     Lambertian(Color(1, 0, 0))
-    # ]
-    # var objects : List[HittableVariant] = [
-    #     Sphere(Point3(-R, 0, -1), R, 0),
-    #     Sphere(Point3(R, 0, -1), R, 1)
-    # ]
-    # var world = HitableList(objects^, materials^)
     var cam = Camera(
-        image_width,
-        aspect_ratio,
-        samples_per_pixel,
-        max_depth,
-        vfov,
-        lookfrom,
-        lookat,
-        vup,
-        defocus_angle,
-        focus_dist,
+        image_width=400,
+        aspect_ratio=16.0 / 9.0,
+        samples_per_pixel=10,
+        max_depth=10,
+        vfov=20,
+        lookfrom=Point3(-2, 2, 1),
+        lookat=Point3(0, 0, -1),
+        vup=Vec3f(0, 1, 0),
+        defocus_angle=10.0,
+        focus_dist=3.4,
+    )
+    return Scene(cam^, world^)
+
+
+fn create_top_scene() -> Scene:
+    var R = Float32(cos(pi / 4))
+    var world = HitableList(
+        [Sphere(Point3(-R, 0, -1), R, 0), Sphere(Point3(R, 0, -1), R, 1)],
+        [Lambertian(Color(0, 0, 1)), Lambertian(Color(1, 0, 0))],
+    )
+
+    var cam = Camera(
+        image_width=400,
+        aspect_ratio=16.0 / 9.0,
+        samples_per_pixel=10,
+        max_depth=10,
+        vfov=90,
+        lookfrom=Point3(0, 0, 0),
+        lookat=Point3(0, 0, -1),
+        vup=Vec3f(0, 1, 0),
+        defocus_angle=0.0,
+        focus_dist=10.0,
     )
     return Scene(cam^, world^)

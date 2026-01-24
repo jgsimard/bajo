@@ -62,7 +62,6 @@ struct Ray(Copyable, Writable):
         return self.origin + t * self.direction
 
 
-@fieldwise_init
 @register_passable("trivial")
 struct HitRecord(Copyable):
     var p: Point3
@@ -71,12 +70,14 @@ struct HitRecord(Copyable):
     var t: Float32
     var front_face: Bool
 
-    fn set_face_normal(mut self, r: Ray, outward_normal: Vec3f):
-        # Sets the hit record normal vector.
-        # NOTE: the parameter `outward_normal` is assumed to have unit length.
-
-        self.front_face = dot(r.direction, outward_normal) < 0
-        self.normal = outward_normal if self.front_face else -outward_normal
+    fn __init__(
+        out self, p: Point3, normal: Vec3f, material_id: Int, t: Float32, r: Ray
+    ):
+        self.p = p
+        self.material_id = material_id
+        self.t = t
+        self.front_face = dot(r.direction, normal) < 0
+        self.normal = normal if self.front_face else -normal
 
 
 trait Hittable(Copyable):
@@ -116,11 +117,7 @@ struct Sphere(Hittable, Writable):
         var t = root
         var p = ray.at(t)
         var normal = (p - self.center) / self.radius
-        var rec = HitRecord(p, normal, self.material_id, t, False)
-        var outward_normal = (rec.p - self.center) / self.radius
-        rec.set_face_normal(ray, outward_normal)
-
-        return rec
+        return HitRecord(p, normal, self.material_id, t, ray)
 
 
 comptime HittableVariant = Variant[Sphere]
@@ -223,9 +220,9 @@ struct Camera(Copyable):
     var focus_dist: Float32
     """Distance from camera lookfrom point to plane of perfect focus."""
     var defocus_disk_u: Vec3f
-    # // Defocus disk horizontal radius
+    """Defocus disk horizontal radius."""
     var defocus_disk_v: Vec3f
-    # // Defocus disk vertical radius
+    """Defocus disk vertical radius."""
 
     fn __init__(
         out self,

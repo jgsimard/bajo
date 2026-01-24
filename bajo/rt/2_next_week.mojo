@@ -137,6 +137,7 @@ struct Sphere(Hittable, Writable):
         var normal = (p - current_center) / self.radius
         return HitRecord(p, normal, self.material_id, t, ray)
 
+
 comptime HittableVariant = Variant[Sphere]
 
 

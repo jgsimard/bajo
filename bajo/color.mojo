@@ -134,15 +134,17 @@ fn tonemap_filmic(hdr: Vec3f) -> Vec3f:
     return Vector.max(Vec3f(0), Vector.min(Vec3f(1), ldr))
 
 
-fn tonemap(
-    hdr: Vec3f, exposure: Float32, filmic: Bool = False, srgb: Bool = True
-) -> Vec3f:
+fn tonemap[
+    filmic: Bool = False, srgb: Bool = True
+](hdr: Vec3f, exposure: Float32) -> Vec3f:
     var rgb = hdr
     if exposure != 0:
         rgb = rgb * exp2(exposure)
+
+    @parameter
     if filmic:
         rgb = tonemap_filmic(rgb)
-    if srgb:
+    elif srgb:
         rgb = rgb_to_srgb(rgb)
     return rgb
 

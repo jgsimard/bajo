@@ -4,6 +4,7 @@ from algorithm import parallelize
 from utils import Variant
 from os import abort
 from std.utils.numerics import max_finite, min_finite
+from algorithm import parallelize
 
 from bajo.bmath import (
     Vec2f,
@@ -28,9 +29,9 @@ struct Scene:
 
 fn main() raises:
     print(" Ray Tracing in One Weekend - Part 1")
-    scene = create_top_scene()
+    # scene = create_top_scene()
     # scene = create_basic_scene()
-    # scene = create_random_scene()
+    scene = create_random_scene()
     scene.camera.render(scene.world)
 
 
@@ -205,11 +206,11 @@ struct Camera(Copyable):
     var vfov: Float32
     """ Vertical view angle (field of view)."""
     var lookfrom: Point3
-    # Point camera is looking from
+    """Point camera is looking from."""
     var lookat: Point3
-    # // Point camera is looking at
+    """Point camera is looking at."""
     var vup: Vec3f
-    # // Camera-relative "up" direction
+    """Camera-relative "up" direction."""
     var u: Vec3f
     var v: Vec3f
     var w: Vec3f
@@ -339,23 +340,29 @@ struct Camera(Copyable):
         return Color.zeros()
 
     fn render(self, world: HitableList) raises:
-        with open("rtiaw_1.ppm", "w") as f:
-            var header = "P3\n{} {}\n255\n".format(
-                self.image_width, self.image_height
-            )
-            f.write(header)
+        var image_data = List[Color](
+            length=self.image_width * self.image_height, fill=Color.zeros()
+        )
 
+        @parameter
+        fn worker(j: Int):
             var factor = Float32(1.0 / self.samples_per_pixel)
-            for j in range(self.image_height):
-                for i in range(self.image_width):
-                    var pixel_color = Color.zeros()
+            for i in range(self.image_width):
+                var pixel_color = Color.zeros()
+                for sample in range(self.samples_per_pixel):
+                    var r = self.get_ray(i, j)
+                    pixel_color += self.ray_color(r, world)
 
-                    for sample in range(self.samples_per_pixel):
-                        var r = self.get_ray(i, j)
+                image_data[j * self.image_width + i] = pixel_color * factor
 
-                        pixel_color += factor * self.ray_color(r, world)
+        parallelize[worker](self.image_height, self.image_height)
 
-                    write_color(f, pixel_color)
+        with open("rtiaw_1.ppm", "w") as f:
+            f.write(
+                "P3\n{} {}\n255\n".format(self.image_width, self.image_height)
+            )
+            for color in image_data:
+                write_color(f, color)
 
     fn get_ray(self, i: Int, j: Int) -> Ray:
         var offset = Vec2f.random(-0.5, 0.5)
@@ -412,10 +419,7 @@ fn random_in_unit_disk() -> Vec3f:
 fn random_in_unit_sphere() -> Vec3f:
     var unit = Vec3f(1.0, 1.0, 1.0)
     while True:
-        r1 = Float32(random_float64())
-        r2 = Float32(random_float64())
-        r3 = Float32(random_float64())
-        var p = 2.0 * Vec3f(r1, r2, r3) - unit
+        var p = 2.0 * Vec3f.random() - unit
         if dot(p, p) < 1.0:
             return p
 

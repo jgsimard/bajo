@@ -56,8 +56,9 @@ fn radians_to_degrees[
 
 
 @fieldwise_init
-@register_passable("trivial")
-struct QuadraticSolutions[type: DType, size: Int](Copyable):
+struct QuadraticSolutions[type: DType, size: Int](
+    Copyable, TrivialRegisterType
+):
     var roots_0: SIMD[Self.type, Self.size]
     var roots_1: SIMD[Self.type, Self.size]
     var mask: SIMD[DType.bool, Self.size]
@@ -68,7 +69,7 @@ fn solve_quadratic[
 ](
     a: SIMD[type, size], b: SIMD[type, size], c: SIMD[type, size]
 ) -> QuadraticSolutions[type, size]:
-    """Solves the quadratic equation ax^2 + bx + c = 0 element-wise for SIMD vectors.
+    """Solves the quadratic equation `ax^2 + bx + c = 0` element-wise for SIMD vectors.
 
     This function uses a numerically stable implementation (Citardauq's formula)
     to prevent catastrophic cancellation when 'b' is much larger than 'ac'.
@@ -145,12 +146,12 @@ fn lerp[
 
 
 @fieldwise_init
-@register_passable("trivial")
 struct Vector[type: DType, size: Int](
     Copyable,
     Equatable,
     Powable,
     Stringable,
+    TrivialRegisterType,
     Writable,
 ):
     """A wrapper around SIMD."""
@@ -390,8 +391,7 @@ fn normalize[type: DType](q: Quaternion[type]) -> Quaternion[type]:
 
 
 @fieldwise_init
-@register_passable("trivial")
-struct Quaternion[type: DType]:
+struct Quaternion[type: DType](TrivialRegisterType):
     """TODO: Should we use wxyz or xyzw ? i heard gpu expect xyzw. but eigen uses wxyz.
     """
 
@@ -637,8 +637,7 @@ struct Quaternion[type: DType]:
 # Diag3x3
 # ----------------------------------------------------------------------
 @fieldwise_init
-@register_passable("trivial")
-struct Diag3x3[type: DType]:
+struct Diag3x3[type: DType](TrivialRegisterType):
     var d0: Scalar[Self.type]
     var d1: Scalar[Self.type]
     var d2: Scalar[Self.type]
@@ -674,8 +673,7 @@ struct Diag3x3[type: DType]:
 # Mat3x3
 # ----------------------------------------------------------------------
 @fieldwise_init
-@register_passable("trivial")
-struct Mat3x3[type: DType]:
+struct Mat3x3[type: DType](TrivialRegisterType):
     var c0: Vector3[Self.type]
     var c1: Vector3[Self.type]
     var c2: Vector3[Self.type]
@@ -771,8 +769,7 @@ struct Mat3x3[type: DType]:
 # Mat3x4
 # ----------------------------------------------------------------------
 @fieldwise_init
-@register_passable("trivial")
-struct Mat3x4[type: DType]:
+struct Mat3x4[type: DType](TrivialRegisterType):
     var c0: Vector3[Self.type]
     var c1: Vector3[Self.type]
     var c2: Vector3[Self.type]
@@ -851,8 +848,7 @@ struct Mat3x4[type: DType]:
 # Mat4x4
 # ----------------------------------------------------------------------
 @fieldwise_init
-@register_passable("trivial")
-struct Mat4x4[type: DType]:
+struct Mat4x4[type: DType](TrivialRegisterType):
     var c0: Vector4[Self.type]
     var c1: Vector4[Self.type]
     var c2: Vector4[Self.type]
@@ -888,8 +884,9 @@ struct Mat4x4[type: DType]:
 # AABB
 # ----------------------------------------------------------------------
 @fieldwise_init
-@register_passable("trivial")
-struct AxisAlignedBoundingBox[type: DType where type.is_floating_point()]:
+struct AxisAlignedBoundingBox[type: DType where type.is_floating_point()](
+    TrivialRegisterType
+):
     var min: Vector3[Self.type]
     var max: Vector3[Self.type]
 

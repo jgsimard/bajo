@@ -217,3 +217,5 @@ scrap.mojo
 
 *kgen.trace.json.time-events.txt
 *kgen.trace.json.time-trace
+
+*.ppm

@@ -49,10 +49,8 @@ fn test_solve_quadratic() raises:
 
     # Lane 0
     assert_true(res.mask[0])
-    var root_0 = min(res.roots_0[0], res.roots_1[0])
-    var root_1 = max(res.roots_0[0], res.roots_1[0])
-    assert_almost_equal(root_0, 2.0)
-    assert_almost_equal(root_1, 3.0)
+    assert_almost_equal(res.roots_0[0], 2.0)
+    assert_almost_equal(res.roots_1[0], 3.0)
 
     # Lane 1
     assert_false(res.mask[1])

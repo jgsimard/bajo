@@ -90,8 +90,8 @@ fn solve_quadratic[
 
     var q = -0.5 * (b + b.ge(0.0).select(sqrt_det, -sqrt_det))
 
-    var t0 = q / a
-    var t1 = c / q
+    var t0 = c / q
+    var t1 = q / a
 
     return QuadraticSolutions(t0, t1, mask)
 

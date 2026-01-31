@@ -314,7 +314,7 @@ struct Camera(Copyable):
         var cur_ray = ray.copy()
         var accumulated_attenuation = Color(1.0, 1.0, 1.0)
 
-        for bounce in range(self.max_depth):
+        for _bounce in range(self.max_depth):
             comptime infinity = max_finite[DType.float32]()
             var hit_res = world.hit(cur_ray, Interval(Float32(0.001), infinity))
 
@@ -367,7 +367,7 @@ struct Camera(Copyable):
             var factor = Float32(1.0 / self.samples_per_pixel)
             for i in range(self.image_width):
                 var pixel_color = Color.zeros()
-                for sample in range(self.samples_per_pixel):
+                for _sample in range(self.samples_per_pixel):
                     var r = self.get_ray(i, j)
                     pixel_color += self.ray_color(r, world)
 
@@ -418,9 +418,8 @@ fn random_unit_vector() -> Vec3f:
 
 fn random_on_hemisphere(normal: Vec3f) -> Vec3f:
     var on_unit_sphere = random_unit_vector()
-    if (
-        dot(on_unit_sphere, normal) > 0.0
-    ):  # In the same hemisphere as the normal
+    # In the same hemisphere as the normal
+    if dot(on_unit_sphere, normal) > 0.0:
         return on_unit_sphere
     else:
         return -on_unit_sphere
@@ -436,7 +435,7 @@ fn random_in_unit_disk() -> Vec3f:
 
 
 fn random_in_unit_sphere() -> Vec3f:
-    var unit = Vec3f(1.0, 1.0, 1.0)
+    comptime unit = Vec3f(1.0)
     while True:
         var p = 2.0 * Vec3f.random() - unit
         if dot(p, p) < 1.0:

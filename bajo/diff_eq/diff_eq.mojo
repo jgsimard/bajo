@@ -8,7 +8,7 @@ from sys import simd_width_of
 from algorithm import vectorize
 
 
-comptime system_fn[dtype: DType, layout: Layout] = fn (
+comptime system_fn[dtype: DType, layout: Layout] = fn(
     mut LayoutTensor[dtype, layout, MutAnyOrigin],
     LayoutTensor[dtype, layout, MutAnyOrigin],
     Scalar[dtype],
@@ -403,10 +403,10 @@ struct ODEProblem[
 
 fn solve[
     dtype: DType where dtype.is_floating_point(),
-    L: Layout,
-    system: system_fn[dtype, L],
+    layout: Layout,
+    system: system_fn[dtype, layout],
 ](prob: ODEProblem[system], dt: Scalar[dtype]) -> LayoutTensor[
-    dtype, L, MutAnyOrigin
+    dtype, layout, MutAnyOrigin
 ]:
     var integrator = solver[system](prob.u0, prob.tspan[0], dt)
     var t_end = prob.tspan[1]
@@ -449,7 +449,7 @@ fn lorenz(
     dy[2] = y[0] * y[1] - (8.0 / 3.0) * y[2]
 
 
-comptime GS_N = 16
+comptime GS_N = 8
 comptime gs_layout = Layout.row_major(GS_N, GS_N, 2)
 
 
@@ -545,14 +545,14 @@ fn setup_lorenz_problem() -> ODEProblem[lorenz]:
 
 fn basic_bench[
     dtype: DType where dtype.is_floating_point(),
-    L: Layout,
-    system: system_fn[dtype, L],
+    layout: Layout,
+    system: system_fn[dtype, layout],
     //,
-    setup_func: fn () -> ODEProblem[system],
+    setup_func: fn() -> ODEProblem[system],
 ]() raises:
     fn bench_fn() raises:
         var prob = setup_func()
-        var res = solve[dtype, L, system](prob, dt=prob.dt)
+        var res = solve[dtype, layout, system](prob, dt=prob.dt)
         keep(res)
 
     var time_us = run[func1=bench_fn](max_iters=100).mean(Unit.us)

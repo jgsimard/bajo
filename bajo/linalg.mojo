@@ -1,15 +1,13 @@
-import benchmark
+from benchmark import run, keep, Unit
 
 
-struct Vector[dim: Int](Movable):
+struct Vector[dim: Int](Copyable):
     var data: InlineArray[Float32, Self.dim * Self.dim]
 
 
-struct Matrix[dim: Int](Copyable, Movable, Stringable):
+@fieldwise_init
+struct Matrix[dim: Int](Copyable, Stringable):
     var data: InlineArray[Float32, Self.dim * Self.dim]
-
-    fn __init__(out self, data: InlineArray[Float32, Self.dim * Self.dim]):
-        self.data = data
 
     fn __getitem__(self, row: Int, col: Int) -> Float32:
         return self.data[row * Self.dim + col]
@@ -17,12 +15,12 @@ struct Matrix[dim: Int](Copyable, Movable, Stringable):
     fn __setitem__(var self, row: Int, col: Int, value: Float32):
         self.data[row * Self.dim + col] = value
 
-    fn inverse[use_simd: Bool](self: Matrix[2]) raises -> Matrix[2]:
-        @parameter
-        if use_simd:
-            return inverse_m22_simd(self)
-        else:
-            return inverse_m22(self)
+    # fn inverse[use_simd: Bool](self: Matrix[2]) raises -> Matrix[2]:
+    #     @parameter
+    #     if use_simd:
+    #         return inverse_m22_simd(self)
+    #     else:
+    #         return inverse_m22(self)
 
     fn inverse[use_simd: Bool](self: Matrix[4]) raises -> Matrix[4]:
         @parameter
@@ -48,34 +46,35 @@ struct Matrix[dim: Int](Copyable, Movable, Stringable):
 
 fn bench_inv4[use_simd: Bool]() raises:
     # fmt: off
-    var matrix_data = InlineArray[Float32, 16](
+    var matrix_data : InlineArray[Float32, 16]= [
         2, -1, 0, 0, 
         -5, 2, -1, 0, 
         0, -1, 2, -1, 
         0, 0, -1, 2,
-    )
+    ]
     # fmt: on
+    var mat = Matrix[4](matrix_data^)
 
-    var mat = Matrix[4](matrix_data)
-    for _ in range(1e6):
-        var mat_inv = mat.inverse[use_simd]()
+    fn bench_fn() raises capturing:
+        for _ in range(1e3):
+            mat = mat.inverse[use_simd]()
+        keep(mat.data)
 
-        @parameter
-        for i in range(16):
-            benchmark.keep(mat_inv.data[0])
+    var time_ns = round(run[func3=bench_fn](max_iters=1000).mean(Unit.ns), 1)
+
+    print("bench_inv4 : simd={} : {} us".format(use_simd, time_ns))
 
 
 fn main() raises:
     # fmt: off
-    var matrix_data = InlineArray[Float32, 16](
+    var matrix_data: InlineArray[Float32, 16] = [
          2, -1,  0,  0,
         -5,  2, -1,  0,
          0, -1,  2, -1,
          0,  0, -1,  2,
-    )
+    ]
     # fmt: on
-
-    var mat = Matrix[4](matrix_data)
+    var mat = Matrix[4](matrix_data^)
 
     print("Original Matrix:")
     print(String(mat))
@@ -87,42 +86,36 @@ fn main() raises:
     print(String(mat_inv_simd))
     print(mat_inv == mat_inv_simd)
 
-    var report = benchmark.run[bench_inv4[False]]()
-    report.print()
-
-    var report_simd = benchmark.run[bench_inv4[True]]()
-    report_simd.print()
-
-    var speedup = report.mean() / report_simd.mean()
-    print(speedup)
+    bench_inv4[False]()
+    bench_inv4[True]()
 
 
-fn inverse_m22(mat: Matrix[2]) raises -> Matrix[2]:
-    ref m = mat.data
+# fn inverse_m22(mat: Matrix[2]) raises -> Matrix[2]:
+#     ref m = mat.data
 
-    var det = 1.0
+#     var det = 1.0
 
-    if abs(det) < 1e-6:
-        raise Error("Matrix2 is not invertable")
+#     if abs(det) < 1e-6:
+#         raise Error("Matrix2 is not invertable")
 
-    var inv_det = 1.0 / det
-    var inv_data = InlineArray[Float32, 4](uninitialized=True)
+#     var inv_det = 1.0 / det
+#     var inv_data = InlineArray[Float32, 4](uninitialized=True)
 
-    return Matrix[2](inv_data)
+#     return Matrix[2](inv_data^)
 
 
-fn inverse_m22_simd(mat: Matrix[2]) raises -> Matrix[2]:
-    ref m = mat.data
+# fn inverse_m22_simd(mat: Matrix[2]) raises -> Matrix[2]:
+#     ref m = mat.data
 
-    var det = 1.0
+#     var det = 1.0
 
-    if abs(det) < 1e-6:
-        raise Error("Matrix2 is not invertable")
+#     if abs(det) < 1e-6:
+#         raise Error("Matrix2 is not invertable")
 
-    var inv_det = 1.0 / det
-    var inv_data = InlineArray[Float32, 4](uninitialized=True)
+#     var inv_det = 1.0 / det
+#     var inv_data = InlineArray[Float32, 4](uninitialized=True)
 
-    return Matrix[2](inv_data)
+#     return Matrix[2](inv_data^)
 
 
 fn inverse_m44(mat: Matrix[4]) raises -> Matrix[4]:
@@ -167,7 +160,7 @@ fn inverse_m44(mat: Matrix[4]) raises -> Matrix[4]:
     inv_data[11] = (-m[0] * m[5] * m[11] + m[0] * m[7] * m[9] + m[4] * m[1] * m[11] - m[4] * m[3] * m[9] - m[8] * m[1] * m[7] + m[8] * m[3] * m[5]) * inv_det
     inv_data[15] = (m[0] * m[5] * m[10] - m[0] * m[6] * m[9] - m[4] * m[1] * m[10] + m[4] * m[2] * m[9] + m[8] * m[1] * m[6] - m[8] * m[2] * m[5]) * inv_det
     # fmt: on
-    return Matrix[4](inv_data)
+    return Matrix[4](inv_data^)
 
 
 fn inverse_m44_simd(mat: Matrix[4]) raises -> Matrix[4]:
@@ -295,4 +288,4 @@ fn inverse_m44_simd(mat: Matrix[4]) raises -> Matrix[4]:
     ptr_inv.store[width=4](8, res_R2)
     ptr_inv.store[width=4](12, res_R3)
 
-    return Matrix[4](inv_data)
+    return Matrix[4](inv_data^)

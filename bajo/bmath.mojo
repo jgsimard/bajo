@@ -374,24 +374,34 @@ struct Vector[type: DType, size: Int](
 # ----------------------------------------------------------------------
 # Quaternion
 # ----------------------------------------------------------------------
-fn length2[type: DType](q: Quaternion[type]) -> Scalar[type]:
+fn length2[
+    type: DType where type.is_floating_point()
+](q: Quaternion[type]) -> Scalar[type]:
     return (q.data * q.data).reduce_add()
 
 
-fn length[type: DType](q: Quaternion[type]) -> Scalar[type]:
+fn length[
+    type: DType where type.is_floating_point()
+](q: Quaternion[type]) -> Scalar[type]:
     return sqrt(length2(q))
 
 
-fn inv_length[type: DType](q: Quaternion[type]) -> Scalar[type]:
+fn inv_length[
+    type: DType where type.is_floating_point()
+](q: Quaternion[type]) -> Scalar[type]:
     return 1.0 / length(q)
 
 
-fn normalize[type: DType](q: Quaternion[type]) -> Quaternion[type]:
+fn normalize[
+    type: DType where type.is_floating_point()
+](q: Quaternion[type]) -> Quaternion[type]:
     return Quaternion[type](q.data * inv_length(q))
 
 
 @fieldwise_init
-struct Quaternion[type: DType](TrivialRegisterType):
+struct Quaternion[type: DType where type.is_floating_point()](
+    TrivialRegisterType
+):
     """TODO: Should we use wxyz or xyzw ? i heard gpu expect xyzw. but eigen uses wxyz.
     """
 
@@ -673,7 +683,7 @@ struct Diag3x3[type: DType](TrivialRegisterType):
 # Mat3x3
 # ----------------------------------------------------------------------
 @fieldwise_init
-struct Mat3x3[type: DType](TrivialRegisterType):
+struct Mat3x3[type: DType where type.is_floating_point()](TrivialRegisterType):
     var c0: Vector3[Self.type]
     var c1: Vector3[Self.type]
     var c2: Vector3[Self.type]
@@ -769,7 +779,7 @@ struct Mat3x3[type: DType](TrivialRegisterType):
 # Mat3x4
 # ----------------------------------------------------------------------
 @fieldwise_init
-struct Mat3x4[type: DType](TrivialRegisterType):
+struct Mat3x4[type: DType where type.is_floating_point()](TrivialRegisterType):
     var c0: Vector3[Self.type]
     var c1: Vector3[Self.type]
     var c2: Vector3[Self.type]

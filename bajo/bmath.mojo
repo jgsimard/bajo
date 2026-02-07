@@ -2,7 +2,7 @@ from math import pi, sqrt, sin, cos, tan, asin, acos, atan2, clamp
 from std.utils.numerics import max_finite, min_finite
 from math import fma
 from std.bit import next_power_of_two
-from random import random_float64
+from random import random_float64, Random
 
 # ----------------------------------------------------------------------
 # Constants
@@ -96,6 +96,50 @@ fn solve_quadratic[
     return QuadraticSolutions(t0, t1, mask)
 
 
+struct PhiloxRNG:
+    var _rng: Random[10]
+    var _buffer: SIMD[DType.float32, 4]
+    var _consumed: Int
+
+    fn __init__(out self, seed: Int, pixel_id: Int):
+        self._rng = Random[10](seed=seed, subsequence=pixel_id)
+        self._buffer = self._rng.step_uniform()
+        self._consumed = 0
+
+    fn next_f32(mut self) -> Float32:
+        if self._consumed >= 4:
+            self._buffer = self._rng.step_uniform()
+            self._consumed = 0
+        var val = self._buffer[self._consumed]
+        self._consumed += 1
+        return val
+
+
+fn random_unit_vector(mut rng: PhiloxRNG) -> Vec3f:
+    var u = rng.next_f32()
+    var v = rng.next_f32()
+    var theta = 2.0 * pi * u
+    var phi = acos(1.0 - 2.0 * v)
+    var sin_phi = sin(phi)
+    return Vec3f(sin_phi * cos(theta), sin_phi * sin(theta), cos(phi))
+
+fn random_on_hemisphere(mut rng: PhiloxRNG, normal: Vec3f) -> Vec3f:
+    var on_unit_sphere = random_unit_vector(rng)
+    var sign = dot(on_unit_sphere, normal) > 0.0
+    return sign * on_unit_sphere
+
+fn random_in_unit_disk(mut rng: PhiloxRNG) -> Vec3f:
+    var u = rng.next_f32()
+    var v = rng.next_f32()
+    var theta = 2.0 * pi * u
+    var r = sqrt(v)
+    return Vec3f(r * cos(theta), r * sin(theta), 0.0)
+
+fn random_in_unit_sphere(mut rng: PhiloxRNG) -> Vec3f:
+    var u = rng.next_f32()
+    var r = pow(u, 1.0 / 3.0)
+    return random_unit_vector() * r
+
 # ----------------------------------------------------------------------
 # Vector
 # ----------------------------------------------------------------------
@@ -180,7 +224,7 @@ struct Vector[type: DType, size: Int](
         x: Scalar[Self.type],
         y: Scalar[Self.type],
     ):
-        __comptime_assert Self.size == 2
+        comptime assert Self.size == 2
         self.data = Self.data_type(x, y)
 
     fn __init__(
@@ -189,7 +233,7 @@ struct Vector[type: DType, size: Int](
         y: Scalar[Self.type],
         z: Scalar[Self.type],
     ):
-        __comptime_assert Self.size == 3
+        comptime assert Self.size == 3
         self.data = Self.data_type(x, y, z, Scalar[Self.type](0))
 
     fn __init__(
@@ -199,7 +243,7 @@ struct Vector[type: DType, size: Int](
         z: Scalar[Self.type],
         w: Scalar[Self.type],
     ):
-        __comptime_assert Self.size == 4
+        comptime assert Self.size == 4
         self.data = Self.data_type(x, y, z, w)
 
     @staticmethod
@@ -257,11 +301,11 @@ struct Vector[type: DType, size: Int](
         return self.data[1]
 
     fn z(self) -> Scalar[Self.type]:
-        __comptime_assert Self.size >= 3
+        comptime assert Self.size >= 3
         return self.data[2]
 
     fn w(self) -> Scalar[Self.type]:
-        __comptime_assert Self.size >= 4
+        comptime assert Self.size >= 4
         return self.data[3]
 
     # Swizzles
@@ -269,15 +313,15 @@ struct Vector[type: DType, size: Int](
         return Vector2[self.type](self.x(), self.y())
 
     fn yz(self) -> Vector2[Self.type]:
-        __comptime_assert Self.size >= 3
+        comptime assert Self.size >= 3
         return Vector2[self.type](self.y(), self.z())
 
     fn xz(self) -> Vector2[Self.type]:
-        __comptime_assert Self.size >= 3
+        comptime assert Self.size >= 3
         return Vector2[self.type](self.x(), self.z())
 
     fn xyz(self) -> Vector[Self.type, 3]:
-        __comptime_assert Self.size >= 3
+        comptime assert Self.size >= 3
         return Vector[Self.type, 3](self.x(), self.y(), self.z())
 
     # accessors

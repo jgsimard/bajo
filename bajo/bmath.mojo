@@ -57,7 +57,7 @@ fn radians_to_degrees[
 
 @fieldwise_init
 struct QuadraticSolutions[type: DType, size: Int](
-    Copyable, TrivialRegisterType
+    Copyable, TrivialRegisterPassable
 ):
     var roots_0: SIMD[Self.type, Self.size]
     var roots_1: SIMD[Self.type, Self.size]
@@ -123,10 +123,12 @@ fn random_unit_vector(mut rng: PhiloxRNG) -> Vec3f:
     var sin_phi = sin(phi)
     return Vec3f(sin_phi * cos(theta), sin_phi * sin(theta), cos(phi))
 
+
 fn random_on_hemisphere(mut rng: PhiloxRNG, normal: Vec3f) -> Vec3f:
     var on_unit_sphere = random_unit_vector(rng)
-    var sign = dot(on_unit_sphere, normal) > 0.0
+    var sign = Float32(dot(on_unit_sphere, normal) > 0.0)
     return sign * on_unit_sphere
+
 
 fn random_in_unit_disk(mut rng: PhiloxRNG) -> Vec3f:
     var u = rng.next_f32()
@@ -135,10 +137,12 @@ fn random_in_unit_disk(mut rng: PhiloxRNG) -> Vec3f:
     var r = sqrt(v)
     return Vec3f(r * cos(theta), r * sin(theta), 0.0)
 
+
 fn random_in_unit_sphere(mut rng: PhiloxRNG) -> Vec3f:
     var u = rng.next_f32()
     var r = pow(u, 1.0 / 3.0)
-    return random_unit_vector() * r
+    return random_unit_vector(rng) * r
+
 
 # ----------------------------------------------------------------------
 # Vector
@@ -195,7 +199,7 @@ struct Vector[type: DType, size: Int](
     Equatable,
     Powable,
     Stringable,
-    TrivialRegisterType,
+    TrivialRegisterPassable,
     Writable,
 ):
     """A wrapper around SIMD."""
@@ -444,7 +448,7 @@ fn normalize[
 
 @fieldwise_init
 struct Quaternion[type: DType where type.is_floating_point()](
-    TrivialRegisterType
+    TrivialRegisterPassable
 ):
     """TODO: Should we use wxyz or xyzw ? i heard gpu expect xyzw. but eigen uses wxyz.
     """
@@ -691,7 +695,7 @@ struct Quaternion[type: DType where type.is_floating_point()](
 # Diag3x3
 # ----------------------------------------------------------------------
 @fieldwise_init
-struct Diag3x3[type: DType](TrivialRegisterType):
+struct Diag3x3[type: DType](TrivialRegisterPassable):
     var d0: Scalar[Self.type]
     var d1: Scalar[Self.type]
     var d2: Scalar[Self.type]
@@ -727,7 +731,9 @@ struct Diag3x3[type: DType](TrivialRegisterType):
 # Mat3x3
 # ----------------------------------------------------------------------
 @fieldwise_init
-struct Mat3x3[type: DType where type.is_floating_point()](TrivialRegisterType):
+struct Mat3x3[type: DType where type.is_floating_point()](
+    TrivialRegisterPassable
+):
     var c0: Vector3[Self.type]
     var c1: Vector3[Self.type]
     var c2: Vector3[Self.type]
@@ -823,7 +829,9 @@ struct Mat3x3[type: DType where type.is_floating_point()](TrivialRegisterType):
 # Mat3x4
 # ----------------------------------------------------------------------
 @fieldwise_init
-struct Mat3x4[type: DType where type.is_floating_point()](TrivialRegisterType):
+struct Mat3x4[type: DType where type.is_floating_point()](
+    TrivialRegisterPassable
+):
     var c0: Vector3[Self.type]
     var c1: Vector3[Self.type]
     var c2: Vector3[Self.type]
@@ -902,7 +910,7 @@ struct Mat3x4[type: DType where type.is_floating_point()](TrivialRegisterType):
 # Mat4x4
 # ----------------------------------------------------------------------
 @fieldwise_init
-struct Mat4x4[type: DType](TrivialRegisterType):
+struct Mat4x4[type: DType](TrivialRegisterPassable):
     var c0: Vector4[Self.type]
     var c1: Vector4[Self.type]
     var c2: Vector4[Self.type]
@@ -939,7 +947,7 @@ struct Mat4x4[type: DType](TrivialRegisterType):
 # ----------------------------------------------------------------------
 @fieldwise_init
 struct AxisAlignedBoundingBox[type: DType where type.is_floating_point()](
-    TrivialRegisterType
+    TrivialRegisterPassable
 ):
     var min: Vector3[Self.type]
     var max: Vector3[Self.type]
@@ -1047,7 +1055,3 @@ struct AxisAlignedBoundingBox[type: DType where type.is_floating_point()](
         new_max += Vector.max(c2_a, c2_b)
 
         return AxisAlignedBoundingBox(new_min, new_max)
-
-
-fn main() raises:
-    print("hello bmath")

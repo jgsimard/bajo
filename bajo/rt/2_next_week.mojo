@@ -73,7 +73,7 @@ struct Ray(Copyable, Writable):
         return self.origin + t * self.direction
 
 
-struct HitRecord(Copyable, TrivialRegisterType):
+struct HitRecord(Copyable, TrivialRegisterPassable):
     var p: Point3
     var normal: Vec3f
     var material_id: Int

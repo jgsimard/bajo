@@ -54,7 +54,7 @@ fn write_color(mut f: FileHandle, color: Color):
 
 
 @fieldwise_init
-struct Ray(Copyable, TrivialRegisterType, Writable):
+struct Ray(Copyable, TrivialRegisterPassable, Writable):
     var origin: Point3
     var direction: Point3
 
@@ -62,7 +62,7 @@ struct Ray(Copyable, TrivialRegisterType, Writable):
         return self.origin + t * self.direction
 
 
-struct HitRecord(Copyable, TrivialRegisterType):
+struct HitRecord(Copyable, TrivialRegisterPassable):
     var p: Point3
     var normal: Vec3f
     var material_id: Int

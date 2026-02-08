@@ -225,7 +225,7 @@ fn assert_almost_equal_ptr[
 def main():
     atol = 1e-5
     rtol = 1e-3
-    m, n = 80, 50
+    m, n = 8, 5
     min_mn = min(m, n)
     
     comptime a_layout = Layout.row_major(UNKNOWN_VALUE, UNKNOWN_VALUE)
@@ -243,6 +243,7 @@ def main():
     # factorize
     var a_copy = create_tensor[DType.float32, a_layout](m, n, a_ptr_copy)
     var v = create_vector[DType.float32, v_layout](min_mn, v_ptr)
+    print(v)
     qr_factorization[DType.float32](v, a)
 
     # form Q

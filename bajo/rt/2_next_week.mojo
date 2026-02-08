@@ -1,10 +1,10 @@
-from math import sqrt, tan, pi, clamp, cos
-from random import random_float64
 from algorithm import parallelize
+from math import sqrt, tan, pi, clamp, cos
+from random import random_float64, random_si64
+from std.utils.numerics import max_finite, min_finite
 from utils import Variant
 from os import abort
-from std.utils.numerics import max_finite, min_finite
-from algorithm import parallelize
+
 
 from bajo.bmath import (
     Vec2f,
@@ -24,7 +24,7 @@ comptime Color = Vec3f
 @fieldwise_init
 struct Scene:
     var camera: Camera
-    var world: HitableList
+    var world: BVH
 
 
 fn main() raises:
@@ -55,11 +55,10 @@ fn write_color(mut f: FileHandle, color: Color):
 
 @fieldwise_init
 struct Ray(Copyable, Writable):
-    var origin: Point3                # 16 -> 16
-    var direction: Point3             # 16 -> 32
-    var time: Float32                 #  4 -> 36
-    var _pad: InlineArray[Float32, 3] # 3*4-> 48
-
+    var origin: Point3  # 16 -> 16
+    var direction: Point3  # 16 -> 32
+    var time: Float32  #  4 -> 36
+    var _pad: InlineArray[Float32, 3]  # 3*4=12-> 48
 
     fn __init__(
         out self, origin: Point3, direction: Point3, time: Float32 = 0.0
@@ -135,6 +134,19 @@ struct Sphere(Hittable, Writable):
         var normal = (p - current_center) / self.radius
         return HitRecord(p, normal, self.material_id, t, ray)
 
+    fn bounding_box(self) -> AABB:
+        var rvec = Vec3f(self.radius, self.radius, self.radius)
+
+        # time = 0.0
+        var center0 = self.center.at(0.0)
+        var box0 = AABB(center0 - rvec, center0 + rvec)
+
+        # time = 1.0
+        var center1 = self.center.at(1.0)
+        var box1 = AABB(center1 - rvec, center1 + rvec)
+
+        return AABB(box0, box1)
+
 
 comptime HittableVariant = Variant[Sphere]
 
@@ -166,7 +178,6 @@ struct HitableList(Hittable, Writable):
         return hit_anything
 
 
-# IMAGE_NB==6
 @fieldwise_init
 struct Interval[T: DType](
     Copyable,
@@ -190,6 +201,13 @@ struct Interval[T: DType](
     fn size(self) -> Scalar[Self.T]:
         return self.max - self.min
 
+    fn union(self, other: Self) -> Self:
+        return Interval(min(self.min, other.min), max(self.max, other.max))
+
+    fn expand(self, delta: Scalar[Self.T]) -> Self:
+        var padding = delta / 2
+        return Interval(self.min - padding, self.max + padding)
+
     @no_inline
     fn write_to(self, mut writer: Some[Writer]):
         writer.write("({},{})".format(self.min, self.max))
@@ -199,6 +217,230 @@ struct Interval[T: DType](
 
     fn __repr__(self) -> String:
         return String("Interval", self, "")
+
+
+@fieldwise_init
+struct AABB(Copyable):
+    """Axis Aligned Bounding Box."""
+
+    var x: Interval[DType.float32]
+    var y: Interval[DType.float32]
+    var z: Interval[DType.float32]
+
+    fn __init__(out self):
+        self.x = Interval[DType.float32]()
+        self.y = Interval[DType.float32]()
+        self.z = Interval[DType.float32]()
+
+    fn __init__(out self, a: Point3, b: Point3):
+        self.x = Interval(min(a.x(), b.x()), max(a.x(), b.x()))
+        self.y = Interval(min(a.y(), b.y()), max(a.y(), b.y()))
+        self.z = Interval(min(a.z(), b.z()), max(a.z(), b.z()))
+
+    fn __init__(out self, a: AABB, b: AABB):
+        self.x = a.x.union(b.x)
+        self.y = a.y.union(b.y)
+        self.z = a.z.union(b.z)
+
+    fn axis(self, n: Int) -> Interval[DType.float32]:
+        if n == 1:
+            return self.y.copy()
+        if n == 2:
+            return self.z.copy()
+        return self.x.copy()
+
+    fn hit(self, ray: Ray, ray_t: Interval[DType.float32]) -> Bool:
+        var t_min = ray_t.min
+        var t_max = ray_t.max
+
+        for axis in range(3):
+            var ax = self.axis(axis)
+            var adinv = 1.0 / ray.direction[axis]
+
+            var t0 = (ax.min - ray.origin[axis]) * adinv
+            var t1 = (ax.max - ray.origin[axis]) * adinv
+
+            if t0 < t1:
+                if t0 > t_min:
+                    t_min = t0
+                if t1 < t_max:
+                    t_max = t1
+            else:
+                if t1 > t_min:
+                    t_min = t1
+                if t0 < t_max:
+                    t_max = t0
+
+            if t_max <= t_min:
+                return False
+        return True
+
+
+@fieldwise_init
+struct BVHNode(Copyable):
+    """Bounding Volume Hierarchy Node."""
+
+    var bbox: AABB
+    var left_idx: Int
+    """Index in 'nodes' list. -1 if leaf."""
+    var right_idx: Int
+    """Index in 'nodes' list. -1 if leaf."""
+    var object_idx: Int
+    """Index in 'objects' list. -1 if internal node."""
+
+
+fn get_bounding_box(obj: HittableVariant) -> AABB:
+    if obj.isa[Sphere]():
+        return obj[Sphere].bounding_box()
+    print("OOOOOOOOOOOOOOOOPS")
+    abort()
+
+
+@fieldwise_init
+struct BVH(Hittable):
+    """Bounding Volume Hierarchy."""
+
+    var nodes: List[BVHNode]
+    var objects: List[HittableVariant]
+    var materials: List[MaterialVariant]
+    var root_idx: Int
+
+    fn __init__(out self, var world: HitableList):
+        self.nodes = List[BVHNode]()
+        self.objects = world.objects.copy()
+        self.materials = world.materials.copy()
+        self.root_idx = -1
+
+        if len(self.objects) > 0:
+            self.root_idx = self._build(0, len(self.objects))
+
+    fn hit(
+        self, ray: Ray, ray_t: Interval[DType.float32]
+    ) -> Optional[HitRecord]:
+        if self.root_idx == -1:
+            return None
+
+        var closest_so_far = ray_t.max
+        var hit_anything: Optional[HitRecord] = None
+
+        var node_stack = InlineArray[Int, 64](fill=0)
+        var stack_ptr = 0
+
+        # Push root
+        node_stack[stack_ptr] = self.root_idx
+        stack_ptr += 1
+
+        while stack_ptr > 0:
+            # Pop
+            stack_ptr -= 1
+            var node_idx = node_stack[stack_ptr]
+            ref node = self.nodes[node_idx]
+
+            # check AABB
+            if not node.bbox.hit(ray, Interval(ray_t.min, closest_so_far)):
+                continue
+
+            # leaf node = object
+            if node.object_idx != -1:
+                ref obj = self.objects[node.object_idx]
+                var hit_res: Optional[HitRecord]
+
+                if obj.isa[Sphere]():
+                    hit_res = obj[Sphere].hit(
+                        ray, Interval(ray_t.min, closest_so_far)
+                    )
+                else:
+                    print("ooooooops")
+                    abort()
+
+                if hit_res:
+                    var rec = hit_res.value()
+                    closest_so_far = rec.t
+                    hit_anything = hit_res
+
+            # internal node = check children
+            else:
+                # push children to stack
+                node_stack[stack_ptr] = node.right_idx
+                stack_ptr += 1
+                node_stack[stack_ptr] = node.left_idx
+                stack_ptr += 1
+
+        return hit_anything
+
+    fn _get_box(self, idx: Int) -> AABB:
+        ref obj = self.objects[idx]
+        return get_bounding_box(obj)
+
+    fn _build(mut self, start: Int, end: Int) -> Int:
+        var axis = Int(random_si64(0, 3))
+        var span = end - start
+
+        # leaf node
+        if span == 1:
+            var box = self._get_box(start)
+            var node = BVHNode(box^, -1, -1, start)
+            self.nodes.append(node^)
+            return len(self.nodes) - 1
+
+        # internal node
+        # using the sort function (see below) create wrong image :(
+        for i in range(start, end):
+            for j in range(i + 1, end):
+                var box_a = self._get_box(i)
+                var box_b = self._get_box(j)
+                if box_a.axis(axis).min > box_b.axis(axis).min:
+                    self.objects.swap_elements(i, j)
+
+        var mid = start + span // 2
+
+        # Recursively build children
+        var left_idx = self._build(start, mid)
+        var right_idx = self._build(mid, end)
+
+        # Compute combined bounding box
+        ref box_l = self.nodes[left_idx].bbox
+        ref box_r = self.nodes[right_idx].bbox
+        var combined_box = AABB(box_l, box_r)
+
+        var node = BVHNode(combined_box^, left_idx, right_idx, -1)
+        self.nodes.append(node^)
+        return len(self.nodes) - 1
+
+    # fn _build(mut self, start: Int, end: Int) -> Int:
+    #     var axis = Int(random_float64(0, 3))
+    #     var count = end - start
+
+    #     # leaf node
+    #     if count == 1:
+    #         # We can use the helper here too
+    #         var box = self._get_box(start)
+    #         # var box = get_bounding_box(self.objects[start])
+    #         self.nodes.append(BVHNode(box^, -1, -1, start))
+    #         return len(self.nodes) - 1
+
+    #     # internal node
+    #     var ptr = self.objects.unsafe_ptr()
+    #     var object_span = Span(ptr=ptr + start, length=count)
+
+    #     @parameter
+    #     fn comparator(a: HittableVariant, b: HittableVariant) capturing -> Bool:
+    #         var box_a = get_bounding_box(a)
+    #         var box_b = get_bounding_box(b)
+    #         return box_a.axis(axis).min < box_b.axis(axis).min
+
+    #     sort[cmp_fn=comparator](object_span)
+
+    #     var mid = start + count // 2
+    #     var left_idx = self._build(start, mid)
+    #     var right_idx = self._build(mid, end)
+
+    #     ref box_l = self.nodes[left_idx].bbox
+    #     ref box_r = self.nodes[right_idx].bbox
+    #     var combined_box = AABB(box_l, box_r)
+
+    #     self.nodes.append(BVHNode(combined_box^, left_idx, right_idx, -1))
+    #     return len(self.nodes) - 1
 
 
 struct Camera(Copyable):
@@ -309,7 +551,7 @@ struct Camera(Copyable):
         self.defocus_disk_u = self.u * defocus_radius
         self.defocus_disk_v = self.v * defocus_radius
 
-    fn ray_color(self, ray: Ray, world: HitableList) -> Color:
+    fn ray_color(self, ray: Ray, world: BVH) -> Color:
         var cur_ray = ray.copy()
         var accumulated_attenuation = Color(1.0, 1.0, 1.0)
 
@@ -356,7 +598,7 @@ struct Camera(Copyable):
         # If we exceeded the depth without hitting the sky, return black
         return Color.zeros()
 
-    fn render(self, world: HitableList) raises:
+    fn render(self, world: BVH) raises:
         var image_data = List[Color](
             length=self.image_width * self.image_height, fill=Color.zeros()
         )
@@ -595,7 +837,8 @@ fn create_random_scene() -> Scene:
         focus_dist=10.0,
     )
 
-    return Scene(cam^, world^)
+    var bvh = BVH(world^)
+    return Scene(cam^, bvh^)
 
 
 fn create_basic_scene() -> Scene:
@@ -628,7 +871,8 @@ fn create_basic_scene() -> Scene:
         defocus_angle=10.0,
         focus_dist=3.4,
     )
-    return Scene(cam^, world^)
+    var bvh = BVH(world^)
+    return Scene(cam^, bvh^)
 
 
 fn create_top_scene() -> Scene:
@@ -650,4 +894,5 @@ fn create_top_scene() -> Scene:
         defocus_angle=0.0,
         focus_dist=10.0,
     )
-    return Scene(cam^, world^)
+    var bvh = BVH(world^)
+    return Scene(cam^, bvh^)

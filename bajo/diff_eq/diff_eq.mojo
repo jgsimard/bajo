@@ -5,7 +5,7 @@ from memory import UnsafePointer
 from tensor import InputTensor, OutputTensor, foreach
 from benchmark import run, Unit, keep
 from sys import simd_width_of
-from algorithm import vectorize
+from algorithm import vectorize, parallelize
 
 
 comptime system_fn[dtype: DType, layout: Layout] = fn(
@@ -68,6 +68,7 @@ struct Tsit5[
         1.379008574103742, -3.290069515436081, 2.324710524099774, 0.0
     )
     comptime c = StaticTuple[Scalar[Self.dtype], 7](0.0, 0.161, 0.327, 0.9, 0.9800255409045097, 1.0, 1.0)
+    # comptime c : InlineArray[Scalar[Self.dtype], 7] =  [0.0, 0.161, 0.327, 0.9, 0.9800255409045097, 1.0, 1.0]
     comptime e = StaticTuple[Scalar[Self.dtype], 7](
         -0.00178001105222577714, -0.0008164344596567469, 0.007880878010261995,
         -0.1447110071732629, 0.5823571654525552, -0.45808210592918697, 1.0/66.0
@@ -91,7 +92,6 @@ struct Tsit5[
     var ks: InlineArray[Self.LT, Self.N_STAGES]
     var tmp: Self.LT
     var y_next: Self.LT
-    var error_vec: Self.LT
 
     fn __init__(
         out self,
@@ -102,7 +102,6 @@ struct Tsit5[
         abstol: Scalar[Self.dtype] = 1e-6,
         reltol: Scalar[Self.dtype] = 1e-3,
     ):
-        comptime FLOAT = Scalar[Self.dtype]
 
         self.y = u0
         self.t = t_start
@@ -114,45 +113,29 @@ struct Tsit5[
 
         self.ks = InlineArray[Self.LT, Self.N_STAGES](uninitialized=True)
         var size = u0.size()
-        # var layout = u0.layout
 
-        @parameter
-        if Self.layout.shape.all_known():
-            for i in range(Self.N_STAGES):
-                self.ks[i] = Self.LT(alloc[FLOAT](size))
+        for i in range(Self.N_STAGES):
+            self.ks[i] = Self.LT(alloc[Scalar[Self.dtype]](size))
 
-            self.tmp = Self.LT(alloc[FLOAT](size))
-            self.y_next = Self.LT(alloc[FLOAT](size))
-            self.error_vec = Self.LT(alloc[FLOAT](size))
-
-        else:
-            for i in range(Self.N_STAGES):
-                self.ks[i] = Self.LT(alloc[FLOAT](size))
-
-            self.tmp = Self.LT(alloc[FLOAT](size))
-            self.y_next = Self.LT(alloc[FLOAT](size))
-            self.error_vec = Self.LT(alloc[FLOAT](size))
+        self.tmp = Self.LT(alloc[Scalar[Self.dtype]](size))
+        self.y_next = Self.LT(alloc[Scalar[Self.dtype]](size))
 
     fn __del__(deinit self):
         for i in range(Self.N_STAGES):
             self.ks[i].ptr.free()
         self.tmp.ptr.free()
         self.y_next.ptr.free()
-        self.error_vec.ptr.free()
 
     @staticmethod
     fn a(i: Int, j: Int) -> Scalar[Self.dtype]:
         return Self._a[i * Self.N_STAGES + j]
 
     fn step(mut self):
-        comptime FLOAT = Scalar[Self.dtype]
-
         if self.u_modified:
             Self.system(self.ks[0], self.y, self.t)
             self.u_modified = False
 
         else:
-
             @parameter
             if Self.IS_FSAL:
                 # FSAL requires a deep copy of the last derivative into the first slot
@@ -196,12 +179,12 @@ struct Tsit5[
                         pow(e_est, beta1) / pow(self.qold, beta2) if e_est
                         > 0 else 0.1
                     )
-                    self.dt = h * min(FLOAT(5.0), max(FLOAT(0.1), 0.9 / q))
+                    self.dt = h * min(Scalar[Self.dtype](5.0), max(Scalar[Self.dtype](0.1), 0.9 / q))
                     self.qold = max(e_est, 1e-4)
                     accepted = True
                 else:
                     # Step rejected: reduce dt and retry
-                    self.dt = h * max(FLOAT(0.1), 0.9 / pow(e_est, beta1))
+                    self.dt = h * max(Scalar[Self.dtype](0.1), 0.9 / pow(e_est, beta1))
         else:
             # Fixed step logic
             var h = self.dt
@@ -212,7 +195,7 @@ struct Tsit5[
 
             @parameter
             for i in range(1, Self.N_STAGES_FSAL):
-                weight_sum += self.ks[i] * Self.b[i]
+                weight_sum += self.ks[i] * comptime(Self.b[i])
 
             self.y += weight_sum * h
             self.t += h
@@ -222,18 +205,12 @@ struct Tsit5[
                 Self.system(self.ks[Self.N_STAGES_FSAL], self.y, self.t)
 
     fn _compute_stages(mut self, h: Scalar[Self.dtype]):
-        comptime FLOAT = Scalar[Self.dtype]
-        # dummy value to get LT
-        var stage_sum = self.ks[0] * Self.a(0, 0)
-
         for i in range(1, Self.N_STAGES_FSAL):
             self.tmp.copy_from(self.y)
 
-            _ = stage_sum.fill(0.0)
             for j in range(i):
                 self.tmp += self.ks[j] * Self.a(i, j) * h
 
-            self.tmp += stage_sum * h
             Self.system(self.ks[i], self.tmp, self.t + Self.c[i] * h)
 
     fn _estimate_error(mut self, h: Scalar[Self.dtype]) -> Scalar[Self.dtype]:
@@ -247,6 +224,7 @@ struct Tsit5[
             @parameter
             for s in range(Self.N_STAGES):
                 comptime e_coeff = Self.e[s]
+                @parameter
                 if e_coeff != 0:
                     err_v += self.ks[s].ptr.load[width=w](i) * e_coeff
 

@@ -53,13 +53,13 @@ fn write_color(mut f: FileHandle, color: Color):
     f.write("{} {} {}\n".format(ir, ig, ib))
 
 
-# @fieldwise_init
+@fieldwise_init
 struct Ray(Copyable, Writable):
-    var origin: Point3  # 16 -> 16
-    var direction: Point3  # 16 -> 32
-    var time: Float32  #  4 -> 36
-    var _pad0: Float32  #  4 -> 40
-    var _pad1: Float64  #  8 -> 48
+    var origin: Point3                # 16 -> 16
+    var direction: Point3             # 16 -> 32
+    var time: Float32                 #  4 -> 36
+    var _pad: InlineArray[Float32, 3] # 3*4-> 48
+
 
     fn __init__(
         out self, origin: Point3, direction: Point3, time: Float32 = 0.0
@@ -67,8 +67,7 @@ struct Ray(Copyable, Writable):
         self.origin = origin
         self.direction = direction
         self.time = time
-        self._pad0 = 0
-        self._pad1 = 0
+        self._pad = [0, 0, 0]
 
     fn at(self, t: Float32) -> Point3:
         return self.origin + t * self.direction

@@ -21,7 +21,7 @@ struct BitField[width: Int]:
     var storage: Self.storage_type
 
     fn __init__(out self):
-        __comptime_assert (
+        comptime assert (
             Self.width <= simd_width_of[UInt64]() * 64
         ), "Too big for this CPU, max = " + String(simd_width_of[UInt64]() * 64)
         self.storage = Self.storage_type(0)

@@ -15,6 +15,11 @@ from bajo.bmath import (
     dot,
     cross,
     degrees_to_radians,
+    random_unit_vector,
+    random_on_hemisphere,
+    random_in_unit_disk,
+    random_in_unit_sphere,
+    PhiloxRNG,
 )
 
 comptime Point3 = Vec3f
@@ -73,11 +78,11 @@ struct Ray(Copyable, Writable):
 
 
 struct HitRecord(Copyable, TrivialRegisterPassable):
-    var p: Point3
-    var normal: Vec3f
-    var material_id: Int
-    var t: Float32
-    var front_face: Bool
+    var p: Point3  # 4*4 = 16 => 16
+    var normal: Vec3f  # 4*4 = 16 => 32
+    var material_id: Int  # 4 => 36
+    var t: Float32  # 4 => 40
+    var front_face: Bool  # 1 -> 4 => 44
 
     fn __init__(
         out self, p: Point3, normal: Vec3f, material_id: Int, t: Float32, r: Ray
@@ -181,8 +186,6 @@ struct HitableList(Hittable, Writable):
 @fieldwise_init
 struct Interval[T: DType](
     Copyable,
-    Representable,
-    Stringable,
     Writable,
 ):
     var min: Scalar[Self.T]
@@ -207,16 +210,6 @@ struct Interval[T: DType](
     fn expand(self, delta: Scalar[Self.T]) -> Self:
         var padding = delta / 2
         return Interval(self.min - padding, self.max + padding)
-
-    @no_inline
-    fn write_to(self, mut writer: Some[Writer]):
-        writer.write("({},{})".format(self.min, self.max))
-
-    fn __str__(self) -> String:
-        return String.write(self)
-
-    fn __repr__(self) -> String:
-        return String("Interval", self, "")
 
 
 @fieldwise_init
@@ -252,10 +245,11 @@ struct AABB(Copyable):
     fn hit(self, ray: Ray, ray_t: Interval[DType.float32]) -> Bool:
         var t_min = ray_t.min
         var t_max = ray_t.max
+        var dinv = 1.0 / ray.direction
 
         for axis in range(3):
             var ax = self.axis(axis)
-            var adinv = 1.0 / ray.direction[axis]
+            var adinv = dinv[axis]
 
             var t0 = (ax.min - ray.origin[axis]) * adinv
             var t1 = (ax.max - ray.origin[axis]) * adinv
@@ -551,7 +545,7 @@ struct Camera(Copyable):
         self.defocus_disk_u = self.u * defocus_radius
         self.defocus_disk_v = self.v * defocus_radius
 
-    fn ray_color(self, ray: Ray, world: BVH) -> Color:
+    fn ray_color(self, ray: Ray, world: BVH, mut rng: PhiloxRNG) -> Color:
         var cur_ray = ray.copy()
         var accumulated_attenuation = Color(1.0, 1.0, 1.0)
 
@@ -566,11 +560,15 @@ struct Camera(Copyable):
                 var scatter_res: Optional[Tuple[Ray, Color]]
                 ref material = world.materials[material_id]
                 if material.isa[Lambertian]():
-                    scatter_res = material[Lambertian].scatter(cur_ray, hit)
+                    scatter_res = material[Lambertian].scatter(
+                        cur_ray, hit, rng
+                    )
                 elif material.isa[Metal]():
-                    scatter_res = material[Metal].scatter(cur_ray, hit)
+                    scatter_res = material[Metal].scatter(cur_ray, hit, rng)
                 elif material.isa[Dielectric]():
-                    scatter_res = material[Dielectric].scatter(cur_ray, hit)
+                    scatter_res = material[Dielectric].scatter(
+                        cur_ray, hit, rng
+                    )
                 else:
                     print("Material not implemented yet")
                     abort()
@@ -605,12 +603,13 @@ struct Camera(Copyable):
 
         @parameter
         fn worker(j: Int):
+            var rng = PhiloxRNG(seed=123, id=j)
             var factor = Float32(1.0 / self.samples_per_pixel)
             for i in range(self.image_width):
                 var pixel_color = Color.zeros()
                 for _sample in range(self.samples_per_pixel):
-                    var r = self.get_ray(i, j)
-                    pixel_color += self.ray_color(r, world)
+                    var r = self.get_ray(i, j, rng)
+                    pixel_color += self.ray_color(r, world, rng)
 
                 image_data[j * self.image_width + i] = pixel_color * factor
 
@@ -623,8 +622,10 @@ struct Camera(Copyable):
             for color in image_data:
                 write_color(f, color)
 
-    fn get_ray(self, i: Int, j: Int) -> Ray:
-        var offset = Vec2f.random(-0.5, 0.5)
+    fn get_ray(self, i: Int, j: Int, mut rng: PhiloxRNG) -> Ray:
+        var r1 = rng.next_f32()
+        var r2 = rng.next_f32()
+        var offset = Vec2f(r1, r2)
         var pixel_sample = (
             self.pixel00_loc
             + ((i + offset.x()) * self.pixel_delta_u)
@@ -633,54 +634,21 @@ struct Camera(Copyable):
 
         var origin = (
             self.center if self.defocus_angle
-            <= 0 else self.defocus_disk_sample()
+            <= 0 else self.defocus_disk_sample(rng)
         )
         var direction = pixel_sample - origin
-        var time = Float32(random_float64())
+        var time = rng.next_f32()
 
         return Ray(origin, direction, time)
 
-    fn defocus_disk_sample(self) -> Vec3f:
+    fn defocus_disk_sample(self, mut rng: PhiloxRNG) -> Vec3f:
         """Returns a random point in the camera defocus disk."""
-        var p = random_in_unit_disk()
+        var p = random_in_unit_disk(rng)
         return (
             self.center
             + (p[0] * self.defocus_disk_u)
             + (p[1] * self.defocus_disk_v)
         )
-
-
-fn random_unit_vector() -> Vec3f:
-    while True:
-        var p = Vec3f.random(-1.0, 1.0)
-        if Float32(1e-160) <= dot(p, p) < 1.0:
-            return normalize(p)
-
-
-fn random_on_hemisphere(normal: Vec3f) -> Vec3f:
-    var on_unit_sphere = random_unit_vector()
-    # In the same hemisphere as the normal
-    if dot(on_unit_sphere, normal) > 0.0:
-        return on_unit_sphere
-    else:
-        return -on_unit_sphere
-
-
-fn random_in_unit_disk() -> Vec3f:
-    while True:
-        r1 = Float32(random_float64(-1, 1))
-        r2 = Float32(random_float64(-1, 1))
-        var p = 2.0 * Vec3f(r1, r2, 0.0)
-        if dot(p, p) < 1.0:
-            return p
-
-
-fn random_in_unit_sphere() -> Vec3f:
-    comptime unit = Vec3f(1.0)
-    while True:
-        var p = 2.0 * Vec3f.random() - unit
-        if dot(p, p) < 1.0:
-            return p
 
 
 fn reflect(v: Vec3f, n: Vec3f) -> Vec3f:
@@ -695,7 +663,9 @@ fn refract(uv: Vec3f, n: Vec3f, etai_over_etat: Float32) -> Vec3f:
 
 
 trait Material(Copyable):
-    fn scatter(self, ray: Ray, hit: HitRecord) -> Optional[Tuple[Ray, Color]]:
+    fn scatter(
+        self, ray: Ray, hit: HitRecord, mut rng: PhiloxRNG
+    ) -> Optional[Tuple[Ray, Color]]:
         ...
 
 
@@ -706,8 +676,10 @@ comptime MaterialVariant = Variant[Lambertian, Metal, Dielectric]
 struct Lambertian(Material, Writable):
     var albedo: Vec3f
 
-    fn scatter(self, ray: Ray, hit: HitRecord) -> Optional[Tuple[Ray, Color]]:
-        var scatter_direction = hit.normal + random_unit_vector()
+    fn scatter(
+        self, ray: Ray, hit: HitRecord, mut rng: PhiloxRNG
+    ) -> Optional[Tuple[Ray, Color]]:
+        var scatter_direction = hit.normal + random_unit_vector(rng)
 
         # Catch degenerate scatter direction
         if scatter_direction.near_zero():
@@ -722,9 +694,11 @@ struct Metal(Material, Writable):
     var albedo: Vec3f
     var fuzz: Float32
 
-    fn scatter(self, ray: Ray, hit: HitRecord) -> Optional[Tuple[Ray, Color]]:
+    fn scatter(
+        self, ray: Ray, hit: HitRecord, mut rng: PhiloxRNG
+    ) -> Optional[Tuple[Ray, Color]]:
         var reflected = reflect(ray.direction, hit.normal)
-        reflected = normalize(reflected) + (self.fuzz * random_unit_vector())
+        reflected = normalize(reflected) + (self.fuzz * random_unit_vector(rng))
         var scattered = Ray(hit.p, reflected, ray.time)
 
         if dot(scattered.direction, hit.normal) < 0:
@@ -737,7 +711,9 @@ struct Metal(Material, Writable):
 struct Dielectric(Material, Writable):
     var refraction_index: Float32
 
-    fn scatter(self, ray: Ray, hit: HitRecord) -> Optional[Tuple[Ray, Color]]:
+    fn scatter(
+        self, ray: Ray, hit: HitRecord, mut rng: PhiloxRNG
+    ) -> Optional[Tuple[Ray, Color]]:
         var attenuation = Color.ones()
         var ri = (
             1.0
@@ -752,11 +728,10 @@ struct Dielectric(Material, Writable):
         var direction: Vec3f
 
         # total internal reflection
-        if cannot_refract or reflectance(cos_theta, ri) > Float32(
-            random_float64()
-        ):  # Must Reflect
+        var _rng = rng.next_f32()
+        if cannot_refract or reflectance(cos_theta, ri) > _rng:
             direction = reflect(unit_direction, hit.normal)
-        else:  # can refract
+        else:
             direction = refract(unit_direction, hit.normal, ri)
 
         scattered = Ray(hit.p, direction, ray.time)

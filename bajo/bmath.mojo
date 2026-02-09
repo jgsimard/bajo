@@ -101,8 +101,8 @@ struct PhiloxRNG:
     var _buffer: SIMD[DType.float32, 4]
     var _consumed: Int
 
-    fn __init__(out self, seed: Int, pixel_id: Int):
-        self._rng = Random[10](seed=seed, subsequence=pixel_id)
+    fn __init__(out self, seed: Int, id: Int):
+        self._rng = Random[10](seed=seed, subsequence=id)
         self._buffer = self._rng.step_uniform()
         self._consumed = 0
 
@@ -147,34 +147,42 @@ fn random_in_unit_sphere(mut rng: PhiloxRNG) -> Vec3f:
 # ----------------------------------------------------------------------
 # Vector
 # ----------------------------------------------------------------------
+@always_inline
 fn dot[t: DType, s: Int](a: Vector[t, s], b: Vector[t, s]) -> Scalar[t]:
     return (a.data * b.data).reduce_add()
 
 
+@always_inline
 fn length2[t: DType, s: Int](a: Vector[t, s]) -> Scalar[t]:
     return (a.data * a.data).reduce_add()
 
 
+@always_inline
 fn length[t: DType, s: Int](a: Vector[t, s]) -> Scalar[t]:
     return sqrt(length2(a))
 
 
+@always_inline
 fn inv_length[t: DType, s: Int](a: Vector[t, s]) -> Scalar[t]:
     return 1.0 / length(a)
 
 
+@always_inline
 fn normalize[t: DType, s: Int](a: Vector[t, s]) -> Vector[t, s]:
     return a * inv_length(a)
 
 
+@always_inline
 fn distance[t: DType, s: Int](a: Vector[t, s], b: Vector[t, s]) -> Scalar[t]:
     return length(a - b)
 
 
+@always_inline
 fn distance2[t: DType, s: Int](a: Vector[t, s], b: Vector[t, s]) -> Scalar[t]:
     return length2(a - b)
 
 
+@always_inline
 fn cross[type: DType](a: Vector3[type], b: Vector3[type]) -> Vector3[type]:
     return Vector3[type](
         a.y() * b.z() - a.z() * b.y(),
@@ -183,6 +191,7 @@ fn cross[type: DType](a: Vector3[type], b: Vector3[type]) -> Vector3[type]:
     )
 
 
+@always_inline
 fn cross[type: DType](a: Vector2[type], b: Vector2[type]) -> Scalar[type]:
     return a.x() * b.y() - a.y() * b.x()
 
@@ -381,6 +390,9 @@ struct Vector[type: DType, size: Int](
 
     fn __truediv__(self, s: Scalar[Self.type]) -> Self:
         return Self(self.data / s)
+
+    fn __rtruediv__(self, s: Scalar[Self.type]) -> Self:
+        return Self(s / self.data)
 
     fn __itruediv__(mut self, s: Scalar[Self.type]):
         self.data /= s

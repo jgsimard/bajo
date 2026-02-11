@@ -45,15 +45,11 @@ fn linear_to_gamma(color: Color) -> Color:
 
 
 fn write_color(mut f: FileHandle, color: Color):
-    var out_color = linear_to_gamma(color).clamp(0.0, 0.999)
+    var out_color = linear_to_gamma(color).clamp(0.0, 0.999) * 255.99
 
-    var r = out_color.x()
-    var g = out_color.y()
-    var b = out_color.z()
-
-    var ir = Int(255.99 * r)
-    var ig = Int(255.99 * g)
-    var ib = Int(255.99 * b)
+    var ir = Int(out_color.x())
+    var ig = Int(out_color.y())
+    var ib = Int(out_color.z())
 
     f.write("{} {} {}\n".format(ir, ig, ib))
 
@@ -62,16 +58,18 @@ fn write_color(mut f: FileHandle, color: Color):
 struct Ray(Copyable, Writable):
     var origin: Point3  # 16 -> 16
     var direction: Point3  # 16 -> 32
-    var time: Float32  #  4 -> 36
-    var _pad: InlineArray[Float32, 3]  # 3*4=12-> 48
+    var inv_direction: Point3  # 16 -> 48
+    var time: Float32  #  4 -> 52
+    var _pad: InlineArray[Float32, 3]  # 3*4=12-> 64
 
     fn __init__(
         out self, origin: Point3, direction: Point3, time: Float32 = 0.0
     ):
         self.origin = origin
         self.direction = direction
+        self.inv_direction = 1.0 / self.direction
         self.time = time
-        self._pad = [0, 0, 0]
+        self._pad = InlineArray[Float32, 3](fill=0.0)
 
     fn at(self, t: Float32) -> Point3:
         return self.origin + t * self.direction
@@ -82,6 +80,8 @@ struct HitRecord(Copyable, TrivialRegisterPassable):
     var normal: Vec3f  # 4*4 = 16 => 32
     var material_id: Int  # 4 => 36
     var t: Float32  # 4 => 40
+    var u: Float32
+    var v: Float32
     var front_face: Bool  # 1 -> 4 => 44
 
     fn __init__(
@@ -90,8 +90,40 @@ struct HitRecord(Copyable, TrivialRegisterPassable):
         self.p = p
         self.material_id = material_id
         self.t = t
+        self.u = 0.0
+        self.v = 0.0
         self.front_face = dot(r.direction, normal) < 0
         self.normal = normal if self.front_face else -normal
+
+
+trait Texture:
+    fn value(self, u: Float32, v: Float32, p: Point3) -> Color:
+        ...
+
+
+comptime TextureVariant = Variant[SolidColor, CheckerTexture]
+
+
+@fieldwise_init
+struct SolidColor(Texture):
+    var albedo: Color
+
+    fn __init__(out self, r: Float32, g: Float32, b: Float32):
+        self.albedo = Color(r, g, b)
+
+    fn value(self, u: Float32, v: Float32, p: Point3) -> Color:
+        return self.albedo
+
+
+@fieldwise_init
+struct CheckerTexture(Texture):
+    var albedo: Color
+
+    fn __init__(out self, r: Float32, g: Float32, b: Float32):
+        self.albedo = Color(r, g, b)
+
+    fn value(self, u: Float32, v: Float32, p: Point3) -> Color:
+        return self.albedo
 
 
 trait Hittable(Copyable):
@@ -99,6 +131,9 @@ trait Hittable(Copyable):
         self, ray: Ray, ray_t: Interval[DType.float32]
     ) -> Optional[HitRecord]:
         ...
+
+
+comptime HittableVariant = Variant[Sphere]
 
 
 @fieldwise_init
@@ -153,36 +188,6 @@ struct Sphere(Hittable, Writable):
         return AABB(box0, box1)
 
 
-comptime HittableVariant = Variant[Sphere]
-
-
-@fieldwise_init
-struct HitableList(Hittable, Writable):
-    var objects: List[HittableVariant]
-    var materials: List[MaterialVariant]
-
-    fn hit(
-        self, ray: Ray, ray_t: Interval[DType.float32]
-    ) -> Optional[HitRecord]:
-        var closest_so_far = ray_t.max
-        var hit_anything: Optional[HitRecord] = None
-
-        for obj in self.objects:
-            var interval = Interval(ray_t.min, closest_so_far)
-            var hit_res: Optional[HitRecord]
-            if obj.isa[Sphere]():
-                hit_res = obj[Sphere].hit(ray, interval)
-            else:
-                abort()
-
-            if hit_res:
-                var hit = hit_res.value()
-                closest_so_far = hit.t
-                hit_anything = Optional(hit)
-
-        return hit_anything
-
-
 @fieldwise_init
 struct Interval[T: DType](
     Copyable,
@@ -216,58 +221,29 @@ struct Interval[T: DType](
 struct AABB(Copyable):
     """Axis Aligned Bounding Box."""
 
-    var x: Interval[DType.float32]
-    var y: Interval[DType.float32]
-    var z: Interval[DType.float32]
-
-    fn __init__(out self):
-        self.x = Interval[DType.float32]()
-        self.y = Interval[DType.float32]()
-        self.z = Interval[DType.float32]()
-
-    fn __init__(out self, a: Point3, b: Point3):
-        self.x = Interval(min(a.x(), b.x()), max(a.x(), b.x()))
-        self.y = Interval(min(a.y(), b.y()), max(a.y(), b.y()))
-        self.z = Interval(min(a.z(), b.z()), max(a.z(), b.z()))
+    var min: Point3
+    var max: Point3
 
     fn __init__(out self, a: AABB, b: AABB):
-        self.x = a.x.union(b.x)
-        self.y = a.y.union(b.y)
-        self.z = a.z.union(b.z)
-
-    fn axis(self, n: Int) -> Interval[DType.float32]:
-        if n == 1:
-            return self.y.copy()
-        if n == 2:
-            return self.z.copy()
-        return self.x.copy()
+        self.min = Vec3f.min(a.min, b.min)
+        self.max = Vec3f.max(a.max, b.max)
 
     fn hit(self, ray: Ray, ray_t: Interval[DType.float32]) -> Bool:
-        var t_min = ray_t.min
-        var t_max = ray_t.max
-        var dinv = 1.0 / ray.direction
+        var t_lower = ray.inv_direction * (self.min - ray.origin)
+        var t_upper = ray.inv_direction * (self.max - ray.origin)
 
-        for axis in range(3):
-            var ax = self.axis(axis)
-            var adinv = dinv[axis]
+        var t_min_vec = Vec3f.min(t_lower, t_upper)
+        var t_max_vec = Vec3f.max(t_lower, t_upper)
 
-            var t0 = (ax.min - ray.origin[axis]) * adinv
-            var t1 = (ax.max - ray.origin[axis]) * adinv
+        var t_box_min = max(
+            t_min_vec.x(), t_min_vec.y(), t_min_vec.z(), ray_t.min
+        )
 
-            if t0 < t1:
-                if t0 > t_min:
-                    t_min = t0
-                if t1 < t_max:
-                    t_max = t1
-            else:
-                if t1 > t_min:
-                    t_min = t1
-                if t0 < t_max:
-                    t_max = t0
+        var t_box_max = min(
+            t_max_vec.x(), t_max_vec.y(), t_max_vec.z(), ray_t.max
+        )
 
-            if t_max <= t_min:
-                return False
-        return True
+        return t_box_min <= t_box_max
 
 
 @fieldwise_init
@@ -299,10 +275,14 @@ struct BVH(Hittable):
     var materials: List[MaterialVariant]
     var root_idx: Int
 
-    fn __init__(out self, var world: HitableList):
+    fn __init__(
+        out self,
+        var objects: List[HittableVariant],
+        var materials: List[MaterialVariant],
+    ):
         self.nodes = List[BVHNode]()
-        self.objects = world.objects.copy()
-        self.materials = world.materials.copy()
+        self.objects = objects^
+        self.materials = materials^
         self.root_idx = -1
 
         if len(self.objects) > 0:
@@ -367,7 +347,7 @@ struct BVH(Hittable):
         return get_bounding_box(obj)
 
     fn _build(mut self, start: Int, end: Int) -> Int:
-        var axis = Int(random_si64(0, 3))
+        var axis = Int(random_si64(0, 2))
         var span = end - start
 
         # leaf node
@@ -383,8 +363,19 @@ struct BVH(Hittable):
             for j in range(i + 1, end):
                 var box_a = self._get_box(i)
                 var box_b = self._get_box(j)
-                if box_a.axis(axis).min > box_b.axis(axis).min:
+                if box_a.min[axis] > box_b.min[axis]:
                     self.objects.swap_elements(i, j)
+
+        # var ptr = self.objects.unsafe_ptr()
+        # var object_span = Span(ptr=ptr + start, length=span)
+
+        # @parameter
+        # fn comparator(a: HittableVariant, b: HittableVariant) capturing -> Bool:
+        #     var box_a = get_bounding_box(a)
+        #     var box_b = get_bounding_box(b)
+        #     return box_a.axis(axis).min < box_b.axis(axis).min
+
+        # sort[cmp_fn=comparator](object_span)
 
         var mid = start + span // 2
 
@@ -400,41 +391,6 @@ struct BVH(Hittable):
         var node = BVHNode(combined_box^, left_idx, right_idx, -1)
         self.nodes.append(node^)
         return len(self.nodes) - 1
-
-    # fn _build(mut self, start: Int, end: Int) -> Int:
-    #     var axis = Int(random_float64(0, 3))
-    #     var count = end - start
-
-    #     # leaf node
-    #     if count == 1:
-    #         # We can use the helper here too
-    #         var box = self._get_box(start)
-    #         # var box = get_bounding_box(self.objects[start])
-    #         self.nodes.append(BVHNode(box^, -1, -1, start))
-    #         return len(self.nodes) - 1
-
-    #     # internal node
-    #     var ptr = self.objects.unsafe_ptr()
-    #     var object_span = Span(ptr=ptr + start, length=count)
-
-    #     @parameter
-    #     fn comparator(a: HittableVariant, b: HittableVariant) capturing -> Bool:
-    #         var box_a = get_bounding_box(a)
-    #         var box_b = get_bounding_box(b)
-    #         return box_a.axis(axis).min < box_b.axis(axis).min
-
-    #     sort[cmp_fn=comparator](object_span)
-
-    #     var mid = start + count // 2
-    #     var left_idx = self._build(start, mid)
-    #     var right_idx = self._build(mid, end)
-
-    #     ref box_l = self.nodes[left_idx].bbox
-    #     ref box_r = self.nodes[right_idx].bbox
-    #     var combined_box = AABB(box_l, box_r)
-
-    #     self.nodes.append(BVHNode(combined_box^, left_idx, right_idx, -1))
-    #     return len(self.nodes) - 1
 
 
 struct Camera(Copyable):
@@ -499,7 +455,9 @@ struct Camera(Copyable):
         self.focus_dist = focus_dist
         self.aspect_ratio = aspect_ratio
         self.image_width = image_width
-        self.image_height = max(1, Int(self.image_width / aspect_ratio))
+        self.image_height = max(
+            1, Int(Float32(self.image_width) / aspect_ratio)
+        )
 
         self.center = lookfrom
 
@@ -523,8 +481,8 @@ struct Camera(Copyable):
         var viewport_v = viewport_height * -self.v
 
         # Calculate the horizontal and vertical delta vectors from pixel to pixel.
-        self.pixel_delta_u = viewport_u / self.image_width
-        self.pixel_delta_v = viewport_v / self.image_height
+        self.pixel_delta_u = viewport_u / Float32(self.image_width)
+        self.pixel_delta_v = viewport_v / Float32(self.image_height)
 
         # Calculate the location of the upper left pixel.
         var viewport_upper_left = (
@@ -603,8 +561,8 @@ struct Camera(Copyable):
 
         @parameter
         fn worker(j: Int):
-            var rng = PhiloxRNG(seed=123, id=j)
-            var factor = Float32(1.0 / self.samples_per_pixel)
+            var rng = PhiloxRNG(seed=123, id=UInt64(j))
+            var factor = Float32(1.0 / Float32(self.samples_per_pixel))
             for i in range(self.image_width):
                 var pixel_color = Color.zeros()
                 for _sample in range(self.samples_per_pixel):
@@ -628,8 +586,8 @@ struct Camera(Copyable):
         var offset = Vec2f(r1, r2)
         var pixel_sample = (
             self.pixel00_loc
-            + ((i + offset.x()) * self.pixel_delta_u)
-            + ((j + offset.y()) * self.pixel_delta_v)
+            + ((Float32(i) + offset.x()) * self.pixel_delta_u)
+            + ((Float32(j) + offset.y()) * self.pixel_delta_v)
         )
 
         var origin = (
@@ -797,8 +755,6 @@ fn create_random_scene() -> Scene:
     materials.append(Metal(Color(0.7, 0.6, 0.5), 0.0))
     objects.append(Sphere(Point3(4, 1, 0), 1.0, len(materials) - 1))
 
-    var world = HitableList(objects^, materials^)
-
     var cam = Camera(
         image_width=400,
         aspect_ratio=16.0 / 9.0,
@@ -812,12 +768,12 @@ fn create_random_scene() -> Scene:
         focus_dist=10.0,
     )
 
-    var bvh = BVH(world^)
-    return Scene(cam^, bvh^)
+    var world = BVH(objects^, materials^)
+    return Scene(cam^, world^)
 
 
 fn create_basic_scene() -> Scene:
-    var world = HitableList(
+    var world = BVH(
         [
             Sphere(Point3(0, -100.5, -1), 100, 0),
             Sphere(Point3(0, 0, -1.2), 0.5, 1),
@@ -846,13 +802,12 @@ fn create_basic_scene() -> Scene:
         defocus_angle=10.0,
         focus_dist=3.4,
     )
-    var bvh = BVH(world^)
-    return Scene(cam^, bvh^)
+    return Scene(cam^, world^)
 
 
 fn create_top_scene() -> Scene:
     var R = Float32(cos(pi / 4))
-    var world = HitableList(
+    var world = BVH(
         [Sphere(Point3(-R, 0, -1), R, 0), Sphere(Point3(R, 0, -1), R, 1)],
         [Lambertian(Color(0, 0, 1)), Lambertian(Color(1, 0, 0))],
     )
@@ -869,5 +824,4 @@ fn create_top_scene() -> Scene:
         defocus_angle=0.0,
         focus_dist=10.0,
     )
-    var bvh = BVH(world^)
-    return Scene(cam^, bvh^)
+    return Scene(cam^, world^)

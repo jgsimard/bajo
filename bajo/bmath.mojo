@@ -101,7 +101,7 @@ struct PhiloxRNG:
     var _buffer: SIMD[DType.float32, 4]
     var _consumed: Int
 
-    fn __init__(out self, seed: Int, id: Int):
+    fn __init__(out self, seed: UInt64, id: UInt64):
         self._rng = Random[10](seed=seed, subsequence=id)
         self._buffer = self._rng.step_uniform()
         self._consumed = 0

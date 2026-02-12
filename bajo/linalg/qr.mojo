@@ -194,13 +194,10 @@ fn create_tensor[
     )
     return {ptr, dynamic_layout}
 
+
 fn create_tensor2[
     dtype: DType, layout: Layout
-](
-    m: Int,
-    n: Int,
-    out result: LayoutTensor[dtype, layout, MutExternalOrigin],
-):
+](m: Int, n: Int, out result: LayoutTensor[dtype, layout, MutExternalOrigin],):
     var ptr = alloc[Scalar[dtype]](m * n)
     var dynamic_layout = type_of(result.runtime_layout)(
         type_of(result.runtime_layout.shape)(m, n),
@@ -227,7 +224,7 @@ def main():
     rtol = 1e-3
     m, n = 8, 5
     min_mn = min(m, n)
-    
+
     comptime a_layout = Layout.row_major(UNKNOWN_VALUE, UNKNOWN_VALUE)
     comptime v_layout = Layout(UNKNOWN_VALUE)
     comptime T = Float32

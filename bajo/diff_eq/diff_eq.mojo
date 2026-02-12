@@ -46,6 +46,48 @@ struct Euler[
         self.t += self.dt
 
 
+# # parametrized trait would solve this
+# trait Tableau:
+#     comptime dtype: DType
+#     comptime N_STAGES: Int
+#     comptime IS_FSAL: Bool
+#     comptime N_STAGES_FSAL = Self.N_STAGES - (1 if Self.IS_FSAL else 0)
+#     comptime _a: StaticTuple[Scalar[Self.dtype], Self.N_STAGES * Self.N_STAGES]
+#     comptime b: StaticTuple[Scalar[Self.dtype], Self.N_STAGES]
+#     comptime c: StaticTuple[Scalar[Self.dtype], Self.N_STAGES]
+#     comptime e: StaticTuple[Scalar[Self.dtype], Self.N_STAGES]
+
+#     @staticmethod
+#     fn a(i: Int, j: Int) -> Scalar[Self.dtype]:
+#         return Self._a[i * Self.N_STAGES + j]
+
+
+# struct Tsit5Tableau(Tableau):
+#     comptime dtype = dtype
+#     comptime N_STAGES: Int = 7
+#     comptime IS_FSAL: Bool = True
+#     # comptime N_STAGES_FSAL = Self.N_STAGES - (1 if Self.IS_FSAL else 0)
+#     comptime _a = StaticTuple[Scalar[Self.dtype], 49](
+#         0, 0, 0, 0, 0, 0, 0, # Row 0
+#         0.161, 0, 0, 0, 0, 0, 0, # Row 1
+#         -0.008480655492356989, 0.335480655492357, 0, 0, 0, 0, 0, # Row 2
+#         2.8971530571054935, -6.359448489975075, 4.3622954328695815, 0, 0, 0, 0, # Row 3
+#         5.325864828439257, -11.748883564062828, 7.4955393428898365, -0.09249506636175525, 0, 0, 0, # Row 4
+#         5.86145544294642, -12.92096931784711, 8.159367898576159, -0.071584973281401, -0.028269050394068383, 0, 0, # Row 5
+#         0.09646076681806523, 0.01, 0.4798896504144996, 1.379008574103742, -3.290069515436081, 2.324710524099774, 0 # Row 6
+#     )
+#     comptime b = StaticTuple[Scalar[Self.dtype], 7](
+#         0.09646076681806523, 0.01, 0.4798896504144996,
+#         1.379008574103742, -3.290069515436081, 2.324710524099774, 0.0
+#     )
+#     comptime c = StaticTuple[Scalar[Self.dtype], 7](0.0, 0.161, 0.327, 0.9, 0.9800255409045097, 1.0, 1.0)
+#     # comptime c : InlineArray[Scalar[Self.dtype], 7] =  [0.0, 0.161, 0.327, 0.9, 0.9800255409045097, 1.0, 1.0]
+#     comptime e = StaticTuple[Scalar[Self.dtype], 7](
+#         -0.00178001105222577714, -0.0008164344596567469, 0.007880878010261995,
+#         -0.1447110071732629, 0.5823571654525552, -0.45808210592918697, 1.0/66.0
+#     )
+
+
 struct Tsit5[
     dtype: DType,
     layout: Layout,
@@ -102,7 +144,6 @@ struct Tsit5[
         abstol: Scalar[Self.dtype] = 1e-6,
         reltol: Scalar[Self.dtype] = 1e-3,
     ):
-
         self.y = u0
         self.t = t_start
         self.dt = dt
@@ -136,6 +177,7 @@ struct Tsit5[
             self.u_modified = False
 
         else:
+
             @parameter
             if Self.IS_FSAL:
                 # FSAL requires a deep copy of the last derivative into the first slot
@@ -179,12 +221,17 @@ struct Tsit5[
                         pow(e_est, beta1) / pow(self.qold, beta2) if e_est
                         > 0 else 0.1
                     )
-                    self.dt = h * min(Scalar[Self.dtype](5.0), max(Scalar[Self.dtype](0.1), 0.9 / q))
+                    self.dt = h * min(
+                        Scalar[Self.dtype](5.0),
+                        max(Scalar[Self.dtype](0.1), 0.9 / q),
+                    )
                     self.qold = max(e_est, 1e-4)
                     accepted = True
                 else:
                     # Step rejected: reduce dt and retry
-                    self.dt = h * max(Scalar[Self.dtype](0.1), 0.9 / pow(e_est, beta1))
+                    self.dt = h * max(
+                        Scalar[Self.dtype](0.1), 0.9 / pow(e_est, beta1)
+                    )
         else:
             # Fixed step logic
             var h = self.dt
@@ -195,7 +242,7 @@ struct Tsit5[
 
             @parameter
             for i in range(1, Self.N_STAGES_FSAL):
-                weight_sum += self.ks[i] * comptime(Self.b[i])
+                weight_sum += self.ks[i] * Self.b[i]
 
             self.y += weight_sum * h
             self.t += h
@@ -224,6 +271,7 @@ struct Tsit5[
             @parameter
             for s in range(Self.N_STAGES):
                 comptime e_coeff = Self.e[s]
+
                 @parameter
                 if e_coeff != 0:
                     err_v += self.ks[s].ptr.load[width=w](i) * e_coeff

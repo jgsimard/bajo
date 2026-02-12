@@ -1,5 +1,6 @@
 from layout import Layout, LayoutTensor, UNKNOWN_VALUE
 
+
 fn create_vector[
     dtype: DType, layout: Layout
 ](
@@ -28,13 +29,10 @@ fn create_tensor[
     )
     return {ptr, dynamic_layout}
 
+
 fn create_tensor2[
     dtype: DType, layout: Layout
-](
-    m: Int,
-    n: Int,
-    out result: LayoutTensor[dtype, layout, MutExternalOrigin],
-):
+](m: Int, n: Int, out result: LayoutTensor[dtype, layout, MutExternalOrigin],):
     var ptr = alloc[Scalar[dtype]](m * n)
     var dynamic_layout = type_of(result.runtime_layout)(
         type_of(result.runtime_layout.shape)(m, n),

@@ -32,11 +32,11 @@ struct BitField[width: Int]:
 
         @parameter
         if Self.width <= 64:
-            var mask = Scalar[self.dtype](1) << pos
+            var mask = Scalar[self.dtype](1) << Scalar[Self.dtype](pos)
             return (self.storage & mask) != 0
         else:
             var lane = pos // 64
-            var bit_in_lane = pos % 64
+            var bit_in_lane = Scalar[Self.dtype](pos % 64)
             var mask = Scalar[self.dtype](1) << bit_in_lane
             return (self.storage[lane] & mask) != 0
 
@@ -47,11 +47,13 @@ struct BitField[width: Int]:
 
         @parameter
         if Self.width <= 64:
-            var mask = Scalar[self.dtype](1) << pos
-            self.storage = (self.storage & ~mask) | (val_bit << pos)
+            var mask = Scalar[self.dtype](1) << Scalar[Self.dtype](pos)
+            self.storage = (self.storage & ~mask) | (
+                val_bit << Scalar[Self.dtype](pos)
+            )
         else:
             var lane = pos // 64
-            var bit_in_lane = pos % 64
+            var bit_in_lane = Scalar[Self.dtype](pos % 64)
             var mask = Scalar[self.dtype](1) << bit_in_lane
             self.storage = (self.storage[lane] & ~mask) | (
                 val_bit << bit_in_lane

@@ -36,18 +36,16 @@ fn create_tensor[
 
 
 fn trtrs_row[
-    dtype: DType,
-    element_layout: Layout
+    dtype: DType, element_layout: Layout
 ](
     mut x: LayoutTensor[mut=True, dtype, element_layout=element_layout, ...],
     L: LayoutTensor[dtype, element_layout=element_layout, ...],
     b: LayoutTensor[dtype, element_layout=element_layout, ...],
-    
 ):
     """Row-oriented forward substitution for Lx = b."""
     m = Int(L.runtime_layout.shape[0])
     _n = Int(L.runtime_layout.shape[1])
-    
+
     for i in range(m):
         var z = SIMD[dtype, element_layout.size()](0.0)
         for j in range(i):
@@ -59,7 +57,7 @@ def main():
     comptime T = DType.float64
     n = 5
     seed(2018)
-    
+
     comptime mat_layout = Layout.col_major(UNKNOWN_VALUE, UNKNOWN_VALUE)
     comptime vec_layout = Layout.col_major(UNKNOWN_VALUE, 1)
 
@@ -82,7 +80,7 @@ def main():
     # 3. Create Solution xe and Right-hand side b
     var xe = create_vector[T, vec_layout](n, xe_ptr)
     for i in range(n):
-        xe[i, 0] = Scalar[T](random_si64(0, 9)) # 0 to 9
+        xe[i, 0] = Scalar[T](random_si64(0, 9))  # 0 to 9
 
     var b = create_vector[T, vec_layout](n, b_ptr)
     print("L")

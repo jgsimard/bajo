@@ -1,22 +1,11 @@
-from math import pi, sqrt, sin, cos, tan, asin, acos, atan2, clamp
-from std.utils.numerics import max_finite, min_finite
-from math import fma
+from math import acos, asin, atan2, clamp, cos, fma, pi, sin, sqrt, tan
+from random import random_float64, Random
 from std.bit import next_power_of_two
-from random import random_float64
+from std.utils.numerics import max_finite, min_finite
 
 # ----------------------------------------------------------------------
-# Constants
+# Convenient names
 # ----------------------------------------------------------------------
-# How constants are named
-# numerator = before _
-# denominator = after _
-# _ at the start if number at the numerator
-comptime _2pi = pi * 2.0
-comptime pi_2 = pi / 2.0
-comptime pi_4 = pi / 4.0
-comptime pi_180 = pi / 180.0
-comptime _180_pi = pi / 180.0
-
 comptime Vector2[type: DType] = Vector[type, 2]
 comptime Vector3[type: DType] = Vector[type, 3]
 comptime Vector4[type: DType] = Vector[type, 4]
@@ -46,18 +35,20 @@ comptime AABB = AxisAlignedBoundingBox[DType.float32]
 fn degrees_to_radians[
     type: DType, size: Int
 ](degrees: SIMD[type, size]) -> SIMD[type, size]:
-    return degrees * pi_180
+    comptime factor = pi / 180.0
+    return degrees * factor
 
 
 fn radians_to_degrees[
     type: DType, size: Int
 ](radian: SIMD[type, size]) -> SIMD[type, size]:
-    return radian * _180_pi
+    comptime factor = 180.0 / pi
+    return radian * factor
 
 
 @fieldwise_init
 struct QuadraticSolutions[type: DType, size: Int](
-    Copyable, TrivialRegisterType
+    Copyable, TrivialRegisterPassable
 ):
     var roots_0: SIMD[Self.type, Self.size]
     var roots_1: SIMD[Self.type, Self.size]
@@ -90,43 +81,131 @@ fn solve_quadratic[
 
     var q = -0.5 * (b + b.ge(0.0).select(sqrt_det, -sqrt_det))
 
-    var t0 = q / a
-    var t1 = c / q
+    var t0 = c / q
+    var t1 = q / a
+
+    return QuadraticSolutions(t0, t1, mask)
+
+
+fn solve_quadratic[
+    type: DType, size: Int
+](b: SIMD[type, size], c: SIMD[type, size]) -> QuadraticSolutions[type, size]:
+    """Solves the quadratic equation `x^2 + bx + c = 0` element-wise for SIMD vectors.
+
+    This function uses a numerically stable implementation (Citardauq's formula)
+    to prevent catastrophic cancellation when 'b' is much larger than 'ac'.
+    see: https://en.wikipedia.org/wiki/Quadratic_formula#Square_root_in_the_denominator
+
+    Args:
+        b: The linear coefficients.
+        c: The constant terms.
+
+    Returns:
+        QuadraticSolutions[roots_0, roots_1, mask].
+    """
+    var det = b * b - 4.0 * c
+    var mask = det.ge(0.0)  # Element-wise >= 0.0
+
+    var sqrt_det = sqrt(max(det, 0.0))
+
+    var q = -0.5 * (b + b.ge(0.0).select(sqrt_det, -sqrt_det))
+
+    var t0 = c / q
+    var t1 = q
 
     return QuadraticSolutions(t0, t1, mask)
 
 
 # ----------------------------------------------------------------------
+# Random
+# ----------------------------------------------------------------------
+struct PhiloxRNG:
+    var _rng: Random[10]
+    var _buffer: SIMD[DType.float32, 4]
+    var _consumed: Int
+
+    fn __init__(out self, seed: UInt64, id: UInt64):
+        self._rng = Random[10](seed=seed, subsequence=id)
+        self._buffer = self._rng.step_uniform()
+        self._consumed = 0
+
+    fn next_f32(mut self) -> Float32:
+        if self._consumed >= 4:
+            self._buffer = self._rng.step_uniform()
+            self._consumed = 0
+        var val = self._buffer[self._consumed]
+        self._consumed += 1
+        return val
+
+
+fn random_unit_vector(mut rng: PhiloxRNG) -> Vec3f:
+    var u = rng.next_f32()
+    var v = rng.next_f32()
+    var theta = 2.0 * pi * u
+    var phi = acos(1.0 - 2.0 * v)
+    var sin_phi = sin(phi)
+    return Vec3f(sin_phi * cos(theta), sin_phi * sin(theta), cos(phi))
+
+
+fn random_on_hemisphere(mut rng: PhiloxRNG, normal: Vec3f) -> Vec3f:
+    var on_unit_sphere = random_unit_vector(rng)
+    var sign = Float32(dot(on_unit_sphere, normal) > 0.0)
+    return sign * on_unit_sphere
+
+
+fn random_in_unit_disk(mut rng: PhiloxRNG) -> Vec3f:
+    var u = rng.next_f32()
+    var v = rng.next_f32()
+    var theta = 2.0 * pi * u
+    var r = sqrt(v)
+    return Vec3f(r * cos(theta), r * sin(theta), 0.0)
+
+
+fn random_in_unit_sphere(mut rng: PhiloxRNG) -> Vec3f:
+    var u = rng.next_f32()
+    var r = pow(u, 1.0 / 3.0)
+    return random_unit_vector(rng) * r
+
+
+# ----------------------------------------------------------------------
 # Vector
 # ----------------------------------------------------------------------
+@always_inline
 fn dot[t: DType, s: Int](a: Vector[t, s], b: Vector[t, s]) -> Scalar[t]:
     return (a.data * b.data).reduce_add()
 
 
+@always_inline
 fn length2[t: DType, s: Int](a: Vector[t, s]) -> Scalar[t]:
     return (a.data * a.data).reduce_add()
 
 
+@always_inline
 fn length[t: DType, s: Int](a: Vector[t, s]) -> Scalar[t]:
     return sqrt(length2(a))
 
 
+@always_inline
 fn inv_length[t: DType, s: Int](a: Vector[t, s]) -> Scalar[t]:
     return 1.0 / length(a)
 
 
+@always_inline
 fn normalize[t: DType, s: Int](a: Vector[t, s]) -> Vector[t, s]:
     return a * inv_length(a)
 
 
+@always_inline
 fn distance[t: DType, s: Int](a: Vector[t, s], b: Vector[t, s]) -> Scalar[t]:
     return length(a - b)
 
 
+@always_inline
 fn distance2[t: DType, s: Int](a: Vector[t, s], b: Vector[t, s]) -> Scalar[t]:
     return length2(a - b)
 
 
+@always_inline
 fn cross[type: DType](a: Vector3[type], b: Vector3[type]) -> Vector3[type]:
     return Vector3[type](
         a.y() * b.z() - a.z() * b.y(),
@@ -135,6 +214,7 @@ fn cross[type: DType](a: Vector3[type], b: Vector3[type]) -> Vector3[type]:
     )
 
 
+@always_inline
 fn cross[type: DType](a: Vector2[type], b: Vector2[type]) -> Scalar[type]:
     return a.x() * b.y() - a.y() * b.x()
 
@@ -151,7 +231,7 @@ struct Vector[type: DType, size: Int](
     Equatable,
     Powable,
     Stringable,
-    TrivialRegisterType,
+    TrivialRegisterPassable,
     Writable,
 ):
     """A wrapper around SIMD."""
@@ -180,7 +260,7 @@ struct Vector[type: DType, size: Int](
         x: Scalar[Self.type],
         y: Scalar[Self.type],
     ):
-        __comptime_assert Self.size == 2
+        comptime assert Self.size == 2
         self.data = Self.data_type(x, y)
 
     fn __init__(
@@ -189,7 +269,7 @@ struct Vector[type: DType, size: Int](
         y: Scalar[Self.type],
         z: Scalar[Self.type],
     ):
-        __comptime_assert Self.size == 3
+        comptime assert Self.size == 3
         self.data = Self.data_type(x, y, z, Scalar[Self.type](0))
 
     fn __init__(
@@ -199,7 +279,7 @@ struct Vector[type: DType, size: Int](
         z: Scalar[Self.type],
         w: Scalar[Self.type],
     ):
-        __comptime_assert Self.size == 4
+        comptime assert Self.size == 4
         self.data = Self.data_type(x, y, z, w)
 
     @staticmethod
@@ -257,11 +337,11 @@ struct Vector[type: DType, size: Int](
         return self.data[1]
 
     fn z(self) -> Scalar[Self.type]:
-        __comptime_assert Self.size >= 3
+        comptime assert Self.size >= 3
         return self.data[2]
 
     fn w(self) -> Scalar[Self.type]:
-        __comptime_assert Self.size >= 4
+        comptime assert Self.size >= 4
         return self.data[3]
 
     # Swizzles
@@ -269,15 +349,15 @@ struct Vector[type: DType, size: Int](
         return Vector2[self.type](self.x(), self.y())
 
     fn yz(self) -> Vector2[Self.type]:
-        __comptime_assert Self.size >= 3
+        comptime assert Self.size >= 3
         return Vector2[self.type](self.y(), self.z())
 
     fn xz(self) -> Vector2[Self.type]:
-        __comptime_assert Self.size >= 3
+        comptime assert Self.size >= 3
         return Vector2[self.type](self.x(), self.z())
 
     fn xyz(self) -> Vector[Self.type, 3]:
-        __comptime_assert Self.size >= 3
+        comptime assert Self.size >= 3
         return Vector[Self.type, 3](self.x(), self.y(), self.z())
 
     # accessors
@@ -334,6 +414,9 @@ struct Vector[type: DType, size: Int](
     fn __truediv__(self, s: Scalar[Self.type]) -> Self:
         return Self(self.data / s)
 
+    fn __rtruediv__(self, s: Scalar[Self.type]) -> Self:
+        return Self(s / self.data)
+
     fn __itruediv__(mut self, s: Scalar[Self.type]):
         self.data /= s
 
@@ -374,24 +457,34 @@ struct Vector[type: DType, size: Int](
 # ----------------------------------------------------------------------
 # Quaternion
 # ----------------------------------------------------------------------
-fn length2[type: DType](q: Quaternion[type]) -> Scalar[type]:
+fn length2[
+    type: DType where type.is_floating_point()
+](q: Quaternion[type]) -> Scalar[type]:
     return (q.data * q.data).reduce_add()
 
 
-fn length[type: DType](q: Quaternion[type]) -> Scalar[type]:
+fn length[
+    type: DType where type.is_floating_point()
+](q: Quaternion[type]) -> Scalar[type]:
     return sqrt(length2(q))
 
 
-fn inv_length[type: DType](q: Quaternion[type]) -> Scalar[type]:
+fn inv_length[
+    type: DType where type.is_floating_point()
+](q: Quaternion[type]) -> Scalar[type]:
     return 1.0 / length(q)
 
 
-fn normalize[type: DType](q: Quaternion[type]) -> Quaternion[type]:
+fn normalize[
+    type: DType where type.is_floating_point()
+](q: Quaternion[type]) -> Quaternion[type]:
     return Quaternion[type](q.data * inv_length(q))
 
 
 @fieldwise_init
-struct Quaternion[type: DType](TrivialRegisterType):
+struct Quaternion[type: DType where type.is_floating_point()](
+    TrivialRegisterPassable
+):
     """TODO: Should we use wxyz or xyzw ? i heard gpu expect xyzw. but eigen uses wxyz.
     """
 
@@ -637,7 +730,7 @@ struct Quaternion[type: DType](TrivialRegisterType):
 # Diag3x3
 # ----------------------------------------------------------------------
 @fieldwise_init
-struct Diag3x3[type: DType](TrivialRegisterType):
+struct Diag3x3[type: DType](TrivialRegisterPassable):
     var d0: Scalar[Self.type]
     var d1: Scalar[Self.type]
     var d2: Scalar[Self.type]
@@ -673,7 +766,9 @@ struct Diag3x3[type: DType](TrivialRegisterType):
 # Mat3x3
 # ----------------------------------------------------------------------
 @fieldwise_init
-struct Mat3x3[type: DType](TrivialRegisterType):
+struct Mat3x3[type: DType where type.is_floating_point()](
+    TrivialRegisterPassable
+):
     var c0: Vector3[Self.type]
     var c1: Vector3[Self.type]
     var c2: Vector3[Self.type]
@@ -769,7 +864,9 @@ struct Mat3x3[type: DType](TrivialRegisterType):
 # Mat3x4
 # ----------------------------------------------------------------------
 @fieldwise_init
-struct Mat3x4[type: DType](TrivialRegisterType):
+struct Mat3x4[type: DType where type.is_floating_point()](
+    TrivialRegisterPassable
+):
     var c0: Vector3[Self.type]
     var c1: Vector3[Self.type]
     var c2: Vector3[Self.type]
@@ -848,7 +945,7 @@ struct Mat3x4[type: DType](TrivialRegisterType):
 # Mat4x4
 # ----------------------------------------------------------------------
 @fieldwise_init
-struct Mat4x4[type: DType](TrivialRegisterType):
+struct Mat4x4[type: DType](TrivialRegisterPassable):
     var c0: Vector4[Self.type]
     var c1: Vector4[Self.type]
     var c2: Vector4[Self.type]
@@ -885,7 +982,7 @@ struct Mat4x4[type: DType](TrivialRegisterType):
 # ----------------------------------------------------------------------
 @fieldwise_init
 struct AxisAlignedBoundingBox[type: DType where type.is_floating_point()](
-    TrivialRegisterType
+    TrivialRegisterPassable
 ):
     var min: Vector3[Self.type]
     var max: Vector3[Self.type]
@@ -993,7 +1090,3 @@ struct AxisAlignedBoundingBox[type: DType where type.is_floating_point()](
         new_max += Vector.max(c2_a, c2_b)
 
         return AxisAlignedBoundingBox(new_min, new_max)
-
-
-fn main() raises:
-    print("hello bmath")

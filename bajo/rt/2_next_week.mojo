@@ -1,10 +1,10 @@
-from math import sqrt, tan, pi, clamp, cos
-from random import random_float64
 from algorithm import parallelize
+from math import sqrt, tan, pi, clamp, cos
+from random import random_float64, random_si64
+from std.utils.numerics import max_finite, min_finite
 from utils import Variant
 from os import abort
-from std.utils.numerics import max_finite, min_finite
-from algorithm import parallelize
+
 
 from bajo.bmath import (
     Vec2f,
@@ -15,6 +15,11 @@ from bajo.bmath import (
     dot,
     cross,
     degrees_to_radians,
+    random_unit_vector,
+    random_on_hemisphere,
+    random_in_unit_disk,
+    random_in_unit_sphere,
+    PhiloxRNG,
 )
 
 comptime Point3 = Vec3f
@@ -24,7 +29,7 @@ comptime Color = Vec3f
 @fieldwise_init
 struct Scene:
     var camera: Camera
-    var world: HitableList
+    var world: BVH
 
 
 fn main() raises:
@@ -40,46 +45,44 @@ fn linear_to_gamma(color: Color) -> Color:
 
 
 fn write_color(mut f: FileHandle, color: Color):
-    var out_color = linear_to_gamma(color).clamp(0.0, 0.999)
+    var out_color = linear_to_gamma(color).clamp(0.0, 0.999) * 255.99
 
-    var r = out_color.x()
-    var g = out_color.y()
-    var b = out_color.z()
-
-    var ir = Int(255.99 * r)
-    var ig = Int(255.99 * g)
-    var ib = Int(255.99 * b)
+    var ir = Int(out_color.x())
+    var ig = Int(out_color.y())
+    var ib = Int(out_color.z())
 
     f.write("{} {} {}\n".format(ir, ig, ib))
 
 
-# @fieldwise_init
+@fieldwise_init
 struct Ray(Copyable, Writable):
     var origin: Point3  # 16 -> 16
     var direction: Point3  # 16 -> 32
-    var time: Float32  #  4 -> 36
-    var _pad0: Float32  #  4 -> 40
-    var _pad1: Float64  #  8 -> 48
+    var inv_direction: Point3  # 16 -> 48
+    var time: Float32  #  4 -> 52
+    var _pad: InlineArray[Float32, 3]  # 3*4=12-> 64
 
     fn __init__(
         out self, origin: Point3, direction: Point3, time: Float32 = 0.0
     ):
         self.origin = origin
         self.direction = direction
+        self.inv_direction = 1.0 / self.direction
         self.time = time
-        self._pad0 = 0
-        self._pad1 = 0
+        self._pad = InlineArray[Float32, 3](fill=0.0)
 
     fn at(self, t: Float32) -> Point3:
         return self.origin + t * self.direction
 
 
-struct HitRecord(Copyable, TrivialRegisterType):
-    var p: Point3
-    var normal: Vec3f
-    var material_id: Int
-    var t: Float32
-    var front_face: Bool
+struct HitRecord(Copyable, TrivialRegisterPassable):
+    var p: Point3  # 4*4 = 16 => 16
+    var normal: Vec3f  # 4*4 = 16 => 32
+    var material_id: Int  # 4 => 36
+    var t: Float32  # 4 => 40
+    var u: Float32  # 4 => 44
+    var v: Float32  # 4 => 48
+    var front_face: Bool  # 1 -> 4 => 52
 
     fn __init__(
         out self, p: Point3, normal: Vec3f, material_id: Int, t: Float32, r: Ray
@@ -87,8 +90,40 @@ struct HitRecord(Copyable, TrivialRegisterType):
         self.p = p
         self.material_id = material_id
         self.t = t
+        self.u = 0.0
+        self.v = 0.0
         self.front_face = dot(r.direction, normal) < 0
         self.normal = normal if self.front_face else -normal
+
+
+trait Texture:
+    fn value(self, u: Float32, v: Float32, p: Point3) -> Color:
+        ...
+
+
+comptime TextureVariant = Variant[SolidColor, CheckerTexture]
+
+
+@fieldwise_init
+struct SolidColor(Texture):
+    var albedo: Color
+
+    fn __init__(out self, r: Float32, g: Float32, b: Float32):
+        self.albedo = Color(r, g, b)
+
+    fn value(self, u: Float32, v: Float32, p: Point3) -> Color:
+        return self.albedo
+
+
+@fieldwise_init
+struct CheckerTexture(Texture):
+    var albedo: Color
+
+    fn __init__(out self, r: Float32, g: Float32, b: Float32):
+        self.albedo = Color(r, g, b)
+
+    fn value(self, u: Float32, v: Float32, p: Point3) -> Color:
+        return self.albedo
 
 
 trait Hittable(Copyable):
@@ -96,6 +131,9 @@ trait Hittable(Copyable):
         self, ray: Ray, ray_t: Interval[DType.float32]
     ) -> Optional[HitRecord]:
         ...
+
+
+comptime HittableVariant = Variant[Sphere]
 
 
 @fieldwise_init
@@ -136,43 +174,23 @@ struct Sphere(Hittable, Writable):
         var normal = (p - current_center) / self.radius
         return HitRecord(p, normal, self.material_id, t, ray)
 
+    fn bounding_box(self) -> AABB:
+        var rvec = Vec3f(self.radius, self.radius, self.radius)
 
-comptime HittableVariant = Variant[Sphere]
+        # time = 0.0
+        var center0 = self.center.at(0.0)
+        var box0 = AABB(center0 - rvec, center0 + rvec)
 
+        # time = 1.0
+        var center1 = self.center.at(1.0)
+        var box1 = AABB(center1 - rvec, center1 + rvec)
 
-@fieldwise_init
-struct HitableList(Hittable, Writable):
-    var objects: List[HittableVariant]
-    var materials: List[MaterialVariant]
-
-    fn hit(
-        self, ray: Ray, ray_t: Interval[DType.float32]
-    ) -> Optional[HitRecord]:
-        var closest_so_far = ray_t.max
-        var hit_anything: Optional[HitRecord] = None
-
-        for obj in self.objects:
-            var interval = Interval(ray_t.min, closest_so_far)
-            var hit_res: Optional[HitRecord]
-            if obj.isa[Sphere]():
-                hit_res = obj[Sphere].hit(ray, interval)
-            else:
-                abort()
-
-            if hit_res:
-                var hit = hit_res.value()
-                closest_so_far = hit.t
-                hit_anything = Optional(hit)
-
-        return hit_anything
+        return AABB(box0, box1)
 
 
-# IMAGE_NB==6
 @fieldwise_init
 struct Interval[T: DType](
     Copyable,
-    Representable,
-    Stringable,
     Writable,
 ):
     var min: Scalar[Self.T]
@@ -191,15 +209,188 @@ struct Interval[T: DType](
     fn size(self) -> Scalar[Self.T]:
         return self.max - self.min
 
-    @no_inline
-    fn write_to(self, mut writer: Some[Writer]):
-        writer.write("({},{})".format(self.min, self.max))
+    fn union(self, other: Self) -> Self:
+        return Interval(min(self.min, other.min), max(self.max, other.max))
 
-    fn __str__(self) -> String:
-        return String.write(self)
+    fn expand(self, delta: Scalar[Self.T]) -> Self:
+        var padding = delta / 2
+        return Interval(self.min - padding, self.max + padding)
 
-    fn __repr__(self) -> String:
-        return String("Interval", self, "")
+
+@fieldwise_init
+struct AABB(Copyable):
+    """Axis Aligned Bounding Box."""
+
+    var min: Point3
+    var max: Point3
+
+    fn __init__(out self, a: AABB, b: AABB):
+        self.min = Vec3f.min(a.min, b.min)
+        self.max = Vec3f.max(a.max, b.max)
+
+    fn hit(self, ray: Ray, ray_t: Interval[DType.float32]) -> Bool:
+        var t_lower = ray.inv_direction * (self.min - ray.origin)
+        var t_upper = ray.inv_direction * (self.max - ray.origin)
+
+        var t_min_vec = Vec3f.min(t_lower, t_upper)
+        var t_max_vec = Vec3f.max(t_lower, t_upper)
+
+        var t_box_min = max(
+            t_min_vec.x(), t_min_vec.y(), t_min_vec.z(), ray_t.min
+        )
+
+        var t_box_max = min(
+            t_max_vec.x(), t_max_vec.y(), t_max_vec.z(), ray_t.max
+        )
+
+        return t_box_min <= t_box_max
+
+
+@fieldwise_init
+struct BVHNode(Copyable):
+    """Bounding Volume Hierarchy Node."""
+
+    var bbox: AABB
+    var left_idx: Int
+    """Index in 'nodes' list. -1 if leaf."""
+    var right_idx: Int
+    """Index in 'nodes' list. -1 if leaf."""
+    var object_idx: Int
+    """Index in 'objects' list. -1 if internal node."""
+
+
+fn get_bounding_box(obj: HittableVariant) -> AABB:
+    if obj.isa[Sphere]():
+        return obj[Sphere].bounding_box()
+    print("OOOOOOOOOOOOOOOOPS")
+    abort()
+
+
+@fieldwise_init
+struct BVH(Hittable):
+    """Bounding Volume Hierarchy."""
+
+    var nodes: List[BVHNode]
+    var objects: List[HittableVariant]
+    var materials: List[MaterialVariant]
+    var root_idx: Int
+
+    fn __init__(
+        out self,
+        var objects: List[HittableVariant],
+        var materials: List[MaterialVariant],
+    ):
+        self.nodes = List[BVHNode]()
+        self.objects = objects^
+        self.materials = materials^
+        self.root_idx = -1
+
+        if len(self.objects) > 0:
+            self.root_idx = self._build(0, len(self.objects))
+
+    fn hit(
+        self, ray: Ray, ray_t: Interval[DType.float32]
+    ) -> Optional[HitRecord]:
+        if self.root_idx == -1:
+            return None
+
+        var closest_so_far = ray_t.max
+        var hit_anything: Optional[HitRecord] = None
+
+        var node_stack = InlineArray[Int, 64](fill=0)
+        var stack_ptr = 0
+
+        # Push root
+        node_stack[stack_ptr] = self.root_idx
+        stack_ptr += 1
+
+        while stack_ptr > 0:
+            # Pop
+            stack_ptr -= 1
+            var node_idx = node_stack[stack_ptr]
+            ref node = self.nodes[node_idx]
+
+            # check AABB
+            if not node.bbox.hit(ray, Interval(ray_t.min, closest_so_far)):
+                continue
+
+            # leaf node = object
+            if node.object_idx != -1:
+                ref obj = self.objects[node.object_idx]
+                var hit_res: Optional[HitRecord]
+
+                if obj.isa[Sphere]():
+                    hit_res = obj[Sphere].hit(
+                        ray, Interval(ray_t.min, closest_so_far)
+                    )
+                else:
+                    print("ooooooops")
+                    abort()
+
+                if hit_res:
+                    var rec = hit_res.value()
+                    closest_so_far = rec.t
+                    hit_anything = hit_res
+
+            # internal node = check children
+            else:
+                # push children to stack
+                node_stack[stack_ptr] = node.right_idx
+                stack_ptr += 1
+                node_stack[stack_ptr] = node.left_idx
+                stack_ptr += 1
+
+        return hit_anything
+
+    fn _get_box(self, idx: Int) -> AABB:
+        ref obj = self.objects[idx]
+        return get_bounding_box(obj)
+
+    fn _build(mut self, start: Int, end: Int) -> Int:
+        var axis = Int(random_si64(0, 2))
+        var span = end - start
+
+        # leaf node
+        if span == 1:
+            var box = self._get_box(start)
+            var node = BVHNode(box^, -1, -1, start)
+            self.nodes.append(node^)
+            return len(self.nodes) - 1
+
+        # internal node
+        # using the sort function (see below) create wrong image :(
+        for i in range(start, end):
+            for j in range(i + 1, end):
+                var box_a = self._get_box(i)
+                var box_b = self._get_box(j)
+                if box_a.min[axis] > box_b.min[axis]:
+                    self.objects.swap_elements(i, j)
+
+        # var ptr = self.objects.unsafe_ptr()
+        # var object_span = Span(ptr=ptr + start, length=span)
+
+        # @parameter
+        # fn comparator(a: HittableVariant, b: HittableVariant) capturing -> Bool:
+        #     var box_a = get_bounding_box(a)
+        #     var box_b = get_bounding_box(b)
+        #     return box_a.axis(axis).min < box_b.axis(axis).min
+
+        # sort[cmp_fn=comparator](object_span)
+
+        var mid = start + span // 2
+
+        # Recursively build children
+        var left_idx = self._build(start, mid)
+        var right_idx = self._build(mid, end)
+
+        # Compute combined bounding box
+        ref box_l = self.nodes[left_idx].bbox
+        ref box_r = self.nodes[right_idx].bbox
+        var combined_box = AABB(box_l, box_r)
+
+        var node = BVHNode(combined_box^, left_idx, right_idx, -1)
+        self.nodes.append(node^)
+        return len(self.nodes) - 1
 
 
 struct Camera(Copyable):
@@ -264,7 +455,9 @@ struct Camera(Copyable):
         self.focus_dist = focus_dist
         self.aspect_ratio = aspect_ratio
         self.image_width = image_width
-        self.image_height = max(1, Int(self.image_width / aspect_ratio))
+        self.image_height = max(
+            1, Int(Float32(self.image_width) / aspect_ratio)
+        )
 
         self.center = lookfrom
 
@@ -288,8 +481,8 @@ struct Camera(Copyable):
         var viewport_v = viewport_height * -self.v
 
         # Calculate the horizontal and vertical delta vectors from pixel to pixel.
-        self.pixel_delta_u = viewport_u / self.image_width
-        self.pixel_delta_v = viewport_v / self.image_height
+        self.pixel_delta_u = viewport_u / Float32(self.image_width)
+        self.pixel_delta_v = viewport_v / Float32(self.image_height)
 
         # Calculate the location of the upper left pixel.
         var viewport_upper_left = (
@@ -303,18 +496,18 @@ struct Camera(Copyable):
             self.pixel_delta_u + self.pixel_delta_v
         )
 
-        # // Calculate the camera defocus disk basis vectors.
+        # Calculate the camera defocus disk basis vectors.
         var defocus_radius = focus_dist * tan(
             degrees_to_radians(defocus_angle / 2)
         )
         self.defocus_disk_u = self.u * defocus_radius
         self.defocus_disk_v = self.v * defocus_radius
 
-    fn ray_color(self, ray: Ray, world: HitableList) -> Color:
+    fn ray_color(self, ray: Ray, world: BVH, mut rng: PhiloxRNG) -> Color:
         var cur_ray = ray.copy()
         var accumulated_attenuation = Color(1.0, 1.0, 1.0)
 
-        for bounce in range(self.max_depth):
+        for _bounce in range(self.max_depth):
             comptime infinity = max_finite[DType.float32]()
             var hit_res = world.hit(cur_ray, Interval(Float32(0.001), infinity))
 
@@ -325,11 +518,15 @@ struct Camera(Copyable):
                 var scatter_res: Optional[Tuple[Ray, Color]]
                 ref material = world.materials[material_id]
                 if material.isa[Lambertian]():
-                    scatter_res = material[Lambertian].scatter(cur_ray, hit)
+                    scatter_res = material[Lambertian].scatter(
+                        cur_ray, hit, rng
+                    )
                 elif material.isa[Metal]():
-                    scatter_res = material[Metal].scatter(cur_ray, hit)
+                    scatter_res = material[Metal].scatter(cur_ray, hit, rng)
                 elif material.isa[Dielectric]():
-                    scatter_res = material[Dielectric].scatter(cur_ray, hit)
+                    scatter_res = material[Dielectric].scatter(
+                        cur_ray, hit, rng
+                    )
                 else:
                     print("Material not implemented yet")
                     abort()
@@ -357,19 +554,20 @@ struct Camera(Copyable):
         # If we exceeded the depth without hitting the sky, return black
         return Color.zeros()
 
-    fn render(self, world: HitableList) raises:
+    fn render(self, world: BVH) raises:
         var image_data = List[Color](
             length=self.image_width * self.image_height, fill=Color.zeros()
         )
 
         @parameter
         fn worker(j: Int):
-            var factor = Float32(1.0 / self.samples_per_pixel)
+            var rng = PhiloxRNG(seed=123, id=UInt64(j))
+            var factor = Float32(1.0 / Float32(self.samples_per_pixel))
             for i in range(self.image_width):
                 var pixel_color = Color.zeros()
-                for sample in range(self.samples_per_pixel):
-                    var r = self.get_ray(i, j)
-                    pixel_color += self.ray_color(r, world)
+                for _sample in range(self.samples_per_pixel):
+                    var r = self.get_ray(i, j, rng)
+                    pixel_color += self.ray_color(r, world, rng)
 
                 image_data[j * self.image_width + i] = pixel_color * factor
 
@@ -382,65 +580,33 @@ struct Camera(Copyable):
             for color in image_data:
                 write_color(f, color)
 
-    fn get_ray(self, i: Int, j: Int) -> Ray:
-        var offset = Vec2f.random(-0.5, 0.5)
+    fn get_ray(self, i: Int, j: Int, mut rng: PhiloxRNG) -> Ray:
+        var r1 = rng.next_f32()
+        var r2 = rng.next_f32()
+        var offset = Vec2f(r1, r2)
         var pixel_sample = (
             self.pixel00_loc
-            + ((i + offset.x()) * self.pixel_delta_u)
-            + ((j + offset.y()) * self.pixel_delta_v)
+            + ((Float32(i) + offset.x()) * self.pixel_delta_u)
+            + ((Float32(j) + offset.y()) * self.pixel_delta_v)
         )
 
         var origin = (
             self.center if self.defocus_angle
-            <= 0 else self.defocus_disk_sample()
+            <= 0 else self.defocus_disk_sample(rng)
         )
         var direction = pixel_sample - origin
-        var time = Float32(random_float64())
+        var time = rng.next_f32()
 
         return Ray(origin, direction, time)
 
-    fn defocus_disk_sample(self) -> Vec3f:
+    fn defocus_disk_sample(self, mut rng: PhiloxRNG) -> Vec3f:
         """Returns a random point in the camera defocus disk."""
-        var p = random_in_unit_disk()
+        var p = random_in_unit_disk(rng)
         return (
             self.center
             + (p[0] * self.defocus_disk_u)
             + (p[1] * self.defocus_disk_v)
         )
-
-
-fn random_unit_vector() -> Vec3f:
-    while True:
-        var p = Vec3f.random(-1.0, 1.0)
-        if Float32(1e-160) <= dot(p, p) < 1.0:
-            return normalize(p)
-
-
-fn random_on_hemisphere(normal: Vec3f) -> Vec3f:
-    var on_unit_sphere = random_unit_vector()
-    if (
-        dot(on_unit_sphere, normal) > 0.0
-    ):  # In the same hemisphere as the normal
-        return on_unit_sphere
-    else:
-        return -on_unit_sphere
-
-
-fn random_in_unit_disk() -> Vec3f:
-    while True:
-        r1 = Float32(random_float64(-1, 1))
-        r2 = Float32(random_float64(-1, 1))
-        var p = 2.0 * Vec3f(r1, r2, 0.0)
-        if dot(p, p) < 1.0:
-            return p
-
-
-fn random_in_unit_sphere() -> Vec3f:
-    var unit = Vec3f(1.0, 1.0, 1.0)
-    while True:
-        var p = 2.0 * Vec3f.random() - unit
-        if dot(p, p) < 1.0:
-            return p
 
 
 fn reflect(v: Vec3f, n: Vec3f) -> Vec3f:
@@ -455,7 +621,9 @@ fn refract(uv: Vec3f, n: Vec3f, etai_over_etat: Float32) -> Vec3f:
 
 
 trait Material(Copyable):
-    fn scatter(self, ray: Ray, hit: HitRecord) -> Optional[Tuple[Ray, Color]]:
+    fn scatter(
+        self, ray: Ray, hit: HitRecord, mut rng: PhiloxRNG
+    ) -> Optional[Tuple[Ray, Color]]:
         ...
 
 
@@ -466,8 +634,10 @@ comptime MaterialVariant = Variant[Lambertian, Metal, Dielectric]
 struct Lambertian(Material, Writable):
     var albedo: Vec3f
 
-    fn scatter(self, ray: Ray, hit: HitRecord) -> Optional[Tuple[Ray, Color]]:
-        var scatter_direction = hit.normal + random_unit_vector()
+    fn scatter(
+        self, ray: Ray, hit: HitRecord, mut rng: PhiloxRNG
+    ) -> Optional[Tuple[Ray, Color]]:
+        var scatter_direction = hit.normal + random_unit_vector(rng)
 
         # Catch degenerate scatter direction
         if scatter_direction.near_zero():
@@ -482,9 +652,11 @@ struct Metal(Material, Writable):
     var albedo: Vec3f
     var fuzz: Float32
 
-    fn scatter(self, ray: Ray, hit: HitRecord) -> Optional[Tuple[Ray, Color]]:
+    fn scatter(
+        self, ray: Ray, hit: HitRecord, mut rng: PhiloxRNG
+    ) -> Optional[Tuple[Ray, Color]]:
         var reflected = reflect(ray.direction, hit.normal)
-        reflected = normalize(reflected) + (self.fuzz * random_unit_vector())
+        reflected = normalize(reflected) + (self.fuzz * random_unit_vector(rng))
         var scattered = Ray(hit.p, reflected, ray.time)
 
         if dot(scattered.direction, hit.normal) < 0:
@@ -497,7 +669,9 @@ struct Metal(Material, Writable):
 struct Dielectric(Material, Writable):
     var refraction_index: Float32
 
-    fn scatter(self, ray: Ray, hit: HitRecord) -> Optional[Tuple[Ray, Color]]:
+    fn scatter(
+        self, ray: Ray, hit: HitRecord, mut rng: PhiloxRNG
+    ) -> Optional[Tuple[Ray, Color]]:
         var attenuation = Color.ones()
         var ri = (
             1.0
@@ -512,11 +686,10 @@ struct Dielectric(Material, Writable):
         var direction: Vec3f
 
         # total internal reflection
-        if cannot_refract or reflectance(cos_theta, ri) > Float32(
-            random_float64()
-        ):  # Must Reflect
+        var _rng = rng.next_f32()
+        if cannot_refract or reflectance(cos_theta, ri) > _rng:
             direction = reflect(unit_direction, hit.normal)
-        else:  # can refract
+        else:
             direction = refract(unit_direction, hit.normal, ri)
 
         scattered = Ray(hit.p, direction, ray.time)
@@ -582,8 +755,6 @@ fn create_random_scene() -> Scene:
     materials.append(Metal(Color(0.7, 0.6, 0.5), 0.0))
     objects.append(Sphere(Point3(4, 1, 0), 1.0, len(materials) - 1))
 
-    var world = HitableList(objects^, materials^)
-
     var cam = Camera(
         image_width=400,
         aspect_ratio=16.0 / 9.0,
@@ -597,11 +768,12 @@ fn create_random_scene() -> Scene:
         focus_dist=10.0,
     )
 
+    var world = BVH(objects^, materials^)
     return Scene(cam^, world^)
 
 
 fn create_basic_scene() -> Scene:
-    var world = HitableList(
+    var world = BVH(
         [
             Sphere(Point3(0, -100.5, -1), 100, 0),
             Sphere(Point3(0, 0, -1.2), 0.5, 1),
@@ -635,7 +807,7 @@ fn create_basic_scene() -> Scene:
 
 fn create_top_scene() -> Scene:
     var R = Float32(cos(pi / 4))
-    var world = HitableList(
+    var world = BVH(
         [Sphere(Point3(-R, 0, -1), R, 0), Sphere(Point3(R, 0, -1), R, 1)],
         [Lambertian(Color(0, 0, 1)), Lambertian(Color(1, 0, 0))],
     )

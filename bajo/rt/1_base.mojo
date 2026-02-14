@@ -54,7 +54,7 @@ fn write_color(mut f: FileHandle, color: Color):
 
 
 @fieldwise_init
-struct Ray(Copyable, TrivialRegisterType, Writable):
+struct Ray(Copyable, TrivialRegisterPassable, Writable):
     var origin: Point3
     var direction: Point3
 
@@ -62,7 +62,7 @@ struct Ray(Copyable, TrivialRegisterType, Writable):
         return self.origin + t * self.direction
 
 
-struct HitRecord(Copyable, TrivialRegisterType):
+struct HitRecord(Copyable, TrivialRegisterPassable):
     var p: Point3
     var normal: Vec3f
     var material_id: Int
@@ -296,7 +296,7 @@ struct Camera(Copyable):
         var cur_ray = ray
         var accumulated_attenuation = Color(1.0, 1.0, 1.0)
 
-        for bounce in range(self.max_depth):
+        for _bounce in range(self.max_depth):
             comptime infinity = max_finite[DType.float32]()
             var hit_res = world.hit(cur_ray, Interval(Float32(0.001), infinity))
 
@@ -349,7 +349,7 @@ struct Camera(Copyable):
             var factor = Float32(1.0 / self.samples_per_pixel)
             for i in range(self.image_width):
                 var pixel_color = Color.zeros()
-                for sample in range(self.samples_per_pixel):
+                for _sample in range(self.samples_per_pixel):
                     var r = self.get_ray(i, j)
                     pixel_color += self.ray_color(r, world)
 

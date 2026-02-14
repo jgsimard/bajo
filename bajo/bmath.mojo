@@ -1,22 +1,11 @@
-from math import pi, sqrt, sin, cos, tan, asin, acos, atan2, clamp
-from std.utils.numerics import max_finite, min_finite
-from math import fma
-from std.bit import next_power_of_two
+from math import acos, asin, atan2, clamp, cos, fma, pi, sin, sqrt, tan
 from random import random_float64, Random
+from std.bit import next_power_of_two
+from std.utils.numerics import max_finite, min_finite
 
 # ----------------------------------------------------------------------
-# Constants
+# Convenient names
 # ----------------------------------------------------------------------
-# How constants are named
-# numerator = before _
-# denominator = after _
-# _ at the start if number at the numerator
-comptime _2pi = pi * 2.0
-comptime pi_2 = pi / 2.0
-comptime pi_4 = pi / 4.0
-comptime pi_180 = pi / 180.0
-comptime _180_pi = pi / 180.0
-
 comptime Vector2[type: DType] = Vector[type, 2]
 comptime Vector3[type: DType] = Vector[type, 3]
 comptime Vector4[type: DType] = Vector[type, 4]
@@ -46,13 +35,15 @@ comptime AABB = AxisAlignedBoundingBox[DType.float32]
 fn degrees_to_radians[
     type: DType, size: Int
 ](degrees: SIMD[type, size]) -> SIMD[type, size]:
-    return degrees * pi_180
+    comptime factor = pi / 180.0
+    return degrees * factor
 
 
 fn radians_to_degrees[
     type: DType, size: Int
 ](radian: SIMD[type, size]) -> SIMD[type, size]:
-    return radian * _180_pi
+    comptime factor = 180.0 / pi
+    return radian * factor
 
 
 @fieldwise_init
@@ -96,6 +87,38 @@ fn solve_quadratic[
     return QuadraticSolutions(t0, t1, mask)
 
 
+fn solve_quadratic[
+    type: DType, size: Int
+](b: SIMD[type, size], c: SIMD[type, size]) -> QuadraticSolutions[type, size]:
+    """Solves the quadratic equation `x^2 + bx + c = 0` element-wise for SIMD vectors.
+
+    This function uses a numerically stable implementation (Citardauq's formula)
+    to prevent catastrophic cancellation when 'b' is much larger than 'ac'.
+    see: https://en.wikipedia.org/wiki/Quadratic_formula#Square_root_in_the_denominator
+
+    Args:
+        b: The linear coefficients.
+        c: The constant terms.
+
+    Returns:
+        QuadraticSolutions[roots_0, roots_1, mask].
+    """
+    var det = b * b - 4.0 * c
+    var mask = det.ge(0.0)  # Element-wise >= 0.0
+
+    var sqrt_det = sqrt(max(det, 0.0))
+
+    var q = -0.5 * (b + b.ge(0.0).select(sqrt_det, -sqrt_det))
+
+    var t0 = c / q
+    var t1 = q
+
+    return QuadraticSolutions(t0, t1, mask)
+
+
+# ----------------------------------------------------------------------
+# Random
+# ----------------------------------------------------------------------
 struct PhiloxRNG:
     var _rng: Random[10]
     var _buffer: SIMD[DType.float32, 4]

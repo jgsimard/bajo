@@ -80,9 +80,9 @@ struct HitRecord(Copyable, TrivialRegisterPassable):
     var normal: Vec3f  # 4*4 = 16 => 32
     var material_id: Int  # 4 => 36
     var t: Float32  # 4 => 40
-    var u: Float32
-    var v: Float32
-    var front_face: Bool  # 1 -> 4 => 44
+    var u: Float32  # 4 => 44
+    var v: Float32  # 4 => 48
+    var front_face: Bool  # 1 -> 4 => 52
 
     fn __init__(
         out self, p: Point3, normal: Vec3f, material_id: Int, t: Float32, r: Ray
@@ -496,7 +496,7 @@ struct Camera(Copyable):
             self.pixel_delta_u + self.pixel_delta_v
         )
 
-        # // Calculate the camera defocus disk basis vectors.
+        # Calculate the camera defocus disk basis vectors.
         var defocus_radius = focus_dist * tan(
             degrees_to_radians(defocus_angle / 2)
         )

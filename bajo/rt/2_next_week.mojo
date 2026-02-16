@@ -4,6 +4,7 @@ from random import random_float64, random_si64
 from std.utils.numerics import max_finite, min_finite
 from utils import Variant
 from os import abort
+from sys.info import size_of
 
 
 from bajo.bmath import (
@@ -348,36 +349,25 @@ struct BVH(Hittable):
 
     fn _build(mut self, start: Int, end: Int) -> Int:
         var axis = Int(random_si64(0, 2))
-        var span = end - start
+        var span_len = end - start
 
         # leaf node
-        if span == 1:
+        if span_len == 1:
             var box = self._get_box(start)
             var node = BVHNode(box^, -1, -1, start)
             self.nodes.append(node^)
             return len(self.nodes) - 1
 
         # internal node
-        # using the sort function (see below) create wrong image :(
-        for i in range(start, end):
-            for j in range(i + 1, end):
-                var box_a = self._get_box(i)
-                var box_b = self._get_box(j)
-                if box_a.min[axis] > box_b.min[axis]:
-                    self.objects.swap_elements(i, j)
+        fn cmp_fn(a: HittableVariant, b: HittableVariant) capturing -> Bool:
+            var box_a = get_bounding_box(a)
+            var box_b = get_bounding_box(b)
+            return box_a.min[axis] < box_b.min[axis]
 
-        # var ptr = self.objects.unsafe_ptr()
-        # var object_span = Span(ptr=ptr + start, length=span)
+        # not sure why, but swap objects if stable=False
+        sort[cmp_fn=cmp_fn, stable=True](self.objects[start : start + span_len])
 
-        # @parameter
-        # fn comparator(a: HittableVariant, b: HittableVariant) capturing -> Bool:
-        #     var box_a = get_bounding_box(a)
-        #     var box_b = get_bounding_box(b)
-        #     return box_a.axis(axis).min < box_b.axis(axis).min
-
-        # sort[cmp_fn=comparator](object_span)
-
-        var mid = start + span // 2
+        var mid = start + span_len // 2
 
         # Recursively build children
         var left_idx = self._build(start, mid)

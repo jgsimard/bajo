@@ -2,6 +2,7 @@ from math import acos, asin, atan2, clamp, cos, fma, pi, sin, sqrt, tan
 from random import random_float64, Random
 from std.bit import next_power_of_two
 from std.utils.numerics import max_finite, min_finite
+from sys.intrinsics import _type_is_eq
 
 # ----------------------------------------------------------------------
 # Convenient names
@@ -171,37 +172,45 @@ fn random_in_unit_sphere(mut rng: PhiloxRNG) -> Vec3f:
 # Vector
 # ----------------------------------------------------------------------
 @always_inline
-fn dot[t: DType, s: Int](a: Vector[t, s], b: Vector[t, s]) -> Scalar[t]:
+fn dot[
+    dtype: DType, size: Int
+](a: Vector[dtype, size], b: Vector[dtype, size]) -> Scalar[dtype]:
     return (a.data * b.data).reduce_add()
 
 
 @always_inline
-fn length2[t: DType, s: Int](a: Vector[t, s]) -> Scalar[t]:
+fn length2[dtype: DType, size: Int](a: Vector[dtype, size]) -> Scalar[dtype]:
     return (a.data * a.data).reduce_add()
 
 
 @always_inline
-fn length[t: DType, s: Int](a: Vector[t, s]) -> Scalar[t]:
+fn length[dtype: DType, size: Int](a: Vector[dtype, size]) -> Scalar[dtype]:
     return sqrt(length2(a))
 
 
 @always_inline
-fn inv_length[t: DType, s: Int](a: Vector[t, s]) -> Scalar[t]:
+fn inv_length[dtype: DType, size: Int](a: Vector[dtype, size]) -> Scalar[dtype]:
     return 1.0 / length(a)
 
 
 @always_inline
-fn normalize[t: DType, s: Int](a: Vector[t, s]) -> Vector[t, s]:
+fn normalize[
+    dtype: DType, size: Int
+](a: Vector[dtype, size]) -> Vector[dtype, size]:
     return a * inv_length(a)
 
 
 @always_inline
-fn distance[t: DType, s: Int](a: Vector[t, s], b: Vector[t, s]) -> Scalar[t]:
+fn distance[
+    dtype: DType, size: Int
+](a: Vector[dtype, size], b: Vector[dtype, size]) -> Scalar[dtype]:
     return length(a - b)
 
 
 @always_inline
-fn distance2[t: DType, s: Int](a: Vector[t, s], b: Vector[t, s]) -> Scalar[t]:
+fn distance2[
+    dtype: DType, size: Int
+](a: Vector[dtype, size], b: Vector[dtype, size]) -> Scalar[dtype]:
     return length2(a - b)
 
 
@@ -220,9 +229,11 @@ fn cross[type: DType](a: Vector2[type], b: Vector2[type]) -> Scalar[type]:
 
 
 fn lerp[
-    t: DType, s: Int
-](a: Vector[t, s], b: Vector[t, s], u: Scalar[t]) -> Vector[t, s]:
-    return a * (Scalar[t](1.0) - u) + b * u
+    dtype: DType, size: Int
+](a: Vector[dtype, size], b: Vector[dtype, size], u: Scalar[dtype]) -> Vector[
+    dtype, size
+]:
+    return a * (Scalar[dtype](1.0) - u) + b * u
 
 
 @fieldwise_init
@@ -674,6 +685,7 @@ struct Quaternion[type: DType where type.is_floating_point()](
         var sinp = 2 * (self.w() * self.y() - self.z() * self.x())
         var pitch: Scalar[Self.type]
         if abs(sinp) >= 1:
+            comptime pi_2 = pi / 2.0
             pitch = Scalar[Self.type](1.0 if sinp > 0 else -1.0) * pi_2
         else:
             pitch = asin(sinp)
@@ -978,7 +990,7 @@ struct Mat4x4[type: DType](TrivialRegisterPassable):
 
 
 # ----------------------------------------------------------------------
-# AABB
+# AABB / AxisAlignedBoundingBox
 # ----------------------------------------------------------------------
 @fieldwise_init
 struct AxisAlignedBoundingBox[type: DType where type.is_floating_point()](

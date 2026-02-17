@@ -260,11 +260,17 @@ struct BVHNode(Copyable):
     """Index in 'objects' list. -1 if internal node."""
 
 
+@fieldwise_init
+struct InvalidHittableError(Movable, TrivialRegisterPassable, Writable):
+    ...
+
+
 fn get_bounding_box(obj: HittableVariant) -> AABB:
     if obj.isa[Sphere]():
         return obj[Sphere].bounding_box()
-    print("OOOOOOOOOOOOOOOOPS")
+    print("InvalidHittableError")
     abort()
+    # raise InvalidHittableError()
 
 
 @fieldwise_init
@@ -343,17 +349,13 @@ struct BVH(Hittable):
 
         return hit_anything
 
-    fn _get_box(self, idx: Int) -> AABB:
-        ref obj = self.objects[idx]
-        return get_bounding_box(obj)
-
     fn _build(mut self, start: Int, end: Int) -> Int:
         var axis = Int(random_si64(0, 2))
         var span_len = end - start
 
         # leaf node
         if span_len == 1:
-            var box = self._get_box(start)
+            var box = get_bounding_box(self.objects[start])
             var node = BVHNode(box^, -1, -1, start)
             self.nodes.append(node^)
             return len(self.nodes) - 1

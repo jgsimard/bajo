@@ -11,10 +11,10 @@ bench_quat = "mojo -I. bench/bench_quat.mojo"
 bench_aabb = "mojo -I. bench/bench_aabb.mojo"
 
 [dependencies]
-mojo = ">=0.26.2.0.dev2026021605,<0.27"
-max = ">=26.2.0.dev2026021605,<27"
+mojo = ">=0.26.2.0.dev2026021705,<0.27"
+max = ">=26.2.0.dev2026021705,<27"
 python = ">=3.14.3,<3.15"
 suitesparsegetpy = ">=0.1.1,<0.2"
 
 [pypi-dependencies]
-dearpygui = ">=2.1.1, <3"
+dearpygui = ">=2.2, <3"

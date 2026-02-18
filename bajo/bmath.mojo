@@ -2,7 +2,6 @@ from math import acos, asin, atan2, clamp, cos, fma, pi, sin, sqrt, tan
 from random import random_float64, Random
 from std.bit import next_power_of_two
 from std.utils.numerics import max_finite, min_finite
-from sys.intrinsics import _type_is_eq
 
 # ----------------------------------------------------------------------
 # Convenient names
@@ -267,31 +266,28 @@ struct Vector[type: DType, size: Int](
         )
 
     fn __init__(
-        out self,
+        out self: Vector[Self.type, 2],
         x: Scalar[Self.type],
         y: Scalar[Self.type],
     ):
-        comptime assert Self.size == 2
-        self.data = Self.data_type(x, y)
+        self.data = [x, y]
 
     fn __init__(
-        out self,
+        out self: Vector[Self.type, 3],
         x: Scalar[Self.type],
         y: Scalar[Self.type],
         z: Scalar[Self.type],
     ):
-        comptime assert Self.size == 3
-        self.data = Self.data_type(x, y, z, Scalar[Self.type](0))
+        self.data = [x, y, z, 0]
 
     fn __init__(
-        out self,
+        out self: Vector[Self.type, 4],
         x: Scalar[Self.type],
         y: Scalar[Self.type],
         z: Scalar[Self.type],
         w: Scalar[Self.type],
     ):
-        comptime assert Self.size == 4
-        self.data = Self.data_type(x, y, z, w)
+        self.data = [x, y, z, w]
 
     @staticmethod
     fn zeros() -> Self:

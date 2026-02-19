@@ -51,15 +51,14 @@ comptime Vec4f64 = Vec[DType.float64, 4]
 
 @fieldwise_init
 struct Vec[dtype: DType, size: Int](Copyable, Writable):
-    var data: InlineArray[Scalar[Self.dtype], Self.size]
+    comptime T = InlineArray[Scalar[Self.dtype], Self.size]
+    var data: Self.T
 
     fn __init__(out self, s: Scalar[Self.dtype]):
-        self.data = InlineArray[Scalar[Self.dtype], Self.size](fill=s)
+        self.data = Self.T(fill=s)
 
     fn __init__(out self, uninitialized: Bool):
-        self.data = InlineArray[Scalar[Self.dtype], Self.size](
-            uninitialized=uninitialized
-        )
+        self.data = Self.T(uninitialized=uninitialized)
 
     fn __init__(
         out self: Vec[Self.dtype, 2],
@@ -121,9 +120,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         return self.data.unsafe_get(idx)  # no bounds checking
 
     fn __neg__(self) -> Self:
-        var data_out = InlineArray[Scalar[Self.dtype], Self.size](
-            uninitialized=True
-        )
+        var data_out = Self.T(uninitialized=True)
 
         @parameter
         for i in range(Self.size):
@@ -131,9 +128,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         return Self(data_out^)
 
     fn __add__(self, other: Self) -> Self:
-        var data_out = InlineArray[Scalar[Self.dtype], Self.size](
-            uninitialized=True
-        )
+        var data_out = Self.T(uninitialized=True)
 
         @parameter
         for i in range(Self.size):
@@ -141,9 +136,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         return Self(data_out^)
 
     fn __sub__(self, other: Self) -> Self:
-        var data_out = InlineArray[Scalar[Self.dtype], Self.size](
-            uninitialized=True
-        )
+        var data_out = Self.T(uninitialized=True)
 
         @parameter
         for i in range(Self.size):
@@ -151,9 +144,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         return Self(data_out^)
 
     fn __mul__(self, other: Self) -> Self:
-        var data_out = InlineArray[Scalar[Self.dtype], Self.size](
-            uninitialized=True
-        )
+        var data_out = Self.T(uninitialized=True)
 
         @parameter
         for i in range(Self.size):
@@ -161,9 +152,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         return Self(data_out^)
 
     fn __truediv__(self, other: Self) -> Self:
-        var data_out = InlineArray[Scalar[Self.dtype], Self.size](
-            uninitialized=True
-        )
+        var data_out = Self.T(uninitialized=True)
 
         @parameter
         for i in range(Self.size):
@@ -172,9 +161,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
 
     # --- Scalar Operators ---
     fn __add__(self, s: Scalar[Self.dtype]) -> Self:
-        var data_out = InlineArray[Scalar[Self.dtype], Self.size](
-            uninitialized=True
-        )
+        var data_out = Self.T(uninitialized=True)
 
         @parameter
         for i in range(Self.size):
@@ -182,9 +169,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         return Self(data_out^)
 
     fn __sub__(self, s: Scalar[Self.dtype]) -> Self:
-        var data_out = InlineArray[Scalar[Self.dtype], Self.size](
-            uninitialized=True
-        )
+        var data_out = Self.T(uninitialized=True)
 
         @parameter
         for i in range(Self.size):
@@ -192,9 +177,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         return Self(data_out^)
 
     fn __mul__(self, s: Scalar[Self.dtype]) -> Self:
-        var data_out = InlineArray[Scalar[Self.dtype], Self.size](
-            uninitialized=True
-        )
+        var data_out = Self.T(uninitialized=True)
 
         @parameter
         for i in range(Self.size):
@@ -205,9 +188,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         return self * s
 
     fn __truediv__(self, s: Scalar[Self.dtype]) -> Self:
-        var data_out = InlineArray[Scalar[Self.dtype], Self.size](
-            uninitialized=True
-        )
+        var data_out = Self.T(uninitialized=True)
 
         @parameter
         for i in range(Self.size):
@@ -215,9 +196,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         return Self(data_out^)
 
     fn __rtruediv__(self, s: Scalar[Self.dtype]) -> Self:
-        var data_out = InlineArray[Scalar[Self.dtype], Self.size](
-            uninitialized=True
-        )
+        var data_out = Self.T(uninitialized=True)
 
         @parameter
         for i in range(Self.size):
@@ -225,9 +204,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         return Self(data_out^)
 
     fn __and__(self, other: Self) -> Self:
-        var data_out = InlineArray[Scalar[Self.dtype], Self.size](
-            uninitialized=True
-        )
+        var data_out = Self.T(uninitialized=True)
 
         @parameter
         for i in range(Self.size):
@@ -235,9 +212,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         return Self(data_out^)
 
     fn __or__(self, other: Self) -> Self:
-        var data_out = InlineArray[Scalar[Self.dtype], Self.size](
-            uninitialized=True
-        )
+        var data_out = Self.T(uninitialized=True)
 
         @parameter
         for i in range(Self.size):
@@ -245,9 +220,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         return Self(data_out^)
 
     fn __xor__(self, other: Self) -> Self:
-        var data_out = InlineArray[Scalar[Self.dtype], Self.size](
-            uninitialized=True
-        )
+        var data_out = Self.T(uninitialized=True)
 
         @parameter
         for i in range(Self.size):
@@ -255,9 +228,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         return Self(data_out^)
 
     fn __lshift__(self, other: Self) -> Self:
-        var data_out = InlineArray[Scalar[Self.dtype], Self.size](
-            uninitialized=True
-        )
+        var data_out = Self.T(uninitialized=True)
 
         @parameter
         for i in range(Self.size):
@@ -265,9 +236,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         return Self(data_out^)
 
     fn __rshift__(self, other: Self) -> Self:
-        var data_out = InlineArray[Scalar[Self.dtype], Self.size](
-            uninitialized=True
-        )
+        var data_out = Self.T(uninitialized=True)
 
         @parameter
         for i in range(Self.size):

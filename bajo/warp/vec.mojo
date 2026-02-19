@@ -1,4 +1,4 @@
-from math import sqrt
+from math import sqrt, min, max
 
 comptime Vec2i8 = Vec[DType.int8, 2]
 comptime Vec3i8 = Vec[DType.int8, 3]
@@ -77,19 +77,19 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
 
     fn __init__(
         out self: Vec[Self.dtype, 4],
-        v: Vec[Self.dtype, 3],
-        w: Vec[Self.dtype, 3],
-    ):
-        self.data = [v.x(), v.y(), v.z(), w.x(), w.y(), w.z()]
-
-    fn __init__(
-        out self: Vec[Self.dtype, 6],
         x: Scalar[Self.dtype],
         y: Scalar[Self.dtype],
         z: Scalar[Self.dtype],
         w: Scalar[Self.dtype],
     ):
         self.data = [x, y, z, w]
+
+    fn __init__(
+        out self: Vec[Self.dtype, 6],
+        v: Vec[Self.dtype, 3],
+        w: Vec[Self.dtype, 3],
+    ):
+        self.data = [v.x(), v.y(), v.z(), w.x(), w.y(), w.z()]
 
     fn x(self) -> Scalar[Self.dtype]:
         return self.data[0]
@@ -135,6 +135,11 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
             data_out[i] = self[i] + other[i]
         return Self(data_out^)
 
+    fn __iadd__(mut self, other: Self):
+        @parameter
+        for i in range(Self.size):
+            self[i] += other[i]
+
     fn __sub__(self, other: Self) -> Self:
         var data_out = Self.T(uninitialized=True)
 
@@ -143,6 +148,11 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
             data_out[i] = self[i] - other[i]
         return Self(data_out^)
 
+    fn __isub__(mut self, other: Self):
+        @parameter
+        for i in range(Self.size):
+            self[i] -= other[i]
+
     fn __mul__(self, other: Self) -> Self:
         var data_out = Self.T(uninitialized=True)
 
@@ -150,6 +160,11 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         for i in range(Self.size):
             data_out[i] = self[i] * other[i]
         return Self(data_out^)
+
+    fn __imul__(mut self, other: Self):
+        @parameter
+        for i in range(Self.size):
+            self[i] *= other[i]
 
     fn __truediv__(self, other: Self) -> Self:
         var data_out = Self.T(uninitialized=True)
@@ -168,6 +183,11 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
             data_out[i] = self[i] + s
         return Self(data_out^)
 
+    fn __iadd__(mut self, s: Scalar[Self.dtype]):
+        @parameter
+        for i in range(Self.size):
+            self.data[i] += s
+
     fn __sub__(self, s: Scalar[Self.dtype]) -> Self:
         var data_out = Self.T(uninitialized=True)
 
@@ -175,6 +195,11 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         for i in range(Self.size):
             data_out[i] = self[i] - s
         return Self(data_out^)
+
+    fn __isub__(mut self, s: Scalar[Self.dtype]):
+        @parameter
+        for i in range(Self.size):
+            self.data[i] -= s
 
     fn __mul__(self, s: Scalar[Self.dtype]) -> Self:
         var data_out = Self.T(uninitialized=True)
@@ -244,15 +269,25 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         return Self(data_out^)
 
 
+fn is_power_of_2(n: Int) -> Bool:
+    return n > 0 and (n & (n - 1)) == 0
+
+
 fn dot[
     dtype: DType, size: Int
 ](a: Vec[dtype, size], b: Vec[dtype, size]) -> Scalar[dtype]:
-    var res: Scalar[dtype] = 0
-
     @parameter
-    for i in range(size):
-        res += a[i] * b[i]
-    return res
+    if is_power_of_2(size):
+        aa = a.data.unsafe_ptr().load[width=size]()
+        bb = b.data.unsafe_ptr().load[width=size]()
+        return (aa * bb).reduce_add()
+    else:
+        var res: Scalar[dtype] = 0
+
+        @parameter
+        for i in range(size):
+            res += a[i] * b[i]
+        return res
 
 
 fn length_sq[dtype: DType, size: Int](v: Vec[dtype, size]) -> Scalar[dtype]:
@@ -278,27 +313,33 @@ fn cross[dtype: DType](a: Vec[dtype, 3], b: Vec[dtype, 3]) -> Vec[dtype, 3]:
     )
 
 
-fn min[
+fn vmin[
     dtype: DType, size: Int
 ](a: Vec[dtype, size], b: Vec[dtype, size]) -> Vec[dtype, size]:
     var data_out = InlineArray[Scalar[dtype], size](uninitialized=True)
 
     @parameter
     for i in range(size):
-        data_out[i] = a[i] if a[i] < b[i] else b[i]
+        data_out[i] = min(a[i], b[i])
     return Vec[dtype, size](data_out^)
 
 
-fn max[
+fn vmax[
     dtype: DType, size: Int
 ](a: Vec[dtype, size], b: Vec[dtype, size]) -> Vec[dtype, size]:
     var data_out = InlineArray[Scalar[dtype], size](uninitialized=True)
 
     @parameter
     for i in range(size):
-        data_out[i] = a[i] if a[i] > b[i] else b[i]
+        data_out[i] = max(a[i], b[i])
     return Vec[dtype, size](data_out^)
 
 
 fn main():
     print("hello warp.vec")
+    a = Vec3f32(1, 2, 3)
+    b = Vec3f32(4, 5, 6)
+    aa = Vec4f32(1, 2, 3, 2)
+    bb = Vec4f32(4, 5, 6, 5)
+    print(dot(a, b))
+    print(dot(aa, bb))

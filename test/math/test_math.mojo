@@ -183,6 +183,7 @@ fn test_aabb_apply_trs_rotated() raises:
     # Z should remain 1.0
     assert_almost_equal(new_box.max.z(), 1.0, atol=1e-5)
 
+
 fn test_quat_multiplication() raises:
     # Rotate 90 X then 90 Y
     angle = degrees_to_radians(Float32(90))

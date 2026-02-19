@@ -13,9 +13,11 @@ from bajo.warp.vec import Vec3, Vec3f32, min as vmin, max as vmax, dot, length
 
 
 @always_inline
-fn triangle_closest_point_barycentric[dtype: DType](
-    a: Vec3[dtype], b: Vec3[dtype], c: Vec3[dtype], p: Vec3[dtype]
-) -> Vec3[dtype]:
+fn triangle_closest_point_barycentric[
+    dtype: DType
+](a: Vec3[dtype], b: Vec3[dtype], c: Vec3[dtype], p: Vec3[dtype]) -> Vec3[
+    dtype
+]:
     ab = b - a
     ac = c - a
     ap = p - a
@@ -61,19 +63,29 @@ fn triangle_closest_point_barycentric[dtype: DType](
 
     return Vec3[dtype](1.0 - v - w, v, w)
 
+
 @always_inline
-fn check_edge_feasible_region[dtype: DType](
-    p: Vec3[dtype], a: Vec3[dtype], b: Vec3[dtype], c: Vec3[dtype], eps: Scalar[dtype]
+fn check_edge_feasible_region[
+    dtype: DType
+](
+    p: Vec3[dtype],
+    a: Vec3[dtype],
+    b: Vec3[dtype],
+    c: Vec3[dtype],
+    eps: Scalar[dtype],
 ) -> Bool:
     ap = p - a
     bp = p - b
     ab = b - a
 
-    if dot(ap, ab) < -eps: return False
-    if dot(bp, ab) > eps: return False
+    if dot(ap, ab) < -eps:
+        return False
+    if dot(bp, ab) > eps:
+        return False
 
     ab_sqr_norm = dot(ab, ab)
-    if ab_sqr_norm < eps: return False
+    if ab_sqr_norm < eps:
+        return False
 
     t = dot(ab, c - a) / ab_sqr_norm
     perpendicular_foot = a + ab * t
@@ -83,35 +95,47 @@ fn check_edge_feasible_region[dtype: DType](
 
     return True
 
+
 @always_inline
-fn check_vertex_feasible_region[dtype: DType](
-    p: Vec3[dtype], a: Vec3[dtype], b: Vec3[dtype], c: Vec3[dtype], eps: Scalar[dtype]
+fn check_vertex_feasible_region[
+    dtype: DType
+](
+    p: Vec3[dtype],
+    a: Vec3[dtype],
+    b: Vec3[dtype],
+    c: Vec3[dtype],
+    eps: Scalar[dtype],
 ) -> Bool:
     ap = p - a
     ba = a - b
     ca = a - c
 
-    if dot(ap, ba) < -eps: return False
-    # Note: The Warp test had a potential typo (wp.dot(p, ca)), 
+    if dot(ap, ba) < -eps:
+        return False
+    # Note: The Warp test had a potential typo (wp.dot(p, ca)),
     # fixed here to match the logic of vertex region checking (ap dot ca)
-    if dot(ap, ca) < -eps: return False
+    if dot(ap, ca) < -eps:
+        return False
 
     return True
+
 
 fn test_triangle_closest_point_f32() raises:
     _test_triangle_closest_point[DType.float32, 1e-5]()
 
+
 fn test_triangle_closest_point_f16() raises:
     _test_triangle_closest_point[DType.float16, 1e-3]()
+
 
 fn _test_triangle_closest_point[dtype: DType, eps: Scalar[dtype]]() raises:
     # Setup triangle
     a = Vec3[dtype](1.0, 0.0, 0.0)
     b = Vec3[dtype](0.0, 0.0, 0.0)
     c = Vec3[dtype](0.0, 1.0, 0.0)
-    
+
     tri = InlineArray[Vec3[dtype], 3](uninitialized=True)
-    tri[0] = a.copy() 
+    tri[0] = a.copy()
     tri[1] = b.copy()
     tri[2] = c.copy()
 
@@ -119,14 +143,14 @@ fn _test_triangle_closest_point[dtype: DType, eps: Scalar[dtype]]() raises:
         # Generate random point on sphere r=2
         l = Scalar[dtype](0.0)
         p = Vec3[dtype](0, 0, 0)
-        
+
         while l < eps:
             r1 = Scalar[dtype](random_float64())
             r2 = Scalar[dtype](random_float64())
             r3 = Scalar[dtype](random_float64())
             p = Vec3[dtype](r1, r2, r3)
             l = length(p)
-        
+
         p = p * (2.0 / l)
 
         bary = triangle_closest_point_barycentric(a, b, c, p)
@@ -134,7 +158,7 @@ fn _test_triangle_closest_point[dtype: DType, eps: Scalar[dtype]]() raises:
         for dim in range(3):
             v1_idx = (dim + 1) % 3
             v2_idx = (dim + 2) % 3
-            
+
             v1 = tri[v1_idx].copy()
             v2 = tri[v2_idx].copy()
             v3 = tri[dim].copy()
@@ -142,8 +166,10 @@ fn _test_triangle_closest_point[dtype: DType, eps: Scalar[dtype]]() raises:
             # Case: Closest point is on an edge
             if bary[dim] == 0.0 and bary[v1_idx] != 0.0 and bary[v2_idx] != 0.0:
                 if not check_edge_feasible_region(p, v1, v2, v3, eps):
-                    raise "Failed edge feasible region at iteration {}".format(i)
-                
+                    raise "Failed edge feasible region at iteration {}".format(
+                        i
+                    )
+
                 # Check perpendicularity
                 closest_p = a * bary[0] + b * bary[1] + c * bary[2]
                 e = v1 - v2
@@ -161,8 +187,12 @@ fn _test_triangle_closest_point[dtype: DType, eps: Scalar[dtype]]() raises:
                 closest_p = a * bary[0] + b * bary[1] + c * bary[2]
                 e1 = v1 - v2
                 e2 = v1 - v3
-                if abs(dot(e1, closest_p - p)) > eps or abs(dot(e2, closest_p - p)) > eps:
+                if (
+                    abs(dot(e1, closest_p - p)) > eps
+                    or abs(dot(e2, closest_p - p)) > eps
+                ):
                     raise "Failed face perpendicularity at iteration".format(i)
+
 
 def main():
     TestSuite.discover_tests[__functions_in_module()]().run()

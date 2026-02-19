@@ -490,7 +490,7 @@ fn normalize[
 
 @fieldwise_init
 struct Quaternion[type: DType where type.is_floating_point()](
-    TrivialRegisterPassable
+    Copyable, Equatable, TrivialRegisterPassable, Writable
 ):
     """TODO: Should we use wxyz or xyzw ? i heard gpu expect xyzw. but eigen uses wxyz.
     """

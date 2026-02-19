@@ -196,7 +196,7 @@ fn test_quat_multiplication() raises:
     # 2. Rotate 90 around Y -> (0, -1, 0) ... Y doesn't affect it
     v = Vec3f(0, 0, 1)
     result = q_combined.rotate_vec(v)
-    assert_vec_equal(result, Vec3f(1, 0, 0))
+    assert_vec_equal(result, Vec3f(0, -1, 0))
 
 
 fn test_swizzles() raises:

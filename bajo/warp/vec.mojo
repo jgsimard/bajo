@@ -214,6 +214,16 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
             data_out[i] = self[i] / s
         return Self(data_out^)
 
+    fn __rtruediv__(self, s: Scalar[Self.dtype]) -> Self:
+        var data_out = InlineArray[Scalar[Self.dtype], Self.size](
+            uninitialized=True
+        )
+
+        @parameter
+        for i in range(Self.size):
+            data_out[i] = s / self[i]
+        return Self(data_out^)
+
     fn __and__(self, other: Self) -> Self:
         var data_out = InlineArray[Scalar[Self.dtype], Self.size](
             uninitialized=True

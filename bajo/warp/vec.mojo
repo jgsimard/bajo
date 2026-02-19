@@ -1,4 +1,5 @@
 from math import sqrt, min, max
+from sys import CompilationTarget
 
 comptime Vec2i8 = Vec[DType.int8, 2]
 comptime Vec3i8 = Vec[DType.int8, 3]
@@ -51,7 +52,9 @@ comptime Vec4f64 = Vec[DType.float64, 4]
 
 @fieldwise_init
 struct Vec[dtype: DType, size: Int](Copyable, Writable):
-    comptime T = InlineArray[Scalar[Self.dtype], Self.size]
+    # TODO: make psize=4 on more things, but needs to be tested
+    comptime psize = 4 if Self.size == 3 and CompilationTarget.is_x86() else Self.size
+    comptime T = InlineArray[Scalar[Self.dtype], Self.psize]
     var data: Self.T
 
     fn __init__(out self, s: Scalar[Self.dtype]):
@@ -73,7 +76,11 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         y: Scalar[Self.dtype],
         z: Scalar[Self.dtype],
     ):
-        self.data = [x, y, z]
+        @parameter
+        if self.psize == 4:
+            self.data = [x, y, z, 0]
+        else:
+            self.data = [x, y, z]
 
     fn __init__(
         out self: Vec[Self.dtype, 4],
@@ -120,20 +127,20 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         return self.data.unsafe_get(idx)  # no bounds checking
 
     fn __neg__(self) -> Self:
-        var data_out = Self.T(uninitialized=True)
+        var out = Self(uninitialized=True)
 
         @parameter
         for i in range(Self.size):
-            data_out[i] = -self.data[i]
-        return Self(data_out^)
+            out[i] = -self[i]
+        return out^
 
     fn __add__(self, other: Self) -> Self:
-        var data_out = Self.T(uninitialized=True)
+        var out = Self(uninitialized=True)
 
         @parameter
         for i in range(Self.size):
-            data_out[i] = self[i] + other[i]
-        return Self(data_out^)
+            out[i] = self[i] + other[i]
+        return out^
 
     fn __iadd__(mut self, other: Self):
         @parameter
@@ -141,12 +148,12 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
             self[i] += other[i]
 
     fn __sub__(self, other: Self) -> Self:
-        var data_out = Self.T(uninitialized=True)
+        var out = Self(uninitialized=True)
 
         @parameter
         for i in range(Self.size):
-            data_out[i] = self[i] - other[i]
-        return Self(data_out^)
+            out[i] = self[i] - other[i]
+        return out^
 
     fn __isub__(mut self, other: Self):
         @parameter
@@ -154,12 +161,12 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
             self[i] -= other[i]
 
     fn __mul__(self, other: Self) -> Self:
-        var data_out = Self.T(uninitialized=True)
+        var out = Self(uninitialized=True)
 
         @parameter
         for i in range(Self.size):
-            data_out[i] = self[i] * other[i]
-        return Self(data_out^)
+            out[i] = self[i] * other[i]
+        return out^
 
     fn __imul__(mut self, other: Self):
         @parameter
@@ -167,106 +174,106 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
             self[i] *= other[i]
 
     fn __truediv__(self, other: Self) -> Self:
-        var data_out = Self.T(uninitialized=True)
+        var out = Self(uninitialized=True)
 
         @parameter
         for i in range(Self.size):
-            data_out[i] = self[i] / other[i]
-        return Self(data_out^)
+            out[i] = self[i] / other[i]
+        return out^
 
     # --- Scalar Operators ---
     fn __add__(self, s: Scalar[Self.dtype]) -> Self:
-        var data_out = Self.T(uninitialized=True)
+        var out = Self(uninitialized=True)
 
         @parameter
         for i in range(Self.size):
-            data_out[i] = self[i] + s
-        return Self(data_out^)
+            out[i] = self[i] + s
+        return out^
 
     fn __iadd__(mut self, s: Scalar[Self.dtype]):
         @parameter
         for i in range(Self.size):
-            self.data[i] += s
+            self[i] += s
 
     fn __sub__(self, s: Scalar[Self.dtype]) -> Self:
-        var data_out = Self.T(uninitialized=True)
+        var out = Self(uninitialized=True)
 
         @parameter
         for i in range(Self.size):
-            data_out[i] = self[i] - s
-        return Self(data_out^)
+            out[i] = self[i] - s
+        return out^
 
     fn __isub__(mut self, s: Scalar[Self.dtype]):
         @parameter
         for i in range(Self.size):
-            self.data[i] -= s
+            self[i] -= s
 
     fn __mul__(self, s: Scalar[Self.dtype]) -> Self:
-        var data_out = Self.T(uninitialized=True)
+        var out = Self(uninitialized=True)
 
         @parameter
         for i in range(Self.size):
-            data_out[i] = self[i] * s
-        return Self(data_out^)
+            out[i] = self[i] * s
+        return out^
 
     fn __rmul__(self, s: Scalar[Self.dtype]) -> Self:
         return self * s
 
     fn __truediv__(self, s: Scalar[Self.dtype]) -> Self:
-        var data_out = Self.T(uninitialized=True)
+        var out = Self(uninitialized=True)
 
         @parameter
         for i in range(Self.size):
-            data_out[i] = self[i] / s
-        return Self(data_out^)
+            out[i] = self[i] / s
+        return out^
 
     fn __rtruediv__(self, s: Scalar[Self.dtype]) -> Self:
-        var data_out = Self.T(uninitialized=True)
+        var out = Self(uninitialized=True)
 
         @parameter
         for i in range(Self.size):
-            data_out[i] = s / self[i]
-        return Self(data_out^)
+            out[i] = s / self[i]
+        return out^
 
     fn __and__(self, other: Self) -> Self:
-        var data_out = Self.T(uninitialized=True)
+        var out = Self(uninitialized=True)
 
         @parameter
         for i in range(Self.size):
-            data_out[i] = self[i] & other[i]
-        return Self(data_out^)
+            out[i] = self[i] & other[i]
+        return out^
 
     fn __or__(self, other: Self) -> Self:
-        var data_out = Self.T(uninitialized=True)
+        var out = Self(uninitialized=True)
 
         @parameter
         for i in range(Self.size):
-            data_out[i] = self[i] | other[i]
-        return Self(data_out^)
+            out[i] = self[i] | other[i]
+        return out^
 
     fn __xor__(self, other: Self) -> Self:
-        var data_out = Self.T(uninitialized=True)
+        var out = Self(uninitialized=True)
 
         @parameter
         for i in range(Self.size):
-            data_out[i] = self[i] ^ other[i]
-        return Self(data_out^)
+            out[i] = self[i] ^ other[i]
+        return out^
 
     fn __lshift__(self, other: Self) -> Self:
-        var data_out = Self.T(uninitialized=True)
+        var out = Self(uninitialized=True)
 
         @parameter
         for i in range(Self.size):
-            data_out[i] = self[i] << other[i]
-        return Self(data_out^)
+            out[i] = self[i] << other[i]
+        return out^
 
     fn __rshift__(self, other: Self) -> Self:
-        var data_out = Self.T(uninitialized=True)
+        var out = Self(uninitialized=True)
 
         @parameter
         for i in range(Self.size):
-            data_out[i] = self[i] >> other[i]
-        return Self(data_out^)
+            out[i] = self[i] >> other[i]
+        return out^
 
 
 fn is_power_of_2(n: Int) -> Bool:
@@ -276,10 +283,13 @@ fn is_power_of_2(n: Int) -> Bool:
 fn dot[
     dtype: DType, size: Int
 ](a: Vec[dtype, size], b: Vec[dtype, size]) -> Scalar[dtype]:
+    comptime psize = Vec[dtype, size].psize
+
     @parameter
-    if is_power_of_2(size):
-        aa = a.data.unsafe_ptr().load[width=size]()
-        bb = b.data.unsafe_ptr().load[width=size]()
+    if is_power_of_2(psize):
+        aa = a.data.unsafe_ptr().load[width=psize]()
+        bb = b.data.unsafe_ptr().load[width=psize]()
+        print(aa, bb)
         return (aa * bb).reduce_add()
     else:
         var res: Scalar[dtype] = 0
@@ -316,29 +326,30 @@ fn cross[dtype: DType](a: Vec[dtype, 3], b: Vec[dtype, 3]) -> Vec[dtype, 3]:
 fn vmin[
     dtype: DType, size: Int
 ](a: Vec[dtype, size], b: Vec[dtype, size]) -> Vec[dtype, size]:
-    var data_out = InlineArray[Scalar[dtype], size](uninitialized=True)
+    var out = Vec[dtype, size](uninitialized=True)
 
     @parameter
     for i in range(size):
-        data_out[i] = min(a[i], b[i])
-    return Vec[dtype, size](data_out^)
+        out.data[i] = min(a[i], b[i])
+    return out^
 
 
 fn vmax[
     dtype: DType, size: Int
 ](a: Vec[dtype, size], b: Vec[dtype, size]) -> Vec[dtype, size]:
-    var data_out = InlineArray[Scalar[dtype], size](uninitialized=True)
+    var out = Vec[dtype, size](uninitialized=True)
 
     @parameter
     for i in range(size):
-        data_out[i] = max(a[i], b[i])
-    return Vec[dtype, size](data_out^)
+        out.data[i] = max(a[i], b[i])
+    return out^
 
 
 fn main():
     print("hello warp.vec")
     a = Vec3f32(1, 2, 3)
     b = Vec3f32(4, 5, 6)
+    print(a.size, a.psize)
     aa = Vec4f32(1, 2, 3, 2)
     bb = Vec4f32(4, 5, 6, 5)
     print(dot(a, b))

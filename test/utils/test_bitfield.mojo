@@ -1,7 +1,7 @@
 from testing import assert_equal, assert_true, assert_false, TestSuite
 from sys import simd_width_of
 
-from bajo.bitfield import BitField
+from bajo.utils.bitfield import BitField
 
 
 def test_type_selection():

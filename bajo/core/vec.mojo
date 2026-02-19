@@ -289,7 +289,6 @@ fn dot[
     if is_power_of_2(psize):
         aa = a.data.unsafe_ptr().load[width=psize]()
         bb = b.data.unsafe_ptr().load[width=psize]()
-        print(aa, bb)
         return (aa * bb).reduce_add()
     else:
         var res: Scalar[dtype] = 0

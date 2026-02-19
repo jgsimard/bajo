@@ -3,7 +3,7 @@ from math import clamp
 from std.utils.numerics import max_finite, min_finite
 
 
-from bajo.warp.vec import Vec3, Vec3f32, min as vmin, max as vmax
+from bajo.warp.vec import Vec3, Vec3f32, vmin, vmax
 
 
 comptime BVH_SHARED_STACK = False
@@ -11,14 +11,23 @@ comptime BVH_SHARED_STACK = False
 comptime SAH_NUM_BUCKETS = 16
 comptime USE_LOAD4 = True
 comptime BVH_QUERY_STACK_SIZE = 32
+comptime BVH_BLOCK_DIM = 256
 
-comptime BVH_CONSTRUCTOR_SAH = 0
-comptime BVH_CONSTRUCTOR_MEDIAN = 1
-comptime BVH_CONSTRUCTOR_LBVH = 2
 
-comptime BVH_CONSTRUCTOR = BVH_CONSTRUCTOR_LBVH
+@fieldwise_init
+struct BvhConstructor(
+    Equatable,
+    Hashable,
+    ImplicitlyCopyable,
+    KeyElement,
+    TrivialRegisterPassable,
+    Writable,
+):
+    var v: Int
 
-comptime WP_BVH_BLOCK_DIM = 256
+    comptime SAH = Self(0)
+    comptime MEDIAN = Self(1)
+    comptime LBVH = Self(2)
 
 
 @fieldwise_init

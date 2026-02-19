@@ -7,9 +7,10 @@ from testing import (
 )
 
 from math import abs
-from random import randn, random_float64
 
-from bajo.warp.vec import Vec3, Vec3f32, min as vmin, max as vmax, dot, length
+from bajo.core.vec import Vec3, Vec3f32, min as vmin, max as vmax, dot, length
+
+from bajo.core.math import PhiloxRNG
 
 
 @always_inline
@@ -129,6 +130,7 @@ fn test_triangle_closest_point_f16() raises:
 
 
 fn _test_triangle_closest_point[dtype: DType, eps: Scalar[dtype]]() raises:
+    rng = PhiloxRNG(seed=123, id=321)
     # Setup triangle
     a = Vec3[dtype](1.0, 0.0, 0.0)
     b = Vec3[dtype](0.0, 0.0, 0.0)
@@ -145,9 +147,9 @@ fn _test_triangle_closest_point[dtype: DType, eps: Scalar[dtype]]() raises:
         p = Vec3[dtype](0, 0, 0)
 
         while l < eps:
-            r1 = Scalar[dtype](random_float64())
-            r2 = Scalar[dtype](random_float64())
-            r3 = Scalar[dtype](random_float64())
+            r1 = Scalar[dtype](rng.next_f32())
+            r2 = Scalar[dtype](rng.next_f32())
+            r3 = Scalar[dtype](rng.next_f32())
             p = Vec3[dtype](r1, r2, r3)
             l = length(p)
 

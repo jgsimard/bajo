@@ -8,8 +8,8 @@ from testing import (
 from random import randn, random_float64
 
 
-from bajo.warp.vec import Vec3, Vec3f32, min as vmin, max as vmax, dot, length
-from bajo.warp.intersect import intersect_ray_aabb
+from bajo.core.vec import Vec3, Vec3f32, min as vmin, max as vmax, dot, length
+from bajo.core.intersect import intersect_ray_aabb
 
 
 fn test_bvh_ray_query_inside_outside() raises:

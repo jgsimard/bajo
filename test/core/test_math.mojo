@@ -5,7 +5,7 @@ from testing import (
     assert_true,
     assert_false,
 )
-from bajo.bmath import (
+from bajo.core.math import (
     Quat,
     Vector,
     Vec3f,

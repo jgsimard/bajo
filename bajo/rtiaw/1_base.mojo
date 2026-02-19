@@ -6,7 +6,7 @@ from os import abort
 from std.utils.numerics import max_finite, min_finite
 from algorithm import parallelize
 
-from bajo.bmath import (
+from bajo.core.math import (
     Vec2f,
     Vec3f,
     length,

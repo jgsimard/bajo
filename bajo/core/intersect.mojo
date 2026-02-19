@@ -1,6 +1,6 @@
 from math import fma, abs, max
 
-from bajo.warp.vec import (
+from bajo.core.vec import (
     Vec2,
     Vec3,
     Vec3f32,

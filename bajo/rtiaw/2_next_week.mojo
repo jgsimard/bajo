@@ -7,7 +7,7 @@ from os import abort
 from sys.info import size_of
 
 
-from bajo.bmath import (
+from bajo.core.math import (
     Vec2f,
     Vec3f,
     length,

@@ -492,19 +492,16 @@ fn normalize[
 struct Quaternion[type: DType where type.is_floating_point()](
     Copyable, Equatable, TrivialRegisterPassable, Writable
 ):
-    """TODO: Should we use wxyz or xyzw ? i heard gpu expect xyzw. but eigen uses wxyz.
-    """
-
     var data: SIMD[Self.type, 4]
 
     fn __init__(
         out self,
-        w: Scalar[Self.type],
         x: Scalar[Self.type],
         y: Scalar[Self.type],
         z: Scalar[Self.type],
+        w: Scalar[Self.type],
     ):
-        self.data = SIMD[Self.type, 4](w, x, y, z)
+        self.data = SIMD[Self.type, 4](x, y, z, w)
 
     @staticmethod
     fn identity() -> Self:

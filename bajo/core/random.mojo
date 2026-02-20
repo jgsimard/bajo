@@ -1,5 +1,5 @@
-from math import acos, asin, atan2, clamp, cos, fma, pi, sin, sqrt, tan
-from random import random_float64, Random
+from math import acos, cos, pi, sin, sqrt
+from random import Random
 
 from bajo.core.vec import Vec3f32, dot
 

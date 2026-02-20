@@ -1,13 +1,11 @@
 from testing import (
     TestSuite,
-    assert_equal,
     assert_almost_equal,
     assert_true,
     assert_false,
 )
 
 from bajo.core.vec import (
-    Vec,
     Vec2f32,
     Vec3f32,
     Vec4f32,

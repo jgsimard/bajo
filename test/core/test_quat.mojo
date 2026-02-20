@@ -1,9 +1,6 @@
 from testing import (
     TestSuite,
-    assert_equal,
     assert_almost_equal,
-    assert_true,
-    assert_false,
 )
 
 from bajo.core.conversion import degrees_to_radians

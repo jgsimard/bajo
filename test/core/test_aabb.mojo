@@ -1,6 +1,5 @@
 from testing import (
     TestSuite,
-    assert_equal,
     assert_almost_equal,
     assert_true,
     assert_false,

@@ -323,7 +323,6 @@ fn vmin[
     dtype: DType, size: Int
 ](a: Vec[dtype, size], b: Vec[dtype, size]) -> Vec[dtype, size]:
     out = Vec[dtype, size](uninitialized=True)
-
     comptime for i in range(size):
         out.data[i] = min(a[i], b[i])
     return out^
@@ -333,7 +332,6 @@ fn vmax[
     dtype: DType, size: Int
 ](a: Vec[dtype, size], b: Vec[dtype, size]) -> Vec[dtype, size]:
     out = Vec[dtype, size](uninitialized=True)
-
     comptime for i in range(size):
         out.data[i] = max(a[i], b[i])
     return out^

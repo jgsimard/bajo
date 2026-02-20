@@ -1,4 +1,4 @@
-from math import acos, asin, atan2, clamp, cos, fma, pi, sin, sqrt, tan
+from math import asin, atan2, cos, fma, pi, sin, sqrt, tan
 
 from bajo.core.vec import Vec3, cross
 

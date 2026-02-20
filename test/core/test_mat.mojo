@@ -1,26 +1,14 @@
 from testing import (
     TestSuite,
-    assert_equal,
     assert_almost_equal,
-    assert_true,
-    assert_false,
 )
 from bajo.core.mat import Mat3f, Mat3x4f
 from bajo.core.vec import (
-    Vec,
-    Vec2f32,
     Vec3f32,
-    Vec4f32,
-    dot,
-    cross,
-    length,
-    normalize,
-    lerp,
     assert_vec_equal,
 )
 from bajo.core.conversion import degrees_to_radians
 from bajo.core.quat import Quat
-from bajo.core.aabb import AABB
 
 
 fn test_basics() raises:

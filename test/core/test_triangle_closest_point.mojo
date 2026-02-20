@@ -1,16 +1,12 @@
 from testing import (
     TestSuite,
-    assert_equal,
     assert_almost_equal,
-    assert_true,
-    assert_false,
 )
 
 from math import abs
 
-from bajo.core.vec import Vec3, Vec3f32, min as vmin, max as vmax, dot, length
-
 from bajo.core.random import PhiloxRNG
+from bajo.core.vec import Vec3, Vec3f32, dot, length
 
 
 @always_inline

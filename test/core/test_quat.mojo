@@ -15,7 +15,7 @@ fn assert_quat_equal(a: Quat, b: Quat) raises:
     assert_almost_equal(a.data, b.data, atol=1e-6)
 
 
-fn test_quaternions() raises:
+fn test_angle_axis_mul() raises:
     q1 = Quat.angle_axis(0, Vec3f32(0, 1, 0))
     assert_quat_equal(q1, Quat(1, 0, 0, 0))
 
@@ -30,7 +30,7 @@ fn test_quaternions() raises:
     assert_quat_equal(m1, Quat(0.853553, 0.353553, 0.353553, -0.146447))
 
 
-fn test_quat_multiplication() raises:
+fn test_mul_rotate() raises:
     # Rotate 90 X then 90 Y
     angle = degrees_to_radians(Float32(90))
     qx = Quat.angle_axis(angle, Vec3f32(1, 0, 0))
@@ -46,7 +46,7 @@ fn test_quat_multiplication() raises:
     assert_vec_equal(result, Vec3f32(0, -1, 0))
 
 
-fn test_quaternion_rotation() raises:
+fn test_rotate_vec() raises:
     # Rotate (1, 0, 0) 90 degrees around Y axis -> should be (0, 0, -1)
     angle = degrees_to_radians(Float32(90))
     q = Quat.angle_axis(angle, Vec3f32(0, 1, 0))

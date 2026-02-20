@@ -78,23 +78,13 @@ fn test_matrix_composition() raises:
     assert_almost_equal(result.x(), 15.0)
 
 
-# fn test_matrix_roundtrip() raises:
-#     angle = degrees_to_radians(Float32(30))
-#     r = Quat.angle_axis(angle, Vec3f32(1, 0, 0))
-#     m = Mat3f.from_quat(r)
-#     # Rotating a vector by the matrix should match rotating by the quaternion
-#     v = Vec3f32(0, 1, 0)
-#     assert_vec_equal(m * v, r.rotate_vec(v))
-
-
-# fn test_vector_near_zero() raises:
-#     v_tiny = Vec3f32(1e-9)
-#     v_zero = Vec3f32(0)
-#     assert_true(v_tiny.near_zero())
-#     assert_true(v_zero.near_zero())
-
-#     v_large = Vec3f32(0.1)
-#     assert_false(v_large.near_zero())
+fn test_matrix_roundtrip() raises:
+    angle = degrees_to_radians(Float32(30))
+    r = Quat.angle_axis(angle, Vec3f32(1, 0, 0))
+    m = Mat3f.from_quat(r)
+    # Rotating a vector by the matrix should match rotating by the quaternion
+    v = Vec3f32(0, 1, 0)
+    assert_vec_equal(m * v, r.rotate_vec(v))
 
 
 def main():

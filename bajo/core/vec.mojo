@@ -149,7 +149,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         var out = Self(uninitialized=True)
 
         @parameter
-        for i in range(Self.size):
+        for i in range(Self.psize):
             out[i] = -self[i]
         return out^
 
@@ -157,46 +157,46 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         var out = Self(uninitialized=True)
 
         @parameter
-        for i in range(Self.size):
+        for i in range(Self.psize):
             out[i] = self[i] + other[i]
         return out^
 
     fn __iadd__(mut self, other: Self):
         @parameter
-        for i in range(Self.size):
+        for i in range(Self.psize):
             self[i] += other[i]
 
     fn __sub__(self, other: Self) -> Self:
         var out = Self(uninitialized=True)
 
         @parameter
-        for i in range(Self.size):
+        for i in range(Self.psize):
             out[i] = self[i] - other[i]
         return out^
 
     fn __isub__(mut self, other: Self):
         @parameter
-        for i in range(Self.size):
+        for i in range(Self.psize):
             self[i] -= other[i]
 
     fn __mul__(self, other: Self) -> Self:
         var out = Self(uninitialized=True)
 
         @parameter
-        for i in range(Self.size):
+        for i in range(Self.psize):
             out[i] = self[i] * other[i]
         return out^
 
     fn __imul__(mut self, other: Self):
         @parameter
-        for i in range(Self.size):
+        for i in range(Self.psize):
             self[i] *= other[i]
 
     fn __truediv__(self, other: Self) -> Self:
         var out = Self(uninitialized=True)
 
         @parameter
-        for i in range(Self.size):
+        for i in range(Self.psize):
             out[i] = self[i] / other[i]
         return out^
 
@@ -205,33 +205,33 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         var out = Self(uninitialized=True)
 
         @parameter
-        for i in range(Self.size):
+        for i in range(Self.psize):
             out[i] = self[i] + s
         return out^
 
     fn __iadd__(mut self, s: Scalar[Self.dtype]):
         @parameter
-        for i in range(Self.size):
+        for i in range(Self.psize):
             self[i] += s
 
     fn __sub__(self, s: Scalar[Self.dtype]) -> Self:
         var out = Self(uninitialized=True)
 
         @parameter
-        for i in range(Self.size):
+        for i in range(Self.psize):
             out[i] = self[i] - s
         return out^
 
     fn __isub__(mut self, s: Scalar[Self.dtype]):
         @parameter
-        for i in range(Self.size):
+        for i in range(Self.psize):
             self[i] -= s
 
     fn __mul__(self, s: Scalar[Self.dtype]) -> Self:
         var out = Self(uninitialized=True)
 
         @parameter
-        for i in range(Self.size):
+        for i in range(Self.psize):
             out[i] = self[i] * s
         return out^
 
@@ -242,7 +242,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         var out = Self(uninitialized=True)
 
         @parameter
-        for i in range(Self.size):
+        for i in range(Self.psize):
             out[i] = self[i] / s
         return out^
 
@@ -250,7 +250,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         var out = Self(uninitialized=True)
 
         @parameter
-        for i in range(Self.size):
+        for i in range(Self.psize):
             out[i] = s / self[i]
         return out^
 
@@ -258,7 +258,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         var out = Self(uninitialized=True)
 
         @parameter
-        for i in range(Self.size):
+        for i in range(Self.psize):
             out[i] = self[i] & other[i]
         return out^
 
@@ -266,7 +266,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         var out = Self(uninitialized=True)
 
         @parameter
-        for i in range(Self.size):
+        for i in range(Self.psize):
             out[i] = self[i] | other[i]
         return out^
 
@@ -274,7 +274,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         var out = Self(uninitialized=True)
 
         @parameter
-        for i in range(Self.size):
+        for i in range(Self.psize):
             out[i] = self[i] ^ other[i]
         return out^
 
@@ -282,7 +282,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         var out = Self(uninitialized=True)
 
         @parameter
-        for i in range(Self.size):
+        for i in range(Self.psize):
             out[i] = self[i] << other[i]
         return out^
 
@@ -290,9 +290,18 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         var out = Self(uninitialized=True)
 
         @parameter
-        for i in range(Self.size):
+        for i in range(Self.psize):
             out[i] = self[i] >> other[i]
         return out^
+
+    fn near_zero(self) -> Bool:
+        comptime s = 1e-8
+        nz = True
+
+        @parameter
+        for i in range(Self.psize):
+            nz &= abs(self[i]) < s
+        return nz
 
 
 fn is_power_of_2(n: Int) -> Bool:
@@ -316,6 +325,9 @@ fn dot[
         for i in range(size):
             res += a[i] * b[i]
         return res
+
+
+comptime length2 = length_sq
 
 
 fn length_sq[dtype: DType, size: Int](v: Vec[dtype, size]) -> Scalar[dtype]:

@@ -64,5 +64,15 @@ fn test_swizzles() raises:
     assert_almost_equal(v.x(), 10.0)
 
 
+fn test_vector_near_zero() raises:
+    v_tiny = Vec3f32(1e-9)
+    v_zero = Vec3f32(0)
+    assert_true(v_tiny.near_zero())
+    assert_true(v_zero.near_zero())
+
+    v_large = Vec3f32(0.1)
+    assert_false(v_large.near_zero())
+
+
 def main():
     TestSuite.discover_tests[__functions_in_module()]().run()

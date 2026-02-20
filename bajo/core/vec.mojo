@@ -142,15 +142,13 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         return self.data.unsafe_get(idx)  # no bounds checking
 
     fn __neg__(self) -> Self:
-        var out = Self(uninitialized=True)
-
+        out = Self(uninitialized=True)
         comptime for i in range(Self.size):
             out[i] = -self[i]
         return out^
 
     fn __add__(self, other: Self) -> Self:
-        var out = Self(uninitialized=True)
-
+        out = Self(uninitialized=True)
         comptime for i in range(Self.size):
             out[i] = self[i] + other[i]
         return out^
@@ -160,8 +158,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
             self[i] += other[i]
 
     fn __sub__(self, other: Self) -> Self:
-        var out = Self(uninitialized=True)
-
+        out = Self(uninitialized=True)
         comptime for i in range(Self.size):
             out[i] = self[i] - other[i]
         return out^
@@ -171,8 +168,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
             self[i] -= other[i]
 
     fn __mul__(self, other: Self) -> Self:
-        var out = Self(uninitialized=True)
-
+        out = Self(uninitialized=True)
         comptime for i in range(Self.size):
             out[i] = self[i] * other[i]
         return out^
@@ -182,16 +178,14 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
             self[i] *= other[i]
 
     fn __truediv__(self, other: Self) -> Self:
-        var out = Self(uninitialized=True)
-
+        out = Self(uninitialized=True)
         comptime for i in range(Self.size):
             out[i] = self[i] / other[i]
         return out^
 
     # --- Scalar Operators ---
     fn __add__(self, s: Scalar[Self.dtype]) -> Self:
-        var out = Self(uninitialized=True)
-
+        out = Self(uninitialized=True)
         comptime for i in range(Self.size):
             out[i] = self[i] + s
         return out^
@@ -201,8 +195,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
             self[i] += s
 
     fn __sub__(self, s: Scalar[Self.dtype]) -> Self:
-        var out = Self(uninitialized=True)
-
+        out = Self(uninitialized=True)
         comptime for i in range(Self.size):
             out[i] = self[i] - s
         return out^
@@ -212,8 +205,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
             self[i] -= s
 
     fn __mul__(self, s: Scalar[Self.dtype]) -> Self:
-        var out = Self(uninitialized=True)
-
+        out = Self(uninitialized=True)
         comptime for i in range(Self.size):
             out[i] = self[i] * s
         return out^
@@ -222,57 +214,49 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         return self * s
 
     fn __truediv__(self, s: Scalar[Self.dtype]) -> Self:
-        var out = Self(uninitialized=True)
-
+        out = Self(uninitialized=True)
         comptime for i in range(Self.size):
             out[i] = self[i] / s
         return out^
 
     fn __rtruediv__(self, s: Scalar[Self.dtype]) -> Self:
-        var out = Self(uninitialized=True)
-
+        out = Self(uninitialized=True)
         comptime for i in range(Self.size):
             out[i] = s / self[i]
         return out^
 
     fn __and__(self, other: Self) -> Self:
-        var out = Self(uninitialized=True)
-
+        out = Self(uninitialized=True)
         comptime for i in range(Self.size):
             out[i] = self[i] & other[i]
         return out^
 
     fn __or__(self, other: Self) -> Self:
-        var out = Self(uninitialized=True)
-
+        out = Self(uninitialized=True)
         comptime for i in range(Self.size):
             out[i] = self[i] | other[i]
         return out^
 
     fn __xor__(self, other: Self) -> Self:
-        var out = Self(uninitialized=True)
-
+        out = Self(uninitialized=True)
         comptime for i in range(Self.size):
             out[i] = self[i] ^ other[i]
         return out^
 
     fn __lshift__(self, other: Self) -> Self:
-        var out = Self(uninitialized=True)
-
+        out = Self(uninitialized=True)
         comptime for i in range(Self.size):
             out[i] = self[i] << other[i]
         return out^
 
     fn __rshift__(self, other: Self) -> Self:
-        var out = Self(uninitialized=True)
-
+        out = Self(uninitialized=True)
         comptime for i in range(Self.size):
             out[i] = self[i] >> other[i]
         return out^
 
     fn near_zero[s: Scalar[Self.dtype] = 1e-8](self) -> Bool:
         nz = True
-
         comptime for i in range(Self.size):
             nz &= abs(self[i]) < s
         return nz
@@ -338,7 +322,7 @@ fn lerp[
 fn vmin[
     dtype: DType, size: Int
 ](a: Vec[dtype, size], b: Vec[dtype, size]) -> Vec[dtype, size]:
-    var out = Vec[dtype, size](uninitialized=True)
+    out = Vec[dtype, size](uninitialized=True)
 
     comptime for i in range(size):
         out.data[i] = min(a[i], b[i])
@@ -348,7 +332,7 @@ fn vmin[
 fn vmax[
     dtype: DType, size: Int
 ](a: Vec[dtype, size], b: Vec[dtype, size]) -> Vec[dtype, size]:
-    var out = Vec[dtype, size](uninitialized=True)
+    out = Vec[dtype, size](uninitialized=True)
 
     comptime for i in range(size):
         out.data[i] = max(a[i], b[i])

@@ -270,8 +270,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
             out[i] = self[i] >> other[i]
         return out^
 
-    fn near_zero(self) -> Bool:
-        comptime s = 1e-8
+    fn near_zero[s: Scalar[Self.dtype] = 1e-8](self) -> Bool:
         nz = True
 
         comptime for i in range(Self.size):

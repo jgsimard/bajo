@@ -23,7 +23,7 @@ from bajo.core.quat import Quat
 from bajo.core.aabb import AABB
 
 
-fn test_matrix_basics() raises:
+fn test_basics() raises:
     # Transpose check
     m = Mat3f(Vec3f32(1, 2, 3), Vec3f32(4, 5, 6), Vec3f32(7, 8, 9))
     mt = m.transpose()
@@ -61,13 +61,11 @@ fn test_trs_composition_decomposition() raises:
     assert_almost_equal(dec_s[0], 2.0)
 
 
-fn test_matrix_composition() raises:
+fn test_composition() raises:
     parent_mat = Mat3x4f.from_trs(
-        Vec3f32(10, 0, 0), Quat.identity(), Vec3f32(1, 1, 1)
+        Vec3f32(10, 0, 0), Quat.identity(), Vec3f32(1)
     )
-    child_mat = Mat3x4f.from_trs(
-        Vec3f32(5, 0, 0), Quat.identity(), Vec3f32(1, 1, 1)
-    )
+    child_mat = Mat3x4f.from_trs(Vec3f32(5, 0, 0), Quat.identity(), Vec3f32(1))
 
     combined = parent_mat.compose(child_mat)
 
@@ -78,7 +76,7 @@ fn test_matrix_composition() raises:
     assert_almost_equal(result.x(), 15.0)
 
 
-fn test_matrix_roundtrip() raises:
+fn test_Mat3f_from_quat() raises:
     angle = degrees_to_radians(Float32(30))
     r = Quat.angle_axis(angle, Vec3f32(1, 0, 0))
     m = Mat3f.from_quat(r)

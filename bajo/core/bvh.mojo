@@ -3,7 +3,7 @@ from math import clamp
 from std.utils.numerics import max_finite, min_finite
 
 
-from bajo.warp.vec import Vec3, Vec3f32, vmin, vmax
+from bajo.core.vec import Vec3, Vec3f32, vmin, vmax
 
 
 comptime BVH_SHARED_STACK = False

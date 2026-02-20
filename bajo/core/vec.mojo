@@ -1,5 +1,10 @@
 from math import sqrt, min, max
+from testing import assert_almost_equal
 from sys import CompilationTarget
+
+comptime Vec2 = Vec[_, 2]
+comptime Vec3 = Vec[_, 3]
+comptime Vec4 = Vec[_, 4]
 
 comptime Vec2i8 = Vec[DType.int8, 2]
 comptime Vec3i8 = Vec[DType.int8, 3]
@@ -37,10 +42,6 @@ comptime Vec2f16 = Vec[DType.float16, 2]
 comptime Vec3f16 = Vec[DType.float16, 3]
 comptime Vec4f16 = Vec[DType.float16, 4]
 
-comptime Vec2 = Vec[_, 2]
-comptime Vec3 = Vec[_, 3]
-comptime Vec4 = Vec[_, 4]
-
 comptime Vec2f32 = Vec[DType.float32, 2]
 comptime Vec3f32 = Vec[DType.float32, 3]
 comptime Vec4f32 = Vec[DType.float32, 4]
@@ -58,9 +59,11 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
     var data: Self.T
 
     fn __init__(out self, s: Scalar[Self.dtype]):
+        comptime assert Self.size > 0
         self.data = Self.T(fill=s)
 
     fn __init__(out self, uninitialized: Bool):
+        comptime assert Self.size > 0
         self.data = Self.T(uninitialized=uninitialized)
 
     fn __init__(
@@ -111,6 +114,22 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
     fn w(self) -> Scalar[Self.dtype]:
         comptime assert Self.size >= 4
         return self.data[3]
+
+    # Swizzles
+    fn xy(self) -> Vec2[Self.dtype]:
+        return Vec2[self.dtype](self.x(), self.y())
+
+    fn yz(self) -> Vec2[Self.dtype]:
+        comptime assert Self.size >= 3
+        return Vec2[self.dtype](self.y(), self.z())
+
+    fn xz(self) -> Vec2[Self.dtype]:
+        comptime assert Self.size >= 3
+        return Vec2[self.dtype](self.x(), self.z())
+
+    fn xyz(self) -> Vec3[Self.dtype]:
+        comptime assert Self.size >= 3
+        return Vec3[Self.dtype](self.x(), self.y(), self.z())
 
     @always_inline
     fn __getitem__[
@@ -322,6 +341,18 @@ fn cross[dtype: DType](a: Vec[dtype, 3], b: Vec[dtype, 3]) -> Vec[dtype, 3]:
     )
 
 
+fn cross[type: DType](a: Vec2[type], b: Vec2[type]) -> Scalar[type]:
+    return a.x() * b.y() - a.y() * b.x()
+
+
+fn lerp[
+    dtype: DType, size: Int
+](a: Vec[dtype, size], b: Vec[dtype, size], u: Scalar[dtype]) -> Vec[
+    dtype, size
+]:
+    return a * (Scalar[dtype](1.0) - u) + b * u
+
+
 fn vmin[
     dtype: DType, size: Int
 ](a: Vec[dtype, size], b: Vec[dtype, size]) -> Vec[dtype, size]:
@@ -336,6 +367,7 @@ fn vmin[
 fn vmax[
     dtype: DType, size: Int
 ](a: Vec[dtype, size], b: Vec[dtype, size]) -> Vec[dtype, size]:
+    comptime psize = Vec[dtype, size].psize
     var out = Vec[dtype, size](uninitialized=True)
 
     @parameter
@@ -344,11 +376,19 @@ fn vmax[
     return out^
 
 
+fn assert_vec_equal[
+    s: Int
+](a: Vec[DType.float32, s], b: Vec[DType.float32, s]) raises:
+    @parameter
+    for i in range(s):
+        assert_almost_equal(a[i], b[i], atol=1e-5)
+
+
 fn main():
     print("hello warp.vec")
     a = Vec3f32(1, 2, 3)
     b = Vec3f32(4, 5, 6)
-    print(a.size, a.psize)
+    print("a", a, "a.size", a.size, "a.psize", a.psize)
     aa = Vec4f32(1, 2, 3, 2)
     bb = Vec4f32(4, 5, 6, 5)
     print(dot(a, b))

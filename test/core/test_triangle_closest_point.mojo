@@ -10,7 +10,7 @@ from math import abs
 
 from bajo.core.vec import Vec3, Vec3f32, min as vmin, max as vmax, dot, length
 
-from bajo.core.math import PhiloxRNG
+from bajo.core.random import PhiloxRNG
 
 
 @always_inline

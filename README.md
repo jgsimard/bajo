@@ -16,3 +16,4 @@ bajo = low (... level) = batch mojo
 - [Flecs](https://github.com/SanderMertens/flecs) fast ECS by Sander Mertens
 - [Algorithms for Sparse Linear Systems](https://link.springer.com/book/10.1007/978-3-031-25820-6)
 - Mojo community
+- [PufferLib](https://puffer.ai/) : super fast RL environement library

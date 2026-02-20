@@ -17,17 +17,17 @@ fn assert_quat_equal(a: Quat, b: Quat) raises:
 
 fn test_angle_axis_mul() raises:
     q1 = Quat.angle_axis(0, Vec3f32(0, 1, 0))
-    assert_quat_equal(q1, Quat(1, 0, 0, 0))
+    assert_quat_equal(q1, Quat(0, 0, 0, 1))
 
     angle = degrees_to_radians(Float32(45))
     q2 = Quat.angle_axis(angle, Vec3f32(0, 1, 0))
-    assert_quat_equal(q2, Quat(0.9238795, 0, 0.3826834, 0))
+    assert_quat_equal(q2, Quat(0, 0.3826834, 0, 0.9238795))
 
     q3 = Quat.angle_axis(angle, Vec3f32(1, 0, 0))
-    assert_quat_equal(q3, Quat(0.9238795, 0.3826834, 0, 0))
+    assert_quat_equal(q3, Quat(0.3826834, 0, 0, 0.9238795))
 
     m1 = q2 * q3
-    assert_quat_equal(m1, Quat(0.853553, 0.353553, 0.353553, -0.146447))
+    assert_quat_equal(m1, Quat(0.353553, 0.353553, -0.146447, 0.853553))
 
 
 fn test_mul_rotate() raises:
@@ -43,6 +43,7 @@ fn test_mul_rotate() raises:
     # 2. Rotate 90 around Y -> (0, -1, 0) ... Y doesn't affect it
     v = Vec3f32(0, 0, 1)
     result = q_combined.rotate_vec(v)
+    print(result)
     assert_vec_equal(result, Vec3f32(0, -1, 0))
 
 

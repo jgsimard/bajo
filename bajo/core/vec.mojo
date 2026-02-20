@@ -360,7 +360,7 @@ fn assert_vec_equal[
     s: Int
 ](a: Vec[DType.float32, s], b: Vec[DType.float32, s]) raises:
     comptime for i in range(s):
-        assert_almost_equal(a[i], b[i], atol=1e-5)
+        assert_almost_equal(a[i], b[i], msg="i={}".format(i), atol=1e-5)
 
 
 fn main():

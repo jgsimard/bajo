@@ -54,7 +54,8 @@ comptime Vec4f64 = Vec[DType.float64, 4]
 @fieldwise_init
 struct Vec[dtype: DType, size: Int](Copyable, Writable):
     # TODO: make psize=4 on more things, but needs to be tested
-    comptime psize = 4 if Self.size == 3 and CompilationTarget.is_x86() else Self.size
+    # comptime psize = 4 if Self.size == 3 and CompilationTarget.is_x86() else Self.size
+    comptime psize = 3
     comptime T = InlineArray[Scalar[Self.dtype], Self.psize]
     var data: Self.T
 
@@ -79,8 +80,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         y: Scalar[Self.dtype],
         z: Scalar[Self.dtype],
     ):
-        @parameter
-        if self.psize == 4:
+        comptime if self.psize == 4:
             self.data = [x, y, z, 0]
         else:
             self.data = [x, y, z]
@@ -148,55 +148,47 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
     fn __neg__(self) -> Self:
         var out = Self(uninitialized=True)
 
-        @parameter
-        for i in range(Self.psize):
+        comptime for i in range(Self.psize):
             out[i] = -self[i]
         return out^
 
     fn __add__(self, other: Self) -> Self:
         var out = Self(uninitialized=True)
 
-        @parameter
-        for i in range(Self.psize):
+        comptime for i in range(Self.psize):
             out[i] = self[i] + other[i]
         return out^
 
     fn __iadd__(mut self, other: Self):
-        @parameter
-        for i in range(Self.psize):
+        comptime for i in range(Self.psize):
             self[i] += other[i]
 
     fn __sub__(self, other: Self) -> Self:
         var out = Self(uninitialized=True)
 
-        @parameter
-        for i in range(Self.psize):
+        comptime for i in range(Self.psize):
             out[i] = self[i] - other[i]
         return out^
 
     fn __isub__(mut self, other: Self):
-        @parameter
-        for i in range(Self.psize):
+        comptime for i in range(Self.psize):
             self[i] -= other[i]
 
     fn __mul__(self, other: Self) -> Self:
         var out = Self(uninitialized=True)
 
-        @parameter
-        for i in range(Self.psize):
+        comptime for i in range(Self.psize):
             out[i] = self[i] * other[i]
         return out^
 
     fn __imul__(mut self, other: Self):
-        @parameter
-        for i in range(Self.psize):
+        comptime for i in range(Self.psize):
             self[i] *= other[i]
 
     fn __truediv__(self, other: Self) -> Self:
         var out = Self(uninitialized=True)
 
-        @parameter
-        for i in range(Self.psize):
+        comptime for i in range(Self.psize):
             out[i] = self[i] / other[i]
         return out^
 
@@ -204,34 +196,29 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
     fn __add__(self, s: Scalar[Self.dtype]) -> Self:
         var out = Self(uninitialized=True)
 
-        @parameter
-        for i in range(Self.psize):
+        comptime for i in range(Self.psize):
             out[i] = self[i] + s
         return out^
 
     fn __iadd__(mut self, s: Scalar[Self.dtype]):
-        @parameter
-        for i in range(Self.psize):
+        comptime for i in range(Self.psize):
             self[i] += s
 
     fn __sub__(self, s: Scalar[Self.dtype]) -> Self:
         var out = Self(uninitialized=True)
 
-        @parameter
-        for i in range(Self.psize):
+        comptime for i in range(Self.psize):
             out[i] = self[i] - s
         return out^
 
     fn __isub__(mut self, s: Scalar[Self.dtype]):
-        @parameter
-        for i in range(Self.psize):
+        comptime for i in range(Self.psize):
             self[i] -= s
 
     fn __mul__(self, s: Scalar[Self.dtype]) -> Self:
         var out = Self(uninitialized=True)
 
-        @parameter
-        for i in range(Self.psize):
+        comptime for i in range(Self.psize):
             out[i] = self[i] * s
         return out^
 
@@ -241,56 +228,49 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
     fn __truediv__(self, s: Scalar[Self.dtype]) -> Self:
         var out = Self(uninitialized=True)
 
-        @parameter
-        for i in range(Self.psize):
+        comptime for i in range(Self.psize):
             out[i] = self[i] / s
         return out^
 
     fn __rtruediv__(self, s: Scalar[Self.dtype]) -> Self:
         var out = Self(uninitialized=True)
 
-        @parameter
-        for i in range(Self.psize):
+        comptime for i in range(Self.psize):
             out[i] = s / self[i]
         return out^
 
     fn __and__(self, other: Self) -> Self:
         var out = Self(uninitialized=True)
 
-        @parameter
-        for i in range(Self.psize):
+        comptime for i in range(Self.psize):
             out[i] = self[i] & other[i]
         return out^
 
     fn __or__(self, other: Self) -> Self:
         var out = Self(uninitialized=True)
 
-        @parameter
-        for i in range(Self.psize):
+        comptime for i in range(Self.psize):
             out[i] = self[i] | other[i]
         return out^
 
     fn __xor__(self, other: Self) -> Self:
         var out = Self(uninitialized=True)
 
-        @parameter
-        for i in range(Self.psize):
+        comptime for i in range(Self.psize):
             out[i] = self[i] ^ other[i]
         return out^
 
     fn __lshift__(self, other: Self) -> Self:
         var out = Self(uninitialized=True)
 
-        @parameter
-        for i in range(Self.psize):
+        comptime for i in range(Self.psize):
             out[i] = self[i] << other[i]
         return out^
 
     fn __rshift__(self, other: Self) -> Self:
         var out = Self(uninitialized=True)
 
-        @parameter
-        for i in range(Self.psize):
+        comptime for i in range(Self.psize):
             out[i] = self[i] >> other[i]
         return out^
 
@@ -298,8 +278,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         comptime s = 1e-8
         nz = True
 
-        @parameter
-        for i in range(Self.psize):
+        comptime for i in range(Self.psize):
             nz &= abs(self[i]) < s
         return nz
 
@@ -313,16 +292,14 @@ fn dot[
 ](a: Vec[dtype, size], b: Vec[dtype, size]) -> Scalar[dtype]:
     comptime psize = Vec[dtype, size].psize
 
-    @parameter
-    if is_power_of_2(psize):
+    comptime if is_power_of_2(psize):
         aa = a.data.unsafe_ptr().load[width=psize]()
         bb = b.data.unsafe_ptr().load[width=psize]()
         return (aa * bb).reduce_add()
     else:
         var res: Scalar[dtype] = 0
 
-        @parameter
-        for i in range(size):
+        comptime for i in range(size):
             res += a[i] * b[i]
         return res
 
@@ -370,8 +347,7 @@ fn vmin[
 ](a: Vec[dtype, size], b: Vec[dtype, size]) -> Vec[dtype, size]:
     var out = Vec[dtype, size](uninitialized=True)
 
-    @parameter
-    for i in range(size):
+    comptime for i in range(size):
         out.data[i] = min(a[i], b[i])
     return out^
 
@@ -382,8 +358,7 @@ fn vmax[
     comptime psize = Vec[dtype, size].psize
     var out = Vec[dtype, size](uninitialized=True)
 
-    @parameter
-    for i in range(size):
+    comptime for i in range(size):
         out.data[i] = max(a[i], b[i])
     return out^
 
@@ -391,8 +366,7 @@ fn vmax[
 fn assert_vec_equal[
     s: Int
 ](a: Vec[DType.float32, s], b: Vec[DType.float32, s]) raises:
-    @parameter
-    for i in range(s):
+    comptime for i in range(s):
         assert_almost_equal(a[i], b[i], atol=1e-5)
 
 

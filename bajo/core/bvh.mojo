@@ -56,22 +56,19 @@ struct Bounds3[dtype: DType](Copyable, Defaultable, Writable):
         self.upper = self.upper + r
 
     fn empty(self) -> Bool:
-        @parameter
-        for i in range(3):
+        comptime for i in range(3):
             if self.lower[i] >= self.upper[i]:
                 return True
         return False
 
     fn overlaps(self, p: Vec3[Self.dtype]) -> Bool:
-        @parameter
-        for i in range(3):
+        comptime for i in range(3):
             if p[i] < self.lower[i] or p[i] > self.upper[i]:
                 return False
         return True
 
     fn overlaps(self, b: Bounds3[Self.dtype]) -> Bool:
-        @parameter
-        for i in range(3):
+        comptime for i in range(3):
             if self.lower[i] > b.upper[i] or self.upper[i] < b.lower[i]:
                 return False
         return True
@@ -79,8 +76,7 @@ struct Bounds3[dtype: DType](Copyable, Defaultable, Writable):
     fn overlaps(
         self, b_lower: Vec3[Self.dtype], b_upper: Vec3[Self.dtype]
     ) -> Bool:
-        @parameter
-        for i in range(3):
+        comptime for i in range(3):
             if self.lower[i] > b_upper[i] or self.upper[i] < b_lower[i]:
                 return False
         return True
@@ -217,6 +213,23 @@ struct BVH[origin: Origin](Copyable):
 
     # var context: AnyPointer
     # """gpu context"""
+
+
+@fieldwise_init
+struct BvhQuery:
+    """Object used to track state during BVH traversal. AKA bvh_query_t."""
+
+    ...
+    var v: Int
+
+
+@fieldwise_init
+struct BvhQueryTiled:
+    """Object used to track state during thread-block parallel BVH traversal. AKA bvh_query_thread_block_t
+    """
+
+    ...
+    var v: Int
 
 
 fn main():

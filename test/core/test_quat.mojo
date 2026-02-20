@@ -45,15 +45,14 @@ fn test_quat_multiplication() raises:
     result = q_combined.rotate_vec(v)
     assert_vec_equal(result, Vec3f32(0, -1, 0))
 
-    # fn test_quaternion_rotation() raises:
 
-
-#     # Rotate (1, 0, 0) 90 degrees around Y axis -> should be (0, 0, -1)
-#     angle = degrees_to_radians(Float32(90))
-#     q = Quat.angle_axis(angle, Vec3f32(0, 1, 0))
-#     v = Vec3f32(1, 0, 0)
-#     rotated = q.rotate_vec(v)
-#     assert_vec_equal(rotated, Vec3f32(0, 0, -1))
+fn test_quaternion_rotation() raises:
+    # Rotate (1, 0, 0) 90 degrees around Y axis -> should be (0, 0, -1)
+    angle = degrees_to_radians(Float32(90))
+    q = Quat.angle_axis(angle, Vec3f32(0, 1, 0))
+    v = Vec3f32(1, 0, 0)
+    rotated = q.rotate_vec(v)
+    assert_vec_equal(rotated, Vec3f32(0, 0, -1))
 
 
 def main():

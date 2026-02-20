@@ -29,10 +29,10 @@ fn quat_mul_1(q1: Quat, q2: Quat) -> Quat:
 #     var t3 = q1.data[3] * q2.data.shuffle[3, 2, 1, 0]()
 
 #     # Apply the standard Hamilton sign patterns
-#     var w = t0[0] - t1[0] - t2[0] - t3[0]
-#     var x = t0[1] + t1[1] + t2[1] - t3[1]
-#     var y = t0[2] - t1[2] + t2[2] + t3[2]
-#     var z = t0[3] + t1[3] - t2[3] + t3[3]
+#     w = t0[0] - t1[0] - t2[0] - t3[0]
+#     x = t0[1] + t1[1] + t2[1] - t3[1]
+#     y = t0[2] - t1[2] + t2[2] + t3[2]
+#     z = t0[3] + t1[3] - t2[3] + t3[3]
 
 #     return Quat(w, x, y, z)
 
@@ -43,7 +43,7 @@ fn quat_mul_1(q1: Quat, q2: Quat) -> Quat:
 #     comptime s2 = SIMD[DType.float32, 4](-1.0, 1.0, 1.0, -1.0)
 #     comptime s3 = SIMD[DType.float32, 4](-1.0, -1.0, 1.0, 1.0)
 
-#     var res = q1.data[0] * q2.data
+#     res = q1.data[0] * q2.data
 #     res = fma(q1.data[1] * s1, q2.data.shuffle[1, 0, 3, 2](), res)
 #     res = fma(q1.data[2] * s2, q2.data.shuffle[2, 3, 0, 1](), res)
 #     res = fma(q1.data[3] * s3, q2.data.shuffle[3, 2, 1, 0](), res)
@@ -82,7 +82,7 @@ fn dispatch_mul[version: Int](q1: Quat, q2: Quat) -> Quat:
 fn main() raises:
     @parameter
     fn bench_throughput[version: Int]() raises:
-        var data = BenchmarkData()
+        data = BenchmarkData()
 
         fn wrapper() raises capturing:
             for i in range(num_elements):

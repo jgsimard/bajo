@@ -153,7 +153,7 @@ struct Tsit5[
         self.reltol = reltol
 
         self.ks = InlineArray[Self.LT, Self.N_STAGES](uninitialized=True)
-        var size = u0.size()
+        size = u0.size()
 
         for i in range(Self.N_STAGES):
             self.ks[i] = Self.LT(alloc[Scalar[Self.dtype]](size))
@@ -187,14 +187,14 @@ struct Tsit5[
 
         @parameter
         if self.adaptive:
-            var accepted = False
+            accepted = False
             while not accepted:
-                var h = self.dt
+                h = self.dt
                 self._compute_stages(h)
 
                 # Compute y_next using weights b (sum of stages 1 to S-1)
                 self.y_next.copy_from(self.y)
-                var weight_sum = self.ks[0] * Self.b[0]
+                weight_sum = self.ks[0] * Self.b[0]
 
                 @parameter
                 for i in range(1, Self.N_STAGES_FSAL):
@@ -208,8 +208,8 @@ struct Tsit5[
                         self.ks[Self.N_STAGES_FSAL], self.y_next, self.t + h
                     )
 
-                # var e_est = self._estimate_error(h)
-                var e_est = self._estimate_error(h)
+                # e_est = self._estimate_error(h)
+                e_est = self._estimate_error(h)
 
                 comptime beta1 = 7.0 / 50.0
                 comptime beta2 = 2.0 / 25.0
@@ -217,7 +217,7 @@ struct Tsit5[
                     self.y.copy_from(self.y_next)
                     self.t += h
                     # PI-Adaptive step size control
-                    var q = (
+                    q = (
                         pow(e_est, beta1) / pow(self.qold, beta2) if e_est
                         > 0 else 0.1
                     )
@@ -234,11 +234,11 @@ struct Tsit5[
                     )
         else:
             # Fixed step logic
-            var h = self.dt
+            h = self.dt
             self._compute_stages(h)
 
             self.y_next.copy_from(self.y)
-            var weight_sum = self.ks[0] * Self.b[0]
+            weight_sum = self.ks[0] * Self.b[0]
 
             @parameter
             for i in range(1, Self.N_STAGES_FSAL):
@@ -263,10 +263,10 @@ struct Tsit5[
     fn _estimate_error(mut self, h: Scalar[Self.dtype]) -> Scalar[Self.dtype]:
         comptime SIMD_WIDTH = simd_width_of[Self.dtype]()
 
-        var e_est: SIMD[Self.dtype, 1] = 0.0
+        e_est: SIMD[Self.dtype, 1] = 0.0
 
         fn compute[w: Int](i: Int) unified {mut}:
-            var err_v = SIMD[Self.dtype, w](0.0)
+            err_v = SIMD[Self.dtype, w](0.0)
 
             @parameter
             for s in range(Self.N_STAGES):
@@ -276,10 +276,10 @@ struct Tsit5[
                 if e_coeff != 0:
                     err_v += self.ks[s].ptr.load[width=w](i) * e_coeff
 
-            var ev = err_v * h
-            var y = self.y.ptr.load[width=w](i)
-            var yn = self.y_next.ptr.load[width=w](i)
-            var sc = self.abstol + max(abs(y), abs(yn)) * self.reltol
+            ev = err_v * h
+            y = self.y.ptr.load[width=w](i)
+            yn = self.y_next.ptr.load[width=w](i)
+            sc = self.abstol + max(abs(y), abs(yn)) * self.reltol
             e_est = max(e_est, (abs(ev) / sc).reduce_max())
 
         vectorize[SIMD_WIDTH](self.y.flatten().size(), compute)
@@ -317,13 +317,13 @@ fn solve[
 ](prob: ODEProblem[system], dt: Scalar[dtype]) -> LayoutTensor[
     dtype, layout, MutAnyOrigin
 ]:
-    var integrator = solver[system](prob.u0, prob.tspan[0], dt)
-    var t_end = prob.tspan[1]
+    integrator = solver[system](prob.u0, prob.tspan[0], dt)
+    t_end = prob.tspan[1]
 
     while integrator.t < t_end:
         # Check if the next step would overshoot the end
         # We use a small epsilon or simply clamp dt
-        var remaining = t_end - integrator.t
+        remaining = t_end - integrator.t
         if integrator.dt > remaining:
             integrator.dt = remaining
         integrator.step()
@@ -374,19 +374,19 @@ fn gray_scott_system(
     comptime k = 0.062
 
     # Retrieval of spatial dimensions (Species dim is index 2)
-    var dim_i = y.shape[0]()
-    var dim_j = y.shape[1]()
+    dim_i = y.shape[0]()
+    dim_j = y.shape[1]()
 
     for i in range(dim_i):
         for j in range(dim_j):
             # Finite difference indices (Periodic Boundary)
-            var ip1 = (i + 1) % GS_N
-            var im1 = (i - 1 + GS_N) % GS_N
-            var jp1 = (j + 1) % GS_N
-            var jm1 = (j - 1 + GS_N) % GS_N
+            ip1 = (i + 1) % GS_N
+            im1 = (i - 1 + GS_N) % GS_N
+            jp1 = (j + 1) % GS_N
+            jm1 = (j - 1 + GS_N) % GS_N
 
-            var u = y[i, j, 0]
-            var lap_u = (
+            u = y[i, j, 0]
+            lap_u = (
                 y[ip1, j, 0]
                 + y[im1, j, 0]
                 + y[i, jp1, 0]
@@ -394,8 +394,8 @@ fn gray_scott_system(
                 - 4.0 * u
             )
 
-            var v = y[i, j, 1]
-            var lap_v = (
+            v = y[i, j, 1]
+            lap_v = (
                 y[ip1, j, 1]
                 + y[im1, j, 1]
                 + y[i, jp1, 1]
@@ -404,20 +404,20 @@ fn gray_scott_system(
             )
 
             # Reaction-Diffusion logic
-            var uv2 = u * v * v
+            uv2 = u * v * v
             dy[i, j, 0] = Du * lap_u - uv2 + F * (1.0 - u)
             dy[i, j, 1] = Dv * lap_v + uv2 - (F + k) * v
 
 
 fn setup_gray_scott_problem() -> ODEProblem[gray_scott_system]:
-    var size = GS_N * GS_N * 2
-    var ptr = alloc[Scalar[float_type]](size)
+    size = GS_N * GS_N * 2
+    ptr = alloc[Scalar[float_type]](size)
 
     # Initialize layout as (Height, Width, Species)
-    var u0 = LayoutTensor[float_type, gs_layout, MutAnyOrigin](
+    u0 = LayoutTensor[float_type, gs_layout, MutAnyOrigin](
         ptr, RuntimeLayout[gs_layout].row_major(IndexList[3](GS_N, GS_N, 2))
     )
-    var dt = 0.1
+    dt = 0.1
 
     # Initialize U to 1.0, V to 0.0 everywhere
     for i in range(GS_N):
@@ -426,8 +426,8 @@ fn setup_gray_scott_problem() -> ODEProblem[gray_scott_system]:
             u0[i, j, 1] = 0.0
 
     # Add seed square in the center
-    var mid = GS_N // 2
-    var r = 3
+    mid = GS_N // 2
+    r = 3
     for i in range(mid - r, mid + r):
         for j in range(mid - r, mid + r):
             u0[i, j, 0] = 0.5  # perturb U
@@ -437,10 +437,10 @@ fn setup_gray_scott_problem() -> ODEProblem[gray_scott_system]:
 
 
 fn setup_lorenz_problem() -> ODEProblem[lorenz]:
-    var u0 = LayoutTensor[float_type, lorenz_layout, MutAnyOrigin](
+    u0 = LayoutTensor[float_type, lorenz_layout, MutAnyOrigin](
         alloc[Scalar[float_type]](3)
     )
-    var dt = 0.01
+    dt = 0.01
     u0[0] = 1.0
     u0[1] = 0.0
     u0[2] = 0.0
@@ -455,23 +455,23 @@ fn basic_bench[
     setup_func: fn() -> ODEProblem[system],
 ]() raises:
     fn bench_fn() raises:
-        var prob = setup_func()
-        var res = solve[dtype, layout, system](prob, dt=prob.dt)
+        prob = setup_func()
+        res = solve[dtype, layout, system](prob, dt=prob.dt)
         keep(res)
 
-    var time_us = run[func1=bench_fn](max_iters=100).mean(Unit.us)
+    time_us = run[func1=bench_fn](max_iters=100).mean(Unit.us)
     print("t =", round(time_us, 1), "us")
 
 
 fn main() raises:
     print("Lorenz")
-    var lorenz_prob = setup_lorenz_problem()
-    var result = solve(lorenz_prob, dt=lorenz_prob.dt)
+    lorenz_prob = setup_lorenz_problem()
+    result = solve(lorenz_prob, dt=lorenz_prob.dt)
     print("Final State:", result)
     basic_bench[setup_lorenz_problem]()
 
     print("Gray-Scott")
-    var gs_prob = setup_gray_scott_problem()
-    var result_gs = solve(gs_prob, dt=gs_prob.dt)
+    gs_prob = setup_gray_scott_problem()
+    result_gs = solve(gs_prob, dt=gs_prob.dt)
     print("Final State at center:", result_gs[GS_N // 2, GS_N // 2, 0])
     basic_bench[setup_gray_scott_problem]()

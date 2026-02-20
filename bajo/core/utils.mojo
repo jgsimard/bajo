@@ -29,15 +29,15 @@ fn solve_quadratic[
     Returns:
         QuadraticSolutions[roots_0, roots_1, mask].
     """
-    var det = b * b - 4.0 * a * c
-    var mask = det.ge(0.0)  # Element-wise >= 0.0
+    det = b * b - 4.0 * a * c
+    mask = det.ge(0.0)  # Element-wise >= 0.0
 
-    var sqrt_det = sqrt(max(det, 0.0))
+    sqrt_det = sqrt(max(det, 0.0))
 
-    var q = -0.5 * (b + b.ge(0.0).select(sqrt_det, -sqrt_det))
+    q = -0.5 * (b + b.ge(0.0).select(sqrt_det, -sqrt_det))
 
-    var t0 = c / q
-    var t1 = q / a
+    t0 = c / q
+    t1 = q / a
 
     return QuadraticSolutions(t0, t1, mask)
 
@@ -58,14 +58,14 @@ fn solve_quadratic[
     Returns:
         QuadraticSolutions[roots_0, roots_1, mask].
     """
-    var det = b * b - 4.0 * c
-    var mask = det.ge(0.0)  # Element-wise >= 0.0
+    det = b * b - 4.0 * c
+    mask = det.ge(0.0)  # Element-wise >= 0.0
 
-    var sqrt_det = sqrt(max(det, 0.0))
+    sqrt_det = sqrt(max(det, 0.0))
 
-    var q = -0.5 * (b + b.ge(0.0).select(sqrt_det, -sqrt_det))
+    q = -0.5 * (b + b.ge(0.0).select(sqrt_det, -sqrt_det))
 
-    var t0 = c / q
-    var t1 = q
+    t0 = c / q
+    t1 = q
 
     return QuadraticSolutions(t0, t1, mask)

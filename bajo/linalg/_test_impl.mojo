@@ -30,7 +30,7 @@ struct Matrix[dim: Int](Copyable, Stringable):
             return inverse_m44(self)
 
     fn __str__(self) -> String:
-        var str = ""
+        str = ""
         for r in range(Self.dim):
             for c in range(Self.dim):
                 str += String(self[r, c], "\t")
@@ -46,43 +46,43 @@ struct Matrix[dim: Int](Copyable, Stringable):
 
 fn bench_inv4[use_simd: Bool]() raises:
     # fmt: off
-    var matrix_data : InlineArray[Float32, 16]= [
+    matrix_data : InlineArray[Float32, 16]= [
         2, -1, 0, 0, 
         -5, 2, -1, 0, 
         0, -1, 2, -1, 
         0, 0, -1, 2,
     ]
     # fmt: on
-    var mat = Matrix[4](matrix_data^)
+    mat = Matrix[4](matrix_data^)
 
     fn bench_fn() raises capturing:
         for _ in range(1e3):
             mat = mat.inverse[use_simd]()
         keep(mat.data)
 
-    var time_ns = round(run[func3=bench_fn](max_iters=1000).mean(Unit.ns), 1)
+    time_ns = round(run[func3=bench_fn](max_iters=1000).mean(Unit.ns), 1)
 
     print("bench_inv4 : simd={} : {} us".format(use_simd, time_ns))
 
 
 fn main() raises:
     # fmt: off
-    var matrix_data: InlineArray[Float32, 16] = [
+    matrix_data: InlineArray[Float32, 16] = [
          2, -1,  0,  0,
         -5,  2, -1,  0,
          0, -1,  2, -1,
          0,  0, -1,  2,
     ]
     # fmt: on
-    var mat = Matrix[4](matrix_data^)
+    mat = Matrix[4](matrix_data^)
 
     print("Original Matrix:")
     print(String(mat))
 
-    var mat_inv = mat.inverse[False]()
+    mat_inv = mat.inverse[False]()
     print(String(mat_inv))
 
-    var mat_inv_simd = mat.inverse[True]()
+    mat_inv_simd = mat.inverse[True]()
     print(String(mat_inv_simd))
     print(mat_inv == mat_inv_simd)
 
@@ -93,13 +93,13 @@ fn main() raises:
 # fn inverse_m22(mat: Matrix[2]) raises -> Matrix[2]:
 #     ref m = mat.data
 
-#     var det = 1.0
+#     det = 1.0
 
 #     if abs(det) < 1e-6:
 #         raise Error("Matrix2 is not invertable")
 
-#     var inv_det = 1.0 / det
-#     var inv_data = InlineArray[Float32, 4](uninitialized=True)
+#     inv_det = 1.0 / det
+#     inv_data = InlineArray[Float32, 4](uninitialized=True)
 
 #     return Matrix[2](inv_data^)
 
@@ -107,13 +107,13 @@ fn main() raises:
 # fn inverse_m22_simd(mat: Matrix[2]) raises -> Matrix[2]:
 #     ref m = mat.data
 
-#     var det = 1.0
+#     det = 1.0
 
 #     if abs(det) < 1e-6:
 #         raise Error("Matrix2 is not invertable")
 
-#     var inv_det = 1.0 / det
-#     var inv_data = InlineArray[Float32, 4](uninitialized=True)
+#     inv_det = 1.0 / det
+#     inv_data = InlineArray[Float32, 4](uninitialized=True)
 
 #     return Matrix[2](inv_data^)
 
@@ -125,18 +125,18 @@ fn inverse_m44(mat: Matrix[4]) raises -> Matrix[4]:
     """
     ref m = mat.data
     # fmt: off
-    var cofactor00 = m[5] * m[10] * m[15] - m[5] * m[11] * m[14] - m[9] * m[6] * m[15] + m[9] * m[7] * m[14] + m[13] * m[6] * m[11] - m[13] * m[7] * m[10]
-    var cofactor01 = -m[4] * m[10] * m[15] + m[4] * m[11] * m[14] + m[8] * m[6] * m[15] - m[8] * m[7] * m[14] - m[12] * m[6] * m[11] + m[12] * m[7] * m[10]
-    var cofactor02 = m[4] * m[9] * m[15] - m[4] * m[11] * m[13] - m[8] * m[5] * m[15] + m[8] * m[7] * m[13] + m[12] * m[5] * m[11] - m[12] * m[7] * m[9]
-    var cofactor03 = -m[4] * m[9] * m[14] + m[4] * m[10] * m[13] + m[8] * m[5] * m[14] - m[8] * m[6] * m[13] - m[12] * m[5] * m[10] + m[12] * m[6] * m[9]
+    cofactor00 = m[5] * m[10] * m[15] - m[5] * m[11] * m[14] - m[9] * m[6] * m[15] + m[9] * m[7] * m[14] + m[13] * m[6] * m[11] - m[13] * m[7] * m[10]
+    cofactor01 = -m[4] * m[10] * m[15] + m[4] * m[11] * m[14] + m[8] * m[6] * m[15] - m[8] * m[7] * m[14] - m[12] * m[6] * m[11] + m[12] * m[7] * m[10]
+    cofactor02 = m[4] * m[9] * m[15] - m[4] * m[11] * m[13] - m[8] * m[5] * m[15] + m[8] * m[7] * m[13] + m[12] * m[5] * m[11] - m[12] * m[7] * m[9]
+    cofactor03 = -m[4] * m[9] * m[14] + m[4] * m[10] * m[13] + m[8] * m[5] * m[14] - m[8] * m[6] * m[13] - m[12] * m[5] * m[10] + m[12] * m[6] * m[9]
 
-    var det = m[0] * cofactor00 + m[1] * cofactor01 + m[2] * cofactor02 + m[3] * cofactor03
+    det = m[0] * cofactor00 + m[1] * cofactor01 + m[2] * cofactor02 + m[3] * cofactor03
 
     if abs(det) < 1e-6: 
         raise Error("Matrix4 is not invertable")
 
-    var inv_det = 1.0 / det
-    var inv_data = InlineArray[Float32, 16](uninitialized=True)
+    inv_det = 1.0 / det
+    inv_data = InlineArray[Float32, 16](uninitialized=True)
 
     # Calculate the adjugate matrix and multiply by 1/det
     # Adjugate matrix is the transpose of the cofactor matrix
@@ -170,21 +170,21 @@ fn inverse_m44_simd(mat: Matrix[4]) raises -> Matrix[4]:
     based on https://github.com/niswegmann/small-matrix-inverse/blob/master/invert4x4_llvm.h .
     """
     # works on row major layout, would need to transpo
-    var ptr = mat.data.unsafe_ptr()
-    var row0 = ptr.load[width=4](0)
-    var row1 = ptr.load[width=4](4)
-    var row2 = ptr.load[width=4](8)
-    var row3 = ptr.load[width=4](12)
+    ptr = mat.data.unsafe_ptr()
+    row0 = ptr.load[width=4](0)
+    row1 = ptr.load[width=4](4)
+    row2 = ptr.load[width=4](8)
+    row3 = ptr.load[width=4](12)
 
     # Compute adjoint
     row1 = row1.shuffle[2, 3, 0, 1]()
     row3 = row3.shuffle[2, 3, 0, 1]()
 
-    var tmp1 = row2 * row3
+    tmp1 = row2 * row3
     tmp1 = tmp1.shuffle[1, 0, 3, 2]()
 
-    var col0 = row1 * tmp1
-    var col1 = row0 * tmp1
+    col0 = row1 * tmp1
+    col1 = row0 * tmp1
 
     tmp1 = tmp1.shuffle[2, 3, 0, 1]()
 
@@ -196,7 +196,7 @@ fn inverse_m44_simd(mat: Matrix[4]) raises -> Matrix[4]:
     tmp1 = tmp1.shuffle[1, 0, 3, 2]()
 
     col0 = row3 * tmp1 + col0
-    var col3 = row0 * tmp1
+    col3 = row0 * tmp1
 
     tmp1 = tmp1.shuffle[2, 3, 0, 1]()
 
@@ -209,7 +209,7 @@ fn inverse_m44_simd(mat: Matrix[4]) raises -> Matrix[4]:
     row2 = row2.shuffle[2, 3, 0, 1]()
 
     col0 = row2 * tmp1 + col0
-    var col2 = row0 * tmp1
+    col2 = row0 * tmp1
 
     tmp1 = tmp1.shuffle[2, 3, 0, 1]()
 
@@ -254,14 +254,14 @@ fn inverse_m44_simd(mat: Matrix[4]) raises -> Matrix[4]:
     # The adjugate matrix is now stored in col0, col1, col2, col3.
 
     # Compute determinant
-    var det = (row0 * col0).reduce_add()
+    det = (row0 * col0).reduce_add()
 
     # Check for non-invertible matrix
     if abs(det) < 1e-6:
         raise Error("Matrix4 is not invertible, det=", det)
 
     # Compute reciprocal of determinant
-    var inv_det = SIMD[DType.float32, 4](1.0 / det)
+    inv_det = SIMD[DType.float32, 4](1.0 / det)
 
     # Multiply adjugate by 1/det to get the inverse
     col0 *= inv_det
@@ -270,19 +270,19 @@ fn inverse_m44_simd(mat: Matrix[4]) raises -> Matrix[4]:
     col3 *= inv_det
 
     # The result is in column vectors. Transpose them back into rows
-    var tmp_t0 = col0.shuffle[0, 1, 4, 5](col1)
-    var tmp_t1 = col2.shuffle[0, 1, 4, 5](col3)
-    var tmp_t2 = col0.shuffle[2, 3, 6, 7](col1)
-    var tmp_t3 = col2.shuffle[2, 3, 6, 7](col3)
+    tmp_t0 = col0.shuffle[0, 1, 4, 5](col1)
+    tmp_t1 = col2.shuffle[0, 1, 4, 5](col3)
+    tmp_t2 = col0.shuffle[2, 3, 6, 7](col1)
+    tmp_t3 = col2.shuffle[2, 3, 6, 7](col3)
 
-    var res_R0 = tmp_t0.shuffle[0, 2, 4, 6](tmp_t1)
-    var res_R1 = tmp_t0.shuffle[1, 3, 5, 7](tmp_t1)
-    var res_R2 = tmp_t2.shuffle[0, 2, 4, 6](tmp_t3)
-    var res_R3 = tmp_t2.shuffle[1, 3, 5, 7](tmp_t3)
+    res_R0 = tmp_t0.shuffle[0, 2, 4, 6](tmp_t1)
+    res_R1 = tmp_t0.shuffle[1, 3, 5, 7](tmp_t1)
+    res_R2 = tmp_t2.shuffle[0, 2, 4, 6](tmp_t3)
+    res_R3 = tmp_t2.shuffle[1, 3, 5, 7](tmp_t3)
 
     # Store result
-    var inv_data = InlineArray[Float32, 16](uninitialized=True)
-    var ptr_inv = inv_data.unsafe_ptr()
+    inv_data = InlineArray[Float32, 16](uninitialized=True)
+    ptr_inv = inv_data.unsafe_ptr()
     ptr_inv.store[width=4](0, res_R0)
     ptr_inv.store[width=4](4, res_R1)
     ptr_inv.store[width=4](8, res_R2)

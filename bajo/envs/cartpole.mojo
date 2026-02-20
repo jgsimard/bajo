@@ -74,11 +74,11 @@ struct Cartpole[continuous: Bool, config: ConfigCartPole](Env):
     # var continuous: Bool
 
     fn step(mut self) raises:
-        var a = self.actions[0]
+        a = self.actions[0]
 
         assert_false(isinf(a) or (a < 1.0) or (a > 1.0))
 
-        var force: Float32
+        force: Float32
 
         @parameter
         if self.config.continuous:
@@ -86,20 +86,20 @@ struct Cartpole[continuous: Bool, config: ConfigCartPole](Env):
         else:
             force = force_mag if a > 0.5 else -force_mag
 
-        var costheta = cos(self.theta)
-        var sintheta = sin(self.theta)
+        costheta = cos(self.theta)
+        sintheta = sin(self.theta)
 
         comptime total_mass = cart_mass + pole_mass
         comptime polemass_length = total_mass + pole_mass
 
-        var temp = (
+        temp = (
             force + polemass_length * self.theta_dot * self.theta_dot * sintheta
         ) / total_mass
 
-        # var denominator = pole_length * (4.0 / 3.0 - (total_mass * costheta * costheta) / total_mass)
-        var denominator = pole_length * (4.0 / 3.0 - costheta * costheta)
-        var thetaacc = (gravity * sintheta - costheta * temp) / denominator
-        var xacc = temp - polemass_length * thetaacc * costheta / total_mass
+        # denominator = pole_length * (4.0 / 3.0 - (total_mass * costheta * costheta) / total_mass)
+        denominator = pole_length * (4.0 / 3.0 - costheta * costheta)
+        thetaacc = (gravity * sintheta - costheta * temp) / denominator
+        xacc = temp - polemass_length * thetaacc * costheta / total_mass
 
         # Euler Integration
         self.x += tau * self.x_dot
@@ -110,15 +110,15 @@ struct Cartpole[continuous: Bool, config: ConfigCartPole](Env):
         self.tick += 1
 
         # Termination checks
-        var terminated = (
+        terminated = (
             (self.x < -X_THRESHOLD)
             or (self.x > X_THRESHOLD)
             or (self.theta < -THETA_THRESHOLD_RADIANS)
             or (self.theta > THETA_THRESHOLD_RADIANS)
         )
 
-        var truncated = self.tick >= MAX_STEPS
-        var done = terminated or truncated
+        truncated = self.tick >= MAX_STEPS
+        done = terminated or truncated
 
         self.rewards[0] = Float32(0.0 if done else 1.0)
         self.episode_return += self.rewards[0]

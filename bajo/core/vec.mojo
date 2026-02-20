@@ -274,7 +274,7 @@ fn dot[
         bb = b.data.unsafe_ptr().load[width=size]()
         return (aa * bb).reduce_add()
     else:
-        var res: Scalar[dtype] = 0
+        res: Scalar[dtype] = 0
 
         comptime for i in range(size):
             res += a[i] * b[i]
@@ -293,7 +293,7 @@ fn length[dtype: DType, size: Int](v: Vec[dtype, size]) -> Scalar[dtype]:
 
 
 fn normalize[dtype: DType, size: Int](v: Vec[dtype, size]) -> Vec[dtype, size]:
-    var l = length(v)
+    l = length(v)
     if l > 1e-6:
         return v / l
     return Vec[dtype, size](0)

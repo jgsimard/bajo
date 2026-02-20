@@ -92,7 +92,7 @@ struct Bounds3[dtype: DType](Copyable, Defaultable, Writable):
         self.upper = vmax(self.upper, upper_other)
 
     fn area(self) -> Scalar[Self.dtype]:
-        var e = self.edges()
+        e = self.edges()
         return Scalar[Self.dtype](2.0) * (
             e[0] * e[1] + e[0] * e[2] + e[1] * e[2]
         )
@@ -144,7 +144,7 @@ struct BVHPackedNodeHalf(Copyable, TrivialRegisterPassable):
         return (self.ib & Self.LEAF_BIT) != 0
 
     fn set_leaf(mut self, is_leaf: Bool):
-        var leaf_val = Self.LEAF_BIT if is_leaf else UInt32(0)
+        leaf_val = Self.LEAF_BIT if is_leaf else UInt32(0)
         self.ib = (self.ib & Self.INDEX_MASK) | leaf_val
 
     fn set_index(mut self, idx: UInt32):
@@ -152,7 +152,7 @@ struct BVHPackedNodeHalf(Copyable, TrivialRegisterPassable):
 
     @staticmethod
     fn set_index_and_leaf(idx: UInt32, is_leaf: Bool) -> UInt32:
-        var leaf_val = Self.LEAF_BIT if is_leaf else UInt32(0)
+        leaf_val = Self.LEAF_BIT if is_leaf else UInt32(0)
         return (idx & Self.INDEX_MASK) | leaf_val
 
     fn __init__(out self, bound: Vec3f32, child: Int, leaf: Bool):

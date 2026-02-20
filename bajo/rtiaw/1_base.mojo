@@ -40,15 +40,15 @@ fn linear_to_gamma(color: Color) -> Color:
 
 
 fn write_color(mut f: FileHandle, color: Color):
-    var out_color = linear_to_gamma(color).clamp(0.0, 0.999)
+    out_color = linear_to_gamma(color).clamp(0.0, 0.999)
 
-    var r = out_color.x()
-    var g = out_color.y()
-    var b = out_color.z()
+    r = out_color.x()
+    g = out_color.y()
+    b = out_color.z()
 
-    var ir = Int(255.99 * r)
-    var ig = Int(255.99 * g)
-    var ib = Int(255.99 * b)
+    ir = Int(255.99 * r)
+    ig = Int(255.99 * g)
+    ib = Int(255.99 * b)
 
     f.write("{} {} {}\n".format(ir, ig, ib))
 
@@ -95,27 +95,27 @@ struct Sphere(Hittable, Writable):
     fn hit(
         self, ray: Ray, ray_t: Interval[DType.float32]
     ) -> Optional[HitRecord]:
-        var oc = self.center - ray.origin
-        var a = length2(ray.direction)
-        var h = dot(ray.direction, oc)
-        var c = length2(oc) - self.radius * self.radius
+        oc = self.center - ray.origin
+        a = length2(ray.direction)
+        h = dot(ray.direction, oc)
+        c = length2(oc) - self.radius * self.radius
 
-        var discriminant = h * h - a * c
+        discriminant = h * h - a * c
         if discriminant < 0:
             return None
 
-        var sqrtd = sqrt(discriminant)
+        sqrtd = sqrt(discriminant)
 
         # Find the nearest root that lies in the acceptable range.
-        var root = (h - sqrtd) / a
+        root = (h - sqrtd) / a
         if not ray_t.surrounds(root):
             root = (h + sqrtd) / a
             if not ray_t.surrounds(root):
                 return None
 
-        var t = root
-        var p = ray.at(t)
-        var normal = (p - self.center) / self.radius
+        t = root
+        p = ray.at(t)
+        normal = (p - self.center) / self.radius
         return HitRecord(p, normal, self.material_id, t, ray)
 
 
@@ -130,19 +130,19 @@ struct HitableList(Hittable, Writable):
     fn hit(
         self, ray: Ray, ray_t: Interval[DType.float32]
     ) -> Optional[HitRecord]:
-        var closest_so_far = ray_t.max
-        var hit_anything: Optional[HitRecord] = None
+        closest_so_far = ray_t.max
+        hit_anything: Optional[HitRecord] = None
 
         for obj in self.objects:
-            var interval = Interval(ray_t.min, closest_so_far)
-            var hit_res: Optional[HitRecord]
+            interval = Interval(ray_t.min, closest_so_far)
+            hit_res: Optional[HitRecord]
             if obj.isa[Sphere]():
                 hit_res = obj[Sphere].hit(ray, interval)
             else:
                 abort()
 
             if hit_res:
-                var hit = hit_res.value()
+                hit = hit_res.value()
                 closest_so_far = hit.t
                 hit_anything = Optional(hit)
 
@@ -251,10 +251,10 @@ struct Camera(Copyable):
         self.center = lookfrom
 
         # Camera
-        var theta = degrees_to_radians(vfov)
-        var h = tan(theta / 2)
-        var viewport_height = 2 * h * focus_dist
-        var viewport_width = (
+        theta = degrees_to_radians(vfov)
+        h = tan(theta / 2)
+        viewport_height = 2 * h * focus_dist
+        viewport_width = (
             viewport_height
             * Float32(self.image_width)
             / Float32(self.image_height)
@@ -266,15 +266,15 @@ struct Camera(Copyable):
         self.v = cross(self.w, self.u)
 
         # Calculate the vectors across the horizontal and down the vertical viewport edges.
-        var viewport_u = viewport_width * self.u
-        var viewport_v = viewport_height * -self.v
+        viewport_u = viewport_width * self.u
+        viewport_v = viewport_height * -self.v
 
         # Calculate the horizontal and vertical delta vectors from pixel to pixel.
         self.pixel_delta_u = viewport_u / self.image_width
         self.pixel_delta_v = viewport_v / self.image_height
 
         # Calculate the location of the upper left pixel.
-        var viewport_upper_left = (
+        viewport_upper_left = (
             self.center
             - (focus_dist * self.w)
             - viewport_u / 2
@@ -286,25 +286,23 @@ struct Camera(Copyable):
         )
 
         # // Calculate the camera defocus disk basis vectors.
-        var defocus_radius = focus_dist * tan(
-            degrees_to_radians(defocus_angle / 2)
-        )
+        defocus_radius = focus_dist * tan(degrees_to_radians(defocus_angle / 2))
         self.defocus_disk_u = self.u * defocus_radius
         self.defocus_disk_v = self.v * defocus_radius
 
     fn ray_color(self, ray: Ray, world: HitableList) -> Color:
-        var cur_ray = ray
-        var accumulated_attenuation = Color(1.0, 1.0, 1.0)
+        cur_ray = ray
+        accumulated_attenuation = Color(1.0, 1.0, 1.0)
 
         for _bounce in range(self.max_depth):
             comptime infinity = max_finite[DType.float32]()
-            var hit_res = world.hit(cur_ray, Interval(Float32(0.001), infinity))
+            hit_res = world.hit(cur_ray, Interval(Float32(0.001), infinity))
 
             if hit_res:
-                var hit = hit_res.value()
-                var material_id = hit.material_id
+                ref hit = hit_res.value()
+                material_id = hit.material_id
 
-                var scatter_res: Optional[Tuple[Ray, Color]]
+                scatter_res: Optional[Tuple[Ray, Color]]
                 ref material = world.materials[material_id]
                 if material.isa[Lambertian]():
                     scatter_res = material[Lambertian].scatter(cur_ray, hit)
@@ -317,9 +315,9 @@ struct Camera(Copyable):
                     abort()
 
                 if scatter_res:
-                    var scatter = scatter_res.value()
-                    var scattered_ray = scatter[0]
-                    var attenuation = scatter[1]
+                    scatter = scatter_res.value()
+                    scattered_ray = scatter[0]
+                    attenuation = scatter[1]
 
                     cur_ray = scattered_ray
                     accumulated_attenuation *= attenuation
@@ -330,9 +328,9 @@ struct Camera(Copyable):
                 comptime start_value = Color(1.0, 1.0, 1.0)
                 comptime end_value = Color(0.5, 0.7, 1.0)
 
-                var unit_direction = cur_ray.direction
-                var a = 0.5 * (unit_direction.y() + 1.0)
-                var sky_color = (1.0 - a) * start_value + a * end_value
+                unit_direction = cur_ray.direction
+                a = 0.5 * (unit_direction.y() + 1.0)
+                sky_color = (1.0 - a) * start_value + a * end_value
                 # Final result is the sky color tinted by all previous bounces
                 return accumulated_attenuation * sky_color
 
@@ -340,17 +338,17 @@ struct Camera(Copyable):
         return Color.zeros()
 
     fn render(self, world: HitableList) raises:
-        var image_data = List[Color](
+        image_data = List[Color](
             length=self.image_width * self.image_height, fill=Color.zeros()
         )
 
         @parameter
         fn worker(j: Int):
-            var factor = Float32(1.0 / self.samples_per_pixel)
+            factor = Float32(1.0 / self.samples_per_pixel)
             for i in range(self.image_width):
-                var pixel_color = Color.zeros()
+                pixel_color = Color.zeros()
                 for _sample in range(self.samples_per_pixel):
-                    var r = self.get_ray(i, j)
+                    r = self.get_ray(i, j)
                     pixel_color += self.ray_color(r, world)
 
                 image_data[j * self.image_width + i] = pixel_color * factor
@@ -365,24 +363,24 @@ struct Camera(Copyable):
                 write_color(f, color)
 
     fn get_ray(self, i: Int, j: Int) -> Ray:
-        var offset = Vec2f.random(-0.5, 0.5)
-        var pixel_sample = (
+        offset = Vec2f.random(-0.5, 0.5)
+        pixel_sample = (
             self.pixel00_loc
             + ((i + offset.x()) * self.pixel_delta_u)
             + ((j + offset.y()) * self.pixel_delta_v)
         )
 
-        var origin = (
+        origin = (
             self.center if self.defocus_angle
             <= 0 else self.defocus_disk_sample()
         )
-        var direction = pixel_sample - origin
+        direction = pixel_sample - origin
 
         return Ray(origin, direction)
 
     fn defocus_disk_sample(self) -> Vec3f:
         """Returns a random point in the camera defocus disk."""
-        var p = random_in_unit_disk()
+        p = random_in_unit_disk()
         return (
             self.center
             + (p[0] * self.defocus_disk_u)
@@ -392,13 +390,13 @@ struct Camera(Copyable):
 
 fn random_unit_vector() -> Vec3f:
     while True:
-        var p = Vec3f.random(-1.0, 1.0)
+        p = Vec3f.random(-1.0, 1.0)
         if Float32(1e-160) <= dot(p, p) < 1.0:
             return normalize(p)
 
 
 fn random_on_hemisphere(normal: Vec3f) -> Vec3f:
-    var on_unit_sphere = random_unit_vector()
+    on_unit_sphere = random_unit_vector()
     if (
         dot(on_unit_sphere, normal) > 0.0
     ):  # In the same hemisphere as the normal
@@ -411,15 +409,15 @@ fn random_in_unit_disk() -> Vec3f:
     while True:
         r1 = Float32(random_float64(-1, 1))
         r2 = Float32(random_float64(-1, 1))
-        var p = 2.0 * Vec3f(r1, r2, 0.0)
+        p = 2.0 * Vec3f(r1, r2, 0.0)
         if dot(p, p) < 1.0:
             return p
 
 
 fn random_in_unit_sphere() -> Vec3f:
-    var unit = Vec3f(1.0, 1.0, 1.0)
+    unit = Vec3f(1.0, 1.0, 1.0)
     while True:
-        var p = 2.0 * Vec3f.random() - unit
+        p = 2.0 * Vec3f.random() - unit
         if dot(p, p) < 1.0:
             return p
 
@@ -429,9 +427,9 @@ fn reflect(v: Vec3f, n: Vec3f) -> Vec3f:
 
 
 fn refract(uv: Vec3f, n: Vec3f, etai_over_etat: Float32) -> Vec3f:
-    var cos_theta = min(dot(-uv, n), 1.0)
-    var r_out_perp = etai_over_etat * (uv + cos_theta * n)
-    var r_out_parallel = -sqrt(abs(1.0 - length2(r_out_perp))) * n
+    cos_theta = min(dot(-uv, n), 1.0)
+    r_out_perp = etai_over_etat * (uv + cos_theta * n)
+    r_out_parallel = -sqrt(abs(1.0 - length2(r_out_perp))) * n
     return r_out_perp + r_out_parallel
 
 
@@ -448,13 +446,13 @@ struct Lambertian(Material, Writable):
     var albedo: Vec3f
 
     fn scatter(self, ray: Ray, hit: HitRecord) -> Optional[Tuple[Ray, Color]]:
-        var scatter_direction = hit.normal + random_unit_vector()
+        scatter_direction = hit.normal + random_unit_vector()
 
         # Catch degenerate scatter direction
         if scatter_direction.near_zero():
             scatter_direction = hit.normal
 
-        var scattered = Ray(hit.p, scatter_direction)
+        scattered = Ray(hit.p, scatter_direction)
         return (scattered, self.albedo)
 
 
@@ -464,9 +462,9 @@ struct Metal(Material, Writable):
     var fuzz: Float32
 
     fn scatter(self, ray: Ray, hit: HitRecord) -> Optional[Tuple[Ray, Color]]:
-        var reflected = reflect(ray.direction, hit.normal)
+        reflected = reflect(ray.direction, hit.normal)
         reflected = normalize(reflected) + (self.fuzz * random_unit_vector())
-        var scattered = Ray(hit.p, reflected)
+        scattered = Ray(hit.p, reflected)
 
         if dot(scattered.direction, hit.normal) < 0:
             return None
@@ -479,18 +477,18 @@ struct Dielectric(Material, Writable):
     var refraction_index: Float32
 
     fn scatter(self, ray: Ray, hit: HitRecord) -> Optional[Tuple[Ray, Color]]:
-        var attenuation = Color.ones()
-        var ri = (
+        attenuation = Color.ones()
+        ri = (
             1.0
             / self.refraction_index if hit.front_face else self.refraction_index
         )
 
-        var unit_direction = normalize(ray.direction)
-        var cos_theta = min(dot(-unit_direction, hit.normal), 1.0)
-        var sin_theta = sqrt(1.0 - cos_theta * cos_theta)
+        unit_direction = normalize(ray.direction)
+        cos_theta = min(dot(-unit_direction, hit.normal), 1.0)
+        sin_theta = sqrt(1.0 - cos_theta * cos_theta)
 
-        var cannot_refract = ri * sin_theta > 1.0
-        var direction: Vec3f
+        cannot_refract = ri * sin_theta > 1.0
+        direction: Vec3f
 
         # total internal reflection
         if cannot_refract or reflectance(cos_theta, ri) > Float32(
@@ -506,13 +504,13 @@ struct Dielectric(Material, Writable):
 
 fn reflectance(cosine: Float32, ref_idx: Float32) -> Float32:
     """Schlick's approximation for reflectance."""
-    var r0 = pow(((1.0 - ref_idx) / (1.0 + ref_idx)), 2)
+    r0 = pow(((1.0 - ref_idx) / (1.0 + ref_idx)), 2)
     return r0 + (1.0 - r0) * pow(1.0 - cosine, 5)
 
 
 fn create_random_scene() -> Scene:
-    var materials = List[MaterialVariant]()
-    var objects = List[HittableVariant]()
+    materials = List[MaterialVariant]()
+    objects = List[HittableVariant]()
 
     # Ground material
     materials.append(Lambertian(Color(0.5, 0.5, 0.5)))
@@ -521,8 +519,8 @@ fn create_random_scene() -> Scene:
     # Random small spheres
     for a in range(-11, 11):
         for b in range(-11, 11):
-            var choose_mat = random_float64()
-            var center = Point3(
+            choose_mat = random_float64()
+            center = Point3(
                 Float32(a) + 0.9 * Float32(random_float64()),
                 0.2,
                 Float32(b) + 0.9 * Float32(random_float64()),
@@ -531,14 +529,14 @@ fn create_random_scene() -> Scene:
             if length(center - Point3(4, 0.2, 0)) > 0.9:
                 if choose_mat < 0.8:
                     # Diffuse (Lambertian)
-                    var albedo = Vec3f.random() * Vec3f.random()
+                    albedo = Vec3f.random() * Vec3f.random()
                     materials.append(Lambertian(albedo))
                     objects.append(Sphere(center, 0.2, len(materials) - 1))
 
                 elif choose_mat < 0.95:
                     # Metal
-                    var albedo = Vec3f.random(0.5, 1.0)
-                    var fuzz = Float32(random_float64(0, 0.5))
+                    albedo = Vec3f.random(0.5, 1.0)
+                    fuzz = Float32(random_float64(0, 0.5))
                     materials.append(Metal(albedo, fuzz))
                     objects.append(Sphere(center, 0.2, len(materials) - 1))
 
@@ -559,9 +557,9 @@ fn create_random_scene() -> Scene:
     materials.append(Metal(Color(0.7, 0.6, 0.5), 0.0))
     objects.append(Sphere(Point3(4, 1, 0), 1.0, len(materials) - 1))
 
-    var world = HitableList(objects^, materials^)
+    world = HitableList(objects^, materials^)
 
-    var cam = Camera(
+    cam = Camera(
         image_width=400,
         aspect_ratio=16.0 / 9.0,
         samples_per_pixel=10,
@@ -578,7 +576,7 @@ fn create_random_scene() -> Scene:
 
 
 fn create_basic_scene() -> Scene:
-    var world = HitableList(
+    world = HitableList(
         [
             Sphere(Point3(0, -100.5, -1), 100, 0),
             Sphere(Point3(0, 0, -1.2), 0.5, 1),
@@ -595,7 +593,7 @@ fn create_basic_scene() -> Scene:
         ],
     )
 
-    var cam = Camera(
+    cam = Camera(
         image_width=400,
         aspect_ratio=16.0 / 9.0,
         samples_per_pixel=10,
@@ -611,13 +609,13 @@ fn create_basic_scene() -> Scene:
 
 
 fn create_top_scene() -> Scene:
-    var R = Float32(cos(pi / 4))
-    var world = HitableList(
+    R = Float32(cos(pi / 4))
+    world = HitableList(
         [Sphere(Point3(-R, 0, -1), R, 0), Sphere(Point3(R, 0, -1), R, 1)],
         [Lambertian(Color(0, 0, 1)), Lambertian(Color(1, 0, 0))],
     )
 
-    var cam = Camera(
+    cam = Camera(
         image_width=400,
         aspect_ratio=16.0 / 9.0,
         samples_per_pixel=10,

@@ -43,18 +43,18 @@ fn luminance(a: Vec3f) -> Float32:
 fn srgb_to_rgb[
     type: DType, size: Int
 ](srgb: SIMD[type, size]) -> SIMD[type, size]:
-    var mask = srgb.le(0.04045)
-    var true_case = srgb / 12.92
-    var false_case = pow((srgb + 0.055) / 1.055, 2.4)
+    mask = srgb.le(0.04045)
+    true_case = srgb / 12.92
+    false_case = pow((srgb + 0.055) / 1.055, 2.4)
     return mask.select(true_case, false_case)
 
 
 fn rgb_to_srgb[
     type: DType, size: Int
 ](rgb: SIMD[type, size]) -> SIMD[type, size]:
-    var mask = rgb.le(0.0031308)
-    var true_case = 12.92 * rgb
-    var false_case = 1.055 * pow(rgb, 1.0 / 2.4) - 0.055
+    mask = rgb.le(0.0031308)
+    true_case = 12.92 * rgb
+    false_case = 1.055 * pow(rgb, 1.0 / 2.4) - 0.055
     return mask.select(true_case, false_case)
 
 
@@ -88,23 +88,23 @@ fn lincontrast(rgb: Vec3f, contrast: Float32, grey: Float32) -> Vec3f:
 
 # inline vec4f logcontrast(vec4f rgb, float contrast, float grey) {
 fn lincontrast(rgb: Vec4f, contrast: Float32, grey: Float32) -> Vec4f:
-    var tmp = logcontrast(rgb.xyz(), contrast, grey)
+    tmp = logcontrast(rgb.xyz(), contrast, grey)
     return Vec4f(tmp.x(), tmp.y(), tmp.z(), rgb.w())
 
 
 fn logcontrast(rgb: Vec3f, log_contrast: Float32, grey: Float32) -> Vec3f:
     comptime epsilon = 0.0001
-    var log_grey = log2(grey)
-    var log_ldr = log2(rgb.data + epsilon)
-    var adjusted = log_grey + (log_ldr - log_grey) * (log_contrast * 2.0)
+    log_grey = log2(grey)
+    log_ldr = log2(rgb.data + epsilon)
+    adjusted = log_grey + (log_ldr - log_grey) * (log_contrast * 2.0)
     return Vector.max(Vec3f(0), Vec3f(exp2(adjusted)) - epsilon)
 
 
 fn gain(v: Vec3f, g: Float32) -> Vec3f:
     # Typical Bias/Gain function used in graphics
-    var res = Vec3f(0)
+    res = Vec3f(0)
     for i in range(3):
-        var x = v[i]
+        x = v[i]
         if x < 0.5:
             res[i] = pow(2.0 * x, g) * 0.5
         else:
@@ -120,7 +120,7 @@ fn contrast(rgb: Vec3f, contrast_val: Float32) -> Vec3f:
 fn saturate(
     rgb: Vec3f, saturation: Float32, weights: Vec3f = Vec3f(Float32(0.333333))
 ) -> Vec3f:
-    var grey = dot(weights, rgb)
+    grey = dot(weights, rgb)
     return Vector.max(Vec3f(0), grey + (rgb - grey) * (saturation * 2.0))
 
 
@@ -129,15 +129,15 @@ fn saturate(
 # ----------------------------------------------------------------------
 fn tonemap_filmic(hdr: Vec3f) -> Vec3f:
     # Approx ACES Filmic Tone Mapping Curve
-    var x = hdr * 0.6
-    var ldr = (x * (x * 2.51 + 0.03)) / (x * (x * 2.43 + 0.59) + 0.14)
+    x = hdr * 0.6
+    ldr = (x * (x * 2.51 + 0.03)) / (x * (x * 2.43 + 0.59) + 0.14)
     return Vector.max(Vec3f(0), Vector.min(Vec3f(1), ldr))
 
 
 fn tonemap[
     filmic: Bool = False, srgb: Bool = True
 ](hdr: Vec3f, exposure: Float32) -> Vec3f:
-    var rgb = hdr
+    rgb = hdr
     if exposure != 0:
         rgb = rgb * exp2(exposure)
 
@@ -154,17 +154,17 @@ fn tonemap[
 # ----------------------------------------------------------------------
 
 # fn hsv_to_rgb(hsv: Vec3f) -> Vec3f:
-#     var h = hsv.x()
-#     var s = hsv.y()
-#     var v = hsv.z()
+#     h = hsv.x()
+#     s = hsv.y()
+#     v = hsv.z()
 #     if s == 0: return Vec3f(v)
 
 #     h = fmod(h, 1.0) / (60.0 / 360.0)
-#     var i = Int(h)
-#     var f = h - Float32(i)
-#     var p = v * (1.0 - s)
-#     var q = v * (1.0 - s * f)
-#     var t = v * (1.0 - s * (1.0 - f))
+#     i = Int(h)
+#     f = h - Float32(i)
+#     p = v * (1.0 - s)
+#     q = v * (1.0 - s * f)
+#     t = v * (1.0 - s * (1.0 - f))
 
 #     if i == 0: return Vec3f(v, t, p)
 #     if i == 1: return Vec3f(q, v, p)
@@ -175,10 +175,10 @@ fn tonemap[
 
 
 fn rgb_to_hsv(rgb: Vec3f) -> Vec3f:
-    var r = rgb.x()
-    var g = rgb.y()
-    var b = rgb.z()
-    var k: Float32 = 0.0
+    r = rgb.x()
+    g = rgb.y()
+    b = rgb.z()
+    k: Float32 = 0.0
     if g < b:
         swap(g, b)
         k = -1.0
@@ -186,7 +186,7 @@ fn rgb_to_hsv(rgb: Vec3f) -> Vec3f:
         swap(r, g)
         k = -2.0 / 6.0 - k
 
-    var chroma = r - min(g, b)
+    chroma = r - min(g, b)
     return Vec3f(
         abs(k + (g - b) / (6.0 * chroma + 1e-20)), chroma / (r + 1e-20), r
     )
@@ -254,7 +254,7 @@ fn mean(v: Vec3f) -> Float32:
 
 
 # fn colorgrade(rgb_in: Vec3f, is_linear: Bool, params: ColorgradeParams) -> Vec3f:
-#     var rgb = rgb_in
+#     rgb = rgb_in
 #     if params.exposure != 0: rgb = rgb * exp2(params.exposure)
 #     if params.tint != Vec3f(1): rgb = rgb * params.tint
 
@@ -284,16 +284,16 @@ fn mean(v: Vec3f) -> Float32:
 #         params.shadows_color != Vec3f(1) or params.midtones_color != Vec3f(1) or
 #         params.highlights_color != Vec3f(1)):
 
-#         var lift = params.shadows_color - Vec3f(mean(params.shadows_color)) + params.shadows - 0.5
-#         var gain_val = params.highlights_color - Vec3f(mean(params.highlights_color)) + params.highlights + 0.5
-#         var grey = params.midtones_color - Vec3f(mean(params.midtones_color)) + params.midtones
+#         lift = params.shadows_color - Vec3f(mean(params.shadows_color)) + params.shadows - 0.5
+#         gain_val = params.highlights_color - Vec3f(mean(params.highlights_color)) + params.highlights + 0.5
+#         grey = params.midtones_color - Vec3f(mean(params.midtones_color)) + params.midtones
 
 #         # Calculate gamma per channel
-#         var gamma = Vec3f(0)
+#         gamma = Vec3f(0)
 #         for i in range(3):
 #             gamma[i] = log((0.5 - lift[i]) / (gain_val[i] - lift[i])) / log(grey[i])
 
-#         var lerp_value = max(Vec3f(0), Vector.min(Vec3f(1), pow(rgb, 1.0 / gamma.data)))
+#         lerp_value = max(Vec3f(0), Vector.min(Vec3f(1), pow(rgb, 1.0 / gamma.data)))
 #         rgb = gain_val * lerp_value + lift * (1.0 - lerp_value)
 
 #     return rgb
@@ -323,7 +323,7 @@ fn colormap_viridis(t: Float32) -> Vec3f:
 
 
 fn colormap(t: Float32, map_type: Int = ColormapType.Viridis) -> Vec3f:
-    var ct = max(min(t, 1.0), 0.0)
+    ct = max(min(t, 1.0), 0.0)
     if map_type == ColormapType.Viridis:
         return colormap_viridis(ct)
     # Magma, Inferno, Plasma follow the same polynomial pattern with different constants
@@ -374,13 +374,13 @@ fn colormap_inferno(t: Float32) -> Vec3f:
 fn composite(a: Vec4f, b: Vec4f) -> Vec4f:
     if a.w() == 0 and b.w() == 0:
         return Vec4f(0, 0, 0, 0)
-    var cc = a.xyz() * a.w() + b.xyz() * b.w() * (1.0 - a.w())
-    var ca = a.w() + b.w() * (1.0 - a.w())
+    cc = a.xyz() * a.w() + b.xyz() * b.w() * (1.0 - a.w())
+    ca = a.w() + b.w() * (1.0 - a.w())
     return Vec4f(cc.x() / ca, cc.y() / ca, cc.z() / ca, ca)
 
 
 fn xyz_to_xyY(xyz: Vec3f) -> Vec3f:
-    var den = xyz.x() + xyz.y() + xyz.z()
+    den = xyz.x() + xyz.y() + xyz.z()
     if den == 0:
         return Vec3f(0)
     return Vec3f(xyz.x() / den, xyz.y() / den, xyz.y())
@@ -439,23 +439,21 @@ struct ColorSpaceParams:
 
 # Internal matrix helper (SMPTE RP 177-1993)
 fn _calculate_rgb_to_xyz(rc: Vec2f, gc: Vec2f, bc: Vec2f, wc: Vec2f) -> Mat3f:
-    var rgb = Mat3f(
+    rgb = Mat3f(
         Vec3f(rc.x(), rc.y(), 1.0 - rc.x() - rc.y()),
         Vec3f(gc.x(), gc.y(), 1.0 - gc.x() - gc.y()),
         Vec3f(bc.x(), bc.y(), 1.0 - bc.x() - bc.y()),
     )
-    var w = Vec3f(wc.x(), wc.y(), 1.0 - wc.x() - wc.y())
+    w = Vec3f(wc.x(), wc.y(), 1.0 - wc.x() - wc.y())
     # Note: assumed inverse() is available in your math lib per Mat34.decompose logic
-    var c = (
-        rgb.transpose().determinant()
-    )  # dummy placeholder if inverse is missing
+    c = rgb.transpose().determinant()  # dummy placeholder if inverse is missing
     # Porting from C++: c = inverse(rgb) * Vec3f(w.x/w.y, 1, w.z/w.y)
     # Using your library's Mat33 and assuming inverse(Mat33) -> Mat33 exists:
-    var inv_rgb = Mat3f(
+    inv_rgb = Mat3f(
         Vec3f(0), Vec3f(0), Vec3f(0)
     )  # Actual inverse implementation needed if not in math.mojo
     # For now, we assume standard library matrix ops or user provided inverse.
-    var col_scales = inv_rgb * Vec3f(w.x() / w.y(), 1.0, w.z() / w.y())
+    col_scales = inv_rgb * Vec3f(w.x() / w.y(), 1.0, w.z() / w.y())
     return Mat3f(
         rgb.c0 * col_scales.x(),
         rgb.c1 * col_scales.y(),
@@ -467,13 +465,13 @@ fn _calculate_rgb_to_xyz(rc: Vec2f, gc: Vec2f, bc: Vec2f, wc: Vec2f) -> Mat3f:
 # HDR Transfer Functions (OETF / EOTF)
 # ----------------------------------------------------------------------
 fn pq_linear_to_display(x: Float32) -> Float32:
-    var lp = pow(x, 0.1593017578125)
+    lp = pow(x, 0.1593017578125)
     return pow((0.8359375 + 18.8515625 * lp) / (1.0 + 18.6875 * lp), 78.84375)
 
 
 fn pq_display_to_linear(x: Float32) -> Float32:
-    var np = pow(x, 1.0 / 78.84375)
-    var l = max(np - 0.8359375, 0.0)
+    np = pow(x, 1.0 / 78.84375)
+    l = max(np - 0.8359375, 0.0)
     l = l / (18.8515625 - 18.6875 * np)
     return pow(l, 1.0 / 0.1593017578125)
 
@@ -495,14 +493,14 @@ fn hlg_display_to_linear(x: Float32) -> Float32:
 # ----------------------------------------------------------------------
 fn get_color_space_params(space: Int) -> ColorSpaceParams:
     # Defaults (sRGB Primaries)
-    var rc = Vec2f(0.64, 0.33)
-    var gc = Vec2f(0.30, 0.60)
-    var bc = Vec2f(0.15, 0.06)
-    var wc = Vec2f(0.3127, 0.3290)
+    rc = Vec2f(0.64, 0.33)
+    gc = Vec2f(0.30, 0.60)
+    bc = Vec2f(0.15, 0.06)
+    wc = Vec2f(0.3127, 0.3290)
 
-    var curve = CurveType.Linear
-    var gamma: Float32 = 1.0
-    var abcd = Vec4f.zeros()
+    curve = CurveType.Linear
+    gamma: Float32 = 1.0
+    abcd = Vec4f.zeros()
 
     if space == ColorSpace.SRGB:
         curve = CurveType.LinearGamma
@@ -525,9 +523,9 @@ fn get_color_space_params(space: Int) -> ColorSpaceParams:
     # ... Other spaces follow same pattern ...
 
     # Ideally these matrices would be precomputed/cached as static constants
-    var m = Mat3f(Vec3f(1, 0, 0), Vec3f(0, 1, 0), Vec3f(0, 0, 1))  # Placeholder
+    m = Mat3f(Vec3f(1, 0, 0), Vec3f(0, 1, 0), Vec3f(0, 0, 1))  # Placeholder
     # m = _calculate_rgb_to_xyz(rc, gc, bc, wc)
-    # var inv_m = inverse(m)
+    # inv_m = inverse(m)
 
     return ColorSpaceParams(m, m, curve, gamma, abcd)
 
@@ -538,8 +536,8 @@ fn get_color_space_params(space: Int) -> ColorSpaceParams:
 
 
 fn color_to_xyz(col: Vec3f, from_space: Int) -> Vec3f:
-    var params = get_color_space_params(from_space)
-    var rgb = col
+    params = get_color_space_params(from_space)
+    rgb = col
 
     if params.curve_type == CurveType.Gamma:
         rgb = Vec3f(
@@ -564,6 +562,6 @@ fn color_to_xyz(col: Vec3f, from_space: Int) -> Vec3f:
 fn convert_color(col: Vec3f, from_space: Int, to_space: Int) -> Vec3f:
     if from_space == to_space:
         return col
-    var xyz = color_to_xyz(col, from_space)
+    xyz = color_to_xyz(col, from_space)
     # Then map xyz_to_color(xyz, to_space)
     return xyz

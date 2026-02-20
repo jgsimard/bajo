@@ -48,18 +48,18 @@ struct Mat3x3[type: DType where type.is_floating_point()](Copyable, Writable):
 
     @staticmethod
     fn from_quat(r: Quaternion[Self.type]) -> Self:
-        var x2 = r.x() * r.x()
-        var y2 = r.y() * r.y()
-        var z2 = r.z() * r.z()
+        x2 = r.x() * r.x()
+        y2 = r.y() * r.y()
+        z2 = r.z() * r.z()
 
-        var xz = r.x() * r.z()
-        var xy = r.x() * r.y()
-        var yz = r.y() * r.z()
+        xz = r.x() * r.z()
+        xy = r.x() * r.y()
+        yz = r.y() * r.z()
 
-        var r_rw = r * r.w()
-        var wx = r_rw.x()
-        var wy = r_rw.y()
-        var wz = r_rw.z()
+        r_rw = r * r.w()
+        wx = r_rw.x()
+        wy = r_rw.y()
+        wz = r_rw.z()
 
         comptime v3 = Vec3[Self.type]
         return Self(
@@ -70,20 +70,20 @@ struct Mat3x3[type: DType where type.is_floating_point()](Copyable, Writable):
 
     @staticmethod
     fn from_rs(r: Quaternion[Self.type], s: Vec3[Self.type]) -> Self:
-        var x2 = r.x() * r.x()
-        var y2 = r.y() * r.y()
-        var z2 = r.z() * r.z()
+        x2 = r.x() * r.x()
+        y2 = r.y() * r.y()
+        z2 = r.z() * r.z()
 
-        var xz = r.x() * r.z()
-        var xy = r.x() * r.y()
-        var yz = r.y() * r.z()
+        xz = r.x() * r.z()
+        xy = r.x() * r.y()
+        yz = r.y() * r.z()
 
-        var r_rw = r * r.w()
-        var wx = r_rw.x()
-        var wy = r_rw.y()
-        var wz = r_rw.z()
+        r_rw = r * r.w()
+        wx = r_rw.x()
+        wy = r_rw.y()
+        wz = r_rw.z()
 
-        var ds = s * 2.0
+        ds = s * 2.0
 
         comptime v3 = Vec3[Self.type]
         return Self(
@@ -144,39 +144,39 @@ struct Mat3x4[type: DType where type.is_floating_point()](Copyable, Writable):
     fn decompose(
         self,
     ) -> Tuple[Vec3[Self.type], Quaternion[Self.type], Vec3[Self.type]]:
-        var scale = Vec3[Self.type](
+        scale = Vec3[Self.type](
             length(self.c0), length(self.c1), length(self.c2)
         )
 
         if dot(cross(self.c0, self.c1), self.c2) < 0.0:
             scale[0] *= -1.0
 
-        var v1 = self.c0 / scale[0]
-        var v2 = self.c1 / scale[1]
-        var v3 = self.c2 / scale[2]
+        v1 = self.c0 / scale[0]
+        v2 = self.c1 / scale[1]
+        v3 = self.c2 / scale[2]
 
         v2 = normalize((v2 - v1 * dot(v2, v1)))
         v3 = v3 - v1 * dot(v3, v1)
         v3 = v3 - v2 * dot(v3, v2)
         v3 = normalize(v3)
 
-        var rot = Quaternion[Self.type].from_basis(v1, v2, v3)
+        rot = Quaternion[Self.type].from_basis(v1, v2, v3)
         return self.c3.copy(), rot, scale^
 
     @staticmethod
     fn from_trs(
         t: Vec3[Self.type], r: Quaternion[Self.type], s: Vec3[Self.type]
     ) -> Self:
-        var x2 = r.x() * r.x()
-        var y2 = r.y() * r.y()
-        var z2 = r.z() * r.z()
-        var xz = r.x() * r.z()
-        var xy = r.x() * r.y()
-        var yz = r.y() * r.z()
-        var wx = r.w() * r.x()
-        var wy = r.w() * r.y()
-        var wz = r.w() * r.z()
-        var ds = s * 2.0
+        x2 = r.x() * r.x()
+        y2 = r.y() * r.y()
+        z2 = r.z() * r.z()
+        xz = r.x() * r.z()
+        xy = r.x() * r.y()
+        yz = r.y() * r.z()
+        wx = r.w() * r.x()
+        wy = r.w() * r.y()
+        wz = r.w() * r.z()
+        ds = s * 2.0
 
         comptime v3 = Vec3[Self.type]
         return Self(

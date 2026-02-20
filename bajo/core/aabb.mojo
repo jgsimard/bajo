@@ -35,7 +35,7 @@ struct AxisAlignedBoundingBox[type: DType where type.is_floating_point()](
         )
 
     fn surface_area(self) -> Scalar[Self.type]:
-        var d = self.max - self.min
+        d = self.max - self.min
         return 2.0 * (d.x() * d.y() + d.x() * d.z() + d.y() * d.z())
 
     fn centroid(self) -> Vec3[Self.type]:
@@ -68,19 +68,15 @@ struct AxisAlignedBoundingBox[type: DType where type.is_floating_point()](
         ray_t_min: Scalar[Self.type],
         ray_t_max: Scalar[Self.type],
     ) -> Bool:
-        var t_lower = inv_ray_d * (self.min - ray_o)
-        var t_upper = inv_ray_d * (self.max - ray_o)
+        t_lower = inv_ray_d * (self.min - ray_o)
+        t_upper = inv_ray_d * (self.max - ray_o)
 
-        var t_min_vec = vmin(t_lower, t_upper)
-        var t_max_vec = vmax(t_lower, t_upper)
+        t_min_vec = vmin(t_lower, t_upper)
+        t_max_vec = vmax(t_lower, t_upper)
 
-        var t_box_min = max(
-            t_min_vec.x(), t_min_vec.y(), t_min_vec.z(), ray_t_min
-        )
+        t_box_min = max(t_min_vec.x(), t_min_vec.y(), t_min_vec.z(), ray_t_min)
 
-        var t_box_max = min(
-            t_max_vec.x(), t_max_vec.y(), t_max_vec.z(), ray_t_max
-        )
+        t_box_max = min(t_max_vec.x(), t_max_vec.y(), t_max_vec.z(), ray_t_max)
 
         return t_box_min <= t_box_max
 
@@ -93,26 +89,26 @@ struct AxisAlignedBoundingBox[type: DType where type.is_floating_point()](
         """
         Transforms the AABB using Jim Arvo algorithm (from "Graphics Gems", Academic Press, 1990) with explicit SIMD.
         """
-        var mat = Mat3x3[Self.type].from_rs(rotation, scale)
+        mat = Mat3x3[Self.type].from_rs(rotation, scale)
 
-        var new_min = translation.copy()
-        var new_max = translation.copy()
+        new_min = translation.copy()
+        new_max = translation.copy()
 
         # X
-        var c0_a = mat.c0 * self.min.x()
-        var c0_b = mat.c0 * self.max.x()
+        c0_a = mat.c0 * self.min.x()
+        c0_b = mat.c0 * self.max.x()
         new_min += vmin(c0_a, c0_b)
         new_max += vmax(c0_a, c0_b)
 
         # Y
-        var c1_a = mat.c1 * self.min.y()
-        var c1_b = mat.c1 * self.max.y()
+        c1_a = mat.c1 * self.min.y()
+        c1_b = mat.c1 * self.max.y()
         new_min += vmin(c1_a, c1_b)
         new_max += vmax(c1_a, c1_b)
 
         # Z
-        var c2_a = mat.c2 * self.min.z()
-        var c2_b = mat.c2 * self.max.z()
+        c2_a = mat.c2 * self.min.z()
+        c2_b = mat.c2 * self.max.z()
         new_min += vmin(c2_a, c2_b)
         new_max += vmax(c2_a, c2_b)
 

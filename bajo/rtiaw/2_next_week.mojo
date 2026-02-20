@@ -39,7 +39,7 @@ struct Scene:
 
 
 fn main() raises:
-    print(" Ray Tracing in One Weekend - Part 2")
+    print("Ray Tracing in One Weekend - Part 2")
     # scene = create_top_scene()
     # scene = create_basic_scene()
     scene = create_random_scene()

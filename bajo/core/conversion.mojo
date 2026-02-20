@@ -10,6 +10,6 @@ fn degrees_to_radians[
 
 fn radians_to_degrees[
     type: DType, size: Int
-](radian: SIMD[type, size]) -> SIMD[type, size]:
+](radians: SIMD[type, size]) -> SIMD[type, size]:
     comptime factor = 180.0 / pi
-    return radian * factor
+    return radians * factor

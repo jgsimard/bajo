@@ -94,6 +94,10 @@ struct Bounds3[dtype: DType](Copyable, Defaultable, Writable):
         self.lower = vmin(self.lower, lower_other)
         self.upper = vmax(self.upper, upper_other)
 
+    fn add_bounds(mut self, other: Self):
+        self.lower = vmin(self.lower, other.lower)
+        self.upper = vmax(self.upper, other.upper)
+
     fn area(self) -> Scalar[Self.dtype]:
         e = self.edges()
         return Scalar[Self.dtype](2.0) * (
@@ -339,6 +343,113 @@ fn partition_median[
     nth_element[compare_centers](indices_span, k)
 
     return k
+
+
+@fieldwise_init
+struct SahIndice(Copyable):
+    var split_axis: Int
+    var split_point: Float32
+
+
+fn partition_sah_indices[
+    origin: MutOrigin
+](
+    lowers: UnsafePointer[Vec3f32, origin],
+    uppers: UnsafePointer[Vec3f32, origin],
+    indices: UnsafePointer[Int, origin],
+    start: Int,
+    end: Int,
+    range_bounds: Bounds3[DType.float32],
+) -> SahIndice:
+    """
+    Computes the optimal split point and axis using the Surface Area Heuristic.
+    """
+    # 1. Compute centroid bounds
+    centroid_bounds = Bounds3[DType.float32]()
+    for i in range(start, end):
+        idx = indices[i]
+        item_center = (lowers[idx] + uppers[idx]) * 0.5
+        centroid_bounds.add_point(item_center)
+
+    edges = centroid_bounds.edges()
+    split_axis = longest_axis(edges)
+
+    range_start = centroid_bounds.lower[split_axis]
+    range_end = centroid_bounds.upper[split_axis]
+
+    # Guard against zero extent along the split axis
+    if range_end <= range_start:
+        return SahIndice(split_axis, range_start)
+
+    # binning
+    buckets_counts = InlineArray[Int, SAH_NUM_BUCKETS](fill=0)
+    buckets = InlineArray[Bounds3[DType.float32], SAH_NUM_BUCKETS](
+        fill=Bounds3[DType.float32]()
+    )
+
+    inv_range = Float32(SAH_NUM_BUCKETS) / (range_end - range_start)
+
+    for i in range(start, end):
+        idx = indices[i]
+        center_val = 0.5 * (lowers[idx][split_axis] + uppers[idx][split_axis])
+
+        bucket_idx = clamp(
+            Int((center_val - range_start) * inv_range), 0, SAH_NUM_BUCKETS - 1
+        )
+
+        # contains default value so no need to check
+        buckets[bucket_idx].add_bounds(lowers[idx], uppers[idx])
+        buckets_counts[bucket_idx] += 1
+
+    # n-1 split planes for n buckets
+    left_areas = InlineArray[Float32, SAH_NUM_BUCKETS - 1](fill=0.0)
+    right_areas = InlineArray[Float32, SAH_NUM_BUCKETS - 1](fill=0.0)
+    counts_l = InlineArray[Int, SAH_NUM_BUCKETS - 1](fill=0)
+    counts_r = InlineArray[Int, SAH_NUM_BUCKETS - 1](fill=0)
+
+    left = Bounds3[DType.float32]()
+    right = Bounds3[DType.float32]()
+    count_l = 0
+    count_r = 0
+
+    for i in range(SAH_NUM_BUCKETS - 1):
+        ref bound_start = buckets[i]
+        ref bound_end = buckets[SAH_NUM_BUCKETS - i - 1]
+
+        left = bounds_union(left, bound_start)
+        right = bounds_union(right, bound_end)
+
+        left_areas[i] = left.area()
+        right_areas[SAH_NUM_BUCKETS - i - 2] = right.area()
+
+        count_l += buckets_counts[i]
+        count_r += buckets_counts[SAH_NUM_BUCKETS - i - 1]
+
+        counts_l[i] = count_l
+        counts_r[SAH_NUM_BUCKETS - i - 2] = count_r
+
+    inv_total_area = 1.0 / range_bounds.area()
+
+    # find split point i that minimizes area(left[i]) * count[left[i]] + area(right[i]) * count[right[i]]
+    min_cost = max_finite[DType.float32]()
+    min_split = 0
+    for i in range(SAH_NUM_BUCKETS - 1):
+        p_below = left_areas[i] * inv_total_area
+        p_above = right_areas[i] * inv_total_area
+
+        cost = p_below * Float32(counts_l[i]) + p_above * Float32(counts_r[i])
+
+        if cost < min_cost:
+            min_cost = cost
+            min_split = i
+
+    debug_assert["safe"](min_split >= 0 and min_split < SAH_NUM_BUCKETS - 1)
+
+    split_point = range_start + (Float32(min_split) + 1.0) * (
+        range_end - range_start
+    ) / Float32(SAH_NUM_BUCKETS)
+
+    return SahIndice(split_axis, split_point)
 
 
 # // represents a strided stack in shared memory

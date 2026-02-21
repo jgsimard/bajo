@@ -1,12 +1,12 @@
 from bit import count_leading_zeros
 from math import clamp
 from std.utils.numerics import max_finite, min_finite
+from sys.info import is_gpu
+from os import abort
 
-
-from bajo.core.vec import Vec3, Vec3f32, vmin, vmax
-
-
-comptime BVH_SHARED_STACK = False
+from bajo.core.intersect import intersect_ray_aabb, intersect_aabb_aabb
+from bajo.core.sort import nth_element
+from bajo.core.vec import Vec3, Vec3f32, vmin, vmax, longest_axis
 
 comptime SAH_NUM_BUCKETS = 16
 comptime USE_LOAD4 = True
@@ -28,6 +28,9 @@ struct BvhConstructor(
     comptime SAH = Self(0)
     comptime MEDIAN = Self(1)
     comptime LBVH = Self(2)
+
+
+comptime Bounds3f32 = Bounds3[DType.float32]
 
 
 @fieldwise_init
@@ -137,8 +140,8 @@ struct BVHPackedNodeHalf(Copyable, TrivialRegisterPassable):
     comptime INDEX_MASK: UInt32 = 0x7FFFFFFF
     comptime LEAF_BIT: UInt32 = 0x80000000
 
-    fn index(self) -> UInt32:
-        return self.ib & Self.INDEX_MASK
+    fn index(self) -> Int:
+        return Int(self.ib & Self.INDEX_MASK)
 
     fn is_leaf(self) -> Bool:
         return (self.ib & Self.LEAF_BIT) != 0
@@ -151,7 +154,7 @@ struct BVHPackedNodeHalf(Copyable, TrivialRegisterPassable):
         self.ib = (idx & Self.INDEX_MASK) | (self.ib & Self.LEAF_BIT)
 
     @staticmethod
-    fn set_index_and_leaf(idx: UInt32, is_leaf: Bool) -> UInt32:
+    fn index_and_leaf(idx: UInt32, is_leaf: Bool) -> UInt32:
         leaf_val = Self.LEAF_BIT if is_leaf else UInt32(0)
         return (idx & Self.INDEX_MASK) | leaf_val
 
@@ -159,20 +162,20 @@ struct BVHPackedNodeHalf(Copyable, TrivialRegisterPassable):
         self.x = bound.x()
         self.y = bound.y()
         self.z = bound.z()
-        self.ib = Self.set_index_and_leaf(UInt32(child), leaf)
+        self.ib = Self.index_and_leaf(UInt32(child), leaf)
 
 
-fn part1by2(n: UInt32) -> UInt32:
-    m = n
-    m = (m ^ (m << 16)) & 0xFF0000FF
-    m = (m ^ (m << 8)) & 0x0300F00F
-    m = (m ^ (m << 4)) & 0x030C30C3
-    m = (m ^ (m << 2)) & 0x09249249
-    return m
+fn part1by2(n_in: UInt32) -> UInt32:
+    n = n_in
+    n = (n ^ (n << 16)) & 0xFF0000FF
+    n = (n ^ (n << 8)) & 0x0300F00F
+    n = (n ^ (n << 4)) & 0x030C30C3
+    n = (n ^ (n << 2)) & 0x09249249
+    return n
 
 
 fn morton3[dim: UInt32](x: Float32, y: Float32, z: Float32) -> UInt32:
-    """Takes values in the range [0, 1] and assigns an index based Morton codes of length 3*dim bits.
+    """Takes values in the range [0, 1] and assigns an index based Morton codes.
     """
     comptime dimf = Float32(dim)
     ux = clamp(UInt32(x * dimf), 0, dim - 1)
@@ -214,21 +217,307 @@ struct BVH[origin: Origin](Copyable):
     # var context: AnyPointer
     # """gpu context"""
 
+    fn num_bounds(self) -> Int:
+        return self.num_items
+
+    fn leaf_group(self, leaf: Int) -> Int:
+        if not self.item_groups:
+            return 0
+        idx_p = self.node_lowers[leaf].index()
+        idx_g = self.primitive_indices[idx_p]
+        return self.item_groups[idx_g]
+
+    fn lower_bound_group(self, group: Int) -> Int:
+        lo = 0
+        hi = self.num_leaf_nodes
+
+        while lo < hi:
+            mid = (lo + hi) >> 1
+            if self.leaf_group(mid) < group:
+                lo = mid + 1
+            else:
+                hi = mid
+
+        if lo == self.num_leaf_nodes or (self.leaf_group(lo) != group):
+            return -1
+        return lo
+
+    fn lca(self, node_a: Int, node_b: Int) -> Int:
+        """Lowest Common Ancestor."""
+        da = 0
+        db = 0
+
+        t = node_a
+        while t != -1:
+            da += 1
+            t = self.node_parents[t]
+
+        t = node_b
+        while t != -1:
+            db += 1
+            t = self.node_parents[t]
+
+        curr_a = node_a
+        curr_b = node_b
+        if da > db:
+            diff = da - db
+            for _ in range(diff):
+                if curr_a == -1:
+                    break
+                curr_a = self.node_parents[curr_a]
+        elif db > da:
+            diff = db - da
+            for _ in range(diff):
+                if curr_b == -1:
+                    break
+                curr_b = self.node_parents[curr_b]
+
+        while curr_a != curr_b:
+            if curr_a == -1 or curr_b == -1:
+                return -1
+            curr_a = self.node_parents[curr_a]
+            curr_b = self.node_parents[curr_b]
+
+        return curr_a  # either the LCA or -1
+
+    fn group_root(self, group_id: Int) -> Int:
+        # this function requires all the leaf nodes to be stored as the first bvh.num_leaf_nodes nodes
+        # and sorted by their group ids
+
+        # locate first leaf of the current group
+        first = self.lower_bound_group(group_id)
+        if first < 0:
+            return -1
+
+        # find first leaf of next group to find the last leaf of the current group
+        next_group = group_id + 1
+        next = self.lower_bound_group(next_group)
+        last = (self.num_leaf_nodes if next < 0 else next) - 1
+
+        return self.lca(first, last)
+
+
+fn calc_bounds[
+    origin: Origin
+](
+    lowers: UnsafePointer[Vec3f32, origin],
+    uppers: UnsafePointer[Vec3f32, origin],
+    indices: UnsafePointer[Int, origin],
+    start: Int,
+    end: Int,
+) -> Bounds3f32:
+    u = Bounds3f32()
+    for i in range(start, end):
+        idx = indices[i]
+        u.add_bounds(lowers[idx], uppers[idx])
+    return u^
+
+
+fn partition_median[
+    origin: MutOrigin
+](
+    lowers: UnsafePointer[Vec3f32, origin],
+    uppers: UnsafePointer[Vec3f32, origin],
+    indices: UnsafePointer[Int, origin],
+    start: Int,
+    end: Int,
+    range_bounds: Bounds3[DType.float32],
+) -> Int:
+    len_span = end - start
+    debug_assert["safe"](len_span >= 2)
+
+    axis = longest_axis(range_bounds.edges())
+    k = (start + end) // 2
+
+    fn compare_centers(a: Int, b: Int) capturing -> Bool:
+        center_a = 0.5 * (lowers[a] + uppers[a])
+        center_b = 0.5 * (lowers[b] + uppers[b])
+        return center_a[axis] < center_b[axis]
+
+    indices_span = Span[Int, origin](ptr=indices + start, length=len_span)
+
+    nth_element[compare_centers](indices_span, k)
+
+    return k
+
+
+# // represents a strided stack in shared memory
+# // so each level of the stack is stored contiguously
+# // across the block
+struct BvhStack[origin: Origin, device: String](Copyable, Writable):
+    # cpu
+    comptime local_size = BVH_QUERY_STACK_SIZE if Self.device == "cpu" else 0
+    var _local: InlineArray[Int, Self.local_size]
+
+    # # gpu
+    var _ptr: UnsafePointer[Int, Self.origin]
+
+    fn __init__(out self):
+        comptime assert Self.device == "cpu"
+
+        self._ptr = UnsafePointer[Int, Self.origin]()
+        self._local = InlineArray[Int, Self.local_size](fill=0)
+
+    fn __init__(out self, ptr: UnsafePointer[Int, Self.origin], root: Int):
+        self._ptr = ptr
+        self._local = InlineArray[Int, Self.local_size](fill=0)
+        self._local[0] = root
+
+    @always_inline
+    fn __getitem__(self, depth: Int) -> Int:
+        comptime if self.device == "cpu":
+            return self._local[depth]
+        return -1
+        # else:
+        #     return self._ptr[depth * BVH_BLOCK_DIM]
+
+    @always_inline
+    fn __setitem__(mut self, depth: Int, value: Int):
+        comptime if self.device == "cpu":
+            self._local[depth] = value
+        abort()
+        # else:
+        #     self._ptr[depth * BVH_BLOCK_DIM] = value
+
 
 @fieldwise_init
-struct BvhQuery:
+struct BvhQuery[origin: Origin, device: String](Copyable, Writable):
     """Object used to track state during BVH traversal. AKA bvh_query_t."""
 
-    ...
-    var v: Int
+    var bvh: UnsafePointer[BVH[Self.origin], Self.origin]
+    var stack: BvhStack[Self.origin, Self.device]
+    var count: Int
+    var primitive_counter: Int
+    var input_lower: Vec3f32
+    var input_upper: Vec3f32
+    var bounds_nr: Int
+    var is_ray: Bool
+
+    fn __init__(
+        out self,
+        bvh: UnsafePointer[BVH[Self.origin], Self.origin],
+        is_ray: Bool,
+        lower: Vec3f32,
+        upper: Vec3f32,
+        root: Int,
+    ):
+        self.bvh = bvh
+        self.stack = BvhStack[Self.origin, self.device](bvh[].root, root)
+        self.count = 1
+        self.primitive_counter = 0
+        self.input_lower = lower.copy()
+        self.input_upper = upper.copy()
+        self.bounds_nr = -1
+        self.is_ray = is_ray
+
+    @staticmethod
+    fn from_aabb(
+        bvh: UnsafePointer[BVH[Self.origin], Self.origin],
+        lower: Vec3f32,
+        upper: Vec3f32,
+        root: Int,
+    ) -> Self:
+        return Self(bvh, False, lower, upper, root)
+
+    @staticmethod
+    fn from_ray(
+        bvh: UnsafePointer[BVH[Self.origin], Self.origin],
+        start: Vec3f32,
+        dir: Vec3f32,
+        root: Int,
+    ) -> Self:
+        return Self(bvh, True, start, 1.0 / dir, root)
+
+    fn intersection_test(
+        self, node_lower: Vec3f32, node_upper: Vec3f32, mut t: Float32
+    ) -> Bool:
+        if self.is_ray:
+            return intersect_ray_aabb(
+                self.input_lower, self.input_upper, node_lower, node_upper, t
+            )
+        else:
+            return intersect_aabb_aabb(
+                self.input_lower, self.input_upper, node_lower, node_upper
+            )
+
+    fn next(mut self, mut index: Int, max_dist: Float32) -> Bool:
+        comptime flt_max = max_finite[DType.float32]()
+        comptime flt_min = min_finite[DType.float32]()
+
+        # Extract the struct from the pointer to easily access fields
+        ref bvh = self.bvh[]
+
+        # Navigate through the BVH, find the first overlapping leaf node.
+        while self.count > 0:
+            self.count -= 1
+            var node_index = self.stack[self.count]
+
+            ref node_lower = bvh.node_lowers[node_index]
+            ref node_upper = bvh.node_uppers[node_index]
+
+            if self.primitive_counter == 0:
+                t = flt_max
+                lower = Vec3f32(node_lower.x, node_lower.y, node_lower.z)
+                upper = Vec3f32(node_upper.x, node_upper.y, node_upper.z)
+                var hit = self.intersection_test(lower, upper, t)
+                if not hit or (self.is_ray and t >= max_dist):
+                    continue
+
+            left_index = node_lower.index()
+            right_index = node_upper.index()
+
+            if node_lower.is_leaf():
+                start = left_index
+                end = right_index
+
+                # Fast path when the actual leaf range contains exactly one primitive
+                if end - start == 1:
+                    primitive_index = bvh.primitive_indices[start]
+                    index = primitive_index
+                    self.bounds_nr = primitive_index
+                    return True
+
+                else:
+                    primitive_index = bvh.primitive_indices[
+                        start + self.primitive_counter
+                    ]
+                    self.primitive_counter += 1
+
+                    # if already visited the last primitive in the leaf node
+                    # move to the next node and reset the primitive counter to 0
+                    if start + self.primitive_counter == end:
+                        self.primitive_counter = 0
+                    else:
+                        # otherwise we need to keep this leaf node in stack for a future visit
+                        self.stack[self.count] = node_index
+                        self.count += 1
+
+                    t = flt_max
+                    lower = bvh.item_lowers[primitive_index].copy()
+                    upper = bvh.item_uppers[primitive_index].copy()
+                    var hit = self.intersection_test(lower, upper, t)
+                    if not hit or (self.is_ray and t >= max_dist):
+                        continue
+
+                    index = primitive_index
+                    self.bounds_nr = primitive_index
+                    return True
+            else:
+                # if it's not a leaf node we treat it as if we have visited the last primitive
+                self.primitive_counter = 0
+                self.stack[self.count] = left_index
+                self.count += 1
+                self.stack[self.count] = right_index
+                self.count += 1
+
+        return False
 
 
 @fieldwise_init
 struct BvhQueryTiled:
-    """Object used to track state during thread-block parallel BVH traversal. AKA bvh_query_thread_block_t
+    """Object used to track state during thread-block parallel BVH traversal. AKA bvh_query_thread_block_t.
     """
 
-    ...
     var v: Int
 
 

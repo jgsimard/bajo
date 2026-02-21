@@ -17,6 +17,7 @@ from bajo.core.vec import (
     cross,
     vmin,
     vmax,
+    longest_axis,
 )
 from bajo.core.conversion import degrees_to_radians
 
@@ -166,7 +167,7 @@ struct Sphere(Hittable, Writable):
     fn hit(
         self, ray: Ray, ray_t: Interval[DType.float32]
     ) -> Optional[HitRecord]:
-        var current_center = self.center.at(ray.time)
+        current_center = self.center.at(ray.time)
         oc = current_center - ray.origin
         a = length2(ray.direction)
         h = dot(ray.direction, oc)
@@ -261,6 +262,13 @@ struct AABB(Copyable):
 
         return t_box_min <= t_box_max
 
+    fn merge(mut self, other: Self):
+        self.min = vmin(self.min, other.min)
+        self.max = vmax(self.max, other.max)
+
+    fn edges(self) -> Point3:
+        return self.max - self.min
+
 
 @fieldwise_init
 struct BVHNode(Copyable):
@@ -319,7 +327,7 @@ struct BVH(Hittable):
         var closest_so_far = ray_t.max
         var hit_anything: Optional[HitRecord] = None
 
-        var node_stack = InlineArray[Int, 64](fill=0)
+        var node_stack = InlineArray[Int, 32](fill=0)
         var stack_ptr = 0
 
         # Push root
@@ -365,7 +373,6 @@ struct BVH(Hittable):
         return hit_anything
 
     fn _build(mut self, start: Int, end: Int) -> Int:
-        axis = Int(random_si64(0, 2))
         var span_len = end - start
 
         # leaf node
@@ -375,14 +382,18 @@ struct BVH(Hittable):
             self.nodes.append(node^)
             return len(self.nodes) - 1
 
+        aabb = get_bounding_box(self.objects[start])
+        for i in range(start + 1, end):
+            aabb.merge(get_bounding_box(self.objects[i]))
+        axis = longest_axis(aabb.edges())
+
         # internal node
         fn cmp_fn(a: HittableVariant, b: HittableVariant) capturing -> Bool:
             var box_a = get_bounding_box(a)
             var box_b = get_bounding_box(b)
             return box_a.min[axis] < box_b.min[axis]
 
-        # not sure why, but swap objects if stable=False
-        sort[cmp_fn=cmp_fn, stable=True](self.objects[start : start + span_len])
+        sort[cmp_fn=cmp_fn](self.objects[start : start + span_len])
 
         mid = start + span_len // 2
 

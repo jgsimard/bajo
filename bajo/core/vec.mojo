@@ -337,6 +337,15 @@ fn vmax[
     return out^
 
 
+fn longest_axis(v: Vec3f32) -> Int:
+    """Returns the index of the longest component of the vector."""
+    if v[0] > v[1] and v[0] > v[2]:
+        return 0
+    if v[1] > v[2]:
+        return 1
+    return 2
+
+
 fn assert_vec_equal[
     s: Int
 ](a: Vec[DType.float32, s], b: Vec[DType.float32, s]) raises:

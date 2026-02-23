@@ -18,7 +18,7 @@ from bajo.core.intersect import (
     no_div_tri_tri_isect,
 )
 
-from bajo.core.vec import Vec2, Vec3, Vec3f32, assert_vec_equal
+from bajo.core.vec import Vec2, Vec3, Vec3f32, Vec3f64, assert_vec_equal
 
 
 # AABB
@@ -158,6 +158,31 @@ fn test_intersect_ray_tri_moller() raises:
     assert_false(hit_miss)
 
     normal.free()
+
+
+fn _test_degenerate_triangles[dtype: DType]() raises:
+    # A triangle where all points are the same
+    a = Vec3[dtype](1.0, 1.0, 1.0)
+    b = Vec3[dtype](1.0, 1.0, 1.0)
+    c = Vec3[dtype](1.0, 1.0, 1.0)
+
+    pos = Vec3[dtype](0.0, 0.0, 0.0)
+    dir = Vec3[dtype](1.0, 1.0, 1.0)  # pointing right at it
+
+    t = Scalar[dtype](0)
+    u = Scalar[dtype](0)
+    v = Scalar[dtype](0)
+    w = Scalar[dtype](0)
+    sign = Scalar[dtype](0)
+    normal = alloc[Vec3[dtype]](1)
+
+    hit = intersect_ray_tri_moller(pos, dir, a, b, c, t, u, v, w, sign, normal)
+    assert_false(hit)
+
+
+fn test_degenerate_triangles() raises:
+    _test_degenerate_triangles[DType.float32]()
+    _test_degenerate_triangles[DType.float64]()
 
 
 fn test_intersect_ray_tri_rtcd() raises:

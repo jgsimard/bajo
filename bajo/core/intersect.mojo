@@ -201,11 +201,18 @@ fn intersect_ray_tri_moller[
     mut sign: Scalar[dtype],
     normal: UnsafePointer[Vec3[dtype], MutAnyOrigin],
 ) -> Bool:
+    comptime assert dtype in [DType.float32, DType.float64]
+    comptime EPSILON = Scalar[dtype](1e-8 if dtype == DType.float32 else 1e-16)
+
     ab = b - a
     ac = c - a
     n = cross(ab, ac)
 
     d = dot(-dir, n)
+
+    if abs(d) < EPSILON:
+        return False
+
     ood = 1.0 / d  # Infinity arithmetic handles d=0
     ap = p - a
 
@@ -248,6 +255,9 @@ fn intersect_ray_tri_rtcd[
     mut sign: Scalar[dtype],
     normal: UnsafePointer[Vec3[dtype], MutAnyOrigin],
 ) -> Bool:
+    comptime assert dtype in [DType.float32, DType.float64]
+    comptime EPSILON = Scalar[dtype](1e-8 if dtype == DType.float32 else 1e-16)
+
     ab = b - a
     ac = c - a
 

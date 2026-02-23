@@ -73,3 +73,36 @@ fn nth_element[
             k -= offset
 
     _insertion_sort[cmp_fn](span)
+
+
+fn partition_by_predicate[
+    T: Copyable, origin: MutOrigin, //, predicate: fn(T) capturing -> Bool
+](mut span: Span[T, origin]) -> Int:
+    """
+    Rearranges the elements in the span such that all elements for which
+    the predicate returns True precede all elements for which it returns False.
+    Returns the index of the first element of the second group.
+    """
+    var first = 0
+    var last = len(span) - 1
+
+    while True:
+        # Advance `first` as long as elements satisfy the predicate
+        while first <= last and predicate(span[first]):
+            first += 1
+
+        # Retreat `last` as long as elements do NOT satisfy the predicate
+        while first <= last and not predicate(span[last]):
+            last -= 1
+
+        if first >= last:
+            break
+
+        # Swap elements that are on the wrong side
+        # TODO: use unsafe_swap_elements instead ?
+        span.unsafe_swap_elements(first, last)
+
+        first += 1
+        last -= 1
+
+    return first

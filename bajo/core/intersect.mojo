@@ -549,13 +549,13 @@ fn coplanar_tri_tri[
 
 
 @fieldwise_init
-struct Intervals[dtype: DType]:
-    a: Scalar[Self.dtype]
-    b: Scalar[Self.dtype]
-    c: Scalar[Self.dtype]
-    x0: Scalar[Self.dtype]
-    x1: Scalar[Self.dtype]
-    is_coplanar: Bool
+struct Intervals[dtype: DType](Copyable):
+    var a: Scalar[Self.dtype]
+    var b: Scalar[Self.dtype]
+    var c: Scalar[Self.dtype]
+    var x0: Scalar[Self.dtype]
+    var x1: Scalar[Self.dtype]
+    var is_coplanar: Bool
 
 
 @always_inline

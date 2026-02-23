@@ -52,7 +52,7 @@ comptime Vec4f64 = Vec4[DType.float64]
 
 
 @fieldwise_init
-struct Vec[dtype: DType, size: Int](Copyable, Writable):
+struct Vec[dtype: DType, size: Int](Copyable, Equatable, Writable):
     # TODO: maybe use psize for SIMD for Vec3 on cpu
     # comptime psize = 4 if Self.size == 3 and CompilationTarget.is_x86() else Self.size
     comptime T = InlineArray[Scalar[Self.dtype], Self.size]

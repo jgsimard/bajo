@@ -6,6 +6,7 @@ from os import abort
 
 from bajo.core.intersect import intersect_ray_aabb, intersect_aabb_aabb
 from bajo.core.sort import nth_element
+from std.builtin.sort import _quicksort_partition_right
 from bajo.core.vec import Vec3, Vec3f32, vmin, vmax, longest_axis
 
 comptime SAH_NUM_BUCKETS = 16
@@ -301,12 +302,10 @@ struct BVH[origin: Origin](Copyable):
         return self.lca(first, last)
 
 
-fn calc_bounds[
-    origin: Origin
-](
-    lowers: UnsafePointer[Vec3f32, origin],
-    uppers: UnsafePointer[Vec3f32, origin],
-    indices: UnsafePointer[Int, origin],
+fn calc_bounds(
+    lowers: UnsafePointer[Vec3f32, ImmutAnyOrigin],
+    uppers: UnsafePointer[Vec3f32, ImmutAnyOrigin],
+    indices: UnsafePointer[Int, ImmutAnyOrigin],
     start: Int,
     end: Int,
 ) -> Bounds3f32:
@@ -340,23 +339,22 @@ fn partition_median[
 
     indices_span = Span[Int, origin](ptr=indices + start, length=len_span)
 
-    nth_element[compare_centers](indices_span, k)
+    # Use relative index `k - start` because Span starts at index 0
+    nth_element[compare_centers](indices_span, k - start)
 
     return k
 
 
 @fieldwise_init
-struct SahIndice(Copyable):
+struct SahIndice(TrivialRegisterPassable):
     var split_axis: Int
     var split_point: Float32
 
 
-fn partition_sah_indices[
-    origin: MutOrigin
-](
-    lowers: UnsafePointer[Vec3f32, origin],
-    uppers: UnsafePointer[Vec3f32, origin],
-    indices: UnsafePointer[Int, origin],
+fn partition_sah_indices(
+    lowers: UnsafePointer[Vec3f32, ImmutAnyOrigin],
+    uppers: UnsafePointer[Vec3f32, ImmutAnyOrigin],
+    indices: UnsafePointer[Int, ImmutAnyOrigin],
     start: Int,
     end: Int,
     range_bounds: Bounds3[DType.float32],
@@ -452,10 +450,11 @@ fn partition_sah_indices[
     return SahIndice(split_axis, split_point)
 
 
-# // represents a strided stack in shared memory
-# // so each level of the stack is stored contiguously
-# // across the block
 struct BvhStack[origin: Origin, device: String](Copyable, Writable):
+    # represents a strided stack in shared memory
+    # so each level of the stack is stored contiguously
+    # across the block
+
     # cpu
     comptime local_size = BVH_QUERY_STACK_SIZE if Self.device == "cpu" else 0
     var _local: InlineArray[Int, Self.local_size]
@@ -478,17 +477,18 @@ struct BvhStack[origin: Origin, device: String](Copyable, Writable):
     fn __getitem__(self, depth: Int) -> Int:
         comptime if self.device == "cpu":
             return self._local[depth]
-        return -1
-        # else:
-        #     return self._ptr[depth * BVH_BLOCK_DIM]
+        else:
+            comptime assert False, "GPU not supported yet"
+            return -1  # to make compiler happy for now
+            # return self._ptr[depth * BVH_BLOCK_DIM]
 
     @always_inline
     fn __setitem__(mut self, depth: Int, value: Int):
         comptime if self.device == "cpu":
             self._local[depth] = value
-        abort()
-        # else:
-        #     self._ptr[depth * BVH_BLOCK_DIM] = value
+        else:
+            comptime assert False, "GPU not supported yet"
+            # self._ptr[depth * BVH_BLOCK_DIM] = value
 
 
 @fieldwise_init

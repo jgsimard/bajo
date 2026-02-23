@@ -72,6 +72,31 @@ struct Vec[dtype: DType, size: Int](Copyable, Equatable, Writable):
         )
         self.data = Self.T(storage=elems^)
 
+    # TODO: should we keep this ?
+    fn __init__(
+        out self: Vec[Self.dtype, 2],
+        x: Scalar[Self.dtype],
+        y: Scalar[Self.dtype],
+    ):
+        self.data = [x, y]
+
+    fn __init__(
+        out self: Vec[Self.dtype, 3],
+        x: Scalar[Self.dtype],
+        y: Scalar[Self.dtype],
+        z: Scalar[Self.dtype],
+    ):
+        self.data = [x, y, z]
+
+    fn __init__(
+        out self: Vec[Self.dtype, 4],
+        x: Scalar[Self.dtype],
+        y: Scalar[Self.dtype],
+        z: Scalar[Self.dtype],
+        w: Scalar[Self.dtype],
+    ):
+        self.data = [x, y, z, w]
+
     fn __init__(
         out self: Vec[Self.dtype, 6],
         v: Vec[Self.dtype, 3],

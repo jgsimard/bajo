@@ -1,3 +1,5 @@
+from math import abs
+
 from bajo.core.quat import Quaternion
 from bajo.core.vec import Vec, dot, cross
 
@@ -14,7 +16,7 @@ struct Mat[
 ](Copyable, Equatable, Writable):
     comptime V = Vec[Self.dtype, Self.cols]
     comptime TD = InlineArray[Self.V, Self.rows]
-    comptime msize = min(self.rows, self.cols)
+    comptime msize = min(Self.rows, Self.cols)
 
     var data: Self.TD
 
@@ -30,20 +32,20 @@ struct Mat[
         )
         self.data = Self.TD(storage=elems^)
 
-    # fn __init__(out self, *elems: Scalar[Self.dtype]):
-    #     debug_assert(
-    #         len(elems) == Self.rows * Self.cols,
-    #         "Matrix scalar constructor requires exactly rows * cols elements"
-    #     )
-    #     self.data = Self.TD(uninitialized=True)
+    fn __init__(out self, *elems: Scalar[Self.dtype]):
+        debug_assert(
+            len(elems) == Self.rows * Self.cols,
+            "Matrix scalar constructor requires exactly rows * cols elements",
+        )
+        self.data = Self.TD(uninitialized=True)
 
-    #     comptime for i in range(Self.rows):
-    #         var col_vec = Self.V(uninitialized=True)
-    #         comptime for j in range(Self.cols):
-    #             comptime let flat_idx = i * Self.cols + j
-    #             col_vec[j] = elems[flat_idx]
+        comptime for i in range(Self.rows):
+            var row_vec = Self.V(uninitialized=True)
+            comptime for j in range(Self.cols):
+                comptime flat_idx = i * Self.cols + j
+                row_vec[j] = elems[flat_idx]
 
-    #         self.data[i] = col_vec
+            self.data[i] = row_vec^
 
     @staticmethod
     fn identity() -> Self:
@@ -84,8 +86,12 @@ struct Mat[
             res[i] = self[i] * s
         return res^
 
-    fn __rmul__(self, s: Scalar[Self.dtype]) -> Self:
-        return self * s
+    fn __imul__(mut self, s: Scalar[Self.dtype]):
+        comptime for i in range(Self.rows):
+            self.data[i] = self.data[i] * s
+
+    # fn __rmul__(self, s: Scalar[Self.dtype]) -> Self:
+    #     return self * s
 
     fn __truediv__(self, s: Scalar[Self.dtype]) -> Self:
         res = Self(uninitialized=True)
@@ -94,7 +100,7 @@ struct Mat[
         return res^
 
     # matmul
-    fn __mul__[
+    fn __matmul__[
         out_cols: Int where out_cols >= 1
     ](self, other: Mat[Self.dtype, Self.cols, out_cols]) -> Mat[
         Self.dtype, Self.rows, out_cols
@@ -109,7 +115,7 @@ struct Mat[
                 res[i][j] = dot_val
         return res^
 
-    fn __mul__(
+    fn __matmul__(
         self, v: Vec[Self.dtype, Self.cols]
     ) -> Vec[Self.dtype, Self.rows]:
         """Matrix-Vector product."""
@@ -138,6 +144,47 @@ struct Mat[
             res[i] = self[i][i]
         return res^
 
+    @staticmethod
+    fn diag(v: Vec[Self.dtype, Self.rows]) -> Self:
+        """Create a square diagonal matrix from a vector."""
+        comptime assert Self.rows == Self.cols, "diag() requires square matrix"
+        res = Self(Scalar[Self.dtype](0))
+        comptime for i in range(Self.rows):
+            res[i][i] = v[i]
+        return res^
+
+    fn __mul__(self, other: Self) -> Self:
+        res = Self(uninitialized=True)
+        comptime for i in range(Self.rows):
+            res[i] = self[i] * other[i]
+        return res^
+
+    fn __div__(self, other: Self) -> Self:
+        res = Self(uninitialized=True)
+        comptime for i in range(Self.rows):
+            res[i] = self[i] / other[i]
+        return res^
+
+    # --- Contracting Products ---
+    fn ddot(self, other: Self) -> Scalar[Self.dtype]:
+        """Double dot product (sum of all element-wise products)."""
+        res: Scalar[Self.dtype] = 0
+        comptime for i in range(Self.rows):
+            res += dot(self[i], other[i])
+        return res
+
+    # --- In-place Arithmetic (Missing Overloads) ---
+    fn __iadd__(mut self, s: Scalar[Self.dtype]):
+        comptime for i in range(Self.rows):
+            self[i] += s
+
+    fn __isub__(mut self, s: Scalar[Self.dtype]):
+        comptime for i in range(Self.rows):
+            self[i] -= s
+
+    # fn __itruediv__(mut self, s: Scalar[Self.dtype]):
+    #     comptime for i in range(Self.rows): self[i] /= s
+
 
 # free functions : Linear Algebra
 fn determinant[dtype: DType](m: Mat[dtype, 2, 2]) -> Scalar[dtype]:
@@ -148,42 +195,218 @@ fn determinant[dtype: DType](m: Mat[dtype, 3, 3]) -> Scalar[dtype]:
     return dot(m[0], cross(m[1], m[2]))
 
 
-fn inverse[dtype: DType](m: Mat[dtype, 2, 2]) -> Mat[dtype, 2, 2]:
+fn determinant[dtype: DType](m: Mat[dtype, 4, 4]) -> Scalar[dtype]:
+    """Adapted from USD - see licenses/usd-LICENSE.txt Copyright 2016 Pixar."""
+    # Pickle 1st two columns of matrix into registers
+    x00 = m[0][0]
+    x01 = m[0][1]
+    x10 = m[1][0]
+    x11 = m[1][1]
+    x20 = m[2][0]
+    x21 = m[2][1]
+    x30 = m[3][0]
+    x31 = m[3][1]
+
+    # useless compute in the c++ code
+    # # Compute all six 2x2 determinants of 1st two columns
+    # y01 = x00 * x11 - x10 * x01
+    # y02 = x00 * x21 - x20 * x01
+    # y03 = x00 * x31 - x30 * x01
+    # y12 = x10 * x21 - x20 * x11
+    # y13 = x10 * x31 - x30 * x11
+    # y23 = x20 * x31 - x30 * x21
+
+    # Pickle 2nd two columns of matrix into registers
+    x02 = m[0][2]
+    x03 = m[0][3]
+    x12 = m[1][2]
+    x13 = m[1][3]
+    x22 = m[2][2]
+    x23 = m[2][3]
+    x32 = m[3][2]
+    x33 = m[3][3]
+
+    # Compute all six 2x2 determinants of 2nd two columns
+    y01 = x02 * x13 - x12 * x03
+    y02 = x02 * x23 - x22 * x03
+    y03 = x02 * x33 - x32 * x03
+    y12 = x12 * x23 - x22 * x13
+    y13 = x12 * x33 - x32 * x13
+    y23 = x22 * x33 - x32 * x23
+
+    # Compute all 3x3 cofactors for 1st two columns
+    z30 = x11 * y02 - x21 * y01 - x01 * y12
+    z20 = x01 * y13 - x11 * y03 + x31 * y01
+    z10 = x21 * y03 - x31 * y02 - x01 * y23
+    z00 = x11 * y23 - x21 * y13 + x31 * y12
+
+    # compute 4x4 determinant & its reciprocal
+    return x30 * z30 + x20 * z20 + x10 * z10 + x00 * z00
+
+
+fn inverse[dtype: DType](m: Mat[dtype, 2, 2]) raises -> Mat[dtype, 2, 2]:
+    comptime EPSILON = 1e-8
     det = determinant(m)
-    if fabs(det) < 1e-8:
-        return Mat[dtype, 2, 2](0)
-    return Mat[dtype, 2, 2](m[1][1], -m[0][1], -m[1][0], m[0][0]) * (1.0 / det)
+    if abs(det) < EPSILON:
+        raise "nope"
+    rcp = 1.0 / det
+    out = Mat[dtype, 2, 2](uninitialized=True)
+    out[0][0] = m[1][1] * rcp
+    out[0][1] = -m[0][1] * rcp
+    out[1][0] = -m[1][0] * rcp
+    out[1][1] = m[0][0] * rcp
+    return out^
 
 
-fn inverse[dtype: DType](m: Mat[dtype, 3, 3]) -> Mat[dtype, 3, 3]:
+fn inverse[dtype: DType](m: Mat[dtype, 3, 3]) raises -> Mat[dtype, 3, 3]:
+    comptime EPSILON = 1e-8
     det = determinant(m)
-    if fabs(det) < 1e-8:
-        return Mat[dtype, 3, 3](0)
+    if abs(det) < EPSILON:
+        raise "nope"
+    rcp = 1.0 / det
+    out = Mat[dtype, 3, 3](uninitialized=True)
+    out[0][0] = (m[1][1] * m[2][2] - m[1][2] * m[2][1]) * rcp
+    out[1][0] = (m[1][2] * m[2][0] - m[1][0] * m[2][2]) * rcp
+    out[2][0] = (m[1][0] * m[2][1] - m[1][1] * m[2][0]) * rcp
 
-    # Adjugate matrix
-    r0 = cross(m[1], m[2])
-    r1 = cross(m[2], m[0])
-    r2 = cross(m[0], m[1])
+    out[0][1] = (m[0][2] * m[2][1] - m[0][1] * m[2][2]) * rcp
+    out[1][1] = (m[0][0] * m[2][2] - m[0][2] * m[2][0]) * rcp
+    out[2][1] = (m[0][1] * m[2][0] - m[0][0] * m[2][1]) * rcp
 
-    # Transpose rows (which are currently the columns of the adjugate)
-    adj = Mat[dtype, 3, 3](r0, r1, r2).transpose()
-    return adj * (1.0 / det)
+    out[0][2] = (m[0][1] * m[1][2] - m[0][2] * m[1][1]) * rcp
+    out[1][2] = (m[0][2] * m[1][0] - m[0][0] * m[1][2]) * rcp
+    out[2][2] = (m[0][0] * m[1][1] - m[0][1] * m[1][0]) * rcp
+
+    return out^
+
+
+fn inverse[dtype: DType](m: Mat[dtype, 4, 4]) raises -> Mat[dtype, 4, 4]:
+    """Adapted from USD - see licenses/usd-LICENSE.txt Copyright 2016 Pixar."""
+
+    comptime EPSILON = 1e-8
+
+    # TODO: use the types here ?
+    # Type x00, x01, x02, x03;
+    # Type x10, x11, x12, x13;
+    # Type x20, x21, x22, x23;
+    # Type x30, x31, x32, x33;
+    # double y01, y02, y03, y12, y13, y23;
+    # Type z00, z10, z20, z30;
+    # Type z01, z11, z21, z31;
+    # double z02, z03, z12, z13, z22, z23, z32, z33;
+
+    # Pickle 1st two columns of matrix into registers
+    x00 = m[0][0]
+    x01 = m[0][1]
+    x10 = m[1][0]
+    x11 = m[1][1]
+    x20 = m[2][0]
+    x21 = m[2][1]
+    x30 = m[3][0]
+    x31 = m[3][1]
+
+    # Compute all six 2x2 determinants of 1st two columns
+    y01 = x00 * x11 - x10 * x01
+    y02 = x00 * x21 - x20 * x01
+    y03 = x00 * x31 - x30 * x01
+    y12 = x10 * x21 - x20 * x11
+    y13 = x10 * x31 - x30 * x11
+    y23 = x20 * x31 - x30 * x21
+
+    # Pickle 2nd two columns of matrix into registers
+    x02 = m[0][2]
+    x03 = m[0][3]
+    x12 = m[1][2]
+    x13 = m[1][3]
+    x22 = m[2][2]
+    x23 = m[2][3]
+    x32 = m[3][2]
+    x33 = m[3][3]
+
+    # Compute all 3x3 cofactors for 2nd two columns
+    z33 = x02 * y12 - x12 * y02 + x22 * y01
+    z23 = x12 * y03 - x32 * y01 - x02 * y13
+    z13 = x02 * y23 - x22 * y03 + x32 * y02
+    z03 = x22 * y13 - x32 * y12 - x12 * y23
+    z32 = x13 * y02 - x23 * y01 - x03 * y12
+    z22 = x03 * y13 - x13 * y03 + x33 * y01
+    z12 = x23 * y03 - x33 * y02 - x03 * y23
+    z02 = x13 * y23 - x23 * y13 + x33 * y12
+
+    # Compute all six 2x2 determinants of 2nd two columns
+    y01 = x02 * x13 - x12 * x03
+    y02 = x02 * x23 - x22 * x03
+    y03 = x02 * x33 - x32 * x03
+    y12 = x12 * x23 - x22 * x13
+    y13 = x12 * x33 - x32 * x13
+    y23 = x22 * x33 - x32 * x23
+
+    # Compute all 3x3 cofactors for 1st two columns
+    z30 = x11 * y02 - x21 * y01 - x01 * y12
+    z20 = x01 * y13 - x11 * y03 + x31 * y01
+    z10 = x21 * y03 - x31 * y02 - x01 * y23
+    z00 = x11 * y23 - x21 * y13 + x31 * y12
+    z31 = x00 * y12 - x10 * y02 + x20 * y01
+    z21 = x10 * y03 - x30 * y01 - x00 * y13
+    z11 = x00 * y23 - x20 * y03 + x30 * y02
+    z01 = x20 * y13 - x30 * y12 - x10 * y23
+
+    # compute 4x4 determinant & its reciprocal
+    det = x30 * z30 + x20 * z20 + x10 * z10 + x00 * z00
+
+    if abs(det) > EPSILON:
+        raise "nope"
+
+    rcp = 1.0 / det
+
+    invm = Mat[dtype, 4, 4](uninitialized=True)
+
+    # Multiply all 3x3 cofactors by reciprocal & transpose
+    invm[0][0] = z00 * rcp
+    invm[0][1] = z10 * rcp
+    invm[1][0] = z01 * rcp
+    invm[0][2] = z20 * rcp
+    invm[2][0] = z02 * rcp
+    invm[0][3] = z30 * rcp
+    invm[3][0] = z03 * rcp
+    invm[1][1] = z11 * rcp
+    invm[1][2] = z21 * rcp
+    invm[2][1] = z12 * rcp
+    invm[1][3] = z31 * rcp
+    invm[3][1] = z13 * rcp
+    invm[2][2] = z22 * rcp
+    invm[2][3] = z32 * rcp
+    invm[3][2] = z23 * rcp
+    invm[3][3] = z33 * rcp
+
+    return invm^
 
 
 fn outer[
-    dtype: DType, r: Int, c: Int
+    dtype: DType, r: Int where r >= 1, c: Int where c >= 1
 ](a: Vec[dtype, r], b: Vec[dtype, c]) -> Mat[dtype, r, c]:
     res = Mat[dtype, r, c](uninitialized=True)
     comptime for i in range(r):
         comptime for j in range(c):
             res[i][j] = a[i] * b[j]
-    return res
+    return res^
 
 
 fn skew[dtype: DType](a: Vec[dtype, 3]) -> Mat[dtype, 3, 3]:
-    z = Scalar[dtype](0)
+    # fmt: off
     return Mat[dtype, 3, 3](
-        Vec[dtype, 3](z, -a[2], a[1]),
-        Vec[dtype, 3](a[2], z, -a[0]),
-        Vec[dtype, 3](-a[1], a[0], z),
+        0, -a[2], a[1],
+        a[2], 0, -a[0],
+        -a[1], a[0], 0,
     )
+    # fmt: on
+
+
+from sys.info import size_of
+
+
+fn main():
+    print("core.mat2")
+    # comptime T = Vec[DType.float32, 3]
+    comptime T = Mat[DType.float32, 3, 3]
+    print(size_of[T]() // 4)

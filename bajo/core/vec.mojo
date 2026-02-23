@@ -337,7 +337,7 @@ fn vmax[
     return out^
 
 
-fn longest_axis(v: Vec3f32) -> Int:
+fn longest_axis[dtype: DType](v: Vec3[dtype]) -> Int:
     """Returns the index of the longest component of the vector."""
     if v[0] > v[1] and v[0] > v[2]:
         return 0

@@ -66,29 +66,11 @@ struct Vec[dtype: DType, size: Int](Copyable, Writable):
         comptime assert Self.size > 0
         self.data = Self.T(uninitialized=uninitialized)
 
-    fn __init__(
-        out self: Vec[Self.dtype, 2],
-        x: Scalar[Self.dtype],
-        y: Scalar[Self.dtype],
-    ):
-        self.data = [x, y]
-
-    fn __init__(
-        out self: Vec[Self.dtype, 3],
-        x: Scalar[Self.dtype],
-        y: Scalar[Self.dtype],
-        z: Scalar[Self.dtype],
-    ):
-        self.data = [x, y, z]
-
-    fn __init__(
-        out self: Vec[Self.dtype, 4],
-        x: Scalar[Self.dtype],
-        y: Scalar[Self.dtype],
-        z: Scalar[Self.dtype],
-        w: Scalar[Self.dtype],
-    ):
-        self.data = [x, y, z, w]
+    fn __init__(out self, var *elems: Scalar[Self.dtype]):
+        debug_assert(
+            len(elems) == Self.size, "No. of elems must match array size"
+        )
+        self.data = Self.T(storage=elems^)
 
     fn __init__(
         out self: Vec[Self.dtype, 6],

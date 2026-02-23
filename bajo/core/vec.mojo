@@ -191,6 +191,12 @@ struct Vec[dtype: DType, size: Int](Copyable, Equatable, Writable):
         return out^
 
     # --- Scalar Operators ---
+    fn __invert__(self) -> Self:
+        out = Self(uninitialized=True)
+        comptime for i in range(Self.size):
+            out[i] = ~self[i]
+        return out^
+
     fn __add__(self, s: Scalar[Self.dtype]) -> Self:
         out = Self(uninitialized=True)
         comptime for i in range(Self.size):
@@ -238,10 +244,22 @@ struct Vec[dtype: DType, size: Int](Copyable, Equatable, Writable):
             out[i] = self[i] & other[i]
         return out^
 
+    fn __and__(self, s: Scalar[Self.dtype]) -> Self:
+        out = Self(uninitialized=True)
+        comptime for i in range(Self.size):
+            out[i] = self[i] & s
+        return out^
+
     fn __or__(self, other: Self) -> Self:
         out = Self(uninitialized=True)
         comptime for i in range(Self.size):
             out[i] = self[i] | other[i]
+        return out^
+
+    fn __or__(self, s: Scalar[Self.dtype]) -> Self:
+        out = Self(uninitialized=True)
+        comptime for i in range(Self.size):
+            out[i] = self[i] | s
         return out^
 
     fn __xor__(self, other: Self) -> Self:
@@ -250,16 +268,34 @@ struct Vec[dtype: DType, size: Int](Copyable, Equatable, Writable):
             out[i] = self[i] ^ other[i]
         return out^
 
+    fn __xor__(self, s: Scalar[Self.dtype]) -> Self:
+        out = Self(uninitialized=True)
+        comptime for i in range(Self.size):
+            out[i] = self[i] ^ s
+        return out^
+
     fn __lshift__(self, other: Self) -> Self:
         out = Self(uninitialized=True)
         comptime for i in range(Self.size):
             out[i] = self[i] << other[i]
         return out^
 
+    fn __lshift__(self, s: Scalar[Self.dtype]) -> Self:
+        out = Self(uninitialized=True)
+        comptime for i in range(Self.size):
+            out[i] = self[i] << s
+        return out^
+
     fn __rshift__(self, other: Self) -> Self:
         out = Self(uninitialized=True)
         comptime for i in range(Self.size):
             out[i] = self[i] >> other[i]
+        return out^
+
+    fn __rshift__(self, s: Scalar[Self.dtype]) -> Self:
+        out = Self(uninitialized=True)
+        comptime for i in range(Self.size):
+            out[i] = self[i] >> s
         return out^
 
     fn near_zero[s: Scalar[Self.dtype] = 1e-8](self) -> Bool:

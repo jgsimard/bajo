@@ -1,11 +1,15 @@
 from math import abs
 
 from bajo.core.quat import Quaternion
-from bajo.core.vec import Vec, dot, cross
+from bajo.core.vec import Vec, Vec3, Vec4, dot, cross
 
-comptime Mat22f32 = Mat[DType.float32, 2, 2]
-comptime Mat33f32 = Mat[DType.float32, 3, 3]
-comptime Mat44f32 = Mat[DType.float32, 4, 4]
+comptime Mat22 = Mat[_, 2, 2]
+comptime Mat33 = Mat[_, 3, 3]
+comptime Mat44 = Mat[_, 4, 4]
+
+comptime Mat22f32 = Mat22[DType.float32]
+comptime Mat33f32 = Mat33[DType.float32]
+comptime Mat44f32 = Mat44[DType.float32]
 
 
 @fieldwise_init
@@ -139,7 +143,7 @@ struct Mat[
         return res
 
     fn get_diag(self) -> Vec[Self.dtype, Self.msize]:
-        var res = Vec[Self.dtype, Self.msize](uninitialized=True)
+        res = Vec[Self.dtype, Self.msize](uninitialized=True)
         comptime for i in range(Self.msize):
             res[i] = self[i][i]
         return res^
@@ -165,7 +169,7 @@ struct Mat[
             res[i] = self[i] / other[i]
         return res^
 
-    # --- Contracting Products ---
+    # Contracting Products
     fn ddot(self, other: Self) -> Scalar[Self.dtype]:
         """Double dot product (sum of all element-wise products)."""
         res: Scalar[Self.dtype] = 0
@@ -185,17 +189,125 @@ struct Mat[
     # fn __itruediv__(mut self, s: Scalar[Self.dtype]):
     #     comptime for i in range(Self.rows): self[i] /= s
 
+    # --- Bitwise Unary ---
+    fn __invert__(self) -> Self:
+        """Bitwise NOT (~)."""
+        res = Self(uninitialized=True)
+        comptime for i in range(Self.rows):
+            res[i] = ~self[i]  # Uses Vec.__invert__
+        return res^
+
+    # --- Bitwise AND (&) ---
+    fn __and__(self, other: Self) -> Self:
+        res = Self(uninitialized=True)
+        comptime for i in range(Self.rows):
+            res[i] = self[i] & other[i]
+        return res^
+
+    fn __and__(self, s: Scalar[Self.dtype]) -> Self:
+        res = Self(uninitialized=True)
+        comptime for i in range(Self.rows):
+            res[i] = self[i] & s
+        return res^
+
+    # fn __iand__(mut self, other: Self):
+    #     comptime for i in range(Self.rows):
+    #         self[i] &= other[i]
+
+    fn __or__(self, other: Self) -> Self:
+        res = Self(uninitialized=True)
+        comptime for i in range(Self.rows):
+            res[i] = self[i] | other[i]
+        return res^
+
+    fn __or__(self, s: Scalar[Self.dtype]) -> Self:
+        res = Self(uninitialized=True)
+        comptime for i in range(Self.rows):
+            res[i] = self[i] | s
+        return res^
+
+    # fn __ior__(mut self, other: Self):
+    #     comptime for i in range(Self.rows):
+    #         self[i] |= other[i]
+
+    # --- Bitwise XOR (^) ---
+    fn __xor__(self, other: Self) -> Self:
+        res = Self(uninitialized=True)
+        comptime for i in range(Self.rows):
+            res[i] = self[i] ^ other[i]
+        return res^
+
+    fn __xor__(self, s: Scalar[Self.dtype]) -> Self:
+        res = Self(uninitialized=True)
+        comptime for i in range(Self.rows):
+            res[i] = self[i] ^ s
+        return res^
+
+    # fn __ixor__(mut self, other: Self):
+    #     comptime for i in range(Self.rows):
+    #         self[i] ^= other[i]
+
+    # --- Bit Shifts (<<, >>) ---
+    fn __lshift__(self, other: Self) -> Self:
+        res = Self(uninitialized=True)
+        comptime for i in range(Self.rows):
+            res[i] = self[i] << other[i]
+        return res^
+
+    fn __lshift__(self, s: Scalar[Self.dtype]) -> Self:
+        res = Self(uninitialized=True)
+        comptime for i in range(Self.rows):
+            res[i] = self[i] << s
+        return res^
+
+    fn __rshift__(self, other: Self) -> Self:
+        res = Self(uninitialized=True)
+        comptime for i in range(Self.rows):
+            res[i] = self[i] >> other[i]
+        return res^
+
+    fn __rshift__(self, s: Scalar[Self.dtype]) -> Self:
+        res = Self(uninitialized=True)
+        comptime for i in range(Self.rows):
+            res[i] = self[i] >> s
+        return res^
+
+
+fn outer[
+    dtype: DType, r: Int where r >= 1, c: Int where c >= 1
+](a: Vec[dtype, r], b: Vec[dtype, c]) -> Mat[dtype, r, c]:
+    res = Mat[dtype, r, c](uninitialized=True)
+    comptime for i in range(r):
+        comptime for j in range(c):
+            res[i][j] = a[i] * b[j]
+    return res^
+
+
+fn skew[dtype: DType](a: Vec[dtype, 3]) -> Mat33[dtype]:
+    # fmt: off
+    return Mat33[dtype](
+        0, -a[2], a[1],
+        a[2], 0, -a[0],
+        -a[1], a[0], 0,
+    )
+    # fmt: on
+
 
 # free functions : Linear Algebra
-fn determinant[dtype: DType](m: Mat[dtype, 2, 2]) -> Scalar[dtype]:
+
+
+##############
+# determinant
+##############
+fn determinant[dtype: DType](m: Mat22[dtype]) -> Scalar[dtype]:
     return m[0][0] * m[1][1] - m[0][1] * m[1][0]
 
 
-fn determinant[dtype: DType](m: Mat[dtype, 3, 3]) -> Scalar[dtype]:
+fn determinant[dtype: DType](m: Mat33[dtype]) -> Scalar[dtype]:
     return dot(m[0], cross(m[1], m[2]))
 
 
-fn determinant[dtype: DType](m: Mat[dtype, 4, 4]) -> Scalar[dtype]:
+fn determinant[dtype: DType](m: Mat44[dtype]) -> Scalar[dtype]:
     """Adapted from USD - see licenses/usd-LICENSE.txt Copyright 2016 Pixar."""
     # Pickle 1st two columns of matrix into registers
     x00 = m[0][0]
@@ -206,15 +318,6 @@ fn determinant[dtype: DType](m: Mat[dtype, 4, 4]) -> Scalar[dtype]:
     x21 = m[2][1]
     x30 = m[3][0]
     x31 = m[3][1]
-
-    # useless compute in the c++ code
-    # # Compute all six 2x2 determinants of 1st two columns
-    # y01 = x00 * x11 - x10 * x01
-    # y02 = x00 * x21 - x20 * x01
-    # y03 = x00 * x31 - x30 * x01
-    # y12 = x10 * x21 - x20 * x11
-    # y13 = x10 * x31 - x30 * x11
-    # y23 = x20 * x31 - x30 * x21
 
     # Pickle 2nd two columns of matrix into registers
     x02 = m[0][2]
@@ -244,13 +347,16 @@ fn determinant[dtype: DType](m: Mat[dtype, 4, 4]) -> Scalar[dtype]:
     return x30 * z30 + x20 * z20 + x10 * z10 + x00 * z00
 
 
-fn inverse[dtype: DType](m: Mat[dtype, 2, 2]) raises -> Mat[dtype, 2, 2]:
+##############
+# inverse
+##############
+fn inverse[dtype: DType](m: Mat22[dtype]) raises -> Mat22[dtype]:
     comptime EPSILON = 1e-8
     det = determinant(m)
     if abs(det) < EPSILON:
         raise "nope"
     rcp = 1.0 / det
-    out = Mat[dtype, 2, 2](uninitialized=True)
+    out = Mat22[dtype](uninitialized=True)
     out[0][0] = m[1][1] * rcp
     out[0][1] = -m[0][1] * rcp
     out[1][0] = -m[1][0] * rcp
@@ -258,13 +364,13 @@ fn inverse[dtype: DType](m: Mat[dtype, 2, 2]) raises -> Mat[dtype, 2, 2]:
     return out^
 
 
-fn inverse[dtype: DType](m: Mat[dtype, 3, 3]) raises -> Mat[dtype, 3, 3]:
+fn inverse[dtype: DType](m: Mat33[dtype]) raises -> Mat33[dtype]:
     comptime EPSILON = 1e-8
     det = determinant(m)
     if abs(det) < EPSILON:
         raise "nope"
     rcp = 1.0 / det
-    out = Mat[dtype, 3, 3](uninitialized=True)
+    out = Mat33[dtype](uninitialized=True)
     out[0][0] = (m[1][1] * m[2][2] - m[1][2] * m[2][1]) * rcp
     out[1][0] = (m[1][2] * m[2][0] - m[1][0] * m[2][2]) * rcp
     out[2][0] = (m[1][0] * m[2][1] - m[1][1] * m[2][0]) * rcp
@@ -280,20 +386,10 @@ fn inverse[dtype: DType](m: Mat[dtype, 3, 3]) raises -> Mat[dtype, 3, 3]:
     return out^
 
 
-fn inverse[dtype: DType](m: Mat[dtype, 4, 4]) raises -> Mat[dtype, 4, 4]:
+fn inverse[dtype: DType](m: Mat44[dtype]) raises -> Mat44[dtype]:
     """Adapted from USD - see licenses/usd-LICENSE.txt Copyright 2016 Pixar."""
 
     comptime EPSILON = 1e-8
-
-    # TODO: use the types here ?
-    # Type x00, x01, x02, x03;
-    # Type x10, x11, x12, x13;
-    # Type x20, x21, x22, x23;
-    # Type x30, x31, x32, x33;
-    # double y01, y02, y03, y12, y13, y23;
-    # Type z00, z10, z20, z30;
-    # Type z01, z11, z21, z31;
-    # double z02, z03, z12, z13, z22, z23, z32, z33;
 
     # Pickle 1st two columns of matrix into registers
     x00 = m[0][0]
@@ -359,7 +455,7 @@ fn inverse[dtype: DType](m: Mat[dtype, 4, 4]) raises -> Mat[dtype, 4, 4]:
 
     rcp = 1.0 / det
 
-    invm = Mat[dtype, 4, 4](uninitialized=True)
+    invm = Mat44[dtype](uninitialized=True)
 
     # Multiply all 3x3 cofactors by reciprocal & transpose
     invm[0][0] = z00 * rcp
@@ -382,24 +478,21 @@ fn inverse[dtype: DType](m: Mat[dtype, 4, 4]) raises -> Mat[dtype, 4, 4]:
     return invm^
 
 
-fn outer[
-    dtype: DType, r: Int where r >= 1, c: Int where c >= 1
-](a: Vec[dtype, r], b: Vec[dtype, c]) -> Mat[dtype, r, c]:
-    res = Mat[dtype, r, c](uninitialized=True)
-    comptime for i in range(r):
-        comptime for j in range(c):
-            res[i][j] = a[i] * b[j]
-    return res^
+##############
+# transform
+##############
+# fn transform_point[
+#     dtype: DType
+# ](m: Mat44[dtype], v: Vec3[dtype]) -> Vec3[dtype]:
+#     v4 = Vec4[dtype](v.x(), v.y(), v.z(), 1)
+#     return (m @ v4).xyz()
 
 
-fn skew[dtype: DType](a: Vec[dtype, 3]) -> Mat[dtype, 3, 3]:
-    # fmt: off
-    return Mat[dtype, 3, 3](
-        0, -a[2], a[1],
-        a[2], 0, -a[0],
-        -a[1], a[0], 0,
-    )
-    # fmt: on
+# fn transform_vector[
+#     dtype: DType
+# ](m: Mat44[dtype], v: Vec3[dtype]) -> Vec3[dtype]:
+#     v4 = Vec4[dtype](v.x(), v.y(), v.z(), 0)
+#     return (m @ v4).xyz()
 
 
 from sys.info import size_of

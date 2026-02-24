@@ -284,6 +284,7 @@ fn _matmul[
 ](a: Mat[dtype, a_rows, a_cols], b: Mat[dtype, a_cols, b_cols]) -> Mat[
     dtype, a_rows, b_cols
 ]:
+    """Matrix-Matrix product."""
     # res = Mat[dtype, a_rows,b_cols](uninitialized=True)
     # comptime for i in range(a_rows):
     #     comptime for j in range(b_cols):
@@ -300,14 +301,15 @@ fn _matmul[
     return res^
 
 
-fn _matmul[
+fn _matvec[
     dtype: DType,
     rows: Int where rows >= 1,
     cols: Int where cols >= 1,
 ](m: Mat[dtype, rows, cols], v: Vec[dtype, cols]) -> Vec[dtype, rows]:
     """Matrix-Vector product."""
     res = Vec[dtype, rows](uninitialized=True)
-    comptime for i in range(rows):
+    for i in range(rows):
+        print(i)
         res[i] = dot(m[i], v)
     return res^
 
@@ -497,19 +499,18 @@ fn inverse[dtype: DType](m: Mat44[dtype]) raises -> Mat44[dtype]:
 ##############
 # transform
 ##############
-# fn transform_point[
-#     dtype: DType
-# ](m: Mat44[dtype], v: Vec3[dtype]) -> Vec3[dtype]:
-#     var v4 = Vec4[dtype](v.x(), v.y(), v.z(), 1)
-#     var res : Vec4[dtype] = _matmul[dtype, 4, 4](m, v4)
-#     var xyz = res.xyz()
-#     return xyz
+fn transform_point[
+    dtype: DType
+](m: Mat44[dtype], v: Vec3[dtype]) -> Vec3[dtype]:
+    v4 = Vec4[dtype](v.x(), v.y(), v.z(), 1)
+    return _matvec(m, v4).xyz()
 
-# fn transform_vector[
-#     dtype: DType
-# ](m: Mat44[dtype], v: Vec3[dtype]) -> Vec3[dtype]:
-#     v4 = Vec4[dtype](v.x(), v.y(), v.z(), 0)
-#     return (m @ v4).xyz()
+
+fn transform_vector[
+    dtype: DType
+](m: Mat44[dtype], v: Vec3[dtype]) -> Vec3[dtype]:
+    v4 = Vec4[dtype](v.x(), v.y(), v.z(), 0)
+    return _matvec(m, v4).xyz()
 
 
 from sys.info import size_of
@@ -517,12 +518,15 @@ from sys.info import size_of
 
 fn main():
     print("core.mat2")
-    # comptime T = Vec[DType.float32, 3]
-    comptime T = Mat[DType.float32, 3, 3]
 
-    m = Mat44[DType.float32](1.0)
-    v = Vec4[DType.float32](2.0)
-    print(m)
-    print(v)
-    r = _matmul(m, v)
-    print(size_of[T]() // 4)
+    comptime T = DType.float32
+    comptime size = 4
+    v = Vec[T, size](1)
+    m = Mat[T, size, size](2)
+    m2 = Mat[T, size, size](3)
+
+    mv = _matvec(m, v)
+    print(mv)
+
+    mm2 = _matmul(m, m2)
+    print(mm2)

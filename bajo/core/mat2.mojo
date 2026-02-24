@@ -104,8 +104,6 @@ struct Mat[
         return res^
 
     # linear algebra
-    # FIXME: parser crashes when using __matmul__ so now they are free functions   :(
-
     fn transpose(self) -> Mat[Self.dtype, Self.cols, Self.rows]:
         res = Mat[Self.dtype, Self.cols, Self.rows](uninitialized=True)
         comptime for i in range(Self.rows):
@@ -166,7 +164,7 @@ struct Mat[
     # fn __itruediv__(mut self, s: Scalar[Self.dtype]):
     #     comptime for i in range(Self.rows): self[i] /= s
 
-    # --- Bitwise Unary ---
+    # Bitwise Unary
     fn __invert__(self) -> Self:
         """Bitwise NOT (~)."""
         res = Self(uninitialized=True)

@@ -19,7 +19,7 @@ struct Mat[
     cols: Int where cols >= 1,
 ](Copyable, Equatable, Writable):
     comptime V = Vec[Self.dtype, Self.cols]
-    comptime TD = InlineArray[Self.V, Self.rows]
+    comptime TD = InlineArray[Self.V, Self.rows]  # TD = Type Data
     comptime msize = min(Self.rows, Self.cols)
 
     var data: Self.TD
@@ -103,32 +103,9 @@ struct Mat[
             res[i] = self[i] / s
         return res^
 
-    # matmul
-    fn __matmul__[
-        out_cols: Int where out_cols >= 1
-    ](self, other: Mat[Self.dtype, Self.cols, out_cols]) -> Mat[
-        Self.dtype, Self.rows, out_cols
-    ]:
-        res = Mat[Self.dtype, Self.rows, out_cols](Scalar[Self.dtype](0))
-        comptime for i in range(Self.rows):
-            comptime for j in range(out_cols):
-                # Using dot product logic between row of A and column of B
-                dot_val: Scalar[Self.dtype] = 0
-                comptime for k in range(Self.cols):
-                    dot_val += self[i][k] * other[k][j]
-                res[i][j] = dot_val
-        return res^
-
-    fn __matmul__(
-        self, v: Vec[Self.dtype, Self.cols]
-    ) -> Vec[Self.dtype, Self.rows]:
-        """Matrix-Vector product."""
-        res = Vec[Self.dtype, Self.rows](uninitialized=True)
-        comptime for i in range(Self.rows):
-            res[i] = dot(self[i], v)
-        return res^
-
     # linear algebra
+    # FIXME: parser crashes when using __matmul__ so now they are free functions   :(
+
     fn transpose(self) -> Mat[Self.dtype, Self.cols, Self.rows]:
         res = Mat[Self.dtype, Self.cols, Self.rows](uninitialized=True)
         comptime for i in range(Self.rows):
@@ -294,6 +271,45 @@ fn skew[dtype: DType](a: Vec[dtype, 3]) -> Mat33[dtype]:
 
 
 # free functions : Linear Algebra
+
+
+##############
+# matmul
+##############
+fn _matmul[
+    dtype: DType,
+    a_rows: Int where a_rows >= 1,
+    a_cols: Int where a_cols >= 1,
+    b_cols: Int where b_cols >= 1,
+](a: Mat[dtype, a_rows, a_cols], b: Mat[dtype, a_cols, b_cols]) -> Mat[
+    dtype, a_rows, b_cols
+]:
+    # res = Mat[dtype, a_rows,b_cols](uninitialized=True)
+    # comptime for i in range(a_rows):
+    #     comptime for j in range(b_cols):
+    #         dot_val: Scalar[dtype] = 0
+    #         comptime for k in range(a_cols):
+    #             dot_val += a[i][k] * b[k][j]
+    #         res[i][j] = dot_val
+    # return res^
+    bT = b.transpose()
+    res = Mat[dtype, a_rows, b_cols](uninitialized=True)
+    comptime for i in range(a_rows):
+        comptime for j in range(b_cols):
+            res[i][j] = dot(a[i], bT[j])
+    return res^
+
+
+fn _matmul[
+    dtype: DType,
+    rows: Int where rows >= 1,
+    cols: Int where cols >= 1,
+](m: Mat[dtype, rows, cols], v: Vec[dtype, cols]) -> Vec[dtype, rows]:
+    """Matrix-Vector product."""
+    res = Vec[dtype, rows](uninitialized=True)
+    comptime for i in range(rows):
+        res[i] = dot(m[i], v)
+    return res^
 
 
 ##############
@@ -484,9 +500,10 @@ fn inverse[dtype: DType](m: Mat44[dtype]) raises -> Mat44[dtype]:
 # fn transform_point[
 #     dtype: DType
 # ](m: Mat44[dtype], v: Vec3[dtype]) -> Vec3[dtype]:
-#     v4 = Vec4[dtype](v.x(), v.y(), v.z(), 1)
-#     return (m @ v4).xyz()
-
+#     var v4 = Vec4[dtype](v.x(), v.y(), v.z(), 1)
+#     var res : Vec4[dtype] = _matmul[dtype, 4, 4](m, v4)
+#     var xyz = res.xyz()
+#     return xyz
 
 # fn transform_vector[
 #     dtype: DType
@@ -502,4 +519,10 @@ fn main():
     print("core.mat2")
     # comptime T = Vec[DType.float32, 3]
     comptime T = Mat[DType.float32, 3, 3]
+
+    m = Mat44[DType.float32](1.0)
+    v = Vec4[DType.float32](2.0)
+    print(m)
+    print(v)
+    r = _matmul(m, v)
     print(size_of[T]() // 4)

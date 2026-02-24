@@ -17,7 +17,7 @@ struct Mat[
     dtype: DType,
     rows: Int where rows >= 1,
     cols: Int where cols >= 1,
-](Copyable, Equatable, Writable):
+](Copyable, Equatable, Stringable, Writable):
     comptime V = Vec[Self.dtype, Self.cols]
     comptime TD = InlineArray[Self.V, Self.rows]  # TD = Type Data
     comptime msize = min(Self.rows, Self.cols)
@@ -246,6 +246,42 @@ struct Mat[
         comptime for i in range(Self.rows):
             res[i] = self[i] >> s
         return res^
+
+    fn __str__(self) -> String:
+        col_widths = InlineArray[Int, Self.cols](fill=0)
+
+        for i in range(Self.rows):
+            for j in range(Self.cols):
+                l = len(String(self[i][j]))
+                if l > col_widths[j]:
+                    col_widths[j] = l
+
+        res: String = "["
+        for i in range(Self.rows):
+            if i > 0:
+                res += " "  # Indent for rows 2 to N
+            res += "["
+
+            for j in range(Self.cols):
+                s = String(self[i][j])
+
+                # Right-align based on column width
+                padding = col_widths[j] - len(s)
+                for _ in range(padding):
+                    res += " "
+                res += s
+
+                if j < Self.cols - 1:
+                    res += ", "
+
+            res += "]"
+            if i < Self.rows - 1:
+                res += "\n"
+        res += "]"
+        return res
+
+    fn write_to(self, mut writer: Some[Writer]):
+        writer.write(String(self))
 
 
 fn outer[
@@ -518,7 +554,7 @@ fn main():
     print("core.mat2")
 
     comptime T = DType.float32
-    comptime size = 4
+    comptime size = 6
     v = Vec[T, size](1)
     m = Mat[T, size, size](2)
     m2 = Mat[T, size, size](3)

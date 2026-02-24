@@ -17,7 +17,7 @@ struct Mat[
     dtype: DType,
     rows: Int where rows >= 1,
     cols: Int where cols >= 1,
-](Copyable, Equatable, Stringable, Writable):
+](Copyable, Equatable, Roundable, Stringable, Writable):
     comptime V = Vec[Self.dtype, Self.cols]
     comptime TD = InlineArray[Self.V, Self.rows]  # TD = Type Data
     comptime msize = min(Self.rows, Self.cols)
@@ -37,9 +37,12 @@ struct Mat[
         self.data = Self.TD(storage=elems^)
 
     fn __init__(out self, *elems: Scalar[Self.dtype]):
-        debug_assert(
+        debug_assert["safe"](
             len(elems) == Self.rows * Self.cols,
-            "Matrix scalar constructor requires exactly rows * cols elements",
+            "Matrix scalar constructor requires exactly rows ({}) * cols ({}) ="
+            " elements ({})".format(
+                Self.rows, Self.cols, Self.rows * Self.cols
+            ),
         )
         self.data = Self.TD(uninitialized=True)
 
@@ -245,6 +248,18 @@ struct Mat[
         res = Self(uninitialized=True)
         comptime for i in range(Self.rows):
             res[i] = self[i] >> s
+        return res^
+
+    fn __round__(self) -> Self:
+        res = Self(uninitialized=True)
+        comptime for i in range(Self.rows):
+            res[i] = round(self[i])
+        return res^
+
+    fn __round__(self, ndigits: Int) -> Self:
+        res = Self(uninitialized=True)
+        comptime for i in range(Self.rows):
+            res[i] = round(self[i], ndigits)
         return res^
 
     fn __str__(self) -> String:
@@ -502,7 +517,7 @@ fn inverse[dtype: DType](m: Mat44[dtype]) raises -> Mat44[dtype]:
     # compute 4x4 determinant & its reciprocal
     det = x30 * z30 + x20 * z20 + x10 * z10 + x00 * z00
 
-    if abs(det) > EPSILON:
+    if abs(det) < EPSILON:
         raise "nope"
 
     rcp = 1.0 / det
@@ -550,17 +565,41 @@ fn transform_vector[
 from sys.info import size_of
 
 
-fn main():
+fn main() raises:
     print("core.mat2")
 
     comptime T = DType.float32
-    comptime size = 6
+    comptime size = 3
     v = Vec[T, size](1)
-    m = Mat[T, size, size](2)
-    m2 = Mat[T, size, size](3)
+    ma = Mat[T, size, size](2)
+    mb = Mat[T, size, size](3)
 
-    mv = _matvec(m, v)
-    print(mv)
+    ma_v = _matvec(ma, v)
+    print(ma_v)
 
-    mm2 = _matmul(m, m2)
-    print(mm2)
+    ma_mb = _matmul(ma, mb)
+    print(ma_mb)
+
+    print("\ndim=2")
+    m2 = Mat22[T](1, 2, 3, 4)
+    print(m2)
+    print(determinant(m2), "det should be -2.0")
+    im2 = inverse(m2)
+    print(im2)
+    print(_matmul(m2, im2))
+
+    print("\ndim=3")
+    m3 = Mat33[T](1, 2, 3, 4, 5, 6, 7, 8, 10)
+    print(m3)
+    print(determinant(m3), "det should be -3.0")
+    im3 = inverse(m3)
+    print(im3)
+    print(_matmul(m3, im3))
+
+    print("\ndim=4")
+    m4 = Mat44[T](1, 3, 5, 9, 1, 3, 1, 7, 4, 3, 9, 7, 5, 2, 0, 9)
+    print(m4)
+    print(determinant(m4), "det should be -376.0")
+    im4 = inverse(m4)
+    print(round(im4, 2))
+    print(round(_matmul(m4, im4), 2))

@@ -52,7 +52,7 @@ comptime Vec4f64 = Vec4[DType.float64]
 
 
 @fieldwise_init
-struct Vec[dtype: DType, size: Int](Copyable, Equatable, Writable):
+struct Vec[dtype: DType, size: Int](Copyable, Equatable, Roundable, Writable):
     # TODO: maybe use psize for SIMD for Vec3 on cpu
     # comptime psize = 4 if Self.size == 3 and CompilationTarget.is_x86() else Self.size
     comptime T = InlineArray[Scalar[Self.dtype], Self.size]
@@ -297,6 +297,18 @@ struct Vec[dtype: DType, size: Int](Copyable, Equatable, Writable):
         comptime for i in range(Self.size):
             out[i] = self[i] >> s
         return out^
+
+    fn __round__(self) -> Self:
+        res = Self(uninitialized=True)
+        comptime for i in range(Self.size):
+            res[i] = round(self[i])
+        return res^
+
+    fn __round__(self, ndigits: Int) -> Self:
+        res = Self(uninitialized=True)
+        comptime for i in range(Self.size):
+            res[i] = round(self[i], ndigits)
+        return res^
 
     fn near_zero[s: Scalar[Self.dtype] = 1e-8](self) -> Bool:
         nz = True

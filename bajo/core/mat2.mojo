@@ -249,11 +249,11 @@ struct Mat[
 
 
 fn outer[
-    dtype: DType, r: Int where r >= 1, c: Int where c >= 1
-](a: Vec[dtype, r], b: Vec[dtype, c]) -> Mat[dtype, r, c]:
-    res = Mat[dtype, r, c](uninitialized=True)
-    comptime for i in range(r):
-        comptime for j in range(c):
+    dtype: DType, rows: Int where rows >= 1, cols: Int where cols >= 1
+](a: Vec[dtype, rows], b: Vec[dtype, cols]) -> Mat[dtype, rows, cols]:
+    res = Mat[dtype, rows, cols](uninitialized=True)
+    comptime for i in range(rows):
+        comptime for j in range(cols):
             res[i][j] = a[i] * b[j]
     return res^
 

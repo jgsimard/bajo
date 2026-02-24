@@ -316,9 +316,15 @@ fn dot[
         aa = a.data.unsafe_ptr().load[width=size]()
         bb = b.data.unsafe_ptr().load[width=size]()
         return (aa * bb).reduce_add()
+    # # is this faster ?
+    # elif size == 3:
+    #     a3 = a.data.unsafe_ptr().load[width=4]()
+    #     a3[3] = 0
+    #     b3 = b.data.unsafe_ptr().load[width=4]()
+    #     b3[3] = 0
+    #     return (a3 * b3).reduce_add()
     else:
         res: Scalar[dtype] = 0
-
         comptime for i in range(size):
             res += a[i] * b[i]
         return res

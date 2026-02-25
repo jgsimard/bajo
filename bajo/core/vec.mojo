@@ -310,6 +310,12 @@ struct Vec[dtype: DType, size: Int](Copyable, Equatable, Roundable, Writable):
             res[i] = round(self[i], ndigits)
         return res^
 
+    fn __eq__(self, other: Self) -> Bool:
+        eq = True
+        comptime for i in range(Self.size):
+            eq &= self[i] == other[i]
+        return eq
+
     fn near_zero[s: Scalar[Self.dtype] = 1e-8](self) -> Bool:
         nz = True
         comptime for i in range(Self.size):
@@ -408,10 +414,10 @@ fn longest_axis[dtype: DType](v: Vec3[dtype]) -> Int:
 
 
 fn assert_vec_equal[
-    s: Int
-](a: Vec[DType.float32, s], b: Vec[DType.float32, s]) raises:
-    comptime for i in range(s):
-        assert_almost_equal(a[i], b[i], msg="i={}".format(i), atol=1e-5)
+    dtype: DType, size: Int
+](a: Vec[dtype, size], b: Vec[dtype, size], atol: Float64 = 1e-5) raises:
+    comptime for i in range(size):
+        assert_almost_equal(a[i], b[i], msg="i={}".format(i), atol=atol)
 
 
 fn main():

@@ -262,6 +262,12 @@ struct Mat[
             res[i] = round(self[i], ndigits)
         return res^
 
+    fn __eq__(self, other: Self) -> Bool:
+        eq = True
+        comptime for i in range(Self.rows):
+            eq &= self[i] == other[i]
+        return eq
+
     fn __str__(self) -> String:
         col_widths = InlineArray[Int, Self.cols](fill=0)
 
@@ -335,19 +341,12 @@ fn _matmul[
     dtype, a_rows, b_cols
 ] where (a_cols == b_rows):
     """Matrix-Matrix product."""
-    # res = Mat[dtype, a_rows,b_cols](uninitialized=True)
-    # comptime for i in range(a_rows):
-    #     comptime for j in range(b_cols):
-    #         dot_val: Scalar[dtype] = 0
-    #         comptime for k in range(a_cols):
-    #             dot_val += a[i][k] * b[k][j]
-    #         res[i][j] = dot_val
-    # return res^
     bT = b.transpose()
     res = Mat[dtype, a_rows, b_cols](uninitialized=True)
     comptime for i in range(a_rows):
         comptime for j in range(b_cols):
-            res[i][j] = dot(a[i], rebind[Vec[dtype, a_cols]](bT[j]))
+            ref bTj = rebind[Vec[dtype, a_cols]](bT[j])
+            res[i][j] = dot(a[i], bTj)
     return res^
 
 

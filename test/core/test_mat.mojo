@@ -1,7 +1,9 @@
 from testing import (
     TestSuite,
+    assert_equal,
     assert_almost_equal,
 )
+from bajo.core.mat2 import Mat33f32, determinant
 from bajo.core.mat import Mat3f, Mat3x4f
 from bajo.core.vec import (
     Vec3f32,
@@ -13,14 +15,22 @@ from bajo.core.quat import Quat
 
 fn test_basics() raises:
     # Transpose check
-    m = Mat3f(Vec3f32(1, 2, 3), Vec3f32(4, 5, 6), Vec3f32(7, 8, 9))
-    mt = m.transpose()
-    assert_almost_equal(mt[0].y(), 4.0)
-    assert_almost_equal(mt[1].x(), 2.0)
+    # fmt: off
+    m = Mat33f32(
+        1, 2, 3, 
+        4, 5, 6, 
+        7, 8, 9
+    )
+    mt = Mat33f32(
+        1, 4, 7, 
+        2, 5, 8, 
+        3, 6, 9
+    )
+    # fmt: on
+    assert_equal(m.transpose(), mt)
 
     # Determinant of Identity
-    identity = Mat3f(Vec3f32(1, 0, 0), Vec3f32(0, 1, 0), Vec3f32(0, 0, 1))
-    assert_almost_equal(identity.determinant(), 1.0)
+    assert_almost_equal(determinant(Mat33f32.identity()), 1.0)
 
 
 fn test_trs_composition_decomposition() raises:
@@ -37,8 +47,7 @@ fn test_trs_composition_decomposition() raises:
     p = Vec3f32(1, 0, 0)
     p_tx = mat.txfm_point(p)
     # Expected: Scaled(2,0,0) -> Rotated 45deg on Z(1.414, 1.414, 0) -> Translated(11.414, 21.414, 30)
-    assert_almost_equal(p_tx.x(), 11.41421, atol=1e-4)
-    assert_almost_equal(p_tx.y(), 21.41421, atol=1e-4)
+    assert_vec_equal(p_tx, Vec3f32(11.41421, 21.41421, 30), atol=1e-4)
 
     # Decompose back
     decomposed = mat.decompose()

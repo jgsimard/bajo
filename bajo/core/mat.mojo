@@ -600,57 +600,5 @@ fn transform_vector[
     return _matvec(m, v4).xyz()
 
 
-##############
-# Quaternion
-##############
-
-
-from sys.info import size_of
-
-
 fn main() raises:
     print("core.mat2")
-
-    comptime T = DType.float32
-    comptime size = 3
-    v = Vec[T, size](1)
-    ma = Mat[T, size, size](2)
-    mb = Mat[T, size, size](3)
-
-    ma_v = _matvec(ma, v)
-    print(ma_v)
-
-    ma_mb = _matmul(ma, mb)
-    print(ma_mb)
-
-    print("\ndim=2")
-    m2 = Mat22[T](1, 2, 3, 4)
-    print(m2)
-    print(determinant(m2), "det should be -2.0")
-    im2 = inverse(m2)
-    print(im2)
-    print(_matmul(m2, im2))
-
-    print("\ndim=3")
-    m3 = Mat33[T](1, 2, 3, 4, 5, 6, 7, 8, 10)
-    print(m3)
-    print(determinant(m3), "det should be -3.0")
-    im3 = inverse(m3)
-    print(im3)
-    print(_matmul(m3, im3))
-
-    print("\ndim=4")
-    m4 = Mat44[T](1, 3, 5, 9, 1, 3, 1, 7, 4, 3, 9, 7, 5, 2, 0, 9)
-    print(m4)
-    print(determinant(m4), "det should be -376.0")
-    im4 = inverse(m4)
-    print(round(im4, 2))
-    print(round(_matmul(m4, im4), 2))
-
-    mm = Mat[T, 3, 4](1)
-    nn = Mat[T, 4, 3](1)
-    r = _matmul(mm, nn)
-    print(r)
-    # vv = Vec[T, 3](1)
-    # mmvv = _matvec(mm, vv)
-    # print(mmvv)

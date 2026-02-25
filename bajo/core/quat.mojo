@@ -6,7 +6,7 @@ from bajo.core.vec import (
     normalize as vnormalize,
     length as vlength,
 )
-from bajo.core.mat2 import Mat, Mat33, Mat44
+from bajo.core.mat import Mat, Mat33, Mat44
 
 
 fn length2[

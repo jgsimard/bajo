@@ -44,7 +44,7 @@ fn test_apply_trs_rotated() raises:
 
     # Rotate 45 degrees around Z
     angle = degrees_to_radians(Float32(45))
-    r = Quat.angle_axis(angle, Vec3f32(0, 0, 1))
+    r = Quat.from_axis_angle(Vec3f32(0, 0, 1), angle)
     t = Vec3f32(0)
     s = Vec3f32(1, 1, 1)
 

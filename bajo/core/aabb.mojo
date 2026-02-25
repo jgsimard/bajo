@@ -1,6 +1,6 @@
 from std.utils.numerics import max_finite, min_finite
 
-from bajo.core.mat import Mat3x3
+from bajo.core.mat import Mat33
 from bajo.core.quat import Quaternion
 from bajo.core.vec import Vec3, vmin, vmax
 
@@ -89,26 +89,26 @@ struct AxisAlignedBoundingBox[type: DType where type.is_floating_point()](
         """
         Transforms the AABB using Jim Arvo algorithm (from "Graphics Gems", Academic Press, 1990) with explicit SIMD.
         """
-        mat = Mat3x3[Self.type].from_rs(rotation, scale)
+        mat = Mat33[Self.type].from_rotation_scale(rotation, scale).transpose()
 
         new_min = translation.copy()
         new_max = translation.copy()
 
         # X
-        c0_a = mat.c0 * self.min.x()
-        c0_b = mat.c0 * self.max.x()
+        c0_a = mat[0] * self.min.x()
+        c0_b = mat[0] * self.max.x()
         new_min += vmin(c0_a, c0_b)
         new_max += vmax(c0_a, c0_b)
 
         # Y
-        c1_a = mat.c1 * self.min.y()
-        c1_b = mat.c1 * self.max.y()
+        c1_a = mat[1] * self.min.y()
+        c1_b = mat[1] * self.max.y()
         new_min += vmin(c1_a, c1_b)
         new_max += vmax(c1_a, c1_b)
 
         # Z
-        c2_a = mat.c2 * self.min.z()
-        c2_b = mat.c2 * self.max.z()
+        c2_a = mat[2] * self.min.z()
+        c2_b = mat[2] * self.max.z()
         new_min += vmin(c2_a, c2_b)
         new_max += vmax(c2_a, c2_b)
 

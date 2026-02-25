@@ -329,11 +329,13 @@ fn _matmul[
     dtype: DType,
     a_rows: Int where a_rows >= 1,
     a_cols: Int where a_cols >= 1,
+    b_rows: Int where b_rows >= 1,
     b_cols: Int where b_cols >= 1,
-](a: Mat[dtype, a_rows, a_cols], b: Mat[dtype, a_cols, b_cols]) -> Mat[
+](a: Mat[dtype, a_rows, a_cols], b: Mat[dtype, b_rows, b_cols]) -> Mat[
     dtype, a_rows, b_cols
 ]:
     """Matrix-Matrix product."""
+    comptime assert a_cols == b_rows
     # res = Mat[dtype, a_rows,b_cols](uninitialized=True)
     # comptime for i in range(a_rows):
     #     comptime for j in range(b_cols):
@@ -346,7 +348,7 @@ fn _matmul[
     res = Mat[dtype, a_rows, b_cols](uninitialized=True)
     comptime for i in range(a_rows):
         comptime for j in range(b_cols):
-            res[i][j] = dot(a[i], bT[j])
+            res[i][j] = dot(a[i], rebind[Vec[dtype, a_cols]](bT[j]))
     return res^
 
 
@@ -603,3 +605,11 @@ fn main() raises:
     im4 = inverse(m4)
     print(round(im4, 2))
     print(round(_matmul(m4, im4), 2))
+
+    mm = Mat[T, 3, 4](1)
+    nn = Mat[T, 3, 3](1)
+    r = _matmul(mm, nn)
+    print(r)
+    # vv = Vec[T, 3](1)
+    # mmvv = _matvec(mm, vv)
+    # print(mmvv)

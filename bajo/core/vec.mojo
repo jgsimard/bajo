@@ -384,7 +384,7 @@ fn cross[dtype: DType](a: Vec[dtype, 3], b: Vec[dtype, 3]) -> Vec[dtype, 3]:
     )
 
 
-fn cross[type: DType](a: Vec2[type], b: Vec2[type]) -> Scalar[type]:
+fn cross[dtype: DType](a: Vec2[dtype], b: Vec2[dtype]) -> Scalar[dtype]:
     return a.x() * b.y() - a.y() * b.x()
 
 

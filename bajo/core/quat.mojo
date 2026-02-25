@@ -10,78 +10,78 @@ from bajo.core.mat import Mat, Mat33, Mat44
 
 
 fn length2[
-    type: DType where type.is_floating_point()
-](q: Quaternion[type]) -> Scalar[type]:
+    dtype: DType where dtype.is_floating_point()
+](q: Quaternion[dtype]) -> Scalar[dtype]:
     return (q.data * q.data).reduce_add()
 
 
 fn length[
-    type: DType where type.is_floating_point()
-](q: Quaternion[type]) -> Scalar[type]:
+    dtype: DType where dtype.is_floating_point()
+](q: Quaternion[dtype]) -> Scalar[dtype]:
     return sqrt(length2(q))
 
 
 fn inv_length[
-    type: DType where type.is_floating_point()
-](q: Quaternion[type]) -> Scalar[type]:
+    dtype: DType where dtype.is_floating_point()
+](q: Quaternion[dtype]) -> Scalar[dtype]:
     return 1.0 / length(q)
 
 
 fn normalize[
-    type: DType where type.is_floating_point()
-](q: Quaternion[type]) -> Quaternion[type]:
-    return Quaternion[type](q.data * inv_length(q))
+    dtype: DType where dtype.is_floating_point()
+](q: Quaternion[dtype]) -> Quaternion[dtype]:
+    return Quaternion[dtype](q.data * inv_length(q))
 
 
 comptime Quat = Quaternion[DType.float32]
 
 
 @fieldwise_init
-struct Quaternion[type: DType where type.is_floating_point()](
+struct Quaternion[dtype: DType where dtype.is_floating_point()](
     Copyable, Equatable, TrivialRegisterPassable, Writable
 ):
-    var data: SIMD[Self.type, 4]  # layout: [x, y, z, w]
+    var data: SIMD[Self.dtype, 4]  # layout: [x, y, z, w]
 
     fn __init__(
         out self,
-        x: Scalar[Self.type],
-        y: Scalar[Self.type],
-        z: Scalar[Self.type],
-        w: Scalar[Self.type],
+        x: Scalar[Self.dtype],
+        y: Scalar[Self.dtype],
+        z: Scalar[Self.dtype],
+        w: Scalar[Self.dtype],
     ):
-        self.data = SIMD[Self.type, 4](x, y, z, w)
+        self.data = SIMD[Self.dtype, 4](x, y, z, w)
 
     fn __init__(
         out self,
-        xyz: Vec3[Self.type],
-        w: Scalar[Self.type],
+        xyz: Vec3[Self.dtype],
+        w: Scalar[Self.dtype],
     ):
-        self.data = SIMD[Self.type, 4](xyz.x(), xyz.y(), xyz.z(), w)
+        self.data = SIMD[Self.dtype, 4](xyz.x(), xyz.y(), xyz.z(), w)
 
     @staticmethod
     fn identity() -> Self:
         return Self([0, 0, 0, 1])
 
-    fn x(self) -> Scalar[Self.type]:
+    fn x(self) -> Scalar[Self.dtype]:
         return self.data[0]
 
-    fn y(self) -> Scalar[Self.type]:
+    fn y(self) -> Scalar[Self.dtype]:
         return self.data[1]
 
-    fn z(self) -> Scalar[Self.type]:
+    fn z(self) -> Scalar[Self.dtype]:
         return self.data[2]
 
-    fn w(self) -> Scalar[Self.type]:
+    fn w(self) -> Scalar[Self.dtype]:
         return self.data[3]
 
-    fn xyz(self) -> Vec3[Self.type]:
-        return Vec3[Self.type](self.x(), self.y(), self.z())
+    fn xyz(self) -> Vec3[Self.dtype]:
+        return Vec3[Self.dtype](self.x(), self.y(), self.z())
 
     fn inverse(self) -> Self:
         return Self(-self.x(), -self.y(), -self.z(), self.w())
 
     # TODO: benchmark the two version to choose the fastest
-    fn rotate(self, v: Vec3[Self.type]) -> Vec3[Self.type]:
+    fn rotate(self, v: Vec3[Self.dtype]) -> Vec3[Self.dtype]:
         # p = self.xyz()
         # w = self.w()
         # pv = cross(p, v)
@@ -104,9 +104,9 @@ struct Quaternion[type: DType where type.is_floating_point()](
         ry = vy * c + qy * d + (qz * vx - qx * vz) * w2
         rz = vz * c + qz * d + (qx * vy - qy * vx) * w2
 
-        return Vec3[Self.type](rx, ry, rz)
+        return Vec3[Self.dtype](rx, ry, rz)
 
-    fn rotate_inverse(self, v: Vec3[Self.type]) -> Vec3[Self.type]:
+    fn rotate_inverse(self, v: Vec3[Self.dtype]) -> Vec3[Self.dtype]:
         qw = self.w()
         qx = self.x()
         qy = self.y()
@@ -126,44 +126,46 @@ struct Quaternion[type: DType where type.is_floating_point()](
         ry = vy * c + qy * d - (qz * vx - qx * vz) * w2
         rz = vz * c + qz * d - (qx * vy - qy * vx) * w2
 
-        return Vec3[Self.type](rx, ry, rz)
+        return Vec3[Self.dtype](rx, ry, rz)
 
     @staticmethod
-    fn from_axis_angle(axis: Vec3[Self.type], angle: Scalar[Self.type]) -> Self:
+    fn from_axis_angle(
+        axis: Vec3[Self.dtype], angle: Scalar[Self.dtype]
+    ) -> Self:
         half_angle = angle * 0.5
         w = cos(half_angle)
         xyz = axis * sin(half_angle)
         return Self(xyz, w)
 
-    fn to_axis_angle(self) -> Tuple[Vec3[Self.type], Scalar[Self.type]]:
+    fn to_axis_angle(self) -> Tuple[Vec3[Self.dtype], Scalar[Self.dtype]]:
         v = self.xyz()
-        axis = vnormalize(v) * copysign(Scalar[Self.type](1.0), self.w())
+        axis = vnormalize(v) * copysign(Scalar[Self.dtype](1.0), self.w())
         angle = 2 * atan2(vlength(v), abs(self.w()))
         return (axis^, angle)
 
-    fn to_matrix(self) -> Mat33[Self.type]:
-        c1 = self.rotate(Vec3[Self.type](1, 0, 0))
-        c2 = self.rotate(Vec3[Self.type](0, 1, 0))
-        c3 = self.rotate(Vec3[Self.type](0, 0, 1))
-        return Mat33[Self.type].from_cols(c1, c2, c3)
+    fn to_matrix(self) -> Mat33[Self.dtype]:
+        c1 = self.rotate(Vec3[Self.dtype](1, 0, 0))
+        c2 = self.rotate(Vec3[Self.dtype](0, 1, 0))
+        c3 = self.rotate(Vec3[Self.dtype](0, 0, 1))
+        return Mat33[Self.dtype].from_cols(c1, c2, c3)
 
     @staticmethod
     fn from_matrix[
         rows: Int where rows >= 1, cols: Int where cols >= 1
-    ](m: Mat[Self.type, rows, cols]) -> Self where (rows == cols) and (
+    ](m: Mat[Self.dtype, rows, cols]) -> Self where (rows == cols) and (
         rows == 3 or rows == 4
     ):
         """Only accepts 3x3 and 4x4 matrices."""
 
-        comptime zero = Scalar[Self.type](0)
-        comptime one = Scalar[Self.type](1)
-        comptime half = Scalar[Self.type](0.5)
+        comptime zero = Scalar[Self.dtype](0)
+        comptime one = Scalar[Self.dtype](1)
+        comptime half = Scalar[Self.dtype](0.5)
         tr = m[0][0] + m[1][1] + m[2][2]
-        x: Scalar[Self.type]
-        y: Scalar[Self.type]
-        z: Scalar[Self.type]
-        w: Scalar[Self.type]
-        h: Scalar[Self.type]
+        x: Scalar[Self.dtype]
+        y: Scalar[Self.dtype]
+        z: Scalar[Self.dtype]
+        w: Scalar[Self.dtype]
+        h: Scalar[Self.dtype]
 
         if tr >= zero:
             h = sqrt(tr + 1)
@@ -210,7 +212,7 @@ struct Quaternion[type: DType where type.is_floating_point()](
     @staticmethod
     fn from_basis[
         version: Int = 0
-    ](a: Vec3[Self.type], b: Vec3[Self.type], c: Vec3[Self.type]) -> Self:
+    ](a: Vec3[Self.dtype], b: Vec3[Self.dtype], c: Vec3[Self.dtype]) -> Self:
         @parameter
         if version == 0:
             # tx, ty, tz, tw represent 4*q^2 - 1 for each component
@@ -260,7 +262,7 @@ struct Quaternion[type: DType where type.is_floating_point()](
             return Self(x, y, z, w)
 
         else:
-            comptime S = SIMD[Self.type, 4]
+            comptime S = SIMD[Self.dtype, 4]
 
             # We compute all 4 traces (4w^2, 4x^2, 4y^2, 4z^2)
             diag = S(a.x(), b.y(), c.z(), 0.0)
@@ -306,9 +308,9 @@ struct Quaternion[type: DType where type.is_floating_point()](
 
     @staticmethod
     fn from_euler(
-        roll: Scalar[Self.type],
-        pitch: Scalar[Self.type],
-        yaw: Scalar[Self.type],
+        roll: Scalar[Self.dtype],
+        pitch: Scalar[Self.dtype],
+        yaw: Scalar[Self.dtype],
     ) -> Self:
         """
         Converts Euler angles (Roll, Pitch, Yaw) to a Quaternion.
@@ -330,7 +332,7 @@ struct Quaternion[type: DType where type.is_floating_point()](
 
     comptime to_rpy = Self.to_euler
 
-    fn to_euler(self) -> Vec3[Self.type]:
+    fn to_euler(self) -> Vec3[Self.dtype]:
         """
         Converts Quaternion back to Euler angles (Roll, Pitch, Yaw).
         """
@@ -339,10 +341,10 @@ struct Quaternion[type: DType where type.is_floating_point()](
         roll = atan2(sinr_cosp, cosr_cosp)
 
         sinp = 2 * (self.w() * self.y() - self.z() * self.x())
-        pitch: Scalar[Self.type]
+        pitch: Scalar[Self.dtype]
         if abs(sinp) >= 1:
             comptime pi_2 = pi / 2.0
-            pitch = Scalar[Self.type](1.0 if sinp > 0 else -1.0) * pi_2
+            pitch = Scalar[Self.dtype](1.0 if sinp > 0 else -1.0) * pi_2
         else:
             pitch = asin(sinp)
 
@@ -350,7 +352,7 @@ struct Quaternion[type: DType where type.is_floating_point()](
         cosy_cosp = 1 - 2 * (self.y() * self.y() + self.z() * self.z())
         yaw = atan2(siny_cosp, cosy_cosp)
 
-        return Vec3[Self.type](roll, pitch, yaw)
+        return Vec3[Self.dtype](roll, pitch, yaw)
 
     fn __add__(self, o: Self) -> Self:
         return Self(self.data + o.data)
@@ -372,9 +374,9 @@ struct Quaternion[type: DType where type.is_floating_point()](
         # res.y = -x1*z2 + y1*w2 + z1*x2 + w1*y2
         # res.z =  x1*y2 - y1*x2 + z1*w2 + w1*z2
         # res.w = -x1*x2 - y1*y2 - z1*z2 + w1*w2
-        comptime s1 = SIMD[Self.type, 4](1.0, -1.0, 1.0, -1.0)
-        comptime s2 = SIMD[Self.type, 4](1.0, 1.0, -1.0, -1.0)
-        comptime s3 = SIMD[Self.type, 4](-1.0, 1.0, 1.0, -1.0)
+        comptime s1 = SIMD[Self.dtype, 4](1.0, -1.0, 1.0, -1.0)
+        comptime s2 = SIMD[Self.dtype, 4](1.0, 1.0, -1.0, -1.0)
+        comptime s3 = SIMD[Self.dtype, 4](-1.0, 1.0, 1.0, -1.0)
 
         # two independent branches to maximize Instruction Level Parallelism (ILP).
         # Branch A
@@ -396,10 +398,10 @@ struct Quaternion[type: DType where type.is_floating_point()](
 
         return Self(res_a + res_b)
 
-    fn __mul__(self, f: Scalar[Self.type]) -> Self:
+    fn __mul__(self, f: Scalar[Self.dtype]) -> Self:
         return Self(self.data * f)
 
-    fn __imul__(mut self, s: Scalar[Self.type]):
+    fn __imul__(mut self, s: Scalar[Self.dtype]):
         self.data *= s
 
 

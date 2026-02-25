@@ -41,8 +41,8 @@ fn luminance(a: Vec3f) -> Float32:
 
 # sRGB Non-Linear Curve
 fn srgb_to_rgb[
-    type: DType, size: Int
-](srgb: SIMD[type, size]) -> SIMD[type, size]:
+    dtype: DType, size: Int
+](srgb: SIMD[dtype, size]) -> SIMD[dtype, size]:
     mask = srgb.le(0.04045)
     true_case = srgb / 12.92
     false_case = pow((srgb + 0.055) / 1.055, 2.4)
@@ -50,8 +50,8 @@ fn srgb_to_rgb[
 
 
 fn rgb_to_srgb[
-    type: DType, size: Int
-](rgb: SIMD[type, size]) -> SIMD[type, size]:
+    dtype: DType, size: Int
+](rgb: SIMD[dtype, size]) -> SIMD[dtype, size]:
     mask = rgb.le(0.0031308)
     true_case = 12.92 * rgb
     false_case = 1.055 * pow(rgb, 1.0 / 2.4) - 0.055
@@ -60,14 +60,14 @@ fn rgb_to_srgb[
 
 fn srgb_to_rgb[
     type: DType, size: Int
-](srgb: Vector[type, size]) -> Vector[type, size]:
-    return Vector[type, size](srgb_to_rgb(srgb.data))
+](srgb: Vector[dtype, size]) -> Vector[dtype, size]:
+    return Vector[dtype, size](srgb_to_rgb(srgb.data))
 
 
 fn rgb_to_srgb[
-    type: DType, size: Int
-](rgb: Vector[type, size]) -> Vector[type, size]:
-    return Vector[type, size](rgb_to_srgb(rgb.data))
+    dtype: DType, size: Int
+](rgb: Vector[dtype, size]) -> Vector[dtype, size]:
+    return Vector[dtype, size](rgb_to_srgb(rgb.data))
 
 
 # inline vec4f srgbb_to_rgb(vec4b srgb);

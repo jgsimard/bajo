@@ -8,23 +8,23 @@ comptime AABB = AxisAlignedBoundingBox[DType.float32]
 
 
 @fieldwise_init
-struct AxisAlignedBoundingBox[type: DType where type.is_floating_point()](
+struct AxisAlignedBoundingBox[dtype: DType where dtype.is_floating_point()](
     Copyable, Writable
 ):
-    var min: Vec3[Self.type]
-    var max: Vec3[Self.type]
+    var min: Vec3[Self.dtype]
+    var max: Vec3[Self.dtype]
 
     @staticmethod
     fn invalid() -> Self:
-        comptime flt_max = max_finite[Self.type]()
-        comptime flt_min = min_finite[Self.type]()
+        comptime flt_max = max_finite[Self.dtype]()
+        comptime flt_min = min_finite[Self.dtype]()
         return Self(
-            Vec3[Self.type](flt_max),
-            Vec3[Self.type](flt_min),
+            Vec3[Self.dtype](flt_max),
+            Vec3[Self.dtype](flt_min),
         )
 
     @staticmethod
-    fn point(p: Vec3[Self.type]) -> Self:
+    fn point(p: Vec3[Self.dtype]) -> Self:
         return Self(p, p)
 
     @staticmethod
@@ -34,11 +34,11 @@ struct AxisAlignedBoundingBox[type: DType where type.is_floating_point()](
             vmax(a.max, b.max),
         )
 
-    fn surface_area(self) -> Scalar[Self.type]:
+    fn surface_area(self) -> Scalar[Self.dtype]:
         d = self.max - self.min
         return 2.0 * (d.x() * d.y() + d.x() * d.z() + d.y() * d.z())
 
-    fn centroid(self) -> Vec3[Self.type]:
+    fn centroid(self) -> Vec3[Self.dtype]:
         return (self.min + self.max) * 0.5
 
     fn overlaps(self, o: Self) -> Bool:
@@ -51,7 +51,7 @@ struct AxisAlignedBoundingBox[type: DType where type.is_floating_point()](
             and o.min.z() < self.max.z()
         )
 
-    fn contains(self, p: Vec3[Self.type]) -> Bool:
+    fn contains(self, p: Vec3[Self.dtype]) -> Bool:
         return (
             self.min.x() <= p.x()
             and self.min.y() <= p.y()
@@ -63,10 +63,10 @@ struct AxisAlignedBoundingBox[type: DType where type.is_floating_point()](
 
     fn ray_intersects(
         self,
-        ray_o: Vec3[Self.type],
-        inv_ray_d: Vec3[Self.type],
-        ray_t_min: Scalar[Self.type],
-        ray_t_max: Scalar[Self.type],
+        ray_o: Vec3[Self.dtype],
+        inv_ray_d: Vec3[Self.dtype],
+        ray_t_min: Scalar[Self.dtype],
+        ray_t_max: Scalar[Self.dtype],
     ) -> Bool:
         t_lower = inv_ray_d * (self.min - ray_o)
         t_upper = inv_ray_d * (self.max - ray_o)
@@ -82,14 +82,14 @@ struct AxisAlignedBoundingBox[type: DType where type.is_floating_point()](
 
     fn apply_trs(
         self,
-        translation: Vec3[Self.type],
-        rotation: Quaternion[Self.type],
-        scale: Vec3[Self.type],
+        translation: Vec3[Self.dtype],
+        rotation: Quaternion[Self.dtype],
+        scale: Vec3[Self.dtype],
     ) -> Self:
         """
         Transforms the AABB using Jim Arvo algorithm (from "Graphics Gems", Academic Press, 1990) with explicit SIMD.
         """
-        mat = Mat33[Self.type].from_rotation_scale(rotation, scale).transpose()
+        mat = Mat33[Self.dtype].from_rotation_scale(rotation, scale).transpose()
 
         new_min = translation.copy()
         new_max = translation.copy()

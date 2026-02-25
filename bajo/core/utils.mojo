@@ -2,19 +2,19 @@ from math import sqrt
 
 
 @fieldwise_init
-struct QuadraticSolutions[type: DType, size: Int](
+struct QuadraticSolutions[dtype: DType, size: Int](
     Copyable, TrivialRegisterPassable
 ):
-    var roots_0: SIMD[Self.type, Self.size]
-    var roots_1: SIMD[Self.type, Self.size]
+    var roots_0: SIMD[Self.dtype, Self.size]
+    var roots_1: SIMD[Self.dtype, Self.size]
     var mask: SIMD[DType.bool, Self.size]
 
 
 fn solve_quadratic[
-    type: DType, size: Int
+    dtype: DType, size: Int
 ](
-    a: SIMD[type, size], b: SIMD[type, size], c: SIMD[type, size]
-) -> QuadraticSolutions[type, size]:
+    a: SIMD[dtype, size], b: SIMD[dtype, size], c: SIMD[dtype, size]
+) -> QuadraticSolutions[dtype, size]:
     """Solves the quadratic equation `ax^2 + bx + c = 0` element-wise for SIMD vectors.
 
     This function uses a numerically stable implementation (Citardauq's formula)
@@ -43,8 +43,10 @@ fn solve_quadratic[
 
 
 fn solve_quadratic[
-    type: DType, size: Int
-](b: SIMD[type, size], c: SIMD[type, size]) -> QuadraticSolutions[type, size]:
+    dtype: DType, size: Int
+](b: SIMD[dtype, size], c: SIMD[dtype, size]) -> QuadraticSolutions[
+    dtype, size
+]:
     """Solves the quadratic equation `x^2 + bx + c = 0` element-wise for SIMD vectors.
 
     This function uses a numerically stable implementation (Citardauq's formula)

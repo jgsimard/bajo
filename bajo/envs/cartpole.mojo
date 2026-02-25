@@ -147,12 +147,12 @@ struct Cartpole[continuous: Bool, config: ConfigCartPole](Env):
 
 
 fn in_range[
-    type: DType, //, min: Scalar[type], max: Scalar[type]
-](x: Scalar[type]) -> Bool:
+    type: DType, //, min: Scalar[dtype], max: Scalar[dtype]
+](x: Scalar[dtype]) -> Bool:
     return x > min and x < max
 
 
 fn out_range[
-    type: DType, //, min: Scalar[type], max: Scalar[type]
-](x: Scalar[type]) -> Bool:
+    type: DType, //, min: Scalar[dtype], max: Scalar[dtype]
+](x: Scalar[dtype]) -> Bool:
     return not in_range[min, max](x)

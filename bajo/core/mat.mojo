@@ -264,7 +264,6 @@ struct Mat[
     #     comptime for i in range(Self.rows):
     #         self[i] ^= other[i]
 
-    # --- Bit Shifts (<<, >>) ---
     fn __lshift__(self, other: Self) -> Self:
         res = Self(uninitialized=True)
         comptime for i in range(Self.rows):

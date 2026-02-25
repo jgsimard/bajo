@@ -55,10 +55,11 @@ comptime Vec4f64 = Vec4[DType.float64]
 struct Vec[dtype: DType, size: Int](Copyable, Equatable, Roundable, Writable):
     # TODO: maybe use psize for SIMD for Vec3 on cpu
     # comptime psize = 4 if Self.size == 3 and CompilationTarget.is_x86() else Self.size
-    comptime T = InlineArray[Scalar[Self.dtype], Self.size]
+    comptime S = Scalar[Self.dtype]
+    comptime T = InlineArray[Self.S, Self.size]
     var data: Self.T
 
-    fn __init__(out self, s: Scalar[Self.dtype]):
+    fn __init__(out self, s: Self.S):
         comptime assert Self.size > 0
         self.data = Self.T(fill=s)
 
@@ -66,7 +67,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Equatable, Roundable, Writable):
         comptime assert Self.size > 0
         self.data = Self.T(uninitialized=uninitialized)
 
-    fn __init__(out self, var *elems: Scalar[Self.dtype]):
+    fn __init__(out self, var *elems: Self.S):
         debug_assert(
             len(elems) == Self.size, "No. of elems must match array size"
         )
@@ -75,46 +76,46 @@ struct Vec[dtype: DType, size: Int](Copyable, Equatable, Roundable, Writable):
     # TODO: should we keep this ?
     fn __init__(
         out self: Vec[Self.dtype, 2],
-        x: Scalar[Self.dtype],
-        y: Scalar[Self.dtype],
+        x: Self.S,
+        y: Self.S,
     ):
         self.data = [x, y]
 
     fn __init__(
         out self: Vec[Self.dtype, 3],
-        x: Scalar[Self.dtype],
-        y: Scalar[Self.dtype],
-        z: Scalar[Self.dtype],
+        x: Self.S,
+        y: Self.S,
+        z: Self.S,
     ):
         self.data = [x, y, z]
 
     fn __init__(
         out self: Vec[Self.dtype, 4],
-        x: Scalar[Self.dtype],
-        y: Scalar[Self.dtype],
-        z: Scalar[Self.dtype],
-        w: Scalar[Self.dtype],
+        x: Self.S,
+        y: Self.S,
+        z: Self.S,
+        w: Self.S,
     ):
         self.data = [x, y, z, w]
 
     fn __init__(
         out self: Vec[Self.dtype, 6],
-        v: Vec[Self.dtype, 3],
-        w: Vec[Self.dtype, 3],
+        v: Vec3[Self.dtype],
+        w: Vec3[Self.dtype],
     ):
         self.data = [v.x(), v.y(), v.z(), w.x(), w.y(), w.z()]
 
-    fn x(self) -> Scalar[Self.dtype]:
+    fn x(self) -> Self.S:
         return self.data[0]
 
-    fn y(self) -> Scalar[Self.dtype]:
+    fn y(self) -> Self.S:
         return self.data[1]
 
-    fn z(self) -> Scalar[Self.dtype]:
+    fn z(self) -> Self.S:
         comptime assert Self.size >= 3
         return self.data[2]
 
-    fn w(self) -> Scalar[Self.dtype]:
+    fn w(self) -> Self.S:
         comptime assert Self.size >= 4
         return self.data[3]
 
@@ -135,16 +136,12 @@ struct Vec[dtype: DType, size: Int](Copyable, Equatable, Roundable, Writable):
         return Vec3[Self.dtype](self.x(), self.y(), self.z())
 
     @always_inline
-    fn __getitem__[
-        I: Indexer, //, idx: I
-    ](ref self) -> ref[self.data] Scalar[Self.dtype]:
+    fn __getitem__[I: Indexer, //, idx: I](ref self) -> ref[self.data] Self.S:
         """With compile-time bounds checking."""
         return self.data[materialize[idx]()]
 
     @always_inline
-    fn __getitem__[
-        I: Indexer
-    ](ref self, idx: I) -> ref[self.data] Scalar[Self.dtype]:
+    fn __getitem__[I: Indexer](ref self, idx: I) -> ref[self.data] Self.S:
         # return self.data[idx] # bounds checking
         return self.data.unsafe_get(idx)  # no bounds checking
 
@@ -155,28 +152,28 @@ struct Vec[dtype: DType, size: Int](Copyable, Equatable, Roundable, Writable):
         return out^
 
     fn __add__(self, other: Self) -> Self:
-        return _vv[Scalar[Self.dtype].__add__](self, other)
+        return _vv[Self.S.__add__](self, other)
 
     fn __iadd__(mut self, other: Self):
         comptime for i in range(Self.size):
             self[i] += other[i]
 
     fn __sub__(self, other: Self) -> Self:
-        return _vv[Scalar[Self.dtype].__sub__](self, other)
+        return _vv[Self.S.__sub__](self, other)
 
     fn __isub__(mut self, other: Self):
         comptime for i in range(Self.size):
             self[i] -= other[i]
 
     fn __mul__(self, other: Self) -> Self:
-        return _vv[Scalar[Self.dtype].__mul__](self, other)
+        return _vv[Self.S.__mul__](self, other)
 
     fn __imul__(mut self, other: Self):
         comptime for i in range(Self.size):
             self[i] *= other[i]
 
     fn __truediv__(self, other: Self) -> Self:
-        return _vv[Scalar[Self.dtype].__truediv__](self, other)
+        return _vv[Self.S.__truediv__](self, other)
 
     # --- Scalar Operators ---
     fn __invert__(self) -> Self:
@@ -185,61 +182,61 @@ struct Vec[dtype: DType, size: Int](Copyable, Equatable, Roundable, Writable):
             out[i] = ~self[i]
         return out^
 
-    fn __add__(self, s: Scalar[Self.dtype]) -> Self:
-        return _vs[Scalar[Self.dtype].__add__](self, s)
+    fn __add__(self, s: Self.S) -> Self:
+        return _vs[Self.S.__add__](self, s)
 
-    fn __iadd__(mut self, s: Scalar[Self.dtype]):
+    fn __iadd__(mut self, s: Self.S):
         comptime for i in range(Self.size):
             self[i] += s
 
-    fn __sub__(self, s: Scalar[Self.dtype]) -> Self:
-        return _vs[Scalar[Self.dtype].__sub__](self, s)
+    fn __sub__(self, s: Self.S) -> Self:
+        return _vs[Self.S.__sub__](self, s)
 
-    fn __isub__(mut self, s: Scalar[Self.dtype]):
+    fn __isub__(mut self, s: Self.S):
         comptime for i in range(Self.size):
             self[i] -= s
 
-    fn __mul__(self, s: Scalar[Self.dtype]) -> Self:
-        return _vs[Scalar[Self.dtype].__mul__](self, s)
+    fn __mul__(self, s: Self.S) -> Self:
+        return _vs[Self.S.__mul__](self, s)
 
-    fn __rmul__(self, s: Scalar[Self.dtype]) -> Self:
+    fn __rmul__(self, s: Self.S) -> Self:
         return self * s
 
-    fn __truediv__(self, s: Scalar[Self.dtype]) -> Self:
-        return _vs[Scalar[Self.dtype].__truediv__](self, s)
+    fn __truediv__(self, s: Self.S) -> Self:
+        return _vs[Self.S.__truediv__](self, s)
 
-    fn __rtruediv__(self, s: Scalar[Self.dtype]) -> Self:
-        return _vs[Scalar[Self.dtype].__rtruediv__](self, s)
+    fn __rtruediv__(self, s: Self.S) -> Self:
+        return _vs[Self.S.__rtruediv__](self, s)
 
     fn __and__(self, other: Self) -> Self:
-        return _vv[Scalar[Self.dtype].__and__](self, other)
+        return _vv[Self.S.__and__](self, other)
 
-    fn __and__(self, s: Scalar[Self.dtype]) -> Self:
-        return _vs[Scalar[Self.dtype].__and__](self, s)
+    fn __and__(self, s: Self.S) -> Self:
+        return _vs[Self.S.__and__](self, s)
 
     fn __or__(self, other: Self) -> Self:
-        return _vv[Scalar[Self.dtype].__or__](self, other)
+        return _vv[Self.S.__or__](self, other)
 
-    fn __or__(self, s: Scalar[Self.dtype]) -> Self:
-        return _vs[Scalar[Self.dtype].__or__](self, s)
+    fn __or__(self, s: Self.S) -> Self:
+        return _vs[Self.S.__or__](self, s)
 
     fn __xor__(self, other: Self) -> Self:
-        return _vv[Scalar[Self.dtype].__xor__](self, other)
+        return _vv[Self.S.__xor__](self, other)
 
-    fn __xor__(self, s: Scalar[Self.dtype]) -> Self:
-        return _vs[Scalar[Self.dtype].__xor__](self, s)
+    fn __xor__(self, s: Self.S) -> Self:
+        return _vs[Self.S.__xor__](self, s)
 
     fn __lshift__(self, other: Self) -> Self:
-        return _vv[Scalar[Self.dtype].__lshift__](self, other)
+        return _vv[Self.S.__lshift__](self, other)
 
-    fn __lshift__(self, s: Scalar[Self.dtype]) -> Self:
-        return _vs[Scalar[Self.dtype].__lshift__](self, s)
+    fn __lshift__(self, s: Self.S) -> Self:
+        return _vs[Self.S.__lshift__](self, s)
 
     fn __rshift__(self, other: Self) -> Self:
-        return _vv[Scalar[Self.dtype].__rshift__](self, other)
+        return _vv[Self.S.__rshift__](self, other)
 
-    fn __rshift__(self, s: Scalar[Self.dtype]) -> Self:
-        return _vs[Scalar[Self.dtype].__rshift__](self, s)
+    fn __rshift__(self, s: Self.S) -> Self:
+        return _vs[Self.S.__rshift__](self, s)
 
     fn __round__(self) -> Self:
         res = Self(uninitialized=True)
@@ -259,7 +256,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Equatable, Roundable, Writable):
             eq &= self[i] == other[i]
         return eq
 
-    fn near_zero[s: Scalar[Self.dtype] = 1e-8](self) -> Bool:
+    fn near_zero[s: Self.S = 1e-8](self) -> Bool:
         nz = True
         comptime for i in range(Self.size):
             nz &= abs(self[i]) < s

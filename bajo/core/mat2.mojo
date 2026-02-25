@@ -55,6 +55,18 @@ struct Mat[
             self.data[i] = row_vec^
 
     @staticmethod
+    fn from_cols(*columns: Vec[Self.dtype, Self.rows]) -> Self:
+        debug_assert["safe"](
+            len(columns) == Self.cols,
+            "Number of columns must match matrix size",
+        )
+        m = Self(uninitialized=True)
+        comptime for j in range(Self.cols):  # For each input column
+            comptime for i in range(Self.rows):  # For each row in that column
+                m[i][j] = columns[j][i]
+        return m^
+
+    @staticmethod
     fn identity() -> Self:
         res = Self(Scalar[Self.dtype](0))
         comptime for i in range(min(Self.rows, Self.cols)):

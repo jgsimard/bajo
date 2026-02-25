@@ -35,9 +35,9 @@ fn test_basics() raises:
 
 fn test_trs_composition_decomposition() raises:
     t = Vec3f32(10, 20, 30)
-
+    axis = Vec3f32(0, 0, 1)
     angle = degrees_to_radians(Float32(45))
-    r = Quat.angle_axis(angle, Vec3f32(0, 0, 1))
+    r = Quat.from_axis_angle(axis, angle)
     s = Vec3f32(2, 2, 2)
 
     # Create Mat3x4 from TRS

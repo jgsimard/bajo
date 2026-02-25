@@ -1,6 +1,12 @@
-from math import asin, atan2, cos, fma, pi, sin, sqrt, tan
+from math import asin, atan2, cos, fma, pi, sin, sqrt, tan, copysign
 
-from bajo.core.vec import Vec3, cross
+from bajo.core.vec import (
+    Vec3,
+    cross,
+    normalize as vnormalize,
+    length as vlength,
+)
+from bajo.core.mat2 import Mat, Mat33, Mat44
 
 
 fn length2[
@@ -71,17 +77,16 @@ struct Quaternion[type: DType where type.is_floating_point()](
     fn xyz(self) -> Vec3[Self.type]:
         return Vec3[Self.type](self.x(), self.y(), self.z())
 
-    fn inv(self) -> Self:
+    fn inverse(self) -> Self:
         return Self(-self.x(), -self.y(), -self.z(), self.w())
 
-    # fn rotate(self, v: Vec3[Self.type]) -> Vec3[Self.type]:
-    #     p = self.xyz()
-    #     w = self.w()
-    #     pv = cross(p, v)
-    #     ppv = cross(p, pv)
-    #     return v + (pv * w + ppv) * 2.0
-
+    # TODO: benchmark the two version to choose the fastest
     fn rotate(self, v: Vec3[Self.type]) -> Vec3[Self.type]:
+        # p = self.xyz()
+        # w = self.w()
+        # pv = cross(p, v)
+        # ppv = cross(p, pv)
+        # return v + (pv * w + ppv) * 2.0
         qw = self.w()
         qx = self.x()
         qy = self.y()
@@ -101,7 +106,7 @@ struct Quaternion[type: DType where type.is_floating_point()](
 
         return Vec3[Self.type](rx, ry, rz)
 
-    fn rotate_inv(self, v: Vec3[Self.type]) -> Vec3[Self.type]:
+    fn rotate_inverse(self, v: Vec3[Self.type]) -> Vec3[Self.type]:
         qw = self.w()
         qx = self.x()
         qy = self.y()
@@ -124,11 +129,83 @@ struct Quaternion[type: DType where type.is_floating_point()](
         return Vec3[Self.type](rx, ry, rz)
 
     @staticmethod
-    fn angle_axis(angle: Scalar[Self.type], normal: Vec3[Self.type]) -> Self:
-        half_angle = angle / 2.0
+    fn from_axis_angle(axis: Vec3[Self.type], angle: Scalar[Self.type]) -> Self:
+        half_angle = angle * 0.5
         w = cos(half_angle)
-        xyz = normal * sin(half_angle)
+        xyz = axis * sin(half_angle)
         return Self(xyz, w)
+
+    fn to_axis_angle(self) -> Tuple[Vec3[Self.type], Scalar[Self.type]]:
+        v = self.xyz()
+        axis = vnormalize(v) * copysign(Scalar[Self.type](1.0), self.w())
+        angle = 2 * atan2(vlength(v), abs(self.w()))
+        return (axis^, angle)
+
+    fn to_matrix(self) -> Mat33[Self.type]:
+        c1 = self.rotate(Vec3[Self.type](1, 0, 0))
+        c2 = self.rotate(Vec3[Self.type](0, 1, 0))
+        c3 = self.rotate(Vec3[Self.type](0, 0, 1))
+        return Mat33[Self.type].from_cols(c1, c2, c3)
+
+    @staticmethod
+    fn from_matrix[
+        rows: Int where rows >= 1, cols: Int where cols >= 1
+    ](m: Mat[Self.type, rows, cols]) -> Self where (rows == cols) and (
+        rows == 3 or rows == 4
+    ):
+        """Only accepts 3x3 and 4x4 matrices."""
+
+        comptime zero = Scalar[Self.type](0)
+        comptime one = Scalar[Self.type](1)
+        comptime half = Scalar[Self.type](0.5)
+        tr = m[0][0] + m[1][1] + m[2][2]
+        x: Scalar[Self.type]
+        y: Scalar[Self.type]
+        z: Scalar[Self.type]
+        w: Scalar[Self.type]
+        h: Scalar[Self.type]
+
+        if tr >= zero:
+            h = sqrt(tr + 1)
+            w = half * h
+            h = half / h
+
+            x = (m[2][1] - m[1][2]) * h
+            y = (m[0][2] - m[2][0]) * h
+            z = (m[1][0] - m[0][1]) * h
+        else:
+            max_diag = 0
+            if m[1][1] > m[0][0]:
+                max_diag = 1
+            if m[2][2] > m[max_diag][max_diag]:
+                max_diag = 2
+
+            if max_diag == 0:
+                h = sqrt((m[0][0] - (m[1][1] + m[2][2])) + one)
+                x = half * h
+                h = half / h
+
+                y = (m[0][1] + m[1][0]) * h
+                z = (m[2][0] + m[0][2]) * h
+                w = (m[2][1] - m[1][2]) * h
+            elif max_diag == 1:
+                h = sqrt((m[1][1] - (m[2][2] + m[0][0])) + one)
+                y = half * h
+                h = half / h
+
+                z = (m[1][2] + m[2][1]) * h
+                x = (m[0][1] + m[1][0]) * h
+                w = (m[0][2] - m[2][0]) * h
+            else:  # max_diag == 2
+                h = sqrt((m[2][2] - (m[0][0] + m[1][1])) + one)
+                z = half * h
+                h = half / h
+
+                x = (m[2][0] + m[0][2]) * h
+                y = (m[1][2] + m[2][1]) * h
+                w = (m[1][0] - m[0][1]) * h
+
+        return normalize(Self(x, y, z, w))
 
     @staticmethod
     fn from_basis[
@@ -225,6 +302,8 @@ struct Quaternion[type: DType where type.is_floating_point()](
 
             return Self(res)
 
+    comptime from_rpy = Self.from_euler
+
     @staticmethod
     fn from_euler(
         roll: Scalar[Self.type],
@@ -248,6 +327,8 @@ struct Quaternion[type: DType where type.is_floating_point()](
         w = cr * cp * cy + sr * sp * sy
 
         return Self(x, y, z, w)
+
+    comptime to_rpy = Self.to_euler
 
     fn to_euler(self) -> Vec3[Self.type]:
         """
@@ -318,5 +399,23 @@ struct Quaternion[type: DType where type.is_floating_point()](
     fn __mul__(self, f: Scalar[Self.type]) -> Self:
         return Self(self.data * f)
 
-    fn __imul__(mut self, f: Scalar[Self.type]):
-        self.data *= f
+    fn __imul__(mut self, s: Scalar[Self.type]):
+        self.data *= s
+
+
+fn slerp[
+    dtype: DType where dtype.is_floating_point()
+](q0: Quaternion[dtype], q1: Quaternion[dtype], t: Scalar[dtype]) -> Quaternion[
+    dtype
+]:
+    """Spherical Linear Interpolation."""
+    axis_angle = (q0.inverse() * q1).to_axis_angle()
+    return q0 * Quaternion.from_axis_angle(axis_angle[0], t * axis_angle[1])
+
+
+fn main():
+    print("hello bajo.core.quat")
+    comptime T = DType.float32
+    m = Mat[T, 4, 4](1)
+    q = Quaternion.from_matrix(m)
+    print(q)

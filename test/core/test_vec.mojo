@@ -63,16 +63,17 @@ fn test_swizzles() raises:
     # Test indexing
     v[0] = 10
     assert_almost_equal(v.x(), 10.0)
+    assert_almost_equal(v.y(), 2.0)
+    assert_almost_equal(v.z(), 3.0)
+    assert_almost_equal(v.w(), 4.0)
 
 
 fn test_near_zero() raises:
-    v_tiny = Vec3f32(1e-9)
-    v_zero = Vec3f32(0)
-    assert_true(v_tiny.near_zero())
-    assert_true(v_zero.near_zero())
+    assert_true(Vec3f32(1e-9).near_zero())
+    assert_true(Vec3f32(0).near_zero())
 
-    v_large = Vec3f32(0.1)
-    assert_false(v_large.near_zero())
+    assert_false(Vec3f32(0.1).near_zero())
+    assert_false(Vec3f32(1e-9, 1e-9, 0.1).near_zero())
 
 
 def main():

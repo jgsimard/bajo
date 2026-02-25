@@ -601,4 +601,4 @@ fn transform_vector[
 
 
 fn main() raises:
-    print("core.mat2")
+    print("core.mat")

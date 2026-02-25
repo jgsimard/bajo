@@ -1,7 +1,8 @@
 from math import sqrt
+
 from bajo.core.quat import Quaternion
 from bajo.core.vec import Vec, Vec3, dot, cross, lerp as vlerp
-from bajo.core.mat2 import Mat
+from bajo.core.mat import Mat, Mat33
 
 
 comptime transformf32 = Transform[DType.float32]
@@ -62,13 +63,13 @@ fn spatial_bottom[dtype: DType](a: SpatialVector[dtype]) -> Vec[dtype, 3]:
     return v_vec(a)
 
 
-# --- Transform Struct ---
-
-
 @fieldwise_init
 struct Transform[dtype: DType where dtype.is_floating_point()](
-    Copyable, Equatable
+    Copyable, Equatable, Writable
 ):
+    comptime P = Vec3[Self.dtype]
+    comptime Q = Quaternion[Self.dtype]
+
     var p: Vec3[Self.dtype]
     var q: Quaternion[Self.dtype]
 
@@ -77,76 +78,36 @@ struct Transform[dtype: DType where dtype.is_floating_point()](
 
     @staticmethod
     fn identity() -> Self:
-        return Self(Vec[dtype, 3](0), Quaternion[dtype].identity())
+        return Self(Self.P(0), Self.Q.identity())
 
     fn __neg__(self) -> Self:
         return Self(-self.p, -self.q)
 
-    fn __getitem__(self, idx: Int) -> Scalar[dtype]:
-        if idx < 3:
-            return self.p[idx]
-        return self.q[idx - 3]
+    fn get_translation(ref self) -> ref[self.p] Self.P:
+        return self.p
 
-    fn __setitem__(mut self, idx: Int, val: Scalar[dtype]):
-        if idx < 3:
-            self.p[idx] = val
-        else:
-            self.q[idx - 3] = val
+    fn get_rotation(ref self) -> ref[self.q] Self.Q:
+        return self.q
 
-    fn get_translation(ref self) -> ref[self.p] Vec[dtype, 3]:
-        return t.p
+    fn __mul__(self, rhs: Self) -> Self:
+        return Self(self.q.rotate(rhs.p) + self.p, self.q * rhs.q)
 
-    fn get_rotation(ref self) -> ref[self.q] Quaternion[dtype]:
-        return t.q
+    fn inverse(self) -> Self:
+        q_inv = self.q.inverse()
+        return Self(-(q_inv.rotate(self.p)), q_inv)
 
+    fn transform_vector(self, x: Self.P) -> Self.P:
+        """Applies only rotation to a vector."""
+        return self.q.rotate(x)
 
-fn transform_multiply[
-    dtype: DType where dtype.is_floating_point()
-](a: Transform[dtype], b: Transform[dtype]) -> Transform[dtype]:
-    # a.q * b.p rotates the second translation into the first's frame, then adds the offset
-    return Transform[dtype](a.q.rotate(b.p) + a.p, a.q * b.q)
-
-
-fn transform_inverse[
-    dtype: DType where dtype.is_floating_point()
-](t: Transform[dtype]) -> Transform[dtype]:
-    q_inv = t.q.inverse()
-    return Transform[dtype](-(q_inv.rotate(t.p)), q_inv)
-
-
-fn transform_vector[
-    dtype: DType where dtype.is_floating_point()
-](t: Transform[dtype], x: Vec[dtype, 3]) -> Vec[dtype, 3]:
-    """Applies only rotation to a vector."""
-    return t.q.rotate(x)
-
-
-fn transform_point[
-    dtype: DType where dtype.is_floating_point()
-](t: Transform[dtype], x: Vec[dtype, 3]) -> Vec[dtype, 3]:
-    """Applies full rigid transformation to a point."""
-    return t.p + t.q.rotate(x)
-
-
-fn lerp[
-    dtype: DType where dtype.is_floating_point()
-](a: Transform[dtype], b: Transform[dtype], t: Scalar[dtype]) -> Transform[
-    dtype
-]:
-    return Transform[dtype](
-        vlerp(a.p, b.p, t),
-        # Note: Strictly speaking, Warp uses linear addition for quats in lerp.
-        # For better results, one might use Slerp, but following Warp's logic:
-        a.q * (1.0 - t) + b.q * t,
-    )
-
-
-# --- Spatial Dynamics ---
+    fn transform_point(self, x: Self.P) -> Self.P:
+        """Applies full rigid transformation to a point."""
+        return self.p + self.q.rotate(x)
 
 
 fn spatial_adjoint[
     dtype: DType
-](R: Mat[dtype, 3, 3], S: Mat[dtype, 3, 3]) -> SpatialMatrix[dtype]:
+](R: Mat33[dtype], S: Mat33[dtype]) -> SpatialMatrix[dtype]:
     """
     Builds a 6x6 spatial adjoint matrix:
     [ R  0 ]
@@ -156,83 +117,78 @@ fn spatial_adjoint[
 
     comptime for i in range(3):
         comptime for j in range(3):
-            # Diagonal blocks
-            out[i, j] = R[i, j]
-            out[i + 3, j + 3] = R[i, j]
-            # Lower off-diagonal
-            out[i + 3, j] = S[i, j]
-            # Upper off-diagonal
-            out[i, j + 3] = 0
-
-    return out
+            out[i][j] = R[i][j]  # 11
+            out[i][j + 3] = 0  # 12
+            out[i + 3][j] = S[i][j]  # 21
+            out[i + 3][j + 3] = R[i][j]  # 22
+    return out^
 
 
-fn spatial_jacobian[
-    dtype: DType
-](
-    S: UnsafePointer[SpatialVector[dtype]],
-    joint_parents: UnsafePointer[Int],
-    joint_qd_start: UnsafePointer[Int],
-    joint_start: Int,
-    joint_count: Int,
-    J_start: Int,
-    J: UnsafePointer[Scalar[dtype]],
-):
-    articulation_dof_start = joint_qd_start[joint_start]
-    articulation_dof_end = joint_qd_start[joint_start + joint_count]
-    articulation_dof_count = articulation_dof_end - articulation_dof_start
-
-    for i in range(joint_count):
-        row_start = i * 6
-        var j = joint_start + i
-
-        while j != -1:
-            joint_dof_start = joint_qd_start[j]
-            joint_dof_count = joint_qd_start[j + 1] - joint_dof_start
-
-            for dof in range(joint_dof_count):
-                col = (joint_dof_start - articulation_dof_start) + dof
-
-                # Offset pointers logic
-                s_val = S[articulation_dof_start + col]
-
-                J[
-                    J_start + (row_start + 0) * articulation_dof_count + col
-                ] = s_val[0]
-                J[
-                    J_start + (row_start + 1) * articulation_dof_count + col
-                ] = s_val[1]
-                J[
-                    J_start + (row_start + 2) * articulation_dof_count + col
-                ] = s_val[2]
-                J[
-                    J_start + (row_start + 3) * articulation_dof_count + col
-                ] = s_val[3]
-                J[
-                    J_start + (row_start + 4) * articulation_dof_count + col
-                ] = s_val[4]
-                J[
-                    J_start + (row_start + 5) * articulation_dof_count + col
-                ] = s_val[5]
-
-            j = joint_parents[j]
+fn row_index(stride: Int, i: Int, j: Int) -> Int:
+    return i * stride + j
 
 
-fn spatial_mass[
-    dtype: DType
-](
-    I_s: UnsafePointer[SpatialMatrix[dtype]],
-    joint_start: Int,
-    joint_count: Int,
-    M_start: Int,
-    M: UnsafePointer[Scalar[dtype]],
-):
-    stride = joint_count * 6
-    for l in range(joint_count):
-        mat = I_s[joint_start + l]
-        for i in range(6):
-            for j in range(6):
-                M[M_start + (l * 6 + i) * stride + (l * 6 + j)] = mat[i, j]
+# fn spatial_jacobian[
+#     dtype: DType
+# ](
+#     S: UnsafePointer[SpatialVector[dtype], ImmutAnyOrigin],
+#     joint_parents: UnsafePointer[Int, ImmutAnyOrigin],
+#     joint_qd_start: UnsafePointer[Int, ImmutAnyOrigin],
+#     joint_start: Int, # offset of the first joint for the articulation
+#     joint_count: Int,
+#     J_start: Int,
+#     J: UnsafePointer[Scalar[dtype]],
+# ):
+#     """builds spatial Jacobian J which is an (joint_count*6)x(dof_count) matrix"""
+
+#     articulation_dof_start = joint_qd_start[joint_start]
+#     articulation_dof_end = joint_qd_start[joint_start + joint_count]
+#     articulation_dof_count = articulation_dof_end - articulation_dof_start
+
+#     for i in range(joint_count):
+#         row_start = i * 6
+#         j = joint_start + i
+
+#         while j != -1:
+#             joint_dof_start = joint_qd_start[j]
+#             joint_dof_end = joint_qd_start[j + 1]
+#             joint_dof_count = joint_dof_end - joint_dof_start
+
+#             joint_dof_start = joint_qd_start[j]
+#             joint_dof_count = joint_qd_start[j + 1] - joint_dof_start
+
+#             # fill out each row of the Jacobian walking up the tree
+#             for dof in range(joint_dof_count):
+#                 col = (joint_dof_start - articulation_dof_start) + dof
+
+#                 # Offset pointers logic
+#                 s_val = S[articulation_dof_start + col]
+#                 w = v_vec(S[col]
+#                 J[row_index(articulation_dof_count, row_start + 0, col)] = S[col][0]
+#                 J[row_index(articulation_dof_count, row_start + 1, col)] = S[col][1]
+#                 J[row_index(articulation_dof_count, row_start + 2, col)] = S[col][2]
+#                 J[row_index(articulation_dof_count, row_start + 3, col)] = S[col][3]
+#                 J[row_index(articulation_dof_count, row_start + 4, col)] = S[col][4]
+#                 J[row_index(articulation_dof_count, row_start + 5, col)] = S[col][5]
+
+#             j = joint_parents[j]
+
+
+# fn spatial_mass[
+#     dtype: DType
+# ](
+#     I_s: UnsafePointer[SpatialMatrix[dtype]],
+#     joint_start: Int,
+#     joint_count: Int,
+#     M_start: Int,
+#     M: UnsafePointer[Scalar[dtype]],
+# ):
+#     stride = joint_count * 6
+#     for l in range(joint_count):
+#         ref mat = I_s[joint_start + l]
+#         for i in range(6):
+#             for j in range(6):
+#                 M[M_start + (l * 6 + i) * stride + (l * 6 + j)] = mat[i, j]
 
 
 fn main():

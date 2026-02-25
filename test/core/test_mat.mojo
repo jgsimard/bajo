@@ -23,14 +23,15 @@ from bajo.core.quat import Quat
 
 
 fn test_basics() raises:
+    comptime T = DType.float32
     # Transpose check
     # fmt: off
-    m = Mat33f32(
+    m = Mat33[T](
         1, 2, 3, 
         4, 5, 6, 
         7, 8, 9
     )
-    mt = Mat33f32(
+    mt = Mat33[T](
         1, 4, 7, 
         2, 5, 8, 
         3, 6, 9
@@ -38,10 +39,7 @@ fn test_basics() raises:
     # fmt: on
     assert_equal(m.transpose(), mt)
 
-    # Determinant of Identity
-    assert_almost_equal(determinant(Mat33f32.identity()), 1.0)
-
-    comptime T = DType.float32
+    assert_almost_equal(determinant(Mat33[T].identity()), 1.0)
 
     m2 = Mat22[T](1, 2, 3, 4)
     assert_almost_equal(determinant(m2), -2.0)

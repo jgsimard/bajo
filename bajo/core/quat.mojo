@@ -354,6 +354,9 @@ struct Quaternion[dtype: DType where dtype.is_floating_point()](
 
         return Vec3[Self.dtype](roll, pitch, yaw)
 
+    fn __neg__(self) -> Self:
+        return Self(-self.data)
+
     fn __add__(self, o: Self) -> Self:
         return Self(self.data + o.data)
 

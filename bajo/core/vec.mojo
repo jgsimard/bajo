@@ -155,40 +155,28 @@ struct Vec[dtype: DType, size: Int](Copyable, Equatable, Roundable, Writable):
         return out^
 
     fn __add__(self, other: Self) -> Self:
-        out = Self(uninitialized=True)
-        comptime for i in range(Self.size):
-            out[i] = self[i] + other[i]
-        return out^
+        return _vv[Scalar[Self.dtype].__add__](self, other)
 
     fn __iadd__(mut self, other: Self):
         comptime for i in range(Self.size):
             self[i] += other[i]
 
     fn __sub__(self, other: Self) -> Self:
-        out = Self(uninitialized=True)
-        comptime for i in range(Self.size):
-            out[i] = self[i] - other[i]
-        return out^
+        return _vv[Scalar[Self.dtype].__sub__](self, other)
 
     fn __isub__(mut self, other: Self):
         comptime for i in range(Self.size):
             self[i] -= other[i]
 
     fn __mul__(self, other: Self) -> Self:
-        out = Self(uninitialized=True)
-        comptime for i in range(Self.size):
-            out[i] = self[i] * other[i]
-        return out^
+        return _vv[Scalar[Self.dtype].__mul__](self, other)
 
     fn __imul__(mut self, other: Self):
         comptime for i in range(Self.size):
             self[i] *= other[i]
 
     fn __truediv__(self, other: Self) -> Self:
-        out = Self(uninitialized=True)
-        comptime for i in range(Self.size):
-            out[i] = self[i] / other[i]
-        return out^
+        return _vv[Scalar[Self.dtype].__truediv__](self, other)
 
     # --- Scalar Operators ---
     fn __invert__(self) -> Self:
@@ -198,105 +186,60 @@ struct Vec[dtype: DType, size: Int](Copyable, Equatable, Roundable, Writable):
         return out^
 
     fn __add__(self, s: Scalar[Self.dtype]) -> Self:
-        out = Self(uninitialized=True)
-        comptime for i in range(Self.size):
-            out[i] = self[i] + s
-        return out^
+        return _vs[Scalar[Self.dtype].__add__](self, s)
 
     fn __iadd__(mut self, s: Scalar[Self.dtype]):
         comptime for i in range(Self.size):
             self[i] += s
 
     fn __sub__(self, s: Scalar[Self.dtype]) -> Self:
-        out = Self(uninitialized=True)
-        comptime for i in range(Self.size):
-            out[i] = self[i] - s
-        return out^
+        return _vs[Scalar[Self.dtype].__sub__](self, s)
 
     fn __isub__(mut self, s: Scalar[Self.dtype]):
         comptime for i in range(Self.size):
             self[i] -= s
 
     fn __mul__(self, s: Scalar[Self.dtype]) -> Self:
-        out = Self(uninitialized=True)
-        comptime for i in range(Self.size):
-            out[i] = self[i] * s
-        return out^
+        return _vs[Scalar[Self.dtype].__mul__](self, s)
 
     fn __rmul__(self, s: Scalar[Self.dtype]) -> Self:
         return self * s
 
     fn __truediv__(self, s: Scalar[Self.dtype]) -> Self:
-        out = Self(uninitialized=True)
-        comptime for i in range(Self.size):
-            out[i] = self[i] / s
-        return out^
+        return _vs[Scalar[Self.dtype].__truediv__](self, s)
 
     fn __rtruediv__(self, s: Scalar[Self.dtype]) -> Self:
-        out = Self(uninitialized=True)
-        comptime for i in range(Self.size):
-            out[i] = s / self[i]
-        return out^
+        return _vs[Scalar[Self.dtype].__rtruediv__](self, s)
 
     fn __and__(self, other: Self) -> Self:
-        out = Self(uninitialized=True)
-        comptime for i in range(Self.size):
-            out[i] = self[i] & other[i]
-        return out^
+        return _vv[Scalar[Self.dtype].__and__](self, other)
 
     fn __and__(self, s: Scalar[Self.dtype]) -> Self:
-        out = Self(uninitialized=True)
-        comptime for i in range(Self.size):
-            out[i] = self[i] & s
-        return out^
+        return _vs[Scalar[Self.dtype].__and__](self, s)
 
     fn __or__(self, other: Self) -> Self:
-        out = Self(uninitialized=True)
-        comptime for i in range(Self.size):
-            out[i] = self[i] | other[i]
-        return out^
+        return _vv[Scalar[Self.dtype].__or__](self, other)
 
     fn __or__(self, s: Scalar[Self.dtype]) -> Self:
-        out = Self(uninitialized=True)
-        comptime for i in range(Self.size):
-            out[i] = self[i] | s
-        return out^
+        return _vs[Scalar[Self.dtype].__or__](self, s)
 
     fn __xor__(self, other: Self) -> Self:
-        out = Self(uninitialized=True)
-        comptime for i in range(Self.size):
-            out[i] = self[i] ^ other[i]
-        return out^
+        return _vv[Scalar[Self.dtype].__xor__](self, other)
 
     fn __xor__(self, s: Scalar[Self.dtype]) -> Self:
-        out = Self(uninitialized=True)
-        comptime for i in range(Self.size):
-            out[i] = self[i] ^ s
-        return out^
+        return _vs[Scalar[Self.dtype].__xor__](self, s)
 
     fn __lshift__(self, other: Self) -> Self:
-        out = Self(uninitialized=True)
-        comptime for i in range(Self.size):
-            out[i] = self[i] << other[i]
-        return out^
+        return _vv[Scalar[Self.dtype].__lshift__](self, other)
 
     fn __lshift__(self, s: Scalar[Self.dtype]) -> Self:
-        out = Self(uninitialized=True)
-        comptime for i in range(Self.size):
-            out[i] = self[i] << s
-        return out^
+        return _vs[Scalar[Self.dtype].__lshift__](self, s)
 
     fn __rshift__(self, other: Self) -> Self:
-        out = Self(uninitialized=True)
-        comptime for i in range(Self.size):
-            out[i] = self[i] >> other[i]
-        return out^
+        return _vv[Scalar[Self.dtype].__rshift__](self, other)
 
     fn __rshift__(self, s: Scalar[Self.dtype]) -> Self:
-        out = Self(uninitialized=True)
-        comptime for i in range(Self.size):
-            out[i] = self[i] >> s
-        return out^
+        return _vs[Scalar[Self.dtype].__rshift__](self, s)
 
     fn __round__(self) -> Self:
         res = Self(uninitialized=True)
@@ -321,6 +264,32 @@ struct Vec[dtype: DType, size: Int](Copyable, Equatable, Roundable, Writable):
         comptime for i in range(Self.size):
             nz &= abs(self[i]) < s
         return nz
+
+
+@always_inline
+fn _vv[
+    dtype: DType,
+    size: Int,
+    //,
+    func: fn(Scalar[dtype], Scalar[dtype]) -> Scalar[dtype],
+](lhs: Vec[dtype, size], rhs: Vec[dtype, size]) -> Vec[dtype, size]:
+    out = Vec[dtype, size](uninitialized=True)
+    comptime for i in range(size):
+        out[i] = func(lhs[i], rhs[i])
+    return out^
+
+
+@always_inline
+fn _vs[
+    dtype: DType,
+    size: Int,
+    //,
+    func: fn(Scalar[dtype], Scalar[dtype]) -> Scalar[dtype],
+](v: Vec[dtype, size], s: Scalar[dtype]) -> Vec[dtype, size]:
+    out = Vec[dtype, size](uninitialized=True)
+    comptime for i in range(size):
+        out[i] = func(v[i], s[i])
+    return out^
 
 
 fn is_power_of_2(n: Int) -> Bool:

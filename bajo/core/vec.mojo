@@ -341,6 +341,16 @@ fn dot[
     #     b3 = b.data.unsafe_ptr().load[width=4]()
     #     b3[3] = 0
     #     return (a3 * b3).reduce_add()
+    # elif size == 3:
+    #     a3 = a.data.unsafe_ptr().load[width=4]()
+    #     b3 = b.data.unsafe_ptr().load[width=4]()
+    #     return (a3 * b3).shift_rigt[1].reduce_add()
+    # # mabye thie version ??
+    #     comptime np2 = next_power_of_two(size)
+    #     comptime pad = np2 - size
+    #     aa = a.data.unsafe_ptr().load[width=np2]()
+    #     ba = b.data.unsafe_ptr().load[width=np2]()
+    #     return (a3 * b3).shift_rigt[pad].reduce_add()
     else:
         res: Scalar[dtype] = 0
         comptime for i in range(size):

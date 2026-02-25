@@ -358,7 +358,6 @@ fn _matvec[
     """Matrix-Vector product."""
     res = Vec[dtype, rows](uninitialized=True)
     for i in range(rows):
-        print(i)
         res[i] = dot(m[i], v)
     return res^
 

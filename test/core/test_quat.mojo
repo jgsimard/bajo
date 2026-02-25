@@ -39,16 +39,16 @@ fn test_mul_rotate() raises:
     # 1. Rotate 90 around X -> (0, -1, 0)
     # 2. Rotate 90 around Y -> (0, -1, 0) ... Y doesn't affect it
     v = Vec3f32(0, 0, 1)
-    result = q_combined.rotate_vec(v)
+    result = q_combined.rotate(v)
     assert_vec_equal(result, Vec3f32(0, -1, 0))
 
 
-fn test_rotate_vec() raises:
+fn test_rotate() raises:
     # Rotate (1, 0, 0) 90 degrees around Y axis -> should be (0, 0, -1)
     angle = degrees_to_radians(Float32(90))
     q = Quat.angle_axis(angle, Vec3f32(0, 1, 0))
     v = Vec3f32(1, 0, 0)
-    rotated = q.rotate_vec(v)
+    rotated = q.rotate(v)
     assert_vec_equal(rotated, Vec3f32(0, 0, -1))
 
 

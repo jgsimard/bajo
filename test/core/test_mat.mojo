@@ -79,7 +79,7 @@ fn test_Mat3f_from_quat() raises:
     m = Mat3f.from_quat(r)
     # Rotating a vector by the matrix should match rotating by the quaternion
     v = Vec3f32(0, 1, 0)
-    assert_vec_equal(m * v, r.rotate_vec(v))
+    assert_vec_equal(m * v, r.rotate(v))
 
 
 def main():

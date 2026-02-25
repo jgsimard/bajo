@@ -74,13 +74,54 @@ struct Quaternion[type: DType where type.is_floating_point()](
     fn inv(self) -> Self:
         return Self(-self.x(), -self.y(), -self.z(), self.w())
 
-    fn rotate_vec(self, v: Vec3[Self.type]) -> Vec3[Self.type]:
-        p = self.xyz()
-        w = self.w()
-        pv = cross(p, v)
-        ppv = cross(p, pv)
+    # fn rotate(self, v: Vec3[Self.type]) -> Vec3[Self.type]:
+    #     p = self.xyz()
+    #     w = self.w()
+    #     pv = cross(p, v)
+    #     ppv = cross(p, pv)
+    #     return v + (pv * w + ppv) * 2.0
 
-        return v + (pv * w + ppv) * 2.0
+    fn rotate(self, v: Vec3[Self.type]) -> Vec3[Self.type]:
+        qw = self.w()
+        qx = self.x()
+        qy = self.y()
+        qz = self.z()
+
+        vx = v[0]
+        vy = v[1]
+        vz = v[2]
+
+        c = 2 * qw * qw - 1
+        d = 2 * (qx * vx + qy * vy + qz * vz)
+        w2 = 2 * qw
+
+        rx = vx * c + qx * d + (qy * vz - qz * vy) * w2
+        ry = vy * c + qy * d + (qz * vx - qx * vz) * w2
+        rz = vz * c + qz * d + (qx * vy - qy * vx) * w2
+
+        return Vec3[Self.type](rx, ry, rz)
+
+    fn rotate_inv(self, v: Vec3[Self.type]) -> Vec3[Self.type]:
+        qw = self.w()
+        qx = self.x()
+        qy = self.y()
+        qz = self.z()
+
+        vx = v[0]
+        vy = v[1]
+        vz = v[2]
+
+        c = 2 * qw * qw - 1
+        d = 2 * (qx * vx + qy * vy + qz * vz)
+        w2 = 2 * qw
+
+        # Calcul des composantes avec le signe '-' pour le produit vectoriel
+        # Cela correspond à tourner par le quaternion conjugué (inverse)
+        rx = vx * c + qx * d - (qy * vz - qz * vy) * w2
+        ry = vy * c + qy * d - (qz * vx - qx * vz) * w2
+        rz = vz * c + qz * d - (qx * vy - qy * vx) * w2
+
+        return Vec3[Self.type](rx, ry, rz)
 
     @staticmethod
     fn angle_axis(angle: Scalar[Self.type], normal: Vec3[Self.type]) -> Self:

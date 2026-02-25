@@ -562,6 +562,11 @@ fn transform_vector[
     return _matvec(m, v4).xyz()
 
 
+##############
+# Quaternion
+##############
+
+
 from sys.info import size_of
 
 

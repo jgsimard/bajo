@@ -1,0 +1,5 @@
+[[repos]]
+repo = "local"
+hooks = [
+    { id = "mojo-format", name = "Mojo Format", entry = "pixi run mojo format .", language = "system", pass_filenames = false, always_run = true }
+]

@@ -13,7 +13,7 @@ fn create_vector[
     ptr: UnsafePointer[Scalar[dtype]],
     out result: LayoutTensor[dtype, layout, ptr.origin],
 ):
-    var dynamic_layout = type_of(result.runtime_layout)(
+    dynamic_layout = type_of(result.runtime_layout)(
         type_of(result.runtime_layout.shape)(m),
         type_of(result.runtime_layout.stride)(1),
     )
@@ -28,7 +28,7 @@ fn create_tensor[
     ptr: UnsafePointer[Scalar[dtype]],
     out result: LayoutTensor[dtype, layout, ptr.origin],
 ):
-    var dynamic_layout = type_of(result.runtime_layout)(
+    dynamic_layout = type_of(result.runtime_layout)(
         type_of(result.runtime_layout.shape)(m, n),
         type_of(result.runtime_layout.stride)(1, m),
     )
@@ -47,7 +47,7 @@ fn trtrs_row[
     _n = Int(L.runtime_layout.shape[1])
 
     for i in range(m):
-        var z = SIMD[dtype, element_layout.size()](0.0)
+        z = SIMD[dtype, element_layout.size()](0.0)
         for j in range(i):
             z += L[i, j] * x[j, 0]
         x[i, 0] = (b[i, 0] - z) / L[i, i]
@@ -71,18 +71,18 @@ def main():
 
     # 2. Fill Lower Triangular Matrix L
     # L[j,j] = 1, others are rand(-2, 2)
-    var L = create_tensor[T, mat_layout](n, n, l_ptr)
+    L = create_tensor[T, mat_layout](n, n, l_ptr)
     for j in range(n):
         L[j, j] = 1.0
         for i in range(j + 1, n):
             L[i, j] = Scalar[T](random_si64(-2, 2))
 
     # 3. Create Solution xe and Right-hand side b
-    var xe = create_vector[T, vec_layout](n, xe_ptr)
+    xe = create_vector[T, vec_layout](n, xe_ptr)
     for i in range(n):
         xe[i, 0] = Scalar[T](random_si64(0, 9))  # 0 to 9
 
-    var b = create_vector[T, vec_layout](n, b_ptr)
+    b = create_vector[T, vec_layout](n, b_ptr)
     print("L")
     print(L)
     print(L.shape[0](), L.shape[1]())
@@ -95,7 +95,7 @@ def main():
     matmul(b, L, xe, None)
 
     # 4. Solve and Benchmark
-    var x = create_vector[T, vec_layout](n, x_ptr)
+    x = create_vector[T, vec_layout](n, x_ptr)
 
     # Row-based Solve
     trtrs_row[T](x, L, b)
@@ -113,7 +113,7 @@ def main():
     # print("Row-oriented solve time: ", t_row_sec, " seconds")
 
     # Verify result (first 5 elements)
-    var good = True
+    good = True
     for i in range(n):
         if x[i, 0] != xe[i, 0]:
             good = False

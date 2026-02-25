@@ -173,7 +173,7 @@ fn create_vector[
     ptr: UnsafePointer[Scalar[dtype]],
     out result: LayoutTensor[dtype, layout, ptr.origin],
 ):
-    var dynamic_layout = type_of(result.runtime_layout)(
+    dynamic_layout = type_of(result.runtime_layout)(
         type_of(result.runtime_layout.shape)(m),
         type_of(result.runtime_layout.stride)(1),
     )
@@ -188,7 +188,7 @@ fn create_tensor[
     ptr: UnsafePointer[Scalar[dtype]],
     out result: LayoutTensor[dtype, layout, ptr.origin],
 ):
-    var dynamic_layout = type_of(result.runtime_layout)(
+    dynamic_layout = type_of(result.runtime_layout)(
         type_of(result.runtime_layout.shape)(m, n),
         type_of(result.runtime_layout.stride)(1, m),
     )
@@ -198,8 +198,8 @@ fn create_tensor[
 fn create_tensor2[
     dtype: DType, layout: Layout
 ](m: Int, n: Int, out result: LayoutTensor[dtype, layout, MutExternalOrigin],):
-    var ptr = alloc[Scalar[dtype]](m * n)
-    var dynamic_layout = type_of(result.runtime_layout)(
+    ptr = alloc[Scalar[dtype]](m * n)
+    dynamic_layout = type_of(result.runtime_layout)(
         type_of(result.runtime_layout.shape)(m, n),
         type_of(result.runtime_layout.stride)(1, m),
     )
@@ -229,35 +229,35 @@ def main():
     comptime v_layout = Layout(UNKNOWN_VALUE)
     comptime T = Float32
 
-    var a_ptr = alloc[T](m * n)
-    var a_ptr_copy = alloc[T](m * n)
-    var v_ptr = alloc[T](min_mn)
+    a_ptr = alloc[T](m * n)
+    a_ptr_copy = alloc[T](m * n)
+    v_ptr = alloc[T](min_mn)
     seed(123)
     rand[DType.float32](a_ptr, m * n)
-    var a = create_tensor[DType.float32, a_layout](m, n, a_ptr)
+    a = create_tensor[DType.float32, a_layout](m, n, a_ptr)
     memcpy(dest=a_ptr_copy, src=a_ptr, count=m * n)
 
     # factorize
-    var a_copy = create_tensor[DType.float32, a_layout](m, n, a_ptr_copy)
-    var v = create_vector[DType.float32, v_layout](min_mn, v_ptr)
+    a_copy = create_tensor[DType.float32, a_layout](m, n, a_ptr_copy)
+    v = create_vector[DType.float32, v_layout](min_mn, v_ptr)
     print(v)
     qr_factorization[DType.float32](v, a)
 
     # form Q
-    var q_ptr = alloc[T](m * m)
-    var q = create_tensor[DType.float32, a_layout](m, m, q_ptr)
+    q_ptr = alloc[T](m * m)
+    q = create_tensor[DType.float32, a_layout](m, m, q_ptr)
     form_q[DType.float32](v, a, q)
     print("check backward stability")
-    var q_mul_r_ptr = alloc[T](m * n)
-    var q_mul_r = create_tensor[DType.float32, a_layout](m, n, q_mul_r_ptr)
+    q_mul_r_ptr = alloc[T](m * n)
+    q_mul_r = create_tensor[DType.float32, a_layout](m, n, q_mul_r_ptr)
     trmm[DType.float32](q, a, q_mul_r)
 
     assert_almost_equal_ptr(
         q_mul_r.ptr, a_copy.ptr, m * n, atol=atol, rtol=rtol
     )
     print("check orthogonality")
-    var q_mul_qt_ptr = alloc[T](m * m)
-    var q_mul_qt = create_tensor[DType.float32, a_layout](m, m, q_mul_qt_ptr)
+    q_mul_qt_ptr = alloc[T](m * m)
+    q_mul_qt = create_tensor[DType.float32, a_layout](m, m, q_mul_qt_ptr)
     a_mul_bt[DType.float32](q, q, q_mul_qt)
     all_almost_id(q_mul_qt, atol=atol, rtol=rtol)
 

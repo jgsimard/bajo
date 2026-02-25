@@ -6,13 +6,14 @@ platforms = ["linux-64"]
 version = "0.1.0"
 
 [tasks]
-test = "bash run_tests.sh"
+install_prek = "prek install"
+test = { cmd = "bash run_tests.sh", depends-on = [] }
 bench_quat = "mojo -I. bench/bench_quat.mojo"
 bench_aabb = "mojo -I. bench/bench_aabb.mojo"
 
 [dependencies]
-mojo = ">=0.26.2.0.dev2026021705,<0.27"
-max = ">=26.2.0.dev2026021705,<27"
+mojo = ">=0.26.2.0.dev2026022505,<0.27"
+max = ">=26.2.0.dev2026022505,<27"
 python = ">=3.14.3,<3.15"
 suitesparsegetpy = ">=0.1.1,<0.2"
 

@@ -19,11 +19,11 @@ fn test_correctness() raises:
     u0[0] = 1.0
 
     comptime t_end = 2.0
-    var dt = 0.01
-    var prob = ODEProblem[decay_system](u0, 0.0, t_end, dt)
+    dt = 0.01
+    prob = ODEProblem[decay_system](u0, 0.0, t_end, dt)
 
-    var result = solve(prob, dt=dt)
-    var expected = exp(-t_end)
+    result = solve(prob, dt=dt)
+    expected = exp(-t_end)
 
     assert_almost_equal(result[0], expected)
 

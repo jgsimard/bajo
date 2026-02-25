@@ -333,9 +333,8 @@ fn _matmul[
     b_cols: Int where b_cols >= 1,
 ](a: Mat[dtype, a_rows, a_cols], b: Mat[dtype, b_rows, b_cols]) -> Mat[
     dtype, a_rows, b_cols
-]:
+] where (a_cols == b_rows):
     """Matrix-Matrix product."""
-    comptime assert a_cols == b_rows
     # res = Mat[dtype, a_rows,b_cols](uninitialized=True)
     # comptime for i in range(a_rows):
     #     comptime for j in range(b_cols):
@@ -607,7 +606,7 @@ fn main() raises:
     print(round(_matmul(m4, im4), 2))
 
     mm = Mat[T, 3, 4](1)
-    nn = Mat[T, 3, 3](1)
+    nn = Mat[T, 4, 3](1)
     r = _matmul(mm, nn)
     print(r)
     # vv = Vec[T, 3](1)

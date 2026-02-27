@@ -62,7 +62,7 @@ fn bench_inv4[use_simd: Bool]() raises:
 
     time_ns = round(run[func3=bench_fn](max_iters=1000).mean(Unit.ns), 1)
 
-    print("bench_inv4 : simd={} : {} us".format(use_simd, time_ns))
+    print(t"bench_inv4 : simd={use_simd} : {time_ns} us")
 
 
 fn main() raises:

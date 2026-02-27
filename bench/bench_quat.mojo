@@ -127,7 +127,7 @@ fn main() raises:
 
         var time_us = round(run[func3=bench_fn](max_iters=100).mean(Unit.us), 1)
 
-        print("v{} : {} us".format(version, time_us))
+        print(t"v{version} : {time_us} us")
 
     bench_latency[1]()
     # bench_latency[2]()

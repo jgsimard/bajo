@@ -63,7 +63,7 @@ fn write_color(mut f: FileHandle, color: Color):
     ig = Int(out_color.y())
     ib = Int(out_color.z())
 
-    f.write("{} {} {}\n".format(ir, ig, ib))
+    f.write(t"{ir} {ig} {ib}\n")
 
 
 @fieldwise_init
@@ -594,9 +594,7 @@ struct Camera(Copyable):
         # parallelize[worker](self.image_height, 1)
 
         with open("rtiaw_2.ppm", "w") as f:
-            f.write(
-                "P3\n{} {}\n255\n".format(self.image_width, self.image_height)
-            )
+            f.write(t"P3\n{self.image_width} {self.image_height}\n255\n")
             for color in image_data:
                 write_color(f, color)
 

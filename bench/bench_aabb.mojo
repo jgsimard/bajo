@@ -145,13 +145,9 @@ fn main() raises:
         report = run[wrapper](max_iters=200)
         avg_time = report.mean(Unit.us)
         name = "Naive (Loop)  " if version == 0 else "Arvo (Vector) "
-        print(
-            "{}| Throughput:".format(name),
-            round(num_elements / avg_time, 2),
-            "Mops/s | Avg:",
-            round(avg_time, 2),
-            "us",
-        )
+        throughput = round(num_elements / avg_time, 2)
+        mops = round(avg_time, 2)
+        print(t"{name}| Throughput:{throughput}, Mops/s | Avg: {mops} us")
 
     bench[0]()
     bench[1]()

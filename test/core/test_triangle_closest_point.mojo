@@ -164,21 +164,19 @@ fn _test_triangle_closest_point[dtype: DType, eps: Scalar[dtype]]() raises:
             # Case: Closest point is on an edge
             if bary[dim] == 0.0 and bary[v1_idx] != 0.0 and bary[v2_idx] != 0.0:
                 if not check_edge_feasible_region(p, v1, v2, v3, eps):
-                    raise "Failed edge feasible region at iteration {}".format(
-                        i
-                    )
+                    raise t"Failed edge feasible region at iteration {i}"
 
                 # Check perpendicularity
                 closest_p = a * bary[0] + b * bary[1] + c * bary[2]
                 e = v1 - v2
                 err = dot(e, closest_p - p)
                 if abs(err) > eps:
-                    raise "Failed perpendicularity at iteration".format(i)
+                    raise t"Failed perpendicularity at iteration {i}"
 
             # Case: Closest point is a vertex
             if bary[v1_idx] == 0.0 and bary[v2_idx] == 0.0:
                 if not check_vertex_feasible_region(p, v3, v1, v2, eps):
-                    raise "Failed vertex feasible region at iteration".format(i)
+                    raise t"Failed vertex feasible region at iteration {i}"
 
             # Case: Closest point is inside the face
             if bary[dim] != 0.0 and bary[v1_idx] != 0.0 and bary[v2_idx] != 0.0:
@@ -189,7 +187,7 @@ fn _test_triangle_closest_point[dtype: DType, eps: Scalar[dtype]]() raises:
                     abs(dot(e1, closest_p - p)) > eps
                     or abs(dot(e2, closest_p - p)) > eps
                 ):
-                    raise "Failed face perpendicularity at iteration".format(i)
+                    raise t"Failed face perpendicularity at iteration {i}"
 
 
 def main():

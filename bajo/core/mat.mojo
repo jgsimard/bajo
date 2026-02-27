@@ -39,9 +39,9 @@ struct Mat[
     fn __init__(out self, *elems: Scalar[Self.dtype]):
         debug_assert["safe"](
             len(elems) == Self.rows * Self.cols,
-            "Matrix scalar constructor requires exactly rows ({}) * cols ({}) ="
-            " elements ({})".format(
-                Self.rows, Self.cols, Self.rows * Self.cols
+            (
+                t"Matrix scalar constructor requires exactly rows ({Self.rows})"
+                t" * cols ({Self.cols}) = elements ({Self.rows * Self.cols})"
             ),
         )
         self.data = Self.TD(uninitialized=True)

@@ -393,7 +393,7 @@ fn assert_vec_equal[
     dtype: DType, size: Int
 ](a: Vec[dtype, size], b: Vec[dtype, size], atol: Float64 = 1e-5) raises:
     comptime for i in range(size):
-        assert_almost_equal(a[i], b[i], msg="i={}".format(i), atol=atol)
+        assert_almost_equal(a[i], b[i], msg=t"i={i}", atol=atol)
 
 
 fn main():

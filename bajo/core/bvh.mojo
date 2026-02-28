@@ -479,7 +479,6 @@ struct BvhStack[origin: Origin, device: String](Copyable, Writable):
             return self._local[depth]
         else:
             comptime assert False, "GPU not supported yet"
-            return -1  # to make compiler happy for now
             # return self._ptr[depth * BVH_BLOCK_DIM]
 
     @always_inline

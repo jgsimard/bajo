@@ -14,7 +14,7 @@ fn decay_system(mut dy: LT, y: LT, t: Scalar[dtype]):
     dy[0] = -y[0]
 
 
-fn test_correctness() raises:
+def test_correctness() raises:
     var u0 = LT.stack_allocation()
     u0[0] = 1.0
 

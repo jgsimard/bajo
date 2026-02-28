@@ -630,6 +630,9 @@ fn get_intervals[
     return Intervals(Scalar[dtype](0), 0, 0, 0, 0, True)
 
 
+comptime intersect_tri_tri = no_div_tri_tri_isect
+
+
 @always_inline
 fn no_div_tri_tri_isect[
     dtype: DType

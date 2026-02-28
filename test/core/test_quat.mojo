@@ -8,11 +8,11 @@ from bajo.core.quat import Quat
 from bajo.core.vec import Vec3f32, assert_vec_equal
 
 
-fn assert_quat_equal(a: Quat, b: Quat) raises:
+def assert_quat_equal(a: Quat, b: Quat) raises:
     assert_almost_equal(a.data, b.data, atol=1e-6)
 
 
-fn test_from_axis_angle_mul() raises:
+def test_from_axis_angle_mul() raises:
     q1 = Quat.from_axis_angle(Vec3f32(0, 1, 0), 0)
     assert_quat_equal(q1, Quat(0, 0, 0, 1))
 
@@ -27,7 +27,7 @@ fn test_from_axis_angle_mul() raises:
     assert_quat_equal(m1, Quat(0.353553, 0.353553, -0.146447, 0.853553))
 
 
-fn test_mul_rotate() raises:
+def test_mul_rotate() raises:
     # Rotate 90 X then 90 Y
     angle = degrees_to_radians(Float32(90))
     qx = Quat.from_axis_angle(Vec3f32(1, 0, 0), angle)
@@ -43,7 +43,7 @@ fn test_mul_rotate() raises:
     assert_vec_equal(result, Vec3f32(0, -1, 0))
 
 
-fn test_rotate() raises:
+def test_rotate() raises:
     # Rotate (1, 0, 0) 90 degrees around Y axis -> should be (0, 0, -1)
     axis = Vec3f32(0, 1, 0)
     angle = degrees_to_radians(Float32(90))

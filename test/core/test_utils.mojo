@@ -8,7 +8,7 @@ from testing import (
 from bajo.core.utils import QuadraticSolutions, solve_quadratic
 
 
-fn test_solve_quadratic() raises:
+def test_solve_quadratic() raises:
     # Lane 0: x^2 - 5x + 6 = 0 -> roots 2, 3
     # Lane 1: x^2 + 0x + 1 = 0 -> no real roots
     comptime T = SIMD[DType.float32, 2]

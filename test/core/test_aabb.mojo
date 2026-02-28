@@ -11,7 +11,7 @@ from bajo.core.quat import Quat
 from bajo.core.vec import Vec3f32, assert_vec_equal
 
 
-fn test_logic() raises:
+def test_logic() raises:
     box = AABB(Vec3f32(0), Vec3f32(2, 2, 2))
 
     assert_true(box.contains(Vec3f32(1)))
@@ -31,7 +31,7 @@ fn test_logic() raises:
     assert_true(box.ray_intersects(ray_o, inv_d, 0.0, 10.0))
 
 
-fn test_merge() raises:
+def test_merge() raises:
     a = AABB(Vec3f32(0), Vec3f32(1))
     b = AABB(Vec3f32(-1), Vec3f32(0.5))
     merged = AABB.merge(a, b)
@@ -39,7 +39,7 @@ fn test_merge() raises:
     assert_vec_equal(merged.max, Vec3f32(1))
 
 
-fn test_apply_trs_rotated() raises:
+def test_apply_trs_rotated() raises:
     box = AABB(Vec3f32(-1), Vec3f32(1))
 
     # Rotate 45 degrees around Z

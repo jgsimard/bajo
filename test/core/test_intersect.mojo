@@ -16,13 +16,14 @@ from bajo.core.intersect import (
     intersect_ray_tri_rtcd,
     intersect_ray_tri_woop,
     no_div_tri_tri_isect,
+    intersect_tri_tri,
 )
 
 from bajo.core.vec import Vec2, Vec3, Vec3f32, Vec3f64, assert_vec_equal
 
 
 # AABB
-fn test_closest_point_to_aabb() raises:
+def test_closest_point_to_aabb() raises:
     lower = Vec3f32(0.0)
     upper = Vec3f32(10.0)
 
@@ -39,7 +40,7 @@ fn test_closest_point_to_aabb() raises:
     assert_vec_equal(c_out, expected_c_out)
 
 
-fn test_intersect_aabb_aabb() raises:
+def test_intersect_aabb_aabb() raises:
     a_lower = Vec3f32(0.0, 0.0, 0.0)
     a_upper = Vec3f32(10.0, 10.0, 10.0)
 
@@ -54,7 +55,7 @@ fn test_intersect_aabb_aabb() raises:
     assert_false(intersect_aabb_aabb(a_lower, a_upper, c_lower, c_upper))
 
 
-fn test_intersect_ray_aabb() raises:
+def test_intersect_ray_aabb() raises:
     print("Testing intersect_ray_aabb...")
     lower = Vec3f32(-1.0, -1.0, -1.0)
     upper = Vec3f32(1.0, 1.0, 1.0)
@@ -84,7 +85,7 @@ fn test_intersect_ray_aabb() raises:
 
 
 # Point / Triangle Distance Tests
-fn test_closest_point_to_triangle() raises:
+def test_closest_point_to_triangle() raises:
     a = Vec3f32(0.0, 0.0, 0.0)
     b = Vec3f32(10.0, 0.0, 0.0)
     c = Vec3f32(0.0, 10.0, 0.0)
@@ -108,7 +109,7 @@ fn test_closest_point_to_triangle() raises:
     assert_almost_equal(uv_vert[1], 1.0, atol=1e-4)
 
 
-fn test_furthest_point_to_triangle() raises:
+def test_furthest_point_to_triangle() raises:
     a = Vec3f32(0.0, 0.0, 0.0)
     b = Vec3f32(10.0, 0.0, 0.0)
     c = Vec3f32(0.0, 10.0, 0.0)
@@ -123,7 +124,7 @@ fn test_furthest_point_to_triangle() raises:
 
 
 # Ray / Triangle Intersection Tests
-fn test_intersect_ray_tri_moller() raises:
+def test_intersect_ray_tri_moller() raises:
     a = Vec3f32(-1.0, -1.0, 0.0)
     b = Vec3f32(1.0, -1.0, 0.0)
     c = Vec3f32(0.0, 1.0, 0.0)
@@ -146,9 +147,8 @@ fn test_intersect_ray_tri_moller() raises:
     assert_almost_equal(u, 0.25)
     assert_almost_equal(v, 0.25)
     assert_almost_equal(w, 0.50)
-    assert_almost_equal(
-        sign, 4.0
-    )  # Moller calculates dot(-dir, cross(ab, ac)) = 4.0
+    # Moller calculates dot(-dir, cross(ab, ac)) = 4.0
+    assert_almost_equal(sign, 4.0)
     assert_vec_equal(normal[], Vec3f32(0.0, 0.0, 4.0))
 
     pos_miss = Vec3f32(5.0, 5.0, 5.0)
@@ -160,7 +160,7 @@ fn test_intersect_ray_tri_moller() raises:
     normal.free()
 
 
-fn _test_degenerate_triangles[dtype: DType]() raises:
+def _test_degenerate_triangles[dtype: DType]() raises:
     # A triangle where all points are the same
     a = Vec3[dtype](1.0, 1.0, 1.0)
     b = Vec3[dtype](1.0, 1.0, 1.0)
@@ -180,12 +180,12 @@ fn _test_degenerate_triangles[dtype: DType]() raises:
     assert_false(hit)
 
 
-fn test_degenerate_triangles() raises:
+def test_degenerate_triangles() raises:
     _test_degenerate_triangles[DType.float32]()
     _test_degenerate_triangles[DType.float64]()
 
 
-fn test_intersect_ray_tri_rtcd() raises:
+def test_intersect_ray_tri_rtcd() raises:
     a = Vec3f32(-1.0, -1.0, 0.0)
     b = Vec3f32(1.0, -1.0, 0.0)
     c = Vec3f32(0.0, 1.0, 0.0)
@@ -219,7 +219,7 @@ fn test_intersect_ray_tri_rtcd() raises:
     normal.free()
 
 
-fn test_intersect_ray_tri_woop() raises:
+def test_intersect_ray_tri_woop() raises:
     a = Vec3f32(-1.0, -1.0, 0.0)
     b = Vec3f32(1.0, -1.0, 0.0)
     c = Vec3f32(0.0, 1.0, 0.0)
@@ -255,29 +255,62 @@ fn test_intersect_ray_tri_woop() raises:
 
 
 # Triangle / Triangle Intersection Tests
-fn test_no_div_tri_tri_isect() raises:
+def _test_no_div_tri_tri_isect[T: DType]() raises:
     # Base triangle on XY plane
-    t1_0 = Vec3f32(0.0, 0.0, 0.0)
-    t1_1 = Vec3f32(2.0, 0.0, 0.0)
-    t1_2 = Vec3f32(0.0, 2.0, 0.0)
+    t1_0 = Vec3[T](0.0, 0.0, 0.0)
+    t1_1 = Vec3[T](2.0, 0.0, 0.0)
+    t1_2 = Vec3[T](0.0, 2.0, 0.0)
 
     # 1. Intersecting Triangle (pierces through the middle)
-    t2_0 = Vec3f32(0.5, 0.5, -1.0)
-    t2_1 = Vec3f32(0.5, 0.5, 1.0)
-    t2_2 = Vec3f32(2.0, 2.0, 0.0)
+    t2_0 = Vec3[T](0.5, 0.5, -1.0)
+    t2_1 = Vec3[T](0.5, 0.5, 1.0)
+    t2_2 = Vec3[T](2.0, 2.0, 0.0)
     assert_true(no_div_tri_tri_isect(t1_0, t1_1, t1_2, t2_0, t2_1, t2_2))
 
     # 2. Separated Triangle (High above on Z axis)
-    t3_0 = Vec3f32(0.0, 0.0, 5.0)
-    t3_1 = Vec3f32(2.0, 0.0, 5.0)
-    t3_2 = Vec3f32(0.0, 2.0, 5.0)
+    t3_0 = Vec3[T](0.0, 0.0, 5.0)
+    t3_1 = Vec3[T](2.0, 0.0, 5.0)
+    t3_2 = Vec3[T](0.0, 2.0, 5.0)
     assert_false(no_div_tri_tri_isect(t1_0, t1_1, t1_2, t3_0, t3_1, t3_2))
 
     # 3. Coplanar Intersecting (On same plane, overlapping)
-    t4_0 = Vec3f32(1.0, 1.0, 0.0)
-    t4_1 = Vec3f32(3.0, 1.0, 0.0)
-    t4_2 = Vec3f32(1.0, 3.0, 0.0)
+    t4_0 = Vec3[T](1.0, 1.0, 0.0)
+    t4_1 = Vec3[T](3.0, 1.0, 0.0)
+    t4_2 = Vec3[T](1.0, 3.0, 0.0)
     assert_true(no_div_tri_tri_isect(t1_0, t1_1, t1_2, t4_0, t4_1, t4_2))
+
+
+def test_no_div_tri_tri_isect() raises:
+    _test_no_div_tri_tri_isect[DType.float16]()
+    _test_no_div_tri_tri_isect[DType.float32]()
+    _test_no_div_tri_tri_isect[DType.float64]()
+
+
+# from warp/warp/tests/test_intersect.py
+def _test_intersect_tri_tri[T: DType]() raises:
+    v0 = Vec3[T](0.0, 0.0, 0.0)
+    v1 = Vec3[T](1.0, 0.0, 0.0)
+    v2 = Vec3[T](0.0, 0.0, 1.0)
+    u0 = Vec3[T](0.5, -0.5, 0.0)
+    u1 = Vec3[T](0.5, -0.5, 1.0)
+    u2 = Vec3[T](0.5, 0.5, 0.0)
+
+    assert_true(intersect_tri_tri(v0, v1, v2, u0, u1, u2))
+
+    v0 = Vec3[T](0.0, 0.0, 0.0)
+    v1 = Vec3[T](1.0, 0.0, 0.0)
+    v2 = Vec3[T](0.0, 0.0, 1.0)
+    u0 = Vec3[T](-0.5, -0.5, 0.0)
+    u1 = Vec3[T](-0.5, -0.5, 1.0)
+    u2 = Vec3[T](-0.5, 0.5, 0.0)
+
+    assert_false(intersect_tri_tri(v0, v1, v2, u0, u1, u2))
+
+
+def test_intersect_tri_tri() raises:
+    _test_intersect_tri_tri[DType.float16]()
+    _test_intersect_tri_tri[DType.float32]()
+    _test_intersect_tri_tri[DType.float64]()
 
 
 def main():

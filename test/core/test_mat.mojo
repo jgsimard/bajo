@@ -22,7 +22,7 @@ from bajo.core.conversion import degrees_to_radians
 from bajo.core.quat import Quat
 
 
-fn test_basics() raises:
+def test_basics() raises:
     comptime T = DType.float32
     # Transpose check
     # fmt: off
@@ -54,7 +54,7 @@ fn test_basics() raises:
     assert_almost_equal(determinant(_matmul(m4, inverse(m4))), 1.0)
 
 
-fn test_Mat3f_from_quat() raises:
+def test_Mat3f_from_quat() raises:
     axis = Vec3f32(1, 0, 0)
     angle = degrees_to_radians(Float32(30))
     q = Quat.from_axis_angle(axis, angle)

@@ -10,7 +10,7 @@ from bajo.core.vec import Vec3, Vec3f32, dot, length
 
 
 @always_inline
-fn triangle_closest_point_barycentric[
+def triangle_closest_point_barycentric[
     dtype: DType
 ](a: Vec3[dtype], b: Vec3[dtype], c: Vec3[dtype], p: Vec3[dtype]) -> Vec3[
     dtype
@@ -62,7 +62,7 @@ fn triangle_closest_point_barycentric[
 
 
 @always_inline
-fn check_edge_feasible_region[
+def check_edge_feasible_region[
     dtype: DType
 ](
     p: Vec3[dtype],
@@ -94,7 +94,7 @@ fn check_edge_feasible_region[
 
 
 @always_inline
-fn check_vertex_feasible_region[
+def check_vertex_feasible_region[
     dtype: DType
 ](
     p: Vec3[dtype],
@@ -117,15 +117,15 @@ fn check_vertex_feasible_region[
     return True
 
 
-fn test_triangle_closest_point_f32() raises:
+def test_triangle_closest_point_f32() raises:
     _test_triangle_closest_point[DType.float32, 1e-5]()
 
 
-fn test_triangle_closest_point_f16() raises:
+def test_triangle_closest_point_f16() raises:
     _test_triangle_closest_point[DType.float16, 1e-3]()
 
 
-fn _test_triangle_closest_point[dtype: DType, eps: Scalar[dtype]]() raises:
+def _test_triangle_closest_point[dtype: DType, eps: Scalar[dtype]]() raises:
     rng = PhiloxRNG(seed=123, id=321)
     # Setup triangle
     a = Vec3[dtype](1.0, 0.0, 0.0)

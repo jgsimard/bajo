@@ -313,5 +313,9 @@ def test_intersect_tri_tri() raises:
     _test_intersect_tri_tri[DType.float64]()
 
 
+# TODO: port the tests from warp/warp/tests/test_closest_point_edge_edge.py
+# to test : closest_point_edge_edge
+
+
 def main():
     TestSuite.discover_tests[__functions_in_module()]().run()

@@ -286,8 +286,9 @@ def test_no_div_tri_tri_isect() raises:
     _test_no_div_tri_tri_isect[DType.float64]()
 
 
-# from warp/warp/tests/test_intersect.py
 def _test_intersect_tri_tri[T: DType]() raises:
+    """From warp/warp/tests/test_intersect.py."""
+
     v0 = Vec3[T](0.0, 0.0, 0.0)
     v1 = Vec3[T](1.0, 0.0, 0.0)
     v2 = Vec3[T](0.0, 0.0, 1.0)
@@ -308,6 +309,8 @@ def _test_intersect_tri_tri[T: DType]() raises:
 
 
 def test_intersect_tri_tri() raises:
+    """From warp/warp/tests/test_intersect.py."""
+
     _test_intersect_tri_tri[DType.float16]()
     _test_intersect_tri_tri[DType.float32]()
     _test_intersect_tri_tri[DType.float64]()

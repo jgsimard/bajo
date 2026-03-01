@@ -177,16 +177,13 @@ struct Tsit5[
             self.u_modified = False
 
         else:
-
-            @parameter
-            if Self.IS_FSAL:
+            comptime if Self.IS_FSAL:
                 # FSAL requires a deep copy of the last derivative into the first slot
                 self.ks[0].copy_from(self.ks[Self.N_STAGES_FSAL])
             else:
                 Self.system(self.ks[0], self.y, self.t)
 
-        @parameter
-        if self.adaptive:
+        comptime if self.adaptive:
             accepted = False
             while not accepted:
                 h = self.dt
@@ -196,13 +193,11 @@ struct Tsit5[
                 self.y_next.copy_from(self.y)
                 weight_sum = self.ks[0] * Self.b[0]
 
-                @parameter
-                for i in range(1, Self.N_STAGES_FSAL):
+                comptime for i in range(1, Self.N_STAGES_FSAL):
                     weight_sum += self.ks[i] * Self.b[i]
                 self.y_next += weight_sum * h
 
-                @parameter
-                if Self.IS_FSAL:
+                comptime if Self.IS_FSAL:
                     # Calculate final stage derivative at the proposed y_next
                     Self.system(
                         self.ks[Self.N_STAGES_FSAL], self.y_next, self.t + h
@@ -240,15 +235,13 @@ struct Tsit5[
             self.y_next.copy_from(self.y)
             weight_sum = self.ks[0] * Self.b[0]
 
-            @parameter
-            for i in range(1, Self.N_STAGES_FSAL):
+            comptime for i in range(1, Self.N_STAGES_FSAL):
                 weight_sum += self.ks[i] * Self.b[i]
 
             self.y += weight_sum * h
             self.t += h
 
-            @parameter
-            if Self.IS_FSAL:
+            comptime if Self.IS_FSAL:
                 Self.system(self.ks[Self.N_STAGES_FSAL], self.y, self.t)
 
     fn _compute_stages(mut self, h: Scalar[Self.dtype]):
@@ -268,12 +261,10 @@ struct Tsit5[
         fn compute[w: Int](i: Int) unified {mut}:
             err_v = SIMD[Self.dtype, w](0.0)
 
-            @parameter
-            for s in range(Self.N_STAGES):
+            comptime for s in range(Self.N_STAGES):
                 comptime e_coeff = Self.e[s]
 
-                @parameter
-                if e_coeff != 0:
+                comptime if e_coeff != 0:
                     err_v += self.ks[s].ptr.load[width=w](i) * e_coeff
 
             ev = err_v * h

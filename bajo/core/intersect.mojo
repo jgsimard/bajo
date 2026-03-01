@@ -389,8 +389,7 @@ fn intersect_ray_tri_woop[
     W = diff_product(Bx, Ay, By, Ax)
 
     # robustness fallback using Float64
-    @parameter
-    if dtype != DType.float64:
+    comptime if dtype != DType.float64:
         if U == 0.0 or V == 0.0 or W == 0.0:
             comptime f64 = Float64
             U = Scalar[dtype](diff_product(f64(Cx), f64(By), f64(Cy), f64(Bx)))

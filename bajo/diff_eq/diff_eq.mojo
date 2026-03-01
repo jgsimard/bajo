@@ -96,7 +96,7 @@ struct Tsit5[
     adaptive: Bool,
 ]:
     # fmt: off
-    comptime _a = StaticTuple[Scalar[Self.dtype], 49](
+    comptime _a = StaticTuple[Self.S, 49](
         0, 0, 0, 0, 0, 0, 0, # Row 0
         0.161, 0, 0, 0, 0, 0, 0, # Row 1
         -0.008480655492356989, 0.335480655492357, 0, 0, 0, 0, 0, # Row 2
@@ -105,13 +105,13 @@ struct Tsit5[
         5.86145544294642, -12.92096931784711, 8.159367898576159, -0.071584973281401, -0.028269050394068383, 0, 0, # Row 5
         0.09646076681806523, 0.01, 0.4798896504144996, 1.379008574103742, -3.290069515436081, 2.324710524099774, 0 # Row 6
     )
-    comptime b = StaticTuple[Scalar[Self.dtype], 7](
+    comptime b = StaticTuple[Self.S, 7](
         0.09646076681806523, 0.01, 0.4798896504144996,
         1.379008574103742, -3.290069515436081, 2.324710524099774, 0.0
     )
-    comptime c = StaticTuple[Scalar[Self.dtype], 7](0.0, 0.161, 0.327, 0.9, 0.9800255409045097, 1.0, 1.0)
-    # comptime c : InlineArray[Scalar[Self.dtype], 7] =  [0.0, 0.161, 0.327, 0.9, 0.9800255409045097, 1.0, 1.0]
-    comptime e = StaticTuple[Scalar[Self.dtype], 7](
+    comptime c = StaticTuple[Self.S, 7](0.0, 0.161, 0.327, 0.9, 0.9800255409045097, 1.0, 1.0)
+    # comptime c : InlineArray[Self.S, 7] =  [0.0, 0.161, 0.327, 0.9, 0.9800255409045097, 1.0, 1.0]
+    comptime e = StaticTuple[Self.S, 7](
         -0.00178001105222577714, -0.0008164344596567469, 0.007880878010261995,
         -0.1447110071732629, 0.5823571654525552, -0.45808210592918697, 1.0/66.0
     )
@@ -121,15 +121,16 @@ struct Tsit5[
     comptime N_STAGES_FSAL = Self.N_STAGES - (1 if Self.IS_FSAL else 0)
 
     comptime LT = LayoutTensor[Self.dtype, Self.layout, MutAnyOrigin]
+    comptime S = Scalar[Self.dtype]
 
     var y: Self.LT
-    var t: Scalar[Self.dtype]
-    var dt: Scalar[Self.dtype]
+    var t: Self.S
+    var dt: Self.S
     var u_modified: Bool
 
-    var qold: Scalar[Self.dtype]
-    var abstol: Scalar[Self.dtype]
-    var reltol: Scalar[Self.dtype]
+    var qold: Self.S
+    var abstol: Self.S
+    var reltol: Self.S
 
     var ks: InlineArray[Self.LT, Self.N_STAGES]
     var tmp: Self.LT
@@ -156,10 +157,10 @@ struct Tsit5[
         size = u0.size()
 
         for i in range(Self.N_STAGES):
-            self.ks[i] = Self.LT(alloc[Scalar[Self.dtype]](size))
+            self.ks[i] = Self.LT(alloc[Self.S](size))
 
-        self.tmp = Self.LT(alloc[Scalar[Self.dtype]](size))
-        self.y_next = Self.LT(alloc[Scalar[Self.dtype]](size))
+        self.tmp = Self.LT(alloc[Self.S](size))
+        self.y_next = Self.LT(alloc[Self.S](size))
 
     fn __del__(deinit self):
         for i in range(Self.N_STAGES):
@@ -217,16 +218,14 @@ struct Tsit5[
                         > 0 else 0.1
                     )
                     self.dt = h * min(
-                        Scalar[Self.dtype](5.0),
-                        max(Scalar[Self.dtype](0.1), 0.9 / q),
+                        Self.S(5.0),
+                        max(Self.S(0.1), 0.9 / q),
                     )
                     self.qold = max(e_est, 1e-4)
                     accepted = True
                 else:
                     # Step rejected: reduce dt and retry
-                    self.dt = h * max(
-                        Scalar[Self.dtype](0.1), 0.9 / pow(e_est, beta1)
-                    )
+                    self.dt = h * max(Self.S(0.1), 0.9 / pow(e_est, beta1))
         else:
             # Fixed step logic
             h = self.dt

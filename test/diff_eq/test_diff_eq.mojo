@@ -7,15 +7,18 @@ from bajo.diff_eq import ODEProblem, solve
 
 comptime dtype = DType.float64
 comptime decay_layout = Layout.row_major(1)
-comptime LT = LayoutTensor[dtype, decay_layout, MutAnyOrigin]
 
 
-fn decay_system(mut dy: LT, y: LT, t: Scalar[dtype]):
+fn decay_system(
+    dy: LayoutTensor[dtype, decay_layout, MutAnyOrigin],
+    y: LayoutTensor[dtype, decay_layout, ImmutAnyOrigin],
+    t: Scalar[dtype],
+):
     dy[0] = -y[0]
 
 
 def test_correctness() raises:
-    var u0 = LT.stack_allocation()
+    u0 = LayoutTensor[dtype, decay_layout, MutAnyOrigin].stack_allocation()
     u0[0] = 1.0
 
     comptime t_end = 2.0

@@ -10,9 +10,9 @@ from utils import IndexList, StaticTuple
 
 
 comptime system_fn[dtype: DType, layout: Layout] = fn(
-    mut LayoutTensor[dtype, layout, MutAnyOrigin],
-    LayoutTensor[dtype, layout, MutAnyOrigin],
-    Scalar[dtype],
+    dy: LayoutTensor[dtype, layout, MutAnyOrigin],
+    y: LayoutTensor[dtype, layout, ImmutAnyOrigin],
+    t: Scalar[dtype],
 ) -> None
 
 
@@ -332,8 +332,8 @@ comptime solver = Tsit5Adaptative
 
 
 fn lorenz(
-    mut dy: LayoutTensor[float_type, lorenz_layout, MutAnyOrigin],
-    y: LayoutTensor[float_type, lorenz_layout, MutAnyOrigin],
+    dy: LayoutTensor[float_type, lorenz_layout, MutAnyOrigin],
+    y: LayoutTensor[float_type, lorenz_layout, ImmutAnyOrigin],
     t: Float64,
 ):
     dy[0] = 10.0 * (y[1] - y[0])
@@ -346,8 +346,8 @@ comptime gs_layout = Layout.row_major(GS_N, GS_N, 2)
 
 
 fn gray_scott_system(
-    mut dy: LayoutTensor[float_type, gs_layout, MutAnyOrigin],
-    y: LayoutTensor[float_type, gs_layout, MutAnyOrigin],
+    dy: LayoutTensor[float_type, gs_layout, MutAnyOrigin],
+    y: LayoutTensor[float_type, gs_layout, ImmutAnyOrigin],
     t: Scalar[float_type],
 ):
     """

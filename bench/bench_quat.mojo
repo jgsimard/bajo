@@ -62,14 +62,17 @@ struct BenchmarkData(Copyable):
         rng = PhiloxRNG(123, 123)
 
         for i in range(num_elements):
-            self.src_a[i] = Quat.angle_axis(rng.next_f32(), Vec3f32(1, 0, 0))
-            self.src_b[i] = Quat.angle_axis(rng.next_f32(), Vec3f32(0, 1, 0))
+            self.src_a[i] = Quat.from_axis_angle(
+                Vec3f32(1, 0, 0), rng.next_f32()
+            )
+            self.src_b[i] = Quat.from_axis_angle(
+                Vec3f32(0, 1, 0), rng.next_f32()
+            )
 
 
 @always_inline
 fn dispatch_mul[version: Int](q1: Quat, q2: Quat) -> Quat:
-    @parameter
-    if version == 1:
+    comptime if version == 1:
         return quat_mul_1(q1, q2)
     # elif version == 2:
     #     return quat_mul_2(q1, q2)
@@ -111,8 +114,8 @@ fn main() raises:
     @parameter
     fn bench_latency[version: Int]() raises:
         angle = degrees_to_radians(Float32(45))
-        q2 = Quat.angle_axis(angle, Vec3f32(0, 1, 0))
-        q3 = Quat.angle_axis(angle, Vec3f32(1, 0, 0))
+        q2 = Quat.from_axis_angle(Vec3f32(0, 1, 0), angle)
+        q3 = Quat.from_axis_angle(Vec3f32(1, 0, 0), angle)
         a = dispatch_mul[version](q2, q3)
         b = Quat(0.353553, 0.353553, -0.146447, 0.853553)
         assert_almost_equal(a.data, b.data, atol=1e-6)

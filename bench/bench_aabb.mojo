@@ -3,7 +3,7 @@ from random import random_float64
 from memory import UnsafePointer
 
 
-from bajo.core.mat import Mat3f
+from bajo.core.mat import Mat33f32
 from bajo.core.vec import vmin, vmax, Vec3f32
 from bajo.core.quat import Quat
 from bajo.core.aabb import AABB
@@ -16,7 +16,7 @@ comptime num_elements = 100_000
 fn apply_trs_naive(
     box: AABB, translation: Vec3f32, rotation: Quat, scale: Vec3f32
 ) -> AABB:
-    rot_mat = Mat3f.from_rs(rotation, scale)
+    rot_mat = Mat33f32.from_rotation_scale(rotation, scale)
     txfmed = AABB(translation.copy(), translation.copy())
 
     for i in range(3):
@@ -33,7 +33,7 @@ fn apply_trs_naive(
                 val_min = box.min.z()
                 val_max = box.max.z()
 
-            col_j = rot_mat[j]
+            ref col_j = rot_mat[j]
             mat_val: Scalar[DType.float32]
             if i == 0:
                 mat_val = col_j.x()
@@ -57,25 +57,25 @@ fn apply_trs_naive(
 fn apply_trs_arvo(
     box: AABB, translation: Vec3f32, rotation: Quat, scale: Vec3f32
 ) -> AABB:
-    mat = Mat3f.from_rs(rotation, scale)
+    mat = Mat33f32.from_rotation_scale(rotation, scale).transpose()
     new_min = translation.copy()
     new_max = translation.copy()
 
     # X column
-    c0_a = mat.c0 * box.min.x()
-    c0_b = mat.c0 * box.max.x()
+    c0_a = mat[0] * box.min.x()
+    c0_b = mat[0] * box.max.x()
     new_min += vmin(c0_a, c0_b)
     new_max += vmax(c0_a, c0_b)
 
     # Y column
-    c1_a = mat.c1 * box.min.y()
-    c1_b = mat.c1 * box.max.y()
+    c1_a = mat[1] * box.min.y()
+    c1_b = mat[1] * box.max.y()
     new_min += vmin(c1_a, c1_b)
     new_max += vmax(c1_a, c1_b)
 
     # Z column
-    c2_a = mat.c2 * box.min.z()
-    c2_b = mat.c2 * box.max.z()
+    c2_a = mat[2] * box.min.z()
+    c2_b = mat[2] * box.max.z()
     new_min += vmin(c2_a, c2_b)
     new_max += vmax(c2_a, c2_b)
 
@@ -105,17 +105,20 @@ struct AABBBenchmarkData:
         for i in range(num_elements):
             self.boxes[i] = AABB(Vec3f32(-1), Vec3f32(1))
             self.translations[i] = Vec3f32(
-                Float32(random_float64()),
-                Float32(random_float64()),
-                Float32(random_float64()),
+                rng.next_f32(),
+                rng.next_f32(),
+                rng.next_f32(),
             )
-            self.rotations[i] = Quat.angle_axis(
-                Float32(random_float64()), Vec3f32(0, 1, 0)
+            self.rotations[i] = Quat.from_axis_angle(
+                Vec3f32(0, 1, 0),
+                rng.next_f32(),
             )
-            r1 = rng.next_f32()
-            r2 = rng.next_f32()
-            r3 = rng.next_f32()
-            self.scales[i] = Vec3f32(r1, r2, r3)
+
+            self.scales[i] = Vec3f32(
+                rng.next_f32(),
+                rng.next_f32(),
+                rng.next_f32(),
+            )
 
     fn __del__(deinit self):
         self.boxes.free()
@@ -151,3 +154,8 @@ fn main() raises:
 
     bench[0]()
     bench[1]()
+
+
+# Benchmarking AABB Transform (apply_trs) - Elements: 100000
+# Naive (Loop)  | Throughput:54.88, Mops/s | Avg: 1822.12 us
+# Arvo (Vector) | Throughput:156.35, Mops/s | Avg: 639.6 us

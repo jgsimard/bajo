@@ -1,11 +1,12 @@
-from utils import IndexList, StaticTuple
+from algorithm import vectorize, parallelize
+from benchmark import run, Unit, keep
 from layout import Layout, LayoutTensor, RuntimeLayout, UNKNOWN_VALUE
 from layout.math import max as lmax
+from math import clamp
 from memory import UnsafePointer
-from tensor import InputTensor, OutputTensor, foreach
-from benchmark import run, Unit, keep
 from sys import simd_width_of
-from algorithm import vectorize, parallelize
+from tensor import InputTensor, OutputTensor, foreach
+from utils import IndexList, StaticTuple
 
 
 comptime system_fn[dtype: DType, layout: Layout] = fn(
@@ -217,15 +218,12 @@ struct Tsit5[
                         pow(e_est, beta1) / pow(self.qold, beta2) if e_est
                         > 0 else 0.1
                     )
-                    self.dt = h * min(
-                        Self.S(5.0),
-                        max(Self.S(0.1), 0.9 / q),
-                    )
+                    self.dt = h * clamp(0.9 / q, 0.1, 5.0)
                     self.qold = max(e_est, 1e-4)
                     accepted = True
                 else:
                     # Step rejected: reduce dt and retry
-                    self.dt = h * max(Self.S(0.1), 0.9 / pow(e_est, beta1))
+                    self.dt = h * max(0.9 / pow(e_est, beta1), 0.1)
         else:
             # Fixed step logic
             h = self.dt

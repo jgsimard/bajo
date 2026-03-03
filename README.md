@@ -17,3 +17,6 @@ bajo = low (... level) = batch mojo
 - [Algorithms for Sparse Linear Systems](https://link.springer.com/book/10.1007/978-3-031-25820-6)
 - Mojo community
 - [PufferLib](https://puffer.ai/) : super fast RL environement library
+- [tinybvh](https://github.com/jbikker/tinybvh/tree/main)
+- [H-PLOC: Hierarchical Parallel Locally-Ordered Clustering for
+Bounding Volume Hierarchy Construction] : Modern GPU BVH that is a single kernel call, almost SAH quality with build time 15% slower then LBVH

@@ -1,4 +1,6 @@
-from math import sqrt
+from math import sqrt, clamp
+
+from bajo.core.vec import Vec, vmin, vmax
 
 
 @fieldwise_init
@@ -71,3 +73,21 @@ fn solve_quadratic[
     t1 = q
 
     return QuadraticSolutions(t0, t1, mask)
+
+
+fn smoothstep[
+    dtype: DType, size: Int
+](a: SIMD[dtype, size], b: SIMD[dtype, size], x: SIMD[dtype, size]) -> SIMD[
+    dtype, size
+]:
+    y = clamp((x - a) / (b - a), 0, 1)
+    return y * y * (3 - 2 * y)
+
+
+fn smoothstep[
+    dtype: DType, size: Int
+](a: Vec[dtype, size], b: Vec[dtype, size], x: Vec[dtype, size]) -> Vec[
+    dtype, size
+]:
+    y = vmin(vmax((x - a) / (b - a), 0), 1)
+    return y * y * (3 - 2 * y)

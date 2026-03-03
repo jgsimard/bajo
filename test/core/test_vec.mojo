@@ -69,11 +69,11 @@ def test_swizzles() raises:
 
 
 def test_near_zero() raises:
-    assert_true(Vec3f32(1e-9).near_zero())
-    assert_true(Vec3f32(0).near_zero())
+    assert_true(Vec3f32(1e-9).is_near_zero())
+    assert_true(Vec3f32(0).is_near_zero())
 
-    assert_false(Vec3f32(0.1).near_zero())
-    assert_false(Vec3f32(1e-9, 1e-9, 0.1).near_zero())
+    assert_false(Vec3f32(0.1).is_near_zero())
+    assert_false(Vec3f32(1e-9, 1e-9, 0.1).is_near_zero())
 
 
 def main():

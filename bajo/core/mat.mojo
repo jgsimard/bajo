@@ -17,7 +17,7 @@ struct Mat[
     dtype: DType,
     rows: Int where rows >= 1,
     cols: Int where cols >= 1,
-](Copyable, Equatable, Roundable, Stringable, Writable):
+](Copyable, Equatable, Roundable, Writable):
     comptime V = Vec[Self.dtype, Self.cols]
     comptime TD = InlineArray[Self.V, Self.rows]  # TD = Type Data
     comptime msize = min(Self.rows, Self.cols)

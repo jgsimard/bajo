@@ -1,5 +1,6 @@
-from testing import TestSuite, assert_equal, assert_almost_equal
-from math import exp
+from std.testing import TestSuite, assert_equal, assert_almost_equal
+from std.math import exp
+
 from layout.layout_tensor import LayoutTensor
 from layout.layout import Layout
 

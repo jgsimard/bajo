@@ -1,4 +1,4 @@
-from math import fma, abs, max, clamp
+from std.math import fma, abs, max, clamp
 
 from bajo.core.vec import (
     Vec2,

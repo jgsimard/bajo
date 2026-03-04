@@ -1,6 +1,6 @@
-from math import sqrt, min, max
-from testing import assert_almost_equal
-from sys import CompilationTarget
+from std.math import sqrt, min, max
+from std.testing import assert_almost_equal
+from std.sys import CompilationTarget
 
 comptime Vec2 = Vec[_, 2]
 comptime Vec3 = Vec[_, 3]

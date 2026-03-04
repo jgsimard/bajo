@@ -1,5 +1,5 @@
-from math import acos, cos, pi, sin, sqrt
-from random import Random
+from std.math import acos, cos, pi, sin, sqrt
+from std.random import Random
 
 from bajo.core.vec import Vec3f32, dot
 from bajo.core.vec_simd import Vec3f32 as Vec3f32_simd, dot as dot_simd

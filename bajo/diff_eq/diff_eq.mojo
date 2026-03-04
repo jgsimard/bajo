@@ -1,12 +1,13 @@
-from algorithm import vectorize, parallelize
-from benchmark import run, Unit, keep
+from std.algorithm import vectorize, parallelize
+from std.benchmark import run, Unit, keep
+from std.math import clamp
+from std.memory import UnsafePointer
+from std.sys import simd_width_of
+from std.tensor import InputTensor, OutputTensor, foreach
+from std.utils import IndexList, StaticTuple
+
 from layout import Layout, LayoutTensor, RuntimeLayout, UNKNOWN_VALUE
 from layout.math import max as lmax
-from math import clamp
-from memory import UnsafePointer
-from sys import simd_width_of
-from tensor import InputTensor, OutputTensor, foreach
-from utils import IndexList, StaticTuple
 
 
 comptime system_fn[dtype: DType, layout: Layout] = fn(

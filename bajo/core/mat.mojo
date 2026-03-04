@@ -1,4 +1,4 @@
-from math import abs
+from std.math import abs
 
 from bajo.core.quat import Quaternion
 from bajo.core.vec import Vec, Vec3, Vec4, dot, cross

@@ -1,9 +1,9 @@
-from testing import (
+from std.testing import (
     TestSuite,
     assert_almost_equal,
 )
 
-from math import abs
+from std.math import abs
 
 from bajo.core.random import PhiloxRNG
 from bajo.core.vec import Vec3, Vec3f32, dot, length

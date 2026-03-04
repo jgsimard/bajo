@@ -1,4 +1,4 @@
-from math import sqrt, clamp
+from std.math import sqrt, clamp
 
 from bajo.core.vec import Vec, vmin, vmax
 

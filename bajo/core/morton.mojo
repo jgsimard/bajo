@@ -38,10 +38,9 @@ fn morton3[
     """Takes values in the range [0, 1] and assigns an index based Morton codes of length 3*lwp2(dim) bits.
     """
 
-    # lwp2(dim): This likely stands for Log Width base 2.
-    # It is a helper function that returns the number of bits
-    # needed to represent the value dim.
-    # If dim = 1024 => lwp2(1024) = 10, because 2^10 = 1024
+    # lwp2(dim):stands for Log Width base 2.
+    # function that returns the number of bits needed to represent the value dim.
+    # lwp2(1024) = 10, because 2^10 = 1024
 
     # masks for ux, uy, uz = use 3*10 = 30 bits
     # 0000 1001 0010 0100 1001 0010 0100 1001
@@ -49,9 +48,10 @@ fn morton3[
     # 0010 0100 1001 0010 0100 1001 0010 0100
 
     comptime dimf = Float32(dim)
-    ux = clamp(SIMD[DType.uint32, size](x * dimf), 0, dim - 1)
-    uy = clamp(SIMD[DType.uint32, size](y * dimf), 0, dim - 1)
-    uz = clamp(SIMD[DType.uint32, size](z * dimf), 0, dim - 1)
+    comptime T = SIMD[DType.uint32, size]
+    ux = clamp(T(x * dimf), 0, dim - 1)
+    uy = clamp(T(y * dimf), 0, dim - 1)
+    uz = clamp(T(z * dimf), 0, dim - 1)
     return (
         (expand_bits_3d(uz) << 2)
         | (expand_bits_3d(uy) << 1)

@@ -325,8 +325,8 @@ fn solve[
 comptime float_type = DType.float64
 comptime lorenz_layout = Layout.row_major(3)
 
-comptime Tsit5Adaptative = Tsit5[adaptive=True]
-comptime Tsit5Fixed = Tsit5[adaptive=False]
+comptime Tsit5Adaptative[] = Tsit5[system=_, adaptive=True]
+comptime Tsit5Fixed = Tsit5[system=_, adaptive=False]
 
 comptime solver = Tsit5Adaptative
 # comptime solver = Tsit5Fixed

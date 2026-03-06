@@ -20,3 +20,5 @@ bajo = low (... level) = batch mojo
 - [tinybvh](https://github.com/jbikker/tinybvh/tree/main)
 - [H-PLOC: Hierarchical Parallel Locally-Ordered Clustering for
 Bounding Volume Hierarchy Construction] : Modern GPU BVH that is a single kernel call, almost SAH quality with build time 15% slower then LBVH
+- [HIPRT](https://gpuopen.com/hiprt/): HIP RT is a ray tracing library for HIP
+

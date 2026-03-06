@@ -223,8 +223,7 @@ struct Quaternion[dtype: DType where dtype.is_floating_point()](
         cy = c.y()
         cz = c.z()
 
-        @parameter
-        if version == 0:
+        comptime if version == 0:
             # tx, ty, tz, tw represent 4*q^2 - 1 for each component
             tx = ax - by - cz
             ty = by - ax - cz

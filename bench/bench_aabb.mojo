@@ -1,6 +1,6 @@
-from benchmark import run, Unit, keep
-from random import random_float64
-from memory import UnsafePointer
+from std.benchmark import run, Unit, keep
+from std.random import random_float64
+from std.memory import UnsafePointer
 
 
 from bajo.core.mat import Mat33f32
@@ -132,8 +132,7 @@ fn main() raises:
     data = AABBBenchmarkData()
     print("Benchmarking AABB Transform (apply_trs) - Elements:", num_elements)
 
-    @parameter
-    fn bench[version: Int]() raises:
+    fn bench[version: Int]() capturing raises:
         fn wrapper() raises capturing:
             f = apply_trs_naive if version == 0 else apply_trs_arvo
             for i in range(num_elements):

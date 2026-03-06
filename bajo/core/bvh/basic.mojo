@@ -1,8 +1,8 @@
-from bit import count_leading_zeros
-from math import clamp
+from std.bit import count_leading_zeros
+from std.math import clamp
 from std.utils.numerics import max_finite, min_finite
-from sys.info import is_gpu
-from os import abort
+from std.sys.info import is_gpu
+from std.os import abort
 
 from bajo.core.intersect import intersect_ray_aabb, intersect_aabb_aabb
 from bajo.core.sort import nth_element

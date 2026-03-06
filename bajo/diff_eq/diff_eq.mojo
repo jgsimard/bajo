@@ -3,11 +3,11 @@ from std.benchmark import run, Unit, keep
 from std.math import clamp
 from std.memory import UnsafePointer
 from std.sys import simd_width_of
-from std.tensor import InputTensor, OutputTensor, foreach
 from std.utils import IndexList, StaticTuple
 
 from layout import Layout, LayoutTensor, RuntimeLayout, UNKNOWN_VALUE
 from layout.math import max as lmax
+from tensor import InputTensor, OutputTensor, foreach
 
 
 comptime system_fn[dtype: DType, layout: Layout] = fn(

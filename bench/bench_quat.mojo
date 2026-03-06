@@ -1,8 +1,8 @@
-from benchmark import run, Unit, keep
-from random import random_float64
-from memory import UnsafePointer
-from testing import TestSuite, assert_equal, assert_almost_equal
-from math import fma
+from std.benchmark import run, Unit, keep
+from std.random import random_float64
+from std.memory import UnsafePointer
+from std.testing import TestSuite, assert_equal, assert_almost_equal
+from std.math import fma
 
 from bajo.core.quat import Quat
 from bajo.core.conversion import degrees_to_radians
@@ -83,7 +83,6 @@ fn dispatch_mul[version: Int](q1: Quat, q2: Quat) -> Quat:
 
 
 fn main() raises:
-    @parameter
     fn bench_throughput[version: Int]() raises:
         data = BenchmarkData()
 
@@ -111,7 +110,6 @@ fn main() raises:
     # bench_throughput[3]()
     bench_throughput[4]()
 
-    @parameter
     fn bench_latency[version: Int]() raises:
         angle = degrees_to_radians(Float32(45))
         q2 = Quat.from_axis_angle(Vec3f32(0, 1, 0), angle)

@@ -1,5 +1,5 @@
-from memory import memset_zero, memcpy
-from testing import assert_true
+from std.memory import memset_zero, memcpy
+from std.testing import assert_true
 
 
 struct SparseMatrix[
@@ -16,11 +16,11 @@ struct SparseMatrix[
     """Number of rows."""
     var n: Int
     """Number of columns."""
-    var p: UnsafePointer[Scalar[Self.itype], MutOrigin.external]
+    var p: UnsafePointer[Scalar[Self.itype], MutExternalOrigin]
     """Column pointers (size n+1) or col indices (size nzmax)."""
-    var i: UnsafePointer[Scalar[Self.itype], MutOrigin.external]
+    var i: UnsafePointer[Scalar[Self.itype], MutExternalOrigin]
     """Row indices, size nzmax."""
-    var x: UnsafePointer[Scalar[Self.type], MutOrigin.external]
+    var x: UnsafePointer[Scalar[Self.type], MutExternalOrigin]
     """Numerical values, size nzmax."""
     var nz: Int
     """Number of entries if triplet, -1 if CCS."""
@@ -34,8 +34,7 @@ struct SparseMatrix[
         self.n = n
         self.nzmax = max(nzmax, 1)
 
-        @parameter
-        if Self.is_triplet:
+        comptime if Self.is_triplet:
             self.nz = 0
             self.p = alloc[Scalar[Self.itype]](self.nzmax)
         else:
@@ -46,8 +45,7 @@ struct SparseMatrix[
 
         self.i = alloc[Scalar[Self.itype]](self.nzmax)
 
-        @parameter
-        if Self.has_values:
+        comptime if Self.has_values:
             self.x = alloc[Scalar[Self.type]](self.nzmax)
         else:
             self.x = {}
@@ -58,8 +56,7 @@ struct SparseMatrix[
         self.x.free()
 
     fn nnz(self) -> Int:
-        @parameter
-        if self.is_triplet:
+        comptime if self.is_triplet:
             return self.nz
         else:
             return Int(self.p[self.n])
@@ -82,7 +79,7 @@ struct SparseMatrix[
         j: Scalar[Self.itype],
         value: Scalar[Self.type],
     ):
-        __comptime_assert Self.is_triplet, (
+        comptime assert Self.is_triplet, (
             "add_entry can only be called on a SparseMatrix in Triplet form"
             " (is_triplet=True)"
         )

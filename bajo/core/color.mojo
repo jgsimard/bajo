@@ -1,6 +1,6 @@
-from math import log, exp, log2, exp2, sqrt, clamp
+from std.math import log, exp, log2, exp2, sqrt, clamp
 from std.utils.numerics import max_finite, min_finite
-from utils.variant import Variant
+from std.utils.variant import Variant
 
 from bajo.bmath import Vector, Vec2f, Vec3f, Vec4f, Vec4b, dot, Mat3f
 
@@ -141,8 +141,7 @@ fn tonemap[
     if exposure != 0:
         rgb = rgb * exp2(exposure)
 
-    @parameter
-    if filmic:
+    comptime if filmic:
         rgb = tonemap_filmic(rgb)
     elif srgb:
         rgb = rgb_to_srgb(rgb)

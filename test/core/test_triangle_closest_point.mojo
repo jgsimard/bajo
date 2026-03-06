@@ -10,7 +10,7 @@ from bajo.core.vec import Vec3, Vec3f32, dot, length
 
 
 @always_inline
-def triangle_closest_point_barycentric[
+fn triangle_closest_point_barycentric[
     dtype: DType
 ](a: Vec3[dtype], b: Vec3[dtype], c: Vec3[dtype], p: Vec3[dtype]) -> Vec3[
     dtype
@@ -62,7 +62,7 @@ def triangle_closest_point_barycentric[
 
 
 @always_inline
-def check_edge_feasible_region[
+fn check_edge_feasible_region[
     dtype: DType
 ](
     p: Vec3[dtype],
@@ -94,7 +94,7 @@ def check_edge_feasible_region[
 
 
 @always_inline
-def check_vertex_feasible_region[
+fn check_vertex_feasible_region[
     dtype: DType
 ](
     p: Vec3[dtype],
@@ -190,5 +190,5 @@ def _test_triangle_closest_point[dtype: DType, eps: Scalar[dtype]]() raises:
                     raise t"Failed face perpendicularity at iteration {i}"
 
 
-def main():
+def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

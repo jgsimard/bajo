@@ -63,5 +63,5 @@ def test_Mat3f_from_quat() raises:
     assert_vec_equal(_matvec(m, v), q.rotate(v))
 
 
-def main():
+def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

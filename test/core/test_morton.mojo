@@ -58,5 +58,5 @@ def test_morton3_boundaries() raises:
     assert_equal(m_max, expected)
 
 
-def main():
+def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

@@ -76,5 +76,5 @@ def test_near_zero() raises:
     assert_false(Vec3f32(1e-9, 1e-9, 0.1).is_near_zero())
 
 
-def main():
+def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

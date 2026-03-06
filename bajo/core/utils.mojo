@@ -1,6 +1,6 @@
 from std.math import sqrt, clamp
 
-from bajo.core.vec import Vec, vmin, vmax
+from bajo.core.vec import Vec, vclamp
 
 
 @fieldwise_init
@@ -89,5 +89,5 @@ fn smoothstep[
 ](a: Vec[dtype, size], b: Vec[dtype, size], x: Vec[dtype, size]) -> Vec[
     dtype, size
 ]:
-    y = vmin(vmax((x - a) / (b - a), 0), 1)
+    y = vclamp((x - a) / (b - a), 0, 1)
     return y * y * (3 - 2 * y)

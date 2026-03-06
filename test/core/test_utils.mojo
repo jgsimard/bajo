@@ -27,5 +27,5 @@ def test_solve_quadratic() raises:
     assert_false(res.mask[1])
 
 
-def main():
+def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

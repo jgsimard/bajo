@@ -25,7 +25,7 @@ struct AxisAlignedBoundingBox[dtype: DType where dtype.is_floating_point()](
 
     @staticmethod
     fn point(p: Vec3[Self.dtype]) -> Self:
-        return Self(p, p)
+        return Self(p.copy(), p.copy())
 
     @staticmethod
     fn merge(a: Self, b: Self) -> Self:

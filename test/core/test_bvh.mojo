@@ -32,5 +32,5 @@ def test_bvh_ray_query_inside_outside() raises:
     assert_true(hit_inside, "Ray starting inside failed to hit")
 
 
-def main():
+def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

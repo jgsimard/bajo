@@ -32,5 +32,5 @@ def test_correctness() raises:
     assert_almost_equal(result[0], expected)
 
 
-def main():
+def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

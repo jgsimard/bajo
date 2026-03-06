@@ -1,4 +1,4 @@
-from std.math import sqrt, min, max
+from std.math import sqrt, min, max, clamp
 from std.testing import assert_almost_equal
 from std.sys import CompilationTarget
 
@@ -386,6 +386,17 @@ fn vmax[
     out = Vec[dtype, size](uninitialized=True)
     comptime for i in range(size):
         out.data[i] = max(a[i], b[i])
+    return out^
+
+
+fn vclamp[
+    dtype: DType, size: Int
+](
+    v: Vec[dtype, size], lower_bound: Scalar[dtype], upper_bound: Scalar[dtype]
+) -> Vec[dtype, size]:
+    out = Vec[dtype, size](uninitialized=True)
+    comptime for i in range(size):
+        out.data[i] = clamp(v[i], lower_bound, upper_bound)
     return out^
 
 

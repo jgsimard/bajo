@@ -59,5 +59,5 @@ def test_apply_trs_rotated() raises:
     assert_almost_equal(new_box.max.z(), 1.0, atol=1e-5)
 
 
-def main():
+def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

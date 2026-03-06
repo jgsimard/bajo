@@ -320,5 +320,5 @@ def test_intersect_tri_tri() raises:
 # to test : closest_point_edge_edge
 
 
-def main():
+def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

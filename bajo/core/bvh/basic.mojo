@@ -170,37 +170,6 @@ struct BVHPackedNodeHalf(Copyable, TrivialRegisterPassable):
         self.ib = Self.index_and_leaf(UInt32(child), leaf)
 
 
-fn part1by2(n_in: UInt32) -> UInt32:
-    # 0000 1001 0010 0100 1001 0010 0100 1001
-    n = n_in
-    n = (n ^ (n << 16)) & 0xFF0000FF
-    n = (n ^ (n << 8)) & 0x0300F00F
-    n = (n ^ (n << 4)) & 0x030C30C3
-    n = (n ^ (n << 2)) & 0x09249249
-    return n
-
-
-fn morton3[dim: UInt32 = 1024](x: Float32, y: Float32, z: Float32) -> UInt32:
-    """Takes values in the range [0, 1] and assigns an index based Morton codes of length 3*lwp2(dim) bits.
-    """
-
-    # lwp2(dim): This likely stands for Log Width base 2.
-    # It is a helper function that returns the number of bits
-    # needed to represent the value dim.
-    # If dim = 1024 => lwp2(1024) = 10, because 2^10 = 1024
-
-    # masks for ux, uy, uz = use 3*10 = 30 bits
-    # 0000 1001 0010 0100 1001 0010 0100 1001
-    # 0001 0010 0100 1001 0010 0100 1001 0010
-    # 0010 0100 1001 0010 0100 1001 0010 0100
-
-    comptime dimf = Float32(dim)
-    ux = clamp(UInt32(x * dimf), 0, dim - 1)
-    uy = clamp(UInt32(y * dimf), 0, dim - 1)
-    uz = clamp(UInt32(z * dimf), 0, dim - 1)
-    return (part1by2(uz) << 2) | (part1by2(uy) << 1) | part1by2(ux)
-
-
 @fieldwise_init
 struct BVH[origin: Origin](Copyable):
     var node_lowers: UnsafePointer[BVHPackedNodeHalf, Self.origin]

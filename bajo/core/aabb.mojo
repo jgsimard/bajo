@@ -7,12 +7,26 @@ from bajo.core.vec import Vec3, vmin, vmax
 comptime AABB = AxisAlignedBoundingBox[DType.float32]
 
 
-@fieldwise_init
-struct AxisAlignedBoundingBox[dtype: DType where dtype.is_floating_point()](
-    Copyable, Writable
-):
-    var min: Vec3[Self.dtype]
-    var max: Vec3[Self.dtype]
+struct AxisAlignedBoundingBox[dtype: DType](Copyable, Writable):
+    var _min: Vec3[Self.dtype]
+    var _max: Vec3[Self.dtype]
+
+    fn __init__(out self, v0: Vec3[Self.dtype], v1: Vec3[Self.dtype]):
+        self._min = vmin(v0, v1)
+        self._max = vmax(v0, v1)
+
+    fn __init__(
+        out self,
+        v0: Vec3[Self.dtype],
+        v1: Vec3[Self.dtype],
+        v2: Vec3[Self.dtype],
+    ):
+        self._min = vmin(vmin(v0, v1), v2)
+        self._max = vmax(vmax(v0, v1), v2)
+
+    fn __init__(out self, a: Self, b: Self):
+        self._min = vmin(a._min, b._min)
+        self._max = vmax(a._max, b._max)
 
     @staticmethod
     fn invalid() -> Self:
@@ -30,35 +44,56 @@ struct AxisAlignedBoundingBox[dtype: DType where dtype.is_floating_point()](
     @staticmethod
     fn merge(a: Self, b: Self) -> Self:
         return Self(
-            vmin(a.min, b.min),
-            vmax(a.max, b.max),
+            vmin(a._min, b._min),
+            vmax(a._max, b._max),
         )
 
     fn surface_area(self) -> Scalar[Self.dtype]:
-        d = self.max - self.min
+        d = self._max - self._min
         return 2.0 * (d.x() * d.y() + d.x() * d.z() + d.y() * d.z())
 
     fn centroid(self) -> Vec3[Self.dtype]:
-        return (self.min + self.max) * 0.5
+        return (self._min + self._max) * 0.5
+
+    fn area(self) -> Scalar[Self.dtype]:
+        diff = self._max - self._min
+        return diff.x() * diff.y() + diff.y() * diff.z() + diff.z() * diff.x()
+
+    fn clear(mut self):
+        comptime _min = min_finite[Self.dtype]()
+        comptime _max = max_finite[Self.dtype]()
+        self._min = Vec3[Self.dtype](_min)
+        self._max = Vec3[Self.dtype](_max)
+
+    fn grow(mut self, v: Vec3[Self.dtype]):
+        self._min = vmin(self._min, v)
+        self._max = vmax(self._max, v)
+
+    fn grow(mut self, other: Self):
+        self._min = vmin(self._min, other._min)
+        self._max = vmax(self._max, other._max)
+
+    fn edges(self) -> Vec3[Self.dtype]:
+        return self._max - self._min
 
     fn overlaps(self, o: Self) -> Bool:
         return (
-            self.min.x() < o.max.x()
-            and o.min.x() < self.max.x()
-            and self.min.y() < o.max.y()
-            and o.min.y() < self.max.y()
-            and self.min.z() < o.max.z()
-            and o.min.z() < self.max.z()
+            self._min.x() < o._max.x()
+            and o._min.x() < self._max.x()
+            and self._min.y() < o._max.y()
+            and o._min.y() < self._max.y()
+            and self._min.z() < o._max.z()
+            and o._min.z() < self._max.z()
         )
 
     fn contains(self, p: Vec3[Self.dtype]) -> Bool:
         return (
-            self.min.x() <= p.x()
-            and self.min.y() <= p.y()
-            and self.min.z() <= p.z()
-            and self.max.x() >= p.x()
-            and self.max.y() >= p.y()
-            and self.max.z() >= p.z()
+            self._min.x() <= p.x()
+            and self._min.y() <= p.y()
+            and self._min.z() <= p.z()
+            and self._max.x() >= p.x()
+            and self._max.y() >= p.y()
+            and self._max.z() >= p.z()
         )
 
     fn ray_intersects(
@@ -68,8 +103,8 @@ struct AxisAlignedBoundingBox[dtype: DType where dtype.is_floating_point()](
         ray_t_min: Scalar[Self.dtype],
         ray_t_max: Scalar[Self.dtype],
     ) -> Bool:
-        t_lower = inv_ray_d * (self.min - ray_o)
-        t_upper = inv_ray_d * (self.max - ray_o)
+        t_lower = inv_ray_d * (self._min - ray_o)
+        t_upper = inv_ray_d * (self._max - ray_o)
 
         t_min_vec = vmin(t_lower, t_upper)
         t_max_vec = vmax(t_lower, t_upper)
@@ -80,35 +115,37 @@ struct AxisAlignedBoundingBox[dtype: DType where dtype.is_floating_point()](
 
         return t_box_min <= t_box_max
 
-    fn apply_trs(
-        self,
-        translation: Vec3[Self.dtype],
-        rotation: Quaternion[Self.dtype],
-        scale: Vec3[Self.dtype],
-    ) -> Self:
+    fn apply_trs[
+        _dtype: DType where _dtype.is_floating_point()
+    ](
+        self: AxisAlignedBoundingBox[_dtype],
+        translation: Vec3[_dtype],
+        rotation: Quaternion[_dtype],
+        scale: Vec3[_dtype],
+    ) -> AxisAlignedBoundingBox[_dtype]:
         """
         Transforms the AABB using Jim Arvo algorithm (from "Graphics Gems", Academic Press, 1990) with explicit SIMD.
         """
-        mat = Mat33[Self.dtype].from_rotation_scale(rotation, scale).transpose()
+        mat = Mat33[_dtype].from_rotation_scale(rotation, scale).transpose()
 
         new_min = translation.copy()
         new_max = translation.copy()
 
         # X
-        c0_a = mat[0] * self.min.x()
-        c0_b = mat[0] * self.max.x()
+        c0_a = mat[0] * self._min.x()
+        c0_b = mat[0] * self._max.x()
         new_min += vmin(c0_a, c0_b)
         new_max += vmax(c0_a, c0_b)
 
         # Y
-        c1_a = mat[1] * self.min.y()
-        c1_b = mat[1] * self.max.y()
+        c1_a = mat[1] * self._min.y()
+        c1_b = mat[1] * self._max.y()
         new_min += vmin(c1_a, c1_b)
         new_max += vmax(c1_a, c1_b)
 
         # Z
-        c2_a = mat[2] * self.min.z()
-        c2_b = mat[2] * self.max.z()
+        c2_a = mat[2] * self._min.z()
+        c2_b = mat[2] * self._max.z()
         new_min += vmin(c2_a, c2_b)
         new_max += vmax(c2_a, c2_b)
 

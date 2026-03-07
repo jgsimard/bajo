@@ -35,8 +35,8 @@ def test_merge() raises:
     a = AABB(Vec3f32(0), Vec3f32(1))
     b = AABB(Vec3f32(-1), Vec3f32(0.5))
     merged = AABB.merge(a, b)
-    assert_vec_equal(merged.min, Vec3f32(-1))
-    assert_vec_equal(merged.max, Vec3f32(1))
+    assert_vec_equal(merged._min, Vec3f32(-1))
+    assert_vec_equal(merged._max, Vec3f32(1))
 
 
 def test_apply_trs_rotated() raises:
@@ -53,10 +53,10 @@ def test_apply_trs_rotated() raises:
     # After 45 deg rotation, the corners move to ±sqrt(2)
     # The new AABB should expand to fit the diamond shape
     expected_limit = Float32(1.41421356)
-    assert_almost_equal(new_box.max.x(), expected_limit, atol=1e-5)
-    assert_almost_equal(new_box.max.y(), expected_limit, atol=1e-5)
+    assert_almost_equal(new_box._max.x(), expected_limit, atol=1e-5)
+    assert_almost_equal(new_box._max.y(), expected_limit, atol=1e-5)
     # Z should remain 1.0
-    assert_almost_equal(new_box.max.z(), 1.0, atol=1e-5)
+    assert_almost_equal(new_box._max.z(), 1.0, atol=1e-5)
 
 
 def main() raises:

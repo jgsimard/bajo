@@ -23,6 +23,15 @@ struct PhiloxRNG:
         self._consumed += 1
         return val
 
+    fn next_Vec3f32(
+        mut self, lower_bound: Float32, upper_bound: Float32
+    ) -> Vec3f32:
+        r0 = self.next_f32()
+        r1 = self.next_f32()
+        r2 = self.next_f32()
+        out = Vec3f32(r0, r1, r2) * (upper_bound - lower_bound) + lower_bound
+        return out^
+
 
 fn random_unit_vector(mut rng: PhiloxRNG) -> Vec3f32:
     u = rng.next_f32()

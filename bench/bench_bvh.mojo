@@ -1,4 +1,3 @@
-from std.random import randint, seed, random_si64, random_float64
 from std.time import perf_counter_ns
 
 from bajo.core.random import PhiloxRNG
@@ -9,7 +8,7 @@ from bajo.core.primitives import Trianglef32
 from bajo.core.bvh.base import BVH
 
 
-comptime TRIANGLE_COUNT = 10_000_000
+comptime TRIANGLE_COUNT = 1_000_000
 comptime GRID_SIZE = 1000
 comptime cell_size = Float32(10.0) / Float32(GRID_SIZE)
 
@@ -18,9 +17,7 @@ fn main():
     print("hello bench_bvh")
     print("building test data....")
 
-    seed()
-
-    # rng = PhiloxRNG(123, 123)
+    rng = PhiloxRNG(123, 123)
 
     bounds = AABB(Vec3f32(0), Vec3f32(0))
     bounds.clear()
@@ -28,47 +25,15 @@ fn main():
     triangles = List[Trianglef32](capacity=TRIANGLE_COUNT)
 
     for _ in range(TRIANGLE_COUNT):
-        x = random_si64(0, GRID_SIZE - 1)
-        y = random_si64(0, GRID_SIZE - 1)
-        z = random_si64(0, GRID_SIZE - 1)
+        base = rng.next_Vec3f32(0, cell_size * (GRID_SIZE - 1))
+        offset = rng.next_Vec3f32(0.1 * cell_size, 0.9 * cell_size)
 
-        base_x = Float32(x) * cell_size
-        base_y = Float32(y) * cell_size
-        base_z = Float32(z) * cell_size
+        edge_dist_1 = rng.next_Vec3f32(-0.4 * cell_size, 0.4 * cell_size)
+        edge_dist_2 = rng.next_Vec3f32(-0.4 * cell_size, 0.4 * cell_size)
 
-        offset_x = Float32(
-            random_float64(Float64(0.1 * cell_size), Float64(0.9 * cell_size))
-        )
-        offset_y = Float32(
-            random_float64(Float64(0.1 * cell_size), Float64(0.9 * cell_size))
-        )
-        offset_z = Float32(
-            random_float64(Float64(0.1 * cell_size), Float64(0.9 * cell_size))
-        )
-
-        edge_dist_x_1 = Float32(
-            random_float64(Float64(-0.4 * cell_size), Float64(0.4 * cell_size))
-        )
-        edge_dist_y_1 = Float32(
-            random_float64(Float64(-0.4 * cell_size), Float64(0.4 * cell_size))
-        )
-        edge_dist_z_1 = Float32(
-            random_float64(Float64(-0.4 * cell_size), Float64(0.4 * cell_size))
-        )
-
-        edge_dist_x_2 = Float32(
-            random_float64(Float64(-0.4 * cell_size), Float64(0.4 * cell_size))
-        )
-        edge_dist_y_2 = Float32(
-            random_float64(Float64(-0.4 * cell_size), Float64(0.4 * cell_size))
-        )
-        edge_dist_z_2 = Float32(
-            random_float64(Float64(-0.4 * cell_size), Float64(0.4 * cell_size))
-        )
-
-        v0 = Vec3f32(base_x + offset_x, base_y + offset_y, base_z + offset_z)
-        v1 = v0 + Vec3f32(edge_dist_x_1, edge_dist_y_1, edge_dist_z_1)
-        v2 = v0 + Vec3f32(edge_dist_x_2, edge_dist_y_2, edge_dist_z_2)
+        v0 = base + offset
+        v1 = v0 + edge_dist_1
+        v2 = v0 + edge_dist_2
 
         # Ensure v1 and v2 are not too close to v0 (avoid degeneracy)
         if length(v1 - v0) < 0.1 * cell_size:
@@ -87,12 +52,12 @@ fn main():
     _bvh = BVH(triangles^)
     t1 = perf_counter_ns()
     delta_t = t1 - t0
-    delta_t_ms = Float32(delta_t) / 1_000_000.0
+    delta_t_ms = round(Float32(delta_t) / 1_000_000.0, 2)
     print(t"building BVH....DONE in {delta_t_ms} ms")
 
     # basic : single threaded on CPU
-    #  1_000_000 =  1332.778 ms
-    # 10_000_000 = 19715.723 ms
+    #  1_000_000 =  1332.78 ms
+    # 10_000_000 = 19715.72 ms
 
     # hploc : on GPU (expected)
     # 10_000_000 = ~20 ms

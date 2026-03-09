@@ -1,4 +1,6 @@
 from std.math import sqrt, clamp
+from std.sys.info import size_of
+from std.reflection import get_type_name
 
 from bajo.core.vec import Vec, vclamp
 
@@ -91,3 +93,10 @@ fn smoothstep[
 ]:
     y = vclamp((x - a) / (b - a), 0, 1)
     return y * y * (3 - 2 * y)
+
+
+fn print_size_of[type: AnyType]():
+    comptime name = get_type_name[type]()
+    size_bytes = size_of[type]()
+    size_32 = size_bytes / 4
+    print(t"{name}: {size_bytes} bytes, {size_32} x 32 bits")

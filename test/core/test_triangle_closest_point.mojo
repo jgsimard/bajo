@@ -117,12 +117,9 @@ fn check_vertex_feasible_region[
     return True
 
 
-def test_triangle_closest_point_f32() raises:
-    _test_triangle_closest_point[DType.float32, 1e-5]()
-
-
-def test_triangle_closest_point_f16() raises:
+def test_triangle_closest_point() raises:
     _test_triangle_closest_point[DType.float16, 1e-3]()
+    _test_triangle_closest_point[DType.float32, 1e-5]()
 
 
 def _test_triangle_closest_point[dtype: DType, eps: Scalar[dtype]]() raises:

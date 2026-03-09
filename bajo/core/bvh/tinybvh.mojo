@@ -1,10 +1,9 @@
 # Mojo implementation of tinybvh
-from std.sys.info import size_of
-from std.reflection import get_type_name
 from ffi import UnsafeUnion
 
 from bajo.core.vec import Vec3f32, dot
 from bajo.core.mat import Mat44f32
+from bajo.core.utils import print_size_of
 
 
 comptime BVHBINS = 8
@@ -69,13 +68,6 @@ struct Ray(Copyable):
     var rD: Vec3f32
     # var dummy2: UInt32
     # var hit: Intersection
-
-
-def print_size_of[type: AnyType]():
-    comptime name = get_type_name[type]()
-    size_bytes = size_of[type]()
-    size_32 = size_bytes / 4
-    print(t"{name}: {size_bytes} bytes, {size_32} x 32 bits")
 
 
 def main() raises:

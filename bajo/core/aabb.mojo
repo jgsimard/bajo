@@ -2,24 +2,26 @@ from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.mat import Mat33
 from bajo.core.quat import Quaternion
-from bajo.core.vec import Vec3, vmin, vmax
+from bajo.core.vec import Vec, Vec3, vmin, vmax
 
 comptime AABB = AxisAlignedBoundingBox[DType.float32]
 
 
-struct AxisAlignedBoundingBox[dtype: DType](Copyable, Writable):
-    var _min: Vec3[Self.dtype]
-    var _max: Vec3[Self.dtype]
+struct AxisAlignedBoundingBox[dtype: DType, size: Int = 3](Copyable, Writable):
+    var _min: Vec[Self.dtype, Self.size]
+    var _max: Vec[Self.dtype, Self.size]
 
-    fn __init__(out self, v0: Vec3[Self.dtype], v1: Vec3[Self.dtype]):
+    fn __init__(
+        out self, v0: Vec[Self.dtype, Self.size], v1: Vec[Self.dtype, Self.size]
+    ):
         self._min = vmin(v0, v1)
         self._max = vmax(v0, v1)
 
     fn __init__(
         out self,
-        v0: Vec3[Self.dtype],
-        v1: Vec3[Self.dtype],
-        v2: Vec3[Self.dtype],
+        v0: Vec[Self.dtype, Self.size],
+        v1: Vec[Self.dtype, Self.size],
+        v2: Vec[Self.dtype, Self.size],
     ):
         self._min = vmin(vmin(v0, v1), v2)
         self._max = vmax(vmax(v0, v1), v2)
@@ -33,12 +35,12 @@ struct AxisAlignedBoundingBox[dtype: DType](Copyable, Writable):
         comptime flt_max = max_finite[Self.dtype]()
         comptime flt_min = min_finite[Self.dtype]()
         return Self(
-            Vec3[Self.dtype](flt_max),
-            Vec3[Self.dtype](flt_min),
+            Vec[Self.dtype, Self.size](flt_max),
+            Vec[Self.dtype, Self.size](flt_min),
         )
 
     @staticmethod
-    fn point(p: Vec3[Self.dtype]) -> Self:
+    fn point(p: Vec[Self.dtype, Self.size]) -> Self:
         return Self(p.copy(), p.copy())
 
     @staticmethod
@@ -52,7 +54,7 @@ struct AxisAlignedBoundingBox[dtype: DType](Copyable, Writable):
         d = self._max - self._min
         return 2.0 * (d.x() * d.y() + d.x() * d.z() + d.y() * d.z())
 
-    fn centroid(self) -> Vec3[Self.dtype]:
+    fn centroid(self) -> Vec[Self.dtype, Self.size]:
         return (self._min + self._max) * 0.5
 
     fn area(self) -> Scalar[Self.dtype]:
@@ -62,10 +64,10 @@ struct AxisAlignedBoundingBox[dtype: DType](Copyable, Writable):
     fn clear(mut self):
         comptime _min = min_finite[Self.dtype]()
         comptime _max = max_finite[Self.dtype]()
-        self._min = Vec3[Self.dtype](_min)
-        self._max = Vec3[Self.dtype](_max)
+        self._min = Vec[Self.dtype, Self.size](_min)
+        self._max = Vec[Self.dtype, Self.size](_max)
 
-    fn grow(mut self, v: Vec3[Self.dtype]):
+    fn grow(mut self, v: Vec[Self.dtype, Self.size]):
         self._min = vmin(self._min, v)
         self._max = vmax(self._max, v)
 
@@ -73,7 +75,7 @@ struct AxisAlignedBoundingBox[dtype: DType](Copyable, Writable):
         self._min = vmin(self._min, other._min)
         self._max = vmax(self._max, other._max)
 
-    fn edges(self) -> Vec3[Self.dtype]:
+    fn edges(self) -> Vec[Self.dtype, Self.size]:
         return self._max - self._min
 
     fn overlaps(self, o: Self) -> Bool:
@@ -86,7 +88,7 @@ struct AxisAlignedBoundingBox[dtype: DType](Copyable, Writable):
             and o._min.z() < self._max.z()
         )
 
-    fn contains(self, p: Vec3[Self.dtype]) -> Bool:
+    fn contains(self, p: Vec[Self.dtype, Self.size]) -> Bool:
         return (
             self._min.x() <= p.x()
             and self._min.y() <= p.y()
@@ -98,8 +100,8 @@ struct AxisAlignedBoundingBox[dtype: DType](Copyable, Writable):
 
     fn ray_intersects(
         self,
-        ray_o: Vec3[Self.dtype],
-        inv_ray_d: Vec3[Self.dtype],
+        ray_o: Vec[Self.dtype, Self.size],
+        inv_ray_d: Vec[Self.dtype, Self.size],
         ray_t_min: Scalar[Self.dtype],
         ray_t_max: Scalar[Self.dtype],
     ) -> Bool:
@@ -131,22 +133,10 @@ struct AxisAlignedBoundingBox[dtype: DType](Copyable, Writable):
         new_min = translation.copy()
         new_max = translation.copy()
 
-        # X
-        c0_a = mat[0] * self._min.x()
-        c0_b = mat[0] * self._max.x()
-        new_min += vmin(c0_a, c0_b)
-        new_max += vmax(c0_a, c0_b)
-
-        # Y
-        c1_a = mat[1] * self._min.y()
-        c1_b = mat[1] * self._max.y()
-        new_min += vmin(c1_a, c1_b)
-        new_max += vmax(c1_a, c1_b)
-
-        # Z
-        c2_a = mat[2] * self._min.z()
-        c2_b = mat[2] * self._max.z()
-        new_min += vmin(c2_a, c2_b)
-        new_max += vmax(c2_a, c2_b)
+        comptime for i in range(Self.size):
+            c_a = mat[i] * self._min[i]
+            c_b = mat[i] * self._max[i]
+            new_min += vmin(c_a, c_b)
+            new_max += vmax(c_a, c_b)
 
         return AxisAlignedBoundingBox(new_min^, new_max^)

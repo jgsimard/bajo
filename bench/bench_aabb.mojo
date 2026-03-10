@@ -162,21 +162,13 @@ struct AABBBenchmarkData:
 
         for i in range(num_elements):
             self.boxes[i] = AABB(Vec3f32(-1), Vec3f32(1))
-            self.translations[i] = Vec3f32(
-                rng.next_f32(),
-                rng.next_f32(),
-                rng.next_f32(),
-            )
+            self.translations[i] = rng.next_Vec3f32()
             self.rotations[i] = Quat.from_axis_angle(
                 Vec3f32(0, 1, 0),
                 rng.next_f32(),
             )
 
-            self.scales[i] = Vec3f32(
-                rng.next_f32(),
-                rng.next_f32(),
-                rng.next_f32(),
-            )
+            self.scales[i] = rng.next_Vec3f32()
 
     fn __del__(deinit self):
         self.boxes.free()

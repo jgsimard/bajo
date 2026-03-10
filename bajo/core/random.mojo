@@ -24,7 +24,7 @@ struct PhiloxRNG:
         return val
 
     fn next_Vec3f32(
-        mut self, lower_bound: Float32, upper_bound: Float32
+        mut self, lower_bound: Float32 = 0, upper_bound: Float32 = 1
     ) -> Vec3f32:
         r0 = self.next_f32()
         r1 = self.next_f32()

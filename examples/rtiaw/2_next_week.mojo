@@ -6,7 +6,7 @@ from utils import Variant
 from os import abort
 from sys.info import size_of
 
-
+# from bajo.core.vec_simd import (
 from bajo.core.vec import (
     Vec2f32,
     Vec3f32,
@@ -26,6 +26,10 @@ from bajo.core.random import (
     random_on_hemisphere,
     random_in_unit_disk,
     random_in_unit_sphere,
+    # random_unit_vector_simd as random_unit_vector,
+    # random_on_hemisphere_simd as random_on_hemisphere,
+    # random_in_unit_disk_simd as random_in_unit_disk,
+    # random_in_unit_sphere_simd as random_in_unit_sphere,
     PhiloxRNG,
 )
 
@@ -49,11 +53,10 @@ fn main() raises:
 
 fn colorize(color: Color) -> Color:
     out = Color(uninitialized=True)
-
-    @parameter
-    for i in range(3):
+    comptime for i in range(3):
         out.data[i] = sqrt(color[i]).clamp(0.0, 0.999) * 255.99
     return out^
+    # return Color(sqrt(color.data).clamp(0.0, 0.999) * 255.99)
 
 
 fn write_color(mut f: FileHandle, color: Color):
@@ -63,7 +66,7 @@ fn write_color(mut f: FileHandle, color: Color):
     ig = Int(out_color.y())
     ib = Int(out_color.z())
 
-    f.write("{} {} {}\n".format(ir, ig, ib))
+    f.write(t"{ir} {ig} {ib}\n")
 
 
 @fieldwise_init
@@ -393,7 +396,10 @@ struct BVH(Hittable):
             var box_b = get_bounding_box(b)
             return box_a.min[axis] < box_b.min[axis]
 
-        sort[cmp_fn=cmp_fn](self.objects[start : start + span_len])
+        # SIMD version
+        sort[cmp_fn=cmp_fn, stable=True](self.objects[start : start + span_len])
+        # # not SIMD version
+        # sort[cmp_fn=cmp_fn](self.objects[start : start + span_len])
 
         mid = start + span_len // 2
 
@@ -586,7 +592,6 @@ struct Camera(Copyable):
                 for _sample in range(self.samples_per_pixel):
                     r = self.get_ray(i, j, rng)
                     pixel_color += self.ray_color(r, world, rng)
-                    # print(pixel_color)
 
                 image_data[j * self.image_width + i] = pixel_color * factor
 
@@ -594,9 +599,7 @@ struct Camera(Copyable):
         # parallelize[worker](self.image_height, 1)
 
         with open("rtiaw_2.ppm", "w") as f:
-            f.write(
-                "P3\n{} {}\n255\n".format(self.image_width, self.image_height)
-            )
+            f.write(t"P3\n{self.image_width} {self.image_height}\n255\n")
             for color in image_data:
                 write_color(f, color)
 
@@ -660,7 +663,7 @@ struct Lambertian(Material, Writable):
         var scatter_direction = hit.normal + random_unit_vector(rng)
 
         # Catch degenerate scatter direction
-        if scatter_direction.near_zero():
+        if scatter_direction.is_near_zero():
             scatter_direction = hit.normal.copy()
 
         scattered = Ray(hit.p, scatter_direction, ray.time)
@@ -795,7 +798,6 @@ fn create_random_scene() -> Scene:
         defocus_angle=0.6,
         focus_dist=10.0,
     )
-
     world = BVH(objects^, materials^)
     return Scene(cam^, world^)
 

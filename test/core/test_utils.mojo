@@ -1,4 +1,4 @@
-from testing import (
+from std.testing import (
     TestSuite,
     assert_almost_equal,
     assert_true,
@@ -8,7 +8,7 @@ from testing import (
 from bajo.core.utils import QuadraticSolutions, solve_quadratic
 
 
-fn test_solve_quadratic() raises:
+def test_solve_quadratic() raises:
     # Lane 0: x^2 - 5x + 6 = 0 -> roots 2, 3
     # Lane 1: x^2 + 0x + 1 = 0 -> no real roots
     comptime T = SIMD[DType.float32, 2]
@@ -27,5 +27,5 @@ fn test_solve_quadratic() raises:
     assert_false(res.mask[1])
 
 
-def main():
+def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

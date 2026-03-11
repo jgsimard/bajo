@@ -1,9 +1,9 @@
-from testing import (
+from std.testing import (
     TestSuite,
     assert_almost_equal,
 )
 
-from math import abs
+from std.math import abs
 
 from bajo.core.random import PhiloxRNG
 from bajo.core.vec import Vec3, Vec3f32, dot, length
@@ -117,15 +117,12 @@ fn check_vertex_feasible_region[
     return True
 
 
-fn test_triangle_closest_point_f32() raises:
+def test_triangle_closest_point() raises:
+    _test_triangle_closest_point[DType.float16, 1e-3]()
     _test_triangle_closest_point[DType.float32, 1e-5]()
 
 
-fn test_triangle_closest_point_f16() raises:
-    _test_triangle_closest_point[DType.float16, 1e-3]()
-
-
-fn _test_triangle_closest_point[dtype: DType, eps: Scalar[dtype]]() raises:
+def _test_triangle_closest_point[dtype: DType, eps: Scalar[dtype]]() raises:
     rng = PhiloxRNG(seed=123, id=321)
     # Setup triangle
     a = Vec3[dtype](1.0, 0.0, 0.0)
@@ -164,21 +161,19 @@ fn _test_triangle_closest_point[dtype: DType, eps: Scalar[dtype]]() raises:
             # Case: Closest point is on an edge
             if bary[dim] == 0.0 and bary[v1_idx] != 0.0 and bary[v2_idx] != 0.0:
                 if not check_edge_feasible_region(p, v1, v2, v3, eps):
-                    raise "Failed edge feasible region at iteration {}".format(
-                        i
-                    )
+                    raise t"Failed edge feasible region at iteration {i}"
 
                 # Check perpendicularity
                 closest_p = a * bary[0] + b * bary[1] + c * bary[2]
                 e = v1 - v2
                 err = dot(e, closest_p - p)
                 if abs(err) > eps:
-                    raise "Failed perpendicularity at iteration".format(i)
+                    raise t"Failed perpendicularity at iteration {i}"
 
             # Case: Closest point is a vertex
             if bary[v1_idx] == 0.0 and bary[v2_idx] == 0.0:
                 if not check_vertex_feasible_region(p, v3, v1, v2, eps):
-                    raise "Failed vertex feasible region at iteration".format(i)
+                    raise t"Failed vertex feasible region at iteration {i}"
 
             # Case: Closest point is inside the face
             if bary[dim] != 0.0 and bary[v1_idx] != 0.0 and bary[v2_idx] != 0.0:
@@ -189,8 +184,8 @@ fn _test_triangle_closest_point[dtype: DType, eps: Scalar[dtype]]() raises:
                     abs(dot(e1, closest_p - p)) > eps
                     or abs(dot(e2, closest_p - p)) > eps
                 ):
-                    raise "Failed face perpendicularity at iteration".format(i)
+                    raise t"Failed face perpendicularity at iteration {i}"
 
 
-def main():
+def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

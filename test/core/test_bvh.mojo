@@ -1,4 +1,4 @@
-from testing import (
+from std.testing import (
     TestSuite,
     assert_true,
 )
@@ -7,7 +7,7 @@ from bajo.core.vec import Vec3f32
 from bajo.core.intersect import intersect_ray_aabb
 
 
-fn test_bvh_ray_query_inside_outside() raises:
+def test_bvh_ray_query_inside_outside() raises:
     # https://github.com/NVIDIA/warp/issues/288
     # AABB spanning x=[0.5, 1.0], extending across y and z axes
     lower = Vec3f32(0.5, -1.0, -1.0)
@@ -32,5 +32,5 @@ fn test_bvh_ray_query_inside_outside() raises:
     assert_true(hit_inside, "Ray starting inside failed to hit")
 
 
-def main():
+def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

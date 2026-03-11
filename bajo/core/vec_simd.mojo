@@ -1,6 +1,7 @@
-from std.math import sqrt, min, max, clamp
-from std.testing import assert_almost_equal
-from std.sys import CompilationTarget
+from math import sqrt, min, max
+from testing import assert_almost_equal
+from sys import CompilationTarget
+from std.bit import next_power_of_two
 
 comptime Vec2 = Vec[_, 2]
 comptime Vec3 = Vec[_, 3]
@@ -52,28 +53,28 @@ comptime Vec4f64 = Vec4[DType.float64]
 
 
 @fieldwise_init
-struct Vec[dtype: DType, size: Int](Copyable, Equatable, Roundable, Writable):
-    # TODO: maybe use psize for SIMD for Vec3 on cpu
-    # comptime psize = 4 if Self.size == 3 and CompilationTarget.is_x86() else Self.size
+struct Vec[dtype: DType, size: Int](
+    Copyable, Equatable, Roundable, TrivialRegisterPassable, Writable
+):
+    """Wrapper around SIMD."""
+
+    comptime psize = next_power_of_two(Self.size)
     comptime S = Scalar[Self.dtype]
-    comptime T = InlineArray[Self.S, Self.size]
+    comptime T = SIMD[Self.dtype, Self.psize]
     var data: Self.T
 
-    fn __init__(out self, s: Self.S):
-        comptime assert Self.size > 0
-        self.data = Self.T(fill=s)
-
-    fn __init__(out self, uninitialized: Bool):
-        comptime assert Self.size > 0
-        self.data = Self.T(uninitialized=uninitialized)
-
-    fn __init__(out self, var *elems: Self.S):
-        debug_assert(
-            len(elems) == Self.size, "No. of elems must match array size"
+    # TODO: change this
+    # ugly but it works
+    fn __init__(out self: Vec3f32, v: Int):
+        self.data = rebind[Vec[DType.float32, 3].T](
+            SIMD[DType.float32, 4](Float32(v), Float32(v), Float32(v), 0)
         )
-        self.data = Self.T(storage=elems^)
 
-    # TODO: should we keep this ?
+    fn __init__(out self: Vec3f32, v: Float64):
+        self.data = rebind[Vec[DType.float32, 3].T](
+            SIMD[DType.float32, 4](Float32(v), Float32(v), Float32(v), 0)
+        )
+
     fn __init__(
         out self: Vec[Self.dtype, 2],
         x: Self.S,
@@ -87,7 +88,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Equatable, Roundable, Writable):
         y: Self.S,
         z: Self.S,
     ):
-        self.data = [x, y, z]
+        self.data = [x, y, z, Self.S(0)]
 
     fn __init__(
         out self: Vec[Self.dtype, 4],
@@ -103,7 +104,8 @@ struct Vec[dtype: DType, size: Int](Copyable, Equatable, Roundable, Writable):
         v: Vec3[Self.dtype],
         w: Vec3[Self.dtype],
     ):
-        self.data = [v.x(), v.y(), v.z(), w.x(), w.y(), w.z()]
+        comptime zero = Self.S(0)
+        self.data = [v.x(), v.y(), v.z(), w.x(), w.y(), w.z(), zero, zero]
 
     fn x(self) -> Self.S:
         return self.data[0]
@@ -136,15 +138,11 @@ struct Vec[dtype: DType, size: Int](Copyable, Equatable, Roundable, Writable):
         return Vec3[Self.dtype](self.x(), self.y(), self.z())
 
     # accessors
-    @always_inline
-    fn __getitem__[I: Indexer, //, idx: I](ref self) -> ref[self.data] Self.S:
-        """With compile-time bounds checking."""
-        return self.data[materialize[idx]()]
+    fn __getitem__(self, i: Int) -> Scalar[Self.dtype]:
+        return self.data[i]
 
-    @always_inline
-    fn __getitem__[I: Indexer](ref self, idx: I) -> ref[self.data] Self.S:
-        # return self.data[idx] # bounds checking
-        return self.data.unsafe_get(idx)  # no bounds checking
+    fn __setitem__(mut self, i: Int, v: Scalar[Self.dtype]):
+        self.data[i] = v
 
     # inplace modifier
     fn __iadd__(mut self, other: Self):
@@ -161,176 +159,97 @@ struct Vec[dtype: DType, size: Int](Copyable, Equatable, Roundable, Writable):
 
     # methods (produce new Self)
     fn __neg__(self) -> Self:
-        out = Self(uninitialized=True)
-        comptime for i in range(Self.size):
-            out[i] = -self[i]
-        return out^
+        return Self(-self.data)
 
     fn __add__(self, other: Self) -> Self:
-        return _vv[Self.S.__add__](self, other)
+        return Self(self.data + other.data)
 
     fn __sub__(self, other: Self) -> Self:
-        return _vv[Self.S.__sub__](self, other)
+        return Self(self.data - other.data)
 
     fn __mul__(self, other: Self) -> Self:
-        return _vv[Self.S.__mul__](self, other)
+        return Self(self.data * other.data)
 
     fn __truediv__(self, other: Self) -> Self:
-        return _vv[Self.S.__truediv__](self, other)
+        return Self(self.data / other.data)
 
     fn __and__(self, other: Self) -> Self:
-        return _vv[Self.S.__and__](self, other)
+        return Self(self.data & other.data)
 
     fn __or__(self, other: Self) -> Self:
-        return _vv[Self.S.__or__](self, other)
+        return Self(self.data | other.data)
 
     fn __xor__(self, other: Self) -> Self:
-        return _vv[Self.S.__xor__](self, other)
+        return Self(self.data ^ other.data)
 
     fn __lshift__(self, other: Self) -> Self:
-        return _vv[Self.S.__lshift__](self, other)
+        return Self(self.data << other.data)
 
     fn __rshift__(self, other: Self) -> Self:
-        return _vv[Self.S.__rshift__](self, other)
+        return Self(self.data >> other.data)
 
     fn __round__(self) -> Self:
-        res = Self(uninitialized=True)
-        comptime for i in range(Self.size):
-            res[i] = round(self[i])
-        return res^
+        return Self(round(self.data))
 
     fn __round__(self, ndigits: Int) -> Self:
-        res = Self(uninitialized=True)
-        comptime for i in range(Self.size):
-            res[i] = round(self[i], ndigits)
-        return res^
+        return Self(round(self.data, ndigits))
 
     fn __invert__(self) -> Self:
-        out = Self(uninitialized=True)
-        comptime for i in range(Self.size):
-            out[i] = ~self[i]
-        return out^
+        return Self(~self.data)
 
     # Scalar inplace
     fn __iadd__(mut self, s: Self.S):
-        comptime for i in range(Self.size):
-            self[i] += s
+        self.data += s
 
     fn __isub__(mut self, s: Self.S):
-        comptime for i in range(Self.size):
-            self[i] -= s
+        self.data -= s
 
     fn __imul__(mut self, s: Self.S):
-        comptime for i in range(Self.size):
-            self[i] *= s
+        self.data *= s
 
     # Scalar methods
     fn __add__(self, s: Self.S) -> Self:
-        return _vs[Self.S.__add__](self, s)
+        return Self(self.data + s)
 
     fn __sub__(self, s: Self.S) -> Self:
-        return _vs[Self.S.__sub__](self, s)
+        return Self(self.data - s)
 
     fn __mul__(self, s: Self.S) -> Self:
-        return _vs[Self.S.__mul__](self, s)
+        return Self(self.data * s)
 
     fn __rmul__(self, s: Self.S) -> Self:
-        return self * s
+        return Self(self.data * s)
 
     fn __truediv__(self, s: Self.S) -> Self:
-        return _vs[Self.S.__truediv__](self, s)
+        return Self(self.data / s)
 
     fn __rtruediv__(self, s: Self.S) -> Self:
-        return _vs[Self.S.__rtruediv__](self, s)
+        return Self(s / self.data)
 
     fn __and__(self, s: Self.S) -> Self:
-        return _vs[Self.S.__and__](self, s)
+        return Self(self.data & s)
 
     fn __or__(self, s: Self.S) -> Self:
-        return _vs[Self.S.__or__](self, s)
+        return Self(self.data | s)
 
     fn __xor__(self, s: Self.S) -> Self:
-        return _vs[Self.S.__xor__](self, s)
+        return Self(self.data ^ s)
 
     fn __lshift__(self, s: Self.S) -> Self:
-        return _vs[Self.S.__lshift__](self, s)
+        return Self(self.data << s)
 
     fn __rshift__(self, s: Self.S) -> Self:
-        return _vs[Self.S.__rshift__](self, s)
-
-    fn __eq__(self, other: Self) -> Bool:
-        eq = True
-        comptime for i in range(Self.size):
-            eq &= self[i] == other[i]
-        return eq
+        return Self(self.data >> s)
 
     # property
     fn is_near_zero[s: Self.S = 1e-8](self) -> Bool:
-        nz = True
-        comptime for i in range(Self.size):
-            nz &= abs(self[i]) < s
-        return nz
-
-
-@always_inline
-fn _vv[
-    dtype: DType,
-    size: Int,
-    //,
-    func: fn(Scalar[dtype], Scalar[dtype]) -> Scalar[dtype],
-](lhs: Vec[dtype, size], rhs: Vec[dtype, size]) -> Vec[dtype, size]:
-    out = Vec[dtype, size](uninitialized=True)
-    comptime for i in range(size):
-        out[i] = func(lhs[i], rhs[i])
-    return out^
-
-
-@always_inline
-fn _vs[
-    dtype: DType,
-    size: Int,
-    //,
-    func: fn(Scalar[dtype], Scalar[dtype]) -> Scalar[dtype],
-](v: Vec[dtype, size], s: Scalar[dtype]) -> Vec[dtype, size]:
-    out = Vec[dtype, size](uninitialized=True)
-    comptime for i in range(size):
-        out[i] = func(v[i], s[i])
-    return out^
-
-
-fn is_power_of_2(n: Int) -> Bool:
-    return n > 0 and (n & (n - 1)) == 0
+        return self.data.le(s).reduce_and()
 
 
 fn dot[
     dtype: DType, size: Int
 ](a: Vec[dtype, size], b: Vec[dtype, size]) -> Scalar[dtype]:
-    comptime if is_power_of_2(size):
-        aa = a.data.unsafe_ptr().load[width=size]()
-        bb = b.data.unsafe_ptr().load[width=size]()
-        return (aa * bb).reduce_add()
-    # # is this faster ?
-    # elif size == 3:
-    #     a3 = a.data.unsafe_ptr().load[width=4]()
-    #     a3[3] = 0
-    #     b3 = b.data.unsafe_ptr().load[width=4]()
-    #     b3[3] = 0
-    #     return (a3 * b3).reduce_add()
-    # elif size == 3:
-    #     a3 = a.data.unsafe_ptr().load[width=4]()
-    #     b3 = b.data.unsafe_ptr().load[width=4]()
-    #     return (a3 * b3).shift_rigt[1].reduce_add()
-    # # mabye thie version ??
-    #     comptime np2 = next_power_of_two(size)
-    #     comptime pad = np2 - size
-    #     aa = a.data.unsafe_ptr().load[width=np2]()
-    #     ba = b.data.unsafe_ptr().load[width=np2]()
-    #     return (a3 * b3).shift_rigt[pad].reduce_add()
-    else:
-        res: Scalar[dtype] = 0
-        comptime for i in range(size):
-            res += a[i] * b[i]
-        return res
+    return (a.data * b.data).reduce_add()
 
 
 comptime length2 = length_sq
@@ -374,30 +293,13 @@ fn lerp[
 fn vmin[
     dtype: DType, size: Int
 ](a: Vec[dtype, size], b: Vec[dtype, size]) -> Vec[dtype, size]:
-    out = Vec[dtype, size](uninitialized=True)
-    comptime for i in range(size):
-        out.data[i] = min(a[i], b[i])
-    return out^
+    return Vec[dtype, size](min(a.data, b.data))
 
 
 fn vmax[
     dtype: DType, size: Int
 ](a: Vec[dtype, size], b: Vec[dtype, size]) -> Vec[dtype, size]:
-    out = Vec[dtype, size](uninitialized=True)
-    comptime for i in range(size):
-        out.data[i] = max(a[i], b[i])
-    return out^
-
-
-fn vclamp[
-    dtype: DType, size: Int
-](
-    v: Vec[dtype, size], lower_bound: Scalar[dtype], upper_bound: Scalar[dtype]
-) -> Vec[dtype, size]:
-    out = Vec[dtype, size](uninitialized=True)
-    comptime for i in range(size):
-        out.data[i] = clamp(v[i], lower_bound, upper_bound)
-    return out^
+    return Vec[dtype, size](max(a.data, b.data))
 
 
 fn longest_axis[dtype: DType](v: Vec3[dtype]) -> Int:
@@ -413,7 +315,7 @@ fn assert_vec_equal[
     dtype: DType, size: Int
 ](a: Vec[dtype, size], b: Vec[dtype, size], atol: Float64 = 1e-5) raises:
     comptime for i in range(size):
-        assert_almost_equal(a[i], b[i], msg=String(t"i={i}"), atol=atol)
+        assert_almost_equal(a[i], b[i], msg=t"i={i}", atol=atol)
 
 
 fn main():

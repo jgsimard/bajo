@@ -1,4 +1,8 @@
-from math import sqrt
+from std.math import sqrt, clamp
+from std.sys.info import size_of
+from std.reflection import get_type_name
+
+from bajo.core.vec import Vec, vclamp
 
 
 @fieldwise_init
@@ -71,3 +75,28 @@ fn solve_quadratic[
     t1 = q
 
     return QuadraticSolutions(t0, t1, mask)
+
+
+fn smoothstep[
+    dtype: DType, size: Int
+](a: SIMD[dtype, size], b: SIMD[dtype, size], x: SIMD[dtype, size]) -> SIMD[
+    dtype, size
+]:
+    y = clamp((x - a) / (b - a), 0, 1)
+    return y * y * (3 - 2 * y)
+
+
+fn smoothstep[
+    dtype: DType, size: Int
+](a: Vec[dtype, size], b: Vec[dtype, size], x: Vec[dtype, size]) -> Vec[
+    dtype, size
+]:
+    y = vclamp((x - a) / (b - a), 0, 1)
+    return y * y * (3 - 2 * y)
+
+
+fn print_size_of[type: AnyType]():
+    comptime name = get_type_name[type]()
+    size_bytes = size_of[type]()
+    size_32 = size_bytes / 4
+    print(t"{name}: {size_bytes} bytes, {size_32} x 32 bits")

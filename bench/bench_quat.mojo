@@ -1,8 +1,8 @@
-from benchmark import run, Unit, keep
-from random import random_float64
-from memory import UnsafePointer
-from testing import TestSuite, assert_equal, assert_almost_equal
-from math import fma
+from std.benchmark import run, Unit, keep
+from std.random import random_float64
+from std.memory import UnsafePointer
+from std.testing import TestSuite, assert_equal, assert_almost_equal
+from std.math import fma
 
 from bajo.core.quat import Quat
 from bajo.core.conversion import degrees_to_radians
@@ -62,14 +62,17 @@ struct BenchmarkData(Copyable):
         rng = PhiloxRNG(123, 123)
 
         for i in range(num_elements):
-            self.src_a[i] = Quat.angle_axis(rng.next_f32(), Vec3f32(1, 0, 0))
-            self.src_b[i] = Quat.angle_axis(rng.next_f32(), Vec3f32(0, 1, 0))
+            self.src_a[i] = Quat.from_axis_angle(
+                Vec3f32(1, 0, 0), rng.next_f32()
+            )
+            self.src_b[i] = Quat.from_axis_angle(
+                Vec3f32(0, 1, 0), rng.next_f32()
+            )
 
 
 @always_inline
 fn dispatch_mul[version: Int](q1: Quat, q2: Quat) -> Quat:
-    @parameter
-    if version == 1:
+    comptime if version == 1:
         return quat_mul_1(q1, q2)
     # elif version == 2:
     #     return quat_mul_2(q1, q2)
@@ -80,7 +83,6 @@ fn dispatch_mul[version: Int](q1: Quat, q2: Quat) -> Quat:
 
 
 fn main() raises:
-    @parameter
     fn bench_throughput[version: Int]() raises:
         data = BenchmarkData()
 
@@ -108,11 +110,10 @@ fn main() raises:
     # bench_throughput[3]()
     bench_throughput[4]()
 
-    @parameter
     fn bench_latency[version: Int]() raises:
         angle = degrees_to_radians(Float32(45))
-        q2 = Quat.angle_axis(angle, Vec3f32(0, 1, 0))
-        q3 = Quat.angle_axis(angle, Vec3f32(1, 0, 0))
+        q2 = Quat.from_axis_angle(Vec3f32(0, 1, 0), angle)
+        q3 = Quat.from_axis_angle(Vec3f32(1, 0, 0), angle)
         a = dispatch_mul[version](q2, q3)
         b = Quat(0.353553, 0.353553, -0.146447, 0.853553)
         assert_almost_equal(a.data, b.data, atol=1e-6)
@@ -127,7 +128,7 @@ fn main() raises:
 
         var time_us = round(run[func3=bench_fn](max_iters=100).mean(Unit.us), 1)
 
-        print("v{} : {} us".format(version, time_us))
+        print(t"v{version} : {time_us} us")
 
     bench_latency[1]()
     # bench_latency[2]()

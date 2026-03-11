@@ -1,4 +1,4 @@
-from math import fma, abs, max
+from std.math import fma, abs, max, clamp
 
 from bajo.core.vec import (
     Vec2,
@@ -8,6 +8,7 @@ from bajo.core.vec import (
     max as vmax,
     dot,
     cross,
+    length,
 )
 
 
@@ -388,8 +389,7 @@ fn intersect_ray_tri_woop[
     W = diff_product(Bx, Ay, By, Ax)
 
     # robustness fallback using Float64
-    @parameter
-    if dtype != DType.float64:
+    comptime if dtype != DType.float64:
         if U == 0.0 or V == 0.0 or W == 0.0:
             comptime f64 = Float64
             U = Scalar[dtype](diff_product(f64(Cx), f64(By), f64(Cy), f64(Bx)))
@@ -630,6 +630,9 @@ fn get_intervals[
     return Intervals(Scalar[dtype](0), 0, 0, 0, 0, True)
 
 
+comptime intersect_tri_tri = no_div_tri_tri_isect
+
+
 @always_inline
 fn no_div_tri_tri_isect[
     dtype: DType
@@ -719,6 +722,87 @@ fn no_div_tri_tri_isect[
     _sort(s2_0, s2_1)
 
     return not (s1_1 < s2_0 or s2_1 < s1_0)
+
+
+fn closest_point_edge_edge[
+    dtype: DType
+](
+    p1: Vec3[dtype],
+    q1: Vec3[dtype],
+    p2: Vec3[dtype],
+    q2: Vec3[dtype],
+    epsilon: Scalar[dtype],
+) -> Vec3[dtype]:
+    """Find the closest points between two edges.
+
+    Args:
+        p1: First point of first edge.
+        q1: Second point of first edge.
+        p2: First point of second edge.
+        q2: Second point of second edge.
+        epsilon: Zero tolerance for determining if points in an edge are degenerate.
+
+    Returns:
+        Barycentric weights to the points on each edge, as well as the closest distance between the edges.
+        vec3 output containing (s,t,d), where ``s`` in [0,1] is the barycentric weight for the first edge, ``t`` is the barycentric weight for the second edge, and ``d`` is the distance between the two edges at these two closest points.
+    """
+    # direction vectors of each segment/edge
+    d1 = q1 - p1
+    d2 = q2 - p2
+    r = p1 - p2
+
+    a = dot(d1, d1)  # squared length of segment s1, always nonnegative
+    e = dot(d2, d2)  # squared length of segment s2, always nonnegative
+    f = dot(d2, r)
+
+    s = Scalar[dtype](0.0)
+    t = Scalar[dtype](0.0)
+    dist = length(p2 - p1)
+
+    # Check if either or both segments degenerate into points
+    if a <= epsilon and e <= epsilon:
+        # both segments degenerate into points
+        return Vec3[dtype](s, t, dist)
+
+    if a <= epsilon:
+        s = Scalar[dtype](0.0)
+        t = Scalar[dtype](f / e)  # s = 0 => t = (b*s + f) / e = f / e
+    else:
+        c = dot(d1, r)
+        if e <= epsilon:
+            # second segment generates into a point
+            s = clamp(-c / a, 0.0, 1.0)  # t = 0 => s = (b*t-c)/a = -c/a
+            t = Scalar[dtype](0.0)
+        else:
+            # The general nondegenerate case starts here
+            b = dot(d1, d2)
+            denom = a * e - b * b  # always nonnegative
+
+            # if segments not parallel, compute closest point on L1 to L2 and
+            # clamp to segment S1. Else pick arbitrary s (here 0)
+            if denom != 0.0:
+                s = clamp((b * f - c * e) / denom, 0.0, 1.0)
+            else:
+                s = 0.0
+
+            # compute point on L2 closest to S1(s) using
+            # t = dot((p1+d2*s) - p2,d2)/dot(d2,d2) = (b*s+f)/e
+            t = (b * s + f) / e
+
+            # if t in [0,1] done. Else clamp t, recompute s for the new value
+            # of t using s = dot((p2+d2*t-p1,d1)/dot(d1,d1) = (t*b - c)/a
+            # and clamp s to [0,1]
+            if t < 0.0:
+                t = 0.0
+                s = clamp(-c / a, 0.0, 1.0)
+            elif t > 1.0:
+                t = 1.0
+                s = clamp((b - c) / a, 0.0, 1.0)
+
+    c1 = p1 + (q1 - p1) * s
+    c2 = p2 + (q2 - p2) * t
+    dist = length(c2 - c1)
+    return Vec3[dtype](s, t, dist)
 
 
 fn main():

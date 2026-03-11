@@ -1,4 +1,4 @@
-from math import abs
+from std.math import abs
 
 from bajo.core.quat import Quaternion
 from bajo.core.vec import Vec, Vec3, Vec4, dot, cross
@@ -17,7 +17,7 @@ struct Mat[
     dtype: DType,
     rows: Int where rows >= 1,
     cols: Int where cols >= 1,
-](Copyable, Equatable, Roundable, Stringable, Writable):
+](Copyable, Equatable, Roundable, Writable):
     comptime V = Vec[Self.dtype, Self.cols]
     comptime TD = InlineArray[Self.V, Self.rows]  # TD = Type Data
     comptime msize = min(Self.rows, Self.cols)
@@ -39,9 +39,9 @@ struct Mat[
     fn __init__(out self, *elems: Scalar[Self.dtype]):
         debug_assert["safe"](
             len(elems) == Self.rows * Self.cols,
-            "Matrix scalar constructor requires exactly rows ({}) * cols ({}) ="
-            " elements ({})".format(
-                Self.rows, Self.cols, Self.rows * Self.cols
+            (
+                t"Matrix scalar constructor requires exactly rows ({Self.rows})"
+                t" * cols ({Self.cols}) = elements ({Self.rows * Self.cols})"
             ),
         )
         self.data = Self.TD(uninitialized=True)
@@ -85,13 +85,13 @@ struct Mat[
         wz = r_rw.z()
 
         ds = s * 2.0
-
-        comptime v3 = Vec3[_dtype]
-        return Mat33[_dtype].from_cols(
-            v3(s[0] - ds[0] * (y2 + z2), ds[0] * (xy + wz), ds[0] * (xz - wy)),
-            v3(ds[1] * (xy - wz), s[1] - ds[1] * (x2 + z2), ds[1] * (yz + wx)),
-            v3(ds[2] * (xz + wy), ds[2] * (yz - wx), s[2] - ds[2] * (x2 + y2)),
+        # fmt:off
+        return Mat33[_dtype](
+            s[0] - ds[0] * (y2 + z2), ds[1] * (xy - wz), ds[2] * (xz + wy),
+            ds[0] * (xy + wz), s[1] - ds[1] * (x2 + z2), ds[2] * (yz - wx),
+            ds[0] * (xz - wy), ds[1] * (yz + wx), s[2] - ds[2] * (x2 + y2)
         )
+        # fmt:on
 
     @staticmethod
     fn identity() -> Self:

@@ -1,9 +1,10 @@
-from benchmark import run, Unit, keep
-from random import random_float64
-from memory import UnsafePointer
+from std.benchmark import run, Unit, keep
+from std.random import random_float64
+from std.memory import UnsafePointer
+from std.reflection import get_function_name
 
 
-from bajo.core.mat import Mat3f
+from bajo.core.mat import Mat33f32
 from bajo.core.vec import vmin, vmax, Vec3f32
 from bajo.core.quat import Quat
 from bajo.core.aabb import AABB
@@ -13,71 +14,86 @@ from bajo.core.random import PhiloxRNG
 comptime num_elements = 100_000
 
 
-fn apply_trs_naive(
+fn apply_trs_naive_________(
     box: AABB, translation: Vec3f32, rotation: Quat, scale: Vec3f32
 ) -> AABB:
-    rot_mat = Mat3f.from_rs(rotation, scale)
+    rot_mat = Mat33f32.from_rotation_scale(rotation, scale)
     txfmed = AABB(translation.copy(), translation.copy())
 
     for i in range(3):
         for j in range(3):
-            val_min: Scalar[DType.float32]
-            val_max: Scalar[DType.float32]
-            if j == 0:
-                val_min = box.min.x()
-                val_max = box.max.x()
-            elif j == 1:
-                val_min = box.min.y()
-                val_max = box.max.y()
-            else:
-                val_min = box.min.z()
-                val_max = box.max.z()
-
-            col_j = rot_mat[j]
-            mat_val: Scalar[DType.float32]
-            if i == 0:
-                mat_val = col_j.x()
-            elif i == 1:
-                mat_val = col_j.y()
-            else:
-                mat_val = col_j.z()
-
-            e = mat_val * val_min
-            f = mat_val * val_max
+            e = rot_mat[i][j] * box._min[j]
+            f = rot_mat[i][j] * box._max[j]
 
             if e < f:
-                txfmed.min[i] += e
-                txfmed.max[i] += f
+                txfmed._min[i] += e
+                txfmed._max[i] += f
             else:
-                txfmed.min[i] += f
-                txfmed.max[i] += e
+                txfmed._min[i] += f
+                txfmed._max[i] += e
     return txfmed^
 
 
-fn apply_trs_arvo(
+fn apply_trs_naive_comptime(
     box: AABB, translation: Vec3f32, rotation: Quat, scale: Vec3f32
 ) -> AABB:
-    mat = Mat3f.from_rs(rotation, scale)
+    rot_mat = Mat33f32.from_rotation_scale(rotation, scale)
+    txfmed = AABB(translation.copy(), translation.copy())
+
+    comptime for j in range(3):
+        comptime for i in range(3):
+            e = rot_mat[i][j] * box._min[j]
+            f = rot_mat[i][j] * box._max[j]
+
+            if e < f:
+                txfmed._min[i] += e
+                txfmed._max[i] += f
+            else:
+                txfmed._min[i] += f
+                txfmed._max[i] += e
+    return txfmed^
+
+
+fn apply_trs_arvo_v0_______(
+    box: AABB, translation: Vec3f32, rotation: Quat, scale: Vec3f32
+) -> AABB:
+    mat = Mat33f32.from_rotation_scale(rotation, scale)
     new_min = translation.copy()
     new_max = translation.copy()
 
     # X column
-    c0_a = mat.c0 * box.min.x()
-    c0_b = mat.c0 * box.max.x()
+    c0_a = mat[0] * box._min.x()
+    c0_b = mat[0] * box._max.x()
     new_min += vmin(c0_a, c0_b)
     new_max += vmax(c0_a, c0_b)
 
     # Y column
-    c1_a = mat.c1 * box.min.y()
-    c1_b = mat.c1 * box.max.y()
+    c1_a = mat[1] * box._min.y()
+    c1_b = mat[1] * box._max.y()
     new_min += vmin(c1_a, c1_b)
     new_max += vmax(c1_a, c1_b)
 
     # Z column
-    c2_a = mat.c2 * box.min.z()
-    c2_b = mat.c2 * box.max.z()
+    c2_a = mat[2] * box._min.z()
+    c2_b = mat[2] * box._max.z()
     new_min += vmin(c2_a, c2_b)
     new_max += vmax(c2_a, c2_b)
+
+    return AABB(new_min^, new_max^)
+
+
+fn apply_trs_arvo_v1_______(
+    box: AABB, translation: Vec3f32, rotation: Quat, scale: Vec3f32
+) -> AABB:
+    mat = Mat33f32.from_rotation_scale(rotation, scale)
+    new_min = translation.copy()
+    new_max = translation.copy()
+
+    comptime for i in range(3):
+        c_a = mat[i] * box._min[i]
+        c_b = mat[i] * box._max[i]
+        new_min += vmin(c_a, c_b)
+        new_max += vmax(c_a, c_b)
 
     return AABB(new_min^, new_max^)
 
@@ -104,18 +120,13 @@ struct AABBBenchmarkData:
 
         for i in range(num_elements):
             self.boxes[i] = AABB(Vec3f32(-1), Vec3f32(1))
-            self.translations[i] = Vec3f32(
-                Float32(random_float64()),
-                Float32(random_float64()),
-                Float32(random_float64()),
+            self.translations[i] = rng.next_Vec3f32()
+            self.rotations[i] = Quat.from_axis_angle(
+                Vec3f32(0, 1, 0),
+                rng.next_f32(),
             )
-            self.rotations[i] = Quat.angle_axis(
-                Float32(random_float64()), Vec3f32(0, 1, 0)
-            )
-            r1 = rng.next_f32()
-            r2 = rng.next_f32()
-            r3 = rng.next_f32()
-            self.scales[i] = Vec3f32(r1, r2, r3)
+
+            self.scales[i] = rng.next_Vec3f32()
 
     fn __del__(deinit self):
         self.boxes.free()
@@ -129,10 +140,8 @@ fn main() raises:
     data = AABBBenchmarkData()
     print("Benchmarking AABB Transform (apply_trs) - Elements:", num_elements)
 
-    @parameter
-    fn bench[version: Int]() raises:
+    fn bench[f: fn(AABB, Vec3f32, Quat, Vec3f32) -> AABB]() capturing raises:
         fn wrapper() raises capturing:
-            f = apply_trs_naive if version == 0 else apply_trs_arvo
             for i in range(num_elements):
                 data.dst[i] = f(
                     data.boxes[i],
@@ -140,18 +149,24 @@ fn main() raises:
                     data.rotations[i],
                     data.scales[i],
                 )
-            keep(data.dst[0].min.data)
+            keep(data.dst[0]._min.data)
 
         report = run[wrapper](max_iters=200)
         avg_time = report.mean(Unit.us)
-        name = "Naive (Loop)  " if version == 0 else "Arvo (Vector) "
-        print(
-            "{}| Throughput:".format(name),
-            round(num_elements / avg_time, 2),
-            "Mops/s | Avg:",
-            round(avg_time, 2),
-            "us",
-        )
+        name = get_function_name[f]()
+        # name = "Naive (Loop)    " if version == 0 else "Naive (comptime)" if version == 1 else "Arvo (Vector)   "
+        throughput = round(num_elements / avg_time, 1)
+        mops = round(avg_time, 2)
+        print(t"{name}| Throughput:{throughput}, Mops/s | Avg: {mops} us")
 
-    bench[0]()
-    bench[1]()
+    bench[apply_trs_naive_________]()
+    bench[apply_trs_naive_comptime]()
+    bench[apply_trs_arvo_v0_______]()
+    bench[apply_trs_arvo_v1_______]()
+
+
+# Benchmarking AABB Transform (apply_trs) - Elements: 100000
+# apply_trs_naive_________| Throughput: 60.4, Mops/s | Avg: 1654.9 us
+# apply_trs_naive_comptime| Throughput:198.0, Mops/s | Avg: 504.96 us # 3.3 x faster !!!
+# apply_trs_arvo_v0_______| Throughput:169.8, Mops/s | Avg: 588.8 us
+# apply_trs_arvo_v1_______| Throughput:169.3, Mops/s | Avg: 590.83 us

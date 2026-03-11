@@ -1,4 +1,4 @@
-from math import pi
+from std.math import pi
 
 
 fn degrees_to_radians[

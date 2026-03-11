@@ -1,17 +1,19 @@
-from utils import IndexList, StaticTuple
+from std.algorithm import vectorize, parallelize
+from std.benchmark import run, Unit, keep
+from std.math import clamp
+from std.memory import UnsafePointer
+from std.sys import simd_width_of
+from std.utils import IndexList, StaticTuple
+
 from layout import Layout, LayoutTensor, RuntimeLayout, UNKNOWN_VALUE
 from layout.math import max as lmax
-from memory import UnsafePointer
 from tensor import InputTensor, OutputTensor, foreach
-from benchmark import run, Unit, keep
-from sys import simd_width_of
-from algorithm import vectorize, parallelize
 
 
 comptime system_fn[dtype: DType, layout: Layout] = fn(
-    mut LayoutTensor[dtype, layout, MutAnyOrigin],
-    LayoutTensor[dtype, layout, MutAnyOrigin],
-    Scalar[dtype],
+    dy: LayoutTensor[dtype, layout, MutAnyOrigin],
+    y: LayoutTensor[dtype, layout, ImmutAnyOrigin],
+    t: Scalar[dtype],
 ) -> None
 
 
@@ -96,7 +98,7 @@ struct Tsit5[
     adaptive: Bool,
 ]:
     # fmt: off
-    comptime _a = StaticTuple[Scalar[Self.dtype], 49](
+    comptime _a = StaticTuple[Self.S, 49](
         0, 0, 0, 0, 0, 0, 0, # Row 0
         0.161, 0, 0, 0, 0, 0, 0, # Row 1
         -0.008480655492356989, 0.335480655492357, 0, 0, 0, 0, 0, # Row 2
@@ -105,13 +107,13 @@ struct Tsit5[
         5.86145544294642, -12.92096931784711, 8.159367898576159, -0.071584973281401, -0.028269050394068383, 0, 0, # Row 5
         0.09646076681806523, 0.01, 0.4798896504144996, 1.379008574103742, -3.290069515436081, 2.324710524099774, 0 # Row 6
     )
-    comptime b = StaticTuple[Scalar[Self.dtype], 7](
+    comptime b = StaticTuple[Self.S, 7](
         0.09646076681806523, 0.01, 0.4798896504144996,
         1.379008574103742, -3.290069515436081, 2.324710524099774, 0.0
     )
-    comptime c = StaticTuple[Scalar[Self.dtype], 7](0.0, 0.161, 0.327, 0.9, 0.9800255409045097, 1.0, 1.0)
-    # comptime c : InlineArray[Scalar[Self.dtype], 7] =  [0.0, 0.161, 0.327, 0.9, 0.9800255409045097, 1.0, 1.0]
-    comptime e = StaticTuple[Scalar[Self.dtype], 7](
+    comptime c = StaticTuple[Self.S, 7](0.0, 0.161, 0.327, 0.9, 0.9800255409045097, 1.0, 1.0)
+    # comptime c : InlineArray[Self.S, 7] =  [0.0, 0.161, 0.327, 0.9, 0.9800255409045097, 1.0, 1.0]
+    comptime e = StaticTuple[Self.S, 7](
         -0.00178001105222577714, -0.0008164344596567469, 0.007880878010261995,
         -0.1447110071732629, 0.5823571654525552, -0.45808210592918697, 1.0/66.0
     )
@@ -121,15 +123,16 @@ struct Tsit5[
     comptime N_STAGES_FSAL = Self.N_STAGES - (1 if Self.IS_FSAL else 0)
 
     comptime LT = LayoutTensor[Self.dtype, Self.layout, MutAnyOrigin]
+    comptime S = Scalar[Self.dtype]
 
     var y: Self.LT
-    var t: Scalar[Self.dtype]
-    var dt: Scalar[Self.dtype]
+    var t: Self.S
+    var dt: Self.S
     var u_modified: Bool
 
-    var qold: Scalar[Self.dtype]
-    var abstol: Scalar[Self.dtype]
-    var reltol: Scalar[Self.dtype]
+    var qold: Self.S
+    var abstol: Self.S
+    var reltol: Self.S
 
     var ks: InlineArray[Self.LT, Self.N_STAGES]
     var tmp: Self.LT
@@ -156,10 +159,10 @@ struct Tsit5[
         size = u0.size()
 
         for i in range(Self.N_STAGES):
-            self.ks[i] = Self.LT(alloc[Scalar[Self.dtype]](size))
+            self.ks[i] = Self.LT(alloc[Self.S](size))
 
-        self.tmp = Self.LT(alloc[Scalar[Self.dtype]](size))
-        self.y_next = Self.LT(alloc[Scalar[Self.dtype]](size))
+        self.tmp = Self.LT(alloc[Self.S](size))
+        self.y_next = Self.LT(alloc[Self.S](size))
 
     fn __del__(deinit self):
         for i in range(Self.N_STAGES):
@@ -177,16 +180,13 @@ struct Tsit5[
             self.u_modified = False
 
         else:
-
-            @parameter
-            if Self.IS_FSAL:
+            comptime if Self.IS_FSAL:
                 # FSAL requires a deep copy of the last derivative into the first slot
                 self.ks[0].copy_from(self.ks[Self.N_STAGES_FSAL])
             else:
                 Self.system(self.ks[0], self.y, self.t)
 
-        @parameter
-        if self.adaptive:
+        comptime if self.adaptive:
             accepted = False
             while not accepted:
                 h = self.dt
@@ -196,13 +196,11 @@ struct Tsit5[
                 self.y_next.copy_from(self.y)
                 weight_sum = self.ks[0] * Self.b[0]
 
-                @parameter
-                for i in range(1, Self.N_STAGES_FSAL):
+                comptime for i in range(1, Self.N_STAGES_FSAL):
                     weight_sum += self.ks[i] * Self.b[i]
                 self.y_next += weight_sum * h
 
-                @parameter
-                if Self.IS_FSAL:
+                comptime if Self.IS_FSAL:
                     # Calculate final stage derivative at the proposed y_next
                     Self.system(
                         self.ks[Self.N_STAGES_FSAL], self.y_next, self.t + h
@@ -221,17 +219,12 @@ struct Tsit5[
                         pow(e_est, beta1) / pow(self.qold, beta2) if e_est
                         > 0 else 0.1
                     )
-                    self.dt = h * min(
-                        Scalar[Self.dtype](5.0),
-                        max(Scalar[Self.dtype](0.1), 0.9 / q),
-                    )
+                    self.dt = h * clamp(0.9 / q, 0.1, 5.0)
                     self.qold = max(e_est, 1e-4)
                     accepted = True
                 else:
                     # Step rejected: reduce dt and retry
-                    self.dt = h * max(
-                        Scalar[Self.dtype](0.1), 0.9 / pow(e_est, beta1)
-                    )
+                    self.dt = h * max(0.9 / pow(e_est, beta1), 0.1)
         else:
             # Fixed step logic
             h = self.dt
@@ -240,15 +233,13 @@ struct Tsit5[
             self.y_next.copy_from(self.y)
             weight_sum = self.ks[0] * Self.b[0]
 
-            @parameter
-            for i in range(1, Self.N_STAGES_FSAL):
+            comptime for i in range(1, Self.N_STAGES_FSAL):
                 weight_sum += self.ks[i] * Self.b[i]
 
             self.y += weight_sum * h
             self.t += h
 
-            @parameter
-            if Self.IS_FSAL:
+            comptime if Self.IS_FSAL:
                 Self.system(self.ks[Self.N_STAGES_FSAL], self.y, self.t)
 
     fn _compute_stages(mut self, h: Scalar[Self.dtype]):
@@ -268,12 +259,10 @@ struct Tsit5[
         fn compute[w: Int](i: Int) unified {mut}:
             err_v = SIMD[Self.dtype, w](0.0)
 
-            @parameter
-            for s in range(Self.N_STAGES):
+            comptime for s in range(Self.N_STAGES):
                 comptime e_coeff = Self.e[s]
 
-                @parameter
-                if e_coeff != 0:
+                comptime if e_coeff != 0:
                     err_v += self.ks[s].ptr.load[width=w](i) * e_coeff
 
             ev = err_v * h
@@ -336,16 +325,16 @@ fn solve[
 comptime float_type = DType.float64
 comptime lorenz_layout = Layout.row_major(3)
 
-comptime Tsit5Adaptative = Tsit5[adaptive=True]
-comptime Tsit5Fixed = Tsit5[adaptive=False]
+comptime Tsit5Adaptative = Tsit5[system=_, adaptive=True]
+comptime Tsit5Fixed = Tsit5[system=_, adaptive=False]
 
 comptime solver = Tsit5Adaptative
 # comptime solver = Tsit5Fixed
 
 
 fn lorenz(
-    mut dy: LayoutTensor[float_type, lorenz_layout, MutAnyOrigin],
-    y: LayoutTensor[float_type, lorenz_layout, MutAnyOrigin],
+    dy: LayoutTensor[float_type, lorenz_layout, MutAnyOrigin],
+    y: LayoutTensor[float_type, lorenz_layout, ImmutAnyOrigin],
     t: Float64,
 ):
     dy[0] = 10.0 * (y[1] - y[0])
@@ -358,8 +347,8 @@ comptime gs_layout = Layout.row_major(GS_N, GS_N, 2)
 
 
 fn gray_scott_system(
-    mut dy: LayoutTensor[float_type, gs_layout, MutAnyOrigin],
-    y: LayoutTensor[float_type, gs_layout, MutAnyOrigin],
+    dy: LayoutTensor[float_type, gs_layout, MutAnyOrigin],
+    y: LayoutTensor[float_type, gs_layout, ImmutAnyOrigin],
     t: Scalar[float_type],
 ):
     """

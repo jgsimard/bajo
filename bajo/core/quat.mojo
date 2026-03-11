@@ -1,4 +1,4 @@
-from math import asin, atan2, cos, fma, pi, sin, sqrt, tan, copysign
+from std.math import asin, atan2, cos, fma, pi, sin, sqrt, tan, copysign
 
 from bajo.core.vec import (
     Vec3,
@@ -213,13 +213,22 @@ struct Quaternion[dtype: DType where dtype.is_floating_point()](
     fn from_basis[
         version: Int = 0
     ](a: Vec3[Self.dtype], b: Vec3[Self.dtype], c: Vec3[Self.dtype]) -> Self:
-        @parameter
-        if version == 0:
+        ax = a.x()
+        ay = a.y()
+        az = a.z()
+        bx = b.x()
+        by = b.y()
+        bz = b.z()
+        cx = c.x()
+        cy = c.y()
+        cz = c.z()
+
+        comptime if version == 0:
             # tx, ty, tz, tw represent 4*q^2 - 1 for each component
-            tx = a.x() - b.y() - c.z()
-            ty = b.y() - a.x() - c.z()
-            tz = c.z() - a.x() - b.y()
-            tw = a.x() + b.y() + c.z()
+            tx = ax - by - cz
+            ty = by - ax - cz
+            tz = cz - ax - by
+            tw = ax + by + cz
 
             biggest_index = 0
             max_val = tw
@@ -240,32 +249,32 @@ struct Quaternion[dtype: DType where dtype.is_floating_point()](
             mult = 0.25 / v
 
             if biggest_index == 0:  # W is biggest
-                x = (b.z() - c.y()) * mult
-                y = (c.x() - a.z()) * mult
-                z = (a.y() - b.x()) * mult
+                x = (bz - cy) * mult
+                y = (cx - az) * mult
+                z = (ay - bx) * mult
                 w = v
             elif biggest_index == 1:  # X is biggest
                 x = v
-                y = (a.y() + b.x()) * mult
-                z = (c.x() + a.z()) * mult
-                w = (b.z() - c.y()) * mult
+                y = (ay + bx) * mult
+                z = (cx + az) * mult
+                w = (bz - cy) * mult
             elif biggest_index == 2:  # Y is biggest
-                x = (a.y() + b.x()) * mult
+                x = (ay + bx) * mult
                 y = v
-                z = (b.z() + c.y()) * mult
-                w = (c.x() - a.z()) * mult
+                z = (bz + cy) * mult
+                w = (cx - az) * mult
             else:  # Z is biggest
-                x = (c.x() + a.z()) * mult
-                y = (b.z() + c.y()) * mult
+                x = (cx + az) * mult
+                y = (bz + cy) * mult
                 z = v
-                w = (a.y() - b.x()) * mult
+                w = (ay - bx) * mult
             return Self(x, y, z, w)
 
         else:
             comptime S = SIMD[Self.dtype, 4]
 
             # We compute all 4 traces (4w^2, 4x^2, 4y^2, 4z^2)
-            diag = S(a.x(), b.y(), c.z(), 0.0)
+            diag = S(ax, by, cz, 0.0)
             comptime s_x = S(1, -1, -1, 1)
             comptime s_y = S(-1, 1, -1, 1)
             comptime s_z = S(-1, -1, 1, 1)
@@ -281,8 +290,8 @@ struct Quaternion[dtype: DType where dtype.is_floating_point()](
             # Bulk Off-Diagonal Arithmetic
             # indices: m_rc where r=row, c=col.
             # m21 is a.z(), m02 is c.x(), m10 is b.x() etc.
-            m_left = S(b.z(), c.x(), a.y(), 0.0)  # [m12, m20, m01, 0]
-            m_right = S(c.y(), a.z(), b.x(), 0.0)  # [m21, m02, m10, 0]
+            m_left = S(bz, cx, ay, 0.0)  # [m12, m20, m01, 0]
+            m_right = S(cy, az, bx, 0.0)  # [m21, m02, m10, 0]
 
             # d = [ (m21-m12), (m02-m20), (m10-m01), 0 ]
             # s = [ (m21+m12), (m02+m20), (m10+m01), 0 ]
@@ -336,20 +345,25 @@ struct Quaternion[dtype: DType where dtype.is_floating_point()](
         """
         Converts Quaternion back to Euler angles (Roll, Pitch, Yaw).
         """
-        sinr_cosp = 2 * (self.w() * self.x() + self.y() * self.z())
-        cosr_cosp = 1 - 2 * (self.x() * self.x() + self.y() * self.y())
+        x = self.x()
+        y = self.y()
+        z = self.z()
+        w = self.w()
+
+        sinr_cosp = 2 * (w * x + y * z)
+        cosr_cosp = 1 - 2 * (x * x + y * y)
         roll = atan2(sinr_cosp, cosr_cosp)
 
-        sinp = 2 * (self.w() * self.y() - self.z() * self.x())
+        sinp = 2 * (w * y - z * x)
         pitch: Scalar[Self.dtype]
         if abs(sinp) >= 1:
-            comptime pi_2 = pi / 2.0
-            pitch = Scalar[Self.dtype](1.0 if sinp > 0 else -1.0) * pi_2
+            comptime pi_2 = Scalar[Self.dtype](pi / 2.0)
+            pitch = copysign(pi_2, sinp)
         else:
             pitch = asin(sinp)
 
-        siny_cosp = 2 * (self.w() * self.z() + self.x() * self.y())
-        cosy_cosp = 1 - 2 * (self.y() * self.y() + self.z() * self.z())
+        siny_cosp = 2 * (w * z + x * y)
+        cosy_cosp = 1 - 2 * (y * y + z * z)
         yaw = atan2(siny_cosp, cosy_cosp)
 
         return Vec3[Self.dtype](roll, pitch, yaw)

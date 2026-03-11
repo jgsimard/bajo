@@ -1,8 +1,8 @@
-from bit import count_leading_zeros
-from math import clamp
+from std.bit import count_leading_zeros
+from std.math import clamp
 from std.utils.numerics import max_finite, min_finite
-from sys.info import is_gpu
-from os import abort
+from std.sys.info import is_gpu
+from std.os import abort
 
 from bajo.core.intersect import intersect_ray_aabb, intersect_aabb_aabb
 from bajo.core.sort import nth_element
@@ -168,25 +168,6 @@ struct BVHPackedNodeHalf(Copyable, TrivialRegisterPassable):
         self.y = bound.y()
         self.z = bound.z()
         self.ib = Self.index_and_leaf(UInt32(child), leaf)
-
-
-fn part1by2(n_in: UInt32) -> UInt32:
-    n = n_in
-    n = (n ^ (n << 16)) & 0xFF0000FF
-    n = (n ^ (n << 8)) & 0x0300F00F
-    n = (n ^ (n << 4)) & 0x030C30C3
-    n = (n ^ (n << 2)) & 0x09249249
-    return n
-
-
-fn morton3[dim: UInt32](x: Float32, y: Float32, z: Float32) -> UInt32:
-    """Takes values in the range [0, 1] and assigns an index based Morton codes.
-    """
-    comptime dimf = Float32(dim)
-    ux = clamp(UInt32(x * dimf), 0, dim - 1)
-    uy = clamp(UInt32(y * dimf), 0, dim - 1)
-    uz = clamp(UInt32(z * dimf), 0, dim - 1)
-    return (part1by2(uz) << 2) | (part1by2(uy) << 1) | part1by2(ux)
 
 
 @fieldwise_init
@@ -479,7 +460,6 @@ struct BvhStack[origin: Origin, device: String](Copyable, Writable):
             return self._local[depth]
         else:
             comptime assert False, "GPU not supported yet"
-            return -1  # to make compiler happy for now
             # return self._ptr[depth * BVH_BLOCK_DIM]
 
     @always_inline

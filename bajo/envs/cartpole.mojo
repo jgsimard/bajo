@@ -1,10 +1,10 @@
 # see: https://github.com/PufferAI/PufferLib/tree/3.0/pufferlib/ocean/cartpole
-from utils.numerics import isinf
-from math import clamp, sin, cos
-from random import randn, randn_float64, random_float64
-from testing import assert_false
+from std.utils.numerics import isinf
+from std.math import clamp, sin, cos, pi
+from std.random import randn, randn_float64, random_float64
+from std.testing import assert_false
 
-from src.math import pi, degrees_to_radians
+from bajo.core.conversion import degrees_to_radians
 
 
 comptime X_THRESHOLD: Float32 = 2.4
@@ -80,8 +80,7 @@ struct Cartpole[continuous: Bool, config: ConfigCartPole](Env):
 
         force: Float32
 
-        @parameter
-        if self.config.continuous:
+        comptime if self.config.continuous:
             force = a * force_mag
         else:
             force = force_mag if a > 0.5 else -force_mag
@@ -147,12 +146,12 @@ struct Cartpole[continuous: Bool, config: ConfigCartPole](Env):
 
 
 fn in_range[
-    type: DType, //, min: Scalar[dtype], max: Scalar[dtype]
+    dtype: DType, //, min: Scalar[dtype], max: Scalar[dtype]
 ](x: Scalar[dtype]) -> Bool:
     return x > min and x < max
 
 
 fn out_range[
-    type: DType, //, min: Scalar[dtype], max: Scalar[dtype]
+    dtype: DType, //, min: Scalar[dtype], max: Scalar[dtype]
 ](x: Scalar[dtype]) -> Bool:
     return not in_range[min, max](x)

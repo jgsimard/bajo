@@ -125,18 +125,23 @@ struct AxisAlignedBoundingBox[dtype: DType, size: Int = 3](Copyable, Writable):
         rotation: Quaternion[_dtype],
         scale: Vec3[_dtype],
     ) -> AxisAlignedBoundingBox[_dtype]:
-        """
-        Transforms the AABB using Jim Arvo algorithm (from "Graphics Gems", Academic Press, 1990) with explicit SIMD.
-        """
-        mat = Mat33[_dtype].from_rotation_scale(rotation, scale).transpose()
+        rot_mat = Mat33[_dtype].from_rotation_scale(rotation, scale)
+        txfmed = AxisAlignedBoundingBox[_dtype](
+            translation.copy(), translation.copy()
+        )
 
-        new_min = translation.copy()
-        new_max = translation.copy()
+        # use comptime to fully unroll
+        # in bench_aabb, 3.3x faster then version without comptime
+        # 18% faster then arvo version
+        comptime for j in range(3):
+            comptime for i in range(3):
+                e = rot_mat[i][j] * self._min[j]
+                f = rot_mat[i][j] * self._max[j]
 
-        comptime for i in range(Self.size):
-            c_a = mat[i] * self._min[i]
-            c_b = mat[i] * self._max[i]
-            new_min += vmin(c_a, c_b)
-            new_max += vmax(c_a, c_b)
-
-        return AxisAlignedBoundingBox(new_min^, new_max^)
+                if e < f:
+                    txfmed._min[i] += e
+                    txfmed._max[i] += f
+                else:
+                    txfmed._min[i] += f
+                    txfmed._max[i] += e
+        return txfmed^

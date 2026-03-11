@@ -1,3 +1,4 @@
+from std.math import sqrt
 from std.testing import (
     TestSuite,
     assert_almost_equal,
@@ -46,17 +47,14 @@ def test_apply_trs_rotated() raises:
     angle = degrees_to_radians(Float32(45))
     r = Quat.from_axis_angle(Vec3f32(0, 0, 1), angle)
     t = Vec3f32(0)
-    s = Vec3f32(1, 1, 1)
+    s = Vec3f32(1)
 
     new_box = box.apply_trs(t, r, s)
 
-    # After 45 deg rotation, the corners move to ±sqrt(2)
-    # The new AABB should expand to fit the diamond shape
-    expected_limit = Float32(1.41421356)
-    assert_almost_equal(new_box._max.x(), expected_limit, atol=1e-5)
-    assert_almost_equal(new_box._max.y(), expected_limit, atol=1e-5)
-    # Z should remain 1.0
-    assert_almost_equal(new_box._max.z(), 1.0, atol=1e-5)
+    # the corners should move to ±sqrt(2)
+    sqrt_2 = Float32(sqrt(2.0))
+    assert_vec_equal(new_box._min, Vec3f32(-sqrt_2, -sqrt_2, -1.0))
+    assert_vec_equal(new_box._max, Vec3f32(sqrt_2, sqrt_2, 1.0))
 
 
 def main() raises:

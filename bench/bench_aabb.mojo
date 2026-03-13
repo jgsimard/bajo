@@ -14,7 +14,7 @@ from bajo.core.random import PhiloxRNG
 comptime num_elements = 100_000
 
 
-fn apply_trs_naive_________(
+def apply_trs_naive_________(
     box: AABB, translation: Vec3f32, rotation: Quat, scale: Vec3f32
 ) -> AABB:
     rot_mat = Mat33f32.from_rotation_scale(rotation, scale)
@@ -34,7 +34,7 @@ fn apply_trs_naive_________(
     return txfmed^
 
 
-fn apply_trs_naive_comptime(
+def apply_trs_naive_comptime(
     box: AABB, translation: Vec3f32, rotation: Quat, scale: Vec3f32
 ) -> AABB:
     rot_mat = Mat33f32.from_rotation_scale(rotation, scale)
@@ -54,7 +54,7 @@ fn apply_trs_naive_comptime(
     return txfmed^
 
 
-fn apply_trs_arvo_v0_______(
+def apply_trs_arvo_v0_______(
     box: AABB, translation: Vec3f32, rotation: Quat, scale: Vec3f32
 ) -> AABB:
     mat = Mat33f32.from_rotation_scale(rotation, scale)
@@ -82,7 +82,7 @@ fn apply_trs_arvo_v0_______(
     return AABB(new_min^, new_max^)
 
 
-fn apply_trs_arvo_v1_______(
+def apply_trs_arvo_v1_______(
     box: AABB, translation: Vec3f32, rotation: Quat, scale: Vec3f32
 ) -> AABB:
     mat = Mat33f32.from_rotation_scale(rotation, scale)
@@ -110,7 +110,7 @@ struct AABBBenchmarkData:
     var scales: UnsafePointer[Vec3f32, MutAnyOrigin]
     var dst: UnsafePointer[AABB, MutAnyOrigin]
 
-    fn __init__(out self):
+    def __init__(out self):
         self.boxes = alloc[AABB](num_elements)
         self.translations = alloc[Vec3f32](num_elements)
         self.rotations = alloc[Quat](num_elements)
@@ -128,7 +128,7 @@ struct AABBBenchmarkData:
 
             self.scales[i] = rng.next_Vec3f32()
 
-    fn __del__(deinit self):
+    def __del__(deinit self):
         self.boxes.free()
         self.translations.free()
         self.rotations.free()
@@ -136,12 +136,12 @@ struct AABBBenchmarkData:
         self.dst.free()
 
 
-fn main() raises:
+def main() raises:
     data = AABBBenchmarkData()
     print("Benchmarking AABB Transform (apply_trs) - Elements:", num_elements)
 
-    fn bench[f: fn(AABB, Vec3f32, Quat, Vec3f32) -> AABB]() capturing raises:
-        fn wrapper() raises capturing:
+    def bench[f: fn(AABB, Vec3f32, Quat, Vec3f32) -> AABB]() capturing raises:
+        def wrapper() raises capturing:
             for i in range(num_elements):
                 data.dst[i] = f(
                     data.boxes[i],

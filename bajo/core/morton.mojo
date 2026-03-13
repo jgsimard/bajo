@@ -1,7 +1,7 @@
 from std.math import clamp
 
 
-fn expand_bits_2d[
+def expand_bits_2d[
     size: Int
 ](n_in: SIMD[DType.uint32, size]) -> SIMD[DType.uint32, size]:
     # 0000 0000 0000 0000 gfed cba9 8675 4321
@@ -15,7 +15,7 @@ fn expand_bits_2d[
     return n
 
 
-fn expand_bits_3d[
+def expand_bits_3d[
     size: Int
 ](n_in: SIMD[DType.uint32, size]) -> SIMD[DType.uint32, size]:
     # 0000 0000 0000 0000 0000 00a9 8675 4321
@@ -28,7 +28,7 @@ fn expand_bits_3d[
     return n
 
 
-fn morton3[
+def morton3[
     size: Int, dim: UInt32 = 1024
 ](
     x: SIMD[DType.float32, size],

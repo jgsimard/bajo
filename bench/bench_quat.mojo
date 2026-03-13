@@ -13,7 +13,7 @@ comptime f32 = DType.float32
 comptime num_elements = 100000
 
 
-fn quat_mul_1(q1: Quat, q2: Quat) -> Quat:
+def quat_mul_1(q1: Quat, q2: Quat) -> Quat:
     x = q1.w() * q2.x() + q1.x() * q2.w() + q1.y() * q2.z() - q1.z() * q2.y()
     y = q1.w() * q2.y() - q1.x() * q2.z() + q1.y() * q2.w() + q1.z() * q2.x()
     z = q1.w() * q2.z() + q1.x() * q2.y() - q1.y() * q2.x() + q1.z() * q2.w()
@@ -21,7 +21,7 @@ fn quat_mul_1(q1: Quat, q2: Quat) -> Quat:
     return Quat(x, y, z, w)
 
 
-# fn quat_mul_2(q1: Quat, q2: Quat) -> Quat:
+# def quat_mul_2(q1: Quat, q2: Quat) -> Quat:
 #     # Version 2 : more SIMD: 3 shuffles, 4 mul, 12 add
 #     var t0 = q1.data[0] * q2.data
 #     var t1 = q1.data[1] * q2.data.shuffle[1, 0, 3, 2]()
@@ -37,7 +37,7 @@ fn quat_mul_1(q1: Quat, q2: Quat) -> Quat:
 #     return Quat(w, x, y, z)
 
 # # These are in the wxyz format
-# fn quat_mul_3(q1: Quat, q2: Quat) -> Quat:
+# def quat_mul_3(q1: Quat, q2: Quat) -> Quat:
 #     # Version 3: SIMD FMA : 3 shuffles, 4 mul, 3 fma
 #     comptime s1 = SIMD[DType.float32, 4](-1.0, 1.0, -1.0, 1.0)
 #     comptime s2 = SIMD[DType.float32, 4](-1.0, 1.0, 1.0, -1.0)
@@ -55,7 +55,7 @@ struct BenchmarkData(Copyable):
     var src_b: List[Quat]
     var dst: List[Quat]
 
-    fn __init__(out self):
+    def __init__(out self):
         self.src_a = List[Quat](length=num_elements, fill=Quat.identity())
         self.src_b = List[Quat](length=num_elements, fill=Quat.identity())
         self.dst = List[Quat](length=num_elements, fill=Quat.identity())
@@ -71,7 +71,7 @@ struct BenchmarkData(Copyable):
 
 
 @always_inline
-fn dispatch_mul[version: Int](q1: Quat, q2: Quat) -> Quat:
+def dispatch_mul[version: Int](q1: Quat, q2: Quat) -> Quat:
     comptime if version == 1:
         return quat_mul_1(q1, q2)
     # elif version == 2:
@@ -82,11 +82,11 @@ fn dispatch_mul[version: Int](q1: Quat, q2: Quat) -> Quat:
         return q1 * q2  # Quat.__mul__
 
 
-fn main() raises:
-    fn bench_throughput[version: Int]() raises:
+def main() raises:
+    def bench_throughput[version: Int]() raises:
         data = BenchmarkData()
 
-        fn wrapper() raises capturing:
+        def wrapper() raises capturing:
             for i in range(num_elements):
                 data.dst[i] = dispatch_mul[version](
                     data.src_a[i], (data.src_b[i])
@@ -110,7 +110,7 @@ fn main() raises:
     # bench_throughput[3]()
     bench_throughput[4]()
 
-    fn bench_latency[version: Int]() raises:
+    def bench_latency[version: Int]() raises:
         angle = degrees_to_radians(Float32(45))
         q2 = Quat.from_axis_angle(Vec3f32(0, 1, 0), angle)
         q3 = Quat.from_axis_angle(Vec3f32(1, 0, 0), angle)
@@ -120,7 +120,7 @@ fn main() raises:
 
         q = a
 
-        fn bench_fn() raises capturing:
+        def bench_fn() raises capturing:
             for _ in range(1e6):
                 q = dispatch_mul[version](q, q2)
                 q = dispatch_mul[version](q, q3)

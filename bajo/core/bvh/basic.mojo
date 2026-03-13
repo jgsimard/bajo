@@ -39,45 +39,45 @@ struct Bounds3[dtype: DType](Copyable, Defaultable, Writable):
     var lower: Vec3[Self.dtype]
     var upper: Vec3[Self.dtype]
 
-    fn __init__(out self):
+    def __init__(out self):
         comptime max_val = max_finite[Self.dtype]()
         comptime min_val = min_finite[Self.dtype]()
         self.lower = Vec3[Self.dtype](max_val)
         self.upper = Vec3[Self.dtype](min_val)
 
-    fn center(self) -> Vec3[Self.dtype]:
+    def center(self) -> Vec3[Self.dtype]:
         return (self.lower + self.upper) * 0.5
 
-    fn edges(self) -> Vec3[Self.dtype]:
+    def edges(self) -> Vec3[Self.dtype]:
         return self.upper - self.lower
 
-    fn expand(mut self, r: Scalar[Self.dtype]):
+    def expand(mut self, r: Scalar[Self.dtype]):
         self.lower = self.lower - r
         self.upper = self.upper + r
 
-    fn expand(mut self, r: Vec3[Self.dtype]):
+    def expand(mut self, r: Vec3[Self.dtype]):
         self.lower = self.lower - r
         self.upper = self.upper + r
 
-    fn empty(self) -> Bool:
+    def empty(self) -> Bool:
         comptime for i in range(3):
             if self.lower[i] >= self.upper[i]:
                 return True
         return False
 
-    fn overlaps(self, p: Vec3[Self.dtype]) -> Bool:
+    def overlaps(self, p: Vec3[Self.dtype]) -> Bool:
         comptime for i in range(3):
             if p[i] < self.lower[i] or p[i] > self.upper[i]:
                 return False
         return True
 
-    fn overlaps(self, b: Bounds3[Self.dtype]) -> Bool:
+    def overlaps(self, b: Bounds3[Self.dtype]) -> Bool:
         comptime for i in range(3):
             if self.lower[i] > b.upper[i] or self.upper[i] < b.lower[i]:
                 return False
         return True
 
-    fn overlaps(
+    def overlaps(
         self, b_lower: Vec3[Self.dtype], b_upper: Vec3[Self.dtype]
     ) -> Bool:
         comptime for i in range(3):
@@ -85,40 +85,40 @@ struct Bounds3[dtype: DType](Copyable, Defaultable, Writable):
                 return False
         return True
 
-    fn add_point(mut self, p: Vec3[Self.dtype]):
+    def add_point(mut self, p: Vec3[Self.dtype]):
         self.lower = vmin(self.lower, p)
         self.upper = vmax(self.upper, p)
 
-    fn add_bounds(
+    def add_bounds(
         mut self, lower_other: Vec3[Self.dtype], upper_other: Vec3[Self.dtype]
     ):
         self.lower = vmin(self.lower, lower_other)
         self.upper = vmax(self.upper, upper_other)
 
-    fn add_bounds(mut self, other: Self):
+    def add_bounds(mut self, other: Self):
         self.lower = vmin(self.lower, other.lower)
         self.upper = vmax(self.upper, other.upper)
 
-    fn area(self) -> Scalar[Self.dtype]:
+    def area(self) -> Scalar[Self.dtype]:
         e = self.edges()
         return Scalar[Self.dtype](2.0) * (
             e[0] * e[1] + e[0] * e[2] + e[1] * e[2]
         )
 
 
-fn bounds_union[
+def bounds_union[
     dtype: DType
 ](a: Bounds3[dtype], b: Vec3[dtype]) -> Bounds3[dtype]:
     return Bounds3(vmin(a.lower, b), vmax(a.upper, b))
 
 
-fn bounds_union[
+def bounds_union[
     dtype: DType
 ](a: Bounds3[dtype], b: Bounds3[dtype]) -> Bounds3[dtype]:
     return Bounds3(vmin(a.lower, b.lower), vmax(a.upper, b.upper))
 
 
-fn bounds_intersection[
+def bounds_intersection[
     dtype: DType
 ](a: Bounds3[dtype], b: Bounds3[dtype]) -> Bounds3[dtype]:
     return Bounds3(vmax(a.lower, b.lower), vmin(a.upper, b.upper))
@@ -145,25 +145,25 @@ struct BVHPackedNodeHalf(Copyable, TrivialRegisterPassable):
     comptime INDEX_MASK: UInt32 = 0x7FFFFFFF
     comptime LEAF_BIT: UInt32 = 0x80000000
 
-    fn index(self) -> Int:
+    def index(self) -> Int:
         return Int(self.ib & Self.INDEX_MASK)
 
-    fn is_leaf(self) -> Bool:
+    def is_leaf(self) -> Bool:
         return (self.ib & Self.LEAF_BIT) != 0
 
-    fn set_leaf(mut self, is_leaf: Bool):
+    def set_leaf(mut self, is_leaf: Bool):
         leaf_val = Self.LEAF_BIT if is_leaf else UInt32(0)
         self.ib = (self.ib & Self.INDEX_MASK) | leaf_val
 
-    fn set_index(mut self, idx: UInt32):
+    def set_index(mut self, idx: UInt32):
         self.ib = (idx & Self.INDEX_MASK) | (self.ib & Self.LEAF_BIT)
 
     @staticmethod
-    fn index_and_leaf(idx: UInt32, is_leaf: Bool) -> UInt32:
+    def index_and_leaf(idx: UInt32, is_leaf: Bool) -> UInt32:
         leaf_val = Self.LEAF_BIT if is_leaf else UInt32(0)
         return (idx & Self.INDEX_MASK) | leaf_val
 
-    fn __init__(out self, bound: Vec3f32, child: Int, leaf: Bool):
+    def __init__(out self, bound: Vec3f32, child: Int, leaf: Bool):
         self.x = bound.x()
         self.y = bound.y()
         self.z = bound.z()
@@ -203,17 +203,17 @@ struct BVH[origin: Origin](Copyable):
     # var context: AnyPointer
     # """gpu context"""
 
-    fn num_bounds(self) -> Int:
+    def num_bounds(self) -> Int:
         return self.num_items
 
-    fn leaf_group(self, leaf: Int) -> Int:
+    def leaf_group(self, leaf: Int) -> Int:
         if not self.item_groups:
             return 0
         idx_p = self.node_lowers[leaf].index()
         idx_g = self.primitive_indices[idx_p]
         return self.item_groups[idx_g]
 
-    fn lower_bound_group(self, group: Int) -> Int:
+    def lower_bound_group(self, group: Int) -> Int:
         lo = 0
         hi = self.num_leaf_nodes
 
@@ -228,7 +228,7 @@ struct BVH[origin: Origin](Copyable):
             return -1
         return lo
 
-    fn lca(self, node_a: Int, node_b: Int) -> Int:
+    def lca(self, node_a: Int, node_b: Int) -> Int:
         """Lowest Common Ancestor."""
         da = 0
         db = 0
@@ -266,7 +266,7 @@ struct BVH[origin: Origin](Copyable):
 
         return curr_a  # either the LCA or -1
 
-    fn group_root(self, group_id: Int) -> Int:
+    def group_root(self, group_id: Int) -> Int:
         # this function requires all the leaf nodes to be stored as the first bvh.num_leaf_nodes nodes
         # and sorted by their group ids
 
@@ -283,7 +283,7 @@ struct BVH[origin: Origin](Copyable):
         return self.lca(first, last)
 
 
-fn calc_bounds(
+def calc_bounds(
     lowers: UnsafePointer[Vec3f32, ImmutAnyOrigin],
     uppers: UnsafePointer[Vec3f32, ImmutAnyOrigin],
     indices: UnsafePointer[Int, ImmutAnyOrigin],
@@ -297,7 +297,7 @@ fn calc_bounds(
     return u^
 
 
-fn partition_median[
+def partition_median[
     origin: MutOrigin
 ](
     lowers: UnsafePointer[Vec3f32, origin],
@@ -313,7 +313,7 @@ fn partition_median[
     axis = longest_axis(range_bounds.edges())
     k = (start + end) // 2
 
-    fn compare_centers(a: Int, b: Int) capturing -> Bool:
+    def compare_centers(a: Int, b: Int) capturing -> Bool:
         center_a = 0.5 * (lowers[a] + uppers[a])
         center_b = 0.5 * (lowers[b] + uppers[b])
         return center_a[axis] < center_b[axis]
@@ -332,7 +332,7 @@ struct SahIndice(TrivialRegisterPassable):
     var split_point: Float32
 
 
-fn partition_sah_indices(
+def partition_sah_indices(
     lowers: UnsafePointer[Vec3f32, ImmutAnyOrigin],
     uppers: UnsafePointer[Vec3f32, ImmutAnyOrigin],
     indices: UnsafePointer[Int, ImmutAnyOrigin],
@@ -443,19 +443,19 @@ struct BvhStack[origin: Origin, device: String](Copyable, Writable):
     # # gpu
     var _ptr: UnsafePointer[Int, Self.origin]
 
-    fn __init__(out self):
+    def __init__(out self):
         comptime assert Self.device == "cpu"
 
         self._ptr = UnsafePointer[Int, Self.origin]()
         self._local = InlineArray[Int, Self.local_size](fill=0)
 
-    fn __init__(out self, ptr: UnsafePointer[Int, Self.origin], root: Int):
+    def __init__(out self, ptr: UnsafePointer[Int, Self.origin], root: Int):
         self._ptr = ptr
         self._local = InlineArray[Int, Self.local_size](fill=0)
         self._local[0] = root
 
     @always_inline
-    fn __getitem__(self, depth: Int) -> Int:
+    def __getitem__(self, depth: Int) -> Int:
         comptime if self.device == "cpu":
             return self._local[depth]
         else:
@@ -463,7 +463,7 @@ struct BvhStack[origin: Origin, device: String](Copyable, Writable):
             # return self._ptr[depth * BVH_BLOCK_DIM]
 
     @always_inline
-    fn __setitem__(mut self, depth: Int, value: Int):
+    def __setitem__(mut self, depth: Int, value: Int):
         comptime if self.device == "cpu":
             self._local[depth] = value
         else:
@@ -484,7 +484,7 @@ struct BvhQuery[origin: Origin, device: String](Copyable, Writable):
     var bounds_nr: Int
     var is_ray: Bool
 
-    fn __init__(
+    def __init__(
         out self,
         bvh: UnsafePointer[BVH[Self.origin], Self.origin],
         is_ray: Bool,
@@ -502,7 +502,7 @@ struct BvhQuery[origin: Origin, device: String](Copyable, Writable):
         self.is_ray = is_ray
 
     @staticmethod
-    fn from_aabb(
+    def from_aabb(
         bvh: UnsafePointer[BVH[Self.origin], Self.origin],
         lower: Vec3f32,
         upper: Vec3f32,
@@ -511,7 +511,7 @@ struct BvhQuery[origin: Origin, device: String](Copyable, Writable):
         return Self(bvh, False, lower, upper, root)
 
     @staticmethod
-    fn from_ray(
+    def from_ray(
         bvh: UnsafePointer[BVH[Self.origin], Self.origin],
         start: Vec3f32,
         dir: Vec3f32,
@@ -519,7 +519,7 @@ struct BvhQuery[origin: Origin, device: String](Copyable, Writable):
     ) -> Self:
         return Self(bvh, True, start, 1.0 / dir, root)
 
-    fn intersection_test(
+    def intersection_test(
         self, node_lower: Vec3f32, node_upper: Vec3f32, mut t: Float32
     ) -> Bool:
         if self.is_ray:
@@ -531,7 +531,7 @@ struct BvhQuery[origin: Origin, device: String](Copyable, Writable):
                 self.input_lower, self.input_upper, node_lower, node_upper
             )
 
-    fn next(mut self, mut index: Int, max_dist: Float32) -> Bool:
+    def next(mut self, mut index: Int, max_dist: Float32) -> Bool:
         comptime flt_max = max_finite[DType.float32]()
         comptime flt_min = min_finite[DType.float32]()
 
@@ -612,5 +612,5 @@ struct BvhQueryTiled:
     var v: Int
 
 
-fn main():
+def main():
     print("hello warp.bvh")

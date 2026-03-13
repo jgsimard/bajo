@@ -6,7 +6,7 @@ from time.time import time_function
 # from bajo.linalg import create_tensor, create_vector
 
 
-fn create_vector[
+def create_vector[
     dtype: DType, layout: Layout
 ](
     m: Int,
@@ -20,7 +20,7 @@ fn create_vector[
     return {ptr, dynamic_layout}
 
 
-fn create_tensor[
+def create_tensor[
     dtype: DType, layout: Layout
 ](
     m: Int,
@@ -35,7 +35,7 @@ fn create_tensor[
     return {ptr, dynamic_layout}
 
 
-fn trtrs_row[
+def trtrs_row[
     dtype: DType, element_layout: Layout
 ](
     mut x: LayoutTensor[mut=True, dtype, element_layout=element_layout, ...],
@@ -105,7 +105,7 @@ def main():
     # print("x", x)
     # print("xe", xe)
     # print("b", b)
-    # fn solve_with_trtrs_row() capturing:
+    # def solve_with_trtrs_row() capturing:
     #     trtrs_row[T](x, L, b)
 
     # t_row = time_function[solve_with_trtrs_row]()

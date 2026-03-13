@@ -29,7 +29,7 @@ struct Euler[
     var dt: Scalar[Self.dtype]
     var dy: Self.LT
 
-    fn __init__(
+    def __init__(
         out self,
         u0: Self.LT,
         t_start: Scalar[Self.dtype],
@@ -40,7 +40,7 @@ struct Euler[
         self.dt = dt
         self.dy = Self.LT.stack_allocation()
 
-    fn step(mut self):
+    def step(mut self):
         Self.system(self.dy, self.y, self.t)
 
         # y = y + dt * dy
@@ -60,7 +60,7 @@ struct Euler[
 #     comptime e: StaticTuple[Scalar[Self.dtype], Self.N_STAGES]
 
 #     @staticmethod
-#     fn a(i: Int, j: Int) -> Scalar[Self.dtype]:
+#     def a(i: Int, j: Int) -> Scalar[Self.dtype]:
 #         return Self._a[i * Self.N_STAGES + j]
 
 
@@ -138,7 +138,7 @@ struct Tsit5[
     var tmp: Self.LT
     var y_next: Self.LT
 
-    fn __init__(
+    def __init__(
         out self,
         u0: Self.LT,
         t_start: Scalar[Self.dtype],
@@ -164,17 +164,17 @@ struct Tsit5[
         self.tmp = Self.LT(alloc[Self.S](size))
         self.y_next = Self.LT(alloc[Self.S](size))
 
-    fn __del__(deinit self):
+    def __del__(deinit self):
         for i in range(Self.N_STAGES):
             self.ks[i].ptr.free()
         self.tmp.ptr.free()
         self.y_next.ptr.free()
 
     @staticmethod
-    fn a(i: Int, j: Int) -> Scalar[Self.dtype]:
+    def a(i: Int, j: Int) -> Scalar[Self.dtype]:
         return Self._a[i * Self.N_STAGES + j]
 
-    fn step(mut self):
+    def step(mut self):
         if self.u_modified:
             Self.system(self.ks[0], self.y, self.t)
             self.u_modified = False
@@ -242,7 +242,7 @@ struct Tsit5[
             comptime if Self.IS_FSAL:
                 Self.system(self.ks[Self.N_STAGES_FSAL], self.y, self.t)
 
-    fn _compute_stages(mut self, h: Scalar[Self.dtype]):
+    def _compute_stages(mut self, h: Scalar[Self.dtype]):
         for i in range(1, Self.N_STAGES_FSAL):
             self.tmp.copy_from(self.y)
 
@@ -251,12 +251,12 @@ struct Tsit5[
 
             Self.system(self.ks[i], self.tmp, self.t + Self.c[i] * h)
 
-    fn _estimate_error(mut self, h: Scalar[Self.dtype]) -> Scalar[Self.dtype]:
+    def _estimate_error(mut self, h: Scalar[Self.dtype]) -> Scalar[Self.dtype]:
         comptime SIMD_WIDTH = simd_width_of[Self.dtype]()
 
         e_est: SIMD[Self.dtype, 1] = 0.0
 
-        fn compute[w: Int](i: Int) unified {mut}:
+        def compute[w: Int](i: Int) unified {mut}:
             err_v = SIMD[Self.dtype, w](0.0)
 
             comptime for s in range(Self.N_STAGES):
@@ -287,7 +287,7 @@ struct ODEProblem[
     var tspan: Tuple[Scalar[Self.dtype], Scalar[Self.dtype]]
     var dt: Scalar[Self.dtype]
 
-    fn __init__(
+    def __init__(
         out self,
         u0: Self.LT,
         t_start: Scalar[Self.dtype],
@@ -299,7 +299,7 @@ struct ODEProblem[
         self.dt = dt
 
 
-fn solve[
+def solve[
     dtype: DType where dtype.is_floating_point(),
     layout: Layout,
     system: system_fn[dtype, layout],
@@ -332,7 +332,7 @@ comptime solver = Tsit5Adaptative
 # comptime solver = Tsit5Fixed
 
 
-fn lorenz(
+def lorenz(
     dy: LayoutTensor[float_type, lorenz_layout, MutAnyOrigin],
     y: LayoutTensor[float_type, lorenz_layout, ImmutAnyOrigin],
     t: Float64,
@@ -346,7 +346,7 @@ comptime GS_N = 8
 comptime gs_layout = Layout.row_major(GS_N, GS_N, 2)
 
 
-fn gray_scott_system(
+def gray_scott_system(
     dy: LayoutTensor[float_type, gs_layout, MutAnyOrigin],
     y: LayoutTensor[float_type, gs_layout, ImmutAnyOrigin],
     t: Scalar[float_type],
@@ -398,7 +398,7 @@ fn gray_scott_system(
             dy[i, j, 1] = Dv * lap_v + uv2 - (F + k) * v
 
 
-fn setup_gray_scott_problem() -> ODEProblem[gray_scott_system]:
+def setup_gray_scott_problem() -> ODEProblem[gray_scott_system]:
     size = GS_N * GS_N * 2
     ptr = alloc[Scalar[float_type]](size)
 
@@ -425,7 +425,7 @@ fn setup_gray_scott_problem() -> ODEProblem[gray_scott_system]:
     return ODEProblem[gray_scott_system](u0, 0.0, 10.0, dt)
 
 
-fn setup_lorenz_problem() -> ODEProblem[lorenz]:
+def setup_lorenz_problem() -> ODEProblem[lorenz]:
     u0 = LayoutTensor[float_type, lorenz_layout, MutAnyOrigin](
         alloc[Scalar[float_type]](3)
     )
@@ -436,14 +436,14 @@ fn setup_lorenz_problem() -> ODEProblem[lorenz]:
     return ODEProblem[lorenz](u0, 0.0, 50.0, dt)
 
 
-fn basic_bench[
+def basic_bench[
     dtype: DType where dtype.is_floating_point(),
     layout: Layout,
     system: system_fn[dtype, layout],
     //,
     setup_func: fn() -> ODEProblem[system],
 ]() raises:
-    fn bench_fn() raises:
+    def bench_fn() raises:
         prob = setup_func()
         res = solve[dtype, layout, system](prob, dt=prob.dt)
         keep(res)
@@ -452,7 +452,7 @@ fn basic_bench[
     print("t =", round(time_us, 1), "us")
 
 
-fn main() raises:
+def main() raises:
     print("Lorenz")
     lorenz_prob = setup_lorenz_problem()
     result = solve(lorenz_prob, dt=lorenz_prob.dt)

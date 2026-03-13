@@ -10,7 +10,7 @@ comptime dtype = DType.float64
 comptime decay_layout = Layout.row_major(1)
 
 
-fn decay_system(
+def decay_system(
     dy: LayoutTensor[dtype, decay_layout, MutAnyOrigin],
     y: LayoutTensor[dtype, decay_layout, ImmutAnyOrigin],
     t: Scalar[dtype],

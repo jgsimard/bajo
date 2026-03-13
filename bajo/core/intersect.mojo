@@ -12,7 +12,7 @@ from bajo.core.vec import (
 )
 
 
-fn closest_point_to_aabb[
+def closest_point_to_aabb[
     dtype: DType
 ](p: Vec3[dtype], lower: Vec3[dtype], upper: Vec3[dtype]) -> Vec3[dtype]:
     c_array = InlineArray[Scalar[dtype], 3](uninitialized=True)
@@ -45,7 +45,7 @@ fn closest_point_to_aabb[
     return Vec3[dtype](c_array^)
 
 
-fn closest_point_to_triangle[
+def closest_point_to_triangle[
     dtype: DType
 ](a: Vec3[dtype], b: Vec3[dtype], c: Vec3[dtype], p: Vec3[dtype]) -> Vec2[
     dtype
@@ -104,7 +104,7 @@ fn closest_point_to_triangle[
     return Vec2[dtype](u, v)
 
 
-fn furthest_point_to_triangle[
+def furthest_point_to_triangle[
     dtype: DType
 ](a: Vec3[dtype], b: Vec3[dtype], c: Vec3[dtype], p: Vec3[dtype]) -> Vec2[
     dtype
@@ -130,7 +130,7 @@ fn furthest_point_to_triangle[
 
 
 # TODO: use optinal ?
-fn intersect_ray_aabb[
+def intersect_ray_aabb[
     dtype: DType
 ](
     pos: Vec3[dtype],
@@ -164,7 +164,7 @@ fn intersect_ray_aabb[
     return hit
 
 
-fn intersect_aabb_aabb[
+def intersect_aabb_aabb[
     dtype: DType
 ](
     a_lower: Vec3[dtype],
@@ -187,7 +187,7 @@ fn intersect_aabb_aabb[
 
 # Moller and Trumbore's method
 @always_inline
-fn intersect_ray_tri_moller[
+def intersect_ray_tri_moller[
     dtype: DType
 ](
     p: Vec3[dtype],
@@ -241,7 +241,7 @@ fn intersect_ray_tri_moller[
 
 
 @always_inline
-fn intersect_ray_tri_rtcd[
+def intersect_ray_tri_rtcd[
     dtype: DType
 ](
     p: Vec3[dtype],
@@ -306,7 +306,7 @@ fn intersect_ray_tri_rtcd[
 
 
 @always_inline
-fn diff_product[
+def diff_product[
     dtype: DType
 ](
     a: Scalar[dtype], b: Scalar[dtype], c: Scalar[dtype], d: Scalar[dtype]
@@ -323,7 +323,7 @@ fn diff_product[
 
 
 @always_inline
-fn max_dim[dtype: DType](v: Vec3[dtype]) -> Int:
+def max_dim[dtype: DType](v: Vec3[dtype]) -> Int:
     x = abs(v[0])
     y = abs(v[1])
     z = abs(v[2])
@@ -335,7 +335,7 @@ fn max_dim[dtype: DType](v: Vec3[dtype]) -> Int:
 
 
 @always_inline
-fn intersect_ray_tri_woop[
+def intersect_ray_tri_woop[
     dtype: DType
 ](
     p: Vec3[dtype],
@@ -429,7 +429,7 @@ fn intersect_ray_tri_woop[
 
 
 @always_inline
-fn edge_edge_test[
+def edge_edge_test[
     dtype: DType
 ](
     v0: Vec3[dtype],
@@ -464,7 +464,7 @@ fn edge_edge_test[
 
 
 @always_inline
-fn edge_against_tri_edges[
+def edge_against_tri_edges[
     dtype: DType
 ](
     v0: Vec3[dtype],
@@ -487,7 +487,7 @@ fn edge_against_tri_edges[
 
 
 @always_inline
-fn point_in_tri[
+def point_in_tri[
     dtype: DType
 ](
     v0: Vec3[dtype],
@@ -497,7 +497,7 @@ fn point_in_tri[
     i0: Int,
     i1: Int,
 ) -> Bool:
-    fn check(p1: Vec3[dtype], p2: Vec3[dtype]) unified {read} -> Scalar[dtype]:
+    def check(p1: Vec3[dtype], p2: Vec3[dtype]) unified {read} -> Scalar[dtype]:
         a = p2[i1] - p1[i1]
         b = -(p2[i0] - p1[i0])
         c = -a * p1[i0] - b * p1[i1]
@@ -513,7 +513,7 @@ fn point_in_tri[
 
 
 @always_inline
-fn coplanar_tri_tri[
+def coplanar_tri_tri[
     dtype: DType
 ](
     n: Vec3[dtype],
@@ -569,7 +569,7 @@ struct Intervals[dtype: DType](Copyable):
 
 
 @always_inline
-fn get_intervals[
+def get_intervals[
     dtype: DType
 ](
     vv0: Scalar[dtype],
@@ -634,7 +634,7 @@ comptime intersect_tri_tri = no_div_tri_tri_isect
 
 
 @always_inline
-fn no_div_tri_tri_isect[
+def no_div_tri_tri_isect[
     dtype: DType
 ](
     v0: Vec3[dtype],
@@ -714,7 +714,7 @@ fn no_div_tri_tri_isect[
     s2_1 = res2.a * xxyy + res2.c * xx * res2.x0
 
     @always_inline
-    fn _sort[dtype: DType](mut a: Scalar[dtype], mut b: Scalar[dtype]):
+    def _sort[dtype: DType](mut a: Scalar[dtype], mut b: Scalar[dtype]):
         if a > b:
             swap(a, b)
 
@@ -724,7 +724,7 @@ fn no_div_tri_tri_isect[
     return not (s1_1 < s2_0 or s2_1 < s1_0)
 
 
-fn closest_point_edge_edge[
+def closest_point_edge_edge[
     dtype: DType
 ](
     p1: Vec3[dtype],
@@ -805,7 +805,7 @@ fn closest_point_edge_edge[
     return Vec3[dtype](s, t, dist)
 
 
-fn main():
+def main():
     print("hello warp.intersect")
     a = Vec3f32(1.0, 2.0, 3.0)
     b = Vec3f32(4.0, 5.0, 6.0)

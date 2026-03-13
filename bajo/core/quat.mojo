@@ -9,25 +9,25 @@ from bajo.core.vec import (
 from bajo.core.mat import Mat, Mat33, Mat44
 
 
-fn length2[
+def length2[
     dtype: DType where dtype.is_floating_point()
 ](q: Quaternion[dtype]) -> Scalar[dtype]:
     return (q.data * q.data).reduce_add()
 
 
-fn length[
+def length[
     dtype: DType where dtype.is_floating_point()
 ](q: Quaternion[dtype]) -> Scalar[dtype]:
     return sqrt(length2(q))
 
 
-fn inv_length[
+def inv_length[
     dtype: DType where dtype.is_floating_point()
 ](q: Quaternion[dtype]) -> Scalar[dtype]:
     return 1.0 / length(q)
 
 
-fn normalize[
+def normalize[
     dtype: DType where dtype.is_floating_point()
 ](q: Quaternion[dtype]) -> Quaternion[dtype]:
     return Quaternion[dtype](q.data * inv_length(q))
@@ -42,7 +42,7 @@ struct Quaternion[dtype: DType where dtype.is_floating_point()](
 ):
     var data: SIMD[Self.dtype, 4]  # layout: [x, y, z, w]
 
-    fn __init__(
+    def __init__(
         out self,
         x: Scalar[Self.dtype],
         y: Scalar[Self.dtype],
@@ -51,7 +51,7 @@ struct Quaternion[dtype: DType where dtype.is_floating_point()](
     ):
         self.data = SIMD[Self.dtype, 4](x, y, z, w)
 
-    fn __init__(
+    def __init__(
         out self,
         xyz: Vec3[Self.dtype],
         w: Scalar[Self.dtype],
@@ -59,29 +59,29 @@ struct Quaternion[dtype: DType where dtype.is_floating_point()](
         self.data = SIMD[Self.dtype, 4](xyz.x(), xyz.y(), xyz.z(), w)
 
     @staticmethod
-    fn identity() -> Self:
+    def identity() -> Self:
         return Self([0, 0, 0, 1])
 
-    fn x(self) -> Scalar[Self.dtype]:
+    def x(self) -> Scalar[Self.dtype]:
         return self.data[0]
 
-    fn y(self) -> Scalar[Self.dtype]:
+    def y(self) -> Scalar[Self.dtype]:
         return self.data[1]
 
-    fn z(self) -> Scalar[Self.dtype]:
+    def z(self) -> Scalar[Self.dtype]:
         return self.data[2]
 
-    fn w(self) -> Scalar[Self.dtype]:
+    def w(self) -> Scalar[Self.dtype]:
         return self.data[3]
 
-    fn xyz(self) -> Vec3[Self.dtype]:
+    def xyz(self) -> Vec3[Self.dtype]:
         return Vec3[Self.dtype](self.x(), self.y(), self.z())
 
-    fn inverse(self) -> Self:
+    def inverse(self) -> Self:
         return Self(-self.x(), -self.y(), -self.z(), self.w())
 
     # TODO: benchmark the two version to choose the fastest
-    fn rotate(self, v: Vec3[Self.dtype]) -> Vec3[Self.dtype]:
+    def rotate(self, v: Vec3[Self.dtype]) -> Vec3[Self.dtype]:
         # p = self.xyz()
         # w = self.w()
         # pv = cross(p, v)
@@ -106,7 +106,7 @@ struct Quaternion[dtype: DType where dtype.is_floating_point()](
 
         return Vec3[Self.dtype](rx, ry, rz)
 
-    fn rotate_inverse(self, v: Vec3[Self.dtype]) -> Vec3[Self.dtype]:
+    def rotate_inverse(self, v: Vec3[Self.dtype]) -> Vec3[Self.dtype]:
         qw = self.w()
         qx = self.x()
         qy = self.y()
@@ -129,7 +129,7 @@ struct Quaternion[dtype: DType where dtype.is_floating_point()](
         return Vec3[Self.dtype](rx, ry, rz)
 
     @staticmethod
-    fn from_axis_angle(
+    def from_axis_angle(
         axis: Vec3[Self.dtype], angle: Scalar[Self.dtype]
     ) -> Self:
         half_angle = angle * 0.5
@@ -137,20 +137,20 @@ struct Quaternion[dtype: DType where dtype.is_floating_point()](
         xyz = axis * sin(half_angle)
         return Self(xyz, w)
 
-    fn to_axis_angle(self) -> Tuple[Vec3[Self.dtype], Scalar[Self.dtype]]:
+    def to_axis_angle(self) -> Tuple[Vec3[Self.dtype], Scalar[Self.dtype]]:
         v = self.xyz()
         axis = vnormalize(v) * copysign(Scalar[Self.dtype](1.0), self.w())
         angle = 2 * atan2(vlength(v), abs(self.w()))
         return (axis^, angle)
 
-    fn to_matrix(self) -> Mat33[Self.dtype]:
+    def to_matrix(self) -> Mat33[Self.dtype]:
         c1 = self.rotate(Vec3[Self.dtype](1, 0, 0))
         c2 = self.rotate(Vec3[Self.dtype](0, 1, 0))
         c3 = self.rotate(Vec3[Self.dtype](0, 0, 1))
         return Mat33[Self.dtype].from_cols(c1, c2, c3)
 
     @staticmethod
-    fn from_matrix[
+    def from_matrix[
         rows: Int where rows >= 1, cols: Int where cols >= 1
     ](m: Mat[Self.dtype, rows, cols]) -> Self where (rows == cols) and (
         rows == 3 or rows == 4
@@ -210,7 +210,7 @@ struct Quaternion[dtype: DType where dtype.is_floating_point()](
         return normalize(Self(x, y, z, w))
 
     @staticmethod
-    fn from_basis[
+    def from_basis[
         version: Int = 0
     ](a: Vec3[Self.dtype], b: Vec3[Self.dtype], c: Vec3[Self.dtype]) -> Self:
         ax = a.x()
@@ -316,7 +316,7 @@ struct Quaternion[dtype: DType where dtype.is_floating_point()](
     comptime from_rpy = Self.from_euler
 
     @staticmethod
-    fn from_euler(
+    def from_euler(
         roll: Scalar[Self.dtype],
         pitch: Scalar[Self.dtype],
         yaw: Scalar[Self.dtype],
@@ -341,7 +341,7 @@ struct Quaternion[dtype: DType where dtype.is_floating_point()](
 
     comptime to_rpy = Self.to_euler
 
-    fn to_euler(self) -> Vec3[Self.dtype]:
+    def to_euler(self) -> Vec3[Self.dtype]:
         """
         Converts Quaternion back to Euler angles (Roll, Pitch, Yaw).
         """
@@ -368,23 +368,23 @@ struct Quaternion[dtype: DType where dtype.is_floating_point()](
 
         return Vec3[Self.dtype](roll, pitch, yaw)
 
-    fn __neg__(self) -> Self:
+    def __neg__(self) -> Self:
         return Self(-self.data)
 
-    fn __add__(self, o: Self) -> Self:
+    def __add__(self, o: Self) -> Self:
         return Self(self.data + o.data)
 
-    fn __iadd__(mut self, o: Self):
+    def __iadd__(mut self, o: Self):
         self.data += o.data
 
-    fn __sub__(self, o: Self) -> Self:
+    def __sub__(self, o: Self) -> Self:
         return Self(self.data - o.data)
 
-    fn __isub__(mut self, o: Self):
+    def __isub__(mut self, o: Self):
         self.data -= o.data
 
     @always_inline
-    fn __mul__(self, b: Self) -> Self:
+    def __mul__(self, b: Self) -> Self:
         # Layout: [x, y, z, w]
         # Hamiltonian product formula derived for this layout:
         # res.x =  x1*w2 + y1*z2 - z1*y2 + w1*x2
@@ -415,14 +415,14 @@ struct Quaternion[dtype: DType where dtype.is_floating_point()](
 
         return Self(res_a + res_b)
 
-    fn __mul__(self, f: Scalar[Self.dtype]) -> Self:
+    def __mul__(self, f: Scalar[Self.dtype]) -> Self:
         return Self(self.data * f)
 
-    fn __imul__(mut self, s: Scalar[Self.dtype]):
+    def __imul__(mut self, s: Scalar[Self.dtype]):
         self.data *= s
 
 
-fn slerp[
+def slerp[
     dtype: DType where dtype.is_floating_point()
 ](q0: Quaternion[dtype], q1: Quaternion[dtype], t: Scalar[dtype]) -> Quaternion[
     dtype
@@ -432,7 +432,7 @@ fn slerp[
     return q0 * Quaternion.from_axis_angle(axis_angle[0], t * axis_angle[1])
 
 
-fn main():
+def main():
     print("hello bajo.core.quat")
     comptime T = DType.float32
     m = Mat[T, 4, 4](1)

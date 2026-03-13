@@ -1,7 +1,7 @@
 from layout import Layout, LayoutTensor, UNKNOWN_VALUE
 
 
-fn create_vector[
+def create_vector[
     dtype: DType, layout: Layout
 ](
     m: Int,
@@ -15,7 +15,7 @@ fn create_vector[
     return {ptr, dynamic_layout}
 
 
-fn create_tensor[
+def create_tensor[
     dtype: DType, layout: Layout
 ](
     m: Int,
@@ -30,7 +30,7 @@ fn create_tensor[
     return {ptr, dynamic_layout}
 
 
-fn create_tensor2[
+def create_tensor2[
     dtype: DType, layout: Layout
 ](m: Int, n: Int, out result: LayoutTensor[dtype, layout, MutExternalOrigin],):
     ptr = alloc[Scalar[dtype]](m * n)

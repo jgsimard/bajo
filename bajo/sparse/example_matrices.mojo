@@ -5,7 +5,7 @@ from msparse.base import COOMatrix, CSCMatrix
 comptime DefaultValue = DType.float64
 
 
-fn davis_example_small() -> COOMatrix[DefaultValue]:
+def davis_example_small() -> COOMatrix[DefaultValue]:
     """4 x 4 non-symmetric example. Davis, pp 7-8, Eqn (2.1)."""
 
     # fmt: off
@@ -16,7 +16,7 @@ fn davis_example_small() -> COOMatrix[DefaultValue]:
     return COOMatrix[DefaultValue](v^, i^, j^, 4, 4)
 
 
-fn davis_example_chol() -> CSCMatrix[DefaultValue]:
+def davis_example_chol() -> CSCMatrix[DefaultValue]:
     """11 x 11 symmetric, positive definite Cholesky example. Davis, Fig 4.2, p 39.
     """
 
@@ -37,7 +37,7 @@ fn davis_example_chol() -> CSCMatrix[DefaultValue]:
     return coo.to_csc()
 
 
-fn davis_example_qr(
+def davis_example_qr(
     add_diag: Float64 = 0.0, random_vals: Bool = False
 ) -> CSCMatrix[DefaultValue]:
     """8 x 8, non-symmetric QR example. Davis, Figure 5.1, p 74."""
@@ -68,7 +68,7 @@ fn davis_example_qr(
     return coo.to_csc()
 
 
-fn davis_example_amd() -> CSCMatrix[DefaultValue,]:
+def davis_example_amd() -> CSCMatrix[DefaultValue,]:
     """10 x 10 symmetric, positive definite AMD example. Davis, Figure 7.1, p 101.
     """
 
@@ -89,7 +89,7 @@ fn davis_example_amd() -> CSCMatrix[DefaultValue,]:
 
 
 # Simple 3x3 matrices for internal testing
-fn E_mat() -> CSCMatrix[DefaultValue]:
+def E_mat() -> CSCMatrix[DefaultValue]:
     coo = COOMatrix[DefaultValue](3, 3)
     coo.insert(0, 0, 1.0)
     coo.insert(1, 0, -2.0)
@@ -98,7 +98,7 @@ fn E_mat() -> CSCMatrix[DefaultValue]:
     return coo.to_csc()
 
 
-fn A_mat() -> CSCMatrix[DefaultValue]:
+def A_mat() -> CSCMatrix[DefaultValue]:
     v = [2.0, 4, -2, 1, -6, 7, 1, 2]
     i = [0, 1, 2, 0, 1, 2, 0, 2]
     j = [0, 0, 0, 1, 1, 1, 2, 2]

@@ -14,7 +14,7 @@ from sys.info import bit_width_of
 
 
 @always_inline
-fn _estimate_max_iters(size: Int) -> Int:
+def _estimate_max_iters(size: Int) -> Int:
     # Maximum iterations before switching to Heapsort (2 * log2(n))
     var log2: Int = (bit_width_of[DType.int]() - 1) ^ count_leading_zeros(
         size | 1
@@ -22,7 +22,7 @@ fn _estimate_max_iters(size: Int) -> Int:
     return log2 * 2
 
 
-fn nth_element[
+def nth_element[
     T: Copyable,
     origin: MutOrigin,
     //,

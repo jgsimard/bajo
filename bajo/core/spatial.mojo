@@ -20,24 +20,24 @@ comptime SpatialMatrix[dtype: DType] = Mat[dtype, 6, 6]
 
 
 @always_inline
-fn w_vec[dtype: DType](a: SpatialVector[dtype]) -> Vec[dtype, 3]:
+def w_vec[dtype: DType](a: SpatialVector[dtype]) -> Vec[dtype, 3]:
     """Returns the angular (top) portion of the spatial vector."""
     return a.xyz()
 
 
 @always_inline
-fn v_vec[dtype: DType](a: SpatialVector[dtype]) -> Vec[dtype, 3]:
+def v_vec[dtype: DType](a: SpatialVector[dtype]) -> Vec[dtype, 3]:
     """Returns the linear (bottom) portion of the spatial vector."""
     return Vec[dtype, 3](a[3], a[4], a[5])
 
 
-fn spatial_dot[
+def spatial_dot[
     dtype: DType
 ](a: SpatialVector[dtype], b: SpatialVector[dtype]) -> Scalar[dtype]:
     return dot(a, b)
 
 
-fn spatial_cross[
+def spatial_cross[
     dtype: DType
 ](a: SpatialVector[dtype], b: SpatialVector[dtype]) -> SpatialVector[dtype]:
     w = cross(w_vec(a), w_vec(b))
@@ -47,7 +47,7 @@ fn spatial_cross[
     )  # Using the Vec6(v3, v3) constructor you defined
 
 
-fn spatial_cross_dual[
+def spatial_cross_dual[
     dtype: DType
 ](a: SpatialVector[dtype], b: SpatialVector[dtype]) -> SpatialVector[dtype]:
     w = cross(w_vec(a), w_vec(b)) + cross(v_vec(a), v_vec(b))
@@ -55,11 +55,11 @@ fn spatial_cross_dual[
     return SpatialVector[dtype](v=w, w=v)
 
 
-fn spatial_top[dtype: DType](a: SpatialVector[dtype]) -> Vec[dtype, 3]:
+def spatial_top[dtype: DType](a: SpatialVector[dtype]) -> Vec[dtype, 3]:
     return w_vec(a)
 
 
-fn spatial_bottom[dtype: DType](a: SpatialVector[dtype]) -> Vec[dtype, 3]:
+def spatial_bottom[dtype: DType](a: SpatialVector[dtype]) -> Vec[dtype, 3]:
     return v_vec(a)
 
 
@@ -73,39 +73,39 @@ struct Transform[dtype: DType where dtype.is_floating_point()](
     var p: Vec3[Self.dtype]
     var q: Quaternion[Self.dtype]
 
-    fn __init__(out self):
+    def __init__(out self):
         self = Self.identity()
 
     @staticmethod
-    fn identity() -> Self:
+    def identity() -> Self:
         return Self(Self.P(0), Self.Q.identity())
 
-    fn __neg__(self) -> Self:
+    def __neg__(self) -> Self:
         return Self(-self.p, -self.q)
 
-    fn get_translation(ref self) -> ref[self.p] Self.P:
+    def get_translation(ref self) -> ref[self.p] Self.P:
         return self.p
 
-    fn get_rotation(ref self) -> ref[self.q] Self.Q:
+    def get_rotation(ref self) -> ref[self.q] Self.Q:
         return self.q
 
-    fn __mul__(self, rhs: Self) -> Self:
+    def __mul__(self, rhs: Self) -> Self:
         return Self(self.q.rotate(rhs.p) + self.p, self.q * rhs.q)
 
-    fn inverse(self) -> Self:
+    def inverse(self) -> Self:
         q_inv = self.q.inverse()
         return Self(-(q_inv.rotate(self.p)), q_inv)
 
-    fn transform_vector(self, x: Self.P) -> Self.P:
+    def transform_vector(self, x: Self.P) -> Self.P:
         """Applies only rotation to a vector."""
         return self.q.rotate(x)
 
-    fn transform_point(self, x: Self.P) -> Self.P:
+    def transform_point(self, x: Self.P) -> Self.P:
         """Applies full rigid transformation to a point."""
         return self.p + self.q.rotate(x)
 
 
-fn spatial_adjoint[
+def spatial_adjoint[
     dtype: DType
 ](R: Mat33[dtype], S: Mat33[dtype]) -> SpatialMatrix[dtype]:
     """
@@ -124,11 +124,11 @@ fn spatial_adjoint[
     return out^
 
 
-fn row_index(stride: Int, i: Int, j: Int) -> Int:
+def row_index(stride: Int, i: Int, j: Int) -> Int:
     return i * stride + j
 
 
-# fn spatial_jacobian[
+# def spatial_jacobian[
 #     dtype: DType
 # ](
 #     S: UnsafePointer[SpatialVector[dtype], ImmutAnyOrigin],
@@ -174,7 +174,7 @@ fn row_index(stride: Int, i: Int, j: Int) -> Int:
 #             j = joint_parents[j]
 
 
-# fn spatial_mass[
+# def spatial_mass[
 #     dtype: DType
 # ](
 #     I_s: UnsafePointer[SpatialMatrix[dtype]],
@@ -191,5 +191,5 @@ fn row_index(stride: Int, i: Int, j: Int) -> Int:
 #                 M[M_start + (l * 6 + i) * stride + (l * 6 + j)] = mat[i, j]
 
 
-fn main():
+def main():
     print("core.spatial")

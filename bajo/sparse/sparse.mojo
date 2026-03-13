@@ -25,7 +25,7 @@ struct SparseMatrix[
     var nz: Int
     """Number of entries if triplet, -1 if CCS."""
 
-    fn __init__(out self, m: Int, n: Int, nzmax: Int):
+    def __init__(out self, m: Int, n: Int, nzmax: Int):
         debug_assert[assert_mode="all"](
             m >= 0 and n >= 0, "Matrix dimensions must be non-negative"
         )
@@ -50,30 +50,30 @@ struct SparseMatrix[
         else:
             self.x = {}
 
-    fn __del__(deinit self):
+    def __del__(deinit self):
         self.p.free()
         self.i.free()
         self.x.free()
 
-    fn nnz(self) -> Int:
+    def nnz(self) -> Int:
         comptime if self.is_triplet:
             return self.nz
         else:
             return Int(self.p[self.n])
 
-    fn _flip(self, i: Int) -> Int:
+    def _flip(self, i: Int) -> Int:
         return -i - 2
 
-    fn _unflip(self, i: Int) -> Int:
+    def _unflip(self, i: Int) -> Int:
         return self._flip(i) if i < 0 else i
 
-    fn _marked(self, j: Int) -> Bool:
+    def _marked(self, j: Int) -> Bool:
         return self.p[j] < 0
 
-    fn _mark(mut self, j: Int):
+    def _mark(mut self, j: Int):
         self.p[j] = self._flip(Int(self.p[j]))
 
-    fn add_entry(
+    def add_entry(
         mut self,
         i: Scalar[Self.itype],
         j: Scalar[Self.itype],
@@ -93,5 +93,5 @@ struct SparseMatrix[
         self.n = max(self.n, Int(j + 1))
 
 
-fn main():
+def main():
     print("hello")

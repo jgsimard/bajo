@@ -9,7 +9,7 @@ from linalg.matmul import matmul
 from testing import assert_almost_equal
 
 
-fn qr_factorization[
+def qr_factorization[
     dtype: DType,
     element_layout: Layout,
 ](
@@ -51,7 +51,7 @@ fn qr_factorization[
                 )  # v[i + 1] -= s * w
 
 
-fn apply_q[
+def apply_q[
     dtype: DType,
     element_layout: Layout,
 ](
@@ -82,7 +82,7 @@ fn apply_q[
                 X[k + i + 1, j] -= s * A[k + i + 1, k]  # v[i + 1] -= s * w
 
 
-fn form_q[
+def form_q[
     dtype: DType,
     element_layout: Layout,
 ](
@@ -106,7 +106,7 @@ fn form_q[
 
 
 # A is a general matrix, B is a non-unit upper triangular matrix
-fn trmm[
+def trmm[
     dtype: DType,
     element_layout: Layout,
 ](
@@ -128,7 +128,7 @@ fn trmm[
                 C[i, j] += A[i, p] * B[p, j]
 
 
-fn a_mul_bt[
+def a_mul_bt[
     dtype: DType,
     element_layout: Layout,
 ](
@@ -166,7 +166,7 @@ def all_almost_id[
             assert_almost_equal(A[i, j], reference, atol=atol, rtol=rtol)
 
 
-fn create_vector[
+def create_vector[
     dtype: DType, layout: Layout
 ](
     m: Int,
@@ -180,7 +180,7 @@ fn create_vector[
     return {ptr, dynamic_layout}
 
 
-fn create_tensor[
+def create_tensor[
     dtype: DType, layout: Layout
 ](
     m: Int,
@@ -195,7 +195,7 @@ fn create_tensor[
     return {ptr, dynamic_layout}
 
 
-fn create_tensor2[
+def create_tensor2[
     dtype: DType, layout: Layout
 ](m: Int, n: Int, out result: LayoutTensor[dtype, layout, MutExternalOrigin],):
     ptr = alloc[Scalar[dtype]](m * n)
@@ -206,7 +206,7 @@ fn create_tensor2[
     return {ptr, dynamic_layout}
 
 
-fn assert_almost_equal_ptr[
+def assert_almost_equal_ptr[
     dtype: DType
 ](
     ptr_a: UnsafePointer[Scalar[dtype]],

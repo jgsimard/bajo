@@ -12,17 +12,17 @@ struct Triangle[dtype: DType](Copyable):
     var v1: Vec3[Self.dtype]
     var v2: Vec3[Self.dtype]
 
-    fn centroid(self) -> Vec3[Self.dtype]:
+    def centroid(self) -> Vec3[Self.dtype]:
         return 0.5 * (self.v0 + self.v1 + self.v2)
 
-    fn bounds(self) -> AxisAlignedBoundingBox[Self.dtype]:
+    def bounds(self) -> AxisAlignedBoundingBox[Self.dtype]:
         return AxisAlignedBoundingBox(self.v0, self.v1, self.v2)
 
-    fn normal(self) -> Vec3[Self.dtype]:
+    def normal(self) -> Vec3[Self.dtype]:
         edge0 = self.v1 - self.v0
         edge1 = self.v2 - self.v0
         return cross(edge0, edge1)
 
-    fn area(self) -> Scalar[Self.dtype]:
+    def area(self) -> Scalar[Self.dtype]:
         normal = self.normal()
         return 0.5 * length(normal)

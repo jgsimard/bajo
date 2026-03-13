@@ -101,7 +101,7 @@ struct BVH8[mut: Bool, //, origin: Origin[mut=mut]](Copyable):
     var bounds: AABB
 
 
-fn divide_round_up(x: UInt32, y: UInt32) -> UInt32:
+def divide_round_up(x: UInt32, y: UInt32) -> UInt32:
     return 1 + (x - 1) / y
 
 
@@ -157,7 +157,7 @@ struct BVH8BuildState[mut: Bool, //, origin: Origin[mut=mut]](Copyable):
 
 
 @always_inline
-fn interleave_bits_32(val: UInt32) -> UInt32:
+def interleave_bits_32(val: UInt32) -> UInt32:
     x = val
     x = (x | (x << 16)) & 0x30000FF
     x = (x | (x << 8)) & 0x300F00F
@@ -167,7 +167,7 @@ fn interleave_bits_32(val: UInt32) -> UInt32:
 
 
 @always_inline
-fn interleave_bits_64(val: UInt64) -> UInt64:
+def interleave_bits_64(val: UInt64) -> UInt64:
     x = val
     x = (x | (x << 32)) & 0x1F00000000FFFF
     x = (x | (x << 16)) & 0x1F0000FF0000FF
@@ -177,7 +177,7 @@ fn interleave_bits_64(val: UInt64) -> UInt64:
     return x
 
 
-fn morton_code_32(v: Vec3[DType.float32]) -> UInt32:
+def morton_code_32(v: Vec3[DType.float32]) -> UInt32:
     x = UInt32(v.x() * 0x3FF)
     y = UInt32(v.y() * 0x3FF)
     z = UInt32(v.z() * 0x3FF)
@@ -188,7 +188,7 @@ fn morton_code_32(v: Vec3[DType.float32]) -> UInt32:
     )
 
 
-fn morton_code_64(v: Vec3[DType.float32]) -> UInt64:
+def morton_code_64(v: Vec3[DType.float32]) -> UInt64:
     x = UInt32(v.x() * 0x1FFFFF)
     y = UInt32(v.y() * 0x1FFFFF)
     z = UInt32(v.z() * 0x1FFFFF)

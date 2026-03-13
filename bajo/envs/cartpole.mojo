@@ -36,10 +36,10 @@ struct Log:
 
 
 trait Env:
-    fn step(mut self) raises:
+    def step(mut self) raises:
         ...
 
-    fn reset(mut self):
+    def reset(mut self):
         ...
 
 
@@ -73,7 +73,7 @@ struct Cartpole[continuous: Bool, config: ConfigCartPole](Env):
     # var tau: Float32
     # var continuous: Bool
 
-    fn step(mut self) raises:
+    def step(mut self) raises:
         a = self.actions[0]
 
         assert_false(isinf(a) or (a < 1.0) or (a > 1.0))
@@ -127,13 +127,13 @@ struct Cartpole[continuous: Bool, config: ConfigCartPole](Env):
             self.add_log()
             self.reset()
 
-    fn compute_observations(mut self):
+    def compute_observations(mut self):
         self.observations[0] = self.x
         self.observations[1] = self.x_dot
         self.observations[2] = self.theta
         self.observations[3] = self.theta_dot
 
-    fn reset(mut self):
+    def reset(mut self):
         comptime STD = 0.04
         self.episode_return = 0.0
         self.x = Float32(randn_float64(0.0, STD))
@@ -145,13 +145,13 @@ struct Cartpole[continuous: Bool, config: ConfigCartPole](Env):
         self.compute_observations()
 
 
-fn in_range[
+def in_range[
     dtype: DType, //, min: Scalar[dtype], max: Scalar[dtype]
 ](x: Scalar[dtype]) -> Bool:
     return x > min and x < max
 
 
-fn out_range[
+def out_range[
     dtype: DType, //, min: Scalar[dtype], max: Scalar[dtype]
 ](x: Scalar[dtype]) -> Bool:
     return not in_range[min, max](x)

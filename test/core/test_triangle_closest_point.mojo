@@ -10,7 +10,7 @@ from bajo.core.vec import Vec3, Vec3f32, dot, length
 
 
 @always_inline
-fn triangle_closest_point_barycentric[
+def triangle_closest_point_barycentric[
     dtype: DType
 ](a: Vec3[dtype], b: Vec3[dtype], c: Vec3[dtype], p: Vec3[dtype]) -> Vec3[
     dtype
@@ -62,7 +62,7 @@ fn triangle_closest_point_barycentric[
 
 
 @always_inline
-fn check_edge_feasible_region[
+def check_edge_feasible_region[
     dtype: DType
 ](
     p: Vec3[dtype],
@@ -94,7 +94,7 @@ fn check_edge_feasible_region[
 
 
 @always_inline
-fn check_vertex_feasible_region[
+def check_vertex_feasible_region[
     dtype: DType
 ](
     p: Vec3[dtype],

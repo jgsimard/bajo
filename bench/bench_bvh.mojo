@@ -13,7 +13,7 @@ comptime GRID_SIZE = 1000
 comptime cell_size = Float32(10.0) / Float32(GRID_SIZE)
 
 
-fn main():
+def main():
     print("hello bench_bvh")
     print("building test data....")
 

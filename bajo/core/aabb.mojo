@@ -11,13 +11,13 @@ struct AxisAlignedBoundingBox[dtype: DType, size: Int = 3](Copyable, Writable):
     var _min: Vec[Self.dtype, Self.size]
     var _max: Vec[Self.dtype, Self.size]
 
-    fn __init__(
+    def __init__(
         out self, v0: Vec[Self.dtype, Self.size], v1: Vec[Self.dtype, Self.size]
     ):
         self._min = vmin(v0, v1)
         self._max = vmax(v0, v1)
 
-    fn __init__(
+    def __init__(
         out self,
         v0: Vec[Self.dtype, Self.size],
         v1: Vec[Self.dtype, Self.size],
@@ -26,12 +26,12 @@ struct AxisAlignedBoundingBox[dtype: DType, size: Int = 3](Copyable, Writable):
         self._min = vmin(vmin(v0, v1), v2)
         self._max = vmax(vmax(v0, v1), v2)
 
-    fn __init__(out self, a: Self, b: Self):
+    def __init__(out self, a: Self, b: Self):
         self._min = vmin(a._min, b._min)
         self._max = vmax(a._max, b._max)
 
     @staticmethod
-    fn invalid() -> Self:
+    def invalid() -> Self:
         comptime flt_max = max_finite[Self.dtype]()
         comptime flt_min = min_finite[Self.dtype]()
         return Self(
@@ -40,45 +40,45 @@ struct AxisAlignedBoundingBox[dtype: DType, size: Int = 3](Copyable, Writable):
         )
 
     @staticmethod
-    fn point(p: Vec[Self.dtype, Self.size]) -> Self:
+    def point(p: Vec[Self.dtype, Self.size]) -> Self:
         return Self(p.copy(), p.copy())
 
     @staticmethod
-    fn merge(a: Self, b: Self) -> Self:
+    def merge(a: Self, b: Self) -> Self:
         return Self(
             vmin(a._min, b._min),
             vmax(a._max, b._max),
         )
 
-    fn surface_area(self) -> Scalar[Self.dtype]:
+    def surface_area(self) -> Scalar[Self.dtype]:
         d = self._max - self._min
         return 2.0 * (d.x() * d.y() + d.x() * d.z() + d.y() * d.z())
 
-    fn centroid(self) -> Vec[Self.dtype, Self.size]:
+    def centroid(self) -> Vec[Self.dtype, Self.size]:
         return (self._min + self._max) * 0.5
 
-    fn area(self) -> Scalar[Self.dtype]:
+    def area(self) -> Scalar[Self.dtype]:
         diff = self._max - self._min
         return diff.x() * diff.y() + diff.y() * diff.z() + diff.z() * diff.x()
 
-    fn clear(mut self):
+    def clear(mut self):
         comptime _min = min_finite[Self.dtype]()
         comptime _max = max_finite[Self.dtype]()
         self._min = Vec[Self.dtype, Self.size](_min)
         self._max = Vec[Self.dtype, Self.size](_max)
 
-    fn grow(mut self, v: Vec[Self.dtype, Self.size]):
+    def grow(mut self, v: Vec[Self.dtype, Self.size]):
         self._min = vmin(self._min, v)
         self._max = vmax(self._max, v)
 
-    fn grow(mut self, other: Self):
+    def grow(mut self, other: Self):
         self._min = vmin(self._min, other._min)
         self._max = vmax(self._max, other._max)
 
-    fn edges(self) -> Vec[Self.dtype, Self.size]:
+    def edges(self) -> Vec[Self.dtype, Self.size]:
         return self._max - self._min
 
-    fn overlaps(self, o: Self) -> Bool:
+    def overlaps(self, o: Self) -> Bool:
         return (
             self._min.x() < o._max.x()
             and o._min.x() < self._max.x()
@@ -88,7 +88,7 @@ struct AxisAlignedBoundingBox[dtype: DType, size: Int = 3](Copyable, Writable):
             and o._min.z() < self._max.z()
         )
 
-    fn contains(self, p: Vec[Self.dtype, Self.size]) -> Bool:
+    def contains(self, p: Vec[Self.dtype, Self.size]) -> Bool:
         return (
             self._min.x() <= p.x()
             and self._min.y() <= p.y()
@@ -98,7 +98,7 @@ struct AxisAlignedBoundingBox[dtype: DType, size: Int = 3](Copyable, Writable):
             and self._max.z() >= p.z()
         )
 
-    fn ray_intersects(
+    def ray_intersects(
         self,
         ray_o: Vec[Self.dtype, Self.size],
         inv_ray_d: Vec[Self.dtype, Self.size],
@@ -117,7 +117,7 @@ struct AxisAlignedBoundingBox[dtype: DType, size: Int = 3](Copyable, Writable):
 
         return t_box_min <= t_box_max
 
-    fn apply_trs[
+    def apply_trs[
         _dtype: DType where _dtype.is_floating_point()
     ](
         self: AxisAlignedBoundingBox[_dtype],

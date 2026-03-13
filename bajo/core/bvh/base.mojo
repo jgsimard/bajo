@@ -11,7 +11,7 @@ struct Ray(Copyable, Writable):
     var time: Float32  #  4 -> 52
     var _pad: InlineArray[Float32, 3]  # 3*4=12-> 64
 
-    fn __init__(
+    def __init__(
         out self, origin: Vec3f32, direction: Vec3f32, time: Float32 = 0.0
     ):
         self.origin = origin.copy()
@@ -20,7 +20,7 @@ struct Ray(Copyable, Writable):
         self.time = time
         self._pad = InlineArray[Float32, 3](fill=0.0)
 
-    fn at(self, t: Float32) -> Vec3f32:
+    def at(self, t: Float32) -> Vec3f32:
         return self.origin + t * self.direction
 
 
@@ -32,7 +32,7 @@ struct HitRecord(Copyable):
     var v: Float32  # 4 => 48
     var front_face: Bool  # 1 -> 4 => 52
 
-    fn __init__(
+    def __init__(
         out self,
         p: Vec3f32,
         normal: Vec3f32,
@@ -69,7 +69,7 @@ struct Bvh:
     var objects: List[Trianglef32]
     var root_idx: Int
 
-    fn __init__(
+    def __init__(
         out self,
         var objects: List[Trianglef32],
     ):
@@ -80,7 +80,7 @@ struct Bvh:
         if len(self.objects) > 0:
             self.root_idx = self._build(0, len(self.objects))
 
-    fn _build(mut self, start: Int, end: Int) -> Int:
+    def _build(mut self, start: Int, end: Int) -> Int:
         var span_len = end - start
 
         # leaf node
@@ -96,7 +96,7 @@ struct Bvh:
         axis = longest_axis(aabb.edges())
 
         # internal node
-        fn cmp_fn(a: Trianglef32, b: Trianglef32) capturing -> Bool:
+        def cmp_fn(a: Trianglef32, b: Trianglef32) capturing -> Bool:
             var box_a = a.bounds()
             var box_b = b.bounds()
             return box_a._min[axis] < box_b._min[axis]
@@ -121,7 +121,7 @@ struct Bvh:
         self.nodes.append(node^)
         return len(self.nodes) - 1
 
-    fn hit(
+    def hit(
         self, ray: Ray, ray_t_min: Float32, ray_t_max: Float32
     ) -> Optional[HitRecord]:
         if self.root_idx == -1:

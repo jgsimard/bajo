@@ -13,34 +13,34 @@ comptime REC709_LUM = Vec3f(0.2126, 0.7152, 0.0722)
 
 
 # conversion floats <-> bytes
-fn float_to_byte[
+def float_to_byte[
     size: Int
 ](a: SIMD[DType.float32, size]) -> SIMD[DType.uint8, size]:
     comptime sInt = SIMD[DType.int, size]
     return SIMD[DType.uint8, size](clamp(a * 256.0, 0, 255))
 
 
-fn byte_to_float[
+def byte_to_float[
     size: Int
 ](a: SIMD[DType.uint8, size]) -> SIMD[DType.float32, size]:
     return SIMD[DType.float32, size](a) / 255.0
 
 
-fn float_to_byte(a: Vec4f) -> Vec4b:
+def float_to_byte(a: Vec4f) -> Vec4b:
     return Vec4b(float_to_byte(a.data))
 
 
-fn byte_to_float(a: Vec4b) -> Vec4f:
+def byte_to_float(a: Vec4b) -> Vec4f:
     return Vec4f(byte_to_float(a.data))
 
 
 # Luminance
-fn luminance(a: Vec3f) -> Float32:
+def luminance(a: Vec3f) -> Float32:
     return dot(REC709_LUM, a)
 
 
 # sRGB Non-Linear Curve
-fn srgb_to_rgb[
+def srgb_to_rgb[
     dtype: DType, size: Int
 ](srgb: SIMD[dtype, size]) -> SIMD[dtype, size]:
     mask = srgb.le(0.04045)
@@ -49,7 +49,7 @@ fn srgb_to_rgb[
     return mask.select(true_case, false_case)
 
 
-fn rgb_to_srgb[
+def rgb_to_srgb[
     dtype: DType, size: Int
 ](rgb: SIMD[dtype, size]) -> SIMD[dtype, size]:
     mask = rgb.le(0.0031308)
@@ -58,13 +58,13 @@ fn rgb_to_srgb[
     return mask.select(true_case, false_case)
 
 
-fn srgb_to_rgb[
+def srgb_to_rgb[
     type: DType, size: Int
 ](srgb: Vector[dtype, size]) -> Vector[dtype, size]:
     return Vector[dtype, size](srgb_to_rgb(srgb.data))
 
 
-fn rgb_to_srgb[
+def rgb_to_srgb[
     dtype: DType, size: Int
 ](rgb: Vector[dtype, size]) -> Vector[dtype, size]:
     return Vector[dtype, size](rgb_to_srgb(rgb.data))
@@ -77,22 +77,22 @@ fn rgb_to_srgb[
 # // Conversion between number of channels.
 # inline vec4f rgb_to_rgba(vec3f rgb);
 # inline vec3f rgba_to_rgb(vec4f rgba);
-fn rgba_to_rgb(rgba: Vec4f) -> Vec3f:
+def rgba_to_rgb(rgba: Vec4f) -> Vec3f:
     return rgba.xyz()
 
 
 # Apply contrast. Grey should be 0.18 for linear and 0.5 for gamma.
-fn lincontrast(rgb: Vec3f, contrast: Float32, grey: Float32) -> Vec3f:
+def lincontrast(rgb: Vec3f, contrast: Float32, grey: Float32) -> Vec3f:
     return Vector.max(Vec3f(0), grey + (rgb - grey) * (contrast * 2.0))
 
 
 # inline vec4f logcontrast(vec4f rgb, float contrast, float grey) {
-fn lincontrast(rgb: Vec4f, contrast: Float32, grey: Float32) -> Vec4f:
+def lincontrast(rgb: Vec4f, contrast: Float32, grey: Float32) -> Vec4f:
     tmp = logcontrast(rgb.xyz(), contrast, grey)
     return Vec4f(tmp.x(), tmp.y(), tmp.z(), rgb.w())
 
 
-fn logcontrast(rgb: Vec3f, log_contrast: Float32, grey: Float32) -> Vec3f:
+def logcontrast(rgb: Vec3f, log_contrast: Float32, grey: Float32) -> Vec3f:
     comptime epsilon = 0.0001
     log_grey = log2(grey)
     log_ldr = log2(rgb.data + epsilon)
@@ -100,7 +100,7 @@ fn logcontrast(rgb: Vec3f, log_contrast: Float32, grey: Float32) -> Vec3f:
     return Vector.max(Vec3f(0), Vec3f(exp2(adjusted)) - epsilon)
 
 
-fn gain(v: Vec3f, g: Float32) -> Vec3f:
+def gain(v: Vec3f, g: Float32) -> Vec3f:
     # Typical Bias/Gain function used in graphics
     res = Vec3f(0)
     for i in range(3):
@@ -112,12 +112,12 @@ fn gain(v: Vec3f, g: Float32) -> Vec3f:
     return res
 
 
-fn contrast(rgb: Vec3f, contrast_val: Float32) -> Vec3f:
+def contrast(rgb: Vec3f, contrast_val: Float32) -> Vec3f:
     return gain(rgb, 1.0 - contrast_val)
 
 
 # Saturation
-fn saturate(
+def saturate(
     rgb: Vec3f, saturation: Float32, weights: Vec3f = Vec3f(Float32(0.333333))
 ) -> Vec3f:
     grey = dot(weights, rgb)
@@ -127,14 +127,14 @@ fn saturate(
 # ----------------------------------------------------------------------
 # Tonemapping (Filmic ACES)
 # ----------------------------------------------------------------------
-fn tonemap_filmic(hdr: Vec3f) -> Vec3f:
+def tonemap_filmic(hdr: Vec3f) -> Vec3f:
     # Approx ACES Filmic Tone Mapping Curve
     x = hdr * 0.6
     ldr = (x * (x * 2.51 + 0.03)) / (x * (x * 2.43 + 0.59) + 0.14)
     return Vector.max(Vec3f(0), Vector.min(Vec3f(1), ldr))
 
 
-fn tonemap[
+def tonemap[
     filmic: Bool = False, srgb: Bool = True
 ](hdr: Vec3f, exposure: Float32) -> Vec3f:
     rgb = hdr
@@ -152,7 +152,7 @@ fn tonemap[
 # Color Spaces (HSV, XYZ)
 # ----------------------------------------------------------------------
 
-# fn hsv_to_rgb(hsv: Vec3f) -> Vec3f:
+# def hsv_to_rgb(hsv: Vec3f) -> Vec3f:
 #     h = hsv.x()
 #     s = hsv.y()
 #     v = hsv.z()
@@ -173,7 +173,7 @@ fn tonemap[
 #     return Vec3f(v, p, q)
 
 
-fn rgb_to_hsv(rgb: Vec3f) -> Vec3f:
+def rgb_to_hsv(rgb: Vec3f) -> Vec3f:
     r = rgb.x()
     g = rgb.y()
     b = rgb.z()
@@ -191,7 +191,7 @@ fn rgb_to_hsv(rgb: Vec3f) -> Vec3f:
     )
 
 
-fn rgb_to_xyz(rgb: Vec3f) -> Vec3f:
+def rgb_to_xyz(rgb: Vec3f) -> Vec3f:
     comptime mat = Mat3f(
         Vec3f(0.4124, 0.2126, 0.0193),
         Vec3f(0.3576, 0.7152, 0.1192),
@@ -200,7 +200,7 @@ fn rgb_to_xyz(rgb: Vec3f) -> Vec3f:
     return mat * rgb
 
 
-fn xyz_to_rgb(xyz: Vec3f) -> Vec3f:
+def xyz_to_rgb(xyz: Vec3f) -> Vec3f:
     comptime mat = Mat3f(
         Vec3f(3.2406, -1.5372, -0.4986),
         Vec3f(-0.9689, 1.8758, 0.0415),
@@ -230,7 +230,7 @@ struct ColorgradeParams:
     var midtones_color: Vec3f
     var highlights_color: Vec3f
 
-    fn __init__(out self):
+    def __init__(out self):
         self.exposure = 0
         self.tint = Vec3f(1)
         self.lincontrast = 0.5
@@ -248,11 +248,11 @@ struct ColorgradeParams:
         self.highlights_color = Vec3f(1)
 
 
-fn mean(v: Vec3f) -> Float32:
+def mean(v: Vec3f) -> Float32:
     return (v.x() + v.y() + v.z()) / 3.0
 
 
-# fn colorgrade(rgb_in: Vec3f, is_linear: Bool, params: ColorgradeParams) -> Vec3f:
+# def colorgrade(rgb_in: Vec3f, is_linear: Bool, params: ColorgradeParams) -> Vec3f:
 #     rgb = rgb_in
 #     if params.exposure != 0: rgb = rgb * exp2(params.exposure)
 #     if params.tint != Vec3f(1): rgb = rgb * params.tint
@@ -310,7 +310,7 @@ struct ColormapType:
     comptime Inferno = 3
 
 
-fn colormap_viridis(t: Float32) -> Vec3f:
+def colormap_viridis(t: Float32) -> Vec3f:
     comptime c0 = Vec3f(0.277727, 0.005407, 0.334099)
     comptime c1 = Vec3f(0.105093, 1.404613, 1.384590)
     comptime c2 = Vec3f(-0.330861, 0.214847, 0.095095)
@@ -321,7 +321,7 @@ fn colormap_viridis(t: Float32) -> Vec3f:
     return c0 + t * (c1 + t * (c2 + t * (c3 + t * (c4 + t * (c5 + t * c6)))))
 
 
-fn colormap(t: Float32, map_type: Int = ColormapType.Viridis) -> Vec3f:
+def colormap(t: Float32, map_type: Int = ColormapType.Viridis) -> Vec3f:
     ct = max(min(t, 1.0), 0.0)
     if map_type == ColormapType.Viridis:
         return colormap_viridis(ct)
@@ -332,7 +332,7 @@ fn colormap(t: Float32, map_type: Int = ColormapType.Viridis) -> Vec3f:
 # ----------------------------------------------------------------------
 # Remaining Colormaps (Polynomial Fits)
 # ----------------------------------------------------------------------
-fn colormap_plasma(t: Float32) -> Vec3f:
+def colormap_plasma(t: Float32) -> Vec3f:
     comptime c0 = Vec3f(0.058732, 0.023336, 0.543340)
     comptime c1 = Vec3f(2.176514, 0.238383, 0.753960)
     comptime c2 = Vec3f(-2.68946, -7.45585, 3.110799)
@@ -343,7 +343,7 @@ fn colormap_plasma(t: Float32) -> Vec3f:
     return c0 + t * (c1 + t * (c2 + t * (c3 + t * (c4 + t * (c5 + t * c6)))))
 
 
-fn colormap_magma(t: Float32) -> Vec3f:
+def colormap_magma(t: Float32) -> Vec3f:
     comptime c0 = Vec3f(-0.002136, -0.000749, -0.005386)
     comptime c1 = Vec3f(0.251660, 0.677523, 2.494026)
     comptime c2 = Vec3f(8.353717, -3.57771, 0.314467)
@@ -354,7 +354,7 @@ fn colormap_magma(t: Float32) -> Vec3f:
     return c0 + t * (c1 + t * (c2 + t * (c3 + t * (c4 + t * (c5 + t * c6)))))
 
 
-fn colormap_inferno(t: Float32) -> Vec3f:
+def colormap_inferno(t: Float32) -> Vec3f:
     comptime c0 = Vec3f(0.000218, 0.001651, -0.019480)
     comptime c1 = Vec3f(0.106513, 0.563956, 3.932712)
     comptime c2 = Vec3f(11.60249, -3.97285, -15.9423)
@@ -370,7 +370,7 @@ fn colormap_inferno(t: Float32) -> Vec3f:
 # ----------------------------------------------------------------------
 
 
-fn composite(a: Vec4f, b: Vec4f) -> Vec4f:
+def composite(a: Vec4f, b: Vec4f) -> Vec4f:
     if a.w() == 0 and b.w() == 0:
         return Vec4f(0, 0, 0, 0)
     cc = a.xyz() * a.w() + b.xyz() * b.w() * (1.0 - a.w())
@@ -378,14 +378,14 @@ fn composite(a: Vec4f, b: Vec4f) -> Vec4f:
     return Vec4f(cc.x() / ca, cc.y() / ca, cc.z() / ca, ca)
 
 
-fn xyz_to_xyY(xyz: Vec3f) -> Vec3f:
+def xyz_to_xyY(xyz: Vec3f) -> Vec3f:
     den = xyz.x() + xyz.y() + xyz.z()
     if den == 0:
         return Vec3f(0)
     return Vec3f(xyz.x() / den, xyz.y() / den, xyz.y())
 
 
-fn xyY_to_xyz(xyY: Vec3f) -> Vec3f:
+def xyY_to_xyz(xyY: Vec3f) -> Vec3f:
     if xyY.y() == 0:
         return Vec3f(0)
     return Vec3f(
@@ -437,7 +437,7 @@ struct ColorSpaceParams:
 
 
 # Internal matrix helper (SMPTE RP 177-1993)
-fn _calculate_rgb_to_xyz(rc: Vec2f, gc: Vec2f, bc: Vec2f, wc: Vec2f) -> Mat3f:
+def _calculate_rgb_to_xyz(rc: Vec2f, gc: Vec2f, bc: Vec2f, wc: Vec2f) -> Mat3f:
     rgb = Mat3f(
         Vec3f(rc.x(), rc.y(), 1.0 - rc.x() - rc.y()),
         Vec3f(gc.x(), gc.y(), 1.0 - gc.x() - gc.y()),
@@ -463,25 +463,25 @@ fn _calculate_rgb_to_xyz(rc: Vec2f, gc: Vec2f, bc: Vec2f, wc: Vec2f) -> Mat3f:
 # ----------------------------------------------------------------------
 # HDR Transfer Functions (OETF / EOTF)
 # ----------------------------------------------------------------------
-fn pq_linear_to_display(x: Float32) -> Float32:
+def pq_linear_to_display(x: Float32) -> Float32:
     lp = pow(x, 0.1593017578125)
     return pow((0.8359375 + 18.8515625 * lp) / (1.0 + 18.6875 * lp), 78.84375)
 
 
-fn pq_display_to_linear(x: Float32) -> Float32:
+def pq_display_to_linear(x: Float32) -> Float32:
     np = pow(x, 1.0 / 78.84375)
     l = max(np - 0.8359375, 0.0)
     l = l / (18.8515625 - 18.6875 * np)
     return pow(l, 1.0 / 0.1593017578125)
 
 
-fn hlg_linear_to_display(x: Float32) -> Float32:
+def hlg_linear_to_display(x: Float32) -> Float32:
     if x < 1.0 / 12.0:
         return sqrt(3.0 * x)
     return 0.17883277 * log(12.0 * x - 0.28466892) + 0.55991073
 
 
-fn hlg_display_to_linear(x: Float32) -> Float32:
+def hlg_display_to_linear(x: Float32) -> Float32:
     if x < 0.5:
         return (x * x) / 3.0  # Simplified from 3*3*x*x/12 (3x^2)
     return (exp((x - 0.55991073) / 0.17883277) + 0.28466892) / 12.0
@@ -490,7 +490,7 @@ fn hlg_display_to_linear(x: Float32) -> Float32:
 # ----------------------------------------------------------------------
 # Color Space Parameter Factory
 # ----------------------------------------------------------------------
-fn get_color_space_params(space: Int) -> ColorSpaceParams:
+def get_color_space_params(space: Int) -> ColorSpaceParams:
     # Defaults (sRGB Primaries)
     rc = Vec2f(0.64, 0.33)
     gc = Vec2f(0.30, 0.60)
@@ -534,7 +534,7 @@ fn get_color_space_params(space: Int) -> ColorSpaceParams:
 # ----------------------------------------------------------------------
 
 
-fn color_to_xyz(col: Vec3f, from_space: Int) -> Vec3f:
+def color_to_xyz(col: Vec3f, from_space: Int) -> Vec3f:
     params = get_color_space_params(from_space)
     rgb = col
 
@@ -558,7 +558,7 @@ fn color_to_xyz(col: Vec3f, from_space: Int) -> Vec3f:
     return params.rgb_to_xyz_mat * rgb
 
 
-fn convert_color(col: Vec3f, from_space: Int, to_space: Int) -> Vec3f:
+def convert_color(col: Vec3f, from_space: Int, to_space: Int) -> Vec3f:
     if from_space == to_space:
         return col
     xyz = color_to_xyz(col, from_space)

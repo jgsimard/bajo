@@ -24,19 +24,19 @@ struct Mat[
 
     var data: Self.TD
 
-    fn __init__(out self, s: Scalar[Self.dtype]):
+    def __init__(out self, s: Scalar[Self.dtype]):
         self.data = Self.TD(fill=Self.V(s))
 
-    fn __init__(out self, uninitialized: Bool):
+    def __init__(out self, uninitialized: Bool):
         self.data = Self.TD(uninitialized=uninitialized)
 
-    fn __init__(out self, var *elems: Self.V):
+    def __init__(out self, var *elems: Self.V):
         debug_assert["safe"](
             len(elems) == Self.rows, "No. of elems must match array size"
         )
         self.data = Self.TD(storage=elems^)
 
-    fn __init__(out self, *elems: Scalar[Self.dtype]):
+    def __init__(out self, *elems: Scalar[Self.dtype]):
         debug_assert["safe"](
             len(elems) == Self.rows * Self.cols,
             (
@@ -55,7 +55,7 @@ struct Mat[
             self.data[i] = row_vec^
 
     @staticmethod
-    fn from_cols(*columns: Vec[Self.dtype, Self.rows]) -> Self:
+    def from_cols(*columns: Vec[Self.dtype, Self.rows]) -> Self:
         debug_assert["safe"](
             len(columns) == Self.cols,
             "Number of columns must match matrix size",
@@ -67,7 +67,7 @@ struct Mat[
         return m^
 
     @staticmethod
-    fn from_rotation_scale[
+    def from_rotation_scale[
         _dtype: DType where _dtype.is_floating_point()
     ](r: Quaternion[_dtype], s: Vec3[_dtype]) -> Mat33[_dtype]:
         # TODO: make this general for Matt33 and Mat44 like Quaternion.from_matrix
@@ -94,79 +94,79 @@ struct Mat[
         # fmt:on
 
     @staticmethod
-    fn identity() -> Self:
+    def identity() -> Self:
         res = Self(Scalar[Self.dtype](0))
         comptime for i in range(min(Self.rows, Self.cols)):
             res[i][i] = 1
         return res^
 
     @always_inline
-    fn __getitem__(
+    def __getitem__(
         ref self, i: Int
     ) -> ref[self.data] Vec[Self.dtype, Self.cols]:
         return self.data[i]
 
     # arithmetic
-    fn __neg__(self) -> Self:
+    def __neg__(self) -> Self:
         res = Self(uninitialized=True)
         comptime for i in range(Self.rows):
             res[i] = -self[i]
         return res^
 
-    fn __add__(self, other: Self) -> Self:
+    def __add__(self, other: Self) -> Self:
         res = Self(uninitialized=True)
         comptime for i in range(Self.rows):
             res[i] = self[i] + other[i]
         return res^
 
-    fn __sub__(self, other: Self) -> Self:
+    def __sub__(self, other: Self) -> Self:
         res = Self(uninitialized=True)
         comptime for i in range(Self.rows):
             res[i] = self[i] - other[i]
         return res^
 
     # scalar
-    fn __mul__(self, s: Scalar[Self.dtype]) -> Self:
+    def __mul__(self, s: Scalar[Self.dtype]) -> Self:
         res = Self(uninitialized=True)
         comptime for i in range(Self.rows):
             res[i] = self[i] * s
         return res^
 
-    fn __imul__(mut self, s: Scalar[Self.dtype]):
+    def __imul__(mut self, s: Scalar[Self.dtype]):
         comptime for i in range(Self.rows):
             self.data[i] = self.data[i] * s
 
-    # fn __rmul__(self, s: Scalar[Self.dtype]) -> Self:
+    # def __rmul__(self, s: Scalar[Self.dtype]) -> Self:
     #     return self * s
 
-    fn __truediv__(self, s: Scalar[Self.dtype]) -> Self:
+    def __truediv__(self, s: Scalar[Self.dtype]) -> Self:
         res = Self(uninitialized=True)
         comptime for i in range(Self.rows):
             res[i] = self[i] / s
         return res^
 
     # linear algebra
-    fn transpose(self) -> Mat[Self.dtype, Self.cols, Self.rows]:
+    def transpose(self) -> Mat[Self.dtype, Self.cols, Self.rows]:
         res = Mat[Self.dtype, Self.cols, Self.rows](uninitialized=True)
         comptime for i in range(Self.rows):
             comptime for j in range(Self.cols):
                 res[j][i] = self[i][j]
         return res^
 
-    fn trace(self) -> Scalar[Self.dtype]:
+    def trace(self) -> Scalar[Self.dtype]:
         res: Scalar[Self.dtype] = 0
         comptime for i in range(min(Self.rows, Self.cols)):
             res += self[i][i]
         return res
 
-    fn get_diag(self) -> Vec[Self.dtype, Self.msize]:
+    def get_diag(self) -> Vec[Self.dtype, Self.msize]:
         res = Vec[Self.dtype, Self.msize](uninitialized=True)
         comptime for i in range(Self.msize):
             res[i] = self[i][i]
         return res^
 
     @staticmethod
-    fn diag(v: Vec[Self.dtype, Self.rows]) -> Self:
+    def diag(v: Vec[Self.dtype, Self.rows]) -> Self:
         """Create a square diagonal matrix from a vector."""
         comptime assert Self.rows == Self.cols, "diag() requires square matrix"
         res = Self(Scalar[Self.dtype](0))
@@ -174,20 +174,20 @@ struct Mat[
             res[i][i] = v[i]
         return res^
 
-    fn __mul__(self, other: Self) -> Self:
+    def __mul__(self, other: Self) -> Self:
         res = Self(uninitialized=True)
         comptime for i in range(Self.rows):
             res[i] = self[i] * other[i]
         return res^
 
-    fn __div__(self, other: Self) -> Self:
+    def __div__(self, other: Self) -> Self:
         res = Self(uninitialized=True)
         comptime for i in range(Self.rows):
             res[i] = self[i] / other[i]
         return res^
 
     # Contracting Products
-    fn ddot(self, other: Self) -> Scalar[Self.dtype]:
+    def ddot(self, other: Self) -> Scalar[Self.dtype]:
         """Double dot product (sum of all element-wise products)."""
         res: Scalar[Self.dtype] = 0
         comptime for i in range(Self.rows):
@@ -195,19 +195,19 @@ struct Mat[
         return res
 
     # --- In-place Arithmetic (Missing Overloads) ---
-    fn __iadd__(mut self, s: Scalar[Self.dtype]):
+    def __iadd__(mut self, s: Scalar[Self.dtype]):
         comptime for i in range(Self.rows):
             self[i] += s
 
-    fn __isub__(mut self, s: Scalar[Self.dtype]):
+    def __isub__(mut self, s: Scalar[Self.dtype]):
         comptime for i in range(Self.rows):
             self[i] -= s
 
-    # fn __itruediv__(mut self, s: Scalar[Self.dtype]):
+    # def __itruediv__(mut self, s: Scalar[Self.dtype]):
     #     comptime for i in range(Self.rows): self[i] /= s
 
     # Bitwise Unary
-    fn __invert__(self) -> Self:
+    def __invert__(self) -> Self:
         """Bitwise NOT (~)."""
         res = Self(uninitialized=True)
         comptime for i in range(Self.rows):
@@ -215,98 +215,98 @@ struct Mat[
         return res^
 
     # --- Bitwise AND (&) ---
-    fn __and__(self, other: Self) -> Self:
+    def __and__(self, other: Self) -> Self:
         res = Self(uninitialized=True)
         comptime for i in range(Self.rows):
             res[i] = self[i] & other[i]
         return res^
 
-    fn __and__(self, s: Scalar[Self.dtype]) -> Self:
+    def __and__(self, s: Scalar[Self.dtype]) -> Self:
         res = Self(uninitialized=True)
         comptime for i in range(Self.rows):
             res[i] = self[i] & s
         return res^
 
-    # fn __iand__(mut self, other: Self):
+    # def __iand__(mut self, other: Self):
     #     comptime for i in range(Self.rows):
     #         self[i] &= other[i]
 
-    fn __or__(self, other: Self) -> Self:
+    def __or__(self, other: Self) -> Self:
         res = Self(uninitialized=True)
         comptime for i in range(Self.rows):
             res[i] = self[i] | other[i]
         return res^
 
-    fn __or__(self, s: Scalar[Self.dtype]) -> Self:
+    def __or__(self, s: Scalar[Self.dtype]) -> Self:
         res = Self(uninitialized=True)
         comptime for i in range(Self.rows):
             res[i] = self[i] | s
         return res^
 
-    # fn __ior__(mut self, other: Self):
+    # def __ior__(mut self, other: Self):
     #     comptime for i in range(Self.rows):
     #         self[i] |= other[i]
 
     # --- Bitwise XOR (^) ---
-    fn __xor__(self, other: Self) -> Self:
+    def __xor__(self, other: Self) -> Self:
         res = Self(uninitialized=True)
         comptime for i in range(Self.rows):
             res[i] = self[i] ^ other[i]
         return res^
 
-    fn __xor__(self, s: Scalar[Self.dtype]) -> Self:
+    def __xor__(self, s: Scalar[Self.dtype]) -> Self:
         res = Self(uninitialized=True)
         comptime for i in range(Self.rows):
             res[i] = self[i] ^ s
         return res^
 
-    # fn __ixor__(mut self, other: Self):
+    # def __ixor__(mut self, other: Self):
     #     comptime for i in range(Self.rows):
     #         self[i] ^= other[i]
 
-    fn __lshift__(self, other: Self) -> Self:
+    def __lshift__(self, other: Self) -> Self:
         res = Self(uninitialized=True)
         comptime for i in range(Self.rows):
             res[i] = self[i] << other[i]
         return res^
 
-    fn __lshift__(self, s: Scalar[Self.dtype]) -> Self:
+    def __lshift__(self, s: Scalar[Self.dtype]) -> Self:
         res = Self(uninitialized=True)
         comptime for i in range(Self.rows):
             res[i] = self[i] << s
         return res^
 
-    fn __rshift__(self, other: Self) -> Self:
+    def __rshift__(self, other: Self) -> Self:
         res = Self(uninitialized=True)
         comptime for i in range(Self.rows):
             res[i] = self[i] >> other[i]
         return res^
 
-    fn __rshift__(self, s: Scalar[Self.dtype]) -> Self:
+    def __rshift__(self, s: Scalar[Self.dtype]) -> Self:
         res = Self(uninitialized=True)
         comptime for i in range(Self.rows):
             res[i] = self[i] >> s
         return res^
 
-    fn __round__(self) -> Self:
+    def __round__(self) -> Self:
         res = Self(uninitialized=True)
         comptime for i in range(Self.rows):
             res[i] = round(self[i])
         return res^
 
-    fn __round__(self, ndigits: Int) -> Self:
+    def __round__(self, ndigits: Int) -> Self:
         res = Self(uninitialized=True)
         comptime for i in range(Self.rows):
             res[i] = round(self[i], ndigits)
         return res^
 
-    fn __eq__(self, other: Self) -> Bool:
+    def __eq__(self, other: Self) -> Bool:
         eq = True
         comptime for i in range(Self.rows):
             eq &= self[i] == other[i]
         return eq
 
-    fn __str__(self) -> String:
+    def __str__(self) -> String:
         col_widths = InlineArray[Int, Self.cols](fill=0)
 
         for i in range(Self.rows):
@@ -339,11 +339,11 @@ struct Mat[
         res += "]"
         return res
 
-    fn write_to(self, mut writer: Some[Writer]):
+    def write_to(self, mut writer: Some[Writer]):
         writer.write(String(self))
 
 
-fn outer[
+def outer[
     dtype: DType, rows: Int where rows >= 1, cols: Int where cols >= 1
 ](a: Vec[dtype, rows], b: Vec[dtype, cols]) -> Mat[dtype, rows, cols]:
     res = Mat[dtype, rows, cols](uninitialized=True)
@@ -353,7 +353,7 @@ fn outer[
     return res^
 
 
-fn skew[dtype: DType](a: Vec[dtype, 3]) -> Mat33[dtype]:
+def skew[dtype: DType](a: Vec[dtype, 3]) -> Mat33[dtype]:
     # fmt: off
     return Mat33[dtype](
         0, -a[2], a[1],
@@ -369,7 +369,7 @@ fn skew[dtype: DType](a: Vec[dtype, 3]) -> Mat33[dtype]:
 ##############
 # matmul
 ##############
-fn _matmul[
+def _matmul[
     dtype: DType,
     a_rows: Int where a_rows >= 1,
     a_cols: Int where a_cols >= 1,
@@ -388,7 +388,7 @@ fn _matmul[
     return res^
 
 
-fn _matvec[
+def _matvec[
     dtype: DType,
     rows: Int where rows >= 1,
     cols: Int where cols >= 1,
@@ -403,15 +403,15 @@ fn _matvec[
 ##############
 # determinant
 ##############
-fn determinant[dtype: DType](m: Mat22[dtype]) -> Scalar[dtype]:
+def determinant[dtype: DType](m: Mat22[dtype]) -> Scalar[dtype]:
     return m[0][0] * m[1][1] - m[0][1] * m[1][0]
 
 
-fn determinant[dtype: DType](m: Mat33[dtype]) -> Scalar[dtype]:
+def determinant[dtype: DType](m: Mat33[dtype]) -> Scalar[dtype]:
     return dot(m[0], cross(m[1], m[2]))
 
 
-fn determinant[dtype: DType](m: Mat44[dtype]) -> Scalar[dtype]:
+def determinant[dtype: DType](m: Mat44[dtype]) -> Scalar[dtype]:
     """Adapted from USD - see licenses/usd-LICENSE.txt Copyright 2016 Pixar."""
     # Pickle 1st two columns of matrix into registers
     x00 = m[0][0]
@@ -454,7 +454,7 @@ fn determinant[dtype: DType](m: Mat44[dtype]) -> Scalar[dtype]:
 ##############
 # inverse
 ##############
-fn inverse[dtype: DType](m: Mat22[dtype]) raises -> Mat22[dtype]:
+def inverse[dtype: DType](m: Mat22[dtype]) raises -> Mat22[dtype]:
     comptime EPSILON = 1e-8
     det = determinant(m)
     if abs(det) < EPSILON:
@@ -468,7 +468,7 @@ fn inverse[dtype: DType](m: Mat22[dtype]) raises -> Mat22[dtype]:
     return out^
 
 
-fn inverse[dtype: DType](m: Mat33[dtype]) raises -> Mat33[dtype]:
+def inverse[dtype: DType](m: Mat33[dtype]) raises -> Mat33[dtype]:
     comptime EPSILON = 1e-8
     det = determinant(m)
     if abs(det) < EPSILON:
@@ -490,7 +490,7 @@ fn inverse[dtype: DType](m: Mat33[dtype]) raises -> Mat33[dtype]:
     return out^
 
 
-fn inverse[dtype: DType](m: Mat44[dtype]) raises -> Mat44[dtype]:
+def inverse[dtype: DType](m: Mat44[dtype]) raises -> Mat44[dtype]:
     """Adapted from USD - see licenses/usd-LICENSE.txt Copyright 2016 Pixar."""
 
     comptime EPSILON = 1e-8
@@ -585,19 +585,19 @@ fn inverse[dtype: DType](m: Mat44[dtype]) raises -> Mat44[dtype]:
 ##############
 # transform
 ##############
-fn transform_point[
+def transform_point[
     dtype: DType
 ](m: Mat44[dtype], v: Vec3[dtype]) -> Vec3[dtype]:
     v4 = Vec4[dtype](v.x(), v.y(), v.z(), 1)
     return _matvec(m, v4).xyz()
 
 
-fn transform_vector[
+def transform_vector[
     dtype: DType
 ](m: Mat44[dtype], v: Vec3[dtype]) -> Vec3[dtype]:
     v4 = Vec4[dtype](v.x(), v.y(), v.z(), 0)
     return _matvec(m, v4).xyz()
 
 
-fn main() raises:
+def main() raises:
     print("core.mat")

@@ -14,7 +14,7 @@ struct QuadraticSolutions[dtype: DType, size: Int](
     var mask: SIMD[DType.bool, Self.size]
 
 
-fn solve_quadratic[
+def solve_quadratic[
     dtype: DType, size: Int
 ](
     a: SIMD[dtype, size], b: SIMD[dtype, size], c: SIMD[dtype, size]
@@ -46,7 +46,7 @@ fn solve_quadratic[
     return QuadraticSolutions(t0, t1, mask)
 
 
-fn solve_quadratic[
+def solve_quadratic[
     dtype: DType, size: Int
 ](b: SIMD[dtype, size], c: SIMD[dtype, size]) -> QuadraticSolutions[
     dtype, size
@@ -77,7 +77,7 @@ fn solve_quadratic[
     return QuadraticSolutions(t0, t1, mask)
 
 
-fn smoothstep[
+def smoothstep[
     dtype: DType, size: Int
 ](a: SIMD[dtype, size], b: SIMD[dtype, size], x: SIMD[dtype, size]) -> SIMD[
     dtype, size
@@ -86,7 +86,7 @@ fn smoothstep[
     return y * y * (3 - 2 * y)
 
 
-fn smoothstep[
+def smoothstep[
     dtype: DType, size: Int
 ](a: Vec[dtype, size], b: Vec[dtype, size], x: Vec[dtype, size]) -> Vec[
     dtype, size
@@ -95,7 +95,7 @@ fn smoothstep[
     return y * y * (3 - 2 * y)
 
 
-fn print_size_of[type: AnyType]():
+def print_size_of[type: AnyType]():
     comptime name = get_type_name[type]()
     size_bytes = size_of[type]()
     size_32 = size_bytes / 4

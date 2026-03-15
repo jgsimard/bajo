@@ -92,7 +92,7 @@ def smoothstep[
     dtype, size
 ]:
     y = vclamp((x - a) / (b - a), 0, 1)
-    return y * y * (3 - 2 * y)
+    return y * y * (-2 * y + 3)
 
 
 def print_size_of[type: AnyType]():

@@ -101,6 +101,12 @@ struct Mat[
         return res^
 
     @always_inline
+    def __getitem_param__[
+        i: Int
+    ](ref self) -> ref[self.data] Vec[Self.dtype, Self.cols]:
+        return self.data[i]
+
+    @always_inline
     def __getitem__(
         ref self, i: Int
     ) -> ref[self.data] Vec[Self.dtype, Self.cols]:

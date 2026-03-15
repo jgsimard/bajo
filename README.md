@@ -18,7 +18,6 @@ bajo = low (... level) = batch mojo
 - Mojo community
 - [PufferLib](https://puffer.ai/) : super fast RL environement library
 - [tinybvh](https://github.com/jbikker/tinybvh/tree/main)
-- [H-PLOC: Hierarchical Parallel Locally-Ordered Clustering for
-Bounding Volume Hierarchy Construction] : Modern GPU BVH that is a single kernel call, almost SAH quality with build time 15% slower then LBVH
+- [H-PLOC: Hierarchical Parallel Locally-Ordered Clustering for Bounding Volume Hierarchy Construction](https://gpuopen.com/download/HPLOC.pdf) : Modern GPU BVH that is a single kernel call, almost SAH quality with build time 15% slower then LBVH
 - [HIPRT](https://gpuopen.com/hiprt/): HIP RT is a ray tracing library for HIP
-
+ - [GPU Programming Primitives for Computer Graphics](https://gpu-primitives-course.github.io/)

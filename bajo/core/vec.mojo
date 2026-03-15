@@ -137,12 +137,12 @@ struct Vec[dtype: DType, size: Int](Copyable, Equatable, Roundable, Writable):
 
     # accessors
     @always_inline
-    def __getitem__[I: Indexer, //, idx: I](ref self) -> ref[self.data] Self.S:
+    def __getitem_param__[idx: Int](ref self) -> ref[self.data] Self.S:
         """With compile-time bounds checking."""
-        return self.data[materialize[idx]()]
+        return self.data[idx]
 
     @always_inline
-    def __getitem__[I: Indexer](ref self, idx: I) -> ref[self.data] Self.S:
+    def __getitem__(ref self, idx: Int) -> ref[self.data] Self.S:
         # return self.data[idx] # bounds checking
         return self.data.unsafe_get(idx)  # no bounds checking
 

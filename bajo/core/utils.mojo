@@ -100,3 +100,7 @@ def print_size_of[type: AnyType]():
     size_bytes = size_of[type]()
     size_32 = size_bytes / 4
     print(t"{name}: {size_bytes} bytes, {size_32} x 32 bits")
+
+
+def is_power_of_2(n: Int) -> Bool:
+    return n > 0 and (n & (n - 1)) == 0

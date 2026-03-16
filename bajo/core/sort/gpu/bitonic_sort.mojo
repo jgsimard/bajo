@@ -12,7 +12,7 @@ fn bitonic_sort_shared[
 ](
     keys: UnsafePointer[Scalar[dtype], MutAnyOrigin],
     values: UnsafePointer[Scalar[dtype], MutAnyOrigin],
-    k: Int,
+    k_merge: Int,
     size: Int,
 ):
     var tid = Int(thread_idx.x + block_idx.x * block_dim.x)
@@ -32,8 +32,9 @@ fn bitonic_sort_shared[
 
     barrier()
 
-    comptime if IS_MERGE_BLOCK:
-        var j = THREADS_PER_BLOCK >> 1
+    @always_inline
+    def _step(j_in: Int, k: Int) capturing:
+        j = j_in
         while j > 0:
             var ixj = local_tid ^ j
 
@@ -44,7 +45,7 @@ fn bitonic_sort_shared[
                     var key_a = shared_keys[local_tid]
                     var key_b = shared_keys[ixj]
 
-                    var swap = (key_a > key_b) if sort_dir else (key_a < key_b)
+                    swap = (key_a > key_b) if sort_dir else (key_a < key_b)
                     if swap:
                         shared_keys[local_tid] = key_b
                         shared_keys[ixj] = key_a
@@ -56,37 +57,16 @@ fn bitonic_sort_shared[
 
             barrier()
             j >>= 1
+
+    comptime if IS_MERGE_BLOCK:
+        var j = THREADS_PER_BLOCK >> 1
+        _step(j, k_merge)
     else:
         # block bitonic sort
         var k = 2
         while k <= THREADS_PER_BLOCK:
             var j = k >> 1
-            while j > 0:
-                var ixj = local_tid ^ j
-
-                # Only 1 thread processes both elements of the swap pair
-                if local_tid < ixj:
-                    var global_ixj = tid ^ j
-                    if global_ixj < size:
-                        var sort_dir = (tid & k) == 0
-                        var key_a = shared_keys[local_tid]
-                        var key_b = shared_keys[ixj]
-
-                        var swap = (key_a > key_b) if sort_dir else (
-                            key_a < key_b
-                        )
-
-                        if swap:
-                            shared_keys[local_tid] = key_b
-                            shared_keys[ixj] = key_a
-
-                            var val_a = shared_values[local_tid]
-                            var val_b = shared_values[ixj]
-                            shared_values[local_tid] = val_b
-                            shared_values[ixj] = val_a
-
-                barrier()  # Sync threads before the next internal 'j' step
-                j >>= 1
+            _step(j, k)
             k <<= 1
 
     # write back to global memory

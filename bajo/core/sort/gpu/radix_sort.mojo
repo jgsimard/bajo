@@ -1,81 +1,10 @@
-from std.gpu import thread_idx, block_idx, block_dim
+from std.gpu import thread_idx, block_idx, block_dim, barrier
 from std.gpu.host import DeviceContext, DeviceBuffer, HostBuffer
+from std.gpu.memory import AddressSpace
+from std.memory import stack_allocation
 from std.sys.info import bit_width_of
 
 from bajo.core.utils import is_power_of_2
-
-
-# bitonic sort
-def bitonic_sort_step[
-    dtype: DType
-](
-    keys: UnsafePointer[Scalar[dtype], MutAnyOrigin],
-    values: UnsafePointer[Scalar[dtype], MutAnyOrigin],
-    j: Int,
-    k: Int,
-    size: Int,
-):
-    """
-    Executes a single step of the Bitonic sort network.
-    """
-    var tid = Int(thread_idx.x + block_idx.x * block_dim.x)
-
-    if tid < size:
-        var ixj = tid ^ j
-
-        if tid < ixj:
-            var sort_dir = (tid & k) == 0
-            var key_a = keys[tid]
-            var key_b = keys[ixj]
-
-            # If sort_dir is True we sort ascending, else descending
-            if (sort_dir and key_a > key_b) or (not sort_dir and key_a < key_b):
-                # Swap Keys
-                keys[tid] = key_b
-                keys[ixj] = key_a
-
-                # Swap Values
-                var val_a = values[tid]
-                var val_b = values[ixj]
-                values[tid] = val_b
-                values[ixj] = val_a
-
-
-def bitonic_sort[
-    dtype: DType, //, THREADS_PER_BLOCK: Int = 256
-](
-    ctx: DeviceContext,
-    keys: DeviceBuffer[dtype],
-    values: DeviceBuffer[dtype],
-    size: Int,
-) raises:
-    """
-    Sorts keys and values in-place on the GPU using Bitonic Sort.
-    """
-
-    debug_assert["safe"](is_power_of_2(size))
-
-    var blocks = (size + THREADS_PER_BLOCK - 1) // THREADS_PER_BLOCK
-
-    var k = 2
-    while k <= size:
-        var j = k >> 1
-        while j > 0:
-            comptime kernel = bitonic_sort_step[dtype]
-            ctx.enqueue_function[kernel, kernel](
-                keys,
-                values,
-                j,
-                k,
-                size,
-                grid_dim=blocks,
-                block_dim=THREADS_PER_BLOCK,
-            )
-
-            ctx.synchronize()
-
-            j >>= 1
-        k <<= 1
 
 
 # radix sort

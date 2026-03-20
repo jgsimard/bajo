@@ -101,6 +101,12 @@ struct Mat[
         return res^
 
     @always_inline
+    def __getitem_param__[
+        i: Int
+    ](ref self) -> ref[self.data] Vec[Self.dtype, Self.cols]:
+        return self.data[i]
+
+    @always_inline
     def __getitem__(
         ref self, i: Int
     ) -> ref[self.data] Vec[Self.dtype, Self.cols]:
@@ -373,11 +379,11 @@ def _matmul[
     dtype: DType,
     a_rows: Int where a_rows >= 1,
     a_cols: Int where a_cols >= 1,
-    b_rows: Int where b_rows >= 1,
+    b_rows: Int where b_rows >= 1 and a_cols == b_rows,
     b_cols: Int where b_cols >= 1,
 ](a: Mat[dtype, a_rows, a_cols], b: Mat[dtype, b_rows, b_cols]) -> Mat[
     dtype, a_rows, b_cols
-] where (a_cols == b_rows):
+]:
     """Matrix-Matrix product."""
     bT = b.transpose()
     res = Mat[dtype, a_rows, b_cols](uninitialized=True)

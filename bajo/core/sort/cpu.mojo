@@ -1,5 +1,5 @@
-from math import min, max
-from memory import Span
+from std.math import min, max
+from std.memory import Span
 from std.builtin.sort import (
     _insertion_sort,
     _sort3,
@@ -7,8 +7,8 @@ from std.builtin.sort import (
     _heap_sort,
     _quicksort_partition_right,
 )
-from bit import count_leading_zeros
-from sys.info import bit_width_of
+from std.bit import count_leading_zeros
+from std.sys.info import bit_width_of
 
 # https://github.com/modular/modular/blob/main/mojo/stdlib/std/builtin/sort.mojo
 

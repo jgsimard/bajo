@@ -2,6 +2,8 @@ from std.math import sqrt, min, max, clamp
 from std.testing import assert_almost_equal
 from std.sys import CompilationTarget
 
+from bajo.core.utils import is_power_of_2
+
 comptime Vec2 = Vec[_, 2]
 comptime Vec3 = Vec[_, 3]
 comptime Vec4 = Vec[_, 4]
@@ -137,12 +139,12 @@ struct Vec[dtype: DType, size: Int](Copyable, Equatable, Roundable, Writable):
 
     # accessors
     @always_inline
-    def __getitem__[I: Indexer, //, idx: I](ref self) -> ref[self.data] Self.S:
+    def __getitem_param__[idx: Int](ref self) -> ref[self.data] Self.S:
         """With compile-time bounds checking."""
-        return self.data[materialize[idx]()]
+        return self.data[idx]
 
     @always_inline
-    def __getitem__[I: Indexer](ref self, idx: I) -> ref[self.data] Self.S:
+    def __getitem__(ref self, idx: Int) -> ref[self.data] Self.S:
         # return self.data[idx] # bounds checking
         return self.data.unsafe_get(idx)  # no bounds checking
 
@@ -296,10 +298,6 @@ def _vs[
     comptime for i in range(size):
         out[i] = func(v[i], s[i])
     return out^
-
-
-def is_power_of_2(n: Int) -> Bool:
-    return n > 0 and (n & (n - 1)) == 0
 
 
 def dot[

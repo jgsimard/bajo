@@ -1,14 +1,15 @@
-from algorithm import parallelize
-from math import sqrt, tan, pi, clamp, cos
-from random import random_float64, random_si64
+from std.algorithm import parallelize
+from std.math import sqrt, tan, pi, clamp, cos
+from std.os import abort
+from std.random import random_float64, random_si64
+from std.sys.info import size_of
 from std.utils.numerics import max_finite, min_finite
-from utils import Variant
-from os import abort
-from sys.info import size_of
+from std.utils import Variant
 
 # from bajo.core.vec_simd import (
 from bajo.core.vec import (
     Vec2f32,
+    Vec3,
     Vec3f32,
     length,
     length2,
@@ -61,7 +62,6 @@ fn colorize(color: Color) -> Color:
 
 fn write_color(mut f: FileHandle, color: Color):
     var out_color = colorize(color)
-    # print("input color", color)
     ir = Int(out_color.x())
     ig = Int(out_color.y())
     ib = Int(out_color.z())
@@ -116,7 +116,7 @@ struct HitRecord(Copyable):
         self.normal = normal * Float32(1.0 if self.front_face else -1.0)
 
 
-trait Texture:
+trait Texture(Movable):
     fn value(self, u: Float32, v: Float32, p: Point3) -> Color:
         ...
 
@@ -363,7 +363,7 @@ struct BVH(Hittable):
                 if hit_res:
                     ref rec = hit_res.value()
                     closest_so_far = rec.t
-                    hit_anything = hit_res
+                    hit_anything = hit_res^
 
             # internal node = check children
             else:
@@ -373,7 +373,7 @@ struct BVH(Hittable):
                 node_stack[stack_ptr] = node.left_idx
                 stack_ptr += 1
 
-        return hit_anything
+        return hit_anything^
 
     fn _build(mut self, start: Int, end: Int) -> Int:
         var span_len = end - start
@@ -632,11 +632,15 @@ struct Camera(Copyable):
         )
 
 
-fn reflect(v: Vec3f32, n: Vec3f32) -> Vec3f32:
+fn reflect[dtype: DType](v: Vec3[dtype], n: Vec3[dtype]) -> Vec3[dtype]:
     return v - 2.0 * dot(v, n) * n
 
 
-fn refract(uv: Vec3f32, n: Vec3f32, etai_over_etat: Float32) -> Vec3f32:
+fn refract[
+    dtype: DType
+](uv: Vec3[dtype], n: Vec3[dtype], etai_over_etat: Scalar[dtype]) -> Vec3[
+    dtype
+]:
     var cos_theta = min(dot(-uv, n), 1.0)
     var r_out_perp = etai_over_etat * (uv + cos_theta * n)
     var r_out_parallel = -sqrt(abs(1.0 - length2(r_out_perp))) * n
@@ -719,7 +723,9 @@ struct Dielectric(Material, Writable):
         return (scattered^, attenuation.copy())
 
 
-fn reflectance(cosine: Float32, ref_idx: Float32) -> Float32:
+fn reflectance[
+    dtype: DType, size: Int
+](cosine: SIMD[dtype, size], ref_idx: SIMD[dtype, size]) -> SIMD[dtype, size]:
     """Schlick's approximation for reflectance."""
     var r0 = pow(((1.0 - ref_idx) / (1.0 + ref_idx)), 2)
     return r0 + (1.0 - r0) * pow(1.0 - cosine, 5)

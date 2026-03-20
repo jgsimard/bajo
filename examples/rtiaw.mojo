@@ -9,6 +9,7 @@ from std.utils import Variant
 # from bajo.core.vec_simd import (
 from bajo.core.vec import (
     Vec2f32,
+    Vec3,
     Vec3f32,
     length,
     length2,
@@ -631,11 +632,15 @@ struct Camera(Copyable):
         )
 
 
-fn reflect(v: Vec3f32, n: Vec3f32) -> Vec3f32:
+fn reflect[dtype: DType](v: Vec3[dtype], n: Vec3[dtype]) -> Vec3[dtype]:
     return v - 2.0 * dot(v, n) * n
 
 
-fn refract(uv: Vec3f32, n: Vec3f32, etai_over_etat: Float32) -> Vec3f32:
+fn refract[
+    dtype: DType
+](uv: Vec3[dtype], n: Vec3[dtype], etai_over_etat: Scalar[dtype]) -> Vec3[
+    dtype
+]:
     var cos_theta = min(dot(-uv, n), 1.0)
     var r_out_perp = etai_over_etat * (uv + cos_theta * n)
     var r_out_parallel = -sqrt(abs(1.0 - length2(r_out_perp))) * n
@@ -718,7 +723,9 @@ struct Dielectric(Material, Writable):
         return (scattered^, attenuation.copy())
 
 
-fn reflectance(cosine: Float32, ref_idx: Float32) -> Float32:
+fn reflectance[
+    dtype: DType, size: Int
+](cosine: SIMD[dtype, size], ref_idx: SIMD[dtype, size]) -> SIMD[dtype, size]:
     """Schlick's approximation for reflectance."""
     var r0 = pow(((1.0 - ref_idx) / (1.0 + ref_idx)), 2)
     return r0 + (1.0 - r0) * pow(1.0 - cosine, 5)

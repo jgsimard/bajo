@@ -1,224 +1,470 @@
-from std.gpu import thread_idx, block_idx, block_dim, barrier
-from std.gpu.host import DeviceContext, DeviceBuffer, HostBuffer
+from std.bit import pop_count, count_trailing_zeros
+from std.gpu import (
+    global_idx,
+    thread_idx,
+    block_idx,
+    block_dim,
+    grid_dim,
+    barrier,
+)
+from std.gpu.host import DeviceContext, DeviceBuffer
 from std.gpu.memory import AddressSpace
-from std.memory import stack_allocation
-from std.sys.info import bit_width_of
+from std.gpu.primitives.block import prefix_sum as block_prefix_sum
+from std.gpu.primitives.warp import prefix_sum, vote, shuffle_idx, lane_id
+from std.math import ceildiv
+from std.memory import UnsafePointer
+from std.os.atomic import Atomic
+from std.sys.info import size_of
 
-from bajo.core.utils import is_power_of_2
+from layout import Layout, LayoutTensor
 
 
-# radix sort
-fn radix_predicate[
-    dtype: DType,
-    //,
-    NUM_BUCKETS: Int,
-    MASK: Scalar[dtype],
+@fieldwise_init
+struct DoubleBuffer[dtype: DType](Copyable):
+    var d_buffers_0: UnsafePointer[Scalar[Self.dtype], MutAnyOrigin]
+    var d_buffers_1: UnsafePointer[Scalar[Self.dtype], MutAnyOrigin]
+    var selector: Int
+
+    def __init__(
+        out self,
+        current: UnsafePointer[Scalar[Self.dtype], MutAnyOrigin],
+        alternate: UnsafePointer[Scalar[Self.dtype], MutAnyOrigin],
+    ):
+        self.d_buffers_0 = current
+        self.d_buffers_1 = alternate
+        self.selector = 0
+
+    def current(self) -> UnsafePointer[Scalar[Self.dtype], MutAnyOrigin]:
+        if self.selector == 0:
+            return self.d_buffers_0
+        return self.d_buffers_1
+
+    def alternate(self) -> UnsafePointer[Scalar[Self.dtype], MutAnyOrigin]:
+        if self.selector == 0:
+            return self.d_buffers_1
+        return self.d_buffers_0
+
+    def swap(mut self):
+        self.selector ^= 1
+
+
+# -------------------------------------------------------------------
+# PHASE 1: Histogram
+# -------------------------------------------------------------------
+def radix_sort_histogram_kernel[
+    dtype: DType, RADIX_BINS: Int
 ](
-    keys: UnsafePointer[Scalar[dtype], MutAnyOrigin],
-    digit_flags: UnsafePointer[Scalar[dtype], MutAnyOrigin],
-    scan_init: UnsafePointer[Scalar[dtype], MutAnyOrigin],
-    bit_shift: Int,
-    size: Int,
+    d_keys: UnsafePointer[Scalar[dtype], MutAnyOrigin],
+    d_block_histograms: UnsafePointer[UInt32, MutAnyOrigin],
+    num_items: Int,
+    shift: Scalar[dtype],
 ):
-    """
-    Extracts the digit using the comptime-derived MASK and number of buckets.
-    """
-    var tid = Int(thread_idx.x + block_idx.x * block_dim.x)
-    if tid < size:
-        var key = keys[tid]
-        var shift_val = Scalar[dtype](bit_shift)
-        var digit = Int((key >> shift_val) & MASK)
+    var tid = thread_idx.x
+    var bid = block_idx.x
+    var g_id = global_idx.x
 
-        for b in range(NUM_BUCKETS):
-            var is_match: Scalar[dtype] = 0
-            if b == digit:
-                is_match = 1
+    var s_hist = LayoutTensor[
+        DType.uint32,
+        Layout.row_major(RADIX_BINS),
+        MutAnyOrigin,
+        address_space=AddressSpace.SHARED,
+    ].stack_allocation()
 
-            var idx = b * size + tid
-            digit_flags[idx] = is_match
-            scan_init[idx] = is_match
+    if tid < UInt(RADIX_BINS):
+        s_hist[Int(tid)] = 0
+    barrier()
+
+    if g_id < UInt(num_items):
+        var key = d_keys[g_id]
+        var bin_idx = Int((key >> shift) & Scalar[dtype](0xFF))
+        _ = Atomic.fetch_add(s_hist.ptr + (bin_idx), 1)
+    barrier()
+
+    if tid < UInt(RADIX_BINS):
+        var global_offset = tid * grid_dim.x + bid
+        d_block_histograms[global_offset] = s_hist[Int(tid)][0]
 
 
-fn scan_step[
-    dtype: DType
+# -------------------------------------------------------------------
+# PHASE 2 : Parallel Block Scan
+# -------------------------------------------------------------------
+def scan_local_kernel[
+    BLOCK_SIZE: Int
 ](
-    data_in: UnsafePointer[Scalar[dtype], MutAnyOrigin],
-    data_out: UnsafePointer[Scalar[dtype], MutAnyOrigin],
-    offset: Int,
-    total_size: Int,
+    d_inout: UnsafePointer[UInt32, MutAnyOrigin],
+    d_partials: UnsafePointer[UInt32, MutAnyOrigin],
+    n: Int,
 ):
-    """
-    Global Hillis-Steele Inclusive Scan.
-    """
-    var tid = Int(thread_idx.x + block_idx.x * block_dim.x)
-    if tid < total_size:
-        if tid >= offset:
-            data_out[tid] = data_in[tid] + data_in[tid - offset]
-        else:
-            data_out[tid] = data_in[tid]
+    var tid = thread_idx.x
+    var bid = block_idx.x
+    var gid = bid * UInt(BLOCK_SIZE) + tid
+
+    var val: UInt32 = 0
+    if gid < UInt(n):
+        val = d_inout[gid]
+
+    # Block-level scan
+    var excl_val = block_prefix_sum[block_size=BLOCK_SIZE, exclusive=True](val)
+
+    if gid < UInt(n):
+        d_inout[gid] = excl_val
+
+    # Save total sum (last excl + last val) to partials
+    if tid == UInt(BLOCK_SIZE - 1):
+        d_partials[Int(bid)] = excl_val + val
 
 
-fn radix_scatter[
-    dtype: DType, //, MASK: Scalar[dtype]
+def scan_partials_kernel[
+    BLOCK_SIZE: Int
+](d_partials: UnsafePointer[UInt32, MutAnyOrigin], num_partials: Int):
+    if thread_idx.x == 0:
+        var sum: UInt32 = 0
+        for i in range(num_partials):
+            var val = d_partials[i]
+            d_partials[i] = sum
+            sum += val
+
+
+def scan_add_kernel[
+    BLOCK_SIZE: Int
+](
+    d_inout: UnsafePointer[UInt32, MutAnyOrigin],
+    d_partials: UnsafePointer[UInt32, MutAnyOrigin],
+    n: Int,
+):
+    var gid = global_idx.x
+    var bid = block_idx.x
+    if gid < UInt(n):
+        # Add the offset belonging to this block
+        d_inout[Int(gid)] += d_partials[Int(bid)]
+
+
+# -------------------------------------------------------------------
+# PHASE 3: Scatter
+# -------------------------------------------------------------------
+def radix_sort_scatter_keys_kernel[
+    RADIX_BINS: Int
+](
+    keys_in: UnsafePointer[UInt32, MutAnyOrigin],
+    keys_out: UnsafePointer[UInt32, MutAnyOrigin],
+    d_block_histograms: UnsafePointer[UInt32, MutAnyOrigin],
+    num_items: Int,
+    shift: UInt32,
+):
+    var tid = thread_idx.x
+    var bid = block_idx.x
+    var g_id = global_idx.x
+
+    var s_offsets = LayoutTensor[
+        DType.uint32,
+        Layout.row_major(RADIX_BINS),
+        MutAnyOrigin,
+        address_space=AddressSpace.SHARED,
+    ].stack_allocation()
+
+    if tid < UInt(RADIX_BINS):
+        var global_offset = tid * grid_dim.x + bid
+        s_offsets[Int(tid)] = d_block_histograms[global_offset]
+    barrier()
+
+    if g_id < UInt(num_items):
+        var key = keys_in[g_id]
+        var bin_idx = (key >> shift) & 0xFF
+        var output_pos = Atomic.fetch_add(s_offsets.ptr + Int(bin_idx), 1)
+        keys_out[Int(output_pos)] = key
+
+
+def radix_sort_scatter_pairs_kernel[
+    dtype: DType, BLOCK_THREADS: Int, RADIX_BINS: Int
 ](
     keys_in: UnsafePointer[Scalar[dtype], MutAnyOrigin],
-    values_in: UnsafePointer[Scalar[dtype], MutAnyOrigin],
     keys_out: UnsafePointer[Scalar[dtype], MutAnyOrigin],
+    values_in: UnsafePointer[Scalar[dtype], MutAnyOrigin],
     values_out: UnsafePointer[Scalar[dtype], MutAnyOrigin],
-    inclusive_scan: UnsafePointer[Scalar[dtype], MutAnyOrigin],
-    bit_shift: Int,
-    size: Int,
+    d_block_histograms: UnsafePointer[UInt32, MutAnyOrigin],
+    num_items: Int,
+    shift: Scalar[dtype],
 ):
-    """
-    Scatters keys and values to their exact new index using the inclusive scan.
-    """
-    var tid = Int(thread_idx.x + block_idx.x * block_dim.x)
-    if tid < size:
-        var shift_val = Scalar[dtype](bit_shift)
-        var digit = Int((keys_in[tid] >> shift_val) & MASK)
-        var dest_idx = inclusive_scan[digit * size + tid] - 1
+    var tid = thread_idx.x
+    var bid = block_idx.x
+    var g_id = bid * UInt(BLOCK_THREADS) + tid
 
-        keys_out[Int(dest_idx)] = keys_in[tid]
-        values_out[Int(dest_idx)] = values_in[tid]
+    # 1. Shared Memory Allocations
+    comptime LT_bin = LayoutTensor[
+        DType.uint32,
+        Layout.row_major(RADIX_BINS),
+        MutAnyOrigin,
+        address_space=AddressSpace.SHARED,
+    ]
+    var s_offsets = LT_bin.stack_allocation()
+    var s_local_hist = LT_bin.stack_allocation()
+
+    comptime LT_block[T: DType] = LayoutTensor[
+        T,
+        Layout.row_major(BLOCK_THREADS),
+        MutAnyOrigin,
+        address_space=AddressSpace.SHARED,
+    ]
+    var s_bins = LT_block[DType.uint32].stack_allocation()
+    var s_keys_exch = LT_block[dtype].stack_allocation()
+    var s_vals_exch = LT_block[dtype].stack_allocation()
+    var s_pos_exch = LT_block[DType.uint32].stack_allocation()
+
+    # 2. Init global offsets & zero local histogram
+    if tid < UInt(RADIX_BINS):
+        var global_offset = tid * grid_dim.x + bid
+        s_offsets[Int(tid)] = d_block_histograms[global_offset]
+        s_local_hist[Int(tid)] = 0
+    barrier()
+
+    # 3. Load elements, determine bins, and build a local histogram
+    var key: Scalar[dtype] = 0
+    var val: Scalar[dtype] = 0
+    var bin_idx: UInt32 = 0
+    var is_valid = g_id < UInt(num_items)
+
+    if is_valid:
+        key = keys_in[g_id]
+        val = values_in[g_id]
+        bin_idx = UInt32(Int((key >> shift) & Scalar[dtype](0xFF)))
+        s_bins[Int(tid)] = bin_idx
+        # Atomically count how many items in this block go to each bin
+        _ = Atomic.fetch_add(s_local_hist.ptr + Int(bin_idx), 1)
+    barrier()
+
+    # 4. Exclusive prefix sum of the local histogram to get shared memory offsets
+    if tid == 0:
+        var sum: UInt32 = 0
+        for i in range(RADIX_BINS):
+            var count = s_local_hist[i]
+            s_local_hist[i] = sum
+            sum += count[0]
+    barrier()
+
+    # 5. SIMD-Optimized Local Rank & Exchange Routing
+    if is_valid:
+        var local_rank: UInt32 = 0
+        var i: Int = 0
+
+        # Vectorize the loop using SIMD-4 (Reduces iterations by 4x!)
+        while i <= Int(tid) - 4:
+            var chunk = s_bins.ptr.load[width=4](i)
+            var mask = chunk.eq(bin_idx)
+            local_rank += mask.cast[DType.uint32]().reduce_add()
+            i += 4
+
+        # Remainder logic
+        while i < Int(tid):
+            if s_bins[i] == bin_idx:
+                local_rank += 1
+            i += 1
+
+        # Calculate exact destinations
+        var output_pos = s_offsets[Int(bin_idx)] + local_rank
+        var shared_idx = s_local_hist[Int(bin_idx)] + local_rank
+
+        # Write to Shared Memory FIRST (This compacts the data by bin)
+        s_keys_exch[Int(shared_idx)] = key
+        s_vals_exch[Int(shared_idx)] = val
+        s_pos_exch[Int(shared_idx)] = output_pos
+    barrier()
+
+    # 6. COALESCED Global Memory Scatter
+    # Calculate exactly how many valid elements exist in this specific block
+    var valid_in_block = Int(num_items) - Int(bid) * BLOCK_THREADS
+    if valid_in_block > BLOCK_THREADS:
+        valid_in_block = BLOCK_THREADS
+
+    # Because elements are compacted in shared memory, contiguous threads
+    # will now write to contiguous global memory addresses!
+    if Int(tid) < valid_in_block:
+        var out_pos = s_pos_exch[Int(tid)]
+        keys_out[Int(out_pos)] = s_keys_exch[Int(tid)][0]
+        values_out[Int(out_pos)] = s_vals_exch[Int(tid)][0]
 
 
-fn copy[
-    dtype: DType
-](
-    src_keys: UnsafePointer[Scalar[dtype], MutAnyOrigin],
-    src_values: UnsafePointer[Scalar[dtype], MutAnyOrigin],
-    dst_keys: UnsafePointer[Scalar[dtype], MutAnyOrigin],
-    dst_values: UnsafePointer[Scalar[dtype], MutAnyOrigin],
-    size: Int,
-):
-    """Restores data to original buffers if the algorithm takes an odd number of passes.
-    """
-    var tid = Int(thread_idx.x + block_idx.x * block_dim.x)
-    if tid < size:
-        dst_keys[tid] = src_keys[tid]
-        dst_values[tid] = src_values[tid]
+# -------------------------------------------------------------------
+# HOST APIS: radx_sort overloads
+# -------------------------------------------------------------------
 
 
 def radix_sort[
-    dtype: DType, //, BITS_PER_PASS: Int = 4, THREADS_PER_BLOCK: Int = 256
+    RADIX_BITS: Int = 8
+](ctx: DeviceContext, keys: DeviceBuffer[DType.uint32], size: Int) raises:
+    comptime RADIX_BINS = 1 << RADIX_BITS
+    comptime PASSES = size_of[DType.uint32]() * 8 / RADIX_BITS
+    comptime BLOCK_THREADS = 256
+    comptime SCAN_BLOCK = 512  # Number of threads for the scan kernels
+
+    var grid_blocks = ceildiv(size, BLOCK_THREADS)
+    var total_hist_bins = RADIX_BINS * grid_blocks
+    var scan_grid_blocks = ceildiv(total_hist_bins, SCAN_BLOCK)
+
+    var buf_keys_alt = ctx.enqueue_create_buffer[DType.uint32](size)
+    var buf_hist = ctx.enqueue_create_buffer[DType.uint32](total_hist_bins)
+
+    # NEW: Allocate the tiny partials array
+    var buf_partials = ctx.enqueue_create_buffer[DType.uint32](scan_grid_blocks)
+
+    var ping_pong = DoubleBuffer(keys.unsafe_ptr(), buf_keys_alt.unsafe_ptr())
+    var d_hist = buf_hist.unsafe_ptr()
+    var d_partials = buf_partials.unsafe_ptr()
+
+    # kernels
+    comptime histogram = radix_sort_histogram_kernel[DType.uint32, RADIX_BINS]
+    comptime scan_local = scan_local_kernel[SCAN_BLOCK]
+    comptime scan_partials = scan_partials_kernel[SCAN_BLOCK]
+    comptime scan_add = scan_add_kernel[SCAN_BLOCK]
+    comptime scatter = radix_sort_scatter_keys_kernel[RADIX_BINS]
+
+    comptime for p in range(PASSES):
+        var shift = UInt32(p) * UInt32(RADIX_BITS)
+
+        # 1. Histogram
+        ctx.enqueue_function[histogram, histogram](
+            ping_pong.current(),
+            d_hist,
+            size,
+            shift,
+            grid_dim=grid_blocks,
+            block_dim=BLOCK_THREADS,
+        )
+
+        # 2. Parallel Scan
+        ctx.enqueue_function[scan_local, scan_local](
+            d_hist,
+            d_partials,
+            total_hist_bins,
+            grid_dim=scan_grid_blocks,
+            block_dim=SCAN_BLOCK,
+        )
+
+        ctx.enqueue_function[scan_partials, scan_partials](
+            d_partials,
+            scan_grid_blocks,
+            grid_dim=scan_grid_blocks,
+            block_dim=SCAN_BLOCK,
+        )
+
+        ctx.enqueue_function[scan_add, scan_add](
+            d_hist,
+            d_partials,
+            total_hist_bins,
+            grid_dim=scan_grid_blocks,
+            block_dim=SCAN_BLOCK,
+        )
+
+        # 3. Scatter
+        ctx.enqueue_function[scatter, scatter](
+            ping_pong.current(),
+            ping_pong.alternate(),
+            d_hist,
+            size,
+            shift,
+            grid_dim=grid_blocks,
+            block_dim=BLOCK_THREADS,
+        )
+
+        ping_pong.swap()
+
+
+def radix_sort[
+    dtype: DType, RADIX_BITS: Int = 8
 ](
     ctx: DeviceContext,
     keys: DeviceBuffer[dtype],
     values: DeviceBuffer[dtype],
     size: Int,
 ) raises:
-    """
-    GPU Radix Sort based on the number of bits requested.
-    """
-    comptime DTYPE_BIT_WIDTH = bit_width_of[dtype]()
+    comptime BLOCK_THREADS = 512
+    comptime SCAN_BLOCK = 512
+    comptime RADIX_BINS = 2**RADIX_BITS
+    comptime PASSES = size_of[dtype]() * 8 / RADIX_BITS
 
-    comptime assert is_power_of_2(
-        BITS_PER_PASS
-    ), "BITS_PER_PASS must be a power of 2"
-    comptime assert (
-        BITS_PER_PASS <= 16
-    ), "BITS_PER_PASS > 16 will likely trigger a VRAM Out-Of-Memory crash"
-    comptime assert BITS_PER_PASS <= DTYPE_BIT_WIDTH
+    var grid_blocks = ceildiv(size, BLOCK_THREADS)
+    var total_hist_bins = RADIX_BINS * grid_blocks
+    var scan_grid_blocks = ceildiv(total_hist_bins, SCAN_BLOCK)
 
-    comptime NUM_BUCKETS = 1 << BITS_PER_PASS
-    comptime MASK = Scalar[dtype](NUM_BUCKETS - 1)
-    comptime NUM_PASSES = DTYPE_BIT_WIDTH // BITS_PER_PASS
+    # Allocate Alternates & Histogram trackers
+    var buf_keys_alt = ctx.enqueue_create_buffer[dtype](size)
+    var buf_values_alt = ctx.enqueue_create_buffer[dtype](size)
+    var buf_hist = ctx.enqueue_create_buffer[DType.uint32](total_hist_bins)
+    var buf_partials = ctx.enqueue_create_buffer[DType.uint32](scan_grid_blocks)
 
-    # Grid dimensions
-    var blocks = (size + THREADS_PER_BLOCK - 1) // THREADS_PER_BLOCK
+    var ping_pong_keys = DoubleBuffer[dtype](
+        keys.unsafe_ptr(), buf_keys_alt.unsafe_ptr()
+    )
+    var ping_pong_values = DoubleBuffer[dtype](
+        values.unsafe_ptr(), buf_values_alt.unsafe_ptr()
+    )
 
-    var total_scan_size = size * NUM_BUCKETS
-    var scan_blocks = (
-        total_scan_size + THREADS_PER_BLOCK - 1
-    ) // THREADS_PER_BLOCK
+    var d_hist = buf_hist.unsafe_ptr()
+    var d_partials = buf_partials.unsafe_ptr()
 
-    # Allocations
-    var keys_alt = ctx.enqueue_create_buffer[dtype](size)
-    var values_alt = ctx.enqueue_create_buffer[dtype](size)
+    # kernels
+    comptime histogram = radix_sort_histogram_kernel[dtype, RADIX_BINS]
+    comptime scan_local = scan_local_kernel[SCAN_BLOCK]
+    comptime scan_partials = scan_partials_kernel[SCAN_BLOCK]
+    comptime scan_add = scan_add_kernel[SCAN_BLOCK]
+    comptime scatter = radix_sort_scatter_pairs_kernel[
+        dtype, BLOCK_THREADS, RADIX_BINS
+    ]
 
-    var digit_flags = ctx.enqueue_create_buffer[dtype](total_scan_size)
-    var scan_A = ctx.enqueue_create_buffer[dtype](total_scan_size)
-    var scan_B = ctx.enqueue_create_buffer[dtype](total_scan_size)
+    comptime for p in range(PASSES):
+        var shift = Scalar[dtype](p * RADIX_BITS)
 
-    var current_is_original = True
-
-    for pass_idx in range(NUM_PASSES):
-        var bit_shift = pass_idx * BITS_PER_PASS
-
-        var c_keys = keys if current_is_original else keys_alt
-        var n_keys = keys_alt if current_is_original else keys
-        var c_values = values if current_is_original else values_alt
-        var n_values = values_alt if current_is_original else values
-
-        # Step 1: Predicate (Fill Buckets)
-        comptime _radix_predicate = radix_predicate[NUM_BUCKETS, MASK]
-        ctx.enqueue_function[_radix_predicate, _radix_predicate](
-            c_keys,
-            digit_flags,
-            scan_A,
-            bit_shift,
+        # 1. Histogram
+        ctx.enqueue_function[histogram, histogram](
+            ping_pong_keys.current(),
+            d_hist,
             size,
-            grid_dim=blocks,
-            block_dim=THREADS_PER_BLOCK,
+            shift,
+            grid_dim=grid_blocks,
+            block_dim=BLOCK_THREADS,
         )
-        ctx.synchronize()
 
-        # Step 2: Global Inclusive Scan
-        var current_scan_is_A = True
-        var offset = 1
-        while offset < total_scan_size:
-            comptime _scan_step = scan_step[dtype]
-            if current_scan_is_A:
-                ctx.enqueue_function[_scan_step, _scan_step](
-                    scan_A,
-                    scan_B,
-                    offset,
-                    total_scan_size,
-                    grid_dim=scan_blocks,
-                    block_dim=THREADS_PER_BLOCK,
-                )
-            else:
-                ctx.enqueue_function[_scan_step, _scan_step](
-                    scan_B,
-                    scan_A,
-                    offset,
-                    total_scan_size,
-                    grid_dim=scan_blocks,
-                    block_dim=THREADS_PER_BLOCK,
-                )
-            ctx.synchronize()
-            current_scan_is_A = not current_scan_is_A
-            offset *= 2
+        # 2. Parallel Scan
+        ctx.enqueue_function[scan_local, scan_local](
+            d_hist,
+            d_partials,
+            total_hist_bins,
+            grid_dim=scan_grid_blocks,
+            block_dim=SCAN_BLOCK,
+        )
 
-        var final_scan = scan_B if not current_scan_is_A else scan_A
+        ctx.enqueue_function[scan_partials, scan_partials](
+            d_partials, scan_grid_blocks, grid_dim=1, block_dim=1
+        )
 
-        # Step 3: Scatter
-        comptime _radix_scatter = radix_scatter[MASK]
-        ctx.enqueue_function[_radix_scatter, _radix_scatter](
-            c_keys,
-            c_values,
-            n_keys,
-            n_values,
-            final_scan,
-            bit_shift,
+        ctx.enqueue_function[scan_add, scan_add](
+            d_hist,
+            d_partials,
+            total_hist_bins,
+            grid_dim=scan_grid_blocks,
+            block_dim=SCAN_BLOCK,
+        )
+
+        # 3. Scatter
+        ctx.enqueue_function[scatter, scatter](
+            ping_pong_keys.current(),
+            ping_pong_keys.alternate(),
+            ping_pong_values.current(),
+            ping_pong_values.alternate(),
+            d_hist,
             size,
-            grid_dim=blocks,
-            block_dim=THREADS_PER_BLOCK,
+            shift,
+            grid_dim=grid_blocks,
+            block_dim=BLOCK_THREADS,
         )
-        ctx.synchronize()
 
-        current_is_original = not current_is_original
+        ping_pong_keys.swap()
+        ping_pong_values.swap()
 
-    # Step 4: Cleanup odd passes
-    if not current_is_original:
-        comptime copy_kernel = copy[dtype]
-        ctx.enqueue_function[copy_kernel, copy_kernel](
-            keys_alt,
-            values_alt,
-            keys,
-            values,
-            size,
-            grid_dim=blocks,
-            block_dim=THREADS_PER_BLOCK,
-        )
-        ctx.synchronize()
+    # 4. Handle odd-byte DTypes (like DType.uint8)
+    comptime if PASSES % 2 != 0:
+        # If the number of passes is odd, the final sorted arrays are sitting in
+        # `buf_keys_alt` and `buf_values_alt`. You must execute a device-to-device
+        # copy here to put them back into the user's original `keys` and `values` buffers.
+        pass
+
+    ctx.synchronize()

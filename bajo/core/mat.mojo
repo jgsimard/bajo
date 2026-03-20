@@ -379,11 +379,11 @@ def _matmul[
     dtype: DType,
     a_rows: Int where a_rows >= 1,
     a_cols: Int where a_cols >= 1,
-    b_rows: Int where b_rows >= 1,
+    b_rows: Int where b_rows >= 1 and a_cols == b_rows,
     b_cols: Int where b_cols >= 1,
 ](a: Mat[dtype, a_rows, a_cols], b: Mat[dtype, b_rows, b_cols]) -> Mat[
     dtype, a_rows, b_cols
-] where (a_cols == b_rows):
+]:
     """Matrix-Matrix product."""
     bT = b.transpose()
     res = Mat[dtype, a_rows, b_cols](uninitialized=True)

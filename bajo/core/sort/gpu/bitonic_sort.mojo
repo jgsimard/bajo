@@ -7,6 +7,7 @@ from std.sys.info import bit_width_of
 from bajo.core.utils import is_power_of_2
 
 
+@always_inline
 fn bitonic_sort_shared[
     dtype: DType, THREADS_PER_BLOCK: Int, IS_MERGE_BLOCK: Bool
 ](
@@ -138,6 +139,7 @@ fn bitonic_sort[
 
 
 # basic version of bitonic sort
+@always_inline
 def bitonic_sort_step[
     dtype: DType
 ](

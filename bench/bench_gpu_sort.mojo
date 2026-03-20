@@ -7,8 +7,8 @@ from bajo.core.sort.gpu import bitonic_sort, bitonic_sort_basic, radix_sort
 def benchmark_bitonic_sorts() raises:
     comptime dtype = DType.uint32
     comptime SIZE = 1 << 20  # 2^20 (1M elements)
-    comptime WARMUP = 10
-    comptime ITERS = 100
+    comptime WARMUP = 5
+    comptime N_ITERS = 10
     comptime THREADS_PER_BLOCK = 1024
 
     print(t"Setting up benchmarks for {SIZE} elements...")
@@ -31,12 +31,12 @@ def benchmark_bitonic_sorts() raises:
 
         print("shared-memory bitonic sort...")
         t0 = perf_counter_ns()
-        for _ in range(ITERS):
+        for _ in range(N_ITERS):
             bitonic_sort[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
             ctx.synchronize()
         t1 = perf_counter_ns()
         delta_t = t1 - t0
-        opt_ms = round(Float32(delta_t / ITERS) / 1_000_000.0, 2)
+        opt_ms = round(Float32(delta_t / N_ITERS) / 1_000_000.0, 4)
 
         var opt_valid = True
         with keys.map_to_host() as host_keys:
@@ -55,12 +55,12 @@ def benchmark_bitonic_sorts() raises:
 
         print("global-memory bitonic sort...")
         t0 = perf_counter_ns()
-        for _ in range(ITERS):
+        for _ in range(N_ITERS):
             bitonic_sort_basic[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
             ctx.synchronize()
         t1 = perf_counter_ns()
         delta_t = t1 - t0
-        basic_ms = round(Float32(delta_t / ITERS) / 1_000_000.0, 2)
+        basic_ms = round(Float32(delta_t / N_ITERS) / 1_000_000.0, 4)
 
         var basic_valid = True
         with keys.map_to_host() as host_keys:
@@ -74,17 +74,17 @@ def benchmark_bitonic_sorts() raises:
         # ---------------------------------------------------------
         comptime N_BITS = 2
         for _ in range(WARMUP):
-            radix_sort[N_BITS, THREADS_PER_BLOCK](ctx, keys, values, SIZE)
+            radix_sort(ctx, keys, values, SIZE)
             ctx.synchronize()
 
         print("global-memory radix sort...")
         t0 = perf_counter_ns()
-        for _ in range(ITERS):
-            radix_sort[N_BITS, THREADS_PER_BLOCK](ctx, keys, values, SIZE)
+        for _ in range(N_ITERS):
+            radix_sort(ctx, keys, values, SIZE)
             ctx.synchronize()
         t1 = perf_counter_ns()
         delta_t = t1 - t0
-        radix_ms = round(Float32(delta_t / ITERS) / 1_000_000.0, 2)
+        radix_ms = round(Float32(delta_t / N_ITERS) / 1_000_000.0, 4)
 
         var radix_valid = True
         with keys.map_to_host() as host_keys:
@@ -95,11 +95,11 @@ def benchmark_bitonic_sorts() raises:
 
         print("\n================ RESULTS ================")
         print(t"Data Size: {SIZE} elements")
-        print(t"Basic Sort:     {basic_ms} ms (Valid: {basic_valid})")
-        print(t"Optimized Sort: {opt_ms} ms (Valid: {opt_valid})")
+        print(t"Basic Bitonic Sort:     {basic_ms} ms (Valid: {basic_valid})")
+        print(t"Shared Mem Bitonic Sort: {opt_ms} ms (Valid: {opt_valid})")
         print(t"Radix Sort: {radix_ms} ms (Valid: {radix_valid})")
         print("-----------------------------------------")
-        print(t"SPEEDUP:       {basic_ms / opt_ms} x")
+        print(t"SPEEDUP:       {basic_ms / radix_ms} x")
         print("=========================================")
 
 
@@ -111,12 +111,29 @@ def benchmark_bitonic_sorts() raises:
 
 # ================ RESULTS ================
 # Data Size: 1048576 elements
-# Basic Sort:     3.78 ms (Valid: True)
-# Optimized Sort: 1.78 ms (Valid: True)
-# Radix Sort: 21.24 ms (Valid: True)
+# Basic Bitonic Sort:     3.9764 ms (Valid: True)
+# Shared Mem Bitonic Sort: 1.7604 ms (Valid: True)
+# Radix Sort: 0.9842 ms (Valid: True)
 # -----------------------------------------
-# SPEEDUP:       2.1235955 x
+# SPEEDUP:       4.0402355 x
 # =========================================
+#
+# Setting up benchmarks for 67108864 elements...
+# shared-memory bitonic sort...
+# global-memory bitonic sort...
+# global-memory radix sort...
+
+# ================ RESULTS ================
+# Data Size: 67108864 elements
+# Basic Bitonic Sort:     684.9054 ms (Valid: True)
+# Shared Mem Bitonic Sort: 358.3132 ms (Valid: True)
+# Radix Sort: 71.8947 ms (Valid: True)
+# -----------------------------------------
+# SPEEDUP:       9.526507 x
+# =========================================
+#
+# this is far from SOTA, but it is fast enough for me at the moment
+# I think I could obtain ~10 X improvement, but with lots of effort and time
 
 
 def main() raises:

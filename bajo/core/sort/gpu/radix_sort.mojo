@@ -21,17 +21,11 @@ from layout import Layout, LayoutTensor
 
 @fieldwise_init
 struct DoubleBuffer[dtype: DType](Copyable):
-    var d_buffers_0: UnsafePointer[Scalar[Self.dtype], MutAnyOrigin]
-    var d_buffers_1: UnsafePointer[Scalar[Self.dtype], MutAnyOrigin]
-
-    def current(self) -> UnsafePointer[Scalar[Self.dtype], MutAnyOrigin]:
-        return self.d_buffers_0
-
-    def alternate(self) -> UnsafePointer[Scalar[Self.dtype], MutAnyOrigin]:
-        return self.d_buffers_1
+    var current: UnsafePointer[Scalar[Self.dtype], MutAnyOrigin]
+    var alternate: UnsafePointer[Scalar[Self.dtype], MutAnyOrigin]
 
     def swap(mut self):
-        swap(self.d_buffers_0, self.d_buffers_1)
+        swap(self.current, self.alternate)
 
 
 # -------------------------------------------------------------------
@@ -308,7 +302,7 @@ def radix_sort[
 
         # 1. Histogram
         ctx.enqueue_function[histogram, histogram](
-            ping_pong.current(),
+            ping_pong.current,
             d_hist,
             size,
             shift,
@@ -342,8 +336,8 @@ def radix_sort[
 
         # 3. Scatter
         ctx.enqueue_function[scatter, scatter](
-            ping_pong.current(),
-            ping_pong.alternate(),
+            ping_pong.current,
+            ping_pong.alternate,
             d_hist,
             size,
             shift,
@@ -401,7 +395,7 @@ def radix_sort[
 
         # 1. Histogram
         ctx.enqueue_function[histogram, histogram](
-            ping_pong_keys.current(),
+            ping_pong_keys.current,
             d_hist,
             size,
             shift,
@@ -432,10 +426,10 @@ def radix_sort[
 
         # 3. Scatter
         ctx.enqueue_function[scatter, scatter](
-            ping_pong_keys.current(),
-            ping_pong_keys.alternate(),
-            ping_pong_values.current(),
-            ping_pong_values.alternate(),
+            ping_pong_keys.current,
+            ping_pong_keys.alternate,
+            ping_pong_values.current,
+            ping_pong_values.alternate,
             d_hist,
             size,
             shift,

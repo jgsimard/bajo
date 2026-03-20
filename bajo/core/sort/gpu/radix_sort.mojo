@@ -23,29 +23,15 @@ from layout import Layout, LayoutTensor
 struct DoubleBuffer[dtype: DType](Copyable):
     var d_buffers_0: UnsafePointer[Scalar[Self.dtype], MutAnyOrigin]
     var d_buffers_1: UnsafePointer[Scalar[Self.dtype], MutAnyOrigin]
-    var selector: Int
-
-    def __init__(
-        out self,
-        current: UnsafePointer[Scalar[Self.dtype], MutAnyOrigin],
-        alternate: UnsafePointer[Scalar[Self.dtype], MutAnyOrigin],
-    ):
-        self.d_buffers_0 = current
-        self.d_buffers_1 = alternate
-        self.selector = 0
 
     def current(self) -> UnsafePointer[Scalar[Self.dtype], MutAnyOrigin]:
-        if self.selector == 0:
-            return self.d_buffers_0
-        return self.d_buffers_1
-
-    def alternate(self) -> UnsafePointer[Scalar[Self.dtype], MutAnyOrigin]:
-        if self.selector == 0:
-            return self.d_buffers_1
         return self.d_buffers_0
 
+    def alternate(self) -> UnsafePointer[Scalar[Self.dtype], MutAnyOrigin]:
+        return self.d_buffers_1
+
     def swap(mut self):
-        self.selector ^= 1
+        swap(self.d_buffers_0, self.d_buffers_1)
 
 
 # -------------------------------------------------------------------

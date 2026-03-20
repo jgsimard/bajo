@@ -9,8 +9,7 @@ from std.testing import (
 from std.gpu import thread_idx, block_idx, block_dim
 from std.gpu.host import DeviceContext, DeviceBuffer, HostBuffer
 
-from bajo.core.sort.gpu import bitonic_sort, bitonic_sort_basic  # , radix_sort
-from bajo.core.sort.rs2 import radix_sort
+from bajo.core.sort.gpu import bitonic_sort, bitonic_sort_basic, radix_sort
 
 
 def test_bitonic_sort_shared() raises:

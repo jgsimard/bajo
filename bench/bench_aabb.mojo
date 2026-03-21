@@ -140,7 +140,7 @@ def main() raises:
     data = AABBBenchmarkData()
     print("Benchmarking AABB Transform (apply_trs) - Elements:", num_elements)
 
-    def bench[f: fn(AABB, Vec3f32, Quat, Vec3f32) -> AABB]() capturing raises:
+    def bench[f: def(AABB, Vec3f32, Quat, Vec3f32) -> AABB]() capturing raises:
         def wrapper() raises capturing:
             for i in range(num_elements):
                 data.dst[i] = f(

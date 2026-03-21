@@ -44,15 +44,15 @@ struct Scene:
     var world: BVH
 
 
-fn main() raises:
-    print("Ray Tracing in One Weekend - Part 2")
+def main() raises:
+    print("Ray Tracing in One Weekend")
     # scene = create_top_scene()
     # scene = create_basic_scene()
     scene = create_random_scene()
     scene.camera.render(scene.world)
 
 
-fn colorize(color: Color) -> Color:
+def colorize(color: Color) -> Color:
     out = Color(uninitialized=True)
     comptime for i in range(3):
         out.data[i] = sqrt(color[i]).clamp(0.0, 0.999) * 255.99
@@ -60,7 +60,7 @@ fn colorize(color: Color) -> Color:
     # return Color(sqrt(color.data).clamp(0.0, 0.999) * 255.99)
 
 
-fn write_color(mut f: FileHandle, color: Color):
+def write_color(mut f: FileHandle, color: Color):
     var out_color = colorize(color)
     ir = Int(out_color.x())
     ig = Int(out_color.y())
@@ -77,7 +77,7 @@ struct Ray(Copyable, Writable):
     var time: Float32  #  4 -> 52
     var _pad: InlineArray[Float32, 3]  # 3*4=12-> 64
 
-    fn __init__(
+    def __init__(
         out self, origin: Point3, direction: Point3, time: Float32 = 0.0
     ):
         self.origin = origin.copy()
@@ -86,7 +86,7 @@ struct Ray(Copyable, Writable):
         self.time = time
         self._pad = InlineArray[Float32, 3](fill=0.0)
 
-    fn at(self, t: Float32) -> Point3:
+    def at(self, t: Float32) -> Point3:
         return self.origin + t * self.direction
 
 
@@ -99,7 +99,7 @@ struct HitRecord(Copyable):
     var v: Float32  # 4 => 48
     var front_face: Bool  # 1 -> 4 => 52
 
-    fn __init__(
+    def __init__(
         out self,
         p: Point3,
         normal: Vec3f32,
@@ -117,7 +117,7 @@ struct HitRecord(Copyable):
 
 
 trait Texture(Movable):
-    fn value(self, u: Float32, v: Float32, p: Point3) -> Color:
+    def value(self, u: Float32, v: Float32, p: Point3) -> Color:
         ...
 
 
@@ -128,10 +128,10 @@ comptime TextureVariant = Variant[SolidColor, CheckerTexture]
 struct SolidColor(Texture):
     var albedo: Color
 
-    fn __init__(out self, r: Float32, g: Float32, b: Float32):
+    def __init__(out self, r: Float32, g: Float32, b: Float32):
         self.albedo = Color(r, g, b)
 
-    fn value(self, u: Float32, v: Float32, p: Point3) -> Color:
+    def value(self, u: Float32, v: Float32, p: Point3) -> Color:
         return self.albedo.copy()
 
 
@@ -139,15 +139,15 @@ struct SolidColor(Texture):
 struct CheckerTexture(Texture):
     var albedo: Color
 
-    fn __init__(out self, r: Float32, g: Float32, b: Float32):
+    def __init__(out self, r: Float32, g: Float32, b: Float32):
         self.albedo = Color(r, g, b)
 
-    fn value(self, u: Float32, v: Float32, p: Point3) -> Color:
+    def value(self, u: Float32, v: Float32, p: Point3) -> Color:
         return self.albedo.copy()
 
 
 trait Hittable(Copyable):
-    fn hit(
+    def hit(
         self, ray: Ray, ray_t: Interval[DType.float32]
     ) -> Optional[HitRecord]:
         ...
@@ -162,12 +162,12 @@ struct Sphere(Hittable, Writable):
     var radius: Float32
     var material_id: Int
 
-    fn __init__(out self, center: Point3, radius: Float32, material_id: Int):
+    def __init__(out self, center: Point3, radius: Float32, material_id: Int):
         self.center = Ray(center, Vec3f32(0), 0)
         self.radius = radius
         self.material_id = material_id
 
-    fn hit(
+    def hit(
         self, ray: Ray, ray_t: Interval[DType.float32]
     ) -> Optional[HitRecord]:
         current_center = self.center.at(ray.time)
@@ -194,7 +194,7 @@ struct Sphere(Hittable, Writable):
         normal = (p - current_center) / self.radius
         return HitRecord(p, normal, self.material_id, t, ray)
 
-    fn bounding_box(self) -> AABB:
+    def bounding_box(self) -> AABB:
         rvec = Vec3f32(self.radius, self.radius, self.radius)
 
         # time = 0.0
@@ -216,23 +216,23 @@ struct Interval[T: DType](
     var min: Scalar[Self.T]
     var max: Scalar[Self.T]
 
-    fn __init__(out self):
+    def __init__(out self):
         self.min = max_finite[Self.T]()
         self.max = min_finite[Self.T]()
 
-    fn __contains__(self, other: Scalar[Self.T]) -> Bool:
+    def __contains__(self, other: Scalar[Self.T]) -> Bool:
         return self.min <= other <= self.max
 
-    fn surrounds(self, other: Scalar[Self.T]) -> Bool:
+    def surrounds(self, other: Scalar[Self.T]) -> Bool:
         return self.min < other < self.max
 
-    fn size(self) -> Scalar[Self.T]:
+    def size(self) -> Scalar[Self.T]:
         return self.max - self.min
 
-    fn union(self, other: Self) -> Self:
+    def union(self, other: Self) -> Self:
         return Interval(min(self.min, other.min), max(self.max, other.max))
 
-    fn expand(self, delta: Scalar[Self.T]) -> Self:
+    def expand(self, delta: Scalar[Self.T]) -> Self:
         padding = delta / 2
         return Interval(self.min - padding, self.max + padding)
 
@@ -244,11 +244,11 @@ struct AABB(Copyable):
     var min: Point3
     var max: Point3
 
-    fn __init__(out self, a: AABB, b: AABB):
+    def __init__(out self, a: AABB, b: AABB):
         self.min = vmin(a.min, b.min)
         self.max = vmax(a.max, b.max)
 
-    fn hit(self, ray: Ray, ray_t: Interval[DType.float32]) -> Bool:
+    def hit(self, ray: Ray, ray_t: Interval[DType.float32]) -> Bool:
         var t_lower = ray.inv_direction * (self.min - ray.origin)
         var t_upper = ray.inv_direction * (self.max - ray.origin)
 
@@ -265,11 +265,11 @@ struct AABB(Copyable):
 
         return t_box_min <= t_box_max
 
-    fn merge(mut self, other: Self):
+    def merge(mut self, other: Self):
         self.min = vmin(self.min, other.min)
         self.max = vmax(self.max, other.max)
 
-    fn edges(self) -> Point3:
+    def edges(self) -> Point3:
         return self.max - self.min
 
 
@@ -291,7 +291,7 @@ struct InvalidHittableError(Movable, TrivialRegisterPassable, Writable):
     ...
 
 
-fn get_bounding_box(obj: HittableVariant) -> AABB:
+def get_bounding_box(obj: HittableVariant) -> AABB:
     if obj.isa[Sphere]():
         return obj[Sphere].bounding_box()
     print("InvalidHittableError")
@@ -308,7 +308,7 @@ struct BVH(Hittable):
     var materials: List[MaterialVariant]
     var root_idx: Int
 
-    fn __init__(
+    def __init__(
         out self,
         var objects: List[HittableVariant],
         var materials: List[MaterialVariant],
@@ -321,7 +321,7 @@ struct BVH(Hittable):
         if len(self.objects) > 0:
             self.root_idx = self._build(0, len(self.objects))
 
-    fn hit(
+    def hit(
         self, ray: Ray, ray_t: Interval[DType.float32]
     ) -> Optional[HitRecord]:
         if self.root_idx == -1:
@@ -375,7 +375,7 @@ struct BVH(Hittable):
 
         return hit_anything^
 
-    fn _build(mut self, start: Int, end: Int) -> Int:
+    def _build(mut self, start: Int, end: Int) -> Int:
         var span_len = end - start
 
         # leaf node
@@ -391,7 +391,7 @@ struct BVH(Hittable):
         axis = longest_axis(aabb.edges())
 
         # internal node
-        fn cmp_fn(a: HittableVariant, b: HittableVariant) capturing -> Bool:
+        def cmp_fn(a: HittableVariant, b: HittableVariant) capturing -> Bool:
             var box_a = get_bounding_box(a)
             var box_b = get_bounding_box(b)
             return box_a.min[axis] < box_b.min[axis]
@@ -456,7 +456,7 @@ struct Camera(Copyable):
     var defocus_disk_v: Vec3f32
     """Defocus disk vertical radius."""
 
-    fn __init__(
+    def __init__(
         out self,
         image_width: Int,
         aspect_ratio: Float32,
@@ -527,7 +527,7 @@ struct Camera(Copyable):
         self.defocus_disk_u = self.u * defocus_radius
         self.defocus_disk_v = self.v * defocus_radius
 
-    fn ray_color(self, ray: Ray, world: BVH, mut rng: PhiloxRNG) -> Color:
+    def ray_color(self, ray: Ray, world: BVH, mut rng: PhiloxRNG) -> Color:
         var cur_ray = ray.copy()
         var accumulated_attenuation = Color(1.0, 1.0, 1.0)
 
@@ -578,13 +578,13 @@ struct Camera(Copyable):
         # If we exceeded the depth without hitting the sky, return black
         return Color(0)
 
-    fn render(self, world: BVH) raises:
+    def render(self, world: BVH) raises:
         var image_data = List[Color](
             length=self.image_width * self.image_height, fill=Color(0)
         )
 
         @parameter
-        fn worker(j: Int):
+        def worker(j: Int):
             rng = PhiloxRNG(seed=123, id=UInt64(j))
             factor = Float32(1.0 / Float32(self.samples_per_pixel))
             for i in range(self.image_width):
@@ -598,12 +598,12 @@ struct Camera(Copyable):
         parallelize[worker](self.image_height, self.image_height)
         # parallelize[worker](self.image_height, 1)
 
-        with open("rtiaw_2.ppm", "w") as f:
+        with open("rtiaw.ppm", "w") as f:
             f.write(t"P3\n{self.image_width} {self.image_height}\n255\n")
             for color in image_data:
                 write_color(f, color)
 
-    fn get_ray(self, i: Int, j: Int, mut rng: PhiloxRNG) -> Ray:
+    def get_ray(self, i: Int, j: Int, mut rng: PhiloxRNG) -> Ray:
         var r1 = rng.next_f32()
         var r2 = rng.next_f32()
         offset = Vec2f32(r1, r2)
@@ -622,7 +622,7 @@ struct Camera(Copyable):
 
         return Ray(origin, direction, time)
 
-    fn defocus_disk_sample(self, mut rng: PhiloxRNG) -> Vec3f32:
+    def defocus_disk_sample(self, mut rng: PhiloxRNG) -> Vec3f32:
         """Returns a random point in the camera defocus disk."""
         p = random_in_unit_disk(rng)
         return (
@@ -632,11 +632,11 @@ struct Camera(Copyable):
         )
 
 
-fn reflect[dtype: DType](v: Vec3[dtype], n: Vec3[dtype]) -> Vec3[dtype]:
+def reflect[dtype: DType](v: Vec3[dtype], n: Vec3[dtype]) -> Vec3[dtype]:
     return v - 2.0 * dot(v, n) * n
 
 
-fn refract[
+def refract[
     dtype: DType
 ](uv: Vec3[dtype], n: Vec3[dtype], etai_over_etat: Scalar[dtype]) -> Vec3[
     dtype
@@ -648,7 +648,7 @@ fn refract[
 
 
 trait Material(Copyable):
-    fn scatter(
+    def scatter(
         self, ray: Ray, hit: HitRecord, mut rng: PhiloxRNG
     ) -> Optional[Tuple[Ray, Color]]:
         ...
@@ -661,7 +661,7 @@ comptime MaterialVariant = Variant[Lambertian, Metal, Dielectric]
 struct Lambertian(Material, Writable):
     var albedo: Vec3f32
 
-    fn scatter(
+    def scatter(
         self, ray: Ray, hit: HitRecord, mut rng: PhiloxRNG
     ) -> Optional[Tuple[Ray, Color]]:
         var scatter_direction = hit.normal + random_unit_vector(rng)
@@ -679,7 +679,7 @@ struct Metal(Material, Writable):
     var albedo: Vec3f32
     var fuzz: Float32
 
-    fn scatter(
+    def scatter(
         self, ray: Ray, hit: HitRecord, mut rng: PhiloxRNG
     ) -> Optional[Tuple[Ray, Color]]:
         reflected = reflect(ray.direction, hit.normal)
@@ -696,7 +696,7 @@ struct Metal(Material, Writable):
 struct Dielectric(Material, Writable):
     var refraction_index: Float32
 
-    fn scatter(
+    def scatter(
         self, ray: Ray, hit: HitRecord, mut rng: PhiloxRNG
     ) -> Optional[Tuple[Ray, Color]]:
         attenuation = Color(1)
@@ -723,7 +723,7 @@ struct Dielectric(Material, Writable):
         return (scattered^, attenuation.copy())
 
 
-fn reflectance[
+def reflectance[
     dtype: DType, size: Int
 ](cosine: SIMD[dtype, size], ref_idx: SIMD[dtype, size]) -> SIMD[dtype, size]:
     """Schlick's approximation for reflectance."""
@@ -731,7 +731,7 @@ fn reflectance[
     return r0 + (1.0 - r0) * pow(1.0 - cosine, 5)
 
 
-fn create_random_scene() -> Scene:
+def create_random_scene() -> Scene:
     rng = PhiloxRNG(123, 321)
     materials = List[MaterialVariant]()
     objects = List[HittableVariant]()
@@ -808,7 +808,7 @@ fn create_random_scene() -> Scene:
     return Scene(cam^, world^)
 
 
-fn create_basic_scene() -> Scene:
+def create_basic_scene() -> Scene:
     world = BVH(
         [
             Sphere(Point3(0, -100.5, -1), 100, 0),
@@ -841,7 +841,7 @@ fn create_basic_scene() -> Scene:
     return Scene(cam^, world^)
 
 
-fn create_top_scene() -> Scene:
+def create_top_scene() -> Scene:
     R = Float32(cos(pi / 4))
     world = BVH(
         [Sphere(Point3(-R, 0, -1), R, 0), Sphere(Point3(R, 0, -1), R, 1)],

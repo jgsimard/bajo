@@ -8,7 +8,7 @@ from bajo.core.utils import is_power_of_2
 
 
 @always_inline
-fn bitonic_sort_shared[
+def bitonic_sort_shared[
     dtype: DType, THREADS_PER_BLOCK: Int, IS_MERGE_BLOCK: Bool
 ](
     keys: UnsafePointer[Scalar[dtype], MutAnyOrigin],
@@ -76,7 +76,7 @@ fn bitonic_sort_shared[
         values[tid] = shared_values[local_tid]
 
 
-fn bitonic_sort[
+def bitonic_sort[
     dtype: DType, //, THREADS_PER_BLOCK: Int = 256
 ](
     ctx: DeviceContext,

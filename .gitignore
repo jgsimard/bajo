@@ -223,3 +223,6 @@ scrap.mojo
 
 sources/*
 assets/*
+
+*.h
+*.cu

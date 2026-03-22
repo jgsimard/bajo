@@ -1,18 +1,18 @@
 from std.gpu.host import DeviceContext, DeviceBuffer
 
 from .bitonic_sort import bitonic_sort, bitonic_sort_basic
-from .radix_sort import radix_sort
+from .radix_sort import device_radix_sort_pairs
 
 
-fn gpu_sort[
+def gpu_sort[
     dtype: DType, //, THREADS_PER_BLOCK: Int = 256
 ](
     ctx: DeviceContext,
-    keys: DeviceBuffer[dtype],
-    values: DeviceBuffer[dtype],
+    mut keys: DeviceBuffer[dtype],
+    mut values: DeviceBuffer[dtype],
     size: Int,
 ) raises:
     if size <= 2**16:
         bitonic_sort(ctx, keys, values, size)
     else:
-        radix_sort(ctx, keys, values, size)
+        device_radix_sort_pairs(ctx, keys, values, size)

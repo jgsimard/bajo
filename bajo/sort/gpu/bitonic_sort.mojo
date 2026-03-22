@@ -1,7 +1,8 @@
-from std.gpu import thread_idx, block_idx, block_dim, barrier
+from std.gpu import thread_idx, block_idx, block_dim, barrier, global_idx
 from std.gpu.host import DeviceContext, DeviceBuffer, HostBuffer
 from std.gpu.memory import AddressSpace
 from std.memory import stack_allocation
+from std.gpu.primitives import warp
 from std.sys.info import bit_width_of
 
 from bajo.core.utils import is_power_of_2
@@ -16,8 +17,8 @@ def bitonic_sort_shared[
     k_merge: Int,
     size: Int,
 ):
-    var tid = Int(thread_idx.x + block_idx.x * block_dim.x)
-    var local_tid = Int(thread_idx.x)
+    var gid = Int(global_idx.x)
+    var tid = Int(thread_idx.x)
 
     # put block data into shared memory
     var shared_keys = stack_allocation[
@@ -27,53 +28,84 @@ def bitonic_sort_shared[
         THREADS_PER_BLOCK, Scalar[dtype], address_space=AddressSpace.SHARED
     ]()
 
-    if tid < size:
-        shared_keys[local_tid] = keys[tid]
-        shared_values[local_tid] = values[tid]
+    if gid < size:
+        shared_keys[tid] = keys[gid]
+        shared_values[tid] = values[gid]
+    else:
+        shared_keys[tid] = 0xFFFFFFFF
+        shared_values[tid] = 0
 
     barrier()
 
     @always_inline
     def _step(j_in: Int, k: Int) capturing:
         j = j_in
+        var sort_dir = (gid & k) == 0
         while j > 0:
-            var ixj = local_tid ^ j
+            if j >= 32:
+                var ixj = tid ^ j
 
-            if local_tid < ixj:
-                var global_ixj = tid ^ j
-                if global_ixj < size:
-                    var sort_dir = (tid & k) == 0
-                    var key_a = shared_keys[local_tid]
-                    var key_b = shared_keys[ixj]
+                if tid < ixj:
+                    var global_ixj = gid ^ j
+                    if global_ixj < size:
+                        var key_a = shared_keys[tid]
+                        var key_b = shared_keys[ixj]
 
-                    swap = (key_a > key_b) if sort_dir else (key_a < key_b)
-                    if swap:
-                        shared_keys[local_tid] = key_b
-                        shared_keys[ixj] = key_a
+                        swap = (key_a > key_b) if sort_dir else (key_a < key_b)
+                        if swap:
+                            shared_keys[tid] = key_b
+                            shared_keys[ixj] = key_a
 
-                        var val_a = shared_values[local_tid]
-                        var val_b = shared_values[ixj]
-                        shared_values[local_tid] = val_b
-                        shared_values[ixj] = val_a
+                            var val_a = shared_values[tid]
+                            var val_b = shared_values[ixj]
+                            shared_values[tid] = val_b
+                            shared_values[ixj] = val_a
 
-            barrier()
+                barrier()
+            else:
+                # Warp Shuffle Path
+                var my_key = shared_keys[tid]
+                var my_val = shared_values[tid]
+
+                var shuffle_j = j
+                while shuffle_j > 0:
+                    var other_key = warp.shuffle_xor(my_key, UInt32(shuffle_j))
+                    var other_val = warp.shuffle_xor(my_val, UInt32(shuffle_j))
+
+                    var is_upper = (tid & shuffle_j) == 0
+                    var should_swap = (my_key > other_key) == sort_dir
+
+                    if (is_upper and should_swap) or (
+                        not is_upper and not should_swap
+                    ):
+                        my_key = other_key
+                        my_val = other_val
+
+                    shuffle_j >>= 1
+
+                shared_keys[tid] = my_key
+                shared_values[tid] = my_val
+                barrier()
+                break
             j >>= 1
 
+    var limit = min(THREADS_PER_BLOCK, size)
+
     comptime if IS_MERGE_BLOCK:
-        var j = THREADS_PER_BLOCK >> 1
+        var j = limit >> 1
         _step(j, k_merge)
     else:
         # block bitonic sort
         var k = 2
-        while k <= THREADS_PER_BLOCK:
+        while k <= limit:
             var j = k >> 1
             _step(j, k)
             k <<= 1
 
     # write back to global memory
-    if tid < size:
-        keys[tid] = shared_keys[local_tid]
-        values[tid] = shared_values[local_tid]
+    if gid < size:
+        keys[gid] = shared_keys[tid]
+        values[gid] = shared_values[tid]
 
 
 def bitonic_sort[
@@ -117,8 +149,6 @@ def bitonic_sort[
                 )
                 j >>= 1
             else:
-                # Remaining swaps for this 'k' fall entirely inside independent blocks.
-                # Collapse all remaining j loops into a single Shared Memory kernel launch!
                 comptime shared_merge_kernel = bitonic_sort_shared[
                     dtype, THREADS_PER_BLOCK, True
                 ]
@@ -130,7 +160,6 @@ def bitonic_sort[
                     grid_dim=blocks,
                     block_dim=THREADS_PER_BLOCK,
                 )
-                # After this, the j-loop for the current k is completely finished
                 break
 
         k <<= 1
@@ -152,27 +181,24 @@ def bitonic_sort_step[
     """
     Executes a single step of the Bitonic sort network.
     """
-    var tid = Int(thread_idx.x + block_idx.x * block_dim.x)
+    var gid = Int(global_idx.x)
 
-    if tid < size:
-        var ixj = tid ^ j
+    if gid < size:
+        var ixj = gid ^ j
 
-        if tid < ixj:
-            var sort_dir = (tid & k) == 0
-            var key_a = keys[tid]
+        if gid < ixj:
+            var sort_dir = (gid & k) == 0
+            var key_a = keys[gid]
             var key_b = keys[ixj]
 
             # If sort_dir is True we sort ascending, else descending
             if (sort_dir and key_a > key_b) or (not sort_dir and key_a < key_b):
                 # Swap Keys
-                keys[tid] = key_b
+                keys[gid] = key_b
                 keys[ixj] = key_a
 
                 # Swap Values
-                var val_a = values[tid]
-                var val_b = values[ixj]
-                values[tid] = val_b
-                values[ixj] = val_a
+                swap(values[gid], values[ixj])
 
 
 def bitonic_sort_basic[

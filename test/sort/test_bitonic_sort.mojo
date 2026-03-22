@@ -14,7 +14,7 @@ from bajo.sort.gpu import bitonic_sort, bitonic_sort_basic
 
 def test_bitonic_sort_shared() raises:
     with DeviceContext() as ctx:
-        comptime dtype = DType.uint16
+        comptime dtype = DType.uint32
         comptime SIZE = 8
 
         keys = ctx.enqueue_create_buffer[dtype](SIZE)
@@ -61,7 +61,7 @@ def test_bitonic_sort_shared() raises:
 
 def test_bitonic_sort_basic() raises:
     with DeviceContext() as ctx:
-        comptime dtype = DType.uint16
+        comptime dtype = DType.uint32
         comptime SIZE = 8
 
         keys = ctx.enqueue_create_buffer[dtype](SIZE)

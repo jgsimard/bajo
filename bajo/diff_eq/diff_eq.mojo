@@ -10,7 +10,7 @@ from layout.math import max as lmax
 from tensor import InputTensor, OutputTensor, foreach
 
 
-comptime system_fn[dtype: DType, layout: Layout] = fn(
+comptime system_fn[dtype: DType, layout: Layout] = def(
     dy: LayoutTensor[dtype, layout, MutAnyOrigin],
     y: LayoutTensor[dtype, layout, ImmutAnyOrigin],
     t: Scalar[dtype],
@@ -441,7 +441,7 @@ def basic_bench[
     layout: Layout,
     system: system_fn[dtype, layout],
     //,
-    setup_func: fn() -> ODEProblem[system],
+    setup_func: def() -> ODEProblem[system],
 ]() raises:
     def bench_fn() raises:
         prob = setup_func()

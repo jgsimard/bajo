@@ -24,3 +24,6 @@ bajo = low (... level) = batch mojo
 https://github.com/IlyaGrebnov/libcusort
 https://gpuopen.com/download/Introduction_to_GPU_Radix_Sort.pdf
 https://github.com/amdadvtech/Orochi/tree/course/Course
+https://ajdillhoff.github.io/courses/cse5373/
+https://github.com/b0nes164/GPUSorting
+

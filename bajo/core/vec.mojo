@@ -279,7 +279,7 @@ def _vv[
     dtype: DType,
     size: Int,
     //,
-    func: fn(Scalar[dtype], Scalar[dtype]) -> Scalar[dtype],
+    func: def(Scalar[dtype], Scalar[dtype]) -> Scalar[dtype],
 ](lhs: Vec[dtype, size], rhs: Vec[dtype, size]) -> Vec[dtype, size]:
     out = Vec[dtype, size](uninitialized=True)
     comptime for i in range(size):
@@ -292,7 +292,7 @@ def _vs[
     dtype: DType,
     size: Int,
     //,
-    func: fn(Scalar[dtype], Scalar[dtype]) -> Scalar[dtype],
+    func: def(Scalar[dtype], Scalar[dtype]) -> Scalar[dtype],
 ](v: Vec[dtype, size], s: Scalar[dtype]) -> Vec[dtype, size]:
     out = Vec[dtype, size](uninitialized=True)
     comptime for i in range(size):

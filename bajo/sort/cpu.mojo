@@ -26,7 +26,7 @@ def nth_element[
     T: Copyable,
     origin: MutOrigin,
     //,
-    cmp_fn: fn(T, T) capturing[_] -> Bool,
+    cmp_fn: def(T, T) capturing[_] -> Bool,
 ](mut span: Span[T, origin], n: Int):
     """
     Rearranges elements in the span such that the element at index n

@@ -6,6 +6,7 @@ from std.gpu import (
     lane_id,
     grid_dim,
     WARP_SIZE,
+    warp_id,
 )
 from std.gpu.host import DeviceContext
 from std.gpu.memory import AddressSpace
@@ -62,7 +63,7 @@ def upsweep[
     var bid = Int(block_idx.x)
     var gdim = Int(grid_dim.x)
     var lid = Int(lane_id())
-    var warp_id = tid // WARP_SIZE
+    var wid = warp_id()
 
     # Shared Memory Allocation
     comptime PADDED_RADIX = RADIX + 1
@@ -76,7 +77,7 @@ def upsweep[
     barrier()
 
     # Histogram Binning
-    var s_warp_hist = s_global_hist + (warp_id * PADDED_RADIX)
+    var s_warp_hist = s_global_hist + (wid * PADDED_RADIX)
 
     if bid < gdim - 1:
         for i in range(
@@ -200,9 +201,9 @@ def downsweep_keys_only(
     var bid = Int(block_idx.x)
     var gdim = Int(grid_dim.x)
     var lid = Int(lane_id())
-    var warp_id = tid >> LANE_LOG
+    var wid = Int(warp_id())
 
-    var s_warpHist_ptr = s_warp_histograms + (warp_id << N_BITS)
+    var s_warp_hist_ptr = s_warp_histograms + (wid << N_BITS)
 
     # Clear shared memory
     for i in range(tid, BIN_HISTS_SIZE, bdim):
@@ -211,47 +212,46 @@ def downsweep_keys_only(
 
     # Load keys
     var keys = InlineArray[UInt32, BIN_KEYS_PER_THREAD](uninitialized=True)
-    var BIN_SUB_PART_START = warp_id * BIN_SUB_PART_SIZE
+    var BIN_SUB_PART_START = wid * BIN_SUB_PART_SIZE
     var BIN_PART_START = bid * BIN_PART_SIZE
 
     if bid < gdim - 1:
-        var t = Int(lane_id()) + BIN_SUB_PART_START + BIN_PART_START
+        var t = lid + BIN_SUB_PART_START + BIN_PART_START
         comptime for i in range(BIN_KEYS_PER_THREAD):
             keys[i] = sort[t]
             t += WARP_SIZE
-
-    if bid == gdim - 1:
-        var t = Int(lane_id()) + BIN_SUB_PART_START + BIN_PART_START
+    else:
+        var t = lid + BIN_SUB_PART_START + BIN_PART_START
         comptime for i in range(BIN_KEYS_PER_THREAD):
             keys[i] = sort[t] if t < Int(size) else 0xFFFFFFFF
             t += WARP_SIZE
     barrier()
 
     # Warp-Level Multi-Split (WLMS)
-    var offsets = SIMD[DType.uint32, 16](0)
+    var offsets = InlineArray[UInt32, BIN_KEYS_PER_THREAD](uninitialized=True)
     var lane_mask_lt = (UInt32(1) << UInt32(lane_id())) - 1
 
     comptime for i in range(BIN_KEYS_PER_THREAD):
-        var warpFlags: UInt32 = 0xFFFFFFFF
+        var warp_flags: UInt32 = 0xFFFFFFFF
         var key = keys[i]
 
         comptime for k in range(N_BITS):
             var t2 = ((key >> (radix_shift + UInt32(k))) & 1) == 1
             var ballot = warp.vote[DType.uint32](t2)
             var match_mask = ballot if t2 else ~ballot
-            warpFlags &= match_mask
+            warp_flags &= match_mask
 
-        var bits = pop_count(warpFlags & lane_mask_lt)
+        var bits = pop_count(warp_flags & lane_mask_lt)
         var preIncrementVal: UInt32 = 0
 
         # Leader executes atomic increment
         if bits == 0:
             var digit = (key >> radix_shift) & RADIX_MASK
-            var count = pop_count(warpFlags)
-            preIncrementVal = Atomic.fetch_add(s_warpHist_ptr + digit, count)
+            var count = pop_count(warp_flags)
+            preIncrementVal = Atomic.fetch_add(s_warp_hist_ptr + digit, count)
 
         # Broadcast the allocated offset from the leader thread
-        var leader_lane = count_trailing_zeros(warpFlags)
+        var leader_lane = count_trailing_zeros(warp_flags)
         preIncrementVal = warp.shuffle_idx(preIncrementVal, UInt32(leader_lane))
 
         offsets[i] = preIncrementVal + UInt32(bits)
@@ -284,16 +284,16 @@ def downsweep_keys_only(
     if tid < RADIX:
         var prev_sum: UInt32 = 0
         if lane_id() > 0:
-            prev_sum = s_warp_histograms[tid - Int(lane_id())]
+            prev_sum = s_warp_histograms[tid - lid]
         s_warp_histograms[tid] += prev_sum
     barrier()
 
     # Update offsets
-    if warp_id > 0:
+    if wid > 0:
         comptime for i in range(BIN_KEYS_PER_THREAD):
             var t2 = Int((keys[i] >> radix_shift) & RADIX_MASK)
             offsets[i] += (
-                s_warp_histograms[warp_id * RADIX + t2] + s_warp_histograms[t2]
+                s_warp_histograms[wid * RADIX + t2] + s_warp_histograms[t2]
             )
     else:
         comptime for i in range(BIN_KEYS_PER_THREAD):
@@ -322,9 +322,8 @@ def downsweep_keys_only(
             var dst = s_local_histogram[digit] + UInt32(i)
             alt[dst] = key
 
-    if bid == gdim - 1:
-        var finalPartSize = Int(size) - BIN_PART_START
-        for i in range(tid, finalPartSize, bdim):
+    else:
+        for i in range(tid, size - BIN_PART_START, bdim):
             var key = s_warp_histograms[i]
             var digit = Int((key >> radix_shift) & RADIX_MASK)
             var dst = s_local_histogram[digit] + UInt32(i)
@@ -354,9 +353,9 @@ def downsweep_pairs(
     var bid = Int(block_idx.x)
     var gdim = Int(grid_dim.x)
     var lid = Int(lane_id())
-    var warp_id = tid >> LANE_LOG
+    var wid = Int(warp_id())
 
-    var s_warpHist_ptr = s_warp_histograms + (warp_id << N_BITS)
+    var s_warp_hist_ptr = s_warp_histograms + (wid << N_BITS)
 
     # Clear shared memory
     for i in range(tid, BIN_HISTS_SIZE, bdim):
@@ -365,45 +364,45 @@ def downsweep_pairs(
 
     # Load keys
     var keys = InlineArray[UInt32, BIN_KEYS_PER_THREAD](uninitialized=True)
-    var BIN_SUB_PART_START = warp_id * BIN_SUB_PART_SIZE
+    var BIN_SUB_PART_START = wid * BIN_SUB_PART_SIZE
     var BIN_PART_START = bid * BIN_PART_SIZE
 
     if bid < gdim - 1:
-        var t = Int(lane_id()) + BIN_SUB_PART_START + BIN_PART_START
+        var t = lid + BIN_SUB_PART_START + BIN_PART_START
         comptime for i in range(BIN_KEYS_PER_THREAD):
             keys[i] = sort[t]
             t += 32
 
-    if bid == gdim - 1:
-        var t = Int(lane_id()) + BIN_SUB_PART_START + BIN_PART_START
+    else:
+        var t = lid + BIN_SUB_PART_START + BIN_PART_START
         comptime for i in range(BIN_KEYS_PER_THREAD):
             keys[i] = sort[t] if t < size else 0xFFFFFFFF
             t += 32
     barrier()
 
     # Warp-Level Multi-Split (WLMS)
-    var offsets = SIMD[DType.uint32, 16](0)
+    var offsets = InlineArray[UInt32, BIN_KEYS_PER_THREAD](uninitialized=True)
     var lane_mask_lt = (UInt32(1) << UInt32(lane_id())) - 1
 
     comptime for i in range(BIN_KEYS_PER_THREAD):
-        var warpFlags: UInt32 = 0xFFFFFFFF
+        var warp_flags: UInt32 = 0xFFFFFFFF
         var key = keys[i]
 
         comptime for k in range(N_BITS):
             var t2 = ((key >> (radix_shift + UInt32(k))) & 1) == 1
             var ballot = warp.vote[DType.uint32](t2)
             var match_mask = ballot if t2 else ~ballot
-            warpFlags &= match_mask
+            warp_flags &= match_mask
 
-        var bits = pop_count(warpFlags & lane_mask_lt)
+        var bits = pop_count(warp_flags & lane_mask_lt)
         var pre_increment_val: UInt32 = 0
 
         if bits == 0:
             var digit = Int((key >> radix_shift) & RADIX_MASK)
-            var count = pop_count(warpFlags)
-            pre_increment_val = Atomic.fetch_add(s_warpHist_ptr + digit, count)
+            var count = pop_count(warp_flags)
+            pre_increment_val = Atomic.fetch_add(s_warp_hist_ptr + digit, count)
 
-        var leader_lane = count_trailing_zeros(warpFlags)
+        var leader_lane = count_trailing_zeros(warp_flags)
         pre_increment_val = warp.shuffle_idx(
             pre_increment_val, UInt32(leader_lane)
         )
@@ -436,16 +435,16 @@ def downsweep_pairs(
     if tid < RADIX:
         var prev_sum: UInt32 = 0
         if lane_id() > 0:
-            prev_sum = s_warp_histograms[tid - Int(lane_id())]
+            prev_sum = s_warp_histograms[tid - lid]
         s_warp_histograms[tid] += prev_sum
     barrier()
 
     # Update offsets
-    if warp_id > 0:
+    if wid > 0:
         comptime for i in range(BIN_KEYS_PER_THREAD):
             var t2 = Int((keys[i] >> radix_shift) & RADIX_MASK)
             offsets[i] += (
-                s_warp_histograms[warp_id * RADIX + t2] + s_warp_histograms[t2]
+                s_warp_histograms[wid * RADIX + t2] + s_warp_histograms[t2]
             )
     else:
         comptime for i in range(BIN_KEYS_PER_THREAD):
@@ -466,7 +465,7 @@ def downsweep_pairs(
         s_warp_histograms[Int(offsets[i])] = keys[i]
     barrier()
 
-    var digits = SIMD[DType.uint8, 16](0)
+    var digits = InlineArray[UInt8, BIN_KEYS_PER_THREAD](uninitialized=True)
     if bid < gdim - 1:
         comptime for i in range(BIN_KEYS_PER_THREAD):
             var t = tid + (i * bdim)
@@ -477,7 +476,7 @@ def downsweep_pairs(
         barrier()
 
         # Load payloads into registers
-        var t_payload = Int(lane_id()) + BIN_SUB_PART_START + BIN_PART_START
+        var t_payload = lid + BIN_SUB_PART_START + BIN_PART_START
         comptime for i in range(BIN_KEYS_PER_THREAD):
             keys[i] = sort_payload[t_payload]
             t_payload += 32

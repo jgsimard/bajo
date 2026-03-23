@@ -75,7 +75,7 @@ def upsweep[
         s_global_hist[i] = 0
     barrier()
 
-    # 2. Histogram Binning
+    # Histogram Binning
     var s_warp_hist = s_global_hist + (warp_id * PADDED_RADIX)
 
     if bid < gdim - 1:
@@ -107,13 +107,10 @@ def upsweep[
         # Store for the Scan pass
         pass_hist[i * gdim + bid] = total_val
 
-        var scan_val = warp.prefix_sum[exclusive=True](total_val)
-
-        var total_sum = warp.sum(total_val)
-        if lid == 0:
-            s_global_hist[i] = total_sum
-        else:
-            s_global_hist[i] = scan_val
+        var scan_val = warp.prefix_sum[exclusive=False](total_val)
+        # Circular shift: lane 0 pulls from 31, lane 1 pulls from 0, etc.
+        var shifted = warp.shuffle_idx(scan_val, UInt32((lid + 31) & 31))
+        s_global_hist[i] = shifted
 
     barrier()
 

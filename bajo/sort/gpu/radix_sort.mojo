@@ -29,8 +29,8 @@ comptime GLOBAL_HIST = 4 * RADIX
 comptime PART_SIZE = 7680
 comptime VEC_PART_SIZE = 1920
 
-# comptime BIN_PART_SIZE = 7680
-# comptime BIN_HISTS_SIZE = 4096
+comptime BIN_PART_SIZE = 7680
+comptime BIN_HISTS_SIZE = 4096
 comptime BIN_SUB_PART_SIZE = 480
 comptime BIN_WARPS = 16
 comptime BIN_KEYS_PER_THREAD = 15
@@ -216,8 +216,9 @@ def downsweep_keys_only(
     var keys = InlineArray[UInt32, BIN_KEYS_PER_THREAD](uninitialized=True)
     var BIN_SUB_PART_START = wid * BIN_SUB_PART_SIZE
     var BIN_PART_START = bid * BIN_PART_SIZE
+    var t_base = lid + BIN_SUB_PART_START + BIN_PART_START
 
-    var t = lid + BIN_SUB_PART_START + BIN_PART_START
+    var t = t_base
     comptime for i in range(BIN_KEYS_PER_THREAD):
         if bid < gdim - 1:
             keys[i] = sort[t]
@@ -228,7 +229,7 @@ def downsweep_keys_only(
 
     # Warp-Level Multi-Split (WLMS)
     var offsets = InlineArray[UInt32, BIN_KEYS_PER_THREAD](uninitialized=True)
-    var lane_mask_lt = (UInt32(1) << UInt32(lane_id())) - 1
+    var lane_mask_lt = (UInt32(1) << UInt32(lid)) - 1
 
     comptime for i in range(BIN_KEYS_PER_THREAD):
         var warp_flags: UInt32 = 0xFFFFFFFF
@@ -264,7 +265,7 @@ def downsweep_keys_only(
             s_warp_histograms[i] = reduction - s_warp_histograms[i]
 
         var sum = warp.prefix_sum[exclusive=False](reduction)
-        var shifted = warp.shuffle_idx(sum, UInt32((lane_id() + 31) & 31))
+        var shifted = warp.shuffle_idx(sum, UInt32((lid + 31) & 31))
         s_warp_histograms[tid] = shifted
     barrier()
 
@@ -282,7 +283,7 @@ def downsweep_keys_only(
 
     if tid < RADIX:
         var prev_sum: UInt32 = 0
-        if lane_id() > 0:
+        if lid > 0:
             prev_sum = s_warp_histograms[tid - lid]
         s_warp_histograms[tid] += prev_sum
     barrier()
@@ -370,8 +371,9 @@ def downsweep_pairs[
     var keys = InlineArray[UInt32, BIN_KEYS_PER_THREAD](uninitialized=True)
     var BIN_SUB_PART_START = wid * BIN_SUB_PART_SIZE
     var BIN_PART_START = bid * BIN_PART_SIZE
+    var t_base = lid + BIN_SUB_PART_START + BIN_PART_START
 
-    var t = lid + BIN_SUB_PART_START + BIN_PART_START
+    var t = t_base
     comptime for i in range(BIN_KEYS_PER_THREAD):
         if bid < gdim - 1:
             keys[i] = sort[t]
@@ -382,7 +384,7 @@ def downsweep_pairs[
 
     # Warp-Level Multi-Split (WLMS)
     var offsets = InlineArray[UInt32, BIN_KEYS_PER_THREAD](uninitialized=True)
-    var lane_mask_lt = (UInt32(1) << UInt32(lane_id())) - 1
+    var lane_mask_lt = (UInt32(1) << UInt32(lid)) - 1
 
     comptime for i in range(BIN_KEYS_PER_THREAD):
         var warp_flags: UInt32 = 0xFFFFFFFF
@@ -418,7 +420,7 @@ def downsweep_pairs[
             s_warp_histograms[i] = reduction - s_warp_histograms[i]
 
         var sum = warp.prefix_sum[exclusive=False](reduction)
-        var shifted = warp.shuffle_idx(sum, UInt32((lane_id() + 31) & 31))
+        var shifted = warp.shuffle_idx(sum, UInt32((lid + 31) & 31))
         s_warp_histograms[tid] = shifted
     barrier()
 
@@ -434,7 +436,7 @@ def downsweep_pairs[
 
     if tid < RADIX:
         var prev_sum: UInt32 = 0
-        if lane_id() > 0:
+        if lid > 0:
             prev_sum = s_warp_histograms[tid - lid]
         s_warp_histograms[tid] += prev_sum
     barrier()
@@ -474,7 +476,7 @@ def downsweep_pairs[
         barrier()
 
         # Load payloads into registers
-        var t_payload = lid + BIN_SUB_PART_START + BIN_PART_START
+        var t_payload = t_base
         comptime for i in range(BIN_KEYS_PER_THREAD):
             keys[i] = sort_payload[t_payload]
             t_payload += WARP_SIZE
@@ -503,7 +505,7 @@ def downsweep_pairs[
         barrier()
 
         # Load payloads into registers
-        var t_payload = lid + BIN_SUB_PART_START + BIN_PART_START
+        var t_payload = t_base
         comptime for i in range(BIN_KEYS_PER_THREAD):
             if t_payload < size:
                 keys[i] = sort_payload[t_payload]
@@ -592,10 +594,31 @@ def device_radix_sort_keys(
     ctx.synchronize()
 
 
+struct RadixSortWorkspace[dtype: DType]:
+    var alt_keys: DeviceBuffer[Self.dtype]
+    var alt_vals: DeviceBuffer[Self.dtype]
+    var global_hist: DeviceBuffer[Self.dtype]
+    var pass_hist: DeviceBuffer[Self.dtype]
+
+    def __init__(out self, ctx: DeviceContext, size: Int) raises:
+        comptime BIN_PART_SIZE = 7680
+        comptime RADIX = 256
+        comptime GLOBAL_HIST = 4 * RADIX
+        var gdim = ceildiv(size, BIN_PART_SIZE)
+
+        self.alt_keys = ctx.enqueue_create_buffer[Self.dtype](size)
+        self.alt_vals = ctx.enqueue_create_buffer[Self.dtype](size)
+
+        # Revert to standard size. The inner kernels handle passes natively!
+        self.global_hist = ctx.enqueue_create_buffer[Self.dtype](GLOBAL_HIST)
+        self.pass_hist = ctx.enqueue_create_buffer[Self.dtype](gdim * RADIX)
+
+
 def device_radix_sort_pairs[
     dtype: DType
 ](
     ctx: DeviceContext,
+    mut workspace: RadixSortWorkspace[dtype],
     mut keys: DeviceBuffer[dtype],
     mut values: DeviceBuffer[dtype],
     size: Int,
@@ -604,15 +627,13 @@ def device_radix_sort_pairs[
     comptime BIN_PART_SIZE = 7680
     var gdim = ceildiv(size, BIN_PART_SIZE)
 
-    var alt_keys = ctx.enqueue_create_buffer[dtype](size)
-    var alt_vals = ctx.enqueue_create_buffer[dtype](size)
-
-    var global_hist = ctx.enqueue_create_buffer[dtype](GLOBAL_HIST)
-    var pass_hist = ctx.enqueue_create_buffer[dtype](gdim * RADIX)
-
     # Pointer management for ping-ponging
-    var db_keys = DoubleBuffer(keys.unsafe_ptr(), alt_keys.unsafe_ptr())
-    var db_vals = DoubleBuffer(values.unsafe_ptr(), alt_vals.unsafe_ptr())
+    var db_keys = DoubleBuffer(
+        keys.unsafe_ptr(), workspace.alt_keys.unsafe_ptr()
+    )
+    var db_vals = DoubleBuffer(
+        values.unsafe_ptr(), workspace.alt_vals.unsafe_ptr()
+    )
 
     comptime UPSWEEP_BLOC_SIZE = 256
     comptime SCAN_BLOCK_SIZE = 256
@@ -621,17 +642,15 @@ def device_radix_sort_pairs[
     comptime _scan = scan[SCAN_BLOCK_SIZE]
     comptime _downsweep_pairs = downsweep_pairs[DOWNSWEEP_BLOCK_SIZE]
 
+    workspace.global_hist.enqueue_fill(0)
     comptime for pass_idx in range(4):
         var radix_shift = UInt32(pass_idx * 8)
-
-        # Reset global histogram for this pass
-        global_hist.enqueue_fill(0)
 
         # Upsweep (Global Histogram)
         ctx.enqueue_function[_upsweep, _upsweep](
             db_keys.current,
-            global_hist.unsafe_ptr(),
-            pass_hist.unsafe_ptr(),
+            workspace.global_hist.unsafe_ptr(),
+            workspace.pass_hist.unsafe_ptr(),
             size,
             radix_shift,
             grid_dim=gdim,
@@ -640,7 +659,7 @@ def device_radix_sort_pairs[
 
         # Scan (Prefix Sum of histograms)
         ctx.enqueue_function[_scan, _scan](
-            pass_hist.unsafe_ptr(),
+            workspace.pass_hist.unsafe_ptr(),
             gdim,
             grid_dim=RADIX,
             block_dim=SCAN_BLOCK_SIZE,
@@ -652,8 +671,8 @@ def device_radix_sort_pairs[
             db_vals.current,
             db_keys.alternate,
             db_vals.alternate,
-            global_hist.unsafe_ptr(),
-            pass_hist.unsafe_ptr(),
+            workspace.global_hist.unsafe_ptr(),
+            workspace.pass_hist.unsafe_ptr(),
             size,
             radix_shift,
             grid_dim=gdim,
@@ -667,3 +686,15 @@ def device_radix_sort_pairs[
     # Final result should be in the original buffers
     # (Since 4 passes is an even number, d_keys == keys.unsafe_ptr())
     ctx.synchronize()
+
+
+def device_radix_sort_pairs[
+    dtype: DType
+](
+    ctx: DeviceContext,
+    mut keys: DeviceBuffer[dtype],
+    mut values: DeviceBuffer[dtype],
+    size: Int,
+) raises:
+    var workspace = RadixSortWorkspace[dtype](ctx, size)
+    device_radix_sort_pairs(ctx, workspace, keys, values, size)

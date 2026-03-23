@@ -261,7 +261,7 @@ def test_downsweep_pairs_end_to_end() raises:
         ctx.synchronize()
 
         # 3. DOWNSWEEP PAIRS
-        ctx.enqueue_function[downsweep_pairs, downsweep_pairs](
+        ctx.enqueue_function[downsweep_pairs[512], downsweep_pairs[512]](
             d_keys.unsafe_ptr(),
             d_vals.unsafe_ptr(),
             d_alt_keys.unsafe_ptr(),

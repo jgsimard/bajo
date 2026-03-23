@@ -50,11 +50,11 @@ def test_upsweep() raises:
                 expected_counts[Int(val & RADIX_MASK)] += 1
 
         # Execute
-        ctx.enqueue_function[upsweep, upsweep](
+        ctx.enqueue_function[upsweep[128], upsweep[128]](
             d_keys.unsafe_ptr(),
             d_globalHist.unsafe_ptr(),
             d_passHist.unsafe_ptr(),
-            UInt32(size),
+            size,
             UInt32(0),  # Testing radixShift = 0 first
             grid_dim=gdim,
             block_dim=bdim,
@@ -134,7 +134,7 @@ def test_downsweep_end_to_end() raises:
     """
     with DeviceContext() as ctx:
         comptime dtype = DType.uint32
-        var size: UInt32 = 20_000
+        var size = 20_000
         var gdim = ceildiv(Int(size), BIN_PART_SIZE)
         var bdim = 512
 
@@ -152,7 +152,7 @@ def test_downsweep_end_to_end() raises:
                 host_keys[i] = UInt32((i * 17) ^ (i << 13) ^ (i >> 5))
 
         # 1. UPSWEEP
-        ctx.enqueue_function[upsweep, upsweep](
+        ctx.enqueue_function[upsweep[128], upsweep[128]](
             d_keys.unsafe_ptr(),
             d_globalHist.unsafe_ptr(),
             d_passHist.unsafe_ptr(),
@@ -222,8 +222,8 @@ def test_downsweep_pairs_end_to_end() raises:
     """Tests sorting key-value pairs."""
     with DeviceContext() as ctx:
         comptime dtype = DType.uint32
-        var size: UInt32 = 20_000
-        var gdim = ceildiv(Int(size), BIN_PART_SIZE)
+        var size = 20_000
+        var gdim = ceildiv(size, BIN_PART_SIZE)
         var bdim = 512
 
         var d_keys = ctx.enqueue_create_buffer[dtype](Int(size))
@@ -243,7 +243,7 @@ def test_downsweep_pairs_end_to_end() raises:
                 host_vals[i] = UInt32(i)  # Payload is original index
 
         # 1. UPSWEEP
-        ctx.enqueue_function[upsweep, upsweep](
+        ctx.enqueue_function[upsweep[128], upsweep[128]](
             d_keys.unsafe_ptr(),
             d_globalHist.unsafe_ptr(),
             d_passHist.unsafe_ptr(),

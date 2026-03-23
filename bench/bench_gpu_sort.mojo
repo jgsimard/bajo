@@ -3,7 +3,10 @@ from std.gpu.host import DeviceContext, DeviceBuffer
 from std.math import ceildiv
 
 from bajo.sort.gpu import bitonic_sort, bitonic_sort_basic
-from bajo.sort.gpu.radix_sort import device_radix_sort_pairs
+from bajo.sort.gpu.radix_sort import (
+    device_radix_sort_pairs,
+    device_radix_sort_keys,
+)
 
 
 def check_validity(keys: DeviceBuffer[DType.uint32], size: Int) raises:
@@ -15,7 +18,17 @@ def check_validity(keys: DeviceBuffer[DType.uint32], size: Int) raises:
                 )
 
 
-def benchmark_gpu_sorts[SIZE: Int = 1 << 20]() raises:
+def calculate_gks(ns_per_iter: Float64, SIZE: Int) -> Float64:
+    return Float64(SIZE) / ns_per_iter
+
+
+def fmt(ns: Float64, SIZE: Int) -> String:
+    var ms = round(ns / 1_000_000.0, 4)
+    var gks = round(calculate_gks(ns, SIZE), 3)
+    return String(ms) + " | " + String(gks)
+
+
+def benchmark_sorts_key_value[SIZE: Int = 1 << 20]() raises:
     comptime dtype = DType.uint32
     # comptime SIZE = 1 << 20
     comptime WARMUP = 5
@@ -36,23 +49,19 @@ def benchmark_gpu_sorts[SIZE: Int = 1 << 20]() raises:
                     host_keys[i] = val
                     host_values[i] = UInt32(i)
 
-        @always_inline
-        def calculate_gks(ns_per_iter: Float64) -> Float64:
-            return Float64(SIZE) / ns_per_iter
+        # # 1. Benchmark: Basic Bitonic Sort
+        # reset_data()
+        # bitonic_sort_basic[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
+        # ctx.synchronize()
+        # check_validity(keys, SIZE)
 
-        # 1. Benchmark: Basic Bitonic Sort
-        reset_data()
-        bitonic_sort_basic[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
-        ctx.synchronize()
-        check_validity(keys, SIZE)
+        # t0 = perf_counter_ns()
+        # for _ in range(N_ITERS):
+        #     bitonic_sort_basic[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
+        #     ctx.synchronize()
+        # var basic_ns = Float64(perf_counter_ns() - t0) / N_ITERS
 
-        t0 = perf_counter_ns()
-        for _ in range(N_ITERS):
-            bitonic_sort_basic[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
-            ctx.synchronize()
-        var basic_ns = Float64(perf_counter_ns() - t0) / N_ITERS
-
-        # 2. Benchmark: Shared Memory Bitonic Sort
+        # 2. Shared Memory Bitonic Sort
         reset_data()
         bitonic_sort[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
         ctx.synchronize()
@@ -64,7 +73,7 @@ def benchmark_gpu_sorts[SIZE: Int = 1 << 20]() raises:
             ctx.synchronize()
         var opt_ns = Float64(perf_counter_ns() - t0) / N_ITERS
 
-        # 4. Benchmark: Radix Sort
+        # Radix Sort
         reset_data()
         device_radix_sort_pairs(ctx, keys, values, SIZE)
         ctx.synchronize()
@@ -76,33 +85,78 @@ def benchmark_gpu_sorts[SIZE: Int = 1 << 20]() raises:
             ctx.synchronize()
         var radix_ns = Float64(perf_counter_ns() - t0) / N_ITERS
 
-        # Results Calculation
-        def fmt(ns: Float64) -> String:
-            var ms = round(ns / 1_000_000.0, 4)
-            var gks = round(calculate_gks(ns), 3)
-            return String(ms) + " | " + String(gks)
+        print("==================== RESULTS ====================")
+        print(t"Data Size: {SIZE} elements (32-bit keys)")
+        print("Algorithm               | Time (ms) | Throughput (GK/s)")
+        print("-------------------------------------------------")
+        # print(t"Basic Bitonic Sort      | {fmt(basic_ns)}")
+        print(t"Shared Mem Bitonic Sort | {fmt(opt_ns, SIZE)}")
+        print(t"Radix Sort              | {fmt(radix_ns, SIZE)}")
+        print("=================================================")
+
+
+def benchmark_sort_key[SIZE: Int = 1 << 20]() raises:
+    comptime dtype = DType.uint32
+    comptime N_ITERS = 10
+    comptime WARMUP = 5
+    comptime THREADS_PER_BLOCK = 512
+
+    print(t"\nSetting up benchmarks for {SIZE} elements...")
+
+    with DeviceContext() as ctx:
+        var keys = ctx.enqueue_create_buffer[dtype](SIZE)
+
+        def reset_data() capturing raises:
+            with keys.map_to_host() as host_keys:
+                for i in range(SIZE):
+                    # Deterministic pseudo-random (xor-shift style)
+                    var val = UInt32((i * 1103515245 + 12345) & 0x7FFFFFFF)
+                    host_keys[i] = val
+
+        # Radix Sort
+        reset_data()
+        device_radix_sort_keys(ctx, keys, SIZE)
+        ctx.synchronize()
+        check_validity(keys, SIZE)
+
+        t0 = perf_counter_ns()
+        for _ in range(N_ITERS):
+            device_radix_sort_keys(ctx, keys, SIZE)
+            ctx.synchronize()
+        var radix_ns = Float64(perf_counter_ns() - t0) / N_ITERS
 
         print("==================== RESULTS ====================")
         print(t"Data Size: {SIZE} elements (32-bit keys)")
         print("Algorithm               | Time (ms) | Throughput (GK/s)")
         print("-------------------------------------------------")
-        print(t"Basic Bitonic Sort      | {fmt(basic_ns)}")
-        print(t"Shared Mem Bitonic Sort | {fmt(opt_ns)}")
-        print(t"Radix Sort              | {fmt(radix_ns)}")
+        # print(t"Basic Bitonic Sort      | {fmt(basic_ns)}")
+        # print(t"Shared Mem Bitonic Sort | {fmt(opt_ns)}")
+        print(t"Radix Sort              | {fmt(radix_ns, SIZE)}")
         print("=================================================")
 
 
 def main() raises:
-    benchmark_gpu_sorts[1 << 10]()
-    benchmark_gpu_sorts[1 << 12]()
-    benchmark_gpu_sorts[1 << 14]()
-    benchmark_gpu_sorts[1 << 16]()
-    benchmark_gpu_sorts[1 << 18]()
-    benchmark_gpu_sorts[1 << 20]()
-    benchmark_gpu_sorts[1 << 22]()
-    benchmark_gpu_sorts[1 << 24]()
-    benchmark_gpu_sorts[1 << 26]()
-    # benchmark_gpu_sorts[1 << 28]()
+    benchmark_sorts_key_value[1 << 10]()
+    benchmark_sorts_key_value[1 << 12]()
+    benchmark_sorts_key_value[1 << 14]()
+    benchmark_sorts_key_value[1 << 16]()
+    benchmark_sorts_key_value[1 << 18]()
+    benchmark_sorts_key_value[1 << 20]()
+    # benchmark_sorts_key_value[1 << 22]()
+    # benchmark_sorts_key_value[1 << 24]()
+    # benchmark_sorts_key_value[1 << 26]()
+    # benchmark_sorts_key_value[1 << 28]()
+
+    benchmark_sort_key[1 << 10]()
+    benchmark_sort_key[1 << 12]()
+    benchmark_sort_key[1 << 14]()
+    benchmark_sort_key[1 << 16]()
+    benchmark_sort_key[1 << 18]()
+    benchmark_sort_key[1 << 20]()
+    benchmark_sort_key[1 << 22]()
+    benchmark_sort_key[1 << 24]()
+    benchmark_sort_key[1 << 26]()
+    benchmark_sort_key[1 << 28]()
 
 
 # current results

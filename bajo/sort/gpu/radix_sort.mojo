@@ -48,94 +48,93 @@ struct DoubleBuffer[dtype: DType](Copyable):
 # based on DeviceRadixSort from https://github.com/b0nes164/GPUSorting
 
 
-def upsweep(
+def upsweep[
+    BLOCK_SIZE: Int
+](
     sort: UnsafePointer[UInt32, MutAnyOrigin],
     global_hist: UnsafePointer[UInt32, MutAnyOrigin],
     pass_hist: UnsafePointer[UInt32, MutAnyOrigin],
-    size: UInt32,
+    size: Int,
     radix_shift: UInt32,
 ):
+    comptime NUM_WARPS = BLOCK_SIZE // WARP_SIZE
     var tid = Int(thread_idx.x)
-    var bdim = Int(block_dim.x)
     var bid = Int(block_idx.x)
     var gdim = Int(grid_dim.x)
     var lid = Int(lane_id())
+    var warp_id = tid // WARP_SIZE
 
-    # Allocate shared memory
+    # Shared Memory Allocation
+    comptime PADDED_RADIX = RADIX + 1
     var s_global_hist = stack_allocation[
-        RADIX * 2, UInt32, address_space=AddressSpace.SHARED
+        NUM_WARPS * PADDED_RADIX, UInt32, address_space=AddressSpace.SHARED
     ]()
 
-    for i in range(tid, RADIX * 2, bdim):
+    # Initialize shared memory using the constant BLOCK_SIZE
+    for i in range(tid, NUM_WARPS * PADDED_RADIX, BLOCK_SIZE):
         s_global_hist[i] = 0
     barrier()
 
-    # Histogram Binning
-    var s_waves_hist = s_global_hist + (tid // 64) * RADIX
+    # 2. Histogram Binning
+    var s_warp_hist = s_global_hist + (warp_id * PADDED_RADIX)
 
     if bid < gdim - 1:
         for i in range(
-            tid + (bid * VEC_PART_SIZE), (bid + 1) * VEC_PART_SIZE, bdim
+            tid + (bid * VEC_PART_SIZE), (bid + 1) * VEC_PART_SIZE, BLOCK_SIZE
         ):
             var t = sort.load[width=4](i * 4)
             t = (t >> radix_shift) & RADIX_MASK
-            _ = Atomic.fetch_add(s_waves_hist + t[0], 1)
-            _ = Atomic.fetch_add(s_waves_hist + t[1], 1)
-            _ = Atomic.fetch_add(s_waves_hist + t[2], 1)
-            _ = Atomic.fetch_add(s_waves_hist + t[3], 1)
+            _ = Atomic.fetch_add(s_warp_hist + t[0], 1)
+            _ = Atomic.fetch_add(s_warp_hist + t[1], 1)
+            _ = Atomic.fetch_add(s_warp_hist + t[2], 1)
+            _ = Atomic.fetch_add(s_warp_hist + t[3], 1)
 
-    if bid == gdim - 1:
-        for j in range(tid + (bid * PART_SIZE), size, bdim):
+    # tail
+    else:
+        for j in range(tid + (bid * PART_SIZE), size, BLOCK_SIZE):
             var t = sort[j]
             t = (t >> radix_shift) & RADIX_MASK
-            _ = Atomic.fetch_add(s_waves_hist + t, 1)
+            _ = Atomic.fetch_add(s_warp_hist + t, 1)
 
     barrier()
 
-    # Reduce to the first histogram, pass out, begin prefix sum
-    for i in range(tid, RADIX, bdim):
-        var val = s_global_hist[i] + s_global_hist[i + RADIX]
-        pass_hist[i * gdim + bid] = val
+    # Consolidate warp histograms into the first histogram
+    for i in range(tid, RADIX, BLOCK_SIZE):
+        var total_val: UInt32 = 0
+        comptime for w in range(NUM_WARPS):
+            total_val += s_global_hist[w * PADDED_RADIX + i]
 
-        # Unconditional prefix sum (all threads in the warp execute this)
-        var sum = warp.prefix_sum[exclusive=False](val)
+        # Store for the Scan pass
+        pass_hist[i * gdim + bid] = total_val
 
-        # Circular shift: lane 0 pulls from 31, lane 1 pulls from 0, etc.
-        var shifted = warp.shuffle_idx(sum, UInt32((lane_id() + 31) & 31))
+        var scan_val = warp.prefix_sum[exclusive=True](total_val)
 
-        s_global_hist[i] = shifted
+        var total_sum = warp.sum(total_val)
+        if lid == 0:
+            s_global_hist[i] = total_sum
+        else:
+            s_global_hist[i] = scan_val
 
     barrier()
 
-    # ActiveExclusiveWarpScan over the chained sums using stdlib
-    if tid < 32:
+    # Final Global Accumulation
+    if tid < WARP_SIZE:
         var idx = tid << LANE_LOG
         var val: UInt32 = 0
-
-        # Only the first 8 threads read memory
-        comptime N = RADIX >> LANE_LOG
-
-        if tid < N:
+        if tid < (RADIX >> LANE_LOG):
             val = s_global_hist[idx]
-
-        val = warp.prefix_sum[exclusive=True](val)
-
-        # Only the first 8 threads write back
-        if tid < N:
-            s_global_hist[idx] = val
-
+        var exclusive_val = warp.prefix_sum[exclusive=True](val)
+        if tid < (RADIX >> LANE_LOG):
+            s_global_hist[idx] = exclusive_val
     barrier()
 
-    # Atomically add to device memory to accumulate total prefix sums
-    for i in range(tid, RADIX, bdim):
+    for i in range(tid, RADIX, BLOCK_SIZE):
         var prev_sum: UInt32 = 0
         if lid > 0:
-            var base_idx = i - lid
-            prev_sum = s_global_hist[base_idx]
+            prev_sum = s_global_hist[i - lid]
 
         var val_to_add = s_global_hist[i] + prev_sum
         var global_idx = i + Int(radix_shift << LANE_LOG)
-
         _ = Atomic.fetch_add(global_hist + global_idx, val_to_add)
 
 
@@ -188,7 +187,7 @@ def downsweep_keys_only(
     alt: UnsafePointer[UInt32, MutAnyOrigin],
     global_hist: UnsafePointer[UInt32, MutAnyOrigin],
     pass_hist: UnsafePointer[UInt32, MutAnyOrigin],
-    size: UInt32,
+    size: Int,
     radix_shift: UInt32,
 ):
     # Shared memory allocations
@@ -342,7 +341,7 @@ def downsweep_pairs(
     alt_payload: UnsafePointer[UInt32, MutAnyOrigin],
     global_hist: UnsafePointer[UInt32, MutAnyOrigin],
     pass_hist: UnsafePointer[UInt32, MutAnyOrigin],
-    size: UInt32,
+    size: Int,
     radix_shift: UInt32,
 ):
     # Shared memory allocations
@@ -380,7 +379,7 @@ def downsweep_pairs(
     if bid == gdim - 1:
         var t = Int(lane_id()) + BIN_SUB_PART_START + BIN_PART_START
         comptime for i in range(BIN_KEYS_PER_THREAD):
-            keys[i] = sort[t] if t < Int(size) else 0xFFFFFFFF
+            keys[i] = sort[t] if t < size else 0xFFFFFFFF
             t += 32
     barrier()
 
@@ -547,7 +546,9 @@ def device_radix_sort_keys(
     # Pointer management for ping-ponging
     var db_keys = DoubleBuffer(keys.unsafe_ptr(), alt_keys.unsafe_ptr())
 
-    comptime SCAN_BLOCK_SIZE = 128
+    comptime UPSWEEP_BLOC_SIZE = 256
+    comptime SCAN_BLOCK_SIZE = 256
+    comptime _upsweep = upsweep[UPSWEEP_BLOC_SIZE]
     comptime _scan = scan[SCAN_BLOCK_SIZE]
 
     comptime for pass_idx in range(4):
@@ -557,14 +558,14 @@ def device_radix_sort_keys(
         global_hist.enqueue_fill(0)
 
         # Upsweep (Global Histogram)
-        ctx.enqueue_function[upsweep, upsweep](
+        ctx.enqueue_function[_upsweep, _upsweep](
             db_keys.current,
             global_hist.unsafe_ptr(),
             pass_hist.unsafe_ptr(),
-            UInt32(size),
+            size,
             radix_shift,
             grid_dim=gdim,
-            block_dim=128,
+            block_dim=UPSWEEP_BLOC_SIZE,
         )
 
         # Scan (Prefix Sum of partial histograms)
@@ -581,7 +582,7 @@ def device_radix_sort_keys(
             db_keys.alternate,
             global_hist.unsafe_ptr(),
             pass_hist.unsafe_ptr(),
-            UInt32(size),
+            size,
             radix_shift,
             grid_dim=gdim,
             block_dim=512,
@@ -615,7 +616,9 @@ def device_radix_sort_pairs[
     var db_keys = DoubleBuffer(keys.unsafe_ptr(), alt_keys.unsafe_ptr())
     var db_vals = DoubleBuffer(values.unsafe_ptr(), alt_vals.unsafe_ptr())
 
+    comptime UPSWEEP_BLOC_SIZE = 256
     comptime SCAN_BLOCK_SIZE = 256
+    comptime _upsweep = upsweep[UPSWEEP_BLOC_SIZE]
     comptime _scan = scan[SCAN_BLOCK_SIZE]
 
     comptime for pass_idx in range(4):
@@ -625,14 +628,14 @@ def device_radix_sort_pairs[
         global_hist.enqueue_fill(0)
 
         # Upsweep (Global Histogram)
-        ctx.enqueue_function[upsweep, upsweep](
+        ctx.enqueue_function[_upsweep, _upsweep](
             db_keys.current,
             global_hist.unsafe_ptr(),
             pass_hist.unsafe_ptr(),
-            UInt32(size),
+            size,
             radix_shift,
             grid_dim=gdim,
-            block_dim=128,
+            block_dim=UPSWEEP_BLOC_SIZE,
         )
 
         # Scan (Prefix Sum of histograms)
@@ -651,7 +654,7 @@ def device_radix_sort_pairs[
             db_vals.alternate,
             global_hist.unsafe_ptr(),
             pass_hist.unsafe_ptr(),
-            UInt32(size),
+            size,
             radix_shift,
             grid_dim=gdim,
             block_dim=512,

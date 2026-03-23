@@ -353,6 +353,7 @@ def downsweep_pairs(
     var bdim = Int(block_dim.x)
     var bid = Int(block_idx.x)
     var gdim = Int(grid_dim.x)
+    var lid = Int(lane_id())
     var warp_id = tid >> LANE_LOG
 
     var s_warpHist_ptr = s_warp_histograms + (warp_id << N_BITS)
@@ -487,12 +488,13 @@ def downsweep_pairs(
         barrier()
 
         # Scatter payloads into device memory
-        for i in range(BIN_KEYS_PER_THREAD):
+        comptime for i in range(BIN_KEYS_PER_THREAD):
             var t = tid + (i * bdim)
             var d = Int(digits[i])
             alt_payload[s_local_histogram[d] + UInt32(t)] = s_warp_histograms[t]
 
-    if bid == gdim - 1:
+    # tail
+    else:
         var final_part_size = Int(size) - BIN_PART_START
         comptime for i in range(BIN_KEYS_PER_THREAD):
             var t = tid + (i * bdim)
@@ -504,7 +506,7 @@ def downsweep_pairs(
         barrier()
 
         # Load payloads into registers
-        var t_payload = Int(lane_id()) + BIN_SUB_PART_START + BIN_PART_START
+        var t_payload = lid + BIN_SUB_PART_START + BIN_PART_START
         comptime for i in range(BIN_KEYS_PER_THREAD):
             if t_payload < Int(size):
                 keys[i] = sort_payload[t_payload]

@@ -184,6 +184,48 @@ def scan[
         pass_hist[i + digit_offset] = exclusive_tail + reduction
 
 
+@always_inline
+def warp_level_multi_split(
+    keys: InlineArray[UInt32, BIN_KEYS_PER_THREAD],
+    lid: Int,
+    radix_shift: UInt32,
+    s_warp_hist_ptr: UnsafePointer[
+        UInt32, MutExternalOrigin, address_space=AddressSpace.SHARED
+    ],
+) -> InlineArray[UInt32, BIN_KEYS_PER_THREAD]:
+    comptime mask_dtype = DType.uint64 if WARP_SIZE > 32 else DType.uint32
+    comptime MaskInt = SIMD[mask_dtype, 1]
+
+    var offsets = InlineArray[UInt32, BIN_KEYS_PER_THREAD](uninitialized=True)
+    var lane_mask_lt = (MaskInt(1) << MaskInt(lid)) - 1
+
+    comptime for i in range(BIN_KEYS_PER_THREAD):
+        var warp_flags: MaskInt = ~MaskInt(0)
+        var key = keys[i]
+
+        comptime for k in range(N_BITS):
+            var t2 = ((key >> (radix_shift + UInt32(k))) & 1) == 1
+            var ballot = warp.vote[mask_dtype](t2)
+            var match_mask = ballot if t2 else ~ballot
+            warp_flags &= match_mask
+
+        var bits = UInt32(pop_count(warp_flags & lane_mask_lt))
+        var pre_increment_val: UInt32 = 0
+
+        if bits == 0:
+            var digit = Int((key >> radix_shift) & RADIX_MASK)
+            var count = UInt32(pop_count(warp_flags))
+            pre_increment_val = Atomic.fetch_add(s_warp_hist_ptr + digit, count)
+
+        var leader_lane = count_trailing_zeros(warp_flags)
+        pre_increment_val = warp.shuffle_idx(
+            pre_increment_val, UInt32(leader_lane)
+        )
+
+        offsets[i] = pre_increment_val + UInt32(bits)
+    return offsets^
+
+
 def downsweep_keys_only(
     sort: UnsafePointer[UInt32, MutAnyOrigin],
     alt: UnsafePointer[UInt32, MutAnyOrigin],
@@ -232,36 +274,9 @@ def downsweep_keys_only(
     barrier()
 
     # Warp-Level Multi-Split (WLMS)
-    comptime mask_dtype = DType.uint64 if WARP_SIZE > 32 else DType.uint32
-    comptime MaskInt = SIMD[mask_dtype, 1]
-
-    var offsets = InlineArray[UInt32, BIN_KEYS_PER_THREAD](uninitialized=True)
-    var lane_mask_lt = (MaskInt(1) << MaskInt(lid)) - 1
-
-    comptime for i in range(BIN_KEYS_PER_THREAD):
-        var warp_flags: MaskInt = ~MaskInt(0)
-        var key = keys[i]
-
-        comptime for k in range(N_BITS):
-            var t2 = ((key >> (radix_shift + UInt32(k))) & 1) == 1
-            var ballot = warp.vote[mask_dtype](t2)
-            var match_mask = ballot if t2 else ~ballot
-            warp_flags &= match_mask
-
-        var bits = UInt32(pop_count(warp_flags & lane_mask_lt))
-        var pre_increment_val: UInt32 = 0
-
-        if bits == 0:
-            var digit = Int((key >> radix_shift) & RADIX_MASK)
-            var count = UInt32(pop_count(warp_flags))
-            pre_increment_val = Atomic.fetch_add(s_warp_hist_ptr + digit, count)
-
-        var leader_lane = count_trailing_zeros(warp_flags)
-        pre_increment_val = warp.shuffle_idx(
-            pre_increment_val, UInt32(leader_lane)
-        )
-
-        offsets[i] = pre_increment_val + UInt32(bits)
+    var offsets = warp_level_multi_split(
+        keys, lid, radix_shift, s_warp_hist_ptr
+    )
     barrier()
 
     # Exclusive prefix sum up the warp histograms
@@ -390,36 +405,9 @@ def downsweep_pairs[
     barrier()
 
     # Warp-Level Multi-Split (WLMS)
-    comptime mask_dtype = DType.uint64 if WARP_SIZE > 32 else DType.uint32
-    comptime MaskInt = SIMD[mask_dtype, 1]
-
-    var offsets = InlineArray[UInt32, BIN_KEYS_PER_THREAD](uninitialized=True)
-    var lane_mask_lt = (MaskInt(1) << MaskInt(lid)) - 1
-
-    comptime for i in range(BIN_KEYS_PER_THREAD):
-        var warp_flags: MaskInt = ~MaskInt(0)
-        var key = keys[i]
-
-        comptime for k in range(N_BITS):
-            var t2 = ((key >> (radix_shift + UInt32(k))) & 1) == 1
-            var ballot = warp.vote[mask_dtype](t2)
-            var match_mask = ballot if t2 else ~ballot
-            warp_flags &= match_mask
-
-        var bits = UInt32(pop_count(warp_flags & lane_mask_lt))
-        var pre_increment_val: UInt32 = 0
-
-        if bits == 0:
-            var digit = Int((key >> radix_shift) & RADIX_MASK)
-            var count = UInt32(pop_count(warp_flags))
-            pre_increment_val = Atomic.fetch_add(s_warp_hist_ptr + digit, count)
-
-        var leader_lane = count_trailing_zeros(warp_flags)
-        pre_increment_val = warp.shuffle_idx(
-            pre_increment_val, UInt32(leader_lane)
-        )
-
-        offsets[i] = pre_increment_val + UInt32(bits)
+    var offsets = warp_level_multi_split(
+        keys, lid, radix_shift, s_warp_hist_ptr
+    )
     barrier()
 
     # Exclusive prefix sum up the warp histograms

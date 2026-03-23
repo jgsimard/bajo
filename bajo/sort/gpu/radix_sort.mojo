@@ -16,10 +16,12 @@ from std.math import ceildiv
 from std.memory import stack_allocation
 from std.os.atomic import Atomic
 
+# based on DeviceRadixSort from https://github.com/b0nes164/GPUSorting
+
 comptime N_BITS = 8
 comptime RADIX = 2**N_BITS
 comptime RADIX_MASK = 255
-
+comptime WARP_MASK = WARP_SIZE - 1
 
 comptime SEC_RADIX_START = 1 * RADIX
 comptime THIRD_RADIX_START = 2 * RADIX
@@ -34,7 +36,7 @@ comptime BIN_HISTS_SIZE = 4096
 comptime BIN_SUB_PART_SIZE = 480
 comptime BIN_WARPS = 16
 comptime BIN_KEYS_PER_THREAD = 15
-comptime LANE_LOG = 5
+comptime LANE_LOG = count_trailing_zeros(WARP_SIZE)  # 2^5 = 32
 
 
 @fieldwise_init
@@ -46,7 +48,10 @@ struct DoubleBuffer[dtype: DType](Copyable):
         swap(self.current, self.alternate)
 
 
-# based on DeviceRadixSort from https://github.com/b0nes164/GPUSorting
+def circular_shift(val: UInt32, lid: UInt32) -> UInt32:
+    return warp.shuffle_idx(
+        val, UInt32((lid + UInt32(WARP_MASK)) & UInt32(WARP_MASK))
+    )
 
 
 def upsweep[
@@ -109,8 +114,7 @@ def upsweep[
         pass_hist[i * gdim + bid] = total_val
 
         var scan_val = warp.prefix_sum[exclusive=False](total_val)
-        # Circular shift: lane 0 pulls from 31, lane 1 pulls from 0, etc.
-        var shifted = warp.shuffle_idx(scan_val, UInt32((lid + 31) & 31))
+        var shifted = circular_shift(scan_val, UInt32(lid))
         s_global_hist[i] = shifted
 
     barrier()
@@ -132,7 +136,7 @@ def upsweep[
             prev_sum = s_global_hist[i - lid]
 
         var val_to_add = s_global_hist[i] + prev_sum
-        var global_idx = i + Int(radix_shift << LANE_LOG)
+        var global_idx = i + Int(radix_shift << UInt32(LANE_LOG))
         _ = Atomic.fetch_add(global_hist + global_idx, val_to_add)
 
 
@@ -231,6 +235,7 @@ def downsweep_keys_only(
     var offsets = InlineArray[UInt32, BIN_KEYS_PER_THREAD](uninitialized=True)
     var lane_mask_lt = (UInt32(1) << UInt32(lid)) - 1
 
+    # TODO: be generic over WARP_SIZE, need UInt64 if WARP_SIZE=64
     comptime for i in range(BIN_KEYS_PER_THREAD):
         var warp_flags: UInt32 = 0xFFFFFFFF
         var key = keys[i]
@@ -265,11 +270,11 @@ def downsweep_keys_only(
             s_warp_histograms[i] = reduction - s_warp_histograms[i]
 
         var sum = warp.prefix_sum[exclusive=False](reduction)
-        var shifted = warp.shuffle_idx(sum, UInt32((lid + 31) & 31))
+        var shifted = circular_shift(sum, UInt32(lid))
         s_warp_histograms[tid] = shifted
     barrier()
 
-    if tid < 32:
+    if tid < WARP_SIZE:
         var idx = tid << LANE_LOG
         var val: UInt32 = 0
         if tid < (RADIX >> LANE_LOG):
@@ -420,7 +425,7 @@ def downsweep_pairs[
             s_warp_histograms[i] = reduction - s_warp_histograms[i]
 
         var sum = warp.prefix_sum[exclusive=False](reduction)
-        var shifted = warp.shuffle_idx(sum, UInt32((lid + 31) & 31))
+        var shifted = circular_shift(sum, UInt32(lid))
         s_warp_histograms[tid] = shifted
     barrier()
 
@@ -609,7 +614,6 @@ struct RadixSortWorkspace[dtype: DType]:
         self.alt_keys = ctx.enqueue_create_buffer[Self.dtype](size)
         self.alt_vals = ctx.enqueue_create_buffer[Self.dtype](size)
 
-        # Revert to standard size. The inner kernels handle passes natively!
         self.global_hist = ctx.enqueue_create_buffer[Self.dtype](GLOBAL_HIST)
         self.pass_hist = ctx.enqueue_create_buffer[Self.dtype](gdim * RADIX)
 

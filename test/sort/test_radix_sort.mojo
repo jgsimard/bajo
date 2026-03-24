@@ -11,14 +11,12 @@ from std.gpu.host import DeviceContext
 
 from bajo.sort.gpu.radix_sort import (
     upsweep,
-    VEC_PART_SIZE,
     RADIX_MASK,
     PART_SIZE,
     RADIX,
     scan,
-    downsweep_keys_only,
-    downsweep_pairs,
-    BIN_PART_SIZE,
+    downsweep,
+    KEYS_PER_THREAD,
 )
 
 
@@ -134,9 +132,13 @@ def test_downsweep_end_to_end() raises:
     """
     with DeviceContext() as ctx:
         comptime dtype = DType.uint32
+        comptime BLOCK_SIZE = 512
+        comptime PART_SIZE = BLOCK_SIZE * KEYS_PER_THREAD
+
+        var _dummy_ptr = UnsafePointer[UInt32, MutAnyOrigin]()
+
         var size = 20_000
-        var gdim = ceildiv(Int(size), BIN_PART_SIZE)
-        var bdim = 512
+        var gdim = ceildiv(Int(size), PART_SIZE)
 
         var d_keys = ctx.enqueue_create_buffer[dtype](Int(size))
         var d_alt = ctx.enqueue_create_buffer[dtype](Int(size))
@@ -170,15 +172,17 @@ def test_downsweep_end_to_end() raises:
         ctx.synchronize()
 
         # 3. DOWNSWEEP
-        ctx.enqueue_function[downsweep_keys_only, downsweep_keys_only](
+        ctx.enqueue_function[downsweep[512, False], downsweep[512, False]](
             d_keys.unsafe_ptr(),
+            _dummy_ptr,
             d_alt.unsafe_ptr(),
+            _dummy_ptr,
             d_globalHist.unsafe_ptr(),
             d_passHist.unsafe_ptr(),
             size,
             UInt32(0),
             grid_dim=gdim,
-            block_dim=bdim,
+            block_dim=BLOCK_SIZE,
         )
         ctx.synchronize()
 
@@ -222,8 +226,11 @@ def test_downsweep_pairs_end_to_end() raises:
     """Tests sorting key-value pairs."""
     with DeviceContext() as ctx:
         comptime dtype = DType.uint32
+        comptime BLOCK_SIZE = 512
+        comptime PART_SIZE = BLOCK_SIZE * KEYS_PER_THREAD
+
         var size = 20_000
-        var gdim = ceildiv(size, BIN_PART_SIZE)
+        var gdim = ceildiv(size, PART_SIZE)
         var bdim = 512
 
         var d_keys = ctx.enqueue_create_buffer[dtype](Int(size))
@@ -261,7 +268,7 @@ def test_downsweep_pairs_end_to_end() raises:
         ctx.synchronize()
 
         # 3. DOWNSWEEP PAIRS
-        ctx.enqueue_function[downsweep_pairs[512], downsweep_pairs[512]](
+        ctx.enqueue_function[downsweep[512, True], downsweep[512, True]](
             d_keys.unsafe_ptr(),
             d_vals.unsafe_ptr(),
             d_alt_keys.unsafe_ptr(),

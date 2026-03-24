@@ -198,16 +198,16 @@ def main() raises:
     benchmark_sorts_key_value[1 << 26]()
     benchmark_sorts_key_value[1 << 28]()
 
-    # benchmark_sort_key[1 << 10]()
-    # benchmark_sort_key[1 << 12]()
-    # benchmark_sort_key[1 << 14]()
-    # benchmark_sort_key[1 << 16]()
-    # benchmark_sort_key[1 << 18]()
+    benchmark_sort_key[1 << 10]()
+    benchmark_sort_key[1 << 12]()
+    benchmark_sort_key[1 << 14]()
+    benchmark_sort_key[1 << 16]()
+    benchmark_sort_key[1 << 18]()
     benchmark_sort_key[1 << 20]()
-    # benchmark_sort_key[1 << 22]()
-    # benchmark_sort_key[1 << 24]()
-    # benchmark_sort_key[1 << 26]()
-    # benchmark_sort_key[1 << 28]()
+    benchmark_sort_key[1 << 22]()
+    benchmark_sort_key[1 << 24]()
+    benchmark_sort_key[1 << 26]()
+    benchmark_sort_key[1 << 28]()
 
 
 # current results
@@ -216,9 +216,9 @@ def main() raises:
 # Data Size: 1024 elements (32-bit keys)
 # Algorithm               | Time (ms) | Throughput (GK/s)
 # -------------------------------------------------
-# Basic Bitonic Sort      | 0.3375 | 0.003
-# Shared Mem Bitonic Sort | 0.0126 | 0.081
-# Radix Sort              | 0.0833 | 0.012
+# Basic Bitonic Sort      | 0.3566 | 0.003
+# Shared Mem Bitonic Sort | 0.014 | 0.073
+# Radix Sort              | 0.0646 | 0.016
 # =================================================
 
 # Setting up benchmarks for 4096 elements...
@@ -226,9 +226,9 @@ def main() raises:
 # Data Size: 4096 elements (32-bit keys)
 # Algorithm               | Time (ms) | Throughput (GK/s)
 # -------------------------------------------------
-# Basic Bitonic Sort      | 0.4826 | 0.008
+# Basic Bitonic Sort      | 0.4842 | 0.008
 # Shared Mem Bitonic Sort | 0.0269 | 0.152
-# Radix Sort              | 0.1139 | 0.036
+# Radix Sort              | 0.1403 | 0.029
 # =================================================
 
 # Setting up benchmarks for 16384 elements...
@@ -236,9 +236,9 @@ def main() raises:
 # Data Size: 16384 elements (32-bit keys)
 # Algorithm               | Time (ms) | Throughput (GK/s)
 # -------------------------------------------------
-# Basic Bitonic Sort      | 0.6356 | 0.026
-# Shared Mem Bitonic Sort | 0.048 | 0.341
-# Radix Sort              | 0.1413 | 0.116
+# Basic Bitonic Sort      | 0.6589 | 0.025
+# Shared Mem Bitonic Sort | 0.0496 | 0.33
+# Radix Sort              | 0.1041 | 0.157
 # =================================================
 
 # Setting up benchmarks for 65536 elements...
@@ -246,9 +246,9 @@ def main() raises:
 # Data Size: 65536 elements (32-bit keys)
 # Algorithm               | Time (ms) | Throughput (GK/s)
 # -------------------------------------------------
-# Basic Bitonic Sort      | 0.8834 | 0.074
-# Shared Mem Bitonic Sort | 0.0997 | 0.657
-# Radix Sort              | 0.1532 | 0.428
+# Basic Bitonic Sort      | 1.0326 | 0.063
+# Shared Mem Bitonic Sort | 0.1004 | 0.653
+# Radix Sort              | 0.102 | 0.643
 # =================================================
 
 # Setting up benchmarks for 262144 elements...
@@ -256,9 +256,9 @@ def main() raises:
 # Data Size: 262144 elements (32-bit keys)
 # Algorithm               | Time (ms) | Throughput (GK/s)
 # -------------------------------------------------
-# Basic Bitonic Sort      | 1.4246 | 0.184
-# Shared Mem Bitonic Sort | 0.3457 | 0.758
-# Radix Sort              | 0.1831 | 1.432
+# Basic Bitonic Sort      | 1.5214 | 0.172
+# Shared Mem Bitonic Sort | 0.3128 | 0.838
+# Radix Sort              | 0.119 | 2.202
 # =================================================
 
 # Setting up benchmarks for 1048576 elements...
@@ -266,9 +266,9 @@ def main() raises:
 # Data Size: 1048576 elements (32-bit keys)
 # Algorithm               | Time (ms) | Throughput (GK/s)
 # -------------------------------------------------
-# Basic Bitonic Sort      | 3.2261 | 0.325
-# Shared Mem Bitonic Sort | 1.0138 | 1.034
-# Radix Sort              | 0.3284 | 3.193
+# Basic Bitonic Sort      | 3.349 | 0.313
+# Shared Mem Bitonic Sort | 1.0233 | 1.025
+# Radix Sort              | 0.3121 | 3.36
 # =================================================
 
 # Setting up benchmarks for 4194304 elements...
@@ -276,9 +276,9 @@ def main() raises:
 # Data Size: 4194304 elements (32-bit keys)
 # Algorithm               | Time (ms) | Throughput (GK/s)
 # -------------------------------------------------
-# Basic Bitonic Sort      | 13.6173 | 0.308
-# Shared Mem Bitonic Sort | 4.8155 | 0.871
-# Radix Sort              | 1.1509 | 3.644
+# Basic Bitonic Sort      | 14.0959 | 0.298
+# Shared Mem Bitonic Sort | 5.126 | 0.818
+# Radix Sort              | 0.9811 | 4.275
 # =================================================
 
 # Setting up benchmarks for 16777216 elements...
@@ -286,9 +286,9 @@ def main() raises:
 # Data Size: 16777216 elements (32-bit keys)
 # Algorithm               | Time (ms) | Throughput (GK/s)
 # -------------------------------------------------
-# Basic Bitonic Sort      | 160.1858 | 0.105
-# Shared Mem Bitonic Sort | 66.2855 | 0.253
-# Radix Sort              | 4.4814 | 3.744
+# Basic Bitonic Sort      | 160.2779 | 0.105
+# Shared Mem Bitonic Sort | 66.7245 | 0.251
+# Radix Sort              | 4.1089 | 4.083
 # =================================================
 
 # Setting up benchmarks for 67108864 elements...
@@ -296,9 +296,9 @@ def main() raises:
 # Data Size: 67108864 elements (32-bit keys)
 # Algorithm               | Time (ms) | Throughput (GK/s)
 # -------------------------------------------------
-# Basic Bitonic Sort      | 743.2779 | 0.09
-# Shared Mem Bitonic Sort | 330.3476 | 0.203
-# Radix Sort              | 17.5043 | 3.834
+# Basic Bitonic Sort      | 738.5024 | 0.091
+# Shared Mem Bitonic Sort | 333.4763 | 0.201
+# Radix Sort              | 16.9234 | 3.965
 # =================================================
 
 # Setting up benchmarks for 268435456 elements...
@@ -306,7 +306,7 @@ def main() raises:
 # Data Size: 268435456 elements (32-bit keys)
 # Algorithm               | Time (ms) | Throughput (GK/s)
 # -------------------------------------------------
-# Basic Bitonic Sort      | 3443.0183 | 0.078
-# Shared Mem Bitonic Sort | 1617.0715 | 0.166
-# Radix Sort              | 70.1905 | 3.824
+# Basic Bitonic Sort      | 3403.3905 | 0.079
+# Shared Mem Bitonic Sort | 1603.1786 | 0.167
+# Radix Sort              | 64.7352 | 4.147
 # =================================================

@@ -251,7 +251,6 @@ def benchmark_sort_key(sizes: List[Int]) raises:
 
 
 def main() raises:
-    # sizes = [1<<10, 1 << 12, 1 << 14, 1 << 16, 1 << 18, 1 << 20, 1 << 22, 1 << 24]
     sizes = [
         1 << 10,
         1 << 12,
@@ -265,7 +264,7 @@ def main() raises:
         1 << 28,
     ]
     benchmark_sorts_key_value(sizes)
-    benchmark_sort_key(sizes)
+    # benchmark_sort_key(sizes)
 
 
 # current results
@@ -274,16 +273,16 @@ def main() raises:
 # == Basic Bitonic Sort (Pairs) ==
 #     N    | Time (ms) | Throughput (GK/s)
 # -----------------------------------------
-#       1k |     0.315 |      0.003
-#       4k |     0.455 |      0.009
-#      16k |     0.617 |      0.027
-#      65k |     0.842 |      0.078
-#     262k |     1.371 |      0.191
-#       1M |     2.961 |      0.354
-#       4M |    13.509 |       0.31
-#      16M |   161.378 |      0.104
-#      67M |   748.906 |       0.09
-#     268M |  3493.299 |      0.077
+#       1k |     0.105 |       0.01
+#       4k |     0.164 |      0.025
+#      16k |     0.219 |      0.075
+#      65k |     0.284 |      0.231
+#     262k |     0.704 |      0.373
+#       1M |     2.201 |      0.476
+#       4M |    12.822 |      0.327
+#      16M |   160.965 |      0.104
+#      67M |    753.54 |      0.089
+#     268M |  3513.673 |      0.076
 # =========================================
 
 # == Shared Mem Bitonic Sort (Pairs) ==

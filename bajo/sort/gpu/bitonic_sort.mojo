@@ -231,8 +231,6 @@ def bitonic_sort_basic[
                 grid_dim=blocks,
                 block_dim=THREADS_PER_BLOCK,
             )
-
-            ctx.synchronize()
-
             j >>= 1
         k <<= 1
+    ctx.synchronize()

@@ -30,6 +30,13 @@ def fmt(ns: Float64, SIZE: Int) -> String:
     return String(ms) + " | " + String(gks)
 
 
+@fieldwise_init
+struct SortResult(Copyable):
+    var size: Int
+    var time_ms: Float64
+    var gks: Float64
+
+
 def copy_kernel(
     dst: UnsafePointer[UInt32, MutAnyOrigin],
     src: UnsafePointer[UInt32, MutAnyOrigin],
@@ -40,273 +47,287 @@ def copy_kernel(
         dst[tid] = src[tid]
 
 
-def benchmark_sorts_key_value[SIZE: Int = 1 << 20]() raises:
+def print_results_table(title: String, results: List[SortResult]):
+    print("\n== " + title + " ==")
+    print("    N    | Time (ms) | Throughput (GK/s)")
+    print("-----------------------------------------")
+    for res in results:
+        var size_str = String(res.size)
+        if res.size >= 1_000_000:
+            size_str = String(res.size // 1_000_000) + "M"
+        elif res.size >= 1_000:
+            size_str = String(res.size // 1_000) + "k"
+
+        size_str = size_str.ascii_rjust(8)
+        var ms_str = String(round(res.time_ms, 3)).ascii_rjust(9)
+        var gks_str = String(round(res.gks, 3)).ascii_rjust(10)
+
+        print(t"{size_str} | {ms_str} | {gks_str}")
+    print("=========================================")
+
+
+def benchmark_sorts_key_value(sizes: List[Int]) raises:
     comptime dtype = DType.uint32
-    comptime WARMUP = 5
     comptime N_ITERS = 10
     comptime THREADS_PER_BLOCK = 512
 
-    print(t"\nSetting up benchmarks for {SIZE} elements...")
+    # Lists to store results for each algorithm
+    var basic_results = List[SortResult]()
+    var opt_results = List[SortResult]()
+    var radix_results = List[SortResult]()
+
+    print("Starting benchmarks for key-value sorting...")
 
     with DeviceContext() as ctx:
-        var keys = ctx.enqueue_create_buffer[dtype](SIZE)
-        var values = ctx.enqueue_create_buffer[dtype](SIZE)
+        for SIZE in sizes:
+            var keys = ctx.enqueue_create_buffer[dtype](SIZE)
+            var values = ctx.enqueue_create_buffer[dtype](SIZE)
+            var pristine_keys = ctx.enqueue_create_buffer[dtype](SIZE)
+            var pristine_vals = ctx.enqueue_create_buffer[dtype](SIZE)
 
-        var pristine_keys = ctx.enqueue_create_buffer[dtype](SIZE)
-        var pristine_vals = ctx.enqueue_create_buffer[dtype](SIZE)
-
-        def init_pristine_data() capturing raises:
             with pristine_keys.map_to_host() as host_keys, pristine_vals.map_to_host() as host_vals:
                 for i in range(SIZE):
                     var val = UInt32((i * 1103515245 + 12345) & 0x7FFFFFFF)
                     host_keys[i] = val
                     host_vals[i] = UInt32(i)
 
-        init_pristine_data()
-        var gdim = ceildiv(SIZE, 256)
+            var gdim = ceildiv(SIZE, 256)
 
-        def reset_data() capturing raises:
-            ctx.enqueue_function[copy_kernel, copy_kernel](
-                keys.unsafe_ptr(),
-                pristine_keys.unsafe_ptr(),
-                SIZE,
-                grid_dim=gdim,
-                block_dim=256,
-            )
-            ctx.enqueue_function[copy_kernel, copy_kernel](
-                values.unsafe_ptr(),
-                pristine_vals.unsafe_ptr(),
-                SIZE,
-                grid_dim=gdim,
-                block_dim=256,
-            )
+            def reset_data() capturing raises:
+                ctx.enqueue_function[copy_kernel, copy_kernel](
+                    keys.unsafe_ptr(),
+                    pristine_keys.unsafe_ptr(),
+                    SIZE,
+                    grid_dim=gdim,
+                    block_dim=256,
+                )
+                ctx.enqueue_function[copy_kernel, copy_kernel](
+                    values.unsafe_ptr(),
+                    pristine_vals.unsafe_ptr(),
+                    SIZE,
+                    grid_dim=gdim,
+                    block_dim=256,
+                )
 
-        # Basic Bitonic Sort
-        bitonic_sort_basic[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
-        ctx.synchronize()
-        check_validity(keys, SIZE)
+            # copy overhead
+            var t_copy_start = perf_counter_ns()
+            for _ in range(N_ITERS):
+                reset_data()
+            ctx.synchronize()
+            var copy_overhead_total = Float64(perf_counter_ns() - t_copy_start)
 
-        t_total_start = perf_counter_ns()
-        for _ in range(N_ITERS):
+            # Basic Bitonic Sort
             reset_data()
             bitonic_sort_basic[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
+            ctx.synchronize()
+            check_validity(keys, SIZE)
 
-        ctx.synchronize()
-        var total_basic_ns = Float64(perf_counter_ns() - t_total_start)
+            var t0 = perf_counter_ns()
+            for _ in range(N_ITERS):
+                reset_data()
+                bitonic_sort_basic[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
+            ctx.synchronize()
+            var basic_ns = (
+                Float64(perf_counter_ns() - t0) - copy_overhead_total
+            ) / N_ITERS
+            basic_results.append(
+                SortResult(SIZE, basic_ns / 1e6, Float64(SIZE) / basic_ns)
+            )
 
-        # # Shared Memory Bitonic Sort
-        reset_data()
-        bitonic_sort[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
-        ctx.synchronize()
-        check_validity(keys, SIZE)
-
-        t_total_start = perf_counter_ns()
-        for _ in range(N_ITERS):
+            # Shared Mem Bitonic Sort
             reset_data()
             bitonic_sort[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
+            ctx.synchronize()
+            check_validity(keys, SIZE)
 
-        ctx.synchronize()
-        var total_opt_ns = Float64(perf_counter_ns() - t_total_start)
+            t0 = perf_counter_ns()
+            for _ in range(N_ITERS):
+                reset_data()
+                bitonic_sort[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
+            ctx.synchronize()
+            var opt_ns = (
+                Float64(perf_counter_ns() - t0) - copy_overhead_total
+            ) / N_ITERS
+            opt_results.append(
+                SortResult(SIZE, opt_ns / 1e6, Float64(SIZE) / opt_ns)
+            )
 
-        # Radix Sort
-        var radix_ws = RadixSortWorkspace[dtype](ctx, SIZE)
-        reset_data()
-        device_radix_sort_pairs(ctx, radix_ws, keys, values, SIZE)
-        ctx.synchronize()
-        check_validity(keys, SIZE)
-
-        t_total_start = perf_counter_ns()
-        for _ in range(N_ITERS):
+            # Radix Sort
+            var radix_ws = RadixSortWorkspace[dtype](ctx, SIZE)
             reset_data()
             device_radix_sort_pairs(ctx, radix_ws, keys, values, SIZE)
+            ctx.synchronize()
+            check_validity(keys, SIZE)
 
-        ctx.synchronize()
-        var radix_total_ns = Float64(perf_counter_ns() - t_total_start)
+            t0 = perf_counter_ns()
+            for _ in range(N_ITERS):
+                reset_data()
+                device_radix_sort_pairs(ctx, radix_ws, keys, values, SIZE)
+            ctx.synchronize()
+            var radix_ns = (
+                Float64(perf_counter_ns() - t0) - copy_overhead_total
+            ) / N_ITERS
+            radix_results.append(
+                SortResult(SIZE, radix_ns / 1e6, Float64(SIZE) / radix_ns)
+            )
 
-        # Copy only
-        var t_copy_start = perf_counter_ns()
-        for _ in range(N_ITERS):
-            reset_data()
-
-        ctx.synchronize()
-        var copy_ns = Float64(perf_counter_ns() - t_copy_start)
-
-        # Subtraction
-        var basic_ns = (total_basic_ns - copy_ns) / N_ITERS
-        var opt_ns = (total_opt_ns - copy_ns) / N_ITERS
-        var radix_ns = (radix_total_ns - copy_ns) / N_ITERS
-
-        print("==================== RESULTS ====================")
-        print(t"Data Size: {SIZE} elements (32-bit keys)")
-        print("Algorithm               | Time (ms) | Throughput (GK/s)")
-        print("-------------------------------------------------")
-        print(t"Basic Bitonic Sort      | {fmt(basic_ns, SIZE)}")
-        print(t"Shared Mem Bitonic Sort | {fmt(opt_ns, SIZE)}")
-        print(t"Radix Sort              | {fmt(radix_ns, SIZE)}")
-        print("=================================================")
+    print_results_table("Basic Bitonic Sort (Pairs)", basic_results)
+    print_results_table("Shared Mem Bitonic Sort (Pairs)", opt_results)
+    print_results_table("Radix Sort (Pairs)", radix_results)
 
 
-def benchmark_sort_key[SIZE: Int = 1 << 20]() raises:
+def benchmark_sort_key(sizes: List[Int]) raises:
     comptime dtype = DType.uint32
     comptime N_ITERS = 10
     comptime WARMUP = 5
     comptime THREADS_PER_BLOCK = 512
 
-    print(t"\nSetting up benchmarks for {SIZE} elements...")
-
+    print("\nStarting benchmarks for keys only sorting...")
+    var results = List[SortResult]()
     with DeviceContext() as ctx:
-        var keys = ctx.enqueue_create_buffer[dtype](SIZE)
+        for SIZE in sizes:
+            var keys = ctx.enqueue_create_buffer[dtype](SIZE)
+            var pristine_keys = ctx.enqueue_create_buffer[dtype](SIZE)
 
-        def reset_data() capturing raises:
-            with keys.map_to_host() as host_keys:
+            with pristine_keys.map_to_host() as host_keys:
                 for i in range(SIZE):
                     # Deterministic pseudo-random (xor-shift style)
                     var val = UInt32((i * 1103515245 + 12345) & 0x7FFFFFFF)
                     host_keys[i] = val
 
-        # Radix Sort
-        reset_data()
-        device_radix_sort_keys(ctx, keys, SIZE)
-        ctx.synchronize()
-        check_validity(keys, SIZE)
+            var gdim = ceildiv(SIZE, 256)
 
-        t0 = perf_counter_ns()
-        for _ in range(N_ITERS):
+            def reset_data() capturing raises:
+                ctx.enqueue_function[copy_kernel, copy_kernel](
+                    keys.unsafe_ptr(),
+                    pristine_keys.unsafe_ptr(),
+                    SIZE,
+                    grid_dim=gdim,
+                    block_dim=256,
+                )
+
+            # Radix Sort
+            reset_data()
             device_radix_sort_keys(ctx, keys, SIZE)
             ctx.synchronize()
-        var radix_ns = Float64(perf_counter_ns() - t0) / N_ITERS
+            check_validity(keys, SIZE)
 
-        print("==================== RESULTS ====================")
-        print(t"Data Size: {SIZE} elements (32-bit keys)")
-        print("Algorithm               | Time (ms) | Throughput (GK/s)")
-        print("-------------------------------------------------")
-        # print(t"Basic Bitonic Sort      | {fmt(basic_ns)}")
-        # print(t"Shared Mem Bitonic Sort | {fmt(opt_ns)}")
-        print(t"Radix Sort              | {fmt(radix_ns, SIZE)}")
-        print("=================================================")
+            var t_copy_start = perf_counter_ns()
+            for _ in range(N_ITERS):
+                reset_data()
+            ctx.synchronize()
+            var copy_overhead_total = Float64(perf_counter_ns() - t_copy_start)
+
+            var t0 = perf_counter_ns()
+            for _ in range(N_ITERS):
+                reset_data()
+                device_radix_sort_keys(ctx, keys, SIZE)
+            ctx.synchronize()
+            var total_ns = Float64(perf_counter_ns() - t0)
+
+            var pure_sort_ns_avg = (total_ns - copy_overhead_total) / N_ITERS
+            var ms = pure_sort_ns_avg / 1_000_000.0
+            var gks = Float64(SIZE) / pure_sort_ns_avg
+
+            results.append(SortResult(SIZE, ms, gks))
+
+    print("== Results for Keys only Radix Sort ==")
+    print(" N       | Time (ms) | Throughput (GK/s)")
+    print("----------------------------------------")
+    for res in results:
+        # Format elements with 'k' or 'M' for readability
+        var size_str = String(res.size)
+        if res.size >= 1_000_000:
+            size_str = String(res.size // 1_000_000) + "M"
+        elif res.size >= 1_000:
+            size_str = String(res.size // 1_000) + "k"
+        size_str = size_str.ascii_rjust(8)
+
+        print(
+            t"{size_str} | {String(round(res.time_ms, 3)).ascii_rjust(6)} |"
+            t" {round(res.gks, 3)}"
+        )
+    print("=========================================")
 
 
 def main() raises:
-    benchmark_sorts_key_value[1 << 10]()
-    benchmark_sorts_key_value[1 << 12]()
-    benchmark_sorts_key_value[1 << 14]()
-    benchmark_sorts_key_value[1 << 16]()
-    benchmark_sorts_key_value[1 << 18]()
-    benchmark_sorts_key_value[1 << 20]()
-    benchmark_sorts_key_value[1 << 22]()
-    benchmark_sorts_key_value[1 << 24]()
-    benchmark_sorts_key_value[1 << 26]()
-    benchmark_sorts_key_value[1 << 28]()
-
-    benchmark_sort_key[1 << 10]()
-    benchmark_sort_key[1 << 12]()
-    benchmark_sort_key[1 << 14]()
-    benchmark_sort_key[1 << 16]()
-    benchmark_sort_key[1 << 18]()
-    benchmark_sort_key[1 << 20]()
-    benchmark_sort_key[1 << 22]()
-    benchmark_sort_key[1 << 24]()
-    benchmark_sort_key[1 << 26]()
-    benchmark_sort_key[1 << 28]()
+    # sizes = [1<<10, 1 << 12, 1 << 14, 1 << 16, 1 << 18, 1 << 20, 1 << 22, 1 << 24]
+    sizes = [
+        1 << 10,
+        1 << 12,
+        1 << 14,
+        1 << 16,
+        1 << 18,
+        1 << 20,
+        1 << 22,
+        1 << 24,
+        1 << 26,
+        1 << 28,
+    ]
+    benchmark_sorts_key_value(sizes)
+    benchmark_sort_key(sizes)
 
 
 # current results
-# Setting up benchmarks for 1024 elements...
-# ==================== RESULTS ====================
-# Data Size: 1024 elements (32-bit keys)
-# Algorithm               | Time (ms) | Throughput (GK/s)
-# -------------------------------------------------
-# Basic Bitonic Sort      | 0.3566 | 0.003
-# Shared Mem Bitonic Sort | 0.014 | 0.073
-# Radix Sort              | 0.0646 | 0.016
-# =================================================
+# Starting benchmarks for key-value sorting...
 
-# Setting up benchmarks for 4096 elements...
-# ==================== RESULTS ====================
-# Data Size: 4096 elements (32-bit keys)
-# Algorithm               | Time (ms) | Throughput (GK/s)
-# -------------------------------------------------
-# Basic Bitonic Sort      | 0.4842 | 0.008
-# Shared Mem Bitonic Sort | 0.0269 | 0.152
-# Radix Sort              | 0.1403 | 0.029
-# =================================================
+# == Basic Bitonic Sort (Pairs) ==
+#     N    | Time (ms) | Throughput (GK/s)
+# -----------------------------------------
+#       1k |     0.315 |      0.003
+#       4k |     0.455 |      0.009
+#      16k |     0.617 |      0.027
+#      65k |     0.842 |      0.078
+#     262k |     1.371 |      0.191
+#       1M |     2.961 |      0.354
+#       4M |    13.509 |       0.31
+#      16M |   161.378 |      0.104
+#      67M |   748.906 |       0.09
+#     268M |  3493.299 |      0.077
+# =========================================
 
-# Setting up benchmarks for 16384 elements...
-# ==================== RESULTS ====================
-# Data Size: 16384 elements (32-bit keys)
-# Algorithm               | Time (ms) | Throughput (GK/s)
-# -------------------------------------------------
-# Basic Bitonic Sort      | 0.6589 | 0.025
-# Shared Mem Bitonic Sort | 0.0496 | 0.33
-# Radix Sort              | 0.1041 | 0.157
-# =================================================
+# == Shared Mem Bitonic Sort (Pairs) ==
+#     N    | Time (ms) | Throughput (GK/s)
+# -----------------------------------------
+#       1k |     0.003 |      0.325
+#       4k |     0.028 |      0.147
+#      16k |     0.049 |      0.333
+#      65k |       0.1 |      0.654
+#     262k |     0.386 |      0.678
+#       1M |     1.078 |      0.973
+#       4M |     4.979 |      0.842
+#      16M |    66.956 |      0.251
+#      67M |   334.704 |      0.201
+#     268M |   1644.81 |      0.163
+# =========================================
 
-# Setting up benchmarks for 65536 elements...
-# ==================== RESULTS ====================
-# Data Size: 65536 elements (32-bit keys)
-# Algorithm               | Time (ms) | Throughput (GK/s)
-# -------------------------------------------------
-# Basic Bitonic Sort      | 1.0326 | 0.063
-# Shared Mem Bitonic Sort | 0.1004 | 0.653
-# Radix Sort              | 0.102 | 0.643
-# =================================================
+# == Radix Sort (Pairs) ==
+#     N    | Time (ms) | Throughput (GK/s)
+# -----------------------------------------
+#       1k |     0.056 |      0.018
+#       4k |     0.098 |      0.042
+#      16k |     0.102 |       0.16
+#      65k |     0.104 |      0.629
+#     262k |     0.117 |      2.243
+#       1M |      0.31 |      3.381
+#       4M |     0.995 |      4.214
+#      16M |      4.21 |      3.985
+#      67M |    16.863 |       3.98
+#     268M |    67.792 |       3.96
+# =========================================
 
-# Setting up benchmarks for 262144 elements...
-# ==================== RESULTS ====================
-# Data Size: 262144 elements (32-bit keys)
-# Algorithm               | Time (ms) | Throughput (GK/s)
-# -------------------------------------------------
-# Basic Bitonic Sort      | 1.5214 | 0.172
-# Shared Mem Bitonic Sort | 0.3128 | 0.838
-# Radix Sort              | 0.119 | 2.202
-# =================================================
-
-# Setting up benchmarks for 1048576 elements...
-# ==================== RESULTS ====================
-# Data Size: 1048576 elements (32-bit keys)
-# Algorithm               | Time (ms) | Throughput (GK/s)
-# -------------------------------------------------
-# Basic Bitonic Sort      | 3.349 | 0.313
-# Shared Mem Bitonic Sort | 1.0233 | 1.025
-# Radix Sort              | 0.3121 | 3.36
-# =================================================
-
-# Setting up benchmarks for 4194304 elements...
-# ==================== RESULTS ====================
-# Data Size: 4194304 elements (32-bit keys)
-# Algorithm               | Time (ms) | Throughput (GK/s)
-# -------------------------------------------------
-# Basic Bitonic Sort      | 14.0959 | 0.298
-# Shared Mem Bitonic Sort | 5.126 | 0.818
-# Radix Sort              | 0.9811 | 4.275
-# =================================================
-
-# Setting up benchmarks for 16777216 elements...
-# ==================== RESULTS ====================
-# Data Size: 16777216 elements (32-bit keys)
-# Algorithm               | Time (ms) | Throughput (GK/s)
-# -------------------------------------------------
-# Basic Bitonic Sort      | 160.2779 | 0.105
-# Shared Mem Bitonic Sort | 66.7245 | 0.251
-# Radix Sort              | 4.1089 | 4.083
-# =================================================
-
-# Setting up benchmarks for 67108864 elements...
-# ==================== RESULTS ====================
-# Data Size: 67108864 elements (32-bit keys)
-# Algorithm               | Time (ms) | Throughput (GK/s)
-# -------------------------------------------------
-# Basic Bitonic Sort      | 738.5024 | 0.091
-# Shared Mem Bitonic Sort | 333.4763 | 0.201
-# Radix Sort              | 16.9234 | 3.965
-# =================================================
-
-# Setting up benchmarks for 268435456 elements...
-# ==================== RESULTS ====================
-# Data Size: 268435456 elements (32-bit keys)
-# Algorithm               | Time (ms) | Throughput (GK/s)
-# -------------------------------------------------
-# Basic Bitonic Sort      | 3403.3905 | 0.079
-# Shared Mem Bitonic Sort | 1603.1786 | 0.167
-# Radix Sort              | 64.7352 | 4.147
-# =================================================
+# Starting benchmarks for keys only sorting...
+# == Results for Keys only Radix Sort ==
+#  N       | Time (ms) | Throughput (GK/s)
+# ----------------------------------------
+#       1k |  0.072 | 0.014
+#       4k |  0.095 | 0.043
+#      16k |  0.107 | 0.153
+#      65k |  0.098 | 0.671
+#     262k |  0.115 | 2.28
+#       1M |   0.27 | 3.879
+#       4M |  0.912 | 4.597
+#      16M |  3.351 | 5.007
+#      67M | 13.518 | 4.964
+#     268M | 54.593 | 4.917
+# =========================================

@@ -1,4 +1,4 @@
-from std.math import sqrt, clamp
+from std.math import sqrt, clamp, pi
 from std.sys.info import size_of
 from std.reflection import get_type_name
 
@@ -104,3 +104,15 @@ def print_size_of[type: AnyType]():
 
 def is_power_of_2(n: Int) -> Bool:
     return n > 0 and (n & (n - 1)) == 0
+
+
+def degrees_to_radians[
+    dtype: DType, size: Int
+](degrees: SIMD[dtype, size]) -> SIMD[dtype, size]:
+    return degrees * comptime (pi / 180.0)
+
+
+def radians_to_degrees[
+    dtype: DType, size: Int
+](radians: SIMD[dtype, size]) -> SIMD[dtype, size]:
+    return radians * comptime (180.0 / pi)

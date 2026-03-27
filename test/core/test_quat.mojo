@@ -3,7 +3,7 @@ from std.testing import (
     assert_almost_equal,
 )
 
-from bajo.core.conversion import degrees_to_radians
+from bajo.core.utils import degrees_to_radians
 from bajo.core.quat import Quaternion
 from bajo.core.vec import Vec3, assert_vec_equal
 

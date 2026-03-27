@@ -18,7 +18,7 @@ from bajo.core.vec import (
     Vec3f32,
     assert_vec_equal,
 )
-from bajo.core.conversion import degrees_to_radians
+from bajo.core.utils import degrees_to_radians
 from bajo.core.quat import Quat
 
 

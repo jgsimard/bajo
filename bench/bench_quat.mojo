@@ -5,7 +5,7 @@ from std.testing import TestSuite, assert_equal, assert_almost_equal
 from std.math import fma
 
 from bajo.core.quat import Quat
-from bajo.core.conversion import degrees_to_radians
+from bajo.core.utils import degrees_to_radians
 from bajo.core.random import PhiloxRNG
 from bajo.core.vec import Vec3f32
 

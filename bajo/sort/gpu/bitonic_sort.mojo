@@ -1,4 +1,8 @@
-from std.gpu import thread_idx, block_idx, block_dim, barrier, global_idx
+from std.gpu import (
+    thread_idx_int as thread_idx,
+    barrier,
+    global_idx_int as global_idx,
+)
 from std.gpu.host import DeviceContext, DeviceBuffer, HostBuffer
 from std.gpu.memory import AddressSpace
 from std.memory import stack_allocation
@@ -17,8 +21,8 @@ def bitonic_sort_shared[
     k_merge: Int,
     size: Int,
 ):
-    var gid = Int(global_idx.x)
-    var tid = Int(thread_idx.x)
+    var gid = global_idx.x
+    var tid = thread_idx.x
 
     # put block data into shared memory
     var shared_keys = stack_allocation[
@@ -181,7 +185,7 @@ def bitonic_sort_step[
     """
     Executes a single step of the Bitonic sort network.
     """
-    var gid = Int(global_idx.x)
+    var gid = global_idx.x
 
     if gid < size:
         var ixj = gid ^ j

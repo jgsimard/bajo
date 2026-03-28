@@ -1,5 +1,5 @@
 from std.time import perf_counter_ns
-from std.gpu import block_idx, block_dim, thread_idx
+from std.gpu import global_idx_int as global_idx
 from std.gpu.host import DeviceContext, DeviceBuffer
 from std.math import ceildiv
 
@@ -42,7 +42,7 @@ def copy_kernel(
     src: UnsafePointer[UInt32, MutAnyOrigin],
     size: Int,
 ):
-    var tid = Int(block_idx.x * block_dim.x + thread_idx.x)
+    var tid = global_idx.x
     if tid < size:
         dst[tid] = src[tid]
 
@@ -231,23 +231,7 @@ def benchmark_sort_key(sizes: List[Int]) raises:
 
             results.append(SortResult(SIZE, ms, gks))
 
-    print("== Results for Keys only Radix Sort ==")
-    print(" N       | Time (ms) | Throughput (GK/s)")
-    print("----------------------------------------")
-    for res in results:
-        # Format elements with 'k' or 'M' for readability
-        var size_str = String(res.size)
-        if res.size >= 1_000_000:
-            size_str = String(res.size // 1_000_000) + "M"
-        elif res.size >= 1_000:
-            size_str = String(res.size // 1_000) + "k"
-        size_str = size_str.ascii_rjust(8)
-
-        print(
-            t"{size_str} | {String(round(res.time_ms, 3)).ascii_rjust(6)} |"
-            t" {round(res.gks, 3)}"
-        )
-    print("=========================================")
+    print_results_table("Radix Sort (Keys)", results)
 
 
 def main() raises:
@@ -258,13 +242,13 @@ def main() raises:
         1 << 16,
         1 << 18,
         1 << 20,
-        1 << 22,
-        1 << 24,
-        1 << 26,
-        1 << 28,
+        # 1 << 22,
+        # 1 << 24,
+        # 1 << 26,
+        # 1 << 28,
     ]
     benchmark_sorts_key_value(sizes)
-    # benchmark_sort_key(sizes)
+    benchmark_sort_key(sizes)
 
 
 # current results

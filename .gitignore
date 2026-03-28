@@ -213,6 +213,7 @@ __marimo__/
 
 # Mojo
 scrap.mojo
+scratch.md
 *.txt
 
 *kgen.trace.json.time-events.txt

@@ -1,12 +1,12 @@
 from std.bit import pop_count, count_trailing_zeros
 from std.gpu import (
-    thread_idx,
-    block_idx,
+    thread_idx_int as thread_idx,
+    block_idx_int as block_idx,
     block_dim,
-    lane_id,
-    grid_dim,
+    lane_id_int as lane_id,
+    grid_dim_int as grid_dim,
     WARP_SIZE,
-    warp_id,
+    warp_id_int as warp_id,
 )
 from std.gpu.host import DeviceContext
 from std.gpu.memory import AddressSpace
@@ -59,10 +59,10 @@ def upsweep[
     comptime NUM_WARPS = BLOCK_SIZE // WARP_SIZE
     comptime PADDED_RADIX = RADIX + 1
 
-    var tid = Int(thread_idx.x)
-    var bid = Int(block_idx.x)
-    var gdim = Int(grid_dim.x)
-    var lid = Int(lane_id())
+    var tid = thread_idx.x
+    var bid = block_idx.x
+    var gdim = grid_dim.x
+    var lid = lane_id()
     var wid = warp_id()
 
     # Shared Memory Allocation
@@ -242,11 +242,11 @@ def downsweep[
         RADIX, UInt32, address_space=AddressSpace.SHARED
     ]()
 
-    var tid = Int(thread_idx.x)
-    var bid = Int(block_idx.x)
-    var gdim = Int(grid_dim.x)
-    var lid = Int(lane_id())
-    var wid = Int(warp_id())
+    var tid = thread_idx.x
+    var bid = block_idx.x
+    var gdim = grid_dim.x
+    var lid = lane_id()
+    var wid = warp_id()
 
     var s_warp_hist_ptr = s_warp_histograms + (wid << N_BITS)
 

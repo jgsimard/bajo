@@ -6,8 +6,7 @@ from std.testing import (
     assert_false,
     assert_equal,
 )
-from std.gpu import thread_idx, block_idx, block_dim
-from std.gpu.host import DeviceContext, DeviceBuffer, HostBuffer
+from std.gpu.host import DeviceContext
 
 from bajo.sort.gpu import bitonic_sort, bitonic_sort_basic
 

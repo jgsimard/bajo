@@ -19,8 +19,8 @@ from std.sys.info import bit_width_of
 
 # based on DeviceRadixSort from https://github.com/b0nes164/GPUSorting
 
-comptime N_BITS = 8
-comptime RADIX = 2**N_BITS
+comptime BITS_PER_PASS = 8
+comptime RADIX = 2**BITS_PER_PASS
 comptime RADIX_MASK = RADIX - 1
 comptime WARP_MASK = WARP_SIZE - 1
 
@@ -198,7 +198,7 @@ def warp_level_multi_split[
         var warp_flags: MaskInt = ~MaskInt(0)
         var key = keys[i]
 
-        comptime for k in range(N_BITS):
+        comptime for k in range(BITS_PER_PASS):
             var t2 = ((key >> (radix_shift + Scalar[keys_dtype](k))) & 1) == 1
             var ballot = warp.vote[mask_dtype](t2)
             var match_mask = ballot if t2 else ~ballot
@@ -251,7 +251,7 @@ def downsweep[
     var lid = lane_id()
     var wid = warp_id()
 
-    var s_warp_hist_ptr = s_warp_histograms + (wid << N_BITS)
+    var s_warp_hist_ptr = s_warp_histograms + (wid << BITS_PER_PASS)
 
     # Clear shared memory
     for i in range(tid, TOTAL_WARP_HISTS_SIZE, BLOCK_SIZE):
@@ -271,7 +271,7 @@ def downsweep[
         if bid < gdim - 1:
             keys[i] = sort[t]
         else:
-            keys[i] = sort[t] if t < size else 0xFFFFFFFF
+            keys[i] = sort[t] if t < size else Scalar[keys_dtype].MAX
         t += WARP_SIZE
     barrier()
 
@@ -322,7 +322,9 @@ def downsweep[
 
     # Load threadblock reductions
     if tid < RADIX:
-        var global_offset = global_hist[tid + Int(radix_shift << 5)]
+        var global_offset = global_hist[
+            tid + Int(radix_shift << UInt32(LANE_LOG))
+        ]
         var pass_offset = pass_hist[tid * gdim + bid]
         s_local_histogram[tid] = (
             global_offset + pass_offset - s_warp_histograms[tid]
@@ -414,23 +416,19 @@ def downsweep[
             alt[dst] = Scalar[keys_dtype](key)
 
 
-def device_radix_sort_keys(
-    ctx: DeviceContext,
-    mut keys: DeviceBuffer[DType.uint32],
-    size: Int,
-) raises:
-    """Orchestrates 4 passes of the Reduce-then-Scan Radix Sort for keys only.
-    """
-    comptime dtype = DType.uint32
+def device_radix_sort_keys[
+    dtype: DType
+](ctx: DeviceContext, mut keys: DeviceBuffer[dtype], size: Int,) raises:
     var gdim = ceildiv(size, PART_SIZE)
 
     var alt_keys = ctx.enqueue_create_buffer[dtype](size)
 
-    var global_hist = ctx.enqueue_create_buffer[dtype](GLOBAL_HIST)
-    var pass_hist = ctx.enqueue_create_buffer[dtype](gdim * RADIX)
+    var global_hist = ctx.enqueue_create_buffer[DType.uint32](GLOBAL_HIST)
+    var pass_hist = ctx.enqueue_create_buffer[DType.uint32](gdim * RADIX)
 
     # Pointer management for ping-ponging
     var db_keys = DoubleBuffer(keys.unsafe_ptr(), alt_keys.unsafe_ptr())
+    comptime NUM_PASSES = bit_width_of[dtype]() / BITS_PER_PASS
 
     comptime UPSWEEP_BLOC_SIZE = 256
     comptime SCAN_BLOCK_SIZE = 256
@@ -440,10 +438,10 @@ def device_radix_sort_keys(
     comptime _downsweep_keys = downsweep[
         dtype, dtype, DOWNSWEEP_BLOCK_SIZE, False
     ]
-    var _dummy_ptr = UnsafePointer[UInt32, MutAnyOrigin]()
+    var _dummy_ptr = UnsafePointer[Scalar[dtype], MutAnyOrigin]()
 
-    comptime for pass_idx in range(4):
-        var radix_shift = UInt32(pass_idx * 8)
+    comptime for pass_idx in range(NUM_PASSES):
+        var radix_shift = UInt32(pass_idx * BITS_PER_PASS)
 
         # Reset global histogram for this pass
         global_hist.enqueue_fill(0)
@@ -454,7 +452,7 @@ def device_radix_sort_keys(
             global_hist.unsafe_ptr(),
             pass_hist.unsafe_ptr(),
             size,
-            radix_shift,
+            Scalar[dtype](radix_shift),
             grid_dim=gdim,
             block_dim=UPSWEEP_BLOC_SIZE,
         )
@@ -478,13 +476,15 @@ def device_radix_sort_keys(
             size,
             radix_shift,
             grid_dim=gdim,
-            block_dim=512,
+            block_dim=DOWNSWEEP_BLOCK_SIZE,
         )
 
         # Swap buffer pointers for the next pass
         db_keys.swap()
 
-    # With 4 passes (even), the final sorted data is naturally back in the 'keys' buffer
+    comptime if NUM_PASSES % 2 != 0:
+        db_keys.swap()
+
     ctx.synchronize()
 
 
@@ -522,7 +522,7 @@ def device_radix_sort_pairs[
     var db_vals = DoubleBuffer(
         values.unsafe_ptr(), workspace.alt_vals.unsafe_ptr()
     )
-    comptime N_PASSES = bit_width_of[keys_dtype]() / N_BITS
+    comptime NUM_PASSES = bit_width_of[keys_dtype]() / BITS_PER_PASS
     comptime UPSWEEP_BLOC_SIZE = 256
     comptime SCAN_BLOCK_SIZE = 256
     comptime DOWNSWEEP_BLOCK_SIZE = 512
@@ -533,8 +533,8 @@ def device_radix_sort_pairs[
     ]
 
     workspace.global_hist.enqueue_fill(0)
-    comptime for pass_idx in range(N_PASSES):
-        var radix_shift = UInt32(pass_idx * N_BITS)
+    comptime for pass_idx in range(NUM_PASSES):
+        var radix_shift = UInt32(pass_idx * BITS_PER_PASS)
 
         # Upsweep (Global Histogram)
         ctx.enqueue_function[_upsweep, _upsweep](
@@ -573,7 +573,7 @@ def device_radix_sort_pairs[
         db_keys.swap()
         db_vals.swap()
 
-    comptime if N_PASSES % 2 != 0:
+    comptime if NUM_PASSES % 2 != 0:
         db_keys.swap()
         db_vals.swap()
     ctx.synchronize()

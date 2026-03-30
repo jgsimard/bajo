@@ -11,7 +11,7 @@ from bajo.sort.gpu.radix_sort import (
 )
 
 
-def check_validity(keys: DeviceBuffer[DType.uint32], size: Int) raises:
+def check_validity[dtype: DType](keys: DeviceBuffer[dtype], size: Int) raises:
     with keys.map_to_host() as host:
         for i in range(size - 1):
             if host[i] > host[i + 1]:
@@ -37,14 +37,16 @@ struct SortResult(Copyable):
     var gks: Float64
 
 
-def copy_kernel(
-    dst: UnsafePointer[UInt32, MutAnyOrigin],
-    src: UnsafePointer[UInt32, MutAnyOrigin],
+def copy_kernel[
+    dtype: DType
+](
+    dst: UnsafePointer[Scalar[dtype], MutAnyOrigin],
+    src: UnsafePointer[Scalar[dtype], MutAnyOrigin],
     size: Int,
 ):
-    var tid = global_idx.x
-    if tid < size:
-        dst[tid] = src[tid]
+    var gid = global_idx.x
+    if gid < size:
+        dst[gid] = src[gid]
 
 
 def print_results_table(title: String, results: List[SortResult]):
@@ -67,7 +69,8 @@ def print_results_table(title: String, results: List[SortResult]):
 
 
 def benchmark_sorts_key_value(sizes: List[Int]) raises:
-    comptime dtype = DType.uint32
+    comptime keys_dtype = DType.uint32
+    comptime vals_dtype = DType.uint32
     comptime N_ITERS = 10
     comptime THREADS_PER_BLOCK = 512
 
@@ -80,28 +83,33 @@ def benchmark_sorts_key_value(sizes: List[Int]) raises:
 
     with DeviceContext() as ctx:
         for SIZE in sizes:
-            var keys = ctx.enqueue_create_buffer[dtype](SIZE)
-            var values = ctx.enqueue_create_buffer[dtype](SIZE)
-            var pristine_keys = ctx.enqueue_create_buffer[dtype](SIZE)
-            var pristine_vals = ctx.enqueue_create_buffer[dtype](SIZE)
+            var keys = ctx.enqueue_create_buffer[keys_dtype](SIZE)
+            var values = ctx.enqueue_create_buffer[vals_dtype](SIZE)
+            var pristine_keys = ctx.enqueue_create_buffer[keys_dtype](SIZE)
+            var pristine_vals = ctx.enqueue_create_buffer[vals_dtype](SIZE)
 
             with pristine_keys.map_to_host() as host_keys, pristine_vals.map_to_host() as host_vals:
                 for i in range(SIZE):
-                    var val = UInt32((i * 1103515245 + 12345) & 0x7FFFFFFF)
-                    host_keys[i] = val
-                    host_vals[i] = UInt32(i)
+                    host_keys[i] = Scalar[keys_dtype](
+                        (i * 1103515245 + 12345) & 0x7FFFFFFF
+                    )
+                    host_vals[i] = Scalar[vals_dtype](i)
 
             var gdim = ceildiv(SIZE, 256)
 
             def reset_data() capturing raises:
-                ctx.enqueue_function[copy_kernel, copy_kernel](
+                ctx.enqueue_function[
+                    copy_kernel[keys_dtype], copy_kernel[keys_dtype]
+                ](
                     keys.unsafe_ptr(),
                     pristine_keys.unsafe_ptr(),
                     SIZE,
                     grid_dim=gdim,
                     block_dim=256,
                 )
-                ctx.enqueue_function[copy_kernel, copy_kernel](
+                ctx.enqueue_function[
+                    copy_kernel[vals_dtype], copy_kernel[vals_dtype]
+                ](
                     values.unsafe_ptr(),
                     pristine_vals.unsafe_ptr(),
                     SIZE,
@@ -153,7 +161,7 @@ def benchmark_sorts_key_value(sizes: List[Int]) raises:
             )
 
             # Radix Sort
-            var radix_ws = RadixSortWorkspace[dtype](ctx, SIZE)
+            var radix_ws = RadixSortWorkspace[keys_dtype, vals_dtype](ctx, SIZE)
             reset_data()
             device_radix_sort_pairs(ctx, radix_ws, keys, values, SIZE)
             ctx.synchronize()
@@ -192,13 +200,14 @@ def benchmark_sort_key(sizes: List[Int]) raises:
             with pristine_keys.map_to_host() as host_keys:
                 for i in range(SIZE):
                     # Deterministic pseudo-random (xor-shift style)
-                    var val = UInt32((i * 1103515245 + 12345) & 0x7FFFFFFF)
-                    host_keys[i] = val
+                    host_keys[i] = Scalar[dtype](
+                        (i * 1103515245 + 12345) & 0x7FFFFFFF
+                    )
 
             var gdim = ceildiv(SIZE, 256)
 
             def reset_data() capturing raises:
-                ctx.enqueue_function[copy_kernel, copy_kernel](
+                ctx.enqueue_function[copy_kernel[dtype], copy_kernel[dtype]](
                     keys.unsafe_ptr(),
                     pristine_keys.unsafe_ptr(),
                     SIZE,
@@ -242,8 +251,8 @@ def main() raises:
         1 << 16,
         1 << 18,
         1 << 20,
-        # 1 << 22,
-        # 1 << 24,
+        1 << 22,
+        1 << 24,
         # 1 << 26,
         # 1 << 28,
     ]

@@ -2,6 +2,7 @@ from std.gpu import (
     thread_idx_int as thread_idx,
     barrier,
     global_idx_int as global_idx,
+    WARP_SIZE,
 )
 from std.gpu.host import DeviceContext, DeviceBuffer, HostBuffer
 from std.gpu.memory import AddressSpace
@@ -14,10 +15,13 @@ from bajo.core.utils import is_power_of_2
 
 @always_inline
 def bitonic_sort_shared[
-    dtype: DType, THREADS_PER_BLOCK: Int, IS_MERGE_BLOCK: Bool
+    keys_dtype: DType,
+    vals_dtype: DType,
+    THREADS_PER_BLOCK: Int,
+    IS_MERGE_BLOCK: Bool,
 ](
-    keys: UnsafePointer[Scalar[dtype], MutAnyOrigin],
-    values: UnsafePointer[Scalar[dtype], MutAnyOrigin],
+    keys: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
+    values: UnsafePointer[Scalar[vals_dtype], MutAnyOrigin],
     k_merge: Int,
     size: Int,
 ):
@@ -26,10 +30,10 @@ def bitonic_sort_shared[
 
     # put block data into shared memory
     var shared_keys = stack_allocation[
-        THREADS_PER_BLOCK, Scalar[dtype], address_space=AddressSpace.SHARED
+        THREADS_PER_BLOCK, Scalar[keys_dtype], address_space=AddressSpace.SHARED
     ]()
     var shared_values = stack_allocation[
-        THREADS_PER_BLOCK, Scalar[dtype], address_space=AddressSpace.SHARED
+        THREADS_PER_BLOCK, Scalar[vals_dtype], address_space=AddressSpace.SHARED
     ]()
 
     if gid < size:
@@ -46,7 +50,7 @@ def bitonic_sort_shared[
         j = j_in
         var sort_dir = (gid & k) == 0
         while j > 0:
-            if j >= 32:
+            if j >= WARP_SIZE:
                 var ixj = tid ^ j
 
                 if tid < ixj:
@@ -113,11 +117,11 @@ def bitonic_sort_shared[
 
 
 def bitonic_sort[
-    dtype: DType, //, THREADS_PER_BLOCK: Int = 256
+    keys_dtype: DType, vals_dtype: DType, //, THREADS_PER_BLOCK: Int = 256
 ](
     ctx: DeviceContext,
-    keys: DeviceBuffer[dtype],
-    values: DeviceBuffer[dtype],
+    keys: DeviceBuffer[keys_dtype],
+    values: DeviceBuffer[vals_dtype],
     size: Int,
 ) raises:
     """
@@ -128,7 +132,7 @@ def bitonic_sort[
 
     # PHASE 1: sort independent chunks of size THREADS_PER_BLOCK in Shared Memory
     comptime shared_block_kernel = bitonic_sort_shared[
-        dtype, THREADS_PER_BLOCK, False
+        keys_dtype, vals_dtype, THREADS_PER_BLOCK, False
     ]
     ctx.enqueue_function[shared_block_kernel, shared_block_kernel](
         keys, values, 0, size, grid_dim=blocks, block_dim=THREADS_PER_BLOCK
@@ -141,7 +145,9 @@ def bitonic_sort[
         while j > 0:
             if j >= THREADS_PER_BLOCK:
                 # Swaps cross block boundaries, must use Global Memory Step
-                comptime global_step_kernel = bitonic_sort_step[dtype]
+                comptime global_step_kernel = bitonic_sort_step[
+                    keys_dtype, vals_dtype
+                ]
                 ctx.enqueue_function[global_step_kernel, global_step_kernel](
                     keys,
                     values,
@@ -154,7 +160,7 @@ def bitonic_sort[
                 j >>= 1
             else:
                 comptime shared_merge_kernel = bitonic_sort_shared[
-                    dtype, THREADS_PER_BLOCK, True
+                    keys_dtype, vals_dtype, THREADS_PER_BLOCK, True
                 ]
                 ctx.enqueue_function[shared_merge_kernel, shared_merge_kernel](
                     keys,
@@ -174,10 +180,10 @@ def bitonic_sort[
 # basic version of bitonic sort
 @always_inline
 def bitonic_sort_step[
-    dtype: DType
+    keys_dtype: DType, vals_dtype: DType
 ](
-    keys: UnsafePointer[Scalar[dtype], MutAnyOrigin],
-    values: UnsafePointer[Scalar[dtype], MutAnyOrigin],
+    keys: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
+    values: UnsafePointer[Scalar[vals_dtype], MutAnyOrigin],
     j: Int,
     k: Int,
     size: Int,
@@ -206,11 +212,11 @@ def bitonic_sort_step[
 
 
 def bitonic_sort_basic[
-    dtype: DType, //, THREADS_PER_BLOCK: Int = 256
+    keys_dtype: DType, vals_dtype: DType, //, THREADS_PER_BLOCK: Int = 256
 ](
     ctx: DeviceContext,
-    keys: DeviceBuffer[dtype],
-    values: DeviceBuffer[dtype],
+    keys: DeviceBuffer[keys_dtype],
+    values: DeviceBuffer[vals_dtype],
     size: Int,
 ) raises:
     """
@@ -225,7 +231,7 @@ def bitonic_sort_basic[
     while k <= size:
         var j = k >> 1
         while j > 0:
-            comptime kernel = bitonic_sort_step[dtype]
+            comptime kernel = bitonic_sort_step[keys_dtype, vals_dtype]
             ctx.enqueue_function[kernel, kernel](
                 keys,
                 values,

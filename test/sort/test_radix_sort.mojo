@@ -48,7 +48,7 @@ def test_upsweep() raises:
                 expected_counts[Int(val & RADIX_MASK)] += 1
 
         # Execute
-        ctx.enqueue_function[upsweep[128], upsweep[128]](
+        ctx.enqueue_function[upsweep[dtype, 128], upsweep[dtype, 128]](
             d_keys.unsafe_ptr(),
             d_globalHist.unsafe_ptr(),
             d_passHist.unsafe_ptr(),
@@ -154,7 +154,7 @@ def test_downsweep_end_to_end() raises:
                 host_keys[i] = UInt32((i * 17) ^ (i << 13) ^ (i >> 5))
 
         # 1. UPSWEEP
-        ctx.enqueue_function[upsweep[128], upsweep[128]](
+        ctx.enqueue_function[upsweep[dtype, 128], upsweep[dtype, 128]](
             d_keys.unsafe_ptr(),
             d_globalHist.unsafe_ptr(),
             d_passHist.unsafe_ptr(),
@@ -172,7 +172,10 @@ def test_downsweep_end_to_end() raises:
         ctx.synchronize()
 
         # 3. DOWNSWEEP
-        ctx.enqueue_function[downsweep[512, False], downsweep[512, False]](
+        ctx.enqueue_function[
+            downsweep[dtype, dtype, 512, False],
+            downsweep[dtype, dtype, 512, False],
+        ](
             d_keys.unsafe_ptr(),
             _dummy_ptr,
             d_alt.unsafe_ptr(),
@@ -250,7 +253,7 @@ def test_downsweep_pairs_end_to_end() raises:
                 host_vals[i] = UInt32(i)  # Payload is original index
 
         # 1. UPSWEEP
-        ctx.enqueue_function[upsweep[128], upsweep[128]](
+        ctx.enqueue_function[upsweep[dtype, 128], upsweep[dtype, 128]](
             d_keys.unsafe_ptr(),
             d_globalHist.unsafe_ptr(),
             d_passHist.unsafe_ptr(),
@@ -268,7 +271,10 @@ def test_downsweep_pairs_end_to_end() raises:
         ctx.synchronize()
 
         # 3. DOWNSWEEP PAIRS
-        ctx.enqueue_function[downsweep[512, True], downsweep[512, True]](
+        ctx.enqueue_function[
+            downsweep[dtype, dtype, 512, True],
+            downsweep[dtype, dtype, 512, True],
+        ](
             d_keys.unsafe_ptr(),
             d_vals.unsafe_ptr(),
             d_alt_keys.unsafe_ptr(),

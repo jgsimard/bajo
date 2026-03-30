@@ -13,13 +13,14 @@ from bajo.sort.gpu import bitonic_sort, bitonic_sort_basic
 
 def test_bitonic_sort_shared() raises:
     with DeviceContext() as ctx:
-        comptime dtype = DType.uint32
+        comptime keys_dtype = DType.uint32
+        comptime vals_dtype = DType.uint32
         comptime SIZE = 8
 
-        keys = ctx.enqueue_create_buffer[dtype](SIZE)
+        keys = ctx.enqueue_create_buffer[keys_dtype](SIZE)
         keys.enqueue_fill(0)
 
-        values = ctx.enqueue_create_buffer[dtype](SIZE)
+        values = ctx.enqueue_create_buffer[vals_dtype](SIZE)
         values.enqueue_fill(0)
 
         with keys.map_to_host() as host_keys, values.map_to_host() as host_values:

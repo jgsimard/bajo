@@ -406,19 +406,12 @@ def downsweep[
 
     else:
         # Scatter runs of keys into device memory (alt buffer)
-        if bid < gdim - 1:
-            for i in range(tid, PART_SIZE, BLOCK_SIZE):
-                var key = s_warp_histograms[i]
-                var digit = Int((key >> radix_shift) & RADIX_MASK)
-                var dst = s_local_histogram[digit] + UInt32(i)
-                alt[dst] = Scalar[keys_dtype](key)
-
-        else:
-            for i in range(tid, size - BIN_PART_START, BLOCK_SIZE):
-                var key = s_warp_histograms[i]
-                var digit = Int((key >> radix_shift) & RADIX_MASK)
-                var dst = s_local_histogram[digit] + UInt32(i)
-                alt[dst] = Scalar[keys_dtype](key)
+        var upper_bound = PART_SIZE if bid < gdim - 1 else size - BIN_PART_START
+        for i in range(tid, upper_bound, BLOCK_SIZE):
+            var key = s_warp_histograms[i]
+            var digit = Int((key >> radix_shift) & RADIX_MASK)
+            var dst = s_local_histogram[digit] + UInt32(i)
+            alt[dst] = Scalar[keys_dtype](key)
 
 
 def device_radix_sort_keys(

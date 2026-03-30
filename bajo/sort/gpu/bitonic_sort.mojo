@@ -47,10 +47,11 @@ def bitonic_sort_shared[
 
     @always_inline
     def _step(j_in: Int, k: Int) capturing:
-        j = j_in
-        var sort_dir = (gid & k) == 0
-        while j > 0:
-            if j >= WARP_SIZE:
+        # TODO: warp.shuffle_xor does not support DType.uint16
+        comptime if keys_dtype == DType.uint16:
+            j = j_in
+            var sort_dir = (gid & k) == 0
+            while j > 0:
                 var ixj = tid ^ j
 
                 if tid < ixj:
@@ -70,32 +71,63 @@ def bitonic_sort_shared[
                             shared_values[ixj] = val_a
 
                 barrier()
-            else:
-                # Warp Shuffle Path
-                var my_key = shared_keys[tid]
-                var my_val = shared_values[tid]
+                j >>= 1
+        else:
+            j = j_in
+            var sort_dir = (gid & k) == 0
+            while j > 0:
+                if j >= WARP_SIZE:
+                    var ixj = tid ^ j
 
-                var shuffle_j = j
-                while shuffle_j > 0:
-                    var other_key = warp.shuffle_xor(my_key, UInt32(shuffle_j))
-                    var other_val = warp.shuffle_xor(my_val, UInt32(shuffle_j))
+                    if tid < ixj:
+                        var global_ixj = gid ^ j
+                        if global_ixj < size:
+                            var key_a = shared_keys[tid]
+                            var key_b = shared_keys[ixj]
 
-                    var is_upper = (tid & shuffle_j) == 0
-                    var should_swap = (my_key > other_key) == sort_dir
+                            swap = (key_a > key_b) if sort_dir else (
+                                key_a < key_b
+                            )
+                            if swap:
+                                shared_keys[tid] = key_b
+                                shared_keys[ixj] = key_a
 
-                    if (is_upper and should_swap) or (
-                        not is_upper and not should_swap
-                    ):
-                        my_key = other_key
-                        my_val = other_val
+                                var val_a = shared_values[tid]
+                                var val_b = shared_values[ixj]
+                                shared_values[tid] = val_b
+                                shared_values[ixj] = val_a
 
-                    shuffle_j >>= 1
+                    barrier()
+                else:
+                    # Warp Shuffle Path
+                    var my_key = shared_keys[tid]
+                    var my_val = shared_values[tid]
 
-                shared_keys[tid] = my_key
-                shared_values[tid] = my_val
-                barrier()
-                break
-            j >>= 1
+                    var shuffle_j = j
+                    while shuffle_j > 0:
+                        var other_key = warp.shuffle_xor(
+                            my_key, UInt32(shuffle_j)
+                        )
+                        var other_val = warp.shuffle_xor(
+                            my_val, UInt32(shuffle_j)
+                        )
+
+                        var is_upper = (tid & shuffle_j) == 0
+                        var should_swap = (my_key > other_key) == sort_dir
+
+                        if (is_upper and should_swap) or (
+                            not is_upper and not should_swap
+                        ):
+                            my_key = other_key
+                            my_val = other_val
+
+                        shuffle_j >>= 1
+
+                    shared_keys[tid] = my_key
+                    shared_values[tid] = my_val
+                    barrier()
+                    break
+                j >>= 1
 
     var limit = min(THREADS_PER_BLOCK, size)
 

@@ -19,12 +19,7 @@ from std.sys.info import bit_width_of
 
 # based on DeviceRadixSort from https://github.com/b0nes164/GPUSorting
 
-comptime BITS_PER_PASS = 8
-comptime RADIX = 2**BITS_PER_PASS
-comptime RADIX_MASK = RADIX - 1
-comptime WARP_MASK = WARP_SIZE - 1
 
-comptime GLOBAL_HIST = 4 * RADIX
 comptime VEC_WIDTH = 4
 comptime KEYS_PER_THREAD = 8
 comptime PART_SIZE = 512 * KEYS_PER_THREAD  # = BLOCK_SIZE * KEYS_PER_THREAD = 512 * 8
@@ -42,13 +37,14 @@ struct DoubleBuffer[dtype: DType](Copyable):
 
 
 def circular_shift(val: UInt32, lid: UInt32) -> UInt32:
+    comptime WARP_MASK = WARP_SIZE - 1
     return warp.shuffle_idx(
         val, UInt32((lid + UInt32(WARP_MASK)) & UInt32(WARP_MASK))
     )
 
 
 def upsweep[
-    keys_dtype: DType, BLOCK_SIZE: Int, VEC_WIDTH: Int = 4
+    keys_dtype: DType, BLOCK_SIZE: Int, RADIX: Int, VEC_WIDTH: Int
 ](
     sort: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
     global_hist: UnsafePointer[UInt32, MutAnyOrigin],
@@ -59,6 +55,7 @@ def upsweep[
     comptime VEC_PART_SIZE = PART_SIZE / VEC_WIDTH
     comptime NUM_WARPS = BLOCK_SIZE // WARP_SIZE
     comptime PADDED_RADIX = RADIX + 1
+    comptime RADIX_MASK = Scalar[keys_dtype](RADIX - 1)
 
     var tid = thread_idx.x
     var bid = block_idx.x
@@ -179,7 +176,7 @@ def scan[
 
 @always_inline
 def warp_level_multi_split[
-    keys_dtype: DType
+    keys_dtype: DType, BITS_PER_PASS: Int
 ](
     keys: InlineArray[Scalar[keys_dtype], KEYS_PER_THREAD],
     lid: Int,
@@ -188,6 +185,9 @@ def warp_level_multi_split[
         UInt32, MutExternalOrigin, address_space=AddressSpace.SHARED
     ],
 ) -> InlineArray[UInt32, KEYS_PER_THREAD]:
+    comptime RADIX = 2**BITS_PER_PASS
+    comptime RADIX_MASK = Scalar[keys_dtype](RADIX - 1)
+
     comptime mask_dtype = DType.uint64 if WARP_SIZE > 32 else DType.uint32
     comptime MaskInt = SIMD[mask_dtype, 1]
 
@@ -222,7 +222,11 @@ def warp_level_multi_split[
 
 
 def downsweep[
-    keys_dtype: DType, vals_dtype: DType, BLOCK_SIZE: Int, HAVE_PAYLOAD: Bool
+    keys_dtype: DType,
+    vals_dtype: DType,
+    BITS_PER_PASS: Int,
+    BLOCK_SIZE: Int,
+    HAVE_PAYLOAD: Bool,
 ](
     sort: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
     sort_payload: UnsafePointer[Scalar[vals_dtype], MutAnyOrigin],
@@ -233,6 +237,8 @@ def downsweep[
     size: Int,
     radix_shift: UInt32,
 ):
+    comptime RADIX = 2**BITS_PER_PASS
+    comptime RADIX_MASK = Scalar[keys_dtype](RADIX - 1)
     comptime NUM_WARPS = BLOCK_SIZE // WARP_SIZE
     comptime PART_SIZE = NUM_WARPS * WARP_PART_SIZE
     comptime TOTAL_WARP_HISTS_SIZE = NUM_WARPS * RADIX
@@ -276,7 +282,7 @@ def downsweep[
     barrier()
 
     # Warp-Level Multi-Split (WLMS)
-    var offsets = warp_level_multi_split[keys_dtype](
+    var offsets = warp_level_multi_split[keys_dtype, BITS_PER_PASS](
         keys, lid, Scalar[keys_dtype](radix_shift), s_warp_hist_ptr
     )
     barrier()
@@ -345,7 +351,7 @@ def downsweep[
             comptime for i in range(KEYS_PER_THREAD):
                 var t = tid + (i * BLOCK_SIZE)
                 var key = s_warp_histograms[t]
-                var d = (key >> radix_shift) & RADIX_MASK
+                var d = (key >> radix_shift) & UInt32(RADIX_MASK)
                 digits[i] = d.cast[DType.uint8]()
                 alt[s_local_histogram[Int(d)] + UInt32(t)] = Scalar[keys_dtype](
                     key
@@ -378,7 +384,7 @@ def downsweep[
                 var t = tid + (i * BLOCK_SIZE)
                 if t < final_part_size:
                     var key = s_warp_histograms[t]
-                    var d = (key >> radix_shift) & RADIX_MASK
+                    var d = (key >> radix_shift) & UInt32(RADIX_MASK)
                     digits[i] = d.cast[DType.uint8]()
                     alt[s_local_histogram[Int(d)] + UInt32(t)] = Scalar[
                         keys_dtype
@@ -411,14 +417,19 @@ def downsweep[
         var upper_bound = PART_SIZE if bid < gdim - 1 else size - BIN_PART_START
         for i in range(tid, upper_bound, BLOCK_SIZE):
             var key = s_warp_histograms[i]
-            var digit = Int((key >> radix_shift) & RADIX_MASK)
+            var digit = Int((key >> radix_shift) & UInt32(RADIX_MASK))
             var dst = s_local_histogram[digit] + UInt32(i)
             alt[dst] = Scalar[keys_dtype](key)
 
 
 def device_radix_sort_keys[
-    dtype: DType
+    dtype: DType, BITS_PER_PASS: Int = 8
 ](ctx: DeviceContext, mut keys: DeviceBuffer[dtype], size: Int,) raises:
+    comptime NUM_PASSES = bit_width_of[dtype]() / BITS_PER_PASS
+    comptime RADIX = 2**BITS_PER_PASS
+    comptime RADIX_MASK = RADIX - 1
+    comptime GLOBAL_HIST = NUM_PASSES * RADIX
+
     var gdim = ceildiv(size, PART_SIZE)
 
     var alt_keys = ctx.enqueue_create_buffer[dtype](size)
@@ -428,15 +439,14 @@ def device_radix_sort_keys[
 
     # Pointer management for ping-ponging
     var db_keys = DoubleBuffer(keys.unsafe_ptr(), alt_keys.unsafe_ptr())
-    comptime NUM_PASSES = bit_width_of[dtype]() / BITS_PER_PASS
 
     comptime UPSWEEP_BLOC_SIZE = 256
     comptime SCAN_BLOCK_SIZE = 256
     comptime DOWNSWEEP_BLOCK_SIZE = 512
-    comptime _upsweep = upsweep[dtype, UPSWEEP_BLOC_SIZE, VEC_WIDTH]
+    comptime _upsweep = upsweep[dtype, UPSWEEP_BLOC_SIZE, RADIX, VEC_WIDTH]
     comptime _scan = scan[SCAN_BLOCK_SIZE]
     comptime _downsweep_keys = downsweep[
-        dtype, dtype, DOWNSWEEP_BLOCK_SIZE, False
+        dtype, dtype, BITS_PER_PASS, DOWNSWEEP_BLOCK_SIZE, False
     ]
     var _dummy_ptr = UnsafePointer[Scalar[dtype], MutAnyOrigin]()
 
@@ -488,13 +498,21 @@ def device_radix_sort_keys[
     ctx.synchronize()
 
 
-struct RadixSortWorkspace[keys_dtype: DType, vals_dtype: DType]:
+struct RadixSortWorkspace[
+    keys_dtype: DType, vals_dtype: DType, BITS_PER_PASS: Int = 8
+]:
     var alt_keys: DeviceBuffer[Self.keys_dtype]
     var alt_vals: DeviceBuffer[Self.vals_dtype]
     var global_hist: DeviceBuffer[DType.uint32]
     var pass_hist: DeviceBuffer[DType.uint32]
 
     def __init__(out self, ctx: DeviceContext, size: Int) raises:
+        comptime NUM_PASSES = bit_width_of[
+            Self.keys_dtype
+        ]() / Self.BITS_PER_PASS
+        comptime RADIX = 2**Self.BITS_PER_PASS
+        comptime RADIX_MASK = RADIX - 1
+        comptime GLOBAL_HIST = NUM_PASSES * RADIX
         var gdim = ceildiv(size, PART_SIZE)
 
         self.alt_keys = ctx.enqueue_create_buffer[Self.keys_dtype](size)
@@ -505,14 +523,19 @@ struct RadixSortWorkspace[keys_dtype: DType, vals_dtype: DType]:
 
 
 def device_radix_sort_pairs[
-    keys_dtype: DType, vals_dtype: DType
+    keys_dtype: DType, vals_dtype: DType, BITS_PER_PASS: Int = 8
 ](
     ctx: DeviceContext,
-    mut workspace: RadixSortWorkspace[keys_dtype, vals_dtype],
+    mut workspace: RadixSortWorkspace[keys_dtype, vals_dtype, BITS_PER_PASS],
     mut keys: DeviceBuffer[keys_dtype],
     mut values: DeviceBuffer[vals_dtype],
     size: Int,
 ) raises:
+    comptime NUM_PASSES = bit_width_of[keys_dtype]() / BITS_PER_PASS
+    comptime RADIX = 2**BITS_PER_PASS
+    comptime RADIX_MASK = RADIX - 1
+    comptime GLOBAL_HIST = NUM_PASSES * RADIX
+
     var gdim = ceildiv(size, PART_SIZE)
 
     # Pointer management for ping-ponging
@@ -522,14 +545,13 @@ def device_radix_sort_pairs[
     var db_vals = DoubleBuffer(
         values.unsafe_ptr(), workspace.alt_vals.unsafe_ptr()
     )
-    comptime NUM_PASSES = bit_width_of[keys_dtype]() / BITS_PER_PASS
     comptime UPSWEEP_BLOC_SIZE = 256
     comptime SCAN_BLOCK_SIZE = 256
     comptime DOWNSWEEP_BLOCK_SIZE = 512
-    comptime _upsweep = upsweep[keys_dtype, UPSWEEP_BLOC_SIZE, VEC_WIDTH]
+    comptime _upsweep = upsweep[keys_dtype, UPSWEEP_BLOC_SIZE, RADIX, VEC_WIDTH]
     comptime _scan = scan[SCAN_BLOCK_SIZE]
     comptime _downsweep_pairs = downsweep[
-        keys_dtype, vals_dtype, DOWNSWEEP_BLOCK_SIZE, True
+        keys_dtype, vals_dtype, BITS_PER_PASS, DOWNSWEEP_BLOCK_SIZE, True
     ]
 
     workspace.global_hist.enqueue_fill(0)

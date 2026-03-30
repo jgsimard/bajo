@@ -11,9 +11,7 @@ from std.gpu.host import DeviceContext
 
 from bajo.sort.gpu.radix_sort import (
     upsweep,
-    RADIX_MASK,
     PART_SIZE,
-    RADIX,
     scan,
     downsweep,
     KEYS_PER_THREAD,
@@ -24,6 +22,9 @@ def test_upsweep() raises:
     """Tests the Upsweep pass of Radix Sorting."""
     with DeviceContext() as ctx:
         comptime dtype = DType.uint32
+        comptime RADIX = 256
+        comptime RADIX_MASK = RADIX - 1
+        comptime VEC_WIDTH = 4
         var size = 10_000
 
         var d_keys = ctx.enqueue_create_buffer[dtype](size)
@@ -48,7 +49,10 @@ def test_upsweep() raises:
                 expected_counts[Int(val & RADIX_MASK)] += 1
 
         # Execute
-        ctx.enqueue_function[upsweep[dtype, 128], upsweep[dtype, 128]](
+        ctx.enqueue_function[
+            upsweep[dtype, 128, RADIX, VEC_WIDTH],
+            upsweep[dtype, 128, RADIX, VEC_WIDTH],
+        ](
             d_keys.unsafe_ptr(),
             d_globalHist.unsafe_ptr(),
             d_passHist.unsafe_ptr(),
@@ -132,6 +136,10 @@ def test_downsweep_end_to_end() raises:
     """
     with DeviceContext() as ctx:
         comptime dtype = DType.uint32
+        comptime BITS_PER_PASS = 8
+        comptime RADIX = 256
+        comptime RADIX_MASK = RADIX - 1
+        comptime VEC_WIDTH = 4
         comptime BLOCK_SIZE = 512
         comptime PART_SIZE = BLOCK_SIZE * KEYS_PER_THREAD
 
@@ -154,7 +162,10 @@ def test_downsweep_end_to_end() raises:
                 host_keys[i] = UInt32((i * 17) ^ (i << 13) ^ (i >> 5))
 
         # 1. UPSWEEP
-        ctx.enqueue_function[upsweep[dtype, 128], upsweep[dtype, 128]](
+        ctx.enqueue_function[
+            upsweep[dtype, 128, RADIX, VEC_WIDTH],
+            upsweep[dtype, 128, RADIX, VEC_WIDTH],
+        ](
             d_keys.unsafe_ptr(),
             d_globalHist.unsafe_ptr(),
             d_passHist.unsafe_ptr(),
@@ -173,8 +184,8 @@ def test_downsweep_end_to_end() raises:
 
         # 3. DOWNSWEEP
         ctx.enqueue_function[
-            downsweep[dtype, dtype, 512, False],
-            downsweep[dtype, dtype, 512, False],
+            downsweep[dtype, dtype, BITS_PER_PASS, 512, False],
+            downsweep[dtype, dtype, BITS_PER_PASS, 512, False],
         ](
             d_keys.unsafe_ptr(),
             _dummy_ptr,
@@ -229,6 +240,10 @@ def test_downsweep_pairs_end_to_end() raises:
     """Tests sorting key-value pairs."""
     with DeviceContext() as ctx:
         comptime dtype = DType.uint32
+        comptime BITS_PER_PASS = 8
+        comptime RADIX = 256
+        comptime RADIX_MASK = RADIX - 1
+        comptime VEC_WIDTH = 4
         comptime BLOCK_SIZE = 512
         comptime PART_SIZE = BLOCK_SIZE * KEYS_PER_THREAD
 
@@ -253,7 +268,10 @@ def test_downsweep_pairs_end_to_end() raises:
                 host_vals[i] = UInt32(i)  # Payload is original index
 
         # 1. UPSWEEP
-        ctx.enqueue_function[upsweep[dtype, 128], upsweep[dtype, 128]](
+        ctx.enqueue_function[
+            upsweep[dtype, 128, RADIX, VEC_WIDTH],
+            upsweep[dtype, 128, RADIX, VEC_WIDTH],
+        ](
             d_keys.unsafe_ptr(),
             d_globalHist.unsafe_ptr(),
             d_passHist.unsafe_ptr(),
@@ -272,8 +290,8 @@ def test_downsweep_pairs_end_to_end() raises:
 
         # 3. DOWNSWEEP PAIRS
         ctx.enqueue_function[
-            downsweep[dtype, dtype, 512, True],
-            downsweep[dtype, dtype, 512, True],
+            downsweep[dtype, dtype, BITS_PER_PASS, 512, True],
+            downsweep[dtype, dtype, BITS_PER_PASS, 512, True],
         ](
             d_keys.unsafe_ptr(),
             d_vals.unsafe_ptr(),

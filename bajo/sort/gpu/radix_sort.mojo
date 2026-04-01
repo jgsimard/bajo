@@ -1,12 +1,12 @@
 from std.bit import pop_count, count_trailing_zeros
 from std.gpu import (
-    thread_idx_int as thread_idx,
-    block_idx_int as block_idx,
+    thread_idx,
+    block_idx,
     block_dim,
-    lane_id_int as lane_id,
-    grid_dim_int as grid_dim,
+    lane_id,
+    grid_dim,
     WARP_SIZE,
-    warp_id_int as warp_id,
+    warp_id,
 )
 from std.gpu.host import DeviceContext
 from std.gpu.memory import AddressSpace

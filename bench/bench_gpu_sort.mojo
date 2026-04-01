@@ -1,5 +1,5 @@
 from std.time import perf_counter_ns
-from std.gpu import global_idx_int as global_idx
+from std.gpu import global_idx
 from std.gpu.host import DeviceContext, DeviceBuffer
 from std.math import ceildiv
 
@@ -124,41 +124,41 @@ def benchmark_sorts_key_value(sizes: List[Int]) raises:
             ctx.synchronize()
             var copy_overhead_total = Float64(perf_counter_ns() - t_copy_start)
 
-            # Basic Bitonic Sort
-            reset_data()
-            bitonic_sort_basic[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
-            ctx.synchronize()
-            check_validity(keys, SIZE)
+            # # Basic Bitonic Sort
+            # reset_data()
+            # bitonic_sort_basic[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
+            # ctx.synchronize()
+            # check_validity(keys, SIZE)
 
-            var t0 = perf_counter_ns()
-            for _ in range(N_ITERS):
-                reset_data()
-                bitonic_sort_basic[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
-            ctx.synchronize()
-            var basic_ns = (
-                Float64(perf_counter_ns() - t0) - copy_overhead_total
-            ) / N_ITERS
-            basic_results.append(
-                SortResult(SIZE, basic_ns / 1e6, Float64(SIZE) / basic_ns)
-            )
+            # var t0 = perf_counter_ns()
+            # for _ in range(N_ITERS):
+            #     reset_data()
+            #     bitonic_sort_basic[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
+            # ctx.synchronize()
+            # var basic_ns = (
+            #     Float64(perf_counter_ns() - t0) - copy_overhead_total
+            # ) / N_ITERS
+            # basic_results.append(
+            #     SortResult(SIZE, basic_ns / 1e6, Float64(SIZE) / basic_ns)
+            # )
 
-            # Shared Mem Bitonic Sort
-            reset_data()
-            bitonic_sort[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
-            ctx.synchronize()
-            check_validity(keys, SIZE)
+            # # Shared Mem Bitonic Sort
+            # reset_data()
+            # bitonic_sort[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
+            # ctx.synchronize()
+            # check_validity(keys, SIZE)
 
-            t0 = perf_counter_ns()
-            for _ in range(N_ITERS):
-                reset_data()
-                bitonic_sort[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
-            ctx.synchronize()
-            var opt_ns = (
-                Float64(perf_counter_ns() - t0) - copy_overhead_total
-            ) / N_ITERS
-            opt_results.append(
-                SortResult(SIZE, opt_ns / 1e6, Float64(SIZE) / opt_ns)
-            )
+            # t0 = perf_counter_ns()
+            # for _ in range(N_ITERS):
+            #     reset_data()
+            #     bitonic_sort[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
+            # ctx.synchronize()
+            # var opt_ns = (
+            #     Float64(perf_counter_ns() - t0) - copy_overhead_total
+            # ) / N_ITERS
+            # opt_results.append(
+            #     SortResult(SIZE, opt_ns / 1e6, Float64(SIZE) / opt_ns)
+            # )
 
             # Radix Sort
             var radix_ws = RadixSortWorkspace[keys_dtype, vals_dtype](ctx, SIZE)
@@ -256,7 +256,7 @@ def main() raises:
         1 << 26,
         1 << 28,
     ]
-    # benchmark_sorts_key_value(sizes)
+    benchmark_sorts_key_value(sizes)
     benchmark_sort_key(sizes)
 
 

@@ -1,7 +1,7 @@
 from std.gpu import (
-    thread_idx_int as thread_idx,
+    thread_idx,
     barrier,
-    global_idx_int as global_idx,
+    global_idx,
     WARP_SIZE,
 )
 from std.gpu.host import DeviceContext, DeviceBuffer, HostBuffer

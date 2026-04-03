@@ -11,10 +11,8 @@ from std.gpu.host import DeviceContext
 
 from bajo.sort.gpu.radix_sort import (
     upsweep,
-    PART_SIZE,
     scan,
     downsweep,
-    KEYS_PER_THREAD,
 )
 
 
@@ -25,6 +23,8 @@ def test_upsweep() raises:
         comptime RADIX = 256
         comptime RADIX_MASK = RADIX - 1
         comptime VEC_WIDTH = 4
+        comptime KEYS_PER_THREAD = 8
+        comptime PART_SIZE = 512 * KEYS_PER_THREAD  # = BLOCK_SIZE * KEYS_PER_THREAD = 512 * 8
         var size = 10_000
 
         var d_keys = ctx.enqueue_create_buffer[dtype](size)
@@ -50,8 +50,8 @@ def test_upsweep() raises:
 
         # Execute
         ctx.enqueue_function[
-            upsweep[dtype, 128, RADIX, VEC_WIDTH],
-            upsweep[dtype, 128, RADIX, VEC_WIDTH],
+            upsweep[dtype, 128, RADIX, VEC_WIDTH, KEYS_PER_THREAD],
+            upsweep[dtype, 128, RADIX, VEC_WIDTH, KEYS_PER_THREAD],
         ](
             d_keys.unsafe_ptr(),
             d_globalHist.unsafe_ptr(),
@@ -141,6 +141,7 @@ def test_downsweep_end_to_end() raises:
         comptime RADIX_MASK = RADIX - 1
         comptime VEC_WIDTH = 4
         comptime BLOCK_SIZE = 512
+        comptime KEYS_PER_THREAD = 8
         comptime PART_SIZE = BLOCK_SIZE * KEYS_PER_THREAD
 
         var _dummy_ptr = UnsafePointer[UInt32, MutAnyOrigin]()
@@ -163,8 +164,8 @@ def test_downsweep_end_to_end() raises:
 
         # 1. UPSWEEP
         ctx.enqueue_function[
-            upsweep[dtype, 128, RADIX, VEC_WIDTH],
-            upsweep[dtype, 128, RADIX, VEC_WIDTH],
+            upsweep[dtype, 128, RADIX, VEC_WIDTH, KEYS_PER_THREAD],
+            upsweep[dtype, 128, RADIX, VEC_WIDTH, KEYS_PER_THREAD],
         ](
             d_keys.unsafe_ptr(),
             d_globalHist.unsafe_ptr(),
@@ -184,8 +185,8 @@ def test_downsweep_end_to_end() raises:
 
         # 3. DOWNSWEEP
         ctx.enqueue_function[
-            downsweep[dtype, dtype, BITS_PER_PASS, 512, False],
-            downsweep[dtype, dtype, BITS_PER_PASS, 512, False],
+            downsweep[dtype, dtype, BITS_PER_PASS, 512, KEYS_PER_THREAD, False],
+            downsweep[dtype, dtype, BITS_PER_PASS, 512, KEYS_PER_THREAD, False],
         ](
             d_keys.unsafe_ptr(),
             _dummy_ptr,
@@ -245,6 +246,7 @@ def test_downsweep_pairs_end_to_end() raises:
         comptime RADIX_MASK = RADIX - 1
         comptime VEC_WIDTH = 4
         comptime BLOCK_SIZE = 512
+        comptime KEYS_PER_THREAD = 8
         comptime PART_SIZE = BLOCK_SIZE * KEYS_PER_THREAD
 
         var size = 20_000
@@ -269,8 +271,8 @@ def test_downsweep_pairs_end_to_end() raises:
 
         # 1. UPSWEEP
         ctx.enqueue_function[
-            upsweep[dtype, 128, RADIX, VEC_WIDTH],
-            upsweep[dtype, 128, RADIX, VEC_WIDTH],
+            upsweep[dtype, 128, RADIX, VEC_WIDTH, KEYS_PER_THREAD],
+            upsweep[dtype, 128, RADIX, VEC_WIDTH, KEYS_PER_THREAD],
         ](
             d_keys.unsafe_ptr(),
             d_globalHist.unsafe_ptr(),
@@ -290,8 +292,8 @@ def test_downsweep_pairs_end_to_end() raises:
 
         # 3. DOWNSWEEP PAIRS
         ctx.enqueue_function[
-            downsweep[dtype, dtype, BITS_PER_PASS, 512, True],
-            downsweep[dtype, dtype, BITS_PER_PASS, 512, True],
+            downsweep[dtype, dtype, BITS_PER_PASS, 512, KEYS_PER_THREAD, True],
+            downsweep[dtype, dtype, BITS_PER_PASS, 512, KEYS_PER_THREAD, True],
         ](
             d_keys.unsafe_ptr(),
             d_vals.unsafe_ptr(),

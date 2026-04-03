@@ -20,10 +20,6 @@ from std.sys.info import bit_width_of
 # based on DeviceRadixSort from https://github.com/b0nes164/GPUSorting
 
 
-comptime VEC_WIDTH = 4
-comptime KEYS_PER_THREAD = 8
-comptime PART_SIZE = 512 * KEYS_PER_THREAD  # = BLOCK_SIZE * KEYS_PER_THREAD = 512 * 8
-comptime WARP_PART_SIZE = WARP_SIZE * KEYS_PER_THREAD
 comptime LANE_LOG = count_trailing_zeros(WARP_SIZE)  # 2^5 = 32 => 5
 
 
@@ -44,7 +40,11 @@ def circular_shift(val: UInt32, lid: UInt32) -> UInt32:
 
 
 def upsweep[
-    keys_dtype: DType, BLOCK_SIZE: Int, RADIX: Int, VEC_WIDTH: Int
+    keys_dtype: DType,
+    BLOCK_SIZE: Int,
+    RADIX: Int,
+    VEC_WIDTH: Int,
+    KEYS_PER_THREAD: Int,
 ](
     sort: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
     global_hist: UnsafePointer[UInt32, MutAnyOrigin],
@@ -52,6 +52,7 @@ def upsweep[
     size: Int,
     radix_shift: Scalar[keys_dtype],
 ):
+    comptime PART_SIZE = 512 * KEYS_PER_THREAD  # = BLOCK_SIZE * KEYS_PER_THREAD = 512 * 8
     comptime VEC_PART_SIZE = PART_SIZE / VEC_WIDTH
     comptime NUM_WARPS = BLOCK_SIZE // WARP_SIZE
     comptime PADDED_RADIX = RADIX + 1
@@ -176,7 +177,7 @@ def scan[
 
 @always_inline
 def warp_level_multi_split[
-    keys_dtype: DType, BITS_PER_PASS: Int
+    keys_dtype: DType, BITS_PER_PASS: Int, KEYS_PER_THREAD: Int
 ](
     keys: InlineArray[Scalar[keys_dtype], KEYS_PER_THREAD],
     lid: Int,
@@ -226,6 +227,7 @@ def downsweep[
     vals_dtype: DType,
     BITS_PER_PASS: Int,
     BLOCK_SIZE: Int,
+    KEYS_PER_THREAD: Int,
     HAVE_PAYLOAD: Bool,
 ](
     sort: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
@@ -240,6 +242,7 @@ def downsweep[
     comptime RADIX = 2**BITS_PER_PASS
     comptime RADIX_MASK = Scalar[keys_dtype](RADIX - 1)
     comptime NUM_WARPS = BLOCK_SIZE // WARP_SIZE
+    comptime WARP_PART_SIZE = WARP_SIZE * KEYS_PER_THREAD
     comptime PART_SIZE = NUM_WARPS * WARP_PART_SIZE
     comptime TOTAL_WARP_HISTS_SIZE = NUM_WARPS * RADIX
 
@@ -282,9 +285,9 @@ def downsweep[
     barrier()
 
     # Warp-Level Multi-Split (WLMS)
-    var offsets = warp_level_multi_split[keys_dtype, BITS_PER_PASS](
-        keys, lid, Scalar[keys_dtype](radix_shift), s_warp_hist_ptr
-    )
+    var offsets = warp_level_multi_split[
+        keys_dtype, BITS_PER_PASS, KEYS_PER_THREAD
+    ](keys, lid, Scalar[keys_dtype](radix_shift), s_warp_hist_ptr)
     barrier()
 
     # Exclusive prefix sum up the warp histograms
@@ -423,12 +426,14 @@ def downsweep[
 
 
 def device_radix_sort_keys[
-    dtype: DType, BITS_PER_PASS: Int = 8
+    dtype: DType, BITS_PER_PASS: Int = 8, KEYS_PER_THREAD: Int = 8
 ](ctx: DeviceContext, mut keys: DeviceBuffer[dtype], size: Int,) raises:
     comptime NUM_PASSES = bit_width_of[dtype]() / BITS_PER_PASS
     comptime RADIX = 2**BITS_PER_PASS
     comptime RADIX_MASK = RADIX - 1
     comptime GLOBAL_HIST = NUM_PASSES * RADIX
+    comptime VEC_WIDTH = 4
+    comptime PART_SIZE = 512 * KEYS_PER_THREAD  # = BLOCK_SIZE * KEYS_PER_THREAD = 512 * 8
 
     var gdim = ceildiv(size, PART_SIZE)
 
@@ -443,10 +448,17 @@ def device_radix_sort_keys[
     comptime UPSWEEP_BLOC_SIZE = 256
     comptime SCAN_BLOCK_SIZE = 256
     comptime DOWNSWEEP_BLOCK_SIZE = 512
-    comptime _upsweep = upsweep[dtype, UPSWEEP_BLOC_SIZE, RADIX, VEC_WIDTH]
+    comptime _upsweep = upsweep[
+        dtype, UPSWEEP_BLOC_SIZE, RADIX, VEC_WIDTH, KEYS_PER_THREAD
+    ]
     comptime _scan = scan[SCAN_BLOCK_SIZE]
     comptime _downsweep_keys = downsweep[
-        dtype, dtype, BITS_PER_PASS, DOWNSWEEP_BLOCK_SIZE, False
+        dtype,
+        dtype,
+        BITS_PER_PASS,
+        DOWNSWEEP_BLOCK_SIZE,
+        KEYS_PER_THREAD,
+        False,
     ]
     var _dummy_ptr = UnsafePointer[Scalar[dtype], MutAnyOrigin]()
 
@@ -499,7 +511,10 @@ def device_radix_sort_keys[
 
 
 struct RadixSortWorkspace[
-    keys_dtype: DType, vals_dtype: DType, BITS_PER_PASS: Int = 8
+    keys_dtype: DType,
+    vals_dtype: DType,
+    BITS_PER_PASS: Int = 8,
+    KEYS_PER_THREAD: Int = 8,
 ]:
     var alt_keys: DeviceBuffer[Self.keys_dtype]
     var alt_vals: DeviceBuffer[Self.vals_dtype]
@@ -513,6 +528,8 @@ struct RadixSortWorkspace[
         comptime RADIX = 2**Self.BITS_PER_PASS
         comptime RADIX_MASK = RADIX - 1
         comptime GLOBAL_HIST = NUM_PASSES * RADIX
+        comptime PART_SIZE = 512 * Self.KEYS_PER_THREAD  # = BLOCK_SIZE * KEYS_PER_THREAD = 512 * 8
+
         var gdim = ceildiv(size, PART_SIZE)
 
         self.alt_keys = ctx.enqueue_create_buffer[Self.keys_dtype](size)
@@ -523,7 +540,10 @@ struct RadixSortWorkspace[
 
 
 def device_radix_sort_pairs[
-    keys_dtype: DType, vals_dtype: DType, BITS_PER_PASS: Int = 8
+    keys_dtype: DType,
+    vals_dtype: DType,
+    BITS_PER_PASS: Int = 8,
+    KEYS_PER_THREAD: Int = 8,
 ](
     ctx: DeviceContext,
     mut workspace: RadixSortWorkspace[keys_dtype, vals_dtype, BITS_PER_PASS],
@@ -535,6 +555,8 @@ def device_radix_sort_pairs[
     comptime RADIX = 2**BITS_PER_PASS
     comptime RADIX_MASK = RADIX - 1
     comptime GLOBAL_HIST = NUM_PASSES * RADIX
+    comptime VEC_WIDTH = 4
+    comptime PART_SIZE = 512 * KEYS_PER_THREAD  # = BLOCK_SIZE * KEYS_PER_THREAD = 512 * 8
 
     var gdim = ceildiv(size, PART_SIZE)
 
@@ -548,10 +570,17 @@ def device_radix_sort_pairs[
     comptime UPSWEEP_BLOC_SIZE = 256
     comptime SCAN_BLOCK_SIZE = 256
     comptime DOWNSWEEP_BLOCK_SIZE = 512
-    comptime _upsweep = upsweep[keys_dtype, UPSWEEP_BLOC_SIZE, RADIX, VEC_WIDTH]
+    comptime _upsweep = upsweep[
+        keys_dtype, UPSWEEP_BLOC_SIZE, RADIX, VEC_WIDTH, KEYS_PER_THREAD
+    ]
     comptime _scan = scan[SCAN_BLOCK_SIZE]
     comptime _downsweep_pairs = downsweep[
-        keys_dtype, vals_dtype, BITS_PER_PASS, DOWNSWEEP_BLOCK_SIZE, True
+        keys_dtype,
+        vals_dtype,
+        BITS_PER_PASS,
+        DOWNSWEEP_BLOCK_SIZE,
+        KEYS_PER_THREAD,
+        True,
     ]
 
     workspace.global_hist.enqueue_fill(0)
@@ -566,6 +595,7 @@ def device_radix_sort_pairs[
             size,
             Scalar[keys_dtype](radix_shift),
             grid_dim=gdim,
+            # grid_dim= ceildiv(size, UPSWEEP_BLOC_SIZE * KEYS_PER_THREAD),
             block_dim=UPSWEEP_BLOC_SIZE,
         )
 

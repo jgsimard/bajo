@@ -73,6 +73,7 @@ def benchmark_sorts_key_value(sizes: List[Int]) raises:
     comptime vals_dtype = DType.uint32
     comptime N_ITERS = 10
     comptime THREADS_PER_BLOCK = 512
+    comptime KEYS_PER_THREAD = 9
 
     # Lists to store results for each algorithm
     var basic_results = List[SortResult]()
@@ -161,7 +162,9 @@ def benchmark_sorts_key_value(sizes: List[Int]) raises:
             # )
 
             # Radix Sort
-            var radix_ws = RadixSortWorkspace[keys_dtype, vals_dtype](ctx, SIZE)
+            var radix_ws = RadixSortWorkspace[
+                keys_dtype, vals_dtype, KEYS_PER_THREAD=KEYS_PER_THREAD
+            ](ctx, SIZE)
             reset_data()
             device_radix_sort_pairs(ctx, radix_ws, keys, values, SIZE)
             ctx.synchronize()
@@ -189,6 +192,7 @@ def benchmark_sort_key(sizes: List[Int]) raises:
     comptime N_ITERS = 10
     comptime WARMUP = 5
     comptime THREADS_PER_BLOCK = 512
+    comptime KEYS_PER_THREAD = 9
 
     print("\nStarting benchmarks for keys only sorting...")
     var results = List[SortResult]()
@@ -217,7 +221,9 @@ def benchmark_sort_key(sizes: List[Int]) raises:
 
             # Radix Sort
             reset_data()
-            device_radix_sort_keys(ctx, keys, SIZE)
+            device_radix_sort_keys[KEYS_PER_THREAD=KEYS_PER_THREAD](
+                ctx, keys, SIZE
+            )
             ctx.synchronize()
             check_validity(keys, SIZE)
 
@@ -230,7 +236,9 @@ def benchmark_sort_key(sizes: List[Int]) raises:
             var t0 = perf_counter_ns()
             for _ in range(N_ITERS):
                 reset_data()
-                device_radix_sort_keys(ctx, keys, SIZE)
+                device_radix_sort_keys[KEYS_PER_THREAD=KEYS_PER_THREAD](
+                    ctx, keys, SIZE
+                )
             ctx.synchronize()
             var total_ns = Float64(perf_counter_ns() - t0)
 
@@ -260,7 +268,7 @@ def main() raises:
     benchmark_sort_key(sizes)
 
 
-# current results
+# current results on rtx 5060 ti 16 gb
 # Starting benchmarks for key-value sorting...
 
 # == Basic Bitonic Sort (Pairs) ==
@@ -296,30 +304,31 @@ def main() raises:
 # == Radix Sort (Pairs) ==
 #     N    | Time (ms) | Throughput (GK/s)
 # -----------------------------------------
-#       1k |     0.056 |      0.018
-#       4k |     0.098 |      0.042
-#      16k |     0.102 |       0.16
-#      65k |     0.104 |      0.629
-#     262k |     0.117 |      2.243
-#       1M |      0.31 |      3.381
-#       4M |     0.995 |      4.214
-#      16M |      4.21 |      3.985
-#      67M |    16.863 |       3.98
-#     268M |    67.792 |       3.96
+#       1k |     0.057 |      0.018
+#       4k |     0.097 |      0.042
+#      16k |     0.111 |      0.147
+#      65k |     0.111 |      0.589
+#     262k |     0.132 |      1.993
+#       1M |     0.289 |      3.628
+#       4M |     0.948 |      4.422
+#      16M |     3.965 |      4.232
+#      67M |    15.962 |      4.204
+#     268M |    64.111 |      4.187
 # =========================================
 
 # Starting benchmarks for keys only sorting...
+
 # == Radix Sort (Keys) ==
 #     N    | Time (ms) | Throughput (GK/s)
 # -----------------------------------------
-#       1k |     0.071 |      0.014
-#       4k |     0.095 |      0.043
-#      16k |     0.096 |      0.171
-#      65k |     0.096 |      0.682
-#     262k |     0.132 |      1.984
-#       1M |     0.266 |      3.947
-#       4M |     0.831 |      5.049
-#      16M |     3.156 |      5.315
-#      67M |    13.034 |      5.149
-#     268M |    51.934 |      5.169
+#       1k |     0.079 |      0.013
+#       4k |     0.104 |      0.039
+#      16k |      0.11 |      0.148
+#      65k |     0.114 |      0.572
+#     262k |     0.131 |      1.997
+#       1M |     0.316 |      3.322
+#       4M |     0.858 |      4.888
+#      16M |     2.916 |      5.753
+#      67M |    11.436 |      5.868
+#     268M |    46.042 |       5.83
 # =========================================

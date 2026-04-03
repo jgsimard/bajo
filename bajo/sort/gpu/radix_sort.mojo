@@ -426,7 +426,7 @@ def downsweep[
 
 
 def device_radix_sort_keys[
-    dtype: DType, BITS_PER_PASS: Int = 8, KEYS_PER_THREAD: Int = 8
+    dtype: DType, BITS_PER_PASS: Int = 8, KEYS_PER_THREAD: Int = 9
 ](ctx: DeviceContext, mut keys: DeviceBuffer[dtype], size: Int,) raises:
     comptime NUM_PASSES = bit_width_of[dtype]() / BITS_PER_PASS
     comptime RADIX = 2**BITS_PER_PASS
@@ -514,7 +514,7 @@ struct RadixSortWorkspace[
     keys_dtype: DType,
     vals_dtype: DType,
     BITS_PER_PASS: Int = 8,
-    KEYS_PER_THREAD: Int = 8,
+    KEYS_PER_THREAD: Int = 9,
 ]:
     var alt_keys: DeviceBuffer[Self.keys_dtype]
     var alt_vals: DeviceBuffer[Self.vals_dtype]
@@ -543,10 +543,12 @@ def device_radix_sort_pairs[
     keys_dtype: DType,
     vals_dtype: DType,
     BITS_PER_PASS: Int = 8,
-    KEYS_PER_THREAD: Int = 8,
+    KEYS_PER_THREAD: Int = 9,
 ](
     ctx: DeviceContext,
-    mut workspace: RadixSortWorkspace[keys_dtype, vals_dtype, BITS_PER_PASS],
+    mut workspace: RadixSortWorkspace[
+        keys_dtype, vals_dtype, BITS_PER_PASS, KEYS_PER_THREAD
+    ],
     mut keys: DeviceBuffer[keys_dtype],
     mut values: DeviceBuffer[vals_dtype],
     size: Int,

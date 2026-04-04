@@ -69,13 +69,6 @@ struct Vec[dtype: DType, size: Int](Copyable, Equatable, Roundable, Writable):
         comptime assert Self.size > 0
         self.data = Self.T(uninitialized=uninitialized)
 
-    def __init__(out self, var *elems: Self.S):
-        debug_assert(
-            len(elems) == Self.size, "No. of elems must match array size"
-        )
-        self.data = Self.T(storage=elems^)
-
-    # TODO: should we keep this ?
     def __init__(
         out self: Vec[Self.dtype, 2],
         x: Self.S,

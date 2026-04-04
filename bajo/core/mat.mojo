@@ -30,12 +30,6 @@ struct Mat[
     def __init__(out self, uninitialized: Bool):
         self.data = Self.TD(uninitialized=uninitialized)
 
-    def __init__(out self, var *elems: Self.V):
-        debug_assert["safe"](
-            len(elems) == Self.rows, "No. of elems must match array size"
-        )
-        self.data = Self.TD(storage=elems^)
-
     def __init__(out self, *elems: Scalar[Self.dtype]):
         debug_assert["safe"](
             len(elems) == Self.rows * Self.cols,

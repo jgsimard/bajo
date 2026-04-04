@@ -46,15 +46,9 @@ struct Ray(Copyable):
     def __init__(out self, O: Vec3f32, D: Vec3f32, t_max: Float32 = 1e30):
         self.O = O.copy()
         self.D = D.copy()
-        var rDx = Float32(1.0) / D.x() if abs(D.x()) > Float32(1e-12) else (
-            Float32(1e30) if D.x() >= 0.0 else Float32(-1e30)
-        )
-        var rDy = Float32(1.0) / D.y() if abs(D.y()) > Float32(1e-12) else (
-            Float32(1e30) if D.y() >= 0.0 else Float32(-1e30)
-        )
-        var rDz = Float32(1.0) / D.z() if abs(D.z()) > Float32(1e-12) else (
-            Float32(1e30) if D.z() >= 0.0 else Float32(-1e30)
-        )
+        var rDx = clamp(Float32(1.0) / D.x(), -1e30, 1e30)
+        var rDy = clamp(Float32(1.0) / D.y(), -1e30, 1e30)
+        var rDz = clamp(Float32(1.0) / D.z(), -1e30, 1e30)
         self.rD = Vec3f32(rDx, rDy, rDz)
         self.mask = 0xFFFFFFFF
         self.hit = Intersection()

@@ -641,7 +641,7 @@ def refract[
 ](uv: Vec3[dtype], n: Vec3[dtype], etai_over_etat: Scalar[dtype]) -> Vec3[
     dtype
 ]:
-    var cos_theta = min(dot(-uv, n), 1.0)
+    var cos_theta = min(-dot(uv, n), 1.0)
     var r_out_perp = etai_over_etat * (uv + cos_theta * n)
     var r_out_parallel = -sqrt(abs(1.0 - length2(r_out_perp))) * n
     return r_out_perp + r_out_parallel

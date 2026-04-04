@@ -146,7 +146,7 @@ struct BVH(Copyable):
         self.subdivide_quick(0)
 
     def subdivide_quick(mut self, node_idx: UInt32):
-        var node = self.bvh_nodes[Int(node_idx)].copy()
+        ref node = self.bvh_nodes[Int(node_idx)]
 
         if node.triCount <= 2:
             return
@@ -160,9 +160,9 @@ struct BVH(Copyable):
 
         while i <= j:
             var prim_idx = Int(self.prim_indices[i])
-            var v0 = self.vertices[prim_idx * 3 + 0].copy()
-            var v1 = self.vertices[prim_idx * 3 + 1].copy()
-            var v2 = self.vertices[prim_idx * 3 + 2].copy()
+            ref v0 = self.vertices[prim_idx * 3 + 0]
+            ref v1 = self.vertices[prim_idx * 3 + 1]
+            ref v2 = self.vertices[prim_idx * 3 + 2]
 
             var centroid = (v0[axis] + v1[axis] + v2[axis]) * Float32(0.3333333)
 
@@ -183,20 +183,16 @@ struct BVH(Copyable):
         var left_child_idx = self.nodes_used
         self.nodes_used += 2
 
-        var left_child = self.bvh_nodes[Int(left_child_idx)].copy()
-        var right_child = self.bvh_nodes[Int(left_child_idx + 1)].copy()
+        ref left_child = self.bvh_nodes[Int(left_child_idx)]
+        ref right_child = self.bvh_nodes[Int(left_child_idx + 1)]
 
         left_child.leftFirst = node.leftFirst
         left_child.triCount = left_count
         right_child.leftFirst = UInt32(i)
         right_child.triCount = node.triCount - left_count
 
-        self.bvh_nodes[Int(left_child_idx)] = left_child^
-        self.bvh_nodes[Int(left_child_idx + 1)] = right_child^
-
         node.leftFirst = left_child_idx
         node.triCount = 0
-        self.bvh_nodes[Int(node_idx)] = node^
 
         self.update_node_bounds(left_child_idx)
         self.update_node_bounds(left_child_idx + 1)
@@ -209,7 +205,7 @@ struct BVH(Copyable):
         self.subdivide_sah(0)
 
     def subdivide_sah(mut self, node_idx: UInt32):
-        var node = self.bvh_nodes[Int(node_idx)].copy()
+        ref node = self.bvh_nodes[Int(node_idx)]
 
         # 1. Find the best split using SAH
         var best_axis: Int = -1
@@ -217,7 +213,7 @@ struct BVH(Copyable):
         var best_cost: Float32 = 1e30
 
         # We test 16 bins per axis
-        comptime BINS = 16
+        comptime NB_BINS = 16
 
         for axis in range(3):
             # Find the range of centroids on this axis
@@ -237,8 +233,8 @@ struct BVH(Copyable):
                 continue  # Skip flat axis
 
             # Populate Bins
-            var bins = InlineArray[Bin, BINS](fill=Bin())
-            var scale = Float32(BINS) / (max_c - min_c)
+            var bins = InlineArray[Bin, NB_BINS](fill=Bin())
+            var scale = Float32(NB_BINS) / (max_c - min_c)
 
             for i in range(Int(node.triCount)):
                 var p_idx = Int(self.prim_indices[Int(node.leftFirst) + i])
@@ -247,12 +243,12 @@ struct BVH(Copyable):
                     + self.vertices[p_idx * 3 + 1].data[axis]
                     + self.vertices[p_idx * 3 + 2].data[axis]
                 ) * 0.3333333
-                var bin_idx = min(BINS - 1, Int((centroid - min_c) * scale))
+                var bin_idx = min(NB_BINS - 1, Int((centroid - min_c) * scale))
 
                 bins[bin_idx].tri_count += 1
                 # Grow bin bounds using triangle vertices
                 for v_off in range(3):
-                    var v = self.vertices[p_idx * 3 + v_off].copy()
+                    ref v = self.vertices[p_idx * 3 + v_off]
                     bins[bin_idx].bounds.aabbMin = vmin(
                         bins[bin_idx].bounds.aabbMin, v
                     )
@@ -262,12 +258,12 @@ struct BVH(Copyable):
 
             # Evaluate Costs (Sweep from left and right)
             # Area(Left) * Count(Left) + Area(Right) * Count(Right)
-            var left_areas = InlineArray[Float32, BINS](fill=0.0)
-            var left_counts = InlineArray[UInt32, BINS](fill=0)
+            var left_areas = InlineArray[Float32, NB_BINS](fill=0.0)
+            var left_counts = InlineArray[UInt32, NB_BINS](fill=0)
             var left_box = BVHNode()
             var left_sum = UInt32(0)
 
-            for i in range(BINS - 1):
+            for i in range(NB_BINS - 1):
                 left_sum += bins[i].tri_count
                 left_counts[i] = left_sum
                 left_box.aabbMin = vmin(
@@ -280,7 +276,7 @@ struct BVH(Copyable):
 
             var right_box = BVHNode()
             var right_sum = UInt32(0)
-            for i in range(BINS - 1, 0, -1):
+            for i in range(NB_BINS - 1, 0, -1):
                 right_sum += bins[i].tri_count
                 right_box.aabbMin = vmin(
                     right_box.aabbMin, bins[i].bounds.aabbMin
@@ -338,7 +334,6 @@ struct BVH(Copyable):
 
         node.leftFirst = left_child_idx
         node.triCount = 0
-        self.bvh_nodes[Int(node_idx)] = node^
 
         self.update_node_bounds(left_child_idx)
         self.update_node_bounds(left_child_idx + 1)
@@ -364,7 +359,7 @@ struct BVH(Copyable):
         # 2. Single-threaded Breadth-First split to generate independent tasks
         while len(queue) > 0 and (len(queue) + len(sub_roots)) < 64:
             var node_idx = queue.pop(0)
-            var node = nodes_ptr[Int(node_idx)].copy()
+            ref node = nodes_ptr[Int(node_idx)]
 
             if node.triCount < 1000:  # Too small to be worth a new thread task
                 sub_roots.append(node_idx)
@@ -373,7 +368,7 @@ struct BVH(Copyable):
             var best_axis = -1
             var best_pos = Float32(0)
             var best_cost = Float32(1e30)
-            comptime BINS = 16
+            comptime NB_BINS = 16
 
             for axis in range(3):
                 var min_c = Float32(1e30)
@@ -390,8 +385,8 @@ struct BVH(Copyable):
                 if min_c == max_c:
                     continue
 
-                var bins = InlineArray[Bin, BINS](fill=Bin())
-                var scale = Float32(BINS) / (max_c - min_c)
+                var bins = InlineArray[Bin, NB_BINS](fill=Bin())
+                var scale = Float32(NB_BINS) / (max_c - min_c)
                 for i in range(Int(node.triCount)):
                     var p_idx = Int(prims_ptr[Int(node.leftFirst) + i])
                     var c = (
@@ -399,10 +394,10 @@ struct BVH(Copyable):
                         + verts_ptr[p_idx * 3 + 1].data[axis]
                         + verts_ptr[p_idx * 3 + 2].data[axis]
                     ) * 0.3333333
-                    var bin_idx = min(BINS - 1, Int((c - min_c) * scale))
+                    var bin_idx = min(NB_BINS - 1, Int((c - min_c) * scale))
                     bins[bin_idx].tri_count += 1
                     for v_off in range(3):
-                        var v = verts_ptr[p_idx * 3 + v_off].copy()
+                        ref v = verts_ptr[p_idx * 3 + v_off]
                         bins[bin_idx].bounds.aabbMin = vmin(
                             bins[bin_idx].bounds.aabbMin, v
                         )
@@ -410,11 +405,11 @@ struct BVH(Copyable):
                             bins[bin_idx].bounds.aabbMax, v
                         )
 
-                var left_areas = InlineArray[Float32, BINS](fill=0.0)
-                var left_counts = InlineArray[UInt32, BINS](fill=0)
+                var left_areas = InlineArray[Float32, NB_BINS](fill=0.0)
+                var left_counts = InlineArray[UInt32, NB_BINS](fill=0)
                 var left_box = BVHNode()
                 var left_sum = UInt32(0)
-                for i in range(BINS - 1):
+                for i in range(NB_BINS - 1):
                     left_sum += bins[i].tri_count
                     left_counts[i] = left_sum
                     left_box.aabbMin = vmin(
@@ -427,7 +422,7 @@ struct BVH(Copyable):
 
                 var right_box = BVHNode()
                 var right_sum = UInt32(0)
-                for i in range(BINS - 1, 0, -1):
+                for i in range(NB_BINS - 1, 0, -1):
                     right_sum += bins[i].tri_count
                     right_box.aabbMin = vmin(
                         right_box.aabbMin, bins[i].bounds.aabbMin
@@ -482,11 +477,10 @@ struct BVH(Copyable):
 
             node.leftFirst = left_child_idx
             node.triCount = 0
-            nodes_ptr[Int(node_idx)] = node^
 
             for child in range(2):
                 var c_idx = left_child_idx + UInt32(child)
-                var c_node = nodes_ptr[Int(c_idx)].copy()
+                ref c_node = nodes_ptr[Int(c_idx)]
                 c_node.aabbMin = Vec3f32(1e30)
                 c_node.aabbMax = Vec3f32(-1e30)
                 for t_idx in range(Int(c_node.triCount)):
@@ -495,25 +489,16 @@ struct BVH(Copyable):
                     )
                     c_node.aabbMin = vmin(
                         c_node.aabbMin,
-                        vmin(
-                            verts_ptr[leaf_tri_idx * 3].copy(),
-                            vmin(
-                                verts_ptr[leaf_tri_idx * 3 + 1].copy(),
-                                verts_ptr[leaf_tri_idx * 3 + 2].copy(),
-                            ),
-                        ),
+                        verts_ptr[leaf_tri_idx * 3],
+                        verts_ptr[leaf_tri_idx * 3 + 1],
+                        verts_ptr[leaf_tri_idx * 3 + 2],
                     )
                     c_node.aabbMax = vmax(
                         c_node.aabbMax,
-                        vmax(
-                            verts_ptr[leaf_tri_idx * 3].copy(),
-                            vmax(
-                                verts_ptr[leaf_tri_idx * 3 + 1].copy(),
-                                verts_ptr[leaf_tri_idx * 3 + 2].copy(),
-                            ),
-                        ),
+                        verts_ptr[leaf_tri_idx * 3],
+                        verts_ptr[leaf_tri_idx * 3 + 1],
+                        verts_ptr[leaf_tri_idx * 3 + 2],
                     )
-                nodes_ptr[Int(c_idx)] = c_node^
                 queue.append(c_idx)
 
         for i in range(len(queue)):
@@ -551,12 +536,12 @@ struct BVH(Copyable):
         verts_ptr: UnsafePointer[Vec3f32, MutAnyOrigin],
         atomic_nodes: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
     ):
-        var node = nodes_ptr[Int(node_idx)].copy()
+        ref node = nodes_ptr[Int(node_idx)]
 
         var best_axis = -1
         var best_pos = Float32(0)
         var best_cost = Float32(1e30)
-        comptime BINS = 16
+        comptime NB_BINS = 16
 
         for axis in range(3):
             var min_c = Float32(1e30)
@@ -573,8 +558,8 @@ struct BVH(Copyable):
             if min_c == max_c:
                 continue
 
-            var bins = InlineArray[Bin, BINS](fill=Bin())
-            var scale = Float32(BINS) / (max_c - min_c)
+            var bins = InlineArray[Bin, NB_BINS](fill=Bin())
+            var scale = Float32(NB_BINS) / (max_c - min_c)
             for i in range(Int(node.triCount)):
                 var p_idx = Int(prims_ptr[Int(node.leftFirst) + i])
                 var c = (
@@ -582,10 +567,10 @@ struct BVH(Copyable):
                     + verts_ptr[p_idx * 3 + 1].data[axis]
                     + verts_ptr[p_idx * 3 + 2].data[axis]
                 ) * 0.3333333
-                var bin_idx = min(BINS - 1, Int((c - min_c) * scale))
+                var bin_idx = min(NB_BINS - 1, Int((c - min_c) * scale))
                 bins[bin_idx].tri_count += 1
                 for v_off in range(3):
-                    var v = verts_ptr[p_idx * 3 + v_off].copy()
+                    ref v = verts_ptr[p_idx * 3 + v_off]
                     bins[bin_idx].bounds.aabbMin = vmin(
                         bins[bin_idx].bounds.aabbMin, v
                     )
@@ -593,11 +578,11 @@ struct BVH(Copyable):
                         bins[bin_idx].bounds.aabbMax, v
                     )
 
-            var left_areas = InlineArray[Float32, BINS](fill=0.0)
-            var left_counts = InlineArray[UInt32, BINS](fill=0)
+            var left_areas = InlineArray[Float32, NB_BINS](fill=0.0)
+            var left_counts = InlineArray[UInt32, NB_BINS](fill=0)
             var left_box = BVHNode()
             var left_sum = UInt32(0)
-            for i in range(BINS - 1):
+            for i in range(NB_BINS - 1):
                 left_sum += bins[i].tri_count
                 left_counts[i] = left_sum
                 left_box.aabbMin = vmin(
@@ -610,7 +595,7 @@ struct BVH(Copyable):
 
             var right_box = BVHNode()
             var right_sum = UInt32(0)
-            for i in range(BINS - 1, 0, -1):
+            for i in range(NB_BINS - 1, 0, -1):
                 right_sum += bins[i].tri_count
                 right_box.aabbMin = vmin(
                     right_box.aabbMin, bins[i].bounds.aabbMin
@@ -661,36 +646,26 @@ struct BVH(Copyable):
 
         node.leftFirst = left_child_idx
         node.triCount = 0
-        nodes_ptr[Int(node_idx)] = node^
 
         for child in range(2):
             var c_idx = left_child_idx + UInt32(child)
-            var c_node = nodes_ptr[Int(c_idx)].copy()
+            ref c_node = nodes_ptr[Int(c_idx)]
             c_node.aabbMin = Vec3f32(1e30)
             c_node.aabbMax = Vec3f32(-1e30)
             for t_idx in range(Int(c_node.triCount)):
                 var leaf_tri_idx = Int(prims_ptr[Int(c_node.leftFirst) + t_idx])
                 c_node.aabbMin = vmin(
                     c_node.aabbMin,
-                    vmin(
-                        verts_ptr[leaf_tri_idx * 3].copy(),
-                        vmin(
-                            verts_ptr[leaf_tri_idx * 3 + 1].copy(),
-                            verts_ptr[leaf_tri_idx * 3 + 2].copy(),
-                        ),
-                    ),
+                    verts_ptr[leaf_tri_idx * 3],
+                    verts_ptr[leaf_tri_idx * 3 + 1],
+                    verts_ptr[leaf_tri_idx * 3 + 2],
                 )
                 c_node.aabbMax = vmax(
                     c_node.aabbMax,
-                    vmax(
-                        verts_ptr[leaf_tri_idx * 3].copy(),
-                        vmax(
-                            verts_ptr[leaf_tri_idx * 3 + 1].copy(),
-                            verts_ptr[leaf_tri_idx * 3 + 2].copy(),
-                        ),
-                    ),
+                    verts_ptr[leaf_tri_idx * 3],
+                    verts_ptr[leaf_tri_idx * 3 + 1],
+                    verts_ptr[leaf_tri_idx * 3 + 2],
                 )
-            nodes_ptr[Int(c_idx)] = c_node^
 
         BVH._subdivide_sah_worker(
             left_child_idx, nodes_ptr, prims_ptr, verts_ptr, atomic_nodes
@@ -701,7 +676,7 @@ struct BVH(Copyable):
 
     def sah_cost(self, node_idx: UInt32 = 0) -> Float32:
         """Recursively calculates the unnormalized SAH cost of the subtree."""
-        var node = self.bvh_nodes[Int(node_idx)].copy()
+        ref node = self.bvh_nodes[Int(node_idx)]
         var area = node.surface_area()
 
         # Standard SAH constants
@@ -769,7 +744,7 @@ struct BVH(Copyable):
         var node_idx = UInt32(0)
 
         while True:
-            var node = self.bvh_nodes[Int(node_idx)].copy()
+            ref node = self.bvh_nodes[Int(node_idx)]
             if node.is_leaf():
                 for i in range(Int(node.triCount)):
                     var prim_idx = self.prim_indices[Int(node.leftFirst) + i]
@@ -783,8 +758,8 @@ struct BVH(Copyable):
 
             var child1_idx = node.leftFirst
             var child2_idx = node.leftFirst + 1
-            var child1 = self.bvh_nodes[Int(child1_idx)].copy()
-            var child2 = self.bvh_nodes[Int(child2_idx)].copy()
+            ref child1 = self.bvh_nodes[Int(child1_idx)]
+            ref child2 = self.bvh_nodes[Int(child2_idx)]
 
             var dist1 = Float32(1e30)
             var dist2 = Float32(1e30)
@@ -825,7 +800,7 @@ struct BVH(Copyable):
         var node_idx = UInt32(0)
 
         while True:
-            var node = self.bvh_nodes[Int(node_idx)].copy()
+            ref node = self.bvh_nodes[Int(node_idx)]
             if node.is_leaf():
                 for i in range(Int(node.triCount)):
                     var prim_idx = self.prim_indices[Int(node.leftFirst) + i]
@@ -860,8 +835,8 @@ struct BVH(Copyable):
 
             var child1_idx = node.leftFirst
             var child2_idx = node.leftFirst + 1
-            var child1 = self.bvh_nodes[Int(child1_idx)].copy()
-            var child2 = self.bvh_nodes[Int(child2_idx)].copy()
+            ref child1 = self.bvh_nodes[Int(child1_idx)]
+            ref child2 = self.bvh_nodes[Int(child2_idx)]
 
             var dist1 = Float32(1e30)
             var dist2 = Float32(1e30)
@@ -1031,7 +1006,7 @@ struct WideBVH[width: Int]:
             var largest_idx = -1
 
             for i in range(pool_size):
-                var n = binary_bvh.bvh_nodes[Int(pool[i])].copy()
+                ref n = binary_bvh.bvh_nodes[Int(pool[i])]
                 if not n.is_leaf():
                     var area = n.surface_area()
                     if area > largest_area:
@@ -1041,7 +1016,7 @@ struct WideBVH[width: Int]:
             if largest_idx == -1:
                 break
 
-            var n = binary_bvh.bvh_nodes[Int(pool[largest_idx])].copy()
+            ref n = binary_bvh.bvh_nodes[Int(pool[largest_idx])]
             pool[largest_idx] = n.leftFirst
             pool[pool_size] = n.leftFirst + 1
             pool_size += 1
@@ -1051,7 +1026,7 @@ struct WideBVH[width: Int]:
         # Compile-time loop unrolling!
         comptime for i in range(Self.width):
             if i < pool_size:
-                var n = binary_bvh.bvh_nodes[Int(pool[i])].copy()
+                ref n = binary_bvh.bvh_nodes[Int(pool[i])]
                 wide_node.min_x[i] = n.aabbMin.x()
                 wide_node.min_y[i] = n.aabbMin.y()
                 wide_node.min_z[i] = n.aabbMin.z()
@@ -1105,14 +1080,16 @@ struct WideBVH[width: Int]:
             ray.hit.prim = prim_idx
 
     def traverse(self, mut ray: Ray):
+        var nodes_ptr = self.nodes.unsafe_ptr()
+        var prims_ptr = self.prim_indices
+
         var stack = InlineArray[UInt32, 32](fill=0)
         var stack_ptr = 0
         var node_idx = UInt32(0)
 
         while True:
-            ref node = self.nodes[Int(node_idx)]
+            ref node = nodes_ptr[Int(node_idx)]
 
-            # Massive parallel SIMD intersection
             var t1_x = (node.min_x - ray.O.x()) * ray.rD.x()
             var t2_x = (node.max_x - ray.O.x()) * ray.rD.x()
             var tmin_x = min(t1_x, t2_x)
@@ -1128,65 +1105,53 @@ struct WideBVH[width: Int]:
             var tmin_z = min(t1_z, t2_z)
             var tmax_z = max(t1_z, t2_z)
 
-            var tmin = max(
-                max(tmin_x, tmin_y),
-                max(tmin_z, SIMD[DType.float32, Self.width](0.0)),
-            )
-            var tmax = min(
-                min(tmax_x, tmax_y),
-                min(tmax_z, SIMD[DType.float32, Self.width](ray.hit.t)),
-            )
+            var tmin = max(max(tmin_x, tmin_y), max(tmin_z, 0.0))
+            var tmax = min(min(tmax_x, tmax_y), min(tmax_z, ray.hit.t))
 
-            var hit_mask = tmin.le(tmax)
+            var hit_mask = tmin.le(tmax) & node.counts.ne(UInt32.MAX)
 
-            var hit_dists = InlineArray[Float32, Self.width](fill=1e30)
-            var hit_indices = InlineArray[Int, Self.width](fill=0)
-            var hit_count = 0
+            var sort_dists = hit_mask.select(tmin, -1.0)
+            var hit_count = hit_mask.reduce_bit_count()
 
-            comptime for i in range(Self.width):
-                if hit_mask[i] and node.counts[i] != UInt32(0xFFFFFFFF):
-                    hit_dists[hit_count] = tmin[i]
-                    hit_indices[hit_count] = i
-                    hit_count += 1
+            for _ in range(hit_count):
+                var max_t = sort_dists.reduce_max()
+                var lane_idx: Int = -1
 
-            # Insertion sort (descending) to pop the closest children first
-            for i in range(1, hit_count):
-                for j in range(i, 0, -1):
-                    if hit_dists[j] > hit_dists[j - 1]:
-                        var tmp_d = hit_dists[j]
-                        hit_dists[j] = hit_dists[j - 1]
-                        hit_dists[j - 1] = tmp_d
+                comptime for i in range(Self.width):
+                    if lane_idx == -1 and sort_dists[i] == max_t:
+                        lane_idx = i
 
-                        var tmp_i = hit_indices[j]
-                        hit_indices[j] = hit_indices[j - 1]
-                        hit_indices[j - 1] = tmp_i
+                # Mark this lane as "done" so we find the next farthest in the next iteration
+                sort_dists[lane_idx] = -1.0
 
-            for i in range(hit_count):
-                var child_idx = hit_indices[i]
-                var count = node.counts[child_idx]
+                var data = node.data[lane_idx]
+                var count = node.counts[lane_idx]
 
-                if count == 0:
-                    stack[stack_ptr] = node.data[child_idx]
+                if count == 0:  # internal node, push to stack
+                    stack[stack_ptr] = data
                     stack_ptr += 1
-                else:
+                else:  # leaf, intersect triangles immediately
                     for j in range(Int(count)):
-                        var prim_idx = self.prim_indices[
-                            Int(node.data[child_idx]) + j
-                        ]
+                        var prim_idx = prims_ptr[Int(data) + j]
                         self.intersect_tri(ray, prim_idx)
 
+            # Pop the next node from the stack
             if stack_ptr == 0:
                 break
             stack_ptr -= 1
             node_idx = stack[stack_ptr]
 
     def is_occluded(self, mut ray: Ray) -> Bool:
+        var nodes_ptr = self.nodes.unsafe_ptr()
+        var prims_ptr = self.prim_indices
+        var verts_ptr = self.vertices
+
         var stack = InlineArray[UInt32, 64](fill=0)
         var stack_ptr = 0
         var node_idx = UInt32(0)
 
         while True:
-            ref node = self.nodes[Int(node_idx)]
+            ref node = nodes_ptr[Int(node_idx)]
 
             var t1_x = (node.min_x - ray.O.x()) * ray.rD.x()
             var t2_x = (node.max_x - ray.O.x()) * ray.rD.x()
@@ -1203,40 +1168,37 @@ struct WideBVH[width: Int]:
             var tmin_z = min(t1_z, t2_z)
             var tmax_z = max(t1_z, t2_z)
 
-            var tmin = max(
-                max(tmin_x, tmin_y),
-                max(tmin_z, SIMD[DType.float32, Self.width](0.0)),
-            )
-            var tmax = min(
-                min(tmax_x, tmax_y),
-                min(tmax_z, SIMD[DType.float32, Self.width](ray.hit.t)),
-            )
-            var hit_mask = tmin.le(tmax)
+            var tmin = max(max(tmin_x, tmin_y), max(tmin_z, 0.0))
+            var tmax = min(min(tmax_x, tmax_y), min(tmax_z, ray.hit.t))
+
+            var hit_mask = tmin.le(tmax) & node.counts.ne(UInt32.MAX)
 
             comptime for i in range(Self.width):
-                if hit_mask[i] and node.counts[i] != UInt32(0xFFFFFFFF):
-                    if node.counts[i] == 0:
-                        stack[stack_ptr] = node.data[i]
+                if hit_mask[i]:
+                    var data = node.data[i]
+                    var count = node.counts[i]
+
+                    if count == 0:  # Internal Node: Push to stack for later
+                        stack[stack_ptr] = data
                         stack_ptr += 1
-                    else:
-                        for j in range(Int(node.counts[i])):
-                            var prim_idx = self.prim_indices[
-                                Int(node.data[i]) + j
-                            ]
-                            ref v0 = self.vertices[Int(prim_idx) * 3 + 0]
-                            ref v1 = self.vertices[Int(prim_idx) * 3 + 1]
-                            ref v2 = self.vertices[Int(prim_idx) * 3 + 2]
+                    else:  # Leaf Node: Check triangles
+                        for j in range(Int(count)):
+                            var prim_idx = prims_ptr[Int(data) + j]
+
+                            # Local variables for the triangle intersection
                             var t = Float32(1e30)
                             var u = Float32(0.0)
                             var v = Float32(0.0)
                             var w = Float32(0.0)
                             var sign = Float32(0.0)
+
+                            # The moment one triangle is hit, the ray is occluded.
                             if intersect_ray_tri_moller(
                                 ray.O,
                                 ray.D,
-                                v0,
-                                v1,
-                                v2,
+                                verts_ptr[Int(prim_idx) * 3 + 0],
+                                verts_ptr[Int(prim_idx) * 3 + 1],
+                                verts_ptr[Int(prim_idx) * 3 + 2],
                                 t,
                                 u,
                                 v,
@@ -1247,6 +1209,7 @@ struct WideBVH[width: Int]:
                                 if t < ray.hit.t:
                                     return True
 
+            # Pop the next node
             if stack_ptr == 0:
                 break
             stack_ptr -= 1
@@ -1328,27 +1291,24 @@ struct TLAS:
             self.inst_indices.append(UInt32(i))
 
         if inst_count > 0:
-            var root = self.tlas_nodes[0].copy()
+            ref root = self.tlas_nodes[0]
             root.leftFirst = 0
             root.triCount = inst_count
-            self.tlas_nodes[0] = root^
             self.update_node_bounds(0)
 
     @always_inline
     def update_node_bounds(mut self, node_idx: UInt32):
-        var node = self.tlas_nodes[Int(node_idx)].copy()
+        ref node = self.tlas_nodes[Int(node_idx)]
         node.aabbMin = Vec3f32(1e30)
         node.aabbMax = Vec3f32(-1e30)
 
         var first = Int(node.leftFirst)
         for i in range(Int(node.triCount)):
             var inst_idx = Int(self.inst_indices[first + i])
-            var inst = self.instances[inst_idx].copy()
+            ref inst = self.instances[inst_idx]
 
             node.aabbMin = vmin(node.aabbMin, inst.bounds_min)
             node.aabbMax = vmax(node.aabbMax, inst.bounds_max)
-
-        self.tlas_nodes[Int(node_idx)] = node^
 
     def build(mut self):
         """TLAS uses the Quick/Spatial Median builder since instance count is usually low (<10,000).
@@ -1357,7 +1317,7 @@ struct TLAS:
             self.subdivide(0)
 
     def subdivide(mut self, node_idx: UInt32):
-        var node = self.tlas_nodes[Int(node_idx)].copy()
+        ref node = self.tlas_nodes[Int(node_idx)]
 
         if node.triCount <= 2:
             return
@@ -1371,7 +1331,7 @@ struct TLAS:
 
         while i <= j:
             var inst_idx = Int(self.inst_indices[i])
-            var inst = self.instances[inst_idx].copy()
+            ref inst = self.instances[inst_idx]
 
             var centroid = (inst.bounds_min[axis] + inst.bounds_max[axis]) * 0.5
 
@@ -1391,20 +1351,16 @@ struct TLAS:
         var left_child_idx = self.nodes_used
         self.nodes_used += 2
 
-        var left_child = self.tlas_nodes[Int(left_child_idx)].copy()
-        var right_child = self.tlas_nodes[Int(left_child_idx + 1)].copy()
+        ref left_child = self.tlas_nodes[Int(left_child_idx)]
+        ref right_child = self.tlas_nodes[Int(left_child_idx + 1)]
 
         left_child.leftFirst = node.leftFirst
         left_child.triCount = left_count
         right_child.leftFirst = UInt32(i)
         right_child.triCount = node.triCount - left_count
 
-        self.tlas_nodes[Int(left_child_idx)] = left_child^
-        self.tlas_nodes[Int(left_child_idx + 1)] = right_child^
-
         node.leftFirst = left_child_idx
         node.triCount = 0
-        self.tlas_nodes[Int(node_idx)] = node^
 
         self.update_node_bounds(left_child_idx)
         self.update_node_bounds(left_child_idx + 1)
@@ -1422,11 +1378,11 @@ struct TLAS:
         var node_idx = UInt32(0)
 
         while True:
-            var node = self.tlas_nodes[Int(node_idx)].copy()
+            ref node = self.tlas_nodes[Int(node_idx)]
             if node.is_leaf():
                 for i in range(Int(node.triCount)):
                     var inst_idx = self.inst_indices[Int(node.leftFirst) + i]
-                    var inst = self.instances[Int(inst_idx)].copy()
+                    ref inst = self.instances[Int(inst_idx)]
 
                     # 1. Transform World Ray -> Local Space
                     var local_O = transform_point(inst.inv_transform, ray.O)
@@ -1453,8 +1409,8 @@ struct TLAS:
 
             var child1_idx = node.leftFirst
             var child2_idx = node.leftFirst + 1
-            var child1 = self.tlas_nodes[Int(child1_idx)].copy()
-            var child2 = self.tlas_nodes[Int(child2_idx)].copy()
+            ref child1 = self.tlas_nodes[Int(child1_idx)]
+            ref child2 = self.tlas_nodes[Int(child2_idx)]
 
             var dist1 = Float32(1e30)
             var dist2 = Float32(1e30)

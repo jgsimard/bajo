@@ -1,5 +1,5 @@
 from std.algorithm import parallelize
-from std.math import sqrt, tan, pi, clamp, cos
+from std.math import sqrt, tan, pi, clamp, cos, fma
 from std.os import abort
 from std.random import random_float64, random_si64
 from std.sys.info import size_of
@@ -20,7 +20,7 @@ from bajo.core.vec import (
     vmax,
     longest_axis,
 )
-from bajo.core.conversion import degrees_to_radians
+from bajo.core.utils import degrees_to_radians
 
 from bajo.core.random import (
     random_unit_vector,
@@ -726,9 +726,20 @@ struct Dielectric(Material, Writable):
 def reflectance[
     dtype: DType, size: Int
 ](cosine: SIMD[dtype, size], ref_idx: SIMD[dtype, size]) -> SIMD[dtype, size]:
-    """Schlick's approximation for reflectance."""
-    var r0 = pow(((1.0 - ref_idx) / (1.0 + ref_idx)), 2)
-    return r0 + (1.0 - r0) * pow(1.0 - cosine, 5)
+    """
+    Schlick's approximation for reflectance.
+    """
+    # r0: ((1-n)/(1+n))^2
+    var root = (1.0 - ref_idx) / (1.0 + ref_idx)
+    var r0 = root * root
+
+    # (1 - cosine)^5
+    var x = 1.0 - cosine
+    var x2 = x * x
+    var x5 = x2 * x2 * x
+
+    # r0 + (1.0 - r0) * x5
+    return fma(1.0 - r0, x5, r0)
 
 
 def create_random_scene() -> Scene:

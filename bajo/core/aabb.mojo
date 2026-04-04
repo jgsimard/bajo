@@ -23,8 +23,8 @@ struct AxisAlignedBoundingBox[dtype: DType, size: Int = 3](Copyable, Writable):
         v1: Vec[Self.dtype, Self.size],
         v2: Vec[Self.dtype, Self.size],
     ):
-        self._min = vmin(vmin(v0, v1), v2)
-        self._max = vmax(vmax(v0, v1), v2)
+        self._min = vmin(v0, v1, v2)
+        self._max = vmax(v0, v1, v2)
 
     def __init__(out self, a: Self, b: Self):
         self._min = vmin(a._min, b._min)

@@ -371,19 +371,21 @@ def lerp[
 
 def vmin[
     dtype: DType, size: Int
-](a: Vec[dtype, size], b: Vec[dtype, size]) -> Vec[dtype, size]:
-    out = Vec[dtype, size](uninitialized=True)
-    comptime for i in range(size):
-        out.data[i] = min(a[i], b[i])
+](a: Vec[dtype, size], *bs: Vec[dtype, size]) -> Vec[dtype, size]:
+    out = a.copy()
+    for b in bs:
+        comptime for i in range(size):
+            out.data[i] = min(out[i], b[i])
     return out^
 
 
 def vmax[
     dtype: DType, size: Int
-](a: Vec[dtype, size], b: Vec[dtype, size]) -> Vec[dtype, size]:
-    out = Vec[dtype, size](uninitialized=True)
-    comptime for i in range(size):
-        out.data[i] = max(a[i], b[i])
+](a: Vec[dtype, size], *bs: Vec[dtype, size]) -> Vec[dtype, size]:
+    out = a.copy()
+    for b in bs:
+        comptime for i in range(size):
+            out.data[i] = max(out[i], b[i])
     return out^
 
 

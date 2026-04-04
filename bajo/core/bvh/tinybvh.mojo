@@ -6,6 +6,7 @@ from std.os.atomic import Atomic
 
 from bajo.core.vec import Vec3f32, vmin, vmax, longest_axis, InlineArray
 from bajo.core.intersect import intersect_ray_tri_moller, intersect_ray_aabb
+from bajo.core.mat import Mat44f32, transform_point, transform_vector, inverse
 
 
 @fieldwise_init
@@ -94,7 +95,7 @@ struct Bin(Copyable):
         self.tri_count = 0
 
 
-struct BVH:
+struct BVH(Copyable):
     var bvh_nodes: List[BVHNode]
     var prim_indices: List[UInt32]
     var vertices: UnsafePointer[Vec3f32, MutAnyOrigin]
@@ -893,6 +894,90 @@ struct BVH:
 
 
 @fieldwise_init
+struct WideLeaf[width: Int](Copyable):
+    # Vertex 0 (x, y, z)
+    var v0x: SIMD[DType.float32, Self.width]
+    var v0y: SIMD[DType.float32, Self.width]
+    var v0z: SIMD[DType.float32, Self.width]
+    # Vertex 1
+    var v1x: SIMD[DType.float32, Self.width]
+    var v1y: SIMD[DType.float32, Self.width]
+    var v1z: SIMD[DType.float32, Self.width]
+    # Vertex 2
+    var v2x: SIMD[DType.float32, Self.width]
+    var v2y: SIMD[DType.float32, Self.width]
+    var v2z: SIMD[DType.float32, Self.width]
+
+    var prim_indices: SIMD[DType.uint32, Self.width]
+
+
+@always_inline
+def intersect_tri_soa[
+    width: Int
+](
+    ray: Ray,
+    leaf: WideLeaf[width],
+    mut ray_t: Float32,
+    mut ray_u: Float32,
+    mut ray_v: Float32,
+    mut ray_prim: UInt32,
+):
+    # Edge vectors
+    var e1x = leaf.v1x - leaf.v0x
+    var e1y = leaf.v1y - leaf.v0y
+    var e1z = leaf.v1z - leaf.v0z
+
+    var e2x = leaf.v2x - leaf.v0x
+    var e2y = leaf.v2y - leaf.v0y
+    var e2z = leaf.v2z - leaf.v0z
+
+    # Determinant / P-Vector
+    var px = ray.D.y() * e2z - ray.D.z() * e2y
+    var py = ray.D.z() * e2x - ray.D.x() * e2z
+    var pz = ray.D.x() * e2y - ray.D.y() * e2x
+
+    var det = e1x * px + e1y * py + e1z * pz
+    var inv_det = 1.0 / det
+
+    var tx = ray.O.x() - leaf.v0x
+    var ty = ray.O.y() - leaf.v0y
+    var tz = ray.O.z() - leaf.v0z
+
+    var u = (tx * px + ty * py + tz * pz) * inv_det
+    var qx = ty * e1z - tz * e1y
+    var qy = tz * e1x - tx * e1z
+    var qz = tx * e1y - ty * e1x
+
+    var v = (ray.D.x() * qx + ray.D.y() * qy + ray.D.z() * qz) * inv_det
+    var t = (e2x * qx + e2y * qy + e2z * qz) * inv_det
+
+    # HIT MASK: Calculate which lanes actually hit the triangle
+    # t > epsilon AND t < current closest AND u >= 0 AND v >= 0 AND u+v <= 1
+    var hit_mask = (
+        (t.gt(1e-4))
+        & (t.lt(ray_t))
+        & (u.ge(0.0))
+        & (v.ge(0.0))
+        & ((u + v).le(1.0))
+    )
+
+    if hit_mask.reduce_or():
+        # Find the closest hit among the SIMD lanes
+        # We replace missed lanes with infinity to find the true minimum t
+        var valid_t = hit_mask.select(t, SIMD[DType.float32, width](1e30))
+        var min_t = valid_t.reduce_min()
+
+        # Mask for the specific lane that was the closest
+        var min_mask = valid_t.eq(min_t)
+        comptime for i in range(width):
+            if min_mask[i]:
+                ray_t = min_t
+                ray_u = u[i]
+                ray_v = v[i]
+                ray_prim = leaf.prim_indices[i]
+
+
+@fieldwise_init
 struct WideBVHNode[width: Int](Copyable):
     var min_x: SIMD[DType.float32, Self.width]
     var min_y: SIMD[DType.float32, Self.width]
@@ -1128,7 +1213,7 @@ struct WideBVH[width: Int]:
             )
             var hit_mask = tmin.le(tmax)
 
-            for i in range(Self.width):
+            comptime for i in range(Self.width):
                 if hit_mask[i] and node.counts[i] != UInt32(0xFFFFFFFF):
                     if node.counts[i] == 0:
                         stack[stack_ptr] = node.data[i]
@@ -1170,7 +1255,242 @@ struct WideBVH[width: Int]:
         return False
 
 
-def main():
+# TLAS & INSTANCING (2-LAYER BVH)
+
+
+@fieldwise_init
+struct Instance(Copyable):
+    var transform: Mat44f32
+    var inv_transform: Mat44f32
+    var bounds_min: Vec3f32
+    var bounds_max: Vec3f32
+    var blas_idx: UInt32
+
+    @always_inline
+    def __init__(
+        out self,
+        transform: Mat44f32,
+        inv_transform: Mat44f32,
+        blas_idx: UInt32,
+        blas_min: Vec3f32,
+        blas_max: Vec3f32,
+    ):
+        self.transform = transform.copy()
+        self.inv_transform = inv_transform.copy()
+        self.blas_idx = blas_idx
+
+        # To find the World Space AABB, we must transform all 8 corners of the Local BLAS AABB
+        var corners = InlineArray[Vec3f32, 8](fill=Vec3f32(0))
+        corners[0] = Vec3f32(blas_min.x(), blas_min.y(), blas_min.z())
+        corners[1] = Vec3f32(blas_max.x(), blas_min.y(), blas_min.z())
+        corners[2] = Vec3f32(blas_min.x(), blas_max.y(), blas_min.z())
+        corners[3] = Vec3f32(blas_max.x(), blas_max.y(), blas_min.z())
+        corners[4] = Vec3f32(blas_min.x(), blas_min.y(), blas_max.z())
+        corners[5] = Vec3f32(blas_max.x(), blas_min.y(), blas_max.z())
+        corners[6] = Vec3f32(blas_min.x(), blas_max.y(), blas_max.z())
+        corners[7] = Vec3f32(blas_max.x(), blas_max.y(), blas_max.z())
+
+        var w_min = Vec3f32(1e30)
+        var w_max = Vec3f32(-1e30)
+        comptime for i in range(8):
+            var transformed = transform_point(transform, corners[i])
+            w_min = vmin(w_min, transformed)
+            w_max = vmax(w_max, transformed)
+
+        self.bounds_min = w_min^
+        self.bounds_max = w_max^
+
+
+struct TLAS:
+    var tlas_nodes: List[BVHNode]
+    var inst_indices: List[UInt32]
+    var instances: UnsafePointer[Instance, MutAnyOrigin]
+    var inst_count: UInt32
+    var nodes_used: UInt32
+
+    def __init__(
+        out self,
+        instances: UnsafePointer[Instance, MutAnyOrigin],
+        inst_count: UInt32,
+    ):
+        self.instances = instances
+        self.inst_count = inst_count
+        self.nodes_used = 1
+
+        # Capacity is 2N - 1
+        var max_nodes = Int(inst_count * 2 - 1) if inst_count > 0 else 1
+        self.tlas_nodes = List[BVHNode](capacity=max_nodes)
+        for _ in range(max_nodes):
+            self.tlas_nodes.append(BVHNode())
+
+        self.inst_indices = List[UInt32](capacity=Int(inst_count))
+        for i in range(Int(inst_count)):
+            self.inst_indices.append(UInt32(i))
+
+        if inst_count > 0:
+            var root = self.tlas_nodes[0].copy()
+            root.leftFirst = 0
+            root.triCount = inst_count
+            self.tlas_nodes[0] = root^
+            self.update_node_bounds(0)
+
+    @always_inline
+    def update_node_bounds(mut self, node_idx: UInt32):
+        var node = self.tlas_nodes[Int(node_idx)].copy()
+        node.aabbMin = Vec3f32(1e30)
+        node.aabbMax = Vec3f32(-1e30)
+
+        var first = Int(node.leftFirst)
+        for i in range(Int(node.triCount)):
+            var inst_idx = Int(self.inst_indices[first + i])
+            var inst = self.instances[inst_idx].copy()
+
+            node.aabbMin = vmin(node.aabbMin, inst.bounds_min)
+            node.aabbMax = vmax(node.aabbMax, inst.bounds_max)
+
+        self.tlas_nodes[Int(node_idx)] = node^
+
+    def build(mut self):
+        """TLAS uses the Quick/Spatial Median builder since instance count is usually low (<10,000).
+        """
+        if self.inst_count > 0:
+            self.subdivide(0)
+
+    def subdivide(mut self, node_idx: UInt32):
+        var node = self.tlas_nodes[Int(node_idx)].copy()
+
+        if node.triCount <= 2:
+            return
+
+        var extent = node.aabbMax - node.aabbMin
+        var axis = longest_axis(extent)
+        var split_pos = node.aabbMin[axis] + extent[axis] * 0.5
+
+        var i = Int(node.leftFirst)
+        var j = i + Int(node.triCount) - 1
+
+        while i <= j:
+            var inst_idx = Int(self.inst_indices[i])
+            var inst = self.instances[inst_idx].copy()
+
+            var centroid = (inst.bounds_min[axis] + inst.bounds_max[axis]) * 0.5
+
+            if centroid < split_pos:
+                i += 1
+            else:
+                var tmp = self.inst_indices[i]
+                self.inst_indices[i] = self.inst_indices[j]
+                self.inst_indices[j] = tmp
+                j -= 1
+
+        var left_count = UInt32(i - Int(node.leftFirst))
+        if left_count == 0 or left_count == node.triCount:
+            left_count = node.triCount // 2
+            i = Int(node.leftFirst) + Int(left_count)
+
+        var left_child_idx = self.nodes_used
+        self.nodes_used += 2
+
+        var left_child = self.tlas_nodes[Int(left_child_idx)].copy()
+        var right_child = self.tlas_nodes[Int(left_child_idx + 1)].copy()
+
+        left_child.leftFirst = node.leftFirst
+        left_child.triCount = left_count
+        right_child.leftFirst = UInt32(i)
+        right_child.triCount = node.triCount - left_count
+
+        self.tlas_nodes[Int(left_child_idx)] = left_child^
+        self.tlas_nodes[Int(left_child_idx + 1)] = right_child^
+
+        node.leftFirst = left_child_idx
+        node.triCount = 0
+        self.tlas_nodes[Int(node_idx)] = node^
+
+        self.update_node_bounds(left_child_idx)
+        self.update_node_bounds(left_child_idx + 1)
+
+        self.subdivide(left_child_idx)
+        self.subdivide(left_child_idx + 1)
+
+    def traverse(self, mut ray: Ray, blases: UnsafePointer[BVH, MutAnyOrigin]):
+        """
+        Traverses the Top Level tree. When an instance leaf is hit, the ray is transformed
+        into local space and passed to the respective Bottom Level Acceleration Structure.
+        """
+        var stack = InlineArray[UInt32, 64](fill=0)
+        var stack_ptr = 0
+        var node_idx = UInt32(0)
+
+        while True:
+            var node = self.tlas_nodes[Int(node_idx)].copy()
+            if node.is_leaf():
+                for i in range(Int(node.triCount)):
+                    var inst_idx = self.inst_indices[Int(node.leftFirst) + i]
+                    var inst = self.instances[Int(inst_idx)].copy()
+
+                    # 1. Transform World Ray -> Local Space
+                    var local_O = transform_point(inst.inv_transform, ray.O)
+                    var local_D = transform_vector(inst.inv_transform, ray.D)
+                    var local_ray = Ray(local_O, local_D, ray.hit.t)
+
+                    # 2. Traverse the BLAS
+                    blases[Int(inst.blas_idx)].traverse(local_ray)
+
+                    # 3. If a closer hit is found, save it!
+                    # Due to linear matrix math, local_ray.hit.t is identical to World Space t!
+                    if local_ray.hit.t < ray.hit.t:
+                        ray.hit.t = local_ray.hit.t
+                        ray.hit.u = local_ray.hit.u
+                        ray.hit.v = local_ray.hit.v
+                        ray.hit.prim = local_ray.hit.prim
+                        ray.hit.inst = inst_idx  # Tag the instance ID so shaders know what mesh was hit
+
+                if stack_ptr == 0:
+                    break
+                stack_ptr -= 1
+                node_idx = stack[stack_ptr]
+                continue
+
+            var child1_idx = node.leftFirst
+            var child2_idx = node.leftFirst + 1
+            var child1 = self.tlas_nodes[Int(child1_idx)].copy()
+            var child2 = self.tlas_nodes[Int(child2_idx)].copy()
+
+            var dist1 = Float32(1e30)
+            var dist2 = Float32(1e30)
+            var hit1 = intersect_ray_aabb(
+                ray.O, ray.rD, child1.aabbMin, child1.aabbMax, dist1
+            )
+            var hit2 = intersect_ray_aabb(
+                ray.O, ray.rD, child2.aabbMin, child2.aabbMax, dist2
+            )
+
+            if hit1 and dist1 >= ray.hit.t:
+                hit1 = False
+            if hit2 and dist2 >= ray.hit.t:
+                hit2 = False
+
+            if hit1 and hit2 and (dist1 > dist2):
+                var tmp = child1_idx
+                child1_idx = child2_idx
+                child2_idx = tmp
+
+            if not hit1 and not hit2:
+                if stack_ptr == 0:
+                    break
+                stack_ptr -= 1
+                node_idx = stack[stack_ptr]
+            elif hit1 and not hit2:
+                node_idx = child1_idx
+            elif not hit1 and hit2:
+                node_idx = child2_idx
+            else:
+                stack[stack_ptr] = child2_idx
+                stack_ptr += 1
+                node_idx = child1_idx
+
+
+def main() raises:
     print("--- TinyBVH Mojo Port: Parametrized SIMD Test ---")
 
     var vertices = List[Vec3f32]()
@@ -1229,3 +1549,107 @@ def main():
         )
     else:
         print("MISS")
+
+    print("\n\n--- 2-Layer TLAS/BLAS Demo ---")
+    # 1. Generate cube geometry
+    var chair_vertices = create_cube_mesh()
+    tri_count = UInt32(len(chair_vertices) // 3)
+
+    # 2. Build the BLAS (The "Blueprint")
+    # We cast to MutAnyOrigin because the BVH expects to be able to sort the indices
+    var chair_blas = BVH(
+        chair_vertices.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin](),
+        tri_count,
+    )
+    chair_blas.build_sah_mt()
+
+    # Pointer for TLAS traversal
+    var blases = List[BVH]()
+    blases.append(chair_blas.copy())
+    var blases_ptr = blases.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin]()
+
+    # 3. Create Scene Instances (The "Map")
+    var instances = List[Instance]()
+    var b_min = chair_blas.bvh_nodes[0].aabbMin.copy()
+    var b_max = chair_blas.bvh_nodes[0].aabbMax.copy()
+
+    # Instance 0: Original Cube at origin
+    var transform1 = Mat44f32.identity()
+    instances.append(Instance(transform1, inverse(transform1), 0, b_min, b_max))
+
+    # Instance 1: Cube shifted to X=20, Scaled 5x
+    from bajo.core.mat import _matmul
+
+    var t_mat = translation_matrix(Vec3f32(20.0, 0.0, 0.0))
+    var s_mat = scaling_matrix(Vec3f32(5.0, 5.0, 5.0))
+    var transform2 = _matmul(t_mat, s_mat)
+
+    instances.append(Instance(transform2, inverse(transform2), 0, b_min, b_max))
+
+    # 4. Build the TLAS
+    var tlas = TLAS(
+        instances.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin](),
+        UInt32(len(instances)),
+    )
+    tlas.build()
+
+    # 5. Raytest
+    # Aiming at the big cube at X=20
+    var ray = Ray(Vec3f32(20.0, 0.0, -50.0), Vec3f32(0.0, 0.0, 1.0))
+    tlas.traverse(ray, blases_ptr)
+
+    if ray.hit.t < 1e29:
+        print("Hit Instance:", ray.hit.inst)  # Expected: 1
+        print(
+            "Distance t:  ", ray.hit.t
+        )  # Expected: ~47.5 (Origin -50 hitting front face at Z= -2.5 (0.5 * 5 scale))
+
+
+def translation_matrix(v: Vec3f32) -> Mat44f32:
+    var m = Mat44f32.identity()
+    m[0][3] = v.x()
+    m[1][3] = v.y()
+    m[2][3] = v.z()
+    return m^
+
+
+def scaling_matrix(s: Vec3f32) -> Mat44f32:
+    var m = Mat44f32.identity()
+    m[0][0] = s.x()
+    m[1][1] = s.y()
+    m[2][2] = s.z()
+    return m^
+
+
+def create_cube_mesh() -> List[Vec3f32]:
+    var v = List[Vec3f32]()
+
+    # Helper to add a quad (2 triangles)
+    @parameter
+    def add_quad(p1: Vec3f32, p2: Vec3f32, p3: Vec3f32, p4: Vec3f32):
+        v.append(p1.copy())
+        v.append(p2.copy())
+        v.append(p3.copy())
+        v.append(p1.copy())
+        v.append(p3.copy())
+        v.append(p4.copy())
+
+    # Corner coordinates
+    var c0 = Vec3f32(-0.5, -0.5, -0.5)
+    var c1 = Vec3f32(0.5, -0.5, -0.5)
+    var c2 = Vec3f32(0.5, 0.5, -0.5)
+    var c3 = Vec3f32(-0.5, 0.5, -0.5)
+    var c4 = Vec3f32(-0.5, -0.5, 0.5)
+    var c5 = Vec3f32(0.5, -0.5, 0.5)
+    var c6 = Vec3f32(0.5, 0.5, 0.5)
+    var c7 = Vec3f32(-0.5, 0.5, 0.5)
+
+    # Add the 6 faces
+    add_quad(c0, c3, c2, c1)  # Back
+    add_quad(c5, c6, c7, c4)  # Front
+    add_quad(c4, c7, c3, c0)  # Left
+    add_quad(c1, c2, c6, c5)  # Right
+    add_quad(c0, c1, c5, c4)  # Bottom
+    add_quad(c3, c7, c6, c2)  # Top
+
+    return v^

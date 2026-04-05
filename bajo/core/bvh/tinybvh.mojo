@@ -476,36 +476,6 @@ struct BVH(Copyable):
         return self.prim_indices.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin]()
 
     @always_inline
-    def intersect_tri(self, mut ray: Ray, prim_idx: UInt32):
-        ref v0 = self.vertices[Int(prim_idx) * 3 + 0]
-        ref v1 = self.vertices[Int(prim_idx) * 3 + 1]
-        ref v2 = self.vertices[Int(prim_idx) * 3 + 2]
-        var t = Float32(1e30)
-        var u = Float32(0.0)
-        var v = Float32(0.0)
-        var w = Float32(0.0)
-        var sign = Float32(0.0)
-
-        var hit = intersect_ray_tri_moller(
-            ray.O,
-            ray.D,
-            v0,
-            v1,
-            v2,
-            t,
-            u,
-            v,
-            w,
-            sign,
-            UnsafePointer[Vec3f32, MutAnyOrigin](),
-        )
-        if hit and t < ray.hit.t:
-            ray.hit.t = t
-            ray.hit.u = u
-            ray.hit.v = v
-            ray.hit.prim = prim_idx
-
-    @always_inline
     def _intersect_tri[
         is_shadow: Bool
     ](self, mut ray: Ray, prim_idx: UInt32) -> Bool:

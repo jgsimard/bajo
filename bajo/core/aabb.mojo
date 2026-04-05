@@ -67,13 +67,15 @@ struct AxisAlignedBoundingBox[dtype: DType, size: Int = 3](Copyable, Writable):
         self._min = Vec[Self.dtype, Self.size](_min)
         self._max = Vec[Self.dtype, Self.size](_max)
 
-    def grow(mut self, v: Vec[Self.dtype, Self.size]):
-        self._min = vmin(self._min, v)
-        self._max = vmax(self._max, v)
+    def grow(mut self, *vs: Vec[Self.dtype, Self.size]):
+        for v in vs:
+            self._min = vmin(self._min, v)
+            self._max = vmax(self._max, v)
 
-    def grow(mut self, other: Self):
-        self._min = vmin(self._min, other._min)
-        self._max = vmax(self._max, other._max)
+    def grow(mut self, *others: Self):
+        for other in others:
+            self._min = vmin(self._min, other._min)
+            self._max = vmax(self._max, other._max)
 
     def edges(self) -> Vec[Self.dtype, Self.size]:
         return self._max - self._min

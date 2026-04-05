@@ -216,60 +216,56 @@ struct BVH(Copyable):
         """Entry point for the high-quality SAH builder."""
         self.subdivide_sah(0)
 
-    def subdivide_sah(mut self, node_idx: UInt32):
-        ref node = self.bvh_nodes[Int(node_idx)]
-
-        # 1. Find the best split using SAH
+    @staticmethod
+    @always_inline
+    def _analyze_sah(
+        node: BVHNode,
+        prims: UnsafePointer[UInt32, MutAnyOrigin],
+        verts: UnsafePointer[Vec3f32, MutAnyOrigin],
+    ) -> Tuple[Int, Float32, Float32]:
         var best_axis: Int = -1
         var best_pos: Float32 = 0
         var best_cost: Float32 = 1e30
-
-        # We test 16 bins per axis
         comptime NB_BINS = 16
 
         for axis in range(3):
-            # Find the range of centroids on this axis
-            var min_c = Float32(1e30)
-            var max_c = Float32(-1e30)
+            var min_c, max_c = Float32(1e30), Float32(-1e30)
+            # 1. Find centroid range
             for i in range(Int(node.triCount)):
-                var p_idx = Int(self.prim_indices[Int(node.leftFirst) + i])
-                var centroid = (
-                    self.vertices[p_idx * 3].data[axis]
-                    + self.vertices[p_idx * 3 + 1].data[axis]
-                    + self.vertices[p_idx * 3 + 2].data[axis]
+                var p_idx = Int(prims[Int(node.leftFirst) + i])
+                var c = (
+                    verts[p_idx * 3].data[axis]
+                    + verts[p_idx * 3 + 1].data[axis]
+                    + verts[p_idx * 3 + 2].data[axis]
                 ) * 0.3333333
-                min_c = min(min_c, centroid)
-                max_c = max(max_c, centroid)
+                min_c = min(min_c, c)
+                max_c = max(max_c, c)
 
             if min_c == max_c:
-                continue  # Skip flat axis
+                continue
 
-            # Populate Bins
+            # 2. Binning
             var bins = InlineArray[Bin, NB_BINS](fill=Bin())
             var scale = Float32(NB_BINS) / (max_c - min_c)
-
             for i in range(Int(node.triCount)):
-                var p_idx = Int(self.prim_indices[Int(node.leftFirst) + i])
-                var centroid = (
-                    self.vertices[p_idx * 3].data[axis]
-                    + self.vertices[p_idx * 3 + 1].data[axis]
-                    + self.vertices[p_idx * 3 + 2].data[axis]
+                var p_idx = Int(prims[Int(node.leftFirst) + i])
+                var c = (
+                    verts[p_idx * 3].data[axis]
+                    + verts[p_idx * 3 + 1].data[axis]
+                    + verts[p_idx * 3 + 2].data[axis]
                 ) * 0.3333333
-                var bin_idx = min(NB_BINS - 1, Int((centroid - min_c) * scale))
-
-                bins[bin_idx].tri_count += 1
-                # Grow bin bounds using triangle vertices
+                var b_idx = min(NB_BINS - 1, Int((c - min_c) * scale))
+                bins[b_idx].tri_count += 1
                 for v_off in range(3):
-                    ref v = self.vertices[p_idx * 3 + v_off]
-                    bins[bin_idx].bounds.aabbMin = vmin(
-                        bins[bin_idx].bounds.aabbMin, v
+                    ref v = verts[p_idx * 3 + v_off]
+                    bins[b_idx].bounds.aabbMin = vmin(
+                        bins[b_idx].bounds.aabbMin, v
                     )
-                    bins[bin_idx].bounds.aabbMax = vmax(
-                        bins[bin_idx].bounds.aabbMax, v
+                    bins[b_idx].bounds.aabbMax = vmax(
+                        bins[b_idx].bounds.aabbMax, v
                     )
 
-            # Evaluate Costs (Sweep from left and right)
-            # Area(Left) * Count(Left) + Area(Right) * Count(Right)
+            # 3. Sweep SAH Costs
             var left_areas = InlineArray[Float32, NB_BINS](fill=0.0)
             var left_counts = InlineArray[UInt32, NB_BINS](fill=0)
             var left_box = BVHNode()
@@ -300,11 +296,22 @@ struct BVH(Copyable):
                 var cost = left_areas[i - 1] * Float32(
                     left_counts[i - 1]
                 ) + right_box.surface_area() * Float32(right_sum)
-
                 if cost < best_cost:
                     best_cost = cost
                     best_axis = axis
                     best_pos = min_c + (Float32(i) / scale)
+
+        return best_axis, best_pos, best_cost
+
+    def subdivide_sah(mut self, node_idx: UInt32):
+        ref node = self.bvh_nodes[Int(node_idx)]
+
+        # 1. Find the best split using SAH
+        var best_axis, best_pos, best_cost = BVH._analyze_sah(
+            node,
+            self.prim_indices.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin](),
+            self.vertices,
+        )
 
         # 2. Compare SAH cost vs Leaf cost
         var leaf_cost = node.surface_area() * Float32(node.triCount)
@@ -369,78 +376,9 @@ struct BVH(Copyable):
                 sub_roots.append(node_idx)
                 continue
 
-            var best_axis = -1
-            var best_pos = Float32(0)
-            var best_cost = Float32(1e30)
-            comptime NB_BINS = 16
-
-            for axis in range(3):
-                var min_c = Float32(1e30)
-                var max_c = Float32(-1e30)
-                for i in range(Int(node.triCount)):
-                    var p_idx = Int(prims_ptr[Int(node.leftFirst) + i])
-                    var c = (
-                        verts_ptr[p_idx * 3].data[axis]
-                        + verts_ptr[p_idx * 3 + 1].data[axis]
-                        + verts_ptr[p_idx * 3 + 2].data[axis]
-                    ) * 0.3333333
-                    min_c = min(min_c, c)
-                    max_c = max(max_c, c)
-                if min_c == max_c:
-                    continue
-
-                var bins = InlineArray[Bin, NB_BINS](fill=Bin())
-                var scale = Float32(NB_BINS) / (max_c - min_c)
-                for i in range(Int(node.triCount)):
-                    var p_idx = Int(prims_ptr[Int(node.leftFirst) + i])
-                    var c = (
-                        verts_ptr[p_idx * 3].data[axis]
-                        + verts_ptr[p_idx * 3 + 1].data[axis]
-                        + verts_ptr[p_idx * 3 + 2].data[axis]
-                    ) * 0.3333333
-                    var bin_idx = min(NB_BINS - 1, Int((c - min_c) * scale))
-                    bins[bin_idx].tri_count += 1
-                    for v_off in range(3):
-                        ref v = verts_ptr[p_idx * 3 + v_off]
-                        bins[bin_idx].bounds.aabbMin = vmin(
-                            bins[bin_idx].bounds.aabbMin, v
-                        )
-                        bins[bin_idx].bounds.aabbMax = vmax(
-                            bins[bin_idx].bounds.aabbMax, v
-                        )
-
-                var left_areas = InlineArray[Float32, NB_BINS](fill=0.0)
-                var left_counts = InlineArray[UInt32, NB_BINS](fill=0)
-                var left_box = BVHNode()
-                var left_sum = UInt32(0)
-                for i in range(NB_BINS - 1):
-                    left_sum += bins[i].tri_count
-                    left_counts[i] = left_sum
-                    left_box.aabbMin = vmin(
-                        left_box.aabbMin, bins[i].bounds.aabbMin
-                    )
-                    left_box.aabbMax = vmax(
-                        left_box.aabbMax, bins[i].bounds.aabbMax
-                    )
-                    left_areas[i] = left_box.surface_area()
-
-                var right_box = BVHNode()
-                var right_sum = UInt32(0)
-                for i in range(NB_BINS - 1, 0, -1):
-                    right_sum += bins[i].tri_count
-                    right_box.aabbMin = vmin(
-                        right_box.aabbMin, bins[i].bounds.aabbMin
-                    )
-                    right_box.aabbMax = vmax(
-                        right_box.aabbMax, bins[i].bounds.aabbMax
-                    )
-                    var cost = left_areas[i - 1] * Float32(
-                        left_counts[i - 1]
-                    ) + right_box.surface_area() * Float32(right_sum)
-                    if cost < best_cost:
-                        best_cost = cost
-                        best_axis = axis
-                        best_pos = min_c + (Float32(i) / scale)
+            var best_axis, best_pos, best_cost = BVH._analyze_sah(
+                node, prims_ptr, verts_ptr
+            )
 
             var leaf_cost = node.surface_area() * Float32(node.triCount)
             if best_cost >= leaf_cost:
@@ -534,78 +472,9 @@ struct BVH(Copyable):
     ):
         ref node = nodes_ptr[Int(node_idx)]
 
-        var best_axis = -1
-        var best_pos = Float32(0)
-        var best_cost = Float32(1e30)
-        comptime NB_BINS = 16
-
-        for axis in range(3):
-            var min_c = Float32(1e30)
-            var max_c = Float32(-1e30)
-            for i in range(Int(node.triCount)):
-                var p_idx = Int(prims_ptr[Int(node.leftFirst) + i])
-                var c = (
-                    verts_ptr[p_idx * 3].data[axis]
-                    + verts_ptr[p_idx * 3 + 1].data[axis]
-                    + verts_ptr[p_idx * 3 + 2].data[axis]
-                ) * 0.3333333
-                min_c = min(min_c, c)
-                max_c = max(max_c, c)
-            if min_c == max_c:
-                continue
-
-            var bins = InlineArray[Bin, NB_BINS](fill=Bin())
-            var scale = Float32(NB_BINS) / (max_c - min_c)
-            for i in range(Int(node.triCount)):
-                var p_idx = Int(prims_ptr[Int(node.leftFirst) + i])
-                var c = (
-                    verts_ptr[p_idx * 3].data[axis]
-                    + verts_ptr[p_idx * 3 + 1].data[axis]
-                    + verts_ptr[p_idx * 3 + 2].data[axis]
-                ) * 0.3333333
-                var bin_idx = min(NB_BINS - 1, Int((c - min_c) * scale))
-                bins[bin_idx].tri_count += 1
-                for v_off in range(3):
-                    ref v = verts_ptr[p_idx * 3 + v_off]
-                    bins[bin_idx].bounds.aabbMin = vmin(
-                        bins[bin_idx].bounds.aabbMin, v
-                    )
-                    bins[bin_idx].bounds.aabbMax = vmax(
-                        bins[bin_idx].bounds.aabbMax, v
-                    )
-
-            var left_areas = InlineArray[Float32, NB_BINS](fill=0.0)
-            var left_counts = InlineArray[UInt32, NB_BINS](fill=0)
-            var left_box = BVHNode()
-            var left_sum = UInt32(0)
-            for i in range(NB_BINS - 1):
-                left_sum += bins[i].tri_count
-                left_counts[i] = left_sum
-                left_box.aabbMin = vmin(
-                    left_box.aabbMin, bins[i].bounds.aabbMin
-                )
-                left_box.aabbMax = vmax(
-                    left_box.aabbMax, bins[i].bounds.aabbMax
-                )
-                left_areas[i] = left_box.surface_area()
-
-            var right_box = BVHNode()
-            var right_sum = UInt32(0)
-            for i in range(NB_BINS - 1, 0, -1):
-                right_sum += bins[i].tri_count
-                right_box.aabbMin = vmin(
-                    right_box.aabbMin, bins[i].bounds.aabbMin
-                )
-                right_box.aabbMax = vmax(
-                    right_box.aabbMax, bins[i].bounds.aabbMax
-                )
-                var cost = left_areas[i - 1] * Float32(
-                    left_counts[i - 1]
-                ) + right_box.surface_area() * Float32(right_sum)
-                if cost < best_cost:
-                    best_cost = cost
-                    best_axis = axis
-                    best_pos = min_c + (Float32(i) / scale)
+        var best_axis, best_pos, best_cost = BVH._analyze_sah(
+            node, prims_ptr, verts_ptr
+        )
 
         var leaf_cost = node.surface_area() * Float32(node.triCount)
         if best_cost >= leaf_cost:

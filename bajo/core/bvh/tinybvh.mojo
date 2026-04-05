@@ -142,7 +142,7 @@ struct BVH(Copyable):
         var j = i + count - 1
         while i <= j:
             var p_idx = Int(prims[i])
-            # Centroid calculation
+            # centroid
             var c = (
                 verts[p_idx * 3].data[axis]
                 + verts[p_idx * 3 + 1].data[axis]
@@ -151,7 +151,6 @@ struct BVH(Copyable):
             if c < split_pos:
                 i += 1
             else:
-                # Mojo syntax for swapping
                 prims[i], prims[j] = prims[j], prims[i]
                 j -= 1
         return i
@@ -208,8 +207,8 @@ struct BVH(Copyable):
         var res = self._find_split[split_method](node)
 
         # 3. Termination Criteria
-        var leaf_cost = node.surface_area() * Float32(node.triCount)
         comptime if split_method == "sah":
+            var leaf_cost = node.surface_area() * Float32(node.triCount)
             if res.cost >= leaf_cost or node.triCount <= 2:
                 return
         else:
@@ -262,110 +261,98 @@ struct BVH(Copyable):
         self.subdivide[split_method, is_mt](left_child_idx, atomic_nodes)
         self.subdivide[split_method, is_mt](left_child_idx + 1, atomic_nodes)
 
-    def build[split_method: String](mut self):
-        """Unified entry point for Quick or SAH builds."""
+    def build[split_method: String, is_mt: Bool](mut self):
         self.nodes_used = 1
         ref root = self.bvh_nodes[0]
         root.leftFirst = 0
         root.triCount = self.tri_count
         self.update_node_bounds(0)
 
-        self.subdivide[split_method, False](0)
+        comptime if not is_mt:
+            self.subdivide[split_method, False](0)
 
-    def build_mt(mut self):
-        """Multithreaded SAH Builder."""
-        # 1. Initialize Root
-        self.nodes_used = 1
-        ref root = self.bvh_nodes[0]
-        root.leftFirst = 0
-        root.triCount = self.tri_count
-        self.update_node_bounds(0)
+        else:
+            var queue = List[UInt32]()
+            queue.append(0)
+            var sub_roots = List[UInt32]()
 
-        var queue = List[UInt32]()
-        queue.append(0)
-        var sub_roots = List[UInt32]()
+            # 2. Single-threaded Breadth-First split to generate independent tasks
+            # We stop when we have enough tasks (e.g., 64) or the queue is empty
+            while len(queue) > 0 and (len(queue) + len(sub_roots)) < 64:
+                var node_idx = queue.pop(0)
+                ref node = self.bvh_nodes[Int(node_idx)]
 
-        # 2. Single-threaded Breadth-First split to generate independent tasks
-        # We stop when we have enough tasks (e.g., 64) or the queue is empty
-        while len(queue) > 0 and (len(queue) + len(sub_roots)) < 64:
-            var node_idx = queue.pop(0)
-            ref node = self.bvh_nodes[Int(node_idx)]
+                # Too small or already a leaf candidate? Move to parallel task list
+                if node.triCount < 1024:
+                    sub_roots.append(node_idx)
+                    continue
 
-            # Too small or already a leaf candidate? Move to parallel task list
-            if node.triCount < 1024:
-                sub_roots.append(node_idx)
-                continue
+                var res = self._find_split["sah"](node)
+                var leaf_cost = node.surface_area() * Float32(node.triCount)
 
-            var res = self._find_split["sah"](node)
-            var leaf_cost = node.surface_area() * Float32(node.triCount)
+                if res.cost >= leaf_cost:
+                    sub_roots.append(node_idx)
+                    continue
 
-            if res.cost >= leaf_cost:
-                sub_roots.append(node_idx)
-                continue
+                # Perform partition for this specific breadth-first step
+                res.split_idx = BVH._partition_tris(
+                    self.get_indices_ptr(),
+                    self.vertices,
+                    Int(node.leftFirst),
+                    Int(node.triCount),
+                    res.axis,
+                    res.pos,
+                )
 
-            # Perform partition for this specific breadth-first step
-            res.split_idx = BVH._partition_tris(
-                self.get_indices_ptr(),
-                self.vertices,
-                Int(node.leftFirst),
-                Int(node.triCount),
-                res.axis,
-                res.pos,
-            )
+                var left_count = UInt32(res.split_idx - Int(node.leftFirst))
+                if left_count == 0 or left_count == node.triCount:
+                    sub_roots.append(node_idx)
+                    continue
 
-            var left_count = UInt32(res.split_idx - Int(node.leftFirst))
-            if left_count == 0 or left_count == node.triCount:
-                sub_roots.append(node_idx)
-                continue
+                var left_child_idx = self.nodes_used
+                self.nodes_used += 2
 
-            var left_child_idx = self.nodes_used
-            self.nodes_used += 2
+                # Initialize children
+                self.bvh_nodes[Int(left_child_idx)].leftFirst = node.leftFirst
+                self.bvh_nodes[Int(left_child_idx)].triCount = left_count
+                self.bvh_nodes[Int(left_child_idx + 1)].leftFirst = UInt32(
+                    res.split_idx
+                )
+                self.bvh_nodes[Int(left_child_idx + 1)].triCount = (
+                    node.triCount - left_count
+                )
 
-            # Initialize children
-            self.bvh_nodes[Int(left_child_idx)].leftFirst = node.leftFirst
-            self.bvh_nodes[Int(left_child_idx)].triCount = left_count
-            self.bvh_nodes[Int(left_child_idx + 1)].leftFirst = UInt32(
-                res.split_idx
-            )
-            self.bvh_nodes[Int(left_child_idx + 1)].triCount = (
-                node.triCount - left_count
-            )
+                node.leftFirst = left_child_idx
+                node.triCount = 0
 
-            node.leftFirst = left_child_idx
-            node.triCount = 0
+                self.update_node_bounds(left_child_idx)
+                self.update_node_bounds(left_child_idx + 1)
 
-            self.update_node_bounds(left_child_idx)
-            self.update_node_bounds(left_child_idx + 1)
+                queue.append(left_child_idx)
+                queue.append(left_child_idx + 1)
 
-            queue.append(left_child_idx)
-            queue.append(left_child_idx + 1)
+            # Move remaining queue items to sub_roots
+            for i in range(len(queue)):
+                sub_roots.append(queue[i])
 
-        # Move remaining queue items to sub_roots
-        for i in range(len(queue)):
-            sub_roots.append(queue[i])
+            # 3. Setup Shared Atomic Counter and Pointers
+            var sub_roots_ptr = sub_roots.unsafe_ptr()
+            var atomic_nodes = alloc[Scalar[DType.uint32]](1)
+            atomic_nodes[0] = self.nodes_used
 
-        # 3. Setup Shared Atomic Counter and Pointers
-        var sub_roots_ptr = sub_roots.unsafe_ptr()
-        var atomic_nodes = alloc[Scalar[DType.uint32]](1)
-        atomic_nodes[0] = self.nodes_used
+            # 4. Multithreaded Processing
+            @parameter
+            def worker(idx: Int):
+                var root_idx = sub_roots_ptr[idx]
+                self.subdivide[split_method, True](
+                    root_idx, atomic_nodes.unsafe_origin_cast[MutAnyOrigin]()
+                )
 
-        # Get a pointer to self to bypass the borrow checker in the closure
-        var self_ptr = UnsafePointer(to=self)
+            parallelize[worker](len(sub_roots))
 
-        # 4. Multithreaded Processing
-        @parameter
-        def worker(idx: Int):
-            var root_idx = sub_roots_ptr[idx]
-            # Call the unified recursive subdivide with MT=True
-            self_ptr[].subdivide["sah", True](
-                root_idx, atomic_nodes.unsafe_origin_cast[MutAnyOrigin]()
-            )
-
-        parallelize[worker](len(sub_roots))
-
-        # 5. Cleanup
-        self.nodes_used = atomic_nodes[0]
-        atomic_nodes.free()
+            # 5. Cleanup
+            self.nodes_used = atomic_nodes[0]
+            atomic_nodes.free()
 
     @staticmethod
     @always_inline

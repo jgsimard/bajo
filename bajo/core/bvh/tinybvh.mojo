@@ -603,17 +603,59 @@ struct BVH(Copyable):
             ray.hit.v = v
             ray.hit.prim = prim_idx
 
-    def traverse(self, mut ray: Ray):
+    @always_inline
+    def _intersect_tri[
+        is_shadow: Bool
+    ](self, mut ray: Ray, prim_idx: UInt32) -> Bool:
+        ref v0 = self.vertices[Int(prim_idx) * 3]
+        ref v1 = self.vertices[Int(prim_idx) * 3 + 1]
+        ref v2 = self.vertices[Int(prim_idx) * 3 + 2]
+
+        var t, u, v, w, sign = (
+            Float32(1e30),
+            Float32(0),
+            Float32(0),
+            Float32(0),
+            Float32(0),
+        )
+
+        var hit = intersect_ray_tri_moller(
+            ray.O,
+            ray.D,
+            v0,
+            v1,
+            v2,
+            t,
+            u,
+            v,
+            w,
+            sign,
+            UnsafePointer[Vec3f32, MutAnyOrigin](),
+        )
+
+        if hit and t < ray.hit.t:
+            comptime if is_shadow:
+                return True
+            ray.hit.t = t
+            ray.hit.u = u
+            ray.hit.v = v
+            ray.hit.prim = prim_idx
+        return False
+
+    @always_inline
+    def _traverse[is_shadow: Bool](self, mut ray: Ray) -> Bool:
         var stack = InlineArray[UInt32, 64](fill=0)
         var stack_ptr = 0
         var node_idx = UInt32(0)
 
         while True:
             ref node = self.bvh_nodes[Int(node_idx)]
+
             if node.is_leaf():
                 for i in range(Int(node.triCount)):
-                    var prim_idx = self.prim_indices[Int(node.leftFirst) + i]
-                    self.intersect_tri(ray, prim_idx)
+                    var p_idx = self.prim_indices[Int(node.leftFirst) + i]
+                    if self._intersect_tri[is_shadow](ray, p_idx):
+                        return True
 
                 if stack_ptr == 0:
                     break
@@ -623,114 +665,61 @@ struct BVH(Copyable):
 
             var child1_idx = node.leftFirst
             var child2_idx = node.leftFirst + 1
-            ref child1 = self.bvh_nodes[Int(child1_idx)]
-            ref child2 = self.bvh_nodes[Int(child2_idx)]
+            var dist1, dist2 = Float32(1e30), Float32(1e30)
 
-            var dist1 = Float32(1e30)
-            var dist2 = Float32(1e30)
-            var hit1 = intersect_ray_aabb(
-                ray.O, ray.rD, child1.aabbMin, child1.aabbMax, dist1
+            # Intersection checks
+            var h1 = intersect_ray_aabb(
+                ray.O,
+                ray.rD,
+                self.bvh_nodes[Int(child1_idx)].aabbMin,
+                self.bvh_nodes[Int(child1_idx)].aabbMax,
+                dist1,
             )
-            var hit2 = intersect_ray_aabb(
-                ray.O, ray.rD, child2.aabbMin, child2.aabbMax, dist2
+            var h2 = intersect_ray_aabb(
+                ray.O,
+                ray.rD,
+                self.bvh_nodes[Int(child2_idx)].aabbMin,
+                self.bvh_nodes[Int(child2_idx)].aabbMax,
+                dist2,
             )
 
-            if hit1 and dist1 >= ray.hit.t:
-                hit1 = False
-            if hit2 and dist2 >= ray.hit.t:
-                hit2 = False
+            # Cull by current ray distance
+            if h1 and dist1 >= ray.hit.t:
+                h1 = False
+            if h2 and dist2 >= ray.hit.t:
+                h2 = False
 
-            if hit1 and hit2 and (dist1 > dist2):
-                var tmp = child1_idx
-                child1_idx = child2_idx
-                child2_idx = tmp
-
-            if not hit1 and not hit2:
+            if not h1 and not h2:
                 if stack_ptr == 0:
                     break
                 stack_ptr -= 1
                 node_idx = stack[stack_ptr]
-            elif hit1 and not hit2:
+            elif h1 and not h2:
                 node_idx = child1_idx
-            elif not hit1 and hit2:
+            elif not h1 and h2:
                 node_idx = child2_idx
             else:
-                stack[stack_ptr] = child2_idx
+                # BOTH HIT: Handle ordering
+                var near = child1_idx
+                var far = child2_idx
+
+                # Nested if to separate comptime from runtime
+                comptime if not is_shadow:
+                    if dist1 > dist2:
+                        near = child2_idx
+                        far = child1_idx
+
+                stack[stack_ptr] = far
                 stack_ptr += 1
-                node_idx = child1_idx
+                node_idx = near
+
+        return False
+
+    def traverse(self, mut ray: Ray):
+        _ = self._traverse[False](ray)
 
     def is_occluded(self, mut ray: Ray) -> Bool:
-        var stack = InlineArray[UInt32, 64](fill=0)
-        var stack_ptr = 0
-        var node_idx = UInt32(0)
-
-        while True:
-            ref node = self.bvh_nodes[Int(node_idx)]
-            if node.is_leaf():
-                for i in range(Int(node.triCount)):
-                    var prim_idx = self.prim_indices[Int(node.leftFirst) + i]
-                    ref v0 = self.vertices[Int(prim_idx) * 3 + 0]
-                    ref v1 = self.vertices[Int(prim_idx) * 3 + 1]
-                    ref v2 = self.vertices[Int(prim_idx) * 3 + 2]
-                    var t = Float32(1e30)
-                    var u = Float32(0.0)
-                    var v = Float32(0.0)
-                    var w = Float32(0.0)
-                    var sign = Float32(0.0)
-                    if intersect_ray_tri_moller(
-                        ray.O,
-                        ray.D,
-                        v0,
-                        v1,
-                        v2,
-                        t,
-                        u,
-                        v,
-                        w,
-                        sign,
-                        UnsafePointer[Vec3f32, MutAnyOrigin](),
-                    ):
-                        if t < ray.hit.t:
-                            return True
-                if stack_ptr == 0:
-                    break
-                stack_ptr -= 1
-                node_idx = stack[stack_ptr]
-                continue
-
-            var child1_idx = node.leftFirst
-            var child2_idx = node.leftFirst + 1
-            ref child1 = self.bvh_nodes[Int(child1_idx)]
-            ref child2 = self.bvh_nodes[Int(child2_idx)]
-
-            var dist1 = Float32(1e30)
-            var dist2 = Float32(1e30)
-            var hit1 = intersect_ray_aabb(
-                ray.O, ray.rD, child1.aabbMin, child1.aabbMax, dist1
-            )
-            var hit2 = intersect_ray_aabb(
-                ray.O, ray.rD, child2.aabbMin, child2.aabbMax, dist2
-            )
-
-            if hit1 and dist1 >= ray.hit.t:
-                hit1 = False
-            if hit2 and dist2 >= ray.hit.t:
-                hit2 = False
-
-            if not hit1 and not hit2:
-                if stack_ptr == 0:
-                    break
-                stack_ptr -= 1
-                node_idx = stack[stack_ptr]
-            elif hit1 and not hit2:
-                node_idx = child1_idx
-            elif not hit1 and hit2:
-                node_idx = child2_idx
-            else:
-                stack[stack_ptr] = child2_idx
-                stack_ptr += 1
-                node_idx = child1_idx
-        return False
+        return self._traverse[True](ray)
 
 
 @fieldwise_init
@@ -1364,10 +1353,9 @@ def main() raises:
     tlas.traverse(ray, blases_ptr)
 
     if ray.hit.t < 1e29:
-        print("Hit Instance:", ray.hit.inst)  # Expected: 1
-        print(
-            "Distance t:  ", ray.hit.t
-        )  # Expected: ~47.5 (Origin -50 hitting front face at Z= -2.5 (0.5 * 5 scale))
+        print(t"Hit Instance: {ray.hit.inst}, Expected: 1")
+        # Expected: ~47.5 (Origin -50 hitting front face at Z= -2.5 (0.5 * 5 scale))
+        print(t"Distance t:  {ray.hit.t}, Expected 47.5")
 
 
 def translation_matrix(v: Vec3f32) -> Mat44f32:

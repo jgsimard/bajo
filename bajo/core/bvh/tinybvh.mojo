@@ -171,6 +171,132 @@ struct BVH(Copyable):
             node.aabb._max = vmax(node.aabb._max, v0, v1, v2)
 
     @always_inline
+    def _split_node[
+        split_method: String
+    ](
+        mut self,
+        node_idx: UInt32,
+        atomic_nodes: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    ) -> Optional[Tuple[UInt32, UInt32]]:
+        var nodes_ptr = self.bvh_nodes.unsafe_ptr().unsafe_origin_cast[
+            MutAnyOrigin
+        ]()
+        ref node = nodes_ptr[Int(node_idx)]
+
+        var res = self._find_split[split_method](node)
+
+        # Termination Criteria
+        comptime if split_method == "sah":
+            if (
+                res.cost >= node.surface_area() * Float32(node.triCount)
+                or node.triCount <= 2
+            ):
+                return None
+        else:
+            if node.triCount <= 2:
+                return None
+
+        res.split_idx = BVH._partition_tris(
+            self.get_indices_ptr(),
+            self.vertices,
+            Int(node.leftFirst),
+            Int(node.triCount),
+            res.axis,
+            res.pos,
+        )
+
+        var left_count = UInt32(res.split_idx - Int(node.leftFirst))
+        if left_count == 0 or left_count == node.triCount:
+            return None
+
+        # Atomic allocation (Safe for both ST and MT)
+        var left_child_idx = Atomic.fetch_add(atomic_nodes, 2)
+
+        nodes_ptr[Int(left_child_idx)].leftFirst = node.leftFirst
+        nodes_ptr[Int(left_child_idx)].triCount = left_count
+        nodes_ptr[Int(left_child_idx + 1)].leftFirst = UInt32(res.split_idx)
+        nodes_ptr[Int(left_child_idx + 1)].triCount = node.triCount - left_count
+
+        node.leftFirst = left_child_idx
+        node.triCount = 0  # Internal node
+
+        self.update_node_bounds(left_child_idx)
+        self.update_node_bounds(left_child_idx + 1)
+        return (left_child_idx, left_child_idx + 1)
+
+    @always_inline
+    def _build_iterative[
+        split_method: String
+    ](
+        mut self,
+        root_idx: UInt32,
+        atomic_nodes: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    ):
+        var stack = [root_idx]
+        while len(stack) > 0:
+            var children = self._split_node[split_method](
+                stack.pop(), atomic_nodes
+            )
+            if children:
+                var res = children.value()
+                stack.append(res[1])  # Push Right
+                stack.append(res[0])  # Push Left
+
+    def build[split_method: String, is_mt: Bool](mut self):
+        self.nodes_used = 1
+        self.update_node_bounds(0)
+
+        # All build modes use an atomic counter for unified API
+        var atomic_nodes = alloc[Scalar[DType.uint32]](1)
+        atomic_nodes[0] = self.nodes_used
+        var a_ptr = atomic_nodes.unsafe_origin_cast[MutAnyOrigin]()
+
+        comptime if not is_mt:
+            # Single-threaded: Just run the loop once from the root
+            self._build_iterative[split_method](0, a_ptr)
+
+        else:
+            # Multi-threaded: Breadth-first "seed" to generate tasks
+            var tasks: List[UInt32] = [0]
+            while len(tasks) < 64:
+                # Simple logic: split the largest remaining task
+                var largest_idx = -1
+                var max_tris = UInt32(0)
+                for i in range(len(tasks)):
+                    var count = self.bvh_nodes[Int(tasks[i])].triCount
+                    if count > max_tris:
+                        max_tris = count
+                        largest_idx = i
+
+                # If we can't split further or have no tasks, break
+                if largest_idx == -1 and len(tasks) > 0:
+                    break
+
+                var target = tasks.pop(
+                    largest_idx
+                ) if largest_idx != -1 else UInt32(0)
+                var children = self._split_node[split_method](target, a_ptr)
+                if children:
+                    tasks.append(children.value()[0])
+                    tasks.append(children.value()[1])
+                else:
+                    # If root couldn't split, we're done
+                    if largest_idx == -1:
+                        break
+
+            # Parallelize the sub-trees
+            var tasks_ptr = tasks.unsafe_ptr()
+
+            @parameter
+            def worker(i: Int):
+                self._build_iterative[split_method](tasks_ptr[i], a_ptr)
+
+            parallelize[worker](len(tasks))
+
+        self.nodes_used = atomic_nodes[0]
+        atomic_nodes.free()
+
+    @always_inline
     def _find_split[split_method: String](self, node: BVHNode) -> SplitResult:
         comptime if split_method == "median":
             var extent = node.aabb._max - node.aabb._min
@@ -186,172 +312,6 @@ struct BVH(Copyable):
             return SplitResult(best_axis, best_pos, best_cost, 0)
         else:
             comptime assert False, "Unknown split method"
-
-    def subdivide[
-        split_method: String, is_mt: Bool = False
-    ](
-        mut self,
-        node_idx: UInt32,
-        atomic_nodes: UnsafePointer[
-            Scalar[DType.uint32], MutAnyOrigin
-        ] = UnsafePointer[Scalar[DType.uint32], MutAnyOrigin](),
-    ):
-        # 1. Access Node (Use Pointer if MT to avoid borrow checker conflicts)
-        var nodes_ptr = self.bvh_nodes.unsafe_ptr().unsafe_origin_cast[
-            MutAnyOrigin
-        ]()
-        ref node = nodes_ptr[Int(node_idx)]
-
-        # 2. Find Best Split
-        var res = self._find_split[split_method](node)
-
-        # 3. Termination Criteria
-        comptime if split_method == "sah":
-            var leaf_cost = node.surface_area() * Float32(node.triCount)
-            if res.cost >= leaf_cost or node.triCount <= 2:
-                return
-        else:
-            if node.triCount <= 2:
-                return
-
-        # 4. Partition Triangles
-        res.split_idx = BVH._partition_tris(
-            self.prim_indices.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin](),
-            self.vertices,
-            Int(node.leftFirst),
-            Int(node.triCount),
-            res.axis,
-            res.pos,
-        )
-
-        var left_count = UInt32(res.split_idx - Int(node.leftFirst))
-        if left_count == 0 or left_count == node.triCount:
-            # Fallback for median if partition fails to split
-            comptime if split_method == "median":
-                left_count = node.triCount // 2
-                res.split_idx = Int(node.leftFirst) + Int(left_count)
-            else:
-                return
-
-        # 5. Allocate Child Nodes
-        var left_child_idx: UInt32
-        comptime if is_mt:
-            left_child_idx = Atomic.fetch_add(atomic_nodes, 2)
-        else:
-            left_child_idx = self.nodes_used
-            self.nodes_used += 2
-
-        # 6. Initialize Children
-        ref left_child = nodes_ptr[Int(left_child_idx)]
-        ref right_child = nodes_ptr[Int(left_child_idx + 1)]
-
-        left_child.leftFirst = node.leftFirst
-        left_child.triCount = left_count
-        right_child.leftFirst = UInt32(res.split_idx)
-        right_child.triCount = node.triCount - left_count
-
-        node.leftFirst = left_child_idx
-        node.triCount = 0
-
-        # 7. Update Bounds and Recurse
-        self.update_node_bounds(left_child_idx)
-        self.update_node_bounds(left_child_idx + 1)
-
-        self.subdivide[split_method, is_mt](left_child_idx, atomic_nodes)
-        self.subdivide[split_method, is_mt](left_child_idx + 1, atomic_nodes)
-
-    def build[split_method: String, is_mt: Bool](mut self):
-        self.nodes_used = 1
-        ref root = self.bvh_nodes[0]
-        root.leftFirst = 0
-        root.triCount = self.tri_count
-        self.update_node_bounds(0)
-
-        comptime if not is_mt:
-            self.subdivide[split_method, False](0)
-
-        else:
-            var queue = List[UInt32]()
-            queue.append(0)
-            var sub_roots = List[UInt32]()
-
-            # 2. Single-threaded Breadth-First split to generate independent tasks
-            # We stop when we have enough tasks (e.g., 64) or the queue is empty
-            while len(queue) > 0 and (len(queue) + len(sub_roots)) < 64:
-                var node_idx = queue.pop(0)
-                ref node = self.bvh_nodes[Int(node_idx)]
-
-                # Too small or already a leaf candidate? Move to parallel task list
-                if node.triCount < 1024:
-                    sub_roots.append(node_idx)
-                    continue
-
-                var res = self._find_split["sah"](node)
-                var leaf_cost = node.surface_area() * Float32(node.triCount)
-
-                if res.cost >= leaf_cost:
-                    sub_roots.append(node_idx)
-                    continue
-
-                # Perform partition for this specific breadth-first step
-                res.split_idx = BVH._partition_tris(
-                    self.get_indices_ptr(),
-                    self.vertices,
-                    Int(node.leftFirst),
-                    Int(node.triCount),
-                    res.axis,
-                    res.pos,
-                )
-
-                var left_count = UInt32(res.split_idx - Int(node.leftFirst))
-                if left_count == 0 or left_count == node.triCount:
-                    sub_roots.append(node_idx)
-                    continue
-
-                var left_child_idx = self.nodes_used
-                self.nodes_used += 2
-
-                # Initialize children
-                self.bvh_nodes[Int(left_child_idx)].leftFirst = node.leftFirst
-                self.bvh_nodes[Int(left_child_idx)].triCount = left_count
-                self.bvh_nodes[Int(left_child_idx + 1)].leftFirst = UInt32(
-                    res.split_idx
-                )
-                self.bvh_nodes[Int(left_child_idx + 1)].triCount = (
-                    node.triCount - left_count
-                )
-
-                node.leftFirst = left_child_idx
-                node.triCount = 0
-
-                self.update_node_bounds(left_child_idx)
-                self.update_node_bounds(left_child_idx + 1)
-
-                queue.append(left_child_idx)
-                queue.append(left_child_idx + 1)
-
-            # Move remaining queue items to sub_roots
-            for i in range(len(queue)):
-                sub_roots.append(queue[i])
-
-            # 3. Setup Shared Atomic Counter and Pointers
-            var sub_roots_ptr = sub_roots.unsafe_ptr()
-            var atomic_nodes = alloc[Scalar[DType.uint32]](1)
-            atomic_nodes[0] = self.nodes_used
-
-            # 4. Multithreaded Processing
-            @parameter
-            def worker(idx: Int):
-                var root_idx = sub_roots_ptr[idx]
-                self.subdivide[split_method, True](
-                    root_idx, atomic_nodes.unsafe_origin_cast[MutAnyOrigin]()
-                )
-
-            parallelize[worker](len(sub_roots))
-
-            # 5. Cleanup
-            self.nodes_used = atomic_nodes[0]
-            atomic_nodes.free()
 
     @staticmethod
     @always_inline

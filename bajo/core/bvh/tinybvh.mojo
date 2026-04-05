@@ -120,6 +120,34 @@ struct BVH(Copyable):
 
         self.update_node_bounds(0)
 
+    @staticmethod
+    @always_inline
+    def _partition_tris(
+        prims: UnsafePointer[UInt32, MutAnyOrigin],
+        verts: UnsafePointer[Vec3f32, MutAnyOrigin],
+        first: Int,
+        count: Int,
+        axis: Int,
+        split_pos: Float32,
+    ) -> Int:
+        var i = first
+        var j = i + count - 1
+        while i <= j:
+            var p_idx = Int(prims[i])
+            # Centroid calculation
+            var c = (
+                verts[p_idx * 3].data[axis]
+                + verts[p_idx * 3 + 1].data[axis]
+                + verts[p_idx * 3 + 2].data[axis]
+            ) * 0.3333333
+            if c < split_pos:
+                i += 1
+            else:
+                # Mojo syntax for swapping
+                prims[i], prims[j] = prims[j], prims[i]
+                j -= 1
+        return i
+
     @always_inline
     def update_node_bounds(mut self, node_idx: UInt32):
         ref node = self.bvh_nodes[Int(node_idx)]
@@ -149,24 +177,14 @@ struct BVH(Copyable):
         var axis = longest_axis(extent)
         var split_pos = node.aabbMin[axis] + extent[axis] * 0.5
 
-        var i = Int(node.leftFirst)
-        var j = i + Int(node.triCount) - 1
-
-        while i <= j:
-            var prim_idx = Int(self.prim_indices[i])
-            ref v0 = self.vertices[prim_idx * 3 + 0]
-            ref v1 = self.vertices[prim_idx * 3 + 1]
-            ref v2 = self.vertices[prim_idx * 3 + 2]
-
-            var centroid = (v0[axis] + v1[axis] + v2[axis]) * Float32(0.3333333)
-
-            if centroid < split_pos:
-                i += 1
-            else:
-                var tmp = self.prim_indices[i]
-                self.prim_indices[i] = self.prim_indices[j]
-                self.prim_indices[j] = tmp
-                j -= 1
+        var i = BVH._partition_tris(
+            self.prim_indices.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin](),
+            self.vertices,
+            Int(node.leftFirst),
+            Int(node.triCount),
+            axis,
+            split_pos,
+        )
 
         var left_count = UInt32(i - Int(node.leftFirst))
 
@@ -294,22 +312,14 @@ struct BVH(Copyable):
             return  # Stopping: Building a leaf is cheaper than splitting
 
         # 3. Perform the Partition based on the best SAH candidate
-        var i = Int(node.leftFirst)
-        var j = i + Int(node.triCount) - 1
-        while i <= j:
-            var p_idx = Int(self.prim_indices[i])
-            var centroid = (
-                self.vertices[p_idx * 3].data[best_axis]
-                + self.vertices[p_idx * 3 + 1].data[best_axis]
-                + self.vertices[p_idx * 3 + 2].data[best_axis]
-            ) * 0.3333333
-            if centroid < best_pos:
-                i += 1
-            else:
-                var tmp = self.prim_indices[i]
-                self.prim_indices[i] = self.prim_indices[j]
-                self.prim_indices[j] = tmp
-                j -= 1
+        var i = BVH._partition_tris(
+            self.prim_indices.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin](),
+            self.vertices,
+            Int(node.leftFirst),
+            Int(node.triCount),
+            best_axis,
+            best_pos,
+        )
 
         # 4. Finalize and Recurse (Same logic as Quick build)
         var left_count = UInt32(i - Int(node.leftFirst))
@@ -437,22 +447,14 @@ struct BVH(Copyable):
                 sub_roots.append(node_idx)
                 continue
 
-            var i = Int(node.leftFirst)
-            var j = i + Int(node.triCount) - 1
-            while i <= j:
-                var p_idx = Int(prims_ptr[i])
-                var c = (
-                    verts_ptr[p_idx * 3].data[best_axis]
-                    + verts_ptr[p_idx * 3 + 1].data[best_axis]
-                    + verts_ptr[p_idx * 3 + 2].data[best_axis]
-                ) * 0.3333333
-                if c < best_pos:
-                    i += 1
-                else:
-                    var tmp = prims_ptr[i]
-                    prims_ptr[i] = prims_ptr[j]
-                    prims_ptr[j] = tmp
-                    j -= 1
+            var i = BVH._partition_tris(
+                prims_ptr,
+                verts_ptr,
+                Int(node.leftFirst),
+                Int(node.triCount),
+                best_axis,
+                best_pos,
+            )
 
             var left_count = UInt32(i - Int(node.leftFirst))
             if left_count == 0 or left_count == node.triCount:
@@ -1017,7 +1019,6 @@ struct WideBVH[width: Int]:
 
         var wide_node = WideBVHNode[Self.width]()
 
-        # Compile-time loop unrolling!
         comptime for i in range(Self.width):
             if i < pool_size:
                 ref n = binary_bvh.bvh_nodes[Int(pool[i])]
@@ -1042,11 +1043,12 @@ struct WideBVH[width: Int]:
         return wide_idx
 
     @always_inline
-    def intersect_tri(self, mut ray: Ray, prim_idx: UInt32):
-        ref v0 = self.vertices[Int(prim_idx) * 3 + 0]
+    def _intersect_tri[
+        is_occlusion: Bool
+    ](self, mut ray: Ray, prim_idx: UInt32) -> Bool:
+        ref v0 = self.vertices[Int(prim_idx) * 3]
         ref v1 = self.vertices[Int(prim_idx) * 3 + 1]
         ref v2 = self.vertices[Int(prim_idx) * 3 + 2]
-
         var t = Float32(1e30)
         var u = Float32(0.0)
         var v = Float32(0.0)
@@ -1068,78 +1070,18 @@ struct WideBVH[width: Int]:
         )
 
         if hit and t < ray.hit.t:
+            comptime if is_occlusion:
+                return True
             ray.hit.t = t
             ray.hit.u = u
             ray.hit.v = v
             ray.hit.prim = prim_idx
+        return False
 
-    def traverse(self, mut ray: Ray):
+    @always_inline
+    def _traverse[is_occlusion: Bool](self, mut ray: Ray) -> Bool:
         var nodes_ptr = self.nodes.unsafe_ptr()
         var prims_ptr = self.prim_indices
-
-        var stack = InlineArray[UInt32, 32](fill=0)
-        var stack_ptr = 0
-        var node_idx = UInt32(0)
-
-        while True:
-            ref node = nodes_ptr[Int(node_idx)]
-
-            var t1_x = (node.min_x - ray.O.x()) * ray.rD.x()
-            var t2_x = (node.max_x - ray.O.x()) * ray.rD.x()
-            var tmin_x = min(t1_x, t2_x)
-            var tmax_x = max(t1_x, t2_x)
-
-            var t1_y = (node.min_y - ray.O.y()) * ray.rD.y()
-            var t2_y = (node.max_y - ray.O.y()) * ray.rD.y()
-            var tmin_y = min(t1_y, t2_y)
-            var tmax_y = max(t1_y, t2_y)
-
-            var t1_z = (node.min_z - ray.O.z()) * ray.rD.z()
-            var t2_z = (node.max_z - ray.O.z()) * ray.rD.z()
-            var tmin_z = min(t1_z, t2_z)
-            var tmax_z = max(t1_z, t2_z)
-
-            var tmin = max(max(tmin_x, tmin_y), max(tmin_z, 0.0))
-            var tmax = min(min(tmax_x, tmax_y), min(tmax_z, ray.hit.t))
-
-            var hit_mask = tmin.le(tmax) & node.counts.ne(UInt32.MAX)
-
-            var sort_dists = hit_mask.select(tmin, -1.0)
-            var hit_count = hit_mask.reduce_bit_count()
-
-            for _ in range(hit_count):
-                var max_t = sort_dists.reduce_max()
-                var lane_idx: Int = -1
-
-                comptime for i in range(Self.width):
-                    if lane_idx == -1 and sort_dists[i] == max_t:
-                        lane_idx = i
-
-                # Mark this lane as "done" so we find the next farthest in the next iteration
-                sort_dists[lane_idx] = -1.0
-
-                var data = node.data[lane_idx]
-                var count = node.counts[lane_idx]
-
-                if count == 0:  # internal node, push to stack
-                    stack[stack_ptr] = data
-                    stack_ptr += 1
-                else:  # leaf, intersect triangles immediately
-                    for j in range(Int(count)):
-                        var prim_idx = prims_ptr[Int(data) + j]
-                        self.intersect_tri(ray, prim_idx)
-
-            # Pop the next node from the stack
-            if stack_ptr == 0:
-                break
-            stack_ptr -= 1
-            node_idx = stack[stack_ptr]
-
-    def is_occluded(self, mut ray: Ray) -> Bool:
-        var nodes_ptr = self.nodes.unsafe_ptr()
-        var prims_ptr = self.prim_indices
-        var verts_ptr = self.vertices
-
         var stack = InlineArray[UInt32, 64](fill=0)
         var stack_ptr = 0
         var node_idx = UInt32(0)
@@ -1147,69 +1089,73 @@ struct WideBVH[width: Int]:
         while True:
             ref node = nodes_ptr[Int(node_idx)]
 
+            # SIMD AABB Intersection
             var t1_x = (node.min_x - ray.O.x()) * ray.rD.x()
             var t2_x = (node.max_x - ray.O.x()) * ray.rD.x()
-            var tmin_x = min(t1_x, t2_x)
-            var tmax_x = max(t1_x, t2_x)
-
             var t1_y = (node.min_y - ray.O.y()) * ray.rD.y()
             var t2_y = (node.max_y - ray.O.y()) * ray.rD.y()
-            var tmin_y = min(t1_y, t2_y)
-            var tmax_y = max(t1_y, t2_y)
-
             var t1_z = (node.min_z - ray.O.z()) * ray.rD.z()
             var t2_z = (node.max_z - ray.O.z()) * ray.rD.z()
-            var tmin_z = min(t1_z, t2_z)
-            var tmax_z = max(t1_z, t2_z)
 
-            var tmin = max(max(tmin_x, tmin_y), max(tmin_z, 0.0))
-            var tmax = min(min(tmax_x, tmax_y), min(tmax_z, ray.hit.t))
+            var tmin = max(
+                max(min(t1_x, t2_x), min(t1_y, t2_y)), max(min(t1_z, t2_z), 0.0)
+            )
+            var tmax = min(
+                min(max(t1_x, t2_x), max(t1_y, t2_y)),
+                min(max(t1_z, t2_z), ray.hit.t),
+            )
 
-            var hit_mask = tmin.le(tmax) & node.counts.ne(UInt32.MAX)
+            var hit_mask = tmin.le(tmax) & node.counts.ne(0xFFFFFFFF)
 
-            comptime for i in range(Self.width):
-                if hit_mask[i]:
-                    var data = node.data[i]
-                    var count = node.counts[i]
+            # Process Hits
+            comptime if is_occlusion:
+                # Occlusion is simple: check everything until we find a hit
+                comptime for i in range(Self.width):
+                    if hit_mask[i]:
+                        var data = node.data[i]
+                        var count = node.counts[i]
+                        if count == 0:
+                            stack[stack_ptr] = data
+                            stack_ptr += 1
+                        else:
+                            for j in range(Int(count)):
+                                if self._intersect_tri[True](
+                                    ray, prims_ptr[Int(data) + j]
+                                ):
+                                    return True
+            else:
+                # Traversal requires sorting hits front-to-back
+                var sort_dists = hit_mask.select(tmin, -1.0)
+                var hit_count = hit_mask.reduce_bit_count()
+                for _ in range(hit_count):
+                    var max_t = sort_dists.reduce_max()
+                    var lane: Int = -1
+                    comptime for i in range(Self.width):
+                        if lane == -1 and sort_dists[i] == max_t:
+                            lane = i
 
-                    if count == 0:  # Internal Node: Push to stack for later
+                    sort_dists[lane] = -1.0
+                    var data, count = node.data[lane], node.counts[lane]
+                    if count == 0:
                         stack[stack_ptr] = data
                         stack_ptr += 1
-                    else:  # Leaf Node: Check triangles
+                    else:
                         for j in range(Int(count)):
-                            var prim_idx = prims_ptr[Int(data) + j]
+                            _ = self._intersect_tri[False](
+                                ray, prims_ptr[Int(data) + j]
+                            )
 
-                            # Local variables for the triangle intersection
-                            var t = Float32(1e30)
-                            var u = Float32(0.0)
-                            var v = Float32(0.0)
-                            var w = Float32(0.0)
-                            var sign = Float32(0.0)
-
-                            # The moment one triangle is hit, the ray is occluded.
-                            if intersect_ray_tri_moller(
-                                ray.O,
-                                ray.D,
-                                verts_ptr[Int(prim_idx) * 3 + 0],
-                                verts_ptr[Int(prim_idx) * 3 + 1],
-                                verts_ptr[Int(prim_idx) * 3 + 2],
-                                t,
-                                u,
-                                v,
-                                w,
-                                sign,
-                                UnsafePointer[Vec3f32, MutAnyOrigin](),
-                            ):
-                                if t < ray.hit.t:
-                                    return True
-
-            # Pop the next node
             if stack_ptr == 0:
                 break
             stack_ptr -= 1
             node_idx = stack[stack_ptr]
-
         return False
+
+    def traverse(self, mut ray: Ray):
+        _ = self._traverse[False](ray)
+
+    def is_occluded(self, mut ray: Ray) -> Bool:
+        return self._traverse[True](ray)
 
 
 # TLAS & INSTANCING (2-LAYER BVH)

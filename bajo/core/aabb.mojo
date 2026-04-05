@@ -7,24 +7,10 @@ from bajo.core.vec import Vec, Vec3, vmin, vmax
 comptime AABB = AxisAlignedBoundingBox[DType.float32]
 
 
+@fieldwise_init
 struct AxisAlignedBoundingBox[dtype: DType, size: Int = 3](Copyable, Writable):
     var _min: Vec[Self.dtype, Self.size]
     var _max: Vec[Self.dtype, Self.size]
-
-    def __init__(
-        out self, v0: Vec[Self.dtype, Self.size], v1: Vec[Self.dtype, Self.size]
-    ):
-        self._min = vmin(v0, v1)
-        self._max = vmax(v0, v1)
-
-    def __init__(
-        out self,
-        v0: Vec[Self.dtype, Self.size],
-        v1: Vec[Self.dtype, Self.size],
-        v2: Vec[Self.dtype, Self.size],
-    ):
-        self._min = vmin(v0, v1, v2)
-        self._max = vmax(v0, v1, v2)
 
     def __init__(out self, a: Self, b: Self):
         self._min = vmin(a._min, b._min)
@@ -52,7 +38,7 @@ struct AxisAlignedBoundingBox[dtype: DType, size: Int = 3](Copyable, Writable):
 
     def surface_area(self) -> Scalar[Self.dtype]:
         d = self._max - self._min
-        return 2.0 * (d.x() * d.y() + d.x() * d.z() + d.y() * d.z())
+        return d.x() * d.y() + d.x() * d.z() + d.y() * d.z()
 
     def centroid(self) -> Vec[Self.dtype, Self.size]:
         return (self._min + self._max) * 0.5
@@ -67,13 +53,15 @@ struct AxisAlignedBoundingBox[dtype: DType, size: Int = 3](Copyable, Writable):
         self._min = Vec[Self.dtype, Self.size](_min)
         self._max = Vec[Self.dtype, Self.size](_max)
 
-    def grow(mut self, v: Vec[Self.dtype, Self.size]):
-        self._min = vmin(self._min, v)
-        self._max = vmax(self._max, v)
+    def grow(mut self, *vs: Vec[Self.dtype, Self.size]):
+        for v in vs:
+            self._min = vmin(self._min, v)
+            self._max = vmax(self._max, v)
 
-    def grow(mut self, other: Self):
-        self._min = vmin(self._min, other._min)
-        self._max = vmax(self._max, other._max)
+    def grow(mut self, *others: Self):
+        for other in others:
+            self._min = vmin(self._min, other._min)
+            self._max = vmax(self._max, other._max)
 
     def edges(self) -> Vec[Self.dtype, Self.size]:
         return self._max - self._min

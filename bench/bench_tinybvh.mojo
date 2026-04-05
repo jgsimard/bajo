@@ -84,9 +84,9 @@ def main():
     var bvh = BVH(
         vertices.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin](), tri_count
     )
-    # bvh.build_quick()
-    # bvh.build_sah()
-    bvh.build_sah_mt()
+    # bvh.build["median", False]()
+    # bvh.build["sah", False]()
+    bvh.build["sah", True]()
 
     print(
         t"    - Built in {round(timer.elapsed() * 1000.0, 2)} ms | SAH cost:"

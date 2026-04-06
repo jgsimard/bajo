@@ -46,7 +46,6 @@ def run_bench[
             comptime if reset_t:
                 ray.hit.t = 1e30
 
-            # Dispatch logic: This branch is highly predictable
             if bvh_var.isa[BVH]():
                 ref b = bvh_var[BVH]
                 comptime if is_occlusion:

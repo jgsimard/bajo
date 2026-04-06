@@ -197,7 +197,7 @@ struct BVH(Copyable):
                 return None
 
         res.split_idx = BVH._partition_tris(
-            self.get_indices_ptr(),
+            self.prim_indices.unsafe_ptr(),
             self.vertices,
             Int(node.leftFirst),
             Int(node.triCount),
@@ -207,7 +207,13 @@ struct BVH(Copyable):
 
         var left_count = UInt32(res.split_idx - Int(node.leftFirst))
         if left_count == 0 or left_count == node.triCount:
-            return None
+            comptime if split_method == "median":
+                # Fallback: If spatial center failed, just split the indices 50/50
+                left_count = node.triCount // 2
+                res.split_idx = Int(node.leftFirst) + Int(left_count)
+            else:
+                # SAH genuinely couldn't find a better split than a leaf
+                return None
 
         # Atomic allocation (Safe for both ST and MT)
         var left_child_idx = Atomic.fetch_add(atomic_nodes, 2)
@@ -249,11 +255,10 @@ struct BVH(Copyable):
         # All build modes use an atomic counter for unified API
         var atomic_nodes = alloc[Scalar[DType.uint32]](1)
         atomic_nodes[0] = self.nodes_used
-        var a_ptr = atomic_nodes.unsafe_origin_cast[MutAnyOrigin]()
 
         comptime if not is_mt:
             # Single-threaded: Just run the loop once from the root
-            self._build_iterative[split_method](0, a_ptr)
+            self._build_iterative[split_method](0, atomic_nodes)
 
         else:
             # Multi-threaded: Breadth-first "seed" to generate tasks
@@ -275,7 +280,9 @@ struct BVH(Copyable):
                 var target = tasks.pop(
                     largest_idx
                 ) if largest_idx != -1 else UInt32(0)
-                var children = self._split_node[split_method](target, a_ptr)
+                var children = self._split_node[split_method](
+                    target, atomic_nodes
+                )
                 if children:
                     tasks.append(children.value()[0])
                     tasks.append(children.value()[1])
@@ -285,11 +292,9 @@ struct BVH(Copyable):
                         break
 
             # Parallelize the sub-trees
-            var tasks_ptr = tasks.unsafe_ptr()
-
             @parameter
             def worker(i: Int):
-                self._build_iterative[split_method](tasks_ptr[i], a_ptr)
+                self._build_iterative[split_method](tasks[i], atomic_nodes)
 
             parallelize[worker](len(tasks))
 
@@ -304,7 +309,7 @@ struct BVH(Copyable):
             var pos = node.aabb._min[axis] + extent[axis] * 0.5
             return SplitResult(axis, pos, f32_max, 0)
         elif split_method == "sah":
-            var best_axis, best_pos, best_cost = BVH._analyze_sah(
+            var best_axis, best_pos, best_cost = _analyze_sah(
                 node,
                 self.prim_indices.unsafe_ptr(),
                 self.vertices,
@@ -313,99 +318,24 @@ struct BVH(Copyable):
         else:
             comptime assert False, "Unknown split method"
 
-    @staticmethod
-    @always_inline
-    def _analyze_sah(
-        node: BVHNode,
-        prims: UnsafePointer[UInt32, ImmutAnyOrigin],
-        verts: UnsafePointer[Vec3f32, ImmutAnyOrigin],
-    ) -> Tuple[Int, Float32, Float32]:
-        var best_axis: Int = -1
-        var best_pos: Float32 = 0
-        var best_cost: Float32 = f32_max
-        comptime NB_BINS = 16
-
-        for axis in range(3):
-            var min_c = f32_max
-            var max_c = f32_min
-
-            # 1. Find centroid range
-            for i in range(Int(node.triCount)):
-                var p_idx = Int(prims[Int(node.leftFirst) + i])
-                var c = (
-                    verts[p_idx * 3].data[axis]
-                    + verts[p_idx * 3 + 1].data[axis]
-                    + verts[p_idx * 3 + 2].data[axis]
-                ) * 0.3333333
-                min_c = min(min_c, c)
-                max_c = max(max_c, c)
-
-            if min_c == max_c:
-                continue
-
-            # 2. Binning
-            var bins = InlineArray[Bin, NB_BINS](fill=Bin())
-            var scale = Float32(NB_BINS) / (max_c - min_c)
-            for i in range(Int(node.triCount)):
-                var p_idx = Int(prims[Int(node.leftFirst) + i])
-                var c = (
-                    verts[p_idx * 3].data[axis]
-                    + verts[p_idx * 3 + 1].data[axis]
-                    + verts[p_idx * 3 + 2].data[axis]
-                ) * 0.3333333
-                var b_idx = min(NB_BINS - 1, Int((c - min_c) * scale))
-                bins[b_idx].tri_count += 1
-                for v_off in range(3):
-                    ref v = verts[p_idx * 3 + v_off]
-                    bins[b_idx].bounds.grow(v)
-
-            # 3. Sweep SAH Costs
-            var left_areas = InlineArray[Float32, NB_BINS](fill=0.0)
-            var left_counts = InlineArray[UInt32, NB_BINS](fill=0)
-            var left_box = AABB.invalid()
-            var left_sum = UInt32(0)
-
-            for i in range(NB_BINS - 1):
-                left_sum += bins[i].tri_count
-                left_counts[i] = left_sum
-                left_box.grow(bins[i].bounds)
-                left_areas[i] = left_box.surface_area()
-
-            var right_box = AABB.invalid()
-            var right_sum = UInt32(0)
-            for i in range(NB_BINS - 1, 0, -1):
-                right_sum += bins[i].tri_count
-                right_box.grow(bins[i].bounds)
-
-                var cost = left_areas[i - 1] * Float32(
-                    left_counts[i - 1]
-                ) + right_box.surface_area() * Float32(right_sum)
-                if cost < best_cost:
-                    best_cost = cost
-                    best_axis = axis
-                    best_pos = min_c + (Float32(i) / scale)
-
-        return best_axis, best_pos, best_cost
-
     def sah_cost(self, node_idx: UInt32 = 0) -> Float32:
         """Recursively calculates the unnormalized SAH cost of the subtree."""
         ref node = self.bvh_nodes[Int(node_idx)]
         var area = node.surface_area()
 
         # Standard SAH constants
-        var C_traverse = Float32(1.0)
-        var C_intersect = Float32(1.0)
+        comptime C_traverse = 1.0
+        comptime C_intersect = 1.0
 
+        cost_aabb = area * C_traverse
         if node.is_leaf():
             # Cost of evaluating the AABB + cost of evaluating the primitives
-            return (
-                area * C_traverse + area * Float32(node.triCount) * C_intersect
-            )
+            return cost_aabb + area * Float32(node.triCount) * C_intersect
         else:
             # Cost of evaluating this AABB + expected cost of traversing children
             var left_cost = self.sah_cost(node.leftFirst)
             var right_cost = self.sah_cost(node.leftFirst + 1)
-            return area * C_traverse + left_cost + right_cost
+            return cost_aabb + left_cost + right_cost
 
     def tree_quality(self) -> Float32:
         """
@@ -416,10 +346,6 @@ struct BVH(Copyable):
         var root_area = self.bvh_nodes[0].surface_area()
         var total_cost = self.sah_cost(0)
         return total_cost / root_area
-
-    @always_inline
-    def get_indices_ptr(mut self) -> UnsafePointer[UInt32, MutAnyOrigin]:
-        return self.prim_indices.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin]()
 
     @always_inline
     def _intersect_tri[
@@ -536,6 +462,80 @@ struct BVH(Copyable):
 
     def is_occluded(self, mut ray: Ray) -> Bool:
         return self._traverse[True](ray)
+
+
+@always_inline
+def _analyze_sah(
+    node: BVHNode,
+    prims: UnsafePointer[UInt32, ImmutAnyOrigin],
+    verts: UnsafePointer[Vec3f32, ImmutAnyOrigin],
+) -> Tuple[Int, Float32, Float32]:
+    var best_axis: Int = -1
+    var best_pos: Float32 = 0
+    var best_cost: Float32 = f32_max
+    comptime NB_BINS = 16
+
+    for axis in range(3):
+        var min_c = f32_max
+        var max_c = f32_min
+
+        # 1. Find centroid range
+        for i in range(Int(node.triCount)):
+            var p_idx = Int(prims[Int(node.leftFirst) + i])
+            var c = (
+                verts[p_idx * 3].data[axis]
+                + verts[p_idx * 3 + 1].data[axis]
+                + verts[p_idx * 3 + 2].data[axis]
+            ) * 0.3333333
+            min_c = min(min_c, c)
+            max_c = max(max_c, c)
+
+        if min_c == max_c:
+            continue
+
+        # 2. Binning
+        var bins = InlineArray[Bin, NB_BINS](fill=Bin())
+        var scale = Float32(NB_BINS) / (max_c - min_c)
+        for i in range(Int(node.triCount)):
+            var p_idx = Int(prims[Int(node.leftFirst) + i])
+            var c = (
+                verts[p_idx * 3].data[axis]
+                + verts[p_idx * 3 + 1].data[axis]
+                + verts[p_idx * 3 + 2].data[axis]
+            ) * 0.3333333
+            var b_idx = min(NB_BINS - 1, Int((c - min_c) * scale))
+            bins[b_idx].tri_count += 1
+            for v_off in range(3):
+                ref v = verts[p_idx * 3 + v_off]
+                bins[b_idx].bounds.grow(v)
+
+        # 3. Sweep SAH Costs
+        var left_areas = InlineArray[Float32, NB_BINS](fill=0.0)
+        var left_counts = InlineArray[UInt32, NB_BINS](fill=0)
+        var left_box = AABB.invalid()
+        var left_sum = UInt32(0)
+
+        for i in range(NB_BINS - 1):
+            left_sum += bins[i].tri_count
+            left_counts[i] = left_sum
+            left_box.grow(bins[i].bounds)
+            left_areas[i] = left_box.surface_area()
+
+        var right_box = AABB.invalid()
+        var right_sum = UInt32(0)
+        for i in range(NB_BINS - 1, 0, -1):
+            right_sum += bins[i].tri_count
+            right_box.grow(bins[i].bounds)
+
+            var cost = left_areas[i - 1] * Float32(
+                left_counts[i - 1]
+            ) + right_box.surface_area() * Float32(right_sum)
+            if cost < best_cost:
+                best_cost = cost
+                best_axis = axis
+                best_pos = min_c + (Float32(i) / scale)
+
+    return best_axis, best_pos, best_cost
 
 
 @fieldwise_init
@@ -657,7 +657,7 @@ struct WideBVH[width: Int]:
     def __init__(out self, mut binary_bvh: BVH):
         comptime assert Self.width in [4, 8, 16]
         self.nodes = List[WideBVHNode[Self.width]]()
-        self.prim_indices = binary_bvh.get_indices_ptr()
+        self.prim_indices = binary_bvh.prim_indices.unsafe_ptr()
         self.vertices = binary_bvh.vertices
 
         _ = self._collapse(binary_bvh, 0)

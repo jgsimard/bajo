@@ -289,7 +289,7 @@ def _vs[
 ](v: Vec[dtype, size], s: Scalar[dtype]) -> Vec[dtype, size]:
     out = Vec[dtype, size](uninitialized=True)
     comptime for i in range(size):
-        out[i] = func(v[i], s[i])
+        out[i] = func(v[i], s)
     return out^
 
 
@@ -368,7 +368,7 @@ def vmin[
     out = a.copy()
     for b in bs:
         comptime for i in range(size):
-            out.data[i] = min(out[i], b[i])
+            out.data[i] = min(out.data[i], b.data[i])
     return out^
 
 
@@ -378,7 +378,7 @@ def vmax[
     out = a.copy()
     for b in bs:
         comptime for i in range(size):
-            out.data[i] = max(out[i], b[i])
+            out.data[i] = max(out.data[i], b.data[i])
     return out^
 
 

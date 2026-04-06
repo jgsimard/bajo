@@ -247,3 +247,37 @@ def main():
         run_bench[is_occlusion=False, reset_t=False](
             bvh_list[i], diffuse_rays, labels[i]
         )
+
+
+# --- TinyBVH Mojo Port: Traverse Speedtest ---
+# Generating procedural scene (30x30x30 cube grid, ~324k triangles)...
+
+# [1] Building BVH...
+#     - Built in 59.84 ms | SAH cost: 106.674324 | Nodes: 207495
+
+# [2] Collapsing Wide SIMD BVHs...
+#     - BVH4 collapse: 9.03 ms | Nodes: 40018
+#     - BVH8 collapse: 21.17 ms | Nodes: 21695
+#     - BVH16 collapse: 34.41 ms | Nodes: 19444
+
+# [3] Generating test rays (Primary, Shadow, Diffuse)...
+
+# --- Traversals (Multi-threaded, Averaged over 5 passes) ---
+
+# [Primary Rays - Coherent Rays]
+#      BVH2 :  12.0  MRays/s
+#      BVH4 :  25.31  MRays/s
+#      BVH8 :  32.63  MRays/s
+#      BVH16 :  26.98  MRays/s
+
+# [Shadow Rays - Early Out Occlusion]
+#      BVH2 :  14.54  MRays/s
+#      BVH4 :  28.73  MRays/s
+#      BVH8 :  43.85  MRays/s
+#      BVH16 :  40.79  MRays/s
+
+# [Diffuse Rays - Incoherent Bounces]
+#      BVH2 :  15.78  MRays/s
+#      BVH4 :  41.48  MRays/s
+#      BVH8 :  52.7  MRays/s
+#      BVH16 :  43.65  MRays/s

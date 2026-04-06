@@ -1,4 +1,4 @@
-from math import sqrt
+from std.math import sqrt
 
 from bajo.core.quat import Quaternion
 from bajo.core.vec import Vec, Vec3, dot, cross, lerp as vlerp

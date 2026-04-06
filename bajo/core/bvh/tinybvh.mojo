@@ -1,15 +1,16 @@
+from std.algorithm import parallelize
 from std.math import abs, min, max, clamp
 from std.memory import UnsafePointer
-from std.algorithm import parallelize
 from std.os.atomic import Atomic
+from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.aabb import AABB
-from bajo.core.vec import Vec3f32, vmin, vmax, longest_axis, InlineArray
 from bajo.core.intersect import intersect_ray_tri_moller, intersect_ray_aabb
 from bajo.core.mat import Mat44f32, transform_point, transform_vector, inverse
+from bajo.core.vec import Vec3f32, vmin, vmax, longest_axis, InlineArray
 
-comptime f32_max = Float32(1e30)
-comptime f32_min = Float32(-1e30)
+comptime f32_max = max_finite[DType.float32]()
+comptime f32_min = min_finite[DType.float32]()
 
 
 @fieldwise_init
@@ -142,12 +143,24 @@ struct BVH(Copyable):
         node_idx: UInt32,
         atomic_nodes: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
     ) -> Optional[Tuple[UInt32, UInt32]]:
-        var nodes_ptr = self.bvh_nodes.unsafe_ptr().unsafe_origin_cast[
-            MutAnyOrigin
-        ]()
+        var nodes_ptr = self.bvh_nodes.unsafe_ptr()
         ref node = nodes_ptr[Int(node_idx)]
 
-        var res = self._find_split[split_method](node)
+        var res: SplitResult
+        comptime if split_method == "median":
+            var extent = node.aabb._max - node.aabb._min
+            var axis = longest_axis(extent)
+            var pos = node.aabb._min[axis] + extent[axis] * 0.5
+            res = SplitResult(axis, pos, f32_max, 0)
+        elif split_method == "sah":
+            var best_axis, best_pos, best_cost = _analyze_sah(
+                node,
+                self.prim_indices.unsafe_ptr(),
+                self.vertices,
+            )
+            res = SplitResult(best_axis, best_pos, best_cost, 0)
+        else:
+            comptime assert False, "Unknown split method"
 
         # Termination Criteria
         comptime if split_method == "sah":
@@ -264,23 +277,6 @@ struct BVH(Copyable):
 
         self.nodes_used = atomic_nodes[0]
         atomic_nodes.free()
-
-    @always_inline
-    def _find_split[split_method: String](self, node: BVHNode) -> SplitResult:
-        comptime if split_method == "median":
-            var extent = node.aabb._max - node.aabb._min
-            var axis = longest_axis(extent)
-            var pos = node.aabb._min[axis] + extent[axis] * 0.5
-            return SplitResult(axis, pos, f32_max, 0)
-        elif split_method == "sah":
-            var best_axis, best_pos, best_cost = _analyze_sah(
-                node,
-                self.prim_indices.unsafe_ptr(),
-                self.vertices,
-            )
-            return SplitResult(best_axis, best_pos, best_cost, 0)
-        else:
-            comptime assert False, "Unknown split method"
 
     def sah_cost(self, node_idx: UInt32 = 0) -> Float32:
         """Recursively calculates the unnormalized SAH cost of the subtree."""
@@ -518,9 +514,9 @@ def _analyze_sah(
             right_sum += bins[i].tri_count
             right_box.grow(bins[i].bounds)
 
-            var cost = left_areas[i - 1] * Float32(
-                left_counts[i - 1]
-            ) + right_box.surface_area() * Float32(right_sum)
+            var left_cost = left_areas[i - 1] * Float32(left_counts[i - 1])
+            var right_cost = right_box.surface_area() * Float32(right_sum)
+            var cost = left_cost + right_cost
             if cost < best_cost:
                 best_cost = cost
                 best_axis = axis
@@ -1082,7 +1078,7 @@ def main() raises:
     # 2. Build the BLAS (The "Blueprint")
     # We cast to MutAnyOrigin because the BVH expects to be able to sort the indices
     var chair_blas = BVH(
-        chair_vertices.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin](),
+        chair_vertices.unsafe_ptr(),
         tri_count,
     )
     chair_blas.build["sah", True]()
@@ -1090,7 +1086,7 @@ def main() raises:
     # Pointer for TLAS traversal
     var blases = List[BVH]()
     blases.append(chair_blas.copy())
-    var blases_ptr = blases.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin]()
+    var blases_ptr = blases.unsafe_ptr()
 
     # 3. Create Scene Instances (The "Map")
     var instances = List[Instance]()
@@ -1112,7 +1108,7 @@ def main() raises:
 
     # 4. Build the TLAS
     var tlas = TLAS(
-        instances.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin](),
+        instances.unsafe_ptr(),
         UInt32(len(instances)),
     )
     tlas.build()

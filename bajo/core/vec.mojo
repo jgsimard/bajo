@@ -1,6 +1,6 @@
 from std.math import sqrt, min, max, clamp
-from std.testing import assert_almost_equal
 from std.sys import CompilationTarget
+from std.testing import assert_almost_equal
 
 from bajo.core.utils import is_power_of_2
 

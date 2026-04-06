@@ -1,9 +1,12 @@
+from std.algorithm import parallelize
 from std.collections import List
 from std.time import perf_counter_ns
 from std.math import min
+from std.utils import Variant
 
 from bajo.core.vec import Vec3f32, normalize, cross, length
 from bajo.core.bvh.tinybvh import BVH, WideBVH, Ray
+from bajo.core.random import PhiloxRNG, random_unit_vector
 
 
 struct Timer:
@@ -20,6 +23,60 @@ struct Timer:
     @always_inline
     def elapsed(self) -> Float64:
         return Float64(perf_counter_ns() - self.start) / 1e9
+
+
+comptime PASSES = 5
+comptime BVHVariant = Variant[BVH, WideBVH[4], WideBVH[8], WideBVH[16]]
+
+
+def run_bench[
+    is_occlusion: Bool, reset_t: Bool
+](bvh_var: BVHVariant, mut rays: List[Ray], label: String):
+    """
+    Unified benchmark implementation using Variant dispatch.
+    """
+    var n_rays = len(rays)
+    var timer = Timer()
+
+    for _ in range(PASSES):
+
+        @parameter
+        def worker(i: Int):
+            ref ray = rays[i]
+            comptime if reset_t:
+                ray.hit.t = 1e30
+
+            # Dispatch logic: This branch is highly predictable
+            if bvh_var.isa[BVH]():
+                ref b = bvh_var[BVH]
+                comptime if is_occlusion:
+                    _ = b.is_occluded(ray)
+                else:
+                    b.traverse(ray)
+            elif bvh_var.isa[WideBVH[4]]():
+                ref b = bvh_var[WideBVH[4]]
+                comptime if is_occlusion:
+                    _ = b.is_occluded(ray)
+                else:
+                    b.traverse(ray)
+            elif bvh_var.isa[WideBVH[8]]():
+                ref b = bvh_var[WideBVH[8]]
+                comptime if is_occlusion:
+                    _ = b.is_occluded(ray)
+                else:
+                    b.traverse(ray)
+            elif bvh_var.isa[WideBVH[16]]():
+                ref b = bvh_var[WideBVH[16]]
+                comptime if is_occlusion:
+                    _ = b.is_occluded(ray)
+                else:
+                    b.traverse(ray)
+
+        parallelize[worker](n_rays)
+
+    var total_sec = timer.elapsed()
+    var mrays = (Float64(n_rays) * PASSES / 1_000_000.0) / total_sec
+    print("    ", label, ": ", round(mrays, 2), " MRays/s")
 
 
 def main():
@@ -85,6 +142,7 @@ def main():
         vertices.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin](), tri_count
     )
     # bvh.build["median", False]()
+    # bvh.build["median", True]()
     # bvh.build["sah", False]()
     bvh.build["sah", True]()
 
@@ -106,6 +164,13 @@ def main():
     print(
         t"    - BVH8 collapse: {round(timer.elapsed() * 1000.0, 2)} ms | Nodes:"
         t" {len(bvh8.nodes)}"
+    )
+
+    timer.reset()
+    var bvh16 = WideBVH[16](bvh)
+    print(
+        t"    - BVH16 collapse: {round(timer.elapsed() * 1000.0, 2)} ms |"
+        t" Nodes: {len(bvh16.nodes)}"
     )
 
     print("\n[3] Generating test rays (Primary, Shadow, Diffuse)...")
@@ -130,12 +195,11 @@ def main():
             primary_rays.append(Ray(eye, normalize(P - eye)))
 
     var lightPos = Vec3f32(30.0, 100.0, 30.0)
-    var seed = UInt32(0x12345678)
+    var rng = PhiloxRNG(123, 321)
 
     for i in range(Nsmall):
-        var r = primary_rays[i].copy()
+        ref r = primary_rays[i]
         bvh.traverse(r)
-        primary_rays[i] = r.copy()
 
         var hit_t = min(Float32(100.0), r.hit.t)
         var I = r.O + r.D * hit_t
@@ -145,103 +209,41 @@ def main():
         var shadow_dir = L / dist
         shadow_rays.append(Ray(I + shadow_dir * 1e-4, shadow_dir, dist - 1e-4))
 
-        seed ^= seed << 13
-        seed ^= seed >> 17
-        seed ^= seed << 5
-        var rx = (Float32(seed % 1000) / 500.0) - 1.0
-        seed ^= seed << 13
-        seed ^= seed >> 17
-        seed ^= seed << 5
-        var ry = (Float32(seed % 1000) / 500.0) - 1.0
-        seed ^= seed << 13
-        seed ^= seed >> 17
-        seed ^= seed << 5
-        var rz = (Float32(seed % 1000) / 500.0) - 1.0
-        var diff_dir = normalize(Vec3f32(rx, ry, rz))
+        var diff_dir = random_unit_vector(rng)
         diffuse_rays.append(Ray(I + diff_dir * 1e-4, diff_dir))
 
-    var PASSES = 5
-    var M = Float64(Nsmall) / 1_000_000.0
+    # traversals
+    var bvh_list = List[BVHVariant]()
+    var labels = List[String]()
 
-    print("\n--- Traversals (Averaged over 5 passes) ---")
+    bvh_list.append(BVHVariant(bvh^))
+    labels.append("BVH2")
+
+    bvh_list.append(BVHVariant(bvh4^))
+    labels.append("BVH4")
+
+    bvh_list.append(BVHVariant(bvh8^))
+    labels.append("BVH8")
+
+    bvh_list.append(BVHVariant(bvh16^))
+    labels.append("BVH16")
+
+    print("\n--- Traversals (Multi-threaded, Averaged over 5 passes) ---")
 
     print("\n[Primary Rays - Coherent Rays]")
-    timer.reset()
-    for _ in range(PASSES):
-        for i in range(Nsmall):
-            var r = primary_rays[i].copy()
-            r.hit.t = 1e30
-            bvh.traverse(r)
-    print(
-        t"    BVH2 : {round(M / (timer.elapsed()/Float64(PASSES)), 2)} MRays/s"
-    )
-
-    timer.reset()
-    for _ in range(PASSES):
-        for i in range(Nsmall):
-            var r = primary_rays[i].copy()
-            r.hit.t = 1e30
-            bvh4.traverse(r)
-    print(
-        t"    BVH4 : {round(M / (timer.elapsed()/Float64(PASSES)), 2)} MRays/s"
-    )
-
-    timer.reset()
-    for _ in range(PASSES):
-        for i in range(Nsmall):
-            var r = primary_rays[i].copy()
-            r.hit.t = 1e30
-            bvh8.traverse(r)
-    print(
-        t"    BVH8 : {round(M / (timer.elapsed()/Float64(PASSES)), 2)} MRays/s"
-    )
+    for i in range(len(bvh_list)):
+        run_bench[is_occlusion=False, reset_t=True](
+            bvh_list[i], primary_rays, labels[i]
+        )
 
     print("\n[Shadow Rays - Early Out Occlusion]")
-    timer.reset()
-    for _ in range(PASSES):
-        for i in range(Nsmall):
-            _ = bvh.is_occluded(shadow_rays[i])
-    print(
-        t"    BVH2 : {round(M / (timer.elapsed()/Float64(PASSES)), 2)} MRays/s"
-    )
-
-    timer.reset()
-    for _ in range(PASSES):
-        for i in range(Nsmall):
-            _ = bvh4.is_occluded(shadow_rays[i])
-    print(
-        t"    BVH4 : {round(M / (timer.elapsed()/Float64(PASSES)), 2)} MRays/s"
-    )
-
-    timer.reset()
-    for _ in range(PASSES):
-        for i in range(Nsmall):
-            _ = bvh8.is_occluded(shadow_rays[i])
-    print(
-        t"    BVH8 : {round(M / (timer.elapsed()/Float64(PASSES)), 2)} MRays/s"
-    )
+    for i in range(len(bvh_list)):
+        run_bench[is_occlusion=True, reset_t=False](
+            bvh_list[i], shadow_rays, labels[i]
+        )
 
     print("\n[Diffuse Rays - Incoherent Bounces]")
-    timer.reset()
-    for _ in range(PASSES):
-        for i in range(Nsmall):
-            bvh.traverse(diffuse_rays[i])
-    print(
-        t"    BVH2 : {round(M / (timer.elapsed()/Float64(PASSES)), 2)} MRays/s"
-    )
-
-    timer.reset()
-    for _ in range(PASSES):
-        for i in range(Nsmall):
-            bvh4.traverse(diffuse_rays[i])
-    print(
-        t"    BVH4 : {round(M / (timer.elapsed()/Float64(PASSES)), 2)} MRays/s"
-    )
-
-    timer.reset()
-    for _ in range(PASSES):
-        for i in range(Nsmall):
-            bvh8.traverse(diffuse_rays[i])
-    print(
-        t"    BVH8 : {round(M / (timer.elapsed()/Float64(PASSES)), 2)} MRays/s"
-    )
+    for i in range(len(bvh_list)):
+        run_bench[is_occlusion=False, reset_t=False](
+            bvh_list[i], diffuse_rays, labels[i]
+        )

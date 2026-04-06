@@ -37,15 +37,6 @@ struct Ray(Copyable):
     var rD: Vec3f32
     var hit: Intersection
 
-    @always_inline
-    def __init__(out self):
-        self.O = Vec3f32(0.0)
-        self.mask = 0xFFFFFFFF
-        self.D = Vec3f32(0.0, 0.0, 1.0)
-        self.rD = Vec3f32(f32_max)
-        self.hit = Intersection()
-
-    @always_inline
     def __init__(out self, O: Vec3f32, D: Vec3f32, t_max: Float32 = f32_max):
         self.O = O.copy()
         self.D = D.copy()
@@ -128,33 +119,6 @@ struct BVH(Copyable):
 
         self.update_node_bounds(0)
 
-    @staticmethod
-    @always_inline
-    def _partition_tris(
-        prims: UnsafePointer[UInt32, MutAnyOrigin],
-        verts: UnsafePointer[Vec3f32, MutAnyOrigin],
-        first: Int,
-        count: Int,
-        axis: Int,
-        split_pos: Float32,
-    ) -> Int:
-        var i = first
-        var j = i + count - 1
-        while i <= j:
-            var p_idx = Int(prims[i])
-            # centroid
-            var c = (
-                verts[p_idx * 3].data[axis]
-                + verts[p_idx * 3 + 1].data[axis]
-                + verts[p_idx * 3 + 2].data[axis]
-            ) * 0.3333333
-            if c < split_pos:
-                i += 1
-            else:
-                prims[i], prims[j] = prims[j], prims[i]
-                j -= 1
-        return i
-
     @always_inline
     def update_node_bounds(mut self, node_idx: UInt32):
         ref node = self.bvh_nodes[Int(node_idx)]
@@ -171,52 +135,33 @@ struct BVH(Copyable):
             node.aabb._max = vmax(node.aabb._max, v0, v1, v2)
 
     @always_inline
-    def _find_split[split_method: String](self, node: BVHNode) -> SplitResult:
-        comptime if split_method == "median":
-            var extent = node.aabb._max - node.aabb._min
-            var axis = longest_axis(extent)
-            var pos = node.aabb._min[axis] + extent[axis] * 0.5
-            return SplitResult(axis, pos, f32_max, 0)
-        elif split_method == "sah":
-            var best_axis, best_pos, best_cost = BVH._analyze_sah(
-                node,
-                self.prim_indices.unsafe_ptr(),
-                self.vertices,
-            )
-            return SplitResult(best_axis, best_pos, best_cost, 0)
-        else:
-            comptime assert False, "Unknown split method"
-
-    def subdivide[
-        split_method: String, is_mt: Bool = False
+    def _split_node[
+        split_method: String
     ](
         mut self,
         node_idx: UInt32,
-        atomic_nodes: UnsafePointer[
-            Scalar[DType.uint32], MutAnyOrigin
-        ] = UnsafePointer[Scalar[DType.uint32], MutAnyOrigin](),
-    ):
-        # 1. Access Node (Use Pointer if MT to avoid borrow checker conflicts)
+        atomic_nodes: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    ) -> Optional[Tuple[UInt32, UInt32]]:
         var nodes_ptr = self.bvh_nodes.unsafe_ptr().unsafe_origin_cast[
             MutAnyOrigin
         ]()
         ref node = nodes_ptr[Int(node_idx)]
 
-        # 2. Find Best Split
         var res = self._find_split[split_method](node)
 
-        # 3. Termination Criteria
+        # Termination Criteria
         comptime if split_method == "sah":
-            var leaf_cost = node.surface_area() * Float32(node.triCount)
-            if res.cost >= leaf_cost or node.triCount <= 2:
-                return
+            if (
+                res.cost >= node.surface_area() * Float32(node.triCount)
+                or node.triCount <= 2
+            ):
+                return None
         else:
             if node.triCount <= 2:
-                return
+                return None
 
-        # 4. Partition Triangles
-        res.split_idx = BVH._partition_tris(
-            self.prim_indices.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin](),
+        res.split_idx = _partition_tris(
+            self.prim_indices.unsafe_ptr(),
             self.vertices,
             Int(node.leftFirst),
             Int(node.triCount),
@@ -226,206 +171,116 @@ struct BVH(Copyable):
 
         var left_count = UInt32(res.split_idx - Int(node.leftFirst))
         if left_count == 0 or left_count == node.triCount:
-            # Fallback for median if partition fails to split
             comptime if split_method == "median":
+                # Fallback: If spatial center failed, just split the indices 50/50
                 left_count = node.triCount // 2
                 res.split_idx = Int(node.leftFirst) + Int(left_count)
             else:
-                return
+                # SAH genuinely couldn't find a better split than a leaf
+                return None
 
-        # 5. Allocate Child Nodes
-        var left_child_idx: UInt32
-        comptime if is_mt:
-            left_child_idx = Atomic.fetch_add(atomic_nodes, 2)
-        else:
-            left_child_idx = self.nodes_used
-            self.nodes_used += 2
+        # Atomic allocation (Safe for both ST and MT)
+        var left_child_idx = Atomic.fetch_add(atomic_nodes, 2)
 
-        # 6. Initialize Children
-        ref left_child = nodes_ptr[Int(left_child_idx)]
-        ref right_child = nodes_ptr[Int(left_child_idx + 1)]
-
-        left_child.leftFirst = node.leftFirst
-        left_child.triCount = left_count
-        right_child.leftFirst = UInt32(res.split_idx)
-        right_child.triCount = node.triCount - left_count
+        nodes_ptr[Int(left_child_idx)].leftFirst = node.leftFirst
+        nodes_ptr[Int(left_child_idx)].triCount = left_count
+        nodes_ptr[Int(left_child_idx + 1)].leftFirst = UInt32(res.split_idx)
+        nodes_ptr[Int(left_child_idx + 1)].triCount = node.triCount - left_count
 
         node.leftFirst = left_child_idx
-        node.triCount = 0
+        node.triCount = 0  # Internal node
 
-        # 7. Update Bounds and Recurse
         self.update_node_bounds(left_child_idx)
         self.update_node_bounds(left_child_idx + 1)
+        return (left_child_idx, left_child_idx + 1)
 
-        self.subdivide[split_method, is_mt](left_child_idx, atomic_nodes)
-        self.subdivide[split_method, is_mt](left_child_idx + 1, atomic_nodes)
+    @always_inline
+    def _build_iterative[
+        split_method: String
+    ](
+        mut self,
+        root_idx: UInt32,
+        atomic_nodes: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    ):
+        var stack = [root_idx]
+        while len(stack) > 0:
+            var children = self._split_node[split_method](
+                stack.pop(), atomic_nodes
+            )
+            if children:
+                var res = children.value()
+                stack.append(res[1])  # Push Right
+                stack.append(res[0])  # Push Left
 
     def build[split_method: String, is_mt: Bool](mut self):
         self.nodes_used = 1
-        ref root = self.bvh_nodes[0]
-        root.leftFirst = 0
-        root.triCount = self.tri_count
         self.update_node_bounds(0)
 
+        # All build modes use an atomic counter for unified API
+        var atomic_nodes = alloc[Scalar[DType.uint32]](1)
+        atomic_nodes[0] = self.nodes_used
+
         comptime if not is_mt:
-            self.subdivide[split_method, False](0)
+            # Single-threaded: Just run the loop once from the root
+            self._build_iterative[split_method](0, atomic_nodes)
 
         else:
-            var queue = List[UInt32]()
-            queue.append(0)
-            var sub_roots = List[UInt32]()
+            # Multi-threaded: Breadth-first "seed" to generate tasks
+            var tasks: List[UInt32] = [0]
+            while len(tasks) < 64:
+                # Simple logic: split the largest remaining task
+                var largest_idx = -1
+                var max_tris = UInt32(0)
+                for i in range(len(tasks)):
+                    var count = self.bvh_nodes[Int(tasks[i])].triCount
+                    if count > max_tris:
+                        max_tris = count
+                        largest_idx = i
 
-            # 2. Single-threaded Breadth-First split to generate independent tasks
-            # We stop when we have enough tasks (e.g., 64) or the queue is empty
-            while len(queue) > 0 and (len(queue) + len(sub_roots)) < 64:
-                var node_idx = queue.pop(0)
-                ref node = self.bvh_nodes[Int(node_idx)]
+                # If we can't split further or have no tasks, break
+                if largest_idx == -1 and len(tasks) > 0:
+                    break
 
-                # Too small or already a leaf candidate? Move to parallel task list
-                if node.triCount < 1024:
-                    sub_roots.append(node_idx)
-                    continue
-
-                var res = self._find_split["sah"](node)
-                var leaf_cost = node.surface_area() * Float32(node.triCount)
-
-                if res.cost >= leaf_cost:
-                    sub_roots.append(node_idx)
-                    continue
-
-                # Perform partition for this specific breadth-first step
-                res.split_idx = BVH._partition_tris(
-                    self.get_indices_ptr(),
-                    self.vertices,
-                    Int(node.leftFirst),
-                    Int(node.triCount),
-                    res.axis,
-                    res.pos,
+                var target = tasks.pop(
+                    largest_idx
+                ) if largest_idx != -1 else UInt32(0)
+                var children = self._split_node[split_method](
+                    target, atomic_nodes
                 )
+                if children:
+                    tasks.append(children.value()[0])
+                    tasks.append(children.value()[1])
+                else:
+                    # If root couldn't split, we're done
+                    if largest_idx == -1:
+                        break
 
-                var left_count = UInt32(res.split_idx - Int(node.leftFirst))
-                if left_count == 0 or left_count == node.triCount:
-                    sub_roots.append(node_idx)
-                    continue
-
-                var left_child_idx = self.nodes_used
-                self.nodes_used += 2
-
-                # Initialize children
-                self.bvh_nodes[Int(left_child_idx)].leftFirst = node.leftFirst
-                self.bvh_nodes[Int(left_child_idx)].triCount = left_count
-                self.bvh_nodes[Int(left_child_idx + 1)].leftFirst = UInt32(
-                    res.split_idx
-                )
-                self.bvh_nodes[Int(left_child_idx + 1)].triCount = (
-                    node.triCount - left_count
-                )
-
-                node.leftFirst = left_child_idx
-                node.triCount = 0
-
-                self.update_node_bounds(left_child_idx)
-                self.update_node_bounds(left_child_idx + 1)
-
-                queue.append(left_child_idx)
-                queue.append(left_child_idx + 1)
-
-            # Move remaining queue items to sub_roots
-            for i in range(len(queue)):
-                sub_roots.append(queue[i])
-
-            # 3. Setup Shared Atomic Counter and Pointers
-            var sub_roots_ptr = sub_roots.unsafe_ptr()
-            var atomic_nodes = alloc[Scalar[DType.uint32]](1)
-            atomic_nodes[0] = self.nodes_used
-
-            # 4. Multithreaded Processing
+            # Parallelize the sub-trees
             @parameter
-            def worker(idx: Int):
-                var root_idx = sub_roots_ptr[idx]
-                self.subdivide[split_method, True](
-                    root_idx, atomic_nodes.unsafe_origin_cast[MutAnyOrigin]()
-                )
+            def worker(i: Int):
+                self._build_iterative[split_method](tasks[i], atomic_nodes)
 
-            parallelize[worker](len(sub_roots))
+            parallelize[worker](len(tasks))
 
-            # 5. Cleanup
-            self.nodes_used = atomic_nodes[0]
-            atomic_nodes.free()
+        self.nodes_used = atomic_nodes[0]
+        atomic_nodes.free()
 
-    @staticmethod
     @always_inline
-    def _analyze_sah(
-        node: BVHNode,
-        prims: UnsafePointer[UInt32, ImmutAnyOrigin],
-        verts: UnsafePointer[Vec3f32, ImmutAnyOrigin],
-    ) -> Tuple[Int, Float32, Float32]:
-        var best_axis: Int = -1
-        var best_pos: Float32 = 0
-        var best_cost: Float32 = f32_max
-        comptime NB_BINS = 16
-
-        for axis in range(3):
-            var min_c = f32_max
-            var max_c = f32_min
-
-            # 1. Find centroid range
-            for i in range(Int(node.triCount)):
-                var p_idx = Int(prims[Int(node.leftFirst) + i])
-                var c = (
-                    verts[p_idx * 3].data[axis]
-                    + verts[p_idx * 3 + 1].data[axis]
-                    + verts[p_idx * 3 + 2].data[axis]
-                ) * 0.3333333
-                min_c = min(min_c, c)
-                max_c = max(max_c, c)
-
-            if min_c == max_c:
-                continue
-
-            # 2. Binning
-            var bins = InlineArray[Bin, NB_BINS](fill=Bin())
-            var scale = Float32(NB_BINS) / (max_c - min_c)
-            for i in range(Int(node.triCount)):
-                var p_idx = Int(prims[Int(node.leftFirst) + i])
-                var c = (
-                    verts[p_idx * 3].data[axis]
-                    + verts[p_idx * 3 + 1].data[axis]
-                    + verts[p_idx * 3 + 2].data[axis]
-                ) * 0.3333333
-                var b_idx = min(NB_BINS - 1, Int((c - min_c) * scale))
-                bins[b_idx].tri_count += 1
-                for v_off in range(3):
-                    ref v = verts[p_idx * 3 + v_off]
-                    bins[b_idx].bounds.grow(v)
-
-            # 3. Sweep SAH Costs
-            var left_areas = InlineArray[Float32, NB_BINS](fill=0.0)
-            var left_counts = InlineArray[UInt32, NB_BINS](fill=0)
-            var left_box = AABB.invalid()
-            var left_sum = UInt32(0)
-
-            for i in range(NB_BINS - 1):
-                left_sum += bins[i].tri_count
-                left_counts[i] = left_sum
-                left_box.grow(bins[i].bounds)
-                left_areas[i] = left_box.surface_area()
-
-            var right_box = AABB.invalid()
-            var right_sum = UInt32(0)
-            for i in range(NB_BINS - 1, 0, -1):
-                right_sum += bins[i].tri_count
-                right_box.grow(bins[i].bounds)
-
-                var cost = left_areas[i - 1] * Float32(
-                    left_counts[i - 1]
-                ) + right_box.surface_area() * Float32(right_sum)
-                if cost < best_cost:
-                    best_cost = cost
-                    best_axis = axis
-                    best_pos = min_c + (Float32(i) / scale)
-
-        return best_axis, best_pos, best_cost
+    def _find_split[split_method: String](self, node: BVHNode) -> SplitResult:
+        comptime if split_method == "median":
+            var extent = node.aabb._max - node.aabb._min
+            var axis = longest_axis(extent)
+            var pos = node.aabb._min[axis] + extent[axis] * 0.5
+            return SplitResult(axis, pos, f32_max, 0)
+        elif split_method == "sah":
+            var best_axis, best_pos, best_cost = _analyze_sah(
+                node,
+                self.prim_indices.unsafe_ptr(),
+                self.vertices,
+            )
+            return SplitResult(best_axis, best_pos, best_cost, 0)
+        else:
+            comptime assert False, "Unknown split method"
 
     def sah_cost(self, node_idx: UInt32 = 0) -> Float32:
         """Recursively calculates the unnormalized SAH cost of the subtree."""
@@ -433,19 +288,18 @@ struct BVH(Copyable):
         var area = node.surface_area()
 
         # Standard SAH constants
-        var C_traverse = Float32(1.0)
-        var C_intersect = Float32(1.0)
+        comptime C_traverse = 1.0
+        comptime C_intersect = 1.0
 
+        cost_aabb = area * C_traverse
         if node.is_leaf():
             # Cost of evaluating the AABB + cost of evaluating the primitives
-            return (
-                area * C_traverse + area * Float32(node.triCount) * C_intersect
-            )
+            return cost_aabb + area * Float32(node.triCount) * C_intersect
         else:
             # Cost of evaluating this AABB + expected cost of traversing children
             var left_cost = self.sah_cost(node.leftFirst)
             var right_cost = self.sah_cost(node.leftFirst + 1)
-            return area * C_traverse + left_cost + right_cost
+            return cost_aabb + left_cost + right_cost
 
     def tree_quality(self) -> Float32:
         """
@@ -456,10 +310,6 @@ struct BVH(Copyable):
         var root_area = self.bvh_nodes[0].surface_area()
         var total_cost = self.sah_cost(0)
         return total_cost / root_area
-
-    @always_inline
-    def get_indices_ptr(mut self) -> UnsafePointer[UInt32, MutAnyOrigin]:
-        return self.prim_indices.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin]()
 
     @always_inline
     def _intersect_tri[
@@ -578,88 +428,131 @@ struct BVH(Copyable):
         return self._traverse[True](ray)
 
 
-@fieldwise_init
-struct WideLeaf[width: Int](Copyable):
-    # Vertex 0 (x, y, z)
-    var v0x: SIMD[DType.float32, Self.width]
-    var v0y: SIMD[DType.float32, Self.width]
-    var v0z: SIMD[DType.float32, Self.width]
-    # Vertex 1
-    var v1x: SIMD[DType.float32, Self.width]
-    var v1y: SIMD[DType.float32, Self.width]
-    var v1z: SIMD[DType.float32, Self.width]
-    # Vertex 2
-    var v2x: SIMD[DType.float32, Self.width]
-    var v2y: SIMD[DType.float32, Self.width]
-    var v2z: SIMD[DType.float32, Self.width]
-
-    var prim_indices: SIMD[DType.uint32, Self.width]
+@always_inline
+def _partition_tris(
+    prims: UnsafePointer[UInt32, MutAnyOrigin],
+    verts: UnsafePointer[Vec3f32, MutAnyOrigin],
+    first: Int,
+    count: Int,
+    axis: Int,
+    split_pos: Float32,
+) -> Int:
+    var i = first
+    var j = i + count - 1
+    while i <= j:
+        var p_idx = Int(prims[i])
+        # centroid
+        var c = (
+            verts[p_idx * 3].data[axis]
+            + verts[p_idx * 3 + 1].data[axis]
+            + verts[p_idx * 3 + 2].data[axis]
+        ) * 0.3333333
+        if c < split_pos:
+            i += 1
+        else:
+            prims[i], prims[j] = prims[j], prims[i]
+            j -= 1
+    return i
 
 
 @always_inline
-def intersect_tri_soa[
-    width: Int
-](
-    ray: Ray,
-    leaf: WideLeaf[width],
-    mut ray_t: Float32,
-    mut ray_u: Float32,
-    mut ray_v: Float32,
-    mut ray_prim: UInt32,
-):
-    # Edge vectors
-    var e1x = leaf.v1x - leaf.v0x
-    var e1y = leaf.v1y - leaf.v0y
-    var e1z = leaf.v1z - leaf.v0z
+def _analyze_sah(
+    node: BVHNode,
+    prims: UnsafePointer[UInt32, ImmutAnyOrigin],
+    verts: UnsafePointer[Vec3f32, ImmutAnyOrigin],
+) -> Tuple[Int, Float32, Float32]:
+    var best_axis: Int = -1
+    var best_pos: Float32 = 0
+    var best_cost: Float32 = f32_max
+    comptime NB_BINS = 16
 
-    var e2x = leaf.v2x - leaf.v0x
-    var e2y = leaf.v2y - leaf.v0y
-    var e2z = leaf.v2z - leaf.v0z
+    for axis in range(3):
+        var min_c = f32_max
+        var max_c = f32_min
 
-    # Determinant / P-Vector
-    var px = ray.D.y() * e2z - ray.D.z() * e2y
-    var py = ray.D.z() * e2x - ray.D.x() * e2z
-    var pz = ray.D.x() * e2y - ray.D.y() * e2x
+        # 1. Find centroid range
+        for i in range(Int(node.triCount)):
+            var p_idx = Int(prims[Int(node.leftFirst) + i])
+            var c = (
+                verts[p_idx * 3].data[axis]
+                + verts[p_idx * 3 + 1].data[axis]
+                + verts[p_idx * 3 + 2].data[axis]
+            ) * 0.3333333
+            min_c = min(min_c, c)
+            max_c = max(max_c, c)
 
-    var det = e1x * px + e1y * py + e1z * pz
-    var inv_det = 1.0 / det
+        if min_c == max_c:
+            continue
 
-    var tx = ray.O.x() - leaf.v0x
-    var ty = ray.O.y() - leaf.v0y
-    var tz = ray.O.z() - leaf.v0z
+        # 2. Binning
+        var bins = InlineArray[Bin, NB_BINS](fill=Bin())
+        var scale = Float32(NB_BINS) / (max_c - min_c)
+        for i in range(Int(node.triCount)):
+            var p_idx = Int(prims[Int(node.leftFirst) + i])
+            var c = (
+                verts[p_idx * 3].data[axis]
+                + verts[p_idx * 3 + 1].data[axis]
+                + verts[p_idx * 3 + 2].data[axis]
+            ) * 0.3333333
+            var b_idx = min(NB_BINS - 1, Int((c - min_c) * scale))
+            bins[b_idx].tri_count += 1
+            for v_off in range(3):
+                ref v = verts[p_idx * 3 + v_off]
+                bins[b_idx].bounds.grow(v)
 
-    var u = (tx * px + ty * py + tz * pz) * inv_det
-    var qx = ty * e1z - tz * e1y
-    var qy = tz * e1x - tx * e1z
-    var qz = tx * e1y - ty * e1x
+        # 3. Sweep SAH Costs
+        var left_areas = InlineArray[Float32, NB_BINS](fill=0.0)
+        var left_counts = InlineArray[UInt32, NB_BINS](fill=0)
+        var left_box = AABB.invalid()
+        var left_sum = UInt32(0)
 
-    var v = (ray.D.x() * qx + ray.D.y() * qy + ray.D.z() * qz) * inv_det
-    var t = (e2x * qx + e2y * qy + e2z * qz) * inv_det
+        for i in range(NB_BINS - 1):
+            left_sum += bins[i].tri_count
+            left_counts[i] = left_sum
+            left_box.grow(bins[i].bounds)
+            left_areas[i] = left_box.surface_area()
 
-    # HIT MASK: Calculate which lanes actually hit the triangle
-    # t > epsilon AND t < current closest AND u >= 0 AND v >= 0 AND u+v <= 1
-    var hit_mask = (
-        (t.gt(1e-4))
-        & (t.lt(ray_t))
-        & (u.ge(0.0))
-        & (v.ge(0.0))
-        & ((u + v).le(1.0))
-    )
+        var right_box = AABB.invalid()
+        var right_sum = UInt32(0)
+        for i in range(NB_BINS - 1, 0, -1):
+            right_sum += bins[i].tri_count
+            right_box.grow(bins[i].bounds)
 
-    if hit_mask.reduce_or():
-        # Find the closest hit among the SIMD lanes
-        # We replace missed lanes with infinity to find the true minimum t
-        var valid_t = hit_mask.select(t, SIMD[DType.float32, width](f32_max))
-        var min_t = valid_t.reduce_min()
+            var cost = left_areas[i - 1] * Float32(
+                left_counts[i - 1]
+            ) + right_box.surface_area() * Float32(right_sum)
+            if cost < best_cost:
+                best_cost = cost
+                best_axis = axis
+                best_pos = min_c + (Float32(i) / scale)
 
-        # Mask for the specific lane that was the closest
-        var min_mask = valid_t.eq(min_t)
-        comptime for i in range(width):
-            if min_mask[i]:
-                ray_t = min_t
-                ray_u = u[i]
-                ray_v = v[i]
-                ray_prim = leaf.prim_indices[i]
+    return best_axis, best_pos, best_cost
+
+
+@fieldwise_init
+struct WideLeaf[width: Int](Copyable):
+    var v0x: SIMD[DType.float32, Self.width]
+    var v0y: SIMD[DType.float32, Self.width]
+    var v0z: SIMD[DType.float32, Self.width]
+    var v1x: SIMD[DType.float32, Self.width]
+    var v1y: SIMD[DType.float32, Self.width]
+    var v1z: SIMD[DType.float32, Self.width]
+    var v2x: SIMD[DType.float32, Self.width]
+    var v2y: SIMD[DType.float32, Self.width]
+    var v2z: SIMD[DType.float32, Self.width]
+    var prim_indices: SIMD[DType.uint32, Self.width]
+
+    def __init__(out self):
+        self.v0x = SIMD[DType.float32, Self.width](0)
+        self.v0y = SIMD[DType.float32, Self.width](0)
+        self.v0z = SIMD[DType.float32, Self.width](0)
+        self.v1x = SIMD[DType.float32, Self.width](0)
+        self.v1y = SIMD[DType.float32, Self.width](0)
+        self.v1z = SIMD[DType.float32, Self.width](0)
+        self.v2x = SIMD[DType.float32, Self.width](0)
+        self.v2y = SIMD[DType.float32, Self.width](0)
+        self.v2z = SIMD[DType.float32, Self.width](0)
+        self.prim_indices = SIMD[DType.uint32, Self.width](0)
 
 
 @fieldwise_init
@@ -689,187 +582,208 @@ struct WideBVHNode[width: Int](Copyable):
         self.counts = SIMD[DType.uint32, Self.width](0xFFFFFFFF)
 
 
-struct WideBVH[width: Int]:
+struct WideBVH[width: Int](Copyable):
     var nodes: List[WideBVHNode[Self.width]]
-    var prim_indices: UnsafePointer[UInt32, MutAnyOrigin]
+    var leaves: List[WideLeaf[Self.width]]
     var vertices: UnsafePointer[Vec3f32, MutAnyOrigin]
 
     def __init__(out self, mut binary_bvh: BVH):
-        comptime assert Self.width in [4, 8, 16]
         self.nodes = List[WideBVHNode[Self.width]]()
-        self.prim_indices = binary_bvh.get_indices_ptr()
+        self.leaves = List[WideLeaf[Self.width]]()
         self.vertices = binary_bvh.vertices
-
         _ = self._collapse(binary_bvh, 0)
 
-    def _collapse(mut self, binary_bvh: BVH, bin_node_idx: UInt32) -> UInt32:
+    def _collapse(mut self, binary_bvh: BVH, bin_idx: UInt32) -> UInt32:
         var wide_idx = UInt32(len(self.nodes))
         self.nodes.append(WideBVHNode[Self.width]())
 
-        var pool = InlineArray[UInt32, Self.width](fill=0)
-        pool[0] = bin_node_idx
-        var pool_size = 1
-
-        # Pull up children based on surface area heuristic until pool is full
-        while pool_size < Self.width:
-            var largest_area = Float32(-1.0)
-            var largest_idx = -1
-
-            for i in range(pool_size):
-                ref n = binary_bvh.bvh_nodes[Int(pool[i])]
-                if not n.is_leaf():
-                    var area = n.surface_area()
-                    if area > largest_area:
-                        largest_area = area
-                        largest_idx = i
-
-            if largest_idx == -1:
+        # Pull up children to fill SIMD width
+        var pool = InlineArray[UInt32, Self.width](fill=bin_idx)
+        var p_size = 1
+        while p_size < Self.width:
+            var best_a: Float32 = -1.0
+            var best_i: Int = -1
+            for i in range(p_size):
+                if not binary_bvh.bvh_nodes[Int(pool[i])].is_leaf():
+                    var a = binary_bvh.bvh_nodes[Int(pool[i])].surface_area()
+                    if a > best_a:
+                        best_a = a
+                        best_i = i
+            if best_i == -1:
                 break
+            ref n = binary_bvh.bvh_nodes[Int(pool[best_i])]
+            pool[best_i] = n.leftFirst
+            pool[p_size] = n.leftFirst + 1
+            p_size += 1
 
-            ref n = binary_bvh.bvh_nodes[Int(pool[largest_idx])]
-            pool[largest_idx] = n.leftFirst
-            pool[pool_size] = n.leftFirst + 1
-            pool_size += 1
-
-        var wide_node = WideBVHNode[Self.width]()
-
+        var node = WideBVHNode[Self.width]()
         comptime for i in range(Self.width):
-            if i < pool_size:
+            if i < p_size:
                 ref n = binary_bvh.bvh_nodes[Int(pool[i])]
-                wide_node.min_x[i] = n.aabb._min.x()
-                wide_node.min_y[i] = n.aabb._min.y()
-                wide_node.min_z[i] = n.aabb._min.z()
-                wide_node.max_x[i] = n.aabb._max.x()
-                wide_node.max_y[i] = n.aabb._max.y()
-                wide_node.max_z[i] = n.aabb._max.z()
-
+                node.min_x[i] = n.aabb._min.x()
+                node.max_x[i] = n.aabb._max.x()
+                node.min_y[i] = n.aabb._min.y()
+                node.max_y[i] = n.aabb._max.y()
+                node.min_z[i] = n.aabb._min.z()
+                node.max_z[i] = n.aabb._max.z()
                 if n.is_leaf():
-                    wide_node.data[i] = n.leftFirst
-                    wide_node.counts[i] = n.triCount
+                    # PACK TRIANGLES INTO SIMD LEAF
+                    var l_idx = UInt32(len(self.leaves))
+                    var packed = WideLeaf[Self.width]()
+                    for tri in range(min(Int(n.triCount), Self.width)):
+                        var p_idx = Int(
+                            binary_bvh.prim_indices[Int(n.leftFirst) + tri]
+                        )
+                        ref v0 = self.vertices[p_idx * 3]
+                        ref v1 = self.vertices[p_idx * 3 + 1]
+                        ref v2 = self.vertices[p_idx * 3 + 2]
+                        packed.v0x[tri] = v0.x()
+                        packed.v0y[tri] = v0.y()
+                        packed.v0z[tri] = v0.z()
+                        packed.v1x[tri] = v1.x()
+                        packed.v1y[tri] = v1.y()
+                        packed.v1z[tri] = v1.z()
+                        packed.v2x[tri] = v2.x()
+                        packed.v2y[tri] = v2.y()
+                        packed.v2z[tri] = v2.z()
+                        packed.prim_indices[tri] = UInt32(p_idx)
+                    # Sentinel for empty lanes
+                    for tri in range(Int(n.triCount), Self.width):
+                        packed.v0x[tri] = f32_max
+                    self.leaves.append(packed^)
+                    node.data[i] = l_idx
+                    node.counts[i] = 1  # SIMD Leaf
                 else:
-                    var child_idx = self._collapse(binary_bvh, pool[i])
-                    wide_node.data[i] = child_idx
-                    wide_node.counts[i] = 0
+                    node.data[i] = self._collapse(binary_bvh, pool[i])
+                    node.counts[i] = 0
             else:
-                wide_node.counts[i] = 0xFFFFFFFF
+                node.counts[i] = 0xFFFFFFFF
 
-        self.nodes[Int(wide_idx)] = wide_node^
+        self.nodes[Int(wide_idx)] = node^
         return wide_idx
 
     @always_inline
-    def _intersect_tri[
+    def _intersect_leaf[
         is_occlusion: Bool
-    ](self, mut ray: Ray, prim_idx: UInt32) -> Bool:
-        ref v0 = self.vertices[Int(prim_idx) * 3]
-        ref v1 = self.vertices[Int(prim_idx) * 3 + 1]
-        ref v2 = self.vertices[Int(prim_idx) * 3 + 2]
-        var t = Float32(f32_max)
-        var u = Float32(0.0)
-        var v = Float32(0.0)
-        var w = Float32(0.0)
-        var sign = Float32(0.0)
+    ](self, mut ray: Ray, leaf_idx: UInt32) -> Bool:
+        ref leaf = self.leaves[Int(leaf_idx)]
+        # Möller-Trumbore SIMD math
+        var e1x = leaf.v1x - leaf.v0x
+        var e1y = leaf.v1y - leaf.v0y
+        var e1z = leaf.v1z - leaf.v0z
+        var e2x = leaf.v2x - leaf.v0x
+        var e2y = leaf.v2y - leaf.v0y
+        var e2z = leaf.v2z - leaf.v0z
+        var px = ray.D.y() * e2z - ray.D.z() * e2y
+        var py = ray.D.z() * e2x - ray.D.x() * e2z
+        var pz = ray.D.x() * e2y - ray.D.y() * e2x
+        var det = e1x * px + e1y * py + e1z * pz
+        var inv_det = 1.0 / det
+        var tx = ray.O.x() - leaf.v0x
+        var ty = ray.O.y() - leaf.v0y
+        var tz = ray.O.z() - leaf.v0z
+        var u = (tx * px + ty * py + tz * pz) * inv_det
+        var qx = ty * e1z - tz * e1y
+        var qy = tz * e1x - tx * e1z
+        var qz = tx * e1y - ty * e1x
+        var v = (ray.D.x() * qx + ray.D.y() * qy + ray.D.z() * qz) * inv_det
+        var t = (e2x * qx + e2y * qy + e2z * qz) * inv_det
 
-        var hit = intersect_ray_tri_moller(
-            ray.O,
-            ray.D,
-            v0,
-            v1,
-            v2,
-            t,
-            u,
-            v,
-            w,
-            sign,
-            UnsafePointer[Vec3f32, MutAnyOrigin](),
+        var hit_mask = (
+            (t.gt(1e-4))
+            & (t.lt(ray.hit.t))
+            & (u.ge(0.0))
+            & (v.ge(0.0))
+            & ((u + v).le(1.0))
         )
-
-        if hit and t < ray.hit.t:
+        if hit_mask.reduce_or():
             comptime if is_occlusion:
                 return True
-            ray.hit.t = t
-            ray.hit.u = u
-            ray.hit.v = v
-            ray.hit.prim = prim_idx
+            else:
+                var min_t = hit_mask.select(t, f32_max).reduce_min()
+                comptime for i in range(Self.width):
+                    if hit_mask[i] and t[i] == min_t:
+                        ray.hit.t = min_t
+                        ray.hit.u = u[i]
+                        ray.hit.v = v[i]
+                        ray.hit.prim = leaf.prim_indices[i]
+                return True
         return False
 
     @always_inline
-    def _traverse[is_occlusion: Bool](self, mut ray: Ray) -> Bool:
-        var nodes_ptr = self.nodes.unsafe_ptr()
-        var prims_ptr = self.prim_indices
+    def _traverse_generic[is_occlusion: Bool](self, mut ray: Ray) -> Bool:
         var stack = InlineArray[UInt32, 64](fill=0)
-        var stack_ptr = 0
-        var node_idx = UInt32(0)
+        var s_ptr = 0
+        var n_idx = UInt32(0)
 
         while True:
-            ref node = nodes_ptr[Int(node_idx)]
-
-            # SIMD AABB Intersection
-            var t1_x = (node.min_x - ray.O.x()) * ray.rD.x()
-            var t2_x = (node.max_x - ray.O.x()) * ray.rD.x()
-            var t1_y = (node.min_y - ray.O.y()) * ray.rD.y()
-            var t2_y = (node.max_y - ray.O.y()) * ray.rD.y()
-            var t1_z = (node.min_z - ray.O.z()) * ray.rD.z()
-            var t2_z = (node.max_z - ray.O.z()) * ray.rD.z()
-
+            ref node = self.nodes[Int(n_idx)]
+            # SIMD AABB Check
             var tmin = max(
-                max(min(t1_x, t2_x), min(t1_y, t2_y)), max(min(t1_z, t2_z), 0.0)
+                max(
+                    min(
+                        (node.min_x - ray.O.x()) * ray.rD.x(),
+                        (node.max_x - ray.O.x()) * ray.rD.x(),
+                    ),
+                    min(
+                        (node.min_y - ray.O.y()) * ray.rD.y(),
+                        (node.max_y - ray.O.y()) * ray.rD.y(),
+                    ),
+                ),
+                max(
+                    min(
+                        (node.min_z - ray.O.z()) * ray.rD.z(),
+                        (node.max_z - ray.O.z()) * ray.rD.z(),
+                    ),
+                    0.0,
+                ),
             )
             var tmax = min(
-                min(max(t1_x, t2_x), max(t1_y, t2_y)),
-                min(max(t1_z, t2_z), ray.hit.t),
+                min(
+                    max(
+                        (node.min_x - ray.O.x()) * ray.rD.x(),
+                        (node.max_x - ray.O.x()) * ray.rD.x(),
+                    ),
+                    max(
+                        (node.min_y - ray.O.y()) * ray.rD.y(),
+                        (node.max_y - ray.O.y()) * ray.rD.y(),
+                    ),
+                ),
+                min(
+                    max(
+                        (node.min_z - ray.O.z()) * ray.rD.z(),
+                        (node.max_z - ray.O.z()) * ray.rD.z(),
+                    ),
+                    ray.hit.t,
+                ),
             )
 
-            var hit_mask = tmin.le(tmax) & node.counts.ne(0xFFFFFFFF)
+            var mask = tmin.lt(tmax) & (~node.counts.eq(0xFFFFFFFF))
 
-            # Process Hits
-            comptime if is_occlusion:
-                # Occlusion is simple: check everything until we find a hit
-                comptime for i in range(Self.width):
-                    if hit_mask[i]:
-                        var data = node.data[i]
-                        var count = node.counts[i]
-                        if count == 0:
-                            stack[stack_ptr] = data
-                            stack_ptr += 1
+            if mask.reduce_or():
+                for i in range(Self.width):
+                    if mask[i]:
+                        if node.counts[i] == 0:
+                            stack[s_ptr] = node.data[i]
+                            s_ptr += 1
                         else:
-                            for j in range(Int(count)):
-                                if self._intersect_tri[True](
-                                    ray, prims_ptr[Int(data) + j]
-                                ):
+                            if self._intersect_leaf[is_occlusion](
+                                ray, node.data[i]
+                            ):
+                                comptime if is_occlusion:
                                     return True
-            else:
-                # Traversal requires sorting hits front-to-back
-                var sort_dists = hit_mask.select(tmin, -1.0)
-                var hit_count = hit_mask.reduce_bit_count()
-                for _ in range(hit_count):
-                    var max_t = sort_dists.reduce_max()
-                    var lane: Int = -1
-                    comptime for i in range(Self.width):
-                        if lane == -1 and sort_dists[i] == max_t:
-                            lane = i
 
-                    sort_dists[lane] = -1.0
-                    var data, count = node.data[lane], node.counts[lane]
-                    if count == 0:
-                        stack[stack_ptr] = data
-                        stack_ptr += 1
-                    else:
-                        for j in range(Int(count)):
-                            _ = self._intersect_tri[False](
-                                ray, prims_ptr[Int(data) + j]
-                            )
-
-            if stack_ptr == 0:
+            if s_ptr == 0:
                 break
-            stack_ptr -= 1
-            node_idx = stack[stack_ptr]
+            s_ptr -= 1
+            n_idx = stack[s_ptr]
         return False
 
     def traverse(self, mut ray: Ray):
-        _ = self._traverse[False](ray)
+        _ = self._traverse_generic[False](ray)
 
     def is_occluded(self, mut ray: Ray) -> Bool:
-        return self._traverse[True](ray)
+        return self._traverse_generic[True](ray)
 
 
 # TLAS & INSTANCING (2-LAYER BVH)

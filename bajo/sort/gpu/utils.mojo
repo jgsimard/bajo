@@ -14,10 +14,8 @@ struct DoubleBuffer[dtype: DType](Copyable):
 
 
 def circular_shift(val: UInt32, lid: UInt32) -> UInt32:
-    comptime WARP_MASK = WARP_SIZE - 1
-    return warp.shuffle_idx(
-        val, UInt32((lid + UInt32(WARP_MASK)) & UInt32(WARP_MASK))
-    )
+    comptime WARP_MASK = UInt32(WARP_SIZE - 1)
+    return warp.shuffle_idx(val, (lid + WARP_MASK) & WARP_MASK)
 
 
 @always_inline

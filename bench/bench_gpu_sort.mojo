@@ -9,6 +9,11 @@ from bajo.sort.gpu.radix_sort import (
     device_radix_sort_keys,
     RadixSortWorkspace,
 )
+from bajo.sort.gpu.onesweep import (
+    device_radix_sort_onesweep_pairs,
+    device_radix_sort_onesweep_keys,
+    OneSweepWorkspace,
+)
 
 
 def check_validity[dtype: DType](keys: DeviceBuffer[dtype], size: Int) raises:
@@ -79,6 +84,7 @@ def benchmark_sorts_key_value(sizes: List[Int]) raises:
     var basic_results = List[SortResult]()
     var opt_results = List[SortResult]()
     var radix_results = List[SortResult]()
+    var onesweep_results = List[SortResult]()
 
     print("Starting benchmarks for key-value sorting...")
 
@@ -182,9 +188,36 @@ def benchmark_sorts_key_value(sizes: List[Int]) raises:
                 SortResult(SIZE, radix_ns / 1e6, Float64(SIZE) / radix_ns)
             )
 
+            # OneSweep
+            comptime TPB = 512
+            comptime KEYS_PER_THREAD_ONESWEEP = 15
+            var onesweep_ws = OneSweepWorkspace[keys_dtype, vals_dtype](
+                ctx, SIZE
+            )
+            reset_data()
+            device_radix_sort_onesweep_pairs[
+                KEYS_PER_THREAD=KEYS_PER_THREAD_ONESWEEP
+            ](ctx, onesweep_ws, keys, values, SIZE)
+            ctx.synchronize()
+            check_validity(keys, SIZE)
+
+            t0 = perf_counter_ns()
+            for _ in range(N_ITERS):
+                reset_data()
+                device_radix_sort_onesweep_pairs[
+                    KEYS_PER_THREAD=KEYS_PER_THREAD_ONESWEEP
+                ](ctx, onesweep_ws, keys, values, SIZE)
+            ctx.synchronize()
+            var onesweep_ns = (
+                Float64(perf_counter_ns() - t0) - copy_overhead_total
+            ) / N_ITERS
+            onesweep_results.append(
+                SortResult(SIZE, onesweep_ns / 1e6, Float64(SIZE) / onesweep_ns)
+            )
     print_results_table("Basic Bitonic Sort (Pairs)", basic_results)
     print_results_table("Shared Mem Bitonic Sort (Pairs)", opt_results)
     print_results_table("Radix Sort (Pairs)", radix_results)
+    print_results_table("OneSweep Radix Sort (Pairs)", onesweep_results)
 
 
 def benchmark_sort_key(sizes: List[Int]) raises:
@@ -260,9 +293,9 @@ def main() raises:
         1 << 18,
         1 << 20,
         1 << 22,
-        1 << 24,
-        1 << 26,
-        1 << 28,
+        # 1 << 24,
+        # 1 << 26,
+        # 1 << 28,
     ]
     benchmark_sorts_key_value(sizes)
     benchmark_sort_key(sizes)

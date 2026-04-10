@@ -440,7 +440,7 @@ def device_radix_sort_onesweep_keys[
     ctx: DeviceContext,
     mut workspace: OneSweepWorkspace[
         keys_dtype,
-        keys_dtype,
+        DType.invalid,
         BLOCK_SIZE=BINNING_TPB,
         KEYS_PER_THREAD=KEYS_PER_THREAD,
     ],
@@ -510,7 +510,7 @@ def device_radix_sort_onesweep_keys[
         HAVE_PAYLOAD=False,
     ]
 
-    var dummy_v_ptr = UnsafePointer[Scalar[keys_dtype], MutAnyOrigin]()
+    var dummy_v_ptr = UnsafePointer[Scalar[DType.invalid], MutAnyOrigin]()
     var db_keys = DoubleBuffer[keys_dtype](
         keys.unsafe_ptr(), workspace.alt_keys.unsafe_ptr()
     )

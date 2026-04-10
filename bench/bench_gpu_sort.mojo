@@ -11,7 +11,7 @@ from bajo.sort.gpu.radix_sort import (
 )
 from bajo.sort.gpu.onesweep import (
     device_radix_sort_onesweep_pairs,
-    # device_radix_sort_onesweep_keys,
+    device_radix_sort_onesweep_keys,
     OneSweepWorkspace,
 )
 
@@ -189,8 +189,8 @@ def benchmark_sorts_key_value(sizes: List[Int]) raises:
             )
 
             # OneSweep
-            comptime TPB = 256
-            comptime KEYS_PER_THREAD_ONESWEEP = 9
+            comptime TPB = 512
+            comptime KEYS_PER_THREAD_ONESWEEP = 15
             var onesweep_ws = OneSweepWorkspace[
                 keys_dtype,
                 vals_dtype,
@@ -231,7 +231,8 @@ def benchmark_sort_key(sizes: List[Int]) raises:
     comptime KEYS_PER_THREAD = 9
 
     print("\nStarting benchmarks for keys only sorting...")
-    var results = List[SortResult]()
+    var radix_results = List[SortResult]()
+    var onesweep_results = List[SortResult]()
     with DeviceContext() as ctx:
         for SIZE in sizes:
             var keys = ctx.enqueue_create_buffer[dtype](SIZE)
@@ -282,9 +283,50 @@ def benchmark_sort_key(sizes: List[Int]) raises:
             var ms = pure_sort_ns_avg / 1_000_000.0
             var gks = Float64(SIZE) / pure_sort_ns_avg
 
-            results.append(SortResult(SIZE, ms, gks))
+            radix_results.append(SortResult(SIZE, ms, gks))
 
-    print_results_table("Radix Sort (Keys)", results)
+            # Onesweep Sort
+            comptime TPB = 512
+            comptime KEYS_PER_THREAD_ONESWEEP = 15
+            reset_data()
+            var onesweep_ws = OneSweepWorkspace[
+                dtype,
+                DType.invalid,
+                BLOCK_SIZE=TPB,
+                KEYS_PER_THREAD=KEYS_PER_THREAD_ONESWEEP,
+            ](ctx, SIZE)
+            # device_radix_sort_keys[KEYS_PER_THREAD=KEYS_PER_THREAD](
+            #     ctx, keys, SIZE
+            # )
+            device_radix_sort_onesweep_keys[
+                BINNING_TPB=TPB, KEYS_PER_THREAD=KEYS_PER_THREAD_ONESWEEP
+            ](ctx, onesweep_ws, keys, SIZE)
+            ctx.synchronize()
+            check_validity(keys, SIZE)
+
+            t_copy_start = perf_counter_ns()
+            for _ in range(N_ITERS):
+                reset_data()
+            ctx.synchronize()
+            copy_overhead_total = Float64(perf_counter_ns() - t_copy_start)
+
+            t0 = perf_counter_ns()
+            for _ in range(N_ITERS):
+                reset_data()
+                device_radix_sort_onesweep_keys[
+                    BINNING_TPB=TPB, KEYS_PER_THREAD=KEYS_PER_THREAD_ONESWEEP
+                ](ctx, onesweep_ws, keys, SIZE)
+            ctx.synchronize()
+            total_ns = Float64(perf_counter_ns() - t0)
+
+            pure_sort_ns_avg = (total_ns - copy_overhead_total) / N_ITERS
+            ms = pure_sort_ns_avg / 1_000_000.0
+            gks = Float64(SIZE) / pure_sort_ns_avg
+
+            onesweep_results.append(SortResult(SIZE, ms, gks))
+
+    print_results_table("Radix Sort (Keys)", radix_results)
+    print_results_table("OneSweep Radix Sort (Keys)", onesweep_results)
 
 
 def main() raises:
@@ -300,7 +342,7 @@ def main() raises:
         1 << 26,
         1 << 28,
     ]
-    benchmark_sorts_key_value(sizes)
+    # benchmark_sorts_key_value(sizes)
     benchmark_sort_key(sizes)
 
 
@@ -382,4 +424,19 @@ def main() raises:
 #      16M |     2.059 |      8.148
 #      67M |     8.834 |      7.597
 #     268M |    36.125 |      7.431
+# =========================================
+
+# == OneSweep Radix Sort (Keys) ==
+#     N    | Time (ms) | Throughput (GK/s)
+# -----------------------------------------
+#       1k |      0.04 |      0.026
+#       4k |     0.045 |      0.091
+#      16k |     0.058 |      0.283
+#      65k |     0.067 |      0.977
+#     262k |      0.07 |      3.747
+#       1M |     0.136 |       7.73
+#       4M |     0.415 |     10.096
+#      16M |      1.64 |     10.228
+#      67M |     6.565 |     10.222
+#     268M |    26.139 |      10.27
 # =========================================

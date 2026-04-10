@@ -1,15 +1,17 @@
+from std.algorithm import parallelize
 from std.math import abs, min, max, clamp
 from std.memory import UnsafePointer
-from std.algorithm import parallelize
 from std.os.atomic import Atomic
+from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.aabb import AABB
-from bajo.core.vec import Vec3f32, vmin, vmax, longest_axis, InlineArray
 from bajo.core.intersect import intersect_ray_tri_moller, intersect_ray_aabb
 from bajo.core.mat import Mat44f32, transform_point, transform_vector, inverse
+from bajo.core.vec import Vec3f32, vmin, vmax, longest_axis, InlineArray
 
-comptime f32_max = Float32(1e30)
-comptime f32_min = Float32(-1e30)
+comptime f32_max = max_finite[DType.float32]()
+comptime f32_min = min_finite[DType.float32]()
+comptime INV_3 = Float32(1.0) / Float32(3.0)
 
 
 @fieldwise_init
@@ -80,14 +82,6 @@ struct Bin(Copyable):
         self.tri_count = 0
 
 
-@fieldwise_init
-struct SplitResult(Copyable):
-    var axis: Int
-    var pos: Float32
-    var cost: Float32
-    var split_idx: Int
-
-
 struct BVH(Copyable):
     var bvh_nodes: List[BVHNode]
     var prim_indices: List[UInt32]
@@ -142,49 +136,70 @@ struct BVH(Copyable):
         node_idx: UInt32,
         atomic_nodes: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
     ) -> Optional[Tuple[UInt32, UInt32]]:
-        var nodes_ptr = self.bvh_nodes.unsafe_ptr().unsafe_origin_cast[
-            MutAnyOrigin
-        ]()
+        comptime MAX_LEAF_SIZE = 4  # Set to 4, 8, or 16 depending on your target WideBVH
+
+        var nodes_ptr = self.bvh_nodes.unsafe_ptr()
         ref node = nodes_ptr[Int(node_idx)]
 
-        var res = self._find_split[split_method](node)
+        var axis: Int
+        var pos: Float32
+        comptime if split_method == "median":
+            var extent = node.aabb._max - node.aabb._min
+            axis = longest_axis(extent)
+            pos = node.aabb._min[axis] + extent[axis] * 0.5
+        elif split_method == "sah":
+            axis, pos, cost = _sah(
+                node,
+                self.prim_indices.unsafe_ptr(),
+                self.vertices,
+            )
+            if cost >= node.surface_area() * Float32(node.triCount):
+                if node.triCount > MAX_LEAF_SIZE:
+                    # Force a spatial median split to keep breaking the node down
+                    var extent = node.aabb._max - node.aabb._min
+                    axis = longest_axis(extent)
+                    pos = node.aabb._min[axis] + extent[axis] * 0.5
+                else:
+                    return None  # Safely make a leaf
+
+        else:
+            comptime assert False, "Unknown split method"
 
         # Termination Criteria
-        comptime if split_method == "sah":
-            if (
-                res.cost >= node.surface_area() * Float32(node.triCount)
-                or node.triCount <= 2
-            ):
-                return None
-        else:
-            if node.triCount <= 2:
-                return None
 
-        res.split_idx = _partition_tris(
+        # 2. Stop splitting if we are small enough
+        if node.triCount <= MAX_LEAF_SIZE:
+            return None
+
+        var split_idx = _partition_tris(
             self.prim_indices.unsafe_ptr(),
             self.vertices,
             Int(node.leftFirst),
             Int(node.triCount),
-            res.axis,
-            res.pos,
+            axis,
+            pos,
         )
 
-        var left_count = UInt32(res.split_idx - Int(node.leftFirst))
+        var left_count = UInt32(split_idx - Int(node.leftFirst))
         if left_count == 0 or left_count == node.triCount:
             comptime if split_method == "median":
                 # Fallback: If spatial center failed, just split the indices 50/50
                 left_count = node.triCount // 2
-                res.split_idx = Int(node.leftFirst) + Int(left_count)
+                split_idx = Int(node.leftFirst) + Int(left_count)
             else:
-                # SAH genuinely couldn't find a better split than a leaf
-                return None
+                if node.triCount > MAX_LEAF_SIZE:
+                    left_count = node.triCount // 2
+                    split_idx = Int(node.leftFirst) + Int(left_count)
+                else:
+                    # Only now is it safe to give up and make a leaf
+                    return None
 
         # Atomic allocation (Safe for both ST and MT)
         var left_child_idx = Atomic.fetch_add(atomic_nodes, 2)
 
         nodes_ptr[Int(left_child_idx)].leftFirst = node.leftFirst
         nodes_ptr[Int(left_child_idx)].triCount = left_count
-        nodes_ptr[Int(left_child_idx + 1)].leftFirst = UInt32(res.split_idx)
+        nodes_ptr[Int(left_child_idx + 1)].leftFirst = UInt32(split_idx)
         nodes_ptr[Int(left_child_idx + 1)].triCount = node.triCount - left_count
 
         node.leftFirst = left_child_idx
@@ -264,23 +279,6 @@ struct BVH(Copyable):
 
         self.nodes_used = atomic_nodes[0]
         atomic_nodes.free()
-
-    @always_inline
-    def _find_split[split_method: String](self, node: BVHNode) -> SplitResult:
-        comptime if split_method == "median":
-            var extent = node.aabb._max - node.aabb._min
-            var axis = longest_axis(extent)
-            var pos = node.aabb._min[axis] + extent[axis] * 0.5
-            return SplitResult(axis, pos, f32_max, 0)
-        elif split_method == "sah":
-            var best_axis, best_pos, best_cost = _analyze_sah(
-                node,
-                self.prim_indices.unsafe_ptr(),
-                self.vertices,
-            )
-            return SplitResult(best_axis, best_pos, best_cost, 0)
-        else:
-            comptime assert False, "Unknown split method"
 
     def sah_cost(self, node_idx: UInt32 = 0) -> Float32:
         """Recursively calculates the unnormalized SAH cost of the subtree."""
@@ -435,7 +433,7 @@ def _partition_tris(
     first: Int,
     count: Int,
     axis: Int,
-    split_pos: Float32,
+    pos: Float32,
 ) -> Int:
     var i = first
     var j = i + count - 1
@@ -446,8 +444,8 @@ def _partition_tris(
             verts[p_idx * 3].data[axis]
             + verts[p_idx * 3 + 1].data[axis]
             + verts[p_idx * 3 + 2].data[axis]
-        ) * 0.3333333
-        if c < split_pos:
+        ) * INV_3
+        if c < pos:
             i += 1
         else:
             prims[i], prims[j] = prims[j], prims[i]
@@ -456,15 +454,16 @@ def _partition_tris(
 
 
 @always_inline
-def _analyze_sah(
+def _sah(
     node: BVHNode,
     prims: UnsafePointer[UInt32, ImmutAnyOrigin],
     verts: UnsafePointer[Vec3f32, ImmutAnyOrigin],
 ) -> Tuple[Int, Float32, Float32]:
+    comptime NB_BINS = 16
+
     var best_axis: Int = -1
     var best_pos: Float32 = 0
     var best_cost: Float32 = f32_max
-    comptime NB_BINS = 16
 
     for axis in range(3):
         var min_c = f32_max
@@ -473,11 +472,11 @@ def _analyze_sah(
         # 1. Find centroid range
         for i in range(Int(node.triCount)):
             var p_idx = Int(prims[Int(node.leftFirst) + i])
-            var c = (
-                verts[p_idx * 3].data[axis]
-                + verts[p_idx * 3 + 1].data[axis]
-                + verts[p_idx * 3 + 2].data[axis]
-            ) * 0.3333333
+            ref v0 = verts[p_idx * 3 + 0]
+            ref v1 = verts[p_idx * 3 + 1]
+            ref v2 = verts[p_idx * 3 + 2]
+
+            var c = (v0[axis] + v1[axis] + v2[axis]) * INV_3
             min_c = min(min_c, c)
             max_c = max(max_c, c)
 
@@ -489,16 +488,15 @@ def _analyze_sah(
         var scale = Float32(NB_BINS) / (max_c - min_c)
         for i in range(Int(node.triCount)):
             var p_idx = Int(prims[Int(node.leftFirst) + i])
-            var c = (
-                verts[p_idx * 3].data[axis]
-                + verts[p_idx * 3 + 1].data[axis]
-                + verts[p_idx * 3 + 2].data[axis]
-            ) * 0.3333333
+
+            ref v0 = verts[p_idx * 3 + 0]
+            ref v1 = verts[p_idx * 3 + 1]
+            ref v2 = verts[p_idx * 3 + 2]
+
+            var c = (v0[axis] + v1[axis] + v2[axis]) * INV_3
             var b_idx = min(NB_BINS - 1, Int((c - min_c) * scale))
             bins[b_idx].tri_count += 1
-            for v_off in range(3):
-                ref v = verts[p_idx * 3 + v_off]
-                bins[b_idx].bounds.grow(v)
+            bins[b_idx].bounds.grow(v0, v1, v2)
 
         # 3. Sweep SAH Costs
         var left_areas = InlineArray[Float32, NB_BINS](fill=0.0)
@@ -518,15 +516,16 @@ def _analyze_sah(
             right_sum += bins[i].tri_count
             right_box.grow(bins[i].bounds)
 
-            var cost = left_areas[i - 1] * Float32(
-                left_counts[i - 1]
-            ) + right_box.surface_area() * Float32(right_sum)
+            var left_cost = left_areas[i - 1] * Float32(left_counts[i - 1])
+            var right_cost = right_box.surface_area() * Float32(right_sum)
+            var cost = left_cost + right_cost
+
             if cost < best_cost:
                 best_cost = cost
                 best_axis = axis
                 best_pos = min_c + (Float32(i) / scale)
 
-    return best_axis, best_pos, best_cost
+    return (best_axis, best_pos, best_cost)
 
 
 @fieldwise_init
@@ -1082,7 +1081,7 @@ def main() raises:
     # 2. Build the BLAS (The "Blueprint")
     # We cast to MutAnyOrigin because the BVH expects to be able to sort the indices
     var chair_blas = BVH(
-        chair_vertices.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin](),
+        chair_vertices.unsafe_ptr(),
         tri_count,
     )
     chair_blas.build["sah", True]()
@@ -1090,7 +1089,7 @@ def main() raises:
     # Pointer for TLAS traversal
     var blases = List[BVH]()
     blases.append(chair_blas.copy())
-    var blases_ptr = blases.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin]()
+    var blases_ptr = blases.unsafe_ptr()
 
     # 3. Create Scene Instances (The "Map")
     var instances = List[Instance]()
@@ -1112,7 +1111,7 @@ def main() raises:
 
     # 4. Build the TLAS
     var tlas = TLAS(
-        instances.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin](),
+        instances.unsafe_ptr(),
         UInt32(len(instances)),
     )
     tlas.build()

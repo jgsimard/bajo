@@ -14,29 +14,15 @@ from std.gpu.primitives import warp, block
 from std.gpu.sync import barrier
 from std.math import ceildiv
 from std.memory import stack_allocation
-from std.os.atomic import Atomic
+from std.os.atomic import Atomic, Consistency
 from std.sys.info import bit_width_of
+
+from .utils import DoubleBuffer, circular_shift, warp_level_multi_split
 
 # based on DeviceRadixSort from https://github.com/b0nes164/GPUSorting
 
 
 comptime LANE_LOG = count_trailing_zeros(WARP_SIZE)  # 2^5 = 32 => 5
-
-
-@fieldwise_init
-struct DoubleBuffer[dtype: DType](Copyable):
-    var current: UnsafePointer[Scalar[Self.dtype], MutAnyOrigin]
-    var alternate: UnsafePointer[Scalar[Self.dtype], MutAnyOrigin]
-
-    def swap(mut self):
-        swap(self.current, self.alternate)
-
-
-def circular_shift(val: UInt32, lid: UInt32) -> UInt32:
-    comptime WARP_MASK = WARP_SIZE - 1
-    return warp.shuffle_idx(
-        val, UInt32((lid + UInt32(WARP_MASK)) & UInt32(WARP_MASK))
-    )
 
 
 def upsweep[
@@ -57,6 +43,7 @@ def upsweep[
     comptime NUM_WARPS = BLOCK_SIZE // WARP_SIZE
     comptime PADDED_RADIX = RADIX + 1
     comptime RADIX_MASK = Scalar[keys_dtype](RADIX - 1)
+    comptime ordering = Consistency.MONOTONIC
 
     var tid = thread_idx.x
     var bid = block_idx.x
@@ -77,21 +64,24 @@ def upsweep[
     # Histogram Binning
     var s_warp_hist = s_global_hist + (wid * PADDED_RADIX)
 
+    @always_inline
+    def _f[width: Int](i: Int) capturing:
+        var t = sort.load[width=width](i)
+        t = (t >> radix_shift) & RADIX_MASK
+        comptime for j in range(width):
+            _ = Atomic.fetch_add[ordering=ordering](s_warp_hist + t[j], 1)
+
+    var block_start = bid * PART_SIZE
     if bid < gdim - 1:
         for i in range(
-            tid + (bid * VEC_PART_SIZE), (bid + 1) * VEC_PART_SIZE, BLOCK_SIZE
+            block_start + (tid * VEC_WIDTH),
+            block_start + PART_SIZE,
+            BLOCK_SIZE * VEC_WIDTH,
         ):
-            var t = sort.load[width=VEC_WIDTH](i * VEC_WIDTH)
-            t = (t >> radix_shift) & RADIX_MASK
-            comptime for j in range(VEC_WIDTH):
-                _ = Atomic.fetch_add(s_warp_hist + t[j], 1)
-
-    # tail
+            _f[VEC_WIDTH](i)
     else:
-        for i in range(tid + (bid * PART_SIZE), size, BLOCK_SIZE):
-            var t = sort[i]
-            t = (t >> radix_shift) & RADIX_MASK
-            _ = Atomic.fetch_add(s_warp_hist + t, 1)
+        for i in range(block_start + tid, size, BLOCK_SIZE):
+            _f[1](i)
 
     barrier()
 
@@ -128,7 +118,9 @@ def upsweep[
 
         var val_to_add = s_global_hist[i] + prev_sum
         var global_idx = i + Int(radix_shift << Scalar[keys_dtype](LANE_LOG))
-        _ = Atomic.fetch_add(global_hist + global_idx, val_to_add)
+        _ = Atomic.fetch_add[ordering=ordering](
+            global_hist + global_idx, val_to_add
+        )
 
 
 def scan[
@@ -173,53 +165,6 @@ def scan[
 
     if has_data:
         pass_hist[i + digit_offset] = exclusive_tail + reduction
-
-
-@always_inline
-def warp_level_multi_split[
-    keys_dtype: DType, BITS_PER_PASS: Int, KEYS_PER_THREAD: Int
-](
-    keys: InlineArray[Scalar[keys_dtype], KEYS_PER_THREAD],
-    lid: Int,
-    radix_shift: Scalar[keys_dtype],
-    s_warp_hist_ptr: UnsafePointer[
-        UInt32, MutExternalOrigin, address_space=AddressSpace.SHARED
-    ],
-) -> InlineArray[UInt32, KEYS_PER_THREAD]:
-    comptime RADIX = 2**BITS_PER_PASS
-    comptime RADIX_MASK = Scalar[keys_dtype](RADIX - 1)
-
-    comptime mask_dtype = DType.uint64 if WARP_SIZE > 32 else DType.uint32
-    comptime MaskInt = SIMD[mask_dtype, 1]
-
-    var offsets = InlineArray[UInt32, KEYS_PER_THREAD](uninitialized=True)
-    var lane_mask_lt = (MaskInt(1) << MaskInt(lid)) - 1
-
-    comptime for i in range(KEYS_PER_THREAD):
-        var warp_flags: MaskInt = ~MaskInt(0)
-        var key = keys[i]
-
-        comptime for k in range(BITS_PER_PASS):
-            var t2 = ((key >> (radix_shift + Scalar[keys_dtype](k))) & 1) == 1
-            var ballot = warp.vote[mask_dtype](t2)
-            var match_mask = ballot if t2 else ~ballot
-            warp_flags &= match_mask
-
-        var bits = UInt32(pop_count(warp_flags & lane_mask_lt))
-        var pre_increment_val: UInt32 = 0
-
-        if bits == 0:
-            var digit = Int((key >> radix_shift) & RADIX_MASK)
-            var count = UInt32(pop_count(warp_flags))
-            pre_increment_val = Atomic.fetch_add(s_warp_hist_ptr + digit, count)
-
-        var leader_lane = count_trailing_zeros(warp_flags)
-        pre_increment_val = warp.shuffle_idx(
-            pre_increment_val, UInt32(leader_lane)
-        )
-
-        offsets[i] = pre_increment_val + UInt32(bits)
-    return offsets^
 
 
 def downsweep[

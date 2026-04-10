@@ -1,7 +1,7 @@
-from math import sqrt, min, max
-from testing import assert_almost_equal
-from sys import CompilationTarget
 from std.bit import next_power_of_two
+from std.math import sqrt, min, max
+from std.sys import CompilationTarget
+from std.testing import assert_almost_equal
 
 comptime Vec2 = Vec[_, 2]
 comptime Vec3 = Vec[_, 3]

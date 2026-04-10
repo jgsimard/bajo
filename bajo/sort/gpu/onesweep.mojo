@@ -14,7 +14,7 @@ from std.gpu.sync import barrier
 from std.gpu.intrinsics import load_volatile
 from std.math import ceildiv
 from std.memory import stack_allocation, bitcast
-from std.os.atomic import Atomic
+from std.os.atomic import Atomic, Consistency
 from std.sys.info import bit_width_of
 
 from .utils import DoubleBuffer, circular_shift, warp_level_multi_split
@@ -29,6 +29,8 @@ comptime FLAG_NOT_READY = 0
 comptime FLAG_REDUCTION = 1
 comptime FLAG_INCLUSIVE = 2
 comptime FLAG_MASK = 3
+
+comptime ordering = Consistency.MONOTONIC
 
 
 def global_histogram[
@@ -84,47 +86,49 @@ def global_histogram[
             var t_u32 = sort.load[width=4](i * 4)
             var t = bitcast[DType.uint8, 16](t_u32)
 
-            _ = Atomic.fetch_add(s_w_0 + Int(t[0]), 1)
-            _ = Atomic.fetch_add(s_w_1 + Int(t[1]), 1)
-            _ = Atomic.fetch_add(s_w_2 + Int(t[2]), 1)
-            _ = Atomic.fetch_add(s_w_3 + Int(t[3]), 1)
+            _ = Atomic.fetch_add[ordering=ordering](s_w_0 + Int(t[0]), 1)
+            _ = Atomic.fetch_add[ordering=ordering](s_w_1 + Int(t[1]), 1)
+            _ = Atomic.fetch_add[ordering=ordering](s_w_2 + Int(t[2]), 1)
+            _ = Atomic.fetch_add[ordering=ordering](s_w_3 + Int(t[3]), 1)
 
-            _ = Atomic.fetch_add(s_w_0 + Int(t[4]), 1)
-            _ = Atomic.fetch_add(s_w_1 + Int(t[5]), 1)
-            _ = Atomic.fetch_add(s_w_2 + Int(t[6]), 1)
-            _ = Atomic.fetch_add(s_w_3 + Int(t[7]), 1)
+            _ = Atomic.fetch_add[ordering=ordering](s_w_0 + Int(t[4]), 1)
+            _ = Atomic.fetch_add[ordering=ordering](s_w_1 + Int(t[5]), 1)
+            _ = Atomic.fetch_add[ordering=ordering](s_w_2 + Int(t[6]), 1)
+            _ = Atomic.fetch_add[ordering=ordering](s_w_3 + Int(t[7]), 1)
 
-            _ = Atomic.fetch_add(s_w_0 + Int(t[8]), 1)
-            _ = Atomic.fetch_add(s_w_1 + Int(t[9]), 1)
-            _ = Atomic.fetch_add(s_w_2 + Int(t[10]), 1)
-            _ = Atomic.fetch_add(s_w_3 + Int(t[11]), 1)
+            _ = Atomic.fetch_add[ordering=ordering](s_w_0 + Int(t[8]), 1)
+            _ = Atomic.fetch_add[ordering=ordering](s_w_1 + Int(t[9]), 1)
+            _ = Atomic.fetch_add[ordering=ordering](s_w_2 + Int(t[10]), 1)
+            _ = Atomic.fetch_add[ordering=ordering](s_w_3 + Int(t[11]), 1)
 
-            _ = Atomic.fetch_add(s_w_0 + Int(t[12]), 1)
-            _ = Atomic.fetch_add(s_w_1 + Int(t[13]), 1)
-            _ = Atomic.fetch_add(s_w_2 + Int(t[14]), 1)
-            _ = Atomic.fetch_add(s_w_3 + Int(t[15]), 1)
+            _ = Atomic.fetch_add[ordering=ordering](s_w_0 + Int(t[12]), 1)
+            _ = Atomic.fetch_add[ordering=ordering](s_w_1 + Int(t[13]), 1)
+            _ = Atomic.fetch_add[ordering=ordering](s_w_2 + Int(t[14]), 1)
+            _ = Atomic.fetch_add[ordering=ordering](s_w_3 + Int(t[15]), 1)
     else:
         var part_start = bid * G_HIST_PART_SIZE
         for i in range(tid + part_start, size, BLOCK_SIZE):
             var t = sort[i]
             var t_bytes = bitcast[DType.uint8, 4](t)
-            _ = Atomic.fetch_add(s_w_0 + Int(t_bytes[0]), 1)
-            _ = Atomic.fetch_add(s_w_1 + Int(t_bytes[1]), 1)
-            _ = Atomic.fetch_add(s_w_2 + Int(t_bytes[2]), 1)
-            _ = Atomic.fetch_add(s_w_3 + Int(t_bytes[3]), 1)
+            _ = Atomic.fetch_add[ordering=ordering](s_w_0 + Int(t_bytes[0]), 1)
+            _ = Atomic.fetch_add[ordering=ordering](s_w_1 + Int(t_bytes[1]), 1)
+            _ = Atomic.fetch_add[ordering=ordering](s_w_2 + Int(t_bytes[2]), 1)
+            _ = Atomic.fetch_add[ordering=ordering](s_w_3 + Int(t_bytes[3]), 1)
 
     barrier()
 
     # Reduce
     for i in range(tid, RADIX, BLOCK_SIZE):
-        _ = Atomic.fetch_add(global_hist + i, s_hist_0[i] + s_hist_0[i + RADIX])
-        _ = Atomic.fetch_add(
+        _ = Atomic.fetch_add[ordering=ordering](
+            global_hist + i, s_hist_0[i] + s_hist_0[i + RADIX]
+        )
+        _ = Atomic.fetch_add[ordering=ordering](
             global_hist + i + RADIX, s_hist_1[i] + s_hist_1[i + RADIX]
         )
-        _ = Atomic.fetch_add(
+        _ = Atomic.fetch_add[ordering=ordering](
             global_hist + i + (RADIX * 2), s_hist_2[i] + s_hist_2[i + RADIX]
         )
-        _ = Atomic.fetch_add(
+        _ = Atomic.fetch_add[ordering=ordering](
             global_hist + i + (RADIX * 3), s_hist_3[i] + s_hist_3[i + RADIX]
         )
 
@@ -202,7 +206,7 @@ def digit_binning[
     comptime WARP_PART_SIZE = WARP_SIZE * KEYS_PER_THREAD
     comptime PART_SIZE = NUM_WARPS * WARP_PART_SIZE
     comptime TOTAL_WARP_HISTS_SIZE = NUM_WARPS * RADIX
-    comptime BIN_PART_SIZE = 7680
+    comptime BIN_PART_SIZE = BLOCK_SIZE * KEYS_PER_THREAD
 
     var s_warp_histograms = stack_allocation[
         BIN_PART_SIZE, UInt32, address_space=AddressSpace.SHARED
@@ -224,9 +228,9 @@ def digit_binning[
     # atomically assign partition tiles
     if tid == 0:
         var idx_offset = Int(radix_shift >> 3)
-        s_warp_histograms[BIN_PART_SIZE - 1] = Atomic.fetch_add(
-            index + idx_offset, 1
-        )
+        s_warp_histograms[BIN_PART_SIZE - 1] = Atomic.fetch_add[
+            ordering=ordering
+        ](index + idx_offset, 1)
     barrier()
 
     var partition_index = Int(s_warp_histograms[BIN_PART_SIZE - 1])
@@ -260,7 +264,7 @@ def digit_binning[
             reduction += s_warp_histograms[i]
             s_warp_histograms[i] = reduction - s_warp_histograms[i]
 
-        _ = Atomic.fetch_add(
+        _ = Atomic.fetch_add[ordering=ordering](
             pass_hist + (tid + (partition_index + 1) * RADIX),
             FLAG_REDUCTION | (reduction << 2),
         )
@@ -307,7 +311,7 @@ def digit_binning[
             var flag_mask = flag_payload & FLAG_MASK
             if flag_mask == FLAG_INCLUSIVE:
                 reduction += flag_payload >> 2
-                _ = Atomic.fetch_add(
+                _ = Atomic.fetch_add[ordering=ordering](
                     pass_hist + (tid + (partition_index + 1) * RADIX),
                     FLAG_REDUCTION | (reduction << 2),
                 )
@@ -371,9 +375,7 @@ def digit_binning[
                 t_payload += WARP_SIZE
 
             comptime for i in range(KEYS_PER_THREAD):
-                s_warp_histograms[Int(offsets[i])] = UInt32(
-                    vals[i]
-                )  # Corrected from keys[i]
+                s_warp_histograms[Int(offsets[i])] = UInt32(vals[i])
             barrier()
 
             comptime for i in range(KEYS_PER_THREAD):
@@ -433,17 +435,23 @@ struct OneSweepWorkspace[
 
 
 def device_radix_sort_onesweep_keys[
-    keys_dtype: DType, KEYS_PER_THREAD: Int
+    keys_dtype: DType, *, KEYS_PER_THREAD: Int, BINNING_TPB: Int
 ](
     ctx: DeviceContext,
-    mut workspace: OneSweepWorkspace[keys_dtype, keys_dtype],
+    mut workspace: OneSweepWorkspace[
+        keys_dtype,
+        keys_dtype,
+        BLOCK_SIZE=BINNING_TPB,
+        KEYS_PER_THREAD=KEYS_PER_THREAD,
+    ],
     mut keys: DeviceBuffer[keys_dtype],
     size: Int,
 ) raises:
     comptime RADIX = 256
-    comptime BIN_PART_SIZE = 7680
-    comptime G_HIST_PART_SIZE = 65536
+    comptime BIN_PART_SIZE = BINNING_TPB * KEYS_PER_THREAD
     comptime G_HIST_TPB = 128
+    comptime G_HIST_ITEMS_PER_THREAD = 128
+    comptime G_HIST_PART_SIZE = G_HIST_TPB * G_HIST_ITEMS_PER_THREAD
     comptime VEC_WIDTH = 4
 
     var binning_blocks = ceildiv(size, BIN_PART_SIZE)
@@ -466,7 +474,11 @@ def device_radix_sort_onesweep_keys[
 
     # 1. Global Histogram
     comptime _ghist = global_histogram[
-        keys_dtype, BLOCK_SIZE=G_HIST_TPB, RADIX=RADIX, VEC_WIDTH=VEC_WIDTH
+        keys_dtype,
+        BLOCK_SIZE=G_HIST_TPB,
+        RADIX=RADIX,
+        VEC_WIDTH=VEC_WIDTH,
+        ITEMS_PER_THREAD=G_HIST_ITEMS_PER_THREAD,
     ]
     ctx.enqueue_function[_ghist, _ghist](
         keys.unsafe_ptr(),
@@ -544,7 +556,7 @@ def device_radix_sort_onesweep_pairs[
     comptime RADIX = 2**BITS_PER_PASS
     comptime BIN_PART_SIZE = BINNING_TPB * KEYS_PER_THREAD
     comptime G_HIST_TPB = 128
-    comptime G_HIST_ITEMS_PER_THREAD = 32
+    comptime G_HIST_ITEMS_PER_THREAD = 128
     comptime G_HIST_PART_SIZE = G_HIST_TPB * G_HIST_ITEMS_PER_THREAD
     comptime VEC_WIDTH = 4
 

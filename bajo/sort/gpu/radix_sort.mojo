@@ -14,7 +14,7 @@ from std.gpu.primitives import warp, block
 from std.gpu.sync import barrier
 from std.math import ceildiv
 from std.memory import stack_allocation
-from std.os.atomic import Atomic
+from std.os.atomic import Atomic, Consistency
 from std.sys.info import bit_width_of
 
 from .utils import DoubleBuffer, circular_shift, warp_level_multi_split
@@ -43,6 +43,7 @@ def upsweep[
     comptime NUM_WARPS = BLOCK_SIZE // WARP_SIZE
     comptime PADDED_RADIX = RADIX + 1
     comptime RADIX_MASK = Scalar[keys_dtype](RADIX - 1)
+    comptime ordering = Consistency.MONOTONIC
 
     var tid = thread_idx.x
     var bid = block_idx.x
@@ -68,7 +69,7 @@ def upsweep[
         var t = sort.load[width=width](i)
         t = (t >> radix_shift) & RADIX_MASK
         comptime for j in range(width):
-            _ = Atomic.fetch_add(s_warp_hist + t[j], 1)
+            _ = Atomic.fetch_add[ordering=ordering](s_warp_hist + t[j], 1)
 
     var block_start = bid * PART_SIZE
     if bid < gdim - 1:
@@ -117,7 +118,9 @@ def upsweep[
 
         var val_to_add = s_global_hist[i] + prev_sum
         var global_idx = i + Int(radix_shift << Scalar[keys_dtype](LANE_LOG))
-        _ = Atomic.fetch_add(global_hist + global_idx, val_to_add)
+        _ = Atomic.fetch_add[ordering=ordering](
+            global_hist + global_idx, val_to_add
+        )
 
 
 def scan[

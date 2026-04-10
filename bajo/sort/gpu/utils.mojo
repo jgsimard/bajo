@@ -1,5 +1,5 @@
 from std.bit import pop_count, count_trailing_zeros
-from std.gpu import WARP_SIZE
+from std.gpu import WARP_SIZE, lane_id
 from std.gpu.primitives import warp, block
 from std.os.atomic import Atomic, Consistency
 
@@ -13,8 +13,9 @@ struct DoubleBuffer[dtype: DType](Copyable):
         swap(self.current, self.alternate)
 
 
-def circular_shift(val: UInt32, lid: UInt32) -> UInt32:
+def circular_shift(val: UInt32) -> UInt32:
     comptime WARP_MASK = UInt32(WARP_SIZE - 1)
+    var lid = UInt32(lane_id())
     return warp.shuffle_idx(val, (lid + WARP_MASK) & WARP_MASK)
 
 

@@ -151,7 +151,7 @@ def scan_global(
 
     var val = global_hist[tid + (bid * RADIX)]
     var sum = warp.prefix_sum[exclusive=False](val)
-    var shifted = circular_shift(sum, UInt32(lid))
+    var shifted = circular_shift(sum)
     s_scan[tid] = shifted
     barrier()
 
@@ -270,7 +270,7 @@ def digit_binning[
         )
 
         var sum = warp.prefix_sum[exclusive=False](reduction)
-        var shifted = circular_shift(sum, UInt32(lid))
+        var shifted = circular_shift(sum)
         s_local_histogram[tid] = shifted
     barrier()
 

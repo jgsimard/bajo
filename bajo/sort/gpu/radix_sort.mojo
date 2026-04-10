@@ -95,7 +95,7 @@ def upsweep[
         pass_hist[i * gdim + bid] = total_val
 
         var scan_val = warp.prefix_sum[exclusive=False](total_val)
-        var shifted = circular_shift(scan_val, UInt32(lid))
+        var shifted = circular_shift(scan_val)
         s_global_hist[i] = shifted
 
     barrier()
@@ -243,7 +243,7 @@ def downsweep[
             s_warp_histograms[i] = reduction - s_warp_histograms[i]
 
         var sum = warp.prefix_sum[exclusive=False](reduction)
-        var shifted = circular_shift(sum, UInt32(lid))
+        var shifted = circular_shift(sum)
         s_warp_histograms[tid] = shifted
     barrier()
 

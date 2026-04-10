@@ -14,7 +14,7 @@ comptime system_fn[dtype: DType, layout: Layout] = def(
     dy: LayoutTensor[dtype, layout, MutAnyOrigin],
     y: LayoutTensor[dtype, layout, ImmutAnyOrigin],
     t: Scalar[dtype],
-) -> None
+) thin -> None
 
 
 struct Euler[

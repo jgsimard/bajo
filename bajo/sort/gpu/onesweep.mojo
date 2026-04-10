@@ -15,8 +15,8 @@ from std.gpu.intrinsics import load_volatile
 from std.math import ceildiv
 from std.memory import stack_allocation, bitcast
 from std.os.atomic import Atomic
+from std.sys.info import bit_width_of
 
-# Import utilities
 from .utils import DoubleBuffer, circular_shift, warp_level_multi_split
 
 # Based on OneSweep from https://github.com/b0nes164/GPUSorting
@@ -32,14 +32,19 @@ comptime FLAG_MASK = 3
 
 
 def global_histogram[
-    keys_dtype: DType, BLOCK_SIZE: Int, RADIX: Int, VEC_WIDTH: Int = 4
+    keys_dtype: DType,
+    *,
+    BLOCK_SIZE: Int,
+    RADIX: Int,
+    VEC_WIDTH: Int,
+    ITEMS_PER_THREAD: Int,
 ](
     sort: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
     global_hist: UnsafePointer[UInt32, MutAnyOrigin],
     size: Int,
 ):
-    comptime G_HIST_PART_SIZE = 65536
-    comptime G_HIST_VEC_SIZE = G_HIST_PART_SIZE / VEC_WIDTH  # 65536 elements / 4 (width)
+    comptime G_HIST_PART_SIZE = BLOCK_SIZE * ITEMS_PER_THREAD
+    comptime G_HIST_VEC_SIZE = G_HIST_PART_SIZE / VEC_WIDTH
     comptime PADDED_RADIX = RADIX * 2
 
     var tid = thread_idx.x
@@ -176,6 +181,7 @@ def scan_global(
 def digit_binning[
     keys_dtype: DType,
     vals_dtype: DType,
+    *,
     BITS_PER_PASS: Int,
     BLOCK_SIZE: Int,
     KEYS_PER_THREAD: Int,
@@ -392,6 +398,9 @@ def digit_binning[
 struct OneSweepWorkspace[
     keys_dtype: DType,
     vals_dtype: DType,
+    *,
+    BLOCK_SIZE: Int,
+    KEYS_PER_THREAD: Int,
 ]:
     var alt_keys: DeviceBuffer[Self.keys_dtype]
     var alt_vals: DeviceBuffer[Self.vals_dtype]
@@ -404,7 +413,8 @@ struct OneSweepWorkspace[
 
     def __init__(out self, ctx: DeviceContext, size: Int) raises:
         comptime RADIX = 256
-        comptime BIN_PART_SIZE = 7680
+        comptime BIN_PART_SIZE = Self.BLOCK_SIZE * Self.KEYS_PER_THREAD
+
         var binning_blocks = ceildiv(size, BIN_PART_SIZE)
 
         var hist_blocks = binning_blocks + 1
@@ -433,6 +443,8 @@ def device_radix_sort_onesweep_keys[
     comptime RADIX = 256
     comptime BIN_PART_SIZE = 7680
     comptime G_HIST_PART_SIZE = 65536
+    comptime G_HIST_TPB = 128
+    comptime VEC_WIDTH = 4
 
     var binning_blocks = ceildiv(size, BIN_PART_SIZE)
     var g_hist_blocks = ceildiv(size, G_HIST_PART_SIZE)
@@ -453,13 +465,15 @@ def device_radix_sort_onesweep_keys[
     ]
 
     # 1. Global Histogram
-    comptime _ghist = global_histogram[keys_dtype, 128, RADIX]
+    comptime _ghist = global_histogram[
+        keys_dtype, BLOCK_SIZE=G_HIST_TPB, RADIX=RADIX, VEC_WIDTH=VEC_WIDTH
+    ]
     ctx.enqueue_function[_ghist, _ghist](
         keys.unsafe_ptr(),
         workspace.global_hist.unsafe_ptr(),
         size,
         grid_dim=g_hist_blocks,
-        block_dim=128,
+        block_dim=G_HIST_TPB,
     )
 
     # 2. Block Scan
@@ -476,7 +490,12 @@ def device_radix_sort_onesweep_keys[
 
     # 3. Digit Binning Passes (Decoupled Look-back)
     comptime _bin = digit_binning[
-        keys_dtype, keys_dtype, 8, 512, KEYS_PER_THREAD, False
+        keys_dtype,
+        DType.invalid,
+        BITS_PER_PASS=8,
+        BLOCK_SIZE=512,
+        KEYS_PER_THREAD=KEYS_PER_THREAD,
+        HAVE_PAYLOAD=False,
     ]
 
     var dummy_v_ptr = UnsafePointer[Scalar[keys_dtype], MutAnyOrigin]()
@@ -503,17 +522,31 @@ def device_radix_sort_onesweep_keys[
 
 
 def device_radix_sort_onesweep_pairs[
-    keys_dtype: DType, vals_dtype: DType, KEYS_PER_THREAD: Int
+    keys_dtype: DType,
+    vals_dtype: DType,
+    *,
+    KEYS_PER_THREAD: Int,
+    BINNING_TPB: Int,
 ](
     ctx: DeviceContext,
-    mut workspace: OneSweepWorkspace[keys_dtype, vals_dtype],
+    mut workspace: OneSweepWorkspace[
+        keys_dtype,
+        vals_dtype,
+        BLOCK_SIZE=BINNING_TPB,
+        KEYS_PER_THREAD=KEYS_PER_THREAD,
+    ],
     mut keys: DeviceBuffer[keys_dtype],
     mut values: DeviceBuffer[vals_dtype],
     size: Int,
 ) raises:
-    comptime RADIX = 256
-    comptime BIN_PART_SIZE = 7680
-    comptime G_HIST_PART_SIZE = 65536
+    comptime BITS_PER_PASS = 8
+    comptime NUM_PASSES = bit_width_of[keys_dtype]() / BITS_PER_PASS
+    comptime RADIX = 2**BITS_PER_PASS
+    comptime BIN_PART_SIZE = BINNING_TPB * KEYS_PER_THREAD
+    comptime G_HIST_TPB = 128
+    comptime G_HIST_ITEMS_PER_THREAD = 32
+    comptime G_HIST_PART_SIZE = G_HIST_TPB * G_HIST_ITEMS_PER_THREAD
+    comptime VEC_WIDTH = 4
 
     var binning_blocks = ceildiv(size, BIN_PART_SIZE)
     var g_hist_blocks = ceildiv(size, G_HIST_PART_SIZE)
@@ -534,13 +567,19 @@ def device_radix_sort_onesweep_pairs[
     ]
 
     # 1. Global Histogram
-    comptime _ghist = global_histogram[keys_dtype, 128, RADIX]
+    comptime _ghist = global_histogram[
+        keys_dtype,
+        BLOCK_SIZE=G_HIST_TPB,
+        RADIX=RADIX,
+        VEC_WIDTH=VEC_WIDTH,
+        ITEMS_PER_THREAD=G_HIST_ITEMS_PER_THREAD,
+    ]
     ctx.enqueue_function[_ghist, _ghist](
         keys.unsafe_ptr(),
         workspace.global_hist.unsafe_ptr(),
         size,
         grid_dim=g_hist_blocks,
-        block_dim=128,
+        block_dim=G_HIST_TPB,
     )
 
     # 2. Block Scan
@@ -557,7 +596,12 @@ def device_radix_sort_onesweep_pairs[
 
     # 3. Digit Binning Passes (Decoupled Look-back)
     comptime _bin = digit_binning[
-        keys_dtype, vals_dtype, 8, 512, KEYS_PER_THREAD, True
+        keys_dtype,
+        vals_dtype,
+        BITS_PER_PASS=BITS_PER_PASS,
+        BLOCK_SIZE=BINNING_TPB,
+        KEYS_PER_THREAD=KEYS_PER_THREAD,
+        HAVE_PAYLOAD=True,
     ]
 
     var db_keys = DoubleBuffer[keys_dtype](
@@ -568,6 +612,7 @@ def device_radix_sort_onesweep_pairs[
     )
 
     comptime for pass_idx in range(4):
+        comptime radix_shift = UInt32(pass_idx * 8)
         ctx.enqueue_function[_bin, _bin](
             db_keys.current,
             db_vals.current,
@@ -576,9 +621,9 @@ def device_radix_sort_onesweep_pairs[
             pass_hist[pass_idx],
             workspace.index.unsafe_ptr(),
             size,
-            UInt32(pass_idx * 8),
+            radix_shift,
             grid_dim=binning_blocks,
-            block_dim=512,
+            block_dim=BINNING_TPB,
         )
         db_keys.swap()
         db_vals.swap()

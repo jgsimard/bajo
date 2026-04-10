@@ -11,7 +11,7 @@ from bajo.sort.gpu.radix_sort import (
 )
 from bajo.sort.gpu.onesweep import (
     device_radix_sort_onesweep_pairs,
-    device_radix_sort_onesweep_keys,
+    # device_radix_sort_onesweep_keys,
     OneSweepWorkspace,
 )
 
@@ -189,14 +189,17 @@ def benchmark_sorts_key_value(sizes: List[Int]) raises:
             )
 
             # OneSweep
-            comptime TPB = 512
-            comptime KEYS_PER_THREAD_ONESWEEP = 15
-            var onesweep_ws = OneSweepWorkspace[keys_dtype, vals_dtype](
-                ctx, SIZE
-            )
+            comptime TPB = 256
+            comptime KEYS_PER_THREAD_ONESWEEP = 8
+            var onesweep_ws = OneSweepWorkspace[
+                keys_dtype,
+                vals_dtype,
+                BLOCK_SIZE=TPB,
+                KEYS_PER_THREAD=KEYS_PER_THREAD_ONESWEEP,
+            ](ctx, SIZE)
             reset_data()
             device_radix_sort_onesweep_pairs[
-                KEYS_PER_THREAD=KEYS_PER_THREAD_ONESWEEP
+                BINNING_TPB=TPB, KEYS_PER_THREAD=KEYS_PER_THREAD_ONESWEEP
             ](ctx, onesweep_ws, keys, values, SIZE)
             ctx.synchronize()
             check_validity(keys, SIZE)
@@ -205,7 +208,7 @@ def benchmark_sorts_key_value(sizes: List[Int]) raises:
             for _ in range(N_ITERS):
                 reset_data()
                 device_radix_sort_onesweep_pairs[
-                    KEYS_PER_THREAD=KEYS_PER_THREAD_ONESWEEP
+                    BINNING_TPB=TPB, KEYS_PER_THREAD=KEYS_PER_THREAD_ONESWEEP
                 ](ctx, onesweep_ws, keys, values, SIZE)
             ctx.synchronize()
             var onesweep_ns = (
@@ -293,9 +296,9 @@ def main() raises:
         1 << 18,
         1 << 20,
         1 << 22,
-        # 1 << 24,
-        # 1 << 26,
-        # 1 << 28,
+        1 << 24,
+        1 << 26,
+        1 << 28,
     ]
     benchmark_sorts_key_value(sizes)
     benchmark_sort_key(sizes)
@@ -347,6 +350,21 @@ def main() raises:
 #      16M |     3.965 |      4.232
 #      67M |    15.962 |      4.204
 #     268M |    64.111 |      4.187
+# =========================================
+
+# == OneSweep Radix Sort (Pairs) ==
+#     N    | Time (ms) | Throughput (GK/s)
+# -----------------------------------------
+#       1k |     0.067 |      0.015
+#       4k |     0.121 |      0.034
+#      16k |     0.134 |      0.122
+#      65k |     0.144 |      0.456
+#     262k |      0.18 |      1.456
+#       1M |     0.326 |      3.218
+#       4M |     1.139 |      3.681
+#      16M |     4.406 |      3.808
+#      67M |    17.405 |      3.856
+#     268M |     70.29 |      3.819
 # =========================================
 
 # Starting benchmarks for keys only sorting...

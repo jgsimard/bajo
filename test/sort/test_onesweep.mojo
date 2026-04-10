@@ -21,8 +21,10 @@ def test_global_histogram() raises:
     with DeviceContext() as ctx:
         comptime dtype = DType.uint32
         comptime RADIX = 256
-        comptime BLOCK_SIZE = 128
-        comptime G_HIST_PART_SIZE = 65536
+        comptime G_HIST_TPB = 128
+        comptime G_HIST_ITEMS_PER_THREAD = 128
+        comptime G_HIST_PART_SIZE = G_HIST_TPB * G_HIST_ITEMS_PER_THREAD
+        comptime VEC_WIDTH = 4
 
         var size = 100_000
         var gdim = ceildiv(size, G_HIST_PART_SIZE)
@@ -51,13 +53,19 @@ def test_global_histogram() raises:
                 exp_h2[Int((val >> 16) & 255)] += 1
                 exp_h3[Int((val >> 24) & 255)] += 1
 
-        comptime _ghist = global_histogram[dtype, BLOCK_SIZE, RADIX]
+        comptime _ghist = global_histogram[
+            dtype,
+            BLOCK_SIZE=G_HIST_TPB,
+            RADIX=RADIX,
+            VEC_WIDTH=VEC_WIDTH,
+            ITEMS_PER_THREAD=G_HIST_ITEMS_PER_THREAD,
+        ]
         ctx.enqueue_function[_ghist, _ghist](
             d_keys.unsafe_ptr(),
             d_globalHist.unsafe_ptr(),
             size,
             grid_dim=gdim,
-            block_dim=BLOCK_SIZE,
+            block_dim=G_HIST_TPB,
         )
 
         ctx.synchronize()
@@ -115,6 +123,10 @@ def test_digit_binning_end_to_end() raises:
         comptime BIN_PART_SIZE = 7680
         comptime BLOCK_SIZE = 512
         comptime KEYS_PER_THREAD = 15
+        comptime G_HIST_TPB = 128
+        comptime G_HIST_ITEMS_PER_THREAD = 128
+        comptime G_HIST_PART_SIZE = G_HIST_TPB * G_HIST_ITEMS_PER_THREAD
+        comptime VEC_WIDTH = 4
 
         var _dummy_ptr = UnsafePointer[UInt32, MutAnyOrigin]()
         var size = 20_000
@@ -124,7 +136,6 @@ def test_digit_binning_end_to_end() raises:
         var d_alt = ctx.enqueue_create_buffer[dtype](Int(size))
         var d_globalHist = ctx.enqueue_create_buffer[dtype](RADIX * 4)
 
-        # FIX: Sized as binning_blocks + 1
         var d_passHist = ctx.enqueue_create_buffer[dtype](
             (binning_blocks + 1) * RADIX
         )
@@ -138,28 +149,40 @@ def test_digit_binning_end_to_end() raises:
             for i in range(Int(size)):
                 host_keys[i] = UInt32((i * 17) ^ (i << 13) ^ (i >> 5))
 
-        comptime _ghist = global_histogram[dtype, 128, RADIX]
+        var g_hist_blocks = ceildiv(size, G_HIST_PART_SIZE)
+        comptime _ghist = global_histogram[
+            dtype,
+            BLOCK_SIZE=G_HIST_TPB,
+            RADIX=RADIX,
+            VEC_WIDTH=VEC_WIDTH,
+            ITEMS_PER_THREAD=G_HIST_ITEMS_PER_THREAD,
+        ]
         ctx.enqueue_function[_ghist, _ghist](
             d_keys.unsafe_ptr(),
             d_globalHist.unsafe_ptr(),
             size,
-            grid_dim=1,
-            block_dim=128,
+            grid_dim=g_hist_blocks,
+            block_dim=G_HIST_TPB,
         )
 
         comptime _scan = scan_global
         ctx.enqueue_function[_scan, _scan](
             d_globalHist.unsafe_ptr(),
             d_passHist.unsafe_ptr(),
-            d_passHist.unsafe_ptr(),
-            d_passHist.unsafe_ptr(),
-            d_passHist.unsafe_ptr(),
-            grid_dim=4,
+            _dummy_ptr,
+            _dummy_ptr,
+            _dummy_ptr,
+            grid_dim=1,
             block_dim=RADIX,
         )
 
         comptime _bin = digit_binning[
-            dtype, dtype, 8, BLOCK_SIZE, KEYS_PER_THREAD, False
+            dtype,
+            dtype,
+            BITS_PER_PASS=8,
+            BLOCK_SIZE=BLOCK_SIZE,
+            KEYS_PER_THREAD=KEYS_PER_THREAD,
+            HAVE_PAYLOAD=False,
         ]
         ctx.enqueue_function[_bin, _bin](
             d_keys.unsafe_ptr(),
@@ -211,6 +234,10 @@ def test_digit_binning_pairs_end_to_end() raises:
         comptime BIN_PART_SIZE = 7680
         comptime BLOCK_SIZE = 512
         comptime KEYS_PER_THREAD = 15
+        comptime G_HIST_TPB = 128
+        comptime G_HIST_ITEMS_PER_THREAD = 128
+        comptime G_HIST_PART_SIZE = G_HIST_TPB * G_HIST_ITEMS_PER_THREAD
+        comptime VEC_WIDTH = 4
 
         var size = 20_000
         var binning_blocks = ceildiv(size, BIN_PART_SIZE)
@@ -221,7 +248,6 @@ def test_digit_binning_pairs_end_to_end() raises:
         var d_alt_vals = ctx.enqueue_create_buffer[dtype](Int(size))
         var d_globalHist = ctx.enqueue_create_buffer[dtype](RADIX * 4)
 
-        # FIX: Sized as binning_blocks + 1
         var d_passHist = ctx.enqueue_create_buffer[dtype](
             (binning_blocks + 1) * RADIX
         )
@@ -236,28 +262,42 @@ def test_digit_binning_pairs_end_to_end() raises:
                 host_keys[i] = UInt32((i * 17) ^ (i << 13))
                 host_vals[i] = UInt32(i)
 
-        comptime _ghist = global_histogram[dtype, 128, RADIX]
+        var _dummy_ptr = UnsafePointer[UInt32, MutAnyOrigin]()
+        var g_hist_blocks = ceildiv(size, G_HIST_PART_SIZE)
+
+        comptime _ghist = global_histogram[
+            dtype,
+            BLOCK_SIZE=G_HIST_TPB,
+            RADIX=RADIX,
+            VEC_WIDTH=VEC_WIDTH,
+            ITEMS_PER_THREAD=G_HIST_ITEMS_PER_THREAD,
+        ]
         ctx.enqueue_function[_ghist, _ghist](
             d_keys.unsafe_ptr(),
             d_globalHist.unsafe_ptr(),
             size,
-            grid_dim=1,
-            block_dim=128,
+            grid_dim=g_hist_blocks,
+            block_dim=G_HIST_TPB,
         )
 
         comptime _scan = scan_global
         ctx.enqueue_function[_scan, _scan](
             d_globalHist.unsafe_ptr(),
             d_passHist.unsafe_ptr(),
-            d_passHist.unsafe_ptr(),
-            d_passHist.unsafe_ptr(),
-            d_passHist.unsafe_ptr(),
-            grid_dim=4,
+            _dummy_ptr,
+            _dummy_ptr,
+            _dummy_ptr,
+            grid_dim=1,
             block_dim=RADIX,
         )
 
         comptime _bin = digit_binning[
-            dtype, dtype, 8, BLOCK_SIZE, KEYS_PER_THREAD, True
+            dtype,
+            dtype,
+            BITS_PER_PASS=8,
+            BLOCK_SIZE=BLOCK_SIZE,
+            KEYS_PER_THREAD=KEYS_PER_THREAD,
+            HAVE_PAYLOAD=True,
         ]
         ctx.enqueue_function[_bin, _bin](
             d_keys.unsafe_ptr(),

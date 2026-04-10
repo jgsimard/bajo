@@ -167,7 +167,7 @@ def benchmark_sorts_key_value(sizes: List[Int]) raises:
             #     SortResult(SIZE, opt_ns / 1e6, Float64(SIZE) / opt_ns)
             # )
 
-            # Radix Sort
+            # Radix
             var radix_ws = RadixSortWorkspace[
                 keys_dtype, vals_dtype, KEYS_PER_THREAD=KEYS_PER_THREAD
             ](ctx, SIZE)
@@ -256,7 +256,7 @@ def benchmark_sort_key(sizes: List[Int]) raises:
                     block_dim=256,
                 )
 
-            # Radix Sort
+            # Radix
             reset_data()
             device_radix_sort_keys[KEYS_PER_THREAD=KEYS_PER_THREAD](
                 ctx, keys, SIZE
@@ -285,7 +285,7 @@ def benchmark_sort_key(sizes: List[Int]) raises:
 
             radix_results.append(SortResult(SIZE, ms, gks))
 
-            # Onesweep Sort
+            # Onesweep
             comptime TPB = 512
             comptime KEYS_PER_THREAD_ONESWEEP = 15
             reset_data()
@@ -295,9 +295,6 @@ def benchmark_sort_key(sizes: List[Int]) raises:
                 BLOCK_SIZE=TPB,
                 KEYS_PER_THREAD=KEYS_PER_THREAD_ONESWEEP,
             ](ctx, SIZE)
-            # device_radix_sort_keys[KEYS_PER_THREAD=KEYS_PER_THREAD](
-            #     ctx, keys, SIZE
-            # )
             device_radix_sort_onesweep_keys[
                 BINNING_TPB=TPB, KEYS_PER_THREAD=KEYS_PER_THREAD_ONESWEEP
             ](ctx, onesweep_ws, keys, SIZE)
@@ -342,7 +339,7 @@ def main() raises:
         1 << 26,
         1 << 28,
     ]
-    # benchmark_sorts_key_value(sizes)
+    benchmark_sorts_key_value(sizes)
     benchmark_sort_key(sizes)
 
 

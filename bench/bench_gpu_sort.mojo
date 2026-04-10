@@ -36,10 +36,11 @@ def fmt(ns: Float64, SIZE: Int) -> String:
 
 
 @fieldwise_init
-struct SortResult(Copyable):
+struct SortResult(ImplicitlyCopyable, Writable):
     var size: Int
     var time_ms: Float64
     var gks: Float64
+    var name: String
 
 
 def copy_kernel[
@@ -73,7 +74,7 @@ def print_results_table(title: String, results: List[SortResult]):
     print("=========================================")
 
 
-def benchmark_sorts_key_value(sizes: List[Int]) raises:
+def benchmark_sorts_pairs(sizes: List[Int]) raises -> List[List[SortResult]]:
     comptime keys_dtype = DType.uint32
     comptime vals_dtype = DType.uint32
     comptime N_ITERS = 10
@@ -131,41 +132,51 @@ def benchmark_sorts_key_value(sizes: List[Int]) raises:
             ctx.synchronize()
             var copy_overhead_total = Float64(perf_counter_ns() - t_copy_start)
 
-            # # Basic Bitonic Sort
-            # reset_data()
-            # bitonic_sort_basic[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
-            # ctx.synchronize()
-            # check_validity(keys, SIZE)
+            # Basic Bitonic Sort
+            reset_data()
+            bitonic_sort_basic[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
+            ctx.synchronize()
+            check_validity(keys, SIZE)
 
-            # var t0 = perf_counter_ns()
-            # for _ in range(N_ITERS):
-            #     reset_data()
-            #     bitonic_sort_basic[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
-            # ctx.synchronize()
-            # var basic_ns = (
-            #     Float64(perf_counter_ns() - t0) - copy_overhead_total
-            # ) / N_ITERS
-            # basic_results.append(
-            #     SortResult(SIZE, basic_ns / 1e6, Float64(SIZE) / basic_ns)
-            # )
+            var t0 = perf_counter_ns()
+            for _ in range(N_ITERS):
+                reset_data()
+                bitonic_sort_basic[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
+            ctx.synchronize()
+            var basic_ns = (
+                Float64(perf_counter_ns() - t0) - copy_overhead_total
+            ) / N_ITERS
+            basic_results.append(
+                SortResult(
+                    SIZE,
+                    basic_ns / 1e6,
+                    Float64(SIZE) / basic_ns,
+                    "Basic_Bitonic_Sort_Pairs",
+                )
+            )
 
-            # # Shared Mem Bitonic Sort
-            # reset_data()
-            # bitonic_sort[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
-            # ctx.synchronize()
-            # check_validity(keys, SIZE)
+            # Shared Mem Bitonic Sort
+            reset_data()
+            bitonic_sort[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
+            ctx.synchronize()
+            check_validity(keys, SIZE)
 
-            # t0 = perf_counter_ns()
-            # for _ in range(N_ITERS):
-            #     reset_data()
-            #     bitonic_sort[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
-            # ctx.synchronize()
-            # var opt_ns = (
-            #     Float64(perf_counter_ns() - t0) - copy_overhead_total
-            # ) / N_ITERS
-            # opt_results.append(
-            #     SortResult(SIZE, opt_ns / 1e6, Float64(SIZE) / opt_ns)
-            # )
+            t0 = perf_counter_ns()
+            for _ in range(N_ITERS):
+                reset_data()
+                bitonic_sort[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
+            ctx.synchronize()
+            var opt_ns = (
+                Float64(perf_counter_ns() - t0) - copy_overhead_total
+            ) / N_ITERS
+            opt_results.append(
+                SortResult(
+                    SIZE,
+                    opt_ns / 1e6,
+                    Float64(SIZE) / opt_ns,
+                    "Shared_Memory_Bitonic_Sort_Pairs",
+                )
+            )
 
             # Radix
             var radix_ws = RadixSortWorkspace[
@@ -185,7 +196,12 @@ def benchmark_sorts_key_value(sizes: List[Int]) raises:
                 Float64(perf_counter_ns() - t0) - copy_overhead_total
             ) / N_ITERS
             radix_results.append(
-                SortResult(SIZE, radix_ns / 1e6, Float64(SIZE) / radix_ns)
+                SortResult(
+                    SIZE,
+                    radix_ns / 1e6,
+                    Float64(SIZE) / radix_ns,
+                    "Radix_Pairs",
+                )
             )
 
             # OneSweep
@@ -215,15 +231,22 @@ def benchmark_sorts_key_value(sizes: List[Int]) raises:
                 Float64(perf_counter_ns() - t0) - copy_overhead_total
             ) / N_ITERS
             onesweep_results.append(
-                SortResult(SIZE, onesweep_ns / 1e6, Float64(SIZE) / onesweep_ns)
+                SortResult(
+                    SIZE,
+                    onesweep_ns / 1e6,
+                    Float64(SIZE) / onesweep_ns,
+                    "Onesweep_Pairs",
+                )
             )
     print_results_table("Basic Bitonic Sort (Pairs)", basic_results)
     print_results_table("Shared Mem Bitonic Sort (Pairs)", opt_results)
     print_results_table("Radix Sort (Pairs)", radix_results)
     print_results_table("OneSweep Radix Sort (Pairs)", onesweep_results)
 
+    return [basic_results^, opt_results^, radix_results^, onesweep_results^]
 
-def benchmark_sort_key(sizes: List[Int]) raises:
+
+def benchmark_sort_key(sizes: List[Int]) raises -> List[List[SortResult]]:
     comptime dtype = DType.uint32
     comptime N_ITERS = 10
     comptime WARMUP = 5
@@ -283,7 +306,7 @@ def benchmark_sort_key(sizes: List[Int]) raises:
             var ms = pure_sort_ns_avg / 1_000_000.0
             var gks = Float64(SIZE) / pure_sort_ns_avg
 
-            radix_results.append(SortResult(SIZE, ms, gks))
+            radix_results.append(SortResult(SIZE, ms, gks, "Radix_Keys"))
 
             # Onesweep
             comptime TPB = 512
@@ -320,10 +343,26 @@ def benchmark_sort_key(sizes: List[Int]) raises:
             ms = pure_sort_ns_avg / 1_000_000.0
             gks = Float64(SIZE) / pure_sort_ns_avg
 
-            onesweep_results.append(SortResult(SIZE, ms, gks))
+            onesweep_results.append(SortResult(SIZE, ms, gks, "Onesweep_Keys"))
 
     print_results_table("Radix Sort (Keys)", radix_results)
     print_results_table("OneSweep Radix Sort (Keys)", onesweep_results)
+
+    return [radix_results^, onesweep_results^]
+
+
+def save_results_csv(filename: String, data: List[List[SortResult]]) raises:
+    with open(filename, "w") as f:
+        f.write("Algorithm,N,Time_ms,Throughput_GKs\n")
+        for i in range(len(data)):
+            if len(data[i]) == 0:
+                continue
+            var label = data[i][0].name
+            var results = data[i].copy()
+            for res in results:
+                var line = t"{label},{res.size},{res.time_ms},{res.gks}\n"
+                f.write(line)
+    print("\n[INFO] Results saved to " + filename)
 
 
 def main() raises:
@@ -339,8 +378,11 @@ def main() raises:
         1 << 26,
         1 << 28,
     ]
-    benchmark_sorts_key_value(sizes)
-    benchmark_sort_key(sizes)
+    res = benchmark_sorts_pairs(sizes)
+    res_keys = benchmark_sort_key(sizes)
+    res.extend(res_keys^)
+
+    save_results_csv("gpu_sort_benchmark_results.csv", res)
 
 
 # current results on rtx 5060 ti 16 gb

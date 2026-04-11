@@ -34,24 +34,19 @@ def test_global_histogram() raises:
 
         d_globalHist.enqueue_fill(0)
 
-        var exp_h0 = List[UInt32](capacity=RADIX)
-        var exp_h1 = List[UInt32](capacity=RADIX)
-        var exp_h2 = List[UInt32](capacity=RADIX)
-        var exp_h3 = List[UInt32](capacity=RADIX)
-        for _ in range(RADIX):
-            exp_h0.append(0)
-            exp_h1.append(0)
-            exp_h2.append(0)
-            exp_h3.append(0)
+        var exp_h0 = List[UInt32](length=RADIX, fill=0)
+        var exp_h1 = List[UInt32](length=RADIX, fill=0)
+        var exp_h2 = List[UInt32](length=RADIX, fill=0)
+        var exp_h3 = List[UInt32](length=RADIX, fill=0)
 
         with d_keys.map_to_host() as host_keys:
             for i in range(size):
-                var val = UInt32((i * 13) ^ (i << 16) ^ (i >> 3))
-                host_keys[i] = val
-                exp_h0[Int(val & 255)] += 1
-                exp_h1[Int((val >> 8) & 255)] += 1
-                exp_h2[Int((val >> 16) & 255)] += 1
-                exp_h3[Int((val >> 24) & 255)] += 1
+                var val = (i * 13) ^ (i << 16) ^ (i >> 3)
+                host_keys[i] = UInt32(val)
+                exp_h0[val & 255] += 1
+                exp_h1[(val >> 8) & 255] += 1
+                exp_h2[(val >> 16) & 255] += 1
+                exp_h3[(val >> 24) & 255] += 1
 
         comptime _ghist = global_histogram[
             dtype,
@@ -86,10 +81,7 @@ def test_scan_global() raises:
         comptime FLAG_INCLUSIVE = 2
 
         var d_globalHist = ctx.enqueue_create_buffer[dtype](RADIX * 4)
-        var d_p0 = ctx.enqueue_create_buffer[dtype](RADIX)
-        var d_p1 = ctx.enqueue_create_buffer[dtype](RADIX)
-        var d_p2 = ctx.enqueue_create_buffer[dtype](RADIX)
-        var d_p3 = ctx.enqueue_create_buffer[dtype](RADIX)
+        var d_p = ctx.enqueue_create_buffer[dtype](RADIX * 4)
 
         with d_globalHist.map_to_host() as host_hist:
             for i in range(RADIX * 4):
@@ -98,19 +90,17 @@ def test_scan_global() raises:
         comptime _scan = scan_global
         ctx.enqueue_function[_scan, _scan](
             d_globalHist.unsafe_ptr(),
-            d_p0.unsafe_ptr(),
-            d_p1.unsafe_ptr(),
-            d_p2.unsafe_ptr(),
-            d_p3.unsafe_ptr(),
+            d_p.unsafe_ptr(),
+            1,
             grid_dim=4,
             block_dim=RADIX,
         )
 
         ctx.synchronize()
 
-        with d_p0.map_to_host() as h0:
-            for i in range(RADIX):
-                var expected = (UInt32(i) << 2) | FLAG_INCLUSIVE
+        with d_p.map_to_host() as h0:
+            for i in range(RADIX * 4):
+                var expected = (UInt32(i % RADIX) << 2) | FLAG_INCLUSIVE
                 assert_equal(h0[i], expected)
 
 
@@ -137,7 +127,7 @@ def test_digit_binning_end_to_end() raises:
         var d_globalHist = ctx.enqueue_create_buffer[dtype](RADIX * 4)
 
         var d_passHist = ctx.enqueue_create_buffer[dtype](
-            (binning_blocks + 1) * RADIX
+            (binning_blocks + 1) * RADIX * 4
         )
         var d_index = ctx.enqueue_create_buffer[dtype](4)
 
@@ -169,9 +159,7 @@ def test_digit_binning_end_to_end() raises:
         ctx.enqueue_function[_scan, _scan](
             d_globalHist.unsafe_ptr(),
             d_passHist.unsafe_ptr(),
-            _dummy_ptr,
-            _dummy_ptr,
-            _dummy_ptr,
+            binning_blocks + 1,
             grid_dim=1,
             block_dim=RADIX,
         )
@@ -284,9 +272,7 @@ def test_digit_binning_pairs_end_to_end() raises:
         ctx.enqueue_function[_scan, _scan](
             d_globalHist.unsafe_ptr(),
             d_passHist.unsafe_ptr(),
-            _dummy_ptr,
-            _dummy_ptr,
-            _dummy_ptr,
+            binning_blocks + 1,
             grid_dim=1,
             block_dim=RADIX,
         )

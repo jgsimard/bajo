@@ -45,92 +45,60 @@ def global_histogram[
     global_hist: UnsafePointer[UInt32, MutAnyOrigin],
     size: Int,
 ):
+    comptime BYTES_PER_KEY = bit_width_of[keys_dtype]() / 8
     comptime G_HIST_PART_SIZE = BLOCK_SIZE * ITEMS_PER_THREAD
     comptime G_HIST_VEC_SIZE = G_HIST_PART_SIZE / VEC_WIDTH
     comptime PADDED_RADIX = RADIX * 2
+    comptime THREADS_PER_PARTITION = 64
+    comptime NUM_PARTITIONS = BLOCK_SIZE / THREADS_PER_PARTITION
 
     var tid = thread_idx.x
     var bid = block_idx.x
     var gdim = grid_dim.x
-    var wid = tid // 64
+    var wid = tid / THREADS_PER_PARTITION
 
-    comptime _stack = stack_allocation[
-        PADDED_RADIX, UInt32, address_space=AddressSpace.SHARED
-    ]
-    var s_hist_0 = _stack()
-    var s_hist_1 = _stack()
-    var s_hist_2 = _stack()
-    var s_hist_3 = _stack()
+    var s_hists = stack_allocation[
+        PADDED_RADIX * BYTES_PER_KEY, UInt32, address_space=AddressSpace.SHARED
+    ]()
 
-    for i in range(tid, PADDED_RADIX, BLOCK_SIZE):
-        s_hist_0[i] = 0
-        s_hist_1[i] = 0
-        s_hist_2[i] = 0
-        s_hist_3[i] = 0
+    for i in range(tid, PADDED_RADIX * BYTES_PER_KEY, BLOCK_SIZE):
+        s_hists[i] = 0
     barrier()
 
     # 64 threads : 1 histogram in shared memory
     var wave_offset = wid * RADIX
-    var s_w_0 = s_hist_0 + wave_offset
-    var s_w_1 = s_hist_1 + wave_offset
-    var s_w_2 = s_hist_2 + wave_offset
-    var s_w_3 = s_hist_3 + wave_offset
 
     if bid < gdim - 1:
         var part_start = bid * G_HIST_VEC_SIZE
         var part_end = (bid + 1) * G_HIST_VEC_SIZE
         for i in range(tid + part_start, part_end, BLOCK_SIZE):
-            # this is slower. why ?
-            # var ptr_u8 = sort.bitcast[UInt8]()
-            # var t = ptr_u8.load[width=16](i * 4 * 4)
-            var t_u32 = sort.load[width=4](i * 4)
-            var t = bitcast[DType.uint8, 16](t_u32)
+            var t_vec = sort.load[width=VEC_WIDTH](i * VEC_WIDTH)
+            var t = bitcast[DType.uint8, VEC_WIDTH * BYTES_PER_KEY](t_vec)
 
-            _ = Atomic.fetch_add[ordering=ordering](s_w_0 + Int(t[0]), 1)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_1 + Int(t[1]), 1)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_2 + Int(t[2]), 1)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_3 + Int(t[3]), 1)
-
-            _ = Atomic.fetch_add[ordering=ordering](s_w_0 + Int(t[4]), 1)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_1 + Int(t[5]), 1)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_2 + Int(t[6]), 1)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_3 + Int(t[7]), 1)
-
-            _ = Atomic.fetch_add[ordering=ordering](s_w_0 + Int(t[8]), 1)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_1 + Int(t[9]), 1)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_2 + Int(t[10]), 1)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_3 + Int(t[11]), 1)
-
-            _ = Atomic.fetch_add[ordering=ordering](s_w_0 + Int(t[12]), 1)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_1 + Int(t[13]), 1)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_2 + Int(t[14]), 1)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_3 + Int(t[15]), 1)
+            comptime for v in range(VEC_WIDTH):
+                comptime for b in range(BYTES_PER_KEY):
+                    var byte_val = Int(t[v * BYTES_PER_KEY + b])
+                    var s_idx = (b * PADDED_RADIX) + wave_offset + byte_val
+                    _ = Atomic.fetch_add[ordering=ordering](s_hists + s_idx, 1)
     else:
         var part_start = bid * G_HIST_PART_SIZE
         for i in range(tid + part_start, size, BLOCK_SIZE):
-            var t = sort[i]
-            var t_bytes = bitcast[DType.uint8, 4](t)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_0 + Int(t_bytes[0]), 1)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_1 + Int(t_bytes[1]), 1)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_2 + Int(t_bytes[2]), 1)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_3 + Int(t_bytes[3]), 1)
+            var t = bitcast[DType.uint8, BYTES_PER_KEY](sort[i])
+            comptime for b in range(BYTES_PER_KEY):
+                var byte_val = Int(t[b])
+                var s_idx = (b * PADDED_RADIX) + wave_offset + byte_val
+                _ = Atomic.fetch_add[ordering=ordering](s_hists + s_idx, 1)
 
     barrier()
 
     # Reduce
     for i in range(tid, RADIX, BLOCK_SIZE):
-        _ = Atomic.fetch_add[ordering=ordering](
-            global_hist + i, s_hist_0[i] + s_hist_0[i + RADIX]
-        )
-        _ = Atomic.fetch_add[ordering=ordering](
-            global_hist + i + RADIX, s_hist_1[i] + s_hist_1[i + RADIX]
-        )
-        _ = Atomic.fetch_add[ordering=ordering](
-            global_hist + i + (RADIX * 2), s_hist_2[i] + s_hist_2[i + RADIX]
-        )
-        _ = Atomic.fetch_add[ordering=ordering](
-            global_hist + i + (RADIX * 3), s_hist_3[i] + s_hist_3[i + RADIX]
-        )
+        comptime for b in range(BYTES_PER_KEY):
+            var sum: UInt32 = 0
+            comptime for p in range(NUM_PARTITIONS):
+                sum += s_hists[(b * PADDED_RADIX) + (p * RADIX) + i]
+            var g_idx = (b * RADIX) + i
+            _ = Atomic.fetch_add[ordering=ordering](global_hist + g_idx, sum)
 
 
 def scan_global(
@@ -447,7 +415,9 @@ def device_radix_sort_onesweep_keys[
     mut keys: DeviceBuffer[keys_dtype],
     size: Int,
 ) raises:
-    comptime RADIX = 256
+    comptime BITS_PER_PASS = 8
+    comptime NUM_PASSES = bit_width_of[keys_dtype]() / BITS_PER_PASS
+    comptime RADIX = 2**BITS_PER_PASS
     comptime BIN_PART_SIZE = BINNING_TPB * KEYS_PER_THREAD
     comptime G_HIST_TPB = 128
     comptime G_HIST_ITEMS_PER_THREAD = 128
@@ -623,7 +593,7 @@ def device_radix_sort_onesweep_pairs[
         values.unsafe_ptr(), workspace.alt_vals.unsafe_ptr()
     )
 
-    comptime for pass_idx in range(4):
+    comptime for pass_idx in range(NUM_PASSES):
         comptime radix_shift = UInt32(pass_idx * 8)
         ctx.enqueue_function[_bin, _bin](
             db_keys.current,

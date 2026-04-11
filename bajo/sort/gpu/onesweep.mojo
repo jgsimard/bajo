@@ -45,100 +45,66 @@ def global_histogram[
     global_hist: UnsafePointer[UInt32, MutAnyOrigin],
     size: Int,
 ):
+    comptime BYTES_PER_KEY = bit_width_of[keys_dtype]() / 8
     comptime G_HIST_PART_SIZE = BLOCK_SIZE * ITEMS_PER_THREAD
     comptime G_HIST_VEC_SIZE = G_HIST_PART_SIZE / VEC_WIDTH
     comptime PADDED_RADIX = RADIX * 2
+    comptime THREADS_PER_PARTITION = 64
+    comptime NUM_PARTITIONS = BLOCK_SIZE / THREADS_PER_PARTITION
 
     var tid = thread_idx.x
     var bid = block_idx.x
     var gdim = grid_dim.x
-    var wid = tid // 64
+    var wid = tid / THREADS_PER_PARTITION
 
-    comptime _stack = stack_allocation[
-        PADDED_RADIX, UInt32, address_space=AddressSpace.SHARED
-    ]
-    var s_hist_0 = _stack()
-    var s_hist_1 = _stack()
-    var s_hist_2 = _stack()
-    var s_hist_3 = _stack()
+    var s_hists = stack_allocation[
+        PADDED_RADIX * BYTES_PER_KEY, UInt32, address_space=AddressSpace.SHARED
+    ]()
 
-    for i in range(tid, PADDED_RADIX, BLOCK_SIZE):
-        s_hist_0[i] = 0
-        s_hist_1[i] = 0
-        s_hist_2[i] = 0
-        s_hist_3[i] = 0
+    for i in range(tid, PADDED_RADIX * BYTES_PER_KEY, BLOCK_SIZE):
+        s_hists[i] = 0
     barrier()
 
     # 64 threads : 1 histogram in shared memory
     var wave_offset = wid * RADIX
-    var s_w_0 = s_hist_0 + wave_offset
-    var s_w_1 = s_hist_1 + wave_offset
-    var s_w_2 = s_hist_2 + wave_offset
-    var s_w_3 = s_hist_3 + wave_offset
 
     if bid < gdim - 1:
         var part_start = bid * G_HIST_VEC_SIZE
         var part_end = (bid + 1) * G_HIST_VEC_SIZE
         for i in range(tid + part_start, part_end, BLOCK_SIZE):
-            # this is slower. why ?
-            # var ptr_u8 = sort.bitcast[UInt8]()
-            # var t = ptr_u8.load[width=16](i * 4 * 4)
-            var t_u32 = sort.load[width=4](i * 4)
-            var t = bitcast[DType.uint8, 16](t_u32)
+            var t_vec = sort.load[width=VEC_WIDTH](i * VEC_WIDTH)
+            var t = bitcast[DType.uint8, VEC_WIDTH * BYTES_PER_KEY](t_vec)
 
-            _ = Atomic.fetch_add[ordering=ordering](s_w_0 + Int(t[0]), 1)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_1 + Int(t[1]), 1)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_2 + Int(t[2]), 1)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_3 + Int(t[3]), 1)
-
-            _ = Atomic.fetch_add[ordering=ordering](s_w_0 + Int(t[4]), 1)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_1 + Int(t[5]), 1)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_2 + Int(t[6]), 1)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_3 + Int(t[7]), 1)
-
-            _ = Atomic.fetch_add[ordering=ordering](s_w_0 + Int(t[8]), 1)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_1 + Int(t[9]), 1)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_2 + Int(t[10]), 1)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_3 + Int(t[11]), 1)
-
-            _ = Atomic.fetch_add[ordering=ordering](s_w_0 + Int(t[12]), 1)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_1 + Int(t[13]), 1)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_2 + Int(t[14]), 1)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_3 + Int(t[15]), 1)
+            comptime for v in range(VEC_WIDTH):
+                comptime for b in range(BYTES_PER_KEY):
+                    var byte_val = Int(t[v * BYTES_PER_KEY + b])
+                    var s_idx = (b * PADDED_RADIX) + wave_offset + byte_val
+                    _ = Atomic.fetch_add[ordering=ordering](s_hists + s_idx, 1)
     else:
         var part_start = bid * G_HIST_PART_SIZE
         for i in range(tid + part_start, size, BLOCK_SIZE):
-            var t = sort[i]
-            var t_bytes = bitcast[DType.uint8, 4](t)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_0 + Int(t_bytes[0]), 1)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_1 + Int(t_bytes[1]), 1)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_2 + Int(t_bytes[2]), 1)
-            _ = Atomic.fetch_add[ordering=ordering](s_w_3 + Int(t_bytes[3]), 1)
+            var t = bitcast[DType.uint8, BYTES_PER_KEY](sort[i])
+            comptime for b in range(BYTES_PER_KEY):
+                var byte_val = Int(t[b])
+                var s_idx = (b * PADDED_RADIX) + wave_offset + byte_val
+                _ = Atomic.fetch_add[ordering=ordering](s_hists + s_idx, 1)
 
     barrier()
 
     # Reduce
     for i in range(tid, RADIX, BLOCK_SIZE):
-        _ = Atomic.fetch_add[ordering=ordering](
-            global_hist + i, s_hist_0[i] + s_hist_0[i + RADIX]
-        )
-        _ = Atomic.fetch_add[ordering=ordering](
-            global_hist + i + RADIX, s_hist_1[i] + s_hist_1[i + RADIX]
-        )
-        _ = Atomic.fetch_add[ordering=ordering](
-            global_hist + i + (RADIX * 2), s_hist_2[i] + s_hist_2[i + RADIX]
-        )
-        _ = Atomic.fetch_add[ordering=ordering](
-            global_hist + i + (RADIX * 3), s_hist_3[i] + s_hist_3[i + RADIX]
-        )
+        comptime for b in range(BYTES_PER_KEY):
+            var sum: UInt32 = 0
+            comptime for p in range(NUM_PARTITIONS):
+                sum += s_hists[(b * PADDED_RADIX) + (p * RADIX) + i]
+            var g_idx = (b * RADIX) + i
+            _ = Atomic.fetch_add[ordering=ordering](global_hist + g_idx, sum)
 
 
 def scan_global(
     global_hist: UnsafePointer[UInt32, MutAnyOrigin],
-    first_pass: UnsafePointer[UInt32, MutAnyOrigin],
-    sec_pass: UnsafePointer[UInt32, MutAnyOrigin],
-    third_pass: UnsafePointer[UInt32, MutAnyOrigin],
-    fourth_pass: UnsafePointer[UInt32, MutAnyOrigin],
+    pass_hist: UnsafePointer[UInt32, MutAnyOrigin],
+    hist_blocks: Int,
 ):
     comptime RADIX = 256
     var tid = thread_idx.x
@@ -172,14 +138,8 @@ def scan_global(
 
     out_val = (out_val << 2) | FLAG_INCLUSIVE
 
-    if bid == 0:
-        first_pass[tid] = out_val
-    elif bid == 1:
-        sec_pass[tid] = out_val
-    elif bid == 2:
-        third_pass[tid] = out_val
-    elif bid == 3:
-        fourth_pass[tid] = out_val
+    var offset = bid * hist_blocks * RADIX
+    pass_hist[offset + tid] = out_val
 
 
 def digit_binning[
@@ -407,31 +367,26 @@ struct OneSweepWorkspace[
     var alt_keys: DeviceBuffer[Self.keys_dtype]
     var alt_vals: DeviceBuffer[Self.vals_dtype]
     var global_hist: DeviceBuffer[DType.uint32]
-    var pass_hist_p1: DeviceBuffer[DType.uint32]
-    var pass_hist_p2: DeviceBuffer[DType.uint32]
-    var pass_hist_p3: DeviceBuffer[DType.uint32]
-    var pass_hist_p4: DeviceBuffer[DType.uint32]
+    var pass_hist: DeviceBuffer[DType.uint32]
     var index: DeviceBuffer[DType.uint32]
 
     def __init__(out self, ctx: DeviceContext, size: Int) raises:
         comptime RADIX = 256
         comptime BIN_PART_SIZE = Self.BLOCK_SIZE * Self.KEYS_PER_THREAD
+        comptime NUM_PASSES = bit_width_of[Self.keys_dtype]() // 8
 
         var binning_blocks = ceildiv(size, BIN_PART_SIZE)
-
         var hist_blocks = binning_blocks + 1
 
         self.alt_keys = ctx.enqueue_create_buffer[Self.keys_dtype](size)
         self.alt_vals = ctx.enqueue_create_buffer[Self.vals_dtype](size)
-
-        self.global_hist = ctx.enqueue_create_buffer[DType.uint32](RADIX * 4)
-        var N = hist_blocks * RADIX
-        self.pass_hist_p1 = ctx.enqueue_create_buffer[DType.uint32](N)
-        self.pass_hist_p2 = ctx.enqueue_create_buffer[DType.uint32](N)
-        self.pass_hist_p3 = ctx.enqueue_create_buffer[DType.uint32](N)
-        self.pass_hist_p4 = ctx.enqueue_create_buffer[DType.uint32](N)
-
-        self.index = ctx.enqueue_create_buffer[DType.uint32](4)
+        self.global_hist = ctx.enqueue_create_buffer[DType.uint32](
+            RADIX * NUM_PASSES
+        )
+        self.pass_hist = ctx.enqueue_create_buffer[DType.uint32](
+            hist_blocks * RADIX * NUM_PASSES
+        )
+        self.index = ctx.enqueue_create_buffer[DType.uint32](NUM_PASSES)
 
 
 def device_radix_sort_onesweep_keys[
@@ -447,7 +402,9 @@ def device_radix_sort_onesweep_keys[
     mut keys: DeviceBuffer[keys_dtype],
     size: Int,
 ) raises:
-    comptime RADIX = 256
+    comptime BITS_PER_PASS = 8
+    comptime NUM_PASSES = bit_width_of[keys_dtype]() / BITS_PER_PASS
+    comptime RADIX = 2**BITS_PER_PASS
     comptime BIN_PART_SIZE = BINNING_TPB * KEYS_PER_THREAD
     comptime G_HIST_TPB = 128
     comptime G_HIST_ITEMS_PER_THREAD = 128
@@ -455,22 +412,13 @@ def device_radix_sort_onesweep_keys[
     comptime VEC_WIDTH = 4
 
     var binning_blocks = ceildiv(size, BIN_PART_SIZE)
+    var hist_blocks = binning_blocks + 1
     var g_hist_blocks = ceildiv(size, G_HIST_PART_SIZE)
 
     workspace.index.enqueue_fill(0)
     workspace.global_hist.enqueue_fill(0)
-    workspace.pass_hist_p1.enqueue_fill(0)
-    workspace.pass_hist_p2.enqueue_fill(0)
-    workspace.pass_hist_p3.enqueue_fill(0)
-    workspace.pass_hist_p4.enqueue_fill(0)
+    workspace.pass_hist.enqueue_fill(0)
     ctx.synchronize()
-
-    var pass_hist: InlineArray[UnsafePointer[UInt32, MutAnyOrigin], 4] = [
-        workspace.pass_hist_p1.unsafe_ptr(),
-        workspace.pass_hist_p2.unsafe_ptr(),
-        workspace.pass_hist_p3.unsafe_ptr(),
-        workspace.pass_hist_p4.unsafe_ptr(),
-    ]
 
     # 1. Global Histogram
     comptime _ghist = global_histogram[
@@ -492,11 +440,9 @@ def device_radix_sort_onesweep_keys[
     comptime _scan = scan_global
     ctx.enqueue_function[_scan, _scan](
         workspace.global_hist.unsafe_ptr(),
-        pass_hist[0],
-        pass_hist[1],
-        pass_hist[2],
-        pass_hist[3],
-        grid_dim=4,
+        workspace.pass_hist.unsafe_ptr(),
+        hist_blocks,
+        grid_dim=NUM_PASSES,
         block_dim=RADIX,
     )
 
@@ -515,16 +461,19 @@ def device_radix_sort_onesweep_keys[
         keys.unsafe_ptr(), workspace.alt_keys.unsafe_ptr()
     )
 
-    for pass_idx in range(4):
+    comptime for pass_idx in range(NUM_PASSES):
+        comptime radix_shift = UInt32(pass_idx * 8)
+        var pass_hist_offset = pass_idx * hist_blocks * RADIX
+        var pass_hist_ptr = workspace.pass_hist.unsafe_ptr() + pass_hist_offset
         ctx.enqueue_function[_bin, _bin](
             db_keys.current,
             dummy_v_ptr,
             db_keys.alternate,
             dummy_v_ptr,
-            pass_hist[pass_idx],
+            pass_hist_ptr,
             workspace.index.unsafe_ptr(),
             size,
-            UInt32(pass_idx * 8),
+            radix_shift,
             grid_dim=binning_blocks,
             block_dim=512,
         )
@@ -561,22 +510,13 @@ def device_radix_sort_onesweep_pairs[
     comptime VEC_WIDTH = 4
 
     var binning_blocks = ceildiv(size, BIN_PART_SIZE)
+    var hist_blocks = binning_blocks + 1
     var g_hist_blocks = ceildiv(size, G_HIST_PART_SIZE)
 
     workspace.index.enqueue_fill(0)
     workspace.global_hist.enqueue_fill(0)
-    workspace.pass_hist_p1.enqueue_fill(0)
-    workspace.pass_hist_p2.enqueue_fill(0)
-    workspace.pass_hist_p3.enqueue_fill(0)
-    workspace.pass_hist_p4.enqueue_fill(0)
+    workspace.pass_hist.enqueue_fill(0)
     ctx.synchronize()
-
-    var pass_hist: InlineArray[UnsafePointer[UInt32, MutAnyOrigin], 4] = [
-        workspace.pass_hist_p1.unsafe_ptr(),
-        workspace.pass_hist_p2.unsafe_ptr(),
-        workspace.pass_hist_p3.unsafe_ptr(),
-        workspace.pass_hist_p4.unsafe_ptr(),
-    ]
 
     # 1. Global Histogram
     comptime _ghist = global_histogram[
@@ -598,11 +538,9 @@ def device_radix_sort_onesweep_pairs[
     comptime _scan = scan_global
     ctx.enqueue_function[_scan, _scan](
         workspace.global_hist.unsafe_ptr(),
-        pass_hist[0],
-        pass_hist[1],
-        pass_hist[2],
-        pass_hist[3],
-        grid_dim=4,
+        workspace.pass_hist.unsafe_ptr(),
+        hist_blocks,
+        grid_dim=NUM_PASSES,
         block_dim=RADIX,
     )
 
@@ -623,14 +561,16 @@ def device_radix_sort_onesweep_pairs[
         values.unsafe_ptr(), workspace.alt_vals.unsafe_ptr()
     )
 
-    comptime for pass_idx in range(4):
+    comptime for pass_idx in range(NUM_PASSES):
         comptime radix_shift = UInt32(pass_idx * 8)
+        var pass_hist_offset = pass_idx * hist_blocks * RADIX
+        var pass_hist_ptr = workspace.pass_hist.unsafe_ptr() + pass_hist_offset
         ctx.enqueue_function[_bin, _bin](
             db_keys.current,
             db_vals.current,
             db_keys.alternate,
             db_vals.alternate,
-            pass_hist[pass_idx],
+            pass_hist_ptr,
             workspace.index.unsafe_ptr(),
             size,
             radix_shift,

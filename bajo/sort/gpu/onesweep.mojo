@@ -103,10 +103,8 @@ def global_histogram[
 
 def scan_global(
     global_hist: UnsafePointer[UInt32, MutAnyOrigin],
-    first_pass: UnsafePointer[UInt32, MutAnyOrigin],
-    sec_pass: UnsafePointer[UInt32, MutAnyOrigin],
-    third_pass: UnsafePointer[UInt32, MutAnyOrigin],
-    fourth_pass: UnsafePointer[UInt32, MutAnyOrigin],
+    pass_hist: UnsafePointer[UInt32, MutAnyOrigin],
+    hist_blocks: Int,
 ):
     comptime RADIX = 256
     var tid = thread_idx.x
@@ -140,14 +138,8 @@ def scan_global(
 
     out_val = (out_val << 2) | FLAG_INCLUSIVE
 
-    if bid == 0:
-        first_pass[tid] = out_val
-    elif bid == 1:
-        sec_pass[tid] = out_val
-    elif bid == 2:
-        third_pass[tid] = out_val
-    elif bid == 3:
-        fourth_pass[tid] = out_val
+    var offset = bid * hist_blocks * RADIX
+    pass_hist[offset + tid] = out_val
 
 
 def digit_binning[
@@ -375,31 +367,26 @@ struct OneSweepWorkspace[
     var alt_keys: DeviceBuffer[Self.keys_dtype]
     var alt_vals: DeviceBuffer[Self.vals_dtype]
     var global_hist: DeviceBuffer[DType.uint32]
-    var pass_hist_p1: DeviceBuffer[DType.uint32]
-    var pass_hist_p2: DeviceBuffer[DType.uint32]
-    var pass_hist_p3: DeviceBuffer[DType.uint32]
-    var pass_hist_p4: DeviceBuffer[DType.uint32]
+    var pass_hist: DeviceBuffer[DType.uint32]
     var index: DeviceBuffer[DType.uint32]
 
     def __init__(out self, ctx: DeviceContext, size: Int) raises:
         comptime RADIX = 256
         comptime BIN_PART_SIZE = Self.BLOCK_SIZE * Self.KEYS_PER_THREAD
+        comptime NUM_PASSES = bit_width_of[Self.keys_dtype]() // 8
 
         var binning_blocks = ceildiv(size, BIN_PART_SIZE)
-
         var hist_blocks = binning_blocks + 1
 
         self.alt_keys = ctx.enqueue_create_buffer[Self.keys_dtype](size)
         self.alt_vals = ctx.enqueue_create_buffer[Self.vals_dtype](size)
-
-        self.global_hist = ctx.enqueue_create_buffer[DType.uint32](RADIX * 4)
-        var N = hist_blocks * RADIX
-        self.pass_hist_p1 = ctx.enqueue_create_buffer[DType.uint32](N)
-        self.pass_hist_p2 = ctx.enqueue_create_buffer[DType.uint32](N)
-        self.pass_hist_p3 = ctx.enqueue_create_buffer[DType.uint32](N)
-        self.pass_hist_p4 = ctx.enqueue_create_buffer[DType.uint32](N)
-
-        self.index = ctx.enqueue_create_buffer[DType.uint32](4)
+        self.global_hist = ctx.enqueue_create_buffer[DType.uint32](
+            RADIX * NUM_PASSES
+        )
+        self.pass_hist = ctx.enqueue_create_buffer[DType.uint32](
+            hist_blocks * RADIX * NUM_PASSES
+        )
+        self.index = ctx.enqueue_create_buffer[DType.uint32](NUM_PASSES)
 
 
 def device_radix_sort_onesweep_keys[
@@ -425,22 +412,13 @@ def device_radix_sort_onesweep_keys[
     comptime VEC_WIDTH = 4
 
     var binning_blocks = ceildiv(size, BIN_PART_SIZE)
+    var hist_blocks = binning_blocks + 1
     var g_hist_blocks = ceildiv(size, G_HIST_PART_SIZE)
 
     workspace.index.enqueue_fill(0)
     workspace.global_hist.enqueue_fill(0)
-    workspace.pass_hist_p1.enqueue_fill(0)
-    workspace.pass_hist_p2.enqueue_fill(0)
-    workspace.pass_hist_p3.enqueue_fill(0)
-    workspace.pass_hist_p4.enqueue_fill(0)
+    workspace.pass_hist.enqueue_fill(0)
     ctx.synchronize()
-
-    var pass_hist: InlineArray[UnsafePointer[UInt32, MutAnyOrigin], 4] = [
-        workspace.pass_hist_p1.unsafe_ptr(),
-        workspace.pass_hist_p2.unsafe_ptr(),
-        workspace.pass_hist_p3.unsafe_ptr(),
-        workspace.pass_hist_p4.unsafe_ptr(),
-    ]
 
     # 1. Global Histogram
     comptime _ghist = global_histogram[
@@ -462,11 +440,9 @@ def device_radix_sort_onesweep_keys[
     comptime _scan = scan_global
     ctx.enqueue_function[_scan, _scan](
         workspace.global_hist.unsafe_ptr(),
-        pass_hist[0],
-        pass_hist[1],
-        pass_hist[2],
-        pass_hist[3],
-        grid_dim=4,
+        workspace.pass_hist.unsafe_ptr(),
+        hist_blocks,
+        grid_dim=NUM_PASSES,
         block_dim=RADIX,
     )
 
@@ -485,16 +461,19 @@ def device_radix_sort_onesweep_keys[
         keys.unsafe_ptr(), workspace.alt_keys.unsafe_ptr()
     )
 
-    for pass_idx in range(4):
+    comptime for pass_idx in range(NUM_PASSES):
+        comptime radix_shift = UInt32(pass_idx * 8)
+        var pass_hist_offset = pass_idx * hist_blocks * RADIX
+        var pass_hist_ptr = workspace.pass_hist.unsafe_ptr() + pass_hist_offset
         ctx.enqueue_function[_bin, _bin](
             db_keys.current,
             dummy_v_ptr,
             db_keys.alternate,
             dummy_v_ptr,
-            pass_hist[pass_idx],
+            pass_hist_ptr,
             workspace.index.unsafe_ptr(),
             size,
-            UInt32(pass_idx * 8),
+            radix_shift,
             grid_dim=binning_blocks,
             block_dim=512,
         )
@@ -531,22 +510,13 @@ def device_radix_sort_onesweep_pairs[
     comptime VEC_WIDTH = 4
 
     var binning_blocks = ceildiv(size, BIN_PART_SIZE)
+    var hist_blocks = binning_blocks + 1
     var g_hist_blocks = ceildiv(size, G_HIST_PART_SIZE)
 
     workspace.index.enqueue_fill(0)
     workspace.global_hist.enqueue_fill(0)
-    workspace.pass_hist_p1.enqueue_fill(0)
-    workspace.pass_hist_p2.enqueue_fill(0)
-    workspace.pass_hist_p3.enqueue_fill(0)
-    workspace.pass_hist_p4.enqueue_fill(0)
+    workspace.pass_hist.enqueue_fill(0)
     ctx.synchronize()
-
-    var pass_hist: InlineArray[UnsafePointer[UInt32, MutAnyOrigin], 4] = [
-        workspace.pass_hist_p1.unsafe_ptr(),
-        workspace.pass_hist_p2.unsafe_ptr(),
-        workspace.pass_hist_p3.unsafe_ptr(),
-        workspace.pass_hist_p4.unsafe_ptr(),
-    ]
 
     # 1. Global Histogram
     comptime _ghist = global_histogram[
@@ -568,11 +538,9 @@ def device_radix_sort_onesweep_pairs[
     comptime _scan = scan_global
     ctx.enqueue_function[_scan, _scan](
         workspace.global_hist.unsafe_ptr(),
-        pass_hist[0],
-        pass_hist[1],
-        pass_hist[2],
-        pass_hist[3],
-        grid_dim=4,
+        workspace.pass_hist.unsafe_ptr(),
+        hist_blocks,
+        grid_dim=NUM_PASSES,
         block_dim=RADIX,
     )
 
@@ -595,12 +563,14 @@ def device_radix_sort_onesweep_pairs[
 
     comptime for pass_idx in range(NUM_PASSES):
         comptime radix_shift = UInt32(pass_idx * 8)
+        var pass_hist_offset = pass_idx * hist_blocks * RADIX
+        var pass_hist_ptr = workspace.pass_hist.unsafe_ptr() + pass_hist_offset
         ctx.enqueue_function[_bin, _bin](
             db_keys.current,
             db_vals.current,
             db_keys.alternate,
             db_vals.alternate,
-            pass_hist[pass_idx],
+            pass_hist_ptr,
             workspace.index.unsafe_ptr(),
             size,
             radix_shift,

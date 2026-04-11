@@ -222,9 +222,12 @@ scratch.md
 *.ppm
 2_next_week
 rtiaw
+gpu_sort_benchmark_plot.png
+gpu_sort_benchmark_results.csv
 
 sources/*
 assets/*
 
 *.h
 *.cu
+*.cuh

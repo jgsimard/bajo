@@ -140,7 +140,9 @@ def main() raises:
     data = AABBBenchmarkData()
     print("Benchmarking AABB Transform (apply_trs) - Elements:", num_elements)
 
-    def bench[f: def(AABB, Vec3f32, Quat, Vec3f32) -> AABB]() capturing raises:
+    def bench[
+        f: def(AABB, Vec3f32, Quat, Vec3f32) thin -> AABB
+    ]() capturing raises:
         def wrapper() raises capturing:
             for i in range(num_elements):
                 data.dst[i] = f(
@@ -154,7 +156,6 @@ def main() raises:
         report = run[wrapper](max_iters=200)
         avg_time = report.mean(Unit.us)
         name = get_function_name[f]()
-        # name = "Naive (Loop)    " if version == 0 else "Naive (comptime)" if version == 1 else "Arvo (Vector)   "
         throughput = round(num_elements / avg_time, 1)
         mops = round(avg_time, 2)
         print(t"{name}| Throughput:{throughput}, Mops/s | Avg: {mops} us")

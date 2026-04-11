@@ -148,8 +148,8 @@ def bitonic_sort_shared[
         values[gid] = shared_values[tid]
 
 
-def bitonic_sort[
-    keys_dtype: DType, vals_dtype: DType, //, THREADS_PER_BLOCK: Int = 256
+def bitonic_sort_pairs[
+    keys_dtype: DType, vals_dtype: DType, //, THREADS_PER_BLOCK: Int = 512
 ](
     ctx: DeviceContext,
     keys: DeviceBuffer[keys_dtype],
@@ -243,7 +243,7 @@ def bitonic_sort_step[
                 swap(values[gid], values[ixj])
 
 
-def bitonic_sort_basic[
+def naive_bitonic_sort_pairs[
     keys_dtype: DType, vals_dtype: DType, //, THREADS_PER_BLOCK: Int = 256
 ](
     ctx: DeviceContext,

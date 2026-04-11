@@ -441,7 +441,7 @@ def basic_bench[
     layout: Layout,
     system: system_fn[dtype, layout],
     //,
-    setup_func: def() -> ODEProblem[system],
+    setup_func: def() thin -> ODEProblem[system],
 ]() raises:
     def bench_fn() raises:
         prob = setup_func()

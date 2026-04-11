@@ -3,15 +3,19 @@ from std.gpu import global_idx
 from std.gpu.host import DeviceContext, DeviceBuffer
 from std.math import ceildiv
 
-from bajo.sort.gpu import bitonic_sort, bitonic_sort_basic
+from bajo.sort.gpu import gpu_sort_pairs
+from bajo.sort.gpu.bitonic_sort import (
+    bitonic_sort_pairs,
+    naive_bitonic_sort_pairs,
+)
 from bajo.sort.gpu.radix_sort import (
     device_radix_sort_pairs,
     device_radix_sort_keys,
     RadixSortWorkspace,
 )
 from bajo.sort.gpu.onesweep import (
-    device_radix_sort_onesweep_pairs,
-    device_radix_sort_onesweep_keys,
+    onesweep_radix_sort_pairs,
+    onesweep_radix_sort_keys,
     OneSweepWorkspace,
 )
 
@@ -86,6 +90,7 @@ def benchmark_sorts_pairs(sizes: List[Int]) raises -> List[List[SortResult]]:
     var opt_results = List[SortResult]()
     var radix_results = List[SortResult]()
     var onesweep_results = List[SortResult]()
+    var merge_results = List[SortResult]()
 
     print("Starting benchmarks for key-value sorting...")
 
@@ -134,14 +139,16 @@ def benchmark_sorts_pairs(sizes: List[Int]) raises -> List[List[SortResult]]:
 
             # Basic Bitonic Sort
             reset_data()
-            bitonic_sort_basic[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
+            naive_bitonic_sort_pairs[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
             ctx.synchronize()
             check_validity(keys, SIZE)
 
             var t0 = perf_counter_ns()
             for _ in range(N_ITERS):
                 reset_data()
-                bitonic_sort_basic[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
+                naive_bitonic_sort_pairs[THREADS_PER_BLOCK](
+                    ctx, keys, values, SIZE
+                )
             ctx.synchronize()
             var basic_ns = (
                 Float64(perf_counter_ns() - t0) - copy_overhead_total
@@ -157,14 +164,14 @@ def benchmark_sorts_pairs(sizes: List[Int]) raises -> List[List[SortResult]]:
 
             # Shared Mem Bitonic Sort
             reset_data()
-            bitonic_sort[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
+            bitonic_sort_pairs[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
             ctx.synchronize()
             check_validity(keys, SIZE)
 
             t0 = perf_counter_ns()
             for _ in range(N_ITERS):
                 reset_data()
-                bitonic_sort[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
+                bitonic_sort_pairs[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
             ctx.synchronize()
             var opt_ns = (
                 Float64(perf_counter_ns() - t0) - copy_overhead_total
@@ -214,7 +221,7 @@ def benchmark_sorts_pairs(sizes: List[Int]) raises -> List[List[SortResult]]:
                 KEYS_PER_THREAD=KEYS_PER_THREAD_ONESWEEP,
             ](ctx, SIZE)
             reset_data()
-            device_radix_sort_onesweep_pairs[
+            onesweep_radix_sort_pairs[
                 BINNING_TPB=TPB, KEYS_PER_THREAD=KEYS_PER_THREAD_ONESWEEP
             ](ctx, onesweep_ws, keys, values, SIZE)
             ctx.synchronize()
@@ -223,7 +230,7 @@ def benchmark_sorts_pairs(sizes: List[Int]) raises -> List[List[SortResult]]:
             t0 = perf_counter_ns()
             for _ in range(N_ITERS):
                 reset_data()
-                device_radix_sort_onesweep_pairs[
+                onesweep_radix_sort_pairs[
                     BINNING_TPB=TPB, KEYS_PER_THREAD=KEYS_PER_THREAD_ONESWEEP
                 ](ctx, onesweep_ws, keys, values, SIZE)
             ctx.synchronize()
@@ -238,10 +245,34 @@ def benchmark_sorts_pairs(sizes: List[Int]) raises -> List[List[SortResult]]:
                     "Onesweep_Pairs",
                 )
             )
+
+            # SMEM bitonic sort + OneSweep
+            reset_data()
+            gpu_sort_pairs(ctx, keys, values, SIZE)
+            ctx.synchronize()
+            check_validity(keys, SIZE)
+
+            t0 = perf_counter_ns()
+            for _ in range(N_ITERS):
+                reset_data()
+                gpu_sort_pairs(ctx, keys, values, SIZE)
+            ctx.synchronize()
+            var merge_ns = (
+                Float64(perf_counter_ns() - t0) - copy_overhead_total
+            ) / N_ITERS
+            merge_results.append(
+                SortResult(
+                    SIZE,
+                    merge_ns / 1e6,
+                    Float64(SIZE) / merge_ns,
+                    "Onesweep_Pairs",
+                )
+            )
     print_results_table("Basic Bitonic Sort (Pairs)", basic_results)
     print_results_table("Shared Mem Bitonic Sort (Pairs)", opt_results)
     print_results_table("Radix Sort (Pairs)", radix_results)
     print_results_table("OneSweep Radix Sort (Pairs)", onesweep_results)
+    print_results_table("SMEM Bitonic + Onesweep Sort (Pairs)", merge_results)
 
     return [basic_results^, opt_results^, radix_results^, onesweep_results^]
 
@@ -318,7 +349,7 @@ def benchmark_sort_key(sizes: List[Int]) raises -> List[List[SortResult]]:
                 BLOCK_SIZE=TPB,
                 KEYS_PER_THREAD=KEYS_PER_THREAD_ONESWEEP,
             ](ctx, SIZE)
-            device_radix_sort_onesweep_keys[
+            onesweep_radix_sort_keys[
                 BINNING_TPB=TPB, KEYS_PER_THREAD=KEYS_PER_THREAD_ONESWEEP
             ](ctx, onesweep_ws, keys, SIZE)
             ctx.synchronize()
@@ -333,7 +364,7 @@ def benchmark_sort_key(sizes: List[Int]) raises -> List[List[SortResult]]:
             t0 = perf_counter_ns()
             for _ in range(N_ITERS):
                 reset_data()
-                device_radix_sort_onesweep_keys[
+                onesweep_radix_sort_keys[
                     BINNING_TPB=TPB, KEYS_PER_THREAD=KEYS_PER_THREAD_ONESWEEP
                 ](ctx, onesweep_ws, keys, SIZE)
             ctx.synchronize()
@@ -373,14 +404,15 @@ def main() raises:
         1 << 16,
         1 << 18,
         1 << 20,
-        1 << 22,
-        1 << 24,
-        1 << 26,
-        1 << 28,
+        # 1 << 22,
+        # 1 << 24,
+        # 1 << 26,
+        # 1 << 28,
     ]
     res = benchmark_sorts_pairs(sizes)
-    res_keys = benchmark_sort_key(sizes)
-    res.extend(res_keys^)
+    # res_keys = benchmark_sort_key(sizes)
+    # res.extend(res_keys^)
+    # res = benchmark_sort_key(sizes)
 
     save_results_csv("gpu_sort_benchmark_results.csv", res)
 

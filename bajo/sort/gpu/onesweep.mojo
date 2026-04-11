@@ -389,7 +389,7 @@ struct OneSweepWorkspace[
         self.index = ctx.enqueue_create_buffer[DType.uint32](NUM_PASSES)
 
 
-def device_radix_sort_onesweep_keys[
+def onesweep_radix_sort_keys[
     keys_dtype: DType, *, KEYS_PER_THREAD: Int, BINNING_TPB: Int
 ](
     ctx: DeviceContext,
@@ -482,7 +482,7 @@ def device_radix_sort_onesweep_keys[
     ctx.synchronize()
 
 
-def device_radix_sort_onesweep_pairs[
+def onesweep_radix_sort_pairs[
     keys_dtype: DType,
     vals_dtype: DType,
     *,
@@ -581,3 +581,24 @@ def device_radix_sort_onesweep_pairs[
         db_vals.swap()
 
     ctx.synchronize()
+
+
+def onesweep_radix_sort_pairs[
+    keys_dtype: DType, vals_dtype: DType
+](
+    ctx: DeviceContext,
+    mut keys: DeviceBuffer[keys_dtype],
+    mut values: DeviceBuffer[vals_dtype],
+    size: Int,
+) raises:
+    comptime BLOCK_SIZE = 512
+    comptime KEYS_PER_THREAD = 15
+    var workspace = OneSweepWorkspace[
+        keys_dtype,
+        vals_dtype,
+        BLOCK_SIZE=BLOCK_SIZE,
+        KEYS_PER_THREAD=KEYS_PER_THREAD,
+    ](ctx, size)
+    onesweep_radix_sort_pairs[
+        BINNING_TPB=BLOCK_SIZE, KEYS_PER_THREAD=KEYS_PER_THREAD
+    ](ctx, workspace, keys, values, size)

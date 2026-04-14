@@ -51,14 +51,14 @@ def quat_mul_1(q1: Quat, q2: Quat) -> Quat:
 
 
 struct BenchmarkData(Copyable):
-    var src_a: List[Quat]
-    var src_b: List[Quat]
-    var dst: List[Quat]
+    var src_a: UnsafePointer[Quat, MutAnyOrigin]
+    var src_b: UnsafePointer[Quat, MutAnyOrigin]
+    var dst: UnsafePointer[Quat, MutAnyOrigin]
 
     def __init__(out self):
-        self.src_a = List[Quat](length=num_elements, fill=Quat.identity())
-        self.src_b = List[Quat](length=num_elements, fill=Quat.identity())
-        self.dst = List[Quat](length=num_elements, fill=Quat.identity())
+        self.src_a = alloc[Quat](num_elements)
+        self.src_b = alloc[Quat](num_elements)
+        self.dst = alloc[Quat](num_elements)
         rng = PhiloxRNG(123, 123)
 
         for i in range(num_elements):
@@ -68,6 +68,11 @@ struct BenchmarkData(Copyable):
             self.src_b[i] = Quat.from_axis_angle(
                 Vec3f32(0, 1, 0), rng.next_f32()
             )
+
+    def __del__(deinit self):
+        self.src_a.free()
+        self.src_b.free()
+        self.dst.free()
 
 
 @always_inline
@@ -86,24 +91,19 @@ def main() raises:
     def bench_throughput[version: Int]() raises:
         data = BenchmarkData()
 
+        # bounds checking makes this benchmars 3X slower !
         def wrapper() raises capturing:
             for i in range(num_elements):
                 data.dst[i] = dispatch_mul[version](
-                    data.src_a[i], (data.src_b[i])
+                    data.src_a[i], data.src_b[i]
                 )
             keep(data.dst[0].data)
 
         report = run[func3=wrapper](max_iters=1000)
-        avg_time_us = report.mean(Unit.us)
-        mops = num_elements / avg_time_us
+        avg_time_us = round(report.mean(Unit.us), 2)
+        mops = round(num_elements / avg_time_us, 2)
 
-        print(
-            "Throughput:",
-            round(mops, 2),
-            "Mops/s | Avg Time:",
-            round(avg_time_us, 2),
-            "us",
-        )
+        print(t"Throughput: {mops} Mops/s | Avg Time: {avg_time_us} us")
 
     bench_throughput[1]()
     # bench_throughput[2]()

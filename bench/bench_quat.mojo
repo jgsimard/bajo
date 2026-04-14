@@ -6,7 +6,7 @@ from std.math import fma
 
 from bajo.core.quat import Quat
 from bajo.core.utils import degrees_to_radians
-from bajo.core.random import PhiloxRNG
+from bajo.core.random import Rng
 from bajo.core.vec import Vec3f32
 
 comptime f32 = DType.float32
@@ -59,15 +59,11 @@ struct BenchmarkData(Copyable):
         self.src_a = alloc[Quat](num_elements)
         self.src_b = alloc[Quat](num_elements)
         self.dst = alloc[Quat](num_elements)
-        rng = PhiloxRNG(123, 123)
+        rng = Rng(123, 123)
 
         for i in range(num_elements):
-            self.src_a[i] = Quat.from_axis_angle(
-                Vec3f32(1, 0, 0), rng.next_f32()
-            )
-            self.src_b[i] = Quat.from_axis_angle(
-                Vec3f32(0, 1, 0), rng.next_f32()
-            )
+            self.src_a[i] = Quat.from_axis_angle(Vec3f32(1, 0, 0), rng.f32())
+            self.src_b[i] = Quat.from_axis_angle(Vec3f32(0, 1, 0), rng.f32())
 
     def __del__(deinit self):
         self.src_a.free()

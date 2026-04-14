@@ -12,8 +12,8 @@ bench_quat = "mojo -I. bench/bench_quat.mojo"
 bench_aabb = "mojo -I. bench/bench_aabb.mojo"
 
 [dependencies]
-mojo = ">=0.26.3.0.dev2026041105,<0.27"
-max = ">=26.3.0.dev2026041105,<27"
+mojo = ">=0.26.3.0.dev2026041305,<0.27"
+max = ">=26.3.0.dev2026041305,<27"
 python = ">=3.14.4,<3.15"
 suitesparsegetpy = ">=0.1.1,<0.2"
 polars = ">=1.39.3,<2"

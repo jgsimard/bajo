@@ -31,7 +31,7 @@ from bajo.core.random import (
     # random_on_hemisphere_simd as random_on_hemisphere,
     # random_in_unit_disk_simd as random_in_unit_disk,
     # random_in_unit_sphere_simd as random_in_unit_sphere,
-    PhiloxRNG,
+    Rng,
 )
 
 comptime Point3 = Vec3f32
@@ -527,7 +527,7 @@ struct Camera(Copyable):
         self.defocus_disk_u = self.u * defocus_radius
         self.defocus_disk_v = self.v * defocus_radius
 
-    def ray_color(self, ray: Ray, world: BVH, mut rng: PhiloxRNG) -> Color:
+    def ray_color(self, ray: Ray, world: BVH, mut rng: Rng) -> Color:
         var cur_ray = ray.copy()
         var accumulated_attenuation = Color(1.0, 1.0, 1.0)
 
@@ -585,7 +585,7 @@ struct Camera(Copyable):
 
         @parameter
         def worker(j: Int):
-            rng = PhiloxRNG(seed=123, id=UInt64(j))
+            rng = Rng(seed=123, id=UInt64(j))
             factor = Float32(1.0 / Float32(self.samples_per_pixel))
             for i in range(self.image_width):
                 var pixel_color = Color(0)
@@ -603,9 +603,9 @@ struct Camera(Copyable):
             for color in image_data:
                 write_color(f, color)
 
-    def get_ray(self, i: Int, j: Int, mut rng: PhiloxRNG) -> Ray:
-        var r1 = rng.next_f32()
-        var r2 = rng.next_f32()
+    def get_ray(self, i: Int, j: Int, mut rng: Rng) -> Ray:
+        var r1 = rng.f32()
+        var r2 = rng.f32()
         offset = Vec2f32(r1, r2)
         var pixel_sample = (
             self.pixel00_loc
@@ -618,11 +618,11 @@ struct Camera(Copyable):
             <= 0 else self.defocus_disk_sample(rng)
         )
         direction = pixel_sample - origin
-        time = rng.next_f32()
+        time = rng.f32()
 
         return Ray(origin, direction, time)
 
-    def defocus_disk_sample(self, mut rng: PhiloxRNG) -> Vec3f32:
+    def defocus_disk_sample(self, mut rng: Rng) -> Vec3f32:
         """Returns a random point in the camera defocus disk."""
         p = random_in_unit_disk(rng)
         return (
@@ -649,7 +649,7 @@ def refract[
 
 trait Material(Copyable):
     def scatter(
-        self, ray: Ray, hit: HitRecord, mut rng: PhiloxRNG
+        self, ray: Ray, hit: HitRecord, mut rng: Rng
     ) -> Optional[Tuple[Ray, Color]]:
         ...
 
@@ -662,7 +662,7 @@ struct Lambertian(Material, Writable):
     var albedo: Vec3f32
 
     def scatter(
-        self, ray: Ray, hit: HitRecord, mut rng: PhiloxRNG
+        self, ray: Ray, hit: HitRecord, mut rng: Rng
     ) -> Optional[Tuple[Ray, Color]]:
         var scatter_direction = hit.normal + random_unit_vector(rng)
 
@@ -680,7 +680,7 @@ struct Metal(Material, Writable):
     var fuzz: Float32
 
     def scatter(
-        self, ray: Ray, hit: HitRecord, mut rng: PhiloxRNG
+        self, ray: Ray, hit: HitRecord, mut rng: Rng
     ) -> Optional[Tuple[Ray, Color]]:
         reflected = reflect(ray.direction, hit.normal)
         reflected = normalize(reflected) + (self.fuzz * random_unit_vector(rng))
@@ -697,7 +697,7 @@ struct Dielectric(Material, Writable):
     var refraction_index: Float32
 
     def scatter(
-        self, ray: Ray, hit: HitRecord, mut rng: PhiloxRNG
+        self, ray: Ray, hit: HitRecord, mut rng: Rng
     ) -> Optional[Tuple[Ray, Color]]:
         attenuation = Color(1)
         ri = (
@@ -713,7 +713,7 @@ struct Dielectric(Material, Writable):
         var direction: Vec3f32
 
         # total internal reflection
-        var _rng = rng.next_f32()
+        var _rng = rng.f32()
         if cannot_refract or reflectance(cos_theta, ri) > _rng:
             direction = reflect(unit_direction, hit.normal)
         else:
@@ -743,7 +743,7 @@ def reflectance[
 
 
 def create_random_scene() -> Scene:
-    rng = PhiloxRNG(123, 321)
+    rng = Rng(123, 321)
     materials = List[MaterialVariant]()
     objects = List[HittableVariant]()
 
@@ -754,35 +754,28 @@ def create_random_scene() -> Scene:
     # Random small spheres
     for a in range(-11, 11):
         for b in range(-11, 11):
-            var choose_mat = rng.next_f32()
+            var choose_mat = rng.f32()
             center = Point3(
-                Float32(a) + 0.9 * rng.next_f32(),
+                Float32(a) + 0.9 * rng.f32(),
                 0.2,
-                Float32(b) + 0.9 * rng.next_f32(),
+                Float32(b) + 0.9 * rng.f32(),
             )
 
             if length(center - Point3(4, 0.2, 0)) > 0.9:
                 if choose_mat < 0.8:
                     # Diffuse (Lambertian)
-                    vr1 = Vec3f32(
-                        rng.next_f32(), rng.next_f32(), rng.next_f32()
-                    )
-                    vr2 = Vec3f32(
-                        rng.next_f32(), rng.next_f32(), rng.next_f32()
-                    )
+                    vr1 = Vec3f32(rng.f32(), rng.f32(), rng.f32())
+                    vr2 = Vec3f32(rng.f32(), rng.f32(), rng.f32())
                     albedo = vr1 * vr2
                     materials.append(Lambertian(albedo^))
-                    var center_dir = Vec3f32(0, rng.next_f32() * 0.5, 0)
+                    var center_dir = Vec3f32(0, rng.f32() * 0.5, 0)
                     var center_ray = Ray(center, center_dir, 0.2)
                     objects.append(Sphere(center_ray^, 0.2, len(materials) - 1))
 
                 elif choose_mat < 0.95:
                     # Metal
-                    albedo = (
-                        Vec3f32(rng.next_f32(), rng.next_f32(), rng.next_f32())
-                        + 0.5
-                    )
-                    fuzz = rng.next_f32() * 0.5
+                    albedo = Vec3f32(rng.f32(), rng.f32(), rng.f32()) + 0.5
+                    fuzz = rng.f32() * 0.5
                     materials.append(Metal(albedo^, fuzz))
                     objects.append(Sphere(center, 0.2, len(materials) - 1))
 

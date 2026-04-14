@@ -8,7 +8,10 @@ from std.testing import (
 )
 from std.gpu.host import DeviceContext
 
-from bajo.sort.gpu import bitonic_sort, bitonic_sort_basic
+from bajo.sort.gpu.bitonic_sort import (
+    naive_bitonic_sort_pairs,
+    bitonic_sort_pairs,
+)
 
 
 def test_bitonic_sort_shared() raises:
@@ -35,7 +38,7 @@ def test_bitonic_sort_shared() raises:
             host_keys[7] = 23; host_values[7] = 7
             # fmt: on
 
-        bitonic_sort(ctx, keys, values, SIZE)
+        bitonic_sort_pairs(ctx, keys, values, SIZE)
 
         ctx.synchronize()
 
@@ -82,7 +85,7 @@ def test_bitonic_sort_basic() raises:
             host_keys[7] = 23; host_values[7] = 7
             # fmt: on
 
-        bitonic_sort_basic(ctx, keys, values, SIZE)
+        naive_bitonic_sort_pairs(ctx, keys, values, SIZE)
 
         ctx.synchronize()
 

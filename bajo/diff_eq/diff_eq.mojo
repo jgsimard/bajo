@@ -457,10 +457,10 @@ def main() raises:
     lorenz_prob = setup_lorenz_problem()
     result = solve(lorenz_prob, dt=lorenz_prob.dt)
     print("Final State:", result)
-    basic_bench[setup_lorenz_problem]()
+    basic_bench[system=lorenz, setup_func=setup_lorenz_problem]()
 
     print("Gray-Scott")
     gs_prob = setup_gray_scott_problem()
     result_gs = solve(gs_prob, dt=gs_prob.dt)
     print("Final State at center:", result_gs[GS_N // 2, GS_N // 2, 0])
-    basic_bench[setup_gray_scott_problem]()
+    basic_bench[system=gray_scott_system, setup_gray_scott_problem]()

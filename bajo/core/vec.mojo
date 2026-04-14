@@ -132,7 +132,9 @@ struct Vec[dtype: DType, size: Int](Copyable, Equatable, Roundable, Writable):
 
     # accessors
     @always_inline
-    def __getitem_param__[idx: Int](ref self) -> ref[self.data] Self.S:
+    def __getitem_param__[
+        idx: Some[Indexer]
+    ](ref self) -> ref[self.data] Self.S:
         """With compile-time bounds checking."""
         return self.data[idx]
 

@@ -8,7 +8,7 @@ from bajo.core.mat import Mat33f32
 from bajo.core.vec import vmin, vmax, Vec3f32
 from bajo.core.quat import Quat
 from bajo.core.aabb import AABB
-from bajo.core.random import PhiloxRNG
+from bajo.core.random import Rng
 
 
 comptime num_elements = 100_000
@@ -116,17 +116,17 @@ struct AABBBenchmarkData:
         self.rotations = alloc[Quat](num_elements)
         self.scales = alloc[Vec3f32](num_elements)
         self.dst = alloc[AABB](num_elements)
-        rng = PhiloxRNG(123, 123)
+        rng = Rng(123, 123)
 
         for i in range(num_elements):
             self.boxes[i] = AABB(Vec3f32(-1), Vec3f32(1))
-            self.translations[i] = rng.next_Vec3f32()
+            self.translations[i] = rng.vec3f32()
             self.rotations[i] = Quat.from_axis_angle(
                 Vec3f32(0, 1, 0),
-                rng.next_f32(),
+                rng.f32(),
             )
 
-            self.scales[i] = rng.next_Vec3f32()
+            self.scales[i] = rng.vec3f32()
 
     def __del__(deinit self):
         self.boxes.free()

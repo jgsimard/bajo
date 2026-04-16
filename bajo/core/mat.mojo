@@ -311,7 +311,7 @@ struct Mat[
 
         for i in range(Self.rows):
             for j in range(Self.cols):
-                l = len(String(self[i][j]))
+                l = String(self[i][j]).byte_length()
                 if l > col_widths[j]:
                     col_widths[j] = l
 
@@ -325,7 +325,7 @@ struct Mat[
                 s = String(self[i][j])
 
                 # Right-align based on column width
-                padding = col_widths[j] - len(s)
+                padding = col_widths[j] - s.byte_length()
                 for _ in range(padding):
                     res += " "
                 res += s

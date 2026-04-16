@@ -15,7 +15,7 @@ from bajo.core.vec import (
 def closest_point_to_aabb[
     dtype: DType
 ](p: Vec3[dtype], lower: Vec3[dtype], upper: Vec3[dtype]) -> Vec3[dtype]:
-    c_array = InlineArray[Scalar[dtype], 3](uninitialized=True)
+    c = Vec3[dtype](uninitialized=True)
     v: Scalar[dtype]
 
     # X component
@@ -24,7 +24,7 @@ def closest_point_to_aabb[
         v = lower[0]
     if v > upper[0]:
         v = upper[0]
-    c_array[0] = v
+    c[0] = v
 
     # Y component
     v = p[1]
@@ -32,7 +32,7 @@ def closest_point_to_aabb[
         v = lower[1]
     if v > upper[1]:
         v = upper[1]
-    c_array[1] = v
+    c[1] = v
 
     # Z component
     v = p[2]
@@ -40,9 +40,9 @@ def closest_point_to_aabb[
         v = lower[2]
     if v > upper[2]:
         v = upper[2]
-    c_array[2] = v
+    c[2] = v
 
-    return Vec3[dtype](c_array^)
+    return c^
 
 
 def closest_point_to_triangle[
@@ -181,8 +181,7 @@ def intersect_aabb_aabb[
         or a_upper[2] < b_lower[2]
     ):
         return False
-    else:
-        return True
+    return True
 
 
 # Moller and Trumbore's method
@@ -299,8 +298,7 @@ def intersect_ray_tri_rtcd[
     if normal:
         normal[] = n.copy()
 
-    # Note: sign was in the signature but not assigned in your C++ snippet.
-    # If you want to match the Moller version, you'd add: sign = d
+    sign = d
 
     return True
 
@@ -318,7 +316,6 @@ def diff_product[
     cd = c * d
     diff = fma(a, b, -cd)
     error = fma(-c, d, cd)
-
     return diff + error
 
 
@@ -409,8 +406,7 @@ def intersect_ray_tri_woop[
     Cz = Sz * C[kz]
     T = U * Az + V * Bz + W * Cz
 
-    # Sign check: replacing xorf(T, det_sign) < 0.0 with (T * det < 0.0)
-    # This is numerically equivalent for checking if T and det have different signs
+    # Sign check
     if T * det < 0.0:
         return False
 
@@ -559,7 +555,7 @@ def coplanar_tri_tri[
 
 
 @fieldwise_init
-struct Intervals[dtype: DType](Copyable):
+struct Intervals[dtype: DType](Movable):
     var a: Scalar[Self.dtype]
     var b: Scalar[Self.dtype]
     var c: Scalar[Self.dtype]
@@ -591,7 +587,7 @@ def get_intervals[
             d2 - d1,
             False,
         )
-    elif d0d2 > 0.0:
+    if d0d2 > 0.0:
         return Intervals(
             vv1,
             (vv0 - vv1) * d1,
@@ -600,7 +596,7 @@ def get_intervals[
             d1 - d2,
             False,
         )
-    elif (d1 * d2 > 0.0) or (d0 != 0.0):
+    if (d1 * d2 > 0.0) or (d0 != 0.0):
         return Intervals(
             vv0,
             (vv1 - vv0) * d0,
@@ -609,7 +605,7 @@ def get_intervals[
             d0 - d2,
             False,
         )
-    elif d1 != 0.0:
+    if d1 != 0.0:
         return Intervals(
             vv1,
             (vv0 - vv1) * d1,
@@ -618,7 +614,7 @@ def get_intervals[
             d1 - d2,
             False,
         )
-    elif d2 != 0.0:
+    if d2 != 0.0:
         return Intervals(
             vv2,
             (vv0 - vv2) * d2,
@@ -795,7 +791,7 @@ def closest_point_edge_edge[
             if t < 0.0:
                 t = 0.0
                 s = clamp(-c / a, 0.0, 1.0)
-            elif t > 1.0:
+            if t > 1.0:
                 t = 1.0
                 s = clamp((b - c) / a, 0.0, 1.0)
 

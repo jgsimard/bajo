@@ -40,12 +40,10 @@ struct AxisAlignedBoundingBox[dtype: DType, size: Int = 3](Copyable, Writable):
         d = self._max - self._min
         return d.x() * d.y() + d.x() * d.z() + d.y() * d.z()
 
+    comptime area = Self.surface_area
+
     def centroid(self) -> Vec[Self.dtype, Self.size]:
         return (self._min + self._max) * 0.5
-
-    def area(self) -> Scalar[Self.dtype]:
-        diff = self._max - self._min
-        return diff.x() * diff.y() + diff.y() * diff.z() + diff.z() * diff.x()
 
     def clear(mut self):
         comptime _min = min_finite[Self.dtype]()

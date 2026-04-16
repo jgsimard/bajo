@@ -1,3 +1,5 @@
+from std.builtin.device_passable import DevicePassable
+from std.compile import get_type_name
 from std.math import sqrt, min, max, clamp
 from std.sys import CompilationTarget
 from std.testing import assert_almost_equal
@@ -54,14 +56,43 @@ comptime Vec4f64 = Vec4[DType.float64]
 
 
 @fieldwise_init
-struct Vec[dtype: DType, size: Int](Copyable, Equatable, Roundable, Writable):
+struct Vec[dtype: DType, size: Int](
+    Copyable, DevicePassable, Equatable, Roundable, Writable
+):
     # TODO: maybe use psize for SIMD for Vec3 on cpu
     # comptime psize = 4 if Self.size == 3 and CompilationTarget.is_x86() else Self.size
-    comptime S = Scalar[Self.dtype]
-    comptime T = InlineArray[Self.S, Self.size]
+    comptime ElementType = Scalar[Self.dtype]
+    comptime T = InlineArray[Self.ElementType, Self.size]
     var data: Self.T
 
-    def __init__(out self, s: Self.S):
+    comptime device_type: AnyType = Self
+    """The device-side type for this array."""
+
+    def _to_device_type(self, target: MutOpaquePointer[_]):
+        """Convert the host type object to a device_type and store it at the
+        target address.
+
+        Args:
+            target: The target address to store the device type.
+        """
+        target.bitcast[Self.device_type]()[] = self.copy()
+
+    @staticmethod
+    def get_type_name() -> String:
+        """Gets the name of the host type (the one implementing this trait).
+
+        Returns:
+            The host type's name.
+        """
+        return String(
+            "Vec[",
+            get_type_name[Self.ElementType](),
+            ", ",
+            Self.size,
+            "]",
+        )
+
+    def __init__(out self, s: Self.ElementType):
         comptime assert Self.size > 0
         self.data = Self.T(fill=s)
 
@@ -71,25 +102,25 @@ struct Vec[dtype: DType, size: Int](Copyable, Equatable, Roundable, Writable):
 
     def __init__(
         out self: Vec[Self.dtype, 2],
-        x: Self.S,
-        y: Self.S,
+        x: Self.ElementType,
+        y: Self.ElementType,
     ):
         self.data = [x, y]
 
     def __init__(
         out self: Vec[Self.dtype, 3],
-        x: Self.S,
-        y: Self.S,
-        z: Self.S,
+        x: Self.ElementType,
+        y: Self.ElementType,
+        z: Self.ElementType,
     ):
         self.data = [x, y, z]
 
     def __init__(
         out self: Vec[Self.dtype, 4],
-        x: Self.S,
-        y: Self.S,
-        z: Self.S,
-        w: Self.S,
+        x: Self.ElementType,
+        y: Self.ElementType,
+        z: Self.ElementType,
+        w: Self.ElementType,
     ):
         self.data = [x, y, z, w]
 
@@ -100,17 +131,17 @@ struct Vec[dtype: DType, size: Int](Copyable, Equatable, Roundable, Writable):
     ):
         self.data = [v.x(), v.y(), v.z(), w.x(), w.y(), w.z()]
 
-    def x(self) -> Self.S:
+    def x(self) -> Self.ElementType:
         return self.data[0]
 
-    def y(self) -> Self.S:
+    def y(self) -> Self.ElementType:
         return self.data[1]
 
-    def z(self) -> Self.S:
+    def z(self) -> Self.ElementType:
         comptime assert Self.size >= 3
         return self.data[2]
 
-    def w(self) -> Self.S:
+    def w(self) -> Self.ElementType:
         comptime assert Self.size >= 4
         return self.data[3]
 
@@ -134,12 +165,12 @@ struct Vec[dtype: DType, size: Int](Copyable, Equatable, Roundable, Writable):
     @always_inline
     def __getitem_param__[
         idx: Some[Indexer]
-    ](ref self) -> ref[self.data] Self.S:
+    ](ref self) -> ref[self.data] Self.ElementType:
         """With compile-time bounds checking."""
         return self.data[idx]
 
     @always_inline
-    def __getitem__(ref self, idx: Int) -> ref[self.data] Self.S:
+    def __getitem__(ref self, idx: Int) -> ref[self.data] Self.ElementType:
         # return self.data[idx] # bounds checking
         return self.data.unsafe_get(idx)  # no bounds checking
 
@@ -164,31 +195,31 @@ struct Vec[dtype: DType, size: Int](Copyable, Equatable, Roundable, Writable):
         return out^
 
     def __add__(self, other: Self) -> Self:
-        return _vv[Self.S.__add__](self, other)
+        return _vv[Self.ElementType.__add__](self, other)
 
     def __sub__(self, other: Self) -> Self:
-        return _vv[Self.S.__sub__](self, other)
+        return _vv[Self.ElementType.__sub__](self, other)
 
     def __mul__(self, other: Self) -> Self:
-        return _vv[Self.S.__mul__](self, other)
+        return _vv[Self.ElementType.__mul__](self, other)
 
     def __truediv__(self, other: Self) -> Self:
-        return _vv[Self.S.__truediv__](self, other)
+        return _vv[Self.ElementType.__truediv__](self, other)
 
     def __and__(self, other: Self) -> Self:
-        return _vv[Self.S.__and__](self, other)
+        return _vv[Self.ElementType.__and__](self, other)
 
     def __or__(self, other: Self) -> Self:
-        return _vv[Self.S.__or__](self, other)
+        return _vv[Self.ElementType.__or__](self, other)
 
     def __xor__(self, other: Self) -> Self:
-        return _vv[Self.S.__xor__](self, other)
+        return _vv[Self.ElementType.__xor__](self, other)
 
     def __lshift__(self, other: Self) -> Self:
-        return _vv[Self.S.__lshift__](self, other)
+        return _vv[Self.ElementType.__lshift__](self, other)
 
     def __rshift__(self, other: Self) -> Self:
-        return _vv[Self.S.__rshift__](self, other)
+        return _vv[Self.ElementType.__rshift__](self, other)
 
     def __round__(self) -> Self:
         res = Self(uninitialized=True)
@@ -209,51 +240,51 @@ struct Vec[dtype: DType, size: Int](Copyable, Equatable, Roundable, Writable):
         return out^
 
     # Scalar inplace
-    def __iadd__(mut self, s: Self.S):
+    def __iadd__(mut self, s: Self.ElementType):
         comptime for i in range(Self.size):
             self[i] += s
 
-    def __isub__(mut self, s: Self.S):
+    def __isub__(mut self, s: Self.ElementType):
         comptime for i in range(Self.size):
             self[i] -= s
 
-    def __imul__(mut self, s: Self.S):
+    def __imul__(mut self, s: Self.ElementType):
         comptime for i in range(Self.size):
             self[i] *= s
 
     # Scalar methods
-    def __add__(self, s: Self.S) -> Self:
-        return _vs[Self.S.__add__](self, s)
+    def __add__(self, s: Self.ElementType) -> Self:
+        return _vs[Self.ElementType.__add__](self, s)
 
-    def __sub__(self, s: Self.S) -> Self:
-        return _vs[Self.S.__sub__](self, s)
+    def __sub__(self, s: Self.ElementType) -> Self:
+        return _vs[Self.ElementType.__sub__](self, s)
 
-    def __mul__(self, s: Self.S) -> Self:
-        return _vs[Self.S.__mul__](self, s)
+    def __mul__(self, s: Self.ElementType) -> Self:
+        return _vs[Self.ElementType.__mul__](self, s)
 
-    def __rmul__(self, s: Self.S) -> Self:
+    def __rmul__(self, s: Self.ElementType) -> Self:
         return self * s
 
-    def __truediv__(self, s: Self.S) -> Self:
-        return _vs[Self.S.__truediv__](self, s)
+    def __truediv__(self, s: Self.ElementType) -> Self:
+        return _vs[Self.ElementType.__truediv__](self, s)
 
-    def __rtruediv__(self, s: Self.S) -> Self:
-        return _vs[Self.S.__rtruediv__](self, s)
+    def __rtruediv__(self, s: Self.ElementType) -> Self:
+        return _vs[Self.ElementType.__rtruediv__](self, s)
 
-    def __and__(self, s: Self.S) -> Self:
-        return _vs[Self.S.__and__](self, s)
+    def __and__(self, s: Self.ElementType) -> Self:
+        return _vs[Self.ElementType.__and__](self, s)
 
-    def __or__(self, s: Self.S) -> Self:
-        return _vs[Self.S.__or__](self, s)
+    def __or__(self, s: Self.ElementType) -> Self:
+        return _vs[Self.ElementType.__or__](self, s)
 
-    def __xor__(self, s: Self.S) -> Self:
-        return _vs[Self.S.__xor__](self, s)
+    def __xor__(self, s: Self.ElementType) -> Self:
+        return _vs[Self.ElementType.__xor__](self, s)
 
-    def __lshift__(self, s: Self.S) -> Self:
-        return _vs[Self.S.__lshift__](self, s)
+    def __lshift__(self, s: Self.ElementType) -> Self:
+        return _vs[Self.ElementType.__lshift__](self, s)
 
-    def __rshift__(self, s: Self.S) -> Self:
-        return _vs[Self.S.__rshift__](self, s)
+    def __rshift__(self, s: Self.ElementType) -> Self:
+        return _vs[Self.ElementType.__rshift__](self, s)
 
     def __eq__(self, other: Self) -> Bool:
         eq = True
@@ -262,7 +293,7 @@ struct Vec[dtype: DType, size: Int](Copyable, Equatable, Roundable, Writable):
         return eq
 
     # property
-    def is_near_zero[s: Self.S = 1e-8](self) -> Bool:
+    def is_near_zero[s: Self.ElementType = 1e-8](self) -> Bool:
         nz = True
         comptime for i in range(Self.size):
             nz &= abs(self[i]) < s

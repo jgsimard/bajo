@@ -1,7 +1,7 @@
 from std.bit import pop_count, count_trailing_zeros
 from std.gpu import WARP_SIZE, lane_id
 from std.gpu.primitives import warp, block
-from std.os.atomic import Atomic, Consistency
+from std.atomic import Atomic, Consistency
 
 
 @fieldwise_init

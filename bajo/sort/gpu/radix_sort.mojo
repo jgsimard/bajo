@@ -14,7 +14,7 @@ from std.gpu.primitives import warp, block
 from std.gpu.sync import barrier
 from std.math import ceildiv
 from std.memory import stack_allocation
-from std.os.atomic import Atomic, Consistency
+from std.atomic import Atomic, Consistency
 from std.sys.info import bit_width_of
 
 from .utils import DoubleBuffer, circular_shift, warp_level_multi_split

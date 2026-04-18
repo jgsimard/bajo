@@ -1,3 +1,4 @@
+from std.atomic import Atomic, Ordering
 from std.bit import pop_count, count_trailing_zeros
 from std.gpu import (
     thread_idx,
@@ -14,14 +15,11 @@ from std.gpu.sync import barrier
 from std.gpu.intrinsics import load_volatile
 from std.math import ceildiv
 from std.memory import stack_allocation, bitcast
-from std.atomic import Atomic, Ordering
 from std.sys.info import bit_width_of
 
 from .utils import DoubleBuffer, circular_shift, warp_level_multi_split
 
-# Based on OneSweep from https://github.com/b0nes164/GPUSorting
-# Research by Andy Adinets & Duane Merrill (Nvidia Corporation)
-
+comptime ordering = Ordering.RELAXED
 comptime LANE_LOG = count_trailing_zeros(WARP_SIZE)  # 2^5 = 32 => 5
 
 # Flags for Decoupled Look-back
@@ -29,8 +27,6 @@ comptime FLAG_NOT_READY = 0
 comptime FLAG_REDUCTION = 1
 comptime FLAG_INCLUSIVE = 2
 comptime FLAG_MASK = 3
-
-comptime ordering = Ordering.RELAXED
 
 
 def global_histogram[

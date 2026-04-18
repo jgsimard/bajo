@@ -1,3 +1,4 @@
+from std.atomic import Atomic, Ordering
 from std.bit import pop_count, count_trailing_zeros
 from std.gpu import (
     thread_idx,
@@ -14,14 +15,11 @@ from std.gpu.primitives import warp, block
 from std.gpu.sync import barrier
 from std.math import ceildiv
 from std.memory import stack_allocation
-from std.atomic import Atomic, Ordering
 from std.sys.info import bit_width_of
 
 from .utils import DoubleBuffer, circular_shift, warp_level_multi_split
 
-# based on DeviceRadixSort from https://github.com/b0nes164/GPUSorting
-
-
+comptime ordering = Ordering.RELAXED
 comptime LANE_LOG = count_trailing_zeros(WARP_SIZE)  # 2^5 = 32 => 5
 
 
@@ -43,7 +41,6 @@ def upsweep[
     comptime NUM_WARPS = BLOCK_SIZE // WARP_SIZE
     comptime PADDED_RADIX = RADIX + 1
     comptime RADIX_MASK = Scalar[keys_dtype](RADIX - 1)
-    comptime ordering = Ordering.RELAXED
 
     var tid = thread_idx.x
     var bid = block_idx.x

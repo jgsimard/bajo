@@ -1,7 +1,7 @@
 from std.bit import pop_count, count_trailing_zeros
 from std.gpu import WARP_SIZE, lane_id
 from std.gpu.primitives import warp, block
-from std.atomic import Atomic, Consistency
+from std.atomic import Atomic, Ordering
 
 
 @fieldwise_init
@@ -55,9 +55,9 @@ def warp_level_multi_split[
         if bits == 0:
             var digit = Int((key >> radix_shift) & RADIX_MASK)
             var count = UInt32(pop_count(warp_flags))
-            pre_increment_val = Atomic.fetch_add[
-                ordering=Consistency.MONOTONIC
-            ](s_warp_hist_ptr + digit, count)
+            pre_increment_val = Atomic.fetch_add[ordering=Ordering.RELAXED](
+                s_warp_hist_ptr + digit, count
+            )
 
         var leader_lane = count_trailing_zeros(warp_flags)
         pre_increment_val = warp.shuffle_idx(

@@ -14,7 +14,7 @@ from std.gpu.sync import barrier
 from std.gpu.intrinsics import load_volatile
 from std.math import ceildiv
 from std.memory import stack_allocation, bitcast
-from std.atomic import Atomic, Consistency
+from std.atomic import Atomic, Ordering
 from std.sys.info import bit_width_of
 
 from .utils import DoubleBuffer, circular_shift, warp_level_multi_split
@@ -30,7 +30,7 @@ comptime FLAG_REDUCTION = 1
 comptime FLAG_INCLUSIVE = 2
 comptime FLAG_MASK = 3
 
-comptime ordering = Consistency.MONOTONIC
+comptime ordering = Ordering.RELAXED
 
 
 def global_histogram[

@@ -137,53 +137,53 @@ def benchmark_sorts_pairs(sizes: List[Int]) raises -> List[List[SortResult]]:
             ctx.synchronize()
             var copy_overhead_total = Float64(perf_counter_ns() - t_copy_start)
 
-            # Basic Bitonic Sort
-            reset_data()
-            naive_bitonic_sort_pairs[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
-            ctx.synchronize()
-            check_validity(keys, SIZE)
+            # # Basic Bitonic Sort
+            # reset_data()
+            # naive_bitonic_sort_pairs[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
+            # ctx.synchronize()
+            # check_validity(keys, SIZE)
 
-            var t0 = perf_counter_ns()
-            for _ in range(N_ITERS):
-                reset_data()
-                naive_bitonic_sort_pairs[THREADS_PER_BLOCK](
-                    ctx, keys, values, SIZE
-                )
-            ctx.synchronize()
-            var basic_ns = (
-                Float64(perf_counter_ns() - t0) - copy_overhead_total
-            ) / N_ITERS
-            basic_results.append(
-                SortResult(
-                    SIZE,
-                    basic_ns / 1e6,
-                    Float64(SIZE) / basic_ns,
-                    "Basic_Bitonic_Sort_Pairs",
-                )
-            )
+            # var t0 = perf_counter_ns()
+            # for _ in range(N_ITERS):
+            #     reset_data()
+            #     naive_bitonic_sort_pairs[THREADS_PER_BLOCK](
+            #         ctx, keys, values, SIZE
+            #     )
+            # ctx.synchronize()
+            # var basic_ns = (
+            #     Float64(perf_counter_ns() - t0) - copy_overhead_total
+            # ) / N_ITERS
+            # basic_results.append(
+            #     SortResult(
+            #         SIZE,
+            #         basic_ns / 1e6,
+            #         Float64(SIZE) / basic_ns,
+            #         "Basic_Bitonic_Sort_Pairs",
+            #     )
+            # )
 
-            # Shared Mem Bitonic Sort
-            reset_data()
-            bitonic_sort_pairs[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
-            ctx.synchronize()
-            check_validity(keys, SIZE)
+            # # Shared Mem Bitonic Sort
+            # reset_data()
+            # bitonic_sort_pairs[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
+            # ctx.synchronize()
+            # check_validity(keys, SIZE)
 
-            t0 = perf_counter_ns()
-            for _ in range(N_ITERS):
-                reset_data()
-                bitonic_sort_pairs[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
-            ctx.synchronize()
-            var opt_ns = (
-                Float64(perf_counter_ns() - t0) - copy_overhead_total
-            ) / N_ITERS
-            opt_results.append(
-                SortResult(
-                    SIZE,
-                    opt_ns / 1e6,
-                    Float64(SIZE) / opt_ns,
-                    "Shared_Memory_Bitonic_Sort_Pairs",
-                )
-            )
+            # t0 = perf_counter_ns()
+            # for _ in range(N_ITERS):
+            #     reset_data()
+            #     bitonic_sort_pairs[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
+            # ctx.synchronize()
+            # var opt_ns = (
+            #     Float64(perf_counter_ns() - t0) - copy_overhead_total
+            # ) / N_ITERS
+            # opt_results.append(
+            #     SortResult(
+            #         SIZE,
+            #         opt_ns / 1e6,
+            #         Float64(SIZE) / opt_ns,
+            #         "Shared_Memory_Bitonic_Sort_Pairs",
+            #     )
+            # )
 
             # Radix
             var radix_ws = RadixSortWorkspace[
@@ -404,10 +404,10 @@ def main() raises:
         1 << 16,
         1 << 18,
         1 << 20,
-        # 1 << 22,
-        # 1 << 24,
-        # 1 << 26,
-        # 1 << 28,
+        1 << 22,
+        1 << 24,
+        1 << 26,
+        1 << 28,
     ]
     res = benchmark_sorts_pairs(sizes)
     # res_keys = benchmark_sort_key(sizes)

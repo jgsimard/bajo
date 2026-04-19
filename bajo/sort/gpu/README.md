@@ -3,7 +3,8 @@
 ![GPU Sorting Benchmark Results](image.png)
 
 
-The benchmark results are produced with this [benchmark](bench/bench_gpu_sort.mojo)
+The benchmark results are produced with this [benchmark](../../../bench/bench_gpu_sort.mojo) and ploted using this [script](../../../bench/plot_gpu_sort.py)
+
 
 
 ## Sources

@@ -147,10 +147,10 @@ def digit_binning[
     KEYS_PER_THREAD: Int,
     HAVE_PAYLOAD: Bool,
 ](
-    sort: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
-    sort_payload: UnsafePointer[Scalar[vals_dtype], MutAnyOrigin],
-    alt: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
-    alt_payload: UnsafePointer[Scalar[vals_dtype], MutAnyOrigin],
+    keys_current: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
+    keys_alternate: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
+    vals_current: UnsafePointer[Scalar[vals_dtype], MutAnyOrigin],
+    vals_alternate: UnsafePointer[Scalar[vals_dtype], MutAnyOrigin],
     pass_hist: UnsafePointer[UInt32, MutAnyOrigin],
     index: UnsafePointer[UInt32, MutAnyOrigin],
     size: Int,
@@ -202,9 +202,9 @@ def digit_binning[
     var t = t_base
     comptime for i in range(KEYS_PER_THREAD):
         if partition_index < gdim - 1:
-            keys[i] = sort[t]
+            keys[i] = keys_current[t]
         else:
-            keys[i] = sort[t] if t < size else Scalar[keys_dtype].MAX
+            keys[i] = keys_current[t] if t < size else Scalar[keys_dtype].MAX
         t += WARP_SIZE
 
     # Warp-Level Multi-Split (WLMS)
@@ -291,14 +291,14 @@ def digit_binning[
                 var key = s_warp_histograms[t_idx]
                 var d = (key >> radix_shift) & UInt32(RADIX_MASK)
                 digits[i] = d.cast[DType.uint8]()
-                alt[s_local_histogram[Int(d)] + UInt32(t_idx)] = Scalar[
-                    keys_dtype
-                ](key)
+                keys_alternate[
+                    s_local_histogram[Int(d)] + UInt32(t_idx)
+                ] = Scalar[keys_dtype](key)
             barrier()
 
             var t_payload = t_base
             comptime for i in range(KEYS_PER_THREAD):
-                vals[i] = sort_payload[t_payload]
+                vals[i] = vals_current[t_payload]
                 t_payload += WARP_SIZE
 
             comptime for i in range(KEYS_PER_THREAD):
@@ -308,7 +308,7 @@ def digit_binning[
             comptime for i in range(KEYS_PER_THREAD):
                 var t_idx = tid + (i * BLOCK_SIZE)
                 var d = Int(digits[i])
-                alt_payload[s_local_histogram[d] + UInt32(t_idx)] = Scalar[
+                vals_alternate[s_local_histogram[d] + UInt32(t_idx)] = Scalar[
                     vals_dtype
                 ](s_warp_histograms[t_idx])
         else:
@@ -319,15 +319,15 @@ def digit_binning[
                     var key = s_warp_histograms[t_idx]
                     var d = (key >> radix_shift) & UInt32(RADIX_MASK)
                     digits[i] = d.cast[DType.uint8]()
-                    alt[s_local_histogram[Int(d)] + UInt32(t_idx)] = Scalar[
-                        keys_dtype
-                    ](key)
+                    keys_alternate[
+                        s_local_histogram[Int(d)] + UInt32(t_idx)
+                    ] = Scalar[keys_dtype](key)
             barrier()
 
             var t_payload = t_base
             comptime for i in range(KEYS_PER_THREAD):
                 if t_payload < size:
-                    vals[i] = sort_payload[t_payload]
+                    vals[i] = vals_current[t_payload]
                 t_payload += WARP_SIZE
 
             comptime for i in range(KEYS_PER_THREAD):
@@ -338,9 +338,9 @@ def digit_binning[
                 var t_idx = tid + (i * BLOCK_SIZE)
                 if t_idx < final_part_size:
                     var d = Int(digits[i])
-                    alt_payload[s_local_histogram[d] + UInt32(t_idx)] = Scalar[
-                        vals_dtype
-                    ](s_warp_histograms[t_idx])
+                    vals_alternate[
+                        s_local_histogram[d] + UInt32(t_idx)
+                    ] = Scalar[vals_dtype](s_warp_histograms[t_idx])
     else:
         var upper_bound = (
             BIN_PART_SIZE if partition_index
@@ -350,7 +350,7 @@ def digit_binning[
             var key = s_warp_histograms[i]
             var digit = Int((key >> radix_shift) & UInt32(RADIX_MASK))
             var dst = s_local_histogram[digit] + UInt32(i)
-            alt[dst] = Scalar[keys_dtype](key)
+            keys_alternate[dst] = Scalar[keys_dtype](key)
 
 
 struct OneSweepWorkspace[
@@ -360,8 +360,8 @@ struct OneSweepWorkspace[
     BLOCK_SIZE: Int,
     KEYS_PER_THREAD: Int,
 ]:
-    var alt_keys: DeviceBuffer[Self.keys_dtype]
-    var alt_vals: DeviceBuffer[Self.vals_dtype]
+    var keys_alternate: DeviceBuffer[Self.keys_dtype]
+    var vals_atlernate: DeviceBuffer[Self.vals_dtype]
     var global_hist: DeviceBuffer[DType.uint32]
     var pass_hist: DeviceBuffer[DType.uint32]
     var index: DeviceBuffer[DType.uint32]
@@ -374,8 +374,8 @@ struct OneSweepWorkspace[
         var binning_blocks = ceildiv(size, BIN_PART_SIZE)
         var hist_blocks = binning_blocks + 1
 
-        self.alt_keys = ctx.enqueue_create_buffer[Self.keys_dtype](size)
-        self.alt_vals = ctx.enqueue_create_buffer[Self.vals_dtype](size)
+        self.keys_alternate = ctx.enqueue_create_buffer[Self.keys_dtype](size)
+        self.vals_atlernate = ctx.enqueue_create_buffer[Self.vals_dtype](size)
         self.global_hist = ctx.enqueue_create_buffer[DType.uint32](
             RADIX * NUM_PASSES
         )
@@ -416,6 +416,12 @@ def onesweep_radix_sort_keys[
     workspace.pass_hist.enqueue_fill(0)
     ctx.synchronize()
 
+    keys_current = keys.unsafe_ptr()
+    keys_alternate = workspace.keys_alternate.unsafe_ptr()
+    dummy_v_ptr = UnsafePointer[Scalar[DType.invalid], MutAnyOrigin]()
+    global_hist = workspace.global_hist.unsafe_ptr()
+    pass_hist = workspace.pass_hist.unsafe_ptr()
+
     # 1. Global Histogram
     comptime _ghist = global_histogram[
         keys_dtype,
@@ -425,8 +431,8 @@ def onesweep_radix_sort_keys[
         ITEMS_PER_THREAD=G_HIST_ITEMS_PER_THREAD,
     ]
     ctx.enqueue_function[_ghist, _ghist](
-        keys.unsafe_ptr(),
-        workspace.global_hist.unsafe_ptr(),
+        keys_current,
+        global_hist,
         size,
         grid_dim=g_hist_blocks,
         block_dim=G_HIST_TPB,
@@ -435,8 +441,8 @@ def onesweep_radix_sort_keys[
     # 2. Block Scan
     comptime _scan = scan_global
     ctx.enqueue_function[_scan, _scan](
-        workspace.global_hist.unsafe_ptr(),
-        workspace.pass_hist.unsafe_ptr(),
+        global_hist,
+        pass_hist,
         hist_blocks,
         grid_dim=NUM_PASSES,
         block_dim=RADIX,
@@ -446,34 +452,29 @@ def onesweep_radix_sort_keys[
     comptime _bin = digit_binning[
         keys_dtype,
         DType.invalid,
-        BITS_PER_PASS=8,
-        BLOCK_SIZE=512,
+        BITS_PER_PASS=BITS_PER_PASS,
+        BLOCK_SIZE=BINNING_TPB,
         KEYS_PER_THREAD=KEYS_PER_THREAD,
         HAVE_PAYLOAD=False,
     ]
 
-    var dummy_v_ptr = UnsafePointer[Scalar[DType.invalid], MutAnyOrigin]()
-    var db_keys = DoubleBuffer[keys_dtype](
-        keys.unsafe_ptr(), workspace.alt_keys.unsafe_ptr()
-    )
-
     comptime for pass_idx in range(NUM_PASSES):
         comptime radix_shift = UInt32(pass_idx * 8)
         var pass_hist_offset = pass_idx * hist_blocks * RADIX
-        var pass_hist_ptr = workspace.pass_hist.unsafe_ptr() + pass_hist_offset
+        var pass_hist_ptr = pass_hist + pass_hist_offset
         ctx.enqueue_function[_bin, _bin](
-            db_keys.current,
+            keys_current,
+            keys_alternate,
             dummy_v_ptr,
-            db_keys.alternate,
             dummy_v_ptr,
             pass_hist_ptr,
             workspace.index.unsafe_ptr(),
             size,
             radix_shift,
             grid_dim=binning_blocks,
-            block_dim=512,
+            block_dim=BINNING_TPB,
         )
-        db_keys.swap()
+        swap(keys_current, keys_alternate)
 
     ctx.synchronize()
 
@@ -514,6 +515,13 @@ def onesweep_radix_sort_pairs[
     workspace.pass_hist.enqueue_fill(0)
     ctx.synchronize()
 
+    keys_current = keys.unsafe_ptr()
+    keys_alternate = workspace.keys_alternate.unsafe_ptr()
+    vals_current = values.unsafe_ptr()
+    vals_alternate = workspace.vals_atlernate.unsafe_ptr()
+    global_hist = workspace.global_hist.unsafe_ptr()
+    pass_hist = workspace.pass_hist.unsafe_ptr()
+
     # 1. Global Histogram
     comptime _ghist = global_histogram[
         keys_dtype,
@@ -523,8 +531,8 @@ def onesweep_radix_sort_pairs[
         ITEMS_PER_THREAD=G_HIST_ITEMS_PER_THREAD,
     ]
     ctx.enqueue_function[_ghist, _ghist](
-        keys.unsafe_ptr(),
-        workspace.global_hist.unsafe_ptr(),
+        keys_current,
+        global_hist,
         size,
         grid_dim=g_hist_blocks,
         block_dim=G_HIST_TPB,
@@ -533,8 +541,8 @@ def onesweep_radix_sort_pairs[
     # 2. Block Scan
     comptime _scan = scan_global
     ctx.enqueue_function[_scan, _scan](
-        workspace.global_hist.unsafe_ptr(),
-        workspace.pass_hist.unsafe_ptr(),
+        global_hist,
+        pass_hist,
         hist_blocks,
         grid_dim=NUM_PASSES,
         block_dim=RADIX,
@@ -550,31 +558,23 @@ def onesweep_radix_sort_pairs[
         HAVE_PAYLOAD=True,
     ]
 
-    var db_keys = DoubleBuffer[keys_dtype](
-        keys.unsafe_ptr(), workspace.alt_keys.unsafe_ptr()
-    )
-    var db_vals = DoubleBuffer[vals_dtype](
-        values.unsafe_ptr(), workspace.alt_vals.unsafe_ptr()
-    )
-
     comptime for pass_idx in range(NUM_PASSES):
         comptime radix_shift = UInt32(pass_idx * 8)
         var pass_hist_offset = pass_idx * hist_blocks * RADIX
-        var pass_hist_ptr = workspace.pass_hist.unsafe_ptr() + pass_hist_offset
         ctx.enqueue_function[_bin, _bin](
-            db_keys.current,
-            db_vals.current,
-            db_keys.alternate,
-            db_vals.alternate,
-            pass_hist_ptr,
+            keys_current,
+            keys_alternate,
+            vals_current,
+            vals_alternate,
+            pass_hist + pass_hist_offset,
             workspace.index.unsafe_ptr(),
             size,
             radix_shift,
             grid_dim=binning_blocks,
             block_dim=BINNING_TPB,
         )
-        db_keys.swap()
-        db_vals.swap()
+        swap(keys_current, keys_alternate)
+        swap(vals_current, vals_alternate)
 
     ctx.synchronize()
 

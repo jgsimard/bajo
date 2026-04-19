@@ -2,6 +2,10 @@
 
 ![GPU Sorting Benchmark Results](image.png)
 
+
+The benchmark results are produced with this [benchmark](bench/bench_gpu_sort.mojo)
+
+
 ## Sources
 - [GPUSorting](https://github.com/b0nes164/GPUSorting) by b0nes164 (Thomas Smith)
 - [CUDA Core Compute Libraries](https://github.com/NVIDIA/cccl?tab=License-1-ov-file#readme)

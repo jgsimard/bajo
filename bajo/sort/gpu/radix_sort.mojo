@@ -30,7 +30,7 @@ def upsweep[
     VEC_WIDTH: Int,
     KEYS_PER_THREAD: Int,
 ](
-    sort: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
+    keys_current: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
     global_hist: UnsafePointer[UInt32, MutAnyOrigin],
     pass_hist: UnsafePointer[UInt32, MutAnyOrigin],
     size: Int,
@@ -53,7 +53,6 @@ def upsweep[
         NUM_WARPS * PADDED_RADIX, UInt32, address_space=AddressSpace.SHARED
     ]()
 
-    # Initialize shared memory using the constant BLOCK_SIZE
     for i in range(tid, NUM_WARPS * PADDED_RADIX, BLOCK_SIZE):
         s_global_hist[i] = 0
     barrier()
@@ -63,7 +62,7 @@ def upsweep[
 
     @always_inline
     def _f[width: Int](i: Int) capturing:
-        var t = sort.load[width=width](i)
+        var t = keys_current.load[width=width](i)
         t = (t >> radix_shift) & RADIX_MASK
         comptime for j in range(width):
             _ = Atomic.fetch_add[ordering=ordering](s_warp_hist + t[j], 1)
@@ -133,29 +132,20 @@ def scan[
     var i = tid
     while i < partitions_end:
         var val = pass_hist[i + digit_offset]
-
-        # This returns 0 for the first element in the block
         var exclusive = block.prefix_sum[block_size=BLOCK_SIZE, exclusive=True](
             val
         )
-
-        # Get the total sum of all 'val' in the block to update the reduction
         var tile_total = block.sum[block_size=BLOCK_SIZE, broadcast=True](val)
-
-        # Write back: exclusive scan result + carry-over from previous tiles
         pass_hist[i + digit_offset] = exclusive + reduction
-
-        # Update the running total for the next tile
         reduction += tile_total
         i += BLOCK_SIZE
 
-    # Tail Handling
+    # tail
     var val_tail: UInt32 = 0
     var has_data = i < thread_blocks
     if has_data:
         val_tail = pass_hist[i + digit_offset]
 
-    # Collective call: all threads must enter
     var exclusive_tail = block.prefix_sum[
         block_size=BLOCK_SIZE, exclusive=True
     ](val_tail)
@@ -172,10 +162,10 @@ def downsweep[
     KEYS_PER_THREAD: Int,
     HAVE_PAYLOAD: Bool,
 ](
-    sort: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
-    sort_payload: UnsafePointer[Scalar[vals_dtype], MutAnyOrigin],
-    alt: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
-    alt_payload: UnsafePointer[Scalar[vals_dtype], MutAnyOrigin],
+    keys_current: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
+    keys_alternate: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
+    vals_current: UnsafePointer[Scalar[vals_dtype], MutAnyOrigin],
+    vals_alternate: UnsafePointer[Scalar[vals_dtype], MutAnyOrigin],
     global_hist: UnsafePointer[UInt32, MutAnyOrigin],
     pass_hist: UnsafePointer[UInt32, MutAnyOrigin],
     size: Int,
@@ -204,7 +194,6 @@ def downsweep[
 
     var s_warp_hist_ptr = s_warp_histograms + (wid << BITS_PER_PASS)
 
-    # Clear shared memory
     for i in range(tid, TOTAL_WARP_HISTS_SIZE, BLOCK_SIZE):
         s_warp_histograms[i] = 0
     barrier()
@@ -220,9 +209,9 @@ def downsweep[
     var t = t_base
     comptime for i in range(KEYS_PER_THREAD):
         if bid < gdim - 1:
-            keys[i] = sort[t]
+            keys[i] = keys_current[t]
         else:
-            keys[i] = sort[t] if t < size else Scalar[keys_dtype].MAX
+            keys[i] = keys_current[t] if t < size else Scalar[keys_dtype].MAX
         t += WARP_SIZE
     barrier()
 
@@ -298,15 +287,15 @@ def downsweep[
                 var key = s_warp_histograms[t]
                 var d = (key >> radix_shift) & UInt32(RADIX_MASK)
                 digits[i] = d.cast[DType.uint8]()
-                alt[s_local_histogram[Int(d)] + UInt32(t)] = Scalar[keys_dtype](
-                    key
-                )
+                keys_alternate[s_local_histogram[Int(d)] + UInt32(t)] = Scalar[
+                    keys_dtype
+                ](key)
             barrier()
 
             # Load payloads into registers
             var t_payload = t_base
             comptime for i in range(KEYS_PER_THREAD):
-                vals[i] = sort_payload[t_payload]
+                vals[i] = vals_current[t_payload]
                 t_payload += WARP_SIZE
 
             # Scatter payloads into shared memory
@@ -318,7 +307,7 @@ def downsweep[
             comptime for i in range(KEYS_PER_THREAD):
                 var t = tid + (i * BLOCK_SIZE)
                 var d = Int(digits[i])
-                alt_payload[s_local_histogram[d] + UInt32(t)] = Scalar[
+                vals_alternate[s_local_histogram[d] + UInt32(t)] = Scalar[
                     vals_dtype
                 ](s_warp_histograms[t])
 
@@ -331,16 +320,16 @@ def downsweep[
                     var key = s_warp_histograms[t]
                     var d = (key >> radix_shift) & UInt32(RADIX_MASK)
                     digits[i] = d.cast[DType.uint8]()
-                    alt[s_local_histogram[Int(d)] + UInt32(t)] = Scalar[
-                        keys_dtype
-                    ](key)
+                    keys_alternate[
+                        s_local_histogram[Int(d)] + UInt32(t)
+                    ] = Scalar[keys_dtype](key)
             barrier()
 
             # Load payloads into registers
             var t_payload = t_base
             comptime for i in range(KEYS_PER_THREAD):
                 if t_payload < size:
-                    vals[i] = sort_payload[t_payload]
+                    vals[i] = vals_current[t_payload]
                 t_payload += WARP_SIZE
 
             # Scatter payloads into shared memory
@@ -353,7 +342,7 @@ def downsweep[
                 var t = tid + (i * BLOCK_SIZE)
                 if t < final_part_size:
                     var d = Int(digits[i])
-                    alt_payload[s_local_histogram[d] + UInt32(t)] = Scalar[
+                    vals_alternate[s_local_histogram[d] + UInt32(t)] = Scalar[
                         vals_dtype
                     ](s_warp_histograms[t])
 
@@ -364,7 +353,7 @@ def downsweep[
             var key = s_warp_histograms[i]
             var digit = Int((key >> radix_shift) & UInt32(RADIX_MASK))
             var dst = s_local_histogram[digit] + UInt32(i)
-            alt[dst] = Scalar[keys_dtype](key)
+            keys_alternate[dst] = Scalar[keys_dtype](key)
 
 
 def device_radix_sort_keys[
@@ -379,13 +368,12 @@ def device_radix_sort_keys[
 
     var gdim = ceildiv(size, PART_SIZE)
 
-    var alt_keys = ctx.enqueue_create_buffer[dtype](size)
+    var keys_alternate = ctx.enqueue_create_buffer[dtype](size)
 
     var global_hist = ctx.enqueue_create_buffer[DType.uint32](GLOBAL_HIST)
     var pass_hist = ctx.enqueue_create_buffer[DType.uint32](gdim * RADIX)
 
-    # Pointer management for ping-ponging
-    var db_keys = DoubleBuffer(keys.unsafe_ptr(), alt_keys.unsafe_ptr())
+    var db_keys = DoubleBuffer(keys.unsafe_ptr(), keys_alternate.unsafe_ptr())
 
     comptime UPSWEEP_BLOC_SIZE = 256
     comptime SCAN_BLOCK_SIZE = 256
@@ -432,8 +420,8 @@ def device_radix_sort_keys[
         # Downsweep (Scatter keys only)
         ctx.enqueue_function[_downsweep_keys, _downsweep_keys](
             db_keys.current,
-            _dummy_ptr,
             db_keys.alternate,
+            _dummy_ptr,
             _dummy_ptr,
             global_hist.unsafe_ptr(),
             pass_hist.unsafe_ptr(),
@@ -443,7 +431,6 @@ def device_radix_sort_keys[
             block_dim=DOWNSWEEP_BLOCK_SIZE,
         )
 
-        # Swap buffer pointers for the next pass
         db_keys.swap()
 
     comptime if NUM_PASSES % 2 != 0:
@@ -458,8 +445,8 @@ struct RadixSortWorkspace[
     BITS_PER_PASS: Int = 8,
     KEYS_PER_THREAD: Int = 9,
 ]:
-    var alt_keys: DeviceBuffer[Self.keys_dtype]
-    var alt_vals: DeviceBuffer[Self.vals_dtype]
+    var keys_alternate: DeviceBuffer[Self.keys_dtype]
+    var vals_alternate: DeviceBuffer[Self.vals_dtype]
     var global_hist: DeviceBuffer[DType.uint32]
     var pass_hist: DeviceBuffer[DType.uint32]
 
@@ -474,8 +461,8 @@ struct RadixSortWorkspace[
 
         var gdim = ceildiv(size, PART_SIZE)
 
-        self.alt_keys = ctx.enqueue_create_buffer[Self.keys_dtype](size)
-        self.alt_vals = ctx.enqueue_create_buffer[Self.vals_dtype](size)
+        self.keys_alternate = ctx.enqueue_create_buffer[Self.keys_dtype](size)
+        self.vals_alternate = ctx.enqueue_create_buffer[Self.vals_dtype](size)
 
         self.global_hist = ctx.enqueue_create_buffer[DType.uint32](GLOBAL_HIST)
         self.pass_hist = ctx.enqueue_create_buffer[DType.uint32](gdim * RADIX)
@@ -504,13 +491,13 @@ def device_radix_sort_pairs[
 
     var gdim = ceildiv(size, PART_SIZE)
 
-    # Pointer management for ping-ponging
-    var db_keys = DoubleBuffer(
-        keys.unsafe_ptr(), workspace.alt_keys.unsafe_ptr()
-    )
-    var db_vals = DoubleBuffer(
-        values.unsafe_ptr(), workspace.alt_vals.unsafe_ptr()
-    )
+    keys_current = keys.unsafe_ptr()
+    keys_alternate = workspace.keys_alternate.unsafe_ptr()
+    vals_current = values.unsafe_ptr()
+    vals_alternate = workspace.vals_alternate.unsafe_ptr()
+    global_hist = workspace.global_hist.unsafe_ptr()
+    pass_hist = workspace.pass_hist.unsafe_ptr()
+
     comptime UPSWEEP_BLOC_SIZE = 256
     comptime SCAN_BLOCK_SIZE = 256
     comptime DOWNSWEEP_BLOCK_SIZE = 512
@@ -531,47 +518,42 @@ def device_radix_sort_pairs[
     comptime for pass_idx in range(NUM_PASSES):
         var radix_shift = UInt32(pass_idx * BITS_PER_PASS)
 
-        # Upsweep (Global Histogram)
+        # 1. Upsweep (Global Histogram)
         ctx.enqueue_function[_upsweep, _upsweep](
-            db_keys.current,
-            workspace.global_hist.unsafe_ptr(),
-            workspace.pass_hist.unsafe_ptr(),
+            keys_current,
+            global_hist,
+            pass_hist,
             size,
             Scalar[keys_dtype](radix_shift),
             grid_dim=gdim,
-            # grid_dim= ceildiv(size, UPSWEEP_BLOC_SIZE * KEYS_PER_THREAD),
             block_dim=UPSWEEP_BLOC_SIZE,
         )
 
-        # Scan (Prefix Sum of histograms)
+        # 2. Scan (Prefix Sum of histograms)
         ctx.enqueue_function[_scan, _scan](
-            workspace.pass_hist.unsafe_ptr(),
+            pass_hist,
             gdim,
             grid_dim=RADIX,
             block_dim=SCAN_BLOCK_SIZE,
         )
 
-        # Downsweep (Scatter)
+        # 3. Downsweep (Scatter)
         ctx.enqueue_function[_downsweep_pairs, _downsweep_pairs](
-            db_keys.current,
-            db_vals.current,
-            db_keys.alternate,
-            db_vals.alternate,
-            workspace.global_hist.unsafe_ptr(),
-            workspace.pass_hist.unsafe_ptr(),
+            keys_current,
+            keys_alternate,
+            vals_current,
+            vals_alternate,
+            global_hist,
+            pass_hist,
             size,
             radix_shift,
             grid_dim=gdim,
             block_dim=DOWNSWEEP_BLOCK_SIZE,
         )
 
-        # Swap buffers for next pass
-        db_keys.swap()
-        db_vals.swap()
+        swap(keys_current, keys_alternate)
+        swap(vals_current, vals_alternate)
 
-    comptime if NUM_PASSES % 2 != 0:
-        db_keys.swap()
-        db_vals.swap()
     ctx.synchronize()
 
 

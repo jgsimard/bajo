@@ -174,8 +174,8 @@ def test_digit_binning_end_to_end() raises:
         ]
         ctx.enqueue_function[_bin, _bin](
             d_keys.unsafe_ptr(),
-            _dummy_ptr,
             d_alt.unsafe_ptr(),
+            _dummy_ptr,
             _dummy_ptr,
             d_passHist.unsafe_ptr(),
             d_index.unsafe_ptr(),
@@ -287,8 +287,8 @@ def test_digit_binning_pairs_end_to_end() raises:
         ]
         ctx.enqueue_function[_bin, _bin](
             d_keys.unsafe_ptr(),
-            d_vals.unsafe_ptr(),
             d_alt_keys.unsafe_ptr(),
+            d_vals.unsafe_ptr(),
             d_alt_vals.unsafe_ptr(),
             d_passHist.unsafe_ptr(),
             d_index.unsafe_ptr(),

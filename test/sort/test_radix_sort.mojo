@@ -189,8 +189,8 @@ def test_downsweep_end_to_end() raises:
             downsweep[dtype, dtype, BITS_PER_PASS, 512, KEYS_PER_THREAD, False],
         ](
             d_keys.unsafe_ptr(),
-            _dummy_ptr,
             d_alt.unsafe_ptr(),
+            _dummy_ptr,
             _dummy_ptr,
             d_globalHist.unsafe_ptr(),
             d_passHist.unsafe_ptr(),
@@ -296,8 +296,8 @@ def test_downsweep_pairs_end_to_end() raises:
             downsweep[dtype, dtype, BITS_PER_PASS, 512, KEYS_PER_THREAD, True],
         ](
             d_keys.unsafe_ptr(),
-            d_vals.unsafe_ptr(),
             d_alt_keys.unsafe_ptr(),
+            d_vals.unsafe_ptr(),
             d_alt_vals.unsafe_ptr(),
             d_globalHist.unsafe_ptr(),
             d_passHist.unsafe_ptr(),

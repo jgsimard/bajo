@@ -30,7 +30,7 @@ def bitonic_sort_shared[
 ):
     """
     Sorts a tile of data of size `PART_SIZE` within a block. It has three stages: 1) SIMD, 2) Warp 3) block
-    Then a frouth stage if necessary to sort between blocks
+    Then a frouth stage if necessary to sort between blocks.
     """
     comptime PART_SIZE = THREADS_PER_BLOCK * ITEMS_PER_THREAD
     comptime MAX_WARP_K = ITEMS_PER_THREAD * WARP_SIZE
@@ -115,9 +115,7 @@ def bitonic_sort_shared[
                         var should_swap = (sort_dir_vec & greater_mask) | (
                             ~sort_dir_vec & less_mask
                         )
-                        var take_other = (is_lower_vec & should_swap) | (
-                            ~is_lower_vec & ~should_swap
-                        )
+                        var take_other = is_lower_vec.eq(should_swap)
 
                         r_keys = take_other.select(other_keys, r_keys)
                         r_vals = take_other.select(other_vals, r_vals)
@@ -156,7 +154,7 @@ def bitonic_sort_shared[
                 shared_vals[tid * ITEMS_PER_THREAD + i] = r_vals[i]
             barrier()
 
-            comptime start_stage = Int(count_trailing_zeros(MAX_WARP_K)) + 1
+            comptime start_stage = count_trailing_zeros(MAX_WARP_K) + 1
             comptime for stage in range(start_stage, NUM_STAGES + 1):
                 comptime k = 1 << stage
                 comptime for step_idx in range(stage):
@@ -175,10 +173,10 @@ def bitonic_sort_shared[
         barrier()
 
         var limit = min(PART_SIZE, size)
-        var j = limit >> 1
+        var j = limit / 2
         while j > 0:
             _step(j, k_merge)
-            j >>= 1
+            j /= 2
 
         comptime for i in range(ITEMS_PER_THREAD):
             r_keys[i] = shared_keys[tid * ITEMS_PER_THREAD + i]
@@ -188,6 +186,40 @@ def bitonic_sort_shared[
     if g_base < size:
         keys.store[width=ITEMS_PER_THREAD](g_base, r_keys)
         values.store[width=ITEMS_PER_THREAD](g_base, r_vals)
+
+
+@always_inline
+def bitonic_sort_step[
+    keys_dtype: DType, vals_dtype: DType
+](
+    keys: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
+    values: UnsafePointer[Scalar[vals_dtype], MutAnyOrigin],
+    j: Int,
+    k: Int,
+    size: Int,
+):
+    var pair_id = global_idx.x
+    var total_pairs = size / 2
+
+    if pair_id >= total_pairs:
+        return
+
+    var idx_a = ((pair_id & -j) << 1) | (pair_id & (j - 1))
+    var idx_b = idx_a ^ j
+
+    var sort_dir = (idx_a & k) == 0
+
+    var key_a = keys[idx_a]
+    var key_b = keys[idx_b]
+    var val_a = values[idx_a]
+    var val_b = values[idx_b]
+
+    var should_swap = (key_a > key_b) if sort_dir else (key_a < key_b)
+
+    keys[idx_a] = key_b if should_swap else key_a
+    keys[idx_b] = key_a if should_swap else key_b
+    values[idx_a] = val_b if should_swap else val_a
+    values[idx_b] = val_a if should_swap else val_b
 
 
 def bitonic_sort_pairs[
@@ -273,40 +305,6 @@ def bitonic_sort_pairs[
     ctx.synchronize()
 
 
-@always_inline
-def bitonic_sort_step[
-    keys_dtype: DType, vals_dtype: DType
-](
-    keys: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
-    values: UnsafePointer[Scalar[vals_dtype], MutAnyOrigin],
-    j: Int,
-    k: Int,
-    size: Int,
-):
-    var pair_id = global_idx.x
-    var total_pairs = size >> 1
-
-    if pair_id >= total_pairs:
-        return
-
-    var idx_a = ((pair_id & -j) << 1) | (pair_id & (j - 1))
-    var idx_b = idx_a ^ j
-
-    var sort_dir = (idx_a & k) == 0
-
-    var key_a = keys[idx_a]
-    var key_b = keys[idx_b]
-    var val_a = values[idx_a]
-    var val_b = values[idx_b]
-
-    var should_swap = (key_a > key_b) if sort_dir else (key_a < key_b)
-
-    keys[idx_a] = key_b if should_swap else key_a
-    keys[idx_b] = key_a if should_swap else key_b
-    values[idx_a] = val_b if should_swap else val_a
-    values[idx_b] = val_a if should_swap else val_b
-
-
 def naive_bitonic_sort_pairs[
     keys_dtype: DType, vals_dtype: DType, //, THREADS_PER_BLOCK: Int = 256
 ](
@@ -318,12 +316,12 @@ def naive_bitonic_sort_pairs[
     debug_assert["safe"](is_power_of_2(size))
 
     # 1 thread maps to 1 pair
-    var total_pairs = size >> 1
+    var total_pairs = size / 2
     var blocks = (total_pairs + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK
 
     var k = 2
     while k <= size:
-        var j = k >> 1
+        var j = k / 2
         while j > 0:
             comptime kernel = bitonic_sort_step[keys_dtype, vals_dtype]
             ctx.enqueue_function[kernel, kernel](
@@ -335,6 +333,6 @@ def naive_bitonic_sort_pairs[
                 grid_dim=blocks,
                 block_dim=THREADS_PER_BLOCK,
             )
-            j >>= 1
-        k <<= 1
+            j /= 2
+        k *= 2
     ctx.synchronize()

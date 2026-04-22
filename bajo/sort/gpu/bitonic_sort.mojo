@@ -250,7 +250,7 @@ def bitonic_sort_pairs[
                     grid_dim=global_blocks,
                     block_dim=THREADS_PER_BLOCK,
                 )
-                j *= 2
+                j /= 2
             else:
                 comptime shared_merge_kernel = bitonic_sort_shared[
                     keys_dtype,

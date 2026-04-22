@@ -1,14 +1,15 @@
+from std.bit import count_trailing_zeros
 from std.gpu import (
     thread_idx,
+    block_idx,
     barrier,
     global_idx,
     WARP_SIZE,
 )
-from std.gpu.host import DeviceContext, DeviceBuffer, HostBuffer
+from std.gpu.host import DeviceContext, DeviceBuffer
 from std.gpu.memory import AddressSpace
 from std.memory import stack_allocation
 from std.gpu.primitives import warp
-from std.sys.info import bit_width_of
 
 from bajo.core.utils import is_power_of_2
 
@@ -17,139 +18,184 @@ from bajo.core.utils import is_power_of_2
 def bitonic_sort_shared[
     keys_dtype: DType,
     vals_dtype: DType,
+    *,
     THREADS_PER_BLOCK: Int,
+    ITEMS_PER_THREAD: Int,
     IS_MERGE_BLOCK: Bool,
 ](
     keys: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
     values: UnsafePointer[Scalar[vals_dtype], MutAnyOrigin],
-    k_merge: Int,
+    k_merge: Int,  # Target bitonic sequence length
     size: Int,
 ):
-    var gid = global_idx.x
+    """
+    Sorts a tile of data of size `PART_SIZE` within a block. It has three stages: 1) SIMD, 2) Warp 3) block
+    Then a frouth stage if necessary to sort between blocks
+    """
+    comptime PART_SIZE = THREADS_PER_BLOCK * ITEMS_PER_THREAD
+    comptime MAX_WARP_K = ITEMS_PER_THREAD * WARP_SIZE
+    comptime NUM_STAGES = count_trailing_zeros(PART_SIZE)
+
+    var bid = block_idx.x
     var tid = thread_idx.x
+    var block_start = bid * PART_SIZE
 
-    # put block data into shared memory
     var shared_keys = stack_allocation[
-        THREADS_PER_BLOCK, Scalar[keys_dtype], address_space=AddressSpace.SHARED
+        PART_SIZE, Scalar[keys_dtype], address_space=AddressSpace.SHARED
     ]()
-    var shared_values = stack_allocation[
-        THREADS_PER_BLOCK, Scalar[vals_dtype], address_space=AddressSpace.SHARED
+    var shared_vals = stack_allocation[
+        PART_SIZE, Scalar[vals_dtype], address_space=AddressSpace.SHARED
     ]()
 
-    if gid < size:
-        shared_keys[tid] = keys[gid]
-        shared_values[tid] = values[gid]
+    var g_base = bid * PART_SIZE + (tid * ITEMS_PER_THREAD)
+    var r_keys = SIMD[keys_dtype, ITEMS_PER_THREAD]()
+    var r_vals = SIMD[vals_dtype, ITEMS_PER_THREAD]()
+
+    if g_base < size:
+        r_keys = keys.load[width=ITEMS_PER_THREAD](g_base)
+        r_vals = values.load[width=ITEMS_PER_THREAD](g_base)
     else:
-        shared_keys[tid] = 0xFFFFFFFF
-        shared_values[tid] = 0
-
-    barrier()
+        r_keys = SIMD[keys_dtype, ITEMS_PER_THREAD](Scalar[keys_dtype].MAX)
+        r_vals = SIMD[vals_dtype, ITEMS_PER_THREAD](0)
 
     @always_inline
-    def _step(j_in: Int, k: Int) capturing:
-        # TODO: warp.shuffle_xor does not support DType.uint16
-        comptime if keys_dtype == DType.uint16:
-            j = j_in
-            var sort_dir = (gid & k) == 0
-            while j > 0:
-                var ixj = tid ^ j
+    def _step(j: Int, k: Int) capturing:
+        comptime for i in range(ITEMS_PER_THREAD / 2):
+            var pair_id = tid + i * THREADS_PER_BLOCK
 
-                if tid < ixj:
-                    var global_ixj = gid ^ j
-                    if global_ixj < size:
-                        var key_a = shared_keys[tid]
-                        var key_b = shared_keys[ixj]
+            var idx_a = ((pair_id & -j) << 1) | (pair_id & (j - 1))
+            var idx_b = idx_a ^ j
 
-                        swap = (key_a > key_b) if sort_dir else (key_a < key_b)
-                        if swap:
-                            shared_keys[tid] = key_b
-                            shared_keys[ixj] = key_a
+            var global_idx_a = block_start + idx_a
+            var sort_dir = (global_idx_a & k) == 0
 
-                            var val_a = shared_values[tid]
-                            var val_b = shared_values[ixj]
-                            shared_values[tid] = val_b
-                            shared_values[ixj] = val_a
+            var key_a = shared_keys[idx_a]
+            var key_b = shared_keys[idx_b]
+            var val_a = shared_vals[idx_a]
+            var val_b = shared_vals[idx_b]
 
-                barrier()
-                j >>= 1
-        else:
-            j = j_in
-            var sort_dir = (gid & k) == 0
-            while j > 0:
-                if j >= WARP_SIZE:
-                    var ixj = tid ^ j
+            var should_swap = (key_a > key_b) if sort_dir else (key_a < key_b)
 
-                    if tid < ixj:
-                        var global_ixj = gid ^ j
-                        if global_ixj < size:
-                            var key_a = shared_keys[tid]
-                            var key_b = shared_keys[ixj]
+            shared_keys[idx_a] = key_b if should_swap else key_a
+            shared_keys[idx_b] = key_a if should_swap else key_b
+            shared_vals[idx_a] = val_b if should_swap else val_a
+            shared_vals[idx_b] = val_a if should_swap else val_b
 
-                            swap = (key_a > key_b) if sort_dir else (
-                                key_a < key_b
+        barrier()
+
+    comptime if not IS_MERGE_BLOCK:
+        # Stage 1 & 2: SIMD -> WARP
+        comptime for stage in range(1, NUM_STAGES + 1):
+            comptime k = 1 << stage
+            if k <= MAX_WARP_K:
+                comptime for step_idx in range(stage):
+                    comptime j = 1 << (stage - 1 - step_idx)
+                    comptime if j < ITEMS_PER_THREAD:
+                        # Stage 1: SIMD sort
+                        var other_keys = SIMD[keys_dtype, ITEMS_PER_THREAD]()
+                        var other_vals = SIMD[vals_dtype, ITEMS_PER_THREAD]()
+                        var is_lower_vec = SIMD[DType.bool, ITEMS_PER_THREAD]()
+                        var logical_i_vec = SIMD[
+                            DType.uint32, ITEMS_PER_THREAD
+                        ]()
+
+                        comptime for i in range(ITEMS_PER_THREAD):
+                            other_keys[i] = r_keys[i ^ j]
+                            other_vals[i] = r_vals[i ^ j]
+                            is_lower_vec[i] = (i & j) == 0
+                            logical_i_vec[i] = UInt32(
+                                tid * ITEMS_PER_THREAD + i
                             )
-                            if swap:
-                                shared_keys[tid] = key_b
-                                shared_keys[ixj] = key_a
 
-                                var val_a = shared_values[tid]
-                                var val_b = shared_values[ixj]
-                                shared_values[tid] = val_b
-                                shared_values[ixj] = val_a
+                        var sort_dir_vec = (logical_i_vec & UInt32(k)).eq(0)
 
-                    barrier()
-                else:
-                    # Warp Shuffle Path
-                    var my_key = shared_keys[tid]
-                    var my_val = shared_values[tid]
+                        var greater_mask = r_keys.gt(other_keys)
+                        var less_mask = r_keys.lt(other_keys)
 
-                    var shuffle_j = j
-                    while shuffle_j > 0:
-                        var other_key = warp.shuffle_xor(
-                            my_key, UInt32(shuffle_j)
+                        var should_swap = (sort_dir_vec & greater_mask) | (
+                            ~sort_dir_vec & less_mask
                         )
-                        var other_val = warp.shuffle_xor(
-                            my_val, UInt32(shuffle_j)
+                        var take_other = (is_lower_vec & should_swap) | (
+                            ~is_lower_vec & ~should_swap
                         )
 
-                        var is_upper = (tid & shuffle_j) == 0
-                        var should_swap = (my_key > other_key) == sort_dir
+                        r_keys = take_other.select(other_keys, r_keys)
+                        r_vals = take_other.select(other_vals, r_vals)
+                    else:
+                        # Stage 2: Warp sort
+                        comptime thread_j = j / ITEMS_PER_THREAD
+                        comptime for i in range(ITEMS_PER_THREAD):
+                            var my_key = r_keys[i]
+                            var my_val = r_vals[i]
 
-                        if (is_upper and should_swap) or (
-                            not is_upper and not should_swap
-                        ):
-                            my_key = other_key
-                            my_val = other_val
+                            var other_key = warp.shuffle_xor(
+                                my_key, UInt32(thread_j)
+                            )
+                            var other_val = warp.shuffle_xor(
+                                my_val, UInt32(thread_j)
+                            )
 
-                        shuffle_j >>= 1
+                            var logical_i = tid * ITEMS_PER_THREAD + i
+                            var sort_dir = ((block_start + logical_i) & k) == 0
 
-                    shared_keys[tid] = my_key
-                    shared_values[tid] = my_val
-                    barrier()
-                    break
-                j >>= 1
+                            var is_lower = (tid & thread_j) == 0
+                            var should_swap = (
+                                my_key > other_key
+                            ) if sort_dir else (my_key < other_key)
+                            var take_other = (is_lower and should_swap) or (
+                                not is_lower and not should_swap
+                            )
 
-    var limit = min(THREADS_PER_BLOCK, size)
+                            r_keys[i] = other_key if take_other else my_key
+                            r_vals[i] = other_val if take_other else my_val
 
-    comptime if IS_MERGE_BLOCK:
-        var j = limit >> 1
-        _step(j, k_merge)
+        # Stage 3: Block sort
+        comptime if PART_SIZE > MAX_WARP_K:
+            comptime for i in range(ITEMS_PER_THREAD):
+                shared_keys[tid * ITEMS_PER_THREAD + i] = r_keys[i]
+                shared_vals[tid * ITEMS_PER_THREAD + i] = r_vals[i]
+            barrier()
+
+            comptime start_stage = Int(count_trailing_zeros(MAX_WARP_K)) + 1
+            comptime for stage in range(start_stage, NUM_STAGES + 1):
+                comptime k = 1 << stage
+                comptime for step_idx in range(stage):
+                    comptime j = 1 << (stage - 1 - step_idx)
+                    _step(j, k)
+
+            comptime for i in range(ITEMS_PER_THREAD):
+                r_keys[i] = shared_keys[tid * ITEMS_PER_THREAD + i]
+                r_vals[i] = shared_vals[tid * ITEMS_PER_THREAD + i]
+
     else:
-        # block bitonic sort
-        var k = 2
-        while k <= limit:
-            var j = k >> 1
-            _step(j, k)
-            k <<= 1
+        # Stage 4: Cross-block merge
+        comptime for i in range(ITEMS_PER_THREAD):
+            shared_keys[tid * ITEMS_PER_THREAD + i] = r_keys[i]
+            shared_vals[tid * ITEMS_PER_THREAD + i] = r_vals[i]
+        barrier()
+
+        var limit = min(PART_SIZE, size)
+        var j = limit >> 1
+        while j > 0:
+            _step(j, k_merge)
+            j >>= 1
+
+        comptime for i in range(ITEMS_PER_THREAD):
+            r_keys[i] = shared_keys[tid * ITEMS_PER_THREAD + i]
+            r_vals[i] = shared_vals[tid * ITEMS_PER_THREAD + i]
 
     # write back to global memory
-    if gid < size:
-        keys[gid] = shared_keys[tid]
-        values[gid] = shared_values[tid]
+    if g_base < size:
+        keys.store[width=ITEMS_PER_THREAD](g_base, r_keys)
+        values.store[width=ITEMS_PER_THREAD](g_base, r_vals)
 
 
 def bitonic_sort_pairs[
-    keys_dtype: DType, vals_dtype: DType, //, THREADS_PER_BLOCK: Int = 512
+    keys_dtype: DType,
+    vals_dtype: DType,
+    //,
+    THREADS_PER_BLOCK: Int = 256,
+    ITEMS_PER_THREAD: Int = 4,
 ](
     ctx: DeviceContext,
     keys: DeviceBuffer[keys_dtype],
@@ -160,56 +206,73 @@ def bitonic_sort_pairs[
     Bitonic Sort.
     """
     debug_assert["safe"](is_power_of_2(size))
-    var blocks = (size + THREADS_PER_BLOCK - 1) // THREADS_PER_BLOCK
 
-    # PHASE 1: sort independent chunks of size THREADS_PER_BLOCK in Shared Memory
+    comptime PART_SIZE = THREADS_PER_BLOCK * ITEMS_PER_THREAD
+    var blocks = (size + PART_SIZE - 1) / PART_SIZE
+
+    # Phase 1: sort chunks of size PART_SIZE
     comptime shared_block_kernel = bitonic_sort_shared[
-        keys_dtype, vals_dtype, THREADS_PER_BLOCK, False
+        keys_dtype,
+        vals_dtype,
+        THREADS_PER_BLOCK=THREADS_PER_BLOCK,
+        ITEMS_PER_THREAD=ITEMS_PER_THREAD,
+        IS_MERGE_BLOCK=False,
     ]
     ctx.enqueue_function[shared_block_kernel, shared_block_kernel](
-        keys, values, 0, size, grid_dim=blocks, block_dim=THREADS_PER_BLOCK
+        keys.unsafe_ptr(),
+        values.unsafe_ptr(),
+        0,
+        size,
+        grid_dim=blocks,
+        block_dim=THREADS_PER_BLOCK,
     )
 
-    # PHASE 2: Merge across blocks.
-    var k = THREADS_PER_BLOCK << 1
+    # Phase 2: merge across blocks
+    var k = PART_SIZE * 2
     while k <= size:
-        var j = k >> 1
+        var j = k / 2
         while j > 0:
-            if j >= THREADS_PER_BLOCK:
-                # Swaps cross block boundaries, must use Global Memory Step
+            if j >= PART_SIZE:
+                var total_pairs = size / 2
+                var global_blocks = (
+                    total_pairs + THREADS_PER_BLOCK - 1
+                ) / THREADS_PER_BLOCK
+
                 comptime global_step_kernel = bitonic_sort_step[
                     keys_dtype, vals_dtype
                 ]
                 ctx.enqueue_function[global_step_kernel, global_step_kernel](
-                    keys,
-                    values,
+                    keys.unsafe_ptr(),
+                    values.unsafe_ptr(),
                     j,
                     k,
                     size,
-                    grid_dim=blocks,
+                    grid_dim=global_blocks,
                     block_dim=THREADS_PER_BLOCK,
                 )
-                j >>= 1
+                j *= 2
             else:
                 comptime shared_merge_kernel = bitonic_sort_shared[
-                    keys_dtype, vals_dtype, THREADS_PER_BLOCK, True
+                    keys_dtype,
+                    vals_dtype,
+                    THREADS_PER_BLOCK=THREADS_PER_BLOCK,
+                    ITEMS_PER_THREAD=ITEMS_PER_THREAD,
+                    IS_MERGE_BLOCK=True,
                 ]
                 ctx.enqueue_function[shared_merge_kernel, shared_merge_kernel](
-                    keys,
-                    values,
+                    keys.unsafe_ptr(),
+                    values.unsafe_ptr(),
                     k,
                     size,
                     grid_dim=blocks,
                     block_dim=THREADS_PER_BLOCK,
                 )
                 break
-
-        k <<= 1
+        k *= 2
 
     ctx.synchronize()
 
 
-# basic version of bitonic sort
 @always_inline
 def bitonic_sort_step[
     keys_dtype: DType, vals_dtype: DType
@@ -220,27 +283,28 @@ def bitonic_sort_step[
     k: Int,
     size: Int,
 ):
-    """
-    Executes a single step of the Bitonic sort network.
-    """
-    var gid = global_idx.x
+    var pair_id = global_idx.x
+    var total_pairs = size >> 1
 
-    if gid < size:
-        var ixj = gid ^ j
+    if pair_id >= total_pairs:
+        return
 
-        if gid < ixj:
-            var sort_dir = (gid & k) == 0
-            var key_a = keys[gid]
-            var key_b = keys[ixj]
+    var idx_a = ((pair_id & -j) << 1) | (pair_id & (j - 1))
+    var idx_b = idx_a ^ j
 
-            # If sort_dir is True we sort ascending, else descending
-            if (sort_dir and key_a > key_b) or (not sort_dir and key_a < key_b):
-                # Swap Keys
-                keys[gid] = key_b
-                keys[ixj] = key_a
+    var sort_dir = (idx_a & k) == 0
 
-                # Swap Values
-                swap(values[gid], values[ixj])
+    var key_a = keys[idx_a]
+    var key_b = keys[idx_b]
+    var val_a = values[idx_a]
+    var val_b = values[idx_b]
+
+    var should_swap = (key_a > key_b) if sort_dir else (key_a < key_b)
+
+    keys[idx_a] = key_b if should_swap else key_a
+    keys[idx_b] = key_a if should_swap else key_b
+    values[idx_a] = val_b if should_swap else val_a
+    values[idx_b] = val_a if should_swap else val_b
 
 
 def naive_bitonic_sort_pairs[
@@ -251,13 +315,11 @@ def naive_bitonic_sort_pairs[
     values: DeviceBuffer[vals_dtype],
     size: Int,
 ) raises:
-    """
-    Sorts keys and values in-place on the GPU using Bitonic Sort.
-    """
-
     debug_assert["safe"](is_power_of_2(size))
 
-    var blocks = (size + THREADS_PER_BLOCK - 1) // THREADS_PER_BLOCK
+    # 1 thread maps to 1 pair
+    var total_pairs = size >> 1
+    var blocks = (total_pairs + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK
 
     var k = 2
     while k <= size:

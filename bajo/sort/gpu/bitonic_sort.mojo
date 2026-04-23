@@ -116,7 +116,7 @@ def bitonic_sort_shared[
                         var should_swap = (sort_dir_vec & greater_mask) | (
                             ~sort_dir_vec & less_mask
                         )
-                        var take_other = is_lower_veca.eq(should_swap)
+                        var take_other = is_lower_vec.eq(should_swap)
 
                         r_keys = take_other.select(other_keys, r_keys)
                         r_vals = take_other.select(other_vals, r_vals)

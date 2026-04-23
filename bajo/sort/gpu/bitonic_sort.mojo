@@ -8,8 +8,9 @@ from std.gpu import (
 )
 from std.gpu.host import DeviceContext, DeviceBuffer
 from std.gpu.memory import AddressSpace
-from std.memory import stack_allocation
 from std.gpu.primitives import warp
+from std.math import iota
+from std.memory import stack_allocation
 
 from bajo.core.utils import is_power_of_2
 
@@ -55,8 +56,8 @@ def bitonic_sort_shared[
         r_keys = keys.load[width=ITEMS_PER_THREAD](g_base)
         r_vals = values.load[width=ITEMS_PER_THREAD](g_base)
     else:
-        r_keys = SIMD[keys_dtype, ITEMS_PER_THREAD](Scalar[keys_dtype].MAX)
-        r_vals = SIMD[vals_dtype, ITEMS_PER_THREAD](0)
+        r_keys = Scalar[keys_dtype].MAX
+        r_vals = 0
 
     @always_inline
     def _step(j: Int, k: Int) capturing:
@@ -92,20 +93,20 @@ def bitonic_sort_shared[
                     comptime j = 1 << (stage - 1 - step_idx)
                     comptime if j < ITEMS_PER_THREAD:
                         # Stage 1: SIMD sort
+                        comptime i_vec = iota[DType.uint32, ITEMS_PER_THREAD]()
+                        comptime is_lower_vec = (i_vec & UInt32(j)).eq(0)
+
                         var other_keys = SIMD[keys_dtype, ITEMS_PER_THREAD]()
                         var other_vals = SIMD[vals_dtype, ITEMS_PER_THREAD]()
-                        var is_lower_vec = SIMD[DType.bool, ITEMS_PER_THREAD]()
-                        var logical_i_vec = SIMD[
-                            DType.uint32, ITEMS_PER_THREAD
-                        ]()
 
+                        # TODO: maybe replace this with a suffle
                         comptime for i in range(ITEMS_PER_THREAD):
                             other_keys[i] = r_keys[i ^ j]
                             other_vals[i] = r_vals[i ^ j]
-                            is_lower_vec[i] = (i & j) == 0
-                            logical_i_vec[i] = UInt32(
-                                tid * ITEMS_PER_THREAD + i
-                            )
+
+                        var logical_i_vec = (
+                            UInt32(tid * ITEMS_PER_THREAD) + i_vec
+                        )
 
                         var sort_dir_vec = (logical_i_vec & UInt32(k)).eq(0)
 
@@ -115,43 +116,53 @@ def bitonic_sort_shared[
                         var should_swap = (sort_dir_vec & greater_mask) | (
                             ~sort_dir_vec & less_mask
                         )
-                        var take_other = is_lower_vec.eq(should_swap)
+                        var take_other = is_lower_veca.eq(should_swap)
 
                         r_keys = take_other.select(other_keys, r_keys)
                         r_vals = take_other.select(other_vals, r_vals)
                     else:
                         # Stage 2: Warp sort
                         comptime thread_j = j / ITEMS_PER_THREAD
+
+                        var other_keys = SIMD[keys_dtype, ITEMS_PER_THREAD]()
+                        var other_vals = SIMD[vals_dtype, ITEMS_PER_THREAD]()
+
                         comptime for i in range(ITEMS_PER_THREAD):
-                            var my_key = r_keys[i]
-                            var my_val = r_vals[i]
-
-                            var other_key = warp.shuffle_xor(
-                                my_key, UInt32(thread_j)
+                            other_keys[i] = warp.shuffle_xor(
+                                r_keys[i], UInt32(thread_j)
                             )
-                            var other_val = warp.shuffle_xor(
-                                my_val, UInt32(thread_j)
+                            other_vals[i] = warp.shuffle_xor(
+                                r_vals[i], UInt32(thread_j)
                             )
 
-                            var logical_i = tid * ITEMS_PER_THREAD + i
-                            var sort_dir = ((block_start + logical_i) & k) == 0
+                        var thread_g_base = UInt32(
+                            block_start + tid * ITEMS_PER_THREAD
+                        )
+                        comptime i_vec = iota[DType.uint32, ITEMS_PER_THREAD]()
+                        var sort_dir_vec = (
+                            (thread_g_base + i_vec) & UInt32(k)
+                        ).eq(0)
 
-                            var is_lower = (tid & thread_j) == 0
-                            var should_swap = (
-                                my_key > other_key
-                            ) if sort_dir else (my_key < other_key)
-                            var take_other = (is_lower and should_swap) or (
-                                not is_lower and not should_swap
-                            )
+                        var greater_mask = r_keys.gt(other_keys)
+                        var less_mask = r_keys.lt(other_keys)
+                        var should_swap = (sort_dir_vec & greater_mask) | (
+                            ~sort_dir_vec & less_mask
+                        )
 
-                            r_keys[i] = other_key if take_other else my_key
-                            r_vals[i] = other_val if take_other else my_val
+                        var is_lower = SIMD[DType.bool, ITEMS_PER_THREAD](
+                            fill=(tid & thread_j) == 0
+                        )
+                        var take_other = should_swap.eq(is_lower)
+
+                        r_keys = take_other.select(other_keys, r_keys)
+                        r_vals = take_other.select(other_vals, r_vals)
 
         # Stage 3: Block sort
         comptime if PART_SIZE > MAX_WARP_K:
-            comptime for i in range(ITEMS_PER_THREAD):
-                shared_keys[tid * ITEMS_PER_THREAD + i] = r_keys[i]
-                shared_vals[tid * ITEMS_PER_THREAD + i] = r_vals[i]
+            var _keys = shared_keys + tid * ITEMS_PER_THREAD
+            var _vals = shared_vals + tid * ITEMS_PER_THREAD
+            _keys.store(r_keys)
+            _vals.store(r_vals)
             barrier()
 
             comptime start_stage = count_trailing_zeros(MAX_WARP_K) + 1
@@ -161,15 +172,15 @@ def bitonic_sort_shared[
                     comptime j = 1 << (stage - 1 - step_idx)
                     _step(j, k)
 
-            comptime for i in range(ITEMS_PER_THREAD):
-                r_keys[i] = shared_keys[tid * ITEMS_PER_THREAD + i]
-                r_vals[i] = shared_vals[tid * ITEMS_PER_THREAD + i]
+            r_keys = _keys.load[width=ITEMS_PER_THREAD]()
+            r_vals = _vals.load[width=ITEMS_PER_THREAD]()
 
     else:
         # Stage 4: Cross-block merge
-        comptime for i in range(ITEMS_PER_THREAD):
-            shared_keys[tid * ITEMS_PER_THREAD + i] = r_keys[i]
-            shared_vals[tid * ITEMS_PER_THREAD + i] = r_vals[i]
+        var _keys = shared_keys + tid * ITEMS_PER_THREAD
+        var _vals = shared_vals + tid * ITEMS_PER_THREAD
+        _keys.store(r_keys)
+        _vals.store(r_vals)
         barrier()
 
         var limit = min(PART_SIZE, size)
@@ -178,9 +189,8 @@ def bitonic_sort_shared[
             _step(j, k_merge)
             j /= 2
 
-        comptime for i in range(ITEMS_PER_THREAD):
-            r_keys[i] = shared_keys[tid * ITEMS_PER_THREAD + i]
-            r_vals[i] = shared_vals[tid * ITEMS_PER_THREAD + i]
+        r_keys = _keys.load[width=ITEMS_PER_THREAD]()
+        r_vals = _vals.load[width=ITEMS_PER_THREAD]()
 
     # write back to global memory
     if g_base < size:
@@ -325,8 +335,8 @@ def naive_bitonic_sort_pairs[
         while j > 0:
             comptime kernel = bitonic_sort_step[keys_dtype, vals_dtype]
             ctx.enqueue_function[kernel, kernel](
-                keys,
-                values,
+                keys.unsafe_ptr(),
+                values.unsafe_ptr(),
                 j,
                 k,
                 size,

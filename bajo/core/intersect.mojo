@@ -199,7 +199,7 @@ def intersect_ray_tri_moller[
     mut v: Scalar[dtype],
     mut w: Scalar[dtype],
     mut sign: Scalar[dtype],
-    normal: UnsafePointer[Vec3[dtype], MutAnyOrigin],
+    normal: Optional[UnsafePointer[Vec3[dtype], MutAnyOrigin]],
 ) -> Bool:
     comptime assert dtype in [DType.float32, DType.float64]
     comptime EPSILON = Scalar[dtype](1e-8 if dtype == DType.float32 else 1e-16)
@@ -232,7 +232,7 @@ def intersect_ray_tri_moller[
     u = 1.0 - v - w
 
     if normal:
-        normal[] = n.copy()
+        normal.unsafe_value()[] = n.copy()
 
     sign = d
 
@@ -253,7 +253,7 @@ def intersect_ray_tri_rtcd[
     mut v: Scalar[dtype],
     mut w: Scalar[dtype],
     mut sign: Scalar[dtype],
-    normal: UnsafePointer[Vec3[dtype], MutAnyOrigin],
+    normal: Optional[UnsafePointer[Vec3[dtype], MutAnyOrigin]],
 ) -> Bool:
     comptime assert dtype in [DType.float32, DType.float64]
     comptime EPSILON = Scalar[dtype](1e-8 if dtype == DType.float32 else 1e-16)
@@ -296,7 +296,7 @@ def intersect_ray_tri_rtcd[
 
     # optionally write out normal
     if normal:
-        normal[] = n.copy()
+        normal.unsafe_value()[] = n.copy()
 
     sign = d
 
@@ -344,7 +344,7 @@ def intersect_ray_tri_woop[
     mut u: Scalar[dtype],
     mut v: Scalar[dtype],
     mut sign: Scalar[dtype],
-    normal: UnsafePointer[Vec3[dtype], MutAnyOrigin],
+    normal: Optional[UnsafePointer[Vec3[dtype], MutAnyOrigin]],
 ) -> Bool:
     """
     Woop intersection (water-tight ray-triangle)
@@ -419,7 +419,7 @@ def intersect_ray_tri_woop[
     if normal:
         ab = b - a
         ac = c - a
-        normal[] = cross(ab, ac)
+        normal.unsafe_value()[] = cross(ab, ac)
 
     return True
 
@@ -493,7 +493,7 @@ def point_in_tri[
     i0: Int,
     i1: Int,
 ) -> Bool:
-    def check(p1: Vec3[dtype], p2: Vec3[dtype]) unified {read} -> Scalar[dtype]:
+    def check(p1: Vec3[dtype], p2: Vec3[dtype]) {read} -> Scalar[dtype]:
         a = p2[i1] - p1[i1]
         b = -(p2[i0] - p1[i0])
         c = -a * p1[i0] - b * p1[i1]

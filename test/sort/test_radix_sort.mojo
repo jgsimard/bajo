@@ -144,7 +144,7 @@ def test_downsweep_end_to_end() raises:
         comptime KEYS_PER_THREAD = 8
         comptime PART_SIZE = BLOCK_SIZE * KEYS_PER_THREAD
 
-        var _dummy_ptr = UnsafePointer[UInt32, MutAnyOrigin]()
+        var _dummy_ptr = Optional[UnsafePointer[UInt32, MutAnyOrigin]]()
 
         var size = 20_000
         var gdim = ceildiv(Int(size), PART_SIZE)
@@ -297,8 +297,8 @@ def test_downsweep_pairs_end_to_end() raises:
         ](
             d_keys.unsafe_ptr(),
             d_alt_keys.unsafe_ptr(),
-            d_vals.unsafe_ptr(),
-            d_alt_vals.unsafe_ptr(),
+            Optional(d_vals.unsafe_ptr()),
+            Optional(d_alt_vals.unsafe_ptr()),
             d_globalHist.unsafe_ptr(),
             d_passHist.unsafe_ptr(),
             size,

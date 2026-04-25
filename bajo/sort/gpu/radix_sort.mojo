@@ -164,8 +164,10 @@ def downsweep[
 ](
     keys_current: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
     keys_alternate: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
-    vals_current: UnsafePointer[Scalar[vals_dtype], MutAnyOrigin],
-    vals_alternate: UnsafePointer[Scalar[vals_dtype], MutAnyOrigin],
+    vals_current_opt: Optional[UnsafePointer[Scalar[vals_dtype], MutAnyOrigin]],
+    vals_alternate_opt: Optional[
+        UnsafePointer[Scalar[vals_dtype], MutAnyOrigin]
+    ],
     global_hist: UnsafePointer[UInt32, MutAnyOrigin],
     pass_hist: UnsafePointer[UInt32, MutAnyOrigin],
     size: Int,
@@ -277,6 +279,10 @@ def downsweep[
     barrier()
 
     comptime if HAVE_PAYLOAD:
+        debug_assert["safe"](Bool(vals_current_opt))
+        debug_assert["safe"](Bool(vals_alternate_opt))
+        var vals_current = vals_current_opt.unsafe_value()
+        var vals_alternate = vals_alternate_opt.unsafe_value()
         var vals = InlineArray[Scalar[vals_dtype], KEYS_PER_THREAD](
             uninitialized=True
         )
@@ -390,7 +396,7 @@ def device_radix_sort_keys[
         KEYS_PER_THREAD,
         False,
     ]
-    var _dummy_ptr = UnsafePointer[Scalar[dtype], MutAnyOrigin]()
+    var _dummy_ptr = Optional[UnsafePointer[Scalar[dtype], MutAnyOrigin]]()
 
     comptime for pass_idx in range(NUM_PASSES):
         var radix_shift = UInt32(pass_idx * BITS_PER_PASS)
@@ -541,8 +547,8 @@ def device_radix_sort_pairs[
         ctx.enqueue_function[_downsweep_pairs, _downsweep_pairs](
             keys_current,
             keys_alternate,
-            vals_current,
-            vals_alternate,
+            Optional(vals_current),
+            Optional(vals_alternate),
             global_hist,
             pass_hist,
             size,

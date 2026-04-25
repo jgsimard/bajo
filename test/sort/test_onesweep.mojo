@@ -118,7 +118,7 @@ def test_digit_binning_end_to_end() raises:
         comptime G_HIST_PART_SIZE = G_HIST_TPB * G_HIST_ITEMS_PER_THREAD
         comptime VEC_WIDTH = 4
 
-        var _dummy_ptr = UnsafePointer[UInt32, MutAnyOrigin]()
+        var _dummy_ptr = Optional[UnsafePointer[UInt32, MutAnyOrigin]]()
         var size = 20_000
         var binning_blocks = ceildiv(Int(size), BIN_PART_SIZE)
 
@@ -250,7 +250,7 @@ def test_digit_binning_pairs_end_to_end() raises:
                 host_keys[i] = UInt32((i * 17) ^ (i << 13))
                 host_vals[i] = UInt32(i)
 
-        var _dummy_ptr = UnsafePointer[UInt32, MutAnyOrigin]()
+        var _dummy_ptr = Optional[UnsafePointer[UInt32, MutAnyOrigin]]()
         var g_hist_blocks = ceildiv(size, G_HIST_PART_SIZE)
 
         comptime _ghist = global_histogram[
@@ -288,8 +288,8 @@ def test_digit_binning_pairs_end_to_end() raises:
         ctx.enqueue_function[_bin, _bin](
             d_keys.unsafe_ptr(),
             d_alt_keys.unsafe_ptr(),
-            d_vals.unsafe_ptr(),
-            d_alt_vals.unsafe_ptr(),
+            Optional(d_vals.unsafe_ptr()),
+            Optional(d_alt_vals.unsafe_ptr()),
             d_passHist.unsafe_ptr(),
             d_index.unsafe_ptr(),
             size,

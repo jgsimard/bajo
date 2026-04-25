@@ -149,8 +149,10 @@ def digit_binning[
 ](
     keys_current: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
     keys_alternate: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
-    vals_current: UnsafePointer[Scalar[vals_dtype], MutAnyOrigin],
-    vals_alternate: UnsafePointer[Scalar[vals_dtype], MutAnyOrigin],
+    vals_current_opt: Optional[UnsafePointer[Scalar[vals_dtype], MutAnyOrigin]],
+    vals_alternate_opt: Optional[
+        UnsafePointer[Scalar[vals_dtype], MutAnyOrigin]
+    ],
     pass_hist: UnsafePointer[UInt32, MutAnyOrigin],
     index: UnsafePointer[UInt32, MutAnyOrigin],
     size: Int,
@@ -280,6 +282,11 @@ def digit_binning[
 
     # Scatter to Device Memory
     comptime if HAVE_PAYLOAD:
+        debug_assert["safe"](Bool(vals_current_opt))
+        debug_assert["safe"](Bool(vals_alternate_opt))
+        var vals_current = vals_current_opt.unsafe_value()
+        var vals_alternate = vals_alternate_opt.unsafe_value()
+
         var vals = InlineArray[Scalar[vals_dtype], KEYS_PER_THREAD](
             uninitialized=True
         )
@@ -418,7 +425,7 @@ def onesweep_radix_sort_keys[
 
     keys_current = keys.unsafe_ptr()
     keys_alternate = workspace.keys_alternate.unsafe_ptr()
-    dummy_v_ptr = UnsafePointer[Scalar[DType.invalid], MutAnyOrigin]()
+    dummy_v_ptr = Optional[UnsafePointer[Scalar[DType.invalid], MutAnyOrigin]]()
     global_hist = workspace.global_hist.unsafe_ptr()
     pass_hist = workspace.pass_hist.unsafe_ptr()
 
@@ -564,8 +571,8 @@ def onesweep_radix_sort_pairs[
         ctx.enqueue_function[_bin, _bin](
             keys_current,
             keys_alternate,
-            vals_current,
-            vals_alternate,
+            Optional(vals_current),
+            Optional(vals_alternate),
             pass_hist + pass_hist_offset,
             workspace.index.unsafe_ptr(),
             size,

@@ -256,7 +256,7 @@ struct Tsit5[
 
         e_est: SIMD[Self.dtype, 1] = 0.0
 
-        def compute[w: Int](i: Int) unified {read self, mut e_est, read h}:
+        def compute[w: Int](i: Int) {read self, mut e_est, read h}:
             err_v = SIMD[Self.dtype, w](0.0)
 
             comptime for s in range(Self.N_STAGES):

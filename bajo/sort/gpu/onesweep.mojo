@@ -105,20 +105,13 @@ def scan_global(
     var tid = thread_idx.x
     var bid = block_idx.x
 
-    var s_scan = stack_allocation[
-        RADIX, UInt32, address_space=AddressSpace.SHARED
-    ]()
-
     var val = global_hist[tid + bid * RADIX]
     var out_val = block.prefix_sum[
         block_size=RADIX,
         exclusive=True,
     ](val)
-
     out_val = (out_val << 2) | FLAG_INCLUSIVE
-
-    var offset = bid * hist_blocks * RADIX
-    pass_hist[offset + tid] = out_val
+    pass_hist[tid + bid * RADIX * hist_blocks] = out_val
 
 
 def digit_binning[
@@ -231,12 +224,9 @@ def digit_binning[
     # Update offsets
     comptime for i in range(KEYS_PER_THREAD):
         var t2 = Int((keys[i] >> Scalar[keys_dtype](radix_shift)) & RADIX_MASK)
+        offsets[i] += s_local_histogram[t2]
         if wid > 0:
-            offsets[i] += (
-                s_warp_histograms[wid * RADIX + t2] + s_local_histogram[t2]
-            )
-        else:
-            offsets[i] += s_local_histogram[t2]
+            offsets[i] += s_warp_histograms[wid * RADIX + t2]
     barrier()
 
     # Scatter keys into shared memory
@@ -276,63 +266,35 @@ def digit_binning[
             uninitialized=True
         )
         var digits = InlineArray[UInt8, KEYS_PER_THREAD](uninitialized=True)
+        var final_part_size = size - BIN_PART_START
 
-        if partition_index < gdim - 1:
-            comptime for i in range(KEYS_PER_THREAD):
-                var t_idx = tid + (i * BLOCK_SIZE)
+        comptime for i in range(KEYS_PER_THREAD):
+            var t_idx = tid + i * BLOCK_SIZE
+            if t_idx < final_part_size:
                 var key = s_warp_histograms[t_idx]
                 var d = (key >> radix_shift) & UInt32(RADIX_MASK)
                 digits[i] = d.cast[DType.uint8]()
                 keys_alternate[
                     s_local_histogram[Int(d)] + UInt32(t_idx)
                 ] = Scalar[keys_dtype](key)
-            barrier()
+        barrier()
 
-            var t_payload = t_base
-            comptime for i in range(KEYS_PER_THREAD):
-                vals[i] = vals_current[t_payload]
-                t_payload += WARP_SIZE
+        var t_payload = t_base
+        comptime for i in range(KEYS_PER_THREAD):
+            vals[i] = vals_current[t_payload]
+            t_payload += WARP_SIZE
 
-            comptime for i in range(KEYS_PER_THREAD):
-                s_warp_histograms[Int(offsets[i])] = UInt32(vals[i])
-            barrier()
+        comptime for i in range(KEYS_PER_THREAD):
+            s_warp_histograms[Int(offsets[i])] = UInt32(vals[i])
+        barrier()
 
-            comptime for i in range(KEYS_PER_THREAD):
-                var t_idx = tid + (i * BLOCK_SIZE)
+        comptime for i in range(KEYS_PER_THREAD):
+            var t_idx = tid + i * BLOCK_SIZE
+            if t_idx < final_part_size:
                 var d = Int(digits[i])
                 vals_alternate[s_local_histogram[d] + UInt32(t_idx)] = Scalar[
                     vals_dtype
                 ](s_warp_histograms[t_idx])
-        else:
-            var final_part_size = size - BIN_PART_START
-            comptime for i in range(KEYS_PER_THREAD):
-                var t_idx = tid + (i * BLOCK_SIZE)
-                if t_idx < final_part_size:
-                    var key = s_warp_histograms[t_idx]
-                    var d = (key >> radix_shift) & UInt32(RADIX_MASK)
-                    digits[i] = d.cast[DType.uint8]()
-                    keys_alternate[
-                        s_local_histogram[Int(d)] + UInt32(t_idx)
-                    ] = Scalar[keys_dtype](key)
-            barrier()
-
-            var t_payload = t_base
-            comptime for i in range(KEYS_PER_THREAD):
-                if t_payload < size:
-                    vals[i] = vals_current[t_payload]
-                t_payload += WARP_SIZE
-
-            comptime for i in range(KEYS_PER_THREAD):
-                s_warp_histograms[Int(offsets[i])] = UInt32(vals[i])
-            barrier()
-
-            comptime for i in range(KEYS_PER_THREAD):
-                var t_idx = tid + (i * BLOCK_SIZE)
-                if t_idx < final_part_size:
-                    var d = Int(digits[i])
-                    vals_alternate[
-                        s_local_histogram[d] + UInt32(t_idx)
-                    ] = Scalar[vals_dtype](s_warp_histograms[t_idx])
     else:
         var upper_bound = (
             BIN_PART_SIZE if partition_index

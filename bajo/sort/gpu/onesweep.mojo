@@ -254,6 +254,9 @@ def digit_binning[
     barrier()
 
     # Scatter to Device Memory
+    var part_size = (
+        BIN_PART_SIZE if partition_index < gdim - 1 else size - BIN_PART_START
+    )
     comptime if HAVE_PAYLOAD:
         debug_assert["safe"](Bool(vals_current_opt))
         debug_assert["safe"](Bool(vals_alternate_opt))
@@ -264,10 +267,6 @@ def digit_binning[
             uninitialized=True
         )
         var digits = InlineArray[UInt8, KEYS_PER_THREAD](uninitialized=True)
-        var part_size = (
-            BIN_PART_SIZE if partition_index
-            < gdim - 1 else size - BIN_PART_START
-        )
 
         comptime for i in range(KEYS_PER_THREAD):
             var t_idx = tid + i * BLOCK_SIZE
@@ -300,11 +299,7 @@ def digit_binning[
                     vals_dtype
                 ](s_warp_histograms[t_idx])
     else:
-        var upper_bound = (
-            BIN_PART_SIZE if partition_index
-            < gdim - 1 else size - BIN_PART_START
-        )
-        for i in range(tid, upper_bound, BLOCK_SIZE):
+        for i in range(tid, part_size, BLOCK_SIZE):
             var key = s_warp_histograms[i]
             var digit = Int((key >> radix_shift) & UInt32(RADIX_MASK))
             var dst = s_local_histogram[digit] + UInt32(i)

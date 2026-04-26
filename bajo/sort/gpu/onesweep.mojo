@@ -12,7 +12,6 @@ from std.gpu.host import DeviceContext, DeviceBuffer
 from std.gpu.memory import AddressSpace
 from std.gpu.primitives import warp
 from std.gpu.sync import barrier
-from std.gpu.intrinsics import load_volatile
 from std.math import ceildiv
 from std.memory import stack_allocation, bitcast
 from std.sys.info import bit_width_of
@@ -265,7 +264,9 @@ def digit_binning[
         var reduction: UInt32 = 0
         var k = partition_index
         while True:
-            var flag_payload = load_volatile(pass_hist + (tid + k * RADIX))
+            var flag_payload = (pass_hist + tid + k * RADIX).load[
+                volatile=True
+            ]()
             var flag_mask = flag_payload & FLAG_MASK
             if flag_mask == FLAG_INCLUSIVE:
                 reduction += flag_payload >> 2

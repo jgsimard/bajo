@@ -68,7 +68,7 @@ def global_histogram[
         comptime for v in range(width):
             comptime for b in range(BYTES_PER_KEY):
                 var byte_val = Int(t[v * BYTES_PER_KEY + b])
-                var s_idx = (b * PADDED_RADIX) + wave_offset + byte_val
+                var s_idx = b * PADDED_RADIX + wave_offset + byte_val
                 _ = Atomic.fetch_add[ordering=ordering](s_hists + s_idx, 1)
 
     var block_start = bid * PART_SIZE
@@ -89,7 +89,7 @@ def global_histogram[
         comptime for b in range(BYTES_PER_KEY):
             var sum: UInt32 = 0
             comptime for p in range(NUM_PARTITIONS):
-                sum += s_hists[(b * PADDED_RADIX) + (p * RADIX) + i]
+                sum += s_hists[b * PADDED_RADIX + p * RADIX + i]
             var g_idx = (b * RADIX) + i
             _ = Atomic.fetch_add[ordering=ordering](global_hist + g_idx, sum)
 
@@ -134,7 +134,7 @@ def digit_binning[
 ):
     comptime RADIX = 2**BITS_PER_PASS
     comptime RADIX_MASK = Scalar[keys_dtype](RADIX - 1)
-    comptime NUM_WARPS = BLOCK_SIZE // WARP_SIZE
+    comptime NUM_WARPS = BLOCK_SIZE / WARP_SIZE
     comptime WARP_PART_SIZE = WARP_SIZE * KEYS_PER_THREAD
     comptime PART_SIZE = NUM_WARPS * WARP_PART_SIZE
     comptime TOTAL_WARP_HISTS_SIZE = NUM_WARPS * RADIX
@@ -149,7 +149,7 @@ def digit_binning[
 
     var tid = thread_idx.x
     var lid = lane_id()
-    var wid = tid // WARP_SIZE
+    var wid = tid / WARP_SIZE
     var gdim = grid_dim.x
 
     var s_warp_hist_ptr = s_warp_histograms + (wid << BITS_PER_PASS)
@@ -243,7 +243,7 @@ def digit_binning[
             if flag_mask == FLAG_INCLUSIVE:
                 reduction += flag_payload >> 2
                 _ = Atomic.fetch_add[ordering=ordering](
-                    pass_hist + (tid + (partition_index + 1) * RADIX),
+                    pass_hist + tid + (partition_index + 1) * RADIX,
                     FLAG_REDUCTION | (reduction << 2),
                 )
                 s_local_histogram[tid] = reduction - s_local_histogram[tid]
@@ -322,7 +322,7 @@ struct OneSweepWorkspace[
     def __init__(out self, ctx: DeviceContext, size: Int) raises:
         comptime RADIX = 256
         comptime BIN_PART_SIZE = Self.BLOCK_SIZE * Self.KEYS_PER_THREAD
-        comptime NUM_PASSES = bit_width_of[Self.keys_dtype]() // 8
+        comptime NUM_PASSES = bit_width_of[Self.keys_dtype]() / 8
 
         var binning_blocks = ceildiv(size, BIN_PART_SIZE)
         var hist_blocks = binning_blocks + 1

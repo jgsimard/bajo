@@ -3,7 +3,6 @@ from std.bit import pop_count, count_trailing_zeros
 from std.gpu import (
     thread_idx,
     block_idx,
-    block_dim,
     lane_id,
     grid_dim,
     WARP_SIZE,
@@ -16,7 +15,7 @@ from std.math import ceildiv
 from std.memory import stack_allocation, bitcast
 from std.sys.info import bit_width_of
 
-from .utils import DoubleBuffer, circular_shift, warp_level_multi_split
+from .utils import circular_shift, warp_level_multi_split
 
 comptime ordering = Ordering.RELAXED
 comptime LANE_LOG = count_trailing_zeros(WARP_SIZE)  # 2^5 = 32 => 5
@@ -41,8 +40,7 @@ def global_histogram[
     size: Int,
 ):
     comptime BYTES_PER_KEY = bit_width_of[keys_dtype]() / 8
-    comptime G_HIST_PART_SIZE = BLOCK_SIZE * ITEMS_PER_THREAD
-    comptime G_HIST_VEC_SIZE = G_HIST_PART_SIZE / VEC_WIDTH
+    comptime PART_SIZE = BLOCK_SIZE * ITEMS_PER_THREAD
     comptime PADDED_RADIX = RADIX * 2
     comptime THREADS_PER_PARTITION = 64
     comptime NUM_PARTITIONS = BLOCK_SIZE / THREADS_PER_PARTITION
@@ -50,7 +48,6 @@ def global_histogram[
     var tid = thread_idx.x
     var bid = block_idx.x
     var gdim = grid_dim.x
-    var wid = tid / THREADS_PER_PARTITION
 
     var s_hists = stack_allocation[
         PADDED_RADIX * BYTES_PER_KEY, UInt32, address_space=AddressSpace.SHARED
@@ -61,29 +58,30 @@ def global_histogram[
     barrier()
 
     # 64 threads : 1 histogram in shared memory
-    var wave_offset = wid * RADIX
+    var wave_offset = tid / THREADS_PER_PARTITION * RADIX
 
-    if bid < gdim - 1:
-        var part_start = bid * G_HIST_VEC_SIZE
-        var part_end = (bid + 1) * G_HIST_VEC_SIZE
-        for i in range(tid + part_start, part_end, BLOCK_SIZE):
-            var t_vec = sort.load[width=VEC_WIDTH](i * VEC_WIDTH)
-            var t = bitcast[DType.uint8, VEC_WIDTH * BYTES_PER_KEY](t_vec)
+    @always_inline
+    def _accumulate_hist[width: Int](i: Int) capturing:
+        var _t = sort.load[width=width](i)
+        var t = bitcast[DType.uint8, width * BYTES_PER_KEY](_t)
 
-            comptime for v in range(VEC_WIDTH):
-                comptime for b in range(BYTES_PER_KEY):
-                    var byte_val = Int(t[v * BYTES_PER_KEY + b])
-                    var s_idx = (b * PADDED_RADIX) + wave_offset + byte_val
-                    _ = Atomic.fetch_add[ordering=ordering](s_hists + s_idx, 1)
-    else:
-        var part_start = bid * G_HIST_PART_SIZE
-        for i in range(tid + part_start, size, BLOCK_SIZE):
-            var t = bitcast[DType.uint8, BYTES_PER_KEY](sort[i])
+        comptime for v in range(width):
             comptime for b in range(BYTES_PER_KEY):
-                var byte_val = Int(t[b])
+                var byte_val = Int(t[v * BYTES_PER_KEY + b])
                 var s_idx = (b * PADDED_RADIX) + wave_offset + byte_val
                 _ = Atomic.fetch_add[ordering=ordering](s_hists + s_idx, 1)
 
+    var block_start = bid * PART_SIZE
+    if bid < gdim - 1:
+        for i in range(
+            block_start + tid * VEC_WIDTH,
+            block_start + PART_SIZE,
+            BLOCK_SIZE * VEC_WIDTH,
+        ):
+            _accumulate_hist[VEC_WIDTH](i)
+    else:
+        for i in range(block_start + tid, size, BLOCK_SIZE):
+            _accumulate_hist[1](i)
     barrier()
 
     # Reduce
@@ -321,7 +319,7 @@ struct OneSweepWorkspace[
     KEYS_PER_THREAD: Int,
 ]:
     var keys_alternate: DeviceBuffer[Self.keys_dtype]
-    var vals_atlernate: DeviceBuffer[Self.vals_dtype]
+    var vals_alternate: DeviceBuffer[Self.vals_dtype]
     var global_hist: DeviceBuffer[DType.uint32]
     var pass_hist: DeviceBuffer[DType.uint32]
     var index: DeviceBuffer[DType.uint32]
@@ -335,7 +333,7 @@ struct OneSweepWorkspace[
         var hist_blocks = binning_blocks + 1
 
         self.keys_alternate = ctx.enqueue_create_buffer[Self.keys_dtype](size)
-        self.vals_atlernate = ctx.enqueue_create_buffer[Self.vals_dtype](size)
+        self.vals_alternate = ctx.enqueue_create_buffer[Self.vals_dtype](size)
         self.global_hist = ctx.enqueue_create_buffer[DType.uint32](
             RADIX * NUM_PASSES
         )
@@ -478,7 +476,7 @@ def onesweep_radix_sort_pairs[
     keys_current = keys.unsafe_ptr()
     keys_alternate = workspace.keys_alternate.unsafe_ptr()
     vals_current = values.unsafe_ptr()
-    vals_alternate = workspace.vals_atlernate.unsafe_ptr()
+    vals_alternate = workspace.vals_alternate.unsafe_ptr()
     global_hist = workspace.global_hist.unsafe_ptr()
     pass_hist = workspace.pass_hist.unsafe_ptr()
 

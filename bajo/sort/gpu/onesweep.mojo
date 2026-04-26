@@ -266,11 +266,14 @@ def digit_binning[
             uninitialized=True
         )
         var digits = InlineArray[UInt8, KEYS_PER_THREAD](uninitialized=True)
-        var final_part_size = size - BIN_PART_START
+        var part_size = (
+            BIN_PART_SIZE if partition_index
+            < gdim - 1 else size - BIN_PART_START
+        )
 
         comptime for i in range(KEYS_PER_THREAD):
             var t_idx = tid + i * BLOCK_SIZE
-            if t_idx < final_part_size:
+            if t_idx < part_size:
                 var key = s_warp_histograms[t_idx]
                 var d = (key >> radix_shift) & UInt32(RADIX_MASK)
                 digits[i] = d.cast[DType.uint8]()
@@ -281,7 +284,10 @@ def digit_binning[
 
         var t_payload = t_base
         comptime for i in range(KEYS_PER_THREAD):
-            vals[i] = vals_current[t_payload]
+            if t_payload < size:
+                vals[i] = vals_current[t_payload]
+            else:
+                vals[i] = Scalar[vals_dtype].MAX
             t_payload += WARP_SIZE
 
         comptime for i in range(KEYS_PER_THREAD):
@@ -290,7 +296,7 @@ def digit_binning[
 
         comptime for i in range(KEYS_PER_THREAD):
             var t_idx = tid + i * BLOCK_SIZE
-            if t_idx < final_part_size:
+            if t_idx < part_size:
                 var d = Int(digits[i])
                 vals_alternate[s_local_histogram[d] + UInt32(t_idx)] = Scalar[
                     vals_dtype

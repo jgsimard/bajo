@@ -10,7 +10,7 @@ from std.gpu import (
 )
 from std.gpu.host import DeviceContext, DeviceBuffer
 from std.gpu.memory import AddressSpace
-from std.gpu.primitives import warp
+from std.gpu.primitives import warp, block
 from std.gpu.sync import barrier
 from std.math import ceildiv
 from std.memory import stack_allocation, bitcast
@@ -104,32 +104,16 @@ def scan_global(
     comptime RADIX = 256
     var tid = thread_idx.x
     var bid = block_idx.x
-    var lid = lane_id()
 
     var s_scan = stack_allocation[
         RADIX, UInt32, address_space=AddressSpace.SHARED
     ]()
 
-    var val = global_hist[tid + (bid * RADIX)]
-    var sum = warp.prefix_sum[exclusive=False](val)
-    var shifted = circular_shift(sum)
-    s_scan[tid] = shifted
-    barrier()
-
-    var idx = tid << LANE_LOG
-    var v: UInt32 = 0
-    if tid < (RADIX >> LANE_LOG):
-        v = s_scan[idx]
-
-    var exc = warp.prefix_sum[exclusive=True](v)
-
-    if tid < (RADIX >> LANE_LOG):
-        s_scan[idx] = exc
-    barrier()
-
-    var out_val = s_scan[tid]
-    if lid > 0:
-        out_val += s_scan[tid - lid]
+    var val = global_hist[tid + bid * RADIX]
+    var out_val = block.prefix_sum[
+        block_size=RADIX,
+        exclusive=True,
+    ](val)
 
     out_val = (out_val << 2) | FLAG_INCLUSIVE
 

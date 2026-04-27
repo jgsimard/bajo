@@ -65,7 +65,7 @@ struct ObjMaterial(Copyable):
     var map_d: Int
     var map_bump: Int
 
-    def __init__(out self, name: String = String(""), fallback: Bool = False):
+    def __init__(out self, name: String = "", fallback: Bool = False):
         self.name = name
 
         self.Ka0 = 0.0
@@ -186,8 +186,8 @@ struct ObjMesh(Movable):
         self.objects = List[ObjGroup]()
         self.groups = List[ObjGroup]()
         self.current_material = 0
-        self.current_object = ObjGroup(String(""), 0, 0, 0)
-        self.current_group = ObjGroup(String(""), 0, 0, 0)
+        self.current_object = ObjGroup("", 0, 0, 0)
+        self.current_group = ObjGroup("", 0, 0, 0)
 
         self.positions.append(0.0)
         self.positions.append(0.0)
@@ -197,19 +197,19 @@ struct ObjMesh(Movable):
         self.normals.append(0.0)
         self.normals.append(0.0)
         self.normals.append(1.0)
-        self.textures.append(ObjTexture(String(""), String("")))
+        self.textures.append(ObjTexture("", ""))
 
     def position_count(self) -> Int:
-        return len(self.positions) // 3
+        return len(self.positions) / 3
 
     def texcoord_count(self) -> Int:
-        return len(self.texcoords) // 2
+        return len(self.texcoords) / 2
 
     def normal_count(self) -> Int:
-        return len(self.normals) // 3
+        return len(self.normals) / 3
 
     def color_count(self) -> Int:
-        return len(self.colors) // 3
+        return len(self.colors) / 3
 
     def face_count(self) -> Int:
         return len(self.face_vertices)
@@ -245,14 +245,14 @@ struct ObjMesh(Movable):
         if self.current_object.face_count > 0:
             self.objects.append(self.current_object.copy())
         self.current_object = ObjGroup(
-            String(""), 0, len(self.face_vertices), len(self.indices)
+            "", 0, len(self.face_vertices), len(self.indices)
         )
 
     def _flush_group(mut self):
         if self.current_group.face_count > 0:
             self.groups.append(self.current_group.copy())
         self.current_group = ObjGroup(
-            String(""), 0, len(self.face_vertices), len(self.indices)
+            "", 0, len(self.face_vertices), len(self.indices)
         )
 
     def begin_object(mut self, name: String):
@@ -349,35 +349,27 @@ struct ObjMesh(Movable):
     def print_summary(self):
         print("ObjMesh summary")
         print(
-            "  - positions:",
-            self.position_count(),
-            "including dummy; actual:",
-            self.actual_position_count(),
+            t" - positions: {self.position_count()} including dummy; actual:"
+            t" {self.actual_position_count()}"
         )
         print(
-            "  - texcoords:",
-            self.texcoord_count(),
-            "including dummy; actual:",
-            self.actual_texcoord_count(),
+            t" - texcoords: {self.texcoord_count()} including dummy; actual:"
+            t" {self.actual_texcoord_count()}"
         )
         print(
-            "  - normals:",
-            self.normal_count(),
-            "including dummy; actual:",
-            self.actual_normal_count(),
+            t" - normals: {self.normal_count()} including dummy; actual:"
+            t" {self.actual_normal_count()}"
         )
-        print("  - colors:", self.color_count())
-        print("  - faces/lines:", self.face_count())
-        print("  - indices:", self.index_count())
-        print("  - materials:", self.material_count())
+        print(t" - colors: {self.color_count()}")
+        print(t" - faces/lines: {self.face_count()}")
+        print(t" - indices: {self.index_count()}")
+        print(t" - materials: {self.material_count()}")
         print(
-            "  - textures:",
-            self.texture_count(),
-            "including dummy; actual:",
-            self.actual_texture_count(),
+            t" - textures: {self.texture_count()} including dummy; actual:"
+            t" {self.actual_texture_count()}"
         )
-        print("  - objects:", self.object_count())
-        print("  - groups:", self.group_count())
+        print(t" - objects: {self.object_count()}")
+        print(t" - groups:  {self.group_count()}")
 
 
 trait ObjTextLoader:
@@ -407,25 +399,27 @@ struct MemoryObjTextLoader(Movable, ObjTextLoader):
         raise Error("MemoryObjTextLoader: file not found: " + key)
 
 
-def _parse_i32(token: String) raises -> Int:
+def _parse_i32[o: Origin](token: StringSlice[o]) raises -> Int:
     return atol(token)
 
 
-def _parse_f32(token: String) raises -> Float32:
+def _parse_f32[o: Origin](token: StringSlice[o]) raises -> Float32:
     return Float32(atof(token))
 
 
-def _strip_comment(line: String) -> String:
-    var out = String("")
+def _strip_comment[o: Origin](line: StringSlice[o]) -> StringSlice[o]:
+    var end = line.byte_length()
+
     for i in range(line.byte_length()):
         if line[byte=i] == "#":
-            return String(out.strip())
-        out += String(line[byte=i])
-    return String(out.strip())
+            end = i
+            break
+
+    return line[byte=:end].strip()
 
 
 def _join_tokens[o: Origin](tokens: List[StringSlice[o]], start: Int) -> String:
-    var out = String("")
+    var out = ""
     for i in range(start, len(tokens)):
         if i > start:
             out += " "
@@ -453,12 +447,12 @@ def _base_dir_with_sep(path: String) -> String:
         if path[byte=i] == "/" or path[byte=i] == "\\":
             last = i
     if last < 0:
-        return String("")
+        return ""
     return String(path[byte = : last + 1])
 
 
 def _fix_separators(path: String) -> String:
-    var out = String("")
+    var out = ""
     for i in range(path.byte_length()):
         if path[byte=i] == "\\":
             out += "/"
@@ -481,18 +475,20 @@ def _fix_index(raw: Int, count_with_dummy: Int) -> Int:
     return 0
 
 
-def _parse_index(token: String, mesh: ObjMesh) raises -> ObjIndex:
+def _parse_index[
+    o: Origin
+](token: StringSlice[o], mesh: ObjMesh) raises -> ObjIndex:
     var parts = token.split("/")
     var p_raw = 0
     var t_raw = 0
     var n_raw = 0
 
     if len(parts) > 0 and parts[0].byte_length() > 0:
-        p_raw = _parse_i32(String(parts[0]))
+        p_raw = _parse_i32(parts[0])
     if len(parts) > 1 and parts[1].byte_length() > 0:
-        t_raw = _parse_i32(String(parts[1]))
+        t_raw = _parse_i32(parts[1])
     if len(parts) > 2 and parts[2].byte_length() > 0:
-        n_raw = _parse_i32(String(parts[2]))
+        n_raw = _parse_i32(parts[2])
 
     return ObjIndex(
         _fix_index(p_raw, mesh.position_count()),
@@ -501,14 +497,16 @@ def _parse_index(token: String, mesh: ObjMesh) raises -> ObjIndex:
     )
 
 
-def _tail_after_tag(line: String, tag: String) -> String:
+def _tail_after_tag[o: Origin](line: StringSlice[o], tag: String) -> String:
     var i = tag.byte_length()
     while i < line.byte_length() and (
-        line[byte=i] == " " or line[byte=i] == "	"
+        line[byte=i] == " " or line[byte=i] == "\t"
     ):
         i += 1
+
     if i >= line.byte_length():
-        return String("")
+        return ""
+
     return String(line[byte=i:].strip())
 
 
@@ -518,14 +516,14 @@ def _map_name_from_tail[
     # fast_obj itself does not support full texture-map options. This port keeps
     # functional support for common option-bearing maps by choosing the last
     # non-option-looking token as the filename.
-    var candidate = String("")
+    var candidate = ""
     for i in range(start, len(tokens)):
-        var tok = String(tokens[i])
+        var tok = tokens[i]
         if tok.byte_length() == 0:
             continue
         if tok[byte=0] == "-":
             continue
-        candidate = tok
+        candidate = String(tok)
     return candidate
 
 
@@ -535,9 +533,9 @@ def _read_triple[
     Float32, Float32, Float32
 ]:
     return (
-        _parse_f32(String(tokens[start])),
-        _parse_f32(String(tokens[start + 1])),
-        _parse_f32(String(tokens[start + 2])),
+        _parse_f32(tokens[start]),
+        _parse_f32(tokens[start + 1]),
+        _parse_f32(tokens[start + 2]),
     )
 
 
@@ -547,7 +545,7 @@ def _read_mtl_text(mut mesh: ObjMesh, base: String, text: String) raises:
     var found_d = False
 
     for raw_line in text.split("\n"):
-        var line = _strip_comment(String(raw_line))
+        var line = _strip_comment(raw_line)
         if line.byte_length() == 0:
             continue
 
@@ -555,7 +553,7 @@ def _read_mtl_text(mut mesh: ObjMesh, base: String, text: String) raises:
         if len(tokens) == 0:
             continue
 
-        var tag = String(tokens[0])
+        var tag = tokens[0]
 
         if tag == "newmtl":
             if have_current:
@@ -588,17 +586,17 @@ def _read_mtl_text(mut mesh: ObjMesh, base: String, text: String) raises:
             var a, b, c = _read_triple(tokens, 1)
             current.set_Tf(a, b, c)
         elif tag == "Ns" and len(tokens) >= 2:
-            current.Ns = _parse_f32(String(tokens[1]))
+            current.Ns = _parse_f32(tokens[1])
         elif tag == "Ni" and len(tokens) >= 2:
-            current.Ni = _parse_f32(String(tokens[1]))
+            current.Ni = _parse_f32(tokens[1])
         elif tag == "illum" and len(tokens) >= 2:
-            current.illum = _parse_i32(String(tokens[1]))
+            current.illum = _parse_i32(tokens[1])
         elif tag == "d" and len(tokens) >= 2:
-            current.d = _parse_f32(String(tokens[1]))
+            current.d = _parse_f32(tokens[1])
             found_d = True
         elif tag == "Tr" and len(tokens) >= 2:
             if not found_d:
-                current.d = 1.0 - _parse_f32(String(tokens[1]))
+                current.d = 1.0 - _parse_f32(tokens[1])
         elif tag == "map_Ka" and len(tokens) >= 2:
             var name = _map_name_from_tail(tokens, 1)
             if name.byte_length() > 0:
@@ -657,7 +655,7 @@ def parse_obj_text_with_loader[
     var mesh = ObjMesh()
 
     for raw_line in text.split("\n"):
-        var line = _strip_comment(String(raw_line))
+        var line = _strip_comment(raw_line)
         if line.byte_length() == 0:
             continue
 
@@ -665,45 +663,45 @@ def parse_obj_text_with_loader[
         if len(tokens) == 0:
             continue
 
-        var tag = String(tokens[0])
+        var tag = tokens[0]
 
         if tag == "v":
             if len(tokens) < 4:
                 continue
             mesh.push_position(
-                _parse_f32(String(tokens[1])),
-                _parse_f32(String(tokens[2])),
-                _parse_f32(String(tokens[3])),
+                _parse_f32(tokens[1]),
+                _parse_f32(tokens[2]),
+                _parse_f32(tokens[3]),
             )
             if len(tokens) >= 7:
                 mesh.push_color(
-                    _parse_f32(String(tokens[4])),
-                    _parse_f32(String(tokens[5])),
-                    _parse_f32(String(tokens[6])),
+                    _parse_f32(tokens[4]),
+                    _parse_f32(tokens[5]),
+                    _parse_f32(tokens[6]),
                 )
 
         elif tag == "vt":
             if len(tokens) < 3:
                 continue
             mesh.push_texcoord(
-                _parse_f32(String(tokens[1])),
-                _parse_f32(String(tokens[2])),
+                _parse_f32(tokens[1]),
+                _parse_f32(tokens[2]),
             )
 
         elif tag == "vn":
             if len(tokens) < 4:
                 continue
             mesh.push_normal(
-                _parse_f32(String(tokens[1])),
-                _parse_f32(String(tokens[2])),
-                _parse_f32(String(tokens[3])),
+                _parse_f32(tokens[1]),
+                _parse_f32(tokens[2]),
+                _parse_f32(tokens[3]),
             )
 
         elif tag == "f" or tag == "l":
             var verts = List[ObjIndex](capacity=len(tokens) - 1)
             var valid = True
             for i in range(1, len(tokens)):
-                var idx = _parse_index(String(tokens[i]), mesh)
+                var idx = _parse_index(tokens[i], mesh)
                 if idx.p == 0:
                     valid = False
                     break
@@ -719,13 +717,13 @@ def parse_obj_text_with_loader[
                 )
 
         elif tag == "g":
-            var name = String("")
+            var name = ""
             if len(tokens) > 1:
                 name = _join_tokens(tokens, 1)
             mesh.begin_group(name)
 
         elif tag == "o":
-            var name = String("")
+            var name = ""
             if len(tokens) > 1:
                 name = _join_tokens(tokens, 1)
             mesh.begin_object(name)
@@ -766,7 +764,7 @@ def read_obj(path: String) raises -> ObjMesh:
 
 
 def read_obj_from_string(text: String) raises -> ObjMesh:
-    return parse_obj_text(String(""), text)
+    return parse_obj_text("", text)
 
 
 def read_obj_from_memory(

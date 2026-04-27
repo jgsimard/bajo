@@ -10,35 +10,15 @@ from bajo.obj import (
 )
 
 
-# Change this if your asset path differs.
-comptime OBJ_PATH = "./assets/bunny/bunny.obj"
-
-# For big OBJ files, 200 iterations can be too much while iterating.
-# Start low, then increase.
-comptime PARSE_ITERS = 5
-comptime TRI_ITERS = 200
-
-
 def bench_read_obj(path: String) raises:
-    # Includes:
-    # - file read
-    # - OBJ parse
-    # - MTL file read/parse if mtllib is present
     var mesh = read_obj(path)
 
-    # Prevent dead-code elimination and also sanity-check the result.
     keep(mesh.index_count())
     keep(mesh.face_count())
     keep(mesh.position_count())
 
 
 def bench_parse_obj_text(path: String, text: String) raises:
-    # Includes:
-    # - OBJ parse
-    # - MTL file read/parse if mtllib is present, because parse_obj_text uses PathObjTextLoader
-    #
-    # Excludes:
-    # - reading the OBJ file itself
     var mesh = parse_obj_text(path, text)
 
     keep(mesh.index_count())
@@ -47,11 +27,6 @@ def bench_parse_obj_text(path: String, text: String) raises:
 
 
 def bench_triangulated_indices(mesh: ObjMesh) raises:
-    # Includes:
-    # - fan triangulation allocation + index writes
-    #
-    # Excludes:
-    # - OBJ parsing
     var tris = triangulated_indices(mesh)
 
     keep(len(tris))
@@ -60,6 +35,9 @@ def bench_triangulated_indices(mesh: ObjMesh) raises:
 
 
 def main() raises:
+    comptime OBJ_PATH = "./assets/bunny/bunny.obj"
+    comptime PARSE_ITERS = 5
+    comptime TRI_ITERS = 200
     var path = String(OBJ_PATH)
 
     print("Benchmarking OBJ loader")

@@ -35,16 +35,12 @@ def test_basic_triangle() raises:
     assert_true(mesh.actual_normal_count() == 1)
     assert_true(mesh.face_count() == 1)
     assert_true(mesh.index_count() == 3)
-    assert_true(
-        mesh.indices[0].p == 1
-        and mesh.indices[0].t == 1
-        and mesh.indices[0].n == 1
-    )
-    assert_true(
-        mesh.indices[2].p == 3
-        and mesh.indices[2].t == 3
-        and mesh.indices[2].n == 1
-    )
+    assert_true(mesh.indices[0].p == 1)
+    assert_true(mesh.indices[0].t == 1)
+    assert_true(mesh.indices[0].n == 1)
+    assert_true(mesh.indices[2].p == 3)
+    assert_true(mesh.indices[2].t == 3)
+    assert_true(mesh.indices[2].n == 1)
 
 
 def test_negative_indices_and_triangulation() raises:
@@ -61,8 +57,12 @@ def test_negative_indices_and_triangulation() raises:
     assert_true(mesh.indices[0].p == 1)
     assert_true(mesh.indices[3].p == 4)
     assert_true(len(tris) == 6)
-    assert_true(tris[0].p == 1 and tris[1].p == 2 and tris[2].p == 3)
-    assert_true(tris[3].p == 1 and tris[4].p == 3 and tris[5].p == 4)
+    assert_true(tris[0].p == 1)
+    assert_true(tris[1].p == 2)
+    assert_true(tris[2].p == 3)
+    assert_true(tris[3].p == 1)
+    assert_true(tris[4].p == 3)
+    assert_true(tris[5].p == 4)
 
 
 def test_vertex_colors_lazy_fill() raises:

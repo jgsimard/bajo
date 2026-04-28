@@ -19,15 +19,14 @@ from bajo.obj import (
 
 
 def test_basic_triangle() raises:
-    var obj = String("")
-    obj += "v 0 0 0\n"
-    obj += "v 1 0 0\n"
-    obj += "v 0 1 0\n"
-    obj += "vt 0 0\n"
-    obj += "vt 1 0\n"
-    obj += "vt 0 1\n"
-    obj += "vn 0 0 1\n"
-    obj += "f 1/1/1 2/2/1 3/3/1"
+    comptime obj = """v 0 0 0
+v 1 0 0
+v 0 1 0
+vt 0 0
+vt 1 0
+vt 0 1
+vn 0 0 1
+f 1/1/1 2/2/1 3/3/1"""
 
     var mesh = parse_obj_text("triangle.obj", obj)
     assert_true(mesh.actual_position_count() == 3)
@@ -44,12 +43,11 @@ def test_basic_triangle() raises:
 
 
 def test_negative_indices_and_triangulation() raises:
-    var obj = String("")
-    obj += "v 0 0 0\n"
-    obj += "v 1 0 0\n"
-    obj += "v 1 1 0\n"
-    obj += "v 0 1 0\n"
-    obj += "f -4 -3 -2 -1"
+    comptime obj = """v 0 0 0
+v 1 0 0
+v 1 1 0
+v 0 1 0
+f -4 -3 -2 -1"""
 
     var mesh = parse_obj_text("quad.obj", obj)
     var tris = triangulated_indices(mesh)
@@ -66,10 +64,9 @@ def test_negative_indices_and_triangulation() raises:
 
 
 def test_vertex_colors_lazy_fill() raises:
-    var obj = String("")
-    obj += "v 0 0 0\n"
-    obj += "v 1 0 0 0.25 0.5 0.75\n"
-    obj += "v 2 0 0"
+    comptime obj = """v 0 0 0
+v 1 0 0 0.25 0.5 0.75
+v 2 0 0"""
 
     var mesh = parse_obj_text("colors.obj", obj)
     assert_true(mesh.color_count() == 4)
@@ -88,14 +85,13 @@ def test_vertex_colors_lazy_fill() raises:
 
 
 def test_groups_objects_and_lines() raises:
-    var obj = String("")
-    obj += "o Cube\n"
-    obj += "g Front\n"
-    obj += "v 0 0 0\n"
-    obj += "v 1 0 0\n"
-    obj += "v 0 1 0\n"
-    obj += "l 1 2\n"
-    obj += "f 1 2 3\n"
+    comptime obj = """o Cube
+g Front
+v 0 0 0
+v 1 0 0
+v 0 1 0
+l 1 2
+f 1 2 3"""
 
     var mesh = parse_obj_text("groups.obj", obj)
     var tris = triangulated_indices(mesh)
@@ -117,18 +113,17 @@ def test_material_fallback_replacement_and_textures() raises:
     var mesh = ObjMesh()
     var fallback_idx = mesh.ensure_material("matA", fallback=True)
 
-    var mtl = String("")
-    mtl += "newmtl matA\n"
-    mtl += "Ka 0.01 0.02 0.03\n"
-    mtl += "Kd 0.1 0.2 0.3\n"
-    mtl += "Ks 0.4 0.5 0.6\n"
-    mtl += "Ke 0.7 0.8 0.9\n"
-    mtl += "Ns 42\n"
-    mtl += "Ni 1.45\n"
-    mtl += "d 0.5\n"
-    mtl += "illum 2\n"
-    mtl += "map_Kd diffuse.png\n"
-    mtl += "bump normal.png\n"
+    comptime mtl = """newmtl matA
+Ka 0.01 0.02 0.03
+Kd 0.1 0.2 0.3
+Ks 0.4 0.5 0.6
+Ke 0.7 0.8 0.9
+Ns 42
+Ni 1.45
+d 0.5
+illum 2
+map_Kd diffuse.png
+bump normal.png"""
 
     _read_mtl_text(mesh, "assets/", mtl)
     var mat = mesh.materials[fallback_idx].copy()
@@ -153,13 +148,12 @@ def test_material_fallback_replacement_and_textures() raises:
 def test_memory_loader_mtllib_with_spaces_and_texture_dedup() raises:
     var loader = MemoryObjTextLoader()
 
-    var obj = String("")
-    obj += "mtllib material library.mtl\n"
-    obj += "usemtl matB\n"
-    obj += "v 0 0 0\n"
-    obj += "v 1 0 0\n"
-    obj += "v 0 1 0\n"
-    obj += "f 1 2 3\n"
+    comptime obj = """mtllib material library.mtl
+usemtl matB
+v 0 0 0
+v 1 0 0
+v 0 1 0
+f 1 2 3\n"""
 
     var mtl = String("")
     mtl += "newmtl matB\n"
@@ -182,10 +176,11 @@ def test_memory_loader_mtllib_with_spaces_and_texture_dedup() raises:
 
 
 def test_read_obj_from_string() raises:
-    var obj = "v 0 0 0\n"
-    obj += "v 1 0 0\n"
-    obj += "v 0 1 0\n"
-    obj += "f 1 2 3\n"
+    comptime obj = """v 0 0 0 
+v 1 0 0
+v 0 1 0
+f 1 2 3
+"""
 
     var mesh = read_obj_from_string(obj)
     assert_true(mesh.face_count() == 1)
@@ -193,13 +188,12 @@ def test_read_obj_from_string() raises:
 
 
 def test_comments_blank_lines_and_crlf() raises:
-    var obj = String("")
-    obj += "# comment\r\n"
-    obj += "\r\n"
-    obj += "v 0 0 0 # inline comment\r\n"
-    obj += "v 1 0 0\r\n"
-    obj += "v 0 1 0\r\n"
-    obj += "f 1 2 3\r\n"
+    comptime obj = """# comment\r
+\r
+v 0 0 0 # inline comment\r
+v 1 0 0\r
+v 0 1 0\r
+f 1 2 3\r"""
 
     var mesh = parse_obj_text("comments.obj", obj)
     assert_true(mesh.actual_position_count() == 3)
@@ -208,12 +202,11 @@ def test_comments_blank_lines_and_crlf() raises:
 
 
 def test_missing_texcoord_face_form() raises:
-    var obj = String("")
-    obj += "v 0 0 0\n"
-    obj += "v 1 0 0\n"
-    obj += "v 0 1 0\n"
-    obj += "vn 0 0 1\n"
-    obj += "f 1//1 2//1 3//1\n"
+    comptime obj = """v 0 0 0
+v 1 0 0
+v 0 1 0
+vn 0 0 1
+f 1//1 2//1 3//1"""
 
     var mesh = parse_obj_text("missing_texcoord.obj", obj)
     assert_true(mesh.face_count() == 1)
@@ -226,15 +219,14 @@ def test_missing_texcoord_face_form() raises:
 
 
 def test_multiple_groups_flush_offsets() raises:
-    var obj = String("")
-    obj += "g A\n"
-    obj += "v 0 0 0\n"
-    obj += "v 1 0 0\n"
-    obj += "v 0 1 0\n"
-    obj += "v 1 1 0\n"
-    obj += "f 1 2 3\n"
-    obj += "g B\n"
-    obj += "f 2 4 3\n"
+    comptime obj = """g A\n"
+v 0 0 0
+v 1 0 0
+v 0 1 0
+v 1 1 0
+f 1 2 3
+g B
+f 2 4 3"""
 
     var mesh = parse_obj_text("groups2.obj", obj)
     assert_true(mesh.group_count() == 2)
@@ -250,9 +242,8 @@ def test_multiple_groups_flush_offsets() raises:
 
 def test_tr_only_transparency() raises:
     var mesh = ObjMesh()
-    var mtl = String("")
-    mtl += "newmtl glass\n"
-    mtl += "Tr 0.25\n"
+    comptime mtl = """newmtl glass
+Tr 0.25"""
 
     _read_mtl_text(mesh, "", mtl)
     var mat = mesh.materials[0].copy()
@@ -261,10 +252,9 @@ def test_tr_only_transparency() raises:
 
 def test_d_overrides_tr_order() raises:
     var mesh = ObjMesh()
-    var mtl = String("")
-    mtl += "newmtl mat\n"
-    mtl += "d 0.4\n"
-    mtl += "Tr 0.9\n"
+    comptime mtl = """newmtl mat
+d 0.4
+Tr 0.9"""
 
     _read_mtl_text(mesh, "", mtl)
     var mat = mesh.materials[0].copy()

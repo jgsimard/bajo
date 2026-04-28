@@ -1,24 +1,3 @@
-# fast_obj.mojo
-#
-# Full practical Mojo port of fast_obj v1.3's public data model and parser behavior.
-#
-# What this ports:
-# - OBJ: v, vt, vn, f, l, g, o, usemtl, mtllib
-# - MTL: newmtl, Ka, Kd, Ks, Ke, Kt, Ns, Ni, Tf, d, Tr, illum,
-#        map_Ka, map_Kd, map_Ks, map_Ke, map_Kt, map_Ns, map_Ni,
-#        map_d, map_bump, bump
-# - 1-based positions / texcoords / normals / textures with dummy slot 0
-# - 0-based materials, matching fast_obj's face_materials convention
-# - polygon faces are preserved; triangulation is a separate helper
-# - object/group ranges and line-element flags are preserved
-# - vertex colors follow fast_obj behavior: if any color appears, missing prior
-#   colors are filled with white; if no colors appear, color_count is zero.
-#
-# Design note:
-# This is a source-level Mojo port focused on behavior and API shape. It uses
-# String.split() for clarity. For benchmark parity with the C library, replace
-# the line/token parsing layer with a byte-slice scanner over Path.read_bytes().
-
 from std.pathlib import Path
 
 
@@ -117,9 +96,9 @@ struct ObjMesh(Movable):
     var current_group: ObjGroup
 
     def __init__(out self):
-        self.positions = List[Float32]()
-        self.texcoords = List[Float32]()
-        self.normals = List[Float32]()
+        self.positions = [0.0, 0.0, 0.0]
+        self.texcoords = [0.0, 0.0]
+        self.normals = [0.0, 0.0, 1.0]
         self.colors = List[Float32]()
         self.face_vertices = List[Int]()
         self.face_materials = List[Int]()
@@ -127,23 +106,13 @@ struct ObjMesh(Movable):
         self.indices = List[ObjIndex]()
         self.materials = List[ObjMaterial]()
         self.material_names = Dict[String, Int]()
-        self.textures = List[ObjTexture]()
+        self.textures = [ObjTexture("", "")]
         self.texture_names = Dict[String, Int]()
         self.objects = List[ObjGroup]()
         self.groups = List[ObjGroup]()
         self.current_material = 0
         self.current_object = ObjGroup("", 0, 0, 0)
         self.current_group = ObjGroup("", 0, 0, 0)
-
-        self.positions.append(0.0)
-        self.positions.append(0.0)
-        self.positions.append(0.0)
-        self.texcoords.append(0.0)
-        self.texcoords.append(0.0)
-        self.normals.append(0.0)
-        self.normals.append(0.0)
-        self.normals.append(1.0)
-        self.textures.append(ObjTexture("", ""))
 
     def position_count(self) -> Int:
         return len(self.positions) / 3

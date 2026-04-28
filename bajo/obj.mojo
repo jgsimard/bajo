@@ -512,7 +512,7 @@ def _read_triple[
     )
 
 
-def c(mut mesh: ObjMesh, base: String, text: String) raises:
+def _read_mtl_text(mut mesh: ObjMesh, base: String, text: String) raises:
     var current = ObjMaterial()
     var have_current = False
     var found_d = False

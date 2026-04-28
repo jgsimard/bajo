@@ -681,30 +681,31 @@ def _read_mtl_file[
 
 struct TokenIterator[o: Origin]:
     var line: StringSlice[Self.o]
+    var ptr: UnsafePointer[UInt8, Self.o]
     var pos: Int
     var length: Int
 
     def __init__(out self, line: StringSlice[Self.o]):
         self.line = line
+        self.ptr = line.unsafe_ptr()
         self.pos = 0
         self.length = line.byte_length()
 
         # skip '#' lines
-        var bytes = self.line.as_bytes()
         for i in range(self.length):
-            if bytes[i] == UInt8(ord("#")):
+            if self.ptr.load(i) == UInt8(ord("#")):
                 self.length = i
                 break
 
     @always_inline
     def has_next(self) -> Bool:
-        var bytes = self.line.as_bytes()
+        comptime space = UInt8(ord(" "))
+        comptime _t = UInt8(ord("\t"))
+        comptime _r = UInt8(ord("\r"))
+
         var p = self.pos
         while p < self.length:
-            var b = bytes[p]
-            comptime space = UInt8(ord(" "))
-            comptime _t = UInt8(ord("\t"))
-            comptime _r = UInt8(ord("\r"))
+            var b = self.ptr.load(p)
             if b != space and b != _t and b != _r:
                 return True
             p += 1
@@ -712,14 +713,13 @@ struct TokenIterator[o: Origin]:
 
     @always_inline
     def next(mut self) -> StringSlice[Self.o]:
-        var bytes = self.line.as_bytes()
+        comptime space = UInt8(ord(" "))
+        comptime _t = UInt8(ord("\t"))
+        comptime _r = UInt8(ord("\r"))
 
         # skip leading whitespace
         while self.pos < self.length:
-            var b = bytes[self.pos]
-            comptime space = UInt8(ord(" "))
-            comptime _t = UInt8(ord("\t"))
-            comptime _r = UInt8(ord("\r"))
+            var b = self.ptr.load(self.pos)
             if b != space and b != _t and b != _r:
                 break
             self.pos += 1
@@ -728,10 +728,7 @@ struct TokenIterator[o: Origin]:
 
         # until next whitespace
         while self.pos < self.length:
-            var b = bytes[self.pos]
-            comptime space = UInt8(ord(" "))
-            comptime _t = UInt8(ord("\t"))
-            comptime _r = UInt8(ord("\r"))
+            var b = self.ptr.load(self.pos)
             if b == space or b == _t or b == _r:
                 break
             self.pos += 1
@@ -739,7 +736,6 @@ struct TokenIterator[o: Origin]:
         return self.line[byte = start : self.pos]
 
     def joined_rest_of_line(mut self) -> String:
-        """Matches original `_join_tokens` behaviour by collapsing spaces."""
         var out = ""
         var first = True
         while self.has_next():

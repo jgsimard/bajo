@@ -134,9 +134,9 @@ def test_material_fallback_replacement_and_textures() raises:
     var mat = mesh.materials[fallback_idx].copy()
 
     assert_true(mesh.material_count() == 1 and not mat.fallback)
-    assert_almost_equal(mat.Kd0, 0.1)
-    assert_almost_equal(mat.Kd1, 0.2)
-    assert_almost_equal(mat.Kd2, 0.3)
+    assert_almost_equal(mat.Kd[0], 0.1)
+    assert_almost_equal(mat.Kd[1], 0.2)
+    assert_almost_equal(mat.Kd[2], 0.3)
     assert_almost_equal(mat.Ns, 42.0)
     assert_almost_equal(mat.Ni, 1.45)
     assert_almost_equal(mat.d, 0.5)

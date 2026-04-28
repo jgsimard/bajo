@@ -213,11 +213,6 @@ struct ObjMesh(Movable):
         self.texture_names[path] = idx
         return idx
 
-    def push_position(mut self, x: Float32, y: Float32, z: Float32):
-        self.positions.append(x)
-        self.positions.append(y)
-        self.positions.append(z)
-
     def push_color(mut self, r: Float32, g: Float32, b: Float32):
         var target_before_this_color = len(self.positions) - 3
         while len(self.colors) < target_before_this_color:
@@ -225,15 +220,6 @@ struct ObjMesh(Movable):
         self.colors.append(r)
         self.colors.append(g)
         self.colors.append(b)
-
-    def push_texcoord(mut self, u: Float32, v: Float32):
-        self.texcoords.append(u)
-        self.texcoords.append(v)
-
-    def push_normal(mut self, x: Float32, y: Float32, z: Float32):
-        self.normals.append(x)
-        self.normals.append(y)
-        self.normals.append(z)
 
     def push_element(mut self, verts: List[ObjIndex], is_line: Bool = False):
         var n = len(verts)
@@ -454,9 +440,9 @@ def _read_triple[
     Float32, Float32, Float32
 ]:
     return (
-        _parse_f32(tokens[start]),
-        _parse_f32(tokens[start + 1]),
-        _parse_f32(tokens[start + 2]),
+        _parse_f32(tokens.unsafe_get(start)),
+        _parse_f32(tokens.unsafe_get(start + 1)),
+        _parse_f32(tokens.unsafe_get(start + 2)),
     )
 
 
@@ -476,6 +462,7 @@ def _read_mtl_text(mut mesh: ObjMesh, base: String, text: String) raises:
 
         var tag = tokens[0]
         var _len = len(tokens)
+
         if tag == "newmtl":
             if have_current:
                 _ = mesh.upsert_material(current)
@@ -490,66 +477,86 @@ def _read_mtl_text(mut mesh: ObjMesh, base: String, text: String) raises:
 
         if tag == "Ka" and _len >= 4:
             current.Ka = _read_triple(tokens, 1)
+
         elif tag == "Kd" and _len >= 4:
             current.Kd = _read_triple(tokens, 1)
+
         elif tag == "Ks" and _len >= 4:
             current.Ks = _read_triple(tokens, 1)
+
         elif tag == "Ke" and _len >= 4:
             current.Ke = _read_triple(tokens, 1)
+
         elif tag == "Kt" and _len >= 4:
             current.Kt = _read_triple(tokens, 1)
+
         elif tag == "Tf" and _len >= 4:
             current.Tf = _read_triple(tokens, 1)
+
         elif tag == "Ns" and _len >= 2:
             current.Ns = _parse_f32(tokens[1])
+
         elif tag == "Ni" and _len >= 2:
             current.Ni = _parse_f32(tokens[1])
+
         elif tag == "illum" and _len >= 2:
             current.illum = _parse_i32(tokens[1])
+
         elif tag == "d" and _len >= 2:
             current.d = _parse_f32(tokens[1])
             found_d = True
+
         elif tag == "Tr" and _len >= 2:
             if not found_d:
                 current.d = 1.0 - _parse_f32(tokens[1])
+
         elif tag == "map_Ka" and _len >= 2:
             var name = _map_name_from_tail(tokens, 1)
             if name.byte_length() > 0:
                 current.map_Ka = mesh.add_texture(name, base)
+
         elif tag == "map_Kd" and _len >= 2:
             var name = _map_name_from_tail(tokens, 1)
             if name.byte_length() > 0:
                 current.map_Kd = mesh.add_texture(name, base)
+
         elif tag == "map_Ks" and _len >= 2:
             var name = _map_name_from_tail(tokens, 1)
             if name.byte_length() > 0:
                 current.map_Ks = mesh.add_texture(name, base)
+
         elif tag == "map_Ke" and _len >= 2:
             var name = _map_name_from_tail(tokens, 1)
             if name.byte_length() > 0:
                 current.map_Ke = mesh.add_texture(name, base)
+
         elif tag == "map_Kt" and _len >= 2:
             var name = _map_name_from_tail(tokens, 1)
             if name.byte_length() > 0:
                 current.map_Kt = mesh.add_texture(name, base)
+
         elif tag == "map_Ns" and _len >= 2:
             var name = _map_name_from_tail(tokens, 1)
             if name.byte_length() > 0:
                 current.map_Ns = mesh.add_texture(name, base)
+
         elif tag == "map_Ni" and _len >= 2:
             var name = _map_name_from_tail(tokens, 1)
             if name.byte_length() > 0:
                 current.map_Ni = mesh.add_texture(name, base)
+
         elif tag == "map_d" and _len >= 2:
             var name = _map_name_from_tail(tokens, 1)
             if name.byte_length() > 0:
                 current.map_d = mesh.add_texture(name, base)
+
         elif (tag == "map_bump" or tag == "bump") and _len >= 2:
             var name = _map_name_from_tail(tokens, 1)
             if name.byte_length() > 0:
                 current.map_bump = mesh.add_texture(name, base)
+
         else:
-            pass
+            raise Error("Unable to parse")
 
     if have_current:
         _ = mesh.upsert_material(current)
@@ -583,11 +590,10 @@ def parse_obj_text_with_loader[
         if tag == "v":
             if len(tokens) < 4:
                 continue
-            mesh.push_position(
-                _parse_f32(tokens.unsafe_get(1)),
-                _parse_f32(tokens.unsafe_get(2)),
-                _parse_f32(tokens.unsafe_get(3)),
-            )
+            mesh.positions.append(_parse_f32(tokens.unsafe_get(1)))
+            mesh.positions.append(_parse_f32(tokens.unsafe_get(2)))
+            mesh.positions.append(_parse_f32(tokens.unsafe_get(3)))
+
             if len(tokens) >= 7:
                 mesh.push_color(
                     _parse_f32(tokens.unsafe_get(4)),
@@ -598,19 +604,15 @@ def parse_obj_text_with_loader[
         elif tag == "vt":
             if len(tokens) < 3:
                 continue
-            mesh.push_texcoord(
-                _parse_f32(tokens.unsafe_get(1)),
-                _parse_f32(tokens.unsafe_get(2)),
-            )
+            mesh.texcoords.append(_parse_f32(tokens.unsafe_get(1)))
+            mesh.texcoords.append(_parse_f32(tokens.unsafe_get(2)))
 
         elif tag == "vn":
             if len(tokens) < 4:
                 continue
-            mesh.push_normal(
-                _parse_f32(tokens.unsafe_get(1)),
-                _parse_f32(tokens.unsafe_get(2)),
-                _parse_f32(tokens.unsafe_get(3)),
-            )
+            mesh.normals.append(_parse_f32(tokens.unsafe_get(1)))
+            mesh.normals.append(_parse_f32(tokens.unsafe_get(2)))
+            mesh.normals.append(_parse_f32(tokens.unsafe_get(3)))
 
         elif tag == "f" or tag == "l":
             var verts = List[ObjIndex](capacity=len(tokens) - 1)

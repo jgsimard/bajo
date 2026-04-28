@@ -13,7 +13,7 @@ Because Mojo is still relatively new, I am currently building out the foundation
 - [x] GPU radix sort : [onesweep](bajo/sort/gpu/onesweep.mojo)
 - [ ] LBVH
 - [ ] H-PLOC BVH.
-- [ ] Implement a pure-Mojo `.obj` / `.mtl` file parser for 3D meshes
+- [x] Implement a pure-Mojo `.obj` / `.mtl` file parser for 3D meshes
 - [ ] Segmented GPU sort
 - [ ] GPU Ray Tracer (first milestone)
 - [ ] Hash Grid

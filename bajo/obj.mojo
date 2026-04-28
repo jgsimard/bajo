@@ -1,6 +1,19 @@
 from std.pathlib import Path
 from std.os import path as os_path
 
+comptime TAB = UInt8(ord("\t"))
+comptime SPACE = UInt8(ord(" "))
+comptime CR = UInt8(ord("\r"))
+comptime ZERO = UInt8(ord("0"))
+comptime NINE = UInt8(ord("9"))
+comptime PLUS = UInt8(ord("+"))
+comptime MINUS = UInt8(ord("-"))
+comptime SLASH = UInt8(ord("/"))
+comptime DOT = UInt8(ord("."))
+comptime HASH = UInt8(ord("#"))
+comptime CHAR_e = UInt8(ord("e"))
+comptime CHAR_E = UInt8(ord("E"))
+
 
 @fieldwise_init
 struct ObjTexture(Copyable):
@@ -310,17 +323,17 @@ def _parse_i32[o: Origin](token: StringSlice[o]) -> Int:
     var ptr = token.unsafe_ptr()
     var p = 0
     var sign = 1
-    if ptr.load(p) == UInt8(ord("-")):
+    if ptr.load(p) == MINUS:
         sign = -1
         p += 1
-    elif ptr.load(p) == UInt8(ord("+")):
+    elif ptr.load(p) == PLUS:
         p += 1
 
     var num = 0
     while p < length:
         var b = ptr.load(p)
-        if b >= UInt8(ord("0")) and b <= UInt8(ord("9")):
-            num = num * 10 + Int(b - UInt8(ord("0")))
+        if b >= ZERO and b <= NINE:
+            num = num * 10 + Int(b - ZERO)
             p += 1
         else:
             break
@@ -330,10 +343,6 @@ def _parse_i32[o: Origin](token: StringSlice[o]) -> Int:
 
 @always_inline
 def _parse_f32[o: Origin](token: StringSlice[o]) -> Float32:
-    comptime ZERO = UInt8(ord("0"))
-    comptime NINE = UInt8(ord("9"))
-    comptime PLUS = UInt8(ord("+"))
-    comptime MINUS = UInt8(ord("-"))
     var bytes = token.as_bytes()
     var length = token.byte_length()
     if length == 0:
@@ -357,7 +366,7 @@ def _parse_f32[o: Origin](token: StringSlice[o]) -> Float32:
         else:
             break
 
-    if p < length and bytes[p] == UInt8(ord(".")):
+    if p < length and bytes[p] == DOT:
         p += 1
         var fra: Float64 = 0.0
         var div: Float64 = 1.0
@@ -371,9 +380,7 @@ def _parse_f32[o: Origin](token: StringSlice[o]) -> Float32:
                 break
         num += fra / div
 
-    if p < length and (
-        bytes[p] == UInt8(ord("e")) or bytes[p] == UInt8(ord("E"))
-    ):
+    if p < length and (bytes[p] == CHAR_e or bytes[p] == CHAR_E):
         p += 1
         var exp_sign = 1
         if p < length and bytes[p] == MINUS:
@@ -413,10 +420,6 @@ def _fix_index(raw: Int, count_with_dummy: Int) -> Int:
 
 @always_inline
 def _parse_index[o: Origin](token: StringSlice[o], mesh: ObjMesh) -> ObjIndex:
-    comptime ZERO = UInt8(ord("0"))
-    comptime MINUS = UInt8(ord("-"))
-    comptime SLASH = UInt8(ord("/"))
-
     var length = token.byte_length()
     if length == 0:
         return ObjIndex(0, 0, 0)
@@ -495,7 +498,7 @@ def _map_name_from_tail[o: Origin](mut tokens: TokenIterator[o]) -> String:
         var tok = tokens.next()
         if tok.byte_length() == 0:
             continue
-        if tok.as_bytes()[0] == UInt8(ord("-")):
+        if tok.as_bytes()[0] == MINUS:
             continue
         candidate = String(tok)
     return candidate
@@ -634,34 +637,26 @@ struct TokenIterator[o: Origin]:
 
         # skip '#' lines
         for i in range(self.length):
-            if self.ptr.load(i) == UInt8(ord("#")):
+            if self.ptr.load(i) == HASH:
                 self.length = i
                 break
 
     @always_inline
     def has_next(self) -> Bool:
-        comptime space = UInt8(ord(" "))
-        comptime _t = UInt8(ord("\t"))
-        comptime _r = UInt8(ord("\r"))
-
         var p = self.pos
         while p < self.length:
             var b = self.ptr.load(p)
-            if b != space and b != _t and b != _r:
+            if b != SPACE and b != TAB and b != CR:
                 return True
             p += 1
         return False
 
     @always_inline
     def next(mut self) -> StringSlice[Self.o]:
-        comptime space = UInt8(ord(" "))
-        comptime _t = UInt8(ord("\t"))
-        comptime _r = UInt8(ord("\r"))
-
         # skip leading whitespace
         while self.pos < self.length:
             var b = self.ptr.load(self.pos)
-            if b != space and b != _t and b != _r:
+            if b != SPACE and b != TAB and b != CR:
                 break
             self.pos += 1
 
@@ -670,7 +665,7 @@ struct TokenIterator[o: Origin]:
         # until next whitespace
         while self.pos < self.length:
             var b = self.ptr.load(self.pos)
-            if b == space or b == _t or b == _r:
+            if b != SPACE and b != TAB and b != CR:
                 break
             self.pos += 1
 

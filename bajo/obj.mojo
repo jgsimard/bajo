@@ -308,6 +308,12 @@ def _parse_f32[o: Origin](token: StringSlice[o]) raises -> Float32:
     return Float32(atof(token))
 
 
+def _parse_f32[o: Origin](token: Span[UInt8, o]) raises -> Float32:
+    return Float32(
+        atof(StringSlice[o](ptr=token.unsafe_ptr(), length=len(token)))
+    )
+
+
 def _strip_comment[o: Origin](line: StringSlice[o]) -> StringSlice[o]:
     var end = line.byte_length()
 
@@ -378,24 +384,24 @@ def _fix_index(raw: Int, count_with_dummy: Int) -> Int:
 def _parse_index[
     o: Origin
 ](token: StringSlice[o], mesh: ObjMesh) raises -> ObjIndex:
-    var parts = token.split("/")
-    var p_raw = 0
+    var p_raw: Int
     var t_raw = 0
     var n_raw = 0
 
-    _len = len(parts)
-    if _len > 0:
-        p0 = parts[0]
-        if p0.byte_length() > 0:
-            p_raw = _parse_i32(p0)
-    if _len > 1:
-        p1 = parts[1]
-        if p1.byte_length() > 0:
-            t_raw = _parse_i32(parts[1])
-    if _len > 2:
-        p2 = parts[2]
-        if p2.byte_length() > 0:
-            n_raw = _parse_i32(parts[2])
+    var first_slash = token.find("/")
+    if first_slash == -1:
+        p_raw = atol(token)
+    else:
+        p_raw = atol(token[byte=:first_slash])
+        var second_slash = token.find("/", first_slash + 1)
+
+        if second_slash == -1:
+            t_raw = atol(token[byte = first_slash + 1 :])
+        else:
+            if second_slash > first_slash + 1:
+                t_raw = atol(token[byte = first_slash + 1 : second_slash])
+            if second_slash + 1 < token.byte_length():
+                n_raw = atol(token[byte = second_slash + 1 :])
 
     return ObjIndex(
         _fix_index(p_raw, mesh.position_count()),

@@ -31,26 +31,14 @@ struct ObjTexture(Copyable):
 struct ObjMaterial(Copyable):
     var name: String
 
-    var Ka0: Float32
-    var Ka1: Float32
-    var Ka2: Float32
-    var Kd0: Float32
-    var Kd1: Float32
-    var Kd2: Float32
-    var Ks0: Float32
-    var Ks1: Float32
-    var Ks2: Float32
-    var Ke0: Float32
-    var Ke1: Float32
-    var Ke2: Float32
-    var Kt0: Float32
-    var Kt1: Float32
-    var Kt2: Float32
+    var Ka: Tuple[Float32, Float32, Float32]
+    var Kd: Tuple[Float32, Float32, Float32]
+    var Ks: Tuple[Float32, Float32, Float32]
+    var Ke: Tuple[Float32, Float32, Float32]
+    var Kt: Tuple[Float32, Float32, Float32]
     var Ns: Float32
     var Ni: Float32
-    var Tf0: Float32
-    var Tf1: Float32
-    var Tf2: Float32
+    var Tf: Tuple[Float32, Float32, Float32]
     var d: Float32
     var illum: Int
     var fallback: Bool
@@ -68,26 +56,14 @@ struct ObjMaterial(Copyable):
     def __init__(out self, name: String = "", fallback: Bool = False):
         self.name = name
 
-        self.Ka0 = 0.0
-        self.Ka1 = 0.0
-        self.Ka2 = 0.0
-        self.Kd0 = 1.0
-        self.Kd1 = 1.0
-        self.Kd2 = 1.0
-        self.Ks0 = 0.0
-        self.Ks1 = 0.0
-        self.Ks2 = 0.0
-        self.Ke0 = 0.0
-        self.Ke1 = 0.0
-        self.Ke2 = 0.0
-        self.Kt0 = 0.0
-        self.Kt1 = 0.0
-        self.Kt2 = 0.0
+        self.Ka = (0.0, 0.0, 0.0)
+        self.Kd = (1.0, 1.0, 1.0)
+        self.Ks = (0.0, 0.0, 0.0)
+        self.Ke = (0.0, 0.0, 0.0)
+        self.Kt = (0.0, 0.0, 0.0)
         self.Ns = 1.0
         self.Ni = 1.0
-        self.Tf0 = 1.0
-        self.Tf1 = 1.0
-        self.Tf2 = 1.0
+        self.Tf = (1.0, 1.0, 1.0)
         self.d = 1.0
         self.illum = 1
         self.fallback = fallback
@@ -101,36 +77,6 @@ struct ObjMaterial(Copyable):
         self.map_Ni = 0
         self.map_d = 0
         self.map_bump = 0
-
-    def set_Ka(mut self, a: Float32, b: Float32, c: Float32):
-        self.Ka0 = a
-        self.Ka1 = b
-        self.Ka2 = c
-
-    def set_Kd(mut self, a: Float32, b: Float32, c: Float32):
-        self.Kd0 = a
-        self.Kd1 = b
-        self.Kd2 = c
-
-    def set_Ks(mut self, a: Float32, b: Float32, c: Float32):
-        self.Ks0 = a
-        self.Ks1 = b
-        self.Ks2 = c
-
-    def set_Ke(mut self, a: Float32, b: Float32, c: Float32):
-        self.Ke0 = a
-        self.Ke1 = b
-        self.Ke2 = c
-
-    def set_Kt(mut self, a: Float32, b: Float32, c: Float32):
-        self.Kt0 = a
-        self.Kt1 = b
-        self.Kt2 = c
-
-    def set_Tf(mut self, a: Float32, b: Float32, c: Float32):
-        self.Tf0 = a
-        self.Tf1 = b
-        self.Tf2 = c
 
 
 @fieldwise_init
@@ -410,8 +356,8 @@ def _parse_f32[o: Origin](token: StringSlice[o]) raises -> Float32:
 def _strip_comment[o: Origin](line: StringSlice[o]) -> StringSlice[o]:
     var end = line.byte_length()
 
-    for i in range(line.byte_length()):
-        if line[byte=i] == "#":
+    for i, b in enumerate(line.as_bytes()):
+        if b == UInt8(ord("#")):
             end = i
             break
 
@@ -430,13 +376,12 @@ def _join_tokens[o: Origin](tokens: List[StringSlice[o]], start: Int) -> String:
 def _is_abs_path(path: String) -> Bool:
     if path.byte_length() == 0:
         return False
-    if path[byte=0] == "/" or path[byte=0] == "\\":
+    b0 = path[byte=0]
+    if b0 == "/" or b0 == "\\":
         return True
-    if (
-        path.byte_length() >= 3
-        and path[byte=1] == ":"
-        and (path[byte=2] == "/" or path[byte=2] == "\\")
-    ):
+    b1 = path[byte=1]
+    b2 = path[byte=2]
+    if path.byte_length() >= 3 and b1 == ":" and (b2 == "/" or b2 == "\\"):
         return True
     return False
 
@@ -483,12 +428,19 @@ def _parse_index[
     var t_raw = 0
     var n_raw = 0
 
-    if len(parts) > 0 and parts[0].byte_length() > 0:
-        p_raw = _parse_i32(parts[0])
-    if len(parts) > 1 and parts[1].byte_length() > 0:
-        t_raw = _parse_i32(parts[1])
-    if len(parts) > 2 and parts[2].byte_length() > 0:
-        n_raw = _parse_i32(parts[2])
+    _len = len(parts)
+    if _len > 0:
+        p0 = parts[0]
+        if p0.byte_length() > 0:
+            p_raw = _parse_i32(p0)
+    if _len > 1:
+        p1 = parts[1]
+        if p1.byte_length() > 0:
+            t_raw = _parse_i32(parts[1])
+    if _len > 2:
+        p2 = parts[2]
+        if p2.byte_length() > 0:
+            n_raw = _parse_i32(parts[2])
 
     return ObjIndex(
         _fix_index(p_raw, mesh.position_count()),
@@ -554,7 +506,7 @@ def _read_mtl_text(mut mesh: ObjMesh, base: String, text: String) raises:
             continue
 
         var tag = tokens[0]
-
+        var _len = len(tokens)
         if tag == "newmtl":
             if have_current:
                 _ = mesh.upsert_material(current)
@@ -567,69 +519,63 @@ def _read_mtl_text(mut mesh: ObjMesh, base: String, text: String) raises:
         if not have_current:
             continue
 
-        if tag == "Ka" and len(tokens) >= 4:
-            var (a, b, c) = _read_triple(tokens, 1)
-            current.set_Ka(a, b, c)
-        elif tag == "Kd" and len(tokens) >= 4:
-            var a, b, c = _read_triple(tokens, 1)
-            current.set_Kd(a, b, c)
-        elif tag == "Ks" and len(tokens) >= 4:
-            var a, b, c = _read_triple(tokens, 1)
-            current.set_Ks(a, b, c)
-        elif tag == "Ke" and len(tokens) >= 4:
-            var a, b, c = _read_triple(tokens, 1)
-            current.set_Ke(a, b, c)
-        elif tag == "Kt" and len(tokens) >= 4:
-            var a, b, c = _read_triple(tokens, 1)
-            current.set_Kt(a, b, c)
-        elif tag == "Tf" and len(tokens) >= 4:
-            var a, b, c = _read_triple(tokens, 1)
-            current.set_Tf(a, b, c)
-        elif tag == "Ns" and len(tokens) >= 2:
+        if tag == "Ka" and _len >= 4:
+            current.Ka = _read_triple(tokens, 1)
+        elif tag == "Kd" and _len >= 4:
+            current.Kd = _read_triple(tokens, 1)
+        elif tag == "Ks" and _len >= 4:
+            current.Ks = _read_triple(tokens, 1)
+        elif tag == "Ke" and _len >= 4:
+            current.Ke = _read_triple(tokens, 1)
+        elif tag == "Kt" and _len >= 4:
+            current.Kt = _read_triple(tokens, 1)
+        elif tag == "Tf" and _len >= 4:
+            current.Tf = _read_triple(tokens, 1)
+        elif tag == "Ns" and _len >= 2:
             current.Ns = _parse_f32(tokens[1])
-        elif tag == "Ni" and len(tokens) >= 2:
+        elif tag == "Ni" and _len >= 2:
             current.Ni = _parse_f32(tokens[1])
-        elif tag == "illum" and len(tokens) >= 2:
+        elif tag == "illum" and _len >= 2:
             current.illum = _parse_i32(tokens[1])
-        elif tag == "d" and len(tokens) >= 2:
+        elif tag == "d" and _len >= 2:
             current.d = _parse_f32(tokens[1])
             found_d = True
-        elif tag == "Tr" and len(tokens) >= 2:
+        elif tag == "Tr" and _len >= 2:
             if not found_d:
                 current.d = 1.0 - _parse_f32(tokens[1])
-        elif tag == "map_Ka" and len(tokens) >= 2:
+        elif tag == "map_Ka" and _len >= 2:
             var name = _map_name_from_tail(tokens, 1)
             if name.byte_length() > 0:
                 current.map_Ka = mesh.add_texture(name, base)
-        elif tag == "map_Kd" and len(tokens) >= 2:
+        elif tag == "map_Kd" and _len >= 2:
             var name = _map_name_from_tail(tokens, 1)
             if name.byte_length() > 0:
                 current.map_Kd = mesh.add_texture(name, base)
-        elif tag == "map_Ks" and len(tokens) >= 2:
+        elif tag == "map_Ks" and _len >= 2:
             var name = _map_name_from_tail(tokens, 1)
             if name.byte_length() > 0:
                 current.map_Ks = mesh.add_texture(name, base)
-        elif tag == "map_Ke" and len(tokens) >= 2:
+        elif tag == "map_Ke" and _len >= 2:
             var name = _map_name_from_tail(tokens, 1)
             if name.byte_length() > 0:
                 current.map_Ke = mesh.add_texture(name, base)
-        elif tag == "map_Kt" and len(tokens) >= 2:
+        elif tag == "map_Kt" and _len >= 2:
             var name = _map_name_from_tail(tokens, 1)
             if name.byte_length() > 0:
                 current.map_Kt = mesh.add_texture(name, base)
-        elif tag == "map_Ns" and len(tokens) >= 2:
+        elif tag == "map_Ns" and _len >= 2:
             var name = _map_name_from_tail(tokens, 1)
             if name.byte_length() > 0:
                 current.map_Ns = mesh.add_texture(name, base)
-        elif tag == "map_Ni" and len(tokens) >= 2:
+        elif tag == "map_Ni" and _len >= 2:
             var name = _map_name_from_tail(tokens, 1)
             if name.byte_length() > 0:
                 current.map_Ni = mesh.add_texture(name, base)
-        elif tag == "map_d" and len(tokens) >= 2:
+        elif tag == "map_d" and _len >= 2:
             var name = _map_name_from_tail(tokens, 1)
             if name.byte_length() > 0:
                 current.map_d = mesh.add_texture(name, base)
-        elif (tag == "map_bump" or tag == "bump") and len(tokens) >= 2:
+        elif (tag == "map_bump" or tag == "bump") and _len >= 2:
             var name = _map_name_from_tail(tokens, 1)
             if name.byte_length() > 0:
                 current.map_bump = mesh.add_texture(name, base)
@@ -669,32 +615,32 @@ def parse_obj_text_with_loader[
             if len(tokens) < 4:
                 continue
             mesh.push_position(
-                _parse_f32(tokens[1]),
-                _parse_f32(tokens[2]),
-                _parse_f32(tokens[3]),
+                _parse_f32(tokens.unsafe_get(1)),
+                _parse_f32(tokens.unsafe_get(2)),
+                _parse_f32(tokens.unsafe_get(3)),
             )
             if len(tokens) >= 7:
                 mesh.push_color(
-                    _parse_f32(tokens[4]),
-                    _parse_f32(tokens[5]),
-                    _parse_f32(tokens[6]),
+                    _parse_f32(tokens.unsafe_get(4)),
+                    _parse_f32(tokens.unsafe_get(5)),
+                    _parse_f32(tokens.unsafe_get(6)),
                 )
 
         elif tag == "vt":
             if len(tokens) < 3:
                 continue
             mesh.push_texcoord(
-                _parse_f32(tokens[1]),
-                _parse_f32(tokens[2]),
+                _parse_f32(tokens.unsafe_get(1)),
+                _parse_f32(tokens.unsafe_get(2)),
             )
 
         elif tag == "vn":
             if len(tokens) < 4:
                 continue
             mesh.push_normal(
-                _parse_f32(tokens[1]),
-                _parse_f32(tokens[2]),
-                _parse_f32(tokens[3]),
+                _parse_f32(tokens.unsafe_get(1)),
+                _parse_f32(tokens.unsafe_get(2)),
+                _parse_f32(tokens.unsafe_get(3)),
             )
 
         elif tag == "f" or tag == "l":
@@ -729,7 +675,7 @@ def parse_obj_text_with_loader[
             mesh.begin_object(name)
 
         elif tag == "mtllib":
-            var mtl_name = _tail_after_tag(line, "mtllib")
+            var mtl_name = String(_tail_after_tag(line, "mtllib"))
             if mtl_name.byte_length() > 0:
                 try:
                     _read_mtl_file(mesh, path, mtl_name, loader)
@@ -776,8 +722,7 @@ def read_obj_from_memory(
 def triangulated_indices(mesh: ObjMesh) -> List[ObjIndex]:
     var out = List[ObjIndex]()
     var offset = 0
-    for f in range(len(mesh.face_vertices)):
-        var n = mesh.face_vertices[f]
+    for f, n in enumerate(mesh.face_vertices):
         var is_line = False
         if len(mesh.face_lines) > 0:
             is_line = mesh.face_lines[f] != 0

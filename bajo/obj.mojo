@@ -306,15 +306,74 @@ def _parse_i32[o: Origin](token: StringSlice[o]) raises -> Int:
 
 
 @always_inline
-def _parse_f32[o: Origin](token: StringSlice[o]) raises -> Float32:
-    return Float32(atof(token))
+def _parse_f32[o: Origin](token: StringSlice[o]) -> Float32:
+    var bytes = token.as_bytes()
+    var length = token.byte_length()
+    if length == 0:
+        return 0.0
 
+    var p = 0
+    var sign: Float64 = 1.0
 
-@always_inline
-def _parse_f32[o: Origin](token: Span[UInt8, o]) raises -> Float32:
-    return Float32(
-        atof(StringSlice[o](ptr=token.unsafe_ptr(), length=len(token)))
-    )
+    if bytes[p] == UInt8(ord("-")):
+        sign = -1.0
+        p += 1
+    elif bytes[p] == UInt8(ord("+")):
+        p += 1
+
+    var num: Float64 = 0.0
+    while p < length:
+        var b = bytes[p]
+        if b >= UInt8(ord("0")) and b <= UInt8(ord("9")):
+            num = num * 10.0 + Float64(Int(b - UInt8(ord("0"))))
+            p += 1
+        else:
+            break
+
+    if p < length and bytes[p] == UInt8(ord(".")):
+        p += 1
+        var fra: Float64 = 0.0
+        var div: Float64 = 1.0
+        while p < length:
+            var b = bytes[p]
+            if b >= UInt8(ord("0")) and b <= UInt8(ord("9")):
+                fra = fra * 10.0 + Float64(Int(b - UInt8(ord("0"))))
+                div *= 10.0
+                p += 1
+            else:
+                break
+        num += fra / div
+
+    if p < length and (
+        bytes[p] == UInt8(ord("e")) or bytes[p] == UInt8(ord("E"))
+    ):
+        p += 1
+        var exp_sign = 1
+        if p < length and bytes[p] == UInt8(ord("-")):
+            exp_sign = -1
+            p += 1
+        elif p < length and bytes[p] == UInt8(ord("+")):
+            p += 1
+
+        var eval = 0
+        while p < length:
+            var b = bytes[p]
+            if b >= UInt8(ord("0")) and b <= UInt8(ord("9")):
+                eval = eval * 10 + Int(b - UInt8(ord("0")))
+                p += 1
+            else:
+                break
+
+        if eval > 0:
+            var power: Float64 = 1.0
+            for _ in range(eval):
+                power *= 10.0
+            if exp_sign == 1:
+                num *= power
+            else:
+                num /= power
+
+    return Float32(sign * num)
 
 
 def _strip_comment[o: Origin](line: StringSlice[o]) -> StringSlice[o]:

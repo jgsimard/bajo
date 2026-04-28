@@ -220,9 +220,7 @@ struct ObjMesh(Movable):
         var target_before_this_color = len(self.positions) - 3
         while len(self.colors) < target_before_this_color:
             self.colors.append(1.0)
-        self.colors.append(r)
-        self.colors.append(g)
-        self.colors.append(b)
+        self.colors.extend([r, g, b])
 
     def push_element(
         mut self, var verts: List[ObjIndex], is_line: Bool = False

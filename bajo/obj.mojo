@@ -1,4 +1,5 @@
 from std.pathlib import Path
+from std.os import path as os_path
 
 
 @fieldwise_init
@@ -205,9 +206,11 @@ struct ObjMesh(Movable):
         return idx
 
     def add_texture(mut self, name: String, base: String) raises -> Int:
-        var path = _fix_separators(_join_path(base, name))
+        var path = os_path.join(base, name)
+
         if path in self.texture_names:
             return self.texture_names[path]
+
         var idx = len(self.textures)
         self.textures.append(ObjTexture(name, path))
         self.texture_names[path] = idx
@@ -292,13 +295,12 @@ struct MemoryObjTextLoader(Movable, ObjTextLoader):
         self.files = Dict[String, String]()
 
     def add_file(mut self, path: String, text: String):
-        self.files[_fix_separators(path)] = text
+        self.files[path] = text
 
     def read_text(self, path: String) raises -> String:
-        var key = _fix_separators(path)
-        if key in self.files:
-            return self.files[key]
-        raise Error("MemoryObjTextLoader: file not found: " + key)
+        if path in self.files:
+            return self.files[path]
+        raise Error("MemoryObjTextLoader: file not found: " + path)
 
 
 @always_inline
@@ -401,65 +403,6 @@ def _parse_f32[o: Origin](token: StringSlice[o]) -> Float32:
                 num /= power
 
     return Float32(sign * num)
-
-
-def _strip_comment[o: Origin](line: StringSlice[o]) -> StringSlice[o]:
-    var end = line.byte_length()
-
-    for i, b in enumerate(line.as_bytes()):
-        if b == UInt8(ord("#")):
-            end = i
-            break
-
-    return line[byte=:end].strip()
-
-
-def _join_tokens[o: Origin](tokens: List[StringSlice[o]], start: Int) -> String:
-    var out = ""
-    for i in range(start, len(tokens)):
-        if i > start:
-            out += " "
-        out += String(tokens[i])
-    return String(out.strip())
-
-
-def _is_abs_path(path: String) -> Bool:
-    if path.byte_length() == 0:
-        return False
-    b0 = path[byte=0]
-    if b0 == "/" or b0 == "\\":
-        return True
-    b1 = path[byte=1]
-    b2 = path[byte=2]
-    if path.byte_length() >= 3 and b1 == ":" and (b2 == "/" or b2 == "\\"):
-        return True
-    return False
-
-
-def _base_dir_with_sep(path: String) -> String:
-    var last = -1
-    for i in range(path.byte_length()):
-        if path[byte=i] == "/" or path[byte=i] == "\\":
-            last = i
-    if last < 0:
-        return ""
-    return String(path[byte = : last + 1])
-
-
-def _fix_separators(path: String) -> String:
-    var out = ""
-    for i in range(path.byte_length()):
-        if path[byte=i] == "\\":
-            out += "/"
-        else:
-            out += String(path[byte=i])
-    return out
-
-
-def _join_path(base: String, child: String) -> String:
-    if _is_abs_path(child):
-        return _fix_separators(child)
-    return _fix_separators(base + child)
 
 
 def _fix_index(raw: Int, count_with_dummy: Int) -> Int:
@@ -673,10 +616,10 @@ def _read_mtl_text(mut mesh: ObjMesh, base: String, text: String) raises:
 def _read_mtl_file[
     Loader: ObjTextLoader
 ](mut mesh: ObjMesh, obj_path: String, mtl_name: String, loader: Loader) raises:
-    var base = _base_dir_with_sep(obj_path)
-    var mtl_path = _join_path(base, mtl_name)
+    var base = os_path.dirname(obj_path)
+    var mtl_path = os_path.join(base, mtl_name)
     var text = loader.read_text(mtl_path)
-    _read_mtl_text(mesh, _base_dir_with_sep(mtl_path), text)
+    _read_mtl_text(mesh, os_path.dirname(mtl_path), text)
 
 
 struct TokenIterator[o: Origin]:

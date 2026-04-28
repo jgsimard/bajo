@@ -300,14 +300,17 @@ struct MemoryObjTextLoader(Movable, ObjTextLoader):
         raise Error("MemoryObjTextLoader: file not found: " + key)
 
 
+@always_inline
 def _parse_i32[o: Origin](token: StringSlice[o]) raises -> Int:
     return atol(token)
 
 
+@always_inline
 def _parse_f32[o: Origin](token: StringSlice[o]) raises -> Float32:
     return Float32(atof(token))
 
 
+@always_inline
 def _parse_f32[o: Origin](token: Span[UInt8, o]) raises -> Float32:
     return Float32(
         atof(StringSlice[o](ptr=token.unsafe_ptr(), length=len(token)))
@@ -577,91 +580,185 @@ def _read_mtl_file[
     _read_mtl_text(mesh, _base_dir_with_sep(mtl_path), text)
 
 
+struct TokenIterator[o: Origin]:
+    var line: StringSlice[Self.o]
+    var pos: Int
+    var length: Int
+
+    def __init__(out self, line: StringSlice[Self.o]):
+        self.line = line
+        self.pos = 0
+        self.length = line.byte_length()
+
+        # skip '#' lines
+        var bytes = self.line.as_bytes()
+        for i in range(self.length):
+            if bytes[i] == UInt8(ord("#")):
+                self.length = i
+                break
+
+    def has_next(self) -> Bool:
+        var bytes = self.line.as_bytes()
+        var p = self.pos
+        while p < self.length:
+            var b = bytes[p]
+            comptime space = UInt8(ord(" "))
+            comptime _t = UInt8(ord("\t"))
+            comptime _r = UInt8(ord("\r"))
+            if b != space and b != _t and b != _r:
+                return True
+            p += 1
+        return False
+
+    def next(mut self) -> StringSlice[Self.o]:
+        var bytes = self.line.as_bytes()
+
+        # skip leading whitespace
+        while self.pos < self.length:
+            var b = bytes[self.pos]
+            comptime space = UInt8(ord(" "))
+            comptime _t = UInt8(ord("\t"))
+            comptime _r = UInt8(ord("\r"))
+            if b != space and b != _t and b != _r:
+                break
+            self.pos += 1
+
+        var start = self.pos
+
+        # until next whitespace
+        while self.pos < self.length:
+            var b = bytes[self.pos]
+            comptime space = UInt8(ord(" "))
+            comptime _t = UInt8(ord("\t"))
+            comptime _r = UInt8(ord("\r"))
+            if b == space or b == _t or b == _r:
+                break
+            self.pos += 1
+
+        return self.line[byte = start : self.pos]
+
+    def joined_rest_of_line(mut self) -> String:
+        """Matches original `_join_tokens` behaviour by collapsing spaces."""
+        var out = ""
+        var first = True
+        while self.has_next():
+            if not first:
+                out += " "
+            out += String(self.next())
+            first = False
+        return out
+
+
 def parse_obj_text_with_loader[
     Loader: ObjTextLoader
 ](path: String, text: String, loader: Loader) raises -> ObjMesh:
     var mesh = ObjMesh()
 
-    for raw_line in text.split("\n"):
-        var line = _strip_comment(raw_line)
-        if line.byte_length() == 0:
+    # Pre-allocate memory to avoid vector resizing
+    var est_elements = text.byte_length() // 50
+    mesh.positions.reserve(est_elements * 3)
+    mesh.indices.reserve(est_elements * 6)
+
+    var text_slice = StringSlice(text)
+    var text_len = text_slice.byte_length()
+    var line_start = 0
+
+    while line_start < text_len:
+        var line_end = text_slice.find("\n", line_start)
+        if line_end == -1:
+            line_end = text_len
+
+        var raw_line = text_slice[byte=line_start:line_end]
+        line_start = line_end + 1
+
+        var tokens = TokenIterator(raw_line)
+        if not tokens.has_next():
             continue
 
-        var tokens = line.split()
-        if len(tokens) == 0:
-            continue
-
-        var tag = tokens[0]
+        var tag = tokens.next()
 
         if tag == "v":
-            if len(tokens) < 4:
-                continue
-            mesh.positions.append(_parse_f32(tokens.unsafe_get(1)))
-            mesh.positions.append(_parse_f32(tokens.unsafe_get(2)))
-            mesh.positions.append(_parse_f32(tokens.unsafe_get(3)))
+            var v1 = tokens.next()
+            var v2 = tokens.next()
+            var v3 = tokens.next()
 
-            if len(tokens) >= 7:
+            if (
+                v1.byte_length() > 0
+                and v2.byte_length() > 0
+                and v3.byte_length() > 0
+            ):
+                mesh.positions.append(_parse_f32(v1))
+                mesh.positions.append(_parse_f32(v2))
+                mesh.positions.append(_parse_f32(v3))
+
+            var v4 = tokens.next()
+            var v5 = tokens.next()
+            var v6 = tokens.next()
+            if (
+                v4.byte_length() > 0
+                and v5.byte_length() > 0
+                and v6.byte_length() > 0
+            ):
                 mesh.push_color(
-                    _parse_f32(tokens.unsafe_get(4)),
-                    _parse_f32(tokens.unsafe_get(5)),
-                    _parse_f32(tokens.unsafe_get(6)),
+                    _parse_f32(v4),
+                    _parse_f32(v5),
+                    _parse_f32(v6),
                 )
 
         elif tag == "vt":
-            if len(tokens) < 3:
-                continue
-            mesh.texcoords.append(_parse_f32(tokens.unsafe_get(1)))
-            mesh.texcoords.append(_parse_f32(tokens.unsafe_get(2)))
+            var v1 = tokens.next()
+            var v2 = tokens.next()
+            if v1.byte_length() > 0 and v2.byte_length() > 0:
+                mesh.texcoords.append(_parse_f32(v1))
+                mesh.texcoords.append(_parse_f32(v2))
 
         elif tag == "vn":
-            if len(tokens) < 4:
-                continue
-            mesh.normals.append(_parse_f32(tokens.unsafe_get(1)))
-            mesh.normals.append(_parse_f32(tokens.unsafe_get(2)))
-            mesh.normals.append(_parse_f32(tokens.unsafe_get(3)))
+            var v1 = tokens.next()
+            var v2 = tokens.next()
+            var v3 = tokens.next()
+            if (
+                v1.byte_length() > 0
+                and v2.byte_length() > 0
+                and v3.byte_length() > 0
+            ):
+                mesh.normals.append(_parse_f32(v1))
+                mesh.normals.append(_parse_f32(v2))
+                mesh.normals.append(_parse_f32(v3))
 
         elif tag == "f" or tag == "l":
-            var verts = List[ObjIndex](capacity=len(tokens) - 1)
+            var verts = List[ObjIndex](capacity=4)
             var valid = True
-            for i in range(1, len(tokens)):
-                var idx = _parse_index(tokens[i], mesh)
+            while tokens.has_next():
+                var tok = tokens.next()
+                var idx = _parse_index(tok, mesh)
                 if idx.p == 0:
                     valid = False
                     break
                 verts.append(idx)
-            if valid:
+
+            if valid and len(verts) > 0:
                 mesh.push_element(verts, is_line=(tag == "l"))
 
         elif tag == "usemtl":
-            if len(tokens) >= 2:
-                var name = _join_tokens(tokens, 1)
+            var name = tokens.joined_rest_of_line()
+            if name.byte_length() > 0:
                 mesh.current_material = mesh.ensure_material(
                     name, fallback=True
                 )
 
         elif tag == "g":
-            var name = ""
-            if len(tokens) > 1:
-                name = _join_tokens(tokens, 1)
-            mesh.begin_group(name)
+            mesh.begin_group(tokens.joined_rest_of_line())
 
         elif tag == "o":
-            var name = ""
-            if len(tokens) > 1:
-                name = _join_tokens(tokens, 1)
-            mesh.begin_object(name)
+            mesh.begin_object(tokens.joined_rest_of_line())
 
         elif tag == "mtllib":
-            var mtl_name = String(_tail_after_tag(line, "mtllib"))
+            var mtl_name = tokens.joined_rest_of_line()
             if mtl_name.byte_length() > 0:
                 try:
                     _read_mtl_file(mesh, path, mtl_name, loader)
                 except:
-                    # Missing or invalid MTL files should not make the geometry unreadable.
                     pass
-
-        else:
-            pass
 
     if len(mesh.colors) > 0:
         while len(mesh.colors) < len(mesh.positions):

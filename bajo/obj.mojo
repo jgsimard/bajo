@@ -302,8 +302,30 @@ struct MemoryObjTextLoader(Movable, ObjTextLoader):
 
 
 @always_inline
-def _parse_i32[o: Origin](token: StringSlice[o]) raises -> Int:
-    return atol(token)
+def _parse_i32[o: Origin](token: StringSlice[o]) -> Int:
+    var length = token.byte_length()
+    if length == 0:
+        return 0
+
+    var ptr = token.unsafe_ptr()
+    var p = 0
+    var sign = 1
+    if ptr.load(p) == UInt8(ord("-")):
+        sign = -1
+        p += 1
+    elif ptr.load(p) == UInt8(ord("+")):
+        p += 1
+
+    var num = 0
+    while p < length:
+        var b = ptr.load(p)
+        if b >= UInt8(ord("0")) and b <= UInt8(ord("9")):
+            num = num * 10 + Int(b - UInt8(ord("0")))
+            p += 1
+        else:
+            break
+
+    return sign * num
 
 
 @always_inline
@@ -451,24 +473,27 @@ def _fix_index(raw: Int, count_with_dummy: Int) -> Int:
 def _parse_index[
     o: Origin
 ](token: StringSlice[o], mesh: ObjMesh) raises -> ObjIndex:
-    var p_raw: Int
+    var p_raw: Int = 0
     var t_raw = 0
     var n_raw = 0
 
     var first_slash = token.find("/")
     if first_slash == -1:
-        p_raw = atol(token)
+        if token.byte_length() > 0:
+            p_raw = _parse_i32(token)
     else:
-        p_raw = atol(token[byte=:first_slash])
+        if first_slash > 0:
+            p_raw = _parse_i32(token[byte=:first_slash])
         var second_slash = token.find("/", first_slash + 1)
 
         if second_slash == -1:
-            t_raw = atol(token[byte = first_slash + 1 :])
+            if first_slash + 1 < token.byte_length():
+                t_raw = _parse_i32(token[byte = first_slash + 1 :])
         else:
             if second_slash > first_slash + 1:
-                t_raw = atol(token[byte = first_slash + 1 : second_slash])
+                t_raw = _parse_i32(token[byte = first_slash + 1 : second_slash])
             if second_slash + 1 < token.byte_length():
-                n_raw = atol(token[byte = second_slash + 1 :])
+                n_raw = _parse_i32(token[byte = second_slash + 1 :])
 
     return ObjIndex(
         _fix_index(p_raw, mesh.position_count()),
@@ -638,6 +663,7 @@ struct TokenIterator[o: Origin]:
                 self.length = i
                 break
 
+    @always_inline
     def has_next(self) -> Bool:
         var bytes = self.line.as_bytes()
         var p = self.pos
@@ -651,6 +677,7 @@ struct TokenIterator[o: Origin]:
             p += 1
         return False
 
+    @always_inline
     def next(mut self) -> StringSlice[Self.o]:
         var bytes = self.line.as_bytes()
 

@@ -221,7 +221,9 @@ struct ObjMesh(Movable):
         self.colors.append(g)
         self.colors.append(b)
 
-    def push_element(mut self, verts: List[ObjIndex], is_line: Bool = False):
+    def push_element(
+        mut self, var verts: List[ObjIndex], is_line: Bool = False
+    ):
         var n = len(verts)
         if n == 0:
             return
@@ -241,8 +243,7 @@ struct ObjMesh(Movable):
             else:
                 self.face_lines.append(0)
 
-        for i in range(n):
-            self.indices.append(verts[i])
+        self.indices.extend(verts^)
 
         self.current_group.face_count += 1
         self.current_object.face_count += 1
@@ -307,6 +308,10 @@ def _parse_i32[o: Origin](token: StringSlice[o]) raises -> Int:
 
 @always_inline
 def _parse_f32[o: Origin](token: StringSlice[o]) -> Float32:
+    comptime ZERO = UInt8(ord("0"))
+    comptime NINE = UInt8(ord("9"))
+    comptime PLUS = UInt8(ord("+"))
+    comptime MINUS = UInt8(ord("-"))
     var bytes = token.as_bytes()
     var length = token.byte_length()
     if length == 0:
@@ -315,17 +320,17 @@ def _parse_f32[o: Origin](token: StringSlice[o]) -> Float32:
     var p = 0
     var sign: Float64 = 1.0
 
-    if bytes[p] == UInt8(ord("-")):
+    if bytes[p] == MINUS:
         sign = -1.0
         p += 1
-    elif bytes[p] == UInt8(ord("+")):
+    elif bytes[p] == PLUS:
         p += 1
 
     var num: Float64 = 0.0
     while p < length:
         var b = bytes[p]
-        if b >= UInt8(ord("0")) and b <= UInt8(ord("9")):
-            num = num * 10.0 + Float64(Int(b - UInt8(ord("0"))))
+        if b >= ZERO and b <= NINE:
+            num = num * 10.0 + Float64(Int(b - ZERO))
             p += 1
         else:
             break
@@ -336,8 +341,8 @@ def _parse_f32[o: Origin](token: StringSlice[o]) -> Float32:
         var div: Float64 = 1.0
         while p < length:
             var b = bytes[p]
-            if b >= UInt8(ord("0")) and b <= UInt8(ord("9")):
-                fra = fra * 10.0 + Float64(Int(b - UInt8(ord("0"))))
+            if b >= ZERO and b <= NINE:
+                fra = fra * 10.0 + Float64(Int(b - ZERO))
                 div *= 10.0
                 p += 1
             else:
@@ -349,17 +354,17 @@ def _parse_f32[o: Origin](token: StringSlice[o]) -> Float32:
     ):
         p += 1
         var exp_sign = 1
-        if p < length and bytes[p] == UInt8(ord("-")):
+        if p < length and bytes[p] == MINUS:
             exp_sign = -1
             p += 1
-        elif p < length and bytes[p] == UInt8(ord("+")):
+        elif p < length and bytes[p] == PLUS:
             p += 1
 
         var eval = 0
         while p < length:
             var b = bytes[p]
-            if b >= UInt8(ord("0")) and b <= UInt8(ord("9")):
-                eval = eval * 10 + Int(b - UInt8(ord("0")))
+            if b >= ZERO and b <= NINE:
+                eval = eval * 10 + Int(b - ZERO)
                 p += 1
             else:
                 break
@@ -485,18 +490,13 @@ def _tail_after_tag[o: Origin](line: StringSlice[o], tag: String) -> String:
     return String(line[byte=i:].strip())
 
 
-def _map_name_from_tail[
-    o: Origin
-](tokens: List[StringSlice[o]], start: Int) -> String:
-    # fast_obj itself does not support full texture-map options. This port keeps
-    # functional support for common option-bearing maps by choosing the last
-    # non-option-looking token as the filename.
+def _map_name_from_tail[o: Origin](mut tokens: TokenIterator[o]) -> String:
     var candidate = ""
-    for i in range(start, len(tokens)):
-        var tok = tokens[i]
+    while tokens.has_next():
+        var tok = tokens.next()
         if tok.byte_length() == 0:
             continue
-        if tok[byte=0] == "-":
+        if tok.as_bytes()[0] == UInt8(ord("-")):
             continue
         candidate = String(tok)
     return candidate
@@ -504,37 +504,41 @@ def _map_name_from_tail[
 
 def _read_triple[
     o: Origin
-](tokens: List[StringSlice[o]], start: Int) raises -> Tuple[
-    Float32, Float32, Float32
-]:
+](mut tokens: TokenIterator[o]) -> Tuple[Float32, Float32, Float32]:
     return (
-        _parse_f32(tokens.unsafe_get(start)),
-        _parse_f32(tokens.unsafe_get(start + 1)),
-        _parse_f32(tokens.unsafe_get(start + 2)),
+        _parse_f32(tokens.next()),
+        _parse_f32(tokens.next()),
+        _parse_f32(tokens.next()),
     )
 
 
-def _read_mtl_text(mut mesh: ObjMesh, base: String, text: String) raises:
+def c(mut mesh: ObjMesh, base: String, text: String) raises:
     var current = ObjMaterial()
     var have_current = False
     var found_d = False
 
-    for raw_line in text.split("\n"):
-        var line = _strip_comment(raw_line)
-        if line.byte_length() == 0:
+    var text_slice = StringSlice(text)
+    var text_len = text_slice.byte_length()
+    var line_start = 0
+
+    while line_start < text_len:
+        var line_end = text_slice.find("\n", line_start)
+        if line_end == -1:
+            line_end = text_len
+
+        var raw_line = text_slice[byte=line_start:line_end]
+        line_start = line_end + 1
+
+        var tokens = TokenIterator(raw_line)
+        if not tokens.has_next():
             continue
 
-        var tokens = line.split()
-        if len(tokens) == 0:
-            continue
-
-        var tag = tokens[0]
-        var _len = len(tokens)
+        var tag = tokens.next()
 
         if tag == "newmtl":
             if have_current:
                 _ = mesh.upsert_material(current)
-            var name = _join_tokens(tokens, 1)
+            var name = tokens.joined_rest_of_line()
             current = ObjMaterial(name, fallback=False)
             have_current = True
             found_d = False
@@ -543,88 +547,66 @@ def _read_mtl_text(mut mesh: ObjMesh, base: String, text: String) raises:
         if not have_current:
             continue
 
-        if tag == "Ka" and _len >= 4:
-            current.Ka = _read_triple(tokens, 1)
-
-        elif tag == "Kd" and _len >= 4:
-            current.Kd = _read_triple(tokens, 1)
-
-        elif tag == "Ks" and _len >= 4:
-            current.Ks = _read_triple(tokens, 1)
-
-        elif tag == "Ke" and _len >= 4:
-            current.Ke = _read_triple(tokens, 1)
-
-        elif tag == "Kt" and _len >= 4:
-            current.Kt = _read_triple(tokens, 1)
-
-        elif tag == "Tf" and _len >= 4:
-            current.Tf = _read_triple(tokens, 1)
-
-        elif tag == "Ns" and _len >= 2:
-            current.Ns = _parse_f32(tokens[1])
-
-        elif tag == "Ni" and _len >= 2:
-            current.Ni = _parse_f32(tokens[1])
-
-        elif tag == "illum" and _len >= 2:
-            current.illum = _parse_i32(tokens[1])
-
-        elif tag == "d" and _len >= 2:
-            current.d = _parse_f32(tokens[1])
+        if tag == "Ka":
+            current.Ka = _read_triple(tokens)
+        elif tag == "Kd":
+            current.Kd = _read_triple(tokens)
+        elif tag == "Ks":
+            current.Ks = _read_triple(tokens)
+        elif tag == "Ke":
+            current.Ke = _read_triple(tokens)
+        elif tag == "Kt":
+            current.Kt = _read_triple(tokens)
+        elif tag == "Tf":
+            current.Tf = _read_triple(tokens)
+        elif tag == "Ns":
+            current.Ns = _parse_f32(tokens.next())
+        elif tag == "Ni":
+            current.Ni = _parse_f32(tokens.next())
+        elif tag == "illum":
+            current.illum = _parse_i32(tokens.next())
+        elif tag == "d":
+            current.d = _parse_f32(tokens.next())
             found_d = True
-
-        elif tag == "Tr" and _len >= 2:
+        elif tag == "Tr":
             if not found_d:
-                current.d = 1.0 - _parse_f32(tokens[1])
-
-        elif tag == "map_Ka" and _len >= 2:
-            var name = _map_name_from_tail(tokens, 1)
+                current.d = 1.0 - _parse_f32(tokens.next())
+        elif tag == "map_Ka":
+            var name = _map_name_from_tail(tokens)
             if name.byte_length() > 0:
                 current.map_Ka = mesh.add_texture(name, base)
-
-        elif tag == "map_Kd" and _len >= 2:
-            var name = _map_name_from_tail(tokens, 1)
+        elif tag == "map_Kd":
+            var name = _map_name_from_tail(tokens)
             if name.byte_length() > 0:
                 current.map_Kd = mesh.add_texture(name, base)
-
-        elif tag == "map_Ks" and _len >= 2:
-            var name = _map_name_from_tail(tokens, 1)
+        elif tag == "map_Ks":
+            var name = _map_name_from_tail(tokens)
             if name.byte_length() > 0:
                 current.map_Ks = mesh.add_texture(name, base)
-
-        elif tag == "map_Ke" and _len >= 2:
-            var name = _map_name_from_tail(tokens, 1)
+        elif tag == "map_Ke":
+            var name = _map_name_from_tail(tokens)
             if name.byte_length() > 0:
                 current.map_Ke = mesh.add_texture(name, base)
-
-        elif tag == "map_Kt" and _len >= 2:
-            var name = _map_name_from_tail(tokens, 1)
+        elif tag == "map_Kt":
+            var name = _map_name_from_tail(tokens)
             if name.byte_length() > 0:
                 current.map_Kt = mesh.add_texture(name, base)
-
-        elif tag == "map_Ns" and _len >= 2:
-            var name = _map_name_from_tail(tokens, 1)
+        elif tag == "map_Ns":
+            var name = _map_name_from_tail(tokens)
             if name.byte_length() > 0:
                 current.map_Ns = mesh.add_texture(name, base)
-
-        elif tag == "map_Ni" and _len >= 2:
-            var name = _map_name_from_tail(tokens, 1)
+        elif tag == "map_Ni":
+            var name = _map_name_from_tail(tokens)
             if name.byte_length() > 0:
                 current.map_Ni = mesh.add_texture(name, base)
-
-        elif tag == "map_d" and _len >= 2:
-            var name = _map_name_from_tail(tokens, 1)
+        elif tag == "map_d":
+            var name = _map_name_from_tail(tokens)
             if name.byte_length() > 0:
                 current.map_d = mesh.add_texture(name, base)
-
-        elif (tag == "map_bump" or tag == "bump") and _len >= 2:
-            var name = _map_name_from_tail(tokens, 1)
+        elif tag == "map_bump" or tag == "bump":
+            var name = _map_name_from_tail(tokens)
             if name.byte_length() > 0:
                 current.map_bump = mesh.add_texture(name, base)
-
-        else:
-            raise Error("Unable to parse")
 
     if have_current:
         _ = mesh.upsert_material(current)
@@ -796,7 +778,7 @@ def parse_obj_text_with_loader[
                 verts.append(idx)
 
             if valid and len(verts) > 0:
-                mesh.push_element(verts, is_line=(tag == "l"))
+                mesh.push_element(verts^, is_line=(tag == "l"))
 
         elif tag == "usemtl":
             var name = tokens.joined_rest_of_line()

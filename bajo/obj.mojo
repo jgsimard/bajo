@@ -470,30 +470,63 @@ def _fix_index(raw: Int, count_with_dummy: Int) -> Int:
     return 0
 
 
-def _parse_index[
-    o: Origin
-](token: StringSlice[o], mesh: ObjMesh) raises -> ObjIndex:
-    var p_raw: Int = 0
+@always_inline
+def _parse_index[o: Origin](token: StringSlice[o], mesh: ObjMesh) -> ObjIndex:
+    comptime ZERO = UInt8(ord("0"))
+    comptime MINUS = UInt8(ord("-"))
+    comptime SLASH = UInt8(ord("/"))
+
+    var length = token.byte_length()
+    if length == 0:
+        return ObjIndex(0, 0, 0)
+
+    var ptr = token.unsafe_ptr()
+    var p = 0
+
+    var p_raw = 0
     var t_raw = 0
     var n_raw = 0
 
-    var first_slash = token.find("/")
-    if first_slash == -1:
-        if token.byte_length() > 0:
-            p_raw = _parse_i32(token)
-    else:
-        if first_slash > 0:
-            p_raw = _parse_i32(token[byte=:first_slash])
-        var second_slash = token.find("/", first_slash + 1)
+    # position
+    var sign = 1
+    if p < length and ptr.load(p) == MINUS:
+        sign = -1
+        p += 1
+    while p < length:
+        var b = ptr.load(p)
+        if b == SLASH:
+            break
+        p_raw = p_raw * 10 + Int(b - ZERO)
+        p += 1
+    p_raw *= sign
 
-        if second_slash == -1:
-            if first_slash + 1 < token.byte_length():
-                t_raw = _parse_i32(token[byte = first_slash + 1 :])
-        else:
-            if second_slash > first_slash + 1:
-                t_raw = _parse_i32(token[byte = first_slash + 1 : second_slash])
-            if second_slash + 1 < token.byte_length():
-                n_raw = _parse_i32(token[byte = second_slash + 1 :])
+    # texcoord
+    if p < length and ptr.load(p) == SLASH:
+        p += 1
+        sign = 1
+        if p < length and ptr.load(p) == MINUS:
+            sign = -1
+            p += 1
+        while p < length:
+            var b = ptr.load(p)
+            if b == SLASH:
+                break
+            t_raw = t_raw * 10 + Int(b - ZERO)
+            p += 1
+        t_raw *= sign
+
+        # normal
+        if p < length and ptr.load(p) == SLASH:
+            p += 1
+            sign = 1
+            if p < length and ptr.load(p) == MINUS:
+                sign = -1
+                p += 1
+            while p < length:
+                var b = ptr.load(p)
+                n_raw = n_raw * 10 + Int(b - ZERO)
+                p += 1
+            n_raw *= sign
 
     return ObjIndex(
         _fix_index(p_raw, mesh.position_count()),

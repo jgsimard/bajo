@@ -5,16 +5,12 @@ from std.testing import (
     assert_false,
 )
 
-
 from bajo.obj import (
     ObjMesh,
     read_obj,
-    parse_obj_text,
+    parse_obj,
     triangulated_indices,
     MemoryObjTextLoader,
-    read_obj_from_memory,
-    read_obj_from_string,
-    _read_mtl_text,
 )
 
 
@@ -28,10 +24,10 @@ vt 0 1
 vn 0 0 1
 f 1/1/1 2/2/1 3/3/1"""
 
-    var mesh = parse_obj_text("triangle.obj", obj)
-    assert_true(mesh.actual_position_count() == 3)
-    assert_true(mesh.actual_texcoord_count() == 3)
-    assert_true(mesh.actual_normal_count() == 1)
+    var mesh = parse_obj(obj, "triangle.obj")
+    assert_true(mesh.position_count(include_dummy=False) == 3)
+    assert_true(mesh.texcoord_count(include_dummy=False) == 3)
+    assert_true(mesh.normal_count(include_dummy=False) == 1)
     assert_true(mesh.face_count() == 1)
     assert_true(mesh.index_count() == 3)
     assert_true(mesh.indices[0].p == 1)
@@ -49,7 +45,7 @@ v 1 1 0
 v 0 1 0
 f -4 -3 -2 -1"""
 
-    var mesh = parse_obj_text("quad.obj", obj)
+    var mesh = parse_obj(obj, "quad.obj")
     var tris = triangulated_indices(mesh)
     assert_true(mesh.face_vertices[0] == 4)
     assert_true(mesh.indices[0].p == 1)
@@ -68,7 +64,7 @@ def test_vertex_colors_lazy_fill() raises:
 v 1 0 0 0.25 0.5 0.75
 v 2 0 0"""
 
-    var mesh = parse_obj_text("colors.obj", obj)
+    var mesh = parse_obj(obj, "colors.obj")
     assert_true(mesh.color_count() == 4)
     assert_almost_equal(mesh.colors[0], 1.0)
     assert_almost_equal(mesh.colors[1], 1.0)
@@ -93,7 +89,7 @@ v 0 1 0
 l 1 2
 f 1 2 3"""
 
-    var mesh = parse_obj_text("groups.obj", obj)
+    var mesh = parse_obj(obj, "groups.obj")
     var tris = triangulated_indices(mesh)
     assert_true(mesh.face_count() == 2)
     assert_true(len(mesh.face_lines) == 2)
@@ -110,8 +106,14 @@ f 1 2 3"""
 
 
 def test_material_fallback_replacement_and_textures() raises:
-    var mesh = ObjMesh()
-    var fallback_idx = mesh.ensure_material("matA", fallback=True)
+    var loader = MemoryObjTextLoader()
+
+    comptime obj = """usemtl matA
+mtllib matA.mtl
+v 0 0 0
+v 1 0 0
+v 0 1 0
+f 1 2 3"""
 
     comptime mtl = """newmtl matA
 Ka 0.01 0.02 0.03
@@ -125,8 +127,11 @@ illum 2
 map_Kd diffuse.png
 bump normal.png"""
 
-    _read_mtl_text(mesh, "assets/", mtl)
-    var mat = mesh.materials[fallback_idx].copy()
+    loader.add_file("assets/material_test.obj", obj)
+    loader.add_file("assets/matA.mtl", mtl)
+
+    var mesh = read_obj("assets/material_test.obj", loader)
+    var mat = mesh.materials[mesh.face_materials[0]].copy()
 
     assert_true(mesh.material_count() == 1 and not mat.fallback)
     assert_almost_equal(mat.Kd[0], 0.1)
@@ -137,6 +142,7 @@ bump normal.png"""
     assert_almost_equal(mat.d, 0.5)
     assert_true(mat.illum == 2)
     assert_true(mesh.texture_count() == 3)
+    assert_true(mesh.texture_count(include_dummy=False) == 2)
     assert_true(mat.map_Kd == 1)
     assert_true(mesh.textures[1].name == "diffuse.png")
     assert_true(mesh.textures[1].path == "assets/diffuse.png")
@@ -153,7 +159,8 @@ usemtl matB
 v 0 0 0
 v 1 0 0
 v 0 1 0
-f 1 2 3\n"""
+f 1 2 3
+"""
 
     var mtl = String("")
     mtl += "newmtl matB\n"
@@ -164,25 +171,27 @@ f 1 2 3\n"""
     loader.add_file("models/model.obj", obj)
     loader.add_file("models/material library.mtl", mtl)
 
-    var mesh = read_obj_from_memory("models/model.obj", loader)
+    var mesh = read_obj("models/model.obj", loader)
     var mat_idx = mesh.face_materials[0]
     var mat = mesh.materials[mat_idx].copy()
 
-    assert_true(mesh.face_count() == 1 and mesh.actual_position_count() == 3)
+    assert_true(mesh.face_count() == 1)
+    assert_true(mesh.position_count(include_dummy=False) == 3)
     assert_true(mesh.material_count() == 1 and mat.name == "matB")
     assert_true(mesh.texture_count() == 2)
+    assert_true(mesh.texture_count(include_dummy=False) == 1)
     assert_true(mat.map_Ka == 1 and mat.map_Kd == 1 and mat.map_bump == 1)
     assert_true(mesh.textures[1].path == "models/shared.png")
 
 
-def test_read_obj_from_string() raises:
+def test_parse_obj_from_string() raises:
     comptime obj = """v 0 0 0 
 v 1 0 0
 v 0 1 0
 f 1 2 3
 """
 
-    var mesh = read_obj_from_string(obj)
+    var mesh = parse_obj(obj)
     assert_true(mesh.face_count() == 1)
     assert_true(mesh.index_count() == 3)
 
@@ -195,8 +204,8 @@ v 1 0 0\r
 v 0 1 0\r
 f 1 2 3\r"""
 
-    var mesh = parse_obj_text("comments.obj", obj)
-    assert_true(mesh.actual_position_count() == 3)
+    var mesh = parse_obj(obj, "comments.obj")
+    assert_true(mesh.position_count(include_dummy=False) == 3)
     assert_true(mesh.face_count() == 1)
     assert_true(mesh.index_count() == 3)
 
@@ -208,7 +217,7 @@ v 0 1 0
 vn 0 0 1
 f 1//1 2//1 3//1"""
 
-    var mesh = parse_obj_text("missing_texcoord.obj", obj)
+    var mesh = parse_obj(obj, "missing_texcoord.obj")
     assert_true(mesh.face_count() == 1)
     assert_true(mesh.indices[0].p == 1)
     assert_true(mesh.indices[0].t == 0)
@@ -219,7 +228,7 @@ f 1//1 2//1 3//1"""
 
 
 def test_multiple_groups_flush_offsets() raises:
-    comptime obj = """g A\n"
+    comptime obj = """g A
 v 0 0 0
 v 1 0 0
 v 0 1 0
@@ -228,7 +237,7 @@ f 1 2 3
 g B
 f 2 4 3"""
 
-    var mesh = parse_obj_text("groups2.obj", obj)
+    var mesh = parse_obj(obj, "groups2.obj")
     assert_true(mesh.group_count() == 2)
     assert_true(mesh.groups[0].name == "A")
     assert_true(mesh.groups[0].face_count == 1)
@@ -241,23 +250,45 @@ f 2 4 3"""
 
 
 def test_tr_only_transparency() raises:
-    var mesh = ObjMesh()
+    var loader = MemoryObjTextLoader()
+
+    comptime obj = """mtllib glass.mtl
+usemtl glass
+v 0 0 0
+v 1 0 0
+v 0 1 0
+f 1 2 3"""
+
     comptime mtl = """newmtl glass
 Tr 0.25"""
 
-    _read_mtl_text(mesh, "", mtl)
-    var mat = mesh.materials[0].copy()
+    loader.add_file("materials/glass.obj", obj)
+    loader.add_file("materials/glass.mtl", mtl)
+
+    var mesh = read_obj("materials/glass.obj", loader)
+    var mat = mesh.materials[mesh.face_materials[0]].copy()
     assert_almost_equal(mat.d, 0.75)
 
 
 def test_d_overrides_tr_order() raises:
-    var mesh = ObjMesh()
+    var loader = MemoryObjTextLoader()
+
+    comptime obj = """mtllib mat.mtl
+usemtl mat
+v 0 0 0
+v 1 0 0
+v 0 1 0
+f 1 2 3"""
+
     comptime mtl = """newmtl mat
 d 0.4
 Tr 0.9"""
 
-    _read_mtl_text(mesh, "", mtl)
-    var mat = mesh.materials[0].copy()
+    loader.add_file("materials/mat.obj", obj)
+    loader.add_file("materials/mat.mtl", mtl)
+
+    var mesh = read_obj("materials/mat.obj", loader)
+    var mat = mesh.materials[mesh.face_materials[0]].copy()
     assert_almost_equal(mat.d, 0.4)
 
 

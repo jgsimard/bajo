@@ -669,6 +669,65 @@ struct TokenIterator[o: Origin]:
         return out
 
 
+@always_inline
+def _push_element_meta(mut mesh: ObjMesh, n: Int, is_line: Bool = False):
+    if n == 0:
+        return
+    if not is_line and n < 3:
+        return
+    if is_line and n < 2:
+        return
+
+    mesh.face_vertices.append(n)
+    mesh.face_materials.append(mesh.current_material)
+
+    if is_line or len(mesh.face_lines) > 0:
+        while len(mesh.face_lines) < len(mesh.face_vertices) - 1:
+            mesh.face_lines.append(UInt8(0))
+
+        if is_line:
+            mesh.face_lines.append(UInt8(1))
+        else:
+            mesh.face_lines.append(UInt8(0))
+
+    mesh.current_group.face_count += 1
+    mesh.current_object.face_count += 1
+
+
+@always_inline
+def _parse_face[
+    o: Origin
+](mut mesh: ObjMesh, mut tokens: TokenIterator[o], is_line: Bool = False,):
+    var index_start = len(mesh.indices)
+    var count = 0
+    var valid = True
+
+    while tokens.has_next():
+        var tok = tokens.next()
+        var idx = _parse_index(tok, mesh)
+
+        if idx.p == 0:
+            valid = False
+            break
+
+        mesh.indices.append(idx)
+        count += 1
+
+    if valid:
+        if not is_line:
+            if count >= 3:
+                _push_element_meta(mesh, count, is_line=False)
+            else:
+                mesh.indices.shrink(index_start)
+        else:
+            if count >= 2:
+                _push_element_meta(mesh, count, is_line=True)
+            else:
+                mesh.indices.shrink(index_start)
+    else:
+        mesh.indices.shrink(index_start)
+
+
 def parse_obj_text_with_loader[
     Loader: ObjTextLoader
 ](path: String, text: String, loader: Loader) raises -> ObjMesh:
@@ -745,19 +804,11 @@ def parse_obj_text_with_loader[
                 mesh.normals.append(_parse_f32(v2))
                 mesh.normals.append(_parse_f32(v3))
 
-        elif tag == "f" or tag == "l":
-            var verts = List[ObjIndex](capacity=4)
-            var valid = True
-            while tokens.has_next():
-                var tok = tokens.next()
-                var idx = _parse_index(tok, mesh)
-                if idx.p == 0:
-                    valid = False
-                    break
-                verts.append(idx)
+        elif tag == "f":
+            _parse_face(mesh, tokens, is_line=False)
 
-            if valid and len(verts) > 0:
-                mesh.push_element(verts^, is_line=(tag == "l"))
+        elif tag == "l":
+            _parse_face(mesh, tokens, is_line=True)
 
         elif tag == "usemtl":
             var name = tokens.joined_rest_of_line()

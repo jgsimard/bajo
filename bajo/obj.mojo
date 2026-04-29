@@ -479,19 +479,6 @@ def _parse_index[o: Origin](token: StringSlice[o], mesh: ObjMesh) -> ObjIndex:
     )
 
 
-def _tail_after_tag[o: Origin](line: StringSlice[o], tag: String) -> String:
-    var i = tag.byte_length()
-    while i < line.byte_length() and (
-        line[byte=i] == " " or line[byte=i] == "\t"
-    ):
-        i += 1
-
-    if i >= line.byte_length():
-        return ""
-
-    return String(line[byte=i:].strip())
-
-
 def _map_name_from_tail[o: Origin](mut tokens: TokenIterator[o]) -> String:
     var candidate = ""
     while tokens.has_next():

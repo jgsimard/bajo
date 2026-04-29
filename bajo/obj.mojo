@@ -521,9 +521,19 @@ struct ObjLineCursor[o: Origin]:
 
     @always_inline
     def skip_ws(mut self):
+        if self.pos < self.end and self.ptr.load(self.pos) == SPACE:
+            self.pos += 1
+
+            if self.pos >= self.end:
+                return
+
+            var b = self.ptr.load(self.pos)
+            if b != SPACE and b != TAB and b != CR:
+                return
+
         while self.pos < self.end:
             var b = self.ptr.load(self.pos)
-            if not _is_ws(b):
+            if b != SPACE and b != TAB and b != CR:
                 break
             self.pos += 1
 

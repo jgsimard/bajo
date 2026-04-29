@@ -1,282 +1,445 @@
-from std.algorithm import parallelize
-from std.collections import List
+from std.benchmark import keep
+from std.math import sqrt
 from std.time import perf_counter_ns
-from std.math import min
-from std.utils import Variant
 
-from bajo.core.vec import Vec3f32, normalize, cross, length
-from bajo.core.bvh.tinybvh import BVH, WideBVH, Ray
-from bajo.core.random import PhiloxRNG, random_unit_vector
+from bajo.obj import read_obj, triangulated_indices
+from bajo.core.vec import Vec3f32, vmin, vmax
+from bajo.core.bvh.tinybvh import BVH, Ray, WideBVH
 
 
-struct Timer:
-    var start: UInt
-
-    @always_inline
-    def __init__(out self):
-        self.start = perf_counter_ns()
-
-    @always_inline
-    def reset(mut self):
-        self.start = perf_counter_ns()
-
-    @always_inline
-    def elapsed(self) -> Float64:
-        return Float64(perf_counter_ns() - self.start) / 1e9
+comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"
+comptime PRIMARY_WIDTH = 640
+comptime PRIMARY_HEIGHT = 360
+comptime PRIMARY_VIEWS = 3
+comptime TRAVERSAL_REPEATS = 8
 
 
-comptime PASSES = 5
-comptime BVHVariant = Variant[BVH, WideBVH[4], WideBVH[8], WideBVH[16]]
+@always_inline
+def ns_to_ms(ns: Int) -> Float64:
+    return Float64(ns) / 1_000_000.0
 
 
-def run_bench[
-    is_occlusion: Bool, reset_t: Bool
-](bvh_var: BVHVariant, mut rays: List[Ray], label: String):
-    """
-    Unified benchmark implementation using Variant dispatch.
-    """
-    var n_rays = len(rays)
-    var timer = Timer()
-
-    for _ in range(PASSES):
-
-        @parameter
-        def worker(i: Int):
-            ref ray = rays[i]
-            comptime if reset_t:
-                ray.hit.t = 1e30
-
-            if bvh_var.isa[BVH]():
-                ref b = bvh_var[BVH]
-                comptime if is_occlusion:
-                    _ = b.is_occluded(ray)
-                else:
-                    b.traverse(ray)
-            elif bvh_var.isa[WideBVH[4]]():
-                ref b = bvh_var[WideBVH[4]]
-                comptime if is_occlusion:
-                    _ = b.is_occluded(ray)
-                else:
-                    b.traverse(ray)
-            elif bvh_var.isa[WideBVH[8]]():
-                ref b = bvh_var[WideBVH[8]]
-                comptime if is_occlusion:
-                    _ = b.is_occluded(ray)
-                else:
-                    b.traverse(ray)
-            elif bvh_var.isa[WideBVH[16]]():
-                ref b = bvh_var[WideBVH[16]]
-                comptime if is_occlusion:
-                    _ = b.is_occluded(ray)
-                else:
-                    b.traverse(ray)
-
-        parallelize[worker](n_rays)
-
-    var total_sec = timer.elapsed()
-    var mrays = (Float64(n_rays) * PASSES / 1_000_000.0) / total_sec
-    print("    ", label, ": ", round(mrays, 2), " MRays/s")
+@always_inline
+def ns_to_mrays_per_s(ns: Int, ray_count: Int) -> Float64:
+    var seconds = Float64(ns) * 1.0e-9
+    if seconds <= 0.0:
+        return 0.0
+    return (Float64(ray_count) / seconds) / 1_000_000.0
 
 
-def main():
-    print("--- TinyBVH Mojo Port: Traverse Speedtest ---")
+@always_inline
+def dot(a: Vec3f32, b: Vec3f32) -> Float32:
+    return a.x() * b.x() + a.y() * b.y() + a.z() * b.z()
 
-    var vertices = List[Vec3f32]()
-    print(
-        "Generating procedural scene (30x30x30 cube grid, ~324k triangles)..."
+
+@always_inline
+def cross(a: Vec3f32, b: Vec3f32) -> Vec3f32:
+    return Vec3f32(
+        a.y() * b.z() - a.z() * b.y(),
+        a.z() * b.x() - a.x() * b.z(),
+        a.x() * b.y() - a.y() * b.x(),
     )
 
-    for x in range(30):
-        for y in range(30):
-            for z in range(30):
-                var px = Float32(x) * 2.0
-                var py = Float32(y) * 2.0
-                var pz = Float32(z) * 2.0
-                vertices.append(Vec3f32(px, py, pz))
-                vertices.append(Vec3f32(px + 1, py, pz))
-                vertices.append(Vec3f32(px + 1, py + 1, pz))
-                vertices.append(Vec3f32(px, py, pz))
-                vertices.append(Vec3f32(px + 1, py + 1, pz))
-                vertices.append(Vec3f32(px, py + 1, pz))
-                vertices.append(Vec3f32(px, py, pz + 1))
-                vertices.append(Vec3f32(px + 1, py + 1, pz + 1))
-                vertices.append(Vec3f32(px + 1, py, pz + 1))
-                vertices.append(Vec3f32(px, py, pz + 1))
-                vertices.append(Vec3f32(px, py + 1, pz + 1))
-                vertices.append(Vec3f32(px + 1, py + 1, pz + 1))
-                vertices.append(Vec3f32(px, py, pz))
-                vertices.append(Vec3f32(px, py + 1, pz + 1))
-                vertices.append(Vec3f32(px, py, pz + 1))
-                vertices.append(Vec3f32(px, py, pz))
-                vertices.append(Vec3f32(px, py + 1, pz))
-                vertices.append(Vec3f32(px, py + 1, pz + 1))
-                vertices.append(Vec3f32(px + 1, py, pz))
-                vertices.append(Vec3f32(px + 1, py, pz + 1))
-                vertices.append(Vec3f32(px + 1, py + 1, pz + 1))
-                vertices.append(Vec3f32(px + 1, py, pz))
-                vertices.append(Vec3f32(px + 1, py + 1, pz + 1))
-                vertices.append(Vec3f32(px + 1, py + 1, pz))
-                vertices.append(Vec3f32(px, py + 1, pz))
-                vertices.append(Vec3f32(px + 1, py + 1, pz + 1))
-                vertices.append(Vec3f32(px, py + 1, pz + 1))
-                vertices.append(Vec3f32(px, py + 1, pz))
-                vertices.append(Vec3f32(px + 1, py + 1, pz))
-                vertices.append(Vec3f32(px + 1, py + 1, pz + 1))
-                vertices.append(Vec3f32(px, py, pz))
-                vertices.append(Vec3f32(px, py, pz + 1))
-                vertices.append(Vec3f32(px + 1, py, pz + 1))
-                vertices.append(Vec3f32(px, py, pz))
-                vertices.append(Vec3f32(px + 1, py, pz + 1))
-                vertices.append(Vec3f32(px + 1, py, pz))
 
-    var tri_count = UInt32(len(vertices) // 3)
+@always_inline
+def normalize(v: Vec3f32) -> Vec3f32:
+    var len2 = dot(v, v)
+    if len2 <= 1.0e-20:
+        return Vec3f32(0.0, 0.0, 0.0)
+    return v * (1.0 / sqrt(len2))
 
-    var SCREEN_WIDTH = 480
-    var SCREEN_HEIGHT = 320
-    var Nsmall = SCREEN_WIDTH * SCREEN_HEIGHT
 
-    print("\n[1] Building BVH...")
-    var timer = Timer()
-    var bvh = BVH(
-        vertices.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin](), tri_count
-    )
-    # bvh.build["median", False]()
-    # bvh.build["median", True]()
-    # bvh.build["sah", False]()
-    bvh.build["sah", True]()
+@always_inline
+def len_vec(v: Vec3f32) -> Float32:
+    return sqrt(dot(v, v))
 
-    print(
-        t"    - Built in {round(timer.elapsed() * 1000.0, 2)} ms | SAH cost:"
-        t" {bvh.tree_quality()} | Nodes: {bvh.nodes_used}"
-    )
 
-    print("\n[2] Collapsing Wide SIMD BVHs...")
-    timer.reset()
-    var bvh4 = WideBVH[4](bvh)
-    print(
-        t"    - BVH4 collapse: {round(timer.elapsed() * 1000.0, 2)} ms | Nodes:"
-        t" {len(bvh4.nodes)}"
-    )
+def pack_obj_triangles(path: String) raises -> List[Vec3f32]:
+    var mesh = read_obj(path)
+    var idx = triangulated_indices(mesh)
 
-    timer.reset()
-    var bvh8 = WideBVH[8](bvh)
-    print(
-        t"    - BVH8 collapse: {round(timer.elapsed() * 1000.0, 2)} ms | Nodes:"
-        t" {len(bvh8.nodes)}"
-    )
+    var out = List[Vec3f32](capacity=len(idx))
 
-    timer.reset()
-    var bvh16 = WideBVH[16](bvh)
-    print(
-        t"    - BVH16 collapse: {round(timer.elapsed() * 1000.0, 2)} ms |"
-        t" Nodes: {len(bvh16.nodes)}"
-    )
+    for i in range(len(idx)):
+        var p = Int(idx[i].p)
 
-    print("\n[3] Generating test rays (Primary, Shadow, Diffuse)...")
-    var primary_rays = List[Ray](capacity=Nsmall)
-    var shadow_rays = List[Ray](capacity=Nsmall)
-    var diffuse_rays = List[Ray](capacity=Nsmall)
+        # OBJ vertex indices refer to vertices, but mesh.positions is flat xyz.
+        var base = p * 3
 
-    var eye = Vec3f32(-20.0, 30.0, -20.0)
-    var view = normalize(Vec3f32(30.0, 30.0, 30.0) - eye)
-    var right = normalize(cross(Vec3f32(0.0, 1.0, 0.0), view))
-    var up = cross(view, right) * 0.8
-    var C = eye + view * 2.0
-    var p1 = C - right + up
-    var p2 = C + right + up
-    var p3 = C - right - up
-
-    for y in range(SCREEN_HEIGHT):
-        for x in range(SCREEN_WIDTH):
-            var u = Float32(x) / Float32(SCREEN_WIDTH)
-            var v = Float32(y) / Float32(SCREEN_HEIGHT)
-            var P = p1 + (p2 - p1) * u + (p3 - p1) * v
-            primary_rays.append(Ray(eye, normalize(P - eye)))
-
-    var lightPos = Vec3f32(30.0, 100.0, 30.0)
-    var rng = PhiloxRNG(123, 321)
-
-    for i in range(Nsmall):
-        ref r = primary_rays[i]
-        bvh.traverse(r)
-
-        var hit_t = min(Float32(100.0), r.hit.t)
-        var I = r.O + r.D * hit_t
-
-        var L = lightPos - I
-        var dist = length(L)
-        var shadow_dir = L / dist
-        shadow_rays.append(Ray(I + shadow_dir * 1e-4, shadow_dir, dist - 1e-4))
-
-        var diff_dir = random_unit_vector(rng)
-        diffuse_rays.append(Ray(I + diff_dir * 1e-4, diff_dir))
-
-    # traversals
-    var bvh_list = List[BVHVariant]()
-    var labels = List[String]()
-
-    bvh_list.append(BVHVariant(bvh^))
-    labels.append("BVH2")
-
-    bvh_list.append(BVHVariant(bvh4^))
-    labels.append("BVH4")
-
-    bvh_list.append(BVHVariant(bvh8^))
-    labels.append("BVH8")
-
-    bvh_list.append(BVHVariant(bvh16^))
-    labels.append("BVH16")
-
-    print("\n--- Traversals (Multi-threaded, Averaged over 5 passes) ---")
-
-    print("\n[Primary Rays - Coherent Rays]")
-    for i in range(len(bvh_list)):
-        run_bench[is_occlusion=False, reset_t=True](
-            bvh_list[i], primary_rays, labels[i]
+        out.append(
+            Vec3f32(
+                mesh.positions[base + 0],
+                mesh.positions[base + 1],
+                mesh.positions[base + 2],
+            )
         )
 
-    print("\n[Shadow Rays - Early Out Occlusion]")
-    for i in range(len(bvh_list)):
-        run_bench[is_occlusion=True, reset_t=False](
-            bvh_list[i], shadow_rays, labels[i]
+    return out^
+
+
+def compute_bounds(verts: List[Vec3f32]) -> Tuple[Vec3f32, Vec3f32]:
+    var bmin = Vec3f32(1.0e30, 1.0e30, 1.0e30)
+    var bmax = Vec3f32(-1.0e30, -1.0e30, -1.0e30)
+
+    for i in range(len(verts)):
+        bmin = vmin(bmin, verts[i])
+        bmax = vmax(bmax, verts[i])
+
+    return (bmin^, bmax^)
+
+
+def append_camera_rays(
+    mut rays: List[Ray],
+    origin: Vec3f32,
+    target: Vec3f32,
+    up_hint: Vec3f32,
+    width: Int,
+    height: Int,
+):
+    var forward = normalize(target - origin)
+    var right = normalize(cross(forward, up_hint))
+    var up = normalize(cross(right, forward))
+
+    var aspect = Float32(width) / Float32(height)
+    var fov_scale = Float32(0.75)
+
+    for y in range(height):
+        for x in range(width):
+            var sx = ((Float32(x) + 0.5) / Float32(width)) * 2.0 - 1.0
+            var sy = 1.0 - ((Float32(y) + 0.5) / Float32(height)) * 2.0
+            var dir = normalize(
+                forward
+                + right * (sx * aspect * fov_scale)
+                + up * (sy * fov_scale)
+            )
+            rays.append(Ray(origin, dir))
+
+
+def generate_primary_rays(
+    bounds_min: Vec3f32,
+    bounds_max: Vec3f32,
+    width: Int,
+    height: Int,
+    views: Int,
+) -> List[Ray]:
+    var rays = List[Ray](capacity=width * height * views)
+
+    var center = (bounds_min + bounds_max) * 0.5
+    var extent = bounds_max - bounds_min
+    var radius = len_vec(extent) * 0.5
+    if radius < 1.0:
+        radius = 1.0
+    var dist = radius * 2.8
+
+    if views >= 1:
+        append_camera_rays(
+            rays,
+            center + Vec3f32(0.0, 0.0, -dist),
+            center,
+            Vec3f32(0.0, 1.0, 0.0),
+            width,
+            height,
         )
 
-    print("\n[Diffuse Rays - Incoherent Bounces]")
-    for i in range(len(bvh_list)):
-        run_bench[is_occlusion=False, reset_t=False](
-            bvh_list[i], diffuse_rays, labels[i]
+    if views >= 2:
+        append_camera_rays(
+            rays,
+            center + Vec3f32(-dist, 0.0, 0.0),
+            center,
+            Vec3f32(0.0, 1.0, 0.0),
+            width,
+            height,
         )
 
+    if views >= 3:
+        append_camera_rays(
+            rays,
+            center + Vec3f32(0.0, dist, 0.0),
+            center,
+            Vec3f32(0.0, 0.0, 1.0),
+            width,
+            height,
+        )
 
-# --- TinyBVH Mojo Port: Traverse Speedtest ---
-# Generating procedural scene (30x30x30 cube grid, ~324k triangles)...
+    return rays^
 
-# [1] Building BVH...
-#     - Built in 59.84 ms | SAH cost: 106.674324 | Nodes: 207495
 
-# [2] Collapsing Wide SIMD BVHs...
-#     - BVH4 collapse: 9.03 ms | Nodes: 40018
-#     - BVH8 collapse: 21.17 ms | Nodes: 21695
-#     - BVH16 collapse: 34.41 ms | Nodes: 19444
+@always_inline
+def hit_t_for_checksum(t: Float32) -> Float64:
+    if t < 1.0e20:
+        return Float64(t)
+    return 0.0
 
-# [3] Generating test rays (Primary, Shadow, Diffuse)...
 
-# --- Traversals (Multi-threaded, Averaged over 5 passes) ---
+def trace_bvh_primary(bvh: BVH, rays: List[Ray]) -> Float64:
+    var checksum = Float64(0.0)
+    var hit_count = 0
 
-# [Primary Rays - Coherent Rays]
-#      BVH2 :  12.0  MRays/s
-#      BVH4 :  25.31  MRays/s
-#      BVH8 :  32.63  MRays/s
-#      BVH16 :  26.98  MRays/s
+    for i in range(len(rays)):
+        var ray = rays[i].copy()
+        bvh.traverse(ray)
+        checksum += hit_t_for_checksum(ray.hit.t)
+        if ray.hit.t < 1.0e20:
+            hit_count += 1
 
-# [Shadow Rays - Early Out Occlusion]
-#      BVH2 :  14.54  MRays/s
-#      BVH4 :  28.73  MRays/s
-#      BVH8 :  43.85  MRays/s
-#      BVH16 :  40.79  MRays/s
+    keep(checksum)
+    keep(hit_count)
+    return checksum
 
-# [Diffuse Rays - Incoherent Bounces]
-#      BVH2 :  15.78  MRays/s
-#      BVH4 :  41.48  MRays/s
-#      BVH8 :  52.7  MRays/s
-#      BVH16 :  43.65  MRays/s
+
+def trace_bvh_shadow(bvh: BVH, rays: List[Ray]) -> Int:
+    var occluded = 0
+
+    for i in range(len(rays)):
+        var ray = rays[i].copy()
+        if bvh.is_occluded(ray):
+            occluded += 1
+
+    keep(occluded)
+    return occluded
+
+
+def trace_wide_primary[
+    width: Int
+](wide: WideBVH[width], rays: List[Ray]) -> Float64:
+    var checksum = Float64(0.0)
+    var hit_count = 0
+
+    for i in range(len(rays)):
+        var ray = rays[i].copy()
+        wide.traverse(ray)
+        checksum += hit_t_for_checksum(ray.hit.t)
+        if ray.hit.t < 1.0e20:
+            hit_count += 1
+
+    keep(checksum)
+    keep(hit_count)
+    return checksum
+
+
+def trace_wide_shadow[width: Int](wide: WideBVH[width], rays: List[Ray]) -> Int:
+    var occluded = 0
+
+    for i in range(len(rays)):
+        var ray = rays[i].copy()
+        if wide.is_occluded(ray):
+            occluded += 1
+
+    keep(occluded)
+    return occluded
+
+
+def print_traversal_result(
+    name: String,
+    best_ns: Int,
+    ray_count: Int,
+    checksum: Float64,
+):
+    print(
+        name,
+        "|",
+        ns_to_ms(best_ns),
+        "ms |",
+        ns_to_mrays_per_s(best_ns, ray_count),
+        "MRays/s | checksum:",
+        checksum,
+    )
+
+
+def print_shadow_result(
+    name: String,
+    best_ns: Int,
+    ray_count: Int,
+    occluded: Int,
+):
+    print(
+        name,
+        "|",
+        ns_to_ms(best_ns),
+        "ms |",
+        ns_to_mrays_per_s(best_ns, ray_count),
+        "MRays/s | occluded:",
+        occluded,
+    )
+
+
+def bench_bvh_primary(name: String, bvh: BVH, rays: List[Ray], repeats: Int):
+    # Warmup.
+    var checksum = trace_bvh_primary(bvh, rays)
+    var best_ns = Int(9223372036854775807)
+
+    for _ in range(repeats):
+        var t0 = perf_counter_ns()
+        checksum = trace_bvh_primary(bvh, rays)
+        var t1 = perf_counter_ns()
+        var dt = Int(t1 - t0)
+        if dt < best_ns:
+            best_ns = dt
+
+    print_traversal_result(name, best_ns, len(rays), checksum)
+
+
+def bench_bvh_shadow(name: String, bvh: BVH, rays: List[Ray], repeats: Int):
+    # Warmup.
+    var occluded = trace_bvh_shadow(bvh, rays)
+    var best_ns = Int(9223372036854775807)
+
+    for _ in range(repeats):
+        var t0 = perf_counter_ns()
+        occluded = trace_bvh_shadow(bvh, rays)
+        var t1 = perf_counter_ns()
+        var dt = Int(t1 - t0)
+        if dt < best_ns:
+            best_ns = dt
+
+    print_shadow_result(name, best_ns, len(rays), occluded)
+
+
+def bench_wide_primary[
+    width: Int
+](name: String, wide: WideBVH[width], rays: List[Ray], repeats: Int):
+    # Warmup.
+    var checksum = trace_wide_primary[width](wide, rays)
+    var best_ns = Int(9223372036854775807)
+
+    for _ in range(repeats):
+        var t0 = perf_counter_ns()
+        checksum = trace_wide_primary[width](wide, rays)
+        var t1 = perf_counter_ns()
+        var dt = Int(t1 - t0)
+        if dt < best_ns:
+            best_ns = dt
+
+    print_traversal_result(name, best_ns, len(rays), checksum)
+
+
+def bench_wide_shadow[
+    width: Int
+](name: String, wide: WideBVH[width], rays: List[Ray], repeats: Int):
+    # Warmup.
+    var occluded = trace_wide_shadow[width](wide, rays)
+    var best_ns = Int(9223372036854775807)
+
+    for _ in range(repeats):
+        var t0 = perf_counter_ns()
+        occluded = trace_wide_shadow[width](wide, rays)
+        var t1 = perf_counter_ns()
+        var dt = Int(t1 - t0)
+        if dt < best_ns:
+            best_ns = dt
+
+    print_shadow_result(name, best_ns, len(rays), occluded)
+
+
+def main() raises:
+    print("TinyBVH Mojo bunny speedtest")
+    print("Path:", DEFAULT_OBJ_PATH)
+    print("Image rays:", PRIMARY_WIDTH, "x", PRIMARY_HEIGHT, "x", PRIMARY_VIEWS)
+
+    print("\nLoading + packing OBJ...")
+    var load_t0 = perf_counter_ns()
+    var tri_vertices = pack_obj_triangles(DEFAULT_OBJ_PATH)
+    var load_t1 = perf_counter_ns()
+
+    var tri_count = UInt32(len(tri_vertices) // 3)
+    var bounds = compute_bounds(tri_vertices)
+    var bmin = bounds[0].copy()
+    var bmax = bounds[1].copy()
+
+    print("Packed vertices:", len(tri_vertices))
+    print("Triangles:", tri_count)
+    print("Load+pack ms:", ns_to_ms(Int(load_t1 - load_t0)))
+    print("Bounds min:", bmin)
+    print("Bounds max:", bmax)
+
+    print("\nGenerating rays...")
+    var rays = generate_primary_rays(
+        bmin, bmax, PRIMARY_WIDTH, PRIMARY_HEIGHT, PRIMARY_VIEWS
+    )
+    print("Rays:", len(rays))
+
+    print("\nBuild")
+    print("-----")
+
+    var t0 = perf_counter_ns()
+    var bvh_median = BVH(tri_vertices.unsafe_ptr(), tri_count)
+    bvh_median.build["median", False]()
+    var t1 = perf_counter_ns()
+    print(
+        "binary median ST |",
+        ns_to_ms(Int(t1 - t0)),
+        "ms | nodes:",
+        bvh_median.nodes_used,
+        "| quality:",
+        bvh_median.tree_quality(),
+    )
+
+    t0 = perf_counter_ns()
+    var bvh_sah = BVH(tri_vertices.unsafe_ptr(), tri_count)
+    bvh_sah.build["sah", False]()
+    t1 = perf_counter_ns()
+    print(
+        "binary sah ST    |",
+        ns_to_ms(Int(t1 - t0)),
+        "ms | nodes:",
+        bvh_sah.nodes_used,
+        "| quality:",
+        bvh_sah.tree_quality(),
+    )
+
+    t0 = perf_counter_ns()
+    var bvh_sah_mt = BVH(tri_vertices.unsafe_ptr(), tri_count)
+    bvh_sah_mt.build["sah", True]()
+    t1 = perf_counter_ns()
+    print(
+        "binary sah MT    |",
+        ns_to_ms(Int(t1 - t0)),
+        "ms | nodes:",
+        bvh_sah_mt.nodes_used,
+        "| quality:",
+        bvh_sah_mt.tree_quality(),
+    )
+
+    t0 = perf_counter_ns()
+    var wide4 = WideBVH[4](bvh_sah)
+    t1 = perf_counter_ns()
+    print(
+        "wide4 collapse   |",
+        ns_to_ms(Int(t1 - t0)),
+        "ms | nodes:",
+        len(wide4.nodes),
+        "| leaves:",
+        len(wide4.leaves),
+    )
+
+    t0 = perf_counter_ns()
+    var wide8 = WideBVH[8](bvh_sah)
+    t1 = perf_counter_ns()
+    print(
+        "wide8 collapse   |",
+        ns_to_ms(Int(t1 - t0)),
+        "ms | nodes:",
+        len(wide8.nodes),
+        "| leaves:",
+        len(wide8.leaves),
+    )
+
+    print("\nPrimary traversal")
+    print("-----------------")
+    bench_bvh_primary("binary median", bvh_median, rays, TRAVERSAL_REPEATS)
+    bench_bvh_primary("binary sah ST", bvh_sah, rays, TRAVERSAL_REPEATS)
+    bench_bvh_primary("binary sah MT", bvh_sah_mt, rays, TRAVERSAL_REPEATS)
+    bench_wide_primary[4]("wide4", wide4, rays, TRAVERSAL_REPEATS)
+    bench_wide_primary[8]("wide8", wide8, rays, TRAVERSAL_REPEATS)
+
+    print("\nShadow traversal")
+    print("----------------")
+    bench_bvh_shadow("binary median", bvh_median, rays, TRAVERSAL_REPEATS)
+    bench_bvh_shadow("binary sah ST", bvh_sah, rays, TRAVERSAL_REPEATS)
+    bench_bvh_shadow("binary sah MT", bvh_sah_mt, rays, TRAVERSAL_REPEATS)
+    bench_wide_shadow[4]("wide4", wide4, rays, TRAVERSAL_REPEATS)
+    bench_wide_shadow[8]("wide8", wide8, rays, TRAVERSAL_REPEATS)
+
+    # Keep external vertex buffer alive until the end: BVH stores an UnsafePointer to it.
+    keep(len(tri_vertices))
+    keep(len(rays))

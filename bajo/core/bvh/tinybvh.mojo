@@ -1,7 +1,7 @@
 from std.algorithm import parallelize
 from std.math import abs, min, max, clamp
 from std.memory import UnsafePointer
-from std.os.atomic import Atomic
+from std.atomic import Atomic
 from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.aabb import AABB
@@ -12,6 +12,7 @@ from bajo.core.vec import Vec3f32, vmin, vmax, longest_axis, InlineArray
 comptime f32_max = max_finite[DType.float32]()
 comptime f32_min = min_finite[DType.float32]()
 comptime INV_3 = Float32(1.0) / Float32(3.0)
+comptime BVH_BINS = 16
 
 
 @fieldwise_init
@@ -82,9 +83,83 @@ struct Bin(Copyable):
         self.tri_count = 0
 
 
+@fieldwise_init
+struct Fragment(Copyable):
+    """Cached primitive bounds used by the builder.
+
+    prim_indices stores indices into this Fragment array. `prim_idx` stores the
+    original triangle id, so traversal still reports the mesh primitive id.
+    """
+
+    var bmin: Vec3f32
+    var prim_idx: UInt32
+    var bmax: Vec3f32
+    var _pad: UInt32
+
+    @always_inline
+    def __init__(out self):
+        self.bmin = Vec3f32(f32_max)
+        self.prim_idx = 0
+        self.bmax = Vec3f32(f32_min)
+        self._pad = 0
+
+    @always_inline
+    def __init__(
+        out self, prim_idx: UInt32, v0: Vec3f32, v1: Vec3f32, v2: Vec3f32
+    ):
+        self.bmin = vmin(v0, v1, v2)
+        self.prim_idx = prim_idx
+        self.bmax = vmax(v0, v1, v2)
+        self._pad = 0
+
+    @always_inline
+    def center_axis(self, axis: Int) -> Float32:
+        return (self.bmin[axis] + self.bmax[axis]) * 0.5
+
+    @always_inline
+    def grow_into(self, mut aabb: AABB):
+        aabb._min = vmin(aabb._min, self.bmin)
+        aabb._max = vmax(aabb._max, self.bmax)
+
+
+@fieldwise_init
+struct SplitResult(Copyable):
+    """Result of the binned SAH sweep.
+
+    `bin`, `bin_min`, and `bin_scale` describe the exact binning rule used
+    during evaluation. Partitioning by these fields keeps the partition in sync
+    with the cost and child bounds computed by `_sah`.
+    """
+
+    var axis: Int
+    var bin: Int
+    var pos: Float32
+    var cost: Float32
+    var bin_min: Float32
+    var bin_scale: Float32
+    var left_bounds: AABB
+    var right_bounds: AABB
+
+    @always_inline
+    def __init__(out self):
+        self.axis = -1
+        self.bin = -1
+        self.pos = 0.0
+        self.cost = f32_max
+        self.bin_min = 0.0
+        self.bin_scale = 0.0
+        self.left_bounds = AABB.invalid()
+        self.right_bounds = AABB.invalid()
+
+    @always_inline
+    def valid(self) -> Bool:
+        return self.axis >= 0 and self.bin >= 0
+
+
 struct BVH(Copyable):
     var bvh_nodes: List[BVHNode]
     var prim_indices: List[UInt32]
+    var fragments: List[Fragment]
     var vertices: UnsafePointer[Vec3f32, MutAnyOrigin]
     var tri_count: UInt32
     var nodes_used: UInt32
@@ -103,8 +178,13 @@ struct BVH(Copyable):
         for _ in range(max_nodes):
             self.bvh_nodes.append(BVHNode())
 
+        self.fragments = List[Fragment](capacity=Int(tri_count))
         self.prim_indices = List[UInt32](capacity=Int(tri_count))
         for i in range(Int(tri_count)):
+            ref v0 = vertices[i * 3 + 0]
+            ref v1 = vertices[i * 3 + 1]
+            ref v2 = vertices[i * 3 + 2]
+            self.fragments.append(Fragment(UInt32(i), v0, v1, v2))
             self.prim_indices.append(UInt32(i))
 
         ref root = self.bvh_nodes[0]
@@ -120,13 +200,8 @@ struct BVH(Copyable):
 
         var first = Int(node.leftFirst)
         for i in range(Int(node.triCount)):
-            var leaf_tri_idx = Int(self.prim_indices[first + i])
-            ref v0 = self.vertices[leaf_tri_idx * 3 + 0]
-            ref v1 = self.vertices[leaf_tri_idx * 3 + 1]
-            ref v2 = self.vertices[leaf_tri_idx * 3 + 2]
-
-            node.aabb._min = vmin(node.aabb._min, v0, v1, v2)
-            node.aabb._max = vmax(node.aabb._max, v0, v1, v2)
+            var frag_idx = Int(self.prim_indices[first + i])
+            self.fragments[frag_idx].grow_into(node.aabb)
 
     @always_inline
     def _split_node[
@@ -143,24 +218,46 @@ struct BVH(Copyable):
 
         var axis: Int
         var pos: Float32
+        var use_sah_bounds = False
+        var split_bin = -1
+        var split_bin_min = Float32(0.0)
+        var split_bin_scale = Float32(0.0)
+        var cached_left_bounds = AABB.invalid()
+        var cached_right_bounds = AABB.invalid()
+
         comptime if split_method == "median":
             var extent = node.aabb._max - node.aabb._min
             axis = longest_axis(extent)
             pos = node.aabb._min[axis] + extent[axis] * 0.5
         elif split_method == "sah":
-            axis, pos, cost = _sah(
+            var split = _sah(
                 node,
                 self.prim_indices.unsafe_ptr(),
-                self.vertices,
+                self.fragments.unsafe_ptr(),
             )
-            if cost >= node.surface_area() * Float32(node.triCount):
+
+            # Compare in the same unnormalized units as the raw split cost:
+            # split leaf cost = area * N, internal split cost = traversal area + child costs.
+            var leaf_cost = node.surface_area() * Float32(node.triCount)
+            var split_cost = split.cost + node.surface_area()
+
+            if (not split.valid()) or split_cost >= leaf_cost:
                 if node.triCount > MAX_LEAF_SIZE:
-                    # Force a spatial median split to keep breaking the node down
+                    # Force a spatial median split to keep breaking the node down.
                     var extent = node.aabb._max - node.aabb._min
                     axis = longest_axis(extent)
                     pos = node.aabb._min[axis] + extent[axis] * 0.5
                 else:
-                    return None  # Safely make a leaf
+                    return None  # Safely make a leaf.
+            else:
+                axis = split.axis
+                pos = split.pos
+                split_bin = split.bin
+                split_bin_min = split.bin_min
+                split_bin_scale = split.bin_scale
+                cached_left_bounds = split.left_bounds.copy()
+                cached_right_bounds = split.right_bounds.copy()
+                use_sah_bounds = True
 
         else:
             comptime assert False, "Unknown split method"
@@ -171,19 +268,43 @@ struct BVH(Copyable):
         if node.triCount <= MAX_LEAF_SIZE:
             return None
 
-        var split_idx = _partition_tris(
-            self.prim_indices.unsafe_ptr(),
-            self.vertices,
-            Int(node.leftFirst),
-            Int(node.triCount),
-            axis,
-            pos,
-        )
+        var split_idx: Int
+        comptime if split_method == "sah":
+            if use_sah_bounds:
+                split_idx = _partition_fragments_by_bin(
+                    self.prim_indices.unsafe_ptr(),
+                    self.fragments.unsafe_ptr(),
+                    Int(node.leftFirst),
+                    Int(node.triCount),
+                    axis,
+                    split_bin,
+                    split_bin_min,
+                    split_bin_scale,
+                )
+            else:
+                split_idx = _partition_fragments(
+                    self.prim_indices.unsafe_ptr(),
+                    self.fragments.unsafe_ptr(),
+                    Int(node.leftFirst),
+                    Int(node.triCount),
+                    axis,
+                    pos,
+                )
+        else:
+            split_idx = _partition_fragments(
+                self.prim_indices.unsafe_ptr(),
+                self.fragments.unsafe_ptr(),
+                Int(node.leftFirst),
+                Int(node.triCount),
+                axis,
+                pos,
+            )
 
         var left_count = UInt32(split_idx - Int(node.leftFirst))
         if left_count == 0 or left_count == node.triCount:
+            use_sah_bounds = False
             comptime if split_method == "median":
-                # Fallback: If spatial center failed, just split the indices 50/50
+                # Fallback: If spatial center failed, just split the indices 50/50.
                 left_count = node.triCount // 2
                 split_idx = Int(node.leftFirst) + Int(left_count)
             else:
@@ -191,7 +312,7 @@ struct BVH(Copyable):
                     left_count = node.triCount // 2
                     split_idx = Int(node.leftFirst) + Int(left_count)
                 else:
-                    # Only now is it safe to give up and make a leaf
+                    # Only now is it safe to give up and make a leaf.
                     return None
 
         # Atomic allocation (Safe for both ST and MT)
@@ -205,8 +326,13 @@ struct BVH(Copyable):
         node.leftFirst = left_child_idx
         node.triCount = 0  # Internal node
 
-        self.update_node_bounds(left_child_idx)
-        self.update_node_bounds(left_child_idx + 1)
+        if use_sah_bounds:
+            nodes_ptr[Int(left_child_idx)].aabb = cached_left_bounds.copy()
+            nodes_ptr[Int(left_child_idx + 1)].aabb = cached_right_bounds.copy()
+        else:
+            self.update_node_bounds(left_child_idx)
+            self.update_node_bounds(left_child_idx + 1)
+
         return (left_child_idx, left_child_idx + 1)
 
     @always_inline
@@ -240,35 +366,32 @@ struct BVH(Copyable):
             self._build_iterative[split_method](0, atomic_nodes)
 
         else:
-            # Multi-threaded: Breadth-first "seed" to generate tasks
+            # Multi-threaded: breadth-first seed to generate independent tasks.
             var tasks: List[UInt32] = [0]
             while len(tasks) < 64:
-                # Simple logic: split the largest remaining task
                 var largest_idx = -1
                 var max_tris = UInt32(0)
+
                 for i in range(len(tasks)):
                     var count = self.bvh_nodes[Int(tasks[i])].triCount
                     if count > max_tris:
                         max_tris = count
                         largest_idx = i
 
-                # If we can't split further or have no tasks, break
-                if largest_idx == -1 and len(tasks) > 0:
+                if largest_idx == -1:
                     break
 
-                var target = tasks.pop(
-                    largest_idx
-                ) if largest_idx != -1 else UInt32(0)
+                var target = tasks.pop(largest_idx)
                 var children = self._split_node[split_method](
                     target, atomic_nodes
                 )
                 if children:
-                    tasks.append(children.value()[0])
-                    tasks.append(children.value()[1])
-                else:
-                    # If root couldn't split, we're done
-                    if largest_idx == -1:
-                        break
+                    var c = children.value()
+                    tasks.append(c[0])
+                    tasks.append(c[1])
+
+                if len(tasks) == 0:
+                    break
 
             # Parallelize the sub-trees
             @parameter
@@ -313,37 +436,55 @@ struct BVH(Copyable):
     def _intersect_tri[
         is_shadow: Bool
     ](self, mut ray: Ray, prim_idx: UInt32) -> Bool:
+        # Local scalar Möller-Trumbore. This keeps BVH nearest-hit semantics
+        # independent from the lower-level helper's exact sign / culling policy,
+        # and matches the SIMD leaf path below.
         ref v0 = self.vertices[Int(prim_idx) * 3]
         ref v1 = self.vertices[Int(prim_idx) * 3 + 1]
         ref v2 = self.vertices[Int(prim_idx) * 3 + 2]
 
-        var t = f32_max
-        var u = Float32(0)
-        var v = Float32(0)
-        var w = Float32(0)
-        var sign = Float32(0)
+        var e1x = v1.x() - v0.x()
+        var e1y = v1.y() - v0.y()
+        var e1z = v1.z() - v0.z()
+        var e2x = v2.x() - v0.x()
+        var e2y = v2.y() - v0.y()
+        var e2z = v2.z() - v0.z()
 
-        var hit = intersect_ray_tri_moller(
-            ray.O,
-            ray.D,
-            v0,
-            v1,
-            v2,
-            t,
-            u,
-            v,
-            w,
-            sign,
-            UnsafePointer[Vec3f32, MutAnyOrigin](),
-        )
+        var px = ray.D.y() * e2z - ray.D.z() * e2y
+        var py = ray.D.z() * e2x - ray.D.x() * e2z
+        var pz = ray.D.x() * e2y - ray.D.y() * e2x
+        var det = e1x * px + e1y * py + e1z * pz
 
-        if hit and t < ray.hit.t:
+        if det > -1e-12 and det < 1e-12:
+            return False
+
+        var inv_det = 1.0 / det
+        var tx = ray.O.x() - v0.x()
+        var ty = ray.O.y() - v0.y()
+        var tz = ray.O.z() - v0.z()
+
+        var u = (tx * px + ty * py + tz * pz) * inv_det
+        if u < 0.0 or u > 1.0:
+            return False
+
+        var qx = ty * e1z - tz * e1y
+        var qy = tz * e1x - tx * e1z
+        var qz = tx * e1y - ty * e1x
+
+        var v = (ray.D.x() * qx + ray.D.y() * qy + ray.D.z() * qz) * inv_det
+        if v < 0.0 or u + v > 1.0:
+            return False
+
+        var t = (e2x * qx + e2y * qy + e2z * qz) * inv_det
+        if t > 1e-4 and t < ray.hit.t:
             comptime if is_shadow:
                 return True
             ray.hit.t = t
             ray.hit.u = u
             ray.hit.v = v
             ray.hit.prim = prim_idx
+            return True
+
         return False
 
     @always_inline
@@ -357,9 +498,12 @@ struct BVH(Copyable):
 
             if node.is_leaf():
                 for i in range(Int(node.triCount)):
-                    var p_idx = self.prim_indices[Int(node.leftFirst) + i]
+                    var frag_idx = self.prim_indices[Int(node.leftFirst) + i]
+                    var p_idx = self.fragments[Int(frag_idx)].prim_idx
+
                     if self._intersect_tri[is_shadow](ray, p_idx):
-                        return True
+                        comptime if is_shadow:
+                            return True
 
                 if stack_ptr == 0:
                     break
@@ -427,29 +571,71 @@ struct BVH(Copyable):
 
 
 @always_inline
-def _partition_tris(
+def _partition_fragments(
     prims: UnsafePointer[UInt32, MutAnyOrigin],
-    verts: UnsafePointer[Vec3f32, MutAnyOrigin],
+    fragments: UnsafePointer[Fragment, ImmutAnyOrigin],
     first: Int,
     count: Int,
     axis: Int,
     pos: Float32,
 ) -> Int:
     var i = first
-    var j = i + count - 1
+    var j = first + count - 1
+
     while i <= j:
-        var p_idx = Int(prims[i])
-        # centroid
-        var c = (
-            verts[p_idx * 3].data[axis]
-            + verts[p_idx * 3 + 1].data[axis]
-            + verts[p_idx * 3 + 2].data[axis]
-        ) * INV_3
+        var frag_idx = Int(prims[i])
+        var c = fragments[frag_idx].center_axis(axis)
+
         if c < pos:
             i += 1
         else:
             prims[i], prims[j] = prims[j], prims[i]
             j -= 1
+
+    return i
+
+
+@always_inline
+def _fragment_bin(
+    fragments: UnsafePointer[Fragment, ImmutAnyOrigin],
+    frag_idx: Int,
+    axis: Int,
+    bin_min: Float32,
+    bin_scale: Float32,
+) -> Int:
+    var c = fragments[frag_idx].center_axis(axis)
+    var b_idx = Int((c - bin_min) * bin_scale)
+    if b_idx < 0:
+        return 0
+    if b_idx >= BVH_BINS:
+        return BVH_BINS - 1
+    return b_idx
+
+
+@always_inline
+def _partition_fragments_by_bin(
+    prims: UnsafePointer[UInt32, MutAnyOrigin],
+    fragments: UnsafePointer[Fragment, ImmutAnyOrigin],
+    first: Int,
+    count: Int,
+    axis: Int,
+    split_bin: Int,
+    bin_min: Float32,
+    bin_scale: Float32,
+) -> Int:
+    var i = first
+    var j = first + count - 1
+
+    while i <= j:
+        var frag_idx = Int(prims[i])
+        var b_idx = _fragment_bin(fragments, frag_idx, axis, bin_min, bin_scale)
+
+        if b_idx <= split_bin:
+            i += 1
+        else:
+            prims[i], prims[j] = prims[j], prims[i]
+            j -= 1
+
     return i
 
 
@@ -457,75 +643,80 @@ def _partition_tris(
 def _sah(
     node: BVHNode,
     prims: UnsafePointer[UInt32, ImmutAnyOrigin],
-    verts: UnsafePointer[Vec3f32, ImmutAnyOrigin],
-) -> Tuple[Int, Float32, Float32]:
-    comptime NB_BINS = 16
-
-    var best_axis: Int = -1
-    var best_pos: Float32 = 0
-    var best_cost: Float32 = f32_max
+    fragments: UnsafePointer[Fragment, ImmutAnyOrigin],
+) -> SplitResult:
+    var best = SplitResult()
 
     for axis in range(3):
         var min_c = f32_max
         var max_c = f32_min
 
-        # 1. Find centroid range
+        # 1. Find centroid range for this node/axis.
         for i in range(Int(node.triCount)):
-            var p_idx = Int(prims[Int(node.leftFirst) + i])
-            ref v0 = verts[p_idx * 3 + 0]
-            ref v1 = verts[p_idx * 3 + 1]
-            ref v2 = verts[p_idx * 3 + 2]
-
-            var c = (v0[axis] + v1[axis] + v2[axis]) * INV_3
+            var frag_idx = Int(prims[Int(node.leftFirst) + i])
+            var c = fragments[frag_idx].center_axis(axis)
             min_c = min(min_c, c)
             max_c = max(max_c, c)
 
         if min_c == max_c:
             continue
 
-        # 2. Binning
-        var bins = InlineArray[Bin, NB_BINS](fill=Bin())
-        var scale = Float32(NB_BINS) / (max_c - min_c)
+        # 2. Bin cached primitive bounds.
+        var bins = InlineArray[Bin, BVH_BINS](fill=Bin())
+        var scale = Float32(BVH_BINS) / (max_c - min_c)
+
         for i in range(Int(node.triCount)):
-            var p_idx = Int(prims[Int(node.leftFirst) + i])
+            var frag_idx = Int(prims[Int(node.leftFirst) + i])
+            ref frag = fragments[frag_idx]
 
-            ref v0 = verts[p_idx * 3 + 0]
-            ref v1 = verts[p_idx * 3 + 1]
-            ref v2 = verts[p_idx * 3 + 2]
-
-            var c = (v0[axis] + v1[axis] + v2[axis]) * INV_3
-            var b_idx = min(NB_BINS - 1, Int((c - min_c) * scale))
+            var b_idx = _fragment_bin(fragments, frag_idx, axis, min_c, scale)
             bins[b_idx].tri_count += 1
-            bins[b_idx].bounds.grow(v0, v1, v2)
+            frag.grow_into(bins[b_idx].bounds)
 
-        # 3. Sweep SAH Costs
-        var left_areas = InlineArray[Float32, NB_BINS](fill=0.0)
-        var left_counts = InlineArray[UInt32, NB_BINS](fill=0)
+        # 3. Left sweep: store both area/count and exact bounds at each split.
+        var left_areas = InlineArray[Float32, BVH_BINS](fill=0.0)
+        var left_counts = InlineArray[UInt32, BVH_BINS](fill=0)
+        var left_bounds = InlineArray[AABB, BVH_BINS](fill=AABB.invalid())
+
         var left_box = AABB.invalid()
         var left_sum = UInt32(0)
 
-        for i in range(NB_BINS - 1):
+        for i in range(BVH_BINS - 1):
             left_sum += bins[i].tri_count
             left_counts[i] = left_sum
             left_box.grow(bins[i].bounds)
+            left_bounds[i] = left_box.copy()
             left_areas[i] = left_box.surface_area()
 
+        # 4. Right sweep + split cost.
         var right_box = AABB.invalid()
         var right_sum = UInt32(0)
-        for i in range(NB_BINS - 1, 0, -1):
+
+        for i in range(BVH_BINS - 1, 0, -1):
             right_sum += bins[i].tri_count
             right_box.grow(bins[i].bounds)
 
-            var left_cost = left_areas[i - 1] * Float32(left_counts[i - 1])
-            var right_cost = right_box.surface_area() * Float32(right_sum)
+            var left_count = left_counts[i - 1]
+            var right_count = right_sum
+
+            if left_count == 0 or right_count == 0:
+                continue
+
+            var left_cost = left_areas[i - 1] * Float32(left_count)
+            var right_cost = right_box.surface_area() * Float32(right_count)
             var cost = left_cost + right_cost
 
-            if cost < best_cost:
-                best_cost = cost
-                best_axis = axis
-                best_pos = min_c + (Float32(i) / scale)
+            if cost < best.cost:
+                best.axis = axis
+                best.bin = i - 1
+                best.pos = min_c + Float32(i) / scale
+                best.cost = cost
+                best.bin_min = min_c
+                best.bin_scale = scale
+                best.left_bounds = left_bounds[i - 1].copy()
+                best.right_bounds = right_box.copy()
 
-    return (best_axis, best_pos, best_cost)
+    return best^
 
 
 @fieldwise_init
@@ -551,7 +742,7 @@ struct WideLeaf[width: Int](Copyable):
         self.v2x = SIMD[DType.float32, Self.width](0)
         self.v2y = SIMD[DType.float32, Self.width](0)
         self.v2z = SIMD[DType.float32, Self.width](0)
-        self.prim_indices = SIMD[DType.uint32, Self.width](0)
+        self.prim_indices = SIMD[DType.uint32, Self.width](0xFFFFFFFF)
 
 
 @fieldwise_init
@@ -630,9 +821,10 @@ struct WideBVH[width: Int](Copyable):
                     var l_idx = UInt32(len(self.leaves))
                     var packed = WideLeaf[Self.width]()
                     for tri in range(min(Int(n.triCount), Self.width)):
-                        var p_idx = Int(
+                        var frag_idx = Int(
                             binary_bvh.prim_indices[Int(n.leftFirst) + tri]
                         )
+                        var p_idx = Int(binary_bvh.fragments[frag_idx].prim_idx)
                         ref v0 = self.vertices[p_idx * 3]
                         ref v1 = self.vertices[p_idx * 3 + 1]
                         ref v2 = self.vertices[p_idx * 3 + 2]
@@ -646,9 +838,10 @@ struct WideBVH[width: Int](Copyable):
                         packed.v2y[tri] = v2.y()
                         packed.v2z[tri] = v2.z()
                         packed.prim_indices[tri] = UInt32(p_idx)
-                    # Sentinel for empty lanes
+                    # Sentinel for empty lanes. Keep a separate valid-lane mask,
+                    # because only poisoning v0x can still create NaNs in SIMD math.
                     for tri in range(Int(n.triCount), Self.width):
-                        packed.v0x[tri] = f32_max
+                        packed.prim_indices[tri] = 0xFFFFFFFF
                     self.leaves.append(packed^)
                     node.data[i] = l_idx
                     node.counts[i] = 1  # SIMD Leaf
@@ -688,8 +881,12 @@ struct WideBVH[width: Int](Copyable):
         var v = (ray.D.x() * qx + ray.D.y() * qy + ray.D.z() * qz) * inv_det
         var t = (e2x * qx + e2y * qy + e2z * qz) * inv_det
 
+        var det_ok = det.gt(1e-12) | det.lt(-1e-12)
+        var valid_lane = ~leaf.prim_indices.eq(0xFFFFFFFF)
         var hit_mask = (
-            (t.gt(1e-4))
+            valid_lane
+            & det_ok
+            & (t.gt(1e-4))
             & (t.lt(ray.hit.t))
             & (u.ge(0.0))
             & (v.ge(0.0))
@@ -757,7 +954,10 @@ struct WideBVH[width: Int](Copyable):
                 ),
             )
 
-            var mask = tmin.lt(tmax) & (~node.counts.eq(0xFFFFFFFF))
+            # Use <= here: triangle AABBs are often flat on one axis, so
+            # a ray can touch them with tmin == tmax. The scalar AABB helper
+            # accepts these hits; the wide path must do the same.
+            var mask = tmin.le(tmax) & (~node.counts.eq(0xFFFFFFFF))
 
             if mask.reduce_or():
                 for i in range(Self.width):
@@ -1011,167 +1211,3 @@ struct TLAS:
                 stack[stack_ptr] = child2_idx
                 stack_ptr += 1
                 node_idx = child1_idx
-
-
-def main() raises:
-    print("--- TinyBVH Mojo Port: Parametrized SIMD Test ---")
-
-    var vertices = List[Vec3f32]()
-
-    # Triangle 0 (Z=2)
-    vertices.append(Vec3f32(-1.0, -1.0, 2.0))
-    vertices.append(Vec3f32(1.0, -1.0, 2.0))
-    vertices.append(Vec3f32(0.0, 1.0, 2.0))
-
-    # Triangle 1 (Z=4, behind Triangle 0)
-    vertices.append(Vec3f32(-1.0, -1.0, 4.0))
-    vertices.append(Vec3f32(1.0, -1.0, 4.0))
-    vertices.append(Vec3f32(0.0, 1.0, 4.0))
-
-    # Triangle 2 (Off to the right)
-    vertices.append(Vec3f32(3.0, -1.0, 2.0))
-    vertices.append(Vec3f32(5.0, -1.0, 2.0))
-    vertices.append(Vec3f32(4.0, 1.0, 2.0))
-
-    var tri_count = UInt32(len(vertices) // 3)
-
-    print("\n[1] Building Base Binary BVH for", tri_count, "triangles...")
-    var bvh = BVH(vertices.unsafe_ptr(), tri_count)
-    bvh.build["median", False]()
-    print("Binary Nodes used:", bvh.nodes_used)
-
-    print("\n[2] Collapsing to Wide SIMD BVH4...")
-    var bvh4 = WideBVH[4](bvh)
-    print("BVH4 Nodes used:", len(bvh4.nodes))
-
-    print("\n[3] Collapsing to Wide SIMD BVH8...")
-    var bvh8 = WideBVH[8](bvh)
-    print("BVH8 Nodes used:", len(bvh8.nodes))
-
-    # Fire a Ray! Origin at (0, 0, 0), looking down +Z
-    var ray_base = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-
-    print("\n--- Testing Traversal (BVH4) ---")
-    var ray_bvh4 = ray_base.copy()
-    bvh4.traverse(ray_bvh4)
-    if ray_bvh4.hit.t < 1e29:
-        print(
-            t"HIT! t: {ray_bvh4.hit.t}| tri: {ray_bvh4.hit.prim} | bary:"
-            t" u={ray_bvh4.hit.u}, v={ray_bvh4.hit.v}"
-        )
-    else:
-        print("MISS")
-
-    print("\n--- Testing Traversal (BVH8) ---")
-    var ray_bvh8 = ray_base.copy()
-    bvh8.traverse(ray_bvh8)
-    if ray_bvh8.hit.t < 1e29:
-        print(
-            t"HIT! t: {ray_bvh8.hit.t}| tri: {ray_bvh8.hit.prim} | bary:"
-            t" u={ray_bvh8.hit.u}, v={ray_bvh8.hit.v}"
-        )
-    else:
-        print("MISS")
-
-    print("\n\n--- 2-Layer TLAS/BLAS Demo ---")
-    # 1. Generate cube geometry
-    var chair_vertices = create_cube_mesh()
-    tri_count = UInt32(len(chair_vertices) // 3)
-
-    # 2. Build the BLAS (The "Blueprint")
-    # We cast to MutAnyOrigin because the BVH expects to be able to sort the indices
-    var chair_blas = BVH(
-        chair_vertices.unsafe_ptr(),
-        tri_count,
-    )
-    chair_blas.build["sah", True]()
-
-    # Pointer for TLAS traversal
-    var blases = List[BVH]()
-    blases.append(chair_blas.copy())
-    var blases_ptr = blases.unsafe_ptr()
-
-    # 3. Create Scene Instances (The "Map")
-    var instances = List[Instance]()
-    var b_min = chair_blas.bvh_nodes[0].aabb._min.copy()
-    var b_max = chair_blas.bvh_nodes[0].aabb._max.copy()
-
-    # Instance 0: Original Cube at origin
-    var transform1 = Mat44f32.identity()
-    instances.append(Instance(transform1, inverse(transform1), 0, b_min, b_max))
-
-    # Instance 1: Cube shifted to X=20, Scaled 5x
-    from bajo.core.mat import _matmul
-
-    var t_mat = translation_matrix(Vec3f32(20.0, 0.0, 0.0))
-    var s_mat = scaling_matrix(Vec3f32(5.0, 5.0, 5.0))
-    var transform2 = _matmul(t_mat, s_mat)
-
-    instances.append(Instance(transform2, inverse(transform2), 0, b_min, b_max))
-
-    # 4. Build the TLAS
-    var tlas = TLAS(
-        instances.unsafe_ptr(),
-        UInt32(len(instances)),
-    )
-    tlas.build()
-
-    # 5. Raytest
-    # Aiming at the big cube at X=20
-    var ray = Ray(Vec3f32(20.0, 0.0, -50.0), Vec3f32(0.0, 0.0, 1.0))
-    tlas.traverse(ray, blases_ptr)
-
-    if ray.hit.t < 1e29:
-        print(t"Hit Instance: {ray.hit.inst}, Expected: 1")
-        # Expected: ~47.5 (Origin -50 hitting front face at Z= -2.5 (0.5 * 5 scale))
-        print(t"Distance t:  {ray.hit.t}, Expected 47.5")
-
-
-def translation_matrix(v: Vec3f32) -> Mat44f32:
-    var m = Mat44f32.identity()
-    m[0][3] = v.x()
-    m[1][3] = v.y()
-    m[2][3] = v.z()
-    return m^
-
-
-def scaling_matrix(s: Vec3f32) -> Mat44f32:
-    var m = Mat44f32.identity()
-    m[0][0] = s.x()
-    m[1][1] = s.y()
-    m[2][2] = s.z()
-    return m^
-
-
-def create_cube_mesh() -> List[Vec3f32]:
-    var v = List[Vec3f32]()
-
-    # Helper to add a quad (2 triangles)
-    @parameter
-    def add_quad(p1: Vec3f32, p2: Vec3f32, p3: Vec3f32, p4: Vec3f32):
-        v.append(p1.copy())
-        v.append(p2.copy())
-        v.append(p3.copy())
-        v.append(p1.copy())
-        v.append(p3.copy())
-        v.append(p4.copy())
-
-    # Corner coordinates
-    var c0 = Vec3f32(-0.5, -0.5, -0.5)
-    var c1 = Vec3f32(0.5, -0.5, -0.5)
-    var c2 = Vec3f32(0.5, 0.5, -0.5)
-    var c3 = Vec3f32(-0.5, 0.5, -0.5)
-    var c4 = Vec3f32(-0.5, -0.5, 0.5)
-    var c5 = Vec3f32(0.5, -0.5, 0.5)
-    var c6 = Vec3f32(0.5, 0.5, 0.5)
-    var c7 = Vec3f32(-0.5, 0.5, 0.5)
-
-    # Add the 6 faces
-    add_quad(c0, c3, c2, c1)  # Back
-    add_quad(c5, c6, c7, c4)  # Front
-    add_quad(c4, c7, c3, c0)  # Left
-    add_quad(c1, c2, c6, c5)  # Right
-    add_quad(c0, c1, c5, c4)  # Bottom
-    add_quad(c3, c7, c6, c2)  # Top
-
-    return v^

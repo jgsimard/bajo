@@ -1,7 +1,6 @@
 from std.pathlib import Path
 from std.os import path as os_path
 
-from bajo.utils import MMap
 
 comptime TAB = UInt8(ord("\t"))
 comptime SPACE = UInt8(ord(" "))
@@ -17,6 +16,7 @@ comptime CHAR_e = UInt8(ord("e"))
 comptime CHAR_E = UInt8(ord("E"))
 
 
+# Data model
 @fieldwise_init
 struct ObjTexture(Copyable):
     var name: String
@@ -90,6 +90,7 @@ struct ObjGroup(Copyable):
 
 
 struct ObjMesh(Movable):
+    # arrays use OBJ-style dummy element at index 0 for p/t/n/texture.
     var positions: List[Float32]
     var texcoords: List[Float32]
     var normals: List[Float32]
@@ -107,37 +108,50 @@ struct ObjMesh(Movable):
     var objects: List[ObjGroup]
     var groups: List[ObjGroup]
 
-    var current_material: Int
-    var current_object: ObjGroup
-    var current_group: ObjGroup
+    # parser state
+    var _current_material: Int
+    var _current_object: ObjGroup
+    var _current_group: ObjGroup
 
     def __init__(out self):
         self.positions = [0.0, 0.0, 0.0]
         self.texcoords = [0.0, 0.0]
         self.normals = [0.0, 0.0, 1.0]
         self.colors = List[Float32]()
+
         self.face_vertices = List[Int]()
         self.face_materials = List[Int]()
         self.face_lines = List[UInt8]()
         self.indices = List[ObjIndex]()
+
         self.materials = List[ObjMaterial]()
         self.material_names = Dict[String, Int]()
         self.textures = [ObjTexture("", "")]
         self.texture_names = Dict[String, Int]()
         self.objects = List[ObjGroup]()
         self.groups = List[ObjGroup]()
-        self.current_material = 0
-        self.current_object = ObjGroup("", 0, 0, 0)
-        self.current_group = ObjGroup("", 0, 0, 0)
 
-    def position_count(self) -> Int:
-        return len(self.positions) / 3
+        self._current_material = 0
+        self._current_object = ObjGroup("", 0, 0, 0)
+        self._current_group = ObjGroup("", 0, 0, 0)
 
-    def texcoord_count(self) -> Int:
-        return len(self.texcoords) / 2
+    def position_count(self, include_dummy: Bool = True) -> Int:
+        var n = len(self.positions) / 3
+        if include_dummy:
+            return n
+        return n - 1
 
-    def normal_count(self) -> Int:
-        return len(self.normals) / 3
+    def texcoord_count(self, include_dummy: Bool = True) -> Int:
+        var n = len(self.texcoords) / 2
+        if include_dummy:
+            return n
+        return n - 1
+
+    def normal_count(self, include_dummy: Bool = True) -> Int:
+        var n = len(self.normals) / 3
+        if include_dummy:
+            return n
+        return n - 1
 
     def color_count(self) -> Int:
         return len(self.colors) / 3
@@ -151,8 +165,11 @@ struct ObjMesh(Movable):
     def material_count(self) -> Int:
         return len(self.materials)
 
-    def texture_count(self) -> Int:
-        return len(self.textures)
+    def texture_count(self, include_dummy: Bool = True) -> Int:
+        var n = len(self.textures)
+        if include_dummy:
+            return n
+        return n - 1
 
     def object_count(self) -> Int:
         return len(self.objects)
@@ -160,67 +177,82 @@ struct ObjMesh(Movable):
     def group_count(self) -> Int:
         return len(self.groups)
 
-    def actual_position_count(self) -> Int:
-        return self.position_count() - 1
-
-    def actual_texcoord_count(self) -> Int:
-        return self.texcoord_count() - 1
-
-    def actual_normal_count(self) -> Int:
-        return self.normal_count() - 1
-
-    def actual_texture_count(self) -> Int:
-        return self.texture_count() - 1
+    def print_summary(self):
+        print("ObjMesh summary")
+        print(
+            t" - positions: {self.position_count()} including dummy; actual:"
+            t" {self.position_count(include_dummy=False)}"
+        )
+        print(
+            t" - texcoords: {self.texcoord_count()} including dummy; actual:"
+            t" {self.texcoord_count(include_dummy=False)}"
+        )
+        print(
+            t" - normals: {self.normal_count()} including dummy; actual:"
+            t" {self.normal_count(include_dummy=False)}"
+        )
+        print(t" - colors: {self.color_count()}")
+        print(t" - faces/lines: {self.face_count()}")
+        print(t" - indices: {self.index_count()}")
+        print(t" - materials: {self.material_count()}")
+        print(
+            t" - textures: {self.texture_count()} including dummy; actual:"
+            t" {self.texture_count(include_dummy=False)}"
+        )
+        print(t" - objects: {self.object_count()}")
+        print(t" - groups:  {self.group_count()}")
 
     def _flush_object(mut self):
-        if self.current_object.face_count > 0:
-            self.objects.append(self.current_object.copy())
-        self.current_object = ObjGroup(
+        if self._current_object.face_count > 0:
+            self.objects.append(self._current_object.copy())
+        self._current_object = ObjGroup(
             "", 0, len(self.face_vertices), len(self.indices)
         )
 
     def _flush_group(mut self):
-        if self.current_group.face_count > 0:
-            self.groups.append(self.current_group.copy())
-        self.current_group = ObjGroup(
+        if self._current_group.face_count > 0:
+            self.groups.append(self._current_group.copy())
+        self._current_group = ObjGroup(
             "", 0, len(self.face_vertices), len(self.indices)
         )
 
-    def begin_object(mut self, name: String):
+    def _begin_object(mut self, name: String):
         self._flush_object()
-        self.current_object.name = name
+        self._current_object.name = name
 
-    def begin_group(mut self, name: String):
+    def _begin_group(mut self, name: String):
         self._flush_group()
-        self.current_group.name = name
+        self._current_group.name = name
 
-    def finish(mut self):
+    def _finish(mut self):
         self._flush_group()
         self._flush_object()
 
-    def ensure_material(
+    def _ensure_material(
         mut self, name: String, fallback: Bool = True
     ) raises -> Int:
         if name in self.material_names:
             return self.material_names[name]
+
         var idx = len(self.materials)
         self.materials.append(ObjMaterial(name, fallback=fallback))
         self.material_names[name] = idx
         return idx
 
-    def upsert_material(mut self, material: ObjMaterial) raises -> Int:
+    def _upsert_material(mut self, material: ObjMaterial) raises -> Int:
         if material.name in self.material_names:
             var idx = self.material_names[material.name]
             if self.materials[idx].fallback:
                 self.materials[idx] = material.copy()
                 return idx
+
         var idx = len(self.materials)
         self.materials.append(material.copy())
         if not (material.name in self.material_names):
             self.material_names[material.name] = idx
         return idx
 
-    def add_texture(mut self, name: String, base: String) raises -> Int:
+    def _add_texture(mut self, name: String, base: String) raises -> Int:
         var path = os_path.join(base, name)
 
         if path in self.texture_names:
@@ -231,16 +263,14 @@ struct ObjMesh(Movable):
         self.texture_names[path] = idx
         return idx
 
-    def push_color(mut self, r: Float32, g: Float32, b: Float32):
+    def _push_color(mut self, r: Float32, g: Float32, b: Float32):
         var target_before_this_color = len(self.positions) - 3
         while len(self.colors) < target_before_this_color:
             self.colors.append(1.0)
         self.colors.extend([r, g, b])
 
-    def push_element(
-        mut self, var verts: List[ObjIndex], is_line: Bool = False
-    ):
-        var n = len(verts)
+    @always_inline
+    def _push_element_meta(mut self, n: Int, is_line: Bool = False):
         if n == 0:
             return
         if not is_line and n < 3:
@@ -249,48 +279,76 @@ struct ObjMesh(Movable):
             return
 
         self.face_vertices.append(n)
-        self.face_materials.append(self.current_material)
+        self.face_materials.append(self._current_material)
 
         if is_line or len(self.face_lines) > 0:
             while len(self.face_lines) < len(self.face_vertices) - 1:
-                self.face_lines.append(0)
+                self.face_lines.append(UInt8(0))
+
             if is_line:
-                self.face_lines.append(1)
+                self.face_lines.append(UInt8(1))
             else:
-                self.face_lines.append(0)
+                self.face_lines.append(UInt8(0))
 
-        self.indices.extend(verts^)
-
-        self.current_group.face_count += 1
-        self.current_object.face_count += 1
-
-    def print_summary(self):
-        print("ObjMesh summary")
-        print(
-            t" - positions: {self.position_count()} including dummy; actual:"
-            t" {self.actual_position_count()}"
-        )
-        print(
-            t" - texcoords: {self.texcoord_count()} including dummy; actual:"
-            t" {self.actual_texcoord_count()}"
-        )
-        print(
-            t" - normals: {self.normal_count()} including dummy; actual:"
-            t" {self.actual_normal_count()}"
-        )
-        print(t" - colors: {self.color_count()}")
-        print(t" - faces/lines: {self.face_count()}")
-        print(t" - indices: {self.index_count()}")
-        print(t" - materials: {self.material_count()}")
-        print(
-            t" - textures: {self.texture_count()} including dummy; actual:"
-            t" {self.actual_texture_count()}"
-        )
-        print(t" - objects: {self.object_count()}")
-        print(t" - groups:  {self.group_count()}")
+        self._current_group.face_count += 1
+        self._current_object.face_count += 1
 
 
-# parse f32 / i32
+# Text loading
+trait ObjTextLoader:
+    def read_text(self, path: String) raises -> String:
+        ...
+
+
+@fieldwise_init
+struct PathObjTextLoader(Copyable, ObjTextLoader):
+    def read_text(self, path: String) raises -> String:
+        return Path(path).read_text()
+
+
+struct MemoryObjTextLoader(Movable, ObjTextLoader):
+    var files: Dict[String, String]
+
+    def __init__(out self):
+        self.files = Dict[String, String]()
+
+    def add_file(mut self, path: String, text: String):
+        self.files[path] = text
+
+    def read_text(self, path: String) raises -> String:
+        if path in self.files:
+            return self.files[path]
+        raise Error("MemoryObjTextLoader: file not found: " + path)
+
+
+# File path, normal filesystem.
+def read_obj(path: String) raises -> ObjMesh:
+    var loader = PathObjTextLoader()
+    return read_obj(path, loader)
+
+
+# File path, custom loader
+def read_obj[
+    Loader: ObjTextLoader
+](path: String, loader: Loader) raises -> ObjMesh:
+    var text = loader.read_text(path)
+    return parse_obj(text, path, loader)
+
+
+# Raw OBJ text. MTL files are intentionally ignored because no loader is provided.
+def parse_obj(text: String, path: String = "") raises -> ObjMesh:
+    var loader = MemoryObjTextLoader()
+    return parse_obj(text, path, loader)
+
+
+# Raw OBJ text plus loader for mtllib resolution.
+def parse_obj[
+    Loader: ObjTextLoader
+](text: String, path: String, loader: Loader) raises -> ObjMesh:
+    return _parse_obj_text(path, text, loader)
+
+
+# parsing primitives
 @always_inline
 def _parse_i32[o: Origin](token: StringSlice[o]) -> Int:
     var length = token.byte_length()
@@ -456,6 +514,67 @@ def _parse_index[o: Origin](token: StringSlice[o], mesh: ObjMesh) -> ObjIndex:
     )
 
 
+# Tokenization
+struct TokenIterator[o: Origin]:
+    var line: StringSlice[Self.o]
+    var ptr: UnsafePointer[UInt8, Self.o]
+    var pos: Int
+    var length: Int
+
+    def __init__(out self, line: StringSlice[Self.o]):
+        self.line = line
+        self.ptr = line.unsafe_ptr()
+        self.pos = 0
+        self.length = line.byte_length()
+
+        # skip '#' comments
+        for i in range(self.length):
+            if self.ptr.load(i) == HASH:
+                self.length = i
+                break
+
+    @always_inline
+    def has_next(self) -> Bool:
+        var p = self.pos
+        while p < self.length:
+            var b = self.ptr.load(p)
+            if b != SPACE and b != TAB and b != CR:
+                return True
+            p += 1
+        return False
+
+    @always_inline
+    def next(mut self) -> StringSlice[Self.o]:
+        # skip leading whitespace
+        while self.pos < self.length:
+            var b = self.ptr.load(self.pos)
+            if b != SPACE and b != TAB and b != CR:
+                break
+            self.pos += 1
+
+        var start = self.pos
+
+        # until next whitespace
+        while self.pos < self.length:
+            var b = self.ptr.load(self.pos)
+            if b == SPACE or b == TAB or b == CR:
+                break
+            self.pos += 1
+
+        return self.line[byte = start : self.pos]
+
+    def joined_rest_of_line(mut self) -> String:
+        var out = ""
+        var first = True
+        while self.has_next():
+            if not first:
+                out += " "
+            out += String(self.next())
+            first = False
+        return out
+
+
+# MTL parsing
 def _map_name_from_tail[o: Origin](mut tokens: TokenIterator[o]) -> String:
     var candidate = ""
     while tokens.has_next():
@@ -503,7 +622,7 @@ def _read_mtl_text(mut mesh: ObjMesh, base: String, text: String) raises:
 
         if tag == "newmtl":
             if have_current:
-                _ = mesh.upsert_material(current)
+                _ = mesh._upsert_material(current)
             var name = tokens.joined_rest_of_line()
             current = ObjMaterial(name, fallback=False)
             have_current = True
@@ -540,7 +659,7 @@ def _read_mtl_text(mut mesh: ObjMesh, base: String, text: String) raises:
         elif tag[byte=:4] == "map_" or tag == "bump":
             var name = _map_name_from_tail(tokens)
             if name.byte_length() > 0:
-                val = mesh.add_texture(name, base)
+                var val = mesh._add_texture(name, base)
                 if tag == "map_Ka":
                     current.map_Ka = val
                 elif tag == "map_Kd":
@@ -561,7 +680,7 @@ def _read_mtl_text(mut mesh: ObjMesh, base: String, text: String) raises:
                     current.map_bump = val
 
     if have_current:
-        _ = mesh.upsert_material(current)
+        _ = mesh._upsert_material(current)
 
 
 def _read_mtl_file[
@@ -573,94 +692,13 @@ def _read_mtl_file[
     _read_mtl_text(mesh, os_path.dirname(mtl_path), text)
 
 
-struct TokenIterator[o: Origin]:
-    var line: StringSlice[Self.o]
-    var ptr: UnsafePointer[UInt8, Self.o]
-    var pos: Int
-    var length: Int
-
-    def __init__(out self, line: StringSlice[Self.o]):
-        self.line = line
-        self.ptr = line.unsafe_ptr()
-        self.pos = 0
-        self.length = line.byte_length()
-
-        # skip '#' lines
-        for i in range(self.length):
-            if self.ptr.load(i) == HASH:
-                self.length = i
-                break
-
-    @always_inline
-    def has_next(self) -> Bool:
-        var p = self.pos
-        while p < self.length:
-            var b = self.ptr.load(p)
-            if b != SPACE and b != TAB and b != CR:
-                return True
-            p += 1
-        return False
-
-    @always_inline
-    def next(mut self) -> StringSlice[Self.o]:
-        # skip leading whitespace
-        while self.pos < self.length:
-            var b = self.ptr.load(self.pos)
-            if b != SPACE and b != TAB and b != CR:
-                break
-            self.pos += 1
-
-        var start = self.pos
-
-        # until next whitespace
-        while self.pos < self.length:
-            var b = self.ptr.load(self.pos)
-            if b == SPACE or b == TAB or b == CR:
-                break
-            self.pos += 1
-
-        return self.line[byte = start : self.pos]
-
-    def joined_rest_of_line(mut self) -> String:
-        var out = ""
-        var first = True
-        while self.has_next():
-            if not first:
-                out += " "
-            out += String(self.next())
-            first = False
-        return out
-
-
-@always_inline
-def _push_element_meta(mut mesh: ObjMesh, n: Int, is_line: Bool = False):
-    if n == 0:
-        return
-    if not is_line and n < 3:
-        return
-    if is_line and n < 2:
-        return
-
-    mesh.face_vertices.append(n)
-    mesh.face_materials.append(mesh.current_material)
-
-    if is_line or len(mesh.face_lines) > 0:
-        while len(mesh.face_lines) < len(mesh.face_vertices) - 1:
-            mesh.face_lines.append(UInt8(0))
-
-        if is_line:
-            mesh.face_lines.append(UInt8(1))
-        else:
-            mesh.face_lines.append(UInt8(0))
-
-    mesh.current_group.face_count += 1
-    mesh.current_object.face_count += 1
+# OBJ parsing
 
 
 @always_inline
 def _parse_face[
     o: Origin
-](mut mesh: ObjMesh, mut tokens: TokenIterator[o], is_line: Bool = False,):
+](mut mesh: ObjMesh, mut tokens: TokenIterator[o], is_line: Bool = False):
     var index_start = len(mesh.indices)
     var count = 0
     var valid = True
@@ -679,19 +717,19 @@ def _parse_face[
     if valid:
         if not is_line:
             if count >= 3:
-                _push_element_meta(mesh, count, is_line=False)
+                mesh._push_element_meta(count, is_line=False)
             else:
                 mesh.indices.shrink(index_start)
         else:
             if count >= 2:
-                _push_element_meta(mesh, count, is_line=True)
+                mesh._push_element_meta(count, is_line=True)
             else:
                 mesh.indices.shrink(index_start)
     else:
         mesh.indices.shrink(index_start)
 
 
-def parse_obj_text_with_loader[
+def _parse_obj_text[
     Loader: ObjTextLoader
 ](path: String, text: String, loader: Loader) raises -> ObjMesh:
     var mesh = ObjMesh()
@@ -741,7 +779,7 @@ def parse_obj_text_with_loader[
                 and v5.byte_length() > 0
                 and v6.byte_length() > 0
             ):
-                mesh.push_color(
+                mesh._push_color(
                     _parse_f32(v4),
                     _parse_f32(v5),
                     _parse_f32(v6),
@@ -776,15 +814,15 @@ def parse_obj_text_with_loader[
         elif tag == "usemtl":
             var name = tokens.joined_rest_of_line()
             if name.byte_length() > 0:
-                mesh.current_material = mesh.ensure_material(
+                mesh._current_material = mesh._ensure_material(
                     name, fallback=True
                 )
 
         elif tag == "g":
-            mesh.begin_group(tokens.joined_rest_of_line())
+            mesh._begin_group(tokens.joined_rest_of_line())
 
         elif tag == "o":
-            mesh.begin_object(tokens.joined_rest_of_line())
+            mesh._begin_object(tokens.joined_rest_of_line())
 
         elif tag == "mtllib":
             var mtl_name = tokens.joined_rest_of_line()
@@ -798,59 +836,11 @@ def parse_obj_text_with_loader[
         while len(mesh.colors) < len(mesh.positions):
             mesh.colors.append(1.0)
 
-    mesh.finish()
+    mesh._finish()
     return mesh^
 
 
-def parse_obj_text(path: String, text: String) raises -> ObjMesh:
-    return parse_obj_text_with_loader(path, text, PathObjTextLoader())
-
-
-def read_obj_with_loader[
-    Loader: ObjTextLoader
-](path: String, loader: Loader) raises -> ObjMesh:
-    var text = loader.read_text(path)
-    return parse_obj_text_with_loader(path, text, loader)
-
-
-def read_obj(path: String) raises -> ObjMesh:
-    return read_obj_with_loader(path, PathObjTextLoader())
-
-
-def read_obj_from_string(text: String) raises -> ObjMesh:
-    return parse_obj_text("", text)
-
-
-def read_obj_from_memory(
-    path: String, mut loader: MemoryObjTextLoader
-) raises -> ObjMesh:
-    return read_obj_with_loader(path, loader)
-
-
-trait ObjTextLoader:
-    def read_text(self, path: String) raises -> String:
-        ...
-
-
-@fieldwise_init
-struct PathObjTextLoader(Copyable, ObjTextLoader):
-    def read_text(self, path: String) raises -> String:
-        return Path(path).read_text()
-
-
-struct MemoryObjTextLoader(Movable, ObjTextLoader):
-    var files: Dict[String, String]
-
-    def __init__(out self):
-        self.files = Dict[String, String]()
-
-    def add_file(mut self, path: String, text: String):
-        self.files[path] = text
-
-    def read_text(self, path: String) raises -> String:
-        if path in self.files:
-            return self.files[path]
-        raise Error("MemoryObjTextLoader: file not found: " + path)
+# Mesh utilities
 
 
 def triangulated_indices(mesh: ObjMesh) -> List[ObjIndex]:

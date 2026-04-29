@@ -1,11 +1,10 @@
 from std.benchmark import run, Unit, keep
 from std.pathlib import Path
-from std.reflection import get_function_name
 
 from bajo.obj import (
     ObjMesh,
     read_obj,
-    parse_obj_text,
+    parse_obj,
     triangulated_indices,
 )
 
@@ -18,8 +17,8 @@ def bench_read_obj(path: String) raises:
     keep(mesh.position_count())
 
 
-def bench_parse_obj_text(path: String, text: String) raises:
-    var mesh = parse_obj_text(path, text)
+def bench_parse_obj(path: String, text: String) raises:
+    var mesh = parse_obj(text, path)
 
     keep(mesh.index_count())
     keep(mesh.face_count())
@@ -36,8 +35,10 @@ def bench_triangulated_indices(mesh: ObjMesh) raises:
 
 def main() raises:
     comptime OBJ_PATH = "./assets/bunny/bunny.obj"
+    # comptime OBJ_PATH = "./assets/rungholt/rungholt.obj"
+    # comptime OBJ_PATH = "./assets/powerplant/powerplant.obj"
     comptime PARSE_ITERS = 5
-    comptime TRI_ITERS = 200
+    comptime TRI_ITERS = 20
     var path = String(OBJ_PATH)
 
     print("Benchmarking OBJ loader")
@@ -47,7 +48,7 @@ def main() raises:
     var text = Path(path).read_text()
 
     # Parse once for summary and triangulation benchmark input.
-    var mesh = parse_obj_text(path, text)
+    var mesh = parse_obj(text, path)
     mesh.print_summary()
 
     print("")
@@ -55,8 +56,8 @@ def main() raises:
     def run_read_obj() raises capturing:
         bench_read_obj(path)
 
-    def run_parse_obj_text() raises capturing:
-        bench_parse_obj_text(path, text)
+    def run_parse_obj() raises capturing:
+        bench_parse_obj(path, text)
 
     def run_triangulated_indices() raises capturing:
         bench_triangulated_indices(mesh)
@@ -64,7 +65,7 @@ def main() raises:
     var report_read = run[run_read_obj](max_iters=PARSE_ITERS)
     var read_us = report_read.mean(Unit.us)
 
-    var report_parse = run[run_parse_obj_text](max_iters=PARSE_ITERS)
+    var report_parse = run[run_parse_obj](max_iters=PARSE_ITERS)
     var parse_us = report_parse.mean(Unit.us)
 
     var report_tris = run[run_triangulated_indices](max_iters=TRI_ITERS)
@@ -83,7 +84,7 @@ def main() raises:
         t" | indices/s: {round(Float64(indices) / read_us, 2)} M"
     )
     print(
-        t"parse_obj_text        | Avg: {round(parse_us, 2)} us"
+        t"parse_obj             | Avg: {round(parse_us, 2)} us"
         t" | faces/s: {round(Float64(faces) / parse_us, 2)} M"
         t" | indices/s: {round(Float64(indices) / parse_us, 2)} M"
     )

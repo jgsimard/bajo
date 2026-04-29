@@ -500,7 +500,6 @@ struct BVH(Copyable):
                 for i in range(Int(node.triCount)):
                     var frag_idx = self.prim_indices[Int(node.leftFirst) + i]
                     var p_idx = self.fragments[Int(frag_idx)].prim_idx
-
                     if self._intersect_tri[is_shadow](ray, p_idx):
                         comptime if is_shadow:
                             return True
@@ -983,6 +982,270 @@ struct WideBVH[width: Int](Copyable):
 
     def is_occluded(self, mut ray: Ray) -> Bool:
         return self._traverse_generic[True](ray)
+
+
+struct BVHGPUNode(Copyable):
+    var left_min: Vec3f32
+    var left_data: UInt32
+    var left_max: Vec3f32
+    var left_count: UInt32
+
+    var right_min: Vec3f32
+    var right_data: UInt32
+    var right_max: Vec3f32
+    var right_count: UInt32
+
+    @always_inline
+    def __init__(out self):
+        self.left_min = Vec3f32(f32_max)
+        self.left_data = 0
+        self.left_max = Vec3f32(f32_min)
+        self.left_count = 0
+
+        self.right_min = Vec3f32(f32_max)
+        self.right_data = 0
+        self.right_max = Vec3f32(f32_min)
+        self.right_count = 0
+
+
+struct BVHGPU(Copyable):
+    """GPU-friendly binary layout converted from `BVH`.
+
+    Each node stores the bounds for both children directly. For each child:
+
+    - `*_count == 0`: `*_data` is another BVHGPU node index.
+    - `*_count > 0`: `*_data` is the first primitive in `prim_indices` and
+      `*_count` is the leaf primitive count.
+
+    `prim_indices` stores original triangle ids, not fragment ids. The CPU
+    traversal is deliberately kept close to a future compute kernel and exists
+    mainly to validate the flattened memory layout before moving traversal to GPU.
+    """
+
+    var nodes: List[BVHGPUNode]
+    var prim_indices: List[UInt32]
+    var vertices: UnsafePointer[Vec3f32, MutAnyOrigin]
+    var root_is_leaf: Bool
+    var root_data: UInt32
+    var root_count: UInt32
+    var root_bounds: AABB
+
+    def __init__(out self, mut binary_bvh: BVH):
+        self.nodes = List[BVHGPUNode]()
+        self.prim_indices = List[UInt32](capacity=len(binary_bvh.prim_indices))
+        self.vertices = binary_bvh.vertices
+        self.root_is_leaf = False
+        self.root_data = 0
+        self.root_count = 0
+        self.root_bounds = binary_bvh.bvh_nodes[0].aabb.copy()
+
+        # Convert fragment indices to original primitive ids once. GPU leaves
+        # can then point directly into this array using the same leftFirst/count
+        # ranges as the source BVH leaves.
+        for i in range(len(binary_bvh.prim_indices)):
+            var frag_idx = Int(binary_bvh.prim_indices[i])
+            self.prim_indices.append(binary_bvh.fragments[frag_idx].prim_idx)
+
+        ref root = binary_bvh.bvh_nodes[0]
+        if root.is_leaf():
+            self.root_is_leaf = True
+            self.root_data = root.leftFirst
+            self.root_count = root.triCount
+        else:
+            self.root_is_leaf = False
+            self.root_data = self._convert_internal(binary_bvh, UInt32(0))
+            self.root_count = 0
+
+    def _convert_internal(
+        mut self, binary_bvh: BVH, binary_idx: UInt32
+    ) -> UInt32:
+        var gpu_idx = UInt32(len(self.nodes))
+        self.nodes.append(BVHGPUNode())
+
+        ref bnode = binary_bvh.bvh_nodes[Int(binary_idx)]
+        var left_binary_idx = bnode.leftFirst
+        var right_binary_idx = bnode.leftFirst + 1
+
+        ref left = binary_bvh.bvh_nodes[Int(left_binary_idx)]
+        ref right = binary_bvh.bvh_nodes[Int(right_binary_idx)]
+
+        var out = BVHGPUNode()
+
+        out.left_min = left.aabb._min.copy()
+        out.left_max = left.aabb._max.copy()
+        if left.is_leaf():
+            out.left_data = left.leftFirst
+            out.left_count = left.triCount
+        else:
+            out.left_data = self._convert_internal(binary_bvh, left_binary_idx)
+            out.left_count = 0
+
+        out.right_min = right.aabb._min.copy()
+        out.right_max = right.aabb._max.copy()
+        if right.is_leaf():
+            out.right_data = right.leftFirst
+            out.right_count = right.triCount
+        else:
+            out.right_data = self._convert_internal(
+                binary_bvh, right_binary_idx
+            )
+            out.right_count = 0
+
+        self.nodes[Int(gpu_idx)] = out^
+        return gpu_idx
+
+    @always_inline
+    def _intersect_tri[
+        is_shadow: Bool
+    ](self, mut ray: Ray, prim_idx: UInt32) -> Bool:
+        ref v0 = self.vertices[Int(prim_idx) * 3]
+        ref v1 = self.vertices[Int(prim_idx) * 3 + 1]
+        ref v2 = self.vertices[Int(prim_idx) * 3 + 2]
+
+        var e1x = v1.x() - v0.x()
+        var e1y = v1.y() - v0.y()
+        var e1z = v1.z() - v0.z()
+        var e2x = v2.x() - v0.x()
+        var e2y = v2.y() - v0.y()
+        var e2z = v2.z() - v0.z()
+
+        var px = ray.D.y() * e2z - ray.D.z() * e2y
+        var py = ray.D.z() * e2x - ray.D.x() * e2z
+        var pz = ray.D.x() * e2y - ray.D.y() * e2x
+        var det = e1x * px + e1y * py + e1z * pz
+
+        if det > -1e-12 and det < 1e-12:
+            return False
+
+        var inv_det = 1.0 / det
+        var tx = ray.O.x() - v0.x()
+        var ty = ray.O.y() - v0.y()
+        var tz = ray.O.z() - v0.z()
+
+        var u = (tx * px + ty * py + tz * pz) * inv_det
+        if u < 0.0 or u > 1.0:
+            return False
+
+        var qx = ty * e1z - tz * e1y
+        var qy = tz * e1x - tx * e1z
+        var qz = tx * e1y - ty * e1x
+
+        var v = (ray.D.x() * qx + ray.D.y() * qy + ray.D.z() * qz) * inv_det
+        if v < 0.0 or u + v > 1.0:
+            return False
+
+        var t = (e2x * qx + e2y * qy + e2z * qz) * inv_det
+        if t > 1e-4 and t < ray.hit.t:
+            comptime if is_shadow:
+                return True
+            ray.hit.t = t
+            ray.hit.u = u
+            ray.hit.v = v
+            ray.hit.prim = prim_idx
+            return True
+
+        return False
+
+    @always_inline
+    def _intersect_leaf[
+        is_shadow: Bool
+    ](self, mut ray: Ray, first: UInt32, count: UInt32) -> Bool:
+        var any_hit = False
+        for i in range(Int(count)):
+            var prim_idx = self.prim_indices[Int(first) + i]
+            if self._intersect_tri[is_shadow](ray, prim_idx):
+                comptime if is_shadow:
+                    return True
+                any_hit = True
+        return any_hit
+
+    @always_inline
+    def _traverse[is_shadow: Bool](self, mut ray: Ray) -> Bool:
+        if self.root_is_leaf:
+            return self._intersect_leaf[is_shadow](
+                ray, self.root_data, self.root_count
+            )
+
+        var stack = InlineArray[UInt32, 64](fill=0)
+        var stack_ptr = 0
+        var node_idx = self.root_data
+
+        while True:
+            ref node = self.nodes[Int(node_idx)]
+
+            var dist_left = Float32(f32_max)
+            var dist_right = Float32(f32_max)
+
+            var hit_left = intersect_ray_aabb(
+                ray.O,
+                ray.rD,
+                node.left_min,
+                node.left_max,
+                dist_left,
+            )
+            var hit_right = intersect_ray_aabb(
+                ray.O,
+                ray.rD,
+                node.right_min,
+                node.right_max,
+                dist_right,
+            )
+
+            if hit_left and dist_left >= ray.hit.t:
+                hit_left = False
+            if hit_right and dist_right >= ray.hit.t:
+                hit_right = False
+
+            # Visit closer child first when both hit. This is not required for
+            # correctness, but it improves pruning for closest-hit rays and is
+            # close to what a GPU kernel will eventually want.
+            var near_data = node.left_data
+            var near_count = node.left_count
+            var near_hit = hit_left
+            var far_data = node.right_data
+            var far_count = node.right_count
+            var far_hit = hit_right
+
+            if hit_left and hit_right and dist_left > dist_right:
+                near_data = node.right_data
+                near_count = node.right_count
+                far_data = node.left_data
+                far_count = node.left_count
+
+            if far_hit:
+                if far_count > 0:
+                    if self._intersect_leaf[is_shadow](
+                        ray, far_data, far_count
+                    ):
+                        comptime if is_shadow:
+                            return True
+                else:
+                    stack[stack_ptr] = far_data
+                    stack_ptr += 1
+
+            if near_hit:
+                if near_count > 0:
+                    if self._intersect_leaf[is_shadow](
+                        ray, near_data, near_count
+                    ):
+                        comptime if is_shadow:
+                            return True
+                else:
+                    node_idx = near_data
+                    continue
+
+            if stack_ptr == 0:
+                break
+            stack_ptr -= 1
+            node_idx = stack[stack_ptr]
+
+        return False
+
+    def traverse(self, mut ray: Ray):
+        _ = self._traverse[False](ray)
+
+    def is_occluded(self, mut ray: Ray) -> Bool:
+        return self._traverse[True](ray)
 
 
 # TLAS & INSTANCING (2-LAYER BVH)

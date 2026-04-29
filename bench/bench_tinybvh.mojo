@@ -1,10 +1,10 @@
 from std.benchmark import keep
-from std.math import sqrt
+from std.math import abs, round, sqrt
 from std.time import perf_counter_ns
 
 from bajo.obj import read_obj, triangulated_indices
-from bajo.core.vec import Vec3f32, vmin, vmax
-from bajo.core.bvh.tinybvh import BVH, Ray, WideBVH
+from bajo.core.vec import Vec3f32, vmin, vmax, cross, dot, length, normalize
+from bajo.core.bvh.tinybvh import BVH, BVHGPU, Ray, WideBVH
 
 
 comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"
@@ -27,31 +27,11 @@ def ns_to_mrays_per_s(ns: Int, ray_count: Int) -> Float64:
     return (Float64(ray_count) / seconds) / 1_000_000.0
 
 
-@always_inline
-def dot(a: Vec3f32, b: Vec3f32) -> Float32:
-    return a.x() * b.x() + a.y() * b.y() + a.z() * b.z()
-
-
-@always_inline
-def cross(a: Vec3f32, b: Vec3f32) -> Vec3f32:
-    return Vec3f32(
-        a.y() * b.z() - a.z() * b.y(),
-        a.z() * b.x() - a.x() * b.z(),
-        a.x() * b.y() - a.y() * b.x(),
-    )
-
-
-@always_inline
-def normalize(v: Vec3f32) -> Vec3f32:
-    var len2 = dot(v, v)
-    if len2 <= 1.0e-20:
-        return Vec3f32(0.0, 0.0, 0.0)
-    return v * (1.0 / sqrt(len2))
-
-
-@always_inline
-def len_vec(v: Vec3f32) -> Float32:
-    return sqrt(dot(v, v))
+def print_vec3_rounded(name: String, v: Vec3f32):
+    var x = round(Float64(v.x()), 3)
+    var y = round(Float64(v.y()), 3)
+    var z = round(Float64(v.z()), 3)
+    print(t"{name} ({x}, {y}, {z})")
 
 
 def pack_obj_triangles(path: String) raises -> List[Vec3f32]:
@@ -126,7 +106,7 @@ def generate_primary_rays(
 
     var center = (bounds_min + bounds_max) * 0.5
     var extent = bounds_max - bounds_min
-    var radius = len_vec(extent) * 0.5
+    var radius = length(extent) * 0.5
     if radius < 1.0:
         radius = 1.0
     var dist = radius * 2.8
@@ -229,21 +209,79 @@ def trace_wide_shadow[width: Int](wide: WideBVH[width], rays: List[Ray]) -> Int:
     return occluded
 
 
+def trace_gpu_primary(gpu: BVHGPU, rays: List[Ray]) -> Float64:
+    var checksum = Float64(0.0)
+    var hit_count = 0
+
+    for i in range(len(rays)):
+        var ray = rays[i].copy()
+        gpu.traverse(ray)
+        checksum += hit_t_for_checksum(ray.hit.t)
+        if ray.hit.t < 1.0e20:
+            hit_count += 1
+
+    keep(checksum)
+    keep(hit_count)
+    return checksum
+
+
+def trace_gpu_shadow(gpu: BVHGPU, rays: List[Ray]) -> Int:
+    var occluded = 0
+
+    for i in range(len(rays)):
+        var ray = rays[i].copy()
+        if gpu.is_occluded(ray):
+            occluded += 1
+
+    keep(occluded)
+    return occluded
+
+
+def print_build_bvh_result(
+    name: String,
+    ns: Int,
+    nodes_used: UInt32,
+    quality: Float32,
+):
+    var ms = round(ns_to_ms(ns), 3)
+    var q = round(Float64(quality), 3)
+    print(t"{name} | {ms} ms | nodes: {nodes_used} | quality: {q}")
+
+
+def print_build_layout_result(
+    name: String,
+    ns: Int,
+    nodes: Int,
+    extra_label: String,
+    extra_count: Int,
+):
+    var ms = round(ns_to_ms(ns), 3)
+    print(t"{name} | {ms} ms | nodes: {nodes} | {extra_label}: {extra_count}")
+
+
+def print_gpu_layout_result(
+    ns: Int,
+    nodes: Int,
+    prims: Int,
+    root_is_leaf: Bool,
+):
+    var ms = round(ns_to_ms(ns), 3)
+    print(
+        t"gpu layout       | {ms} ms | nodes: {nodes} | prims: {prims} | root"
+        t" leaf: {root_is_leaf}"
+    )
+
+
 def print_traversal_result(
     name: String,
     best_ns: Int,
     ray_count: Int,
     checksum: Float64,
 ):
-    print(
-        name,
-        "|",
-        ns_to_ms(best_ns),
-        "ms |",
-        ns_to_mrays_per_s(best_ns, ray_count),
-        "MRays/s | checksum:",
-        checksum,
-    )
+    var ms = round(ns_to_ms(best_ns), 3)
+    var mrays = round(ns_to_mrays_per_s(best_ns, ray_count), 3)
+    var csum = round(checksum, 3)
+    print(t"{name} | {ms} ms | {mrays} MRays/s | checksum: {csum}")
 
 
 def print_shadow_result(
@@ -252,15 +290,35 @@ def print_shadow_result(
     ray_count: Int,
     occluded: Int,
 ):
-    print(
-        name,
-        "|",
-        ns_to_ms(best_ns),
-        "ms |",
-        ns_to_mrays_per_s(best_ns, ray_count),
-        "MRays/s | occluded:",
-        occluded,
-    )
+    var ms = round(ns_to_ms(best_ns), 3)
+    var mrays = round(ns_to_mrays_per_s(best_ns, ray_count), 3)
+    print(t"{name} | {ms} ms | {mrays} MRays/s | occluded: {occluded}")
+
+
+def print_primary_validation(
+    name: String,
+    reference_checksum: Float64,
+    checksum: Float64,
+):
+    var diff = round(abs(checksum - reference_checksum), 3)
+    if diff <= 0.001:
+        print(t"{name} primary validation: OK | diff: {diff}")
+    else:
+        print(t"{name} primary validation: MISMATCH | diff: {diff}")
+
+
+def print_shadow_validation(
+    name: String,
+    reference_occluded: Int,
+    occluded: Int,
+):
+    if occluded == reference_occluded:
+        print(t"{name} shadow validation:  OK | occluded: {occluded}")
+    else:
+        print(
+            t"{name} shadow validation:  MISMATCH | ref: {reference_occluded} |"
+            t" got: {occluded}"
+        )
 
 
 def bench_bvh_primary(name: String, bvh: BVH, rays: List[Ray], repeats: Int):
@@ -331,10 +389,43 @@ def bench_wide_shadow[
     print_shadow_result(name, best_ns, len(rays), occluded)
 
 
+def bench_gpu_primary(name: String, gpu: BVHGPU, rays: List[Ray], repeats: Int):
+    # Warmup.
+    var checksum = trace_gpu_primary(gpu, rays)
+    var best_ns = Int(9223372036854775807)
+
+    for _ in range(repeats):
+        var t0 = perf_counter_ns()
+        checksum = trace_gpu_primary(gpu, rays)
+        var t1 = perf_counter_ns()
+        var dt = Int(t1 - t0)
+        if dt < best_ns:
+            best_ns = dt
+
+    print_traversal_result(name, best_ns, len(rays), checksum)
+
+
+def bench_gpu_shadow(name: String, gpu: BVHGPU, rays: List[Ray], repeats: Int):
+    # Warmup.
+    var occluded = trace_gpu_shadow(gpu, rays)
+    var best_ns = Int(9223372036854775807)
+
+    for _ in range(repeats):
+        var t0 = perf_counter_ns()
+        occluded = trace_gpu_shadow(gpu, rays)
+        var t1 = perf_counter_ns()
+        var dt = Int(t1 - t0)
+        if dt < best_ns:
+            best_ns = dt
+
+    print_shadow_result(name, best_ns, len(rays), occluded)
+
+
 def main() raises:
     print("TinyBVH Mojo bunny speedtest")
-    print("Path:", DEFAULT_OBJ_PATH)
-    print("Image rays:", PRIMARY_WIDTH, "x", PRIMARY_HEIGHT, "x", PRIMARY_VIEWS)
+    print(t"Path: {DEFAULT_OBJ_PATH}")
+    print(t"Image rays: {PRIMARY_WIDTH} x {PRIMARY_HEIGHT} x {PRIMARY_VIEWS}")
+    print(t"Traversal repeats: {TRAVERSAL_REPEATS}")
 
     print("\nLoading + packing OBJ...")
     var load_t0 = perf_counter_ns()
@@ -345,18 +436,19 @@ def main() raises:
     var bounds = compute_bounds(tri_vertices)
     var bmin = bounds[0].copy()
     var bmax = bounds[1].copy()
+    var load_ms = round(ns_to_ms(Int(load_t1 - load_t0)), 3)
 
-    print("Packed vertices:", len(tri_vertices))
-    print("Triangles:", tri_count)
-    print("Load+pack ms:", ns_to_ms(Int(load_t1 - load_t0)))
-    print("Bounds min:", bmin)
-    print("Bounds max:", bmax)
+    print(t"Packed vertices: {len(tri_vertices)}")
+    print(t"Triangles: {tri_count}")
+    print(t"Load+pack ms: {load_ms}")
+    print_vec3_rounded("Bounds min:", bmin)
+    print_vec3_rounded("Bounds max:", bmax)
 
     print("\nGenerating rays...")
     var rays = generate_primary_rays(
         bmin, bmax, PRIMARY_WIDTH, PRIMARY_HEIGHT, PRIMARY_VIEWS
     )
-    print("Rays:", len(rays))
+    print(t"Rays: {len(rays)}")
 
     print("\nBuild")
     print("-----")
@@ -365,12 +457,10 @@ def main() raises:
     var bvh_median = BVH(tri_vertices.unsafe_ptr(), tri_count)
     bvh_median.build["median", False]()
     var t1 = perf_counter_ns()
-    print(
-        "binary median ST |",
-        ns_to_ms(Int(t1 - t0)),
-        "ms | nodes:",
+    print_build_bvh_result(
+        "binary median ST",
+        Int(t1 - t0),
         bvh_median.nodes_used,
-        "| quality:",
         bvh_median.tree_quality(),
     )
 
@@ -378,12 +468,10 @@ def main() raises:
     var bvh_sah = BVH(tri_vertices.unsafe_ptr(), tri_count)
     bvh_sah.build["sah", False]()
     t1 = perf_counter_ns()
-    print(
-        "binary sah ST    |",
-        ns_to_ms(Int(t1 - t0)),
-        "ms | nodes:",
+    print_build_bvh_result(
+        "binary sah ST   ",
+        Int(t1 - t0),
         bvh_sah.nodes_used,
-        "| quality:",
         bvh_sah.tree_quality(),
     )
 
@@ -391,54 +479,94 @@ def main() raises:
     var bvh_sah_mt = BVH(tri_vertices.unsafe_ptr(), tri_count)
     bvh_sah_mt.build["sah", True]()
     t1 = perf_counter_ns()
-    print(
-        "binary sah MT    |",
-        ns_to_ms(Int(t1 - t0)),
-        "ms | nodes:",
+    print_build_bvh_result(
+        "binary sah MT   ",
+        Int(t1 - t0),
         bvh_sah_mt.nodes_used,
-        "| quality:",
         bvh_sah_mt.tree_quality(),
     )
 
     t0 = perf_counter_ns()
     var wide4 = WideBVH[4](bvh_sah)
     t1 = perf_counter_ns()
-    print(
-        "wide4 collapse   |",
-        ns_to_ms(Int(t1 - t0)),
-        "ms | nodes:",
+    print_build_layout_result(
+        "wide4 collapse  ",
+        Int(t1 - t0),
         len(wide4.nodes),
-        "| leaves:",
+        "leaves",
         len(wide4.leaves),
     )
 
     t0 = perf_counter_ns()
     var wide8 = WideBVH[8](bvh_sah)
     t1 = perf_counter_ns()
-    print(
-        "wide8 collapse   |",
-        ns_to_ms(Int(t1 - t0)),
-        "ms | nodes:",
+    print_build_layout_result(
+        "wide8 collapse  ",
+        Int(t1 - t0),
         len(wide8.nodes),
-        "| leaves:",
+        "leaves",
         len(wide8.leaves),
+    )
+
+    t0 = perf_counter_ns()
+    var gpu = BVHGPU(bvh_sah)
+    t1 = perf_counter_ns()
+    print_gpu_layout_result(
+        Int(t1 - t0), len(gpu.nodes), len(gpu.prim_indices), gpu.root_is_leaf
+    )
+
+    print("\nValidation")
+    print("----------")
+    var ref_checksum = trace_bvh_primary(bvh_sah, rays)
+    var ref_occluded = trace_bvh_shadow(bvh_sah, rays)
+    print_primary_validation(
+        "binary median", ref_checksum, trace_bvh_primary(bvh_median, rays)
+    )
+    print_primary_validation(
+        "binary sah MT", ref_checksum, trace_bvh_primary(bvh_sah_mt, rays)
+    )
+    print_primary_validation(
+        "wide4", ref_checksum, trace_wide_primary[4](wide4, rays)
+    )
+    print_primary_validation(
+        "wide8", ref_checksum, trace_wide_primary[8](wide8, rays)
+    )
+    print_primary_validation(
+        "gpu layout CPU", ref_checksum, trace_gpu_primary(gpu, rays)
+    )
+    print_shadow_validation(
+        "binary median", ref_occluded, trace_bvh_shadow(bvh_median, rays)
+    )
+    print_shadow_validation(
+        "binary sah MT", ref_occluded, trace_bvh_shadow(bvh_sah_mt, rays)
+    )
+    print_shadow_validation(
+        "wide4", ref_occluded, trace_wide_shadow[4](wide4, rays)
+    )
+    print_shadow_validation(
+        "wide8", ref_occluded, trace_wide_shadow[8](wide8, rays)
+    )
+    print_shadow_validation(
+        "gpu layout CPU", ref_occluded, trace_gpu_shadow(gpu, rays)
     )
 
     print("\nPrimary traversal")
     print("-----------------")
-    bench_bvh_primary("binary median", bvh_median, rays, TRAVERSAL_REPEATS)
-    bench_bvh_primary("binary sah ST", bvh_sah, rays, TRAVERSAL_REPEATS)
-    bench_bvh_primary("binary sah MT", bvh_sah_mt, rays, TRAVERSAL_REPEATS)
-    bench_wide_primary[4]("wide4", wide4, rays, TRAVERSAL_REPEATS)
-    bench_wide_primary[8]("wide8", wide8, rays, TRAVERSAL_REPEATS)
+    bench_bvh_primary("binary median ", bvh_median, rays, TRAVERSAL_REPEATS)
+    bench_bvh_primary("binary sah ST ", bvh_sah, rays, TRAVERSAL_REPEATS)
+    bench_bvh_primary("binary sah MT ", bvh_sah_mt, rays, TRAVERSAL_REPEATS)
+    bench_wide_primary[4]("wide4         ", wide4, rays, TRAVERSAL_REPEATS)
+    bench_wide_primary[8]("wide8         ", wide8, rays, TRAVERSAL_REPEATS)
+    bench_gpu_primary("gpu layout CPU", gpu, rays, TRAVERSAL_REPEATS)
 
     print("\nShadow traversal")
     print("----------------")
-    bench_bvh_shadow("binary median", bvh_median, rays, TRAVERSAL_REPEATS)
-    bench_bvh_shadow("binary sah ST", bvh_sah, rays, TRAVERSAL_REPEATS)
-    bench_bvh_shadow("binary sah MT", bvh_sah_mt, rays, TRAVERSAL_REPEATS)
-    bench_wide_shadow[4]("wide4", wide4, rays, TRAVERSAL_REPEATS)
-    bench_wide_shadow[8]("wide8", wide8, rays, TRAVERSAL_REPEATS)
+    bench_bvh_shadow("binary median ", bvh_median, rays, TRAVERSAL_REPEATS)
+    bench_bvh_shadow("binary sah ST ", bvh_sah, rays, TRAVERSAL_REPEATS)
+    bench_bvh_shadow("binary sah MT ", bvh_sah_mt, rays, TRAVERSAL_REPEATS)
+    bench_wide_shadow[4]("wide4         ", wide4, rays, TRAVERSAL_REPEATS)
+    bench_wide_shadow[8]("wide8         ", wide8, rays, TRAVERSAL_REPEATS)
+    bench_gpu_shadow("gpu layout CPU", gpu, rays, TRAVERSAL_REPEATS)
 
     # Keep external vertex buffer alive until the end: BVH stores an UnsafePointer to it.
     keep(len(tri_vertices))

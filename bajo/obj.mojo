@@ -1,6 +1,8 @@
 from std.pathlib import Path
 from std.os import path as os_path
 
+from bajo.utils import MMap
+
 comptime TAB = UInt8(ord("\t"))
 comptime SPACE = UInt8(ord(" "))
 comptime CR = UInt8(ord("\r"))
@@ -288,32 +290,7 @@ struct ObjMesh(Movable):
         print(t" - groups:  {self.group_count()}")
 
 
-trait ObjTextLoader:
-    def read_text(self, path: String) raises -> String:
-        ...
-
-
-@fieldwise_init
-struct PathObjTextLoader(Copyable, ObjTextLoader):
-    def read_text(self, path: String) raises -> String:
-        return Path(path).read_text()
-
-
-struct MemoryObjTextLoader(Movable, ObjTextLoader):
-    var files: Dict[String, String]
-
-    def __init__(out self):
-        self.files = Dict[String, String]()
-
-    def add_file(mut self, path: String, text: String):
-        self.files[path] = text
-
-    def read_text(self, path: String) raises -> String:
-        if path in self.files:
-            return self.files[path]
-        raise Error("MemoryObjTextLoader: file not found: " + path)
-
-
+# parse f32 / i32
 @always_inline
 def _parse_i32[o: Origin](token: StringSlice[o]) -> Int:
     var length = token.byte_length()
@@ -560,42 +537,28 @@ def _read_mtl_text(mut mesh: ObjMesh, base: String, text: String) raises:
         elif tag == "Tr":
             if not found_d:
                 current.d = 1.0 - _parse_f32(tokens.next())
-        elif tag == "map_Ka":
+        elif tag[byte=:4] == "map_" or tag == "bump":
             var name = _map_name_from_tail(tokens)
             if name.byte_length() > 0:
-                current.map_Ka = mesh.add_texture(name, base)
-        elif tag == "map_Kd":
-            var name = _map_name_from_tail(tokens)
-            if name.byte_length() > 0:
-                current.map_Kd = mesh.add_texture(name, base)
-        elif tag == "map_Ks":
-            var name = _map_name_from_tail(tokens)
-            if name.byte_length() > 0:
-                current.map_Ks = mesh.add_texture(name, base)
-        elif tag == "map_Ke":
-            var name = _map_name_from_tail(tokens)
-            if name.byte_length() > 0:
-                current.map_Ke = mesh.add_texture(name, base)
-        elif tag == "map_Kt":
-            var name = _map_name_from_tail(tokens)
-            if name.byte_length() > 0:
-                current.map_Kt = mesh.add_texture(name, base)
-        elif tag == "map_Ns":
-            var name = _map_name_from_tail(tokens)
-            if name.byte_length() > 0:
-                current.map_Ns = mesh.add_texture(name, base)
-        elif tag == "map_Ni":
-            var name = _map_name_from_tail(tokens)
-            if name.byte_length() > 0:
-                current.map_Ni = mesh.add_texture(name, base)
-        elif tag == "map_d":
-            var name = _map_name_from_tail(tokens)
-            if name.byte_length() > 0:
-                current.map_d = mesh.add_texture(name, base)
-        elif tag == "map_bump" or tag == "bump":
-            var name = _map_name_from_tail(tokens)
-            if name.byte_length() > 0:
-                current.map_bump = mesh.add_texture(name, base)
+                val = mesh.add_texture(name, base)
+                if tag == "map_Ka":
+                    current.map_Ka = val
+                elif tag == "map_Kd":
+                    current.map_Kd = val
+                elif tag == "map_Ks":
+                    current.map_Ks = val
+                elif tag == "map_Ke":
+                    current.map_Ke = val
+                elif tag == "map_Kt":
+                    current.map_Kt = val
+                elif tag == "map_Ns":
+                    current.map_Ns = val
+                elif tag == "map_Ni":
+                    current.map_Ni = val
+                elif tag == "map_d":
+                    current.map_d = val
+                elif tag == "map_bump" or tag == "bump":
+                    current.map_bump = val
 
     if have_current:
         _ = mesh.upsert_material(current)
@@ -862,6 +825,32 @@ def read_obj_from_memory(
     path: String, mut loader: MemoryObjTextLoader
 ) raises -> ObjMesh:
     return read_obj_with_loader(path, loader)
+
+
+trait ObjTextLoader:
+    def read_text(self, path: String) raises -> String:
+        ...
+
+
+@fieldwise_init
+struct PathObjTextLoader(Copyable, ObjTextLoader):
+    def read_text(self, path: String) raises -> String:
+        return Path(path).read_text()
+
+
+struct MemoryObjTextLoader(Movable, ObjTextLoader):
+    var files: Dict[String, String]
+
+    def __init__(out self):
+        self.files = Dict[String, String]()
+
+    def add_file(mut self, path: String, text: String):
+        self.files[path] = text
+
+    def read_text(self, path: String) raises -> String:
+        if path in self.files:
+            return self.files[path]
+        raise Error("MemoryObjTextLoader: file not found: " + path)
 
 
 def triangulated_indices(mesh: ObjMesh) -> List[ObjIndex]:

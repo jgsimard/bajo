@@ -191,26 +191,20 @@ struct ObjMesh(Movable):
         print("ObjMesh summary")
         print(
             t" - positions: {self.position_count()} including dummy; actual:"
-            t" {self.position_count(include_dummy=False)}"
-        )
-        print(
+            t" {self.position_count(include_dummy=False)}\n"
             t" - texcoords: {self.texcoord_count()} including dummy; actual:"
-            t" {self.texcoord_count(include_dummy=False)}"
-        )
-        print(
+            t" {self.texcoord_count(include_dummy=False)}\n"
             t" - normals: {self.normal_count()} including dummy; actual:"
-            t" {self.normal_count(include_dummy=False)}"
-        )
-        print(t" - colors: {self.color_count()}")
-        print(t" - faces/lines: {self.face_count()}")
-        print(t" - indices: {self.index_count()}")
-        print(t" - materials: {self.material_count()}")
-        print(
+            t" {self.normal_count(include_dummy=False)}\n"
+            t" - colors: {self.color_count()}\n"
+            t" - faces/lines: {self.face_count()}\n"
+            t" - indices: {self.index_count()}\n"
+            t" - materials: {self.material_count()}\n"
             t" - textures: {self.texture_count()} including dummy; actual:"
-            t" {self.texture_count(include_dummy=False)}"
+            t" {self.texture_count(include_dummy=False)}\n"
+            t" - objects: {self.object_count()}\n"
+            t" - groups:  {self.group_count()}"
         )
-        print(t" - objects: {self.object_count()}")
-        print(t" - groups:  {self.group_count()}")
 
     def _flush_object(mut self):
         if self._current_object.face_count > 0:

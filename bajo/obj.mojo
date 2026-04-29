@@ -665,7 +665,7 @@ struct TokenIterator[o: Origin]:
         # until next whitespace
         while self.pos < self.length:
             var b = self.ptr.load(self.pos)
-            if b != SPACE and b != TAB and b != CR:
+            if b == SPACE or b == TAB or b == CR:
                 break
             self.pos += 1
 

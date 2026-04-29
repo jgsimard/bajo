@@ -630,8 +630,10 @@ def test_bvh_gpu_root_leaf_matches_binary() raises:
     bvh.build["median", False]()
     var gpu = BVHGPU(bvh)
 
-    assert_true(gpu.root_is_leaf)
-    assert_true(len(gpu.nodes) == 0)
+    assert_true(len(gpu.nodes) == 1)
+    assert_true(gpu.nodes[0].is_leaf())
+    assert_true(gpu.nodes[0].triCount == 2)
+    assert_true(gpu.nodes[0].firstTri == 0)
     assert_true(len(gpu.prim_indices) == 2)
 
     _assert_gpu_matches_binary(
@@ -651,8 +653,10 @@ def test_bvh_gpu_internal_layout_basic() raises:
     bvh.build["sah", False]()
     var gpu = BVHGPU(bvh)
 
-    assert_true(not gpu.root_is_leaf)
-    assert_true(len(gpu.nodes) > 0)
+    assert_true(len(gpu.nodes) > 1)
+    assert_true(not gpu.nodes[0].is_leaf())
+    assert_true(Int(gpu.nodes[0].left) < len(gpu.nodes))
+    assert_true(Int(gpu.nodes[0].right) < len(gpu.nodes))
     assert_true(len(gpu.prim_indices) == len(bvh.prim_indices))
 
     var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))

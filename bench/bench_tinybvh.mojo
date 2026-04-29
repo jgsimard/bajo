@@ -511,8 +511,11 @@ def main() raises:
     t0 = perf_counter_ns()
     var gpu = BVHGPU(bvh_sah)
     t1 = perf_counter_ns()
+    var gpu_root_is_leaf = False
+    if len(gpu.nodes) > 0:
+        gpu_root_is_leaf = gpu.nodes[0].is_leaf()
     print_gpu_layout_result(
-        Int(t1 - t0), len(gpu.nodes), len(gpu.prim_indices), gpu.root_is_leaf
+        Int(t1 - t0), len(gpu.nodes), len(gpu.prim_indices), gpu_root_is_leaf
     )
 
     print("\nValidation")

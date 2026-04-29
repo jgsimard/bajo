@@ -985,111 +985,105 @@ struct WideBVH[width: Int](Copyable):
 
 
 struct BVHGPUNode(Copyable):
-    var left_min: Vec3f32
-    var left_data: UInt32
-    var left_max: Vec3f32
-    var left_count: UInt32
+    """TinyBVH-style Aila-Laine GPU node.
 
-    var right_min: Vec3f32
-    var right_data: UInt32
-    var right_max: Vec3f32
-    var right_count: UInt32
+    This mirrors TinyBVH's BVH_GPU node semantics:
+    - If triCount > 0, this node is a leaf and firstTri points into prim_indices.
+    - If triCount == 0, this node is internal:
+        lmin/lmax bound the left child, and left is the left child node index.
+        rmin/rmax bound the right child, and right is the right child node index.
+    """
+
+    var lmin: Vec3f32
+    var left: UInt32
+    var lmax: Vec3f32
+    var right: UInt32
+
+    var rmin: Vec3f32
+    var triCount: UInt32
+    var rmax: Vec3f32
+    var firstTri: UInt32
 
     @always_inline
     def __init__(out self):
-        self.left_min = Vec3f32(f32_max)
-        self.left_data = 0
-        self.left_max = Vec3f32(f32_min)
-        self.left_count = 0
+        self.lmin = Vec3f32(f32_max)
+        self.left = 0
+        self.lmax = Vec3f32(f32_min)
+        self.right = 0
 
-        self.right_min = Vec3f32(f32_max)
-        self.right_data = 0
-        self.right_max = Vec3f32(f32_min)
-        self.right_count = 0
+        self.rmin = Vec3f32(f32_max)
+        self.triCount = 0
+        self.rmax = Vec3f32(f32_min)
+        self.firstTri = 0
+
+    @always_inline
+    def is_leaf(self) -> Bool:
+        return self.triCount > 0
 
 
 struct BVHGPU(Copyable):
-    """GPU-friendly binary layout converted from `BVH`.
+    """TinyBVH-compatible GPU layout with CPU reference traversal.
 
-    Each node stores the bounds for both children directly. For each child:
+    This layout follows TinyBVH's BVH_GPU / Aila-Laine layout more closely than
+    the earlier child-count encoding. Leaves are real nodes (`triCount > 0`),
+    while internal nodes store both child bounds directly plus child node indices.
 
-    - `*_count == 0`: `*_data` is another BVHGPU node index.
-    - `*_count > 0`: `*_data` is the first primitive in `prim_indices` and
-      `*_count` is the leaf primitive count.
-
-    `prim_indices` stores original triangle ids, not fragment ids. The CPU
-    traversal is deliberately kept close to a future compute kernel and exists
-    mainly to validate the flattened memory layout before moving traversal to GPU.
+    `prim_indices` stores original triangle ids, not fragment ids. This keeps
+    traversal independent from the builder's fragment reordering and makes the
+    buffers directly suitable for a future GPU kernel.
     """
 
     var nodes: List[BVHGPUNode]
     var prim_indices: List[UInt32]
     var vertices: UnsafePointer[Vec3f32, MutAnyOrigin]
-    var root_is_leaf: Bool
-    var root_data: UInt32
-    var root_count: UInt32
-    var root_bounds: AABB
 
     def __init__(out self, mut binary_bvh: BVH):
-        self.nodes = List[BVHGPUNode]()
+        self.nodes = List[BVHGPUNode](capacity=Int(binary_bvh.nodes_used))
         self.prim_indices = List[UInt32](capacity=len(binary_bvh.prim_indices))
         self.vertices = binary_bvh.vertices
-        self.root_is_leaf = False
-        self.root_data = 0
-        self.root_count = 0
-        self.root_bounds = binary_bvh.bvh_nodes[0].aabb.copy()
 
         # Convert fragment indices to original primitive ids once. GPU leaves
-        # can then point directly into this array using the same leftFirst/count
-        # ranges as the source BVH leaves.
+        # point into this array using the source BVH's leftFirst/count ranges.
         for i in range(len(binary_bvh.prim_indices)):
             var frag_idx = Int(binary_bvh.prim_indices[i])
             self.prim_indices.append(binary_bvh.fragments[frag_idx].prim_idx)
 
-        ref root = binary_bvh.bvh_nodes[0]
-        if root.is_leaf():
-            self.root_is_leaf = True
-            self.root_data = root.leftFirst
-            self.root_count = root.triCount
-        else:
-            self.root_is_leaf = False
-            self.root_data = self._convert_internal(binary_bvh, UInt32(0))
-            self.root_count = 0
+        if binary_bvh.nodes_used > 0:
+            _ = self._convert_node(binary_bvh, UInt32(0))
 
-    def _convert_internal(
-        mut self, binary_bvh: BVH, binary_idx: UInt32
-    ) -> UInt32:
+    def _convert_node(mut self, binary_bvh: BVH, binary_idx: UInt32) -> UInt32:
         var gpu_idx = UInt32(len(self.nodes))
         self.nodes.append(BVHGPUNode())
 
         ref bnode = binary_bvh.bvh_nodes[Int(binary_idx)]
-        var left_binary_idx = bnode.leftFirst
-        var right_binary_idx = bnode.leftFirst + 1
-
-        ref left = binary_bvh.bvh_nodes[Int(left_binary_idx)]
-        ref right = binary_bvh.bvh_nodes[Int(right_binary_idx)]
-
         var out = BVHGPUNode()
 
-        out.left_min = left.aabb._min.copy()
-        out.left_max = left.aabb._max.copy()
-        if left.is_leaf():
-            out.left_data = left.leftFirst
-            out.left_count = left.triCount
+        if bnode.is_leaf():
+            out.triCount = bnode.triCount
+            out.firstTri = bnode.leftFirst
+            # Leaf bounds are not needed by traversal once the leaf is entered,
+            # but storing them makes debug inspection easier and keeps the node
+            # self-describing.
+            out.lmin = bnode.aabb._min.copy()
+            out.lmax = bnode.aabb._max.copy()
+            out.rmin = bnode.aabb._min.copy()
+            out.rmax = bnode.aabb._max.copy()
         else:
-            out.left_data = self._convert_internal(binary_bvh, left_binary_idx)
-            out.left_count = 0
+            var left_binary_idx = bnode.leftFirst
+            var right_binary_idx = bnode.leftFirst + 1
 
-        out.right_min = right.aabb._min.copy()
-        out.right_max = right.aabb._max.copy()
-        if right.is_leaf():
-            out.right_data = right.leftFirst
-            out.right_count = right.triCount
-        else:
-            out.right_data = self._convert_internal(
-                binary_bvh, right_binary_idx
-            )
-            out.right_count = 0
+            ref left = binary_bvh.bvh_nodes[Int(left_binary_idx)]
+            ref right = binary_bvh.bvh_nodes[Int(right_binary_idx)]
+
+            out.lmin = left.aabb._min.copy()
+            out.lmax = left.aabb._max.copy()
+            out.rmin = right.aabb._min.copy()
+            out.rmax = right.aabb._max.copy()
+            out.triCount = 0
+            out.firstTri = 0
+
+            out.left = self._convert_node(binary_bvh, left_binary_idx)
+            out.right = self._convert_node(binary_bvh, right_binary_idx)
 
         self.nodes[Int(gpu_idx)] = out^
         return gpu_idx
@@ -1161,17 +1155,28 @@ struct BVHGPU(Copyable):
 
     @always_inline
     def _traverse[is_shadow: Bool](self, mut ray: Ray) -> Bool:
-        if self.root_is_leaf:
-            return self._intersect_leaf[is_shadow](
-                ray, self.root_data, self.root_count
-            )
+        if len(self.nodes) == 0:
+            return False
 
         var stack = InlineArray[UInt32, 64](fill=0)
         var stack_ptr = 0
-        var node_idx = self.root_data
+        var node_idx = UInt32(0)
 
         while True:
             ref node = self.nodes[Int(node_idx)]
+
+            if node.is_leaf():
+                if self._intersect_leaf[is_shadow](
+                    ray, node.firstTri, node.triCount
+                ):
+                    comptime if is_shadow:
+                        return True
+
+                if stack_ptr == 0:
+                    break
+                stack_ptr -= 1
+                node_idx = stack[stack_ptr]
+                continue
 
             var dist_left = Float32(f32_max)
             var dist_right = Float32(f32_max)
@@ -1179,15 +1184,15 @@ struct BVHGPU(Copyable):
             var hit_left = intersect_ray_aabb(
                 ray.O,
                 ray.rD,
-                node.left_min,
-                node.left_max,
+                node.lmin,
+                node.lmax,
                 dist_left,
             )
             var hit_right = intersect_ray_aabb(
                 ray.O,
                 ray.rD,
-                node.right_min,
-                node.right_max,
+                node.rmin,
+                node.rmax,
                 dist_right,
             )
 
@@ -1196,48 +1201,29 @@ struct BVHGPU(Copyable):
             if hit_right and dist_right >= ray.hit.t:
                 hit_right = False
 
-            # Visit closer child first when both hit. This is not required for
-            # correctness, but it improves pruning for closest-hit rays and is
-            # close to what a GPU kernel will eventually want.
-            var near_data = node.left_data
-            var near_count = node.left_count
-            var near_hit = hit_left
-            var far_data = node.right_data
-            var far_count = node.right_count
-            var far_hit = hit_right
+            if not hit_left and not hit_right:
+                if stack_ptr == 0:
+                    break
+                stack_ptr -= 1
+                node_idx = stack[stack_ptr]
+            elif hit_left and not hit_right:
+                node_idx = node.left
+            elif not hit_left and hit_right:
+                node_idx = node.right
+            else:
+                var near = node.left
+                var far = node.right
 
-            if hit_left and hit_right and dist_left > dist_right:
-                near_data = node.right_data
-                near_count = node.right_count
-                far_data = node.left_data
-                far_count = node.left_count
+                # Closest-hit rays benefit from near-first traversal. Shadow rays
+                # do not require ordering for correctness, but the same order is
+                # still a reasonable CPU reference for the future GPU kernel.
+                if dist_left > dist_right:
+                    near = node.right
+                    far = node.left
 
-            if far_hit:
-                if far_count > 0:
-                    if self._intersect_leaf[is_shadow](
-                        ray, far_data, far_count
-                    ):
-                        comptime if is_shadow:
-                            return True
-                else:
-                    stack[stack_ptr] = far_data
-                    stack_ptr += 1
-
-            if near_hit:
-                if near_count > 0:
-                    if self._intersect_leaf[is_shadow](
-                        ray, near_data, near_count
-                    ):
-                        comptime if is_shadow:
-                            return True
-                else:
-                    node_idx = near_data
-                    continue
-
-            if stack_ptr == 0:
-                break
-            stack_ptr -= 1
-            node_idx = stack[stack_ptr]
+                stack[stack_ptr] = far
+                stack_ptr += 1
+                node_idx = near
 
         return False
 

@@ -1,14 +1,10 @@
-from std.benchmark import keep
 from std.bit import count_leading_zeros
 from std.atomic import Atomic
 from std.math import abs, min, max, round, sqrt
-from std.memory import UnsafePointer
 from std.sys import has_accelerator
-from std.time import perf_counter_ns
 from std.gpu import thread_idx, block_idx, block_dim, DeviceBuffer
 from std.gpu.host import DeviceContext
 
-from bajo.obj import read_obj, triangulated_indices
 from bajo.core.morton import morton3
 from bajo.core.vec import Vec3f32, vmin, vmax, cross, length, normalize
 from bajo.core.bvh import (
@@ -17,7 +13,7 @@ from bajo.core.bvh import (
     flatten_rays,
     hit_t_for_checksum,
 )
-from bajo.core.bvh.cpu_bvh import BVH, Ray
+from bajo.core.bvh.binary_bvh import BVH, Ray
 from bajo.sort.gpu.radix_sort import device_radix_sort_pairs, RadixSortWorkspace
 from bajo.core.utils import (
     ns_to_mrays_per_s,

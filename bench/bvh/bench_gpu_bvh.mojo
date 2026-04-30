@@ -16,7 +16,7 @@ from bajo.core.bvh import (
     trace_bvh_shadow,
     flatten_rays,
 )
-from bajo.core.bvh.cpu_bvh import BVH, Ray
+from bajo.core.bvh.cpu.binary_bvh import BVH, Ray
 from bajo.core.bvh import copy_list_to_device, compute_bounds
 from bajo.core.bvh.gpu_bvh import (
     compute_centroid_bounds,

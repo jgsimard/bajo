@@ -2,7 +2,7 @@ from std.gpu import thread_idx, block_idx, block_dim, DeviceBuffer
 from std.gpu.host import DeviceContext
 
 from bajo.core.vec import Vec3f32, vmin, vmax, cross, length, normalize
-from bajo.core.bvh.binary_bvh import Ray, BVH
+from bajo.core.bvh.cpu.binary_bvh import Ray, BVH
 
 
 def compute_bounds(verts: List[Vec3f32]) -> Tuple[Vec3f32, Vec3f32]:

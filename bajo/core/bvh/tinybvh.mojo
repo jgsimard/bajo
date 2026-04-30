@@ -1,9 +1,9 @@
 from std.algorithm import parallelize
+from std.bit import count_leading_zeros
 from std.math import abs, min, max, clamp
 from std.memory import UnsafePointer
 from std.atomic import Atomic
 from std.utils.numerics import max_finite, min_finite
-from std.bit import count_leading_zeros
 
 from bajo.core.aabb import AABB
 from bajo.core.intersect import intersect_ray_tri_moller, intersect_ray_aabb
@@ -374,16 +374,20 @@ struct BVH(Copyable):
         node_idx: UInt32,
         first: Int,
         count: Int,
-    ):
+    ) -> AABB:
         comptime MAX_LEAF_SIZE = 4
 
-        ref node = self.bvh_nodes[Int(node_idx)]
-        node.leftFirst = UInt32(first)
-        node.triCount = UInt32(count)
-        self.update_node_bounds(node_idx)
-
         if count <= MAX_LEAF_SIZE:
-            return
+            ref leaf = self.bvh_nodes[Int(node_idx)]
+            leaf.leftFirst = UInt32(first)
+            leaf.triCount = UInt32(count)
+            leaf.aabb = AABB.invalid()
+
+            for i in range(count):
+                var frag_idx = Int(self.prim_indices[first + i])
+                self.fragments[frag_idx].grow_into(leaf.aabb)
+
+            return leaf.aabb.copy()
 
         var split = _find_lbvh_split(pairs, first, first + count)
         var left_count = split - first
@@ -394,20 +398,21 @@ struct BVH(Copyable):
         var left_child_idx = self.nodes_used
         self.nodes_used += 2
 
-        self.bvh_nodes[Int(left_child_idx)].leftFirst = UInt32(first)
-        self.bvh_nodes[Int(left_child_idx)].triCount = UInt32(left_count)
-        self.bvh_nodes[Int(left_child_idx + 1)].leftFirst = UInt32(split)
-        self.bvh_nodes[Int(left_child_idx + 1)].triCount = UInt32(
-            count - left_count
+        var left_bounds = self._build_lbvh_recursive(
+            pairs, left_child_idx, first, left_count
         )
-
-        node.leftFirst = left_child_idx
-        node.triCount = 0
-
-        self._build_lbvh_recursive(pairs, left_child_idx, first, left_count)
-        self._build_lbvh_recursive(
+        var right_bounds = self._build_lbvh_recursive(
             pairs, left_child_idx + 1, split, count - left_count
         )
+
+        ref node = self.bvh_nodes[Int(node_idx)]
+        node.leftFirst = left_child_idx
+        node.triCount = 0
+        node.aabb = AABB.invalid()
+        node.aabb.grow(left_bounds)
+        node.aabb.grow(right_bounds)
+
+        return node.aabb.copy()
 
     def build_lbvh(mut self):
         """Build a binary LBVH using sorted Morton codes over cached fragments.
@@ -461,11 +466,7 @@ struct BVH(Copyable):
         for i in range(len(pairs)):
             self.prim_indices[i] = pairs[i].frag_idx
 
-        ref root = self.bvh_nodes[0]
-        root.leftFirst = 0
-        root.triCount = self.tri_count
-        self.update_node_bounds(0)
-        self._build_lbvh_recursive(
+        _ = self._build_lbvh_recursive(
             pairs.unsafe_ptr(), 0, 0, Int(self.tri_count)
         )
 

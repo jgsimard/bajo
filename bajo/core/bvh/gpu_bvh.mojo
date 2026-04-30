@@ -13,7 +13,12 @@ from bajo.core.bvh import (
     flatten_rays,
     hit_t_for_checksum,
 )
-from bajo.core.bvh.binary_bvh import BVH, Ray
+from bajo.core.bvh.gpu.constants import (
+    LBVH_LEAF_FLAG,
+    LBVH_INDEX_MASK,
+    LBVH_SENTINEL,
+)
+from bajo.core.bvh.cpu.binary_bvh import BVH, Ray
 from bajo.sort.gpu.radix_sort import device_radix_sort_pairs, RadixSortWorkspace
 from bajo.core.utils import (
     ns_to_mrays_per_s,
@@ -23,9 +28,6 @@ from bajo.core.utils import (
 
 comptime GPU_TRAVERSAL_STACK_SIZE = 64
 comptime GPU_REDUCE_THREADS = 4096
-comptime LBVH_LEAF_FLAG = UInt32(0x80000000)
-comptime LBVH_INDEX_MASK = UInt32(0x7FFFFFFF)
-comptime LBVH_SENTINEL = UInt32(0xFFFFFFFF)
 
 
 def compute_centroid_bounds(verts: List[Vec3f32]) -> Tuple[Vec3f32, Vec3f32]:
@@ -706,58 +708,95 @@ def _normalize3(
     return (x * inv_len, y * inv_len, z * inv_len)
 
 
-def trace_lbvh_gpu_primary_camera_kernel(
+# -----------------------------------------------------------------------------
+# GPU-generated rays with on-device reductions.
+# -----------------------------------------------------------------------------
+comptime TRACE_PRIMARY_FULL = "primary_full"
+comptime TRACE_PRIMARY_T = "primary_t"
+comptime TRACE_SHADOW = "shadow"
+
+
+def trace_lbvh_gpu_camera_kernel[
+    mode: String
+](
     vertices: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
     sorted_prim_ids: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
     node_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
     node_bounds: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
     camera_params: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    hits_f32: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    hits_u32: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    # Generic outputs:
+    # - primary_full: out_f32 = hits_f32, out_u32 = hits_u32
+    # - primary_t:    out_f32 = hit_t,    out_u32 unused
+    # - shadow:       out_f32 unused,     out_u32 = occluded
+    out_f32: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    out_u32: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
     ray_count: Int,
     width: Int,
     height: Int,
     views: Int,
     root_idx: UInt32,
 ):
+    comptime if mode != TRACE_PRIMARY_FULL and mode != TRACE_PRIMARY_T and mode != TRACE_SHADOW:
+        comptime assert False, "unknown GPU LBVH camera trace mode"
+
     var ray_idx = Int(block_idx.x * block_dim.x + thread_idx.x)
     if ray_idx >= ray_count:
         return
 
     var pixels_per_view = width * height
     var view_idx = ray_idx // pixels_per_view
+
     if view_idx >= views:
+        comptime if mode == TRACE_PRIMARY_FULL:
+            var hit_base = ray_idx * 3
+            out_f32[hit_base + 0] = Float32(3.4028234663852886e38)
+            out_f32[hit_base + 1] = Float32(0.0)
+            out_f32[hit_base + 2] = Float32(0.0)
+            out_u32[ray_idx] = UInt32(0xFFFFFFFF)
+        elif mode == TRACE_PRIMARY_T:
+            out_f32[ray_idx] = Float32(3.4028234663852886e38)
+        else:
+            out_u32[ray_idx] = UInt32(0)
         return
+
+    # shared camera ray generation
     var local_idx = ray_idx - view_idx * pixels_per_view
     var px_i = local_idx % width
     var py_i = local_idx // width
 
     var cam_base = view_idx * 12
+
     var ox = camera_params[cam_base + 0]
     var oy = camera_params[cam_base + 1]
     var oz = camera_params[cam_base + 2]
+
     var fx = camera_params[cam_base + 3]
     var fy = camera_params[cam_base + 4]
     var fz = camera_params[cam_base + 5]
+
     var rx = camera_params[cam_base + 6]
     var ry = camera_params[cam_base + 7]
     var rz = camera_params[cam_base + 8]
+
     var ux = camera_params[cam_base + 9]
     var uy = camera_params[cam_base + 10]
     var uz = camera_params[cam_base + 11]
 
     var aspect = Float32(width) / Float32(height)
     var fov_scale = Float32(0.75)
+
     var sx = ((Float32(px_i) + 0.5) / Float32(width)) * 2.0 - 1.0
     var sy = 1.0 - ((Float32(py_i) + 0.5) / Float32(height)) * 2.0
 
     var dir_x = fx + rx * (sx * aspect * fov_scale) + ux * (sy * fov_scale)
     var dir_y = fy + ry * (sx * aspect * fov_scale) + uy * (sy * fov_scale)
     var dir_z = fz + rz * (sx * aspect * fov_scale) + uz * (sy * fov_scale)
+
     var nd = _normalize3(dir_x, dir_y, dir_z)
     var dx = nd[0]
     var dy = nd[1]
     var dz = nd[2]
+
     var rdx = Float32(1.0) / dx
     var rdy = Float32(1.0) / dy
     var rdz = Float32(1.0) / dz
@@ -775,17 +814,33 @@ def trace_lbvh_gpu_primary_camera_kernel(
         if (current & LBVH_LEAF_FLAG) != 0:
             var leaf_idx = current & LBVH_INDEX_MASK
             var prim_idx = UInt32(sorted_prim_ids[Int(leaf_idx)])
+
             var tri_hit = _intersect_tri_flat(
-                vertices, prim_idx, ox, oy, oz, dx, dy, dz, best_t
+                vertices,
+                prim_idx,
+                ox,
+                oy,
+                oz,
+                dx,
+                dy,
+                dz,
+                best_t,
             )
+
             if tri_hit[0]:
-                best_t = tri_hit[1]
-                best_u = tri_hit[2]
-                best_v = tri_hit[3]
-                best_prim = prim_idx
+                comptime if mode == TRACE_SHADOW:
+                    out_u32[ray_idx] = UInt32(1)
+                    return
+                else:
+                    best_t = tri_hit[1]
+                    comptime if mode == TRACE_PRIMARY_FULL:
+                        best_u = tri_hit[2]
+                        best_v = tri_hit[3]
+                        best_prim = prim_idx
 
             if stack_ptr == 0:
                 break
+
             stack_ptr -= 1
             current = stack[stack_ptr]
             continue
@@ -793,6 +848,7 @@ def trace_lbvh_gpu_primary_camera_kernel(
         var node_idx = current & LBVH_INDEX_MASK
         var meta_base = Int(node_idx) * 4
         var bounds_base = Int(node_idx) * 12
+
         var left = UInt32(node_meta[meta_base + 1])
         var right = UInt32(node_meta[meta_base + 2])
 
@@ -811,6 +867,7 @@ def trace_lbvh_gpu_primary_camera_kernel(
             node_bounds[bounds_base + 5],
             best_t,
         )
+
         var right_hit = _intersect_aabb_flat(
             ox,
             oy,
@@ -837,303 +894,39 @@ def trace_lbvh_gpu_primary_camera_kernel(
                 break
             stack_ptr -= 1
             current = stack[stack_ptr]
+
         elif hit_left and not hit_right:
             current = left
+
         elif not hit_left and hit_right:
             current = right
+
         else:
             var near = left
             var far = right
+
             if dist_left > dist_right:
                 near = right
                 far = left
+
             if stack_ptr < GPU_TRAVERSAL_STACK_SIZE:
                 stack[stack_ptr] = far
                 stack_ptr += 1
+
             current = near
 
-    var hit_base = ray_idx * 3
-    hits_f32[hit_base + 0] = best_t
-    hits_f32[hit_base + 1] = best_u
-    hits_f32[hit_base + 2] = best_v
-    hits_u32[ray_idx] = best_prim
+    comptime if mode == TRACE_PRIMARY_FULL:
+        var hit_base = ray_idx * 3
+        out_f32[hit_base + 0] = best_t
+        out_f32[hit_base + 1] = best_u
+        out_f32[hit_base + 2] = best_v
+        out_u32[ray_idx] = best_prim
 
+    elif mode == TRACE_PRIMARY_T:
+        out_f32[ray_idx] = best_t
 
-# -----------------------------------------------------------------------------
-# GPU-generated rays with on-device reductions.
-# -----------------------------------------------------------------------------
-
-
-def trace_lbvh_gpu_primary_camera_t_kernel(
-    vertices: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    sorted_prim_ids: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    node_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    node_bounds: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    camera_params: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    hit_t: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    ray_count: Int,
-    width: Int,
-    height: Int,
-    views: Int,
-    root_idx: UInt32,
-):
-    var ray_idx = Int(block_idx.x * block_dim.x + thread_idx.x)
-    if ray_idx >= ray_count:
-        return
-
-    var pixels_per_view = width * height
-    var view_idx = ray_idx // pixels_per_view
-    if view_idx >= views:
-        hit_t[ray_idx] = Float32(3.4028234663852886e38)
-        return
-    var local_idx = ray_idx - view_idx * pixels_per_view
-    var px_i = local_idx % width
-    var py_i = local_idx // width
-
-    var cam_base = view_idx * 12
-    var ox = camera_params[cam_base + 0]
-    var oy = camera_params[cam_base + 1]
-    var oz = camera_params[cam_base + 2]
-    var fx = camera_params[cam_base + 3]
-    var fy = camera_params[cam_base + 4]
-    var fz = camera_params[cam_base + 5]
-    var rx = camera_params[cam_base + 6]
-    var ry = camera_params[cam_base + 7]
-    var rz = camera_params[cam_base + 8]
-    var ux = camera_params[cam_base + 9]
-    var uy = camera_params[cam_base + 10]
-    var uz = camera_params[cam_base + 11]
-
-    var aspect = Float32(width) / Float32(height)
-    var fov_scale = Float32(0.75)
-    var sx = ((Float32(px_i) + 0.5) / Float32(width)) * 2.0 - 1.0
-    var sy = 1.0 - ((Float32(py_i) + 0.5) / Float32(height)) * 2.0
-    var dir_x = fx + rx * (sx * aspect * fov_scale) + ux * (sy * fov_scale)
-    var dir_y = fy + ry * (sx * aspect * fov_scale) + uy * (sy * fov_scale)
-    var dir_z = fz + rz * (sx * aspect * fov_scale) + uz * (sy * fov_scale)
-    var nd = _normalize3(dir_x, dir_y, dir_z)
-    var dx = nd[0]
-    var dy = nd[1]
-    var dz = nd[2]
-    var rdx = Float32(1.0) / dx
-    var rdy = Float32(1.0) / dy
-    var rdz = Float32(1.0) / dz
-
-    var best_t = Float32(3.4028234663852886e38)
-    var stack = InlineArray[UInt32, GPU_TRAVERSAL_STACK_SIZE](fill=0)
-    var stack_ptr = 0
-    var current = root_idx
-
-    while True:
-        if (current & LBVH_LEAF_FLAG) != 0:
-            var leaf_idx = current & LBVH_INDEX_MASK
-            var prim_idx = UInt32(sorted_prim_ids[Int(leaf_idx)])
-            var tri_hit = _intersect_tri_flat(
-                vertices, prim_idx, ox, oy, oz, dx, dy, dz, best_t
-            )
-            if tri_hit[0]:
-                best_t = tri_hit[1]
-            if stack_ptr == 0:
-                break
-            stack_ptr -= 1
-            current = stack[stack_ptr]
-            continue
-
-        var node_idx = current & LBVH_INDEX_MASK
-        var meta_base = Int(node_idx) * 4
-        var bounds_base = Int(node_idx) * 12
-        var left = UInt32(node_meta[meta_base + 1])
-        var right = UInt32(node_meta[meta_base + 2])
-        var left_hit = _intersect_aabb_flat(
-            ox,
-            oy,
-            oz,
-            rdx,
-            rdy,
-            rdz,
-            node_bounds[bounds_base + 0],
-            node_bounds[bounds_base + 1],
-            node_bounds[bounds_base + 2],
-            node_bounds[bounds_base + 3],
-            node_bounds[bounds_base + 4],
-            node_bounds[bounds_base + 5],
-            best_t,
-        )
-        var right_hit = _intersect_aabb_flat(
-            ox,
-            oy,
-            oz,
-            rdx,
-            rdy,
-            rdz,
-            node_bounds[bounds_base + 6],
-            node_bounds[bounds_base + 7],
-            node_bounds[bounds_base + 8],
-            node_bounds[bounds_base + 9],
-            node_bounds[bounds_base + 10],
-            node_bounds[bounds_base + 11],
-            best_t,
-        )
-        var hit_left = left_hit[0]
-        var hit_right = right_hit[0]
-        var dist_left = left_hit[1]
-        var dist_right = right_hit[1]
-        if not hit_left and not hit_right:
-            if stack_ptr == 0:
-                break
-            stack_ptr -= 1
-            current = stack[stack_ptr]
-        elif hit_left and not hit_right:
-            current = left
-        elif not hit_left and hit_right:
-            current = right
-        else:
-            var near = left
-            var far = right
-            if dist_left > dist_right:
-                near = right
-                far = left
-            if stack_ptr < GPU_TRAVERSAL_STACK_SIZE:
-                stack[stack_ptr] = far
-                stack_ptr += 1
-            current = near
-    hit_t[ray_idx] = best_t
-
-
-def trace_lbvh_gpu_shadow_camera_kernel(
-    vertices: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    sorted_prim_ids: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    node_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    node_bounds: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    camera_params: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    occluded: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    ray_count: Int,
-    width: Int,
-    height: Int,
-    views: Int,
-    root_idx: UInt32,
-):
-    var ray_idx = Int(block_idx.x * block_dim.x + thread_idx.x)
-    if ray_idx >= ray_count:
-        return
-
-    var pixels_per_view = width * height
-    var view_idx = ray_idx // pixels_per_view
-    if view_idx >= views:
-        occluded[ray_idx] = UInt32(0)
-        return
-    var local_idx = ray_idx - view_idx * pixels_per_view
-    var px_i = local_idx % width
-    var py_i = local_idx // width
-
-    var cam_base = view_idx * 12
-    var ox = camera_params[cam_base + 0]
-    var oy = camera_params[cam_base + 1]
-    var oz = camera_params[cam_base + 2]
-    var fx = camera_params[cam_base + 3]
-    var fy = camera_params[cam_base + 4]
-    var fz = camera_params[cam_base + 5]
-    var rx = camera_params[cam_base + 6]
-    var ry = camera_params[cam_base + 7]
-    var rz = camera_params[cam_base + 8]
-    var ux = camera_params[cam_base + 9]
-    var uy = camera_params[cam_base + 10]
-    var uz = camera_params[cam_base + 11]
-
-    var aspect = Float32(width) / Float32(height)
-    var fov_scale = Float32(0.75)
-    var sx = ((Float32(px_i) + 0.5) / Float32(width)) * 2.0 - 1.0
-    var sy = 1.0 - ((Float32(py_i) + 0.5) / Float32(height)) * 2.0
-    var dir_x = fx + rx * (sx * aspect * fov_scale) + ux * (sy * fov_scale)
-    var dir_y = fy + ry * (sx * aspect * fov_scale) + uy * (sy * fov_scale)
-    var dir_z = fz + rz * (sx * aspect * fov_scale) + uz * (sy * fov_scale)
-    var nd = _normalize3(dir_x, dir_y, dir_z)
-    var dx = nd[0]
-    var dy = nd[1]
-    var dz = nd[2]
-    var rdx = Float32(1.0) / dx
-    var rdy = Float32(1.0) / dy
-    var rdz = Float32(1.0) / dz
-    var t_max = Float32(3.4028234663852886e38)
-
-    var stack = InlineArray[UInt32, GPU_TRAVERSAL_STACK_SIZE](fill=0)
-    var stack_ptr = 0
-    var current = root_idx
-    while True:
-        if (current & LBVH_LEAF_FLAG) != 0:
-            var leaf_idx = current & LBVH_INDEX_MASK
-            var prim_idx = UInt32(sorted_prim_ids[Int(leaf_idx)])
-            var tri_hit = _intersect_tri_flat(
-                vertices, prim_idx, ox, oy, oz, dx, dy, dz, t_max
-            )
-            if tri_hit[0]:
-                occluded[ray_idx] = UInt32(1)
-                return
-            if stack_ptr == 0:
-                break
-            stack_ptr -= 1
-            current = stack[stack_ptr]
-            continue
-
-        var node_idx = current & LBVH_INDEX_MASK
-        var meta_base = Int(node_idx) * 4
-        var bounds_base = Int(node_idx) * 12
-        var left = UInt32(node_meta[meta_base + 1])
-        var right = UInt32(node_meta[meta_base + 2])
-        var left_hit = _intersect_aabb_flat(
-            ox,
-            oy,
-            oz,
-            rdx,
-            rdy,
-            rdz,
-            node_bounds[bounds_base + 0],
-            node_bounds[bounds_base + 1],
-            node_bounds[bounds_base + 2],
-            node_bounds[bounds_base + 3],
-            node_bounds[bounds_base + 4],
-            node_bounds[bounds_base + 5],
-            t_max,
-        )
-        var right_hit = _intersect_aabb_flat(
-            ox,
-            oy,
-            oz,
-            rdx,
-            rdy,
-            rdz,
-            node_bounds[bounds_base + 6],
-            node_bounds[bounds_base + 7],
-            node_bounds[bounds_base + 8],
-            node_bounds[bounds_base + 9],
-            node_bounds[bounds_base + 10],
-            node_bounds[bounds_base + 11],
-            t_max,
-        )
-        var hit_left = left_hit[0]
-        var hit_right = right_hit[0]
-        var dist_left = left_hit[1]
-        var dist_right = right_hit[1]
-        if not hit_left and not hit_right:
-            if stack_ptr == 0:
-                break
-            stack_ptr -= 1
-            current = stack[stack_ptr]
-        elif hit_left and not hit_right:
-            current = left
-        elif not hit_left and hit_right:
-            current = right
-        else:
-            var near = left
-            var far = right
-            if dist_left > dist_right:
-                near = right
-                far = left
-            if stack_ptr < GPU_TRAVERSAL_STACK_SIZE:
-                stack[stack_ptr] = far
-                stack_ptr += 1
-            current = near
-    occluded[ray_idx] = UInt32(0)
+    else:
+        out_u32[ray_idx] = UInt32(0)
 
 
 def reduce_hit_t_kernel(

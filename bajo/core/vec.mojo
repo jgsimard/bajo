@@ -1,5 +1,4 @@
 from std.builtin.device_passable import DevicePassable
-from std.compile import get_type_name
 from std.math import sqrt, min, max, clamp
 from std.sys import CompilationTarget
 from std.testing import assert_almost_equal
@@ -86,7 +85,7 @@ struct Vec[dtype: DType, size: Int](
         """
         return String(
             "Vec[",
-            get_type_name[Self.ElementType](),
+            reflect[Self.ElementType]().name(),
             ", ",
             Self.size,
             "]",

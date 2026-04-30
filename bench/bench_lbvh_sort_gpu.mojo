@@ -3019,7 +3019,7 @@ def run_gpu_lbvh_camera_reduce_and_shadow_benchmark(
 
 
 def main() raises:
-    print("GPU LBVH direct traversal benchmark")
+    print("GPU LBVH benchmark")
     print(t"Path: {DEFAULT_OBJ_PATH}")
     print(t"Image rays: {PRIMARY_WIDTH} x {PRIMARY_HEIGHT} x {PRIMARY_VIEWS}")
     print(t"Repeats: {BENCH_REPEATS}")
@@ -3030,23 +3030,25 @@ def main() raises:
     var load_t1 = perf_counter_ns()
 
     var tri_count = len(tri_vertices) // 3
+    var internal_count = tri_count - 1
     var bounds = compute_bounds(tri_vertices)
-    var centroid_bounds = compute_centroid_bounds(tri_vertices)
     var bmin = bounds[0].copy()
     var bmax = bounds[1].copy()
-    var cmin = centroid_bounds[0].copy()
-    var cmax = centroid_bounds[1].copy()
+    var cbounds = compute_centroid_bounds(tri_vertices)
+    var cmin = cbounds[0].copy()
+    var cmax = cbounds[1].copy()
+    var load_ms = round(ns_to_ms(Int(load_t1 - load_t0)), 3)
 
     print(t"Packed vertices: {len(tri_vertices)}")
     print(t"Triangles: {tri_count}")
-    print(t"Internal nodes: {tri_count - 1}")
-    print(t"Load+pack ms: {round(ns_to_ms(Int(load_t1 - load_t0)), 3)}")
+    print(t"Internal nodes: {internal_count}")
+    print(t"Load+pack ms: {load_ms}")
     print_vec3_rounded("Bounds min:", bmin)
     print_vec3_rounded("Bounds max:", bmax)
     print_vec3_rounded("Centroid min:", cmin)
     print_vec3_rounded("Centroid max:", cmax)
 
-    print("\nGenerating rays...")
+    print("\nGenerating reference rays and camera parameters...")
     var rays = generate_primary_rays(
         bmin, bmax, PRIMARY_WIDTH, PRIMARY_HEIGHT, PRIMARY_VIEWS
     )
@@ -3056,170 +3058,30 @@ def main() raises:
 
     print("\nCPU reference")
     print("-------------")
-    var ref_t0 = perf_counter_ns()
+    var ref_build_t0 = perf_counter_ns()
     var ref_bvh = BVH(tri_vertices.unsafe_ptr(), UInt32(tri_count))
     ref_bvh.build["sah", True]()
-    var ref_t1 = perf_counter_ns()
-    var checksum_t0 = perf_counter_ns()
+    var ref_build_t1 = perf_counter_ns()
+
+    var ref_trace_t0 = perf_counter_ns()
     var ref_checksum = trace_bvh_primary(ref_bvh, rays)
     var ref_occluded = trace_bvh_shadow(ref_bvh, rays)
-    var checksum_t1 = perf_counter_ns()
-    print(t"SAH MT build:       {round(ns_to_ms(Int(ref_t1 - ref_t0)), 3)} ms")
+    var ref_trace_t1 = perf_counter_ns()
+
     print(
-        t"reference"
-        t" traversal:{round(ns_to_ms(Int(checksum_t1 - checksum_t0)), 3)} ms |"
+        t"SAH MT build:       "
+        t" {round(ns_to_ms(Int(ref_build_t1 - ref_build_t0)), 3)} ms"
+    )
+    print(
+        t"reference queries:  "
+        t" {round(ns_to_ms(Int(ref_trace_t1 - ref_trace_t0)), 3)} ms |"
         t" checksum: {round(ref_checksum, 3)} | occluded: {ref_occluded}"
     )
 
-    print("\nGPU LBVH direct traversal")
-    print("-------------------------")
+    print("\nGPU LBVH path")
+    print("------------------")
     comptime if has_accelerator():
-        var res = run_gpu_lbvh_direct_traversal_benchmark(
-            tri_vertices,
-            cmin,
-            cmax,
-            bmin,
-            bmax,
-            rays,
-            ref_checksum,
-            BENCH_REPEATS,
-        )
-        var static_upload_ns = res[0]
-        var morton_ns = res[1]
-        var sort_ns = res[2]
-        var topology_ns = res[3]
-        var refit_ns = res[4]
-        var ray_upload_ns = res[5]
-        var traversal_ns = res[6]
-        var download_ns = res[7]
-        var frame_ns = res[8]
-        var gpu_checksum = res[9]
-        var sorted_ok = res[10]
-        var topology_ok = res[11]
-        var refit_ok = res[12]
-        var diff = res[13]
-        var root_idx = res[14]
-        var checksum = res[15]
-        var build_ns = morton_ns + sort_ns + topology_ns + refit_ns
-
-        print(
-            t"static upload + workspace:"
-            t" {round(ns_to_ms(static_upload_ns), 3)} ms"
-        )
-        print(t"morton generation:        {round(ns_to_ms(morton_ns), 3)} ms")
-        print(t"radix sort pairs:         {round(ns_to_ms(sort_ns), 3)} ms")
-        print(t"topology build:           {round(ns_to_ms(topology_ns), 3)} ms")
-        print(t"bounds refit:             {round(ns_to_ms(refit_ns), 3)} ms")
-        print(t"lbvh build total:         {round(ns_to_ms(build_ns), 3)} ms")
-        print(
-            t"build valid:              sorted={sorted_ok} |"
-            t" topology={topology_ok} | bounds={refit_ok} | root={root_idx}"
-        )
-        print(
-            t"ray upload:               {round(ns_to_ms(ray_upload_ns), 3)} ms"
-        )
-        print(
-            t"lbvh traversal kernel:    {round(ns_to_ms(traversal_ns), 3)} ms |"
-            t" {round(ns_to_mrays_per_s(traversal_ns, len(rays)), 3)} MRays/s"
-        )
-        print(t"hit download:             {round(ns_to_ms(download_ns), 3)} ms")
-        print(
-            t"frame total:              {round(ns_to_ms(frame_ns), 3)} ms |"
-            t" {round(ns_to_mrays_per_s(frame_ns, len(rays)), 3)} MRays/s"
-        )
-        print(
-            t"validation diff:          {round(diff, 3)} | checksum:"
-            t" {round(gpu_checksum, 3)}"
-        )
-        print(t"checksum guard:           {checksum}")
-    else:
-        print("No compatible GPU found; skipped GPU LBVH traversal benchmark.")
-
-    print("\nGPU LBVH generated-ray traversal")
-    print("--------------------------------")
-    comptime if has_accelerator():
-        var cam_res = run_gpu_lbvh_camera_traversal_benchmark(
-            tri_vertices,
-            cmin,
-            cmax,
-            bmin,
-            bmax,
-            camera_params,
-            len(rays),
-            ref_checksum,
-            BENCH_REPEATS,
-        )
-        var cam_static_upload_ns = cam_res[0]
-        var cam_morton_ns = cam_res[1]
-        var cam_sort_ns = cam_res[2]
-        var cam_topology_ns = cam_res[3]
-        var cam_refit_ns = cam_res[4]
-        var cam_traversal_ns = cam_res[5]
-        var cam_download_ns = cam_res[6]
-        var cam_checksum = cam_res[7]
-        var cam_sorted_ok = cam_res[8]
-        var cam_topology_ok = cam_res[9]
-        var cam_refit_ok = cam_res[10]
-        var cam_diff = cam_res[11]
-        var cam_root_idx = cam_res[12]
-        var cam_guard = cam_res[13]
-        var cam_build_ns = (
-            cam_morton_ns + cam_sort_ns + cam_topology_ns + cam_refit_ns
-        )
-        var cam_frame_ns = cam_traversal_ns + cam_download_ns
-
-        print(
-            t"static upload + workspace:"
-            t" {round(ns_to_ms(cam_static_upload_ns), 3)} ms"
-        )
-        print(
-            t"morton generation:        {round(ns_to_ms(cam_morton_ns), 3)} ms"
-        )
-        print(t"radix sort pairs:         {round(ns_to_ms(cam_sort_ns), 3)} ms")
-        print(
-            t"topology build:          "
-            t" {round(ns_to_ms(cam_topology_ns), 3)} ms"
-        )
-        print(
-            t"bounds refit:             {round(ns_to_ms(cam_refit_ns), 3)} ms"
-        )
-        print(
-            t"lbvh build total:         {round(ns_to_ms(cam_build_ns), 3)} ms"
-        )
-        print(
-            t"build valid:              sorted={cam_sorted_ok} |"
-            t" topology={cam_topology_ok} | bounds={cam_refit_ok} |"
-            t" root={cam_root_idx}"
-        )
-        print("ray upload:               0.0 ms | generated on GPU")
-        print(
-            t"lbvh camera kernel:      "
-            t" {round(ns_to_ms(cam_traversal_ns), 3)} ms |"
-            t" {round(ns_to_mrays_per_s(cam_traversal_ns, len(rays)), 3)} MRays/s"
-        )
-        print(
-            t"hit download:            "
-            t" {round(ns_to_ms(cam_download_ns), 3)} ms"
-        )
-        print(
-            t"frame total:              {round(ns_to_ms(cam_frame_ns), 3)} ms |"
-            t" {round(ns_to_mrays_per_s(cam_frame_ns, len(rays)), 3)} MRays/s"
-        )
-        print(
-            t"validation diff:          {round(cam_diff, 3)} | checksum:"
-            t" {round(cam_checksum, 3)}"
-        )
-        print(t"checksum guard:           {cam_guard}")
-    else:
-        print(
-            "No compatible GPU found; skipped generated-ray traversal"
-            " benchmark."
-        )
-
-    print("\nGPU LBVH generated-ray primary checksum + shadow reduction")
-    print("----------------------------------------------------------")
-    comptime if has_accelerator():
-        var red_res = run_gpu_lbvh_camera_reduce_and_shadow_benchmark(
+        var gpu_result = run_gpu_lbvh_camera_reduce_and_shadow_benchmark(
             tri_vertices,
             cmin,
             cmax,
@@ -3231,101 +3093,104 @@ def main() raises:
             ref_occluded,
             BENCH_REPEATS,
         )
-        var red_static_upload_ns = red_res[0]
-        var red_morton_ns = red_res[1]
-        var red_sort_ns = red_res[2]
-        var red_topology_ns = red_res[3]
-        var red_refit_ns = red_res[4]
-        var red_primary_ns = red_res[5]
-        var red_primary_reduce_ns = red_res[6]
-        var red_primary_download_ns = red_res[7]
-        var red_primary_checksum = red_res[8]
-        var red_primary_hits = red_res[9]
-        var red_primary_diff = red_res[10]
-        var red_shadow_ns = red_res[11]
-        var red_shadow_reduce_ns = red_res[12]
-        var red_shadow_download_ns = red_res[13]
-        var red_shadow_occluded = red_res[14]
-        var red_shadow_diff = red_res[15]
-        var red_sorted_ok = red_res[16]
-        var red_topology_ok = red_res[17]
-        var red_refit_ok = red_res[18]
-        var red_root_idx = red_res[19]
-        var red_guard = red_res[20]
-        var red_build_ns = (
-            red_morton_ns + red_sort_ns + red_topology_ns + red_refit_ns
+
+        var static_upload_ns = gpu_result[0]
+        var morton_ns = gpu_result[1]
+        var sort_ns = gpu_result[2]
+        var topology_ns = gpu_result[3]
+        var refit_ns = gpu_result[4]
+
+        var primary_kernel_ns = gpu_result[5]
+        var primary_reduce_ns = gpu_result[6]
+        var primary_download_ns = gpu_result[7]
+        var primary_checksum = gpu_result[8]
+        var primary_hits = gpu_result[9]
+        var primary_diff = gpu_result[10]
+
+        var shadow_kernel_ns = gpu_result[11]
+        var shadow_reduce_ns = gpu_result[12]
+        var shadow_download_ns = gpu_result[13]
+        var shadow_occluded = gpu_result[14]
+        var shadow_diff = gpu_result[15]
+
+        var sorted_ok = gpu_result[16]
+        var topology_ok = gpu_result[17]
+        var bounds_ok = gpu_result[18]
+        var root_idx = gpu_result[19]
+        var guard = gpu_result[20]
+
+        var build_ns = morton_ns + sort_ns + topology_ns + refit_ns
+        var primary_frame_ns = (
+            primary_kernel_ns + primary_reduce_ns + primary_download_ns
         )
-        var red_primary_frame_ns = (
-            red_primary_ns + red_primary_reduce_ns + red_primary_download_ns
+        var shadow_frame_ns = (
+            shadow_kernel_ns + shadow_reduce_ns + shadow_download_ns
         )
-        var red_shadow_frame_ns = (
-            red_shadow_ns + red_shadow_reduce_ns + red_shadow_download_ns
+        var primary_total_ns = build_ns + primary_frame_ns
+        var shadow_total_ns = build_ns + shadow_frame_ns
+
+        print(t"static upload once:  {round(ns_to_ms(static_upload_ns), 3)} ms")
+        print(
+            t"build valid:         sorted={sorted_ok} |"
+            t" topology={topology_ok} | bounds={bounds_ok} | root={root_idx}"
         )
 
+        print("\nGPU LBVH build")
+        print(t"morton generation:   {round(ns_to_ms(morton_ns), 3)} ms")
+        print(t"radix sort pairs:    {round(ns_to_ms(sort_ns), 3)} ms")
+        print(t"topology build:      {round(ns_to_ms(topology_ns), 3)} ms")
+        print(t"bounds refit:        {round(ns_to_ms(refit_ns), 3)} ms")
+        print(t"build total:         {round(ns_to_ms(build_ns), 3)} ms")
+
+        print("\nGenerated primary rays + GPU checksum")
         print(
-            t"static upload + workspace:"
-            t" {round(ns_to_ms(red_static_upload_ns), 3)} ms"
+            t"camera kernel:       {round(ns_to_ms(primary_kernel_ns), 3)} ms"
+            t" | {round(ns_to_mrays_per_s(primary_kernel_ns, len(rays)), 3)} MRays/s"
         )
         print(
-            t"lbvh build total:         {round(ns_to_ms(red_build_ns), 3)} ms"
+            t"checksum reduction:  {round(ns_to_ms(primary_reduce_ns), 3)} ms"
         )
         print(
-            t"build valid:              sorted={red_sorted_ok} |"
-            t" topology={red_topology_ok} | bounds={red_refit_ok} |"
-            t" root={red_root_idx}"
-        )
-        print("ray upload:               0.0 ms | generated on GPU")
-        print("\nprimary + checksum reduction")
-        print(
-            t"lbvh camera kernel:       {round(ns_to_ms(red_primary_ns), 3)} ms"
-            t" | {round(ns_to_mrays_per_s(red_primary_ns, len(rays)), 3)} MRays/s"
+            t"partial download:    {round(ns_to_ms(primary_download_ns), 3)} ms"
         )
         print(
-            t"checksum reduction:      "
-            t" {round(ns_to_ms(red_primary_reduce_ns), 3)} ms"
+            t"query total:         {round(ns_to_ms(primary_frame_ns), 3)} ms"
+            t" | {round(ns_to_mrays_per_s(primary_frame_ns, len(rays)), 3)} MRays/s"
         )
         print(
-            t"partial download:        "
-            t" {round(ns_to_ms(red_primary_download_ns), 3)} ms"
+            t"build + query total: {round(ns_to_ms(primary_total_ns), 3)} ms"
+            t" | {round(ns_to_mrays_per_s(primary_total_ns, len(rays)), 3)} MRays/s"
         )
         print(
-            t"frame total:             "
-            t" {round(ns_to_ms(red_primary_frame_ns), 3)} ms |"
-            t" {round(ns_to_mrays_per_s(red_primary_frame_ns, len(rays)), 3)} MRays/s"
+            t"validation diff:     {round(primary_diff, 3)}"
+            t" | checksum: {round(primary_checksum, 3)} | hits: {primary_hits}"
+        )
+
+        print("\nGenerated shadow rays + GPU occlusion count")
+        print(
+            t"shadow kernel:       {round(ns_to_ms(shadow_kernel_ns), 3)} ms"
+            t" | {round(ns_to_mrays_per_s(shadow_kernel_ns, len(rays)), 3)} MRays/s"
+        )
+        print(t"occlusion reduction: {round(ns_to_ms(shadow_reduce_ns), 3)} ms")
+        print(
+            t"partial download:    {round(ns_to_ms(shadow_download_ns), 3)} ms"
         )
         print(
-            t"validation diff:          {round(red_primary_diff, 3)} |"
-            t" checksum: {round(red_primary_checksum, 3)} | hits:"
-            t" {red_primary_hits}"
-        )
-        print("\nshadow + occlusion reduction")
-        print(
-            t"lbvh shadow kernel:       {round(ns_to_ms(red_shadow_ns), 3)} ms"
-            t" | {round(ns_to_mrays_per_s(red_shadow_ns, len(rays)), 3)} MRays/s"
+            t"query total:         {round(ns_to_ms(shadow_frame_ns), 3)} ms"
+            t" | {round(ns_to_mrays_per_s(shadow_frame_ns, len(rays)), 3)} MRays/s"
         )
         print(
-            t"occlusion reduction:     "
-            t" {round(ns_to_ms(red_shadow_reduce_ns), 3)} ms"
+            t"build + query total: {round(ns_to_ms(shadow_total_ns), 3)} ms"
+            t" | {round(ns_to_mrays_per_s(shadow_total_ns, len(rays)), 3)} MRays/s"
         )
         print(
-            t"partial download:        "
-            t" {round(ns_to_ms(red_shadow_download_ns), 3)} ms"
+            t"validation diff:     {shadow_diff}"
+            t" | occluded: {shadow_occluded} | ref: {ref_occluded}"
         )
-        print(
-            t"frame total:             "
-            t" {round(ns_to_ms(red_shadow_frame_ns), 3)} ms |"
-            t" {round(ns_to_mrays_per_s(red_shadow_frame_ns, len(rays)), 3)} MRays/s"
-        )
-        print(
-            t"validation diff:          {red_shadow_diff} | occluded:"
-            t" {red_shadow_occluded} | ref: {ref_occluded}"
-        )
-        print(t"checksum guard:           {red_guard}")
+        print(t"checksum guard:      {guard}")
     else:
-        print(
-            "No compatible GPU found; skipped generated-ray reduction/shadow"
-            " benchmark."
-        )
+        print("No compatible GPU found; skipped Mojo GPU benchmark.")
 
+    # Keep external vertex and reference ray buffers alive until the end.
     keep(len(tri_vertices))
     keep(len(rays))

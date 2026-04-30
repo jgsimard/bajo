@@ -22,6 +22,7 @@ comptime PRIMARY_WIDTH = 640
 comptime PRIMARY_HEIGHT = 360
 comptime PRIMARY_VIEWS = 3
 comptime GPU_TRAVERSAL_STACK_SIZE = 64
+comptime GPU_REDUCE_THREADS = 4096
 comptime LBVH_LEAF_FLAG = UInt32(0x80000000)
 comptime LBVH_INDEX_MASK = UInt32(0x7FFFFFFF)
 comptime LBVH_SENTINEL = UInt32(0xFFFFFFFF)
@@ -1343,6 +1344,18 @@ def trace_bvh_primary(bvh: BVH, rays: List[Ray]) -> Float64:
     return checksum
 
 
+def trace_bvh_shadow(bvh: BVH, rays: List[Ray]) -> Int:
+    var occluded = 0
+
+    for i in range(len(rays)):
+        var ray = rays[i].copy()
+        if bvh.is_occluded(ray):
+            occluded += 1
+
+    keep(occluded)
+    return occluded
+
+
 @always_inline
 def _axis_t_near(o: Float32, rd: Float32, mn: Float32, mx: Float32) -> Float32:
     var t0 = (mn - o) * rd
@@ -2352,6 +2365,659 @@ def run_gpu_lbvh_camera_traversal_benchmark(
         )
 
 
+# -----------------------------------------------------------------------------
+# GPU-generated rays with on-device reductions.
+# -----------------------------------------------------------------------------
+
+
+def trace_lbvh_gpu_primary_camera_t_kernel(
+    vertices: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    sorted_prim_ids: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    node_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    node_bounds: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    camera_params: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    hit_t: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    ray_count: Int,
+    width: Int,
+    height: Int,
+    views: Int,
+    root_idx: UInt32,
+):
+    var ray_idx = Int(block_idx.x * block_dim.x + thread_idx.x)
+    if ray_idx >= ray_count:
+        return
+
+    var pixels_per_view = width * height
+    var view_idx = ray_idx // pixels_per_view
+    if view_idx >= views:
+        hit_t[ray_idx] = Float32(3.4028234663852886e38)
+        return
+    var local_idx = ray_idx - view_idx * pixels_per_view
+    var px_i = local_idx % width
+    var py_i = local_idx // width
+
+    var cam_base = view_idx * 12
+    var ox = camera_params[cam_base + 0]
+    var oy = camera_params[cam_base + 1]
+    var oz = camera_params[cam_base + 2]
+    var fx = camera_params[cam_base + 3]
+    var fy = camera_params[cam_base + 4]
+    var fz = camera_params[cam_base + 5]
+    var rx = camera_params[cam_base + 6]
+    var ry = camera_params[cam_base + 7]
+    var rz = camera_params[cam_base + 8]
+    var ux = camera_params[cam_base + 9]
+    var uy = camera_params[cam_base + 10]
+    var uz = camera_params[cam_base + 11]
+
+    var aspect = Float32(width) / Float32(height)
+    var fov_scale = Float32(0.75)
+    var sx = ((Float32(px_i) + 0.5) / Float32(width)) * 2.0 - 1.0
+    var sy = 1.0 - ((Float32(py_i) + 0.5) / Float32(height)) * 2.0
+    var dir_x = fx + rx * (sx * aspect * fov_scale) + ux * (sy * fov_scale)
+    var dir_y = fy + ry * (sx * aspect * fov_scale) + uy * (sy * fov_scale)
+    var dir_z = fz + rz * (sx * aspect * fov_scale) + uz * (sy * fov_scale)
+    var nd = _normalize3(dir_x, dir_y, dir_z)
+    var dx = nd[0]
+    var dy = nd[1]
+    var dz = nd[2]
+    var rdx = Float32(1.0) / dx
+    var rdy = Float32(1.0) / dy
+    var rdz = Float32(1.0) / dz
+
+    var best_t = Float32(3.4028234663852886e38)
+    var stack = InlineArray[UInt32, GPU_TRAVERSAL_STACK_SIZE](fill=0)
+    var stack_ptr = 0
+    var current = root_idx
+
+    while True:
+        if (current & LBVH_LEAF_FLAG) != 0:
+            var leaf_idx = current & LBVH_INDEX_MASK
+            var prim_idx = UInt32(sorted_prim_ids[Int(leaf_idx)])
+            var tri_hit = _intersect_tri_flat(
+                vertices, prim_idx, ox, oy, oz, dx, dy, dz, best_t
+            )
+            if tri_hit[0]:
+                best_t = tri_hit[1]
+            if stack_ptr == 0:
+                break
+            stack_ptr -= 1
+            current = stack[stack_ptr]
+            continue
+
+        var node_idx = current & LBVH_INDEX_MASK
+        var meta_base = Int(node_idx) * 4
+        var bounds_base = Int(node_idx) * 12
+        var left = UInt32(node_meta[meta_base + 1])
+        var right = UInt32(node_meta[meta_base + 2])
+        var left_hit = _intersect_aabb_flat(
+            ox,
+            oy,
+            oz,
+            rdx,
+            rdy,
+            rdz,
+            node_bounds[bounds_base + 0],
+            node_bounds[bounds_base + 1],
+            node_bounds[bounds_base + 2],
+            node_bounds[bounds_base + 3],
+            node_bounds[bounds_base + 4],
+            node_bounds[bounds_base + 5],
+            best_t,
+        )
+        var right_hit = _intersect_aabb_flat(
+            ox,
+            oy,
+            oz,
+            rdx,
+            rdy,
+            rdz,
+            node_bounds[bounds_base + 6],
+            node_bounds[bounds_base + 7],
+            node_bounds[bounds_base + 8],
+            node_bounds[bounds_base + 9],
+            node_bounds[bounds_base + 10],
+            node_bounds[bounds_base + 11],
+            best_t,
+        )
+        var hit_left = left_hit[0]
+        var hit_right = right_hit[0]
+        var dist_left = left_hit[1]
+        var dist_right = right_hit[1]
+        if not hit_left and not hit_right:
+            if stack_ptr == 0:
+                break
+            stack_ptr -= 1
+            current = stack[stack_ptr]
+        elif hit_left and not hit_right:
+            current = left
+        elif not hit_left and hit_right:
+            current = right
+        else:
+            var near = left
+            var far = right
+            if dist_left > dist_right:
+                near = right
+                far = left
+            if stack_ptr < GPU_TRAVERSAL_STACK_SIZE:
+                stack[stack_ptr] = far
+                stack_ptr += 1
+            current = near
+    hit_t[ray_idx] = best_t
+
+
+def trace_lbvh_gpu_shadow_camera_kernel(
+    vertices: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    sorted_prim_ids: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    node_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    node_bounds: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    camera_params: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    occluded: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    ray_count: Int,
+    width: Int,
+    height: Int,
+    views: Int,
+    root_idx: UInt32,
+):
+    var ray_idx = Int(block_idx.x * block_dim.x + thread_idx.x)
+    if ray_idx >= ray_count:
+        return
+
+    var pixels_per_view = width * height
+    var view_idx = ray_idx // pixels_per_view
+    if view_idx >= views:
+        occluded[ray_idx] = UInt32(0)
+        return
+    var local_idx = ray_idx - view_idx * pixels_per_view
+    var px_i = local_idx % width
+    var py_i = local_idx // width
+
+    var cam_base = view_idx * 12
+    var ox = camera_params[cam_base + 0]
+    var oy = camera_params[cam_base + 1]
+    var oz = camera_params[cam_base + 2]
+    var fx = camera_params[cam_base + 3]
+    var fy = camera_params[cam_base + 4]
+    var fz = camera_params[cam_base + 5]
+    var rx = camera_params[cam_base + 6]
+    var ry = camera_params[cam_base + 7]
+    var rz = camera_params[cam_base + 8]
+    var ux = camera_params[cam_base + 9]
+    var uy = camera_params[cam_base + 10]
+    var uz = camera_params[cam_base + 11]
+
+    var aspect = Float32(width) / Float32(height)
+    var fov_scale = Float32(0.75)
+    var sx = ((Float32(px_i) + 0.5) / Float32(width)) * 2.0 - 1.0
+    var sy = 1.0 - ((Float32(py_i) + 0.5) / Float32(height)) * 2.0
+    var dir_x = fx + rx * (sx * aspect * fov_scale) + ux * (sy * fov_scale)
+    var dir_y = fy + ry * (sx * aspect * fov_scale) + uy * (sy * fov_scale)
+    var dir_z = fz + rz * (sx * aspect * fov_scale) + uz * (sy * fov_scale)
+    var nd = _normalize3(dir_x, dir_y, dir_z)
+    var dx = nd[0]
+    var dy = nd[1]
+    var dz = nd[2]
+    var rdx = Float32(1.0) / dx
+    var rdy = Float32(1.0) / dy
+    var rdz = Float32(1.0) / dz
+    var t_max = Float32(3.4028234663852886e38)
+
+    var stack = InlineArray[UInt32, GPU_TRAVERSAL_STACK_SIZE](fill=0)
+    var stack_ptr = 0
+    var current = root_idx
+    while True:
+        if (current & LBVH_LEAF_FLAG) != 0:
+            var leaf_idx = current & LBVH_INDEX_MASK
+            var prim_idx = UInt32(sorted_prim_ids[Int(leaf_idx)])
+            var tri_hit = _intersect_tri_flat(
+                vertices, prim_idx, ox, oy, oz, dx, dy, dz, t_max
+            )
+            if tri_hit[0]:
+                occluded[ray_idx] = UInt32(1)
+                return
+            if stack_ptr == 0:
+                break
+            stack_ptr -= 1
+            current = stack[stack_ptr]
+            continue
+
+        var node_idx = current & LBVH_INDEX_MASK
+        var meta_base = Int(node_idx) * 4
+        var bounds_base = Int(node_idx) * 12
+        var left = UInt32(node_meta[meta_base + 1])
+        var right = UInt32(node_meta[meta_base + 2])
+        var left_hit = _intersect_aabb_flat(
+            ox,
+            oy,
+            oz,
+            rdx,
+            rdy,
+            rdz,
+            node_bounds[bounds_base + 0],
+            node_bounds[bounds_base + 1],
+            node_bounds[bounds_base + 2],
+            node_bounds[bounds_base + 3],
+            node_bounds[bounds_base + 4],
+            node_bounds[bounds_base + 5],
+            t_max,
+        )
+        var right_hit = _intersect_aabb_flat(
+            ox,
+            oy,
+            oz,
+            rdx,
+            rdy,
+            rdz,
+            node_bounds[bounds_base + 6],
+            node_bounds[bounds_base + 7],
+            node_bounds[bounds_base + 8],
+            node_bounds[bounds_base + 9],
+            node_bounds[bounds_base + 10],
+            node_bounds[bounds_base + 11],
+            t_max,
+        )
+        var hit_left = left_hit[0]
+        var hit_right = right_hit[0]
+        var dist_left = left_hit[1]
+        var dist_right = right_hit[1]
+        if not hit_left and not hit_right:
+            if stack_ptr == 0:
+                break
+            stack_ptr -= 1
+            current = stack[stack_ptr]
+        elif hit_left and not hit_right:
+            current = left
+        elif not hit_left and hit_right:
+            current = right
+        else:
+            var near = left
+            var far = right
+            if dist_left > dist_right:
+                near = right
+                far = left
+            if stack_ptr < GPU_TRAVERSAL_STACK_SIZE:
+                stack[stack_ptr] = far
+                stack_ptr += 1
+            current = near
+    occluded[ray_idx] = UInt32(0)
+
+
+def reduce_hit_t_kernel(
+    hit_t: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    partial_sums: UnsafePointer[Scalar[DType.float64], MutAnyOrigin],
+    partial_counts: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    ray_count: Int,
+    partial_count: Int,
+):
+    var i = Int(block_idx.x * block_dim.x + thread_idx.x)
+    if i >= partial_count:
+        return
+    var sum = Float64(0.0)
+    var count = UInt32(0)
+    var j = i
+    while j < ray_count:
+        var t = hit_t[j]
+        if t < 1.0e20:
+            sum += Float64(t)
+            count += 1
+        j += partial_count
+    partial_sums[i] = sum
+    partial_counts[i] = count
+
+
+def reduce_u32_flags_kernel(
+    flags: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    partial_counts: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    ray_count: Int,
+    partial_count: Int,
+):
+    var i = Int(block_idx.x * block_dim.x + thread_idx.x)
+    if i >= partial_count:
+        return
+    var count = UInt32(0)
+    var j = i
+    while j < ray_count:
+        count += UInt32(flags[j])
+        j += partial_count
+    partial_counts[i] = count
+
+
+def run_gpu_lbvh_camera_reduce_and_shadow_benchmark(
+    tri_vertices: List[Vec3f32],
+    centroid_min: Vec3f32,
+    centroid_max: Vec3f32,
+    scene_min: Vec3f32,
+    scene_max: Vec3f32,
+    camera_params: List[Float32],
+    ray_count: Int,
+    reference_checksum: Float64,
+    reference_occluded: Int,
+    repeats: Int,
+) raises -> Tuple[
+    Int,
+    Int,
+    Int,
+    Int,
+    Int,
+    Int,
+    Int,
+    Int,
+    Float64,
+    UInt32,
+    Float64,
+    Int,
+    Int,
+    Int,
+    UInt32,
+    Int,
+    Bool,
+    Bool,
+    Bool,
+    UInt32,
+    UInt64,
+]:
+    var tri_count = len(tri_vertices) // 3
+    var internal_count = tri_count - 1
+    var vertices = flatten_vertices(tri_vertices)
+
+    var extent = centroid_max - centroid_min
+    var inv_x = Float32(0.0)
+    var inv_y = Float32(0.0)
+    var inv_z = Float32(0.0)
+    if extent.x() > 1.0e-20:
+        inv_x = 1.0 / extent.x()
+    if extent.y() > 1.0e-20:
+        inv_y = 1.0 / extent.y()
+    if extent.z() > 1.0e-20:
+        inv_z = 1.0 / extent.z()
+
+    with DeviceContext() as ctx:
+        var static_t0 = perf_counter_ns()
+        var d_vertices = copy_f32_list_to_device(ctx, vertices)
+        var d_camera_params = copy_f32_list_to_device(ctx, camera_params)
+        var d_keys = ctx.enqueue_create_buffer[DType.uint32](tri_count)
+        var d_values = ctx.enqueue_create_buffer[DType.uint32](tri_count)
+        var workspace = RadixSortWorkspace[DType.uint32, DType.uint32](
+            ctx, tri_count
+        )
+        var d_node_meta = ctx.enqueue_create_buffer[DType.uint32](
+            internal_count * 4
+        )
+        var d_leaf_parent = ctx.enqueue_create_buffer[DType.uint32](tri_count)
+        var d_node_bounds = ctx.enqueue_create_buffer[DType.float32](
+            internal_count * 12
+        )
+        var d_node_flags = ctx.enqueue_create_buffer[DType.uint32](
+            internal_count
+        )
+        var d_hit_t = ctx.enqueue_create_buffer[DType.float32](ray_count)
+        var d_occluded = ctx.enqueue_create_buffer[DType.uint32](ray_count)
+        var d_partial_sums = ctx.enqueue_create_buffer[DType.float64](
+            GPU_REDUCE_THREADS
+        )
+        var d_partial_counts = ctx.enqueue_create_buffer[DType.uint32](
+            GPU_REDUCE_THREADS
+        )
+        ctx.synchronize()
+        var static_t1 = perf_counter_ns()
+
+        var blocks_leaves = (tri_count + GPU_BLOCK_SIZE - 1) // GPU_BLOCK_SIZE
+        var blocks_internal = (
+            internal_count + GPU_BLOCK_SIZE - 1
+        ) // GPU_BLOCK_SIZE
+        var blocks_init = (
+            max(tri_count, internal_count) + GPU_BLOCK_SIZE - 1
+        ) // GPU_BLOCK_SIZE
+        var blocks_rays = (ray_count + GPU_BLOCK_SIZE - 1) // GPU_BLOCK_SIZE
+        var reduce_blocks = (
+            GPU_REDUCE_THREADS + GPU_BLOCK_SIZE - 1
+        ) // GPU_BLOCK_SIZE
+
+        var b0 = perf_counter_ns()
+        ctx.enqueue_function[
+            compute_morton_codes_kernel, compute_morton_codes_kernel
+        ](
+            d_vertices.unsafe_ptr(),
+            d_keys.unsafe_ptr(),
+            d_values.unsafe_ptr(),
+            tri_count,
+            centroid_min.x(),
+            centroid_min.y(),
+            centroid_min.z(),
+            inv_x,
+            inv_y,
+            inv_z,
+            grid_dim=blocks_leaves,
+            block_dim=GPU_BLOCK_SIZE,
+        )
+        ctx.synchronize()
+        var m1 = perf_counter_ns()
+        device_radix_sort_pairs[DType.uint32, DType.uint32](
+            ctx, workspace, d_keys, d_values, tri_count
+        )
+        ctx.synchronize()
+        var s1 = perf_counter_ns()
+        ctx.enqueue_function[
+            init_lbvh_topology_kernel, init_lbvh_topology_kernel
+        ](
+            d_node_meta.unsafe_ptr(),
+            d_leaf_parent.unsafe_ptr(),
+            internal_count,
+            tri_count,
+            grid_dim=blocks_init,
+            block_dim=GPU_BLOCK_SIZE,
+        )
+        ctx.enqueue_function[
+            build_lbvh_topology_kernel, build_lbvh_topology_kernel
+        ](
+            d_keys.unsafe_ptr(),
+            d_node_meta.unsafe_ptr(),
+            d_leaf_parent.unsafe_ptr(),
+            tri_count,
+            grid_dim=blocks_internal,
+            block_dim=GPU_BLOCK_SIZE,
+        )
+        ctx.synchronize()
+        var t1 = perf_counter_ns()
+        ctx.enqueue_function[init_lbvh_bounds_kernel, init_lbvh_bounds_kernel](
+            d_node_bounds.unsafe_ptr(),
+            d_node_flags.unsafe_ptr(),
+            internal_count,
+            grid_dim=blocks_internal,
+            block_dim=GPU_BLOCK_SIZE,
+        )
+        ctx.enqueue_function[
+            refit_lbvh_bounds_kernel, refit_lbvh_bounds_kernel
+        ](
+            d_vertices.unsafe_ptr(),
+            d_values.unsafe_ptr(),
+            d_node_meta.unsafe_ptr(),
+            d_leaf_parent.unsafe_ptr(),
+            d_node_bounds.unsafe_ptr(),
+            d_node_flags.unsafe_ptr(),
+            tri_count,
+            grid_dim=blocks_leaves,
+            block_dim=GPU_BLOCK_SIZE,
+        )
+        ctx.synchronize()
+        var r1 = perf_counter_ns()
+
+        var sorted_validation = validate_sorted_keys(
+            d_keys, d_values, tri_count
+        )
+        var topo_validation = validate_topology(
+            d_node_meta, d_leaf_parent, tri_count
+        )
+        var refit_validation = validate_refit_bounds(
+            d_node_bounds,
+            d_node_flags,
+            d_node_meta,
+            tri_count,
+            scene_min,
+            scene_max,
+        )
+        var root_idx = refit_validation[2]
+
+        var best_primary_ns = Int(9223372036854775807)
+        var best_primary_reduce_ns = Int(9223372036854775807)
+        var best_primary_download_ns = Int(9223372036854775807)
+        var primary_checksum = Float64(0.0)
+        var primary_hits = UInt32(0)
+
+        for _ in range(repeats):
+            var k0 = perf_counter_ns()
+            ctx.enqueue_function[
+                trace_lbvh_gpu_primary_camera_t_kernel,
+                trace_lbvh_gpu_primary_camera_t_kernel,
+            ](
+                d_vertices.unsafe_ptr(),
+                d_values.unsafe_ptr(),
+                d_node_meta.unsafe_ptr(),
+                d_node_bounds.unsafe_ptr(),
+                d_camera_params.unsafe_ptr(),
+                d_hit_t.unsafe_ptr(),
+                ray_count,
+                PRIMARY_WIDTH,
+                PRIMARY_HEIGHT,
+                PRIMARY_VIEWS,
+                root_idx,
+                grid_dim=blocks_rays,
+                block_dim=GPU_BLOCK_SIZE,
+            )
+            ctx.synchronize()
+            var k1 = perf_counter_ns()
+            var ns = Int(k1 - k0)
+            if ns < best_primary_ns:
+                best_primary_ns = ns
+
+            var rr0 = perf_counter_ns()
+            ctx.enqueue_function[reduce_hit_t_kernel, reduce_hit_t_kernel](
+                d_hit_t.unsafe_ptr(),
+                d_partial_sums.unsafe_ptr(),
+                d_partial_counts.unsafe_ptr(),
+                ray_count,
+                GPU_REDUCE_THREADS,
+                grid_dim=reduce_blocks,
+                block_dim=GPU_BLOCK_SIZE,
+            )
+            ctx.synchronize()
+            var rr1 = perf_counter_ns()
+            ns = Int(rr1 - rr0)
+            if ns < best_primary_reduce_ns:
+                best_primary_reduce_ns = ns
+
+            var d0 = perf_counter_ns()
+            primary_checksum = Float64(0.0)
+            primary_hits = UInt32(0)
+            with d_partial_sums.map_to_host() as sums:
+                for i in range(GPU_REDUCE_THREADS):
+                    primary_checksum += sums[i]
+            with d_partial_counts.map_to_host() as counts:
+                for i in range(GPU_REDUCE_THREADS):
+                    primary_hits += counts[i]
+            ctx.synchronize()
+            var d1 = perf_counter_ns()
+            ns = Int(d1 - d0)
+            if ns < best_primary_download_ns:
+                best_primary_download_ns = ns
+
+        var best_shadow_ns = Int(9223372036854775807)
+        var best_shadow_reduce_ns = Int(9223372036854775807)
+        var best_shadow_download_ns = Int(9223372036854775807)
+        var shadow_occluded = UInt32(0)
+
+        for _ in range(repeats):
+            var k0 = perf_counter_ns()
+            ctx.enqueue_function[
+                trace_lbvh_gpu_shadow_camera_kernel,
+                trace_lbvh_gpu_shadow_camera_kernel,
+            ](
+                d_vertices.unsafe_ptr(),
+                d_values.unsafe_ptr(),
+                d_node_meta.unsafe_ptr(),
+                d_node_bounds.unsafe_ptr(),
+                d_camera_params.unsafe_ptr(),
+                d_occluded.unsafe_ptr(),
+                ray_count,
+                PRIMARY_WIDTH,
+                PRIMARY_HEIGHT,
+                PRIMARY_VIEWS,
+                root_idx,
+                grid_dim=blocks_rays,
+                block_dim=GPU_BLOCK_SIZE,
+            )
+            ctx.synchronize()
+            var k1 = perf_counter_ns()
+            var ns = Int(k1 - k0)
+            if ns < best_shadow_ns:
+                best_shadow_ns = ns
+
+            var rr0 = perf_counter_ns()
+            ctx.enqueue_function[
+                reduce_u32_flags_kernel, reduce_u32_flags_kernel
+            ](
+                d_occluded.unsafe_ptr(),
+                d_partial_counts.unsafe_ptr(),
+                ray_count,
+                GPU_REDUCE_THREADS,
+                grid_dim=reduce_blocks,
+                block_dim=GPU_BLOCK_SIZE,
+            )
+            ctx.synchronize()
+            var rr1 = perf_counter_ns()
+            ns = Int(rr1 - rr0)
+            if ns < best_shadow_reduce_ns:
+                best_shadow_reduce_ns = ns
+
+            var d0 = perf_counter_ns()
+            shadow_occluded = UInt32(0)
+            with d_partial_counts.map_to_host() as counts:
+                for i in range(GPU_REDUCE_THREADS):
+                    shadow_occluded += counts[i]
+            ctx.synchronize()
+            var d1 = perf_counter_ns()
+            ns = Int(d1 - d0)
+            if ns < best_shadow_download_ns:
+                best_shadow_download_ns = ns
+
+        var primary_diff = abs(primary_checksum - reference_checksum)
+        var shadow_diff = Int(shadow_occluded) - reference_occluded
+        if shadow_diff < 0:
+            shadow_diff = -shadow_diff
+        var guard = (
+            sorted_validation[6]
+            + topo_validation[3]
+            + refit_validation[3]
+            + UInt64(primary_hits)
+            + UInt64(shadow_occluded)
+        )
+        keep(guard)
+
+        return (
+            Int(static_t1 - static_t0),
+            Int(m1 - b0),
+            Int(s1 - m1),
+            Int(t1 - s1),
+            Int(r1 - t1),
+            best_primary_ns,
+            best_primary_reduce_ns,
+            best_primary_download_ns,
+            primary_checksum,
+            primary_hits,
+            primary_diff,
+            best_shadow_ns,
+            best_shadow_reduce_ns,
+            best_shadow_download_ns,
+            shadow_occluded,
+            shadow_diff,
+            sorted_validation[0] and sorted_validation[1],
+            topo_validation[0],
+            refit_validation[0],
+            root_idx,
+            guard,
+        )
+
+
 def main() raises:
     print("GPU LBVH direct traversal benchmark")
     print(t"Path: {DEFAULT_OBJ_PATH}")
@@ -2396,12 +3062,13 @@ def main() raises:
     var ref_t1 = perf_counter_ns()
     var checksum_t0 = perf_counter_ns()
     var ref_checksum = trace_bvh_primary(ref_bvh, rays)
+    var ref_occluded = trace_bvh_shadow(ref_bvh, rays)
     var checksum_t1 = perf_counter_ns()
     print(t"SAH MT build:       {round(ns_to_ms(Int(ref_t1 - ref_t0)), 3)} ms")
     print(
         t"reference"
         t" traversal:{round(ns_to_ms(Int(checksum_t1 - checksum_t0)), 3)} ms |"
-        t" checksum: {round(ref_checksum, 3)}"
+        t" checksum: {round(ref_checksum, 3)} | occluded: {ref_occluded}"
     )
 
     print("\nGPU LBVH direct traversal")
@@ -2546,6 +3213,117 @@ def main() raises:
     else:
         print(
             "No compatible GPU found; skipped generated-ray traversal"
+            " benchmark."
+        )
+
+    print("\nGPU LBVH generated-ray primary checksum + shadow reduction")
+    print("----------------------------------------------------------")
+    comptime if has_accelerator():
+        var red_res = run_gpu_lbvh_camera_reduce_and_shadow_benchmark(
+            tri_vertices,
+            cmin,
+            cmax,
+            bmin,
+            bmax,
+            camera_params,
+            len(rays),
+            ref_checksum,
+            ref_occluded,
+            BENCH_REPEATS,
+        )
+        var red_static_upload_ns = red_res[0]
+        var red_morton_ns = red_res[1]
+        var red_sort_ns = red_res[2]
+        var red_topology_ns = red_res[3]
+        var red_refit_ns = red_res[4]
+        var red_primary_ns = red_res[5]
+        var red_primary_reduce_ns = red_res[6]
+        var red_primary_download_ns = red_res[7]
+        var red_primary_checksum = red_res[8]
+        var red_primary_hits = red_res[9]
+        var red_primary_diff = red_res[10]
+        var red_shadow_ns = red_res[11]
+        var red_shadow_reduce_ns = red_res[12]
+        var red_shadow_download_ns = red_res[13]
+        var red_shadow_occluded = red_res[14]
+        var red_shadow_diff = red_res[15]
+        var red_sorted_ok = red_res[16]
+        var red_topology_ok = red_res[17]
+        var red_refit_ok = red_res[18]
+        var red_root_idx = red_res[19]
+        var red_guard = red_res[20]
+        var red_build_ns = (
+            red_morton_ns + red_sort_ns + red_topology_ns + red_refit_ns
+        )
+        var red_primary_frame_ns = (
+            red_primary_ns + red_primary_reduce_ns + red_primary_download_ns
+        )
+        var red_shadow_frame_ns = (
+            red_shadow_ns + red_shadow_reduce_ns + red_shadow_download_ns
+        )
+
+        print(
+            t"static upload + workspace:"
+            t" {round(ns_to_ms(red_static_upload_ns), 3)} ms"
+        )
+        print(
+            t"lbvh build total:         {round(ns_to_ms(red_build_ns), 3)} ms"
+        )
+        print(
+            t"build valid:              sorted={red_sorted_ok} |"
+            t" topology={red_topology_ok} | bounds={red_refit_ok} |"
+            t" root={red_root_idx}"
+        )
+        print("ray upload:               0.0 ms | generated on GPU")
+        print("\nprimary + checksum reduction")
+        print(
+            t"lbvh camera kernel:       {round(ns_to_ms(red_primary_ns), 3)} ms"
+            t" | {round(ns_to_mrays_per_s(red_primary_ns, len(rays)), 3)} MRays/s"
+        )
+        print(
+            t"checksum reduction:      "
+            t" {round(ns_to_ms(red_primary_reduce_ns), 3)} ms"
+        )
+        print(
+            t"partial download:        "
+            t" {round(ns_to_ms(red_primary_download_ns), 3)} ms"
+        )
+        print(
+            t"frame total:             "
+            t" {round(ns_to_ms(red_primary_frame_ns), 3)} ms |"
+            t" {round(ns_to_mrays_per_s(red_primary_frame_ns, len(rays)), 3)} MRays/s"
+        )
+        print(
+            t"validation diff:          {round(red_primary_diff, 3)} |"
+            t" checksum: {round(red_primary_checksum, 3)} | hits:"
+            t" {red_primary_hits}"
+        )
+        print("\nshadow + occlusion reduction")
+        print(
+            t"lbvh shadow kernel:       {round(ns_to_ms(red_shadow_ns), 3)} ms"
+            t" | {round(ns_to_mrays_per_s(red_shadow_ns, len(rays)), 3)} MRays/s"
+        )
+        print(
+            t"occlusion reduction:     "
+            t" {round(ns_to_ms(red_shadow_reduce_ns), 3)} ms"
+        )
+        print(
+            t"partial download:        "
+            t" {round(ns_to_ms(red_shadow_download_ns), 3)} ms"
+        )
+        print(
+            t"frame total:             "
+            t" {round(ns_to_ms(red_shadow_frame_ns), 3)} ms |"
+            t" {round(ns_to_mrays_per_s(red_shadow_frame_ns, len(rays)), 3)} MRays/s"
+        )
+        print(
+            t"validation diff:          {red_shadow_diff} | occluded:"
+            t" {red_shadow_occluded} | ref: {ref_occluded}"
+        )
+        print(t"checksum guard:           {red_guard}")
+    else:
+        print(
+            "No compatible GPU found; skipped generated-ray reduction/shadow"
             " benchmark."
         )
 

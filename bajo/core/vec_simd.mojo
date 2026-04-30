@@ -146,16 +146,13 @@ struct Vec[dtype: DType, size: Int](
 
     # inplace modifier
     def __iadd__(mut self, other: Self):
-        comptime for i in range(Self.size):
-            self[i] += other[i]
+        self.data += other.data
 
     def __isub__(mut self, other: Self):
-        comptime for i in range(Self.size):
-            self[i] -= other[i]
+        self.data -= other.data
 
     def __imul__(mut self, other: Self):
-        comptime for i in range(Self.size):
-            self[i] *= other[i]
+        self.data *= other.data
 
     # methods (produce new Self)
     def __neg__(self) -> Self:
@@ -292,8 +289,11 @@ def lerp[
 
 def vmin[
     dtype: DType, size: Int
-](a: Vec[dtype, size], b: Vec[dtype, size]) -> Vec[dtype, size]:
-    return Vec[dtype, size](min(a.data, b.data))
+](a: Vec[dtype, size], *bs: Vec[dtype, size]) -> Vec[dtype, size]:
+    var out = a.copy()
+    for b in bs:
+        out.data = min(a.data, b.data)
+    return out
 
 
 def vmax[
@@ -315,7 +315,7 @@ def assert_vec_equal[
     dtype: DType, size: Int
 ](a: Vec[dtype, size], b: Vec[dtype, size], atol: Float64 = 1e-5) raises:
     comptime for i in range(size):
-        assert_almost_equal(a[i], b[i], msg=t"i={i}", atol=atol)
+        assert_almost_equal(a[i], b[i], msg=String(t"i={i}"), atol=atol)
 
 
 def main():

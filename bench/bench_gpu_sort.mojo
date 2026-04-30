@@ -164,14 +164,20 @@ def benchmark_sorts_pairs(sizes: List[Int]) raises -> List[List[SortResult]]:
 
             # # Shared Mem Bitonic Sort
             # reset_data()
-            # bitonic_sort_pairs[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
+            # comptime SMEM_BS_TPB = 256
+            # comptime SMEM_BS_IPT = 4
+            # bitonic_sort_pairs[SMEM_BS_TPB, SMEM_BS_IPT](
+            #     ctx, keys, values, SIZE
+            # )
             # ctx.synchronize()
             # check_validity(keys, SIZE)
 
             # t0 = perf_counter_ns()
             # for _ in range(N_ITERS):
             #     reset_data()
-            #     bitonic_sort_pairs[THREADS_PER_BLOCK](ctx, keys, values, SIZE)
+            #     bitonic_sort_pairs[SMEM_BS_TPB, SMEM_BS_IPT](
+            #         ctx, keys, values, SIZE
+            #     )
             # ctx.synchronize()
             # var opt_ns = (
             #     Float64(perf_counter_ns() - t0) - copy_overhead_total
@@ -265,7 +271,7 @@ def benchmark_sorts_pairs(sizes: List[Int]) raises -> List[List[SortResult]]:
                     SIZE,
                     merge_ns / 1e6,
                     Float64(SIZE) / merge_ns,
-                    "Onesweep_Pairs",
+                    "SMEM bitonic + Onesweep_Pairs",
                 )
             )
     print_results_table("Basic Bitonic Sort (Pairs)", basic_results)
@@ -398,20 +404,31 @@ def save_results_csv(filename: String, data: List[List[SortResult]]) raises:
 
 def main() raises:
     sizes = [
+        # 1 << 8,
+        # 1 << 9,
         1 << 10,
+        # 1 << 11,
         1 << 12,
+        # 1 << 13,
         1 << 14,
+        # 1 << 15,
         1 << 16,
+        # 1 << 17,
         1 << 18,
+        # 1 << 19,
         1 << 20,
+        # 1 << 21,
         1 << 22,
+        # 1 << 23,
         1 << 24,
+        # 1 << 25,
         1 << 26,
+        # 1 << 27,
         1 << 28,
     ]
     res = benchmark_sorts_pairs(sizes)
-    # res_keys = benchmark_sort_key(sizes)
-    # res.extend(res_keys^)
+    res_keys = benchmark_sort_key(sizes)
+    res.extend(res_keys^)
     # res = benchmark_sort_key(sizes)
 
     save_results_csv("gpu_sort_benchmark_results.csv", res)

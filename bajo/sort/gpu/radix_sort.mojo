@@ -340,7 +340,7 @@ def downsweep[
 
             # Scatter payloads into shared memory
             comptime for i in range(KEYS_PER_THREAD):
-                s_warp_histograms[Int(offsets[i])] = UInt32(keys[i])
+                s_warp_histograms[Int(offsets[i])] = UInt32(vals[i])
             barrier()
 
             # Scatter payloads into device memory

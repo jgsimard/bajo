@@ -184,59 +184,88 @@ def intersect_aabb_aabb[
     return True
 
 
-# Moller and Trumbore's method
+@fieldwise_init
+struct RayTriPacketHit[dtype: DType, width: Int](Copyable):
+    var mask: SIMD[DType.bool, Self.width]
+    var t: SIMD[Self.dtype, Self.width]
+    var u: SIMD[Self.dtype, Self.width]
+    var v: SIMD[Self.dtype, Self.width]
+
+
 @always_inline
-def intersect_ray_tri_moller[
-    dtype: DType
+def intersect_ray_tri[
+    dtype: DType, width: Int
 ](
-    p: Vec3[dtype],
-    dir: Vec3[dtype],
-    a: Vec3[dtype],
-    b: Vec3[dtype],
-    c: Vec3[dtype],
-    mut t: Scalar[dtype],
-    mut u: Scalar[dtype],
-    mut v: Scalar[dtype],
-    mut w: Scalar[dtype],
-    mut sign: Scalar[dtype],
-    normal: Optional[UnsafePointer[Vec3[dtype], MutAnyOrigin]],
-) -> Bool:
+    ox: SIMD[dtype, width],
+    oy: SIMD[dtype, width],
+    oz: SIMD[dtype, width],
+    dx: SIMD[dtype, width],
+    dy: SIMD[dtype, width],
+    dz: SIMD[dtype, width],
+    v0x: SIMD[dtype, width],
+    v0y: SIMD[dtype, width],
+    v0z: SIMD[dtype, width],
+    v1x: SIMD[dtype, width],
+    v1y: SIMD[dtype, width],
+    v1z: SIMD[dtype, width],
+    v2x: SIMD[dtype, width],
+    v2y: SIMD[dtype, width],
+    v2z: SIMD[dtype, width],
+    t_max: SIMD[dtype, width],
+    t_min: SIMD[dtype, width] = SIMD[dtype, width](1.0e-4),
+) -> RayTriPacketHit[dtype, width]:
+    """Moller and Trumbore's method."""
     comptime assert dtype in [DType.float32, DType.float64]
     comptime EPSILON = Scalar[dtype](1e-8 if dtype == DType.float32 else 1e-16)
+    comptime BVH_INF = SIMD[dtype, width](3.4028234663852886e38)
 
-    ab = b - a
-    ac = c - a
-    n = cross(ab, ac)
+    var e1x = v1x - v0x
+    var e1y = v1y - v0y
+    var e1z = v1z - v0z
 
-    d = dot(-dir, n)
+    var e2x = v2x - v0x
+    var e2y = v2y - v0y
+    var e2z = v2z - v0z
 
-    if abs(d) < EPSILON:
-        return False
+    var px = dy * e2z - dz * e2y
+    var py = dz * e2x - dx * e2z
+    var pz = dx * e2y - dy * e2x
 
-    ood = 1.0 / d  # Infinity arithmetic handles d=0
-    ap = p - a
+    var det = e1x * px + e1y * py + e1z * pz
 
-    t = dot(ap, n) * ood
-    if t < 0.0:
-        return False
+    var det_ok = det.gt(EPSILON) | det.lt(-EPSILON)
 
-    e = cross(-dir, ap)
-    v = dot(ac, e) * ood
-    if v < 0.0 or v > 1.0:
-        return False
+    var inv_det = Scalar[dtype](1.0) / det
 
-    w = -dot(ab, e) * ood
-    if w < 0.0 or (v + w) > 1.0:
-        return False
+    var tx = ox - v0x
+    var ty = oy - v0y
+    var tz = oz - v0z
 
-    u = 1.0 - v - w
+    var u = (tx * px + ty * py + tz * pz) * inv_det
 
-    if normal:
-        normal.unsafe_value()[] = n.copy()
+    var qx = ty * e1z - tz * e1y
+    var qy = tz * e1x - tx * e1z
+    var qz = tx * e1y - ty * e1x
 
-    sign = d
+    var v = (dx * qx + dy * qy + dz * qz) * inv_det
+    var t = (e2x * qx + e2y * qy + e2z * qz) * inv_det
 
-    return True
+    var mask = (
+        det_ok
+        & u.ge(0.0)
+        & u.le(1.0)
+        & v.ge(0.0)
+        & (u + v).le(1.0)
+        & t.gt(t_min)
+        & t.lt(t_max)
+    )
+
+    return RayTriPacketHit[dtype, width](
+        mask,
+        mask.select(t, BVH_INF),
+        u,
+        v,
+    )
 
 
 @always_inline

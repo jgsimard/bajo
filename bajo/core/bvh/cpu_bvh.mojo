@@ -6,7 +6,7 @@ from std.atomic import Atomic
 from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.aabb import AABB
-from bajo.core.intersect import intersect_ray_tri_moller, intersect_ray_aabb
+from bajo.core.intersect import intersect_ray_aabb, intersect_ray_tri
 from bajo.core.mat import Mat44f32, transform_point, transform_vector, inverse
 from bajo.core.vec import Vec3f32, vmin, vmax, longest_axis, InlineArray
 from bajo.core.morton import morton3
@@ -554,56 +554,39 @@ struct BVH(Copyable):
     def _intersect_tri[
         is_shadow: Bool
     ](self, mut ray: Ray, prim_idx: UInt32) -> Bool:
-        # Local scalar Möller-Trumbore. This keeps BVH nearest-hit semantics
-        # independent from the lower-level helper's exact sign / culling policy,
-        # and matches the SIMD leaf path below.
         ref v0 = self.vertices[Int(prim_idx) * 3]
         ref v1 = self.vertices[Int(prim_idx) * 3 + 1]
         ref v2 = self.vertices[Int(prim_idx) * 3 + 2]
 
-        var e1x = v1.x() - v0.x()
-        var e1y = v1.y() - v0.y()
-        var e1z = v1.z() - v0.z()
-        var e2x = v2.x() - v0.x()
-        var e2y = v2.y() - v0.y()
-        var e2z = v2.z() - v0.z()
-
-        var px = ray.D.y() * e2z - ray.D.z() * e2y
-        var py = ray.D.z() * e2x - ray.D.x() * e2z
-        var pz = ray.D.x() * e2y - ray.D.y() * e2x
-        var det = e1x * px + e1y * py + e1z * pz
-
-        if det > -1e-12 and det < 1e-12:
+        h = intersect_ray_tri(
+            ray.O.x(),
+            ray.O.y(),
+            ray.O.z(),
+            ray.D.x(),
+            ray.D.y(),
+            ray.D.z(),
+            v0.x(),
+            v0.y(),
+            v0.z(),
+            v1.x(),
+            v1.y(),
+            v1.z(),
+            v2.x(),
+            v2.y(),
+            v2.z(),
+            ray.hit.t,
+        )
+        if not h.mask[0]:
             return False
 
-        var inv_det = 1.0 / det
-        var tx = ray.O.x() - v0.x()
-        var ty = ray.O.y() - v0.y()
-        var tz = ray.O.z() - v0.z()
-
-        var u = (tx * px + ty * py + tz * pz) * inv_det
-        if u < 0.0 or u > 1.0:
-            return False
-
-        var qx = ty * e1z - tz * e1y
-        var qy = tz * e1x - tx * e1z
-        var qz = tx * e1y - ty * e1x
-
-        var v = (ray.D.x() * qx + ray.D.y() * qy + ray.D.z() * qz) * inv_det
-        if v < 0.0 or u + v > 1.0:
-            return False
-
-        var t = (e2x * qx + e2y * qy + e2z * qz) * inv_det
-        if t > 1e-4 and t < ray.hit.t:
-            comptime if is_shadow:
-                return True
-            ray.hit.t = t
-            ray.hit.u = u
-            ray.hit.v = v
-            ray.hit.prim = prim_idx
+        comptime if is_shadow:
             return True
 
-        return False
+        ray.hit.t = h.t[0]
+        ray.hit.u = h.u[0]
+        ray.hit.v = h.v[0]
+        ray.hit.prim = prim_idx
+        return True
 
     @always_inline
     def _traverse[is_shadow: Bool](self, mut ray: Ray) -> Bool:
@@ -1027,51 +1010,43 @@ struct WideBVH[width: Int](Copyable):
         is_occlusion: Bool
     ](self, mut ray: Ray, leaf_idx: UInt32) -> Bool:
         ref leaf = self.leaves[Int(leaf_idx)]
-        # Möller-Trumbore SIMD math
-        var e1x = leaf.v1x - leaf.v0x
-        var e1y = leaf.v1y - leaf.v0y
-        var e1z = leaf.v1z - leaf.v0z
-        var e2x = leaf.v2x - leaf.v0x
-        var e2y = leaf.v2y - leaf.v0y
-        var e2z = leaf.v2z - leaf.v0z
-        var px = ray.D.y() * e2z - ray.D.z() * e2y
-        var py = ray.D.z() * e2x - ray.D.x() * e2z
-        var pz = ray.D.x() * e2y - ray.D.y() * e2x
-        var det = e1x * px + e1y * py + e1z * pz
-        var inv_det = 1.0 / det
-        var tx = ray.O.x() - leaf.v0x
-        var ty = ray.O.y() - leaf.v0y
-        var tz = ray.O.z() - leaf.v0z
-        var u = (tx * px + ty * py + tz * pz) * inv_det
-        var qx = ty * e1z - tz * e1y
-        var qy = tz * e1x - tx * e1z
-        var qz = tx * e1y - ty * e1x
-        var v = (ray.D.x() * qx + ray.D.y() * qy + ray.D.z() * qz) * inv_det
-        var t = (e2x * qx + e2y * qy + e2z * qz) * inv_det
-
-        var det_ok = det.gt(1e-12) | det.lt(-1e-12)
-        var valid_lane = ~leaf.prim_indices.eq(0xFFFFFFFF)
-        var hit_mask = (
-            valid_lane
-            & det_ok
-            & (t.gt(1e-4))
-            & (t.lt(ray.hit.t))
-            & (u.ge(0.0))
-            & (v.ge(0.0))
-            & ((u + v).le(1.0))
+        var h = intersect_ray_tri[DType.float32, Self.width](
+            SIMD[DType.float32, Self.width](ray.O.x()),
+            SIMD[DType.float32, Self.width](ray.O.y()),
+            SIMD[DType.float32, Self.width](ray.O.z()),
+            SIMD[DType.float32, Self.width](ray.D.x()),
+            SIMD[DType.float32, Self.width](ray.D.y()),
+            SIMD[DType.float32, Self.width](ray.D.z()),
+            leaf.v0x,
+            leaf.v0y,
+            leaf.v0z,
+            leaf.v1x,
+            leaf.v1y,
+            leaf.v1z,
+            leaf.v2x,
+            leaf.v2y,
+            leaf.v2z,
+            SIMD[DType.float32, Self.width](ray.hit.t),
         )
+
+        var valid_lane = ~leaf.prim_indices.eq(0xFFFFFFFF)
+        var hit_mask = h.mask & valid_lane
+
         if hit_mask.reduce_or():
             comptime if is_occlusion:
                 return True
             else:
-                var min_t = hit_mask.select(t, f32_max).reduce_min()
+                var min_t = hit_mask.select(h.t, f32_max).reduce_min()
+
                 comptime for i in range(Self.width):
-                    if hit_mask[i] and t[i] == min_t:
+                    if hit_mask[i] and h.t[i] == min_t:
                         ray.hit.t = min_t
-                        ray.hit.u = u[i]
-                        ray.hit.v = v[i]
+                        ray.hit.u = h.u[i]
+                        ray.hit.v = h.v[i]
                         ray.hit.prim = leaf.prim_indices[i]
+
                 return True
+
         return False
 
     @always_inline
@@ -1265,49 +1240,35 @@ struct BVHGPU(Copyable):
         ref v1 = self.vertices[Int(prim_idx) * 3 + 1]
         ref v2 = self.vertices[Int(prim_idx) * 3 + 2]
 
-        var e1x = v1.x() - v0.x()
-        var e1y = v1.y() - v0.y()
-        var e1z = v1.z() - v0.z()
-        var e2x = v2.x() - v0.x()
-        var e2y = v2.y() - v0.y()
-        var e2z = v2.z() - v0.z()
-
-        var px = ray.D.y() * e2z - ray.D.z() * e2y
-        var py = ray.D.z() * e2x - ray.D.x() * e2z
-        var pz = ray.D.x() * e2y - ray.D.y() * e2x
-        var det = e1x * px + e1y * py + e1z * pz
-
-        if det > -1e-12 and det < 1e-12:
+        h = intersect_ray_tri(
+            ray.O.x(),
+            ray.O.y(),
+            ray.O.z(),
+            ray.D.x(),
+            ray.D.y(),
+            ray.D.z(),
+            v0.x(),
+            v0.y(),
+            v0.z(),
+            v1.x(),
+            v1.y(),
+            v1.z(),
+            v2.x(),
+            v2.y(),
+            v2.z(),
+            ray.hit.t,
+        )
+        if not h.mask[0]:
             return False
 
-        var inv_det = 1.0 / det
-        var tx = ray.O.x() - v0.x()
-        var ty = ray.O.y() - v0.y()
-        var tz = ray.O.z() - v0.z()
-
-        var u = (tx * px + ty * py + tz * pz) * inv_det
-        if u < 0.0 or u > 1.0:
-            return False
-
-        var qx = ty * e1z - tz * e1y
-        var qy = tz * e1x - tx * e1z
-        var qz = tx * e1y - ty * e1x
-
-        var v = (ray.D.x() * qx + ray.D.y() * qy + ray.D.z() * qz) * inv_det
-        if v < 0.0 or u + v > 1.0:
-            return False
-
-        var t = (e2x * qx + e2y * qy + e2z * qz) * inv_det
-        if t > 1e-4 and t < ray.hit.t:
-            comptime if is_shadow:
-                return True
-            ray.hit.t = t
-            ray.hit.u = u
-            ray.hit.v = v
-            ray.hit.prim = prim_idx
+        comptime if is_shadow:
             return True
 
-        return False
+        ray.hit.t = h.t[0]
+        ray.hit.u = h.u[0]
+        ray.hit.v = h.v[0]
+        ray.hit.prim = prim_idx
+        return True
 
     @always_inline
     def _intersect_leaf[

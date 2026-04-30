@@ -1,6 +1,7 @@
 from std.benchmark import keep
 from std.bit import count_leading_zeros
-from std.math import min, max, round
+from std.atomic import Atomic
+from std.math import abs, min, max, round
 from std.memory import UnsafePointer
 from std.sys import has_accelerator
 from std.time import perf_counter_ns
@@ -297,6 +298,149 @@ def build_lbvh_topology_kernel(
     node_meta[base + 3] = UInt32(last)
 
 
+# -----------------------------------------------------------------------------
+# GPU LBVH bounds refit.
+#
+# One thread starts from each sorted leaf. It writes its leaf bounds into the
+# parent child slot, then uses an atomic flag to let the second arriving child
+# merge and propagate the internal-node bounds upward.
+# -----------------------------------------------------------------------------
+
+
+def init_lbvh_bounds_kernel(
+    node_bounds: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    node_flags: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    internal_count: Int,
+):
+    var i = Int(block_idx.x * block_dim.x + thread_idx.x)
+    if i >= internal_count:
+        return
+
+    var b = i * 12
+    node_bounds[b + 0] = Float32(1.0e30)
+    node_bounds[b + 1] = Float32(1.0e30)
+    node_bounds[b + 2] = Float32(1.0e30)
+    node_bounds[b + 3] = Float32(-1.0e30)
+    node_bounds[b + 4] = Float32(-1.0e30)
+    node_bounds[b + 5] = Float32(-1.0e30)
+    node_bounds[b + 6] = Float32(1.0e30)
+    node_bounds[b + 7] = Float32(1.0e30)
+    node_bounds[b + 8] = Float32(1.0e30)
+    node_bounds[b + 9] = Float32(-1.0e30)
+    node_bounds[b + 10] = Float32(-1.0e30)
+    node_bounds[b + 11] = Float32(-1.0e30)
+    node_flags[i] = UInt32(0)
+
+
+@always_inline
+def _write_child_bounds(
+    node_bounds: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    parent: UInt32,
+    write_left: Bool,
+    mnx: Float32,
+    mny: Float32,
+    mnz: Float32,
+    mxx: Float32,
+    mxy: Float32,
+    mxz: Float32,
+):
+    var b = Int(parent) * 12
+    if write_left:
+        node_bounds[b + 0] = mnx
+        node_bounds[b + 1] = mny
+        node_bounds[b + 2] = mnz
+        node_bounds[b + 3] = mxx
+        node_bounds[b + 4] = mxy
+        node_bounds[b + 5] = mxz
+    else:
+        node_bounds[b + 6] = mnx
+        node_bounds[b + 7] = mny
+        node_bounds[b + 8] = mnz
+        node_bounds[b + 9] = mxx
+        node_bounds[b + 10] = mxy
+        node_bounds[b + 11] = mxz
+
+
+@always_inline
+def _load_and_union_node_bounds(
+    node_bounds: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    parent: UInt32,
+) -> Tuple[Float32, Float32, Float32, Float32, Float32, Float32]:
+    var b = Int(parent) * 12
+    var mnx = min(node_bounds[b + 0], node_bounds[b + 6])
+    var mny = min(node_bounds[b + 1], node_bounds[b + 7])
+    var mnz = min(node_bounds[b + 2], node_bounds[b + 8])
+    var mxx = max(node_bounds[b + 3], node_bounds[b + 9])
+    var mxy = max(node_bounds[b + 4], node_bounds[b + 10])
+    var mxz = max(node_bounds[b + 5], node_bounds[b + 11])
+    return (mnx, mny, mnz, mxx, mxy, mxz)
+
+
+def refit_lbvh_bounds_kernel(
+    vertices: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    sorted_prim_ids: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    node_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    leaf_parent: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    node_bounds: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    node_flags: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    leaf_count: Int,
+):
+    var leaf_idx = Int(block_idx.x * block_dim.x + thread_idx.x)
+    if leaf_idx >= leaf_count:
+        return
+
+    var prim_idx = UInt32(sorted_prim_ids[leaf_idx])
+    var base = Int(prim_idx) * 9
+    var v0x = vertices[base + 0]
+    var v0y = vertices[base + 1]
+    var v0z = vertices[base + 2]
+    var v1x = vertices[base + 3]
+    var v1y = vertices[base + 4]
+    var v1z = vertices[base + 5]
+    var v2x = vertices[base + 6]
+    var v2y = vertices[base + 7]
+    var v2z = vertices[base + 8]
+
+    var mnx = min(min(v0x, v1x), v2x)
+    var mny = min(min(v0y, v1y), v2y)
+    var mnz = min(min(v0z, v1z), v2z)
+    var mxx = max(max(v0x, v1x), v2x)
+    var mxy = max(max(v0y, v1y), v2y)
+    var mxz = max(max(v0z, v1z), v2z)
+
+    var current_encoded = UInt32(leaf_idx) | LBVH_LEAF_FLAG
+    var parent = UInt32(leaf_parent[leaf_idx])
+
+    while parent != LBVH_SENTINEL:
+        var meta_base = Int(parent) * 4
+        var left = UInt32(node_meta[meta_base + 1])
+        var right = UInt32(node_meta[meta_base + 2])
+
+        var is_left = current_encoded == left
+        var is_right = current_encoded == right
+        if not is_left and not is_right:
+            break
+
+        _write_child_bounds(
+            node_bounds, parent, is_left, mnx, mny, mnz, mxx, mxy, mxz
+        )
+
+        var old = Atomic.fetch_add(node_flags + Int(parent), UInt32(1))
+        if old == UInt32(0):
+            break
+
+        var merged = _load_and_union_node_bounds(node_bounds, parent)
+        mnx = merged[0]
+        mny = merged[1]
+        mnz = merged[2]
+        mxx = merged[3]
+        mxy = merged[4]
+        mxz = merged[5]
+
+        current_encoded = parent
+        parent = UInt32(node_meta[Int(current_encoded) * 4 + 0])
+
+
 def validate_sorted_keys(
     keys: DeviceBuffer[DType.uint32],
     values: DeviceBuffer[DType.uint32],
@@ -431,6 +575,76 @@ def validate_topology(
 
     keep(checksum)
     return (ok, root_count, root_idx, checksum)
+
+
+def validate_refit_bounds(
+    node_bounds: DeviceBuffer[DType.float32],
+    node_flags: DeviceBuffer[DType.uint32],
+    node_meta: DeviceBuffer[DType.uint32],
+    leaf_count: Int,
+    scene_min: Vec3f32,
+    scene_max: Vec3f32,
+) raises -> Tuple[Bool, Float64, UInt32, UInt64]:
+    var ok = True
+    var internal_count = leaf_count - 1
+    var root_idx = UInt32(0xFFFFFFFF)
+    var checksum = UInt64(0)
+
+    with node_meta.map_to_host() as m:
+        for i in range(internal_count):
+            var parent = UInt32(m[i * 4 + 0])
+            if parent == LBVH_SENTINEL:
+                root_idx = UInt32(i)
+
+    with node_flags.map_to_host() as f:
+        for i in range(internal_count):
+            var flag = UInt32(f[i])
+            checksum += UInt64(flag)
+            if flag != UInt32(2):
+                ok = False
+
+    var diff = Float64(1.0e30)
+    if root_idx != UInt32(0xFFFFFFFF):
+        with node_bounds.map_to_host() as b:
+            var rb = Int(root_idx) * 12
+            var mnx = min(Float32(b[rb + 0]), Float32(b[rb + 6]))
+            var mny = min(Float32(b[rb + 1]), Float32(b[rb + 7]))
+            var mnz = min(Float32(b[rb + 2]), Float32(b[rb + 8]))
+            var mxx = max(Float32(b[rb + 3]), Float32(b[rb + 9]))
+            var mxy = max(Float32(b[rb + 4]), Float32(b[rb + 10]))
+            var mxz = max(Float32(b[rb + 5]), Float32(b[rb + 11]))
+
+            checksum += UInt64(abs(Float64(mnx)) * 1000.0)
+            checksum += UInt64(abs(Float64(mny)) * 1000.0)
+            checksum += UInt64(abs(Float64(mnz)) * 1000.0)
+            checksum += UInt64(abs(Float64(mxx)) * 1000.0)
+            checksum += UInt64(abs(Float64(mxy)) * 1000.0)
+            checksum += UInt64(abs(Float64(mxz)) * 1000.0)
+
+            diff = max(
+                max(
+                    max(
+                        abs(Float64(mnx - scene_min.x())),
+                        abs(Float64(mny - scene_min.y())),
+                    ),
+                    max(
+                        abs(Float64(mnz - scene_min.z())),
+                        abs(Float64(mxx - scene_max.x())),
+                    ),
+                ),
+                max(
+                    abs(Float64(mxy - scene_max.y())),
+                    abs(Float64(mxz - scene_max.z())),
+                ),
+            )
+    else:
+        ok = False
+
+    if diff > 1.0e-4:
+        ok = False
+
+    keep(checksum)
+    return (ok, diff, root_idx, checksum)
 
 
 def run_gpu_lbvh_topology_benchmark(
@@ -726,8 +940,269 @@ def run_gpu_lbvh_topology_benchmark(
         )
 
 
+def run_gpu_lbvh_refit_benchmark(
+    tri_vertices: List[Vec3f32],
+    centroid_min: Vec3f32,
+    centroid_max: Vec3f32,
+    scene_min: Vec3f32,
+    scene_max: Vec3f32,
+    repeats: Int,
+) raises -> Tuple[
+    Int,
+    Int,
+    Int,
+    Int,
+    Int,
+    Bool,
+    Bool,
+    Bool,
+    Int,
+    UInt32,
+    Bool,
+    Float64,
+    UInt32,
+    UInt64,
+]:
+    var tri_count = len(tri_vertices) // 3
+    var internal_count = tri_count - 1
+    var vertices = flatten_vertices(tri_vertices)
+
+    var extent = centroid_max - centroid_min
+    var inv_x = Float32(0.0)
+    var inv_y = Float32(0.0)
+    var inv_z = Float32(0.0)
+    if extent.x() > 1.0e-20:
+        inv_x = 1.0 / extent.x()
+    if extent.y() > 1.0e-20:
+        inv_y = 1.0 / extent.y()
+    if extent.z() > 1.0e-20:
+        inv_z = 1.0 / extent.z()
+
+    with DeviceContext() as ctx:
+        var static_t0 = perf_counter_ns()
+        var d_vertices = copy_f32_list_to_device(ctx, vertices)
+        var d_keys = ctx.enqueue_create_buffer[DType.uint32](tri_count)
+        var d_values = ctx.enqueue_create_buffer[DType.uint32](tri_count)
+        var workspace = RadixSortWorkspace[DType.uint32, DType.uint32](
+            ctx, tri_count
+        )
+        var d_node_meta = ctx.enqueue_create_buffer[DType.uint32](
+            internal_count * 4
+        )
+        var d_leaf_parent = ctx.enqueue_create_buffer[DType.uint32](tri_count)
+        var d_node_bounds = ctx.enqueue_create_buffer[DType.float32](
+            internal_count * 12
+        )
+        var d_node_flags = ctx.enqueue_create_buffer[DType.uint32](
+            internal_count
+        )
+        ctx.synchronize()
+        var static_t1 = perf_counter_ns()
+
+        var blocks_leaves = (tri_count + GPU_BLOCK_SIZE - 1) // GPU_BLOCK_SIZE
+        var blocks_internal = (
+            internal_count + GPU_BLOCK_SIZE - 1
+        ) // GPU_BLOCK_SIZE
+        var blocks_init = (
+            max(tri_count, internal_count) + GPU_BLOCK_SIZE - 1
+        ) // GPU_BLOCK_SIZE
+
+        var best_morton_ns = Int(9223372036854775807)
+        var best_sort_ns = Int(9223372036854775807)
+        var best_topology_ns = Int(9223372036854775807)
+        var best_refit_ns = Int(9223372036854775807)
+
+        for _ in range(repeats):
+            var m0 = perf_counter_ns()
+            ctx.enqueue_function[
+                compute_morton_codes_kernel, compute_morton_codes_kernel
+            ](
+                d_vertices.unsafe_ptr(),
+                d_keys.unsafe_ptr(),
+                d_values.unsafe_ptr(),
+                tri_count,
+                centroid_min.x(),
+                centroid_min.y(),
+                centroid_min.z(),
+                inv_x,
+                inv_y,
+                inv_z,
+                grid_dim=blocks_leaves,
+                block_dim=GPU_BLOCK_SIZE,
+            )
+            ctx.synchronize()
+            var m1 = perf_counter_ns()
+            var morton_ns = Int(m1 - m0)
+            if morton_ns < best_morton_ns:
+                best_morton_ns = morton_ns
+
+            var s0 = perf_counter_ns()
+            device_radix_sort_pairs[DType.uint32, DType.uint32](
+                ctx, workspace, d_keys, d_values, tri_count
+            )
+            ctx.synchronize()
+            var s1 = perf_counter_ns()
+            var sort_ns = Int(s1 - s0)
+            if sort_ns < best_sort_ns:
+                best_sort_ns = sort_ns
+
+            var t0 = perf_counter_ns()
+            ctx.enqueue_function[
+                init_lbvh_topology_kernel, init_lbvh_topology_kernel
+            ](
+                d_node_meta.unsafe_ptr(),
+                d_leaf_parent.unsafe_ptr(),
+                internal_count,
+                tri_count,
+                grid_dim=blocks_init,
+                block_dim=GPU_BLOCK_SIZE,
+            )
+            ctx.enqueue_function[
+                build_lbvh_topology_kernel, build_lbvh_topology_kernel
+            ](
+                d_keys.unsafe_ptr(),
+                d_node_meta.unsafe_ptr(),
+                d_leaf_parent.unsafe_ptr(),
+                tri_count,
+                grid_dim=blocks_internal,
+                block_dim=GPU_BLOCK_SIZE,
+            )
+            ctx.synchronize()
+            var t1 = perf_counter_ns()
+            var topology_ns = Int(t1 - t0)
+            if topology_ns < best_topology_ns:
+                best_topology_ns = topology_ns
+
+            var r0 = perf_counter_ns()
+            ctx.enqueue_function[
+                init_lbvh_bounds_kernel, init_lbvh_bounds_kernel
+            ](
+                d_node_bounds.unsafe_ptr(),
+                d_node_flags.unsafe_ptr(),
+                internal_count,
+                grid_dim=blocks_internal,
+                block_dim=GPU_BLOCK_SIZE,
+            )
+            ctx.enqueue_function[
+                refit_lbvh_bounds_kernel, refit_lbvh_bounds_kernel
+            ](
+                d_vertices.unsafe_ptr(),
+                d_values.unsafe_ptr(),
+                d_node_meta.unsafe_ptr(),
+                d_leaf_parent.unsafe_ptr(),
+                d_node_bounds.unsafe_ptr(),
+                d_node_flags.unsafe_ptr(),
+                tri_count,
+                grid_dim=blocks_leaves,
+                block_dim=GPU_BLOCK_SIZE,
+            )
+            ctx.synchronize()
+            var r1 = perf_counter_ns()
+            var refit_ns = Int(r1 - r0)
+            if refit_ns < best_refit_ns:
+                best_refit_ns = refit_ns
+
+        # Validation pass using the same buffers.
+        ctx.enqueue_function[
+            compute_morton_codes_kernel, compute_morton_codes_kernel
+        ](
+            d_vertices.unsafe_ptr(),
+            d_keys.unsafe_ptr(),
+            d_values.unsafe_ptr(),
+            tri_count,
+            centroid_min.x(),
+            centroid_min.y(),
+            centroid_min.z(),
+            inv_x,
+            inv_y,
+            inv_z,
+            grid_dim=blocks_leaves,
+            block_dim=GPU_BLOCK_SIZE,
+        )
+        device_radix_sort_pairs[DType.uint32, DType.uint32](
+            ctx, workspace, d_keys, d_values, tri_count
+        )
+        ctx.enqueue_function[
+            init_lbvh_topology_kernel, init_lbvh_topology_kernel
+        ](
+            d_node_meta.unsafe_ptr(),
+            d_leaf_parent.unsafe_ptr(),
+            internal_count,
+            tri_count,
+            grid_dim=blocks_init,
+            block_dim=GPU_BLOCK_SIZE,
+        )
+        ctx.enqueue_function[
+            build_lbvh_topology_kernel, build_lbvh_topology_kernel
+        ](
+            d_keys.unsafe_ptr(),
+            d_node_meta.unsafe_ptr(),
+            d_leaf_parent.unsafe_ptr(),
+            tri_count,
+            grid_dim=blocks_internal,
+            block_dim=GPU_BLOCK_SIZE,
+        )
+        ctx.enqueue_function[init_lbvh_bounds_kernel, init_lbvh_bounds_kernel](
+            d_node_bounds.unsafe_ptr(),
+            d_node_flags.unsafe_ptr(),
+            internal_count,
+            grid_dim=blocks_internal,
+            block_dim=GPU_BLOCK_SIZE,
+        )
+        ctx.enqueue_function[
+            refit_lbvh_bounds_kernel, refit_lbvh_bounds_kernel
+        ](
+            d_vertices.unsafe_ptr(),
+            d_values.unsafe_ptr(),
+            d_node_meta.unsafe_ptr(),
+            d_leaf_parent.unsafe_ptr(),
+            d_node_bounds.unsafe_ptr(),
+            d_node_flags.unsafe_ptr(),
+            tri_count,
+            grid_dim=blocks_leaves,
+            block_dim=GPU_BLOCK_SIZE,
+        )
+        ctx.synchronize()
+
+        var sorted_validation = validate_sorted_keys(
+            d_keys, d_values, tri_count
+        )
+        var topo_validation = validate_topology(
+            d_node_meta, d_leaf_parent, tri_count
+        )
+        var refit_validation = validate_refit_bounds(
+            d_node_bounds,
+            d_node_flags,
+            d_node_meta,
+            tri_count,
+            scene_min,
+            scene_max,
+        )
+        var checksum = (
+            sorted_validation[6] + topo_validation[3] + refit_validation[3]
+        )
+        keep(checksum)
+
+        return (
+            Int(static_t1 - static_t0),
+            best_morton_ns,
+            best_sort_ns,
+            best_topology_ns,
+            best_refit_ns,
+            sorted_validation[0],
+            sorted_validation[1],
+            topo_validation[0],
+            topo_validation[1],
+            topo_validation[2],
+            refit_validation[0],
+            refit_validation[1],
+            refit_validation[2],
+            checksum,
+        )
+
+
 def main() raises:
-    print("GPU LBVH topology benchmark")
+    print("GPU LBVH refit benchmark")
     print(t"Path: {DEFAULT_OBJ_PATH}")
     print(t"Repeats: {BENCH_REPEATS}")
 
@@ -753,42 +1228,27 @@ def main() raises:
     print_vec3_rounded("Centroid min:", cmin)
     print_vec3_rounded("Centroid max:", cmax)
 
-    print("\nGPU LBVH topology")
-    print("-----------------")
+    print("\nGPU LBVH refit")
+    print("---------------")
     comptime if has_accelerator():
-        var res = run_gpu_lbvh_topology_benchmark(
-            tri_vertices, cmin, cmax, BENCH_REPEATS
+        var res = run_gpu_lbvh_refit_benchmark(
+            tri_vertices, cmin, cmax, bmin, bmax, BENCH_REPEATS
         )
         var static_upload_ns = res[0]
         var morton_ns = res[1]
         var sort_ns = res[2]
         var topology_ns = res[3]
-        var sorted_after_morton_ok = res[4]
-        var values_after_morton_ok = res[5]
-        var sorted_after_morton_bad_key = res[6]
-        var sorted_after_morton_bad_value = res[7]
-        var sorted_after_morton_first = res[8]
-        var sorted_after_morton_last = res[9]
-        var sorted_after_morton_checksum = res[10]
-        var sorted_after_sort_ok = res[11]
-        var values_after_sort_ok = res[12]
-        var sorted_after_sort_bad_key = res[13]
-        var sorted_after_sort_bad_value = res[14]
-        var sorted_after_sort_first = res[15]
-        var sorted_after_sort_last = res[16]
-        var sorted_after_sort_checksum = res[17]
-        var sorted_after_topology_ok = res[18]
-        var values_after_topology_ok = res[19]
-        var sorted_after_topology_bad_key = res[20]
-        var sorted_after_topology_bad_value = res[21]
-        var sorted_after_topology_first = res[22]
-        var sorted_after_topology_last = res[23]
-        var sorted_after_topology_checksum = res[24]
-        var topology_ok = res[25]
-        var root_count = res[26]
-        var root_idx = res[27]
-        var topology_checksum = res[28]
-        var total_ns = morton_ns + sort_ns + topology_ns
+        var refit_ns = res[4]
+        var keys_sorted = res[5]
+        var values_valid = res[6]
+        var topology_ok = res[7]
+        var root_count = res[8]
+        var topology_root = res[9]
+        var refit_ok = res[10]
+        var root_diff = res[11]
+        var refit_root = res[12]
+        var checksum = res[13]
+        var build_ns = morton_ns + sort_ns + topology_ns + refit_ns
 
         print(
             t"static upload + workspace:"
@@ -797,37 +1257,22 @@ def main() raises:
         print(t"morton generation:        {round(ns_to_ms(morton_ns), 3)} ms")
         print(t"radix sort pairs:         {round(ns_to_ms(sort_ns), 3)} ms")
         print(t"topology build:           {round(ns_to_ms(topology_ns), 3)} ms")
-        print(t"morton+sort+topology:     {round(ns_to_ms(total_ns), 3)} ms")
+        print(t"bounds refit:             {round(ns_to_ms(refit_ns), 3)} ms")
+        print(t"lbvh build total:         {round(ns_to_ms(build_ns), 3)} ms")
         print(
-            t"after morton   | keys_sorted: {sorted_after_morton_ok} |"
-            t" values_valid: {values_after_morton_ok} | first_bad_key:"
-            t" {sorted_after_morton_bad_key} | first_bad_value:"
-            t" {sorted_after_morton_bad_value} | first:"
-            t" {sorted_after_morton_first} | last: {sorted_after_morton_last} |"
-            t" checksum: {sorted_after_morton_checksum}"
+            t"sorted ids valid:         keys={keys_sorted} |"
+            t" values={values_valid}"
         )
         print(
-            t"after sort     | keys_sorted: {sorted_after_sort_ok} |"
-            t" values_valid: {values_after_sort_ok} | first_bad_key:"
-            t" {sorted_after_sort_bad_key} | first_bad_value:"
-            t" {sorted_after_sort_bad_value} | first:"
-            t" {sorted_after_sort_first} | last: {sorted_after_sort_last} |"
-            t" checksum: {sorted_after_sort_checksum}"
+            t"topology valid:           {topology_ok} | root_count:"
+            t" {root_count} | root: {topology_root}"
         )
         print(
-            t"after topology | keys_sorted: {sorted_after_topology_ok} |"
-            t" values_valid: {values_after_topology_ok} | first_bad_key:"
-            t" {sorted_after_topology_bad_key} | first_bad_value:"
-            t" {sorted_after_topology_bad_value} | first:"
-            t" {sorted_after_topology_first} | last:"
-            t" {sorted_after_topology_last} | checksum:"
-            t" {sorted_after_topology_checksum}"
+            t"bounds valid:             {refit_ok} | root: {refit_root} | root"
+            t" diff: {round(root_diff, 6)}"
         )
-        print(
-            t"topology valid: {topology_ok} | root_count: {root_count} |"
-            t" root: {root_idx} | checksum: {topology_checksum}"
-        )
+        print(t"checksum:                 {checksum}")
     else:
-        print("No compatible GPU found; skipped GPU LBVH topology benchmark.")
+        print("No compatible GPU found; skipped GPU LBVH refit benchmark.")
 
     keep(len(tri_vertices))

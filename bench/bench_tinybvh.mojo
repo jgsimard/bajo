@@ -1,6 +1,10 @@
 from std.benchmark import keep
-from std.math import abs, round, sqrt
+from std.math import abs, min, max, round, sqrt
 from std.time import perf_counter_ns
+from std.memory import UnsafePointer
+from std.sys import has_accelerator
+from std.gpu import thread_idx, block_idx, block_dim, DeviceBuffer
+from std.gpu.host import DeviceContext
 
 from bajo.obj import read_obj, triangulated_indices
 from bajo.core.vec import Vec3f32, vmin, vmax, cross, dot, length, normalize
@@ -12,6 +16,8 @@ comptime PRIMARY_WIDTH = 640
 comptime PRIMARY_HEIGHT = 360
 comptime PRIMARY_VIEWS = 3
 comptime TRAVERSAL_REPEATS = 8
+comptime GPU_BLOCK_SIZE = 128
+comptime GPU_STACK_SIZE = 64
 
 
 @always_inline
@@ -421,6 +427,418 @@ def bench_gpu_shadow(name: String, gpu: BVHGPU, rays: List[Ray], repeats: Int):
     print_shadow_result(name, best_ns, len(rays), occluded)
 
 
+# -----------------------------------------------------------------------------
+# GPU primary traversal, first version.
+#
+# TinyBVH's OpenCL path stores BVH_GPU as four float4 rows per node:
+#   lmin + left, lmax + right, rmin + triCount, rmax + firstTri.
+# Mojo's DeviceBuffer API is scalar-typed, so this benchmark flattens that same
+# Aila-Laine layout into two GPU buffers:
+#   node_bounds: 12 Float32 values per node: lmin, lmax, rmin, rmax.
+#   node_meta:    4 UInt32 values per node: left, right, triCount, firstTri.
+# -----------------------------------------------------------------------------
+
+
+@always_inline
+def _axis_t_near(o: Float32, rd: Float32, mn: Float32, mx: Float32) -> Float32:
+    var t0 = (mn - o) * rd
+    var t1 = (mx - o) * rd
+    return min(t0, t1)
+
+
+@always_inline
+def _axis_t_far(o: Float32, rd: Float32, mn: Float32, mx: Float32) -> Float32:
+    var t0 = (mn - o) * rd
+    var t1 = (mx - o) * rd
+    return max(t0, t1)
+
+
+@always_inline
+def _intersect_aabb_flat(
+    ox: Float32,
+    oy: Float32,
+    oz: Float32,
+    rdx: Float32,
+    rdy: Float32,
+    rdz: Float32,
+    bminx: Float32,
+    bminy: Float32,
+    bminz: Float32,
+    bmaxx: Float32,
+    bmaxy: Float32,
+    bmaxz: Float32,
+    t_max: Float32,
+) -> Tuple[Bool, Float32]:
+    var tx1 = _axis_t_near(ox, rdx, bminx, bmaxx)
+    var tx2 = _axis_t_far(ox, rdx, bminx, bmaxx)
+    var ty1 = _axis_t_near(oy, rdy, bminy, bmaxy)
+    var ty2 = _axis_t_far(oy, rdy, bminy, bmaxy)
+    var tz1 = _axis_t_near(oz, rdz, bminz, bmaxz)
+    var tz2 = _axis_t_far(oz, rdz, bminz, bmaxz)
+
+    var tmin = max(max(tx1, ty1), max(tz1, Float32(0.0)))
+    var tmax = min(min(tx2, ty2), min(tz2, t_max))
+    return (tmin <= tmax, tmin)
+
+
+@always_inline
+def _intersect_tri_flat(
+    vertices: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    prim_idx: UInt32,
+    ox: Float32,
+    oy: Float32,
+    oz: Float32,
+    dx: Float32,
+    dy: Float32,
+    dz: Float32,
+    t_max: Float32,
+) -> Tuple[Bool, Float32, Float32, Float32]:
+    var base = Int(prim_idx) * 9
+    var v0x = vertices[base + 0]
+    var v0y = vertices[base + 1]
+    var v0z = vertices[base + 2]
+    var v1x = vertices[base + 3]
+    var v1y = vertices[base + 4]
+    var v1z = vertices[base + 5]
+    var v2x = vertices[base + 6]
+    var v2y = vertices[base + 7]
+    var v2z = vertices[base + 8]
+
+    var e1x = v1x - v0x
+    var e1y = v1y - v0y
+    var e1z = v1z - v0z
+    var e2x = v2x - v0x
+    var e2y = v2y - v0y
+    var e2z = v2z - v0z
+
+    var px = dy * e2z - dz * e2y
+    var py = dz * e2x - dx * e2z
+    var pz = dx * e2y - dy * e2x
+    var det = e1x * px + e1y * py + e1z * pz
+
+    if det > -1e-12 and det < 1e-12:
+        return (False, Float32(1e30), Float32(0.0), Float32(0.0))
+
+    var inv_det = Float32(1.0) / det
+    var tx = ox - v0x
+    var ty = oy - v0y
+    var tz = oz - v0z
+
+    var u = (tx * px + ty * py + tz * pz) * inv_det
+    if u < 0.0 or u > 1.0:
+        return (False, Float32(1e30), Float32(0.0), Float32(0.0))
+
+    var qx = ty * e1z - tz * e1y
+    var qy = tz * e1x - tx * e1z
+    var qz = tx * e1y - ty * e1x
+
+    var v = (dx * qx + dy * qy + dz * qz) * inv_det
+    if v < 0.0 or u + v > 1.0:
+        return (False, Float32(1e30), Float32(0.0), Float32(0.0))
+
+    var t = (e2x * qx + e2y * qy + e2z * qz) * inv_det
+    if t > 1e-4 and t < t_max:
+        return (True, t, u, v)
+
+    return (False, Float32(1e30), Float32(0.0), Float32(0.0))
+
+
+def trace_bvh_gpu_primary_kernel(
+    node_bounds: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    node_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    prim_indices: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    vertices: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    rays: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    hits_f32: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    hits_u32: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    ray_count: Int,
+):
+    var ray_idx = Int(block_idx.x * block_dim.x + thread_idx.x)
+    if ray_idx >= ray_count:
+        return
+
+    var ray_base = ray_idx * 10
+    var ox = rays[ray_base + 0]
+    var oy = rays[ray_base + 1]
+    var oz = rays[ray_base + 2]
+    var dx = rays[ray_base + 3]
+    var dy = rays[ray_base + 4]
+    var dz = rays[ray_base + 5]
+    var rdx = rays[ray_base + 6]
+    var rdy = rays[ray_base + 7]
+    var rdz = rays[ray_base + 8]
+    var best_t = rays[ray_base + 9]
+    var best_u = Float32(0.0)
+    var best_v = Float32(0.0)
+    var best_prim = UInt32(0xFFFFFFFF)
+
+    var stack = InlineArray[UInt32, GPU_STACK_SIZE](fill=0)
+    var stack_ptr = 0
+    var node_idx = UInt32(0)
+
+    while True:
+        var meta_base = Int(node_idx) * 4
+        var bounds_base = Int(node_idx) * 12
+
+        var left = node_meta[meta_base + 0]
+        var right = node_meta[meta_base + 1]
+        var tri_count = node_meta[meta_base + 2]
+        var first_tri = node_meta[meta_base + 3]
+
+        if tri_count > 0:
+            for j in range(Int(tri_count)):
+                var prim_idx = prim_indices[Int(first_tri) + j]
+                var tri_hit = _intersect_tri_flat(
+                    vertices,
+                    prim_idx,
+                    ox,
+                    oy,
+                    oz,
+                    dx,
+                    dy,
+                    dz,
+                    best_t,
+                )
+                if tri_hit[0]:
+                    best_t = tri_hit[1]
+                    best_u = tri_hit[2]
+                    best_v = tri_hit[3]
+                    best_prim = prim_idx
+
+            if stack_ptr == 0:
+                break
+            stack_ptr -= 1
+            node_idx = stack[stack_ptr]
+            continue
+
+        var left_hit = _intersect_aabb_flat(
+            ox,
+            oy,
+            oz,
+            rdx,
+            rdy,
+            rdz,
+            node_bounds[bounds_base + 0],
+            node_bounds[bounds_base + 1],
+            node_bounds[bounds_base + 2],
+            node_bounds[bounds_base + 3],
+            node_bounds[bounds_base + 4],
+            node_bounds[bounds_base + 5],
+            best_t,
+        )
+        var right_hit = _intersect_aabb_flat(
+            ox,
+            oy,
+            oz,
+            rdx,
+            rdy,
+            rdz,
+            node_bounds[bounds_base + 6],
+            node_bounds[bounds_base + 7],
+            node_bounds[bounds_base + 8],
+            node_bounds[bounds_base + 9],
+            node_bounds[bounds_base + 10],
+            node_bounds[bounds_base + 11],
+            best_t,
+        )
+
+        var hit_left = left_hit[0]
+        var hit_right = right_hit[0]
+        var dist_left = left_hit[1]
+        var dist_right = right_hit[1]
+
+        if not hit_left and not hit_right:
+            if stack_ptr == 0:
+                break
+            stack_ptr -= 1
+            node_idx = stack[stack_ptr]
+        elif hit_left and not hit_right:
+            node_idx = left
+        elif not hit_left and hit_right:
+            node_idx = right
+        else:
+            var near = left
+            var far = right
+            if dist_left > dist_right:
+                near = right
+                far = left
+            if stack_ptr < GPU_STACK_SIZE:
+                stack[stack_ptr] = far
+                stack_ptr += 1
+            node_idx = near
+
+    var hit_base = ray_idx * 3
+    hits_f32[hit_base + 0] = best_t
+    hits_f32[hit_base + 1] = best_u
+    hits_f32[hit_base + 2] = best_v
+    hits_u32[ray_idx] = best_prim
+
+
+def flatten_gpu_node_bounds(gpu: BVHGPU) -> List[Float32]:
+    var out = List[Float32](capacity=len(gpu.nodes) * 12)
+    for i in range(len(gpu.nodes)):
+        ref n = gpu.nodes[i]
+        out.append(n.lmin.x())
+        out.append(n.lmin.y())
+        out.append(n.lmin.z())
+        out.append(n.lmax.x())
+        out.append(n.lmax.y())
+        out.append(n.lmax.z())
+        out.append(n.rmin.x())
+        out.append(n.rmin.y())
+        out.append(n.rmin.z())
+        out.append(n.rmax.x())
+        out.append(n.rmax.y())
+        out.append(n.rmax.z())
+    return out^
+
+
+def flatten_gpu_node_meta(gpu: BVHGPU) -> List[UInt32]:
+    var out = List[UInt32](capacity=len(gpu.nodes) * 4)
+    for i in range(len(gpu.nodes)):
+        ref n = gpu.nodes[i]
+        out.append(n.left)
+        out.append(n.right)
+        out.append(n.triCount)
+        out.append(n.firstTri)
+    return out^
+
+
+def flatten_vertices(verts: List[Vec3f32]) -> List[Float32]:
+    var out = List[Float32](capacity=len(verts) * 3)
+    for i in range(len(verts)):
+        out.append(verts[i].x())
+        out.append(verts[i].y())
+        out.append(verts[i].z())
+    return out^
+
+
+def flatten_rays(rays: List[Ray]) -> List[Float32]:
+    var out = List[Float32](capacity=len(rays) * 10)
+    for i in range(len(rays)):
+        ref r = rays[i]
+        out.append(r.O.x())
+        out.append(r.O.y())
+        out.append(r.O.z())
+        out.append(r.D.x())
+        out.append(r.D.y())
+        out.append(r.D.z())
+        out.append(r.rD.x())
+        out.append(r.rD.y())
+        out.append(r.rD.z())
+        out.append(r.hit.t)
+    return out^
+
+
+def copy_f32_list_to_device(
+    mut ctx: DeviceContext, values: List[Float32]
+) raises -> DeviceBuffer[DType.float32]:
+    var buf = ctx.enqueue_create_buffer[DType.float32](len(values))
+    with buf.map_to_host() as h:
+        for i in range(len(values)):
+            h[i] = values[i]
+    return buf^
+
+
+def copy_u32_list_to_device(
+    mut ctx: DeviceContext, values: List[UInt32]
+) raises -> DeviceBuffer[DType.uint32]:
+    var buf = ctx.enqueue_create_buffer[DType.uint32](len(values))
+    with buf.map_to_host() as h:
+        for i in range(len(values)):
+            h[i] = values[i]
+    return buf^
+
+
+def trace_gpu_primary_device(
+    gpu: BVHGPU,
+    tri_vertices: List[Vec3f32],
+    rays: List[Ray],
+    repeats: Int,
+) raises -> Tuple[Float64, Int, Int, Int]:
+    var node_bounds = flatten_gpu_node_bounds(gpu)
+    var node_meta = flatten_gpu_node_meta(gpu)
+    var vertices = flatten_vertices(tri_vertices)
+    var rays_flat = flatten_rays(rays)
+
+    with DeviceContext() as ctx:
+        var upload_t0 = perf_counter_ns()
+        var d_node_bounds = copy_f32_list_to_device(ctx, node_bounds)
+        var d_node_meta = copy_u32_list_to_device(ctx, node_meta)
+        var d_prims = copy_u32_list_to_device(ctx, gpu.prim_indices)
+        var d_vertices = copy_f32_list_to_device(ctx, vertices)
+        var d_rays = copy_f32_list_to_device(ctx, rays_flat)
+        var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](len(rays) * 3)
+        var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](len(rays))
+        ctx.synchronize()
+        var upload_t1 = perf_counter_ns()
+
+        var blocks = (len(rays) + GPU_BLOCK_SIZE - 1) // GPU_BLOCK_SIZE
+
+        # Warmup.
+        ctx.enqueue_function[
+            trace_bvh_gpu_primary_kernel, trace_bvh_gpu_primary_kernel
+        ](
+            d_node_bounds.unsafe_ptr(),
+            d_node_meta.unsafe_ptr(),
+            d_prims.unsafe_ptr(),
+            d_vertices.unsafe_ptr(),
+            d_rays.unsafe_ptr(),
+            d_hits_f32.unsafe_ptr(),
+            d_hits_u32.unsafe_ptr(),
+            len(rays),
+            grid_dim=blocks,
+            block_dim=GPU_BLOCK_SIZE,
+        )
+        ctx.synchronize()
+
+        var best_kernel_ns = Int(9223372036854775807)
+        for _ in range(repeats):
+            var k0 = perf_counter_ns()
+            ctx.enqueue_function[
+                trace_bvh_gpu_primary_kernel, trace_bvh_gpu_primary_kernel
+            ](
+                d_node_bounds.unsafe_ptr(),
+                d_node_meta.unsafe_ptr(),
+                d_prims.unsafe_ptr(),
+                d_vertices.unsafe_ptr(),
+                d_rays.unsafe_ptr(),
+                d_hits_f32.unsafe_ptr(),
+                d_hits_u32.unsafe_ptr(),
+                len(rays),
+                grid_dim=blocks,
+                block_dim=GPU_BLOCK_SIZE,
+            )
+            ctx.synchronize()
+            var k1 = perf_counter_ns()
+            var kdt = Int(k1 - k0)
+            if kdt < best_kernel_ns:
+                best_kernel_ns = kdt
+
+        var download_t0 = perf_counter_ns()
+        var checksum = Float64(0.0)
+        var hit_count = 0
+        with d_hits_f32.map_to_host() as h:
+            for i in range(len(rays)):
+                var t = h[i * 3]
+                if t < 1.0e20:
+                    checksum += Float64(t)
+                    hit_count += 1
+        ctx.synchronize()
+        var download_t1 = perf_counter_ns()
+
+        keep(hit_count)
+        keep(checksum)
+        keep(len(node_bounds))
+        keep(len(node_meta))
+        return (
+            checksum,
+            Int(upload_t1 - upload_t0),
+            best_kernel_ns,
+            Int(download_t1 - download_t0),
+        )
+
+
 def main() raises:
     print("TinyBVH Mojo bunny speedtest")
     print(t"Path: {DEFAULT_OBJ_PATH}")
@@ -570,6 +988,30 @@ def main() raises:
     bench_wide_shadow[4]("wide4         ", wide4, rays, TRAVERSAL_REPEATS)
     bench_wide_shadow[8]("wide8         ", wide8, rays, TRAVERSAL_REPEATS)
     bench_gpu_shadow("gpu layout CPU", gpu, rays, TRAVERSAL_REPEATS)
+
+    print("\nGPU primary traversal")
+    print("---------------------")
+    comptime if has_accelerator():
+        var gpu_result = trace_gpu_primary_device(
+            gpu, tri_vertices, rays, TRAVERSAL_REPEATS
+        )
+        var gpu_checksum = gpu_result[0]
+        var upload_ns = gpu_result[1]
+        var kernel_ns = gpu_result[2]
+        var download_ns = gpu_result[3]
+        var kernel_ms = round(ns_to_ms(kernel_ns), 3)
+        var kernel_mrays = round(ns_to_mrays_per_s(kernel_ns, len(rays)), 3)
+        var upload_ms = round(ns_to_ms(upload_ns), 3)
+        var download_ms = round(ns_to_ms(download_ns), 3)
+        var diff = round(abs(gpu_checksum - ref_checksum), 3)
+        print(t"gpu layout GPU primary validation: diff {diff}")
+        print(
+            t"gpu layout GPU kernel | {kernel_ms} ms | {kernel_mrays} MRays/s |"
+            t" checksum: {round(gpu_checksum, 3)}"
+        )
+        print(t"gpu upload: {upload_ms} ms | gpu download: {download_ms} ms")
+    else:
+        print("No compatible GPU found; skipped Mojo GPU kernel.")
 
     # Keep external vertex buffer alive until the end: BVH stores an UnsafePointer to it.
     keep(len(tri_vertices))

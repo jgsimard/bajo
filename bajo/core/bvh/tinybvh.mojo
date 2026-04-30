@@ -959,7 +959,7 @@ struct WideBVH[width: Int](Copyable):
             var mask = tmin.le(tmax) & (~node.counts.eq(0xFFFFFFFF))
 
             if mask.reduce_or():
-                for i in range(Self.width):
+                comptime for i in range(Self.width):
                     if mask[i]:
                         if node.counts[i] == 0:
                             stack[s_ptr] = node.data[i]

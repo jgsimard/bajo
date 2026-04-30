@@ -1,6 +1,6 @@
 from std.math import sqrt, clamp, pi
 from std.sys.info import size_of
-from std.reflection import get_type_name
+from std.reflection import reflect
 
 from bajo.core.vec import Vec, vclamp
 
@@ -96,7 +96,7 @@ def smoothstep[
 
 
 def print_size_of[type: AnyType]():
-    comptime name = get_type_name[type]()
+    comptime name = reflect[type]().name()
     size_bytes = size_of[type]()
     size_32 = size_bytes / 4
     print(t"{name}: {size_bytes} bytes, {size_32} x 32 bits")
@@ -116,3 +116,23 @@ def radians_to_degrees[
     dtype: DType, size: Int
 ](radians: SIMD[dtype, size]) -> SIMD[dtype, size]:
     return radians * comptime (180.0 / pi)
+
+
+@always_inline
+def ns_to_ms(ns: Int) -> Float64:
+    return Float64(ns) / 1_000_000.0
+
+
+@always_inline
+def ns_to_mrays_per_s(ns: Int, ray_count: Int) -> Float64:
+    var seconds = Float64(ns) * 1.0e-9
+    if seconds <= 0.0:
+        return 0.0
+    return (Float64(ray_count) / seconds) / 1_000_000.0
+
+
+def print_vec3_rounded[dtype: DType](name: String, v: Vec[dtype, 3]):
+    var x = round(v.x(), 3)
+    var y = round(v.y(), 3)
+    var z = round(v.z(), 3)
+    print(t"{name} ({x}, {y}, {z})")

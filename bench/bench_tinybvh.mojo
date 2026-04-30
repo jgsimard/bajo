@@ -9,6 +9,7 @@ from std.gpu.host import DeviceContext
 from bajo.obj import read_obj, triangulated_indices
 from bajo.core.vec import Vec3f32, vmin, vmax, cross, dot, length, normalize
 from bajo.core.bvh.tinybvh import BVH, BVHGPU, Ray, WideBVH
+from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 
 
 comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"
@@ -18,26 +19,6 @@ comptime PRIMARY_VIEWS = 3
 comptime TRAVERSAL_REPEATS = 8
 comptime GPU_BLOCK_SIZE = 128
 comptime GPU_STACK_SIZE = 64
-
-
-@always_inline
-def ns_to_ms(ns: Int) -> Float64:
-    return Float64(ns) / 1_000_000.0
-
-
-@always_inline
-def ns_to_mrays_per_s(ns: Int, ray_count: Int) -> Float64:
-    var seconds = Float64(ns) * 1.0e-9
-    if seconds <= 0.0:
-        return 0.0
-    return (Float64(ray_count) / seconds) / 1_000_000.0
-
-
-def print_vec3_rounded(name: String, v: Vec3f32):
-    var x = round(Float64(v.x()), 3)
-    var y = round(Float64(v.y()), 3)
-    var z = round(Float64(v.z()), 3)
-    print(t"{name} ({x}, {y}, {z})")
 
 
 def pack_obj_triangles(path: String) raises -> List[Vec3f32]:

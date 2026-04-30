@@ -9,16 +9,14 @@ from bajo.core.morton import morton3
 from bajo.core.vec import Vec3f32, vmin, vmax, cross, length, normalize
 from bajo.core.bvh.tinybvh import BVH, Ray
 from bajo.sort.gpu.radix_sort import device_radix_sort_pairs, RadixSortWorkspace
+from bajo.core.utils import ns_to_ms
 
-from bajo.core.vec import Vec3f32
-from bajo.core.bvh.tinybvh import BVH
 from bajo.core.bvh.gpu_lbvh import (
     compute_bounds,
     compute_centroid_bounds,
     generate_camera_params,
     generate_primary_rays,
     ns_to_mrays_per_s,
-    ns_to_ms,
     pack_obj_triangles,
     print_vec3_rounded,
     trace_bvh_primary,

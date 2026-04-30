@@ -13,33 +13,13 @@ from bajo.core.morton import morton3
 from bajo.core.vec import Vec3f32, vmin, vmax, cross, length, normalize
 from bajo.core.bvh.tinybvh import BVH, Ray
 from bajo.sort.gpu.radix_sort import device_radix_sort_pairs, RadixSortWorkspace
-
+from bajo.core.utils import ns_to_mrays_per_s, print_vec3_rounded
 
 comptime GPU_TRAVERSAL_STACK_SIZE = 64
 comptime GPU_REDUCE_THREADS = 4096
 comptime LBVH_LEAF_FLAG = UInt32(0x80000000)
 comptime LBVH_INDEX_MASK = UInt32(0x7FFFFFFF)
 comptime LBVH_SENTINEL = UInt32(0xFFFFFFFF)
-
-
-@always_inline
-def ns_to_ms(ns: Int) -> Float64:
-    return Float64(ns) / 1_000_000.0
-
-
-@always_inline
-def ns_to_mrays_per_s(ns: Int, ray_count: Int) -> Float64:
-    var seconds = Float64(ns) * 1.0e-9
-    if seconds <= 0.0:
-        return 0.0
-    return (Float64(ray_count) / seconds) / 1_000_000.0
-
-
-def print_vec3_rounded(name: String, v: Vec3f32):
-    var x = round(Float64(v.x()), 3)
-    var y = round(Float64(v.y()), 3)
-    var z = round(Float64(v.z()), 3)
-    print(t"{name} ({x}, {y}, {z})")
 
 
 def pack_obj_triangles(path: String) raises -> List[Vec3f32]:
@@ -123,13 +103,6 @@ def copy_f32_list_to_device(
 
 
 @always_inline
-def _clz32(v: UInt32) -> Int:
-    if v == 0:
-        return 32
-    return Int(count_leading_zeros(v))
-
-
-@always_inline
 def _common_prefix_gpu(
     keys: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
     i: Int,
@@ -143,14 +116,14 @@ def _common_prefix_gpu(
     var b = UInt32(keys[j])
 
     if a != b:
-        return _clz32(a ^ b)
+        return Int(count_leading_zeros(a ^ b))
 
     # Tie-break equal Morton codes with the sorted leaf index. This makes the
     # prefix order total and keeps degenerate duplicate-code cases deterministic.
     var x = UInt32(i) ^ UInt32(j)
     if x == 0:
         return 64
-    return 32 + _clz32(x)
+    return 32 + Int(count_leading_zeros(x))
 
 
 def compute_morton_codes_kernel(

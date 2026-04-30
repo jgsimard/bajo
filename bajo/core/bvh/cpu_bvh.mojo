@@ -189,9 +189,7 @@ struct BVH(Copyable):
         self.nodes_used = 1
 
         var max_nodes = Int(tri_count * 2 - 1)
-        self.bvh_nodes = List[BVHNode](capacity=max_nodes)
-        for _ in range(max_nodes):
-            self.bvh_nodes.append(BVHNode())
+        self.bvh_nodes = List[BVHNode](length=max_nodes, fill=BVHNode())
 
         self.fragments = List[Fragment](capacity=Int(tri_count))
         self.prim_indices = List[UInt32](capacity=Int(tri_count))

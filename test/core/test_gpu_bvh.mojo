@@ -5,7 +5,7 @@ from std.benchmark import keep
 from bajo.core.vec import Vec3f32
 from bajo.core.bvh import hit_t_for_checksum, compute_bounds
 from bajo.core.bvh.cpu_bvh import BVH
-from bajo.core.bvh.gpu_lbvh import (
+from bajo.core.bvh.gpu_bvh import (
     compute_centroid_bounds,
     generate_camera_params,
     generate_primary_rays,

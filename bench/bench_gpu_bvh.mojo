@@ -7,20 +7,22 @@ from std.gpu import DeviceContext, DeviceBuffer
 from bajo.obj import read_obj, triangulated_indices
 from bajo.core.morton import morton3
 from bajo.core.vec import Vec3f32, vmin, vmax, cross, length, normalize
-from bajo.core.bvh.cpu_bvh import BVH, Ray
 from bajo.sort.gpu.radix_sort import device_radix_sort_pairs, RadixSortWorkspace
 from bajo.core.utils import ns_to_ms
 
+from bajo.core.bvh import (
+    generate_primary_rays,
+    trace_bvh_primary,
+    trace_bvh_shadow,
+)
+from bajo.core.bvh.cpu_bvh import BVH, Ray
 from bajo.core.bvh import copy_list_to_device, compute_bounds
-from bajo.core.bvh.gpu_lbvh import (
+from bajo.core.bvh.gpu_bvh import (
     compute_centroid_bounds,
     generate_camera_params,
-    generate_primary_rays,
     ns_to_mrays_per_s,
     pack_obj_triangles,
     print_vec3_rounded,
-    trace_bvh_primary,
-    trace_bvh_shadow,
     flatten_vertices,
     compute_morton_codes_kernel,
     init_lbvh_topology_kernel,
@@ -1399,6 +1401,280 @@ def validate_refit_bounds(
         ok = False
 
     return (ok, diff, root_idx, checksum)
+
+
+def run_gpu_lbvh_direct_traversal_benchmark(
+    tri_vertices: List[Vec3f32],
+    centroid_min: Vec3f32,
+    centroid_max: Vec3f32,
+    scene_min: Vec3f32,
+    scene_max: Vec3f32,
+    rays: List[Ray],
+    reference_checksum: Float64,
+    repeats: Int,
+) raises -> Tuple[
+    Int,
+    Int,
+    Int,
+    Int,
+    Int,
+    Int,
+    Int,
+    Int,
+    Int,
+    Float64,
+    Bool,
+    Bool,
+    Bool,
+    Float64,
+    UInt32,
+    UInt64,
+]:
+    var tri_count = len(tri_vertices) // 3
+    var internal_count = tri_count - 1
+    var vertices = flatten_vertices(tri_vertices)
+    var rays_flat = flatten_rays(rays)
+
+    var extent = centroid_max - centroid_min
+    var inv_x = Float32(0.0)
+    var inv_y = Float32(0.0)
+    var inv_z = Float32(0.0)
+    if extent.x() > 1.0e-20:
+        inv_x = 1.0 / extent.x()
+    if extent.y() > 1.0e-20:
+        inv_y = 1.0 / extent.y()
+    if extent.z() > 1.0e-20:
+        inv_z = 1.0 / extent.z()
+
+    with DeviceContext() as ctx:
+        var static_t0 = perf_counter_ns()
+        var d_vertices = copy_list_to_device(ctx, vertices)
+        var d_keys = ctx.enqueue_create_buffer[DType.uint32](tri_count)
+        var d_values = ctx.enqueue_create_buffer[DType.uint32](tri_count)
+        var workspace = RadixSortWorkspace[DType.uint32, DType.uint32](
+            ctx, tri_count
+        )
+        var d_node_meta = ctx.enqueue_create_buffer[DType.uint32](
+            internal_count * 4
+        )
+        var d_leaf_parent = ctx.enqueue_create_buffer[DType.uint32](tri_count)
+        var d_node_bounds = ctx.enqueue_create_buffer[DType.float32](
+            internal_count * 12
+        )
+        var d_node_flags = ctx.enqueue_create_buffer[DType.uint32](
+            internal_count
+        )
+        var d_rays = ctx.enqueue_create_buffer[DType.float32](len(rays_flat))
+        var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](len(rays) * 3)
+        var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](len(rays))
+        ctx.synchronize()
+        var static_t1 = perf_counter_ns()
+
+        var blocks_leaves = (tri_count + GPU_BLOCK_SIZE - 1) // GPU_BLOCK_SIZE
+        var blocks_internal = (
+            internal_count + GPU_BLOCK_SIZE - 1
+        ) // GPU_BLOCK_SIZE
+        var blocks_init = (
+            max(tri_count, internal_count) + GPU_BLOCK_SIZE - 1
+        ) // GPU_BLOCK_SIZE
+        var blocks_rays = (len(rays) + GPU_BLOCK_SIZE - 1) // GPU_BLOCK_SIZE
+
+        # Build and refit the LBVH once, keeping all buffers resident for traversal.
+        var b0 = perf_counter_ns()
+        ctx.enqueue_function[
+            compute_morton_codes_kernel, compute_morton_codes_kernel
+        ](
+            d_vertices.unsafe_ptr(),
+            d_keys.unsafe_ptr(),
+            d_values.unsafe_ptr(),
+            tri_count,
+            centroid_min.x(),
+            centroid_min.y(),
+            centroid_min.z(),
+            inv_x,
+            inv_y,
+            inv_z,
+            grid_dim=blocks_leaves,
+            block_dim=GPU_BLOCK_SIZE,
+        )
+        ctx.synchronize()
+        var m1 = perf_counter_ns()
+        device_radix_sort_pairs[DType.uint32, DType.uint32](
+            ctx, workspace, d_keys, d_values, tri_count
+        )
+        ctx.synchronize()
+        var s1 = perf_counter_ns()
+        ctx.enqueue_function[
+            init_lbvh_topology_kernel, init_lbvh_topology_kernel
+        ](
+            d_node_meta.unsafe_ptr(),
+            d_leaf_parent.unsafe_ptr(),
+            internal_count,
+            tri_count,
+            grid_dim=blocks_init,
+            block_dim=GPU_BLOCK_SIZE,
+        )
+        ctx.enqueue_function[
+            build_lbvh_topology_kernel, build_lbvh_topology_kernel
+        ](
+            d_keys.unsafe_ptr(),
+            d_node_meta.unsafe_ptr(),
+            d_leaf_parent.unsafe_ptr(),
+            tri_count,
+            grid_dim=blocks_internal,
+            block_dim=GPU_BLOCK_SIZE,
+        )
+        ctx.synchronize()
+        var t1 = perf_counter_ns()
+        ctx.enqueue_function[init_lbvh_bounds_kernel, init_lbvh_bounds_kernel](
+            d_node_bounds.unsafe_ptr(),
+            d_node_flags.unsafe_ptr(),
+            internal_count,
+            grid_dim=blocks_internal,
+            block_dim=GPU_BLOCK_SIZE,
+        )
+        ctx.enqueue_function[
+            refit_lbvh_bounds_kernel, refit_lbvh_bounds_kernel
+        ](
+            d_vertices.unsafe_ptr(),
+            d_values.unsafe_ptr(),
+            d_node_meta.unsafe_ptr(),
+            d_leaf_parent.unsafe_ptr(),
+            d_node_bounds.unsafe_ptr(),
+            d_node_flags.unsafe_ptr(),
+            tri_count,
+            grid_dim=blocks_leaves,
+            block_dim=GPU_BLOCK_SIZE,
+        )
+        ctx.synchronize()
+        var r1 = perf_counter_ns()
+
+        var sorted_validation = validate_sorted_keys(
+            d_keys, d_values, tri_count
+        )
+        var topo_validation = validate_topology(
+            d_node_meta, d_leaf_parent, tri_count
+        )
+        var refit_validation = validate_refit_bounds(
+            d_node_bounds,
+            d_node_flags,
+            d_node_meta,
+            tri_count,
+            scene_min,
+            scene_max,
+        )
+        var root_idx = refit_validation[2]
+
+        # Warmup traversal.
+        with d_rays.map_to_host() as h:
+            for i in range(len(rays_flat)):
+                h[i] = rays_flat[i]
+        ctx.synchronize()
+        ctx.enqueue_function[
+            trace_lbvh_gpu_primary_kernel, trace_lbvh_gpu_primary_kernel
+        ](
+            d_vertices.unsafe_ptr(),
+            d_values.unsafe_ptr(),
+            d_node_meta.unsafe_ptr(),
+            d_node_bounds.unsafe_ptr(),
+            d_rays.unsafe_ptr(),
+            d_hits_f32.unsafe_ptr(),
+            d_hits_u32.unsafe_ptr(),
+            len(rays),
+            root_idx,
+            grid_dim=blocks_rays,
+            block_dim=GPU_BLOCK_SIZE,
+        )
+        ctx.synchronize()
+
+        var best_ray_upload_ns = Int(9223372036854775807)
+        var best_traversal_ns = Int(9223372036854775807)
+        var best_download_ns = Int(9223372036854775807)
+        var best_frame_ns = Int(9223372036854775807)
+        var checksum = Float64(0.0)
+        var hit_count = 0
+
+        for _ in range(repeats):
+            var frame0 = perf_counter_ns()
+
+            var u0 = perf_counter_ns()
+            with d_rays.map_to_host() as h:
+                for i in range(len(rays_flat)):
+                    h[i] = rays_flat[i]
+            ctx.synchronize()
+            var u1 = perf_counter_ns()
+            var upload_ns = Int(u1 - u0)
+            if upload_ns < best_ray_upload_ns:
+                best_ray_upload_ns = upload_ns
+
+            var k0 = perf_counter_ns()
+            ctx.enqueue_function[
+                trace_lbvh_gpu_primary_kernel, trace_lbvh_gpu_primary_kernel
+            ](
+                d_vertices.unsafe_ptr(),
+                d_values.unsafe_ptr(),
+                d_node_meta.unsafe_ptr(),
+                d_node_bounds.unsafe_ptr(),
+                d_rays.unsafe_ptr(),
+                d_hits_f32.unsafe_ptr(),
+                d_hits_u32.unsafe_ptr(),
+                len(rays),
+                root_idx,
+                grid_dim=blocks_rays,
+                block_dim=GPU_BLOCK_SIZE,
+            )
+            ctx.synchronize()
+            var k1 = perf_counter_ns()
+            var kernel_ns = Int(k1 - k0)
+            if kernel_ns < best_traversal_ns:
+                best_traversal_ns = kernel_ns
+
+            var d0 = perf_counter_ns()
+            checksum = Float64(0.0)
+            hit_count = 0
+            with d_hits_f32.map_to_host() as h:
+                for i in range(len(rays)):
+                    var t = h[i * 3]
+                    if t < 1.0e20:
+                        checksum += Float64(t)
+                        hit_count += 1
+            ctx.synchronize()
+            var d1 = perf_counter_ns()
+            var download_ns = Int(d1 - d0)
+            if download_ns < best_download_ns:
+                best_download_ns = download_ns
+
+            var frame1 = perf_counter_ns()
+            var frame_ns = Int(frame1 - frame0)
+            if frame_ns < best_frame_ns:
+                best_frame_ns = frame_ns
+
+        var diff = abs(checksum - reference_checksum)
+        var combined_checksum = (
+            sorted_validation[6]
+            + topo_validation[3]
+            + refit_validation[3]
+            + UInt64(hit_count)
+        )
+
+        return (
+            Int(static_t1 - static_t0),
+            Int(m1 - b0),
+            Int(s1 - m1),
+            Int(t1 - s1),
+            Int(r1 - t1),
+            best_ray_upload_ns,
+            best_traversal_ns,
+            best_download_ns,
+            best_frame_ns,
+            checksum,
+            sorted_validation[0] and sorted_validation[1],
+            topo_validation[0],
+            refit_validation[0],
+            diff,
+            root_idx,
+            combined_checksum,
+        )
 
 
 def main() raises:

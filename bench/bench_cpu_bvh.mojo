@@ -15,6 +15,8 @@ from bajo.core.bvh import (
     flatten_rays,
     hit_t_for_checksum,
     trace_bvh_shadow,
+    append_camera_rays,
+    generate_primary_rays,
 )
 
 from bajo.core.bvh.cpu_bvh import BVH, BVHGPU, Ray, WideBVH
@@ -33,82 +35,6 @@ comptime PRIMARY_VIEWS = 3
 comptime TRAVERSAL_REPEATS = 8
 comptime GPU_BLOCK_SIZE = 128
 comptime GPU_STACK_SIZE = 64
-
-
-def append_camera_rays(
-    mut rays: List[Ray],
-    origin: Vec3f32,
-    target: Vec3f32,
-    up_hint: Vec3f32,
-    width: Int,
-    height: Int,
-):
-    var forward = normalize(target - origin)
-    var right = normalize(cross(forward, up_hint))
-    var up = normalize(cross(right, forward))
-
-    var aspect = Float32(width) / Float32(height)
-    var fov_scale = Float32(0.75)
-
-    for y in range(height):
-        for x in range(width):
-            var sx = ((Float32(x) + 0.5) / Float32(width)) * 2.0 - 1.0
-            var sy = 1.0 - ((Float32(y) + 0.5) / Float32(height)) * 2.0
-            var dir = normalize(
-                forward
-                + right * (sx * aspect * fov_scale)
-                + up * (sy * fov_scale)
-            )
-            rays.append(Ray(origin, dir))
-
-
-def generate_primary_rays(
-    bounds_min: Vec3f32,
-    bounds_max: Vec3f32,
-    width: Int,
-    height: Int,
-    views: Int,
-) -> List[Ray]:
-    var rays = List[Ray](capacity=width * height * views)
-
-    var center = (bounds_min + bounds_max) * 0.5
-    var extent = bounds_max - bounds_min
-    var radius = length(extent) * 0.5
-    if radius < 1.0:
-        radius = 1.0
-    var dist = radius * 2.8
-
-    if views >= 1:
-        append_camera_rays(
-            rays,
-            center + Vec3f32(0.0, 0.0, -dist),
-            center,
-            Vec3f32(0.0, 1.0, 0.0),
-            width,
-            height,
-        )
-
-    if views >= 2:
-        append_camera_rays(
-            rays,
-            center + Vec3f32(-dist, 0.0, 0.0),
-            center,
-            Vec3f32(0.0, 1.0, 0.0),
-            width,
-            height,
-        )
-
-    if views >= 3:
-        append_camera_rays(
-            rays,
-            center + Vec3f32(0.0, dist, 0.0),
-            center,
-            Vec3f32(0.0, 0.0, 1.0),
-            width,
-            height,
-        )
-
-    return rays^
 
 
 def trace_bvh_primary(bvh: BVH, rays: List[Ray]) -> Float64:

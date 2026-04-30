@@ -1,7 +1,4 @@
-from std.testing import (
-    TestSuite,
-    assert_true,
-)
+from std.testing import TestSuite, assert_true, assert_almost_equal
 from std.math import abs
 
 from bajo.core.vec import Vec3f32
@@ -52,10 +49,6 @@ def _make_strip(count: Int, z: Float32 = 2.0) -> List[Vec3f32]:
     return verts^
 
 
-def _assert_close(a: Float32, b: Float32, eps: Float32) raises:
-    assert_true(abs(a - b) <= eps)
-
-
 def test_bvh_ray_query_inside_outside() raises:
     # Regression for rays starting inside an AABB.
     # https://github.com/NVIDIA/warp/issues/288
@@ -94,7 +87,7 @@ def test_fragment_bounds_and_mapping() raises:
     assert_true(frag.bmax.x() == 2.0)
     assert_true(frag.bmax.y() == 2.0)
     assert_true(frag.bmax.z() == 5.0)
-    _assert_close(frag.center_axis(0), 0.5, 1e-5)
+    assert_almost_equal(frag.center_axis(0), 0.5)
 
 
 def test_sah_clear_separation() raises:
@@ -284,7 +277,7 @@ def test_bvh_traverse_returns_nearest_triangle() raises:
     bvh.traverse(ray)
 
     assert_true(ray.hit.prim == 0)
-    _assert_close(ray.hit.t, 2.0, 1e-4)
+    assert_almost_equal(ray.hit.t, 2.0)
 
 
 def test_bvh_traverse_reports_original_primitive_after_reorder() raises:
@@ -298,7 +291,7 @@ def test_bvh_traverse_reports_original_primitive_after_reorder() raises:
     bvh.traverse(ray)
 
     assert_true(ray.hit.prim == 6)
-    _assert_close(ray.hit.t, 2.0, 1e-4)
+    assert_almost_equal(ray.hit.t, 2.0)
 
 
 def test_bvh_shadow_ray() raises:
@@ -329,7 +322,7 @@ def test_wide_bvh4_matches_binary_for_basic_hit() raises:
     wide.traverse(ray_wide)
 
     assert_true(ray_binary.hit.prim == ray_wide.hit.prim)
-    _assert_close(ray_binary.hit.t, ray_wide.hit.t, 1e-4)
+    assert_almost_equal(ray_binary.hit.t, ray_wide.hit.t)
 
 
 # -----------------------------------------------------------------------------
@@ -464,7 +457,7 @@ def _assert_bvh_matches_bruteforce(
         assert_true(
             ray.hit.prim == brute_prim, "BVH returned the wrong primitive"
         )
-        _assert_close(ray.hit.t, brute_t, 1e-4)
+        assert_almost_equal(ray.hit.t, brute_t)
     else:
         assert_true(ray.hit.t > Float32(1e20), "BVH hit but brute force missed")
 
@@ -490,7 +483,7 @@ def _assert_wide_matches_binary(
 
     if binary_hit:
         assert_true(ray_binary.hit.prim == ray_wide.hit.prim)
-        _assert_close(ray_binary.hit.t, ray_wide.hit.t, 1e-4)
+        assert_almost_equal(ray_binary.hit.t, ray_wide.hit.t)
 
 
 def test_bvh_median_matches_bruteforce_many_rays() raises:
@@ -567,7 +560,6 @@ def test_bvh_sah_mt_matches_bruteforce_many_rays() raises:
 # )
 #
 # These tests assume the existing helpers from test_tinybvh_fragment.mojo:
-#   _assert_close
 #   _make_strip
 #   _make_random_xy_triangles
 #   _triangle_center_xy
@@ -595,7 +587,7 @@ def _assert_gpu_matches_binary(
 
     if binary_hit:
         assert_true(ray_binary.hit.prim == ray_gpu.hit.prim)
-        _assert_close(ray_binary.hit.t, ray_gpu.hit.t, 1e-4)
+        assert_almost_equal(ray_binary.hit.t, ray_gpu.hit.t)
 
 
 def _assert_gpu_shadow_matches_binary(

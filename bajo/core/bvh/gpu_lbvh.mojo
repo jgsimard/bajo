@@ -11,7 +11,7 @@ from std.gpu.host import DeviceContext
 from bajo.obj import read_obj, triangulated_indices
 from bajo.core.morton import morton3
 from bajo.core.vec import Vec3f32, vmin, vmax, cross, length, normalize
-from bajo.core.bvh import flatten_vertices, copy_list_to_device
+from bajo.core.bvh import flatten_vertices, copy_list_to_device, flatten_rays
 from bajo.core.bvh.cpu_bvh import BVH, Ray
 from bajo.sort.gpu.radix_sort import device_radix_sort_pairs, RadixSortWorkspace
 from bajo.core.utils import (
@@ -464,23 +464,6 @@ def generate_primary_rays(
         )
 
     return rays^
-
-
-def flatten_rays(rays: List[Ray]) -> List[Float32]:
-    var out = List[Float32](capacity=len(rays) * 10)
-    for i in range(len(rays)):
-        ref r = rays[i]
-        out.append(r.O.x())
-        out.append(r.O.y())
-        out.append(r.O.z())
-        out.append(r.D.x())
-        out.append(r.D.y())
-        out.append(r.D.z())
-        out.append(r.rD.x())
-        out.append(r.rD.y())
-        out.append(r.rD.z())
-        out.append(r.hit.t)
-    return out^
 
 
 @always_inline

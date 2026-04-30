@@ -2,6 +2,7 @@ from std.gpu import thread_idx, block_idx, block_dim, DeviceBuffer
 from std.gpu.host import DeviceContext
 
 from bajo.core.vec import Vec3f32, vmin, vmax, cross, length, normalize
+from bajo.core.bvh.cpu_bvh import Ray
 
 
 def compute_bounds(verts: List[Vec3f32]) -> Tuple[Vec3f32, Vec3f32]:
@@ -34,3 +35,20 @@ def copy_list_to_device[
         for i in range(len(values)):
             h[i] = values[i]
     return buf^
+
+
+def flatten_rays(rays: List[Ray]) -> List[Float32]:
+    var out = List[Float32](capacity=len(rays) * 10)
+    for i in range(len(rays)):
+        ref r = rays[i]
+        out.append(r.O.x())
+        out.append(r.O.y())
+        out.append(r.O.z())
+        out.append(r.D.x())
+        out.append(r.D.y())
+        out.append(r.D.z())
+        out.append(r.rD.x())
+        out.append(r.rD.y())
+        out.append(r.rD.z())
+        out.append(r.hit.t)
+    return out^

@@ -3,6 +3,7 @@ from std.math import abs, min, max, clamp
 from std.memory import UnsafePointer
 from std.atomic import Atomic
 from std.utils.numerics import max_finite, min_finite
+from std.bit import count_leading_zeros
 
 from bajo.core.aabb import AABB
 from bajo.core.intersect import intersect_ray_tri_moller, intersect_ray_aabb
@@ -856,10 +857,9 @@ def _morton_pair_less(a: MortonPrim, b: MortonPrim) capturing -> Bool:
 
 @always_inline
 def _highest_set_bit(v: UInt32) -> Int:
-    for b in range(31, -1, -1):
-        if (v & (UInt32(1) << UInt32(b))) != 0:
-            return b
-    return -1
+    if v == 0:
+        return -1
+    return 31 - Int(count_leading_zeros(v))
 
 
 @always_inline

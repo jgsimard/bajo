@@ -8,6 +8,7 @@ from bajo.core.aabb import AABB
 from bajo.core.intersect import intersect_ray_tri_moller, intersect_ray_aabb
 from bajo.core.mat import Mat44f32, transform_point, transform_vector, inverse
 from bajo.core.vec import Vec3f32, vmin, vmax, longest_axis, InlineArray
+from bajo.core.morton import morton3
 
 comptime f32_max = max_finite[DType.float32]()
 comptime f32_min = min_finite[DType.float32]()
@@ -154,6 +155,19 @@ struct SplitResult(Copyable):
     @always_inline
     def valid(self) -> Bool:
         return self.axis >= 0 and self.bin >= 0
+
+
+@fieldwise_init
+struct MortonPrim(Copyable):
+    """Morton-code / fragment-index pair used by the CPU LBVH builder."""
+
+    var code: UInt32
+    var frag_idx: UInt32
+
+    @always_inline
+    def __init__(out self):
+        self.code = 0
+        self.frag_idx = 0
 
 
 struct BVH(Copyable):
@@ -353,55 +367,159 @@ struct BVH(Copyable):
                 stack.append(res[1])  # Push Right
                 stack.append(res[0])  # Push Left
 
-    def build[split_method: String, is_mt: Bool](mut self):
+    def _build_lbvh_recursive(
+        mut self,
+        pairs: UnsafePointer[MortonPrim, ImmutAnyOrigin],
+        node_idx: UInt32,
+        first: Int,
+        count: Int,
+    ):
+        comptime MAX_LEAF_SIZE = 4
+
+        ref node = self.bvh_nodes[Int(node_idx)]
+        node.leftFirst = UInt32(first)
+        node.triCount = UInt32(count)
+        self.update_node_bounds(node_idx)
+
+        if count <= MAX_LEAF_SIZE:
+            return
+
+        var split = _find_lbvh_split(pairs, first, first + count)
+        var left_count = split - first
+        if left_count <= 0 or left_count >= count:
+            split = first + count // 2
+            left_count = split - first
+
+        var left_child_idx = self.nodes_used
+        self.nodes_used += 2
+
+        self.bvh_nodes[Int(left_child_idx)].leftFirst = UInt32(first)
+        self.bvh_nodes[Int(left_child_idx)].triCount = UInt32(left_count)
+        self.bvh_nodes[Int(left_child_idx + 1)].leftFirst = UInt32(split)
+        self.bvh_nodes[Int(left_child_idx + 1)].triCount = UInt32(
+            count - left_count
+        )
+
+        node.leftFirst = left_child_idx
+        node.triCount = 0
+
+        self._build_lbvh_recursive(pairs, left_child_idx, first, left_count)
+        self._build_lbvh_recursive(
+            pairs, left_child_idx + 1, split, count - left_count
+        )
+
+    def build_lbvh(mut self):
+        """Build a binary LBVH using sorted Morton codes over cached fragments.
+
+        This is a CPU reference builder. It produces the same BVHNode /
+        prim_indices layout as the median and SAH builders, so scalar traversal,
+        WideBVH, and BVHGPU conversion can all consume it unchanged.
+        """
         self.nodes_used = 1
+
+        if self.tri_count == 0:
+            return
+
+        var centroid_min = Vec3f32(f32_max, f32_max, f32_max)
+        var centroid_max = Vec3f32(f32_min, f32_min, f32_min)
+
+        for i in range(Int(self.tri_count)):
+            ref frag = self.fragments[i]
+            var c = Vec3f32(
+                frag.center_axis(0),
+                frag.center_axis(1),
+                frag.center_axis(2),
+            )
+            centroid_min = vmin(centroid_min, c)
+            centroid_max = vmax(centroid_max, c)
+
+        var extent = centroid_max - centroid_min
+        var inv_x = Float32(0.0)
+        var inv_y = Float32(0.0)
+        var inv_z = Float32(0.0)
+        if extent.x() > 1.0e-20:
+            inv_x = 1.0 / extent.x()
+        if extent.y() > 1.0e-20:
+            inv_y = 1.0 / extent.y()
+        if extent.z() > 1.0e-20:
+            inv_z = 1.0 / extent.z()
+
+        var pairs = List[MortonPrim](capacity=Int(self.tri_count))
+        for i in range(Int(self.tri_count)):
+            ref frag = self.fragments[i]
+            var x = (frag.center_axis(0) - centroid_min.x()) * inv_x
+            var y = (frag.center_axis(1) - centroid_min.y()) * inv_y
+            var z = (frag.center_axis(2) - centroid_min.z()) * inv_z
+            var code = _morton3_scalar(x, y, z)
+            pairs.append(MortonPrim(code, UInt32(i)))
+
+        span = Span(ptr=pairs.unsafe_ptr(), length=len(pairs))
+
+        sort[_morton_pair_less](span)
+
+        for i in range(len(pairs)):
+            self.prim_indices[i] = pairs[i].frag_idx
+
+        ref root = self.bvh_nodes[0]
+        root.leftFirst = 0
+        root.triCount = self.tri_count
         self.update_node_bounds(0)
+        self._build_lbvh_recursive(
+            pairs.unsafe_ptr(), 0, 0, Int(self.tri_count)
+        )
 
-        # All build modes use an atomic counter for unified API
-        var atomic_nodes = alloc[Scalar[DType.uint32]](1)
-        atomic_nodes[0] = self.nodes_used
-
-        comptime if not is_mt:
-            # Single-threaded: Just run the loop once from the root
-            self._build_iterative[split_method](0, atomic_nodes)
-
+    def build[split_method: String, is_mt: Bool](mut self):
+        comptime if split_method == "lbvh":
+            self.build_lbvh()
         else:
-            # Multi-threaded: breadth-first seed to generate independent tasks.
-            var tasks: List[UInt32] = [0]
-            while len(tasks) < 64:
-                var largest_idx = -1
-                var max_tris = UInt32(0)
+            self.nodes_used = 1
+            self.update_node_bounds(0)
 
-                for i in range(len(tasks)):
-                    var count = self.bvh_nodes[Int(tasks[i])].triCount
-                    if count > max_tris:
-                        max_tris = count
-                        largest_idx = i
+            # All build modes use an atomic counter for unified API
+            var atomic_nodes = alloc[Scalar[DType.uint32]](1)
+            atomic_nodes[0] = self.nodes_used
 
-                if largest_idx == -1:
-                    break
+            comptime if not is_mt:
+                # Single-threaded: Just run the loop once from the root
+                self._build_iterative[split_method](0, atomic_nodes)
 
-                var target = tasks.pop(largest_idx)
-                var children = self._split_node[split_method](
-                    target, atomic_nodes
-                )
-                if children:
-                    var c = children.value()
-                    tasks.append(c[0])
-                    tasks.append(c[1])
+            else:
+                # Multi-threaded: breadth-first seed to generate independent tasks.
+                var tasks: List[UInt32] = [0]
+                while len(tasks) < 64:
+                    var largest_idx = -1
+                    var max_tris = UInt32(0)
 
-                if len(tasks) == 0:
-                    break
+                    for i in range(len(tasks)):
+                        var count = self.bvh_nodes[Int(tasks[i])].triCount
+                        if count > max_tris:
+                            max_tris = count
+                            largest_idx = i
 
-            # Parallelize the sub-trees
-            @parameter
-            def worker(i: Int):
-                self._build_iterative[split_method](tasks[i], atomic_nodes)
+                    if largest_idx == -1:
+                        break
 
-            parallelize[worker](len(tasks))
+                    var target = tasks.pop(largest_idx)
+                    var children = self._split_node[split_method](
+                        target, atomic_nodes
+                    )
+                    if children:
+                        var c = children.value()
+                        tasks.append(c[0])
+                        tasks.append(c[1])
 
-        self.nodes_used = atomic_nodes[0]
-        atomic_nodes.free()
+                    if len(tasks) == 0:
+                        break
+
+                # Parallelize the sub-trees
+                @parameter
+                def worker(i: Int):
+                    self._build_iterative[split_method](tasks[i], atomic_nodes)
+
+                parallelize[worker](len(tasks))
+
+            self.nodes_used = atomic_nodes[0]
+            atomic_nodes.free()
 
     def sah_cost(self, node_idx: UInt32 = 0) -> Float32:
         """Recursively calculates the unnormalized SAH cost of the subtree."""
@@ -718,6 +836,58 @@ def _sah(
     return best^
 
 
+@always_inline
+def _morton3_scalar(x: Float32, y: Float32, z: Float32) -> UInt32:
+    var vx = SIMD[DType.float32, 1](clamp(x, 0.0, 1.0))
+    var vy = SIMD[DType.float32, 1](clamp(y, 0.0, 1.0))
+    var vz = SIMD[DType.float32, 1](clamp(z, 0.0, 1.0))
+    var code = morton3[1](vx, vy, vz)
+    return code[0]
+
+
+@always_inline
+def _morton_pair_less(a: MortonPrim, b: MortonPrim) capturing -> Bool:
+    if a.code < b.code:
+        return True
+    if a.code > b.code:
+        return False
+    return a.frag_idx < b.frag_idx
+
+
+@always_inline
+def _highest_set_bit(v: UInt32) -> Int:
+    for b in range(31, -1, -1):
+        if (v & (UInt32(1) << UInt32(b))) != 0:
+            return b
+    return -1
+
+
+@always_inline
+def _find_lbvh_split(
+    pairs: UnsafePointer[MortonPrim, ImmutAnyOrigin],
+    first: Int,
+    last: Int,
+) -> Int:
+    var first_code = pairs[first].code
+    var last_code = pairs[last - 1].code
+
+    if first_code == last_code:
+        return (first + last) // 2
+
+    var bit = _highest_set_bit(first_code ^ last_code)
+    if bit < 0:
+        return (first + last) // 2
+
+    var mask = UInt32(1) << UInt32(bit)
+    var left_bit = first_code & mask
+
+    for i in range(first + 1, last):
+        if (pairs[i].code & mask) != left_bit:
+            return i
+
+    return (first + last) // 2
+
+
 @fieldwise_init
 struct WideLeaf[width: Int](Copyable):
     var v0x: SIMD[DType.float32, Self.width]
@@ -959,7 +1129,7 @@ struct WideBVH[width: Int](Copyable):
             var mask = tmin.le(tmax) & (~node.counts.eq(0xFFFFFFFF))
 
             if mask.reduce_or():
-                comptime for i in range(Self.width):
+                for i in range(Self.width):
                     if mask[i]:
                         if node.counts[i] == 0:
                             stack[s_ptr] = node.data[i]

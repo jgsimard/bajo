@@ -708,5 +708,87 @@ def test_bvh_gpu_shadow_matches_binary_many_rays() raises:
     assert_true(len(verts) == 128 * 3)
 
 
+# -----------------------------------------------------------------------------
+# CPU LBVH builder validation tests
+# -----------------------------------------------------------------------------
+
+
+def test_bvh_lbvh_build_invariants() raises:
+    var verts = _make_random_xy_triangles(96, UInt64(606060))
+    var bvh = BVH(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+    bvh.build["lbvh", False]()
+
+    assert_true(bvh.nodes_used > 1)
+    assert_true(Int(bvh.nodes_used) <= len(bvh.bvh_nodes))
+
+    var leaf_prim_total = UInt32(0)
+    for i in range(Int(bvh.nodes_used)):
+        ref node = bvh.bvh_nodes[i]
+        if node.is_leaf():
+            assert_true(node.triCount > 0)
+            assert_true(
+                Int(node.leftFirst) + Int(node.triCount)
+                <= len(bvh.prim_indices)
+            )
+            leaf_prim_total += node.triCount
+        else:
+            assert_true(node.triCount == 0)
+            assert_true(node.leftFirst + 1 < bvh.nodes_used)
+
+    assert_true(leaf_prim_total == bvh.tri_count)
+    assert_true(len(verts) == 96 * 3)
+
+
+def test_bvh_lbvh_matches_bruteforce_many_rays() raises:
+    var verts = _make_random_xy_triangles(128, UInt64(707070))
+    var bvh = BVH(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+    bvh.build["lbvh", False]()
+
+    for i in range(128):
+        var O = _triangle_center_xy(verts, i)
+        var D = Vec3f32(0.0, 0.0, 1.0)
+        _assert_bvh_matches_bruteforce(bvh, verts, O, D)
+
+    for i in range(32):
+        var O = Vec3f32(100.0 + Float32(i), 100.0, 0.0)
+        var D = Vec3f32(0.0, 0.0, 1.0)
+        _assert_bvh_matches_bruteforce(bvh, verts, O, D)
+
+    assert_true(len(verts) == 128 * 3)
+
+
+def test_wide_bvh4_from_lbvh_matches_binary() raises:
+    var verts = _make_random_xy_triangles(128, UInt64(808080))
+    var bvh = BVH(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+    bvh.build["lbvh", False]()
+    var wide = WideBVH[4](bvh)
+
+    for i in range(128):
+        var O = _triangle_center_xy(verts, i)
+        var D = Vec3f32(0.0, 0.0, 1.0)
+        _assert_wide_matches_binary(bvh, wide, O, D)
+
+    assert_true(len(verts) == 128 * 3)
+
+
+def test_bvh_gpu_from_lbvh_matches_binary() raises:
+    var verts = _make_random_xy_triangles(128, UInt64(909090))
+    var bvh = BVH(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+    bvh.build["lbvh", False]()
+    var gpu = BVHGPU(bvh)
+
+    for i in range(128):
+        var O = _triangle_center_xy(verts, i)
+        var D = Vec3f32(0.0, 0.0, 1.0)
+        _assert_gpu_matches_binary(bvh, gpu, O, D)
+
+    for i in range(32):
+        var O = Vec3f32(-100.0, 100.0 + Float32(i), 0.0)
+        var D = Vec3f32(0.0, 0.0, 1.0)
+        _assert_gpu_shadow_matches_binary(bvh, gpu, O, D)
+
+    assert_true(len(verts) == 128 * 3)
+
+
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

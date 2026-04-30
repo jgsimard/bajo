@@ -1,6 +1,5 @@
 from std.math import sqrt, clamp, pi
 from std.sys.info import size_of
-from std.reflection import reflect
 
 from bajo.core.vec import Vec, vclamp
 

@@ -1,5 +1,4 @@
 from std.builtin.device_passable import DevicePassable
-from std.reflection import reflect
 from std.math import sqrt, min, max, clamp
 from std.sys import CompilationTarget
 from std.testing import assert_almost_equal

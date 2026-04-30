@@ -14,6 +14,7 @@ from bajo.core.bvh import (
     generate_primary_rays,
     trace_bvh_primary,
     trace_bvh_shadow,
+    flatten_rays,
 )
 from bajo.core.bvh.cpu_bvh import BVH, Ray
 from bajo.core.bvh import copy_list_to_device, compute_bounds
@@ -31,6 +32,7 @@ from bajo.core.bvh.gpu_bvh import (
     refit_lbvh_bounds_kernel,
     trace_lbvh_gpu_primary_camera_kernel,
     trace_lbvh_gpu_primary_camera_t_kernel,
+    trace_lbvh_gpu_primary_kernel,
     trace_lbvh_gpu_shadow_camera_kernel,
     reduce_hit_t_kernel,
     reduce_u32_flags_kernel,

@@ -51,18 +51,18 @@ struct Ray(Copyable):
 @fieldwise_init
 struct BVHNode(Copyable):
     var aabb: AABB
-    var leftFirst: UInt32
-    var triCount: UInt32
+    var left_first: UInt32
+    var tri_count: UInt32
 
     @always_inline
     def __init__(out self):
         self.aabb = AABB.invalid()
-        self.leftFirst = 0
-        self.triCount = 0
+        self.left_first = 0
+        self.tri_count = 0
 
     @always_inline
     def is_leaf(self) -> Bool:
-        return self.triCount > 0
+        return self.tri_count > 0
 
     @always_inline
     def surface_area(self) -> Float32:

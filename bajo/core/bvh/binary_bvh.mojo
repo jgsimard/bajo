@@ -61,8 +61,8 @@ struct BVH(Copyable):
             self.prim_indices.append(UInt32(i))
 
         ref root = self.bvh_nodes[0]
-        root.leftFirst = 0
-        root.triCount = tri_count
+        root.left_first = 0
+        root.tri_count = tri_count
 
         self.update_node_bounds(0)
 
@@ -71,8 +71,8 @@ struct BVH(Copyable):
         ref node = self.bvh_nodes[Int(node_idx)]
         node.aabb = AABB.invalid()
 
-        var first = Int(node.leftFirst)
-        for i in range(Int(node.triCount)):
+        var first = Int(node.left_first)
+        for i in range(Int(node.tri_count)):
             var frag_idx = Int(self.prim_indices[first + i])
             self.fragments[frag_idx].grow_into(node.aabb)
 
@@ -111,11 +111,11 @@ struct BVH(Copyable):
 
             # Compare in the same unnormalized units as the raw split cost:
             # split leaf cost = area * N, internal split cost = traversal area + child costs.
-            var leaf_cost = node.surface_area() * Float32(node.triCount)
+            var leaf_cost = node.surface_area() * Float32(node.tri_count)
             var split_cost = split.cost + node.surface_area()
 
             if (not split.valid()) or split_cost >= leaf_cost:
-                if node.triCount > MAX_LEAF_SIZE:
+                if node.tri_count > MAX_LEAF_SIZE:
                     # Force a spatial median split to keep breaking the node down.
                     var extent = node.aabb._max - node.aabb._min
                     axis = longest_axis(extent)
@@ -138,7 +138,7 @@ struct BVH(Copyable):
         # Termination Criteria
 
         # 2. Stop splitting if we are small enough
-        if node.triCount <= MAX_LEAF_SIZE:
+        if node.tri_count <= MAX_LEAF_SIZE:
             return None
 
         var split_idx: Int
@@ -147,8 +147,8 @@ struct BVH(Copyable):
                 split_idx = _partition_fragments_by_bin(
                     self.prim_indices.unsafe_ptr(),
                     self.fragments.unsafe_ptr(),
-                    Int(node.leftFirst),
-                    Int(node.triCount),
+                    Int(node.left_first),
+                    Int(node.tri_count),
                     axis,
                     split_bin,
                     split_bin_min,
@@ -158,8 +158,8 @@ struct BVH(Copyable):
                 split_idx = _partition_fragments(
                     self.prim_indices.unsafe_ptr(),
                     self.fragments.unsafe_ptr(),
-                    Int(node.leftFirst),
-                    Int(node.triCount),
+                    Int(node.left_first),
+                    Int(node.tri_count),
                     axis,
                     pos,
                 )
@@ -167,23 +167,23 @@ struct BVH(Copyable):
             split_idx = _partition_fragments(
                 self.prim_indices.unsafe_ptr(),
                 self.fragments.unsafe_ptr(),
-                Int(node.leftFirst),
-                Int(node.triCount),
+                Int(node.left_first),
+                Int(node.tri_count),
                 axis,
                 pos,
             )
 
-        var left_count = UInt32(split_idx - Int(node.leftFirst))
-        if left_count == 0 or left_count == node.triCount:
+        var left_count = UInt32(split_idx - Int(node.left_first))
+        if left_count == 0 or left_count == node.tri_count:
             use_sah_bounds = False
             comptime if split_method == "median":
                 # Fallback: If spatial center failed, just split the indices 50/50.
-                left_count = node.triCount // 2
-                split_idx = Int(node.leftFirst) + Int(left_count)
+                left_count = node.tri_count // 2
+                split_idx = Int(node.left_first) + Int(left_count)
             else:
-                if node.triCount > MAX_LEAF_SIZE:
-                    left_count = node.triCount // 2
-                    split_idx = Int(node.leftFirst) + Int(left_count)
+                if node.tri_count > MAX_LEAF_SIZE:
+                    left_count = node.tri_count // 2
+                    split_idx = Int(node.left_first) + Int(left_count)
                 else:
                     # Only now is it safe to give up and make a leaf.
                     return None
@@ -191,13 +191,15 @@ struct BVH(Copyable):
         # Atomic allocation (Safe for both ST and MT)
         var left_child_idx = Atomic.fetch_add(atomic_nodes, 2)
 
-        nodes_ptr[Int(left_child_idx)].leftFirst = node.leftFirst
-        nodes_ptr[Int(left_child_idx)].triCount = left_count
-        nodes_ptr[Int(left_child_idx + 1)].leftFirst = UInt32(split_idx)
-        nodes_ptr[Int(left_child_idx + 1)].triCount = node.triCount - left_count
+        nodes_ptr[Int(left_child_idx)].left_first = node.left_first
+        nodes_ptr[Int(left_child_idx)].tri_count = left_count
+        nodes_ptr[Int(left_child_idx + 1)].left_first = UInt32(split_idx)
+        nodes_ptr[Int(left_child_idx + 1)].tri_count = (
+            node.tri_count - left_count
+        )
 
-        node.leftFirst = left_child_idx
-        node.triCount = 0  # Internal node
+        node.left_first = left_child_idx
+        node.tri_count = 0  # Internal node
 
         if use_sah_bounds:
             nodes_ptr[Int(left_child_idx)].aabb = cached_left_bounds.copy()
@@ -237,8 +239,8 @@ struct BVH(Copyable):
 
         if count <= MAX_LEAF_SIZE:
             ref leaf = self.bvh_nodes[Int(node_idx)]
-            leaf.leftFirst = UInt32(first)
-            leaf.triCount = UInt32(count)
+            leaf.left_first = UInt32(first)
+            leaf.tri_count = UInt32(count)
             leaf.aabb = AABB.invalid()
 
             for i in range(count):
@@ -264,8 +266,8 @@ struct BVH(Copyable):
         )
 
         ref node = self.bvh_nodes[Int(node_idx)]
-        node.leftFirst = left_child_idx
-        node.triCount = 0
+        node.left_first = left_child_idx
+        node.tri_count = 0
         node.aabb = AABB.invalid()
         node.aabb.grow(left_bounds)
         node.aabb.grow(right_bounds)
@@ -351,7 +353,7 @@ struct BVH(Copyable):
                     var max_tris = UInt32(0)
 
                     for i in range(len(tasks)):
-                        var count = self.bvh_nodes[Int(tasks[i])].triCount
+                        var count = self.bvh_nodes[Int(tasks[i])].tri_count
                         if count > max_tris:
                             max_tris = count
                             largest_idx = i
@@ -393,11 +395,11 @@ struct BVH(Copyable):
         cost_aabb = area * C_traverse
         if node.is_leaf():
             # Cost of evaluating the AABB + cost of evaluating the primitives
-            return cost_aabb + area * Float32(node.triCount) * C_intersect
+            return cost_aabb + area * Float32(node.tri_count) * C_intersect
         else:
             # Cost of evaluating this AABB + expected cost of traversing children
-            var left_cost = self.sah_cost(node.leftFirst)
-            var right_cost = self.sah_cost(node.leftFirst + 1)
+            var left_cost = self.sah_cost(node.left_first)
+            var right_cost = self.sah_cost(node.left_first + 1)
             return cost_aabb + left_cost + right_cost
 
     def tree_quality(self) -> Float32:
@@ -458,8 +460,8 @@ struct BVH(Copyable):
             ref node = self.bvh_nodes[Int(node_idx)]
 
             if node.is_leaf():
-                for i in range(Int(node.triCount)):
-                    var frag_idx = self.prim_indices[Int(node.leftFirst) + i]
+                for i in range(Int(node.tri_count)):
+                    var frag_idx = self.prim_indices[Int(node.left_first) + i]
                     var p_idx = self.fragments[Int(frag_idx)].prim_idx
                     if self._intersect_tri[is_shadow](ray, p_idx):
                         comptime if is_shadow:
@@ -471,8 +473,8 @@ struct BVH(Copyable):
                 node_idx = stack[stack_ptr]
                 continue
 
-            var child1_idx = node.leftFirst
-            var child2_idx = node.leftFirst + 1
+            var child1_idx = node.left_first
+            var child2_idx = node.left_first + 1
             var dist1, dist2 = Float32(f32_max), Float32(f32_max)
 
             # Intersection checks

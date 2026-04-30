@@ -103,8 +103,8 @@ def test_sah_clear_separation() raises:
     var prims: List[UInt32] = [0, 1]
 
     var node = BVHNode()
-    node.leftFirst = 0
-    node.triCount = 2
+    node.left_first = 0
+    node.tri_count = 2
 
     var split = _sah(
         node,
@@ -131,8 +131,8 @@ def test_sah_degenerate() raises:
     var prims: List[UInt32] = [0, 1]
 
     var node = BVHNode()
-    node.leftFirst = 0
-    node.triCount = 2
+    node.left_first = 0
+    node.tri_count = 2
 
     var split = _sah(
         node,
@@ -159,8 +159,8 @@ def test_sah_axis_preference() raises:
         prims.append(UInt32(i))
 
     var node = BVHNode()
-    node.leftFirst = 0
-    node.triCount = 10
+    node.left_first = 0
+    node.tri_count = 10
 
     var split = _sah(
         node,
@@ -205,8 +205,8 @@ def test_sah_partition_by_bin_non_empty() raises:
         prims.append(UInt32(i))
 
     var node = BVHNode()
-    node.leftFirst = 0
-    node.triCount = 10
+    node.left_first = 0
+    node.tri_count = 10
 
     var split = _sah(
         node,
@@ -245,15 +245,15 @@ def test_bvh_build_invariants_median() raises:
         ref node = bvh.bvh_nodes[i]
 
         if node.is_leaf():
-            assert_true(node.triCount > 0)
+            assert_true(node.tri_count > 0)
             assert_true(
-                Int(node.leftFirst) + Int(node.triCount)
+                Int(node.left_first) + Int(node.tri_count)
                 <= len(bvh.prim_indices)
             )
-            leaf_prim_total += node.triCount
+            leaf_prim_total += node.tri_count
         else:
-            assert_true(node.triCount == 0)
-            assert_true(node.leftFirst + 1 < bvh.nodes_used)
+            assert_true(node.tri_count == 0)
+            assert_true(node.left_first + 1 < bvh.nodes_used)
 
     assert_true(leaf_prim_total == bvh.tri_count)
 
@@ -625,7 +625,7 @@ def test_bvh_gpu_root_leaf_matches_binary() raises:
 
     assert_true(len(gpu.nodes) == 1)
     assert_true(gpu.nodes[0].is_leaf())
-    assert_true(gpu.nodes[0].triCount == 2)
+    assert_true(gpu.nodes[0].tri_count == 2)
     assert_true(gpu.nodes[0].firstTri == 0)
     assert_true(len(gpu.prim_indices) == 2)
 
@@ -718,15 +718,15 @@ def test_bvh_lbvh_build_invariants() raises:
     for i in range(Int(bvh.nodes_used)):
         ref node = bvh.bvh_nodes[i]
         if node.is_leaf():
-            assert_true(node.triCount > 0)
+            assert_true(node.tri_count > 0)
             assert_true(
-                Int(node.leftFirst) + Int(node.triCount)
+                Int(node.left_first) + Int(node.tri_count)
                 <= len(bvh.prim_indices)
             )
-            leaf_prim_total += node.triCount
+            leaf_prim_total += node.tri_count
         else:
-            assert_true(node.triCount == 0)
-            assert_true(node.leftFirst + 1 < bvh.nodes_used)
+            assert_true(node.tri_count == 0)
+            assert_true(node.left_first + 1 < bvh.nodes_used)
 
     assert_true(leaf_prim_total == bvh.tri_count)
     assert_true(len(verts) == 96 * 3)

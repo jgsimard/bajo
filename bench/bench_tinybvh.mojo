@@ -755,27 +755,35 @@ def trace_gpu_primary_device(
     tri_vertices: List[Vec3f32],
     rays: List[Ray],
     repeats: Int,
-) raises -> Tuple[Float64, Int, Int, Int]:
+) raises -> Tuple[Float64, Int, Int, Int, Int, Int]:
+    # Static scene data: upload once and keep resident for the whole measured batch.
     var node_bounds = flatten_gpu_node_bounds(gpu)
     var node_meta = flatten_gpu_node_meta(gpu)
     var vertices = flatten_vertices(tri_vertices)
     var rays_flat = flatten_rays(rays)
 
     with DeviceContext() as ctx:
-        var upload_t0 = perf_counter_ns()
+        var static_t0 = perf_counter_ns()
         var d_node_bounds = copy_f32_list_to_device(ctx, node_bounds)
         var d_node_meta = copy_u32_list_to_device(ctx, node_meta)
         var d_prims = copy_u32_list_to_device(ctx, gpu.prim_indices)
         var d_vertices = copy_f32_list_to_device(ctx, vertices)
-        var d_rays = copy_f32_list_to_device(ctx, rays_flat)
+        ctx.synchronize()
+        var static_t1 = perf_counter_ns()
+
+        # Per-frame buffers. Allocate once; each frame only rewrites rays and reads hits.
+        var d_rays = ctx.enqueue_create_buffer[DType.float32](len(rays_flat))
         var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](len(rays) * 3)
         var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](len(rays))
         ctx.synchronize()
-        var upload_t1 = perf_counter_ns()
 
         var blocks = (len(rays) + GPU_BLOCK_SIZE - 1) // GPU_BLOCK_SIZE
 
-        # Warmup.
+        # Warmup: upload rays once and run the kernel once.
+        with d_rays.map_to_host() as h:
+            for i in range(len(rays_flat)):
+                h[i] = rays_flat[i]
+        ctx.synchronize()
         ctx.enqueue_function[
             trace_bvh_gpu_primary_kernel, trace_bvh_gpu_primary_kernel
         ](
@@ -792,8 +800,26 @@ def trace_gpu_primary_device(
         )
         ctx.synchronize()
 
+        var best_frame_ns = Int(9223372036854775807)
+        var best_ray_upload_ns = Int(9223372036854775807)
         var best_kernel_ns = Int(9223372036854775807)
+        var best_download_ns = Int(9223372036854775807)
+        var checksum = Float64(0.0)
+        var hit_count = 0
+
         for _ in range(repeats):
+            var frame_t0 = perf_counter_ns()
+
+            var upload_t0 = perf_counter_ns()
+            with d_rays.map_to_host() as h:
+                for i in range(len(rays_flat)):
+                    h[i] = rays_flat[i]
+            ctx.synchronize()
+            var upload_t1 = perf_counter_ns()
+            var upload_ns = Int(upload_t1 - upload_t0)
+            if upload_ns < best_ray_upload_ns:
+                best_ray_upload_ns = upload_ns
+
             var k0 = perf_counter_ns()
             ctx.enqueue_function[
                 trace_bvh_gpu_primary_kernel, trace_bvh_gpu_primary_kernel
@@ -811,21 +837,29 @@ def trace_gpu_primary_device(
             )
             ctx.synchronize()
             var k1 = perf_counter_ns()
-            var kdt = Int(k1 - k0)
-            if kdt < best_kernel_ns:
-                best_kernel_ns = kdt
+            var kernel_ns = Int(k1 - k0)
+            if kernel_ns < best_kernel_ns:
+                best_kernel_ns = kernel_ns
 
-        var download_t0 = perf_counter_ns()
-        var checksum = Float64(0.0)
-        var hit_count = 0
-        with d_hits_f32.map_to_host() as h:
-            for i in range(len(rays)):
-                var t = h[i * 3]
-                if t < 1.0e20:
-                    checksum += Float64(t)
-                    hit_count += 1
-        ctx.synchronize()
-        var download_t1 = perf_counter_ns()
+            var download_t0 = perf_counter_ns()
+            checksum = Float64(0.0)
+            hit_count = 0
+            with d_hits_f32.map_to_host() as h:
+                for i in range(len(rays)):
+                    var t = h[i * 3]
+                    if t < 1.0e20:
+                        checksum += Float64(t)
+                        hit_count += 1
+            ctx.synchronize()
+            var download_t1 = perf_counter_ns()
+            var download_ns = Int(download_t1 - download_t0)
+            if download_ns < best_download_ns:
+                best_download_ns = download_ns
+
+            var frame_t1 = perf_counter_ns()
+            var frame_ns = Int(frame_t1 - frame_t0)
+            if frame_ns < best_frame_ns:
+                best_frame_ns = frame_ns
 
         keep(hit_count)
         keep(checksum)
@@ -833,9 +867,11 @@ def trace_gpu_primary_device(
         keep(len(node_meta))
         return (
             checksum,
-            Int(upload_t1 - upload_t0),
+            Int(static_t1 - static_t0),
+            best_ray_upload_ns,
             best_kernel_ns,
-            Int(download_t1 - download_t0),
+            best_download_ns,
+            best_frame_ns,
         )
 
 
@@ -996,20 +1032,30 @@ def main() raises:
             gpu, tri_vertices, rays, TRAVERSAL_REPEATS
         )
         var gpu_checksum = gpu_result[0]
-        var upload_ns = gpu_result[1]
-        var kernel_ns = gpu_result[2]
-        var download_ns = gpu_result[3]
+        var static_upload_ns = gpu_result[1]
+        var ray_upload_ns = gpu_result[2]
+        var kernel_ns = gpu_result[3]
+        var download_ns = gpu_result[4]
+        var frame_ns = gpu_result[5]
+
+        var static_upload_ms = round(ns_to_ms(static_upload_ns), 3)
+        var ray_upload_ms = round(ns_to_ms(ray_upload_ns), 3)
         var kernel_ms = round(ns_to_ms(kernel_ns), 3)
-        var kernel_mrays = round(ns_to_mrays_per_s(kernel_ns, len(rays)), 3)
-        var upload_ms = round(ns_to_ms(upload_ns), 3)
         var download_ms = round(ns_to_ms(download_ns), 3)
+        var frame_ms = round(ns_to_ms(frame_ns), 3)
+        var kernel_mrays = round(ns_to_mrays_per_s(kernel_ns, len(rays)), 3)
+        var frame_mrays = round(ns_to_mrays_per_s(frame_ns, len(rays)), 3)
         var diff = round(abs(gpu_checksum - ref_checksum), 3)
+
         print(t"gpu layout GPU primary validation: diff {diff}")
+        print(t"gpu static upload once: {static_upload_ms} ms")
+        print(t"gpu frame ray upload:  {ray_upload_ms} ms")
+        print(t"gpu frame kernel:      {kernel_ms} ms | {kernel_mrays} MRays/s")
+        print(t"gpu frame download:    {download_ms} ms")
         print(
-            t"gpu layout GPU kernel | {kernel_ms} ms | {kernel_mrays} MRays/s |"
+            t"gpu frame total:       {frame_ms} ms | {frame_mrays} MRays/s |"
             t" checksum: {round(gpu_checksum, 3)}"
         )
-        print(t"gpu upload: {upload_ms} ms | gpu download: {download_ms} ms")
     else:
         print("No compatible GPU found; skipped Mojo GPU kernel.")
 

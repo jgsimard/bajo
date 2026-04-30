@@ -11,7 +11,7 @@ from std.gpu.host import DeviceContext
 from bajo.obj import read_obj, triangulated_indices
 from bajo.core.morton import morton3
 from bajo.core.vec import Vec3f32, vmin, vmax, cross, length, normalize
-from bajo.core.bvh.tinybvh import BVH, Ray
+from bajo.core.bvh.cpu_bvh import BVH, Ray
 from bajo.sort.gpu.radix_sort import device_radix_sort_pairs, RadixSortWorkspace
 from bajo.core.utils import ns_to_mrays_per_s, print_vec3_rounded
 

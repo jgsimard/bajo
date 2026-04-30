@@ -3,7 +3,7 @@ from std.sys import has_accelerator
 from std.benchmark import keep
 
 from bajo.core.vec import Vec3f32
-from bajo.core.bvh.tinybvh import BVH
+from bajo.core.bvh.cpu_bvh import BVH
 from bajo.core.bvh.gpu_lbvh import (
     compute_bounds,
     compute_centroid_bounds,

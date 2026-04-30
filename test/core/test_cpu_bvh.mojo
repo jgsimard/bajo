@@ -7,7 +7,7 @@ from std.math import abs
 from bajo.core.vec import Vec3f32
 from bajo.core.random import Rng
 from bajo.core.intersect import intersect_ray_aabb
-from bajo.core.bvh.tinybvh import (
+from bajo.core.bvh.cpu_bvh import (
     BVH,
     BVHGPU,
     BVHNode,

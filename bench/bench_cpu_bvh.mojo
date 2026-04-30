@@ -8,10 +8,10 @@ from std.gpu.host import DeviceContext
 
 from bajo.obj import read_obj, triangulated_indices
 from bajo.core.vec import Vec3f32, vmin, vmax, cross, dot, length, normalize
-from bajo.core.bvh.tinybvh import BVH, BVHGPU, Ray, WideBVH
-from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
+from bajo.core.bvh.cpu_bvh import BVH, BVHGPU, Ray, WideBVH
+from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s, print_vec3_rounded
 
-
+# comptime DEFAULT_OBJ_PATH = "./assets/powerplant/powerplant.obj"
 comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"
 comptime PRIMARY_WIDTH = 640
 comptime PRIMARY_HEIGHT = 360
@@ -288,10 +288,11 @@ def print_primary_validation(
     checksum: Float64,
 ):
     var diff = round(abs(checksum - reference_checksum), 3)
+    front = String(t"{name} primary").ascii_ljust(22)
     if diff <= 0.001:
-        print(t"{name} primary validation: OK | diff: {diff}")
+        print(t"{front} : OK | diff: {diff}")
     else:
-        print(t"{name} primary validation: MISMATCH | diff: {diff}")
+        print(t"{front} : MISMATCH | diff: {diff}")
 
 
 def print_shadow_validation(
@@ -299,12 +300,12 @@ def print_shadow_validation(
     reference_occluded: Int,
     occluded: Int,
 ):
+    front = String(t"{name} shadow").ascii_ljust(22)
     if occluded == reference_occluded:
-        print(t"{name} shadow validation:  OK | occluded: {occluded}")
+        print(t"{front} : OK | occluded: {occluded}")
     else:
         print(
-            t"{name} shadow validation:  MISMATCH | ref: {reference_occluded} |"
-            t" got: {occluded}"
+            t"{front} : MISMATCH | ref: {reference_occluded} | got: {occluded}"
         )
 
 

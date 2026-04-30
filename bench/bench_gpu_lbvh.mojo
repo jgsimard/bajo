@@ -39,6 +39,7 @@ from bajo.core.bvh.gpu_lbvh import (
     LBVH_LEAF_FLAG,
 )
 
+# comptime DEFAULT_OBJ_PATH = "./assets/powerplant/powerplant.obj"
 comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"
 comptime GPU_BLOCK_SIZE = 128
 comptime BENCH_REPEATS = 8

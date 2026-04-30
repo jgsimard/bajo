@@ -674,6 +674,128 @@ def trace_bvh_gpu_primary_kernel(
     hits_u32[ray_idx] = best_prim
 
 
+def trace_bvh_gpu_shadow_kernel(
+    node_bounds: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    node_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    prim_indices: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    vertices: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    rays: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    occluded_out: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    ray_count: Int,
+):
+    var ray_idx = Int(block_idx.x * block_dim.x + thread_idx.x)
+    if ray_idx >= ray_count:
+        return
+
+    var ray_base = ray_idx * 10
+    var ox = rays[ray_base + 0]
+    var oy = rays[ray_base + 1]
+    var oz = rays[ray_base + 2]
+    var dx = rays[ray_base + 3]
+    var dy = rays[ray_base + 4]
+    var dz = rays[ray_base + 5]
+    var rdx = rays[ray_base + 6]
+    var rdy = rays[ray_base + 7]
+    var rdz = rays[ray_base + 8]
+    var t_max = rays[ray_base + 9]
+
+    var stack = InlineArray[UInt32, GPU_STACK_SIZE](fill=0)
+    var stack_ptr = 0
+    var node_idx = UInt32(0)
+
+    while True:
+        var meta_base = Int(node_idx) * 4
+        var bounds_base = Int(node_idx) * 12
+
+        var left = node_meta[meta_base + 0]
+        var right = node_meta[meta_base + 1]
+        var tri_count = node_meta[meta_base + 2]
+        var first_tri = node_meta[meta_base + 3]
+
+        if tri_count > 0:
+            for j in range(Int(tri_count)):
+                var prim_idx = prim_indices[Int(first_tri) + j]
+                var tri_hit = _intersect_tri_flat(
+                    vertices,
+                    prim_idx,
+                    ox,
+                    oy,
+                    oz,
+                    dx,
+                    dy,
+                    dz,
+                    t_max,
+                )
+                if tri_hit[0]:
+                    occluded_out[ray_idx] = UInt32(1)
+                    return
+
+            if stack_ptr == 0:
+                break
+            stack_ptr -= 1
+            node_idx = stack[stack_ptr]
+            continue
+
+        var left_hit = _intersect_aabb_flat(
+            ox,
+            oy,
+            oz,
+            rdx,
+            rdy,
+            rdz,
+            node_bounds[bounds_base + 0],
+            node_bounds[bounds_base + 1],
+            node_bounds[bounds_base + 2],
+            node_bounds[bounds_base + 3],
+            node_bounds[bounds_base + 4],
+            node_bounds[bounds_base + 5],
+            t_max,
+        )
+        var right_hit = _intersect_aabb_flat(
+            ox,
+            oy,
+            oz,
+            rdx,
+            rdy,
+            rdz,
+            node_bounds[bounds_base + 6],
+            node_bounds[bounds_base + 7],
+            node_bounds[bounds_base + 8],
+            node_bounds[bounds_base + 9],
+            node_bounds[bounds_base + 10],
+            node_bounds[bounds_base + 11],
+            t_max,
+        )
+
+        var hit_left = left_hit[0]
+        var hit_right = right_hit[0]
+        var dist_left = left_hit[1]
+        var dist_right = right_hit[1]
+
+        if not hit_left and not hit_right:
+            if stack_ptr == 0:
+                break
+            stack_ptr -= 1
+            node_idx = stack[stack_ptr]
+        elif hit_left and not hit_right:
+            node_idx = left
+        elif not hit_left and hit_right:
+            node_idx = right
+        else:
+            # For shadow rays, traversal order only affects time-to-first-hit.
+            var near = left
+            var far = right
+            if dist_left > dist_right:
+                near = right
+                far = left
+            if stack_ptr < GPU_STACK_SIZE:
+                stack[stack_ptr] = far
+                stack_ptr += 1
+            node_idx = near
+
+    occluded_out[ray_idx] = UInt32(0)
+
+
 def flatten_gpu_node_bounds(gpu: BVHGPU) -> List[Float32]:
     var out = List[Float32](capacity=len(gpu.nodes) * 12)
     for i in range(len(gpu.nodes)):
@@ -875,6 +997,123 @@ def trace_gpu_primary_device(
         )
 
 
+def trace_gpu_shadow_device(
+    gpu: BVHGPU,
+    tri_vertices: List[Vec3f32],
+    rays: List[Ray],
+    repeats: Int,
+) raises -> Tuple[Int, Int, Int, Int, Int, Int]:
+    # Static scene data: upload once and keep resident for the whole measured batch.
+    var node_bounds = flatten_gpu_node_bounds(gpu)
+    var node_meta = flatten_gpu_node_meta(gpu)
+    var vertices = flatten_vertices(tri_vertices)
+    var rays_flat = flatten_rays(rays)
+
+    with DeviceContext() as ctx:
+        var static_t0 = perf_counter_ns()
+        var d_node_bounds = copy_f32_list_to_device(ctx, node_bounds)
+        var d_node_meta = copy_u32_list_to_device(ctx, node_meta)
+        var d_prims = copy_u32_list_to_device(ctx, gpu.prim_indices)
+        var d_vertices = copy_f32_list_to_device(ctx, vertices)
+        ctx.synchronize()
+        var static_t1 = perf_counter_ns()
+
+        # Per-frame buffers. Allocate once; each frame only rewrites rays and reads occlusion flags.
+        var d_rays = ctx.enqueue_create_buffer[DType.float32](len(rays_flat))
+        var d_occluded = ctx.enqueue_create_buffer[DType.uint32](len(rays))
+        ctx.synchronize()
+
+        var blocks = (len(rays) + GPU_BLOCK_SIZE - 1) // GPU_BLOCK_SIZE
+
+        # Warmup: upload rays once and run the kernel once.
+        with d_rays.map_to_host() as h:
+            for i in range(len(rays_flat)):
+                h[i] = rays_flat[i]
+        ctx.synchronize()
+        ctx.enqueue_function[
+            trace_bvh_gpu_shadow_kernel, trace_bvh_gpu_shadow_kernel
+        ](
+            d_node_bounds.unsafe_ptr(),
+            d_node_meta.unsafe_ptr(),
+            d_prims.unsafe_ptr(),
+            d_vertices.unsafe_ptr(),
+            d_rays.unsafe_ptr(),
+            d_occluded.unsafe_ptr(),
+            len(rays),
+            grid_dim=blocks,
+            block_dim=GPU_BLOCK_SIZE,
+        )
+        ctx.synchronize()
+
+        var best_frame_ns = Int(9223372036854775807)
+        var best_ray_upload_ns = Int(9223372036854775807)
+        var best_kernel_ns = Int(9223372036854775807)
+        var best_download_ns = Int(9223372036854775807)
+        var occluded = 0
+
+        for _ in range(repeats):
+            var frame_t0 = perf_counter_ns()
+
+            var upload_t0 = perf_counter_ns()
+            with d_rays.map_to_host() as h:
+                for i in range(len(rays_flat)):
+                    h[i] = rays_flat[i]
+            ctx.synchronize()
+            var upload_t1 = perf_counter_ns()
+            var upload_ns = Int(upload_t1 - upload_t0)
+            if upload_ns < best_ray_upload_ns:
+                best_ray_upload_ns = upload_ns
+
+            var k0 = perf_counter_ns()
+            ctx.enqueue_function[
+                trace_bvh_gpu_shadow_kernel, trace_bvh_gpu_shadow_kernel
+            ](
+                d_node_bounds.unsafe_ptr(),
+                d_node_meta.unsafe_ptr(),
+                d_prims.unsafe_ptr(),
+                d_vertices.unsafe_ptr(),
+                d_rays.unsafe_ptr(),
+                d_occluded.unsafe_ptr(),
+                len(rays),
+                grid_dim=blocks,
+                block_dim=GPU_BLOCK_SIZE,
+            )
+            ctx.synchronize()
+            var k1 = perf_counter_ns()
+            var kernel_ns = Int(k1 - k0)
+            if kernel_ns < best_kernel_ns:
+                best_kernel_ns = kernel_ns
+
+            var download_t0 = perf_counter_ns()
+            occluded = 0
+            with d_occluded.map_to_host() as h:
+                for i in range(len(rays)):
+                    if h[i] != UInt32(0):
+                        occluded += 1
+            ctx.synchronize()
+            var download_t1 = perf_counter_ns()
+            var download_ns = Int(download_t1 - download_t0)
+            if download_ns < best_download_ns:
+                best_download_ns = download_ns
+
+            var frame_t1 = perf_counter_ns()
+            var frame_ns = Int(frame_t1 - frame_t0)
+            if frame_ns < best_frame_ns:
+                best_frame_ns = frame_ns
+
+        keep(occluded)
+        keep(len(node_bounds))
+        keep(len(node_meta))
+        return (
+            occluded,
+            Int(static_t1 - static_t0),
+            best_ray_upload_ns,
+            best_kernel_ns,
+            best_download_ns,
+            best_frame_ns,
+        )
+
+
 def main() raises:
     print("TinyBVH Mojo bunny speedtest")
     print(t"Path: {DEFAULT_OBJ_PATH}")
@@ -1055,6 +1294,54 @@ def main() raises:
         print(
             t"gpu frame total:       {frame_ms} ms | {frame_mrays} MRays/s |"
             t" checksum: {round(gpu_checksum, 3)}"
+        )
+
+        print("\nGPU shadow traversal")
+        print("--------------------")
+        var gpu_shadow_result = trace_gpu_shadow_device(
+            gpu, tri_vertices, rays, TRAVERSAL_REPEATS
+        )
+        var gpu_occluded = gpu_shadow_result[0]
+        var shadow_static_upload_ns = gpu_shadow_result[1]
+        var shadow_ray_upload_ns = gpu_shadow_result[2]
+        var shadow_kernel_ns = gpu_shadow_result[3]
+        var shadow_download_ns = gpu_shadow_result[4]
+        var shadow_frame_ns = gpu_shadow_result[5]
+
+        var shadow_static_upload_ms = round(
+            ns_to_ms(shadow_static_upload_ns), 3
+        )
+        var shadow_ray_upload_ms = round(ns_to_ms(shadow_ray_upload_ns), 3)
+        var shadow_kernel_ms = round(ns_to_ms(shadow_kernel_ns), 3)
+        var shadow_download_ms = round(ns_to_ms(shadow_download_ns), 3)
+        var shadow_frame_ms = round(ns_to_ms(shadow_frame_ns), 3)
+        var shadow_kernel_mrays = round(
+            ns_to_mrays_per_s(shadow_kernel_ns, len(rays)), 3
+        )
+        var shadow_frame_mrays = round(
+            ns_to_mrays_per_s(shadow_frame_ns, len(rays)), 3
+        )
+
+        if gpu_occluded == ref_occluded:
+            print(
+                t"gpu layout GPU shadow validation: OK | occluded:"
+                t" {gpu_occluded}"
+            )
+        else:
+            print(
+                t"gpu layout GPU shadow validation: MISMATCH | ref:"
+                t" {ref_occluded} | got: {gpu_occluded}"
+            )
+        print(t"gpu static upload once: {shadow_static_upload_ms} ms")
+        print(t"gpu frame ray upload:  {shadow_ray_upload_ms} ms")
+        print(
+            t"gpu frame kernel:      {shadow_kernel_ms} ms |"
+            t" {shadow_kernel_mrays} MRays/s"
+        )
+        print(t"gpu frame download:    {shadow_download_ms} ms")
+        print(
+            t"gpu frame total:       {shadow_frame_ms} ms |"
+            t" {shadow_frame_mrays} MRays/s | occluded: {gpu_occluded}"
         )
     else:
         print("No compatible GPU found; skipped Mojo GPU kernel.")

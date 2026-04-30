@@ -11,7 +11,14 @@ from std.gpu.host import DeviceContext
 from bajo.obj import read_obj, triangulated_indices
 from bajo.core.morton import morton3
 from bajo.core.vec import Vec3f32, vmin, vmax, cross, length, normalize
-from bajo.core.bvh import flatten_vertices, copy_list_to_device, flatten_rays
+from bajo.core.bvh import (
+    flatten_vertices,
+    copy_list_to_device,
+    flatten_rays,
+    hit_t_for_checksum,
+    trace_bvh_shadow,
+    trace_bvh_primary,
+)
 from bajo.core.bvh.cpu_bvh import BVH, Ray
 from bajo.sort.gpu.radix_sort import device_radix_sort_pairs, RadixSortWorkspace
 from bajo.core.utils import (
@@ -464,41 +471,6 @@ def generate_primary_rays(
         )
 
     return rays^
-
-
-@always_inline
-def hit_t_for_checksum(t: Float32) -> Float64:
-    if t < 1.0e20:
-        return Float64(t)
-    return 0.0
-
-
-def trace_bvh_primary(bvh: BVH, rays: List[Ray]) -> Float64:
-    var checksum = Float64(0.0)
-    var hit_count = 0
-
-    for i in range(len(rays)):
-        var ray = rays[i].copy()
-        bvh.traverse(ray)
-        checksum += hit_t_for_checksum(ray.hit.t)
-        if ray.hit.t < 1.0e20:
-            hit_count += 1
-
-    keep(checksum)
-    keep(hit_count)
-    return checksum
-
-
-def trace_bvh_shadow(bvh: BVH, rays: List[Ray]) -> Int:
-    var occluded = 0
-
-    for i in range(len(rays)):
-        var ray = rays[i].copy()
-        if bvh.is_occluded(ray):
-            occluded += 1
-
-    keep(occluded)
-    return occluded
 
 
 @always_inline
@@ -980,8 +952,6 @@ def run_gpu_lbvh_direct_traversal_benchmark(
             + refit_validation[3]
             + UInt64(hit_count)
         )
-        keep(combined_checksum)
-        keep(checksum)
 
         return (
             Int(static_t1 - static_t0),

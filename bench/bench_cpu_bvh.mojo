@@ -13,6 +13,8 @@ from bajo.core.bvh import (
     flatten_vertices,
     copy_list_to_device,
     flatten_rays,
+    hit_t_for_checksum,
+    trace_bvh_shadow,
 )
 
 from bajo.core.bvh.cpu_bvh import BVH, BVHGPU, Ray, WideBVH
@@ -109,39 +111,16 @@ def generate_primary_rays(
     return rays^
 
 
-@always_inline
-def hit_t_for_checksum(t: Float32) -> Float64:
-    if t < 1.0e20:
-        return Float64(t)
-    return 0.0
-
-
 def trace_bvh_primary(bvh: BVH, rays: List[Ray]) -> Float64:
     var checksum = Float64(0.0)
     var hit_count = 0
-
     for i in range(len(rays)):
         var ray = rays[i].copy()
         bvh.traverse(ray)
         checksum += hit_t_for_checksum(ray.hit.t)
         if ray.hit.t < 1.0e20:
             hit_count += 1
-
-    keep(checksum)
-    keep(hit_count)
     return checksum
-
-
-def trace_bvh_shadow(bvh: BVH, rays: List[Ray]) -> Int:
-    var occluded = 0
-
-    for i in range(len(rays)):
-        var ray = rays[i].copy()
-        if bvh.is_occluded(ray):
-            occluded += 1
-
-    keep(occluded)
-    return occluded
 
 
 def trace_wide_primary[
@@ -149,28 +128,21 @@ def trace_wide_primary[
 ](wide: WideBVH[width], rays: List[Ray]) -> Float64:
     var checksum = Float64(0.0)
     var hit_count = 0
-
     for i in range(len(rays)):
         var ray = rays[i].copy()
         wide.traverse(ray)
         checksum += hit_t_for_checksum(ray.hit.t)
         if ray.hit.t < 1.0e20:
             hit_count += 1
-
-    keep(checksum)
-    keep(hit_count)
     return checksum
 
 
 def trace_wide_shadow[width: Int](wide: WideBVH[width], rays: List[Ray]) -> Int:
     var occluded = 0
-
     for i in range(len(rays)):
         var ray = rays[i].copy()
         if wide.is_occluded(ray):
             occluded += 1
-
-    keep(occluded)
     return occluded
 
 
@@ -184,9 +156,6 @@ def trace_gpu_primary(gpu: BVHGPU, rays: List[Ray]) -> Float64:
         checksum += hit_t_for_checksum(ray.hit.t)
         if ray.hit.t < 1.0e20:
             hit_count += 1
-
-    keep(checksum)
-    keep(hit_count)
     return checksum
 
 
@@ -197,8 +166,6 @@ def trace_gpu_shadow(gpu: BVHGPU, rays: List[Ray]) -> Int:
         var ray = rays[i].copy()
         if gpu.is_occluded(ray):
             occluded += 1
-
-    keep(occluded)
     return occluded
 
 
@@ -897,10 +864,6 @@ def trace_gpu_primary_device(
             if frame_ns < best_frame_ns:
                 best_frame_ns = frame_ns
 
-        keep(hit_count)
-        keep(checksum)
-        keep(len(node_bounds))
-        keep(len(node_meta))
         return (
             checksum,
             Int(static_t1 - static_t0),
@@ -1015,9 +978,6 @@ def trace_gpu_shadow_device(
             if frame_ns < best_frame_ns:
                 best_frame_ns = frame_ns
 
-        keep(occluded)
-        keep(len(node_bounds))
-        keep(len(node_meta))
         return (
             occluded,
             Int(static_t1 - static_t0),
@@ -1318,7 +1278,3 @@ def main() raises:
         )
     else:
         print("No compatible GPU found; skipped Mojo GPU kernel.")
-
-    # Keep external vertex buffer alive until the end: BVH stores an UnsafePointer to it.
-    keep(len(tri_vertices))
-    keep(len(rays))

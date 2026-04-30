@@ -291,8 +291,6 @@ def run_gpu_lbvh_camera_traversal_benchmark(
             + refit_validation[3]
             + UInt64(hit_count)
         )
-        keep(combined_checksum)
-        keep(checksum)
 
         return (
             Int(static_t1 - static_t0),
@@ -621,7 +619,6 @@ def run_gpu_lbvh_camera_reduce_and_shadow_benchmark(
             + UInt64(primary_hits)
             + UInt64(shadow_occluded)
         )
-        keep(guard)
 
         return (
             Int(static_t1 - static_t0),
@@ -889,7 +886,6 @@ def run_gpu_lbvh_refit_benchmark(
         var checksum = (
             sorted_validation[6] + topo_validation[3] + refit_validation[3]
         )
-        keep(checksum)
 
         return (
             Int(static_t1 - static_t0),
@@ -1238,7 +1234,6 @@ def validate_sorted_keys(
                     first_bad_value = i
             checksum += UInt64(v[i])
 
-    keep(checksum)
     return (
         keys_sorted,
         values_valid,
@@ -1334,7 +1329,6 @@ def validate_topology(
     if root_count != 1:
         ok = False
 
-    keep(checksum)
     return (ok, root_count, root_idx, checksum)
 
 
@@ -1404,7 +1398,6 @@ def validate_refit_bounds(
     if diff > 1.0e-4:
         ok = False
 
-    keep(checksum)
     return (ok, diff, root_idx, checksum)
 
 
@@ -1580,6 +1573,3 @@ def main() raises:
         print(t"checksum guard:      {guard}")
     else:
         print("No compatible GPU found; skipped Mojo GPU benchmark.")
-
-    keep(len(tri_vertices))
-    keep(len(rays))

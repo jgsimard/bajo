@@ -2,7 +2,7 @@ from std.gpu import thread_idx, block_idx, block_dim, DeviceBuffer
 from std.gpu.host import DeviceContext
 
 from bajo.core.vec import Vec3f32, vmin, vmax, cross, length, normalize
-from bajo.core.bvh.cpu_bvh import Ray
+from bajo.core.bvh.cpu_bvh import Ray, BVH
 
 
 def compute_bounds(verts: List[Vec3f32]) -> Tuple[Vec3f32, Vec3f32]:
@@ -52,3 +52,32 @@ def flatten_rays(rays: List[Ray]) -> List[Float32]:
         out.append(r.rD.z())
         out.append(r.hit.t)
     return out^
+
+
+@always_inline
+def hit_t_for_checksum(t: Float32) -> Float64:
+    if t < 1.0e20:
+        return Float64(t)
+    return 0.0
+
+
+def trace_bvh_shadow(bvh: BVH, rays: List[Ray]) -> Int:
+    var occluded = 0
+    for i in range(len(rays)):
+        var ray = rays[i].copy()
+        if bvh.is_occluded(ray):
+            occluded += 1
+    return occluded
+
+
+def trace_bvh_primary(bvh: BVH, rays: List[Ray]) -> Float64:
+    var checksum = Float64(0.0)
+    var hit_count = 0
+
+    for i in range(len(rays)):
+        var ray = rays[i].copy()
+        bvh.traverse(ray)
+        checksum += hit_t_for_checksum(ray.hit.t)
+        if ray.hit.t < 1.0e20:
+            hit_count += 1
+    return checksum

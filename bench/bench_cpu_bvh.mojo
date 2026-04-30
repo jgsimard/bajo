@@ -8,8 +8,15 @@ from std.gpu.host import DeviceContext
 
 from bajo.obj import read_obj, triangulated_indices
 from bajo.core.vec import Vec3f32, vmin, vmax, cross, dot, length, normalize
+from bajo.core.bvh import compute_bounds, flatten_vertices, copy_list_to_device
+
 from bajo.core.bvh.cpu_bvh import BVH, BVHGPU, Ray, WideBVH
-from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s, print_vec3_rounded
+from bajo.core.utils import (
+    ns_to_ms,
+    ns_to_mrays_per_s,
+    print_vec3_rounded,
+    pack_obj_triangles,
+)
 
 # comptime DEFAULT_OBJ_PATH = "./assets/powerplant/powerplant.obj"
 comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"
@@ -19,40 +26,6 @@ comptime PRIMARY_VIEWS = 3
 comptime TRAVERSAL_REPEATS = 8
 comptime GPU_BLOCK_SIZE = 128
 comptime GPU_STACK_SIZE = 64
-
-
-def pack_obj_triangles(path: String) raises -> List[Vec3f32]:
-    var mesh = read_obj(path)
-    var idx = triangulated_indices(mesh)
-
-    var out = List[Vec3f32](capacity=len(idx))
-
-    for i in range(len(idx)):
-        var p = Int(idx[i].p)
-
-        # OBJ vertex indices refer to vertices, but mesh.positions is flat xyz.
-        var base = p * 3
-
-        out.append(
-            Vec3f32(
-                mesh.positions[base + 0],
-                mesh.positions[base + 1],
-                mesh.positions[base + 2],
-            )
-        )
-
-    return out^
-
-
-def compute_bounds(verts: List[Vec3f32]) -> Tuple[Vec3f32, Vec3f32]:
-    var bmin = Vec3f32(1.0e30, 1.0e30, 1.0e30)
-    var bmax = Vec3f32(-1.0e30, -1.0e30, -1.0e30)
-
-    for i in range(len(verts)):
-        bmin = vmin(bmin, verts[i])
-        bmax = vmax(bmax, verts[i])
-
-    return (bmin^, bmax^)
 
 
 def append_camera_rays(
@@ -808,15 +781,6 @@ def flatten_gpu_node_meta(gpu: BVHGPU) -> List[UInt32]:
     return out^
 
 
-def flatten_vertices(verts: List[Vec3f32]) -> List[Float32]:
-    var out = List[Float32](capacity=len(verts) * 3)
-    for i in range(len(verts)):
-        out.append(verts[i].x())
-        out.append(verts[i].y())
-        out.append(verts[i].z())
-    return out^
-
-
 def flatten_rays(rays: List[Ray]) -> List[Float32]:
     var out = List[Float32](capacity=len(rays) * 10)
     for i in range(len(rays)):
@@ -834,26 +798,6 @@ def flatten_rays(rays: List[Ray]) -> List[Float32]:
     return out^
 
 
-def copy_f32_list_to_device(
-    mut ctx: DeviceContext, values: List[Float32]
-) raises -> DeviceBuffer[DType.float32]:
-    var buf = ctx.enqueue_create_buffer[DType.float32](len(values))
-    with buf.map_to_host() as h:
-        for i in range(len(values)):
-            h[i] = values[i]
-    return buf^
-
-
-def copy_u32_list_to_device(
-    mut ctx: DeviceContext, values: List[UInt32]
-) raises -> DeviceBuffer[DType.uint32]:
-    var buf = ctx.enqueue_create_buffer[DType.uint32](len(values))
-    with buf.map_to_host() as h:
-        for i in range(len(values)):
-            h[i] = values[i]
-    return buf^
-
-
 def trace_gpu_primary_device(
     gpu: BVHGPU,
     tri_vertices: List[Vec3f32],
@@ -868,10 +812,10 @@ def trace_gpu_primary_device(
 
     with DeviceContext() as ctx:
         var static_t0 = perf_counter_ns()
-        var d_node_bounds = copy_f32_list_to_device(ctx, node_bounds)
-        var d_node_meta = copy_u32_list_to_device(ctx, node_meta)
-        var d_prims = copy_u32_list_to_device(ctx, gpu.prim_indices)
-        var d_vertices = copy_f32_list_to_device(ctx, vertices)
+        var d_node_bounds = copy_list_to_device(ctx, node_bounds)
+        var d_node_meta = copy_list_to_device(ctx, node_meta)
+        var d_prims = copy_list_to_device(ctx, gpu.prim_indices)
+        var d_vertices = copy_list_to_device(ctx, vertices)
         ctx.synchronize()
         var static_t1 = perf_counter_ns()
 
@@ -993,10 +937,10 @@ def trace_gpu_shadow_device(
 
     with DeviceContext() as ctx:
         var static_t0 = perf_counter_ns()
-        var d_node_bounds = copy_f32_list_to_device(ctx, node_bounds)
-        var d_node_meta = copy_u32_list_to_device(ctx, node_meta)
-        var d_prims = copy_u32_list_to_device(ctx, gpu.prim_indices)
-        var d_vertices = copy_f32_list_to_device(ctx, vertices)
+        var d_node_bounds = copy_list_to_device(ctx, node_bounds)
+        var d_node_meta = copy_list_to_device(ctx, node_meta)
+        var d_prims = copy_list_to_device(ctx, gpu.prim_indices)
+        var d_vertices = copy_list_to_device(ctx, vertices)
         ctx.synchronize()
         var static_t1 = perf_counter_ns()
 

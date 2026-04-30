@@ -7,12 +7,12 @@ from std.gpu import DeviceContext, DeviceBuffer
 from bajo.obj import read_obj, triangulated_indices
 from bajo.core.morton import morton3
 from bajo.core.vec import Vec3f32, vmin, vmax, cross, length, normalize
-from bajo.core.bvh.tinybvh import BVH, Ray
+from bajo.core.bvh.cpu_bvh import BVH, Ray
 from bajo.sort.gpu.radix_sort import device_radix_sort_pairs, RadixSortWorkspace
 from bajo.core.utils import ns_to_ms
 
+from bajo.core.bvh import copy_list_to_device, compute_bounds
 from bajo.core.bvh.gpu_lbvh import (
-    compute_bounds,
     compute_centroid_bounds,
     generate_camera_params,
     generate_primary_rays,
@@ -22,7 +22,6 @@ from bajo.core.bvh.gpu_lbvh import (
     trace_bvh_primary,
     trace_bvh_shadow,
     flatten_vertices,
-    copy_f32_list_to_device,
     compute_morton_codes_kernel,
     init_lbvh_topology_kernel,
     init_lbvh_bounds_kernel,
@@ -91,8 +90,8 @@ def run_gpu_lbvh_camera_traversal_benchmark(
 
     with DeviceContext() as ctx:
         var static_t0 = perf_counter_ns()
-        var d_vertices = copy_f32_list_to_device(ctx, vertices)
-        var d_camera_params = copy_f32_list_to_device(ctx, camera_params)
+        var d_vertices = copy_list_to_device(ctx, vertices)
+        var d_camera_params = copy_list_to_device(ctx, camera_params)
         var d_keys = ctx.enqueue_create_buffer[DType.uint32](tri_count)
         var d_values = ctx.enqueue_create_buffer[DType.uint32](tri_count)
         var workspace = RadixSortWorkspace[DType.uint32, DType.uint32](
@@ -364,8 +363,8 @@ def run_gpu_lbvh_camera_reduce_and_shadow_benchmark(
 
     with DeviceContext() as ctx:
         var static_t0 = perf_counter_ns()
-        var d_vertices = copy_f32_list_to_device(ctx, vertices)
-        var d_camera_params = copy_f32_list_to_device(ctx, camera_params)
+        var d_vertices = copy_list_to_device(ctx, vertices)
+        var d_camera_params = copy_list_to_device(ctx, camera_params)
         var d_keys = ctx.enqueue_create_buffer[DType.uint32](tri_count)
         var d_values = ctx.enqueue_create_buffer[DType.uint32](tri_count)
         var workspace = RadixSortWorkspace[DType.uint32, DType.uint32](
@@ -689,7 +688,7 @@ def run_gpu_lbvh_refit_benchmark(
 
     with DeviceContext() as ctx:
         var static_t0 = perf_counter_ns()
-        var d_vertices = copy_f32_list_to_device(ctx, vertices)
+        var d_vertices = copy_list_to_device(ctx, vertices)
         var d_keys = ctx.enqueue_create_buffer[DType.uint32](tri_count)
         var d_values = ctx.enqueue_create_buffer[DType.uint32](tri_count)
         var workspace = RadixSortWorkspace[DType.uint32, DType.uint32](
@@ -963,7 +962,7 @@ def run_gpu_lbvh_topology_benchmark(
 
     with DeviceContext() as ctx:
         var static_t0 = perf_counter_ns()
-        var d_vertices = copy_f32_list_to_device(ctx, vertices)
+        var d_vertices = copy_list_to_device(ctx, vertices)
         var d_keys = ctx.enqueue_create_buffer[DType.uint32](tri_count)
         var d_values = ctx.enqueue_create_buffer[DType.uint32](tri_count)
         var workspace = RadixSortWorkspace[DType.uint32, DType.uint32](
@@ -1527,11 +1526,11 @@ def main() raises:
         )
 
         print("\nGPU LBVH build")
-        print(t"morton generation:   {round(ns_to_ms(morton_ns), 3)} ms")
-        print(t"radix sort pairs:    {round(ns_to_ms(sort_ns), 3)} ms")
-        print(t"topology build:      {round(ns_to_ms(topology_ns), 3)} ms")
-        print(t"bounds refit:        {round(ns_to_ms(refit_ns), 3)} ms")
-        print(t"build total:         {round(ns_to_ms(build_ns), 3)} ms")
+        print(t"morton generation: {round(ns_to_ms(morton_ns), 3)} ms")
+        print(t"radix sort pairs:  {round(ns_to_ms(sort_ns), 3)} ms")
+        print(t"topology build:    {round(ns_to_ms(topology_ns), 3)} ms")
+        print(t"bounds refit:      {round(ns_to_ms(refit_ns), 3)} ms")
+        print(t"build total:       {round(ns_to_ms(build_ns), 3)} ms")
 
         print("\nGenerated primary rays + GPU checksum")
         print(

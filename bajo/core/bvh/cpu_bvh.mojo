@@ -13,7 +13,7 @@ from bajo.core.morton import morton3
 
 comptime f32_max = max_finite[DType.float32]()
 comptime f32_min = min_finite[DType.float32]()
-comptime INV_3 = Float32(1.0) / Float32(3.0)
+comptime INV_3 = Float32(1.0 / 3.0)
 comptime BVH_BINS = 16
 
 

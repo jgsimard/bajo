@@ -1,7 +1,8 @@
 from std.math import sqrt, clamp, pi
 from std.sys.info import size_of
 
-from bajo.core.vec import Vec, vclamp
+from bajo.core.vec import Vec, vclamp, Vec3f32
+from bajo.obj import read_obj, triangulated_indices
 
 
 @fieldwise_init
@@ -135,3 +136,22 @@ def print_vec3_rounded[dtype: DType](name: String, v: Vec[dtype, 3]):
     var y = round(v.y(), 3)
     var z = round(v.z(), 3)
     print(t"{name} ({x}, {y}, {z})")
+
+
+def pack_obj_triangles(path: String) raises -> List[Vec3f32]:
+    var mesh = read_obj(path)
+    var idx = triangulated_indices(mesh)
+
+    var out = List[Vec3f32](capacity=len(idx))
+    for i in range(len(idx)):
+        var p = Int(idx[i].p)
+        var base = p * 3
+        out.append(
+            Vec3f32(
+                mesh.positions[base + 0],
+                mesh.positions[base + 1],
+                mesh.positions[base + 2],
+            )
+        )
+
+    return out^

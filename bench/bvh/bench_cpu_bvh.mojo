@@ -18,8 +18,9 @@ from bajo.core.bvh import (
     append_camera_rays,
     generate_primary_rays,
 )
-
-from bajo.core.bvh.cpu_bvh import BVH, BVHGPU, Ray, WideBVH
+from bajo.core.bvh.gpu_layout_on_cpu import BvhGpuLayout
+from bajo.core.bvh.wide import WideBVH
+from bajo.core.bvh.binary_bvh import BVH, Ray
 from bajo.core.utils import (
     ns_to_ms,
     ns_to_mrays_per_s,
@@ -72,7 +73,7 @@ def trace_wide_shadow[width: Int](wide: WideBVH[width], rays: List[Ray]) -> Int:
     return occluded
 
 
-def trace_gpu_primary(gpu: BVHGPU, rays: List[Ray]) -> Float64:
+def trace_gpu_primary(gpu: BvhGpuLayout, rays: List[Ray]) -> Float64:
     var checksum = Float64(0.0)
     var hit_count = 0
 
@@ -85,7 +86,7 @@ def trace_gpu_primary(gpu: BVHGPU, rays: List[Ray]) -> Float64:
     return checksum
 
 
-def trace_gpu_shadow(gpu: BVHGPU, rays: List[Ray]) -> Int:
+def trace_gpu_shadow(gpu: BvhGpuLayout, rays: List[Ray]) -> Int:
     var occluded = 0
 
     for i in range(len(rays)):
@@ -248,7 +249,9 @@ def bench_wide_shadow[
     print_shadow_result(name, best_ns, len(rays), occluded)
 
 
-def bench_gpu_primary(name: String, gpu: BVHGPU, rays: List[Ray], repeats: Int):
+def bench_gpu_primary(
+    name: String, gpu: BvhGpuLayout, rays: List[Ray], repeats: Int
+):
     # Warmup.
     var checksum = trace_gpu_primary(gpu, rays)
     var best_ns = Int(9223372036854775807)
@@ -264,7 +267,9 @@ def bench_gpu_primary(name: String, gpu: BVHGPU, rays: List[Ray], repeats: Int):
     print_traversal_result(name, best_ns, len(rays), checksum)
 
 
-def bench_gpu_shadow(name: String, gpu: BVHGPU, rays: List[Ray], repeats: Int):
+def bench_gpu_shadow(
+    name: String, gpu: BvhGpuLayout, rays: List[Ray], repeats: Int
+):
     # Warmup.
     var occluded = trace_gpu_shadow(gpu, rays)
     var best_ns = Int(9223372036854775807)
@@ -649,7 +654,7 @@ def trace_bvh_gpu_shadow_kernel(
     occluded_out[ray_idx] = UInt32(0)
 
 
-def flatten_gpu_node_bounds(gpu: BVHGPU) -> List[Float32]:
+def flatten_gpu_node_bounds(gpu: BvhGpuLayout) -> List[Float32]:
     var out = List[Float32](capacity=len(gpu.nodes) * 12)
     for i in range(len(gpu.nodes)):
         ref n = gpu.nodes[i]
@@ -668,7 +673,7 @@ def flatten_gpu_node_bounds(gpu: BVHGPU) -> List[Float32]:
     return out^
 
 
-def flatten_gpu_node_meta(gpu: BVHGPU) -> List[UInt32]:
+def flatten_gpu_node_meta(gpu: BvhGpuLayout) -> List[UInt32]:
     var out = List[UInt32](capacity=len(gpu.nodes) * 4)
     for i in range(len(gpu.nodes)):
         ref n = gpu.nodes[i]
@@ -680,7 +685,7 @@ def flatten_gpu_node_meta(gpu: BVHGPU) -> List[UInt32]:
 
 
 def trace_gpu_primary_device(
-    gpu: BVHGPU,
+    gpu: BvhGpuLayout,
     tri_vertices: List[Vec3f32],
     rays: List[Ray],
     repeats: Int,
@@ -801,7 +806,7 @@ def trace_gpu_primary_device(
 
 
 def trace_gpu_shadow_device(
-    gpu: BVHGPU,
+    gpu: BvhGpuLayout,
     tri_vertices: List[Vec3f32],
     rays: List[Ray],
     repeats: Int,
@@ -1024,7 +1029,7 @@ def main() raises:
     )
 
     t0 = perf_counter_ns()
-    var gpu = BVHGPU(bvh_sah)
+    var gpu = BvhGpuLayout(bvh_sah)
     t1 = perf_counter_ns()
     var gpu_root_is_leaf = False
     if len(gpu.nodes) > 0:
@@ -1034,7 +1039,7 @@ def main() raises:
     )
 
     t0 = perf_counter_ns()
-    var gpu_lbvh = BVHGPU(bvh_lbvh)
+    var gpu_lbvh = BvhGpuLayout(bvh_lbvh)
     t1 = perf_counter_ns()
     var gpu_lbvh_root_is_leaf = False
     if len(gpu_lbvh.nodes) > 0:

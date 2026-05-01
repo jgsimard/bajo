@@ -8,7 +8,7 @@ from bajo.core.bvh.cpu.wide import WideBvh
 from bajo.core.bvh.cpu.gpu_layout import BvhGpuLayout
 from bajo.core.bvh.cpu.binary_bvh import (
     BinaryBvh,
-    BVHNode,
+    BvhNode,
     Fragment,
     Ray,
     _partition_fragments,
@@ -102,7 +102,7 @@ def test_sah_clear_separation() raises:
     var frags = _make_fragments(verts)
     var prims: List[UInt32] = [0, 1]
 
-    var node = BVHNode()
+    var node = BvhNode()
     node.left_first = 0
     node.tri_count = 2
 
@@ -130,7 +130,7 @@ def test_sah_degenerate() raises:
     var frags = _make_fragments(verts)
     var prims: List[UInt32] = [0, 1]
 
-    var node = BVHNode()
+    var node = BvhNode()
     node.left_first = 0
     node.tri_count = 2
 
@@ -158,7 +158,7 @@ def test_sah_axis_preference() raises:
     for i in range(10):
         prims.append(UInt32(i))
 
-    var node = BVHNode()
+    var node = BvhNode()
     node.left_first = 0
     node.tri_count = 10
 
@@ -204,7 +204,7 @@ def test_sah_partition_by_bin_non_empty() raises:
     for i in range(10):
         prims.append(UInt32(i))
 
-    var node = BVHNode()
+    var node = BvhNode()
     node.left_first = 0
     node.tri_count = 10
 

@@ -7,7 +7,7 @@ from bajo.core.vec import Vec3f32, vmin, vmax, longest_axis, InlineArray
 from bajo.core.morton import morton3
 from bajo.core.bvh.types import (
     Ray,
-    BVHNode,
+    BvhNode,
     Bin,
     Fragment,
     SplitResult,
@@ -90,7 +90,7 @@ def _partition_fragments_by_bin(
 
 @always_inline
 def _sah(
-    node: BVHNode,
+    node: BvhNode,
     prims: UnsafePointer[UInt32, ImmutAnyOrigin],
     fragments: UnsafePointer[Fragment, ImmutAnyOrigin],
 ) -> SplitResult:

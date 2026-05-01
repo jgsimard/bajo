@@ -13,7 +13,7 @@ from bajo.core.morton import morton3
 from bajo.core.bvh.types import (
     Intersection,
     Ray,
-    BVHNode,
+    BvhNode,
     Bin,
     Fragment,
     MortonPrim,
@@ -32,7 +32,7 @@ comptime f32_min = min_finite[DType.float32]()
 
 
 struct BinaryBvh(Copyable):
-    var bvh_nodes: List[BVHNode]
+    var bvh_nodes: List[BvhNode]
     var prim_indices: List[UInt32]
     var fragments: List[Fragment]
     var vertices: UnsafePointer[Vec3f32, MutAnyOrigin]
@@ -49,7 +49,7 @@ struct BinaryBvh(Copyable):
         self.nodes_used = 1
 
         var max_nodes = Int(tri_count * 2 - 1)
-        self.bvh_nodes = List[BVHNode](length=max_nodes, fill=BVHNode())
+        self.bvh_nodes = List[BvhNode](length=max_nodes, fill=BvhNode())
 
         self.fragments = List[Fragment](capacity=Int(tri_count))
         self.prim_indices = List[UInt32](capacity=Int(tri_count))
@@ -277,7 +277,7 @@ struct BinaryBvh(Copyable):
     def build_lbvh(mut self):
         """Build a binary LBVH using sorted Morton codes over cached fragments.
 
-        This is a CPU reference builder. It produces the same BVHNode /
+        This is a CPU reference builder. It produces the same BvhNode /
         prim_indices layout as the median and SAH builders, so scalar traversal,
         WideBvh, and BVHGPU conversion can all consume it unchanged.
         """

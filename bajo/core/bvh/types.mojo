@@ -72,7 +72,7 @@ struct Hit(TrivialRegisterPassable):
 
 
 @fieldwise_init
-struct BVHNode(Copyable):
+struct BvhNode(Copyable):
     var aabb: AABB
     var left_first: UInt32
     var tri_count: UInt32

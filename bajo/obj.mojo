@@ -1,5 +1,6 @@
+from std.ffi import external_call
 from std.pathlib import Path
-from std.os import path as os_path
+from std.os import SEEK_END, path as os_path
 
 
 comptime TAB = UInt8(ord("\t"))
@@ -325,14 +326,68 @@ struct MemoryObjTextLoader(Movable, ObjTextLoader):
         raise Error("MemoryObjTextLoader: file not found: " + path)
 
 
+struct MMap[mut: Bool, //, origin: Origin[mut=mut]]:
+    """Read-only mmap wrapper used by read_obj(path).
+
+    The mapping owns the bytes for the duration of parsing. The parser receives
+    a StringSlice view over those bytes and copies only material/object/group
+    names that need to live in ObjMesh.
+    """
+
+    comptime ptr = Optional[UnsafePointer[UInt8, Self.origin]]
+    var _data: Self.ptr
+    var _size: Int
+
+    def __init__(out self, path: String) raises:
+        self._data = Self.ptr()
+        self._size = 0
+
+        with open(path, "r") as file:
+            comptime PROT_READ = 1
+            comptime MAP_PRIVATE = 2
+
+            self._size = Int(file.seek(0, SEEK_END))
+            if self._size == 0:
+                return
+
+            self._data = external_call["mmap", Self.ptr](
+                Self.ptr(),  # addr: let the kernel choose
+                self._size,
+                PROT_READ,
+                MAP_PRIVATE,
+                file._get_raw_fd(),
+                0,  # offset
+            )
+
+        if not self._data:
+            raise Error("mmap failed")
+
+    def __del__(deinit self):
+        if self._data:
+            _ = external_call["munmap", Int](self._data, self._size)
+
+    def byte_length(ref self) -> Int:
+        return self._size
+
+    def as_string_slice(ref self) -> StringSlice[Self.origin]:
+        if self._size == 0:
+            return StringSlice[Self.origin]()
+        return StringSlice[Self.origin](
+            ptr=self._data.unsafe_value(), length=self._size
+        )
+
+
 # public API
-# File path, normal filesystem.
+# File path, normal filesystem. This is the fast path: mmap the OBJ file and
+# parse directly from the mapped bytes, avoiding a full file-to-String copy.
 def read_obj(path: String) raises -> ObjMesh:
     var loader = PathObjTextLoader()
-    return read_obj(path, loader)
+    var mapped = MMap[ImmutAnyOrigin](path)
+    return parse_obj(mapped.as_string_slice(), path, loader)
 
 
-# File path, custom loader.
+# File path, custom loader. This path still goes through String because the
+# loader abstraction may be backed by memory, network, zip files, etc.
 def read_obj[
     Loader: ObjTextLoader
 ](path: String, loader: Loader) raises -> ObjMesh:
@@ -346,11 +401,27 @@ def parse_obj(text: String, path: String = "") raises -> ObjMesh:
     return parse_obj(text, path, loader)
 
 
+# Raw OBJ StringSlice. This lets mmap and other byte-backed sources parse
+# without first materializing an owning String.
+def parse_obj[
+    o: Origin
+](text: StringSlice[o], path: String = "") raises -> ObjMesh:
+    var loader = MemoryObjTextLoader()
+    return parse_obj(text, path, loader)
+
+
 # Raw OBJ text plus loader for mtllib resolution.
 def parse_obj[
     Loader: ObjTextLoader
 ](text: String, path: String, loader: Loader) raises -> ObjMesh:
     return _parse_obj_text(path, text, loader)
+
+
+# Raw OBJ StringSlice plus loader for mtllib resolution.
+def parse_obj[
+    o: Origin, Loader: ObjTextLoader
+](text: StringSlice[o], path: String, loader: Loader) raises -> ObjMesh:
+    return _parse_obj_slice(path, text, loader)
 
 
 # parsing primitive
@@ -1091,10 +1162,16 @@ def _parse_face_cursor[
 def _parse_obj_text[
     Loader: ObjTextLoader
 ](path: String, text: String, loader: Loader) raises -> ObjMesh:
+    return _parse_obj_slice(path, StringSlice(text), loader)
+
+
+def _parse_obj_slice[
+    o: Origin, Loader: ObjTextLoader
+](path: String, text_slice: StringSlice[o], loader: Loader) raises -> ObjMesh:
     var mesh = ObjMesh()
 
     # Same rough heuristic as before, with reserves for the other hot arrays too.
-    var est_elements = text.byte_length() // 15
+    var est_elements = text_slice.byte_length() // 15
     mesh.positions.reserve(est_elements * 3)
     mesh.texcoords.reserve(est_elements * 2)
     mesh.normals.reserve(est_elements * 3)
@@ -1102,7 +1179,6 @@ def _parse_obj_text[
     mesh.face_vertices.reserve(est_elements)
     mesh.face_materials.reserve(est_elements)
 
-    var text_slice = StringSlice(text)
     var ptr = text_slice.unsafe_ptr()
     var text_len = text_slice.byte_length()
     var line_start = 0

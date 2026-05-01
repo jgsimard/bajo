@@ -360,6 +360,16 @@ def _is_ws(b: UInt8) -> Bool:
 
 
 @always_inline
+def _is_line_cut(b: UInt8) -> Bool:
+    return b == CR or b == HASH
+
+
+@always_inline
+def _is_ws_or_line_cut(b: UInt8) -> Bool:
+    return _is_ws(b) or b == HASH
+
+
+@always_inline
 def _is_digit(b: UInt8) -> Bool:
     return b >= ZERO and b <= NINE
 
@@ -393,27 +403,16 @@ def _read_mtl_text(mut mesh: ObjMesh, base: String, text: String) raises:
     var found_d = False
 
     var text_slice = StringSlice(text)
-    var ptr = text_slice.unsafe_ptr()
     var text_len = text_slice.byte_length()
     var line_start = 0
 
     while line_start < text_len:
-        # Fast newline scan
+        # Fast newline scan. CR and comments are handled lazily by ObjLineCursor.
         var line_end = text_slice.find("\n", line_start)
         if line_end == -1:
             line_end = text_len
 
-        # Strip CR and comments (#)
-        var end = line_end
-        var s = line_start
-        while s < end:
-            var b = ptr.load(s)
-            if b == CR or b == HASH:
-                end = s
-                break
-            s += 1
-
-        var cur = ObjLineCursor(text_slice, line_start, end)
+        var cur = ObjLineCursor(text_slice, line_start, line_end)
         var tag = cur.next_word()
 
         if tag.byte_length() == 0:
@@ -498,7 +497,9 @@ def _read_mtl_file[
 def _word_ends_here[
     o: Origin
 ](ptr: UnsafePointer[UInt8, o], p: Int, end: Int) -> Bool:
-    return p >= end or _is_ws(ptr.load(p))
+    if p >= end:
+        return True
+    return _is_ws_or_line_cut(ptr.load(p))
 
 
 struct ObjLineCursor[o: Origin]:
@@ -517,6 +518,9 @@ struct ObjLineCursor[o: Origin]:
     def skip_ws(mut self):
         while self.pos < self.end:
             var b = self.ptr.load(self.pos)
+            if _is_line_cut(b):
+                self.end = self.pos
+                break
             if not _is_ws(b):
                 break
             self.pos += 1
@@ -615,7 +619,7 @@ struct ObjLineCursor[o: Origin]:
             var b = self.ptr.load(self.pos)
             if slash_terminates and b == SLASH:
                 break
-            if _is_ws(b):
+            if _is_ws_or_line_cut(b):
                 break
             if not _is_digit(b):
                 break
@@ -638,7 +642,7 @@ struct ObjLineCursor[o: Origin]:
             var b = self.ptr.load(self.pos)
             if slash_terminates and b == SLASH:
                 break
-            if _is_ws(b):
+            if _is_ws_or_line_cut(b):
                 break
             if not _is_digit(b):
                 break
@@ -650,7 +654,13 @@ struct ObjLineCursor[o: Origin]:
 
     @always_inline
     def _finish_index_token(mut self):
-        while self.pos < self.end and not _is_ws(self.ptr.load(self.pos)):
+        while self.pos < self.end:
+            var b = self.ptr.load(self.pos)
+            if _is_ws(b):
+                break
+            if _is_line_cut(b):
+                self.end = self.pos
+                break
             self.pos += 1
 
     @always_inline
@@ -669,7 +679,7 @@ struct ObjLineCursor[o: Origin]:
 
         while p < self.end:
             var b = self.ptr.load(p)
-            if _is_ws(b):
+            if _is_ws_or_line_cut(b):
                 break
             if b == SLASH:
                 if slash_count == 0:
@@ -794,16 +804,32 @@ struct ObjLineCursor[o: Origin]:
             return ""
 
         var start = self.pos
-        var end_pos = self.end - 1
+        var logical_end = self.end
 
-        # Trim trailing whitespace
-        while end_pos > start:
+        # Only string-like OBJ/MTL commands use this rare path. Keep comments
+        # lazy here instead of pre-scanning every geometry line.
+        var p = start
+        while p < logical_end:
+            var b = self.ptr.load(p)
+            if _is_line_cut(b):
+                logical_end = p
+                break
+            p += 1
+
+        var end_pos = logical_end - 1
+
+        # Trim trailing whitespace.
+        while end_pos >= start:
             var b = self.ptr.load(end_pos)
             if not _is_ws(b):
                 break
             end_pos -= 1
 
         self.pos = self.end
+
+        if end_pos < start:
+            return ""
+
         return String(self.text[byte = start : end_pos + 1])
 
     @always_inline
@@ -815,7 +841,9 @@ struct ObjLineCursor[o: Origin]:
         var start = self.pos
         while self.pos < self.end:
             var b = self.ptr.load(self.pos)
-            if _is_ws(b):
+            if _is_ws_or_line_cut(b):
+                if _is_line_cut(b):
+                    self.end = self.pos
                 break
             self.pos += 1
 
@@ -1031,20 +1059,13 @@ def _parse_obj_text[
         if line_end == -1:
             line_end = text_len
 
-        # Logical line end strips CR and inline comments.
+        # Do not pre-scan the whole line for CR/comments here. ObjLineCursor
+        # treats CR and # as lazy logical line-end markers while parsing.
         var end = line_end
-        var s = line_start
-        while s < end:
-            var b = ptr.load(s)
-            if b == CR or b == HASH:
-                end = s
-                break
-            s += 1
-
         var cur = ObjLineCursor(text_slice, line_start, end)
         cur.skip_ws()
 
-        if cur.pos < end:
+        if cur.pos < cur.end:
             var p = cur.pos
             var c0 = ptr.load(p)
 
@@ -1079,10 +1100,12 @@ def _parse_obj_text[
                 mesh._begin_object(cur.joined_rest_of_line())
 
             else:
-                # Rare multi-char tags
+                # Rare multi-char tags.
                 var tag_start = p
                 var tag_end = p
-                while tag_end < end and not _is_ws(ptr.load(tag_end)):
+                while tag_end < end and not _is_ws_or_line_cut(
+                    ptr.load(tag_end)
+                ):
                     tag_end += 1
 
                 var tag = text_slice[byte=tag_start:tag_end]

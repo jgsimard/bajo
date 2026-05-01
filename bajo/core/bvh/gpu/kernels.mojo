@@ -1,7 +1,7 @@
 from std.bit import count_leading_zeros
 from std.atomic import Atomic
 from std.math import abs, min, max, round, sqrt
-from std.gpu import thread_idx, block_idx, block_dim, DeviceBuffer
+from std.gpu import thread_idx, block_idx, block_dim, global_idx, DeviceBuffer
 from std.gpu.host import DeviceContext
 
 from bajo.core.bvh.types import RayFlat, Hit
@@ -190,7 +190,7 @@ def init_lbvh_topology_kernel(
     internal_count: Int,
     leaf_count: Int,
 ):
-    var i = Int(block_idx.x * block_dim.x + thread_idx.x)
+    var i = global_idx.x
 
     if i < internal_count:
         var base = i * LBVH_NODE_META_STRIDE
@@ -210,7 +210,7 @@ def build_lbvh_topology_kernel(
     leaf_parent: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
     leaf_count: Int,
 ):
-    var i = Int(block_idx.x * block_dim.x + thread_idx.x)
+    var i = global_idx.x
     var internal_count = leaf_count - 1
     if i >= internal_count:
         return
@@ -305,7 +305,7 @@ def init_lbvh_bounds_kernel(
     node_flags: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
     internal_count: Int,
 ):
-    var i = Int(block_idx.x * block_dim.x + thread_idx.x)
+    var i = global_idx.x
     if i >= internal_count:
         return
 
@@ -378,7 +378,7 @@ def refit_lbvh_bounds_kernel(
     node_flags: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
     leaf_count: Int,
 ):
-    var leaf_idx = Int(block_idx.x * block_dim.x + thread_idx.x)
+    var leaf_idx = global_idx.x
     if leaf_idx >= leaf_count:
         return
 
@@ -965,8 +965,11 @@ def trace_lbvh_gpu_camera_kernel[
     views: Int,
     root_idx: UInt32,
 ):
-    comptime if mode != TRACE_PRIMARY_FULL and mode != TRACE_PRIMARY_T and mode != TRACE_SHADOW:
-        comptime assert False, "unknown GPU LBVH camera trace mode"
+    comptime assert mode in [
+        TRACE_PRIMARY_FULL,
+        TRACE_PRIMARY_T,
+        TRACE_SHADOW,
+    ], "unknown GPU LBVH camera trace mode"
 
     var ray_idx = Int(block_idx.x * block_dim.x + thread_idx.x)
     if ray_idx >= ray_count:

@@ -184,12 +184,7 @@ def compute_morton_codes_kernel(
     var cy = ((bmin_y + bmax_y) * 0.5 - cmin_y) * inv_extent_y
     var cz = ((bmin_z + bmax_z) * 0.5 - cmin_z) * inv_extent_z
 
-    var vx = SIMD[DType.float32, 1](cx)
-    var vy = SIMD[DType.float32, 1](cy)
-    var vz = SIMD[DType.float32, 1](cz)
-    var code = morton3[1](vx, vy, vz)
-
-    keys[i] = code[0]
+    keys[i] = morton3(cx, cy, cz)
     values[i] = UInt32(i)
 
 

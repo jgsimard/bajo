@@ -176,7 +176,7 @@ struct SplitResult(Copyable):
 
 
 @fieldwise_init
-struct MortonPrim(Copyable):
+struct MortonPrim(TrivialRegisterPassable):
     """Morton-code / fragment-index pair used by the CPU LBVH builder."""
 
     var code: UInt32

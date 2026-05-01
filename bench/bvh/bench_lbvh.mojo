@@ -1,5 +1,5 @@
 from std.benchmark import keep
-from std.math import abs, max, round
+from std.math import abs, round
 from std.sys import has_accelerator
 from std.time import perf_counter_ns
 from std.gpu import DeviceContext, DeviceBuffer
@@ -10,19 +10,12 @@ from bajo.core.utils import (
     pack_obj_triangles,
     print_vec3_rounded,
 )
-from bajo.sort.gpu.radix_sort import device_radix_sort_pairs, RadixSortWorkspace
 from bajo.core.vec import Vec3f32
-from bajo.core.bvh.gpu.validate import (
-    validate_sorted_keys,
-    validate_topology,
-    validate_refit_bounds,
-)
 from bajo.core.bvh import (
     generate_primary_rays,
     trace_bvh_primary,
     trace_bvh_shadow,
     flatten_rays,
-    flatten_vertices,
     copy_list_to_device,
     compute_bounds,
 )
@@ -30,13 +23,6 @@ from bajo.core.bvh.cpu.binary_bvh import BVH, Ray
 from bajo.core.bvh.gpu.kernels import (
     compute_centroid_bounds,
     generate_camera_params,
-    compute_morton_codes_kernel,
-    init_lbvh_topology_kernel,
-    init_lbvh_bounds_kernel,
-    build_lbvh_topology_kernel,
-    refit_lbvh_bounds_kernel,
-    trace_lbvh_gpu_camera_kernel,
-    trace_lbvh_gpu_primary_kernel,
     reduce_hit_t_kernel,
     reduce_u32_flags_kernel,
     GPU_REDUCE_THREADS,
@@ -44,60 +30,35 @@ from bajo.core.bvh.gpu.kernels import (
     TRACE_PRIMARY_T,
     TRACE_SHADOW,
 )
+from bajo.core.bvh.gpu.lbvh import (
+    GpuLBVH,
+    GpuLBVHBuildTimings,
+    GpuLBVHValidation,
+    centroid_normalization,
+    gpu_lbvh_blocks_for,
+    gpu_lbvh_stage_sum,
+    GPU_LBVH_BLOCK_SIZE,
+)
+
 
 # comptime DEFAULT_OBJ_PATH = "./assets/powerplant/powerplant.obj"
 comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"
-comptime GPU_BLOCK_SIZE = 128
 comptime BENCH_REPEATS = 8
 comptime PRIMARY_WIDTH = 640
 comptime PRIMARY_HEIGHT = 360
 comptime PRIMARY_VIEWS = 3
 comptime INF_NS = 9223372036854775807
 
-# Meaningful default suite:
-# - Build/refit isolates Morton, radix sort, topology, and bottom-up bounds.
-# - Direct uploaded-ray traversal shows the cost of sending rays every frame.
-# - Camera full-download traversal shows the cost of writing/downloading full hits.
-# - Camera reduce/shadow is the current best GPU path.
 comptime RUN_DIRECT_RAY_UPLOAD_BENCH = True
 comptime RUN_CAMERA_FULL_DOWNLOAD_BENCH = True
 comptime RUN_CAMERA_REDUCE_AND_SHADOW_BENCH = True
 
 
 @fieldwise_init
-struct CentroidNormalization(Copyable):
-    var inv_x: Float32
-    var inv_y: Float32
-    var inv_z: Float32
-
-
-@fieldwise_init
-struct GpuBuildTimings(Copyable):
-    var static_setup_ns: Int
-    var morton_ns: Int
-    var sort_ns: Int
-    var topology_ns: Int
-    var refit_ns: Int
-    var total_ns: Int
-
-
-@fieldwise_init
-struct GpuBuildValidation(Copyable):
-    var sorted_ok: Bool
-    var values_ok: Bool
-    var topology_ok: Bool
-    var topology_root_count: Int
-    var topology_root_idx: UInt32
-    var bounds_ok: Bool
-    var bounds_diff: Float64
-    var root_idx: UInt32
-    var guard: UInt64
-
-
-@fieldwise_init
 struct GpuBuildResult(Copyable):
-    var timings: GpuBuildTimings
-    var validation: GpuBuildValidation
+    var static_setup_ns: Int
+    var timings: GpuLBVHBuildTimings
+    var validation: GpuLBVHValidation
 
 
 @fieldwise_init
@@ -179,11 +140,6 @@ def _abs_i32(v: Int) -> Int:
 
 
 @always_inline
-def _blocks_for(n: Int) -> Int:
-    return (n + GPU_BLOCK_SIZE - 1) // GPU_BLOCK_SIZE
-
-
-@always_inline
 def _ms(ns: Int) -> Float64:
     return round(ns_to_ms(ns), 3)
 
@@ -194,305 +150,13 @@ def _mrays(ns: Int, ray_count: Int) -> Float64:
 
 
 @always_inline
-def _build_stage_sum_ns(t: GpuBuildTimings) -> Int:
-    return t.morton_ns + t.sort_ns + t.topology_ns + t.refit_ns
+def _stage_primary_reduce_ns(r: GpuPrimaryReduceResult) -> Int:
+    return r.kernel_ns + r.reduce_ns + r.download_ns
 
 
 @always_inline
-def _build_total_ns(t: GpuBuildTimings) -> Int:
-    return t.total_ns
-
-
-@always_inline
-def _primary_reduce_frame_ns(r: GpuPrimaryReduceResult) -> Int:
-    return r.frame_ns
-
-
-@always_inline
-def _shadow_reduce_frame_ns(r: GpuShadowReduceResult) -> Int:
-    return r.frame_ns
-
-
-def _centroid_normalization(
-    centroid_min: Vec3f32,
-    centroid_max: Vec3f32,
-) -> CentroidNormalization:
-    var extent = centroid_max - centroid_min
-    var inv_x = Float32(0.0)
-    var inv_y = Float32(0.0)
-    var inv_z = Float32(0.0)
-    if extent.x() > 1.0e-20:
-        inv_x = 1.0 / extent.x()
-    if extent.y() > 1.0e-20:
-        inv_y = 1.0 / extent.y()
-    if extent.z() > 1.0e-20:
-        inv_z = 1.0 / extent.z()
-    return CentroidNormalization(inv_x, inv_y, inv_z)
-
-
-def _launch_morton(
-    ctx: DeviceContext,
-    d_vertices: DeviceBuffer[DType.float32],
-    d_keys: DeviceBuffer[DType.uint32],
-    d_values: DeviceBuffer[DType.uint32],
-    tri_count: Int,
-    centroid_min: Vec3f32,
-    norm: CentroidNormalization,
-    blocks_leaves: Int,
-) raises:
-    ctx.enqueue_function[
-        compute_morton_codes_kernel, compute_morton_codes_kernel
-    ](
-        d_vertices.unsafe_ptr(),
-        d_keys.unsafe_ptr(),
-        d_values.unsafe_ptr(),
-        tri_count,
-        centroid_min.x(),
-        centroid_min.y(),
-        centroid_min.z(),
-        norm.inv_x,
-        norm.inv_y,
-        norm.inv_z,
-        grid_dim=blocks_leaves,
-        block_dim=GPU_BLOCK_SIZE,
-    )
-
-
-def _launch_topology(
-    ctx: DeviceContext,
-    d_keys: DeviceBuffer[DType.uint32],
-    d_node_meta: DeviceBuffer[DType.uint32],
-    d_leaf_parent: DeviceBuffer[DType.uint32],
-    tri_count: Int,
-    internal_count: Int,
-    blocks_init: Int,
-    blocks_internal: Int,
-) raises:
-    ctx.enqueue_function[init_lbvh_topology_kernel, init_lbvh_topology_kernel](
-        d_node_meta.unsafe_ptr(),
-        d_leaf_parent.unsafe_ptr(),
-        internal_count,
-        tri_count,
-        grid_dim=blocks_init,
-        block_dim=GPU_BLOCK_SIZE,
-    )
-    ctx.enqueue_function[
-        build_lbvh_topology_kernel, build_lbvh_topology_kernel
-    ](
-        d_keys.unsafe_ptr(),
-        d_node_meta.unsafe_ptr(),
-        d_leaf_parent.unsafe_ptr(),
-        tri_count,
-        grid_dim=blocks_internal,
-        block_dim=GPU_BLOCK_SIZE,
-    )
-
-
-def _launch_refit(
-    ctx: DeviceContext,
-    d_vertices: DeviceBuffer[DType.float32],
-    d_values: DeviceBuffer[DType.uint32],
-    d_node_meta: DeviceBuffer[DType.uint32],
-    d_leaf_parent: DeviceBuffer[DType.uint32],
-    d_node_bounds: DeviceBuffer[DType.float32],
-    d_node_flags: DeviceBuffer[DType.uint32],
-    tri_count: Int,
-    internal_count: Int,
-    blocks_internal: Int,
-    blocks_leaves: Int,
-) raises:
-    ctx.enqueue_function[init_lbvh_bounds_kernel, init_lbvh_bounds_kernel](
-        d_node_bounds.unsafe_ptr(),
-        d_node_flags.unsafe_ptr(),
-        internal_count,
-        grid_dim=blocks_internal,
-        block_dim=GPU_BLOCK_SIZE,
-    )
-    ctx.enqueue_function[refit_lbvh_bounds_kernel, refit_lbvh_bounds_kernel](
-        d_vertices.unsafe_ptr(),
-        d_values.unsafe_ptr(),
-        d_node_meta.unsafe_ptr(),
-        d_leaf_parent.unsafe_ptr(),
-        d_node_bounds.unsafe_ptr(),
-        d_node_flags.unsafe_ptr(),
-        tri_count,
-        grid_dim=blocks_leaves,
-        block_dim=GPU_BLOCK_SIZE,
-    )
-
-
-def _time_build_once(
-    ctx: DeviceContext,
-    mut workspace: RadixSortWorkspace[DType.uint32, DType.uint32],
-    d_vertices: DeviceBuffer[DType.float32],
-    mut d_keys: DeviceBuffer[DType.uint32],
-    mut d_values: DeviceBuffer[DType.uint32],
-    d_node_meta: DeviceBuffer[DType.uint32],
-    d_leaf_parent: DeviceBuffer[DType.uint32],
-    d_node_bounds: DeviceBuffer[DType.float32],
-    d_node_flags: DeviceBuffer[DType.uint32],
-    tri_count: Int,
-    internal_count: Int,
-    centroid_min: Vec3f32,
-    norm: CentroidNormalization,
-    blocks_leaves: Int,
-    blocks_internal: Int,
-    blocks_init: Int,
-) raises -> GpuBuildTimings:
-    var m0 = perf_counter_ns()
-    _launch_morton(
-        ctx,
-        d_vertices,
-        d_keys,
-        d_values,
-        tri_count,
-        centroid_min,
-        norm,
-        blocks_leaves,
-    )
-    ctx.synchronize()
-    var m1 = perf_counter_ns()
-
-    device_radix_sort_pairs[DType.uint32, DType.uint32](
-        ctx, workspace, d_keys, d_values, tri_count
-    )
-    ctx.synchronize()
-    var s1 = perf_counter_ns()
-
-    _launch_topology(
-        ctx,
-        d_keys,
-        d_node_meta,
-        d_leaf_parent,
-        tri_count,
-        internal_count,
-        blocks_init,
-        blocks_internal,
-    )
-    ctx.synchronize()
-    var t1 = perf_counter_ns()
-
-    _launch_refit(
-        ctx,
-        d_vertices,
-        d_values,
-        d_node_meta,
-        d_leaf_parent,
-        d_node_bounds,
-        d_node_flags,
-        tri_count,
-        internal_count,
-        blocks_internal,
-        blocks_leaves,
-    )
-    ctx.synchronize()
-    var r1 = perf_counter_ns()
-
-    return GpuBuildTimings(
-        0,
-        Int(m1 - m0),
-        Int(s1 - m1),
-        Int(t1 - s1),
-        Int(r1 - t1),
-        Int(r1 - m0),
-    )
-
-
-def _best_build_timings(
-    ctx: DeviceContext,
-    mut workspace: RadixSortWorkspace[DType.uint32, DType.uint32],
-    d_vertices: DeviceBuffer[DType.float32],
-    mut d_keys: DeviceBuffer[DType.uint32],
-    mut d_values: DeviceBuffer[DType.uint32],
-    d_node_meta: DeviceBuffer[DType.uint32],
-    d_leaf_parent: DeviceBuffer[DType.uint32],
-    d_node_bounds: DeviceBuffer[DType.float32],
-    d_node_flags: DeviceBuffer[DType.uint32],
-    tri_count: Int,
-    internal_count: Int,
-    centroid_min: Vec3f32,
-    norm: CentroidNormalization,
-    blocks_leaves: Int,
-    blocks_internal: Int,
-    blocks_init: Int,
-    repeats: Int,
-) raises -> GpuBuildTimings:
-    var best_morton_ns = Int(INF_NS)
-    var best_sort_ns = Int(INF_NS)
-    var best_topology_ns = Int(INF_NS)
-    var best_refit_ns = Int(INF_NS)
-    var best_total_ns = Int(INF_NS)
-
-    for _ in range(repeats):
-        var t = _time_build_once(
-            ctx,
-            workspace,
-            d_vertices,
-            d_keys,
-            d_values,
-            d_node_meta,
-            d_leaf_parent,
-            d_node_bounds,
-            d_node_flags,
-            tri_count,
-            internal_count,
-            centroid_min,
-            norm,
-            blocks_leaves,
-            blocks_internal,
-            blocks_init,
-        )
-        best_morton_ns = _min_ns(best_morton_ns, t.morton_ns)
-        best_sort_ns = _min_ns(best_sort_ns, t.sort_ns)
-        best_topology_ns = _min_ns(best_topology_ns, t.topology_ns)
-        best_refit_ns = _min_ns(best_refit_ns, t.refit_ns)
-        best_total_ns = _min_ns(best_total_ns, t.total_ns)
-
-    return GpuBuildTimings(
-        0,
-        best_morton_ns,
-        best_sort_ns,
-        best_topology_ns,
-        best_refit_ns,
-        best_total_ns,
-    )
-
-
-def _validate_current_lbvh(
-    d_keys: DeviceBuffer[DType.uint32],
-    d_values: DeviceBuffer[DType.uint32],
-    d_node_meta: DeviceBuffer[DType.uint32],
-    d_leaf_parent: DeviceBuffer[DType.uint32],
-    d_node_bounds: DeviceBuffer[DType.float32],
-    d_node_flags: DeviceBuffer[DType.uint32],
-    tri_count: Int,
-    scene_min: Vec3f32,
-    scene_max: Vec3f32,
-) raises -> GpuBuildValidation:
-    var sorted_validation = validate_sorted_keys(d_keys, d_values, tri_count)
-    var topo_validation = validate_topology(
-        d_node_meta, d_leaf_parent, tri_count
-    )
-    var refit_validation = validate_refit_bounds(
-        d_node_bounds,
-        d_node_flags,
-        d_node_meta,
-        tri_count,
-        scene_min,
-        scene_max,
-    )
-    var guard = sorted_validation[6] + topo_validation[3] + refit_validation[3]
-    return GpuBuildValidation(
-        sorted_validation[0],
-        sorted_validation[1],
-        topo_validation[0],
-        topo_validation[1],
-        topo_validation[2],
-        refit_validation[0],
-        refit_validation[1],
-        refit_validation[2],
-        guard,
-    )
+def _stage_shadow_reduce_ns(r: GpuShadowReduceResult) -> Int:
+    return r.kernel_ns + r.reduce_ns + r.download_ns
 
 
 def _upload_rays(
@@ -552,102 +216,19 @@ def _download_reduced_u32_count(
     return total
 
 
-def _launch_direct_primary(
-    ctx: DeviceContext,
-    d_vertices: DeviceBuffer[DType.float32],
-    d_values: DeviceBuffer[DType.uint32],
-    d_node_meta: DeviceBuffer[DType.uint32],
-    d_node_bounds: DeviceBuffer[DType.float32],
-    d_rays: DeviceBuffer[DType.float32],
-    d_hits_f32: DeviceBuffer[DType.float32],
-    d_hits_u32: DeviceBuffer[DType.uint32],
-    ray_count: Int,
-    root_idx: UInt32,
-    blocks_rays: Int,
-) raises:
-    ctx.enqueue_function[
-        trace_lbvh_gpu_primary_kernel, trace_lbvh_gpu_primary_kernel
-    ](
-        d_vertices.unsafe_ptr(),
-        d_values.unsafe_ptr(),
-        d_node_meta.unsafe_ptr(),
-        d_node_bounds.unsafe_ptr(),
-        d_rays.unsafe_ptr(),
-        d_hits_f32.unsafe_ptr(),
-        d_hits_u32.unsafe_ptr(),
-        ray_count,
-        root_idx,
-        grid_dim=blocks_rays,
-        block_dim=GPU_BLOCK_SIZE,
-    )
-
-
-def _launch_camera_trace[
-    mode: String
-](
-    ctx: DeviceContext,
-    d_vertices: DeviceBuffer[DType.float32],
-    d_values: DeviceBuffer[DType.uint32],
-    d_node_meta: DeviceBuffer[DType.uint32],
-    d_node_bounds: DeviceBuffer[DType.float32],
-    d_camera_params: DeviceBuffer[DType.float32],
-    out_f32: DeviceBuffer[DType.float32],
-    out_u32: DeviceBuffer[DType.uint32],
-    ray_count: Int,
-    root_idx: UInt32,
-    blocks_rays: Int,
-) raises:
-    ctx.enqueue_function[
-        trace_lbvh_gpu_camera_kernel[mode],
-        trace_lbvh_gpu_camera_kernel[mode],
-    ](
-        d_vertices.unsafe_ptr(),
-        d_values.unsafe_ptr(),
-        d_node_meta.unsafe_ptr(),
-        d_node_bounds.unsafe_ptr(),
-        d_camera_params.unsafe_ptr(),
-        out_f32.unsafe_ptr(),
-        out_u32.unsafe_ptr(),
-        ray_count,
-        PRIMARY_WIDTH,
-        PRIMARY_HEIGHT,
-        PRIMARY_VIEWS,
-        root_idx,
-        grid_dim=blocks_rays,
-        block_dim=GPU_BLOCK_SIZE,
-    )
-
-
 def _benchmark_direct_uploaded_rays(
     ctx: DeviceContext,
-    d_vertices: DeviceBuffer[DType.float32],
-    d_values: DeviceBuffer[DType.uint32],
-    d_node_meta: DeviceBuffer[DType.uint32],
-    d_node_bounds: DeviceBuffer[DType.float32],
+    mut lbvh: GpuLBVH,
     d_rays: DeviceBuffer[DType.float32],
     d_hits_f32: DeviceBuffer[DType.float32],
     d_hits_u32: DeviceBuffer[DType.uint32],
     rays_flat: List[Float32],
     ray_count: Int,
-    root_idx: UInt32,
     reference_checksum: Float64,
-    blocks_rays: Int,
     repeats: Int,
 ) raises -> GpuDirectTraversalResult:
     _upload_rays(ctx, d_rays, rays_flat)
-    _launch_direct_primary(
-        ctx,
-        d_vertices,
-        d_values,
-        d_node_meta,
-        d_node_bounds,
-        d_rays,
-        d_hits_f32,
-        d_hits_u32,
-        ray_count,
-        root_idx,
-        blocks_rays,
-    )
+    lbvh.launch_uploaded_primary(ctx, d_rays, d_hits_f32, d_hits_u32, ray_count)
     ctx.synchronize()
 
     var best_upload_ns = Int(INF_NS)
@@ -666,18 +247,8 @@ def _benchmark_direct_uploaded_rays(
         best_upload_ns = _min_ns(best_upload_ns, Int(u1 - u0))
 
         var k0 = perf_counter_ns()
-        _launch_direct_primary(
-            ctx,
-            d_vertices,
-            d_values,
-            d_node_meta,
-            d_node_bounds,
-            d_rays,
-            d_hits_f32,
-            d_hits_u32,
-            ray_count,
-            root_idx,
-            blocks_rays,
+        lbvh.launch_uploaded_primary(
+            ctx, d_rays, d_hits_f32, d_hits_u32, ray_count
         )
         ctx.synchronize()
         var k1 = perf_counter_ns()
@@ -706,31 +277,23 @@ def _benchmark_direct_uploaded_rays(
 
 def _benchmark_camera_full_download(
     ctx: DeviceContext,
-    d_vertices: DeviceBuffer[DType.float32],
-    d_values: DeviceBuffer[DType.uint32],
-    d_node_meta: DeviceBuffer[DType.uint32],
-    d_node_bounds: DeviceBuffer[DType.float32],
+    mut lbvh: GpuLBVH,
     d_camera_params: DeviceBuffer[DType.float32],
     d_hits_f32: DeviceBuffer[DType.float32],
     d_hits_u32: DeviceBuffer[DType.uint32],
     ray_count: Int,
-    root_idx: UInt32,
     reference_checksum: Float64,
-    blocks_rays: Int,
     repeats: Int,
 ) raises -> GpuCameraFullResult:
-    _launch_camera_trace[TRACE_PRIMARY_FULL](
+    lbvh.launch_camera_trace[TRACE_PRIMARY_FULL](
         ctx,
-        d_vertices,
-        d_values,
-        d_node_meta,
-        d_node_bounds,
         d_camera_params,
         d_hits_f32,
         d_hits_u32,
         ray_count,
-        root_idx,
-        blocks_rays,
+        PRIMARY_WIDTH,
+        PRIMARY_HEIGHT,
+        PRIMARY_VIEWS,
     )
     ctx.synchronize()
 
@@ -744,18 +307,15 @@ def _benchmark_camera_full_download(
         var frame0 = perf_counter_ns()
 
         var k0 = perf_counter_ns()
-        _launch_camera_trace[TRACE_PRIMARY_FULL](
+        lbvh.launch_camera_trace[TRACE_PRIMARY_FULL](
             ctx,
-            d_vertices,
-            d_values,
-            d_node_meta,
-            d_node_bounds,
             d_camera_params,
             d_hits_f32,
             d_hits_u32,
             ray_count,
-            root_idx,
-            blocks_rays,
+            PRIMARY_WIDTH,
+            PRIMARY_HEIGHT,
+            PRIMARY_VIEWS,
         )
         ctx.synchronize()
         var k1 = perf_counter_ns()
@@ -783,22 +343,17 @@ def _benchmark_camera_full_download(
 
 def _benchmark_primary_reduce(
     ctx: DeviceContext,
-    d_vertices: DeviceBuffer[DType.float32],
-    d_values: DeviceBuffer[DType.uint32],
-    d_node_meta: DeviceBuffer[DType.uint32],
-    d_node_bounds: DeviceBuffer[DType.float32],
+    mut lbvh: GpuLBVH,
     d_camera_params: DeviceBuffer[DType.float32],
     d_hit_t: DeviceBuffer[DType.float32],
     d_occluded: DeviceBuffer[DType.uint32],
     d_partial_sums: DeviceBuffer[DType.float64],
     d_partial_counts: DeviceBuffer[DType.uint32],
     ray_count: Int,
-    root_idx: UInt32,
     reference_checksum: Float64,
-    blocks_rays: Int,
-    reduce_blocks: Int,
     repeats: Int,
 ) raises -> GpuPrimaryReduceResult:
+    var reduce_blocks = gpu_lbvh_blocks_for(GPU_REDUCE_THREADS)
     var best_kernel_ns = Int(INF_NS)
     var best_reduce_ns = Int(INF_NS)
     var best_download_ns = Int(INF_NS)
@@ -810,18 +365,15 @@ def _benchmark_primary_reduce(
         var frame0 = perf_counter_ns()
 
         var k0 = perf_counter_ns()
-        _launch_camera_trace[TRACE_PRIMARY_T](
+        lbvh.launch_camera_trace[TRACE_PRIMARY_T](
             ctx,
-            d_vertices,
-            d_values,
-            d_node_meta,
-            d_node_bounds,
             d_camera_params,
             d_hit_t,
-            d_occluded,  # unused out_u32 dummy
+            d_occluded,
             ray_count,
-            root_idx,
-            blocks_rays,
+            PRIMARY_WIDTH,
+            PRIMARY_HEIGHT,
+            PRIMARY_VIEWS,
         )
         ctx.synchronize()
         var k1 = perf_counter_ns()
@@ -835,7 +387,7 @@ def _benchmark_primary_reduce(
             ray_count,
             GPU_REDUCE_THREADS,
             grid_dim=reduce_blocks,
-            block_dim=GPU_BLOCK_SIZE,
+            block_dim=GPU_LBVH_BLOCK_SIZE,
         )
         ctx.synchronize()
         var r1 = perf_counter_ns()
@@ -866,21 +418,16 @@ def _benchmark_primary_reduce(
 
 def _benchmark_shadow_reduce(
     ctx: DeviceContext,
-    d_vertices: DeviceBuffer[DType.float32],
-    d_values: DeviceBuffer[DType.uint32],
-    d_node_meta: DeviceBuffer[DType.uint32],
-    d_node_bounds: DeviceBuffer[DType.float32],
+    mut lbvh: GpuLBVH,
     d_camera_params: DeviceBuffer[DType.float32],
     d_hit_t: DeviceBuffer[DType.float32],
     d_occluded: DeviceBuffer[DType.uint32],
     d_partial_counts: DeviceBuffer[DType.uint32],
     ray_count: Int,
-    root_idx: UInt32,
     reference_occluded: Int,
-    blocks_rays: Int,
-    reduce_blocks: Int,
     repeats: Int,
 ) raises -> GpuShadowReduceResult:
+    var reduce_blocks = gpu_lbvh_blocks_for(GPU_REDUCE_THREADS)
     var best_kernel_ns = Int(INF_NS)
     var best_reduce_ns = Int(INF_NS)
     var best_download_ns = Int(INF_NS)
@@ -891,18 +438,15 @@ def _benchmark_shadow_reduce(
         var frame0 = perf_counter_ns()
 
         var k0 = perf_counter_ns()
-        _launch_camera_trace[TRACE_SHADOW](
+        lbvh.launch_camera_trace[TRACE_SHADOW](
             ctx,
-            d_vertices,
-            d_values,
-            d_node_meta,
-            d_node_bounds,
             d_camera_params,
-            d_hit_t,  # unused out_f32 dummy
+            d_hit_t,
             d_occluded,
             ray_count,
-            root_idx,
-            blocks_rays,
+            PRIMARY_WIDTH,
+            PRIMARY_HEIGHT,
+            PRIMARY_VIEWS,
         )
         ctx.synchronize()
         var k1 = perf_counter_ns()
@@ -915,7 +459,7 @@ def _benchmark_shadow_reduce(
             ray_count,
             GPU_REDUCE_THREADS,
             grid_dim=reduce_blocks,
-            block_dim=GPU_BLOCK_SIZE,
+            block_dim=GPU_LBVH_BLOCK_SIZE,
         )
         ctx.synchronize()
         var r1 = perf_counter_ns()
@@ -951,32 +495,14 @@ def run_gpu_lbvh_benchmark_suite(
     reference_occluded: Int,
     repeats: Int,
 ) raises -> GpuSuiteResult:
-    var tri_count = len(tri_vertices) // 3
-    var internal_count = tri_count - 1
     var ray_count = len(rays)
-    var vertices = flatten_vertices(tri_vertices)
     var rays_flat = flatten_rays(rays)
-    var norm = _centroid_normalization(centroid_min, centroid_max)
+    var norm = centroid_normalization(centroid_min, centroid_max)
 
     with DeviceContext() as ctx:
-        var static_t0 = perf_counter_ns()
-        var d_vertices = copy_list_to_device(ctx, vertices)
+        var setup0 = perf_counter_ns()
+        var lbvh = GpuLBVH(ctx, tri_vertices)
         var d_camera_params = copy_list_to_device(ctx, camera_params)
-        var d_keys = ctx.enqueue_create_buffer[DType.uint32](tri_count)
-        var d_values = ctx.enqueue_create_buffer[DType.uint32](tri_count)
-        var workspace = RadixSortWorkspace[DType.uint32, DType.uint32](
-            ctx, tri_count
-        )
-        var d_node_meta = ctx.enqueue_create_buffer[DType.uint32](
-            internal_count * 4
-        )
-        var d_leaf_parent = ctx.enqueue_create_buffer[DType.uint32](tri_count)
-        var d_node_bounds = ctx.enqueue_create_buffer[DType.float32](
-            internal_count * 12
-        )
-        var d_node_flags = ctx.enqueue_create_buffer[DType.uint32](
-            internal_count
-        )
         var d_rays = ctx.enqueue_create_buffer[DType.float32](len(rays_flat))
         var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](ray_count * 3)
         var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](ray_count)
@@ -989,106 +515,43 @@ def run_gpu_lbvh_benchmark_suite(
             GPU_REDUCE_THREADS
         )
         ctx.synchronize()
-        var static_t1 = perf_counter_ns()
+        var setup1 = perf_counter_ns()
 
-        var blocks_leaves = _blocks_for(tri_count)
-        var blocks_internal = _blocks_for(internal_count)
-        var blocks_init = _blocks_for(max(tri_count, internal_count))
-        var blocks_rays = _blocks_for(ray_count)
-        var reduce_blocks = _blocks_for(GPU_REDUCE_THREADS)
+        var best_build = lbvh.best_build(ctx, centroid_min, norm, repeats)
 
-        var best_build = _best_build_timings(
-            ctx,
-            workspace,
-            d_vertices,
-            d_keys,
-            d_values,
-            d_node_meta,
-            d_leaf_parent,
-            d_node_bounds,
-            d_node_flags,
-            tri_count,
-            internal_count,
-            centroid_min,
-            norm,
-            blocks_leaves,
-            blocks_internal,
-            blocks_init,
-            repeats,
+        # Build one final valid tree for validation and traversal.
+        _ = lbvh.build(ctx, centroid_min, norm)
+        var validation = lbvh.validate(scene_min, scene_max)
+        var build_result = GpuBuildResult(
+            Int(setup1 - setup0), best_build, validation.copy()
         )
-        best_build.static_setup_ns = Int(static_t1 - static_t0)
-
-        # Build one final valid tree for all traversal benchmarks and validation.
-        _ = _time_build_once(
-            ctx,
-            workspace,
-            d_vertices,
-            d_keys,
-            d_values,
-            d_node_meta,
-            d_leaf_parent,
-            d_node_bounds,
-            d_node_flags,
-            tri_count,
-            internal_count,
-            centroid_min,
-            norm,
-            blocks_leaves,
-            blocks_internal,
-            blocks_init,
-        )
-
-        var validation = _validate_current_lbvh(
-            d_keys,
-            d_values,
-            d_node_meta,
-            d_leaf_parent,
-            d_node_bounds,
-            d_node_flags,
-            tri_count,
-            scene_min,
-            scene_max,
-        )
-        var build_result = GpuBuildResult(best_build^, validation.copy())
 
         var direct_result: GpuDirectTraversalResult
         comptime if RUN_DIRECT_RAY_UPLOAD_BENCH:
             direct_result = _benchmark_direct_uploaded_rays(
                 ctx,
-                d_vertices,
-                d_values,
-                d_node_meta,
-                d_node_bounds,
+                lbvh,
                 d_rays,
                 d_hits_f32,
                 d_hits_u32,
                 rays_flat,
                 ray_count,
-                validation.root_idx,
                 reference_checksum,
-                blocks_rays,
                 repeats,
             )
         else:
-            direct_result = GpuDirectTraversalResult(
-                0, 0, 0, 0, 0.0, UInt32(0), 0.0
-            )
+            direct_result = GpuDirectTraversalResult(0, 0, 0, 0, 0.0, 0, 0.0)
 
         var camera_full_result: GpuCameraFullResult
         comptime if RUN_CAMERA_FULL_DOWNLOAD_BENCH:
             camera_full_result = _benchmark_camera_full_download(
                 ctx,
-                d_vertices,
-                d_values,
-                d_node_meta,
-                d_node_bounds,
+                lbvh,
                 d_camera_params,
                 d_hits_f32,
                 d_hits_u32,
                 ray_count,
-                validation.root_idx,
                 reference_checksum,
-                blocks_rays,
                 repeats,
             )
         else:
@@ -1098,37 +561,25 @@ def run_gpu_lbvh_benchmark_suite(
         comptime if RUN_CAMERA_REDUCE_AND_SHADOW_BENCH:
             var primary_reduce = _benchmark_primary_reduce(
                 ctx,
-                d_vertices,
-                d_values,
-                d_node_meta,
-                d_node_bounds,
+                lbvh,
                 d_camera_params,
                 d_hit_t,
                 d_occluded,
                 d_partial_sums,
                 d_partial_counts,
                 ray_count,
-                validation.root_idx,
                 reference_checksum,
-                blocks_rays,
-                reduce_blocks,
                 repeats,
             )
             var shadow_reduce = _benchmark_shadow_reduce(
                 ctx,
-                d_vertices,
-                d_values,
-                d_node_meta,
-                d_node_bounds,
+                lbvh,
                 d_camera_params,
                 d_hit_t,
                 d_occluded,
                 d_partial_counts,
                 ray_count,
-                validation.root_idx,
                 reference_occluded,
-                blocks_rays,
-                reduce_blocks,
                 repeats,
             )
             reduce_shadow_result = GpuReduceAndShadowResult(
@@ -1139,6 +590,7 @@ def run_gpu_lbvh_benchmark_suite(
                 GpuPrimaryReduceResult(0, 0, 0, 0, 0.0, 0, 0.0),
                 GpuShadowReduceResult(0, 0, 0, 0, 0, 0),
             )
+
         return GpuSuiteResult(
             build_result^,
             direct_result^,
@@ -1199,29 +651,28 @@ def _print_cpu_reference(reference: CpuReferenceResult):
 
 
 def _print_build_result(build: GpuBuildResult):
-    var build_ns = _build_total_ns(build.timings)
-    var staged_ns = _build_stage_sum_ns(build.timings)
+    var stage_sum_ns = gpu_lbvh_stage_sum(build.timings)
     print("\nGPU LBVH build/refit")
     print("-------------------")
-    print(t"static setup once:  { _ms(build.timings.static_setup_ns) } ms")
+    print(t"static setup once:  {_ms(build.static_setup_ns)} ms")
     print(
         t"valid:              sorted={build.validation.sorted_ok} |"
         t" values={build.validation.values_ok} |"
         t" topology={build.validation.topology_ok} |"
         t" bounds={build.validation.bounds_ok} |"
-        t" root={build.validation.root_idx}"
+        t" root={build.validation.refit_root_idx}"
     )
     print(t"morton generation:  {_ms(build.timings.morton_ns)} ms")
     print(t"radix sort pairs:   {_ms(build.timings.sort_ns)} ms")
     print(t"topology build:     {_ms(build.timings.topology_ns)} ms")
     print(t"bounds refit:       {_ms(build.timings.refit_ns)} ms")
-    print(t"build total:        {_ms(build_ns)} ms")
-    print(t"stage-sum total:    {_ms(staged_ns)} ms")
+    print(t"build total:        {_ms(build.timings.total_ns)} ms")
+    print(t"stage-sum total:    {_ms(stage_sum_ns)} ms")
     print(
         t"validation detail: "
         t" topology_roots={build.validation.topology_root_count} |"
         t" topology_root={build.validation.topology_root_idx} |"
-        t" refit_root={build.validation.root_idx} |"
+        t" refit_root={build.validation.refit_root_idx} |"
         t" bounds_diff={round(build.validation.bounds_diff, 6)} |"
         t" guard={build.validation.guard}"
     )
@@ -1291,10 +742,8 @@ def _print_reduce_shadow_result(
     reference_occluded: Int,
 ):
     comptime if RUN_CAMERA_REDUCE_AND_SHADOW_BENCH:
-        var primary_frame_ns = _primary_reduce_frame_ns(r.primary)
-        var primary_total_ns = build_ns + primary_frame_ns
-        var shadow_frame_ns = _shadow_reduce_frame_ns(r.shadow)
-        var shadow_total_ns = build_ns + shadow_frame_ns
+        var primary_total_ns = build_ns + r.primary.frame_ns
+        var shadow_total_ns = build_ns + r.shadow.frame_ns
 
         print("\nGenerated primary rays + t-only GPU checksum reduction")
         print("------------------------------------------------------")
@@ -1305,8 +754,11 @@ def _print_reduce_shadow_result(
         print(t"checksum reduction: {_ms(r.primary.reduce_ns)} ms")
         print(t"partial download:   {_ms(r.primary.download_ns)} ms")
         print(
-            t"query total:        {_ms(primary_frame_ns)} ms"
-            t" | {_mrays(primary_frame_ns, ray_count)} MRays/s"
+            t"query total:        {_ms(r.primary.frame_ns)} ms"
+            t" | {_mrays(r.primary.frame_ns, ray_count)} MRays/s"
+        )
+        print(
+            t"stage-sum query:    {_ms(_stage_primary_reduce_ns(r.primary))} ms"
         )
         print(
             t"build + query:      {_ms(primary_total_ns)} ms"
@@ -1326,8 +778,11 @@ def _print_reduce_shadow_result(
         print(t"occlusion reduce:   {_ms(r.shadow.reduce_ns)} ms")
         print(t"partial download:   {_ms(r.shadow.download_ns)} ms")
         print(
-            t"query total:        {_ms(shadow_frame_ns)} ms"
-            t" | {_mrays(shadow_frame_ns, ray_count)} MRays/s"
+            t"query total:        {_ms(r.shadow.frame_ns)} ms"
+            t" | {_mrays(r.shadow.frame_ns, ray_count)} MRays/s"
+        )
+        print(
+            t"stage-sum query:    {_ms(_stage_shadow_reduce_ns(r.shadow))} ms"
         )
         print(
             t"build + query:      {_ms(shadow_total_ns)} ms"
@@ -1344,7 +799,7 @@ def _print_suite_result(
     ray_count: Int,
     reference_occluded: Int,
 ):
-    var build_ns = _build_total_ns(result.build.timings)
+    var build_ns = result.build.timings.total_ns
     _print_build_result(result.build)
     _print_direct_result(result.direct, build_ns, ray_count)
     _print_camera_full_result(result.camera_full, build_ns, ray_count)
@@ -1371,12 +826,7 @@ def main() raises:
     var cmin = cbounds[0].copy()
     var cmax = cbounds[1].copy()
     _print_scene_summary(
-        tri_vertices,
-        bmin,
-        bmax,
-        cmin,
-        cmax,
-        Int(load_t1 - load_t0),
+        tri_vertices, bmin, bmax, cmin, cmax, Int(load_t1 - load_t0)
     )
 
     print("\nGenerating reference rays and camera parameters...")

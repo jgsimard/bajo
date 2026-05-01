@@ -1,5 +1,4 @@
 from std.testing import assert_equal, TestSuite
-from std.math import clamp
 
 from bajo.core.morton import expand_bits_2d, expand_bits_3d, morton3
 

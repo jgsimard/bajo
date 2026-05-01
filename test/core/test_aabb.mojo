@@ -1,7 +1,6 @@
 from std.math import sqrt
 from std.testing import (
     TestSuite,
-    assert_almost_equal,
     assert_true,
     assert_false,
 )

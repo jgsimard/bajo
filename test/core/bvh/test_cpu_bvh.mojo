@@ -4,17 +4,15 @@ from std.math import abs
 from bajo.core.vec import Vec3f32
 from bajo.core.random import Rng
 from bajo.core.intersect import intersect_ray_aabb
-from bajo.core.bvh.cpu.wide import WideBvh
-from bajo.core.bvh.cpu.gpu_layout import BvhGpuLayout
-from bajo.core.bvh.cpu.binary_bvh import (
-    BinaryBvh,
-    BvhNode,
-    Fragment,
-    Ray,
+from bajo.core.bvh.build import (
     _partition_fragments,
     _partition_fragments_by_bin,
     _sah,
 )
+from bajo.core.bvh.cpu.binary_bvh import BinaryBvh
+from bajo.core.bvh.cpu.gpu_layout import BvhGpuLayout
+from bajo.core.bvh.cpu.wide import WideBvh
+from bajo.core.bvh.types import BvhNode, Fragment, Ray
 
 
 def _make_fragments(verts: List[Vec3f32]) -> List[Fragment]:

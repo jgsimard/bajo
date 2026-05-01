@@ -4,11 +4,9 @@ from std.testing import (
     assert_almost_equal,
 )
 from bajo.core.mat import (
-    Mat,
     Mat22,
     Mat33,
     Mat44,
-    Mat33f32,
     inverse,
     determinant,
     _matmul,

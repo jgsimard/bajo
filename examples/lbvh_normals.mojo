@@ -5,7 +5,7 @@ from std.gpu.host import DeviceContext
 from bajo.core.vec import Vec3f32, cross, normalize
 from bajo.core.utils import pack_obj_triangles, ns_to_ms
 from bajo.core.bvh import compute_bounds, copy_list_to_device
-from bajo.core.bvh.gpu_bvh import (
+from bajo.core.bvh.gpu.kernels import (
     compute_centroid_bounds,
     generate_camera_params,
     TRACE_PRIMARY_FULL,

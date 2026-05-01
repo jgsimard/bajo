@@ -19,8 +19,8 @@ from bajo.core.bvh import (
     generate_primary_rays,
 )
 from bajo.core.bvh.cpu.gpu_layout import BvhGpuLayout
-from bajo.core.bvh.cpu.wide import WideBVH
-from bajo.core.bvh.cpu.binary_bvh import BVH, Ray
+from bajo.core.bvh.cpu.wide import WideBvh
+from bajo.core.bvh.cpu.binary_bvh import BinaryBvh, Ray
 from bajo.core.utils import (
     ns_to_ms,
     ns_to_mrays_per_s,
@@ -38,7 +38,7 @@ comptime GPU_BLOCK_SIZE = 128
 comptime GPU_STACK_SIZE = 64
 
 
-def trace_bvh_primary(bvh: BVH, rays: List[Ray]) -> Float64:
+def trace_bvh_primary(bvh: BinaryBvh, rays: List[Ray]) -> Float64:
     var checksum = Float64(0.0)
     var hit_count = 0
     for i in range(len(rays)):
@@ -52,7 +52,7 @@ def trace_bvh_primary(bvh: BVH, rays: List[Ray]) -> Float64:
 
 def trace_wide_primary[
     width: Int
-](wide: WideBVH[width], rays: List[Ray]) -> Float64:
+](wide: WideBvh[width], rays: List[Ray]) -> Float64:
     var checksum = Float64(0.0)
     var hit_count = 0
     for i in range(len(rays)):
@@ -64,7 +64,7 @@ def trace_wide_primary[
     return checksum
 
 
-def trace_wide_shadow[width: Int](wide: WideBVH[width], rays: List[Ray]) -> Int:
+def trace_wide_shadow[width: Int](wide: WideBvh[width], rays: List[Ray]) -> Int:
     var occluded = 0
     for i in range(len(rays)):
         var ray = rays[i].copy()
@@ -181,10 +181,12 @@ def print_shadow_validation(
         )
 
 
-def bench_bvh_primary(name: String, bvh: BVH, rays: List[Ray], repeats: Int):
+def bench_bvh_primary(
+    name: String, bvh: BinaryBvh, rays: List[Ray], repeats: Int
+):
     # Warmup.
     var checksum = trace_bvh_primary(bvh, rays)
-    var best_ns = Int(9223372036854775807)
+    var best_ns = Int.MAX
 
     for _ in range(repeats):
         var t0 = perf_counter_ns()
@@ -197,10 +199,12 @@ def bench_bvh_primary(name: String, bvh: BVH, rays: List[Ray], repeats: Int):
     print_traversal_result(name, best_ns, len(rays), checksum)
 
 
-def bench_bvh_shadow(name: String, bvh: BVH, rays: List[Ray], repeats: Int):
+def bench_bvh_shadow(
+    name: String, bvh: BinaryBvh, rays: List[Ray], repeats: Int
+):
     # Warmup.
     var occluded = trace_bvh_shadow(bvh, rays)
-    var best_ns = Int(9223372036854775807)
+    var best_ns = Int.MAX
 
     for _ in range(repeats):
         var t0 = perf_counter_ns()
@@ -215,10 +219,10 @@ def bench_bvh_shadow(name: String, bvh: BVH, rays: List[Ray], repeats: Int):
 
 def bench_wide_primary[
     width: Int
-](name: String, wide: WideBVH[width], rays: List[Ray], repeats: Int):
+](name: String, wide: WideBvh[width], rays: List[Ray], repeats: Int):
     # Warmup.
     var checksum = trace_wide_primary[width](wide, rays)
-    var best_ns = Int(9223372036854775807)
+    var best_ns = Int.MAX
 
     for _ in range(repeats):
         var t0 = perf_counter_ns()
@@ -233,10 +237,10 @@ def bench_wide_primary[
 
 def bench_wide_shadow[
     width: Int
-](name: String, wide: WideBVH[width], rays: List[Ray], repeats: Int):
+](name: String, wide: WideBvh[width], rays: List[Ray], repeats: Int):
     # Warmup.
     var occluded = trace_wide_shadow[width](wide, rays)
-    var best_ns = Int(9223372036854775807)
+    var best_ns = Int.MAX
 
     for _ in range(repeats):
         var t0 = perf_counter_ns()
@@ -254,7 +258,7 @@ def bench_gpu_primary(
 ):
     # Warmup.
     var checksum = trace_gpu_primary(gpu, rays)
-    var best_ns = Int(9223372036854775807)
+    var best_ns = Int.MAX
 
     for _ in range(repeats):
         var t0 = perf_counter_ns()
@@ -272,7 +276,7 @@ def bench_gpu_shadow(
 ):
     # Warmup.
     var occluded = trace_gpu_shadow(gpu, rays)
-    var best_ns = Int(9223372036854775807)
+    var best_ns = Int.MAX
 
     for _ in range(repeats):
         var t0 = perf_counter_ns()
@@ -734,10 +738,10 @@ def trace_gpu_primary_device(
         )
         ctx.synchronize()
 
-        var best_frame_ns = Int(9223372036854775807)
-        var best_ray_upload_ns = Int(9223372036854775807)
-        var best_kernel_ns = Int(9223372036854775807)
-        var best_download_ns = Int(9223372036854775807)
+        var best_frame_ns = Int.MAX
+        var best_ray_upload_ns = Int.MAX
+        var best_kernel_ns = Int.MAX
+        var best_download_ns = Int.MAX
         var checksum = Float64(0.0)
         var hit_count = 0
 
@@ -853,10 +857,10 @@ def trace_gpu_shadow_device(
         )
         ctx.synchronize()
 
-        var best_frame_ns = Int(9223372036854775807)
-        var best_ray_upload_ns = Int(9223372036854775807)
-        var best_kernel_ns = Int(9223372036854775807)
-        var best_download_ns = Int(9223372036854775807)
+        var best_frame_ns = Int.MAX
+        var best_ray_upload_ns = Int.MAX
+        var best_kernel_ns = Int.MAX
+        var best_download_ns = Int.MAX
         var occluded = 0
 
         for _ in range(repeats):
@@ -952,7 +956,7 @@ def main() raises:
     print("-----")
 
     var t0 = perf_counter_ns()
-    var bvh_median = BVH(tri_vertices.unsafe_ptr(), tri_count)
+    var bvh_median = BinaryBvh(tri_vertices.unsafe_ptr(), tri_count)
     bvh_median.build["median", False]()
     var t1 = perf_counter_ns()
     print_build_bvh_result(
@@ -963,7 +967,7 @@ def main() raises:
     )
 
     t0 = perf_counter_ns()
-    var bvh_sah = BVH(tri_vertices.unsafe_ptr(), tri_count)
+    var bvh_sah = BinaryBvh(tri_vertices.unsafe_ptr(), tri_count)
     bvh_sah.build["sah", False]()
     t1 = perf_counter_ns()
     print_build_bvh_result(
@@ -974,7 +978,7 @@ def main() raises:
     )
 
     t0 = perf_counter_ns()
-    var bvh_sah_mt = BVH(tri_vertices.unsafe_ptr(), tri_count)
+    var bvh_sah_mt = BinaryBvh(tri_vertices.unsafe_ptr(), tri_count)
     bvh_sah_mt.build["sah", True]()
     t1 = perf_counter_ns()
     print_build_bvh_result(
@@ -985,7 +989,7 @@ def main() raises:
     )
 
     t0 = perf_counter_ns()
-    var bvh_lbvh = BVH(tri_vertices.unsafe_ptr(), tri_count)
+    var bvh_lbvh = BinaryBvh(tri_vertices.unsafe_ptr(), tri_count)
     bvh_lbvh.build["lbvh", False]()
     t1 = perf_counter_ns()
     print_build_bvh_result(
@@ -996,7 +1000,7 @@ def main() raises:
     )
 
     t0 = perf_counter_ns()
-    var wide4 = WideBVH[4](bvh_sah)
+    var wide4 = WideBvh[4](bvh_sah)
     t1 = perf_counter_ns()
     print_build_layout_result(
         "wide4 collapse  ",
@@ -1007,7 +1011,7 @@ def main() raises:
     )
 
     t0 = perf_counter_ns()
-    var wide8 = WideBVH[8](bvh_sah)
+    var wide8 = WideBvh[8](bvh_sah)
     t1 = perf_counter_ns()
     print_build_layout_result(
         "wide8 collapse  ",
@@ -1018,7 +1022,7 @@ def main() raises:
     )
 
     t0 = perf_counter_ns()
-    var wide8_lbvh = WideBVH[8](bvh_lbvh)
+    var wide8_lbvh = WideBvh[8](bvh_lbvh)
     t1 = perf_counter_ns()
     print_build_layout_result(
         "wide8 lbvh     ",

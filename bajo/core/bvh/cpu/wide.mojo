@@ -33,7 +33,7 @@ struct WideLeaf[width: Int](Copyable):
 
 
 @fieldwise_init
-struct WideBVHNode[width: Int](Copyable):
+struct WideBvhNode[width: Int](Copyable):
     var min_x: SIMD[DType.float32, Self.width]
     var min_y: SIMD[DType.float32, Self.width]
     var min_z: SIMD[DType.float32, Self.width]
@@ -59,20 +59,20 @@ struct WideBVHNode[width: Int](Copyable):
         self.counts = SIMD[DType.uint32, Self.width](0xFFFFFFFF)
 
 
-struct WideBVH[width: Int](Copyable):
-    var nodes: List[WideBVHNode[Self.width]]
+struct WideBvh[width: Int](Copyable):
+    var nodes: List[WideBvhNode[Self.width]]
     var leaves: List[WideLeaf[Self.width]]
     var vertices: UnsafePointer[Vec3f32, MutAnyOrigin]
 
-    def __init__(out self, mut binary_bvh: BVH):
-        self.nodes = List[WideBVHNode[Self.width]]()
+    def __init__(out self, mut binary_bvh: BinaryBvh):
+        self.nodes = List[WideBvhNode[Self.width]]()
         self.leaves = List[WideLeaf[Self.width]]()
         self.vertices = binary_bvh.vertices
         _ = self._collapse(binary_bvh, 0)
 
-    def _collapse(mut self, binary_bvh: BVH, bin_idx: UInt32) -> UInt32:
+    def _collapse(mut self, binary_bvh: BinaryBvh, bin_idx: UInt32) -> UInt32:
         var wide_idx = UInt32(len(self.nodes))
-        self.nodes.append(WideBVHNode[Self.width]())
+        self.nodes.append(WideBvhNode[Self.width]())
 
         # Pull up children to fill SIMD width
         var pool = InlineArray[UInt32, Self.width](fill=bin_idx)
@@ -93,7 +93,7 @@ struct WideBVH[width: Int](Copyable):
             pool[p_size] = n.left_first + 1
             p_size += 1
 
-        var node = WideBVHNode[Self.width]()
+        var node = WideBvhNode[Self.width]()
         comptime for i in range(Self.width):
             if i < p_size:
                 ref n = binary_bvh.bvh_nodes[Int(pool[i])]

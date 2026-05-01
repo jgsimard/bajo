@@ -13,7 +13,7 @@ from bajo.core.morton import morton3
 from bajo.core.bvh.types import (
     Intersection,
     Ray,
-    BVHNode,
+    BvhNode,
     Bin,
     Fragment,
     MortonPrim,
@@ -31,8 +31,8 @@ comptime f32_max = max_finite[DType.float32]()
 comptime f32_min = min_finite[DType.float32]()
 
 
-struct BVH(Copyable):
-    var bvh_nodes: List[BVHNode]
+struct BinaryBvh(Copyable):
+    var bvh_nodes: List[BvhNode]
     var prim_indices: List[UInt32]
     var fragments: List[Fragment]
     var vertices: UnsafePointer[Vec3f32, MutAnyOrigin]
@@ -49,7 +49,7 @@ struct BVH(Copyable):
         self.nodes_used = 1
 
         var max_nodes = Int(tri_count * 2 - 1)
-        self.bvh_nodes = List[BVHNode](length=max_nodes, fill=BVHNode())
+        self.bvh_nodes = List[BvhNode](length=max_nodes, fill=BvhNode())
 
         self.fragments = List[Fragment](capacity=Int(tri_count))
         self.prim_indices = List[UInt32](capacity=Int(tri_count))
@@ -84,7 +84,7 @@ struct BVH(Copyable):
         node_idx: UInt32,
         atomic_nodes: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
     ) -> Optional[Tuple[UInt32, UInt32]]:
-        comptime MAX_LEAF_SIZE = 4  # Set to 4, 8, or 16 depending on your target WideBVH
+        comptime MAX_LEAF_SIZE = 4  # Set to 4, 8, or 16 depending on your target WideBvh
 
         var nodes_ptr = self.bvh_nodes.unsafe_ptr()
         ref node = nodes_ptr[Int(node_idx)]
@@ -277,9 +277,9 @@ struct BVH(Copyable):
     def build_lbvh(mut self):
         """Build a binary LBVH using sorted Morton codes over cached fragments.
 
-        This is a CPU reference builder. It produces the same BVHNode /
+        This is a CPU reference builder. It produces the same BvhNode /
         prim_indices layout as the median and SAH builders, so scalar traversal,
-        WideBVH, and BVHGPU conversion can all consume it unchanged.
+        WideBvh, and BVHGPU conversion can all consume it unchanged.
         """
         self.nodes_used = 1
 

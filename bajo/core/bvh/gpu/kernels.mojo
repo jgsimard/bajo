@@ -1,30 +1,18 @@
 from std.bit import count_leading_zeros
 from std.atomic import Atomic
 from std.math import abs, min, max, round, sqrt
-from std.sys import has_accelerator
-from std.gpu import thread_idx, block_idx, block_dim, DeviceBuffer
+from std.gpu import thread_idx, block_idx, block_dim, global_idx, DeviceBuffer
 from std.gpu.host import DeviceContext
 
-from bajo.core.morton import morton3
-from bajo.core.vec import Vec3f32, vmin, vmax, cross, length, normalize
-from bajo.core.bvh import (
-    flatten_vertices,
-    copy_list_to_device,
-    flatten_rays,
-    hit_t_for_checksum,
-)
+from bajo.core.bvh.types import RayFlat, Hit
 from bajo.core.bvh.gpu.constants import (
     LBVH_LEAF_FLAG,
     LBVH_INDEX_MASK,
     LBVH_SENTINEL,
 )
-from bajo.core.bvh.cpu.binary_bvh import BVH, Ray
+from bajo.core.morton import morton3
+from bajo.core.vec import Vec3f32, vmin, vmax, cross, length, normalize
 from bajo.sort.gpu.radix_sort import device_radix_sort_pairs, RadixSortWorkspace
-from bajo.core.utils import (
-    ns_to_mrays_per_s,
-    print_vec3_rounded,
-    pack_obj_triangles,
-)
 
 comptime GPU_TRAVERSAL_STACK_SIZE = 64
 comptime GPU_REDUCE_THREADS = 4096
@@ -51,11 +39,7 @@ comptime TRACE_SHADOW = "shadow"
 
 comptime _gpu_inf_t = Float32(3.4028234663852886e38)
 comptime _gpu_tri_miss_t = Float32(1.0e30)
-
-
-@always_inline
-def _gpu_miss_prim() -> UInt32:
-    return UInt32(0xFFFFFFFF)
+comptime _gpu_miss_prim = UInt32(0xFFFFFFFF)
 
 
 @always_inline
@@ -102,29 +86,6 @@ def _node_right(
     node_idx: UInt32,
 ) -> UInt32:
     return UInt32(node_meta[_node_right_index(node_idx)])
-
-
-@fieldwise_init
-struct GpuRay(TrivialRegisterPassable):
-    var ox: Float32
-    var oy: Float32
-    var oz: Float32
-    var dx: Float32
-    var dy: Float32
-    var dz: Float32
-    var rdx: Float32
-    var rdy: Float32
-    var rdz: Float32
-    var t_max: Float32
-
-
-@fieldwise_init
-struct GpuHit(TrivialRegisterPassable):
-    var t: Float32
-    var u: Float32
-    var v: Float32
-    var prim: UInt32
-    var occluded: UInt32
 
 
 def compute_centroid_bounds(verts: List[Vec3f32]) -> Tuple[Vec3f32, Vec3f32]:
@@ -219,12 +180,7 @@ def compute_morton_codes_kernel(
     var cy = ((bmin_y + bmax_y) * 0.5 - cmin_y) * inv_extent_y
     var cz = ((bmin_z + bmax_z) * 0.5 - cmin_z) * inv_extent_z
 
-    var vx = SIMD[DType.float32, 1](cx)
-    var vy = SIMD[DType.float32, 1](cy)
-    var vz = SIMD[DType.float32, 1](cz)
-    var code = morton3[1](vx, vy, vz)
-
-    keys[i] = code[0]
+    keys[i] = morton3(cx, cy, cz)
     values[i] = UInt32(i)
 
 
@@ -234,7 +190,7 @@ def init_lbvh_topology_kernel(
     internal_count: Int,
     leaf_count: Int,
 ):
-    var i = Int(block_idx.x * block_dim.x + thread_idx.x)
+    var i = global_idx.x
 
     if i < internal_count:
         var base = i * LBVH_NODE_META_STRIDE
@@ -254,7 +210,7 @@ def build_lbvh_topology_kernel(
     leaf_parent: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
     leaf_count: Int,
 ):
-    var i = Int(block_idx.x * block_dim.x + thread_idx.x)
+    var i = global_idx.x
     var internal_count = leaf_count - 1
     if i >= internal_count:
         return
@@ -349,7 +305,7 @@ def init_lbvh_bounds_kernel(
     node_flags: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
     internal_count: Int,
 ):
-    var i = Int(block_idx.x * block_dim.x + thread_idx.x)
+    var i = global_idx.x
     if i >= internal_count:
         return
 
@@ -422,7 +378,7 @@ def refit_lbvh_bounds_kernel(
     node_flags: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
     leaf_count: Int,
 ):
-    var leaf_idx = Int(block_idx.x * block_dim.x + thread_idx.x)
+    var leaf_idx = global_idx.x
     if leaf_idx >= leaf_count:
         return
 
@@ -598,9 +554,9 @@ def _intersect_tri_flat(
 def _load_buffer_ray(
     rays: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
     ray_idx: Int,
-) -> GpuRay:
+) -> RayFlat:
     var ray_base = ray_idx * 10
-    return GpuRay(
+    return RayFlat(
         rays[ray_base + 0],
         rays[ray_base + 1],
         rays[ray_base + 2],
@@ -620,7 +576,7 @@ def _intersect_child_bounds[
 ](
     node_bounds: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
     node_idx: UInt32,
-    ray: GpuRay,
+    ray: RayFlat,
     t_max: Float32,
 ) -> Tuple[Bool, Float32]:
     var b = _node_bounds_base(node_idx) + child_bounds_offset
@@ -649,16 +605,19 @@ def _trace_lbvh_ray[
     sorted_prim_ids: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
     node_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
     node_bounds: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    ray: GpuRay,
+    ray: RayFlat,
     root_idx: UInt32,
-) -> GpuHit:
-    comptime if mode != TRACE_PRIMARY_FULL and mode != TRACE_PRIMARY_T and mode != TRACE_SHADOW:
-        comptime assert False, "unknown GPU LBVH trace mode"
+) -> Hit:
+    comptime assert mode in [
+        TRACE_PRIMARY_FULL,
+        TRACE_PRIMARY_T,
+        TRACE_SHADOW,
+    ], "unknown GPU LBVH trace mode"
 
     var best_t = ray.t_max
     var best_u = Float32(0.0)
     var best_v = Float32(0.0)
-    var best_prim = _gpu_miss_prim()
+    var best_prim = _gpu_miss_prim
 
     var stack = InlineArray[UInt32, GPU_TRAVERSAL_STACK_SIZE](fill=0)
     var stack_ptr = 0
@@ -683,7 +642,7 @@ def _trace_lbvh_ray[
 
             if tri_hit[0]:
                 comptime if mode == TRACE_SHADOW:
-                    return GpuHit(
+                    return Hit(
                         Float32(0.0),
                         Float32(0.0),
                         Float32(0.0),
@@ -753,7 +712,7 @@ def _trace_lbvh_ray[
 
             current = near
 
-    return GpuHit(best_t, best_u, best_v, best_prim, UInt32(0))
+    return Hit(best_t, best_u, best_v, best_prim, UInt32(0))
 
 
 @always_inline
@@ -761,7 +720,7 @@ def _write_primary_full_result(
     hits_f32: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
     hits_u32: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
     ray_idx: Int,
-    hit: GpuHit,
+    hit: Hit,
 ):
     var hit_base = ray_idx * 3
     hits_f32[hit_base + 0] = hit.t
@@ -892,7 +851,7 @@ def _make_camera_ray(
     ray_idx: Int,
     width: Int,
     height: Int,
-) -> GpuRay:
+) -> RayFlat:
     var pixels_per_view = width * height
     var view_idx = ray_idx // pixels_per_view
     var local_idx = ray_idx - view_idx * pixels_per_view
@@ -932,7 +891,7 @@ def _make_camera_ray(
     var dy = nd[1]
     var dz = nd[2]
 
-    return GpuRay(
+    return RayFlat(
         ox,
         oy,
         oz,
@@ -959,7 +918,7 @@ def _write_camera_miss_result[
         out_f32[hit_base + 0] = _gpu_inf_t
         out_f32[hit_base + 1] = Float32(0.0)
         out_f32[hit_base + 2] = Float32(0.0)
-        out_u32[ray_idx] = _gpu_miss_prim()
+        out_u32[ray_idx] = _gpu_miss_prim
     elif mode == TRACE_PRIMARY_T:
         out_f32[ray_idx] = _gpu_inf_t
     else:
@@ -973,7 +932,7 @@ def _write_camera_result[
     out_f32: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
     out_u32: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
     ray_idx: Int,
-    hit: GpuHit,
+    hit: Hit,
 ):
     comptime if mode == TRACE_PRIMARY_FULL:
         _write_primary_full_result(out_f32, out_u32, ray_idx, hit)
@@ -986,8 +945,6 @@ def _write_camera_result[
 # -----------------------------------------------------------------------------
 # GPU-generated rays with on-device reductions.
 # -----------------------------------------------------------------------------
-
-
 def trace_lbvh_gpu_camera_kernel[
     mode: String
 ](
@@ -1008,8 +965,11 @@ def trace_lbvh_gpu_camera_kernel[
     views: Int,
     root_idx: UInt32,
 ):
-    comptime if mode != TRACE_PRIMARY_FULL and mode != TRACE_PRIMARY_T and mode != TRACE_SHADOW:
-        comptime assert False, "unknown GPU LBVH camera trace mode"
+    comptime assert mode in [
+        TRACE_PRIMARY_FULL,
+        TRACE_PRIMARY_T,
+        TRACE_SHADOW,
+    ], "unknown GPU LBVH camera trace mode"
 
     var ray_idx = Int(block_idx.x * block_dim.x + thread_idx.x)
     if ray_idx >= ray_count:

@@ -49,7 +49,30 @@ struct Ray(Copyable):
 
 
 @fieldwise_init
-struct BVHNode(Copyable):
+struct RayFlat(TrivialRegisterPassable):
+    var ox: Float32
+    var oy: Float32
+    var oz: Float32
+    var dx: Float32
+    var dy: Float32
+    var dz: Float32
+    var rdx: Float32
+    var rdy: Float32
+    var rdz: Float32
+    var t_max: Float32
+
+
+@fieldwise_init
+struct Hit(TrivialRegisterPassable):
+    var t: Float32
+    var u: Float32
+    var v: Float32
+    var prim: UInt32
+    var occluded: UInt32
+
+
+@fieldwise_init
+struct BvhNode(Copyable):
     var aabb: AABB
     var left_first: UInt32
     var tri_count: UInt32
@@ -153,7 +176,7 @@ struct SplitResult(Copyable):
 
 
 @fieldwise_init
-struct MortonPrim(Copyable):
+struct MortonPrim(TrivialRegisterPassable):
     """Morton-code / fragment-index pair used by the CPU LBVH builder."""
 
     var code: UInt32

@@ -2,7 +2,6 @@ from std.math import acos, cos, pi, sin, sqrt
 from std.random import Random
 
 from bajo.core.vec import Vec3f32, dot
-from bajo.core.vec_simd import Vec3f32 as Vec3f32_simd, dot as dot_simd
 
 
 struct Rng:
@@ -60,35 +59,3 @@ def random_in_unit_sphere(mut rng: Rng) -> Vec3f32:
     u = rng.f32()
     r = pow(u, 1.0 / 3.0)
     return random_unit_vector(rng) * r
-
-
-# TODO : clean this up
-def random_unit_vector_simd(mut rng: Rng) -> Vec3f32_simd:
-    u = rng.f32()
-    v = rng.f32()
-    theta = 2.0 * pi * u
-    phi = acos(1.0 - 2.0 * v)
-    sin_phi = sin(phi)
-    return Vec3f32_simd(sin_phi * cos(theta), sin_phi * sin(theta), cos(phi))
-
-
-def random_on_hemisphere_simd(
-    mut rng: Rng, normal: Vec3f32_simd
-) -> Vec3f32_simd:
-    on_unit_sphere = random_unit_vector_simd(rng)
-    sign = Float32(dot_simd(on_unit_sphere, normal) > 0.0)
-    return sign * on_unit_sphere
-
-
-def random_in_unit_disk_simd(mut rng: Rng) -> Vec3f32_simd:
-    u = rng.f32()
-    v = rng.f32()
-    theta = 2.0 * pi * u
-    r = sqrt(v)
-    return Vec3f32_simd(r * cos(theta), r * sin(theta), 0.0)
-
-
-def random_in_unit_sphere_simd(mut rng: Rng) -> Vec3f32_simd:
-    u = rng.f32()
-    r = pow(u, 1.0 / 3.0)
-    return random_unit_vector_simd(rng) * r

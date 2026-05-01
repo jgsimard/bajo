@@ -11,6 +11,7 @@ from bajo.core.bvh.gpu.constants import (
     LBVH_SENTINEL,
 )
 from bajo.core.morton import morton3
+from bajo.core.random import Rng, random_unit_vector
 from bajo.core.vec import Vec3f32, vmin, vmax, cross, length, normalize
 from bajo.sort.gpu.radix_sort import device_radix_sort_pairs, RadixSortWorkspace
 
@@ -766,32 +767,6 @@ def trace_lbvh_gpu_primary_kernel(
 # Each GPU thread maps ray_idx -> (view, x, y), generates the same pinhole ray as
 # generate_primary_rays(), then traverses the LBVH directly.
 # -----------------------------------------------------------------------------
-
-
-def append_camera_params(
-    mut params: List[Float32],
-    origin: Vec3f32,
-    target: Vec3f32,
-    up_hint: Vec3f32,
-):
-    var forward = normalize(target - origin)
-    var right = normalize(cross(forward, up_hint))
-    var up = normalize(cross(right, forward))
-
-    params.append(origin.x())
-    params.append(origin.y())
-    params.append(origin.z())
-    params.append(forward.x())
-    params.append(forward.y())
-    params.append(forward.z())
-    params.append(right.x())
-    params.append(right.y())
-    params.append(right.z())
-    params.append(up.x())
-    params.append(up.y())
-    params.append(up.z())
-
-
 def generate_camera_params(
     bounds_min: Vec3f32,
     bounds_max: Vec3f32,
@@ -805,30 +780,29 @@ def generate_camera_params(
     if radius < 1.0:
         radius = 1.0
     var dist = radius * 2.8
+    var rng = Rng(123, 123)
 
-    if views >= 1:
-        append_camera_params(
-            params,
-            center + Vec3f32(0.0, 0.0, -dist),
-            center,
-            Vec3f32(0.0, 1.0, 0.0),
-        )
+    for i in range(views):
+        origin = center + random_unit_vector(rng) * dist
+        target = center.copy()
+        up_hint = random_unit_vector(rng) * dist
 
-    if views >= 2:
-        append_camera_params(
-            params,
-            center + Vec3f32(-dist, 0.0, 0.0),
-            center,
-            Vec3f32(0.0, 1.0, 0.0),
-        )
+        var forward = normalize(target - origin)
+        var right = normalize(cross(forward, up_hint))
+        var up = normalize(cross(right, forward))
 
-    if views >= 3:
-        append_camera_params(
-            params,
-            center + Vec3f32(0.0, dist, 0.0),
-            center,
-            Vec3f32(0.0, 0.0, 1.0),
-        )
+        params.append(origin.x())
+        params.append(origin.y())
+        params.append(origin.z())
+        params.append(forward.x())
+        params.append(forward.y())
+        params.append(forward.z())
+        params.append(right.x())
+        params.append(right.y())
+        params.append(right.z())
+        params.append(up.x())
+        params.append(up.y())
+        params.append(up.z())
 
     return params^
 

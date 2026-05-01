@@ -2,7 +2,7 @@ from std.gpu import thread_idx, block_idx, block_dim, DeviceBuffer
 from std.gpu.host import DeviceContext
 
 from bajo.core.vec import Vec3f32, vmin, vmax, cross, length, normalize
-from bajo.core.bvh.cpu.binary_bvh import Ray, BVH
+from bajo.core.bvh.cpu.binary_bvh import Ray, BinaryBvh
 
 
 def compute_bounds(verts: List[Vec3f32]) -> Tuple[Vec3f32, Vec3f32]:
@@ -61,7 +61,7 @@ def hit_t_for_checksum(t: Float32) -> Float64:
     return 0.0
 
 
-def trace_bvh_shadow(bvh: BVH, rays: List[Ray]) -> Int:
+def trace_bvh_shadow(bvh: BinaryBvh, rays: List[Ray]) -> Int:
     var occluded = 0
     for i in range(len(rays)):
         var ray = rays[i].copy()
@@ -70,7 +70,7 @@ def trace_bvh_shadow(bvh: BVH, rays: List[Ray]) -> Int:
     return occluded
 
 
-def trace_bvh_primary(bvh: BVH, rays: List[Ray]) -> Float64:
+def trace_bvh_primary(bvh: BinaryBvh, rays: List[Ray]) -> Float64:
     var checksum = Float64(0.0)
     var hit_count = 0
     for i in range(len(rays)):

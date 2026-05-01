@@ -31,7 +31,7 @@ comptime f32_max = max_finite[DType.float32]()
 comptime f32_min = min_finite[DType.float32]()
 
 
-struct BVH(Copyable):
+struct BinaryBvh(Copyable):
     var bvh_nodes: List[BVHNode]
     var prim_indices: List[UInt32]
     var fragments: List[Fragment]
@@ -84,7 +84,7 @@ struct BVH(Copyable):
         node_idx: UInt32,
         atomic_nodes: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
     ) -> Optional[Tuple[UInt32, UInt32]]:
-        comptime MAX_LEAF_SIZE = 4  # Set to 4, 8, or 16 depending on your target WideBVH
+        comptime MAX_LEAF_SIZE = 4  # Set to 4, 8, or 16 depending on your target WideBvh
 
         var nodes_ptr = self.bvh_nodes.unsafe_ptr()
         ref node = nodes_ptr[Int(node_idx)]
@@ -279,7 +279,7 @@ struct BVH(Copyable):
 
         This is a CPU reference builder. It produces the same BVHNode /
         prim_indices layout as the median and SAH builders, so scalar traversal,
-        WideBVH, and BVHGPU conversion can all consume it unchanged.
+        WideBvh, and BVHGPU conversion can all consume it unchanged.
         """
         self.nodes_used = 1
 

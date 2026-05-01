@@ -49,6 +49,29 @@ struct Ray(Copyable):
 
 
 @fieldwise_init
+struct RayFlat(TrivialRegisterPassable):
+    var ox: Float32
+    var oy: Float32
+    var oz: Float32
+    var dx: Float32
+    var dy: Float32
+    var dz: Float32
+    var rdx: Float32
+    var rdy: Float32
+    var rdz: Float32
+    var t_max: Float32
+
+
+@fieldwise_init
+struct Hit(TrivialRegisterPassable):
+    var t: Float32
+    var u: Float32
+    var v: Float32
+    var prim: UInt32
+    var occluded: UInt32
+
+
+@fieldwise_init
 struct BVHNode(Copyable):
     var aabb: AABB
     var left_first: UInt32

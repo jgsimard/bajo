@@ -26,7 +26,7 @@ from bajo.core.bvh import (
     copy_list_to_device,
     compute_bounds,
 )
-from bajo.core.bvh.cpu.binary_bvh import BVH, Ray
+from bajo.core.bvh.cpu.binary_bvh import BinaryBvh, Ray
 from bajo.core.bvh.gpu.kernels import (
     compute_centroid_bounds,
     generate_camera_params,
@@ -1152,7 +1152,9 @@ def _build_cpu_reference(
     rays: List[Ray],
 ) raises -> CpuReferenceResult:
     var ref_build_t0 = perf_counter_ns()
-    var ref_bvh = BVH(tri_vertices.unsafe_ptr(), UInt32(len(tri_vertices) // 3))
+    var ref_bvh = BinaryBvh(
+        tri_vertices.unsafe_ptr(), UInt32(len(tri_vertices) // 3)
+    )
     ref_bvh.build["sah", True]()
     var ref_build_t1 = perf_counter_ns()
 

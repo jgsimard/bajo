@@ -60,7 +60,7 @@ struct BvhGpuLayout(Copyable):
     var prim_indices: List[UInt32]
     var vertices: UnsafePointer[Vec3f32, MutAnyOrigin]
 
-    def __init__(out self, mut binary_bvh: BVH):
+    def __init__(out self, mut binary_bvh: BinaryBvh):
         self.nodes = List[BVHGPUNode](capacity=Int(binary_bvh.nodes_used))
         self.prim_indices = List[UInt32](capacity=len(binary_bvh.prim_indices))
         self.vertices = binary_bvh.vertices
@@ -74,7 +74,9 @@ struct BvhGpuLayout(Copyable):
         if binary_bvh.nodes_used > 0:
             _ = self._convert_node(binary_bvh, UInt32(0))
 
-    def _convert_node(mut self, binary_bvh: BVH, binary_idx: UInt32) -> UInt32:
+    def _convert_node(
+        mut self, binary_bvh: BinaryBvh, binary_idx: UInt32
+    ) -> UInt32:
         var gpu_idx = UInt32(len(self.nodes))
         self.nodes.append(BVHGPUNode())
 

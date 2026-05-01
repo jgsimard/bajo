@@ -4,10 +4,10 @@ from std.math import abs
 from bajo.core.vec import Vec3f32
 from bajo.core.random import Rng
 from bajo.core.intersect import intersect_ray_aabb
-from bajo.core.bvh.cpu.wide import WideBVH
+from bajo.core.bvh.cpu.wide import WideBvh
 from bajo.core.bvh.cpu.gpu_layout import BvhGpuLayout
 from bajo.core.bvh.cpu.binary_bvh import (
-    BVH,
+    BinaryBvh,
     BVHNode,
     Fragment,
     Ray,
@@ -234,7 +234,7 @@ def test_sah_partition_by_bin_non_empty() raises:
 
 def test_bvh_build_invariants_median() raises:
     var verts = _make_strip(12)
-    var bvh = BVH(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+    var bvh = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
     bvh.build["median", False]()
 
     assert_true(bvh.nodes_used > 1)
@@ -270,7 +270,7 @@ def test_bvh_traverse_returns_nearest_triangle() raises:
         Vec3f32(0.0, 1.0, 4.0),
     ]
 
-    var bvh = BVH(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+    var bvh = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
     bvh.build["median", False]()
 
     var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
@@ -282,7 +282,7 @@ def test_bvh_traverse_returns_nearest_triangle() raises:
 
 def test_bvh_traverse_reports_original_primitive_after_reorder() raises:
     var verts = _make_strip(8)
-    var bvh = BVH(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+    var bvh = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
     bvh.build["sah", False]()
 
     # Aim at the triangle with original primitive id 6.
@@ -296,7 +296,7 @@ def test_bvh_traverse_reports_original_primitive_after_reorder() raises:
 
 def test_bvh_shadow_ray() raises:
     var verts = _make_strip(4)
-    var bvh = BVH(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+    var bvh = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
     bvh.build["median", False]()
 
     # Primitive 2 is centered at x=0.
@@ -310,10 +310,10 @@ def test_bvh_shadow_ray() raises:
 def test_wide_bvh4_matches_binary_for_basic_hit() raises:
     var verts = _make_strip(8)
 
-    var bvh = BVH(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+    var bvh = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
     bvh.build["sah", False]()
 
-    var wide = WideBVH[4](bvh)
+    var wide = WideBvh[4](bvh)
 
     var ray_binary = Ray(Vec3f32(8.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
     var ray_wide = Ray(Vec3f32(8.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
@@ -439,7 +439,7 @@ def _triangle_center_xy(verts: List[Vec3f32], prim_idx: Int) -> Vec3f32:
 
 
 def _assert_bvh_matches_bruteforce(
-    mut bvh: BVH,
+    mut bvh: BinaryBvh,
     verts: List[Vec3f32],
     O: Vec3f32,
     D: Vec3f32,
@@ -463,8 +463,8 @@ def _assert_bvh_matches_bruteforce(
 
 
 def _assert_wide_matches_binary(
-    mut bvh: BVH,
-    mut wide: WideBVH[4],
+    mut bvh: BinaryBvh,
+    mut wide: WideBvh[4],
     O: Vec3f32,
     D: Vec3f32,
 ) raises:
@@ -478,7 +478,7 @@ def _assert_wide_matches_binary(
     var wide_hit = ray_wide.hit.t < Float32(1e20)
 
     assert_true(
-        binary_hit == wide_hit, "WideBVH hit/miss differs from binary BVH"
+        binary_hit == wide_hit, "WideBvh hit/miss differs from binary BVH"
     )
 
     if binary_hit:
@@ -488,7 +488,7 @@ def _assert_wide_matches_binary(
 
 def test_bvh_median_matches_bruteforce_many_rays() raises:
     var verts = _make_random_xy_triangles(64, UInt64(12345))
-    var bvh = BVH(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+    var bvh = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
     bvh.build["median", False]()
 
     for i in range(64):
@@ -504,7 +504,7 @@ def test_bvh_median_matches_bruteforce_many_rays() raises:
 
 def test_bvh_sah_matches_bruteforce_many_rays() raises:
     var verts = _make_random_xy_triangles(96, UInt64(98765))
-    var bvh = BVH(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+    var bvh = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
     bvh.build["sah", False]()
 
     for i in range(96):
@@ -520,10 +520,10 @@ def test_bvh_sah_matches_bruteforce_many_rays() raises:
 
 def test_wide_bvh4_matches_binary_many_rays() raises:
     var verts = _make_random_xy_triangles(96, UInt64(24680))
-    var bvh = BVH(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+    var bvh = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
     bvh.build["sah", False]()
 
-    var wide = WideBVH[4](bvh)
+    var wide = WideBvh[4](bvh)
 
     for i in range(96):
         var O = _triangle_center_xy(verts, i)
@@ -538,7 +538,7 @@ def test_wide_bvh4_matches_binary_many_rays() raises:
 
 def test_bvh_sah_mt_matches_bruteforce_many_rays() raises:
     var verts = _make_random_xy_triangles(256, UInt64(13579))
-    var bvh = BVH(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+    var bvh = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
     bvh.build["sah", True]()
 
     for i in range(128):
@@ -567,7 +567,7 @@ def test_bvh_sah_mt_matches_bruteforce_many_rays() raises:
 
 
 def _assert_gpu_matches_binary(
-    mut bvh: BVH,
+    mut bvh: BinaryBvh,
     mut gpu: BvhGpuLayout,
     O: Vec3f32,
     D: Vec3f32,
@@ -591,7 +591,7 @@ def _assert_gpu_matches_binary(
 
 
 def _assert_gpu_shadow_matches_binary(
-    mut bvh: BVH,
+    mut bvh: BinaryBvh,
     mut gpu: BvhGpuLayout,
     O: Vec3f32,
     D: Vec3f32,
@@ -619,7 +619,7 @@ def test_bvh_gpu_root_leaf_matches_binary() raises:
         Vec3f32(0.0, 1.0, 4.0),
     ]
 
-    var bvh = BVH(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+    var bvh = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
     bvh.build["median", False]()
     var gpu = BvhGpuLayout(bvh)
 
@@ -642,7 +642,7 @@ def test_bvh_gpu_root_leaf_matches_binary() raises:
 
 def test_bvh_gpu_internal_layout_basic() raises:
     var verts = _make_strip(12)
-    var bvh = BVH(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+    var bvh = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
     bvh.build["sah", False]()
     var gpu = BvhGpuLayout(bvh)
 
@@ -663,7 +663,7 @@ def test_bvh_gpu_internal_layout_basic() raises:
 
 def test_bvh_gpu_matches_binary_many_rays() raises:
     var verts = _make_random_xy_triangles(128, UInt64(424242))
-    var bvh = BVH(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+    var bvh = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
     bvh.build["sah", False]()
     var gpu = BvhGpuLayout(bvh)
 
@@ -683,7 +683,7 @@ def test_bvh_gpu_matches_binary_many_rays() raises:
 
 def test_bvh_gpu_shadow_matches_binary_many_rays() raises:
     var verts = _make_random_xy_triangles(128, UInt64(515151))
-    var bvh = BVH(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+    var bvh = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
     bvh.build["sah", False]()
     var gpu = BvhGpuLayout(bvh)
 
@@ -708,7 +708,7 @@ def test_bvh_gpu_shadow_matches_binary_many_rays() raises:
 
 def test_bvh_lbvh_build_invariants() raises:
     var verts = _make_random_xy_triangles(96, UInt64(606060))
-    var bvh = BVH(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+    var bvh = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
     bvh.build["lbvh", False]()
 
     assert_true(bvh.nodes_used > 1)
@@ -734,7 +734,7 @@ def test_bvh_lbvh_build_invariants() raises:
 
 def test_bvh_lbvh_matches_bruteforce_many_rays() raises:
     var verts = _make_random_xy_triangles(128, UInt64(707070))
-    var bvh = BVH(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+    var bvh = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
     bvh.build["lbvh", False]()
 
     for i in range(128):
@@ -752,9 +752,9 @@ def test_bvh_lbvh_matches_bruteforce_many_rays() raises:
 
 def test_wide_bvh4_from_lbvh_matches_binary() raises:
     var verts = _make_random_xy_triangles(128, UInt64(808080))
-    var bvh = BVH(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+    var bvh = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
     bvh.build["lbvh", False]()
-    var wide = WideBVH[4](bvh)
+    var wide = WideBvh[4](bvh)
 
     for i in range(128):
         var O = _triangle_center_xy(verts, i)
@@ -766,7 +766,7 @@ def test_wide_bvh4_from_lbvh_matches_binary() raises:
 
 def test_bvh_gpu_from_lbvh_matches_binary() raises:
     var verts = _make_random_xy_triangles(128, UInt64(909090))
-    var bvh = BVH(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+    var bvh = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
     bvh.build["lbvh", False]()
     var gpu = BvhGpuLayout(bvh)
 

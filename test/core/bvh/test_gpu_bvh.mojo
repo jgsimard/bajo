@@ -20,7 +20,7 @@ from bajo.core.bvh import (
     trace_bvh_primary,
     trace_bvh_shadow,
 )
-from bajo.core.bvh.cpu.binary_bvh import BVH, Ray
+from bajo.core.bvh.cpu.binary_bvh import BinaryBvh, Ray
 from bajo.core.bvh.gpu.kernels import (
     GPU_REDUCE_THREADS,
     TRACE_PRIMARY_FULL,
@@ -256,7 +256,7 @@ def _build_cpu_reference(
     mut verts: List[Vec3f32],
     rays: List[Ray],
 ) raises -> Tuple[Float64, Int]:
-    var bvh = BVH(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+    var bvh = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
     bvh.build["sah", False]()
     var checksum = trace_bvh_primary(bvh, rays)
     var occluded = trace_bvh_shadow(bvh, rays)

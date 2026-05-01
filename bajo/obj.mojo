@@ -531,8 +531,7 @@ struct ObjLineCursor[o: Origin]:
         return self.pos < self.end
 
     @always_inline
-    def next_f32(mut self) -> Float32:
-        self.skip_ws()
+    def _next_f32_at_pos(mut self) -> Float32:
         if self.pos >= self.end:
             return 0.0
 
@@ -603,6 +602,11 @@ struct ObjLineCursor[o: Origin]:
 
         self.pos = p
         return Float32(sign * num)
+
+    @always_inline
+    def next_f32(mut self) -> Float32:
+        self.skip_ws()
+        return self._next_f32_at_pos()
 
     @always_inline
     def _parse_index_int(mut self, slash_terminates: Bool) -> Int:
@@ -702,33 +706,54 @@ struct ObjLineCursor[o: Origin]:
         return 0
 
     @always_inline
+    def _at_signed_index(mut self) -> Bool:
+        if self.pos >= self.end:
+            return False
+        var b = self.ptr.load(self.pos)
+        return b == MINUS or b == PLUS
+
+    @always_inline
     def next_index_p_only_at_token(mut self, position_count: Int) -> ObjIndex:
+        # Common path: positive OBJ indices are already absolute 1-based indices.
+        # Only signed/relative tokens need _fix_index().
+        var needs_fix = self._at_signed_index()
         var p_raw = self._parse_positive_index_int(slash_terminates=False)
         self._finish_index_token()
-        return ObjIndex(_fix_index(p_raw, position_count), 0, 0)
+
+        if needs_fix:
+            return ObjIndex(_fix_index(p_raw, position_count), 0, 0)
+        return ObjIndex(p_raw, 0, 0)
 
     @always_inline
     def next_index_p_t_at_token(
         mut self, position_count: Int, texcoord_count: Int
     ) -> ObjIndex:
+        var needs_fix = self._at_signed_index()
         var p_raw = self._parse_positive_index_int(slash_terminates=True)
         var t_raw = 0
 
         if self.pos < self.end and self.ptr.load(self.pos) == SLASH:
             self.pos += 1
+            if self._at_signed_index():
+                needs_fix = True
             t_raw = self._parse_positive_index_int(slash_terminates=False)
 
         self._finish_index_token()
-        return ObjIndex(
-            _fix_index(p_raw, position_count),
-            _fix_index(t_raw, texcoord_count),
-            0,
-        )
+
+        if needs_fix:
+            return ObjIndex(
+                _fix_index(p_raw, position_count),
+                _fix_index(t_raw, texcoord_count),
+                0,
+            )
+
+        return ObjIndex(p_raw, t_raw, 0)
 
     @always_inline
     def next_index_p_n_at_token(
         mut self, position_count: Int, normal_count: Int
     ) -> ObjIndex:
+        var needs_fix = self._at_signed_index()
         var p_raw = self._parse_positive_index_int(slash_terminates=True)
         var n_raw = 0
 
@@ -736,14 +761,20 @@ struct ObjLineCursor[o: Origin]:
             self.pos += 1
             if self.pos < self.end and self.ptr.load(self.pos) == SLASH:
                 self.pos += 1
+                if self._at_signed_index():
+                    needs_fix = True
                 n_raw = self._parse_positive_index_int(slash_terminates=False)
 
         self._finish_index_token()
-        return ObjIndex(
-            _fix_index(p_raw, position_count),
-            0,
-            _fix_index(n_raw, normal_count),
-        )
+
+        if needs_fix:
+            return ObjIndex(
+                _fix_index(p_raw, position_count),
+                0,
+                _fix_index(n_raw, normal_count),
+            )
+
+        return ObjIndex(p_raw, 0, n_raw)
 
     @always_inline
     def next_index_p_t_n_at_token(
@@ -752,24 +783,33 @@ struct ObjLineCursor[o: Origin]:
         texcoord_count: Int,
         normal_count: Int,
     ) -> ObjIndex:
+        var needs_fix = self._at_signed_index()
         var p_raw = self._parse_positive_index_int(slash_terminates=True)
         var t_raw = 0
         var n_raw = 0
 
         if self.pos < self.end and self.ptr.load(self.pos) == SLASH:
             self.pos += 1
+            if self._at_signed_index():
+                needs_fix = True
             t_raw = self._parse_positive_index_int(slash_terminates=True)
 
             if self.pos < self.end and self.ptr.load(self.pos) == SLASH:
                 self.pos += 1
+                if self._at_signed_index():
+                    needs_fix = True
                 n_raw = self._parse_positive_index_int(slash_terminates=False)
 
         self._finish_index_token()
-        return ObjIndex(
-            _fix_index(p_raw, position_count),
-            _fix_index(t_raw, texcoord_count),
-            _fix_index(n_raw, normal_count),
-        )
+
+        if needs_fix:
+            return ObjIndex(
+                _fix_index(p_raw, position_count),
+                _fix_index(t_raw, texcoord_count),
+                _fix_index(n_raw, normal_count),
+            )
+
+        return ObjIndex(p_raw, t_raw, n_raw)
 
     @always_inline
     def next_index_generic_at_token(
@@ -852,41 +892,51 @@ struct ObjLineCursor[o: Origin]:
 
 @always_inline
 def _parse_v_cursor[o: Origin](mut mesh: ObjMesh, mut cur: ObjLineCursor[o]):
-    if not cur.has_next():
+    cur.skip_ws()
+    if cur.pos >= cur.end:
         return
-    var x = cur.next_f32()
+    var x = cur._next_f32_at_pos()
 
-    if not cur.has_next():
+    cur.skip_ws()
+    if cur.pos >= cur.end:
         return
-    var y = cur.next_f32()
+    var y = cur._next_f32_at_pos()
 
-    if not cur.has_next():
+    cur.skip_ws()
+    if cur.pos >= cur.end:
         return
-    var z = cur.next_f32()
+    var z = cur._next_f32_at_pos()
 
     mesh.positions.append(x)
     mesh.positions.append(y)
     mesh.positions.append(z)
 
     # Optional vertex color: v x y z r g b.
-    if cur.has_next():
-        var r = cur.next_f32()
-        if cur.has_next():
-            var g = cur.next_f32()
-            if cur.has_next():
-                var b = cur.next_f32()
+    cur.skip_ws()
+    if cur.pos < cur.end:
+        var r = cur._next_f32_at_pos()
+
+        cur.skip_ws()
+        if cur.pos < cur.end:
+            var g = cur._next_f32_at_pos()
+
+            cur.skip_ws()
+            if cur.pos < cur.end:
+                var b = cur._next_f32_at_pos()
                 mesh._push_color(r, g, b)
 
 
 @always_inline
 def _parse_vt_cursor[o: Origin](mut mesh: ObjMesh, mut cur: ObjLineCursor[o]):
-    if not cur.has_next():
+    cur.skip_ws()
+    if cur.pos >= cur.end:
         return
-    var u = cur.next_f32()
+    var u = cur._next_f32_at_pos()
 
-    if not cur.has_next():
+    cur.skip_ws()
+    if cur.pos >= cur.end:
         return
-    var v = cur.next_f32()
+    var v = cur._next_f32_at_pos()
 
     mesh.texcoords.append(u)
     mesh.texcoords.append(v)
@@ -894,17 +944,20 @@ def _parse_vt_cursor[o: Origin](mut mesh: ObjMesh, mut cur: ObjLineCursor[o]):
 
 @always_inline
 def _parse_vn_cursor[o: Origin](mut mesh: ObjMesh, mut cur: ObjLineCursor[o]):
-    if not cur.has_next():
+    cur.skip_ws()
+    if cur.pos >= cur.end:
         return
-    var x = cur.next_f32()
+    var x = cur._next_f32_at_pos()
 
-    if not cur.has_next():
+    cur.skip_ws()
+    if cur.pos >= cur.end:
         return
-    var y = cur.next_f32()
+    var y = cur._next_f32_at_pos()
 
-    if not cur.has_next():
+    cur.skip_ws()
+    if cur.pos >= cur.end:
         return
-    var z = cur.next_f32()
+    var z = cur._next_f32_at_pos()
 
     mesh.normals.append(x)
     mesh.normals.append(y)

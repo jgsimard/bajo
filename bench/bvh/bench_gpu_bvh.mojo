@@ -73,11 +73,12 @@ struct CentroidNormalization(Copyable):
 
 @fieldwise_init
 struct GpuBuildTimings(Copyable):
-    var static_upload_ns: Int
+    var static_setup_ns: Int
     var morton_ns: Int
     var sort_ns: Int
     var topology_ns: Int
     var refit_ns: Int
+    var total_ns: Int
 
 
 @fieldwise_init
@@ -85,8 +86,8 @@ struct GpuBuildValidation(Copyable):
     var sorted_ok: Bool
     var values_ok: Bool
     var topology_ok: Bool
-    var topology_first_bad: Int
-    var topology_root_count: UInt32
+    var topology_root_count: Int
+    var topology_root_idx: UInt32
     var bounds_ok: Bool
     var bounds_diff: Float64
     var root_idx: UInt32
@@ -193,18 +194,23 @@ def _mrays(ns: Int, ray_count: Int) -> Float64:
 
 
 @always_inline
-def _build_total_ns(t: GpuBuildTimings) -> Int:
+def _build_stage_sum_ns(t: GpuBuildTimings) -> Int:
     return t.morton_ns + t.sort_ns + t.topology_ns + t.refit_ns
 
 
 @always_inline
+def _build_total_ns(t: GpuBuildTimings) -> Int:
+    return t.total_ns
+
+
+@always_inline
 def _primary_reduce_frame_ns(r: GpuPrimaryReduceResult) -> Int:
-    return r.kernel_ns + r.reduce_ns + r.download_ns
+    return r.frame_ns
 
 
 @always_inline
 def _shadow_reduce_frame_ns(r: GpuShadowReduceResult) -> Int:
-    return r.kernel_ns + r.reduce_ns + r.download_ns
+    return r.frame_ns
 
 
 def _centroid_normalization(
@@ -388,6 +394,7 @@ def _time_build_once(
         Int(s1 - m1),
         Int(t1 - s1),
         Int(r1 - t1),
+        Int(r1 - m0),
     )
 
 
@@ -414,6 +421,7 @@ def _best_build_timings(
     var best_sort_ns = Int(INF_NS)
     var best_topology_ns = Int(INF_NS)
     var best_refit_ns = Int(INF_NS)
+    var best_total_ns = Int(INF_NS)
 
     for _ in range(repeats):
         var t = _time_build_once(
@@ -438,6 +446,7 @@ def _best_build_timings(
         best_sort_ns = _min_ns(best_sort_ns, t.sort_ns)
         best_topology_ns = _min_ns(best_topology_ns, t.topology_ns)
         best_refit_ns = _min_ns(best_refit_ns, t.refit_ns)
+        best_total_ns = _min_ns(best_total_ns, t.total_ns)
 
     return GpuBuildTimings(
         0,
@@ -445,6 +454,7 @@ def _best_build_timings(
         best_sort_ns,
         best_topology_ns,
         best_refit_ns,
+        best_total_ns,
     )
 
 
@@ -1006,7 +1016,7 @@ def run_gpu_lbvh_benchmark_suite(
             blocks_init,
             repeats,
         )
-        best_build.static_upload_ns = Int(static_t1 - static_t0)
+        best_build.static_setup_ns = Int(static_t1 - static_t0)
 
         # Build one final valid tree for all traversal benchmarks and validation.
         _ = _time_build_once(
@@ -1190,9 +1200,10 @@ def _print_cpu_reference(reference: CpuReferenceResult):
 
 def _print_build_result(build: GpuBuildResult):
     var build_ns = _build_total_ns(build.timings)
+    var staged_ns = _build_stage_sum_ns(build.timings)
     print("\nGPU LBVH build/refit")
     print("-------------------")
-    print(t"static upload once: { _ms(build.timings.static_upload_ns) } ms")
+    print(t"static setup once:  { _ms(build.timings.static_setup_ns) } ms")
     print(
         t"valid:              sorted={build.validation.sorted_ok} |"
         t" values={build.validation.values_ok} |"
@@ -1205,9 +1216,12 @@ def _print_build_result(build: GpuBuildResult):
     print(t"topology build:     {_ms(build.timings.topology_ns)} ms")
     print(t"bounds refit:       {_ms(build.timings.refit_ns)} ms")
     print(t"build total:        {_ms(build_ns)} ms")
+    print(t"stage-sum total:    {_ms(staged_ns)} ms")
     print(
-        t"validation detail:  topo_bad={build.validation.topology_first_bad} |"
-        t" roots={build.validation.topology_root_count} |"
+        t"validation detail: "
+        t" topology_roots={build.validation.topology_root_count} |"
+        t" topology_root={build.validation.topology_root_idx} |"
+        t" refit_root={build.validation.root_idx} |"
         t" bounds_diff={round(build.validation.bounds_diff, 6)} |"
         t" guard={build.validation.guard}"
     )
@@ -1282,8 +1296,8 @@ def _print_reduce_shadow_result(
         var shadow_frame_ns = _shadow_reduce_frame_ns(r.shadow)
         var shadow_total_ns = build_ns + shadow_frame_ns
 
-        print("\nGenerated primary rays + GPU checksum reduction")
-        print("-----------------------------------------------")
+        print("\nGenerated primary rays + t-only GPU checksum reduction")
+        print("------------------------------------------------------")
         print(
             t"camera kernel:      {_ms(r.primary.kernel_ns)} ms"
             t" | {_mrays(r.primary.kernel_ns, ray_count)} MRays/s"

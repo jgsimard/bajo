@@ -6,7 +6,6 @@ from std.sys.info import size_of
 from std.utils.numerics import max_finite, min_finite
 from std.utils import Variant
 
-# from bajo.core.vec_simd import (
 from bajo.core.vec import (
     Vec2f32,
     Vec3,
@@ -27,10 +26,6 @@ from bajo.core.random import (
     random_on_hemisphere,
     random_in_unit_disk,
     random_in_unit_sphere,
-    # random_unit_vector_simd as random_unit_vector,
-    # random_on_hemisphere_simd as random_on_hemisphere,
-    # random_in_unit_disk_simd as random_in_unit_disk,
-    # random_in_unit_sphere_simd as random_in_unit_sphere,
     Rng,
 )
 
@@ -57,7 +52,6 @@ def colorize(color: Color) -> Color:
     comptime for i in range(3):
         out.data[i] = sqrt(color[i]).clamp(0.0, 0.999) * 255.99
     return out^
-    # return Color(sqrt(color.data).clamp(0.0, 0.999) * 255.99)
 
 
 def write_color(mut f: FileHandle, color: Color):

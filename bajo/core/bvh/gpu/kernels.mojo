@@ -11,7 +11,6 @@ from bajo.core.bvh.gpu.constants import (
     LBVH_SENTINEL,
 )
 from bajo.core.morton import morton3
-from bajo.core.random import Rng, random_unit_vector
 from bajo.core.vec import Vec3f32, vmin, vmax, cross, length, normalize
 from bajo.sort.gpu.radix_sort import device_radix_sort_pairs, RadixSortWorkspace
 
@@ -40,11 +39,7 @@ comptime TRACE_SHADOW = "shadow"
 
 comptime _gpu_inf_t = Float32(3.4028234663852886e38)
 comptime _gpu_tri_miss_t = Float32(1.0e30)
-
-
-@always_inline
-def _gpu_miss_prim() -> UInt32:
-    return UInt32(0xFFFFFFFF)
+comptime _gpu_miss_prim = UInt32(0xFFFFFFFF)
 
 
 @always_inline
@@ -613,13 +608,16 @@ def _trace_lbvh_ray[
     ray: RayFlat,
     root_idx: UInt32,
 ) -> Hit:
-    comptime if mode != TRACE_PRIMARY_FULL and mode != TRACE_PRIMARY_T and mode != TRACE_SHADOW:
-        comptime assert False, "unknown GPU LBVH trace mode"
+    comptime assert mode in [
+        TRACE_PRIMARY_FULL,
+        TRACE_PRIMARY_T,
+        TRACE_SHADOW,
+    ], "unknown GPU LBVH trace mode"
 
     var best_t = ray.t_max
     var best_u = Float32(0.0)
     var best_v = Float32(0.0)
-    var best_prim = _gpu_miss_prim()
+    var best_prim = _gpu_miss_prim
 
     var stack = InlineArray[UInt32, GPU_TRAVERSAL_STACK_SIZE](fill=0)
     var stack_ptr = 0
@@ -767,6 +765,32 @@ def trace_lbvh_gpu_primary_kernel(
 # Each GPU thread maps ray_idx -> (view, x, y), generates the same pinhole ray as
 # generate_primary_rays(), then traverses the LBVH directly.
 # -----------------------------------------------------------------------------
+
+
+def append_camera_params(
+    mut params: List[Float32],
+    origin: Vec3f32,
+    target: Vec3f32,
+    up_hint: Vec3f32,
+):
+    var forward = normalize(target - origin)
+    var right = normalize(cross(forward, up_hint))
+    var up = normalize(cross(right, forward))
+
+    params.append(origin.x())
+    params.append(origin.y())
+    params.append(origin.z())
+    params.append(forward.x())
+    params.append(forward.y())
+    params.append(forward.z())
+    params.append(right.x())
+    params.append(right.y())
+    params.append(right.z())
+    params.append(up.x())
+    params.append(up.y())
+    params.append(up.z())
+
+
 def generate_camera_params(
     bounds_min: Vec3f32,
     bounds_max: Vec3f32,
@@ -780,29 +804,30 @@ def generate_camera_params(
     if radius < 1.0:
         radius = 1.0
     var dist = radius * 2.8
-    var rng = Rng(123, 123)
 
-    for i in range(views):
-        origin = center + random_unit_vector(rng) * dist
-        target = center.copy()
-        up_hint = random_unit_vector(rng) * dist
+    if views >= 1:
+        append_camera_params(
+            params,
+            center + Vec3f32(0.0, 0.0, -dist),
+            center,
+            Vec3f32(0.0, 1.0, 0.0),
+        )
 
-        var forward = normalize(target - origin)
-        var right = normalize(cross(forward, up_hint))
-        var up = normalize(cross(right, forward))
+    if views >= 2:
+        append_camera_params(
+            params,
+            center + Vec3f32(-dist, 0.0, 0.0),
+            center,
+            Vec3f32(0.0, 1.0, 0.0),
+        )
 
-        params.append(origin.x())
-        params.append(origin.y())
-        params.append(origin.z())
-        params.append(forward.x())
-        params.append(forward.y())
-        params.append(forward.z())
-        params.append(right.x())
-        params.append(right.y())
-        params.append(right.z())
-        params.append(up.x())
-        params.append(up.y())
-        params.append(up.z())
+    if views >= 3:
+        append_camera_params(
+            params,
+            center + Vec3f32(0.0, dist, 0.0),
+            center,
+            Vec3f32(0.0, 0.0, 1.0),
+        )
 
     return params^
 
@@ -893,7 +918,7 @@ def _write_camera_miss_result[
         out_f32[hit_base + 0] = _gpu_inf_t
         out_f32[hit_base + 1] = Float32(0.0)
         out_f32[hit_base + 2] = Float32(0.0)
-        out_u32[ray_idx] = _gpu_miss_prim()
+        out_u32[ray_idx] = _gpu_miss_prim
     elif mode == TRACE_PRIMARY_T:
         out_f32[ray_idx] = _gpu_inf_t
     else:
@@ -920,8 +945,6 @@ def _write_camera_result[
 # -----------------------------------------------------------------------------
 # GPU-generated rays with on-device reductions.
 # -----------------------------------------------------------------------------
-
-
 def trace_lbvh_gpu_camera_kernel[
     mode: String
 ](

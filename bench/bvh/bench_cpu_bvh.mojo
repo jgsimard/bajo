@@ -289,11 +289,11 @@ def bench_gpu_shadow(
 # GPU primary traversal, first version.
 #
 # TinyBVH's OpenCL path stores BVH_GPU as four float4 rows per node:
-#   lmin + left, lmax + right, rmin + tri_count, rmax + firstTri.
+#   lmin + left, lmax + right, rmin + tri_count, rmax + first_tri.
 # Mojo's DeviceBuffer API is scalar-typed, so this benchmark flattens that same
 # Aila-Laine layout into two GPU buffers:
 #   node_bounds: 12 Float32 values per node: lmin, lmax, rmin, rmax.
-#   node_meta:    4 UInt32 values per node: left, right, tri_count, firstTri.
+#   node_meta:    4 UInt32 values per node: left, right, tri_count, first_tri.
 # -----------------------------------------------------------------------------
 
 
@@ -680,7 +680,7 @@ def flatten_gpu_node_meta(gpu: BvhGpuLayout) -> List[UInt32]:
         out.append(n.left)
         out.append(n.right)
         out.append(n.tri_count)
-        out.append(n.firstTri)
+        out.append(n.first_tri)
     return out^
 
 

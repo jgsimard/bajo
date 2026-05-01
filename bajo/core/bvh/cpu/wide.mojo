@@ -89,8 +89,8 @@ struct WideBVH[width: Int](Copyable):
             if best_i == -1:
                 break
             ref n = binary_bvh.bvh_nodes[Int(pool[best_i])]
-            pool[best_i] = n.leftFirst
-            pool[p_size] = n.leftFirst + 1
+            pool[best_i] = n.left_first
+            pool[p_size] = n.left_first + 1
             p_size += 1
 
         var node = WideBVHNode[Self.width]()
@@ -107,9 +107,9 @@ struct WideBVH[width: Int](Copyable):
                     # PACK TRIANGLES INTO SIMD LEAF
                     var l_idx = UInt32(len(self.leaves))
                     var packed = WideLeaf[Self.width]()
-                    for tri in range(min(Int(n.triCount), Self.width)):
+                    for tri in range(min(Int(n.tri_count), Self.width)):
                         var frag_idx = Int(
-                            binary_bvh.prim_indices[Int(n.leftFirst) + tri]
+                            binary_bvh.prim_indices[Int(n.left_first) + tri]
                         )
                         var p_idx = Int(binary_bvh.fragments[frag_idx].prim_idx)
                         ref v0 = self.vertices[p_idx * 3]
@@ -127,7 +127,7 @@ struct WideBVH[width: Int](Copyable):
                         packed.prim_indices[tri] = UInt32(p_idx)
                     # Sentinel for empty lanes. Keep a separate valid-lane mask,
                     # because only poisoning v0x can still create NaNs in SIMD math.
-                    for tri in range(Int(n.triCount), Self.width):
+                    for tri in range(Int(n.tri_count), Self.width):
                         packed.prim_indices[tri] = 0xFFFFFFFF
                     self.leaves.append(packed^)
                     node.data[i] = l_idx

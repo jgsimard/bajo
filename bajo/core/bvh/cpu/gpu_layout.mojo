@@ -11,8 +11,8 @@ struct BVHGPUNode(Copyable):
     """TinyBVH-style Aila-Laine GPU node.
 
     This mirrors TinyBVH's BVH_GPU node semantics:
-    - If triCount > 0, this node is a leaf and firstTri points into prim_indices.
-    - If triCount == 0, this node is internal:
+    - If tri_count > 0, this node is a leaf and first_tri points into prim_indices.
+    - If tri_count == 0, this node is internal:
         lmin/lmax bound the left child, and left is the left child node index.
         rmin/rmax bound the right child, and right is the right child node index.
     """
@@ -23,9 +23,9 @@ struct BVHGPUNode(Copyable):
     var right: UInt32
 
     var rmin: Vec3f32
-    var triCount: UInt32
+    var tri_count: UInt32
     var rmax: Vec3f32
-    var firstTri: UInt32
+    var first_tri: UInt32
 
     @always_inline
     def __init__(out self):
@@ -35,20 +35,20 @@ struct BVHGPUNode(Copyable):
         self.right = 0
 
         self.rmin = Vec3f32(f32_max)
-        self.triCount = 0
+        self.tri_count = 0
         self.rmax = Vec3f32(f32_min)
-        self.firstTri = 0
+        self.first_tri = 0
 
     @always_inline
     def is_leaf(self) -> Bool:
-        return self.triCount > 0
+        return self.tri_count > 0
 
 
 struct BvhGpuLayout(Copyable):
     """TinyBVH-compatible GPU layout with CPU reference traversal.
 
     This layout follows TinyBVH's BVH_GPU / Aila-Laine layout more closely than
-    the earlier child-count encoding. Leaves are real nodes (`triCount > 0`),
+    the earlier child-count encoding. Leaves are real nodes (`tri_count > 0`),
     while internal nodes store both child bounds directly plus child node indices.
 
     `prim_indices` stores original triangle ids, not fragment ids. This keeps
@@ -66,7 +66,7 @@ struct BvhGpuLayout(Copyable):
         self.vertices = binary_bvh.vertices
 
         # Convert fragment indices to original primitive ids once. GPU leaves
-        # point into this array using the source BVH's leftFirst/count ranges.
+        # point into this array using the source BVH's left_first/count ranges.
         for i in range(len(binary_bvh.prim_indices)):
             var frag_idx = Int(binary_bvh.prim_indices[i])
             self.prim_indices.append(binary_bvh.fragments[frag_idx].prim_idx)
@@ -82,8 +82,8 @@ struct BvhGpuLayout(Copyable):
         var out = BVHGPUNode()
 
         if bnode.is_leaf():
-            out.triCount = bnode.triCount
-            out.firstTri = bnode.leftFirst
+            out.tri_count = bnode.tri_count
+            out.first_tri = bnode.left_first
             # Leaf bounds are not needed by traversal once the leaf is entered,
             # but storing them makes debug inspection easier and keeps the node
             # self-describing.
@@ -92,8 +92,8 @@ struct BvhGpuLayout(Copyable):
             out.rmin = bnode.aabb._min.copy()
             out.rmax = bnode.aabb._max.copy()
         else:
-            var left_binary_idx = bnode.leftFirst
-            var right_binary_idx = bnode.leftFirst + 1
+            var left_binary_idx = bnode.left_first
+            var right_binary_idx = bnode.left_first + 1
 
             ref left = binary_bvh.bvh_nodes[Int(left_binary_idx)]
             ref right = binary_bvh.bvh_nodes[Int(right_binary_idx)]
@@ -102,8 +102,8 @@ struct BvhGpuLayout(Copyable):
             out.lmax = left.aabb._max.copy()
             out.rmin = right.aabb._min.copy()
             out.rmax = right.aabb._max.copy()
-            out.triCount = 0
-            out.firstTri = 0
+            out.tri_count = 0
+            out.first_tri = 0
 
             out.left = self._convert_node(binary_bvh, left_binary_idx)
             out.right = self._convert_node(binary_bvh, right_binary_idx)
@@ -176,7 +176,7 @@ struct BvhGpuLayout(Copyable):
 
             if node.is_leaf():
                 if self._intersect_leaf[is_shadow](
-                    ray, node.firstTri, node.triCount
+                    ray, node.first_tri, node.tri_count
                 ):
                     comptime if is_shadow:
                         return True

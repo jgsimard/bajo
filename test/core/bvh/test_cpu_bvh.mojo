@@ -4,9 +4,9 @@ from std.math import abs
 from bajo.core.vec import Vec3f32
 from bajo.core.random import Rng
 from bajo.core.intersect import intersect_ray_aabb
-from bajo.core.bvh.wide import WideBVH
-from bajo.core.bvh.gpu_layout_on_cpu import BvhGpuLayout
-from bajo.core.bvh.binary_bvh import (
+from bajo.core.bvh.cpu.wide import WideBVH
+from bajo.core.bvh.cpu.gpu_layout import BvhGpuLayout
+from bajo.core.bvh.cpu.binary_bvh import (
     BVH,
     BVHNode,
     Fragment,
@@ -626,7 +626,7 @@ def test_bvh_gpu_root_leaf_matches_binary() raises:
     assert_true(len(gpu.nodes) == 1)
     assert_true(gpu.nodes[0].is_leaf())
     assert_true(gpu.nodes[0].tri_count == 2)
-    assert_true(gpu.nodes[0].firstTri == 0)
+    assert_true(gpu.nodes[0].first_tri == 0)
     assert_true(len(gpu.prim_indices) == 2)
 
     _assert_gpu_matches_binary(

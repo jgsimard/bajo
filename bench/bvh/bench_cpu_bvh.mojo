@@ -18,9 +18,9 @@ from bajo.core.bvh import (
     append_camera_rays,
     generate_primary_rays,
 )
-from bajo.core.bvh.gpu_layout_on_cpu import BvhGpuLayout
-from bajo.core.bvh.wide import WideBVH
-from bajo.core.bvh.binary_bvh import BVH, Ray
+from bajo.core.bvh.cpu.gpu_layout import BvhGpuLayout
+from bajo.core.bvh.cpu.wide import WideBVH
+from bajo.core.bvh.cpu.binary_bvh import BVH, Ray
 from bajo.core.utils import (
     ns_to_ms,
     ns_to_mrays_per_s,

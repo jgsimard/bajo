@@ -21,7 +21,7 @@ from bajo.core.bvh import (
     trace_bvh_shadow,
 )
 from bajo.core.bvh.cpu.binary_bvh import BVH, Ray
-from bajo.core.bvh.gpu_bvh import (
+from bajo.core.bvh.gpu.kernels import (
     GPU_REDUCE_THREADS,
     TRACE_PRIMARY_FULL,
     TRACE_PRIMARY_T,

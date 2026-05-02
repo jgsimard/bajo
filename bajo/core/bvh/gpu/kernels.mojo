@@ -1004,7 +1004,7 @@ def reduce_hit_t_kernel(
     var i = Int(block_idx.x * block_dim.x + thread_idx.x)
     if i >= partial_count:
         return
-    var sum = Float64(0.0)
+    var sum = 0.0
     var count = UInt32(0)
     var j = i
     while j < ray_count:

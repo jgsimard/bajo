@@ -45,7 +45,6 @@ comptime BENCH_REPEATS = 8
 comptime PRIMARY_WIDTH = 640
 comptime PRIMARY_HEIGHT = 360
 comptime PRIMARY_VIEWS = 3
-comptime INF_NS = 9223372036854775807
 
 comptime RUN_DIRECT_RAY_UPLOAD_BENCH = True
 comptime RUN_CAMERA_FULL_DOWNLOAD_BENCH = True
@@ -131,13 +130,6 @@ def _min_ns(current: Int, candidate: Int) -> Int:
 
 
 @always_inline
-def _abs_i32(v: Int) -> Int:
-    if v < 0:
-        return -v
-    return v
-
-
-@always_inline
 def _ms(ns: Int) -> Float64:
     return round(ns_to_ms(ns), 3)
 
@@ -173,7 +165,7 @@ def _download_full_hit_checksum(
     d_hits_f32: DeviceBuffer[DType.float32],
     ray_count: Int,
 ) raises -> Tuple[Float64, UInt32]:
-    var checksum = Float64(0.0)
+    var checksum = 0.0
     var hit_count = UInt32(0)
     with d_hits_f32.map_to_host() as h:
         for i in range(ray_count):
@@ -190,7 +182,7 @@ def _download_reduced_hit_t(
     d_partial_sums: DeviceBuffer[DType.float64],
     d_partial_counts: DeviceBuffer[DType.uint32],
 ) raises -> Tuple[Float64, UInt32]:
-    var checksum = Float64(0.0)
+    var checksum = 0.0
     var hit_count = UInt32(0)
     with d_partial_sums.map_to_host() as sums:
         for i in range(GPU_REDUCE_THREADS):
@@ -229,11 +221,11 @@ def _benchmark_direct_uploaded_rays(
     lbvh.launch_uploaded_primary(ctx, d_rays, d_hits_f32, d_hits_u32, ray_count)
     ctx.synchronize()
 
-    var best_upload_ns = Int(INF_NS)
-    var best_kernel_ns = Int(INF_NS)
-    var best_download_ns = Int(INF_NS)
-    var best_frame_ns = Int(INF_NS)
-    var checksum = Float64(0.0)
+    var best_upload_ns = Int.MAX
+    var best_kernel_ns = Int.MAX
+    var best_download_ns = Int.MAX
+    var best_frame_ns = Int.MAX
+    var checksum = 0.0
     var hit_count = UInt32(0)
 
     for _ in range(repeats):
@@ -295,10 +287,10 @@ def _benchmark_camera_full_download(
     )
     ctx.synchronize()
 
-    var best_kernel_ns = Int(INF_NS)
-    var best_download_ns = Int(INF_NS)
-    var best_frame_ns = Int(INF_NS)
-    var checksum = Float64(0.0)
+    var best_kernel_ns = Int.MAX
+    var best_download_ns = Int.MAX
+    var best_frame_ns = Int.MAX
+    var checksum = 0.0
     var hit_count = UInt32(0)
 
     for _ in range(repeats):
@@ -352,11 +344,11 @@ def _benchmark_primary_reduce(
     repeats: Int,
 ) raises -> GpuPrimaryReduceResult:
     var reduce_blocks = gpu_lbvh_blocks_for(GPU_REDUCE_THREADS)
-    var best_kernel_ns = Int(INF_NS)
-    var best_reduce_ns = Int(INF_NS)
-    var best_download_ns = Int(INF_NS)
-    var best_frame_ns = Int(INF_NS)
-    var checksum = Float64(0.0)
+    var best_kernel_ns = Int.MAX
+    var best_reduce_ns = Int.MAX
+    var best_download_ns = Int.MAX
+    var best_frame_ns = Int.MAX
+    var checksum = 0.0
     var hit_count = UInt32(0)
 
     for _ in range(repeats):
@@ -426,10 +418,10 @@ def _benchmark_shadow_reduce(
     repeats: Int,
 ) raises -> GpuShadowReduceResult:
     var reduce_blocks = gpu_lbvh_blocks_for(GPU_REDUCE_THREADS)
-    var best_kernel_ns = Int(INF_NS)
-    var best_reduce_ns = Int(INF_NS)
-    var best_download_ns = Int(INF_NS)
-    var best_frame_ns = Int(INF_NS)
+    var best_kernel_ns = Int.MAX
+    var best_reduce_ns = Int.MAX
+    var best_download_ns = Int.MAX
+    var best_frame_ns = Int.MAX
     var occluded = UInt32(0)
 
     for _ in range(repeats):
@@ -477,7 +469,7 @@ def _benchmark_shadow_reduce(
         best_download_ns,
         best_frame_ns,
         occluded,
-        _abs_i32(Int(occluded) - reference_occluded),
+        abs(Int(occluded) - reference_occluded),
     )
 
 

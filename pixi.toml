@@ -15,6 +15,3 @@ bench_aabb = "mojo -I. bench/bench_aabb.mojo"
 mojo = ">=1.0.0b1.dev2026043006,<2"
 max = ">=26.3.0.dev2026043006,<27"
 python = ">=3.14.4,<3.15"
-
-[pypi-dependencies]
-dearpygui = ">=2.3, <3"

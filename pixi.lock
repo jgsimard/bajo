@@ -4,8 +4,6 @@ environments:
     channels:
     - url: https://conda.modular.com/max-nightly/
     - url: https://conda.anaconda.org/conda-forge/
-    indexes:
-    - https://pypi.org/simple
     options:
       pypi-prerelease-mode: if-necessary-or-explicit
     packages:
@@ -75,7 +73,6 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zeromq-4.3.5-h41580af_10.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-3.23.1-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zstd-1.5.7-hb78ec9c_6.conda
-      - pypi: https://files.pythonhosted.org/packages/a4/fc/78063f913b07b8e97ca65a201dab40e08b104a13ed503cfb8151def35c8f/dearpygui-2.3-cp314-cp314-manylinux1_x86_64.whl
 packages:
 - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
   build_number: 20
@@ -146,11 +143,6 @@ packages:
   purls: []
   size: 49809
   timestamp: 1775614256655
-- pypi: https://files.pythonhosted.org/packages/a4/fc/78063f913b07b8e97ca65a201dab40e08b104a13ed503cfb8151def35c8f/dearpygui-2.3-cp314-cp314-manylinux1_x86_64.whl
-  name: dearpygui
-  version: '2.3'
-  sha256: 7130438dfea536f56ea5e620639a0e831b37b698383bd4b7ecd28d62d1812e62
-  requires_python: '>=3.8'
 - conda: https://conda.anaconda.org/conda-forge/linux-64/icu-78.3-h33c6efd_0.conda
   sha256: fbf86c4a59c2ed05bbffb2ba25c7ed94f6185ec30ecb691615d42342baa1a16a
   md5: c80d8a3b84358cb967fa81e7075fbc8a

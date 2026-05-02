@@ -1,22 +1,47 @@
+from std.memory import UnsafePointer
 from std.utils.numerics import max_finite, min_finite
 
-from bajo.core.bvh.types import BVHNode
+from bajo.core.aabb import AABB
+from bajo.core.bvh.cpu.binary_bvh import BinaryBvh
+from bajo.core.bvh.types import BvhNode, Ray
 from bajo.core.intersect import intersect_ray_aabb
-from bajo.core.mat import Mat44f32, transform_point, transform_vector, inverse
-from bajo.core.vec import Vec3f32, vmin, vmax, longest_axis
+from bajo.core.mat import Mat44f32, transform_point, transform_vector
+from bajo.core.vec import Vec3f32, longest_axis, vmin, vmax
 
 
 comptime f32_max = max_finite[DType.float32]()
 comptime f32_min = min_finite[DType.float32]()
+comptime TLAS_LEAF_SIZE = UInt32(2)
 
 
 @fieldwise_init
-struct Instance(Copyable):
+struct BvhInstance(Copyable):
+    """Instance of a BLAS in world space.
+
+    Phase A intentionally keeps this small:
+    - `transform` maps BLAS-local points/vectors to world space.
+    - `inv_transform` maps world-space rays to BLAS-local space.
+    - `bounds_min/max` store the transformed world-space BLAS root AABB.
+    - `blas_idx` indexes the BLAS array passed to `Tlas.traverse`.
+
+    Traversal assumes rigid transforms or uniform scale, so the local-space hit
+    `t` can be compared directly with the world-space ray `t`. General affine
+    transforms need explicit world-space distance reconstruction.
+    """
+
     var transform: Mat44f32
     var inv_transform: Mat44f32
     var bounds_min: Vec3f32
     var bounds_max: Vec3f32
     var blas_idx: UInt32
+
+    @always_inline
+    def __init__(out self):
+        self.transform = Mat44f32.identity()
+        self.inv_transform = Mat44f32.identity()
+        self.bounds_min = Vec3f32(f32_max)
+        self.bounds_max = Vec3f32(f32_min)
+        self.blas_idx = 0
 
     @always_inline
     def __init__(
@@ -31,8 +56,10 @@ struct Instance(Copyable):
         self.inv_transform = inv_transform.copy()
         self.blas_idx = blas_idx
 
-        # To find the World Space AABB, we must transform all 8 corners of the Local BLAS AABB
-        var corners = InlineArray[Vec3f32, 8](fill=Vec3f32(0))
+        # Transform all 8 local BLAS AABB corners and re-bound them in world
+        # space. This is correct for arbitrary affine transforms, even though
+        # Phase A traversal only relies on rigid/uniform-scale t semantics.
+        var corners = InlineArray[Vec3f32, 8](fill=Vec3f32(0.0))
         corners[0] = Vec3f32(blas_min.x(), blas_min.y(), blas_min.z())
         corners[1] = Vec3f32(blas_max.x(), blas_min.y(), blas_min.z())
         corners[2] = Vec3f32(blas_min.x(), blas_max.y(), blas_min.z())
@@ -45,84 +72,137 @@ struct Instance(Copyable):
         var w_min = Vec3f32(f32_max)
         var w_max = Vec3f32(f32_min)
         comptime for i in range(8):
-            var transformed = transform_point(transform, corners[i])
-            w_min = vmin(w_min, transformed)
-            w_max = vmax(w_max, transformed)
+            var p = transform_point(transform, corners[i])
+            w_min = vmin(w_min, p)
+            w_max = vmax(w_max, p)
 
         self.bounds_min = w_min^
         self.bounds_max = w_max^
 
+    @staticmethod
+    def from_blas(
+        transform: Mat44f32,
+        inv_transform: Mat44f32,
+        blas_idx: UInt32,
+        blas: BinaryBvh,
+    ) -> BvhInstance:
+        ref root = blas.bvh_nodes[0]
+        return BvhInstance(
+            transform,
+            inv_transform,
+            blas_idx,
+            root.aabb._min,
+            root.aabb._max,
+        )
 
-struct TLAS:
-    var tlas_nodes: List[BVHNode]
+    @always_inline
+    def centroid_axis(self, axis: Int) -> Float32:
+        return (self.bounds_min[axis] + self.bounds_max[axis]) * 0.5
+
+
+struct Tlas(Copyable):
+    """CPU top-level acceleration structure over BLAS instances.
+
+    It owns its instance list and uses the same `BvhNode` layout as `BinaryBvh`: leaves
+    store a range in `inst_indices`; internal nodes store two children at
+    `left_first` and `left_first + 1`.
+    """
+
+    var tlas_nodes: List[BvhNode]
     var inst_indices: List[UInt32]
-    var instances: UnsafePointer[Instance, MutAnyOrigin]
+    var instances: List[BvhInstance]
     var inst_count: UInt32
     var nodes_used: UInt32
 
-    def __init__(
-        out self,
-        instances: UnsafePointer[Instance, MutAnyOrigin],
-        inst_count: UInt32,
-    ):
-        self.instances = instances
-        self.inst_count = inst_count
-        self.nodes_used = 1
+    def __init__(out self):
+        self.tlas_nodes = List[BvhNode]()
+        self.inst_indices = List[UInt32]()
+        self.instances = List[BvhInstance]()
+        self.inst_count = 0
+        self.nodes_used = 0
+        self._reset_build_state()
 
-        # Capacity is 2N - 1
-        var max_nodes = Int(inst_count * 2 - 1) if inst_count > 0 else 1
-        self.tlas_nodes = List[BVHNode](capacity=max_nodes)
+    def __init__(out self, instances: List[BvhInstance]):
+        self.tlas_nodes = List[BvhNode]()
+        self.inst_indices = List[UInt32]()
+        self.instances = List[BvhInstance](capacity=len(instances))
+        self.inst_count = 0
+        self.nodes_used = 0
+
+        for i in range(len(instances)):
+            self.instances.append(instances[i].copy())
+
+        self._reset_build_state()
+
+    def add_instance(mut self, instance: BvhInstance):
+        self.instances.append(instance.copy())
+        self._reset_build_state()
+
+    def _reset_build_state(mut self):
+        self.inst_count = UInt32(len(self.instances))
+        if self.inst_count > 0:
+            self.nodes_used = 1
+        else:
+            self.nodes_used = 0
+
+        var max_nodes = 1
+        if self.inst_count > 0:
+            max_nodes = Int(self.inst_count * 2 - 1)
+
+        self.tlas_nodes = List[BvhNode](capacity=max_nodes)
         for _ in range(max_nodes):
-            self.tlas_nodes.append(BVHNode())
+            self.tlas_nodes.append(BvhNode())
 
-        self.inst_indices = List[UInt32](capacity=Int(inst_count))
-        for i in range(Int(inst_count)):
+        self.inst_indices = List[UInt32](capacity=Int(self.inst_count))
+        for i in range(Int(self.inst_count)):
             self.inst_indices.append(UInt32(i))
 
-        if inst_count > 0:
+        if self.inst_count > 0:
             ref root = self.tlas_nodes[0]
-            root.leftFirst = 0
-            root.triCount = inst_count
+            root.left_first = 0
+            root.tri_count = self.inst_count
             self.update_node_bounds(0)
 
     @always_inline
     def update_node_bounds(mut self, node_idx: UInt32):
         ref node = self.tlas_nodes[Int(node_idx)]
-        node.aabb._min = Vec3f32(f32_max)
-        node.aabb._max = Vec3f32(f32_min)
+        node.aabb = AABB.invalid()
 
-        var first = Int(node.leftFirst)
-        for i in range(Int(node.triCount)):
+        var first = Int(node.left_first)
+        for i in range(Int(node.tri_count)):
             var inst_idx = Int(self.inst_indices[first + i])
             ref inst = self.instances[inst_idx]
-
             node.aabb._min = vmin(node.aabb._min, inst.bounds_min)
             node.aabb._max = vmax(node.aabb._max, inst.bounds_max)
 
     def build(mut self):
-        """TLAS uses the Quick/Spatial Median builder since instance count is usually low (<10,000).
-        """
-        if self.inst_count > 0:
-            self.subdivide(0)
+        """Build a simple median TLAS over instance bounds.
 
-    def subdivide(mut self, node_idx: UInt32):
+        Instance counts are usually much smaller than primitive counts, so Phase
+        A deliberately uses a small and deterministic median builder instead of
+        a SAH builder.
+        """
+        self._reset_build_state()
+        if self.inst_count > 0:
+            self._subdivide(0)
+
+    def _subdivide(mut self, node_idx: UInt32):
         ref node = self.tlas_nodes[Int(node_idx)]
 
-        if node.triCount <= 2:
+        if node.tri_count <= TLAS_LEAF_SIZE:
             return
 
         var extent = node.aabb._max - node.aabb._min
         var axis = longest_axis(extent)
         var split_pos = node.aabb._min[axis] + extent[axis] * 0.5
 
-        var i = Int(node.leftFirst)
-        var j = i + Int(node.triCount) - 1
+        var i = Int(node.left_first)
+        var j = i + Int(node.tri_count) - 1
 
         while i <= j:
             var inst_idx = Int(self.inst_indices[i])
             ref inst = self.instances[inst_idx]
-
-            var centroid = (inst.bounds_min[axis] + inst.bounds_max[axis]) * 0.5
+            var centroid = inst.centroid_axis(axis)
 
             if centroid < split_pos:
                 i += 1
@@ -132,10 +212,10 @@ struct TLAS:
                 self.inst_indices[j] = tmp
                 j -= 1
 
-        var left_count = UInt32(i - Int(node.leftFirst))
-        if left_count == 0 or left_count == node.triCount:
-            left_count = node.triCount // 2
-            i = Int(node.leftFirst) + Int(left_count)
+        var left_count = UInt32(i - Int(node.left_first))
+        if left_count == 0 or left_count == node.tri_count:
+            left_count = node.tri_count // 2
+            i = Int(node.left_first) + Int(left_count)
 
         var left_child_idx = self.nodes_used
         self.nodes_used += 2
@@ -143,52 +223,60 @@ struct TLAS:
         ref left_child = self.tlas_nodes[Int(left_child_idx)]
         ref right_child = self.tlas_nodes[Int(left_child_idx + 1)]
 
-        left_child.leftFirst = node.leftFirst
-        left_child.triCount = left_count
-        right_child.leftFirst = UInt32(i)
-        right_child.triCount = node.triCount - left_count
+        left_child.left_first = node.left_first
+        left_child.tri_count = left_count
+        right_child.left_first = UInt32(i)
+        right_child.tri_count = node.tri_count - left_count
 
-        node.leftFirst = left_child_idx
-        node.triCount = 0
+        node.left_first = left_child_idx
+        node.tri_count = 0
 
         self.update_node_bounds(left_child_idx)
         self.update_node_bounds(left_child_idx + 1)
 
-        self.subdivide(left_child_idx)
-        self.subdivide(left_child_idx + 1)
+        self._subdivide(left_child_idx)
+        self._subdivide(left_child_idx + 1)
 
-    def traverse(self, mut ray: Ray, blases: UnsafePointer[BVH, MutAnyOrigin]):
+    def traverse(
+        self,
+        mut ray: Ray,
+        blases: UnsafePointer[BinaryBvh, MutAnyOrigin],
+    ):
+        """Traverse TLAS in world space, then BLASes in local space.
+
+        On hit:
+        - `ray.hit.prim` is the primitive id inside the hit BLAS.
+        - `ray.hit.inst` is the instance id inside this TLAS.
         """
-        Traverses the Top Level tree. When an instance leaf is hit, the ray is transformed
-        into local space and passed to the respective Bottom Level Acceleration Structure.
-        """
+        if self.inst_count == 0:
+            return
+
         var stack = InlineArray[UInt32, 64](fill=0)
         var stack_ptr = 0
         var node_idx = UInt32(0)
 
         while True:
             ref node = self.tlas_nodes[Int(node_idx)]
+
             if node.is_leaf():
-                for i in range(Int(node.triCount)):
-                    var inst_idx = self.inst_indices[Int(node.leftFirst) + i]
+                for i in range(Int(node.tri_count)):
+                    var inst_idx = self.inst_indices[Int(node.left_first) + i]
                     ref inst = self.instances[Int(inst_idx)]
 
-                    # 1. Transform World Ray -> Local Space
-                    var local_O = transform_point(inst.inv_transform, ray.O)
-                    var local_D = transform_vector(inst.inv_transform, ray.D)
-                    var local_ray = Ray(local_O, local_D, ray.hit.t)
+                    var local_origin = transform_point(
+                        inst.inv_transform, ray.O
+                    )
+                    var local_dir = transform_vector(inst.inv_transform, ray.D)
+                    var local_ray = Ray(local_origin, local_dir, ray.hit.t)
 
-                    # 2. Traverse the BLAS
                     blases[Int(inst.blas_idx)].traverse(local_ray)
 
-                    # 3. If a closer hit is found, save it!
-                    # Due to linear matrix math, local_ray.hit.t is identical to World Space t!
                     if local_ray.hit.t < ray.hit.t:
                         ray.hit.t = local_ray.hit.t
                         ray.hit.u = local_ray.hit.u
                         ray.hit.v = local_ray.hit.v
                         ray.hit.prim = local_ray.hit.prim
-                        ray.hit.inst = inst_idx  # Tag the instance ID so shaders know what mesh was hit
+                        ray.hit.inst = inst_idx
 
                 if stack_ptr == 0:
                     break
@@ -196,29 +284,32 @@ struct TLAS:
                 node_idx = stack[stack_ptr]
                 continue
 
-            var child1_idx = node.leftFirst
-            var child2_idx = node.leftFirst + 1
+            var child1_idx = node.left_first
+            var child2_idx = node.left_first + 1
             ref child1 = self.tlas_nodes[Int(child1_idx)]
             ref child2 = self.tlas_nodes[Int(child2_idx)]
 
             var dist1 = Float32(f32_max)
             var dist2 = Float32(f32_max)
             var hit1 = intersect_ray_aabb(
-                ray.O, ray.rD, child1.aabb._min, child1.aabb._max, dist1
+                ray.O,
+                ray.rD,
+                child1.aabb._min,
+                child1.aabb._max,
+                dist1,
             )
             var hit2 = intersect_ray_aabb(
-                ray.O, ray.rD, child2.aabb._min, child2.aabb._max, dist2
+                ray.O,
+                ray.rD,
+                child2.aabb._min,
+                child2.aabb._max,
+                dist2,
             )
 
             if hit1 and dist1 >= ray.hit.t:
                 hit1 = False
             if hit2 and dist2 >= ray.hit.t:
                 hit2 = False
-
-            if hit1 and hit2 and (dist1 > dist2):
-                var tmp = child1_idx
-                child1_idx = child2_idx
-                child2_idx = tmp
 
             if not hit1 and not hit2:
                 if stack_ptr == 0:
@@ -230,6 +321,15 @@ struct TLAS:
             elif not hit1 and hit2:
                 node_idx = child2_idx
             else:
-                stack[stack_ptr] = child2_idx
+                var near = child1_idx
+                var far = child2_idx
+                if dist1 > dist2:
+                    near = child2_idx
+                    far = child1_idx
+
+                debug_assert["safe"](
+                    stack_ptr < 64, "TLAS traversal stack overflow"
+                )
+                stack[stack_ptr] = far
                 stack_ptr += 1
-                node_idx = child1_idx
+                node_idx = near

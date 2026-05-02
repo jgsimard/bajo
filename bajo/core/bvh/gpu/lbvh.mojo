@@ -143,20 +143,23 @@ struct GpuLBVH:
             scene_max,
         )
 
-        self.root_idx = UInt32(refit_validation[2])
+        self.root_idx = refit_validation.root_idx
+
         var guard = (
-            sorted_validation[6] + topo_validation[3] + refit_validation[3]
+            sorted_validation.guard
+            + topo_validation.guard
+            + refit_validation.guard
         )
 
         return GpuBVHValidation(
-            sorted_validation[0],
-            sorted_validation[1],
-            topo_validation[0],
-            UInt32(topo_validation[1]),
-            topo_validation[2],
-            refit_validation[0],
-            refit_validation[1],
-            refit_validation[2],
+            sorted_validation.sorted_ok,
+            sorted_validation.values_ok,
+            topo_validation.ok,
+            topo_validation.root_count,
+            topo_validation.root_idx,
+            refit_validation.ok,
+            refit_validation.diff,
+            refit_validation.root_idx,
             guard,
         )
 

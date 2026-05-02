@@ -32,6 +32,33 @@ struct GpuBuildTimings(TrivialRegisterPassable):
 
 
 @fieldwise_init
+struct SortedKeysValidation(TrivialRegisterPassable):
+    var sorted_ok: Bool
+    var values_ok: Bool
+    var first_bad_key: Int
+    var first_bad_value: Int
+    var first_code: UInt32
+    var last_code: UInt32
+    var guard: UInt64
+
+
+@fieldwise_init
+struct TopologyValidation(TrivialRegisterPassable):
+    var ok: Bool
+    var root_count: UInt32
+    var root_idx: UInt32
+    var guard: UInt64
+
+
+@fieldwise_init
+struct RefitBoundsValidation(TrivialRegisterPassable):
+    var ok: Bool
+    var diff: Float64
+    var root_idx: UInt32
+    var guard: UInt64
+
+
+@fieldwise_init
 struct GpuBVHValidation(TrivialRegisterPassable):
     var sorted_ok: Bool
     var values_ok: Bool

@@ -269,6 +269,49 @@ def intersect_ray_tri[
 
 
 @always_inline
+def intersect_ray_tri(
+    vertices: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    prim_idx: UInt32,
+    ox: Float32,
+    oy: Float32,
+    oz: Float32,
+    dx: Float32,
+    dy: Float32,
+    dz: Float32,
+    t_max: Float32,
+) -> RayTriPacketHit[DType.float32, 1]:
+    var base = Int(prim_idx) * 9
+    var v0x = vertices[base + 0]
+    var v0y = vertices[base + 1]
+    var v0z = vertices[base + 2]
+    var v1x = vertices[base + 3]
+    var v1y = vertices[base + 4]
+    var v1z = vertices[base + 5]
+    var v2x = vertices[base + 6]
+    var v2y = vertices[base + 7]
+    var v2z = vertices[base + 8]
+
+    return intersect_ray_tri(
+        ox,
+        oy,
+        oz,
+        dx,
+        dy,
+        dz,
+        v0x,
+        v0y,
+        v0z,
+        v1x,
+        v1y,
+        v1z,
+        v2x,
+        v2y,
+        v2z,
+        t_max,
+    )
+
+
+@always_inline
 def intersect_ray_tri_rtcd[
     dtype: DType
 ](

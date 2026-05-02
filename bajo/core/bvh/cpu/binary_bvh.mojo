@@ -318,7 +318,7 @@ struct BinaryBvh(Copyable):
             var code = morton3(x, y, z)
             pairs.append(MortonPrim(code, UInt32(i)))
 
-        span = Span(ptr=pairs.unsafe_ptr(), length=len(pairs))
+        span = Span(pairs)
 
         sort[_morton_pair_less](span)
 

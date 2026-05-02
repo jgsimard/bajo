@@ -10,6 +10,7 @@ from bajo.core.bvh.gpu.constants import (
     LBVH_INDEX_MASK,
     LBVH_SENTINEL,
 )
+from bajo.core.intersect import intersect_ray_tri
 from bajo.core.morton import morton3
 from bajo.core.vec import Vec3f32, vmin, vmax, cross, length, normalize
 from bajo.sort.gpu.radix_sort import device_radix_sort_pairs, RadixSortWorkspace
@@ -489,68 +490,6 @@ def _intersect_aabb_flat(
 
 
 @always_inline
-def _intersect_tri_flat(
-    vertices: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    prim_idx: UInt32,
-    ox: Float32,
-    oy: Float32,
-    oz: Float32,
-    dx: Float32,
-    dy: Float32,
-    dz: Float32,
-    t_max: Float32,
-) -> Tuple[Bool, Float32, Float32, Float32]:
-    var base = Int(prim_idx) * 9
-    var v0x = vertices[base + 0]
-    var v0y = vertices[base + 1]
-    var v0z = vertices[base + 2]
-    var v1x = vertices[base + 3]
-    var v1y = vertices[base + 4]
-    var v1z = vertices[base + 5]
-    var v2x = vertices[base + 6]
-    var v2y = vertices[base + 7]
-    var v2z = vertices[base + 8]
-
-    var e1x = v1x - v0x
-    var e1y = v1y - v0y
-    var e1z = v1z - v0z
-    var e2x = v2x - v0x
-    var e2y = v2y - v0y
-    var e2z = v2z - v0z
-
-    var px = dy * e2z - dz * e2y
-    var py = dz * e2x - dx * e2z
-    var pz = dx * e2y - dy * e2x
-    var det = e1x * px + e1y * py + e1z * pz
-
-    if det > -1e-12 and det < 1e-12:
-        return (False, Float32(1e30), Float32(0.0), Float32(0.0))
-
-    var inv_det = Float32(1.0) / det
-    var tx = ox - v0x
-    var ty = oy - v0y
-    var tz = oz - v0z
-
-    var u = (tx * px + ty * py + tz * pz) * inv_det
-    if u < 0.0 or u > 1.0:
-        return (False, Float32(1e30), Float32(0.0), Float32(0.0))
-
-    var qx = ty * e1z - tz * e1y
-    var qy = tz * e1x - tx * e1z
-    var qz = tx * e1y - ty * e1x
-
-    var v = (dx * qx + dy * qy + dz * qz) * inv_det
-    if v < 0.0 or u + v > 1.0:
-        return (False, Float32(1e30), Float32(0.0), Float32(0.0))
-
-    var t = (e2x * qx + e2y * qy + e2z * qz) * inv_det
-    if t > 1e-4 and t < t_max:
-        return (True, t, u, v)
-
-    return (False, Float32(1e30), Float32(0.0), Float32(0.0))
-
-
-@always_inline
 def _load_buffer_ray(
     rays: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
     ray_idx: Int,
@@ -628,7 +567,7 @@ def _trace_lbvh_ray[
             var leaf_idx = current & LBVH_INDEX_MASK
             var prim_idx = UInt32(sorted_prim_ids[Int(leaf_idx)])
 
-            var tri_hit = _intersect_tri_flat(
+            var tri_hit = intersect_ray_tri(
                 vertices,
                 prim_idx,
                 ray.ox,
@@ -640,7 +579,7 @@ def _trace_lbvh_ray[
                 best_t,
             )
 
-            if tri_hit[0]:
+            if tri_hit.mask[0]:
                 comptime if mode == TRACE_SHADOW:
                     return Hit(
                         Float32(0.0),
@@ -650,10 +589,10 @@ def _trace_lbvh_ray[
                         UInt32(1),
                     )
                 else:
-                    best_t = tri_hit[1]
+                    best_t = tri_hit.t
                     comptime if mode == TRACE_PRIMARY_FULL:
-                        best_u = tri_hit[2]
-                        best_v = tri_hit[3]
+                        best_u = tri_hit.u
+                        best_v = tri_hit.v
                         best_prim = prim_idx
 
             if stack_ptr == 0:

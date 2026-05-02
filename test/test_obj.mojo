@@ -5,12 +5,12 @@ from std.testing import (
     assert_false,
 )
 
+from bajo.obj.loaders import MemoryObjTextLoader
 from bajo.obj import (
     ObjMesh,
     read_obj,
     parse_obj,
     triangulated_indices,
-    MemoryObjTextLoader,
 )
 
 

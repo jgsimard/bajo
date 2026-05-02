@@ -23,7 +23,7 @@ from bajo.core.bvh.gpu.kernels import (
     TRACE_PRIMARY_T,
     TRACE_SHADOW,
 )
-from bajo.core.bvh.gpu.utils import GpuBuildTimings, GpuLBVHValidation
+from bajo.core.bvh.gpu.utils import GpuBuildTimings, GpuBVHValidation
 
 
 comptime GPU_LBVH_BLOCK_SIZE = 128
@@ -115,6 +115,7 @@ struct GpuLBVH:
         var r = perf_counter_ns()
 
         return GpuBuildTimings(
+            0,
             Int(m - start),
             Int(s - m),
             Int(t - s),
@@ -140,7 +141,7 @@ struct GpuLBVH:
         mut self,
         scene_min: Vec3f32,
         scene_max: Vec3f32,
-    ) raises -> GpuLBVHValidation:
+    ) raises -> GpuBVHValidation:
         var sorted_validation = validate_sorted_keys(
             self.keys, self.values, self.tri_count
         )
@@ -161,7 +162,7 @@ struct GpuLBVH:
             sorted_validation[6] + topo_validation[3] + refit_validation[3]
         )
 
-        return GpuLBVHValidation(
+        return GpuBVHValidation(
             sorted_validation[0],
             sorted_validation[1],
             topo_validation[0],

@@ -59,6 +59,10 @@ from bajo.core.bvh.gpu.utils import (
     _download_full_hit_checksum,
     _download_reduced_hit_t,
     _download_reduced_u32_count,
+    _print_build_result,
+    _print_scene_summary,
+    _build_cpu_reference,
+    _print_cpu_reference,
 )
 
 
@@ -71,11 +75,6 @@ comptime PRIMARY_HEIGHT = 360
 comptime PRIMARY_VIEWS = 3
 comptime INF_NS = 9223372036854775807
 
-# Meaningful default suite:
-# - Build/refit isolates Morton, radix sort, topology, and bottom-up bounds.
-# - Direct uploaded-ray traversal shows the cost of sending rays every frame.
-# - Camera full-download traversal shows the cost of writing/downloading full hits.
-# - Camera reduce/shadow is the current best GPU path.
 comptime RUN_DIRECT_RAY_UPLOAD_BENCH = True
 comptime RUN_CAMERA_FULL_DOWNLOAD_BENCH = True
 comptime RUN_CAMERA_REDUCE_AND_SHADOW_BENCH = True
@@ -86,13 +85,6 @@ def _min_ns(current: Int, candidate: Int) -> Int:
     if candidate < current:
         return candidate
     return current
-
-
-@always_inline
-def _abs_i32(v: Int) -> Int:
-    if v < 0:
-        return -v
-    return v
 
 
 @always_inline
@@ -118,16 +110,6 @@ def _build_stage_sum_ns(t: GpuBuildTimings) -> Int:
 @always_inline
 def _build_total_ns(t: GpuBuildTimings) -> Int:
     return t.total_ns
-
-
-@always_inline
-def _primary_reduce_frame_ns(r: GpuPrimaryReduceResult) -> Int:
-    return r.frame_ns
-
-
-@always_inline
-def _shadow_reduce_frame_ns(r: GpuShadowReduceResult) -> Int:
-    return r.frame_ns
 
 
 def _launch_morton(
@@ -791,7 +773,7 @@ def _benchmark_shadow_reduce(
         best_download_ns,
         best_frame_ns,
         occluded,
-        _abs_i32(Int(occluded) - reference_occluded),
+        abs(Int(occluded) - reference_occluded),
     )
 
 
@@ -1003,88 +985,6 @@ def run_gpu_lbvh_benchmark_suite(
         )
 
 
-def _build_cpu_reference(
-    mut tri_vertices: List[Vec3f32],
-    rays: List[Ray],
-) raises -> CpuReferenceResult:
-    var ref_build_t0 = perf_counter_ns()
-    var ref_bvh = BinaryBvh(
-        tri_vertices.unsafe_ptr(), UInt32(len(tri_vertices) // 3)
-    )
-    ref_bvh.build["sah", True]()
-    var ref_build_t1 = perf_counter_ns()
-
-    var ref_trace_t0 = perf_counter_ns()
-    var ref_checksum = trace_bvh_primary(ref_bvh, rays)
-    var ref_occluded = trace_bvh_shadow(ref_bvh, rays)
-    var ref_trace_t1 = perf_counter_ns()
-
-    return CpuReferenceResult(
-        Int(ref_build_t1 - ref_build_t0),
-        Int(ref_trace_t1 - ref_trace_t0),
-        ref_checksum,
-        ref_occluded,
-    )
-
-
-def _print_scene_summary(
-    tri_vertices: List[Vec3f32],
-    bmin: Vec3f32,
-    bmax: Vec3f32,
-    cmin: Vec3f32,
-    cmax: Vec3f32,
-    load_ns: Int,
-):
-    var tri_count = len(tri_vertices) // 3
-    print(t"Packed vertices: {len(tri_vertices)}")
-    print(t"Triangles: {tri_count}")
-    print(t"Internal nodes: {tri_count - 1}")
-    print(t"Load+pack ms: {_ms(load_ns)}")
-    print_vec3_rounded("Bounds min:", bmin)
-    print_vec3_rounded("Bounds max:", bmax)
-    print_vec3_rounded("Centroid min:", cmin)
-    print_vec3_rounded("Centroid max:", cmax)
-
-
-def _print_cpu_reference(reference: CpuReferenceResult):
-    print("\nCPU reference")
-    print("-------------")
-    print(t"SAH MT build:       {_ms(reference.build_ns)} ms")
-    print(
-        t"reference queries:  {_ms(reference.trace_ns)} ms | checksum:"
-        t" {round(reference.checksum, 3)} | occluded: {reference.occluded}"
-    )
-
-
-def _print_build_result(build: GpuBuildResult):
-    var build_ns = _build_total_ns(build.timings)
-    var staged_ns = _build_stage_sum_ns(build.timings)
-    print("\nGPU LBVH build/refit")
-    print("-------------------")
-    print(t"static setup once:  { _ms(build.timings.static_setup_ns) } ms")
-    print(
-        t"valid:              sorted={build.validation.sorted_ok} |"
-        t" values={build.validation.values_ok} |"
-        t" topology={build.validation.topology_ok} |"
-        t" bounds={build.validation.bounds_ok} |"
-        t" root={build.validation.root_idx}"
-    )
-    print(t"morton generation:  {_ms(build.timings.morton_ns)} ms")
-    print(t"radix sort pairs:   {_ms(build.timings.sort_ns)} ms")
-    print(t"topology build:     {_ms(build.timings.topology_ns)} ms")
-    print(t"bounds refit:       {_ms(build.timings.refit_ns)} ms")
-    print(t"build total:        {_ms(build_ns)} ms")
-    print(t"stage-sum total:    {_ms(staged_ns)} ms")
-    print(
-        t"validation detail: "
-        t" topology_roots={build.validation.topology_root_count} |"
-        t" topology_root={build.validation.topology_root_idx} |"
-        t" refit_root={build.validation.root_idx} |"
-        t" bounds_diff={round(build.validation.bounds_diff, 6)} |"
-        t" guard={build.validation.guard}"
-    )
-
-
 def _print_direct_result(
     r: GpuDirectTraversalResult,
     build_ns: Int,
@@ -1149,9 +1049,9 @@ def _print_reduce_shadow_result(
     reference_occluded: Int,
 ):
     comptime if RUN_CAMERA_REDUCE_AND_SHADOW_BENCH:
-        var primary_frame_ns = _primary_reduce_frame_ns(r.primary)
+        var primary_frame_ns = r.primary.frame_ns
         var primary_total_ns = build_ns + primary_frame_ns
-        var shadow_frame_ns = _shadow_reduce_frame_ns(r.shadow)
+        var shadow_frame_ns = r.shadow.frame_ns
         var shadow_total_ns = build_ns + shadow_frame_ns
 
         print("\nGenerated primary rays + t-only GPU checksum reduction")

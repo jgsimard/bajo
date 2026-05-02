@@ -337,20 +337,14 @@ def _write_child_bounds(
     mxz: Float32,
 ):
     var b = _node_bounds_base(parent)
-    if write_left:
-        node_bounds[b + 0] = mnx
-        node_bounds[b + 1] = mny
-        node_bounds[b + 2] = mnz
-        node_bounds[b + 3] = mxx
-        node_bounds[b + 4] = mxy
-        node_bounds[b + 5] = mxz
-    else:
-        node_bounds[b + 6] = mnx
-        node_bounds[b + 7] = mny
-        node_bounds[b + 8] = mnz
-        node_bounds[b + 9] = mxx
-        node_bounds[b + 10] = mxy
-        node_bounds[b + 11] = mxz
+    if not write_left:
+        b += 6
+    node_bounds[b + 0] = mnx
+    node_bounds[b + 1] = mny
+    node_bounds[b + 2] = mnz
+    node_bounds[b + 3] = mxx
+    node_bounds[b + 4] = mxy
+    node_bounds[b + 5] = mxz
 
 
 @always_inline

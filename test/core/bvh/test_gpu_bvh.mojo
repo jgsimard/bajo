@@ -190,7 +190,7 @@ def _download_full_hit_checksum(
     d_hits_f32: DeviceBuffer[DType.float32],
     ray_count: Int,
 ) raises -> Tuple[Float64, UInt32]:
-    var checksum = Float64(0.0)
+    var checksum = 0.0
     var hit_count = UInt32(0)
     with d_hits_f32.map_to_host() as h:
         for i in range(ray_count):
@@ -205,7 +205,7 @@ def _download_reduced_hit_t(
     d_partial_sums: DeviceBuffer[DType.float64],
     d_partial_counts: DeviceBuffer[DType.uint32],
 ) raises -> Tuple[Float64, UInt32]:
-    var checksum = Float64(0.0)
+    var checksum = 0.0
     var hit_count = UInt32(0)
     with d_partial_sums.map_to_host() as sums:
         for i in range(GPU_REDUCE_THREADS):

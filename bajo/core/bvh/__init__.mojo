@@ -71,7 +71,7 @@ def trace_bvh_shadow(bvh: BinaryBvh, rays: List[Ray]) -> Int:
 
 
 def trace_bvh_primary(bvh: BinaryBvh, rays: List[Ray]) -> Float64:
-    var checksum = Float64(0.0)
+    var checksum = 0.0
     var hit_count = 0
     for i in range(len(rays)):
         var ray = rays[i].copy()

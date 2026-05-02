@@ -164,6 +164,48 @@ def intersect_ray_aabb[
     return hit
 
 
+@always_inline
+def _axis_t_near(o: Float32, rd: Float32, mn: Float32, mx: Float32) -> Float32:
+    var t0 = (mn - o) * rd
+    var t1 = (mx - o) * rd
+    return min(t0, t1)
+
+
+@always_inline
+def _axis_t_far(o: Float32, rd: Float32, mn: Float32, mx: Float32) -> Float32:
+    var t0 = (mn - o) * rd
+    var t1 = (mx - o) * rd
+    return max(t0, t1)
+
+
+@always_inline
+def intersect_ray_aabb(
+    ox: Float32,
+    oy: Float32,
+    oz: Float32,
+    rdx: Float32,
+    rdy: Float32,
+    rdz: Float32,
+    bminx: Float32,
+    bminy: Float32,
+    bminz: Float32,
+    bmaxx: Float32,
+    bmaxy: Float32,
+    bmaxz: Float32,
+    t_max: Float32,
+) -> Tuple[Bool, Float32]:
+    var tx1 = _axis_t_near(ox, rdx, bminx, bmaxx)
+    var tx2 = _axis_t_far(ox, rdx, bminx, bmaxx)
+    var ty1 = _axis_t_near(oy, rdy, bminy, bmaxy)
+    var ty2 = _axis_t_far(oy, rdy, bminy, bmaxy)
+    var tz1 = _axis_t_near(oz, rdz, bminz, bmaxz)
+    var tz2 = _axis_t_far(oz, rdz, bminz, bmaxz)
+
+    var tmin = max(max(tx1, ty1), max(tz1, Float32(0.0)))
+    var tmax = min(min(tx2, ty2), min(tz2, t_max))
+    return (tmin <= tmax, tmin)
+
+
 def intersect_aabb_aabb[
     dtype: DType
 ](
@@ -265,6 +307,49 @@ def intersect_ray_tri[
         mask.select(t, BVH_INF),
         u,
         v,
+    )
+
+
+@always_inline
+def intersect_ray_tri(
+    vertices: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    prim_idx: UInt32,
+    ox: Float32,
+    oy: Float32,
+    oz: Float32,
+    dx: Float32,
+    dy: Float32,
+    dz: Float32,
+    t_max: Float32,
+) -> RayTriPacketHit[DType.float32, 1]:
+    var base = Int(prim_idx) * 9
+    var v0x = vertices[base + 0]
+    var v0y = vertices[base + 1]
+    var v0z = vertices[base + 2]
+    var v1x = vertices[base + 3]
+    var v1y = vertices[base + 4]
+    var v1z = vertices[base + 5]
+    var v2x = vertices[base + 6]
+    var v2y = vertices[base + 7]
+    var v2z = vertices[base + 8]
+
+    return intersect_ray_tri(
+        ox,
+        oy,
+        oz,
+        dx,
+        dy,
+        dz,
+        v0x,
+        v0y,
+        v0z,
+        v1x,
+        v1y,
+        v1z,
+        v2x,
+        v2y,
+        v2z,
+        t_max,
     )
 
 
@@ -828,24 +913,3 @@ def closest_point_edge_edge[
     c2 = p2 + (q2 - p2) * t
     dist = length(c2 - c1)
     return Vec3[dtype](s, t, dist)
-
-
-def main():
-    print("hello warp.intersect")
-    a = Vec3f32(1.0, 2.0, 3.0)
-    b = Vec3f32(4.0, 5.0, 6.0)
-    c = Vec3f32(7.0, 8.0, 8.0)
-    p = Vec3f32(9.0, 1.0, 2.0)
-    lower = Vec3f32(3.0, 4.0, 5.0)
-    upper = Vec3f32(6.0, 7.0, 8.0)
-    b_lower = Vec3f32(13.0, 14.0, 5.0)
-    b_upper = Vec3f32(16.0, 17.0, 8.0)
-    os = Vec3f32(9.0, 7.0, 6.0)
-    rcp_dir = Vec3f32(5.0, 4.0, 3.0)
-    t = Float32(1.0)
-
-    print(closest_point_to_aabb(p, lower, upper))
-    print(closest_point_to_triangle(a, b, c, p))
-    print(furthest_point_to_triangle(a, b, c, p))
-    print(intersect_ray_aabb(os, rcp_dir, lower, upper, t))
-    print(intersect_aabb_aabb(lower, upper, b_lower, b_upper))

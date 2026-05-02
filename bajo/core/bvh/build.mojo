@@ -4,7 +4,6 @@ from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32, vmin, vmax, longest_axis, InlineArray
-from bajo.core.morton import morton3
 from bajo.core.bvh.types import (
     Ray,
     BvhNode,
@@ -169,14 +168,6 @@ def _sah(
 
 
 @always_inline
-def _morton3_scalar(x: Float32, y: Float32, z: Float32) -> UInt32:
-    var vx = clamp(x, 0.0, 1.0)
-    var vy = clamp(y, 0.0, 1.0)
-    var vz = clamp(z, 0.0, 1.0)
-    return morton3(vx, vy, vz)
-
-
-@always_inline
 def _morton_pair_less(a: MortonPrim, b: MortonPrim) capturing -> Bool:
     if a.code < b.code:
         return True
@@ -202,11 +193,11 @@ def _find_lbvh_split(
     var last_code = pairs[last - 1].code
 
     if first_code == last_code:
-        return (first + last) // 2
+        return (first + last) / 2
 
     var bit = _highest_set_bit(first_code ^ last_code)
     if bit < 0:
-        return (first + last) // 2
+        return (first + last) / 2
 
     var mask = UInt32(1) << UInt32(bit)
     var left_bit = first_code & mask
@@ -215,4 +206,4 @@ def _find_lbvh_split(
         if (pairs[i].code & mask) != left_bit:
             return i
 
-    return (first + last) // 2
+    return (first + last) / 2

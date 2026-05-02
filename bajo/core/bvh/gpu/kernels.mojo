@@ -10,6 +10,7 @@ from bajo.core.bvh.gpu.constants import (
     LBVH_INDEX_MASK,
     LBVH_SENTINEL,
 )
+from bajo.core.intersect import intersect_ray_tri, intersect_ray_aabb
 from bajo.core.morton import morton3
 from bajo.core.vec import Vec3f32, vmin, vmax, cross, length, normalize
 from bajo.sort.gpu.radix_sort import device_radix_sort_pairs, RadixSortWorkspace
@@ -38,7 +39,7 @@ comptime TRACE_PRIMARY_T = "primary_t"
 comptime TRACE_SHADOW = "shadow"
 
 comptime _gpu_inf_t = Float32(3.4028234663852886e38)
-comptime _gpu_tri_miss_t = Float32(1.0e30)
+comptime _gpu_tri_miss_t = Float32.MAX
 comptime _gpu_miss_prim = UInt32(0xFFFFFFFF)
 
 
@@ -89,10 +90,10 @@ def _node_right(
 
 
 def compute_centroid_bounds(verts: List[Vec3f32]) -> Tuple[Vec3f32, Vec3f32]:
-    var bmin = Vec3f32(1.0e30, 1.0e30, 1.0e30)
-    var bmax = Vec3f32(-1.0e30, -1.0e30, -1.0e30)
+    var bmin = Vec3f32(Float32.MAX)
+    var bmax = Vec3f32(Float32.MIN)
 
-    for i in range(len(verts) // 3):
+    for i in range(len(verts) / 3):
         ref v0 = verts[i * 3 + 0]
         ref v1 = verts[i * 3 + 1]
         ref v2 = verts[i * 3 + 2]
@@ -116,8 +117,6 @@ def compute_centroid_bounds(verts: List[Vec3f32]) -> Tuple[Vec3f32, Vec3f32]:
 # Bounds/refit are intentionally NOT built here yet. This file only proves the
 # hierarchy topology generated from sorted Morton codes.
 # -----------------------------------------------------------------------------
-
-
 @always_inline
 def _common_prefix_gpu(
     keys: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
@@ -310,18 +309,18 @@ def init_lbvh_bounds_kernel(
         return
 
     var b = i * LBVH_NODE_BOUNDS_STRIDE
-    node_bounds[b + 0] = Float32(1.0e30)
-    node_bounds[b + 1] = Float32(1.0e30)
-    node_bounds[b + 2] = Float32(1.0e30)
-    node_bounds[b + 3] = Float32(-1.0e30)
-    node_bounds[b + 4] = Float32(-1.0e30)
-    node_bounds[b + 5] = Float32(-1.0e30)
-    node_bounds[b + 6] = Float32(1.0e30)
-    node_bounds[b + 7] = Float32(1.0e30)
-    node_bounds[b + 8] = Float32(1.0e30)
-    node_bounds[b + 9] = Float32(-1.0e30)
-    node_bounds[b + 10] = Float32(-1.0e30)
-    node_bounds[b + 11] = Float32(-1.0e30)
+    node_bounds[b + 0] = Float32.MAX
+    node_bounds[b + 1] = Float32.MAX
+    node_bounds[b + 2] = Float32.MAX
+    node_bounds[b + 3] = Float32.MIN
+    node_bounds[b + 4] = Float32.MIN
+    node_bounds[b + 5] = Float32.MIN
+    node_bounds[b + 6] = Float32.MAX
+    node_bounds[b + 7] = Float32.MAX
+    node_bounds[b + 8] = Float32.MAX
+    node_bounds[b + 9] = Float32.MIN
+    node_bounds[b + 10] = Float32.MIN
+    node_bounds[b + 11] = Float32.MIN
     node_flags[i] = UInt32(0)
 
 
@@ -338,20 +337,14 @@ def _write_child_bounds(
     mxz: Float32,
 ):
     var b = _node_bounds_base(parent)
-    if write_left:
-        node_bounds[b + 0] = mnx
-        node_bounds[b + 1] = mny
-        node_bounds[b + 2] = mnz
-        node_bounds[b + 3] = mxx
-        node_bounds[b + 4] = mxy
-        node_bounds[b + 5] = mxz
-    else:
-        node_bounds[b + 6] = mnx
-        node_bounds[b + 7] = mny
-        node_bounds[b + 8] = mnz
-        node_bounds[b + 9] = mxx
-        node_bounds[b + 10] = mxy
-        node_bounds[b + 11] = mxz
+    if not write_left:
+        b += 6
+    node_bounds[b + 0] = mnx
+    node_bounds[b + 1] = mny
+    node_bounds[b + 2] = mnz
+    node_bounds[b + 3] = mxx
+    node_bounds[b + 4] = mxy
+    node_bounds[b + 5] = mxz
 
 
 @always_inline
@@ -444,112 +437,6 @@ def refit_lbvh_bounds_kernel(
 # Child pointers use LBVH_LEAF_FLAG in the high bit to distinguish leaf vs
 # internal nodes, following the same encoding used by the topology kernel.
 # -----------------------------------------------------------------------------
-
-
-@always_inline
-def _axis_t_near(o: Float32, rd: Float32, mn: Float32, mx: Float32) -> Float32:
-    var t0 = (mn - o) * rd
-    var t1 = (mx - o) * rd
-    return min(t0, t1)
-
-
-@always_inline
-def _axis_t_far(o: Float32, rd: Float32, mn: Float32, mx: Float32) -> Float32:
-    var t0 = (mn - o) * rd
-    var t1 = (mx - o) * rd
-    return max(t0, t1)
-
-
-@always_inline
-def _intersect_aabb_flat(
-    ox: Float32,
-    oy: Float32,
-    oz: Float32,
-    rdx: Float32,
-    rdy: Float32,
-    rdz: Float32,
-    bminx: Float32,
-    bminy: Float32,
-    bminz: Float32,
-    bmaxx: Float32,
-    bmaxy: Float32,
-    bmaxz: Float32,
-    t_max: Float32,
-) -> Tuple[Bool, Float32]:
-    var tx1 = _axis_t_near(ox, rdx, bminx, bmaxx)
-    var tx2 = _axis_t_far(ox, rdx, bminx, bmaxx)
-    var ty1 = _axis_t_near(oy, rdy, bminy, bmaxy)
-    var ty2 = _axis_t_far(oy, rdy, bminy, bmaxy)
-    var tz1 = _axis_t_near(oz, rdz, bminz, bmaxz)
-    var tz2 = _axis_t_far(oz, rdz, bminz, bmaxz)
-
-    var tmin = max(max(tx1, ty1), max(tz1, Float32(0.0)))
-    var tmax = min(min(tx2, ty2), min(tz2, t_max))
-    return (tmin <= tmax, tmin)
-
-
-@always_inline
-def _intersect_tri_flat(
-    vertices: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    prim_idx: UInt32,
-    ox: Float32,
-    oy: Float32,
-    oz: Float32,
-    dx: Float32,
-    dy: Float32,
-    dz: Float32,
-    t_max: Float32,
-) -> Tuple[Bool, Float32, Float32, Float32]:
-    var base = Int(prim_idx) * 9
-    var v0x = vertices[base + 0]
-    var v0y = vertices[base + 1]
-    var v0z = vertices[base + 2]
-    var v1x = vertices[base + 3]
-    var v1y = vertices[base + 4]
-    var v1z = vertices[base + 5]
-    var v2x = vertices[base + 6]
-    var v2y = vertices[base + 7]
-    var v2z = vertices[base + 8]
-
-    var e1x = v1x - v0x
-    var e1y = v1y - v0y
-    var e1z = v1z - v0z
-    var e2x = v2x - v0x
-    var e2y = v2y - v0y
-    var e2z = v2z - v0z
-
-    var px = dy * e2z - dz * e2y
-    var py = dz * e2x - dx * e2z
-    var pz = dx * e2y - dy * e2x
-    var det = e1x * px + e1y * py + e1z * pz
-
-    if det > -1e-12 and det < 1e-12:
-        return (False, Float32(1e30), Float32(0.0), Float32(0.0))
-
-    var inv_det = Float32(1.0) / det
-    var tx = ox - v0x
-    var ty = oy - v0y
-    var tz = oz - v0z
-
-    var u = (tx * px + ty * py + tz * pz) * inv_det
-    if u < 0.0 or u > 1.0:
-        return (False, Float32(1e30), Float32(0.0), Float32(0.0))
-
-    var qx = ty * e1z - tz * e1y
-    var qy = tz * e1x - tx * e1z
-    var qz = tx * e1y - ty * e1x
-
-    var v = (dx * qx + dy * qy + dz * qz) * inv_det
-    if v < 0.0 or u + v > 1.0:
-        return (False, Float32(1e30), Float32(0.0), Float32(0.0))
-
-    var t = (e2x * qx + e2y * qy + e2z * qz) * inv_det
-    if t > 1e-4 and t < t_max:
-        return (True, t, u, v)
-
-    return (False, Float32(1e30), Float32(0.0), Float32(0.0))
-
-
 @always_inline
 def _load_buffer_ray(
     rays: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
@@ -580,7 +467,7 @@ def _intersect_child_bounds[
     t_max: Float32,
 ) -> Tuple[Bool, Float32]:
     var b = _node_bounds_base(node_idx) + child_bounds_offset
-    return _intersect_aabb_flat(
+    return intersect_ray_aabb(
         ray.ox,
         ray.oy,
         ray.oz,
@@ -628,7 +515,7 @@ def _trace_lbvh_ray[
             var leaf_idx = current & LBVH_INDEX_MASK
             var prim_idx = UInt32(sorted_prim_ids[Int(leaf_idx)])
 
-            var tri_hit = _intersect_tri_flat(
+            var tri_hit = intersect_ray_tri(
                 vertices,
                 prim_idx,
                 ray.ox,
@@ -640,7 +527,7 @@ def _trace_lbvh_ray[
                 best_t,
             )
 
-            if tri_hit[0]:
+            if tri_hit.mask[0]:
                 comptime if mode == TRACE_SHADOW:
                     return Hit(
                         Float32(0.0),
@@ -650,10 +537,10 @@ def _trace_lbvh_ray[
                         UInt32(1),
                     )
                 else:
-                    best_t = tri_hit[1]
+                    best_t = tri_hit.t
                     comptime if mode == TRACE_PRIMARY_FULL:
-                        best_u = tri_hit[2]
-                        best_v = tri_hit[3]
+                        best_u = tri_hit.u
+                        best_v = tri_hit.v
                         best_prim = prim_idx
 
             if stack_ptr == 0:
@@ -1004,7 +891,7 @@ def reduce_hit_t_kernel(
     var i = Int(block_idx.x * block_dim.x + thread_idx.x)
     if i >= partial_count:
         return
-    var sum = Float64(0.0)
+    var sum = 0.0
     var count = UInt32(0)
     var j = i
     while j < ray_count:

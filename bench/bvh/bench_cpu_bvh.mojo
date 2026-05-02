@@ -39,7 +39,7 @@ comptime GPU_STACK_SIZE = 64
 
 
 def trace_bvh_primary(bvh: BinaryBvh, rays: List[Ray]) -> Float64:
-    var checksum = Float64(0.0)
+    var checksum = 0.0
     var hit_count = 0
     for i in range(len(rays)):
         var ray = rays[i].copy()
@@ -53,7 +53,7 @@ def trace_bvh_primary(bvh: BinaryBvh, rays: List[Ray]) -> Float64:
 def trace_wide_primary[
     width: Int
 ](wide: WideBvh[width], rays: List[Ray]) -> Float64:
-    var checksum = Float64(0.0)
+    var checksum = 0.0
     var hit_count = 0
     for i in range(len(rays)):
         var ray = rays[i].copy()
@@ -74,7 +74,7 @@ def trace_wide_shadow[width: Int](wide: WideBvh[width], rays: List[Ray]) -> Int:
 
 
 def trace_gpu_primary(gpu: BvhGpuLayout, rays: List[Ray]) -> Float64:
-    var checksum = Float64(0.0)
+    var checksum = 0.0
     var hit_count = 0
 
     for i in range(len(rays)):
@@ -742,7 +742,7 @@ def trace_gpu_primary_device(
         var best_ray_upload_ns = Int.MAX
         var best_kernel_ns = Int.MAX
         var best_download_ns = Int.MAX
-        var checksum = Float64(0.0)
+        var checksum = 0.0
         var hit_count = 0
 
         for _ in range(repeats):
@@ -780,7 +780,7 @@ def trace_gpu_primary_device(
                 best_kernel_ns = kernel_ns
 
             var download_t0 = perf_counter_ns()
-            checksum = Float64(0.0)
+            checksum = 0.0
             hit_count = 0
             with d_hits_f32.map_to_host() as h:
                 for i in range(len(rays)):

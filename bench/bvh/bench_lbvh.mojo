@@ -10,7 +10,7 @@ from bajo.core.utils import (
     pack_obj_triangles,
     print_vec3_rounded,
 )
-from bajo.core.vec import Vec3f32
+from bajo.core.vec import Vec3f32, normalize
 from bajo.core.bvh import (
     generate_primary_rays,
     trace_bvh_primary,
@@ -19,7 +19,7 @@ from bajo.core.bvh import (
     copy_list_to_device,
     compute_bounds,
 )
-from bajo.core.bvh.cpu.binary_bvh import BVH, Ray
+from bajo.core.bvh.cpu.binary_bvh import BinaryBvh, Ray
 from bajo.core.bvh.gpu.kernels import (
     compute_centroid_bounds,
     generate_camera_params,
@@ -34,9 +34,7 @@ from bajo.core.bvh.gpu.lbvh import (
     GpuLBVH,
     GpuLBVHBuildTimings,
     GpuLBVHValidation,
-    centroid_normalization,
     gpu_lbvh_blocks_for,
-    gpu_lbvh_stage_sum,
     GPU_LBVH_BLOCK_SIZE,
 )
 
@@ -47,7 +45,6 @@ comptime BENCH_REPEATS = 8
 comptime PRIMARY_WIDTH = 640
 comptime PRIMARY_HEIGHT = 360
 comptime PRIMARY_VIEWS = 3
-comptime INF_NS = 9223372036854775807
 
 comptime RUN_DIRECT_RAY_UPLOAD_BENCH = True
 comptime RUN_CAMERA_FULL_DOWNLOAD_BENCH = True
@@ -133,13 +130,6 @@ def _min_ns(current: Int, candidate: Int) -> Int:
 
 
 @always_inline
-def _abs_i32(v: Int) -> Int:
-    if v < 0:
-        return -v
-    return v
-
-
-@always_inline
 def _ms(ns: Int) -> Float64:
     return round(ns_to_ms(ns), 3)
 
@@ -175,7 +165,7 @@ def _download_full_hit_checksum(
     d_hits_f32: DeviceBuffer[DType.float32],
     ray_count: Int,
 ) raises -> Tuple[Float64, UInt32]:
-    var checksum = Float64(0.0)
+    var checksum = 0.0
     var hit_count = UInt32(0)
     with d_hits_f32.map_to_host() as h:
         for i in range(ray_count):
@@ -192,7 +182,7 @@ def _download_reduced_hit_t(
     d_partial_sums: DeviceBuffer[DType.float64],
     d_partial_counts: DeviceBuffer[DType.uint32],
 ) raises -> Tuple[Float64, UInt32]:
-    var checksum = Float64(0.0)
+    var checksum = 0.0
     var hit_count = UInt32(0)
     with d_partial_sums.map_to_host() as sums:
         for i in range(GPU_REDUCE_THREADS):
@@ -231,11 +221,11 @@ def _benchmark_direct_uploaded_rays(
     lbvh.launch_uploaded_primary(ctx, d_rays, d_hits_f32, d_hits_u32, ray_count)
     ctx.synchronize()
 
-    var best_upload_ns = Int(INF_NS)
-    var best_kernel_ns = Int(INF_NS)
-    var best_download_ns = Int(INF_NS)
-    var best_frame_ns = Int(INF_NS)
-    var checksum = Float64(0.0)
+    var best_upload_ns = Int.MAX
+    var best_kernel_ns = Int.MAX
+    var best_download_ns = Int.MAX
+    var best_frame_ns = Int.MAX
+    var checksum = 0.0
     var hit_count = UInt32(0)
 
     for _ in range(repeats):
@@ -297,10 +287,10 @@ def _benchmark_camera_full_download(
     )
     ctx.synchronize()
 
-    var best_kernel_ns = Int(INF_NS)
-    var best_download_ns = Int(INF_NS)
-    var best_frame_ns = Int(INF_NS)
-    var checksum = Float64(0.0)
+    var best_kernel_ns = Int.MAX
+    var best_download_ns = Int.MAX
+    var best_frame_ns = Int.MAX
+    var checksum = 0.0
     var hit_count = UInt32(0)
 
     for _ in range(repeats):
@@ -354,11 +344,11 @@ def _benchmark_primary_reduce(
     repeats: Int,
 ) raises -> GpuPrimaryReduceResult:
     var reduce_blocks = gpu_lbvh_blocks_for(GPU_REDUCE_THREADS)
-    var best_kernel_ns = Int(INF_NS)
-    var best_reduce_ns = Int(INF_NS)
-    var best_download_ns = Int(INF_NS)
-    var best_frame_ns = Int(INF_NS)
-    var checksum = Float64(0.0)
+    var best_kernel_ns = Int.MAX
+    var best_reduce_ns = Int.MAX
+    var best_download_ns = Int.MAX
+    var best_frame_ns = Int.MAX
+    var checksum = 0.0
     var hit_count = UInt32(0)
 
     for _ in range(repeats):
@@ -428,10 +418,10 @@ def _benchmark_shadow_reduce(
     repeats: Int,
 ) raises -> GpuShadowReduceResult:
     var reduce_blocks = gpu_lbvh_blocks_for(GPU_REDUCE_THREADS)
-    var best_kernel_ns = Int(INF_NS)
-    var best_reduce_ns = Int(INF_NS)
-    var best_download_ns = Int(INF_NS)
-    var best_frame_ns = Int(INF_NS)
+    var best_kernel_ns = Int.MAX
+    var best_reduce_ns = Int.MAX
+    var best_download_ns = Int.MAX
+    var best_frame_ns = Int.MAX
     var occluded = UInt32(0)
 
     for _ in range(repeats):
@@ -479,7 +469,7 @@ def _benchmark_shadow_reduce(
         best_download_ns,
         best_frame_ns,
         occluded,
-        _abs_i32(Int(occluded) - reference_occluded),
+        abs(Int(occluded) - reference_occluded),
     )
 
 
@@ -497,7 +487,7 @@ def run_gpu_lbvh_benchmark_suite(
 ) raises -> GpuSuiteResult:
     var ray_count = len(rays)
     var rays_flat = flatten_rays(rays)
-    var norm = centroid_normalization(centroid_min, centroid_max)
+    var norm = normalize(centroid_max - centroid_min)
 
     with DeviceContext() as ctx:
         var setup0 = perf_counter_ns()
@@ -604,7 +594,9 @@ def _build_cpu_reference(
     rays: List[Ray],
 ) raises -> CpuReferenceResult:
     var ref_build_t0 = perf_counter_ns()
-    var ref_bvh = BVH(tri_vertices.unsafe_ptr(), UInt32(len(tri_vertices) // 3))
+    var ref_bvh = BinaryBvh(
+        tri_vertices.unsafe_ptr(), UInt32(len(tri_vertices) // 3)
+    )
     ref_bvh.build["sah", True]()
     var ref_build_t1 = perf_counter_ns()
 
@@ -651,7 +643,7 @@ def _print_cpu_reference(reference: CpuReferenceResult):
 
 
 def _print_build_result(build: GpuBuildResult):
-    var stage_sum_ns = gpu_lbvh_stage_sum(build.timings)
+    var stage_sum_ns = build.timings.sum()
     print("\nGPU LBVH build/refit")
     print("-------------------")
     print(t"static setup once:  {_ms(build.static_setup_ns)} ms")
@@ -685,23 +677,17 @@ def _print_direct_result(
 ):
     comptime if RUN_DIRECT_RAY_UPLOAD_BENCH:
         var total_ns = build_ns + r.frame_ns
-        print("\nUploaded primary rays + full hit download")
-        print("-----------------------------------------")
-        print(t"ray upload:         {_ms(r.upload_ns)} ms")
         print(
+            t"\nUploaded primary rays + full hit download\n"
+            t"-----------------------------------------\n"
+            t"ray upload:         {_ms(r.upload_ns)} ms\n"
             t"traversal kernel:   {_ms(r.kernel_ns)} ms"
-            t" | {_mrays(r.kernel_ns, ray_count)} MRays/s"
-        )
-        print(t"full hit download:  {_ms(r.download_ns)} ms")
-        print(
+            t" | {_mrays(r.kernel_ns, ray_count)} MRays/s\n"
+            t"full hit download:  {_ms(r.download_ns)} ms\n"
             t"query total:        {_ms(r.frame_ns)} ms"
-            t" | {_mrays(r.frame_ns, ray_count)} MRays/s"
-        )
-        print(
+            t" | {_mrays(r.frame_ns, ray_count)} MRays/s\n"
             t"build + query:      {_ms(total_ns)} ms"
-            t" | {_mrays(total_ns, ray_count)} MRays/s"
-        )
-        print(
+            t" | {_mrays(total_ns, ray_count)} MRays/s\n"
             t"validation diff:    {round(r.diff, 3)} |"
             t" checksum: {round(r.checksum, 3)} | hits: {r.hit_count}"
         )
@@ -714,22 +700,16 @@ def _print_camera_full_result(
 ):
     comptime if RUN_CAMERA_FULL_DOWNLOAD_BENCH:
         var total_ns = build_ns + r.frame_ns
-        print("\nGenerated primary rays + full hit download")
-        print("------------------------------------------")
         print(
+            t"\nGenerated primary rays + full hit download\n"
+            t"------------------------------------------\n"
             t"camera kernel:      {_ms(r.kernel_ns)} ms"
-            t" | {_mrays(r.kernel_ns, ray_count)} MRays/s"
-        )
-        print(t"full hit download:  {_ms(r.download_ns)} ms")
-        print(
+            t" | {_mrays(r.kernel_ns, ray_count)} MRays/s\n"
+            t"full hit download:  {_ms(r.download_ns)} ms\n"
             t"query total:        {_ms(r.frame_ns)} ms"
-            t" | {_mrays(r.frame_ns, ray_count)} MRays/s"
-        )
-        print(
+            t" | {_mrays(r.frame_ns, ray_count)} MRays/s\n"
             t"build + query:      {_ms(total_ns)} ms"
-            t" | {_mrays(total_ns, ray_count)} MRays/s"
-        )
-        print(
+            t" | {_mrays(total_ns, ray_count)} MRays/s\n"
             t"validation diff:    {round(r.diff, 3)} |"
             t" checksum: {round(r.checksum, 3)} | hits: {r.hit_count}"
         )

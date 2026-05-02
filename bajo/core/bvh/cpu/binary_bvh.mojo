@@ -23,7 +23,6 @@ from bajo.core.bvh.build import (
     _partition_fragments_by_bin,
     _partition_fragments,
     _find_lbvh_split,
-    _morton3_scalar,
     _morton_pair_less,
 )
 
@@ -316,10 +315,10 @@ struct BinaryBvh(Copyable):
             var x = (frag.center_axis(0) - centroid_min.x()) * inv_x
             var y = (frag.center_axis(1) - centroid_min.y()) * inv_y
             var z = (frag.center_axis(2) - centroid_min.z()) * inv_z
-            var code = _morton3_scalar(x, y, z)
+            var code = morton3(x, y, z)
             pairs.append(MortonPrim(code, UInt32(i)))
 
-        span = Span(ptr=pairs.unsafe_ptr(), length=len(pairs))
+        span = Span(pairs)
 
         sort[_morton_pair_less](span)
 
@@ -330,7 +329,7 @@ struct BinaryBvh(Copyable):
             pairs.unsafe_ptr(), 0, 0, Int(self.tri_count)
         )
 
-    def build[split_method: String, is_mt: Bool](mut self):
+    def build[split_method: String, parallel: Bool](mut self):
         comptime if split_method == "lbvh":
             self.build_lbvh()
         else:
@@ -341,7 +340,7 @@ struct BinaryBvh(Copyable):
             var atomic_nodes = alloc[Scalar[DType.uint32]](1)
             atomic_nodes[0] = self.nodes_used
 
-            comptime if not is_mt:
+            comptime if not parallel:
                 # Single-threaded: Just run the loop once from the root
                 self._build_iterative[split_method](0, atomic_nodes)
 

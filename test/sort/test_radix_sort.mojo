@@ -1,12 +1,9 @@
 from std.math import ceildiv
 from std.testing import (
     TestSuite,
-    assert_almost_equal,
     assert_true,
-    assert_false,
     assert_equal,
 )
-from std.gpu import thread_idx, block_idx, block_dim
 from std.gpu.host import DeviceContext
 
 from bajo.sort.gpu.radix_sort import (
@@ -24,25 +21,25 @@ def test_upsweep() raises:
         comptime RADIX_MASK = RADIX - 1
         comptime VEC_WIDTH = 4
         comptime KEYS_PER_THREAD = 8
-        comptime PART_SIZE = 512 * KEYS_PER_THREAD  # = BLOCK_SIZE * KEYS_PER_THREAD = 512 * 8
+        comptime PART_SIZE = 512 * KEYS_PER_THREAD
         var size = 10_000
 
-        var d_keys = ctx.enqueue_create_buffer[dtype](size)
-        var d_globalHist = ctx.enqueue_create_buffer[dtype](1024)
+        var keys = ctx.enqueue_create_buffer[dtype](size)
+        var global_hist = ctx.enqueue_create_buffer[dtype](1024)
 
         var gdim = ceildiv(size, PART_SIZE)
         var bdim = 128
-        var d_passHist = ctx.enqueue_create_buffer[dtype](gdim * RADIX)
+        var pass_hist = ctx.enqueue_create_buffer[dtype](gdim * RADIX)
 
-        d_globalHist.enqueue_fill(0)
-        d_passHist.enqueue_fill(0)
+        global_hist.enqueue_fill(0)
+        pass_hist.enqueue_fill(0)
 
         # CPU ground-truth histogram
         var expected_counts = List[UInt32](capacity=RADIX)
         for _ in range(RADIX):
             expected_counts.append(0)
 
-        with d_keys.map_to_host() as host_keys:
+        with keys.map_to_host() as host_keys:
             for i in range(size):
                 var val = UInt32((i * 13) ^ (i << 16))
                 host_keys[i] = val
@@ -53,9 +50,9 @@ def test_upsweep() raises:
             upsweep[dtype, 128, RADIX, VEC_WIDTH, KEYS_PER_THREAD],
             upsweep[dtype, 128, RADIX, VEC_WIDTH, KEYS_PER_THREAD],
         ](
-            d_keys.unsafe_ptr(),
-            d_globalHist.unsafe_ptr(),
-            d_passHist.unsafe_ptr(),
+            keys,
+            global_hist,
+            pass_hist,
             size,
             UInt32(0),  # Testing radixShift = 0 first
             grid_dim=gdim,
@@ -72,7 +69,7 @@ def test_upsweep() raises:
             current_sum += expected_counts[i]
 
         # Verify
-        with d_globalHist.map_to_host() as host_hist:
+        with global_hist.map_to_host() as host_hist:
             for i in range(RADIX):
                 assert_equal(
                     host_hist[i],
@@ -92,12 +89,12 @@ def test_scan() raises:
         var thread_blocks = 200
         var total_size = RADIX * thread_blocks
 
-        var d_passHist = ctx.enqueue_create_buffer[dtype](total_size)
+        var pass_hist = ctx.enqueue_create_buffer[dtype](total_size)
         var expected = List[UInt32](capacity=total_size)
 
         # We fill passHist with 1s. The exclusive prefix sum of [1, 1, 1...]
         # should be[0, 1, 2, 3...] independent for each radix block.
-        with d_passHist.map_to_host() as host_hist:
+        with pass_hist.map_to_host() as host_hist:
             for bid in range(RADIX):
                 var current_sum: UInt32 = 0
                 var offset = bid * thread_blocks
@@ -108,26 +105,26 @@ def test_scan() raises:
 
         # Execute
         ctx.enqueue_function[scan[128], scan[128]](
-            d_passHist.unsafe_ptr(),
+            pass_hist,
             thread_blocks,
-            grid_dim=RADIX,  # One block per digit
-            block_dim=128,  # Must be 128 as designed
+            grid_dim=RADIX,
+            block_dim=128,
         )
 
         ctx.synchronize()
 
         # Verify
-        with d_passHist.map_to_host() as host_hist:
+        with pass_hist.map_to_host() as host_hist:
             for bid in range(RADIX):
                 var offset = bid * thread_blocks
                 for i in range(thread_blocks):
                     assert_equal(
                         host_hist[offset + i],
                         expected[offset + i],
-                        msg=String("Mismatch at Radix bin ")
-                        + String(bid)
-                        + String(" thread_block offset ")
-                        + String(i),
+                        msg=String(
+                            t"Mismatch at Radix bin {bid}  thread_block"
+                            t" offset {i}"
+                        ),
                     )
 
 
@@ -147,19 +144,19 @@ def test_downsweep_end_to_end() raises:
         var _dummy_ptr = Optional[UnsafePointer[UInt32, MutAnyOrigin]]()
 
         var size = 20_000
-        var gdim = ceildiv(Int(size), PART_SIZE)
+        var gdim = ceildiv(size, PART_SIZE)
 
-        var d_keys = ctx.enqueue_create_buffer[dtype](Int(size))
-        var d_alt = ctx.enqueue_create_buffer[dtype](Int(size))
-        var d_globalHist = ctx.enqueue_create_buffer[dtype](1024)
-        var d_passHist = ctx.enqueue_create_buffer[dtype](gdim * RADIX)
+        var keys = ctx.enqueue_create_buffer[dtype](size)
+        var keys_alternate = ctx.enqueue_create_buffer[dtype](size)
+        var global_hist = ctx.enqueue_create_buffer[dtype](1024)
+        var pass_hist = ctx.enqueue_create_buffer[dtype](gdim * RADIX)
 
-        d_globalHist.enqueue_fill(0)
-        d_passHist.enqueue_fill(0)
+        global_hist.enqueue_fill(0)
+        pass_hist.enqueue_fill(0)
 
         # Generate random keys
-        with d_keys.map_to_host() as host_keys:
-            for i in range(Int(size)):
+        with keys.map_to_host() as host_keys:
+            for i in range(size):
                 host_keys[i] = UInt32((i * 17) ^ (i << 13) ^ (i >> 5))
 
         # 1. UPSWEEP
@@ -167,9 +164,9 @@ def test_downsweep_end_to_end() raises:
             upsweep[dtype, 128, RADIX, VEC_WIDTH, KEYS_PER_THREAD],
             upsweep[dtype, 128, RADIX, VEC_WIDTH, KEYS_PER_THREAD],
         ](
-            d_keys.unsafe_ptr(),
-            d_globalHist.unsafe_ptr(),
-            d_passHist.unsafe_ptr(),
+            keys,
+            global_hist,
+            pass_hist,
             size,
             UInt32(0),
             grid_dim=gdim,
@@ -179,21 +176,21 @@ def test_downsweep_end_to_end() raises:
 
         # 2. SCAN
         ctx.enqueue_function[scan[128], scan[128]](
-            d_passHist.unsafe_ptr(), gdim, grid_dim=RADIX, block_dim=128
+            pass_hist, gdim, grid_dim=RADIX, block_dim=128
         )
         ctx.synchronize()
 
         # 3. DOWNSWEEP
-        ctx.enqueue_function[
-            downsweep[dtype, dtype, BITS_PER_PASS, 512, KEYS_PER_THREAD, False],
-            downsweep[dtype, dtype, BITS_PER_PASS, 512, KEYS_PER_THREAD, False],
-        ](
-            d_keys.unsafe_ptr(),
-            d_alt.unsafe_ptr(),
+        comptime _downsweep = downsweep[
+            dtype, dtype, BITS_PER_PASS, 512, KEYS_PER_THREAD, False
+        ]
+        ctx.enqueue_function[_downsweep, _downsweep](
+            keys,
+            keys_alternate,
             _dummy_ptr,
             _dummy_ptr,
-            d_globalHist.unsafe_ptr(),
-            d_passHist.unsafe_ptr(),
+            global_hist,
+            pass_hist,
             size,
             UInt32(0),
             grid_dim=gdim,
@@ -202,15 +199,11 @@ def test_downsweep_end_to_end() raises:
         ctx.synchronize()
 
         # Build CPU 1-pass Stable Sort ground truth
-        var cpu_sorted = List[UInt32](capacity=Int(size))
-        var counts = List[UInt32](capacity=RADIX)
-        for _ in range(RADIX):
-            counts.append(0)
-        for _ in range(Int(size)):
-            cpu_sorted.append(0)
+        var cpu_sorted = List[UInt32](length=size, fill=0)
+        var counts = List[UInt32](length=RADIX, fill=0)
 
-        with d_keys.map_to_host() as host_keys:
-            for i in range(Int(size)):
+        with keys.map_to_host() as host_keys:
+            for i in range(size):
                 counts[Int(host_keys[i] & RADIX_MASK)] += 1
 
             var current_sum: UInt32 = 0
@@ -219,7 +212,7 @@ def test_downsweep_end_to_end() raises:
                 counts[i] = current_sum
                 current_sum += cnt
 
-            for i in range(Int(size)):
+            for i in range(size):
                 var val = host_keys[i]
                 var digit = Int(val & RADIX_MASK)
                 var dst = counts[digit]
@@ -227,13 +220,12 @@ def test_downsweep_end_to_end() raises:
                 counts[digit] += 1
 
         # Verify
-        with d_alt.map_to_host() as host_alt:
-            for i in range(Int(size)):
+        with keys_alternate.map_to_host() as host_alt:
+            for i in range(size):
                 assert_equal(
                     host_alt[i],
                     cpu_sorted[i],
-                    msg=String("Mismatch after downsweep at sorted index ")
-                    + String(i),
+                    msg=String(t"Mismatch after downsweep at sorted index {i}"),
                 )
 
 
@@ -253,19 +245,19 @@ def test_downsweep_pairs_end_to_end() raises:
         var gdim = ceildiv(size, PART_SIZE)
         var bdim = 512
 
-        var d_keys = ctx.enqueue_create_buffer[dtype](Int(size))
-        var d_vals = ctx.enqueue_create_buffer[dtype](Int(size))
-        var d_alt_keys = ctx.enqueue_create_buffer[dtype](Int(size))
-        var d_alt_vals = ctx.enqueue_create_buffer[dtype](Int(size))
-        var d_globalHist = ctx.enqueue_create_buffer[dtype](1024)
-        var d_passHist = ctx.enqueue_create_buffer[dtype](gdim * RADIX)
+        var keys = ctx.enqueue_create_buffer[dtype](size)
+        var vals = ctx.enqueue_create_buffer[dtype](size)
+        var keys_alternate_keys = ctx.enqueue_create_buffer[dtype](size)
+        var keys_alternate_vals = ctx.enqueue_create_buffer[dtype](size)
+        var global_hist = ctx.enqueue_create_buffer[dtype](1024)
+        var pass_hist = ctx.enqueue_create_buffer[dtype](gdim * RADIX)
 
-        d_globalHist.enqueue_fill(0)
-        d_passHist.enqueue_fill(0)
+        global_hist.enqueue_fill(0)
+        pass_hist.enqueue_fill(0)
 
         # Generate keys and payloads
-        with d_keys.map_to_host() as host_keys, d_vals.map_to_host() as host_vals:
-            for i in range(Int(size)):
+        with keys.map_to_host() as host_keys, vals.map_to_host() as host_vals:
+            for i in range(size):
                 host_keys[i] = UInt32((i * 17) ^ (i << 13))
                 host_vals[i] = UInt32(i)  # Payload is original index
 
@@ -274,9 +266,9 @@ def test_downsweep_pairs_end_to_end() raises:
             upsweep[dtype, 128, RADIX, VEC_WIDTH, KEYS_PER_THREAD],
             upsweep[dtype, 128, RADIX, VEC_WIDTH, KEYS_PER_THREAD],
         ](
-            d_keys.unsafe_ptr(),
-            d_globalHist.unsafe_ptr(),
-            d_passHist.unsafe_ptr(),
+            keys,
+            global_hist,
+            pass_hist,
             size,
             UInt32(0),
             grid_dim=gdim,
@@ -286,7 +278,7 @@ def test_downsweep_pairs_end_to_end() raises:
 
         # 2. SCAN
         ctx.enqueue_function[scan[128], scan[128]](
-            d_passHist.unsafe_ptr(), gdim, grid_dim=RADIX, block_dim=128
+            pass_hist, gdim, grid_dim=RADIX, block_dim=128
         )
         ctx.synchronize()
 
@@ -295,12 +287,12 @@ def test_downsweep_pairs_end_to_end() raises:
             downsweep[dtype, dtype, BITS_PER_PASS, 512, KEYS_PER_THREAD, True],
             downsweep[dtype, dtype, BITS_PER_PASS, 512, KEYS_PER_THREAD, True],
         ](
-            d_keys.unsafe_ptr(),
-            d_alt_keys.unsafe_ptr(),
-            Optional(d_vals.unsafe_ptr()),
-            Optional(d_alt_vals.unsafe_ptr()),
-            d_globalHist.unsafe_ptr(),
-            d_passHist.unsafe_ptr(),
+            keys,
+            keys_alternate_keys,
+            Optional(vals.unsafe_ptr()),
+            Optional(keys_alternate_vals.unsafe_ptr()),
+            global_hist,
+            pass_hist,
             size,
             UInt32(0),
             grid_dim=gdim,
@@ -309,10 +301,10 @@ def test_downsweep_pairs_end_to_end() raises:
         ctx.synchronize()
 
         # Verify against CPU stable sort
-        with d_alt_keys.map_to_host() as host_alt_keys, d_alt_vals.map_to_host() as host_alt_vals:
+        with keys_alternate_keys.map_to_host() as host_alt_keys, keys_alternate_vals.map_to_host() as host_alt_vals:
             # Simple check: Keys should be non-decreasing for the first byte
             # and payload should match the original position's index to ensure stability.
-            for i in range(Int(size) - 1):
+            for i in range(size - 1):
                 var k1 = host_alt_keys[i] & RADIX_MASK
                 var k2 = host_alt_keys[i + 1] & RADIX_MASK
                 assert_true(k1 <= k2, msg="Keys not sorted")

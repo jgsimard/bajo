@@ -5,7 +5,7 @@ from std.testing import TestSuite, assert_true
 from std.gpu import DeviceContext, DeviceBuffer
 
 from bajo.sort.gpu.radix_sort import device_radix_sort_pairs, RadixSortWorkspace
-from bajo.core.vec import Vec3f32
+from bajo.core.vec import Vec3f32, normalize
 from bajo.core.bvh.gpu.validate import (
     validate_sorted_keys,
     validate_topology,
@@ -46,13 +46,6 @@ comptime GPU_TEST_VIEWS = 3
 comptime GPU_TEST_CHECKSUM_EPS = 0.05
 
 
-@fieldwise_init
-struct CentroidNormalization(Copyable):
-    var inv_x: Float32
-    var inv_y: Float32
-    var inv_z: Float32
-
-
 @always_inline
 def _blocks_for(n: Int) -> Int:
     return (n + GPU_TEST_BLOCK_SIZE - 1) // GPU_TEST_BLOCK_SIZE
@@ -63,25 +56,6 @@ def _abs64(x: Float64) -> Float64:
     if x < 0.0:
         return -x
     return x
-
-
-def _centroid_normalization(
-    centroid_min: Vec3f32,
-    centroid_max: Vec3f32,
-) -> CentroidNormalization:
-    var extent = centroid_max - centroid_min
-    var inv_x = Float32(0.0)
-    var inv_y = Float32(0.0)
-    var inv_z = Float32(0.0)
-
-    if extent.x() > 1.0e-20:
-        inv_x = 1.0 / extent.x()
-    if extent.y() > 1.0e-20:
-        inv_y = 1.0 / extent.y()
-    if extent.z() > 1.0e-20:
-        inv_z = 1.0 / extent.z()
-
-    return CentroidNormalization(inv_x, inv_y, inv_z)
 
 
 def _append_tri(
@@ -141,7 +115,7 @@ def _build_gpu_lbvh_in_place(
     d_node_flags: DeviceBuffer[DType.uint32],
     tri_count: Int,
     centroid_min: Vec3f32,
-    norm: CentroidNormalization,
+    norm: Vec3f32,
 ) raises:
     var internal_count = tri_count - 1
     var blocks_leaves = _blocks_for(tri_count)
@@ -158,9 +132,9 @@ def _build_gpu_lbvh_in_place(
         centroid_min.x(),
         centroid_min.y(),
         centroid_min.z(),
-        norm.inv_x,
-        norm.inv_y,
-        norm.inv_z,
+        norm.x(),
+        norm.y(),
+        norm.z(),
         grid_dim=blocks_leaves,
         block_dim=GPU_TEST_BLOCK_SIZE,
     )
@@ -295,7 +269,7 @@ def test_gpu_lbvh_build_validate_small_scene() raises:
         var cbounds = compute_centroid_bounds(verts)
         var cmin = cbounds[0].copy()
         var cmax = cbounds[1].copy()
-        var norm = _centroid_normalization(cmin, cmax)
+        var norm = normalize(cmax - cmin)
 
         with DeviceContext() as ctx:
             var d_vertices = copy_list_to_device(ctx, vertices)
@@ -365,7 +339,7 @@ def test_gpu_lbvh_duplicate_morton_codes_validate() raises:
         var cbounds = compute_centroid_bounds(verts)
         var cmin = cbounds[0].copy()
         var cmax = cbounds[1].copy()
-        var norm = _centroid_normalization(cmin, cmax)
+        var norm = normalize(cmax - cmin)
 
         with DeviceContext() as ctx:
             var d_vertices = copy_list_to_device(ctx, vertices)
@@ -434,7 +408,7 @@ def test_gpu_lbvh_zero_extent_axis_validate() raises:
         var cbounds = compute_centroid_bounds(verts)
         var cmin = cbounds[0].copy()
         var cmax = cbounds[1].copy()
-        var norm = _centroid_normalization(cmin, cmax)
+        var norm = normalize(cmax - cmin)
 
         with DeviceContext() as ctx:
             var d_vertices = copy_list_to_device(ctx, vertices)
@@ -503,7 +477,7 @@ def test_gpu_lbvh_uploaded_primary_matches_cpu() raises:
         var cbounds = compute_centroid_bounds(verts)
         var cmin = cbounds[0].copy()
         var cmax = cbounds[1].copy()
-        var norm = _centroid_normalization(cmin, cmax)
+        var norm = normalize(cmax - cmin)
         var rays = generate_primary_rays(
             bmin, bmax, GPU_TEST_WIDTH, GPU_TEST_HEIGHT, GPU_TEST_VIEWS
         )
@@ -606,7 +580,7 @@ def test_gpu_lbvh_camera_full_matches_cpu() raises:
         var cbounds = compute_centroid_bounds(verts)
         var cmin = cbounds[0].copy()
         var cmax = cbounds[1].copy()
-        var norm = _centroid_normalization(cmin, cmax)
+        var norm = normalize(cmax - cmin)
         var rays = generate_primary_rays(
             bmin, bmax, GPU_TEST_WIDTH, GPU_TEST_HEIGHT, GPU_TEST_VIEWS
         )
@@ -704,7 +678,7 @@ def test_gpu_lbvh_camera_t_reduce_matches_cpu() raises:
         var cbounds = compute_centroid_bounds(verts)
         var cmin = cbounds[0].copy()
         var cmax = cbounds[1].copy()
-        var norm = _centroid_normalization(cmin, cmax)
+        var norm = normalize(cmax - cmin)
         var rays = generate_primary_rays(
             bmin, bmax, GPU_TEST_WIDTH, GPU_TEST_HEIGHT, GPU_TEST_VIEWS
         )
@@ -819,7 +793,7 @@ def test_gpu_lbvh_camera_shadow_reduce_matches_cpu() raises:
         var cbounds = compute_centroid_bounds(verts)
         var cmin = cbounds[0].copy()
         var cmax = cbounds[1].copy()
-        var norm = _centroid_normalization(cmin, cmax)
+        var norm = normalize(cmax - cmin)
         var rays = generate_primary_rays(
             bmin, bmax, GPU_TEST_WIDTH, GPU_TEST_HEIGHT, GPU_TEST_VIEWS
         )

@@ -7,20 +7,28 @@ Because Mojo is still relatively new, I am currently building out the foundation
 
 
 ## Roadmap
-- [x] RTIAW
-- [x] Math primitives (vec, mat, quat)
-- [x] Intersections (AABB)
-- [x] GPU radix sort : [onesweep](bajo/sort/gpu/onesweep.mojo)
-- [ ] LBVH
-- [ ] H-PLOC BVH.
-- [x] Implement a pure-Mojo `.obj` / `.mtl` file parser for 3D meshes
-- [ ] Segmented GPU sort
-- [ ] GPU Ray Tracer (first milestone)
-- [ ] Hash Grid
-- [ ] Fluid Simulation (second milestone)
-- [ ] rigid-body
-- [ ] physics integrator
-- [ ] constraint solver
+- ✅ RTIAW
+- ✅ Math primitives (vec, mat, quat, AABB)
+- ✅ Implement a pure-Mojo `.obj` / `.mtl` file parser for 3D meshes
+- 🚧 LBVH
+    - ✅ morton codes
+    - ✅ GPU radix sort : [onesweep](bajo/sort/gpu/onesweep.mojo)
+    - ✅ build kernel
+    - 🚧 polish
+- ⬜ H-PLOC BVH.
+- 🚧 GPU Ray Tracer (first milestone)
+    - 🚧 [normals example](examples/lbvh_normals.mojo)
+    - ⬜ materials
+    - ⬜ shapes other then triangles
+    - ⬜ light sources
+    - ⬜ render kernels (Naive, Next Event Estimation, MIS)
+- ⬜ Segmented GPU sort
+- ⬜ Hash Grid
+- ⬜ Fluid Simulation (second milestone)
+- ⬜ ray marcing
+- ⬜ rigid-body
+- ⬜ physics integrator
+- ⬜ constraint solver
 
 
 ## Literature & References

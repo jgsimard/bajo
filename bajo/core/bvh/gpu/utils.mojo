@@ -293,3 +293,8 @@ def _upload_rays(
         for i in range(len(rays_flat)):
             h[i] = rays_flat[i]
     ctx.synchronize()
+
+
+@always_inline
+def _blocks_for[BLOCK_SIZE: Int](n: Int) -> Int:
+    return (n + BLOCK_SIZE - 1) / BLOCK_SIZE

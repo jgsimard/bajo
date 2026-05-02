@@ -66,6 +66,7 @@ from bajo.core.bvh.gpu.utils import (
     _ms,
     _mrays,
     _upload_rays,
+    _blocks_for,
 )
 
 
@@ -76,16 +77,10 @@ comptime BENCH_REPEATS = 8
 comptime PRIMARY_WIDTH = 640
 comptime PRIMARY_HEIGHT = 360
 comptime PRIMARY_VIEWS = 3
-comptime INF_NS = 9223372036854775807
 
 comptime RUN_DIRECT_RAY_UPLOAD_BENCH = True
 comptime RUN_CAMERA_FULL_DOWNLOAD_BENCH = True
 comptime RUN_CAMERA_REDUCE_AND_SHADOW_BENCH = True
-
-
-@always_inline
-def _blocks_for(n: Int) -> Int:
-    return (n + GPU_BLOCK_SIZE - 1) // GPU_BLOCK_SIZE
 
 
 def _launch_morton(
@@ -275,11 +270,11 @@ def _best_build_timings(
     blocks_init: Int,
     repeats: Int,
 ) raises -> GpuBuildTimings:
-    var best_morton_ns = Int(INF_NS)
-    var best_sort_ns = Int(INF_NS)
-    var best_topology_ns = Int(INF_NS)
-    var best_refit_ns = Int(INF_NS)
-    var best_total_ns = Int(INF_NS)
+    var best_morton_ns = Int.MAX
+    var best_sort_ns = Int.MAX
+    var best_topology_ns = Int.MAX
+    var best_refit_ns = Int.MAX
+    var best_total_ns = Int.MAX
 
     for _ in range(repeats):
         var t = _time_build_once(
@@ -455,10 +450,10 @@ def _benchmark_direct_uploaded_rays(
     )
     ctx.synchronize()
 
-    var best_upload_ns = Int(INF_NS)
-    var best_kernel_ns = Int(INF_NS)
-    var best_download_ns = Int(INF_NS)
-    var best_frame_ns = Int(INF_NS)
+    var best_upload_ns = Int.MAX
+    var best_kernel_ns = Int.MAX
+    var best_download_ns = Int.MAX
+    var best_frame_ns = Int.MAX
     var checksum = 0.0
     var hit_count = UInt32(0)
 
@@ -539,9 +534,9 @@ def _benchmark_camera_full_download(
     )
     ctx.synchronize()
 
-    var best_kernel_ns = Int(INF_NS)
-    var best_download_ns = Int(INF_NS)
-    var best_frame_ns = Int(INF_NS)
+    var best_kernel_ns = Int.MAX
+    var best_download_ns = Int.MAX
+    var best_frame_ns = Int.MAX
     var checksum = 0.0
     var hit_count = UInt32(0)
 
@@ -604,10 +599,10 @@ def _benchmark_primary_reduce(
     reduce_blocks: Int,
     repeats: Int,
 ) raises -> GpuPrimaryReduceResult:
-    var best_kernel_ns = Int(INF_NS)
-    var best_reduce_ns = Int(INF_NS)
-    var best_download_ns = Int(INF_NS)
-    var best_frame_ns = Int(INF_NS)
+    var best_kernel_ns = Int.MAX
+    var best_reduce_ns = Int.MAX
+    var best_download_ns = Int.MAX
+    var best_frame_ns = Int.MAX
     var checksum = 0.0
     var hit_count = UInt32(0)
 
@@ -686,10 +681,10 @@ def _benchmark_shadow_reduce(
     reduce_blocks: Int,
     repeats: Int,
 ) raises -> GpuShadowReduceResult:
-    var best_kernel_ns = Int(INF_NS)
-    var best_reduce_ns = Int(INF_NS)
-    var best_download_ns = Int(INF_NS)
-    var best_frame_ns = Int(INF_NS)
+    var best_kernel_ns = Int.MAX
+    var best_reduce_ns = Int.MAX
+    var best_download_ns = Int.MAX
+    var best_frame_ns = Int.MAX
     var occluded = UInt32(0)
 
     for _ in range(repeats):
@@ -798,11 +793,13 @@ def run_gpu_lbvh_benchmark_suite(
         ctx.synchronize()
         var static_t1 = perf_counter_ns()
 
-        var blocks_leaves = _blocks_for(tri_count)
-        var blocks_internal = _blocks_for(internal_count)
-        var blocks_init = _blocks_for(max(tri_count, internal_count))
-        var blocks_rays = _blocks_for(ray_count)
-        var reduce_blocks = _blocks_for(GPU_REDUCE_THREADS)
+        var blocks_leaves = _blocks_for[GPU_BLOCK_SIZE](tri_count)
+        var blocks_internal = _blocks_for[GPU_BLOCK_SIZE](internal_count)
+        var blocks_init = _blocks_for[GPU_BLOCK_SIZE](
+            max(tri_count, internal_count)
+        )
+        var blocks_rays = _blocks_for[GPU_BLOCK_SIZE](ray_count)
+        var reduce_blocks = _blocks_for[GPU_BLOCK_SIZE](GPU_REDUCE_THREADS)
 
         var best_build = _best_build_timings(
             ctx,

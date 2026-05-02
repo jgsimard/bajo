@@ -23,15 +23,14 @@ from bajo.core.bvh.gpu.kernels import (
     TRACE_PRIMARY_T,
     TRACE_SHADOW,
 )
-from bajo.core.bvh.gpu.utils import GpuBuildTimings, GpuBVHValidation
+from bajo.core.bvh.gpu.utils import (
+    GpuBuildTimings,
+    GpuBVHValidation,
+    _blocks_for,
+)
 
 
 comptime GPU_LBVH_BLOCK_SIZE = 128
-
-
-@always_inline
-def gpu_lbvh_blocks_for(n: Int) -> Int:
-    return (n + GPU_LBVH_BLOCK_SIZE - 1) // GPU_LBVH_BLOCK_SIZE
 
 
 struct GpuLBVH:
@@ -63,9 +62,11 @@ struct GpuLBVH:
         self.internal_count = self.tri_count - 1
         self.root_idx = UInt32(0)
 
-        self.blocks_leaves = gpu_lbvh_blocks_for(self.tri_count)
-        self.blocks_internal = gpu_lbvh_blocks_for(self.internal_count)
-        self.blocks_init = gpu_lbvh_blocks_for(
+        self.blocks_leaves = _blocks_for[GPU_LBVH_BLOCK_SIZE](self.tri_count)
+        self.blocks_internal = _blocks_for[GPU_LBVH_BLOCK_SIZE](
+            self.internal_count
+        )
+        self.blocks_init = _blocks_for[GPU_LBVH_BLOCK_SIZE](
             max(self.tri_count, self.internal_count)
         )
 
@@ -250,7 +251,7 @@ struct GpuLBVH:
             d_hits_u32.unsafe_ptr(),
             ray_count,
             self.root_idx,
-            grid_dim=gpu_lbvh_blocks_for(ray_count),
+            grid_dim=_blocks_for[GPU_LBVH_BLOCK_SIZE](ray_count),
             block_dim=GPU_LBVH_BLOCK_SIZE,
         )
 
@@ -283,6 +284,6 @@ struct GpuLBVH:
             height,
             views,
             self.root_idx,
-            grid_dim=gpu_lbvh_blocks_for(ray_count),
+            grid_dim=_blocks_for[GPU_LBVH_BLOCK_SIZE](ray_count),
             block_dim=GPU_LBVH_BLOCK_SIZE,
         )

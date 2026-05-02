@@ -38,6 +38,8 @@ from bajo.core.bvh.gpu.kernels import (
     reduce_hit_t_kernel,
     reduce_u32_flags_kernel,
 )
+from bajo.core.bvh.gpu.utils import _download_full_hit_checksum
+
 
 comptime GPU_TEST_BLOCK_SIZE = 128
 comptime GPU_TEST_WIDTH = 64
@@ -184,46 +186,6 @@ def _build_gpu_lbvh_in_place(
         block_dim=GPU_TEST_BLOCK_SIZE,
     )
     ctx.synchronize()
-
-
-def _download_full_hit_checksum(
-    d_hits_f32: DeviceBuffer[DType.float32],
-    ray_count: Int,
-) raises -> Tuple[Float64, UInt32]:
-    var checksum = 0.0
-    var hit_count = UInt32(0)
-    with d_hits_f32.map_to_host() as h:
-        for i in range(ray_count):
-            var t = h[i * 3]
-            if t < 1.0e20:
-                checksum += Float64(t)
-                hit_count += 1
-    return (checksum, hit_count)
-
-
-def _download_reduced_hit_t(
-    d_partial_sums: DeviceBuffer[DType.float64],
-    d_partial_counts: DeviceBuffer[DType.uint32],
-) raises -> Tuple[Float64, UInt32]:
-    var checksum = 0.0
-    var hit_count = UInt32(0)
-    with d_partial_sums.map_to_host() as sums:
-        for i in range(GPU_REDUCE_THREADS):
-            checksum += sums[i]
-    with d_partial_counts.map_to_host() as counts:
-        for i in range(GPU_REDUCE_THREADS):
-            hit_count += counts[i]
-    return (checksum, hit_count)
-
-
-def _download_reduced_u32_count(
-    d_partial_counts: DeviceBuffer[DType.uint32],
-) raises -> UInt32:
-    var total = UInt32(0)
-    with d_partial_counts.map_to_host() as counts:
-        for i in range(GPU_REDUCE_THREADS):
-            total += counts[i]
-    return total
 
 
 def _build_cpu_reference(

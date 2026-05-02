@@ -133,7 +133,7 @@ def main() raises:
             t"Validation: sorted={validation.sorted_ok} |"
             t" values={validation.values_ok} |"
             t" topology={validation.topology_ok} |"
-            t" bounds={validation.bounds_ok} | root={validation.refit_root_idx}"
+            t" bounds={validation.bounds_ok} | root={validation.root_idx}"
         )
 
         var d_camera_params = copy_list_to_device(ctx, camera_params)

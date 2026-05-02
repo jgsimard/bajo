@@ -37,7 +37,7 @@ from bajo.core.bvh.gpu.lbvh import (
 )
 
 from bajo.core.bvh.gpu.utils import (
-    GpuLBVHBuildTimings,
+    GpuBuildTimings,
     GpuLBVHValidation,
     GpuDirectTraversalResult,
     GpuPrimaryReduceResult,
@@ -47,6 +47,9 @@ from bajo.core.bvh.gpu.utils import (
     GpuBuildResult,
     GpuReduceAndShadowResult,
     CpuReferenceResult,
+    _download_full_hit_checksum,
+    _download_reduced_hit_t,
+    _download_reduced_u32_count,
 )
 
 
@@ -98,52 +101,6 @@ def _upload_rays(
         for i in range(len(rays_flat)):
             h[i] = rays_flat[i]
     ctx.synchronize()
-
-
-def _download_full_hit_checksum(
-    ctx: DeviceContext,
-    d_hits_f32: DeviceBuffer[DType.float32],
-    ray_count: Int,
-) raises -> Tuple[Float64, UInt32]:
-    var checksum = 0.0
-    var hit_count = UInt32(0)
-    with d_hits_f32.map_to_host() as h:
-        for i in range(ray_count):
-            var t = h[i * 3]
-            if t < 1.0e20:
-                checksum += Float64(t)
-                hit_count += 1
-    ctx.synchronize()
-    return (checksum, hit_count)
-
-
-def _download_reduced_hit_t(
-    ctx: DeviceContext,
-    d_partial_sums: DeviceBuffer[DType.float64],
-    d_partial_counts: DeviceBuffer[DType.uint32],
-) raises -> Tuple[Float64, UInt32]:
-    var checksum = 0.0
-    var hit_count = UInt32(0)
-    with d_partial_sums.map_to_host() as sums:
-        for i in range(GPU_REDUCE_THREADS):
-            checksum += sums[i]
-    with d_partial_counts.map_to_host() as counts:
-        for i in range(GPU_REDUCE_THREADS):
-            hit_count += counts[i]
-    ctx.synchronize()
-    return (checksum, hit_count)
-
-
-def _download_reduced_u32_count(
-    ctx: DeviceContext,
-    d_partial_counts: DeviceBuffer[DType.uint32],
-) raises -> UInt32:
-    var total = UInt32(0)
-    with d_partial_counts.map_to_host() as counts:
-        for i in range(GPU_REDUCE_THREADS):
-            total += counts[i]
-    ctx.synchronize()
-    return total
 
 
 def _benchmark_direct_uploaded_rays(
@@ -324,7 +281,7 @@ def _benchmark_primary_reduce(
         best_reduce_ns = _min_ns(best_reduce_ns, Int(r1 - r0))
 
         var d0 = perf_counter_ns()
-        var downloaded = _download_reduced_hit_t(
+        var downloaded = _download_reduced_hit_t[GPU_REDUCE_THREADS](
             ctx, d_partial_sums, d_partial_counts
         )
         checksum = downloaded[0]
@@ -396,7 +353,9 @@ def _benchmark_shadow_reduce(
         best_reduce_ns = _min_ns(best_reduce_ns, Int(r1 - r0))
 
         var d0 = perf_counter_ns()
-        occluded = _download_reduced_u32_count(ctx, d_partial_counts)
+        occluded = _download_reduced_u32_count[GPU_REDUCE_THREADS](
+            ctx, d_partial_counts
+        )
         var d1 = perf_counter_ns()
         best_download_ns = _min_ns(best_download_ns, Int(d1 - d0))
 
@@ -592,7 +551,7 @@ def _print_build_result(build: GpuBuildResult):
         t" values={build.validation.values_ok} |"
         t" topology={build.validation.topology_ok} |"
         t" bounds={build.validation.bounds_ok} |"
-        t" root={build.validation.refit_root_idx}"
+        t" root={build.validation.root_idx}"
     )
     print(t"morton generation:  {_ms(build.timings.morton_ns)} ms")
     print(t"radix sort pairs:   {_ms(build.timings.sort_ns)} ms")
@@ -604,7 +563,7 @@ def _print_build_result(build: GpuBuildResult):
         t"validation detail: "
         t" topology_roots={build.validation.topology_root_count} |"
         t" topology_root={build.validation.topology_root_idx} |"
-        t" refit_root={build.validation.refit_root_idx} |"
+        t" refit_root={build.validation.root_idx} |"
         t" bounds_diff={round(build.validation.bounds_diff, 6)} |"
         t" guard={build.validation.guard}"
     )

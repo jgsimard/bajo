@@ -23,7 +23,7 @@ from bajo.core.bvh.gpu.kernels import (
     TRACE_PRIMARY_T,
     TRACE_SHADOW,
 )
-from bajo.core.bvh.gpu.utils import GpuLBVHBuildTimings, GpuLBVHValidation
+from bajo.core.bvh.gpu.utils import GpuBuildTimings, GpuLBVHValidation
 
 
 comptime GPU_LBVH_BLOCK_SIZE = 128
@@ -93,7 +93,7 @@ struct GpuLBVH:
         ctx: DeviceContext,
         centroid_min: Vec3f32,
         norm: Vec3f32,
-    ) raises -> GpuLBVHBuildTimings:
+    ) raises -> GpuBuildTimings:
         var start = perf_counter_ns()
 
         self.launch_morton(ctx, centroid_min, norm)
@@ -114,7 +114,7 @@ struct GpuLBVH:
         ctx.synchronize()
         var r = perf_counter_ns()
 
-        return GpuLBVHBuildTimings(
+        return GpuBuildTimings(
             Int(m - start),
             Int(s - m),
             Int(t - s),
@@ -128,8 +128,8 @@ struct GpuLBVH:
         centroid_min: Vec3f32,
         norm: Vec3f32,
         repeats: Int,
-    ) raises -> GpuLBVHBuildTimings:
-        var out_t = GpuLBVHBuildTimings()
+    ) raises -> GpuBuildTimings:
+        var out_t = GpuBuildTimings()
         for _ in range(repeats):
             var t = self.build(ctx, centroid_min, norm)
             out_t.min(t)

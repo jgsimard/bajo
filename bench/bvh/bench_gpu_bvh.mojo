@@ -45,6 +45,23 @@ from bajo.core.bvh.gpu.kernels import (
     TRACE_SHADOW,
 )
 
+from bajo.core.bvh.gpu.utils import (
+    GpuBuildTimings,
+    GpuBVHValidation,
+    GpuDirectTraversalResult,
+    GpuPrimaryReduceResult,
+    GpuCameraFullResult,
+    GpuShadowReduceResult,
+    GpuSuiteResult,
+    GpuBuildResult,
+    GpuReduceAndShadowResult,
+    CpuReferenceResult,
+    _download_full_hit_checksum,
+    _download_reduced_hit_t,
+    _download_reduced_u32_count,
+)
+
+
 # comptime DEFAULT_OBJ_PATH = "./assets/powerplant/powerplant.obj"
 comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"
 comptime GPU_BLOCK_SIZE = 128
@@ -62,99 +79,6 @@ comptime INF_NS = 9223372036854775807
 comptime RUN_DIRECT_RAY_UPLOAD_BENCH = True
 comptime RUN_CAMERA_FULL_DOWNLOAD_BENCH = True
 comptime RUN_CAMERA_REDUCE_AND_SHADOW_BENCH = True
-
-
-@fieldwise_init
-struct GpuBuildTimings(Copyable):
-    var static_setup_ns: Int
-    var morton_ns: Int
-    var sort_ns: Int
-    var topology_ns: Int
-    var refit_ns: Int
-    var total_ns: Int
-
-
-@fieldwise_init
-struct GpuBuildValidation(Copyable):
-    var sorted_ok: Bool
-    var values_ok: Bool
-    var topology_ok: Bool
-    var topology_root_count: Int
-    var topology_root_idx: UInt32
-    var bounds_ok: Bool
-    var bounds_diff: Float64
-    var root_idx: UInt32
-    var guard: UInt64
-
-
-@fieldwise_init
-struct GpuBuildResult(Copyable):
-    var timings: GpuBuildTimings
-    var validation: GpuBuildValidation
-
-
-@fieldwise_init
-struct GpuDirectTraversalResult(Copyable):
-    var upload_ns: Int
-    var kernel_ns: Int
-    var download_ns: Int
-    var frame_ns: Int
-    var checksum: Float64
-    var hit_count: UInt32
-    var diff: Float64
-
-
-@fieldwise_init
-struct GpuCameraFullResult(Copyable):
-    var kernel_ns: Int
-    var download_ns: Int
-    var frame_ns: Int
-    var checksum: Float64
-    var hit_count: UInt32
-    var diff: Float64
-
-
-@fieldwise_init
-struct GpuPrimaryReduceResult(Copyable):
-    var kernel_ns: Int
-    var reduce_ns: Int
-    var download_ns: Int
-    var frame_ns: Int
-    var checksum: Float64
-    var hit_count: UInt32
-    var diff: Float64
-
-
-@fieldwise_init
-struct GpuShadowReduceResult(Copyable):
-    var kernel_ns: Int
-    var reduce_ns: Int
-    var download_ns: Int
-    var frame_ns: Int
-    var occluded: UInt32
-    var diff: Int
-
-
-@fieldwise_init
-struct GpuReduceAndShadowResult(Copyable):
-    var primary: GpuPrimaryReduceResult
-    var shadow: GpuShadowReduceResult
-
-
-@fieldwise_init
-struct GpuSuiteResult(Copyable):
-    var build: GpuBuildResult
-    var direct: GpuDirectTraversalResult
-    var camera_full: GpuCameraFullResult
-    var reduce_shadow: GpuReduceAndShadowResult
-
-
-@fieldwise_init
-struct CpuReferenceResult(Copyable):
-    var build_ns: Int
-    var trace_ns: Int
-    var checksum: Float64
-    var occluded: Int
 
 
 @always_inline
@@ -444,7 +368,7 @@ def _validate_current_lbvh(
     tri_count: Int,
     scene_min: Vec3f32,
     scene_max: Vec3f32,
-) raises -> GpuBuildValidation:
+) raises -> GpuBVHValidation:
     var sorted_validation = validate_sorted_keys(d_keys, d_values, tri_count)
     var topo_validation = validate_topology(
         d_node_meta, d_leaf_parent, tri_count
@@ -458,11 +382,11 @@ def _validate_current_lbvh(
         scene_max,
     )
     var guard = sorted_validation[6] + topo_validation[3] + refit_validation[3]
-    return GpuBuildValidation(
+    return GpuBVHValidation(
         sorted_validation[0],
         sorted_validation[1],
         topo_validation[0],
-        topo_validation[1],
+        UInt32(topo_validation[1]),
         topo_validation[2],
         refit_validation[0],
         refit_validation[1],
@@ -480,52 +404,6 @@ def _upload_rays(
         for i in range(len(rays_flat)):
             h[i] = rays_flat[i]
     ctx.synchronize()
-
-
-def _download_full_hit_checksum(
-    ctx: DeviceContext,
-    d_hits_f32: DeviceBuffer[DType.float32],
-    ray_count: Int,
-) raises -> Tuple[Float64, UInt32]:
-    var checksum = 0.0
-    var hit_count = UInt32(0)
-    with d_hits_f32.map_to_host() as h:
-        for i in range(ray_count):
-            var t = h[i * 3]
-            if t < 1.0e20:
-                checksum += Float64(t)
-                hit_count += 1
-    ctx.synchronize()
-    return (checksum, hit_count)
-
-
-def _download_reduced_hit_t(
-    ctx: DeviceContext,
-    d_partial_sums: DeviceBuffer[DType.float64],
-    d_partial_counts: DeviceBuffer[DType.uint32],
-) raises -> Tuple[Float64, UInt32]:
-    var checksum = 0.0
-    var hit_count = UInt32(0)
-    with d_partial_sums.map_to_host() as sums:
-        for i in range(GPU_REDUCE_THREADS):
-            checksum += sums[i]
-    with d_partial_counts.map_to_host() as counts:
-        for i in range(GPU_REDUCE_THREADS):
-            hit_count += counts[i]
-    ctx.synchronize()
-    return (checksum, hit_count)
-
-
-def _download_reduced_u32_count(
-    ctx: DeviceContext,
-    d_partial_counts: DeviceBuffer[DType.uint32],
-) raises -> UInt32:
-    var total = UInt32(0)
-    with d_partial_counts.map_to_host() as counts:
-        for i in range(GPU_REDUCE_THREADS):
-            total += counts[i]
-    ctx.synchronize()
-    return total
 
 
 def _launch_direct_primary(
@@ -818,7 +696,7 @@ def _benchmark_primary_reduce(
         best_reduce_ns = _min_ns(best_reduce_ns, Int(r1 - r0))
 
         var d0 = perf_counter_ns()
-        var downloaded = _download_reduced_hit_t(
+        var downloaded = _download_reduced_hit_t[GPU_REDUCE_THREADS](
             ctx, d_partial_sums, d_partial_counts
         )
         checksum = downloaded[0]
@@ -898,7 +776,9 @@ def _benchmark_shadow_reduce(
         best_reduce_ns = _min_ns(best_reduce_ns, Int(r1 - r0))
 
         var d0 = perf_counter_ns()
-        occluded = _download_reduced_u32_count(ctx, d_partial_counts)
+        occluded = _download_reduced_u32_count[GPU_REDUCE_THREADS](
+            ctx, d_partial_counts
+        )
         var d1 = perf_counter_ns()
         best_download_ns = _min_ns(best_download_ns, Int(d1 - d0))
 
@@ -1025,7 +905,7 @@ def run_gpu_lbvh_benchmark_suite(
             scene_min,
             scene_max,
         )
-        var build_result = GpuBuildResult(best_build^, validation.copy())
+        var build_result = GpuBuildResult(0, best_build, validation.copy())
 
         var direct_result: GpuDirectTraversalResult
         comptime if RUN_DIRECT_RAY_UPLOAD_BENCH:

@@ -14,8 +14,8 @@ Because Mojo is still relatively new, I am currently building out the foundation
     - ✅ morton codes
     - ✅ GPU radix sort : [onesweep](bajo/sort/gpu/onesweep.mojo)
     - ✅ build kernel
-    - 🚧 polish
-- ⬜ H-PLOC BVH.
+    - 🚧 polish : Mojo only support scalar GPU buffers for now :(
+- ⬜ H-PLOC BVH
 - 🚧 GPU Ray Tracer (first milestone)
     - 🚧 [normals example](examples/lbvh_normals.mojo)
     - ⬜ materials

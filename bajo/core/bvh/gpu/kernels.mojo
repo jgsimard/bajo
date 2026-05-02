@@ -39,7 +39,7 @@ comptime TRACE_PRIMARY_T = "primary_t"
 comptime TRACE_SHADOW = "shadow"
 
 comptime _gpu_inf_t = Float32(3.4028234663852886e38)
-comptime _gpu_tri_miss_t = Float32(1.0e30)
+comptime _gpu_tri_miss_t = Float32.MAX
 comptime _gpu_miss_prim = UInt32(0xFFFFFFFF)
 
 
@@ -311,18 +311,18 @@ def init_lbvh_bounds_kernel(
         return
 
     var b = i * LBVH_NODE_BOUNDS_STRIDE
-    node_bounds[b + 0] = Float32(1.0e30)
-    node_bounds[b + 1] = Float32(1.0e30)
-    node_bounds[b + 2] = Float32(1.0e30)
-    node_bounds[b + 3] = Float32(-1.0e30)
-    node_bounds[b + 4] = Float32(-1.0e30)
-    node_bounds[b + 5] = Float32(-1.0e30)
-    node_bounds[b + 6] = Float32(1.0e30)
-    node_bounds[b + 7] = Float32(1.0e30)
-    node_bounds[b + 8] = Float32(1.0e30)
-    node_bounds[b + 9] = Float32(-1.0e30)
-    node_bounds[b + 10] = Float32(-1.0e30)
-    node_bounds[b + 11] = Float32(-1.0e30)
+    node_bounds[b + 0] = Float32.MAX
+    node_bounds[b + 1] = Float32.MAX
+    node_bounds[b + 2] = Float32.MAX
+    node_bounds[b + 3] = Float32.MIN
+    node_bounds[b + 4] = Float32.MIN
+    node_bounds[b + 5] = Float32.MIN
+    node_bounds[b + 6] = Float32.MAX
+    node_bounds[b + 7] = Float32.MAX
+    node_bounds[b + 8] = Float32.MAX
+    node_bounds[b + 9] = Float32.MIN
+    node_bounds[b + 10] = Float32.MIN
+    node_bounds[b + 11] = Float32.MIN
     node_flags[i] = UInt32(0)
 
 

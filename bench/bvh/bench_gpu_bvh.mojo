@@ -63,6 +63,9 @@ from bajo.core.bvh.gpu.utils import (
     _print_scene_summary,
     _build_cpu_reference,
     _print_cpu_reference,
+    _ms,
+    _mrays,
+    _upload_rays,
 )
 
 
@@ -83,16 +86,6 @@ comptime RUN_CAMERA_REDUCE_AND_SHADOW_BENCH = True
 @always_inline
 def _blocks_for(n: Int) -> Int:
     return (n + GPU_BLOCK_SIZE - 1) // GPU_BLOCK_SIZE
-
-
-@always_inline
-def _ms(ns: Int) -> Float64:
-    return round(ns_to_ms(ns), 3)
-
-
-@always_inline
-def _mrays(ns: Int, ray_count: Int) -> Float64:
-    return round(ns_to_mrays_per_s(ns, ray_count), 3)
 
 
 def _launch_morton(
@@ -346,29 +339,22 @@ def _validate_current_lbvh(
         scene_min,
         scene_max,
     )
-    var guard = sorted_validation[6] + topo_validation[3] + refit_validation[3]
-    return GpuBVHValidation(
-        sorted_validation[0],
-        sorted_validation[1],
-        topo_validation[0],
-        UInt32(topo_validation[1]),
-        topo_validation[2],
-        refit_validation[0],
-        refit_validation[1],
-        refit_validation[2],
-        guard,
+
+    var guard = (
+        sorted_validation.guard + topo_validation.guard + refit_validation.guard
     )
 
-
-def _upload_rays(
-    ctx: DeviceContext,
-    d_rays: DeviceBuffer[DType.float32],
-    rays_flat: List[Float32],
-) raises:
-    with d_rays.map_to_host() as h:
-        for i in range(len(rays_flat)):
-            h[i] = rays_flat[i]
-    ctx.synchronize()
+    return GpuBVHValidation(
+        sorted_validation.sorted_ok,
+        sorted_validation.values_ok,
+        topo_validation.ok,
+        topo_validation.root_count,
+        topo_validation.root_idx,
+        refit_validation.ok,
+        refit_validation.diff,
+        refit_validation.root_idx,
+        guard,
+    )
 
 
 def _launch_direct_primary(

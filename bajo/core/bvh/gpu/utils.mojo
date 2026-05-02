@@ -1,6 +1,6 @@
 from std.time import perf_counter_ns
 
-from bajo.core.utils import ns_to_ms, print_vec3_rounded
+from bajo.core.utils import ns_to_ms, print_vec3_rounded, ns_to_mrays_per_s
 
 
 @fieldwise_init
@@ -277,3 +277,19 @@ def _print_build_result(build: GpuBuildResult):
 @always_inline
 def _ms(ns: Int) -> Float64:
     return round(ns_to_ms(ns), 3)
+
+
+@always_inline
+def _mrays(ns: Int, ray_count: Int) -> Float64:
+    return round(ns_to_mrays_per_s(ns, ray_count), 3)
+
+
+def _upload_rays(
+    ctx: DeviceContext,
+    d_rays: DeviceBuffer[DType.float32],
+    rays_flat: List[Float32],
+) raises:
+    with d_rays.map_to_host() as h:
+        for i in range(len(rays_flat)):
+            h[i] = rays_flat[i]
+    ctx.synchronize()

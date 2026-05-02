@@ -54,6 +54,9 @@ from bajo.core.bvh.gpu.utils import (
     _print_scene_summary,
     _build_cpu_reference,
     _print_cpu_reference,
+    _ms,
+    _mrays,
+    _upload_rays,
 )
 
 
@@ -70,16 +73,6 @@ comptime RUN_CAMERA_REDUCE_AND_SHADOW_BENCH = True
 
 
 @always_inline
-def _ms(ns: Int) -> Float64:
-    return round(ns_to_ms(ns), 3)
-
-
-@always_inline
-def _mrays(ns: Int, ray_count: Int) -> Float64:
-    return round(ns_to_mrays_per_s(ns, ray_count), 3)
-
-
-@always_inline
 def _stage_primary_reduce_ns(r: GpuPrimaryReduceResult) -> Int:
     return r.kernel_ns + r.reduce_ns + r.download_ns
 
@@ -87,17 +80,6 @@ def _stage_primary_reduce_ns(r: GpuPrimaryReduceResult) -> Int:
 @always_inline
 def _stage_shadow_reduce_ns(r: GpuShadowReduceResult) -> Int:
     return r.kernel_ns + r.reduce_ns + r.download_ns
-
-
-def _upload_rays(
-    ctx: DeviceContext,
-    d_rays: DeviceBuffer[DType.float32],
-    rays_flat: List[Float32],
-) raises:
-    with d_rays.map_to_host() as h:
-        for i in range(len(rays_flat)):
-            h[i] = rays_flat[i]
-    ctx.synchronize()
 
 
 def _benchmark_direct_uploaded_rays(

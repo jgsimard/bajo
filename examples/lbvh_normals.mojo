@@ -8,20 +8,17 @@ from bajo.core.bvh import compute_bounds, copy_list_to_device
 from bajo.core.bvh.gpu.kernels import (
     compute_centroid_bounds,
     generate_camera_params,
+    append_camera_params,
     TRACE_PRIMARY_FULL,
 )
-from bajo.core.bvh.gpu.lbvh import (
-    GpuLBVH,
-    centroid_normalization,
-)
+from bajo.core.bvh.gpu.lbvh import GpuLBVH
 
 comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"
 # comptime DEFAULT_OBJ_PATH = "./assets/powerplant/powerplant.obj"
 comptime DEFAULT_OUTPUT_PATH = "./normal_render.ppm"
 comptime WIDTH = 800
 comptime HEIGHT = 600
-comptime VIEWS = 1
-comptime GPU_MISS_PRIM = UInt32(0xFFFFFFFF)
+comptime GPU_MISS_PRIM = UInt32.MAX
 comptime GPU_INF_T = Float32.MAX
 
 
@@ -68,11 +65,34 @@ def write_ppm(
         f.write(str)
 
 
+def create_camera() -> List[Float32]:
+    var params = List[Float32](capacity=12)
+    var target = Vec3f32(0.0, 0.5, 0.0)
+    var origin = Vec3f32(0.0, 1.0, 2.0)
+    var up_hint = Vec3f32(0.0, 1.0, 0.0)
+    var forward = normalize(target - origin)
+    var right = normalize(cross(forward, up_hint))
+    var up = normalize(cross(right, forward))
+
+    params.append(origin.x())
+    params.append(origin.y())
+    params.append(origin.z())
+    params.append(forward.x())
+    params.append(forward.y())
+    params.append(forward.z())
+    params.append(right.x())
+    params.append(right.y())
+    params.append(right.z())
+    params.append(up.x())
+    params.append(up.y())
+    params.append(up.z())
+    return params^
+
+
 def main() raises:
     print("GPU LBVH normal render example")
     print(t"OBJ: {DEFAULT_OBJ_PATH}")
     print(t"Resolution: {WIDTH} x {HEIGHT}")
-    print(t"Views: {VIEWS}")
     print(t"Output: {DEFAULT_OUTPUT_PATH}")
 
     print("\nLoading geometry...")
@@ -86,10 +106,10 @@ def main() raises:
     var centroid_bounds = compute_centroid_bounds(tri_vertices)
     var cmin = centroid_bounds[0].copy()
     var cmax = centroid_bounds[1].copy()
-    var camera_params = generate_camera_params(bmin, bmax, VIEWS)
+    var camera_params = create_camera()
 
     var tri_count = len(tri_vertices) // 3
-    var ray_count = WIDTH * HEIGHT * VIEWS
+    var ray_count = WIDTH * HEIGHT
 
     print(t"Triangles: {tri_count}")
     print(t"Camera params floats: {len(camera_params)}")
@@ -98,7 +118,7 @@ def main() raises:
     with DeviceContext() as ctx:
         print("\nBuilding GPU LBVH...")
         var lbvh = GpuLBVH(ctx, tri_vertices)
-        var norm = centroid_normalization(cmin, cmax)
+        var norm = normalize(cmax - cmin)
         var build_t = lbvh.build(ctx, cmin, norm)
         var validation = lbvh.validate(bmin, bmax)
 
@@ -130,7 +150,7 @@ def main() raises:
             ray_count,
             WIDTH,
             HEIGHT,
-            VIEWS,
+            1,
         )
         ctx.synchronize()
         var trace_t1 = perf_counter_ns()

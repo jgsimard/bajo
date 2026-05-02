@@ -30,13 +30,6 @@ comptime GPU_LBVH_INF_NS = 9223372036854775807
 
 
 @fieldwise_init
-struct CentroidNormalization(TrivialRegisterPassable):
-    var inv_x: Float32
-    var inv_y: Float32
-    var inv_z: Float32
-
-
-@fieldwise_init
 struct GpuLBVHBuildTimings(TrivialRegisterPassable):
     var morton_ns: Int
     var sort_ns: Int
@@ -80,25 +73,6 @@ def gpu_lbvh_blocks_for(n: Int) -> Int:
 @always_inline
 def gpu_lbvh_stage_sum(t: GpuLBVHBuildTimings) -> Int:
     return t.morton_ns + t.sort_ns + t.topology_ns + t.refit_ns
-
-
-def centroid_normalization(
-    centroid_min: Vec3f32,
-    centroid_max: Vec3f32,
-) -> CentroidNormalization:
-    var extent = centroid_max - centroid_min
-    var inv_x = Float32(0.0)
-    var inv_y = Float32(0.0)
-    var inv_z = Float32(0.0)
-
-    if extent.x() > 1.0e-20:
-        inv_x = 1.0 / extent.x()
-    if extent.y() > 1.0e-20:
-        inv_y = 1.0 / extent.y()
-    if extent.z() > 1.0e-20:
-        inv_z = 1.0 / extent.z()
-
-    return CentroidNormalization(inv_x, inv_y, inv_z)
 
 
 struct GpuLBVH:
@@ -159,7 +133,7 @@ struct GpuLBVH:
         mut self,
         ctx: DeviceContext,
         centroid_min: Vec3f32,
-        norm: CentroidNormalization,
+        norm: Vec3f32,
     ) raises -> GpuLBVHBuildTimings:
         var start = perf_counter_ns()
 
@@ -193,7 +167,7 @@ struct GpuLBVH:
         mut self,
         ctx: DeviceContext,
         centroid_min: Vec3f32,
-        norm: CentroidNormalization,
+        norm: Vec3f32,
         repeats: Int,
     ) raises -> GpuLBVHBuildTimings:
         var out_t = GpuLBVHBuildTimings()
@@ -244,7 +218,7 @@ struct GpuLBVH:
         self,
         ctx: DeviceContext,
         centroid_min: Vec3f32,
-        norm: CentroidNormalization,
+        norm: Vec3f32,
     ) raises:
         ctx.enqueue_function[
             compute_morton_codes_kernel, compute_morton_codes_kernel
@@ -256,9 +230,9 @@ struct GpuLBVH:
             centroid_min.x(),
             centroid_min.y(),
             centroid_min.z(),
-            norm.inv_x,
-            norm.inv_y,
-            norm.inv_z,
+            norm.x(),
+            norm.y(),
+            norm.z(),
             grid_dim=self.blocks_leaves,
             block_dim=GPU_LBVH_BLOCK_SIZE,
         )

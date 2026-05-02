@@ -50,6 +50,9 @@ struct GpuLBVHBuildTimings(TrivialRegisterPassable):
         self.refit_ns = min(self.refit_ns, rhs.refit_ns)
         self.total_ns = min(self.total_ns, rhs.total_ns)
 
+    def sum(self) -> Int:
+        return self.morton_ns + self.sort_ns + self.topology_ns + self.refit_ns
+
 
 @fieldwise_init
 struct GpuLBVHValidation(TrivialRegisterPassable):

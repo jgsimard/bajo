@@ -80,7 +80,7 @@ struct GpuLBVH:
 
     var vertices: DeviceBuffer[DType.float32]
     var keys: DeviceBuffer[DType.uint32]
-    var d_values: DeviceBuffer[DType.uint32]
+    var values: DeviceBuffer[DType.uint32]
     var node_meta: DeviceBuffer[DType.uint32]
     var leaf_parent: DeviceBuffer[DType.uint32]
     var node_bounds: DeviceBuffer[DType.float32]
@@ -106,7 +106,7 @@ struct GpuLBVH:
 
         self.vertices = copy_list_to_device(ctx, vertices)
         self.keys = ctx.enqueue_create_buffer[DType.uint32](self.tri_count)
-        self.d_values = ctx.enqueue_create_buffer[DType.uint32](self.tri_count)
+        self.values = ctx.enqueue_create_buffer[DType.uint32](self.tri_count)
         self.node_meta = ctx.enqueue_create_buffer[DType.uint32](
             self.internal_count * 4
         )
@@ -136,7 +136,7 @@ struct GpuLBVH:
         var m = perf_counter_ns()
 
         device_radix_sort_pairs[DType.uint32, DType.uint32](
-            ctx, self.workspace, self.keys, self.d_values, self.tri_count
+            ctx, self.workspace, self.keys, self.values, self.tri_count
         )
         ctx.synchronize()
         var s = perf_counter_ns()
@@ -177,7 +177,7 @@ struct GpuLBVH:
         scene_max: Vec3f32,
     ) raises -> GpuLBVHValidation:
         var sorted_validation = validate_sorted_keys(
-            self.keys, self.d_values, self.tri_count
+            self.keys, self.values, self.tri_count
         )
         var topo_validation = validate_topology(
             self.node_meta, self.leaf_parent, self.tri_count
@@ -219,7 +219,7 @@ struct GpuLBVH:
         ](
             self.vertices.unsafe_ptr(),
             self.keys.unsafe_ptr(),
-            self.d_values.unsafe_ptr(),
+            self.values.unsafe_ptr(),
             self.tri_count,
             centroid_min.x(),
             centroid_min.y(),
@@ -265,7 +265,7 @@ struct GpuLBVH:
             refit_lbvh_bounds_kernel, refit_lbvh_bounds_kernel
         ](
             self.vertices.unsafe_ptr(),
-            self.d_values.unsafe_ptr(),
+            self.values.unsafe_ptr(),
             self.node_meta.unsafe_ptr(),
             self.leaf_parent.unsafe_ptr(),
             self.node_bounds.unsafe_ptr(),
@@ -287,7 +287,7 @@ struct GpuLBVH:
             trace_lbvh_gpu_primary_kernel, trace_lbvh_gpu_primary_kernel
         ](
             self.vertices.unsafe_ptr(),
-            self.d_values.unsafe_ptr(),
+            self.values.unsafe_ptr(),
             self.node_meta.unsafe_ptr(),
             self.node_bounds.unsafe_ptr(),
             d_rays.unsafe_ptr(),
@@ -317,7 +317,7 @@ struct GpuLBVH:
             trace_lbvh_gpu_camera_kernel[mode],
         ](
             self.vertices.unsafe_ptr(),
-            self.d_values.unsafe_ptr(),
+            self.values.unsafe_ptr(),
             self.node_meta.unsafe_ptr(),
             self.node_bounds.unsafe_ptr(),
             d_camera_params.unsafe_ptr(),

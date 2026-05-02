@@ -10,7 +10,7 @@ from bajo.core.bvh.gpu.constants import (
     LBVH_INDEX_MASK,
     LBVH_SENTINEL,
 )
-from bajo.core.intersect import intersect_ray_tri
+from bajo.core.intersect import intersect_ray_tri, intersect_ray_aabb
 from bajo.core.morton import morton3
 from bajo.core.vec import Vec3f32, vmin, vmax, cross, length, normalize
 from bajo.sort.gpu.radix_sort import device_radix_sort_pairs, RadixSortWorkspace
@@ -90,10 +90,10 @@ def _node_right(
 
 
 def compute_centroid_bounds(verts: List[Vec3f32]) -> Tuple[Vec3f32, Vec3f32]:
-    var bmin = Vec3f32(1.0e30, 1.0e30, 1.0e30)
-    var bmax = Vec3f32(-1.0e30, -1.0e30, -1.0e30)
+    var bmin = Vec3f32(Float32.MAX)
+    var bmax = Vec3f32(Float32.MIN)
 
-    for i in range(len(verts) // 3):
+    for i in range(len(verts) / 3):
         ref v0 = verts[i * 3 + 0]
         ref v1 = verts[i * 3 + 1]
         ref v2 = verts[i * 3 + 2]
@@ -117,8 +117,6 @@ def compute_centroid_bounds(verts: List[Vec3f32]) -> Tuple[Vec3f32, Vec3f32]:
 # Bounds/refit are intentionally NOT built here yet. This file only proves the
 # hierarchy topology generated from sorted Morton codes.
 # -----------------------------------------------------------------------------
-
-
 @always_inline
 def _common_prefix_gpu(
     keys: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
@@ -445,50 +443,6 @@ def refit_lbvh_bounds_kernel(
 # Child pointers use LBVH_LEAF_FLAG in the high bit to distinguish leaf vs
 # internal nodes, following the same encoding used by the topology kernel.
 # -----------------------------------------------------------------------------
-
-
-@always_inline
-def _axis_t_near(o: Float32, rd: Float32, mn: Float32, mx: Float32) -> Float32:
-    var t0 = (mn - o) * rd
-    var t1 = (mx - o) * rd
-    return min(t0, t1)
-
-
-@always_inline
-def _axis_t_far(o: Float32, rd: Float32, mn: Float32, mx: Float32) -> Float32:
-    var t0 = (mn - o) * rd
-    var t1 = (mx - o) * rd
-    return max(t0, t1)
-
-
-@always_inline
-def _intersect_aabb_flat(
-    ox: Float32,
-    oy: Float32,
-    oz: Float32,
-    rdx: Float32,
-    rdy: Float32,
-    rdz: Float32,
-    bminx: Float32,
-    bminy: Float32,
-    bminz: Float32,
-    bmaxx: Float32,
-    bmaxy: Float32,
-    bmaxz: Float32,
-    t_max: Float32,
-) -> Tuple[Bool, Float32]:
-    var tx1 = _axis_t_near(ox, rdx, bminx, bmaxx)
-    var tx2 = _axis_t_far(ox, rdx, bminx, bmaxx)
-    var ty1 = _axis_t_near(oy, rdy, bminy, bmaxy)
-    var ty2 = _axis_t_far(oy, rdy, bminy, bmaxy)
-    var tz1 = _axis_t_near(oz, rdz, bminz, bmaxz)
-    var tz2 = _axis_t_far(oz, rdz, bminz, bmaxz)
-
-    var tmin = max(max(tx1, ty1), max(tz1, Float32(0.0)))
-    var tmax = min(min(tx2, ty2), min(tz2, t_max))
-    return (tmin <= tmax, tmin)
-
-
 @always_inline
 def _load_buffer_ray(
     rays: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
@@ -519,7 +473,7 @@ def _intersect_child_bounds[
     t_max: Float32,
 ) -> Tuple[Bool, Float32]:
     var b = _node_bounds_base(node_idx) + child_bounds_offset
-    return _intersect_aabb_flat(
+    return intersect_ray_aabb(
         ray.ox,
         ray.oy,
         ray.oz,

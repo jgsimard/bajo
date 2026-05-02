@@ -32,7 +32,6 @@ from bajo.core.bvh.gpu.kernels import (
 )
 from bajo.core.bvh.gpu.lbvh import (
     GpuLBVH,
-    gpu_lbvh_blocks_for,
     GPU_LBVH_BLOCK_SIZE,
 )
 
@@ -57,6 +56,7 @@ from bajo.core.bvh.gpu.utils import (
     _ms,
     _mrays,
     _upload_rays,
+    _blocks_for,
 )
 
 
@@ -219,7 +219,7 @@ def _benchmark_primary_reduce(
     reference_checksum: Float64,
     repeats: Int,
 ) raises -> GpuPrimaryReduceResult:
-    var reduce_blocks = gpu_lbvh_blocks_for(GPU_REDUCE_THREADS)
+    var reduce_blocks = _blocks_for[GPU_LBVH_BLOCK_SIZE](GPU_REDUCE_THREADS)
     var best_kernel_ns = Int.MAX
     var best_reduce_ns = Int.MAX
     var best_download_ns = Int.MAX
@@ -293,7 +293,7 @@ def _benchmark_shadow_reduce(
     reference_occluded: Int,
     repeats: Int,
 ) raises -> GpuShadowReduceResult:
-    var reduce_blocks = gpu_lbvh_blocks_for(GPU_REDUCE_THREADS)
+    var reduce_blocks = _blocks_for[GPU_LBVH_BLOCK_SIZE](GPU_REDUCE_THREADS)
     var best_kernel_ns = Int.MAX
     var best_reduce_ns = Int.MAX
     var best_download_ns = Int.MAX

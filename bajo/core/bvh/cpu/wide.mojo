@@ -1,6 +1,6 @@
 from std.utils.numerics import max_finite, min_finite
 
-from bajo.core.intersect import intersect_ray_aabb, intersect_ray_tri
+from bajo.core.intersect import intersect_ray_tri
 
 comptime f32_max = max_finite[DType.float32]()
 comptime f32_min = min_finite[DType.float32]()

@@ -7,6 +7,7 @@ from std.gpu import thread_idx, block_idx, block_dim, DeviceBuffer
 from std.gpu.host import DeviceContext
 
 from bajo.obj import read_obj, triangulated_indices
+from bajo.core.intersect import intersect_ray_aabb, intersect_ray_tri
 from bajo.core.vec import Vec3f32, vmin, vmax, cross, dot, length, normalize
 from bajo.core.bvh import (
     compute_bounds,
@@ -299,112 +300,6 @@ def bench_gpu_shadow(
 #   node_bounds: 12 Float32 values per node: lmin, lmax, rmin, rmax.
 #   node_meta:    4 UInt32 values per node: left, right, tri_count, first_tri.
 # -----------------------------------------------------------------------------
-
-
-@always_inline
-def _axis_t_near(o: Float32, rd: Float32, mn: Float32, mx: Float32) -> Float32:
-    var t0 = (mn - o) * rd
-    var t1 = (mx - o) * rd
-    return min(t0, t1)
-
-
-@always_inline
-def _axis_t_far(o: Float32, rd: Float32, mn: Float32, mx: Float32) -> Float32:
-    var t0 = (mn - o) * rd
-    var t1 = (mx - o) * rd
-    return max(t0, t1)
-
-
-@always_inline
-def _intersect_aabb_flat(
-    ox: Float32,
-    oy: Float32,
-    oz: Float32,
-    rdx: Float32,
-    rdy: Float32,
-    rdz: Float32,
-    bminx: Float32,
-    bminy: Float32,
-    bminz: Float32,
-    bmaxx: Float32,
-    bmaxy: Float32,
-    bmaxz: Float32,
-    t_max: Float32,
-) -> Tuple[Bool, Float32]:
-    var tx1 = _axis_t_near(ox, rdx, bminx, bmaxx)
-    var tx2 = _axis_t_far(ox, rdx, bminx, bmaxx)
-    var ty1 = _axis_t_near(oy, rdy, bminy, bmaxy)
-    var ty2 = _axis_t_far(oy, rdy, bminy, bmaxy)
-    var tz1 = _axis_t_near(oz, rdz, bminz, bmaxz)
-    var tz2 = _axis_t_far(oz, rdz, bminz, bmaxz)
-
-    var tmin = max(max(tx1, ty1), max(tz1, Float32(0.0)))
-    var tmax = min(min(tx2, ty2), min(tz2, t_max))
-    return (tmin <= tmax, tmin)
-
-
-@always_inline
-def _intersect_tri_flat(
-    vertices: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    prim_idx: UInt32,
-    ox: Float32,
-    oy: Float32,
-    oz: Float32,
-    dx: Float32,
-    dy: Float32,
-    dz: Float32,
-    t_max: Float32,
-) -> Tuple[Bool, Float32, Float32, Float32]:
-    var base = Int(prim_idx) * 9
-    var v0x = vertices[base + 0]
-    var v0y = vertices[base + 1]
-    var v0z = vertices[base + 2]
-    var v1x = vertices[base + 3]
-    var v1y = vertices[base + 4]
-    var v1z = vertices[base + 5]
-    var v2x = vertices[base + 6]
-    var v2y = vertices[base + 7]
-    var v2z = vertices[base + 8]
-
-    var e1x = v1x - v0x
-    var e1y = v1y - v0y
-    var e1z = v1z - v0z
-    var e2x = v2x - v0x
-    var e2y = v2y - v0y
-    var e2z = v2z - v0z
-
-    var px = dy * e2z - dz * e2y
-    var py = dz * e2x - dx * e2z
-    var pz = dx * e2y - dy * e2x
-    var det = e1x * px + e1y * py + e1z * pz
-
-    if det > -1e-12 and det < 1e-12:
-        return (False, Float32(1e30), Float32(0.0), Float32(0.0))
-
-    var inv_det = Float32(1.0) / det
-    var tx = ox - v0x
-    var ty = oy - v0y
-    var tz = oz - v0z
-
-    var u = (tx * px + ty * py + tz * pz) * inv_det
-    if u < 0.0 or u > 1.0:
-        return (False, Float32(1e30), Float32(0.0), Float32(0.0))
-
-    var qx = ty * e1z - tz * e1y
-    var qy = tz * e1x - tx * e1z
-    var qz = tx * e1y - ty * e1x
-
-    var v = (dx * qx + dy * qy + dz * qz) * inv_det
-    if v < 0.0 or u + v > 1.0:
-        return (False, Float32(1e30), Float32(0.0), Float32(0.0))
-
-    var t = (e2x * qx + e2y * qy + e2z * qz) * inv_det
-    if t > 1e-4 and t < t_max:
-        return (True, t, u, v)
-
-    return (False, Float32(1e30), Float32(0.0), Float32(0.0))
-
-
 def trace_bvh_gpu_primary_kernel(
     node_bounds: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
     node_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
@@ -450,7 +345,7 @@ def trace_bvh_gpu_primary_kernel(
         if tri_count > 0:
             for j in range(Int(tri_count)):
                 var prim_idx = prim_indices[Int(first_tri) + j]
-                var tri_hit = _intersect_tri_flat(
+                var tri_hit = intersect_ray_tri(
                     vertices,
                     prim_idx,
                     ox,
@@ -461,10 +356,10 @@ def trace_bvh_gpu_primary_kernel(
                     dz,
                     best_t,
                 )
-                if tri_hit[0]:
-                    best_t = tri_hit[1]
-                    best_u = tri_hit[2]
-                    best_v = tri_hit[3]
+                if tri_hit.mask:
+                    best_t = tri_hit.t
+                    best_u = tri_hit.u
+                    best_v = tri_hit.v
                     best_prim = prim_idx
 
             if stack_ptr == 0:
@@ -473,7 +368,7 @@ def trace_bvh_gpu_primary_kernel(
             node_idx = stack[stack_ptr]
             continue
 
-        var left_hit = _intersect_aabb_flat(
+        var left_hit = intersect_ray_aabb(
             ox,
             oy,
             oz,
@@ -488,7 +383,7 @@ def trace_bvh_gpu_primary_kernel(
             node_bounds[bounds_base + 5],
             best_t,
         )
-        var right_hit = _intersect_aabb_flat(
+        var right_hit = intersect_ray_aabb(
             ox,
             oy,
             oz,
@@ -577,7 +472,7 @@ def trace_bvh_gpu_shadow_kernel(
         if tri_count > 0:
             for j in range(Int(tri_count)):
                 var prim_idx = prim_indices[Int(first_tri) + j]
-                var tri_hit = _intersect_tri_flat(
+                var tri_hit = intersect_ray_tri(
                     vertices,
                     prim_idx,
                     ox,
@@ -588,7 +483,7 @@ def trace_bvh_gpu_shadow_kernel(
                     dz,
                     t_max,
                 )
-                if tri_hit[0]:
+                if tri_hit.mask:
                     occluded_out[ray_idx] = UInt32(1)
                     return
 
@@ -598,7 +493,7 @@ def trace_bvh_gpu_shadow_kernel(
             node_idx = stack[stack_ptr]
             continue
 
-        var left_hit = _intersect_aabb_flat(
+        var left_hit = intersect_ray_aabb(
             ox,
             oy,
             oz,
@@ -613,7 +508,7 @@ def trace_bvh_gpu_shadow_kernel(
             node_bounds[bounds_base + 5],
             t_max,
         )
-        var right_hit = _intersect_aabb_flat(
+        var right_hit = intersect_ray_aabb(
             ox,
             oy,
             oz,

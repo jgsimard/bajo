@@ -681,7 +681,7 @@ def _print_direct_result(
             t"\nUploaded primary rays + full hit download\n"
             t"-----------------------------------------\n"
             t"ray upload:         {_ms(r.upload_ns)} ms\n"
-            t"traversal kernel:   {_ms(r.kernel_ns)} ms\n"
+            t"traversal kernel:   {_ms(r.kernel_ns)} ms"
             t" | {_mrays(r.kernel_ns, ray_count)} MRays/s\n"
             t"full hit download:  {_ms(r.download_ns)} ms\n"
             t"query total:        {_ms(r.frame_ns)} ms"

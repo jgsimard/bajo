@@ -23,48 +23,10 @@ from bajo.core.bvh.gpu.kernels import (
     TRACE_PRIMARY_T,
     TRACE_SHADOW,
 )
+from bajo.core.bvh.gpu.utils import GpuLBVHBuildTimings, GpuLBVHValidation
 
 
 comptime GPU_LBVH_BLOCK_SIZE = 128
-
-
-@fieldwise_init
-struct GpuLBVHBuildTimings(TrivialRegisterPassable):
-    var morton_ns: Int
-    var sort_ns: Int
-    var topology_ns: Int
-    var refit_ns: Int
-    var total_ns: Int
-
-    def __init__(out self):
-        self.morton_ns = Int.MAX
-        self.sort_ns = Int.MAX
-        self.topology_ns = Int.MAX
-        self.refit_ns = Int.MAX
-        self.total_ns = Int.MAX
-
-    def min(mut self, rhs: Self):
-        self.morton_ns = min(self.morton_ns, rhs.morton_ns)
-        self.sort_ns = min(self.sort_ns, rhs.sort_ns)
-        self.topology_ns = min(self.topology_ns, rhs.topology_ns)
-        self.refit_ns = min(self.refit_ns, rhs.refit_ns)
-        self.total_ns = min(self.total_ns, rhs.total_ns)
-
-    def sum(self) -> Int:
-        return self.morton_ns + self.sort_ns + self.topology_ns + self.refit_ns
-
-
-@fieldwise_init
-struct GpuLBVHValidation(TrivialRegisterPassable):
-    var sorted_ok: Bool
-    var values_ok: Bool
-    var topology_ok: Bool
-    var topology_root_count: UInt32
-    var topology_root_idx: UInt32
-    var bounds_ok: Bool
-    var bounds_diff: Float64
-    var refit_root_idx: UInt32
-    var guard: UInt64
 
 
 @always_inline

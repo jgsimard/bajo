@@ -12,7 +12,7 @@ comptime BVH_BINS = 16
 
 
 @fieldwise_init
-struct Intersection(Copyable):
+struct Intersection(TrivialRegisterPassable):
     var t: Float32
     var u: Float32
     var v: Float32

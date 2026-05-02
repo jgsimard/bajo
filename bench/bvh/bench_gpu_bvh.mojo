@@ -11,7 +11,7 @@ from bajo.core.utils import (
     print_vec3_rounded,
 )
 from bajo.sort.gpu.radix_sort import device_radix_sort_pairs, RadixSortWorkspace
-from bajo.core.vec import Vec3f32
+from bajo.core.vec import Vec3f32, normalize
 from bajo.core.bvh.gpu.validate import (
     validate_sorted_keys,
     validate_topology,
@@ -62,13 +62,6 @@ comptime INF_NS = 9223372036854775807
 comptime RUN_DIRECT_RAY_UPLOAD_BENCH = True
 comptime RUN_CAMERA_FULL_DOWNLOAD_BENCH = True
 comptime RUN_CAMERA_REDUCE_AND_SHADOW_BENCH = True
-
-
-@fieldwise_init
-struct CentroidNormalization(Copyable):
-    var inv_x: Float32
-    var inv_y: Float32
-    var inv_z: Float32
 
 
 @fieldwise_init
@@ -213,23 +206,6 @@ def _shadow_reduce_frame_ns(r: GpuShadowReduceResult) -> Int:
     return r.frame_ns
 
 
-def _centroid_normalization(
-    centroid_min: Vec3f32,
-    centroid_max: Vec3f32,
-) -> CentroidNormalization:
-    var extent = centroid_max - centroid_min
-    var inv_x = Float32(0.0)
-    var inv_y = Float32(0.0)
-    var inv_z = Float32(0.0)
-    if extent.x() > 1.0e-20:
-        inv_x = 1.0 / extent.x()
-    if extent.y() > 1.0e-20:
-        inv_y = 1.0 / extent.y()
-    if extent.z() > 1.0e-20:
-        inv_z = 1.0 / extent.z()
-    return CentroidNormalization(inv_x, inv_y, inv_z)
-
-
 def _launch_morton(
     ctx: DeviceContext,
     d_vertices: DeviceBuffer[DType.float32],
@@ -237,7 +213,7 @@ def _launch_morton(
     d_values: DeviceBuffer[DType.uint32],
     tri_count: Int,
     centroid_min: Vec3f32,
-    norm: CentroidNormalization,
+    norm: Vec3f32,
     blocks_leaves: Int,
 ) raises:
     ctx.enqueue_function[
@@ -250,9 +226,9 @@ def _launch_morton(
         centroid_min.x(),
         centroid_min.y(),
         centroid_min.z(),
-        norm.inv_x,
-        norm.inv_y,
-        norm.inv_z,
+        norm.x(),
+        norm.y(),
+        norm.z(),
         grid_dim=blocks_leaves,
         block_dim=GPU_BLOCK_SIZE,
     )
@@ -334,7 +310,7 @@ def _time_build_once(
     tri_count: Int,
     internal_count: Int,
     centroid_min: Vec3f32,
-    norm: CentroidNormalization,
+    norm: Vec3f32,
     blocks_leaves: Int,
     blocks_internal: Int,
     blocks_init: Int,
@@ -411,7 +387,7 @@ def _best_build_timings(
     tri_count: Int,
     internal_count: Int,
     centroid_min: Vec3f32,
-    norm: CentroidNormalization,
+    norm: Vec3f32,
     blocks_leaves: Int,
     blocks_internal: Int,
     blocks_init: Int,
@@ -956,7 +932,7 @@ def run_gpu_lbvh_benchmark_suite(
     var ray_count = len(rays)
     var vertices = flatten_vertices(tri_vertices)
     var rays_flat = flatten_rays(rays)
-    var norm = _centroid_normalization(centroid_min, centroid_max)
+    var norm = normalize(centroid_max - centroid_min)
 
     with DeviceContext() as ctx:
         var static_t0 = perf_counter_ns()

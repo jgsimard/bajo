@@ -32,10 +32,21 @@ from bajo.core.bvh.gpu.kernels import (
 )
 from bajo.core.bvh.gpu.lbvh import (
     GpuLBVH,
-    GpuLBVHBuildTimings,
-    GpuLBVHValidation,
     gpu_lbvh_blocks_for,
     GPU_LBVH_BLOCK_SIZE,
+)
+
+from bajo.core.bvh.gpu.utils import (
+    GpuLBVHBuildTimings,
+    GpuLBVHValidation,
+    GpuDirectTraversalResult,
+    GpuPrimaryReduceResult,
+    GpuCameraFullResult,
+    GpuShadowReduceResult,
+    GpuSuiteResult,
+    GpuBuildResult,
+    GpuReduceAndShadowResult,
+    CpuReferenceResult,
 )
 
 
@@ -49,77 +60,6 @@ comptime PRIMARY_VIEWS = 3
 comptime RUN_DIRECT_RAY_UPLOAD_BENCH = True
 comptime RUN_CAMERA_FULL_DOWNLOAD_BENCH = True
 comptime RUN_CAMERA_REDUCE_AND_SHADOW_BENCH = True
-
-
-@fieldwise_init
-struct GpuBuildResult(Copyable):
-    var static_setup_ns: Int
-    var timings: GpuLBVHBuildTimings
-    var validation: GpuLBVHValidation
-
-
-@fieldwise_init
-struct GpuDirectTraversalResult(Copyable):
-    var upload_ns: Int
-    var kernel_ns: Int
-    var download_ns: Int
-    var frame_ns: Int
-    var checksum: Float64
-    var hit_count: UInt32
-    var diff: Float64
-
-
-@fieldwise_init
-struct GpuCameraFullResult(Copyable):
-    var kernel_ns: Int
-    var download_ns: Int
-    var frame_ns: Int
-    var checksum: Float64
-    var hit_count: UInt32
-    var diff: Float64
-
-
-@fieldwise_init
-struct GpuPrimaryReduceResult(Copyable):
-    var kernel_ns: Int
-    var reduce_ns: Int
-    var download_ns: Int
-    var frame_ns: Int
-    var checksum: Float64
-    var hit_count: UInt32
-    var diff: Float64
-
-
-@fieldwise_init
-struct GpuShadowReduceResult(Copyable):
-    var kernel_ns: Int
-    var reduce_ns: Int
-    var download_ns: Int
-    var frame_ns: Int
-    var occluded: UInt32
-    var diff: Int
-
-
-@fieldwise_init
-struct GpuReduceAndShadowResult(Copyable):
-    var primary: GpuPrimaryReduceResult
-    var shadow: GpuShadowReduceResult
-
-
-@fieldwise_init
-struct GpuSuiteResult(Copyable):
-    var build: GpuBuildResult
-    var direct: GpuDirectTraversalResult
-    var camera_full: GpuCameraFullResult
-    var reduce_shadow: GpuReduceAndShadowResult
-
-
-@fieldwise_init
-struct CpuReferenceResult(Copyable):
-    var build_ns: Int
-    var trace_ns: Int
-    var checksum: Float64
-    var occluded: Int
 
 
 @always_inline
@@ -371,9 +311,9 @@ def _benchmark_primary_reduce(
 
         var r0 = perf_counter_ns()
         ctx.enqueue_function[reduce_hit_t_kernel, reduce_hit_t_kernel](
-            d_hit_t.unsafe_ptr(),
-            d_partial_sums.unsafe_ptr(),
-            d_partial_counts.unsafe_ptr(),
+            d_hit_t,
+            d_partial_sums,
+            d_partial_counts,
             ray_count,
             GPU_REDUCE_THREADS,
             grid_dim=reduce_blocks,
@@ -444,8 +384,8 @@ def _benchmark_shadow_reduce(
 
         var r0 = perf_counter_ns()
         ctx.enqueue_function[reduce_u32_flags_kernel, reduce_u32_flags_kernel](
-            d_occluded.unsafe_ptr(),
-            d_partial_counts.unsafe_ptr(),
+            d_occluded,
+            d_partial_counts,
             ray_count,
             GPU_REDUCE_THREADS,
             grid_dim=reduce_blocks,

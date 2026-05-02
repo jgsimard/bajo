@@ -597,7 +597,3 @@ def transform_vector[
 ](m: Mat44[dtype], v: Vec3[dtype]) -> Vec3[dtype]:
     v4 = Vec4[dtype](v.x(), v.y(), v.z(), 0)
     return _matvec(m, v4).xyz()
-
-
-def main() raises:
-    print("core.mat")

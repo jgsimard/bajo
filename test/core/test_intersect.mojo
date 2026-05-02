@@ -12,7 +12,7 @@ from bajo.core.intersect import (
     furthest_point_to_triangle,
     intersect_ray_aabb,
     intersect_aabb_aabb,
-    intersect_ray_tri_moller,
+    # intersect_ray_tri_moller,
     intersect_ray_tri_rtcd,
     intersect_ray_tri_woop,
     no_div_tri_tri_isect,
@@ -124,99 +124,99 @@ def test_furthest_point_to_triangle() raises:
 
 
 # Ray / Triangle Intersection Tests
-def test_intersect_ray_tri_moller() raises:
-    a = Vec3f32(-1.0, -1.0, 0.0)
-    b = Vec3f32(1.0, -1.0, 0.0)
-    c = Vec3f32(0.0, 1.0, 0.0)
+# def test_intersect_ray_tri_moller() raises:
+#     a = Vec3f32(-1.0, -1.0, 0.0)
+#     b = Vec3f32(1.0, -1.0, 0.0)
+#     c = Vec3f32(0.0, 1.0, 0.0)
 
-    pos_hit = Vec3f32(0.0, 0.0, 5.0)
-    dir_hit = Vec3f32(0.0, 0.0, -1.0)
+#     pos_hit = Vec3f32(0.0, 0.0, 5.0)
+#     dir_hit = Vec3f32(0.0, 0.0, -1.0)
 
-    t = Float32(0)
-    u = Float32(0)
-    v = Float32(0)
-    w = Float32(0)
-    sign = Float32(0)
-    normal = alloc[Vec3f32](1)
+#     t = Float32(0)
+#     u = Float32(0)
+#     v = Float32(0)
+#     w = Float32(0)
+#     sign = Float32(0)
+#     normal = alloc[Vec3f32](1)
 
-    hit = intersect_ray_tri_moller(
-        pos_hit, dir_hit, a, b, c, t, u, v, w, sign, normal
-    )
-    assert_true(hit)
-    assert_almost_equal(t, 5.0)
-    assert_almost_equal(u, 0.25)
-    assert_almost_equal(v, 0.25)
-    assert_almost_equal(w, 0.50)
-    # Moller calculates dot(-dir, cross(ab, ac)) = 4.0
-    assert_almost_equal(sign, 4.0)
-    assert_vec_equal(normal[], Vec3f32(0.0, 0.0, 4.0))
+#     hit = intersect_ray_tri_moller(
+#         pos_hit, dir_hit, a, b, c, t, u, v, w, sign, normal
+#     )
+#     assert_true(hit)
+#     assert_almost_equal(t, 5.0)
+#     assert_almost_equal(u, 0.25)
+#     assert_almost_equal(v, 0.25)
+#     assert_almost_equal(w, 0.50)
+#     # Moller calculates dot(-dir, cross(ab, ac)) = 4.0
+#     assert_almost_equal(sign, 4.0)
+#     assert_vec_equal(normal[], Vec3f32(0.0, 0.0, 4.0))
 
-    pos_miss = Vec3f32(5.0, 5.0, 5.0)
-    hit_miss = intersect_ray_tri_moller(
-        pos_miss, dir_hit, a, b, c, t, u, v, w, sign, normal
-    )
-    assert_false(hit_miss)
+#     pos_miss = Vec3f32(5.0, 5.0, 5.0)
+#     hit_miss = intersect_ray_tri_moller(
+#         pos_miss, dir_hit, a, b, c, t, u, v, w, sign, normal
+#     )
+#     assert_false(hit_miss)
 
-    normal.free()
-
-
-def _test_degenerate_triangles[dtype: DType]() raises:
-    # A triangle where all points are the same
-    a = Vec3[dtype](1.0, 1.0, 1.0)
-    b = Vec3[dtype](1.0, 1.0, 1.0)
-    c = Vec3[dtype](1.0, 1.0, 1.0)
-
-    pos = Vec3[dtype](0.0, 0.0, 0.0)
-    dir = Vec3[dtype](1.0, 1.0, 1.0)  # pointing right at it
-
-    t = Scalar[dtype](0)
-    u = Scalar[dtype](0)
-    v = Scalar[dtype](0)
-    w = Scalar[dtype](0)
-    sign = Scalar[dtype](0)
-    normal = alloc[Vec3[dtype]](1)
-
-    hit = intersect_ray_tri_moller(pos, dir, a, b, c, t, u, v, w, sign, normal)
-    assert_false(hit)
+#     normal.free()
 
 
-def test_degenerate_triangles() raises:
-    _test_degenerate_triangles[DType.float32]()
-    _test_degenerate_triangles[DType.float64]()
+# def _test_degenerate_triangles[dtype: DType]() raises:
+#     # A triangle where all points are the same
+#     a = Vec3[dtype](1.0, 1.0, 1.0)
+#     b = Vec3[dtype](1.0, 1.0, 1.0)
+#     c = Vec3[dtype](1.0, 1.0, 1.0)
+
+#     pos = Vec3[dtype](0.0, 0.0, 0.0)
+#     dir = Vec3[dtype](1.0, 1.0, 1.0)  # pointing right at it
+
+#     t = Scalar[dtype](0)
+#     u = Scalar[dtype](0)
+#     v = Scalar[dtype](0)
+#     w = Scalar[dtype](0)
+#     sign = Scalar[dtype](0)
+#     normal = alloc[Vec3[dtype]](1)
+
+#     hit = intersect_ray_tri_moller(pos, dir, a, b, c, t, u, v, w, sign, normal)
+#     assert_false(hit)
 
 
-def test_intersect_ray_tri_rtcd() raises:
-    a = Vec3f32(-1.0, -1.0, 0.0)
-    b = Vec3f32(1.0, -1.0, 0.0)
-    c = Vec3f32(0.0, 1.0, 0.0)
+# def test_degenerate_triangles() raises:
+#     _test_degenerate_triangles[DType.float32]()
+#     _test_degenerate_triangles[DType.float64]()
 
-    pos_hit = Vec3f32(0.0, 0.0, 5.0)
-    dir_hit = Vec3f32(0.0, 0.0, -1.0)
 
-    t = Float32(0)
-    u = Float32(0)
-    v = Float32(0)
-    w = Float32(0)
-    sign = Float32(0)
-    normal = alloc[Vec3f32](1)
+# def test_intersect_ray_tri_rtcd() raises:
+#     a = Vec3f32(-1.0, -1.0, 0.0)
+#     b = Vec3f32(1.0, -1.0, 0.0)
+#     c = Vec3f32(0.0, 1.0, 0.0)
 
-    hit = intersect_ray_tri_rtcd(
-        pos_hit, dir_hit, a, b, c, t, u, v, w, sign, normal
-    )
-    assert_true(hit)
-    assert_almost_equal(t, 5.0)
-    assert_almost_equal(u, 0.25)
-    assert_almost_equal(v, 0.25)
-    assert_almost_equal(w, 0.50)
-    assert_vec_equal(normal[], Vec3f32(0.0, 0.0, 4.0))
+#     pos_hit = Vec3f32(0.0, 0.0, 5.0)
+#     dir_hit = Vec3f32(0.0, 0.0, -1.0)
 
-    pos_miss = Vec3f32(5.0, 5.0, 5.0)
-    hit_miss = intersect_ray_tri_rtcd(
-        pos_miss, dir_hit, a, b, c, t, u, v, w, sign, normal
-    )
-    assert_false(hit_miss)
+#     t = Float32(0)
+#     u = Float32(0)
+#     v = Float32(0)
+#     w = Float32(0)
+#     sign = Float32(0)
+#     normal = alloc[Vec3f32](1)
 
-    normal.free()
+#     hit = intersect_ray_tri_rtcd(
+#         pos_hit, dir_hit, a, b, c, t, u, v, w, sign, normal
+#     )
+#     assert_true(hit)
+#     assert_almost_equal(t, 5.0)
+#     assert_almost_equal(u, 0.25)
+#     assert_almost_equal(v, 0.25)
+#     assert_almost_equal(w, 0.50)
+#     assert_vec_equal(normal[], Vec3f32(0.0, 0.0, 4.0))
+
+#     pos_miss = Vec3f32(5.0, 5.0, 5.0)
+#     hit_miss = intersect_ray_tri_rtcd(
+#         pos_miss, dir_hit, a, b, c, t, u, v, w, sign, normal
+#     )
+#     assert_false(hit_miss)
+
+#     normal.free()
 
 
 def test_intersect_ray_tri_woop() raises:

@@ -439,13 +439,3 @@ def assert_vec_equal[
 ](a: Vec[dtype, size], b: Vec[dtype, size], atol: Float64 = 1e-5) raises:
     comptime for i in range(size):
         assert_almost_equal(a[i], b[i], msg=String(t"i={i}"), atol=atol)
-
-
-def main():
-    print("hello warp.vec")
-    a = Vec3f32(1, 2, 3)
-    b = Vec3f32(4, 5, 6)
-    aa = Vec4f32(1, 2, 3, 2)
-    bb = Vec4f32(4, 5, 6, 5)
-    print(dot(a, b))
-    print(dot(aa, bb))

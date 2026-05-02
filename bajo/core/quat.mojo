@@ -430,11 +430,3 @@ def slerp[
     """Spherical Linear Interpolation."""
     axis_angle = (q0.inverse() * q1).to_axis_angle()
     return q0 * Quaternion.from_axis_angle(axis_angle[0], t * axis_angle[1])
-
-
-def main():
-    print("hello bajo.core.quat")
-    comptime T = DType.float32
-    m = Mat[T, 4, 4](1)
-    q = Quaternion.from_matrix(m)
-    print(q)

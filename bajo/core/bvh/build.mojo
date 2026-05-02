@@ -4,7 +4,6 @@ from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32, vmin, vmax, longest_axis, InlineArray
-from bajo.core.morton import morton3
 from bajo.core.bvh.types import (
     Ray,
     BvhNode,
@@ -166,14 +165,6 @@ def _sah(
                 best.right_bounds = right_box.copy()
 
     return best^
-
-
-@always_inline
-def _morton3_scalar(x: Float32, y: Float32, z: Float32) -> UInt32:
-    var vx = clamp(x, 0.0, 1.0)
-    var vy = clamp(y, 0.0, 1.0)
-    var vz = clamp(z, 0.0, 1.0)
-    return morton3(vx, vy, vz)
 
 
 @always_inline

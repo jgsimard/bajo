@@ -26,7 +26,6 @@ from bajo.core.bvh.gpu.kernels import (
 
 
 comptime GPU_LBVH_BLOCK_SIZE = 128
-comptime GPU_LBVH_INF_NS = 9223372036854775807
 
 
 @fieldwise_init
@@ -70,11 +69,6 @@ def gpu_lbvh_blocks_for(n: Int) -> Int:
     return (n + GPU_LBVH_BLOCK_SIZE - 1) // GPU_LBVH_BLOCK_SIZE
 
 
-@always_inline
-def gpu_lbvh_stage_sum(t: GpuLBVHBuildTimings) -> Int:
-    return t.morton_ns + t.sort_ns + t.topology_ns + t.refit_ns
-
-
 struct GpuLBVH:
     var tri_count: Int
     var internal_count: Int
@@ -84,13 +78,13 @@ struct GpuLBVH:
     var blocks_internal: Int
     var blocks_init: Int
 
-    var d_vertices: DeviceBuffer[DType.float32]
-    var d_keys: DeviceBuffer[DType.uint32]
+    var vertices: DeviceBuffer[DType.float32]
+    var keys: DeviceBuffer[DType.uint32]
     var d_values: DeviceBuffer[DType.uint32]
-    var d_node_meta: DeviceBuffer[DType.uint32]
-    var d_leaf_parent: DeviceBuffer[DType.uint32]
-    var d_node_bounds: DeviceBuffer[DType.float32]
-    var d_node_flags: DeviceBuffer[DType.uint32]
+    var node_meta: DeviceBuffer[DType.uint32]
+    var leaf_parent: DeviceBuffer[DType.uint32]
+    var node_bounds: DeviceBuffer[DType.float32]
+    var node_flags: DeviceBuffer[DType.uint32]
     var workspace: RadixSortWorkspace[DType.uint32, DType.uint32]
 
     def __init__(
@@ -110,19 +104,19 @@ struct GpuLBVH:
             max(self.tri_count, self.internal_count)
         )
 
-        self.d_vertices = copy_list_to_device(ctx, vertices)
-        self.d_keys = ctx.enqueue_create_buffer[DType.uint32](self.tri_count)
+        self.vertices = copy_list_to_device(ctx, vertices)
+        self.keys = ctx.enqueue_create_buffer[DType.uint32](self.tri_count)
         self.d_values = ctx.enqueue_create_buffer[DType.uint32](self.tri_count)
-        self.d_node_meta = ctx.enqueue_create_buffer[DType.uint32](
+        self.node_meta = ctx.enqueue_create_buffer[DType.uint32](
             self.internal_count * 4
         )
-        self.d_leaf_parent = ctx.enqueue_create_buffer[DType.uint32](
+        self.leaf_parent = ctx.enqueue_create_buffer[DType.uint32](
             self.tri_count
         )
-        self.d_node_bounds = ctx.enqueue_create_buffer[DType.float32](
+        self.node_bounds = ctx.enqueue_create_buffer[DType.float32](
             self.internal_count * 12
         )
-        self.d_node_flags = ctx.enqueue_create_buffer[DType.uint32](
+        self.node_flags = ctx.enqueue_create_buffer[DType.uint32](
             self.internal_count
         )
         self.workspace = RadixSortWorkspace[DType.uint32, DType.uint32](
@@ -142,7 +136,7 @@ struct GpuLBVH:
         var m = perf_counter_ns()
 
         device_radix_sort_pairs[DType.uint32, DType.uint32](
-            ctx, self.workspace, self.d_keys, self.d_values, self.tri_count
+            ctx, self.workspace, self.keys, self.d_values, self.tri_count
         )
         ctx.synchronize()
         var s = perf_counter_ns()
@@ -183,15 +177,15 @@ struct GpuLBVH:
         scene_max: Vec3f32,
     ) raises -> GpuLBVHValidation:
         var sorted_validation = validate_sorted_keys(
-            self.d_keys, self.d_values, self.tri_count
+            self.keys, self.d_values, self.tri_count
         )
         var topo_validation = validate_topology(
-            self.d_node_meta, self.d_leaf_parent, self.tri_count
+            self.node_meta, self.leaf_parent, self.tri_count
         )
         var refit_validation = validate_refit_bounds(
-            self.d_node_bounds,
-            self.d_node_flags,
-            self.d_node_meta,
+            self.node_bounds,
+            self.node_flags,
+            self.node_meta,
             self.tri_count,
             scene_min,
             scene_max,
@@ -223,8 +217,8 @@ struct GpuLBVH:
         ctx.enqueue_function[
             compute_morton_codes_kernel, compute_morton_codes_kernel
         ](
-            self.d_vertices.unsafe_ptr(),
-            self.d_keys.unsafe_ptr(),
+            self.vertices.unsafe_ptr(),
+            self.keys.unsafe_ptr(),
             self.d_values.unsafe_ptr(),
             self.tri_count,
             centroid_min.x(),
@@ -241,8 +235,8 @@ struct GpuLBVH:
         ctx.enqueue_function[
             init_lbvh_topology_kernel, init_lbvh_topology_kernel
         ](
-            self.d_node_meta.unsafe_ptr(),
-            self.d_leaf_parent.unsafe_ptr(),
+            self.node_meta.unsafe_ptr(),
+            self.leaf_parent.unsafe_ptr(),
             self.internal_count,
             self.tri_count,
             grid_dim=self.blocks_init,
@@ -251,9 +245,9 @@ struct GpuLBVH:
         ctx.enqueue_function[
             build_lbvh_topology_kernel, build_lbvh_topology_kernel
         ](
-            self.d_keys.unsafe_ptr(),
-            self.d_node_meta.unsafe_ptr(),
-            self.d_leaf_parent.unsafe_ptr(),
+            self.keys.unsafe_ptr(),
+            self.node_meta.unsafe_ptr(),
+            self.leaf_parent.unsafe_ptr(),
             self.tri_count,
             grid_dim=self.blocks_internal,
             block_dim=GPU_LBVH_BLOCK_SIZE,
@@ -261,8 +255,8 @@ struct GpuLBVH:
 
     def launch_refit(self, ctx: DeviceContext) raises:
         ctx.enqueue_function[init_lbvh_bounds_kernel, init_lbvh_bounds_kernel](
-            self.d_node_bounds.unsafe_ptr(),
-            self.d_node_flags.unsafe_ptr(),
+            self.node_bounds.unsafe_ptr(),
+            self.node_flags.unsafe_ptr(),
             self.internal_count,
             grid_dim=self.blocks_internal,
             block_dim=GPU_LBVH_BLOCK_SIZE,
@@ -270,12 +264,12 @@ struct GpuLBVH:
         ctx.enqueue_function[
             refit_lbvh_bounds_kernel, refit_lbvh_bounds_kernel
         ](
-            self.d_vertices.unsafe_ptr(),
+            self.vertices.unsafe_ptr(),
             self.d_values.unsafe_ptr(),
-            self.d_node_meta.unsafe_ptr(),
-            self.d_leaf_parent.unsafe_ptr(),
-            self.d_node_bounds.unsafe_ptr(),
-            self.d_node_flags.unsafe_ptr(),
+            self.node_meta.unsafe_ptr(),
+            self.leaf_parent.unsafe_ptr(),
+            self.node_bounds.unsafe_ptr(),
+            self.node_flags.unsafe_ptr(),
             self.tri_count,
             grid_dim=self.blocks_leaves,
             block_dim=GPU_LBVH_BLOCK_SIZE,
@@ -292,10 +286,10 @@ struct GpuLBVH:
         ctx.enqueue_function[
             trace_lbvh_gpu_primary_kernel, trace_lbvh_gpu_primary_kernel
         ](
-            self.d_vertices.unsafe_ptr(),
+            self.vertices.unsafe_ptr(),
             self.d_values.unsafe_ptr(),
-            self.d_node_meta.unsafe_ptr(),
-            self.d_node_bounds.unsafe_ptr(),
+            self.node_meta.unsafe_ptr(),
+            self.node_bounds.unsafe_ptr(),
             d_rays.unsafe_ptr(),
             d_hits_f32.unsafe_ptr(),
             d_hits_u32.unsafe_ptr(),
@@ -322,10 +316,10 @@ struct GpuLBVH:
             trace_lbvh_gpu_camera_kernel[mode],
             trace_lbvh_gpu_camera_kernel[mode],
         ](
-            self.d_vertices.unsafe_ptr(),
+            self.vertices.unsafe_ptr(),
             self.d_values.unsafe_ptr(),
-            self.d_node_meta.unsafe_ptr(),
-            self.d_node_bounds.unsafe_ptr(),
+            self.node_meta.unsafe_ptr(),
+            self.node_bounds.unsafe_ptr(),
             d_camera_params.unsafe_ptr(),
             out_f32.unsafe_ptr(),
             out_u32.unsafe_ptr(),

@@ -329,7 +329,7 @@ struct BinaryBvh(Copyable):
             pairs.unsafe_ptr(), 0, 0, Int(self.tri_count)
         )
 
-    def build[split_method: String, is_mt: Bool](mut self):
+    def build[split_method: String, parallel: Bool](mut self):
         comptime if split_method == "lbvh":
             self.build_lbvh()
         else:
@@ -340,7 +340,7 @@ struct BinaryBvh(Copyable):
             var atomic_nodes = alloc[Scalar[DType.uint32]](1)
             atomic_nodes[0] = self.nodes_used
 
-            comptime if not is_mt:
+            comptime if not parallel:
                 # Single-threaded: Just run the loop once from the root
                 self._build_iterative[split_method](0, atomic_nodes)
 

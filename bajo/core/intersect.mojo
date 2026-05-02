@@ -227,7 +227,7 @@ def intersect_aabb_aabb[
 
 
 @fieldwise_init
-struct RayTriPacketHit[dtype: DType, width: Int](Copyable):
+struct RayTriHit[dtype: DType, width: Int](TrivialRegisterPassable):
     var mask: SIMD[DType.bool, Self.width]
     var t: SIMD[Self.dtype, Self.width]
     var u: SIMD[Self.dtype, Self.width]
@@ -255,7 +255,7 @@ def intersect_ray_tri[
     v2z: SIMD[dtype, width],
     t_max: SIMD[dtype, width],
     t_min: SIMD[dtype, width] = SIMD[dtype, width](1.0e-4),
-) -> RayTriPacketHit[dtype, width]:
+) -> RayTriHit[dtype, width]:
     """Moller and Trumbore's method."""
     comptime assert dtype in [DType.float32, DType.float64]
     comptime EPSILON = Scalar[dtype](1e-8 if dtype == DType.float32 else 1e-16)
@@ -302,7 +302,7 @@ def intersect_ray_tri[
         & t.lt(t_max)
     )
 
-    return RayTriPacketHit[dtype, width](
+    return RayTriHit[dtype, width](
         mask,
         mask.select(t, BVH_INF),
         u,
@@ -321,7 +321,7 @@ def intersect_ray_tri(
     dy: Float32,
     dz: Float32,
     t_max: Float32,
-) -> RayTriPacketHit[DType.float32, 1]:
+) -> RayTriHit[DType.float32, 1]:
     var base = Int(prim_idx) * 9
     var v0x = vertices[base + 0]
     var v0y = vertices[base + 1]

@@ -3,13 +3,18 @@ from bajo.core.bvh.gpu.constants import (
     LBVH_INDEX_MASK,
     LBVH_SENTINEL,
 )
+from bajo.core.bvh.gpu.utils import (
+    SortedKeysValidation,
+    TopologyValidation,
+    RefitBoundsValidation,
+)
 
 
 def validate_sorted_keys(
     keys: DeviceBuffer[DType.uint32],
     values: DeviceBuffer[DType.uint32],
     size: Int,
-) raises -> Tuple[Bool, Bool, Int, Int, UInt32, UInt32, UInt64]:
+) raises -> SortedKeysValidation:
     var keys_sorted = True
     var values_valid = True
     var first_bad_key = -1
@@ -41,7 +46,7 @@ def validate_sorted_keys(
                     first_bad_value = i
             checksum += UInt64(v[i])
 
-    return (
+    return SortedKeysValidation(
         keys_sorted,
         values_valid,
         first_bad_key,
@@ -56,9 +61,9 @@ def validate_topology(
     node_meta: DeviceBuffer[DType.uint32],
     leaf_parent: DeviceBuffer[DType.uint32],
     leaf_count: Int,
-) raises -> Tuple[Bool, Int, UInt32, UInt64]:
+) raises -> TopologyValidation:
     var ok = True
-    var root_count = 0
+    var root_count = UInt32(0)
     var root_idx = UInt32(0xFFFFFFFF)
     var checksum = UInt64(0)
     var internal_count = leaf_count - 1
@@ -114,7 +119,7 @@ def validate_topology(
     if root_count != 1:
         ok = False
 
-    return (ok, root_count, root_idx, checksum)
+    return TopologyValidation(ok, root_count, root_idx, checksum)
 
 
 def validate_refit_bounds(
@@ -124,7 +129,7 @@ def validate_refit_bounds(
     leaf_count: Int,
     scene_min: Vec3f32,
     scene_max: Vec3f32,
-) raises -> Tuple[Bool, Float64, UInt32, UInt64]:
+) raises -> RefitBoundsValidation:
     var ok = True
     var internal_count = leaf_count - 1
     var root_idx = UInt32(0xFFFFFFFF)
@@ -183,4 +188,4 @@ def validate_refit_bounds(
     if diff > 1.0e-4:
         ok = False
 
-    return (ok, diff, root_idx, checksum)
+    return RefitBoundsValidation(ok, diff, root_idx, checksum)

@@ -59,7 +59,7 @@ struct ObjMaterial(Copyable):
 
 
 @fieldwise_init
-struct ObjIndex(Copyable, TrivialRegisterPassable):
+struct ObjIndex(TrivialRegisterPassable):
     var p: Int
     var t: Int
     var n: Int

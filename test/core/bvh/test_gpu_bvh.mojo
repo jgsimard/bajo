@@ -38,24 +38,19 @@ from bajo.core.bvh.gpu.kernels import (
     reduce_hit_t_kernel,
     reduce_u32_flags_kernel,
 )
+from bajo.core.bvh.gpu.utils import (
+    _download_full_hit_checksum,
+    _blocks_for,
+    _download_reduced_u32_count,
+    _download_reduced_hit_t,
+)
+
 
 comptime GPU_TEST_BLOCK_SIZE = 128
 comptime GPU_TEST_WIDTH = 64
 comptime GPU_TEST_HEIGHT = 48
 comptime GPU_TEST_VIEWS = 3
 comptime GPU_TEST_CHECKSUM_EPS = 0.05
-
-
-@always_inline
-def _blocks_for(n: Int) -> Int:
-    return (n + GPU_TEST_BLOCK_SIZE - 1) // GPU_TEST_BLOCK_SIZE
-
-
-@always_inline
-def _abs64(x: Float64) -> Float64:
-    if x < 0.0:
-        return -x
-    return x
 
 
 def _append_tri(
@@ -118,9 +113,11 @@ def _build_gpu_lbvh_in_place(
     norm: Vec3f32,
 ) raises:
     var internal_count = tri_count - 1
-    var blocks_leaves = _blocks_for(tri_count)
-    var blocks_internal = _blocks_for(internal_count)
-    var blocks_init = _blocks_for(max(tri_count, internal_count))
+    var blocks_leaves = _blocks_for[GPU_TEST_BLOCK_SIZE](tri_count)
+    var blocks_internal = _blocks_for[GPU_TEST_BLOCK_SIZE](internal_count)
+    var blocks_init = _blocks_for[GPU_TEST_BLOCK_SIZE](
+        max(tri_count, internal_count)
+    )
 
     ctx.enqueue_function[
         compute_morton_codes_kernel, compute_morton_codes_kernel
@@ -184,46 +181,6 @@ def _build_gpu_lbvh_in_place(
         block_dim=GPU_TEST_BLOCK_SIZE,
     )
     ctx.synchronize()
-
-
-def _download_full_hit_checksum(
-    d_hits_f32: DeviceBuffer[DType.float32],
-    ray_count: Int,
-) raises -> Tuple[Float64, UInt32]:
-    var checksum = 0.0
-    var hit_count = UInt32(0)
-    with d_hits_f32.map_to_host() as h:
-        for i in range(ray_count):
-            var t = h[i * 3]
-            if t < 1.0e20:
-                checksum += Float64(t)
-                hit_count += 1
-    return (checksum, hit_count)
-
-
-def _download_reduced_hit_t(
-    d_partial_sums: DeviceBuffer[DType.float64],
-    d_partial_counts: DeviceBuffer[DType.uint32],
-) raises -> Tuple[Float64, UInt32]:
-    var checksum = 0.0
-    var hit_count = UInt32(0)
-    with d_partial_sums.map_to_host() as sums:
-        for i in range(GPU_REDUCE_THREADS):
-            checksum += sums[i]
-    with d_partial_counts.map_to_host() as counts:
-        for i in range(GPU_REDUCE_THREADS):
-            hit_count += counts[i]
-    return (checksum, hit_count)
-
-
-def _download_reduced_u32_count(
-    d_partial_counts: DeviceBuffer[DType.uint32],
-) raises -> UInt32:
-    var total = UInt32(0)
-    with d_partial_counts.map_to_host() as counts:
-        for i in range(GPU_REDUCE_THREADS):
-            total += counts[i]
-    return total
 
 
 def _build_cpu_reference(
@@ -317,12 +274,12 @@ def test_gpu_lbvh_build_validate_small_scene() raises:
                 bmax,
             )
 
-            assert_true(sorted[0], "keys sorted")
-            assert_true(sorted[1], "sorted primitive ids valid")
-            assert_true(topo[0], "topology valid")
-            assert_true(refit[0], "refit bounds valid")
-            assert_true(refit[2] == UInt32(0), "root should be node 0")
-            keep(sorted[6] + topo[3] + refit[3])
+            assert_true(sorted.sorted_ok, "keys sorted")
+            assert_true(sorted.values_ok, "sorted primitive ids valid")
+            assert_true(topo.ok, "topology valid")
+            assert_true(refit.ok, "refit bounds valid")
+            assert_true(refit.root_idx == UInt32(0), "root should be node 0")
+            keep(sorted.guard + topo.guard + refit.guard)
     else:
         assert_true(False, "No Accelerator found")
 
@@ -387,11 +344,11 @@ def test_gpu_lbvh_duplicate_morton_codes_validate() raises:
                 bmax,
             )
 
-            assert_true(sorted[0], "duplicate-code keys sorted")
-            assert_true(sorted[1], "duplicate-code primitive ids valid")
-            assert_true(topo[0], "duplicate-code topology valid")
-            assert_true(refit[0], "duplicate-code refit valid")
-            keep(sorted[6] + topo[3] + refit[3])
+            assert_true(sorted.sorted_ok, "duplicate-code keys sorted")
+            assert_true(sorted.values_ok, "duplicate-code primitive ids valid")
+            assert_true(topo.ok, "duplicate-code topology valid")
+            assert_true(refit.ok, "duplicate-code refit valid")
+            keep(sorted.guard + topo.guard + refit.guard)
     else:
         assert_true(False, "No Accelerator found")
 
@@ -456,11 +413,11 @@ def test_gpu_lbvh_zero_extent_axis_validate() raises:
                 bmax,
             )
 
-            assert_true(sorted[0], "zero-extent keys sorted")
-            assert_true(sorted[1], "zero-extent primitive ids valid")
-            assert_true(topo[0], "zero-extent topology valid")
-            assert_true(refit[0], "zero-extent refit valid")
-            keep(sorted[6] + topo[3] + refit[3])
+            assert_true(sorted.sorted_ok, "zero-extent keys sorted")
+            assert_true(sorted.values_ok, "zero-extent primitive ids valid")
+            assert_true(topo.ok, "zero-extent topology valid")
+            assert_true(refit.ok, "zero-extent refit valid")
+            keep(sorted.guard + topo.guard + refit.guard)
     else:
         assert_true(False, "No Accelerator found")
 
@@ -534,7 +491,7 @@ def test_gpu_lbvh_uploaded_primary_matches_cpu() raises:
                 bmin,
                 bmax,
             )
-            var root_idx = UInt32(refit[2])
+            var root_idx = UInt32(refit.root_idx)
 
             with d_rays.map_to_host() as h:
                 for i in range(len(rays_flat)):
@@ -553,13 +510,13 @@ def test_gpu_lbvh_uploaded_primary_matches_cpu() raises:
                 d_hits_u32.unsafe_ptr(),
                 len(rays),
                 root_idx,
-                grid_dim=_blocks_for(len(rays)),
+                grid_dim=_blocks_for[GPU_TEST_BLOCK_SIZE](len(rays)),
                 block_dim=GPU_TEST_BLOCK_SIZE,
             )
             ctx.synchronize()
 
-            var gpu = _download_full_hit_checksum(d_hits_f32, len(rays))
-            var diff = _abs64(gpu[0] - ref_checksum)
+            var gpu = _download_full_hit_checksum(ctx, d_hits_f32, len(rays))
+            var diff = abs(gpu[0] - ref_checksum)
             assert_true(
                 diff <= GPU_TEST_CHECKSUM_EPS, "uploaded primary checksum"
             )
@@ -635,7 +592,7 @@ def test_gpu_lbvh_camera_full_matches_cpu() raises:
                 bmin,
                 bmax,
             )
-            var root_idx = UInt32(refit[2])
+            var root_idx = UInt32(refit.root_idx)
 
             ctx.enqueue_function[
                 trace_lbvh_gpu_camera_kernel[TRACE_PRIMARY_FULL],
@@ -653,13 +610,13 @@ def test_gpu_lbvh_camera_full_matches_cpu() raises:
                 GPU_TEST_HEIGHT,
                 GPU_TEST_VIEWS,
                 root_idx,
-                grid_dim=_blocks_for(len(rays)),
+                grid_dim=_blocks_for[GPU_TEST_BLOCK_SIZE](len(rays)),
                 block_dim=GPU_TEST_BLOCK_SIZE,
             )
             ctx.synchronize()
 
-            var gpu = _download_full_hit_checksum(d_hits_f32, len(rays))
-            var diff = _abs64(gpu[0] - ref_checksum)
+            var gpu = _download_full_hit_checksum(ctx, d_hits_f32, len(rays))
+            var diff = abs(gpu[0] - ref_checksum)
             assert_true(diff <= GPU_TEST_CHECKSUM_EPS, "camera full checksum")
             keep(gpu[1])
     else:
@@ -737,7 +694,7 @@ def test_gpu_lbvh_camera_t_reduce_matches_cpu() raises:
                 bmin,
                 bmax,
             )
-            var root_idx = UInt32(refit[2])
+            var root_idx = UInt32(refit.root_idx)
 
             ctx.enqueue_function[
                 trace_lbvh_gpu_camera_kernel[TRACE_PRIMARY_T],
@@ -755,7 +712,7 @@ def test_gpu_lbvh_camera_t_reduce_matches_cpu() raises:
                 GPU_TEST_HEIGHT,
                 GPU_TEST_VIEWS,
                 root_idx,
-                grid_dim=_blocks_for(len(rays)),
+                grid_dim=_blocks_for[GPU_TEST_BLOCK_SIZE](len(rays)),
                 block_dim=GPU_TEST_BLOCK_SIZE,
             )
             ctx.synchronize()
@@ -766,13 +723,15 @@ def test_gpu_lbvh_camera_t_reduce_matches_cpu() raises:
                 d_partial_counts.unsafe_ptr(),
                 len(rays),
                 GPU_REDUCE_THREADS,
-                grid_dim=_blocks_for(GPU_REDUCE_THREADS),
+                grid_dim=_blocks_for[GPU_TEST_BLOCK_SIZE](GPU_REDUCE_THREADS),
                 block_dim=GPU_TEST_BLOCK_SIZE,
             )
             ctx.synchronize()
 
-            var gpu = _download_reduced_hit_t(d_partial_sums, d_partial_counts)
-            var diff = _abs64(gpu[0] - ref_checksum)
+            var gpu = _download_reduced_hit_t[GPU_REDUCE_THREADS](
+                ctx, d_partial_sums, d_partial_counts
+            )
+            var diff = abs(gpu[0] - ref_checksum)
             assert_true(
                 diff <= GPU_TEST_CHECKSUM_EPS, "camera t-reduce checksum"
             )
@@ -849,7 +808,7 @@ def test_gpu_lbvh_camera_shadow_reduce_matches_cpu() raises:
                 bmin,
                 bmax,
             )
-            var root_idx = UInt32(refit[2])
+            var root_idx = UInt32(refit.root_idx)
 
             ctx.enqueue_function[
                 trace_lbvh_gpu_camera_kernel[TRACE_SHADOW],
@@ -867,7 +826,7 @@ def test_gpu_lbvh_camera_shadow_reduce_matches_cpu() raises:
                 GPU_TEST_HEIGHT,
                 GPU_TEST_VIEWS,
                 root_idx,
-                grid_dim=_blocks_for(len(rays)),
+                grid_dim=_blocks_for[GPU_TEST_BLOCK_SIZE](len(rays)),
                 block_dim=GPU_TEST_BLOCK_SIZE,
             )
             ctx.synchronize()
@@ -879,12 +838,14 @@ def test_gpu_lbvh_camera_shadow_reduce_matches_cpu() raises:
                 d_partial_counts.unsafe_ptr(),
                 len(rays),
                 GPU_REDUCE_THREADS,
-                grid_dim=_blocks_for(GPU_REDUCE_THREADS),
+                grid_dim=_blocks_for[GPU_TEST_BLOCK_SIZE](GPU_REDUCE_THREADS),
                 block_dim=GPU_TEST_BLOCK_SIZE,
             )
             ctx.synchronize()
 
-            var gpu_occluded = _download_reduced_u32_count(d_partial_counts)
+            var gpu_occluded = _download_reduced_u32_count[GPU_REDUCE_THREADS](
+                ctx, d_partial_counts
+            )
             assert_true(
                 Int(gpu_occluded) == ref_occluded, "shadow occlusion count"
             )

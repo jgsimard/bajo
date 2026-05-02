@@ -23,53 +23,14 @@ from bajo.core.bvh.gpu.kernels import (
     TRACE_PRIMARY_T,
     TRACE_SHADOW,
 )
+from bajo.core.bvh.gpu.utils import (
+    GpuBuildTimings,
+    GpuBVHValidation,
+    _blocks_for,
+)
 
 
 comptime GPU_LBVH_BLOCK_SIZE = 128
-
-
-@fieldwise_init
-struct GpuLBVHBuildTimings(TrivialRegisterPassable):
-    var morton_ns: Int
-    var sort_ns: Int
-    var topology_ns: Int
-    var refit_ns: Int
-    var total_ns: Int
-
-    def __init__(out self):
-        self.morton_ns = Int.MAX
-        self.sort_ns = Int.MAX
-        self.topology_ns = Int.MAX
-        self.refit_ns = Int.MAX
-        self.total_ns = Int.MAX
-
-    def min(mut self, rhs: Self):
-        self.morton_ns = min(self.morton_ns, rhs.morton_ns)
-        self.sort_ns = min(self.sort_ns, rhs.sort_ns)
-        self.topology_ns = min(self.topology_ns, rhs.topology_ns)
-        self.refit_ns = min(self.refit_ns, rhs.refit_ns)
-        self.total_ns = min(self.total_ns, rhs.total_ns)
-
-    def sum(self) -> Int:
-        return self.morton_ns + self.sort_ns + self.topology_ns + self.refit_ns
-
-
-@fieldwise_init
-struct GpuLBVHValidation(TrivialRegisterPassable):
-    var sorted_ok: Bool
-    var values_ok: Bool
-    var topology_ok: Bool
-    var topology_root_count: UInt32
-    var topology_root_idx: UInt32
-    var bounds_ok: Bool
-    var bounds_diff: Float64
-    var refit_root_idx: UInt32
-    var guard: UInt64
-
-
-@always_inline
-def gpu_lbvh_blocks_for(n: Int) -> Int:
-    return (n + GPU_LBVH_BLOCK_SIZE - 1) // GPU_LBVH_BLOCK_SIZE
 
 
 struct GpuLBVH:
@@ -101,9 +62,11 @@ struct GpuLBVH:
         self.internal_count = self.tri_count - 1
         self.root_idx = UInt32(0)
 
-        self.blocks_leaves = gpu_lbvh_blocks_for(self.tri_count)
-        self.blocks_internal = gpu_lbvh_blocks_for(self.internal_count)
-        self.blocks_init = gpu_lbvh_blocks_for(
+        self.blocks_leaves = _blocks_for[GPU_LBVH_BLOCK_SIZE](self.tri_count)
+        self.blocks_internal = _blocks_for[GPU_LBVH_BLOCK_SIZE](
+            self.internal_count
+        )
+        self.blocks_init = _blocks_for[GPU_LBVH_BLOCK_SIZE](
             max(self.tri_count, self.internal_count)
         )
 
@@ -131,7 +94,7 @@ struct GpuLBVH:
         ctx: DeviceContext,
         centroid_min: Vec3f32,
         norm: Vec3f32,
-    ) raises -> GpuLBVHBuildTimings:
+    ) raises -> GpuBuildTimings:
         var start = perf_counter_ns()
 
         self.launch_morton(ctx, centroid_min, norm)
@@ -152,7 +115,8 @@ struct GpuLBVH:
         ctx.synchronize()
         var r = perf_counter_ns()
 
-        return GpuLBVHBuildTimings(
+        return GpuBuildTimings(
+            0,
             Int(m - start),
             Int(s - m),
             Int(t - s),
@@ -160,25 +124,11 @@ struct GpuLBVH:
             Int(r - start),
         )
 
-    def best_build(
-        mut self,
-        ctx: DeviceContext,
-        centroid_min: Vec3f32,
-        norm: Vec3f32,
-        repeats: Int,
-    ) raises -> GpuLBVHBuildTimings:
-        var out_t = GpuLBVHBuildTimings()
-        for _ in range(repeats):
-            var t = self.build(ctx, centroid_min, norm)
-            out_t.min(t)
-
-        return out_t
-
     def validate(
         mut self,
         scene_min: Vec3f32,
         scene_max: Vec3f32,
-    ) raises -> GpuLBVHValidation:
+    ) raises -> GpuBVHValidation:
         var sorted_validation = validate_sorted_keys(
             self.keys, self.values, self.tri_count
         )
@@ -194,20 +144,23 @@ struct GpuLBVH:
             scene_max,
         )
 
-        self.root_idx = UInt32(refit_validation[2])
+        self.root_idx = refit_validation.root_idx
+
         var guard = (
-            sorted_validation[6] + topo_validation[3] + refit_validation[3]
+            sorted_validation.guard
+            + topo_validation.guard
+            + refit_validation.guard
         )
 
-        return GpuLBVHValidation(
-            sorted_validation[0],
-            sorted_validation[1],
-            topo_validation[0],
-            UInt32(topo_validation[1]),
-            topo_validation[2],
-            refit_validation[0],
-            refit_validation[1],
-            refit_validation[2],
+        return GpuBVHValidation(
+            sorted_validation.sorted_ok,
+            sorted_validation.values_ok,
+            topo_validation.ok,
+            topo_validation.root_count,
+            topo_validation.root_idx,
+            refit_validation.ok,
+            refit_validation.diff,
+            refit_validation.root_idx,
             guard,
         )
 
@@ -298,7 +251,7 @@ struct GpuLBVH:
             d_hits_u32.unsafe_ptr(),
             ray_count,
             self.root_idx,
-            grid_dim=gpu_lbvh_blocks_for(ray_count),
+            grid_dim=_blocks_for[GPU_LBVH_BLOCK_SIZE](ray_count),
             block_dim=GPU_LBVH_BLOCK_SIZE,
         )
 
@@ -331,6 +284,6 @@ struct GpuLBVH:
             height,
             views,
             self.root_idx,
-            grid_dim=gpu_lbvh_blocks_for(ray_count),
+            grid_dim=_blocks_for[GPU_LBVH_BLOCK_SIZE](ray_count),
             block_dim=GPU_LBVH_BLOCK_SIZE,
         )

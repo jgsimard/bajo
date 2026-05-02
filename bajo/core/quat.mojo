@@ -38,7 +38,7 @@ comptime Quat = Quaternion[DType.float32]
 
 @fieldwise_init
 struct Quaternion[dtype: DType where dtype.is_floating_point()](
-    Copyable, Equatable, TrivialRegisterPassable, Writable
+    Equatable, TrivialRegisterPassable, Writable
 ):
     var data: SIMD[Self.dtype, 4]  # layout: [x, y, z, w]
 

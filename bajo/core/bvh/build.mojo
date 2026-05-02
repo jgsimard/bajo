@@ -193,11 +193,11 @@ def _find_lbvh_split(
     var last_code = pairs[last - 1].code
 
     if first_code == last_code:
-        return (first + last) // 2
+        return (first + last) / 2
 
     var bit = _highest_set_bit(first_code ^ last_code)
     if bit < 0:
-        return (first + last) // 2
+        return (first + last) / 2
 
     var mask = UInt32(1) << UInt32(bit)
     var left_bit = first_code & mask
@@ -206,4 +206,4 @@ def _find_lbvh_split(
         if (pairs[i].code & mask) != left_bit:
             return i
 
-    return (first + last) // 2
+    return (first + last) / 2

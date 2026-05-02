@@ -376,6 +376,21 @@ def _benchmark_shadow_reduce(
     )
 
 
+def _best_build(
+    mut lbvh: GpuLBVH,
+    ctx: DeviceContext,
+    centroid_min: Vec3f32,
+    norm: Vec3f32,
+    repeats: Int,
+) raises -> GpuBuildTimings:
+    var out_t = GpuBuildTimings()
+    for _ in range(repeats):
+        var t = lbvh.build(ctx, centroid_min, norm)
+        out_t.min(t)
+
+    return out_t
+
+
 def run_gpu_lbvh_benchmark_suite(
     tri_vertices: List[Vec3f32],
     centroid_min: Vec3f32,
@@ -410,7 +425,7 @@ def run_gpu_lbvh_benchmark_suite(
         ctx.synchronize()
         var setup1 = perf_counter_ns()
 
-        var best_build = lbvh.best_build(ctx, centroid_min, norm, repeats)
+        var best_build = _best_build(lbvh, ctx, centroid_min, norm, repeats)
 
         # Build one final valid tree for validation and traversal.
         _ = lbvh.build(ctx, centroid_min, norm)

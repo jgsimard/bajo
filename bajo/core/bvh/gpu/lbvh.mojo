@@ -123,20 +123,6 @@ struct GpuLBVH:
             Int(r - start),
         )
 
-    def best_build(
-        mut self,
-        ctx: DeviceContext,
-        centroid_min: Vec3f32,
-        norm: Vec3f32,
-        repeats: Int,
-    ) raises -> GpuBuildTimings:
-        var out_t = GpuBuildTimings()
-        for _ in range(repeats):
-            var t = self.build(ctx, centroid_min, norm)
-            out_t.min(t)
-
-        return out_t
-
     def validate(
         mut self,
         scene_min: Vec3f32,

@@ -70,13 +70,6 @@ comptime RUN_CAMERA_REDUCE_AND_SHADOW_BENCH = True
 
 
 @always_inline
-def _min_ns(current: Int, candidate: Int) -> Int:
-    if candidate < current:
-        return candidate
-    return current
-
-
-@always_inline
 def _ms(ns: Int) -> Float64:
     return round(ns_to_ms(ns), 3)
 
@@ -135,7 +128,7 @@ def _benchmark_direct_uploaded_rays(
         var u0 = perf_counter_ns()
         _upload_rays(ctx, d_rays, rays_flat)
         var u1 = perf_counter_ns()
-        best_upload_ns = _min_ns(best_upload_ns, Int(u1 - u0))
+        best_upload_ns = min(best_upload_ns, Int(u1 - u0))
 
         var k0 = perf_counter_ns()
         lbvh.launch_uploaded_primary(
@@ -143,17 +136,17 @@ def _benchmark_direct_uploaded_rays(
         )
         ctx.synchronize()
         var k1 = perf_counter_ns()
-        best_kernel_ns = _min_ns(best_kernel_ns, Int(k1 - k0))
+        best_kernel_ns = min(best_kernel_ns, Int(k1 - k0))
 
         var d0 = perf_counter_ns()
         var downloaded = _download_full_hit_checksum(ctx, d_hits_f32, ray_count)
         checksum = downloaded[0]
         hit_count = downloaded[1]
         var d1 = perf_counter_ns()
-        best_download_ns = _min_ns(best_download_ns, Int(d1 - d0))
+        best_download_ns = min(best_download_ns, Int(d1 - d0))
 
         var frame1 = perf_counter_ns()
-        best_frame_ns = _min_ns(best_frame_ns, Int(frame1 - frame0))
+        best_frame_ns = min(best_frame_ns, Int(frame1 - frame0))
 
     return GpuDirectTraversalResult(
         best_upload_ns,
@@ -210,17 +203,17 @@ def _benchmark_camera_full_download(
         )
         ctx.synchronize()
         var k1 = perf_counter_ns()
-        best_kernel_ns = _min_ns(best_kernel_ns, Int(k1 - k0))
+        best_kernel_ns = min(best_kernel_ns, Int(k1 - k0))
 
         var d0 = perf_counter_ns()
         var downloaded = _download_full_hit_checksum(ctx, d_hits_f32, ray_count)
         checksum = downloaded[0]
         hit_count = downloaded[1]
         var d1 = perf_counter_ns()
-        best_download_ns = _min_ns(best_download_ns, Int(d1 - d0))
+        best_download_ns = min(best_download_ns, Int(d1 - d0))
 
         var frame1 = perf_counter_ns()
-        best_frame_ns = _min_ns(best_frame_ns, Int(frame1 - frame0))
+        best_frame_ns = min(best_frame_ns, Int(frame1 - frame0))
 
     return GpuCameraFullResult(
         best_kernel_ns,
@@ -268,7 +261,7 @@ def _benchmark_primary_reduce(
         )
         ctx.synchronize()
         var k1 = perf_counter_ns()
-        best_kernel_ns = _min_ns(best_kernel_ns, Int(k1 - k0))
+        best_kernel_ns = min(best_kernel_ns, Int(k1 - k0))
 
         var r0 = perf_counter_ns()
         ctx.enqueue_function[reduce_hit_t_kernel, reduce_hit_t_kernel](
@@ -282,7 +275,7 @@ def _benchmark_primary_reduce(
         )
         ctx.synchronize()
         var r1 = perf_counter_ns()
-        best_reduce_ns = _min_ns(best_reduce_ns, Int(r1 - r0))
+        best_reduce_ns = min(best_reduce_ns, Int(r1 - r0))
 
         var d0 = perf_counter_ns()
         var downloaded = _download_reduced_hit_t[GPU_REDUCE_THREADS](
@@ -291,10 +284,10 @@ def _benchmark_primary_reduce(
         checksum = downloaded[0]
         hit_count = downloaded[1]
         var d1 = perf_counter_ns()
-        best_download_ns = _min_ns(best_download_ns, Int(d1 - d0))
+        best_download_ns = min(best_download_ns, Int(d1 - d0))
 
         var frame1 = perf_counter_ns()
-        best_frame_ns = _min_ns(best_frame_ns, Int(frame1 - frame0))
+        best_frame_ns = min(best_frame_ns, Int(frame1 - frame0))
 
     return GpuPrimaryReduceResult(
         best_kernel_ns,
@@ -341,7 +334,7 @@ def _benchmark_shadow_reduce(
         )
         ctx.synchronize()
         var k1 = perf_counter_ns()
-        best_kernel_ns = _min_ns(best_kernel_ns, Int(k1 - k0))
+        best_kernel_ns = min(best_kernel_ns, Int(k1 - k0))
 
         var r0 = perf_counter_ns()
         ctx.enqueue_function[reduce_u32_flags_kernel, reduce_u32_flags_kernel](
@@ -354,17 +347,17 @@ def _benchmark_shadow_reduce(
         )
         ctx.synchronize()
         var r1 = perf_counter_ns()
-        best_reduce_ns = _min_ns(best_reduce_ns, Int(r1 - r0))
+        best_reduce_ns = min(best_reduce_ns, Int(r1 - r0))
 
         var d0 = perf_counter_ns()
         occluded = _download_reduced_u32_count[GPU_REDUCE_THREADS](
             ctx, d_partial_counts
         )
         var d1 = perf_counter_ns()
-        best_download_ns = _min_ns(best_download_ns, Int(d1 - d0))
+        best_download_ns = min(best_download_ns, Int(d1 - d0))
 
         var frame1 = perf_counter_ns()
-        best_frame_ns = _min_ns(best_frame_ns, Int(frame1 - frame0))
+        best_frame_ns = min(best_frame_ns, Int(frame1 - frame0))
 
     return GpuShadowReduceResult(
         best_kernel_ns,

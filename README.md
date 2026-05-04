@@ -14,48 +14,48 @@ Because Mojo is still relatively new, I am currently building out the foundation
 - ⬜ Planned
 
 ### 🚧 Math primitives
-    - ✅ [Vec](bajo/core/vec.mojo)
-    - ✅ [Mat](bajo/core/mat.mojo)
-    - ✅ [Quat](bajo/core/quat.mojo)
-    - ✅ [AABB](bajo/core/aabb.mojo)
-    - ✅ ray / triangle intersection helpers
-    - ✅ transform helpers
-    - ⬜ complete transform API
-    - ⬜ stronger tests
+- ✅ [Vec](bajo/core/vec.mojo)
+- ✅ [Mat](bajo/core/mat.mojo)
+- ✅ [Quat](bajo/core/quat.mojo)
+- ✅ [AABB](bajo/core/aabb.mojo)
+- ✅ ray / triangle intersection helpers
+- ✅ transform helpers
+- ⬜ complete transform API
+- ⬜ stronger tests
 
 ### 🚧 Pure-Mojo `.obj` / `.mtl` parser
-    - ✅ vertex positions
-    - ✅ normals
-    - ✅ texture coordinates
-    - ✅ faces
-    - ✅ lines
-    - ✅ groups / objects
-    - ✅ materials
-    - ✅ texture references
-    - ✅ negative indices
-    - ✅ triangulation
-    - ✅ mmap loading
-    - ⬜ parallel parser
-    - 🚧 polish 
+- ✅ vertex positions
+- ✅ normals
+- ✅ texture coordinates
+- ✅ faces
+- ✅ lines
+- ✅ groups / objects
+- ✅ materials
+- ✅ texture references
+- ✅ negative indices
+- ✅ triangulation
+- ✅ mmap loading
+- ⬜ parallel parser
+- 🚧 polish 
 
 ### 🚧 GPU sort
-    - ✅ [Bitonic Sort](bajo/sort/gpu/bitonic_sort.mojo)
-    - ✅ [Radix Sort](bajo/sort/gpu/radix_sort.mojo)
-    - ✅ [Onesweep](bajo/sort/gpu/onesweep.mojo)
-    - ⬜ Segmented sort
-    - 🚧 polish 
+- ✅ [Bitonic Sort](bajo/sort/gpu/bitonic_sort.mojo)
+- ✅ [Radix Sort](bajo/sort/gpu/radix_sort.mojo)
+- ✅ [Onesweep](bajo/sort/gpu/onesweep.mojo)
+- ⬜ Segmented sort
+- 🚧 polish 
 
 ###  🚧 Gpu BVH
-    - ✅ morton codes
-    - ✅ build kernel
-    - ✅ LBVH
-        - ✅ [raycast example](examples/lbvh_normals.mojo)
-    - 🚧 TLAS
-        - 🚧 on cpu
-        - 🚧 on gpu
-        - 🚧 multiple instance raycast example
-    - ⬜ H-PLOC BVH
-    - 🚧 polish : Mojo only support scalar GPU buffers for now :(
+- ✅ morton codes
+- ✅ build kernel
+- ✅ LBVH
+    - ✅ [raycast example](examples/lbvh_normals.mojo)
+- 🚧 TLAS
+    - 🚧 on cpu
+    - 🚧 on gpu
+    - 🚧 multiple instance raycast example
+- ⬜ H-PLOC BVH
+- 🚧 polish : Mojo only support scalar GPU buffers for now :(
 
 ### GPU Hash Grid
 - ⬜ Particle buffer foundation

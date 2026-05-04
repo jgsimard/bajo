@@ -18,7 +18,6 @@ comptime TLAS_LEAF_SIZE = UInt32(2)
 struct BvhInstance(Copyable):
     """Instance of a BLAS in world space.
 
-    Phase A intentionally keeps this small:
     - `transform` maps BLAS-local points/vectors to world space.
     - `inv_transform` maps world-space rays to BLAS-local space.
     - `bounds_min/max` store the transformed world-space BLAS root AABB.

@@ -378,4 +378,4 @@ def validate_gpu_tlas_layout(
             out.checksum += UInt64(abs(Float64(h[base + 4])) * 1000.0)
             out.checksum += UInt64(abs(Float64(h[base + 5])) * 1000.0)
 
-    return out^
+    return out

@@ -8,9 +8,8 @@ comptime f32_min = min_finite[DType.float32]()
 
 
 struct BVHGPUNode(Copyable):
-    """TinyBVH-style Aila-Laine GPU node.
+    """Aila-Laine GPU node.
 
-    This mirrors TinyBVH's BVH_GPU node semantics:
     - If tri_count > 0, this node is a leaf and first_tri points into prim_indices.
     - If tri_count == 0, this node is internal:
         lmin/lmax bound the left child, and left is the left child node index.
@@ -45,7 +44,7 @@ struct BVHGPUNode(Copyable):
 
 
 struct BvhGpuLayout(Copyable):
-    """TinyBVH-compatible GPU layout with CPU reference traversal.
+    """GPU layout with CPU reference traversal.
 
     This layout follows TinyBVH's BVH_GPU / Aila-Laine layout more closely than
     the earlier child-count encoding. Leaves are real nodes (`tri_count > 0`),

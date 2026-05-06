@@ -111,18 +111,14 @@ def benchmark_sorts_pairs(sizes: List[Int]) raises -> List[List[SortResult]]:
             var gdim = ceildiv(SIZE, 256)
 
             def reset_data() capturing raises:
-                ctx.enqueue_function[
-                    copy_kernel[keys_dtype], copy_kernel[keys_dtype]
-                ](
+                ctx.enqueue_function[copy_kernel[keys_dtype]](
                     keys.unsafe_ptr(),
                     pristine_keys.unsafe_ptr(),
                     SIZE,
                     grid_dim=gdim,
                     block_dim=256,
                 )
-                ctx.enqueue_function[
-                    copy_kernel[vals_dtype], copy_kernel[vals_dtype]
-                ](
+                ctx.enqueue_function[copy_kernel[vals_dtype]](
                     values.unsafe_ptr(),
                     pristine_vals.unsafe_ptr(),
                     SIZE,
@@ -308,7 +304,7 @@ def benchmark_sort_key(sizes: List[Int]) raises -> List[List[SortResult]]:
             var gdim = ceildiv(SIZE, 256)
 
             def reset_data() capturing raises:
-                ctx.enqueue_function[copy_kernel[dtype], copy_kernel[dtype]](
+                ctx.enqueue_function[copy_kernel[dtype]](
                     keys.unsafe_ptr(),
                     pristine_keys.unsafe_ptr(),
                     SIZE,

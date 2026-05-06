@@ -246,7 +246,7 @@ def _benchmark_primary_reduce(
         best_kernel_ns = min(best_kernel_ns, Int(k1 - k0))
 
         var r0 = perf_counter_ns()
-        ctx.enqueue_function[reduce_hit_t_kernel, reduce_hit_t_kernel](
+        ctx.enqueue_function[reduce_hit_t_kernel](
             d_hit_t,
             d_partial_sums,
             d_partial_counts,
@@ -319,7 +319,7 @@ def _benchmark_shadow_reduce(
         best_kernel_ns = min(best_kernel_ns, Int(k1 - k0))
 
         var r0 = perf_counter_ns()
-        ctx.enqueue_function[reduce_u32_flags_kernel, reduce_u32_flags_kernel](
+        ctx.enqueue_function[reduce_u32_flags_kernel](
             d_occluded,
             d_partial_counts,
             ray_count,

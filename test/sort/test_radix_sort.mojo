@@ -48,7 +48,6 @@ def test_upsweep() raises:
         # Execute
         ctx.enqueue_function[
             upsweep[dtype, 128, RADIX, VEC_WIDTH, KEYS_PER_THREAD],
-            upsweep[dtype, 128, RADIX, VEC_WIDTH, KEYS_PER_THREAD],
         ](
             keys,
             global_hist,
@@ -104,7 +103,7 @@ def test_scan() raises:
                     current_sum += 1
 
         # Execute
-        ctx.enqueue_function[scan[128], scan[128]](
+        ctx.enqueue_function[scan[128]](
             pass_hist,
             thread_blocks,
             grid_dim=RADIX,
@@ -162,7 +161,6 @@ def test_downsweep_end_to_end() raises:
         # 1. UPSWEEP
         ctx.enqueue_function[
             upsweep[dtype, 128, RADIX, VEC_WIDTH, KEYS_PER_THREAD],
-            upsweep[dtype, 128, RADIX, VEC_WIDTH, KEYS_PER_THREAD],
         ](
             keys,
             global_hist,
@@ -175,7 +173,7 @@ def test_downsweep_end_to_end() raises:
         ctx.synchronize()
 
         # 2. SCAN
-        ctx.enqueue_function[scan[128], scan[128]](
+        ctx.enqueue_function[scan[128]](
             pass_hist, gdim, grid_dim=RADIX, block_dim=128
         )
         ctx.synchronize()
@@ -184,7 +182,7 @@ def test_downsweep_end_to_end() raises:
         comptime _downsweep = downsweep[
             dtype, dtype, BITS_PER_PASS, 512, KEYS_PER_THREAD, False
         ]
-        ctx.enqueue_function[_downsweep, _downsweep](
+        ctx.enqueue_function[_downsweep](
             keys,
             keys_alternate,
             _dummy_ptr,
@@ -264,7 +262,6 @@ def test_downsweep_pairs_end_to_end() raises:
         # 1. UPSWEEP
         ctx.enqueue_function[
             upsweep[dtype, 128, RADIX, VEC_WIDTH, KEYS_PER_THREAD],
-            upsweep[dtype, 128, RADIX, VEC_WIDTH, KEYS_PER_THREAD],
         ](
             keys,
             global_hist,
@@ -277,14 +274,13 @@ def test_downsweep_pairs_end_to_end() raises:
         ctx.synchronize()
 
         # 2. SCAN
-        ctx.enqueue_function[scan[128], scan[128]](
+        ctx.enqueue_function[scan[128]](
             pass_hist, gdim, grid_dim=RADIX, block_dim=128
         )
         ctx.synchronize()
 
         # 3. DOWNSWEEP PAIRS
         ctx.enqueue_function[
-            downsweep[dtype, dtype, BITS_PER_PASS, 512, KEYS_PER_THREAD, True],
             downsweep[dtype, dtype, BITS_PER_PASS, 512, KEYS_PER_THREAD, True],
         ](
             keys,

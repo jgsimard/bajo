@@ -383,7 +383,7 @@ def onesweep_radix_sort_keys[
         VEC_WIDTH=VEC_WIDTH,
         ITEMS_PER_THREAD=G_HIST_ITEMS_PER_THREAD,
     ]
-    ctx.enqueue_function[_ghist, _ghist](
+    ctx.enqueue_function[_ghist](
         keys_current,
         global_hist,
         size,
@@ -393,7 +393,7 @@ def onesweep_radix_sort_keys[
 
     # 2. Block Scan
     comptime _scan = scan_global
-    ctx.enqueue_function[_scan, _scan](
+    ctx.enqueue_function[_scan](
         global_hist,
         pass_hist,
         hist_blocks,
@@ -415,7 +415,7 @@ def onesweep_radix_sort_keys[
         comptime radix_shift = UInt32(pass_idx * 8)
         var pass_hist_offset = pass_idx * hist_blocks * RADIX
         var pass_hist_ptr = pass_hist + pass_hist_offset
-        ctx.enqueue_function[_bin, _bin](
+        ctx.enqueue_function[_bin](
             keys_current,
             keys_alternate,
             dummy_v_ptr,
@@ -483,7 +483,7 @@ def onesweep_radix_sort_pairs[
         VEC_WIDTH=VEC_WIDTH,
         ITEMS_PER_THREAD=G_HIST_ITEMS_PER_THREAD,
     ]
-    ctx.enqueue_function[_ghist, _ghist](
+    ctx.enqueue_function[_ghist](
         keys_current,
         global_hist,
         size,
@@ -493,7 +493,7 @@ def onesweep_radix_sort_pairs[
 
     # 2. Block Scan
     comptime _scan = scan_global
-    ctx.enqueue_function[_scan, _scan](
+    ctx.enqueue_function[_scan](
         global_hist,
         pass_hist,
         hist_blocks,
@@ -514,7 +514,7 @@ def onesweep_radix_sort_pairs[
     comptime for pass_idx in range(NUM_PASSES):
         comptime radix_shift = UInt32(pass_idx * 8)
         var pass_hist_offset = pass_idx * hist_blocks * RADIX
-        ctx.enqueue_function[_bin, _bin](
+        ctx.enqueue_function[_bin](
             keys_current,
             keys_alternate,
             Optional(vals_current),

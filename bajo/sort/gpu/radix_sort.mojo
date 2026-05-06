@@ -405,7 +405,7 @@ def device_radix_sort_keys[
         global_hist.enqueue_fill(0)
 
         # Upsweep (Global Histogram)
-        ctx.enqueue_function[_upsweep, _upsweep](
+        ctx.enqueue_function[_upsweep](
             db_keys.current,
             global_hist.unsafe_ptr(),
             pass_hist.unsafe_ptr(),
@@ -416,7 +416,7 @@ def device_radix_sort_keys[
         )
 
         # Scan (Prefix Sum of partial histograms)
-        ctx.enqueue_function[_scan, _scan](
+        ctx.enqueue_function[_scan](
             pass_hist.unsafe_ptr(),
             gdim,
             grid_dim=RADIX,
@@ -424,7 +424,7 @@ def device_radix_sort_keys[
         )
 
         # Downsweep (Scatter keys only)
-        ctx.enqueue_function[_downsweep_keys, _downsweep_keys](
+        ctx.enqueue_function[_downsweep_keys](
             db_keys.current,
             db_keys.alternate,
             _dummy_ptr,
@@ -525,7 +525,7 @@ def device_radix_sort_pairs[
         var radix_shift = UInt32(pass_idx * BITS_PER_PASS)
 
         # 1. Upsweep (Global Histogram)
-        ctx.enqueue_function[_upsweep, _upsweep](
+        ctx.enqueue_function[_upsweep](
             keys_current,
             global_hist,
             pass_hist,
@@ -536,7 +536,7 @@ def device_radix_sort_pairs[
         )
 
         # 2. Scan (Prefix Sum of histograms)
-        ctx.enqueue_function[_scan, _scan](
+        ctx.enqueue_function[_scan](
             pass_hist,
             gdim,
             grid_dim=RADIX,
@@ -544,7 +544,7 @@ def device_radix_sort_pairs[
         )
 
         # 3. Downsweep (Scatter)
-        ctx.enqueue_function[_downsweep_pairs, _downsweep_pairs](
+        ctx.enqueue_function[_downsweep_pairs](
             keys_current,
             keys_alternate,
             Optional(vals_current),

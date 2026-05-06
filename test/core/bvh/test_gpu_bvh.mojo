@@ -119,9 +119,7 @@ def _build_gpu_lbvh_in_place(
         max(tri_count, internal_count)
     )
 
-    ctx.enqueue_function[
-        compute_morton_codes_kernel, compute_morton_codes_kernel
-    ](
+    ctx.enqueue_function[compute_morton_codes_kernel](
         d_vertices.unsafe_ptr(),
         d_keys.unsafe_ptr(),
         d_values.unsafe_ptr(),
@@ -142,7 +140,7 @@ def _build_gpu_lbvh_in_place(
     )
     ctx.synchronize()
 
-    ctx.enqueue_function[init_lbvh_topology_kernel, init_lbvh_topology_kernel](
+    ctx.enqueue_function[init_lbvh_topology_kernel](
         d_node_meta.unsafe_ptr(),
         d_leaf_parent.unsafe_ptr(),
         internal_count,
@@ -150,9 +148,7 @@ def _build_gpu_lbvh_in_place(
         grid_dim=blocks_init,
         block_dim=GPU_TEST_BLOCK_SIZE,
     )
-    ctx.enqueue_function[
-        build_lbvh_topology_kernel, build_lbvh_topology_kernel
-    ](
+    ctx.enqueue_function[build_lbvh_topology_kernel](
         d_keys.unsafe_ptr(),
         d_node_meta.unsafe_ptr(),
         d_leaf_parent.unsafe_ptr(),
@@ -162,14 +158,14 @@ def _build_gpu_lbvh_in_place(
     )
     ctx.synchronize()
 
-    ctx.enqueue_function[init_lbvh_bounds_kernel, init_lbvh_bounds_kernel](
+    ctx.enqueue_function[init_lbvh_bounds_kernel](
         d_node_bounds.unsafe_ptr(),
         d_node_flags.unsafe_ptr(),
         internal_count,
         grid_dim=blocks_internal,
         block_dim=GPU_TEST_BLOCK_SIZE,
     )
-    ctx.enqueue_function[refit_lbvh_bounds_kernel, refit_lbvh_bounds_kernel](
+    ctx.enqueue_function[refit_lbvh_bounds_kernel](
         d_vertices.unsafe_ptr(),
         d_values.unsafe_ptr(),
         d_node_meta.unsafe_ptr(),
@@ -498,9 +494,7 @@ def test_gpu_lbvh_uploaded_primary_matches_cpu() raises:
                     h[i] = rays_flat[i]
             ctx.synchronize()
 
-            ctx.enqueue_function[
-                trace_lbvh_gpu_primary_kernel, trace_lbvh_gpu_primary_kernel
-            ](
+            ctx.enqueue_function[trace_lbvh_gpu_primary_kernel](
                 d_vertices.unsafe_ptr(),
                 d_values.unsafe_ptr(),
                 d_node_meta.unsafe_ptr(),
@@ -595,7 +589,6 @@ def test_gpu_lbvh_camera_full_matches_cpu() raises:
             var root_idx = UInt32(refit.root_idx)
 
             ctx.enqueue_function[
-                trace_lbvh_gpu_camera_kernel[TRACE_PRIMARY_FULL],
                 trace_lbvh_gpu_camera_kernel[TRACE_PRIMARY_FULL],
             ](
                 d_vertices.unsafe_ptr(),
@@ -698,7 +691,6 @@ def test_gpu_lbvh_camera_t_reduce_matches_cpu() raises:
 
             ctx.enqueue_function[
                 trace_lbvh_gpu_camera_kernel[TRACE_PRIMARY_T],
-                trace_lbvh_gpu_camera_kernel[TRACE_PRIMARY_T],
             ](
                 d_vertices.unsafe_ptr(),
                 d_values.unsafe_ptr(),
@@ -717,7 +709,7 @@ def test_gpu_lbvh_camera_t_reduce_matches_cpu() raises:
             )
             ctx.synchronize()
 
-            ctx.enqueue_function[reduce_hit_t_kernel, reduce_hit_t_kernel](
+            ctx.enqueue_function[reduce_hit_t_kernel](
                 d_hit_t.unsafe_ptr(),
                 d_partial_sums.unsafe_ptr(),
                 d_partial_counts.unsafe_ptr(),
@@ -810,10 +802,7 @@ def test_gpu_lbvh_camera_shadow_reduce_matches_cpu() raises:
             )
             var root_idx = UInt32(refit.root_idx)
 
-            ctx.enqueue_function[
-                trace_lbvh_gpu_camera_kernel[TRACE_SHADOW],
-                trace_lbvh_gpu_camera_kernel[TRACE_SHADOW],
-            ](
+            ctx.enqueue_function[trace_lbvh_gpu_camera_kernel[TRACE_SHADOW],](
                 d_vertices.unsafe_ptr(),
                 d_values.unsafe_ptr(),
                 d_node_meta.unsafe_ptr(),
@@ -831,9 +820,7 @@ def test_gpu_lbvh_camera_shadow_reduce_matches_cpu() raises:
             )
             ctx.synchronize()
 
-            ctx.enqueue_function[
-                reduce_u32_flags_kernel, reduce_u32_flags_kernel
-            ](
+            ctx.enqueue_function[reduce_u32_flags_kernel](
                 d_occluded.unsafe_ptr(),
                 d_partial_counts.unsafe_ptr(),
                 len(rays),

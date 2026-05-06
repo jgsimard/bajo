@@ -37,9 +37,7 @@ comptime Quat = Quaternion[DType.float32]
 
 
 @fieldwise_init
-struct Quaternion[dtype: DType where dtype.is_floating_point()](
-    Equatable, TrivialRegisterPassable, Writable
-):
+struct Quaternion[dtype: DType](Equatable, TrivialRegisterPassable, Writable):
     var data: SIMD[Self.dtype, 4]  # layout: [x, y, z, w]
 
     def __init__(
@@ -131,7 +129,7 @@ struct Quaternion[dtype: DType where dtype.is_floating_point()](
     @staticmethod
     def from_axis_angle(
         axis: Vec3[Self.dtype], angle: Scalar[Self.dtype]
-    ) -> Self:
+    ) -> Self where Self.dtype.is_floating_point():
         half_angle = angle * 0.5
         w = cos(half_angle)
         xyz = axis * sin(half_angle)

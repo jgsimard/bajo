@@ -8,13 +8,11 @@ from bajo.core.quat import Quaternion
 from bajo.core.vec import Vec3, assert_vec_equal
 
 
-def assert_quat_equal[
-    T: DType where T.is_floating_point()
-](a: Quaternion[T], b: Quaternion[T]) raises:
+def assert_quat_equal[T: DType](a: Quaternion[T], b: Quaternion[T]) raises:
     assert_almost_equal(a.data, b.data, atol=1e-8)
 
 
-def _test_from_axis_angle_mul[T: DType where T.is_floating_point()]() raises:
+def _test_from_axis_angle_mul[T: DType]() raises where T.is_floating_point():
     comptime S = Scalar[T]
     comptime Q = Quaternion[T]
 
@@ -57,7 +55,7 @@ def test_mul_rotate() raises:
     assert_vec_equal(result, Vec3[T](0, -1, 0))
 
 
-def _test_rotate[T: DType where T.is_floating_point()]() raises:
+def _test_rotate[T: DType]() raises where T.is_floating_point():
     comptime S = Scalar[T]
 
     # Rotate (1, 0, 0) 90 degrees around Y axis -> should be (0, 0, -1)

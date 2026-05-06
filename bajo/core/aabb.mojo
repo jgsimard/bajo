@@ -103,16 +103,16 @@ struct AxisAlignedBoundingBox[dtype: DType, size: Int = 3](Copyable, Writable):
 
         return t_box_min <= t_box_max
 
-    def apply_trs[
-        _dtype: DType where _dtype.is_floating_point()
-    ](
-        self: AxisAlignedBoundingBox[_dtype],
-        translation: Vec3[_dtype],
-        rotation: Quaternion[_dtype],
-        scale: Vec3[_dtype],
-    ) -> AxisAlignedBoundingBox[_dtype]:
-        rot_mat = Mat33[_dtype].from_rotation_scale(rotation, scale)
-        txfmed = AxisAlignedBoundingBox[_dtype](
+    def apply_trs(
+        self: AxisAlignedBoundingBox[Self.dtype],
+        translation: Vec3[Self.dtype],
+        rotation: Quaternion[Self.dtype],
+        scale: Vec3[Self.dtype],
+    ) -> AxisAlignedBoundingBox[
+        Self.dtype
+    ] where Self.dtype.is_floating_point():
+        rot_mat = Mat33[Self.dtype].from_rotation_scale(rotation, scale)
+        txfmed = AxisAlignedBoundingBox[Self.dtype](
             translation.copy(), translation.copy()
         )
 

@@ -53,7 +53,7 @@ def test_global_histogram() raises:
             VEC_WIDTH=VEC_WIDTH,
             ITEMS_PER_THREAD=ITEMS_PER_THREAD,
         ]
-        ctx.enqueue_function[_hist, _hist](
+        ctx.enqueue_function[_hist](
             keys,
             global_hist,
             size,
@@ -86,7 +86,7 @@ def test_scan_global() raises:
                 host_hist[i] = 1
 
         comptime _scan = scan_global
-        ctx.enqueue_function[_scan, _scan](
+        ctx.enqueue_function[_scan](
             global_hist,
             pass_hist,
             1,
@@ -145,7 +145,7 @@ def test_digit_binning_end_to_end() raises:
             VEC_WIDTH=VEC_WIDTH,
             ITEMS_PER_THREAD=ITEMS_PER_THREAD,
         ]
-        ctx.enqueue_function[_hist, _hist](
+        ctx.enqueue_function[_hist](
             keys,
             global_hist,
             size,
@@ -154,7 +154,7 @@ def test_digit_binning_end_to_end() raises:
         )
 
         comptime _scan = scan_global
-        ctx.enqueue_function[_scan, _scan](
+        ctx.enqueue_function[_scan](
             global_hist,
             pass_hist,
             binning_blocks + 1,
@@ -170,7 +170,7 @@ def test_digit_binning_end_to_end() raises:
             KEYS_PER_THREAD=KEYS_PER_THREAD,
             HAVE_PAYLOAD=False,
         ]
-        ctx.enqueue_function[_bin, _bin](
+        ctx.enqueue_function[_bin](
             keys,
             keys_alternate,
             _dummy_ptr,
@@ -254,7 +254,7 @@ def test_digit_binning_pairs_end_to_end() raises:
             VEC_WIDTH=VEC_WIDTH,
             ITEMS_PER_THREAD=ITEMS_PER_THREAD,
         ]
-        ctx.enqueue_function[_hist, _hist](
+        ctx.enqueue_function[_hist](
             keys,
             global_hist,
             size,
@@ -263,7 +263,7 @@ def test_digit_binning_pairs_end_to_end() raises:
         )
 
         comptime _scan = scan_global
-        ctx.enqueue_function[_scan, _scan](
+        ctx.enqueue_function[_scan](
             global_hist,
             pass_hist,
             binning_blocks + 1,
@@ -279,7 +279,7 @@ def test_digit_binning_pairs_end_to_end() raises:
             KEYS_PER_THREAD=KEYS_PER_THREAD,
             HAVE_PAYLOAD=True,
         ]
-        ctx.enqueue_function[_bin, _bin](
+        ctx.enqueue_function[_bin](
             keys,
             keys_alternate,
             Optional(d_vals.unsafe_ptr()),

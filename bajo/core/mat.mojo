@@ -15,8 +15,8 @@ comptime Mat44f32 = Mat44[DType.float32]
 @fieldwise_init
 struct Mat[
     dtype: DType,
-    rows: Int where rows >= 1,
-    cols: Int where cols >= 1,
+    rows: Int,
+    cols: Int,
 ](Copyable, Equatable, Roundable, Writable):
     comptime V = Vec[Self.dtype, Self.cols]
     comptime TD = InlineArray[Self.V, Self.rows]  # TD = Type Data
@@ -25,12 +25,15 @@ struct Mat[
     var data: Self.TD
 
     def __init__(out self, s: Scalar[Self.dtype]):
+        comptime assert (Self.rows >= 1) and (Self.cols >= 1)
         self.data = Self.TD(fill=Self.V(s))
 
     def __init__(out self, uninitialized: Bool):
+        comptime assert (Self.rows >= 1) and (Self.cols >= 1)
         self.data = Self.TD(uninitialized=uninitialized)
 
     def __init__(out self, *elems: Scalar[Self.dtype]):
+        comptime assert (Self.rows >= 1) and (Self.cols >= 1)
         debug_assert["safe"](
             len(elems) == Self.rows * Self.cols,
             (
@@ -50,6 +53,7 @@ struct Mat[
 
     @staticmethod
     def from_cols(*columns: Vec[Self.dtype, Self.rows]) -> Self:
+        comptime assert (Self.rows >= 1) and (Self.cols >= 1)
         debug_assert["safe"](
             len(columns) == Self.cols,
             "Number of columns must match matrix size",
@@ -61,9 +65,9 @@ struct Mat[
         return m^
 
     @staticmethod
-    def from_rotation_scale[
-        _dtype: DType where _dtype.is_floating_point()
-    ](r: Quaternion[_dtype], s: Vec3[_dtype]) -> Mat33[_dtype]:
+    def from_rotation_scale(
+        r: Quaternion[Self.dtype], s: Vec3[Self.dtype]
+    ) -> Mat33[Self.dtype] where Self.dtype.is_floating_point():
         # TODO: make this general for Matt33 and Mat44 like Quaternion.from_matrix
         x2 = r.x() * r.x()
         y2 = r.y() * r.y()
@@ -80,7 +84,7 @@ struct Mat[
 
         ds = s * 2.0
         # fmt:off
-        return Mat33[_dtype](
+        return Mat33[Self.dtype](
             s[0] - ds[0] * (y2 + z2), ds[1] * (xy - wz), ds[2] * (xz + wy),
             ds[0] * (xy + wz), s[1] - ds[1] * (x2 + z2), ds[2] * (yz - wx),
             ds[0] * (xz - wy), ds[1] * (yz + wx), s[2] - ds[2] * (x2 + y2)
@@ -371,13 +375,15 @@ def skew[dtype: DType](a: Vec[dtype, 3]) -> Mat33[dtype]:
 ##############
 def _matmul[
     dtype: DType,
-    a_rows: Int where a_rows >= 1,
-    a_cols: Int where a_cols >= 1,
-    b_rows: Int where b_rows >= 1 and a_cols == b_rows,
-    b_cols: Int where b_cols >= 1,
+    a_rows: Int,
+    a_cols: Int,
+    b_rows: Int,
+    b_cols: Int,
 ](a: Mat[dtype, a_rows, a_cols], b: Mat[dtype, b_rows, b_cols]) -> Mat[
     dtype, a_rows, b_cols
-]:
+] where (
+    (a_rows >= 1) and (a_cols >= 1) and (a_cols == b_rows) and (b_cols >= 1)
+):
     """Matrix-Matrix product."""
     bT = b.transpose()
     res = Mat[dtype, a_rows, b_cols](uninitialized=True)
@@ -390,9 +396,11 @@ def _matmul[
 
 def _matvec[
     dtype: DType,
-    rows: Int where rows >= 1,
-    cols: Int where cols >= 1,
-](m: Mat[dtype, rows, cols], v: Vec[dtype, cols]) -> Vec[dtype, rows]:
+    rows: Int,
+    cols: Int,
+](m: Mat[dtype, rows, cols], v: Vec[dtype, cols]) -> Vec[dtype, rows] where (
+    rows >= 1
+) and (cols >= 1):
     """Matrix-Vector product."""
     res = Vec[dtype, rows](uninitialized=True)
     for i in range(rows):

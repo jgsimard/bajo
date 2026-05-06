@@ -170,9 +170,7 @@ struct GpuLBVH:
         centroid_min: Vec3f32,
         norm: Vec3f32,
     ) raises:
-        ctx.enqueue_function[
-            compute_morton_codes_kernel, compute_morton_codes_kernel
-        ](
+        ctx.enqueue_function[compute_morton_codes_kernel](
             self.vertices.unsafe_ptr(),
             self.keys.unsafe_ptr(),
             self.values.unsafe_ptr(),
@@ -188,9 +186,7 @@ struct GpuLBVH:
         )
 
     def launch_topology(self, ctx: DeviceContext) raises:
-        ctx.enqueue_function[
-            init_lbvh_topology_kernel, init_lbvh_topology_kernel
-        ](
+        ctx.enqueue_function[init_lbvh_topology_kernel](
             self.node_meta.unsafe_ptr(),
             self.leaf_parent.unsafe_ptr(),
             self.internal_count,
@@ -198,9 +194,7 @@ struct GpuLBVH:
             grid_dim=self.blocks_init,
             block_dim=GPU_LBVH_BLOCK_SIZE,
         )
-        ctx.enqueue_function[
-            build_lbvh_topology_kernel, build_lbvh_topology_kernel
-        ](
+        ctx.enqueue_function[build_lbvh_topology_kernel](
             self.keys.unsafe_ptr(),
             self.node_meta.unsafe_ptr(),
             self.leaf_parent.unsafe_ptr(),
@@ -210,16 +204,14 @@ struct GpuLBVH:
         )
 
     def launch_refit(self, ctx: DeviceContext) raises:
-        ctx.enqueue_function[init_lbvh_bounds_kernel, init_lbvh_bounds_kernel](
+        ctx.enqueue_function[init_lbvh_bounds_kernel](
             self.node_bounds.unsafe_ptr(),
             self.node_flags.unsafe_ptr(),
             self.internal_count,
             grid_dim=self.blocks_internal,
             block_dim=GPU_LBVH_BLOCK_SIZE,
         )
-        ctx.enqueue_function[
-            refit_lbvh_bounds_kernel, refit_lbvh_bounds_kernel
-        ](
+        ctx.enqueue_function[refit_lbvh_bounds_kernel](
             self.vertices.unsafe_ptr(),
             self.values.unsafe_ptr(),
             self.node_meta.unsafe_ptr(),
@@ -239,9 +231,7 @@ struct GpuLBVH:
         d_hits_u32: DeviceBuffer[DType.uint32],
         ray_count: Int,
     ) raises:
-        ctx.enqueue_function[
-            trace_lbvh_gpu_primary_kernel, trace_lbvh_gpu_primary_kernel
-        ](
+        ctx.enqueue_function[trace_lbvh_gpu_primary_kernel](
             self.vertices.unsafe_ptr(),
             self.values.unsafe_ptr(),
             self.node_meta.unsafe_ptr(),
@@ -268,10 +258,7 @@ struct GpuLBVH:
         height: Int,
         views: Int,
     ) raises:
-        ctx.enqueue_function[
-            trace_lbvh_gpu_camera_kernel[mode],
-            trace_lbvh_gpu_camera_kernel[mode],
-        ](
+        ctx.enqueue_function[trace_lbvh_gpu_camera_kernel[mode]](
             self.vertices.unsafe_ptr(),
             self.values.unsafe_ptr(),
             self.node_meta.unsafe_ptr(),

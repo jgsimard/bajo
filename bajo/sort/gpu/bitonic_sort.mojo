@@ -260,7 +260,7 @@ def bitonic_sort_pairs[
         ITEMS_PER_THREAD=ITEMS_PER_THREAD,
         IS_MERGE_BLOCK=False,
     ]
-    ctx.enqueue_function[shared_block_kernel, shared_block_kernel](
+    ctx.enqueue_function[shared_block_kernel](
         keys.unsafe_ptr(),
         values.unsafe_ptr(),
         0,
@@ -283,7 +283,7 @@ def bitonic_sort_pairs[
                 comptime global_step_kernel = bitonic_sort_step[
                     keys_dtype, vals_dtype
                 ]
-                ctx.enqueue_function[global_step_kernel, global_step_kernel](
+                ctx.enqueue_function[global_step_kernel](
                     keys.unsafe_ptr(),
                     values.unsafe_ptr(),
                     j,
@@ -301,7 +301,7 @@ def bitonic_sort_pairs[
                     ITEMS_PER_THREAD=ITEMS_PER_THREAD,
                     IS_MERGE_BLOCK=True,
                 ]
-                ctx.enqueue_function[shared_merge_kernel, shared_merge_kernel](
+                ctx.enqueue_function[shared_merge_kernel](
                     keys.unsafe_ptr(),
                     values.unsafe_ptr(),
                     k,
@@ -333,8 +333,7 @@ def naive_bitonic_sort_pairs[
     while k <= size:
         var j = k / 2
         while j > 0:
-            comptime kernel = bitonic_sort_step[keys_dtype, vals_dtype]
-            ctx.enqueue_function[kernel, kernel](
+            ctx.enqueue_function[bitonic_sort_step[keys_dtype, vals_dtype]](
                 keys.unsafe_ptr(),
                 values.unsafe_ptr(),
                 j,

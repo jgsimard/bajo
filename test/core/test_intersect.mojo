@@ -56,7 +56,6 @@ def test_intersect_aabb_aabb() raises:
 
 
 def test_intersect_ray_aabb() raises:
-    print("Testing intersect_ray_aabb...")
     lower = Vec3f32(-1.0, -1.0, -1.0)
     upper = Vec3f32(1.0, 1.0, 1.0)
 

@@ -15,50 +15,8 @@ from bajo.core.bvh.gpu.tlas import (
     GPU_TLAS_TRANSFORM_STRIDE,
     GPU_TLAS_INSTANCE_BOUNDS_STRIDE,
 )
-from bajo.core.mat import Mat44f32
+from bajo.core.mat import Mat44f32, _translation, _uniform_scale
 from bajo.core.vec import Vec3f32
-
-
-def _translation(tx: Float32, ty: Float32, tz: Float32) -> Mat44f32:
-    return Mat44f32(
-        1.0,
-        0.0,
-        0.0,
-        tx,
-        0.0,
-        1.0,
-        0.0,
-        ty,
-        0.0,
-        0.0,
-        1.0,
-        tz,
-        0.0,
-        0.0,
-        0.0,
-        1.0,
-    )
-
-
-def _uniform_scale(s: Float32) -> Mat44f32:
-    return Mat44f32(
-        s,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        s,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        s,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        1.0,
-    )
 
 
 def _append_tri(mut verts: List[Vec3f32], cx: Float32, z: Float32):

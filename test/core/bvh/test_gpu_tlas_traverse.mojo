@@ -16,32 +16,11 @@ from bajo.core.bvh.gpu.lbvh import GpuLBVH
 from bajo.core.bvh.gpu.tlas import GpuTlasLayout
 from bajo.core.bvh.gpu.tlas_traverse import launch_tlas_lbvh_uploaded_primary
 from bajo.core.bvh.types import Ray
-from bajo.core.mat import Mat44f32
+from bajo.core.mat import Mat44f32, _translation
 from bajo.core.vec import Vec3f32
 
 
 comptime GPU_TLAS_TEST_MISS = UInt32(0xFFFFFFFF)
-
-
-def _translation(tx: Float32, ty: Float32, tz: Float32) -> Mat44f32:
-    return Mat44f32(
-        1.0,
-        0.0,
-        0.0,
-        tx,
-        0.0,
-        1.0,
-        0.0,
-        ty,
-        0.0,
-        0.0,
-        1.0,
-        tz,
-        0.0,
-        0.0,
-        0.0,
-        1.0,
-    )
 
 
 def _append_tri(

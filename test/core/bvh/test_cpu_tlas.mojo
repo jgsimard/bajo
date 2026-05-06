@@ -5,76 +5,17 @@ from std.utils.numerics import max_finite
 from bajo.core.bvh.cpu.binary_bvh import BinaryBvh
 from bajo.core.bvh.cpu.tlas import BvhInstance, Tlas
 from bajo.core.bvh.types import Ray
-from bajo.core.mat import Mat44f32, transform_point, transform_vector
+from bajo.core.mat import (
+    Mat44,
+    Mat44f32,
+    transform_point,
+    transform_vector,
+    _translation,
+    _uniform_scale,
+    _rotation_z,
+)
 from bajo.core.vec import Vec3f32, assert_vec_equal
-
-
-comptime f32_max = max_finite[DType.float32]()
-
-
-def _translation(tx: Float32, ty: Float32, tz: Float32) -> Mat44f32:
-    # Row-major matrix, column-vector transform convention.
-    return Mat44f32(
-        1.0,
-        0.0,
-        0.0,
-        tx,
-        0.0,
-        1.0,
-        0.0,
-        ty,
-        0.0,
-        0.0,
-        1.0,
-        tz,
-        0.0,
-        0.0,
-        0.0,
-        1.0,
-    )
-
-
-def _uniform_scale(s: Float32) -> Mat44f32:
-    return Mat44f32(
-        s,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        s,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        s,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        1.0,
-    )
-
-
-def _rotation_z_90() -> Mat44f32:
-    # Maps (x, y, z) -> (-y, x, z).
-    return Mat44f32(
-        0.0,
-        -1.0,
-        0.0,
-        0.0,
-        1.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        1.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        1.0,
-    )
+from bajo.core.utils import degrees_to_radians
 
 
 def _assert_hit(ray: Ray, inst: UInt32, prim: UInt32, t: Float32) raises:
@@ -156,8 +97,8 @@ def _bruteforce_instances(
 
 def test_tlas_instance_bounds_translation() raises:
     var inst = _make_instance(
-        _translation(10.0, 2.0, -3.0),
-        _translation(-10.0, -2.0, 3.0),
+        _translation(Float32(10.0), 2.0, -3.0),
+        _translation(Float32(-10.0), -2.0, 3.0),
         0,
         Vec3f32(-1.0, -1.0, -1.0),
         Vec3f32(1.0, 1.0, 1.0),
@@ -169,8 +110,8 @@ def test_tlas_instance_bounds_translation() raises:
 
 def test_tlas_instance_bounds_uniform_scale() raises:
     var inst = _make_instance(
-        _uniform_scale(2.0),
-        _uniform_scale(0.5),
+        _uniform_scale(Float32(2.0)),
+        _uniform_scale(Float32(0.5)),
         0,
         Vec3f32(-1.0, -1.0, -1.0),
         Vec3f32(1.0, 1.0, 1.0),
@@ -181,9 +122,10 @@ def test_tlas_instance_bounds_uniform_scale() raises:
 
 
 def test_tlas_instance_bounds_rotation_z_90() raises:
+    var rad = degrees_to_radians(Float32(90.0))
     var inst = _make_instance(
-        _rotation_z_90(),
-        _rotation_z_90().transpose(),
+        _rotation_z(rad),
+        _rotation_z(rad).transpose(),
         0,
         Vec3f32(0.0, 0.0, 0.0),
         Vec3f32(2.0, 1.0, 1.0),
@@ -280,16 +222,16 @@ def test_tlas_two_translated_instances_report_instance_id() raises:
     var instances = List[BvhInstance]()
     instances.append(
         BvhInstance.from_blas(
-            _translation(-10.0, 0.0, 0.0),
-            _translation(10.0, 0.0, 0.0),
+            _translation(Float32(-10.0), 0.0, 0.0),
+            _translation(Float32(10.0), 0.0, 0.0),
             0,
             blas,
         )
     )
     instances.append(
         BvhInstance.from_blas(
-            _translation(10.0, 0.0, 0.0),
-            _translation(-10.0, 0.0, 0.0),
+            _translation(Float32(10.0), 0.0, 0.0),
+            _translation(Float32(-10.0), 0.0, 0.0),
             0,
             blas,
         )
@@ -318,8 +260,8 @@ def test_tlas_nearest_instance_wins() raises:
     var instances = List[BvhInstance]()
     instances.append(
         BvhInstance.from_blas(
-            _translation(0.0, 0.0, 3.0),
-            _translation(0.0, 0.0, -3.0),
+            _translation(Float32(0.0), 0.0, 3.0),
+            _translation(Float32(0.0), 0.0, -3.0),
             0,
             blas,
         )

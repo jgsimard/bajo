@@ -523,10 +523,7 @@ def launch_tlas_lbvh_uploaded_primary(
     d_hits_u32: DeviceBuffer[DType.uint32],
     ray_count: Int,
 ) raises:
-    ctx.enqueue_function[
-        trace_tlas_lbvh_gpu_primary_kernel,
-        trace_tlas_lbvh_gpu_primary_kernel,
-    ](
+    ctx.enqueue_function[trace_tlas_lbvh_gpu_primary_kernel](
         blas.vertices.unsafe_ptr(),
         blas.values.unsafe_ptr(),
         blas.node_meta.unsafe_ptr(),
@@ -706,10 +703,7 @@ def launch_tlas_lbvh_camera_primary(
     height: Int,
     views: Int,
 ) raises:
-    ctx.enqueue_function[
-        trace_tlas_lbvh_gpu_camera_kernel,
-        trace_tlas_lbvh_gpu_camera_kernel,
-    ](
+    ctx.enqueue_function[trace_tlas_lbvh_gpu_camera_kernel](
         blas.vertices.unsafe_ptr(),
         blas.values.unsafe_ptr(),
         blas.node_meta.unsafe_ptr(),
@@ -846,10 +840,7 @@ def launch_shade_tlas_normals(
     width: Int,
     height: Int,
 ) raises:
-    ctx.enqueue_function[
-        shade_tlas_normals_kernel,
-        shade_tlas_normals_kernel,
-    ](
+    ctx.enqueue_function[shade_tlas_normals_kernel](
         blas.vertices.unsafe_ptr(),
         tlas.inst_transform.unsafe_ptr(),
         d_hits_u32.unsafe_ptr(),

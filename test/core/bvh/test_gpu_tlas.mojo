@@ -161,23 +161,20 @@ def test_gpu_tlas_instance_meta_transforms_and_bounds_match_cpu() raises:
         var verts = _make_strip(4)
         var blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
         blas.build["median", False]()
-        var instances = List[BvhInstance](capacity=2)
-        instances.append(
+        var instances = [
             BvhInstance.from_blas(
-                _translation(10.0, 2.0, -3.0),
-                _translation(-10.0, -2.0, 3.0),
+                _translation(Float32(10.0), 2.0, -3.0),
+                _translation(Float32(-10.0), -2.0, 3.0),
                 0,
                 blas,
-            )
-        )
-        instances.append(
+            ),
             BvhInstance.from_blas(
-                _uniform_scale(2.0),
-                _uniform_scale(0.5),
+                _uniform_scale(Float32(2.0)),
+                _uniform_scale(Float32(0.5)),
                 0,
                 blas,
-            )
-        )
+            ),
+        ]
 
         var tlas = Tlas(instances)
         tlas.build()

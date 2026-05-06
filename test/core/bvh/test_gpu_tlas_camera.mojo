@@ -100,23 +100,20 @@ def _make_two_view_camera_params() -> List[Float32]:
 
 
 def _build_two_instance_tlas(mut cpu_blas: BinaryBvh) -> Tlas:
-    var instances = List[BvhInstance](capacity=2)
-    instances.append(
+    var instances = [
         BvhInstance.from_blas(
-            _translation(-10.0, 0.0, 0.0),
-            _translation(10.0, 0.0, 0.0),
+            _translation(Float32(-10.0), 0.0, 0.0),
+            _translation(Float32(10.0), 0.0, 0.0),
             0,
             cpu_blas,
-        )
-    )
-    instances.append(
+        ),
         BvhInstance.from_blas(
-            _translation(10.0, 0.0, 0.0),
-            _translation(-10.0, 0.0, 0.0),
+            _translation(Float32(10.0), 0.0, 0.0),
+            _translation(Float32(-10.0), 0.0, 0.0),
             0,
             cpu_blas,
-        )
-    )
+        ),
+    ]
     var tlas = Tlas(instances)
     tlas.build()
     return tlas^
@@ -187,12 +184,11 @@ def test_gpu_tlas_camera_normal_shading_writes_rgb() raises:
         var verts = _make_two_depth_triangles()
         var cpu_blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
         cpu_blas.build["median", False]()
-        var instances = List[BvhInstance](capacity=1)
-        instances.append(
+        var instances = [
             BvhInstance.from_blas(
                 Mat44f32.identity(), Mat44f32.identity(), 0, cpu_blas
             )
-        )
+        ]
         var cpu_tlas = Tlas(instances)
         cpu_tlas.build()
 

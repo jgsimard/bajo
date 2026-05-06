@@ -192,10 +192,9 @@ def test_tlas_single_instance_matches_blas() raises:
     var blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
     blas.build["median", False]()
 
-    var instances = List[BvhInstance]()
-    instances.append(
+    var instances = [
         BvhInstance.from_blas(Mat44f32.identity(), Mat44f32.identity(), 0, blas)
-    )
+    ]
 
     var tlas = Tlas(instances)
     tlas.build()
@@ -219,23 +218,20 @@ def test_tlas_two_translated_instances_report_instance_id() raises:
     var blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
     blas.build["median", False]()
 
-    var instances = List[BvhInstance]()
-    instances.append(
+    var instances = [
         BvhInstance.from_blas(
             _translation(Float32(-10.0), 0.0, 0.0),
             _translation(Float32(10.0), 0.0, 0.0),
             0,
             blas,
-        )
-    )
-    instances.append(
+        ),
         BvhInstance.from_blas(
             _translation(Float32(10.0), 0.0, 0.0),
             _translation(Float32(-10.0), 0.0, 0.0),
             0,
             blas,
-        )
-    )
+        ),
+    ]
 
     var tlas = Tlas(instances)
     tlas.build()
@@ -257,18 +253,17 @@ def test_tlas_nearest_instance_wins() raises:
     var blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
     blas.build["median", False]()
 
-    var instances = List[BvhInstance]()
-    instances.append(
+    var instances = [
         BvhInstance.from_blas(
             _translation(Float32(0.0), 0.0, 3.0),
             _translation(Float32(0.0), 0.0, -3.0),
             0,
             blas,
-        )
-    )
-    instances.append(
-        BvhInstance.from_blas(Mat44f32.identity(), Mat44f32.identity(), 0, blas)
-    )
+        ),
+        BvhInstance.from_blas(
+            Mat44f32.identity(), Mat44f32.identity(), 0, blas
+        ),
+    ]
 
     var tlas = Tlas(instances)
     tlas.build()
@@ -287,10 +282,9 @@ def test_tlas_miss() raises:
     var blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
     blas.build["median", False]()
 
-    var instances = List[BvhInstance]()
-    instances.append(
+    var instances = [
         BvhInstance.from_blas(Mat44f32.identity(), Mat44f32.identity(), 0, blas)
-    )
+    ]
 
     var tlas = Tlas(instances)
     tlas.build()

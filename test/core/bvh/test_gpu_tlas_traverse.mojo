@@ -66,47 +66,42 @@ def _build_tlas(mut blas: BinaryBvh, instances: List[BvhInstance]) -> Tlas:
 
 
 def _make_identity_tlas(mut blas: BinaryBvh) -> Tlas:
-    var instances = List[BvhInstance](capacity=1)
-    instances.append(
+    var instances = [
         BvhInstance.from_blas(Mat44f32.identity(), Mat44f32.identity(), 0, blas)
-    )
+    ]
     return _build_tlas(blas, instances)
 
 
 def _make_two_translated_tlas(mut blas: BinaryBvh) -> Tlas:
-    var instances = List[BvhInstance](capacity=2)
-    instances.append(
+    var instances = [
         BvhInstance.from_blas(
-            _translation(-10.0, 0.0, 0.0),
-            _translation(10.0, 0.0, 0.0),
+            _translation(Float32(-10.0), 0.0, 0.0),
+            _translation(Float32(10.0), 0.0, 0.0),
             0,
             blas,
-        )
-    )
-    instances.append(
+        ),
         BvhInstance.from_blas(
-            _translation(10.0, 0.0, 0.0),
-            _translation(-10.0, 0.0, 0.0),
+            _translation(Float32(10.0), 0.0, 0.0),
+            _translation(Float32(-10.0), 0.0, 0.0),
             0,
             blas,
-        )
-    )
+        ),
+    ]
     return _build_tlas(blas, instances)
 
 
 def _make_nearest_tlas(mut blas: BinaryBvh) -> Tlas:
-    var instances = List[BvhInstance](capacity=2)
-    instances.append(
+    var instances = [
         BvhInstance.from_blas(
-            _translation(0.0, 0.0, 3.0),
-            _translation(0.0, 0.0, -3.0),
+            _translation(Float32(0.0), 0.0, 3.0),
+            _translation(Float32(0.0), 0.0, -3.0),
             0,
             blas,
-        )
-    )
-    instances.append(
-        BvhInstance.from_blas(Mat44f32.identity(), Mat44f32.identity(), 0, blas)
-    )
+        ),
+        BvhInstance.from_blas(
+            Mat44f32.identity(), Mat44f32.identity(), 0, blas
+        ),
+    ]
     return _build_tlas(blas, instances)
 
 

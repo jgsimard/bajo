@@ -13,6 +13,7 @@ from bajo.core.bvh.gpu.tlas import (
     GPU_TLAS_INSTANCE_META_STRIDE,
     GPU_TLAS_TRANSFORM_STRIDE,
 )
+from bajo.core.bvh.gpu.kernels import _trace_lbvh_ray
 from bajo.core.bvh.gpu.utils import _blocks_for
 from bajo.core.bvh.types import RayFlat, Hit
 from bajo.core.intersect import intersect_ray_aabb, intersect_ray_tri
@@ -20,12 +21,6 @@ from bajo.core.intersect import intersect_ray_aabb, intersect_ray_tri
 
 comptime GPU_TLAS_TRAVERSAL_STACK_SIZE = 64
 comptime GPU_TLAS_MISS = UInt32(0xFFFFFFFF)
-comptime GPU_TLAS_BLAS_NODE_META_STRIDE = 4
-comptime GPU_TLAS_BLAS_NODE_LEFT = 1
-comptime GPU_TLAS_BLAS_NODE_RIGHT = 2
-comptime GPU_TLAS_BLAS_NODE_BOUNDS_STRIDE = 12
-comptime GPU_TLAS_BLAS_BOUNDS_LEFT = 0
-comptime GPU_TLAS_BLAS_BOUNDS_RIGHT = 6
 comptime GPU_TLAS_INF_T = max_finite[DType.float32]()
 
 
@@ -57,160 +52,6 @@ def _write_tlas_primary_result(
 
 
 @always_inline
-def _blas_node_base(node_idx: UInt32) -> Int:
-    return Int(node_idx) * GPU_TLAS_BLAS_NODE_META_STRIDE
-
-
-@always_inline
-def _blas_bounds_base(node_idx: UInt32) -> Int:
-    return Int(node_idx) * GPU_TLAS_BLAS_NODE_BOUNDS_STRIDE
-
-
-@always_inline
-def _blas_node_left(
-    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
-    node_idx: UInt32,
-) -> UInt32:
-    return UInt32(
-        node_meta[_blas_node_base(node_idx) + GPU_TLAS_BLAS_NODE_LEFT]
-    )
-
-
-@always_inline
-def _blas_node_right(
-    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
-    node_idx: UInt32,
-) -> UInt32:
-    return UInt32(
-        node_meta[_blas_node_base(node_idx) + GPU_TLAS_BLAS_NODE_RIGHT]
-    )
-
-
-@always_inline
-def _intersect_blas_child_bounds[
-    child_bounds_offset: Int
-](
-    node_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    node_idx: UInt32,
-    ray: RayFlat,
-    t_max: Float32,
-) -> Tuple[Bool, Float32]:
-    var b = _blas_bounds_base(node_idx) + child_bounds_offset
-    return intersect_ray_aabb(
-        ray.ox,
-        ray.oy,
-        ray.oz,
-        ray.rdx,
-        ray.rdy,
-        ray.rdz,
-        node_bounds[b + 0],
-        node_bounds[b + 1],
-        node_bounds[b + 2],
-        node_bounds[b + 3],
-        node_bounds[b + 4],
-        node_bounds[b + 5],
-        t_max,
-    )
-
-
-@always_inline
-def _trace_blas_lbvh_ray(
-    vertices: UnsafePointer[Float32, MutAnyOrigin],
-    sorted_prim_ids: UnsafePointer[UInt32, MutAnyOrigin],
-    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
-    node_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    ray: RayFlat,
-    root_idx: UInt32,
-) -> Hit:
-    var best_t = ray.t_max
-    var best_u = Float32(0.0)
-    var best_v = Float32(0.0)
-    var best_prim = GPU_TLAS_MISS
-
-    var stack = InlineArray[UInt32, GPU_TLAS_TRAVERSAL_STACK_SIZE](fill=0)
-    var stack_ptr = 0
-    var current = root_idx
-
-    while True:
-        if (current & LBVH_LEAF_FLAG) != 0:
-            var leaf_idx = current & LBVH_INDEX_MASK
-            var prim_idx = UInt32(sorted_prim_ids[Int(leaf_idx)])
-
-            var tri_hit = intersect_ray_tri(
-                vertices,
-                prim_idx,
-                ray.ox,
-                ray.oy,
-                ray.oz,
-                ray.dx,
-                ray.dy,
-                ray.dz,
-                best_t,
-            )
-
-            if tri_hit.mask[0]:
-                best_t = tri_hit.t
-                best_u = tri_hit.u
-                best_v = tri_hit.v
-                best_prim = prim_idx
-
-            if stack_ptr == 0:
-                break
-
-            stack_ptr -= 1
-            current = stack[stack_ptr]
-            continue
-
-        var node_idx = current & LBVH_INDEX_MASK
-        var left = _blas_node_left(node_meta, node_idx)
-        var right = _blas_node_right(node_meta, node_idx)
-
-        var left_hit = _intersect_blas_child_bounds[GPU_TLAS_BLAS_BOUNDS_LEFT](
-            node_bounds,
-            node_idx,
-            ray,
-            best_t,
-        )
-        var right_hit = _intersect_blas_child_bounds[
-            GPU_TLAS_BLAS_BOUNDS_RIGHT
-        ](
-            node_bounds,
-            node_idx,
-            ray,
-            best_t,
-        )
-
-        var hit_left = left_hit[0]
-        var hit_right = right_hit[0]
-        var dist_left = left_hit[1]
-        var dist_right = right_hit[1]
-
-        if not hit_left and not hit_right:
-            if stack_ptr == 0:
-                break
-            stack_ptr -= 1
-            current = stack[stack_ptr]
-        elif hit_left and not hit_right:
-            current = left
-        elif not hit_left and hit_right:
-            current = right
-        else:
-            var near = left
-            var far = right
-            if dist_left > dist_right:
-                near = right
-                far = left
-
-            if stack_ptr < GPU_TLAS_TRAVERSAL_STACK_SIZE:
-                stack[stack_ptr] = far
-                stack_ptr += 1
-
-            current = near
-
-    return Hit(best_t, best_u, best_v, best_prim, UInt32(0))
-
-
-@always_inline
 def _tlas_node_base(node_idx: UInt32) -> Int:
     return Int(node_idx) * GPU_TLAS_NODE_META_STRIDE
 
@@ -225,7 +66,7 @@ def _tlas_node_left_first(
     node_meta: UnsafePointer[UInt32, MutAnyOrigin],
     node_idx: UInt32,
 ) -> UInt32:
-    return UInt32(node_meta[_tlas_node_base(node_idx) + 0])
+    return node_meta[_tlas_node_base(node_idx) + 0]
 
 
 @always_inline
@@ -233,7 +74,7 @@ def _tlas_node_count(
     node_meta: UnsafePointer[UInt32, MutAnyOrigin],
     node_idx: UInt32,
 ) -> UInt32:
-    return UInt32(node_meta[_tlas_node_base(node_idx) + 1])
+    return node_meta[_tlas_node_base(node_idx) + 1]
 
 
 @always_inline
@@ -241,7 +82,7 @@ def _tlas_node_flag(
     node_meta: UnsafePointer[UInt32, MutAnyOrigin],
     node_idx: UInt32,
 ) -> UInt32:
-    return UInt32(node_meta[_tlas_node_base(node_idx) + 3])
+    return node_meta[_tlas_node_base(node_idx) + 3]
 
 
 @always_inline
@@ -383,7 +224,7 @@ def _trace_tlas_lbvh_ray(
                         ray,
                         best_hit.t,
                     )
-                    var local_hit = _trace_blas_lbvh_ray(
+                    var local_hit = _trace_lbvh_ray(
                         blas_vertices,
                         blas_sorted_prim_ids,
                         blas_node_meta,

@@ -466,7 +466,7 @@ def _intersect_child_bounds[
 
 @always_inline
 def _trace_lbvh_ray[
-    mode: String
+    mode: String = TRACE_PRIMARY_FULL
 ](
     vertices: UnsafePointer[Float32, MutAnyOrigin],
     sorted_prim_ids: UnsafePointer[UInt32, MutAnyOrigin],

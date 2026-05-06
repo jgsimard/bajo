@@ -438,26 +438,6 @@ def refit_lbvh_bounds_kernel(
 # internal nodes, following the same encoding used by the topology kernel.
 # -----------------------------------------------------------------------------
 @always_inline
-def _load_buffer_ray(
-    rays: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    ray_idx: Int,
-) -> RayFlat:
-    var ray_base = ray_idx * 10
-    return RayFlat(
-        rays[ray_base + 0],
-        rays[ray_base + 1],
-        rays[ray_base + 2],
-        rays[ray_base + 3],
-        rays[ray_base + 4],
-        rays[ray_base + 5],
-        rays[ray_base + 6],
-        rays[ray_base + 7],
-        rays[ray_base + 8],
-        rays[ray_base + 9],
-    )
-
-
-@always_inline
 def _intersect_child_bounds[
     child_bounds_offset: Int
 ](
@@ -631,7 +611,7 @@ def trace_lbvh_gpu_primary_kernel(
     if ray_idx >= ray_count:
         return
 
-    var ray = _load_buffer_ray(rays, ray_idx)
+    var ray = RayFlat(rays, ray_idx)
     var hit = _trace_lbvh_ray[TRACE_PRIMARY_FULL](
         vertices,
         sorted_prim_ids,

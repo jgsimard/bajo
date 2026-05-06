@@ -39,26 +39,6 @@ def _safe_rcp(x: Float32) -> Float32:
 
 
 @always_inline
-def _load_buffer_ray(
-    rays: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    ray_idx: Int,
-) -> RayFlat:
-    var ray_base = ray_idx * 10
-    return RayFlat(
-        rays[ray_base + 0],
-        rays[ray_base + 1],
-        rays[ray_base + 2],
-        rays[ray_base + 3],
-        rays[ray_base + 4],
-        rays[ray_base + 5],
-        rays[ray_base + 6],
-        rays[ray_base + 7],
-        rays[ray_base + 8],
-        rays[ray_base + 9],
-    )
-
-
-@always_inline
 def _write_tlas_primary_result(
     hits_f32: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
     hits_u32: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
@@ -490,7 +470,7 @@ def trace_tlas_lbvh_gpu_primary_kernel(
     if ray_idx >= ray_count:
         return
 
-    var ray = _load_buffer_ray(rays, ray_idx)
+    var ray = RayFlat(rays, ray_idx)
     var result = _trace_tlas_lbvh_ray(
         blas_vertices,
         blas_sorted_prim_ids,

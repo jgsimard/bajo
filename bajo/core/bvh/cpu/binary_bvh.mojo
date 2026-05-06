@@ -81,7 +81,7 @@ struct BinaryBvh(Copyable):
     ](
         mut self,
         node_idx: UInt32,
-        atomic_nodes: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+        atomic_nodes: UnsafePointer[UInt32, MutAnyOrigin],
     ) -> Optional[Tuple[UInt32, UInt32]]:
         comptime MAX_LEAF_SIZE = 4  # Set to 4, 8, or 16 depending on your target WideBvh
 
@@ -215,7 +215,7 @@ struct BinaryBvh(Copyable):
     ](
         mut self,
         root_idx: UInt32,
-        atomic_nodes: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+        atomic_nodes: UnsafePointer[UInt32, MutAnyOrigin],
     ):
         var stack = [root_idx]
         while len(stack) > 0:
@@ -337,7 +337,7 @@ struct BinaryBvh(Copyable):
             self.update_node_bounds(0)
 
             # All build modes use an atomic counter for unified API
-            var atomic_nodes = alloc[Scalar[DType.uint32]](1)
+            var atomic_nodes = alloc[UInt32](1)
             atomic_nodes[0] = self.nodes_used
 
             comptime if not parallel:

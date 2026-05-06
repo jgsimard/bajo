@@ -40,8 +40,8 @@ def _safe_rcp(x: Float32) -> Float32:
 
 @always_inline
 def _write_tlas_primary_result(
-    hits_f32: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    hits_u32: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    hits_f32: UnsafePointer[Float32, MutAnyOrigin],
+    hits_u32: UnsafePointer[UInt32, MutAnyOrigin],
     ray_idx: Int,
     hit: Hit,
     inst: UInt32,
@@ -68,7 +68,7 @@ def _blas_bounds_base(node_idx: UInt32) -> Int:
 
 @always_inline
 def _blas_node_left(
-    node_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
     node_idx: UInt32,
 ) -> UInt32:
     return UInt32(
@@ -78,7 +78,7 @@ def _blas_node_left(
 
 @always_inline
 def _blas_node_right(
-    node_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
     node_idx: UInt32,
 ) -> UInt32:
     return UInt32(
@@ -90,7 +90,7 @@ def _blas_node_right(
 def _intersect_blas_child_bounds[
     child_bounds_offset: Int
 ](
-    node_bounds: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    node_bounds: UnsafePointer[Float32, MutAnyOrigin],
     node_idx: UInt32,
     ray: RayFlat,
     t_max: Float32,
@@ -115,10 +115,10 @@ def _intersect_blas_child_bounds[
 
 @always_inline
 def _trace_blas_lbvh_ray(
-    vertices: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    sorted_prim_ids: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    node_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    node_bounds: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    vertices: UnsafePointer[Float32, MutAnyOrigin],
+    sorted_prim_ids: UnsafePointer[UInt32, MutAnyOrigin],
+    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
+    node_bounds: UnsafePointer[Float32, MutAnyOrigin],
     ray: RayFlat,
     root_idx: UInt32,
 ) -> Hit:
@@ -222,7 +222,7 @@ def _tlas_bounds_base(node_idx: UInt32) -> Int:
 
 @always_inline
 def _tlas_node_left_first(
-    node_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
     node_idx: UInt32,
 ) -> UInt32:
     return UInt32(node_meta[_tlas_node_base(node_idx) + 0])
@@ -230,7 +230,7 @@ def _tlas_node_left_first(
 
 @always_inline
 def _tlas_node_count(
-    node_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
     node_idx: UInt32,
 ) -> UInt32:
     return UInt32(node_meta[_tlas_node_base(node_idx) + 1])
@@ -238,7 +238,7 @@ def _tlas_node_count(
 
 @always_inline
 def _tlas_node_flag(
-    node_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
     node_idx: UInt32,
 ) -> UInt32:
     return UInt32(node_meta[_tlas_node_base(node_idx) + 3])
@@ -246,7 +246,7 @@ def _tlas_node_flag(
 
 @always_inline
 def _intersect_tlas_node_bounds(
-    node_bounds: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    node_bounds: UnsafePointer[Float32, MutAnyOrigin],
     node_idx: UInt32,
     ray: RayFlat,
     t_max: Float32,
@@ -281,7 +281,7 @@ def _inst_meta_base(inst_idx: UInt32) -> Int:
 
 @always_inline
 def _transform_point_flat(
-    m: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    m: UnsafePointer[Float32, MutAnyOrigin],
     base: Int,
     x: Float32,
     y: Float32,
@@ -296,7 +296,7 @@ def _transform_point_flat(
 
 @always_inline
 def _transform_vector_flat(
-    m: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    m: UnsafePointer[Float32, MutAnyOrigin],
     base: Int,
     x: Float32,
     y: Float32,
@@ -311,7 +311,7 @@ def _transform_vector_flat(
 
 @always_inline
 def _make_local_ray(
-    inv_transform: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    inv_transform: UnsafePointer[Float32, MutAnyOrigin],
     inst_idx: UInt32,
     ray: RayFlat,
     t_max: Float32,
@@ -336,15 +336,15 @@ def _make_local_ray(
 
 @always_inline
 def _trace_tlas_lbvh_ray(
-    blas_vertices: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    blas_sorted_prim_ids: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    blas_node_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    blas_node_bounds: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    tlas_node_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    tlas_node_bounds: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    tlas_inst_indices: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    tlas_inst_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    tlas_inst_inv_transform: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    blas_vertices: UnsafePointer[Float32, MutAnyOrigin],
+    blas_sorted_prim_ids: UnsafePointer[UInt32, MutAnyOrigin],
+    blas_node_meta: UnsafePointer[UInt32, MutAnyOrigin],
+    blas_node_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    tlas_node_meta: UnsafePointer[UInt32, MutAnyOrigin],
+    tlas_node_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    tlas_inst_indices: UnsafePointer[UInt32, MutAnyOrigin],
+    tlas_inst_meta: UnsafePointer[UInt32, MutAnyOrigin],
+    tlas_inst_inv_transform: UnsafePointer[Float32, MutAnyOrigin],
     ray: RayFlat,
     blas_root_idx: UInt32,
     tlas_node_count: Int,
@@ -450,18 +450,18 @@ def _trace_tlas_lbvh_ray(
 
 
 def trace_tlas_lbvh_gpu_primary_kernel(
-    blas_vertices: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    blas_sorted_prim_ids: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    blas_node_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    blas_node_bounds: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    tlas_node_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    tlas_node_bounds: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    tlas_inst_indices: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    tlas_inst_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    tlas_inst_inv_transform: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    rays: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    hits_f32: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    hits_u32: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    blas_vertices: UnsafePointer[Float32, MutAnyOrigin],
+    blas_sorted_prim_ids: UnsafePointer[UInt32, MutAnyOrigin],
+    blas_node_meta: UnsafePointer[UInt32, MutAnyOrigin],
+    blas_node_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    tlas_node_meta: UnsafePointer[UInt32, MutAnyOrigin],
+    tlas_node_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    tlas_inst_indices: UnsafePointer[UInt32, MutAnyOrigin],
+    tlas_inst_meta: UnsafePointer[UInt32, MutAnyOrigin],
+    tlas_inst_inv_transform: UnsafePointer[Float32, MutAnyOrigin],
+    rays: UnsafePointer[Float32, MutAnyOrigin],
+    hits_f32: UnsafePointer[Float32, MutAnyOrigin],
+    hits_u32: UnsafePointer[UInt32, MutAnyOrigin],
     ray_count: Int,
     blas_root_idx: UInt32,
     tlas_node_count: Int,
@@ -553,7 +553,7 @@ def _normalize3(
 
 @always_inline
 def _make_tlas_camera_ray(
-    camera_params: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    camera_params: UnsafePointer[Float32, MutAnyOrigin],
     ray_idx: Int,
     width: Int,
     height: Int,
@@ -612,18 +612,18 @@ def _make_tlas_camera_ray(
 
 
 def trace_tlas_lbvh_gpu_camera_kernel(
-    blas_vertices: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    blas_sorted_prim_ids: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    blas_node_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    blas_node_bounds: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    tlas_node_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    tlas_node_bounds: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    tlas_inst_indices: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    tlas_inst_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    tlas_inst_inv_transform: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    camera_params: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    hits_f32: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    hits_u32: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    blas_vertices: UnsafePointer[Float32, MutAnyOrigin],
+    blas_sorted_prim_ids: UnsafePointer[UInt32, MutAnyOrigin],
+    blas_node_meta: UnsafePointer[UInt32, MutAnyOrigin],
+    blas_node_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    tlas_node_meta: UnsafePointer[UInt32, MutAnyOrigin],
+    tlas_node_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    tlas_inst_indices: UnsafePointer[UInt32, MutAnyOrigin],
+    tlas_inst_meta: UnsafePointer[UInt32, MutAnyOrigin],
+    tlas_inst_inv_transform: UnsafePointer[Float32, MutAnyOrigin],
+    camera_params: UnsafePointer[Float32, MutAnyOrigin],
+    hits_f32: UnsafePointer[Float32, MutAnyOrigin],
+    hits_u32: UnsafePointer[UInt32, MutAnyOrigin],
     ray_count: Int,
     width: Int,
     height: Int,
@@ -709,7 +709,7 @@ def launch_tlas_lbvh_camera_primary(
 
 @always_inline
 def _load_vertex(
-    vertices: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    vertices: UnsafePointer[Float32, MutAnyOrigin],
     prim_idx: UInt32,
     corner: Int,
 ) -> Tuple[Float32, Float32, Float32]:
@@ -758,10 +758,10 @@ def _shade_background(ray_idx: Int, width: Int, height: Int) -> UInt32:
 
 
 def shade_tlas_normals_kernel(
-    vertices: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    tlas_inst_transform: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    hits_u32: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    out_rgb: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    vertices: UnsafePointer[Float32, MutAnyOrigin],
+    tlas_inst_transform: UnsafePointer[Float32, MutAnyOrigin],
+    hits_u32: UnsafePointer[UInt32, MutAnyOrigin],
+    out_rgb: UnsafePointer[UInt32, MutAnyOrigin],
     pixel_count: Int,
     width: Int,
     height: Int,

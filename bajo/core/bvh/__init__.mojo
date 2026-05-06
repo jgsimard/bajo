@@ -1,4 +1,4 @@
-from std.gpu import thread_idx, block_idx, block_dim, DeviceBuffer
+from std.gpu import DeviceBuffer
 from std.gpu.host import DeviceContext
 
 from bajo.core.vec import Vec3f32, vmin, vmax, cross, length, normalize

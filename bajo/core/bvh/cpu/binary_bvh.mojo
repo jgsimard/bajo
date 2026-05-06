@@ -2,6 +2,10 @@ from std.algorithm import parallelize
 from std.atomic import Atomic
 from std.utils.numerics import max_finite, min_finite
 
+from bajo.core.bvh.cpu.traverse import (
+    push_near_far,
+    intersect_prim,
+)
 from bajo.core.aabb import AABB
 from bajo.core.intersect import intersect_ray_aabb, intersect_ray_tri
 from bajo.core.vec import Vec3f32, vmin, vmax, longest_axis
@@ -408,44 +412,6 @@ struct BinaryBvh(Copyable):
         return total_cost / root_area
 
     @always_inline
-    def _intersect_tri[
-        is_shadow: Bool
-    ](self, mut ray: Ray, prim_idx: UInt32) -> Bool:
-        ref v0 = self.vertices[Int(prim_idx) * 3]
-        ref v1 = self.vertices[Int(prim_idx) * 3 + 1]
-        ref v2 = self.vertices[Int(prim_idx) * 3 + 2]
-
-        h = intersect_ray_tri(
-            ray.O.x(),
-            ray.O.y(),
-            ray.O.z(),
-            ray.D.x(),
-            ray.D.y(),
-            ray.D.z(),
-            v0.x(),
-            v0.y(),
-            v0.z(),
-            v1.x(),
-            v1.y(),
-            v1.z(),
-            v2.x(),
-            v2.y(),
-            v2.z(),
-            ray.hit.t,
-        )
-        if not h.mask[0]:
-            return False
-
-        comptime if is_shadow:
-            return True
-
-        ray.hit.t = h.t[0]
-        ray.hit.u = h.u[0]
-        ray.hit.v = h.v[0]
-        ray.hit.prim = prim_idx
-        return True
-
-    @always_inline
     def _traverse[is_shadow: Bool](self, mut ray: Ray) -> Bool:
         var stack = InlineArray[UInt32, 64](fill=0)
         var stack_ptr = 0
@@ -458,7 +424,7 @@ struct BinaryBvh(Copyable):
                 for i in range(Int(node.tri_count)):
                     var frag_idx = self.prim_indices[Int(node.left_first) + i]
                     var p_idx = self.fragments[Int(frag_idx)].prim_idx
-                    if self._intersect_tri[is_shadow](ray, p_idx):
+                    if intersect_prim[is_shadow](self.vertices, ray, p_idx):
                         comptime if is_shadow:
                             return True
 
@@ -504,19 +470,9 @@ struct BinaryBvh(Copyable):
             elif not h1 and h2:
                 node_idx = child2_idx
             else:
-                # BOTH HIT: Handle ordering
-                var near = child1_idx
-                var far = child2_idx
-
-                # Nested if to separate comptime from runtime
-                comptime if not is_shadow:
-                    if dist1 > dist2:
-                        near = child2_idx
-                        far = child1_idx
-
-                stack[stack_ptr] = far
-                stack_ptr += 1
-                node_idx = near
+                node_idx = push_near_far[not is_shadow](
+                    stack, stack_ptr, child1_idx, child2_idx, dist1, dist2
+                )
 
         return False
 

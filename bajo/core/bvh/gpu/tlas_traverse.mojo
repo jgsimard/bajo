@@ -3,7 +3,6 @@ from std.gpu.host import DeviceContext
 from std.math import abs, sqrt, clamp
 from std.utils.numerics import max_finite
 
-from bajo.core.bvh.gpu.constants import LBVH_LEAF_FLAG, LBVH_INDEX_MASK
 from bajo.core.bvh.gpu.lbvh import GpuLBVH, GPU_LBVH_BLOCK_SIZE
 from bajo.core.bvh.gpu.tlas import (
     GpuTlasLayout,

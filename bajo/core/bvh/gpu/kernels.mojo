@@ -1,8 +1,7 @@
 from std.bit import count_leading_zeros
 from std.atomic import Atomic
-from std.math import abs, min, max, round, sqrt
-from std.gpu import thread_idx, block_idx, block_dim, global_idx, DeviceBuffer
-from std.gpu.host import DeviceContext
+from std.math import min, max, round, sqrt
+from std.gpu import thread_idx, block_idx, block_dim, global_idx
 
 from bajo.core.bvh.types import RayFlat, Hit
 from bajo.core.bvh.gpu.constants import (
@@ -13,7 +12,7 @@ from bajo.core.bvh.gpu.constants import (
 from bajo.core.intersect import intersect_ray_tri, intersect_ray_aabb
 from bajo.core.morton import morton3
 from bajo.core.vec import Vec3f32, vmin, vmax, cross, length, normalize
-from bajo.sort.gpu.radix_sort import device_radix_sort_pairs, RadixSortWorkspace
+from bajo.sort.gpu.radix_sort import RadixSortWorkspace
 
 comptime GPU_TRAVERSAL_STACK_SIZE = 64
 comptime GPU_REDUCE_THREADS = 4096
@@ -39,7 +38,6 @@ comptime TRACE_PRIMARY_T = "primary_t"
 comptime TRACE_SHADOW = "shadow"
 
 comptime _gpu_inf_t = Float32(3.4028234663852886e38)
-comptime _gpu_tri_miss_t = Float32.MAX
 comptime _gpu_miss_prim = UInt32(0xFFFFFFFF)
 
 

@@ -2,6 +2,7 @@ from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.aabb import AABB
 from bajo.core.bvh.cpu.binary_bvh import BinaryBvh
+from bajo.core.bvh.cpu.traverse import push_near_far
 from bajo.core.bvh.types import BvhNode, Ray
 from bajo.core.intersect import intersect_ray_aabb
 from bajo.core.mat import Mat44f32, transform_point, transform_vector
@@ -319,15 +320,6 @@ struct Tlas(Copyable):
             elif not hit1 and hit2:
                 node_idx = child2_idx
             else:
-                var near = child1_idx
-                var far = child2_idx
-                if dist1 > dist2:
-                    near = child2_idx
-                    far = child1_idx
-
-                debug_assert["safe"](
-                    stack_ptr < 64, "TLAS traversal stack overflow"
+                node_idx = push_near_far[True](
+                    stack, stack_ptr, child1_idx, child2_idx, dist1, dist2
                 )
-                stack[stack_ptr] = far
-                stack_ptr += 1
-                node_idx = near

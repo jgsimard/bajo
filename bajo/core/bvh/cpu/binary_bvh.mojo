@@ -1,13 +1,9 @@
 from std.algorithm import parallelize
-from std.bit import count_leading_zeros
-from std.math import abs, min, max, clamp
-from std.memory import UnsafePointer
 from std.atomic import Atomic
 from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.aabb import AABB
 from bajo.core.intersect import intersect_ray_aabb, intersect_ray_tri
-from bajo.core.mat import Mat44f32, transform_point, transform_vector, inverse
 from bajo.core.vec import Vec3f32, vmin, vmax, longest_axis
 from bajo.core.morton import morton3
 from bajo.core.bvh.types import (

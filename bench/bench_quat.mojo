@@ -1,6 +1,5 @@
 from std.benchmark import run, Unit, keep
 from std.random import random_float64
-from std.memory import UnsafePointer
 from std.testing import TestSuite, assert_equal, assert_almost_equal
 from std.math import fma
 

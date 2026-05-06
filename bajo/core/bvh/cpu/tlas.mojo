@@ -1,4 +1,3 @@
-from std.memory import UnsafePointer
 from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.aabb import AABB

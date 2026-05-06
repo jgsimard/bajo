@@ -1,6 +1,6 @@
 from std.gpu import DeviceBuffer, thread_idx, block_idx, block_dim
 from std.gpu.host import DeviceContext
-from std.math import abs, sqrt
+from std.math import abs, sqrt, clamp
 from std.utils.numerics import max_finite
 
 from bajo.core.bvh.gpu.constants import LBVH_LEAF_FLAG, LBVH_INDEX_MASK
@@ -13,7 +13,11 @@ from bajo.core.bvh.gpu.tlas import (
     GPU_TLAS_INSTANCE_META_STRIDE,
     GPU_TLAS_TRANSFORM_STRIDE,
 )
-from bajo.core.bvh.gpu.kernels import _trace_lbvh_ray, _make_camera_ray
+from bajo.core.bvh.gpu.kernels import (
+    _trace_lbvh_ray,
+    _make_camera_ray,
+    _normalize3,
+)
 from bajo.core.bvh.gpu.utils import _blocks_for
 from bajo.core.bvh.types import RayFlat, Hit
 from bajo.core.intersect import intersect_ray_aabb, intersect_ray_tri
@@ -307,7 +311,7 @@ def trace_tlas_lbvh_gpu_primary_kernel(
     blas_root_idx: UInt32,
     tlas_node_count: Int,
 ):
-    var ray_idx = Int(block_idx.x * block_dim.x + thread_idx.x)
+    var ray_idx = block_idx.x * block_dim.x + thread_idx.x
     if ray_idx >= ray_count:
         return
 
@@ -363,33 +367,6 @@ def launch_tlas_lbvh_uploaded_primary(
         grid_dim=_blocks_for[GPU_LBVH_BLOCK_SIZE](ray_count),
         block_dim=GPU_LBVH_BLOCK_SIZE,
     )
-
-
-# -----------------------------------------------------------------------------
-# Phase D: GPU-generated TLAS camera rays and GPU normal shading.
-#
-# These helpers keep the Phase C uploaded-ray path intact and add the minimum
-# camera/render path needed by examples/instanced_lbvh_normals.mojo.
-# -----------------------------------------------------------------------------
-
-comptime GPU_TLAS_CAMERA_PARAM_STRIDE = 12
-comptime GPU_TLAS_CAMERA_ORIGIN = 0
-comptime GPU_TLAS_CAMERA_FORWARD = 3
-comptime GPU_TLAS_CAMERA_RIGHT = 6
-comptime GPU_TLAS_CAMERA_UP = 9
-
-
-@always_inline
-def _normalize3(
-    x: Float32,
-    y: Float32,
-    z: Float32,
-) -> Tuple[Float32, Float32, Float32]:
-    var len2 = x * x + y * y + z * z
-    if len2 <= 1.0e-20:
-        return (Float32(0.0), Float32(0.0), Float32(0.0))
-    var inv_len = Float32(1.0) / sqrt(len2)
-    return (x * inv_len, y * inv_len, z * inv_len)
 
 
 def trace_tlas_lbvh_gpu_camera_kernel(
@@ -516,11 +493,7 @@ def _cross3(
 
 @always_inline
 def _normal_byte(x: Float32) -> UInt32:
-    var y = x * 0.5 + 0.5
-    if y < 0.0:
-        y = 0.0
-    if y > 1.0:
-        y = 1.0
+    y = clamp(x * 0.5 + 0.5, 0.0, 1.0)
     return UInt32(y * 255.0 + 0.5)
 
 

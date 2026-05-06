@@ -1,4 +1,3 @@
-from std.memory import UnsafePointer
 from std.testing import TestSuite, assert_almost_equal, assert_true
 from std.utils.numerics import max_finite
 
@@ -16,6 +15,7 @@ from bajo.core.mat import (
 )
 from bajo.core.vec import Vec3f32, assert_vec_equal
 from bajo.core.utils import degrees_to_radians
+from fixtures import _append_tri
 
 
 def _assert_hit(ray: Ray, inst: UInt32, prim: UInt32, t: Float32) raises:
@@ -29,22 +29,9 @@ def _assert_miss(ray: Ray) raises:
     assert_true(ray.hit.t > 1.0e20, "expected ray miss")
 
 
-def _append_tri(mut verts: List[Vec3f32], cx: Float32, z: Float32):
-    verts.append(Vec3f32(cx - 1.0, -1.0, z))
-    verts.append(Vec3f32(cx + 1.0, -1.0, z))
-    verts.append(Vec3f32(cx, 1.0, z))
-
-
 def _make_single_triangle_verts(z: Float32 = 2.0) -> List[Vec3f32]:
     var verts = List[Vec3f32](capacity=3)
     _append_tri(verts, 0.0, z)
-    return verts^
-
-
-def _make_strip(count: Int, z: Float32 = 2.0) -> List[Vec3f32]:
-    var verts = List[Vec3f32](capacity=count * 3)
-    for i in range(count):
-        _append_tri(verts, Float32(i) * 4.0, z)
     return verts^
 
 

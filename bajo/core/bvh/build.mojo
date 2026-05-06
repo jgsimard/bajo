@@ -1,5 +1,5 @@
 from std.bit import count_leading_zeros
-from std.math import abs, min, max, clamp
+from std.math import abs, min, max
 from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.aabb import AABB

@@ -225,8 +225,7 @@ def validate_gpu_tlas_layout(
 ) raises -> GpuTlasValidation:
     """Host-side validation of the uploaded TLAS buffers.
 
-    This intentionally validates data movement only. Traversal correctness stays
-    in CPU Phase A and GPU traversal gets tested in Phase C.
+    Validates data movement only.
     """
     var out = GpuTlasValidation()
     out.ok = True

@@ -238,9 +238,7 @@ def _trace_tlas_lbvh_ray(
 
                     if local_hit.t < best_hit.t:
                         best_hit = local_hit
-                        best_inst = UInt32(
-                            tlas_inst_meta[_inst_meta_base(inst_idx) + 1]
-                        )
+                        best_inst = inst_idx
 
             if stack_ptr == 0:
                 break

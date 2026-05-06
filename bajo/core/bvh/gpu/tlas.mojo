@@ -10,9 +10,8 @@ comptime f32_max = max_finite[DType.float32]()
 
 comptime GPU_TLAS_NODE_META_STRIDE = 4
 comptime GPU_TLAS_NODE_BOUNDS_STRIDE = 6
-comptime GPU_TLAS_INSTANCE_META_STRIDE = 4
+comptime GPU_TLAS_INSTANCE_META_STRIDE = 1
 comptime GPU_TLAS_TRANSFORM_STRIDE = 16
-comptime GPU_TLAS_INSTANCE_BOUNDS_STRIDE = 6
 
 comptime GPU_TLAS_INTERNAL_FLAG = UInt32(0)
 comptime GPU_TLAS_LEAF_FLAG = UInt32(1)
@@ -78,8 +77,6 @@ struct GpuTlasValidation(TrivialRegisterPassable):
 struct GpuTlasLayout:
     """Uploaded GPU TLAS buffers.
 
-    Phase B deliberately uploads only data. It does not add traversal kernels.
-
     Node layout:
     - `node_meta[node * 4 + 0]`: `left_first`
         - internal: left child node index
@@ -95,12 +92,8 @@ struct GpuTlasLayout:
     - `node_bounds[node * 6 + 3:6]`: max xyz
 
     Instance layout:
-    - `inst_indices` preserves the CPU TLAS leaf ranges.
-    - `inst_meta[inst * 4 + 0]`: BLAS index.
-    - `inst_meta[inst * 4 + 1]`: original instance id.
-    - `inst_meta[inst * 4 + 2:4]`: reserved.
+    - `inst_meta[inst]`: BLAS index.
     - transforms are row-major Mat44f32 flattened to 16 floats.
-    - instance bounds are min xyz then max xyz.
     """
 
     var node_count: Int
@@ -112,7 +105,6 @@ struct GpuTlasLayout:
     var inst_meta: DeviceBuffer[DType.uint32]
     var inst_transform: DeviceBuffer[DType.float32]
     var inst_inv_transform: DeviceBuffer[DType.float32]
-    var inst_bounds: DeviceBuffer[DType.float32]
 
     def __init__(out self, mut ctx: DeviceContext, tlas: Tlas) raises:
         self.node_count = Int(tlas.nodes_used)
@@ -135,9 +127,6 @@ struct GpuTlasLayout:
         )
         self.inst_inv_transform = ctx.enqueue_create_buffer[DType.float32](
             _nonzero_count(self.inst_count * GPU_TLAS_TRANSFORM_STRIDE)
-        )
-        self.inst_bounds = ctx.enqueue_create_buffer[DType.float32](
-            _nonzero_count(self.inst_count * GPU_TLAS_INSTANCE_BOUNDS_STRIDE)
         )
 
         self.upload(ctx, tlas)
@@ -176,12 +165,7 @@ struct GpuTlasLayout:
 
         with self.inst_meta.map_to_host() as h:
             for i in range(self.inst_count):
-                ref inst = tlas.instances[i]
-                var base = i * GPU_TLAS_INSTANCE_META_STRIDE
-                h[base + 0] = inst.blas_idx
-                h[base + 1] = UInt32(i)
-                h[base + 2] = 0
-                h[base + 3] = 0
+                h[i] = tlas.instances[i].blas_idx
 
         with self.inst_transform.map_to_host() as h:
             for i in range(self.inst_count):
@@ -194,17 +178,6 @@ struct GpuTlasLayout:
                 var base = i * GPU_TLAS_TRANSFORM_STRIDE
                 comptime for j in range(GPU_TLAS_TRANSFORM_STRIDE):
                     h[base + j] = _inv_matrix_elem(tlas, i, j)
-
-        with self.inst_bounds.map_to_host() as h:
-            for i in range(self.inst_count):
-                ref inst = tlas.instances[i]
-                var base = i * GPU_TLAS_INSTANCE_BOUNDS_STRIDE
-                h[base + 0] = inst.bounds_min.x()
-                h[base + 1] = inst.bounds_min.y()
-                h[base + 2] = inst.bounds_min.z()
-                h[base + 3] = inst.bounds_max.x()
-                h[base + 4] = inst.bounds_max.y()
-                h[base + 5] = inst.bounds_max.z()
 
         ctx.synchronize()
 
@@ -311,20 +284,11 @@ def validate_gpu_tlas_layout(
 
     with layout.inst_meta.map_to_host() as h:
         for i in range(layout.inst_count):
-            ref inst = tlas.instances[i]
-            var base = i * GPU_TLAS_INSTANCE_META_STRIDE
-            if h[base + 0] != inst.blas_idx:
+            if h[i] != tlas.instances[i].blas_idx:
                 out.ok = False
-                out.first_bad = _first_bad(out.first_bad, base + 0)
-            if h[base + 1] != UInt32(i):
-                out.ok = False
-                out.first_bad = _first_bad(out.first_bad, base + 1)
-            if h[base + 2] != 0 or h[base + 3] != 0:
-                out.ok = False
-                out.first_bad = _first_bad(out.first_bad, base + 2)
+                out.first_bad = _first_bad(out.first_bad, i)
 
-            out.checksum += UInt64(h[base + 0])
-            out.checksum += UInt64(h[base + 1])
+            out.checksum += UInt64(h[i])
 
     with layout.inst_transform.map_to_host() as h:
         for i in range(layout.inst_count):
@@ -345,36 +309,5 @@ def validate_gpu_tlas_layout(
                     out.ok = False
                     out.first_bad = _first_bad(out.first_bad, base + j)
                 out.checksum += UInt64(abs(Float64(h[base + j])) * 1000.0)
-
-    with layout.inst_bounds.map_to_host() as h:
-        for i in range(layout.inst_count):
-            ref inst = tlas.instances[i]
-            var base = i * GPU_TLAS_INSTANCE_BOUNDS_STRIDE
-
-            if not _almost_equal(h[base + 0], inst.bounds_min.x()):
-                out.ok = False
-                out.first_bad = _first_bad(out.first_bad, base + 0)
-            if not _almost_equal(h[base + 1], inst.bounds_min.y()):
-                out.ok = False
-                out.first_bad = _first_bad(out.first_bad, base + 1)
-            if not _almost_equal(h[base + 2], inst.bounds_min.z()):
-                out.ok = False
-                out.first_bad = _first_bad(out.first_bad, base + 2)
-            if not _almost_equal(h[base + 3], inst.bounds_max.x()):
-                out.ok = False
-                out.first_bad = _first_bad(out.first_bad, base + 3)
-            if not _almost_equal(h[base + 4], inst.bounds_max.y()):
-                out.ok = False
-                out.first_bad = _first_bad(out.first_bad, base + 4)
-            if not _almost_equal(h[base + 5], inst.bounds_max.z()):
-                out.ok = False
-                out.first_bad = _first_bad(out.first_bad, base + 5)
-
-            out.checksum += UInt64(abs(Float64(h[base + 0])) * 1000.0)
-            out.checksum += UInt64(abs(Float64(h[base + 1])) * 1000.0)
-            out.checksum += UInt64(abs(Float64(h[base + 2])) * 1000.0)
-            out.checksum += UInt64(abs(Float64(h[base + 3])) * 1000.0)
-            out.checksum += UInt64(abs(Float64(h[base + 4])) * 1000.0)
-            out.checksum += UInt64(abs(Float64(h[base + 5])) * 1000.0)
 
     return out

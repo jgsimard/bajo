@@ -13,7 +13,6 @@ from bajo.core.bvh.gpu.tlas import (
     GPU_TLAS_NODE_BOUNDS_STRIDE,
     GPU_TLAS_INSTANCE_META_STRIDE,
     GPU_TLAS_TRANSFORM_STRIDE,
-    GPU_TLAS_INSTANCE_BOUNDS_STRIDE,
 )
 from bajo.core.mat import Mat44f32, _translation, _uniform_scale
 from bajo.core.vec import Vec3f32
@@ -172,11 +171,7 @@ def test_gpu_tlas_instance_meta_transforms_and_bounds_match_cpu() raises:
 
             with gpu_tlas.inst_meta.map_to_host() as meta:
                 for i in range(Int(tlas.inst_count)):
-                    var base = i * GPU_TLAS_INSTANCE_META_STRIDE
-                    assert_true(meta[base + 0] == tlas.instances[i].blas_idx)
-                    assert_true(meta[base + 1] == UInt32(i))
-                    assert_true(meta[base + 2] == 0)
-                    assert_true(meta[base + 3] == 0)
+                    assert_true(meta[i] == tlas.instances[i].blas_idx)
 
             with gpu_tlas.inst_transform.map_to_host() as xform:
                 for i in range(Int(tlas.inst_count)):
@@ -199,17 +194,6 @@ def test_gpu_tlas_instance_meta_transforms_and_bounds_match_cpu() raises:
                                 inv_xform[base + j]
                                 == tlas.instances[i].inv_transform[row][col]
                             )
-
-            with gpu_tlas.inst_bounds.map_to_host() as bounds:
-                for i in range(Int(tlas.inst_count)):
-                    ref inst = tlas.instances[i]
-                    var base = i * GPU_TLAS_INSTANCE_BOUNDS_STRIDE
-                    assert_true(bounds[base + 0] == inst.bounds_min.x())
-                    assert_true(bounds[base + 1] == inst.bounds_min.y())
-                    assert_true(bounds[base + 2] == inst.bounds_min.z())
-                    assert_true(bounds[base + 3] == inst.bounds_max.x())
-                    assert_true(bounds[base + 4] == inst.bounds_max.y())
-                    assert_true(bounds[base + 5] == inst.bounds_max.z())
     else:
         assert_true(False, "No Accelerator found")
 

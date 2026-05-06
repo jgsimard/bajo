@@ -13,7 +13,7 @@ from bajo.core.bvh.gpu.tlas import (
     GPU_TLAS_INSTANCE_META_STRIDE,
     GPU_TLAS_TRANSFORM_STRIDE,
 )
-from bajo.core.bvh.gpu.kernels import _trace_lbvh_ray
+from bajo.core.bvh.gpu.kernels import _trace_lbvh_ray, _make_camera_ray
 from bajo.core.bvh.gpu.utils import _blocks_for
 from bajo.core.bvh.types import RayFlat, Hit
 from bajo.core.intersect import intersect_ray_aabb, intersect_ray_tri
@@ -392,66 +392,6 @@ def _normalize3(
     return (x * inv_len, y * inv_len, z * inv_len)
 
 
-@always_inline
-def _make_tlas_camera_ray(
-    camera_params: UnsafePointer[Float32, MutAnyOrigin],
-    ray_idx: Int,
-    width: Int,
-    height: Int,
-) -> RayFlat:
-    var pixels_per_view = width * height
-    var view_idx = ray_idx // pixels_per_view
-    var local_idx = ray_idx - view_idx * pixels_per_view
-    var px_i = local_idx % width
-    var py_i = local_idx // width
-
-    var cam_base = view_idx * GPU_TLAS_CAMERA_PARAM_STRIDE
-
-    var ox = camera_params[cam_base + GPU_TLAS_CAMERA_ORIGIN + 0]
-    var oy = camera_params[cam_base + GPU_TLAS_CAMERA_ORIGIN + 1]
-    var oz = camera_params[cam_base + GPU_TLAS_CAMERA_ORIGIN + 2]
-
-    var fx = camera_params[cam_base + GPU_TLAS_CAMERA_FORWARD + 0]
-    var fy = camera_params[cam_base + GPU_TLAS_CAMERA_FORWARD + 1]
-    var fz = camera_params[cam_base + GPU_TLAS_CAMERA_FORWARD + 2]
-
-    var rx = camera_params[cam_base + GPU_TLAS_CAMERA_RIGHT + 0]
-    var ry = camera_params[cam_base + GPU_TLAS_CAMERA_RIGHT + 1]
-    var rz = camera_params[cam_base + GPU_TLAS_CAMERA_RIGHT + 2]
-
-    var ux = camera_params[cam_base + GPU_TLAS_CAMERA_UP + 0]
-    var uy = camera_params[cam_base + GPU_TLAS_CAMERA_UP + 1]
-    var uz = camera_params[cam_base + GPU_TLAS_CAMERA_UP + 2]
-
-    var aspect = Float32(width) / Float32(height)
-    var fov_scale = Float32(0.25)
-
-    var sx = ((Float32(px_i) + 0.5) / Float32(width)) * 2.0 - 1.0
-    var sy = 1.0 - ((Float32(py_i) + 0.5) / Float32(height)) * 2.0
-
-    var dir_x = fx + rx * (sx * aspect * fov_scale) + ux * (sy * fov_scale)
-    var dir_y = fy + ry * (sx * aspect * fov_scale) + uy * (sy * fov_scale)
-    var dir_z = fz + rz * (sx * aspect * fov_scale) + uz * (sy * fov_scale)
-
-    var nd = _normalize3(dir_x, dir_y, dir_z)
-    var dx = nd[0]
-    var dy = nd[1]
-    var dz = nd[2]
-
-    return RayFlat(
-        ox,
-        oy,
-        oz,
-        dx,
-        dy,
-        dz,
-        _safe_rcp(dx),
-        _safe_rcp(dy),
-        _safe_rcp(dz),
-        GPU_TLAS_INF_T,
-    )
-
-
 def trace_tlas_lbvh_gpu_camera_kernel(
     blas_vertices: UnsafePointer[Float32, MutAnyOrigin],
     blas_sorted_prim_ids: UnsafePointer[UInt32, MutAnyOrigin],
@@ -488,7 +428,7 @@ def trace_tlas_lbvh_gpu_camera_kernel(
         )
         return
 
-    var ray = _make_tlas_camera_ray(camera_params, ray_idx, width, height)
+    var ray = _make_camera_ray(camera_params, ray_idx, width, height)
     var result = _trace_tlas_lbvh_ray(
         blas_vertices,
         blas_sorted_prim_ids,

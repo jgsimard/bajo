@@ -1,8 +1,7 @@
 from std.bit import count_leading_zeros
 from std.atomic import Atomic
-from std.math import abs, min, max, round, sqrt
-from std.gpu import thread_idx, block_idx, block_dim, global_idx, DeviceBuffer
-from std.gpu.host import DeviceContext
+from std.math import min, max, sqrt
+from std.gpu import global_idx
 
 from bajo.core.bvh.types import RayFlat, Hit
 from bajo.core.bvh.gpu.constants import (
@@ -13,7 +12,7 @@ from bajo.core.bvh.gpu.constants import (
 from bajo.core.intersect import intersect_ray_tri, intersect_ray_aabb
 from bajo.core.morton import morton3
 from bajo.core.vec import Vec3f32, vmin, vmax, cross, length, normalize
-from bajo.sort.gpu.radix_sort import device_radix_sort_pairs, RadixSortWorkspace
+from bajo.sort.gpu.radix_sort import RadixSortWorkspace
 
 comptime GPU_TRAVERSAL_STACK_SIZE = 64
 comptime GPU_REDUCE_THREADS = 4096
@@ -39,7 +38,6 @@ comptime TRACE_PRIMARY_T = "primary_t"
 comptime TRACE_SHADOW = "shadow"
 
 comptime _gpu_inf_t = Float32(3.4028234663852886e38)
-comptime _gpu_tri_miss_t = Float32.MAX
 comptime _gpu_miss_prim = UInt32(0xFFFFFFFF)
 
 
@@ -75,7 +73,7 @@ def _node_fence_index(node_idx: UInt32) -> Int:
 
 @always_inline
 def _node_left(
-    node_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
     node_idx: UInt32,
 ) -> UInt32:
     return UInt32(node_meta[_node_left_index(node_idx)])
@@ -83,7 +81,7 @@ def _node_left(
 
 @always_inline
 def _node_right(
-    node_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
     node_idx: UInt32,
 ) -> UInt32:
     return UInt32(node_meta[_node_right_index(node_idx)])
@@ -119,7 +117,7 @@ def compute_centroid_bounds(verts: List[Vec3f32]) -> Tuple[Vec3f32, Vec3f32]:
 # -----------------------------------------------------------------------------
 @always_inline
 def _common_prefix_gpu(
-    keys: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    keys: UnsafePointer[UInt32, MutAnyOrigin],
     i: Int,
     j: Int,
     n: Int,
@@ -142,9 +140,9 @@ def _common_prefix_gpu(
 
 
 def compute_morton_codes_kernel(
-    vertices: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    keys: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    values: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    vertices: UnsafePointer[Float32, MutAnyOrigin],
+    keys: UnsafePointer[UInt32, MutAnyOrigin],
+    values: UnsafePointer[UInt32, MutAnyOrigin],
     tri_count: Int,
     cmin_x: Float32,
     cmin_y: Float32,
@@ -153,7 +151,7 @@ def compute_morton_codes_kernel(
     inv_extent_y: Float32,
     inv_extent_z: Float32,
 ):
-    var i = Int(block_idx.x * block_dim.x + thread_idx.x)
+    var i = global_idx.x
     if i >= tri_count:
         return
 
@@ -184,8 +182,8 @@ def compute_morton_codes_kernel(
 
 
 def init_lbvh_topology_kernel(
-    node_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    leaf_parent: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_parent: UnsafePointer[UInt32, MutAnyOrigin],
     internal_count: Int,
     leaf_count: Int,
 ):
@@ -204,9 +202,9 @@ def init_lbvh_topology_kernel(
 
 
 def build_lbvh_topology_kernel(
-    sorted_keys: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    node_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    leaf_parent: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    sorted_keys: UnsafePointer[UInt32, MutAnyOrigin],
+    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_parent: UnsafePointer[UInt32, MutAnyOrigin],
     leaf_count: Int,
 ):
     var i = global_idx.x
@@ -300,8 +298,8 @@ def build_lbvh_topology_kernel(
 
 
 def init_lbvh_bounds_kernel(
-    node_bounds: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    node_flags: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    node_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    node_flags: UnsafePointer[UInt32, MutAnyOrigin],
     internal_count: Int,
 ):
     var i = global_idx.x
@@ -326,7 +324,7 @@ def init_lbvh_bounds_kernel(
 
 @always_inline
 def _write_child_bounds(
-    node_bounds: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    node_bounds: UnsafePointer[Float32, MutAnyOrigin],
     parent: UInt32,
     write_left: Bool,
     mnx: Float32,
@@ -349,7 +347,7 @@ def _write_child_bounds(
 
 @always_inline
 def _load_and_union_node_bounds(
-    node_bounds: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    node_bounds: UnsafePointer[Float32, MutAnyOrigin],
     parent: UInt32,
 ) -> Tuple[Float32, Float32, Float32, Float32, Float32, Float32]:
     var b = _node_bounds_base(parent)
@@ -363,12 +361,12 @@ def _load_and_union_node_bounds(
 
 
 def refit_lbvh_bounds_kernel(
-    vertices: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    sorted_prim_ids: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    node_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    leaf_parent: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    node_bounds: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    node_flags: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    vertices: UnsafePointer[Float32, MutAnyOrigin],
+    sorted_prim_ids: UnsafePointer[UInt32, MutAnyOrigin],
+    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_parent: UnsafePointer[UInt32, MutAnyOrigin],
+    node_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    node_flags: UnsafePointer[UInt32, MutAnyOrigin],
     leaf_count: Int,
 ):
     var leaf_idx = global_idx.x
@@ -438,30 +436,10 @@ def refit_lbvh_bounds_kernel(
 # internal nodes, following the same encoding used by the topology kernel.
 # -----------------------------------------------------------------------------
 @always_inline
-def _load_buffer_ray(
-    rays: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    ray_idx: Int,
-) -> RayFlat:
-    var ray_base = ray_idx * 10
-    return RayFlat(
-        rays[ray_base + 0],
-        rays[ray_base + 1],
-        rays[ray_base + 2],
-        rays[ray_base + 3],
-        rays[ray_base + 4],
-        rays[ray_base + 5],
-        rays[ray_base + 6],
-        rays[ray_base + 7],
-        rays[ray_base + 8],
-        rays[ray_base + 9],
-    )
-
-
-@always_inline
 def _intersect_child_bounds[
     child_bounds_offset: Int
 ](
-    node_bounds: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    node_bounds: UnsafePointer[Float32, MutAnyOrigin],
     node_idx: UInt32,
     ray: RayFlat,
     t_max: Float32,
@@ -486,12 +464,12 @@ def _intersect_child_bounds[
 
 @always_inline
 def _trace_lbvh_ray[
-    mode: String
+    mode: String = TRACE_PRIMARY_FULL
 ](
-    vertices: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    sorted_prim_ids: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    node_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    node_bounds: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    vertices: UnsafePointer[Float32, MutAnyOrigin],
+    sorted_prim_ids: UnsafePointer[UInt32, MutAnyOrigin],
+    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
+    node_bounds: UnsafePointer[Float32, MutAnyOrigin],
     ray: RayFlat,
     root_idx: UInt32,
 ) -> Hit:
@@ -604,8 +582,8 @@ def _trace_lbvh_ray[
 
 @always_inline
 def _write_primary_full_result(
-    hits_f32: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    hits_u32: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    hits_f32: UnsafePointer[Float32, MutAnyOrigin],
+    hits_u32: UnsafePointer[UInt32, MutAnyOrigin],
     ray_idx: Int,
     hit: Hit,
 ):
@@ -617,21 +595,21 @@ def _write_primary_full_result(
 
 
 def trace_lbvh_gpu_primary_kernel(
-    vertices: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    sorted_prim_ids: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    node_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    node_bounds: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    rays: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    hits_f32: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    hits_u32: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    vertices: UnsafePointer[Float32, MutAnyOrigin],
+    sorted_prim_ids: UnsafePointer[UInt32, MutAnyOrigin],
+    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
+    node_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    rays: UnsafePointer[Float32, MutAnyOrigin],
+    hits_f32: UnsafePointer[Float32, MutAnyOrigin],
+    hits_u32: UnsafePointer[UInt32, MutAnyOrigin],
     ray_count: Int,
     root_idx: UInt32,
 ):
-    var ray_idx = Int(block_idx.x * block_dim.x + thread_idx.x)
+    var ray_idx = global_idx.x
     if ray_idx >= ray_count:
         return
 
-    var ray = _load_buffer_ray(rays, ray_idx)
+    var ray = RayFlat(rays, ray_idx)
     var hit = _trace_lbvh_ray[TRACE_PRIMARY_FULL](
         vertices,
         sorted_prim_ids,
@@ -734,7 +712,7 @@ def _normalize3(
 
 @always_inline
 def _make_camera_ray(
-    camera_params: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    camera_params: UnsafePointer[Float32, MutAnyOrigin],
     ray_idx: Int,
     width: Int,
     height: Int,
@@ -796,8 +774,8 @@ def _make_camera_ray(
 def _write_camera_miss_result[
     mode: String
 ](
-    out_f32: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    out_u32: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    out_f32: UnsafePointer[Float32, MutAnyOrigin],
+    out_u32: UnsafePointer[UInt32, MutAnyOrigin],
     ray_idx: Int,
 ):
     comptime if mode == TRACE_PRIMARY_FULL:
@@ -816,8 +794,8 @@ def _write_camera_miss_result[
 def _write_camera_result[
     mode: String
 ](
-    out_f32: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    out_u32: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    out_f32: UnsafePointer[Float32, MutAnyOrigin],
+    out_u32: UnsafePointer[UInt32, MutAnyOrigin],
     ray_idx: Int,
     hit: Hit,
 ):
@@ -835,17 +813,17 @@ def _write_camera_result[
 def trace_lbvh_gpu_camera_kernel[
     mode: String
 ](
-    vertices: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    sorted_prim_ids: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    node_meta: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    node_bounds: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    camera_params: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    vertices: UnsafePointer[Float32, MutAnyOrigin],
+    sorted_prim_ids: UnsafePointer[UInt32, MutAnyOrigin],
+    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
+    node_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    camera_params: UnsafePointer[Float32, MutAnyOrigin],
     # Generic outputs:
     # - primary_full: out_f32 = hits_f32, out_u32 = hits_u32
     # - primary_t:    out_f32 = hit_t,    out_u32 unused
     # - shadow:       out_f32 unused,     out_u32 = occluded
-    out_f32: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
-    out_u32: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    out_f32: UnsafePointer[Float32, MutAnyOrigin],
+    out_u32: UnsafePointer[UInt32, MutAnyOrigin],
     ray_count: Int,
     width: Int,
     height: Int,
@@ -858,7 +836,7 @@ def trace_lbvh_gpu_camera_kernel[
         TRACE_SHADOW,
     ], "unknown GPU LBVH camera trace mode"
 
-    var ray_idx = Int(block_idx.x * block_dim.x + thread_idx.x)
+    var ray_idx = global_idx.x
     if ray_idx >= ray_count:
         return
 
@@ -882,13 +860,13 @@ def trace_lbvh_gpu_camera_kernel[
 
 
 def reduce_hit_t_kernel(
-    hit_t: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    hit_t: UnsafePointer[Float32, MutAnyOrigin],
     partial_sums: UnsafePointer[Scalar[DType.float64], MutAnyOrigin],
-    partial_counts: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    partial_counts: UnsafePointer[UInt32, MutAnyOrigin],
     ray_count: Int,
     partial_count: Int,
 ):
-    var i = Int(block_idx.x * block_dim.x + thread_idx.x)
+    var i = global_idx.x
     if i >= partial_count:
         return
     var sum = 0.0
@@ -905,12 +883,12 @@ def reduce_hit_t_kernel(
 
 
 def reduce_u32_flags_kernel(
-    flags: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
-    partial_counts: UnsafePointer[Scalar[DType.uint32], MutAnyOrigin],
+    flags: UnsafePointer[UInt32, MutAnyOrigin],
+    partial_counts: UnsafePointer[UInt32, MutAnyOrigin],
     ray_count: Int,
     partial_count: Int,
 ):
-    var i = Int(block_idx.x * block_dim.x + thread_idx.x)
+    var i = global_idx.x
     if i >= partial_count:
         return
     var count = UInt32(0)

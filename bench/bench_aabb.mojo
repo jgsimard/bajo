@@ -1,6 +1,5 @@
 from std.benchmark import run, Unit, keep
 from std.random import random_float64
-from std.memory import UnsafePointer
 from std.reflection import get_function_name
 
 

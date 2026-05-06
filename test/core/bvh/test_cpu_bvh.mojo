@@ -14,6 +14,8 @@ from bajo.core.bvh.cpu.gpu_layout import BvhGpuLayout
 from bajo.core.bvh.cpu.wide import WideBvh
 from bajo.core.bvh.types import BvhNode, Fragment, Ray
 
+from fixtures import _append_tri, _make_strip
+
 
 def _make_fragments(verts: List[Vec3f32]) -> List[Fragment]:
     var frags = List[Fragment](capacity=len(verts) // 3)
@@ -29,22 +31,6 @@ def _make_fragments(verts: List[Vec3f32]) -> List[Fragment]:
         )
 
     return frags^
-
-
-def _append_tri(mut verts: List[Vec3f32], cx: Float32, z: Float32):
-    verts.append(Vec3f32(cx - 1.0, -1.0, z))
-    verts.append(Vec3f32(cx + 1.0, -1.0, z))
-    verts.append(Vec3f32(cx, 1.0, z))
-
-
-def _make_strip(count: Int, z: Float32 = 2.0) -> List[Vec3f32]:
-    var verts = List[Vec3f32](capacity=count * 3)
-
-    for i in range(count):
-        var cx = Float32(i * 4 - count * 2)
-        _append_tri(verts, cx, z)
-
-    return verts^
 
 
 def test_bvh_ray_query_inside_outside() raises:

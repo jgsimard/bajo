@@ -1,4 +1,4 @@
-from std.math import abs
+from std.math import abs, cos, sin
 
 from bajo.core.quat import Quaternion
 from bajo.core.vec import Vec, Vec3, Vec4, dot, cross
@@ -605,3 +605,41 @@ def transform_vector[
 ](m: Mat44[dtype], v: Vec3[dtype]) -> Vec3[dtype]:
     v4 = Vec4[dtype](v.x(), v.y(), v.z(), 0)
     return _matvec(m, v4).xyz()
+
+
+def _translation[
+    dtype: DType
+](tx: Scalar[dtype], ty: Scalar[dtype], tz: Scalar[dtype]) -> Mat44[dtype]:
+    """Row-major matrix, column-vector transform convention."""
+    # fmt: off
+    return Mat44[dtype](
+        1.0, 0.0, 0.0, tx,
+        0.0, 1.0, 0.0, ty,
+        0.0, 0.0, 1.0, tz,
+        0.0, 0.0, 0.0, 1.0,
+    )
+    # fmt: on
+
+
+def _uniform_scale[dtype: DType](s: Scalar[dtype]) -> Mat44[dtype]:
+    # fmt: off
+    return Mat44[dtype](
+        s, 0.0, 0.0, 0.0,
+        0.0, s, 0.0, 0.0,
+        0.0, 0.0, s, 0.0,
+        0.0, 0.0, 0.0, 1.0,
+    )
+    # fmt: on
+
+
+def _rotation_z[
+    dtype: DType
+](angle: Scalar[dtype]) -> Mat44[dtype] where dtype.is_floating_point():
+    # fmt: off
+    return Mat44[dtype](
+        cos(angle), -sin(angle), 0.0, 0.0,
+        sin(angle), cos(angle), 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        0.0, 0.0, 0.0, 1.0,
+    )
+    # fmt: on

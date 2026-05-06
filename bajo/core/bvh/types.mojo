@@ -1,5 +1,4 @@
-from std.algorithm import parallelize
-from std.math import abs, min, max, clamp
+from std.math import clamp
 from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.aabb import AABB
@@ -60,6 +59,21 @@ struct RayFlat(TrivialRegisterPassable):
     var rdy: Float32
     var rdz: Float32
     var t_max: Float32
+
+    def __init__(
+        out self, rays: UnsafePointer[Float32, ImmutAnyOrigin], ray_idx: Int
+    ):
+        var ray_base = ray_idx * 10
+        self.ox = rays[ray_base + 0]
+        self.oy = rays[ray_base + 1]
+        self.oz = rays[ray_base + 2]
+        self.dx = rays[ray_base + 3]
+        self.dy = rays[ray_base + 4]
+        self.dz = rays[ray_base + 5]
+        self.rdx = rays[ray_base + 6]
+        self.rdy = rays[ray_base + 7]
+        self.rdz = rays[ray_base + 8]
+        self.t_max = rays[ray_base + 9]
 
 
 @fieldwise_init

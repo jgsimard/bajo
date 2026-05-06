@@ -44,6 +44,7 @@ from bajo.core.bvh.gpu.utils import (
     _download_reduced_u32_count,
     _download_reduced_hit_t,
 )
+from fixtures import _append_tri
 
 
 comptime GPU_TEST_BLOCK_SIZE = 128
@@ -51,17 +52,6 @@ comptime GPU_TEST_WIDTH = 64
 comptime GPU_TEST_HEIGHT = 48
 comptime GPU_TEST_VIEWS = 3
 comptime GPU_TEST_CHECKSUM_EPS = 0.05
-
-
-def _append_tri(
-    mut verts: List[Vec3f32],
-    cx: Float32,
-    cy: Float32,
-    z: Float32,
-):
-    verts.append(Vec3f32(cx - 0.5, cy - 0.5, z))
-    verts.append(Vec3f32(cx + 0.5, cy - 0.5, z))
-    verts.append(Vec3f32(cx, cy + 0.5, z))
 
 
 def _make_small_scene() -> List[Vec3f32]:

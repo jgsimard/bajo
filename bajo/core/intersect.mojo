@@ -312,7 +312,7 @@ def intersect_ray_tri[
 
 @always_inline
 def intersect_ray_tri(
-    vertices: UnsafePointer[Scalar[DType.float32], MutAnyOrigin],
+    vertices: UnsafePointer[Float32, MutAnyOrigin],
     prim_idx: UInt32,
     ox: Float32,
     oy: Float32,

@@ -1,5 +1,9 @@
 from std.utils.numerics import max_finite, min_finite
 
+from bajo.core.bvh.cpu.traverse import (
+    push_near_far,
+    intersect_prim,
+)
 from bajo.core.aabb import AABB
 from bajo.core.intersect import intersect_ray_aabb, intersect_ray_tri
 
@@ -8,9 +12,8 @@ comptime f32_min = min_finite[DType.float32]()
 
 
 struct BVHGPUNode(Copyable):
-    """TinyBVH-style Aila-Laine GPU node.
+    """Aila-Laine GPU node.
 
-    This mirrors TinyBVH's BVH_GPU node semantics:
     - If tri_count > 0, this node is a leaf and first_tri points into prim_indices.
     - If tri_count == 0, this node is internal:
         lmin/lmax bound the left child, and left is the left child node index.
@@ -45,7 +48,7 @@ struct BVHGPUNode(Copyable):
 
 
 struct BvhGpuLayout(Copyable):
-    """TinyBVH-compatible GPU layout with CPU reference traversal.
+    """GPU layout with CPU reference traversal.
 
     This layout follows TinyBVH's BVH_GPU / Aila-Laine layout more closely than
     the earlier child-count encoding. Leaves are real nodes (`tri_count > 0`),
@@ -114,51 +117,13 @@ struct BvhGpuLayout(Copyable):
         return gpu_idx
 
     @always_inline
-    def _intersect_tri[
-        is_shadow: Bool
-    ](self, mut ray: Ray, prim_idx: UInt32) -> Bool:
-        ref v0 = self.vertices[Int(prim_idx) * 3]
-        ref v1 = self.vertices[Int(prim_idx) * 3 + 1]
-        ref v2 = self.vertices[Int(prim_idx) * 3 + 2]
-
-        h = intersect_ray_tri(
-            ray.O.x(),
-            ray.O.y(),
-            ray.O.z(),
-            ray.D.x(),
-            ray.D.y(),
-            ray.D.z(),
-            v0.x(),
-            v0.y(),
-            v0.z(),
-            v1.x(),
-            v1.y(),
-            v1.z(),
-            v2.x(),
-            v2.y(),
-            v2.z(),
-            ray.hit.t,
-        )
-        if not h.mask[0]:
-            return False
-
-        comptime if is_shadow:
-            return True
-
-        ray.hit.t = h.t[0]
-        ray.hit.u = h.u[0]
-        ray.hit.v = h.v[0]
-        ray.hit.prim = prim_idx
-        return True
-
-    @always_inline
     def _intersect_leaf[
         is_shadow: Bool
     ](self, mut ray: Ray, first: UInt32, count: UInt32) -> Bool:
         var any_hit = False
         for i in range(Int(count)):
             var prim_idx = self.prim_indices[Int(first) + i]
-            if self._intersect_tri[is_shadow](ray, prim_idx):
+            if intersect_prim[is_shadow](self.vertices, ray, prim_idx):
                 comptime if is_shadow:
                     return True
                 any_hit = True
@@ -222,19 +187,14 @@ struct BvhGpuLayout(Copyable):
             elif not hit_left and hit_right:
                 node_idx = node.right
             else:
-                var near = node.left
-                var far = node.right
-
-                # Closest-hit rays benefit from near-first traversal. Shadow rays
-                # do not require ordering for correctness, but the same order is
-                # still a reasonable CPU reference for the future GPU kernel.
-                if dist_left > dist_right:
-                    near = node.right
-                    far = node.left
-
-                stack[stack_ptr] = far
-                stack_ptr += 1
-                node_idx = near
+                node_idx = push_near_far[True](
+                    stack,
+                    stack_ptr,
+                    node.left,
+                    node.right,
+                    dist_left,
+                    dist_right,
+                )
 
         return False
 

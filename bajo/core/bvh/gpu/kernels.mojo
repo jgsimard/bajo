@@ -1,7 +1,7 @@
 from std.bit import count_leading_zeros
 from std.atomic import Atomic
-from std.math import min, max, round, sqrt
-from std.gpu import thread_idx, block_idx, block_dim, global_idx
+from std.math import min, max, sqrt
+from std.gpu import global_idx
 
 from bajo.core.bvh.types import RayFlat, Hit
 from bajo.core.bvh.gpu.constants import (
@@ -151,7 +151,7 @@ def compute_morton_codes_kernel(
     inv_extent_y: Float32,
     inv_extent_z: Float32,
 ):
-    var i = Int(block_idx.x * block_dim.x + thread_idx.x)
+    var i = global_idx.x
     if i >= tri_count:
         return
 
@@ -605,7 +605,7 @@ def trace_lbvh_gpu_primary_kernel(
     ray_count: Int,
     root_idx: UInt32,
 ):
-    var ray_idx = Int(block_idx.x * block_dim.x + thread_idx.x)
+    var ray_idx = global_idx.x
     if ray_idx >= ray_count:
         return
 
@@ -836,7 +836,7 @@ def trace_lbvh_gpu_camera_kernel[
         TRACE_SHADOW,
     ], "unknown GPU LBVH camera trace mode"
 
-    var ray_idx = Int(block_idx.x * block_dim.x + thread_idx.x)
+    var ray_idx = global_idx.x
     if ray_idx >= ray_count:
         return
 
@@ -866,7 +866,7 @@ def reduce_hit_t_kernel(
     ray_count: Int,
     partial_count: Int,
 ):
-    var i = Int(block_idx.x * block_dim.x + thread_idx.x)
+    var i = global_idx.x
     if i >= partial_count:
         return
     var sum = 0.0
@@ -888,7 +888,7 @@ def reduce_u32_flags_kernel(
     ray_count: Int,
     partial_count: Int,
 ):
-    var i = Int(block_idx.x * block_dim.x + thread_idx.x)
+    var i = global_idx.x
     if i >= partial_count:
         return
     var count = UInt32(0)

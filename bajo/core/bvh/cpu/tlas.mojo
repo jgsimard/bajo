@@ -124,12 +124,9 @@ struct Tlas(Copyable):
     def __init__(out self, instances: List[BvhInstance]):
         self.tlas_nodes = List[BvhNode]()
         self.inst_indices = List[UInt32]()
-        self.instances = List[BvhInstance](capacity=len(instances))
+        self.instances = instances.copy()
         self.inst_count = 0
         self.nodes_used = 0
-
-        for i in range(len(instances)):
-            self.instances.append(instances[i].copy())
 
         self._reset_build_state()
 

@@ -9,27 +9,19 @@ from bajo.core.vec import (
 from bajo.core.mat import Mat, Mat33, Mat44
 
 
-def length2[
-    dtype: DType where dtype.is_floating_point()
-](q: Quaternion[dtype]) -> Scalar[dtype]:
+def length2[dtype: DType](q: Quaternion[dtype]) -> Scalar[dtype]:
     return (q.data * q.data).reduce_add()
 
 
-def length[
-    dtype: DType where dtype.is_floating_point()
-](q: Quaternion[dtype]) -> Scalar[dtype]:
+def length[dtype: DType](q: Quaternion[dtype]) -> Scalar[dtype]:
     return sqrt(length2(q))
 
 
-def inv_length[
-    dtype: DType where dtype.is_floating_point()
-](q: Quaternion[dtype]) -> Scalar[dtype]:
+def inv_length[dtype: DType](q: Quaternion[dtype]) -> Scalar[dtype]:
     return 1.0 / length(q)
 
 
-def normalize[
-    dtype: DType where dtype.is_floating_point()
-](q: Quaternion[dtype]) -> Quaternion[dtype]:
+def normalize[dtype: DType](q: Quaternion[dtype]) -> Quaternion[dtype]:
     return Quaternion[dtype](q.data * inv_length(q))
 
 
@@ -135,7 +127,11 @@ struct Quaternion[dtype: DType](Equatable, TrivialRegisterPassable, Writable):
         xyz = axis * sin(half_angle)
         return Self(xyz, w)
 
-    def to_axis_angle(self) -> Tuple[Vec3[Self.dtype], Scalar[Self.dtype]]:
+    def to_axis_angle(
+        self,
+    ) -> Tuple[
+        Vec3[Self.dtype], Scalar[Self.dtype]
+    ] where Self.dtype.is_floating_point():
         v = self.xyz()
         axis = vnormalize(v) * copysign(Scalar[Self.dtype](1.0), self.w())
         angle = 2 * atan2(vlength(v), abs(self.w()))
@@ -149,7 +145,7 @@ struct Quaternion[dtype: DType](Equatable, TrivialRegisterPassable, Writable):
 
     @staticmethod
     def from_matrix[
-        rows: Int where rows >= 1, cols: Int where cols >= 1
+        rows: Int, cols: Int
     ](m: Mat[Self.dtype, rows, cols]) -> Self where (rows == cols) and (
         rows == 3 or rows == 4
     ):
@@ -318,7 +314,7 @@ struct Quaternion[dtype: DType](Equatable, TrivialRegisterPassable, Writable):
         roll: Scalar[Self.dtype],
         pitch: Scalar[Self.dtype],
         yaw: Scalar[Self.dtype],
-    ) -> Self:
+    ) -> Self where Self.dtype.is_floating_point():
         """
         Converts Euler angles (Roll, Pitch, Yaw) to a Quaternion.
         Order: Z (Yaw) -> Y (Pitch) -> X (Roll).
@@ -339,7 +335,7 @@ struct Quaternion[dtype: DType](Equatable, TrivialRegisterPassable, Writable):
 
     comptime to_rpy = Self.to_euler
 
-    def to_euler(self) -> Vec3[Self.dtype]:
+    def to_euler(self) -> Vec3[Self.dtype] where Self.dtype.is_floating_point():
         """
         Converts Quaternion back to Euler angles (Roll, Pitch, Yaw).
         """
@@ -421,10 +417,10 @@ struct Quaternion[dtype: DType](Equatable, TrivialRegisterPassable, Writable):
 
 
 def slerp[
-    dtype: DType where dtype.is_floating_point()
+    dtype: DType
 ](q0: Quaternion[dtype], q1: Quaternion[dtype], t: Scalar[dtype]) -> Quaternion[
     dtype
-]:
+] where dtype.is_floating_point():
     """Spherical Linear Interpolation."""
     axis_angle = (q0.inverse() * q1).to_axis_angle()
     return q0 * Quaternion.from_axis_angle(axis_angle[0], t * axis_angle[1])

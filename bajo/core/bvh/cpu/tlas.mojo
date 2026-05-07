@@ -55,9 +55,7 @@ struct BvhInstance(Copyable):
         self.inv_transform = inv_transform.copy()
         self.blas_idx = blas_idx
 
-        # Transform all 8 local BLAS AABB corners and re-bound them in world
-        # space. This is correct for arbitrary affine transforms, even though
-        # Phase A traversal only relies on rigid/uniform-scale t semantics.
+        # Transform all 8 local BLAS AABB corners and re-bound them in world space
         var corners = InlineArray[Vec3f32, 8](fill=Vec3f32(0.0))
         corners[0] = Vec3f32(blas_min.x(), blas_min.y(), blas_min.z())
         corners[1] = Vec3f32(blas_max.x(), blas_min.y(), blas_min.z())
@@ -174,8 +172,8 @@ struct Tlas(Copyable):
     def build(mut self):
         """Build a simple median TLAS over instance bounds.
 
-        Instance counts are usually much smaller than primitive counts, so Phase
-        A deliberately uses a small and deterministic median builder instead of
+        Instance counts are usually much smaller than primitive counts, so
+        deliberately uses a small and deterministic median builder instead of
         a SAH builder.
         """
         self._reset_build_state()
@@ -210,7 +208,7 @@ struct Tlas(Copyable):
 
         var left_count = UInt32(i - Int(node.left_first))
         if left_count == 0 or left_count == node.tri_count:
-            left_count = node.tri_count // 2
+            left_count = node.tri_count / 2
             i = Int(node.left_first) + Int(left_count)
 
         var left_child_idx = self.nodes_used

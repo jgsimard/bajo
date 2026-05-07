@@ -57,8 +57,8 @@ def _make_instances(
     for z in range(GRID_Z):
         for x in range(GRID_X):
             var idx = z * GRID_X + x
-            var tx = Float32(x - GRID_X // 2) * spacing
-            var tz = Float32(z - GRID_Z // 2) * spacing
+            var tx = Float32(x - GRID_X / 2) * spacing
+            var tz = Float32(z - GRID_Z / 2) * spacing
             var angle = Float32(idx) * 0.35
             var scale = Float32(0.85) + Float32(idx % 5) * 0.075
             var transform = _trs_y(tx, 0.0, tz, angle, scale)
@@ -133,7 +133,7 @@ def main() raises:
     var tri_vertices = pack_obj_triangles(DEFAULT_OBJ_PATH)
     var load_t1 = perf_counter_ns()
 
-    var tri_count = len(tri_vertices) // 3
+    var tri_count = len(tri_vertices) / 3
     var bounds = compute_bounds(tri_vertices)
     var bmin = bounds[0].copy()
     var bmax = bounds[1].copy()

@@ -664,7 +664,7 @@ def _parse_obj_slice[
     var mesh = ObjMesh()
 
     # Same rough heuristic as before, with reserves for the other hot arrays too.
-    var est_elements = text_slice.byte_length() // 15
+    var est_elements = text_slice.byte_length() / 15
     mesh.positions.reserve(est_elements * 3)
     mesh.texcoords.reserve(est_elements * 2)
     mesh.normals.reserve(est_elements * 3)

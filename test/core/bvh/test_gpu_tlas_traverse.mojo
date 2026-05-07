@@ -77,7 +77,7 @@ def _make_grid_tlas(mut blas: BinaryBvh, count: Int = 8) -> Tlas:
     var instances = List[BvhInstance](capacity=count)
     for i in range(count):
         var x = Float32((i % 4) - 2) * 6.0
-        var y = Float32(i // 4) * 4.0
+        var y = Float32(i / 4) * 4.0
         instances.append(
             BvhInstance.from_blas(
                 _translation(x, y, 0.0),
@@ -151,7 +151,7 @@ def _assert_gpu_matches_cpu(
 def test_gpu_tlas_identity_instance_matches_cpu_tlas() raises:
     comptime if has_accelerator():
         var verts = _make_two_depth_triangles()
-        var cpu_blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+        var cpu_blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) / 3))
         cpu_blas.build["median", False]()
         var cpu_tlas = _make_identity_tlas(cpu_blas)
 
@@ -176,7 +176,7 @@ def test_gpu_tlas_identity_instance_matches_cpu_tlas() raises:
 def test_gpu_tlas_two_translated_instances_report_instance_id() raises:
     comptime if has_accelerator():
         var verts = _make_two_depth_triangles()
-        var cpu_blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+        var cpu_blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) / 3))
         cpu_blas.build["median", False]()
         var cpu_tlas = _make_two_translated_tlas(cpu_blas)
 
@@ -203,7 +203,7 @@ def test_gpu_tlas_two_translated_instances_report_instance_id() raises:
 def test_gpu_tlas_nearest_instance_wins() raises:
     comptime if has_accelerator():
         var verts = _make_two_depth_triangles()
-        var cpu_blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+        var cpu_blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) / 3))
         cpu_blas.build["median", False]()
         var cpu_tlas = _make_nearest_tlas(cpu_blas)
 
@@ -229,7 +229,7 @@ def test_gpu_tlas_nearest_instance_wins() raises:
 def test_gpu_tlas_matches_cpu_tlas_grid() raises:
     comptime if has_accelerator():
         var verts = _make_two_depth_triangles()
-        var cpu_blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+        var cpu_blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) / 3))
         cpu_blas.build["median", False]()
         var cpu_tlas = _make_grid_tlas(cpu_blas, 8)
 
@@ -237,7 +237,7 @@ def test_gpu_tlas_matches_cpu_tlas_grid() raises:
         var cpu_rays = List[Ray](capacity=8)
         for i in range(8):
             var x = Float32((i % 4) - 2) * 6.0
-            var y = Float32(i // 4) * 4.0
+            var y = Float32(i / 4) * 4.0
             var ray = Ray(Vec3f32(x, y, 0.0), Vec3f32(0.0, 0.0, 1.0))
             rays.append(ray.copy())
             cpu_rays.append(_trace_cpu_tlas(cpu_tlas, ray, cpu_blas))

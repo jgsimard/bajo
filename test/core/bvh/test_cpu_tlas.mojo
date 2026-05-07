@@ -124,7 +124,7 @@ def test_tlas_instance_bounds_rotation_z_90() raises:
 
 def test_tlas_build_invariants() raises:
     var verts = _make_single_triangle_verts()
-    var blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+    var blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) / 3))
     blas.build["median", False]()
 
     var instances = List[BvhInstance]()
@@ -176,7 +176,7 @@ def test_tlas_build_invariants() raises:
 
 def test_tlas_single_instance_matches_blas() raises:
     var verts = _make_single_triangle_verts()
-    var blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+    var blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) / 3))
     blas.build["median", False]()
 
     var instances = [
@@ -202,7 +202,7 @@ def test_tlas_single_instance_matches_blas() raises:
 
 def test_tlas_two_translated_instances_report_instance_id() raises:
     var verts = _make_single_triangle_verts()
-    var blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+    var blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) / 3))
     blas.build["median", False]()
 
     var instances = [
@@ -237,7 +237,7 @@ def test_tlas_two_translated_instances_report_instance_id() raises:
 
 def test_tlas_nearest_instance_wins() raises:
     var verts = _make_single_triangle_verts()
-    var blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+    var blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) / 3))
     blas.build["median", False]()
 
     var instances = [
@@ -266,7 +266,7 @@ def test_tlas_nearest_instance_wins() raises:
 
 def test_tlas_miss() raises:
     var verts = _make_single_triangle_verts()
-    var blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+    var blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) / 3))
     blas.build["median", False]()
 
     var instances = [
@@ -287,13 +287,13 @@ def test_tlas_miss() raises:
 
 def test_tlas_matches_bruteforce_instances() raises:
     var verts = _make_single_triangle_verts()
-    var blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+    var blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) / 3))
     blas.build["median", False]()
 
     var instances = List[BvhInstance]()
     for i in range(8):
         var x = Float32((i % 4) - 2) * 6.0
-        var y = Float32(i // 4) * 4.0
+        var y = Float32(i / 4) * 4.0
         instances.append(
             BvhInstance.from_blas(
                 _translation(x, y, 0.0),
@@ -311,7 +311,7 @@ def test_tlas_matches_bruteforce_instances() raises:
 
     for i in range(8):
         var x = Float32((i % 4) - 2) * 6.0
-        var y = Float32(i // 4) * 4.0
+        var y = Float32(i / 4) * 4.0
 
         var tlas_ray = Ray(Vec3f32(x, y, 0.0), Vec3f32(0.0, 0.0, 1.0))
         tlas.traverse(tlas_ray, blases.unsafe_ptr())

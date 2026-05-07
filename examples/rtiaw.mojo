@@ -395,7 +395,7 @@ struct BVH(Hittable):
         # # not SIMD version
         # sort[cmp_fn=cmp_fn](self.objects[start : start + span_len])
 
-        mid = start + span_len // 2
+        mid = start + span_len / 2
 
         # Recursively build children
         var left_idx = self._build(start, mid)

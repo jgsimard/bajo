@@ -277,7 +277,7 @@ def main() raises:
     var tri_vertices = pack_obj_triangles(DEFAULT_OBJ_PATH)
     var load_t1 = perf_counter_ns()
 
-    var tri_count = UInt32(len(tri_vertices) // 3)
+    var tri_count = UInt32(len(tri_vertices) / 3)
     var bounds = compute_bounds(tri_vertices)
     var bmin = bounds[0].copy()
     var bmax = bounds[1].copy()

@@ -173,7 +173,7 @@ def _build_cpu_reference(
     mut verts: List[Vec3f32],
     rays: List[Ray],
 ) raises -> Tuple[Float64, Int]:
-    var bvh = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+    var bvh = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) / 3))
     bvh.build["sah", False]()
     var checksum = trace_bvh_primary(bvh, rays)
     var occluded = trace_bvh_shadow(bvh, rays)
@@ -203,7 +203,7 @@ def test_gpu_lbvh_bounds_helpers() raises:
 def test_gpu_lbvh_build_validate_small_scene() raises:
     comptime if has_accelerator():
         var verts = _make_small_scene()
-        var tri_count = len(verts) // 3
+        var tri_count = len(verts) / 3
         var internal_count = tri_count - 1
         var vertices = flatten_vertices(verts)
         var bounds = compute_bounds(verts)
@@ -273,7 +273,7 @@ def test_gpu_lbvh_build_validate_small_scene() raises:
 def test_gpu_lbvh_duplicate_morton_codes_validate() raises:
     comptime if has_accelerator():
         var verts = _make_duplicate_centroid_scene()
-        var tri_count = len(verts) // 3
+        var tri_count = len(verts) / 3
         var internal_count = tri_count - 1
         var vertices = flatten_vertices(verts)
         var bounds = compute_bounds(verts)
@@ -342,7 +342,7 @@ def test_gpu_lbvh_duplicate_morton_codes_validate() raises:
 def test_gpu_lbvh_zero_extent_axis_validate() raises:
     comptime if has_accelerator():
         var verts = _make_degenerate_axis_scene()
-        var tri_count = len(verts) // 3
+        var tri_count = len(verts) / 3
         var internal_count = tri_count - 1
         var vertices = flatten_vertices(verts)
         var bounds = compute_bounds(verts)
@@ -411,7 +411,7 @@ def test_gpu_lbvh_zero_extent_axis_validate() raises:
 def test_gpu_lbvh_uploaded_primary_matches_cpu() raises:
     comptime if has_accelerator():
         var verts = _make_small_scene()
-        var tri_count = len(verts) // 3
+        var tri_count = len(verts) / 3
         var internal_count = tri_count - 1
         var vertices = flatten_vertices(verts)
         var bounds = compute_bounds(verts)
@@ -512,7 +512,7 @@ def test_gpu_lbvh_uploaded_primary_matches_cpu() raises:
 def test_gpu_lbvh_camera_full_matches_cpu() raises:
     comptime if has_accelerator():
         var verts = _make_small_scene()
-        var tri_count = len(verts) // 3
+        var tri_count = len(verts) / 3
         var internal_count = tri_count - 1
         var vertices = flatten_vertices(verts)
         var bounds = compute_bounds(verts)
@@ -609,7 +609,7 @@ def test_gpu_lbvh_camera_full_matches_cpu() raises:
 def test_gpu_lbvh_camera_t_reduce_matches_cpu() raises:
     comptime if has_accelerator():
         var verts = _make_small_scene()
-        var tri_count = len(verts) // 3
+        var tri_count = len(verts) / 3
         var internal_count = tri_count - 1
         var vertices = flatten_vertices(verts)
         var bounds = compute_bounds(verts)
@@ -725,7 +725,7 @@ def test_gpu_lbvh_camera_t_reduce_matches_cpu() raises:
 def test_gpu_lbvh_camera_shadow_reduce_matches_cpu() raises:
     comptime if has_accelerator():
         var verts = _make_small_scene()
-        var tri_count = len(verts) // 3
+        var tri_count = len(verts) / 3
         var internal_count = tri_count - 1
         var vertices = flatten_vertices(verts)
         var bounds = compute_bounds(verts)

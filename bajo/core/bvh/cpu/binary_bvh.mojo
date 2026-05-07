@@ -177,11 +177,11 @@ struct BinaryBvh(Copyable):
             use_sah_bounds = False
             comptime if split_method == "median":
                 # Fallback: If spatial center failed, just split the indices 50/50.
-                left_count = node.tri_count // 2
+                left_count = node.tri_count / 2
                 split_idx = Int(node.left_first) + Int(left_count)
             else:
                 if node.tri_count > MAX_LEAF_SIZE:
-                    left_count = node.tri_count // 2
+                    left_count = node.tri_count / 2
                     split_idx = Int(node.left_first) + Int(left_count)
                 else:
                     # Only now is it safe to give up and make a leaf.
@@ -251,7 +251,7 @@ struct BinaryBvh(Copyable):
         var split = _find_lbvh_split(pairs, first, first + count)
         var left_count = split - first
         if left_count <= 0 or left_count >= count:
-            split = first + count // 2
+            split = first + count / 2
             left_count = split - first
 
         var left_child_idx = self.nodes_used

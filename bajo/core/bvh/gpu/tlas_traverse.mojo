@@ -218,8 +218,9 @@ def _trace_tlas_lbvh_ray(
                     tlas_inst_meta[_inst_meta_base(inst_idx) + 0]
                 )
 
-                # Phase C supports one uploaded BLAS. Keep the BLAS index in the
-                # layout, but skip non-zero instances until the multi-BLAS path.
+                debug_assert["safe"](
+                    blas_idx == 0, "TLAS only support one blas at the moment"
+                )
                 if blas_idx == 0:
                     var local_ray = _make_local_ray(
                         tlas_inst_inv_transform,
@@ -391,7 +392,7 @@ def trace_tlas_lbvh_gpu_camera_kernel(
         return
 
     var pixels_per_view = width * height
-    var view_idx = ray_idx // pixels_per_view
+    var view_idx = ray_idx / pixels_per_view
     if view_idx >= views:
         _write_tlas_primary_result(
             hits_f32,
@@ -502,7 +503,7 @@ def _pack_rgb(r: UInt32, g: UInt32, b: UInt32) -> UInt32:
 @always_inline
 def _shade_background(ray_idx: Int, width: Int, height: Int) -> UInt32:
     var local_idx = ray_idx % (width * height)
-    var py_i = local_idx // width
+    var py_i = local_idx / width
     var y = Float32(py_i) / Float32(height)
     var c = UInt32(24.0 + (1.0 - y) * 32.0)
     return _pack_rgb(c, c + 8, c + 20)
@@ -542,8 +543,7 @@ def shade_tlas_normals_kernel(
     var n = _cross3(e1x, e1y, e1z, e2x, e2y, e2z)
     var ln = _normalize3(n[0], n[1], n[2])
 
-    # Phase D uses rigid/uniform-scale instance transforms. For general affine
-    # transforms this should become the inverse-transpose normal transform.
+    # TODO: right now only rigid/uniform-scale instance transforms :(
     var base = _inst_inv_base(inst)
     var wn = _transform_vector_flat(
         tlas_inst_transform,

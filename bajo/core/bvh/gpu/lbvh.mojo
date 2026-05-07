@@ -81,7 +81,7 @@ struct GpuLBVH:
     ) raises:
         var vertices = flatten_vertices(tri_vertices)
 
-        self.tri_count = len(tri_vertices) // 3
+        self.tri_count = len(tri_vertices) / 3
         self.internal_count = self.tri_count - 1
         self.root_idx = UInt32(0)
 

@@ -25,7 +25,7 @@ def _build_cpu_reference(
 ) raises -> CpuReferenceResult:
     var ref_build_t0 = perf_counter_ns()
     var ref_bvh = BinaryBvh(
-        tri_vertices.unsafe_ptr(), UInt32(len(tri_vertices) // 3)
+        tri_vertices.unsafe_ptr(), UInt32(len(tri_vertices) / 3)
     )
     ref_bvh.build["sah", True]()
     var ref_build_t1 = perf_counter_ns()
@@ -51,7 +51,7 @@ def _print_scene_summary(
     cmax: Vec3f32,
     load_ns: Int,
 ):
-    var tri_count = len(tri_vertices) // 3
+    var tri_count = len(tri_vertices) / 3
     print(t"Packed vertices: {len(tri_vertices)}")
     print(t"Triangles: {tri_count}")
     print(t"Internal nodes: {tri_count - 1}")

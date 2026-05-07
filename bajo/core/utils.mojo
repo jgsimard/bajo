@@ -96,7 +96,7 @@ def smoothstep[
 
 
 def print_size_of[type: AnyType]():
-    comptime name = reflect[type]().name()
+    comptime name = reflect[type].name()
     size_bytes = size_of[type]()
     size_32 = size_bytes / 4
     print(t"{name}: {size_bytes} bytes, {size_32} x 32 bits")

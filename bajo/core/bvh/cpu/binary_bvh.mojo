@@ -7,7 +7,7 @@ from bajo.core.bvh.cpu.traverse import (
     intersect_prim,
 )
 from bajo.core.aabb import AABB
-from bajo.core.intersect import intersect_ray_aabb, intersect_ray_tri
+from bajo.core.intersect import intersect_ray_aabb
 from bajo.core.vec import Vec3f32, vmin, vmax, longest_axis
 from bajo.core.morton import morton3
 from bajo.core.bvh.types import (

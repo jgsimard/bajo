@@ -32,6 +32,7 @@ from bajo.core.bvh.gpu.kernels import (
 )
 from bajo.core.bvh.gpu.lbvh import (
     GpuLBVH,
+    _safe_inv_extent,
     GPU_LBVH_BLOCK_SIZE,
 )
 
@@ -45,20 +46,21 @@ from bajo.core.bvh.gpu.utils import (
     GpuSuiteResult,
     GpuBuildResult,
     GpuReduceAndShadowResult,
-    CpuReferenceResult,
     _download_full_hit_checksum,
     _download_reduced_hit_t,
     _download_reduced_u32_count,
+    _upload_rays,
+    _blocks_for,
+)
+from bajo.core.bvh.common import (
+    CpuReferenceResult,
     _print_build_result,
     _print_scene_summary,
     _build_cpu_reference,
     _print_cpu_reference,
     _ms,
     _mrays,
-    _upload_rays,
-    _blocks_for,
 )
-
 
 # comptime DEFAULT_OBJ_PATH = "./assets/powerplant/powerplant.obj"
 comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"
@@ -380,7 +382,7 @@ def run_gpu_lbvh_benchmark_suite(
 ) raises -> GpuSuiteResult:
     var ray_count = len(rays)
     var rays_flat = flatten_rays(rays)
-    var norm = normalize(centroid_max - centroid_min)
+    var norm = _safe_inv_extent(centroid_min, centroid_max)
 
     with DeviceContext() as ctx:
         var setup0 = perf_counter_ns()

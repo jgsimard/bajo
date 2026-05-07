@@ -11,8 +11,6 @@ from bajo.core.bvh.gpu.constants import (
 )
 from bajo.core.intersect import intersect_ray_tri, intersect_ray_aabb
 from bajo.core.morton import morton3
-from bajo.core.vec import Vec3f32, vmin, vmax, cross, length, normalize
-from bajo.sort.gpu.radix_sort import RadixSortWorkspace
 
 comptime GPU_TRAVERSAL_STACK_SIZE = 64
 comptime GPU_REDUCE_THREADS = 4096

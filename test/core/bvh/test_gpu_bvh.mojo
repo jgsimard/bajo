@@ -11,7 +11,7 @@ from bajo.core.bvh.gpu.validate import (
     validate_topology,
     validate_refit_bounds,
 )
-from bajo.core.bvh import (
+from bajo.core.bvh.host_utils import (
     compute_bounds,
     copy_list_to_device,
     flatten_rays,
@@ -19,6 +19,8 @@ from bajo.core.bvh import (
     generate_primary_rays,
     trace_bvh_primary,
     trace_bvh_shadow,
+    compute_centroid_bounds,
+    generate_camera_params,
 )
 from bajo.core.bvh.cpu.binary_bvh import BinaryBvh, Ray
 from bajo.core.bvh.gpu.kernels import (
@@ -26,9 +28,7 @@ from bajo.core.bvh.gpu.kernels import (
     TRACE_PRIMARY_FULL,
     TRACE_PRIMARY_T,
     TRACE_SHADOW,
-    compute_centroid_bounds,
     compute_morton_codes_kernel,
-    generate_camera_params,
     init_lbvh_topology_kernel,
     init_lbvh_bounds_kernel,
     build_lbvh_topology_kernel,

@@ -1,14 +1,15 @@
-from std.math import abs, cos, max, round, sin
+from std.math import cos, max, round, sin
 from std.time import perf_counter_ns
 from std.gpu import DeviceBuffer
 from std.gpu.host import DeviceContext
 
-from bajo.core.bvh import compute_bounds, copy_list_to_device
 from bajo.core.bvh.cpu.binary_bvh import BinaryBvh
 from bajo.core.bvh.cpu.tlas import BvhInstance, Tlas
-from bajo.core.bvh.gpu.kernels import (
+
+from bajo.core.bvh.host_utils import (
     append_camera_params,
-    compute_centroid_bounds,
+    compute_bounds,
+    copy_list_to_device,
 )
 from bajo.core.bvh.gpu.lbvh import GpuLBVH
 from bajo.core.bvh.gpu.tlas import GpuTlasLayout
@@ -16,7 +17,7 @@ from bajo.core.bvh.gpu.tlas_traverse import (
     launch_tlas_lbvh_camera_primary,
     launch_shade_tlas_normals,
 )
-from bajo.core.mat import Mat44f32
+from bajo.core.mat import Mat44f32, inverse
 from bajo.core.utils import pack_obj_triangles, ns_to_ms, ns_to_mrays_per_s
 from bajo.core.vec import Vec3f32, length
 
@@ -29,79 +30,24 @@ comptime GRID_X = 25
 comptime GRID_Z = 25
 
 
-@always_inline
-def _safe_inv_extent_axis(a: Float32, b: Float32) -> Float32:
-    var e = b - a
-    if abs(e) <= 1.0e-20:
-        return 0.0
-    return Float32(1.0) / e
-
-
-def _inv_extent(cmin: Vec3f32, cmax: Vec3f32) -> Vec3f32:
-    return Vec3f32(
-        _safe_inv_extent_axis(cmin.x(), cmax.x()),
-        _safe_inv_extent_axis(cmin.y(), cmax.y()),
-        _safe_inv_extent_axis(cmin.z(), cmax.z()),
-    )
-
-
 def _trs_y(
     tx: Float32, ty: Float32, tz: Float32, angle: Float32, s: Float32
 ) -> Mat44f32:
     var c = Float32(cos(Float64(angle)))
     var sn = Float32(sin(Float64(angle)))
+    # fmt: off
     return Mat44f32(
-        s * c,
-        0.0,
-        s * sn,
-        tx,
-        0.0,
-        s,
-        0.0,
-        ty,
-        -s * sn,
-        0.0,
-        s * c,
-        tz,
-        0.0,
-        0.0,
-        0.0,
-        1.0,
+        s * c,   0.0, s * sn,  tx,
+        0.0,       s,    0.0,  ty,
+        -s * sn, 0.0,  s * c,  tz,
+        0.0,     0.0,    0.0, 1.0,
     )
-
-
-def _inv_trs_y(
-    tx: Float32, ty: Float32, tz: Float32, angle: Float32, s: Float32
-) -> Mat44f32:
-    var c = Float32(cos(Float64(angle)))
-    var sn = Float32(sin(Float64(angle)))
-    var inv_s = Float32(1.0) / s
-    var itx = (-c * tx + sn * tz) * inv_s
-    var ity = -ty * inv_s
-    var itz = (-sn * tx - c * tz) * inv_s
-    return Mat44f32(
-        c * inv_s,
-        0.0,
-        -sn * inv_s,
-        itx,
-        0.0,
-        inv_s,
-        0.0,
-        ity,
-        sn * inv_s,
-        0.0,
-        c * inv_s,
-        itz,
-        0.0,
-        0.0,
-        0.0,
-        1.0,
-    )
+    # fmt: off
 
 
 def _make_instances(
     mut blas: BinaryBvh, bmin: Vec3f32, bmax: Vec3f32
-) -> List[BvhInstance]:
+) raises -> List[BvhInstance]:
     var extent = bmax - bmin
     var spacing = max(max(extent.x(), extent.y()), extent.z()) * 2.25
     if spacing < 1.0:
@@ -116,7 +62,7 @@ def _make_instances(
             var angle = Float32(idx) * 0.35
             var scale = Float32(0.85) + Float32(idx % 5) * 0.075
             var transform = _trs_y(tx, 0.0, tz, angle, scale)
-            var inv_transform = _inv_trs_y(tx, 0.0, tz, angle, scale)
+            var inv_transform = inverse(transform)
             instances.append(
                 BvhInstance.from_blas(transform, inv_transform, 0, blas)
             )
@@ -191,10 +137,6 @@ def main() raises:
     var bounds = compute_bounds(tri_vertices)
     var bmin = bounds[0].copy()
     var bmax = bounds[1].copy()
-    var centroid_bounds = compute_centroid_bounds(tri_vertices)
-    var cmin = centroid_bounds[0].copy()
-    var cmax = centroid_bounds[1].copy()
-    var inv = _inv_extent(cmin, cmax)
 
     print(t"Triangles: {tri_count}")
     print(t"Load time: {round(ns_to_ms(Int(load_t1 - load_t0)), 3)} ms")
@@ -220,8 +162,9 @@ def main() raises:
         print("\nBuilding GPU BLAS...")
         var gpu_blas = GpuLBVH(ctx, tri_vertices)
         var build_t0 = perf_counter_ns()
-        var build_t = gpu_blas.build(ctx, cmin, inv)
-        var validation = gpu_blas.validate(bmin, bmax)
+        var build_result = gpu_blas.build_from_triangles(ctx, tri_vertices)
+        var build_t = build_result[0]
+        var validation = build_result[1]
         var build_t1 = perf_counter_ns()
 
         print(

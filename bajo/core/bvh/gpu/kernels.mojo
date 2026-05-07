@@ -87,23 +87,6 @@ def _node_right(
     return UInt32(node_meta[_node_right_index(node_idx)])
 
 
-def compute_centroid_bounds(verts: List[Vec3f32]) -> Tuple[Vec3f32, Vec3f32]:
-    var bmin = Vec3f32(Float32.MAX)
-    var bmax = Vec3f32(Float32.MIN)
-
-    for i in range(len(verts) / 3):
-        ref v0 = verts[i * 3 + 0]
-        ref v1 = verts[i * 3 + 1]
-        ref v2 = verts[i * 3 + 2]
-        var tri_min = vmin(vmin(v0, v1), v2)
-        var tri_max = vmax(vmax(v0, v1), v2)
-        var c = (tri_min + tri_max) * 0.5
-        bmin = vmin(bmin, c)
-        bmax = vmax(bmax, c)
-
-    return (bmin^, bmax^)
-
-
 # -----------------------------------------------------------------------------
 # GPU LBVH topology build benchmark.
 #
@@ -630,73 +613,6 @@ def trace_lbvh_gpu_primary_kernel(
 # Each GPU thread maps ray_idx -> (view, x, y), generates the same pinhole ray as
 # generate_primary_rays(), then traverses the LBVH directly.
 # -----------------------------------------------------------------------------
-
-
-def append_camera_params(
-    mut params: List[Float32],
-    origin: Vec3f32,
-    target: Vec3f32,
-    up_hint: Vec3f32,
-):
-    var forward = normalize(target - origin)
-    var right = normalize(cross(forward, up_hint))
-    var up = normalize(cross(right, forward))
-
-    params.append(origin.x())
-    params.append(origin.y())
-    params.append(origin.z())
-    params.append(forward.x())
-    params.append(forward.y())
-    params.append(forward.z())
-    params.append(right.x())
-    params.append(right.y())
-    params.append(right.z())
-    params.append(up.x())
-    params.append(up.y())
-    params.append(up.z())
-
-
-def generate_camera_params(
-    bounds_min: Vec3f32,
-    bounds_max: Vec3f32,
-    views: Int,
-) -> List[Float32]:
-    var params = List[Float32](capacity=views * 12)
-
-    var center = (bounds_min + bounds_max) * 0.5
-    var extent = bounds_max - bounds_min
-    var radius = length(extent) * 0.5
-    if radius < 1.0:
-        radius = 1.0
-    var dist = radius * 2.8
-
-    if views >= 1:
-        append_camera_params(
-            params,
-            center + Vec3f32(0.0, 0.0, -dist),
-            center,
-            Vec3f32(0.0, 1.0, 0.0),
-        )
-
-    if views >= 2:
-        append_camera_params(
-            params,
-            center + Vec3f32(-dist, 0.0, 0.0),
-            center,
-            Vec3f32(0.0, 1.0, 0.0),
-        )
-
-    if views >= 3:
-        append_camera_params(
-            params,
-            center + Vec3f32(0.0, dist, 0.0),
-            center,
-            Vec3f32(0.0, 0.0, 1.0),
-        )
-
-    return params^
-
-
 @always_inline
 def _normalize3(
     x: Float32,

@@ -11,18 +11,18 @@ from bajo.core.utils import (
     print_vec3_rounded,
 )
 from bajo.core.vec import Vec3f32, normalize
-from bajo.core.bvh import (
+from bajo.core.bvh.host_utils import (
     generate_primary_rays,
     trace_bvh_primary,
     trace_bvh_shadow,
     flatten_rays,
     copy_list_to_device,
     compute_bounds,
+    compute_centroid_bounds,
+    generate_camera_params,
 )
 from bajo.core.bvh.cpu.binary_bvh import BinaryBvh, Ray
 from bajo.core.bvh.gpu.kernels import (
-    compute_centroid_bounds,
-    generate_camera_params,
     reduce_hit_t_kernel,
     reduce_u32_flags_kernel,
     GPU_REDUCE_THREADS,

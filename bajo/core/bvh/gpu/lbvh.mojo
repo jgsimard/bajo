@@ -1,10 +1,15 @@
-from std.math import max
+from std.math import abs, max
 from std.time import perf_counter_ns
 from std.gpu import DeviceBuffer
 from std.gpu.host import DeviceContext
 
 from bajo.core.vec import Vec3f32
-from bajo.core.bvh import flatten_vertices, copy_list_to_device
+from bajo.core.bvh.host_utils import (
+    flatten_vertices,
+    copy_list_to_device,
+    compute_bounds,
+    compute_centroid_bounds,
+)
 from bajo.core.bvh.gpu.validate import (
     validate_sorted_keys,
     validate_topology,
@@ -28,6 +33,24 @@ from bajo.core.bvh.gpu.utils import (
     GpuBVHValidation,
     _blocks_for,
 )
+
+
+@always_inline
+def _safe_inv_extent_axis(a: Float32, b: Float32) -> Float32:
+    var e = b - a
+
+    if abs(e) <= 1.0e-20:
+        return 0.0
+
+    return Float32(1.0) / e
+
+
+def _safe_inv_extent(bounds_min: Vec3f32, bounds_max: Vec3f32) -> Vec3f32:
+    return Vec3f32(
+        _safe_inv_extent_axis(bounds_min.x(), bounds_max.x()),
+        _safe_inv_extent_axis(bounds_min.y(), bounds_max.y()),
+        _safe_inv_extent_axis(bounds_min.z(), bounds_max.z()),
+    )
 
 
 comptime GPU_LBVH_BLOCK_SIZE = 128
@@ -123,6 +146,38 @@ struct GpuLBVH:
             Int(r - t),
             Int(r - start),
         )
+
+    def build_from_triangles(
+        mut self,
+        ctx: DeviceContext,
+        tri_vertices: List[Vec3f32],
+    ) raises -> Tuple[GpuBuildTimings, GpuBVHValidation]:
+        """Build the GPU LBVH using the canonical triangle normalization path.
+
+        Steps:
+        - scene bounds for validation
+        - centroid bounds for Morton normalization
+        - Morton generation
+        - radix sort
+        - topology build
+        - bounds refit
+        - validation
+        """
+
+        var scene_bounds = compute_bounds(tri_vertices)
+        var scene_min = scene_bounds[0].copy()
+        var scene_max = scene_bounds[1].copy()
+
+        var centroid_bounds = compute_centroid_bounds(tri_vertices)
+        var centroid_min = centroid_bounds[0].copy()
+        var centroid_max = centroid_bounds[1].copy()
+
+        var norm = _safe_inv_extent(centroid_min, centroid_max)
+
+        var timings = self.build(ctx, centroid_min, norm)
+        var validation = self.validate(scene_min, scene_max)
+
+        return (timings, validation)
 
     def validate(
         mut self,

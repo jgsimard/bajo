@@ -1,3 +1,5 @@
+from std.gpu.host import DeviceBuffer
+
 from bajo.core.bvh.gpu.constants import (
     LBVH_LEAF_FLAG,
     LBVH_INDEX_MASK,
@@ -8,6 +10,7 @@ from bajo.core.bvh.gpu.utils import (
     TopologyValidation,
     RefitBoundsValidation,
 )
+from bajo.core.vec import Vec3f32
 
 
 def validate_sorted_keys(

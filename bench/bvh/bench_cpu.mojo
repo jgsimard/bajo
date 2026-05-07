@@ -2,7 +2,7 @@ from std.benchmark import keep
 from std.math import abs, round
 from std.time import perf_counter_ns
 
-from bajo.core.bvh import (
+from bajo.core.bvh.host_utils import (
     compute_bounds,
     hit_t_for_checksum,
     trace_bvh_shadow,
@@ -278,7 +278,7 @@ def bench_gpu_shadow(
 
 
 def main() raises:
-    print("TinyBVH Mojo bunny speedtest")
+    print("Bunny speedtest")
     print(t"Path: {DEFAULT_OBJ_PATH}")
     print(t"Image rays: {PRIMARY_WIDTH} x {PRIMARY_HEIGHT} x {PRIMARY_VIEWS}")
     print(t"Traversal repeats: {TRAVERSAL_REPEATS}")

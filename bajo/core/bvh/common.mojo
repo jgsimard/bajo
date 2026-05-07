@@ -12,7 +12,7 @@ from bajo.core.bvh.gpu.utils import GpuBuildResult
 
 
 @fieldwise_init
-struct CpuReferenceResult(Copyable):
+struct CpuReferenceResult(TrivialRegisterPassable):
     var build_ns: Int
     var trace_ns: Int
     var checksum: Float64

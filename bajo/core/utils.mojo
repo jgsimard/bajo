@@ -6,9 +6,7 @@ from bajo.obj import read_obj, triangulated_indices
 
 
 @fieldwise_init
-struct QuadraticSolutions[dtype: DType, size: Int](
-    Copyable, TrivialRegisterPassable
-):
+struct QuadraticSolutions[dtype: DType, size: Int](TrivialRegisterPassable):
     var roots_0: SIMD[Self.dtype, Self.size]
     var roots_1: SIMD[Self.dtype, Self.size]
     var mask: SIMD[DType.bool, Self.size]

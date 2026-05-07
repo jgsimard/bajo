@@ -2,9 +2,10 @@ from std.benchmark import keep
 from std.math import abs, round
 from std.time import perf_counter_ns
 
-from bajo.core.bvh import (
+from bajo.core.bvh.host_utils import (
     compute_bounds,
     hit_t_for_checksum,
+    trace_bvh_primary,
     trace_bvh_shadow,
     generate_primary_rays,
 )
@@ -24,18 +25,6 @@ comptime PRIMARY_WIDTH = 640
 comptime PRIMARY_HEIGHT = 360
 comptime PRIMARY_VIEWS = 3
 comptime TRAVERSAL_REPEATS = 8
-
-
-def trace_bvh_primary(bvh: BinaryBvh, rays: List[Ray]) -> Float64:
-    var checksum = 0.0
-    var hit_count = 0
-    for i in range(len(rays)):
-        var ray = rays[i].copy()
-        bvh.traverse(ray)
-        checksum += hit_t_for_checksum(ray.hit.t)
-        if ray.hit.t < 1.0e20:
-            hit_count += 1
-    return checksum
 
 
 def trace_wide_primary[
@@ -278,7 +267,7 @@ def bench_gpu_shadow(
 
 
 def main() raises:
-    print("TinyBVH Mojo bunny speedtest")
+    print("Bunny speedtest")
     print(t"Path: {DEFAULT_OBJ_PATH}")
     print(t"Image rays: {PRIMARY_WIDTH} x {PRIMARY_HEIGHT} x {PRIMARY_VIEWS}")
     print(t"Traversal repeats: {TRAVERSAL_REPEATS}")

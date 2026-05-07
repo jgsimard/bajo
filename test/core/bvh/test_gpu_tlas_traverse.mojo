@@ -4,14 +4,14 @@ from std.math import abs
 from std.sys import has_accelerator
 from std.testing import TestSuite, assert_almost_equal, assert_true
 
-from bajo.core.bvh import (
+from bajo.core.bvh.host_utils import (
     compute_bounds,
     copy_list_to_device,
     flatten_rays,
+    compute_centroid_bounds,
 )
 from bajo.core.bvh.cpu.binary_bvh import BinaryBvh
 from bajo.core.bvh.cpu.tlas import BvhInstance, Tlas
-from bajo.core.bvh.gpu.kernels import compute_centroid_bounds
 from bajo.core.bvh.gpu.lbvh import GpuLBVH
 from bajo.core.bvh.gpu.tlas import GpuTlasLayout
 from bajo.core.bvh.gpu.tlas_traverse import launch_tlas_lbvh_uploaded_primary
@@ -21,7 +21,6 @@ from bajo.core.vec import Vec3f32
 from fixtures import (
     _append_tri,
     _make_two_depth_triangles,
-    _inv_extent,
     _build_gpu_blas,
 )
 

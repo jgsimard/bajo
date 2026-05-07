@@ -11,18 +11,18 @@ from bajo.core.utils import (
     print_vec3_rounded,
 )
 from bajo.core.vec import Vec3f32, normalize
-from bajo.core.bvh import (
+from bajo.core.bvh.host_utils import (
     generate_primary_rays,
     trace_bvh_primary,
     trace_bvh_shadow,
     flatten_rays,
     copy_list_to_device,
     compute_bounds,
+    compute_centroid_bounds,
+    generate_camera_params,
 )
 from bajo.core.bvh.cpu.binary_bvh import BinaryBvh, Ray
 from bajo.core.bvh.gpu.kernels import (
-    compute_centroid_bounds,
-    generate_camera_params,
     reduce_hit_t_kernel,
     reduce_u32_flags_kernel,
     GPU_REDUCE_THREADS,
@@ -32,6 +32,7 @@ from bajo.core.bvh.gpu.kernels import (
 )
 from bajo.core.bvh.gpu.lbvh import (
     GpuLBVH,
+    _safe_inv_extent,
     GPU_LBVH_BLOCK_SIZE,
 )
 
@@ -45,20 +46,21 @@ from bajo.core.bvh.gpu.utils import (
     GpuSuiteResult,
     GpuBuildResult,
     GpuReduceAndShadowResult,
-    CpuReferenceResult,
     _download_full_hit_checksum,
     _download_reduced_hit_t,
     _download_reduced_u32_count,
+    _upload_rays,
+    _blocks_for,
+)
+from bajo.core.bvh.common import (
+    CpuReferenceResult,
     _print_build_result,
     _print_scene_summary,
     _build_cpu_reference,
     _print_cpu_reference,
     _ms,
     _mrays,
-    _upload_rays,
-    _blocks_for,
 )
-
 
 # comptime DEFAULT_OBJ_PATH = "./assets/powerplant/powerplant.obj"
 comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"
@@ -380,7 +382,7 @@ def run_gpu_lbvh_benchmark_suite(
 ) raises -> GpuSuiteResult:
     var ray_count = len(rays)
     var rays_flat = flatten_rays(rays)
-    var norm = normalize(centroid_max - centroid_min)
+    var norm = _safe_inv_extent(centroid_min, centroid_max)
 
     with DeviceContext() as ctx:
         var setup0 = perf_counter_ns()

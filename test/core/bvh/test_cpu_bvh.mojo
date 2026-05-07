@@ -532,24 +532,6 @@ def test_bvh_sah_mt_matches_bruteforce_many_rays() raises:
         _assert_bvh_matches_bruteforce(bvh, verts, O, D)
 
 
-# -----------------------------------------------------------------------------
-# BvhGpuLayout layout validation tests
-#
-# Add `BvhGpuLayout` to your existing tinybvh import list:
-#
-# from bajo.core.bvh.tinybvh import (
-#     BVH,
-#     BvhGpuLayout,
-#     ...
-# )
-#
-# These tests assume the existing helpers from test_tinybvh_fragment.mojo:
-#   _make_strip
-#   _make_random_xy_triangles
-#   _triangle_center_xy
-# -----------------------------------------------------------------------------
-
-
 def _assert_gpu_matches_binary(
     mut bvh: BinaryBvh,
     mut gpu: BvhGpuLayout,

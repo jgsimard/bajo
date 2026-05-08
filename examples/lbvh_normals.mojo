@@ -2,6 +2,7 @@ from std.math import cos, max, round, sin
 from std.time import perf_counter_ns
 from std.gpu import DeviceBuffer
 from std.gpu.host import DeviceContext
+from std.io.file_descriptor import FileDescriptor
 
 from bajo.core.bvh.cpu.binary_bvh import BinaryBvh
 from bajo.core.bvh.cpu.tlas import BvhInstance, Tlas
@@ -108,17 +109,28 @@ def write_ppm_from_packed_rgb(
     height: Int,
     rgb: DeviceBuffer[DType.uint32],
 ) raises:
+    var pixel_count = width * height
+    var byte_count = pixel_count * 3
+
     with open(path, "w") as f:
-        var text = String(t"P3\n{width} {height}\n255\n")
+        var fd = FileDescriptor(f)
+
+        fd.write(t"P6\n{width} {height}\n255\n")
+        var _bytes = List[UInt8](length=byte_count, fill=0)
+        var out = _bytes.unsafe_ptr()
+
         with rgb.map_to_host() as pixels:
-            for y in range(height):
-                for x in range(width):
-                    var packed = UInt32(pixels[y * width + x])
-                    var r = (packed >> 16) & UInt32(255)
-                    var g = (packed >> 8) & UInt32(255)
-                    var b = packed & UInt32(255)
-                    text += String(t"{r} {g} {b}\n")
-        f.write(text)
+            var j = 0
+            for i in range(pixel_count):
+                # packed is 0x00RRGGBB
+                var packed = UInt32(pixels[i])
+                out[j] = UInt8((packed >> 16) & UInt32(255))
+                out[j + 1] = UInt8((packed >> 8) & UInt32(255))
+                out[j + 2] = UInt8(packed & UInt32(255))
+
+                j += 3
+
+        fd.write_bytes(_bytes)
 
 
 def main() raises:

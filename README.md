@@ -5,6 +5,8 @@ Bajo is a work-in-progress, pure-Mojo simulation engine designed for Reinforceme
 
 Because Mojo is still relatively new, I am currently building out the foundational GPU primitives required for physics simulations from scratch.
 
+
+
 ## Pixi tasks
 
 Common commands:
@@ -31,7 +33,8 @@ Examples:
 ```
 pixi run example_lbvh
 ```
-Runs the GPU LBVH normal-rendering example. This task depends on download_assets.
+Runs the GPU LBVH normal-rendering example. It should produce the following image
+![lbvh example](example_tlas_lbvh_normals.png)
 
 ## Roadmap
 
@@ -69,6 +72,7 @@ Runs the GPU LBVH normal-rendering example. This task depends on download_assets
 - ✅ [Bitonic Sort](bajo/sort/gpu/bitonic_sort.mojo)
 - ✅ [Radix Sort](bajo/sort/gpu/radix_sort.mojo)
 - ✅ [Onesweep](bajo/sort/gpu/onesweep.mojo)
+- 🚧 [benchmark](bajo/sort/gpu/README.md)
 - ⬜ Segmented sort
 - 🚧 polish 
 

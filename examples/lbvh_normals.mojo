@@ -34,8 +34,8 @@ comptime GRID_Z = 25
 def _trs_y(
     tx: Float32, ty: Float32, tz: Float32, angle: Float32, s: Float32
 ) -> Mat44f32:
-    var c = Float32(cos(Float64(angle)))
-    var sn = Float32(sin(Float64(angle)))
+    var c = cos(angle)
+    var sn = sin(angle)
     # fmt: off
     return Mat44f32(
         s * c,   0.0, s * sn,  tx,
@@ -60,8 +60,8 @@ def _make_instances(
             var idx = z * GRID_X + x
             var tx = Float32(x - GRID_X / 2) * spacing
             var tz = Float32(z - GRID_Z / 2) * spacing
-            var angle = Float32(idx) * 0.35
-            var scale = Float32(3.85) + Float32(idx % 5) * 0.075
+            var angle = Float32(idx) * 1.0
+            var scale = Float32(8.0) + Float32(idx % 5) * 0.075
             var transform = _trs_y(tx, 0.0, tz, angle, scale)
             var inv_transform = inverse(transform)
             instances.append(
@@ -83,7 +83,7 @@ def _make_camera_params(tlas: Tlas) -> List[Float32]:
     var eye = center + Vec3f32(
         scene_w * 0.18,
         extent.y() * 0.22,
-        -scene_w * 0.55,
+        -scene_w * 0.25,
     )
 
     # Look slightly into the group, around upper-body / head height.

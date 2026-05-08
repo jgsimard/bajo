@@ -5,6 +5,33 @@ Bajo is a work-in-progress, pure-Mojo simulation engine designed for Reinforceme
 
 Because Mojo is still relatively new, I am currently building out the foundational GPU primitives required for physics simulations from scratch.
 
+## Pixi tasks
+
+Common commands:
+
+```bash
+pixi run download_assets   # download example/benchmark assets
+pixi run install_prek      # install pre-commit hooks
+pixi run test              # run tests
+```
+
+Benchmarks:
+```
+pixi run bench_quat
+pixi run bench_aabb
+pixi run bench_obj
+pixi run bench_gpu_sort
+pixi run bench_bvh_cpu
+pixi run bench_bvh_gpu
+pixi run bench_all
+```
+**bench_all** runs all individual benchmark tasks sequentially.
+
+Examples:
+```
+pixi run example_lbvh
+```
+Runs the GPU LBVH normal-rendering example. This task depends on download_assets.
 
 ## Roadmap
 

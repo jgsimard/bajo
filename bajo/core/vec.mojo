@@ -85,7 +85,7 @@ struct Vec[dtype: DType, size: Int](
         """
         return String(
             "Vec[",
-            reflect[Self.ElementType]().name(),
+            reflect[Self.ElementType].name(),
             ", ",
             Self.size,
             "]",

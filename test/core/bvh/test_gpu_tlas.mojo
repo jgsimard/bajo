@@ -23,7 +23,7 @@ def _make_tlas(mut blas: BinaryBvh, count: Int = 8) -> Tlas:
     var instances = List[BvhInstance](capacity=count)
     for i in range(count):
         var x = Float32((i % 4) - 2) * 6.0
-        var y = Float32(i // 4) * 4.0
+        var y = Float32(i / 4) * 4.0
         instances.append(
             BvhInstance.from_blas(
                 _translation(x, y, 0.0),
@@ -48,7 +48,7 @@ def _node_flag(tlas: Tlas, node_idx: Int) -> UInt32:
 def test_gpu_tlas_upload_validates_against_cpu_tlas() raises:
     comptime if has_accelerator():
         var verts = _make_strip(4)
-        var blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+        var blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) / 3))
         blas.build["median", False]()
         var tlas = _make_tlas(blas, 8)
 
@@ -69,7 +69,7 @@ def test_gpu_tlas_upload_validates_against_cpu_tlas() raises:
 def test_gpu_tlas_node_meta_and_bounds_match_cpu() raises:
     comptime if has_accelerator():
         var verts = _make_strip(4)
-        var blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+        var blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) / 3))
         blas.build["median", False]()
         var tlas = _make_tlas(blas, 8)
 
@@ -101,7 +101,7 @@ def test_gpu_tlas_node_meta_and_bounds_match_cpu() raises:
 def test_gpu_tlas_leaf_ranges_preserve_instance_indices() raises:
     comptime if has_accelerator():
         var verts = _make_strip(4)
-        var blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+        var blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) / 3))
         blas.build["median", False]()
         var tlas = _make_tlas(blas, 12)
 
@@ -146,7 +146,7 @@ def test_gpu_tlas_leaf_ranges_preserve_instance_indices() raises:
 def test_gpu_tlas_instance_meta_transforms_and_bounds_match_cpu() raises:
     comptime if has_accelerator():
         var verts = _make_strip(4)
-        var blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+        var blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) / 3))
         blas.build["median", False]()
         var instances = [
             BvhInstance.from_blas(

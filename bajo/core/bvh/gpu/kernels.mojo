@@ -632,10 +632,10 @@ def _make_camera_ray(
     height: Int,
 ) -> RayFlat:
     var pixels_per_view = width * height
-    var view_idx = ray_idx // pixels_per_view
+    var view_idx = ray_idx / pixels_per_view
     var local_idx = ray_idx - view_idx * pixels_per_view
     var px_i = local_idx % width
-    var py_i = local_idx // width
+    var py_i = local_idx / width
 
     var cam_base = view_idx * CAMERA_PARAM_STRIDE
 
@@ -755,7 +755,7 @@ def trace_lbvh_gpu_camera_kernel[
         return
 
     var pixels_per_view = width * height
-    var view_idx = ray_idx // pixels_per_view
+    var view_idx = ray_idx / pixels_per_view
 
     if view_idx >= views:
         _write_camera_miss_result[mode](out_f32, out_u32, ray_idx)

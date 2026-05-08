@@ -70,14 +70,14 @@ struct GpuBVHValidation(TrivialRegisterPassable):
 
 
 @fieldwise_init
-struct GpuBuildResult(Copyable):
+struct GpuBuildResult(TrivialRegisterPassable):
     var static_setup_ns: Int
     var timings: GpuBuildTimings
     var validation: GpuBVHValidation
 
 
 @fieldwise_init
-struct GpuDirectTraversalResult(Copyable):
+struct GpuDirectTraversalResult(TrivialRegisterPassable):
     var upload_ns: Int
     var kernel_ns: Int
     var download_ns: Int
@@ -88,7 +88,7 @@ struct GpuDirectTraversalResult(Copyable):
 
 
 @fieldwise_init
-struct GpuCameraFullResult(Copyable):
+struct GpuCameraFullResult(TrivialRegisterPassable):
     var kernel_ns: Int
     var download_ns: Int
     var frame_ns: Int
@@ -98,7 +98,7 @@ struct GpuCameraFullResult(Copyable):
 
 
 @fieldwise_init
-struct GpuPrimaryReduceResult(Copyable):
+struct GpuPrimaryReduceResult(TrivialRegisterPassable):
     var kernel_ns: Int
     var reduce_ns: Int
     var download_ns: Int
@@ -109,7 +109,7 @@ struct GpuPrimaryReduceResult(Copyable):
 
 
 @fieldwise_init
-struct GpuShadowReduceResult(Copyable):
+struct GpuShadowReduceResult(TrivialRegisterPassable):
     var kernel_ns: Int
     var reduce_ns: Int
     var download_ns: Int
@@ -119,13 +119,13 @@ struct GpuShadowReduceResult(Copyable):
 
 
 @fieldwise_init
-struct GpuReduceAndShadowResult(Copyable):
+struct GpuReduceAndShadowResult(TrivialRegisterPassable):
     var primary: GpuPrimaryReduceResult
     var shadow: GpuShadowReduceResult
 
 
 @fieldwise_init
-struct GpuSuiteResult(Copyable):
+struct GpuSuiteResult(TrivialRegisterPassable):
     var build: GpuBuildResult
     var direct: GpuDirectTraversalResult
     var camera_full: GpuCameraFullResult

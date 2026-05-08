@@ -66,9 +66,9 @@ def print_results_table(title: String, results: List[SortResult]):
     for res in results:
         var size_str = String(res.size)
         if res.size >= 1_000_000:
-            size_str = String(res.size // 1_000_000) + "M"
+            size_str = String(res.size / 1_000_000) + "M"
         elif res.size >= 1_000:
-            size_str = String(res.size // 1_000) + "k"
+            size_str = String(res.size / 1_000) + "k"
 
         size_str = size_str.ascii_rjust(8)
         var ms_str = String(round(res.time_ms, 3)).ascii_rjust(9)

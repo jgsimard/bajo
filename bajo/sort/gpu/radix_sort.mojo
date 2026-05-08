@@ -38,7 +38,7 @@ def upsweep[
 ):
     comptime PART_SIZE = 512 * KEYS_PER_THREAD  # = BLOCK_SIZE * KEYS_PER_THREAD = 512 * 8
     comptime VEC_PART_SIZE = PART_SIZE / VEC_WIDTH
-    comptime NUM_WARPS = BLOCK_SIZE // WARP_SIZE
+    comptime NUM_WARPS = BLOCK_SIZE / WARP_SIZE
     comptime PADDED_RADIX = RADIX + 1
     comptime RADIX_MASK = Scalar[keys_dtype](RADIX - 1)
 
@@ -126,7 +126,7 @@ def scan[
     var bid = Int(block_idx.x)
 
     var reduction: UInt32 = 0
-    var partitions_end = (thread_blocks // BLOCK_SIZE) * BLOCK_SIZE
+    var partitions_end = (thread_blocks / BLOCK_SIZE) * BLOCK_SIZE
     var digit_offset = bid * thread_blocks
 
     var i = tid
@@ -175,7 +175,7 @@ def downsweep[
 ):
     comptime RADIX = 2**BITS_PER_PASS
     comptime RADIX_MASK = Scalar[keys_dtype](RADIX - 1)
-    comptime NUM_WARPS = BLOCK_SIZE // WARP_SIZE
+    comptime NUM_WARPS = BLOCK_SIZE / WARP_SIZE
     comptime WARP_PART_SIZE = WARP_SIZE * KEYS_PER_THREAD
     comptime PART_SIZE = NUM_WARPS * WARP_PART_SIZE
     comptime TOTAL_WARP_HISTS_SIZE = NUM_WARPS * RADIX

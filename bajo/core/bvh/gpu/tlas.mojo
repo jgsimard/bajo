@@ -27,14 +27,14 @@ def _nonzero_count(count: Int) -> Int:
 
 @always_inline
 def _matrix_elem(tlas: Tlas, inst_idx: Int, flat_idx: Int) -> Float32:
-    var row = flat_idx // 4
+    var row = flat_idx / 4
     var col = flat_idx - row * 4
     return tlas.instances[inst_idx].transform[row][col]
 
 
 @always_inline
 def _inv_matrix_elem(tlas: Tlas, inst_idx: Int, flat_idx: Int) -> Float32:
-    var row = flat_idx // 4
+    var row = flat_idx / 4
     var col = flat_idx - row * 4
     return tlas.instances[inst_idx].inv_transform[row][col]
 
@@ -132,7 +132,7 @@ struct GpuTlasLayout:
         self.upload(ctx, tlas)
 
     def upload(mut self, ctx: DeviceContext, tlas: Tlas) raises:
-        """Upload a CPU `Tlas` into the Phase B flat GPU layout."""
+        """Upload a CPU `Tlas` into the flat GPU layout."""
         self.node_count = Int(tlas.nodes_used)
         self.inst_count = Int(tlas.inst_count)
 

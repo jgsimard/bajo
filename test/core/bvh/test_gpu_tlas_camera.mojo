@@ -101,7 +101,7 @@ def _run_camera_trace(
 def test_gpu_tlas_camera_two_views_hit_expected_instances() raises:
     comptime if has_accelerator():
         var verts = _make_two_depth_triangles()
-        var cpu_blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+        var cpu_blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) / 3))
         cpu_blas.build["median", False]()
         var cpu_tlas = _build_two_instance_tlas(cpu_blas)
         var camera_params = _make_two_view_camera_params()
@@ -130,7 +130,7 @@ def test_gpu_tlas_camera_two_views_hit_expected_instances() raises:
 def test_gpu_tlas_camera_normal_shading_writes_rgb() raises:
     comptime if has_accelerator():
         var verts = _make_two_depth_triangles()
-        var cpu_blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) // 3))
+        var cpu_blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) / 3))
         cpu_blas.build["median", False]()
         var instances = [
             BvhInstance.from_blas(

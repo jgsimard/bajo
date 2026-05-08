@@ -468,7 +468,7 @@ def run_gpu_lbvh_benchmark_suite(
                 repeats,
             )
             reduce_shadow_result = GpuReduceAndShadowResult(
-                primary_reduce^, shadow_reduce^
+                primary_reduce, shadow_reduce
             )
         else:
             reduce_shadow_result = GpuReduceAndShadowResult(
@@ -477,10 +477,10 @@ def run_gpu_lbvh_benchmark_suite(
             )
 
         return GpuSuiteResult(
-            build_result^,
-            direct_result^,
-            camera_full_result^,
-            reduce_shadow_result^,
+            build_result,
+            direct_result,
+            camera_full_result,
+            reduce_shadow_result,
         )
 
 

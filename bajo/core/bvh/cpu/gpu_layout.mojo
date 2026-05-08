@@ -53,9 +53,8 @@ struct BVHGPUNode(Copyable):
 struct BvhGpuLayout(Copyable):
     """GPU layout with CPU reference traversal.
 
-    This layout follows TinyBVH's BVH_GPU / Aila-Laine layout more closely than
-    the earlier child-count encoding. Leaves are real nodes (`tri_count > 0`),
-    while internal nodes store both child bounds directly plus child node indices.
+    Leaves are real nodes (`tri_count > 0`), while internal nodes store both
+    child bounds directly plus child node indices.
 
     `prim_indices` stores original triangle ids, not fragment ids. This keeps
     traversal independent from the builder's fragment reordering and makes the

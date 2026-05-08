@@ -6,12 +6,26 @@ platforms = ["linux-64"]
 version = "0.1.0"
 
 [tasks]
+download_assets = "bash scripts/download_assets.sh"
 install_prek = "prek install"
-test = { cmd = "bash run_tests.sh", depends-on = [] }
+test = "bash scripts/run_tests.sh"
 bench_quat = "mojo -I. bench/bench_quat.mojo"
 bench_aabb = "mojo -I. bench/bench_aabb.mojo"
+bench_obj = "mojo -I. bench/bench_obj.mojo"
+bench_gpu_sort = "mojo -I. bench/bench_gpu_sort.mojo"
+bench_bvh_cpu = "mojo -I . bench/bvh/bench_cpu.mojo"
+bench_bvh_gpu = "mojo -I . bench/bvh/bench_lbvh.mojo"
+bench_all = { depends-on = [
+  "bench_quat",
+  "bench_aabb",
+  "bench_obj",
+  "bench_gpu_sort",
+  "bench_bvh_cpu",
+  "bench_bvh_gpu",
+] }
+example_lbvh = { cmd = "mojo -I . examples/lbvh_normals.mojo", depends-on = ["download_assets"] }
 
 [dependencies]
-mojo = ">=1.0.0b2.dev2026050616,<2"
-max = ">=26.4.0.dev2026050616,<27"
+mojo = ">=1.0.0b2.dev2026050805,<2"
+max = ">=26.4.0.dev2026050805,<27"
 python = ">=3.14.4,<3.15"

@@ -2,6 +2,7 @@ from std.math import cos, max, round, sin
 from std.time import perf_counter_ns
 from std.gpu import DeviceBuffer
 from std.gpu.host import DeviceContext
+from std.io.file_descriptor import FileDescriptor
 
 from bajo.core.bvh.cpu.binary_bvh import BinaryBvh
 from bajo.core.bvh.cpu.tlas import BvhInstance, Tlas
@@ -22,8 +23,8 @@ from bajo.core.utils import pack_obj_triangles, ns_to_ms, ns_to_mrays_per_s
 from bajo.core.vec import Vec3f32, length
 
 
-comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"
-comptime DEFAULT_OUTPUT_PATH = "./instanced_normals.ppm"
+comptime DEFAULT_OBJ_PATH = "./assets/buddha/buddha.obj"
+comptime DEFAULT_OUTPUT_PATH = "./example_tlas_lbvh_normals.ppm"
 comptime WIDTH = 1280
 comptime HEIGHT = 720
 comptime GRID_X = 25
@@ -57,10 +58,10 @@ def _make_instances(
     for z in range(GRID_Z):
         for x in range(GRID_X):
             var idx = z * GRID_X + x
-            var tx = Float32(x - GRID_X // 2) * spacing
-            var tz = Float32(z - GRID_Z // 2) * spacing
+            var tx = Float32(x - GRID_X / 2) * spacing
+            var tz = Float32(z - GRID_Z / 2) * spacing
             var angle = Float32(idx) * 0.35
-            var scale = Float32(0.85) + Float32(idx % 5) * 0.075
+            var scale = Float32(3.85) + Float32(idx % 5) * 0.075
             var transform = _trs_y(tx, 0.0, tz, angle, scale)
             var inv_transform = inverse(transform)
             instances.append(
@@ -108,17 +109,28 @@ def write_ppm_from_packed_rgb(
     height: Int,
     rgb: DeviceBuffer[DType.uint32],
 ) raises:
+    var pixel_count = width * height
+    var byte_count = pixel_count * 3
+
     with open(path, "w") as f:
-        var text = String(t"P3\n{width} {height}\n255\n")
+        var fd = FileDescriptor(f)
+
+        fd.write(t"P6\n{width} {height}\n255\n")
+        var _bytes = List[UInt8](length=byte_count, fill=0)
+        var out = _bytes.unsafe_ptr()
+
         with rgb.map_to_host() as pixels:
-            for y in range(height):
-                for x in range(width):
-                    var packed = UInt32(pixels[y * width + x])
-                    var r = (packed >> 16) & UInt32(255)
-                    var g = (packed >> 8) & UInt32(255)
-                    var b = packed & UInt32(255)
-                    text += String(t"{r} {g} {b}\n")
-        f.write(text)
+            var j = 0
+            for i in range(pixel_count):
+                # packed is 0x00RRGGBB
+                var packed = UInt32(pixels[i])
+                out[j] = UInt8((packed >> 16) & UInt32(255))
+                out[j + 1] = UInt8((packed >> 8) & UInt32(255))
+                out[j + 2] = UInt8(packed & UInt32(255))
+
+                j += 3
+
+        fd.write_bytes(_bytes)
 
 
 def main() raises:
@@ -133,7 +145,7 @@ def main() raises:
     var tri_vertices = pack_obj_triangles(DEFAULT_OBJ_PATH)
     var load_t1 = perf_counter_ns()
 
-    var tri_count = len(tri_vertices) // 3
+    var tri_count = len(tri_vertices) / 3
     var bounds = compute_bounds(tri_vertices)
     var bmin = bounds[0].copy()
     var bmax = bounds[1].copy()

@@ -56,6 +56,16 @@ def _fix_index(raw: Int, count_with_dummy: Int) -> Int:
     return 0
 
 
+struct FirstFaceIndex(TrivialRegisterPassable):
+    var idx: ObjIndex
+    var shape: Int
+
+    @always_inline
+    def __init__(out self, idx: ObjIndex, shape: Int):
+        self.idx = idx
+        self.shape = shape
+
+
 # OBJ parsing
 @always_inline
 def _word_ends_here[
@@ -232,44 +242,6 @@ struct ObjLineCursor[o: Origin]:
             self.pos += 1
 
     @always_inline
-    def _peek_face_shape(mut self) -> Int:
-        # Returns:
-        #   0 = generic / weird
-        #   1 = p
-        #   2 = p/t
-        #   3 = p//n
-        #   4 = p/t/n
-        self.skip_ws()
-
-        var p = self.pos
-        var slash_count = 0
-        var first_slash = -1
-
-        while p < self.end:
-            var b = self.ptr.load(p)
-            if _is_ws_or_line_cut(b):
-                break
-            if b == SLASH:
-                if slash_count == 0:
-                    first_slash = p
-                slash_count += 1
-            p += 1
-
-        if slash_count == 0:
-            return 1
-        if slash_count == 1:
-            return 2
-        if slash_count == 2:
-            if (
-                first_slash + 1 < self.end
-                and self.ptr.load(first_slash + 1) == SLASH
-            ):
-                return 3
-            return 4
-
-        return 0
-
-    @always_inline
     def _at_signed_index(mut self) -> Bool:
         if self.pos >= self.end:
             return False
@@ -401,6 +373,75 @@ struct ObjLineCursor[o: Origin]:
             _fix_index(t_raw, texcoord_count),
             _fix_index(n_raw, normal_count),
         )
+
+    @always_inline
+    def next_first_face_index_at_token(
+        mut self,
+        position_count: Int,
+        texcoord_count: Int,
+        normal_count: Int,
+    ) -> FirstFaceIndex:
+        # Parses the first face token once and infers the shape while parsing.
+        #
+        # shape:
+        #   1 = p
+        #   2 = p/t
+        #   3 = p//n
+        #   4 = p/t/n
+
+        var shape = 1
+        var needs_fix = self._at_signed_index()
+
+        var p_raw = self._parse_positive_index_int(slash_terminates=True)
+        var t_raw = 0
+        var n_raw = 0
+
+        if self.pos < self.end and self.ptr.load(self.pos) == SLASH:
+            self.pos += 1
+
+            if self.pos < self.end and self.ptr.load(self.pos) == SLASH:
+                # p//n
+                self.pos += 1
+                shape = 3
+
+                if self._at_signed_index():
+                    needs_fix = True
+
+                n_raw = self._parse_positive_index_int(slash_terminates=False)
+
+            else:
+                # p/t or p/t/n
+                shape = 2
+
+                if self._at_signed_index():
+                    needs_fix = True
+
+                t_raw = self._parse_positive_index_int(slash_terminates=True)
+
+                if self.pos < self.end and self.ptr.load(self.pos) == SLASH:
+                    self.pos += 1
+                    shape = 4
+
+                    if self._at_signed_index():
+                        needs_fix = True
+
+                    n_raw = self._parse_positive_index_int(
+                        slash_terminates=False
+                    )
+
+        self._finish_index_token()
+
+        if needs_fix:
+            return FirstFaceIndex(
+                ObjIndex(
+                    _fix_index(p_raw, position_count),
+                    _fix_index(t_raw, texcoord_count),
+                    _fix_index(n_raw, normal_count),
+                ),
+                shape,
+            )
+
+        return FirstFaceIndex(ObjIndex(p_raw, t_raw, n_raw), shape)
 
     def joined_rest_of_line(mut self) -> String:
         self.skip_ws()
@@ -559,95 +600,101 @@ def _parse_face_cursor[
     var count = 0
     var valid = True
 
-    # Counts are constant for this face. Do not recompute per vertex token.
+    # Counts are constant for this face.
     var position_count = mesh.position_count()
     var texcoord_count = mesh.texcoord_count()
     var normal_count = mesh.normal_count()
 
-    # Detect p / p/t / p//n / p/t/n once from the first token of the face.
-    # Real OBJ faces almost always use one shape consistently for the whole line.
-    var shape = cur._peek_face_shape()
+    # Parse first token once.
+    cur.skip_ws()
+    if cur.pos >= cur.end:
+        _finish_face_parse(mesh, index_start, count, valid, is_line)
+        return
 
-    if shape == 1:
-        # f p p p ...
-        while True:
-            cur.skip_ws()
-            if cur.pos >= cur.end:
-                break
+    var first = cur.next_first_face_index_at_token(
+        position_count,
+        texcoord_count,
+        normal_count,
+    )
 
-            var idx = cur.next_index_p_only_at_token(position_count)
-            if idx.p == 0:
-                valid = False
-                break
+    var shape = first.shape
 
-            mesh.indices.append(idx)
-            count += 1
-
-    elif shape == 2:
-        # f p/t p/t p/t ...
-        while True:
-            cur.skip_ws()
-            if cur.pos >= cur.end:
-                break
-
-            var idx = cur.next_index_p_t_at_token(
-                position_count, texcoord_count
-            )
-            if idx.p == 0:
-                valid = False
-                break
-
-            mesh.indices.append(idx)
-            count += 1
-
-    elif shape == 3:
-        # f p//n p//n p//n ...
-        while True:
-            cur.skip_ws()
-            if cur.pos >= cur.end:
-                break
-
-            var idx = cur.next_index_p_n_at_token(position_count, normal_count)
-            if idx.p == 0:
-                valid = False
-                break
-
-            mesh.indices.append(idx)
-            count += 1
-
-    elif shape == 4:
-        # f p/t/n p/t/n p/t/n ...
-        while True:
-            cur.skip_ws()
-            if cur.pos >= cur.end:
-                break
-
-            var idx = cur.next_index_p_t_n_at_token(
-                position_count, texcoord_count, normal_count
-            )
-            if idx.p == 0:
-                valid = False
-                break
-
-            mesh.indices.append(idx)
-            count += 1
-
+    if first.idx.p == 0:
+        valid = False
     else:
-        # Weird or malformed first token: preserve the old generic behavior.
-        while True:
-            cur.skip_ws()
-            if cur.pos >= cur.end:
-                break
+        mesh.indices.append(first.idx)
+        count += 1
 
-            var idx = cur.next_index_generic_at_token(
-                position_count, texcoord_count, normal_count
-            )
-            if idx.p == 0:
-                valid = False
-                break
+    if valid:
+        if shape == 1:
+            # f p p p ...
+            while True:
+                cur.skip_ws()
+                if cur.pos >= cur.end:
+                    break
 
-            mesh.indices.append(idx)
-            count += 1
+                var idx = cur.next_index_p_only_at_token(position_count)
+                if idx.p == 0:
+                    valid = False
+                    break
+
+                mesh.indices.append(idx)
+                count += 1
+
+        elif shape == 2:
+            # f p/t p/t p/t ...
+            while True:
+                cur.skip_ws()
+                if cur.pos >= cur.end:
+                    break
+
+                var idx = cur.next_index_p_t_at_token(
+                    position_count,
+                    texcoord_count,
+                )
+                if idx.p == 0:
+                    valid = False
+                    break
+
+                mesh.indices.append(idx)
+                count += 1
+
+        elif shape == 3:
+            # f p//n p//n p//n ...
+            while True:
+                cur.skip_ws()
+                if cur.pos >= cur.end:
+                    break
+
+                var idx = cur.next_index_p_n_at_token(
+                    position_count,
+                    normal_count,
+                )
+                if idx.p == 0:
+                    valid = False
+                    break
+
+                mesh.indices.append(idx)
+                count += 1
+
+        else:
+            # f p/t/n p/t/n p/t/n ...
+            while True:
+                cur.skip_ws()
+                if cur.pos >= cur.end:
+                    break
+
+                var idx = cur.next_index_p_t_n_at_token(
+                    position_count,
+                    texcoord_count,
+                    normal_count,
+                )
+                if idx.p == 0:
+                    valid = False
+                    break
+
+                mesh.indices.append(idx)
+                count += 1
 
     _finish_face_parse(mesh, index_start, count, valid, is_line)
 

@@ -22,8 +22,8 @@ from bajo.core.utils import pack_obj_triangles, ns_to_ms, ns_to_mrays_per_s
 from bajo.core.vec import Vec3f32, length
 
 
-comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"
-comptime DEFAULT_OUTPUT_PATH = "./instanced_normals.ppm"
+comptime DEFAULT_OBJ_PATH = "./assets/buddha/buddha.obj"
+comptime DEFAULT_OUTPUT_PATH = "./example_tlas_lbvh_normals.ppm"
 comptime WIDTH = 1280
 comptime HEIGHT = 720
 comptime GRID_X = 25
@@ -60,7 +60,7 @@ def _make_instances(
             var tx = Float32(x - GRID_X / 2) * spacing
             var tz = Float32(z - GRID_Z / 2) * spacing
             var angle = Float32(idx) * 0.35
-            var scale = Float32(0.85) + Float32(idx % 5) * 0.075
+            var scale = Float32(3.85) + Float32(idx % 5) * 0.075
             var transform = _trs_y(tx, 0.0, tz, angle, scale)
             var inv_transform = inverse(transform)
             instances.append(

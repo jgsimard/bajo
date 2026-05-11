@@ -9,7 +9,11 @@ from bajo.core.bvh.gpu.constants import (
     LBVH_INDEX_MASK,
     LBVH_SENTINEL,
 )
-from bajo.core.intersect import intersect_ray_tri, intersect_ray_aabb
+from bajo.core.intersect import (
+    intersect_ray_tri,
+    intersect_ray_aabb,
+    RayAabbHit,
+)
 from bajo.core.morton import morton3
 
 comptime GPU_TRAVERSAL_STACK_SIZE = 64
@@ -303,42 +307,48 @@ def init_lbvh_bounds_kernel(
     node_flags[i] = UInt32(0)
 
 
+@fieldwise_init
+struct Bounds(TrivialRegisterPassable):
+    var mnx: Float32
+    var mny: Float32
+    var mnz: Float32
+    var mxx: Float32
+    var mxy: Float32
+    var mxz: Float32
+
+
 @always_inline
 def _write_child_bounds(
     node_bounds: UnsafePointer[Float32, MutAnyOrigin],
     parent: UInt32,
     write_left: Bool,
-    mnx: Float32,
-    mny: Float32,
-    mnz: Float32,
-    mxx: Float32,
-    mxy: Float32,
-    mxz: Float32,
+    bounds: Bounds,
 ):
     var b = _node_bounds_base(parent)
     if not write_left:
         b += 6
-    node_bounds[b + 0] = mnx
-    node_bounds[b + 1] = mny
-    node_bounds[b + 2] = mnz
-    node_bounds[b + 3] = mxx
-    node_bounds[b + 4] = mxy
-    node_bounds[b + 5] = mxz
+    node_bounds[b + 0] = bounds.mnx
+    node_bounds[b + 1] = bounds.mny
+    node_bounds[b + 2] = bounds.mnz
+    node_bounds[b + 3] = bounds.mxx
+    node_bounds[b + 4] = bounds.mxy
+    node_bounds[b + 5] = bounds.mxz
 
 
 @always_inline
 def _load_and_union_node_bounds(
     node_bounds: UnsafePointer[Float32, MutAnyOrigin],
     parent: UInt32,
-) -> Tuple[Float32, Float32, Float32, Float32, Float32, Float32]:
+) -> Bounds:
     var b = _node_bounds_base(parent)
-    var mnx = min(node_bounds[b + 0], node_bounds[b + 6])
-    var mny = min(node_bounds[b + 1], node_bounds[b + 7])
-    var mnz = min(node_bounds[b + 2], node_bounds[b + 8])
-    var mxx = max(node_bounds[b + 3], node_bounds[b + 9])
-    var mxy = max(node_bounds[b + 4], node_bounds[b + 10])
-    var mxz = max(node_bounds[b + 5], node_bounds[b + 11])
-    return (mnx, mny, mnz, mxx, mxy, mxz)
+    return Bounds(
+        mnx=min(node_bounds[b + 0], node_bounds[b + 6]),
+        mny=min(node_bounds[b + 1], node_bounds[b + 7]),
+        mnz=min(node_bounds[b + 2], node_bounds[b + 8]),
+        mxx=max(node_bounds[b + 3], node_bounds[b + 9]),
+        mxy=max(node_bounds[b + 4], node_bounds[b + 10]),
+        mxz=max(node_bounds[b + 5], node_bounds[b + 11]),
+    )
 
 
 def refit_lbvh_bounds_kernel(
@@ -366,12 +376,14 @@ def refit_lbvh_bounds_kernel(
     var v2y = vertices[base + 7]
     var v2z = vertices[base + 8]
 
-    var mnx = min(min(v0x, v1x), v2x)
-    var mny = min(min(v0y, v1y), v2y)
-    var mnz = min(min(v0z, v1z), v2z)
-    var mxx = max(max(v0x, v1x), v2x)
-    var mxy = max(max(v0y, v1y), v2y)
-    var mxz = max(max(v0z, v1z), v2z)
+    var bounds = Bounds(
+        mnx=min(min(v0x, v1x), v2x),
+        mny=min(min(v0y, v1y), v2y),
+        mnz=min(min(v0z, v1z), v2z),
+        mxx=max(max(v0x, v1x), v2x),
+        mxy=max(max(v0y, v1y), v2y),
+        mxz=max(max(v0z, v1z), v2z),
+    )
 
     var current_encoded = UInt32(leaf_idx) | LBVH_LEAF_FLAG
     var parent = UInt32(leaf_parent[leaf_idx])
@@ -385,21 +397,13 @@ def refit_lbvh_bounds_kernel(
         if not is_left and not is_right:
             break
 
-        _write_child_bounds(
-            node_bounds, parent, is_left, mnx, mny, mnz, mxx, mxy, mxz
-        )
+        _write_child_bounds(node_bounds, parent, is_left, bounds)
 
         var old = Atomic.fetch_add(node_flags + Int(parent), UInt32(1))
         if old == UInt32(0):
             break
 
-        var merged = _load_and_union_node_bounds(node_bounds, parent)
-        mnx = merged[0]
-        mny = merged[1]
-        mnz = merged[2]
-        mxx = merged[3]
-        mxy = merged[4]
-        mxz = merged[5]
+        bounds = _load_and_union_node_bounds(node_bounds, parent)
 
         current_encoded = parent
         parent = UInt32(node_meta[_node_parent_index(current_encoded)])
@@ -424,7 +428,7 @@ def _intersect_child_bounds[
     node_idx: UInt32,
     ray: RayFlat,
     t_max: Float32,
-) -> Tuple[Bool, Float32]:
+) -> RayAabbHit[DType.float32, 1]:
     var b = _node_bounds_base(node_idx) + child_bounds_offset
     return intersect_ray_aabb(
         ray.ox,
@@ -527,10 +531,10 @@ def _trace_lbvh_ray[
             best_t,
         )
 
-        var hit_left = left_hit[0]
-        var hit_right = right_hit[0]
-        var dist_left = left_hit[1]
-        var dist_right = right_hit[1]
+        var hit_left = left_hit.mask
+        var hit_right = right_hit.mask
+        var dist_left = left_hit.tmin
+        var dist_right = right_hit.tmin
 
         if not hit_left and not hit_right:
             if stack_ptr == 0:

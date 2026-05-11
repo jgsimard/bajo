@@ -1,5 +1,5 @@
 from std.benchmark import keep
-from std.math import abs, max
+from std.math import abs, max, ceildiv
 from std.sys import has_accelerator
 from std.testing import TestSuite, assert_true
 from std.gpu import DeviceContext, DeviceBuffer
@@ -40,7 +40,6 @@ from bajo.core.bvh.gpu.kernels import (
 )
 from bajo.core.bvh.gpu.utils import (
     _download_full_hit_checksum,
-    _blocks_for,
     _download_reduced_u32_count,
     _download_reduced_hit_t,
 )
@@ -103,10 +102,10 @@ def _build_gpu_lbvh_in_place(
     norm: Vec3f32,
 ) raises:
     var internal_count = tri_count - 1
-    var blocks_leaves = _blocks_for[GPU_TEST_BLOCK_SIZE](tri_count)
-    var blocks_internal = _blocks_for[GPU_TEST_BLOCK_SIZE](internal_count)
-    var blocks_init = _blocks_for[GPU_TEST_BLOCK_SIZE](
-        max(tri_count, internal_count)
+    var blocks_leaves = ceildiv(tri_count, GPU_TEST_BLOCK_SIZE)
+    var blocks_internal = ceildiv(internal_count, GPU_TEST_BLOCK_SIZE)
+    var blocks_init = ceildiv(
+        max(tri_count, internal_count), GPU_TEST_BLOCK_SIZE
     )
 
     ctx.enqueue_function[compute_morton_codes_kernel](
@@ -494,7 +493,7 @@ def test_gpu_lbvh_uploaded_primary_matches_cpu() raises:
                 d_hits_u32.unsafe_ptr(),
                 len(rays),
                 root_idx,
-                grid_dim=_blocks_for[GPU_TEST_BLOCK_SIZE](len(rays)),
+                grid_dim=ceildiv(len(rays), GPU_TEST_BLOCK_SIZE),
                 block_dim=GPU_TEST_BLOCK_SIZE,
             )
             ctx.synchronize()
@@ -593,7 +592,7 @@ def test_gpu_lbvh_camera_full_matches_cpu() raises:
                 GPU_TEST_HEIGHT,
                 GPU_TEST_VIEWS,
                 root_idx,
-                grid_dim=_blocks_for[GPU_TEST_BLOCK_SIZE](len(rays)),
+                grid_dim=ceildiv(len(rays), GPU_TEST_BLOCK_SIZE),
                 block_dim=GPU_TEST_BLOCK_SIZE,
             )
             ctx.synchronize()
@@ -694,7 +693,7 @@ def test_gpu_lbvh_camera_t_reduce_matches_cpu() raises:
                 GPU_TEST_HEIGHT,
                 GPU_TEST_VIEWS,
                 root_idx,
-                grid_dim=_blocks_for[GPU_TEST_BLOCK_SIZE](len(rays)),
+                grid_dim=ceildiv(len(rays), GPU_TEST_BLOCK_SIZE),
                 block_dim=GPU_TEST_BLOCK_SIZE,
             )
             ctx.synchronize()
@@ -705,7 +704,7 @@ def test_gpu_lbvh_camera_t_reduce_matches_cpu() raises:
                 d_partial_counts.unsafe_ptr(),
                 len(rays),
                 GPU_REDUCE_THREADS,
-                grid_dim=_blocks_for[GPU_TEST_BLOCK_SIZE](GPU_REDUCE_THREADS),
+                grid_dim=ceildiv(GPU_REDUCE_THREADS, GPU_TEST_BLOCK_SIZE),
                 block_dim=GPU_TEST_BLOCK_SIZE,
             )
             ctx.synchronize()
@@ -805,7 +804,7 @@ def test_gpu_lbvh_camera_shadow_reduce_matches_cpu() raises:
                 GPU_TEST_HEIGHT,
                 GPU_TEST_VIEWS,
                 root_idx,
-                grid_dim=_blocks_for[GPU_TEST_BLOCK_SIZE](len(rays)),
+                grid_dim=ceildiv(len(rays), GPU_TEST_BLOCK_SIZE),
                 block_dim=GPU_TEST_BLOCK_SIZE,
             )
             ctx.synchronize()
@@ -815,7 +814,7 @@ def test_gpu_lbvh_camera_shadow_reduce_matches_cpu() raises:
                 d_partial_counts.unsafe_ptr(),
                 len(rays),
                 GPU_REDUCE_THREADS,
-                grid_dim=_blocks_for[GPU_TEST_BLOCK_SIZE](GPU_REDUCE_THREADS),
+                grid_dim=ceildiv(GPU_REDUCE_THREADS, GPU_TEST_BLOCK_SIZE),
                 block_dim=GPU_TEST_BLOCK_SIZE,
             )
             ctx.synchronize()

@@ -1,5 +1,5 @@
 from std.benchmark import keep
-from std.math import abs, round
+from std.math import abs, round, ceildiv
 from std.sys import has_accelerator
 from std.time import perf_counter_ns
 from std.gpu import DeviceContext, DeviceBuffer
@@ -50,7 +50,6 @@ from bajo.core.bvh.gpu.utils import (
     _download_reduced_hit_t,
     _download_reduced_u32_count,
     _upload_rays,
-    _blocks_for,
 )
 from bajo.core.bvh.common import (
     CpuReferenceResult,
@@ -221,7 +220,7 @@ def _benchmark_primary_reduce(
     reference_checksum: Float64,
     repeats: Int,
 ) raises -> GpuPrimaryReduceResult:
-    var reduce_blocks = _blocks_for[GPU_LBVH_BLOCK_SIZE](GPU_REDUCE_THREADS)
+    var reduce_blocks = ceildiv(GPU_REDUCE_THREADS, GPU_LBVH_BLOCK_SIZE)
     var best_kernel_ns = Int.MAX
     var best_reduce_ns = Int.MAX
     var best_download_ns = Int.MAX
@@ -295,7 +294,7 @@ def _benchmark_shadow_reduce(
     reference_occluded: Int,
     repeats: Int,
 ) raises -> GpuShadowReduceResult:
-    var reduce_blocks = _blocks_for[GPU_LBVH_BLOCK_SIZE](GPU_REDUCE_THREADS)
+    var reduce_blocks = ceildiv(GPU_REDUCE_THREADS, GPU_LBVH_BLOCK_SIZE)
     var best_kernel_ns = Int.MAX
     var best_reduce_ns = Int.MAX
     var best_download_ns = Int.MAX

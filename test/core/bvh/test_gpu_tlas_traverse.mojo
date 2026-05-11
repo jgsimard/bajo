@@ -256,6 +256,5 @@ def test_gpu_tlas_matches_cpu_tlas_grid() raises:
         assert_true(False, "No Accelerator found")
 
 
-# Keep this last so `run_tests.sh` can discover and run the file directly.
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

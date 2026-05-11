@@ -28,6 +28,25 @@ struct RayAabbHit[dtype: DType, width: Int](TrivialRegisterPassable):
     # var tmax: SIMD[Self.dtype, Self.width]
 
 
+@always_inline
+def diff_product[
+    dtype: DType, width: Int
+](
+    a: SIMD[dtype, width],
+    b: SIMD[dtype, width],
+    c: SIMD[dtype, width],
+    d: SIMD[dtype, width],
+) -> SIMD[dtype, width]:
+    """
+    Computes the difference of products a*b - c*d using
+    FMA instructions for improved numerical precision.
+    """
+    cd = c * d
+    diff = fma(a, b, -cd)
+    error = fma(-c, d, cd)
+    return diff + error
+
+
 # intersection functions
 @always_inline
 def closest_point_to_aabb[
@@ -455,25 +474,6 @@ def intersect_ray_tri_rtcd[
     sign = d
 
     return True
-
-
-@always_inline
-def diff_product[
-    dtype: DType, width: Int
-](
-    a: SIMD[dtype, width],
-    b: SIMD[dtype, width],
-    c: SIMD[dtype, width],
-    d: SIMD[dtype, width],
-) -> SIMD[dtype, width]:
-    """
-    Computes the difference of products a*b - c*d using
-    FMA instructions for improved numerical precision.
-    """
-    cd = c * d
-    diff = fma(a, b, -cd)
-    error = fma(-c, d, cd)
-    return diff + error
 
 
 @always_inline

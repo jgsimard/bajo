@@ -3,7 +3,7 @@ from std.math import abs
 
 from bajo.core.vec import Vec3f32
 from bajo.core.random import Rng
-from bajo.core.intersect import intersect_ray_aabb
+from bajo.core.intersect import intersect_ray_aabb, intersect_ray_tri
 from bajo.core.bvh.build import (
     _partition_fragments,
     _partition_fragments_by_bin,
@@ -319,56 +319,6 @@ def _rng_f32(mut rng: Rng, lo: Float32, hi: Float32) -> Float32:
     return lo + (hi - lo) * rng.f32()
 
 
-@always_inline
-def _brute_intersect_tri(
-    verts: List[Vec3f32],
-    O: Vec3f32,
-    D: Vec3f32,
-    prim_idx: Int,
-) -> Tuple[Bool, Float32]:
-    ref v0 = verts[prim_idx * 3 + 0]
-    ref v1 = verts[prim_idx * 3 + 1]
-    ref v2 = verts[prim_idx * 3 + 2]
-
-    var e1x = v1.x() - v0.x()
-    var e1y = v1.y() - v0.y()
-    var e1z = v1.z() - v0.z()
-    var e2x = v2.x() - v0.x()
-    var e2y = v2.y() - v0.y()
-    var e2z = v2.z() - v0.z()
-
-    var px = D.y() * e2z - D.z() * e2y
-    var py = D.z() * e2x - D.x() * e2z
-    var pz = D.x() * e2y - D.y() * e2x
-    var det = e1x * px + e1y * py + e1z * pz
-
-    if det > -1e-12 and det < 1e-12:
-        return (False, Float32(1e30))
-
-    var inv_det = 1.0 / det
-    var tx = O.x() - v0.x()
-    var ty = O.y() - v0.y()
-    var tz = O.z() - v0.z()
-
-    var u = (tx * px + ty * py + tz * pz) * inv_det
-    if u < 0.0 or u > 1.0:
-        return (False, Float32(1e30))
-
-    var qx = ty * e1z - tz * e1y
-    var qy = tz * e1x - tx * e1z
-    var qz = tx * e1y - ty * e1x
-
-    var v = (D.x() * qx + D.y() * qy + D.z() * qz) * inv_det
-    if v < 0.0 or u + v > 1.0:
-        return (False, Float32(1e30))
-
-    var t = (e2x * qx + e2y * qy + e2z * qz) * inv_det
-    if t > 1e-4:
-        return (True, t)
-
-    return (False, Float32(1e30))
-
-
 def _brute_trace(
     verts: List[Vec3f32],
     O: Vec3f32,
@@ -378,9 +328,30 @@ def _brute_trace(
     var best_prim = UInt32(0xFFFFFFFF)
 
     for i in range(len(verts) / 3):
-        var res = _brute_intersect_tri(verts, O, D, i)
-        var hit = res[0]
-        var t = res[1]
+        # var res = _brute_intersect_tri(verts, O, D, i)
+        ref v0 = verts[i * 3 + 0]
+        ref v1 = verts[i * 3 + 1]
+        ref v2 = verts[i * 3 + 2]
+        var res = intersect_ray_tri(
+            O.x(),
+            O.y(),
+            O.z(),
+            D.x(),
+            D.y(),
+            D.z(),
+            v0.x(),
+            v0.y(),
+            v0.z(),
+            v1.x(),
+            v1.y(),
+            v1.z(),
+            v2.x(),
+            v2.y(),
+            v2.z(),
+            Float32.MAX,
+        )
+        var hit = res.mask
+        var t = res.t
 
         if hit and t < best_t:
             best_t = t

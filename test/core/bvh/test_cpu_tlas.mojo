@@ -313,6 +313,5 @@ def test_tlas_matches_bruteforce_instances() raises:
         assert_almost_equal(tlas_ray.hit.t, brute_ray.hit.t, atol=1.0e-4)
 
 
-# Keep this last so `run_tests.sh` can discover and run the file directly.
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

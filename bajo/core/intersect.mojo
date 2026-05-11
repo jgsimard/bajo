@@ -449,10 +449,13 @@ def intersect_ray_tri_rtcd[
 
 @always_inline
 def diff_product[
-    dtype: DType
+    dtype: DType, width: Int
 ](
-    a: Scalar[dtype], b: Scalar[dtype], c: Scalar[dtype], d: Scalar[dtype]
-) -> Scalar[dtype]:
+    a: SIMD[dtype, width],
+    b: SIMD[dtype, width],
+    c: SIMD[dtype, width],
+    d: SIMD[dtype, width],
+) -> SIMD[dtype, width]:
     """
     Computes the difference of products a*b - c*d using
     FMA instructions for improved numerical precision.

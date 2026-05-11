@@ -12,6 +12,23 @@ from bajo.core.vec import (
 )
 
 
+# Result structs
+@fieldwise_init
+struct RayTriHit[dtype: DType, width: Int](TrivialRegisterPassable):
+    var mask: SIMD[DType.bool, Self.width]
+    var t: SIMD[Self.dtype, Self.width]
+    var u: SIMD[Self.dtype, Self.width]
+    var v: SIMD[Self.dtype, Self.width]
+
+
+@fieldwise_init
+struct RayAabbHit[dtype: DType, width: Int](TrivialRegisterPassable):
+    var mask: SIMD[DType.bool, Self.width]
+    var tmin: SIMD[Self.dtype, Self.width]
+    # var tmax: SIMD[Self.dtype, Self.width]
+
+
+# intersection functions
 def closest_point_to_aabb[
     dtype: DType
 ](p: Vec3[dtype], lower: Vec3[dtype], upper: Vec3[dtype]) -> Vec3[dtype]:
@@ -165,35 +182,53 @@ def intersect_ray_aabb[
 
 
 @always_inline
-def _axis_t_near(o: Float32, rd: Float32, mn: Float32, mx: Float32) -> Float32:
+def _axis_t_near[
+    dtype: DType, width: Int
+](
+    o: SIMD[dtype, width],
+    rd: SIMD[dtype, width],
+    mn: SIMD[dtype, width],
+    mx: SIMD[dtype, width],
+) -> SIMD[dtype, width]:
     var t0 = (mn - o) * rd
     var t1 = (mx - o) * rd
     return min(t0, t1)
 
 
 @always_inline
-def _axis_t_far(o: Float32, rd: Float32, mn: Float32, mx: Float32) -> Float32:
+def _axis_t_far[
+    dtype: DType, width: Int
+](
+    o: SIMD[dtype, width],
+    rd: SIMD[dtype, width],
+    mn: SIMD[dtype, width],
+    mx: SIMD[dtype, width],
+) -> SIMD[dtype, width]:
     var t0 = (mn - o) * rd
     var t1 = (mx - o) * rd
     return max(t0, t1)
 
 
 @always_inline
-def intersect_ray_aabb(
-    ox: Float32,
-    oy: Float32,
-    oz: Float32,
-    rdx: Float32,
-    rdy: Float32,
-    rdz: Float32,
-    bminx: Float32,
-    bminy: Float32,
-    bminz: Float32,
-    bmaxx: Float32,
-    bmaxy: Float32,
-    bmaxz: Float32,
-    t_max: Float32,
-) -> Tuple[Bool, Float32]:
+def intersect_ray_aabb[
+    dtype: DType, width: Int
+](
+    ox: SIMD[dtype, width],
+    oy: SIMD[dtype, width],
+    oz: SIMD[dtype, width],
+    rdx: SIMD[dtype, width],
+    rdy: SIMD[dtype, width],
+    rdz: SIMD[dtype, width],
+    bminx: SIMD[dtype, width],
+    bminy: SIMD[dtype, width],
+    bminz: SIMD[dtype, width],
+    bmaxx: SIMD[dtype, width],
+    bmaxy: SIMD[dtype, width],
+    bmaxz: SIMD[dtype, width],
+    t_max: SIMD[dtype, width],
+) -> RayAabbHit[dtype, width]:
+    comptime assert dtype in [DType.float32, DType.float64]
+
     var tx1 = _axis_t_near(ox, rdx, bminx, bmaxx)
     var tx2 = _axis_t_far(ox, rdx, bminx, bmaxx)
     var ty1 = _axis_t_near(oy, rdy, bminy, bmaxy)
@@ -201,9 +236,12 @@ def intersect_ray_aabb(
     var tz1 = _axis_t_near(oz, rdz, bminz, bmaxz)
     var tz2 = _axis_t_far(oz, rdz, bminz, bmaxz)
 
-    var tmin = max(max(tx1, ty1), max(tz1, Float32(0.0)))
+    var tmin = max(max(tx1, ty1), max(tz1, 0.0))
     var tmax = min(min(tx2, ty2), min(tz2, t_max))
-    return (tmin <= tmax, tmin)
+
+    var mask = tmin.le(tmax)
+
+    return RayAabbHit[dtype, width](mask, tmin)  # , tmax)
 
 
 def intersect_aabb_aabb[
@@ -224,14 +262,6 @@ def intersect_aabb_aabb[
     ):
         return False
     return True
-
-
-@fieldwise_init
-struct RayTriHit[dtype: DType, width: Int](TrivialRegisterPassable):
-    var mask: SIMD[DType.bool, Self.width]
-    var t: SIMD[Self.dtype, Self.width]
-    var u: SIMD[Self.dtype, Self.width]
-    var v: SIMD[Self.dtype, Self.width]
 
 
 @always_inline
@@ -563,7 +593,7 @@ def edge_edge_test[
     d = diff_product(By, Cx, Bx, Cy)
 
     if (f > 0.0 and d >= 0.0 and d <= f) or (f < 0.0 and d <= 0.0 and d >= f):
-        e = Ax * Cy - Ay * Cx
+        e = diff_product(Ax, Cy, Ay, Cx)
         if f > 0.0:
             if e >= 0.0 and e <= f:
                 return True

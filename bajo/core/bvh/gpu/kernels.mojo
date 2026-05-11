@@ -9,7 +9,11 @@ from bajo.core.bvh.gpu.constants import (
     LBVH_INDEX_MASK,
     LBVH_SENTINEL,
 )
-from bajo.core.intersect import intersect_ray_tri, intersect_ray_aabb
+from bajo.core.intersect import (
+    intersect_ray_tri,
+    intersect_ray_aabb,
+    RayAabbHit,
+)
 from bajo.core.morton import morton3
 
 comptime GPU_TRAVERSAL_STACK_SIZE = 64
@@ -424,7 +428,7 @@ def _intersect_child_bounds[
     node_idx: UInt32,
     ray: RayFlat,
     t_max: Float32,
-) -> Tuple[Bool, Float32]:
+) -> RayAabbHit[DType.float32, 1]:
     var b = _node_bounds_base(node_idx) + child_bounds_offset
     return intersect_ray_aabb(
         ray.ox,
@@ -527,10 +531,10 @@ def _trace_lbvh_ray[
             best_t,
         )
 
-        var hit_left = left_hit[0]
-        var hit_right = right_hit[0]
-        var dist_left = left_hit[1]
-        var dist_right = right_hit[1]
+        var hit_left = left_hit.mask
+        var hit_right = right_hit.mask
+        var dist_left = left_hit.tmin
+        var dist_right = right_hit.tmin
 
         if not hit_left and not hit_right:
             if stack_ptr == 0:

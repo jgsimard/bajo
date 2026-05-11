@@ -19,7 +19,11 @@ from bajo.core.bvh.gpu.kernels import (
 )
 from bajo.core.bvh.gpu.utils import _blocks_for
 from bajo.core.bvh.types import RayFlat, Hit
-from bajo.core.intersect import intersect_ray_aabb, intersect_ray_tri
+from bajo.core.intersect import (
+    intersect_ray_aabb,
+    intersect_ray_tri,
+    RayAabbHit,
+)
 
 
 comptime GPU_TLAS_TRAVERSAL_STACK_SIZE = 64
@@ -94,7 +98,7 @@ def _intersect_tlas_node_bounds(
     node_idx: UInt32,
     ray: RayFlat,
     t_max: Float32,
-) -> Tuple[Bool, Float32]:
+) -> RayAabbHit[DType.float32, 1]:
     var b = _tlas_bounds_base(node_idx)
     return intersect_ray_aabb(
         ray.ox,
@@ -263,10 +267,10 @@ def _trace_tlas_lbvh_ray(
             best_hit.t,
         )
 
-        var hit_left = left_hit[0]
-        var hit_right = right_hit[0]
-        var dist_left = left_hit[1]
-        var dist_right = right_hit[1]
+        var hit_left = left_hit.mask
+        var hit_right = right_hit.mask
+        var dist_left = left_hit.tmin
+        var dist_right = right_hit.tmin
 
         if not hit_left and not hit_right:
             if stack_ptr == 0:

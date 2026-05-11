@@ -35,16 +35,6 @@ def _make_single_triangle_verts(z: Float32 = 2.0) -> List[Vec3f32]:
     return verts^
 
 
-def _make_instance(
-    transform: Mat44f32,
-    inv_transform: Mat44f32,
-    blas_idx: UInt32,
-    bmin: Vec3f32,
-    bmax: Vec3f32,
-) -> BvhInstance:
-    return BvhInstance(transform, inv_transform, blas_idx, bmin, bmax)
-
-
 def _bounds_contains(
     outer_min: Vec3f32,
     outer_max: Vec3f32,
@@ -66,8 +56,7 @@ def _bruteforce_instances(
     instances: List[BvhInstance],
     blases: UnsafePointer[BinaryBvh, MutAnyOrigin],
 ):
-    for i in range(len(instances)):
-        ref inst = instances[i]
+    for i, inst in enumerate(instances):
         var local_origin = transform_point(inst.inv_transform, ray.O)
         var local_dir = transform_vector(inst.inv_transform, ray.D)
         var local_ray = Ray(local_origin, local_dir, ray.hit.t)
@@ -83,7 +72,7 @@ def _bruteforce_instances(
 
 
 def test_tlas_instance_bounds_translation() raises:
-    var inst = _make_instance(
+    var inst = BvhInstance(
         _translation(Float32(10.0), 2.0, -3.0),
         _translation(Float32(-10.0), -2.0, 3.0),
         0,
@@ -96,7 +85,7 @@ def test_tlas_instance_bounds_translation() raises:
 
 
 def test_tlas_instance_bounds_uniform_scale() raises:
-    var inst = _make_instance(
+    var inst = BvhInstance(
         _uniform_scale(Float32(2.0)),
         _uniform_scale(Float32(0.5)),
         0,
@@ -110,7 +99,7 @@ def test_tlas_instance_bounds_uniform_scale() raises:
 
 def test_tlas_instance_bounds_rotation_z_90() raises:
     var rad = degrees_to_radians(Float32(90.0))
-    var inst = _make_instance(
+    var inst = BvhInstance(
         _rotation_z(rad),
         _rotation_z(rad).transpose(),
         0,

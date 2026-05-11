@@ -1,6 +1,6 @@
 from std.gpu import DeviceBuffer, thread_idx, block_idx, block_dim
 from std.gpu.host import DeviceContext
-from std.math import abs, sqrt, clamp
+from std.math import abs, sqrt, clamp, ceildiv
 from std.utils.numerics import max_finite
 
 from bajo.core.bvh.gpu.lbvh import GpuLBVH, GPU_LBVH_BLOCK_SIZE
@@ -17,7 +17,6 @@ from bajo.core.bvh.gpu.kernels import (
     _make_camera_ray,
     _normalize3,
 )
-from bajo.core.bvh.gpu.utils import _blocks_for
 from bajo.core.bvh.types import RayFlat, Hit
 from bajo.core.intersect import (
     intersect_ray_aabb,
@@ -366,7 +365,7 @@ def launch_tlas_lbvh_uploaded_primary(
         ray_count,
         blas.root_idx,
         tlas.node_count,
-        grid_dim=_blocks_for[GPU_LBVH_BLOCK_SIZE](ray_count),
+        grid_dim=ceildiv(ray_count, GPU_LBVH_BLOCK_SIZE),
         block_dim=GPU_LBVH_BLOCK_SIZE,
     )
 
@@ -462,7 +461,7 @@ def launch_tlas_lbvh_camera_primary(
         views,
         blas.root_idx,
         tlas.node_count,
-        grid_dim=_blocks_for[GPU_LBVH_BLOCK_SIZE](ray_count),
+        grid_dim=ceildiv(ray_count, GPU_LBVH_BLOCK_SIZE),
         block_dim=GPU_LBVH_BLOCK_SIZE,
     )
 
@@ -583,6 +582,6 @@ def launch_shade_tlas_normals(
         pixel_count,
         width,
         height,
-        grid_dim=_blocks_for[GPU_LBVH_BLOCK_SIZE](pixel_count),
+        grid_dim=ceildiv(pixel_count, GPU_LBVH_BLOCK_SIZE),
         block_dim=GPU_LBVH_BLOCK_SIZE,
     )

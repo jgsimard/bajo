@@ -40,18 +40,17 @@ def copy_list_to_device[
 
 def flatten_rays(rays: List[Ray]) -> List[Float32]:
     var out = List[Float32](capacity=len(rays) * 10)
-    for i in range(len(rays)):
-        ref r = rays[i]
-        out.append(r.O.x())
-        out.append(r.O.y())
-        out.append(r.O.z())
-        out.append(r.D.x())
-        out.append(r.D.y())
-        out.append(r.D.z())
-        out.append(r.rD.x())
-        out.append(r.rD.y())
-        out.append(r.rD.z())
-        out.append(r.hit.t)
+    for ray in rays:
+        out.append(ray.O.x())
+        out.append(ray.O.y())
+        out.append(ray.O.z())
+        out.append(ray.D.x())
+        out.append(ray.D.y())
+        out.append(ray.D.z())
+        out.append(ray.rD.x())
+        out.append(ray.rD.y())
+        out.append(ray.rD.z())
+        out.append(ray.hit.t)
     return out^
 
 

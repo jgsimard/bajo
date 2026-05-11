@@ -328,7 +328,6 @@ def _brute_trace(
     var best_prim = UInt32(0xFFFFFFFF)
 
     for i in range(len(verts) / 3):
-        # var res = _brute_intersect_tri(verts, O, D, i)
         ref v0 = verts[i * 3 + 0]
         ref v1 = verts[i * 3 + 1]
         ref v2 = verts[i * 3 + 2]

@@ -1,12 +1,12 @@
 from std.math import fma, abs, max, clamp
 
-from bajo.core.vec import (
+from bajo.core.vec_simd import (
     Vec2,
     Vec3,
-    Vec3f32,
-    min as vmin,
-    max as vmax,
     dot,
+    vmin,
+    vmax,
+    vclamp,
     cross,
     length,
 )
@@ -14,7 +14,7 @@ from bajo.core.vec import (
 
 # Result structs
 @fieldwise_init
-struct RayTriHit[dtype: DType, width: Int](TrivialRegisterPassable):
+struct RayTriHit[dtype: DType, width: Int](TrivialRegisterPassable, Writable):
     var mask: SIMD[DType.bool, Self.width]
     var t: SIMD[Self.dtype, Self.width]
     var u: SIMD[Self.dtype, Self.width]
@@ -22,7 +22,7 @@ struct RayTriHit[dtype: DType, width: Int](TrivialRegisterPassable):
 
 
 @fieldwise_init
-struct RayAabbHit[dtype: DType, width: Int](TrivialRegisterPassable):
+struct RayAabbHit[dtype: DType, width: Int](TrivialRegisterPassable, Writable):
     var mask: SIMD[DType.bool, Self.width]
     var tmin: SIMD[Self.dtype, Self.width]
     # var tmax: SIMD[Self.dtype, Self.width]
@@ -52,6 +52,17 @@ def diff_product[
 def closest_point_to_aabb[
     dtype: DType, width: Int
 ](
+    p: Vec3[dtype, width],
+    lower: Vec3[dtype, width],
+    upper: Vec3[dtype, width],
+) -> Vec3[dtype, width]:
+    return vclamp(p, lower, upper)
+
+
+@always_inline
+def closest_point_to_aabb[
+    dtype: DType, width: Int
+](
     px: SIMD[dtype, width],
     py: SIMD[dtype, width],
     pz: SIMD[dtype, width],
@@ -73,29 +84,32 @@ def closest_point_to_aabb[
     )
 
 
-@always_inline
-def closest_point_to_aabb[
-    dtype: DType
-](p: Vec3[dtype], lower: Vec3[dtype], upper: Vec3[dtype]) -> Vec3[dtype]:
-    var cx, cy, cz = closest_point_to_aabb(
-        p[0],
-        p[1],
-        p[2],
-        lower[0],
-        lower[1],
-        lower[2],
-        upper[0],
-        upper[1],
-        upper[2],
-    )
-    return Vec3[dtype](cx, cy, cz)
+# @always_inline
+# def closest_point_to_aabb[
+#     dtype: DType
+# ](p: Vec3[dtype], lower: Vec3[dtype], upper: Vec3[dtype]) -> Vec3[dtype]:
+#     var cx, cy, cz = closest_point_to_aabb(
+#         p[0],
+#         p[1],
+#         p[2],
+#         lower[0],
+#         lower[1],
+#         lower[2],
+#         upper[0],
+#         upper[1],
+#         upper[2],
+#     )
+#     return Vec3[dtype](cx, cy, cz)
 
 
 def closest_point_to_triangle[
-    dtype: DType
-](a: Vec3[dtype], b: Vec3[dtype], c: Vec3[dtype], p: Vec3[dtype]) -> Vec2[
-    dtype
-]:
+    dtype: DType, width: Int
+](
+    a: Vec3[dtype, width],
+    b: Vec3[dtype, width],
+    c: Vec3[dtype, width],
+    p: Vec3[dtype, width],
+) -> Vec2[dtype, width]:
     ab = b - a
     ac = c - a
     ap = p - a
@@ -105,14 +119,14 @@ def closest_point_to_triangle[
 
     if d1 <= 0 and d2 <= 0:
         # Vertex A: v=0, w=0, u=1
-        return Vec2[dtype](1, 0)
+        return Vec2[dtype, width](Scalar[dtype](1), 0)
 
     bp = p - b
     d3 = dot(ab, bp)
     d4 = dot(ac, bp)
     if d3 >= 0 and d4 <= d3:
         # Vertex B: v=1, w=0, u=0
-        return Vec2[dtype](0, 1)
+        return Vec2[dtype, width](Scalar[dtype](0), 1)
 
     vc = d1 * d4 - d3 * d2
     if vc <= 0 and d1 >= 0 and d3 <= 0:
@@ -126,7 +140,7 @@ def closest_point_to_triangle[
     d6 = dot(ac, cp)
     if d6 >= 0 and d5 <= d6:
         # Vertex C: v=0, w=1, u=0
-        return Vec2[dtype](0, 0)
+        return Vec2[dtype, width](Scalar[dtype](0), 0)
 
     vb = d5 * d2 - d1 * d6
     if vb <= 0 and d2 >= 0 and d6 <= 0:
@@ -140,7 +154,7 @@ def closest_point_to_triangle[
         # Edge BC
         w = (d4 - d3) / ((d4 - d3) + (d5 - d6))
         v = 1 - w
-        return Vec2[dtype](0, v)
+        return Vec2[dtype](SIMD[dtype, width](0), v)
 
     # Inside Face
     denom = 1 / (va + vb + vc)
@@ -151,10 +165,13 @@ def closest_point_to_triangle[
 
 
 def furthest_point_to_triangle[
-    dtype: DType
-](a: Vec3[dtype], b: Vec3[dtype], c: Vec3[dtype], p: Vec3[dtype]) -> Vec2[
-    dtype
-]:
+    dtype: DType, width: Int
+](
+    a: Vec3[dtype, width],
+    b: Vec3[dtype, width],
+    c: Vec3[dtype, width],
+    p: Vec3[dtype, width],
+) -> Vec2[dtype, width]:
     pa = p - a
     pb = p - b
     pc = p - c
@@ -165,49 +182,49 @@ def furthest_point_to_triangle[
 
     # a is furthest
     if dist_a > dist_b and dist_a > dist_c:
-        return Vec2[dtype](1.0, 0.0)
+        return Vec2[dtype, width](Scalar[dtype](1), 0)
 
     # b is furthest
     if dist_b > dist_c:
-        return Vec2[dtype](0.0, 1.0)
+        return Vec2[dtype, width](Scalar[dtype](0), 1)
 
     #  c is furthest
-    return Vec2[dtype](0.0, 0.0)
+    return Vec2[dtype, width](Scalar[dtype](0), 0)
 
 
-# TODO: use optinal ?
-def intersect_ray_aabb[
-    dtype: DType
-](
-    pos: Vec3[dtype],
-    rcp_dir: Vec3[dtype],
-    lower: Vec3[dtype],
-    upper: Vec3[dtype],
-    mut t: Scalar[dtype],
-) -> Bool:
-    # X axis
-    l1 = (lower[0] - pos[0]) * rcp_dir[0]
-    l2 = (upper[0] - pos[0]) * rcp_dir[0]
-    lmin = min(l1, l2)
-    lmax = max(l1, l2)
+# # TODO: use optinal ?
+# def intersect_ray_aabb[
+#     dtype: DType
+# ](
+#     pos: Vec3[dtype],
+#     rcp_dir: Vec3[dtype],
+#     lower: Vec3[dtype],
+#     upper: Vec3[dtype],
+#     mut t: Scalar[dtype],
+# ) -> Bool:
+#     # X axis
+#     l1 = (lower[0] - pos[0]) * rcp_dir[0]
+#     l2 = (upper[0] - pos[0]) * rcp_dir[0]
+#     lmin = min(l1, l2)
+#     lmax = max(l1, l2)
 
-    # Y axis
-    l1 = (lower[1] - pos[1]) * rcp_dir[1]
-    l2 = (upper[1] - pos[1]) * rcp_dir[1]
-    lmin = max(min(l1, l2), lmin)
-    lmax = min(max(l1, l2), lmax)
+#     # Y axis
+#     l1 = (lower[1] - pos[1]) * rcp_dir[1]
+#     l2 = (upper[1] - pos[1]) * rcp_dir[1]
+#     lmin = max(min(l1, l2), lmin)
+#     lmax = min(max(l1, l2), lmax)
 
-    # Z axis
-    l1 = (lower[2] - pos[2]) * rcp_dir[2]
-    l2 = (upper[2] - pos[2]) * rcp_dir[2]
-    lmin = max(min(l1, l2), lmin)
-    lmax = min(max(l1, l2), lmax)
+#     # Z axis
+#     l1 = (lower[2] - pos[2]) * rcp_dir[2]
+#     l2 = (upper[2] - pos[2]) * rcp_dir[2]
+#     lmin = max(min(l1, l2), lmin)
+#     lmax = min(max(l1, l2), lmax)
 
-    hit = (lmax >= 0.0) and (lmax >= lmin)
-    if hit:
-        t = lmin
+#     hit = (lmax >= 0.0) and (lmax >= lmin)
+#     if hit:
+#         t = lmin
 
-    return hit
+#     return hit
 
 
 @always_inline
@@ -242,6 +259,33 @@ def _axis_t_far[
 def intersect_ray_aabb[
     dtype: DType, width: Int
 ](
+    o: Vec3[dtype, width],
+    rd: Vec3[dtype, width],
+    bmin: Vec3[dtype, width],
+    bmax: Vec3[dtype, width],
+    t_max: SIMD[dtype, width],
+) -> RayAabbHit[dtype, width]:
+    comptime assert dtype in [DType.float32, DType.float64]
+
+    var tx1 = _axis_t_near(o.x, rd.x, bmin.x, bmax.x)
+    var tx2 = _axis_t_far(o.x, rd.x, bmin.x, bmax.x)
+    var ty1 = _axis_t_near(o.y, rd.y, bmin.y, bmax.y)
+    var ty2 = _axis_t_far(o.y, rd.y, bmin.y, bmax.y)
+    var tz1 = _axis_t_near(o.z, rd.z, bmin.z, bmax.z)
+    var tz2 = _axis_t_far(o.z, rd.z, bmin.z, bmax.z)
+
+    var tmin = max(max(tx1, ty1), max(tz1, 0.0))
+    var tmax = min(min(tx2, ty2), min(tz2, t_max))
+
+    var mask = tmin.le(tmax)
+
+    return RayAabbHit(mask, tmin)
+
+
+@always_inline
+def intersect_ray_aabb[
+    dtype: DType, width: Int
+](
     ox: SIMD[dtype, width],
     oy: SIMD[dtype, width],
     oz: SIMD[dtype, width],
@@ -270,27 +314,77 @@ def intersect_ray_aabb[
 
     var mask = tmin.le(tmax)
 
-    return RayAabbHit[dtype, width](mask, tmin)  # , tmax)
+    return RayAabbHit(mask, tmin)
 
 
+@always_inline
 def intersect_aabb_aabb[
-    dtype: DType
+    dtype: DType, width: Int
 ](
-    a_lower: Vec3[dtype],
-    a_upper: Vec3[dtype],
-    b_lower: Vec3[dtype],
-    b_upper: Vec3[dtype],
-) -> Bool:
-    if (
-        a_lower[0] > b_upper[0]
-        or a_lower[1] > b_upper[1]
-        or a_lower[2] > b_upper[2]
-        or a_upper[0] < b_lower[0]
-        or a_upper[1] < b_lower[1]
-        or a_upper[2] < b_lower[2]
-    ):
-        return False
-    return True
+    a_lower: Vec3[dtype, width],
+    a_upper: Vec3[dtype, width],
+    b_lower: Vec3[dtype, width],
+    b_upper: Vec3[dtype, width],
+) -> SIMD[DType.bool, width]:
+    return (
+        a_lower.x.le(b_upper.x)
+        & a_lower.y.le(b_upper.y)
+        & a_lower.z.le(b_upper.z)
+        & a_upper.x.ge(b_lower.x)
+        & a_upper.y.ge(b_lower.y)
+        & a_upper.z.ge(b_lower.z)
+    )
+
+
+@always_inline
+def intersect_ray_tri[
+    dtype: DType, width: Int
+](
+    o: Vec3[dtype, width],
+    d: Vec3[dtype, width],
+    v0: Vec3[dtype, width],
+    v1: Vec3[dtype, width],
+    v2: Vec3[dtype, width],
+    t_max: SIMD[dtype, width],
+    t_min: SIMD[dtype, width] = SIMD[dtype, width](1.0e-4),
+) -> RayTriHit[dtype, width]:
+    """Moller and Trumbore's method."""
+    comptime assert dtype in [DType.float32, DType.float64]
+    comptime EPSILON = Scalar[dtype](1e-8 if dtype == DType.float32 else 1e-16)
+    comptime BVH_INF = SIMD[dtype, width](3.4028234663852886e38)
+
+    var e1 = v1 - v0
+    var e2 = v2 - v0
+
+    var p = cross(d, e2)
+    var det = dot(e1, p)
+
+    var det_ok = det.gt(EPSILON) | det.lt(-EPSILON)
+    var inv_det = Scalar[dtype](1.0) / det
+
+    var tv = o - v0
+    var u = dot(tv, p) * inv_det
+
+    var q = cross(tv, e1)
+    var v = dot(d, q) * inv_det
+    var t = dot(e2, q) * inv_det
+
+    var mask = (
+        det_ok
+        & u.ge(0.0)
+        & u.le(1.0)
+        & v.ge(0.0)
+        & (u + v).le(1.0)
+        & t.gt(t_min)
+        & t.lt(t_max)
+    )
+
+    return RayTriHit[dtype, width](
+        mask,
+        mask.select(t, BVH_INF),
+        u,
+        v,
+    )
 
 
 @always_inline
@@ -414,45 +508,46 @@ def intersect_ray_tri(
 
 @always_inline
 def intersect_ray_tri_rtcd[
-    dtype: DType
+    dtype: DType, width: Int
 ](
-    p: Vec3[dtype],
-    dir: Vec3[dtype],
-    a: Vec3[dtype],
-    b: Vec3[dtype],
-    c: Vec3[dtype],
-    mut t: Scalar[dtype],
-    mut u: Scalar[dtype],
-    mut v: Scalar[dtype],
-    mut w: Scalar[dtype],
-    mut sign: Scalar[dtype],
-    normal: Optional[UnsafePointer[Vec3[dtype], MutAnyOrigin]],
+    p: Vec3[dtype, width],
+    dir: Vec3[dtype, width],
+    a: Vec3[dtype, width],
+    b: Vec3[dtype, width],
+    c: Vec3[dtype, width],
+    mut t: SIMD[dtype, width],
+    mut u: SIMD[dtype, width],
+    mut v: SIMD[dtype, width],
+    mut w: SIMD[dtype, width],
+    mut sign: SIMD[dtype, width],
+    normal: Optional[UnsafePointer[Vec3[dtype, width], MutAnyOrigin]],
 ) -> Bool:
+    comptime assert width == 1
     comptime assert dtype in [DType.float32, DType.float64]
-    comptime EPSILON = Scalar[dtype](1e-8 if dtype == DType.float32 else 1e-16)
 
-    ab = b - a
-    ac = c - a
+    var ab = b - a
+    var ac = c - a
 
-    # calculate normal
-    n = cross(ab, ac)
+    # Calculate normal.
+    var n = cross(ab, ac)
 
-    # need to solve a system of three equations to give t, u, v
-    d = dot(-dir, n)
+    # Need to solve a system of three equations to give t, u, v.
+    var d = dot(-dir, n)
 
-    # if dir is parallel to triangle plane or points away from triangle
+    # If dir is parallel to triangle plane or points away from triangle.
     if d <= 0.0:
         return False
 
-    ap = p - a
+    var ap = p - a
     t = dot(ap, n)
 
-    # ignores tris behind
+    # Ignore tris behind the ray.
     if t < 0.0:
         return False
 
-    # compute barycentric coordinates
-    e = cross(-dir, ap)
+    # Compute barycentric coordinates.
+    var e = cross(-dir, ap)
+
     v = dot(ac, e)
     if v < 0.0 or v > d:
         return False
@@ -461,26 +556,27 @@ def intersect_ray_tri_rtcd[
     if w < 0.0 or (v + w) > d:
         return False
 
-    ood = 1.0 / d
+    var ood = 1.0 / d
     t *= ood
     v *= ood
     w *= ood
     u = 1.0 - v - w
 
-    # optionally write out normal
     if normal:
         normal.unsafe_value()[] = n.copy()
 
     sign = d
-
     return True
 
 
 @always_inline
-def max_dim[dtype: DType](v: Vec3[dtype]) -> Int:
-    x = abs(v[0])
-    y = abs(v[1])
-    z = abs(v[2])
+def max_dim[dtype: DType, width: Int](v: Vec3[dtype, width]) -> Int:
+    comptime assert width == 1
+
+    var x = abs(v.x)
+    var y = abs(v.y)
+    var z = abs(v.z)
+
     if x > y and x > z:
         return 0
     if y > z:
@@ -489,207 +585,243 @@ def max_dim[dtype: DType](v: Vec3[dtype]) -> Int:
 
 
 @always_inline
+def _v3_get[
+    dtype: DType, width: Int
+](v: Vec3[dtype, width], i: Int) -> SIMD[dtype, width]:
+    if i == 0:
+        return v.x
+    if i == 1:
+        return v.y
+    return v.z
+
+
+@always_inline
 def intersect_ray_tri_woop[
-    dtype: DType
+    dtype: DType, width: Int
 ](
-    p: Vec3[dtype],
-    dir: Vec3[dtype],
-    a: Vec3[dtype],
-    b: Vec3[dtype],
-    c: Vec3[dtype],
-    mut t: Scalar[dtype],
-    mut u: Scalar[dtype],
-    mut v: Scalar[dtype],
-    mut sign: Scalar[dtype],
-    normal: Optional[UnsafePointer[Vec3[dtype], MutAnyOrigin]],
+    p: Vec3[dtype, width],
+    dir: Vec3[dtype, width],
+    a: Vec3[dtype, width],
+    b: Vec3[dtype, width],
+    c: Vec3[dtype, width],
+    mut t: SIMD[dtype, width],
+    mut u: SIMD[dtype, width],
+    mut v: SIMD[dtype, width],
+    mut sign: SIMD[dtype, width],
+    normal: Optional[UnsafePointer[Vec3[dtype, width], MutAnyOrigin]],
 ) -> Bool:
     """
-    Woop intersection (water-tight ray-triangle)
-    http://jcgt.org/published/0002/01/05/.
+    Woop intersection, watertight ray-triangle.
     """
-    # precompute dimensions
-    kz = max_dim(dir)
-    kx = kz + 1
+    comptime assert width == 1
+    comptime assert dtype in [DType.float32, DType.float64]
+
+    # Precompute dimensions.
+    var kz = max_dim(dir)
+    var kx = kz + 1
     if kx == 3:
         kx = 0
-    ky = kx + 1
+
+    var ky = kx + 1
     if ky == 3:
         ky = 0
 
-    if dir[kz] < 0.0:
-        tmp = kx
+    if _v3_get(dir, kz) < 0.0:
+        var tmp = kx
         kx = ky
         ky = tmp
 
-    Sx = dir[kx] / dir[kz]
-    Sy = dir[ky] / dir[kz]
-    Sz = 1.0 / dir[kz]
+    var dir_kz = _v3_get(dir, kz)
+    var Sx = _v3_get(dir, kx) / dir_kz
+    var Sy = _v3_get(dir, ky) / dir_kz
+    var Sz = 1.0 / dir_kz
 
-    # transform vertices to ray space
-    A = a - p
-    B = b - p
-    C = c - p
+    # Transform vertices to ray space.
+    var A = a - p
+    var B = b - p
+    var C = c - p
 
-    Ax = A[kx] - Sx * A[kz]
-    Ay = A[ky] - Sy * A[kz]
-    Bx = B[kx] - Sx * B[kz]
-    By = B[ky] - Sy * B[kz]
-    Cx = C[kx] - Sx * C[kz]
-    Cy = C[ky] - Sy * C[kz]
+    var Akz = _v3_get(A, kz)
+    var Bkz = _v3_get(B, kz)
+    var Ckz = _v3_get(C, kz)
 
-    # barycentric coordinates
-    U = diff_product(Cx, By, Cy, Bx)
-    V = diff_product(Ax, Cy, Ay, Cx)
-    W = diff_product(Bx, Ay, By, Ax)
+    var Ax = _v3_get(A, kx) - Sx * Akz
+    var Ay = _v3_get(A, ky) - Sy * Akz
+    var Bx = _v3_get(B, kx) - Sx * Bkz
+    var By = _v3_get(B, ky) - Sy * Bkz
+    var Cx = _v3_get(C, kx) - Sx * Ckz
+    var Cy = _v3_get(C, ky) - Sy * Ckz
 
-    # robustness fallback using Float64
-    comptime if dtype != DType.float64:
-        if U == 0.0 or V == 0.0 or W == 0.0:
-            comptime f64 = Float64
-            U = Scalar[dtype](diff_product(f64(Cx), f64(By), f64(Cy), f64(Bx)))
-            V = Scalar[dtype](diff_product(f64(Ax), f64(Cy), f64(Ay), f64(Cx)))
-            W = Scalar[dtype](diff_product(f64(Bx), f64(Ay), f64(By), f64(Ax)))
+    # Barycentric coordinates.
+    var U = diff_product(Cx, By, Cy, Bx)
+    var V = diff_product(Ax, Cy, Ay, Cx)
+    var W = diff_product(Bx, Ay, By, Ax)
 
-    # edge tests
+    # # Robustness fallback using Float64.
+    # comptime if dtype != DType.float64:
+    #     if U == 0.0 or V == 0.0 or W == 0.0:
+    #         comptime f64 = SIMD[DType.float64, width]
+    #         U = diff_product(f64(Cx), f64(By), f64(Cy), f64(Bx))
+    #         V = diff_product(f64(Ax), f64(Cy), f64(Ay), f64(Cx))
+    #         W = diff_product(f64(Bx), f64(Ay), f64(By), f64(Ax))
+
+    # Edge tests.
     if (U < 0.0 or V < 0.0 or W < 0.0) and (U > 0.0 or V > 0.0 or W > 0.0):
         return False
 
-    det = U + V + W
+    var det = U + V + W
     if det == 0.0:
         return False
 
-    Az = Sz * A[kz]
-    Bz = Sz * B[kz]
-    Cz = Sz * C[kz]
-    T = U * Az + V * Bz + W * Cz
+    var Az = Sz * Akz
+    var Bz = Sz * Bkz
+    var Cz = Sz * Ckz
+    var T = U * Az + V * Bz + W * Cz
 
-    # Sign check
+    # Sign check.
     if T * det < 0.0:
         return False
 
-    rcpDet = 1.0 / det
+    var rcpDet = 1.0 / det
     u = U * rcpDet
     v = V * rcpDet
     t = T * rcpDet
     sign = det
 
     if normal:
-        ab = b - a
-        ac = c - a
-        normal.unsafe_value()[] = cross(ab, ac)
+        normal.unsafe_value()[] = cross(b - a, c - a)
 
     return True
 
 
 @always_inline
 def edge_edge_test[
-    dtype: DType
+    dtype: DType, width: Int
 ](
-    v0: Vec3[dtype],
-    u0: Vec3[dtype],
-    u1: Vec3[dtype],
+    v0: Vec3[dtype, width],
+    u0: Vec3[dtype, width],
+    u1: Vec3[dtype, width],
     i0: Int,
     i1: Int,
-    Ax: Scalar[dtype],
-    Ay: Scalar[dtype],
+    Ax: SIMD[dtype, width],
+    Ay: SIMD[dtype, width],
 ) -> Bool:
-    """
-    This edge to edge test is based on Franlin Antonio's gem:
-    "Faster Line Segment Intersection", in Graphics Gems III,
-    pp. 199-202.
-    """
-    Bx = u0[i0] - u1[i0]
-    By = u0[i1] - u1[i1]
-    Cx = v0[i0] - u0[i0]
-    Cy = v0[i1] - u0[i1]
-    f = diff_product(Ay, Bx, Ax, By)
-    d = diff_product(By, Cx, Bx, Cy)
+    comptime assert width == 1
+
+    var Bx = _v3_get(u0, i0) - _v3_get(u1, i0)
+    var By = _v3_get(u0, i1) - _v3_get(u1, i1)
+    var Cx = _v3_get(v0, i0) - _v3_get(u0, i0)
+    var Cy = _v3_get(v0, i1) - _v3_get(u0, i1)
+
+    var f = diff_product(Ay, Bx, Ax, By)
+    var d = diff_product(By, Cx, Bx, Cy)
 
     if (f > 0.0 and d >= 0.0 and d <= f) or (f < 0.0 and d <= 0.0 and d >= f):
-        e = diff_product(Ax, Cy, Ay, Cx)
+        var e = diff_product(Ax, Cy, Ay, Cx)
+
         if f > 0.0:
             if e >= 0.0 and e <= f:
                 return True
         else:
             if e <= 0.0 and e >= f:
                 return True
+
     return False
 
 
 @always_inline
 def edge_against_tri_edges[
-    dtype: DType
+    dtype: DType, width: Int
 ](
-    v0: Vec3[dtype],
-    v1: Vec3[dtype],
-    u0: Vec3[dtype],
-    u1: Vec3[dtype],
-    u2: Vec3[dtype],
+    v0: Vec3[dtype, width],
+    v1: Vec3[dtype, width],
+    u0: Vec3[dtype, width],
+    u1: Vec3[dtype, width],
+    u2: Vec3[dtype, width],
     i0: Int,
     i1: Int,
 ) -> Bool:
-    Ax = v1[i0] - v0[i0]
-    Ay = v1[i1] - v0[i1]
+    comptime assert width == 1
+
+    var Ax = _v3_get(v1, i0) - _v3_get(v0, i0)
+    var Ay = _v3_get(v1, i1) - _v3_get(v0, i1)
+
     if edge_edge_test(v0, u0, u1, i0, i1, Ax, Ay):
         return True
     if edge_edge_test(v0, u1, u2, i0, i1, Ax, Ay):
         return True
     if edge_edge_test(v0, u2, u0, i0, i1, Ax, Ay):
         return True
+
     return False
+
+
+@always_inline
+def _point_in_tri_check[
+    dtype: DType, width: Int
+](
+    v0: Vec3[dtype, width],
+    p1: Vec3[dtype, width],
+    p2: Vec3[dtype, width],
+    i0: Int,
+    i1: Int,
+) -> SIMD[dtype, width]:
+    var a = _v3_get(p2, i1) - _v3_get(p1, i1)
+    var b = -(_v3_get(p2, i0) - _v3_get(p1, i0))
+    var c = -a * _v3_get(p1, i0) - b * _v3_get(p1, i1)
+    return a * _v3_get(v0, i0) + b * _v3_get(v0, i1) + c
 
 
 @always_inline
 def point_in_tri[
-    dtype: DType
+    dtype: DType, width: Int
 ](
-    v0: Vec3[dtype],
-    u0: Vec3[dtype],
-    u1: Vec3[dtype],
-    u2: Vec3[dtype],
+    v0: Vec3[dtype, width],
+    u0: Vec3[dtype, width],
+    u1: Vec3[dtype, width],
+    u2: Vec3[dtype, width],
     i0: Int,
     i1: Int,
 ) -> Bool:
-    def check(p1: Vec3[dtype], p2: Vec3[dtype]) {read} -> Scalar[dtype]:
-        a = p2[i1] - p1[i1]
-        b = -(p2[i0] - p1[i0])
-        c = -a * p1[i0] - b * p1[i1]
-        return a * v0[i0] + b * v0[i1] + c
+    comptime assert width == 1
 
-    d0 = check(u0, u1)
-    d1 = check(u1, u2)
-    d2 = check(u2, u0)
+    var d0 = _point_in_tri_check(v0, u0, u1, i0, i1)
+    var d1 = _point_in_tri_check(v0, u1, u2, i0, i1)
+    var d2 = _point_in_tri_check(v0, u2, u0, i0, i1)
 
-    if (d0 * d1 > 0.0) and (d0 * d2 > 0.0):
-        return True
-    return False
+    return (d0 * d1 > 0.0) and (d0 * d2 > 0.0)
 
 
 @always_inline
 def coplanar_tri_tri[
-    dtype: DType
+    dtype: DType, width: Int
 ](
-    n: Vec3[dtype],
-    v0: Vec3[dtype],
-    v1: Vec3[dtype],
-    v2: Vec3[dtype],
-    u0: Vec3[dtype],
-    u1: Vec3[dtype],
-    u2: Vec3[dtype],
+    n: Vec3[dtype, width],
+    v0: Vec3[dtype, width],
+    v1: Vec3[dtype, width],
+    v2: Vec3[dtype, width],
+    u0: Vec3[dtype, width],
+    u1: Vec3[dtype, width],
+    u2: Vec3[dtype, width],
 ) -> Bool:
-    a_abs = Vec3[dtype](abs(n[0]), abs(n[1]), abs(n[2]))
-    i0: Int
-    i1: Int
+    comptime assert width == 1
 
-    if a_abs[0] > a_abs[1]:
-        if a_abs[0] > a_abs[2]:
+    var ax = abs(n.x)
+    var ay = abs(n.y)
+    var az = abs(n.z)
+
+    var i0: Int
+    var i1: Int
+
+    if ax > ay:
+        if ax > az:
             i0 = 1
             i1 = 2
         else:
             i0 = 0
             i1 = 1
     else:
-        if a_abs[2] > a_abs[1]:
+        if az > ay:
             i0 = 0
             i1 = 1
         else:
@@ -712,29 +844,30 @@ def coplanar_tri_tri[
 
 
 @fieldwise_init
-struct Intervals[dtype: DType](Movable):
-    var a: Scalar[Self.dtype]
-    var b: Scalar[Self.dtype]
-    var c: Scalar[Self.dtype]
-    var x0: Scalar[Self.dtype]
-    var x1: Scalar[Self.dtype]
+struct Intervals[dtype: DType, width: Int](Movable):
+    var a: SIMD[Self.dtype, Self.width]
+    var b: SIMD[Self.dtype, Self.width]
+    var c: SIMD[Self.dtype, Self.width]
+    var x0: SIMD[Self.dtype, Self.width]
+    var x1: SIMD[Self.dtype, Self.width]
     var is_coplanar: Bool
 
 
 @always_inline
 def get_intervals[
-    dtype: DType
+    dtype: DType, width: Int
 ](
-    vv0: Scalar[dtype],
-    vv1: Scalar[dtype],
-    vv2: Scalar[dtype],
-    d0: Scalar[dtype],
-    d1: Scalar[dtype],
-    d2: Scalar[dtype],
-    d0d1: Scalar[dtype],
-    d0d2: Scalar[dtype],
-) -> Intervals[dtype]:
-    """Returns (a, b, c, x0, x1, is_coplanar)."""
+    vv0: SIMD[dtype, width],
+    vv1: SIMD[dtype, width],
+    vv2: SIMD[dtype, width],
+    d0: SIMD[dtype, width],
+    d1: SIMD[dtype, width],
+    d2: SIMD[dtype, width],
+    d0d1: SIMD[dtype, width],
+    d0d2: SIMD[dtype, width],
+) -> Intervals[dtype, width]:
+    comptime assert width == 1
+
     if d0d1 > 0.0:
         return Intervals(
             vv2,
@@ -744,6 +877,7 @@ def get_intervals[
             d2 - d1,
             False,
         )
+
     if d0d2 > 0.0:
         return Intervals(
             vv1,
@@ -753,6 +887,7 @@ def get_intervals[
             d1 - d2,
             False,
         )
+
     if (d1 * d2 > 0.0) or (d0 != 0.0):
         return Intervals(
             vv0,
@@ -762,6 +897,7 @@ def get_intervals[
             d0 - d2,
             False,
         )
+
     if d1 != 0.0:
         return Intervals(
             vv1,
@@ -771,6 +907,7 @@ def get_intervals[
             d1 - d2,
             False,
         )
+
     if d2 != 0.0:
         return Intervals(
             vv2,
@@ -780,7 +917,15 @@ def get_intervals[
             d2 - d1,
             False,
         )
-    return Intervals(Scalar[dtype](0), 0, 0, 0, 0, True)
+
+    return Intervals(
+        SIMD[dtype, width](0.0),
+        SIMD[dtype, width](0.0),
+        SIMD[dtype, width](0.0),
+        SIMD[dtype, width](0.0),
+        SIMD[dtype, width](0.0),
+        True,
+    )
 
 
 comptime intersect_tri_tri = no_div_tri_tri_isect
@@ -788,27 +933,28 @@ comptime intersect_tri_tri = no_div_tri_tri_isect
 
 @always_inline
 def no_div_tri_tri_isect[
-    dtype: DType
+    dtype: DType, width: Int
 ](
-    v0: Vec3[dtype],
-    v1: Vec3[dtype],
-    v2: Vec3[dtype],
-    u0: Vec3[dtype],
-    u1: Vec3[dtype],
-    u2: Vec3[dtype],
+    v0: Vec3[dtype, width],
+    v1: Vec3[dtype, width],
+    v2: Vec3[dtype, width],
+    u0: Vec3[dtype, width],
+    u1: Vec3[dtype, width],
+    u2: Vec3[dtype, width],
 ) -> Bool:
+    comptime assert width == 1
     comptime EPSILON = 0.000001
 
-    # plane Equation for Tri 1
-    e1 = v1 - v0
-    e2 = v2 - v0
-    n1 = cross(e1, e2)
-    d1_plane = -dot(n1, v0)
+    # Plane equation for tri 1.
+    var e1 = v1 - v0
+    var e2 = v2 - v0
+    var n1 = cross(e1, e2)
+    var d1_plane = -dot(n1, v0)
 
-    # signed distances from Tri 2 to Plane 1
-    du0 = dot(n1, u0) + d1_plane
-    du1 = dot(n1, u1) + d1_plane
-    du2 = dot(n1, u2) + d1_plane
+    # Signed distances from tri 2 to plane 1.
+    var du0 = dot(n1, u0) + d1_plane
+    var du1 = dot(n1, u1) + d1_plane
+    var du2 = dot(n1, u2) + d1_plane
 
     if abs(du0) < EPSILON:
         du0 = 0.0
@@ -820,14 +966,14 @@ def no_div_tri_tri_isect[
     if (du0 * du1 > 0.0) and (du0 * du2 > 0.0):
         return False
 
-    # plane Equation for Tri 2
-    n2 = cross(u1 - u0, u2 - u0)
-    d2_plane = -dot(n2, u0)
+    # Plane equation for tri 2.
+    var n2 = cross(u1 - u0, u2 - u0)
+    var d2_plane = -dot(n2, u0)
 
-    # signed distances from Tri 1 to Plane 2
-    dv0 = dot(n2, v0) + d2_plane
-    dv1 = dot(n2, v1) + d2_plane
-    dv2 = dot(n2, v2) + d2_plane
+    # Signed distances from tri 1 to plane 2.
+    var dv0 = dot(n2, v0) + d2_plane
+    var dv1 = dot(n2, v1) + d2_plane
+    var dv2 = dot(n2, v2) + d2_plane
 
     if abs(dv0) < EPSILON:
         dv0 = 0.0
@@ -839,120 +985,119 @@ def no_div_tri_tri_isect[
     if (dv0 * dv1 > 0.0) and (dv0 * dv2 > 0.0):
         return False
 
-    # projection onto intersection line
-    d_dir = cross(n1, n2)
-    index = max_dim(d_dir)  # Using the helper we wrote earlier
+    # Projection onto intersection line.
+    var d_dir = cross(n1, n2)
+    var index = max_dim(d_dir)
 
-    # compute intervals
-    res1 = get_intervals(
-        v0[index], v1[index], v2[index], dv0, dv1, dv2, dv0 * dv1, dv0 * dv2
+    var res1 = get_intervals(
+        _v3_get(v0, index),
+        _v3_get(v1, index),
+        _v3_get(v2, index),
+        dv0,
+        dv1,
+        dv2,
+        dv0 * dv1,
+        dv0 * dv2,
     )
+
     if res1.is_coplanar:
         return coplanar_tri_tri(n1, v0, v1, v2, u0, u1, u2)
 
-    res2 = get_intervals(
-        u0[index], u1[index], u2[index], du0, du1, du2, du0 * du1, du0 * du2
+    var res2 = get_intervals(
+        _v3_get(u0, index),
+        _v3_get(u1, index),
+        _v3_get(u2, index),
+        du0,
+        du1,
+        du2,
+        du0 * du1,
+        du0 * du2,
     )
+
     if res2.is_coplanar:
         return coplanar_tri_tri(n1, v0, v1, v2, u0, u1, u2)
 
-    # overlap check
-    xx = res1.x0 * res1.x1
-    yy = res2.x0 * res2.x1
-    xxyy = xx * yy
+    # Overlap check.
+    var xx = res1.x0 * res1.x1
+    var yy = res2.x0 * res2.x1
+    var xxyy = xx * yy
 
-    s1_0 = res1.a * xxyy + res1.b * res1.x1 * yy
-    s1_1 = res1.a * xxyy + res1.c * res1.x0 * yy
-    s2_0 = res2.a * xxyy + res2.b * xx * res2.x1
-    s2_1 = res2.a * xxyy + res2.c * xx * res2.x0
+    var s1_0 = res1.a * xxyy + res1.b * res1.x1 * yy
+    var s1_1 = res1.a * xxyy + res1.c * res1.x0 * yy
+    var s2_0 = res2.a * xxyy + res2.b * xx * res2.x1
+    var s2_1 = res2.a * xxyy + res2.c * xx * res2.x0
 
-    @always_inline
-    def _sort[dtype: DType](mut a: Scalar[dtype], mut b: Scalar[dtype]):
-        if a > b:
-            swap(a, b)
+    if s1_0 > s1_1:
+        var tmp = s1_0
+        s1_0 = s1_1
+        s1_1 = tmp
 
-    _sort(s1_0, s1_1)
-    _sort(s2_0, s2_1)
+    if s2_0 > s2_1:
+        var tmp = s2_0
+        s2_0 = s2_1
+        s2_1 = tmp
 
     return not (s1_1 < s2_0 or s2_1 < s1_0)
 
 
 def closest_point_edge_edge[
-    dtype: DType
+    dtype: DType, width: Int
 ](
-    p1: Vec3[dtype],
-    q1: Vec3[dtype],
-    p2: Vec3[dtype],
-    q2: Vec3[dtype],
-    epsilon: Scalar[dtype],
-) -> Vec3[dtype]:
-    """Find the closest points between two edges.
+    p1: Vec3[dtype, width],
+    q1: Vec3[dtype, width],
+    p2: Vec3[dtype, width],
+    q2: Vec3[dtype, width],
+    epsilon: SIMD[dtype, width],
+) -> Vec3[dtype, width]:
+    """Return (s, t, distance) for the closest points between two edges."""
+    comptime assert width == 1
 
-    Args:
-        p1: First point of first edge.
-        q1: Second point of first edge.
-        p2: First point of second edge.
-        q2: Second point of second edge.
-        epsilon: Zero tolerance for determining if points in an edge are degenerate.
+    var d1 = q1 - p1
+    var d2 = q2 - p2
+    var r = p1 - p2
 
-    Returns:
-        Barycentric weights to the points on each edge, as well as the closest distance between the edges.
-        vec3 output containing (s,t,d), where ``s`` in [0,1] is the barycentric weight for the first edge, ``t`` is the barycentric weight for the second edge, and ``d`` is the distance between the two edges at these two closest points.
-    """
-    # direction vectors of each segment/edge
-    d1 = q1 - p1
-    d2 = q2 - p2
-    r = p1 - p2
+    var a = dot(d1, d1)
+    var e = dot(d2, d2)
+    var f = dot(d2, r)
 
-    a = dot(d1, d1)  # squared length of segment s1, always nonnegative
-    e = dot(d2, d2)  # squared length of segment s2, always nonnegative
-    f = dot(d2, r)
+    var s = SIMD[dtype, width](0.0)
+    var t = SIMD[dtype, width](0.0)
+    var dist = length(p2 - p1)
 
-    s = Scalar[dtype](0.0)
-    t = Scalar[dtype](0.0)
-    dist = length(p2 - p1)
-
-    # Check if either or both segments degenerate into points
+    # Both segments degenerate into points.
     if a <= epsilon and e <= epsilon:
-        # both segments degenerate into points
-        return Vec3[dtype](s, t, dist)
+        return Vec3[dtype, width](s, t, dist)
 
     if a <= epsilon:
-        s = Scalar[dtype](0.0)
-        t = Scalar[dtype](f / e)  # s = 0 => t = (b*s + f) / e = f / e
+        s = 0.0
+        t = f / e
     else:
-        c = dot(d1, r)
-        if e <= epsilon:
-            # second segment generates into a point
-            s = clamp(-c / a, 0.0, 1.0)  # t = 0 => s = (b*t-c)/a = -c/a
-            t = Scalar[dtype](0.0)
-        else:
-            # The general nondegenerate case starts here
-            b = dot(d1, d2)
-            denom = a * e - b * b  # always nonnegative
+        var c = dot(d1, r)
 
-            # if segments not parallel, compute closest point on L1 to L2 and
-            # clamp to segment S1. Else pick arbitrary s (here 0)
+        if e <= epsilon:
+            t = 0.0
+            s = clamp(-c / a, 0.0, 1.0)
+        else:
+            var b = dot(d1, d2)
+            var denom = a * e - b * b
+
             if denom != 0.0:
                 s = clamp((b * f - c * e) / denom, 0.0, 1.0)
             else:
                 s = 0.0
 
-            # compute point on L2 closest to S1(s) using
-            # t = dot((p1+d2*s) - p2,d2)/dot(d2,d2) = (b*s+f)/e
             t = (b * s + f) / e
 
-            # if t in [0,1] done. Else clamp t, recompute s for the new value
-            # of t using s = dot((p2+d2*t-p1,d1)/dot(d1,d1) = (t*b - c)/a
-            # and clamp s to [0,1]
             if t < 0.0:
                 t = 0.0
                 s = clamp(-c / a, 0.0, 1.0)
+
             if t > 1.0:
                 t = 1.0
                 s = clamp((b - c) / a, 0.0, 1.0)
 
-    c1 = p1 + (q1 - p1) * s
-    c2 = p2 + (q2 - p2) * t
+    var c1 = p1 + (q1 - p1) * s
+    var c2 = p2 + (q2 - p2) * t
     dist = length(c2 - c1)
-    return Vec3[dtype](s, t, dist)
+
+    return Vec3[dtype, width](s, t, dist)

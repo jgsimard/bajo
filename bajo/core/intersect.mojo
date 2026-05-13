@@ -3,7 +3,6 @@ from std.math import fma, abs, max, clamp
 from bajo.core.vec import (
     Vec2,
     Vec3,
-    Vec3f32,
     dot,
     vmin,
     vmax,
@@ -325,13 +324,15 @@ def intersect_ray_tri[
 
 
 @always_inline
-def intersect_ray_tri(
-    vertices: UnsafePointer[Float32, MutAnyOrigin],
+def intersect_ray_tri[
+    dtype: DType
+](
+    vertices: UnsafePointer[Scalar[dtype], MutAnyOrigin],
     prim_idx: UInt32,
-    o: Vec3f32,
-    d: Vec3f32,
-    t_max: Float32,
-) -> RayTriHit[DType.float32, 1]:
+    o: Vec3[dtype],
+    d: Vec3[dtype],
+    t_max: Scalar[dtype],
+) -> RayTriHit[dtype, 1]:
     var base = Int(prim_idx) * 9
     var v0x = vertices[base + 0]
     var v0y = vertices[base + 1]
@@ -346,9 +347,9 @@ def intersect_ray_tri(
     return intersect_ray_tri(
         o,
         d,
-        Vec3f32(v0x, v0y, v0z),
-        Vec3f32(v1x, v1y, v1z),
-        Vec3f32(v2x, v2y, v2z),
+        Vec3[dtype](v0x, v0y, v0z),
+        Vec3[dtype](v1x, v1y, v1z),
+        Vec3[dtype](v2x, v2y, v2z),
         t_max,
     )
 

@@ -65,49 +65,6 @@ def closest_point_to_aabb[
     return vclamp(p, lower, upper)
 
 
-@always_inline
-def closest_point_to_aabb[
-    dtype: DType, width: Int
-](
-    px: SIMD[dtype, width],
-    py: SIMD[dtype, width],
-    pz: SIMD[dtype, width],
-    lowerx: SIMD[dtype, width],
-    lowery: SIMD[dtype, width],
-    lowerz: SIMD[dtype, width],
-    upperx: SIMD[dtype, width],
-    uppery: SIMD[dtype, width],
-    upperz: SIMD[dtype, width],
-) -> Tuple[
-    SIMD[dtype, width],
-    SIMD[dtype, width],
-    SIMD[dtype, width],
-]:
-    return (
-        clamp(px, lowerx, upperx),
-        clamp(py, lowery, uppery),
-        clamp(pz, lowerz, upperz),
-    )
-
-
-# @always_inline
-# def closest_point_to_aabb[
-#     dtype: DType
-# ](p: Vec3[dtype], lower: Vec3[dtype], upper: Vec3[dtype]) -> Vec3[dtype]:
-#     var cx, cy, cz = closest_point_to_aabb(
-#         p[0],
-#         p[1],
-#         p[2],
-#         lower[0],
-#         lower[1],
-#         lower[2],
-#         upper[0],
-#         upper[1],
-#         upper[2],
-#     )
-#     return Vec3[dtype](cx, cy, cz)
-
-
 def closest_point_to_triangle[
     dtype: DType, width: Int
 ](

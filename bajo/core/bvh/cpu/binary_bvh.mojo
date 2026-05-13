@@ -100,12 +100,8 @@ struct BinaryBvh(Copyable):
         comptime if split_method == "median":
             var extent = node.aabb._max - node.aabb._min
             axis = longest_axis(extent)
-            if axis == 0:
-                pos = node.aabb._min.x + extent.x * 0.5
-            elif axis == 1:
-                pos = node.aabb._min.y + extent.y * 0.5
-            else:
-                pos = node.aabb._min.z + extent.z * 0.5
+            pos = node.aabb._min[axis] + extent[axis] * 0.5
+
         elif split_method == "sah":
             var split = _sah(
                 node,
@@ -123,12 +119,7 @@ struct BinaryBvh(Copyable):
                     # Force a spatial median split to keep breaking the node down.
                     var extent = node.aabb._max - node.aabb._min
                     axis = longest_axis(extent)
-                    if axis == 0:
-                        pos = node.aabb._min.x + extent.x * 0.5
-                    elif axis == 1:
-                        pos = node.aabb._min.y + extent.y * 0.5
-                    else:
-                        pos = node.aabb._min.z + extent.z * 0.5
+                    pos = node.aabb._min[axis] + extent[axis] * 0.5
                 else:
                     return None  # Safely make a leaf.
             else:

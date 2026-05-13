@@ -192,13 +192,7 @@ struct Tlas(Copyable):
 
         var extent = node.aabb._max - node.aabb._min
         var axis = longest_axis(extent)
-        var split_pos: Float32
-        if axis == 0:
-            split_pos = node.aabb._min.x + extent.x * 0.5
-        elif axis == 1:
-            split_pos = node.aabb._min.y + extent.y * 0.5
-        else:
-            split_pos = node.aabb._min.z + extent.z * 0.5
+        var split_pos = node.aabb._min[axis] + extent[axis] * 0.5
 
         var i = Int(node.left_first)
         var j = i + Int(node.tri_count) - 1

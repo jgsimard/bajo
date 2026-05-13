@@ -432,18 +432,10 @@ def _intersect_child_bounds[
 ) -> RayAabbHit[DType.float32, 1]:
     var b = _node_bounds_base(node_idx) + child_bounds_offset
     return intersect_ray_aabb(
-        ray.o.x,
-        ray.o.y,
-        ray.o.z,
-        ray.rd.x,
-        ray.rd.y,
-        ray.rd.z,
-        node_bounds[b + 0],
-        node_bounds[b + 1],
-        node_bounds[b + 2],
-        node_bounds[b + 3],
-        node_bounds[b + 4],
-        node_bounds[b + 5],
+        ray.o,
+        ray.rd,
+        Vec3f32(node_bounds[b + 0], node_bounds[b + 1], node_bounds[b + 2]),
+        Vec3f32(node_bounds[b + 3], node_bounds[b + 4], node_bounds[b + 5]),
         t_max,
     )
 

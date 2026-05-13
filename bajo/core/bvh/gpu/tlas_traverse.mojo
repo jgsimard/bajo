@@ -101,18 +101,10 @@ def _intersect_tlas_node_bounds(
 ) -> RayAabbHit[DType.float32, 1]:
     var b = _tlas_bounds_base(node_idx)
     return intersect_ray_aabb(
-        ray.o.x,
-        ray.o.y,
-        ray.o.z,
-        ray.rd.x,
-        ray.rd.y,
-        ray.rd.z,
-        node_bounds[b + 0],
-        node_bounds[b + 1],
-        node_bounds[b + 2],
-        node_bounds[b + 3],
-        node_bounds[b + 4],
-        node_bounds[b + 5],
+        ray.o,
+        ray.rd,
+        Vec3f32(node_bounds[b + 0], node_bounds[b + 1], node_bounds[b + 2]),
+        Vec3f32(node_bounds[b + 3], node_bounds[b + 4], node_bounds[b + 5]),
         t_max,
     )
 
@@ -131,14 +123,15 @@ def _inst_meta_base(inst_idx: UInt32) -> Int:
 def _transform_point_flat(
     m: UnsafePointer[Float32, MutAnyOrigin],
     base: Int,
-    x: Float32,
-    y: Float32,
-    z: Float32,
-) -> Tuple[Float32, Float32, Float32]:
-    return (
-        m[base + 0] * x + m[base + 1] * y + m[base + 2] * z + m[base + 3],
-        m[base + 4] * x + m[base + 5] * y + m[base + 6] * z + m[base + 7],
-        m[base + 8] * x + m[base + 9] * y + m[base + 10] * z + m[base + 11],
+    p: Vec3f32,
+) -> Vec3f32:
+    return Vec3f32(
+        m[base + 0] * p.x + m[base + 1] * p.y + m[base + 2] * p.z + m[base + 3],
+        m[base + 4] * p.x + m[base + 5] * p.y + m[base + 6] * p.z + m[base + 7],
+        m[base + 8] * p.x
+        + m[base + 9] * p.y
+        + m[base + 10] * p.z
+        + m[base + 11],
     )
 
 
@@ -146,14 +139,12 @@ def _transform_point_flat(
 def _transform_vector_flat(
     m: UnsafePointer[Float32, MutAnyOrigin],
     base: Int,
-    x: Float32,
-    y: Float32,
-    z: Float32,
-) -> Tuple[Float32, Float32, Float32]:
-    return (
-        m[base + 0] * x + m[base + 1] * y + m[base + 2] * z,
-        m[base + 4] * x + m[base + 5] * y + m[base + 6] * z,
-        m[base + 8] * x + m[base + 9] * y + m[base + 10] * z,
+    p: Vec3f32,
+) -> Vec3f32:
+    return Vec3f32(
+        m[base + 0] * p.x + m[base + 1] * p.y + m[base + 2] * p.z,
+        m[base + 4] * p.x + m[base + 5] * p.y + m[base + 6] * p.z,
+        m[base + 8] * p.x + m[base + 9] * p.y + m[base + 10] * p.z,
     )
 
 
@@ -165,16 +156,12 @@ def _make_local_ray(
     t_max: Float32,
 ) -> RayFlat:
     var base = _inst_inv_base(inst_idx)
-    var o = _transform_point_flat(
-        inv_transform, base, ray.o.x, ray.o.y, ray.o.z
-    )
-    var d = _transform_vector_flat(
-        inv_transform, base, ray.d.x, ray.d.y, ray.d.z
-    )
+    var o = _transform_point_flat(inv_transform, base, ray.o)
+    var d = _transform_vector_flat(inv_transform, base, ray.d)
 
     return RayFlat(
-        Vec3f32(o[0], o[1], o[2]),
-        Vec3f32(d[0], d[1], d[2]),
+        o,
+        d,
         Vec3f32(_safe_rcp(d[0]), _safe_rcp(d[1]), _safe_rcp(d[2])),
         t_max,
     )
@@ -550,9 +537,7 @@ def shade_tlas_normals_kernel(
     var wn = _transform_vector_flat(
         tlas_inst_transform,
         base,
-        ln[0],
-        ln[1],
-        ln[2],
+        Vec3f32(ln[0], ln[1], ln[2]),
     )
     var nn = _normalize3(wn[0], wn[1], wn[2])
 

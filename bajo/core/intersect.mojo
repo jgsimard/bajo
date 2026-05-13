@@ -289,41 +289,6 @@ def intersect_ray_aabb[
 
 
 @always_inline
-def intersect_ray_aabb[
-    dtype: DType, width: Int
-](
-    ox: SIMD[dtype, width],
-    oy: SIMD[dtype, width],
-    oz: SIMD[dtype, width],
-    rdx: SIMD[dtype, width],
-    rdy: SIMD[dtype, width],
-    rdz: SIMD[dtype, width],
-    bminx: SIMD[dtype, width],
-    bminy: SIMD[dtype, width],
-    bminz: SIMD[dtype, width],
-    bmaxx: SIMD[dtype, width],
-    bmaxy: SIMD[dtype, width],
-    bmaxz: SIMD[dtype, width],
-    t_max: SIMD[dtype, width],
-) -> RayAabbHit[dtype, width]:
-    comptime assert dtype in [DType.float32, DType.float64]
-
-    var tx1 = _axis_t_near(ox, rdx, bminx, bmaxx)
-    var tx2 = _axis_t_far(ox, rdx, bminx, bmaxx)
-    var ty1 = _axis_t_near(oy, rdy, bminy, bmaxy)
-    var ty2 = _axis_t_far(oy, rdy, bminy, bmaxy)
-    var tz1 = _axis_t_near(oz, rdz, bminz, bmaxz)
-    var tz2 = _axis_t_far(oz, rdz, bminz, bmaxz)
-
-    var tmin = max(max(tx1, ty1), max(tz1, 0.0))
-    var tmax = min(min(tx2, ty2), min(tz2, t_max))
-
-    var mask = tmin.le(tmax)
-
-    return RayAabbHit(mask, tmin)
-
-
-@always_inline
 def intersect_aabb_aabb[
     dtype: DType, width: Int
 ](

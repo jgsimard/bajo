@@ -286,37 +286,23 @@ struct BinaryBvh(Copyable):
         if self.tri_count == 0:
             return
 
-        var centroid_min = Vec3f32(f32_max, f32_max, f32_max)
-        var centroid_max = Vec3f32(f32_min, f32_min, f32_min)
+        var centroid_min = Vec3f32(f32_max)
+        var centroid_max = Vec3f32(f32_min)
 
         for i in range(Int(self.tri_count)):
             ref frag = self.fragments[i]
-            var c = Vec3f32(
-                frag.center_axis(0),
-                frag.center_axis(1),
-                frag.center_axis(2),
-            )
+            var c = frag.center()
             centroid_min = vmin(centroid_min, c)
             centroid_max = vmax(centroid_max, c)
 
         var extent = centroid_max - centroid_min
-        var inv_x = Float32(0.0)
-        var inv_y = Float32(0.0)
-        var inv_z = Float32(0.0)
-        if extent.x > 1.0e-20:
-            inv_x = 1.0 / extent.x
-        if extent.y > 1.0e-20:
-            inv_y = 1.0 / extent.y
-        if extent.z > 1.0e-20:
-            inv_z = 1.0 / extent.z
+        var inv = extent.safe_inv()
 
         var pairs = List[MortonPrim](capacity=Int(self.tri_count))
         for i in range(Int(self.tri_count)):
             ref frag = self.fragments[i]
-            var x = (frag.center_axis(0) - centroid_min.x) * inv_x
-            var y = (frag.center_axis(1) - centroid_min.y) * inv_y
-            var z = (frag.center_axis(2) - centroid_min.z) * inv_z
-            var code = morton3(x, y, z)
+            var xyz = (frag.center() - centroid_min) * inv
+            var code = morton3(xyz.x, xyz.y, xyz.z)
             pairs.append(MortonPrim(code, UInt32(i)))
 
         span = Span(pairs)

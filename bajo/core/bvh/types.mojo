@@ -137,6 +137,9 @@ struct Fragment(Copyable):
     def center_axis(self, axis: Int) -> Float32:
         return (self.bmin[axis] + self.bmax[axis]) * 0.5
 
+    def center(self) -> Vec3f32:
+        return (self.bmin + self.bmax) * 0.5
+
     @always_inline
     def grow_into(self, mut aabb: AABB):
         aabb._min = vmin(aabb._min, self.bmin)

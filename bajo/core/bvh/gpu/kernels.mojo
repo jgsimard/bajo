@@ -15,7 +15,7 @@ from bajo.core.intersect import (
     RayAabbHit,
 )
 from bajo.core.morton import morton3
-from bajo.core.vec import Vec3f32, normalize
+from bajo.core.vec import Vec3f32, normalize, vmin, vmax
 
 comptime GPU_TRAVERSAL_STACK_SIZE = 64
 comptime GPU_REDUCE_THREADS = 4096
@@ -130,40 +130,24 @@ def compute_morton_codes_kernel(
     keys: UnsafePointer[UInt32, MutAnyOrigin],
     values: UnsafePointer[UInt32, MutAnyOrigin],
     tri_count: Int,
-    cmin_x: Float32,
-    cmin_y: Float32,
-    cmin_z: Float32,
-    inv_extent_x: Float32,
-    inv_extent_y: Float32,
-    inv_extent_z: Float32,
+    cmin: Vec3f32,
+    inv_extent: Vec3f32,
 ):
     var i = global_idx.x
     if i >= tri_count:
         return
 
     var base = i * 9
-    var v0x = vertices[base + 0]
-    var v0y = vertices[base + 1]
-    var v0z = vertices[base + 2]
-    var v1x = vertices[base + 3]
-    var v1y = vertices[base + 4]
-    var v1z = vertices[base + 5]
-    var v2x = vertices[base + 6]
-    var v2y = vertices[base + 7]
-    var v2z = vertices[base + 8]
+    var v0 = Vec3f32(vertices[base + 0], vertices[base + 1], vertices[base + 2])
+    var v1 = Vec3f32(vertices[base + 3], vertices[base + 4], vertices[base + 5])
+    var v2 = Vec3f32(vertices[base + 6], vertices[base + 7], vertices[base + 8])
 
-    var bmin_x = min(min(v0x, v1x), v2x)
-    var bmin_y = min(min(v0y, v1y), v2y)
-    var bmin_z = min(min(v0z, v1z), v2z)
-    var bmax_x = max(max(v0x, v1x), v2x)
-    var bmax_y = max(max(v0y, v1y), v2y)
-    var bmax_z = max(max(v0z, v1z), v2z)
+    var bmin = vmin(vmin(v0, v1), v2)
+    var bmax = vmax(vmax(v0, v1), v2)
 
-    var cx = ((bmin_x + bmax_x) * 0.5 - cmin_x) * inv_extent_x
-    var cy = ((bmin_y + bmax_y) * 0.5 - cmin_y) * inv_extent_y
-    var cz = ((bmin_z + bmax_z) * 0.5 - cmin_z) * inv_extent_z
+    var c = ((bmin + bmax) * 0.5 - cmin) * inv_extent
 
-    keys[i] = morton3(cx, cy, cz)
+    keys[i] = morton3(c.x, c.y, c.z)
     values[i] = UInt32(i)
 
 
@@ -281,8 +265,6 @@ def build_lbvh_topology_kernel(
 # parent child slot, then uses an atomic flag to let the second arriving child
 # merge and propagate the internal-node bounds upward.
 # -----------------------------------------------------------------------------
-
-
 def init_lbvh_bounds_kernel(
     node_bounds: UnsafePointer[Float32, MutAnyOrigin],
     node_flags: UnsafePointer[UInt32, MutAnyOrigin],

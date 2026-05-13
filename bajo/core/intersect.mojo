@@ -126,14 +126,14 @@ def closest_point_to_triangle[
 
     if d1 <= 0 and d2 <= 0:
         # Vertex A: v=0, w=0, u=1
-        return Vec2[dtype, width](Scalar[dtype](1), 0)
+        return Vec2[dtype, width](1, 0)
 
     bp = p - b
     d3 = dot(ab, bp)
     d4 = dot(ac, bp)
     if d3 >= 0 and d4 <= d3:
         # Vertex B: v=1, w=0, u=0
-        return Vec2[dtype, width](Scalar[dtype](0), 1)
+        return Vec2[dtype, width](0, 1)
 
     vc = d1 * d4 - d3 * d2
     if vc <= 0 and d1 >= 0 and d3 <= 0:
@@ -147,7 +147,7 @@ def closest_point_to_triangle[
     d6 = dot(ac, cp)
     if d6 >= 0 and d5 <= d6:
         # Vertex C: v=0, w=1, u=0
-        return Vec2[dtype, width](SIMD[dtype, width](0), 0)
+        return Vec2[dtype, width](0, 0)
 
     vb = d5 * d2 - d1 * d6
     if vb <= 0 and d2 >= 0 and d6 <= 0:
@@ -161,7 +161,7 @@ def closest_point_to_triangle[
         # Edge BC
         w = (d4 - d3) / ((d4 - d3) + (d5 - d6))
         v = 1 - w
-        return Vec2[dtype, width](SIMD[dtype, width](0), v)
+        return Vec2[dtype, width](0, v)
 
     # Inside Face
     denom = 1 / (va + vb + vc)
@@ -189,14 +189,14 @@ def furthest_point_to_triangle[
 
     # a is furthest
     if dist_a > dist_b and dist_a > dist_c:
-        return Vec2[dtype, width](Scalar[dtype](1), 0)
+        return Vec2[dtype, width](1, 0)
 
     # b is furthest
     if dist_b > dist_c:
-        return Vec2[dtype, width](Scalar[dtype](0), 1)
+        return Vec2[dtype, width](0, 1)
 
     #  c is furthest
-    return Vec2[dtype, width](Scalar[dtype](0), 0)
+    return Vec2[dtype, width](0, 0)
 
 
 @always_inline

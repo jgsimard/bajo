@@ -13,8 +13,6 @@ from bajo.core.bvh.types import (
     MortonPrim,
 )
 
-comptime f32_max = max_finite[DType.float32]()
-comptime f32_min = min_finite[DType.float32]()
 comptime BVH_BINS = 16
 
 
@@ -96,8 +94,8 @@ def _sah(
     var best = SplitResult()
 
     for axis in range(3):
-        var min_c = f32_max
-        var max_c = f32_min
+        var min_c = max_finite[DType.float32]()
+        var max_c = min_finite[DType.float32]()
 
         # 1. Find centroid range for this node/axis.
         for i in range(Int(node.tri_count)):
@@ -133,7 +131,7 @@ def _sah(
             left_sum += bins[i].tri_count
             left_counts[i] = left_sum
             left_box.grow(bins[i].bounds)
-            left_bounds[i] = left_box.copy()
+            left_bounds[i] = left_box
             left_areas[i] = left_box.surface_area()
 
         # 4. Right sweep + split cost.
@@ -161,8 +159,8 @@ def _sah(
                 best.cost = cost
                 best.bin_min = min_c
                 best.bin_scale = scale
-                best.left_bounds = left_bounds[i - 1].copy()
-                best.right_bounds = right_box.copy()
+                best.left_bounds = left_bounds[i - 1]
+                best.right_bounds = right_box
 
     return best^
 

@@ -36,8 +36,8 @@ struct Ray(Copyable, Writable):
     var hit: Intersection
 
     def __init__(out self, O: Vec3f32, D: Vec3f32, t_max: Float32 = f32_max):
-        self.O = O.copy()
-        self.D = D.copy()
+        self.O = O
+        self.D = D
         var rDx = clamp(Float32(1.0) / D.x, f32_min, f32_max)
         var rDy = clamp(Float32(1.0) / D.y, f32_min, f32_max)
         var rDz = clamp(Float32(1.0) / D.z, f32_min, f32_max)
@@ -49,30 +49,24 @@ struct Ray(Copyable, Writable):
 
 @fieldwise_init
 struct RayFlat(TrivialRegisterPassable):
-    var ox: Float32
-    var oy: Float32
-    var oz: Float32
-    var dx: Float32
-    var dy: Float32
-    var dz: Float32
-    var rdx: Float32
-    var rdy: Float32
-    var rdz: Float32
+    var o: Vec3f32
+    var d: Vec3f32
+    var rd: Vec3f32
     var t_max: Float32
 
     def __init__(
         out self, rays: UnsafePointer[Float32, ImmutAnyOrigin], ray_idx: Int
     ):
         var ray_base = ray_idx * 10
-        self.ox = rays[ray_base + 0]
-        self.oy = rays[ray_base + 1]
-        self.oz = rays[ray_base + 2]
-        self.dx = rays[ray_base + 3]
-        self.dy = rays[ray_base + 4]
-        self.dz = rays[ray_base + 5]
-        self.rdx = rays[ray_base + 6]
-        self.rdy = rays[ray_base + 7]
-        self.rdz = rays[ray_base + 8]
+        self.o = Vec3f32(
+            rays[ray_base + 0], rays[ray_base + 1], rays[ray_base + 2]
+        )
+        self.d = Vec3f32(
+            rays[ray_base + 3], rays[ray_base + 4], rays[ray_base + 5]
+        )
+        self.rd = Vec3f32(
+            rays[ray_base + 6], rays[ray_base + 7], rays[ray_base + 8]
+        )
         self.t_max = rays[ray_base + 9]
 
 

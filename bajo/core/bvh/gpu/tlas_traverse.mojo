@@ -23,6 +23,7 @@ from bajo.core.intersect import (
     intersect_ray_tri,
     RayAabbHit,
 )
+from bajo.core.vec import Vec3f32
 
 
 comptime GPU_TLAS_TRAVERSAL_STACK_SIZE = 64
@@ -100,12 +101,12 @@ def _intersect_tlas_node_bounds(
 ) -> RayAabbHit[DType.float32, 1]:
     var b = _tlas_bounds_base(node_idx)
     return intersect_ray_aabb(
-        ray.ox,
-        ray.oy,
-        ray.oz,
-        ray.rdx,
-        ray.rdy,
-        ray.rdz,
+        ray.o.x,
+        ray.o.y,
+        ray.o.z,
+        ray.rd.x,
+        ray.rd.y,
+        ray.rd.z,
         node_bounds[b + 0],
         node_bounds[b + 1],
         node_bounds[b + 2],
@@ -164,19 +165,17 @@ def _make_local_ray(
     t_max: Float32,
 ) -> RayFlat:
     var base = _inst_inv_base(inst_idx)
-    var o = _transform_point_flat(inv_transform, base, ray.ox, ray.oy, ray.oz)
-    var d = _transform_vector_flat(inv_transform, base, ray.dx, ray.dy, ray.dz)
+    var o = _transform_point_flat(
+        inv_transform, base, ray.o.x, ray.o.y, ray.o.z
+    )
+    var d = _transform_vector_flat(
+        inv_transform, base, ray.d.x, ray.d.y, ray.d.z
+    )
 
     return RayFlat(
-        o[0],
-        o[1],
-        o[2],
-        d[0],
-        d[1],
-        d[2],
-        _safe_rcp(d[0]),
-        _safe_rcp(d[1]),
-        _safe_rcp(d[2]),
+        Vec3f32(o[0], o[1], o[2]),
+        Vec3f32(d[0], d[1], d[2]),
+        Vec3f32(_safe_rcp(d[0]), _safe_rcp(d[1]), _safe_rcp(d[2])),
         t_max,
     )
 

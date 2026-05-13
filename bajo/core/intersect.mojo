@@ -569,7 +569,7 @@ def intersect_ray_tri_rtcd[
     u = 1.0 - v - w
 
     if normal:
-        normal.unsafe_value()[] = n.copy()
+        normal.unsafe_value()[] = n
 
     sign = d
     return True

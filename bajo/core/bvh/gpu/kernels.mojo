@@ -15,6 +15,7 @@ from bajo.core.intersect import (
     RayAabbHit,
 )
 from bajo.core.morton import morton3
+from bajo.core.vec import Vec3f32
 
 comptime GPU_TRAVERSAL_STACK_SIZE = 64
 comptime GPU_REDUCE_THREADS = 4096
@@ -431,12 +432,12 @@ def _intersect_child_bounds[
 ) -> RayAabbHit[DType.float32, 1]:
     var b = _node_bounds_base(node_idx) + child_bounds_offset
     return intersect_ray_aabb(
-        ray.ox,
-        ray.oy,
-        ray.oz,
-        ray.rdx,
-        ray.rdy,
-        ray.rdz,
+        ray.o.x,
+        ray.o.y,
+        ray.o.z,
+        ray.rd.x,
+        ray.rd.y,
+        ray.rd.z,
         node_bounds[b + 0],
         node_bounds[b + 1],
         node_bounds[b + 2],
@@ -481,12 +482,12 @@ def _trace_lbvh_ray[
             var tri_hit = intersect_ray_tri(
                 vertices,
                 prim_idx,
-                ray.ox,
-                ray.oy,
-                ray.oz,
-                ray.dx,
-                ray.dy,
-                ray.dz,
+                ray.o.x,
+                ray.o.y,
+                ray.o.z,
+                ray.d.x,
+                ray.d.y,
+                ray.d.z,
                 best_t,
             )
 
@@ -675,15 +676,9 @@ def _make_camera_ray(
     var dz = nd[2]
 
     return RayFlat(
-        ox,
-        oy,
-        oz,
-        dx,
-        dy,
-        dz,
-        Float32(1.0) / dx,
-        Float32(1.0) / dy,
-        Float32(1.0) / dz,
+        Vec3f32(ox, oy, oz),
+        Vec3f32(dx, dy, dz),
+        Vec3f32(Float32(1.0) / dx, Float32(1.0) / dy, Float32(1.0) / dz),
         _gpu_inf_t,
     )
 

@@ -26,6 +26,6 @@ bench_all = { depends-on = [
 example_lbvh = { cmd = "mojo -I . examples/lbvh_normals.mojo", depends-on = ["download_assets"] }
 
 [dependencies]
-mojo = ">=1.0.0b2.dev2026051106,<2"
-max = ">=26.4.0.dev2026051106,<27"
+mojo = ">=1.0.0b2.dev2026051306,<2"
+max = ">=26.4.0.dev2026051306,<27"
 python = ">=3.14.4,<3.15"

@@ -73,6 +73,7 @@ def closest_point_to_triangle[
     c: Vec3[dtype, width],
     p: Vec3[dtype, width],
 ) -> Vec2[dtype, width]:
+    comptime assert width == 1, "current limitation :("
     ab = b - a
     ac = c - a
     ap = p - a
@@ -135,6 +136,8 @@ def furthest_point_to_triangle[
     c: Vec3[dtype, width],
     p: Vec3[dtype, width],
 ) -> Vec2[dtype, width]:
+    comptime assert width == 1, "current limitation :("
+
     pa = p - a
     pb = p - b
     pc = p - c
@@ -390,17 +393,6 @@ def max_dim[dtype: DType, width: Int](v: Vec3[dtype, width]) -> Int:
 
 
 @always_inline
-def _v3_get[
-    dtype: DType, width: Int
-](v: Vec3[dtype, width], i: Int) -> SIMD[dtype, width]:
-    if i == 0:
-        return v.x
-    if i == 1:
-        return v.y
-    return v.z
-
-
-@always_inline
 def intersect_ray_tri_woop[
     dtype: DType, width: Int
 ](
@@ -431,14 +423,14 @@ def intersect_ray_tri_woop[
     if ky == 3:
         ky = 0
 
-    if _v3_get(dir, kz) < 0.0:
+    if dir[kz] < 0.0:
         var tmp = kx
         kx = ky
         ky = tmp
 
-    var dir_kz = _v3_get(dir, kz)
-    var Sx = _v3_get(dir, kx) / dir_kz
-    var Sy = _v3_get(dir, ky) / dir_kz
+    var dir_kz = dir[kz]
+    var Sx = dir[kx] / dir_kz
+    var Sy = dir[ky] / dir_kz
     var Sz = 1.0 / dir_kz
 
     # Transform vertices to ray space.
@@ -446,16 +438,15 @@ def intersect_ray_tri_woop[
     var B = b - p
     var C = c - p
 
-    var Akz = _v3_get(A, kz)
-    var Bkz = _v3_get(B, kz)
-    var Ckz = _v3_get(C, kz)
-
-    var Ax = _v3_get(A, kx) - Sx * Akz
-    var Ay = _v3_get(A, ky) - Sy * Akz
-    var Bx = _v3_get(B, kx) - Sx * Bkz
-    var By = _v3_get(B, ky) - Sy * Bkz
-    var Cx = _v3_get(C, kx) - Sx * Ckz
-    var Cy = _v3_get(C, ky) - Sy * Ckz
+    var Akz = A[kz]
+    var Bkz = B[kz]
+    var Ckz = C[kz]
+    var Ax = A[kx] - Sx * Akz
+    var Ay = A[ky] - Sy * Akz
+    var Bx = B[kx] - Sx * Bkz
+    var By = B[ky] - Sy * Bkz
+    var Cx = C[kx] - Sx * Ckz
+    var Cy = C[ky] - Sy * Ckz
 
     # Barycentric coordinates.
     var U = diff_product(Cx, By, Cy, Bx)
@@ -513,10 +504,10 @@ def edge_edge_test[
 ) -> Bool:
     comptime assert width == 1
 
-    var Bx = _v3_get(u0, i0) - _v3_get(u1, i0)
-    var By = _v3_get(u0, i1) - _v3_get(u1, i1)
-    var Cx = _v3_get(v0, i0) - _v3_get(u0, i0)
-    var Cy = _v3_get(v0, i1) - _v3_get(u0, i1)
+    var Bx = u0[i0] - u1[i0]
+    var By = u0[i1] - u1[i1]
+    var Cx = v0[i0] - u0[i0]
+    var Cy = v0[i1] - u0[i1]
 
     var f = diff_product(Ay, Bx, Ax, By)
     var d = diff_product(By, Cx, Bx, Cy)
@@ -548,8 +539,8 @@ def edge_against_tri_edges[
 ) -> Bool:
     comptime assert width == 1
 
-    var Ax = _v3_get(v1, i0) - _v3_get(v0, i0)
-    var Ay = _v3_get(v1, i1) - _v3_get(v0, i1)
+    var Ax = v1[i0] - v0[i0]
+    var Ay = v1[i1] - v0[i1]
 
     if edge_edge_test(v0, u0, u1, i0, i1, Ax, Ay):
         return True
@@ -571,10 +562,10 @@ def _point_in_tri_check[
     i0: Int,
     i1: Int,
 ) -> SIMD[dtype, width]:
-    var a = _v3_get(p2, i1) - _v3_get(p1, i1)
-    var b = -(_v3_get(p2, i0) - _v3_get(p1, i0))
-    var c = -a * _v3_get(p1, i0) - b * _v3_get(p1, i1)
-    return a * _v3_get(v0, i0) + b * _v3_get(v0, i1) + c
+    var a = p2[i1] - p1[i1]
+    var b = -(p2[i0] - p1[i0])
+    var c = -a * p1[i0] - b * p1[i1]
+    return a * v0[i0] + b * v0[i1] + c
 
 
 @always_inline
@@ -795,9 +786,9 @@ def no_div_tri_tri_isect[
     var index = max_dim(d_dir)
 
     var res1 = get_intervals(
-        _v3_get(v0, index),
-        _v3_get(v1, index),
-        _v3_get(v2, index),
+        v0[index],
+        v1[index],
+        v2[index],
         dv0,
         dv1,
         dv2,
@@ -809,9 +800,9 @@ def no_div_tri_tri_isect[
         return coplanar_tri_tri(n1, v0, v1, v2, u0, u1, u2)
 
     var res2 = get_intervals(
-        _v3_get(u0, index),
-        _v3_get(u1, index),
-        _v3_get(u2, index),
+        u0[index],
+        u1[index],
+        u2[index],
         du0,
         du1,
         du2,

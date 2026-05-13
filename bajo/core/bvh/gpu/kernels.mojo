@@ -619,21 +619,29 @@ def _make_camera_ray(
 
     var cam_base = view_idx * CAMERA_PARAM_STRIDE
 
-    var ox = camera_params[cam_base + CAMERA_ORIGIN + 0]
-    var oy = camera_params[cam_base + CAMERA_ORIGIN + 1]
-    var oz = camera_params[cam_base + CAMERA_ORIGIN + 2]
+    var o = Vec3f32(
+        camera_params[cam_base + CAMERA_ORIGIN + 0],
+        camera_params[cam_base + CAMERA_ORIGIN + 1],
+        camera_params[cam_base + CAMERA_ORIGIN + 2],
+    )
 
-    var fx = camera_params[cam_base + CAMERA_FORWARD + 0]
-    var fy = camera_params[cam_base + CAMERA_FORWARD + 1]
-    var fz = camera_params[cam_base + CAMERA_FORWARD + 2]
+    var f = Vec3f32(
+        camera_params[cam_base + CAMERA_FORWARD + 0],
+        camera_params[cam_base + CAMERA_FORWARD + 1],
+        camera_params[cam_base + CAMERA_FORWARD + 2],
+    )
 
-    var rx = camera_params[cam_base + CAMERA_RIGHT + 0]
-    var ry = camera_params[cam_base + CAMERA_RIGHT + 1]
-    var rz = camera_params[cam_base + CAMERA_RIGHT + 2]
+    var r = Vec3f32(
+        camera_params[cam_base + CAMERA_RIGHT + 0],
+        camera_params[cam_base + CAMERA_RIGHT + 1],
+        camera_params[cam_base + CAMERA_RIGHT + 2],
+    )
 
-    var ux = camera_params[cam_base + CAMERA_UP + 0]
-    var uy = camera_params[cam_base + CAMERA_UP + 1]
-    var uz = camera_params[cam_base + CAMERA_UP + 2]
+    var u = Vec3f32(
+        camera_params[cam_base + CAMERA_UP + 0],
+        camera_params[cam_base + CAMERA_UP + 1],
+        camera_params[cam_base + CAMERA_UP + 2],
+    )
 
     var aspect = Float32(width) / Float32(height)
     var fov_scale = Float32(0.75)
@@ -641,21 +649,11 @@ def _make_camera_ray(
     var sx = ((Float32(px_i) + 0.5) / Float32(width)) * 2.0 - 1.0
     var sy = 1.0 - ((Float32(py_i) + 0.5) / Float32(height)) * 2.0
 
-    var dir_x = fx + rx * (sx * aspect * fov_scale) + ux * (sy * fov_scale)
-    var dir_y = fy + ry * (sx * aspect * fov_scale) + uy * (sy * fov_scale)
-    var dir_z = fz + rz * (sx * aspect * fov_scale) + uz * (sy * fov_scale)
+    var dir = f + r * (sx * aspect * fov_scale) + u * (sy * fov_scale)
 
-    var nd = normalize(Vec3f32(dir_x, dir_y, dir_z))
-    var dx = nd[0]
-    var dy = nd[1]
-    var dz = nd[2]
+    var nd = normalize(dir)
 
-    return RayFlat(
-        Vec3f32(ox, oy, oz),
-        Vec3f32(dx, dy, dz),
-        Vec3f32(Float32(1.0) / dx, Float32(1.0) / dy, Float32(1.0) / dz),
-        _gpu_inf_t,
-    )
+    return RayFlat(o, nd, 1.0 / nd, _gpu_inf_t)
 
 
 @always_inline

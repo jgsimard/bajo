@@ -1,21 +1,14 @@
 from std.math import fma, min, max, clamp, sqrt
 from std.testing import assert_almost_equal
 
+comptime Vec2f32 = Vec2[DType.float32]
 comptime Vec3f32 = Vec3[DType.float32]
 
 
 @fieldwise_init
-struct Vec2[dtype: DType, width: Int](TrivialRegisterPassable, Writable):
+struct Vec2[dtype: DType, width: Int = 1](TrivialRegisterPassable, Writable):
     var x: SIMD[Self.dtype, Self.width]
     var y: SIMD[Self.dtype, Self.width]
-
-    def __init__(
-        out self,
-        x: Scalar[Self.dtype],
-        y: Scalar[Self.dtype],
-    ):
-        self.x = SIMD[Self.dtype, Self.width](x)
-        self.y = SIMD[Self.dtype, Self.width](y)
 
     @always_inline
     def __add__(self, rhs: Self) -> Self:
@@ -80,6 +73,14 @@ struct Vec3[dtype: DType, width: Int = 1](TrivialRegisterPassable, Writable):
         )
 
     @always_inline
+    def __add__(self, rhs: SIMD[Self.dtype, Self.width]) -> Self:
+        return Self(
+            self.x + rhs,
+            self.y + rhs,
+            self.z + rhs,
+        )
+
+    @always_inline
     def __iadd__(mut self, rhs: Self):
         self.x += rhs.x
         self.y += rhs.y
@@ -100,6 +101,12 @@ struct Vec3[dtype: DType, width: Int = 1](TrivialRegisterPassable, Writable):
             self.y * rhs.y,
             self.z * rhs.z,
         )
+
+    @always_inline
+    def __imul__(mut self, rhs: Self):
+        self.x *= rhs.x
+        self.y *= rhs.y
+        self.z *= rhs.z
 
     @always_inline
     def __mul__(self, rhs: SIMD[Self.dtype, Self.width]) -> Self:
@@ -222,6 +229,15 @@ struct Vec3[dtype: DType, width: Int = 1](TrivialRegisterPassable, Writable):
             self.y += value
         else:
             self.z += value
+
+    @always_inline
+    def is_near_zero(
+        self,
+        eps: Scalar[Self.dtype] = 1.0e-8,
+    ) -> SIMD[DType.bool, Self.width]:
+        var s = SIMD[Self.dtype, Self.width](eps)
+
+        return abs(self.x).lt(s) & abs(self.y).lt(s) & abs(self.z).lt(s)
 
 
 @always_inline

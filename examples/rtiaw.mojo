@@ -6,7 +6,7 @@ from std.sys.info import size_of
 from std.utils.numerics import max_finite, min_finite
 from std.utils import Variant
 
-from bajo.core.vec import (
+from bajo.core.vec_simd import (
     Vec2f32,
     Vec3,
     Vec3f32,
@@ -48,17 +48,18 @@ def main() raises:
 
 
 def colorize(color: Color) -> Color:
-    out = Color(uninitialized=True)
-    comptime for i in range(3):
-        out.data[i] = sqrt(color[i]).clamp(0.0, 0.999) * 255.99
-    return out^
+    return Color(
+        sqrt(color.x).clamp(0.0, 0.999) * 255.99,
+        sqrt(color.y).clamp(0.0, 0.999) * 255.99,
+        sqrt(color.z).clamp(0.0, 0.999) * 255.99,
+    )
 
 
 def write_color(mut f: FileHandle, color: Color):
     var out_color = colorize(color)
-    ir = Int(out_color.x())
-    ig = Int(out_color.y())
-    ib = Int(out_color.z())
+    ir = Int(out_color.x)
+    ig = Int(out_color.y)
+    ib = Int(out_color.z)
 
     f.write(t"{ir} {ig} {ib}\n")
 
@@ -249,13 +250,9 @@ struct AABB(Copyable):
         var t_min_vec = vmin(t_lower, t_upper)
         var t_max_vec = vmax(t_lower, t_upper)
 
-        var t_box_min = max(
-            t_min_vec.x(), t_min_vec.y(), t_min_vec.z(), ray_t.min
-        )
+        var t_box_min = max(t_min_vec.x, t_min_vec.y, t_min_vec.z, ray_t.min)
 
-        var t_box_max = min(
-            t_max_vec.x(), t_max_vec.y(), t_max_vec.z(), ray_t.max
-        )
+        var t_box_max = min(t_max_vec.x, t_max_vec.y, t_max_vec.z, ray_t.max)
 
         return t_box_min <= t_box_max
 
@@ -564,7 +561,7 @@ struct Camera(Copyable):
                 var end_value = Color(0.5, 0.7, 1.0)
 
                 var unit_direction = cur_ray.direction.copy()
-                a = 0.5 * (unit_direction.y() + 1.0)
+                a = 0.5 * (unit_direction.y + 1.0)
                 var sky_color = (1.0 - a) * start_value + a * end_value
                 # Final result is the sky color tinted by all previous bounces
                 return accumulated_attenuation * sky_color
@@ -603,8 +600,8 @@ struct Camera(Copyable):
         offset = Vec2f32(r1, r2)
         var pixel_sample = (
             self.pixel00_loc
-            + ((Float32(i) + offset.x()) * self.pixel_delta_u)
-            + ((Float32(j) + offset.y()) * self.pixel_delta_v)
+            + ((Float32(i) + offset.x) * self.pixel_delta_u)
+            + ((Float32(j) + offset.y) * self.pixel_delta_v)
         )
 
         origin = (
@@ -761,7 +758,7 @@ def create_random_scene() -> Scene:
                     vr1 = Vec3f32(rng.f32(), rng.f32(), rng.f32())
                     vr2 = Vec3f32(rng.f32(), rng.f32(), rng.f32())
                     albedo = vr1 * vr2
-                    materials.append(Lambertian(albedo^))
+                    materials.append(Lambertian(albedo))
                     var center_dir = Vec3f32(0, rng.f32() * 0.5, 0)
                     var center_ray = Ray(center, center_dir, 0.2)
                     objects.append(Sphere(center_ray^, 0.2, len(materials) - 1))
@@ -770,7 +767,7 @@ def create_random_scene() -> Scene:
                     # Metal
                     albedo = Vec3f32(rng.f32(), rng.f32(), rng.f32()) + 0.5
                     fuzz = rng.f32() * 0.5
-                    materials.append(Metal(albedo^, fuzz))
+                    materials.append(Metal(albedo, fuzz))
                     objects.append(Sphere(center, 0.2, len(materials) - 1))
 
                 else:

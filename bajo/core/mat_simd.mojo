@@ -233,6 +233,18 @@ struct Mat[
         return res^
 
     @always_inline
+    def col[j: Int](self) -> Vec3[Self.dtype, Self.width]:
+        comptime assert Self.rows == 3
+        comptime assert Self.cols == 3
+        comptime assert j >= 0 and j < 3
+
+        return Vec3[Self.dtype, Self.width](
+            self[0][j],
+            self[1][j],
+            self[2][j],
+        )
+
+    @always_inline
     def transpose(self) -> Mat[Self.dtype, Self.cols, Self.rows, Self.width]:
         var res = Mat[Self.dtype, Self.cols, Self.rows, Self.width](
             uninitialized=True

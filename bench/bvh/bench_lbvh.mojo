@@ -10,7 +10,7 @@ from bajo.core.utils import (
     pack_obj_triangles,
     print_vec3_rounded,
 )
-from bajo.core.vec import Vec3f32, normalize
+from bajo.core.vec_simd import Vec3f32, normalize
 from bajo.core.bvh.host_utils import (
     generate_primary_rays,
     trace_bvh_primary,

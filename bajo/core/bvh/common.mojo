@@ -1,7 +1,7 @@
 from std.time import perf_counter_ns
 
 from bajo.core.bvh.cpu.binary_bvh import BinaryBvh
-from bajo.core.vec import Vec3f32
+from bajo.core.vec_simd import Vec3f32
 from bajo.core.bvh.types import Ray
 from bajo.core.bvh.host_utils import (
     trace_bvh_primary,

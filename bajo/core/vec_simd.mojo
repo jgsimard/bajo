@@ -80,6 +80,12 @@ struct Vec3[dtype: DType, width: Int = 1](TrivialRegisterPassable, Writable):
         )
 
     @always_inline
+    def __iadd__(mut self, rhs: Self):
+        self.x += rhs.x
+        self.y += rhs.y
+        self.z += rhs.z
+
+    @always_inline
     def __sub__(self, rhs: Self) -> Self:
         return Self(
             self.x - rhs.x,
@@ -104,11 +110,27 @@ struct Vec3[dtype: DType, width: Int = 1](TrivialRegisterPassable, Writable):
         )
 
     @always_inline
+    def __rmul__(self, rhs: SIMD[Self.dtype, Self.width]) -> Self:
+        return Self(
+            self.x * rhs,
+            self.y * rhs,
+            self.z * rhs,
+        )
+
+    @always_inline
     def __truediv__(self, rhs: SIMD[Self.dtype, Self.width]) -> Self:
         return Self(
             self.x / rhs,
             self.y / rhs,
             self.z / rhs,
+        )
+
+    @always_inline
+    def __truediv__(self, rhs: Self) -> Self:
+        return Self(
+            self.x / rhs.x,
+            self.y / rhs.y,
+            self.z / rhs.z,
         )
 
     @always_inline
@@ -128,6 +150,15 @@ struct Vec3[dtype: DType, width: Int = 1](TrivialRegisterPassable, Writable):
         )
 
     @always_inline
+    def __getitem__(self, i: Int) -> SIMD[Self.dtype, Self.width]:
+        if i == 0:
+            return self.x
+        elif i == 1:
+            return self.y
+        else:
+            return self.z
+
+    @always_inline
     def __getitem_param__[
         i: Int
     ](self,) -> SIMD[Self.dtype, Self.width]:
@@ -139,6 +170,19 @@ struct Vec3[dtype: DType, width: Int = 1](TrivialRegisterPassable, Writable):
             return self.y
         else:
             return self.z
+
+    @always_inline
+    def __setitem__(
+        mut self,
+        i: Int,
+        value: SIMD[Self.dtype, Self.width],
+    ):
+        if i == 0:
+            self.x = value
+        elif i == 1:
+            self.y = value
+        else:
+            self.z = value
 
     @always_inline
     def __setitem__[

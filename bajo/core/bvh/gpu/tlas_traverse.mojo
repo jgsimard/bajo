@@ -15,7 +15,6 @@ from bajo.core.bvh.gpu.tlas import (
 from bajo.core.bvh.gpu.kernels import (
     _trace_lbvh_ray,
     _make_camera_ray,
-    _normalize3,
 )
 from bajo.core.bvh.types import RayFlat, Hit
 from bajo.core.intersect import (
@@ -23,7 +22,7 @@ from bajo.core.intersect import (
     intersect_ray_tri,
     RayAabbHit,
 )
-from bajo.core.vec import Vec3f32
+from bajo.core.vec import Vec3f32, cross, normalize
 
 
 comptime GPU_TLAS_TRAVERSAL_STACK_SIZE = 64
@@ -457,25 +456,9 @@ def _load_vertex(
     vertices: UnsafePointer[Float32, MutAnyOrigin],
     prim_idx: UInt32,
     corner: Int,
-) -> Tuple[Float32, Float32, Float32]:
+) -> Vec3f32:
     var base = Int(prim_idx) * 9 + corner * 3
-    return (vertices[base + 0], vertices[base + 1], vertices[base + 2])
-
-
-@always_inline
-def _cross3(
-    ax: Float32,
-    ay: Float32,
-    az: Float32,
-    bx: Float32,
-    by: Float32,
-    bz: Float32,
-) -> Tuple[Float32, Float32, Float32]:
-    return (
-        ay * bz - az * by,
-        az * bx - ax * bz,
-        ax * by - ay * bx,
-    )
+    return Vec3f32(vertices[base + 0], vertices[base + 1], vertices[base + 2])
 
 
 @always_inline
@@ -522,24 +505,20 @@ def shade_tlas_normals_kernel(
     var v1 = _load_vertex(vertices, prim, 1)
     var v2 = _load_vertex(vertices, prim, 2)
 
-    var e1x = v1[0] - v0[0]
-    var e1y = v1[1] - v0[1]
-    var e1z = v1[2] - v0[2]
-    var e2x = v2[0] - v0[0]
-    var e2y = v2[1] - v0[1]
-    var e2z = v2[2] - v0[2]
+    var e1 = v1 - v0
+    var e2 = v2 - v0
 
-    var n = _cross3(e1x, e1y, e1z, e2x, e2y, e2z)
-    var ln = _normalize3(n[0], n[1], n[2])
+    var n = cross(e1, e2)
+    var ln = normalize(n)
 
     # TODO: right now only rigid/uniform-scale instance transforms :(
     var base = _inst_inv_base(inst)
     var wn = _transform_vector_flat(
         tlas_inst_transform,
         base,
-        Vec3f32(ln[0], ln[1], ln[2]),
+        ln,
     )
-    var nn = _normalize3(wn[0], wn[1], wn[2])
+    var nn = normalize(wn)
 
     out_rgb[i] = _pack_rgb(
         _normal_byte(nn[0]),

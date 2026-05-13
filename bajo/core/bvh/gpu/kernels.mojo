@@ -15,7 +15,7 @@ from bajo.core.intersect import (
     RayAabbHit,
 )
 from bajo.core.morton import morton3
-from bajo.core.vec import Vec3f32
+from bajo.core.vec import Vec3f32, normalize
 
 comptime GPU_TRAVERSAL_STACK_SIZE = 64
 comptime GPU_REDUCE_THREADS = 4096
@@ -605,19 +605,6 @@ def trace_lbvh_gpu_primary_kernel(
 # generate_primary_rays(), then traverses the LBVH directly.
 # -----------------------------------------------------------------------------
 @always_inline
-def _normalize3(
-    x: Float32,
-    y: Float32,
-    z: Float32,
-) -> Tuple[Float32, Float32, Float32]:
-    var len2 = x * x + y * y + z * z
-    if len2 <= 1.0e-20:
-        return (Float32(0.0), Float32(0.0), Float32(0.0))
-    var inv_len = Float32(1.0) / sqrt(len2)
-    return (x * inv_len, y * inv_len, z * inv_len)
-
-
-@always_inline
 def _make_camera_ray(
     camera_params: UnsafePointer[Float32, MutAnyOrigin],
     ray_idx: Int,
@@ -658,7 +645,7 @@ def _make_camera_ray(
     var dir_y = fy + ry * (sx * aspect * fov_scale) + uy * (sy * fov_scale)
     var dir_z = fz + rz * (sx * aspect * fov_scale) + uz * (sy * fov_scale)
 
-    var nd = _normalize3(dir_x, dir_y, dir_z)
+    var nd = normalize(Vec3f32(dir_x, dir_y, dir_z))
     var dx = nd[0]
     var dy = nd[1]
     var dz = nd[2]

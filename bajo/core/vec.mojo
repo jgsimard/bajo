@@ -1,441 +1,390 @@
-from std.builtin.device_passable import DevicePassable
-from std.math import sqrt, min, max, clamp
-from std.sys import CompilationTarget
+from std.math import fma, min, max, clamp, sqrt
 from std.testing import assert_almost_equal
-
-from bajo.core.utils import is_power_of_2
-
-comptime Vec2 = Vec[_, 2]
-comptime Vec3 = Vec[_, 3]
-comptime Vec4 = Vec[_, 4]
-
-comptime Vec2i8 = Vec2[DType.int]
-comptime Vec3i8 = Vec3[DType.int]
-comptime Vec4i8 = Vec4[DType.int]
-
-comptime Vec2u8 = Vec2[DType.uint8]
-comptime Vec3u8 = Vec3[DType.uint8]
-comptime Vec4u8 = Vec4[DType.uint8]
-
-comptime Vec2i16 = Vec2[DType.int16]
-comptime Vec3i16 = Vec3[DType.int16]
-comptime Vec4i16 = Vec4[DType.int16]
-
-comptime Vec2u16 = Vec2[DType.uint16]
-comptime Vec3u16 = Vec3[DType.uint16]
-comptime Vec4u16 = Vec4[DType.uint16]
-
-comptime Vec2i32 = Vec2[DType.int32]
-comptime Vec3i32 = Vec3[DType.int32]
-comptime Vec4i32 = Vec4[DType.int32]
-
-comptime Vec2u32 = Vec2[DType.uint32]
-comptime Vec3u32 = Vec3[DType.uint32]
-comptime Vec4u32 = Vec4[DType.uint32]
-
-comptime Vec2i64 = Vec2[DType.int64]
-comptime Vec3i64 = Vec3[DType.int64]
-comptime Vec4i64 = Vec4[DType.int64]
-
-comptime Vec2u64 = Vec2[DType.uint64]
-comptime Vec3u64 = Vec3[DType.uint64]
-comptime Vec4u64 = Vec4[DType.uint64]
-
-comptime Vec2f16 = Vec2[DType.float16]
-comptime Vec3f16 = Vec3[DType.float16]
-comptime Vec4f16 = Vec4[DType.float16]
 
 comptime Vec2f32 = Vec2[DType.float32]
 comptime Vec3f32 = Vec3[DType.float32]
-comptime Vec4f32 = Vec4[DType.float32]
-
-comptime Vec2f64 = Vec2[DType.float64]
-comptime Vec3f64 = Vec3[DType.float64]
-comptime Vec4f64 = Vec4[DType.float64]
 
 
 @fieldwise_init
-struct Vec[dtype: DType, size: Int](
-    Copyable, DevicePassable, Equatable, Roundable, Writable
-):
-    # TODO: maybe use psize for SIMD for Vec3 on cpu
-    # comptime psize = 4 if Self.size == 3 and CompilationTarget.is_x86() else Self.size
-    comptime ElementType = Scalar[Self.dtype]
-    comptime T = InlineArray[Self.ElementType, Self.size]
-    var data: Self.T
+struct Vec2[dtype: DType, width: Int = 1](TrivialRegisterPassable, Writable):
+    var x: SIMD[Self.dtype, Self.width]
+    var y: SIMD[Self.dtype, Self.width]
 
-    comptime device_type: AnyType = Self
-    """The device-side type for this array."""
-
-    def _to_device_type(self, target: MutOpaquePointer[_]):
-        """Convert the host type object to a device_type and store it at the
-        target address.
-
-        Args:
-            target: The target address to store the device type.
-        """
-        target.bitcast[Self.device_type]()[] = self.copy()
-
-    @staticmethod
-    def get_type_name() -> String:
-        """Gets the name of the host type (the one implementing this trait).
-
-        Returns:
-            The host type's name.
-        """
-        return String(
-            "Vec[",
-            reflect[Self.ElementType].name(),
-            ", ",
-            Self.size,
-            "]",
+    @always_inline
+    def __add__(self, rhs: Self) -> Self:
+        return Self(
+            self.x + rhs.x,
+            self.y + rhs.y,
         )
 
-    def __init__(out self, s: Self.ElementType):
-        comptime assert Self.size > 0
-        self.data = Self.T(fill=s)
+    @always_inline
+    def __sub__(self, rhs: Self) -> Self:
+        return Self(
+            self.x - rhs.x,
+            self.y - rhs.y,
+        )
 
-    def __init__(out self, uninitialized: Bool):
-        comptime assert Self.size > 0
-        self.data = Self.T(uninitialized=uninitialized)
+    @always_inline
+    def __mul__(self, rhs: Self) -> Self:
+        return Self(
+            self.x * rhs.x,
+            self.y * rhs.y,
+        )
+
+    @always_inline
+    def __mul__(self, rhs: SIMD[Self.dtype, Self.width]) -> Self:
+        return Self(
+            self.x * rhs,
+            self.y * rhs,
+        )
+
+    @always_inline
+    def __truediv__(self, rhs: SIMD[Self.dtype, Self.width]) -> Self:
+        return Self(
+            self.x / rhs,
+            self.y / rhs,
+        )
+
+    @always_inline
+    def __neg__(self) -> Self:
+        return Self(-self.x, -self.y)
+
+
+@fieldwise_init
+struct Vec3[dtype: DType, width: Int = 1](TrivialRegisterPassable, Writable):
+    var x: SIMD[Self.dtype, Self.width]
+    var y: SIMD[Self.dtype, Self.width]
+    var z: SIMD[Self.dtype, Self.width]
 
     def __init__(
-        out self: Vec[Self.dtype, 2],
-        x: Self.ElementType,
-        y: Self.ElementType,
+        out self,
+        x: Scalar[Self.dtype],
     ):
-        self.data = [x, y]
+        self.x = SIMD[Self.dtype, Self.width](x)
+        self.y = SIMD[Self.dtype, Self.width](x)
+        self.z = SIMD[Self.dtype, Self.width](x)
 
-    def __init__(
-        out self: Vec[Self.dtype, 3],
-        x: Self.ElementType,
-        y: Self.ElementType,
-        z: Self.ElementType,
-    ):
-        self.data = [x, y, z]
+    @always_inline
+    def __add__(self, rhs: Self) -> Self:
+        return Self(
+            self.x + rhs.x,
+            self.y + rhs.y,
+            self.z + rhs.z,
+        )
 
-    def __init__(
-        out self: Vec[Self.dtype, 4],
-        x: Self.ElementType,
-        y: Self.ElementType,
-        z: Self.ElementType,
-        w: Self.ElementType,
-    ):
-        self.data = [x, y, z, w]
+    @always_inline
+    def __add__(self, rhs: SIMD[Self.dtype, Self.width]) -> Self:
+        return Self(
+            self.x + rhs,
+            self.y + rhs,
+            self.z + rhs,
+        )
 
-    def __init__(
-        out self: Vec[Self.dtype, 6],
-        v: Vec3[Self.dtype],
-        w: Vec3[Self.dtype],
-    ):
-        self.data = [v.x(), v.y(), v.z(), w.x(), w.y(), w.z()]
+    @always_inline
+    def __iadd__(mut self, rhs: Self):
+        self.x += rhs.x
+        self.y += rhs.y
+        self.z += rhs.z
 
-    def x(self) -> Self.ElementType:
-        return self.data[0]
+    @always_inline
+    def __sub__(self, rhs: Self) -> Self:
+        return Self(
+            self.x - rhs.x,
+            self.y - rhs.y,
+            self.z - rhs.z,
+        )
 
-    def y(self) -> Self.ElementType:
-        return self.data[1]
+    @always_inline
+    def __mul__(self, rhs: Self) -> Self:
+        return Self(
+            self.x * rhs.x,
+            self.y * rhs.y,
+            self.z * rhs.z,
+        )
 
-    def z(self) -> Self.ElementType:
-        comptime assert Self.size >= 3
-        return self.data[2]
+    @always_inline
+    def __imul__(mut self, rhs: Self):
+        self.x *= rhs.x
+        self.y *= rhs.y
+        self.z *= rhs.z
 
-    def w(self) -> Self.ElementType:
-        comptime assert Self.size >= 4
-        return self.data[3]
+    @always_inline
+    def __mul__(self, rhs: SIMD[Self.dtype, Self.width]) -> Self:
+        return Self(
+            self.x * rhs,
+            self.y * rhs,
+            self.z * rhs,
+        )
 
-    # Swizzles
-    def xy(self) -> Vec2[Self.dtype]:
-        return Vec2[self.dtype](self.x(), self.y())
+    @always_inline
+    def __rmul__(self, rhs: SIMD[Self.dtype, Self.width]) -> Self:
+        return Self(
+            self.x * rhs,
+            self.y * rhs,
+            self.z * rhs,
+        )
 
-    def yz(self) -> Vec2[Self.dtype]:
-        comptime assert Self.size >= 3
-        return Vec2[self.dtype](self.y(), self.z())
+    @always_inline
+    def __truediv__(self, rhs: SIMD[Self.dtype, Self.width]) -> Self:
+        return Self(
+            self.x / rhs,
+            self.y / rhs,
+            self.z / rhs,
+        )
 
-    def xz(self) -> Vec2[Self.dtype]:
-        comptime assert Self.size >= 3
-        return Vec2[self.dtype](self.x(), self.z())
+    @always_inline
+    def __truediv__(self, rhs: Self) -> Self:
+        return Self(
+            self.x / rhs.x,
+            self.y / rhs.y,
+            self.z / rhs.z,
+        )
 
-    def xyz(self) -> Vec3[Self.dtype]:
-        comptime assert Self.size >= 3
-        return Vec3[Self.dtype](self.x(), self.y(), self.z())
+    @always_inline
+    def __neg__(self) -> Self:
+        return Self(-self.x, -self.y, -self.z)
 
-    # accessors
+    @always_inline
+    def __eq__(self, rhs: Self) -> SIMD[DType.bool, Self.width]:
+        return self.x.eq(rhs.x) & self.y.eq(rhs.y) & self.z.eq(rhs.z)
+
+    @always_inline
+    def __rtruediv__(self, lhs: SIMD[Self.dtype, Self.width]) -> Self:
+        return Self(
+            lhs / self.x,
+            lhs / self.y,
+            lhs / self.z,
+        )
+
+    @always_inline
+    def __getitem__(self, i: Int) -> SIMD[Self.dtype, Self.width]:
+        if i == 0:
+            return self.x
+        elif i == 1:
+            return self.y
+        else:
+            return self.z
+
     @always_inline
     def __getitem_param__[
-        idx: Some[Indexer]
-    ](ref self) -> ref[self.data] Self.ElementType:
-        """With compile-time bounds checking."""
-        return self.data[idx]
+        i: Int
+    ](self,) -> SIMD[Self.dtype, Self.width]:
+        comptime assert i >= 0 and i < 3
+
+        comptime if i == 0:
+            return self.x
+        elif i == 1:
+            return self.y
+        else:
+            return self.z
 
     @always_inline
-    def __getitem__(ref self, idx: Int) -> ref[self.data] Self.ElementType:
-        # return self.data[idx] # bounds checking
-        return self.data.unsafe_get(idx)  # no bounds checking
+    def __setitem__(
+        mut self,
+        i: Int,
+        value: SIMD[Self.dtype, Self.width],
+    ):
+        if i == 0:
+            self.x = value
+        elif i == 1:
+            self.y = value
+        else:
+            self.z = value
 
-    # inplace modifier
-    def __iadd__(mut self, other: Self):
-        comptime for i in range(Self.size):
-            self[i] += other[i]
+    @always_inline
+    def __setitem__[
+        i: Int
+    ](mut self, value: SIMD[Self.dtype, Self.width],):
+        comptime assert i >= 0 and i < 3
 
-    def __isub__(mut self, other: Self):
-        comptime for i in range(Self.size):
-            self[i] -= other[i]
+        comptime if i == 0:
+            self.x = value
+        elif i == 1:
+            self.y = value
+        else:
+            self.z = value
 
-    def __imul__(mut self, other: Self):
-        comptime for i in range(Self.size):
-            self[i] *= other[i]
+    @always_inline
+    def set_axis[
+        i: Int
+    ](mut self, value: SIMD[Self.dtype, Self.width],):
+        comptime assert i >= 0 and i < 3
 
-    # methods (produce new Self)
-    def __neg__(self) -> Self:
-        out = Self(uninitialized=True)
-        comptime for i in range(Self.size):
-            out[i] = -self[i]
-        return out^
+        comptime if i == 0:
+            self.x = value
+        elif i == 1:
+            self.y = value
+        else:
+            self.z = value
 
-    def __add__(self, other: Self) -> Self:
-        return _vv[Self.ElementType.__add__](self, other)
+    @always_inline
+    def add_axis[
+        i: Int
+    ](mut self, value: SIMD[Self.dtype, Self.width],):
+        comptime assert i >= 0 and i < 3
 
-    def __sub__(self, other: Self) -> Self:
-        return _vv[Self.ElementType.__sub__](self, other)
+        comptime if i == 0:
+            self.x += value
+        elif i == 1:
+            self.y += value
+        else:
+            self.z += value
 
-    def __mul__(self, other: Self) -> Self:
-        return _vv[Self.ElementType.__mul__](self, other)
+    @always_inline
+    def is_near_zero(
+        self,
+        eps: Scalar[Self.dtype] = 1.0e-8,
+    ) -> SIMD[DType.bool, Self.width]:
+        var s = SIMD[Self.dtype, Self.width](eps)
 
-    def __truediv__(self, other: Self) -> Self:
-        return _vv[Self.ElementType.__truediv__](self, other)
-
-    def __and__(self, other: Self) -> Self:
-        return _vv[Self.ElementType.__and__](self, other)
-
-    def __or__(self, other: Self) -> Self:
-        return _vv[Self.ElementType.__or__](self, other)
-
-    def __xor__(self, other: Self) -> Self:
-        return _vv[Self.ElementType.__xor__](self, other)
-
-    def __lshift__(self, other: Self) -> Self:
-        return _vv[Self.ElementType.__lshift__](self, other)
-
-    def __rshift__(self, other: Self) -> Self:
-        return _vv[Self.ElementType.__rshift__](self, other)
-
-    def __round__(self) -> Self:
-        res = Self(uninitialized=True)
-        comptime for i in range(Self.size):
-            res[i] = round(self[i])
-        return res^
-
-    def __round__(self, ndigits: Int) -> Self:
-        res = Self(uninitialized=True)
-        comptime for i in range(Self.size):
-            res[i] = round(self[i], ndigits)
-        return res^
-
-    def __invert__(self) -> Self:
-        out = Self(uninitialized=True)
-        comptime for i in range(Self.size):
-            out[i] = ~self[i]
-        return out^
-
-    # Scalar inplace
-    def __iadd__(mut self, s: Self.ElementType):
-        comptime for i in range(Self.size):
-            self[i] += s
-
-    def __isub__(mut self, s: Self.ElementType):
-        comptime for i in range(Self.size):
-            self[i] -= s
-
-    def __imul__(mut self, s: Self.ElementType):
-        comptime for i in range(Self.size):
-            self[i] *= s
-
-    # Scalar methods
-    def __add__(self, s: Self.ElementType) -> Self:
-        return _vs[Self.ElementType.__add__](self, s)
-
-    def __sub__(self, s: Self.ElementType) -> Self:
-        return _vs[Self.ElementType.__sub__](self, s)
-
-    def __mul__(self, s: Self.ElementType) -> Self:
-        return _vs[Self.ElementType.__mul__](self, s)
-
-    def __rmul__(self, s: Self.ElementType) -> Self:
-        return self * s
-
-    def __truediv__(self, s: Self.ElementType) -> Self:
-        return _vs[Self.ElementType.__truediv__](self, s)
-
-    def __rtruediv__(self, s: Self.ElementType) -> Self:
-        return _vs[Self.ElementType.__rtruediv__](self, s)
-
-    def __and__(self, s: Self.ElementType) -> Self:
-        return _vs[Self.ElementType.__and__](self, s)
-
-    def __or__(self, s: Self.ElementType) -> Self:
-        return _vs[Self.ElementType.__or__](self, s)
-
-    def __xor__(self, s: Self.ElementType) -> Self:
-        return _vs[Self.ElementType.__xor__](self, s)
-
-    def __lshift__(self, s: Self.ElementType) -> Self:
-        return _vs[Self.ElementType.__lshift__](self, s)
-
-    def __rshift__(self, s: Self.ElementType) -> Self:
-        return _vs[Self.ElementType.__rshift__](self, s)
-
-    def __eq__(self, other: Self) -> Bool:
-        eq = True
-        comptime for i in range(Self.size):
-            eq &= self[i] == other[i]
-        return eq
-
-    # property
-    def is_near_zero[s: Self.ElementType = 1e-8](self) -> Bool:
-        nz = True
-        comptime for i in range(Self.size):
-            nz &= abs(self[i]) < s
-        return nz
+        return abs(self.x).lt(s) & abs(self.y).lt(s) & abs(self.z).lt(s)
 
 
 @always_inline
-def _vv[
-    dtype: DType,
-    size: Int,
-    //,
-    func: def(Scalar[dtype], Scalar[dtype]) thin -> Scalar[dtype],
-](lhs: Vec[dtype, size], rhs: Vec[dtype, size]) -> Vec[dtype, size]:
-    out = Vec[dtype, size](uninitialized=True)
-    comptime for i in range(size):
-        out[i] = func(lhs[i], rhs[i])
-    return out^
-
-
-@always_inline
-def _vs[
-    dtype: DType,
-    size: Int,
-    //,
-    func: def(Scalar[dtype], Scalar[dtype]) thin -> Scalar[dtype],
-](v: Vec[dtype, size], s: Scalar[dtype]) -> Vec[dtype, size]:
-    out = Vec[dtype, size](uninitialized=True)
-    comptime for i in range(size):
-        out[i] = func(v[i], s)
-    return out^
-
-
 def dot[
-    dtype: DType, size: Int
-](a: Vec[dtype, size], b: Vec[dtype, size]) -> Scalar[dtype]:
-    comptime if is_power_of_2(size):
-        aa = a.data.unsafe_ptr().load[width=size]()
-        bb = b.data.unsafe_ptr().load[width=size]()
-        return (aa * bb).reduce_add()
-    # # is this faster ?
-    # elif size == 3:
-    #     a3 = a.data.unsafe_ptr().load[width=4]()
-    #     a3[3] = 0
-    #     b3 = b.data.unsafe_ptr().load[width=4]()
-    #     b3[3] = 0
-    #     return (a3 * b3).reduce_add()
-    # elif size == 3:
-    #     a3 = a.data.unsafe_ptr().load[width=4]()
-    #     b3 = b.data.unsafe_ptr().load[width=4]()
-    #     return (a3 * b3).shift_rigt[1].reduce_add()
-    # # mabye thie version ??
-    #     comptime np2 = next_power_of_two(size)
-    #     comptime pad = np2 - size
-    #     aa = a.data.unsafe_ptr().load[width=np2]()
-    #     ba = b.data.unsafe_ptr().load[width=np2]()
-    #     return (a3 * b3).shift_rigt[pad].reduce_add()
-    else:
-        res: Scalar[dtype] = 0
-        comptime for i in range(size):
-            res += a[i] * b[i]
-        return res
+    dtype: DType, width: Int
+](a: Vec3[dtype, width], b: Vec3[dtype, width],) -> SIMD[dtype, width]:
+    return fma(a.x, b.x, fma(a.y, b.y, a.z * b.z))
 
 
-comptime length2 = length_sq
-
-
-def length_sq[dtype: DType, size: Int](v: Vec[dtype, size]) -> Scalar[dtype]:
-    return dot(v, v)
-
-
-def length[dtype: DType, size: Int](v: Vec[dtype, size]) -> Scalar[dtype]:
-    return sqrt(length_sq(v))
-
-
-def normalize[dtype: DType, size: Int](v: Vec[dtype, size]) -> Vec[dtype, size]:
-    l = length(v)
-    if l > 1e-6:
-        return v / l
-    return Vec[dtype, size](0)
-
-
-def cross[dtype: DType](a: Vec[dtype, 3], b: Vec[dtype, 3]) -> Vec[dtype, 3]:
-    return Vec[dtype, 3](
-        a.y() * b.z() - a.z() * b.y(),
-        a.z() * b.x() - a.x() * b.z(),
-        a.x() * b.y() - a.y() * b.x(),
+@always_inline
+def vmin[
+    dtype: DType, width: Int
+](a: Vec3[dtype, width], b: Vec3[dtype, width],) -> Vec3[dtype, width]:
+    return Vec3[dtype, width](
+        min(a.x, b.x),
+        min(a.y, b.y),
+        min(a.z, b.z),
     )
 
 
-def cross[dtype: DType](a: Vec2[dtype], b: Vec2[dtype]) -> Scalar[dtype]:
-    return a.x() * b.y() - a.y() * b.x()
-
-
-def lerp[
-    dtype: DType, size: Int
-](a: Vec[dtype, size], b: Vec[dtype, size], u: Scalar[dtype]) -> Vec[
-    dtype, size
-]:
-    return a * (1.0 - u) + b * u
-
-
+@always_inline
 def vmin[
-    dtype: DType, size: Int
-](a: Vec[dtype, size], *bs: Vec[dtype, size]) -> Vec[dtype, size]:
-    out = a.copy()
-    for b in bs:
-        comptime for i in range(size):
-            out.data[i] = min(out.data[i], b.data[i])
-    return out^
+    dtype: DType, width: Int
+](a: Vec3[dtype, width], b: Vec3[dtype, width], c: Vec3[dtype, width]) -> Vec3[
+    dtype, width
+]:
+    return Vec3[dtype, width](
+        min(min(a.x, b.x), c.x),
+        min(min(a.y, b.y), c.y),
+        min(min(a.z, b.z), c.z),
+    )
 
 
+@always_inline
 def vmax[
-    dtype: DType, size: Int
-](a: Vec[dtype, size], *bs: Vec[dtype, size]) -> Vec[dtype, size]:
-    out = a.copy()
-    for b in bs:
-        comptime for i in range(size):
-            out.data[i] = max(out.data[i], b.data[i])
-    return out^
+    dtype: DType, width: Int
+](a: Vec3[dtype, width], b: Vec3[dtype, width],) -> Vec3[dtype, width]:
+    return Vec3[dtype, width](
+        max(a.x, b.x),
+        max(a.y, b.y),
+        max(a.z, b.z),
+    )
 
 
+@always_inline
+def vmax[
+    dtype: DType, width: Int
+](a: Vec3[dtype, width], b: Vec3[dtype, width], c: Vec3[dtype, width]) -> Vec3[
+    dtype, width
+]:
+    return Vec3[dtype, width](
+        max(max(a.x, b.x), c.x),
+        max(max(a.y, b.y), c.y),
+        max(max(a.z, b.z), c.z),
+    )
+
+
+@always_inline
 def vclamp[
-    dtype: DType, size: Int
+    dtype: DType, width: Int
 ](
-    v: Vec[dtype, size], lower_bound: Scalar[dtype], upper_bound: Scalar[dtype]
-) -> Vec[dtype, size]:
-    out = Vec[dtype, size](uninitialized=True)
-    comptime for i in range(size):
-        out.data[i] = clamp(v[i], lower_bound, upper_bound)
-    return out^
+    p: Vec3[dtype, width],
+    lower: Vec3[dtype, width],
+    upper: Vec3[dtype, width],
+) -> Vec3[dtype, width]:
+    return vmin(vmax(p, lower), upper)
 
 
-def longest_axis[dtype: DType](v: Vec3[dtype]) -> Int:
-    """Returns the index of the longest component of the vector."""
-    if v[0] > v[1] and v[0] > v[2]:
-        return 0
-    if v[1] > v[2]:
-        return 1
-    return 2
+@always_inline
+def length2[
+    dtype: DType, width: Int
+](v: Vec3[dtype, width]) -> SIMD[dtype, width]:
+    return dot(v, v)
+
+
+@always_inline
+def length[
+    dtype: DType, width: Int
+](v: Vec3[dtype, width]) -> SIMD[dtype, width]:
+    return sqrt(dot(v, v))
+
+
+@always_inline
+def cross[
+    dtype: DType, width: Int
+](a: Vec3[dtype, width], b: Vec3[dtype, width],) -> Vec3[dtype, width]:
+    return Vec3[dtype, width](
+        fma(a.y, b.z, -(a.z * b.y)),
+        fma(a.z, b.x, -(a.x * b.z)),
+        fma(a.x, b.y, -(a.y * b.x)),
+    )
+
+
+@always_inline
+def normalize[
+    dtype: DType, width: Int
+](v: Vec3[dtype, width]) -> Vec3[dtype, width]:
+    comptime assert dtype in [DType.float32, DType.float64]
+
+    var l = length(v)
+    var mask = l.gt(SIMD[dtype, width](1.0e-6))
+
+    var inv_l = mask.select(
+        SIMD[dtype, width](1.0) / l,
+        SIMD[dtype, width](0.0),
+    )
+
+    return v * inv_l
 
 
 def assert_vec_equal[
-    dtype: DType, size: Int
-](a: Vec[dtype, size], b: Vec[dtype, size], atol: Float64 = 1e-5) raises:
-    comptime for i in range(size):
-        assert_almost_equal(a[i], b[i], msg=String(t"i={i}"), atol=atol)
+    dtype: DType, width: Int
+](a: Vec3[dtype, width], b: Vec3[dtype, width], atol: Float64 = 1e-5) raises:
+    assert_almost_equal(
+        a.x,
+        b.x,
+        msg=String("x"),
+        atol=atol,
+    )
+    assert_almost_equal(
+        a.y,
+        b.y,
+        msg=String("y"),
+        atol=atol,
+    )
+    assert_almost_equal(
+        a.z,
+        b.z,
+        msg=String("z"),
+        atol=atol,
+    )
+
+
+@always_inline
+def longest_axis[dtype: DType, width: Int](v: Vec3[dtype, width]) -> Int:
+    comptime assert width == 1
+
+    var x = v.x[0]
+    var y = v.y[0]
+    var z = v.z[0]
+
+    if x > y:
+        if x > z:
+            return 0
+        return 2
+
+    if y > z:
+        return 1
+
+    return 2

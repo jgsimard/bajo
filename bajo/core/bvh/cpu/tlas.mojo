@@ -5,8 +5,8 @@ from bajo.core.bvh.cpu.binary_bvh import BinaryBvh
 from bajo.core.bvh.cpu.traverse import push_near_far
 from bajo.core.bvh.types import BvhNode, Ray
 from bajo.core.intersect import intersect_ray_aabb
-from bajo.core.mat_simd import Mat44f32, transform_point, transform_vector
-from bajo.core.vec_simd import Vec3f32, longest_axis, vmin, vmax
+from bajo.core.mat import Mat44f32, transform_point, transform_vector
+from bajo.core.vec import Vec3f32, longest_axis, vmin, vmax
 
 
 comptime f32_max = max_finite[DType.float32]()

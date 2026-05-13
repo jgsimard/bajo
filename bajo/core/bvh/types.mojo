@@ -2,7 +2,7 @@ from std.math import clamp
 from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.aabb import AABB
-from bajo.core.vec_simd import Vec3f32, vmin, vmax
+from bajo.core.vec import Vec3f32, vmin, vmax
 
 comptime f32_max = max_finite[DType.float32]()
 comptime f32_min = min_finite[DType.float32]()

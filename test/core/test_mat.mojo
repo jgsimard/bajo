@@ -3,7 +3,7 @@ from std.testing import (
     assert_equal,
     assert_almost_equal,
 )
-from bajo.core.mat_simd import (
+from bajo.core.mat import (
     Mat22,
     Mat33,
     Mat44,
@@ -13,7 +13,7 @@ from bajo.core.mat_simd import (
     _matvec,
     assert_mat_equal,
 )
-from bajo.core.vec_simd import (
+from bajo.core.vec import (
     Vec3f32,
     assert_vec_equal,
 )

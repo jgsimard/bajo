@@ -1,7 +1,7 @@
 from std.math import acos, cos, pi, sin, sqrt
 from std.random import Random
 
-from bajo.core.vec_simd import Vec3f32, dot
+from bajo.core.vec import Vec3f32, dot
 
 
 struct Rng:

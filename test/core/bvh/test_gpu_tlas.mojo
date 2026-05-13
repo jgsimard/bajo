@@ -14,8 +14,8 @@ from bajo.core.bvh.gpu.tlas import (
     GPU_TLAS_INSTANCE_META_STRIDE,
     GPU_TLAS_TRANSFORM_STRIDE,
 )
-from bajo.core.mat_simd import Mat44f32, _translation, _uniform_scale
-from bajo.core.vec_simd import Vec3f32
+from bajo.core.mat import Mat44f32, _translation, _uniform_scale
+from bajo.core.vec import Vec3f32
 from fixtures import _append_tri, _make_strip
 
 

@@ -1,7 +1,7 @@
 from std.testing import TestSuite, assert_true, assert_almost_equal
 from std.math import abs
 
-from bajo.core.vec_simd import Vec3f32
+from bajo.core.vec import Vec3f32
 from bajo.core.random import Rng
 from bajo.core.intersect import intersect_ray_aabb, intersect_ray_tri
 from bajo.core.bvh.build import (

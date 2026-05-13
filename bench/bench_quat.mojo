@@ -6,7 +6,7 @@ from std.math import fma
 from bajo.core.quat import Quat
 from bajo.core.utils import degrees_to_radians
 from bajo.core.random import Rng
-from bajo.core.vec_simd import Vec3f32
+from bajo.core.vec import Vec3f32
 
 comptime f32 = DType.float32
 comptime num_elements = 100000

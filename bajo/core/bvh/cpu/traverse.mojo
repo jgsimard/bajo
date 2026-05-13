@@ -1,6 +1,6 @@
 from bajo.core.bvh.types import Ray
 from bajo.core.intersect import intersect_ray_tri
-from bajo.core.vec_simd import Vec3f32
+from bajo.core.vec import Vec3f32
 
 
 @always_inline

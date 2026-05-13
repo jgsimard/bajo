@@ -1,7 +1,7 @@
 from std.gpu import DeviceBuffer
 from std.gpu.host import DeviceContext
 
-from bajo.core.vec_simd import Vec3f32, vmin, vmax, cross, length, normalize
+from bajo.core.vec import Vec3f32, vmin, vmax, cross, length, normalize
 from bajo.core.bvh.cpu.binary_bvh import BinaryBvh
 from bajo.core.bvh.types import Ray
 

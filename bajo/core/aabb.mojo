@@ -1,8 +1,8 @@
 from std.utils.numerics import max_finite, min_finite
 
-from bajo.core.mat_simd import Mat33
+from bajo.core.mat import Mat33
 from bajo.core.quat import Quaternion
-from bajo.core.vec_simd import Vec3, vmin, vmax
+from bajo.core.vec import Vec3, vmin, vmax
 
 comptime AABB = AxisAlignedBoundingBox[DType.float32]
 

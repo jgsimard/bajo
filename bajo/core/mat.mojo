@@ -1,345 +1,307 @@
 from std.math import abs, cos, sin
+from std.collections.inline_array import InlineArray
+from std.testing import assert_almost_equal
 
+from bajo.core.vec import Vec3, dot, cross
 from bajo.core.quat import Quaternion
-from bajo.core.vec import Vec, Vec3, Vec4, dot, cross
+
 
 comptime Mat22 = Mat[_, 2, 2]
 comptime Mat33 = Mat[_, 3, 3]
 comptime Mat44 = Mat[_, 4, 4]
 
-comptime Mat22f32 = Mat22[DType.float32]
-comptime Mat33f32 = Mat33[DType.float32]
-comptime Mat44f32 = Mat44[DType.float32]
+comptime Mat22f32 = Mat[DType.float32, 2, 2]
+comptime Mat33f32 = Mat[DType.float32, 3, 3]
+comptime Mat44f32 = Mat[DType.float32, 4, 4]
 
 
-@fieldwise_init
 struct Mat[
     dtype: DType,
     rows: Int,
     cols: Int,
-](Copyable, Equatable, Roundable, Writable):
-    comptime V = Vec[Self.dtype, Self.cols]
-    comptime TD = InlineArray[Self.V, Self.rows]  # TD = Type Data
-    comptime msize = min(Self.rows, Self.cols)
+    width: Int = 1,
+](Copyable, Writable):
+    comptime Elem = SIMD[Self.dtype, Self.width]
+    comptime Row = InlineArray[Self.Elem, Self.cols]
+    comptime Data = InlineArray[Self.Row, Self.rows]
 
-    var data: Self.TD
+    var data: Self.Data
 
     def __init__(out self, s: Scalar[Self.dtype]):
-        comptime assert (Self.rows >= 1) and (Self.cols >= 1)
-        self.data = Self.TD(fill=Self.V(s))
+        comptime assert Self.rows >= 1
+        comptime assert Self.cols >= 1
+
+        self.data = Self.Data(uninitialized=True)
+
+        comptime for i in range(Self.rows):
+            var row = Self.Row(uninitialized=True)
+            comptime for j in range(Self.cols):
+                row[j] = Self.Elem(s)
+            self.data[i] = row^
 
     def __init__(out self, uninitialized: Bool):
-        comptime assert (Self.rows >= 1) and (Self.cols >= 1)
-        self.data = Self.TD(uninitialized=uninitialized)
+        comptime assert Self.rows >= 1
+        comptime assert Self.cols >= 1
+        self.data = Self.Data(uninitialized=uninitialized)
 
     def __init__(out self, *elems: Scalar[Self.dtype]):
-        comptime assert (Self.rows >= 1) and (Self.cols >= 1)
+        comptime assert Self.rows >= 1
+        comptime assert Self.cols >= 1
+
         debug_assert["safe"](
             len(elems) == Self.rows * Self.cols,
             (
-                t"Matrix scalar constructor requires exactly rows ({Self.rows})"
-                t" * cols ({Self.cols}) = elements ({Self.rows * Self.cols})"
+                t"Matrix constructor requires exactly rows ({Self.rows})"
+                t" * cols ({Self.cols}) = {Self.rows * Self.cols} elements"
             ),
         )
-        self.data = Self.TD(uninitialized=True)
+
+        self.data = Self.Data(uninitialized=True)
 
         comptime for i in range(Self.rows):
-            var row_vec = Self.V(uninitialized=True)
+            var row = Self.Row(uninitialized=True)
+
             comptime for j in range(Self.cols):
                 comptime flat_idx = i * Self.cols + j
-                row_vec[j] = elems[flat_idx]
+                row[j] = Self.Elem(elems[flat_idx])
 
-            self.data[i] = row_vec^
+            self.data[i] = row^
 
     @staticmethod
-    def from_cols(*columns: Vec[Self.dtype, Self.rows]) -> Self:
-        comptime assert (Self.rows >= 1) and (Self.cols >= 1)
-        debug_assert["safe"](
-            len(columns) == Self.cols,
-            "Number of columns must match matrix size",
-        )
-        m = Self(uninitialized=True)
-        comptime for j in range(Self.cols):  # For each input column
-            comptime for i in range(Self.rows):  # For each row in that column
-                m[i][j] = columns[j][i]
+    def identity() -> Self:
+        var res = Self(Scalar[Self.dtype](0))
+
+        comptime msize = Self.rows if Self.rows < Self.cols else Self.cols
+        comptime for i in range(msize):
+            res[i][i] = Self.Elem(1.0)
+
+        return res^
+
+    @staticmethod
+    def from_cols(
+        c0: Vec3[Self.dtype, Self.width],
+        c1: Vec3[Self.dtype, Self.width],
+        c2: Vec3[Self.dtype, Self.width],
+    ) -> Self:
+        comptime assert Self.rows == 3
+        comptime assert Self.cols == 3
+
+        var m = Self(uninitialized=True)
+
+        m[0][0] = c0.x
+        m[1][0] = c0.y
+        m[2][0] = c0.z
+
+        m[0][1] = c1.x
+        m[1][1] = c1.y
+        m[2][1] = c1.z
+
+        m[0][2] = c2.x
+        m[1][2] = c2.y
+        m[2][2] = c2.z
+
         return m^
 
     @staticmethod
     def from_rotation_scale(
-        r: Quaternion[Self.dtype], s: Vec3[Self.dtype]
-    ) -> Mat33[Self.dtype] where Self.dtype.is_floating_point():
-        # TODO: make this general for Matt33 and Mat44 like Quaternion.from_matrix
-        x2 = r.x() * r.x()
-        y2 = r.y() * r.y()
-        z2 = r.z() * r.z()
+        r: Quaternion[Self.dtype],
+        s: Vec3[Self.dtype, Self.width],
+    ) -> Self where Self.dtype.is_floating_point():
+        comptime assert Self.rows == 3
+        comptime assert Self.cols == 3
 
-        xz = r.x() * r.z()
-        xy = r.x() * r.y()
-        yz = r.y() * r.z()
+        var x = r.x()
+        var y = r.y()
+        var z = r.z()
+        var w = r.w()
 
-        r_rw = r * r.w()
-        wx = r_rw.x()
-        wy = r_rw.y()
-        wz = r_rw.z()
+        var x2 = x * x
+        var y2 = y * y
+        var z2 = z * z
 
-        ds = s * 2.0
-        # fmt:off
-        return Mat33[Self.dtype](
-            s[0] - ds[0] * (y2 + z2), ds[1] * (xy - wz), ds[2] * (xz + wy),
-            ds[0] * (xy + wz), s[1] - ds[1] * (x2 + z2), ds[2] * (yz - wx),
-            ds[0] * (xz - wy), ds[1] * (yz + wx), s[2] - ds[2] * (x2 + y2)
-        )
-        # fmt:on
+        var xy = x * y
+        var xz = x * z
+        var yz = y * z
 
-    @staticmethod
-    def identity() -> Self:
-        res = Self(Scalar[Self.dtype](0))
-        comptime for i in range(min(Self.rows, Self.cols)):
-            res[i][i] = 1
-        return res^
+        var wx = w * x
+        var wy = w * y
+        var wz = w * z
+
+        var sx = s.x
+        var sy = s.y
+        var sz = s.z
+
+        var dsx = sx * 2.0
+        var dsy = sy * 2.0
+        var dsz = sz * 2.0
+
+        var m = Self(uninitialized=True)
+
+        # R * diag(scale), row-major storage.
+        m[0][0] = sx - dsx * (y2 + z2)
+        m[0][1] = dsy * (xy - wz)
+        m[0][2] = dsz * (xz + wy)
+
+        m[1][0] = dsx * (xy + wz)
+        m[1][1] = sy - dsy * (x2 + z2)
+        m[1][2] = dsz * (yz - wx)
+
+        m[2][0] = dsx * (xz - wy)
+        m[2][1] = dsy * (yz + wx)
+        m[2][2] = sz - dsz * (x2 + y2)
+
+        return m^
 
     @always_inline
-    def __getitem_param__[
-        i: Int
-    ](ref self) -> ref[self.data] Vec[Self.dtype, Self.cols]:
+    def __getitem_param__[i: Int](ref self) -> ref[self.data] Self.Row:
         return self.data[i]
 
     @always_inline
-    def __getitem__(
-        ref self, i: Int
-    ) -> ref[self.data] Vec[Self.dtype, Self.cols]:
+    def __getitem__(ref self, i: Int) -> ref[self.data] Self.Row:
         return self.data[i]
 
-    # arithmetic
+    @always_inline
     def __neg__(self) -> Self:
-        res = Self(uninitialized=True)
+        var res = Self(uninitialized=True)
+
         comptime for i in range(Self.rows):
-            res[i] = -self[i]
+            var row = Self.Row(uninitialized=True)
+            comptime for j in range(Self.cols):
+                row[j] = -self[i][j]
+            res.data[i] = row^
+
         return res^
 
+    @always_inline
     def __add__(self, other: Self) -> Self:
-        res = Self(uninitialized=True)
+        var res = Self(uninitialized=True)
+
         comptime for i in range(Self.rows):
-            res[i] = self[i] + other[i]
+            var row = Self.Row(uninitialized=True)
+            comptime for j in range(Self.cols):
+                row[j] = self[i][j] + other[i][j]
+            res.data[i] = row^
+
         return res^
 
+    @always_inline
     def __sub__(self, other: Self) -> Self:
-        res = Self(uninitialized=True)
+        var res = Self(uninitialized=True)
+
         comptime for i in range(Self.rows):
-            res[i] = self[i] - other[i]
+            var row = Self.Row(uninitialized=True)
+            comptime for j in range(Self.cols):
+                row[j] = self[i][j] - other[i][j]
+            res.data[i] = row^
+
         return res^
 
-    # scalar
-    def __mul__(self, s: Scalar[Self.dtype]) -> Self:
-        res = Self(uninitialized=True)
+    @always_inline
+    def __mul__(self, s: SIMD[Self.dtype, Self.width]) -> Self:
+        var res = Self(uninitialized=True)
+
         comptime for i in range(Self.rows):
-            res[i] = self[i] * s
+            var row = Self.Row(uninitialized=True)
+            comptime for j in range(Self.cols):
+                row[j] = self[i][j] * s
+            res.data[i] = row^
+
         return res^
 
-    def __imul__(mut self, s: Scalar[Self.dtype]):
-        comptime for i in range(Self.rows):
-            self.data[i] = self.data[i] * s
+    @always_inline
+    def __truediv__(self, s: SIMD[Self.dtype, Self.width]) -> Self:
+        var res = Self(uninitialized=True)
 
-    # def __rmul__(self, s: Scalar[Self.dtype]) -> Self:
-    #     return self * s
-
-    def __truediv__(self, s: Scalar[Self.dtype]) -> Self:
-        res = Self(uninitialized=True)
         comptime for i in range(Self.rows):
-            res[i] = self[i] / s
+            var row = Self.Row(uninitialized=True)
+            comptime for j in range(Self.cols):
+                row[j] = self[i][j] / s
+            res.data[i] = row^
+
         return res^
 
-    # linear algebra
-    def transpose(self) -> Mat[Self.dtype, Self.cols, Self.rows]:
-        res = Mat[Self.dtype, Self.cols, Self.rows](uninitialized=True)
+    @always_inline
+    def elem_mul(self, other: Self) -> Self:
+        var res = Self(uninitialized=True)
+
+        comptime for i in range(Self.rows):
+            var row = Self.Row(uninitialized=True)
+            comptime for j in range(Self.cols):
+                row[j] = self[i][j] * other[i][j]
+            res.data[i] = row^
+
+        return res^
+
+    @always_inline
+    def col[j: Int](self) -> Vec3[Self.dtype, Self.width]:
+        comptime assert Self.rows == 3
+        comptime assert Self.cols == 3
+        comptime assert j >= 0 and j < 3
+
+        return Vec3[Self.dtype, Self.width](
+            self[0][j],
+            self[1][j],
+            self[2][j],
+        )
+
+    @always_inline
+    def transpose(self) -> Mat[Self.dtype, Self.cols, Self.rows, Self.width]:
+        var res = Mat[Self.dtype, Self.cols, Self.rows, Self.width](
+            uninitialized=True
+        )
+
         comptime for i in range(Self.rows):
             comptime for j in range(Self.cols):
                 res[j][i] = self[i][j]
+
         return res^
 
-    def trace(self) -> Scalar[Self.dtype]:
-        res: Scalar[Self.dtype] = 0
-        comptime for i in range(min(Self.rows, Self.cols)):
-            res += self[i][i]
+    @always_inline
+    def trace(self) -> SIMD[Self.dtype, Self.width]:
+        comptime msize = Self.rows if Self.rows < Self.cols else Self.cols
+
+        var res = SIMD[Self.dtype, Self.width](0.0)
+        comptime for i in range(msize):
+            res = res + self[i][i]
+
         return res
 
-    def get_diag(self) -> Vec[Self.dtype, Self.msize]:
-        res = Vec[Self.dtype, Self.msize](uninitialized=True)
-        comptime for i in range(Self.msize):
-            res[i] = self[i][i]
-        return res^
+    @always_inline
+    def ddot(self, other: Self) -> SIMD[Self.dtype, Self.width]:
+        var res = SIMD[Self.dtype, Self.width](0.0)
 
-    @staticmethod
-    def diag(v: Vec[Self.dtype, Self.rows]) -> Self:
-        """Create a square diagonal matrix from a vector."""
-        comptime assert Self.rows == Self.cols, "diag() requires square matrix"
-        res = Self(Scalar[Self.dtype](0))
         comptime for i in range(Self.rows):
-            res[i][i] = v[i]
-        return res^
+            comptime for j in range(Self.cols):
+                res = res + self[i][j] * other[i][j]
 
-    def __mul__(self, other: Self) -> Self:
-        res = Self(uninitialized=True)
-        comptime for i in range(Self.rows):
-            res[i] = self[i] * other[i]
-        return res^
-
-    def __div__(self, other: Self) -> Self:
-        res = Self(uninitialized=True)
-        comptime for i in range(Self.rows):
-            res[i] = self[i] / other[i]
-        return res^
-
-    # Contracting Products
-    def ddot(self, other: Self) -> Scalar[Self.dtype]:
-        """Double dot product (sum of all element-wise products)."""
-        res: Scalar[Self.dtype] = 0
-        comptime for i in range(Self.rows):
-            res += dot(self[i], other[i])
         return res
 
-    # --- In-place Arithmetic (Missing Overloads) ---
-    def __iadd__(mut self, s: Scalar[Self.dtype]):
+    @always_inline
+    def __eq__(self, other: Self) -> SIMD[DType.bool, Self.width]:
+        var mask = self[0][0].eq(other[0][0])
+
         comptime for i in range(Self.rows):
-            self[i] += s
+            comptime for j in range(Self.cols):
+                mask = mask & self[i][j].eq(other[i][j])
 
-    def __isub__(mut self, s: Scalar[Self.dtype]):
-        comptime for i in range(Self.rows):
-            self[i] -= s
-
-    # def __itruediv__(mut self, s: Scalar[Self.dtype]):
-    #     comptime for i in range(Self.rows): self[i] /= s
-
-    # Bitwise Unary
-    def __invert__(self) -> Self:
-        """Bitwise NOT (~)."""
-        res = Self(uninitialized=True)
-        comptime for i in range(Self.rows):
-            res[i] = ~self[i]  # Uses Vec.__invert__
-        return res^
-
-    # --- Bitwise AND (&) ---
-    def __and__(self, other: Self) -> Self:
-        res = Self(uninitialized=True)
-        comptime for i in range(Self.rows):
-            res[i] = self[i] & other[i]
-        return res^
-
-    def __and__(self, s: Scalar[Self.dtype]) -> Self:
-        res = Self(uninitialized=True)
-        comptime for i in range(Self.rows):
-            res[i] = self[i] & s
-        return res^
-
-    # def __iand__(mut self, other: Self):
-    #     comptime for i in range(Self.rows):
-    #         self[i] &= other[i]
-
-    def __or__(self, other: Self) -> Self:
-        res = Self(uninitialized=True)
-        comptime for i in range(Self.rows):
-            res[i] = self[i] | other[i]
-        return res^
-
-    def __or__(self, s: Scalar[Self.dtype]) -> Self:
-        res = Self(uninitialized=True)
-        comptime for i in range(Self.rows):
-            res[i] = self[i] | s
-        return res^
-
-    # def __ior__(mut self, other: Self):
-    #     comptime for i in range(Self.rows):
-    #         self[i] |= other[i]
-
-    # --- Bitwise XOR (^) ---
-    def __xor__(self, other: Self) -> Self:
-        res = Self(uninitialized=True)
-        comptime for i in range(Self.rows):
-            res[i] = self[i] ^ other[i]
-        return res^
-
-    def __xor__(self, s: Scalar[Self.dtype]) -> Self:
-        res = Self(uninitialized=True)
-        comptime for i in range(Self.rows):
-            res[i] = self[i] ^ s
-        return res^
-
-    # def __ixor__(mut self, other: Self):
-    #     comptime for i in range(Self.rows):
-    #         self[i] ^= other[i]
-
-    def __lshift__(self, other: Self) -> Self:
-        res = Self(uninitialized=True)
-        comptime for i in range(Self.rows):
-            res[i] = self[i] << other[i]
-        return res^
-
-    def __lshift__(self, s: Scalar[Self.dtype]) -> Self:
-        res = Self(uninitialized=True)
-        comptime for i in range(Self.rows):
-            res[i] = self[i] << s
-        return res^
-
-    def __rshift__(self, other: Self) -> Self:
-        res = Self(uninitialized=True)
-        comptime for i in range(Self.rows):
-            res[i] = self[i] >> other[i]
-        return res^
-
-    def __rshift__(self, s: Scalar[Self.dtype]) -> Self:
-        res = Self(uninitialized=True)
-        comptime for i in range(Self.rows):
-            res[i] = self[i] >> s
-        return res^
-
-    def __round__(self) -> Self:
-        res = Self(uninitialized=True)
-        comptime for i in range(Self.rows):
-            res[i] = round(self[i])
-        return res^
-
-    def __round__(self, ndigits: Int) -> Self:
-        res = Self(uninitialized=True)
-        comptime for i in range(Self.rows):
-            res[i] = round(self[i], ndigits)
-        return res^
-
-    def __eq__(self, other: Self) -> Bool:
-        eq = True
-        comptime for i in range(Self.rows):
-            eq &= self[i] == other[i]
-        return eq
+        return mask
 
     def __str__(self) -> String:
-        col_widths = InlineArray[Int, Self.cols](fill=0)
-
-        for i in range(Self.rows):
-            for j in range(Self.cols):
-                l = String(self[i][j]).byte_length()
-                if l > col_widths[j]:
-                    col_widths[j] = l
-
-        res: String = "["
+        var res = String("[")
         for i in range(Self.rows):
             if i > 0:
-                res += " "  # Indent for rows 2 to N
+                res += " "
             res += "["
 
             for j in range(Self.cols):
-                s = String(self[i][j])
-
-                # Right-align based on column width
-                padding = col_widths[j] - s.byte_length()
-                for _ in range(padding):
-                    res += " "
-                res += s
-
+                res += String(self[i][j])
                 if j < Self.cols - 1:
                     res += ", "
 
             res += "]"
             if i < Self.rows - 1:
                 res += "\n"
+
         res += "]"
         return res
 
@@ -347,79 +309,176 @@ struct Mat[
         writer.write(String(self))
 
 
-def outer[
-    dtype: DType, rows: Int where rows >= 1, cols: Int where cols >= 1
-](a: Vec[dtype, rows], b: Vec[dtype, cols]) -> Mat[dtype, rows, cols]:
-    res = Mat[dtype, rows, cols](uninitialized=True)
-    comptime for i in range(rows):
-        comptime for j in range(cols):
-            res[i][j] = a[i] * b[j]
-    return res^
-
-
-def skew[dtype: DType](a: Vec[dtype, 3]) -> Mat33[dtype]:
-    # fmt: off
-    return Mat33[dtype](
-        0, -a[2], a[1],
-        a[2], 0, -a[0],
-        -a[1], a[0], 0,
-    )
-    # fmt: on
-
-
-# free functions : Linear Algebra
-
-
-##############
-# matmul
-##############
+@always_inline
 def _matmul[
     dtype: DType,
     a_rows: Int,
     a_cols: Int,
-    b_rows: Int,
     b_cols: Int,
-](a: Mat[dtype, a_rows, a_cols], b: Mat[dtype, b_rows, b_cols]) -> Mat[
-    dtype, a_rows, b_cols
-] where (
-    (a_rows >= 1) and (a_cols >= 1) and (a_cols == b_rows) and (b_cols >= 1)
-):
-    """Matrix-Matrix product."""
-    bT = b.transpose()
-    res = Mat[dtype, a_rows, b_cols](uninitialized=True)
+    width: Int,
+](
+    a: Mat[dtype, a_rows, a_cols, width],
+    b: Mat[dtype, a_cols, b_cols, width],
+) -> Mat[dtype, a_rows, b_cols, width]:
+    var res = Mat[dtype, a_rows, b_cols, width](uninitialized=True)
+
     comptime for i in range(a_rows):
         comptime for j in range(b_cols):
-            ref bTj = rebind[Vec[dtype, a_cols]](bT[j])
-            res[i][j] = dot(a[i], bTj)
+            var acc = SIMD[dtype, width](0.0)
+
+            comptime for k in range(a_cols):
+                acc = acc + a[i][k] * b[k][j]
+
+            res[i][j] = acc
+
     return res^
 
 
+@always_inline
 def _matvec[
+    dtype: DType, width: Int
+](m: Mat[dtype, 3, 3, width], v: Vec3[dtype, width],) -> Vec3[dtype, width]:
+    return Vec3[dtype, width](
+        m[0][0] * v.x + m[0][1] * v.y + m[0][2] * v.z,
+        m[1][0] * v.x + m[1][1] * v.y + m[1][2] * v.z,
+        m[2][0] * v.x + m[2][1] * v.y + m[2][2] * v.z,
+    )
+
+
+##############
+# transform
+##############
+@always_inline
+def transform_point[
+    dtype: DType, width: Int
+](m: Mat[dtype, 4, 4, width], v: Vec3[dtype, width],) -> Vec3[dtype, width]:
+    return Vec3[dtype, width](
+        m[0][0] * v.x + m[0][1] * v.y + m[0][2] * v.z + m[0][3],
+        m[1][0] * v.x + m[1][1] * v.y + m[1][2] * v.z + m[1][3],
+        m[2][0] * v.x + m[2][1] * v.y + m[2][2] * v.z + m[2][3],
+    )
+
+
+@always_inline
+def transform_vector[
+    dtype: DType, width: Int
+](m: Mat[dtype, 4, 4, width], v: Vec3[dtype, width],) -> Vec3[dtype, width]:
+    return Vec3[dtype, width](
+        m[0][0] * v.x + m[0][1] * v.y + m[0][2] * v.z,
+        m[1][0] * v.x + m[1][1] * v.y + m[1][2] * v.z,
+        m[2][0] * v.x + m[2][1] * v.y + m[2][2] * v.z,
+    )
+
+
+def _translation[
+    dtype: DType, width: Int = 1
+](
+    tx: SIMD[dtype, width],
+    ty: SIMD[dtype, width],
+    tz: SIMD[dtype, width],
+) -> Mat[dtype, 4, 4, width]:
+    var m = Mat[dtype, 4, 4, width](0.0)
+
+    m[0][0] = 1.0
+    m[1][1] = 1.0
+    m[2][2] = 1.0
+    m[3][3] = 1.0
+
+    m[0][3] = tx
+    m[1][3] = ty
+    m[2][3] = tz
+
+    return m^
+
+
+def _uniform_scale[
+    dtype: DType, width: Int = 1
+](s: SIMD[dtype, width]) -> Mat[dtype, 4, 4, width]:
+    var m = Mat[dtype, 4, 4, width](0.0)
+
+    m[0][0] = s
+    m[1][1] = s
+    m[2][2] = s
+    m[3][3] = 1.0
+
+    return m^
+
+
+def _rotation_z[
+    dtype: DType, width: Int = 1
+](angle: SIMD[dtype, width]) -> Mat[
+    dtype, 4, 4, width
+] where dtype.is_floating_point():
+    var c = cos(angle)
+    var sn = sin(angle)
+
+    var m = Mat[dtype, 4, 4, width](0.0)
+
+    m[0][0] = c
+    m[0][1] = -sn
+    m[1][0] = sn
+    m[1][1] = c
+    m[2][2] = 1.0
+    m[3][3] = 1.0
+
+    return m^
+
+
+def assert_mat_equal[
     dtype: DType,
     rows: Int,
     cols: Int,
-](m: Mat[dtype, rows, cols], v: Vec[dtype, cols]) -> Vec[dtype, rows] where (
-    rows >= 1
-) and (cols >= 1):
-    """Matrix-Vector product."""
-    res = Vec[dtype, rows](uninitialized=True)
-    for i in range(rows):
-        res[i] = dot(m[i], v)
-    return res^
+    width: Int,
+](
+    a: Mat[dtype, rows, cols, width],
+    b: Mat[dtype, rows, cols, width],
+    atol: Float64 = 1e-5,
+) raises:
+    comptime for i in range(rows):
+        comptime for j in range(cols):
+            comptime for lane in range(width):
+                assert_almost_equal(
+                    a[i][j][lane],
+                    b[i][j][lane],
+                    msg=String(t"[{i}][{j}][{lane}]"),
+                    atol=atol,
+                )
 
 
 ##############
 # determinant
 ##############
-def determinant[dtype: DType](m: Mat22[dtype]) -> Scalar[dtype]:
+def determinant[
+    dtype: DType, width: Int
+](m: Mat[dtype, 2, 2, width]) -> SIMD[dtype, width]:
     return m[0][0] * m[1][1] - m[0][1] * m[1][0]
 
 
-def determinant[dtype: DType](m: Mat33[dtype]) -> Scalar[dtype]:
-    return dot(m[0], cross(m[1], m[2]))
+def determinant[
+    dtype: DType, width: Int
+](m: Mat[dtype, 3, 3, width]) -> SIMD[dtype, width]:
+    var a00 = m[0][0]
+    var a01 = m[0][1]
+    var a02 = m[0][2]
+
+    var a10 = m[1][0]
+    var a11 = m[1][1]
+    var a12 = m[1][2]
+
+    var a20 = m[2][0]
+    var a21 = m[2][1]
+    var a22 = m[2][2]
+
+    return (
+        a00 * (a11 * a22 - a12 * a21)
+        - a01 * (a10 * a22 - a12 * a20)
+        + a02 * (a10 * a21 - a11 * a20)
+    )
 
 
-def determinant[dtype: DType](m: Mat44[dtype]) -> Scalar[dtype]:
+def determinant[
+    dtype: DType, width: Int
+](m: Mat[dtype, 4, 4, width]) -> SIMD[dtype, width]:
     """Adapted from USD - see licenses/usd-LICENSE.txt Copyright 2016 Pixar."""
     # Pickle 1st two columns of matrix into registers
     x00 = m[0][0]
@@ -457,6 +516,19 @@ def determinant[dtype: DType](m: Mat44[dtype]) -> Scalar[dtype]:
 
     # compute 4x4 determinant & its reciprocal
     return x30 * z30 + x20 * z20 + x10 * z10 + x00 * z00
+
+
+##############
+# inverse
+##############
+@fieldwise_init
+struct MatInverseResult[
+    dtype: DType,
+    n: Int,
+    width: Int,
+](Movable):
+    var mask: SIMD[DType.bool, Self.width]
+    var value: Mat[Self.dtype, Self.n, Self.n, Self.width]
 
 
 ##############
@@ -588,58 +660,3 @@ def inverse[dtype: DType](m: Mat44[dtype]) raises -> Mat44[dtype]:
     invm[3][3] = z33 * rcp
 
     return invm^
-
-
-##############
-# transform
-##############
-def transform_point[
-    dtype: DType
-](m: Mat44[dtype], v: Vec3[dtype]) -> Vec3[dtype]:
-    v4 = Vec4[dtype](v.x(), v.y(), v.z(), 1)
-    return _matvec(m, v4).xyz()
-
-
-def transform_vector[
-    dtype: DType
-](m: Mat44[dtype], v: Vec3[dtype]) -> Vec3[dtype]:
-    v4 = Vec4[dtype](v.x(), v.y(), v.z(), 0)
-    return _matvec(m, v4).xyz()
-
-
-def _translation[
-    dtype: DType
-](tx: Scalar[dtype], ty: Scalar[dtype], tz: Scalar[dtype]) -> Mat44[dtype]:
-    """Row-major matrix, column-vector transform convention."""
-    # fmt: off
-    return Mat44[dtype](
-        1.0, 0.0, 0.0, tx,
-        0.0, 1.0, 0.0, ty,
-        0.0, 0.0, 1.0, tz,
-        0.0, 0.0, 0.0, 1.0,
-    )
-    # fmt: on
-
-
-def _uniform_scale[dtype: DType](s: Scalar[dtype]) -> Mat44[dtype]:
-    # fmt: off
-    return Mat44[dtype](
-        s, 0.0, 0.0, 0.0,
-        0.0, s, 0.0, 0.0,
-        0.0, 0.0, s, 0.0,
-        0.0, 0.0, 0.0, 1.0,
-    )
-    # fmt: on
-
-
-def _rotation_z[
-    dtype: DType
-](angle: Scalar[dtype]) -> Mat44[dtype] where dtype.is_floating_point():
-    # fmt: off
-    return Mat44[dtype](
-        cos(angle), -sin(angle), 0.0, 0.0,
-        sin(angle), cos(angle), 0.0, 0.0,
-        0.0, 0.0, 1.0, 0.0,
-        0.0, 0.0, 0.0, 1.0,
-    )
-    # fmt: on

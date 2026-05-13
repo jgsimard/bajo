@@ -3,8 +3,8 @@ from std.random import random_float64
 from std.reflection import get_function_name
 
 
-from bajo.core.mat_simd import Mat33f32
-from bajo.core.vec_simd import vmin, vmax, Vec3f32
+from bajo.core.mat import Mat33f32
+from bajo.core.vec import vmin, vmax, Vec3f32
 from bajo.core.quat import Quat
 from bajo.core.aabb import AABB
 from bajo.core.random import Rng

@@ -16,8 +16,8 @@ from bajo.core.bvh.gpu.lbvh import GpuLBVH
 from bajo.core.bvh.gpu.tlas import GpuTlasLayout
 from bajo.core.bvh.gpu.tlas_traverse import launch_tlas_lbvh_uploaded_primary
 from bajo.core.bvh.types import Ray
-from bajo.core.mat_simd import Mat44f32, _translation
-from bajo.core.vec_simd import Vec3f32
+from bajo.core.mat import Mat44f32, _translation
+from bajo.core.vec import Vec3f32
 from fixtures import (
     _append_tri,
     _make_two_depth_triangles,

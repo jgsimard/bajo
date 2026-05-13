@@ -5,7 +5,7 @@ from std.testing import TestSuite, assert_true
 from std.gpu import DeviceContext, DeviceBuffer
 
 from bajo.sort.gpu.radix_sort import device_radix_sort_pairs, RadixSortWorkspace
-from bajo.core.vec_simd import Vec3f32, normalize
+from bajo.core.vec import Vec3f32, normalize
 from bajo.core.bvh.gpu.validate import (
     validate_sorted_keys,
     validate_topology,

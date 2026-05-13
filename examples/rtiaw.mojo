@@ -6,7 +6,7 @@ from std.sys.info import size_of
 from std.utils.numerics import max_finite, min_finite
 from std.utils import Variant
 
-from bajo.core.vec_simd import (
+from bajo.core.vec import (
     Vec2f32,
     Vec3,
     Vec3f32,

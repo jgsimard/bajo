@@ -1,12 +1,12 @@
 from std.math import asin, atan2, cos, fma, pi, sin, sqrt, tan, copysign
 
-from bajo.core.vec_simd import (
+from bajo.core.vec import (
     Vec3,
     cross,
     normalize as vnormalize,
     length as vlength,
 )
-from bajo.core.mat_simd import Mat, Mat33, Mat44
+from bajo.core.mat import Mat, Mat33, Mat44
 
 
 def length2[dtype: DType](q: Quaternion[dtype]) -> Scalar[dtype]:

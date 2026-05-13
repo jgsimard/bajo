@@ -19,7 +19,7 @@ from bajo.core.intersect import (
     intersect_tri_tri,
 )
 
-from bajo.core.vec_simd import Vec2, Vec3, assert_vec_equal
+from bajo.core.vec import Vec2, Vec3, assert_vec_equal
 
 
 # AABB

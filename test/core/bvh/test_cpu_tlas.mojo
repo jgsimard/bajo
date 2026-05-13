@@ -4,7 +4,7 @@ from std.utils.numerics import max_finite
 from bajo.core.bvh.cpu.binary_bvh import BinaryBvh
 from bajo.core.bvh.cpu.tlas import BvhInstance, Tlas
 from bajo.core.bvh.types import Ray
-from bajo.core.mat_simd import (
+from bajo.core.mat import (
     Mat44,
     Mat44f32,
     transform_point,
@@ -13,7 +13,7 @@ from bajo.core.mat_simd import (
     _uniform_scale,
     _rotation_z,
 )
-from bajo.core.vec_simd import Vec3f32, assert_vec_equal
+from bajo.core.vec import Vec3f32, assert_vec_equal
 from bajo.core.utils import degrees_to_radians
 from fixtures import _append_tri
 

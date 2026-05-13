@@ -18,9 +18,9 @@ from bajo.core.bvh.gpu.tlas_traverse import (
     launch_tlas_lbvh_camera_primary,
     launch_shade_tlas_normals,
 )
-from bajo.core.mat_simd import Mat44f32, inverse
+from bajo.core.mat import Mat44f32, inverse
 from bajo.core.utils import pack_obj_triangles, ns_to_ms, ns_to_mrays_per_s
-from bajo.core.vec_simd import Vec3f32, length
+from bajo.core.vec import Vec3f32, length
 
 
 comptime DEFAULT_OBJ_PATH = "./assets/buddha/buddha.obj"

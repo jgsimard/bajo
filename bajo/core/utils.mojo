@@ -1,7 +1,7 @@
 from std.math import sqrt, clamp, pi
 from std.sys.info import size_of
 
-from bajo.core.vec_simd import Vec3, vclamp, Vec3f32
+from bajo.core.vec import Vec3, vclamp, Vec3f32
 from bajo.obj import read_obj, triangulated_indices
 
 

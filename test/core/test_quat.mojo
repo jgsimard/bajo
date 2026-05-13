@@ -5,7 +5,7 @@ from std.testing import (
 
 from bajo.core.utils import degrees_to_radians
 from bajo.core.quat import Quaternion
-from bajo.core.vec_simd import Vec3, assert_vec_equal
+from bajo.core.vec import Vec3, assert_vec_equal
 
 
 def assert_quat_equal[T: DType](a: Quaternion[T], b: Quaternion[T]) raises:

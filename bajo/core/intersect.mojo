@@ -1,6 +1,6 @@
 from std.math import fma, abs, max, clamp
 
-from bajo.core.vec_simd import (
+from bajo.core.vec import (
     Vec2,
     Vec3,
     dot,
@@ -139,35 +139,35 @@ def closest_point_to_triangle[
         # Edge AB
         v = d1 / (d1 - d3)
         u = 1 - v
-        return Vec2[dtype](u, v)
+        return Vec2[dtype, width](u, v)
 
     cp = p - c
     d5 = dot(ab, cp)
     d6 = dot(ac, cp)
     if d6 >= 0 and d5 <= d6:
         # Vertex C: v=0, w=1, u=0
-        return Vec2[dtype, width](Scalar[dtype](0), 0)
+        return Vec2[dtype, width](SIMD[dtype, width](0), 0)
 
     vb = d5 * d2 - d1 * d6
     if vb <= 0 and d2 >= 0 and d6 <= 0:
         # Edge AC
         w = d2 / (d2 - d6)
         u = 1 - w
-        return Vec2[dtype](u, 0)
+        return Vec2[dtype, width](u, 0)
 
     va = d3 * d6 - d5 * d4
     if va <= 0 and (d4 - d3) >= 0 and (d5 - d6) >= 0:
         # Edge BC
         w = (d4 - d3) / ((d4 - d3) + (d5 - d6))
         v = 1 - w
-        return Vec2[dtype](SIMD[dtype, width](0), v)
+        return Vec2[dtype, width](SIMD[dtype, width](0), v)
 
     # Inside Face
     denom = 1 / (va + vb + vc)
     v = vb * denom
     w = vc * denom
     u = 1 - v - w
-    return Vec2[dtype](u, v)
+    return Vec2[dtype, width](u, v)
 
 
 def furthest_point_to_triangle[

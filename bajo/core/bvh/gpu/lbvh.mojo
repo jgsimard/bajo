@@ -3,7 +3,7 @@ from std.time import perf_counter_ns
 from std.gpu import DeviceBuffer
 from std.gpu.host import DeviceContext
 
-from bajo.core.vec_simd import Vec3f32
+from bajo.core.vec import Vec3f32
 from bajo.core.bvh.host_utils import (
     flatten_vertices,
     copy_list_to_device,

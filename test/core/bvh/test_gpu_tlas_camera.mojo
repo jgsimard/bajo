@@ -18,8 +18,8 @@ from bajo.core.bvh.gpu.tlas_traverse import (
     launch_tlas_lbvh_camera_primary,
     launch_shade_tlas_normals,
 )
-from bajo.core.mat_simd import Mat44f32, _translation
-from bajo.core.vec_simd import Vec3f32
+from bajo.core.mat import Mat44f32, _translation
+from bajo.core.vec import Vec3f32
 from fixtures import (
     _append_tri,
     _make_two_depth_triangles,

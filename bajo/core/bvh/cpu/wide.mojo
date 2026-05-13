@@ -1,7 +1,7 @@
 from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.intersect import intersect_ray_tri
-from bajo.core.vec_simd import Vec3, Vec3f32
+from bajo.core.vec import Vec3, Vec3f32
 from bajo.core.bvh.cpu.binary_bvh import BinaryBvh
 from bajo.core.bvh.types import Ray
 

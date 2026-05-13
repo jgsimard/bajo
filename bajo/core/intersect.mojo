@@ -3,6 +3,7 @@ from std.math import fma, abs, max, clamp
 from bajo.core.vec import (
     Vec2,
     Vec3,
+    Vec3f32,
     dot,
     vmin,
     vmax,
@@ -198,41 +199,6 @@ def furthest_point_to_triangle[
     return Vec2[dtype, width](Scalar[dtype](0), 0)
 
 
-# # TODO: use optinal ?
-# def intersect_ray_aabb[
-#     dtype: DType
-# ](
-#     pos: Vec3[dtype],
-#     rcp_dir: Vec3[dtype],
-#     lower: Vec3[dtype],
-#     upper: Vec3[dtype],
-#     mut t: Scalar[dtype],
-# ) -> Bool:
-#     # X axis
-#     l1 = (lower[0] - pos[0]) * rcp_dir[0]
-#     l2 = (upper[0] - pos[0]) * rcp_dir[0]
-#     lmin = min(l1, l2)
-#     lmax = max(l1, l2)
-
-#     # Y axis
-#     l1 = (lower[1] - pos[1]) * rcp_dir[1]
-#     l2 = (upper[1] - pos[1]) * rcp_dir[1]
-#     lmin = max(min(l1, l2), lmin)
-#     lmax = min(max(l1, l2), lmax)
-
-#     # Z axis
-#     l1 = (lower[2] - pos[2]) * rcp_dir[2]
-#     l2 = (upper[2] - pos[2]) * rcp_dir[2]
-#     lmin = max(min(l1, l2), lmin)
-#     lmax = min(max(l1, l2), lmax)
-
-#     hit = (lmax >= 0.0) and (lmax >= lmin)
-#     if hit:
-#         t = lmin
-
-#     return hit
-
-
 @always_inline
 def _axis_t_near[
     dtype: DType, width: Int
@@ -359,91 +325,11 @@ def intersect_ray_tri[
 
 
 @always_inline
-def intersect_ray_tri[
-    dtype: DType, width: Int
-](
-    ox: SIMD[dtype, width],
-    oy: SIMD[dtype, width],
-    oz: SIMD[dtype, width],
-    dx: SIMD[dtype, width],
-    dy: SIMD[dtype, width],
-    dz: SIMD[dtype, width],
-    v0x: SIMD[dtype, width],
-    v0y: SIMD[dtype, width],
-    v0z: SIMD[dtype, width],
-    v1x: SIMD[dtype, width],
-    v1y: SIMD[dtype, width],
-    v1z: SIMD[dtype, width],
-    v2x: SIMD[dtype, width],
-    v2y: SIMD[dtype, width],
-    v2z: SIMD[dtype, width],
-    t_max: SIMD[dtype, width],
-    t_min: SIMD[dtype, width] = SIMD[dtype, width](1.0e-4),
-) -> RayTriHit[dtype, width]:
-    """Moller and Trumbore's method."""
-    comptime assert dtype in [DType.float32, DType.float64]
-    comptime EPSILON = Scalar[dtype](1e-8 if dtype == DType.float32 else 1e-16)
-    comptime BVH_INF = SIMD[dtype, width](3.4028234663852886e38)
-
-    var e1x = v1x - v0x
-    var e1y = v1y - v0y
-    var e1z = v1z - v0z
-
-    var e2x = v2x - v0x
-    var e2y = v2y - v0y
-    var e2z = v2z - v0z
-
-    var px = dy * e2z - dz * e2y
-    var py = dz * e2x - dx * e2z
-    var pz = dx * e2y - dy * e2x
-
-    var det = e1x * px + e1y * py + e1z * pz
-
-    var det_ok = det.gt(EPSILON) | det.lt(-EPSILON)
-
-    var inv_det = Scalar[dtype](1.0) / det
-
-    var tx = ox - v0x
-    var ty = oy - v0y
-    var tz = oz - v0z
-
-    var u = (tx * px + ty * py + tz * pz) * inv_det
-
-    var qx = ty * e1z - tz * e1y
-    var qy = tz * e1x - tx * e1z
-    var qz = tx * e1y - ty * e1x
-
-    var v = (dx * qx + dy * qy + dz * qz) * inv_det
-    var t = (e2x * qx + e2y * qy + e2z * qz) * inv_det
-
-    var mask = (
-        det_ok
-        & u.ge(0.0)
-        & u.le(1.0)
-        & v.ge(0.0)
-        & (u + v).le(1.0)
-        & t.gt(t_min)
-        & t.lt(t_max)
-    )
-
-    return RayTriHit[dtype, width](
-        mask,
-        mask.select(t, BVH_INF),
-        u,
-        v,
-    )
-
-
-@always_inline
 def intersect_ray_tri(
     vertices: UnsafePointer[Float32, MutAnyOrigin],
     prim_idx: UInt32,
-    ox: Float32,
-    oy: Float32,
-    oz: Float32,
-    dx: Float32,
-    dy: Float32,
-    dz: Float32,
+    o: Vec3f32,
+    d: Vec3f32,
     t_max: Float32,
 ) -> RayTriHit[DType.float32, 1]:
     var base = Int(prim_idx) * 9
@@ -458,21 +344,11 @@ def intersect_ray_tri(
     var v2z = vertices[base + 8]
 
     return intersect_ray_tri(
-        ox,
-        oy,
-        oz,
-        dx,
-        dy,
-        dz,
-        v0x,
-        v0y,
-        v0z,
-        v1x,
-        v1y,
-        v1z,
-        v2x,
-        v2y,
-        v2z,
+        o,
+        d,
+        Vec3f32(v0x, v0y, v0z),
+        Vec3f32(v1x, v1y, v1z),
+        Vec3f32(v2x, v2y, v2z),
         t_max,
     )
 

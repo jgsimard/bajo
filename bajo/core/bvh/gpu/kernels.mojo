@@ -474,12 +474,8 @@ def _trace_lbvh_ray[
             var tri_hit = intersect_ray_tri(
                 vertices,
                 prim_idx,
-                ray.o.x,
-                ray.o.y,
-                ray.o.z,
-                ray.d.x,
-                ray.d.y,
-                ray.d.z,
+                ray.o,
+                ray.d,
                 best_t,
             )
 

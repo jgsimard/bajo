@@ -57,17 +57,11 @@ struct RayFlat(TrivialRegisterPassable):
     def __init__(
         out self, rays: UnsafePointer[Float32, ImmutAnyOrigin], ray_idx: Int
     ):
-        var ray_base = ray_idx * 10
-        self.o = Vec3f32(
-            rays[ray_base + 0], rays[ray_base + 1], rays[ray_base + 2]
-        )
-        self.d = Vec3f32(
-            rays[ray_base + 3], rays[ray_base + 4], rays[ray_base + 5]
-        )
-        self.rd = Vec3f32(
-            rays[ray_base + 6], rays[ray_base + 7], rays[ray_base + 8]
-        )
-        self.t_max = rays[ray_base + 9]
+        var base = ray_idx * 10
+        self.o = Vec3f32(rays[base + 0], rays[base + 1], rays[base + 2])
+        self.d = Vec3f32(rays[base + 3], rays[base + 4], rays[base + 5])
+        self.rd = Vec3f32(rays[base + 6], rays[base + 7], rays[base + 8])
+        self.t_max = rays[base + 9]
 
 
 @fieldwise_init
@@ -141,11 +135,7 @@ struct Fragment(Copyable):
 
     @always_inline
     def center_axis(self, axis: Int) -> Float32:
-        if axis == 0:
-            return (self.bmin.x + self.bmax.x) * 0.5
-        if axis == 1:
-            return (self.bmin.y + self.bmax.y) * 0.5
-        return (self.bmin.z + self.bmax.z) * 0.5
+        return (self.bmin[axis] + self.bmax[axis]) * 0.5
 
     @always_inline
     def grow_into(self, mut aabb: AABB):

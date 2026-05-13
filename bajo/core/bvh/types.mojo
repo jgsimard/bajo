@@ -2,7 +2,7 @@ from std.math import clamp
 from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.aabb import AABB
-from bajo.core.vec import Vec3f32, vmin, vmax
+from bajo.core.vec_simd import Vec3f32, vmin, vmax
 
 comptime f32_max = max_finite[DType.float32]()
 comptime f32_min = min_finite[DType.float32]()
@@ -11,7 +11,7 @@ comptime BVH_BINS = 16
 
 
 @fieldwise_init
-struct Intersection(TrivialRegisterPassable):
+struct Intersection(TrivialRegisterPassable, Writable):
     var t: Float32
     var u: Float32
     var v: Float32
@@ -28,7 +28,7 @@ struct Intersection(TrivialRegisterPassable):
 
 
 @fieldwise_init
-struct Ray(Copyable):
+struct Ray(Copyable, Writable):
     var O: Vec3f32
     var mask: UInt32
     var D: Vec3f32
@@ -38,9 +38,9 @@ struct Ray(Copyable):
     def __init__(out self, O: Vec3f32, D: Vec3f32, t_max: Float32 = f32_max):
         self.O = O.copy()
         self.D = D.copy()
-        var rDx = clamp(Float32(1.0) / D.x(), f32_min, f32_max)
-        var rDy = clamp(Float32(1.0) / D.y(), f32_min, f32_max)
-        var rDz = clamp(Float32(1.0) / D.z(), f32_min, f32_max)
+        var rDx = clamp(Float32(1.0) / D.x, f32_min, f32_max)
+        var rDy = clamp(Float32(1.0) / D.y, f32_min, f32_max)
+        var rDz = clamp(Float32(1.0) / D.z, f32_min, f32_max)
         self.rD = Vec3f32(rDx, rDy, rDz)
         self.mask = 0xFFFFFFFF
         self.hit = Intersection()
@@ -147,7 +147,11 @@ struct Fragment(Copyable):
 
     @always_inline
     def center_axis(self, axis: Int) -> Float32:
-        return (self.bmin[axis] + self.bmax[axis]) * 0.5
+        if axis == 0:
+            return (self.bmin.x + self.bmax.x) * 0.5
+        if axis == 1:
+            return (self.bmin.y + self.bmax.y) * 0.5
+        return (self.bmin.z + self.bmax.z) * 0.5
 
     @always_inline
     def grow_into(self, mut aabb: AABB):

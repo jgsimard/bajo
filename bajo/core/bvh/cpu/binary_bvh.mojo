@@ -8,7 +8,7 @@ from bajo.core.bvh.cpu.traverse import (
 )
 from bajo.core.aabb import AABB
 from bajo.core.intersect import intersect_ray_aabb
-from bajo.core.vec import Vec3f32, vmin, vmax, longest_axis
+from bajo.core.vec_simd import Vec3f32, vmin, vmax, longest_axis
 from bajo.core.morton import morton3
 from bajo.core.bvh.types import (
     Intersection,
@@ -100,7 +100,12 @@ struct BinaryBvh(Copyable):
         comptime if split_method == "median":
             var extent = node.aabb._max - node.aabb._min
             axis = longest_axis(extent)
-            pos = node.aabb._min[axis] + extent[axis] * 0.5
+            if axis == 0:
+                pos = node.aabb._min.x + extent.x * 0.5
+            elif axis == 1:
+                pos = node.aabb._min.y + extent.y * 0.5
+            else:
+                pos = node.aabb._min.z + extent.z * 0.5
         elif split_method == "sah":
             var split = _sah(
                 node,
@@ -118,7 +123,12 @@ struct BinaryBvh(Copyable):
                     # Force a spatial median split to keep breaking the node down.
                     var extent = node.aabb._max - node.aabb._min
                     axis = longest_axis(extent)
-                    pos = node.aabb._min[axis] + extent[axis] * 0.5
+                    if axis == 0:
+                        pos = node.aabb._min.x + extent.x * 0.5
+                    elif axis == 1:
+                        pos = node.aabb._min.y + extent.y * 0.5
+                    else:
+                        pos = node.aabb._min.z + extent.z * 0.5
                 else:
                     return None  # Safely make a leaf.
             else:
@@ -302,19 +312,19 @@ struct BinaryBvh(Copyable):
         var inv_x = Float32(0.0)
         var inv_y = Float32(0.0)
         var inv_z = Float32(0.0)
-        if extent.x() > 1.0e-20:
-            inv_x = 1.0 / extent.x()
-        if extent.y() > 1.0e-20:
-            inv_y = 1.0 / extent.y()
-        if extent.z() > 1.0e-20:
-            inv_z = 1.0 / extent.z()
+        if extent.x > 1.0e-20:
+            inv_x = 1.0 / extent.x
+        if extent.y > 1.0e-20:
+            inv_y = 1.0 / extent.y
+        if extent.z > 1.0e-20:
+            inv_z = 1.0 / extent.z
 
         var pairs = List[MortonPrim](capacity=Int(self.tri_count))
         for i in range(Int(self.tri_count)):
             ref frag = self.fragments[i]
-            var x = (frag.center_axis(0) - centroid_min.x()) * inv_x
-            var y = (frag.center_axis(1) - centroid_min.y()) * inv_y
-            var z = (frag.center_axis(2) - centroid_min.z()) * inv_z
+            var x = (frag.center_axis(0) - centroid_min.x) * inv_x
+            var y = (frag.center_axis(1) - centroid_min.y) * inv_y
+            var z = (frag.center_axis(2) - centroid_min.z) * inv_z
             var code = morton3(x, y, z)
             pairs.append(MortonPrim(code, UInt32(i)))
 
@@ -455,19 +465,19 @@ struct BinaryBvh(Copyable):
             )
 
             # Cull by current ray distance
-            if h1 and dist1 >= ray.hit.t:
-                h1 = False
-            if h2 and dist2 >= ray.hit.t:
-                h2 = False
+            if h1.mask and h1.tmin >= ray.hit.t:
+                h1.mask = False
+            if h2.mask and h2.tmin >= ray.hit.t:
+                h2.mask = False
 
-            if not h1 and not h2:
+            if not h1.mask and not h2.mask:
                 if stack_ptr == 0:
                     break
                 stack_ptr -= 1
                 node_idx = stack[stack_ptr]
-            elif h1 and not h2:
+            elif h1.mask and not h2.mask:
                 node_idx = child1_idx
-            elif not h1 and h2:
+            elif not h1.mask and h2.mask:
                 node_idx = child2_idx
             else:
                 node_idx = push_near_far[not is_shadow](

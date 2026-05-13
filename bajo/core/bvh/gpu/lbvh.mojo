@@ -3,7 +3,7 @@ from std.time import perf_counter_ns
 from std.gpu import DeviceBuffer
 from std.gpu.host import DeviceContext
 
-from bajo.core.vec import Vec3f32
+from bajo.core.vec_simd import Vec3f32
 from bajo.core.bvh.host_utils import (
     flatten_vertices,
     copy_list_to_device,
@@ -46,9 +46,9 @@ def _safe_inv_extent_axis(a: Float32, b: Float32) -> Float32:
 
 def _safe_inv_extent(bounds_min: Vec3f32, bounds_max: Vec3f32) -> Vec3f32:
     return Vec3f32(
-        _safe_inv_extent_axis(bounds_min.x(), bounds_max.x()),
-        _safe_inv_extent_axis(bounds_min.y(), bounds_max.y()),
-        _safe_inv_extent_axis(bounds_min.z(), bounds_max.z()),
+        _safe_inv_extent_axis(bounds_min.x, bounds_max.x),
+        _safe_inv_extent_axis(bounds_min.y, bounds_max.y),
+        _safe_inv_extent_axis(bounds_min.z, bounds_max.z),
     )
 
 
@@ -227,12 +227,12 @@ struct GpuLBVH:
             self.keys.unsafe_ptr(),
             self.values.unsafe_ptr(),
             self.tri_count,
-            centroid_min.x(),
-            centroid_min.y(),
-            centroid_min.z(),
-            norm.x(),
-            norm.y(),
-            norm.z(),
+            centroid_min.x,
+            centroid_min.y,
+            centroid_min.z,
+            norm.x,
+            norm.y,
+            norm.z,
             grid_dim=self.blocks_leaves,
             block_dim=GPU_LBVH_BLOCK_SIZE,
         )

@@ -6,7 +6,7 @@ from bajo.core.bvh.cpu.traverse import (
 )
 from bajo.core.aabb import AABB
 from bajo.core.intersect import intersect_ray_aabb
-from bajo.core.vec import Vec3f32
+from bajo.core.vec_simd import Vec3f32
 from bajo.core.bvh.cpu.binary_bvh import BinaryBvh
 from bajo.core.bvh.types import Ray
 
@@ -94,10 +94,10 @@ struct BvhGpuLayout(Copyable):
             # Leaf bounds are not needed by traversal once the leaf is entered,
             # but storing them makes debug inspection easier and keeps the node
             # self-describing.
-            out.lmin = bnode.aabb._min.copy()
-            out.lmax = bnode.aabb._max.copy()
-            out.rmin = bnode.aabb._min.copy()
-            out.rmax = bnode.aabb._max.copy()
+            out.lmin = bnode.aabb._min
+            out.lmax = bnode.aabb._max
+            out.rmin = bnode.aabb._min
+            out.rmax = bnode.aabb._max
         else:
             var left_binary_idx = bnode.left_first
             var right_binary_idx = bnode.left_first + 1
@@ -105,10 +105,10 @@ struct BvhGpuLayout(Copyable):
             ref left = binary_bvh.bvh_nodes[Int(left_binary_idx)]
             ref right = binary_bvh.bvh_nodes[Int(right_binary_idx)]
 
-            out.lmin = left.aabb._min.copy()
-            out.lmax = left.aabb._max.copy()
-            out.rmin = right.aabb._min.copy()
-            out.rmax = right.aabb._max.copy()
+            out.lmin = left.aabb._min
+            out.lmax = left.aabb._max
+            out.rmin = right.aabb._min
+            out.rmax = right.aabb._max
             out.tri_count = 0
             out.first_tri = 0
 
@@ -156,37 +156,36 @@ struct BvhGpuLayout(Copyable):
                 node_idx = stack[stack_ptr]
                 continue
 
-            var dist_left = Float32(f32_max)
-            var dist_right = Float32(f32_max)
-
             var hit_left = intersect_ray_aabb(
                 ray.O,
                 ray.rD,
                 node.lmin,
                 node.lmax,
-                dist_left,
+                SIMD[DType.float32, 1](ray.hit.t),
             )
+
             var hit_right = intersect_ray_aabb(
                 ray.O,
                 ray.rD,
                 node.rmin,
                 node.rmax,
-                dist_right,
+                SIMD[DType.float32, 1](ray.hit.t),
             )
 
-            if hit_left and dist_left >= ray.hit.t:
-                hit_left = False
-            if hit_right and dist_right >= ray.hit.t:
-                hit_right = False
+            var left_mask = hit_left.mask
+            var right_mask = hit_right.mask
 
-            if not hit_left and not hit_right:
+            var dist_left = hit_left.tmin
+            var dist_right = hit_right.tmin
+
+            if not left_mask and not right_mask:
                 if stack_ptr == 0:
                     break
                 stack_ptr -= 1
                 node_idx = stack[stack_ptr]
-            elif hit_left and not hit_right:
+            elif left_mask and not right_mask:
                 node_idx = node.left
-            elif not hit_left and hit_right:
+            elif not left_mask and right_mask:
                 node_idx = node.right
             else:
                 node_idx = push_near_far[True](

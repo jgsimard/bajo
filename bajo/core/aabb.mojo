@@ -1,16 +1,18 @@
 from std.utils.numerics import max_finite, min_finite
 
-from bajo.core.mat import Mat33
+from bajo.core.mat_simd import Mat33
 from bajo.core.quat import Quaternion
-from bajo.core.vec import Vec, Vec3, vmin, vmax
+from bajo.core.vec_simd import Vec3, vmin, vmax
 
 comptime AABB = AxisAlignedBoundingBox[DType.float32]
 
 
 @fieldwise_init
-struct AxisAlignedBoundingBox[dtype: DType, size: Int = 3](Copyable, Writable):
-    var _min: Vec[Self.dtype, Self.size]
-    var _max: Vec[Self.dtype, Self.size]
+struct AxisAlignedBoundingBox[dtype: DType, width: Int = 1](
+    TrivialRegisterPassable, Writable
+):
+    var _min: Vec3[Self.dtype, Self.width]
+    var _max: Vec3[Self.dtype, Self.width]
 
     def __init__(out self, a: Self, b: Self):
         self._min = vmin(a._min, b._min)
@@ -21,13 +23,13 @@ struct AxisAlignedBoundingBox[dtype: DType, size: Int = 3](Copyable, Writable):
         comptime flt_max = max_finite[Self.dtype]()
         comptime flt_min = min_finite[Self.dtype]()
         return Self(
-            Vec[Self.dtype, Self.size](flt_max),
-            Vec[Self.dtype, Self.size](flt_min),
+            Vec3[Self.dtype, Self.width](flt_max),
+            Vec3[Self.dtype, Self.width](flt_min),
         )
 
     @staticmethod
-    def point(p: Vec[Self.dtype, Self.size]) -> Self:
-        return Self(p.copy(), p.copy())
+    def point(p: Vec3[Self.dtype, Self.width]) -> Self:
+        return Self(p, p)
 
     @staticmethod
     def merge(a: Self, b: Self) -> Self:
@@ -36,22 +38,22 @@ struct AxisAlignedBoundingBox[dtype: DType, size: Int = 3](Copyable, Writable):
             vmax(a._max, b._max),
         )
 
-    def surface_area(self) -> Scalar[Self.dtype]:
+    def surface_area(self) -> SIMD[Self.dtype, self.width]:
         d = self._max - self._min
-        return d.x() * d.y() + d.x() * d.z() + d.y() * d.z()
+        return d.x * d.y + d.x * d.z + d.y * d.z
 
     comptime area = Self.surface_area
 
-    def centroid(self) -> Vec[Self.dtype, Self.size]:
+    def centroid(self) -> Vec3[Self.dtype, Self.width]:
         return (self._min + self._max) * 0.5
 
     def clear(mut self):
         comptime _min = min_finite[Self.dtype]()
         comptime _max = max_finite[Self.dtype]()
-        self._min = Vec[Self.dtype, Self.size](_min)
-        self._max = Vec[Self.dtype, Self.size](_max)
+        self._min = Vec3[Self.dtype, Self.width](_min)
+        self._max = Vec3[Self.dtype, Self.width](_max)
 
-    def grow(mut self, *vs: Vec[Self.dtype, Self.size]):
+    def grow(mut self, *vs: Vec3[Self.dtype, Self.width]):
         for v in vs:
             self._min = vmin(self._min, v)
             self._max = vmax(self._max, v)
@@ -61,33 +63,33 @@ struct AxisAlignedBoundingBox[dtype: DType, size: Int = 3](Copyable, Writable):
             self._min = vmin(self._min, other._min)
             self._max = vmax(self._max, other._max)
 
-    def edges(self) -> Vec[Self.dtype, Self.size]:
+    def edges(self) -> Vec3[Self.dtype, Self.width]:
         return self._max - self._min
 
     def overlaps(self, o: Self) -> Bool:
         return (
-            self._min.x() < o._max.x()
-            and o._min.x() < self._max.x()
-            and self._min.y() < o._max.y()
-            and o._min.y() < self._max.y()
-            and self._min.z() < o._max.z()
-            and o._min.z() < self._max.z()
+            self._min.x < o._max.x
+            and o._min.x < self._max.x
+            and self._min.y < o._max.y
+            and o._min.y < self._max.y
+            and self._min.z < o._max.z
+            and o._min.z < self._max.z
         )
 
-    def contains(self, p: Vec[Self.dtype, Self.size]) -> Bool:
+    def contains(self, p: Vec3[Self.dtype, Self.width]) -> Bool:
         return (
-            self._min.x() <= p.x()
-            and self._min.y() <= p.y()
-            and self._min.z() <= p.z()
-            and self._max.x() >= p.x()
-            and self._max.y() >= p.y()
-            and self._max.z() >= p.z()
+            self._min.x <= p.x
+            and self._min.y <= p.y
+            and self._min.z <= p.z
+            and self._max.x >= p.x
+            and self._max.y >= p.y
+            and self._max.z >= p.z
         )
 
     def ray_intersects(
         self,
-        ray_o: Vec[Self.dtype, Self.size],
-        inv_ray_d: Vec[Self.dtype, Self.size],
+        ray_o: Vec3[Self.dtype, Self.width],
+        inv_ray_d: Vec3[Self.dtype, Self.width],
         ray_t_min: Scalar[Self.dtype],
         ray_t_max: Scalar[Self.dtype],
     ) -> Bool:
@@ -97,9 +99,8 @@ struct AxisAlignedBoundingBox[dtype: DType, size: Int = 3](Copyable, Writable):
         t_min_vec = vmin(t_lower, t_upper)
         t_max_vec = vmax(t_lower, t_upper)
 
-        t_box_min = max(t_min_vec.x(), t_min_vec.y(), t_min_vec.z(), ray_t_min)
-
-        t_box_max = min(t_max_vec.x(), t_max_vec.y(), t_max_vec.z(), ray_t_max)
+        t_box_min = max(t_min_vec.x, t_min_vec.y, t_min_vec.z, ray_t_min)
+        t_box_max = min(t_max_vec.x, t_max_vec.y, t_max_vec.z, ray_t_max)
 
         return t_box_min <= t_box_max
 
@@ -112,9 +113,7 @@ struct AxisAlignedBoundingBox[dtype: DType, size: Int = 3](Copyable, Writable):
         Self.dtype
     ] where Self.dtype.is_floating_point():
         rot_mat = Mat33[Self.dtype].from_rotation_scale(rotation, scale)
-        txfmed = AxisAlignedBoundingBox[Self.dtype](
-            translation.copy(), translation.copy()
-        )
+        txfmed = AxisAlignedBoundingBox[Self.dtype](translation, translation)
 
         # use comptime to fully unroll
         # in bench_aabb, 3.3x faster then version without comptime
@@ -124,10 +123,10 @@ struct AxisAlignedBoundingBox[dtype: DType, size: Int = 3](Copyable, Writable):
                 e = rot_mat[i][j] * self._min[j]
                 f = rot_mat[i][j] * self._max[j]
 
-                if e < f:
-                    txfmed._min[i] += e
-                    txfmed._max[i] += f
+                if e[0] < f[0]:
+                    txfmed._min.add_axis[i](e)
+                    txfmed._max.add_axis[i](f)
                 else:
-                    txfmed._min[i] += f
-                    txfmed._max[i] += e
-        return txfmed^
+                    txfmed._min.add_axis[i](f)
+                    txfmed._max.add_axis[i](e)
+        return txfmed

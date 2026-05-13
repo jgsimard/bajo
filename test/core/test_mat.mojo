@@ -3,7 +3,7 @@ from std.testing import (
     assert_equal,
     assert_almost_equal,
 )
-from bajo.core.mat import (
+from bajo.core.mat_simd import (
     Mat22,
     Mat33,
     Mat44,
@@ -11,8 +11,9 @@ from bajo.core.mat import (
     determinant,
     _matmul,
     _matvec,
+    assert_mat_equal,
 )
-from bajo.core.vec import (
+from bajo.core.vec_simd import (
     Vec3f32,
     assert_vec_equal,
 )
@@ -35,7 +36,7 @@ def test_basics() raises:
         3, 6, 9
     )
     # fmt: on
-    assert_equal(m.transpose(), mt)
+    assert_mat_equal(m.transpose(), mt)
 
     assert_almost_equal(determinant(Mat33[T].identity()), 1.0)
 

@@ -1,12 +1,12 @@
 from std.math import asin, atan2, cos, fma, pi, sin, sqrt, tan, copysign
 
-from bajo.core.vec import (
+from bajo.core.vec_simd import (
     Vec3,
     cross,
     normalize as vnormalize,
     length as vlength,
 )
-from bajo.core.mat import Mat, Mat33, Mat44
+from bajo.core.mat_simd import Mat, Mat33, Mat44
 
 
 def length2[dtype: DType](q: Quaternion[dtype]) -> Scalar[dtype]:
@@ -46,7 +46,7 @@ struct Quaternion[dtype: DType](Equatable, TrivialRegisterPassable, Writable):
         xyz: Vec3[Self.dtype],
         w: Scalar[Self.dtype],
     ):
-        self.data = SIMD[Self.dtype, 4](xyz.x(), xyz.y(), xyz.z(), w)
+        self.data = SIMD[Self.dtype, 4](xyz.x, xyz.y, xyz.z, w)
 
     @staticmethod
     def identity() -> Self:
@@ -82,9 +82,9 @@ struct Quaternion[dtype: DType](Equatable, TrivialRegisterPassable, Writable):
         qy = self.y()
         qz = self.z()
 
-        vx = v[0]
-        vy = v[1]
-        vz = v[2]
+        vx = v.x
+        vy = v.y
+        vz = v.z
 
         c = 2 * qw * qw - 1
         d = 2 * (qx * vx + qy * vy + qz * vz)
@@ -102,9 +102,9 @@ struct Quaternion[dtype: DType](Equatable, TrivialRegisterPassable, Writable):
         qy = self.y()
         qz = self.z()
 
-        vx = v[0]
-        vy = v[1]
-        vz = v[2]
+        vx = v.x
+        vy = v.y
+        vz = v.z
 
         c = 2 * qw * qw - 1
         d = 2 * (qx * vx + qy * vy + qz * vz)
@@ -135,7 +135,7 @@ struct Quaternion[dtype: DType](Equatable, TrivialRegisterPassable, Writable):
         v = self.xyz()
         axis = vnormalize(v) * copysign(Scalar[Self.dtype](1.0), self.w())
         angle = 2 * atan2(vlength(v), abs(self.w()))
-        return (axis^, angle)
+        return (axis, angle)
 
     def to_matrix(self) -> Mat33[Self.dtype]:
         c1 = self.rotate(Vec3[Self.dtype](1, 0, 0))
@@ -207,15 +207,15 @@ struct Quaternion[dtype: DType](Equatable, TrivialRegisterPassable, Writable):
     def from_basis[
         version: Int = 0
     ](a: Vec3[Self.dtype], b: Vec3[Self.dtype], c: Vec3[Self.dtype]) -> Self:
-        ax = a.x()
-        ay = a.y()
-        az = a.z()
-        bx = b.x()
-        by = b.y()
-        bz = b.z()
-        cx = c.x()
-        cy = c.y()
-        cz = c.z()
+        ax = a.x
+        ay = a.y
+        az = a.z
+        bx = b.x
+        by = b.y
+        bz = b.z
+        cx = c.x
+        cy = c.y
+        cz = c.z
 
         comptime if version == 0:
             # tx, ty, tz, tw represent 4*q^2 - 1 for each component

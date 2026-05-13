@@ -14,8 +14,8 @@ from bajo.core.bvh.gpu.tlas import (
     GPU_TLAS_INSTANCE_META_STRIDE,
     GPU_TLAS_TRANSFORM_STRIDE,
 )
-from bajo.core.mat import Mat44f32, _translation, _uniform_scale
-from bajo.core.vec import Vec3f32
+from bajo.core.mat_simd import Mat44f32, _translation, _uniform_scale
+from bajo.core.vec_simd import Vec3f32
 from fixtures import _append_tri, _make_strip
 
 
@@ -88,12 +88,12 @@ def test_gpu_tlas_node_meta_and_bounds_match_cpu() raises:
                 for i in range(Int(tlas.nodes_used)):
                     ref node = tlas.tlas_nodes[i]
                     var base = i * GPU_TLAS_NODE_BOUNDS_STRIDE
-                    assert_true(bounds[base + 0] == node.aabb._min.x())
-                    assert_true(bounds[base + 1] == node.aabb._min.y())
-                    assert_true(bounds[base + 2] == node.aabb._min.z())
-                    assert_true(bounds[base + 3] == node.aabb._max.x())
-                    assert_true(bounds[base + 4] == node.aabb._max.y())
-                    assert_true(bounds[base + 5] == node.aabb._max.z())
+                    assert_true(bounds[base + 0] == node.aabb._min.x)
+                    assert_true(bounds[base + 1] == node.aabb._min.y)
+                    assert_true(bounds[base + 2] == node.aabb._min.z)
+                    assert_true(bounds[base + 3] == node.aabb._max.x)
+                    assert_true(bounds[base + 4] == node.aabb._max.y)
+                    assert_true(bounds[base + 5] == node.aabb._max.z)
     else:
         assert_true(False, "No Accelerator found")
 

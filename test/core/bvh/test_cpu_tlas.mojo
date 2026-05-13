@@ -4,7 +4,7 @@ from std.utils.numerics import max_finite
 from bajo.core.bvh.cpu.binary_bvh import BinaryBvh
 from bajo.core.bvh.cpu.tlas import BvhInstance, Tlas
 from bajo.core.bvh.types import Ray
-from bajo.core.mat import (
+from bajo.core.mat_simd import (
     Mat44,
     Mat44f32,
     transform_point,
@@ -13,7 +13,7 @@ from bajo.core.mat import (
     _uniform_scale,
     _rotation_z,
 )
-from bajo.core.vec import Vec3f32, assert_vec_equal
+from bajo.core.vec_simd import Vec3f32, assert_vec_equal
 from bajo.core.utils import degrees_to_radians
 from fixtures import _append_tri
 
@@ -42,12 +42,12 @@ def _bounds_contains(
     inner_max: Vec3f32,
 ) -> Bool:
     return (
-        outer_min.x() <= inner_min.x()
-        and outer_min.y() <= inner_min.y()
-        and outer_min.z() <= inner_min.z()
-        and outer_max.x() >= inner_max.x()
-        and outer_max.y() >= inner_max.y()
-        and outer_max.z() >= inner_max.z()
+        outer_min.x <= inner_min.x
+        and outer_min.y <= inner_min.y
+        and outer_min.z <= inner_min.z
+        and outer_max.x >= inner_max.x
+        and outer_max.y >= inner_max.y
+        and outer_max.z >= inner_max.z
     )
 
 

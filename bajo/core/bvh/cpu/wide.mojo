@@ -1,7 +1,7 @@
 from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.intersect import intersect_ray_tri
-from bajo.core.vec import Vec3f32
+from bajo.core.vec_simd import Vec3, Vec3f32
 from bajo.core.bvh.cpu.binary_bvh import BinaryBvh
 from bajo.core.bvh.types import Ray
 
@@ -11,52 +11,29 @@ comptime f32_min = min_finite[DType.float32]()
 
 @fieldwise_init
 struct WideLeaf[width: Int](Copyable):
-    var v0x: SIMD[DType.float32, Self.width]
-    var v0y: SIMD[DType.float32, Self.width]
-    var v0z: SIMD[DType.float32, Self.width]
-    var v1x: SIMD[DType.float32, Self.width]
-    var v1y: SIMD[DType.float32, Self.width]
-    var v1z: SIMD[DType.float32, Self.width]
-    var v2x: SIMD[DType.float32, Self.width]
-    var v2y: SIMD[DType.float32, Self.width]
-    var v2z: SIMD[DType.float32, Self.width]
+    var v0: Vec3[DType.float32, Self.width]
+    var v1: Vec3[DType.float32, Self.width]
+    var v2: Vec3[DType.float32, Self.width]
     var prim_indices: SIMD[DType.uint32, Self.width]
 
     def __init__(out self):
-        self.v0x = SIMD[DType.float32, Self.width](0)
-        self.v0y = SIMD[DType.float32, Self.width](0)
-        self.v0z = SIMD[DType.float32, Self.width](0)
-        self.v1x = SIMD[DType.float32, Self.width](0)
-        self.v1y = SIMD[DType.float32, Self.width](0)
-        self.v1z = SIMD[DType.float32, Self.width](0)
-        self.v2x = SIMD[DType.float32, Self.width](0)
-        self.v2y = SIMD[DType.float32, Self.width](0)
-        self.v2z = SIMD[DType.float32, Self.width](0)
+        self.v0 = Vec3[DType.float32, Self.width](Float32(0.0), 0.0, 0.0)
+        self.v1 = Vec3[DType.float32, Self.width](Float32(0.0), 0.0, 0.0)
+        self.v2 = Vec3[DType.float32, Self.width](Float32(0.0), 0.0, 0.0)
         self.prim_indices = SIMD[DType.uint32, Self.width](0xFFFFFFFF)
 
 
 @fieldwise_init
 struct WideBvhNode[width: Int](Copyable):
-    var min_x: SIMD[DType.float32, Self.width]
-    var min_y: SIMD[DType.float32, Self.width]
-    var min_z: SIMD[DType.float32, Self.width]
-
-    var max_x: SIMD[DType.float32, Self.width]
-    var max_y: SIMD[DType.float32, Self.width]
-    var max_z: SIMD[DType.float32, Self.width]
-
+    var _min: Vec3[DType.float32, Self.width]
+    var _max: Vec3[DType.float32, Self.width]
     var data: SIMD[DType.uint32, Self.width]
     var counts: SIMD[DType.uint32, Self.width]
 
     @always_inline
     def __init__(out self):
-        self.min_x = SIMD[DType.float32, Self.width](f32_max)
-        self.min_y = SIMD[DType.float32, Self.width](f32_max)
-        self.min_z = SIMD[DType.float32, Self.width](f32_max)
-
-        self.max_x = SIMD[DType.float32, Self.width](f32_min)
-        self.max_y = SIMD[DType.float32, Self.width](f32_min)
-        self.max_z = SIMD[DType.float32, Self.width](f32_min)
+        self._min = Vec3[DType.float32, Self.width](f32_max, f32_max, f32_max)
+        self._max = Vec3[DType.float32, Self.width](f32_min, f32_min, f32_min)
 
         self.data = SIMD[DType.uint32, Self.width](0)
         self.counts = SIMD[DType.uint32, Self.width](0xFFFFFFFF)
@@ -100,12 +77,12 @@ struct WideBvh[width: Int](Copyable):
         comptime for i in range(Self.width):
             if i < p_size:
                 ref n = binary_bvh.bvh_nodes[Int(pool[i])]
-                node.min_x[i] = n.aabb._min.x()
-                node.max_x[i] = n.aabb._max.x()
-                node.min_y[i] = n.aabb._min.y()
-                node.max_y[i] = n.aabb._max.y()
-                node.min_z[i] = n.aabb._min.z()
-                node.max_z[i] = n.aabb._max.z()
+                node._min.x[i] = n.aabb._min.x
+                node._min.y[i] = n.aabb._min.y
+                node._min.z[i] = n.aabb._min.z
+                node._max.x[i] = n.aabb._max.x
+                node._max.y[i] = n.aabb._max.y
+                node._max.z[i] = n.aabb._max.z
                 if n.is_leaf():
                     # PACK TRIANGLES INTO SIMD LEAF
                     var l_idx = UInt32(len(self.leaves))
@@ -118,15 +95,15 @@ struct WideBvh[width: Int](Copyable):
                         ref v0 = self.vertices[p_idx * 3]
                         ref v1 = self.vertices[p_idx * 3 + 1]
                         ref v2 = self.vertices[p_idx * 3 + 2]
-                        packed.v0x[tri] = v0.x()
-                        packed.v0y[tri] = v0.y()
-                        packed.v0z[tri] = v0.z()
-                        packed.v1x[tri] = v1.x()
-                        packed.v1y[tri] = v1.y()
-                        packed.v1z[tri] = v1.z()
-                        packed.v2x[tri] = v2.x()
-                        packed.v2y[tri] = v2.y()
-                        packed.v2z[tri] = v2.z()
+                        packed.v0.x[tri] = v0.x
+                        packed.v0.y[tri] = v0.y
+                        packed.v0.z[tri] = v0.z
+                        packed.v1.x[tri] = v1.x
+                        packed.v1.y[tri] = v1.y
+                        packed.v1.z[tri] = v1.z
+                        packed.v2.x[tri] = v2.x
+                        packed.v2.y[tri] = v2.y
+                        packed.v2.z[tri] = v2.z
                         packed.prim_indices[tri] = UInt32(p_idx)
                     # Sentinel for empty lanes. Keep a separate valid-lane mask,
                     # because only poisoning v0x can still create NaNs in SIMD math.
@@ -149,22 +126,14 @@ struct WideBvh[width: Int](Copyable):
         is_occlusion: Bool
     ](self, mut ray: Ray, leaf_idx: UInt32) -> Bool:
         ref leaf = self.leaves[Int(leaf_idx)]
+        var O = Vec3[DType.float32, Self.width](ray.O.x, ray.O.y, ray.O.z)
+        var D = Vec3[DType.float32, Self.width](ray.D.x, ray.D.y, ray.D.z)
         var h = intersect_ray_tri[DType.float32, Self.width](
-            SIMD[DType.float32, Self.width](ray.O.x()),
-            SIMD[DType.float32, Self.width](ray.O.y()),
-            SIMD[DType.float32, Self.width](ray.O.z()),
-            SIMD[DType.float32, Self.width](ray.D.x()),
-            SIMD[DType.float32, Self.width](ray.D.y()),
-            SIMD[DType.float32, Self.width](ray.D.z()),
-            leaf.v0x,
-            leaf.v0y,
-            leaf.v0z,
-            leaf.v1x,
-            leaf.v1y,
-            leaf.v1z,
-            leaf.v2x,
-            leaf.v2y,
-            leaf.v2z,
+            O,
+            D,
+            leaf.v0,
+            leaf.v1,
+            leaf.v2,
             SIMD[DType.float32, Self.width](ray.hit.t),
         )
 
@@ -200,18 +169,18 @@ struct WideBvh[width: Int](Copyable):
             var tmin = max(
                 max(
                     min(
-                        (node.min_x - ray.O.x()) * ray.rD.x(),
-                        (node.max_x - ray.O.x()) * ray.rD.x(),
+                        (node._min.x - ray.O.x) * ray.rD.x,
+                        (node._max.x - ray.O.x) * ray.rD.x,
                     ),
                     min(
-                        (node.min_y - ray.O.y()) * ray.rD.y(),
-                        (node.max_y - ray.O.y()) * ray.rD.y(),
+                        (node._min.y - ray.O.y) * ray.rD.y,
+                        (node._max.y - ray.O.y) * ray.rD.y,
                     ),
                 ),
                 max(
                     min(
-                        (node.min_z - ray.O.z()) * ray.rD.z(),
-                        (node.max_z - ray.O.z()) * ray.rD.z(),
+                        (node._min.z - ray.O.z) * ray.rD.z,
+                        (node._max.z - ray.O.z) * ray.rD.z,
                     ),
                     0.0,
                 ),
@@ -219,18 +188,18 @@ struct WideBvh[width: Int](Copyable):
             var tmax = min(
                 min(
                     max(
-                        (node.min_x - ray.O.x()) * ray.rD.x(),
-                        (node.max_x - ray.O.x()) * ray.rD.x(),
+                        (node._min.x - ray.O.x) * ray.rD.x,
+                        (node._max.x - ray.O.x) * ray.rD.x,
                     ),
                     max(
-                        (node.min_y - ray.O.y()) * ray.rD.y(),
-                        (node.max_y - ray.O.y()) * ray.rD.y(),
+                        (node._min.y - ray.O.y) * ray.rD.y,
+                        (node._max.y - ray.O.y) * ray.rD.y,
                     ),
                 ),
                 min(
                     max(
-                        (node.min_z - ray.O.z()) * ray.rD.z(),
-                        (node.max_z - ray.O.z()) * ray.rD.z(),
+                        (node._min.z - ray.O.z) * ray.rD.z,
+                        (node._max.z - ray.O.z) * ray.rD.z,
                     ),
                     ray.hit.t,
                 ),

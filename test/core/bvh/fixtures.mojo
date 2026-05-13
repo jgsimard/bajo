@@ -1,7 +1,7 @@
 from std.gpu import DeviceContext
 from std.testing import assert_true
 
-from bajo.core.vec import Vec3f32
+from bajo.core.vec_simd import Vec3f32
 from bajo.core.bvh.gpu.lbvh import GpuLBVH
 
 

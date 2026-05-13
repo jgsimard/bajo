@@ -152,12 +152,12 @@ struct GpuTlasLayout:
             for i in range(self.node_count):
                 ref node = tlas.tlas_nodes[i]
                 var base = i * GPU_TLAS_NODE_BOUNDS_STRIDE
-                h[base + 0] = node.aabb._min.x()
-                h[base + 1] = node.aabb._min.y()
-                h[base + 2] = node.aabb._min.z()
-                h[base + 3] = node.aabb._max.x()
-                h[base + 4] = node.aabb._max.y()
-                h[base + 5] = node.aabb._max.z()
+                h[base + 0] = node.aabb._min.x
+                h[base + 1] = node.aabb._min.y
+                h[base + 2] = node.aabb._min.z
+                h[base + 3] = node.aabb._max.x
+                h[base + 4] = node.aabb._max.y
+                h[base + 5] = node.aabb._max.z
 
         with self.inst_indices.map_to_host() as h:
             for i in range(self.inst_count):
@@ -249,22 +249,22 @@ def validate_gpu_tlas_layout(
             ref node = tlas.tlas_nodes[i]
             var base = i * GPU_TLAS_NODE_BOUNDS_STRIDE
 
-            if not _almost_equal(h[base + 0], node.aabb._min.x()):
+            if not _almost_equal(h[base + 0], node.aabb._min.x):
                 out.ok = False
                 out.first_bad = _first_bad(out.first_bad, base + 0)
-            if not _almost_equal(h[base + 1], node.aabb._min.y()):
+            if not _almost_equal(h[base + 1], node.aabb._min.y):
                 out.ok = False
                 out.first_bad = _first_bad(out.first_bad, base + 1)
-            if not _almost_equal(h[base + 2], node.aabb._min.z()):
+            if not _almost_equal(h[base + 2], node.aabb._min.z):
                 out.ok = False
                 out.first_bad = _first_bad(out.first_bad, base + 2)
-            if not _almost_equal(h[base + 3], node.aabb._max.x()):
+            if not _almost_equal(h[base + 3], node.aabb._max.x):
                 out.ok = False
                 out.first_bad = _first_bad(out.first_bad, base + 3)
-            if not _almost_equal(h[base + 4], node.aabb._max.y()):
+            if not _almost_equal(h[base + 4], node.aabb._max.y):
                 out.ok = False
                 out.first_bad = _first_bad(out.first_bad, base + 4)
-            if not _almost_equal(h[base + 5], node.aabb._max.z()):
+            if not _almost_equal(h[base + 5], node.aabb._max.z):
                 out.ok = False
                 out.first_bad = _first_bad(out.first_bad, base + 5)
 

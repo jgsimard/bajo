@@ -23,6 +23,12 @@ struct RayTriHit[dtype: DType, width: Int](TrivialRegisterPassable, Writable):
 
 @fieldwise_init
 struct RayAabbHit[dtype: DType, width: Int](TrivialRegisterPassable, Writable):
+    """RayAabbHit.
+
+    - mask: SIMD[DType.bool, Self.width]
+    - tmin: SIMD[Self.dtype, Self.width]
+    """
+
     var mask: SIMD[DType.bool, Self.width]
     var tmin: SIMD[Self.dtype, Self.width]
     # var tmax: SIMD[Self.dtype, Self.width]

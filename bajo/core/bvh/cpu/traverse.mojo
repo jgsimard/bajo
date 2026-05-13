@@ -1,6 +1,6 @@
 from bajo.core.bvh.types import Ray
 from bajo.core.intersect import intersect_ray_tri
-from bajo.core.vec import Vec3f32
+from bajo.core.vec_simd import Vec3f32
 
 
 @always_inline
@@ -53,21 +53,21 @@ def intersect_prim[
     ref v2 = vertices[base + 2]
 
     var h = intersect_ray_tri(
-        ray.O.x(),
-        ray.O.y(),
-        ray.O.z(),
-        ray.D.x(),
-        ray.D.y(),
-        ray.D.z(),
-        v0.x(),
-        v0.y(),
-        v0.z(),
-        v1.x(),
-        v1.y(),
-        v1.z(),
-        v2.x(),
-        v2.y(),
-        v2.z(),
+        ray.O.x,
+        ray.O.y,
+        ray.O.z,
+        ray.D.x,
+        ray.D.y,
+        ray.D.z,
+        v0.x,
+        v0.y,
+        v0.z,
+        v1.x,
+        v1.y,
+        v1.z,
+        v2.x,
+        v2.y,
+        v2.z,
         ray.hit.t,
     )
 

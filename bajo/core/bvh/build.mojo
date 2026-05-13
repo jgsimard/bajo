@@ -3,7 +3,7 @@ from std.math import abs, min, max
 from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.aabb import AABB
-from bajo.core.vec import Vec3f32, vmin, vmax, longest_axis, InlineArray
+from bajo.core.vec import Vec3f32, vmin, vmax, longest_axis
 from bajo.core.bvh.types import (
     Ray,
     BvhNode,

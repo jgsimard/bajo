@@ -22,14 +22,6 @@ def test_logic() raises:
     assert_true(box.overlaps(box_overlap))
     assert_false(box.overlaps(box_far))
 
-    # Ray Intersect
-    ray_o = Vec3f32(-1, 1, 1)
-    ray_d = Vec3f32(1, 0, 0)
-    # Diag3.inv handles the 1/d calculation used in ray_intersects
-    inv_d = 1.0 / ray_d
-
-    assert_true(box.ray_intersects(ray_o, inv_d, 0.0, 10.0))
-
 
 def test_merge() raises:
     a = AABB(Vec3f32(0), Vec3f32(1))

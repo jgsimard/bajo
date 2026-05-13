@@ -40,7 +40,7 @@ struct AxisAlignedBoundingBox[dtype: DType, width: Int = 1](
 
     def surface_area(self) -> SIMD[Self.dtype, self.width]:
         d = self._max - self._min
-        return d.x * d.y + d.x * d.z + d.y * d.z
+        return 2.0 * (d.x * d.y + d.x * d.z + d.y * d.z)
 
     comptime area = Self.surface_area
 
@@ -48,10 +48,7 @@ struct AxisAlignedBoundingBox[dtype: DType, width: Int = 1](
         return (self._min + self._max) * 0.5
 
     def clear(mut self):
-        comptime _min = min_finite[Self.dtype]()
-        comptime _max = max_finite[Self.dtype]()
-        self._min = Vec3[Self.dtype, Self.width](_min)
-        self._max = Vec3[Self.dtype, Self.width](_max)
+        self = Self.invalid()
 
     def grow(mut self, *vs: Vec3[Self.dtype, Self.width]):
         for v in vs:
@@ -66,43 +63,27 @@ struct AxisAlignedBoundingBox[dtype: DType, width: Int = 1](
     def edges(self) -> Vec3[Self.dtype, Self.width]:
         return self._max - self._min
 
-    def overlaps(self, o: Self) -> Bool:
+    def overlaps(self, o: Self) -> SIMD[DType.bool, Self.width]:
         return (
-            self._min.x < o._max.x
-            and o._min.x < self._max.x
-            and self._min.y < o._max.y
-            and o._min.y < self._max.y
-            and self._min.z < o._max.z
-            and o._min.z < self._max.z
+            self._min.x.lt(o._max.x)
+            & o._min.x.lt(self._max.x)
+            & self._min.y.lt(o._max.y)
+            & o._min.y.lt(self._max.y)
+            & self._min.z.lt(o._max.z)
+            & o._min.z.lt(self._max.z)
         )
 
-    def contains(self, p: Vec3[Self.dtype, Self.width]) -> Bool:
+    def contains(
+        self, p: Vec3[Self.dtype, Self.width]
+    ) -> SIMD[DType.bool, Self.width]:
         return (
-            self._min.x <= p.x
-            and self._min.y <= p.y
-            and self._min.z <= p.z
-            and self._max.x >= p.x
-            and self._max.y >= p.y
-            and self._max.z >= p.z
+            self._min.x.le(p.x)
+            & p.x.le(self._max.x)
+            & self._min.y.le(p.y)
+            & p.y.le(self._max.y)
+            & self._min.z.le(p.z)
+            & p.z.le(self._max.z)
         )
-
-    def ray_intersects(
-        self,
-        ray_o: Vec3[Self.dtype, Self.width],
-        inv_ray_d: Vec3[Self.dtype, Self.width],
-        ray_t_min: Scalar[Self.dtype],
-        ray_t_max: Scalar[Self.dtype],
-    ) -> Bool:
-        t_lower = inv_ray_d * (self._min - ray_o)
-        t_upper = inv_ray_d * (self._max - ray_o)
-
-        t_min_vec = vmin(t_lower, t_upper)
-        t_max_vec = vmax(t_lower, t_upper)
-
-        t_box_min = max(t_min_vec.x, t_min_vec.y, t_min_vec.z, ray_t_min)
-        t_box_max = min(t_max_vec.x, t_max_vec.y, t_max_vec.z, ray_t_max)
-
-        return t_box_min <= t_box_max
 
     def apply_trs(
         self: AxisAlignedBoundingBox[Self.dtype],

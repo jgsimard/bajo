@@ -42,12 +42,12 @@ def _bounds_contains(
     inner_max: Vec3f32,
 ) -> Bool:
     return (
-        outer_min.x() <= inner_min.x()
-        and outer_min.y() <= inner_min.y()
-        and outer_min.z() <= inner_min.z()
-        and outer_max.x() >= inner_max.x()
-        and outer_max.y() >= inner_max.y()
-        and outer_max.z() >= inner_max.z()
+        outer_min.x <= inner_min.x
+        and outer_min.y <= inner_min.y
+        and outer_min.z <= inner_min.z
+        and outer_max.x >= inner_max.x
+        and outer_max.y >= inner_max.y
+        and outer_max.z >= inner_max.z
     )
 
 

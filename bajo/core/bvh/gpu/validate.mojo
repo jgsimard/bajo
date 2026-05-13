@@ -172,17 +172,17 @@ def validate_refit_bounds(
             diff = max(
                 max(
                     max(
-                        abs(Float64(mnx - scene_min.x())),
-                        abs(Float64(mny - scene_min.y())),
+                        abs(Float64(mnx - scene_min.x)),
+                        abs(Float64(mny - scene_min.y)),
                     ),
                     max(
-                        abs(Float64(mnz - scene_min.z())),
-                        abs(Float64(mxx - scene_max.x())),
+                        abs(Float64(mnz - scene_min.z)),
+                        abs(Float64(mxx - scene_max.x)),
                     ),
                 ),
                 max(
-                    abs(Float64(mxy - scene_max.y())),
-                    abs(Float64(mxz - scene_max.z())),
+                    abs(Float64(mxy - scene_max.y)),
+                    abs(Float64(mxz - scene_max.z)),
                 ),
             )
     else:

@@ -113,12 +113,12 @@ def _build_gpu_lbvh_in_place(
         d_keys.unsafe_ptr(),
         d_values.unsafe_ptr(),
         tri_count,
-        centroid_min.x(),
-        centroid_min.y(),
-        centroid_min.z(),
-        norm.x(),
-        norm.y(),
-        norm.z(),
+        centroid_min.x,
+        centroid_min.y,
+        centroid_min.z,
+        norm.x,
+        norm.y,
+        norm.z,
         grid_dim=blocks_leaves,
         block_dim=GPU_TEST_BLOCK_SIZE,
     )
@@ -185,18 +185,18 @@ def test_gpu_lbvh_bounds_helpers() raises:
     var bmin = bounds[0].copy()
     var bmax = bounds[1].copy()
 
-    assert_true(bmin.x() < -1.4, "scene min x")
-    assert_true(bmin.y() < -1.4, "scene min y")
-    assert_true(bmin.z() == 2.0, "scene min z")
-    assert_true(bmax.x() > 1.4, "scene max x")
-    assert_true(bmax.y() > 1.4, "scene max y")
-    assert_true(bmax.z() == 4.0, "scene max z")
+    assert_true(bmin.x < -1.4, "scene min x")
+    assert_true(bmin.y < -1.4, "scene min y")
+    assert_true(bmin.z == 2.0, "scene min z")
+    assert_true(bmax.x > 1.4, "scene max x")
+    assert_true(bmax.y > 1.4, "scene max y")
+    assert_true(bmax.z == 4.0, "scene max z")
 
     var cbounds = compute_centroid_bounds(verts)
     var cmin = cbounds[0].copy()
     var cmax = cbounds[1].copy()
-    assert_true(cmin.z() == 2.0, "centroid min z")
-    assert_true(cmax.z() == 4.0, "centroid max z")
+    assert_true(cmin.z == 2.0, "centroid min z")
+    assert_true(cmax.z == 4.0, "centroid max z")
 
 
 def test_gpu_lbvh_build_validate_small_scene() raises:

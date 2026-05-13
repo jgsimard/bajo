@@ -57,14 +57,14 @@ struct BvhInstance(Copyable):
 
         # Transform all 8 local BLAS AABB corners and re-bound them in world space
         var corners = InlineArray[Vec3f32, 8](fill=Vec3f32(0.0))
-        corners[0] = Vec3f32(blas_min.x(), blas_min.y(), blas_min.z())
-        corners[1] = Vec3f32(blas_max.x(), blas_min.y(), blas_min.z())
-        corners[2] = Vec3f32(blas_min.x(), blas_max.y(), blas_min.z())
-        corners[3] = Vec3f32(blas_max.x(), blas_max.y(), blas_min.z())
-        corners[4] = Vec3f32(blas_min.x(), blas_min.y(), blas_max.z())
-        corners[5] = Vec3f32(blas_max.x(), blas_min.y(), blas_max.z())
-        corners[6] = Vec3f32(blas_min.x(), blas_max.y(), blas_max.z())
-        corners[7] = Vec3f32(blas_max.x(), blas_max.y(), blas_max.z())
+        corners[0] = Vec3f32(blas_min.x, blas_min.y, blas_min.z)
+        corners[1] = Vec3f32(blas_max.x, blas_min.y, blas_min.z)
+        corners[2] = Vec3f32(blas_min.x, blas_max.y, blas_min.z)
+        corners[3] = Vec3f32(blas_max.x, blas_max.y, blas_min.z)
+        corners[4] = Vec3f32(blas_min.x, blas_min.y, blas_max.z)
+        corners[5] = Vec3f32(blas_max.x, blas_min.y, blas_max.z)
+        corners[6] = Vec3f32(blas_min.x, blas_max.y, blas_max.z)
+        corners[7] = Vec3f32(blas_max.x, blas_max.y, blas_max.z)
 
         var w_min = Vec3f32(f32_max)
         var w_max = Vec3f32(f32_min)
@@ -73,8 +73,8 @@ struct BvhInstance(Copyable):
             w_min = vmin(w_min, p)
             w_max = vmax(w_max, p)
 
-        self.bounds_min = w_min^
-        self.bounds_max = w_max^
+        self.bounds_min = w_min
+        self.bounds_max = w_max
 
     @staticmethod
     def from_blas(
@@ -94,7 +94,11 @@ struct BvhInstance(Copyable):
 
     @always_inline
     def centroid_axis(self, axis: Int) -> Float32:
-        return (self.bounds_min[axis] + self.bounds_max[axis]) * 0.5
+        if axis == 0:
+            return (self.bounds_min.x + self.bounds_max.x) * 0.5
+        if axis == 1:
+            return (self.bounds_min.y + self.bounds_max.y) * 0.5
+        return (self.bounds_min.z + self.bounds_max.z) * 0.5
 
 
 struct Tlas(Copyable):
@@ -188,7 +192,13 @@ struct Tlas(Copyable):
 
         var extent = node.aabb._max - node.aabb._min
         var axis = longest_axis(extent)
-        var split_pos = node.aabb._min[axis] + extent[axis] * 0.5
+        var split_pos: Float32
+        if axis == 0:
+            split_pos = node.aabb._min.x + extent.x * 0.5
+        elif axis == 1:
+            split_pos = node.aabb._min.y + extent.y * 0.5
+        else:
+            split_pos = node.aabb._min.z + extent.z * 0.5
 
         var i = Int(node.left_first)
         var j = i + Int(node.tri_count) - 1
@@ -258,10 +268,19 @@ struct Tlas(Copyable):
                     ref inst = self.instances[Int(inst_idx)]
 
                     var local_origin = transform_point(
-                        inst.inv_transform, ray.O
+                        inst.inv_transform,
+                        ray.O,
                     )
-                    var local_dir = transform_vector(inst.inv_transform, ray.D)
-                    var local_ray = Ray(local_origin, local_dir, ray.hit.t)
+                    var local_dir = transform_vector(
+                        inst.inv_transform,
+                        ray.D,
+                    )
+
+                    var local_ray = Ray(
+                        local_origin,
+                        local_dir,
+                        ray.hit.t,
+                    )
 
                     blases[Int(inst.blas_idx)].traverse(local_ray)
 
@@ -274,47 +293,58 @@ struct Tlas(Copyable):
 
                 if stack_ptr == 0:
                     break
+
                 stack_ptr -= 1
                 node_idx = stack[stack_ptr]
                 continue
 
             var child1_idx = node.left_first
             var child2_idx = node.left_first + 1
+
             ref child1 = self.tlas_nodes[Int(child1_idx)]
             ref child2 = self.tlas_nodes[Int(child2_idx)]
 
-            var dist1 = Float32(f32_max)
-            var dist2 = Float32(f32_max)
             var hit1 = intersect_ray_aabb(
                 ray.O,
                 ray.rD,
                 child1.aabb._min,
                 child1.aabb._max,
-                dist1,
+                SIMD[DType.float32, 1](ray.hit.t),
             )
+
             var hit2 = intersect_ray_aabb(
                 ray.O,
                 ray.rD,
                 child2.aabb._min,
                 child2.aabb._max,
-                dist2,
+                SIMD[DType.float32, 1](ray.hit.t),
             )
 
-            if hit1 and dist1 >= ray.hit.t:
-                hit1 = False
-            if hit2 and dist2 >= ray.hit.t:
-                hit2 = False
+            var mask1 = hit1.mask[0]
+            var mask2 = hit2.mask[0]
 
-            if not hit1 and not hit2:
+            var dist1 = hit1.tmin[0]
+            var dist2 = hit2.tmin[0]
+
+            if not mask1 and not mask2:
                 if stack_ptr == 0:
                     break
+
                 stack_ptr -= 1
                 node_idx = stack[stack_ptr]
-            elif hit1 and not hit2:
+
+            elif mask1 and not mask2:
                 node_idx = child1_idx
-            elif not hit1 and hit2:
+
+            elif not mask1 and mask2:
                 node_idx = child2_idx
+
             else:
                 node_idx = push_near_far[True](
-                    stack, stack_ptr, child1_idx, child2_idx, dist1, dist2
+                    stack,
+                    stack_ptr,
+                    child1_idx,
+                    child2_idx,
+                    dist1,
+                    dist2,
                 )

@@ -41,19 +41,18 @@ def test_bvh_ray_query_inside_outside() raises:
 
     var query_dir = Vec3f32(1.0, 0.0, 0.0)
     var rcp_dir = 1.0 / query_dir
-    var t = Float32(0.0)
 
     var query_start_outside = Vec3f32(0.0, 0.0, 0.0)
     var hit_outside = intersect_ray_aabb(
-        query_start_outside, rcp_dir, lower, upper, t
+        query_start_outside, rcp_dir, lower, upper, 1e30
     )
-    assert_true(hit_outside, "Ray starting outside failed to hit")
+    assert_true(hit_outside.mask, "Ray starting outside failed to hit")
 
     var query_start_inside = Vec3f32(0.75, 0.0, 0.0)
     var hit_inside = intersect_ray_aabb(
-        query_start_inside, rcp_dir, lower, upper, t
+        query_start_inside, rcp_dir, lower, upper, 1e30
     )
-    assert_true(hit_inside, "Ray starting inside failed to hit")
+    assert_true(hit_inside.mask, "Ray starting inside failed to hit")
 
 
 def test_fragment_bounds_and_mapping() raises:
@@ -65,12 +64,12 @@ def test_fragment_bounds_and_mapping() raises:
     )
 
     assert_true(frag.prim_idx == 42)
-    assert_true(frag.bmin.x() == -1.0)
-    assert_true(frag.bmin.y() == -4.0)
-    assert_true(frag.bmin.z() == -6.0)
-    assert_true(frag.bmax.x() == 2.0)
-    assert_true(frag.bmax.y() == 2.0)
-    assert_true(frag.bmax.z() == 5.0)
+    assert_true(frag.bmin.x == -1.0)
+    assert_true(frag.bmin.y == -4.0)
+    assert_true(frag.bmin.z == -6.0)
+    assert_true(frag.bmax.x == 2.0)
+    assert_true(frag.bmax.y == 2.0)
+    assert_true(frag.bmax.z == 5.0)
     assert_almost_equal(frag.center_axis(0), 0.5)
 
 
@@ -332,21 +331,11 @@ def _brute_trace(
         ref v1 = verts[i * 3 + 1]
         ref v2 = verts[i * 3 + 2]
         var res = intersect_ray_tri(
-            O.x(),
-            O.y(),
-            O.z(),
-            D.x(),
-            D.y(),
-            D.z(),
-            v0.x(),
-            v0.y(),
-            v0.z(),
-            v1.x(),
-            v1.y(),
-            v1.z(),
-            v2.x(),
-            v2.y(),
-            v2.z(),
+            O,
+            D,
+            v0,
+            v1,
+            v2,
             Float32.MAX,
         )
         var hit = res.mask
@@ -386,8 +375,8 @@ def _triangle_center_xy(verts: List[Vec3f32], prim_idx: Int) -> Vec3f32:
     ref v2 = verts[prim_idx * 3 + 2]
 
     return Vec3f32(
-        (v0.x() + v1.x() + v2.x()) / 3.0,
-        (v0.y() + v1.y() + v2.y()) / 3.0,
+        (v0.x + v1.x + v2.x) / 3.0,
+        (v0.y + v1.y + v2.y) / 3.0,
         0.0,
     )
 
@@ -590,7 +579,6 @@ def test_bvh_gpu_internal_layout_basic() raises:
 
     var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
     gpu.traverse(ray)
-
     assert_true(ray.hit.t < Float32(1e20))
 
     # Keep backing vertex storage visibly alive until after traversal.

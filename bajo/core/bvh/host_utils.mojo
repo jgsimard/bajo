@@ -14,15 +14,15 @@ def compute_bounds(verts: List[Vec3f32]) -> Tuple[Vec3f32, Vec3f32]:
         bmin = vmin(bmin, verts[i])
         bmax = vmax(bmax, verts[i])
 
-    return (bmin^, bmax^)
+    return (bmin, bmax)
 
 
 def flatten_vertices(verts: List[Vec3f32]) -> List[Float32]:
     var out = List[Float32](capacity=len(verts) * 3)
     for i in range(len(verts)):
-        out.append(verts[i].x())
-        out.append(verts[i].y())
-        out.append(verts[i].z())
+        out.append(verts[i].x)
+        out.append(verts[i].y)
+        out.append(verts[i].z)
     return out^
 
 
@@ -41,15 +41,15 @@ def copy_list_to_device[
 def flatten_rays(rays: List[Ray]) -> List[Float32]:
     var out = List[Float32](capacity=len(rays) * 10)
     for ray in rays:
-        out.append(ray.O.x())
-        out.append(ray.O.y())
-        out.append(ray.O.z())
-        out.append(ray.D.x())
-        out.append(ray.D.y())
-        out.append(ray.D.z())
-        out.append(ray.rD.x())
-        out.append(ray.rD.y())
-        out.append(ray.rD.z())
+        out.append(ray.O.x)
+        out.append(ray.O.y)
+        out.append(ray.O.z)
+        out.append(ray.D.x)
+        out.append(ray.D.y)
+        out.append(ray.D.z)
+        out.append(ray.rD.x)
+        out.append(ray.rD.y)
+        out.append(ray.rD.z)
         out.append(ray.hit.t)
     return out^
 
@@ -172,7 +172,7 @@ def compute_centroid_bounds(verts: List[Vec3f32]) -> Tuple[Vec3f32, Vec3f32]:
         bmin = vmin(bmin, c)
         bmax = vmax(bmax, c)
 
-    return (bmin^, bmax^)
+    return (bmin, bmax)
 
 
 def append_camera_params(
@@ -185,18 +185,18 @@ def append_camera_params(
     var right = normalize(cross(forward, up_hint))
     var up = normalize(cross(right, forward))
 
-    params.append(origin.x())
-    params.append(origin.y())
-    params.append(origin.z())
-    params.append(forward.x())
-    params.append(forward.y())
-    params.append(forward.z())
-    params.append(right.x())
-    params.append(right.y())
-    params.append(right.z())
-    params.append(up.x())
-    params.append(up.y())
-    params.append(up.z())
+    params.append(origin.x)
+    params.append(origin.y)
+    params.append(origin.z)
+    params.append(forward.x)
+    params.append(forward.y)
+    params.append(forward.z)
+    params.append(right.x)
+    params.append(right.y)
+    params.append(right.z)
+    params.append(up.x)
+    params.append(up.y)
+    params.append(up.z)
 
 
 def generate_camera_params(

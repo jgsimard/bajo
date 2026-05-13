@@ -1,7 +1,7 @@
 from std.math import sqrt, clamp, pi
 from std.sys.info import size_of
 
-from bajo.core.vec import Vec, vclamp, Vec3f32
+from bajo.core.vec import Vec3, vclamp, Vec3f32
 from bajo.obj import read_obj, triangulated_indices
 
 
@@ -85,10 +85,8 @@ def smoothstep[
 
 
 def smoothstep[
-    dtype: DType, size: Int
-](a: Vec[dtype, size], b: Vec[dtype, size], x: Vec[dtype, size]) -> Vec[
-    dtype, size
-]:
+    dtype: DType
+](a: Vec3[dtype], b: Vec3[dtype], x: Vec3[dtype]) -> Vec3[dtype]:
     y = vclamp((x - a) / (b - a), 0, 1)
     return y * y * (-2 * y + 3)
 
@@ -129,10 +127,10 @@ def ns_to_mrays_per_s(ns: Int, ray_count: Int) -> Float64:
     return (Float64(ray_count) / seconds) / 1_000_000.0
 
 
-def print_vec3_rounded[dtype: DType](name: String, v: Vec[dtype, 3]):
-    var x = round(v.x(), 3)
-    var y = round(v.y(), 3)
-    var z = round(v.z(), 3)
+def print_vec3_rounded[dtype: DType](name: String, v: Vec3[dtype]):
+    var x = round(v.x, 3)
+    var y = round(v.y, 3)
+    var z = round(v.z, 3)
     print(t"{name} ({x}, {y}, {z})")
 
 

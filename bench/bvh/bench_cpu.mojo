@@ -478,5 +478,5 @@ def main() raises:
     # Keep the owning List alive after all traversals
     keep(len(tri_vertices))
     if len(tri_vertices) > 0:
-        keep(tri_vertices[0].x())
-        keep(tri_vertices[len(tri_vertices) - 1].x())
+        keep(tri_vertices[0].x)
+        keep(tri_vertices[len(tri_vertices) - 1].x)

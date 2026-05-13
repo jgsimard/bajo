@@ -30,7 +30,7 @@ def apply_trs_naive_________(
             else:
                 txfmed._min[i] += f
                 txfmed._max[i] += e
-    return txfmed^
+    return txfmed
 
 
 def apply_trs_naive_comptime(
@@ -44,13 +44,13 @@ def apply_trs_naive_comptime(
             e = rot_mat[i][j] * box._min[j]
             f = rot_mat[i][j] * box._max[j]
 
-            if e < f:
-                txfmed._min[i] += e
-                txfmed._max[i] += f
+            if e[0] < f[0]:
+                txfmed._min.add_axis[i](e)
+                txfmed._max.add_axis[i](f)
             else:
-                txfmed._min[i] += f
-                txfmed._max[i] += e
-    return txfmed^
+                txfmed._min.add_axis[i](f)
+                txfmed._max.add_axis[i](e)
+    return txfmed
 
 
 def apply_trs_arvo_v0_______(
@@ -61,24 +61,24 @@ def apply_trs_arvo_v0_______(
     new_max = translation.copy()
 
     # X column
-    c0_a = mat[0] * box._min.x()
-    c0_b = mat[0] * box._max.x()
+    c0_a = mat.col[0]() * box._min.x
+    c0_b = mat.col[0]() * box._max.x
     new_min += vmin(c0_a, c0_b)
     new_max += vmax(c0_a, c0_b)
 
     # Y column
-    c1_a = mat[1] * box._min.y()
-    c1_b = mat[1] * box._max.y()
+    c1_a = mat.col[1]() * box._min.y
+    c1_b = mat.col[1]() * box._max.y
     new_min += vmin(c1_a, c1_b)
     new_max += vmax(c1_a, c1_b)
 
     # Z column
-    c2_a = mat[2] * box._min.z()
-    c2_b = mat[2] * box._max.z()
+    c2_a = mat.col[2]() * box._min.z
+    c2_b = mat.col[2]() * box._max.z
     new_min += vmin(c2_a, c2_b)
     new_max += vmax(c2_a, c2_b)
 
-    return AABB(new_min^, new_max^)
+    return AABB(new_min, new_max)
 
 
 def apply_trs_arvo_v1_______(
@@ -89,12 +89,12 @@ def apply_trs_arvo_v1_______(
     new_max = translation.copy()
 
     comptime for i in range(3):
-        c_a = mat[i] * box._min[i]
-        c_b = mat[i] * box._max[i]
+        c_a = mat.col[i]() * box._min[i]
+        c_b = mat.col[i]() * box._max[i]
         new_min += vmin(c_a, c_b)
         new_max += vmax(c_a, c_b)
 
-    return AABB(new_min^, new_max^)
+    return AABB(new_min, new_max)
 
 
 # ----------------------------------------------------------------------
@@ -150,7 +150,7 @@ def main() raises:
                     data.rotations[i],
                     data.scales[i],
                 )
-            keep(data.dst[0]._min.data)
+            keep(data.dst[0]._min)
 
         report = run[wrapper](max_iters=200)
         avg_time = report.mean(Unit.us)

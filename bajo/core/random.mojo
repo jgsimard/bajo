@@ -25,11 +25,10 @@ struct Rng:
     def vec3f32(
         mut self, lower_bound: Float32 = 0, upper_bound: Float32 = 1
     ) -> Vec3f32:
-        r0 = self.f32()
-        r1 = self.f32()
-        r2 = self.f32()
-        out = Vec3f32(r0, r1, r2) * (upper_bound - lower_bound) + lower_bound
-        return out^
+        r0 = self.f32() * (upper_bound - lower_bound) + lower_bound
+        r1 = self.f32() * (upper_bound - lower_bound) + lower_bound
+        r2 = self.f32() * (upper_bound - lower_bound) + lower_bound
+        return Vec3f32(r0, r1, r2)
 
 
 def random_unit_vector(mut rng: Rng) -> Vec3f32:

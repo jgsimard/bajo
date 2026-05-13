@@ -50,7 +50,7 @@ def _make_instances(
     mut blas: BinaryBvh, bmin: Vec3f32, bmax: Vec3f32
 ) raises -> List[BvhInstance]:
     var extent = bmax - bmin
-    var spacing = max(max(extent.x(), extent.y()), extent.z()) * 2.25
+    var spacing = max(max(extent.x, extent.y), extent.z) * 2.25
     if spacing < 1.0:
         spacing = 1.0
 
@@ -75,21 +75,21 @@ def _make_camera_params(tlas: Tlas) -> List[Float32]:
     var center = (root.aabb._min + root.aabb._max) * 0.5
     var extent = root.aabb._max - root.aabb._min
 
-    var scene_w = max(extent.x(), extent.z())
+    var scene_w = max(extent.x, extent.z)
     if scene_w < 1.0:
         scene_w = 1.0
 
     # Lower and closer, like a crowd-level shot.
     var eye = center + Vec3f32(
         scene_w * 0.18,
-        extent.y() * 0.22,
+        extent.y * 0.22,
         -scene_w * 0.25,
     )
 
     # Look slightly into the group, around upper-body / head height.
     var target = center + Vec3f32(
         0.0,
-        extent.y() * 0.18,
+        extent.y * 0.18,
         scene_w * 0.10,
     )
 

@@ -11,6 +11,7 @@ from bajo.core.bvh.gpu.utils import (
     RefitBoundsValidation,
 )
 from bajo.core.vec import Vec3f32
+from bajo.core.aabb import AABB
 
 
 def validate_sorted_keys(
@@ -130,8 +131,7 @@ def validate_refit_bounds(
     node_flags: DeviceBuffer[DType.uint32],
     node_meta: DeviceBuffer[DType.uint32],
     leaf_count: Int,
-    scene_min: Vec3f32,
-    scene_max: Vec3f32,
+    scene_bounds: AABB,
 ) raises -> RefitBoundsValidation:
     var ok = True
     var internal_count = leaf_count - 1
@@ -172,17 +172,17 @@ def validate_refit_bounds(
             diff = max(
                 max(
                     max(
-                        abs(Float64(mnx - scene_min.x)),
-                        abs(Float64(mny - scene_min.y)),
+                        abs(Float64(mnx - scene_bounds._min.x)),
+                        abs(Float64(mny - scene_bounds._min.y)),
                     ),
                     max(
-                        abs(Float64(mnz - scene_min.z)),
-                        abs(Float64(mxx - scene_max.x)),
+                        abs(Float64(mnz - scene_bounds._min.z)),
+                        abs(Float64(mxx - scene_bounds._max.x)),
                     ),
                 ),
                 max(
-                    abs(Float64(mxy - scene_max.y)),
-                    abs(Float64(mxz - scene_max.z)),
+                    abs(Float64(mxy - scene_bounds._max.y)),
+                    abs(Float64(mxz - scene_bounds._max.z)),
                 ),
             )
     else:

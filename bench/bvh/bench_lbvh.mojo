@@ -10,6 +10,7 @@ from bajo.core.utils import (
     pack_obj_triangles,
     print_vec3_rounded,
 )
+from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32, normalize
 from bajo.core.bvh.host_utils import (
     generate_primary_rays,
@@ -368,10 +369,8 @@ def _best_build(
 
 def run_gpu_lbvh_benchmark_suite(
     tri_vertices: List[Vec3f32],
-    centroid_min: Vec3f32,
-    centroid_max: Vec3f32,
-    scene_min: Vec3f32,
-    scene_max: Vec3f32,
+    centroid: AABB,
+    scene_bounds: AABB,
     camera_params: List[Float32],
     rays: List[Ray],
     reference_checksum: Float64,
@@ -380,7 +379,7 @@ def run_gpu_lbvh_benchmark_suite(
 ) raises -> GpuSuiteResult:
     var ray_count = len(rays)
     var rays_flat = flatten_rays(rays)
-    var norm = (centroid_max - centroid_min).safe_inv()
+    var norm = centroid.extent().safe_inv()
 
     with DeviceContext() as ctx:
         var setup0 = perf_counter_ns()
@@ -400,13 +399,13 @@ def run_gpu_lbvh_benchmark_suite(
         ctx.synchronize()
         var setup1 = perf_counter_ns()
 
-        var best_build = _best_build(lbvh, ctx, centroid_min, norm, repeats)
+        var best_build = _best_build(lbvh, ctx, centroid._min, norm, repeats)
 
         # Build one final valid tree for validation and traversal.
-        _ = lbvh.build(ctx, centroid_min, norm)
-        var validation = lbvh.validate(scene_min, scene_max)
+        _ = lbvh.build(ctx, centroid._min, norm)
+        var validation = lbvh.validate(scene_bounds)
         var build_result = GpuBuildResult(
-            Int(setup1 - setup0), best_build, validation.copy()
+            Int(setup1 - setup0), best_build, validation
         )
 
         var direct_result: GpuDirectTraversalResult
@@ -633,10 +632,8 @@ def main() raises:
     comptime if has_accelerator():
         var result = run_gpu_lbvh_benchmark_suite(
             tri_vertices,
-            cbounds._min,
-            cbounds._max,
-            bounds._min,
-            bounds._max,
+            cbounds,
+            bounds,
             camera_params,
             rays,
             cpu_ref.checksum,

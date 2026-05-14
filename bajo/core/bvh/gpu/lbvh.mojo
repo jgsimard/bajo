@@ -3,6 +3,7 @@ from std.time import perf_counter_ns
 from std.gpu import DeviceBuffer
 from std.gpu.host import DeviceContext
 
+from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32
 from bajo.core.bvh.host_utils import (
     flatten_vertices,
@@ -149,14 +150,13 @@ struct GpuLBVH:
         var norm = centroid_bounds.extent().safe_inv()
 
         var timings = self.build(ctx, centroid_bounds._min, norm)
-        var validation = self.validate(scene_bounds._min, scene_bounds._max)
+        var validation = self.validate(scene_bounds)
 
         return (timings, validation)
 
     def validate(
         mut self,
-        scene_min: Vec3f32,
-        scene_max: Vec3f32,
+        scene_bounds: AABB,
     ) raises -> GpuBVHValidation:
         var sorted_validation = validate_sorted_keys(
             self.keys, self.values, self.tri_count
@@ -169,8 +169,7 @@ struct GpuLBVH:
             self.node_flags,
             self.node_meta,
             self.tri_count,
-            scene_min,
-            scene_max,
+            scene_bounds,
         )
 
         self.root_idx = refit_validation.root_idx

@@ -243,8 +243,7 @@ def test_gpu_lbvh_build_validate_small_scene() raises:
                 d_node_flags,
                 d_node_meta,
                 tri_count,
-                bounds._min,
-                bounds._max,
+                bounds,
             )
 
             assert_true(sorted.sorted_ok, "keys sorted")
@@ -309,8 +308,7 @@ def test_gpu_lbvh_duplicate_morton_codes_validate() raises:
                 d_node_flags,
                 d_node_meta,
                 tri_count,
-                bounds._min,
-                bounds._max,
+                bounds,
             )
 
             assert_true(sorted.sorted_ok, "duplicate-code keys sorted")
@@ -374,8 +372,7 @@ def test_gpu_lbvh_zero_extent_axis_validate() raises:
                 d_node_flags,
                 d_node_meta,
                 tri_count,
-                bounds._min,
-                bounds._max,
+                bounds,
             )
 
             assert_true(sorted.sorted_ok, "zero-extent keys sorted")
@@ -452,8 +449,7 @@ def test_gpu_lbvh_uploaded_primary_matches_cpu() raises:
                 d_node_flags,
                 d_node_meta,
                 tri_count,
-                bounds._min,
-                bounds._max,
+                bounds,
             )
             var root_idx = UInt32(refit.root_idx)
 
@@ -552,8 +548,7 @@ def test_gpu_lbvh_camera_full_matches_cpu() raises:
                 d_node_flags,
                 d_node_meta,
                 tri_count,
-                bounds._min,
-                bounds._max,
+                bounds,
             )
             var root_idx = UInt32(refit.root_idx)
 
@@ -654,8 +649,7 @@ def test_gpu_lbvh_camera_t_reduce_matches_cpu() raises:
                 d_node_flags,
                 d_node_meta,
                 tri_count,
-                bounds._min,
-                bounds._max,
+                bounds,
             )
             var root_idx = UInt32(refit.root_idx)
 
@@ -768,8 +762,7 @@ def test_gpu_lbvh_camera_shadow_reduce_matches_cpu() raises:
                 d_node_flags,
                 d_node_meta,
                 tri_count,
-                bounds._min,
-                bounds._max,
+                bounds,
             )
             var root_idx = UInt32(refit.root_idx)
 

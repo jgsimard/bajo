@@ -138,9 +138,9 @@ def compute_morton_codes_kernel(
         return
 
     var base = i * 9
-    var v0 = Vec3f32(vertices[base + 0], vertices[base + 1], vertices[base + 2])
-    var v1 = Vec3f32(vertices[base + 3], vertices[base + 4], vertices[base + 5])
-    var v2 = Vec3f32(vertices[base + 6], vertices[base + 7], vertices[base + 8])
+    var v0 = Vec3f32.load(vertices, base + 0)
+    var v1 = Vec3f32.load(vertices, base + 3)
+    var v2 = Vec3f32.load(vertices, base + 6)
 
     var bmin = vmin(vmin(v0, v1), v2)
     var bmax = vmax(vmax(v0, v1), v2)
@@ -599,31 +599,12 @@ def _make_camera_ray(
     var px_i = local_idx % width
     var py_i = local_idx / width
 
-    var cam_base = view_idx * CAMERA_PARAM_STRIDE
+    var base = view_idx * CAMERA_PARAM_STRIDE
 
-    var o = Vec3f32(
-        camera_params[cam_base + CAMERA_ORIGIN + 0],
-        camera_params[cam_base + CAMERA_ORIGIN + 1],
-        camera_params[cam_base + CAMERA_ORIGIN + 2],
-    )
-
-    var f = Vec3f32(
-        camera_params[cam_base + CAMERA_FORWARD + 0],
-        camera_params[cam_base + CAMERA_FORWARD + 1],
-        camera_params[cam_base + CAMERA_FORWARD + 2],
-    )
-
-    var r = Vec3f32(
-        camera_params[cam_base + CAMERA_RIGHT + 0],
-        camera_params[cam_base + CAMERA_RIGHT + 1],
-        camera_params[cam_base + CAMERA_RIGHT + 2],
-    )
-
-    var u = Vec3f32(
-        camera_params[cam_base + CAMERA_UP + 0],
-        camera_params[cam_base + CAMERA_UP + 1],
-        camera_params[cam_base + CAMERA_UP + 2],
-    )
+    var o = Vec3f32.load(camera_params, base + CAMERA_ORIGIN)
+    var f = Vec3f32.load(camera_params, base + CAMERA_FORWARD)
+    var r = Vec3f32.load(camera_params, base + CAMERA_RIGHT)
+    var u = Vec3f32.load(camera_params, base + CAMERA_UP)
 
     var aspect = Float32(width) / Float32(height)
     var fov_scale = Float32(0.75)
@@ -649,13 +630,13 @@ def _write_camera_miss_result[
     comptime if mode == TRACE_PRIMARY_FULL:
         var hit_base = ray_idx * 3
         out_f32[hit_base + 0] = _gpu_inf_t
-        out_f32[hit_base + 1] = Float32(0.0)
-        out_f32[hit_base + 2] = Float32(0.0)
+        out_f32[hit_base + 1] = 0.0
+        out_f32[hit_base + 2] = 0.0
         out_u32[ray_idx] = _gpu_miss_prim
     elif mode == TRACE_PRIMARY_T:
         out_f32[ray_idx] = _gpu_inf_t
     else:
-        out_u32[ray_idx] = UInt32(0)
+        out_u32[ray_idx] = 0
 
 
 @always_inline

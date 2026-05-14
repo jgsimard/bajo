@@ -14,10 +14,6 @@ struct AxisAlignedBoundingBox[dtype: DType, width: Int = 1](
     var _min: Vec3[Self.dtype, Self.width]
     var _max: Vec3[Self.dtype, Self.width]
 
-    def __init__(out self, a: Self, b: Self):
-        self._min = vmin(a._min, b._min)
-        self._max = vmax(a._max, b._max)
-
     @staticmethod
     def invalid() -> Self:
         comptime flt_max = max_finite[Self.dtype]()
@@ -70,12 +66,12 @@ struct AxisAlignedBoundingBox[dtype: DType, width: Int = 1](
 
     def overlaps(self, o: Self) -> SIMD[DType.bool, Self.width]:
         return (
-            self._min.x.lt(o._max.x)
-            & o._min.x.lt(self._max.x)
-            & self._min.y.lt(o._max.y)
-            & o._min.y.lt(self._max.y)
-            & self._min.z.lt(o._max.z)
-            & o._min.z.lt(self._max.z)
+            self._min.x.le(o._max.x)
+            & o._min.x.le(self._max.x)
+            & self._min.y.le(o._max.y)
+            & o._min.y.le(self._max.y)
+            & self._min.z.le(o._max.z)
+            & o._min.z.le(self._max.z)
         )
 
     def contains(

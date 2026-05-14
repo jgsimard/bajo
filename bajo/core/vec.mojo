@@ -294,6 +294,29 @@ struct Vec3[dtype: DType, width: Int = 1](
             mz.select(one / dz, zero),
         )
 
+    @always_inline
+    @staticmethod
+    def load(
+        ptr: UnsafePointer[Scalar[Self.dtype], MutAnyOrigin],
+        base: Int,
+    ) -> Self:
+        return Self(
+            ptr[base + 0],
+            ptr[base + 1],
+            ptr[base + 2],
+        )
+
+    @always_inline
+    def store(
+        self,
+        ptr: UnsafePointer[Scalar[Self.dtype], MutAnyOrigin],
+        base: Int,
+    ):
+        comptime assert Self.width == 1
+        ptr[base + 0] = self.x[0]
+        ptr[base + 1] = self.y[0]
+        ptr[base + 2] = self.z[0]
+
 
 @always_inline
 def dot[

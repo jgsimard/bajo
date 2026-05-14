@@ -55,12 +55,12 @@ struct RayFlat(TrivialRegisterPassable):
     var t_max: Float32
 
     def __init__(
-        out self, rays: UnsafePointer[Float32, ImmutAnyOrigin], ray_idx: Int
+        out self, rays: UnsafePointer[Float32, MutAnyOrigin], ray_idx: Int
     ):
         var base = ray_idx * 10
-        self.o = Vec3f32(rays[base + 0], rays[base + 1], rays[base + 2])
-        self.d = Vec3f32(rays[base + 3], rays[base + 4], rays[base + 5])
-        self.rd = Vec3f32(rays[base + 6], rays[base + 7], rays[base + 8])
+        self.o = Vec3f32.load(rays, base)
+        self.d = Vec3f32.load(rays, base + 3)
+        self.rd = Vec3f32.load(rays, base + 6)
         self.t_max = rays[base + 9]
 
 

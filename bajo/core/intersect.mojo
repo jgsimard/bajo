@@ -294,22 +294,16 @@ def intersect_ray_tri[
     t_max: Scalar[dtype],
 ) -> RayTriHit[dtype, 1]:
     var base = Int(prim_idx) * 9
-    var v0x = vertices[base + 0]
-    var v0y = vertices[base + 1]
-    var v0z = vertices[base + 2]
-    var v1x = vertices[base + 3]
-    var v1y = vertices[base + 4]
-    var v1z = vertices[base + 5]
-    var v2x = vertices[base + 6]
-    var v2y = vertices[base + 7]
-    var v2z = vertices[base + 8]
+    var v0 = Vec3.load(vertices, base)
+    var v1 = Vec3.load(vertices, base + 3)
+    var v2 = Vec3.load(vertices, base + 6)
 
     return intersect_ray_tri(
         o,
         d,
-        Vec3[dtype](v0x, v0y, v0z),
-        Vec3[dtype](v1x, v1y, v1z),
-        Vec3[dtype](v2x, v2y, v2z),
+        v0,
+        v1,
+        v2,
         t_max,
     )
 

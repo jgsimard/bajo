@@ -128,8 +128,8 @@ struct BinaryBvh(Copyable):
                 split_bin = split.bin
                 split_bin_min = split.bin_min
                 split_bin_scale = split.bin_scale
-                cached_left_bounds = split.left_bounds.copy()
-                cached_right_bounds = split.right_bounds.copy()
+                cached_left_bounds = split.left_bounds
+                cached_right_bounds = split.right_bounds
                 use_sah_bounds = True
 
         else:
@@ -202,8 +202,8 @@ struct BinaryBvh(Copyable):
         node.tri_count = 0  # Internal node
 
         if use_sah_bounds:
-            nodes_ptr[Int(left_child_idx)].aabb = cached_left_bounds.copy()
-            nodes_ptr[Int(left_child_idx + 1)].aabb = cached_right_bounds.copy()
+            nodes_ptr[Int(left_child_idx)].aabb = cached_left_bounds
+            nodes_ptr[Int(left_child_idx + 1)].aabb = cached_right_bounds
         else:
             self.update_node_bounds(left_child_idx)
             self.update_node_bounds(left_child_idx + 1)
@@ -247,7 +247,7 @@ struct BinaryBvh(Copyable):
                 var frag_idx = Int(self.prim_indices[first + i])
                 self.fragments[frag_idx].grow_into(leaf.aabb)
 
-            return leaf.aabb.copy()
+            return leaf.aabb
 
         var split = _find_lbvh_split(pairs, first, first + count)
         var left_count = split - first
@@ -272,7 +272,7 @@ struct BinaryBvh(Copyable):
         node.aabb.grow(left_bounds)
         node.aabb.grow(right_bounds)
 
-        return node.aabb.copy()
+        return node.aabb
 
     def build_lbvh(mut self):
         """Build a binary LBVH using sorted Morton codes over cached fragments.

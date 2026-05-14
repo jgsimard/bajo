@@ -175,8 +175,7 @@ def test_tlas_single_instance_matches_blas() raises:
     var tlas = Tlas(instances)
     tlas.build()
 
-    var blases = List[BinaryBvh]()
-    blases.append(blas.copy())
+    var blases = [blas.copy()]
 
     var blas_ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
     blas.traverse(blas_ray)
@@ -212,8 +211,7 @@ def test_tlas_two_translated_instances_report_instance_id() raises:
     var tlas = Tlas(instances)
     tlas.build()
 
-    var blases = List[BinaryBvh]()
-    blases.append(blas^)
+    var blases = [blas^]
 
     var ray_right = Ray(Vec3f32(10.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
     tlas.traverse(ray_right, blases.unsafe_ptr())
@@ -244,8 +242,7 @@ def test_tlas_nearest_instance_wins() raises:
     var tlas = Tlas(instances)
     tlas.build()
 
-    var blases = List[BinaryBvh]()
-    blases.append(blas^)
+    var blases = [blas^]
 
     var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
     tlas.traverse(ray, blases.unsafe_ptr())
@@ -265,8 +262,7 @@ def test_tlas_miss() raises:
     var tlas = Tlas(instances)
     tlas.build()
 
-    var blases = List[BinaryBvh]()
-    blases.append(blas^)
+    var blases = [blas^]
 
     var ray = Ray(Vec3f32(10.0, 10.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
     tlas.traverse(ray, blases.unsafe_ptr())
@@ -295,8 +291,7 @@ def test_tlas_matches_bruteforce_instances() raises:
     var tlas = Tlas(instances)
     tlas.build()
 
-    var blases = List[BinaryBvh]()
-    blases.append(blas^)
+    var blases = [blas^]
 
     for i in range(8):
         var x = Float32((i % 4) - 2) * 6.0

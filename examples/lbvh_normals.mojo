@@ -18,6 +18,7 @@ from bajo.core.bvh.gpu.tlas_traverse import (
     launch_tlas_lbvh_camera_primary,
     launch_shade_tlas_normals,
 )
+from bajo.core.aabb import AABB
 from bajo.core.mat import Mat44f32, inverse
 from bajo.core.utils import pack_obj_triangles, ns_to_ms, ns_to_mrays_per_s
 from bajo.core.vec import Vec3f32, length
@@ -47,9 +48,9 @@ def _trs_y(
 
 
 def _make_instances(
-    mut blas: BinaryBvh, bmin: Vec3f32, bmax: Vec3f32
+    mut blas: BinaryBvh, bounds: AABB
 ) raises -> List[BvhInstance]:
-    var extent = bmax - bmin
+    var extent = bounds.extent()
     var spacing = max(max(extent.x, extent.y), extent.z) * 2.25
     if spacing < 1.0:
         spacing = 1.0
@@ -147,8 +148,6 @@ def main() raises:
 
     var tri_count = len(tri_vertices) / 3
     var bounds = compute_bounds(tri_vertices)
-    var bmin = bounds[0].copy()
-    var bmax = bounds[1].copy()
 
     print(t"Triangles: {tri_count}")
     print(t"Load time: {round(ns_to_ms(Int(load_t1 - load_t0)), 3)} ms")
@@ -157,7 +156,7 @@ def main() raises:
     var cpu_t0 = perf_counter_ns()
     var cpu_blas = BinaryBvh(tri_vertices.unsafe_ptr(), UInt32(tri_count))
     cpu_blas.build["sah", False]()
-    var instances = _make_instances(cpu_blas, bmin, bmax)
+    var instances = _make_instances(cpu_blas, bounds)
     var cpu_tlas = Tlas(instances)
     cpu_tlas.build()
     var camera_params = _make_camera_params(cpu_tlas)

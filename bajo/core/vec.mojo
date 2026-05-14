@@ -396,12 +396,7 @@ def normalize[
 
     var l = length(v)
     var mask = l.gt(threshold)
-
-    var inv_l = mask.select(
-        SIMD[dtype, width](1.0) / l,
-        SIMD[dtype, width](0.0),
-    )
-
+    var inv_l = mask.select(1.0 / l, 0.0)
     return v * inv_l
 
 

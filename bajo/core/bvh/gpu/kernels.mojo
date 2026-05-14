@@ -15,6 +15,7 @@ from bajo.core.intersect import (
     RayAabbHit,
 )
 from bajo.core.morton import morton3
+from bajo.core.vec import Vec3f32, normalize, vmin, vmax
 
 comptime GPU_TRAVERSAL_STACK_SIZE = 64
 comptime GPU_REDUCE_THREADS = 4096
@@ -129,40 +130,24 @@ def compute_morton_codes_kernel(
     keys: UnsafePointer[UInt32, MutAnyOrigin],
     values: UnsafePointer[UInt32, MutAnyOrigin],
     tri_count: Int,
-    cmin_x: Float32,
-    cmin_y: Float32,
-    cmin_z: Float32,
-    inv_extent_x: Float32,
-    inv_extent_y: Float32,
-    inv_extent_z: Float32,
+    cmin: Vec3f32,
+    inv_extent: Vec3f32,
 ):
     var i = global_idx.x
     if i >= tri_count:
         return
 
     var base = i * 9
-    var v0x = vertices[base + 0]
-    var v0y = vertices[base + 1]
-    var v0z = vertices[base + 2]
-    var v1x = vertices[base + 3]
-    var v1y = vertices[base + 4]
-    var v1z = vertices[base + 5]
-    var v2x = vertices[base + 6]
-    var v2y = vertices[base + 7]
-    var v2z = vertices[base + 8]
+    var v0 = Vec3f32.load(vertices, base + 0)
+    var v1 = Vec3f32.load(vertices, base + 3)
+    var v2 = Vec3f32.load(vertices, base + 6)
 
-    var bmin_x = min(min(v0x, v1x), v2x)
-    var bmin_y = min(min(v0y, v1y), v2y)
-    var bmin_z = min(min(v0z, v1z), v2z)
-    var bmax_x = max(max(v0x, v1x), v2x)
-    var bmax_y = max(max(v0y, v1y), v2y)
-    var bmax_z = max(max(v0z, v1z), v2z)
+    var bmin = vmin(vmin(v0, v1), v2)
+    var bmax = vmax(vmax(v0, v1), v2)
 
-    var cx = ((bmin_x + bmax_x) * 0.5 - cmin_x) * inv_extent_x
-    var cy = ((bmin_y + bmax_y) * 0.5 - cmin_y) * inv_extent_y
-    var cz = ((bmin_z + bmax_z) * 0.5 - cmin_z) * inv_extent_z
+    var c = ((bmin + bmax) * 0.5 - cmin) * inv_extent
 
-    keys[i] = morton3(cx, cy, cz)
+    keys[i] = morton3(c.x, c.y, c.z)
     values[i] = UInt32(i)
 
 
@@ -280,8 +265,6 @@ def build_lbvh_topology_kernel(
 # parent child slot, then uses an atomic flag to let the second arriving child
 # merge and propagate the internal-node bounds upward.
 # -----------------------------------------------------------------------------
-
-
 def init_lbvh_bounds_kernel(
     node_bounds: UnsafePointer[Float32, MutAnyOrigin],
     node_flags: UnsafePointer[UInt32, MutAnyOrigin],
@@ -431,18 +414,10 @@ def _intersect_child_bounds[
 ) -> RayAabbHit[DType.float32, 1]:
     var b = _node_bounds_base(node_idx) + child_bounds_offset
     return intersect_ray_aabb(
-        ray.ox,
-        ray.oy,
-        ray.oz,
-        ray.rdx,
-        ray.rdy,
-        ray.rdz,
-        node_bounds[b + 0],
-        node_bounds[b + 1],
-        node_bounds[b + 2],
-        node_bounds[b + 3],
-        node_bounds[b + 4],
-        node_bounds[b + 5],
+        ray.o,
+        ray.rd,
+        Vec3f32(node_bounds[b + 0], node_bounds[b + 1], node_bounds[b + 2]),
+        Vec3f32(node_bounds[b + 3], node_bounds[b + 4], node_bounds[b + 5]),
         t_max,
     )
 
@@ -481,12 +456,8 @@ def _trace_lbvh_ray[
             var tri_hit = intersect_ray_tri(
                 vertices,
                 prim_idx,
-                ray.ox,
-                ray.oy,
-                ray.oz,
-                ray.dx,
-                ray.dy,
-                ray.dz,
+                ray.o,
+                ray.d,
                 best_t,
             )
 
@@ -616,19 +587,6 @@ def trace_lbvh_gpu_primary_kernel(
 # generate_primary_rays(), then traverses the LBVH directly.
 # -----------------------------------------------------------------------------
 @always_inline
-def _normalize3(
-    x: Float32,
-    y: Float32,
-    z: Float32,
-) -> Tuple[Float32, Float32, Float32]:
-    var len2 = x * x + y * y + z * z
-    if len2 <= 1.0e-20:
-        return (Float32(0.0), Float32(0.0), Float32(0.0))
-    var inv_len = Float32(1.0) / sqrt(len2)
-    return (x * inv_len, y * inv_len, z * inv_len)
-
-
-@always_inline
 def _make_camera_ray(
     camera_params: UnsafePointer[Float32, MutAnyOrigin],
     ray_idx: Int,
@@ -641,23 +599,12 @@ def _make_camera_ray(
     var px_i = local_idx % width
     var py_i = local_idx / width
 
-    var cam_base = view_idx * CAMERA_PARAM_STRIDE
+    var base = view_idx * CAMERA_PARAM_STRIDE
 
-    var ox = camera_params[cam_base + CAMERA_ORIGIN + 0]
-    var oy = camera_params[cam_base + CAMERA_ORIGIN + 1]
-    var oz = camera_params[cam_base + CAMERA_ORIGIN + 2]
-
-    var fx = camera_params[cam_base + CAMERA_FORWARD + 0]
-    var fy = camera_params[cam_base + CAMERA_FORWARD + 1]
-    var fz = camera_params[cam_base + CAMERA_FORWARD + 2]
-
-    var rx = camera_params[cam_base + CAMERA_RIGHT + 0]
-    var ry = camera_params[cam_base + CAMERA_RIGHT + 1]
-    var rz = camera_params[cam_base + CAMERA_RIGHT + 2]
-
-    var ux = camera_params[cam_base + CAMERA_UP + 0]
-    var uy = camera_params[cam_base + CAMERA_UP + 1]
-    var uz = camera_params[cam_base + CAMERA_UP + 2]
+    var o = Vec3f32.load(camera_params, base + CAMERA_ORIGIN)
+    var f = Vec3f32.load(camera_params, base + CAMERA_FORWARD)
+    var r = Vec3f32.load(camera_params, base + CAMERA_RIGHT)
+    var u = Vec3f32.load(camera_params, base + CAMERA_UP)
 
     var aspect = Float32(width) / Float32(height)
     var fov_scale = Float32(0.75)
@@ -665,27 +612,11 @@ def _make_camera_ray(
     var sx = ((Float32(px_i) + 0.5) / Float32(width)) * 2.0 - 1.0
     var sy = 1.0 - ((Float32(py_i) + 0.5) / Float32(height)) * 2.0
 
-    var dir_x = fx + rx * (sx * aspect * fov_scale) + ux * (sy * fov_scale)
-    var dir_y = fy + ry * (sx * aspect * fov_scale) + uy * (sy * fov_scale)
-    var dir_z = fz + rz * (sx * aspect * fov_scale) + uz * (sy * fov_scale)
+    var dir = f + r * (sx * aspect * fov_scale) + u * (sy * fov_scale)
 
-    var nd = _normalize3(dir_x, dir_y, dir_z)
-    var dx = nd[0]
-    var dy = nd[1]
-    var dz = nd[2]
+    var nd = normalize(dir)
 
-    return RayFlat(
-        ox,
-        oy,
-        oz,
-        dx,
-        dy,
-        dz,
-        Float32(1.0) / dx,
-        Float32(1.0) / dy,
-        Float32(1.0) / dz,
-        _gpu_inf_t,
-    )
+    return RayFlat(o, nd, 1.0 / nd, _gpu_inf_t)
 
 
 @always_inline
@@ -699,13 +630,13 @@ def _write_camera_miss_result[
     comptime if mode == TRACE_PRIMARY_FULL:
         var hit_base = ray_idx * 3
         out_f32[hit_base + 0] = _gpu_inf_t
-        out_f32[hit_base + 1] = Float32(0.0)
-        out_f32[hit_base + 2] = Float32(0.0)
+        out_f32[hit_base + 1] = 0.0
+        out_f32[hit_base + 2] = 0.0
         out_u32[ray_idx] = _gpu_miss_prim
     elif mode == TRACE_PRIMARY_T:
         out_f32[ray_idx] = _gpu_inf_t
     else:
-        out_u32[ray_idx] = UInt32(0)
+        out_u32[ray_idx] = 0
 
 
 @always_inline

@@ -36,8 +36,8 @@ struct Ray(Copyable, Writable):
     var hit: Intersection
 
     def __init__(out self, O: Vec3f32, D: Vec3f32, t_max: Float32 = f32_max):
-        self.O = O.copy()
-        self.D = D.copy()
+        self.O = O
+        self.D = D
         var rDx = clamp(Float32(1.0) / D.x, f32_min, f32_max)
         var rDy = clamp(Float32(1.0) / D.y, f32_min, f32_max)
         var rDz = clamp(Float32(1.0) / D.z, f32_min, f32_max)
@@ -49,31 +49,19 @@ struct Ray(Copyable, Writable):
 
 @fieldwise_init
 struct RayFlat(TrivialRegisterPassable):
-    var ox: Float32
-    var oy: Float32
-    var oz: Float32
-    var dx: Float32
-    var dy: Float32
-    var dz: Float32
-    var rdx: Float32
-    var rdy: Float32
-    var rdz: Float32
+    var o: Vec3f32
+    var d: Vec3f32
+    var rd: Vec3f32
     var t_max: Float32
 
     def __init__(
-        out self, rays: UnsafePointer[Float32, ImmutAnyOrigin], ray_idx: Int
+        out self, rays: UnsafePointer[Float32, MutAnyOrigin], ray_idx: Int
     ):
-        var ray_base = ray_idx * 10
-        self.ox = rays[ray_base + 0]
-        self.oy = rays[ray_base + 1]
-        self.oz = rays[ray_base + 2]
-        self.dx = rays[ray_base + 3]
-        self.dy = rays[ray_base + 4]
-        self.dz = rays[ray_base + 5]
-        self.rdx = rays[ray_base + 6]
-        self.rdy = rays[ray_base + 7]
-        self.rdz = rays[ray_base + 8]
-        self.t_max = rays[ray_base + 9]
+        var base = ray_idx * 10
+        self.o = Vec3f32.load(rays, base)
+        self.d = Vec3f32.load(rays, base + 3)
+        self.rd = Vec3f32.load(rays, base + 6)
+        self.t_max = rays[base + 9]
 
 
 @fieldwise_init
@@ -147,11 +135,10 @@ struct Fragment(Copyable):
 
     @always_inline
     def center_axis(self, axis: Int) -> Float32:
-        if axis == 0:
-            return (self.bmin.x + self.bmax.x) * 0.5
-        if axis == 1:
-            return (self.bmin.y + self.bmax.y) * 0.5
-        return (self.bmin.z + self.bmax.z) * 0.5
+        return (self.bmin[axis] + self.bmax[axis]) * 0.5
+
+    def center(self) -> Vec3f32:
+        return (self.bmin + self.bmax) * 0.5
 
     @always_inline
     def grow_into(self, mut aabb: AABB):

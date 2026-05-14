@@ -80,8 +80,8 @@ def test_tlas_instance_bounds_translation() raises:
         Vec3f32(1.0, 1.0, 1.0),
     )
 
-    assert_vec_equal(inst.bounds_min, Vec3f32(9.0, 1.0, -4.0))
-    assert_vec_equal(inst.bounds_max, Vec3f32(11.0, 3.0, -2.0))
+    assert_vec_equal(inst.bounds._min, Vec3f32(9.0, 1.0, -4.0))
+    assert_vec_equal(inst.bounds._max, Vec3f32(11.0, 3.0, -2.0))
 
 
 def test_tlas_instance_bounds_uniform_scale() raises:
@@ -93,8 +93,8 @@ def test_tlas_instance_bounds_uniform_scale() raises:
         Vec3f32(1.0, 1.0, 1.0),
     )
 
-    assert_vec_equal(inst.bounds_min, Vec3f32(-2.0, -2.0, -2.0))
-    assert_vec_equal(inst.bounds_max, Vec3f32(2.0, 2.0, 2.0))
+    assert_vec_equal(inst.bounds._min, Vec3f32(-2.0, -2.0, -2.0))
+    assert_vec_equal(inst.bounds._max, Vec3f32(2.0, 2.0, 2.0))
 
 
 def test_tlas_instance_bounds_rotation_z_90() raises:
@@ -107,8 +107,8 @@ def test_tlas_instance_bounds_rotation_z_90() raises:
         Vec3f32(2.0, 1.0, 1.0),
     )
 
-    assert_vec_equal(inst.bounds_min, Vec3f32(-1.0, 0.0, 0.0))
-    assert_vec_equal(inst.bounds_max, Vec3f32(0.0, 2.0, 1.0))
+    assert_vec_equal(inst.bounds._min, Vec3f32(-1.0, 0.0, 0.0))
+    assert_vec_equal(inst.bounds._max, Vec3f32(0.0, 2.0, 1.0))
 
 
 def test_tlas_build_invariants() raises:
@@ -157,8 +157,8 @@ def test_tlas_build_invariants() raises:
             _bounds_contains(
                 root.aabb._min,
                 root.aabb._max,
-                inst.bounds_min,
-                inst.bounds_max,
+                inst.bounds._min,
+                inst.bounds._max,
             )
         )
 
@@ -175,8 +175,7 @@ def test_tlas_single_instance_matches_blas() raises:
     var tlas = Tlas(instances)
     tlas.build()
 
-    var blases = List[BinaryBvh]()
-    blases.append(blas.copy())
+    var blases = [blas.copy()]
 
     var blas_ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
     blas.traverse(blas_ray)
@@ -212,8 +211,7 @@ def test_tlas_two_translated_instances_report_instance_id() raises:
     var tlas = Tlas(instances)
     tlas.build()
 
-    var blases = List[BinaryBvh]()
-    blases.append(blas^)
+    var blases = [blas^]
 
     var ray_right = Ray(Vec3f32(10.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
     tlas.traverse(ray_right, blases.unsafe_ptr())
@@ -244,8 +242,7 @@ def test_tlas_nearest_instance_wins() raises:
     var tlas = Tlas(instances)
     tlas.build()
 
-    var blases = List[BinaryBvh]()
-    blases.append(blas^)
+    var blases = [blas^]
 
     var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
     tlas.traverse(ray, blases.unsafe_ptr())
@@ -265,8 +262,7 @@ def test_tlas_miss() raises:
     var tlas = Tlas(instances)
     tlas.build()
 
-    var blases = List[BinaryBvh]()
-    blases.append(blas^)
+    var blases = [blas^]
 
     var ray = Ray(Vec3f32(10.0, 10.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
     tlas.traverse(ray, blases.unsafe_ptr())
@@ -295,8 +291,7 @@ def test_tlas_matches_bruteforce_instances() raises:
     var tlas = Tlas(instances)
     tlas.build()
 
-    var blases = List[BinaryBvh]()
-    blases.append(blas^)
+    var blases = [blas^]
 
     for i in range(8):
         var x = Float32((i % 4) - 2) * 6.0

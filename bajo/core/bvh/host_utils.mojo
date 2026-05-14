@@ -1,20 +1,17 @@
 from std.gpu import DeviceBuffer
 from std.gpu.host import DeviceContext
 
+from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32, vmin, vmax, cross, length, normalize
 from bajo.core.bvh.cpu.binary_bvh import BinaryBvh
 from bajo.core.bvh.types import Ray
 
 
-def compute_bounds(verts: List[Vec3f32]) -> Tuple[Vec3f32, Vec3f32]:
-    var bmin = Vec3f32(1.0e30, 1.0e30, 1.0e30)
-    var bmax = Vec3f32(-1.0e30, -1.0e30, -1.0e30)
-
+def compute_bounds(verts: List[Vec3f32]) -> AABB:
+    var bounds = AABB.invalid()
     for i in range(len(verts)):
-        bmin = vmin(bmin, verts[i])
-        bmax = vmax(bmax, verts[i])
-
-    return (bmin, bmax)
+        bounds.grow(verts[i])
+    return bounds
 
 
 def flatten_vertices(verts: List[Vec3f32]) -> List[Float32]:
@@ -110,16 +107,15 @@ def append_camera_rays(
 
 
 def generate_primary_rays(
-    bounds_min: Vec3f32,
-    bounds_max: Vec3f32,
+    bounds: AABB,
     width: Int,
     height: Int,
     views: Int,
 ) -> List[Ray]:
     var rays = List[Ray](capacity=width * height * views)
 
-    var center = (bounds_min + bounds_max) * 0.5
-    var extent = bounds_max - bounds_min
+    var center = bounds.centroid()
+    var extent = bounds.extent()
     var radius = length(extent) * 0.5
     if radius < 1.0:
         radius = 1.0
@@ -158,21 +154,18 @@ def generate_primary_rays(
     return rays^
 
 
-def compute_centroid_bounds(verts: List[Vec3f32]) -> Tuple[Vec3f32, Vec3f32]:
-    var bmin = Vec3f32(Float32.MAX)
-    var bmax = Vec3f32(Float32.MIN)
+def compute_centroid_bounds(verts: List[Vec3f32]) -> AABB:
+    var centroid = AABB.invalid()
 
     for i in range(len(verts) / 3):
         ref v0 = verts[i * 3 + 0]
         ref v1 = verts[i * 3 + 1]
         ref v2 = verts[i * 3 + 2]
-        var tri_min = vmin(vmin(v0, v1), v2)
-        var tri_max = vmax(vmax(v0, v1), v2)
-        var c = (tri_min + tri_max) * 0.5
-        bmin = vmin(bmin, c)
-        bmax = vmax(bmax, c)
+        var c = AABB.invalid()
+        c.grow(v0, v1, v2)
+        centroid.grow(c.centroid())
 
-    return (bmin, bmax)
+    return centroid
 
 
 def append_camera_params(

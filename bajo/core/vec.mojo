@@ -1,3 +1,4 @@
+from std.builtin.device_passable import DevicePassable
 from std.math import fma, min, max, clamp, sqrt
 from std.testing import assert_almost_equal
 
@@ -51,10 +52,39 @@ struct Vec2[dtype: DType, width: Int = 1](TrivialRegisterPassable, Writable):
 
 
 @fieldwise_init
-struct Vec3[dtype: DType, width: Int = 1](TrivialRegisterPassable, Writable):
+struct Vec3[dtype: DType, width: Int = 1](
+    DevicePassable, TrivialRegisterPassable, Writable
+):
     var x: SIMD[Self.dtype, Self.width]
     var y: SIMD[Self.dtype, Self.width]
     var z: SIMD[Self.dtype, Self.width]
+
+    comptime device_type: AnyType = Self
+    """The device-side type for this array."""
+
+    def _to_device_type(self, target: MutOpaquePointer[_]):
+        """Convert the host type object to a device_type and store it at the
+        target address.
+
+        Args:
+            target: The target address to store the device type.
+        """
+        target.bitcast[Self.device_type]()[] = self.copy()
+
+    @staticmethod
+    def get_type_name() -> String:
+        """Gets the name of the host type (the one implementing this trait).
+
+        Returns:
+            The host type's name.
+        """
+        return String(
+            "Vec3[",
+            reflect[Scalar[Self.dtype]].name(),
+            ", ",
+            Self.width,
+            "]",
+        )
 
     def __init__(
         out self,
@@ -239,6 +269,54 @@ struct Vec3[dtype: DType, width: Int = 1](TrivialRegisterPassable, Writable):
 
         return abs(self.x).lt(s) & abs(self.y).lt(s) & abs(self.z).lt(s)
 
+    @always_inline
+    def safe_inv(
+        self,
+        eps: Scalar[Self.dtype] = 1.0e-20,
+    ) -> Self where Self.dtype.is_floating_point():
+        comptime one = SIMD[Self.dtype, Self.width](1.0)
+        comptime zero = SIMD[Self.dtype, Self.width](0.0)
+        var e = SIMD[Self.dtype, Self.width](eps)
+
+        var mx = abs(self.x).gt(e)
+        var my = abs(self.y).gt(e)
+        var mz = abs(self.z).gt(e)
+
+        # avoid even forming 1.0 / 0.0 in masked-off lanes
+        # necessary ?
+        var dx = mx.select(self.x, one)
+        var dy = my.select(self.y, one)
+        var dz = mz.select(self.z, one)
+
+        return Self(
+            mx.select(one / dx, zero),
+            my.select(one / dy, zero),
+            mz.select(one / dz, zero),
+        )
+
+    @always_inline
+    @staticmethod
+    def load(
+        ptr: UnsafePointer[Scalar[Self.dtype], MutAnyOrigin],
+        base: Int,
+    ) -> Self:
+        return Self(
+            ptr[base + 0],
+            ptr[base + 1],
+            ptr[base + 2],
+        )
+
+    @always_inline
+    def store(
+        self,
+        ptr: UnsafePointer[Scalar[Self.dtype], MutAnyOrigin],
+        base: Int,
+    ):
+        comptime assert Self.width == 1
+        ptr[base + 0] = self.x[0]
+        ptr[base + 1] = self.y[0]
+        ptr[base + 2] = self.z[0]
+
 
 @always_inline
 def dot[
@@ -334,17 +412,14 @@ def cross[
 @always_inline
 def normalize[
     dtype: DType, width: Int
-](v: Vec3[dtype, width]) -> Vec3[dtype, width]:
+](v: Vec3[dtype, width], threshold: Scalar[dtype] = 1.0e-20) -> Vec3[
+    dtype, width
+]:
     comptime assert dtype in [DType.float32, DType.float64]
 
     var l = length(v)
-    var mask = l.gt(SIMD[dtype, width](1.0e-6))
-
-    var inv_l = mask.select(
-        SIMD[dtype, width](1.0) / l,
-        SIMD[dtype, width](0.0),
-    )
-
+    var mask = l.gt(threshold)
+    var inv_l = mask.select(1.0 / l, 0.0)
     return v * inv_l
 
 

@@ -30,16 +30,14 @@ struct BvhInstance(Copyable):
 
     var transform: Mat44f32
     var inv_transform: Mat44f32
-    var bounds_min: Vec3f32
-    var bounds_max: Vec3f32
+    var bounds: AABB
     var blas_idx: UInt32
 
     @always_inline
     def __init__(out self):
         self.transform = Mat44f32.identity()
         self.inv_transform = Mat44f32.identity()
-        self.bounds_min = Vec3f32(f32_max)
-        self.bounds_max = Vec3f32(f32_min)
+        self.bounds = AABB.invalid()
         self.blas_idx = 0
 
     @always_inline
@@ -66,15 +64,11 @@ struct BvhInstance(Copyable):
         corners[6] = Vec3f32(blas_min.x, blas_max.y, blas_max.z)
         corners[7] = Vec3f32(blas_max.x, blas_max.y, blas_max.z)
 
-        var w_min = Vec3f32(f32_max)
-        var w_max = Vec3f32(f32_min)
+        var bounds = AABB.invalid()
         comptime for i in range(8):
             var p = transform_point(transform, corners[i])
-            w_min = vmin(w_min, p)
-            w_max = vmax(w_max, p)
-
-        self.bounds_min = w_min
-        self.bounds_max = w_max
+            bounds.grow(p)
+        self.bounds = bounds
 
     @staticmethod
     def from_blas(
@@ -94,11 +88,7 @@ struct BvhInstance(Copyable):
 
     @always_inline
     def centroid_axis(self, axis: Int) -> Float32:
-        if axis == 0:
-            return (self.bounds_min.x + self.bounds_max.x) * 0.5
-        if axis == 1:
-            return (self.bounds_min.y + self.bounds_max.y) * 0.5
-        return (self.bounds_min.z + self.bounds_max.z) * 0.5
+        return self.bounds.centroid()[axis]
 
 
 struct Tlas(Copyable):
@@ -170,8 +160,8 @@ struct Tlas(Copyable):
         for i in range(Int(node.tri_count)):
             var inst_idx = Int(self.inst_indices[first + i])
             ref inst = self.instances[inst_idx]
-            node.aabb._min = vmin(node.aabb._min, inst.bounds_min)
-            node.aabb._max = vmax(node.aabb._max, inst.bounds_max)
+            node.aabb._min = vmin(node.aabb._min, inst.bounds._min)
+            node.aabb._max = vmax(node.aabb._max, inst.bounds._max)
 
     def build(mut self):
         """Build a simple median TLAS over instance bounds.

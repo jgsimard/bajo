@@ -10,6 +10,7 @@ from bajo.core.utils import (
     pack_obj_triangles,
     print_vec3_rounded,
 )
+from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32, normalize
 from bajo.core.bvh.host_utils import (
     generate_primary_rays,
@@ -32,7 +33,6 @@ from bajo.core.bvh.gpu.kernels import (
 )
 from bajo.core.bvh.gpu.lbvh import (
     GpuLBVH,
-    _safe_inv_extent,
     GPU_LBVH_BLOCK_SIZE,
 )
 
@@ -369,10 +369,8 @@ def _best_build(
 
 def run_gpu_lbvh_benchmark_suite(
     tri_vertices: List[Vec3f32],
-    centroid_min: Vec3f32,
-    centroid_max: Vec3f32,
-    scene_min: Vec3f32,
-    scene_max: Vec3f32,
+    centroid: AABB,
+    scene_bounds: AABB,
     camera_params: List[Float32],
     rays: List[Ray],
     reference_checksum: Float64,
@@ -381,7 +379,7 @@ def run_gpu_lbvh_benchmark_suite(
 ) raises -> GpuSuiteResult:
     var ray_count = len(rays)
     var rays_flat = flatten_rays(rays)
-    var norm = _safe_inv_extent(centroid_min, centroid_max)
+    var norm = centroid.extent().safe_inv()
 
     with DeviceContext() as ctx:
         var setup0 = perf_counter_ns()
@@ -401,13 +399,13 @@ def run_gpu_lbvh_benchmark_suite(
         ctx.synchronize()
         var setup1 = perf_counter_ns()
 
-        var best_build = _best_build(lbvh, ctx, centroid_min, norm, repeats)
+        var best_build = _best_build(lbvh, ctx, centroid._min, norm, repeats)
 
         # Build one final valid tree for validation and traversal.
-        _ = lbvh.build(ctx, centroid_min, norm)
-        var validation = lbvh.validate(scene_min, scene_max)
+        _ = lbvh.build(ctx, centroid._min, norm)
+        var validation = lbvh.validate(scene_bounds)
         var build_result = GpuBuildResult(
-            Int(setup1 - setup0), best_build, validation.copy()
+            Int(setup1 - setup0), best_build, validation
         )
 
         var direct_result: GpuDirectTraversalResult
@@ -613,20 +611,16 @@ def main() raises:
     var load_t1 = perf_counter_ns()
 
     var bounds = compute_bounds(tri_vertices)
-    var bmin = bounds[0].copy()
-    var bmax = bounds[1].copy()
     var cbounds = compute_centroid_bounds(tri_vertices)
-    var cmin = cbounds[0].copy()
-    var cmax = cbounds[1].copy()
-    _print_scene_summary(
-        tri_vertices, bmin, bmax, cmin, cmax, Int(load_t1 - load_t0)
-    )
+    _print_scene_summary(tri_vertices, bounds, cbounds, Int(load_t1 - load_t0))
 
     print("\nGenerating reference rays and camera parameters...")
     var rays = generate_primary_rays(
-        bmin, bmax, PRIMARY_WIDTH, PRIMARY_HEIGHT, PRIMARY_VIEWS
+        bounds, PRIMARY_WIDTH, PRIMARY_HEIGHT, PRIMARY_VIEWS
     )
-    var camera_params = generate_camera_params(bmin, bmax, PRIMARY_VIEWS)
+    var camera_params = generate_camera_params(
+        bounds._min, bounds._max, PRIMARY_VIEWS
+    )
     print(t"Rays: {len(rays)}")
     print(t"Camera params floats: {len(camera_params)}")
 
@@ -638,10 +632,8 @@ def main() raises:
     comptime if has_accelerator():
         var result = run_gpu_lbvh_benchmark_suite(
             tri_vertices,
-            cmin,
-            cmax,
-            bmin,
-            bmax,
+            cbounds,
+            bounds,
             camera_params,
             rays,
             cpu_ref.checksum,

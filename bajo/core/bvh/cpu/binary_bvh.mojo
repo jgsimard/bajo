@@ -128,8 +128,8 @@ struct BinaryBvh(Copyable):
                 split_bin = split.bin
                 split_bin_min = split.bin_min
                 split_bin_scale = split.bin_scale
-                cached_left_bounds = split.left_bounds.copy()
-                cached_right_bounds = split.right_bounds.copy()
+                cached_left_bounds = split.left_bounds
+                cached_right_bounds = split.right_bounds
                 use_sah_bounds = True
 
         else:
@@ -202,8 +202,8 @@ struct BinaryBvh(Copyable):
         node.tri_count = 0  # Internal node
 
         if use_sah_bounds:
-            nodes_ptr[Int(left_child_idx)].aabb = cached_left_bounds.copy()
-            nodes_ptr[Int(left_child_idx + 1)].aabb = cached_right_bounds.copy()
+            nodes_ptr[Int(left_child_idx)].aabb = cached_left_bounds
+            nodes_ptr[Int(left_child_idx + 1)].aabb = cached_right_bounds
         else:
             self.update_node_bounds(left_child_idx)
             self.update_node_bounds(left_child_idx + 1)
@@ -247,7 +247,7 @@ struct BinaryBvh(Copyable):
                 var frag_idx = Int(self.prim_indices[first + i])
                 self.fragments[frag_idx].grow_into(leaf.aabb)
 
-            return leaf.aabb.copy()
+            return leaf.aabb
 
         var split = _find_lbvh_split(pairs, first, first + count)
         var left_count = split - first
@@ -272,7 +272,7 @@ struct BinaryBvh(Copyable):
         node.aabb.grow(left_bounds)
         node.aabb.grow(right_bounds)
 
-        return node.aabb.copy()
+        return node.aabb
 
     def build_lbvh(mut self):
         """Build a binary LBVH using sorted Morton codes over cached fragments.
@@ -286,37 +286,16 @@ struct BinaryBvh(Copyable):
         if self.tri_count == 0:
             return
 
-        var centroid_min = Vec3f32(f32_max, f32_max, f32_max)
-        var centroid_max = Vec3f32(f32_min, f32_min, f32_min)
+        var centroid = AABB.invalid()
+        for frag in self.fragments:
+            centroid.grow(frag.center())
 
-        for i in range(Int(self.tri_count)):
-            ref frag = self.fragments[i]
-            var c = Vec3f32(
-                frag.center_axis(0),
-                frag.center_axis(1),
-                frag.center_axis(2),
-            )
-            centroid_min = vmin(centroid_min, c)
-            centroid_max = vmax(centroid_max, c)
-
-        var extent = centroid_max - centroid_min
-        var inv_x = Float32(0.0)
-        var inv_y = Float32(0.0)
-        var inv_z = Float32(0.0)
-        if extent.x > 1.0e-20:
-            inv_x = 1.0 / extent.x
-        if extent.y > 1.0e-20:
-            inv_y = 1.0 / extent.y
-        if extent.z > 1.0e-20:
-            inv_z = 1.0 / extent.z
+        var inv = centroid.extent().safe_inv()
 
         var pairs = List[MortonPrim](capacity=Int(self.tri_count))
-        for i in range(Int(self.tri_count)):
-            ref frag = self.fragments[i]
-            var x = (frag.center_axis(0) - centroid_min.x) * inv_x
-            var y = (frag.center_axis(1) - centroid_min.y) * inv_y
-            var z = (frag.center_axis(2) - centroid_min.z) * inv_z
-            var code = morton3(x, y, z)
+        for i, frag in enumerate(self.fragments):
+            var xyz = (frag.center() - centroid._min) * inv
+            var code = morton3(xyz.x, xyz.y, xyz.z)
             pairs.append(MortonPrim(code, UInt32(i)))
 
         span = Span(pairs)

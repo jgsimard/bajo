@@ -3,6 +3,7 @@ from std.time import perf_counter_ns
 from std.gpu import DeviceBuffer
 from std.gpu.host import DeviceContext
 
+from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32
 from bajo.core.bvh.host_utils import (
     flatten_vertices,
@@ -32,24 +33,6 @@ from bajo.core.bvh.gpu.utils import (
     GpuBuildTimings,
     GpuBVHValidation,
 )
-
-
-@always_inline
-def _safe_inv_extent_axis(a: Float32, b: Float32) -> Float32:
-    var e = b - a
-
-    if abs(e) <= 1.0e-20:
-        return 0.0
-
-    return Float32(1.0) / e
-
-
-def _safe_inv_extent(bounds_min: Vec3f32, bounds_max: Vec3f32) -> Vec3f32:
-    return Vec3f32(
-        _safe_inv_extent_axis(bounds_min.x, bounds_max.x),
-        _safe_inv_extent_axis(bounds_min.y, bounds_max.y),
-        _safe_inv_extent_axis(bounds_min.z, bounds_max.z),
-    )
 
 
 comptime GPU_LBVH_BLOCK_SIZE = 128
@@ -162,24 +145,18 @@ struct GpuLBVH:
         """
 
         var scene_bounds = compute_bounds(tri_vertices)
-        var scene_min = scene_bounds[0].copy()
-        var scene_max = scene_bounds[1].copy()
-
         var centroid_bounds = compute_centroid_bounds(tri_vertices)
-        var centroid_min = centroid_bounds[0].copy()
-        var centroid_max = centroid_bounds[1].copy()
 
-        var norm = _safe_inv_extent(centroid_min, centroid_max)
+        var norm = centroid_bounds.extent().safe_inv()
 
-        var timings = self.build(ctx, centroid_min, norm)
-        var validation = self.validate(scene_min, scene_max)
+        var timings = self.build(ctx, centroid_bounds._min, norm)
+        var validation = self.validate(scene_bounds)
 
         return (timings, validation)
 
     def validate(
         mut self,
-        scene_min: Vec3f32,
-        scene_max: Vec3f32,
+        scene_bounds: AABB,
     ) raises -> GpuBVHValidation:
         var sorted_validation = validate_sorted_keys(
             self.keys, self.values, self.tri_count
@@ -192,8 +169,7 @@ struct GpuLBVH:
             self.node_flags,
             self.node_meta,
             self.tri_count,
-            scene_min,
-            scene_max,
+            scene_bounds,
         )
 
         self.root_idx = refit_validation.root_idx
@@ -227,12 +203,8 @@ struct GpuLBVH:
             self.keys.unsafe_ptr(),
             self.values.unsafe_ptr(),
             self.tri_count,
-            centroid_min.x,
-            centroid_min.y,
-            centroid_min.z,
-            norm.x,
-            norm.y,
-            norm.z,
+            centroid_min,
+            norm,
             grid_dim=self.blocks_leaves,
             block_dim=GPU_LBVH_BLOCK_SIZE,
         )

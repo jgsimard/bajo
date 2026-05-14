@@ -34,24 +34,6 @@ from bajo.core.bvh.gpu.utils import (
 )
 
 
-@always_inline
-def _safe_inv_extent_axis(a: Float32, b: Float32) -> Float32:
-    var e = b - a
-
-    if abs(e) <= 1.0e-20:
-        return 0.0
-
-    return Float32(1.0) / e
-
-
-def _safe_inv_extent(bounds_min: Vec3f32, bounds_max: Vec3f32) -> Vec3f32:
-    return Vec3f32(
-        _safe_inv_extent_axis(bounds_min.x, bounds_max.x),
-        _safe_inv_extent_axis(bounds_min.y, bounds_max.y),
-        _safe_inv_extent_axis(bounds_min.z, bounds_max.z),
-    )
-
-
 comptime GPU_LBVH_BLOCK_SIZE = 128
 
 
@@ -169,7 +151,7 @@ struct GpuLBVH:
         var centroid_min = centroid_bounds[0].copy()
         var centroid_max = centroid_bounds[1].copy()
 
-        var norm = _safe_inv_extent(centroid_min, centroid_max)
+        var norm = (centroid_max - centroid_min).safe_inv()
 
         var timings = self.build(ctx, centroid_min, norm)
         var validation = self.validate(scene_min, scene_max)

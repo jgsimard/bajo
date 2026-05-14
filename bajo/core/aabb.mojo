@@ -60,8 +60,13 @@ struct AxisAlignedBoundingBox[dtype: DType, width: Int = 1](
             self._min = vmin(self._min, other._min)
             self._max = vmax(self._max, other._max)
 
+    @always_inline
     def edges(self) -> Vec3[Self.dtype, Self.width]:
         return self._max - self._min
+
+    @always_inline
+    def extent(self) -> Vec3[Self.dtype, Self.width]:
+        return self.edges()
 
     def overlaps(self, o: Self) -> SIMD[DType.bool, Self.width]:
         return (

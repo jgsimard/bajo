@@ -286,22 +286,15 @@ struct BinaryBvh(Copyable):
         if self.tri_count == 0:
             return
 
-        var centroid_min = Vec3f32(f32_max)
-        var centroid_max = Vec3f32(f32_min)
+        var centroid = AABB.invalid()
+        for frag in self.fragments:
+            centroid.grow(frag.center())
 
-        for i in range(Int(self.tri_count)):
-            ref frag = self.fragments[i]
-            var c = frag.center()
-            centroid_min = vmin(centroid_min, c)
-            centroid_max = vmax(centroid_max, c)
-
-        var extent = centroid_max - centroid_min
-        var inv = extent.safe_inv()
+        var inv = centroid.extent().safe_inv()
 
         var pairs = List[MortonPrim](capacity=Int(self.tri_count))
-        for i in range(Int(self.tri_count)):
-            ref frag = self.fragments[i]
-            var xyz = (frag.center() - centroid_min) * inv
+        for i, frag in enumerate(self.fragments):
+            var xyz = (frag.center() - centroid._min) * inv
             var code = morton3(xyz.x, xyz.y, xyz.z)
             pairs.append(MortonPrim(code, UInt32(i)))
 

@@ -389,11 +389,13 @@ def cross[
 @always_inline
 def normalize[
     dtype: DType, width: Int
-](v: Vec3[dtype, width]) -> Vec3[dtype, width]:
+](v: Vec3[dtype, width], threshold: Scalar[dtype] = 1.0e-20) -> Vec3[
+    dtype, width
+]:
     comptime assert dtype in [DType.float32, DType.float64]
 
     var l = length(v)
-    var mask = l.gt(SIMD[dtype, width](1.0e-6))
+    var mask = l.gt(threshold)
 
     var inv_l = mask.select(
         SIMD[dtype, width](1.0) / l,

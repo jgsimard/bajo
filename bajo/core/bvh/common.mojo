@@ -1,5 +1,6 @@
 from std.time import perf_counter_ns
 
+from bajo.core.aabb import AABB
 from bajo.core.bvh.cpu.binary_bvh import BinaryBvh
 from bajo.core.vec import Vec3f32
 from bajo.core.bvh.types import Ray
@@ -45,10 +46,8 @@ def _build_cpu_reference(
 
 def _print_scene_summary(
     tri_vertices: List[Vec3f32],
-    bmin: Vec3f32,
-    bmax: Vec3f32,
-    cmin: Vec3f32,
-    cmax: Vec3f32,
+    bounds: AABB,
+    cbounds: AABB,
     load_ns: Int,
 ):
     var tri_count = len(tri_vertices) / 3
@@ -56,10 +55,10 @@ def _print_scene_summary(
     print(t"Triangles: {tri_count}")
     print(t"Internal nodes: {tri_count - 1}")
     print(t"Load+pack ms: {_ms(load_ns)}")
-    print_vec3_rounded("Bounds min:", bmin)
-    print_vec3_rounded("Bounds max:", bmax)
-    print_vec3_rounded("Centroid min:", cmin)
-    print_vec3_rounded("Centroid max:", cmax)
+    print_vec3_rounded("Bounds min:", bounds._min)
+    print_vec3_rounded("Bounds max:", bounds._max)
+    print_vec3_rounded("Centroid min:", cbounds._min)
+    print_vec3_rounded("Centroid max:", cbounds._max)
 
 
 def _print_cpu_reference(reference: CpuReferenceResult):

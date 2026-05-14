@@ -144,17 +144,12 @@ struct GpuLBVH:
         """
 
         var scene_bounds = compute_bounds(tri_vertices)
-        var scene_min = scene_bounds[0].copy()
-        var scene_max = scene_bounds[1].copy()
-
         var centroid_bounds = compute_centroid_bounds(tri_vertices)
-        var centroid_min = centroid_bounds[0].copy()
-        var centroid_max = centroid_bounds[1].copy()
 
-        var norm = (centroid_max - centroid_min).safe_inv()
+        var norm = centroid_bounds.extent().safe_inv()
 
-        var timings = self.build(ctx, centroid_min, norm)
-        var validation = self.validate(scene_min, scene_max)
+        var timings = self.build(ctx, centroid_bounds._min, norm)
+        var validation = self.validate(scene_bounds._min, scene_bounds._max)
 
         return (timings, validation)
 

@@ -32,7 +32,6 @@ from bajo.core.bvh.gpu.kernels import (
 )
 from bajo.core.bvh.gpu.lbvh import (
     GpuLBVH,
-    _safe_inv_extent,
     GPU_LBVH_BLOCK_SIZE,
 )
 
@@ -381,7 +380,7 @@ def run_gpu_lbvh_benchmark_suite(
 ) raises -> GpuSuiteResult:
     var ray_count = len(rays)
     var rays_flat = flatten_rays(rays)
-    var norm = _safe_inv_extent(centroid_min, centroid_max)
+    var norm = (centroid_max - centroid_min).safe_inv()
 
     with DeviceContext() as ctx:
         var setup0 = perf_counter_ns()
@@ -613,20 +612,16 @@ def main() raises:
     var load_t1 = perf_counter_ns()
 
     var bounds = compute_bounds(tri_vertices)
-    var bmin = bounds[0].copy()
-    var bmax = bounds[1].copy()
     var cbounds = compute_centroid_bounds(tri_vertices)
-    var cmin = cbounds[0].copy()
-    var cmax = cbounds[1].copy()
-    _print_scene_summary(
-        tri_vertices, bmin, bmax, cmin, cmax, Int(load_t1 - load_t0)
-    )
+    _print_scene_summary(tri_vertices, bounds, cbounds, Int(load_t1 - load_t0))
 
     print("\nGenerating reference rays and camera parameters...")
     var rays = generate_primary_rays(
-        bmin, bmax, PRIMARY_WIDTH, PRIMARY_HEIGHT, PRIMARY_VIEWS
+        bounds._min, bounds._max, PRIMARY_WIDTH, PRIMARY_HEIGHT, PRIMARY_VIEWS
     )
-    var camera_params = generate_camera_params(bmin, bmax, PRIMARY_VIEWS)
+    var camera_params = generate_camera_params(
+        bounds._min, bounds._max, PRIMARY_VIEWS
+    )
     print(t"Rays: {len(rays)}")
     print(t"Camera params floats: {len(camera_params)}")
 
@@ -638,10 +633,10 @@ def main() raises:
     comptime if has_accelerator():
         var result = run_gpu_lbvh_benchmark_suite(
             tri_vertices,
-            cmin,
-            cmax,
-            bmin,
-            bmax,
+            cbounds._min,
+            cbounds._max,
+            bounds._min,
+            bounds._max,
             camera_params,
             rays,
             cpu_ref.checksum,

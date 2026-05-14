@@ -279,19 +279,17 @@ def main() raises:
 
     var tri_count = UInt32(len(tri_vertices) / 3)
     var bounds = compute_bounds(tri_vertices)
-    var bmin = bounds[0].copy()
-    var bmax = bounds[1].copy()
     var load_ms = round(ns_to_ms(Int(load_t1 - load_t0)), 3)
 
     print(t"Packed vertices: {len(tri_vertices)}")
     print(t"Triangles: {tri_count}")
     print(t"Load+pack ms: {load_ms}")
-    print_vec3_rounded("Bounds min:", bmin)
-    print_vec3_rounded("Bounds max:", bmax)
+    print_vec3_rounded("Bounds min:", bounds._min)
+    print_vec3_rounded("Bounds max:", bounds._max)
 
     print("\nGenerating rays...")
     var rays = generate_primary_rays(
-        bmin, bmax, PRIMARY_WIDTH, PRIMARY_HEIGHT, PRIMARY_VIEWS
+        bounds._min, bounds._max, PRIMARY_WIDTH, PRIMARY_HEIGHT, PRIMARY_VIEWS
     )
     print(t"Rays: {len(rays)}")
 

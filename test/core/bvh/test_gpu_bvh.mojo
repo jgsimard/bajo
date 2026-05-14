@@ -177,22 +177,18 @@ def _build_cpu_reference(
 
 def test_gpu_lbvh_bounds_helpers() raises:
     var verts = _make_small_scene()
-    var bounds = compute_bounds(verts)
-    var bmin = bounds[0].copy()
-    var bmax = bounds[1].copy()
+    var b = compute_bounds(verts)
 
-    assert_true(bmin.x < -1.4, "scene min x")
-    assert_true(bmin.y < -1.4, "scene min y")
-    assert_true(bmin.z == 2.0, "scene min z")
-    assert_true(bmax.x > 1.4, "scene max x")
-    assert_true(bmax.y > 1.4, "scene max y")
-    assert_true(bmax.z == 4.0, "scene max z")
+    assert_true(b._min.x < -1.4, "scene min x")
+    assert_true(b._min.y < -1.4, "scene min y")
+    assert_true(b._min.z == 2.0, "scene min z")
+    assert_true(b._max.x > 1.4, "scene max x")
+    assert_true(b._max.y > 1.4, "scene max y")
+    assert_true(b._max.z == 4.0, "scene max z")
 
-    var cbounds = compute_centroid_bounds(verts)
-    var cmin = cbounds[0].copy()
-    var cmax = cbounds[1].copy()
-    assert_true(cmin.z == 2.0, "centroid min z")
-    assert_true(cmax.z == 4.0, "centroid max z")
+    var c = compute_centroid_bounds(verts)
+    assert_true(c._min.z == 2.0, "centroid min z")
+    assert_true(c._max.z == 4.0, "centroid max z")
 
 
 def test_gpu_lbvh_build_validate_small_scene() raises:
@@ -202,12 +198,8 @@ def test_gpu_lbvh_build_validate_small_scene() raises:
         var internal_count = tri_count - 1
         var vertices = flatten_vertices(verts)
         var bounds = compute_bounds(verts)
-        var bmin = bounds[0].copy()
-        var bmax = bounds[1].copy()
         var cbounds = compute_centroid_bounds(verts)
-        var cmin = cbounds[0].copy()
-        var cmax = cbounds[1].copy()
-        var norm = normalize(cmax - cmin)
+        var norm = normalize(cbounds._max - cbounds._min)
 
         with DeviceContext() as ctx:
             var d_vertices = copy_list_to_device(ctx, vertices)
@@ -240,7 +232,7 @@ def test_gpu_lbvh_build_validate_small_scene() raises:
                 d_node_bounds,
                 d_node_flags,
                 tri_count,
-                cmin,
+                cbounds._min,
                 norm,
             )
 
@@ -251,8 +243,8 @@ def test_gpu_lbvh_build_validate_small_scene() raises:
                 d_node_flags,
                 d_node_meta,
                 tri_count,
-                bmin,
-                bmax,
+                bounds._min,
+                bounds._max,
             )
 
             assert_true(sorted.sorted_ok, "keys sorted")
@@ -272,12 +264,8 @@ def test_gpu_lbvh_duplicate_morton_codes_validate() raises:
         var internal_count = tri_count - 1
         var vertices = flatten_vertices(verts)
         var bounds = compute_bounds(verts)
-        var bmin = bounds[0].copy()
-        var bmax = bounds[1].copy()
         var cbounds = compute_centroid_bounds(verts)
-        var cmin = cbounds[0].copy()
-        var cmax = cbounds[1].copy()
-        var norm = normalize(cmax - cmin)
+        var norm = normalize(cbounds._max - cbounds._min)
 
         with DeviceContext() as ctx:
             var d_vertices = copy_list_to_device(ctx, vertices)
@@ -310,7 +298,7 @@ def test_gpu_lbvh_duplicate_morton_codes_validate() raises:
                 d_node_bounds,
                 d_node_flags,
                 tri_count,
-                cmin,
+                cbounds._min,
                 norm,
             )
 
@@ -321,8 +309,8 @@ def test_gpu_lbvh_duplicate_morton_codes_validate() raises:
                 d_node_flags,
                 d_node_meta,
                 tri_count,
-                bmin,
-                bmax,
+                bounds._min,
+                bounds._max,
             )
 
             assert_true(sorted.sorted_ok, "duplicate-code keys sorted")
@@ -341,12 +329,8 @@ def test_gpu_lbvh_zero_extent_axis_validate() raises:
         var internal_count = tri_count - 1
         var vertices = flatten_vertices(verts)
         var bounds = compute_bounds(verts)
-        var bmin = bounds[0].copy()
-        var bmax = bounds[1].copy()
         var cbounds = compute_centroid_bounds(verts)
-        var cmin = cbounds[0].copy()
-        var cmax = cbounds[1].copy()
-        var norm = normalize(cmax - cmin)
+        var norm = normalize(cbounds._max - cbounds._min)
 
         with DeviceContext() as ctx:
             var d_vertices = copy_list_to_device(ctx, vertices)
@@ -379,7 +363,7 @@ def test_gpu_lbvh_zero_extent_axis_validate() raises:
                 d_node_bounds,
                 d_node_flags,
                 tri_count,
-                cmin,
+                cbounds._min,
                 norm,
             )
 
@@ -390,8 +374,8 @@ def test_gpu_lbvh_zero_extent_axis_validate() raises:
                 d_node_flags,
                 d_node_meta,
                 tri_count,
-                bmin,
-                bmax,
+                bounds._min,
+                bounds._max,
             )
 
             assert_true(sorted.sorted_ok, "zero-extent keys sorted")
@@ -410,14 +394,14 @@ def test_gpu_lbvh_uploaded_primary_matches_cpu() raises:
         var internal_count = tri_count - 1
         var vertices = flatten_vertices(verts)
         var bounds = compute_bounds(verts)
-        var bmin = bounds[0].copy()
-        var bmax = bounds[1].copy()
         var cbounds = compute_centroid_bounds(verts)
-        var cmin = cbounds[0].copy()
-        var cmax = cbounds[1].copy()
-        var norm = normalize(cmax - cmin)
+        var norm = normalize(cbounds._max - cbounds._min)
         var rays = generate_primary_rays(
-            bmin, bmax, GPU_TEST_WIDTH, GPU_TEST_HEIGHT, GPU_TEST_VIEWS
+            bounds._min,
+            bounds._max,
+            GPU_TEST_WIDTH,
+            GPU_TEST_HEIGHT,
+            GPU_TEST_VIEWS,
         )
         var rays_flat = flatten_rays(rays)
         var cpu_ref = _build_cpu_reference(verts, rays)
@@ -461,7 +445,7 @@ def test_gpu_lbvh_uploaded_primary_matches_cpu() raises:
                 d_node_bounds,
                 d_node_flags,
                 tri_count,
-                cmin,
+                cbounds._min,
                 norm,
             )
             var refit = validate_refit_bounds(
@@ -469,8 +453,8 @@ def test_gpu_lbvh_uploaded_primary_matches_cpu() raises:
                 d_node_flags,
                 d_node_meta,
                 tri_count,
-                bmin,
-                bmax,
+                bounds._min,
+                bounds._max,
             )
             var root_idx = UInt32(refit.root_idx)
 
@@ -511,16 +495,18 @@ def test_gpu_lbvh_camera_full_matches_cpu() raises:
         var internal_count = tri_count - 1
         var vertices = flatten_vertices(verts)
         var bounds = compute_bounds(verts)
-        var bmin = bounds[0].copy()
-        var bmax = bounds[1].copy()
         var cbounds = compute_centroid_bounds(verts)
-        var cmin = cbounds[0].copy()
-        var cmax = cbounds[1].copy()
-        var norm = normalize(cmax - cmin)
+        var norm = normalize(cbounds._max - cbounds._min)
         var rays = generate_primary_rays(
-            bmin, bmax, GPU_TEST_WIDTH, GPU_TEST_HEIGHT, GPU_TEST_VIEWS
+            bounds._min,
+            bounds._max,
+            GPU_TEST_WIDTH,
+            GPU_TEST_HEIGHT,
+            GPU_TEST_VIEWS,
         )
-        var camera_params = generate_camera_params(bmin, bmax, GPU_TEST_VIEWS)
+        var camera_params = generate_camera_params(
+            bounds._min, bounds._max, GPU_TEST_VIEWS
+        )
         var cpu_ref = _build_cpu_reference(verts, rays)
         var ref_checksum = cpu_ref[0]
 
@@ -560,7 +546,7 @@ def test_gpu_lbvh_camera_full_matches_cpu() raises:
                 d_node_bounds,
                 d_node_flags,
                 tri_count,
-                cmin,
+                cbounds._min,
                 norm,
             )
             var refit = validate_refit_bounds(
@@ -568,8 +554,8 @@ def test_gpu_lbvh_camera_full_matches_cpu() raises:
                 d_node_flags,
                 d_node_meta,
                 tri_count,
-                bmin,
-                bmax,
+                bounds._min,
+                bounds._max,
             )
             var root_idx = UInt32(refit.root_idx)
 
@@ -608,16 +594,18 @@ def test_gpu_lbvh_camera_t_reduce_matches_cpu() raises:
         var internal_count = tri_count - 1
         var vertices = flatten_vertices(verts)
         var bounds = compute_bounds(verts)
-        var bmin = bounds[0].copy()
-        var bmax = bounds[1].copy()
         var cbounds = compute_centroid_bounds(verts)
-        var cmin = cbounds[0].copy()
-        var cmax = cbounds[1].copy()
-        var norm = normalize(cmax - cmin)
+        var norm = normalize(cbounds._max - cbounds._min)
         var rays = generate_primary_rays(
-            bmin, bmax, GPU_TEST_WIDTH, GPU_TEST_HEIGHT, GPU_TEST_VIEWS
+            bounds._min,
+            bounds._max,
+            GPU_TEST_WIDTH,
+            GPU_TEST_HEIGHT,
+            GPU_TEST_VIEWS,
         )
-        var camera_params = generate_camera_params(bmin, bmax, GPU_TEST_VIEWS)
+        var camera_params = generate_camera_params(
+            bounds._min, bounds._max, GPU_TEST_VIEWS
+        )
         var cpu_ref = _build_cpu_reference(verts, rays)
         var ref_checksum = cpu_ref[0]
 
@@ -661,7 +649,7 @@ def test_gpu_lbvh_camera_t_reduce_matches_cpu() raises:
                 d_node_bounds,
                 d_node_flags,
                 tri_count,
-                cmin,
+                cbounds._min,
                 norm,
             )
             var refit = validate_refit_bounds(
@@ -669,8 +657,8 @@ def test_gpu_lbvh_camera_t_reduce_matches_cpu() raises:
                 d_node_flags,
                 d_node_meta,
                 tri_count,
-                bmin,
-                bmax,
+                bounds._min,
+                bounds._max,
             )
             var root_idx = UInt32(refit.root_idx)
 
@@ -724,16 +712,18 @@ def test_gpu_lbvh_camera_shadow_reduce_matches_cpu() raises:
         var internal_count = tri_count - 1
         var vertices = flatten_vertices(verts)
         var bounds = compute_bounds(verts)
-        var bmin = bounds[0].copy()
-        var bmax = bounds[1].copy()
         var cbounds = compute_centroid_bounds(verts)
-        var cmin = cbounds[0].copy()
-        var cmax = cbounds[1].copy()
-        var norm = normalize(cmax - cmin)
+        var norm = normalize(cbounds._max - cbounds._min)
         var rays = generate_primary_rays(
-            bmin, bmax, GPU_TEST_WIDTH, GPU_TEST_HEIGHT, GPU_TEST_VIEWS
+            bounds._min,
+            bounds._max,
+            GPU_TEST_WIDTH,
+            GPU_TEST_HEIGHT,
+            GPU_TEST_VIEWS,
         )
-        var camera_params = generate_camera_params(bmin, bmax, GPU_TEST_VIEWS)
+        var camera_params = generate_camera_params(
+            bounds._min, bounds._max, GPU_TEST_VIEWS
+        )
         var cpu_ref = _build_cpu_reference(verts, rays)
         var ref_occluded = cpu_ref[1]
 
@@ -774,7 +764,7 @@ def test_gpu_lbvh_camera_shadow_reduce_matches_cpu() raises:
                 d_node_bounds,
                 d_node_flags,
                 tri_count,
-                cmin,
+                cbounds._min,
                 norm,
             )
             var refit = validate_refit_bounds(
@@ -782,8 +772,8 @@ def test_gpu_lbvh_camera_shadow_reduce_matches_cpu() raises:
                 d_node_flags,
                 d_node_meta,
                 tri_count,
-                bmin,
-                bmax,
+                bounds._min,
+                bounds._max,
             )
             var root_idx = UInt32(refit.root_idx)
 

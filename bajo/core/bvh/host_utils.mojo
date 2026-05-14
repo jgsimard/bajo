@@ -107,16 +107,15 @@ def append_camera_rays(
 
 
 def generate_primary_rays(
-    bounds_min: Vec3f32,
-    bounds_max: Vec3f32,
+    bounds: AABB,
     width: Int,
     height: Int,
     views: Int,
 ) -> List[Ray]:
     var rays = List[Ray](capacity=width * height * views)
 
-    var center = (bounds_min + bounds_max) * 0.5
-    var extent = bounds_max - bounds_min
+    var center = bounds.centroid()
+    var extent = bounds.extent()
     var radius = length(extent) * 0.5
     if radius < 1.0:
         radius = 1.0

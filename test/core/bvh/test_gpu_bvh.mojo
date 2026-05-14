@@ -397,8 +397,7 @@ def test_gpu_lbvh_uploaded_primary_matches_cpu() raises:
         var cbounds = compute_centroid_bounds(verts)
         var norm = normalize(cbounds._max - cbounds._min)
         var rays = generate_primary_rays(
-            bounds._min,
-            bounds._max,
+            bounds,
             GPU_TEST_WIDTH,
             GPU_TEST_HEIGHT,
             GPU_TEST_VIEWS,
@@ -498,8 +497,7 @@ def test_gpu_lbvh_camera_full_matches_cpu() raises:
         var cbounds = compute_centroid_bounds(verts)
         var norm = normalize(cbounds._max - cbounds._min)
         var rays = generate_primary_rays(
-            bounds._min,
-            bounds._max,
+            bounds,
             GPU_TEST_WIDTH,
             GPU_TEST_HEIGHT,
             GPU_TEST_VIEWS,
@@ -597,8 +595,7 @@ def test_gpu_lbvh_camera_t_reduce_matches_cpu() raises:
         var cbounds = compute_centroid_bounds(verts)
         var norm = normalize(cbounds._max - cbounds._min)
         var rays = generate_primary_rays(
-            bounds._min,
-            bounds._max,
+            bounds,
             GPU_TEST_WIDTH,
             GPU_TEST_HEIGHT,
             GPU_TEST_VIEWS,
@@ -715,8 +712,7 @@ def test_gpu_lbvh_camera_shadow_reduce_matches_cpu() raises:
         var cbounds = compute_centroid_bounds(verts)
         var norm = normalize(cbounds._max - cbounds._min)
         var rays = generate_primary_rays(
-            bounds._min,
-            bounds._max,
+            bounds,
             GPU_TEST_WIDTH,
             GPU_TEST_HEIGHT,
             GPU_TEST_VIEWS,

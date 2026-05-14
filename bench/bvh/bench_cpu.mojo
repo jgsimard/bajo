@@ -289,7 +289,7 @@ def main() raises:
 
     print("\nGenerating rays...")
     var rays = generate_primary_rays(
-        bounds._min, bounds._max, PRIMARY_WIDTH, PRIMARY_HEIGHT, PRIMARY_VIEWS
+        bounds, PRIMARY_WIDTH, PRIMARY_HEIGHT, PRIMARY_VIEWS
     )
     print(t"Rays: {len(rays)}")
 

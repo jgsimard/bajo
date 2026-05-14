@@ -617,7 +617,7 @@ def main() raises:
 
     print("\nGenerating reference rays and camera parameters...")
     var rays = generate_primary_rays(
-        bounds._min, bounds._max, PRIMARY_WIDTH, PRIMARY_HEIGHT, PRIMARY_VIEWS
+        bounds, PRIMARY_WIDTH, PRIMARY_HEIGHT, PRIMARY_VIEWS
     )
     var camera_params = generate_camera_params(
         bounds._min, bounds._max, PRIMARY_VIEWS

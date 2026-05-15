@@ -1,12 +1,10 @@
 from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.intersect import intersect_ray_tri, intersect_ray_aabb
+from bajo.core.aabb import AxisAlignedBoundingBox
 from bajo.core.vec import Vec3, Vec3f32
 from bajo.core.bvh.cpu.binary_bvh import BinaryBvh
 from bajo.core.bvh.types import Ray
-
-comptime f32_max = max_finite[DType.float32]()
-comptime f32_min = min_finite[DType.float32]()
 
 
 @fieldwise_init
@@ -25,15 +23,13 @@ struct WideLeaf[width: Int](Copyable):
 
 @fieldwise_init
 struct WideBvhNode[width: Int](Copyable):
-    var _min: Vec3[DType.float32, Self.width]
-    var _max: Vec3[DType.float32, Self.width]
+    var aabb: AxisAlignedBoundingBox[DType.float32, Self.width]
     var data: SIMD[DType.uint32, Self.width]
     var counts: SIMD[DType.uint32, Self.width]
 
     @always_inline
     def __init__(out self):
-        self._min = Vec3[DType.float32, Self.width](f32_max)
-        self._max = Vec3[DType.float32, Self.width](f32_min)
+        self.aabb = AxisAlignedBoundingBox[DType.float32, Self.width].invalid()
 
         self.data = 0
         self.counts = 0xFFFFFFFF
@@ -77,12 +73,12 @@ struct WideBvh[width: Int](Copyable):
         comptime for i in range(Self.width):
             if i < p_size:
                 ref n = binary_bvh.bvh_nodes[Int(pool[i])]
-                node._min.x[i] = n.aabb._min.x
-                node._min.y[i] = n.aabb._min.y
-                node._min.z[i] = n.aabb._min.z
-                node._max.x[i] = n.aabb._max.x
-                node._max.y[i] = n.aabb._max.y
-                node._max.z[i] = n.aabb._max.z
+                node.aabb._min.x[i] = n.aabb._min.x
+                node.aabb._min.y[i] = n.aabb._min.y
+                node.aabb._min.z[i] = n.aabb._min.z
+                node.aabb._max.x[i] = n.aabb._max.x
+                node.aabb._max.y[i] = n.aabb._max.y
+                node.aabb._max.z[i] = n.aabb._max.z
                 if n.is_leaf():
                     # PACK TRIANGLES INTO SIMD LEAF
                     var l_idx = UInt32(len(self.leaves))
@@ -144,7 +140,9 @@ struct WideBvh[width: Int](Copyable):
             comptime if is_occlusion:
                 return True
             else:
-                var min_t = hit_mask.select(h.t, f32_max).reduce_min()
+                var min_t = hit_mask.select(
+                    h.t, max_finite[DType.float32]()
+                ).reduce_min()
 
                 comptime for i in range(Self.width):
                     if hit_mask[i] and h.t[i] == min_t:
@@ -167,7 +165,9 @@ struct WideBvh[width: Int](Copyable):
         rD = Vec3[DType.float32, Self.width](ray.rD.x, ray.rD.y, ray.rD.z)
         while True:
             ref node = self.nodes[Int(n_idx)]
-            hit = intersect_ray_aabb(O, rD, node._min, node._max, ray.hit.t)
+            hit = intersect_ray_aabb(
+                O, rD, node.aabb._min, node.aabb._max, ray.hit.t
+            )
             var valid_lane = ~node.counts.eq(0xFFFFFFFF)
             var mask = hit.mask & valid_lane
 

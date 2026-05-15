@@ -348,7 +348,7 @@ def _brute_trace(
 
 
 def _make_random_xy_triangles(count: Int, seed: UInt64) -> List[Vec3f32]:
-    var rng = Rng(seed, UInt64(0))
+    var rng = Rng(seed, 0)
     var verts = List[Vec3f32](capacity=count * 3)
 
     for _ in range(count):
@@ -372,12 +372,9 @@ def _triangle_center_xy(verts: List[Vec3f32], prim_idx: Int) -> Vec3f32:
     ref v0 = verts[prim_idx * 3 + 0]
     ref v1 = verts[prim_idx * 3 + 1]
     ref v2 = verts[prim_idx * 3 + 2]
-
-    return Vec3f32(
-        (v0.x + v1.x + v2.x) / 3.0,
-        (v0.y + v1.y + v2.y) / 3.0,
-        0.0,
-    )
+    out = (v0 + v1 + v2) / 3.0
+    out.z = 0.0
+    return out
 
 
 def _assert_bvh_matches_bruteforce(

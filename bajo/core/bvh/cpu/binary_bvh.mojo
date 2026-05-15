@@ -29,7 +29,7 @@ from bajo.core.bvh.build import (
 )
 
 
-struct BinaryBvh(Copyable):
+struct BinaryBvh[MAX_LEAF_SIZE: Int = 2](Copyable):
     var bvh_nodes: List[BvhNode]
     var prim_indices: List[UInt32]
     var fragments: List[Fragment]
@@ -81,8 +81,6 @@ struct BinaryBvh(Copyable):
         node_idx: UInt32,
         atomic_nodes: UnsafePointer[UInt32, MutAnyOrigin],
     ) -> Optional[Tuple[UInt32, UInt32]]:
-        comptime MAX_LEAF_SIZE = 2  # Set to 4, 8, or 16 depending on your target WideBvh
-
         var nodes_ptr = self.bvh_nodes.unsafe_ptr()
         ref node = nodes_ptr[Int(node_idx)]
 
@@ -113,7 +111,7 @@ struct BinaryBvh(Copyable):
             var split_cost = split.cost + node.surface_area()
 
             if (not split.valid()) or split_cost >= leaf_cost:
-                if node.item_count > MAX_LEAF_SIZE:
+                if node.item_count > UInt32(Self.MAX_LEAF_SIZE):
                     # Force a spatial median split to keep breaking the node down.
                     var extent = node.aabb._max - node.aabb._min
                     axis = longest_axis(extent)
@@ -136,7 +134,7 @@ struct BinaryBvh(Copyable):
         # Termination Criteria
 
         # 2. Stop splitting if we are small enough
-        if node.item_count <= MAX_LEAF_SIZE:
+        if node.item_count <= UInt32(Self.MAX_LEAF_SIZE):
             return None
 
         var split_idx: Int
@@ -179,7 +177,7 @@ struct BinaryBvh(Copyable):
                 left_count = node.item_count / 2
                 split_idx = Int(node.left_first) + Int(left_count)
             else:
-                if node.item_count > MAX_LEAF_SIZE:
+                if node.item_count > UInt32(Self.MAX_LEAF_SIZE):
                     left_count = node.item_count / 2
                     split_idx = Int(node.left_first) + Int(left_count)
                 else:
@@ -234,9 +232,7 @@ struct BinaryBvh(Copyable):
         first: Int,
         count: Int,
     ) -> AABB:
-        comptime MAX_LEAF_SIZE = 2
-
-        if count <= MAX_LEAF_SIZE:
+        if count <= Self.MAX_LEAF_SIZE:
             ref leaf = self.bvh_nodes[Int(node_idx)]
             leaf.set_leaf(UInt32(first), UInt32(count))
             leaf.aabb = AABB.invalid()

@@ -69,7 +69,7 @@ struct BinaryBvh(Copyable):
         node.aabb = AABB.invalid()
 
         var first = Int(node.left_first)
-        for i in range(Int(node.tri_count)):
+        for i in range(Int(node.item_count)):
             var frag_idx = Int(self.prim_indices[first + i])
             self.fragments[frag_idx].grow_into(node.aabb)
 
@@ -109,11 +109,11 @@ struct BinaryBvh(Copyable):
 
             # Compare in the same unnormalized units as the raw split cost:
             # split leaf cost = area * N, internal split cost = traversal area + child costs.
-            var leaf_cost = node.surface_area() * Float32(node.tri_count)
+            var leaf_cost = node.surface_area() * Float32(node.item_count)
             var split_cost = split.cost + node.surface_area()
 
             if (not split.valid()) or split_cost >= leaf_cost:
-                if node.tri_count > MAX_LEAF_SIZE:
+                if node.item_count > MAX_LEAF_SIZE:
                     # Force a spatial median split to keep breaking the node down.
                     var extent = node.aabb._max - node.aabb._min
                     axis = longest_axis(extent)
@@ -136,7 +136,7 @@ struct BinaryBvh(Copyable):
         # Termination Criteria
 
         # 2. Stop splitting if we are small enough
-        if node.tri_count <= MAX_LEAF_SIZE:
+        if node.item_count <= MAX_LEAF_SIZE:
             return None
 
         var split_idx: Int
@@ -146,7 +146,7 @@ struct BinaryBvh(Copyable):
                     self.prim_indices.unsafe_ptr(),
                     self.fragments.unsafe_ptr(),
                     Int(node.left_first),
-                    Int(node.tri_count),
+                    Int(node.item_count),
                     axis,
                     split_bin,
                     split_bin_min,
@@ -157,7 +157,7 @@ struct BinaryBvh(Copyable):
                     self.prim_indices.unsafe_ptr(),
                     self.fragments.unsafe_ptr(),
                     Int(node.left_first),
-                    Int(node.tri_count),
+                    Int(node.item_count),
                     axis,
                     pos,
                 )
@@ -166,21 +166,21 @@ struct BinaryBvh(Copyable):
                 self.prim_indices.unsafe_ptr(),
                 self.fragments.unsafe_ptr(),
                 Int(node.left_first),
-                Int(node.tri_count),
+                Int(node.item_count),
                 axis,
                 pos,
             )
 
         var left_count = UInt32(split_idx - Int(node.left_first))
-        if left_count == 0 or left_count == node.tri_count:
+        if left_count == 0 or left_count == node.item_count:
             use_sah_bounds = False
             comptime if split_method == "median":
                 # Fallback: If spatial center failed, just split the indices 50/50.
-                left_count = node.tri_count / 2
+                left_count = node.item_count / 2
                 split_idx = Int(node.left_first) + Int(left_count)
             else:
-                if node.tri_count > MAX_LEAF_SIZE:
-                    left_count = node.tri_count / 2
+                if node.item_count > MAX_LEAF_SIZE:
+                    left_count = node.item_count / 2
                     split_idx = Int(node.left_first) + Int(left_count)
                 else:
                     # Only now is it safe to give up and make a leaf.
@@ -195,7 +195,7 @@ struct BinaryBvh(Copyable):
         )
         nodes_ptr[Int(left_child_idx + 1)].set_leaf(
             UInt32(split_idx),
-            node.item_count() - left_count,
+            node.item_count - left_count,
         )
 
         node.set_internal(left_child_idx)
@@ -329,7 +329,7 @@ struct BinaryBvh(Copyable):
                     var max_tris = UInt32(0)
 
                     for i in range(len(tasks)):
-                        var count = self.bvh_nodes[Int(tasks[i])].tri_count
+                        var count = self.bvh_nodes[Int(tasks[i])].item_count
                         if count > max_tris:
                             max_tris = count
                             largest_idx = i
@@ -398,7 +398,7 @@ struct BinaryBvh(Copyable):
             ref node = self.bvh_nodes[Int(node_idx)]
 
             if node.is_leaf():
-                for i in range(Int(node.tri_count)):
+                for i in range(Int(node.item_count)):
                     var frag_idx = self.prim_indices[Int(node.first_item()) + i]
                     var p_idx = self.fragments[Int(frag_idx)].prim_idx
                     if intersect_prim[is_shadow](self.vertices, ray, p_idx):

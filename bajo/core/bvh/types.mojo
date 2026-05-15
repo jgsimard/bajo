@@ -77,21 +77,21 @@ struct Hit(TrivialRegisterPassable):
 struct BvhNode(Copyable):
     var aabb: AABB
     var left_first: UInt32
-    var tri_count: UInt32
+    var item_count: UInt32
 
     @always_inline
     def __init__(out self):
         self.aabb = AABB.invalid()
         self.left_first = 0
-        self.tri_count = 0
+        self.item_count = 0
 
     @always_inline
     def is_leaf(self) -> Bool:
-        return self.tri_count > 0
+        return self.item_count > 0
 
     @always_inline
     def is_internal(self) -> Bool:
-        return self.tri_count == 0
+        return self.item_count == 0
 
     @always_inline
     def surface_area(self) -> Float32:
@@ -100,10 +100,6 @@ struct BvhNode(Copyable):
     @always_inline
     def first_item(self) -> UInt32:
         return self.left_first
-
-    @always_inline
-    def item_count(self) -> UInt32:
-        return self.tri_count
 
     @always_inline
     def left_child(self) -> UInt32:
@@ -116,12 +112,12 @@ struct BvhNode(Copyable):
     @always_inline
     def set_leaf(mut self, first_item: UInt32, item_count: UInt32):
         self.left_first = first_item
-        self.tri_count = item_count
+        self.item_count = item_count
 
     @always_inline
     def set_internal(mut self, left_child: UInt32):
         self.left_first = left_child
-        self.tri_count = 0
+        self.item_count = 0
 
 
 @fieldwise_init

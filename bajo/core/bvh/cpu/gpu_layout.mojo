@@ -90,7 +90,7 @@ struct BvhGpuLayout(Copyable):
         var out = BVHGPUNode()
 
         if bnode.is_leaf():
-            out.tri_count = bnode.tri_count
+            out.tri_count = bnode.item_count
             out.first_tri = bnode.left_first
             # Leaf bounds are not needed by traversal once the leaf is entered,
             # but storing them makes debug inspection easier and keeps the node

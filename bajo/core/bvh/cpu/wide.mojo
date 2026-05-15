@@ -87,7 +87,7 @@ struct WideBvh[width: Int](Copyable):
                     # PACK TRIANGLES INTO SIMD LEAF
                     var l_idx = UInt32(len(self.leaves))
                     var packed = WideLeaf[Self.width]()
-                    for tri in range(min(Int(n.tri_count), Self.width)):
+                    for tri in range(min(Int(n.item_count), Self.width)):
                         var frag_idx = Int(
                             binary_bvh.prim_indices[Int(n.left_first) + tri]
                         )
@@ -107,7 +107,7 @@ struct WideBvh[width: Int](Copyable):
                         packed.prim_indices[tri] = UInt32(p_idx)
                     # Sentinel for empty lanes. Keep a separate valid-lane mask,
                     # because only poisoning v0x can still create NaNs in SIMD math.
-                    for tri in range(Int(n.tri_count), Self.width):
+                    for tri in range(Int(n.item_count), Self.width):
                         packed.prim_indices[tri] = 0xFFFFFFFF
                     self.leaves.append(packed^)
                     node.data[i] = l_idx

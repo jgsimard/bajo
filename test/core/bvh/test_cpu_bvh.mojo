@@ -87,7 +87,7 @@ def test_sah_clear_separation() raises:
 
     var node = BvhNode()
     node.left_first = 0
-    node.tri_count = 2
+    node.item_count = 2
 
     var split = _sah(
         node,
@@ -115,7 +115,7 @@ def test_sah_degenerate() raises:
 
     var node = BvhNode()
     node.left_first = 0
-    node.tri_count = 2
+    node.item_count = 2
 
     var split = _sah(
         node,
@@ -143,7 +143,7 @@ def test_sah_axis_preference() raises:
 
     var node = BvhNode()
     node.left_first = 0
-    node.tri_count = 10
+    node.item_count = 10
 
     var split = _sah(
         node,
@@ -189,7 +189,7 @@ def test_sah_partition_by_bin_non_empty() raises:
 
     var node = BvhNode()
     node.left_first = 0
-    node.tri_count = 10
+    node.item_count = 10
 
     var split = _sah(
         node,
@@ -228,14 +228,14 @@ def test_bvh_build_invariants_median() raises:
         ref node = bvh.bvh_nodes[i]
 
         if node.is_leaf():
-            assert_true(node.tri_count > 0)
+            assert_true(node.item_count > 0)
             assert_true(
-                Int(node.left_first) + Int(node.tri_count)
+                Int(node.left_first) + Int(node.item_count)
                 <= len(bvh.prim_indices)
             )
-            leaf_prim_total += node.tri_count
+            leaf_prim_total += node.item_count
         else:
-            assert_true(node.tri_count == 0)
+            assert_true(node.item_count == 0)
             assert_true(node.left_first + 1 < bvh.nodes_used)
 
     assert_true(leaf_prim_total == bvh.tri_count)
@@ -642,14 +642,14 @@ def test_bvh_lbvh_build_invariants() raises:
     for i in range(Int(bvh.nodes_used)):
         ref node = bvh.bvh_nodes[i]
         if node.is_leaf():
-            assert_true(node.tri_count > 0)
+            assert_true(node.item_count > 0)
             assert_true(
-                Int(node.left_first) + Int(node.tri_count)
+                Int(node.left_first) + Int(node.item_count)
                 <= len(bvh.prim_indices)
             )
-            leaf_prim_total += node.tri_count
+            leaf_prim_total += node.item_count
         else:
-            assert_true(node.tri_count == 0)
+            assert_true(node.item_count == 0)
             assert_true(node.left_first + 1 < bvh.nodes_used)
 
     assert_true(leaf_prim_total == bvh.tri_count)

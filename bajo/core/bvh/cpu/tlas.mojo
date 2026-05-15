@@ -159,7 +159,7 @@ struct Tlas(Copyable):
         node.aabb = AABB.invalid()
 
         var first = Int(node.left_first)
-        for i in range(Int(node.tri_count)):
+        for i in range(Int(node.item_count)):
             var inst_idx = Int(self.inst_indices[first + i])
             ref inst = self.instances[inst_idx]
             node.aabb._min = vmin(node.aabb._min, inst.bounds._min)
@@ -179,7 +179,7 @@ struct Tlas(Copyable):
     def _subdivide(mut self, node_idx: UInt32):
         ref node = self.tlas_nodes[Int(node_idx)]
 
-        if node.tri_count <= TLAS_LEAF_SIZE:
+        if node.item_count <= TLAS_LEAF_SIZE:
             return
 
         var extent = node.aabb._max - node.aabb._min
@@ -187,7 +187,7 @@ struct Tlas(Copyable):
         var split_pos = node.aabb._min[axis] + extent[axis] * 0.5
 
         var i = Int(node.left_first)
-        var j = i + Int(node.tri_count) - 1
+        var j = i + Int(node.item_count) - 1
 
         while i <= j:
             var inst_idx = Int(self.inst_indices[i])
@@ -203,8 +203,8 @@ struct Tlas(Copyable):
                 j -= 1
 
         var left_count = UInt32(i - Int(node.left_first))
-        if left_count == 0 or left_count == node.tri_count:
-            left_count = node.tri_count / 2
+        if left_count == 0 or left_count == node.item_count:
+            left_count = node.item_count / 2
             i = Int(node.left_first) + Int(left_count)
 
         var left_child_idx = self.nodes_used
@@ -219,7 +219,7 @@ struct Tlas(Copyable):
         )
         right_child.set_leaf(
             UInt32(i),
-            node.item_count() - left_count,
+            node.item_count - left_count,
         )
 
         node.set_internal(left_child_idx)
@@ -252,7 +252,7 @@ struct Tlas(Copyable):
             ref node = self.tlas_nodes[Int(node_idx)]
 
             if node.is_leaf():
-                for i in range(Int(node.tri_count)):
+                for i in range(Int(node.item_count)):
                     var inst_idx = self.inst_indices[Int(node.first_item()) + i]
                     ref inst = self.instances[Int(inst_idx)]
 

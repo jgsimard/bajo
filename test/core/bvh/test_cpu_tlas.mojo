@@ -139,13 +139,13 @@ def test_tlas_build_invariants() raises:
     for i in range(Int(tlas.nodes_used)):
         ref node = tlas.tlas_nodes[i]
         if node.is_leaf():
-            assert_true(node.tri_count > 0)
+            assert_true(node.item_count > 0)
             assert_true(
-                Int(node.left_first + node.tri_count) <= len(tlas.inst_indices)
+                Int(node.left_first + node.item_count) <= len(tlas.inst_indices)
             )
-            leaf_sum += node.tri_count
+            leaf_sum += node.item_count
         else:
-            assert_true(node.tri_count == 0)
+            assert_true(node.item_count == 0)
             assert_true(node.left_first + 1 < tlas.nodes_used)
 
     assert_true(leaf_sum == tlas.inst_count)

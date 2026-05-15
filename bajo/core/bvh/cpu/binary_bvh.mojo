@@ -81,7 +81,7 @@ struct BinaryBvh(Copyable):
         node_idx: UInt32,
         atomic_nodes: UnsafePointer[UInt32, MutAnyOrigin],
     ) -> Optional[Tuple[UInt32, UInt32]]:
-        comptime MAX_LEAF_SIZE = 4  # Set to 4, 8, or 16 depending on your target WideBvh
+        comptime MAX_LEAF_SIZE = 2  # Set to 4, 8, or 16 depending on your target WideBvh
 
         var nodes_ptr = self.bvh_nodes.unsafe_ptr()
         ref node = nodes_ptr[Int(node_idx)]
@@ -234,7 +234,7 @@ struct BinaryBvh(Copyable):
         first: Int,
         count: Int,
     ) -> AABB:
-        comptime MAX_LEAF_SIZE = 4
+        comptime MAX_LEAF_SIZE = 2
 
         if count <= MAX_LEAF_SIZE:
             ref leaf = self.bvh_nodes[Int(node_idx)]

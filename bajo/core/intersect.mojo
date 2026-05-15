@@ -1,4 +1,5 @@
-from std.math import fma, abs, max, clamp
+from std.math import fma, abs, max, clamp, sqrt
+from std.utils.numerics import max_finite
 
 from bajo.core.vec import (
     Vec2,
@@ -20,6 +21,12 @@ struct RayTriHit[dtype: DType, width: Int](TrivialRegisterPassable, Writable):
     var t: SIMD[Self.dtype, Self.width]
     var u: SIMD[Self.dtype, Self.width]
     var v: SIMD[Self.dtype, Self.width]
+
+
+@fieldwise_init
+struct RaySphereHit[dtype: DType, width: Int](TrivialRegisterPassable):
+    var mask: SIMD[DType.bool, Self.width]
+    var t: SIMD[Self.dtype, Self.width]
 
 
 @fieldwise_init
@@ -242,6 +249,52 @@ def intersect_aabb_aabb[
         & a_upper.x.ge(b_lower.x)
         & a_upper.y.ge(b_lower.y)
         & a_upper.z.ge(b_lower.z)
+    )
+
+
+@always_inline
+def intersect_ray_sphere[
+    dtype: DType,
+    width: Int,
+](
+    o: Vec3[dtype, width],
+    d: Vec3[dtype, width],
+    center: Vec3[dtype, width],
+    radius: SIMD[dtype, width],
+    t_max: SIMD[dtype, width],
+    t_min: SIMD[dtype, width] = SIMD[dtype, width](1.0e-4),
+) -> RaySphereHit[dtype, width]:
+    comptime assert dtype in [DType.float32, DType.float64]
+
+    var oc = o - center
+
+    var a = dot(d, d)
+    var half_b = dot(oc, d)
+    var c = dot(oc, oc) - radius * radius
+
+    var det = half_b * half_b - a * c
+    var det_ok = det.ge(0.0)
+
+    var sqrt_det = sqrt(max(det, 0.0))
+    var inv_a = Scalar[dtype](1.0) / a
+
+    var t0 = (-half_b - sqrt_det) * inv_a
+    var t1 = (-half_b + sqrt_det) * inv_a
+
+    var near_mask = det_ok & t0.gt(t_min) & t0.lt(t_max)
+
+    var far_mask = det_ok & (~near_mask) & t1.gt(t_min) & t1.lt(t_max)
+
+    var mask = near_mask | far_mask
+
+    var t = near_mask.select(
+        t0,
+        far_mask.select(t1, max_finite[dtype]()),
+    )
+
+    return RaySphereHit[dtype, width](
+        mask,
+        t,
     )
 
 

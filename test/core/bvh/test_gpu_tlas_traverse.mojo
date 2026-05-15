@@ -92,10 +92,9 @@ def _make_grid_tlas(mut blas: BinaryBvh, count: Int = 8) -> Tlas:
 def _trace_cpu_tlas(
     tlas: Tlas,
     ray: Ray,
-    mut blas: BinaryBvh,
+    mut blas: BinaryBvh[2],
 ) -> Ray:
-    var blases = List[BinaryBvh](capacity=1)
-    blases.append(blas.copy())
+    var blases = [blas.copy()]
     var out = ray.copy()
     tlas.traverse(out, blases.unsafe_ptr())
     return out^

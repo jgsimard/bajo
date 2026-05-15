@@ -81,7 +81,7 @@ def test_gpu_tlas_node_meta_and_bounds_match_cpu() raises:
                     ref node = tlas.tlas_nodes[i]
                     var base = i * GPU_TLAS_NODE_META_STRIDE
                     assert_true(meta[base + 0] == node.left_first)
-                    assert_true(meta[base + 1] == node.tri_count)
+                    assert_true(meta[base + 1] == node.item_count)
                     assert_true(meta[base + 3] == _node_flag(tlas, i))
 
             with gpu_tlas.node_bounds.map_to_host() as bounds:

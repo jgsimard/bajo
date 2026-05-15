@@ -9,7 +9,6 @@ from bajo.core.bvh.host_utils import (
     trace_bvh_shadow,
     generate_primary_rays,
 )
-from bajo.core.bvh.cpu.gpu_layout import BvhGpuLayout
 from bajo.core.bvh.cpu.wide import WideBvh
 from bajo.core.bvh.cpu.binary_bvh import BinaryBvh, Ray
 from bajo.core.utils import (
@@ -46,29 +45,6 @@ def trace_wide_shadow[width: Int](wide: WideBvh[width], rays: List[Ray]) -> Int:
     for i in range(len(rays)):
         var ray = rays[i].copy()
         if wide.is_occluded(ray):
-            occluded += 1
-    return occluded
-
-
-def trace_gpu_primary(gpu: BvhGpuLayout, rays: List[Ray]) -> Float64:
-    var checksum = 0.0
-    var hit_count = 0
-
-    for i in range(len(rays)):
-        var ray = rays[i].copy()
-        gpu.traverse(ray)
-        checksum += hit_t_for_checksum(ray.hit.t)
-        if ray.hit.t < 1.0e20:
-            hit_count += 1
-    return checksum
-
-
-def trace_gpu_shadow(gpu: BvhGpuLayout, rays: List[Ray]) -> Int:
-    var occluded = 0
-
-    for i in range(len(rays)):
-        var ray = rays[i].copy()
-        if gpu.is_occluded(ray):
             occluded += 1
     return occluded
 
@@ -230,42 +206,6 @@ def bench_wide_shadow[
     print_shadow_result(name, best_ns, len(rays), occluded)
 
 
-def bench_gpu_primary(
-    name: String, gpu: BvhGpuLayout, rays: List[Ray], repeats: Int
-):
-    # Warmup.
-    var checksum = trace_gpu_primary(gpu, rays)
-    var best_ns = Int.MAX
-
-    for _ in range(repeats):
-        var t0 = perf_counter_ns()
-        checksum = trace_gpu_primary(gpu, rays)
-        var t1 = perf_counter_ns()
-        var dt = Int(t1 - t0)
-        if dt < best_ns:
-            best_ns = dt
-
-    print_traversal_result(name, best_ns, len(rays), checksum)
-
-
-def bench_gpu_shadow(
-    name: String, gpu: BvhGpuLayout, rays: List[Ray], repeats: Int
-):
-    # Warmup.
-    var occluded = trace_gpu_shadow(gpu, rays)
-    var best_ns = Int.MAX
-
-    for _ in range(repeats):
-        var t0 = perf_counter_ns()
-        occluded = trace_gpu_shadow(gpu, rays)
-        var t1 = perf_counter_ns()
-        var dt = Int(t1 - t0)
-        if dt < best_ns:
-            best_ns = dt
-
-    print_shadow_result(name, best_ns, len(rays), occluded)
-
-
 def main() raises:
     print("Bunny speedtest")
     print(t"Path: {DEFAULT_OBJ_PATH}")
@@ -341,6 +281,17 @@ def main() raises:
     )
 
     t0 = perf_counter_ns()
+    var wide2 = WideBvh[2](bvh_sah)
+    t1 = perf_counter_ns()
+    print_build_layout_result(
+        "wide2 collapse  ",
+        Int(t1 - t0),
+        len(wide2.nodes),
+        "leaves",
+        len(wide2.leaves),
+    )
+
+    t0 = perf_counter_ns()
     var wide4 = WideBvh[4](bvh_sah)
     t1 = perf_counter_ns()
     print_build_layout_result(
@@ -373,29 +324,6 @@ def main() raises:
         len(wide8_lbvh.leaves),
     )
 
-    t0 = perf_counter_ns()
-    var gpu = BvhGpuLayout(bvh_sah)
-    t1 = perf_counter_ns()
-    var gpu_root_is_leaf = False
-    if len(gpu.nodes) > 0:
-        gpu_root_is_leaf = gpu.nodes[0].is_leaf()
-    print_gpu_layout_result(
-        Int(t1 - t0), len(gpu.nodes), len(gpu.prim_indices), gpu_root_is_leaf
-    )
-
-    t0 = perf_counter_ns()
-    var gpu_lbvh = BvhGpuLayout(bvh_lbvh)
-    t1 = perf_counter_ns()
-    var gpu_lbvh_root_is_leaf = False
-    if len(gpu_lbvh.nodes) > 0:
-        gpu_lbvh_root_is_leaf = gpu_lbvh.nodes[0].is_leaf()
-    print_gpu_layout_result(
-        Int(t1 - t0),
-        len(gpu_lbvh.nodes),
-        len(gpu_lbvh.prim_indices),
-        gpu_lbvh_root_is_leaf,
-    )
-
     print("\nValidation")
     print("----------")
     var ref_checksum = trace_bvh_primary(bvh_sah, rays)
@@ -410,6 +338,9 @@ def main() raises:
         "binary lbvh", ref_checksum, trace_bvh_primary(bvh_lbvh, rays)
     )
     print_primary_validation(
+        "wide2", ref_checksum, trace_wide_primary[2](wide2, rays)
+    )
+    print_primary_validation(
         "wide4", ref_checksum, trace_wide_primary[4](wide4, rays)
     )
     print_primary_validation(
@@ -417,12 +348,6 @@ def main() raises:
     )
     print_primary_validation(
         "wide8 lbvh", ref_checksum, trace_wide_primary[8](wide8_lbvh, rays)
-    )
-    print_primary_validation(
-        "gpu layout CPU", ref_checksum, trace_gpu_primary(gpu, rays)
-    )
-    print_primary_validation(
-        "gpu lbvh CPU", ref_checksum, trace_gpu_primary(gpu_lbvh, rays)
     )
     print_shadow_validation(
         "binary median", ref_occluded, trace_bvh_shadow(bvh_median, rays)
@@ -434,6 +359,9 @@ def main() raises:
         "binary lbvh", ref_occluded, trace_bvh_shadow(bvh_lbvh, rays)
     )
     print_shadow_validation(
+        "wide2", ref_occluded, trace_wide_shadow[2](wide2, rays)
+    )
+    print_shadow_validation(
         "wide4", ref_occluded, trace_wide_shadow[4](wide4, rays)
     )
     print_shadow_validation(
@@ -442,12 +370,6 @@ def main() raises:
     print_shadow_validation(
         "wide8 lbvh", ref_occluded, trace_wide_shadow[8](wide8_lbvh, rays)
     )
-    print_shadow_validation(
-        "gpu layout CPU", ref_occluded, trace_gpu_shadow(gpu, rays)
-    )
-    print_shadow_validation(
-        "gpu lbvh CPU", ref_occluded, trace_gpu_shadow(gpu_lbvh, rays)
-    )
 
     print("\nPrimary traversal")
     print("-----------------")
@@ -455,11 +377,10 @@ def main() raises:
     bench_bvh_primary("binary sah ST ", bvh_sah, rays, TRAVERSAL_REPEATS)
     bench_bvh_primary("binary sah MT ", bvh_sah_mt, rays, TRAVERSAL_REPEATS)
     bench_bvh_primary("binary lbvh   ", bvh_lbvh, rays, TRAVERSAL_REPEATS)
+    bench_wide_primary[2]("wide2         ", wide2, rays, TRAVERSAL_REPEATS)
     bench_wide_primary[4]("wide4         ", wide4, rays, TRAVERSAL_REPEATS)
     bench_wide_primary[8]("wide8         ", wide8, rays, TRAVERSAL_REPEATS)
     bench_wide_primary[8]("wide8 lbvh    ", wide8_lbvh, rays, TRAVERSAL_REPEATS)
-    bench_gpu_primary("gpu layout CPU", gpu, rays, TRAVERSAL_REPEATS)
-    bench_gpu_primary("gpu lbvh CPU  ", gpu_lbvh, rays, TRAVERSAL_REPEATS)
 
     print("\nShadow traversal")
     print("----------------")
@@ -467,11 +388,10 @@ def main() raises:
     bench_bvh_shadow("binary sah ST ", bvh_sah, rays, TRAVERSAL_REPEATS)
     bench_bvh_shadow("binary sah MT ", bvh_sah_mt, rays, TRAVERSAL_REPEATS)
     bench_bvh_shadow("binary lbvh   ", bvh_lbvh, rays, TRAVERSAL_REPEATS)
+    bench_wide_shadow[2]("wide2         ", wide2, rays, TRAVERSAL_REPEATS)
     bench_wide_shadow[4]("wide4         ", wide4, rays, TRAVERSAL_REPEATS)
     bench_wide_shadow[8]("wide8         ", wide8, rays, TRAVERSAL_REPEATS)
     bench_wide_shadow[8]("wide8 lbvh    ", wide8_lbvh, rays, TRAVERSAL_REPEATS)
-    bench_gpu_shadow("gpu layout CPU", gpu, rays, TRAVERSAL_REPEATS)
-    bench_gpu_shadow("gpu lbvh CPU  ", gpu_lbvh, rays, TRAVERSAL_REPEATS)
 
     # Keep the owning List alive after all traversals
     keep(len(tri_vertices))

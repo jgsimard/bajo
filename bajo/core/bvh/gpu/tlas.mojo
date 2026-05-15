@@ -141,7 +141,7 @@ struct GpuTlasLayout:
                 ref node = tlas.tlas_nodes[i]
                 var base = i * GPU_TLAS_NODE_META_STRIDE
                 h[base + 0] = node.left_first
-                h[base + 1] = node.tri_count
+                h[base + 1] = node.item_count
                 h[base + 2] = GPU_TLAS_INVALID
                 if node.is_leaf():
                     h[base + 3] = GPU_TLAS_LEAF_FLAG
@@ -220,7 +220,7 @@ def validate_gpu_tlas_layout(
             if h[base + 0] != node.left_first:
                 out.ok = False
                 out.first_bad = _first_bad(out.first_bad, base + 0)
-            if h[base + 1] != node.tri_count:
+            if h[base + 1] != node.item_count:
                 out.ok = False
                 out.first_bad = _first_bad(out.first_bad, base + 1)
             if h[base + 2] != GPU_TLAS_INVALID:
@@ -236,7 +236,7 @@ def validate_gpu_tlas_layout(
 
             if node.is_leaf():
                 out.leaf_count += 1
-                out.leaf_instance_sum += node.tri_count
+                out.leaf_instance_sum += node.item_count
             else:
                 out.internal_count += 1
 

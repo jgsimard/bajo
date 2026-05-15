@@ -10,7 +10,6 @@ from bajo.core.bvh.build import (
     _sah,
 )
 from bajo.core.bvh.cpu.binary_bvh import BinaryBvh
-from bajo.core.bvh.cpu.gpu_layout import BvhGpuLayout
 from bajo.core.bvh.cpu.wide import WideBvh
 from bajo.core.bvh.types import BvhNode, Fragment, Ray
 
@@ -87,7 +86,7 @@ def test_sah_clear_separation() raises:
 
     var node = BvhNode()
     node.left_first = 0
-    node.tri_count = 2
+    node.item_count = 2
 
     var split = _sah(
         node,
@@ -115,7 +114,7 @@ def test_sah_degenerate() raises:
 
     var node = BvhNode()
     node.left_first = 0
-    node.tri_count = 2
+    node.item_count = 2
 
     var split = _sah(
         node,
@@ -143,7 +142,7 @@ def test_sah_axis_preference() raises:
 
     var node = BvhNode()
     node.left_first = 0
-    node.tri_count = 10
+    node.item_count = 10
 
     var split = _sah(
         node,
@@ -189,7 +188,7 @@ def test_sah_partition_by_bin_non_empty() raises:
 
     var node = BvhNode()
     node.left_first = 0
-    node.tri_count = 10
+    node.item_count = 10
 
     var split = _sah(
         node,
@@ -228,14 +227,14 @@ def test_bvh_build_invariants_median() raises:
         ref node = bvh.bvh_nodes[i]
 
         if node.is_leaf():
-            assert_true(node.tri_count > 0)
+            assert_true(node.item_count > 0)
             assert_true(
-                Int(node.left_first) + Int(node.tri_count)
+                Int(node.left_first) + Int(node.item_count)
                 <= len(bvh.prim_indices)
             )
-            leaf_prim_total += node.tri_count
+            leaf_prim_total += node.item_count
         else:
-            assert_true(node.tri_count == 0)
+            assert_true(node.item_count == 0)
             assert_true(node.left_first + 1 < bvh.nodes_used)
 
     assert_true(leaf_prim_total == bvh.tri_count)
@@ -349,7 +348,7 @@ def _brute_trace(
 
 
 def _make_random_xy_triangles(count: Int, seed: UInt64) -> List[Vec3f32]:
-    var rng = Rng(seed, UInt64(0))
+    var rng = Rng(seed, 0)
     var verts = List[Vec3f32](capacity=count * 3)
 
     for _ in range(count):
@@ -373,12 +372,9 @@ def _triangle_center_xy(verts: List[Vec3f32], prim_idx: Int) -> Vec3f32:
     ref v0 = verts[prim_idx * 3 + 0]
     ref v1 = verts[prim_idx * 3 + 1]
     ref v2 = verts[prim_idx * 3 + 2]
-
-    return Vec3f32(
-        (v0.x + v1.x + v2.x) / 3.0,
-        (v0.y + v1.y + v2.y) / 3.0,
-        0.0,
-    )
+    out = (v0 + v1 + v2) / 3.0
+    out.z = 0.0
+    return out
 
 
 def _assert_bvh_matches_bruteforce(
@@ -491,145 +487,9 @@ def test_bvh_sah_mt_matches_bruteforce_many_rays() raises:
         _assert_bvh_matches_bruteforce(bvh, verts, O, D)
 
 
-def _assert_gpu_matches_binary(
-    mut bvh: BinaryBvh,
-    mut gpu: BvhGpuLayout,
-    O: Vec3f32,
-    D: Vec3f32,
-) raises:
-    var ray_binary = Ray(O, D)
-    var ray_gpu = Ray(O, D)
-
-    bvh.traverse(ray_binary)
-    gpu.traverse(ray_gpu)
-
-    var binary_hit = ray_binary.hit.t < Float32(1e20)
-    var gpu_hit = ray_gpu.hit.t < Float32(1e20)
-
-    assert_true(
-        binary_hit == gpu_hit, "BvhGpuLayout hit/miss differs from binary BVH"
-    )
-
-    if binary_hit:
-        assert_true(ray_binary.hit.prim == ray_gpu.hit.prim)
-        assert_almost_equal(ray_binary.hit.t, ray_gpu.hit.t)
-
-
-def _assert_gpu_shadow_matches_binary(
-    mut bvh: BinaryBvh,
-    mut gpu: BvhGpuLayout,
-    O: Vec3f32,
-    D: Vec3f32,
-) raises:
-    var ray_binary = Ray(O, D)
-    var ray_gpu = Ray(O, D)
-
-    var binary_hit = bvh.is_occluded(ray_binary)
-    var gpu_hit = gpu.is_occluded(ray_gpu)
-
-    assert_true(
-        binary_hit == gpu_hit,
-        "BvhGpuLayout shadow result differs from binary BVH",
-    )
-
-
-def test_bvh_gpu_root_leaf_matches_binary() raises:
-    # Root remains a leaf because MAX_LEAF_SIZE is 4.
-    var verts: List[Vec3f32] = [
-        Vec3f32(-1.0, -1.0, 2.0),
-        Vec3f32(1.0, -1.0, 2.0),
-        Vec3f32(0.0, 1.0, 2.0),
-        Vec3f32(-1.0, -1.0, 4.0),
-        Vec3f32(1.0, -1.0, 4.0),
-        Vec3f32(0.0, 1.0, 4.0),
-    ]
-
-    var bvh = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) / 3))
-    bvh.build["median", False]()
-    var gpu = BvhGpuLayout(bvh)
-
-    assert_true(len(gpu.nodes) == 1)
-    assert_true(gpu.nodes[0].is_leaf())
-    assert_true(gpu.nodes[0].tri_count == 2)
-    assert_true(gpu.nodes[0].first_tri == 0)
-    assert_true(len(gpu.prim_indices) == 2)
-
-    _assert_gpu_matches_binary(
-        bvh,
-        gpu,
-        Vec3f32(0.0, 0.0, 0.0),
-        Vec3f32(0.0, 0.0, 1.0),
-    )
-
-    # Keep backing vertex storage visibly alive until after traversal.
-    assert_true(len(verts) == 6)
-
-
-def test_bvh_gpu_internal_layout_basic() raises:
-    var verts = _make_strip(12)
-    var bvh = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) / 3))
-    bvh.build["sah", False]()
-    var gpu = BvhGpuLayout(bvh)
-
-    assert_true(len(gpu.nodes) > 1)
-    assert_true(not gpu.nodes[0].is_leaf())
-    assert_true(Int(gpu.nodes[0].left) < len(gpu.nodes))
-    assert_true(Int(gpu.nodes[0].right) < len(gpu.nodes))
-    assert_true(len(gpu.prim_indices) == len(bvh.prim_indices))
-
-    var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    gpu.traverse(ray)
-    assert_true(ray.hit.t < Float32(1e20))
-
-    # Keep backing vertex storage visibly alive until after traversal.
-    assert_true(len(verts) == 36)
-
-
-def test_bvh_gpu_matches_binary_many_rays() raises:
-    var verts = _make_random_xy_triangles(128, UInt64(424242))
-    var bvh = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) / 3))
-    bvh.build["sah", False]()
-    var gpu = BvhGpuLayout(bvh)
-
-    for i in range(128):
-        var O = _triangle_center_xy(verts, i)
-        var D = Vec3f32(0.0, 0.0, 1.0)
-        _assert_gpu_matches_binary(bvh, gpu, O, D)
-
-    for i in range(32):
-        var O = Vec3f32(100.0 + Float32(i), -100.0, 0.0)
-        var D = Vec3f32(0.0, 0.0, 1.0)
-        _assert_gpu_matches_binary(bvh, gpu, O, D)
-
-    # Keep backing vertex storage visibly alive until after traversal.
-    assert_true(len(verts) == 128 * 3)
-
-
-def test_bvh_gpu_shadow_matches_binary_many_rays() raises:
-    var verts = _make_random_xy_triangles(128, UInt64(515151))
-    var bvh = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) / 3))
-    bvh.build["sah", False]()
-    var gpu = BvhGpuLayout(bvh)
-
-    for i in range(128):
-        var O = _triangle_center_xy(verts, i)
-        var D = Vec3f32(0.0, 0.0, 1.0)
-        _assert_gpu_shadow_matches_binary(bvh, gpu, O, D)
-
-    for i in range(32):
-        var O = Vec3f32(-100.0, 100.0 + Float32(i), 0.0)
-        var D = Vec3f32(0.0, 0.0, 1.0)
-        _assert_gpu_shadow_matches_binary(bvh, gpu, O, D)
-
-    # Keep backing vertex storage visibly alive until after traversal.
-    assert_true(len(verts) == 128 * 3)
-
-
 # -----------------------------------------------------------------------------
 # CPU LBVH builder validation tests
 # -----------------------------------------------------------------------------
-
-
 def test_bvh_lbvh_build_invariants() raises:
     var verts = _make_random_xy_triangles(96, UInt64(606060))
     var bvh = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) / 3))
@@ -642,14 +502,14 @@ def test_bvh_lbvh_build_invariants() raises:
     for i in range(Int(bvh.nodes_used)):
         ref node = bvh.bvh_nodes[i]
         if node.is_leaf():
-            assert_true(node.tri_count > 0)
+            assert_true(node.item_count > 0)
             assert_true(
-                Int(node.left_first) + Int(node.tri_count)
+                Int(node.left_first) + Int(node.item_count)
                 <= len(bvh.prim_indices)
             )
-            leaf_prim_total += node.tri_count
+            leaf_prim_total += node.item_count
         else:
-            assert_true(node.tri_count == 0)
+            assert_true(node.item_count == 0)
             assert_true(node.left_first + 1 < bvh.nodes_used)
 
     assert_true(leaf_prim_total == bvh.tri_count)
@@ -684,25 +544,6 @@ def test_wide_bvh4_from_lbvh_matches_binary() raises:
         var O = _triangle_center_xy(verts, i)
         var D = Vec3f32(0.0, 0.0, 1.0)
         _assert_wide_matches_binary(bvh, wide, O, D)
-
-    assert_true(len(verts) == 128 * 3)
-
-
-def test_bvh_gpu_from_lbvh_matches_binary() raises:
-    var verts = _make_random_xy_triangles(128, UInt64(909090))
-    var bvh = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) / 3))
-    bvh.build["lbvh", False]()
-    var gpu = BvhGpuLayout(bvh)
-
-    for i in range(128):
-        var O = _triangle_center_xy(verts, i)
-        var D = Vec3f32(0.0, 0.0, 1.0)
-        _assert_gpu_matches_binary(bvh, gpu, O, D)
-
-    for i in range(32):
-        var O = Vec3f32(-100.0, 100.0 + Float32(i), 0.0)
-        var D = Vec3f32(0.0, 0.0, 1.0)
-        _assert_gpu_shadow_matches_binary(bvh, gpu, O, D)
 
     assert_true(len(verts) == 128 * 3)
 

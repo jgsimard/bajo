@@ -23,6 +23,7 @@ from bajo.core.intersect import (
     RayAabbHit,
 )
 from bajo.core.vec import Vec3f32, cross, normalize
+from bajo.core.mat import transform_point, transform_vector
 
 
 comptime GPU_TLAS_TRAVERSAL_STACK_SIZE = 64
@@ -102,8 +103,8 @@ def _intersect_tlas_node_bounds(
     return intersect_ray_aabb(
         ray.o,
         ray.rd,
-        Vec3f32(node_bounds[b + 0], node_bounds[b + 1], node_bounds[b + 2]),
-        Vec3f32(node_bounds[b + 3], node_bounds[b + 4], node_bounds[b + 5]),
+        Vec3f32.load(node_bounds, b),
+        Vec3f32.load(node_bounds, b + 3),
         t_max,
     )
 
@@ -119,35 +120,6 @@ def _inst_meta_base(inst_idx: UInt32) -> Int:
 
 
 @always_inline
-def _transform_point_flat(
-    m: UnsafePointer[Float32, MutAnyOrigin],
-    base: Int,
-    p: Vec3f32,
-) -> Vec3f32:
-    return Vec3f32(
-        m[base + 0] * p.x + m[base + 1] * p.y + m[base + 2] * p.z + m[base + 3],
-        m[base + 4] * p.x + m[base + 5] * p.y + m[base + 6] * p.z + m[base + 7],
-        m[base + 8] * p.x
-        + m[base + 9] * p.y
-        + m[base + 10] * p.z
-        + m[base + 11],
-    )
-
-
-@always_inline
-def _transform_vector_flat(
-    m: UnsafePointer[Float32, MutAnyOrigin],
-    base: Int,
-    p: Vec3f32,
-) -> Vec3f32:
-    return Vec3f32(
-        m[base + 0] * p.x + m[base + 1] * p.y + m[base + 2] * p.z,
-        m[base + 4] * p.x + m[base + 5] * p.y + m[base + 6] * p.z,
-        m[base + 8] * p.x + m[base + 9] * p.y + m[base + 10] * p.z,
-    )
-
-
-@always_inline
 def _make_local_ray(
     inv_transform: UnsafePointer[Float32, MutAnyOrigin],
     inst_idx: UInt32,
@@ -155,8 +127,8 @@ def _make_local_ray(
     t_max: Float32,
 ) -> RayFlat:
     var base = _inst_inv_base(inst_idx)
-    var o = _transform_point_flat(inv_transform, base, ray.o)
-    var d = _transform_vector_flat(inv_transform, base, ray.d)
+    var o = transform_point(inv_transform, base, ray.o)
+    var d = transform_vector(inv_transform, base, ray.d)
 
     return RayFlat(
         o,
@@ -513,7 +485,7 @@ def shade_tlas_normals_kernel(
 
     # TODO: right now only rigid/uniform-scale instance transforms :(
     var base = _inst_inv_base(inst)
-    var wn = _transform_vector_flat(
+    var wn = transform_vector(
         tlas_inst_transform,
         base,
         ln,

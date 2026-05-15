@@ -1,12 +1,10 @@
 from std.utils.numerics import max_finite, min_finite
 
-from bajo.core.intersect import intersect_ray_tri
+from bajo.core.intersect import intersect_ray_tri, intersect_ray_aabb
+from bajo.core.aabb import AxisAlignedBoundingBox
 from bajo.core.vec import Vec3, Vec3f32
 from bajo.core.bvh.cpu.binary_bvh import BinaryBvh
 from bajo.core.bvh.types import Ray
-
-comptime f32_max = max_finite[DType.float32]()
-comptime f32_min = min_finite[DType.float32]()
 
 
 @fieldwise_init
@@ -17,26 +15,24 @@ struct WideLeaf[width: Int](Copyable):
     var prim_indices: SIMD[DType.uint32, Self.width]
 
     def __init__(out self):
-        self.v0 = Vec3[DType.float32, Self.width](Float32(0.0), 0.0, 0.0)
-        self.v1 = Vec3[DType.float32, Self.width](Float32(0.0), 0.0, 0.0)
-        self.v2 = Vec3[DType.float32, Self.width](Float32(0.0), 0.0, 0.0)
-        self.prim_indices = SIMD[DType.uint32, Self.width](0xFFFFFFFF)
+        self.v0 = Vec3[DType.float32, Self.width](0.0)
+        self.v1 = Vec3[DType.float32, Self.width](0.0)
+        self.v2 = Vec3[DType.float32, Self.width](0.0)
+        self.prim_indices = 0xFFFFFFFF
 
 
 @fieldwise_init
 struct WideBvhNode[width: Int](Copyable):
-    var _min: Vec3[DType.float32, Self.width]
-    var _max: Vec3[DType.float32, Self.width]
+    var aabb: AxisAlignedBoundingBox[DType.float32, Self.width]
     var data: SIMD[DType.uint32, Self.width]
     var counts: SIMD[DType.uint32, Self.width]
 
     @always_inline
     def __init__(out self):
-        self._min = Vec3[DType.float32, Self.width](f32_max, f32_max, f32_max)
-        self._max = Vec3[DType.float32, Self.width](f32_min, f32_min, f32_min)
+        self.aabb = AxisAlignedBoundingBox[DType.float32, Self.width].invalid()
 
-        self.data = SIMD[DType.uint32, Self.width](0)
-        self.counts = SIMD[DType.uint32, Self.width](0xFFFFFFFF)
+        self.data = 0
+        self.counts = 0xFFFFFFFF
 
 
 struct WideBvh[width: Int](Copyable):
@@ -77,17 +73,17 @@ struct WideBvh[width: Int](Copyable):
         comptime for i in range(Self.width):
             if i < p_size:
                 ref n = binary_bvh.bvh_nodes[Int(pool[i])]
-                node._min.x[i] = n.aabb._min.x
-                node._min.y[i] = n.aabb._min.y
-                node._min.z[i] = n.aabb._min.z
-                node._max.x[i] = n.aabb._max.x
-                node._max.y[i] = n.aabb._max.y
-                node._max.z[i] = n.aabb._max.z
+                node.aabb._min.x[i] = n.aabb._min.x
+                node.aabb._min.y[i] = n.aabb._min.y
+                node.aabb._min.z[i] = n.aabb._min.z
+                node.aabb._max.x[i] = n.aabb._max.x
+                node.aabb._max.y[i] = n.aabb._max.y
+                node.aabb._max.z[i] = n.aabb._max.z
                 if n.is_leaf():
                     # PACK TRIANGLES INTO SIMD LEAF
                     var l_idx = UInt32(len(self.leaves))
                     var packed = WideLeaf[Self.width]()
-                    for tri in range(min(Int(n.tri_count), Self.width)):
+                    for tri in range(min(Int(n.item_count), Self.width)):
                         var frag_idx = Int(
                             binary_bvh.prim_indices[Int(n.left_first) + tri]
                         )
@@ -107,7 +103,7 @@ struct WideBvh[width: Int](Copyable):
                         packed.prim_indices[tri] = UInt32(p_idx)
                     # Sentinel for empty lanes. Keep a separate valid-lane mask,
                     # because only poisoning v0x can still create NaNs in SIMD math.
-                    for tri in range(Int(n.tri_count), Self.width):
+                    for tri in range(Int(n.item_count), Self.width):
                         packed.prim_indices[tri] = 0xFFFFFFFF
                     self.leaves.append(packed^)
                     node.data[i] = l_idx
@@ -134,7 +130,7 @@ struct WideBvh[width: Int](Copyable):
             leaf.v0,
             leaf.v1,
             leaf.v2,
-            SIMD[DType.float32, Self.width](ray.hit.t),
+            ray.hit.t,
         )
 
         var valid_lane = ~leaf.prim_indices.eq(0xFFFFFFFF)
@@ -144,7 +140,9 @@ struct WideBvh[width: Int](Copyable):
             comptime if is_occlusion:
                 return True
             else:
-                var min_t = hit_mask.select(h.t, f32_max).reduce_min()
+                var min_t = hit_mask.select(
+                    h.t, max_finite[DType.float32]()
+                ).reduce_min()
 
                 comptime for i in range(Self.width):
                     if hit_mask[i] and h.t[i] == min_t:
@@ -163,52 +161,13 @@ struct WideBvh[width: Int](Copyable):
         var s_ptr = 0
         var n_idx = UInt32(0)
 
+        O = Vec3[DType.float32, Self.width](ray.O.x, ray.O.y, ray.O.z)
+        rD = Vec3[DType.float32, Self.width](ray.rD.x, ray.rD.y, ray.rD.z)
         while True:
             ref node = self.nodes[Int(n_idx)]
-            # SIMD AABB Check
-            var tmin = max(
-                max(
-                    min(
-                        (node._min.x - ray.O.x) * ray.rD.x,
-                        (node._max.x - ray.O.x) * ray.rD.x,
-                    ),
-                    min(
-                        (node._min.y - ray.O.y) * ray.rD.y,
-                        (node._max.y - ray.O.y) * ray.rD.y,
-                    ),
-                ),
-                max(
-                    min(
-                        (node._min.z - ray.O.z) * ray.rD.z,
-                        (node._max.z - ray.O.z) * ray.rD.z,
-                    ),
-                    0.0,
-                ),
-            )
-            var tmax = min(
-                min(
-                    max(
-                        (node._min.x - ray.O.x) * ray.rD.x,
-                        (node._max.x - ray.O.x) * ray.rD.x,
-                    ),
-                    max(
-                        (node._min.y - ray.O.y) * ray.rD.y,
-                        (node._max.y - ray.O.y) * ray.rD.y,
-                    ),
-                ),
-                min(
-                    max(
-                        (node._min.z - ray.O.z) * ray.rD.z,
-                        (node._max.z - ray.O.z) * ray.rD.z,
-                    ),
-                    ray.hit.t,
-                ),
-            )
-
-            # Use <= here: triangle AABBs are often flat on one axis, so
-            # a ray can touch them with tmin == tmax. The scalar AABB helper
-            # accepts these hits; the wide path must do the same.
-            var mask = tmin.le(tmax) & (~node.counts.eq(0xFFFFFFFF))
+            hit = intersect_ray_aabb(O, rD, node.aabb, ray.hit.t)
+            var valid_lane = ~node.counts.eq(0xFFFFFFFF)
+            var mask = hit.mask & valid_lane
 
             if mask.reduce_or():
                 for i in range(Self.width):

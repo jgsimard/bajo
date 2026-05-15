@@ -2,7 +2,10 @@ from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.aabb import AABB
 from bajo.core.bvh.cpu.binary_bvh import BinaryBvh
-from bajo.core.bvh.cpu.traverse import push_near_far
+from bajo.core.bvh.cpu.traverse import (
+    advance_to_child_hits,
+    pop_stack_or_done,
+)
 from bajo.core.bvh.types import BvhNode, Ray
 from bajo.core.intersect import intersect_ray_aabb
 from bajo.core.mat import Mat44f32, transform_point, transform_vector
@@ -147,8 +150,7 @@ struct Tlas(Copyable):
 
         if self.inst_count > 0:
             ref root = self.tlas_nodes[0]
-            root.left_first = 0
-            root.tri_count = self.inst_count
+            root.set_leaf(0, self.inst_count)
             self.update_node_bounds(0)
 
     @always_inline
@@ -157,7 +159,7 @@ struct Tlas(Copyable):
         node.aabb = AABB.invalid()
 
         var first = Int(node.left_first)
-        for i in range(Int(node.tri_count)):
+        for i in range(Int(node.item_count)):
             var inst_idx = Int(self.inst_indices[first + i])
             ref inst = self.instances[inst_idx]
             node.aabb._min = vmin(node.aabb._min, inst.bounds._min)
@@ -177,7 +179,7 @@ struct Tlas(Copyable):
     def _subdivide(mut self, node_idx: UInt32):
         ref node = self.tlas_nodes[Int(node_idx)]
 
-        if node.tri_count <= TLAS_LEAF_SIZE:
+        if node.item_count <= TLAS_LEAF_SIZE:
             return
 
         var extent = node.aabb._max - node.aabb._min
@@ -185,7 +187,7 @@ struct Tlas(Copyable):
         var split_pos = node.aabb._min[axis] + extent[axis] * 0.5
 
         var i = Int(node.left_first)
-        var j = i + Int(node.tri_count) - 1
+        var j = i + Int(node.item_count) - 1
 
         while i <= j:
             var inst_idx = Int(self.inst_indices[i])
@@ -201,8 +203,8 @@ struct Tlas(Copyable):
                 j -= 1
 
         var left_count = UInt32(i - Int(node.left_first))
-        if left_count == 0 or left_count == node.tri_count:
-            left_count = node.tri_count / 2
+        if left_count == 0 or left_count == node.item_count:
+            left_count = node.item_count / 2
             i = Int(node.left_first) + Int(left_count)
 
         var left_child_idx = self.nodes_used
@@ -211,13 +213,16 @@ struct Tlas(Copyable):
         ref left_child = self.tlas_nodes[Int(left_child_idx)]
         ref right_child = self.tlas_nodes[Int(left_child_idx + 1)]
 
-        left_child.left_first = node.left_first
-        left_child.tri_count = left_count
-        right_child.left_first = UInt32(i)
-        right_child.tri_count = node.tri_count - left_count
+        left_child.set_leaf(
+            node.first_item(),
+            left_count,
+        )
+        right_child.set_leaf(
+            UInt32(i),
+            node.item_count - left_count,
+        )
 
-        node.left_first = left_child_idx
-        node.tri_count = 0
+        node.set_internal(left_child_idx)
 
         self.update_node_bounds(left_child_idx)
         self.update_node_bounds(left_child_idx + 1)
@@ -228,7 +233,7 @@ struct Tlas(Copyable):
     def traverse(
         self,
         mut ray: Ray,
-        blases: UnsafePointer[BinaryBvh, MutAnyOrigin],
+        blases: UnsafePointer[BinaryBvh[2], MutAnyOrigin],
     ):
         """Traverse TLAS in world space, then BLASes in local space.
 
@@ -247,8 +252,8 @@ struct Tlas(Copyable):
             ref node = self.tlas_nodes[Int(node_idx)]
 
             if node.is_leaf():
-                for i in range(Int(node.tri_count)):
-                    var inst_idx = self.inst_indices[Int(node.left_first) + i]
+                for i in range(Int(node.item_count)):
+                    var inst_idx = self.inst_indices[Int(node.first_item()) + i]
                     ref inst = self.instances[Int(inst_idx)]
 
                     var local_origin = transform_point(
@@ -275,15 +280,12 @@ struct Tlas(Copyable):
                         ray.hit.prim = local_ray.hit.prim
                         ray.hit.inst = inst_idx
 
-                if stack_ptr == 0:
+                if not pop_stack_or_done(stack, stack_ptr, node_idx):
                     break
-
-                stack_ptr -= 1
-                node_idx = stack[stack_ptr]
                 continue
 
-            var child1_idx = node.left_first
-            var child2_idx = node.left_first + 1
+            var child1_idx = node.left_child()
+            var child2_idx = node.right_child()
 
             ref child1 = self.tlas_nodes[Int(child1_idx)]
             ref child2 = self.tlas_nodes[Int(child2_idx)]
@@ -293,7 +295,7 @@ struct Tlas(Copyable):
                 ray.rD,
                 child1.aabb._min,
                 child1.aabb._max,
-                SIMD[DType.float32, 1](ray.hit.t),
+                ray.hit.t,
             )
 
             var hit2 = intersect_ray_aabb(
@@ -301,34 +303,18 @@ struct Tlas(Copyable):
                 ray.rD,
                 child2.aabb._min,
                 child2.aabb._max,
-                SIMD[DType.float32, 1](ray.hit.t),
+                ray.hit.t,
             )
 
-            var mask1 = hit1.mask[0]
-            var mask2 = hit2.mask[0]
-
-            var dist1 = hit1.tmin[0]
-            var dist2 = hit2.tmin[0]
-
-            if not mask1 and not mask2:
-                if stack_ptr == 0:
-                    break
-
-                stack_ptr -= 1
-                node_idx = stack[stack_ptr]
-
-            elif mask1 and not mask2:
-                node_idx = child1_idx
-
-            elif not mask1 and mask2:
-                node_idx = child2_idx
-
-            else:
-                node_idx = push_near_far[True](
-                    stack,
-                    stack_ptr,
-                    child1_idx,
-                    child2_idx,
-                    dist1,
-                    dist2,
-                )
+            if not advance_to_child_hits[True](
+                stack,
+                stack_ptr,
+                node_idx,
+                child1_idx,
+                child2_idx,
+                hit1.mask,
+                hit2.mask,
+                hit1.tmin,
+                hit2.tmin,
+            ):
+                break

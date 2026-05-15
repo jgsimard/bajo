@@ -98,7 +98,7 @@ def _sah(
         var max_c = min_finite[DType.float32]()
 
         # 1. Find centroid range for this node/axis.
-        for i in range(Int(node.tri_count)):
+        for i in range(Int(node.item_count)):
             var frag_idx = Int(prims[Int(node.left_first) + i])
             var c = fragments[frag_idx].center_axis(axis)
             min_c = min(min_c, c)
@@ -111,7 +111,7 @@ def _sah(
         var bins = InlineArray[Bin, BVH_BINS](fill=Bin())
         var scale = Float32(BVH_BINS) / (max_c - min_c)
 
-        for i in range(Int(node.tri_count)):
+        for i in range(Int(node.item_count)):
             var frag_idx = Int(prims[Int(node.left_first) + i])
             ref frag = fragments[frag_idx]
 

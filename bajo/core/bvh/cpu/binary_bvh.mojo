@@ -3,7 +3,8 @@ from std.atomic import Atomic
 from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.bvh.cpu.traverse import (
-    push_near_far,
+    advance_to_child_hits,
+    pop_stack_or_done,
     intersect_prim,
 )
 from bajo.core.aabb import AABB
@@ -26,11 +27,8 @@ from bajo.core.bvh.build import (
     _morton_pair_less,
 )
 
-comptime f32_max = max_finite[DType.float32]()
-comptime f32_min = min_finite[DType.float32]()
 
-
-struct BinaryBvh(Copyable):
+struct BinaryBvh[MAX_LEAF_SIZE: Int = 2](Copyable):
     var bvh_nodes: List[BvhNode]
     var prim_indices: List[UInt32]
     var fragments: List[Fragment]
@@ -60,8 +58,7 @@ struct BinaryBvh(Copyable):
             self.prim_indices.append(UInt32(i))
 
         ref root = self.bvh_nodes[0]
-        root.left_first = 0
-        root.tri_count = tri_count
+        root.set_leaf(0, tri_count)
 
         self.update_node_bounds(0)
 
@@ -71,7 +68,7 @@ struct BinaryBvh(Copyable):
         node.aabb = AABB.invalid()
 
         var first = Int(node.left_first)
-        for i in range(Int(node.tri_count)):
+        for i in range(Int(node.item_count)):
             var frag_idx = Int(self.prim_indices[first + i])
             self.fragments[frag_idx].grow_into(node.aabb)
 
@@ -83,8 +80,6 @@ struct BinaryBvh(Copyable):
         node_idx: UInt32,
         atomic_nodes: UnsafePointer[UInt32, MutAnyOrigin],
     ) -> Optional[Tuple[UInt32, UInt32]]:
-        comptime MAX_LEAF_SIZE = 4  # Set to 4, 8, or 16 depending on your target WideBvh
-
         var nodes_ptr = self.bvh_nodes.unsafe_ptr()
         ref node = nodes_ptr[Int(node_idx)]
 
@@ -111,11 +106,11 @@ struct BinaryBvh(Copyable):
 
             # Compare in the same unnormalized units as the raw split cost:
             # split leaf cost = area * N, internal split cost = traversal area + child costs.
-            var leaf_cost = node.surface_area() * Float32(node.tri_count)
+            var leaf_cost = node.surface_area() * Float32(node.item_count)
             var split_cost = split.cost + node.surface_area()
 
             if (not split.valid()) or split_cost >= leaf_cost:
-                if node.tri_count > MAX_LEAF_SIZE:
+                if node.item_count > UInt32(Self.MAX_LEAF_SIZE):
                     # Force a spatial median split to keep breaking the node down.
                     var extent = node.aabb._max - node.aabb._min
                     axis = longest_axis(extent)
@@ -138,7 +133,7 @@ struct BinaryBvh(Copyable):
         # Termination Criteria
 
         # 2. Stop splitting if we are small enough
-        if node.tri_count <= MAX_LEAF_SIZE:
+        if node.item_count <= UInt32(Self.MAX_LEAF_SIZE):
             return None
 
         var split_idx: Int
@@ -148,7 +143,7 @@ struct BinaryBvh(Copyable):
                     self.prim_indices.unsafe_ptr(),
                     self.fragments.unsafe_ptr(),
                     Int(node.left_first),
-                    Int(node.tri_count),
+                    Int(node.item_count),
                     axis,
                     split_bin,
                     split_bin_min,
@@ -159,7 +154,7 @@ struct BinaryBvh(Copyable):
                     self.prim_indices.unsafe_ptr(),
                     self.fragments.unsafe_ptr(),
                     Int(node.left_first),
-                    Int(node.tri_count),
+                    Int(node.item_count),
                     axis,
                     pos,
                 )
@@ -168,21 +163,21 @@ struct BinaryBvh(Copyable):
                 self.prim_indices.unsafe_ptr(),
                 self.fragments.unsafe_ptr(),
                 Int(node.left_first),
-                Int(node.tri_count),
+                Int(node.item_count),
                 axis,
                 pos,
             )
 
         var left_count = UInt32(split_idx - Int(node.left_first))
-        if left_count == 0 or left_count == node.tri_count:
+        if left_count == 0 or left_count == node.item_count:
             use_sah_bounds = False
             comptime if split_method == "median":
                 # Fallback: If spatial center failed, just split the indices 50/50.
-                left_count = node.tri_count / 2
+                left_count = node.item_count / 2
                 split_idx = Int(node.left_first) + Int(left_count)
             else:
-                if node.tri_count > MAX_LEAF_SIZE:
-                    left_count = node.tri_count / 2
+                if node.item_count > UInt32(Self.MAX_LEAF_SIZE):
+                    left_count = node.item_count / 2
                     split_idx = Int(node.left_first) + Int(left_count)
                 else:
                     # Only now is it safe to give up and make a leaf.
@@ -191,15 +186,16 @@ struct BinaryBvh(Copyable):
         # Atomic allocation (Safe for both ST and MT)
         var left_child_idx = Atomic.fetch_add(atomic_nodes, 2)
 
-        nodes_ptr[Int(left_child_idx)].left_first = node.left_first
-        nodes_ptr[Int(left_child_idx)].tri_count = left_count
-        nodes_ptr[Int(left_child_idx + 1)].left_first = UInt32(split_idx)
-        nodes_ptr[Int(left_child_idx + 1)].tri_count = (
-            node.tri_count - left_count
+        nodes_ptr[Int(left_child_idx)].set_leaf(
+            node.first_item(),
+            left_count,
+        )
+        nodes_ptr[Int(left_child_idx + 1)].set_leaf(
+            UInt32(split_idx),
+            node.item_count - left_count,
         )
 
-        node.left_first = left_child_idx
-        node.tri_count = 0  # Internal node
+        node.set_internal(left_child_idx)
 
         if use_sah_bounds:
             nodes_ptr[Int(left_child_idx)].aabb = cached_left_bounds
@@ -235,12 +231,9 @@ struct BinaryBvh(Copyable):
         first: Int,
         count: Int,
     ) -> AABB:
-        comptime MAX_LEAF_SIZE = 4
-
-        if count <= MAX_LEAF_SIZE:
+        if count <= Self.MAX_LEAF_SIZE:
             ref leaf = self.bvh_nodes[Int(node_idx)]
-            leaf.left_first = UInt32(first)
-            leaf.tri_count = UInt32(count)
+            leaf.set_leaf(UInt32(first), UInt32(count))
             leaf.aabb = AABB.invalid()
 
             for i in range(count):
@@ -266,8 +259,7 @@ struct BinaryBvh(Copyable):
         )
 
         ref node = self.bvh_nodes[Int(node_idx)]
-        node.left_first = left_child_idx
-        node.tri_count = 0
+        node.set_internal(left_child_idx)
         node.aabb = AABB.invalid()
         node.aabb.grow(left_bounds)
         node.aabb.grow(right_bounds)
@@ -332,7 +324,7 @@ struct BinaryBvh(Copyable):
                     var max_tris = UInt32(0)
 
                     for i in range(len(tasks)):
-                        var count = self.bvh_nodes[Int(tasks[i])].tri_count
+                        var count = self.bvh_nodes[Int(tasks[i])].item_count
                         if count > max_tris:
                             max_tris = count
                             largest_idx = i
@@ -374,7 +366,7 @@ struct BinaryBvh(Copyable):
         cost_aabb = area * C_traverse
         if node.is_leaf():
             # Cost of evaluating the AABB + cost of evaluating the primitives
-            return cost_aabb + area * Float32(node.tri_count) * C_intersect
+            return cost_aabb + area * Float32(node.item_count) * C_intersect
         else:
             # Cost of evaluating this AABB + expected cost of traversing children
             var left_cost = self.sah_cost(node.left_first)
@@ -401,58 +393,51 @@ struct BinaryBvh(Copyable):
             ref node = self.bvh_nodes[Int(node_idx)]
 
             if node.is_leaf():
-                for i in range(Int(node.tri_count)):
-                    var frag_idx = self.prim_indices[Int(node.left_first) + i]
+                for i in range(Int(node.item_count)):
+                    var frag_idx = self.prim_indices[Int(node.first_item()) + i]
                     var p_idx = self.fragments[Int(frag_idx)].prim_idx
                     if intersect_prim[is_shadow](self.vertices, ray, p_idx):
                         comptime if is_shadow:
                             return True
 
-                if stack_ptr == 0:
+                if not pop_stack_or_done(stack, stack_ptr, node_idx):
                     break
-                stack_ptr -= 1
-                node_idx = stack[stack_ptr]
                 continue
 
-            var child1_idx = node.left_first
-            var child2_idx = node.left_first + 1
-            var dist1, dist2 = Float32(f32_max), Float32(f32_max)
+            var child1_idx = node.left_child()
+            var child2_idx = node.right_child()
+
+            ref child1 = self.bvh_nodes[Int(child1_idx)]
+            ref child2 = self.bvh_nodes[Int(child2_idx)]
 
             # Intersection checks
             var h1 = intersect_ray_aabb(
                 ray.O,
                 ray.rD,
-                self.bvh_nodes[Int(child1_idx)].aabb._min,
-                self.bvh_nodes[Int(child1_idx)].aabb._max,
-                dist1,
+                child1.aabb._min,
+                child1.aabb._max,
+                ray.hit.t,
             )
             var h2 = intersect_ray_aabb(
                 ray.O,
                 ray.rD,
-                self.bvh_nodes[Int(child2_idx)].aabb._min,
-                self.bvh_nodes[Int(child2_idx)].aabb._max,
-                dist2,
+                child2.aabb._min,
+                child2.aabb._max,
+                ray.hit.t,
             )
 
-            # Cull by current ray distance
-            if h1.mask and h1.tmin >= ray.hit.t:
-                h1.mask = False
-            if h2.mask and h2.tmin >= ray.hit.t:
-                h2.mask = False
-
-            if not h1.mask and not h2.mask:
-                if stack_ptr == 0:
-                    break
-                stack_ptr -= 1
-                node_idx = stack[stack_ptr]
-            elif h1.mask and not h2.mask:
-                node_idx = child1_idx
-            elif not h1.mask and h2.mask:
-                node_idx = child2_idx
-            else:
-                node_idx = push_near_far[not is_shadow](
-                    stack, stack_ptr, child1_idx, child2_idx, dist1, dist2
-                )
+            if not advance_to_child_hits[not is_shadow](
+                stack,
+                stack_ptr,
+                node_idx,
+                child1_idx,
+                child2_idx,
+                h1.mask,
+                h2.mask,
+                h1.tmin,
+                h2.tmin,
+            ):
+                break
 
         return False
 

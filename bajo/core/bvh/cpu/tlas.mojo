@@ -150,8 +150,7 @@ struct Tlas(Copyable):
 
         if self.inst_count > 0:
             ref root = self.tlas_nodes[0]
-            root.left_first = 0
-            root.tri_count = self.inst_count
+            root.set_leaf(0, self.inst_count)
             self.update_node_bounds(0)
 
     @always_inline
@@ -214,13 +213,16 @@ struct Tlas(Copyable):
         ref left_child = self.tlas_nodes[Int(left_child_idx)]
         ref right_child = self.tlas_nodes[Int(left_child_idx + 1)]
 
-        left_child.left_first = node.left_first
-        left_child.tri_count = left_count
-        right_child.left_first = UInt32(i)
-        right_child.tri_count = node.tri_count - left_count
+        left_child.set_leaf(
+            node.first_item(),
+            left_count,
+        )
+        right_child.set_leaf(
+            UInt32(i),
+            node.item_count() - left_count,
+        )
 
-        node.left_first = left_child_idx
-        node.tri_count = 0
+        node.set_internal(left_child_idx)
 
         self.update_node_bounds(left_child_idx)
         self.update_node_bounds(left_child_idx + 1)
@@ -251,7 +253,7 @@ struct Tlas(Copyable):
 
             if node.is_leaf():
                 for i in range(Int(node.tri_count)):
-                    var inst_idx = self.inst_indices[Int(node.left_first) + i]
+                    var inst_idx = self.inst_indices[Int(node.first_item()) + i]
                     ref inst = self.instances[Int(inst_idx)]
 
                     var local_origin = transform_point(
@@ -282,8 +284,8 @@ struct Tlas(Copyable):
                     break
                 continue
 
-            var child1_idx = node.left_first
-            var child2_idx = node.left_first + 1
+            var child1_idx = node.left_child()
+            var child2_idx = node.right_child()
 
             ref child1 = self.tlas_nodes[Int(child1_idx)]
             ref child2 = self.tlas_nodes[Int(child2_idx)]

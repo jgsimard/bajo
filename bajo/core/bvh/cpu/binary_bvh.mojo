@@ -59,8 +59,7 @@ struct BinaryBvh(Copyable):
             self.prim_indices.append(UInt32(i))
 
         ref root = self.bvh_nodes[0]
-        root.left_first = 0
-        root.tri_count = tri_count
+        root.set_leaf(0, tri_count)
 
         self.update_node_bounds(0)
 
@@ -190,15 +189,16 @@ struct BinaryBvh(Copyable):
         # Atomic allocation (Safe for both ST and MT)
         var left_child_idx = Atomic.fetch_add(atomic_nodes, 2)
 
-        nodes_ptr[Int(left_child_idx)].left_first = node.left_first
-        nodes_ptr[Int(left_child_idx)].tri_count = left_count
-        nodes_ptr[Int(left_child_idx + 1)].left_first = UInt32(split_idx)
-        nodes_ptr[Int(left_child_idx + 1)].tri_count = (
-            node.tri_count - left_count
+        nodes_ptr[Int(left_child_idx)].set_leaf(
+            node.first_item(),
+            left_count,
+        )
+        nodes_ptr[Int(left_child_idx + 1)].set_leaf(
+            UInt32(split_idx),
+            node.item_count() - left_count,
         )
 
-        node.left_first = left_child_idx
-        node.tri_count = 0  # Internal node
+        node.set_internal(left_child_idx)
 
         if use_sah_bounds:
             nodes_ptr[Int(left_child_idx)].aabb = cached_left_bounds
@@ -238,8 +238,7 @@ struct BinaryBvh(Copyable):
 
         if count <= MAX_LEAF_SIZE:
             ref leaf = self.bvh_nodes[Int(node_idx)]
-            leaf.left_first = UInt32(first)
-            leaf.tri_count = UInt32(count)
+            leaf.set_leaf(UInt32(first), UInt32(count))
             leaf.aabb = AABB.invalid()
 
             for i in range(count):
@@ -265,8 +264,7 @@ struct BinaryBvh(Copyable):
         )
 
         ref node = self.bvh_nodes[Int(node_idx)]
-        node.left_first = left_child_idx
-        node.tri_count = 0
+        node.set_internal(left_child_idx)
         node.aabb = AABB.invalid()
         node.aabb.grow(left_bounds)
         node.aabb.grow(right_bounds)
@@ -401,7 +399,7 @@ struct BinaryBvh(Copyable):
 
             if node.is_leaf():
                 for i in range(Int(node.tri_count)):
-                    var frag_idx = self.prim_indices[Int(node.left_first) + i]
+                    var frag_idx = self.prim_indices[Int(node.first_item()) + i]
                     var p_idx = self.fragments[Int(frag_idx)].prim_idx
                     if intersect_prim[is_shadow](self.vertices, ray, p_idx):
                         comptime if is_shadow:
@@ -411,8 +409,8 @@ struct BinaryBvh(Copyable):
                     break
                 continue
 
-            var child1_idx = node.left_first
-            var child2_idx = node.left_first + 1
+            var child1_idx = node.left_child()
+            var child2_idx = node.right_child()
 
             ref child1 = self.bvh_nodes[Int(child1_idx)]
             ref child2 = self.bvh_nodes[Int(child2_idx)]

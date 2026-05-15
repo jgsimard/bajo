@@ -292,10 +292,7 @@ def intersect_ray_sphere[
         far_mask.select(t1, max_finite[dtype]()),
     )
 
-    return RaySphereHit[dtype, width](
-        mask,
-        t,
-    )
+    return RaySphereHit(mask, t)
 
 
 @always_inline

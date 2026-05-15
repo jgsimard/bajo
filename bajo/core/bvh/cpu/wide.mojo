@@ -165,7 +165,6 @@ struct WideBvh[width: Int](Copyable):
 
         while True:
             ref node = self.nodes[Int(n_idx)]
-            # AABB Check
             O = Vec3[DType.float32, Self.width](ray.O.x, ray.O.y, ray.O.z)
             rD = Vec3[DType.float32, Self.width](ray.rD.x, ray.rD.y, ray.rD.z)
             res = intersect_ray_aabb(O, rD, node._min, node._max, ray.hit.t)

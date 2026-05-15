@@ -371,7 +371,7 @@ struct BinaryBvh(Copyable):
         cost_aabb = area * C_traverse
         if node.is_leaf():
             # Cost of evaluating the AABB + cost of evaluating the primitives
-            return cost_aabb + area * Float32(node.tri_count) * C_intersect
+            return cost_aabb + area * Float32(node.item_count) * C_intersect
         else:
             # Cost of evaluating this AABB + expected cost of traversing children
             var left_cost = self.sah_cost(node.left_first)

@@ -10,6 +10,7 @@ from bajo.core.vec import (
     cross,
     length,
 )
+from bajo.core.aabb import AxisAlignedBoundingBox
 
 
 # Result structs
@@ -184,6 +185,18 @@ def _axis_t_far[
     var t0 = (mn - o) * rd
     var t1 = (mx - o) * rd
     return max(t0, t1)
+
+
+@always_inline
+def intersect_ray_aabb[
+    dtype: DType, width: Int
+](
+    o: Vec3[dtype, width],
+    rd: Vec3[dtype, width],
+    aabb: AxisAlignedBoundingBox[dtype, width],
+    t_max: SIMD[dtype, width],
+) -> RayAabbHit[dtype, width]:
+    return intersect_ray_aabb(o, rd, aabb._min, aabb._max, t_max)
 
 
 @always_inline

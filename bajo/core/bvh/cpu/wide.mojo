@@ -165,9 +165,7 @@ struct WideBvh[width: Int](Copyable):
         rD = Vec3[DType.float32, Self.width](ray.rD.x, ray.rD.y, ray.rD.z)
         while True:
             ref node = self.nodes[Int(n_idx)]
-            hit = intersect_ray_aabb(
-                O, rD, node.aabb._min, node.aabb._max, ray.hit.t
-            )
+            hit = intersect_ray_aabb(O, rD, node.aabb, ray.hit.t)
             var valid_lane = ~node.counts.eq(0xFFFFFFFF)
             var mask = hit.mask & valid_lane
 

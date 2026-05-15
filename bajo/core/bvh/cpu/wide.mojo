@@ -17,10 +17,10 @@ struct WideLeaf[width: Int](Copyable):
     var prim_indices: SIMD[DType.uint32, Self.width]
 
     def __init__(out self):
-        self.v0 = Vec3[DType.float32, Self.width](Float32(0.0), 0.0, 0.0)
-        self.v1 = Vec3[DType.float32, Self.width](Float32(0.0), 0.0, 0.0)
-        self.v2 = Vec3[DType.float32, Self.width](Float32(0.0), 0.0, 0.0)
-        self.prim_indices = SIMD[DType.uint32, Self.width](0xFFFFFFFF)
+        self.v0 = Vec3[DType.float32, Self.width](0.0)
+        self.v1 = Vec3[DType.float32, Self.width](0.0)
+        self.v2 = Vec3[DType.float32, Self.width](0.0)
+        self.prim_indices = 0xFFFFFFFF
 
 
 @fieldwise_init
@@ -32,11 +32,11 @@ struct WideBvhNode[width: Int](Copyable):
 
     @always_inline
     def __init__(out self):
-        self._min = Vec3[DType.float32, Self.width](f32_max, f32_max, f32_max)
-        self._max = Vec3[DType.float32, Self.width](f32_min, f32_min, f32_min)
+        self._min = Vec3[DType.float32, Self.width](f32_max)
+        self._max = Vec3[DType.float32, Self.width](f32_min)
 
-        self.data = SIMD[DType.uint32, Self.width](0)
-        self.counts = SIMD[DType.uint32, Self.width](0xFFFFFFFF)
+        self.data = 0
+        self.counts = 0xFFFFFFFF
 
 
 struct WideBvh[width: Int](Copyable):
@@ -134,7 +134,7 @@ struct WideBvh[width: Int](Copyable):
             leaf.v0,
             leaf.v1,
             leaf.v2,
-            SIMD[DType.float32, Self.width](ray.hit.t),
+            ray.hit.t,
         )
 
         var valid_lane = ~leaf.prim_indices.eq(0xFFFFFFFF)

@@ -4,6 +4,8 @@ from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.bvh.cpu.traverse import (
     push_near_far,
+    advance_to_child_hits,
+    pop_stack_or_done,
     intersect_prim,
 )
 from bajo.core.aabb import AABB
@@ -25,9 +27,6 @@ from bajo.core.bvh.build import (
     _find_lbvh_split,
     _morton_pair_less,
 )
-
-comptime f32_max = max_finite[DType.float32]()
-comptime f32_min = min_finite[DType.float32]()
 
 
 struct BinaryBvh(Copyable):
@@ -408,51 +407,44 @@ struct BinaryBvh(Copyable):
                         comptime if is_shadow:
                             return True
 
-                if stack_ptr == 0:
+                if not pop_stack_or_done(stack, stack_ptr, node_idx):
                     break
-                stack_ptr -= 1
-                node_idx = stack[stack_ptr]
                 continue
 
             var child1_idx = node.left_first
             var child2_idx = node.left_first + 1
-            var dist1, dist2 = Float32(f32_max), Float32(f32_max)
+
+            ref child1 = self.bvh_nodes[Int(child1_idx)]
+            ref child2 = self.bvh_nodes[Int(child2_idx)]
 
             # Intersection checks
             var h1 = intersect_ray_aabb(
                 ray.O,
                 ray.rD,
-                self.bvh_nodes[Int(child1_idx)].aabb._min,
-                self.bvh_nodes[Int(child1_idx)].aabb._max,
-                dist1,
+                child1.aabb._min,
+                child1.aabb._max,
+                ray.hit.t,
             )
             var h2 = intersect_ray_aabb(
                 ray.O,
                 ray.rD,
-                self.bvh_nodes[Int(child2_idx)].aabb._min,
-                self.bvh_nodes[Int(child2_idx)].aabb._max,
-                dist2,
+                child2.aabb._min,
+                child2.aabb._max,
+                ray.hit.t,
             )
 
-            # Cull by current ray distance
-            if h1.mask and h1.tmin >= ray.hit.t:
-                h1.mask = False
-            if h2.mask and h2.tmin >= ray.hit.t:
-                h2.mask = False
-
-            if not h1.mask and not h2.mask:
-                if stack_ptr == 0:
-                    break
-                stack_ptr -= 1
-                node_idx = stack[stack_ptr]
-            elif h1.mask and not h2.mask:
-                node_idx = child1_idx
-            elif not h1.mask and h2.mask:
-                node_idx = child2_idx
-            else:
-                node_idx = push_near_far[not is_shadow](
-                    stack, stack_ptr, child1_idx, child2_idx, dist1, dist2
-                )
+            if not advance_to_child_hits[not is_shadow](
+                stack,
+                stack_ptr,
+                node_idx,
+                child1_idx,
+                child2_idx,
+                h1.mask,
+                h2.mask,
+                h1.tmin,
+                h2.tmin,
+            ):
+                break
 
         return False
 

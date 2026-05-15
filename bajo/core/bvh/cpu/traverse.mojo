@@ -37,6 +37,69 @@ def push_near_far[
 
 
 @always_inline
+def pop_stack_or_done[
+    stack_size: Int = 64,
+](
+    mut stack: InlineArray[UInt32, stack_size],
+    mut stack_ptr: Int,
+    mut node_idx: UInt32,
+) -> Bool:
+    """Pop the next node from the traversal stack.
+
+    Returns False when traversal is finished.
+    """
+
+    if stack_ptr == 0:
+        return False
+
+    stack_ptr -= 1
+    node_idx = stack[stack_ptr]
+    return True
+
+
+@always_inline
+def advance_to_child_hits[
+    order_by_dist: Bool = True,
+    stack_size: Int = 64,
+](
+    mut stack: InlineArray[UInt32, stack_size],
+    mut stack_ptr: Int,
+    mut node_idx: UInt32,
+    left_idx: UInt32,
+    right_idx: UInt32,
+    hit_left: Bool,
+    hit_right: Bool,
+    dist_left: Float32,
+    dist_right: Float32,
+) -> Bool:
+    """Advance traversal after testing both children.
+
+    Returns False when traversal is finished.
+    """
+
+    if not hit_left and not hit_right:
+        return pop_stack_or_done(stack, stack_ptr, node_idx)
+
+    if hit_left and not hit_right:
+        node_idx = left_idx
+        return True
+
+    if not hit_left and hit_right:
+        node_idx = right_idx
+        return True
+
+    node_idx = push_near_far[order_by_dist](
+        stack,
+        stack_ptr,
+        left_idx,
+        right_idx,
+        dist_left,
+        dist_right,
+    )
+    return True
+
+
+@always_inline
 def intersect_prim[
     is_shadow: Bool,
 ](

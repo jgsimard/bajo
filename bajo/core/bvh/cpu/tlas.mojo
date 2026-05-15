@@ -2,7 +2,10 @@ from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.aabb import AABB
 from bajo.core.bvh.cpu.binary_bvh import BinaryBvh
-from bajo.core.bvh.cpu.traverse import push_near_far
+from bajo.core.bvh.cpu.traverse import (
+    advance_to_child_hits,
+    pop_stack_or_done,
+)
 from bajo.core.bvh.types import BvhNode, Ray
 from bajo.core.intersect import intersect_ray_aabb
 from bajo.core.mat import Mat44f32, transform_point, transform_vector
@@ -275,11 +278,8 @@ struct Tlas(Copyable):
                         ray.hit.prim = local_ray.hit.prim
                         ray.hit.inst = inst_idx
 
-                if stack_ptr == 0:
+                if not pop_stack_or_done(stack, stack_ptr, node_idx):
                     break
-
-                stack_ptr -= 1
-                node_idx = stack[stack_ptr]
                 continue
 
             var child1_idx = node.left_first
@@ -293,7 +293,7 @@ struct Tlas(Copyable):
                 ray.rD,
                 child1.aabb._min,
                 child1.aabb._max,
-                SIMD[DType.float32, 1](ray.hit.t),
+                ray.hit.t,
             )
 
             var hit2 = intersect_ray_aabb(
@@ -301,34 +301,18 @@ struct Tlas(Copyable):
                 ray.rD,
                 child2.aabb._min,
                 child2.aabb._max,
-                SIMD[DType.float32, 1](ray.hit.t),
+                ray.hit.t,
             )
 
-            var mask1 = hit1.mask[0]
-            var mask2 = hit2.mask[0]
-
-            var dist1 = hit1.tmin[0]
-            var dist2 = hit2.tmin[0]
-
-            if not mask1 and not mask2:
-                if stack_ptr == 0:
-                    break
-
-                stack_ptr -= 1
-                node_idx = stack[stack_ptr]
-
-            elif mask1 and not mask2:
-                node_idx = child1_idx
-
-            elif not mask1 and mask2:
-                node_idx = child2_idx
-
-            else:
-                node_idx = push_near_far[True](
-                    stack,
-                    stack_ptr,
-                    child1_idx,
-                    child2_idx,
-                    dist1,
-                    dist2,
-                )
+            if not advance_to_child_hits[True](
+                stack,
+                stack_ptr,
+                node_idx,
+                child1_idx,
+                child2_idx,
+                hit1.mask,
+                hit2.mask,
+                hit1.tmin,
+                hit2.tmin,
+            ):
+                break

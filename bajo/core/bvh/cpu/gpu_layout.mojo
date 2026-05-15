@@ -1,7 +1,8 @@
 from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.bvh.cpu.traverse import (
-    push_near_far,
+    advance_to_child_hits,
+    pop_stack_or_done,
     intersect_prim,
 )
 from bajo.core.aabb import AABB
@@ -150,10 +151,8 @@ struct BvhGpuLayout(Copyable):
                     comptime if is_shadow:
                         return True
 
-                if stack_ptr == 0:
+                if not pop_stack_or_done(stack, stack_ptr, node_idx):
                     break
-                stack_ptr -= 1
-                node_idx = stack[stack_ptr]
                 continue
 
             var hit_left = intersect_ray_aabb(
@@ -161,7 +160,7 @@ struct BvhGpuLayout(Copyable):
                 ray.rD,
                 node.lmin,
                 node.lmax,
-                SIMD[DType.float32, 1](ray.hit.t),
+                ray.hit.t,
             )
 
             var hit_right = intersect_ray_aabb(
@@ -169,33 +168,21 @@ struct BvhGpuLayout(Copyable):
                 ray.rD,
                 node.rmin,
                 node.rmax,
-                SIMD[DType.float32, 1](ray.hit.t),
+                ray.hit.t,
             )
 
-            var left_mask = hit_left.mask
-            var right_mask = hit_right.mask
-
-            var dist_left = hit_left.tmin
-            var dist_right = hit_right.tmin
-
-            if not left_mask and not right_mask:
-                if stack_ptr == 0:
-                    break
-                stack_ptr -= 1
-                node_idx = stack[stack_ptr]
-            elif left_mask and not right_mask:
-                node_idx = node.left
-            elif not left_mask and right_mask:
-                node_idx = node.right
-            else:
-                node_idx = push_near_far[True](
-                    stack,
-                    stack_ptr,
-                    node.left,
-                    node.right,
-                    dist_left,
-                    dist_right,
-                )
+            if not advance_to_child_hits[not is_shadow](
+                stack,
+                stack_ptr,
+                node_idx,
+                node.left,
+                node.right,
+                hit_left.mask,
+                hit_right.mask,
+                hit_left.tmin,
+                hit_right.tmin,
+            ):
+                break
 
         return False
 

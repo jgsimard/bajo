@@ -1,6 +1,6 @@
 from std.utils.numerics import max_finite, min_finite
 
-from bajo.core.intersect import intersect_ray_tri
+from bajo.core.intersect import intersect_ray_tri, intersect_ray_aabb
 from bajo.core.vec import Vec3, Vec3f32
 from bajo.core.bvh.cpu.binary_bvh import BinaryBvh
 from bajo.core.bvh.types import Ray
@@ -165,50 +165,11 @@ struct WideBvh[width: Int](Copyable):
 
         while True:
             ref node = self.nodes[Int(n_idx)]
-            # SIMD AABB Check
-            var tmin = max(
-                max(
-                    min(
-                        (node._min.x - ray.O.x) * ray.rD.x,
-                        (node._max.x - ray.O.x) * ray.rD.x,
-                    ),
-                    min(
-                        (node._min.y - ray.O.y) * ray.rD.y,
-                        (node._max.y - ray.O.y) * ray.rD.y,
-                    ),
-                ),
-                max(
-                    min(
-                        (node._min.z - ray.O.z) * ray.rD.z,
-                        (node._max.z - ray.O.z) * ray.rD.z,
-                    ),
-                    0.0,
-                ),
-            )
-            var tmax = min(
-                min(
-                    max(
-                        (node._min.x - ray.O.x) * ray.rD.x,
-                        (node._max.x - ray.O.x) * ray.rD.x,
-                    ),
-                    max(
-                        (node._min.y - ray.O.y) * ray.rD.y,
-                        (node._max.y - ray.O.y) * ray.rD.y,
-                    ),
-                ),
-                min(
-                    max(
-                        (node._min.z - ray.O.z) * ray.rD.z,
-                        (node._max.z - ray.O.z) * ray.rD.z,
-                    ),
-                    ray.hit.t,
-                ),
-            )
-
-            # Use <= here: triangle AABBs are often flat on one axis, so
-            # a ray can touch them with tmin == tmax. The scalar AABB helper
-            # accepts these hits; the wide path must do the same.
-            var mask = tmin.le(tmax) & (~node.counts.eq(0xFFFFFFFF))
+            # AABB Check
+            O = Vec3[DType.float32, Self.width](ray.O.x, ray.O.y, ray.O.z)
+            rD = Vec3[DType.float32, Self.width](ray.rD.x, ray.rD.y, ray.rD.z)
+            res = intersect_ray_aabb(O, rD, node._min, node._max, ray.hit.t)
+            var mask = res.mask & (~node.counts.eq(0xFFFFFFFF))
 
             if mask.reduce_or():
                 for i in range(Self.width):

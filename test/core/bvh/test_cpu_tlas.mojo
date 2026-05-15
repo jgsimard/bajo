@@ -54,7 +54,7 @@ def _bounds_contains(
 def _bruteforce_instances(
     mut ray: Ray,
     instances: List[BvhInstance],
-    blases: UnsafePointer[BinaryBvh, MutAnyOrigin],
+    blases: UnsafePointer[BinaryBvh[2], MutAnyOrigin],
 ):
     for i, inst in enumerate(instances):
         var local_origin = transform_point(inst.inv_transform, ray.O)

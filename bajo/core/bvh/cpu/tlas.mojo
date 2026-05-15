@@ -233,7 +233,7 @@ struct Tlas(Copyable):
     def traverse(
         self,
         mut ray: Ray,
-        blases: UnsafePointer[BinaryBvh, MutAnyOrigin],
+        blases: UnsafePointer[BinaryBvh[2], MutAnyOrigin],
     ):
         """Traverse TLAS in world space, then BLASes in local space.
 

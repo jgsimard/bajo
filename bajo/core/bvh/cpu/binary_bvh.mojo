@@ -3,7 +3,6 @@ from std.atomic import Atomic
 from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.bvh.cpu.traverse import (
-    push_near_far,
     advance_to_child_hits,
     pop_stack_or_done,
     intersect_prim,

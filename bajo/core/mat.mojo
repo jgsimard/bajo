@@ -370,6 +370,38 @@ def transform_vector[
     )
 
 
+@always_inline
+def transform_point[
+    dtype: DType
+](
+    m: UnsafePointer[Scalar[dtype], MutAnyOrigin],
+    base: Int,
+    p: Vec3[dtype],
+) -> Vec3[dtype]:
+    # fmt: off
+    return Vec3(
+        m[base + 0] * p.x + m[base + 1] * p.y + m[base + 2] * p.z + m[base + 3],
+        m[base + 4] * p.x + m[base + 5] * p.y + m[base + 6] * p.z + m[base + 7],
+        m[base + 8] * p.x + m[base + 9] * p.y + m[base + 10] * p.z + m[base + 11],
+    )
+    # fmt: on
+
+
+@always_inline
+def transform_vector[
+    dtype: DType
+](
+    m: UnsafePointer[Scalar[dtype], MutAnyOrigin],
+    base: Int,
+    p: Vec3[dtype],
+) -> Vec3[dtype]:
+    return Vec3(
+        m[base + 0] * p.x + m[base + 1] * p.y + m[base + 2] * p.z,
+        m[base + 4] * p.x + m[base + 5] * p.y + m[base + 6] * p.z,
+        m[base + 8] * p.x + m[base + 9] * p.y + m[base + 10] * p.z,
+    )
+
+
 def _translation[
     dtype: DType, width: Int = 1
 ](

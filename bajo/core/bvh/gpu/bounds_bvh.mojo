@@ -143,7 +143,7 @@ def compute_bounds_morton_codes_kernel(
 
     var b = i * GPU_WIDE_BOUNDS_STRIDE
     var bounds = AABB.load6(leaf_bounds, b)
-    var c = (bounds.centroid() - bounds._min) * inv_extent
+    var c = (bounds.centroid() - cmin) * inv_extent
 
     keys[i] = morton3(c.x, c.y, c.z)
     values[i] = UInt32(i)

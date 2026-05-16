@@ -6,7 +6,7 @@ from std.gpu.host import DeviceContext
 
 from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32, vmin, vmax
-from bajo.core.mat import Mat44f32
+from bajo.core.mat import Mat44f32, transform_point, transform_vector
 from bajo.core.intersect import intersect_ray_aabb, intersect_ray_tri
 from bajo.core.morton import morton3
 from bajo.core.bvh.types import RayFlat, Hit
@@ -599,7 +599,6 @@ struct GpuBoundsBvh[width: Int]:
 
     var leaf_bounds_host: List[Float32]
     var leaf_payloads_host: List[UInt32]
-    var leaf_block_indices_host: List[UInt32]
 
     var leaf_bounds: DeviceBuffer[DType.float32]
     var leaf_payloads: DeviceBuffer[DType.uint32]
@@ -648,7 +647,6 @@ struct GpuBoundsBvh[width: Int]:
 
         self.leaf_bounds_host = leaf_bounds.copy()
         self.leaf_payloads_host = leaf_payloads.copy()
-        self.leaf_block_indices_host = List[UInt32]()
 
         self.leaf_bounds = _copy_f32_to_device(ctx, self.leaf_bounds_host)
         self.leaf_payloads = _copy_u32_to_device(ctx, self.leaf_payloads_host)
@@ -837,186 +835,18 @@ struct GpuBoundsBvh[width: Int]:
         var out = AABB.invalid()
         for i in range(self.leaf_count):
             var b = i * GPU_WIDE_BOUNDS_STRIDE
-            out.grow(
-                Vec3f32(
-                    self.leaf_bounds_host[b + 0],
-                    self.leaf_bounds_host[b + 1],
-                    self.leaf_bounds_host[b + 2],
-                )
-            )
-            out.grow(
-                Vec3f32(
-                    self.leaf_bounds_host[b + 3],
-                    self.leaf_bounds_host[b + 4],
-                    self.leaf_bounds_host[b + 5],
-                )
-            )
+            out.grow(Vec3f32.load(self.leaf_bounds_host.unsafe_ptr(), b))
+            out.grow(Vec3f32.load(self.leaf_bounds_host.unsafe_ptr(), b + 3))
         return out
 
     def _compute_centroid_bounds(self) -> AABB:
         var out = AABB.invalid()
         for i in range(self.leaf_count):
             var b = i * GPU_WIDE_BOUNDS_STRIDE
-            out.grow(
-                Vec3f32(
-                    (
-                        self.leaf_bounds_host[b + 0]
-                        + self.leaf_bounds_host[b + 3]
-                    )
-                    * 0.5,
-                    (
-                        self.leaf_bounds_host[b + 1]
-                        + self.leaf_bounds_host[b + 4]
-                    )
-                    * 0.5,
-                    (
-                        self.leaf_bounds_host[b + 2]
-                        + self.leaf_bounds_host[b + 5]
-                    )
-                    * 0.5,
-                )
-            )
+            v0 = Vec3f32.load(self.leaf_bounds_host.unsafe_ptr(), b)
+            v1 = Vec3f32.load(self.leaf_bounds_host.unsafe_ptr(), b + 3)
+            out.grow((v0 + v1) * 0.5)
         return out
-
-    def _encoded_leaf_count(
-        self,
-        encoded: UInt32,
-        meta: List[UInt32],
-    ) -> Int:
-        if _is_encoded_leaf(encoded):
-            return 1
-
-        var node_idx = _encoded_index(encoded)
-        var base = Int(node_idx) * LBVH_NODE_META_STRIDE
-        return self._encoded_leaf_count(
-            meta[base + LBVH_NODE_LEFT], meta
-        ) + self._encoded_leaf_count(meta[base + LBVH_NODE_RIGHT], meta)
-
-    def _encoded_bounds(
-        self,
-        encoded: UInt32,
-        values: List[UInt32],
-        meta: List[UInt32],
-        node_bounds: List[Float32],
-    ) -> AABB:
-        if _is_encoded_leaf(encoded):
-            var sorted_leaf_idx = _encoded_index(encoded)
-            var item_idx = values[Int(sorted_leaf_idx)]
-            return _load_leaf_bounds_host(self.leaf_bounds_host, item_idx)
-
-        return _load_internal_bounds_host(node_bounds, _encoded_index(encoded))
-
-    def _collect_encoded_leaves(
-        self,
-        encoded: UInt32,
-        values: List[UInt32],
-        meta: List[UInt32],
-        mut out_payloads: List[UInt32],
-    ):
-        if _is_encoded_leaf(encoded):
-            var sorted_leaf_idx = _encoded_index(encoded)
-            var item_idx = values[Int(sorted_leaf_idx)]
-            out_payloads.append(self.leaf_payloads_host[Int(item_idx)])
-            return
-
-        var node_idx = _encoded_index(encoded)
-        var base = Int(node_idx) * LBVH_NODE_META_STRIDE
-        self._collect_encoded_leaves(
-            meta[base + LBVH_NODE_LEFT], values, meta, out_payloads
-        )
-        self._collect_encoded_leaves(
-            meta[base + LBVH_NODE_RIGHT], values, meta, out_payloads
-        )
-
-    def _collapse_encoded(
-        mut self,
-        encoded: UInt32,
-        values: List[UInt32],
-        meta: List[UInt32],
-        node_bounds: List[Float32],
-        mut wide_bounds_host: List[Float32],
-        mut wide_data_host: List[UInt32],
-        mut wide_counts_host: List[UInt32],
-        mut leaf_blocks_host: List[UInt32],
-    ) -> UInt32:
-        var wide_idx = UInt32(self.node_count)
-        self.node_count += 1
-
-        var pool = InlineArray[UInt32, Self.width](fill=encoded)
-        var p_size = 1
-
-        while p_size < Self.width:
-            var best_area = Float32(-1.0)
-            var best_i = -1
-
-            for i in range(p_size):
-                var e = pool[i]
-                if not _is_encoded_leaf(e):
-                    var leaf_count = self._encoded_leaf_count(e, meta)
-                    if leaf_count > Self.width:
-                        var area = self._encoded_bounds(
-                            e, values, meta, node_bounds
-                        ).surface_area()
-                        if area > best_area:
-                            best_area = area
-                            best_i = i
-
-            if best_i == -1:
-                break
-
-            var n_idx = _encoded_index(pool[best_i])
-            var base = Int(n_idx) * LBVH_NODE_META_STRIDE
-            pool[best_i] = meta[base + LBVH_NODE_LEFT]
-            pool[p_size] = meta[base + LBVH_NODE_RIGHT]
-            p_size += 1
-
-        for lane in range(Self.width):
-            var lane_base = Int(wide_idx) * Self.width + lane
-            var bounds_base = lane_base * GPU_WIDE_BOUNDS_STRIDE
-
-            if lane >= p_size:
-                wide_counts_host[lane_base] = GPU_WIDE_EMPTY_LANE
-                continue
-
-            var e = pool[lane]
-            var b = self._encoded_bounds(e, values, meta, node_bounds)
-            b.store6(wide_bounds_host.unsafe_ptr(), bounds_base)
-
-            var subtree_count = self._encoded_leaf_count(e, meta)
-            if subtree_count <= Self.width:
-                var payloads = List[UInt32](capacity=Self.width)
-                self._collect_encoded_leaves(e, values, meta, payloads)
-
-                var block_idx = UInt32(self.leaf_block_count)
-                self.leaf_block_count += 1
-
-                for k in range(Self.width):
-                    if k < len(payloads):
-                        leaf_blocks_host[
-                            Int(block_idx) * Self.width + k
-                        ] = payloads[k]
-                    else:
-                        leaf_blocks_host[
-                            Int(block_idx) * Self.width + k
-                        ] = GPU_WIDE_EMPTY_LANE
-
-                wide_data_host[lane_base] = block_idx
-                wide_counts_host[lane_base] = UInt32(len(payloads))
-            else:
-                var child_idx = self._collapse_encoded(
-                    e,
-                    values,
-                    meta,
-                    node_bounds,
-                    wide_bounds_host,
-                    wide_data_host,
-                    wide_counts_host,
-                    leaf_blocks_host,
-                )
-                wide_data_host[lane_base] = child_idx
-                wide_counts_host[lane_base] = 0
-
-        return wide_idx
 
     def _collapse_to_wide(mut self, ctx: DeviceContext) raises:
         self.node_count = max(self.internal_count, 1)
@@ -1099,8 +929,6 @@ struct GpuBoundsBvh[width: Int]:
 
         with self.wide_root.map_to_host() as h:
             self.root_idx = UInt32(h[0])
-
-        self.leaf_block_indices_host = List[UInt32]()
 
 
 struct GpuTriangleBvh[width: Int]:
@@ -1830,39 +1658,7 @@ def _flatten_instance_inv_transforms(
 def _flatten_instance_blas_indices(
     instances: List[GpuTlasInstance],
 ) -> List[UInt32]:
-    var out = List[UInt32](capacity=max(len(instances), 1))
-    for i in range(len(instances)):
-        out.append(instances[i].blas_idx)
-    return out^
-
-
-@always_inline
-def _transform_point_flat4x4(
-    m: UnsafePointer[Float32, MutAnyOrigin],
-    base: Int,
-    p: Vec3f32,
-) -> Vec3f32:
-    return Vec3f32(
-        m[base + 0] * p.x + m[base + 1] * p.y + m[base + 2] * p.z + m[base + 3],
-        m[base + 4] * p.x + m[base + 5] * p.y + m[base + 6] * p.z + m[base + 7],
-        m[base + 8] * p.x
-        + m[base + 9] * p.y
-        + m[base + 10] * p.z
-        + m[base + 11],
-    )
-
-
-@always_inline
-def _transform_vector_flat4x4(
-    m: UnsafePointer[Float32, MutAnyOrigin],
-    base: Int,
-    v: Vec3f32,
-) -> Vec3f32:
-    return Vec3f32(
-        m[base + 0] * v.x + m[base + 1] * v.y + m[base + 2] * v.z,
-        m[base + 4] * v.x + m[base + 5] * v.y + m[base + 6] * v.z,
-        m[base + 8] * v.x + m[base + 9] * v.y + m[base + 10] * v.z,
-    )
+    return [instance.blas_idx for instance in instances]
 
 
 @always_inline
@@ -1880,8 +1676,8 @@ def _make_tlas_local_ray(
     t_max: Float32,
 ) -> RayFlat:
     var base = Int(inst_idx) * GPU_TLAS_TRANSFORM_STRIDE
-    var o = _transform_point_flat4x4(inst_inv_transform, base, ray.o)
-    var d = _transform_vector_flat4x4(inst_inv_transform, base, ray.d)
+    var o = transform_point(inst_inv_transform, base, ray.o)
+    var d = transform_vector(inst_inv_transform, base, ray.d)
     return RayFlat(
         o,
         d,

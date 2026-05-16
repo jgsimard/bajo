@@ -13,12 +13,9 @@ from bajo.core.bvh.host_utils import (
     generate_primary_rays,
     hit_t_for_checksum,
 )
-from bajo.core.bvh.gpu.bounds_bvh import (
-    GpuTriangleBvh,
-    GpuSphereBvh,
-    GpuTlas,
-    GpuTlasInstance,
-)
+from bajo.core.bvh.gpu.tlas import GpuTlas, GpuTlasInstance
+from bajo.core.bvh.gpu.sphere_bvh import GpuSphereBvh
+from bajo.core.bvh.gpu.triangle_bvh import GpuTriangleBvh
 from bajo.core.bvh.gpu.utils import _upload_rays, _download_full_hit_checksum
 
 from fixtures import _append_tri

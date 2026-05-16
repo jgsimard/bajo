@@ -25,6 +25,7 @@ bench_all = { depends-on = [
 ] }
 example_lbvh = { cmd = "mojo -I . examples/lbvh_normals.mojo", depends-on = ["download_assets"] }
 test_bvh = "bash scripts/run_tests.sh test/core/bvh"
+fmt = "mojo format ."
 
 [dependencies]
 mojo = ">=1.0.0b2.dev2026051606,<2"

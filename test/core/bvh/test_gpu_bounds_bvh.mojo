@@ -16,10 +16,10 @@ from bajo.core.bvh.host_utils import (
 from bajo.core.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.core.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
-    GpuTriangleBvh,
-    GpuSphereBvh,
     GPU_WIDE_EMPTY_LANE,
 )
+from bajo.core.bvh.gpu.sphere_bvh import GpuSphereBvh
+from bajo.core.bvh.gpu.triangle_bvh import GpuTriangleBvh
 
 from fixtures import _append_tri
 

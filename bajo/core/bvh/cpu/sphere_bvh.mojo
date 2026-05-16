@@ -8,20 +8,9 @@ from bajo.core.bvh.cpu.bounds_bvh import (
     BoundsBvhBuilder,
 )
 from bajo.core.aabb import AABB, AxisAlignedBoundingBox
-from bajo.core.bvh.types import Ray
+from bajo.core.bvh.types import Ray, Sphere
 from bajo.core.intersect import intersect_ray_sphere
 from bajo.core.bvh.cpu.traverse import traverse_wide_ray_bvh
-
-
-@fieldwise_init
-struct Sphere(TrivialRegisterPassable):
-    var center: Vec3f32
-    var radius: Float32
-
-    @always_inline
-    def bounds(self) -> AABB:
-        var r = Vec3f32(self.radius)
-        return AABB(self.center - r, self.center + r)
 
 
 @fieldwise_init
@@ -39,7 +28,7 @@ struct SphereLeafBlock[width: Int](Copyable):
         self.valid_lane = SIMD[DType.bool, Self.width](fill=False)
 
 
-struct SphereBvh[width: Int](Copyable):
+struct SphereBvh[width: Int, split_method: String = "median"](Copyable):
     """Sphere-specific wrapper around BoundsBvh[width].
     The generic tree is built from BoundsItem ranges.
     After construction, sphere leaf data is packed into SphereLeafBlock.
@@ -53,9 +42,7 @@ struct SphereBvh[width: Int](Copyable):
     var leaf_blocks: List[SphereLeafBlock[Self.width]]
     var sphere_count: UInt32
 
-    def __init__[
-        split_method: String
-    ](
+    def __init__(
         out self,
         spheres: UnsafePointer[Sphere, MutAnyOrigin],
         sphere_count: UInt32,
@@ -71,7 +58,7 @@ struct SphereBvh[width: Int](Copyable):
             self.spheres.append(s)
             items.append(BoundsItem(s.bounds(), UInt32(i)))
 
-        var builder = BoundsBvhBuilder[split_method, Self.width](items)
+        var builder = BoundsBvhBuilder[Self.split_method, Self.width](items)
 
         self.tree = BoundsBvh[Self.width](builder)
 
@@ -108,9 +95,6 @@ struct SphereBvh[width: Int](Copyable):
 
                             block.prim_indices[k] = sphere_idx
                             block.valid_lane[k] = True
-                        else:
-                            block.prim_indices[k] = EMPTY_LANE
-                            block.valid_lane[k] = False
 
                     var block_idx = UInt32(len(self.leaf_blocks))
                     self.leaf_blocks.append(block^)

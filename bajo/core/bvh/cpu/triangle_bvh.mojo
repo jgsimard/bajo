@@ -30,7 +30,7 @@ struct TriangleLeafBlock[width: Int](Copyable):
         self.valid_lane = SIMD[DType.bool, Self.width](fill=False)
 
 
-struct TriangleBvh[width: Int](Copyable):
+struct TriangleBvh[width: Int, split_method: String = "median"](Copyable):
     """Triangle-specific wrapper around BoundsBvh[width].
 
     After construction, leaf primitive data is packed into TriangleLeafBlock.
@@ -44,9 +44,7 @@ struct TriangleBvh[width: Int](Copyable):
     var leaf_blocks: List[TriangleLeafBlock[Self.width]]
     var tri_count: UInt32
 
-    def __init__[
-        split_method: String
-    ](
+    def __init__(
         out self,
         vertices: UnsafePointer[Vec3f32, MutAnyOrigin],
         tri_count: UInt32,
@@ -68,7 +66,7 @@ struct TriangleBvh[width: Int](Copyable):
 
             items.append(BoundsItem(bounds, UInt32(i)))
 
-        var builder = BoundsBvhBuilder[split_method, Self.width](items)
+        var builder = BoundsBvhBuilder[Self.split_method, Self.width](items)
 
         self.tree = BoundsBvh[Self.width](builder)
 

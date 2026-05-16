@@ -125,6 +125,14 @@ struct Vec3[dtype: DType, width: Int = 1](
         )
 
     @always_inline
+    def __sub__(self, rhs: SIMD[Self.dtype, Self.width]) -> Self:
+        return Self(
+            self.x - rhs,
+            self.y - rhs,
+            self.z - rhs,
+        )
+
+    @always_inline
     def __mul__(self, rhs: Self) -> Self:
         return Self(
             self.x * rhs.x,

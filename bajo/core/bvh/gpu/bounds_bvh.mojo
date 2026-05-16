@@ -9,7 +9,7 @@ from bajo.core.vec import Vec3f32, vmin, vmax
 from bajo.core.mat import Mat44f32, transform_point, transform_vector
 from bajo.core.intersect import intersect_ray_aabb, intersect_ray_tri
 from bajo.core.morton import morton3
-from bajo.core.bvh.types import RayFlat, Hit
+from bajo.core.bvh.types import RayFlat, Hit, Sphere
 from bajo.core.bvh.gpu.constants import (
     LBVH_LEAF_FLAG,
     LBVH_INDEX_MASK,
@@ -105,18 +105,9 @@ def _load_internal_bounds_host(
     node_idx: UInt32,
 ) -> AABB:
     var b = Int(node_idx) * LBVH_NODE_BOUNDS_STRIDE
-    return AABB(
-        Vec3f32(
-            min(node_bounds[b + 0], node_bounds[b + 6]),
-            min(node_bounds[b + 1], node_bounds[b + 7]),
-            min(node_bounds[b + 2], node_bounds[b + 8]),
-        ),
-        Vec3f32(
-            max(node_bounds[b + 3], node_bounds[b + 9]),
-            max(node_bounds[b + 4], node_bounds[b + 10]),
-            max(node_bounds[b + 5], node_bounds[b + 11]),
-        ),
-    )
+    b1 = AABB.load6(node_bounds.unsafe_ptr(), b)
+    b2 = AABB.load6(node_bounds.unsafe_ptr(), b + 6)
+    return AABB.merge(b1, b2)
 
 
 @always_inline
@@ -168,18 +159,9 @@ def _load_and_union_node_bounds(
     parent: UInt32,
 ) -> AABB:
     var b = _node_bounds_base(parent)
-    return AABB(
-        Vec3f32(
-            min(node_bounds[b + 0], node_bounds[b + 6]),
-            min(node_bounds[b + 1], node_bounds[b + 7]),
-            min(node_bounds[b + 2], node_bounds[b + 8]),
-        ),
-        Vec3f32(
-            max(node_bounds[b + 3], node_bounds[b + 9]),
-            max(node_bounds[b + 4], node_bounds[b + 10]),
-            max(node_bounds[b + 5], node_bounds[b + 11]),
-        ),
-    )
+    b1 = AABB.load6(node_bounds, b)
+    b2 = AABB.load6(node_bounds, b + 6)
+    return AABB.merge(b1, b2)
 
 
 def refit_lbvh_bounds_from_leaves_kernel(
@@ -216,8 +198,8 @@ def refit_lbvh_bounds_from_leaves_kernel(
 
         _write_child_bounds(node_bounds, parent, is_left, bounds)
 
-        var old = Atomic.fetch_add(node_flags + Int(parent), UInt32(1))
-        if old == UInt32(0):
+        var old = Atomic.fetch_add(node_flags + Int(parent), 1)
+        if old == 0:
             break
 
         bounds = _load_and_union_node_bounds(node_bounds, parent)
@@ -529,17 +511,6 @@ def pack_triangle_leaf_blocks_kernel[
             var in_base = Int(prim) * GPU_TRI_LEAF_VERTEX_STRIDE
             for k in range(GPU_TRI_LEAF_VERTEX_STRIDE):
                 leaf_vertices[out_base + k] = vertices[in_base + k]
-
-
-@fieldwise_init
-struct GpuSphere(Copyable):
-    var center: Vec3f32
-    var radius: Float32
-
-    @always_inline
-    def __init__(out self):
-        self.center = Vec3f32(0.0)
-        self.radius = 1.0
 
 
 def pack_sphere_leaf_blocks_kernel[
@@ -1056,7 +1027,7 @@ struct GpuSphereBvh[width: Int]:
     def __init__(
         out self,
         mut ctx: DeviceContext,
-        spheres: List[GpuSphere],
+        spheres: List[Sphere],
     ) raises:
         self.sphere_count = len(spheres)
         self.leaf_pack_ns = 0
@@ -1603,7 +1574,7 @@ def _flatten_vertices(verts: List[Vec3f32]) -> List[Float32]:
     return out^
 
 
-def _flatten_spheres(spheres: List[GpuSphere]) -> List[Float32]:
+def _flatten_spheres(spheres: List[Sphere]) -> List[Float32]:
     var out = List[Float32](capacity=max(len(spheres), 1) * GPU_SPHERE_STRIDE)
     for i in range(len(spheres)):
         out.append(spheres[i].center.x)

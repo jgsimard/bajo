@@ -131,3 +131,6 @@ struct AxisAlignedBoundingBox[dtype: DType, width: Int = 1](
         comptime assert Self.width == 1
         self._min.store(ptr, base)
         self._max.store(ptr + 3, base)
+
+    def translate(self, translation: Vec3[Self.dtype, Self.width]) -> Self:
+        return Self(self._min + translation, self._max + translation)

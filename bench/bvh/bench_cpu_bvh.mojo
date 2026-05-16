@@ -119,8 +119,8 @@ def print_shadow_result(
 
 
 def trace_triangle_primary[
-    width: Int
-](bvh: TriangleBvh[width], rays: List[Ray]) -> Float64:
+    width: Int, split_method: String
+](bvh: TriangleBvh[width, split_method], rays: List[Ray]) -> Float64:
     var checksum = Float64(0.0)
 
     for i in range(len(rays)):
@@ -132,8 +132,8 @@ def trace_triangle_primary[
 
 
 def trace_triangle_shadow[
-    width: Int
-](bvh: TriangleBvh[width], rays: List[Ray]) -> Int:
+    width: Int, split_method: String
+](bvh: TriangleBvh[width, split_method], rays: List[Ray]) -> Int:
     var occluded = 0
 
     for i in range(len(rays)):
@@ -145,9 +145,9 @@ def trace_triangle_shadow[
 
 
 def trace_sphere_primary[
-    width: Int
-](bvh: SphereBvh[width], rays: List[Ray]) -> Float64:
-    var checksum = Float64(0.0)
+    width: Int, split_method: String
+](bvh: SphereBvh[width, split_method], rays: List[Ray]) -> Float64:
+    var checksum = 0.0
 
     for i in range(len(rays)):
         var ray = rays[i].copy()
@@ -158,8 +158,8 @@ def trace_sphere_primary[
 
 
 def trace_sphere_shadow[
-    width: Int
-](bvh: SphereBvh[width], rays: List[Ray]) -> Int:
+    width: Int, split_method: String
+](bvh: SphereBvh[width, split_method], rays: List[Ray]) -> Int:
     var occluded = 0
 
     for i in range(len(rays)):
@@ -171,9 +171,9 @@ def trace_sphere_shadow[
 
 
 def bench_triangle_primary[
-    width: Int
-](name: String, bvh: TriangleBvh[width], rays: List[Ray],):
-    var checksum = trace_triangle_primary[width](bvh, rays)
+    width: Int, split_method: String
+](name: String, bvh: TriangleBvh[width, split_method], rays: List[Ray],):
+    var checksum = trace_triangle_primary[width, split_method](bvh, rays)
     var best_ns = Int.MAX
 
     for _ in range(TRAVERSAL_REPEATS):
@@ -190,9 +190,9 @@ def bench_triangle_primary[
 
 
 def bench_triangle_shadow[
-    width: Int
-](name: String, bvh: TriangleBvh[width], rays: List[Ray],):
-    var occluded = trace_triangle_shadow[width](bvh, rays)
+    width: Int, split_method: String
+](name: String, bvh: TriangleBvh[width, split_method], rays: List[Ray],):
+    var occluded = trace_triangle_shadow[width, split_method](bvh, rays)
     var best_ns = Int.MAX
 
     for _ in range(TRAVERSAL_REPEATS):
@@ -209,9 +209,9 @@ def bench_triangle_shadow[
 
 
 def bench_sphere_primary[
-    width: Int
-](name: String, bvh: SphereBvh[width], rays: List[Ray],):
-    var checksum = trace_sphere_primary[width](bvh, rays)
+    width: Int, split_method: String
+](name: String, bvh: SphereBvh[width, split_method], rays: List[Ray],):
+    var checksum = trace_sphere_primary[width, split_method](bvh, rays)
     var best_ns = Int.MAX
 
     for _ in range(TRAVERSAL_REPEATS):
@@ -228,8 +228,8 @@ def bench_sphere_primary[
 
 
 def bench_sphere_shadow[
-    width: Int
-](name: String, bvh: SphereBvh[width], rays: List[Ray],):
+    width: Int, split_method: String
+](name: String, bvh: SphereBvh[width, split_method], rays: List[Ray],):
     var occluded = trace_sphere_shadow[width](bvh, rays)
     var best_ns = Int.MAX
 
@@ -265,7 +265,7 @@ def main() raises:
     print("-----")
 
     var t0 = perf_counter_ns()
-    var tri2_median = TriangleBvh[2].__init__["median"](
+    var tri2_median = TriangleBvh[2, "median"](
         tri_vertices.unsafe_ptr(),
         UInt32(len(tri_vertices) / 3),
     )
@@ -278,7 +278,7 @@ def main() raises:
     )
 
     t0 = perf_counter_ns()
-    var tri4_median = TriangleBvh[4].__init__["median"](
+    var tri4_median = TriangleBvh[4, "median"](
         tri_vertices.unsafe_ptr(),
         UInt32(len(tri_vertices) / 3),
     )
@@ -291,7 +291,7 @@ def main() raises:
     )
 
     t0 = perf_counter_ns()
-    var tri8_median = TriangleBvh[8].__init__["median"](
+    var tri8_median = TriangleBvh[8, "median"](
         tri_vertices.unsafe_ptr(),
         UInt32(len(tri_vertices) / 3),
     )
@@ -304,7 +304,7 @@ def main() raises:
     )
 
     t0 = perf_counter_ns()
-    var tri4_sah = TriangleBvh[4].__init__["sah"](
+    var tri4_sah = TriangleBvh[4, "sah"](
         tri_vertices.unsafe_ptr(),
         UInt32(len(tri_vertices) / 3),
     )
@@ -317,7 +317,7 @@ def main() raises:
     )
 
     t0 = perf_counter_ns()
-    var sph2_median = SphereBvh[2].__init__["median"](
+    var sph2_median = SphereBvh[2, "median"](
         spheres.unsafe_ptr(),
         UInt32(len(spheres)),
     )
@@ -330,7 +330,7 @@ def main() raises:
     )
 
     t0 = perf_counter_ns()
-    var sph4_median = SphereBvh[4].__init__["median"](
+    var sph4_median = SphereBvh[4, "median"](
         spheres.unsafe_ptr(),
         UInt32(len(spheres)),
     )
@@ -343,7 +343,7 @@ def main() raises:
     )
 
     t0 = perf_counter_ns()
-    var sph8_median = SphereBvh[8].__init__["median"](
+    var sph8_median = SphereBvh[8, "median"](
         spheres.unsafe_ptr(),
         UInt32(len(spheres)),
     )
@@ -356,7 +356,7 @@ def main() raises:
     )
 
     t0 = perf_counter_ns()
-    var sph4_sah = SphereBvh[4].__init__["sah"](
+    var sph4_sah = SphereBvh[4, "sah"](
         spheres.unsafe_ptr(),
         UInt32(len(spheres)),
     )

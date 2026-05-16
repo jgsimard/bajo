@@ -18,8 +18,9 @@ from bajo.core.bvh.cpu.bounds_bvh import (
     _sah_items,
 )
 from bajo.core.bvh.cpu.triangle_bvh import TriangleBvh
-from bajo.core.bvh.cpu.sphere_bvh import SphereBvh, Sphere
+from bajo.core.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.core.bvh.cpu.tlas import BvhInstance, Tlas
+from bajo.core.bvh.types import Sphere
 
 
 @always_inline
@@ -245,9 +246,9 @@ def _assert_wide_leaf_counts_at_most_width[
 
 
 def _assert_triangle_bvh_matches_bruteforce[
-    width: Int
+    width: Int, split_method: String
 ](
-    mut bvh: TriangleBvh[width],
+    mut bvh: TriangleBvh[width, split_method],
     verts: List[Vec3f32],
     O: Vec3f32,
     D: Vec3f32,
@@ -276,9 +277,9 @@ def _assert_triangle_bvh_matches_bruteforce[
 
 
 def _assert_sphere_bvh_matches_bruteforce[
-    width: Int
+    width: Int, split_method: String
 ](
-    mut bvh: SphereBvh[width],
+    mut bvh: SphereBvh[width, split_method],
     spheres: List[Sphere],
     O: Vec3f32,
     D: Vec3f32,
@@ -391,7 +392,7 @@ def test_wide_bounds_root_bounds_is_valid() raises:
 
 def test_triangle_bvh2_leaf_size_equals_width_returns_nearest_triangle() raises:
     var verts = _make_depth_pair()
-    var bvh = TriangleBvh[2].__init__["median"](
+    var bvh = TriangleBvh[2, "median"](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
@@ -405,7 +406,7 @@ def test_triangle_bvh2_leaf_size_equals_width_returns_nearest_triangle() raises:
 
 def test_triangle_bvh2_leaf_size_equals_width_matches_bruteforce() raises:
     var verts = _make_strip(24)
-    var bvh = TriangleBvh[2].__init__["median"](
+    var bvh = TriangleBvh[2, "median"](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
@@ -423,7 +424,7 @@ def test_triangle_bvh2_leaf_size_equals_width_matches_bruteforce() raises:
 
 def test_triangle_bvh4_leaf_size_equals_width_matches_bruteforce() raises:
     var verts = _make_strip(32)
-    var bvh = TriangleBvh[4].__init__["median"](
+    var bvh = TriangleBvh[4, "median"](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
@@ -441,7 +442,7 @@ def test_triangle_bvh4_leaf_size_equals_width_matches_bruteforce() raises:
 
 def test_triangle_bvh8_leaf_size_equals_width_matches_bruteforce() raises:
     var verts = _make_strip(40)
-    var bvh = TriangleBvh[8].__init__["median"](
+    var bvh = TriangleBvh[8, "median"](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
@@ -459,7 +460,7 @@ def test_triangle_bvh8_leaf_size_equals_width_matches_bruteforce() raises:
 
 def test_triangle_bvh4_shadow_hit_and_miss() raises:
     var verts = _make_strip(8)
-    var bvh = TriangleBvh[4].__init__["median"](
+    var bvh = TriangleBvh[4, "median"](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
@@ -474,7 +475,7 @@ def test_triangle_bvh4_shadow_hit_and_miss() raises:
 
 def test_triangle_bvh4_sah_leaf_size_equals_width_matches_bruteforce() raises:
     var verts = _make_strip(48)
-    var bvh = TriangleBvh[4].__init__["sah"](
+    var bvh = TriangleBvh[4, "sah"](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
@@ -500,7 +501,7 @@ def test_sphere_bounds() raises:
 
 def test_sphere_bvh4_returns_nearest_sphere() raises:
     var spheres = _make_spheres()
-    var bvh = SphereBvh[4].__init__["median"](
+    var bvh = SphereBvh[4, "median"](
         spheres.unsafe_ptr(),
         UInt32(len(spheres)),
     )
@@ -519,7 +520,7 @@ def test_sphere_bvh4_returns_nearest_sphere() raises:
 
 def test_sphere_bvh2_matches_bruteforce() raises:
     var spheres = _make_spheres()
-    var bvh = SphereBvh[2].__init__["median"](
+    var bvh = SphereBvh[2, "median"](
         spheres.unsafe_ptr(),
         UInt32(len(spheres)),
     )
@@ -546,7 +547,7 @@ def test_sphere_bvh2_matches_bruteforce() raises:
 
 def test_sphere_bvh4_shadow_hit_and_miss() raises:
     var spheres = _make_spheres()
-    var bvh = SphereBvh[4].__init__["median"](
+    var bvh = SphereBvh[4, "median"](
         spheres.unsafe_ptr(),
         UInt32(len(spheres)),
     )
@@ -560,7 +561,7 @@ def test_sphere_bvh4_shadow_hit_and_miss() raises:
 
 def test_sphere_bvh4_sah_matches_bruteforce() raises:
     var spheres = _make_spheres()
-    var bvh = SphereBvh[4].__init__["sah"](
+    var bvh = SphereBvh[4, "sah"](
         spheres.unsafe_ptr(),
         UInt32(len(spheres)),
     )
@@ -582,7 +583,7 @@ def test_sphere_bvh4_sah_matches_bruteforce() raises:
 def test_tlas_triangle_single_instance_matches_blas() raises:
     var verts = _make_strip(8)
 
-    var blas = TriangleBvh[4].__init__["median"](
+    var blas = TriangleBvh[4, "median"](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
@@ -617,11 +618,11 @@ def test_tlas_triangle_two_instances_returns_nearest_instance() raises:
     far_verts.append(Vec3f32(1.0, -1.0, 10.0))
     far_verts.append(Vec3f32(0.0, 1.0, 10.0))
 
-    var near_blas = TriangleBvh[4].__init__["median"](
+    var near_blas = TriangleBvh[4, "median"](
         near_verts.unsafe_ptr(),
         UInt32(len(near_verts) / 3),
     )
-    var far_blas = TriangleBvh[4].__init__["median"](
+    var far_blas = TriangleBvh[4, "median"](
         far_verts.unsafe_ptr(),
         UInt32(len(far_verts) / 3),
     )
@@ -647,7 +648,7 @@ def test_tlas_triangle_two_instances_returns_nearest_instance() raises:
 def test_tlas_triangle_shadow_hit_and_miss() raises:
     var verts = _make_strip(8)
 
-    var blas = TriangleBvh[4].__init__["median"](
+    var blas = TriangleBvh[4, "median"](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
@@ -672,7 +673,7 @@ def test_tlas_triangle_shadow_hit_and_miss() raises:
 def test_tlas_sphere_single_instance_matches_blas() raises:
     var spheres = _make_spheres()
 
-    var blas = SphereBvh[4].__init__["median"](
+    var blas = SphereBvh[4, "median"](
         spheres.unsafe_ptr(),
         UInt32(len(spheres)),
     )
@@ -700,11 +701,11 @@ def test_tlas_sphere_two_instances_returns_nearest_instance() raises:
     var near_spheres = [Sphere(Vec3f32(0.0, 0.0, 2.0), 1.0)]
     var far_spheres = [Sphere(Vec3f32(0.0, 0.0, 8.0), 1.0)]
 
-    var near_blas = SphereBvh[4].__init__["median"](
+    var near_blas = SphereBvh[4, "median"](
         near_spheres.unsafe_ptr(),
         UInt32(len(near_spheres)),
     )
-    var far_blas = SphereBvh[4].__init__["median"](
+    var far_blas = SphereBvh[4, "median"](
         far_spheres.unsafe_ptr(),
         UInt32(len(far_spheres)),
     )
@@ -730,7 +731,7 @@ def test_tlas_sphere_two_instances_returns_nearest_instance() raises:
 def test_tlas_sphere_shadow_hit_and_miss() raises:
     var spheres = _make_spheres()
 
-    var blas = SphereBvh[4].__init__["median"](
+    var blas = SphereBvh[4, "median"](
         spheres.unsafe_ptr(),
         UInt32(len(spheres)),
     )
@@ -871,7 +872,7 @@ def test_bounds_partition_items_non_empty() raises:
 
 def test_triangle_bvh4_median_matches_bruteforce_many_random_rays() raises:
     var verts = _make_random_xy_triangles(64, UInt64(12345))
-    var bvh = TriangleBvh[4].__init__["median"](
+    var bvh = TriangleBvh[4, "median"](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
@@ -889,7 +890,7 @@ def test_triangle_bvh4_median_matches_bruteforce_many_random_rays() raises:
 
 def test_triangle_bvh4_sah_matches_bruteforce_many_random_rays() raises:
     var verts = _make_random_xy_triangles(96, UInt64(98765))
-    var bvh = TriangleBvh[4].__init__["sah"](
+    var bvh = TriangleBvh[4, "sah"](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
@@ -907,7 +908,7 @@ def test_triangle_bvh4_sah_matches_bruteforce_many_random_rays() raises:
 
 def test_triangle_bvh4_sah_reports_original_primitive_after_reorder() raises:
     var verts = _make_strip(8)
-    var bvh = TriangleBvh[4].__init__["sah"](
+    var bvh = TriangleBvh[4, "sah"](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
@@ -939,7 +940,7 @@ def test_bounds_bvh_lbvh_leaf_size_4_invariant() raises:
 
 def test_triangle_bvh4_lbvh_matches_bruteforce_many_random_rays() raises:
     var verts = _make_random_xy_triangles(128, UInt64(707070))
-    var bvh = TriangleBvh[4].__init__["lbvh"](
+    var bvh = TriangleBvh[4, "lbvh"](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
@@ -959,7 +960,7 @@ def test_triangle_bvh4_lbvh_matches_bruteforce_many_random_rays() raises:
 
 def test_triangle_bvh8_lbvh_matches_bruteforce_many_random_rays() raises:
     var verts = _make_random_xy_triangles(128, UInt64(808080))
-    var bvh = TriangleBvh[8].__init__["lbvh"](
+    var bvh = TriangleBvh[8, "lbvh"](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
@@ -979,7 +980,7 @@ def test_triangle_bvh8_lbvh_matches_bruteforce_many_random_rays() raises:
 
 def test_sphere_bvh4_lbvh_matches_bruteforce() raises:
     var spheres = _make_spheres()
-    var bvh = SphereBvh[4].__init__["lbvh"](
+    var bvh = SphereBvh[4, "lbvh"](
         spheres.unsafe_ptr(),
         UInt32(len(spheres)),
     )

@@ -1,8 +1,7 @@
 from std.algorithm import parallelize
-from std.math import sqrt, tan, pi, clamp, cos, fma
+from std.math import sqrt, tan, pi, cos, fma, min, max
 from std.os import abort
-from std.random import random_float64, random_si64
-from std.sys.info import size_of
+from std.io.file_descriptor import FileDescriptor
 from std.utils.numerics import max_finite, min_finite
 from std.utils import Variant
 
@@ -15,28 +14,28 @@ from bajo.core.vec import (
     normalize,
     dot,
     cross,
-    vmin,
-    vmax,
-    longest_axis,
 )
 from bajo.core.utils import degrees_to_radians
 
 from bajo.core.random import (
     random_unit_vector,
-    random_on_hemisphere,
     random_in_unit_disk,
-    random_in_unit_sphere,
     Rng,
 )
 
+from bajo.core.bvh.types import Ray as bRay
+from bajo.core.bvh.cpu.bounds_bvh import Sphere as bSphere, SphereBvh
+
+
 comptime Point3 = Vec3f32
 comptime Color = Vec3f32
+comptime BVH_WIDTH = 4
 
 
 @fieldwise_init
 struct Scene:
     var camera: Camera
-    var world: BVH
+    var world: World
 
 
 def main() raises:
@@ -55,22 +54,51 @@ def colorize(color: Color) -> Color:
     )
 
 
-def write_color(mut f: FileHandle, color: Color):
-    var out_color = colorize(color)
-    ir = Int(out_color.x)
-    ig = Int(out_color.y)
-    ib = Int(out_color.z)
+@always_inline
+def _pack_color_byte(x: Float32) -> UInt8:
+    return UInt8(Int(x))
 
-    f.write(t"{ir} {ig} {ib}\n")
+
+def write_ppm_from_colors(
+    path: String,
+    width: Int,
+    height: Int,
+    image_data: List[Color],
+) raises:
+    # Fast binary PPM writer.
+    #
+    # P3 writes formatted text for every channel.
+    # P6 writes a tiny text header followed by raw RGB bytes.
+    var pixel_count = width * height
+    var byte_count = pixel_count * 3
+
+    with open(path, "w") as f:
+        var fd = FileDescriptor(f)
+        fd.write(t"P6\n{width} {height}\n255\n")
+
+        var _bytes = List[UInt8](length=byte_count, fill=0)
+        var out = _bytes.unsafe_ptr()
+
+        var j = 0
+        for i in range(pixel_count):
+            var out_color = colorize(image_data[i])
+
+            out[j] = _pack_color_byte(out_color.x)
+            out[j + 1] = _pack_color_byte(out_color.y)
+            out[j + 2] = _pack_color_byte(out_color.z)
+
+            j += 3
+
+        fd.write_bytes(_bytes)
 
 
 @fieldwise_init
 struct Ray(Copyable, Writable):
-    var origin: Point3  # 16 -> 16
-    var direction: Point3  # 16 -> 32
-    var inv_direction: Point3  # 16 -> 48
-    var time: Float32  #  4 -> 52
-    var _pad: InlineArray[Float32, 3]  # 3*4=12-> 64
+    var origin: Point3
+    var direction: Point3
+    var inv_direction: Point3
+    var time: Float32
+    var _pad: InlineArray[Float32, 3]
 
     def __init__(
         out self, origin: Point3, direction: Point3, time: Float32 = 0.0
@@ -86,13 +114,13 @@ struct Ray(Copyable, Writable):
 
 
 struct HitRecord(Copyable):
-    var p: Point3  # 4*4 = 16 => 16
-    var normal: Vec3f32  # 4*4 = 16 => 32
-    var material_id: Int  # 4 => 36
-    var t: Float32  # 4 => 40
-    var u: Float32  # 4 => 44
-    var v: Float32  # 4 => 48
-    var front_face: Bool  # 1 -> 4 => 52
+    var p: Point3
+    var normal: Vec3f32
+    var material_id: Int
+    var t: Float32
+    var u: Float32
+    var v: Float32
+    var front_face: Bool
 
     def __init__(
         out self,
@@ -111,103 +139,8 @@ struct HitRecord(Copyable):
         self.normal = normal * Float32(1.0 if self.front_face else -1.0)
 
 
-trait Texture(Movable):
-    def value(self, u: Float32, v: Float32, p: Point3) -> Color:
-        ...
-
-
-comptime TextureVariant = Variant[SolidColor, CheckerTexture]
-
-
 @fieldwise_init
-struct SolidColor(Texture):
-    var albedo: Color
-
-    def __init__(out self, r: Float32, g: Float32, b: Float32):
-        self.albedo = Color(r, g, b)
-
-    def value(self, u: Float32, v: Float32, p: Point3) -> Color:
-        return self.albedo.copy()
-
-
-@fieldwise_init
-struct CheckerTexture(Texture):
-    var albedo: Color
-
-    def __init__(out self, r: Float32, g: Float32, b: Float32):
-        self.albedo = Color(r, g, b)
-
-    def value(self, u: Float32, v: Float32, p: Point3) -> Color:
-        return self.albedo.copy()
-
-
-trait Hittable(Copyable):
-    def hit(
-        self, ray: Ray, ray_t: Interval[DType.float32]
-    ) -> Optional[HitRecord]:
-        ...
-
-
-comptime HittableVariant = Variant[Sphere]
-
-
-@fieldwise_init
-struct Sphere(Hittable, Writable):
-    var center: Ray
-    var radius: Float32
-    var material_id: Int
-
-    def __init__(out self, center: Point3, radius: Float32, material_id: Int):
-        self.center = Ray(center, Vec3f32(0), 0)
-        self.radius = radius
-        self.material_id = material_id
-
-    def hit(
-        self, ray: Ray, ray_t: Interval[DType.float32]
-    ) -> Optional[HitRecord]:
-        current_center = self.center.at(ray.time)
-        oc = current_center - ray.origin
-        a = length2(ray.direction)
-        h = dot(ray.direction, oc)
-        c = length2(oc) - self.radius * self.radius
-
-        discriminant = h * h - a * c
-        if discriminant < 0:
-            return None
-
-        sqrtd = sqrt(discriminant)
-
-        # Find the nearest root that lies in the acceptable range.
-        root = (h - sqrtd) / a
-        if not ray_t.surrounds(root):
-            root = (h + sqrtd) / a
-            if not ray_t.surrounds(root):
-                return None
-
-        t = root
-        p = ray.at(t)
-        normal = (p - current_center) / self.radius
-        return HitRecord(p, normal, self.material_id, t, ray)
-
-    def bounding_box(self) -> AABB:
-        rvec = Vec3f32(self.radius, self.radius, self.radius)
-
-        # time = 0.0
-        var center0 = self.center.at(0.0)
-        var box0 = AABB(center0 - rvec, center0 + rvec)
-
-        # time = 1.0
-        var center1 = self.center.at(1.0)
-        var box1 = AABB(center1 - rvec, center1 + rvec)
-
-        return AABB(box0, box1)
-
-
-@fieldwise_init
-struct Interval[T: DType](
-    Copyable,
-    Writable,
-):
+struct Interval[T: DType](Copyable, Writable):
     var min: Scalar[Self.T]
     var max: Scalar[Self.T]
 
@@ -228,184 +161,94 @@ struct Interval[T: DType](
         return Interval(min(self.min, other.min), max(self.max, other.max))
 
     def expand(self, delta: Scalar[Self.T]) -> Self:
-        padding = delta / 2
+        var padding = delta / 2
         return Interval(self.min - padding, self.max + padding)
 
 
 @fieldwise_init
-struct AABB(Copyable):
-    """Axis Aligned Bounding Box."""
+struct Sphere(Copyable, Writable):
+    var center0: Point3
+    var center1: Point3
+    var radius: Float32
+    var material_id: Int
+    var moving: Bool
 
-    var min: Point3
-    var max: Point3
+    def __init__(out self, center: Point3, radius: Float32, material_id: Int):
+        self.center0 = center.copy()
+        self.center1 = center.copy()
+        self.radius = radius
+        self.material_id = material_id
+        self.moving = False
 
-    def __init__(out self, a: AABB, b: AABB):
-        self.min = vmin(a.min, b.min)
-        self.max = vmax(a.max, b.max)
+    def __init__(out self, center_ray: Ray, radius: Float32, material_id: Int):
+        self.center0 = center_ray.at(0.0)
+        self.center1 = center_ray.at(1.0)
+        self.radius = radius
+        self.material_id = material_id
+        self.moving = True
 
-    def hit(self, ray: Ray, ray_t: Interval[DType.float32]) -> Bool:
-        var t_lower = ray.inv_direction * (self.min - ray.origin)
-        var t_upper = ray.inv_direction * (self.max - ray.origin)
+    @always_inline
+    def static_center(self) -> Point3:
+        return self.center0.copy()
 
-        var t_min_vec = vmin(t_lower, t_upper)
-        var t_max_vec = vmax(t_lower, t_upper)
-
-        var t_box_min = max(t_min_vec.x, t_min_vec.y, t_min_vec.z, ray_t.min)
-
-        var t_box_max = min(t_max_vec.x, t_max_vec.y, t_max_vec.z, ray_t.max)
-
-        return t_box_min <= t_box_max
-
-    def merge(mut self, other: Self):
-        self.min = vmin(self.min, other.min)
-        self.max = vmax(self.max, other.max)
-
-    def edges(self) -> Point3:
-        return self.max - self.min
-
-
-@fieldwise_init
-struct BVHNode(Copyable):
-    """Bounding Volume Hierarchy Node."""
-
-    var bbox: AABB
-    var left_idx: Int
-    """Index in 'nodes' list. -1 if leaf."""
-    var right_idx: Int
-    """Index in 'nodes' list. -1 if leaf."""
-    var object_idx: Int
-    """Index in 'objects' list. -1 if internal node."""
+    @always_inline
+    def center_at(self, time: Float32) -> Point3:
+        if self.moving:
+            return self.center0 + time * (self.center1 - self.center0)
+        return self.center0.copy()
 
 
 @fieldwise_init
-struct InvalidHittableError(Movable, TrivialRegisterPassable, Writable):
-    ...
-
-
-def get_bounding_box(obj: HittableVariant) -> AABB:
-    if obj.isa[Sphere]():
-        return obj[Sphere].bounding_box()
-    print("InvalidHittableError")
-    abort()
-    # raise InvalidHittableError()
-
-
-@fieldwise_init
-struct BVH(Hittable):
-    """Bounding Volume Hierarchy."""
-
-    var nodes: List[BVHNode]
-    var objects: List[HittableVariant]
+struct World(Copyable):
+    var bvh: SphereBvh[BVH_WIDTH]
+    var objects: List[Sphere]
     var materials: List[MaterialVariant]
-    var root_idx: Int
 
     def __init__(
         out self,
-        var objects: List[HittableVariant],
+        var objects: List[Sphere],
         var materials: List[MaterialVariant],
     ):
-        self.nodes = List[BVHNode]()
         self.objects = objects^
         self.materials = materials^
-        self.root_idx = -1
 
-        if len(self.objects) > 0:
-            self.root_idx = self._build(0, len(self.objects))
+        var bvh_spheres = List[bSphere](capacity=len(self.objects))
+        for i in range(len(self.objects)):
+            ref obj = self.objects[i]
+            bvh_spheres.append(bSphere(obj.static_center(), obj.radius))
+
+        self.bvh = SphereBvh[BVH_WIDTH].__init__["median"](
+            bvh_spheres.unsafe_ptr(),
+            UInt32(len(bvh_spheres)),
+        )
 
     def hit(
-        self, ray: Ray, ray_t: Interval[DType.float32]
+        self,
+        ray: Ray,
+        ray_t: Interval[DType.float32],
     ) -> Optional[HitRecord]:
-        if self.root_idx == -1:
+        var origin = ray.at(ray_t.min)
+        var tmax = ray_t.max - ray_t.min
+        var bvh_ray = bRay(origin, ray.direction, tmax)
+
+        self.bvh.traverse(bvh_ray)
+
+        if bvh_ray.hit.t >= tmax:
             return None
 
-        var closest_so_far = ray_t.max
-        var hit_anything: Optional[HitRecord] = None
+        var t = bvh_ray.hit.t + ray_t.min
+        if not ray_t.surrounds(t):
+            return None
 
-        var node_stack = InlineArray[Int, 32](fill=0)
-        var stack_ptr = 0
+        var sphere_idx = Int(bvh_ray.hit.prim)
+        ref obj = self.objects[sphere_idx]
 
-        # Push root
-        node_stack[stack_ptr] = self.root_idx
-        stack_ptr += 1
+        # Static port: use the same frozen center that the BVH used.
+        var center = obj.static_center()
+        var p = ray.at(t)
+        var normal = (p - center) / obj.radius
 
-        while stack_ptr > 0:
-            # Pop
-            stack_ptr -= 1
-            var node_idx = node_stack[stack_ptr]
-            ref node = self.nodes[node_idx]
-
-            # check AABB
-            if not node.bbox.hit(ray, Interval(ray_t.min, closest_so_far)):
-                continue
-
-            # leaf node = object
-            if node.object_idx != -1:
-                ref obj = self.objects[node.object_idx]
-                var hit_res: Optional[HitRecord]
-
-                if obj.isa[Sphere]():
-                    hit_res = obj[Sphere].hit(
-                        ray, Interval(ray_t.min, closest_so_far)
-                    )
-                else:
-                    print("ooooooops")
-                    abort()
-
-                if hit_res:
-                    ref rec = hit_res.value()
-                    closest_so_far = rec.t
-                    hit_anything = hit_res^
-
-            # internal node = check children
-            else:
-                # push children to stack
-                node_stack[stack_ptr] = node.right_idx
-                stack_ptr += 1
-                node_stack[stack_ptr] = node.left_idx
-                stack_ptr += 1
-
-        return hit_anything^
-
-    def _build(mut self, start: Int, end: Int) -> Int:
-        var span_len = end - start
-
-        # leaf node
-        if span_len == 1:
-            box = get_bounding_box(self.objects[start])
-            node = BVHNode(box^, -1, -1, start)
-            self.nodes.append(node^)
-            return len(self.nodes) - 1
-
-        aabb = get_bounding_box(self.objects[start])
-        for i in range(start + 1, end):
-            aabb.merge(get_bounding_box(self.objects[i]))
-        axis = longest_axis(aabb.edges())
-
-        # internal node
-        def cmp_fn(a: HittableVariant, b: HittableVariant) capturing -> Bool:
-            var box_a = get_bounding_box(a)
-            var box_b = get_bounding_box(b)
-            return box_a.min[axis] < box_b.min[axis]
-
-        # SIMD version
-        sort[cmp_fn=cmp_fn, stable=True](self.objects[start : start + span_len])
-        # # not SIMD version
-        # sort[cmp_fn=cmp_fn](self.objects[start : start + span_len])
-
-        mid = start + span_len / 2
-
-        # Recursively build children
-        var left_idx = self._build(start, mid)
-        var right_idx = self._build(mid, end)
-
-        # Compute combined bounding box
-        ref box_l = self.nodes[left_idx].bbox
-        ref box_r = self.nodes[right_idx].bbox
-        var combined_box = AABB(box_l, box_r)
-
-        node = BVHNode(combined_box^, left_idx, right_idx, -1)
-        self.nodes.append(node^)
-        return len(self.nodes) - 1
+        return HitRecord(p, normal, obj.material_id, t, ray)
 
 
 struct Camera(Copyable):
@@ -518,7 +361,7 @@ struct Camera(Copyable):
         self.defocus_disk_u = self.u * defocus_radius
         self.defocus_disk_v = self.v * defocus_radius
 
-    def ray_color(self, ray: Ray, world: BVH, mut rng: Rng) -> Color:
+    def ray_color(self, ray: Ray, world: World, mut rng: Rng) -> Color:
         var cur_ray = ray.copy()
         var accumulated_attenuation = Color(1.0, 1.0, 1.0)
 
@@ -560,8 +403,8 @@ struct Camera(Copyable):
                 var start_value = Color(1.0, 1.0, 1.0)
                 var end_value = Color(0.5, 0.7, 1.0)
 
-                var unit_direction = cur_ray.direction.copy()
-                a = 0.5 * (unit_direction.y + 1.0)
+                var unit_direction = normalize(cur_ray.direction)
+                var a = 0.5 * (unit_direction.y + 1.0)
                 var sky_color = (1.0 - a) * start_value + a * end_value
                 # Final result is the sky color tinted by all previous bounces
                 return accumulated_attenuation * sky_color
@@ -569,7 +412,7 @@ struct Camera(Copyable):
         # If we exceeded the depth without hitting the sky, return black
         return Color(0)
 
-    def render(self, world: BVH) raises:
+    def render(self, world: World) raises:
         var image_data = List[Color](
             length=self.image_width * self.image_height, fill=Color(0)
         )
@@ -581,18 +424,19 @@ struct Camera(Copyable):
             for i in range(self.image_width):
                 var pixel_color = Color(0)
                 for _sample in range(self.samples_per_pixel):
-                    r = self.get_ray(i, j, rng)
+                    var r = self.get_ray(i, j, rng)
                     pixel_color += self.ray_color(r, world, rng)
 
                 image_data[j * self.image_width + i] = pixel_color * factor
 
         parallelize[worker](self.image_height, self.image_height)
-        # parallelize[worker](self.image_height, 1)
 
-        with open("rtiaw.ppm", "w") as f:
-            f.write(t"P3\n{self.image_width} {self.image_height}\n255\n")
-            for color in image_data:
-                write_color(f, color)
+        write_ppm_from_colors(
+            "rtiaw_bajo.ppm",
+            self.image_width,
+            self.image_height,
+            image_data,
+        )
 
     def get_ray(self, i: Int, j: Int, mut rng: Rng) -> Ray:
         var r1 = rng.f32()
@@ -736,7 +580,7 @@ def reflectance[
 def create_random_scene() -> Scene:
     rng = Rng(123, 321)
     materials = List[MaterialVariant]()
-    objects = List[HittableVariant]()
+    objects = List[Sphere]()
 
     # Ground material
     materials.append(Lambertian(Color(0.5, 0.5, 0.5)))
@@ -799,12 +643,12 @@ def create_random_scene() -> Scene:
         defocus_angle=0.6,
         focus_dist=10.0,
     )
-    world = BVH(objects^, materials^)
+    world = World(objects^, materials^)
     return Scene(cam^, world^)
 
 
 def create_basic_scene() -> Scene:
-    world = BVH(
+    world = World(
         [
             Sphere(Point3(0, -100.5, -1), 100, 0),
             Sphere(Point3(0, 0, -1.2), 0.5, 1),
@@ -838,7 +682,7 @@ def create_basic_scene() -> Scene:
 
 def create_top_scene() -> Scene:
     R = Float32(cos(pi / 4))
-    world = BVH(
+    world = World(
         [Sphere(Point3(-R, 0, -1), R, 0), Sphere(Point3(R, 0, -1), R, 1)],
         [Lambertian(Color(0, 0, 1)), Lambertian(Color(1, 0, 0))],
     )

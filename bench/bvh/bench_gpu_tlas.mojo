@@ -24,12 +24,9 @@ from bajo.core.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.core.bvh.cpu.tlas import Tlas, BvhInstance
 
 
-from bajo.core.bvh.gpu.bounds_bvh import (
-    GpuTriangleBvh,
-    GpuSphereBvh,
-    GpuTlas,
-    GpuTlasInstance,
-)
+from bajo.core.bvh.gpu.tlas import GpuTlas, GpuTlasInstance
+from bajo.core.bvh.gpu.sphere_bvh import GpuSphereBvh
+from bajo.core.bvh.gpu.triangle_bvh import GpuTriangleBvh
 from bajo.core.bvh.gpu.utils import _upload_rays, _download_full_hit_checksum
 
 
@@ -113,8 +110,7 @@ def _make_cpu_instances(instances: List[GpuTlasInstance]) -> List[BvhInstance]:
 
 
 def _cpu_tlas_triangle_reference[
-    tlas_width: Int,
-    blas_width: Int,
+    tlas_width: Int, blas_width: Int
 ](
     cpu_blas: TriangleBvh[blas_width],
     instances: List[GpuTlasInstance],
@@ -778,10 +774,8 @@ def _run_sphere_tlas_width[
     keep(shadow[1])
 
 
-def _make_sphere_scene(
-    count_x: Int, count_y: Int
-) -> Tuple[List[GpuSphere], AABB]:
-    var spheres = List[GpuSphere](capacity=count_x * count_y)
+def _make_sphere_scene(count_x: Int, count_y: Int) -> Tuple[List[Sphere], AABB]:
+    var spheres = List[Sphere](capacity=count_x * count_y)
     var bounds = AABB.invalid()
 
     for y in range(count_y):
@@ -790,7 +784,7 @@ def _make_sphere_scene(
             var cy = (Float32(y) - Float32(count_y - 1) * 0.5) * 3.0
             var cz = 8.0 + Float32((x + y) % 5) * 0.5
             var r = Float32(0.8)
-            spheres.append(GpuSphere(Vec3f32(cx, cy, cz), r))
+            spheres.append(Sphere(Vec3f32(cx, cy, cz), r))
             bounds.grow(Vec3f32(cx - r, cy - r, cz - r))
             bounds.grow(Vec3f32(cx + r, cy + r, cz + r))
 
@@ -798,7 +792,7 @@ def _make_sphere_scene(
 
 
 def _bench_triangle_instance_set[
-    side: Int,
+    side: Int
 ](
     mut ctx: DeviceContext,
     blas: GpuTriangleBvh[4],

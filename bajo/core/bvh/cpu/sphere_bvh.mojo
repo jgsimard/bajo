@@ -28,7 +28,7 @@ struct SphereLeafBlock[width: Int](Copyable):
         self.valid_lane = SIMD[DType.bool, Self.width](fill=False)
 
 
-struct SphereBvh[width: Int, split_method: String = "median"](Copyable):
+struct SphereBvh[width: Int](Copyable):
     """Sphere-specific wrapper around BoundsBvh[width].
     The generic tree is built from BoundsItem ranges.
     After construction, sphere leaf data is packed into SphereLeafBlock.
@@ -42,7 +42,9 @@ struct SphereBvh[width: Int, split_method: String = "median"](Copyable):
     var leaf_blocks: List[SphereLeafBlock[Self.width]]
     var sphere_count: UInt32
 
-    def __init__(
+    def __init__[
+        split_method: String = "median"
+    ](
         out self,
         spheres: UnsafePointer[Sphere, MutAnyOrigin],
         sphere_count: UInt32,
@@ -58,7 +60,8 @@ struct SphereBvh[width: Int, split_method: String = "median"](Copyable):
             self.spheres.append(s)
             items.append(BoundsItem(s.bounds(), UInt32(i)))
 
-        var builder = BoundsBvhBuilder[Self.split_method, Self.width](items)
+        var builder = BoundsBvhBuilder[Self.width](items)
+        builder.build[split_method]()
 
         self.tree = BoundsBvh[Self.width](builder)
 

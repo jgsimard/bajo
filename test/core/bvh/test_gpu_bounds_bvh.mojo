@@ -184,8 +184,8 @@ def _make_triangle_leaf_bounds(
 
 
 def _trace_cpu_triangle_bvh[
-    width: Int, split_method: String
-](mut bvh: TriangleBvh[width, split_method], rays: List[Ray],) -> Float64:
+    width: Int
+](mut bvh: TriangleBvh[width], rays: List[Ray],) -> Float64:
     var checksum = Float64(0.0)
     for i in range(len(rays)):
         var ray = rays[i].copy()
@@ -251,7 +251,7 @@ def _assert_gpu_triangle_width_matches_cpu[
     width: Int
 ](verts: List[Vec3f32]) raises:
     var v = verts.copy()
-    var cpu_bvh = TriangleBvh[width, "lbvh"](
+    var cpu_bvh = TriangleBvh[width].__init__["lbvh"](
         v.unsafe_ptr(), UInt32(len(verts) / 3)
     )
     var rays = generate_primary_rays(

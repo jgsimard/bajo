@@ -542,14 +542,12 @@ struct GpuBoundsBvh[width: Int]:
         self.max_leaf_blocks = max(self.internal_count * Self.width, 1)
         self.collapse_ns = 0
 
-        self.blocks_leaves = ceildiv(
-            max(self.leaf_count, 1), GPU_BOUNDS_BVH_BLOCK_SIZE
-        )
-        self.blocks_internal = ceildiv(
-            max(self.internal_count, 1), GPU_BOUNDS_BVH_BLOCK_SIZE
-        )
+        n_leaf = max(self.leaf_count, 1)
+        n_internal = max(self.internal_count, 1)
+        self.blocks_leaves = ceildiv(n_leaf, GPU_BOUNDS_BVH_BLOCK_SIZE)
+        self.blocks_internal = ceildiv(n_internal, GPU_BOUNDS_BVH_BLOCK_SIZE)
         self.blocks_init = ceildiv(
-            max(max(self.leaf_count, self.internal_count), 1),
+            max(n_leaf, n_internal),
             GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
 
@@ -558,24 +556,16 @@ struct GpuBoundsBvh[width: Int]:
 
         self.leaf_bounds = _copy_f32_to_device(ctx, self.leaf_bounds_host)
         self.leaf_payloads = _copy_u32_to_device(ctx, self.leaf_payloads_host)
-        self.keys = ctx.enqueue_create_buffer[DType.uint32](
-            max(self.leaf_count, 1)
-        )
-        self.values = ctx.enqueue_create_buffer[DType.uint32](
-            max(self.leaf_count, 1)
-        )
+        self.keys = ctx.enqueue_create_buffer[DType.uint32](n_leaf)
+        self.values = ctx.enqueue_create_buffer[DType.uint32](n_leaf)
         self.node_meta = ctx.enqueue_create_buffer[DType.uint32](
-            max(self.internal_count, 1) * LBVH_NODE_META_STRIDE
+            n_internal * LBVH_NODE_META_STRIDE
         )
-        self.leaf_parent = ctx.enqueue_create_buffer[DType.uint32](
-            max(self.leaf_count, 1)
-        )
+        self.leaf_parent = ctx.enqueue_create_buffer[DType.uint32](n_leaf)
         self.node_bounds = ctx.enqueue_create_buffer[DType.float32](
-            max(self.internal_count, 1) * LBVH_NODE_BOUNDS_STRIDE
+            n_internal * LBVH_NODE_BOUNDS_STRIDE
         )
-        self.node_flags = ctx.enqueue_create_buffer[DType.uint32](
-            max(self.internal_count, 1)
-        )
+        self.node_flags = ctx.enqueue_create_buffer[DType.uint32](n_internal)
 
         # Wide node index is the binary internal node index. Leaf blocks are
         # allocated on the GPU during collapse with an atomic counter.
@@ -592,7 +582,7 @@ struct GpuBoundsBvh[width: Int]:
             self.max_leaf_blocks * Self.width
         )
         self.node_leaf_counts = ctx.enqueue_create_buffer[DType.uint32](
-            max(self.internal_count, 1)
+            n_internal
         )
         self.leaf_block_counter = ctx.enqueue_create_buffer[DType.uint32](1)
         self.wide_root = ctx.enqueue_create_buffer[DType.uint32](1)
@@ -608,14 +598,8 @@ struct GpuBoundsBvh[width: Int]:
             return GpuBuildTimings(0, 0, 0, 0, 0, 0)
 
         var centroid_bounds = self._compute_centroid_bounds()
-        var extent = centroid_bounds._max - centroid_bounds._min
-        var inv = Vec3f32(0.0)
-        if extent.x > 0.0:
-            inv.x = 1.0 / extent.x
-        if extent.y > 0.0:
-            inv.y = 1.0 / extent.y
-        if extent.z > 0.0:
-            inv.z = 1.0 / extent.z
+        var extent = centroid_bounds.extent()
+        var inv = extent.safe_inv()
 
         ctx.enqueue_function[compute_bounds_morton_codes_kernel](
             self.leaf_bounds.unsafe_ptr(),

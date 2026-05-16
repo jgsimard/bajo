@@ -18,9 +18,10 @@ from bajo.core.bvh.host_utils import (
     flatten_rays,
     hit_t_for_checksum,
 )
-from bajo.core.bvh.types import Ray
+from bajo.core.bvh.types import Ray, Sphere
 from bajo.core.bvh.cpu.triangle_bvh import TriangleBvh
-from bajo.core.bvh.gpu.bounds_bvh import GpuTriangleBvh, GpuSphere, GpuSphereBvh
+from bajo.core.bvh.gpu.sphere_bvh import GpuSphereBvh
+from bajo.core.bvh.gpu.triangle_bvh import GpuTriangleBvh
 from bajo.core.bvh.gpu.utils import _upload_rays, _download_full_hit_checksum
 
 
@@ -214,20 +215,20 @@ def _run_width[
     keep(res[2])
 
 
-def _make_sphere_grid() -> List[GpuSphere]:
-    var spheres = List[GpuSphere](capacity=SPHERE_GRID_X * SPHERE_GRID_Y)
+def _make_sphere_grid() -> List[Sphere]:
+    var spheres = List[Sphere](capacity=SPHERE_GRID_X * SPHERE_GRID_Y)
 
     for y in range(SPHERE_GRID_Y):
         for x in range(SPHERE_GRID_X):
             var fx = Float32(x) - Float32(SPHERE_GRID_X) * 0.5
             var fy = Float32(y) - Float32(SPHERE_GRID_Y) * 0.5
             var z = Float32(4 + ((x + y) % 8))
-            spheres.append(GpuSphere(Vec3f32(fx * 2.5, fy * 2.5, z), 0.75))
+            spheres.append(Sphere(Vec3f32(fx * 2.5, fy * 2.5, z), 0.75))
 
     return spheres^
 
 
-def _sphere_bounds(spheres: List[GpuSphere]) -> AABB:
+def _sphere_bounds(spheres: List[Sphere]) -> AABB:
     var bounds = AABB.invalid()
     for i in range(len(spheres)):
         ref s = spheres[i]
@@ -277,7 +278,7 @@ def _run_sphere_width[
     width: Int
 ](
     mut ctx: DeviceContext,
-    spheres: List[GpuSphere],
+    spheres: List[Sphere],
     rays_flat: List[Float32],
     ray_count: Int,
     repeats: Int,

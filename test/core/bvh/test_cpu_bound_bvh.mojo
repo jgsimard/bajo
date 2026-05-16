@@ -246,9 +246,9 @@ def _assert_wide_leaf_counts_at_most_width[
 
 
 def _assert_triangle_bvh_matches_bruteforce[
-    width: Int, split_method: String
+    width: Int
 ](
-    mut bvh: TriangleBvh[width, split_method],
+    mut bvh: TriangleBvh[width],
     verts: List[Vec3f32],
     O: Vec3f32,
     D: Vec3f32,
@@ -277,9 +277,9 @@ def _assert_triangle_bvh_matches_bruteforce[
 
 
 def _assert_sphere_bvh_matches_bruteforce[
-    width: Int, split_method: String
+    width: Int
 ](
-    mut bvh: SphereBvh[width, split_method],
+    mut bvh: SphereBvh[width],
     spheres: List[Sphere],
     O: Vec3f32,
     D: Vec3f32,
@@ -327,7 +327,8 @@ def _make_identity_sphere_instance[
 
 def test_bounds_bvh_empty_input() raises:
     var items = List[BoundsItem]()
-    var builder = BoundsBvhBuilder["median", 4](items)
+    var builder = BoundsBvhBuilder[4](items)
+    builder.build["median"]()
 
     assert_true(builder.item_count == 0)
     assert_true(builder.nodes_used == 0)
@@ -340,7 +341,8 @@ def test_bounds_bvh_leaf_size_2_invariant() raises:
     var verts = _make_strip(12)
     var items = _make_bounds_items(verts)
 
-    var builder = BoundsBvhBuilder["median", 2](items)
+    var builder = BoundsBvhBuilder[2](items)
+    builder.build["median"]()
 
     assert_true(builder.nodes_used > 0)
     _assert_builder_leaf_sizes_at_most(builder, UInt32(2))
@@ -353,7 +355,8 @@ def test_bounds_bvh_leaf_size_4_invariant() raises:
     var verts = _make_strip(24)
     var items = _make_bounds_items(verts)
 
-    var builder = BoundsBvhBuilder["median", 4](items)
+    var builder = BoundsBvhBuilder[4](items)
+    builder.build["median"]()
 
     assert_true(builder.nodes_used > 0)
     _assert_builder_leaf_sizes_at_most(builder, UInt32(4))
@@ -366,7 +369,8 @@ def test_bounds_bvh_leaf_size_8_invariant() raises:
     var verts = _make_strip(40)
     var items = _make_bounds_items(verts)
 
-    var builder = BoundsBvhBuilder["median", 8](items)
+    var builder = BoundsBvhBuilder[8](items)
+    builder.build["median"]()
 
     assert_true(builder.nodes_used > 0)
     _assert_builder_leaf_sizes_at_most(builder, UInt32(8))
@@ -379,7 +383,8 @@ def test_wide_bounds_root_bounds_is_valid() raises:
     var verts = _make_strip(4)
     var items = _make_bounds_items(verts)
 
-    var builder = BoundsBvhBuilder["median", 4](items)
+    var builder = BoundsBvhBuilder[4](items)
+    builder.build["median"]()
 
     var wide = BoundsBvh[4](builder)
     var bounds = wide.root_bounds()
@@ -392,7 +397,7 @@ def test_wide_bounds_root_bounds_is_valid() raises:
 
 def test_triangle_bvh2_leaf_size_equals_width_returns_nearest_triangle() raises:
     var verts = _make_depth_pair()
-    var bvh = TriangleBvh[2, "median"](
+    var bvh = TriangleBvh[2].__init__["median"](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
@@ -406,7 +411,7 @@ def test_triangle_bvh2_leaf_size_equals_width_returns_nearest_triangle() raises:
 
 def test_triangle_bvh2_leaf_size_equals_width_matches_bruteforce() raises:
     var verts = _make_strip(24)
-    var bvh = TriangleBvh[2, "median"](
+    var bvh = TriangleBvh[2].__init__["median"](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
@@ -424,7 +429,7 @@ def test_triangle_bvh2_leaf_size_equals_width_matches_bruteforce() raises:
 
 def test_triangle_bvh4_leaf_size_equals_width_matches_bruteforce() raises:
     var verts = _make_strip(32)
-    var bvh = TriangleBvh[4, "median"](
+    var bvh = TriangleBvh[4].__init__["median"](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
@@ -442,7 +447,7 @@ def test_triangle_bvh4_leaf_size_equals_width_matches_bruteforce() raises:
 
 def test_triangle_bvh8_leaf_size_equals_width_matches_bruteforce() raises:
     var verts = _make_strip(40)
-    var bvh = TriangleBvh[8, "median"](
+    var bvh = TriangleBvh[8].__init__["median"](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
@@ -460,7 +465,7 @@ def test_triangle_bvh8_leaf_size_equals_width_matches_bruteforce() raises:
 
 def test_triangle_bvh4_shadow_hit_and_miss() raises:
     var verts = _make_strip(8)
-    var bvh = TriangleBvh[4, "median"](
+    var bvh = TriangleBvh[4].__init__["median"](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
@@ -475,7 +480,7 @@ def test_triangle_bvh4_shadow_hit_and_miss() raises:
 
 def test_triangle_bvh4_sah_leaf_size_equals_width_matches_bruteforce() raises:
     var verts = _make_strip(48)
-    var bvh = TriangleBvh[4, "sah"](
+    var bvh = TriangleBvh[4].__init__["sah"](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
@@ -501,7 +506,7 @@ def test_sphere_bounds() raises:
 
 def test_sphere_bvh4_returns_nearest_sphere() raises:
     var spheres = _make_spheres()
-    var bvh = SphereBvh[4, "median"](
+    var bvh = SphereBvh[4](
         spheres.unsafe_ptr(),
         UInt32(len(spheres)),
     )
@@ -520,7 +525,7 @@ def test_sphere_bvh4_returns_nearest_sphere() raises:
 
 def test_sphere_bvh2_matches_bruteforce() raises:
     var spheres = _make_spheres()
-    var bvh = SphereBvh[2, "median"](
+    var bvh = SphereBvh[2](
         spheres.unsafe_ptr(),
         UInt32(len(spheres)),
     )
@@ -547,7 +552,7 @@ def test_sphere_bvh2_matches_bruteforce() raises:
 
 def test_sphere_bvh4_shadow_hit_and_miss() raises:
     var spheres = _make_spheres()
-    var bvh = SphereBvh[4, "median"](
+    var bvh = SphereBvh[4](
         spheres.unsafe_ptr(),
         UInt32(len(spheres)),
     )
@@ -561,7 +566,7 @@ def test_sphere_bvh4_shadow_hit_and_miss() raises:
 
 def test_sphere_bvh4_sah_matches_bruteforce() raises:
     var spheres = _make_spheres()
-    var bvh = SphereBvh[4, "sah"](
+    var bvh = SphereBvh[4].__init__["sah"](
         spheres.unsafe_ptr(),
         UInt32(len(spheres)),
     )
@@ -583,7 +588,7 @@ def test_sphere_bvh4_sah_matches_bruteforce() raises:
 def test_tlas_triangle_single_instance_matches_blas() raises:
     var verts = _make_strip(8)
 
-    var blas = TriangleBvh[4, "median"](
+    var blas = TriangleBvh[4].__init__["median"](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
@@ -618,11 +623,11 @@ def test_tlas_triangle_two_instances_returns_nearest_instance() raises:
     far_verts.append(Vec3f32(1.0, -1.0, 10.0))
     far_verts.append(Vec3f32(0.0, 1.0, 10.0))
 
-    var near_blas = TriangleBvh[4, "median"](
+    var near_blas = TriangleBvh[4].__init__["median"](
         near_verts.unsafe_ptr(),
         UInt32(len(near_verts) / 3),
     )
-    var far_blas = TriangleBvh[4, "median"](
+    var far_blas = TriangleBvh[4].__init__["median"](
         far_verts.unsafe_ptr(),
         UInt32(len(far_verts) / 3),
     )
@@ -648,7 +653,7 @@ def test_tlas_triangle_two_instances_returns_nearest_instance() raises:
 def test_tlas_triangle_shadow_hit_and_miss() raises:
     var verts = _make_strip(8)
 
-    var blas = TriangleBvh[4, "median"](
+    var blas = TriangleBvh[4].__init__["median"](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
@@ -673,7 +678,7 @@ def test_tlas_triangle_shadow_hit_and_miss() raises:
 def test_tlas_sphere_single_instance_matches_blas() raises:
     var spheres = _make_spheres()
 
-    var blas = SphereBvh[4, "median"](
+    var blas = SphereBvh[4](
         spheres.unsafe_ptr(),
         UInt32(len(spheres)),
     )
@@ -701,11 +706,11 @@ def test_tlas_sphere_two_instances_returns_nearest_instance() raises:
     var near_spheres = [Sphere(Vec3f32(0.0, 0.0, 2.0), 1.0)]
     var far_spheres = [Sphere(Vec3f32(0.0, 0.0, 8.0), 1.0)]
 
-    var near_blas = SphereBvh[4, "median"](
+    var near_blas = SphereBvh[4](
         near_spheres.unsafe_ptr(),
         UInt32(len(near_spheres)),
     )
-    var far_blas = SphereBvh[4, "median"](
+    var far_blas = SphereBvh[4](
         far_spheres.unsafe_ptr(),
         UInt32(len(far_spheres)),
     )
@@ -731,7 +736,7 @@ def test_tlas_sphere_two_instances_returns_nearest_instance() raises:
 def test_tlas_sphere_shadow_hit_and_miss() raises:
     var spheres = _make_spheres()
 
-    var blas = SphereBvh[4, "median"](
+    var blas = SphereBvh[4](
         spheres.unsafe_ptr(),
         UInt32(len(spheres)),
     )
@@ -809,7 +814,8 @@ def test_bounds_sah_clear_separation() raises:
         Vec3f32(10.0, 1.0, 0.0),  # Tri 1, centered near x=10
     ]
     var items = _make_bounds_items(verts)
-    var builder = BoundsBvhBuilder["sah", 2](items)
+    var builder = BoundsBvhBuilder[2](items)
+    builder.build["sah"]()
 
     var split = _sah_items(
         builder.nodes[0],
@@ -833,7 +839,8 @@ def test_bounds_sah_degenerate() raises:
         Vec3f32(0.0, 1.0, 0.0),
     ]
     var items = _make_bounds_items(verts)
-    var builder = BoundsBvhBuilder["sah", 2](items)
+    var builder = BoundsBvhBuilder[2](items)
+    builder.build["sah"]()
 
     var split = _sah_items(
         builder.nodes[0],
@@ -855,7 +862,8 @@ def test_bounds_partition_items_non_empty() raises:
         Vec3f32(10.0, 1.0, 0.0),
     ]
     var items = _make_bounds_items(verts)
-    var builder = BoundsBvhBuilder["median", 2](items)
+    var builder = BoundsBvhBuilder[2](items)
+    builder.build["sah"]()
 
     var split_idx = _partition_items(
         builder.item_indices.unsafe_ptr(),
@@ -872,7 +880,7 @@ def test_bounds_partition_items_non_empty() raises:
 
 def test_triangle_bvh4_median_matches_bruteforce_many_random_rays() raises:
     var verts = _make_random_xy_triangles(64, UInt64(12345))
-    var bvh = TriangleBvh[4, "median"](
+    var bvh = TriangleBvh[4].__init__["median"](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
@@ -890,7 +898,7 @@ def test_triangle_bvh4_median_matches_bruteforce_many_random_rays() raises:
 
 def test_triangle_bvh4_sah_matches_bruteforce_many_random_rays() raises:
     var verts = _make_random_xy_triangles(96, UInt64(98765))
-    var bvh = TriangleBvh[4, "sah"](
+    var bvh = TriangleBvh[4].__init__["sah"](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
@@ -908,7 +916,7 @@ def test_triangle_bvh4_sah_matches_bruteforce_many_random_rays() raises:
 
 def test_triangle_bvh4_sah_reports_original_primitive_after_reorder() raises:
     var verts = _make_strip(8)
-    var bvh = TriangleBvh[4, "sah"](
+    var bvh = TriangleBvh[4].__init__["sah"](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
@@ -926,7 +934,8 @@ def test_bounds_bvh_lbvh_leaf_size_4_invariant() raises:
     var verts = _make_random_xy_triangles(96, UInt64(606060))
     var items = _make_bounds_items(verts)
 
-    var builder = BoundsBvhBuilder["lbvh", 4](items)
+    var builder = BoundsBvhBuilder[4](items)
+    builder.build["lbvh"]()
 
     assert_true(builder.nodes_used > 1)
     assert_true(Int(builder.nodes_used) <= len(builder.nodes))
@@ -940,7 +949,7 @@ def test_bounds_bvh_lbvh_leaf_size_4_invariant() raises:
 
 def test_triangle_bvh4_lbvh_matches_bruteforce_many_random_rays() raises:
     var verts = _make_random_xy_triangles(128, UInt64(707070))
-    var bvh = TriangleBvh[4, "lbvh"](
+    var bvh = TriangleBvh[4].__init__["lbvh"](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
@@ -960,7 +969,7 @@ def test_triangle_bvh4_lbvh_matches_bruteforce_many_random_rays() raises:
 
 def test_triangle_bvh8_lbvh_matches_bruteforce_many_random_rays() raises:
     var verts = _make_random_xy_triangles(128, UInt64(808080))
-    var bvh = TriangleBvh[8, "lbvh"](
+    var bvh = TriangleBvh[8].__init__["lbvh"](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
@@ -980,7 +989,7 @@ def test_triangle_bvh8_lbvh_matches_bruteforce_many_random_rays() raises:
 
 def test_sphere_bvh4_lbvh_matches_bruteforce() raises:
     var spheres = _make_spheres()
-    var bvh = SphereBvh[4, "lbvh"](
+    var bvh = SphereBvh[4].__init__["lbvh"](
         spheres.unsafe_ptr(),
         UInt32(len(spheres)),
     )

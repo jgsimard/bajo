@@ -79,7 +79,7 @@ def _sphere_instance[
 def test_tlas_translated_triangle_instance_hit() raises:
     var verts = _make_one_local_triangle_z2()
 
-    var blas = TriangleBvh[4, "median"](
+    var blas = TriangleBvh[4](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
@@ -104,7 +104,7 @@ def test_tlas_translated_triangle_instance_hit() raises:
 def test_tlas_translated_triangle_instance_miss() raises:
     var verts = _make_one_local_triangle_z2()
 
-    var blas = TriangleBvh[4, "median"](
+    var blas = TriangleBvh[4](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
@@ -127,11 +127,11 @@ def test_tlas_translated_triangle_instance_miss() raises:
 def test_tlas_translated_triangle_two_instances_nearest_wins() raises:
     var verts = _make_one_local_triangle_z2()
 
-    var near_blas = TriangleBvh[4, "median"](
+    var near_blas = TriangleBvh[4](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
-    var far_blas = TriangleBvh[4, "median"](
+    var far_blas = TriangleBvh[4](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
@@ -157,7 +157,7 @@ def test_tlas_translated_triangle_two_instances_nearest_wins() raises:
 def test_tlas_translated_triangle_shadow_hit_and_miss() raises:
     var verts = _make_one_local_triangle_z2()
 
-    var blas = TriangleBvh[4, "median"](
+    var blas = TriangleBvh[4](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
@@ -187,7 +187,7 @@ def test_tlas_translated_triangle_shadow_hit_and_miss() raises:
 def test_tlas_translated_sphere_instance_hit() raises:
     var spheres = _make_one_local_sphere_z2()
 
-    var blas = SphereBvh[4, "median"](
+    var blas = SphereBvh[4](
         spheres.unsafe_ptr(),
         UInt32(len(spheres)),
     )
@@ -212,7 +212,7 @@ def test_tlas_translated_sphere_instance_hit() raises:
 def test_tlas_translated_sphere_instance_miss() raises:
     var spheres = _make_one_local_sphere_z2()
 
-    var blas = SphereBvh[4, "median"](
+    var blas = SphereBvh[4](
         spheres.unsafe_ptr(),
         UInt32(len(spheres)),
     )
@@ -234,11 +234,11 @@ def test_tlas_translated_sphere_instance_miss() raises:
 def test_tlas_translated_sphere_two_instances_nearest_wins() raises:
     var spheres = _make_one_local_sphere_z2()
 
-    var near_blas = SphereBvh[4, "median"](
+    var near_blas = SphereBvh[4](
         spheres.unsafe_ptr(),
         UInt32(len(spheres)),
     )
-    var far_blas = SphereBvh[4, "median"](
+    var far_blas = SphereBvh[4](
         spheres.unsafe_ptr(),
         UInt32(len(spheres)),
     )
@@ -264,7 +264,7 @@ def test_tlas_translated_sphere_two_instances_nearest_wins() raises:
 def test_tlas_translated_sphere_shadow_hit_and_miss() raises:
     var spheres = _make_one_local_sphere_z2()
 
-    var blas = SphereBvh[4, "median"](
+    var blas = SphereBvh[4](
         spheres.unsafe_ptr(),
         UInt32(len(spheres)),
     )

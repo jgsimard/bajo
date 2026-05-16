@@ -129,7 +129,8 @@ struct Tlas[width: Int](Copyable):
             ref inst = self.instances[i]
             items.append(BoundsItem(inst.bounds, UInt32(i)))
 
-        var builder = BoundsBvhBuilder[split_method, Self.width](items)
+        var builder = BoundsBvhBuilder[Self.width](items)
+        builder.build()
 
         self.tree = BoundsBvh[Self.width](builder)
 

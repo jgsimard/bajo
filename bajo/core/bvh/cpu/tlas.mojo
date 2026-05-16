@@ -1,20 +1,11 @@
-from std.utils.numerics import max_finite, min_finite
-
 from bajo.core.aabb import AABB
-from bajo.core.bvh.cpu.binary_bvh import BinaryBvh
-from bajo.core.bvh.cpu.traverse import (
-    advance_to_child_hits,
-    pop_stack_or_done,
-)
-from bajo.core.bvh.types import BvhNode, Ray
-from bajo.core.intersect import intersect_ray_aabb
+from bajo.core.vec import Vec3, Vec3f32, vmin, vmax, longest_axis, dot
+from bajo.core.bvh.types import Ray
 from bajo.core.mat import Mat44f32, transform_point, transform_vector
-from bajo.core.vec import Vec3f32, longest_axis, vmin, vmax
-
-
-comptime f32_max = max_finite[DType.float32]()
-comptime f32_min = min_finite[DType.float32]()
-comptime TLAS_LEAF_SIZE = UInt32(2)
+from bajo.core.bvh.cpu.triangle_bvh import TriangleBvh
+from bajo.core.bvh.cpu.sphere_bvh import SphereBvh
+from bajo.core.bvh.cpu.bounds_bvh import BoundsBvh, BoundsBvhBuilder, BoundsItem
+from bajo.core.bvh.cpu.traverse import traverse_wide_ray_bvh
 
 
 @fieldwise_init
@@ -23,12 +14,8 @@ struct BvhInstance(Copyable):
 
     - `transform` maps BLAS-local points/vectors to world space.
     - `inv_transform` maps world-space rays to BLAS-local space.
-    - `bounds_min/max` store the transformed world-space BLAS root AABB.
-    - `blas_idx` indexes the BLAS array passed to `Tlas.traverse`.
-
-    Traversal assumes rigid transforms or uniform scale, so the local-space hit
-    `t` can be compared directly with the world-space ray `t`. General affine
-    transforms need explicit world-space distance reconstruction.
+    - `bounds` is the transformed world-space root AABB.
+    - `blas_idx` indexes the BLAS array passed to traversal.
     """
 
     var transform: Mat44f32
@@ -49,272 +36,298 @@ struct BvhInstance(Copyable):
         transform: Mat44f32,
         inv_transform: Mat44f32,
         blas_idx: UInt32,
-        blas_min: Vec3f32,
-        blas_max: Vec3f32,
+        blas_bounds: AABB,
     ):
         self.transform = transform.copy()
         self.inv_transform = inv_transform.copy()
         self.blas_idx = blas_idx
-
-        # Transform all 8 local BLAS AABB corners and re-bound them in world space
-        var corners = InlineArray[Vec3f32, 8](fill=Vec3f32(0.0))
-        corners[0] = Vec3f32(blas_min.x, blas_min.y, blas_min.z)
-        corners[1] = Vec3f32(blas_max.x, blas_min.y, blas_min.z)
-        corners[2] = Vec3f32(blas_min.x, blas_max.y, blas_min.z)
-        corners[3] = Vec3f32(blas_max.x, blas_max.y, blas_min.z)
-        corners[4] = Vec3f32(blas_min.x, blas_min.y, blas_max.z)
-        corners[5] = Vec3f32(blas_max.x, blas_min.y, blas_max.z)
-        corners[6] = Vec3f32(blas_min.x, blas_max.y, blas_max.z)
-        corners[7] = Vec3f32(blas_max.x, blas_max.y, blas_max.z)
-
-        var bounds = AABB.invalid()
-        comptime for i in range(8):
-            var p = transform_point(transform, corners[i])
-            bounds.grow(p)
-        self.bounds = bounds
+        self.bounds = _transform_bounds(transform, blas_bounds)
 
     @staticmethod
-    def from_blas(
+    def from_triangle_blas[
+        blas_width: Int
+    ](
         transform: Mat44f32,
         inv_transform: Mat44f32,
         blas_idx: UInt32,
-        blas: BinaryBvh,
+        blas: TriangleBvh[blas_width],
     ) -> BvhInstance:
-        ref root = blas.bvh_nodes[0]
         return BvhInstance(
             transform,
             inv_transform,
             blas_idx,
-            root.aabb._min,
-            root.aabb._max,
+            blas.bounds(),
         )
 
-    @always_inline
-    def centroid_axis(self, axis: Int) -> Float32:
-        return self.bounds.centroid()[axis]
+    @staticmethod
+    def from_sphere_blas[
+        blas_width: Int
+    ](
+        transform: Mat44f32,
+        inv_transform: Mat44f32,
+        blas_idx: UInt32,
+        blas: SphereBvh[blas_width],
+    ) -> BvhInstance:
+        return BvhInstance(
+            transform,
+            inv_transform,
+            blas_idx,
+            blas.bounds(),
+        )
 
 
-struct Tlas(Copyable):
-    """CPU top-level acceleration structure over BLAS instances.
+@always_inline
+def _transform_bounds(transform: Mat44f32, bounds: AABB) -> AABB:
+    var corners = InlineArray[Vec3f32, 8](fill=Vec3f32(0.0))
 
-    It owns its instance list and uses the same `BvhNode` layout as `BinaryBvh`: leaves
-    store a range in `inst_indices`; internal nodes store two children at
-    `left_first` and `left_first + 1`.
-    """
+    corners[0] = Vec3f32(bounds._min.x, bounds._min.y, bounds._min.z)
+    corners[1] = Vec3f32(bounds._max.x, bounds._min.y, bounds._min.z)
+    corners[2] = Vec3f32(bounds._min.x, bounds._max.y, bounds._min.z)
+    corners[3] = Vec3f32(bounds._max.x, bounds._max.y, bounds._min.z)
+    corners[4] = Vec3f32(bounds._min.x, bounds._min.y, bounds._max.z)
+    corners[5] = Vec3f32(bounds._max.x, bounds._min.y, bounds._max.z)
+    corners[6] = Vec3f32(bounds._min.x, bounds._max.y, bounds._max.z)
+    corners[7] = Vec3f32(bounds._max.x, bounds._max.y, bounds._max.z)
 
-    var tlas_nodes: List[BvhNode]
-    var inst_indices: List[UInt32]
+    var out = AABB.invalid()
+
+    comptime for i in range(8):
+        var p = transform_point(transform, corners[i])
+        out.grow(p)
+
+    return out
+
+
+struct Tlas[width: Int](Copyable):
+    """Wide TLAS over BvhInstance records."""
+
+    var tree: BoundsBvh[Self.width]
     var instances: List[BvhInstance]
     var inst_count: UInt32
-    var nodes_used: UInt32
 
     def __init__(out self):
-        self.tlas_nodes = List[BvhNode]()
-        self.inst_indices = List[UInt32]()
+        self.tree = BoundsBvh[Self.width]()
         self.instances = List[BvhInstance]()
         self.inst_count = 0
-        self.nodes_used = 0
-        self._reset_build_state()
 
     def __init__(out self, instances: List[BvhInstance]):
-        self.tlas_nodes = List[BvhNode]()
-        self.inst_indices = List[UInt32]()
+        self.tree = BoundsBvh[Self.width]()
         self.instances = instances.copy()
-        self.inst_count = 0
-        self.nodes_used = 0
-
-        self._reset_build_state()
+        self.inst_count = UInt32(len(self.instances))
+        self.build["median"]()
 
     def add_instance(mut self, instance: BvhInstance):
         self.instances.append(instance.copy())
-        self._reset_build_state()
-
-    def _reset_build_state(mut self):
         self.inst_count = UInt32(len(self.instances))
-        if self.inst_count > 0:
-            self.nodes_used = 1
-        else:
-            self.nodes_used = 0
 
-        var max_nodes = 1
-        if self.inst_count > 0:
-            max_nodes = Int(self.inst_count * 2 - 1)
+    def build[split_method: String](mut self):
+        self.inst_count = UInt32(len(self.instances))
 
-        self.tlas_nodes = List[BvhNode](capacity=max_nodes)
-        for _ in range(max_nodes):
-            self.tlas_nodes.append(BvhNode())
+        var items = List[BoundsItem](capacity=Int(self.inst_count))
 
-        self.inst_indices = List[UInt32](capacity=Int(self.inst_count))
         for i in range(Int(self.inst_count)):
-            self.inst_indices.append(UInt32(i))
+            ref inst = self.instances[i]
+            items.append(BoundsItem(inst.bounds, UInt32(i)))
 
-        if self.inst_count > 0:
-            ref root = self.tlas_nodes[0]
-            root.set_leaf(0, self.inst_count)
-            self.update_node_bounds(0)
+        var builder = BoundsBvhBuilder[split_method, Self.width](items)
+
+        self.tree = BoundsBvh[Self.width](builder)
+
+    def bounds(self) -> AABB:
+        return self.tree.root_bounds()
 
     @always_inline
-    def update_node_bounds(mut self, node_idx: UInt32):
-        ref node = self.tlas_nodes[Int(node_idx)]
-        node.aabb = AABB.invalid()
-
-        var first = Int(node.left_first)
-        for i in range(Int(node.item_count)):
-            var inst_idx = Int(self.inst_indices[first + i])
-            ref inst = self.instances[inst_idx]
-            node.aabb._min = vmin(node.aabb._min, inst.bounds._min)
-            node.aabb._max = vmax(node.aabb._max, inst.bounds._max)
-
-    def build(mut self):
-        """Build a simple median TLAS over instance bounds.
-
-        Instance counts are usually much smaller than primitive counts, so
-        deliberately uses a small and deterministic median builder instead of
-        a SAH builder.
-        """
-        self._reset_build_state()
-        if self.inst_count > 0:
-            self._subdivide(0)
-
-    def _subdivide(mut self, node_idx: UInt32):
-        ref node = self.tlas_nodes[Int(node_idx)]
-
-        if node.item_count <= TLAS_LEAF_SIZE:
-            return
-
-        var extent = node.aabb._max - node.aabb._min
-        var axis = longest_axis(extent)
-        var split_pos = node.aabb._min[axis] + extent[axis] * 0.5
-
-        var i = Int(node.left_first)
-        var j = i + Int(node.item_count) - 1
-
-        while i <= j:
-            var inst_idx = Int(self.inst_indices[i])
-            ref inst = self.instances[inst_idx]
-            var centroid = inst.centroid_axis(axis)
-
-            if centroid < split_pos:
-                i += 1
-            else:
-                var tmp = self.inst_indices[i]
-                self.inst_indices[i] = self.inst_indices[j]
-                self.inst_indices[j] = tmp
-                j -= 1
-
-        var left_count = UInt32(i - Int(node.left_first))
-        if left_count == 0 or left_count == node.item_count:
-            left_count = node.item_count / 2
-            i = Int(node.left_first) + Int(left_count)
-
-        var left_child_idx = self.nodes_used
-        self.nodes_used += 2
-
-        ref left_child = self.tlas_nodes[Int(left_child_idx)]
-        ref right_child = self.tlas_nodes[Int(left_child_idx + 1)]
-
-        left_child.set_leaf(
-            node.first_item(),
-            left_count,
-        )
-        right_child.set_leaf(
-            UInt32(i),
-            node.item_count - left_count,
-        )
-
-        node.set_internal(left_child_idx)
-
-        self.update_node_bounds(left_child_idx)
-        self.update_node_bounds(left_child_idx + 1)
-
-        self._subdivide(left_child_idx)
-        self._subdivide(left_child_idx + 1)
-
-    def traverse(
+    def _traverse_triangle_leaf[
+        is_occlusion: Bool,
+        blas_width: Int,
+    ](
         self,
         mut ray: Ray,
-        blases: UnsafePointer[BinaryBvh[2], MutAnyOrigin],
+        first_item: UInt32,
+        item_count: UInt32,
+        blases: UnsafePointer[TriangleBvh[blas_width], MutAnyOrigin],
+    ) -> Bool:
+        for i in range(Int(item_count)):
+            var item_ref = Int(self.tree.item_indices[Int(first_item) + i])
+            var inst_idx = self.tree.item_payloads[item_ref]
+            ref inst = self.instances[Int(inst_idx)]
+
+            var local_origin = transform_point(
+                inst.inv_transform,
+                ray.O,
+            )
+            var local_dir = transform_vector(
+                inst.inv_transform,
+                ray.D,
+            )
+
+            var local_ray = Ray(
+                local_origin,
+                local_dir,
+                ray.hit.t,
+            )
+
+            comptime if is_occlusion:
+                if blases[Int(inst.blas_idx)].is_occluded(local_ray):
+                    return True
+            else:
+                blases[Int(inst.blas_idx)].traverse(local_ray)
+
+                if local_ray.hit.t < ray.hit.t:
+                    ray.hit.t = local_ray.hit.t
+                    ray.hit.u = local_ray.hit.u
+                    ray.hit.v = local_ray.hit.v
+                    ray.hit.prim = local_ray.hit.prim
+                    ray.hit.inst = inst_idx
+
+        return False
+
+    @always_inline
+    def _traverse_sphere_leaf[
+        is_occlusion: Bool,
+        blas_width: Int,
+    ](
+        self,
+        mut ray: Ray,
+        first_item: UInt32,
+        item_count: UInt32,
+        blases: UnsafePointer[SphereBvh[blas_width], MutAnyOrigin],
+    ) -> Bool:
+        for i in range(Int(item_count)):
+            var item_ref = Int(self.tree.item_indices[Int(first_item) + i])
+            var inst_idx = self.tree.item_payloads[item_ref]
+            ref inst = self.instances[Int(inst_idx)]
+
+            var local_origin = transform_point(
+                inst.inv_transform,
+                ray.O,
+            )
+            var local_dir = transform_vector(
+                inst.inv_transform,
+                ray.D,
+            )
+
+            var local_ray = Ray(
+                local_origin,
+                local_dir,
+                ray.hit.t,
+            )
+
+            comptime if is_occlusion:
+                if blases[Int(inst.blas_idx)].is_occluded(local_ray):
+                    return True
+            else:
+                blases[Int(inst.blas_idx)].traverse(local_ray)
+
+                if local_ray.hit.t < ray.hit.t:
+                    ray.hit.t = local_ray.hit.t
+                    ray.hit.u = local_ray.hit.u
+                    ray.hit.v = local_ray.hit.v
+                    ray.hit.prim = local_ray.hit.prim
+                    ray.hit.inst = inst_idx
+
+        return False
+
+    @always_inline
+    def _traverse_triangles_generic[
+        is_occlusion: Bool,
+        blas_width: Int,
+    ](
+        self,
+        mut ray: Ray,
+        blases: UnsafePointer[TriangleBvh[blas_width], MutAnyOrigin],
+    ) -> Bool:
+        @always_inline
+        def leaf_fn(
+            mut ray: Ray,
+            first_item: UInt32,
+            item_count: UInt32,
+        ) capturing -> Bool:
+            return self._traverse_triangle_leaf[
+                is_occlusion,
+                blas_width,
+            ](
+                ray,
+                first_item,
+                item_count,
+                blases,
+            )
+
+        return traverse_wide_ray_bvh[
+            Self.width,
+            is_occlusion,
+            leaf_fn,
+        ](
+            self.tree,
+            ray,
+        )
+
+    @always_inline
+    def _traverse_spheres_generic[
+        is_occlusion: Bool,
+        blas_width: Int,
+    ](
+        self,
+        mut ray: Ray,
+        blases: UnsafePointer[SphereBvh[blas_width], MutAnyOrigin],
+    ) -> Bool:
+        @always_inline
+        def leaf_fn(
+            mut ray: Ray,
+            first_item: UInt32,
+            item_count: UInt32,
+        ) capturing -> Bool:
+            return self._traverse_sphere_leaf[
+                is_occlusion,
+                blas_width,
+            ](
+                ray,
+                first_item,
+                item_count,
+                blases,
+            )
+
+        return traverse_wide_ray_bvh[
+            Self.width,
+            is_occlusion,
+            leaf_fn,
+        ](
+            self.tree,
+            ray,
+        )
+
+    def traverse_triangles[
+        blas_width: Int
+    ](
+        self,
+        mut ray: Ray,
+        blases: UnsafePointer[TriangleBvh[blas_width], MutAnyOrigin],
     ):
-        """Traverse TLAS in world space, then BLASes in local space.
+        _ = self._traverse_triangles_generic[False, blas_width](ray, blases)
 
-        On hit:
-        - `ray.hit.prim` is the primitive id inside the hit BLAS.
-        - `ray.hit.inst` is the instance id inside this TLAS.
-        """
-        if self.inst_count == 0:
-            return
+    def is_occluded_triangles[
+        blas_width: Int
+    ](
+        self,
+        mut ray: Ray,
+        blases: UnsafePointer[TriangleBvh[blas_width], MutAnyOrigin],
+    ) -> Bool:
+        return self._traverse_triangles_generic[True, blas_width](ray, blases)
 
-        var stack = InlineArray[UInt32, 64](fill=0)
-        var stack_ptr = 0
-        var node_idx = UInt32(0)
+    def traverse_spheres[
+        blas_width: Int
+    ](
+        self,
+        mut ray: Ray,
+        blases: UnsafePointer[SphereBvh[blas_width], MutAnyOrigin],
+    ):
+        _ = self._traverse_spheres_generic[False, blas_width](ray, blases)
 
-        while True:
-            ref node = self.tlas_nodes[Int(node_idx)]
-
-            if node.is_leaf():
-                for i in range(Int(node.item_count)):
-                    var inst_idx = self.inst_indices[Int(node.first_item()) + i]
-                    ref inst = self.instances[Int(inst_idx)]
-
-                    var local_origin = transform_point(
-                        inst.inv_transform,
-                        ray.O,
-                    )
-                    var local_dir = transform_vector(
-                        inst.inv_transform,
-                        ray.D,
-                    )
-
-                    var local_ray = Ray(
-                        local_origin,
-                        local_dir,
-                        ray.hit.t,
-                    )
-
-                    blases[Int(inst.blas_idx)].traverse(local_ray)
-
-                    if local_ray.hit.t < ray.hit.t:
-                        ray.hit.t = local_ray.hit.t
-                        ray.hit.u = local_ray.hit.u
-                        ray.hit.v = local_ray.hit.v
-                        ray.hit.prim = local_ray.hit.prim
-                        ray.hit.inst = inst_idx
-
-                if not pop_stack_or_done(stack, stack_ptr, node_idx):
-                    break
-                continue
-
-            var child1_idx = node.left_child()
-            var child2_idx = node.right_child()
-
-            ref child1 = self.tlas_nodes[Int(child1_idx)]
-            ref child2 = self.tlas_nodes[Int(child2_idx)]
-
-            var hit1 = intersect_ray_aabb(
-                ray.O,
-                ray.rD,
-                child1.aabb._min,
-                child1.aabb._max,
-                ray.hit.t,
-            )
-
-            var hit2 = intersect_ray_aabb(
-                ray.O,
-                ray.rD,
-                child2.aabb._min,
-                child2.aabb._max,
-                ray.hit.t,
-            )
-
-            if not advance_to_child_hits[True](
-                stack,
-                stack_ptr,
-                node_idx,
-                child1_idx,
-                child2_idx,
-                hit1.mask,
-                hit2.mask,
-                hit1.tmin,
-                hit2.tmin,
-            ):
-                break
+    def is_occluded_spheres[
+        blas_width: Int
+    ](
+        self,
+        mut ray: Ray,
+        blases: UnsafePointer[SphereBvh[blas_width], MutAnyOrigin],
+    ) -> Bool:
+        return self._traverse_spheres_generic[True, blas_width](ray, blases)

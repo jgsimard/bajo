@@ -13,7 +13,7 @@ bench_quat = "mojo -I. bench/bench_quat.mojo"
 bench_aabb = "mojo -I. bench/bench_aabb.mojo"
 bench_obj = "mojo -I. bench/bench_obj.mojo"
 bench_gpu_sort = "mojo -I. bench/bench_gpu_sort.mojo"
-bench_bvh_cpu = "mojo -I . bench/bvh/bench_cpu.mojo"
+bench_bvh_cpu = "mojo -I . bench/bvh/bench_bounds_bvh_primitives.mojo"
 bench_bvh_gpu = "mojo -I . bench/bvh/bench_lbvh.mojo"
 bench_all = { depends-on = [
   "bench_quat",

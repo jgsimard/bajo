@@ -232,7 +232,7 @@ def trace_gpu_wide_sphere_ray[
             wide_bounds,
             current,
             ray,
-            best_t,
+            ray.t_max,
         )
 
         comptime for node_lane in range(width):

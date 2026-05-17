@@ -833,27 +833,6 @@ def _wide_bounds_base[width: Int](node_idx: UInt32, lane: Int) -> Int:
     return _wide_lane_base[width](node_idx, lane) * GPU_WIDE_BOUNDS_STRIDE
 
 
-# @always_inline
-# def _intersect_wide_lane_bounds[
-#     width: Int
-# ](
-#     wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
-#     node_idx: UInt32,
-#     lane: Int,
-#     ray: RayFlat,
-#     t_max: Float32,
-# ) -> Bool:
-#     var b = _wide_bounds_base[width](node_idx, lane)
-#     var h = intersect_ray_aabb(
-#         ray.o,
-#         ray.rd,
-#         Vec3f32.load(wide_bounds, b + 0),
-#         Vec3f32.load(wide_bounds, b + 3),
-#         t_max,
-#     )
-#     return h.mask
-
-
 # Host utility copies local to this module to avoid depending on old triangle-only
 # GPU host helpers.
 def _copy_f32_to_device(

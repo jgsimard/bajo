@@ -154,7 +154,7 @@ def trace_gpu_sphere_bvh_primary_kernel[
     var hit = trace_gpu_wide_ray[
         width,
         TRACE_PRIMARY_FULL,
-        _intersect_sphere_leaf_block[
+        _intersect_sphere_leaf[
             width,
             TRACE_PRIMARY_FULL,
         ],
@@ -196,7 +196,7 @@ def trace_gpu_sphere_bvh_shadow_kernel[
     var hit = trace_gpu_wide_ray[
         width,
         TRACE_SHADOW,
-        _intersect_sphere_leaf_block[
+        _intersect_sphere_leaf[
             width,
             TRACE_SHADOW,
         ],
@@ -243,7 +243,7 @@ def _load_sphere_leaf_packet[
 
 
 @always_inline
-def _intersect_sphere_leaf_block[
+def _intersect_sphere_leaf[
     width: Int,
     mode: String,
 ](

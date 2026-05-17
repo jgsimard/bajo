@@ -194,7 +194,7 @@ def trace_gpu_triangle_bvh_primary_kernel[
     var hit = trace_gpu_wide_ray[
         width,
         TRACE_PRIMARY_FULL,
-        _intersect_triangle_leaf_block[
+        _intersect_triangle_leaf[
             width,
             TRACE_PRIMARY_FULL,
         ],
@@ -236,7 +236,7 @@ def trace_gpu_triangle_bvh_shadow_kernel[
     var hit = trace_gpu_wide_ray[
         width,
         TRACE_SHADOW,
-        _intersect_triangle_leaf_block[
+        _intersect_triangle_leaf[
             width,
             TRACE_SHADOW,
         ],
@@ -254,7 +254,7 @@ def trace_gpu_triangle_bvh_shadow_kernel[
 
 
 @always_inline
-def _load_triangle_leaf_packet[
+def _load_triangle_leaf[
     width: Int,
 ](
     leaf_vertices: UnsafePointer[Float32, MutAnyOrigin],
@@ -291,7 +291,7 @@ def _load_triangle_leaf_packet[
 
 
 @always_inline
-def _intersect_triangle_leaf_block[
+def _intersect_triangle_leaf[
     width: Int,
     mode: String,
 ](
@@ -307,7 +307,7 @@ def _intersect_triangle_leaf_block[
 ) capturing -> Bool:
     comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_PRIMARY_T, TRACE_SHADOW]
 
-    var block = _load_triangle_leaf_packet[width](
+    var block = _load_triangle_leaf[width](
         leaf_vertices,
         leaf_prims,
         leaf_block_idx,

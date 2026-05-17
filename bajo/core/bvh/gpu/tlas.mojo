@@ -22,11 +22,11 @@ from bajo.core.bvh.gpu.bounds_bvh import (
 )
 from bajo.core.bvh.gpu.sphere_bvh import (
     GpuSphereBvh,
-    _intersect_sphere_leaf_block,
+    _intersect_sphere_leaf,
 )
 from bajo.core.bvh.gpu.triangle_bvh import (
     GpuTriangleBvh,
-    _intersect_triangle_leaf_block,
+    _intersect_triangle_leaf,
 )
 from bajo.core.bvh.gpu.traverse import trace_gpu_wide_ray
 
@@ -294,7 +294,7 @@ def trace_gpu_wide_tlas_triangle_ray[
         tlas_width,
         blas_width,
         mode,
-        _intersect_triangle_leaf_block[
+        _intersect_triangle_leaf[
             blas_width,
             mode,
         ],
@@ -341,7 +341,7 @@ def trace_gpu_wide_tlas_sphere_ray[
         tlas_width,
         blas_width,
         mode,
-        _intersect_sphere_leaf_block[
+        _intersect_sphere_leaf[
             blas_width,
             mode,
         ],
@@ -422,7 +422,7 @@ struct GpuTlas[width: Int]:
             trace_gpu_tlas_primary_kernel[
                 Self.width,
                 blas_width,
-                _intersect_triangle_leaf_block[
+                _intersect_triangle_leaf[
                     blas_width,
                     TRACE_PRIMARY_FULL,
                 ],
@@ -463,7 +463,7 @@ struct GpuTlas[width: Int]:
             trace_gpu_tlas_shadow_kernel[
                 Self.width,
                 blas_width,
-                _intersect_triangle_leaf_block[
+                _intersect_triangle_leaf[
                     blas_width,
                     TRACE_SHADOW,
                 ],
@@ -504,7 +504,7 @@ struct GpuTlas[width: Int]:
             trace_gpu_tlas_primary_kernel[
                 Self.width,
                 blas_width,
-                _intersect_sphere_leaf_block[
+                _intersect_sphere_leaf[
                     blas_width,
                     TRACE_PRIMARY_FULL,
                 ],
@@ -545,7 +545,7 @@ struct GpuTlas[width: Int]:
             trace_gpu_tlas_shadow_kernel[
                 Self.width,
                 blas_width,
-                _intersect_sphere_leaf_block[
+                _intersect_sphere_leaf[
                     blas_width,
                     TRACE_SHADOW,
                 ],

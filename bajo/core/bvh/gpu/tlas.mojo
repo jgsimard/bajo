@@ -106,7 +106,6 @@ def _intersect_tlas_instance_block[
     item_count: UInt32,
     ray: Ray,
     mut best_hit: Hit,
-    mut best_inst: UInt32,
 ) -> Bool:
     comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_PRIMARY_T, TRACE_SHADOW]
 
@@ -152,13 +151,16 @@ def _intersect_tlas_instance_block[
 
                     comptime if mode == TRACE_SHADOW:
                         if local_hit.occluded != UInt32(0):
-                            best_inst = inst_idx
+                            best_hit = Hit.shadow_hit()
+                            best_hit.inst = inst_idx
                             return True
                     else:
-                        if local_hit.is_hit() and local_hit.t < best_hit.t:
+                        if (
+                            local_hit.t < best_hit.t
+                            and local_hit.prim != EMPTY_LANE
+                        ):
                             best_hit = local_hit
                             best_hit.inst = inst_idx
-                            best_inst = inst_idx
                             hit_any = True
 
     return hit_any
@@ -192,15 +194,13 @@ def trace_gpu_wide_tlas_ray[
     tlas_root_idx: UInt32,
     blas_root_idx: UInt32,
     ray: Ray,
-) -> Tuple[Hit, UInt32]:
+) -> Hit:
     comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_PRIMARY_T, TRACE_SHADOW]
 
     var best_hit = Hit.miss()
     best_hit.t = ray.t_max
     best_hit.prim = _gpu_miss_prim
     best_hit.inst = _gpu_miss_prim
-
-    var best_inst = _gpu_miss_prim
 
     var stack = InlineArray[UInt32, GPU_TRAVERSAL_STACK_SIZE](fill=0)
     var stack_ptr = 0
@@ -253,18 +253,15 @@ def trace_gpu_wide_tlas_ray[
                         count,
                         ray,
                         best_hit,
-                        best_inst,
                     )
 
                     comptime if mode == TRACE_SHADOW:
                         if leaf_hit:
-                            return (Hit.shadow_hit(), best_inst)
+                            return best_hit
 
-        # Push internal TLAS children far-to-near.
-        # Stack is LIFO, so nearest child is popped first.
         comptime for _ in range(tlas_width):
             var far_lane = -1
-            var far_t = -_gpu_inf_t
+            var far_t = Float32(-_gpu_inf_t)
 
             comptime for lane in range(tlas_width):
                 if child_valid[lane]:
@@ -292,7 +289,7 @@ def trace_gpu_wide_tlas_ray[
         stack_ptr -= 1
         current = stack[stack_ptr]
 
-    return (best_hit, best_inst)
+    return best_hit
 
 
 @always_inline
@@ -315,7 +312,7 @@ def trace_gpu_wide_tlas_triangle_ray[
     tlas_root_idx: UInt32,
     blas_root_idx: UInt32,
     ray: Ray,
-) -> Tuple[Hit, UInt32]:
+) -> Hit:
     return trace_gpu_wide_tlas_ray[
         tlas_width,
         blas_width,
@@ -362,7 +359,7 @@ def trace_gpu_wide_tlas_sphere_ray[
     tlas_root_idx: UInt32,
     blas_root_idx: UInt32,
     ray: Ray,
-) -> Tuple[Hit, UInt32]:
+) -> Hit:
     return trace_gpu_wide_tlas_ray[
         tlas_width,
         blas_width,
@@ -682,7 +679,7 @@ def trace_gpu_tlas_camera_primary_kernel[
 
     var ray = _make_camera_ray(camera_params, ray_idx, width, height)
 
-    var result = trace_gpu_wide_tlas_ray[
+    var hit = trace_gpu_wide_tlas_ray[
         tlas_width,
         blas_width,
         TRACE_PRIMARY_FULL,
@@ -704,9 +701,6 @@ def trace_gpu_tlas_camera_primary_kernel[
         ray,
     )
 
-    var hit = result[0]
-    var inst = result[1]
-
     var hit_base = ray_idx * 3
     hits_f32[hit_base + 0] = hit.t
     hits_f32[hit_base + 1] = hit.u
@@ -714,7 +708,7 @@ def trace_gpu_tlas_camera_primary_kernel[
 
     var ubase = ray_idx * 2
     hits_u32[ubase + 0] = hit.prim
-    hits_u32[ubase + 1] = inst
+    hits_u32[ubase + 1] = hit.inst
 
 
 def trace_gpu_tlas_primary_kernel[
@@ -752,7 +746,7 @@ def trace_gpu_tlas_primary_kernel[
         return
 
     var ray = Ray(rays, ray_idx)
-    var result = trace_gpu_wide_tlas_ray[
+    var hit = trace_gpu_wide_tlas_ray[
         tlas_width,
         blas_width,
         TRACE_PRIMARY_FULL,
@@ -774,9 +768,6 @@ def trace_gpu_tlas_primary_kernel[
         ray,
     )
 
-    var hit = result[0]
-    var inst = result[1]
-
     var hit_base = ray_idx * 3
     hits_f32[hit_base + 0] = hit.t
     hits_f32[hit_base + 1] = hit.u
@@ -784,7 +775,7 @@ def trace_gpu_tlas_primary_kernel[
 
     var ubase = ray_idx * 2
     hits_u32[ubase + 0] = hit.prim
-    hits_u32[ubase + 1] = inst
+    hits_u32[ubase + 1] = hit.inst
 
 
 def trace_gpu_tlas_shadow_kernel[
@@ -821,7 +812,7 @@ def trace_gpu_tlas_shadow_kernel[
         return
 
     var ray = Ray(rays, ray_idx)
-    var result = trace_gpu_wide_tlas_ray[
+    var hit = trace_gpu_wide_tlas_ray[
         tlas_width,
         blas_width,
         TRACE_SHADOW,
@@ -843,4 +834,4 @@ def trace_gpu_tlas_shadow_kernel[
         ray,
     )
 
-    flags[ray_idx] = result[0].occluded
+    flags[ray_idx] = hit.occluded

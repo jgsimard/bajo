@@ -15,8 +15,6 @@ from bajo.core.bvh.gpu.constants import (
     LBVH_LEAF_FLAG,
     LBVH_INDEX_MASK,
     LBVH_SENTINEL,
-)
-from bajo.core.bvh.gpu.constants import (
     GPU_TRAVERSAL_STACK_SIZE,
     TRACE_PRIMARY_FULL,
     TRACE_PRIMARY_T,

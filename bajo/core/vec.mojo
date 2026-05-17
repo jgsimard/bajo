@@ -204,9 +204,7 @@ struct Vec3[dtype: DType, width: Int = 1](
             return self.z
 
     @always_inline
-    def __getitem_param__[
-        i: Int
-    ](self,) -> SIMD[Self.dtype, Self.width]:
+    def __getitem_param__[i: Int](self) -> SIMD[Self.dtype, Self.width]:
         comptime assert i >= 0 and i < 3
 
         comptime if i == 0:
@@ -230,9 +228,7 @@ struct Vec3[dtype: DType, width: Int = 1](
             self.z = value
 
     @always_inline
-    def __setitem__[
-        i: Int
-    ](mut self, value: SIMD[Self.dtype, Self.width],):
+    def __setitem__[i: Int](mut self, value: SIMD[Self.dtype, Self.width]):
         comptime assert i >= 0 and i < 3
 
         comptime if i == 0:
@@ -243,9 +239,7 @@ struct Vec3[dtype: DType, width: Int = 1](
             self.z = value
 
     @always_inline
-    def set_axis[
-        i: Int
-    ](mut self, value: SIMD[Self.dtype, Self.width],):
+    def set_axis[i: Int](mut self, value: SIMD[Self.dtype, Self.width]):
         comptime assert i >= 0 and i < 3
 
         comptime if i == 0:
@@ -256,9 +250,7 @@ struct Vec3[dtype: DType, width: Int = 1](
             self.z = value
 
     @always_inline
-    def add_axis[
-        i: Int
-    ](mut self, value: SIMD[Self.dtype, Self.width],):
+    def add_axis[i: Int](mut self, value: SIMD[Self.dtype, Self.width]):
         comptime assert i >= 0 and i < 3
 
         comptime if i == 0:
@@ -316,7 +308,7 @@ struct Vec3[dtype: DType, width: Int = 1](
     @always_inline
     def store[
         origin: Origin[mut=True]
-    ](self, ptr: UnsafePointer[Scalar[Self.dtype], origin], base: Int,):
+    ](self, ptr: UnsafePointer[Scalar[Self.dtype], origin], base: Int):
         comptime assert Self.width == 1
         ptr[base + 0] = self.x[0]
         ptr[base + 1] = self.y[0]
@@ -326,14 +318,14 @@ struct Vec3[dtype: DType, width: Int = 1](
 @always_inline
 def dot[
     dtype: DType, width: Int
-](a: Vec3[dtype, width], b: Vec3[dtype, width],) -> SIMD[dtype, width]:
+](a: Vec3[dtype, width], b: Vec3[dtype, width]) -> SIMD[dtype, width]:
     return fma(a.x, b.x, fma(a.y, b.y, a.z * b.z))
 
 
 @always_inline
 def vmin[
     dtype: DType, width: Int
-](a: Vec3[dtype, width], b: Vec3[dtype, width],) -> Vec3[dtype, width]:
+](a: Vec3[dtype, width], b: Vec3[dtype, width]) -> Vec3[dtype, width]:
     return Vec3[dtype, width](
         min(a.x, b.x),
         min(a.y, b.y),
@@ -357,7 +349,7 @@ def vmin[
 @always_inline
 def vmax[
     dtype: DType, width: Int
-](a: Vec3[dtype, width], b: Vec3[dtype, width],) -> Vec3[dtype, width]:
+](a: Vec3[dtype, width], b: Vec3[dtype, width]) -> Vec3[dtype, width]:
     return Vec3[dtype, width](
         max(a.x, b.x),
         max(a.y, b.y),
@@ -406,7 +398,7 @@ def length[
 @always_inline
 def cross[
     dtype: DType, width: Int
-](a: Vec3[dtype, width], b: Vec3[dtype, width],) -> Vec3[dtype, width]:
+](a: Vec3[dtype, width], b: Vec3[dtype, width]) -> Vec3[dtype, width]:
     return Vec3[dtype, width](
         fma(a.y, b.z, -(a.z * b.y)),
         fma(a.z, b.x, -(a.x * b.z)),

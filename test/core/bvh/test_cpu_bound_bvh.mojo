@@ -225,7 +225,7 @@ def _assert_builder_leaf_sizes_at_most(
 
 def _assert_wide_leaf_counts_at_most_width[
     width: Int
-](wide: BoundsBvh[width],) raises:
+](wide: BoundsBvh[width]) raises:
     for n in range(len(wide.nodes)):
         ref node = wide.nodes[n]
 

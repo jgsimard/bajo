@@ -337,7 +337,7 @@ def _matmul[
 @always_inline
 def _matvec[
     dtype: DType, width: Int
-](m: Mat[dtype, 3, 3, width], v: Vec3[dtype, width],) -> Vec3[dtype, width]:
+](m: Mat[dtype, 3, 3, width], v: Vec3[dtype, width]) -> Vec3[dtype, width]:
     return Vec3[dtype, width](
         m[0][0] * v.x + m[0][1] * v.y + m[0][2] * v.z,
         m[1][0] * v.x + m[1][1] * v.y + m[1][2] * v.z,
@@ -351,7 +351,7 @@ def _matvec[
 @always_inline
 def transform_point[
     dtype: DType, width: Int
-](m: Mat[dtype, 4, 4, width], v: Vec3[dtype, width],) -> Vec3[dtype, width]:
+](m: Mat[dtype, 4, 4, width], v: Vec3[dtype, width]) -> Vec3[dtype, width]:
     return Vec3[dtype, width](
         m[0][0] * v.x + m[0][1] * v.y + m[0][2] * v.z + m[0][3],
         m[1][0] * v.x + m[1][1] * v.y + m[1][2] * v.z + m[1][3],
@@ -362,7 +362,7 @@ def transform_point[
 @always_inline
 def transform_vector[
     dtype: DType, width: Int
-](m: Mat[dtype, 4, 4, width], v: Vec3[dtype, width],) -> Vec3[dtype, width]:
+](m: Mat[dtype, 4, 4, width], v: Vec3[dtype, width]) -> Vec3[dtype, width]:
     return Vec3[dtype, width](
         m[0][0] * v.x + m[0][1] * v.y + m[0][2] * v.z,
         m[1][0] * v.x + m[1][1] * v.y + m[1][2] * v.z,

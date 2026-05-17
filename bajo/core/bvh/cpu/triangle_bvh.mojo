@@ -131,7 +131,7 @@ struct TriangleBvh[width: Int](Copyable):
     @always_inline
     def _intersect_leaf[
         is_occlusion: Bool
-    ](self, mut ray: Ray, leaf_block_idx: UInt32, item_count: UInt32,) -> Bool:
+    ](self, mut ray: Ray, leaf_block_idx: UInt32, item_count: UInt32) -> Bool:
         ref block = self.leaf_blocks[Int(leaf_block_idx)]
 
         var O = Vec3[DType.float32, Self.width](ray.O.x, ray.O.y, ray.O.z)

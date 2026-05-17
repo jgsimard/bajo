@@ -39,7 +39,7 @@ comptime SPHERE_RAY_VIEWS = 2
 
 def _trace_cpu_triangle_bvh[
     width: Int
-](mut bvh: TriangleBvh[width], rays: List[Ray],) -> Float64:
+](mut bvh: TriangleBvh[width], rays: List[Ray]) -> Float64:
     var checksum = Float64(0.0)
     for i in range(len(rays)):
         var ray = rays[i].copy()

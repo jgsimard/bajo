@@ -324,7 +324,7 @@ def _intersect_sphere_leaf_block[
     var O = Vec3[DType.float32, width](ray.o.x, ray.o.y, ray.o.z)
     var D = Vec3[DType.float32, width](ray.d.x, ray.d.y, ray.d.z)
 
-    var h = intersect_ray_sphere[DType.float32, width](
+    var h = intersect_ray_sphere(
         O,
         D,
         block.center,
@@ -342,18 +342,15 @@ def _intersect_sphere_leaf_block[
         return True
     else:
         comptime f32_max = max_finite[DType.float32]()
-        var min_t = hit_mask.select(
-            h.t,
-            SIMD[DType.float32, width](f32_max),
-        ).reduce_min()
+        var min_t = hit_mask.select(h.t, f32_max).reduce_min()
 
         best_t = min_t
 
         comptime if mode == TRACE_PRIMARY_FULL:
+            best_u = 0.0
+            best_v = 0.0
             comptime for lane in range(width):
                 if hit_mask[lane] and h.t[lane] == min_t:
-                    best_u = 0.0
-                    best_v = 0.0
                     best_prim = block.prim_indices[lane][lane]
 
         return True

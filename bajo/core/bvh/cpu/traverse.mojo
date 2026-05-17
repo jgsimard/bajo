@@ -9,7 +9,7 @@ def traverse_wide_ray_bvh[
     width: Int,
     is_occlusion: Bool,
     leaf_fn: def(mut Ray, UInt32, UInt32) capturing -> Bool,
-](tree: BoundsBvh[width], mut ray: Ray,) -> Bool:
+](tree: BoundsBvh[width], mut ray: Ray) -> Bool:
     if len(tree.nodes) == 0:
         return False
 

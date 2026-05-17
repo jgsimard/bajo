@@ -172,7 +172,7 @@ def trace_sphere_shadow[
 
 def bench_triangle_primary[
     width: Int
-](name: String, bvh: TriangleBvh[width], rays: List[Ray],):
+](name: String, bvh: TriangleBvh[width], rays: List[Ray]):
     var checksum = trace_triangle_primary[width](bvh, rays)
     var best_ns = Int.MAX
 
@@ -191,7 +191,7 @@ def bench_triangle_primary[
 
 def bench_triangle_shadow[
     width: Int
-](name: String, bvh: TriangleBvh[width], rays: List[Ray],):
+](name: String, bvh: TriangleBvh[width], rays: List[Ray]):
     var occluded = trace_triangle_shadow[width](bvh, rays)
     var best_ns = Int.MAX
 
@@ -210,7 +210,7 @@ def bench_triangle_shadow[
 
 def bench_sphere_primary[
     width: Int
-](name: String, bvh: SphereBvh[width], rays: List[Ray],):
+](name: String, bvh: SphereBvh[width], rays: List[Ray]):
     var checksum = trace_sphere_primary[width](bvh, rays)
     var best_ns = Int.MAX
 
@@ -229,7 +229,7 @@ def bench_sphere_primary[
 
 def bench_sphere_shadow[
     width: Int
-](name: String, bvh: SphereBvh[width], rays: List[Ray],):
+](name: String, bvh: SphereBvh[width], rays: List[Ray]):
     var occluded = trace_sphere_shadow[width](bvh, rays)
     var best_ns = Int.MAX
 

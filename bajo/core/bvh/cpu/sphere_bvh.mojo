@@ -91,7 +91,7 @@ struct SphereBvh[width: Int](Copyable):
     @always_inline
     def _intersect_leaf[
         is_occlusion: Bool
-    ](self, mut ray: Ray, leaf_block_idx: UInt32, item_count: UInt32,) -> Bool:
+    ](self, mut ray: Ray, leaf_block_idx: UInt32, item_count: UInt32) -> Bool:
         ref block = self.leaf_blocks[Int(leaf_block_idx)]
 
         var O = Vec3[DType.float32, Self.width](ray.O.x, ray.O.y, ray.O.z)
@@ -111,12 +111,12 @@ struct SphereBvh[width: Int](Copyable):
         else:
             comptime f32_max = max_finite[DType.float32]()
             var min_t = hit_mask.select(h.t, f32_max).reduce_min()
+            ray.hit.t = min_t
+            ray.hit.u = 0.0
+            ray.hit.v = 0.0
 
             comptime for lane in range(Self.width):
                 if hit_mask[lane] and h.t[lane] == min_t:
-                    ray.hit.t = min_t
-                    ray.hit.u = 0.0
-                    ray.hit.v = 0.0
                     ray.hit.prim = block.prim_indices[lane]
 
             return True

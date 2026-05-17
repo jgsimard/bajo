@@ -132,17 +132,13 @@ def _intersect_tlas_triangle_instance_block[
             var inst_idx = UInt32(tlas_leaf_instances[idx])
 
             if inst_idx != GPU_WIDE_EMPTY_LANE:
-                # Current implementation supports one shared BLAS. Keep the
-                # blas index buffer in place for the later multi-BLAS table.
                 var blas_idx = UInt32(inst_blas_indices[Int(inst_idx)])
                 if blas_idx == UInt32(0):
-                    # var local_ray = ray
-                    # local_ray.t_max = best_hit.t
                     var local_ray = _make_tlas_local_ray(
                         inst_inv_transform,
                         inst_idx,
                         ray,
-                        best_hit.t,
+                        ray.t_max,
                     )
                     var local_hit = trace_gpu_wide_triangle_ray[
                         blas_width, mode
@@ -202,7 +198,7 @@ def trace_gpu_wide_tlas_triangle_ray[
             tlas_wide_bounds,
             current,
             ray,
-            best_hit.t,
+            ray.t_max,
         )
 
         comptime for node_lane in range(tlas_width):
@@ -355,7 +351,7 @@ def trace_gpu_wide_tlas_sphere_ray[
             tlas_wide_bounds,
             current,
             ray,
-            best_hit.t,
+            ray.t_max,
         )
 
         comptime for node_lane in range(tlas_width):

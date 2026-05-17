@@ -98,3 +98,20 @@ struct SphereLeafBlock[width: Int](Copyable):
         self.radius = SIMD[DType.float32, Self.width](0.0)
         self.prim_indices = SIMD[DType.uint32, Self.width](EMPTY_LANE)
         self.valid_lane = SIMD[DType.bool, Self.width](fill=False)
+
+
+@fieldwise_init
+struct TriangleLeafBlock[width: Int](Copyable):
+    var v0: Vec3[DType.float32, Self.width]
+    var v1: Vec3[DType.float32, Self.width]
+    var v2: Vec3[DType.float32, Self.width]
+    var prim_indices: SIMD[DType.uint32, Self.width]
+    var valid_lane: SIMD[DType.bool, Self.width]
+
+    @always_inline
+    def __init__(out self):
+        self.v0 = Vec3[DType.float32, Self.width](0.0)
+        self.v1 = Vec3[DType.float32, Self.width](0.0)
+        self.v2 = Vec3[DType.float32, Self.width](0.0)
+        self.prim_indices = SIMD[DType.uint32, Self.width](EMPTY_LANE)
+        self.valid_lane = SIMD[DType.bool, Self.width](fill=False)

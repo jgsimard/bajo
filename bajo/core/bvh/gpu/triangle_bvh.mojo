@@ -1,9 +1,11 @@
 from std.math import ceildiv, sqrt
 from std.time import perf_counter_ns
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
+from std.utils.numerics import max_finite, min_finite
 
-from bajo.core.vec import Vec3f32, vmin, vmax
-from bajo.core.bvh.types import Sphere, RayFlat, Hit
+
+from bajo.core.vec import Vec3f32, vmin, vmax, Vec3
+from bajo.core.bvh.types import Sphere, RayFlat, Hit, TriangleLeafBlock
 from bajo.core.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
     _copy_f32_to_device,
@@ -308,6 +310,43 @@ def trace_gpu_wide_triangle_ray[
 
 
 @always_inline
+def _load_triangle_leaf_packet[
+    width: Int,
+](
+    leaf_vertices: UnsafePointer[Float32, MutAnyOrigin],
+    leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_block_idx: UInt32,
+    item_count: UInt32,
+) -> TriangleLeafBlock[width]:
+    var block = TriangleLeafBlock[width]()
+
+    comptime for lane in range(width):
+        if lane < Int(item_count):
+            var idx = Int(leaf_block_idx) * width + lane
+            var prim = UInt32(leaf_prims[idx])
+
+            if prim != GPU_WIDE_EMPTY_LANE:
+                var base = idx * GPU_TRI_LEAF_VERTEX_STRIDE
+
+                block.v0.x[lane] = leaf_vertices[base + 0]
+                block.v0.y[lane] = leaf_vertices[base + 1]
+                block.v0.z[lane] = leaf_vertices[base + 2]
+
+                block.v1.x[lane] = leaf_vertices[base + 3]
+                block.v1.y[lane] = leaf_vertices[base + 4]
+                block.v1.z[lane] = leaf_vertices[base + 5]
+
+                block.v2.x[lane] = leaf_vertices[base + 6]
+                block.v2.y[lane] = leaf_vertices[base + 7]
+                block.v2.z[lane] = leaf_vertices[base + 8]
+
+                block.prim_indices[lane] = prim
+                block.valid_lane[lane] = True
+
+    return block^
+
+
+@always_inline
 def _intersect_triangle_leaf_block[
     width: Int,
     mode: String,
@@ -324,37 +363,45 @@ def _intersect_triangle_leaf_block[
 ) -> Bool:
     comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_PRIMARY_T, TRACE_SHADOW]
 
-    var hit_any = False
+    var block = _load_triangle_leaf_packet[width](
+        leaf_vertices,
+        leaf_prims,
+        leaf_block_idx,
+        item_count,
+    )
 
-    comptime for lane in range(width):
-        if lane < Int(item_count):
-            var idx = Int(leaf_block_idx) * width + lane
-            var prim = UInt32(leaf_prims[idx])
+    var O = Vec3[DType.float32, width](ray.o.x, ray.o.y, ray.o.z)
+    var D = Vec3[DType.float32, width](ray.d.x, ray.d.y, ray.d.z)
 
-            if prim != GPU_WIDE_EMPTY_LANE:
-                var base = idx * GPU_TRI_LEAF_VERTEX_STRIDE
-                var v0 = Vec3f32.load(leaf_vertices, base + 0)
-                var v1 = Vec3f32.load(leaf_vertices, base + 3)
-                var v2 = Vec3f32.load(leaf_vertices, base + 6)
+    var h = intersect_ray_tri[DType.float32, width](
+        O,
+        D,
+        block.v0,
+        block.v1,
+        block.v2,
+        SIMD[DType.float32, width](best_t),
+    )
 
-                var tri_hit = intersect_ray_tri(
-                    ray.o,
-                    ray.d,
-                    v0,
-                    v1,
-                    v2,
-                    best_t,
-                )
+    var hit_mask = h.mask & block.valid_lane
 
-                if tri_hit.mask:
-                    comptime if mode == TRACE_SHADOW:
-                        return True
-                    else:
-                        hit_any = True
-                        best_t = tri_hit.t
-                        comptime if mode == TRACE_PRIMARY_FULL:
-                            best_u = tri_hit.u
-                            best_v = tri_hit.v
-                            best_prim = prim
+    if not hit_mask.reduce_or():
+        return False
 
-    return hit_any
+    comptime if mode == TRACE_SHADOW:
+        return True
+    else:
+        comptime f32_max = max_finite[DType.float32]()
+        var min_t = hit_mask.select(h.t, f32_max).reduce_min()
+
+        best_t = min_t
+
+        comptime if mode == TRACE_PRIMARY_FULL:
+            var found_lane = False
+            comptime for lane in range(width):
+                if not found_lane and hit_mask[lane] and h.t[lane] == min_t:
+                    best_u = h.u[lane]
+                    best_v = h.v[lane]
+                    best_prim = block.prim_indices[lane]
+                    found_lane = True
+
+        return True

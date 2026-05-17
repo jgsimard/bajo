@@ -8,26 +8,9 @@ from bajo.core.bvh.cpu.bounds_bvh import (
     BoundsBvhBuilder,
 )
 from bajo.core.aabb import AABB, AxisAlignedBoundingBox
-from bajo.core.bvh.types import Ray
+from bajo.core.bvh.types import Ray, TriangleLeafBlock
 from bajo.core.intersect import intersect_ray_tri
 from bajo.core.bvh.cpu.traverse import traverse_wide_ray_bvh
-
-
-@fieldwise_init
-struct TriangleLeafBlock[width: Int](Copyable):
-    var v0: Vec3[DType.float32, Self.width]
-    var v1: Vec3[DType.float32, Self.width]
-    var v2: Vec3[DType.float32, Self.width]
-    var prim_indices: SIMD[DType.uint32, Self.width]
-    var valid_lane: SIMD[DType.bool, Self.width]
-
-    @always_inline
-    def __init__(out self):
-        self.v0 = Vec3[DType.float32, Self.width](0.0)
-        self.v1 = Vec3[DType.float32, Self.width](0.0)
-        self.v2 = Vec3[DType.float32, Self.width](0.0)
-        self.prim_indices = SIMD[DType.uint32, Self.width](EMPTY_LANE)
-        self.valid_lane = SIMD[DType.bool, Self.width](fill=False)
 
 
 struct TriangleBvh[width: Int](Copyable):

@@ -76,62 +76,6 @@ struct GpuBuildResult(TrivialRegisterPassable):
     var validation: GpuBVHValidation
 
 
-@fieldwise_init
-struct GpuDirectTraversalResult(TrivialRegisterPassable):
-    var upload_ns: Int
-    var kernel_ns: Int
-    var download_ns: Int
-    var frame_ns: Int
-    var checksum: Float64
-    var hit_count: UInt32
-    var diff: Float64
-
-
-@fieldwise_init
-struct GpuCameraFullResult(TrivialRegisterPassable):
-    var kernel_ns: Int
-    var download_ns: Int
-    var frame_ns: Int
-    var checksum: Float64
-    var hit_count: UInt32
-    var diff: Float64
-
-
-@fieldwise_init
-struct GpuPrimaryReduceResult(TrivialRegisterPassable):
-    var kernel_ns: Int
-    var reduce_ns: Int
-    var download_ns: Int
-    var frame_ns: Int
-    var checksum: Float64
-    var hit_count: UInt32
-    var diff: Float64
-
-
-@fieldwise_init
-struct GpuShadowReduceResult(TrivialRegisterPassable):
-    var kernel_ns: Int
-    var reduce_ns: Int
-    var download_ns: Int
-    var frame_ns: Int
-    var occluded: UInt32
-    var diff: Int
-
-
-@fieldwise_init
-struct GpuReduceAndShadowResult(TrivialRegisterPassable):
-    var primary: GpuPrimaryReduceResult
-    var shadow: GpuShadowReduceResult
-
-
-@fieldwise_init
-struct GpuSuiteResult(TrivialRegisterPassable):
-    var build: GpuBuildResult
-    var direct: GpuDirectTraversalResult
-    var camera_full: GpuCameraFullResult
-    var reduce_shadow: GpuReduceAndShadowResult
-
-
 def _download_full_hit_checksum(
     ctx: DeviceContext,
     d_hits_f32: DeviceBuffer[DType.float32],

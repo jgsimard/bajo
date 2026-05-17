@@ -8,26 +8,9 @@ from bajo.core.bvh.cpu.bounds_bvh import (
     BoundsBvhBuilder,
 )
 from bajo.core.aabb import AABB, AxisAlignedBoundingBox
-from bajo.core.bvh.types import Ray
+from bajo.core.bvh.types import Ray, TriangleLeafBlock
 from bajo.core.intersect import intersect_ray_tri
 from bajo.core.bvh.cpu.traverse import traverse_wide_ray_bvh
-
-
-@fieldwise_init
-struct TriangleLeafBlock[width: Int](Copyable):
-    var v0: Vec3[DType.float32, Self.width]
-    var v1: Vec3[DType.float32, Self.width]
-    var v2: Vec3[DType.float32, Self.width]
-    var prim_indices: SIMD[DType.uint32, Self.width]
-    var valid_lane: SIMD[DType.bool, Self.width]
-
-    @always_inline
-    def __init__(out self):
-        self.v0 = Vec3[DType.float32, Self.width](0.0)
-        self.v1 = Vec3[DType.float32, Self.width](0.0)
-        self.v2 = Vec3[DType.float32, Self.width](0.0)
-        self.prim_indices = SIMD[DType.uint32, Self.width](EMPTY_LANE)
-        self.valid_lane = SIMD[DType.bool, Self.width](fill=False)
 
 
 struct TriangleBvh[width: Int](Copyable):
@@ -45,7 +28,7 @@ struct TriangleBvh[width: Int](Copyable):
     var tri_count: UInt32
 
     def __init__[
-        split_method: String
+        split_method: String = "median"
     ](
         out self,
         vertices: UnsafePointer[Vec3f32, MutAnyOrigin],
@@ -68,7 +51,8 @@ struct TriangleBvh[width: Int](Copyable):
 
             items.append(BoundsItem(bounds, UInt32(i)))
 
-        var builder = BoundsBvhBuilder[split_method, Self.width](items)
+        var builder = BoundsBvhBuilder[Self.width](items)
+        builder.build[split_method]()
 
         self.tree = BoundsBvh[Self.width](builder)
 
@@ -125,29 +109,24 @@ struct TriangleBvh[width: Int](Copyable):
 
                     var block_idx = UInt32(len(self.leaf_blocks))
                     self.leaf_blocks.append(block^)
-
-                    # Rewrite this typed BLAS leaf from:
-                    #     data = first item in item_indices
-                    # to:
-                    #     data = packed leaf block index
                     node.data[lane] = block_idx
 
     @always_inline
     def _intersect_leaf[
         is_occlusion: Bool
-    ](self, mut ray: Ray, leaf_block_idx: UInt32, item_count: UInt32,) -> Bool:
+    ](self, mut ray: Ray, leaf_block_idx: UInt32, item_count: UInt32) -> Bool:
         ref block = self.leaf_blocks[Int(leaf_block_idx)]
 
         var O = Vec3[DType.float32, Self.width](ray.O.x, ray.O.y, ray.O.z)
         var D = Vec3[DType.float32, Self.width](ray.D.x, ray.D.y, ray.D.z)
 
-        var h = intersect_ray_tri[DType.float32, Self.width](
+        var h = intersect_ray_tri(
             O,
             D,
             block.v0,
             block.v1,
             block.v2,
-            SIMD[DType.float32, Self.width](ray.hit.t),
+            ray.hit.t,
         )
 
         var hit_mask = h.mask & block.valid_lane

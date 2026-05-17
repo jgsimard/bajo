@@ -1,202 +1,376 @@
 from std.benchmark import keep
-from std.gpu.host import DeviceContext
+from std.math import abs
 from std.sys import has_accelerator
-from std.testing import TestSuite, assert_true
+from std.testing import TestSuite, assert_true, assert_almost_equal
+from std.gpu import DeviceContext, DeviceBuffer
 
-from bajo.core.bvh.cpu.binary_bvh import BinaryBvh
-from bajo.core.bvh.cpu.tlas import BvhInstance, Tlas
-from bajo.core.bvh.gpu.tlas import (
-    GpuTlasLayout,
-    GPU_TLAS_INTERNAL_FLAG,
-    GPU_TLAS_LEAF_FLAG,
-    GPU_TLAS_NODE_META_STRIDE,
-    GPU_TLAS_NODE_BOUNDS_STRIDE,
-    GPU_TLAS_INSTANCE_META_STRIDE,
-    GPU_TLAS_TRANSFORM_STRIDE,
-)
-from bajo.core.mat import Mat44f32, _translation, _uniform_scale
+from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32
-from fixtures import _append_tri, _make_strip
+from bajo.core.mat import Mat44f32
+from bajo.core.bvh.types import Ray, Sphere, Instance
+from bajo.core.bvh.host_utils import (
+    flatten_rays,
+    generate_primary_rays,
+    hit_t_for_checksum,
+)
+from bajo.core.bvh.gpu.tlas import GpuTlas
+from bajo.core.bvh.gpu.sphere_bvh import GpuSphereBvh
+from bajo.core.bvh.gpu.triangle_bvh import GpuTriangleBvh
+from bajo.core.bvh.gpu.utils import _upload_rays, _download_full_hit_checksum
+
+from fixtures import _append_tri
 
 
-def _make_tlas(mut blas: BinaryBvh, count: Int = 8) -> Tlas:
-    var instances = List[BvhInstance](capacity=count)
-    for i in range(count):
-        var x = Float32((i % 4) - 2) * 6.0
-        var y = Float32(i / 4) * 4.0
-        instances.append(
-            BvhInstance.from_blas(
-                _translation(x, y, 0.0),
-                _translation(-x, -y, 0.0),
-                0,
-                blas,
-            )
-        )
-
-    var tlas = Tlas(instances)
-    tlas.build()
-    return tlas^
+comptime GPU_TLAS_TEST_WIDTH = 64
+comptime GPU_TLAS_TEST_HEIGHT = 48
+comptime GPU_TLAS_TEST_VIEWS = 3
+comptime GPU_TLAS_TEST_EPS = 0.05
 
 
 @always_inline
-def _node_flag(tlas: Tlas, node_idx: Int) -> UInt32:
-    if tlas.tlas_nodes[node_idx].is_leaf():
-        return GPU_TLAS_LEAF_FLAG
-    return GPU_TLAS_INTERNAL_FLAG
+def _translation_inverse(tx: Float32, ty: Float32, tz: Float32) -> Mat44f32:
+    # fmt: off
+    return Mat44f32(
+        1.0, 0.0, 0.0, -tx,
+        0.0, 1.0, 0.0, -ty,
+        0.0, 0.0, 1.0, -tz,
+        0.0, 0.0, 0.0, 1.0,
+    )
+    # fmt: on
 
 
-def test_gpu_tlas_upload_validates_against_cpu_tlas() raises:
-    comptime if has_accelerator():
-        var verts = _make_strip(4)
-        var blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) / 3))
-        blas.build["median", False]()
-        var tlas = _make_tlas(blas, 8)
-
-        with DeviceContext() as ctx:
-            var gpu_tlas = GpuTlasLayout(ctx, tlas)
-            var validation = gpu_tlas.validate(tlas)
-
-            assert_true(validation.ok, "uploaded TLAS layout validates")
-            assert_true(validation.node_count == tlas.nodes_used)
-            assert_true(validation.inst_count == tlas.inst_count)
-            assert_true(validation.leaf_instance_sum == tlas.inst_count)
-            assert_true(validation.checksum != 0)
-            keep(validation.checksum)
-    else:
-        assert_true(False, "No Accelerator found")
+@always_inline
+def _translation(tx: Float32, ty: Float32, tz: Float32) -> Mat44f32:
+    # fmt: off
+    return Mat44f32(
+        1.0, 0.0, 0.0, tx,
+        0.0, 1.0, 0.0, ty,
+        0.0, 0.0, 1.0, tz,
+        0.0, 0.0, 0.0, 1.0,
+    )
+    # fmt: on
 
 
-def test_gpu_tlas_node_meta_and_bounds_match_cpu() raises:
-    comptime if has_accelerator():
-        var verts = _make_strip(4)
-        var blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) / 3))
-        blas.build["median", False]()
-        var tlas = _make_tlas(blas, 8)
-
-        with DeviceContext() as ctx:
-            var gpu_tlas = GpuTlasLayout(ctx, tlas)
-
-            with gpu_tlas.node_meta.map_to_host() as meta:
-                for i in range(Int(tlas.nodes_used)):
-                    ref node = tlas.tlas_nodes[i]
-                    var base = i * GPU_TLAS_NODE_META_STRIDE
-                    assert_true(meta[base + 0] == node.left_first)
-                    assert_true(meta[base + 1] == node.item_count)
-                    assert_true(meta[base + 3] == _node_flag(tlas, i))
-
-            with gpu_tlas.node_bounds.map_to_host() as bounds:
-                for i in range(Int(tlas.nodes_used)):
-                    ref node = tlas.tlas_nodes[i]
-                    var base = i * GPU_TLAS_NODE_BOUNDS_STRIDE
-                    assert_true(bounds[base + 0] == node.aabb._min.x)
-                    assert_true(bounds[base + 1] == node.aabb._min.y)
-                    assert_true(bounds[base + 2] == node.aabb._min.z)
-                    assert_true(bounds[base + 3] == node.aabb._max.x)
-                    assert_true(bounds[base + 4] == node.aabb._max.y)
-                    assert_true(bounds[base + 5] == node.aabb._max.z)
-    else:
-        assert_true(False, "No Accelerator found")
+def _make_small_scene() -> List[Vec3f32]:
+    var verts = List[Vec3f32](capacity=8 * 3)
+    _append_tri(verts, -1.0, -1.0, 2.0)
+    _append_tri(verts, 1.0, -1.0, 2.0)
+    _append_tri(verts, -1.0, 1.0, 2.0)
+    _append_tri(verts, 1.0, 1.0, 2.0)
+    _append_tri(verts, -1.0, -1.0, 4.0)
+    _append_tri(verts, 1.0, -1.0, 4.0)
+    _append_tri(verts, -1.0, 1.0, 4.0)
+    _append_tri(verts, 1.0, 1.0, 4.0)
+    return verts^
 
 
-def test_gpu_tlas_leaf_ranges_preserve_instance_indices() raises:
-    comptime if has_accelerator():
-        var verts = _make_strip(4)
-        var blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) / 3))
-        blas.build["median", False]()
-        var tlas = _make_tlas(blas, 12)
-
-        with DeviceContext() as ctx:
-            var gpu_tlas = GpuTlasLayout(ctx, tlas)
-
-            with gpu_tlas.inst_indices.map_to_host() as inst_indices:
-                var seen = List[UInt32](capacity=Int(tlas.inst_count))
-                for _ in range(Int(tlas.inst_count)):
-                    seen.append(0)
-
-                for i in range(Int(tlas.inst_count)):
-                    var inst_idx = inst_indices[i]
-                    assert_true(inst_idx < tlas.inst_count)
-                    assert_true(inst_idx == tlas.inst_indices[i])
-                    seen[Int(inst_idx)] = seen[Int(inst_idx)] + 1
-
-                for i in range(Int(tlas.inst_count)):
-                    assert_true(seen[i] == 1)
-
-            with gpu_tlas.node_meta.map_to_host() as meta:
-                var leaf_sum = UInt32(0)
-                for i in range(Int(tlas.nodes_used)):
-                    ref node = tlas.tlas_nodes[i]
-                    var base = i * GPU_TLAS_NODE_META_STRIDE
-                    if node.is_leaf():
-                        assert_true(meta[base + 3] == GPU_TLAS_LEAF_FLAG)
-                        assert_true(meta[base + 1] > 0)
-                        assert_true(
-                            meta[base + 0] + meta[base + 1] <= tlas.inst_count
-                        )
-                        leaf_sum += meta[base + 1]
-                    else:
-                        assert_true(meta[base + 3] == GPU_TLAS_INTERNAL_FLAG)
-                        assert_true(meta[base + 1] == 0)
-
-                assert_true(leaf_sum == tlas.inst_count)
-    else:
-        assert_true(False, "No Accelerator found")
+def _compute_bounds(verts: List[Vec3f32]) -> AABB:
+    var out = AABB.invalid()
+    for i in range(len(verts)):
+        out.grow(verts[i])
+    return out
 
 
-def test_gpu_tlas_instance_meta_transforms_and_bounds_match_cpu() raises:
-    comptime if has_accelerator():
-        var verts = _make_strip(4)
-        var blas = BinaryBvh(verts.unsafe_ptr(), UInt32(len(verts) / 3))
-        blas.build["median", False]()
-        var instances = [
-            BvhInstance.from_blas(
-                _translation(Float32(10.0), 2.0, -3.0),
-                _translation(Float32(-10.0), -2.0, 3.0),
-                0,
-                blas,
-            ),
-            BvhInstance.from_blas(
-                _uniform_scale(Float32(2.0)),
-                _uniform_scale(Float32(0.5)),
-                0,
-                blas,
-            ),
-        ]
+def _download_tlas_checksum(
+    hits_f32: DeviceBuffer[DType.float32],
+    hits_u32: DeviceBuffer[DType.uint32],
+    ray_count: Int,
+) raises -> Tuple[Float64, UInt32, UInt64]:
+    var checksum = Float64(0.0)
+    var hits = UInt32(0)
+    var inst_checksum = UInt64(0)
 
-        var tlas = Tlas(instances)
-        tlas.build()
+    with hits_f32.map_to_host() as hf:
+        for i in range(ray_count):
+            var t = hf[i * 3]
+            checksum += hit_t_for_checksum(t)
+            if t < 1.0e20:
+                hits += 1
 
-        with DeviceContext() as ctx:
-            var gpu_tlas = GpuTlasLayout(ctx, tlas)
+    with hits_u32.map_to_host() as hu:
+        for i in range(ray_count):
+            var inst = UInt32(hu[i * 2 + 1])
+            if inst != UInt32(0xFFFFFFFF):
+                inst_checksum += UInt64(inst)
 
-            with gpu_tlas.inst_meta.map_to_host() as meta:
-                for i in range(Int(tlas.inst_count)):
-                    assert_true(meta[i] == tlas.instances[i].blas_idx)
+    return (checksum, hits, inst_checksum)
 
-            with gpu_tlas.inst_transform.map_to_host() as xform:
-                for i in range(Int(tlas.inst_count)):
-                    var base = i * GPU_TLAS_TRANSFORM_STRIDE
-                    comptime for row in range(4):
-                        comptime for col in range(4):
-                            comptime j = row * 4 + col
-                            assert_true(
-                                xform[base + j]
-                                == tlas.instances[i].transform[row][col]
-                            )
 
-            with gpu_tlas.inst_inv_transform.map_to_host() as inv_xform:
-                for i in range(Int(tlas.inst_count)):
-                    var base = i * GPU_TLAS_TRANSFORM_STRIDE
-                    comptime for row in range(4):
-                        comptime for col in range(4):
-                            comptime j = row * 4 + col
-                            assert_true(
-                                inv_xform[base + j]
-                                == tlas.instances[i].inv_transform[row][col]
-                            )
-    else:
-        assert_true(False, "No Accelerator found")
+def _download_shadow_count(
+    flags: DeviceBuffer[DType.uint32], ray_count: Int
+) raises -> UInt32:
+    var out = UInt32(0)
+    with flags.map_to_host() as f:
+        for i in range(ray_count):
+            if UInt32(f[i]) != 0:
+                out += 1
+    return out
+
+
+def _make_spheres() -> Tuple[List[Sphere], AABB]:
+    var spheres = List[Sphere](capacity=4)
+    var bounds = AABB.invalid()
+
+    spheres.append(Sphere(Vec3f32(0.0, 0.0, 2.0), 1.0))
+    spheres.append(Sphere(Vec3f32(4.0, 0.0, 4.0), 1.0))
+    spheres.append(Sphere(Vec3f32(-4.0, 0.0, 6.0), 1.0))
+    spheres.append(Sphere(Vec3f32(0.0, 4.0, 8.0), 1.0))
+
+    for i in range(len(spheres)):
+        ref s = spheres[i]
+        var r = s.radius
+        bounds.grow(Vec3f32(s.center.x - r, s.center.y - r, s.center.z - r))
+        bounds.grow(Vec3f32(s.center.x + r, s.center.y + r, s.center.z + r))
+
+    return (spheres^, bounds)
+
+
+def test_gpu_tlas_single_identity_matches_direct_blas() raises:
+    var verts = _make_small_scene()
+    var bounds = _compute_bounds(verts)
+    var rays = generate_primary_rays(
+        bounds,
+        GPU_TLAS_TEST_WIDTH,
+        GPU_TLAS_TEST_HEIGHT,
+        GPU_TLAS_TEST_VIEWS,
+    )
+    var rays_flat = flatten_rays(rays)
+
+    var instances = [
+        Instance(Mat44f32.identity(), Mat44f32.identity(), bounds, UInt32(0))
+    ]
+
+    with DeviceContext() as ctx:
+        var blas = GpuTriangleBvh[4](ctx, verts)
+        var tlas = GpuTlas[4](ctx, instances)
+
+        var d_rays = ctx.enqueue_create_buffer[DType.float32](len(rays_flat))
+        var d_blas_f32 = ctx.enqueue_create_buffer[DType.float32](len(rays) * 3)
+        var d_blas_u32 = ctx.enqueue_create_buffer[DType.uint32](len(rays))
+        var d_tlas_f32 = ctx.enqueue_create_buffer[DType.float32](len(rays) * 3)
+        var d_tlas_u32 = ctx.enqueue_create_buffer[DType.uint32](len(rays) * 2)
+
+        _upload_rays(ctx, d_rays, rays_flat)
+
+        blas.launch_uploaded_primary(
+            ctx, d_rays, d_blas_f32, d_blas_u32, len(rays)
+        )
+        tlas.launch_uploaded_triangle_primary[4](
+            ctx, blas, d_rays, d_tlas_f32, d_tlas_u32, len(rays)
+        )
+        ctx.synchronize()
+
+        var blas_res = _download_full_hit_checksum(ctx, d_blas_f32, len(rays))
+        var tlas_res = _download_tlas_checksum(
+            d_tlas_f32, d_tlas_u32, len(rays)
+        )
+
+        assert_true(abs(blas_res[0] - tlas_res[0]) <= GPU_TLAS_TEST_EPS)
+        assert_true(blas_res[1] == tlas_res[1])
+        assert_true(tlas_res[2] == UInt64(0))
+        keep(tlas.tree.leaf_block_count)
+
+
+def test_gpu_tlas_translated_single_instance_hit() raises:
+    var verts = List[Vec3f32](capacity=3)
+    _append_tri(verts, 0.0, 0.0, 2.0)
+    var bounds = _compute_bounds(verts)
+
+    var tx = Float32(10.0)
+    var inst_bounds = bounds.translate(Vec3f32(tx, 0.0, 0.0))
+    var instances = [
+        Instance(
+            _translation(tx, 0.0, 0.0),
+            _translation_inverse(tx, 0.0, 0.0),
+            inst_bounds,
+            UInt32(0),
+        )
+    ]
+
+    var rays = [Ray(Vec3f32(tx, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))]
+    var rays_flat = flatten_rays(rays)
+
+    with DeviceContext() as ctx:
+        var blas = GpuTriangleBvh[4](ctx, verts)
+        var tlas = GpuTlas[4](ctx, instances)
+
+        var d_rays = ctx.enqueue_create_buffer[DType.float32](len(rays_flat))
+        var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](len(rays) * 3)
+        var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](len(rays) * 2)
+
+        _upload_rays(ctx, d_rays, rays_flat)
+        tlas.launch_uploaded_triangle_primary[4](
+            ctx, blas, d_rays, d_hits_f32, d_hits_u32, len(rays)
+        )
+        ctx.synchronize()
+
+        with d_hits_f32.map_to_host() as hf:
+            assert_almost_equal(hf[0], 2.0)
+
+        with d_hits_u32.map_to_host() as hu:
+            assert_true(hu[0] == UInt32(0))
+            assert_true(hu[1] == UInt32(0))
+
+        keep(tlas.tree.leaf_block_count)
+
+
+def test_gpu_tlas_triangle_shadow_matches_direct_blas() raises:
+    var verts = _make_small_scene()
+    var bounds = _compute_bounds(verts)
+    var rays = generate_primary_rays(
+        bounds,
+        GPU_TLAS_TEST_WIDTH,
+        GPU_TLAS_TEST_HEIGHT,
+        GPU_TLAS_TEST_VIEWS,
+    )
+    var rays_flat = flatten_rays(rays)
+    var instances = [
+        Instance(Mat44f32.identity(), Mat44f32.identity(), bounds, UInt32(0))
+    ]
+
+    with DeviceContext() as ctx:
+        var blas = GpuTriangleBvh[4](ctx, verts)
+        var tlas = GpuTlas[4](ctx, instances)
+
+        var d_rays = ctx.enqueue_create_buffer[DType.float32](len(rays_flat))
+        var d_blas_flags = ctx.enqueue_create_buffer[DType.uint32](len(rays))
+        var d_tlas_flags = ctx.enqueue_create_buffer[DType.uint32](len(rays))
+
+        _upload_rays(ctx, d_rays, rays_flat)
+        blas.launch_uploaded_shadow(ctx, d_rays, d_blas_flags, len(rays))
+        tlas.launch_uploaded_triangle_shadow[4](
+            ctx, blas, d_rays, d_tlas_flags, len(rays)
+        )
+        ctx.synchronize()
+
+        var blas_occ = _download_shadow_count(d_blas_flags, len(rays))
+        var tlas_occ = _download_shadow_count(d_tlas_flags, len(rays))
+        assert_true(blas_occ == tlas_occ)
+        keep(tlas_occ)
+
+
+def test_gpu_tlas_sphere_single_identity_matches_direct_blas() raises:
+    var scene = _make_spheres()
+    var spheres = scene[0].copy()
+    var bounds = scene[1].copy()
+    var rays = generate_primary_rays(
+        bounds,
+        GPU_TLAS_TEST_WIDTH,
+        GPU_TLAS_TEST_HEIGHT,
+        GPU_TLAS_TEST_VIEWS,
+    )
+    var rays_flat = flatten_rays(rays)
+    var instances = [
+        Instance(Mat44f32.identity(), Mat44f32.identity(), bounds, UInt32(0))
+    ]
+
+    with DeviceContext() as ctx:
+        var blas = GpuSphereBvh[4](ctx, spheres)
+        var tlas = GpuTlas[4](ctx, instances)
+
+        var d_rays = ctx.enqueue_create_buffer[DType.float32](len(rays_flat))
+        var d_blas_f32 = ctx.enqueue_create_buffer[DType.float32](len(rays) * 3)
+        var d_blas_u32 = ctx.enqueue_create_buffer[DType.uint32](len(rays))
+        var d_tlas_f32 = ctx.enqueue_create_buffer[DType.float32](len(rays) * 3)
+        var d_tlas_u32 = ctx.enqueue_create_buffer[DType.uint32](len(rays) * 2)
+
+        _upload_rays(ctx, d_rays, rays_flat)
+        blas.launch_uploaded_primary(
+            ctx, d_rays, d_blas_f32, d_blas_u32, len(rays)
+        )
+        tlas.launch_uploaded_sphere_primary[4](
+            ctx, blas, d_rays, d_tlas_f32, d_tlas_u32, len(rays)
+        )
+        ctx.synchronize()
+
+        var blas_res = _download_full_hit_checksum(ctx, d_blas_f32, len(rays))
+        var tlas_res = _download_tlas_checksum(
+            d_tlas_f32, d_tlas_u32, len(rays)
+        )
+
+        assert_true(abs(blas_res[0] - tlas_res[0]) <= GPU_TLAS_TEST_EPS)
+        assert_true(blas_res[1] == tlas_res[1])
+        assert_true(tlas_res[2] == UInt64(0))
+        keep(tlas.tree.leaf_block_count)
+
+
+def test_gpu_tlas_sphere_translated_single_instance_hit() raises:
+    var spheres = [Sphere(Vec3f32(0.0, 0.0, 2.0), 1.0)]
+    var bounds = AABB(Vec3f32(-1.0, -1.0, 1.0), Vec3f32(1.0, 1.0, 3.0))
+    var tx = Float32(10.0)
+    var inst_bounds = bounds.translate(Vec3f32(tx, 0.0, 0.0))
+    var instances = [
+        Instance(
+            _translation(tx, 0.0, 0.0),
+            _translation_inverse(tx, 0.0, 0.0),
+            inst_bounds,
+            UInt32(0),
+        )
+    ]
+    var rays = [Ray(Vec3f32(tx, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))]
+    var rays_flat = flatten_rays(rays)
+
+    with DeviceContext() as ctx:
+        var blas = GpuSphereBvh[4](ctx, spheres)
+        var tlas = GpuTlas[4](ctx, instances)
+
+        var d_rays = ctx.enqueue_create_buffer[DType.float32](len(rays_flat))
+        var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](len(rays) * 3)
+        var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](len(rays) * 2)
+
+        _upload_rays(ctx, d_rays, rays_flat)
+        tlas.launch_uploaded_sphere_primary[4](
+            ctx, blas, d_rays, d_hits_f32, d_hits_u32, len(rays)
+        )
+        ctx.synchronize()
+
+        with d_hits_f32.map_to_host() as hf:
+            assert_almost_equal(hf[0], 1.0)
+
+        with d_hits_u32.map_to_host() as hu:
+            assert_true(hu[0] == UInt32(0))
+            assert_true(hu[1] == UInt32(0))
+
+        keep(tlas.tree.leaf_block_count)
+
+
+def test_gpu_tlas_sphere_shadow_matches_direct_blas() raises:
+    var scene = _make_spheres()
+    var spheres = scene[0].copy()
+    var bounds = scene[1].copy()
+    var rays = generate_primary_rays(
+        bounds,
+        GPU_TLAS_TEST_WIDTH,
+        GPU_TLAS_TEST_HEIGHT,
+        GPU_TLAS_TEST_VIEWS,
+    )
+    var rays_flat = flatten_rays(rays)
+    var instances = [
+        Instance(Mat44f32.identity(), Mat44f32.identity(), bounds, UInt32(0))
+    ]
+
+    with DeviceContext() as ctx:
+        var blas = GpuSphereBvh[4](ctx, spheres)
+        var tlas = GpuTlas[4](ctx, instances)
+
+        var d_rays = ctx.enqueue_create_buffer[DType.float32](len(rays_flat))
+        var d_blas_flags = ctx.enqueue_create_buffer[DType.uint32](len(rays))
+        var d_tlas_flags = ctx.enqueue_create_buffer[DType.uint32](len(rays))
+
+        _upload_rays(ctx, d_rays, rays_flat)
+        blas.launch_uploaded_shadow(ctx, d_rays, d_blas_flags, len(rays))
+        tlas.launch_uploaded_sphere_shadow[4](
+            ctx, blas, d_rays, d_tlas_flags, len(rays)
+        )
+        ctx.synchronize()
+
+        var blas_occ = _download_shadow_count(d_blas_flags, len(rays))
+        var tlas_occ = _download_shadow_count(d_tlas_flags, len(rays))
+        assert_true(blas_occ == tlas_occ)
+        keep(tlas_occ)
 
 
 def main() raises:
+    comptime if not has_accelerator():
+        raise "No Accelerator found"
     TestSuite.discover_tests[__functions_in_module()]().run()

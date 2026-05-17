@@ -2,12 +2,14 @@ from std.math import clamp
 from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.aabb import AABB
-from bajo.core.vec import Vec3f32, vmin, vmax
+from bajo.core.vec import Vec3f32, vmin, vmax, Vec3
+from bajo.core.mat import Mat44f32, transform_point
 
 comptime f32_max = max_finite[DType.float32]()
 comptime f32_min = min_finite[DType.float32]()
 comptime INV_3 = Float32(1.0 / 3.0)
 comptime BVH_BINS = 16
+comptime EMPTY_LANE = UInt32(0xFFFFFFFF)
 
 
 @fieldwise_init
@@ -74,146 +76,100 @@ struct Hit(TrivialRegisterPassable):
 
 
 @fieldwise_init
-struct BvhNode(Copyable):
-    var aabb: AABB
-    var left_first: UInt32
-    var item_count: UInt32
+struct Sphere(TrivialRegisterPassable):
+    var center: Vec3f32
+    var radius: Float32
 
     @always_inline
-    def __init__(out self):
-        self.aabb = AABB.invalid()
-        self.left_first = 0
-        self.item_count = 0
-
-    @always_inline
-    def is_leaf(self) -> Bool:
-        return self.item_count > 0
-
-    @always_inline
-    def is_internal(self) -> Bool:
-        return self.item_count == 0
-
-    @always_inline
-    def surface_area(self) -> Float32:
-        return self.aabb.surface_area()
-
-    @always_inline
-    def first_item(self) -> UInt32:
-        return self.left_first
-
-    @always_inline
-    def left_child(self) -> UInt32:
-        return self.left_first
-
-    @always_inline
-    def right_child(self) -> UInt32:
-        return self.left_first + 1
-
-    @always_inline
-    def set_leaf(mut self, first_item: UInt32, item_count: UInt32):
-        self.left_first = first_item
-        self.item_count = item_count
-
-    @always_inline
-    def set_internal(mut self, left_child: UInt32):
-        self.left_first = left_child
-        self.item_count = 0
+    def bounds(self) -> AABB:
+        var r = Vec3f32(self.radius)
+        return AABB(self.center - r, self.center + r)
 
 
 @fieldwise_init
-struct Bin(Copyable):
-    var bounds: AABB
-    var tri_count: UInt32
+struct SphereLeafBlock[width: Int](Copyable):
+    var center: Vec3[DType.float32, Self.width]
+    var radius: SIMD[DType.float32, Self.width]
+    var prim_indices: SIMD[DType.uint32, Self.width]
+    var valid_lane: SIMD[DType.bool, Self.width]
 
+    @always_inline
     def __init__(out self):
-        self.bounds = AABB.invalid()
-        self.tri_count = 0
+        self.center = Vec3[DType.float32, Self.width](0.0)
+        self.radius = SIMD[DType.float32, Self.width](0.0)
+        self.prim_indices = SIMD[DType.uint32, Self.width](EMPTY_LANE)
+        self.valid_lane = SIMD[DType.bool, Self.width](fill=False)
 
 
 @fieldwise_init
-struct Fragment(Copyable):
-    """Cached primitive bounds used by the builder.
+struct TriangleLeafBlock[width: Int](Copyable):
+    var v0: Vec3[DType.float32, Self.width]
+    var v1: Vec3[DType.float32, Self.width]
+    var v2: Vec3[DType.float32, Self.width]
+    var prim_indices: SIMD[DType.uint32, Self.width]
+    var valid_lane: SIMD[DType.bool, Self.width]
 
-    prim_indices stores indices into this Fragment array. `prim_idx` stores the
-    original triangle id, so traversal still reports the mesh primitive id.
+    @always_inline
+    def __init__(out self):
+        self.v0 = Vec3[DType.float32, Self.width](0.0)
+        self.v1 = Vec3[DType.float32, Self.width](0.0)
+        self.v2 = Vec3[DType.float32, Self.width](0.0)
+        self.prim_indices = SIMD[DType.uint32, Self.width](EMPTY_LANE)
+        self.valid_lane = SIMD[DType.bool, Self.width](fill=False)
+
+
+@fieldwise_init
+struct Instance(Copyable):
+    """Instance of a BLAS in world space.
+
+    - `transform` maps BLAS-local points/vectors to world space.
+    - `inv_transform` maps world-space rays to BLAS-local space.
+    - `bounds` is the transformed world-space root AABB.
+    - `blas_idx` indexes the BLAS array passed to traversal.
     """
 
-    var bmin: Vec3f32
-    var prim_idx: UInt32
-    var bmax: Vec3f32
-    var _pad: UInt32
+    var transform: Mat44f32
+    var inv_transform: Mat44f32
+    var bounds: AABB
+    var blas_idx: UInt32
 
     @always_inline
     def __init__(out self):
-        self.bmin = Vec3f32(f32_max)
-        self.prim_idx = 0
-        self.bmax = Vec3f32(f32_min)
-        self._pad = 0
+        self.transform = Mat44f32.identity()
+        self.inv_transform = Mat44f32.identity()
+        self.bounds = AABB.invalid()
+        self.blas_idx = UInt32(0)
 
     @always_inline
     def __init__(
-        out self, prim_idx: UInt32, v0: Vec3f32, v1: Vec3f32, v2: Vec3f32
+        out self,
+        transform: Mat44f32,
+        inv_transform: Mat44f32,
+        blas_idx: UInt32,
+        blas_bounds: AABB,
     ):
-        self.bmin = vmin(v0, v1, v2)
-        self.prim_idx = prim_idx
-        self.bmax = vmax(v0, v1, v2)
-        self._pad = 0
-
-    @always_inline
-    def center_axis(self, axis: Int) -> Float32:
-        return (self.bmin[axis] + self.bmax[axis]) * 0.5
-
-    def center(self) -> Vec3f32:
-        return (self.bmin + self.bmax) * 0.5
-
-    @always_inline
-    def grow_into(self, mut aabb: AABB):
-        aabb._min = vmin(aabb._min, self.bmin)
-        aabb._max = vmax(aabb._max, self.bmax)
+        self.transform = transform.copy()
+        self.inv_transform = inv_transform.copy()
+        self.blas_idx = blas_idx
+        self.bounds = transform_bounds(transform, blas_bounds)
 
 
-@fieldwise_init
-struct SplitResult(Copyable):
-    """Result of the binned SAH sweep.
+@always_inline
+def transform_bounds(transform: Mat44f32, bounds: AABB) -> AABB:
+    var corners = InlineArray[Vec3f32, 8](fill=Vec3f32(0.0))
 
-    `bin`, `bin_min`, and `bin_scale` describe the exact binning rule used
-    during evaluation. Partitioning by these fields keeps the partition in sync
-    with the cost and child bounds computed by `_sah`.
-    """
+    corners[0] = Vec3f32(bounds._min.x, bounds._min.y, bounds._min.z)
+    corners[1] = Vec3f32(bounds._max.x, bounds._min.y, bounds._min.z)
+    corners[2] = Vec3f32(bounds._min.x, bounds._max.y, bounds._min.z)
+    corners[3] = Vec3f32(bounds._max.x, bounds._max.y, bounds._min.z)
+    corners[4] = Vec3f32(bounds._min.x, bounds._min.y, bounds._max.z)
+    corners[5] = Vec3f32(bounds._max.x, bounds._min.y, bounds._max.z)
+    corners[6] = Vec3f32(bounds._min.x, bounds._max.y, bounds._max.z)
+    corners[7] = Vec3f32(bounds._max.x, bounds._max.y, bounds._max.z)
 
-    var axis: Int
-    var bin: Int
-    var pos: Float32
-    var cost: Float32
-    var bin_min: Float32
-    var bin_scale: Float32
-    var left_bounds: AABB
-    var right_bounds: AABB
+    var out = AABB.invalid()
 
-    @always_inline
-    def __init__(out self):
-        self.axis = -1
-        self.bin = -1
-        self.pos = 0.0
-        self.cost = f32_max
-        self.bin_min = 0.0
-        self.bin_scale = 0.0
-        self.left_bounds = AABB.invalid()
-        self.right_bounds = AABB.invalid()
+    comptime for i in range(8):
+        out.grow(transform_point(transform, corners[i]))
 
-    @always_inline
-    def valid(self) -> Bool:
-        return self.axis >= 0 and self.bin >= 0
-
-
-@fieldwise_init
-struct MortonPrim(TrivialRegisterPassable):
-    """Morton-code / fragment-index pair used by the CPU LBVH builder."""
-
-    var code: UInt32
-    var frag_idx: UInt32
-
-    @always_inline
-    def __init__(out self):
-        self.code = 0
-        self.frag_idx = 0
+    return out

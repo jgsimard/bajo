@@ -24,8 +24,10 @@ bench_all = { depends-on = [
   "bench_bvh_gpu",
 ] }
 example_lbvh = { cmd = "mojo -I . examples/lbvh_normals.mojo", depends-on = ["download_assets"] }
+test_bvh = "bash scripts/run_tests.sh test/core/bvh"
+fmt = "mojo format ."
 
 [dependencies]
-mojo = ">=1.0.0b2.dev2026051506,<2"
-max = ">=26.4.0.dev2026051506,<27"
+mojo = ">=1.0.0b2.dev2026051606,<2"
+max = ">=26.4.0.dev2026051606,<27"
 python = ">=3.14.4,<3.15"

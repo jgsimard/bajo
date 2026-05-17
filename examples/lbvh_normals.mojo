@@ -5,7 +5,7 @@ from std.gpu.host import DeviceContext
 from std.io.file_descriptor import FileDescriptor
 
 from bajo.core.bvh.cpu.binary_bvh import BinaryBvh
-from bajo.core.bvh.cpu.tlas import BvhInstance, Tlas
+from bajo.core.bvh.cpu.tlas import Instance, Tlas
 
 from bajo.core.bvh.host_utils import (
     append_camera_params,
@@ -47,15 +47,13 @@ def _trs_y(
     # fmt: off
 
 
-def _make_instances(
-    mut blas: BinaryBvh, bounds: AABB
-) raises -> List[BvhInstance]:
+def _make_instances(mut blas: BinaryBvh, bounds: AABB) raises -> List[Instance]:
     var extent = bounds.extent()
     var spacing = max(max(extent.x, extent.y), extent.z) * 2.25
     if spacing < 1.0:
         spacing = 1.0
 
-    var instances = List[BvhInstance](capacity=GRID_X * GRID_Z)
+    var instances = List[Instance](capacity=GRID_X * GRID_Z)
     for z in range(GRID_Z):
         for x in range(GRID_X):
             var idx = z * GRID_X + x
@@ -66,7 +64,7 @@ def _make_instances(
             var transform = _trs_y(tx, 0.0, tz, angle, scale)
             var inv_transform = inverse(transform)
             instances.append(
-                BvhInstance.from_blas(transform, inv_transform, 0, blas)
+                Instance.from_blas(transform, inv_transform, 0, blas)
             )
     return instances^
 

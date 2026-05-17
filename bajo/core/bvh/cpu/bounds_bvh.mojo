@@ -351,7 +351,7 @@ def _find_lbvh_split(
     return (first + last) / 2
 
 
-struct BoundsBvhBuilder[split_method: String, leaf_size: Int](Copyable):
+struct BoundsBvhBuilder[leaf_size: Int](Copyable):
     """Generic binary BVH builder over AABBs/items.
 
     Build modes:
@@ -396,8 +396,6 @@ struct BoundsBvhBuilder[split_method: String, leaf_size: Int](Copyable):
         else:
             self.nodes_used = 0
 
-        self.build()
-
     @always_inline
     def update_node_bounds(mut self, node_idx: UInt32):
         ref node = self.nodes[Int(node_idx)]
@@ -408,20 +406,20 @@ struct BoundsBvhBuilder[split_method: String, leaf_size: Int](Copyable):
             var item_idx = Int(self.item_indices[first + i])
             self.items[item_idx].grow_into(node.aabb)
 
-    def build(mut self):
+    def build[split_method: String = "median"](mut self):
         if self.item_count == 0:
             self.nodes_used = 0
             return
 
-        comptime if Self.split_method == "lbvh":
+        comptime if split_method == "lbvh":
             self.build_lbvh()
         else:
             self.nodes_used = 1
             self.nodes[0].set_leaf(0, self.item_count)
             self.update_node_bounds(0)
-            self._subdivide(0)
+            self._subdivide[split_method](0)
 
-    def _subdivide(mut self, node_idx: UInt32):
+    def _subdivide[split_method: String](mut self, node_idx: UInt32):
         ref node = self.nodes[Int(node_idx)]
 
         if node.item_count <= UInt32(Self.leaf_size):
@@ -436,12 +434,12 @@ struct BoundsBvhBuilder[split_method: String, leaf_size: Int](Copyable):
         var cached_left_bounds = AABB.invalid()
         var cached_right_bounds = AABB.invalid()
 
-        comptime if Self.split_method == "median":
+        comptime if split_method == "median":
             var extent = node.aabb._max - node.aabb._min
             axis = longest_axis(extent)
             pos = node.aabb._min[axis] + extent[axis] * 0.5
 
-        elif Self.split_method == "sah":
+        elif split_method == "sah":
             var split = _sah_items(
                 node,
                 self.item_indices.unsafe_ptr(),
@@ -473,7 +471,7 @@ struct BoundsBvhBuilder[split_method: String, leaf_size: Int](Copyable):
 
         var split_idx: Int
 
-        comptime if Self.split_method == "sah":
+        comptime if split_method == "sah":
             if use_sah_bounds:
                 split_idx = _partition_items_by_bin(
                     self.item_indices.unsafe_ptr(),
@@ -520,7 +518,7 @@ struct BoundsBvhBuilder[split_method: String, leaf_size: Int](Copyable):
         left_child.set_leaf(node.first_item(), left_count)
         right_child.set_leaf(UInt32(split_idx), node.item_count - left_count)
 
-        comptime if Self.split_method == "sah":
+        comptime if split_method == "sah":
             if use_sah_bounds:
                 left_child.aabb = cached_left_bounds
                 right_child.aabb = cached_right_bounds
@@ -533,8 +531,8 @@ struct BoundsBvhBuilder[split_method: String, leaf_size: Int](Copyable):
 
         node.set_internal(left_child_idx)
 
-        self._subdivide(left_child_idx)
-        self._subdivide(left_child_idx + 1)
+        self._subdivide[split_method](left_child_idx)
+        self._subdivide[split_method](left_child_idx + 1)
 
     def _build_lbvh_recursive(
         mut self,

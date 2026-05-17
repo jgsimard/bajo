@@ -8,35 +8,9 @@ from bajo.core.bvh.cpu.bounds_bvh import (
     BoundsBvhBuilder,
 )
 from bajo.core.aabb import AABB, AxisAlignedBoundingBox
-from bajo.core.bvh.types import Ray
+from bajo.core.bvh.types import Ray, Sphere, SphereLeafBlock
 from bajo.core.intersect import intersect_ray_sphere
 from bajo.core.bvh.cpu.traverse import traverse_wide_ray_bvh
-
-
-@fieldwise_init
-struct Sphere(TrivialRegisterPassable):
-    var center: Vec3f32
-    var radius: Float32
-
-    @always_inline
-    def bounds(self) -> AABB:
-        var r = Vec3f32(self.radius)
-        return AABB(self.center - r, self.center + r)
-
-
-@fieldwise_init
-struct SphereLeafBlock[width: Int](Copyable):
-    var center: Vec3[DType.float32, Self.width]
-    var radius: SIMD[DType.float32, Self.width]
-    var prim_indices: SIMD[DType.uint32, Self.width]
-    var valid_lane: SIMD[DType.bool, Self.width]
-
-    @always_inline
-    def __init__(out self):
-        self.center = Vec3[DType.float32, Self.width](0.0)
-        self.radius = SIMD[DType.float32, Self.width](0.0)
-        self.prim_indices = SIMD[DType.uint32, Self.width](EMPTY_LANE)
-        self.valid_lane = SIMD[DType.bool, Self.width](fill=False)
 
 
 struct SphereBvh[width: Int](Copyable):
@@ -54,7 +28,7 @@ struct SphereBvh[width: Int](Copyable):
     var sphere_count: UInt32
 
     def __init__[
-        split_method: String
+        split_method: String = "median"
     ](
         out self,
         spheres: UnsafePointer[Sphere, MutAnyOrigin],
@@ -71,7 +45,8 @@ struct SphereBvh[width: Int](Copyable):
             self.spheres.append(s)
             items.append(BoundsItem(s.bounds(), UInt32(i)))
 
-        var builder = BoundsBvhBuilder[split_method, Self.width](items)
+        var builder = BoundsBvhBuilder[Self.width](items)
+        builder.build[split_method]()
 
         self.tree = BoundsBvh[Self.width](builder)
 
@@ -108,9 +83,6 @@ struct SphereBvh[width: Int](Copyable):
 
                             block.prim_indices[k] = sphere_idx
                             block.valid_lane[k] = True
-                        else:
-                            block.prim_indices[k] = EMPTY_LANE
-                            block.valid_lane[k] = False
 
                     var block_idx = UInt32(len(self.leaf_blocks))
                     self.leaf_blocks.append(block^)
@@ -119,7 +91,7 @@ struct SphereBvh[width: Int](Copyable):
     @always_inline
     def _intersect_leaf[
         is_occlusion: Bool
-    ](self, mut ray: Ray, leaf_block_idx: UInt32, item_count: UInt32,) -> Bool:
+    ](self, mut ray: Ray, leaf_block_idx: UInt32, item_count: UInt32) -> Bool:
         ref block = self.leaf_blocks[Int(leaf_block_idx)]
 
         var O = Vec3[DType.float32, Self.width](ray.O.x, ray.O.y, ray.O.z)
@@ -131,23 +103,23 @@ struct SphereBvh[width: Int](Copyable):
 
         var hit_mask = h.mask & block.valid_lane
 
-        if hit_mask.reduce_or():
-            comptime if is_occlusion:
-                return True
-            else:
-                comptime f32_max = max_finite[DType.float32]()
-                var min_t = hit_mask.select(h.t, f32_max).reduce_min()
+        if not hit_mask.reduce_or():
+            return False
 
-                comptime for lane in range(Self.width):
-                    if hit_mask[lane] and h.t[lane] == min_t:
-                        ray.hit.t = min_t
-                        ray.hit.u = 0.0
-                        ray.hit.v = 0.0
-                        ray.hit.prim = block.prim_indices[lane]
+        comptime if is_occlusion:
+            return True
+        else:
+            comptime f32_max = max_finite[DType.float32]()
+            var min_t = hit_mask.select(h.t, f32_max).reduce_min()
+            ray.hit.t = min_t
+            ray.hit.u = 0.0
+            ray.hit.v = 0.0
 
-                return True
+            comptime for lane in range(Self.width):
+                if hit_mask[lane] and h.t[lane] == min_t:
+                    ray.hit.prim = block.prim_indices[lane]
 
-        return False
+            return True
 
     @always_inline
     def _traverse_generic[is_occlusion: Bool](self, mut ray: Ray) -> Bool:

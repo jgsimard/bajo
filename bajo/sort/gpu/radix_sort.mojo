@@ -364,7 +364,7 @@ def downsweep[
 
 def device_radix_sort_keys[
     dtype: DType, BITS_PER_PASS: Int = 8, KEYS_PER_THREAD: Int = 9
-](ctx: DeviceContext, mut keys: DeviceBuffer[dtype], size: Int,) raises:
+](ctx: DeviceContext, mut keys: DeviceBuffer[dtype], size: Int) raises:
     comptime NUM_PASSES = bit_width_of[dtype]() / BITS_PER_PASS
     comptime RADIX = 2**BITS_PER_PASS
     comptime RADIX_MASK = RADIX - 1

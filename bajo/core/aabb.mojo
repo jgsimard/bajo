@@ -112,3 +112,25 @@ struct AxisAlignedBoundingBox[dtype: DType, width: Int = 1](
                     txfmed._min.add_axis[i](f)
                     txfmed._max.add_axis[i](e)
         return txfmed
+
+    @always_inline
+    @staticmethod
+    def load6[
+        origin: Origin
+    ](ptr: UnsafePointer[Scalar[Self.dtype], origin], base: Int) -> Self:
+        comptime assert Self.width == 1
+        return Self(
+            Vec3[Self.dtype, Self.width].load(ptr, base),
+            Vec3[Self.dtype, Self.width].load(ptr, base + 3),
+        )
+
+    @always_inline
+    def store6[
+        origin: Origin[mut=True]
+    ](self, ptr: UnsafePointer[Scalar[Self.dtype], origin], base: Int):
+        comptime assert Self.width == 1
+        self._min.store(ptr, base)
+        self._max.store(ptr + 3, base)
+
+    def translate(self, translation: Vec3[Self.dtype, Self.width]) -> Self:
+        return Self(self._min + translation, self._max + translation)

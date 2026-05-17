@@ -24,6 +24,7 @@ from bajo.core.bvh.gpu.bounds_bvh import (
     GPU_TRI_LEAF_VERTEX_STRIDE,
 )
 from bajo.core.intersect import intersect_ray_tri
+from bajo.core.bvh.gpu.traverse import trace_gpu_wide_ray
 
 
 struct GpuTriangleBvh[width: Int]:
@@ -196,7 +197,14 @@ def trace_gpu_triangle_bvh_primary_kernel[
         return
 
     var ray = RayFlat(rays, ray_idx)
-    var hit = trace_gpu_wide_triangle_ray[width, TRACE_PRIMARY_FULL](
+    var hit = trace_gpu_wide_ray[
+        width,
+        TRACE_PRIMARY_FULL,
+        _intersect_triangle_leaf_block[
+            width,
+            TRACE_PRIMARY_FULL,
+        ],
+    ](
         wide_bounds,
         wide_data,
         wide_counts,
@@ -231,7 +239,14 @@ def trace_gpu_triangle_bvh_shadow_kernel[
         return
 
     var ray = RayFlat(rays, ray_idx)
-    var hit = trace_gpu_wide_triangle_ray[width, TRACE_SHADOW](
+    var hit = trace_gpu_wide_ray[
+        width,
+        TRACE_SHADOW,
+        _intersect_triangle_leaf_block[
+            width,
+            TRACE_SHADOW,
+        ],
+    ](
         wide_bounds,
         wide_data,
         wide_counts,
@@ -242,78 +257,6 @@ def trace_gpu_triangle_bvh_shadow_kernel[
     )
 
     flags[ray_idx] = hit.occluded
-
-
-@always_inline
-def trace_gpu_wide_triangle_ray[
-    width: Int,
-    mode: String = TRACE_PRIMARY_FULL,
-](
-    wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    wide_data: UnsafePointer[UInt32, MutAnyOrigin],
-    wide_counts: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_vertices: UnsafePointer[Float32, MutAnyOrigin],
-    leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
-    root_idx: UInt32,
-    ray: RayFlat,
-) -> Hit:
-    comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_PRIMARY_T, TRACE_SHADOW]
-
-    var best_t = ray.t_max
-    var best_u = Float32(0.0)
-    var best_v = Float32(0.0)
-    var best_prim = _gpu_miss_prim
-
-    var stack = InlineArray[UInt32, GPU_TRAVERSAL_STACK_SIZE](fill=0)
-    var stack_ptr = 0
-    var current = root_idx
-
-    while True:
-        var bounds_hit_mask = _intersect_wide_node_bounds[width](
-            wide_bounds,
-            current,
-            ray,
-            ray.t_max,
-        )
-
-        comptime for node_lane in range(width):
-            var lane_base = _wide_lane_base[width](current, node_lane)
-            var count = UInt32(wide_counts[lane_base])
-
-            if count != GPU_WIDE_EMPTY_LANE and bounds_hit_mask[node_lane]:
-                var data = UInt32(wide_data[lane_base])
-
-                if count == 0:
-                    if stack_ptr < GPU_TRAVERSAL_STACK_SIZE:
-                        stack[stack_ptr] = data
-                        stack_ptr += 1
-                else:
-                    var leaf_hit = _intersect_triangle_leaf_block[
-                        width,
-                        mode,
-                    ](
-                        leaf_vertices,
-                        leaf_prims,
-                        data,
-                        count,
-                        ray,
-                        best_t,
-                        best_u,
-                        best_v,
-                        best_prim,
-                    )
-
-                    comptime if mode == TRACE_SHADOW:
-                        if leaf_hit:
-                            return Hit(0.0, 0.0, 0.0, best_prim, UInt32(1))
-
-        if stack_ptr == 0:
-            break
-
-        stack_ptr -= 1
-        current = stack[stack_ptr]
-
-    return Hit(best_t, best_u, best_v, best_prim, UInt32(0))
 
 
 @always_inline
@@ -367,7 +310,7 @@ def _intersect_triangle_leaf_block[
     mut best_u: Float32,
     mut best_v: Float32,
     mut best_prim: UInt32,
-) -> Bool:
+) capturing -> Bool:
     comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_PRIMARY_T, TRACE_SHADOW]
 
     var block = _load_triangle_leaf_packet[width](

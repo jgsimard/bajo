@@ -1,10 +1,11 @@
 from std.math import ceildiv, sqrt
 from std.time import perf_counter_ns
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
+from std.utils.numerics import max_finite
 
 from bajo.core.intersect import intersect_ray_sphere
 from bajo.core.vec import Vec3f32, Vec3
-from bajo.core.bvh.types import Sphere, RayFlat, Hit
+from bajo.core.bvh.types import Sphere, RayFlat, Hit, SphereLeafBlock
 from bajo.core.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
     _copy_f32_to_device,
@@ -268,6 +269,35 @@ def trace_gpu_wide_sphere_ray[
 
 
 @always_inline
+def _load_sphere_leaf_packet[
+    width: Int,
+](
+    leaf_spheres: UnsafePointer[Float32, MutAnyOrigin],
+    leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_block_idx: UInt32,
+    item_count: UInt32,
+) -> SphereLeafBlock[width]:
+    var block = SphereLeafBlock[width]()
+    comptime for lane in range(width):
+        if lane < Int(item_count):
+            var idx = Int(leaf_block_idx) * width + lane
+            var prim = UInt32(leaf_prims[idx])
+
+            if prim != GPU_WIDE_EMPTY_LANE:
+                var base = idx * GPU_SPHERE_STRIDE
+
+                block.center.x[lane] = leaf_spheres[base + 0]
+                block.center.y[lane] = leaf_spheres[base + 1]
+                block.center.z[lane] = leaf_spheres[base + 2]
+                block.radius[lane] = leaf_spheres[base + 3]
+
+                block.prim_indices[lane] = prim
+                block.valid_lane[lane] = True
+
+    return block^
+
+
+@always_inline
 def _intersect_sphere_leaf_block[
     width: Int,
     mode: String,
@@ -284,39 +314,49 @@ def _intersect_sphere_leaf_block[
 ) -> Bool:
     comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_PRIMARY_T, TRACE_SHADOW]
 
-    var hit_any = False
+    var block = _load_sphere_leaf_packet[width](
+        leaf_spheres,
+        leaf_prims,
+        leaf_block_idx,
+        item_count,
+    )
 
-    comptime for lane in range(width):
-        if lane < Int(item_count):
-            var idx = Int(leaf_block_idx) * width + lane
-            var prim = UInt32(leaf_prims[idx])
+    var O = Vec3[DType.float32, width](ray.o.x, ray.o.y, ray.o.z)
+    var D = Vec3[DType.float32, width](ray.d.x, ray.d.y, ray.d.z)
 
-            if prim != GPU_WIDE_EMPTY_LANE:
-                var base = idx * GPU_SPHERE_STRIDE
-                var center = Vec3f32(
-                    leaf_spheres[base + 0],
-                    leaf_spheres[base + 1],
-                    leaf_spheres[base + 2],
-                )
-                var radius = leaf_spheres[base + 3]
+    var h = intersect_ray_sphere[DType.float32, width](
+        O,
+        D,
+        block.center,
+        block.radius,
+        best_t,
+    )
 
-                var O = Vec3[DType.float32](ray.o.x, ray.o.y, ray.o.z)
-                var D = Vec3[DType.float32](ray.d.x, ray.d.y, ray.d.z)
+    var eps_mask = h.t.gt(1.0e-4)
+    var hit_mask = h.mask & block.valid_lane & eps_mask
 
-                var h = intersect_ray_sphere(O, D, center, radius, best_t)
+    if not hit_mask.reduce_or():
+        return False
 
-                if h.t > 1.0e-4 and h.t < best_t:
-                    comptime if mode == TRACE_SHADOW:
-                        return True
-                    else:
-                        hit_any = True
-                        best_t = h.t
-                        comptime if mode == TRACE_PRIMARY_FULL:
-                            best_u = 0.0
-                            best_v = 0.0
-                            best_prim = prim
+    comptime if mode == TRACE_SHADOW:
+        return True
+    else:
+        comptime f32_max = max_finite[DType.float32]()
+        var min_t = hit_mask.select(
+            h.t,
+            SIMD[DType.float32, width](f32_max),
+        ).reduce_min()
 
-    return hit_any
+        best_t = min_t
+
+        comptime if mode == TRACE_PRIMARY_FULL:
+            comptime for lane in range(width):
+                if hit_mask[lane] and h.t[lane] == min_t:
+                    best_u = 0.0
+                    best_v = 0.0
+                    best_prim = block.prim_indices[lane][lane]
+
+        return True
 
 
 def pack_sphere_leaf_blocks_kernel[

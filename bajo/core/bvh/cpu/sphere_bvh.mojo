@@ -8,24 +8,9 @@ from bajo.core.bvh.cpu.bounds_bvh import (
     BoundsBvhBuilder,
 )
 from bajo.core.aabb import AABB, AxisAlignedBoundingBox
-from bajo.core.bvh.types import Ray, Sphere
+from bajo.core.bvh.types import Ray, Sphere, SphereLeafBlock
 from bajo.core.intersect import intersect_ray_sphere
 from bajo.core.bvh.cpu.traverse import traverse_wide_ray_bvh
-
-
-@fieldwise_init
-struct SphereLeafBlock[width: Int](Copyable):
-    var center: Vec3[DType.float32, Self.width]
-    var radius: SIMD[DType.float32, Self.width]
-    var prim_indices: SIMD[DType.uint32, Self.width]
-    var valid_lane: SIMD[DType.bool, Self.width]
-
-    @always_inline
-    def __init__(out self):
-        self.center = Vec3[DType.float32, Self.width](0.0)
-        self.radius = SIMD[DType.float32, Self.width](0.0)
-        self.prim_indices = SIMD[DType.uint32, Self.width](EMPTY_LANE)
-        self.valid_lane = SIMD[DType.bool, Self.width](fill=False)
 
 
 struct SphereBvh[width: Int](Copyable):
@@ -118,23 +103,23 @@ struct SphereBvh[width: Int](Copyable):
 
         var hit_mask = h.mask & block.valid_lane
 
-        if hit_mask.reduce_or():
-            comptime if is_occlusion:
-                return True
-            else:
-                comptime f32_max = max_finite[DType.float32]()
-                var min_t = hit_mask.select(h.t, f32_max).reduce_min()
+        if not hit_mask.reduce_or():
+            return False
 
-                comptime for lane in range(Self.width):
-                    if hit_mask[lane] and h.t[lane] == min_t:
-                        ray.hit.t = min_t
-                        ray.hit.u = 0.0
-                        ray.hit.v = 0.0
-                        ray.hit.prim = block.prim_indices[lane]
+        comptime if is_occlusion:
+            return True
+        else:
+            comptime f32_max = max_finite[DType.float32]()
+            var min_t = hit_mask.select(h.t, f32_max).reduce_min()
 
-                return True
+            comptime for lane in range(Self.width):
+                if hit_mask[lane] and h.t[lane] == min_t:
+                    ray.hit.t = min_t
+                    ray.hit.u = 0.0
+                    ray.hit.v = 0.0
+                    ray.hit.prim = block.prim_indices[lane]
 
-        return False
+            return True
 
     @always_inline
     def _traverse_generic[is_occlusion: Bool](self, mut ray: Ray) -> Bool:

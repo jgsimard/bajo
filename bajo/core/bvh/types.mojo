@@ -2,12 +2,13 @@ from std.math import clamp
 from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.aabb import AABB
-from bajo.core.vec import Vec3f32, vmin, vmax
+from bajo.core.vec import Vec3f32, vmin, vmax, Vec3
 
 comptime f32_max = max_finite[DType.float32]()
 comptime f32_min = min_finite[DType.float32]()
 comptime INV_3 = Float32(1.0 / 3.0)
 comptime BVH_BINS = 16
+comptime EMPTY_LANE = UInt32(0xFFFFFFFF)
 
 
 @fieldwise_init
@@ -82,3 +83,18 @@ struct Sphere(TrivialRegisterPassable):
     def bounds(self) -> AABB:
         var r = Vec3f32(self.radius)
         return AABB(self.center - r, self.center + r)
+
+
+@fieldwise_init
+struct SphereLeafBlock[width: Int](Copyable):
+    var center: Vec3[DType.float32, Self.width]
+    var radius: SIMD[DType.float32, Self.width]
+    var prim_indices: SIMD[DType.uint32, Self.width]
+    var valid_lane: SIMD[DType.bool, Self.width]
+
+    @always_inline
+    def __init__(out self):
+        self.center = Vec3[DType.float32, Self.width](0.0)
+        self.radius = SIMD[DType.float32, Self.width](0.0)
+        self.prim_indices = SIMD[DType.uint32, Self.width](EMPTY_LANE)
+        self.valid_lane = SIMD[DType.bool, Self.width](fill=False)

@@ -8,13 +8,12 @@ from bajo.core.aabb import AABB
 from bajo.core.bvh.cpu.tlas import Tlas
 from bajo.core.bvh.gpu.tlas import GpuTlas
 from bajo.core.bvh.gpu.triangle_bvh import GpuTriangleBvh
-from bajo.core.bvh.gpu.utils import _upload_rays
 from bajo.core.bvh.host_utils import (
-    append_camera_rays,
+    append_camera_params,
     compute_bounds,
-    flatten_rays,
+    copy_list_to_device,
 )
-from bajo.core.bvh.types import Instance, Ray
+from bajo.core.bvh.types import Instance
 from bajo.core.mat import Mat44f32, inverse, transform_vector
 from bajo.core.utils import pack_obj_triangles, ns_to_ms, ns_to_mrays_per_s
 from bajo.core.vec import Vec3f32, cross, normalize
@@ -27,7 +26,7 @@ comptime HEIGHT = 720
 comptime GRID_X = 25
 comptime GRID_Z = 25
 comptime BLAS_WIDTH = 4
-comptime TLAS_WIDTH = 4
+comptime TLAS_WIDTH = 2
 comptime MISS_PRIM = UInt32(0xFFFFFFFF)
 
 
@@ -48,7 +47,11 @@ def _trs_y(
 
 def _make_instances(bounds: AABB) raises -> List[Instance]:
     var extent = bounds.extent()
-    var spacing = max(max(extent.x, extent.y), extent.z) * 2.25
+    var base_extent = max(max(extent.x, extent.y), extent.z)
+
+    comptime BASE_SCALE = Float32(8.0)
+
+    var spacing = base_extent * BASE_SCALE * 1.35
     if spacing < 1.0:
         spacing = 1.0
 
@@ -59,7 +62,7 @@ def _make_instances(bounds: AABB) raises -> List[Instance]:
             var tx = (Float32(x - GRID_X - 1) / 2) * spacing
             var tz = (Float32(z - GRID_Z - 1) / 2) * spacing
             var angle = Float32(idx) * 1.0
-            var scale = Float32(8.0) + Float32(idx % 5) * 0.075
+            var scale = BASE_SCALE + Float32(idx % 5) * 0.075
             var transform = _trs_y(tx, 0.0, tz, angle, scale)
             var inv_transform = inverse(transform)
             instances.append(Instance(transform, inv_transform, 0, bounds))
@@ -73,7 +76,7 @@ def _instances_bounds(instances: List[Instance]) -> AABB:
     return out
 
 
-def _make_camera_rays(tlas: Tlas[TLAS_WIDTH]) -> List[Ray]:
+def _make_camera_params(tlas: Tlas[TLAS_WIDTH]) -> List[Float32]:
     var bounds = tlas.bounds()
     var center = bounds.centroid()
     var extent = bounds.extent()
@@ -82,30 +85,26 @@ def _make_camera_rays(tlas: Tlas[TLAS_WIDTH]) -> List[Ray]:
     if scene_w < 1.0:
         scene_w = 1.0
 
-    # Lower and closer, like a crowd-level shot.
     var eye = center + Vec3f32(
         scene_w * 0.18,
         extent.y * 0.22,
         -scene_w * 0.25,
     )
 
-    # Look slightly into the group, around upper-body / head height.
     var target = center + Vec3f32(
         0.0,
         extent.y * 0.18,
         scene_w * 0.10,
     )
 
-    var rays = List[Ray](capacity=WIDTH * HEIGHT)
-    append_camera_rays(
-        rays,
+    var params = List[Float32](capacity=12)
+    append_camera_params(
+        params,
         eye,
         target,
         Vec3f32(0.0, 1.0, 0.0),
-        WIDTH,
-        HEIGHT,
     )
-    return rays^
+    return params^
 
 
 @always_inline
@@ -192,12 +191,12 @@ def main() raises:
     var instances = _make_instances(blas_bounds)
     var cpu_tlas = Tlas[TLAS_WIDTH](instances)
     var tlas_bounds = _instances_bounds(instances)
-    var rays = _make_camera_rays(cpu_tlas)
-    var rays_flat = flatten_rays(rays)
+    var camera_params = _make_camera_params(cpu_tlas)
+    var ray_count = WIDTH * HEIGHT
     var cpu_t1 = perf_counter_ns()
     print(
         t"CPU TLAS: instances={cpu_tlas.inst_count} | "
-        t"rays={len(rays)} | "
+        t"rays={ray_count} | "
         t"time={round(ns_to_ms(Int(cpu_t1 - cpu_t0)), 3)} ms"
     )
 
@@ -213,9 +212,10 @@ def main() raises:
 
         var blas_validation = gpu_blas.tree.validate(blas_bounds)
         print(
-            t"BLAS build: total={round(ns_to_ms(Int(blas_t1 - blas_t0)), 3)} ms"
-            t" | collapse={round(ns_to_ms(gpu_blas.tree.collapse_ns), 3)} ms |"
-            t" pack={round(ns_to_ms(gpu_blas.leaf_pack_ns), 3)} ms"
+            t"BLAS build:"
+            t" total={round(ns_to_ms(Int(blas_t1 - blas_t0)), 3)} ms |"
+            t" collapse={round(ns_to_ms(gpu_blas.tree.collapse_ns), 3)} ms"
+            t" | pack={round(ns_to_ms(gpu_blas.leaf_pack_ns), 3)} ms"
         )
         print(
             t"BLAS validation: sorted={blas_validation.sorted_ok} | "
@@ -233,8 +233,9 @@ def main() raises:
 
         var tlas_validation = gpu_tlas.tree.validate(tlas_bounds)
         print(
-            t"TLAS build: total={round(ns_to_ms(Int(tlas_t1 - tlas_t0)), 3)} ms"
-            t" | collapse={round(ns_to_ms(gpu_tlas.tree.collapse_ns), 3)} ms"
+            t"TLAS build:"
+            t" total={round(ns_to_ms(Int(tlas_t1 - tlas_t0)), 3)} ms |"
+            t" collapse={round(ns_to_ms(gpu_tlas.tree.collapse_ns), 3)} ms"
         )
         print(
             t"TLAS validation: sorted={tlas_validation.sorted_ok} | "
@@ -244,27 +245,30 @@ def main() raises:
             t"root={tlas_validation.root_idx}"
         )
 
-        print("\nUploading rays and tracing TLAS on GPU...")
-        var ray_count = len(rays)
-        var upload_t0 = perf_counter_ns()
-        var d_rays = ctx.enqueue_create_buffer[DType.float32](len(rays_flat))
+        print("\nUploading camera params and tracing TLAS on GPU...")
+        var setup_t0 = perf_counter_ns()
+        var d_camera_params = copy_list_to_device[DType.float32](
+            ctx,
+            camera_params,
+        )
         var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](ray_count * 3)
         var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](ray_count * 2)
-        _upload_rays(ctx, d_rays, rays_flat)
         ctx.synchronize()
-        var upload_t1 = perf_counter_ns()
+        var setup_t1 = perf_counter_ns()
         print(
-            t"Upload/setup: {round(ns_to_ms(Int(upload_t1 - upload_t0)), 3)} ms"
+            t"Setup/upload: {round(ns_to_ms(Int(setup_t1 - setup_t0)), 3)} ms"
         )
 
         var trace_t0 = perf_counter_ns()
-        gpu_tlas.launch_uploaded_triangle_primary[BLAS_WIDTH](
+        gpu_tlas.launch_camera_triangle_primary[BLAS_WIDTH](
             ctx,
             gpu_blas,
-            d_rays,
+            d_camera_params,
             d_hits_f32,
             d_hits_u32,
             ray_count,
+            WIDTH,
+            HEIGHT,
         )
         ctx.synchronize()
         var trace_t1 = perf_counter_ns()

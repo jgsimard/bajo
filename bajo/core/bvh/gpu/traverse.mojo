@@ -9,6 +9,7 @@ from bajo.core.bvh.gpu.bounds_bvh import (
     _wide_lane_base,
     EMPTY_LANE,
     _intersect_wide_node_bounds,
+    _gpu_inf_t,
 )
 from bajo.core.bvh.types import Sphere, RayFlat, Hit, SphereLeafBlock
 
@@ -49,24 +50,32 @@ def trace_gpu_wide_ray[
     var current = root_idx
 
     while True:
-        var bounds_hit_mask = _intersect_wide_node_bounds[width](
+        var node_t_max = best_t
+        comptime if mode == TRACE_SHADOW:
+            node_t_max = ray.t_max
+
+        var bounds_hit = _intersect_wide_node_bounds[width](
             wide_bounds,
             current,
             ray,
-            ray.t_max,
+            node_t_max,
         )
+
+        var child_valid = InlineArray[Bool, width](fill=False)
+        var child_data = InlineArray[UInt32, width](fill=0)
+        var child_t = InlineArray[Float32, width](fill=0.0)
 
         comptime for node_lane in range(width):
             var lane_base = _wide_lane_base[width](current, node_lane)
             var count = UInt32(wide_counts[lane_base])
 
-            if count != EMPTY_LANE and bounds_hit_mask[node_lane]:
+            if count != EMPTY_LANE and bounds_hit.mask[node_lane]:
                 var data = UInt32(wide_data[lane_base])
 
                 if count == 0:
-                    if stack_ptr < GPU_TRAVERSAL_STACK_SIZE:
-                        stack[stack_ptr] = data
-                        stack_ptr += 1
+                    child_valid[node_lane] = True
+                    child_data[node_lane] = data
+                    child_t[node_lane] = bounds_hit.tmin[node_lane]
                 else:
                     var leaf_hit = leaf_fn(
                         leaf_spheres,
@@ -83,6 +92,30 @@ def trace_gpu_wide_ray[
                     comptime if mode == TRACE_SHADOW:
                         if leaf_hit:
                             return Hit(0.0, 0.0, 0.0, best_prim, UInt32(1))
+
+        # Push internal children far-to-near.
+        # Since stack is LIFO, nearest child is popped first.
+        comptime for _ in range(width):
+            var far_lane = -1
+            var far_t = Float32(-1.0)
+
+            comptime for lane in range(width):
+                if child_valid[lane]:
+                    var t = child_t[lane]
+                    if t >= far_t:
+                        far_t = t
+                        far_lane = lane
+
+            if far_lane != -1:
+                child_valid[far_lane] = False
+
+                comptime if mode != TRACE_SHADOW:
+                    if far_t > best_t:
+                        continue
+
+                if stack_ptr < GPU_TRAVERSAL_STACK_SIZE:
+                    stack[stack_ptr] = child_data[far_lane]
+                    stack_ptr += 1
 
         if stack_ptr == 0:
             break

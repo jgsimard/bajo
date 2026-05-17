@@ -10,6 +10,7 @@ from bajo.core.bvh.constants import (
     TRACE_PRIMARY_T,
     GPU_TRAVERSAL_STACK_SIZE,
     EMPTY_LANE,
+    _gpu_inf_t,
 )
 from bajo.core.bvh.types import RayFlat, Hit, Instance
 from bajo.core.bvh.gpu.bounds_bvh import (
@@ -212,24 +213,34 @@ def trace_gpu_wide_tlas_ray[
     var current = tlas_root_idx
 
     while True:
-        var bounds_hit_mask = _intersect_wide_node_bounds[tlas_width](
+        var node_t_max = best_hit.t
+        comptime if mode == TRACE_SHADOW:
+            node_t_max = ray.t_max
+
+        var bounds_hit = _intersect_wide_node_bounds[tlas_width](
             tlas_wide_bounds,
             current,
             ray,
-            ray.t_max,
+            node_t_max,
         )
+
+        # Only internal TLAS children go here.
+        # TLAS leaves are still intersected immediately.
+        var child_valid = InlineArray[Bool, tlas_width](fill=False)
+        var child_data = InlineArray[UInt32, tlas_width](fill=0)
+        var child_t = InlineArray[Float32, tlas_width](fill=0.0)
 
         comptime for node_lane in range(tlas_width):
             var lane_base = _wide_lane_base[tlas_width](current, node_lane)
             var count = UInt32(tlas_wide_counts[lane_base])
 
-            if count != EMPTY_LANE and bounds_hit_mask[node_lane]:
+            if count != EMPTY_LANE and bounds_hit.mask[node_lane]:
                 var data = UInt32(tlas_wide_data[lane_base])
 
                 if count == 0:
-                    if stack_ptr < GPU_TRAVERSAL_STACK_SIZE:
-                        stack[stack_ptr] = data
-                        stack_ptr += 1
+                    child_valid[node_lane] = True
+                    child_data[node_lane] = data
+                    child_t[node_lane] = bounds_hit.tmin[node_lane]
                 else:
                     var leaf_hit = _intersect_tlas_instance_block[
                         tlas_width,
@@ -265,6 +276,32 @@ def trace_gpu_wide_tlas_ray[
                                 ),
                                 best_inst,
                             )
+
+        # Push internal TLAS children far-to-near.
+        # Stack is LIFO, so nearest child is popped first.
+        comptime for _ in range(tlas_width):
+            var far_lane = -1
+            var far_t = -_gpu_inf_t
+
+            comptime for lane in range(tlas_width):
+                if child_valid[lane]:
+                    var t = child_t[lane]
+                    if t >= far_t:
+                        far_t = t
+                        far_lane = lane
+
+            if far_lane != -1:
+                child_valid[far_lane] = False
+
+                comptime if mode != TRACE_SHADOW:
+                    if far_t <= best_hit.t:
+                        if stack_ptr < GPU_TRAVERSAL_STACK_SIZE:
+                            stack[stack_ptr] = child_data[far_lane]
+                            stack_ptr += 1
+                else:
+                    if stack_ptr < GPU_TRAVERSAL_STACK_SIZE:
+                        stack[stack_ptr] = child_data[far_lane]
+                        stack_ptr += 1
 
         if stack_ptr == 0:
             break
@@ -576,6 +613,128 @@ struct GpuTlas[width: Int]:
             grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
+
+    def launch_camera_triangle_primary[
+        blas_width: Int,
+    ](
+        self,
+        ctx: DeviceContext,
+        blas: GpuTriangleBvh[blas_width],
+        d_camera_params: DeviceBuffer[DType.float32],
+        d_hits_f32: DeviceBuffer[DType.float32],
+        d_hits_u32: DeviceBuffer[DType.uint32],
+        ray_count: Int,
+        cwidth: Int,
+        cheight: Int,
+    ) raises:
+        ctx.enqueue_function[
+            trace_gpu_tlas_camera_primary_kernel[
+                Self.width,
+                blas_width,
+                _intersect_triangle_leaf[
+                    blas_width,
+                    TRACE_PRIMARY_FULL,
+                ],
+            ]
+        ](
+            self.tree.wide_bounds.unsafe_ptr(),
+            self.tree.wide_data.unsafe_ptr(),
+            self.tree.wide_counts.unsafe_ptr(),
+            self.tree.leaf_block_indices.unsafe_ptr(),
+            self.inst_inv_transform.unsafe_ptr(),
+            self.inst_blas_indices.unsafe_ptr(),
+            blas.tree.wide_bounds.unsafe_ptr(),
+            blas.tree.wide_data.unsafe_ptr(),
+            blas.tree.wide_counts.unsafe_ptr(),
+            blas.leaf_vertices.unsafe_ptr(),
+            blas.leaf_prims.unsafe_ptr(),
+            self.tree.root_idx,
+            blas.tree.root_idx,
+            d_camera_params.unsafe_ptr(),
+            d_hits_f32.unsafe_ptr(),
+            d_hits_u32.unsafe_ptr(),
+            ray_count,
+            cwidth,
+            cheight,
+            grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
+            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+        )
+
+
+def trace_gpu_tlas_camera_primary_kernel[
+    tlas_width: Int,
+    blas_width: Int,
+    blas_leaf_fn: def(
+        UnsafePointer[Float32, MutAnyOrigin],
+        UnsafePointer[UInt32, MutAnyOrigin],
+        UInt32,
+        UInt32,
+        RayFlat,
+        mut Float32,
+        mut Float32,
+        mut Float32,
+        mut UInt32,
+    ) capturing -> Bool,
+](
+    tlas_wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    tlas_wide_data: UnsafePointer[UInt32, MutAnyOrigin],
+    tlas_wide_counts: UnsafePointer[UInt32, MutAnyOrigin],
+    tlas_leaf_instances: UnsafePointer[UInt32, MutAnyOrigin],
+    inst_inv_transform: UnsafePointer[Float32, MutAnyOrigin],
+    inst_blas_indices: UnsafePointer[UInt32, MutAnyOrigin],
+    blas_wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    blas_wide_data: UnsafePointer[UInt32, MutAnyOrigin],
+    blas_wide_counts: UnsafePointer[UInt32, MutAnyOrigin],
+    blas_leaf_data_f32: UnsafePointer[Float32, MutAnyOrigin],
+    blas_leaf_data_u32: UnsafePointer[UInt32, MutAnyOrigin],
+    tlas_root_idx: UInt32,
+    blas_root_idx: UInt32,
+    camera_params: UnsafePointer[Float32, MutAnyOrigin],
+    hits_f32: UnsafePointer[Float32, MutAnyOrigin],
+    hits_u32: UnsafePointer[UInt32, MutAnyOrigin],
+    ray_count: Int,
+    width: Int,
+    height: Int,
+):
+    var ray_idx = global_idx.x
+    if ray_idx >= ray_count:
+        return
+
+    var ray = _make_camera_ray(camera_params, ray_idx, width, height)
+
+    var result = trace_gpu_wide_tlas_ray[
+        tlas_width,
+        blas_width,
+        TRACE_PRIMARY_FULL,
+        blas_leaf_fn,
+    ](
+        tlas_wide_bounds,
+        tlas_wide_data,
+        tlas_wide_counts,
+        tlas_leaf_instances,
+        inst_inv_transform,
+        inst_blas_indices,
+        blas_wide_bounds,
+        blas_wide_data,
+        blas_wide_counts,
+        blas_leaf_data_f32,
+        blas_leaf_data_u32,
+        tlas_root_idx,
+        blas_root_idx,
+        ray,
+    )
+
+    var hit = result[0]
+    var inst = result[1]
+
+    var hit_base = ray_idx * 3
+    hits_f32[hit_base + 0] = hit.t
+    hits_f32[hit_base + 1] = hit.u
+    hits_f32[hit_base + 2] = hit.v
+
+    var ubase = ray_idx * 2
+    hits_u32[ubase + 0] = hit.prim
+    hits_u32[ubase + 1] = inst
 
 
 def trace_gpu_tlas_primary_kernel[

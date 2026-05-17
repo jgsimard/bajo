@@ -8,7 +8,11 @@ from std.gpu import DeviceBuffer, DeviceContext, global_idx
 from bajo.core.aabb import AABB, AxisAlignedBoundingBox
 from bajo.core.vec import Vec3f32, vmin, vmax, Vec3
 from bajo.core.mat import Mat44f32, transform_point, transform_vector
-from bajo.core.intersect import intersect_ray_aabb, intersect_ray_tri
+from bajo.core.intersect import (
+    intersect_ray_aabb,
+    intersect_ray_tri,
+    RayAabbHit,
+)
 from bajo.core.morton import morton3
 from bajo.core.bvh.types import RayFlat, Hit, Sphere
 from bajo.core.bvh.constants import (
@@ -888,23 +892,22 @@ def _intersect_wide_node_bounds[
     node_idx: UInt32,
     ray: RayFlat,
     t_max: Float32,
-) -> SIMD[DType.bool, width]:
+) -> RayAabbHit[DType.float32, width]:
     var block = _load_wide_bounds_block[DType.float32, width](
-        wide_bounds, node_idx
+        wide_bounds,
+        node_idx,
     )
 
     var O = Vec3[DType.float32, width](ray.o.x, ray.o.y, ray.o.z)
     var RD = Vec3[DType.float32, width](ray.rd.x, ray.rd.y, ray.rd.z)
 
-    var h = intersect_ray_aabb[DType.float32, width](
+    return intersect_ray_aabb[DType.float32, width](
         O,
         RD,
         block._min,
         block._max,
         SIMD[DType.float32, width](t_max),
     )
-
-    return h.mask
 
 
 @always_inline

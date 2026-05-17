@@ -23,8 +23,8 @@ from bajo.core.random import (
     Rng,
 )
 
-from bajo.core.bvh.types import Ray as bRay
-from bajo.core.bvh.cpu.bounds_bvh import Sphere as bSphere, SphereBvh
+from bajo.core.bvh.types import Ray as bRay, Sphere as bSphere
+from bajo.core.bvh.cpu.sphere_bvh import SphereBvh
 
 
 comptime Point3 = Vec3f32
@@ -243,7 +243,6 @@ struct World(Copyable):
         var sphere_idx = Int(bvh_ray.hit.prim)
         ref obj = self.objects[sphere_idx]
 
-        # Static port: use the same frozen center that the BVH used.
         var center = obj.static_center()
         var p = ray.at(t)
         var normal = (p - center) / obj.radius
@@ -432,7 +431,7 @@ struct Camera(Copyable):
         parallelize[worker](self.image_height, self.image_height)
 
         write_ppm_from_colors(
-            "rtiaw_bajo.ppm",
+            "rtiaw.ppm",
             self.image_width,
             self.image_height,
             image_data,
@@ -603,9 +602,7 @@ def create_random_scene() -> Scene:
                     vr2 = Vec3f32(rng.f32(), rng.f32(), rng.f32())
                     albedo = vr1 * vr2
                     materials.append(Lambertian(albedo))
-                    var center_dir = Vec3f32(0, rng.f32() * 0.5, 0)
-                    var center_ray = Ray(center, center_dir, 0.2)
-                    objects.append(Sphere(center_ray^, 0.2, len(materials) - 1))
+                    objects.append(Sphere(center, 0.2, len(materials) - 1))
 
                 elif choose_mat < 0.95:
                     # Metal

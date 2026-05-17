@@ -7,12 +7,11 @@ from bajo.core.vec import Vec3f32, Vec3
 from bajo.core.intersect import intersect_ray_tri, intersect_ray_aabb
 from bajo.core.bvh.types import Ray
 from bajo.core.random import Rng
-
+from bajo.core.bvh.constants import EMPTY_LANE
 from bajo.core.bvh.cpu.bounds_bvh import (
     BoundsBvhBuilder,
     BoundsItem,
     BoundsBvh,
-    EMPTY_LANE,
     _partition_items,
     _partition_items_by_bin,
     _sah_items,

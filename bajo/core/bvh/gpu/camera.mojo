@@ -1,5 +1,5 @@
 from bajo.core.bvh.types import RayFlat, Hit
-from bajo.core.bvh.gpu.constants import (
+from bajo.core.bvh.constants import (
     _gpu_inf_t,
     _gpu_miss_prim,
     TRACE_PRIMARY_FULL,

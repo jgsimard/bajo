@@ -1,8 +1,8 @@
 from std.utils.numerics import max_finite
 
 from bajo.core.vec import Vec3, Vec3f32, vmin, vmax, longest_axis, dot
+from bajo.core.bvh.constants import EMPTY_LANE
 from bajo.core.bvh.cpu.bounds_bvh import (
-    EMPTY_LANE,
     BoundsBvh,
     BoundsItem,
     BoundsBvhBuilder,

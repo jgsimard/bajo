@@ -4,6 +4,7 @@ from std.bit import count_leading_zeros
 
 from bajo.core.morton import morton3
 from bajo.core.aabb import AABB, AxisAlignedBoundingBox
+from bajo.core.bvh.constants import EMPTY_LANE
 from bajo.core.intersect import (
     intersect_ray_tri,
     intersect_ray_aabb,
@@ -17,7 +18,6 @@ from bajo.core.mat import Mat44f32, transform_point, transform_vector
 comptime f32_max = max_finite[DType.float32]()
 comptime f32_min = min_finite[DType.float32]()
 comptime BVH_BINS = 16
-comptime EMPTY_LANE = UInt32(0xFFFFFFFF)
 
 
 @fieldwise_init

@@ -11,7 +11,7 @@ from bajo.core.mat import Mat44f32, transform_point, transform_vector
 from bajo.core.intersect import intersect_ray_aabb, intersect_ray_tri
 from bajo.core.morton import morton3
 from bajo.core.bvh.types import RayFlat, Hit, Sphere
-from bajo.core.bvh.gpu.constants import (
+from bajo.core.bvh.constants import (
     LBVH_LEAF_FLAG,
     LBVH_INDEX_MASK,
     LBVH_SENTINEL,

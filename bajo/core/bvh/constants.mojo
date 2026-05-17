@@ -11,3 +11,5 @@ comptime _gpu_miss_prim = UInt32(0xFFFFFFFF)
 
 comptime GPU_TRAVERSAL_STACK_SIZE = 64
 comptime GPU_REDUCE_THREADS = 4096
+
+comptime EMPTY_LANE = UInt32(0xFFFFFFFF)

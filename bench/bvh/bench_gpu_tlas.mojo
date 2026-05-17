@@ -12,8 +12,8 @@ from bajo.core.utils import (
 )
 from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32
-from bajo.core.mat import Mat44f32
-from bajo.core.bvh.types import Ray, Sphere
+from bajo.core.mat import Mat44f32, _translation, _inv_translation
+from bajo.core.bvh.types import Ray, Sphere, Instance
 from bajo.core.bvh.host_utils import (
     compute_bounds,
     generate_primary_rays,
@@ -21,10 +21,10 @@ from bajo.core.bvh.host_utils import (
     hit_t_for_checksum,
 )
 from bajo.core.bvh.cpu.triangle_bvh import TriangleBvh
-from bajo.core.bvh.cpu.tlas import Tlas, BvhInstance
+from bajo.core.bvh.cpu.tlas import Tlas, Instance
 
 
-from bajo.core.bvh.gpu.tlas import GpuTlas, GpuTlasInstance
+from bajo.core.bvh.gpu.tlas import GpuTlas
 from bajo.core.bvh.gpu.sphere_bvh import GpuSphereBvh
 from bajo.core.bvh.gpu.triangle_bvh import GpuTriangleBvh
 from bajo.core.bvh.gpu.utils import _upload_rays, _download_full_hit_checksum
@@ -39,18 +39,6 @@ comptime MISS_PRIM = UInt32(0xFFFFFFFF)
 
 
 @always_inline
-def _translation_inverse(tx: Float32, ty: Float32, tz: Float32) -> Mat44f32:
-    # fmt: off
-    return Mat44f32(
-        1.0, 0.0, 0.0, -tx,
-        0.0, 1.0, 0.0, -ty,
-        0.0, 0.0, 1.0, -tz,
-        0.0, 0.0, 0.0, 1.0,
-    )
-    # fmt: on
-
-
-@always_inline
 def _translate_bounds(
     bounds: AABB, tx: Float32, ty: Float32, tz: Float32
 ) -> AABB:
@@ -58,16 +46,16 @@ def _translate_bounds(
     return AABB(bounds._min + d, bounds._max + d)
 
 
-def _make_single_instance(bounds: AABB) -> List[GpuTlasInstance]:
-    var out = List[GpuTlasInstance](capacity=1)
-    out.append(GpuTlasInstance(bounds, Mat44f32.identity(), UInt32(0)))
-    return out^
+def _make_single_instance(bounds: AABB) -> List[Instance]:
+    return [
+        Instance(Mat44f32.identity(), Mat44f32.identity(), bounds, UInt32(0))
+    ]
 
 
 def _make_translated_grid_instances(
     bounds: AABB, count_x: Int, count_y: Int
-) -> List[GpuTlasInstance]:
-    var out = List[GpuTlasInstance](capacity=count_x * count_y)
+) -> List[Instance]:
+    var out = List[Instance](capacity=count_x * count_y)
 
     var extent = bounds._max - bounds._min
     var spacing_x = max(extent.x * 2.25, 0.25)
@@ -80,9 +68,10 @@ def _make_translated_grid_instances(
             var tz = Float32(0.0)
 
             out.append(
-                GpuTlasInstance(
+                Instance(
+                    _translation(tx, ty, tz),
+                    _inv_translation(tx, ty, tz),
                     _translate_bounds(bounds, tx, ty, tz),
-                    _translation_inverse(tx, ty, tz),
                     UInt32(0),
                 )
             )
@@ -90,17 +79,17 @@ def _make_translated_grid_instances(
     return out^
 
 
-def _instances_bounds(instances: List[GpuTlasInstance]) -> AABB:
+def _instances_bounds(instances: List[Instance]) -> AABB:
     var out = AABB.invalid()
     for i in range(len(instances)):
         out.grow(instances[i].bounds)
     return out
 
 
-def _make_cpu_instances(instances: List[GpuTlasInstance]) -> List[BvhInstance]:
-    var out = List[BvhInstance](capacity=len(instances))
+def _make_cpu_instances(instances: List[Instance]) -> List[Instance]:
+    var out = List[Instance](capacity=len(instances))
     for i in range(len(instances)):
-        var inst = BvhInstance()
+        var inst = Instance()
         inst.transform = Mat44f32.identity()
         inst.inv_transform = instances[i].inv_transform.copy()
         inst.bounds = instances[i].bounds
@@ -113,7 +102,7 @@ def _cpu_tlas_triangle_reference[
     tlas_width: Int, blas_width: Int
 ](
     cpu_blas: TriangleBvh[blas_width],
-    instances: List[GpuTlasInstance],
+    instances: List[Instance],
     rays: List[Ray],
 ) -> Tuple[Float64, UInt32, UInt64]:
     var cpu_instances = _make_cpu_instances(instances)
@@ -142,7 +131,7 @@ def _cpu_tlas_triangle_shadow_reference[
     blas_width: Int,
 ](
     cpu_blas: TriangleBvh[blas_width],
-    instances: List[GpuTlasInstance],
+    instances: List[Instance],
     rays: List[Ray],
 ) -> UInt32:
     var cpu_instances = _make_cpu_instances(instances)
@@ -649,7 +638,7 @@ def _run_triangle_tlas_width[
 ](
     mut ctx: DeviceContext,
     blas: GpuTriangleBvh[blas_width],
-    instances: List[GpuTlasInstance],
+    instances: List[Instance],
     rays_flat: List[Float32],
     ray_count: Int,
     repeats: Int,
@@ -715,7 +704,7 @@ def _run_sphere_tlas_width[
 ](
     mut ctx: DeviceContext,
     blas: GpuSphereBvh[blas_width],
-    instances: List[GpuTlasInstance],
+    instances: List[Instance],
     rays_flat: List[Float32],
     ray_count: Int,
     repeats: Int,

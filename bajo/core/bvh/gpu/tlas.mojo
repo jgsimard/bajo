@@ -4,7 +4,7 @@ from std.gpu import DeviceBuffer, DeviceContext, global_idx
 from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32
 from bajo.core.mat import Mat44f32, transform_point, transform_vector
-from bajo.core.bvh.types import RayFlat, Hit, BvhInstance
+from bajo.core.bvh.types import RayFlat, Hit, Instance
 from bajo.core.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
     _copy_f32_to_device,
@@ -35,7 +35,7 @@ comptime GPU_TLAS_TRANSFORM_STRIDE = 16
 
 
 def _flatten_instance_inv_transforms(
-    instances: List[BvhInstance],
+    instances: List[Instance],
 ) -> List[Float32]:
     var out = List[Float32](
         capacity=max(len(instances), 1) * GPU_TLAS_TRANSFORM_STRIDE
@@ -50,7 +50,7 @@ def _flatten_instance_inv_transforms(
 
 
 def _flatten_instance_blas_indices(
-    instances: List[BvhInstance],
+    instances: List[Instance],
 ) -> List[UInt32]:
     return [instance.blas_idx for instance in instances]
 
@@ -378,7 +378,7 @@ struct GpuTlas[width: Int]:
     def __init__(
         out self,
         mut ctx: DeviceContext,
-        instances: List[BvhInstance],
+        instances: List[Instance],
     ) raises:
         self.inst_count = len(instances)
 

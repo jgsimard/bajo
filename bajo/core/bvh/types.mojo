@@ -119,7 +119,7 @@ struct TriangleLeafBlock[width: Int](Copyable):
 
 
 @fieldwise_init
-struct BvhInstance(Copyable):
+struct Instance(Copyable):
     """Instance of a BLAS in world space.
 
     - `transform` maps BLAS-local points/vectors to world space.

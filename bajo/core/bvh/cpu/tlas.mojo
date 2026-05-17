@@ -1,6 +1,6 @@
 from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3, Vec3f32, vmin, vmax, longest_axis, dot
-from bajo.core.bvh.types import Ray, BvhInstance, transform_bounds
+from bajo.core.bvh.types import Ray, Instance, transform_bounds
 from bajo.core.mat import Mat44f32, transform_point, transform_vector
 from bajo.core.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.core.bvh.cpu.sphere_bvh import SphereBvh
@@ -9,24 +9,24 @@ from bajo.core.bvh.cpu.traverse import traverse_wide_ray_bvh
 
 
 struct Tlas[width: Int](Copyable):
-    """Wide TLAS over BvhInstance records."""
+    """Wide TLAS over Instance records."""
 
     var tree: BoundsBvh[Self.width]
-    var instances: List[BvhInstance]
+    var instances: List[Instance]
     var inst_count: UInt32
 
     def __init__(out self):
         self.tree = BoundsBvh[Self.width]()
-        self.instances = List[BvhInstance]()
+        self.instances = List[Instance]()
         self.inst_count = 0
 
-    def __init__(out self, instances: List[BvhInstance]):
+    def __init__(out self, instances: List[Instance]):
         self.tree = BoundsBvh[Self.width]()
         self.instances = instances.copy()
         self.inst_count = UInt32(len(self.instances))
         self.build["median"]()
 
-    def add_instance(mut self, instance: BvhInstance):
+    def add_instance(mut self, instance: Instance):
         self.instances.append(instance.copy())
         self.inst_count = UInt32(len(self.instances))
 

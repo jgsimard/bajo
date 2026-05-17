@@ -1,28 +1,11 @@
 from std.testing import TestSuite, assert_true, assert_almost_equal
 
-from bajo.core.bvh.types import Ray, BvhInstance
+from bajo.core.bvh.types import Ray, Instance
 from bajo.core.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.core.bvh.cpu.sphere_bvh import SphereBvh, Sphere
 from bajo.core.bvh.cpu.tlas import Tlas
-from bajo.core.mat import Mat44f32
+from bajo.core.mat import Mat44f32, _translation, _inv_translation
 from bajo.core.vec import Vec3f32
-
-
-@always_inline
-def _translation(tx: Float32, ty: Float32, tz: Float32) -> Mat44f32:
-    # fmt: off
-    return Mat44f32(
-        1.0, 0.0, 0.0, tx,
-        0.0, 1.0, 0.0, ty,
-        0.0, 0.0, 1.0, tz,
-        0.0, 0.0, 0.0, 1.0,
-    )
-    # fmt: on
-
-
-@always_inline
-def _inv_translation(tx: Float32, ty: Float32, tz: Float32) -> Mat44f32:
-    return _translation(-tx, -ty, -tz)
 
 
 def _make_one_local_triangle_z2() -> List[Vec3f32]:
@@ -47,8 +30,8 @@ def _triangle_instance[
     ty: Float32,
     tz: Float32,
     blas: TriangleBvh[width],
-) -> BvhInstance:
-    return BvhInstance(
+) -> Instance:
+    return Instance(
         _translation(tx, ty, tz),
         _inv_translation(tx, ty, tz),
         blas_idx,
@@ -64,8 +47,8 @@ def _sphere_instance[
     ty: Float32,
     tz: Float32,
     blas: SphereBvh[width],
-) -> BvhInstance:
-    return BvhInstance(
+) -> Instance:
+    return Instance(
         _translation(tx, ty, tz),
         _inv_translation(tx, ty, tz),
         blas_idx,
@@ -87,7 +70,7 @@ def test_tlas_triangle_identity_instance_hit() raises:
     var blases = List[TriangleBvh[4]](capacity=1)
     blases.append(blas.copy())
 
-    var instances = List[BvhInstance](capacity=1)
+    var instances = List[Instance](capacity=1)
     instances.append(_triangle_instance[4](0, 0.0, 0.0, 0.0, blas))
 
     var tlas = Tlas[4](instances)
@@ -111,7 +94,7 @@ def test_tlas_translated_triangle_instance_hit() raises:
     var blases = List[TriangleBvh[4]](capacity=1)
     blases.append(blas.copy())
 
-    var instances = List[BvhInstance](capacity=1)
+    var instances = List[Instance](capacity=1)
     instances.append(_triangle_instance[4](0, 5.0, 0.0, 0.0, blas))
 
     var tlas = Tlas[4](instances)
@@ -136,7 +119,7 @@ def tes_tlas_translated_triangle_instance_miss() raises:
     var blases = List[TriangleBvh[4]](capacity=1)
     blases.append(blas.copy())
 
-    var instances = List[BvhInstance](capacity=1)
+    var instances = List[Instance](capacity=1)
     instances.append(_triangle_instance[4](0, 5.0, 0.0, 0.0, blas))
 
     var tlas = Tlas[4](instances)
@@ -163,7 +146,7 @@ def test_tlas_translated_triangle_two_instances_nearest_wins() raises:
     blases.append(near_blas.copy())
     blases.append(far_blas.copy())
 
-    var instances = List[BvhInstance](capacity=2)
+    var instances = List[Instance](capacity=2)
     instances.append(_triangle_instance[4](0, 0.0, 0.0, 0.0, near_blas))
     instances.append(_triangle_instance[4](1, 0.0, 0.0, 6.0, far_blas))
 
@@ -193,7 +176,7 @@ def test_tlas_triangle_two_instances_far_wins_when_ray_targets_far() raises:
     blases.append(left_blas.copy())
     blases.append(right_blas.copy())
 
-    var instances = List[BvhInstance](capacity=2)
+    var instances = List[Instance](capacity=2)
     instances.append(_triangle_instance[4](0, -5.0, 0.0, 0.0, left_blas))
     instances.append(_triangle_instance[4](1, 5.0, 0.0, 0.0, right_blas))
 
@@ -218,7 +201,7 @@ def test_tlas_translated_triangle_shadow_hit_and_miss() raises:
     var blases = List[TriangleBvh[4]](capacity=1)
     blases.append(blas.copy())
 
-    var instances = List[BvhInstance](capacity=1)
+    var instances = List[Instance](capacity=1)
     instances.append(_triangle_instance[4](0, 5.0, 0.0, 0.0, blas))
 
     var tlas = Tlas[4](instances)
@@ -246,7 +229,7 @@ def test_tlas_sphere_identity_instance_hit() raises:
     var blases = List[SphereBvh[4]](capacity=1)
     blases.append(blas.copy())
 
-    var instances = List[BvhInstance](capacity=1)
+    var instances = List[Instance](capacity=1)
     instances.append(_sphere_instance[4](0, 0.0, 0.0, 0.0, blas))
 
     var tlas = Tlas[4](instances)
@@ -270,7 +253,7 @@ def test_tlas_translated_sphere_instance_hit() raises:
     var blases = List[SphereBvh[4]](capacity=1)
     blases.append(blas.copy())
 
-    var instances = List[BvhInstance](capacity=1)
+    var instances = List[Instance](capacity=1)
     instances.append(_sphere_instance[4](0, 5.0, 0.0, 0.0, blas))
 
     var tlas = Tlas[4](instances)
@@ -294,7 +277,7 @@ def test_tlas_translated_sphere_instance_miss() raises:
     var blases = List[SphereBvh[4]](capacity=1)
     blases.append(blas.copy())
 
-    var instances = List[BvhInstance](capacity=1)
+    var instances = List[Instance](capacity=1)
     instances.append(_sphere_instance[4](0, 5.0, 0.0, 0.0, blas))
 
     var tlas = Tlas[4](instances)
@@ -321,7 +304,7 @@ def test_tlas_translated_sphere_two_instances_nearest_wins() raises:
     blases.append(near_blas.copy())
     blases.append(far_blas.copy())
 
-    var instances = List[BvhInstance](capacity=2)
+    var instances = List[Instance](capacity=2)
     instances.append(_sphere_instance[4](0, 0.0, 0.0, 0.0, near_blas))
     instances.append(_sphere_instance[4](1, 0.0, 0.0, 6.0, far_blas))
 
@@ -351,7 +334,7 @@ def test_cpu_tlas_sphere_two_instances_far_wins_when_ray_targets_far() raises:
     blases.append(left_blas.copy())
     blases.append(right_blas.copy())
 
-    var instances = List[BvhInstance](capacity=2)
+    var instances = List[Instance](capacity=2)
     instances.append(_sphere_instance[4](0, -5.0, 0.0, 0.0, left_blas))
     instances.append(_sphere_instance[4](1, 5.0, 0.0, 0.0, right_blas))
 
@@ -376,7 +359,7 @@ def test_tlas_translated_sphere_shadow_hit_and_miss() raises:
     var blases = List[SphereBvh[4]](capacity=1)
     blases.append(blas.copy())
 
-    var instances = List[BvhInstance](capacity=1)
+    var instances = List[Instance](capacity=1)
     instances.append(_sphere_instance[4](0, 5.0, 0.0, 0.0, blas))
 
     var tlas = Tlas[4](instances)

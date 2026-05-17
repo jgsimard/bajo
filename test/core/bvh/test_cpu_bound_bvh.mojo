@@ -19,7 +19,7 @@ from bajo.core.bvh.cpu.bounds_bvh import (
 )
 from bajo.core.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.core.bvh.cpu.sphere_bvh import SphereBvh
-from bajo.core.bvh.cpu.tlas import BvhInstance, Tlas
+from bajo.core.bvh.cpu.tlas import Instance, Tlas
 from bajo.core.bvh.types import Sphere
 
 
@@ -309,8 +309,8 @@ def _assert_sphere_bvh_matches_bruteforce[
 
 def _make_identity_triangle_instance[
     blas_width: Int
-](blas_idx: UInt32, blas: TriangleBvh[blas_width]) -> BvhInstance:
-    var inst = BvhInstance()
+](blas_idx: UInt32, blas: TriangleBvh[blas_width]) -> Instance:
+    var inst = Instance()
     inst.blas_idx = blas_idx
     inst.bounds = blas.bounds()
     return inst^
@@ -318,8 +318,8 @@ def _make_identity_triangle_instance[
 
 def _make_identity_sphere_instance[
     blas_width: Int
-](blas_idx: UInt32, blas: SphereBvh[blas_width]) -> BvhInstance:
-    var inst = BvhInstance()
+](blas_idx: UInt32, blas: SphereBvh[blas_width]) -> Instance:
+    var inst = Instance()
     inst.blas_idx = blas_idx
     inst.bounds = blas.bounds()
     return inst^
@@ -596,7 +596,7 @@ def test_tlas_triangle_single_instance_matches_blas() raises:
     var blases = List[TriangleBvh[4]](capacity=1)
     blases.append(blas.copy())
 
-    var instances = List[BvhInstance](capacity=1)
+    var instances = List[Instance](capacity=1)
     instances.append(_make_identity_triangle_instance[4](0, blas))
 
     var tlas = Tlas[4](instances)
@@ -636,7 +636,7 @@ def test_tlas_triangle_two_instances_returns_nearest_instance() raises:
     blases.append(near_blas.copy())
     blases.append(far_blas.copy())
 
-    var instances = List[BvhInstance](capacity=2)
+    var instances = List[Instance](capacity=2)
     instances.append(_make_identity_triangle_instance[4](0, near_blas))
     instances.append(_make_identity_triangle_instance[4](1, far_blas))
 
@@ -661,7 +661,7 @@ def test_tlas_triangle_shadow_hit_and_miss() raises:
     var blases = List[TriangleBvh[4]](capacity=1)
     blases.append(blas.copy())
 
-    var instances = List[BvhInstance](capacity=1)
+    var instances = List[Instance](capacity=1)
     instances.append(_make_identity_triangle_instance[4](0, blas))
 
     var tlas = Tlas[4](instances)
@@ -686,7 +686,7 @@ def test_tlas_sphere_single_instance_matches_blas() raises:
     var blases = List[SphereBvh[4]](capacity=1)
     blases.append(blas.copy())
 
-    var instances = List[BvhInstance](capacity=1)
+    var instances = List[Instance](capacity=1)
     instances.append(_make_identity_sphere_instance[4](0, blas))
 
     var tlas = Tlas[4](instances)
@@ -719,7 +719,7 @@ def test_tlas_sphere_two_instances_returns_nearest_instance() raises:
     blases.append(near_blas.copy())
     blases.append(far_blas.copy())
 
-    var instances = List[BvhInstance](capacity=2)
+    var instances = List[Instance](capacity=2)
     instances.append(_make_identity_sphere_instance[4](0, near_blas))
     instances.append(_make_identity_sphere_instance[4](1, far_blas))
 
@@ -744,7 +744,7 @@ def test_tlas_sphere_shadow_hit_and_miss() raises:
     var blases = List[SphereBvh[4]](capacity=1)
     blases.append(blas.copy())
 
-    var instances = List[BvhInstance](capacity=1)
+    var instances = List[Instance](capacity=1)
     instances.append(_make_identity_sphere_instance[4](0, blas))
 
     var tlas = Tlas[4](instances)

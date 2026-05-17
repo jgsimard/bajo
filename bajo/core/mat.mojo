@@ -423,6 +423,16 @@ def _translation[
     return m^
 
 
+def _inv_translation[
+    dtype: DType, width: Int = 1
+](
+    tx: SIMD[dtype, width],
+    ty: SIMD[dtype, width],
+    tz: SIMD[dtype, width],
+) -> Mat[dtype, 4, 4, width]:
+    return _translation(-tx, -ty, -tz)
+
+
 def _uniform_scale[
     dtype: DType, width: Int = 1
 ](s: SIMD[dtype, width]) -> Mat[dtype, 4, 4, width]:

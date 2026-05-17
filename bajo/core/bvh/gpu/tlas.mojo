@@ -1,8 +1,8 @@
-from std.math import ceildiv
+from std.math import ceildiv, max
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
 
 from bajo.core.aabb import AABB
-from bajo.core.mat import Mat44f32, transform_point, transform_vector
+from bajo.core.mat import transform_point, transform_vector
 from bajo.core.vec import Vec3f32
 from bajo.core.bvh.constants import (
     TRACE_PRIMARY_FULL,
@@ -12,7 +12,7 @@ from bajo.core.bvh.constants import (
     EMPTY_LANE,
     _gpu_inf_t,
 )
-from bajo.core.bvh.types import RayFlat, Hit, Instance
+from bajo.core.bvh.types import Ray, Hit, Instance
 from bajo.core.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
     _copy_f32_to_device,
@@ -23,10 +23,7 @@ from bajo.core.bvh.gpu.bounds_bvh import (
     _wide_lane_base,
     _intersect_wide_node_bounds,
 )
-from bajo.core.bvh.gpu.camera import (
-    _make_camera_ray,
-    _write_camera_result,
-)
+from bajo.core.bvh.gpu.camera import _make_camera_ray
 from bajo.core.bvh.gpu.sphere_bvh import (
     GpuSphereBvh,
     _intersect_sphere_leaf,
@@ -63,29 +60,22 @@ def _flatten_instance_blas_indices(
 
 
 @always_inline
-def _ray_dir_rcp_gpu_tlas(x: Float32) -> Float32:
-    return 1.0 / x
-
-
-@always_inline
 def _make_tlas_local_ray(
     inst_inv_transform: UnsafePointer[Float32, MutAnyOrigin],
     inst_idx: UInt32,
-    ray: RayFlat,
+    ray: Ray,
     t_max: Float32,
-) -> RayFlat:
+) -> Ray:
     var base = Int(inst_idx) * GPU_TLAS_TRANSFORM_STRIDE
     var o = transform_point(inst_inv_transform, base, ray.o)
     var d = transform_vector(inst_inv_transform, base, ray.d)
-    return RayFlat(
+
+    return Ray(
         o,
         d,
-        Vec3f32(
-            _ray_dir_rcp_gpu_tlas(d.x),
-            _ray_dir_rcp_gpu_tlas(d.y),
-            _ray_dir_rcp_gpu_tlas(d.z),
-        ),
+        ray.t_min,
         t_max,
+        ray.mask,
     )
 
 
@@ -99,11 +89,8 @@ def _intersect_tlas_instance_block[
         UnsafePointer[UInt32, MutAnyOrigin],
         UInt32,
         UInt32,
-        RayFlat,
-        mut Float32,
-        mut Float32,
-        mut Float32,
-        mut UInt32,
+        Ray,
+        mut Hit,
     ) capturing -> Bool,
 ](
     tlas_leaf_instances: UnsafePointer[UInt32, MutAnyOrigin],
@@ -117,7 +104,7 @@ def _intersect_tlas_instance_block[
     blas_root_idx: UInt32,
     leaf_block_idx: UInt32,
     item_count: UInt32,
-    ray: RayFlat,
+    ray: Ray,
     mut best_hit: Hit,
     mut best_inst: UInt32,
 ) -> Bool:
@@ -132,6 +119,11 @@ def _intersect_tlas_instance_block[
 
             if inst_idx != EMPTY_LANE:
                 var blas_idx = UInt32(inst_blas_indices[Int(inst_idx)])
+
+                debug_assert["safe"](
+                    blas_idx == 0,
+                    "current implementation assumes a single BLAS root",
+                )
                 if blas_idx == UInt32(0):
                     var local_t_max = best_hit.t
                     comptime if mode == TRACE_SHADOW:
@@ -163,8 +155,9 @@ def _intersect_tlas_instance_block[
                             best_inst = inst_idx
                             return True
                     else:
-                        if local_hit.t < best_hit.t:
+                        if local_hit.is_hit() and local_hit.t < best_hit.t:
                             best_hit = local_hit
+                            best_hit.inst = inst_idx
                             best_inst = inst_idx
                             hit_any = True
 
@@ -181,11 +174,8 @@ def trace_gpu_wide_tlas_ray[
         UnsafePointer[UInt32, MutAnyOrigin],
         UInt32,
         UInt32,
-        RayFlat,
-        mut Float32,
-        mut Float32,
-        mut Float32,
-        mut UInt32,
+        Ray,
+        mut Hit,
     ) capturing -> Bool,
 ](
     tlas_wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
@@ -201,11 +191,15 @@ def trace_gpu_wide_tlas_ray[
     blas_leaf_data_u32: UnsafePointer[UInt32, MutAnyOrigin],
     tlas_root_idx: UInt32,
     blas_root_idx: UInt32,
-    ray: RayFlat,
+    ray: Ray,
 ) -> Tuple[Hit, UInt32]:
     comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_PRIMARY_T, TRACE_SHADOW]
 
-    var best_hit = Hit(ray.t_max, 0.0, 0.0, _gpu_miss_prim, UInt32(0))
+    var best_hit = Hit.miss()
+    best_hit.t = ray.t_max
+    best_hit.prim = _gpu_miss_prim
+    best_hit.inst = _gpu_miss_prim
+
     var best_inst = _gpu_miss_prim
 
     var stack = InlineArray[UInt32, GPU_TRAVERSAL_STACK_SIZE](fill=0)
@@ -224,8 +218,6 @@ def trace_gpu_wide_tlas_ray[
             node_t_max,
         )
 
-        # Only internal TLAS children go here.
-        # TLAS leaves are still intersected immediately.
         var child_valid = InlineArray[Bool, tlas_width](fill=False)
         var child_data = InlineArray[UInt32, tlas_width](fill=0)
         var child_t = InlineArray[Float32, tlas_width](fill=0.0)
@@ -266,16 +258,7 @@ def trace_gpu_wide_tlas_ray[
 
                     comptime if mode == TRACE_SHADOW:
                         if leaf_hit:
-                            return (
-                                Hit(
-                                    0.0,
-                                    0.0,
-                                    0.0,
-                                    _gpu_miss_prim,
-                                    UInt32(1),
-                                ),
-                                best_inst,
-                            )
+                            return (Hit.shadow_hit(), best_inst)
 
         # Push internal TLAS children far-to-near.
         # Stack is LIFO, so nearest child is popped first.
@@ -331,7 +314,7 @@ def trace_gpu_wide_tlas_triangle_ray[
     blas_leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
     tlas_root_idx: UInt32,
     blas_root_idx: UInt32,
-    ray: RayFlat,
+    ray: Ray,
 ) -> Tuple[Hit, UInt32]:
     return trace_gpu_wide_tlas_ray[
         tlas_width,
@@ -378,7 +361,7 @@ def trace_gpu_wide_tlas_sphere_ray[
     blas_leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
     tlas_root_idx: UInt32,
     blas_root_idx: UInt32,
-    ray: RayFlat,
+    ray: Ray,
 ) -> Tuple[Hit, UInt32]:
     return trace_gpu_wide_tlas_ray[
         tlas_width,
@@ -669,11 +652,8 @@ def trace_gpu_tlas_camera_primary_kernel[
         UnsafePointer[UInt32, MutAnyOrigin],
         UInt32,
         UInt32,
-        RayFlat,
-        mut Float32,
-        mut Float32,
-        mut Float32,
-        mut UInt32,
+        Ray,
+        mut Hit,
     ) capturing -> Bool,
 ](
     tlas_wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
@@ -745,11 +725,8 @@ def trace_gpu_tlas_primary_kernel[
         UnsafePointer[UInt32, MutAnyOrigin],
         UInt32,
         UInt32,
-        RayFlat,
-        mut Float32,
-        mut Float32,
-        mut Float32,
-        mut UInt32,
+        Ray,
+        mut Hit,
     ) capturing -> Bool,
 ](
     tlas_wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
@@ -774,7 +751,7 @@ def trace_gpu_tlas_primary_kernel[
     if ray_idx >= ray_count:
         return
 
-    var ray = RayFlat(rays, ray_idx)
+    var ray = Ray(rays, ray_idx)
     var result = trace_gpu_wide_tlas_ray[
         tlas_width,
         blas_width,
@@ -818,11 +795,8 @@ def trace_gpu_tlas_shadow_kernel[
         UnsafePointer[UInt32, MutAnyOrigin],
         UInt32,
         UInt32,
-        RayFlat,
-        mut Float32,
-        mut Float32,
-        mut Float32,
-        mut UInt32,
+        Ray,
+        mut Hit,
     ) capturing -> Bool,
 ](
     tlas_wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
@@ -846,7 +820,7 @@ def trace_gpu_tlas_shadow_kernel[
     if ray_idx >= ray_count:
         return
 
-    var ray = RayFlat(rays, ray_idx)
+    var ray = Ray(rays, ray_idx)
     var result = trace_gpu_wide_tlas_ray[
         tlas_width,
         blas_width,

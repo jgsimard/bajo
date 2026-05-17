@@ -8,7 +8,7 @@ from bajo.core.bvh.cpu.bounds_bvh import (
     BoundsBvhBuilder,
 )
 from bajo.core.aabb import AABB, AxisAlignedBoundingBox
-from bajo.core.bvh.types import Ray, TriangleLeafBlock
+from bajo.core.bvh.types import Ray, Hit, TriangleLeafBlock
 from bajo.core.intersect import intersect_ray_tri
 from bajo.core.bvh.cpu.traverse import traverse_wide_ray_bvh
 
@@ -114,11 +114,17 @@ struct TriangleBvh[width: Int](Copyable):
     @always_inline
     def _intersect_leaf[
         is_occlusion: Bool
-    ](self, mut ray: Ray, leaf_block_idx: UInt32, item_count: UInt32) -> Bool:
+    ](
+        self,
+        ray: Ray,
+        leaf_block_idx: UInt32,
+        item_count: UInt32,
+        mut hit: Hit,
+    ) -> Bool:
         ref block = self.leaf_blocks[Int(leaf_block_idx)]
 
-        var O = Vec3[DType.float32, Self.width](ray.O.x, ray.O.y, ray.O.z)
-        var D = Vec3[DType.float32, Self.width](ray.D.x, ray.D.y, ray.D.z)
+        var O = Vec3[DType.float32, Self.width](ray.o.x, ray.o.y, ray.o.z)
+        var D = Vec3[DType.float32, Self.width](ray.d.x, ray.d.y, ray.d.z)
 
         var h = intersect_ray_tri(
             O,
@@ -126,10 +132,11 @@ struct TriangleBvh[width: Int](Copyable):
             block.v0,
             block.v1,
             block.v2,
-            ray.hit.t,
+            hit.t,
         )
 
-        var hit_mask = h.mask & block.valid_lane
+        var t_valid = h.t.ge(ray.t_min)
+        var hit_mask = h.mask & t_valid & block.valid_lane
 
         if hit_mask.reduce_or():
             comptime if is_occlusion:
@@ -138,29 +145,34 @@ struct TriangleBvh[width: Int](Copyable):
                 comptime f32_max = max_finite[DType.float32]()
                 var min_t = hit_mask.select(h.t, f32_max).reduce_min()
 
-                comptime for lane in range(Self.width):
-                    if hit_mask[lane] and h.t[lane] == min_t:
-                        ray.hit.t = min_t
-                        ray.hit.u = h.u[lane]
-                        ray.hit.v = h.v[lane]
-                        ray.hit.prim = block.prim_indices[lane]
+                if min_t < hit.t:
+                    comptime for lane in range(Self.width):
+                        if hit_mask[lane] and h.t[lane] == min_t:
+                            hit.t = min_t
+                            hit.u = h.u[lane]
+                            hit.v = h.v[lane]
+                            hit.prim = block.prim_indices[lane]
+                            hit.inst = EMPTY_LANE
+                            hit.occluded = UInt32(0)
 
                 return True
 
         return False
 
     @always_inline
-    def _traverse_generic[is_occlusion: Bool](self, mut ray: Ray) -> Bool:
+    def _traverse_generic[is_occlusion: Bool](self, ray: Ray) -> Hit:
         @always_inline
         def leaf_fn(
-            mut ray: Ray,
+            ray: Ray,
             leaf_block_idx: UInt32,
             item_count: UInt32,
+            mut hit: Hit,
         ) capturing -> Bool:
             return self._intersect_leaf[is_occlusion](
                 ray,
                 leaf_block_idx,
                 item_count,
+                hit,
             )
 
         return traverse_wide_ray_bvh[
@@ -172,8 +184,9 @@ struct TriangleBvh[width: Int](Copyable):
             ray,
         )
 
-    def traverse(self, mut ray: Ray):
-        _ = self._traverse_generic[False](ray)
+    def traverse(self, ray: Ray) -> Hit:
+        return self._traverse_generic[False](ray)
 
-    def is_occluded(self, mut ray: Ray) -> Bool:
-        return self._traverse_generic[True](ray)
+    def is_occluded(self, ray: Ray) -> Bool:
+        var hit = self._traverse_generic[True](ray)
+        return hit.is_occluded()

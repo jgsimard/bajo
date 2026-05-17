@@ -1,11 +1,10 @@
-from std.math import ceildiv, sqrt
+from std.math import ceildiv, max
 from std.time import perf_counter_ns
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
-from std.utils.numerics import max_finite, min_finite
-
+from std.utils.numerics import max_finite
 
 from bajo.core.vec import Vec3f32, vmin, vmax, Vec3
-from bajo.core.bvh.types import Sphere, RayFlat, Hit, TriangleLeafBlock
+from bajo.core.bvh.types import Ray, Hit, TriangleLeafBlock
 from bajo.core.bvh.constants import (
     EMPTY_LANE,
     TRACE_PRIMARY_FULL,
@@ -78,7 +77,8 @@ struct GpuTriangleBvh[width: Int]:
     ) raises:
         var start = perf_counter_ns()
         var blocks = ceildiv(
-            max(self.tree.leaf_block_count, 1), GPU_BOUNDS_BVH_BLOCK_SIZE
+            max(self.tree.leaf_block_count, 1),
+            GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
         ctx.enqueue_function[pack_triangle_leaf_blocks_kernel[Self.width]](
             self.vertices,
@@ -192,7 +192,7 @@ def trace_gpu_triangle_bvh_primary_kernel[
     if ray_idx >= ray_count:
         return
 
-    var ray = RayFlat(rays, ray_idx)
+    var ray = Ray(rays, ray_idx)
     var hit = trace_gpu_wide_ray[
         width,
         TRACE_PRIMARY_FULL,
@@ -234,7 +234,7 @@ def trace_gpu_triangle_bvh_shadow_kernel[
     if ray_idx >= ray_count:
         return
 
-    var ray = RayFlat(rays, ray_idx)
+    var ray = Ray(rays, ray_idx)
     var hit = trace_gpu_wide_ray[
         width,
         TRACE_SHADOW,
@@ -301,11 +301,8 @@ def _intersect_triangle_leaf[
     leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
     leaf_block_idx: UInt32,
     item_count: UInt32,
-    ray: RayFlat,
-    mut best_t: Float32,
-    mut best_u: Float32,
-    mut best_v: Float32,
-    mut best_prim: UInt32,
+    ray: Ray,
+    mut hit: Hit,
 ) capturing -> Bool:
     comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_PRIMARY_T, TRACE_SHADOW]
 
@@ -325,10 +322,11 @@ def _intersect_triangle_leaf[
         block.v0,
         block.v1,
         block.v2,
-        best_t,
+        hit.t,
     )
 
-    var hit_mask = h.mask & block.valid_lane
+    var t_min_mask = h.t.ge(ray.t_min)
+    var hit_mask = h.mask & block.valid_lane & t_min_mask
 
     if not hit_mask.reduce_or():
         return False
@@ -339,13 +337,16 @@ def _intersect_triangle_leaf[
         comptime f32_max = max_finite[DType.float32]()
         var min_t = hit_mask.select(h.t, f32_max).reduce_min()
 
-        best_t = min_t
+        if min_t < hit.t:
+            hit.t = min_t
 
-        comptime if mode == TRACE_PRIMARY_FULL:
-            comptime for lane in range(width):
-                if hit_mask[lane] and h.t[lane] == min_t:
-                    best_u = h.u[lane]
-                    best_v = h.v[lane]
-                    best_prim = block.prim_indices[lane]
+            comptime if mode == TRACE_PRIMARY_FULL:
+                comptime for lane in range(width):
+                    if hit_mask[lane] and h.t[lane] == min_t:
+                        hit.u = h.u[lane]
+                        hit.v = h.v[lane]
+                        hit.prim = block.prim_indices[lane]
+                        hit.inst = EMPTY_LANE
+                        hit.occluded = 0
 
         return True

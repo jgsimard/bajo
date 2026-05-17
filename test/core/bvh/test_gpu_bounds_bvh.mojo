@@ -7,7 +7,7 @@ from std.gpu import DeviceContext
 from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32, vmin, vmax
 from bajo.core.intersect import intersect_ray_sphere
-from bajo.core.bvh.types import Ray, Sphere
+from bajo.core.bvh.types import Ray, Hit, Sphere
 from bajo.core.bvh.host_utils import (
     flatten_rays,
     generate_primary_rays,
@@ -119,18 +119,29 @@ def _brute_sphere_trace(
     spheres: List[Sphere],
     O: Vec3f32,
     D: Vec3f32,
-) -> Tuple[Bool, UInt32, Float32]:
-    var best_t = Float32(1.0e30)
-    var best_prim = UInt32(0xFFFFFFFF)
+) -> Hit:
+    var best_hit = Hit.miss()
 
     for i in range(len(spheres)):
         ref s = spheres[i]
-        h = intersect_ray_sphere(O, D, s.center, s.radius, Float32.MAX)
-        if h.t > 1.0e-4 and h.t < best_t:
-            best_t = h.t
-            best_prim = UInt32(i)
 
-    return (best_prim != UInt32(0xFFFFFFFF), best_prim, best_t)
+        var h = intersect_ray_sphere(
+            O,
+            D,
+            s.center,
+            s.radius,
+            best_hit.t,
+        )
+
+        if h.mask and h.t > 1.0e-4 and h.t < best_hit.t:
+            best_hit.t = h.t
+            best_hit.u = 0.0
+            best_hit.v = 0.0
+            best_hit.prim = UInt32(i)
+            best_hit.inst = EMPTY_LANE
+            best_hit.occluded = UInt32(0)
+
+    return best_hit
 
 
 def _trace_cpu_spheres_bruteforce(
@@ -140,11 +151,8 @@ def _trace_cpu_spheres_bruteforce(
     var checksum = Float64(0.0)
 
     for i in range(len(rays)):
-        var brute = _brute_sphere_trace(spheres, rays[i].O, rays[i].D)
-        if brute[0]:
-            checksum += hit_t_for_checksum(brute[2])
-        else:
-            checksum += hit_t_for_checksum(Float32(1.0e30))
+        var brute = _brute_sphere_trace(spheres, rays[i].o, rays[i].d)
+        checksum += hit_t_for_checksum(brute.t)
 
     return checksum
 
@@ -186,11 +194,11 @@ def _make_triangle_leaf_bounds(
 def _trace_cpu_triangle_bvh[
     width: Int
 ](mut bvh: TriangleBvh[width], rays: List[Ray]) -> Float64:
-    var checksum = Float64(0.0)
+    var checksum = 0.0
     for i in range(len(rays)):
         var ray = rays[i].copy()
-        bvh.traverse(ray)
-        checksum += hit_t_for_checksum(ray.hit.t)
+        var hit = bvh.traverse(ray)
+        checksum += hit_t_for_checksum(hit.t)
     return checksum
 
 

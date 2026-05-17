@@ -1,17 +1,19 @@
 from bajo.core.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
     _copy_f32_to_device,
-    TRACE_PRIMARY_FULL,
-    TRACE_SHADOW,
-    TRACE_PRIMARY_T,
     _gpu_miss_prim,
     GPU_TRAVERSAL_STACK_SIZE,
     _wide_lane_base,
-    EMPTY_LANE,
     _intersect_wide_node_bounds,
     _gpu_inf_t,
 )
-from bajo.core.bvh.types import Sphere, RayFlat, Hit, SphereLeafBlock
+from bajo.core.bvh.constants import (
+    TRACE_PRIMARY_FULL,
+    TRACE_SHADOW,
+    TRACE_PRIMARY_T,
+    EMPTY_LANE,
+)
+from bajo.core.bvh.types import Ray, Hit
 
 
 @always_inline
@@ -23,34 +25,30 @@ def trace_gpu_wide_ray[
         UnsafePointer[UInt32, MutAnyOrigin],
         UInt32,
         UInt32,
-        RayFlat,
-        mut Float32,
-        mut Float32,
-        mut Float32,
-        mut UInt32,
+        Ray,
+        mut Hit,
     ) capturing -> Bool,
 ](
     wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
     wide_data: UnsafePointer[UInt32, MutAnyOrigin],
     wide_counts: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_spheres: UnsafePointer[Float32, MutAnyOrigin],
-    leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_data_f32: UnsafePointer[Float32, MutAnyOrigin],
+    leaf_data_u32: UnsafePointer[UInt32, MutAnyOrigin],
     root_idx: UInt32,
-    ray: RayFlat,
+    ray: Ray,
 ) -> Hit:
     comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_PRIMARY_T, TRACE_SHADOW]
 
-    var best_t = ray.t_max
-    var best_u = Float32(0.0)
-    var best_v = Float32(0.0)
-    var best_prim = _gpu_miss_prim
+    var hit = Hit.miss()
+    hit.t = ray.t_max
+    hit.prim = _gpu_miss_prim
 
     var stack = InlineArray[UInt32, GPU_TRAVERSAL_STACK_SIZE](fill=0)
     var stack_ptr = 0
     var current = root_idx
 
     while True:
-        var node_t_max = best_t
+        var node_t_max = hit.t
         comptime if mode == TRACE_SHADOW:
             node_t_max = ray.t_max
 
@@ -78,26 +76,23 @@ def trace_gpu_wide_ray[
                     child_t[node_lane] = bounds_hit.tmin[node_lane]
                 else:
                     var leaf_hit = leaf_fn(
-                        leaf_spheres,
-                        leaf_prims,
+                        leaf_data_f32,
+                        leaf_data_u32,
                         data,
                         count,
                         ray,
-                        best_t,
-                        best_u,
-                        best_v,
-                        best_prim,
+                        hit,
                     )
 
                     comptime if mode == TRACE_SHADOW:
                         if leaf_hit:
-                            return Hit(0.0, 0.0, 0.0, best_prim, UInt32(1))
+                            return Hit.shadow_hit()
 
         # Push internal children far-to-near.
         # Since stack is LIFO, nearest child is popped first.
         comptime for _ in range(width):
             var far_lane = -1
-            var far_t = Float32(-1.0)
+            var far_t = -_gpu_inf_t
 
             comptime for lane in range(width):
                 if child_valid[lane]:
@@ -110,7 +105,7 @@ def trace_gpu_wide_ray[
                 child_valid[far_lane] = False
 
                 comptime if mode != TRACE_SHADOW:
-                    if far_t > best_t:
+                    if far_t > hit.t:
                         continue
 
                 if stack_ptr < GPU_TRAVERSAL_STACK_SIZE:
@@ -123,4 +118,4 @@ def trace_gpu_wide_ray[
         stack_ptr -= 1
         current = stack[stack_ptr]
 
-    return Hit(best_t, best_u, best_v, best_prim, UInt32(0))
+    return hit

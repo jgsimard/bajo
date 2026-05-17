@@ -229,18 +229,27 @@ struct World(Copyable):
     ) -> Optional[HitRecord]:
         var origin = ray.at(ray_t.min)
         var tmax = ray_t.max - ray_t.min
-        var bvh_ray = bRay(origin, ray.direction, tmax)
 
-        self.bvh.traverse(bvh_ray)
+        var bvh_ray = bRay(
+            origin,
+            ray.direction,
+            Float32(0.0),
+            tmax,
+        )
 
-        if bvh_ray.hit.t >= tmax:
+        var bvh_hit = self.bvh.traverse(bvh_ray)
+
+        if not bvh_hit.is_hit():
             return None
 
-        var t = bvh_ray.hit.t + ray_t.min
+        if bvh_hit.t >= tmax:
+            return None
+
+        var t = bvh_hit.t + ray_t.min
         if not ray_t.surrounds(t):
             return None
 
-        var sphere_idx = Int(bvh_ray.hit.prim)
+        var sphere_idx = Int(bvh_hit.prim)
         ref obj = self.objects[sphere_idx]
 
         var center = obj.static_center()

@@ -1,4 +1,4 @@
-from bajo.core.bvh.types import Ray
+from bajo.core.bvh.types import Ray, Hit
 from bajo.core.intersect import intersect_ray_aabb
 from bajo.core.vec import Vec3
 from bajo.core.bvh.cpu.bounds_bvh import BoundsBvh, EMPTY_LANE
@@ -8,22 +8,25 @@ from bajo.core.bvh.cpu.bounds_bvh import BoundsBvh, EMPTY_LANE
 def traverse_wide_ray_bvh[
     width: Int,
     is_occlusion: Bool,
-    leaf_fn: def(mut Ray, UInt32, UInt32) capturing -> Bool,
-](tree: BoundsBvh[width], mut ray: Ray) -> Bool:
+    leaf_fn: def(Ray, UInt32, UInt32, mut Hit) capturing -> Bool,
+](tree: BoundsBvh[width], ray: Ray) -> Hit:
     if len(tree.nodes) == 0:
-        return False
+        return Hit.miss()
+
+    var out_hit = Hit.miss()
+    out_hit.t = ray.t_max
 
     var stack = InlineArray[UInt32, 64](fill=0)
     var s_ptr = 0
     var n_idx = UInt32(0)
 
-    var O = Vec3[DType.float32, width](ray.O.x, ray.O.y, ray.O.z)
-    var rD = Vec3[DType.float32, width](ray.rD.x, ray.rD.y, ray.rD.z)
+    var O = Vec3[DType.float32, width](ray.o.x, ray.o.y, ray.o.z)
+    var rD = Vec3[DType.float32, width](ray.rd.x, ray.rd.y, ray.rd.z)
 
     while True:
         ref node = tree.nodes[Int(n_idx)]
 
-        var hit = intersect_ray_aabb(O, rD, node.aabb, ray.hit.t)
+        var hit = intersect_ray_aabb(O, rD, node.aabb, out_hit.t)
         var valid_lane = ~node.counts.eq(EMPTY_LANE)
         var mask = hit.mask & valid_lane
 
@@ -34,9 +37,14 @@ def traverse_wide_ray_bvh[
                         stack[s_ptr] = node.data[i]
                         s_ptr += 1
                     else:
-                        if leaf_fn(ray, node.data[i], node.counts[i]):
+                        if leaf_fn(
+                            ray,
+                            node.data[i],
+                            node.counts[i],
+                            out_hit,
+                        ):
                             comptime if is_occlusion:
-                                return True
+                                return Hit.shadow_hit()
 
         if s_ptr == 0:
             break
@@ -44,4 +52,4 @@ def traverse_wide_ray_bvh[
         s_ptr -= 1
         n_idx = stack[s_ptr]
 
-    return False
+    return out_hit

@@ -14,7 +14,7 @@ from bajo.core.intersect import (
     RayAabbHit,
 )
 from bajo.core.morton import morton3
-from bajo.core.bvh.types import RayFlat, Hit, Sphere
+from bajo.core.bvh.types import Ray, Hit, Sphere
 from bajo.core.bvh.constants import (
     LBVH_LEAF_FLAG,
     LBVH_INDEX_MASK,
@@ -890,7 +890,7 @@ def _intersect_wide_node_bounds[
 ](
     wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
     node_idx: UInt32,
-    ray: RayFlat,
+    ray: Ray,
     t_max: Float32,
 ) -> RayAabbHit[DType.float32, width]:
     var block = _load_wide_bounds_block[DType.float32, width](
@@ -906,7 +906,7 @@ def _intersect_wide_node_bounds[
         RD,
         block._min,
         block._max,
-        SIMD[DType.float32, width](t_max),
+        t_max,
     )
 
 

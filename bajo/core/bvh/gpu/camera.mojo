@@ -1,4 +1,4 @@
-from bajo.core.bvh.types import RayFlat, Hit
+from bajo.core.bvh.types import Ray, Hit
 from bajo.core.bvh.constants import (
     _gpu_inf_t,
     _gpu_miss_prim,
@@ -36,7 +36,7 @@ def _make_camera_ray(
     ray_idx: Int,
     width: Int,
     height: Int,
-) -> RayFlat:
+) -> Ray:
     var pixels_per_view = width * height
     var view_idx = ray_idx / pixels_per_view
     var local_idx = ray_idx - view_idx * pixels_per_view
@@ -57,10 +57,15 @@ def _make_camera_ray(
     var sy = 1.0 - ((Float32(py_i) + 0.5) / Float32(height)) * 2.0
 
     var dir = f + r * (sx * aspect * fov_scale) + u * (sy * fov_scale)
-
     var nd = normalize(dir)
 
-    return RayFlat(o, nd, 1.0 / nd, _gpu_inf_t)
+    return Ray(
+        o,
+        nd,
+        Float32(0.0),
+        _gpu_inf_t,
+        UInt32(0xFFFFFFFF),
+    )
 
 
 @always_inline
@@ -80,7 +85,7 @@ def _write_camera_miss_result[
     elif mode == TRACE_PRIMARY_T:
         out_f32[ray_idx] = _gpu_inf_t
     else:
-        out_u32[ray_idx] = 0
+        out_u32[ray_idx] = UInt32(0)
 
 
 @always_inline

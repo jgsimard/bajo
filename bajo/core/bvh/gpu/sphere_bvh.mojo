@@ -20,7 +20,7 @@ from bajo.core.bvh.gpu.bounds_bvh import (
     GPU_TRAVERSAL_STACK_SIZE,
     _wide_lane_base,
     GPU_WIDE_EMPTY_LANE,
-    _intersect_wide_lane_bounds,
+    _intersect_wide_node_bounds,
 )
 
 
@@ -228,36 +228,43 @@ def trace_gpu_wide_sphere_ray[
     var current = root_idx
 
     while True:
-        comptime for lane in range(width):
-            var lane_base = _wide_lane_base[width](current, lane)
+        var bounds_hit_mask = _intersect_wide_node_bounds[width](
+            wide_bounds,
+            current,
+            ray,
+            best_t,
+        )
+
+        comptime for node_lane in range(width):
+            var lane_base = _wide_lane_base[width](current, node_lane)
             var count = UInt32(wide_counts[lane_base])
 
-            if count != GPU_WIDE_EMPTY_LANE:
-                if _intersect_wide_lane_bounds[width](
-                    wide_bounds, current, lane, ray, best_t
-                ):
-                    var data = UInt32(wide_data[lane_base])
-                    if count == 0:
-                        if stack_ptr < GPU_TRAVERSAL_STACK_SIZE:
-                            stack[stack_ptr] = data
-                            stack_ptr += 1
-                    else:
-                        var leaf_hit = _intersect_sphere_leaf_block[
-                            width, mode
-                        ](
-                            leaf_spheres,
-                            leaf_prims,
-                            data,
-                            count,
-                            ray,
-                            best_t,
-                            best_u,
-                            best_v,
-                            best_prim,
-                        )
-                        comptime if mode == TRACE_SHADOW:
-                            if leaf_hit:
-                                return Hit(0.0, 0.0, 0.0, best_prim, UInt32(1))
+            if count != GPU_WIDE_EMPTY_LANE and bounds_hit_mask[node_lane]:
+                var data = UInt32(wide_data[lane_base])
+
+                if count == 0:
+                    if stack_ptr < GPU_TRAVERSAL_STACK_SIZE:
+                        stack[stack_ptr] = data
+                        stack_ptr += 1
+                else:
+                    var leaf_hit = _intersect_sphere_leaf_block[
+                        width,
+                        mode,
+                    ](
+                        leaf_spheres,
+                        leaf_prims,
+                        data,
+                        count,
+                        ray,
+                        best_t,
+                        best_u,
+                        best_v,
+                        best_prim,
+                    )
+
+                    comptime if mode == TRACE_SHADOW:
+                        if leaf_hit:
+                            return Hit(0.0, 0.0, 0.0, best_prim, UInt32(1))
 
         if stack_ptr == 0:
             break

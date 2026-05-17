@@ -20,7 +20,7 @@ from bajo.core.bvh.gpu.bounds_bvh import (
     GPU_TRAVERSAL_STACK_SIZE,
     _wide_lane_base,
     GPU_WIDE_EMPTY_LANE,
-    _intersect_wide_lane_bounds,
+    _intersect_wide_node_bounds,
     GPU_TRI_LEAF_VERTEX_STRIDE,
 )
 from bajo.core.intersect import intersect_ray_tri
@@ -269,36 +269,43 @@ def trace_gpu_wide_triangle_ray[
     var current = root_idx
 
     while True:
-        comptime for lane in range(width):
-            var lane_base = _wide_lane_base[width](current, lane)
+        var bounds_hit_mask = _intersect_wide_node_bounds[width](
+            wide_bounds,
+            current,
+            ray,
+            best_t,
+        )
+
+        comptime for node_lane in range(width):
+            var lane_base = _wide_lane_base[width](current, node_lane)
             var count = UInt32(wide_counts[lane_base])
 
-            if count != GPU_WIDE_EMPTY_LANE:
-                if _intersect_wide_lane_bounds[width](
-                    wide_bounds, current, lane, ray, best_t
-                ):
-                    var data = UInt32(wide_data[lane_base])
-                    if count == 0:
-                        if stack_ptr < GPU_TRAVERSAL_STACK_SIZE:
-                            stack[stack_ptr] = data
-                            stack_ptr += 1
-                    else:
-                        var leaf_hit = _intersect_triangle_leaf_block[
-                            width, mode
-                        ](
-                            leaf_vertices,
-                            leaf_prims,
-                            data,
-                            count,
-                            ray,
-                            best_t,
-                            best_u,
-                            best_v,
-                            best_prim,
-                        )
-                        comptime if mode == TRACE_SHADOW:
-                            if leaf_hit:
-                                return Hit(0.0, 0.0, 0.0, best_prim, UInt32(1))
+            if count != GPU_WIDE_EMPTY_LANE and bounds_hit_mask[node_lane]:
+                var data = UInt32(wide_data[lane_base])
+
+                if count == 0:
+                    if stack_ptr < GPU_TRAVERSAL_STACK_SIZE:
+                        stack[stack_ptr] = data
+                        stack_ptr += 1
+                else:
+                    var leaf_hit = _intersect_triangle_leaf_block[
+                        width,
+                        mode,
+                    ](
+                        leaf_vertices,
+                        leaf_prims,
+                        data,
+                        count,
+                        ray,
+                        best_t,
+                        best_u,
+                        best_v,
+                        best_prim,
+                    )
+
+                    comptime if mode == TRACE_SHADOW:
+                        if leaf_hit:
+                            return Hit(0.0, 0.0, 0.0, best_prim, UInt32(1))
 
         if stack_ptr == 0:
             break
@@ -373,13 +380,13 @@ def _intersect_triangle_leaf_block[
     var O = Vec3[DType.float32, width](ray.o.x, ray.o.y, ray.o.z)
     var D = Vec3[DType.float32, width](ray.d.x, ray.d.y, ray.d.z)
 
-    var h = intersect_ray_tri[DType.float32, width](
+    var h = intersect_ray_tri(
         O,
         D,
         block.v0,
         block.v1,
         block.v2,
-        SIMD[DType.float32, width](best_t),
+        best_t,
     )
 
     var hit_mask = h.mask & block.valid_lane
@@ -396,12 +403,10 @@ def _intersect_triangle_leaf_block[
         best_t = min_t
 
         comptime if mode == TRACE_PRIMARY_FULL:
-            var found_lane = False
             comptime for lane in range(width):
-                if not found_lane and hit_mask[lane] and h.t[lane] == min_t:
+                if hit_mask[lane] and h.t[lane] == min_t:
                     best_u = h.u[lane]
                     best_v = h.v[lane]
                     best_prim = block.prim_indices[lane]
-                    found_lane = True
 
         return True

@@ -4,8 +4,8 @@ from std.atomic import Atomic
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
 
 
-from bajo.core.aabb import AABB
-from bajo.core.vec import Vec3f32, vmin, vmax
+from bajo.core.aabb import AABB, AxisAlignedBoundingBox
+from bajo.core.vec import Vec3f32, vmin, vmax, Vec3
 from bajo.core.mat import Mat44f32, transform_point, transform_vector
 from bajo.core.intersect import intersect_ray_aabb, intersect_ray_tri
 from bajo.core.morton import morton3
@@ -833,25 +833,25 @@ def _wide_bounds_base[width: Int](node_idx: UInt32, lane: Int) -> Int:
     return _wide_lane_base[width](node_idx, lane) * GPU_WIDE_BOUNDS_STRIDE
 
 
-@always_inline
-def _intersect_wide_lane_bounds[
-    width: Int
-](
-    wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    node_idx: UInt32,
-    lane: Int,
-    ray: RayFlat,
-    t_max: Float32,
-) -> Bool:
-    var b = _wide_bounds_base[width](node_idx, lane)
-    var h = intersect_ray_aabb(
-        ray.o,
-        ray.rd,
-        Vec3f32.load(wide_bounds, b + 0),
-        Vec3f32.load(wide_bounds, b + 3),
-        t_max,
-    )
-    return h.mask
+# @always_inline
+# def _intersect_wide_lane_bounds[
+#     width: Int
+# ](
+#     wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
+#     node_idx: UInt32,
+#     lane: Int,
+#     ray: RayFlat,
+#     t_max: Float32,
+# ) -> Bool:
+#     var b = _wide_bounds_base[width](node_idx, lane)
+#     var h = intersect_ray_aabb(
+#         ray.o,
+#         ray.rd,
+#         Vec3f32.load(wide_bounds, b + 0),
+#         Vec3f32.load(wide_bounds, b + 3),
+#         t_max,
+#     )
+#     return h.mask
 
 
 # Host utility copies local to this module to avoid depending on old triangle-only
@@ -876,3 +876,55 @@ def _copy_u32_to_device(
         for i in range(len(values)):
             h[i] = values[i]
     return buf^
+
+
+@always_inline
+def _load_wide_bounds_block[
+    dtype: DType,
+    width: Int,
+](
+    wide_bounds: UnsafePointer[Scalar[dtype], MutAnyOrigin],
+    node_idx: UInt32,
+) -> AxisAlignedBoundingBox[dtype, width]:
+    var bmin = Vec3[dtype, width](0)
+    var bmax = Vec3[dtype, width](0)
+
+    comptime for lane in range(width):
+        var b = _wide_bounds_base[width](node_idx, lane)
+
+        bmin.x[lane] = wide_bounds[b + 0]
+        bmin.y[lane] = wide_bounds[b + 1]
+        bmin.z[lane] = wide_bounds[b + 2]
+
+        bmax.x[lane] = wide_bounds[b + 3]
+        bmax.y[lane] = wide_bounds[b + 4]
+        bmax.z[lane] = wide_bounds[b + 5]
+
+    return AxisAlignedBoundingBox(bmin, bmax)
+
+
+@always_inline
+def _intersect_wide_node_bounds[
+    width: Int,
+](
+    wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    node_idx: UInt32,
+    ray: RayFlat,
+    t_max: Float32,
+) -> SIMD[DType.bool, width]:
+    var block = _load_wide_bounds_block[DType.float32, width](
+        wide_bounds, node_idx
+    )
+
+    var O = Vec3[DType.float32, width](ray.o.x, ray.o.y, ray.o.z)
+    var RD = Vec3[DType.float32, width](ray.rd.x, ray.rd.y, ray.rd.z)
+
+    var h = intersect_ray_aabb[DType.float32, width](
+        O,
+        RD,
+        block._min,
+        block._max,
+        SIMD[DType.float32, width](t_max),
+    )
+
+    return h.mask

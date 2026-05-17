@@ -308,9 +308,9 @@ def intersect_ray_tri[
     t_min: SIMD[dtype, width] = SIMD[dtype, width](1.0e-4),
 ) -> RayTriHit[dtype, width]:
     """Moller and Trumbore's method."""
-    comptime assert dtype in [DType.float32, DType.float64]
+    comptime assert dtype.is_floating_point()
     comptime EPSILON = Scalar[dtype](1e-8 if dtype == DType.float32 else 1e-16)
-    comptime BVH_INF = SIMD[dtype, width](3.4028234663852886e38)
+    comptime INF = max_finite[dtype]()
 
     var e1 = v1 - v0
     var e2 = v2 - v0
@@ -319,7 +319,7 @@ def intersect_ray_tri[
     var det = dot(e1, p)
 
     var det_ok = det.gt(EPSILON) | det.lt(-EPSILON)
-    var inv_det = Scalar[dtype](1.0) / det
+    var inv_det = 1.0 / det
 
     var tv = o - v0
     var u = dot(tv, p) * inv_det
@@ -338,9 +338,9 @@ def intersect_ray_tri[
         & t.lt(t_max)
     )
 
-    return RayTriHit[dtype, width](
+    return RayTriHit(
         mask,
-        mask.select(t, BVH_INF),
+        mask.select(t, INF),
         u,
         v,
     )

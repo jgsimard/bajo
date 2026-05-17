@@ -19,7 +19,7 @@ from bajo.core.bvh.gpu.bounds_bvh import (
     GPU_TRAVERSAL_STACK_SIZE,
     _wide_lane_base,
     GPU_WIDE_EMPTY_LANE,
-    _intersect_wide_lane_bounds,
+    _intersect_wide_node_bounds,
     _gpu_inf_t,
 )
 from bajo.core.bvh.gpu.sphere_bvh import GpuSphereBvh, trace_gpu_wide_sphere_ray
@@ -136,6 +136,8 @@ def _intersect_tlas_triangle_instance_block[
                 # blas index buffer in place for the later multi-BLAS table.
                 var blas_idx = UInt32(inst_blas_indices[Int(inst_idx)])
                 if blas_idx == UInt32(0):
+                    # var local_ray = ray
+                    # local_ray.t_max = best_hit.t
                     var local_ray = _make_tlas_local_ray(
                         inst_inv_transform,
                         inst_idx,
@@ -196,52 +198,58 @@ def trace_gpu_wide_tlas_triangle_ray[
     var current = tlas_root_idx
 
     while True:
-        comptime for lane in range(tlas_width):
-            var lane_base = _wide_lane_base[tlas_width](current, lane)
+        var bounds_hit_mask = _intersect_wide_node_bounds[tlas_width](
+            tlas_wide_bounds,
+            current,
+            ray,
+            best_hit.t,
+        )
+
+        comptime for node_lane in range(tlas_width):
+            var lane_base = _wide_lane_base[tlas_width](current, node_lane)
             var count = UInt32(tlas_wide_counts[lane_base])
 
-            if count != GPU_WIDE_EMPTY_LANE:
-                if _intersect_wide_lane_bounds[tlas_width](
-                    tlas_wide_bounds,
-                    current,
-                    lane,
-                    ray,
-                    best_hit.t,
-                ):
-                    var data = UInt32(tlas_wide_data[lane_base])
-                    if count == 0:
-                        if stack_ptr < GPU_TRAVERSAL_STACK_SIZE:
-                            stack[stack_ptr] = data
-                            stack_ptr += 1
-                    else:
-                        var leaf_hit = _intersect_tlas_triangle_instance_block[
-                            tlas_width,
-                            blas_width,
-                            mode,
-                        ](
-                            tlas_leaf_instances,
-                            inst_inv_transform,
-                            inst_blas_indices,
-                            blas_wide_bounds,
-                            blas_wide_data,
-                            blas_wide_counts,
-                            blas_leaf_vertices,
-                            blas_leaf_prims,
-                            blas_root_idx,
-                            data,
-                            count,
-                            ray,
-                            best_hit,
-                            best_inst,
-                        )
-                        comptime if mode == TRACE_SHADOW:
-                            if leaf_hit:
-                                return (
-                                    Hit(
-                                        0.0, 0.0, 0.0, _gpu_miss_prim, UInt32(1)
-                                    ),
-                                    best_inst,
-                                )
+            if count != GPU_WIDE_EMPTY_LANE and bounds_hit_mask[node_lane]:
+                var data = UInt32(tlas_wide_data[lane_base])
+
+                if count == 0:
+                    if stack_ptr < GPU_TRAVERSAL_STACK_SIZE:
+                        stack[stack_ptr] = data
+                        stack_ptr += 1
+                else:
+                    var leaf_hit = _intersect_tlas_triangle_instance_block[
+                        tlas_width,
+                        blas_width,
+                        mode,
+                    ](
+                        tlas_leaf_instances,
+                        inst_inv_transform,
+                        inst_blas_indices,
+                        blas_wide_bounds,
+                        blas_wide_data,
+                        blas_wide_counts,
+                        blas_leaf_vertices,
+                        blas_leaf_prims,
+                        blas_root_idx,
+                        data,
+                        count,
+                        ray,
+                        best_hit,
+                        best_inst,
+                    )
+
+                    comptime if mode == TRACE_SHADOW:
+                        if leaf_hit:
+                            return (
+                                Hit(
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    _gpu_miss_prim,
+                                    UInt32(1),
+                                ),
+                                best_inst,
+                            )
 
         if stack_ptr == 0:
             break
@@ -343,52 +351,58 @@ def trace_gpu_wide_tlas_sphere_ray[
     var current = tlas_root_idx
 
     while True:
-        comptime for lane in range(tlas_width):
-            var lane_base = _wide_lane_base[tlas_width](current, lane)
+        var bounds_hit_mask = _intersect_wide_node_bounds[tlas_width](
+            tlas_wide_bounds,
+            current,
+            ray,
+            best_hit.t,
+        )
+
+        comptime for node_lane in range(tlas_width):
+            var lane_base = _wide_lane_base[tlas_width](current, node_lane)
             var count = UInt32(tlas_wide_counts[lane_base])
 
-            if count != GPU_WIDE_EMPTY_LANE:
-                if _intersect_wide_lane_bounds[tlas_width](
-                    tlas_wide_bounds,
-                    current,
-                    lane,
-                    ray,
-                    best_hit.t,
-                ):
-                    var data = UInt32(tlas_wide_data[lane_base])
-                    if count == 0:
-                        if stack_ptr < GPU_TRAVERSAL_STACK_SIZE:
-                            stack[stack_ptr] = data
-                            stack_ptr += 1
-                    else:
-                        var leaf_hit = _intersect_tlas_sphere_instance_block[
-                            tlas_width,
-                            blas_width,
-                            mode,
-                        ](
-                            tlas_leaf_instances,
-                            inst_inv_transform,
-                            inst_blas_indices,
-                            blas_wide_bounds,
-                            blas_wide_data,
-                            blas_wide_counts,
-                            blas_leaf_spheres,
-                            blas_leaf_prims,
-                            blas_root_idx,
-                            data,
-                            count,
-                            ray,
-                            best_hit,
-                            best_inst,
-                        )
-                        comptime if mode == TRACE_SHADOW:
-                            if leaf_hit:
-                                return (
-                                    Hit(
-                                        0.0, 0.0, 0.0, _gpu_miss_prim, UInt32(1)
-                                    ),
-                                    best_inst,
-                                )
+            if count != GPU_WIDE_EMPTY_LANE and bounds_hit_mask[node_lane]:
+                var data = UInt32(tlas_wide_data[lane_base])
+
+                if count == 0:
+                    if stack_ptr < GPU_TRAVERSAL_STACK_SIZE:
+                        stack[stack_ptr] = data
+                        stack_ptr += 1
+                else:
+                    var leaf_hit = _intersect_tlas_sphere_instance_block[
+                        tlas_width,
+                        blas_width,
+                        mode,
+                    ](
+                        tlas_leaf_instances,
+                        inst_inv_transform,
+                        inst_blas_indices,
+                        blas_wide_bounds,
+                        blas_wide_data,
+                        blas_wide_counts,
+                        blas_leaf_spheres,
+                        blas_leaf_prims,
+                        blas_root_idx,
+                        data,
+                        count,
+                        ray,
+                        best_hit,
+                        best_inst,
+                    )
+
+                    comptime if mode == TRACE_SHADOW:
+                        if leaf_hit:
+                            return (
+                                Hit(
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    _gpu_miss_prim,
+                                    UInt32(1),
+                                ),
+                                best_inst,
+                            )
 
         if stack_ptr == 0:
             break

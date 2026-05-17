@@ -756,8 +756,6 @@ def test_tlas_sphere_shadow_hit_and_miss() raises:
 
 
 def test_bounds_ray_query_inside_outside_regression() raises:
-    # Regression for rays starting inside an AABB.
-    # This used to live in the old BinaryBvh tests.
     var lower = Vec3f32(0.5, -1.0, -1.0)
     var upper = Vec3f32(1.0, 1.0, 1.0)
 

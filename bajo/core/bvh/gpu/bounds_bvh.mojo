@@ -19,6 +19,7 @@ from bajo.core.bvh.constants import (
     TRACE_PRIMARY_FULL,
     TRACE_PRIMARY_T,
     TRACE_SHADOW,
+    EMPTY_LANE,
 )
 from bajo.core.bvh.gpu.validate import (
     validate_sorted_keys,
@@ -39,7 +40,6 @@ comptime LBVH_BOUNDS_LEFT = 0
 comptime LBVH_BOUNDS_RIGHT = 6
 
 comptime GPU_BOUNDS_BVH_BLOCK_SIZE = 128
-comptime GPU_WIDE_EMPTY_LANE = UInt32(0xFFFFFFFF)
 comptime GPU_WIDE_BOUNDS_STRIDE = 6
 comptime GPU_TRI_LEAF_VERTEX_STRIDE = 9
 comptime GPU_SPHERE_STRIDE = 4
@@ -291,7 +291,7 @@ def _collect_encoded_leaf_payloads_gpu[
         if lane >= out_count:
             out_leaf_block_indices[
                 Int(leaf_block_idx) * width + lane
-            ] = GPU_WIDE_EMPTY_LANE
+            ] = EMPTY_LANE
 
 
 def init_gpu_wide_collapse_kernel[
@@ -312,7 +312,7 @@ def init_gpu_wide_collapse_kernel[
 
     if i < max_wide_lanes:
         wide_data[i] = UInt32(0)
-        wide_counts[i] = GPU_WIDE_EMPTY_LANE
+        wide_counts[i] = EMPTY_LANE
 
         var b = i * GPU_WIDE_BOUNDS_STRIDE
         wide_bounds[b + 0] = 0.0
@@ -323,7 +323,7 @@ def init_gpu_wide_collapse_kernel[
         wide_bounds[b + 5] = 0.0
 
     if i < max_leaf_slots:
-        leaf_block_indices[i] = GPU_WIDE_EMPTY_LANE
+        leaf_block_indices[i] = EMPTY_LANE
 
     if i < internal_count:
         node_leaf_counts[i] = UInt32(0)
@@ -454,7 +454,7 @@ def collapse_lbvh_to_wide_kernel[
         var lane_base = Int(wide_idx) * width + lane
 
         if lane >= p_size:
-            wide_counts[lane_base] = GPU_WIDE_EMPTY_LANE
+            wide_counts[lane_base] = EMPTY_LANE
             continue
 
         var e = pool[lane]
@@ -485,7 +485,7 @@ struct GpuBoundsBvh[width: Int]:
     """Generic GPU Bvh. Build input is only leaf AABBs plus payload ids.
 
     Wide lane encoding mirrors the CPU BVH:
-        count == GPU_WIDE_EMPTY_LANE -> unused lane
+        count == EMPTY_LANE -> unused lane
         count == 0                   -> child node, data = wide child index
         count > 0                    -> leaf block, data = leaf block index
     """

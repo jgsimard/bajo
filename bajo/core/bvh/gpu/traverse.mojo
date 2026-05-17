@@ -7,7 +7,7 @@ from bajo.core.bvh.gpu.bounds_bvh import (
     _gpu_miss_prim,
     GPU_TRAVERSAL_STACK_SIZE,
     _wide_lane_base,
-    GPU_WIDE_EMPTY_LANE,
+    EMPTY_LANE,
     _intersect_wide_node_bounds,
 )
 from bajo.core.bvh.types import Sphere, RayFlat, Hit, SphereLeafBlock
@@ -60,7 +60,7 @@ def trace_gpu_wide_ray[
             var lane_base = _wide_lane_base[width](current, node_lane)
             var count = UInt32(wide_counts[lane_base])
 
-            if count != GPU_WIDE_EMPTY_LANE and bounds_hit_mask[node_lane]:
+            if count != EMPTY_LANE and bounds_hit_mask[node_lane]:
                 var data = UInt32(wide_data[lane_base])
 
                 if count == 0:

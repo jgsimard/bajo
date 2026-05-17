@@ -13,10 +13,10 @@ from bajo.core.bvh.host_utils import (
     generate_primary_rays,
     hit_t_for_checksum,
 )
+from bajo.core.bvh.constants import EMPTY_LANE
 from bajo.core.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.core.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
-    GPU_WIDE_EMPTY_LANE,
 )
 from bajo.core.bvh.gpu.sphere_bvh import GpuSphereBvh
 from bajo.core.bvh.gpu.triangle_bvh import GpuTriangleBvh
@@ -232,7 +232,7 @@ def _assert_wide_lane_invariants[width: Int](verts: List[Vec3f32]) raises:
                         var idx = n * width + lane
                         var count = UInt32(counts[idx])
 
-                        if count == GPU_WIDE_EMPTY_LANE:
+                        if count == EMPTY_LANE:
                             continue
 
                         seen_live_lane = True

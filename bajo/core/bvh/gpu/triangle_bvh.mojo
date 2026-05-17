@@ -6,15 +6,17 @@ from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.vec import Vec3f32, vmin, vmax, Vec3
 from bajo.core.bvh.types import Sphere, RayFlat, Hit, TriangleLeafBlock
+from bajo.core.bvh.constants import (
+    EMPTY_LANE,
+    TRACE_PRIMARY_FULL,
+    TRACE_SHADOW,
+    TRACE_PRIMARY_T,
+)
 from bajo.core.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
     _copy_f32_to_device,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
     GPU_WIDE_BOUNDS_STRIDE,
-    TRACE_PRIMARY_FULL,
-    TRACE_SHADOW,
-    TRACE_PRIMARY_T,
-    GPU_WIDE_EMPTY_LANE,
     GPU_TRI_LEAF_VERTEX_STRIDE,
 )
 from bajo.core.intersect import intersect_ray_tri
@@ -163,7 +165,7 @@ def pack_triangle_leaf_blocks_kernel[
         leaf_prims[idx] = prim
 
         var out_base = idx * GPU_TRI_LEAF_VERTEX_STRIDE
-        if prim == GPU_WIDE_EMPTY_LANE:
+        if prim == EMPTY_LANE:
             for k in range(GPU_TRI_LEAF_VERTEX_STRIDE):
                 leaf_vertices[out_base + k] = 0.0
         else:
@@ -269,7 +271,7 @@ def _load_triangle_leaf[
             var idx = Int(leaf_block_idx) * width + lane
             var prim = UInt32(leaf_prims[idx])
 
-            if prim != GPU_WIDE_EMPTY_LANE:
+            if prim != EMPTY_LANE:
                 var base = idx * GPU_TRI_LEAF_VERTEX_STRIDE
 
                 block.v0.x[lane] = leaf_vertices[base + 0]

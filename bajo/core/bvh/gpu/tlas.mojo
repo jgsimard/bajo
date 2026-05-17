@@ -2,8 +2,15 @@ from std.math import ceildiv
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
 
 from bajo.core.aabb import AABB
-from bajo.core.vec import Vec3f32
 from bajo.core.mat import Mat44f32, transform_point, transform_vector
+from bajo.core.vec import Vec3f32
+from bajo.core.bvh.constants import (
+    TRACE_PRIMARY_FULL,
+    TRACE_SHADOW,
+    TRACE_PRIMARY_T,
+    GPU_TRAVERSAL_STACK_SIZE,
+    EMPTY_LANE,
+)
 from bajo.core.bvh.types import RayFlat, Hit, Instance
 from bajo.core.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
@@ -11,14 +18,13 @@ from bajo.core.bvh.gpu.bounds_bvh import (
     _copy_u32_to_device,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
     GPU_WIDE_BOUNDS_STRIDE,
-    TRACE_PRIMARY_FULL,
-    TRACE_SHADOW,
-    TRACE_PRIMARY_T,
     _gpu_miss_prim,
-    GPU_TRAVERSAL_STACK_SIZE,
     _wide_lane_base,
-    GPU_WIDE_EMPTY_LANE,
     _intersect_wide_node_bounds,
+)
+from bajo.core.bvh.gpu.camera import (
+    _make_camera_ray,
+    _write_camera_result,
 )
 from bajo.core.bvh.gpu.sphere_bvh import (
     GpuSphereBvh,
@@ -123,7 +129,7 @@ def _intersect_tlas_instance_block[
             var idx = Int(leaf_block_idx) * tlas_width + lane
             var inst_idx = UInt32(tlas_leaf_instances[idx])
 
-            if inst_idx != GPU_WIDE_EMPTY_LANE:
+            if inst_idx != EMPTY_LANE:
                 var blas_idx = UInt32(inst_blas_indices[Int(inst_idx)])
                 if blas_idx == UInt32(0):
                     var local_t_max = best_hit.t
@@ -217,7 +223,7 @@ def trace_gpu_wide_tlas_ray[
             var lane_base = _wide_lane_base[tlas_width](current, node_lane)
             var count = UInt32(tlas_wide_counts[lane_base])
 
-            if count != GPU_WIDE_EMPTY_LANE and bounds_hit_mask[node_lane]:
+            if count != EMPTY_LANE and bounds_hit_mask[node_lane]:
                 var data = UInt32(tlas_wide_data[lane_base])
 
                 if count == 0:

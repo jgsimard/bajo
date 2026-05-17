@@ -3,6 +3,12 @@ from std.time import perf_counter_ns
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
 from std.utils.numerics import max_finite
 
+from bajo.core.bvh.constants import (
+    EMPTY_LANE,
+    TRACE_PRIMARY_FULL,
+    TRACE_SHADOW,
+    TRACE_PRIMARY_T,
+)
 from bajo.core.intersect import intersect_ray_sphere
 from bajo.core.vec import Vec3f32, Vec3
 from bajo.core.bvh.types import Sphere, RayFlat, Hit, SphereLeafBlock
@@ -12,10 +18,6 @@ from bajo.core.bvh.gpu.bounds_bvh import (
     GPU_BOUNDS_BVH_BLOCK_SIZE,
     GPU_WIDE_BOUNDS_STRIDE,
     GPU_SPHERE_STRIDE,
-    TRACE_PRIMARY_FULL,
-    TRACE_SHADOW,
-    TRACE_PRIMARY_T,
-    GPU_WIDE_EMPTY_LANE,
 )
 from bajo.core.bvh.gpu.traverse import trace_gpu_wide_ray
 
@@ -228,7 +230,7 @@ def _load_sphere_leaf_packet[
             var idx = Int(leaf_block_idx) * width + lane
             var prim = UInt32(leaf_prims[idx])
 
-            if prim != GPU_WIDE_EMPTY_LANE:
+            if prim != EMPTY_LANE:
                 var base = idx * GPU_SPHERE_STRIDE
 
                 block.center.x[lane] = leaf_spheres[base + 0]
@@ -320,7 +322,7 @@ def pack_sphere_leaf_blocks_kernel[
         leaf_prims[idx] = prim
 
         var out_base = idx * GPU_SPHERE_STRIDE
-        if prim == GPU_WIDE_EMPTY_LANE:
+        if prim == EMPTY_LANE:
             for k in range(GPU_SPHERE_STRIDE):
                 leaf_spheres[out_base + k] = 0.0
         else:

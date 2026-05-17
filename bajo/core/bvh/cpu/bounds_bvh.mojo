@@ -2,17 +2,17 @@ from std.math import min, max, sqrt
 from std.utils.numerics import max_finite, min_finite
 from std.bit import count_leading_zeros
 
-from bajo.core.morton import morton3
 from bajo.core.aabb import AABB, AxisAlignedBoundingBox
-from bajo.core.bvh.constants import EMPTY_LANE
 from bajo.core.intersect import (
     intersect_ray_tri,
     intersect_ray_aabb,
     intersect_ray_sphere,
 )
-from bajo.core.vec import Vec3, Vec3f32, vmin, vmax, longest_axis, dot
-from bajo.core.bvh.types import Ray
 from bajo.core.mat import Mat44f32, transform_point, transform_vector
+from bajo.core.morton import morton3
+from bajo.core.vec import Vec3, Vec3f32, vmin, vmax, longest_axis, dot
+from bajo.core.bvh.constants import EMPTY_LANE
+from bajo.core.bvh.types import Ray
 
 
 comptime f32_max = max_finite[DType.float32]()

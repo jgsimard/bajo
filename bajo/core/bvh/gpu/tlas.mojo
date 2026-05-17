@@ -4,7 +4,7 @@ from std.gpu import DeviceBuffer, DeviceContext, global_idx
 from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32
 from bajo.core.mat import Mat44f32, transform_point, transform_vector
-from bajo.core.bvh.types import RayFlat, Hit
+from bajo.core.bvh.types import RayFlat, Hit, BvhInstance
 from bajo.core.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
     _copy_f32_to_device,
@@ -32,31 +32,10 @@ from bajo.core.bvh.gpu.traverse import trace_gpu_wide_ray
 
 
 comptime GPU_TLAS_TRANSFORM_STRIDE = 16
-comptime GPU_TLAS_BOUNDS_PAD = Float32(1.0e-4)
-
-
-@fieldwise_init
-struct GpuTlasInstance(Copyable):
-    """Host-side TLAS instance descriptor.
-
-    This implementation supports many transformed instances of one shared BLAS.
-    `blas_idx` is kept in the layout so the API does not need to change when
-    same-type multi-BLAS support is added later.
-    """
-
-    var bounds: AABB
-    var inv_transform: Mat44f32
-    var blas_idx: UInt32
-
-    @always_inline
-    def __init__(out self):
-        self.bounds = AABB.invalid()
-        self.inv_transform = Mat44f32.identity()
-        self.blas_idx = UInt32(0)
 
 
 def _flatten_instance_inv_transforms(
-    instances: List[GpuTlasInstance],
+    instances: List[BvhInstance],
 ) -> List[Float32]:
     var out = List[Float32](
         capacity=max(len(instances), 1) * GPU_TLAS_TRANSFORM_STRIDE
@@ -71,7 +50,7 @@ def _flatten_instance_inv_transforms(
 
 
 def _flatten_instance_blas_indices(
-    instances: List[GpuTlasInstance],
+    instances: List[BvhInstance],
 ) -> List[UInt32]:
     return [instance.blas_idx for instance in instances]
 
@@ -399,7 +378,7 @@ struct GpuTlas[width: Int]:
     def __init__(
         out self,
         mut ctx: DeviceContext,
-        instances: List[GpuTlasInstance],
+        instances: List[BvhInstance],
     ) raises:
         self.inst_count = len(instances)
 

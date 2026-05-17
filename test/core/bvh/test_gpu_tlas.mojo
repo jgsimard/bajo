@@ -7,13 +7,13 @@ from std.gpu import DeviceContext, DeviceBuffer
 from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32
 from bajo.core.mat import Mat44f32
-from bajo.core.bvh.types import Ray, Sphere
+from bajo.core.bvh.types import Ray, Sphere, BvhInstance
 from bajo.core.bvh.host_utils import (
     flatten_rays,
     generate_primary_rays,
     hit_t_for_checksum,
 )
-from bajo.core.bvh.gpu.tlas import GpuTlas, GpuTlasInstance
+from bajo.core.bvh.gpu.tlas import GpuTlas
 from bajo.core.bvh.gpu.sphere_bvh import GpuSphereBvh
 from bajo.core.bvh.gpu.triangle_bvh import GpuTriangleBvh
 from bajo.core.bvh.gpu.utils import _upload_rays, _download_full_hit_checksum
@@ -34,6 +34,18 @@ def _translation_inverse(tx: Float32, ty: Float32, tz: Float32) -> Mat44f32:
         1.0, 0.0, 0.0, -tx,
         0.0, 1.0, 0.0, -ty,
         0.0, 0.0, 1.0, -tz,
+        0.0, 0.0, 0.0, 1.0,
+    )
+    # fmt: on
+
+
+@always_inline
+def _translation(tx: Float32, ty: Float32, tz: Float32) -> Mat44f32:
+    # fmt: off
+    return Mat44f32(
+        1.0, 0.0, 0.0, tx,
+        0.0, 1.0, 0.0, ty,
+        0.0, 0.0, 1.0, tz,
         0.0, 0.0, 0.0, 1.0,
     )
     # fmt: on
@@ -124,7 +136,9 @@ def test_gpu_tlas_single_identity_matches_direct_blas() raises:
     )
     var rays_flat = flatten_rays(rays)
 
-    var instances = [GpuTlasInstance(bounds, Mat44f32.identity(), UInt32(0))]
+    var instances = [
+        BvhInstance(Mat44f32.identity(), Mat44f32.identity(), bounds, UInt32(0))
+    ]
 
     with DeviceContext() as ctx:
         var blas = GpuTriangleBvh[4](ctx, verts)
@@ -165,9 +179,10 @@ def test_gpu_tlas_translated_single_instance_hit() raises:
     var tx = Float32(10.0)
     var inst_bounds = bounds.translate(Vec3f32(tx, 0.0, 0.0))
     var instances = [
-        GpuTlasInstance(
-            inst_bounds,
+        BvhInstance(
+            _translation(tx, 0.0, 0.0),
             _translation_inverse(tx, 0.0, 0.0),
+            inst_bounds,
             UInt32(0),
         )
     ]
@@ -209,7 +224,9 @@ def test_gpu_tlas_triangle_shadow_matches_direct_blas() raises:
         GPU_TLAS_TEST_VIEWS,
     )
     var rays_flat = flatten_rays(rays)
-    var instances = [GpuTlasInstance(bounds, Mat44f32.identity(), UInt32(0))]
+    var instances = [
+        BvhInstance(Mat44f32.identity(), Mat44f32.identity(), bounds, UInt32(0))
+    ]
 
     with DeviceContext() as ctx:
         var blas = GpuTriangleBvh[4](ctx, verts)
@@ -243,7 +260,9 @@ def test_gpu_tlas_sphere_single_identity_matches_direct_blas() raises:
         GPU_TLAS_TEST_VIEWS,
     )
     var rays_flat = flatten_rays(rays)
-    var instances = [GpuTlasInstance(bounds, Mat44f32.identity(), UInt32(0))]
+    var instances = [
+        BvhInstance(Mat44f32.identity(), Mat44f32.identity(), bounds, UInt32(0))
+    ]
 
     with DeviceContext() as ctx:
         var blas = GpuSphereBvh[4](ctx, spheres)
@@ -281,9 +300,10 @@ def test_gpu_tlas_sphere_translated_single_instance_hit() raises:
     var tx = Float32(10.0)
     var inst_bounds = bounds.translate(Vec3f32(tx, 0.0, 0.0))
     var instances = [
-        GpuTlasInstance(
-            inst_bounds,
+        BvhInstance(
+            _translation(tx, 0.0, 0.0),
             _translation_inverse(tx, 0.0, 0.0),
+            inst_bounds,
             UInt32(0),
         )
     ]
@@ -325,7 +345,9 @@ def test_gpu_tlas_sphere_shadow_matches_direct_blas() raises:
         GPU_TLAS_TEST_VIEWS,
     )
     var rays_flat = flatten_rays(rays)
-    var instances = [GpuTlasInstance(bounds, Mat44f32.identity(), UInt32(0))]
+    var instances = [
+        BvhInstance(Mat44f32.identity(), Mat44f32.identity(), bounds, UInt32(0))
+    ]
 
     with DeviceContext() as ctx:
         var blas = GpuSphereBvh[4](ctx, spheres)

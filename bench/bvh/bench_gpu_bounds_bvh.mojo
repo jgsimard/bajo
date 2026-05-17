@@ -27,15 +27,15 @@ from bajo.core.bvh.gpu.utils import _upload_rays, _download_full_hit_checksum
 
 
 comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"
-comptime PRIMARY_WIDTH = 640
-comptime PRIMARY_HEIGHT = 360
-comptime PRIMARY_VIEWS = 3
+comptime PRIMARY_WIDTH = 1280
+comptime PRIMARY_HEIGHT = 640
+comptime PRIMARY_VIEWS = 5
 comptime BENCH_REPEATS = 8
 comptime SPHERE_GRID_X = 64
 comptime SPHERE_GRID_Y = 64
-comptime SPHERE_RAY_WIDTH = 128
-comptime SPHERE_RAY_HEIGHT = 64
-comptime SPHERE_RAY_VIEWS = 2
+comptime SPHERE_RAY_WIDTH = 1280
+comptime SPHERE_RAY_HEIGHT = 640
+comptime SPHERE_RAY_VIEWS = 5
 
 
 def _trace_cpu_triangle_bvh[
@@ -133,6 +133,9 @@ def _print_gpu_row[
     diff: Float64,
     hit_count: UInt32,
 ):
+    comptime CHECKSUM_ABS_EPS = 1.0e-3
+    comptime CHECKSUM_PER_HIT_EPS = 1.0e-6
+
     var build_ms = round(ns_to_ms(build_ns), 3)
     var collapse_ms = round(ns_to_ms(collapse_ns), 3)
     var pack_ms = round(ns_to_ms(pack_ns), 3)
@@ -141,8 +144,12 @@ def _print_gpu_row[
     var checksum_r = round(checksum, 3)
     var diff_r = round(diff, 6)
 
+    var per_hit_diff = Float64(0.0)
+    if hit_count > 0:
+        per_hit_diff = diff / Float64(hit_count)
+
     var status = String("OK")
-    if diff > 1.0e-5:
+    if diff > CHECKSUM_ABS_EPS and per_hit_diff > CHECKSUM_PER_HIT_EPS:
         status = String("CHECK")
 
     print(

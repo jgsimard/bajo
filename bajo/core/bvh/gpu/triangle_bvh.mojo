@@ -9,18 +9,12 @@ from bajo.core.bvh.types import Sphere, RayFlat, Hit, TriangleLeafBlock
 from bajo.core.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
     _copy_f32_to_device,
-    _copy_u32_to_device,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
     GPU_WIDE_BOUNDS_STRIDE,
-    GPU_SPHERE_STRIDE,
     TRACE_PRIMARY_FULL,
     TRACE_SHADOW,
     TRACE_PRIMARY_T,
-    _gpu_miss_prim,
-    GPU_TRAVERSAL_STACK_SIZE,
-    _wide_lane_base,
     GPU_WIDE_EMPTY_LANE,
-    _intersect_wide_node_bounds,
     GPU_TRI_LEAF_VERTEX_STRIDE,
 )
 from bajo.core.intersect import intersect_ray_tri

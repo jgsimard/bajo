@@ -1,3 +1,4 @@
+from std.bit import count_leading_zeros
 from std.math import min, max, ceildiv, sqrt
 from std.time import perf_counter_ns
 from std.atomic import Atomic
@@ -15,21 +16,11 @@ from bajo.core.bvh.gpu.constants import (
     LBVH_INDEX_MASK,
     LBVH_SENTINEL,
 )
-from bajo.core.bvh.gpu.kernels import (
+from bajo.core.bvh.gpu.constants import (
     GPU_TRAVERSAL_STACK_SIZE,
-    LBVH_NODE_META_STRIDE,
-    LBVH_NODE_PARENT,
-    LBVH_NODE_LEFT,
-    LBVH_NODE_RIGHT,
-    LBVH_NODE_BOUNDS_STRIDE,
-    LBVH_BOUNDS_LEFT,
-    LBVH_BOUNDS_RIGHT,
     TRACE_PRIMARY_FULL,
     TRACE_PRIMARY_T,
     TRACE_SHADOW,
-    init_lbvh_topology_kernel,
-    init_lbvh_bounds_kernel,
-    build_lbvh_topology_kernel,
 )
 from bajo.core.bvh.gpu.validate import (
     validate_sorted_keys,
@@ -39,6 +30,15 @@ from bajo.core.bvh.gpu.validate import (
 from bajo.core.bvh.gpu.utils import GpuBuildTimings, GpuBVHValidation
 from bajo.sort.gpu.radix_sort import device_radix_sort_pairs, RadixSortWorkspace
 
+comptime LBVH_NODE_META_STRIDE = 4
+comptime LBVH_NODE_PARENT = 0
+comptime LBVH_NODE_LEFT = 1
+comptime LBVH_NODE_RIGHT = 2
+comptime LBVH_NODE_FENCE = 3
+
+comptime LBVH_NODE_BOUNDS_STRIDE = 12
+comptime LBVH_BOUNDS_LEFT = 0
+comptime LBVH_BOUNDS_RIGHT = 6
 
 comptime GPU_BOUNDS_BVH_BLOCK_SIZE = 128
 comptime GPU_WIDE_EMPTY_LANE = UInt32(0xFFFFFFFF)
@@ -907,3 +907,159 @@ def _intersect_wide_node_bounds[
     )
 
     return h.mask
+
+
+@always_inline
+def _common_prefix_gpu(
+    keys: UnsafePointer[UInt32, MutAnyOrigin],
+    i: Int,
+    j: Int,
+    n: Int,
+) -> Int:
+    if j < 0 or j >= n:
+        return -1
+
+    var a = UInt32(keys[i])
+    var b = UInt32(keys[j])
+
+    if a != b:
+        return Int(count_leading_zeros(a ^ b))
+
+    # Tie-break equal Morton codes with the sorted leaf index. This makes the
+    # prefix order total and keeps degenerate duplicate-code cases deterministic.
+    var x = UInt32(i) ^ UInt32(j)
+    if x == 0:
+        return 64
+    return 32 + Int(count_leading_zeros(x))
+
+
+def init_lbvh_topology_kernel(
+    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_parent: UnsafePointer[UInt32, MutAnyOrigin],
+    internal_count: Int,
+    leaf_count: Int,
+):
+    var i = global_idx.x
+
+    if i < internal_count:
+        var base = i * LBVH_NODE_META_STRIDE
+        node_meta[base + LBVH_NODE_PARENT] = LBVH_SENTINEL  # parent
+        node_meta[base + LBVH_NODE_LEFT] = 0  # left child, encoded
+        node_meta[base + LBVH_NODE_RIGHT] = 0  # right child, encoded
+        # fence/debug: rightmost leaf in range
+        node_meta[base + LBVH_NODE_FENCE] = 0
+
+    if i < leaf_count:
+        leaf_parent[i] = LBVH_SENTINEL
+
+
+def build_lbvh_topology_kernel(
+    sorted_keys: UnsafePointer[UInt32, MutAnyOrigin],
+    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_parent: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_count: Int,
+):
+    var i = global_idx.x
+    var internal_count = leaf_count - 1
+    if i >= internal_count:
+        return
+
+    # Determine direction of the range for this internal node.
+    var d_next = _common_prefix_gpu(sorted_keys, i, i + 1, leaf_count)
+    var d_prev = _common_prefix_gpu(sorted_keys, i, i - 1, leaf_count)
+    var d = 1
+    if d_next < d_prev:
+        d = -1
+
+    # Minimum prefix outside the range.
+    var delta_min = _common_prefix_gpu(sorted_keys, i, i - d, leaf_count)
+
+    # Find an upper bound on the range length.
+    var lmax = 2
+    while (
+        _common_prefix_gpu(sorted_keys, i, i + lmax * d, leaf_count) > delta_min
+    ):
+        lmax <<= 1
+        if lmax > leaf_count * 2:
+            break
+
+    # Binary search for exact range length.
+    var l = 0
+    var t = lmax >> 1
+    while t > 0:
+        if (
+            _common_prefix_gpu(sorted_keys, i, i + (l + t) * d, leaf_count)
+            > delta_min
+        ):
+            l += t
+        t >>= 1
+
+    var j = i + l * d
+    var first = min(i, j)
+    var last = max(i, j)
+
+    # Find split inside [first, last].
+    var node_prefix = _common_prefix_gpu(sorted_keys, first, last, leaf_count)
+    var split = first
+    var step = last - first
+    while step > 1:
+        step = (step + 1) >> 1
+        var new_split = split + step
+        if new_split < last:
+            var split_prefix = _common_prefix_gpu(
+                sorted_keys, first, new_split, leaf_count
+            )
+            if split_prefix > node_prefix:
+                split = new_split
+
+    var left_encoded: UInt32
+    var right_encoded: UInt32
+
+    if split == first:
+        left_encoded = UInt32(split) | LBVH_LEAF_FLAG
+        if split >= 0 and split < leaf_count:
+            leaf_parent[split] = UInt32(i)
+    else:
+        left_encoded = UInt32(split)
+        if split >= 0 and split < internal_count:
+            node_meta[_node_parent_index(UInt32(split))] = UInt32(i)
+
+    var right_child = split + 1
+    if right_child == last:
+        right_encoded = UInt32(right_child) | LBVH_LEAF_FLAG
+        if right_child >= 0 and right_child < leaf_count:
+            leaf_parent[right_child] = UInt32(i)
+    else:
+        right_encoded = UInt32(right_child)
+        if right_child >= 0 and right_child < internal_count:
+            node_meta[_node_parent_index(UInt32(right_child))] = UInt32(i)
+
+    var base = i * LBVH_NODE_META_STRIDE
+    node_meta[base + LBVH_NODE_LEFT] = left_encoded
+    node_meta[base + LBVH_NODE_RIGHT] = right_encoded
+    node_meta[base + LBVH_NODE_FENCE] = UInt32(last)
+
+
+def init_lbvh_bounds_kernel(
+    node_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    node_flags: UnsafePointer[UInt32, MutAnyOrigin],
+    internal_count: Int,
+):
+    var i = global_idx.x
+    if i >= internal_count:
+        return
+
+    var b = i * LBVH_NODE_BOUNDS_STRIDE
+    node_bounds[b + 0] = Float32.MAX
+    node_bounds[b + 1] = Float32.MAX
+    node_bounds[b + 2] = Float32.MAX
+    node_bounds[b + 3] = Float32.MIN
+    node_bounds[b + 4] = Float32.MIN
+    node_bounds[b + 5] = Float32.MIN
+    node_bounds[b + 6] = Float32.MAX
+    node_bounds[b + 7] = Float32.MAX
+    node_bounds[b + 8] = Float32.MAX
+    node_bounds[b + 9] = Float32.MIN
+    node_bounds[b + 10] = Float32.MIN
+    node_bounds[b + 11] = Float32.MIN
+    node_flags[i] = UInt32(0)

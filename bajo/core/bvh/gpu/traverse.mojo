@@ -1,10 +1,6 @@
 from bajo.core.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
     _copy_f32_to_device,
-    _copy_u32_to_device,
-    GPU_BOUNDS_BVH_BLOCK_SIZE,
-    GPU_WIDE_BOUNDS_STRIDE,
-    GPU_SPHERE_STRIDE,
     TRACE_PRIMARY_FULL,
     TRACE_SHADOW,
     TRACE_PRIMARY_T,

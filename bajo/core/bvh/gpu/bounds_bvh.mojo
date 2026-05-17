@@ -602,9 +602,9 @@ struct GpuBoundsBvh[width: Int]:
         var inv = extent.safe_inv()
 
         ctx.enqueue_function[compute_bounds_morton_codes_kernel](
-            self.leaf_bounds.unsafe_ptr(),
-            self.keys.unsafe_ptr(),
-            self.values.unsafe_ptr(),
+            self.leaf_bounds,
+            self.keys,
+            self.values,
             self.leaf_count,
             centroid_bounds._min,
             inv,
@@ -622,17 +622,17 @@ struct GpuBoundsBvh[width: Int]:
 
         if self.internal_count > 0:
             ctx.enqueue_function[init_lbvh_topology_kernel](
-                self.node_meta.unsafe_ptr(),
-                self.leaf_parent.unsafe_ptr(),
+                self.node_meta,
+                self.leaf_parent,
                 self.internal_count,
                 self.leaf_count,
                 grid_dim=self.blocks_init,
                 block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
             )
             ctx.enqueue_function[build_lbvh_topology_kernel](
-                self.keys.unsafe_ptr(),
-                self.node_meta.unsafe_ptr(),
-                self.leaf_parent.unsafe_ptr(),
+                self.keys,
+                self.node_meta,
+                self.leaf_parent,
                 self.leaf_count,
                 grid_dim=self.blocks_internal,
                 block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
@@ -642,19 +642,19 @@ struct GpuBoundsBvh[width: Int]:
 
         if self.internal_count > 0:
             ctx.enqueue_function[init_lbvh_bounds_kernel](
-                self.node_bounds.unsafe_ptr(),
-                self.node_flags.unsafe_ptr(),
+                self.node_bounds,
+                self.node_flags,
                 self.internal_count,
                 grid_dim=self.blocks_internal,
                 block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
             )
             ctx.enqueue_function[refit_lbvh_bounds_from_leaves_kernel](
-                self.leaf_bounds.unsafe_ptr(),
-                self.values.unsafe_ptr(),
-                self.node_meta.unsafe_ptr(),
-                self.leaf_parent.unsafe_ptr(),
-                self.node_bounds.unsafe_ptr(),
-                self.node_flags.unsafe_ptr(),
+                self.leaf_bounds,
+                self.values,
+                self.node_meta,
+                self.leaf_parent,
+                self.node_bounds,
+                self.node_flags,
                 self.leaf_count,
                 grid_dim=self.blocks_leaves,
                 block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
@@ -752,13 +752,13 @@ struct GpuBoundsBvh[width: Int]:
         var init_blocks = ceildiv(init_n, GPU_BOUNDS_BVH_BLOCK_SIZE)
 
         ctx.enqueue_function[init_gpu_wide_collapse_kernel[Self.width]](
-            self.wide_bounds.unsafe_ptr(),
-            self.wide_data.unsafe_ptr(),
-            self.wide_counts.unsafe_ptr(),
-            self.leaf_block_indices.unsafe_ptr(),
-            self.node_leaf_counts.unsafe_ptr(),
-            self.leaf_block_counter.unsafe_ptr(),
-            self.wide_root.unsafe_ptr(),
+            self.wide_bounds,
+            self.wide_data,
+            self.wide_counts,
+            self.leaf_block_indices,
+            self.node_leaf_counts,
+            self.leaf_block_counter,
+            self.wide_root,
             max_wide_lanes,
             max_leaf_slots,
             self.internal_count,
@@ -770,45 +770,45 @@ struct GpuBoundsBvh[width: Int]:
             ctx.enqueue_function[
                 collapse_single_leaf_to_wide_kernel[Self.width]
             ](
-                self.leaf_bounds.unsafe_ptr(),
-                self.leaf_payloads.unsafe_ptr(),
-                self.wide_bounds.unsafe_ptr(),
-                self.wide_data.unsafe_ptr(),
-                self.wide_counts.unsafe_ptr(),
-                self.leaf_block_indices.unsafe_ptr(),
-                self.leaf_block_counter.unsafe_ptr(),
-                self.wide_root.unsafe_ptr(),
+                self.leaf_bounds,
+                self.leaf_payloads,
+                self.wide_bounds,
+                self.wide_data,
+                self.wide_counts,
+                self.leaf_block_indices,
+                self.leaf_block_counter,
+                self.wide_root,
                 grid_dim=1,
                 block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
             )
         elif self.leaf_count > 1:
             ctx.enqueue_function[compute_lbvh_subtree_leaf_counts_kernel](
-                self.node_meta.unsafe_ptr(),
-                self.leaf_parent.unsafe_ptr(),
-                self.node_leaf_counts.unsafe_ptr(),
+                self.node_meta,
+                self.leaf_parent,
+                self.node_leaf_counts,
                 self.leaf_count,
                 grid_dim=self.blocks_leaves,
                 block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
             )
             ctx.enqueue_function[find_lbvh_root_kernel](
-                self.node_meta.unsafe_ptr(),
-                self.wide_root.unsafe_ptr(),
+                self.node_meta,
+                self.wide_root,
                 self.internal_count,
                 grid_dim=self.blocks_internal,
                 block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
             )
             ctx.enqueue_function[collapse_lbvh_to_wide_kernel[Self.width]](
-                self.leaf_bounds.unsafe_ptr(),
-                self.leaf_payloads.unsafe_ptr(),
-                self.values.unsafe_ptr(),
-                self.node_meta.unsafe_ptr(),
-                self.node_bounds.unsafe_ptr(),
-                self.node_leaf_counts.unsafe_ptr(),
-                self.wide_bounds.unsafe_ptr(),
-                self.wide_data.unsafe_ptr(),
-                self.wide_counts.unsafe_ptr(),
-                self.leaf_block_indices.unsafe_ptr(),
-                self.leaf_block_counter.unsafe_ptr(),
+                self.leaf_bounds,
+                self.leaf_payloads,
+                self.values,
+                self.node_meta,
+                self.node_bounds,
+                self.node_leaf_counts,
+                self.wide_bounds,
+                self.wide_data,
+                self.wide_counts,
+                self.leaf_block_indices,
+                self.leaf_block_counter,
                 self.internal_count,
                 grid_dim=self.blocks_internal,
                 block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,

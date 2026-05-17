@@ -82,10 +82,10 @@ struct GpuTriangleBvh[width: Int]:
             max(self.tree.leaf_block_count, 1), GPU_BOUNDS_BVH_BLOCK_SIZE
         )
         ctx.enqueue_function[pack_triangle_leaf_blocks_kernel[Self.width]](
-            self.vertices.unsafe_ptr(),
-            self.tree.leaf_block_indices.unsafe_ptr(),
-            self.leaf_vertices.unsafe_ptr(),
-            self.leaf_prims.unsafe_ptr(),
+            self.vertices,
+            self.tree.leaf_block_indices,
+            self.leaf_vertices,
+            self.leaf_prims,
             self.tree.leaf_block_count,
             grid_dim=blocks,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
@@ -96,21 +96,21 @@ struct GpuTriangleBvh[width: Int]:
     def launch_uploaded_primary(
         self,
         ctx: DeviceContext,
-        d_rays: DeviceBuffer[DType.float32],
-        d_hits_f32: DeviceBuffer[DType.float32],
-        d_hits_u32: DeviceBuffer[DType.uint32],
+        rays: DeviceBuffer[DType.float32],
+        hits_f32: DeviceBuffer[DType.float32],
+        hits_u32: DeviceBuffer[DType.uint32],
         ray_count: Int,
     ) raises:
         ctx.enqueue_function[trace_gpu_triangle_bvh_primary_kernel[Self.width]](
-            self.tree.wide_bounds.unsafe_ptr(),
-            self.tree.wide_data.unsafe_ptr(),
-            self.tree.wide_counts.unsafe_ptr(),
-            self.leaf_vertices.unsafe_ptr(),
-            self.leaf_prims.unsafe_ptr(),
+            self.tree.wide_bounds,
+            self.tree.wide_data,
+            self.tree.wide_counts,
+            self.leaf_vertices,
+            self.leaf_prims,
             self.tree.root_idx,
-            d_rays.unsafe_ptr(),
-            d_hits_f32.unsafe_ptr(),
-            d_hits_u32.unsafe_ptr(),
+            rays,
+            hits_f32,
+            hits_u32,
             ray_count,
             grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
@@ -124,14 +124,14 @@ struct GpuTriangleBvh[width: Int]:
         ray_count: Int,
     ) raises:
         ctx.enqueue_function[trace_gpu_triangle_bvh_shadow_kernel[Self.width]](
-            self.tree.wide_bounds.unsafe_ptr(),
-            self.tree.wide_data.unsafe_ptr(),
-            self.tree.wide_counts.unsafe_ptr(),
-            self.leaf_vertices.unsafe_ptr(),
-            self.leaf_prims.unsafe_ptr(),
+            self.tree.wide_bounds,
+            self.tree.wide_data,
+            self.tree.wide_counts,
+            self.leaf_vertices,
+            self.leaf_prims,
             self.tree.root_idx,
-            d_rays.unsafe_ptr(),
-            d_flags.unsafe_ptr(),
+            d_rays,
+            d_flags,
             ray_count,
             grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
@@ -140,10 +140,10 @@ struct GpuTriangleBvh[width: Int]:
 
 def _flatten_vertices(verts: List[Vec3f32]) -> List[Float32]:
     var out = List[Float32](capacity=max(len(verts), 1) * 3)
-    for i in range(len(verts)):
-        out.append(verts[i].x)
-        out.append(verts[i].y)
-        out.append(verts[i].z)
+    for vert in verts:
+        out.append(vert.x)
+        out.append(vert.y)
+        out.append(vert.z)
     return out^
 
 

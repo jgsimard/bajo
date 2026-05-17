@@ -2,7 +2,8 @@ from std.math import ceildiv, sqrt
 from std.time import perf_counter_ns
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
 
-from bajo.core.vec import Vec3f32
+from bajo.core.intersect import intersect_ray_sphere
+from bajo.core.vec import Vec3f32, Vec3
 from bajo.core.bvh.types import Sphere, RayFlat, Hit
 from bajo.core.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
@@ -78,10 +79,10 @@ struct GpuSphereBvh[width: Int]:
             max(self.tree.leaf_block_count, 1), GPU_BOUNDS_BVH_BLOCK_SIZE
         )
         ctx.enqueue_function[pack_sphere_leaf_blocks_kernel[Self.width]](
-            self.spheres.unsafe_ptr(),
-            self.tree.leaf_block_indices.unsafe_ptr(),
-            self.leaf_spheres.unsafe_ptr(),
-            self.leaf_prims.unsafe_ptr(),
+            self.spheres,
+            self.tree.leaf_block_indices,
+            self.leaf_spheres,
+            self.leaf_prims,
             self.tree.leaf_block_count,
             grid_dim=blocks,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
@@ -98,15 +99,15 @@ struct GpuSphereBvh[width: Int]:
         ray_count: Int,
     ) raises:
         ctx.enqueue_function[trace_gpu_sphere_bvh_primary_kernel[Self.width]](
-            self.tree.wide_bounds.unsafe_ptr(),
-            self.tree.wide_data.unsafe_ptr(),
-            self.tree.wide_counts.unsafe_ptr(),
-            self.leaf_spheres.unsafe_ptr(),
-            self.leaf_prims.unsafe_ptr(),
+            self.tree.wide_bounds,
+            self.tree.wide_data,
+            self.tree.wide_counts,
+            self.leaf_spheres,
+            self.leaf_prims,
             self.tree.root_idx,
-            d_rays.unsafe_ptr(),
-            d_hits_f32.unsafe_ptr(),
-            d_hits_u32.unsafe_ptr(),
+            d_rays,
+            d_hits_f32,
+            d_hits_u32,
             ray_count,
             grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
@@ -120,14 +121,14 @@ struct GpuSphereBvh[width: Int]:
         ray_count: Int,
     ) raises:
         ctx.enqueue_function[trace_gpu_sphere_bvh_shadow_kernel[Self.width]](
-            self.tree.wide_bounds.unsafe_ptr(),
-            self.tree.wide_data.unsafe_ptr(),
-            self.tree.wide_counts.unsafe_ptr(),
-            self.leaf_spheres.unsafe_ptr(),
-            self.leaf_prims.unsafe_ptr(),
+            self.tree.wide_bounds,
+            self.tree.wide_data,
+            self.tree.wide_counts,
+            self.leaf_spheres,
+            self.leaf_prims,
             self.tree.root_idx,
-            d_rays.unsafe_ptr(),
-            d_flags.unsafe_ptr(),
+            d_rays,
+            d_flags,
             ray_count,
             grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
@@ -299,34 +300,21 @@ def _intersect_sphere_leaf_block[
                 )
                 var radius = leaf_spheres[base + 3]
 
-                var oc = ray.o - center
-                var a = (
-                    ray.d.x * ray.d.x + ray.d.y * ray.d.y + ray.d.z * ray.d.z
-                )
-                var half_b = oc.x * ray.d.x + oc.y * ray.d.y + oc.z * ray.d.z
-                var c = (
-                    oc.x * oc.x + oc.y * oc.y + oc.z * oc.z - radius * radius
-                )
+                var O = Vec3[DType.float32](ray.o.x, ray.o.y, ray.o.z)
+                var D = Vec3[DType.float32](ray.d.x, ray.d.y, ray.d.z)
 
-                var det = half_b * half_b - a * c
-                if det >= 0.0:
-                    var sqrt_det = sqrt(det)
-                    var inv_a = 1.0 / a
+                var h = intersect_ray_sphere(O, D, center, radius, best_t)
 
-                    var t = (-half_b - sqrt_det) * inv_a
-                    if not (t > 1.0e-4 and t < best_t):
-                        t = (-half_b + sqrt_det) * inv_a
-
-                    if t > 1.0e-4 and t < best_t:
-                        comptime if mode == TRACE_SHADOW:
-                            return True
-                        else:
-                            hit_any = True
-                            best_t = t
-                            comptime if mode == TRACE_PRIMARY_FULL:
-                                best_u = 0.0
-                                best_v = 0.0
-                                best_prim = prim
+                if h.t > 1.0e-4 and h.t < best_t:
+                    comptime if mode == TRACE_SHADOW:
+                        return True
+                    else:
+                        hit_any = True
+                        best_t = h.t
+                        comptime if mode == TRACE_PRIMARY_FULL:
+                            best_u = 0.0
+                            best_v = 0.0
+                            best_prim = prim
 
     return hit_any
 

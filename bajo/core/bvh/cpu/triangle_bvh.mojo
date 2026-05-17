@@ -126,11 +126,6 @@ struct TriangleBvh[width: Int](Copyable):
 
                     var block_idx = UInt32(len(self.leaf_blocks))
                     self.leaf_blocks.append(block^)
-
-                    # Rewrite this typed BLAS leaf from:
-                    #     data = first item in item_indices
-                    # to:
-                    #     data = packed leaf block index
                     node.data[lane] = block_idx
 
     @always_inline
@@ -142,13 +137,13 @@ struct TriangleBvh[width: Int](Copyable):
         var O = Vec3[DType.float32, Self.width](ray.O.x, ray.O.y, ray.O.z)
         var D = Vec3[DType.float32, Self.width](ray.D.x, ray.D.y, ray.D.z)
 
-        var h = intersect_ray_tri[DType.float32, Self.width](
+        var h = intersect_ray_tri(
             O,
             D,
             block.v0,
             block.v1,
             block.v2,
-            SIMD[DType.float32, Self.width](ray.hit.t),
+            ray.hit.t,
         )
 
         var hit_mask = h.mask & block.valid_lane

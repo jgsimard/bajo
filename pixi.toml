@@ -34,6 +34,6 @@ bench_bvh = { depends-on = [
 fmt = "mojo format ."
 
 [dependencies]
-mojo = ">=1.0.0b2.dev2026051606,<2"
-max = ">=26.4.0.dev2026051606,<27"
+mojo = ">=1.0.0b2.dev2026051706,<2"
+max = ">=26.4.0.dev2026051706,<27"
 python = ">=3.14.4,<3.15"

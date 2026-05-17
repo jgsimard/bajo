@@ -296,7 +296,7 @@ def _intersect_sphere_leaf_block[
             best_v = 0.0
             comptime for lane in range(width):
                 if hit_mask[lane] and h.t[lane] == min_t:
-                    best_prim = block.prim_indices[lane][lane]
+                    best_prim = block.prim_indices[lane]
 
         return True
 

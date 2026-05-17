@@ -20,6 +20,7 @@ from bajo.core.bvh.host_utils import (
 )
 from bajo.core.bvh.types import Ray, Sphere
 from bajo.core.bvh.cpu.triangle_bvh import TriangleBvh
+from bajo.core.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.core.bvh.gpu.sphere_bvh import GpuSphereBvh
 from bajo.core.bvh.gpu.triangle_bvh import GpuTriangleBvh
 from bajo.core.bvh.gpu.utils import _upload_rays, _download_full_hit_checksum
@@ -40,6 +41,17 @@ comptime SPHERE_RAY_VIEWS = 2
 def _trace_cpu_triangle_bvh[
     width: Int
 ](mut bvh: TriangleBvh[width], rays: List[Ray]) -> Float64:
+    var checksum = Float64(0.0)
+    for i in range(len(rays)):
+        var ray = rays[i].copy()
+        bvh.traverse(ray)
+        checksum += hit_t_for_checksum(ray.hit.t)
+    return checksum
+
+
+def _trace_cpu_sphere_bvh[
+    width: Int
+](mut bvh: SphereBvh[width], rays: List[Ray]) -> Float64:
     var checksum = Float64(0.0)
     for i in range(len(rays)):
         var ray = rays[i].copy()
@@ -248,8 +260,9 @@ def _bench_uploaded_primary_sphere[
     d_hits_u32: DeviceBuffer[DType.uint32],
     rays_flat: List[Float32],
     ray_count: Int,
+    reference_checksum: Float64,
     repeats: Int,
-) raises -> Tuple[Int, Float64, UInt32]:
+) raises -> Tuple[Int, Float64, UInt32, Float64]:
     _upload_rays(ctx, d_rays, rays_flat)
     bvh.launch_uploaded_primary(ctx, d_rays, d_hits_f32, d_hits_u32, ray_count)
     ctx.synchronize()
@@ -271,7 +284,12 @@ def _bench_uploaded_primary_sphere[
         checksum = downloaded[0]
         hit_count = downloaded[1]
 
-    return (best_kernel_ns, checksum, hit_count)
+    return (
+        best_kernel_ns,
+        checksum,
+        hit_count,
+        abs(checksum - reference_checksum),
+    )
 
 
 def _run_sphere_width[
@@ -281,6 +299,7 @@ def _run_sphere_width[
     spheres: List[Sphere],
     rays_flat: List[Float32],
     ray_count: Int,
+    reference_checksum: Float64,
     repeats: Int,
 ) raises:
     _ = GpuSphereBvh[width](ctx, spheres)
@@ -303,10 +322,11 @@ def _run_sphere_width[
         d_hits_u32,
         rays_flat,
         ray_count,
+        reference_checksum,
         repeats,
     )
 
-    _print_gpu_row_no_ref[width](
+    _print_gpu_row[width](
         String(t"sph{width}"),
         Int(build1 - build0),
         bvh.tree.collapse_ns,
@@ -314,6 +334,7 @@ def _run_sphere_width[
         res[0],
         ray_count,
         res[1],
+        res[3],
         res[2],
     )
 
@@ -350,6 +371,8 @@ def main() raises:
     var rays_flat = flatten_rays(rays)
     print(t"rays : {len(rays)}")
 
+    print("\nGPU TriangleBvh[width]")
+    print("----------------------")
     print("\nCPU reference")
     var cpu_bvh = TriangleBvh[8].__init__["lbvh"](
         tri_vertices.unsafe_ptr(), UInt32(len(tri_vertices) / 3)
@@ -361,60 +384,88 @@ def main() raises:
     print(
         t"| TriangleBvh[8] lbvh | "
         t"{round(ns_to_ms(Int(cpu_t1 - cpu_t0)), 3)} | "
-        t"{round(reference_checksum, 3)} |"
+        t"{round(reference_checksum, 3)} |\n"
     )
 
-    print("\nGPU TriangleBvh[width]")
-    print("----------------------")
-    comptime if has_accelerator():
-        with DeviceContext() as ctx:
-            _print_gpu_table_header(True)
-            _run_width[2](
-                ctx,
-                tri_vertices,
-                rays_flat,
-                len(rays),
-                reference_checksum,
-                BENCH_REPEATS,
-            )
-            _run_width[4](
-                ctx,
-                tri_vertices,
-                rays_flat,
-                len(rays),
-                reference_checksum,
-                BENCH_REPEATS,
-            )
-            _run_width[8](
-                ctx,
-                tri_vertices,
-                rays_flat,
-                len(rays),
-                reference_checksum,
-                BENCH_REPEATS,
-            )
+    with DeviceContext() as ctx:
+        _print_gpu_table_header(True)
+        _run_width[2](
+            ctx,
+            tri_vertices,
+            rays_flat,
+            len(rays),
+            reference_checksum,
+            BENCH_REPEATS,
+        )
+        _run_width[4](
+            ctx,
+            tri_vertices,
+            rays_flat,
+            len(rays),
+            reference_checksum,
+            BENCH_REPEATS,
+        )
+        _run_width[8](
+            ctx,
+            tri_vertices,
+            rays_flat,
+            len(rays),
+            reference_checksum,
+            BENCH_REPEATS,
+        )
 
-            print("\nGPU SphereBvh[width]")
-            print("--------------------")
-            var spheres = _make_sphere_grid()
-            var sb = _sphere_bounds(spheres)
-            var sphere_rays = generate_primary_rays(
-                sb, SPHERE_RAY_WIDTH, SPHERE_RAY_HEIGHT, SPHERE_RAY_VIEWS
-            )
-            var sphere_rays_flat = flatten_rays(sphere_rays)
-            print(t"spheres : {len(spheres)}")
-            print(t"sphere rays : {len(sphere_rays)}")
-            print("")
-            _print_gpu_table_header(False)
+        print("\nGPU SphereBvh[width]")
+        print("--------------------")
+        var spheres = _make_sphere_grid()
+        var sb = _sphere_bounds(spheres)
+        var sphere_rays = generate_primary_rays(
+            sb, SPHERE_RAY_WIDTH, SPHERE_RAY_HEIGHT, SPHERE_RAY_VIEWS
+        )
+        var sphere_rays_flat = flatten_rays(sphere_rays)
+        print(t"spheres : {len(spheres)}")
+        print(t"sphere rays : {len(sphere_rays)}")
 
-            _run_sphere_width[2](
-                ctx, spheres, sphere_rays_flat, len(sphere_rays), BENCH_REPEATS
-            )
-            _run_sphere_width[4](
-                ctx, spheres, sphere_rays_flat, len(sphere_rays), BENCH_REPEATS
-            )
-            _run_sphere_width[8](
-                ctx, spheres, sphere_rays_flat, len(sphere_rays), BENCH_REPEATS
-            )
-    else:
-        print("No compatible GPU found; skipped Mojo GPU benchmark.")
+        print("\nCPU sphere reference")
+        var cpu_sphere_bvh = SphereBvh[8].__init__["lbvh"](
+            spheres.unsafe_ptr(), UInt32(len(spheres))
+        )
+        var cpu_sphere_t0 = perf_counter_ns()
+        var sphere_reference_checksum = _trace_cpu_sphere_bvh[8](
+            cpu_sphere_bvh,
+            sphere_rays,
+        )
+        var cpu_sphere_t1 = perf_counter_ns()
+        print("| case | traversal ms | checksum |")
+        print(
+            t"| SphereBvh[8] lbvh | "
+            t"{round(ns_to_ms(Int(cpu_sphere_t1 - cpu_sphere_t0)), 3)} | "
+            t"{round(sphere_reference_checksum, 3)} |"
+        )
+
+        print("")
+        _print_gpu_table_header(True)
+
+        _run_sphere_width[2](
+            ctx,
+            spheres,
+            sphere_rays_flat,
+            len(sphere_rays),
+            sphere_reference_checksum,
+            BENCH_REPEATS,
+        )
+        _run_sphere_width[4](
+            ctx,
+            spheres,
+            sphere_rays_flat,
+            len(sphere_rays),
+            sphere_reference_checksum,
+            BENCH_REPEATS,
+        )
+        _run_sphere_width[8](
+            ctx,
+            spheres,
+            sphere_rays_flat,
+            len(sphere_rays),
+            sphere_reference_checksum,
+            BENCH_REPEATS,
+        )

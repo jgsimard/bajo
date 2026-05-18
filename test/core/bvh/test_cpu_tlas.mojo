@@ -1,10 +1,10 @@
 from std.testing import TestSuite, assert_true, assert_almost_equal
 
-from bajo.core.bvh.types import Ray, Instance
+from bajo.core.bvh.types import Ray, Instance, Sphere
 from bajo.core.bvh.cpu.triangle_bvh import TriangleBvh
-from bajo.core.bvh.cpu.sphere_bvh import SphereBvh, Sphere
+from bajo.core.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.core.bvh.cpu.tlas import Tlas
-from bajo.core.mat import Mat44f32, _translation, _inv_translation
+from bajo.core.mat import _translation, _inv_translation
 from bajo.core.vec import Vec3f32
 
 
@@ -76,11 +76,11 @@ def test_tlas_triangle_identity_instance_hit() raises:
     var tlas = Tlas[4](instances)
 
     var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    tlas.traverse_triangles[4](ray, blases.unsafe_ptr())
+    var hit = tlas.traverse_triangles[4](ray, blases.unsafe_ptr())
 
-    assert_true(ray.hit.inst == 0)
-    assert_true(ray.hit.prim == 0)
-    assert_almost_equal(ray.hit.t, 2.0)
+    assert_true(hit.inst == 0)
+    assert_true(hit.prim == 0)
+    assert_almost_equal(hit.t, 2.0)
 
 
 def test_tlas_translated_triangle_instance_hit() raises:
@@ -101,14 +101,14 @@ def test_tlas_translated_triangle_instance_hit() raises:
 
     # World ray at x = 5 becomes local x = 0 after inverse transform.
     var ray = Ray(Vec3f32(5.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    tlas.traverse_triangles[4](ray, blases.unsafe_ptr())
+    var hit = tlas.traverse_triangles[4](ray, blases.unsafe_ptr())
 
-    assert_true(ray.hit.inst == 0)
-    assert_true(ray.hit.prim == 0)
-    assert_almost_equal(ray.hit.t, 2.0)
+    assert_true(hit.inst == 0)
+    assert_true(hit.prim == 0)
+    assert_almost_equal(hit.t, 2.0)
 
 
-def tes_tlas_translated_triangle_instance_miss() raises:
+def test_tlas_translated_triangle_instance_miss() raises:
     var verts = _make_one_local_triangle_z2()
 
     var blas = TriangleBvh[4](
@@ -125,9 +125,9 @@ def tes_tlas_translated_triangle_instance_miss() raises:
     var tlas = Tlas[4](instances)
 
     var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    tlas.traverse_triangles[4](ray, blases.unsafe_ptr())
+    var hit = tlas.traverse_triangles[4](ray, blases.unsafe_ptr())
 
-    assert_true(ray.hit.t > Float32(1e20))
+    assert_true(not hit.is_hit())
 
 
 def test_tlas_translated_triangle_two_instances_nearest_wins() raises:
@@ -153,11 +153,11 @@ def test_tlas_translated_triangle_two_instances_nearest_wins() raises:
     var tlas = Tlas[4](instances)
 
     var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    tlas.traverse_triangles[4](ray, blases.unsafe_ptr())
+    var hit = tlas.traverse_triangles[4](ray, blases.unsafe_ptr())
 
-    assert_true(ray.hit.inst == 0)
-    assert_true(ray.hit.prim == 0)
-    assert_almost_equal(ray.hit.t, 2.0)
+    assert_true(hit.inst == 0)
+    assert_true(hit.prim == 0)
+    assert_almost_equal(hit.t, 2.0)
 
 
 def test_tlas_triangle_two_instances_far_wins_when_ray_targets_far() raises:
@@ -183,11 +183,11 @@ def test_tlas_triangle_two_instances_far_wins_when_ray_targets_far() raises:
     var tlas = Tlas[4](instances)
 
     var ray = Ray(Vec3f32(5.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    tlas.traverse_triangles[4](ray, blases.unsafe_ptr())
+    var hit = tlas.traverse_triangles[4](ray, blases.unsafe_ptr())
 
-    assert_true(ray.hit.inst == 1)
-    assert_true(ray.hit.prim == 0)
-    assert_almost_equal(ray.hit.t, 2.0)
+    assert_true(hit.inst == 1)
+    assert_true(hit.prim == 0)
+    assert_almost_equal(hit.t, 2.0)
 
 
 def test_tlas_translated_triangle_shadow_hit_and_miss() raises:
@@ -235,11 +235,11 @@ def test_tlas_sphere_identity_instance_hit() raises:
     var tlas = Tlas[4](instances)
 
     var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    tlas.traverse_spheres[4](ray, blases.unsafe_ptr())
+    var hit = tlas.traverse_spheres[4](ray, blases.unsafe_ptr())
 
-    assert_true(ray.hit.inst == 0)
-    assert_true(ray.hit.prim == 0)
-    assert_almost_equal(ray.hit.t, 1.0)
+    assert_true(hit.inst == 0)
+    assert_true(hit.prim == 0)
+    assert_almost_equal(hit.t, 1.0)
 
 
 def test_tlas_translated_sphere_instance_hit() raises:
@@ -259,11 +259,11 @@ def test_tlas_translated_sphere_instance_hit() raises:
     var tlas = Tlas[4](instances)
 
     var ray = Ray(Vec3f32(5.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    tlas.traverse_spheres[4](ray, blases.unsafe_ptr())
+    var hit = tlas.traverse_spheres[4](ray, blases.unsafe_ptr())
 
-    assert_true(ray.hit.inst == 0)
-    assert_true(ray.hit.prim == 0)
-    assert_almost_equal(ray.hit.t, 1.0)
+    assert_true(hit.inst == 0)
+    assert_true(hit.prim == 0)
+    assert_almost_equal(hit.t, 1.0)
 
 
 def test_tlas_translated_sphere_instance_miss() raises:
@@ -283,9 +283,9 @@ def test_tlas_translated_sphere_instance_miss() raises:
     var tlas = Tlas[4](instances)
 
     var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    tlas.traverse_spheres[4](ray, blases.unsafe_ptr())
+    var hit = tlas.traverse_spheres[4](ray, blases.unsafe_ptr())
 
-    assert_true(ray.hit.t > Float32(1e20))
+    assert_true(not hit.is_hit())
 
 
 def test_tlas_translated_sphere_two_instances_nearest_wins() raises:
@@ -311,11 +311,11 @@ def test_tlas_translated_sphere_two_instances_nearest_wins() raises:
     var tlas = Tlas[4](instances)
 
     var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    tlas.traverse_spheres[4](ray, blases.unsafe_ptr())
+    var hit = tlas.traverse_spheres[4](ray, blases.unsafe_ptr())
 
-    assert_true(ray.hit.inst == 0)
-    assert_true(ray.hit.prim == 0)
-    assert_almost_equal(ray.hit.t, 1.0)
+    assert_true(hit.inst == 0)
+    assert_true(hit.prim == 0)
+    assert_almost_equal(hit.t, 1.0)
 
 
 def test_cpu_tlas_sphere_two_instances_far_wins_when_ray_targets_far() raises:
@@ -341,11 +341,11 @@ def test_cpu_tlas_sphere_two_instances_far_wins_when_ray_targets_far() raises:
     var tlas = Tlas[4](instances)
 
     var ray = Ray(Vec3f32(5.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    tlas.traverse_spheres[4](ray, blases.unsafe_ptr())
+    var hit = tlas.traverse_spheres[4](ray, blases.unsafe_ptr())
 
-    assert_true(ray.hit.inst == 1)
-    assert_true(ray.hit.prim == 0)
-    assert_almost_equal(ray.hit.t, 1.0)
+    assert_true(hit.inst == 1)
+    assert_true(hit.prim == 0)
+    assert_almost_equal(hit.t, 1.0)
 
 
 def test_tlas_translated_sphere_shadow_hit_and_miss() raises:

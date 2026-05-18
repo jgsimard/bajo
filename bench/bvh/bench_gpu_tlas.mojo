@@ -21,7 +21,7 @@ from bajo.core.bvh.host_utils import (
     hit_t_for_checksum,
 )
 from bajo.core.bvh.cpu.triangle_bvh import TriangleBvh
-from bajo.core.bvh.cpu.tlas import Tlas, Instance
+from bajo.core.bvh.cpu.tlas import Tlas
 
 
 from bajo.core.bvh.gpu.tlas import GpuTlas
@@ -38,18 +38,8 @@ comptime BENCH_REPEATS = 8
 comptime MISS_PRIM = UInt32(0xFFFFFFFF)
 
 
-@always_inline
-def _translate_bounds(
-    bounds: AABB, tx: Float32, ty: Float32, tz: Float32
-) -> AABB:
-    var d = Vec3f32(tx, ty, tz)
-    return AABB(bounds._min + d, bounds._max + d)
-
-
 def _make_single_instance(bounds: AABB) -> List[Instance]:
-    return [
-        Instance(Mat44f32.identity(), Mat44f32.identity(), bounds, UInt32(0))
-    ]
+    return [Instance(Mat44f32.identity(), Mat44f32.identity(), 0, bounds)]
 
 
 def _make_translated_grid_instances(
@@ -71,8 +61,8 @@ def _make_translated_grid_instances(
                 Instance(
                     _translation(tx, ty, tz),
                     _inv_translation(tx, ty, tz),
-                    _translate_bounds(bounds, tx, ty, tz),
-                    UInt32(0),
+                    0,
+                    bounds,
                 )
             )
 
@@ -117,11 +107,14 @@ def _cpu_tlas_triangle_reference[
 
     for i in range(len(rays)):
         var ray = rays[i].copy()
-        tlas.traverse_triangles[blas_width](ray, blases.unsafe_ptr())
-        checksum += hit_t_for_checksum(ray.hit.t)
-        if ray.hit.t < Float32(1.0e20):
+        var hit = tlas.traverse_triangles[blas_width](
+            ray,
+            blases.unsafe_ptr(),
+        )
+        checksum += hit_t_for_checksum(hit.t)
+        if hit.t < Float32(1.0e20):
             hits += 1
-            inst_checksum += UInt64(ray.hit.inst)
+            inst_checksum += UInt64(hit.inst)
 
     return (checksum, hits, inst_checksum)
 

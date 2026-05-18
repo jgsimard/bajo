@@ -3,8 +3,7 @@ from std.gpu.host import DeviceContext
 
 from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32, vmin, vmax, cross, length, normalize
-from bajo.core.bvh.cpu.binary_bvh import BinaryBvh
-from bajo.core.bvh.types import Ray
+from bajo.core.bvh.types import Ray, RAY_FLAT_STRIDE
 
 
 def compute_bounds(verts: List[Vec3f32]) -> AABB:
@@ -36,18 +35,20 @@ def copy_list_to_device[
 
 
 def flatten_rays(rays: List[Ray]) -> List[Float32]:
-    var out = List[Float32](capacity=len(rays) * 10)
+    var out = List[Float32](capacity=len(rays) * RAY_FLAT_STRIDE)
     for ray in rays:
-        out.append(ray.O.x)
-        out.append(ray.O.y)
-        out.append(ray.O.z)
-        out.append(ray.D.x)
-        out.append(ray.D.y)
-        out.append(ray.D.z)
-        out.append(ray.rD.x)
-        out.append(ray.rD.y)
-        out.append(ray.rD.z)
-        out.append(ray.hit.t)
+        out.append(ray.o.x)
+        out.append(ray.o.y)
+        out.append(ray.o.z)
+        out.append(ray.d.x)
+        out.append(ray.d.y)
+        out.append(ray.d.z)
+        out.append(ray.rd.x)
+        out.append(ray.rd.y)
+        out.append(ray.rd.z)
+        out.append(ray.t_min)
+        out.append(ray.t_max)
+        out.append(Float32(ray.mask))
     return out^
 
 
@@ -56,27 +57,6 @@ def hit_t_for_checksum(t: Float32) -> Float64:
     if t < 1.0e20:
         return Float64(t)
     return 0.0
-
-
-def trace_bvh_shadow(bvh: BinaryBvh, rays: List[Ray]) -> Int:
-    var occluded = 0
-    for i in range(len(rays)):
-        var ray = rays[i].copy()
-        if bvh.is_occluded(ray):
-            occluded += 1
-    return occluded
-
-
-def trace_bvh_primary(bvh: BinaryBvh, rays: List[Ray]) -> Float64:
-    var checksum = 0.0
-    var hit_count = 0
-    for i in range(len(rays)):
-        var ray = rays[i].copy()
-        bvh.traverse(ray)
-        checksum += hit_t_for_checksum(ray.hit.t)
-        if ray.hit.t < 1.0e20:
-            hit_count += 1
-    return checksum
 
 
 def append_camera_rays(

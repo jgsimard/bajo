@@ -1,6 +1,6 @@
 from std.gpu.host import DeviceBuffer
 
-from bajo.core.bvh.gpu.constants import (
+from bajo.core.bvh.constants import (
     LBVH_LEAF_FLAG,
     LBVH_INDEX_MASK,
     LBVH_SENTINEL,

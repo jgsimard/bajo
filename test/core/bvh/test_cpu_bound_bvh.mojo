@@ -5,22 +5,20 @@ from std.utils.numerics import max_finite
 from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32, Vec3
 from bajo.core.intersect import intersect_ray_tri, intersect_ray_aabb
-from bajo.core.bvh.types import Ray
+from bajo.core.bvh.types import Ray, Sphere, Instance, Hit
 from bajo.core.random import Rng
-
+from bajo.core.bvh.constants import EMPTY_LANE
 from bajo.core.bvh.cpu.bounds_bvh import (
     BoundsBvhBuilder,
     BoundsItem,
     BoundsBvh,
-    EMPTY_LANE,
     _partition_items,
     _partition_items_by_bin,
     _sah_items,
 )
 from bajo.core.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.core.bvh.cpu.sphere_bvh import SphereBvh
-from bajo.core.bvh.cpu.tlas import Instance, Tlas
-from bajo.core.bvh.types import Sphere
+from bajo.core.bvh.cpu.tlas import Tlas
 
 
 @always_inline
@@ -123,9 +121,8 @@ def _brute_trace(
     verts: List[Vec3f32],
     O: Vec3f32,
     D: Vec3f32,
-) -> Tuple[Bool, UInt32, Float32]:
-    var best_t = max_finite[DType.float32]()
-    var best_prim = UInt32(0xFFFFFFFF)
+) -> Hit:
+    var best_hit = Hit.miss()
 
     for i in range(len(verts) / 3):
         ref v0 = verts[i * 3 + 0]
@@ -138,23 +135,26 @@ def _brute_trace(
             v0,
             v1,
             v2,
-            best_t,
+            best_hit.t,
         )
 
-        if h.mask and h.t < best_t:
-            best_t = h.t
-            best_prim = UInt32(i)
+        if h.mask and h.t < best_hit.t:
+            best_hit.t = h.t
+            best_hit.u = h.u
+            best_hit.v = h.v
+            best_hit.prim = UInt32(i)
+            best_hit.inst = EMPTY_LANE
+            best_hit.occluded = UInt32(0)
 
-    return (best_prim != UInt32(0xFFFFFFFF), best_prim, best_t)
+    return best_hit
 
 
 def _brute_sphere_trace(
     spheres: List[Sphere],
     O: Vec3f32,
     D: Vec3f32,
-) -> Tuple[Bool, UInt32, Float32]:
-    var best_t = max_finite[DType.float32]()
-    var best_prim = UInt32(0xFFFFFFFF)
+) -> Hit:
+    var best_hit = Hit.miss()
 
     for i in range(len(spheres)):
         ref s = spheres[i]
@@ -178,11 +178,15 @@ def _brute_sphere_trace(
         if t <= 0.0:
             t = t1
 
-        if t > 0.0 and t < best_t:
-            best_t = t
-            best_prim = UInt32(i)
+        if t > 0.0 and t < best_hit.t:
+            best_hit.t = t
+            best_hit.u = 0.0
+            best_hit.v = 0.0
+            best_hit.prim = UInt32(i)
+            best_hit.inst = EMPTY_LANE
+            best_hit.occluded = 0
 
-    return (best_prim != UInt32(0xFFFFFFFF), best_prim, best_t)
+    return best_hit
 
 
 @always_inline
@@ -254,14 +258,12 @@ def _assert_triangle_bvh_matches_bruteforce[
     D: Vec3f32,
 ) raises:
     var ray = Ray(O, D)
-    bvh.traverse(ray)
+    var hit = bvh.traverse(ray)
 
     var brute = _brute_trace(verts, O, D)
-    var brute_hit = brute[0]
-    var brute_prim = brute[1]
-    var brute_t = brute[2]
+    var brute_hit = brute.is_hit()
 
-    var bvh_hit = ray.hit.t < Float32(1e20)
+    var bvh_hit = hit.is_hit()
 
     assert_true(
         bvh_hit == brute_hit,
@@ -270,10 +272,10 @@ def _assert_triangle_bvh_matches_bruteforce[
 
     if brute_hit:
         assert_true(
-            ray.hit.prim == brute_prim,
+            hit.prim == brute.prim,
             "TriangleBvh returned the wrong primitive",
         )
-        assert_almost_equal(ray.hit.t, brute_t)
+        assert_almost_equal(hit.t, brute.t)
 
 
 def _assert_sphere_bvh_matches_bruteforce[
@@ -285,14 +287,12 @@ def _assert_sphere_bvh_matches_bruteforce[
     D: Vec3f32,
 ) raises:
     var ray = Ray(O, D)
-    bvh.traverse(ray)
+    var hit = bvh.traverse(ray)
 
     var brute = _brute_sphere_trace(spheres, O, D)
-    var brute_hit = brute[0]
-    var brute_prim = brute[1]
-    var brute_t = brute[2]
+    var brute_hit = brute.is_hit()
 
-    var bvh_hit = ray.hit.t < Float32(1e20)
+    var bvh_hit = hit.is_hit()
 
     assert_true(
         bvh_hit == brute_hit,
@@ -301,10 +301,10 @@ def _assert_sphere_bvh_matches_bruteforce[
 
     if brute_hit:
         assert_true(
-            ray.hit.prim == brute_prim,
+            hit.prim == brute.prim,
             "SphereBvh returned the wrong primitive",
         )
-        assert_almost_equal(ray.hit.t, brute_t)
+        assert_almost_equal(hit.t, brute.t)
 
 
 def _make_identity_triangle_instance[
@@ -403,10 +403,10 @@ def test_triangle_bvh2_leaf_size_equals_width_returns_nearest_triangle() raises:
     )
 
     var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    bvh.traverse(ray)
+    var hit = bvh.traverse(ray)
 
-    assert_true(ray.hit.prim == 0)
-    assert_almost_equal(ray.hit.t, 2.0)
+    assert_true(hit.prim == 0)
+    assert_almost_equal(hit.t, 2.0)
 
 
 def test_triangle_bvh2_leaf_size_equals_width_matches_bruteforce() raises:
@@ -516,11 +516,11 @@ def test_sphere_bvh4_returns_nearest_sphere() raises:
     assert_true(bvh.tree.nodes[0].data[0] == 0)
 
     var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    bvh.traverse(ray)
+    var hit = bvh.traverse(ray)
 
-    assert_true(ray.hit.t < Float32(1e20), "SphereBvh did not hit")
-    assert_true(ray.hit.prim == 0)
-    assert_almost_equal(ray.hit.t, 1.0)
+    assert_true(hit.t < Float32(1e20), "SphereBvh did not hit")
+    assert_true(hit.prim == 0)
+    assert_almost_equal(hit.t, 1.0)
 
 
 def test_sphere_bvh2_matches_bruteforce() raises:
@@ -604,12 +604,12 @@ def test_tlas_triangle_single_instance_matches_blas() raises:
     var ray_blas = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
     var ray_tlas = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
 
-    blas.traverse(ray_blas)
-    tlas.traverse_triangles[4](ray_tlas, blases.unsafe_ptr())
+    var hit_blas = blas.traverse(ray_blas)
+    var hit_tlas = tlas.traverse_triangles[4](ray_tlas, blases.unsafe_ptr())
 
-    assert_true(ray_tlas.hit.prim == ray_blas.hit.prim)
-    assert_true(ray_tlas.hit.inst == 0)
-    assert_almost_equal(ray_tlas.hit.t, ray_blas.hit.t)
+    assert_true(hit_tlas.prim == hit_blas.prim)
+    assert_true(hit_tlas.inst == 0)
+    assert_almost_equal(hit_tlas.t, hit_blas.t)
 
 
 def test_tlas_triangle_two_instances_returns_nearest_instance() raises:
@@ -643,11 +643,11 @@ def test_tlas_triangle_two_instances_returns_nearest_instance() raises:
     var tlas = Tlas[4](instances)
 
     var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    tlas.traverse_triangles[4](ray, blases.unsafe_ptr())
+    var hit = tlas.traverse_triangles[4](ray, blases.unsafe_ptr())
 
-    assert_true(ray.hit.inst == 0)
-    assert_true(ray.hit.prim == 0)
-    assert_almost_equal(ray.hit.t, 2.0)
+    assert_true(hit.inst == 0)
+    assert_true(hit.prim == 0)
+    assert_almost_equal(hit.t, 2.0)
 
 
 def test_tlas_triangle_shadow_hit_and_miss() raises:
@@ -694,12 +694,12 @@ def test_tlas_sphere_single_instance_matches_blas() raises:
     var ray_blas = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
     var ray_tlas = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
 
-    blas.traverse(ray_blas)
-    tlas.traverse_spheres[4](ray_tlas, blases.unsafe_ptr())
+    var hit_blas = blas.traverse(ray_blas)
+    var hit_tlas = tlas.traverse_spheres[4](ray_tlas, blases.unsafe_ptr())
 
-    assert_true(ray_tlas.hit.prim == ray_blas.hit.prim)
-    assert_true(ray_tlas.hit.inst == 0)
-    assert_almost_equal(ray_tlas.hit.t, ray_blas.hit.t)
+    assert_true(hit_tlas.prim == hit_blas.prim)
+    assert_true(hit_tlas.inst == 0)
+    assert_almost_equal(hit_tlas.t, hit_blas.t)
 
 
 def test_tlas_sphere_two_instances_returns_nearest_instance() raises:
@@ -726,11 +726,11 @@ def test_tlas_sphere_two_instances_returns_nearest_instance() raises:
     var tlas = Tlas[4](instances)
 
     var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    tlas.traverse_spheres[4](ray, blases.unsafe_ptr())
+    var hit = tlas.traverse_spheres[4](ray, blases.unsafe_ptr())
 
-    assert_true(ray.hit.inst == 0)
-    assert_true(ray.hit.prim == 0)
-    assert_almost_equal(ray.hit.t, 1.0)
+    assert_true(hit.inst == 0)
+    assert_true(hit.prim == 0)
+    assert_almost_equal(hit.t, 1.0)
 
 
 def test_tlas_sphere_shadow_hit_and_miss() raises:
@@ -757,8 +757,6 @@ def test_tlas_sphere_shadow_hit_and_miss() raises:
 
 
 def test_bounds_ray_query_inside_outside_regression() raises:
-    # Regression for rays starting inside an AABB.
-    # This used to live in the old BinaryBvh tests.
     var lower = Vec3f32(0.5, -1.0, -1.0)
     var upper = Vec3f32(1.0, 1.0, 1.0)
 
@@ -924,10 +922,10 @@ def test_triangle_bvh4_sah_reports_original_primitive_after_reorder() raises:
     # Aim at the triangle with original primitive id 6.
     # _make_strip centers primitive i at x = i * 4 - count * 2.
     var ray = Ray(Vec3f32(8.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    bvh.traverse(ray)
+    var hit = bvh.traverse(ray)
 
-    assert_true(ray.hit.prim == 6)
-    assert_almost_equal(ray.hit.t, 2.0)
+    assert_true(hit.prim == 6)
+    assert_almost_equal(hit.t, 2.0)
 
 
 def test_bounds_bvh_lbvh_leaf_size_4_invariant() raises:

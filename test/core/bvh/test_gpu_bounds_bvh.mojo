@@ -6,17 +6,17 @@ from std.gpu import DeviceContext
 
 from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32, vmin, vmax
-from bajo.core.intersect import intersect_ray_sphere
-from bajo.core.bvh.types import Ray, Sphere
+from bajo.core.intersect import intersect_ray_sphere, intersect_ray_tri
+from bajo.core.bvh.types import Ray, Hit, Sphere
 from bajo.core.bvh.host_utils import (
     flatten_rays,
     generate_primary_rays,
     hit_t_for_checksum,
 )
+from bajo.core.bvh.constants import EMPTY_LANE
 from bajo.core.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.core.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
-    GPU_WIDE_EMPTY_LANE,
 )
 from bajo.core.bvh.gpu.sphere_bvh import GpuSphereBvh
 from bajo.core.bvh.gpu.triangle_bvh import GpuTriangleBvh
@@ -119,18 +119,29 @@ def _brute_sphere_trace(
     spheres: List[Sphere],
     O: Vec3f32,
     D: Vec3f32,
-) -> Tuple[Bool, UInt32, Float32]:
-    var best_t = Float32(1.0e30)
-    var best_prim = UInt32(0xFFFFFFFF)
+) -> Hit:
+    var best_hit = Hit.miss()
 
     for i in range(len(spheres)):
         ref s = spheres[i]
-        h = intersect_ray_sphere(O, D, s.center, s.radius, Float32.MAX)
-        if h.t > 1.0e-4 and h.t < best_t:
-            best_t = h.t
-            best_prim = UInt32(i)
 
-    return (best_prim != UInt32(0xFFFFFFFF), best_prim, best_t)
+        var h = intersect_ray_sphere(
+            O,
+            D,
+            s.center,
+            s.radius,
+            best_hit.t,
+        )
+
+        if h.mask and h.t > 1.0e-4 and h.t < best_hit.t:
+            best_hit.t = h.t
+            best_hit.u = 0.0
+            best_hit.v = 0.0
+            best_hit.prim = UInt32(i)
+            best_hit.inst = EMPTY_LANE
+            best_hit.occluded = UInt32(0)
+
+    return best_hit
 
 
 def _trace_cpu_spheres_bruteforce(
@@ -140,11 +151,8 @@ def _trace_cpu_spheres_bruteforce(
     var checksum = Float64(0.0)
 
     for i in range(len(rays)):
-        var brute = _brute_sphere_trace(spheres, rays[i].O, rays[i].D)
-        if brute[0]:
-            checksum += hit_t_for_checksum(brute[2])
-        else:
-            checksum += hit_t_for_checksum(Float32(1.0e30))
+        var brute = _brute_sphere_trace(spheres, rays[i].o, rays[i].d)
+        checksum += hit_t_for_checksum(brute.t)
 
     return checksum
 
@@ -186,11 +194,11 @@ def _make_triangle_leaf_bounds(
 def _trace_cpu_triangle_bvh[
     width: Int
 ](mut bvh: TriangleBvh[width], rays: List[Ray]) -> Float64:
-    var checksum = Float64(0.0)
+    var checksum = 0.0
     for i in range(len(rays)):
         var ray = rays[i].copy()
-        bvh.traverse(ray)
-        checksum += hit_t_for_checksum(ray.hit.t)
+        var hit = bvh.traverse(ray)
+        checksum += hit_t_for_checksum(hit.t)
     return checksum
 
 
@@ -232,7 +240,7 @@ def _assert_wide_lane_invariants[width: Int](verts: List[Vec3f32]) raises:
                         var idx = n * width + lane
                         var count = UInt32(counts[idx])
 
-                        if count == GPU_WIDE_EMPTY_LANE:
+                        if count == EMPTY_LANE:
                             continue
 
                         seen_live_lane = True
@@ -285,16 +293,83 @@ def _assert_gpu_triangle_width_matches_cpu[
 
         var gpu_checksum = Float64(0.0)
         var hit_count = 0
-        with d_hits_f32.map_to_host() as h:
-            for i in range(len(rays)):
-                var t = h[i * 3]
-                gpu_checksum += hit_t_for_checksum(t)
-                if t < 1.0e20:
-                    hit_count += 1
+        var mismatch_count = 0
+
+        with d_hits_f32.map_to_host() as hf:
+            with d_hits_u32.map_to_host() as hu:
+                for i in range(len(rays)):
+                    var ray = rays[i].copy()
+                    var cpu_hit = cpu_bvh.traverse(ray)
+
+                    var gpu_t = hf[i * 3 + 0]
+                    var gpu_u = hf[i * 3 + 1]
+                    var gpu_v = hf[i * 3 + 2]
+                    var gpu_prim = UInt32(hu[i])
+
+                    gpu_checksum += hit_t_for_checksum(gpu_t)
+
+                    if gpu_t < 1.0e20:
+                        hit_count += 1
+
+                    var cpu_t = cpu_hit.t
+                    var cpu_prim = cpu_hit.prim
+
+                    var t_diff = abs(Float64(gpu_t) - Float64(cpu_t))
+                    var same_miss = cpu_t >= 1.0e20 and gpu_t >= 1.0e20
+
+                    if not same_miss and (
+                        t_diff > Float64(1.0e-4) or gpu_prim != cpu_prim
+                    ):
+                        var brute_hit = _brute_triangle_trace(verts, rays[i])
+
+                        if mismatch_count < 16:
+                            print(
+                                t"mismatch"
+                                t" ray={i} brute_t={brute_hit.t} brute_prim={brute_hit.prim} cpu_t={cpu_t} cpu_prim={cpu_prim} gpu_t={gpu_t} gpu_prim={gpu_prim} gpu_uv=({gpu_u},"
+                                t" {gpu_v})"
+                            )
+
+                        mismatch_count += 1
 
         var diff = abs(gpu_checksum - cpu_checksum)
+        if diff > GPU_BOUNDS_TEST_EPS:
+            print(
+                t"width={width} gpu={gpu_checksum} cpu={cpu_checksum} "
+                t"diff={diff} mismatches={mismatch_count} hits={hit_count}"
+            )
         assert_true(diff <= GPU_BOUNDS_TEST_EPS, "GpuTriangleBvh checksum")
-        keep(hit_count)
+
+
+def _brute_triangle_trace(
+    verts: List[Vec3f32],
+    ray: Ray,
+) -> Hit:
+    var best = Hit.miss()
+    best.t = ray.t_max
+
+    for i in range(len(verts) / 3):
+        ref v0 = verts[i * 3 + 0]
+        ref v1 = verts[i * 3 + 1]
+        ref v2 = verts[i * 3 + 2]
+
+        var h = intersect_ray_tri(
+            ray.o,
+            ray.d,
+            v0,
+            v1,
+            v2,
+            best.t,
+        )
+
+        if h.mask and h.t < best.t:
+            best.t = h.t
+            best.u = h.u
+            best.v = h.v
+            best.prim = UInt32(i)
+            best.inst = EMPTY_LANE
+            best.occluded = UInt32(0)
+
+    return best
 
 
 def _assert_gpu_sphere_width_matches_bruteforce[

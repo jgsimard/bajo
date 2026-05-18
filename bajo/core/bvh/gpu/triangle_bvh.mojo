@@ -1,20 +1,21 @@
-from std.math import ceildiv, sqrt
+from std.math import ceildiv, max
 from std.time import perf_counter_ns
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
-from std.utils.numerics import max_finite, min_finite
-
+from std.utils.numerics import max_finite
 
 from bajo.core.vec import Vec3f32, vmin, vmax, Vec3
-from bajo.core.bvh.types import Sphere, RayFlat, Hit, TriangleLeafBlock
+from bajo.core.bvh.types import Ray, Hit, TriangleLeafBlock
+from bajo.core.bvh.constants import (
+    EMPTY_LANE,
+    TRACE_PRIMARY_FULL,
+    TRACE_SHADOW,
+    TRACE_PRIMARY_T,
+)
 from bajo.core.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
     _copy_f32_to_device,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
     GPU_WIDE_BOUNDS_STRIDE,
-    TRACE_PRIMARY_FULL,
-    TRACE_SHADOW,
-    TRACE_PRIMARY_T,
-    GPU_WIDE_EMPTY_LANE,
     GPU_TRI_LEAF_VERTEX_STRIDE,
 )
 from bajo.core.intersect import intersect_ray_tri
@@ -76,7 +77,8 @@ struct GpuTriangleBvh[width: Int]:
     ) raises:
         var start = perf_counter_ns()
         var blocks = ceildiv(
-            max(self.tree.leaf_block_count, 1), GPU_BOUNDS_BVH_BLOCK_SIZE
+            max(self.tree.leaf_block_count, 1),
+            GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
         ctx.enqueue_function[pack_triangle_leaf_blocks_kernel[Self.width]](
             self.vertices,
@@ -163,7 +165,7 @@ def pack_triangle_leaf_blocks_kernel[
         leaf_prims[idx] = prim
 
         var out_base = idx * GPU_TRI_LEAF_VERTEX_STRIDE
-        if prim == GPU_WIDE_EMPTY_LANE:
+        if prim == EMPTY_LANE:
             for k in range(GPU_TRI_LEAF_VERTEX_STRIDE):
                 leaf_vertices[out_base + k] = 0.0
         else:
@@ -190,11 +192,11 @@ def trace_gpu_triangle_bvh_primary_kernel[
     if ray_idx >= ray_count:
         return
 
-    var ray = RayFlat(rays, ray_idx)
+    var ray = Ray(rays, ray_idx)
     var hit = trace_gpu_wide_ray[
         width,
         TRACE_PRIMARY_FULL,
-        _intersect_triangle_leaf_block[
+        _intersect_triangle_leaf[
             width,
             TRACE_PRIMARY_FULL,
         ],
@@ -232,11 +234,11 @@ def trace_gpu_triangle_bvh_shadow_kernel[
     if ray_idx >= ray_count:
         return
 
-    var ray = RayFlat(rays, ray_idx)
+    var ray = Ray(rays, ray_idx)
     var hit = trace_gpu_wide_ray[
         width,
         TRACE_SHADOW,
-        _intersect_triangle_leaf_block[
+        _intersect_triangle_leaf[
             width,
             TRACE_SHADOW,
         ],
@@ -253,45 +255,9 @@ def trace_gpu_triangle_bvh_shadow_kernel[
     flags[ray_idx] = hit.occluded
 
 
+# this version works !!!!
 @always_inline
-def _load_triangle_leaf_packet[
-    width: Int,
-](
-    leaf_vertices: UnsafePointer[Float32, MutAnyOrigin],
-    leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_block_idx: UInt32,
-    item_count: UInt32,
-) -> TriangleLeafBlock[width]:
-    var block = TriangleLeafBlock[width]()
-
-    comptime for lane in range(width):
-        if lane < Int(item_count):
-            var idx = Int(leaf_block_idx) * width + lane
-            var prim = UInt32(leaf_prims[idx])
-
-            if prim != GPU_WIDE_EMPTY_LANE:
-                var base = idx * GPU_TRI_LEAF_VERTEX_STRIDE
-
-                block.v0.x[lane] = leaf_vertices[base + 0]
-                block.v0.y[lane] = leaf_vertices[base + 1]
-                block.v0.z[lane] = leaf_vertices[base + 2]
-
-                block.v1.x[lane] = leaf_vertices[base + 3]
-                block.v1.y[lane] = leaf_vertices[base + 4]
-                block.v1.z[lane] = leaf_vertices[base + 5]
-
-                block.v2.x[lane] = leaf_vertices[base + 6]
-                block.v2.y[lane] = leaf_vertices[base + 7]
-                block.v2.z[lane] = leaf_vertices[base + 8]
-
-                block.prim_indices[lane] = prim
-                block.valid_lane[lane] = True
-
-    return block^
-
-
-@always_inline
-def _intersect_triangle_leaf_block[
+def _intersect_triangle_leaf[
     width: Int,
     mode: String,
 ](
@@ -299,51 +265,157 @@ def _intersect_triangle_leaf_block[
     leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
     leaf_block_idx: UInt32,
     item_count: UInt32,
-    ray: RayFlat,
-    mut best_t: Float32,
-    mut best_u: Float32,
-    mut best_v: Float32,
-    mut best_prim: UInt32,
+    ray: Ray,
+    mut hit: Hit,
 ) capturing -> Bool:
     comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_PRIMARY_T, TRACE_SHADOW]
 
-    var block = _load_triangle_leaf_packet[width](
-        leaf_vertices,
-        leaf_prims,
-        leaf_block_idx,
-        item_count,
-    )
+    var any_hit = False
 
-    var O = Vec3[DType.float32, width](ray.o.x, ray.o.y, ray.o.z)
-    var D = Vec3[DType.float32, width](ray.d.x, ray.d.y, ray.d.z)
+    comptime for lane in range(width):
+        if lane < Int(item_count):
+            var idx = Int(leaf_block_idx) * width + lane
+            var prim = UInt32(leaf_prims[idx])
 
-    var h = intersect_ray_tri(
-        O,
-        D,
-        block.v0,
-        block.v1,
-        block.v2,
-        best_t,
-    )
+            if prim != EMPTY_LANE:
+                var base = idx * GPU_TRI_LEAF_VERTEX_STRIDE
 
-    var hit_mask = h.mask & block.valid_lane
+                var v0 = Vec3f32(
+                    leaf_vertices[base + 0],
+                    leaf_vertices[base + 1],
+                    leaf_vertices[base + 2],
+                )
+                var v1 = Vec3f32(
+                    leaf_vertices[base + 3],
+                    leaf_vertices[base + 4],
+                    leaf_vertices[base + 5],
+                )
+                var v2 = Vec3f32(
+                    leaf_vertices[base + 6],
+                    leaf_vertices[base + 7],
+                    leaf_vertices[base + 8],
+                )
 
-    if not hit_mask.reduce_or():
-        return False
+                var h = intersect_ray_tri(
+                    ray.o,
+                    ray.d,
+                    v0,
+                    v1,
+                    v2,
+                    hit.t,
+                )
 
-    comptime if mode == TRACE_SHADOW:
-        return True
-    else:
-        comptime f32_max = max_finite[DType.float32]()
-        var min_t = hit_mask.select(h.t, f32_max).reduce_min()
+                if h.mask and h.t < hit.t:
+                    comptime if mode == TRACE_SHADOW:
+                        return True
+                    else:
+                        hit.t = h.t
 
-        best_t = min_t
+                        comptime if mode == TRACE_PRIMARY_FULL:
+                            hit.u = h.u
+                            hit.v = h.v
+                            hit.prim = prim
+                            hit.inst = EMPTY_LANE
+                            hit.occluded = UInt32(0)
 
-        comptime if mode == TRACE_PRIMARY_FULL:
-            comptime for lane in range(width):
-                if hit_mask[lane] and h.t[lane] == min_t:
-                    best_u = h.u[lane]
-                    best_v = h.v[lane]
-                    best_prim = block.prim_indices[lane]
+                        any_hit = True
 
-        return True
+    return any_hit
+
+
+# I dont know why but this version doesnt work :((((
+# @always_inline
+# def _load_triangle_leaf[
+#     width: Int,
+# ](
+#     leaf_vertices: UnsafePointer[Float32, MutAnyOrigin],
+#     leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
+#     leaf_block_idx: UInt32,
+#     item_count: UInt32,
+# ) -> TriangleLeafBlock[width]:
+#     var block = TriangleLeafBlock[width]()
+
+#     comptime for lane in range(width):
+#         if lane < Int(item_count):
+#             var idx = Int(leaf_block_idx) * width + lane
+#             var prim = UInt32(leaf_prims[idx])
+
+#             if prim != EMPTY_LANE:
+#                 var base = idx * GPU_TRI_LEAF_VERTEX_STRIDE
+
+#                 block.v0.x[lane] = leaf_vertices[base + 0]
+#                 block.v0.y[lane] = leaf_vertices[base + 1]
+#                 block.v0.z[lane] = leaf_vertices[base + 2]
+
+#                 block.v1.x[lane] = leaf_vertices[base + 3]
+#                 block.v1.y[lane] = leaf_vertices[base + 4]
+#                 block.v1.z[lane] = leaf_vertices[base + 5]
+
+#                 block.v2.x[lane] = leaf_vertices[base + 6]
+#                 block.v2.y[lane] = leaf_vertices[base + 7]
+#                 block.v2.z[lane] = leaf_vertices[base + 8]
+
+#                 block.prim_indices[lane] = prim
+#                 block.valid_lane[lane] = True
+
+#     return block^
+
+
+# @always_inline
+# def _intersect_triangle_leaf[
+#     width: Int,
+#     mode: String,
+# ](
+#     leaf_vertices: UnsafePointer[Float32, MutAnyOrigin],
+#     leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
+#     leaf_block_idx: UInt32,
+#     item_count: UInt32,
+#     ray: Ray,
+#     mut hit: Hit,
+# ) capturing -> Bool:
+#     comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_PRIMARY_T, TRACE_SHADOW]
+
+#     var block = _load_triangle_leaf[width](
+#         leaf_vertices,
+#         leaf_prims,
+#         leaf_block_idx,
+#         item_count,
+#     )
+
+#     var O = Vec3[DType.float32, width](ray.o.x, ray.o.y, ray.o.z)
+#     var D = Vec3[DType.float32, width](ray.d.x, ray.d.y, ray.d.z)
+
+#     var h = intersect_ray_tri(
+#         O,
+#         D,
+#         block.v0,
+#         block.v1,
+#         block.v2,
+#         hit.t,
+#     )
+
+#     var t_min_mask = h.t.ge(ray.t_min)
+#     var hit_mask = h.mask & block.valid_lane & t_min_mask
+
+#     if not hit_mask.reduce_or():
+#         return False
+
+#     comptime if mode == TRACE_SHADOW:
+#         return True
+#     else:
+#         comptime f32_max = max_finite[DType.float32]()
+#         var min_t = hit_mask.select(h.t, f32_max).reduce_min()
+
+#         if min_t < hit.t:
+#             hit.t = min_t
+
+#             comptime if mode == TRACE_PRIMARY_FULL:
+#                 comptime for lane in range(width):
+#                     if hit_mask[lane] and h.t[lane] == min_t:
+#                         hit.u = h.u[lane]
+#                         hit.v = h.v[lane]
+#                         hit.prim = block.prim_indices[lane]
+#                         hit.inst = EMPTY_LANE
+#                         hit.occluded = 0
+
+#         return True

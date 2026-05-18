@@ -1,14 +1,14 @@
 from std.utils.numerics import max_finite
 
 from bajo.core.vec import Vec3, Vec3f32, vmin, vmax, longest_axis, dot
+from bajo.core.bvh.constants import EMPTY_LANE
 from bajo.core.bvh.cpu.bounds_bvh import (
-    EMPTY_LANE,
     BoundsBvh,
     BoundsItem,
     BoundsBvhBuilder,
 )
 from bajo.core.aabb import AABB, AxisAlignedBoundingBox
-from bajo.core.bvh.types import Ray, Sphere, SphereLeafBlock
+from bajo.core.bvh.types import Ray, Hit, Sphere, SphereLeafBlock
 from bajo.core.intersect import intersect_ray_sphere
 from bajo.core.bvh.cpu.traverse import traverse_wide_ray_bvh
 
@@ -83,6 +83,9 @@ struct SphereBvh[width: Int](Copyable):
 
                             block.prim_indices[k] = sphere_idx
                             block.valid_lane[k] = True
+                        else:
+                            block.prim_indices[k] = EMPTY_LANE
+                            block.valid_lane[k] = False
 
                     var block_idx = UInt32(len(self.leaf_blocks))
                     self.leaf_blocks.append(block^)
@@ -91,17 +94,28 @@ struct SphereBvh[width: Int](Copyable):
     @always_inline
     def _intersect_leaf[
         is_occlusion: Bool
-    ](self, mut ray: Ray, leaf_block_idx: UInt32, item_count: UInt32) -> Bool:
+    ](
+        self,
+        ray: Ray,
+        leaf_block_idx: UInt32,
+        item_count: UInt32,
+        mut hit: Hit,
+    ) -> Bool:
         ref block = self.leaf_blocks[Int(leaf_block_idx)]
 
-        var O = Vec3[DType.float32, Self.width](ray.O.x, ray.O.y, ray.O.z)
-        var D = Vec3[DType.float32, Self.width](ray.D.x, ray.D.y, ray.D.z)
+        var O = Vec3[DType.float32, Self.width](ray.o.x, ray.o.y, ray.o.z)
+        var D = Vec3[DType.float32, Self.width](ray.d.x, ray.d.y, ray.d.z)
 
         var h = intersect_ray_sphere(
-            O, D, block.center, block.radius, ray.hit.t
+            O,
+            D,
+            block.center,
+            block.radius,
+            hit.t,
         )
 
-        var hit_mask = h.mask & block.valid_lane
+        var t_valid = h.t.ge(ray.t_min)
+        var hit_mask = h.mask & t_valid & block.valid_lane
 
         if not hit_mask.reduce_or():
             return False
@@ -111,28 +125,34 @@ struct SphereBvh[width: Int](Copyable):
         else:
             comptime f32_max = max_finite[DType.float32]()
             var min_t = hit_mask.select(h.t, f32_max).reduce_min()
-            ray.hit.t = min_t
-            ray.hit.u = 0.0
-            ray.hit.v = 0.0
 
-            comptime for lane in range(Self.width):
-                if hit_mask[lane] and h.t[lane] == min_t:
-                    ray.hit.prim = block.prim_indices[lane]
+            if min_t < hit.t:
+                hit.t = min_t
+                hit.u = 0.0
+                hit.v = 0.0
+                hit.inst = EMPTY_LANE
+                hit.occluded = UInt32(0)
+
+                comptime for lane in range(Self.width):
+                    if hit_mask[lane] and h.t[lane] == min_t:
+                        hit.prim = block.prim_indices[lane]
 
             return True
 
     @always_inline
-    def _traverse_generic[is_occlusion: Bool](self, mut ray: Ray) -> Bool:
+    def _traverse_generic[is_occlusion: Bool](self, ray: Ray) -> Hit:
         @always_inline
         def leaf_fn(
-            mut ray: Ray,
+            ray: Ray,
             leaf_block_idx: UInt32,
             item_count: UInt32,
+            mut hit: Hit,
         ) capturing -> Bool:
             return self._intersect_leaf[is_occlusion](
                 ray,
                 leaf_block_idx,
                 item_count,
+                hit,
             )
 
         return traverse_wide_ray_bvh[
@@ -144,8 +164,9 @@ struct SphereBvh[width: Int](Copyable):
             ray,
         )
 
-    def traverse(self, mut ray: Ray):
-        _ = self._traverse_generic[False](ray)
+    def traverse(self, ray: Ray) -> Hit:
+        return self._traverse_generic[False](ray)
 
-    def is_occluded(self, mut ray: Ray) -> Bool:
-        return self._traverse_generic[True](ray)
+    def is_occluded(self, ray: Ray) -> Bool:
+        var hit = self._traverse_generic[True](ray)
+        return hit.is_occluded()

@@ -1,3 +1,4 @@
+from std.bit import count_leading_zeros
 from std.math import min, max, ceildiv, sqrt
 from std.time import perf_counter_ns
 from std.atomic import Atomic
@@ -7,29 +8,22 @@ from std.gpu import DeviceBuffer, DeviceContext, global_idx
 from bajo.core.aabb import AABB, AxisAlignedBoundingBox
 from bajo.core.vec import Vec3f32, vmin, vmax, Vec3
 from bajo.core.mat import Mat44f32, transform_point, transform_vector
-from bajo.core.intersect import intersect_ray_aabb, intersect_ray_tri
+from bajo.core.intersect import (
+    intersect_ray_aabb,
+    intersect_ray_tri,
+    RayAabbHit,
+)
 from bajo.core.morton import morton3
-from bajo.core.bvh.types import RayFlat, Hit, Sphere
-from bajo.core.bvh.gpu.constants import (
+from bajo.core.bvh.types import Ray, Hit, Sphere
+from bajo.core.bvh.constants import (
     LBVH_LEAF_FLAG,
     LBVH_INDEX_MASK,
     LBVH_SENTINEL,
-)
-from bajo.core.bvh.gpu.kernels import (
     GPU_TRAVERSAL_STACK_SIZE,
-    LBVH_NODE_META_STRIDE,
-    LBVH_NODE_PARENT,
-    LBVH_NODE_LEFT,
-    LBVH_NODE_RIGHT,
-    LBVH_NODE_BOUNDS_STRIDE,
-    LBVH_BOUNDS_LEFT,
-    LBVH_BOUNDS_RIGHT,
     TRACE_PRIMARY_FULL,
     TRACE_PRIMARY_T,
     TRACE_SHADOW,
-    init_lbvh_topology_kernel,
-    init_lbvh_bounds_kernel,
-    build_lbvh_topology_kernel,
+    EMPTY_LANE,
 )
 from bajo.core.bvh.gpu.validate import (
     validate_sorted_keys,
@@ -39,9 +33,17 @@ from bajo.core.bvh.gpu.validate import (
 from bajo.core.bvh.gpu.utils import GpuBuildTimings, GpuBVHValidation
 from bajo.sort.gpu.radix_sort import device_radix_sort_pairs, RadixSortWorkspace
 
+comptime LBVH_NODE_META_STRIDE = 4
+comptime LBVH_NODE_PARENT = 0
+comptime LBVH_NODE_LEFT = 1
+comptime LBVH_NODE_RIGHT = 2
+comptime LBVH_NODE_FENCE = 3
+
+comptime LBVH_NODE_BOUNDS_STRIDE = 12
+comptime LBVH_BOUNDS_LEFT = 0
+comptime LBVH_BOUNDS_RIGHT = 6
 
 comptime GPU_BOUNDS_BVH_BLOCK_SIZE = 128
-comptime GPU_WIDE_EMPTY_LANE = UInt32(0xFFFFFFFF)
 comptime GPU_WIDE_BOUNDS_STRIDE = 6
 comptime GPU_TRI_LEAF_VERTEX_STRIDE = 9
 comptime GPU_SPHERE_STRIDE = 4
@@ -293,7 +295,7 @@ def _collect_encoded_leaf_payloads_gpu[
         if lane >= out_count:
             out_leaf_block_indices[
                 Int(leaf_block_idx) * width + lane
-            ] = GPU_WIDE_EMPTY_LANE
+            ] = EMPTY_LANE
 
 
 def init_gpu_wide_collapse_kernel[
@@ -314,7 +316,7 @@ def init_gpu_wide_collapse_kernel[
 
     if i < max_wide_lanes:
         wide_data[i] = UInt32(0)
-        wide_counts[i] = GPU_WIDE_EMPTY_LANE
+        wide_counts[i] = EMPTY_LANE
 
         var b = i * GPU_WIDE_BOUNDS_STRIDE
         wide_bounds[b + 0] = 0.0
@@ -325,7 +327,7 @@ def init_gpu_wide_collapse_kernel[
         wide_bounds[b + 5] = 0.0
 
     if i < max_leaf_slots:
-        leaf_block_indices[i] = GPU_WIDE_EMPTY_LANE
+        leaf_block_indices[i] = EMPTY_LANE
 
     if i < internal_count:
         node_leaf_counts[i] = UInt32(0)
@@ -456,7 +458,7 @@ def collapse_lbvh_to_wide_kernel[
         var lane_base = Int(wide_idx) * width + lane
 
         if lane >= p_size:
-            wide_counts[lane_base] = GPU_WIDE_EMPTY_LANE
+            wide_counts[lane_base] = EMPTY_LANE
             continue
 
         var e = pool[lane]
@@ -487,7 +489,7 @@ struct GpuBoundsBvh[width: Int]:
     """Generic GPU Bvh. Build input is only leaf AABBs plus payload ids.
 
     Wide lane encoding mirrors the CPU BVH:
-        count == GPU_WIDE_EMPTY_LANE -> unused lane
+        count == EMPTY_LANE -> unused lane
         count == 0                   -> child node, data = wide child index
         count > 0                    -> leaf block, data = leaf block index
     """
@@ -888,22 +890,177 @@ def _intersect_wide_node_bounds[
 ](
     wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
     node_idx: UInt32,
-    ray: RayFlat,
+    ray: Ray,
     t_max: Float32,
-) -> SIMD[DType.bool, width]:
+) -> RayAabbHit[DType.float32, width]:
     var block = _load_wide_bounds_block[DType.float32, width](
-        wide_bounds, node_idx
+        wide_bounds,
+        node_idx,
     )
 
     var O = Vec3[DType.float32, width](ray.o.x, ray.o.y, ray.o.z)
     var RD = Vec3[DType.float32, width](ray.rd.x, ray.rd.y, ray.rd.z)
 
-    var h = intersect_ray_aabb[DType.float32, width](
+    return intersect_ray_aabb[DType.float32, width](
         O,
         RD,
         block._min,
         block._max,
-        SIMD[DType.float32, width](t_max),
+        t_max,
     )
 
-    return h.mask
+
+@always_inline
+def _common_prefix_gpu(
+    keys: UnsafePointer[UInt32, MutAnyOrigin],
+    i: Int,
+    j: Int,
+    n: Int,
+) -> Int:
+    if j < 0 or j >= n:
+        return -1
+
+    var a = UInt32(keys[i])
+    var b = UInt32(keys[j])
+
+    if a != b:
+        return Int(count_leading_zeros(a ^ b))
+
+    # Tie-break equal Morton codes with the sorted leaf index. This makes the
+    # prefix order total and keeps degenerate duplicate-code cases deterministic.
+    var x = UInt32(i) ^ UInt32(j)
+    if x == 0:
+        return 64
+    return 32 + Int(count_leading_zeros(x))
+
+
+def init_lbvh_topology_kernel(
+    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_parent: UnsafePointer[UInt32, MutAnyOrigin],
+    internal_count: Int,
+    leaf_count: Int,
+):
+    var i = global_idx.x
+
+    if i < internal_count:
+        var base = i * LBVH_NODE_META_STRIDE
+        node_meta[base + LBVH_NODE_PARENT] = LBVH_SENTINEL  # parent
+        node_meta[base + LBVH_NODE_LEFT] = 0  # left child, encoded
+        node_meta[base + LBVH_NODE_RIGHT] = 0  # right child, encoded
+        # fence/debug: rightmost leaf in range
+        node_meta[base + LBVH_NODE_FENCE] = 0
+
+    if i < leaf_count:
+        leaf_parent[i] = LBVH_SENTINEL
+
+
+def build_lbvh_topology_kernel(
+    sorted_keys: UnsafePointer[UInt32, MutAnyOrigin],
+    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_parent: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_count: Int,
+):
+    var i = global_idx.x
+    var internal_count = leaf_count - 1
+    if i >= internal_count:
+        return
+
+    # Determine direction of the range for this internal node.
+    var d_next = _common_prefix_gpu(sorted_keys, i, i + 1, leaf_count)
+    var d_prev = _common_prefix_gpu(sorted_keys, i, i - 1, leaf_count)
+    var d = 1
+    if d_next < d_prev:
+        d = -1
+
+    # Minimum prefix outside the range.
+    var delta_min = _common_prefix_gpu(sorted_keys, i, i - d, leaf_count)
+
+    # Find an upper bound on the range length.
+    var lmax = 2
+    while (
+        _common_prefix_gpu(sorted_keys, i, i + lmax * d, leaf_count) > delta_min
+    ):
+        lmax <<= 1
+        if lmax > leaf_count * 2:
+            break
+
+    # Binary search for exact range length.
+    var l = 0
+    var t = lmax >> 1
+    while t > 0:
+        if (
+            _common_prefix_gpu(sorted_keys, i, i + (l + t) * d, leaf_count)
+            > delta_min
+        ):
+            l += t
+        t >>= 1
+
+    var j = i + l * d
+    var first = min(i, j)
+    var last = max(i, j)
+
+    # Find split inside [first, last].
+    var node_prefix = _common_prefix_gpu(sorted_keys, first, last, leaf_count)
+    var split = first
+    var step = last - first
+    while step > 1:
+        step = (step + 1) >> 1
+        var new_split = split + step
+        if new_split < last:
+            var split_prefix = _common_prefix_gpu(
+                sorted_keys, first, new_split, leaf_count
+            )
+            if split_prefix > node_prefix:
+                split = new_split
+
+    var left_encoded: UInt32
+    var right_encoded: UInt32
+
+    if split == first:
+        left_encoded = UInt32(split) | LBVH_LEAF_FLAG
+        if split >= 0 and split < leaf_count:
+            leaf_parent[split] = UInt32(i)
+    else:
+        left_encoded = UInt32(split)
+        if split >= 0 and split < internal_count:
+            node_meta[_node_parent_index(UInt32(split))] = UInt32(i)
+
+    var right_child = split + 1
+    if right_child == last:
+        right_encoded = UInt32(right_child) | LBVH_LEAF_FLAG
+        if right_child >= 0 and right_child < leaf_count:
+            leaf_parent[right_child] = UInt32(i)
+    else:
+        right_encoded = UInt32(right_child)
+        if right_child >= 0 and right_child < internal_count:
+            node_meta[_node_parent_index(UInt32(right_child))] = UInt32(i)
+
+    var base = i * LBVH_NODE_META_STRIDE
+    node_meta[base + LBVH_NODE_LEFT] = left_encoded
+    node_meta[base + LBVH_NODE_RIGHT] = right_encoded
+    node_meta[base + LBVH_NODE_FENCE] = UInt32(last)
+
+
+def init_lbvh_bounds_kernel(
+    node_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    node_flags: UnsafePointer[UInt32, MutAnyOrigin],
+    internal_count: Int,
+):
+    var i = global_idx.x
+    if i >= internal_count:
+        return
+
+    var b = i * LBVH_NODE_BOUNDS_STRIDE
+    node_bounds[b + 0] = Float32.MAX
+    node_bounds[b + 1] = Float32.MAX
+    node_bounds[b + 2] = Float32.MAX
+    node_bounds[b + 3] = Float32.MIN
+    node_bounds[b + 4] = Float32.MIN
+    node_bounds[b + 5] = Float32.MIN
+    node_bounds[b + 6] = Float32.MAX
+    node_bounds[b + 7] = Float32.MAX
+    node_bounds[b + 8] = Float32.MAX
+    node_bounds[b + 9] = Float32.MIN
+    node_bounds[b + 10] = Float32.MIN
+    node_bounds[b + 11] = Float32.MIN
+    node_flags[i] = UInt32(0)

@@ -1,27 +1,22 @@
-from std.math import cos, max, round, sin
+from std.math import cos, max, round, sin, clamp
+from std.sys import has_accelerator
 from std.time import perf_counter_ns
-from std.gpu import DeviceBuffer
-from std.gpu.host import DeviceContext
+from std.gpu import DeviceBuffer, DeviceContext
 from std.io.file_descriptor import FileDescriptor
 
-from bajo.core.bvh.cpu.binary_bvh import BinaryBvh
-from bajo.core.bvh.cpu.tlas import Instance, Tlas
-
+from bajo.core.aabb import AABB
+from bajo.core.bvh.cpu.tlas import Tlas
+from bajo.core.bvh.gpu.tlas import GpuTlas
+from bajo.core.bvh.gpu.triangle_bvh import GpuTriangleBvh
 from bajo.core.bvh.host_utils import (
     append_camera_params,
     compute_bounds,
     copy_list_to_device,
 )
-from bajo.core.bvh.gpu.lbvh import GpuLBVH
-from bajo.core.bvh.gpu.tlas import GpuTlasLayout
-from bajo.core.bvh.gpu.tlas_traverse import (
-    launch_tlas_lbvh_camera_primary,
-    launch_shade_tlas_normals,
-)
-from bajo.core.aabb import AABB
-from bajo.core.mat import Mat44f32, inverse
+from bajo.core.bvh.types import Instance
+from bajo.core.mat import Mat44f32, inverse, transform_vector
 from bajo.core.utils import pack_obj_triangles, ns_to_ms, ns_to_mrays_per_s
-from bajo.core.vec import Vec3f32, length
+from bajo.core.vec import Vec3f32, cross, normalize
 
 
 comptime DEFAULT_OBJ_PATH = "./assets/buddha/buddha.obj"
@@ -30,6 +25,9 @@ comptime WIDTH = 1280
 comptime HEIGHT = 720
 comptime GRID_X = 25
 comptime GRID_Z = 25
+comptime BLAS_WIDTH = 4
+comptime TLAS_WIDTH = 2
+comptime MISS_PRIM = UInt32(0xFFFFFFFF)
 
 
 def _trs_y(
@@ -44,12 +42,16 @@ def _trs_y(
         -s * sn, 0.0,  s * c,  tz,
         0.0,     0.0,    0.0, 1.0,
     )
-    # fmt: off
+    # fmt: on
 
 
-def _make_instances(mut blas: BinaryBvh, bounds: AABB) raises -> List[Instance]:
+def _make_instances(bounds: AABB) raises -> List[Instance]:
     var extent = bounds.extent()
-    var spacing = max(max(extent.x, extent.y), extent.z) * 2.25
+    var base_extent = max(max(extent.x, extent.y), extent.z)
+
+    comptime BASE_SCALE = Float32(8.0)
+
+    var spacing = base_extent * BASE_SCALE * 1.35
     if spacing < 1.0:
         spacing = 1.0
 
@@ -57,35 +59,38 @@ def _make_instances(mut blas: BinaryBvh, bounds: AABB) raises -> List[Instance]:
     for z in range(GRID_Z):
         for x in range(GRID_X):
             var idx = z * GRID_X + x
-            var tx = Float32(x - GRID_X / 2) * spacing
-            var tz = Float32(z - GRID_Z / 2) * spacing
+            var tx = (Float32(x - GRID_X - 1) / 2) * spacing
+            var tz = (Float32(z - GRID_Z - 1) / 2) * spacing
             var angle = Float32(idx) * 1.0
-            var scale = Float32(8.0) + Float32(idx % 5) * 0.075
+            var scale = BASE_SCALE + Float32(idx % 5) * 0.075
             var transform = _trs_y(tx, 0.0, tz, angle, scale)
             var inv_transform = inverse(transform)
-            instances.append(
-                Instance.from_blas(transform, inv_transform, 0, blas)
-            )
+            instances.append(Instance(transform, inv_transform, 0, bounds))
     return instances^
 
 
-def _make_camera_params(tlas: Tlas) -> List[Float32]:
-    ref root = tlas.tlas_nodes[0]
-    var center = (root.aabb._min + root.aabb._max) * 0.5
-    var extent = root.aabb._max - root.aabb._min
+def _instances_bounds(instances: List[Instance]) -> AABB:
+    var out = AABB.invalid()
+    for instance in instances:
+        out.grow(instance.bounds)
+    return out
+
+
+def _make_camera_params(tlas: Tlas[TLAS_WIDTH]) -> List[Float32]:
+    var bounds = tlas.bounds()
+    var center = bounds.centroid()
+    var extent = bounds.extent()
 
     var scene_w = max(extent.x, extent.z)
     if scene_w < 1.0:
         scene_w = 1.0
 
-    # Lower and closer, like a crowd-level shot.
     var eye = center + Vec3f32(
         scene_w * 0.18,
         extent.y * 0.22,
         -scene_w * 0.25,
     )
 
-    # Look slightly into the group, around upper-body / head height.
     var target = center + Vec3f32(
         0.0,
         extent.y * 0.18,
@@ -102,41 +107,72 @@ def _make_camera_params(tlas: Tlas) -> List[Float32]:
     return params^
 
 
-def write_ppm_from_packed_rgb(
+@always_inline
+def _unit_to_u8(x: Float32) -> UInt8:
+    return UInt8(clamp(x, 0.0, 1.0) * 255.0)
+
+
+def write_ppm_normals_from_hits(
     path: String,
     width: Int,
     height: Int,
-    rgb: DeviceBuffer[DType.uint32],
+    tri_vertices: List[Vec3f32],
+    instances: List[Instance],
+    hits_f32: DeviceBuffer[DType.float32],
+    hits_u32: DeviceBuffer[DType.uint32],
 ) raises:
     var pixel_count = width * height
     var byte_count = pixel_count * 3
 
     with open(path, "w") as f:
         var fd = FileDescriptor(f)
-
         fd.write(t"P6\n{width} {height}\n255\n")
         var _bytes = List[UInt8](length=byte_count, fill=0)
         var out = _bytes.unsafe_ptr()
 
-        with rgb.map_to_host() as pixels:
-            var j = 0
-            for i in range(pixel_count):
-                # packed is 0x00RRGGBB
-                var packed = UInt32(pixels[i])
-                out[j] = UInt8((packed >> 16) & UInt32(255))
-                out[j + 1] = UInt8((packed >> 8) & UInt32(255))
-                out[j + 2] = UInt8(packed & UInt32(255))
+        with hits_f32.map_to_host() as hf:
+            with hits_u32.map_to_host() as hu:
+                var j = 0
+                for i in range(pixel_count):
+                    var prim = UInt32(hu[i * 2 + 0])
+                    var inst = UInt32(hu[i * 2 + 1])
+                    var t = hf[i * 3 + 0]
 
-                j += 3
+                    if prim == MISS_PRIM or inst == MISS_PRIM or t >= 1.0e20:
+                        # dark blue-gray
+                        out[j + 0] = UInt8(18)
+                        out[j + 1] = UInt8(22)
+                        out[j + 2] = UInt8(30)
+                    else:
+                        var base = Int(prim) * 3
+                        ref v0 = tri_vertices[base + 0]
+                        ref v1 = tri_vertices[base + 1]
+                        ref v2 = tri_vertices[base + 2]
+
+                        var local_n = normalize(cross(v1 - v0, v2 - v0))
+                        var world_n = normalize(
+                            transform_vector(
+                                instances[Int(inst)].transform,
+                                local_n,
+                            )
+                        )
+
+                        out[j + 0] = _unit_to_u8(world_n.x[0] * 0.5 + 0.5)
+                        out[j + 1] = _unit_to_u8(world_n.y[0] * 0.5 + 0.5)
+                        out[j + 2] = _unit_to_u8(world_n.z[0] * 0.5 + 0.5)
+
+                    j += 3
 
         fd.write_bytes(_bytes)
 
 
 def main() raises:
-    print("GPU instanced TLAS/LBVH normal render")
+    print("GPU instanced TLAS normal render")
     print(t"OBJ: {DEFAULT_OBJ_PATH}")
     print(t"Resolution: {WIDTH} x {HEIGHT}")
     print(t"Instances: {GRID_X * GRID_Z}")
+    print(t"BLAS width: {BLAS_WIDTH}")
+    print(t"TLAS width: {TLAS_WIDTH}")
     print(t"Output: {DEFAULT_OUTPUT_PATH}")
 
     print("\nLoading and packing geometry...")
@@ -145,77 +181,94 @@ def main() raises:
     var load_t1 = perf_counter_ns()
 
     var tri_count = len(tri_vertices) / 3
-    var bounds = compute_bounds(tri_vertices)
+    var blas_bounds = compute_bounds(tri_vertices)
 
     print(t"Triangles: {tri_count}")
     print(t"Load time: {round(ns_to_ms(Int(load_t1 - load_t0)), 3)} ms")
 
-    print("\nBuilding CPU BLAS/TLAS oracle layout...")
+    print("\nBuilding CPU TLAS layout for instance bounds + camera...")
     var cpu_t0 = perf_counter_ns()
-    var cpu_blas = BinaryBvh(tri_vertices.unsafe_ptr(), UInt32(tri_count))
-    cpu_blas.build["sah", False]()
-    var instances = _make_instances(cpu_blas, bounds)
-    var cpu_tlas = Tlas(instances)
-    cpu_tlas.build()
+    var instances = _make_instances(blas_bounds)
+    var cpu_tlas = Tlas[TLAS_WIDTH](instances)
+    var tlas_bounds = _instances_bounds(instances)
     var camera_params = _make_camera_params(cpu_tlas)
+    var ray_count = WIDTH * HEIGHT
     var cpu_t1 = perf_counter_ns()
     print(
-        t"CPU TLAS: nodes={cpu_tlas.nodes_used} |"
-        t" instances={cpu_tlas.inst_count} |"
-        t" time={round(ns_to_ms(Int(cpu_t1 - cpu_t0)), 3)} ms"
+        t"CPU TLAS: instances={cpu_tlas.inst_count} | "
+        t"rays={ray_count} | "
+        t"time={round(ns_to_ms(Int(cpu_t1 - cpu_t0)), 3)} ms"
     )
 
-    var ray_count = WIDTH * HEIGHT
+    comptime if not has_accelerator():
+        raise "No accelerator available; skipped GPU render."
 
     with DeviceContext() as ctx:
         print("\nBuilding GPU BLAS...")
-        var gpu_blas = GpuLBVH(ctx, tri_vertices)
-        var build_t0 = perf_counter_ns()
-        var build_result = gpu_blas.build_from_triangles(ctx, tri_vertices)
-        var build_t = build_result[0]
-        var validation = build_result[1]
-        var build_t1 = perf_counter_ns()
+        var blas_t0 = perf_counter_ns()
+        var gpu_blas = GpuTriangleBvh[BLAS_WIDTH](ctx, tri_vertices)
+        ctx.synchronize()
+        var blas_t1 = perf_counter_ns()
 
+        var blas_validation = gpu_blas.tree.validate(blas_bounds)
         print(
-            t"Build: morton={round(ns_to_ms(build_t.morton_ns), 3)} ms |"
-            t" sort={round(ns_to_ms(build_t.sort_ns), 3)} ms |"
-            t" topo={round(ns_to_ms(build_t.topology_ns), 3)} ms |"
-            t" refit={round(ns_to_ms(build_t.refit_ns), 3)} ms |"
-            t" total={round(ns_to_ms(Int(build_t1 - build_t0)), 3)} ms"
+            t"BLAS build:"
+            t" total={round(ns_to_ms(Int(blas_t1 - blas_t0)), 3)} ms |"
+            t" collapse={round(ns_to_ms(gpu_blas.tree.collapse_ns), 3)} ms"
+            t" | pack={round(ns_to_ms(gpu_blas.leaf_pack_ns), 3)} ms"
         )
         print(
-            t"Validation: sorted={validation.sorted_ok} |"
-            t" values={validation.values_ok} |"
-            t" topology={validation.topology_ok} |"
-            t" bounds={validation.bounds_ok} | root={validation.root_idx}"
+            t"BLAS validation: sorted={blas_validation.sorted_ok} | "
+            t"values={blas_validation.values_ok} | "
+            t"topology={blas_validation.topology_ok} | "
+            t"bounds={blas_validation.bounds_ok} | "
+            t"root={blas_validation.root_idx}"
         )
 
-        print("\nUploading TLAS and camera...")
-        var upload_t0 = perf_counter_ns()
-        var gpu_tlas = GpuTlasLayout(ctx, cpu_tlas)
-        var d_camera_params = copy_list_to_device(ctx, camera_params)
+        print("\nBuilding GPU TLAS...")
+        var tlas_t0 = perf_counter_ns()
+        var gpu_tlas = GpuTlas[TLAS_WIDTH](ctx, instances)
+        ctx.synchronize()
+        var tlas_t1 = perf_counter_ns()
+
+        var tlas_validation = gpu_tlas.tree.validate(tlas_bounds)
+        print(
+            t"TLAS build:"
+            t" total={round(ns_to_ms(Int(tlas_t1 - tlas_t0)), 3)} ms |"
+            t" collapse={round(ns_to_ms(gpu_tlas.tree.collapse_ns), 3)} ms"
+        )
+        print(
+            t"TLAS validation: sorted={tlas_validation.sorted_ok} | "
+            t"values={tlas_validation.values_ok} | "
+            t"topology={tlas_validation.topology_ok} | "
+            t"bounds={tlas_validation.bounds_ok} | "
+            t"root={tlas_validation.root_idx}"
+        )
+
+        print("\nUploading camera params and tracing TLAS on GPU...")
+        var setup_t0 = perf_counter_ns()
+        var d_camera_params = copy_list_to_device[DType.float32](
+            ctx,
+            camera_params,
+        )
         var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](ray_count * 3)
         var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](ray_count * 2)
-        var d_rgb = ctx.enqueue_create_buffer[DType.uint32](ray_count)
         ctx.synchronize()
-        var upload_t1 = perf_counter_ns()
+        var setup_t1 = perf_counter_ns()
         print(
-            t"Upload/setup: {round(ns_to_ms(Int(upload_t1 - upload_t0)), 3)} ms"
+            t"Setup/upload: {round(ns_to_ms(Int(setup_t1 - setup_t0)), 3)} ms"
         )
 
-        print("\nTracing TLAS camera rays on GPU...")
         var trace_t0 = perf_counter_ns()
-        launch_tlas_lbvh_camera_primary(
+        gpu_tlas.launch_camera_triangle_primary[BLAS_WIDTH](
             ctx,
             gpu_blas,
-            gpu_tlas,
             d_camera_params,
             d_hits_f32,
             d_hits_u32,
             ray_count,
             WIDTH,
             HEIGHT,
-            1,
         )
         ctx.synchronize()
         var trace_t1 = perf_counter_ns()
@@ -225,25 +278,17 @@ def main() raises:
             t"{round(ns_to_mrays_per_s(trace_ns, ray_count), 3)} Mrays/s"
         )
 
-        print("\nShading normals on GPU...")
-        var shade_t0 = perf_counter_ns()
-        launch_shade_tlas_normals(
-            ctx,
-            gpu_blas,
-            gpu_tlas,
-            d_hits_u32,
-            d_rgb,
-            ray_count,
+        print("\nWriting normal PPM...")
+        var write_t0 = perf_counter_ns()
+        write_ppm_normals_from_hits(
+            DEFAULT_OUTPUT_PATH,
             WIDTH,
             HEIGHT,
+            tri_vertices,
+            instances,
+            d_hits_f32,
+            d_hits_u32,
         )
-        ctx.synchronize()
-        var shade_t1 = perf_counter_ns()
-        print(t"Shade: {round(ns_to_ms(Int(shade_t1 - shade_t0)), 3)} ms")
-
-        print("\nWriting PPM...")
-        var write_t0 = perf_counter_ns()
-        write_ppm_from_packed_rgb(DEFAULT_OUTPUT_PATH, WIDTH, HEIGHT, d_rgb)
         ctx.synchronize()
         var write_t1 = perf_counter_ns()
         print(t"Write: {round(ns_to_ms(Int(write_t1 - write_t0)), 3)} ms")

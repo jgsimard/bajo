@@ -13,8 +13,9 @@ bench_quat = "mojo -I. bench/bench_quat.mojo"
 bench_aabb = "mojo -I. bench/bench_aabb.mojo"
 bench_obj = "mojo -I. bench/bench_obj.mojo"
 bench_gpu_sort = "mojo -I. bench/bench_gpu_sort.mojo"
-bench_bvh_cpu = "mojo -I . bench/bvh/bench_bounds_bvh_primitives.mojo"
-bench_bvh_gpu = "mojo -I . bench/bvh/bench_lbvh.mojo"
+bench_bvh_cpu = "mojo -I . bench/bvh/bench_cpu_bvh.mojo"
+bench_bvh_gpu = "mojo -I . bench/bvh/bench_gpu_bounds_bvh.mojo"
+bench_bvh_gpu_tlas = "mojo -I . bench/bvh/bench_gpu_tlas.mojo"
 bench_all = { depends-on = [
   "bench_quat",
   "bench_aabb",
@@ -25,9 +26,14 @@ bench_all = { depends-on = [
 ] }
 example_lbvh = { cmd = "mojo -I . examples/lbvh_normals.mojo", depends-on = ["download_assets"] }
 test_bvh = "bash scripts/run_tests.sh test/core/bvh"
+bench_bvh = { depends-on = [
+  "bench_bvh_cpu",
+  "bench_bvh_gpu",
+  "bench_bvh_gpu_tlas"
+] }
 fmt = "mojo format ."
 
 [dependencies]
-mojo = ">=1.0.0b2.dev2026051606,<2"
-max = ">=26.4.0.dev2026051606,<27"
+mojo = ">=1.0.0b2.dev2026051706,<2"
+max = ">=26.4.0.dev2026051706,<27"
 python = ">=3.14.4,<3.15"

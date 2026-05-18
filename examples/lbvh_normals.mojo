@@ -141,7 +141,6 @@ def write_ppm_normals_from_hits(
                     var t = hf[i * 3 + 0]
 
                     if prim == MISS_PRIM or inst == MISS_PRIM or t >= 1.0e20:
-                        # dark blue-gray
                         out[j + 0] = UInt8(18)
                         out[j + 1] = UInt8(22)
                         out[j + 2] = UInt8(30)
@@ -262,9 +261,14 @@ def main() raises:
         )
 
         var trace_t0 = perf_counter_ns()
-        gpu_tlas.launch_camera_triangle_primary[BLAS_WIDTH](
+        gpu_tlas.launch_camera_primary["triangle", BLAS_WIDTH](
             ctx,
-            gpu_blas,
+            gpu_blas.tree.wide_bounds,
+            gpu_blas.tree.wide_data,
+            gpu_blas.tree.wide_counts,
+            gpu_blas.leaf_vertices,
+            gpu_blas.leaf_prims,
+            gpu_blas.tree.root_idx,
             d_camera_params,
             d_hits_f32,
             d_hits_u32,

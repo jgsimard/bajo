@@ -27,6 +27,13 @@ from bajo.bvh.gpu.tlas import GpuTlas
 from bajo.bvh.gpu.sphere_bvh import GpuSphereBvh
 from bajo.bvh.gpu.triangle_bvh import GpuTriangleBvh
 from bajo.bvh.gpu.utils import _upload_rays, _download_full_hit_checksum
+from bajo.bvh.constants import (
+    TRACE_PRIMARY_FULL,
+    TRACE_SHADOW,
+    TRACE_PRIMARY_T,
+    GPU_TRAVERSAL_STACK_SIZE,
+    EMPTY_LANE,
+)
 
 
 comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"
@@ -259,14 +266,21 @@ def _bench_tlas_triangles_primary[
     var d_rays = ctx.enqueue_create_buffer[DType.float32](len(rays_flat))
     var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](ray_count * 3)
     var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](ray_count * 2)
+    var d_flags = ctx.enqueue_create_buffer[DType.uint32](ray_count)
 
     _upload_rays(ctx, d_rays, rays_flat)
-    tlas.launch_uploaded_triangle_primary[blas_width](
+    tlas.launch_uploaded["triangle", TRACE_PRIMARY_FULL, blas_width](
         ctx,
-        blas,
+        blas.tree.wide_bounds,
+        blas.tree.wide_data,
+        blas.tree.wide_counts,
+        blas.leaf_vertices,
+        blas.leaf_prims,
+        blas.tree.root_idx,
         d_rays,
         d_hits_f32,
         d_hits_u32,
+        d_flags,
         ray_count,
     )
     ctx.synchronize()
@@ -278,12 +292,18 @@ def _bench_tlas_triangles_primary[
 
     for _ in range(repeats):
         var t0 = perf_counter_ns()
-        tlas.launch_uploaded_triangle_primary[blas_width](
+        tlas.launch_uploaded["triangle", TRACE_PRIMARY_FULL, blas_width](
             ctx,
-            blas,
+            blas.tree.wide_bounds,
+            blas.tree.wide_data,
+            blas.tree.wide_counts,
+            blas.leaf_vertices,
+            blas.leaf_prims,
+            blas.tree.root_idx,
             d_rays,
             d_hits_f32,
             d_hits_u32,
+            d_flags,
             ray_count,
         )
         ctx.synchronize()
@@ -313,10 +333,23 @@ def _bench_tlas_triangles_shadow[
 ) raises -> Tuple[Int, UInt32]:
     var d_rays = ctx.enqueue_create_buffer[DType.float32](len(rays_flat))
     var d_flags = ctx.enqueue_create_buffer[DType.uint32](ray_count)
+    var d_dummy_f32 = ctx.enqueue_create_buffer[DType.float32](ray_count * 3)
+    var d_dummy_u32 = ctx.enqueue_create_buffer[DType.uint32](ray_count * 2)
 
     _upload_rays(ctx, d_rays, rays_flat)
-    tlas.launch_uploaded_triangle_shadow[blas_width](
-        ctx, blas, d_rays, d_flags, ray_count
+    tlas.launch_uploaded["triangle", TRACE_SHADOW, blas_width](
+        ctx,
+        blas.tree.wide_bounds,
+        blas.tree.wide_data,
+        blas.tree.wide_counts,
+        blas.leaf_vertices,
+        blas.leaf_prims,
+        blas.tree.root_idx,
+        d_rays,
+        d_dummy_f32,
+        d_dummy_u32,
+        d_flags,
+        ray_count,
     )
     ctx.synchronize()
 
@@ -325,8 +358,19 @@ def _bench_tlas_triangles_shadow[
 
     for _ in range(repeats):
         var t0 = perf_counter_ns()
-        tlas.launch_uploaded_triangle_shadow[blas_width](
-            ctx, blas, d_rays, d_flags, ray_count
+        tlas.launch_uploaded["triangle", TRACE_SHADOW, blas_width](
+            ctx,
+            blas.tree.wide_bounds,
+            blas.tree.wide_data,
+            blas.tree.wide_counts,
+            blas.leaf_vertices,
+            blas.leaf_prims,
+            blas.tree.root_idx,
+            d_rays,
+            d_dummy_f32,
+            d_dummy_u32,
+            d_flags,
+            ray_count,
         )
         ctx.synchronize()
         var t1 = perf_counter_ns()
@@ -417,14 +461,21 @@ def _bench_tlas_spheres_primary[
     var d_rays = ctx.enqueue_create_buffer[DType.float32](len(rays_flat))
     var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](ray_count * 3)
     var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](ray_count * 2)
+    var d_flags = ctx.enqueue_create_buffer[DType.uint32](ray_count)
 
     _upload_rays(ctx, d_rays, rays_flat)
-    tlas.launch_uploaded_sphere_primary[blas_width](
+    tlas.launch_uploaded["sphere", TRACE_PRIMARY_FULL, blas_width](
         ctx,
-        blas,
+        blas.tree.wide_bounds,
+        blas.tree.wide_data,
+        blas.tree.wide_counts,
+        blas.leaf_spheres,
+        blas.leaf_prims,
+        blas.tree.root_idx,
         d_rays,
         d_hits_f32,
         d_hits_u32,
+        d_flags,
         ray_count,
     )
     ctx.synchronize()
@@ -436,8 +487,19 @@ def _bench_tlas_spheres_primary[
 
     for _ in range(repeats):
         var t0 = perf_counter_ns()
-        tlas.launch_uploaded_sphere_primary[blas_width](
-            ctx, blas, d_rays, d_hits_f32, d_hits_u32, ray_count
+        tlas.launch_uploaded["sphere", TRACE_PRIMARY_FULL, blas_width](
+            ctx,
+            blas.tree.wide_bounds,
+            blas.tree.wide_data,
+            blas.tree.wide_counts,
+            blas.leaf_spheres,
+            blas.leaf_prims,
+            blas.tree.root_idx,
+            d_rays,
+            d_hits_f32,
+            d_hits_u32,
+            d_flags,
+            ray_count,
         )
         ctx.synchronize()
         var t1 = perf_counter_ns()
@@ -466,10 +528,23 @@ def _bench_tlas_spheres_shadow[
 ) raises -> Tuple[Int, UInt32]:
     var d_rays = ctx.enqueue_create_buffer[DType.float32](len(rays_flat))
     var d_flags = ctx.enqueue_create_buffer[DType.uint32](ray_count)
+    var d_dummy_f32 = ctx.enqueue_create_buffer[DType.float32](ray_count * 3)
+    var d_dummy_u32 = ctx.enqueue_create_buffer[DType.uint32](ray_count * 2)
 
     _upload_rays(ctx, d_rays, rays_flat)
-    tlas.launch_uploaded_sphere_shadow[blas_width](
-        ctx, blas, d_rays, d_flags, ray_count
+    tlas.launch_uploaded["sphere", TRACE_SHADOW, blas_width](
+        ctx,
+        blas.tree.wide_bounds,
+        blas.tree.wide_data,
+        blas.tree.wide_counts,
+        blas.leaf_spheres,
+        blas.leaf_prims,
+        blas.tree.root_idx,
+        d_rays,
+        d_dummy_f32,
+        d_dummy_u32,
+        d_flags,
+        ray_count,
     )
     ctx.synchronize()
 
@@ -478,8 +553,19 @@ def _bench_tlas_spheres_shadow[
 
     for _ in range(repeats):
         var t0 = perf_counter_ns()
-        tlas.launch_uploaded_sphere_shadow[blas_width](
-            ctx, blas, d_rays, d_flags, ray_count
+        tlas.launch_uploaded["sphere", TRACE_SHADOW, blas_width](
+            ctx,
+            blas.tree.wide_bounds,
+            blas.tree.wide_data,
+            blas.tree.wide_counts,
+            blas.leaf_spheres,
+            blas.leaf_prims,
+            blas.tree.root_idx,
+            d_rays,
+            d_dummy_f32,
+            d_dummy_u32,
+            d_flags,
+            ray_count,
         )
         ctx.synchronize()
         var t1 = perf_counter_ns()

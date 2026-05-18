@@ -19,7 +19,6 @@ from bajo.bvh.gpu.bounds_bvh import (
     _copy_u32_to_device,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
     GPU_WIDE_BOUNDS_STRIDE,
-    _gpu_miss_prim,
     _wide_lane_base,
     _intersect_wide_node_bounds,
 )
@@ -199,8 +198,8 @@ def trace_gpu_wide_tlas_ray[
 
     var best_hit = Hit.miss()
     best_hit.t = ray.t_max
-    best_hit.prim = _gpu_miss_prim
-    best_hit.inst = _gpu_miss_prim
+    best_hit.prim = EMPTY_LANE
+    best_hit.inst = EMPTY_LANE
 
     var stack = InlineArray[UInt32, GPU_TRAVERSAL_STACK_SIZE](
         uninitialized=True

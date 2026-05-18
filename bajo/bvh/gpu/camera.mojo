@@ -1,7 +1,7 @@
 from bajo.bvh.types import Ray, Hit
 from bajo.bvh.constants import (
     _gpu_inf_t,
-    _gpu_miss_prim,
+    EMPTY_LANE,
     TRACE_PRIMARY_FULL,
     TRACE_PRIMARY_T,
     TRACE_SHADOW,
@@ -82,7 +82,7 @@ def _write_camera_miss_result[
         out_f32[hit_base + 0] = _gpu_inf_t
         out_f32[hit_base + 1] = 0.0
         out_f32[hit_base + 2] = 0.0
-        out_u32[ray_idx] = _gpu_miss_prim
+        out_u32[ray_idx] = EMPTY_LANE
     elif mode == TRACE_PRIMARY_T:
         out_f32[ray_idx] = _gpu_inf_t
     else:

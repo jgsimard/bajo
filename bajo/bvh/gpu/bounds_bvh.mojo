@@ -48,7 +48,6 @@ comptime GPU_WIDE_BOUNDS_STRIDE = 6
 comptime GPU_TRI_LEAF_VERTEX_STRIDE = 9
 comptime GPU_SPHERE_STRIDE = 4
 comptime _gpu_inf_t = Float32(3.4028234663852886e38)
-comptime _gpu_miss_prim = UInt32(0xFFFFFFFF)
 
 
 @always_inline

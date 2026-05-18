@@ -1,7 +1,5 @@
 from bajo.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
-    _copy_f32_to_device,
-    _gpu_miss_prim,
     GPU_TRAVERSAL_STACK_SIZE,
     _wide_lane_base,
     _intersect_wide_node_bounds,
@@ -42,7 +40,7 @@ def trace_gpu_wide_ray[
 
     var hit = Hit.miss()
     hit.t = ray.t_max
-    hit.prim = _gpu_miss_prim
+    hit.prim = EMPTY_LANE
 
     var stack = InlineArray[UInt32, GPU_TRAVERSAL_STACK_SIZE](
         uninitialized=True

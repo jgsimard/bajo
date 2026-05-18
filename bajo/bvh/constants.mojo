@@ -7,7 +7,6 @@ comptime TRACE_PRIMARY_T = "primary_t"
 comptime TRACE_SHADOW = "shadow"
 
 comptime _gpu_inf_t = Float32(3.4028234663852886e38)
-comptime _gpu_miss_prim = UInt32(0xFFFFFFFF)
 
 comptime GPU_TRAVERSAL_STACK_SIZE = 64
 comptime GPU_REDUCE_THREADS = 4096

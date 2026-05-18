@@ -43,7 +43,9 @@ def trace_gpu_wide_ray[
     hit.t = ray.t_max
     hit.prim = _gpu_miss_prim
 
-    var stack = InlineArray[UInt32, GPU_TRAVERSAL_STACK_SIZE](fill=0)
+    var stack = InlineArray[UInt32, GPU_TRAVERSAL_STACK_SIZE](
+        uninitialized=True
+    )
     var stack_ptr = 0
     var current = root_idx
 

@@ -202,7 +202,9 @@ def trace_gpu_wide_tlas_ray[
     best_hit.prim = _gpu_miss_prim
     best_hit.inst = _gpu_miss_prim
 
-    var stack = InlineArray[UInt32, GPU_TRAVERSAL_STACK_SIZE](fill=0)
+    var stack = InlineArray[UInt32, GPU_TRAVERSAL_STACK_SIZE](
+        uninitialized=True
+    )
     var stack_ptr = 0
     var current = tlas_root_idx
 

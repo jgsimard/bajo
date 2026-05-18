@@ -1,7 +1,8 @@
 from bajo.bvh.types import Ray, Hit
 from bajo.core.intersect import intersect_ray_aabb
 from bajo.core.vec import Vec3
-from bajo.bvh.cpu.bounds_bvh import BoundsBvh, EMPTY_LANE
+from bajo.bvh.cpu.bounds_bvh import BoundsBvh
+from bajo.bvh.constants import EMPTY_LANE, CPU_TRAVERSAL_STACK_SIZE
 
 
 @always_inline
@@ -16,7 +17,9 @@ def traverse_wide_ray_bvh[
     var out_hit = Hit.miss()
     out_hit.t = ray.t_max
 
-    var stack = InlineArray[UInt32, 64](fill=0)
+    var stack = InlineArray[UInt32, CPU_TRAVERSAL_STACK_SIZE](
+        uninitialized=True
+    )
     var s_ptr = 0
     var n_idx = UInt32(0)
 
@@ -36,6 +39,10 @@ def traverse_wide_ray_bvh[
                     if node.counts[i] == 0:
                         stack[s_ptr] = node.data[i]
                         s_ptr += 1
+                        debug_assert["safe"](
+                            s_ptr < CPU_TRAVERSAL_STACK_SIZE,
+                            "CPU BVH traversal stack overflow",
+                        )
                     else:
                         if leaf_fn(
                             ray,

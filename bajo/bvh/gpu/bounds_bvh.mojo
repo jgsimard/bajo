@@ -262,7 +262,9 @@ def _collect_encoded_leaf_payloads_gpu[
     out_leaf_block_indices: UnsafePointer[UInt32, MutAnyOrigin],
     leaf_block_idx: UInt32,
 ):
-    var stack = InlineArray[UInt32, GPU_TRAVERSAL_STACK_SIZE](fill=0)
+    var stack = InlineArray[UInt32, GPU_TRAVERSAL_STACK_SIZE](
+        uninitialized=True
+    )
     var sp = 0
     stack[sp] = encoded
     sp += 1

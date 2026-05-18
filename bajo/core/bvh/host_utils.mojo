@@ -66,13 +66,13 @@ def append_camera_rays(
     up_hint: Vec3f32,
     width: Int,
     height: Int,
+    fov_scale: Float32,
 ):
     var forward = normalize(target - origin)
     var right = normalize(cross(forward, up_hint))
     var up = normalize(cross(right, forward))
 
     var aspect = Float32(width) / Float32(height)
-    var fov_scale = Float32(0.75)
 
     for y in range(height):
         for x in range(width):
@@ -91,6 +91,7 @@ def generate_primary_rays(
     width: Int,
     height: Int,
     views: Int,
+    fov_scale: Float32 = 0.75,
 ) -> List[Ray]:
     var rays = List[Ray](capacity=width * height * views)
 
@@ -109,6 +110,7 @@ def generate_primary_rays(
             Vec3f32(0.0, 1.0, 0.0),
             width,
             height,
+            fov_scale,
         )
 
     if views >= 2:
@@ -119,6 +121,7 @@ def generate_primary_rays(
             Vec3f32(0.0, 1.0, 0.0),
             width,
             height,
+            fov_scale,
         )
 
     if views >= 3:
@@ -129,6 +132,7 @@ def generate_primary_rays(
             Vec3f32(0.0, 0.0, 1.0),
             width,
             height,
+            fov_scale,
         )
 
     return rays^
@@ -153,6 +157,7 @@ def append_camera_params(
     origin: Vec3f32,
     target: Vec3f32,
     up_hint: Vec3f32,
+    fov: Float32,
 ):
     var forward = normalize(target - origin)
     var right = normalize(cross(forward, up_hint))
@@ -170,6 +175,7 @@ def append_camera_params(
     params.append(up.x)
     params.append(up.y)
     params.append(up.z)
+    params.append(fov)
 
 
 def generate_camera_params(
@@ -192,6 +198,7 @@ def generate_camera_params(
             center + Vec3f32(0.0, 0.0, -dist),
             center,
             Vec3f32(0.0, 1.0, 0.0),
+            0.75,
         )
 
     if views >= 2:
@@ -200,6 +207,7 @@ def generate_camera_params(
             center + Vec3f32(-dist, 0.0, 0.0),
             center,
             Vec3f32(0.0, 1.0, 0.0),
+            0.75,
         )
 
     if views >= 3:
@@ -208,6 +216,7 @@ def generate_camera_params(
             center + Vec3f32(0.0, dist, 0.0),
             center,
             Vec3f32(0.0, 0.0, 1.0),
+            0.75,
         )
 
     return params^

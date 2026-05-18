@@ -96,6 +96,7 @@ def _make_camera_params(tlas: Tlas[TLAS_WIDTH]) -> List[Float32]:
         extent.y * 0.18,
         scene_w * 0.10,
     )
+    var fov = Float32(0.75)
 
     var params = List[Float32](capacity=12)
     append_camera_params(
@@ -103,6 +104,7 @@ def _make_camera_params(tlas: Tlas[TLAS_WIDTH]) -> List[Float32]:
         eye,
         target,
         Vec3f32(0.0, 1.0, 0.0),
+        fov,
     )
     return params^
 

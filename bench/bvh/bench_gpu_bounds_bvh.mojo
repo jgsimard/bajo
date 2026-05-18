@@ -29,13 +29,14 @@ from bajo.core.bvh.gpu.utils import _upload_rays, _download_full_hit_checksum
 comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"
 comptime PRIMARY_WIDTH = 1280
 comptime PRIMARY_HEIGHT = 640
-comptime PRIMARY_VIEWS = 5
+comptime FOV_SCALE = 0.2
+comptime PRIMARY_VIEWS = 3
 comptime BENCH_REPEATS = 8
 comptime SPHERE_GRID_X = 64
 comptime SPHERE_GRID_Y = 64
 comptime SPHERE_RAY_WIDTH = 1280
 comptime SPHERE_RAY_HEIGHT = 640
-comptime SPHERE_RAY_VIEWS = 5
+comptime SPHERE_RAY_VIEWS = 3
 
 
 def _trace_cpu_triangle_bvh[
@@ -373,7 +374,7 @@ def main() raises:
 
     print("\nGenerating rays...")
     var rays = generate_primary_rays(
-        bounds, PRIMARY_WIDTH, PRIMARY_HEIGHT, PRIMARY_VIEWS
+        bounds, PRIMARY_WIDTH, PRIMARY_HEIGHT, PRIMARY_VIEWS, FOV_SCALE
     )
     var rays_flat = flatten_rays(rays)
     print(t"rays : {len(rays)}")
@@ -426,7 +427,7 @@ def main() raises:
         var spheres = _make_sphere_grid()
         var sb = _sphere_bounds(spheres)
         var sphere_rays = generate_primary_rays(
-            sb, SPHERE_RAY_WIDTH, SPHERE_RAY_HEIGHT, SPHERE_RAY_VIEWS
+            sb, SPHERE_RAY_WIDTH, SPHERE_RAY_HEIGHT, SPHERE_RAY_VIEWS, FOV_SCALE
         )
         var sphere_rays_flat = flatten_rays(sphere_rays)
         print(t"spheres : {len(spheres)}")

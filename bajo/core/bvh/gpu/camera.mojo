@@ -9,11 +9,12 @@ from bajo.core.bvh.constants import (
 from bajo.core.vec import Vec3f32, normalize
 
 
-comptime CAMERA_PARAM_STRIDE = 12
+comptime CAMERA_PARAM_STRIDE = 13
 comptime CAMERA_ORIGIN = 0
 comptime CAMERA_FORWARD = 3
 comptime CAMERA_RIGHT = 6
 comptime CAMERA_UP = 9
+comptime CAMERA_FOV = 12
 
 
 @always_inline
@@ -49,9 +50,9 @@ def _make_camera_ray(
     var f = Vec3f32.load(camera_params, base + CAMERA_FORWARD)
     var r = Vec3f32.load(camera_params, base + CAMERA_RIGHT)
     var u = Vec3f32.load(camera_params, base + CAMERA_UP)
+    var fov_scale = camera_params[base + CAMERA_FOV]
 
     var aspect = Float32(width) / Float32(height)
-    var fov_scale = Float32(0.75)
 
     var sx = ((Float32(px_i) + 0.5) / Float32(width)) * 2.0 - 1.0
     var sy = 1.0 - ((Float32(py_i) + 0.5) / Float32(height)) * 2.0

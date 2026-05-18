@@ -11,7 +11,6 @@ Because Mojo is still relatively new, I am currently building out the foundation
 Common commands:
 
 ```bash
-pixi run download_assets   # download example/benchmark assets
 pixi run test              # run all tests
 pixi run bench_all         # run all benchmarks
 ```

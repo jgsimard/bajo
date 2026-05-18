@@ -158,7 +158,6 @@ struct TriangleLeafBlock[width: Int](Copyable):
         self.valid_lane = SIMD[DType.bool, Self.width](fill=False)
 
 
-@fieldwise_init
 struct Instance(Copyable):
     """Instance of a BLAS in world space.
 

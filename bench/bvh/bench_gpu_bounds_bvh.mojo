@@ -1,6 +1,5 @@
 from std.benchmark import keep
 from std.math import abs, round, min
-from std.sys import has_accelerator
 from std.time import perf_counter_ns
 from std.gpu import DeviceContext, DeviceBuffer
 
@@ -61,9 +60,132 @@ def _trace_cpu_sphere_bvh[
     return checksum
 
 
-@always_inline
-def _stage_total_without_static(build_ns: Int, traversal_ns: Int) -> Int:
-    return build_ns + traversal_ns
+def _print_cpu_ref_header():
+    var c0 = String("case").ascii_ljust(22)
+    var c1 = String("trace").ascii_rjust(8)
+    var c2 = String("checksum").ascii_rjust(12)
+
+    print(t"{c0} {c1} {c2}")
+    print("---------------------- -------- ------------")
+
+
+def _print_cpu_ref_row(
+    label: String,
+    traversal_ns: Int,
+    checksum: Float64,
+):
+    var trace_ms = round(ns_to_ms(traversal_ns), 3)
+    var checksum_r = round(checksum, 3)
+
+    var c0 = label.ascii_ljust(22)
+    var c1 = String(t"{trace_ms}").ascii_rjust(8)
+    var c2 = String(t"{checksum_r}").ascii_rjust(12)
+
+    print(t"{c0} {c1} {c2}")
+
+
+def _print_gpu_table_header(has_reference: Bool):
+    var c0 = String("case").ascii_ljust(8)
+    var c1 = String("build").ascii_rjust(8)
+    var c2 = String("collapse").ascii_rjust(10)
+    var c3 = String("pack").ascii_rjust(8)
+    var c4 = String("trace").ascii_rjust(8)
+    var c5 = String("MRay/s").ascii_rjust(9)
+    var c6 = String("hits").ascii_rjust(8)
+    var c7 = String("checksum").ascii_rjust(12)
+
+    if has_reference:
+        var c8 = String("diff").ascii_rjust(10)
+        var c9 = String("status").ascii_ljust(6)
+
+        print(t"{c0} {c1} {c2} {c3} {c4} {c5} {c6} {c7} {c8} {c9}")
+        print(
+            "-------- -------- ---------- -------- -------- --------- --------"
+            " ------------ ---------- ------"
+        )
+    else:
+        print(t"{c0} {c1} {c2} {c3} {c4} {c5} {c6} {c7}")
+        print(
+            "-------- -------- ---------- -------- -------- --------- --------"
+            " ------------"
+        )
+
+
+def _print_gpu_row[
+    width: Int
+](
+    label: String,
+    build_ns: Int,
+    collapse_ns: Int,
+    pack_ns: Int,
+    kernel_ns: Int,
+    ray_count: Int,
+    checksum: Float64,
+    diff: Float64,
+    hit_count: UInt32,
+):
+    comptime CHECKSUM_ABS_EPS = 1.0e-3
+    comptime CHECKSUM_PER_HIT_EPS = 1.0e-6
+
+    var build_ms = round(ns_to_ms(build_ns), 3)
+    var collapse_ms = round(ns_to_ms(collapse_ns), 3)
+    var pack_ms = round(ns_to_ms(pack_ns), 3)
+    var kernel_ms = round(ns_to_ms(kernel_ns), 3)
+    var mrays = round(ns_to_mrays_per_s(kernel_ns, ray_count), 3)
+    var checksum_r = round(checksum, 3)
+    var diff_r = round(diff, 6)
+
+    var per_hit_diff = Float64(0.0)
+    if hit_count > 0:
+        per_hit_diff = diff / Float64(hit_count)
+
+    var status = String("OK")
+    if diff > CHECKSUM_ABS_EPS and per_hit_diff > CHECKSUM_PER_HIT_EPS:
+        status = String("CHECK")
+
+    var c0 = label.ascii_ljust(8)
+    var c1 = String(t"{build_ms}").ascii_rjust(8)
+    var c2 = String(t"{collapse_ms}").ascii_rjust(10)
+    var c3 = String(t"{pack_ms}").ascii_rjust(8)
+    var c4 = String(t"{kernel_ms}").ascii_rjust(8)
+    var c5 = String(t"{mrays}").ascii_rjust(9)
+    var c6 = String(t"{hit_count}").ascii_rjust(8)
+    var c7 = String(t"{checksum_r}").ascii_rjust(12)
+    var c8 = String(t"{diff_r}").ascii_rjust(10)
+    var c9 = status.ascii_ljust(6)
+
+    print(t"{c0} {c1} {c2} {c3} {c4} {c5} {c6} {c7} {c8} {c9}")
+
+
+def _print_gpu_row_no_ref[
+    width: Int
+](
+    label: String,
+    build_ns: Int,
+    collapse_ns: Int,
+    pack_ns: Int,
+    kernel_ns: Int,
+    ray_count: Int,
+    checksum: Float64,
+    hit_count: UInt32,
+):
+    var build_ms = round(ns_to_ms(build_ns), 3)
+    var collapse_ms = round(ns_to_ms(collapse_ns), 3)
+    var pack_ms = round(ns_to_ms(pack_ns), 3)
+    var kernel_ms = round(ns_to_ms(kernel_ns), 3)
+    var mrays = round(ns_to_mrays_per_s(kernel_ns, ray_count), 3)
+    var checksum_r = round(checksum, 3)
+
+    var c0 = label.ascii_ljust(8)
+    var c1 = String(t"{build_ms}").ascii_rjust(8)
+    var c2 = String(t"{collapse_ms}").ascii_rjust(10)
+    var c3 = String(t"{pack_ms}").ascii_rjust(8)
+    var c4 = String(t"{kernel_ms}").ascii_rjust(8)
+    var c5 = String(t"{mrays}").ascii_rjust(9)
+    var c6 = String(t"{hit_count}").ascii_rjust(8)
+    var c7 = String(t"{checksum_r}").ascii_rjust(12)
+
+    print(t"{c0} {c1} {c2} {c3} {c4} {c5} {c6} {c7}")
 
 
 def _bench_uploaded_primary[
@@ -105,83 +227,6 @@ def _bench_uploaded_primary[
         checksum,
         hit_count,
         abs(checksum - reference_checksum),
-    )
-
-
-def _print_gpu_table_header(has_reference: Bool):
-    if has_reference:
-        print(
-            "| case | build ms | collapse ms | pack ms | trace ms | "
-            "MRays/s | hits | checksum | diff | status |"
-        )
-    else:
-        print(
-            "| case | build ms | collapse ms | pack ms | trace ms | "
-            "MRays/s | hits | checksum |"
-        )
-
-
-def _print_gpu_row[
-    width: Int
-](
-    label: String,
-    build_ns: Int,
-    collapse_ns: Int,
-    pack_ns: Int,
-    kernel_ns: Int,
-    ray_count: Int,
-    checksum: Float64,
-    diff: Float64,
-    hit_count: UInt32,
-):
-    comptime CHECKSUM_ABS_EPS = 1.0e-3
-    comptime CHECKSUM_PER_HIT_EPS = 1.0e-6
-
-    var build_ms = round(ns_to_ms(build_ns), 3)
-    var collapse_ms = round(ns_to_ms(collapse_ns), 3)
-    var pack_ms = round(ns_to_ms(pack_ns), 3)
-    var kernel_ms = round(ns_to_ms(kernel_ns), 3)
-    var mrays = round(ns_to_mrays_per_s(kernel_ns, ray_count), 3)
-    var checksum_r = round(checksum, 3)
-    var diff_r = round(diff, 6)
-
-    var per_hit_diff = Float64(0.0)
-    if hit_count > 0:
-        per_hit_diff = diff / Float64(hit_count)
-
-    var status = String("OK")
-    if diff > CHECKSUM_ABS_EPS and per_hit_diff > CHECKSUM_PER_HIT_EPS:
-        status = String("CHECK")
-
-    print(
-        t"| {label} | {build_ms} | {collapse_ms} | {pack_ms} | "
-        t"{kernel_ms} | {mrays} | {hit_count} | {checksum_r} | "
-        t"{diff_r} | {status} |"
-    )
-
-
-def _print_gpu_row_no_ref[
-    width: Int
-](
-    label: String,
-    build_ns: Int,
-    collapse_ns: Int,
-    pack_ns: Int,
-    kernel_ns: Int,
-    ray_count: Int,
-    checksum: Float64,
-    hit_count: UInt32,
-):
-    var build_ms = round(ns_to_ms(build_ns), 3)
-    var collapse_ms = round(ns_to_ms(collapse_ns), 3)
-    var pack_ms = round(ns_to_ms(pack_ns), 3)
-    var kernel_ms = round(ns_to_ms(kernel_ns), 3)
-    var mrays = round(ns_to_mrays_per_s(kernel_ns, ray_count), 3)
-    var checksum_r = round(checksum, 3)
-
-    print(
-        t"| {label} | {build_ms} | {collapse_ms} | {pack_ms} | "
-        t"{kernel_ms} | {mrays} | {hit_count} | {checksum_r} |"
     )
 
 
@@ -374,7 +419,11 @@ def main() raises:
 
     print("\nGenerating rays...")
     var rays = generate_primary_rays(
-        bounds, PRIMARY_WIDTH, PRIMARY_HEIGHT, PRIMARY_VIEWS, FOV_SCALE
+        bounds,
+        PRIMARY_WIDTH,
+        PRIMARY_HEIGHT,
+        PRIMARY_VIEWS,
+        FOV_SCALE,
     )
     var rays_flat = flatten_rays(rays)
     print(t"rays : {len(rays)}")
@@ -383,17 +432,19 @@ def main() raises:
     print("----------------------")
     print("\nCPU reference")
     var cpu_bvh = TriangleBvh[8].__init__["lbvh"](
-        tri_vertices.unsafe_ptr(), UInt32(len(tri_vertices) / 3)
+        tri_vertices.unsafe_ptr().unsafe_mut_cast[True](),
+        UInt32(len(tri_vertices) / 3),
     )
     var cpu_t0 = perf_counter_ns()
     var reference_checksum = _trace_cpu_triangle_bvh[8](cpu_bvh, rays)
     var cpu_t1 = perf_counter_ns()
-    print("| case | traversal ms | checksum |")
-    print(
-        t"| TriangleBvh[8] lbvh | "
-        t"{round(ns_to_ms(Int(cpu_t1 - cpu_t0)), 3)} | "
-        t"{round(reference_checksum, 3)} |\n"
+    _print_cpu_ref_header()
+    _print_cpu_ref_row(
+        String("TriangleBvh[8] lbvh"),
+        Int(cpu_t1 - cpu_t0),
+        reference_checksum,
     )
+    print("")
 
     with DeviceContext() as ctx:
         _print_gpu_table_header(True)
@@ -425,9 +476,13 @@ def main() raises:
         print("\nGPU SphereBvh[width]")
         print("--------------------")
         var spheres = _make_sphere_grid()
-        var sb = _sphere_bounds(spheres)
+        var sphere_bounds = _sphere_bounds(spheres)
         var sphere_rays = generate_primary_rays(
-            sb, SPHERE_RAY_WIDTH, SPHERE_RAY_HEIGHT, SPHERE_RAY_VIEWS, FOV_SCALE
+            sphere_bounds,
+            SPHERE_RAY_WIDTH,
+            SPHERE_RAY_HEIGHT,
+            SPHERE_RAY_VIEWS,
+            FOV_SCALE,
         )
         var sphere_rays_flat = flatten_rays(sphere_rays)
         print(t"spheres : {len(spheres)}")
@@ -435,7 +490,8 @@ def main() raises:
 
         print("\nCPU sphere reference")
         var cpu_sphere_bvh = SphereBvh[8].__init__["lbvh"](
-            spheres.unsafe_ptr(), UInt32(len(spheres))
+            spheres.unsafe_ptr().unsafe_mut_cast[True](),
+            UInt32(len(spheres)),
         )
         var cpu_sphere_t0 = perf_counter_ns()
         var sphere_reference_checksum = _trace_cpu_sphere_bvh[8](
@@ -443,11 +499,11 @@ def main() raises:
             sphere_rays,
         )
         var cpu_sphere_t1 = perf_counter_ns()
-        print("| case | traversal ms | checksum |")
-        print(
-            t"| SphereBvh[8] lbvh | "
-            t"{round(ns_to_ms(Int(cpu_sphere_t1 - cpu_sphere_t0)), 3)} | "
-            t"{round(sphere_reference_checksum, 3)} |"
+        _print_cpu_ref_header()
+        _print_cpu_ref_row(
+            String("SphereBvh[8] lbvh"),
+            Int(cpu_sphere_t1 - cpu_sphere_t0),
+            sphere_reference_checksum,
         )
 
         print("")

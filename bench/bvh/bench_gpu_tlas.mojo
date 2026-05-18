@@ -23,7 +23,6 @@ from bajo.bvh.host_utils import (
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.tlas import Tlas
 
-
 from bajo.bvh.gpu.tlas import GpuTlas
 from bajo.bvh.gpu.sphere_bvh import GpuSphereBvh
 from bajo.bvh.gpu.triangle_bvh import GpuTriangleBvh
@@ -491,7 +490,13 @@ def _bench_tlas_spheres_shadow[
 
 
 def _print_blas_build_table_header():
-    print("| case | build ms | collapse ms | pack ms |")
+    var c0 = String("case").ascii_ljust(18)
+    var c1 = String("build").ascii_rjust(8)
+    var c2 = String("collapse").ascii_rjust(10)
+    var c3 = String("pack").ascii_rjust(8)
+
+    print(t"{c0} {c1} {c2} {c3}")
+    print("------------------ -------- ---------- --------")
 
 
 def _print_blas_build_row(
@@ -500,17 +505,32 @@ def _print_blas_build_row(
     collapse_ns: Int,
     pack_ns: Int,
 ):
-    print(
-        t"| {label} | {round(ns_to_ms(build_ns), 3)} | "
-        t"{round(ns_to_ms(collapse_ns), 3)} | "
-        t"{round(ns_to_ms(pack_ns), 3)} |"
-    )
+    var build_ms = round(ns_to_ms(build_ns), 3)
+    var collapse_ms = round(ns_to_ms(collapse_ns), 3)
+    var pack_ms = round(ns_to_ms(pack_ns), 3)
+
+    var c0 = label.ascii_ljust(18)
+    var c1 = String(t"{build_ms}").ascii_rjust(8)
+    var c2 = String(t"{collapse_ms}").ascii_rjust(10)
+    var c3 = String(t"{pack_ms}").ascii_rjust(8)
+
+    print(t"{c0} {c1} {c2} {c3}")
 
 
 def _print_direct_table_header():
+    var c0 = String("case").ascii_ljust(22)
+    var c1 = String("primary").ascii_rjust(9)
+    var c2 = String("P MRay/s").ascii_rjust(9)
+    var c3 = String("hits").ascii_rjust(8)
+    var c4 = String("checksum").ascii_rjust(12)
+    var c5 = String("shadow").ascii_rjust(8)
+    var c6 = String("S MRay/s").ascii_rjust(9)
+    var c7 = String("occluded").ascii_rjust(8)
+
+    print(t"{c0} {c1} {c2} {c3} {c4} {c5} {c6} {c7}")
     print(
-        "| case | primary ms | P MRays/s | hits | checksum | shadow ms | S"
-        " MRays/s | occluded |"
+        "---------------------- --------- --------- -------- ------------"
+        " -------- --------- --------"
     )
 
 
@@ -523,18 +543,37 @@ def _print_direct_row(
     shadow_occluded: UInt32,
     ray_count: Int,
 ):
-    print(
-        t"| {label} | {round(ns_to_ms(primary_ns), 3)} | "
-        t"{round(ns_to_mrays_per_s(primary_ns, ray_count), 3)} | "
-        t"{primary_hits} | {round(primary_checksum, 3)} | "
-        t"{round(ns_to_ms(shadow_ns), 3)} | "
-        t"{round(ns_to_mrays_per_s(shadow_ns, ray_count), 3)} | "
-        t"{shadow_occluded} |"
-    )
+    var primary_ms = round(ns_to_ms(primary_ns), 3)
+    var primary_mrays = round(ns_to_mrays_per_s(primary_ns, ray_count), 3)
+    var checksum = round(primary_checksum, 3)
+    var shadow_ms = round(ns_to_ms(shadow_ns), 3)
+    var shadow_mrays = round(ns_to_mrays_per_s(shadow_ns, ray_count), 3)
+
+    var c0 = label.ascii_ljust(22)
+    var c1 = String(t"{primary_ms}").ascii_rjust(9)
+    var c2 = String(t"{primary_mrays}").ascii_rjust(9)
+    var c3 = String(t"{primary_hits}").ascii_rjust(8)
+    var c4 = String(t"{checksum}").ascii_rjust(12)
+    var c5 = String(t"{shadow_ms}").ascii_rjust(8)
+    var c6 = String(t"{shadow_mrays}").ascii_rjust(9)
+    var c7 = String(t"{shadow_occluded}").ascii_rjust(8)
+
+    print(t"{c0} {c1} {c2} {c3} {c4} {c5} {c6} {c7}")
 
 
 def _print_cpu_reference_table_header():
-    print("| case | inst | hits | checksum | shadow hits | inst checksum |")
+    var c0 = String("case").ascii_ljust(30)
+    var c1 = String("inst").ascii_rjust(5)
+    var c2 = String("hits").ascii_rjust(8)
+    var c3 = String("checksum").ascii_rjust(12)
+    var c4 = String("shadow").ascii_rjust(8)
+    var c5 = String("instsum").ascii_rjust(12)
+
+    print(t"{c0} {c1} {c2} {c3} {c4} {c5}")
+    print(
+        "------------------------------ ----- -------- ------------ --------"
+        " ------------"
+    )
 
 
 def _print_cpu_reference_row(
@@ -545,23 +584,59 @@ def _print_cpu_reference_row(
     shadow_hits: UInt32,
     inst_checksum: UInt64,
 ):
-    print(
-        t"| {label} | {inst_count} | {hits} | {round(checksum, 3)} | "
-        t"{shadow_hits} | {inst_checksum} |"
-    )
+    var checksum_r = round(checksum, 3)
+
+    var c0 = label.ascii_ljust(30)
+    var c1 = String(t"{inst_count}").ascii_rjust(5)
+    var c2 = String(t"{hits}").ascii_rjust(8)
+    var c3 = String(t"{checksum_r}").ascii_rjust(12)
+    var c4 = String(t"{shadow_hits}").ascii_rjust(8)
+    var c5 = String(t"{inst_checksum}").ascii_rjust(12)
+
+    print(t"{c0} {c1} {c2} {c3} {c4} {c5}")
 
 
 def _print_tlas_table_header(has_reference: Bool):
+    var c0 = String("case").ascii_ljust(28)
+    var c1 = String("inst").ascii_rjust(5)
+    var c2 = String("build").ascii_rjust(8)
+    var c3 = String("collapse").ascii_rjust(10)
+    var c4 = String("primary").ascii_rjust(9)
+    var c5 = String("P MRay/s").ascii_rjust(9)
+    var c6 = String("hits").ascii_rjust(8)
+    var c7 = String("checksum").ascii_rjust(12)
+
     if has_reference:
+        var c8 = String("dsum").ascii_rjust(10)
+        var c9 = String("dhit").ascii_rjust(6)
+        var c10 = String("instsum").ascii_rjust(12)
+        var c11 = String("dinst").ascii_rjust(8)
+        var c12 = String("shadow").ascii_rjust(8)
+        var c13 = String("S MRay/s").ascii_rjust(9)
+        var c14 = String("occ").ascii_rjust(8)
+        var c15 = String("docc").ascii_rjust(6)
+        var c16 = String("status").ascii_ljust(6)
+
         print(
-            "| case | inst | build ms | collapse ms | primary ms | P MRays/s |"
-            " hits | checksum | Δsum | Δhits | inst sum | Δinst | shadow ms | S"
-            " MRays/s | occluded | Δocc | status |"
+            t"{c0} {c1} {c2} {c3} {c4} {c5} {c6} {c7} "
+            t"{c8} {c9} {c10} {c11} {c12} {c13} {c14} {c15} {c16}"
+        )
+        print(
+            "---------------------------- ----- -------- ---------- ---------"
+            " --------- -------- ------------ ---------- ------ ------------"
+            " -------- -------- --------- -------- ------ ------"
         )
     else:
+        var c8 = String("instsum").ascii_rjust(12)
+        var c9 = String("shadow").ascii_rjust(8)
+        var c10 = String("S MRay/s").ascii_rjust(9)
+        var c11 = String("occ").ascii_rjust(8)
+
+        print(t"{c0} {c1} {c2} {c3} {c4} {c5} {c6} {c7} {c8} {c9} {c10} {c11}")
         print(
-            "| case | inst | build ms | collapse ms | primary ms | P MRays/s |"
-            " hits | checksum | inst sum | shadow ms | S MRays/s | occluded |"
+            "---------------------------- ----- -------- ---------- ---------"
+            " --------- -------- ------------ ------------ -------- ---------"
+            " --------"
         )
 
 
@@ -591,38 +666,51 @@ def _print_tlas_row(
     var shadow_mrays = round(ns_to_mrays_per_s(shadow_ns, ray_count), 3)
     var checksum_r = round(checksum, 3)
 
+    var c0 = label.ascii_ljust(28)
+    var c1 = String(t"{inst_count}").ascii_rjust(5)
+    var c2 = String(t"{build_ms}").ascii_rjust(8)
+    var c3 = String(t"{collapse_ms}").ascii_rjust(10)
+    var c4 = String(t"{primary_ms}").ascii_rjust(9)
+    var c5 = String(t"{primary_mrays}").ascii_rjust(9)
+    var c6 = String(t"{hits}").ascii_rjust(8)
+    var c7 = String(t"{checksum_r}").ascii_rjust(12)
+
     if has_reference:
         var diff = round(abs(checksum - reference_checksum), 6)
         var hit_diff = Int(hits) - Int(reference_hits)
         var inst_diff = Int(inst_checksum) - Int(reference_inst_checksum)
         var occ_diff = Int(occluded) - Int(reference_occluded)
 
+        var status = String("CHECK")
         if (
             diff <= 0.000001
             and hit_diff == 0
             and inst_diff == 0
             and occ_diff == 0
         ):
-            print(
-                t"| {label} | {inst_count} | {build_ms} | {collapse_ms} | "
-                t"{primary_ms} | {primary_mrays} | {hits} | {checksum_r} | "
-                t"{diff} | {hit_diff} | {inst_checksum} | {inst_diff} | "
-                t"{shadow_ms} | {shadow_mrays} | {occluded} | {occ_diff} | OK |"
-            )
-        else:
-            print(
-                t"| {label} | {inst_count} | {build_ms} | {collapse_ms} |"
-                t" {primary_ms} | {primary_mrays} | {hits} | {checksum_r} |"
-                t" {diff} | {hit_diff} | {inst_checksum} | {inst_diff} |"
-                t" {shadow_ms} | {shadow_mrays} | {occluded} | {occ_diff} |"
-                t" CHECK |"
-            )
-    else:
+            status = String("OK")
+
+        var c8 = String(t"{diff}").ascii_rjust(10)
+        var c9 = String(t"{hit_diff}").ascii_rjust(6)
+        var c10 = String(t"{inst_checksum}").ascii_rjust(12)
+        var c11 = String(t"{inst_diff}").ascii_rjust(8)
+        var c12 = String(t"{shadow_ms}").ascii_rjust(8)
+        var c13 = String(t"{shadow_mrays}").ascii_rjust(9)
+        var c14 = String(t"{occluded}").ascii_rjust(8)
+        var c15 = String(t"{occ_diff}").ascii_rjust(6)
+        var c16 = status.ascii_ljust(6)
+
         print(
-            t"| {label} | {inst_count} | {build_ms} | {collapse_ms} | "
-            t"{primary_ms} | {primary_mrays} | {hits} | {checksum_r} | "
-            t"{inst_checksum} | {shadow_ms} | {shadow_mrays} | {occluded} |"
+            t"{c0} {c1} {c2} {c3} {c4} {c5} {c6} {c7} "
+            t"{c8} {c9} {c10} {c11} {c12} {c13} {c14} {c15} {c16}"
         )
+    else:
+        var c8 = String(t"{inst_checksum}").ascii_rjust(12)
+        var c9 = String(t"{shadow_ms}").ascii_rjust(8)
+        var c10 = String(t"{shadow_mrays}").ascii_rjust(9)
+        var c11 = String(t"{occluded}").ascii_rjust(8)
+
+        print(t"{c0} {c1} {c2} {c3} {c4} {c5} {c6} {c7} {c8} {c9} {c10} {c11}")
 
 
 def _run_triangle_tlas_width[
@@ -791,6 +879,7 @@ def _bench_triangle_instance_set[
 
     var ref_primary = (Float64(0.0), UInt32(0), UInt64(0))
     var ref_shadow = UInt32(0)
+
     if has_ref:
         ref_primary = _cpu_tlas_triangle_reference[2, 8](
             cpu_blas, instances, rays
@@ -815,6 +904,7 @@ def _bench_triangle_instance_set[
     print(t"Rays: {len(rays)}")
     print_vec3_rounded("TLAS bounds min:", bounds._min)
     print_vec3_rounded("TLAS bounds max:", bounds._max)
+
     print("\nTLAS results")
     _print_tlas_table_header(has_ref)
 
@@ -879,274 +969,278 @@ def main() raises:
     print_vec3_rounded("BLAS bounds min:", blas_bounds._min)
     print_vec3_rounded("BLAS bounds max:", blas_bounds._max)
 
-    comptime if has_accelerator():
-        with DeviceContext() as ctx:
-            print("\nBuilding GpuTriangleBvh[4]...")
-            _ = GpuTriangleBvh[4](ctx, tri_vertices)
-            ctx.synchronize()
+    comptime if not has_accelerator():
+        raise "No compatible GPU found; skipped Mojo GPU TLAS benchmark."
+    with DeviceContext() as ctx:
+        print("\nBuilding GpuTriangleBvh[4]...")
+        _ = GpuTriangleBvh[4](ctx, tri_vertices)
+        ctx.synchronize()
 
-            var blas_b0 = perf_counter_ns()
-            var blas = GpuTriangleBvh[4](ctx, tri_vertices)
-            ctx.synchronize()
-            var blas_b1 = perf_counter_ns()
+        var blas_b0 = perf_counter_ns()
+        var blas = GpuTriangleBvh[4](ctx, tri_vertices)
+        ctx.synchronize()
+        var blas_b1 = perf_counter_ns()
 
-            _print_blas_build_table_header()
-            _print_blas_build_row(
-                "GpuTriangleBvh[4]",
-                Int(blas_b1 - blas_b0),
-                blas.tree.collapse_ns,
-                blas.leaf_pack_ns,
-            )
+        _print_blas_build_table_header()
+        _print_blas_build_row(
+            "GpuTriangleBvh[4]",
+            Int(blas_b1 - blas_b0),
+            blas.tree.collapse_ns,
+            blas.leaf_pack_ns,
+        )
 
-            print("Building CPU TriangleBvh[8] LBVH reference for 4x4 grid...")
-            var cpu_blas = TriangleBvh[8].__init__["lbvh"](
-                tri_vertices.unsafe_ptr(),
-                UInt32(len(tri_vertices) / 3),
-            )
+        print("Building CPU TriangleBvh[8] LBVH reference for 4x4 grid...")
+        var cpu_blas = TriangleBvh[8].__init__["lbvh"](
+            tri_vertices.unsafe_ptr(),
+            UInt32(len(tri_vertices) / 3),
+        )
 
-            print("\nSingle instance triangle TLAS")
-            print("-----------------------------")
-            var single_instances = _make_single_instance(blas_bounds)
-            var single_bounds = _instances_bounds(single_instances)
-            var single_rays = generate_primary_rays(
-                single_bounds,
-                PRIMARY_WIDTH,
-                PRIMARY_HEIGHT,
-                PRIMARY_VIEWS,
-            )
-            var single_rays_flat = flatten_rays(single_rays)
-            print(t"Rays: {len(single_rays)}")
+        print("\nSingle instance triangle TLAS")
+        print("-----------------------------")
+        var single_instances = _make_single_instance(blas_bounds)
+        var single_bounds = _instances_bounds(single_instances)
+        var single_rays = generate_primary_rays(
+            single_bounds,
+            PRIMARY_WIDTH,
+            PRIMARY_HEIGHT,
+            PRIMARY_VIEWS,
+        )
+        var single_rays_flat = flatten_rays(single_rays)
+        print(t"Rays: {len(single_rays)}")
 
-            var direct = _bench_direct_triangle_primary[4](
-                ctx,
-                blas,
-                single_rays_flat,
-                len(single_rays),
-                BENCH_REPEATS,
-            )
-            var direct_shadow = _bench_direct_triangle_shadow[4](
-                ctx,
-                blas,
-                single_rays_flat,
-                len(single_rays),
-                BENCH_REPEATS,
-            )
-            print("\nDirect BLAS")
-            _print_direct_table_header()
-            _print_direct_row(
-                "direct triangle BLAS",
-                direct[0],
-                direct[1],
-                direct[2],
-                direct_shadow[0],
-                direct_shadow[1],
-                len(single_rays),
-            )
+        var direct = _bench_direct_triangle_primary[4](
+            ctx,
+            blas,
+            single_rays_flat,
+            len(single_rays),
+            BENCH_REPEATS,
+        )
+        var direct_shadow = _bench_direct_triangle_shadow[4](
+            ctx,
+            blas,
+            single_rays_flat,
+            len(single_rays),
+            BENCH_REPEATS,
+        )
 
-            print("\nTLAS results")
-            _print_tlas_table_header(True)
+        print("\nDirect BLAS")
+        _print_direct_table_header()
+        _print_direct_row(
+            "direct triangle BLAS",
+            direct[0],
+            direct[1],
+            direct[2],
+            direct_shadow[0],
+            direct_shadow[1],
+            len(single_rays),
+        )
 
-            _run_triangle_tlas_width[2, 4](
-                ctx,
-                blas,
-                single_instances,
-                single_rays_flat,
-                len(single_rays),
-                BENCH_REPEATS,
-                "tlas2/blas4 single",
-                True,
-                direct[1],
-                direct[2],
-                UInt64(0),
-                direct_shadow[1],
-            )
-            _run_triangle_tlas_width[4, 4](
-                ctx,
-                blas,
-                single_instances,
-                single_rays_flat,
-                len(single_rays),
-                BENCH_REPEATS,
-                "tlas4/blas4 single",
-                True,
-                direct[1],
-                direct[2],
-                UInt64(0),
-                direct_shadow[1],
-            )
-            _run_triangle_tlas_width[8, 4](
-                ctx,
-                blas,
-                single_instances,
-                single_rays_flat,
-                len(single_rays),
-                BENCH_REPEATS,
-                "tlas8/blas4 single",
-                True,
-                direct[1],
-                direct[2],
-                UInt64(0),
-                direct_shadow[1],
-            )
+        print("\nTLAS results")
+        _print_tlas_table_header(True)
 
-            _bench_triangle_instance_set[4](ctx, blas, cpu_blas, blas_bounds)
-            _bench_triangle_instance_set[8](ctx, blas, cpu_blas, blas_bounds)
-            _bench_triangle_instance_set[16](ctx, blas, cpu_blas, blas_bounds)
+        _run_triangle_tlas_width[2, 4](
+            ctx,
+            blas,
+            single_instances,
+            single_rays_flat,
+            len(single_rays),
+            BENCH_REPEATS,
+            "tlas2/blas4 single",
+            True,
+            direct[1],
+            direct[2],
+            UInt64(0),
+            direct_shadow[1],
+        )
+        _run_triangle_tlas_width[4, 4](
+            ctx,
+            blas,
+            single_instances,
+            single_rays_flat,
+            len(single_rays),
+            BENCH_REPEATS,
+            "tlas4/blas4 single",
+            True,
+            direct[1],
+            direct[2],
+            UInt64(0),
+            direct_shadow[1],
+        )
+        _run_triangle_tlas_width[8, 4](
+            ctx,
+            blas,
+            single_instances,
+            single_rays_flat,
+            len(single_rays),
+            BENCH_REPEATS,
+            "tlas8/blas4 single",
+            True,
+            direct[1],
+            direct[2],
+            UInt64(0),
+            direct_shadow[1],
+        )
 
-            print("\nSphere TLAS")
-            print("-----------")
-            var sphere_scene = _make_sphere_scene(32, 32)
-            var spheres = sphere_scene[0].copy()
-            var sphere_bounds = sphere_scene[1].copy()
-            print(t"Spheres: {len(spheres)}")
-            print_vec3_rounded("Sphere BLAS bounds min:", sphere_bounds._min)
-            print_vec3_rounded("Sphere BLAS bounds max:", sphere_bounds._max)
+        _bench_triangle_instance_set[4](ctx, blas, cpu_blas, blas_bounds)
+        _bench_triangle_instance_set[8](ctx, blas, cpu_blas, blas_bounds)
+        _bench_triangle_instance_set[16](ctx, blas, cpu_blas, blas_bounds)
 
-            print("Building GpuSphereBvh[4]...")
-            _ = GpuSphereBvh[4](ctx, spheres)
-            ctx.synchronize()
+        print("\nSphere TLAS")
+        print("-----------")
+        var sphere_scene = _make_sphere_scene(32, 32)
+        var spheres = sphere_scene[0].copy()
+        var sphere_bounds = sphere_scene[1].copy()
+        print(t"Spheres: {len(spheres)}")
+        print_vec3_rounded("Sphere BLAS bounds min:", sphere_bounds._min)
+        print_vec3_rounded("Sphere BLAS bounds max:", sphere_bounds._max)
 
-            var sph_b0 = perf_counter_ns()
-            var sphere_blas = GpuSphereBvh[4](ctx, spheres)
-            ctx.synchronize()
-            var sph_b1 = perf_counter_ns()
-            _print_blas_build_table_header()
-            _print_blas_build_row(
-                "GpuSphereBvh[4]",
-                Int(sph_b1 - sph_b0),
-                sphere_blas.tree.collapse_ns,
-                sphere_blas.leaf_pack_ns,
-            )
+        print("Building GpuSphereBvh[4]...")
+        _ = GpuSphereBvh[4](ctx, spheres)
+        ctx.synchronize()
 
-            var sphere_single = _make_single_instance(sphere_bounds)
-            var sphere_rays = generate_primary_rays(
-                sphere_bounds, PRIMARY_WIDTH, PRIMARY_HEIGHT, PRIMARY_VIEWS
-            )
-            var sphere_rays_flat = flatten_rays(sphere_rays)
-            var direct_sphere = _bench_direct_sphere_primary[4](
-                ctx,
-                sphere_blas,
-                sphere_rays_flat,
-                len(sphere_rays),
-                BENCH_REPEATS,
-            )
-            var direct_sphere_shadow = _bench_direct_sphere_shadow[4](
-                ctx,
-                sphere_blas,
-                sphere_rays_flat,
-                len(sphere_rays),
-                BENCH_REPEATS,
-            )
-            print("\nDirect sphere BLAS")
-            _print_direct_table_header()
-            _print_direct_row(
-                "direct sphere BLAS",
-                direct_sphere[0],
-                direct_sphere[1],
-                direct_sphere[2],
-                direct_sphere_shadow[0],
-                direct_sphere_shadow[1],
-                len(sphere_rays),
-            )
+        var sph_b0 = perf_counter_ns()
+        var sphere_blas = GpuSphereBvh[4](ctx, spheres)
+        ctx.synchronize()
+        var sph_b1 = perf_counter_ns()
 
-            print("\nSphere single-instance TLAS")
-            _print_tlas_table_header(True)
+        _print_blas_build_table_header()
+        _print_blas_build_row(
+            "GpuSphereBvh[4]",
+            Int(sph_b1 - sph_b0),
+            sphere_blas.tree.collapse_ns,
+            sphere_blas.leaf_pack_ns,
+        )
 
-            _run_sphere_tlas_width[2, 4](
-                ctx,
-                sphere_blas,
-                sphere_single,
-                sphere_rays_flat,
-                len(sphere_rays),
-                BENCH_REPEATS,
-                "sph tlas2/blas4 single",
-                True,
-                direct_sphere[1],
-                direct_sphere[2],
-                direct_sphere_shadow[1],
-            )
-            _run_sphere_tlas_width[4, 4](
-                ctx,
-                sphere_blas,
-                sphere_single,
-                sphere_rays_flat,
-                len(sphere_rays),
-                BENCH_REPEATS,
-                "sph tlas4/blas4 single",
-                True,
-                direct_sphere[1],
-                direct_sphere[2],
-                direct_sphere_shadow[1],
-            )
-            _run_sphere_tlas_width[8, 4](
-                ctx,
-                sphere_blas,
-                sphere_single,
-                sphere_rays_flat,
-                len(sphere_rays),
-                BENCH_REPEATS,
-                "sph tlas8/blas4 single",
-                True,
-                direct_sphere[1],
-                direct_sphere[2],
-                direct_sphere_shadow[1],
-            )
+        var sphere_single = _make_single_instance(sphere_bounds)
+        var sphere_rays = generate_primary_rays(
+            sphere_bounds, PRIMARY_WIDTH, PRIMARY_HEIGHT, PRIMARY_VIEWS
+        )
+        var sphere_rays_flat = flatten_rays(sphere_rays)
 
-            var sphere_grid = _make_translated_grid_instances(
-                sphere_bounds, 4, 4
-            )
-            var sphere_grid_bounds = _instances_bounds(sphere_grid)
-            var sphere_grid_rays = generate_primary_rays(
-                sphere_grid_bounds,
-                PRIMARY_WIDTH,
-                PRIMARY_HEIGHT,
-                PRIMARY_VIEWS,
-            )
-            var sphere_grid_rays_flat = flatten_rays(sphere_grid_rays)
-            print("\nSphere TLAS translated grid 4x4")
-            print(t"Instances: {len(sphere_grid)}")
-            print(t"Rays: {len(sphere_grid_rays)}")
-            print_vec3_rounded("TLAS bounds min:", sphere_grid_bounds._min)
-            print_vec3_rounded("TLAS bounds max:", sphere_grid_bounds._max)
-            _print_tlas_table_header(False)
-            _run_sphere_tlas_width[2, 4](
-                ctx,
-                sphere_blas,
-                sphere_grid,
-                sphere_grid_rays_flat,
-                len(sphere_grid_rays),
-                BENCH_REPEATS,
-                "sph tlas2/blas4 grid 4x4",
-                False,
-                0.0,
-                UInt32(0),
-                UInt32(0),
-            )
-            _run_sphere_tlas_width[4, 4](
-                ctx,
-                sphere_blas,
-                sphere_grid,
-                sphere_grid_rays_flat,
-                len(sphere_grid_rays),
-                BENCH_REPEATS,
-                "sph tlas4/blas4 grid 4x4",
-                False,
-                0.0,
-                UInt32(0),
-                UInt32(0),
-            )
-            _run_sphere_tlas_width[8, 4](
-                ctx,
-                sphere_blas,
-                sphere_grid,
-                sphere_grid_rays_flat,
-                len(sphere_grid_rays),
-                BENCH_REPEATS,
-                "sph tlas8/blas4 grid 4x4",
-                False,
-                0.0,
-                UInt32(0),
-                UInt32(0),
-            )
-    else:
-        print("No compatible GPU found; skipped Mojo GPU TLAS benchmark.")
+        var direct_sphere = _bench_direct_sphere_primary[4](
+            ctx,
+            sphere_blas,
+            sphere_rays_flat,
+            len(sphere_rays),
+            BENCH_REPEATS,
+        )
+        var direct_sphere_shadow = _bench_direct_sphere_shadow[4](
+            ctx,
+            sphere_blas,
+            sphere_rays_flat,
+            len(sphere_rays),
+            BENCH_REPEATS,
+        )
+
+        print("\nDirect sphere BLAS")
+        _print_direct_table_header()
+        _print_direct_row(
+            "direct sphere BLAS",
+            direct_sphere[0],
+            direct_sphere[1],
+            direct_sphere[2],
+            direct_sphere_shadow[0],
+            direct_sphere_shadow[1],
+            len(sphere_rays),
+        )
+
+        print("\nSphere single-instance TLAS")
+        _print_tlas_table_header(True)
+
+        _run_sphere_tlas_width[2, 4](
+            ctx,
+            sphere_blas,
+            sphere_single,
+            sphere_rays_flat,
+            len(sphere_rays),
+            BENCH_REPEATS,
+            "sph tlas2/blas4 single",
+            True,
+            direct_sphere[1],
+            direct_sphere[2],
+            direct_sphere_shadow[1],
+        )
+        _run_sphere_tlas_width[4, 4](
+            ctx,
+            sphere_blas,
+            sphere_single,
+            sphere_rays_flat,
+            len(sphere_rays),
+            BENCH_REPEATS,
+            "sph tlas4/blas4 single",
+            True,
+            direct_sphere[1],
+            direct_sphere[2],
+            direct_sphere_shadow[1],
+        )
+        _run_sphere_tlas_width[8, 4](
+            ctx,
+            sphere_blas,
+            sphere_single,
+            sphere_rays_flat,
+            len(sphere_rays),
+            BENCH_REPEATS,
+            "sph tlas8/blas4 single",
+            True,
+            direct_sphere[1],
+            direct_sphere[2],
+            direct_sphere_shadow[1],
+        )
+
+        var sphere_grid = _make_translated_grid_instances(sphere_bounds, 4, 4)
+        var sphere_grid_bounds = _instances_bounds(sphere_grid)
+        var sphere_grid_rays = generate_primary_rays(
+            sphere_grid_bounds,
+            PRIMARY_WIDTH,
+            PRIMARY_HEIGHT,
+            PRIMARY_VIEWS,
+        )
+        var sphere_grid_rays_flat = flatten_rays(sphere_grid_rays)
+
+        print("\nSphere TLAS translated grid 4x4")
+        print(t"Instances: {len(sphere_grid)}")
+        print(t"Rays: {len(sphere_grid_rays)}")
+        print_vec3_rounded("TLAS bounds min:", sphere_grid_bounds._min)
+        print_vec3_rounded("TLAS bounds max:", sphere_grid_bounds._max)
+
+        _print_tlas_table_header(False)
+
+        _run_sphere_tlas_width[2, 4](
+            ctx,
+            sphere_blas,
+            sphere_grid,
+            sphere_grid_rays_flat,
+            len(sphere_grid_rays),
+            BENCH_REPEATS,
+            "sph tlas2/blas4 grid 4x4",
+            False,
+            0.0,
+            UInt32(0),
+            UInt32(0),
+        )
+        _run_sphere_tlas_width[4, 4](
+            ctx,
+            sphere_blas,
+            sphere_grid,
+            sphere_grid_rays_flat,
+            len(sphere_grid_rays),
+            BENCH_REPEATS,
+            "sph tlas4/blas4 grid 4x4",
+            False,
+            0.0,
+            UInt32(0),
+            UInt32(0),
+        )
+        _run_sphere_tlas_width[8, 4](
+            ctx,
+            sphere_blas,
+            sphere_grid,
+            sphere_grid_rays_flat,
+            len(sphere_grid_rays),
+            BENCH_REPEATS,
+            "sph tlas8/blas4 grid 4x4",
+            False,
+            0.0,
+            UInt32(0),
+            UInt32(0),
+        )

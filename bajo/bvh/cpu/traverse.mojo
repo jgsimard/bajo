@@ -1,7 +1,8 @@
 from bajo.bvh.types import Ray, Hit
 from bajo.core.intersect import intersect_ray_aabb
 from bajo.core.vec import Vec3
-from bajo.bvh.cpu.bounds_bvh import BoundsBvh, EMPTY_LANE
+from bajo.bvh.cpu.bounds_bvh import BoundsBvh
+from bajo.bvh.constants import EMPTY_LANE, CPU_TRAVERSAL_STACK_SIZE
 
 
 @always_inline
@@ -16,8 +17,10 @@ def traverse_wide_ray_bvh[
     var out_hit = Hit.miss()
     out_hit.t = ray.t_max
 
-    var stack = InlineArray[UInt32, 64](fill=0)
-    var s_ptr = 0
+    var stack = InlineArray[UInt32, CPU_TRAVERSAL_STACK_SIZE](
+        uninitialized=True
+    )
+    var stack_ptr = 0
     var n_idx = UInt32(0)
 
     var O = Vec3[DType.float32, width](ray.o.x, ray.o.y, ray.o.z)
@@ -34,8 +37,8 @@ def traverse_wide_ray_bvh[
             for i in range(width):
                 if mask[i]:
                     if node.counts[i] == 0:
-                        stack[s_ptr] = node.data[i]
-                        s_ptr += 1
+                        stack[stack_ptr] = node.data[i]
+                        stack_ptr += 1
                     else:
                         if leaf_fn(
                             ray,
@@ -46,10 +49,10 @@ def traverse_wide_ray_bvh[
                             comptime if is_occlusion:
                                 return Hit.shadow_hit()
 
-        if s_ptr == 0:
+        if stack_ptr == 0:
             break
 
-        s_ptr -= 1
-        n_idx = stack[s_ptr]
+        stack_ptr -= 1
+        n_idx = stack[stack_ptr]
 
     return out_hit

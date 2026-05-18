@@ -1,7 +1,5 @@
 from bajo.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
-    _copy_f32_to_device,
-    _gpu_miss_prim,
     GPU_TRAVERSAL_STACK_SIZE,
     _wide_lane_base,
     _intersect_wide_node_bounds,
@@ -28,6 +26,7 @@ def trace_gpu_wide_ray[
         Ray,
         mut Hit,
     ) capturing -> Bool,
+    lifo: Bool = True,
 ](
     wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
     wide_data: UnsafePointer[UInt32, MutAnyOrigin],
@@ -41,9 +40,11 @@ def trace_gpu_wide_ray[
 
     var hit = Hit.miss()
     hit.t = ray.t_max
-    hit.prim = _gpu_miss_prim
+    hit.prim = EMPTY_LANE
 
-    var stack = InlineArray[UInt32, GPU_TRAVERSAL_STACK_SIZE](fill=0)
+    var stack = InlineArray[UInt32, GPU_TRAVERSAL_STACK_SIZE](
+        uninitialized=True
+    )
     var stack_ptr = 0
     var current = root_idx
 
@@ -59,58 +60,89 @@ def trace_gpu_wide_ray[
             node_t_max,
         )
 
-        var child_valid = InlineArray[Bool, width](fill=False)
-        var child_data = InlineArray[UInt32, width](fill=0)
-        var child_t = InlineArray[Float32, width](fill=0.0)
+        comptime if lifo:
+            var child_valid = InlineArray[Bool, width](fill=False)
+            var child_data = InlineArray[UInt32, width](fill=0)
+            var child_t = InlineArray[Float32, width](fill=0.0)
 
-        comptime for node_lane in range(width):
-            var lane_base = _wide_lane_base[width](current, node_lane)
-            var count = UInt32(wide_counts[lane_base])
+            comptime for node_lane in range(width):
+                var lane_base = _wide_lane_base[width](current, node_lane)
+                var count = UInt32(wide_counts[lane_base])
 
-            if count != EMPTY_LANE and bounds_hit.mask[node_lane]:
-                var data = UInt32(wide_data[lane_base])
+                if count != EMPTY_LANE and bounds_hit.mask[node_lane]:
+                    var data = UInt32(wide_data[lane_base])
 
-                if count == 0:
-                    child_valid[node_lane] = True
-                    child_data[node_lane] = data
-                    child_t[node_lane] = bounds_hit.tmin[node_lane]
-                else:
-                    var leaf_hit = leaf_fn(
-                        leaf_data_f32,
-                        leaf_data_u32,
-                        data,
-                        count,
-                        ray,
-                        hit,
-                    )
+                    if count == 0:
+                        child_valid[node_lane] = True
+                        child_data[node_lane] = data
+                        child_t[node_lane] = bounds_hit.tmin[node_lane]
+                    else:
+                        var leaf_hit = leaf_fn(
+                            leaf_data_f32,
+                            leaf_data_u32,
+                            data,
+                            count,
+                            ray,
+                            hit,
+                        )
 
-                    comptime if mode == TRACE_SHADOW:
-                        if leaf_hit:
-                            return Hit.shadow_hit()
+                        comptime if mode == TRACE_SHADOW:
+                            if leaf_hit:
+                                return Hit.shadow_hit()
 
-        # Push internal children far-to-near.
-        # Since stack is LIFO, nearest child is popped first.
-        comptime for _ in range(width):
-            var far_lane = -1
-            var far_t = -_gpu_inf_t
+            # Push internal children far-to-near.
+            # Since stack is LIFO, nearest child is popped first.
+            comptime for _ in range(width):
+                var far_lane = -1
+                var far_t = -_gpu_inf_t
 
-            comptime for lane in range(width):
-                if child_valid[lane]:
-                    var t = child_t[lane]
-                    if t >= far_t:
-                        far_t = t
-                        far_lane = lane
+                comptime for lane in range(width):
+                    if child_valid[lane]:
+                        var t = child_t[lane]
+                        if t >= far_t:
+                            far_t = t
+                            far_lane = lane
 
-            if far_lane != -1:
-                child_valid[far_lane] = False
+                if far_lane != -1:
+                    child_valid[far_lane] = False
 
-                comptime if mode != TRACE_SHADOW:
-                    if far_t > hit.t:
-                        continue
+                    comptime if mode != TRACE_SHADOW:
+                        if far_t > hit.t:
+                            continue
 
-                if stack_ptr < GPU_TRAVERSAL_STACK_SIZE:
-                    stack[stack_ptr] = child_data[far_lane]
-                    stack_ptr += 1
+                    if stack_ptr < GPU_TRAVERSAL_STACK_SIZE:
+                        stack[stack_ptr] = child_data[far_lane]
+                        stack_ptr += 1
+        else:
+            # basically the same as the cpu version
+            comptime for node_lane in range(width):
+                var lane_base = _wide_lane_base[width](current, node_lane)
+                var count = UInt32(wide_counts[lane_base])
+
+                if count != EMPTY_LANE and bounds_hit.mask[node_lane]:
+                    var data = UInt32(wide_data[lane_base])
+
+                    if count == 0:
+                        comptime if mode != TRACE_SHADOW:
+                            if bounds_hit.tmin[node_lane] > hit.t:
+                                continue
+
+                        if stack_ptr < GPU_TRAVERSAL_STACK_SIZE:
+                            stack[stack_ptr] = data
+                            stack_ptr += 1
+                    else:
+                        var leaf_hit = leaf_fn(
+                            leaf_data_f32,
+                            leaf_data_u32,
+                            data,
+                            count,
+                            ray,
+                            hit,
+                        )
+
+                        comptime if mode == TRACE_SHADOW:
+                            if leaf_hit:
+                                return Hit.shadow_hit()
 
         if stack_ptr == 0:
             break

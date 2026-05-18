@@ -186,15 +186,15 @@ struct ObjLineCursor[o: Origin]:
     def _parse_index_int(mut self, slash_terminates: Bool) -> Int:
         var sign = 1
         var output = 0
-
-        if self.pos < self.end and self.ptr.load(self.pos) == MINUS:
+        var b = self.ptr.load(self.pos)
+        if self.pos < self.end and b == MINUS:
             sign = -1
             self.pos += 1
-        elif self.pos < self.end and self.ptr.load(self.pos) == PLUS:
+        elif self.pos < self.end and b == PLUS:
             self.pos += 1
 
         while self.pos < self.end:
-            var b = self.ptr.load(self.pos)
+            b = self.ptr.load(self.pos)
             if slash_terminates and b == SLASH:
                 break
             if _is_ws_or_line_cut(b):

@@ -48,7 +48,6 @@ comptime GPU_WIDE_BOUNDS_STRIDE = 6
 comptime GPU_TRI_LEAF_VERTEX_STRIDE = 9
 comptime GPU_SPHERE_STRIDE = 4
 comptime _gpu_inf_t = Float32(3.4028234663852886e38)
-comptime _gpu_miss_prim = UInt32(0xFFFFFFFF)
 
 
 @always_inline
@@ -262,7 +261,9 @@ def _collect_encoded_leaf_payloads_gpu[
     out_leaf_block_indices: UnsafePointer[UInt32, MutAnyOrigin],
     leaf_block_idx: UInt32,
 ):
-    var stack = InlineArray[UInt32, GPU_TRAVERSAL_STACK_SIZE](fill=0)
+    var stack = InlineArray[UInt32, GPU_TRAVERSAL_STACK_SIZE](
+        uninitialized=True
+    )
     var sp = 0
     stack[sp] = encoded
     sp += 1

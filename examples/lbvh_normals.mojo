@@ -25,7 +25,7 @@ comptime WIDTH = 1280
 comptime HEIGHT = 720
 comptime GRID_X = 25
 comptime GRID_Z = 25
-comptime BLAS_WIDTH = 4
+comptime BLAS_WIDTH = 2
 comptime TLAS_WIDTH = 2
 comptime MISS_PRIM = UInt32(0xFFFFFFFF)
 

@@ -46,7 +46,7 @@ Legend
 
 1. 🚧 Math primitives (80%)
 2. 🚧 Pure-Mojo `.obj` / `.mtl` parser (90%)
-3. 🚧 GPU sort  (80%)
+3. 🚧 [GPU sort](bajo/sort/gpu/README.md)  (80%)
 4. 🚧 Gpu BVH  (70%)
 5. ⬜ GPU Hash Grid
 6. ⬜ Particle Simulation

@@ -27,10 +27,10 @@ Runs the GPU LBVH normal-rendering example. It should produce the following imag
 for a detailed version see [roadmap](roadmap.md)
 
 1. Math primitives (Vec, Mat, Quat, Ray, Hit, missing Spatial)
-2. Pure-Mojo `.obj` / `.mtl` parser (single threaded done)
+2. [obj parser](bajo/obj/) (single threaded done)
 3. [GPU sort](bajo/sort/gpu/README.md) (Bitonic, Radix, Onesweep, but only uints, missing segmented)
-4. CPU BVH  (Bounds, Triangle, Sphere, Tlas with 1 blas only)
-5. GPU BVH  (Bounds, Triangle, Sphere, Tlas with 1 blas only)
+4. [CPU BVH](bajo/bvh/cpu/)  (Bounds, Triangle, Sphere, Tlas with 1 blas only)
+5. [GPU BVH](bajo/bvh/cpu/)  (Bounds, Triangle, Sphere, Tlas with 1 blas only)
 6. GPU Hash Grid (not started)
 7. Particle Simulation (not started)
 8. SPH Fluid Simulation (not started)

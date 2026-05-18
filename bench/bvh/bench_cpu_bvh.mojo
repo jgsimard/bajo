@@ -85,37 +85,77 @@ def _hit_t_for_checksum(t: Float32) -> Float64:
     return 0.0
 
 
-def print_build_result(
+@fieldwise_init
+struct PrimaryBenchResult(Copyable):
+    var ns: Int
+    var checksum: Float64
+
+    @always_inline
+    def __init__(out self):
+        self.ns = 0
+        self.checksum = 0.0
+
+
+@fieldwise_init
+struct ShadowBenchResult(Copyable):
+    var ns: Int
+    var occluded: Int
+
+    @always_inline
+    def __init__(out self):
+        self.ns = 0
+        self.occluded = 0
+
+
+def print_result_legend():
+    var c0 = String("case").ascii_ljust(12)
+    var c1 = String("build").ascii_rjust(8)
+    var c2 = String("nodes").ascii_rjust(6)
+    var c3 = String("prims").ascii_rjust(6)
+    var c4 = String("primary").ascii_rjust(9)
+    var c5 = String("MRay/s").ascii_rjust(9)
+    var c6 = String("checksum").ascii_rjust(9)
+    var c7 = String("shadow").ascii_rjust(8)
+    var c8 = String("MRay/s").ascii_rjust(9)
+    var c9 = String("occ").ascii_rjust(7)
+
+    print(t"{c0} {c1} {c2} {c3} {c4} {c5} {c6} {c7} {c8} {c9}")
+    print(
+        "------------ -------- ------ ------ --------- --------- ---------"
+        " -------- --------- -------"
+    )
+
+
+def print_case_result(
     name: String,
-    ns: Int,
+    build_ns: Int,
     nodes: Int,
     prims: UInt32,
-):
-    var ms = round(ns_to_ms(ns), 3)
-    print(t"{name} | {ms} ms | nodes: {nodes} | prims: {prims}")
-
-
-def print_primary_result(
-    name: String,
-    best_ns: Int,
+    primary: PrimaryBenchResult,
+    shadow: ShadowBenchResult,
     ray_count: Int,
-    checksum: Float64,
 ):
-    var ms = round(ns_to_ms(best_ns), 3)
-    var mrays = round(ns_to_mrays_per_s(best_ns, ray_count), 3)
-    var csum = round(checksum, 3)
-    print(t"{name} | {ms} ms | {mrays} MRays/s | checksum: {csum}")
+    var build_ms = round(ns_to_ms(build_ns), 3)
 
+    var primary_ms = round(ns_to_ms(primary.ns), 3)
+    var primary_mrays = round(ns_to_mrays_per_s(primary.ns, ray_count), 3)
+    var checksum = round(primary.checksum, 3)
 
-def print_shadow_result(
-    name: String,
-    best_ns: Int,
-    ray_count: Int,
-    occluded: Int,
-):
-    var ms = round(ns_to_ms(best_ns), 3)
-    var mrays = round(ns_to_mrays_per_s(best_ns, ray_count), 3)
-    print(t"{name} | {ms} ms | {mrays} MRays/s | occluded: {occluded}")
+    var shadow_ms = round(ns_to_ms(shadow.ns), 3)
+    var shadow_mrays = round(ns_to_mrays_per_s(shadow.ns, ray_count), 3)
+
+    var c0 = name.ascii_ljust(12)
+    var c1 = String(t"{build_ms}").ascii_rjust(8)
+    var c2 = String(t"{nodes}").ascii_rjust(6)
+    var c3 = String(t"{prims}").ascii_rjust(6)
+    var c4 = String(t"{primary_ms}").ascii_rjust(9)
+    var c5 = String(t"{primary_mrays}").ascii_rjust(9)
+    var c6 = String(t"{checksum}").ascii_rjust(9)
+    var c7 = String(t"{shadow_ms}").ascii_rjust(8)
+    var c8 = String(t"{shadow_mrays}").ascii_rjust(9)
+    var c9 = String(t"{shadow.occluded}").ascii_rjust(7)
+
+    print(t"{c0} {c1} {c2} {c3} {c4} {c5} {c6} {c7} {c8} {c9}")
 
 
 def trace_triangle_primary[
@@ -172,7 +212,7 @@ def trace_sphere_shadow[
 
 def bench_triangle_primary[
     width: Int
-](name: String, bvh: TriangleBvh[width], rays: List[Ray]):
+](bvh: TriangleBvh[width], rays: List[Ray]) -> PrimaryBenchResult:
     var checksum = trace_triangle_primary[width](bvh, rays)
     var best_ns = Int.MAX
 
@@ -186,12 +226,12 @@ def bench_triangle_primary[
             best_ns = dt
 
     keep(checksum)
-    print_primary_result(name, best_ns, len(rays), checksum)
+    return PrimaryBenchResult(best_ns, checksum)
 
 
 def bench_triangle_shadow[
     width: Int
-](name: String, bvh: TriangleBvh[width], rays: List[Ray]):
+](bvh: TriangleBvh[width], rays: List[Ray]) -> ShadowBenchResult:
     var occluded = trace_triangle_shadow[width](bvh, rays)
     var best_ns = Int.MAX
 
@@ -205,12 +245,12 @@ def bench_triangle_shadow[
             best_ns = dt
 
     keep(occluded)
-    print_shadow_result(name, best_ns, len(rays), occluded)
+    return ShadowBenchResult(best_ns, occluded)
 
 
 def bench_sphere_primary[
     width: Int
-](name: String, bvh: SphereBvh[width], rays: List[Ray]):
+](bvh: SphereBvh[width], rays: List[Ray]) -> PrimaryBenchResult:
     var checksum = trace_sphere_primary[width](bvh, rays)
     var best_ns = Int.MAX
 
@@ -224,12 +264,12 @@ def bench_sphere_primary[
             best_ns = dt
 
     keep(checksum)
-    print_primary_result(name, best_ns, len(rays), checksum)
+    return PrimaryBenchResult(best_ns, checksum)
 
 
 def bench_sphere_shadow[
     width: Int
-](name: String, bvh: SphereBvh[width], rays: List[Ray]):
+](bvh: SphereBvh[width], rays: List[Ray]) -> ShadowBenchResult:
     var occluded = trace_sphere_shadow[width](bvh, rays)
     var best_ns = Int.MAX
 
@@ -243,7 +283,103 @@ def bench_sphere_shadow[
             best_ns = dt
 
     keep(occluded)
-    print_shadow_result(name, best_ns, len(rays), occluded)
+    return ShadowBenchResult(best_ns, occluded)
+
+
+@always_inline
+def _tri_case_name[width: Int, split_method: String]() -> String:
+    comptime if split_method == "median":
+        return String(t"tri{width} median ")
+    elif split_method == "sah":
+        return String(t"tri{width} sah    ")
+    else:
+        return String(t"tri{width} unknown")
+
+
+@always_inline
+def _sph_case_name[width: Int, split_method: String]() -> String:
+    comptime if split_method == "median":
+        return String(t"sph{width} median ")
+    elif split_method == "sah":
+        return String(t"sph{width} sah    ")
+    else:
+        return String(t"sph{width} unknown")
+
+
+def bench_triangle_case[
+    width: Int,
+    split_method: String,
+](vertices: List[Vec3f32], rays: List[Ray],):
+    var name = _tri_case_name[width, split_method]()
+
+    var t0 = perf_counter_ns()
+    var bvh = TriangleBvh[width].__init__[split_method](
+        vertices.unsafe_ptr().unsafe_mut_cast[True](),
+        UInt32(len(vertices) / 3),
+    )
+    var t1 = perf_counter_ns()
+
+    var build_ns = Int(t1 - t0)
+    var primary = bench_triangle_primary[width](bvh, rays)
+    var shadow = bench_triangle_shadow[width](bvh, rays)
+
+    print_case_result(
+        name,
+        build_ns,
+        len(bvh.tree.nodes),
+        bvh.tri_count,
+        primary,
+        shadow,
+        len(rays),
+    )
+
+    keep(len(bvh.tree.nodes))
+
+
+def bench_sphere_case[
+    width: Int,
+    split_method: String,
+](spheres: List[Sphere], rays: List[Ray],):
+    var name = _sph_case_name[width, split_method]()
+
+    var t0 = perf_counter_ns()
+    var bvh = SphereBvh[width].__init__[split_method](
+        spheres.unsafe_ptr().unsafe_mut_cast[True](),
+        UInt32(len(spheres)),
+    )
+    var t1 = perf_counter_ns()
+
+    var build_ns = Int(t1 - t0)
+    var primary = bench_sphere_primary[width](bvh, rays)
+    var shadow = bench_sphere_shadow[width](bvh, rays)
+
+    print_case_result(
+        name,
+        build_ns,
+        len(bvh.tree.nodes),
+        bvh.sphere_count,
+        primary,
+        shadow,
+        len(rays),
+    )
+
+    keep(len(bvh.tree.nodes))
+
+
+def bench_triangle_widths[
+    split_method: String
+](vertices: List[Vec3f32], rays: List[Ray],):
+    bench_triangle_case[2, split_method](vertices, rays)
+    bench_triangle_case[4, split_method](vertices, rays)
+    bench_triangle_case[8, split_method](vertices, rays)
+
+
+def bench_sphere_widths[
+    split_method: String
+](spheres: List[Sphere], rays: List[Ray],):
+    bench_sphere_case[2, split_method](spheres, rays)
+    bench_sphere_case[4, split_method](spheres, rays)
+    bench_sphere_case[8, split_method](spheres, rays)
 
 
 def main() raises:
@@ -261,134 +397,15 @@ def main() raises:
     print(t"Spheres: {len(spheres)}")
     print(t"Rays: {len(rays)}")
 
-    print("\nBuild")
-    print("-----")
+    print("\nResults")
+    print("-------")
+    print_result_legend()
 
-    var t0 = perf_counter_ns()
-    var tri2_median = TriangleBvh[2](
-        tri_vertices.unsafe_ptr(),
-        UInt32(len(tri_vertices) / 3),
-    )
-    var t1 = perf_counter_ns()
-    print_build_result(
-        "tri2 median ",
-        Int(t1 - t0),
-        len(tri2_median.tree.nodes),
-        tri2_median.tri_count,
-    )
+    bench_triangle_widths["median"](tri_vertices, rays)
+    bench_triangle_widths["sah"](tri_vertices, rays)
 
-    t0 = perf_counter_ns()
-    var tri4_median = TriangleBvh[4](
-        tri_vertices.unsafe_ptr(),
-        UInt32(len(tri_vertices) / 3),
-    )
-    t1 = perf_counter_ns()
-    print_build_result(
-        "tri4 median ",
-        Int(t1 - t0),
-        len(tri4_median.tree.nodes),
-        tri4_median.tri_count,
-    )
-
-    t0 = perf_counter_ns()
-    var tri8_median = TriangleBvh[8](
-        tri_vertices.unsafe_ptr(),
-        UInt32(len(tri_vertices) / 3),
-    )
-    t1 = perf_counter_ns()
-    print_build_result(
-        "tri8 median ",
-        Int(t1 - t0),
-        len(tri8_median.tree.nodes),
-        tri8_median.tri_count,
-    )
-
-    t0 = perf_counter_ns()
-    var tri4_sah = TriangleBvh[4].__init__["sah"](
-        tri_vertices.unsafe_ptr(),
-        UInt32(len(tri_vertices) / 3),
-    )
-    t1 = perf_counter_ns()
-    print_build_result(
-        "tri4 sah    ",
-        Int(t1 - t0),
-        len(tri4_sah.tree.nodes),
-        tri4_sah.tri_count,
-    )
-
-    t0 = perf_counter_ns()
-    var sph2_median = SphereBvh[2](
-        spheres.unsafe_ptr(),
-        UInt32(len(spheres)),
-    )
-    t1 = perf_counter_ns()
-    print_build_result(
-        "sph2 median ",
-        Int(t1 - t0),
-        len(sph2_median.tree.nodes),
-        sph2_median.sphere_count,
-    )
-
-    t0 = perf_counter_ns()
-    var sph4_median = SphereBvh[4](
-        spheres.unsafe_ptr(),
-        UInt32(len(spheres)),
-    )
-    t1 = perf_counter_ns()
-    print_build_result(
-        "sph4 median ",
-        Int(t1 - t0),
-        len(sph4_median.tree.nodes),
-        sph4_median.sphere_count,
-    )
-
-    t0 = perf_counter_ns()
-    var sph8_median = SphereBvh[8](
-        spheres.unsafe_ptr(),
-        UInt32(len(spheres)),
-    )
-    t1 = perf_counter_ns()
-    print_build_result(
-        "sph8 median ",
-        Int(t1 - t0),
-        len(sph8_median.tree.nodes),
-        sph8_median.sphere_count,
-    )
-
-    t0 = perf_counter_ns()
-    var sph4_sah = SphereBvh[4].__init__["sah"](
-        spheres.unsafe_ptr(),
-        UInt32(len(spheres)),
-    )
-    t1 = perf_counter_ns()
-    print_build_result(
-        "sph4 sah    ",
-        Int(t1 - t0),
-        len(sph4_sah.tree.nodes),
-        sph4_sah.sphere_count,
-    )
-
-    print("\nPrimary traversal")
-    print("-----------------")
-    bench_triangle_primary[2]("tri2 median ", tri2_median, rays)
-    bench_triangle_primary[4]("tri4 median ", tri4_median, rays)
-    bench_triangle_primary[8]("tri8 median ", tri8_median, rays)
-    bench_triangle_primary[4]("tri4 sah    ", tri4_sah, rays)
-    bench_sphere_primary[2]("sph2 median ", sph2_median, rays)
-    bench_sphere_primary[4]("sph4 median ", sph4_median, rays)
-    bench_sphere_primary[8]("sph8 median ", sph8_median, rays)
-    bench_sphere_primary[4]("sph4 sah    ", sph4_sah, rays)
-
-    print("\nShadow traversal")
-    print("----------------")
-    bench_triangle_shadow[2]("tri2 median ", tri2_median, rays)
-    bench_triangle_shadow[4]("tri4 median ", tri4_median, rays)
-    bench_triangle_shadow[8]("tri8 median ", tri8_median, rays)
-    bench_triangle_shadow[4]("tri4 sah    ", tri4_sah, rays)
-    bench_sphere_shadow[2]("sph2 median ", sph2_median, rays)
-    bench_sphere_shadow[4]("sph4 median ", sph4_median, rays)
-    bench_sphere_shadow[8]("sph8 median ", sph8_median, rays)
-    bench_sphere_shadow[4]("sph4 sah    ", sph4_sah, rays)
+    bench_sphere_widths["median"](spheres, rays)
+    bench_sphere_widths["sah"](spheres, rays)
 
     # Keep owning lists alive until after all BVHs and traversals are done.
     keep(len(tri_vertices))

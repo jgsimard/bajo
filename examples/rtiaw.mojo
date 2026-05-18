@@ -23,8 +23,8 @@ from bajo.core.random import (
     Rng,
 )
 
-from bajo.core.bvh.types import Ray as bRay, Sphere as bSphere
-from bajo.core.bvh.cpu.sphere_bvh import SphereBvh
+from bajo.bvh.types import Ray as bRay, Sphere as bSphere
+from bajo.bvh.cpu.sphere_bvh import SphereBvh
 
 
 comptime Point3 = Vec3f32

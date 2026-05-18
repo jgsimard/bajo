@@ -5,10 +5,10 @@ from std.utils.numerics import max_finite
 from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32, Vec3
 from bajo.core.intersect import intersect_ray_tri, intersect_ray_aabb
-from bajo.core.bvh.types import Ray, Sphere, Instance, Hit
+from bajo.bvh.types import Ray, Sphere, Instance, Hit
 from bajo.core.random import Rng
-from bajo.core.bvh.constants import EMPTY_LANE
-from bajo.core.bvh.cpu.bounds_bvh import (
+from bajo.bvh.constants import EMPTY_LANE
+from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvhBuilder,
     BoundsItem,
     BoundsBvh,
@@ -16,9 +16,9 @@ from bajo.core.bvh.cpu.bounds_bvh import (
     _partition_items_by_bin,
     _sah_items,
 )
-from bajo.core.bvh.cpu.triangle_bvh import TriangleBvh
-from bajo.core.bvh.cpu.sphere_bvh import SphereBvh
-from bajo.core.bvh.cpu.tlas import Tlas
+from bajo.bvh.cpu.triangle_bvh import TriangleBvh
+from bajo.bvh.cpu.sphere_bvh import SphereBvh
+from bajo.bvh.cpu.tlas import Tlas
 
 
 @always_inline

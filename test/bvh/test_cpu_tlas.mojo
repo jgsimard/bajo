@@ -1,9 +1,9 @@
 from std.testing import TestSuite, assert_true, assert_almost_equal
 
-from bajo.core.bvh.types import Ray, Instance, Sphere
-from bajo.core.bvh.cpu.triangle_bvh import TriangleBvh
-from bajo.core.bvh.cpu.sphere_bvh import SphereBvh
-from bajo.core.bvh.cpu.tlas import Tlas
+from bajo.bvh.types import Ray, Instance, Sphere
+from bajo.bvh.cpu.triangle_bvh import TriangleBvh
+from bajo.bvh.cpu.sphere_bvh import SphereBvh
+from bajo.bvh.cpu.tlas import Tlas
 from bajo.core.mat import _translation, _inv_translation
 from bajo.core.vec import Vec3f32
 

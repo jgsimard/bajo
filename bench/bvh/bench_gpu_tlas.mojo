@@ -13,21 +13,21 @@ from bajo.core.utils import (
 from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32
 from bajo.core.mat import Mat44f32, _translation, _inv_translation
-from bajo.core.bvh.types import Ray, Sphere, Instance
-from bajo.core.bvh.host_utils import (
+from bajo.bvh.types import Ray, Sphere, Instance
+from bajo.bvh.host_utils import (
     compute_bounds,
     generate_primary_rays,
     flatten_rays,
     hit_t_for_checksum,
 )
-from bajo.core.bvh.cpu.triangle_bvh import TriangleBvh
-from bajo.core.bvh.cpu.tlas import Tlas
+from bajo.bvh.cpu.triangle_bvh import TriangleBvh
+from bajo.bvh.cpu.tlas import Tlas
 
 
-from bajo.core.bvh.gpu.tlas import GpuTlas
-from bajo.core.bvh.gpu.sphere_bvh import GpuSphereBvh
-from bajo.core.bvh.gpu.triangle_bvh import GpuTriangleBvh
-from bajo.core.bvh.gpu.utils import _upload_rays, _download_full_hit_checksum
+from bajo.bvh.gpu.tlas import GpuTlas
+from bajo.bvh.gpu.sphere_bvh import GpuSphereBvh
+from bajo.bvh.gpu.triangle_bvh import GpuTriangleBvh
+from bajo.bvh.gpu.utils import _upload_rays, _download_full_hit_checksum
 
 
 comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"

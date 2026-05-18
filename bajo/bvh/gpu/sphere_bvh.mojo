@@ -3,7 +3,7 @@ from std.time import perf_counter_ns
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
 from std.utils.numerics import max_finite
 
-from bajo.core.bvh.constants import (
+from bajo.bvh.constants import (
     EMPTY_LANE,
     TRACE_PRIMARY_FULL,
     TRACE_SHADOW,
@@ -11,15 +11,15 @@ from bajo.core.bvh.constants import (
 )
 from bajo.core.intersect import intersect_ray_sphere
 from bajo.core.vec import Vec3f32, Vec3
-from bajo.core.bvh.types import Sphere, Ray, Hit, SphereLeafBlock
-from bajo.core.bvh.gpu.bounds_bvh import (
+from bajo.bvh.types import Sphere, Ray, Hit, SphereLeafBlock
+from bajo.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
     _copy_f32_to_device,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
     GPU_WIDE_BOUNDS_STRIDE,
     GPU_SPHERE_STRIDE,
 )
-from bajo.core.bvh.gpu.traverse import trace_gpu_wide_ray
+from bajo.bvh.gpu.traverse import trace_gpu_wide_ray
 
 
 struct GpuSphereBvh[width: Int]:

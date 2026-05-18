@@ -1,7 +1,7 @@
-from bajo.core.bvh.types import Ray, Hit
+from bajo.bvh.types import Ray, Hit
 from bajo.core.intersect import intersect_ray_aabb
 from bajo.core.vec import Vec3
-from bajo.core.bvh.cpu.bounds_bvh import BoundsBvh, EMPTY_LANE
+from bajo.bvh.cpu.bounds_bvh import BoundsBvh, EMPTY_LANE
 
 
 @always_inline

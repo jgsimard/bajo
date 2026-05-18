@@ -1,11 +1,11 @@
 from std.gpu.host import DeviceBuffer
 
-from bajo.core.bvh.constants import (
+from bajo.bvh.constants import (
     LBVH_LEAF_FLAG,
     LBVH_INDEX_MASK,
     LBVH_SENTINEL,
 )
-from bajo.core.bvh.gpu.utils import (
+from bajo.bvh.gpu.utils import (
     SortedKeysValidation,
     TopologyValidation,
     RefitBoundsValidation,

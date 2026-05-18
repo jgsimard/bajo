@@ -1,5 +1,5 @@
-from bajo.core.bvh.types import Ray, Hit
-from bajo.core.bvh.constants import (
+from bajo.bvh.types import Ray, Hit
+from bajo.bvh.constants import (
     _gpu_inf_t,
     _gpu_miss_prim,
     TRACE_PRIMARY_FULL,

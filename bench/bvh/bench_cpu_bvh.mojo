@@ -2,9 +2,9 @@ from std.benchmark import keep
 from std.math import round
 from std.time import perf_counter_ns
 
-from bajo.core.bvh.types import Ray, Sphere
-from bajo.core.bvh.cpu.triangle_bvh import TriangleBvh
-from bajo.core.bvh.cpu.sphere_bvh import SphereBvh
+from bajo.bvh.types import Ray, Sphere
+from bajo.bvh.cpu.triangle_bvh import TriangleBvh
+from bajo.bvh.cpu.sphere_bvh import SphereBvh
 
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.core.vec import Vec3f32

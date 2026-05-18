@@ -14,8 +14,8 @@ from bajo.core.intersect import (
     RayAabbHit,
 )
 from bajo.core.morton import morton3
-from bajo.core.bvh.types import Ray, Hit, Sphere
-from bajo.core.bvh.constants import (
+from bajo.bvh.types import Ray, Hit, Sphere
+from bajo.bvh.constants import (
     LBVH_LEAF_FLAG,
     LBVH_INDEX_MASK,
     LBVH_SENTINEL,
@@ -25,12 +25,12 @@ from bajo.core.bvh.constants import (
     TRACE_SHADOW,
     EMPTY_LANE,
 )
-from bajo.core.bvh.gpu.validate import (
+from bajo.bvh.gpu.validate import (
     validate_sorted_keys,
     validate_topology,
     validate_refit_bounds,
 )
-from bajo.core.bvh.gpu.utils import GpuBuildTimings, GpuBVHValidation
+from bajo.bvh.gpu.utils import GpuBuildTimings, GpuBVHValidation
 from bajo.sort.gpu.radix_sort import device_radix_sort_pairs, RadixSortWorkspace
 
 comptime LBVH_NODE_META_STRIDE = 4

@@ -25,7 +25,7 @@ bench_all = { depends-on = [
   "bench_bvh_gpu",
 ] }
 example_lbvh = { cmd = "mojo -I . examples/lbvh_normals.mojo", depends-on = ["download_assets"] }
-test_bvh = "bash scripts/run_tests.sh test/core/bvh"
+test_bvh = "bash scripts/run_tests.sh test/bvh"
 bench_bvh = { depends-on = [
   "bench_bvh_cpu",
   "bench_bvh_gpu",

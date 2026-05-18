@@ -1,4 +1,4 @@
-from bajo.core.bvh.gpu.bounds_bvh import (
+from bajo.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
     _copy_f32_to_device,
     _gpu_miss_prim,
@@ -7,13 +7,13 @@ from bajo.core.bvh.gpu.bounds_bvh import (
     _intersect_wide_node_bounds,
     _gpu_inf_t,
 )
-from bajo.core.bvh.constants import (
+from bajo.bvh.constants import (
     TRACE_PRIMARY_FULL,
     TRACE_SHADOW,
     TRACE_PRIMARY_T,
     EMPTY_LANE,
 )
-from bajo.core.bvh.types import Ray, Hit
+from bajo.bvh.types import Ray, Hit
 
 
 @always_inline

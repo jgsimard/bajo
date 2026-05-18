@@ -4,14 +4,14 @@ from std.gpu import DeviceBuffer, DeviceContext, global_idx
 from std.utils.numerics import max_finite
 
 from bajo.core.vec import Vec3f32, vmin, vmax, Vec3
-from bajo.core.bvh.types import Ray, Hit, TriangleLeafBlock
-from bajo.core.bvh.constants import (
+from bajo.bvh.types import Ray, Hit, TriangleLeafBlock
+from bajo.bvh.constants import (
     EMPTY_LANE,
     TRACE_PRIMARY_FULL,
     TRACE_SHADOW,
     TRACE_PRIMARY_T,
 )
-from bajo.core.bvh.gpu.bounds_bvh import (
+from bajo.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
     _copy_f32_to_device,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
@@ -19,7 +19,7 @@ from bajo.core.bvh.gpu.bounds_bvh import (
     GPU_TRI_LEAF_VERTEX_STRIDE,
 )
 from bajo.core.intersect import intersect_ray_tri
-from bajo.core.bvh.gpu.traverse import trace_gpu_wide_ray
+from bajo.bvh.gpu.traverse import trace_gpu_wide_ray
 
 
 struct GpuTriangleBvh[width: Int]:

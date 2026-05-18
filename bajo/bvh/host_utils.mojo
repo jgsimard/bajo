@@ -3,7 +3,7 @@ from std.gpu.host import DeviceContext
 
 from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32, vmin, vmax, cross, length, normalize
-from bajo.core.bvh.types import Ray, RAY_FLAT_STRIDE
+from bajo.bvh.types import Ray, RAY_FLAT_STRIDE
 
 
 def compute_bounds(verts: List[Vec3f32]) -> AABB:

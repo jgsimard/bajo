@@ -1,16 +1,16 @@
 from std.utils.numerics import max_finite
 
 from bajo.core.vec import Vec3, Vec3f32, vmin, vmax, longest_axis, dot
-from bajo.core.bvh.constants import EMPTY_LANE
-from bajo.core.bvh.cpu.bounds_bvh import (
+from bajo.bvh.constants import EMPTY_LANE
+from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvh,
     BoundsItem,
     BoundsBvhBuilder,
 )
 from bajo.core.aabb import AABB, AxisAlignedBoundingBox
-from bajo.core.bvh.types import Ray, Hit, TriangleLeafBlock
+from bajo.bvh.types import Ray, Hit, TriangleLeafBlock
 from bajo.core.intersect import intersect_ray_tri
-from bajo.core.bvh.cpu.traverse import traverse_wide_ray_bvh
+from bajo.bvh.cpu.traverse import traverse_wide_ray_bvh
 
 
 struct TriangleBvh[width: Int](Copyable):

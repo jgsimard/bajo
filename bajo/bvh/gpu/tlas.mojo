@@ -4,7 +4,7 @@ from std.gpu import DeviceBuffer, DeviceContext, global_idx
 from bajo.core.aabb import AABB
 from bajo.core.mat import transform_point, transform_vector
 from bajo.core.vec import Vec3f32
-from bajo.core.bvh.constants import (
+from bajo.bvh.constants import (
     TRACE_PRIMARY_FULL,
     TRACE_SHADOW,
     TRACE_PRIMARY_T,
@@ -12,8 +12,8 @@ from bajo.core.bvh.constants import (
     EMPTY_LANE,
     _gpu_inf_t,
 )
-from bajo.core.bvh.types import Ray, Hit, Instance
-from bajo.core.bvh.gpu.bounds_bvh import (
+from bajo.bvh.types import Ray, Hit, Instance
+from bajo.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
     _copy_f32_to_device,
     _copy_u32_to_device,
@@ -23,16 +23,16 @@ from bajo.core.bvh.gpu.bounds_bvh import (
     _wide_lane_base,
     _intersect_wide_node_bounds,
 )
-from bajo.core.bvh.gpu.camera import _make_camera_ray
-from bajo.core.bvh.gpu.sphere_bvh import (
+from bajo.bvh.gpu.camera import _make_camera_ray
+from bajo.bvh.gpu.sphere_bvh import (
     GpuSphereBvh,
     _intersect_sphere_leaf,
 )
-from bajo.core.bvh.gpu.triangle_bvh import (
+from bajo.bvh.gpu.triangle_bvh import (
     GpuTriangleBvh,
     _intersect_triangle_leaf,
 )
-from bajo.core.bvh.gpu.traverse import trace_gpu_wide_ray
+from bajo.bvh.gpu.traverse import trace_gpu_wide_ray
 
 
 comptime GPU_TLAS_TRANSFORM_STRIDE = 16

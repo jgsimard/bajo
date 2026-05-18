@@ -1,6 +1,6 @@
 # GPU sorting
 
-![GPU Sorting Benchmark Results](image.png)
+![GPU Sorting Benchmark Results](../../../renders/gpu_sort_benchmark_plot.png)
 
 
 The benchmark results are produced with this [benchmark](../../../bench/bench_gpu_sort.mojo) and ploted using this [script](../../../bench/plot_gpu_sort.py)

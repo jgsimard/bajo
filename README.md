@@ -20,7 +20,7 @@ Examples:
 pixi run example_lbvh
 ```
 Runs the GPU LBVH normal-rendering example. It should produce the following image
-![lbvh example](example_tlas_lbvh_normals.png)
+![lbvh example](renders/example_tlas_lbvh_normals.png)
 
 ## Roadmap
 for a detailed version see [roadmap](roadmap.md)

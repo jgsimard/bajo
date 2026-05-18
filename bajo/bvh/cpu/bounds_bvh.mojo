@@ -1,4 +1,4 @@
-from std.math import min, max, sqrt
+from std.math import min, max
 from std.utils.numerics import max_finite, min_finite
 from std.bit import count_leading_zeros
 
@@ -407,6 +407,7 @@ struct BoundsBvhBuilder[leaf_size: Int](Copyable):
             self.items[item_idx].grow_into(node.aabb)
 
     def build[split_method: String = "median"](mut self):
+        comptime assert split_method in ["median", "sah", "lbvh"]
         if self.item_count == 0:
             self.nodes_used = 0
             return
@@ -420,8 +421,9 @@ struct BoundsBvhBuilder[leaf_size: Int](Copyable):
             self._subdivide[split_method](0)
 
     def _subdivide[split_method: String](mut self, node_idx: UInt32):
-        ref node = self.nodes[Int(node_idx)]
+        comptime assert split_method in ["median", "sah"]
 
+        ref node = self.nodes[Int(node_idx)]
         if node.item_count <= UInt32(Self.leaf_size):
             return
 
@@ -465,12 +467,10 @@ struct BoundsBvhBuilder[leaf_size: Int](Copyable):
                 cached_left_bounds = split.left_bounds
                 cached_right_bounds = split.right_bounds
                 use_sah_bounds = True
-
         else:
             comptime assert False, "Unknown BoundsBvh split method"
 
         var split_idx: Int
-
         comptime if split_method == "sah":
             if use_sah_bounds:
                 split_idx = _partition_items_by_bin(
@@ -601,28 +601,15 @@ struct BoundsBvhBuilder[leaf_size: Int](Copyable):
         for i in range(Int(self.item_count)):
             centroid_bounds.grow(self.items[i].bounds.centroid())
 
-        var extent = centroid_bounds._max - centroid_bounds._min
-
-        var inv_x = Float32(0.0)
-        var inv_y = Float32(0.0)
-        var inv_z = Float32(0.0)
-
-        if extent.x > 0.0:
-            inv_x = 1.0 / extent.x
-        if extent.y > 0.0:
-            inv_y = 1.0 / extent.y
-        if extent.z > 0.0:
-            inv_z = 1.0 / extent.z
+        var extent = centroid_bounds.extent()
+        var inv = extent.safe_inv()
 
         var pairs = List[BoundsMortonItem](capacity=Int(self.item_count))
 
         for i in range(Int(self.item_count)):
-            var c = self.items[i].bounds.centroid()
-            var x = (c.x - centroid_bounds._min.x) * inv_x
-            var y = (c.y - centroid_bounds._min.y) * inv_y
-            var z = (c.z - centroid_bounds._min.z) * inv_z
-
-            var code = morton3(x, y, z)
+            var centroid = self.items[i].bounds.centroid()
+            var c = (centroid - centroid_bounds._min) * inv
+            var code = morton3(c.x, c.y, c.z)
             pairs.append(BoundsMortonItem(code, UInt32(i)))
 
         var span = Span(pairs)

@@ -44,8 +44,8 @@ def _trace_cpu_triangle_bvh[
     var checksum = Float64(0.0)
     for i in range(len(rays)):
         var ray = rays[i].copy()
-        bvh.traverse(ray)
-        checksum += hit_t_for_checksum(ray.hit.t)
+        var hit = bvh.traverse(ray)
+        checksum += hit_t_for_checksum(hit.t)
     return checksum
 
 
@@ -55,8 +55,8 @@ def _trace_cpu_sphere_bvh[
     var checksum = Float64(0.0)
     for i in range(len(rays)):
         var ray = rays[i].copy()
-        bvh.traverse(ray)
-        checksum += hit_t_for_checksum(ray.hit.t)
+        var hit = bvh.traverse(ray)
+        checksum += hit_t_for_checksum(hit.t)
     return checksum
 
 

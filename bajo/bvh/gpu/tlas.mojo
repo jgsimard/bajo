@@ -1,9 +1,7 @@
 from std.math import ceildiv, max
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
 
-from bajo.core.aabb import AABB
 from bajo.core.mat import transform_point, transform_vector
-from bajo.core.vec import Vec3f32
 from bajo.bvh.constants import (
     TRACE_PRIMARY_FULL,
     TRACE_SHADOW,
@@ -83,14 +81,7 @@ def _intersect_tlas_instance_block[
     tlas_width: Int,
     blas_width: Int,
     mode: String,
-    blas_leaf_fn: def(
-        UnsafePointer[Float32, MutAnyOrigin],
-        UnsafePointer[UInt32, MutAnyOrigin],
-        UInt32,
-        UInt32,
-        Ray,
-        mut Hit,
-    ) capturing -> Bool,
+    blas_leaf_fn: BlasLeafFn,
 ](
     tlas_leaf_instances: UnsafePointer[UInt32, MutAnyOrigin],
     inst_inv_transform: UnsafePointer[Float32, MutAnyOrigin],
@@ -170,14 +161,7 @@ def trace_gpu_wide_tlas_ray[
     tlas_width: Int,
     blas_width: Int,
     mode: String,
-    blas_leaf_fn: def(
-        UnsafePointer[Float32, MutAnyOrigin],
-        UnsafePointer[UInt32, MutAnyOrigin],
-        UInt32,
-        UInt32,
-        Ray,
-        mut Hit,
-    ) capturing -> Bool,
+    blas_leaf_fn: BlasLeafFn,
 ](
     tlas_wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
     tlas_wide_data: UnsafePointer[UInt32, MutAnyOrigin],
@@ -293,8 +277,19 @@ def trace_gpu_wide_tlas_ray[
     return best_hit
 
 
+comptime BlasLeafFn = def(
+    UnsafePointer[Float32, MutAnyOrigin],
+    UnsafePointer[UInt32, MutAnyOrigin],
+    UInt32,
+    UInt32,
+    Ray,
+    mut Hit,
+) capturing -> Bool
+
+
 @always_inline
-def trace_gpu_wide_tlas_triangle_ray[
+def trace_gpu_wide_tlas_primitive_ray[
+    primitive: String,
     tlas_width: Int,
     blas_width: Int,
     mode: String = TRACE_PRIMARY_FULL,
@@ -308,67 +303,24 @@ def trace_gpu_wide_tlas_triangle_ray[
     blas_wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
     blas_wide_data: UnsafePointer[UInt32, MutAnyOrigin],
     blas_wide_counts: UnsafePointer[UInt32, MutAnyOrigin],
-    blas_leaf_vertices: UnsafePointer[Float32, MutAnyOrigin],
-    blas_leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
+    blas_leaf_data_f32: UnsafePointer[Float32, MutAnyOrigin],
+    blas_leaf_data_u32: UnsafePointer[UInt32, MutAnyOrigin],
     tlas_root_idx: UInt32,
     blas_root_idx: UInt32,
     ray: Ray,
 ) -> Hit:
-    return trace_gpu_wide_tlas_ray[
-        tlas_width,
-        blas_width,
-        mode,
-        _intersect_triangle_leaf[
-            blas_width,
-            mode,
-        ],
-    ](
-        tlas_wide_bounds,
-        tlas_wide_data,
-        tlas_wide_counts,
-        tlas_leaf_instances,
-        inst_inv_transform,
-        inst_blas_indices,
-        blas_wide_bounds,
-        blas_wide_data,
-        blas_wide_counts,
-        blas_leaf_vertices,
-        blas_leaf_prims,
-        tlas_root_idx,
-        blas_root_idx,
-        ray,
+    comptime assert primitive in ["triangle", "sphere"]
+
+    comptime leaf_fn: BlasLeafFn = (
+        _intersect_triangle_leaf[blas_width, mode] if primitive
+        == "triangle" else _intersect_sphere_leaf[blas_width, mode]
     )
 
-
-@always_inline
-def trace_gpu_wide_tlas_sphere_ray[
-    tlas_width: Int,
-    blas_width: Int,
-    mode: String = TRACE_PRIMARY_FULL,
-](
-    tlas_wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    tlas_wide_data: UnsafePointer[UInt32, MutAnyOrigin],
-    tlas_wide_counts: UnsafePointer[UInt32, MutAnyOrigin],
-    tlas_leaf_instances: UnsafePointer[UInt32, MutAnyOrigin],
-    inst_inv_transform: UnsafePointer[Float32, MutAnyOrigin],
-    inst_blas_indices: UnsafePointer[UInt32, MutAnyOrigin],
-    blas_wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    blas_wide_data: UnsafePointer[UInt32, MutAnyOrigin],
-    blas_wide_counts: UnsafePointer[UInt32, MutAnyOrigin],
-    blas_leaf_spheres: UnsafePointer[Float32, MutAnyOrigin],
-    blas_leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
-    tlas_root_idx: UInt32,
-    blas_root_idx: UInt32,
-    ray: Ray,
-) -> Hit:
     return trace_gpu_wide_tlas_ray[
         tlas_width,
         blas_width,
         mode,
-        _intersect_sphere_leaf[
-            blas_width,
-            mode,
-        ],
+        leaf_fn,
     ](
         tlas_wide_bounds,
         tlas_wide_data,
@@ -379,8 +331,8 @@ def trace_gpu_wide_tlas_sphere_ray[
         blas_wide_bounds,
         blas_wide_data,
         blas_wide_counts,
-        blas_leaf_spheres,
-        blas_leaf_prims,
+        blas_leaf_data_f32,
+        blas_leaf_data_u32,
         tlas_root_idx,
         blas_root_idx,
         ray,
@@ -645,14 +597,7 @@ struct GpuTlas[width: Int]:
 def trace_gpu_tlas_camera_primary_kernel[
     tlas_width: Int,
     blas_width: Int,
-    blas_leaf_fn: def(
-        UnsafePointer[Float32, MutAnyOrigin],
-        UnsafePointer[UInt32, MutAnyOrigin],
-        UInt32,
-        UInt32,
-        Ray,
-        mut Hit,
-    ) capturing -> Bool,
+    blas_leaf_fn: BlasLeafFn,
 ](
     tlas_wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
     tlas_wide_data: UnsafePointer[UInt32, MutAnyOrigin],
@@ -715,14 +660,7 @@ def trace_gpu_tlas_camera_primary_kernel[
 def trace_gpu_tlas_primary_kernel[
     tlas_width: Int,
     blas_width: Int,
-    blas_leaf_fn: def(
-        UnsafePointer[Float32, MutAnyOrigin],
-        UnsafePointer[UInt32, MutAnyOrigin],
-        UInt32,
-        UInt32,
-        Ray,
-        mut Hit,
-    ) capturing -> Bool,
+    blas_leaf_fn: BlasLeafFn,
 ](
     tlas_wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
     tlas_wide_data: UnsafePointer[UInt32, MutAnyOrigin],
@@ -782,14 +720,7 @@ def trace_gpu_tlas_primary_kernel[
 def trace_gpu_tlas_shadow_kernel[
     tlas_width: Int,
     blas_width: Int,
-    blas_leaf_fn: def(
-        UnsafePointer[Float32, MutAnyOrigin],
-        UnsafePointer[UInt32, MutAnyOrigin],
-        UInt32,
-        UInt32,
-        Ray,
-        mut Hit,
-    ) capturing -> Bool,
+    blas_leaf_fn: BlasLeafFn,
 ](
     tlas_wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
     tlas_wide_data: UnsafePointer[UInt32, MutAnyOrigin],

@@ -1,4 +1,4 @@
-from std.builtin.device_passable import DevicePassable
+from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.math import fma, min, max, clamp, sqrt
 from std.testing import assert_almost_equal
 
@@ -70,6 +70,18 @@ struct Vec3[dtype: DType, width: Int = 1](
             target: The target address to store the device type.
         """
         target.bitcast[Self.device_type]()[] = self.copy()
+
+    def _to_device_type(
+        self, mut encoder: Some[DeviceTypeEncoder], target: MutOpaquePointer[_]
+    ):
+        """Convert the host type object to a device_type and store it at the
+        target address.
+
+        Args:
+            encoder: Target specific device type encoder.
+            target: The target address to store the device type.
+        """
+        encoder.encode(self, target)
 
     @staticmethod
     def get_type_name() -> String:

@@ -10,7 +10,7 @@ from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.core.vec import Vec3f32
 
 
-comptime GRID_SIDE = 64
+comptime GRID_SIDE = 256
 comptime PRIM_COUNT = GRID_SIDE * GRID_SIDE
 comptime RAY_REPEATS_PER_PRIM = 4
 comptime RAY_COUNT = PRIM_COUNT * RAY_REPEATS_PER_PRIM
@@ -287,30 +287,24 @@ def bench_sphere_shadow[
 
 
 @always_inline
-def _tri_case_name[width: Int, split_method: String]() -> String:
+def _case_name[prim: String, width: Int, split_method: String]() -> String:
+    name: String
     comptime if split_method == "median":
-        return String(t"tri{width} median ")
+        name = "median "
     elif split_method == "sah":
-        return String(t"tri{width} sah    ")
+        name = "sah    "
+    elif split_method == "lbvh":
+        name = "lbvh   "
     else:
-        return String(t"tri{width} unknown")
-
-
-@always_inline
-def _sph_case_name[width: Int, split_method: String]() -> String:
-    comptime if split_method == "median":
-        return String(t"sph{width} median ")
-    elif split_method == "sah":
-        return String(t"sph{width} sah    ")
-    else:
-        return String(t"sph{width} unknown")
+        comptime assert False
+    return String(t"{prim}{width} {name}")
 
 
 def bench_triangle_case[
     width: Int,
     split_method: String,
 ](vertices: List[Vec3f32], rays: List[Ray],):
-    var name = _tri_case_name[width, split_method]()
+    var name = _case_name["tri", width, split_method]()
 
     var t0 = perf_counter_ns()
     var bvh = TriangleBvh[width].__init__[split_method](
@@ -340,7 +334,7 @@ def bench_sphere_case[
     width: Int,
     split_method: String,
 ](spheres: List[Sphere], rays: List[Ray],):
-    var name = _sph_case_name[width, split_method]()
+    var name = _case_name["sph", width, split_method]()
 
     var t0 = perf_counter_ns()
     var bvh = SphereBvh[width].__init__[split_method](
@@ -403,9 +397,11 @@ def main() raises:
 
     bench_triangle_widths["median"](tri_vertices, rays)
     bench_triangle_widths["sah"](tri_vertices, rays)
+    bench_triangle_widths["lbvh"](tri_vertices, rays)
 
     bench_sphere_widths["median"](spheres, rays)
     bench_sphere_widths["sah"](spheres, rays)
+    bench_sphere_widths["lbvh"](spheres, rays)
 
     # Keep owning lists alive until after all BVHs and traversals are done.
     keep(len(tri_vertices))

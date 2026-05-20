@@ -195,7 +195,7 @@ struct Instance(Copyable):
 
 @always_inline
 def transform_bounds(transform: Mat44f32, bounds: AABB) -> AABB:
-    var corners = InlineArray[Vec3f32, 8](fill=Vec3f32(0.0))
+    var corners = InlineArray[Vec3f32, 8](uninitialized=True)
 
     corners[0] = Vec3f32(bounds._min.x, bounds._min.y, bounds._min.z)
     corners[1] = Vec3f32(bounds._max.x, bounds._min.y, bounds._min.z)

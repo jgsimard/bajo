@@ -41,6 +41,5 @@ struct MMap[mut: Bool, //, origin: Origin[mut=mut]]:
     def as_string_slice(ref self) -> StringSlice[Self.origin]:
         if self._size == 0:
             return StringSlice[Self.origin]()
-        return StringSlice[Self.origin](
-            ptr=self._data.unsafe_value(), length=self._size
-        )
+        span = Span(ptr=self._data.unsafe_value(), length=self._size)
+        return StringSlice[Self.origin](unsafe_from_utf8=span)

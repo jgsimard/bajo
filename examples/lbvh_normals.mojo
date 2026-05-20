@@ -19,7 +19,6 @@ from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.core.vec import Vec3f32, cross, normalize
 from bajo.obj.pack import pack_obj_triangles
 
-
 comptime DEFAULT_OBJ_PATH = "./assets/buddha/buddha.obj"
 comptime DEFAULT_OUTPUT_PATH = "./example_tlas_lbvh_normals.ppm"
 comptime WIDTH = 1280

@@ -28,6 +28,7 @@ from bajo.bvh.gpu.validate import (
 )
 from bajo.bvh.gpu.utils import GpuBuildTimings, GpuBVHValidation
 from bajo.sort.gpu.radix_sort import device_radix_sort_pairs, RadixSortWorkspace
+from bajo.bvh.host_utils import copy_list_to_device
 
 comptime LBVH_NODE_META_STRIDE = 4
 comptime LBVH_NODE_PARENT = 0
@@ -546,8 +547,8 @@ struct GpuBoundsBvh[width: Int]:
         self.leaf_bounds_host = leaf_bounds.copy()
         self.leaf_payloads_host = leaf_payloads.copy()
 
-        self.leaf_bounds = _copy_f32_to_device(ctx, self.leaf_bounds_host)
-        self.leaf_payloads = _copy_u32_to_device(ctx, self.leaf_payloads_host)
+        self.leaf_bounds = copy_list_to_device(ctx, self.leaf_bounds_host)
+        self.leaf_payloads = copy_list_to_device(ctx, self.leaf_payloads_host)
         self.keys = ctx.enqueue_create_buffer[DType.uint32](n_leaf)
         self.values = ctx.enqueue_create_buffer[DType.uint32](n_leaf)
         self.node_meta = ctx.enqueue_create_buffer[DType.uint32](
@@ -823,30 +824,6 @@ def _wide_lane_base[width: Int](node_idx: UInt32, lane: Int) -> Int:
 @always_inline
 def _wide_bounds_base[width: Int](node_idx: UInt32, lane: Int) -> Int:
     return _wide_lane_base[width](node_idx, lane) * BOUNDS_STRIDE
-
-
-# Host utility copies local to this module to avoid depending on old triangle-only
-# GPU host helpers.
-def _copy_f32_to_device(
-    mut ctx: DeviceContext,
-    values: List[Float32],
-) raises -> DeviceBuffer[DType.float32]:
-    var buf = ctx.enqueue_create_buffer[DType.float32](max(len(values), 1))
-    with buf.map_to_host() as h:
-        for i in range(len(values)):
-            h[i] = values[i]
-    return buf^
-
-
-def _copy_u32_to_device(
-    mut ctx: DeviceContext,
-    values: List[UInt32],
-) raises -> DeviceBuffer[DType.uint32]:
-    var buf = ctx.enqueue_create_buffer[DType.uint32](max(len(values), 1))
-    with buf.map_to_host() as h:
-        for i in range(len(values)):
-            h[i] = values[i]
-    return buf^
 
 
 @always_inline

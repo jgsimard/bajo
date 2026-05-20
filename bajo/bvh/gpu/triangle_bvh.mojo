@@ -13,12 +13,12 @@ from bajo.bvh.constants import (
 )
 from bajo.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
-    _copy_f32_to_device,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
     BOUNDS_STRIDE,
 )
 from bajo.core.intersect import intersect_ray_tri
 from bajo.bvh.gpu.trace import trace_bounds_bvh
+from bajo.bvh.host_utils import copy_list_to_device
 
 
 struct GpuTriangleBvh[width: Int]:
@@ -38,7 +38,7 @@ struct GpuTriangleBvh[width: Int]:
         self.leaf_pack_ns = 0
 
         var flat_vertices = _flatten_vertices(tri_vertices)
-        self.vertices = _copy_f32_to_device(ctx, flat_vertices)
+        self.vertices = copy_list_to_device(ctx, flat_vertices)
 
         var leaf_bounds = List[Float32](
             capacity=max(self.tri_count, 1) * BOUNDS_STRIDE

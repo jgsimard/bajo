@@ -12,8 +12,6 @@ from bajo.bvh.constants import (
 from bajo.bvh.types import Ray, Hit, Instance
 from bajo.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
-    _copy_f32_to_device,
-    _copy_u32_to_device,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
     BOUNDS_STRIDE,
     _wide_lane_base,
@@ -23,7 +21,7 @@ from bajo.bvh.gpu.camera import _make_camera_ray
 from bajo.bvh.gpu.sphere_bvh import _intersect_sphere_leaf
 from bajo.bvh.gpu.triangle_bvh import _intersect_triangle_leaf
 from bajo.bvh.gpu.trace import trace_bounds_bvh
-
+from bajo.bvh.host_utils import copy_list_to_device
 
 comptime GPU_TLAS_TRANSFORM_STRIDE = 16
 
@@ -368,10 +366,10 @@ struct GpuTlas[width: Int]:
         self.tree = GpuBoundsBvh[Self.width](ctx, leaf_bounds, payloads)
         _ = self.tree.build(ctx)
 
-        self.inst_inv_transform = _copy_f32_to_device(
+        self.inst_inv_transform = copy_list_to_device(
             ctx, _flatten_instance_inv_transforms(instances)
         )
-        self.inst_blas_indices = _copy_u32_to_device(
+        self.inst_blas_indices = copy_list_to_device(
             ctx, _flatten_instance_blas_indices(instances)
         )
 

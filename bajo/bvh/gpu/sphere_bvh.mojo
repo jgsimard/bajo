@@ -15,10 +15,10 @@ from bajo.core.vec import Vec3f32, Vec3
 from bajo.bvh.types import Sphere, Ray, Hit, SphereLeafBlock
 from bajo.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
-    _copy_f32_to_device,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
 from bajo.bvh.gpu.trace import trace_bounds_bvh
+from bajo.bvh.host_utils import copy_list_to_device
 
 
 struct GpuSphereBvh[width: Int]:
@@ -38,7 +38,7 @@ struct GpuSphereBvh[width: Int]:
         self.leaf_pack_ns = 0
 
         var flat_spheres = _flatten_spheres(spheres)
-        self.spheres = _copy_f32_to_device(ctx, flat_spheres)
+        self.spheres = copy_list_to_device(ctx, flat_spheres)
 
         var leaf_bounds = List[Float32](
             capacity=max(self.sphere_count, 1) * BOUNDS_STRIDE

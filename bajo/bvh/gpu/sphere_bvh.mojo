@@ -7,7 +7,6 @@ from bajo.bvh.constants import (
     EMPTY_LANE,
     TRACE_PRIMARY_FULL,
     TRACE_SHADOW,
-    TRACE_PRIMARY_T,
 )
 from bajo.core.intersect import intersect_ray_sphere
 from bajo.core.vec import Vec3f32, Vec3
@@ -257,7 +256,7 @@ def _intersect_sphere_leaf[
     ray: Ray,
     mut hit: Hit,
 ) capturing -> Bool:
-    comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_PRIMARY_T, TRACE_SHADOW]
+    comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_SHADOW]
 
     var block = _load_sphere_leaf_packet[width](
         leaf_spheres,

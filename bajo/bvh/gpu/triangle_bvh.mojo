@@ -9,7 +9,6 @@ from bajo.bvh.constants import (
     EMPTY_LANE,
     TRACE_PRIMARY_FULL,
     TRACE_SHADOW,
-    TRACE_PRIMARY_T,
 )
 from bajo.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
@@ -268,7 +267,7 @@ def _intersect_triangle_leaf[
     ray: Ray,
     mut hit: Hit,
 ) capturing -> Bool:
-    comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_PRIMARY_T, TRACE_SHADOW]
+    comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_SHADOW]
 
     var any_hit = False
 
@@ -373,7 +372,7 @@ def _intersect_triangle_leaf[
 #     ray: Ray,
 #     mut hit: Hit,
 # ) capturing -> Bool:
-#     comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_PRIMARY_T, TRACE_SHADOW]
+#     comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_SHADOW]
 
 #     var block = _load_triangle_leaf[width](
 #         leaf_vertices,

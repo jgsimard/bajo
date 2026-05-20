@@ -21,7 +21,6 @@ from bajo.bvh.constants import (
     LBVH_SENTINEL,
     GPU_TRAVERSAL_STACK_SIZE,
     TRACE_PRIMARY_FULL,
-    TRACE_PRIMARY_T,
     TRACE_SHADOW,
     EMPTY_LANE,
 )

@@ -8,7 +8,6 @@ from bajo.bvh.gpu.bounds_bvh import (
 from bajo.bvh.constants import (
     TRACE_PRIMARY_FULL,
     TRACE_SHADOW,
-    TRACE_PRIMARY_T,
     EMPTY_LANE,
 )
 from bajo.bvh.types import Ray, Hit
@@ -36,7 +35,7 @@ def trace_gpu_wide_ray[
     root_idx: UInt32,
     ray: Ray,
 ) -> Hit:
-    comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_PRIMARY_T, TRACE_SHADOW]
+    comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_SHADOW]
 
     var hit = Hit.miss()
     hit.t = ray.t_max

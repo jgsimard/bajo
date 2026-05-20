@@ -3,7 +3,6 @@ comptime LBVH_INDEX_MASK = UInt32(0x7FFFFFFF)
 comptime LBVH_SENTINEL = UInt32(0xFFFFFFFF)
 
 comptime TRACE_PRIMARY_FULL = "primary_full"
-comptime TRACE_PRIMARY_T = "primary_t"
 comptime TRACE_SHADOW = "shadow"
 
 comptime _gpu_inf_t = Float32(3.4028234663852886e38)

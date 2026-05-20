@@ -3,7 +3,6 @@ from bajo.bvh.constants import (
     _gpu_inf_t,
     EMPTY_LANE,
     TRACE_PRIMARY_FULL,
-    TRACE_PRIMARY_T,
     TRACE_SHADOW,
 )
 from bajo.core.vec import Vec3f32, normalize
@@ -83,8 +82,6 @@ def _write_camera_miss_result[
         out_f32[hit_base + 1] = 0.0
         out_f32[hit_base + 2] = 0.0
         out_u32[ray_idx] = EMPTY_LANE
-    elif mode == TRACE_PRIMARY_T:
-        out_f32[ray_idx] = _gpu_inf_t
     else:
         out_u32[ray_idx] = UInt32(0)
 
@@ -100,7 +97,5 @@ def _write_camera_result[
 ):
     comptime if mode == TRACE_PRIMARY_FULL:
         _write_primary_full_result(out_f32, out_u32, ray_idx, hit)
-    elif mode == TRACE_PRIMARY_T:
-        out_f32[ray_idx] = hit.t
     else:
         out_u32[ray_idx] = hit.occluded

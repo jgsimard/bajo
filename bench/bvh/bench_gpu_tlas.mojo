@@ -30,7 +30,6 @@ from bajo.bvh.gpu.utils import _upload_rays, _download_full_hit_checksum
 from bajo.bvh.constants import (
     TRACE_PRIMARY_FULL,
     TRACE_SHADOW,
-    TRACE_PRIMARY_T,
     GPU_TRAVERSAL_STACK_SIZE,
     EMPTY_LANE,
 )

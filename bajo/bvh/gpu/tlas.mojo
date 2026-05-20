@@ -5,7 +5,6 @@ from bajo.core.mat import transform_point, transform_vector
 from bajo.bvh.constants import (
     TRACE_PRIMARY_FULL,
     TRACE_SHADOW,
-    TRACE_PRIMARY_T,
     GPU_TRAVERSAL_STACK_SIZE,
     EMPTY_LANE,
     _gpu_inf_t,
@@ -100,7 +99,7 @@ def _intersect_tlas_instance_block[
     ray: Ray,
     mut best_hit: Hit,
 ) -> Bool:
-    comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_PRIMARY_T, TRACE_SHADOW]
+    comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_SHADOW]
 
     var hit_any = False
 
@@ -181,7 +180,7 @@ def trace_gpu_wide_tlas_ray[
     blas_root_idx: UInt32,
     ray: Ray,
 ) -> Hit:
-    comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_PRIMARY_T, TRACE_SHADOW]
+    comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_SHADOW]
 
     var best_hit = Hit.miss()
     best_hit.t = ray.t_max
@@ -303,7 +302,7 @@ def trace_gpu_wide_tlas_primitive_ray[
     ray: Ray,
 ) -> Hit:
     comptime assert primitive in ["triangle", "sphere"]
-    comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_PRIMARY_T, TRACE_SHADOW]
+    comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_SHADOW]
 
     comptime leaf_fn: BlasLeafFn = (
         _intersect_triangle_leaf[blas_width, mode] if primitive
@@ -399,7 +398,6 @@ struct GpuTlas[width: Int]:
         comptime assert primitive in ["triangle", "sphere"]
         comptime assert mode in [
             TRACE_PRIMARY_FULL,
-            TRACE_PRIMARY_T,
             TRACE_SHADOW,
         ]
 
@@ -511,7 +509,7 @@ def trace_gpu_tlas_uploaded_kernel[
     ray_count: Int,
 ):
     comptime assert primitive in ["triangle", "sphere"]
-    comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_PRIMARY_T, TRACE_SHADOW]
+    comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_SHADOW]
 
     var ray_idx = global_idx.x
     if ray_idx >= ray_count:

@@ -6,7 +6,7 @@ from bajo.core.mat import Mat44f32, transform_point, transform_vector
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.bvh.cpu.bounds_bvh import BoundsBvh, BoundsBvhBuilder, BoundsItem
-from bajo.bvh.cpu.traverse import traverse_wide_ray_bvh
+from bajo.bvh.cpu.traverse import trace_bounds_bvh
 
 
 struct Tlas[width: Int](Copyable):
@@ -175,7 +175,7 @@ struct Tlas[width: Int](Copyable):
                 hit,
             )
 
-        return traverse_wide_ray_bvh[
+        return trace_bounds_bvh[
             Self.width,
             mode,
             leaf_fn,
@@ -211,7 +211,7 @@ struct Tlas[width: Int](Copyable):
                 hit,
             )
 
-        return traverse_wide_ray_bvh[
+        return trace_bounds_bvh[
             Self.width,
             mode,
             leaf_fn,

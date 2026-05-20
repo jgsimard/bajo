@@ -6,15 +6,18 @@ from bajo.bvh.constants import (
     EMPTY_LANE,
     CPU_TRAVERSAL_STACK_SIZE,
     TRACE_ANY_HIT,
+    TRACE_CLOSEST_HIT,
 )
 
 
 @always_inline
-def traverse_wide_ray_bvh[
+def trace_bounds_bvh[
     width: Int,
     mode: String,
     leaf_fn: def(Ray, UInt32, UInt32, mut Hit) capturing -> Bool,
 ](tree: BoundsBvh[width], ray: Ray) -> Hit:
+    comptime assert mode in [TRACE_CLOSEST_HIT, TRACE_ANY_HIT]
+
     if len(tree.nodes) == 0:
         return Hit.miss()
 

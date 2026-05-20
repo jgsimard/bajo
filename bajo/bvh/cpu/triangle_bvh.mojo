@@ -10,7 +10,7 @@ from bajo.bvh.cpu.bounds_bvh import (
 from bajo.core.aabb import AABB, AxisAlignedBoundingBox
 from bajo.bvh.types import Ray, Hit, TriangleLeafBlock
 from bajo.core.intersect import intersect_ray_tri
-from bajo.bvh.cpu.traverse import traverse_wide_ray_bvh
+from bajo.bvh.cpu.traverse import trace_bounds_bvh
 
 
 struct TriangleBvh[width: Int](Copyable):
@@ -175,7 +175,7 @@ struct TriangleBvh[width: Int](Copyable):
                 hit,
             )
 
-        return traverse_wide_ray_bvh[
+        return trace_bounds_bvh[
             Self.width,
             mode,
             leaf_fn,

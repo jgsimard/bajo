@@ -20,9 +20,8 @@ from bajo.bvh.constants import (
     LBVH_INDEX_MASK,
     LBVH_SENTINEL,
     GPU_TRAVERSAL_STACK_SIZE,
-    TRACE_PRIMARY_FULL,
-    TRACE_PRIMARY_T,
-    TRACE_SHADOW,
+    TRACE_CLOSEST_HIT,
+    TRACE_ANY_HIT,
     EMPTY_LANE,
 )
 from bajo.bvh.gpu.validate import (

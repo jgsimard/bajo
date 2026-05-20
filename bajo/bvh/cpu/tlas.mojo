@@ -1,12 +1,12 @@
 from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3, Vec3f32, vmin, vmax, longest_axis, dot
 from bajo.bvh.types import Ray, Hit, Instance, transform_bounds
-from bajo.bvh.constants import EMPTY_LANE
+from bajo.bvh.constants import EMPTY_LANE, TRACE_CLOSEST_HIT, TRACE_ANY_HIT
 from bajo.core.mat import Mat44f32, transform_point, transform_vector
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.bvh.cpu.bounds_bvh import BoundsBvh, BoundsBvhBuilder, BoundsItem
-from bajo.bvh.cpu.traverse import traverse_wide_ray_bvh
+from bajo.bvh.cpu.trace import trace_bounds_bvh
 
 
 struct Tlas[width: Int](Copyable):
@@ -49,8 +49,8 @@ struct Tlas[width: Int](Copyable):
         return self.tree.root_bounds()
 
     @always_inline
-    def _traverse_triangle_leaf[
-        is_occlusion: Bool,
+    def _trace_triangle_leaf[
+        mode: String,
         blas_width: Int,
     ](
         self,
@@ -82,12 +82,11 @@ struct Tlas[width: Int](Copyable):
                 ray.mask,
             )
 
-            comptime if is_occlusion:
-                if blases[Int(inst.blas_idx)].is_occluded(local_ray):
-                    return True
-            else:
-                var local_hit = blases[Int(inst.blas_idx)].traverse(local_ray)
+            var local_hit = blases[Int(inst.blas_idx)].trace[mode](local_ray)
 
+            comptime if mode == TRACE_ANY_HIT:
+                return local_hit.is_occluded()
+            else:
                 if local_hit.is_hit() and local_hit.t < hit.t:
                     hit.t = local_hit.t
                     hit.u = local_hit.u
@@ -99,8 +98,8 @@ struct Tlas[width: Int](Copyable):
         return False
 
     @always_inline
-    def _traverse_sphere_leaf[
-        is_occlusion: Bool,
+    def _trace_sphere_leaf[
+        mode: String,
         blas_width: Int,
     ](
         self,
@@ -132,12 +131,11 @@ struct Tlas[width: Int](Copyable):
                 ray.mask,
             )
 
-            comptime if is_occlusion:
-                if blases[Int(inst.blas_idx)].is_occluded(local_ray):
-                    return True
-            else:
-                var local_hit = blases[Int(inst.blas_idx)].traverse(local_ray)
+            var local_hit = blases[Int(inst.blas_idx)].trace[mode](local_ray)
 
+            comptime if mode == TRACE_ANY_HIT:
+                return local_hit.is_occluded()
+            else:
                 if local_hit.is_hit() and local_hit.t < hit.t:
                     hit.t = local_hit.t
                     hit.u = local_hit.u
@@ -149,8 +147,8 @@ struct Tlas[width: Int](Copyable):
         return False
 
     @always_inline
-    def _traverse_triangles_generic[
-        is_occlusion: Bool,
+    def trace_triangles[
+        mode: String,
         blas_width: Int,
     ](
         self,
@@ -164,8 +162,8 @@ struct Tlas[width: Int](Copyable):
             item_count: UInt32,
             mut hit: Hit,
         ) capturing -> Bool:
-            return self._traverse_triangle_leaf[
-                is_occlusion,
+            return self._trace_triangle_leaf[
+                mode,
                 blas_width,
             ](
                 ray,
@@ -175,9 +173,9 @@ struct Tlas[width: Int](Copyable):
                 hit,
             )
 
-        return traverse_wide_ray_bvh[
+        return trace_bounds_bvh[
             Self.width,
-            is_occlusion,
+            mode,
             leaf_fn,
         ](
             self.tree,
@@ -185,8 +183,8 @@ struct Tlas[width: Int](Copyable):
         )
 
     @always_inline
-    def _traverse_spheres_generic[
-        is_occlusion: Bool,
+    def trace_spheres[
+        mode: String,
         blas_width: Int,
     ](
         self,
@@ -200,8 +198,8 @@ struct Tlas[width: Int](Copyable):
             item_count: UInt32,
             mut hit: Hit,
         ) capturing -> Bool:
-            return self._traverse_sphere_leaf[
-                is_occlusion,
+            return self._trace_sphere_leaf[
+                mode,
                 blas_width,
             ](
                 ray,
@@ -211,61 +209,11 @@ struct Tlas[width: Int](Copyable):
                 hit,
             )
 
-        return traverse_wide_ray_bvh[
+        return trace_bounds_bvh[
             Self.width,
-            is_occlusion,
+            mode,
             leaf_fn,
         ](
             self.tree,
             ray,
         )
-
-    def traverse_triangles[
-        blas_width: Int
-    ](
-        self,
-        ray: Ray,
-        blases: UnsafePointer[TriangleBvh[blas_width], MutAnyOrigin],
-    ) -> Hit:
-        return self._traverse_triangles_generic[False, blas_width](
-            ray,
-            blases,
-        )
-
-    def is_occluded_triangles[
-        blas_width: Int
-    ](
-        self,
-        ray: Ray,
-        blases: UnsafePointer[TriangleBvh[blas_width], MutAnyOrigin],
-    ) -> Bool:
-        var hit = self._traverse_triangles_generic[True, blas_width](
-            ray,
-            blases,
-        )
-        return hit.is_occluded()
-
-    def traverse_spheres[
-        blas_width: Int
-    ](
-        self,
-        ray: Ray,
-        blases: UnsafePointer[SphereBvh[blas_width], MutAnyOrigin],
-    ) -> Hit:
-        return self._traverse_spheres_generic[False, blas_width](
-            ray,
-            blases,
-        )
-
-    def is_occluded_spheres[
-        blas_width: Int
-    ](
-        self,
-        ray: Ray,
-        blases: UnsafePointer[SphereBvh[blas_width], MutAnyOrigin],
-    ) -> Bool:
-        var hit = self._traverse_spheres_generic[True, blas_width](
-            ray,
-            blases,
-        )
-        return hit.is_occluded()

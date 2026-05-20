@@ -3,6 +3,7 @@ from std.math import round
 from std.time import perf_counter_ns
 
 from bajo.bvh.types import Ray, Sphere
+from bajo.bvh.constants import TRACE_CLOSEST_HIT, TRACE_ANY_HIT
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
 
@@ -165,7 +166,7 @@ def trace_triangle_primary[
 
     for i in range(len(rays)):
         var ray = rays[i].copy()
-        var hit = bvh.traverse(ray)
+        var hit = bvh.trace[TRACE_CLOSEST_HIT](ray)
         checksum += _hit_t_for_checksum(hit.t)
 
     return checksum
@@ -178,7 +179,7 @@ def trace_triangle_shadow[
 
     for i in range(len(rays)):
         var ray = rays[i].copy()
-        if bvh.is_occluded(ray):
+        if bvh.trace[TRACE_ANY_HIT](ray).is_occluded():
             occluded += 1
 
     return occluded
@@ -191,7 +192,7 @@ def trace_sphere_primary[
 
     for i in range(len(rays)):
         var ray = rays[i].copy()
-        var hit = bvh.traverse(ray)
+        var hit = bvh.trace[TRACE_CLOSEST_HIT](ray)
         checksum += _hit_t_for_checksum(hit.t)
 
     return checksum
@@ -204,7 +205,7 @@ def trace_sphere_shadow[
 
     for i in range(len(rays)):
         var ray = rays[i].copy()
-        if bvh.is_occluded(ray):
+        if bvh.trace[TRACE_ANY_HIT](ray).is_occluded():
             occluded += 1
 
     return occluded

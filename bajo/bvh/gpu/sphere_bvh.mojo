@@ -5,9 +5,8 @@ from std.utils.numerics import max_finite
 
 from bajo.bvh.constants import (
     EMPTY_LANE,
-    TRACE_PRIMARY_FULL,
-    TRACE_SHADOW,
-    TRACE_PRIMARY_T,
+    TRACE_CLOSEST_HIT,
+    TRACE_ANY_HIT,
 )
 from bajo.core.intersect import intersect_ray_sphere
 from bajo.core.vec import Vec3f32, Vec3
@@ -19,7 +18,7 @@ from bajo.bvh.gpu.bounds_bvh import (
     GPU_WIDE_BOUNDS_STRIDE,
     GPU_SPHERE_STRIDE,
 )
-from bajo.bvh.gpu.traverse import trace_gpu_wide_ray
+from bajo.bvh.gpu.trace import trace_bounds_bvh
 
 
 struct GpuSphereBvh[width: Int]:
@@ -153,12 +152,12 @@ def trace_gpu_sphere_bvh_primary_kernel[
         return
 
     var ray = Ray(rays, ray_idx)
-    var hit = trace_gpu_wide_ray[
+    var hit = trace_bounds_bvh[
         width,
-        TRACE_PRIMARY_FULL,
+        TRACE_CLOSEST_HIT,
         _intersect_sphere_leaf[
             width,
-            TRACE_PRIMARY_FULL,
+            TRACE_CLOSEST_HIT,
         ],
     ](
         wide_bounds,
@@ -195,12 +194,12 @@ def trace_gpu_sphere_bvh_shadow_kernel[
         return
 
     var ray = Ray(rays, ray_idx)
-    var hit = trace_gpu_wide_ray[
+    var hit = trace_bounds_bvh[
         width,
-        TRACE_SHADOW,
+        TRACE_ANY_HIT,
         _intersect_sphere_leaf[
             width,
-            TRACE_SHADOW,
+            TRACE_ANY_HIT,
         ],
     ](
         wide_bounds,
@@ -257,7 +256,7 @@ def _intersect_sphere_leaf[
     ray: Ray,
     mut hit: Hit,
 ) capturing -> Bool:
-    comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_PRIMARY_T, TRACE_SHADOW]
+    comptime assert mode in [TRACE_CLOSEST_HIT, TRACE_ANY_HIT]
 
     var block = _load_sphere_leaf_packet[width](
         leaf_spheres,
@@ -284,7 +283,7 @@ def _intersect_sphere_leaf[
     if not hit_mask.reduce_or():
         return False
 
-    comptime if mode == TRACE_SHADOW:
+    comptime if mode == TRACE_ANY_HIT:
         return True
     else:
         comptime f32_max = max_finite[DType.float32]()
@@ -293,7 +292,7 @@ def _intersect_sphere_leaf[
         if min_t < hit.t:
             hit.t = min_t
 
-            comptime if mode == TRACE_PRIMARY_FULL:
+            comptime if mode == TRACE_CLOSEST_HIT:
                 hit.u = 0.0
                 hit.v = 0.0
                 hit.inst = EMPTY_LANE

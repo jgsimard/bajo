@@ -7,7 +7,7 @@ from std.gpu import DeviceContext, DeviceBuffer
 from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32
 from bajo.core.mat import Mat44f32
-from bajo.bvh.constants import TRACE_PRIMARY_FULL, TRACE_SHADOW
+from bajo.bvh.constants import TRACE_CLOSEST_HIT, TRACE_ANY_HIT
 from bajo.bvh.types import Ray, Sphere, Instance
 from bajo.bvh.host_utils import (
     flatten_rays,
@@ -157,7 +157,7 @@ def test_gpu_tlas_single_identity_matches_direct_blas() raises:
         blas.launch_uploaded_primary(
             ctx, d_rays, d_blas_f32, d_blas_u32, len(rays)
         )
-        tlas.launch_uploaded["triangle", TRACE_PRIMARY_FULL, 4](
+        tlas.launch_uploaded["triangle", TRACE_CLOSEST_HIT, 4](
             ctx,
             blas.tree.wide_bounds,
             blas.tree.wide_data,
@@ -212,7 +212,7 @@ def test_gpu_tlas_translated_single_instance_hit() raises:
         var d_flags = ctx.enqueue_create_buffer[DType.uint32](len(rays))
 
         _upload_rays(ctx, d_rays, rays_flat)
-        tlas.launch_uploaded["triangle", TRACE_PRIMARY_FULL, 4](
+        tlas.launch_uploaded["triangle", TRACE_CLOSEST_HIT, 4](
             ctx,
             blas.tree.wide_bounds,
             blas.tree.wide_data,
@@ -266,7 +266,7 @@ def test_gpu_tlas_triangle_shadow_matches_direct_blas() raises:
 
         _upload_rays(ctx, d_rays, rays_flat)
         blas.launch_uploaded_shadow(ctx, d_rays, d_blas_flags, len(rays))
-        tlas.launch_uploaded["triangle", TRACE_SHADOW, 4](
+        tlas.launch_uploaded["triangle", TRACE_ANY_HIT, 4](
             ctx,
             blas.tree.wide_bounds,
             blas.tree.wide_data,
@@ -318,7 +318,7 @@ def test_gpu_tlas_sphere_single_identity_matches_direct_blas() raises:
         blas.launch_uploaded_primary(
             ctx, d_rays, d_blas_f32, d_blas_u32, len(rays)
         )
-        tlas.launch_uploaded["sphere", TRACE_PRIMARY_FULL, 4](
+        tlas.launch_uploaded["sphere", TRACE_CLOSEST_HIT, 4](
             ctx,
             blas.tree.wide_bounds,
             blas.tree.wide_data,
@@ -370,7 +370,7 @@ def test_gpu_tlas_sphere_translated_single_instance_hit() raises:
         var d_flags = ctx.enqueue_create_buffer[DType.uint32](len(rays))
 
         _upload_rays(ctx, d_rays, rays_flat)
-        tlas.launch_uploaded["sphere", TRACE_PRIMARY_FULL, 4](
+        tlas.launch_uploaded["sphere", TRACE_CLOSEST_HIT, 4](
             ctx,
             blas.tree.wide_bounds,
             blas.tree.wide_data,
@@ -425,7 +425,7 @@ def test_gpu_tlas_sphere_shadow_matches_direct_blas() raises:
 
         _upload_rays(ctx, d_rays, rays_flat)
         blas.launch_uploaded_shadow(ctx, d_rays, d_blas_flags, len(rays))
-        tlas.launch_uploaded["sphere", TRACE_SHADOW, 4](
+        tlas.launch_uploaded["sphere", TRACE_ANY_HIT, 4](
             ctx,
             blas.tree.wide_bounds,
             blas.tree.wide_data,

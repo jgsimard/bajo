@@ -8,17 +8,17 @@ from bajo.bvh.types import Ray, RAY_FLAT_STRIDE
 
 def compute_bounds(verts: List[Vec3f32]) -> AABB:
     var bounds = AABB.invalid()
-    for i in range(len(verts)):
-        bounds.grow(verts[i])
+    for vert in verts:
+        bounds.grow(vert)
     return bounds
 
 
 def flatten_vertices(verts: List[Vec3f32]) -> List[Float32]:
     var out = List[Float32](capacity=len(verts) * 3)
-    for i in range(len(verts)):
-        out.append(verts[i].x)
-        out.append(verts[i].y)
-        out.append(verts[i].z)
+    for vert in verts:
+        out.append(vert.x)
+        out.append(vert.y)
+        out.append(vert.z)
     return out^
 
 

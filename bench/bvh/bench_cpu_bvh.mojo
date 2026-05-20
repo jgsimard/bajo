@@ -164,8 +164,7 @@ def trace_triangle_primary[
 ](bvh: TriangleBvh[width], rays: List[Ray]) -> Float64:
     var checksum = Float64(0.0)
 
-    for i in range(len(rays)):
-        var ray = rays[i].copy()
+    for ray in rays:
         var hit = bvh.trace[TRACE_CLOSEST_HIT](ray)
         checksum += _hit_t_for_checksum(hit.t)
 
@@ -177,8 +176,7 @@ def trace_triangle_shadow[
 ](bvh: TriangleBvh[width], rays: List[Ray]) -> Int:
     var occluded = 0
 
-    for i in range(len(rays)):
-        var ray = rays[i].copy()
+    for ray in rays:
         if bvh.trace[TRACE_ANY_HIT](ray).is_occluded():
             occluded += 1
 
@@ -190,8 +188,7 @@ def trace_sphere_primary[
 ](bvh: SphereBvh[width], rays: List[Ray]) -> Float64:
     var checksum = Float64(0.0)
 
-    for i in range(len(rays)):
-        var ray = rays[i].copy()
+    for ray in rays:
         var hit = bvh.trace[TRACE_CLOSEST_HIT](ray)
         checksum += _hit_t_for_checksum(hit.t)
 
@@ -203,8 +200,7 @@ def trace_sphere_shadow[
 ](bvh: SphereBvh[width], rays: List[Ray]) -> Int:
     var occluded = 0
 
-    for i in range(len(rays)):
-        var ray = rays[i].copy()
+    for ray in rays:
         if bvh.trace[TRACE_ANY_HIT](ray).is_occluded():
             occluded += 1
 

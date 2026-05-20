@@ -335,9 +335,9 @@ def pack_sphere_leaf_blocks_kernel[
 
 def _flatten_spheres(spheres: List[Sphere]) -> List[Float32]:
     var out = List[Float32](capacity=max(len(spheres), 1) * SPHERE_STRIDE)
-    for i in range(len(spheres)):
-        out.append(spheres[i].center.x)
-        out.append(spheres[i].center.y)
-        out.append(spheres[i].center.z)
-        out.append(spheres[i].radius)
+    for sphere in spheres:
+        out.append(sphere.center.x)
+        out.append(sphere.center.y)
+        out.append(sphere.center.z)
+        out.append(sphere.radius)
     return out^

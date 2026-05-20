@@ -67,8 +67,8 @@ def _make_small_scene() -> List[Vec3f32]:
 
 def _compute_bounds(verts: List[Vec3f32]) -> AABB:
     var out = AABB.invalid()
-    for i in range(len(verts)):
-        out.grow(verts[i])
+    for vert in verts:
+        out.grow(vert)
     return out
 
 
@@ -117,8 +117,7 @@ def _make_spheres() -> Tuple[List[Sphere], AABB]:
     spheres.append(Sphere(Vec3f32(-4.0, 0.0, 6.0), 1.0))
     spheres.append(Sphere(Vec3f32(0.0, 4.0, 8.0), 1.0))
 
-    for i in range(len(spheres)):
-        ref s = spheres[i]
+    for s in spheres:
         var r = s.radius
         bounds.grow(Vec3f32(s.center.x - r, s.center.y - r, s.center.z - r))
         bounds.grow(Vec3f32(s.center.x + r, s.center.y + r, s.center.z + r))

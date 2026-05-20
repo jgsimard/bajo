@@ -6,8 +6,8 @@ def pack_obj_triangles(path: String) raises -> List[Vec3f32]:
     var idx = triangulated_indices(mesh)
 
     var out = List[Vec3f32](capacity=len(idx))
-    for i in range(len(idx)):
-        var p = Int(idx[i].p)
+    for id in idx:
+        var p = Int(id.p)
         var base = p * 3
         out.append(
             Vec3f32(

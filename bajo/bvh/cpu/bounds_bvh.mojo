@@ -673,8 +673,8 @@ struct BoundsBvh[width: Int](Copyable):
         self.item_indices = bvh.item_indices.copy()
         self.item_payloads = List[UInt32](capacity=len(bvh.items))
 
-        for i in range(len(bvh.items)):
-            self.item_payloads.append(bvh.items[i].payload)
+        for item in bvh.items:
+            self.item_payloads.append(item.payload)
 
         if bvh.nodes_used > 0:
             _ = self._collapse(bvh, 0)

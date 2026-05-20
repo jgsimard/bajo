@@ -59,9 +59,7 @@ struct SphereBvh[width: Int](Copyable):
     def _pack_leaves(mut self):
         self.leaf_blocks = List[SphereLeafBlock[Self.width]]()
 
-        for n_idx in range(len(self.tree.nodes)):
-            ref node = self.tree.nodes[n_idx]
-
+        for ref node in self.tree.nodes:
             comptime for lane in range(Self.width):
                 if node.counts[lane] != EMPTY_LANE and node.counts[lane] > 0:
                     var first_item = node.data[lane]

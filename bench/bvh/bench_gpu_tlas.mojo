@@ -75,19 +75,19 @@ def _make_translated_grid_instances(
 
 def _instances_bounds(instances: List[Instance]) -> AABB:
     var out = AABB.invalid()
-    for i in range(len(instances)):
-        out.grow(instances[i].bounds)
+    for instance in instances:
+        out.grow(instance.bounds)
     return out
 
 
 def _make_cpu_instances(instances: List[Instance]) -> List[Instance]:
     var out = List[Instance](capacity=len(instances))
-    for i in range(len(instances)):
+    for instance in instances:
         var inst = Instance()
         inst.transform = Mat44f32.identity()
-        inst.inv_transform = instances[i].inv_transform.copy()
-        inst.bounds = instances[i].bounds
-        inst.blas_idx = instances[i].blas_idx
+        inst.inv_transform = instance.inv_transform.copy()
+        inst.bounds = instance.bounds
+        inst.blas_idx = instance.blas_idx
         out.append(inst^)
     return out^
 
@@ -109,8 +109,7 @@ def _cpu_tlas_triangle_reference[
     var hits = UInt32(0)
     var inst_checksum = UInt64(0)
 
-    for i in range(len(rays)):
-        var ray = rays[i].copy()
+    for ray in rays:
         var hit = tlas.trace_triangles[TRACE_CLOSEST_HIT, blas_width](
             ray,
             blases.unsafe_ptr(),
@@ -139,8 +138,7 @@ def _cpu_tlas_triangle_shadow_reference[
 
     var occluded = UInt32(0)
 
-    for i in range(len(rays)):
-        var ray = rays[i].copy()
+    for ray in rays:
         hit = tlas.trace_triangles[TRACE_ANY_HIT, blas_width](
             ray, blases.unsafe_ptr()
         )

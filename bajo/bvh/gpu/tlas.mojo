@@ -43,12 +43,11 @@ def _flatten_instance_inv_transforms(
     var out = List[Float32](
         capacity=max(len(instances), 1) * GPU_TLAS_TRANSFORM_STRIDE
     )
-    for i in range(len(instances)):
-        ref m = instances[i].inv_transform
+    for instance in instances:
         comptime for j in range(GPU_TLAS_TRANSFORM_STRIDE):
             comptime row = j / 4
             comptime col = j - row * 4
-            out.append(m[row][col])
+            out.append(instance.inv_transform[row][col])
     return out^
 
 

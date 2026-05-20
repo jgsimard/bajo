@@ -387,12 +387,11 @@ def benchmark_sort_key(sizes: List[Int]) raises -> List[List[SortResult]]:
 def save_results_csv(filename: String, data: List[List[SortResult]]) raises:
     with open(filename, "w") as f:
         f.write("Algorithm,N,Time_ms,Throughput_GKs\n")
-        for i in range(len(data)):
-            if len(data[i]) == 0:
+        for datum in data:
+            if len(datum) == 0:
                 continue
-            var label = data[i][0].name
-            var results = data[i].copy()
-            for res in results:
+            var label = datum[0].name
+            for res in datum:
                 var line = t"{label},{res.size},{res.time_ms},{res.gks}\n"
                 f.write(line)
     print("\n[INFO] Results saved to " + filename)

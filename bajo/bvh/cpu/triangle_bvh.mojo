@@ -68,9 +68,7 @@ struct TriangleBvh[width: Int](Copyable):
     ):
         self.leaf_blocks = List[TriangleLeafBlock[Self.width]]()
 
-        for n_idx in range(len(self.tree.nodes)):
-            ref node = self.tree.nodes[n_idx]
-
+        for ref node in self.tree.nodes:
             comptime for lane in range(Self.width):
                 if node.counts[lane] != EMPTY_LANE and node.counts[lane] > 0:
                     var first_item = node.data[lane]

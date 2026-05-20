@@ -213,8 +213,7 @@ struct World(Copyable):
         self.materials = materials^
 
         var bvh_spheres = List[bSphere](capacity=len(self.objects))
-        for i in range(len(self.objects)):
-            ref obj = self.objects[i]
+        for obj in self.objects:
             bvh_spheres.append(bSphere(obj.static_center(), obj.radius))
 
         self.bvh = SphereBvh[BVH_WIDTH].__init__["median"](

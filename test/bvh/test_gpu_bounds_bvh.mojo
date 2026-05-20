@@ -107,8 +107,7 @@ def _make_sphere_leaf_bounds(
 
 def _sphere_scene_bounds(spheres: List[Sphere]) -> AABB:
     var bounds = AABB.invalid()
-    for i in range(len(spheres)):
-        ref s = spheres[i]
+    for s in spheres:
         var r = s.radius
         bounds.grow(s.center - r)
         bounds.grow(s.center + r)
@@ -150,8 +149,8 @@ def _trace_cpu_spheres_bruteforce(
 ) -> Float64:
     var checksum = Float64(0.0)
 
-    for i in range(len(rays)):
-        var brute = _brute_sphere_trace(spheres, rays[i].o, rays[i].d)
+    for ray in rays:
+        var brute = _brute_sphere_trace(spheres, ray.o, ray.d)
         checksum += hit_t_for_checksum(brute.t)
 
     return checksum
@@ -195,8 +194,7 @@ def _trace_cpu_triangle_bvh[
     width: Int
 ](mut bvh: TriangleBvh[width], rays: List[Ray]) -> Float64:
     var checksum = 0.0
-    for i in range(len(rays)):
-        var ray = rays[i].copy()
+    for ray in rays:
         var hit = bvh.trace[TRACE_CLOSEST_HIT](ray)
         checksum += hit_t_for_checksum(hit.t)
     return checksum

@@ -43,8 +43,7 @@ def _trace_cpu_triangle_bvh[
     width: Int
 ](mut bvh: TriangleBvh[width], rays: List[Ray]) -> Float64:
     var checksum = Float64(0.0)
-    for i in range(len(rays)):
-        var ray = rays[i].copy()
+    for ray in rays:
         var hit = bvh.trace[TRACE_CLOSEST_HIT](ray)
         checksum += hit_t_for_checksum(hit.t)
     return checksum
@@ -54,8 +53,7 @@ def _trace_cpu_sphere_bvh[
     width: Int
 ](mut bvh: SphereBvh[width], rays: List[Ray]) -> Float64:
     var checksum = Float64(0.0)
-    for i in range(len(rays)):
-        var ray = rays[i].copy()
+    for ray in rays:
         var hit = bvh.trace[TRACE_CLOSEST_HIT](ray)
         checksum += hit_t_for_checksum(hit.t)
     return checksum
@@ -296,8 +294,7 @@ def _make_sphere_grid() -> List[Sphere]:
 
 def _sphere_bounds(spheres: List[Sphere]) -> AABB:
     var bounds = AABB.invalid()
-    for i in range(len(spheres)):
-        ref s = spheres[i]
+    for s in spheres:
         var r = s.radius
         bounds.grow(Vec3f32(s.center.x - r, s.center.y - r, s.center.z - r))
         bounds.grow(Vec3f32(s.center.x + r, s.center.y + r, s.center.z + r))

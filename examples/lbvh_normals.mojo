@@ -15,8 +15,9 @@ from bajo.bvh.host_utils import (
 )
 from bajo.bvh.types import Instance
 from bajo.core.mat import Mat44f32, inverse, transform_vector
-from bajo.core.utils import pack_obj_triangles, ns_to_ms, ns_to_mrays_per_s
+from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.core.vec import Vec3f32, cross, normalize
+from bajo.obj.pack import pack_obj_triangles
 
 
 comptime DEFAULT_OBJ_PATH = "./assets/buddha/buddha.obj"

@@ -6,7 +6,6 @@ from std.gpu import DeviceContext, DeviceBuffer
 from bajo.core.utils import (
     ns_to_ms,
     ns_to_mrays_per_s,
-    pack_obj_triangles,
     print_vec3_rounded,
 )
 from bajo.core.aabb import AABB
@@ -24,6 +23,7 @@ from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.bvh.gpu.sphere_bvh import GpuSphereBvh
 from bajo.bvh.gpu.triangle_bvh import GpuTriangleBvh
 from bajo.bvh.gpu.utils import _upload_rays, _download_full_hit_checksum
+from bajo.obj.pack import pack_obj_triangles
 
 
 comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"

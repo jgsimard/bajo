@@ -7,7 +7,7 @@ from bajo.core.vec import Vec3f32, Vec3
 from bajo.core.intersect import intersect_ray_tri, intersect_ray_aabb
 from bajo.bvh.types import Ray, Sphere, Instance, Hit
 from bajo.core.random import Rng
-from bajo.bvh.constants import EMPTY_LANE
+from bajo.bvh.constants import EMPTY_LANE, TRACE_CLOSEST_HIT, TRACE_ANY_HIT
 from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvhBuilder,
     BoundsItem,

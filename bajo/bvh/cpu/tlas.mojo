@@ -1,7 +1,7 @@
 from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3, Vec3f32, vmin, vmax, longest_axis, dot
 from bajo.bvh.types import Ray, Hit, Instance, transform_bounds
-from bajo.bvh.constants import EMPTY_LANE
+from bajo.bvh.constants import EMPTY_LANE, TRACE_CLOSEST_HIT, TRACE_ANY_HIT
 from bajo.core.mat import Mat44f32, transform_point, transform_vector
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
@@ -50,7 +50,7 @@ struct Tlas[width: Int](Copyable):
 
     @always_inline
     def _traverse_triangle_leaf[
-        is_occlusion: Bool,
+        mode: String,
         blas_width: Int,
     ](
         self,
@@ -82,7 +82,7 @@ struct Tlas[width: Int](Copyable):
                 ray.mask,
             )
 
-            comptime if is_occlusion:
+            comptime if mode == TRACE_ANY_HIT:
                 if blases[Int(inst.blas_idx)].is_occluded(local_ray):
                     return True
             else:
@@ -100,7 +100,7 @@ struct Tlas[width: Int](Copyable):
 
     @always_inline
     def _traverse_sphere_leaf[
-        is_occlusion: Bool,
+        mode: String,
         blas_width: Int,
     ](
         self,
@@ -132,7 +132,7 @@ struct Tlas[width: Int](Copyable):
                 ray.mask,
             )
 
-            comptime if is_occlusion:
+            comptime if mode == TRACE_ANY_HIT:
                 if blases[Int(inst.blas_idx)].is_occluded(local_ray):
                     return True
             else:
@@ -150,7 +150,7 @@ struct Tlas[width: Int](Copyable):
 
     @always_inline
     def _traverse_triangles_generic[
-        is_occlusion: Bool,
+        mode: String,
         blas_width: Int,
     ](
         self,
@@ -165,7 +165,7 @@ struct Tlas[width: Int](Copyable):
             mut hit: Hit,
         ) capturing -> Bool:
             return self._traverse_triangle_leaf[
-                is_occlusion,
+                mode,
                 blas_width,
             ](
                 ray,
@@ -177,7 +177,7 @@ struct Tlas[width: Int](Copyable):
 
         return traverse_wide_ray_bvh[
             Self.width,
-            is_occlusion,
+            mode,
             leaf_fn,
         ](
             self.tree,
@@ -186,7 +186,7 @@ struct Tlas[width: Int](Copyable):
 
     @always_inline
     def _traverse_spheres_generic[
-        is_occlusion: Bool,
+        mode: String,
         blas_width: Int,
     ](
         self,
@@ -201,7 +201,7 @@ struct Tlas[width: Int](Copyable):
             mut hit: Hit,
         ) capturing -> Bool:
             return self._traverse_sphere_leaf[
-                is_occlusion,
+                mode,
                 blas_width,
             ](
                 ray,
@@ -213,7 +213,7 @@ struct Tlas[width: Int](Copyable):
 
         return traverse_wide_ray_bvh[
             Self.width,
-            is_occlusion,
+            mode,
             leaf_fn,
         ](
             self.tree,
@@ -227,7 +227,7 @@ struct Tlas[width: Int](Copyable):
         ray: Ray,
         blases: UnsafePointer[TriangleBvh[blas_width], MutAnyOrigin],
     ) -> Hit:
-        return self._traverse_triangles_generic[False, blas_width](
+        return self._traverse_triangles_generic[TRACE_CLOSEST_HIT, blas_width](
             ray,
             blases,
         )
@@ -239,7 +239,7 @@ struct Tlas[width: Int](Copyable):
         ray: Ray,
         blases: UnsafePointer[TriangleBvh[blas_width], MutAnyOrigin],
     ) -> Bool:
-        var hit = self._traverse_triangles_generic[True, blas_width](
+        var hit = self._traverse_triangles_generic[TRACE_ANY_HIT, blas_width](
             ray,
             blases,
         )
@@ -252,7 +252,7 @@ struct Tlas[width: Int](Copyable):
         ray: Ray,
         blases: UnsafePointer[SphereBvh[blas_width], MutAnyOrigin],
     ) -> Hit:
-        return self._traverse_spheres_generic[False, blas_width](
+        return self._traverse_spheres_generic[TRACE_CLOSEST_HIT, blas_width](
             ray,
             blases,
         )
@@ -264,7 +264,7 @@ struct Tlas[width: Int](Copyable):
         ray: Ray,
         blases: UnsafePointer[SphereBvh[blas_width], MutAnyOrigin],
     ) -> Bool:
-        var hit = self._traverse_spheres_generic[True, blas_width](
+        var hit = self._traverse_spheres_generic[TRACE_ANY_HIT, blas_width](
             ray,
             blases,
         )

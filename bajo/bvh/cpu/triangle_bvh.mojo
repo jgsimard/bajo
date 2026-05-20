@@ -1,7 +1,7 @@
 from std.utils.numerics import max_finite
 
 from bajo.core.vec import Vec3, Vec3f32, vmin, vmax, longest_axis, dot
-from bajo.bvh.constants import EMPTY_LANE
+from bajo.bvh.constants import EMPTY_LANE, TRACE_CLOSEST_HIT, TRACE_ANY_HIT
 from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvh,
     BoundsItem,
@@ -113,7 +113,7 @@ struct TriangleBvh[width: Int](Copyable):
 
     @always_inline
     def _intersect_leaf[
-        is_occlusion: Bool
+        mode: String
     ](
         self,
         ray: Ray,
@@ -139,7 +139,7 @@ struct TriangleBvh[width: Int](Copyable):
         var hit_mask = h.mask & t_valid & block.valid_lane
 
         if hit_mask.reduce_or():
-            comptime if is_occlusion:
+            comptime if mode == TRACE_ANY_HIT:
                 return True
             else:
                 comptime f32_max = max_finite[DType.float32]()
@@ -160,7 +160,7 @@ struct TriangleBvh[width: Int](Copyable):
         return False
 
     @always_inline
-    def _traverse_generic[is_occlusion: Bool](self, ray: Ray) -> Hit:
+    def _traverse_generic[mode: String](self, ray: Ray) -> Hit:
         @always_inline
         def leaf_fn(
             ray: Ray,
@@ -168,7 +168,7 @@ struct TriangleBvh[width: Int](Copyable):
             item_count: UInt32,
             mut hit: Hit,
         ) capturing -> Bool:
-            return self._intersect_leaf[is_occlusion](
+            return self._intersect_leaf[mode](
                 ray,
                 leaf_block_idx,
                 item_count,
@@ -177,7 +177,7 @@ struct TriangleBvh[width: Int](Copyable):
 
         return traverse_wide_ray_bvh[
             Self.width,
-            is_occlusion,
+            mode,
             leaf_fn,
         ](
             self.tree,
@@ -185,8 +185,8 @@ struct TriangleBvh[width: Int](Copyable):
         )
 
     def traverse(self, ray: Ray) -> Hit:
-        return self._traverse_generic[False](ray)
+        return self._traverse_generic[TRACE_CLOSEST_HIT](ray)
 
     def is_occluded(self, ray: Ray) -> Bool:
-        var hit = self._traverse_generic[True](ray)
+        var hit = self._traverse_generic[TRACE_ANY_HIT](ray)
         return hit.is_occluded()

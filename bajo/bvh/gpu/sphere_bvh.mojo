@@ -18,7 +18,7 @@ from bajo.bvh.gpu.bounds_bvh import (
     GPU_WIDE_BOUNDS_STRIDE,
     GPU_SPHERE_STRIDE,
 )
-from bajo.bvh.gpu.traverse import trace_gpu_wide_ray
+from bajo.bvh.gpu.trace import trace_bounds_bvh
 
 
 struct GpuSphereBvh[width: Int]:
@@ -152,7 +152,7 @@ def trace_gpu_sphere_bvh_primary_kernel[
         return
 
     var ray = Ray(rays, ray_idx)
-    var hit = trace_gpu_wide_ray[
+    var hit = trace_bounds_bvh[
         width,
         TRACE_CLOSEST_HIT,
         _intersect_sphere_leaf[
@@ -194,7 +194,7 @@ def trace_gpu_sphere_bvh_shadow_kernel[
         return
 
     var ray = Ray(rays, ray_idx)
-    var hit = trace_gpu_wide_ray[
+    var hit = trace_bounds_bvh[
         width,
         TRACE_ANY_HIT,
         _intersect_sphere_leaf[

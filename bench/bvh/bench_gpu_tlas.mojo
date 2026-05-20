@@ -22,7 +22,6 @@ from bajo.bvh.host_utils import (
 )
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.tlas import Tlas
-
 from bajo.bvh.gpu.tlas import GpuTlas
 from bajo.bvh.gpu.sphere_bvh import GpuSphereBvh
 from bajo.bvh.gpu.triangle_bvh import GpuTriangleBvh
@@ -112,7 +111,7 @@ def _cpu_tlas_triangle_reference[
 
     for i in range(len(rays)):
         var ray = rays[i].copy()
-        var hit = tlas.traverse_triangles[blas_width](
+        var hit = tlas.trace_triangles[TRACE_CLOSEST_HIT, blas_width](
             ray,
             blases.unsafe_ptr(),
         )
@@ -142,7 +141,10 @@ def _cpu_tlas_triangle_shadow_reference[
 
     for i in range(len(rays)):
         var ray = rays[i].copy()
-        if tlas.is_occluded_triangles[blas_width](ray, blases.unsafe_ptr()):
+        hit = tlas.trace_triangles[TRACE_ANY_HIT, blas_width](
+            ray, blases.unsafe_ptr()
+        )
+        if hit.is_occluded():
             occluded += 1
 
     return occluded

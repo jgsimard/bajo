@@ -10,7 +10,7 @@ from bajo.bvh.cpu.bounds_bvh import (
 from bajo.core.aabb import AABB, AxisAlignedBoundingBox
 from bajo.bvh.types import Ray, Hit, Sphere, SphereLeafBlock
 from bajo.core.intersect import intersect_ray_sphere
-from bajo.bvh.cpu.traverse import trace_bounds_bvh
+from bajo.bvh.cpu.trace import trace_bounds_bvh
 
 
 struct SphereBvh[width: Int](Copyable):
@@ -140,7 +140,7 @@ struct SphereBvh[width: Int](Copyable):
             return True
 
     @always_inline
-    def _traverse_generic[mode: String](self, ray: Ray) -> Hit:
+    def trace[mode: String](self, ray: Ray) -> Hit:
         @always_inline
         def leaf_fn(
             ray: Ray,
@@ -163,10 +163,3 @@ struct SphereBvh[width: Int](Copyable):
             self.tree,
             ray,
         )
-
-    def traverse(self, ray: Ray) -> Hit:
-        return self._traverse_generic[TRACE_CLOSEST_HIT](ray)
-
-    def is_occluded(self, ray: Ray) -> Bool:
-        var hit = self._traverse_generic[TRACE_ANY_HIT](ray)
-        return hit.is_occluded()

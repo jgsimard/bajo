@@ -18,7 +18,7 @@ from bajo.bvh.gpu.bounds_bvh import (
     GPU_TRI_LEAF_VERTEX_STRIDE,
 )
 from bajo.core.intersect import intersect_ray_tri
-from bajo.bvh.gpu.traverse import trace_gpu_wide_ray
+from bajo.bvh.gpu.trace import trace_bounds_bvh
 
 
 struct GpuTriangleBvh[width: Int]:
@@ -192,7 +192,7 @@ def trace_gpu_triangle_bvh_primary_kernel[
         return
 
     var ray = Ray(rays, ray_idx)
-    var hit = trace_gpu_wide_ray[
+    var hit = trace_bounds_bvh[
         width,
         TRACE_CLOSEST_HIT,
         _intersect_triangle_leaf[
@@ -234,7 +234,7 @@ def trace_gpu_triangle_bvh_shadow_kernel[
         return
 
     var ray = Ray(rays, ray_idx)
-    var hit = trace_gpu_wide_ray[
+    var hit = trace_bounds_bvh[
         width,
         TRACE_ANY_HIT,
         _intersect_triangle_leaf[

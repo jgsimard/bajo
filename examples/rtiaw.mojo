@@ -237,7 +237,7 @@ struct World(Copyable):
             tmax,
         )
 
-        var bvh_hit = self.bvh.traverse(bvh_ray)
+        var bvh_hit = self.bvh.trace(bvh_ray)
 
         if not bvh_hit.is_hit():
             return None

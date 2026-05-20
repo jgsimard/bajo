@@ -22,7 +22,7 @@ from bajo.bvh.gpu.bounds_bvh import (
 from bajo.bvh.gpu.camera import _make_camera_ray
 from bajo.bvh.gpu.sphere_bvh import _intersect_sphere_leaf
 from bajo.bvh.gpu.triangle_bvh import _intersect_triangle_leaf
-from bajo.bvh.gpu.traverse import trace_gpu_wide_ray
+from bajo.bvh.gpu.trace import trace_bounds_bvh
 
 
 comptime GPU_TLAS_TRANSFORM_STRIDE = 16
@@ -127,7 +127,7 @@ def _intersect_tlas_instance_block[
                         local_t_max,
                     )
 
-                    var local_hit = trace_gpu_wide_ray[
+                    var local_hit = trace_bounds_bvh[
                         blas_width,
                         mode,
                         blas_leaf_fn,

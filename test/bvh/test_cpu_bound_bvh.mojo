@@ -258,7 +258,7 @@ def _assert_triangle_bvh_matches_bruteforce[
     D: Vec3f32,
 ) raises:
     var ray = Ray(O, D)
-    var hit = bvh.traverse(ray)
+    var hit = bvh.trace[TRACE_CLOSEST_HIT](ray)
 
     var brute = _brute_trace(verts, O, D)
     var brute_hit = brute.is_hit()
@@ -287,7 +287,7 @@ def _assert_sphere_bvh_matches_bruteforce[
     D: Vec3f32,
 ) raises:
     var ray = Ray(O, D)
-    var hit = bvh.traverse(ray)
+    var hit = bvh.trace[TRACE_CLOSEST_HIT](ray)
 
     var brute = _brute_sphere_trace(spheres, O, D)
     var brute_hit = brute.is_hit()
@@ -403,7 +403,7 @@ def test_triangle_bvh2_leaf_size_equals_width_returns_nearest_triangle() raises:
     )
 
     var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    var hit = bvh.traverse(ray)
+    var hit = bvh.trace[TRACE_CLOSEST_HIT](ray)
 
     assert_true(hit.prim == 0)
     assert_almost_equal(hit.t, 2.0)
@@ -472,10 +472,10 @@ def test_triangle_bvh4_shadow_hit_and_miss() raises:
 
     # Primitive 4 is centered at x = 0.
     var ray_hit = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    assert_true(bvh.is_occluded(ray_hit))
+    assert_true(bvh.trace[TRACE_ANY_HIT](ray_hit).is_occluded())
 
     var ray_miss = Ray(Vec3f32(100.0, 100.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    assert_true(not bvh.is_occluded(ray_miss))
+    assert_true(not bvh.trace[TRACE_ANY_HIT](ray_miss).is_occluded())
 
 
 def test_triangle_bvh4_sah_leaf_size_equals_width_matches_bruteforce() raises:
@@ -516,7 +516,7 @@ def test_sphere_bvh4_returns_nearest_sphere() raises:
     assert_true(bvh.tree.nodes[0].data[0] == 0)
 
     var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    var hit = bvh.traverse(ray)
+    var hit = bvh.trace[TRACE_CLOSEST_HIT](ray)
 
     assert_true(hit.t < Float32(1e20), "SphereBvh did not hit")
     assert_true(hit.prim == 0)
@@ -558,10 +558,12 @@ def test_sphere_bvh4_shadow_hit_and_miss() raises:
     )
 
     var ray_hit = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    assert_true(bvh.is_occluded(ray_hit))
+    hit = bvh.trace[TRACE_ANY_HIT](ray_hit)
+    assert_true(hit.is_occluded())
 
     var ray_miss = Ray(Vec3f32(100.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    assert_true(not bvh.is_occluded(ray_miss))
+    hit = bvh.trace[TRACE_ANY_HIT](ray_miss)
+    assert_true(not hit.is_occluded())
 
 
 def test_sphere_bvh4_sah_matches_bruteforce() raises:
@@ -604,8 +606,10 @@ def test_tlas_triangle_single_instance_matches_blas() raises:
     var ray_blas = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
     var ray_tlas = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
 
-    var hit_blas = blas.traverse(ray_blas)
-    var hit_tlas = tlas.traverse_triangles[4](ray_tlas, blases.unsafe_ptr())
+    var hit_blas = blas.trace[TRACE_CLOSEST_HIT](ray_blas)
+    var hit_tlas = tlas.trace_triangles[TRACE_CLOSEST_HIT, 4](
+        ray_tlas, blases.unsafe_ptr()
+    )
 
     assert_true(hit_tlas.prim == hit_blas.prim)
     assert_true(hit_tlas.inst == 0)
@@ -643,7 +647,9 @@ def test_tlas_triangle_two_instances_returns_nearest_instance() raises:
     var tlas = Tlas[4](instances)
 
     var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    var hit = tlas.traverse_triangles[4](ray, blases.unsafe_ptr())
+    var hit = tlas.trace_triangles[TRACE_CLOSEST_HIT, 4](
+        ray, blases.unsafe_ptr()
+    )
 
     assert_true(hit.inst == 0)
     assert_true(hit.prim == 0)
@@ -667,11 +673,17 @@ def test_tlas_triangle_shadow_hit_and_miss() raises:
     var tlas = Tlas[4](instances)
 
     var ray_hit = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    assert_true(tlas.is_occluded_triangles[4](ray_hit, blases.unsafe_ptr()))
+    assert_true(
+        tlas.trace_triangles[TRACE_ANY_HIT, 4](
+            ray_hit, blases.unsafe_ptr()
+        ).is_occluded()
+    )
 
     var ray_miss = Ray(Vec3f32(100.0, 100.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
     assert_true(
-        not tlas.is_occluded_triangles[4](ray_miss, blases.unsafe_ptr())
+        not tlas.trace_triangles[TRACE_ANY_HIT, 4](
+            ray_miss, blases.unsafe_ptr()
+        ).is_occluded()
     )
 
 
@@ -694,8 +706,10 @@ def test_tlas_sphere_single_instance_matches_blas() raises:
     var ray_blas = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
     var ray_tlas = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
 
-    var hit_blas = blas.traverse(ray_blas)
-    var hit_tlas = tlas.traverse_spheres[4](ray_tlas, blases.unsafe_ptr())
+    var hit_blas = blas.trace[TRACE_CLOSEST_HIT](ray_blas)
+    var hit_tlas = tlas.trace_spheres[TRACE_CLOSEST_HIT, 4](
+        ray_tlas, blases.unsafe_ptr()
+    )
 
     assert_true(hit_tlas.prim == hit_blas.prim)
     assert_true(hit_tlas.inst == 0)
@@ -726,7 +740,7 @@ def test_tlas_sphere_two_instances_returns_nearest_instance() raises:
     var tlas = Tlas[4](instances)
 
     var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    var hit = tlas.traverse_spheres[4](ray, blases.unsafe_ptr())
+    var hit = tlas.trace_spheres[TRACE_CLOSEST_HIT, 4](ray, blases.unsafe_ptr())
 
     assert_true(hit.inst == 0)
     assert_true(hit.prim == 0)
@@ -750,10 +764,18 @@ def test_tlas_sphere_shadow_hit_and_miss() raises:
     var tlas = Tlas[4](instances)
 
     var ray_hit = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    assert_true(tlas.is_occluded_spheres[4](ray_hit, blases.unsafe_ptr()))
+    assert_true(
+        tlas.trace_spheres[TRACE_ANY_HIT, 4](
+            ray_hit, blases.unsafe_ptr()
+        ).is_occluded()
+    )
 
     var ray_miss = Ray(Vec3f32(100.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    assert_true(not tlas.is_occluded_spheres[4](ray_miss, blases.unsafe_ptr()))
+    assert_true(
+        not tlas.trace_spheres[TRACE_ANY_HIT, 4](
+            ray_miss, blases.unsafe_ptr()
+        ).is_occluded()
+    )
 
 
 def test_bounds_ray_query_inside_outside_regression() raises:
@@ -922,7 +944,7 @@ def test_triangle_bvh4_sah_reports_original_primitive_after_reorder() raises:
     # Aim at the triangle with original primitive id 6.
     # _make_strip centers primitive i at x = i * 4 - count * 2.
     var ray = Ray(Vec3f32(8.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    var hit = bvh.traverse(ray)
+    var hit = bvh.trace[TRACE_CLOSEST_HIT](ray)
 
     assert_true(hit.prim == 6)
     assert_almost_equal(hit.t, 2.0)

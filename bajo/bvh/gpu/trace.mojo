@@ -1,11 +1,11 @@
 from bajo.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
-    GPU_TRAVERSAL_STACK_SIZE,
     _wide_lane_base,
     _intersect_wide_node_bounds,
-    _gpu_inf_t,
 )
 from bajo.bvh.constants import (
+    GPU_TRAVERSAL_STACK_SIZE,
+    _gpu_inf_t,
     TRACE_CLOSEST_HIT,
     TRACE_ANY_HIT,
     EMPTY_LANE,
@@ -14,7 +14,7 @@ from bajo.bvh.types import Ray, Hit
 
 
 @always_inline
-def trace_gpu_wide_ray[
+def trace_bounds_bvh[
     width: Int,
     mode: String,
     leaf_fn: def(

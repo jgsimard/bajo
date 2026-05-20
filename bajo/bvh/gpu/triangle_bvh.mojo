@@ -7,8 +7,8 @@ from bajo.core.vec import Vec3f32, vmin, vmax, Vec3
 from bajo.bvh.types import Ray, Hit, TriangleLeafBlock
 from bajo.bvh.constants import (
     EMPTY_LANE,
-    TRACE_PRIMARY_FULL,
-    TRACE_SHADOW,
+    TRACE_CLOSEST_HIT,
+    TRACE_ANY_HIT,
 )
 from bajo.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
@@ -194,10 +194,10 @@ def trace_gpu_triangle_bvh_primary_kernel[
     var ray = Ray(rays, ray_idx)
     var hit = trace_gpu_wide_ray[
         width,
-        TRACE_PRIMARY_FULL,
+        TRACE_CLOSEST_HIT,
         _intersect_triangle_leaf[
             width,
-            TRACE_PRIMARY_FULL,
+            TRACE_CLOSEST_HIT,
         ],
     ](
         wide_bounds,
@@ -236,10 +236,10 @@ def trace_gpu_triangle_bvh_shadow_kernel[
     var ray = Ray(rays, ray_idx)
     var hit = trace_gpu_wide_ray[
         width,
-        TRACE_SHADOW,
+        TRACE_ANY_HIT,
         _intersect_triangle_leaf[
             width,
-            TRACE_SHADOW,
+            TRACE_ANY_HIT,
         ],
     ](
         wide_bounds,
@@ -267,7 +267,7 @@ def _intersect_triangle_leaf[
     ray: Ray,
     mut hit: Hit,
 ) capturing -> Bool:
-    comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_SHADOW]
+    comptime assert mode in [TRACE_CLOSEST_HIT, TRACE_ANY_HIT]
 
     var any_hit = False
 
@@ -305,12 +305,12 @@ def _intersect_triangle_leaf[
                 )
 
                 if h.mask and h.t < hit.t:
-                    comptime if mode == TRACE_SHADOW:
+                    comptime if mode == TRACE_ANY_HIT:
                         return True
                     else:
                         hit.t = h.t
 
-                        comptime if mode == TRACE_PRIMARY_FULL:
+                        comptime if mode == TRACE_CLOSEST_HIT:
                             hit.u = h.u
                             hit.v = h.v
                             hit.prim = prim
@@ -372,7 +372,7 @@ def _intersect_triangle_leaf[
 #     ray: Ray,
 #     mut hit: Hit,
 # ) capturing -> Bool:
-#     comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_SHADOW]
+#     comptime assert mode in [TRACE_CLOSEST_HIT, TRACE_ANY_HIT]
 
 #     var block = _load_triangle_leaf[width](
 #         leaf_vertices,
@@ -399,7 +399,7 @@ def _intersect_triangle_leaf[
 #     if not hit_mask.reduce_or():
 #         return False
 
-#     comptime if mode == TRACE_SHADOW:
+#     comptime if mode == TRACE_ANY_HIT:
 #         return True
 #     else:
 #         comptime f32_max = max_finite[DType.float32]()
@@ -408,7 +408,7 @@ def _intersect_triangle_leaf[
 #         if min_t < hit.t:
 #             hit.t = min_t
 
-#             comptime if mode == TRACE_PRIMARY_FULL:
+#             comptime if mode == TRACE_CLOSEST_HIT:
 #                 comptime for lane in range(width):
 #                     if hit_mask[lane] and h.t[lane] == min_t:
 #                         hit.u = h.u[lane]

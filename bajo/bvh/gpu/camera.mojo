@@ -2,8 +2,8 @@ from bajo.bvh.types import Ray, Hit
 from bajo.bvh.constants import (
     _gpu_inf_t,
     EMPTY_LANE,
-    TRACE_PRIMARY_FULL,
-    TRACE_SHADOW,
+    TRACE_CLOSEST_HIT,
+    TRACE_ANY_HIT,
 )
 from bajo.core.vec import Vec3f32, normalize
 
@@ -76,7 +76,7 @@ def _write_camera_miss_result[
     out_u32: UnsafePointer[UInt32, MutAnyOrigin],
     ray_idx: Int,
 ):
-    comptime if mode == TRACE_PRIMARY_FULL:
+    comptime if mode == TRACE_CLOSEST_HIT:
         var hit_base = ray_idx * 3
         out_f32[hit_base + 0] = _gpu_inf_t
         out_f32[hit_base + 1] = 0.0
@@ -95,7 +95,7 @@ def _write_camera_result[
     ray_idx: Int,
     hit: Hit,
 ):
-    comptime if mode == TRACE_PRIMARY_FULL:
+    comptime if mode == TRACE_CLOSEST_HIT:
         _write_primary_full_result(out_f32, out_u32, ray_idx, hit)
     else:
         out_u32[ray_idx] = hit.occluded

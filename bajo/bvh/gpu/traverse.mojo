@@ -6,8 +6,8 @@ from bajo.bvh.gpu.bounds_bvh import (
     _gpu_inf_t,
 )
 from bajo.bvh.constants import (
-    TRACE_PRIMARY_FULL,
-    TRACE_SHADOW,
+    TRACE_CLOSEST_HIT,
+    TRACE_ANY_HIT,
     EMPTY_LANE,
 )
 from bajo.bvh.types import Ray, Hit
@@ -35,7 +35,7 @@ def trace_gpu_wide_ray[
     root_idx: UInt32,
     ray: Ray,
 ) -> Hit:
-    comptime assert mode in [TRACE_PRIMARY_FULL, TRACE_SHADOW]
+    comptime assert mode in [TRACE_CLOSEST_HIT, TRACE_ANY_HIT]
 
     var hit = Hit.miss()
     hit.t = ray.t_max
@@ -49,7 +49,7 @@ def trace_gpu_wide_ray[
 
     while True:
         var node_t_max = hit.t
-        comptime if mode == TRACE_SHADOW:
+        comptime if mode == TRACE_ANY_HIT:
             node_t_max = ray.t_max
 
         var bounds_hit = _intersect_wide_node_bounds[width](
@@ -85,7 +85,7 @@ def trace_gpu_wide_ray[
                             hit,
                         )
 
-                        comptime if mode == TRACE_SHADOW:
+                        comptime if mode == TRACE_ANY_HIT:
                             if leaf_hit:
                                 return Hit.shadow_hit()
 
@@ -105,7 +105,7 @@ def trace_gpu_wide_ray[
                 if far_lane != -1:
                     child_valid[far_lane] = False
 
-                    comptime if mode != TRACE_SHADOW:
+                    comptime if mode != TRACE_ANY_HIT:
                         if far_t > hit.t:
                             continue
 
@@ -122,7 +122,7 @@ def trace_gpu_wide_ray[
                     var data = UInt32(wide_data[lane_base])
 
                     if count == 0:
-                        comptime if mode != TRACE_SHADOW:
+                        comptime if mode != TRACE_ANY_HIT:
                             if bounds_hit.tmin[node_lane] > hit.t:
                                 continue
 
@@ -139,7 +139,7 @@ def trace_gpu_wide_ray[
                             hit,
                         )
 
-                        comptime if mode == TRACE_SHADOW:
+                        comptime if mode == TRACE_ANY_HIT:
                             if leaf_hit:
                                 return Hit.shadow_hit()
 

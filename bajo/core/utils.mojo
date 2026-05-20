@@ -1,5 +1,7 @@
 from std.math import sqrt, clamp, pi
 from std.sys.info import size_of
+from std.bit import count_leading_zeros, count_trailing_zeros
+from std.memory import pack_bits
 
 from bajo.core.vec import Vec3, vclamp, Vec3f32
 from bajo.obj import read_obj, triangulated_indices
@@ -65,3 +67,22 @@ def pack_obj_triangles(path: String) raises -> List[Vec3f32]:
         )
 
     return out^
+
+
+@always_inline
+def min_argmin[
+    dtype: DType, width: Int
+](x: SIMD[dtype, width]) -> Tuple[Scalar[dtype], Int]:
+    comptime if width == 2:
+        var best = x[0]
+        var index = 0
+        if x[1] < best:
+            best = x[1]
+            index = 1
+        return (best, index)
+    else:
+        var _min = x.reduce_min()
+        var is_min = x.eq(_min)
+        var mask = pack_bits(is_min)
+        var index = Int(count_trailing_zeros(mask))
+        return (_min, index)

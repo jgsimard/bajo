@@ -49,104 +49,6 @@ struct Tlas[width: Int](Copyable):
         return self.tree.root_bounds()
 
     @always_inline
-    def _trace_triangle_leaf[
-        mode: String,
-        blas_width: Int,
-    ](
-        self,
-        ray: Ray,
-        first_item: UInt32,
-        item_count: UInt32,
-        blases: UnsafePointer[TriangleBvh[blas_width], MutAnyOrigin],
-        mut hit: Hit,
-    ) -> Bool:
-        for i in range(Int(item_count)):
-            var item_ref = Int(self.tree.item_indices[Int(first_item) + i])
-            var inst_idx = self.tree.item_payloads[item_ref]
-            ref inst = self.instances[Int(inst_idx)]
-
-            var local_origin = transform_point(
-                inst.inv_transform,
-                ray.o,
-            )
-            var local_dir = transform_vector(
-                inst.inv_transform,
-                ray.d,
-            )
-
-            var local_ray = Ray(
-                local_origin,
-                local_dir,
-                ray.t_min,
-                hit.t,
-                ray.mask,
-            )
-
-            var local_hit = blases[Int(inst.blas_idx)].trace[mode](local_ray)
-
-            comptime if mode == TRACE_ANY_HIT:
-                return local_hit.is_occluded()
-            else:
-                if local_hit.is_hit() and local_hit.t < hit.t:
-                    hit.t = local_hit.t
-                    hit.u = local_hit.u
-                    hit.v = local_hit.v
-                    hit.prim = local_hit.prim
-                    hit.inst = inst_idx
-                    hit.occluded = UInt32(0)
-
-        return False
-
-    @always_inline
-    def _trace_sphere_leaf[
-        mode: String,
-        blas_width: Int,
-    ](
-        self,
-        ray: Ray,
-        first_item: UInt32,
-        item_count: UInt32,
-        blases: UnsafePointer[SphereBvh[blas_width], MutAnyOrigin],
-        mut hit: Hit,
-    ) -> Bool:
-        for i in range(Int(item_count)):
-            var item_ref = Int(self.tree.item_indices[Int(first_item) + i])
-            var inst_idx = self.tree.item_payloads[item_ref]
-            ref inst = self.instances[Int(inst_idx)]
-
-            var local_origin = transform_point(
-                inst.inv_transform,
-                ray.o,
-            )
-            var local_dir = transform_vector(
-                inst.inv_transform,
-                ray.d,
-            )
-
-            var local_ray = Ray(
-                local_origin,
-                local_dir,
-                ray.t_min,
-                hit.t,
-                ray.mask,
-            )
-
-            var local_hit = blases[Int(inst.blas_idx)].trace[mode](local_ray)
-
-            comptime if mode == TRACE_ANY_HIT:
-                return local_hit.is_occluded()
-            else:
-                if local_hit.is_hit() and local_hit.t < hit.t:
-                    hit.t = local_hit.t
-                    hit.u = local_hit.u
-                    hit.v = local_hit.v
-                    hit.prim = local_hit.prim
-                    hit.inst = inst_idx
-                    hit.occluded = UInt32(0)
-
-        return False
-
-    @always_inline
     def trace_triangles[
         mode: String,
         blas_width: Int,
@@ -162,16 +64,44 @@ struct Tlas[width: Int](Copyable):
             item_count: UInt32,
             mut hit: Hit,
         ) capturing -> Bool:
-            return self._trace_triangle_leaf[
-                mode,
-                blas_width,
-            ](
-                ray,
-                first_item,
-                item_count,
-                blases,
-                hit,
-            )
+            for i in range(Int(item_count)):
+                var item_ref = Int(self.tree.item_indices[Int(first_item) + i])
+                var inst_idx = self.tree.item_payloads[item_ref]
+                ref inst = self.instances[Int(inst_idx)]
+
+                var local_origin = transform_point(
+                    inst.inv_transform,
+                    ray.o,
+                )
+                var local_dir = transform_vector(
+                    inst.inv_transform,
+                    ray.d,
+                )
+
+                var local_ray = Ray(
+                    local_origin,
+                    local_dir,
+                    ray.t_min,
+                    hit.t,
+                    ray.mask,
+                )
+
+                var local_hit = blases[Int(inst.blas_idx)].trace[mode](
+                    local_ray
+                )
+
+                comptime if mode == TRACE_ANY_HIT:
+                    return local_hit.is_occluded()
+                else:
+                    if local_hit.is_hit() and local_hit.t < hit.t:
+                        hit.t = local_hit.t
+                        hit.u = local_hit.u
+                        hit.v = local_hit.v
+                        hit.prim = local_hit.prim
+                        hit.inst = inst_idx
+                        hit.occluded = UInt32(0)
+
+            return False
 
         return trace_bounds_bvh[
             Self.width,
@@ -198,16 +128,44 @@ struct Tlas[width: Int](Copyable):
             item_count: UInt32,
             mut hit: Hit,
         ) capturing -> Bool:
-            return self._trace_sphere_leaf[
-                mode,
-                blas_width,
-            ](
-                ray,
-                first_item,
-                item_count,
-                blases,
-                hit,
-            )
+            for i in range(Int(item_count)):
+                var item_ref = Int(self.tree.item_indices[Int(first_item) + i])
+                var inst_idx = self.tree.item_payloads[item_ref]
+                ref inst = self.instances[Int(inst_idx)]
+
+                var local_origin = transform_point(
+                    inst.inv_transform,
+                    ray.o,
+                )
+                var local_dir = transform_vector(
+                    inst.inv_transform,
+                    ray.d,
+                )
+
+                var local_ray = Ray(
+                    local_origin,
+                    local_dir,
+                    ray.t_min,
+                    hit.t,
+                    ray.mask,
+                )
+
+                var local_hit = blases[Int(inst.blas_idx)].trace[mode](
+                    local_ray
+                )
+
+                comptime if mode == TRACE_ANY_HIT:
+                    return local_hit.is_occluded()
+                else:
+                    if local_hit.is_hit() and local_hit.t < hit.t:
+                        hit.t = local_hit.t
+                        hit.u = local_hit.u
+                        hit.v = local_hit.v
+                        hit.prim = local_hit.prim
+                        hit.inst = inst_idx
+                        hit.occluded = UInt32(0)
+
+            return False
 
         return trace_bounds_bvh[
             Self.width,

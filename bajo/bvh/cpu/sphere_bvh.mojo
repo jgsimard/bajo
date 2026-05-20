@@ -92,54 +92,6 @@ struct SphereBvh[width: Int](Copyable):
                     node.data[lane] = block_idx
 
     @always_inline
-    def _intersect_leaf[
-        mode: String
-    ](
-        self,
-        ray: Ray,
-        leaf_block_idx: UInt32,
-        item_count: UInt32,
-        mut hit: Hit,
-    ) -> Bool:
-        ref block = self.leaf_blocks[Int(leaf_block_idx)]
-
-        var O = Vec3[DType.float32, Self.width](ray.o.x, ray.o.y, ray.o.z)
-        var D = Vec3[DType.float32, Self.width](ray.d.x, ray.d.y, ray.d.z)
-
-        var h = intersect_ray_sphere(
-            O,
-            D,
-            block.center,
-            block.radius,
-            hit.t,
-        )
-
-        var t_valid = h.t.ge(ray.t_min)
-        var hit_mask = h.mask & t_valid & block.valid_lane
-
-        if not hit_mask.reduce_or():
-            return False
-
-        comptime if mode == TRACE_ANY_HIT:
-            return True
-        else:
-            comptime f32_max = max_finite[DType.float32]()
-            var min_t = hit_mask.select(h.t, f32_max).reduce_min()
-
-            if min_t < hit.t:
-                hit.t = min_t
-                hit.u = 0.0
-                hit.v = 0.0
-                hit.inst = EMPTY_LANE
-                hit.occluded = UInt32(0)
-
-                comptime for lane in range(Self.width):
-                    if hit_mask[lane] and h.t[lane] == min_t:
-                        hit.prim = block.prim_indices[lane]
-
-            return True
-
-    @always_inline
     def trace[mode: String](self, ray: Ray) -> Hit:
         @always_inline
         def leaf_fn(
@@ -148,12 +100,43 @@ struct SphereBvh[width: Int](Copyable):
             item_count: UInt32,
             mut hit: Hit,
         ) capturing -> Bool:
-            return self._intersect_leaf[mode](
-                ray,
-                leaf_block_idx,
-                item_count,
-                hit,
+            ref block = self.leaf_blocks[Int(leaf_block_idx)]
+
+            var O = Vec3[DType.float32, Self.width](ray.o.x, ray.o.y, ray.o.z)
+            var D = Vec3[DType.float32, Self.width](ray.d.x, ray.d.y, ray.d.z)
+
+            var h = intersect_ray_sphere(
+                O,
+                D,
+                block.center,
+                block.radius,
+                hit.t,
             )
+
+            var t_valid = h.t.ge(ray.t_min)
+            var hit_mask = h.mask & t_valid & block.valid_lane
+
+            if not hit_mask.reduce_or():
+                return False
+
+            comptime if mode == TRACE_ANY_HIT:
+                return True
+            else:
+                comptime f32_max = max_finite[DType.float32]()
+                var min_t = hit_mask.select(h.t, f32_max).reduce_min()
+
+                if min_t < hit.t:
+                    hit.t = min_t
+                    hit.u = 0.0
+                    hit.v = 0.0
+                    hit.inst = EMPTY_LANE
+                    hit.occluded = UInt32(0)
+
+                    comptime for lane in range(Self.width):
+                        if hit_mask[lane] and h.t[lane] == min_t:
+                            hit.prim = block.prim_indices[lane]
+
+                return True
 
         return trace_bounds_bvh[
             Self.width,

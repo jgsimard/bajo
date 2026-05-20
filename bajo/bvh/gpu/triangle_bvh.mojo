@@ -14,8 +14,8 @@ from bajo.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
     _copy_f32_to_device,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
-    GPU_WIDE_BOUNDS_STRIDE,
-    GPU_TRI_LEAF_VERTEX_STRIDE,
+    BOUNDS_STRIDE,
+    TRI_LEAF_VERTEX_STRIDE,
 )
 from bajo.core.intersect import intersect_ray_tri
 from bajo.bvh.gpu.trace import trace_bounds_bvh
@@ -41,7 +41,7 @@ struct GpuTriangleBvh[width: Int]:
         self.vertices = _copy_f32_to_device(ctx, flat_vertices)
 
         var leaf_bounds = List[Float32](
-            capacity=max(self.tri_count, 1) * GPU_WIDE_BOUNDS_STRIDE
+            capacity=max(self.tri_count, 1) * BOUNDS_STRIDE
         )
         var payloads = List[UInt32](capacity=max(self.tri_count, 1))
 
@@ -63,7 +63,7 @@ struct GpuTriangleBvh[width: Int]:
         _ = self.tree.build(ctx)
 
         self.leaf_vertices = ctx.enqueue_create_buffer[DType.float32](
-            self.tree.max_leaf_blocks * Self.width * GPU_TRI_LEAF_VERTEX_STRIDE
+            self.tree.max_leaf_blocks * Self.width * TRI_LEAF_VERTEX_STRIDE
         )
         self.leaf_prims = ctx.enqueue_create_buffer[DType.uint32](
             self.tree.max_leaf_blocks * Self.width
@@ -163,13 +163,13 @@ def pack_triangle_leaf_blocks_kernel[
         var prim = UInt32(leaf_block_indices[idx])
         leaf_prims[idx] = prim
 
-        var out_base = idx * GPU_TRI_LEAF_VERTEX_STRIDE
+        var out_base = idx * TRI_LEAF_VERTEX_STRIDE
         if prim == EMPTY_LANE:
-            for k in range(GPU_TRI_LEAF_VERTEX_STRIDE):
+            for k in range(TRI_LEAF_VERTEX_STRIDE):
                 leaf_vertices[out_base + k] = 0.0
         else:
-            var in_base = Int(prim) * GPU_TRI_LEAF_VERTEX_STRIDE
-            for k in range(GPU_TRI_LEAF_VERTEX_STRIDE):
+            var in_base = Int(prim) * TRI_LEAF_VERTEX_STRIDE
+            for k in range(TRI_LEAF_VERTEX_STRIDE):
                 leaf_vertices[out_base + k] = vertices[in_base + k]
 
 
@@ -277,7 +277,7 @@ def _intersect_triangle_leaf[
             var prim = UInt32(leaf_prims[idx])
 
             if prim != EMPTY_LANE:
-                var base = idx * GPU_TRI_LEAF_VERTEX_STRIDE
+                var base = idx * TRI_LEAF_VERTEX_STRIDE
 
                 var v0 = Vec3f32(
                     leaf_vertices[base + 0],
@@ -340,7 +340,7 @@ def _intersect_triangle_leaf[
 #             var prim = UInt32(leaf_prims[idx])
 
 #             if prim != EMPTY_LANE:
-#                 var base = idx * GPU_TRI_LEAF_VERTEX_STRIDE
+#                 var base = idx * TRI_LEAF_VERTEX_STRIDE
 
 #                 block.v0.x[lane] = leaf_vertices[base + 0]
 #                 block.v0.y[lane] = leaf_vertices[base + 1]

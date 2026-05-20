@@ -15,7 +15,7 @@ from bajo.bvh.gpu.bounds_bvh import (
     _copy_f32_to_device,
     _copy_u32_to_device,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
-    GPU_WIDE_BOUNDS_STRIDE,
+    BOUNDS_STRIDE,
     _wide_lane_base,
     _intersect_wide_node_bounds,
 )
@@ -352,7 +352,7 @@ struct GpuTlas[width: Int]:
         self.inst_count = len(instances)
 
         var leaf_bounds = List[Float32](
-            capacity=max(self.inst_count, 1) * GPU_WIDE_BOUNDS_STRIDE
+            capacity=max(self.inst_count, 1) * BOUNDS_STRIDE
         )
         var payloads = List[UInt32](capacity=max(self.inst_count, 1))
 

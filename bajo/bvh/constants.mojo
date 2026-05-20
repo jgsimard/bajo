@@ -15,3 +15,7 @@ comptime MISS_PRIM = EMPTY_LANE
 comptime MISS_INST = EMPTY_LANE
 
 comptime CPU_TRAVERSAL_STACK_SIZE = 64
+
+comptime BOUNDS_STRIDE = 6
+comptime TRI_LEAF_VERTEX_STRIDE = 9
+comptime SPHERE_STRIDE = 4

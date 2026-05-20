@@ -23,6 +23,10 @@ from bajo.bvh.constants import (
     TRACE_CLOSEST_HIT,
     TRACE_ANY_HIT,
     EMPTY_LANE,
+    _gpu_inf_t,
+    BOUNDS_STRIDE,
+    TRI_LEAF_VERTEX_STRIDE,
+    SPHERE_STRIDE,
 )
 from bajo.bvh.gpu.validate import (
     validate_sorted_keys,
@@ -37,16 +41,9 @@ comptime LBVH_NODE_PARENT = 0
 comptime LBVH_NODE_LEFT = 1
 comptime LBVH_NODE_RIGHT = 2
 comptime LBVH_NODE_FENCE = 3
-
 comptime LBVH_NODE_BOUNDS_STRIDE = 12
-comptime LBVH_BOUNDS_LEFT = 0
-comptime LBVH_BOUNDS_RIGHT = 6
 
 comptime GPU_BOUNDS_BVH_BLOCK_SIZE = 128
-comptime GPU_WIDE_BOUNDS_STRIDE = 6
-comptime GPU_TRI_LEAF_VERTEX_STRIDE = 9
-comptime GPU_SPHERE_STRIDE = 4
-comptime _gpu_inf_t = Float32(3.4028234663852886e38)
 
 
 @always_inline
@@ -95,7 +92,7 @@ def _load_leaf_bounds_host(
     leaf_bounds: List[Float32],
     leaf_idx: UInt32,
 ) -> AABB:
-    var b = Int(leaf_idx) * GPU_WIDE_BOUNDS_STRIDE
+    var b = Int(leaf_idx) * BOUNDS_STRIDE
     return AABB.load6(leaf_bounds.unsafe_ptr(), b)
 
 
@@ -132,7 +129,7 @@ def compute_bounds_morton_codes_kernel(
     if i >= leaf_count:
         return
 
-    var b = i * GPU_WIDE_BOUNDS_STRIDE
+    var b = i * BOUNDS_STRIDE
     var bounds = AABB.load6(leaf_bounds, b)
     var c = (bounds.centroid() - cmin) * inv_extent
 
@@ -178,7 +175,7 @@ def refit_lbvh_bounds_from_leaves_kernel(
         return
 
     var item_idx = UInt32(sorted_leaf_ids[leaf_idx])
-    var b = Int(item_idx) * GPU_WIDE_BOUNDS_STRIDE
+    var b = Int(item_idx) * BOUNDS_STRIDE
     var bounds = AABB(
         Vec3f32(leaf_bounds[b + 0], leaf_bounds[b + 1], leaf_bounds[b + 2]),
         Vec3f32(leaf_bounds[b + 3], leaf_bounds[b + 4], leaf_bounds[b + 5]),
@@ -230,7 +227,7 @@ def _encoded_bounds_gpu(
     if _is_encoded_leaf(encoded):
         var sorted_leaf_idx = _encoded_index(encoded)
         var item_idx = UInt32(sorted_leaf_ids[Int(sorted_leaf_idx)])
-        var b = Int(item_idx) * GPU_WIDE_BOUNDS_STRIDE
+        var b = Int(item_idx) * BOUNDS_STRIDE
         return AABB.load6(leaf_bounds, b)
 
     return _load_and_union_node_bounds(node_bounds, _encoded_index(encoded))
@@ -245,7 +242,7 @@ def _write_wide_lane_bounds[
     lane: Int,
     bounds: AABB,
 ):
-    var b = (Int(wide_node_idx) * width + lane) * GPU_WIDE_BOUNDS_STRIDE
+    var b = (Int(wide_node_idx) * width + lane) * BOUNDS_STRIDE
     bounds.store6(wide_bounds, b)
 
 
@@ -318,7 +315,7 @@ def init_gpu_wide_collapse_kernel[
         wide_data[i] = UInt32(0)
         wide_counts[i] = EMPTY_LANE
 
-        var b = i * GPU_WIDE_BOUNDS_STRIDE
+        var b = i * BOUNDS_STRIDE
         wide_bounds[b + 0] = 0.0
         wide_bounds[b + 1] = 0.0
         wide_bounds[b + 2] = 0.0
@@ -572,7 +569,7 @@ struct GpuBoundsBvh[width: Int]:
         # Wide node index is the binary internal node index. Leaf blocks are
         # allocated on the GPU during collapse with an atomic counter.
         self.wide_bounds = ctx.enqueue_create_buffer[DType.float32](
-            self.max_wide_nodes * Self.width * GPU_WIDE_BOUNDS_STRIDE
+            self.max_wide_nodes * Self.width * BOUNDS_STRIDE
         )
         self.wide_data = ctx.enqueue_create_buffer[DType.uint32](
             self.max_wide_nodes * Self.width
@@ -728,7 +725,7 @@ struct GpuBoundsBvh[width: Int]:
     def root_bounds(self) -> AABB:
         var out = AABB.invalid()
         for i in range(self.leaf_count):
-            var b = i * GPU_WIDE_BOUNDS_STRIDE
+            var b = i * BOUNDS_STRIDE
             out.grow(Vec3f32.load(self.leaf_bounds_host.unsafe_ptr(), b))
             out.grow(Vec3f32.load(self.leaf_bounds_host.unsafe_ptr(), b + 3))
         return out
@@ -736,7 +733,7 @@ struct GpuBoundsBvh[width: Int]:
     def _compute_centroid_bounds(self) -> AABB:
         var out = AABB.invalid()
         for i in range(self.leaf_count):
-            var b = i * GPU_WIDE_BOUNDS_STRIDE
+            var b = i * BOUNDS_STRIDE
             v0 = Vec3f32.load(self.leaf_bounds_host.unsafe_ptr(), b)
             v1 = Vec3f32.load(self.leaf_bounds_host.unsafe_ptr(), b + 3)
             out.grow((v0 + v1) * 0.5)
@@ -832,7 +829,7 @@ def _wide_lane_base[width: Int](node_idx: UInt32, lane: Int) -> Int:
 
 @always_inline
 def _wide_bounds_base[width: Int](node_idx: UInt32, lane: Int) -> Int:
-    return _wide_lane_base[width](node_idx, lane) * GPU_WIDE_BOUNDS_STRIDE
+    return _wide_lane_base[width](node_idx, lane) * BOUNDS_STRIDE
 
 
 # Host utility copies local to this module to avoid depending on old triangle-only

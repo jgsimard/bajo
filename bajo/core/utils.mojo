@@ -1,9 +1,9 @@
-from std.math import sqrt, clamp, pi
+from std.math import pi
 from std.sys.info import size_of
-from std.bit import count_leading_zeros, count_trailing_zeros
+from std.bit import count_trailing_zeros
 from std.memory import pack_bits
 
-from bajo.core.vec import Vec3, vclamp, Vec3f32
+from bajo.core.vec import Vec3, Vec3f32
 from bajo.obj import read_obj, triangulated_indices
 
 

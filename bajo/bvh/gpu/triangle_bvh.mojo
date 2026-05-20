@@ -9,13 +9,13 @@ from bajo.bvh.constants import (
     EMPTY_LANE,
     TRACE_CLOSEST_HIT,
     TRACE_ANY_HIT,
+    TRI_LEAF_VERTEX_STRIDE,
 )
 from bajo.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
     _copy_f32_to_device,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
     BOUNDS_STRIDE,
-    TRI_LEAF_VERTEX_STRIDE,
 )
 from bajo.core.intersect import intersect_ray_tri
 from bajo.bvh.gpu.trace import trace_bounds_bvh

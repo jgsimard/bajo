@@ -1,5 +1,5 @@
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
-from std.math import fma, min, max, clamp, sqrt
+from std.math import fma, min, max, sqrt
 from std.testing import assert_almost_equal
 
 comptime Vec2f32 = Vec2[DType.float32]

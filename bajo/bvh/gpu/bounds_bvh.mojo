@@ -1,32 +1,25 @@
 from std.bit import count_leading_zeros
-from std.math import min, max, ceildiv, sqrt
+from std.math import min, max, ceildiv
 from std.time import perf_counter_ns
 from std.atomic import Atomic
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
 
 
 from bajo.core.aabb import AABB, AxisAlignedBoundingBox
-from bajo.core.vec import Vec3f32, vmin, vmax, Vec3
-from bajo.core.mat import Mat44f32, transform_point, transform_vector
+from bajo.core.vec import Vec3f32, Vec3
 from bajo.core.intersect import (
     intersect_ray_aabb,
-    intersect_ray_tri,
     RayAabbHit,
 )
 from bajo.core.morton import morton3
-from bajo.bvh.types import Ray, Hit, Sphere
+from bajo.bvh.types import Ray
 from bajo.bvh.constants import (
     LBVH_LEAF_FLAG,
     LBVH_INDEX_MASK,
     LBVH_SENTINEL,
     GPU_TRAVERSAL_STACK_SIZE,
-    TRACE_CLOSEST_HIT,
-    TRACE_ANY_HIT,
     EMPTY_LANE,
-    _gpu_inf_t,
     BOUNDS_STRIDE,
-    TRI_LEAF_VERTEX_STRIDE,
-    SPHERE_STRIDE,
 )
 from bajo.bvh.gpu.validate import (
     validate_sorted_keys,

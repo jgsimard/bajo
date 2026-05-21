@@ -67,7 +67,7 @@ struct BoundsBvhBuilder[leaf_size: Int](Copyable):
             return
 
         comptime if split_method == "lbvh":
-            self.build_lbvh()
+            _build_lbvh[Self.leaf_size](self)
         else:
             self.nodes_used = 1
             self.nodes[0].set_leaf(0, self.item_count)
@@ -187,13 +187,6 @@ struct BoundsBvhBuilder[leaf_size: Int](Copyable):
 
         self._subdivide[split_method](left_child_idx)
         self._subdivide[split_method](left_child_idx + 1)
-
-    def build_lbvh(mut self):
-        """Build a binary LBVH using sorted Morton codes over BoundsItem centers.
-
-        This is a CPU reference builder.
-        """
-        _build_lbvh[Self.leaf_size](self)
 
     def tree_quality(self) -> Float32:
         if self.nodes_used == 0:

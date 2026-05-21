@@ -74,8 +74,7 @@ def _make_tlas_local_ray(
     )
 
 
-# this inline: 30% faster, but X2 slower compile time
-# @always_inline
+@always_inline
 def _intersect_tlas_instance_block[
     tlas_width: Int,
     blas_width: Int,
@@ -100,7 +99,7 @@ def _intersect_tlas_instance_block[
 
     var hit_any = False
 
-    comptime for lane in range(tlas_width):
+    for lane in range(tlas_width):
         if lane < Int(item_count):
             var idx = Int(leaf_block_idx) * tlas_width + lane
             var inst_idx = UInt32(tlas_leaf_instances[idx])

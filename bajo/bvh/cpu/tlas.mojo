@@ -88,7 +88,8 @@ struct Tlas[width: Int](Copyable):
                 )
 
                 comptime if mode == TRACE_ANY_HIT:
-                    return local_hit.is_occluded()
+                    if local_hit.is_occluded():
+                        return True
                 else:
                     if local_hit.is_hit() and local_hit.t < hit.t:
                         hit.t = local_hit.t
@@ -150,7 +151,8 @@ struct Tlas[width: Int](Copyable):
                 )
 
                 comptime if mode == TRACE_ANY_HIT:
-                    return local_hit.is_occluded()
+                    if local_hit.is_occluded():
+                        return True
                 else:
                     if local_hit.is_hit() and local_hit.t < hit.t:
                         hit.t = local_hit.t

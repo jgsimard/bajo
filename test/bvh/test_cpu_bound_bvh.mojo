@@ -98,10 +98,7 @@ def _make_bounds_items(verts: List[Vec3f32]) -> List[BoundsItem]:
         ref v1 = verts[i * 3 + 1]
         ref v2 = verts[i * 3 + 2]
 
-        var item = BoundsItem()
-        item.bounds = _make_tri_bounds(v0, v1, v2)
-        item.payload = UInt32(i)
-        items.append(item)
+        items.append(BoundsItem(_make_tri_bounds(v0, v1, v2), UInt32(i)))
 
     return items^
 

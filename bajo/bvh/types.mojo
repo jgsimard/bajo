@@ -20,6 +20,7 @@ comptime RAY_T_MAX = 10
 comptime RAY_MASK = 11
 
 
+@fieldwise_init
 struct Hit(TrivialRegisterPassable, Writable):
     var t: Float32
     var u: Float32
@@ -27,30 +28,6 @@ struct Hit(TrivialRegisterPassable, Writable):
     var prim: UInt32
     var inst: UInt32
     var occluded: UInt32
-
-    def __init__(out self):
-        self.t = f32_max
-        self.u = 0.0
-        self.v = 0.0
-        self.prim = EMPTY_LANE
-        self.inst = EMPTY_LANE
-        self.occluded = UInt32(0)
-
-    def __init__(
-        out self,
-        t: Float32,
-        u: Float32,
-        v: Float32,
-        prim: UInt32,
-        inst: UInt32 = EMPTY_LANE,
-        occluded: UInt32 = UInt32(0),
-    ):
-        self.t = t
-        self.u = u
-        self.v = v
-        self.prim = prim
-        self.inst = inst
-        self.occluded = occluded
 
     @staticmethod
     def miss() -> Self:

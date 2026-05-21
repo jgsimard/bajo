@@ -15,11 +15,6 @@ struct Tlas[width: Int](Copyable):
     var instances: List[Instance]
     var inst_count: UInt32
 
-    def __init__(out self):
-        self.tree = BoundsBvh[Self.width]()
-        self.instances = List[Instance]()
-        self.inst_count = 0
-
     def __init__(out self, instances: List[Instance]):
         self.tree = BoundsBvh[Self.width]()
         self.instances = instances.copy()

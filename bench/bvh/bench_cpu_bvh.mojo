@@ -87,19 +87,11 @@ struct PrimaryBenchResult(Copyable):
     var ns: Int
     var checksum: Float64
 
-    def __init__(out self):
-        self.ns = 0
-        self.checksum = 0.0
-
 
 @fieldwise_init
 struct ShadowBenchResult(Copyable):
     var ns: Int
     var occluded: Int
-
-    def __init__(out self):
-        self.ns = 0
-        self.occluded = 0
 
 
 def print_result_legend():

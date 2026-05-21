@@ -28,10 +28,6 @@ struct BoundsItem(TrivialRegisterPassable):
     var bounds: AABB
     var payload: UInt32
 
-    def __init__(out self):
-        self.bounds = AABB.invalid()
-        self.payload = 0
-
     def center_axis(self, axis: Int) -> Float32:
         return self.bounds.centroid()[axis]
 
@@ -271,10 +267,6 @@ struct BoundsMortonItem(TrivialRegisterPassable):
     var code: UInt32
     var item_idx: UInt32
 
-    def __init__(out self):
-        self.code = 0
-        self.item_idx = 0
-
 
 def _bounds_morton_item_less(
     a: BoundsMortonItem,
@@ -335,13 +327,6 @@ struct BoundsBvhBuilder[leaf_size: Int](Copyable):
     var items: List[BoundsItem]
     var item_count: UInt32
     var nodes_used: UInt32
-
-    def __init__(out self):
-        self.nodes = List[BoundsBvhNode]()
-        self.item_indices = List[UInt32]()
-        self.items = List[BoundsItem]()
-        self.item_count = 0
-        self.nodes_used = 0
 
     def __init__(out self, items: List[BoundsItem]):
         self.items = items.copy()

@@ -1,7 +1,7 @@
 from bajo.core.aabb import AABB
 from bajo.core.vec import vmin, vmax, longest_axis
 
-from .sah import _sah_items, _partition_items_by_bin
+from .sah import _find_sah_split, _partition_items_by_bin
 from .lbvh import _build_lbvh
 
 
@@ -88,7 +88,7 @@ struct BoundsBvhBuilder[leaf_size: Int](Copyable):
             pos = node.aabb._min[axis] + extent[axis] * 0.5
 
         elif split_method == "sah":
-            var split = _sah_items(
+            var split = _find_sah_split(
                 node,
                 self.item_indices.unsafe_ptr(),
                 self.items.unsafe_ptr(),

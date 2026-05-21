@@ -14,7 +14,7 @@ from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvh,
 )
 from bajo.bvh.cpu.builder.builder import _partition_items_by_center
-from bajo.bvh.cpu.builder.sah import _sah_items, _partition_items_by_bin
+from bajo.bvh.cpu.builder.sah import _find_sah_split, _partition_items_by_bin
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.bvh.cpu.tlas import Tlas
@@ -828,7 +828,7 @@ def test_bounds_sah_clear_separation() raises:
     var builder = BoundsBvhBuilder[2](items)
     builder.build["sah"]()
 
-    var split = _sah_items(
+    var split = _find_sah_split(
         builder.nodes[0],
         builder.item_indices.unsafe_ptr(),
         builder.items.unsafe_ptr(),
@@ -853,7 +853,7 @@ def test_bounds_sah_degenerate() raises:
     var builder = BoundsBvhBuilder[2](items)
     builder.build["sah"]()
 
-    var split = _sah_items(
+    var split = _find_sah_split(
         builder.nodes[0],
         builder.item_indices.unsafe_ptr(),
         builder.items.unsafe_ptr(),

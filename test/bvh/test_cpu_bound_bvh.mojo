@@ -13,7 +13,7 @@ from bajo.bvh.cpu.bounds_bvh import (
     BoundsItem,
     BoundsBvh,
 )
-from bajo.bvh.cpu.builder.builder import _partition_items
+from bajo.bvh.cpu.builder.builder import _partition_items_by_center
 from bajo.bvh.cpu.builder.sah import _sah_items, _partition_items_by_bin
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
@@ -876,7 +876,7 @@ def test_bounds_partition_items_non_empty() raises:
     var builder = BoundsBvhBuilder[2](items)
     builder.build["sah"]()
 
-    var split_idx = _partition_items(
+    var split_idx = _partition_items_by_center(
         builder.item_indices.unsafe_ptr(),
         builder.items.unsafe_ptr(),
         0,

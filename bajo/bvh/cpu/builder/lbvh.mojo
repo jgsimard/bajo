@@ -23,13 +23,6 @@ def _bounds_morton_item_less(
     return a.item_idx < b.item_idx
 
 
-def _highest_set_bit(v: UInt32) -> Int:
-    if v == 0:
-        return -1
-
-    return 31 - Int(count_leading_zeros(v))
-
-
 def _find_lbvh_split(
     pairs: UnsafePointer[BoundsMortonItem, ImmutAnyOrigin],
     first: Int,
@@ -37,52 +30,54 @@ def _find_lbvh_split(
 ) -> Int:
     var first_code = pairs[first].code
     var last_code = pairs[last - 1].code
+    var diff = first_code ^ last_code
 
-    if first_code == last_code:
+    if diff == 0:
         return (first + last) / 2
 
-    var bit = _highest_set_bit(first_code ^ last_code)
-    if bit < 0:
-        return (first + last) / 2
-
+    var bit = 31 - Int(count_leading_zeros(diff))
     var mask = UInt32(1) << UInt32(bit)
     var left_bit = first_code & mask
 
-    for i in range(first + 1, last):
-        if (pairs[i].code & mask) != left_bit:
-            return i
+    # binary search
+    var lo = first + 1
+    var hi = last - 1
 
-    return (first + last) / 2
+    while lo < hi:
+        var mid = (lo + hi) / 2
+        if (pairs[mid].code & mask) == left_bit:
+            lo = mid + 1
+        else:
+            hi = mid
+
+    return lo
 
 
 def _build_lbvh[leaf_size: Int](mut builder: BoundsBvhBuilder[leaf_size]):
     """Build a binary LBVH using sorted Morton codes over BoundsItem centers."""
 
-    builder.nodes_used = 1
-
     if builder.item_count == 0:
         builder.nodes_used = 0
         return
 
-    builder.nodes[0].set_leaf(0, builder.item_count)
-
+    builder.nodes_used = 1
+    var item_count = Int(builder.item_count)
     var centroid_bounds = AABB.invalid()
-    for i in range(Int(builder.item_count)):
-        centroid_bounds.grow(builder.items[i].bounds.centroid())
+    for item in builder.items:
+        centroid_bounds.grow(item.bounds.centroid())
 
     var extent = centroid_bounds.extent()
     var inv = extent.safe_inv()
 
-    var pairs = List[BoundsMortonItem](capacity=Int(builder.item_count))
+    var pairs = List[BoundsMortonItem](capacity=item_count)
 
-    for i in range(Int(builder.item_count)):
-        var centroid = builder.items[i].bounds.centroid()
+    for i, item in enumerate(builder.items):
+        var centroid = item.bounds.centroid()
         var c = (centroid - centroid_bounds._min) * inv
         var code = morton3(c.x, c.y, c.z)
         pairs.append(BoundsMortonItem(code, UInt32(i)))
 
-    var span = Span(pairs)
-    sort[_bounds_morton_item_less](span)
+    sort[_bounds_morton_item_less](Span(pairs))
 
     for i in range(len(pairs)):
         builder.item_indices[i] = pairs[i].item_idx
@@ -92,7 +87,7 @@ def _build_lbvh[leaf_size: Int](mut builder: BoundsBvhBuilder[leaf_size]):
         pairs.unsafe_ptr(),
         0,
         0,
-        Int(builder.item_count),
+        item_count,
     )
 
 
@@ -119,10 +114,6 @@ def _build_lbvh_recursive[
     var split = _find_lbvh_split(pairs, first, first + count)
     var left_count = split - first
 
-    if left_count <= 0 or left_count >= count:
-        split = first + count / 2
-        left_count = split - first
-
     var left_child_idx = builder.nodes_used
     builder.nodes_used += 2
 
@@ -144,8 +135,5 @@ def _build_lbvh_recursive[
 
     ref node = builder.nodes[Int(node_idx)]
     node.set_internal(left_child_idx)
-    node.aabb = AABB.invalid()
-    node.aabb.grow(left_bounds)
-    node.aabb.grow(right_bounds)
-
+    node.aabb = AABB.merge(left_bounds, right_bounds)
     return node.aabb

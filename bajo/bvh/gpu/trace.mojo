@@ -13,7 +13,6 @@ from bajo.bvh.constants import (
 from bajo.bvh.types import Ray, Hit
 
 
-@always_inline
 def trace_bounds_bvh[
     width: Int,
     mode: String,

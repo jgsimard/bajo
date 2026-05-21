@@ -11,42 +11,36 @@ struct Vec2[dtype: DType, width: Int = 1](TrivialRegisterPassable, Writable):
     var x: SIMD[Self.dtype, Self.width]
     var y: SIMD[Self.dtype, Self.width]
 
-    @always_inline
     def __add__(self, rhs: Self) -> Self:
         return Self(
             self.x + rhs.x,
             self.y + rhs.y,
         )
 
-    @always_inline
     def __sub__(self, rhs: Self) -> Self:
         return Self(
             self.x - rhs.x,
             self.y - rhs.y,
         )
 
-    @always_inline
     def __mul__(self, rhs: Self) -> Self:
         return Self(
             self.x * rhs.x,
             self.y * rhs.y,
         )
 
-    @always_inline
     def __mul__(self, rhs: SIMD[Self.dtype, Self.width]) -> Self:
         return Self(
             self.x * rhs,
             self.y * rhs,
         )
 
-    @always_inline
     def __truediv__(self, rhs: SIMD[Self.dtype, Self.width]) -> Self:
         return Self(
             self.x / rhs,
             self.y / rhs,
         )
 
-    @always_inline
     def __neg__(self) -> Self:
         return Self(-self.x, -self.y)
 
@@ -106,7 +100,6 @@ struct Vec3[dtype: DType, width: Int = 1](
         self.y = SIMD[Self.dtype, Self.width](x)
         self.z = SIMD[Self.dtype, Self.width](x)
 
-    @always_inline
     def __add__(self, rhs: Self) -> Self:
         return Self(
             self.x + rhs.x,
@@ -114,7 +107,6 @@ struct Vec3[dtype: DType, width: Int = 1](
             self.z + rhs.z,
         )
 
-    @always_inline
     def __add__(self, rhs: SIMD[Self.dtype, Self.width]) -> Self:
         return Self(
             self.x + rhs,
@@ -122,13 +114,11 @@ struct Vec3[dtype: DType, width: Int = 1](
             self.z + rhs,
         )
 
-    @always_inline
     def __iadd__(mut self, rhs: Self):
         self.x += rhs.x
         self.y += rhs.y
         self.z += rhs.z
 
-    @always_inline
     def __sub__(self, rhs: Self) -> Self:
         return Self(
             self.x - rhs.x,
@@ -136,7 +126,6 @@ struct Vec3[dtype: DType, width: Int = 1](
             self.z - rhs.z,
         )
 
-    @always_inline
     def __sub__(self, rhs: SIMD[Self.dtype, Self.width]) -> Self:
         return Self(
             self.x - rhs,
@@ -144,7 +133,6 @@ struct Vec3[dtype: DType, width: Int = 1](
             self.z - rhs,
         )
 
-    @always_inline
     def __mul__(self, rhs: Self) -> Self:
         return Self(
             self.x * rhs.x,
@@ -152,13 +140,11 @@ struct Vec3[dtype: DType, width: Int = 1](
             self.z * rhs.z,
         )
 
-    @always_inline
     def __imul__(mut self, rhs: Self):
         self.x *= rhs.x
         self.y *= rhs.y
         self.z *= rhs.z
 
-    @always_inline
     def __mul__(self, rhs: SIMD[Self.dtype, Self.width]) -> Self:
         return Self(
             self.x * rhs,
@@ -166,7 +152,6 @@ struct Vec3[dtype: DType, width: Int = 1](
             self.z * rhs,
         )
 
-    @always_inline
     def __rmul__(self, rhs: SIMD[Self.dtype, Self.width]) -> Self:
         return Self(
             self.x * rhs,
@@ -174,7 +159,6 @@ struct Vec3[dtype: DType, width: Int = 1](
             self.z * rhs,
         )
 
-    @always_inline
     def __truediv__(self, rhs: SIMD[Self.dtype, Self.width]) -> Self:
         return Self(
             self.x / rhs,
@@ -182,7 +166,6 @@ struct Vec3[dtype: DType, width: Int = 1](
             self.z / rhs,
         )
 
-    @always_inline
     def __truediv__(self, rhs: Self) -> Self:
         return Self(
             self.x / rhs.x,
@@ -190,15 +173,12 @@ struct Vec3[dtype: DType, width: Int = 1](
             self.z / rhs.z,
         )
 
-    @always_inline
     def __neg__(self) -> Self:
         return Self(-self.x, -self.y, -self.z)
 
-    @always_inline
     def __eq__(self, rhs: Self) -> SIMD[DType.bool, Self.width]:
         return self.x.eq(rhs.x) & self.y.eq(rhs.y) & self.z.eq(rhs.z)
 
-    @always_inline
     def __rtruediv__(self, lhs: SIMD[Self.dtype, Self.width]) -> Self:
         return Self(
             lhs / self.x,
@@ -206,7 +186,6 @@ struct Vec3[dtype: DType, width: Int = 1](
             lhs / self.z,
         )
 
-    @always_inline
     def __getitem__(self, i: Int) -> SIMD[Self.dtype, Self.width]:
         if i == 0:
             return self.x
@@ -215,7 +194,6 @@ struct Vec3[dtype: DType, width: Int = 1](
         else:
             return self.z
 
-    @always_inline
     def __getitem_param__[i: Int](self) -> SIMD[Self.dtype, Self.width]:
         comptime assert i >= 0 and i < 3
 
@@ -226,7 +204,6 @@ struct Vec3[dtype: DType, width: Int = 1](
         else:
             return self.z
 
-    @always_inline
     def __setitem__(
         mut self,
         i: Int,
@@ -239,7 +216,6 @@ struct Vec3[dtype: DType, width: Int = 1](
         else:
             self.z = value
 
-    @always_inline
     def __setitem__[i: Int](mut self, value: SIMD[Self.dtype, Self.width]):
         comptime assert i >= 0 and i < 3
 
@@ -250,7 +226,6 @@ struct Vec3[dtype: DType, width: Int = 1](
         else:
             self.z = value
 
-    @always_inline
     def set_axis[i: Int](mut self, value: SIMD[Self.dtype, Self.width]):
         comptime assert i >= 0 and i < 3
 
@@ -261,7 +236,6 @@ struct Vec3[dtype: DType, width: Int = 1](
         else:
             self.z = value
 
-    @always_inline
     def add_axis[i: Int](mut self, value: SIMD[Self.dtype, Self.width]):
         comptime assert i >= 0 and i < 3
 
@@ -272,7 +246,6 @@ struct Vec3[dtype: DType, width: Int = 1](
         else:
             self.z += value
 
-    @always_inline
     def is_near_zero(
         self,
         eps: Scalar[Self.dtype] = 1.0e-8,
@@ -281,7 +254,6 @@ struct Vec3[dtype: DType, width: Int = 1](
 
         return abs(self.x).lt(s) & abs(self.y).lt(s) & abs(self.z).lt(s)
 
-    @always_inline
     def safe_inv(
         self,
         eps: Scalar[Self.dtype] = 1.0e-20,
@@ -306,7 +278,6 @@ struct Vec3[dtype: DType, width: Int = 1](
             mz.select(one / dz, zero),
         )
 
-    @always_inline
     @staticmethod
     def load[
         origin: Origin
@@ -317,7 +288,6 @@ struct Vec3[dtype: DType, width: Int = 1](
             ptr[base + 2],
         )
 
-    @always_inline
     def store[
         origin: Origin[mut=True]
     ](self, ptr: UnsafePointer[Scalar[Self.dtype], origin], base: Int):
@@ -327,14 +297,12 @@ struct Vec3[dtype: DType, width: Int = 1](
         ptr[base + 2] = self.z[0]
 
 
-@always_inline
 def dot[
     dtype: DType, width: Int
 ](a: Vec3[dtype, width], b: Vec3[dtype, width]) -> SIMD[dtype, width]:
     return fma(a.x, b.x, fma(a.y, b.y, a.z * b.z))
 
 
-@always_inline
 def vmin[
     dtype: DType, width: Int
 ](a: Vec3[dtype, width], b: Vec3[dtype, width]) -> Vec3[dtype, width]:
@@ -345,7 +313,6 @@ def vmin[
     )
 
 
-@always_inline
 def vmin[
     dtype: DType, width: Int
 ](a: Vec3[dtype, width], b: Vec3[dtype, width], c: Vec3[dtype, width]) -> Vec3[
@@ -358,7 +325,6 @@ def vmin[
     )
 
 
-@always_inline
 def vmax[
     dtype: DType, width: Int
 ](a: Vec3[dtype, width], b: Vec3[dtype, width]) -> Vec3[dtype, width]:
@@ -369,7 +335,6 @@ def vmax[
     )
 
 
-@always_inline
 def vmax[
     dtype: DType, width: Int
 ](a: Vec3[dtype, width], b: Vec3[dtype, width], c: Vec3[dtype, width]) -> Vec3[
@@ -382,7 +347,6 @@ def vmax[
     )
 
 
-@always_inline
 def vclamp[
     dtype: DType, width: Int
 ](
@@ -393,21 +357,18 @@ def vclamp[
     return vmin(vmax(p, lower), upper)
 
 
-@always_inline
 def length2[
     dtype: DType, width: Int
 ](v: Vec3[dtype, width]) -> SIMD[dtype, width]:
     return dot(v, v)
 
 
-@always_inline
 def length[
     dtype: DType, width: Int
 ](v: Vec3[dtype, width]) -> SIMD[dtype, width]:
     return sqrt(dot(v, v))
 
 
-@always_inline
 def cross[
     dtype: DType, width: Int
 ](a: Vec3[dtype, width], b: Vec3[dtype, width]) -> Vec3[dtype, width]:
@@ -418,7 +379,6 @@ def cross[
     )
 
 
-@always_inline
 def normalize[
     dtype: DType, width: Int
 ](v: Vec3[dtype, width], threshold: Scalar[dtype] = 1.0e-20) -> Vec3[
@@ -455,7 +415,6 @@ def assert_vec_equal[
     )
 
 
-@always_inline
 def longest_axis[dtype: DType, width: Int](v: Vec3[dtype, width]) -> Int:
     comptime assert width == 1
 

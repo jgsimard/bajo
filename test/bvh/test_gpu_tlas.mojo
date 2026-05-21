@@ -6,13 +6,14 @@ from std.gpu import DeviceContext, DeviceBuffer
 
 from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32
-from bajo.core.mat import Mat44f32
+from bajo.core.mat import Mat44f32, _translation, _inv_translation
 from bajo.bvh.constants import TRACE_CLOSEST_HIT, TRACE_ANY_HIT
 from bajo.bvh.types import Ray, Sphere, Instance
 from bajo.bvh.host_utils import (
     flatten_rays,
     generate_primary_rays,
     hit_t_for_checksum,
+    compute_bounds,
 )
 from bajo.bvh.gpu.tlas import GpuTlas
 from bajo.bvh.gpu.sphere_bvh import GpuSphereBvh
@@ -22,34 +23,10 @@ from bajo.bvh.gpu.utils import _upload_rays, _download_full_hit_checksum
 from fixtures import _append_tri
 
 
-comptime GPU_TLAS_TEST_WIDTH = 64
-comptime GPU_TLAS_TEST_HEIGHT = 48
-comptime GPU_TLAS_TEST_VIEWS = 3
-comptime GPU_TLAS_TEST_EPS = 0.05
-
-
-@always_inline
-def _translation_inverse(tx: Float32, ty: Float32, tz: Float32) -> Mat44f32:
-    # fmt: off
-    return Mat44f32(
-        1.0, 0.0, 0.0, -tx,
-        0.0, 1.0, 0.0, -ty,
-        0.0, 0.0, 1.0, -tz,
-        0.0, 0.0, 0.0, 1.0,
-    )
-    # fmt: on
-
-
-@always_inline
-def _translation(tx: Float32, ty: Float32, tz: Float32) -> Mat44f32:
-    # fmt: off
-    return Mat44f32(
-        1.0, 0.0, 0.0, tx,
-        0.0, 1.0, 0.0, ty,
-        0.0, 0.0, 1.0, tz,
-        0.0, 0.0, 0.0, 1.0,
-    )
-    # fmt: on
+comptime WIDTH = 64
+comptime HEIGHT = 48
+comptime VIEWS = 3
+comptime EPS = 0.05
 
 
 def _make_small_scene() -> List[Vec3f32]:
@@ -63,13 +40,6 @@ def _make_small_scene() -> List[Vec3f32]:
     _append_tri(verts, -1.0, 1.0, 4.0)
     _append_tri(verts, 1.0, 1.0, 4.0)
     return verts^
-
-
-def _compute_bounds(verts: List[Vec3f32]) -> AABB:
-    var out = AABB.invalid()
-    for vert in verts:
-        out.grow(vert)
-    return out
 
 
 def _download_tlas_checksum(
@@ -127,12 +97,12 @@ def _make_spheres() -> Tuple[List[Sphere], AABB]:
 
 def test_gpu_tlas_single_identity_matches_direct_blas() raises:
     var verts = _make_small_scene()
-    var bounds = _compute_bounds(verts)
+    var bounds = compute_bounds(verts)
     var rays = generate_primary_rays(
         bounds,
-        GPU_TLAS_TEST_WIDTH,
-        GPU_TLAS_TEST_HEIGHT,
-        GPU_TLAS_TEST_VIEWS,
+        WIDTH,
+        HEIGHT,
+        VIEWS,
     )
     var rays_flat = flatten_rays(rays)
 
@@ -177,7 +147,7 @@ def test_gpu_tlas_single_identity_matches_direct_blas() raises:
             d_tlas_f32, d_tlas_u32, len(rays)
         )
 
-        assert_true(abs(blas_res[0] - tlas_res[0]) <= GPU_TLAS_TEST_EPS)
+        assert_true(abs(blas_res[0] - tlas_res[0]) <= EPS)
         assert_true(blas_res[1] == tlas_res[1])
         assert_true(tlas_res[2] == UInt64(0))
         keep(tlas.tree.leaf_block_count)
@@ -186,13 +156,13 @@ def test_gpu_tlas_single_identity_matches_direct_blas() raises:
 def test_gpu_tlas_translated_single_instance_hit() raises:
     var verts = List[Vec3f32](capacity=3)
     _append_tri(verts, 0.0, 0.0, 2.0)
-    var bounds = _compute_bounds(verts)
+    var bounds = compute_bounds(verts)
 
     var tx = Float32(10.0)
     var instances = [
         Instance(
             _translation(tx, 0.0, 0.0),
-            _translation_inverse(tx, 0.0, 0.0),
+            _inv_translation(tx, 0.0, 0.0),
             UInt32(0),
             bounds,
         )
@@ -239,12 +209,12 @@ def test_gpu_tlas_translated_single_instance_hit() raises:
 
 def test_gpu_tlas_triangle_shadow_matches_direct_blas() raises:
     var verts = _make_small_scene()
-    var bounds = _compute_bounds(verts)
+    var bounds = compute_bounds(verts)
     var rays = generate_primary_rays(
         bounds,
-        GPU_TLAS_TEST_WIDTH,
-        GPU_TLAS_TEST_HEIGHT,
-        GPU_TLAS_TEST_VIEWS,
+        WIDTH,
+        HEIGHT,
+        VIEWS,
     )
     var rays_flat = flatten_rays(rays)
     var instances = [
@@ -293,9 +263,9 @@ def test_gpu_tlas_sphere_single_identity_matches_direct_blas() raises:
     var bounds = scene[1].copy()
     var rays = generate_primary_rays(
         bounds,
-        GPU_TLAS_TEST_WIDTH,
-        GPU_TLAS_TEST_HEIGHT,
-        GPU_TLAS_TEST_VIEWS,
+        WIDTH,
+        HEIGHT,
+        VIEWS,
     )
     var rays_flat = flatten_rays(rays)
     var instances = [
@@ -338,7 +308,7 @@ def test_gpu_tlas_sphere_single_identity_matches_direct_blas() raises:
             d_tlas_f32, d_tlas_u32, len(rays)
         )
 
-        assert_true(abs(blas_res[0] - tlas_res[0]) <= GPU_TLAS_TEST_EPS)
+        assert_true(abs(blas_res[0] - tlas_res[0]) <= EPS)
         assert_true(blas_res[1] == tlas_res[1])
         assert_true(tlas_res[2] == UInt64(0))
         keep(tlas.tree.leaf_block_count)
@@ -351,7 +321,7 @@ def test_gpu_tlas_sphere_translated_single_instance_hit() raises:
     var instances = [
         Instance(
             _translation(tx, 0.0, 0.0),
-            _translation_inverse(tx, 0.0, 0.0),
+            _inv_translation(tx, 0.0, 0.0),
             UInt32(0),
             bounds,
         )
@@ -401,9 +371,9 @@ def test_gpu_tlas_sphere_shadow_matches_direct_blas() raises:
     var bounds = scene[1].copy()
     var rays = generate_primary_rays(
         bounds,
-        GPU_TLAS_TEST_WIDTH,
-        GPU_TLAS_TEST_HEIGHT,
-        GPU_TLAS_TEST_VIEWS,
+        WIDTH,
+        HEIGHT,
+        VIEWS,
     )
     var rays_flat = flatten_rays(rays)
     var instances = [

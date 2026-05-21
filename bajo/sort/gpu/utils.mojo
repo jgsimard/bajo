@@ -19,7 +19,6 @@ def circular_shift(val: UInt32) -> UInt32:
     return warp.shuffle_idx(val, (lid + WARP_MASK) & WARP_MASK)
 
 
-@always_inline
 def warp_level_multi_split[
     keys_dtype: DType, BITS_PER_PASS: Int, KEYS_PER_THREAD: Int
 ](

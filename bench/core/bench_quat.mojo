@@ -70,7 +70,6 @@ struct BenchmarkData(Copyable):
         self.dst.free()
 
 
-@always_inline
 def dispatch_mul[version: Int](q1: Quat, q2: Quat) -> Quat:
     comptime if version == 1:
         return quat_mul_1(q1, q2)

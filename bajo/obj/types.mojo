@@ -247,7 +247,6 @@ struct ObjMesh(Movable):
             self.colors.append(1.0)
         self.colors.extend([r, g, b])
 
-    @always_inline
     def _push_element_meta(mut self, n: Int, is_line: Bool = False):
         if n == 0:
             return

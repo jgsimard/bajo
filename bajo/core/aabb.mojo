@@ -56,11 +56,9 @@ struct AxisAlignedBoundingBox[dtype: DType, width: Int = 1](
             self._min = vmin(self._min, other._min)
             self._max = vmax(self._max, other._max)
 
-    @always_inline
     def edges(self) -> Vec3[Self.dtype, Self.width]:
         return self._max - self._min
 
-    @always_inline
     def extent(self) -> Vec3[Self.dtype, Self.width]:
         return self.edges()
 
@@ -113,7 +111,6 @@ struct AxisAlignedBoundingBox[dtype: DType, width: Int = 1](
                     txfmed._max.add_axis[i](e)
         return txfmed
 
-    @always_inline
     @staticmethod
     def load6[
         origin: Origin
@@ -124,7 +121,6 @@ struct AxisAlignedBoundingBox[dtype: DType, width: Int = 1](
             Vec3[Self.dtype, Self.width].load(ptr, base + 3),
         )
 
-    @always_inline
     def store6[
         origin: Origin[mut=True]
     ](self, ptr: UnsafePointer[Scalar[Self.dtype], origin], base: Int):

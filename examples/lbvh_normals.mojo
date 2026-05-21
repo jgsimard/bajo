@@ -109,7 +109,6 @@ def _make_camera_params(tlas: Tlas[TLAS_WIDTH]) -> List[Float32]:
     return params^
 
 
-@always_inline
 def _unit_to_u8(x: Float32) -> UInt8:
     return UInt8(clamp(x, 0.0, 1.0) * 255.0)
 

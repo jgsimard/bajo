@@ -214,7 +214,6 @@ def trace_gpu_sphere_bvh_shadow_kernel[
     flags[ray_idx] = hit.occluded
 
 
-@always_inline
 def _load_sphere_leaf_packet[
     width: Int,
 ](
@@ -244,7 +243,6 @@ def _load_sphere_leaf_packet[
     return block^
 
 
-@always_inline
 def _intersect_sphere_leaf[
     width: Int,
     mode: String,

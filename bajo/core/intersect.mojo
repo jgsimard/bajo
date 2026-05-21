@@ -42,7 +42,6 @@ struct RayAabbHit[dtype: DType, width: Int](TrivialRegisterPassable, Writable):
     # var tmax: SIMD[Self.dtype, Self.width]
 
 
-@always_inline
 def diff_product[
     dtype: DType, width: Int
 ](
@@ -62,7 +61,6 @@ def diff_product[
 
 
 # intersection functions
-@always_inline
 def closest_point_to_aabb[
     dtype: DType, width: Int
 ](
@@ -166,7 +164,6 @@ def furthest_point_to_triangle[
     return Vec2[dtype, width](0, 0)
 
 
-@always_inline
 def _axis_t_near[
     dtype: DType, width: Int
 ](
@@ -180,7 +177,6 @@ def _axis_t_near[
     return min(t0, t1)
 
 
-@always_inline
 def _axis_t_far[
     dtype: DType, width: Int
 ](
@@ -194,7 +190,6 @@ def _axis_t_far[
     return max(t0, t1)
 
 
-@always_inline
 def intersect_ray_aabb[
     dtype: DType, width: Int
 ](
@@ -206,7 +201,6 @@ def intersect_ray_aabb[
     return intersect_ray_aabb(o, rd, aabb._min, aabb._max, t_max)
 
 
-@always_inline
 def intersect_ray_aabb[
     dtype: DType, width: Int
 ](
@@ -233,7 +227,6 @@ def intersect_ray_aabb[
     return RayAabbHit(mask, tmin)
 
 
-@always_inline
 def intersect_aabb_aabb[
     dtype: DType, width: Int
 ](
@@ -252,7 +245,6 @@ def intersect_aabb_aabb[
     )
 
 
-@always_inline
 def intersect_ray_sphere[
     dtype: DType,
     width: Int,
@@ -295,7 +287,6 @@ def intersect_ray_sphere[
     return RaySphereHit(mask, t)
 
 
-@always_inline
 def intersect_ray_tri[
     dtype: DType, width: Int
 ](
@@ -346,7 +337,6 @@ def intersect_ray_tri[
     )
 
 
-@always_inline
 def intersect_ray_tri[
     dtype: DType
 ](
@@ -371,7 +361,6 @@ def intersect_ray_tri[
     )
 
 
-@always_inline
 def intersect_ray_tri_rtcd[
     dtype: DType, width: Int
 ](
@@ -434,7 +423,6 @@ def intersect_ray_tri_rtcd[
     return True
 
 
-@always_inline
 def max_dim[dtype: DType, width: Int](v: Vec3[dtype, width]) -> Int:
     comptime assert width == 1
 
@@ -449,7 +437,6 @@ def max_dim[dtype: DType, width: Int](v: Vec3[dtype, width]) -> Int:
     return 2
 
 
-@always_inline
 def intersect_ray_tri_woop[
     dtype: DType, width: Int
 ](
@@ -547,7 +534,6 @@ def intersect_ray_tri_woop[
     return True
 
 
-@always_inline
 def edge_edge_test[
     dtype: DType, width: Int
 ](
@@ -582,7 +568,6 @@ def edge_edge_test[
     return False
 
 
-@always_inline
 def edge_against_tri_edges[
     dtype: DType, width: Int
 ](
@@ -609,7 +594,6 @@ def edge_against_tri_edges[
     return False
 
 
-@always_inline
 def _point_in_tri_check[
     dtype: DType, width: Int
 ](
@@ -625,7 +609,6 @@ def _point_in_tri_check[
     return a * v0[i0] + b * v0[i1] + c
 
 
-@always_inline
 def point_in_tri[
     dtype: DType, width: Int
 ](
@@ -645,7 +628,6 @@ def point_in_tri[
     return (d0 * d1 > 0.0) and (d0 * d2 > 0.0)
 
 
-@always_inline
 def coplanar_tri_tri[
     dtype: DType, width: Int
 ](
@@ -706,7 +688,6 @@ struct Intervals[dtype: DType, width: Int](Movable):
     var is_coplanar: Bool
 
 
-@always_inline
 def get_intervals[
     dtype: DType, width: Int
 ](
@@ -784,7 +765,6 @@ def get_intervals[
 comptime intersect_tri_tri = no_div_tri_tri_isect
 
 
-@always_inline
 def no_div_tri_tri_isect[
     dtype: DType, width: Int
 ](

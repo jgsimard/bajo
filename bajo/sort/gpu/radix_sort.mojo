@@ -60,7 +60,6 @@ def upsweep[
     # Histogram Binning
     var s_warp_hist = s_global_hist + (wid * PADDED_RADIX)
 
-    @always_inline
     def _f[width: Int](i: Int) capturing:
         var t = keys_current.load[width=width](i)
         t = (t >> radix_shift) & RADIX_MASK

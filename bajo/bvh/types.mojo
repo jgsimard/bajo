@@ -28,7 +28,6 @@ struct Hit(TrivialRegisterPassable, Writable):
     var inst: UInt32
     var occluded: UInt32
 
-    @always_inline
     def __init__(out self):
         self.t = f32_max
         self.u = 0.0
@@ -37,7 +36,6 @@ struct Hit(TrivialRegisterPassable, Writable):
         self.inst = EMPTY_LANE
         self.occluded = UInt32(0)
 
-    @always_inline
     def __init__(
         out self,
         t: Float32,
@@ -54,21 +52,17 @@ struct Hit(TrivialRegisterPassable, Writable):
         self.inst = inst
         self.occluded = occluded
 
-    @always_inline
     @staticmethod
     def miss() -> Self:
         return Self(f32_max, 0.0, 0.0, EMPTY_LANE, EMPTY_LANE, 0)
 
-    @always_inline
     @staticmethod
     def shadow_hit() -> Self:
         return Self(0.0, 0.0, 0.0, EMPTY_LANE, EMPTY_LANE, 1)
 
-    @always_inline
     def is_hit(self) -> Bool:
         return self.prim != EMPTY_LANE and self.t < f32_max
 
-    @always_inline
     def is_occluded(self) -> Bool:
         return self.occluded != UInt32(0)
 
@@ -120,7 +114,6 @@ struct Sphere(TrivialRegisterPassable):
     var center: Vec3f32
     var radius: Float32
 
-    @always_inline
     def bounds(self) -> AABB:
         var r = Vec3f32(self.radius)
         return AABB(self.center - r, self.center + r)
@@ -133,7 +126,6 @@ struct SphereLeafBlock[width: Int](Copyable):
     var prim_indices: SIMD[DType.uint32, Self.width]
     var valid_lane: SIMD[DType.bool, Self.width]
 
-    @always_inline
     def __init__(out self):
         self.center = Vec3[DType.float32, Self.width](0.0)
         self.radius = SIMD[DType.float32, Self.width](0.0)
@@ -149,7 +141,6 @@ struct TriangleLeafBlock[width: Int](Copyable):
     var prim_indices: SIMD[DType.uint32, Self.width]
     var valid_lane: SIMD[DType.bool, Self.width]
 
-    @always_inline
     def __init__(out self):
         self.v0 = Vec3[DType.float32, Self.width](0.0)
         self.v1 = Vec3[DType.float32, Self.width](0.0)
@@ -172,14 +163,12 @@ struct Instance(Copyable):
     var bounds: AABB
     var blas_idx: UInt32
 
-    @always_inline
     def __init__(out self):
         self.transform = Mat44f32.identity()
         self.inv_transform = Mat44f32.identity()
         self.bounds = AABB.invalid()
         self.blas_idx = UInt32(0)
 
-    @always_inline
     def __init__(
         out self,
         transform: Mat44f32,
@@ -193,7 +182,6 @@ struct Instance(Copyable):
         self.bounds = transform_bounds(transform, blas_bounds)
 
 
-@always_inline
 def transform_bounds(transform: Mat44f32, bounds: AABB) -> AABB:
     var corners = InlineArray[Vec3f32, 8](uninitialized=True)
 

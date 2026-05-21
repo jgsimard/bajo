@@ -18,7 +18,7 @@ from bajo.bvh.gpu.bounds_bvh import (
 )
 from bajo.core.intersect import intersect_ray_tri
 from bajo.bvh.gpu.trace import trace_bounds_bvh
-from bajo.bvh.host_utils import copy_list_to_device
+from bajo.bvh.host_utils import copy_list_to_device, flatten_vertices
 
 
 struct GpuTriangleBvh[width: Int]:
@@ -37,7 +37,7 @@ struct GpuTriangleBvh[width: Int]:
         self.tri_count = len(tri_vertices) / 3
         self.leaf_pack_ns = 0
 
-        var flat_vertices = _flatten_vertices(tri_vertices)
+        var flat_vertices = flatten_vertices(tri_vertices)
         self.vertices = copy_list_to_device(ctx, flat_vertices)
 
         var leaf_bounds = List[Float32](
@@ -134,15 +134,6 @@ struct GpuTriangleBvh[width: Int]:
             grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
-
-
-def _flatten_vertices(verts: List[Vec3f32]) -> List[Float32]:
-    var out = List[Float32](capacity=max(len(verts), 1) * 3)
-    for vert in verts:
-        out.append(vert.x)
-        out.append(vert.y)
-        out.append(vert.z)
-    return out^
 
 
 def pack_triangle_leaf_blocks_kernel[
@@ -255,7 +246,6 @@ def trace_gpu_triangle_bvh_shadow_kernel[
 
 
 # this version works !!!!
-@always_inline
 def _intersect_triangle_leaf[
     width: Int,
     mode: String,
@@ -323,7 +313,6 @@ def _intersect_triangle_leaf[
 
 
 # I dont know why but this version doesnt work :((((
-# @always_inline
 # def _load_triangle_leaf[
 #     width: Int,
 # ](
@@ -360,7 +349,6 @@ def _intersect_triangle_leaf[
 #     return block^
 
 
-# @always_inline
 # def _intersect_triangle_leaf[
 #     width: Int,
 #     mode: String,

@@ -54,7 +54,6 @@ def colorize(color: Color) -> Color:
     )
 
 
-@always_inline
 def _pack_color_byte(x: Float32) -> UInt8:
     return UInt8(Int(x))
 
@@ -187,11 +186,9 @@ struct Sphere(Copyable, Writable):
         self.material_id = material_id
         self.moving = True
 
-    @always_inline
     def static_center(self) -> Point3:
         return self.center0.copy()
 
-    @always_inline
     def center_at(self, time: Float32) -> Point3:
         if self.moving:
             return self.center0 + time * (self.center1 - self.center0)

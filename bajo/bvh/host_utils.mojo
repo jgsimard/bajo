@@ -52,7 +52,6 @@ def flatten_rays(rays: List[Ray]) -> List[Float32]:
     return out^
 
 
-@always_inline
 def hit_t_for_checksum(t: Float32) -> Float64:
     if t < 1.0e20:
         return Float64(t)
@@ -138,20 +137,6 @@ def generate_primary_rays(
     return rays^
 
 
-def compute_centroid_bounds(verts: List[Vec3f32]) -> AABB:
-    var centroid = AABB.invalid()
-
-    for i in range(len(verts) / 3):
-        ref v0 = verts[i * 3 + 0]
-        ref v1 = verts[i * 3 + 1]
-        ref v2 = verts[i * 3 + 2]
-        var c = AABB.invalid()
-        c.grow(v0, v1, v2)
-        centroid.grow(c.centroid())
-
-    return centroid
-
-
 def append_camera_params(
     mut params: List[Float32],
     origin: Vec3f32,
@@ -176,47 +161,3 @@ def append_camera_params(
     params.append(up.y)
     params.append(up.z)
     params.append(fov)
-
-
-def generate_camera_params(
-    bounds_min: Vec3f32,
-    bounds_max: Vec3f32,
-    views: Int,
-) -> List[Float32]:
-    var params = List[Float32](capacity=views * 12)
-
-    var center = (bounds_min + bounds_max) * 0.5
-    var extent = bounds_max - bounds_min
-    var radius = length(extent) * 0.5
-    if radius < 1.0:
-        radius = 1.0
-    var dist = radius * 2.8
-
-    if views >= 1:
-        append_camera_params(
-            params,
-            center + Vec3f32(0.0, 0.0, -dist),
-            center,
-            Vec3f32(0.0, 1.0, 0.0),
-            0.75,
-        )
-
-    if views >= 2:
-        append_camera_params(
-            params,
-            center + Vec3f32(-dist, 0.0, 0.0),
-            center,
-            Vec3f32(0.0, 1.0, 0.0),
-            0.75,
-        )
-
-    if views >= 3:
-        append_camera_params(
-            params,
-            center + Vec3f32(0.0, dist, 0.0),
-            center,
-            Vec3f32(0.0, 0.0, 1.0),
-            0.75,
-        )
-
-    return params^

@@ -18,6 +18,7 @@ from bajo.bvh.host_utils import (
     generate_primary_rays,
     flatten_rays,
     hit_t_for_checksum,
+    compute_bounds,
 )
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.tlas import Tlas

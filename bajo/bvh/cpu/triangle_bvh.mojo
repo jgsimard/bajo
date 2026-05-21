@@ -110,9 +110,7 @@ struct TriangleBvh[width: Int](Copyable):
                     self.leaf_blocks.append(block^)
                     node.data[lane] = block_idx
 
-    @always_inline
     def trace[mode: String](self, ray: Ray) -> Hit:
-        @always_inline
         def leaf_fn(
             ray: Ray,
             leaf_block_idx: UInt32,

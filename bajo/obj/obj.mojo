@@ -27,27 +27,24 @@ comptime CHAR_o = UInt8(ord("o"))
 
 
 # parsing primitive
-@always_inline
+
+
 def _is_ws(b: UInt8) -> Bool:
     return b == SPACE or b == TAB or b == CR
 
 
-@always_inline
 def _is_line_cut(b: UInt8) -> Bool:
     return b == CR or b == HASH
 
 
-@always_inline
 def _is_ws_or_line_cut(b: UInt8) -> Bool:
     return _is_ws(b) or b == HASH
 
 
-@always_inline
 def _is_digit(b: UInt8) -> Bool:
     return b >= ZERO and b <= NINE
 
 
-@always_inline
 def _fix_index(raw: Int, count_with_dummy: Int) -> Int:
     if raw > 0:
         return raw
@@ -60,14 +57,14 @@ struct FirstFaceIndex(TrivialRegisterPassable):
     var idx: ObjIndex
     var shape: Int
 
-    @always_inline
     def __init__(out self, idx: ObjIndex, shape: Int):
         self.idx = idx
         self.shape = shape
 
 
 # OBJ parsing
-@always_inline
+
+
 def _word_ends_here[
     o: Origin
 ](ptr: UnsafePointer[UInt8, o], p: Int, end: Int) -> Bool:
@@ -88,7 +85,6 @@ struct ObjLineCursor[o: Origin]:
         self.pos = start
         self.end = end
 
-    @always_inline
     def skip_ws(mut self):
         while self.pos < self.end:
             var b = self.ptr.load(self.pos)
@@ -99,12 +95,10 @@ struct ObjLineCursor[o: Origin]:
                 break
             self.pos += 1
 
-    @always_inline
     def has_next(mut self) -> Bool:
         self.skip_ws()
         return self.pos < self.end
 
-    @always_inline
     def _next_f32_at_pos(mut self) -> Float32:
         if self.pos >= self.end:
             return 0.0
@@ -177,12 +171,10 @@ struct ObjLineCursor[o: Origin]:
         self.pos = p
         return Float32(sign * num)
 
-    @always_inline
     def next_f32(mut self) -> Float32:
         self.skip_ws()
         return self._next_f32_at_pos()
 
-    @always_inline
     def _parse_index_int(mut self, slash_terminates: Bool) -> Int:
         var sign = 1
         var output = 0
@@ -206,7 +198,6 @@ struct ObjLineCursor[o: Origin]:
 
         return sign * output
 
-    @always_inline
     def _parse_positive_index_int(mut self, slash_terminates: Bool) -> Int:
         # Fast path for the common OBJ case: positive decimal indices.
         # Falls back to signed parsing only when a sign is actually present.
@@ -230,7 +221,6 @@ struct ObjLineCursor[o: Origin]:
 
         return output
 
-    @always_inline
     def _finish_index_token(mut self):
         while self.pos < self.end:
             var b = self.ptr.load(self.pos)
@@ -241,14 +231,12 @@ struct ObjLineCursor[o: Origin]:
                 break
             self.pos += 1
 
-    @always_inline
     def _at_signed_index(mut self) -> Bool:
         if self.pos >= self.end:
             return False
         var b = self.ptr.load(self.pos)
         return b == MINUS or b == PLUS
 
-    @always_inline
     def next_index_p_only_at_token(mut self, position_count: Int) -> ObjIndex:
         # Common path: positive OBJ indices are already absolute 1-based indices.
         # Only signed/relative tokens need _fix_index().
@@ -260,7 +248,6 @@ struct ObjLineCursor[o: Origin]:
             return ObjIndex(_fix_index(p_raw, position_count), 0, 0)
         return ObjIndex(p_raw, 0, 0)
 
-    @always_inline
     def next_index_p_t_at_token(
         mut self, position_count: Int, texcoord_count: Int
     ) -> ObjIndex:
@@ -285,7 +272,6 @@ struct ObjLineCursor[o: Origin]:
 
         return ObjIndex(p_raw, t_raw, 0)
 
-    @always_inline
     def next_index_p_n_at_token(
         mut self, position_count: Int, normal_count: Int
     ) -> ObjIndex:
@@ -312,7 +298,6 @@ struct ObjLineCursor[o: Origin]:
 
         return ObjIndex(p_raw, 0, n_raw)
 
-    @always_inline
     def next_index_p_t_n_at_token(
         mut self,
         position_count: Int,
@@ -347,7 +332,6 @@ struct ObjLineCursor[o: Origin]:
 
         return ObjIndex(p_raw, t_raw, n_raw)
 
-    @always_inline
     def next_index_generic_at_token(
         mut self,
         position_count: Int,
@@ -374,7 +358,6 @@ struct ObjLineCursor[o: Origin]:
             _fix_index(n_raw, normal_count),
         )
 
-    @always_inline
     def next_first_face_index_at_token(
         mut self,
         position_count: Int,
@@ -477,7 +460,6 @@ struct ObjLineCursor[o: Origin]:
 
         return String(self.text[byte = start : end_pos + 1])
 
-    @always_inline
     def next_word(mut self) -> StringSlice[Self.o]:
         self.skip_ws()
         if self.pos >= self.end:
@@ -495,7 +477,6 @@ struct ObjLineCursor[o: Origin]:
         return self.text[byte = start : self.pos]
 
 
-@always_inline
 def _parse_v_cursor[o: Origin](mut mesh: ObjMesh, mut cur: ObjLineCursor[o]):
     cur.skip_ws()
     if cur.pos >= cur.end:
@@ -531,7 +512,6 @@ def _parse_v_cursor[o: Origin](mut mesh: ObjMesh, mut cur: ObjLineCursor[o]):
                 mesh._push_color(r, g, b)
 
 
-@always_inline
 def _parse_vt_cursor[o: Origin](mut mesh: ObjMesh, mut cur: ObjLineCursor[o]):
     cur.skip_ws()
     if cur.pos >= cur.end:
@@ -547,7 +527,6 @@ def _parse_vt_cursor[o: Origin](mut mesh: ObjMesh, mut cur: ObjLineCursor[o]):
     mesh.texcoords.append(v)
 
 
-@always_inline
 def _parse_vn_cursor[o: Origin](mut mesh: ObjMesh, mut cur: ObjLineCursor[o]):
     cur.skip_ws()
     if cur.pos >= cur.end:
@@ -569,7 +548,6 @@ def _parse_vn_cursor[o: Origin](mut mesh: ObjMesh, mut cur: ObjLineCursor[o]):
     mesh.normals.append(z)
 
 
-@always_inline
 def _finish_face_parse(
     mut mesh: ObjMesh,
     index_start: Int,
@@ -592,7 +570,6 @@ def _finish_face_parse(
         mesh.indices.shrink(index_start)
 
 
-@always_inline
 def _parse_face_cursor[
     o: Origin
 ](mut mesh: ObjMesh, mut cur: ObjLineCursor[o], is_line: Bool = False):

@@ -55,7 +55,6 @@ def _flatten_instance_blas_indices(
     return [instance.blas_idx for instance in instances]
 
 
-@always_inline
 def _make_tlas_local_ray(
     inst_inv_transform: UnsafePointer[Float32, MutAnyOrigin],
     inst_idx: UInt32,
@@ -75,7 +74,6 @@ def _make_tlas_local_ray(
     )
 
 
-@always_inline
 def _intersect_tlas_instance_block[
     tlas_width: Int,
     blas_width: Int,
@@ -155,7 +153,6 @@ def _intersect_tlas_instance_block[
     return hit_any
 
 
-@always_inline
 def trace_gpu_wide_tlas_ray[
     tlas_width: Int,
     blas_width: Int,
@@ -276,7 +273,6 @@ def trace_gpu_wide_tlas_ray[
     return best_hit
 
 
-@always_inline
 def trace_gpu_wide_tlas_primitive_ray[
     primitive: String,
     tlas_width: Int,

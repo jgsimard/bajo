@@ -28,16 +28,13 @@ struct BoundsItem(TrivialRegisterPassable):
     var bounds: AABB
     var payload: UInt32
 
-    @always_inline
     def __init__(out self):
         self.bounds = AABB.invalid()
         self.payload = 0
 
-    @always_inline
     def center_axis(self, axis: Int) -> Float32:
         return self.bounds.centroid()[axis]
 
-    @always_inline
     def grow_into(self, mut aabb: AABB):
         aabb._min = vmin(aabb._min, self.bounds._min)
         aabb._max = vmax(aabb._max, self.bounds._max)
@@ -61,43 +58,34 @@ struct BoundsBvhNode(TrivialRegisterPassable):
     var first_or_left: UInt32
     var item_count: UInt32
 
-    @always_inline
     def __init__(out self):
         self.aabb = AABB.invalid()
         self.first_or_left = 0
         self.item_count = 0
 
-    @always_inline
     def is_leaf(self) -> Bool:
         return self.item_count > 0
 
-    @always_inline
     def is_internal(self) -> Bool:
         return self.item_count == 0
 
-    @always_inline
     def first_item(self) -> UInt32:
         return self.first_or_left
 
-    @always_inline
     def left_child(self) -> UInt32:
         return self.first_or_left
 
-    @always_inline
     def right_child(self) -> UInt32:
         return self.first_or_left + 1
 
-    @always_inline
     def set_leaf(mut self, first_item: UInt32, item_count: UInt32):
         self.first_or_left = first_item
         self.item_count = item_count
 
-    @always_inline
     def set_internal(mut self, left_child: UInt32):
         self.first_or_left = left_child
         self.item_count = 0
 
-    @always_inline
     def surface_area(self) -> Float32:
         return self.aabb.surface_area()[0]
 
@@ -107,7 +95,6 @@ struct BoundsBin(TrivialRegisterPassable):
     var bounds: AABB
     var item_count: UInt32
 
-    @always_inline
     def __init__(out self):
         self.bounds = AABB.invalid()
         self.item_count = 0
@@ -124,7 +111,6 @@ struct BoundsSplitResult(Copyable):
     var left_bounds: AABB
     var right_bounds: AABB
 
-    @always_inline
     def __init__(out self):
         self.axis = -1
         self.bin = -1
@@ -135,12 +121,10 @@ struct BoundsSplitResult(Copyable):
         self.left_bounds = AABB.invalid()
         self.right_bounds = AABB.invalid()
 
-    @always_inline
     def valid(self) -> Bool:
         return self.axis >= 0 and self.bin >= 0
 
 
-@always_inline
 def _item_bin(
     items: UnsafePointer[BoundsItem, ImmutAnyOrigin],
     item_idx: Int,
@@ -159,7 +143,6 @@ def _item_bin(
     return b_idx
 
 
-@always_inline
 def _partition_items(
     indices: UnsafePointer[UInt32, MutAnyOrigin],
     items: UnsafePointer[BoundsItem, ImmutAnyOrigin],
@@ -184,7 +167,6 @@ def _partition_items(
     return i
 
 
-@always_inline
 def _partition_items_by_bin(
     indices: UnsafePointer[UInt32, MutAnyOrigin],
     items: UnsafePointer[BoundsItem, ImmutAnyOrigin],
@@ -211,7 +193,6 @@ def _partition_items_by_bin(
     return i
 
 
-@always_inline
 def _sah_items(
     node: BoundsBvhNode,
     indices: UnsafePointer[UInt32, ImmutAnyOrigin],
@@ -290,13 +271,11 @@ struct BoundsMortonItem(TrivialRegisterPassable):
     var code: UInt32
     var item_idx: UInt32
 
-    @always_inline
     def __init__(out self):
         self.code = 0
         self.item_idx = 0
 
 
-@always_inline
 def _bounds_morton_item_less(
     a: BoundsMortonItem,
     b: BoundsMortonItem,
@@ -310,7 +289,6 @@ def _bounds_morton_item_less(
     return a.item_idx < b.item_idx
 
 
-@always_inline
 def _highest_set_bit(v: UInt32) -> Int:
     if v == 0:
         return -1
@@ -318,7 +296,6 @@ def _highest_set_bit(v: UInt32) -> Int:
     return 31 - Int(count_leading_zeros(v))
 
 
-@always_inline
 def _find_lbvh_split(
     pairs: UnsafePointer[BoundsMortonItem, ImmutAnyOrigin],
     first: Int,
@@ -389,7 +366,6 @@ struct BoundsBvhBuilder[leaf_size: Int](Copyable):
         else:
             self.nodes_used = 0
 
-    @always_inline
     def update_node_bounds(mut self, node_idx: UInt32):
         ref node = self.nodes[Int(node_idx)]
         node.aabb = AABB.invalid()
@@ -649,7 +625,6 @@ struct WideBvhNode[width: Int](Copyable):
     var data: SIMD[DType.uint32, Self.width]
     var counts: SIMD[DType.uint32, Self.width]
 
-    @always_inline
     def __init__(out self):
         self.aabb = AxisAlignedBoundingBox[DType.float32, Self.width].invalid()
         self.data = SIMD[DType.uint32, Self.width](0)

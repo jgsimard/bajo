@@ -30,12 +30,10 @@ def radians_to_degrees[
     return radians * comptime (180.0 / pi)
 
 
-@always_inline
 def ns_to_ms(ns: Int) -> Float64:
     return Float64(ns) / 1_000_000.0
 
 
-@always_inline
 def ns_to_mrays_per_s(ns: Int, ray_count: Int) -> Float64:
     var seconds = Float64(ns) * 1.0e-9
     if seconds <= 0.0:
@@ -50,7 +48,6 @@ def print_vec3_rounded[dtype: DType](name: String, v: Vec3[dtype]):
     print(t"{name} ({x}, {y}, {z})")
 
 
-@always_inline
 def min_argmin[
     dtype: DType, width: Int
 ](x: SIMD[dtype, width]) -> Tuple[Scalar[dtype], Int]:

@@ -21,7 +21,6 @@ from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.bvh.cpu.tlas import Tlas
 
 
-@always_inline
 def _rng_f32(mut rng: Rng, lo: Float32, hi: Float32) -> Float32:
     return lo + (hi - lo) * rng.f32()
 
@@ -46,7 +45,6 @@ def _make_random_xy_triangles(count: Int, seed: UInt64) -> List[Vec3f32]:
     return verts^
 
 
-@always_inline
 def _make_tri_bounds(
     v0: Vec3f32,
     v1: Vec3f32,
@@ -189,7 +187,6 @@ def _brute_sphere_trace(
     return best_hit
 
 
-@always_inline
 def _triangle_center_xy(verts: List[Vec3f32], prim_idx: Int) -> Vec3f32:
     ref v0 = verts[prim_idx * 3 + 0]
     ref v1 = verts[prim_idx * 3 + 1]

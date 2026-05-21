@@ -377,7 +377,6 @@ struct Quaternion[dtype: DType](Equatable, TrivialRegisterPassable, Writable):
     def __isub__(mut self, o: Self):
         self.data -= o.data
 
-    @always_inline
     def __mul__(self, b: Self) -> Self:
         # Layout: [x, y, z, w]
         # Hamiltonian product formula derived for this layout:

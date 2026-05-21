@@ -13,7 +13,6 @@ from std.sys.info import bit_width_of
 # https://github.com/modular/modular/blob/main/mojo/stdlib/std/builtin/sort.mojo
 
 
-@always_inline
 def _estimate_max_iters(size: Int) -> Int:
     # Maximum iterations before switching to Heapsort (2 * log2(n))
     var log2: Int = (bit_width_of[DType.int]() - 1) ^ count_leading_zeros(

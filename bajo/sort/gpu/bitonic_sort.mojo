@@ -15,7 +15,6 @@ from std.memory import stack_allocation
 from bajo.core.utils import is_power_of_2
 
 
-@always_inline
 def bitonic_sort_shared[
     keys_dtype: DType,
     vals_dtype: DType,
@@ -59,7 +58,6 @@ def bitonic_sort_shared[
         r_keys = Scalar[keys_dtype].MAX
         r_vals = 0
 
-    @always_inline
     def _step(j: Int, k: Int) capturing:
         comptime for i in range(ITEMS_PER_THREAD / 2):
             var pair_id = tid + i * THREADS_PER_BLOCK
@@ -198,7 +196,6 @@ def bitonic_sort_shared[
         values.store[width=ITEMS_PER_THREAD](g_base, r_vals)
 
 
-@always_inline
 def bitonic_sort_step[
     keys_dtype: DType, vals_dtype: DType
 ](

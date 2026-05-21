@@ -40,32 +40,26 @@ comptime LBVH_NODE_BOUNDS_STRIDE = 12
 comptime GPU_BOUNDS_BVH_BLOCK_SIZE = 128
 
 
-@always_inline
 def _node_meta_base(node_idx: UInt32) -> Int:
     return Int(node_idx) * LBVH_NODE_META_STRIDE
 
 
-@always_inline
 def _node_bounds_base(node_idx: UInt32) -> Int:
     return Int(node_idx) * LBVH_NODE_BOUNDS_STRIDE
 
 
-@always_inline
 def _node_parent_index(node_idx: UInt32) -> Int:
     return _node_meta_base(node_idx) + LBVH_NODE_PARENT
 
 
-@always_inline
 def _node_left_index(node_idx: UInt32) -> Int:
     return _node_meta_base(node_idx) + LBVH_NODE_LEFT
 
 
-@always_inline
 def _node_right_index(node_idx: UInt32) -> Int:
     return _node_meta_base(node_idx) + LBVH_NODE_RIGHT
 
 
-@always_inline
 def _node_left(
     node_meta: UnsafePointer[UInt32, MutAnyOrigin],
     node_idx: UInt32,
@@ -73,7 +67,6 @@ def _node_left(
     return UInt32(node_meta[_node_left_index(node_idx)])
 
 
-@always_inline
 def _node_right(
     node_meta: UnsafePointer[UInt32, MutAnyOrigin],
     node_idx: UInt32,
@@ -81,7 +74,6 @@ def _node_right(
     return UInt32(node_meta[_node_right_index(node_idx)])
 
 
-@always_inline
 def _load_leaf_bounds_host(
     leaf_bounds: List[Float32],
     leaf_idx: UInt32,
@@ -90,7 +82,6 @@ def _load_leaf_bounds_host(
     return AABB.load6(leaf_bounds.unsafe_ptr(), b)
 
 
-@always_inline
 def _load_internal_bounds_host(
     node_bounds: List[Float32],
     node_idx: UInt32,
@@ -101,12 +92,10 @@ def _load_internal_bounds_host(
     return AABB.merge(b1, b2)
 
 
-@always_inline
 def _is_encoded_leaf(encoded: UInt32) -> Bool:
     return (encoded & LBVH_LEAF_FLAG) != 0
 
 
-@always_inline
 def _encoded_index(encoded: UInt32) -> UInt32:
     return encoded & LBVH_INDEX_MASK
 
@@ -131,7 +120,6 @@ def compute_bounds_morton_codes_kernel(
     values[i] = UInt32(i)
 
 
-@always_inline
 def _write_child_bounds(
     node_bounds: UnsafePointer[Float32, MutAnyOrigin],
     parent: UInt32,
@@ -144,7 +132,6 @@ def _write_child_bounds(
     bounds.store6(node_bounds, b)
 
 
-@always_inline
 def _load_and_union_node_bounds(
     node_bounds: UnsafePointer[Float32, MutAnyOrigin],
     parent: UInt32,
@@ -201,7 +188,6 @@ def refit_lbvh_bounds_from_leaves_kernel(
 # -----------------------------------------------------------------------------
 # GPU-resident wide collapse helpers
 # -----------------------------------------------------------------------------
-@always_inline
 def _encoded_leaf_count_gpu(
     encoded: UInt32,
     node_leaf_counts: UnsafePointer[UInt32, MutAnyOrigin],
@@ -211,7 +197,6 @@ def _encoded_leaf_count_gpu(
     return UInt32(node_leaf_counts[Int(_encoded_index(encoded))])
 
 
-@always_inline
 def _encoded_bounds_gpu(
     encoded: UInt32,
     leaf_bounds: UnsafePointer[Float32, MutAnyOrigin],
@@ -227,7 +212,6 @@ def _encoded_bounds_gpu(
     return _load_and_union_node_bounds(node_bounds, _encoded_index(encoded))
 
 
-@always_inline
 def _write_wide_lane_bounds[
     width: Int,
 ](
@@ -240,7 +224,6 @@ def _write_wide_lane_bounds[
     bounds.store6(wide_bounds, b)
 
 
-@always_inline
 def _collect_encoded_leaf_payloads_gpu[
     width: Int,
 ](
@@ -816,17 +799,14 @@ struct GpuBoundsBvh[width: Int]:
             self.root_idx = UInt32(h[0])
 
 
-@always_inline
 def _wide_lane_base[width: Int](node_idx: UInt32, lane: Int) -> Int:
     return Int(node_idx) * width + lane
 
 
-@always_inline
 def _wide_bounds_base[width: Int](node_idx: UInt32, lane: Int) -> Int:
     return _wide_lane_base[width](node_idx, lane) * BOUNDS_STRIDE
 
 
-@always_inline
 def _load_wide_bounds_block[
     dtype: DType,
     width: Int,
@@ -851,7 +831,6 @@ def _load_wide_bounds_block[
     return AxisAlignedBoundingBox(bmin, bmax)
 
 
-@always_inline
 def _intersect_wide_node_bounds[
     width: Int,
 ](
@@ -877,7 +856,6 @@ def _intersect_wide_node_bounds[
     )
 
 
-@always_inline
 def _common_prefix_gpu(
     keys: UnsafePointer[UInt32, MutAnyOrigin],
     i: Int,

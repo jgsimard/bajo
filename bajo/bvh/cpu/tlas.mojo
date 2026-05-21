@@ -47,7 +47,6 @@ struct Tlas[width: Int](Copyable):
     def bounds(self) -> AABB:
         return self.tree.root_bounds()
 
-    @always_inline
     def trace_triangles[
         mode: String,
         blas_width: Int,
@@ -56,7 +55,6 @@ struct Tlas[width: Int](Copyable):
         ray: Ray,
         blases: UnsafePointer[TriangleBvh[blas_width], MutAnyOrigin],
     ) -> Hit:
-        @always_inline
         def leaf_fn(
             ray: Ray,
             first_item: UInt32,
@@ -111,7 +109,6 @@ struct Tlas[width: Int](Copyable):
             ray,
         )
 
-    @always_inline
     def trace_spheres[
         mode: String,
         blas_width: Int,
@@ -120,7 +117,6 @@ struct Tlas[width: Int](Copyable):
         ray: Ray,
         blases: UnsafePointer[SphereBvh[blas_width], MutAnyOrigin],
     ) -> Hit:
-        @always_inline
         def leaf_fn(
             ray: Ray,
             first_item: UInt32,

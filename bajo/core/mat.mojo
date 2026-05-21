@@ -152,15 +152,12 @@ struct Mat[
 
         return m^
 
-    @always_inline
     def __getitem_param__[i: Int](ref self) -> ref[self.data] Self.Row:
         return self.data[i]
 
-    @always_inline
     def __getitem__(ref self, i: Int) -> ref[self.data] Self.Row:
         return self.data[i]
 
-    @always_inline
     def __neg__(self) -> Self:
         var res = Self(uninitialized=True)
 
@@ -172,7 +169,6 @@ struct Mat[
 
         return res^
 
-    @always_inline
     def __add__(self, other: Self) -> Self:
         var res = Self(uninitialized=True)
 
@@ -184,7 +180,6 @@ struct Mat[
 
         return res^
 
-    @always_inline
     def __sub__(self, other: Self) -> Self:
         var res = Self(uninitialized=True)
 
@@ -196,7 +191,6 @@ struct Mat[
 
         return res^
 
-    @always_inline
     def __mul__(self, s: SIMD[Self.dtype, Self.width]) -> Self:
         var res = Self(uninitialized=True)
 
@@ -208,7 +202,6 @@ struct Mat[
 
         return res^
 
-    @always_inline
     def __truediv__(self, s: SIMD[Self.dtype, Self.width]) -> Self:
         var res = Self(uninitialized=True)
 
@@ -220,7 +213,6 @@ struct Mat[
 
         return res^
 
-    @always_inline
     def elem_mul(self, other: Self) -> Self:
         var res = Self(uninitialized=True)
 
@@ -232,7 +224,6 @@ struct Mat[
 
         return res^
 
-    @always_inline
     def col[j: Int](self) -> Vec3[Self.dtype, Self.width]:
         comptime assert Self.rows == 3
         comptime assert Self.cols == 3
@@ -244,7 +235,6 @@ struct Mat[
             self[2][j],
         )
 
-    @always_inline
     def transpose(self) -> Mat[Self.dtype, Self.cols, Self.rows, Self.width]:
         var res = Mat[Self.dtype, Self.cols, Self.rows, Self.width](
             uninitialized=True
@@ -256,7 +246,6 @@ struct Mat[
 
         return res^
 
-    @always_inline
     def trace(self) -> SIMD[Self.dtype, Self.width]:
         comptime msize = Self.rows if Self.rows < Self.cols else Self.cols
 
@@ -266,7 +255,6 @@ struct Mat[
 
         return res
 
-    @always_inline
     def ddot(self, other: Self) -> SIMD[Self.dtype, Self.width]:
         var res = SIMD[Self.dtype, Self.width](0.0)
 
@@ -276,7 +264,6 @@ struct Mat[
 
         return res
 
-    @always_inline
     def __eq__(self, other: Self) -> SIMD[DType.bool, Self.width]:
         var mask = self[0][0].eq(other[0][0])
 
@@ -309,7 +296,6 @@ struct Mat[
         writer.write(String(self))
 
 
-@always_inline
 def _matmul[
     dtype: DType,
     a_rows: Int,
@@ -334,7 +320,6 @@ def _matmul[
     return res^
 
 
-@always_inline
 def _matvec[
     dtype: DType, width: Int
 ](m: Mat[dtype, 3, 3, width], v: Vec3[dtype, width]) -> Vec3[dtype, width]:
@@ -348,7 +333,6 @@ def _matvec[
 ##############
 # transform
 ##############
-@always_inline
 def transform_point[
     dtype: DType, width: Int
 ](m: Mat[dtype, 4, 4, width], v: Vec3[dtype, width]) -> Vec3[dtype, width]:
@@ -359,7 +343,6 @@ def transform_point[
     )
 
 
-@always_inline
 def transform_vector[
     dtype: DType, width: Int
 ](m: Mat[dtype, 4, 4, width], v: Vec3[dtype, width]) -> Vec3[dtype, width]:
@@ -370,7 +353,6 @@ def transform_vector[
     )
 
 
-@always_inline
 def transform_point[
     dtype: DType
 ](
@@ -387,7 +369,6 @@ def transform_point[
     # fmt: on
 
 
-@always_inline
 def transform_vector[
     dtype: DType
 ](

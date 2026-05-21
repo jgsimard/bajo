@@ -16,7 +16,6 @@ comptime CAMERA_UP = 9
 comptime CAMERA_FOV = 12
 
 
-@always_inline
 def _write_primary_full_result(
     hits_f32: UnsafePointer[Float32, MutAnyOrigin],
     hits_u32: UnsafePointer[UInt32, MutAnyOrigin],
@@ -30,7 +29,6 @@ def _write_primary_full_result(
     hits_u32[ray_idx] = hit.prim
 
 
-@always_inline
 def _make_camera_ray(
     camera_params: UnsafePointer[Float32, MutAnyOrigin],
     ray_idx: Int,
@@ -68,7 +66,6 @@ def _make_camera_ray(
     )
 
 
-@always_inline
 def _write_camera_miss_result[
     mode: String
 ](
@@ -86,7 +83,6 @@ def _write_camera_miss_result[
         out_u32[ray_idx] = UInt32(0)
 
 
-@always_inline
 def _write_camera_result[
     mode: String
 ](

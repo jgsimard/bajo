@@ -10,7 +10,6 @@ from bajo.bvh.constants import (
 )
 
 
-@always_inline
 def trace_bounds_bvh[
     width: Int,
     mode: String,

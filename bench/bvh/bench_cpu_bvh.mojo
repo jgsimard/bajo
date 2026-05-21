@@ -18,12 +18,10 @@ comptime RAY_COUNT = PRIM_COUNT * RAY_REPEATS_PER_PRIM
 comptime TRAVERSAL_REPEATS = 8
 
 
-@always_inline
 def _grid_x(i: Int) -> Float32:
     return (Float32(i % GRID_SIDE) - Float32(GRID_SIDE) * 0.5) * 3.0
 
 
-@always_inline
 def _grid_y(i: Int) -> Float32:
     return (Float32(i / GRID_SIDE) - Float32(GRID_SIDE) * 0.5) * 3.0
 
@@ -78,11 +76,9 @@ def make_hit_and_miss_rays() -> List[Ray]:
     return rays^
 
 
-@always_inline
 def _hit_t_for_checksum(t: Float32) -> Float64:
     if t < Float32(1e20):
         return Float64(t)
-
     return 0.0
 
 
@@ -91,7 +87,6 @@ struct PrimaryBenchResult(Copyable):
     var ns: Int
     var checksum: Float64
 
-    @always_inline
     def __init__(out self):
         self.ns = 0
         self.checksum = 0.0
@@ -102,7 +97,6 @@ struct ShadowBenchResult(Copyable):
     var ns: Int
     var occluded: Int
 
-    @always_inline
     def __init__(out self):
         self.ns = 0
         self.occluded = 0
@@ -283,7 +277,6 @@ def bench_sphere_shadow[
     return ShadowBenchResult(best_ns, occluded)
 
 
-@always_inline
 def _case_name[prim: String, width: Int, split_method: String]() -> String:
     name: String
     comptime if split_method == "median":

@@ -56,12 +56,8 @@ def _find_lbvh_split(
 
 
 def _build_lbvh[leaf_size: Int](mut builder: BoundsBvhBuilder[leaf_size]):
-    """Build a binary LBVH using sorted Morton codes over BoundsItem centers.
+    """Build a binary LBVH using sorted Morton codes over BoundsItem centers."""
 
-    This is the free-function implementation used by BoundsBvhBuilder.
-    Keeping it outside the struct makes the builder state smaller and keeps
-    the LBVH-specific algorithm separated from the median/SAH builder logic.
-    """
     builder.nodes_used = 1
 
     if builder.item_count == 0:

@@ -74,6 +74,8 @@ def _make_tlas_local_ray(
     )
 
 
+# this inline: 30% faster, but X2 slower compile time
+# @always_inline
 def _intersect_tlas_instance_block[
     tlas_width: Int,
     blas_width: Int,

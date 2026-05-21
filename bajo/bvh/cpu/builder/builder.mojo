@@ -1,16 +1,8 @@
-from std.math import min, max
-from std.utils.numerics import max_finite, min_finite
-
-from bajo.core.aabb import AABB, AxisAlignedBoundingBox
-from bajo.core.vec import Vec3f32, vmin, vmax, longest_axis
-from bajo.bvh.constants import EMPTY_LANE
+from bajo.core.aabb import AABB
+from bajo.core.vec import vmin, vmax, longest_axis
 
 from .sah import _sah_items, _partition_items_by_bin
 from .lbvh import _build_lbvh
-
-
-comptime f32_max = max_finite[DType.float32]()
-comptime f32_min = min_finite[DType.float32]()
 
 
 struct BoundsBvhBuilder[leaf_size: Int](Copyable):
@@ -138,7 +130,7 @@ struct BoundsBvhBuilder[leaf_size: Int](Copyable):
                     split_bin_scale,
                 )
             else:
-                split_idx = _partition_items(
+                split_idx = _partition_items_by_center(
                     self.item_indices.unsafe_ptr(),
                     self.items.unsafe_ptr(),
                     Int(node.first_item()),
@@ -147,7 +139,7 @@ struct BoundsBvhBuilder[leaf_size: Int](Copyable):
                     pos,
                 )
         else:
-            split_idx = _partition_items(
+            split_idx = _partition_items_by_center(
                 self.item_indices.unsafe_ptr(),
                 self.items.unsafe_ptr(),
                 Int(node.first_item()),
@@ -278,7 +270,7 @@ struct BoundsBvhNode(TrivialRegisterPassable):
         return self.aabb.surface_area()[0]
 
 
-def _partition_items(
+def _partition_items_by_center(
     indices: UnsafePointer[UInt32, MutAnyOrigin],
     items: UnsafePointer[BoundsItem, ImmutAnyOrigin],
     first: Int,

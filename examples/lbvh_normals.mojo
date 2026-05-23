@@ -14,7 +14,7 @@ from bajo.bvh.host_utils import (
     copy_list_to_device,
 )
 from bajo.bvh.types import Instance
-from bajo.core.mat import Mat44f32, inverse, transform_vector
+from bajo.core.transform import Affine3f32
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.core.vec import Vec3f32, cross, normalize
 from bajo.obj.pack import pack_obj_triangles
@@ -32,15 +32,14 @@ comptime MISS_PRIM = UInt32(0xFFFFFFFF)
 
 def _trs_y(
     tx: Float32, ty: Float32, tz: Float32, angle: Float32, s: Float32
-) -> Mat44f32:
+) -> Affine3f32:
     var c = cos(angle)
     var sn = sin(angle)
     # fmt: off
-    return Mat44f32(
+    return Affine3f32(
         s * c,   0.0, s * sn,  tx,
         0.0,       s,    0.0,  ty,
         -s * sn, 0.0,  s * c,  tz,
-        0.0,     0.0,    0.0, 1.0,
     )
     # fmt: on
 
@@ -64,7 +63,7 @@ def _make_instances(bounds: AABB) raises -> List[Instance]:
             var angle = Float32(idx) * 1.0
             var scale = BASE_SCALE + Float32(idx % 5) * 0.075
             var transform = _trs_y(tx, 0.0, tz, angle, scale)
-            var inv_transform = inverse(transform)
+            var inv_transform = transform.inverse().inv.copy()
             instances.append(Instance(transform, inv_transform, 0, bounds))
     return instances^
 
@@ -151,8 +150,7 @@ def write_ppm_normals_from_hits(
 
                         var local_n = normalize(cross(v1 - v0, v2 - v0))
                         var world_n = normalize(
-                            transform_vector(
-                                instances[Int(inst)].transform,
+                            instances[Int(inst)].transform.transform_vector(
                                 local_n,
                             )
                         )

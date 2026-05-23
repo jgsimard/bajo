@@ -1,7 +1,7 @@
 from std.math import ceildiv, max
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
 
-from bajo.core.mat import transform_point, transform_vector
+from bajo.core.transform import Affine3f32
 from bajo.bvh.constants import (
     TRACE_CLOSEST_HIT,
     TRACE_ANY_HIT,
@@ -72,8 +72,9 @@ def _make_tlas_local_ray(
     t_max: Float32,
 ) -> Ray:
     var base = Int(inst_idx) * GPU_TLAS_TRANSFORM_STRIDE
-    var o = transform_point(inst_inv_transform, base, ray.o)
-    var d = transform_vector(inst_inv_transform, base, ray.d)
+    var transform = Affine3f32.load(inst_inv_transform, base)
+    var o = transform.transform_point(ray.o)
+    var d = transform.transform_vector(ray.d)
 
     return Ray(
         o,

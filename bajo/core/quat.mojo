@@ -244,8 +244,6 @@ struct Quaternion[dtype: DType, width: Int = 1](
             c.z,
         )
 
-    comptime from_rpy = Self.from_euler
-
     @staticmethod
     def from_euler(
         roll: SIMD[Self.dtype, Self.width],
@@ -269,8 +267,6 @@ struct Quaternion[dtype: DType, width: Int = 1](
         w = cr * cp * cy + sr * sp * sy
 
         return Self(x, y, z, w)
-
-    comptime to_rpy = Self.to_euler
 
     def to_euler(
         self,

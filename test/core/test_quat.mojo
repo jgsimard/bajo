@@ -9,7 +9,10 @@ from bajo.core.vec import Vec3, assert_vec_equal
 
 
 def assert_quat_equal[T: DType](a: Quaternion[T], b: Quaternion[T]) raises:
-    assert_almost_equal(a.data, b.data, atol=1e-8)
+    assert_almost_equal(a.x, b.x, atol=1e-8)
+    assert_almost_equal(a.y, b.y, atol=1e-8)
+    assert_almost_equal(a.z, b.z, atol=1e-8)
+    assert_almost_equal(a.w, b.w, atol=1e-8)
 
 
 def _test_from_axis_angle_mul[T: DType]() raises where T.is_floating_point():

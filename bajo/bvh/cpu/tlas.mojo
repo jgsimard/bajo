@@ -1,7 +1,6 @@
 from bajo.core.aabb import AABB
 from bajo.bvh.types import Ray, Hit, Instance
 from bajo.bvh.constants import TRACE_ANY_HIT
-from bajo.core.mat import transform_point, transform_vector
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.bvh.cpu.bounds_bvh import BoundsBvh, BoundsBvhBuilder, BoundsItem

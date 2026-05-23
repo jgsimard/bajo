@@ -110,10 +110,10 @@ struct Mat[
         comptime assert Self.rows == 3
         comptime assert Self.cols == 3
 
-        var x = r.x()
-        var y = r.y()
-        var z = r.z()
-        var w = r.w()
+        var x = r.x
+        var y = r.y
+        var z = r.z
+        var w = r.w
 
         var x2 = x * x
         var y2 = y * y

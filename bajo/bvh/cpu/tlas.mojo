@@ -61,12 +61,10 @@ struct Tlas[width: Int](Copyable):
                 var inst_idx = self.tree.item_payloads[item_ref]
                 ref inst = self.instances[Int(inst_idx)]
 
-                var local_origin = transform_point(
-                    inst.inv_transform,
+                var local_origin = inst.inv_transform.transform_point(
                     ray.o,
                 )
-                var local_dir = transform_vector(
-                    inst.inv_transform,
+                var local_dir = inst.inv_transform.transform_vector(
                     ray.d,
                 )
 
@@ -124,12 +122,10 @@ struct Tlas[width: Int](Copyable):
                 var inst_idx = self.tree.item_payloads[item_ref]
                 ref inst = self.instances[Int(inst_idx)]
 
-                var local_origin = transform_point(
-                    inst.inv_transform,
+                var local_origin = inst.inv_transform.transform_point(
                     ray.o,
                 )
-                var local_dir = transform_vector(
-                    inst.inv_transform,
+                var local_dir = inst.inv_transform.transform_vector(
                     ray.d,
                 )
 

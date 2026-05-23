@@ -3,7 +3,7 @@ from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32, vmin, vmax, Vec3
-from bajo.core.mat import Mat44f32, transform_point
+from bajo.core.transform import Affine3f32
 
 comptime f32_max = max_finite[DType.float32]()
 comptime f32_min = min_finite[DType.float32]()
@@ -135,21 +135,21 @@ struct Instance(Copyable):
     - `blas_idx` indexes the BLAS array passed to traversal.
     """
 
-    var transform: Mat44f32
-    var inv_transform: Mat44f32
+    var transform: Affine3f32
+    var inv_transform: Affine3f32
     var bounds: AABB
     var blas_idx: UInt32
 
     def __init__(out self):
-        self.transform = Mat44f32.identity()
-        self.inv_transform = Mat44f32.identity()
+        self.transform = Affine3f32.identity()
+        self.inv_transform = Affine3f32.identity()
         self.bounds = AABB.invalid()
         self.blas_idx = UInt32(0)
 
     def __init__(
         out self,
-        transform: Mat44f32,
-        inv_transform: Mat44f32,
+        transform: Affine3f32,
+        inv_transform: Affine3f32,
         blas_idx: UInt32,
         blas_bounds: AABB,
     ):
@@ -159,7 +159,7 @@ struct Instance(Copyable):
         self.bounds = transform_bounds(transform, blas_bounds)
 
 
-def transform_bounds(transform: Mat44f32, bounds: AABB) -> AABB:
+def transform_bounds(transform: Affine3f32, bounds: AABB) -> AABB:
     var corners = InlineArray[Vec3f32, 8](uninitialized=True)
 
     corners[0] = Vec3f32(bounds._min.x, bounds._min.y, bounds._min.z)
@@ -174,6 +174,6 @@ def transform_bounds(transform: Mat44f32, bounds: AABB) -> AABB:
     var out = AABB.invalid()
 
     comptime for i in range(8):
-        out.grow(transform_point(transform, corners[i]))
+        out.grow(transform.transform_point(corners[i]))
 
     return out

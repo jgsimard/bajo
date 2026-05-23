@@ -1,5 +1,5 @@
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
-from std.math import asin, atan2, cos, pi, sin, sqrt
+from std.math import asin, atan2, cos, pi, sin, sqrt, fma
 
 from bajo.core.vec import (
     Vec3,
@@ -314,14 +314,39 @@ struct Quaternion[dtype: DType, width: Int = 1](
         self.w -= o.w
 
     def __mul__(self, b: Self) -> Self:
-        # hamilton product, simplest version
-        # might optimize this later
-        return Self(
-            self.w * b.x + self.x * b.w + self.y * b.z - self.z * b.y,
-            self.w * b.y - self.x * b.z + self.y * b.w + self.z * b.x,
-            self.w * b.z + self.x * b.y - self.y * b.x + self.z * b.w,
-            self.w * b.w - self.x * b.x - self.y * b.y - self.z * b.z,
-        )
+        comptime if Self.width == 1:
+            # faster path for width = 1, about 40% faster
+            comptime s1 = SIMD[Self.dtype, 4](1.0, -1.0, 1.0, -1.0)
+            comptime s2 = SIMD[Self.dtype, 4](1.0, 1.0, -1.0, -1.0)
+            comptime s3 = SIMD[Self.dtype, 4](-1.0, 1.0, 1.0, -1.0)
+            b_simd = SIMD[Self.dtype, 4](b.x[0], b.y[0], b.z[0], b.w[0])
+            # two independent branches to maximize Instruction Level Parallelism (ILP)
+            # branch A
+            a_w = self.w[0]
+            a_x_signed = self.x[0] * s1
+            # shuffling B to [w2, z2, y2, x2]
+            res_a = fma(a_x_signed, b_simd.shuffle[3, 2, 1, 0](), a_w * b_simd)
+
+            # branch B
+            a_y_signed = self.y[0] * s2
+            a_z_signed = self.z[0] * s3
+            # shuffle B for y1: [z2, w2, x2, y2]
+            # shuffle B for z1: [y2, x2, w2, z2]
+            res_b = fma(
+                a_y_signed,
+                b_simd.shuffle[2, 3, 0, 1](),
+                a_z_signed * b_simd.shuffle[1, 0, 3, 2](),
+            )
+            res = res_a + res_b
+            return Self(res[0], res[1], res[2], res[3])
+        else:
+            # hamilton product directly
+            return Self(
+                self.w * b.x + self.x * b.w + self.y * b.z - self.z * b.y,
+                self.w * b.y - self.x * b.z + self.y * b.w + self.z * b.x,
+                self.w * b.z + self.x * b.y - self.y * b.x + self.z * b.w,
+                self.w * b.w - self.x * b.x - self.y * b.y - self.z * b.z,
+            )
 
     def __mul__(self, s: SIMD[Self.dtype, Self.width]) -> Self:
         return Self(self.x * s, self.y * s, self.z * s, self.w * s)

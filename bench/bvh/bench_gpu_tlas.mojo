@@ -11,7 +11,7 @@ from bajo.core.utils import (
 )
 from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32
-from bajo.core.mat import Mat44f32, _translation, _inv_translation
+from bajo.core.transform import Affine3f32
 from bajo.bvh.types import Ray, Sphere, Instance
 from bajo.bvh.host_utils import (
     compute_bounds,
@@ -44,7 +44,7 @@ comptime MISS_PRIM = UInt32(0xFFFFFFFF)
 
 
 def _make_single_instance(bounds: AABB) -> List[Instance]:
-    return [Instance(Mat44f32.identity(), Mat44f32.identity(), 0, bounds)]
+    return [Instance(Affine3f32.identity(), Affine3f32.identity(), 0, bounds)]
 
 
 def _make_translated_grid_instances(
@@ -58,14 +58,16 @@ def _make_translated_grid_instances(
 
     for y in range(count_y):
         for x in range(count_x):
-            var tx = (Float32(x) - Float32(count_x - 1) * 0.5) * spacing_x
-            var ty = (Float32(y) - Float32(count_y - 1) * 0.5) * spacing_y
-            var tz = Float32(0.0)
+            var t = Vec3f32(
+                (Float32(x) - Float32(count_x - 1) * 0.5) * spacing_x,
+                (Float32(y) - Float32(count_y - 1) * 0.5) * spacing_y,
+                Float32(0.0),
+            )
 
             out.append(
                 Instance(
-                    _translation(tx, ty, tz),
-                    _inv_translation(tx, ty, tz),
+                    Affine3f32.from_translation(t),
+                    Affine3f32.from_translation(-t),
                     0,
                     bounds,
                 )
@@ -85,7 +87,7 @@ def _make_cpu_instances(instances: List[Instance]) -> List[Instance]:
     var out = List[Instance](capacity=len(instances))
     for instance in instances:
         var inst = Instance()
-        inst.transform = Mat44f32.identity()
+        inst.transform = Affine3f32.identity()
         inst.inv_transform = instance.inv_transform.copy()
         inst.bounds = instance.bounds
         inst.blas_idx = instance.blas_idx

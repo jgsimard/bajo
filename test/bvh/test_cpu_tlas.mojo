@@ -5,7 +5,7 @@ from bajo.bvh.types import Ray, Instance, Sphere
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.bvh.cpu.tlas import Tlas
-from bajo.core.mat import _translation, _inv_translation
+from bajo.core.transform import Affine3f32
 from bajo.core.vec import Vec3f32
 
 
@@ -32,9 +32,10 @@ def _triangle_instance[
     tz: Float32,
     blas: TriangleBvh[width],
 ) -> Instance:
+    t = Vec3f32(tx, ty, tz)
     return Instance(
-        _translation(tx, ty, tz),
-        _inv_translation(tx, ty, tz),
+        Affine3f32.from_translation(t),
+        Affine3f32.from_translation(-t),
         blas_idx,
         blas.bounds(),
     )
@@ -49,9 +50,10 @@ def _sphere_instance[
     tz: Float32,
     blas: SphereBvh[width],
 ) -> Instance:
+    t = Vec3f32(tx, ty, tz)
     return Instance(
-        _translation(tx, ty, tz),
-        _inv_translation(tx, ty, tz),
+        Affine3f32.from_translation(t),
+        Affine3f32.from_translation(-t),
         blas_idx,
         blas.bounds(),
     )

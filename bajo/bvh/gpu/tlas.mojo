@@ -23,7 +23,7 @@ from bajo.bvh.gpu.triangle_bvh import _intersect_triangle_leaf
 from bajo.bvh.gpu.trace import trace_bounds_bvh
 from bajo.bvh.host_utils import copy_list_to_device
 
-comptime GPU_TLAS_TRANSFORM_STRIDE = 16
+comptime GPU_TLAS_TRANSFORM_STRIDE = 12
 
 comptime BlasLeafFn = def(
     UnsafePointer[Float32, MutAnyOrigin],
@@ -42,10 +42,20 @@ def _flatten_instance_inv_transforms(
         capacity=max(len(instances), 1) * GPU_TLAS_TRANSFORM_STRIDE
     )
     for instance in instances:
-        comptime for j in range(GPU_TLAS_TRANSFORM_STRIDE):
-            comptime row = j / 4
-            comptime col = j - row * 4
-            out.append(instance.inv_transform[row][col])
+        out.append(instance.inv_transform.m00[0])
+        out.append(instance.inv_transform.m01[0])
+        out.append(instance.inv_transform.m02[0])
+        out.append(instance.inv_transform.tx[0])
+
+        out.append(instance.inv_transform.m10[0])
+        out.append(instance.inv_transform.m11[0])
+        out.append(instance.inv_transform.m12[0])
+        out.append(instance.inv_transform.ty[0])
+
+        out.append(instance.inv_transform.m20[0])
+        out.append(instance.inv_transform.m21[0])
+        out.append(instance.inv_transform.m22[0])
+        out.append(instance.inv_transform.tz[0])
     return out^
 
 

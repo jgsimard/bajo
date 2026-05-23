@@ -4,9 +4,10 @@ from std.reflection import get_function_name
 
 
 from bajo.core.mat import Mat33f32
-from bajo.core.vec import vmin, vmax, Vec3f32
-from bajo.core.quat import Quat
-from bajo.core.aabb import AABB
+from bajo.core.transform import Affine3f32, Affine3
+from bajo.core.vec import vmin, vmax, Vec3f32, Vec3
+from bajo.core.quat import Quat, Quaternion
+from bajo.core.aabb import AABB, AxisAlignedBoundingBox
 from bajo.core.random import Rng
 
 
@@ -97,6 +98,220 @@ def apply_trs_arvo_v1_______(
     return AABB(new_min, new_max)
 
 
+def apply_trs_affine3_v0_width[
+    width: Int
+](
+    box: AxisAlignedBoundingBox[DType.float32, width],
+    translation: Vec3[DType.float32, width],
+    rotation: Quaternion[DType.float32, width],
+    scale: Vec3[DType.float32, width],
+) -> AxisAlignedBoundingBox[DType.float32, width]:
+    transform = Affine3[DType.float32, width].from_rotation_scale(
+        rotation, scale
+    )
+
+    var new_min = translation.copy()
+    var new_max = translation.copy()
+
+    # X column
+    var c0 = Vec3[DType.float32, width](
+        transform.m00, transform.m10, transform.m20
+    )
+    var c0_a = c0 * box._min.x
+    var c0_b = c0 * box._max.x
+    new_min += vmin(c0_a, c0_b)
+    new_max += vmax(c0_a, c0_b)
+
+    # Y column
+    var c1 = Vec3[DType.float32, width](
+        transform.m01, transform.m11, transform.m21
+    )
+    var c1_a = c1 * box._min.y
+    var c1_b = c1 * box._max.y
+    new_min += vmin(c1_a, c1_b)
+    new_max += vmax(c1_a, c1_b)
+
+    # Z column
+    var c2 = Vec3[DType.float32, width](
+        transform.m02, transform.m12, transform.m22
+    )
+    var c2_a = c2 * box._min.z
+    var c2_b = c2 * box._max.z
+    new_min += vmin(c2_a, c2_b)
+    new_max += vmax(c2_a, c2_b)
+
+    return AxisAlignedBoundingBox[DType.float32, width](new_min, new_max)
+
+
+def apply_trs_affine3_v1_width[
+    width: Int
+](
+    box: AxisAlignedBoundingBox[DType.float32, width],
+    translation: Vec3[DType.float32, width],
+    rotation: Quaternion[DType.float32, width],
+    scale: Vec3[DType.float32, width],
+) -> AxisAlignedBoundingBox[DType.float32, width]:
+    transform = Affine3[DType.float32, width].from_rotation_scale(
+        rotation, scale
+    )
+
+    var new_min = translation.copy()
+    var new_max = translation.copy()
+
+    def _add_transformed_axis_width[
+        i: Int,
+    ](
+        m: SIMD[DType.float32, width],
+        lo: SIMD[DType.float32, width],
+        hi: SIMD[DType.float32, width],
+    ) capturing:
+        var e = m * lo
+        var f = m * hi
+
+        comptime if width == 1:
+            if e[0] < f[0]:
+                new_min.add_axis[i](e)
+                new_max.add_axis[i](f)
+            else:
+                new_min.add_axis[i](f)
+                new_max.add_axis[i](e)
+        else:
+            var mask = e.lt(f)
+            new_min.add_axis[i](mask.select(e, f))
+            new_max.add_axis[i](mask.select(f, e))
+
+    # X column
+    _add_transformed_axis_width[0](transform.m00, box._min.x, box._max.x)
+    _add_transformed_axis_width[1](transform.m10, box._min.x, box._max.x)
+    _add_transformed_axis_width[2](transform.m20, box._min.x, box._max.x)
+
+    # Y column
+    _add_transformed_axis_width[0](transform.m01, box._min.y, box._max.y)
+    _add_transformed_axis_width[1](transform.m11, box._min.y, box._max.y)
+    _add_transformed_axis_width[2](transform.m21, box._min.y, box._max.y)
+
+    # Z column
+    _add_transformed_axis_width[0](transform.m02, box._min.z, box._max.z)
+    _add_transformed_axis_width[1](transform.m12, box._min.z, box._max.z)
+    _add_transformed_axis_width[2](transform.m22, box._min.z, box._max.z)
+
+    return AxisAlignedBoundingBox[DType.float32, width](new_min, new_max)
+
+
+def dispatch_affine3_width[
+    version: Int,
+    width: Int,
+](
+    box: AxisAlignedBoundingBox[DType.float32, width],
+    translation: Vec3[DType.float32, width],
+    rotation: Quaternion[DType.float32, width],
+    scale: Vec3[DType.float32, width],
+) -> AxisAlignedBoundingBox[DType.float32, width]:
+    comptime if version == 0:
+        return apply_trs_affine3_v0_width[width](
+            box, translation, rotation, scale
+        )
+    else:
+        return apply_trs_affine3_v1_width[width](
+            box, translation, rotation, scale
+        )
+
+
+struct Affine3WidthBenchmarkData[width: Int]:
+    var boxes: UnsafePointer[
+        AxisAlignedBoundingBox[DType.float32, Self.width], MutAnyOrigin
+    ]
+    var translations: UnsafePointer[
+        Vec3[DType.float32, Self.width], MutAnyOrigin
+    ]
+    var rotations: UnsafePointer[
+        Quaternion[DType.float32, Self.width], MutAnyOrigin
+    ]
+    var scales: UnsafePointer[Vec3[DType.float32, Self.width], MutAnyOrigin]
+    var dst: UnsafePointer[
+        AxisAlignedBoundingBox[DType.float32, Self.width], MutAnyOrigin
+    ]
+
+    def __init__(out self):
+        comptime packet_count = num_elements / Self.width
+
+        self.boxes = alloc[AxisAlignedBoundingBox[DType.float32, Self.width]](
+            packet_count
+        )
+        self.translations = alloc[Vec3[DType.float32, Self.width]](packet_count)
+        self.rotations = alloc[Quaternion[DType.float32, Self.width]](
+            packet_count
+        )
+        self.scales = alloc[Vec3[DType.float32, Self.width]](packet_count)
+        self.dst = alloc[AxisAlignedBoundingBox[DType.float32, Self.width]](
+            packet_count
+        )
+
+        rng = Rng(123, 123)
+
+        for i in range(packet_count):
+            self.boxes[i] = AxisAlignedBoundingBox[DType.float32, Self.width](
+                Vec3[DType.float32, Self.width](-1),
+                Vec3[DType.float32, Self.width](1),
+            )
+
+            self.translations[i] = Vec3[DType.float32, Self.width](
+                rng.f32(),
+                rng.f32(),
+                rng.f32(),
+            )
+
+            self.rotations[i] = Quaternion[
+                DType.float32, Self.width
+            ].from_axis_angle(
+                Vec3[DType.float32, Self.width](0, 1, 0),
+                rng.f32(),
+            )
+
+            self.scales[i] = Vec3[DType.float32, Self.width](
+                rng.f32(),
+                rng.f32(),
+                rng.f32(),
+            )
+
+    def __del__(deinit self):
+        self.boxes.free()
+        self.translations.free()
+        self.rotations.free()
+        self.scales.free()
+        self.dst.free()
+
+
+def bench_affine3_width[
+    version: Int,
+    width: Int,
+]() raises:
+    comptime packet_count = num_elements / width
+    data = Affine3WidthBenchmarkData[width]()
+
+    def wrapper() raises capturing:
+        for i in range(packet_count):
+            data.dst[i] = dispatch_affine3_width[version, width](
+                data.boxes[i],
+                data.translations[i],
+                data.rotations[i],
+                data.scales[i],
+            )
+
+        keep(data.dst[0]._min)
+
+    report = run[func3=wrapper](max_iters=200)
+    avg_time_us = round(report.mean(Unit.us), 2)
+    throughput = round(num_elements / avg_time_us, 1)
+
+    comptime if version == 0:
+        name = String("apply_trs_affine3_v0_width")
+    else:
+        name = String("apply_trs_affine3_v1_width")
+
+    print(t"{name}| Throughput:{throughput}, Mops/s | Avg: {avg_time_us} us")
+
+
 # ----------------------------------------------------------------------
 # Benchmark Harness
 # ----------------------------------------------------------------------
@@ -164,9 +379,29 @@ def main() raises:
     bench[apply_trs_arvo_v0_______]()
     bench[apply_trs_arvo_v1_______]()
 
+    print("\nBenchmarking Affine3 packet widths")
+    comptime for w in [1, 2, 4, 8]:
+        print(t"width = {w}")
+        bench_affine3_width[0, w]()
+        bench_affine3_width[1, w]()
+
 
 # Benchmarking AABB Transform (apply_trs) - Elements: 100000
-# apply_trs_naive_________| Throughput: 60.4, Mops/s | Avg: 1654.9 us
-# apply_trs_naive_comptime| Throughput:198.0, Mops/s | Avg: 504.96 us # 3.3 x faster !!!
-# apply_trs_arvo_v0_______| Throughput:169.8, Mops/s | Avg: 588.8 us
-# apply_trs_arvo_v1_______| Throughput:169.3, Mops/s | Avg: 590.83 us
+# apply_trs_naive_________| Throughput:34.6, Mops/s | Avg: 2887.25 us
+# apply_trs_naive_comptime| Throughput:199.4, Mops/s | Avg: 501.58 us
+# apply_trs_arvo_v0_______| Throughput:135.8, Mops/s | Avg: 736.61 us
+# apply_trs_arvo_v1_______| Throughput:135.8, Mops/s | Avg: 736.24 us
+
+# Benchmarking Affine3 packet widths
+# width = 1
+# apply_trs_affine3_v0_width| Throughput:135.8, Mops/s | Avg: 736.22 us
+# apply_trs_affine3_v1_width| Throughput:199.8, Mops/s | Avg: 500.6 us
+# width = 2
+# apply_trs_affine3_v0_width| Throughput:285.8, Mops/s | Avg: 349.9 us
+# apply_trs_affine3_v1_width| Throughput:335.3, Mops/s | Avg: 298.27 us
+# width = 4
+# apply_trs_affine3_v0_width| Throughput:578.4, Mops/s | Avg: 172.89 us
+# apply_trs_affine3_v1_width| Throughput:665.9, Mops/s | Avg: 150.17 us
+# width = 8
+# apply_trs_affine3_v0_width| Throughput:1095.2, Mops/s | Avg: 91.31 us
+# apply_trs_affine3_v1_width| Throughput:1257.2, Mops/s | Avg: 79.54 us

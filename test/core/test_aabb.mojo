@@ -9,6 +9,7 @@ from bajo.core.aabb import AABB
 from bajo.core.utils import degrees_to_radians
 from bajo.core.quat import Quat
 from bajo.core.vec import Vec3f32, assert_vec_equal
+from bajo.core.transform import Affine3
 
 
 def test_logic() raises:
@@ -39,8 +40,9 @@ def test_apply_trs_rotated() raises:
     r = Quat.from_axis_angle(Vec3f32(0, 0, 1), angle)
     t = Vec3f32(0)
     s = Vec3f32(1)
+    transform = Affine3.from_rotation_scale_translation(r, s, t)
 
-    new_box = box.apply_trs(t, r, s)
+    new_box = box.apply_transform(transform)
 
     # the corners should move to ±sqrt(2)
     sqrt_2 = Float32(sqrt(2.0))

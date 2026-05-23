@@ -1,6 +1,6 @@
 from std.utils.numerics import max_finite, min_finite
 
-from bajo.core.mat import Mat33
+from bajo.core.transform import Affine3
 from bajo.core.quat import Quaternion
 from bajo.core.vec import Vec3, vmin, vmax
 
@@ -84,32 +84,50 @@ struct AxisAlignedBoundingBox[dtype: DType, width: Int = 1](
             & p.z.le(self._max.z)
         )
 
-    def apply_trs(
-        self: AxisAlignedBoundingBox[Self.dtype],
-        translation: Vec3[Self.dtype],
-        rotation: Quaternion[Self.dtype],
-        scale: Vec3[Self.dtype],
-    ) -> AxisAlignedBoundingBox[
-        Self.dtype
-    ] where Self.dtype.is_floating_point():
-        rot_mat = Mat33[Self.dtype].from_rotation_scale(rotation, scale)
-        txfmed = AxisAlignedBoundingBox[Self.dtype](translation, translation)
+    def apply_transform(
+        self, transform: Affine3[Self.dtype, Self.width]
+    ) -> AxisAlignedBoundingBox[Self.dtype, Self.width]:
+        var new_min = transform.translation()
+        var new_max = transform.translation()
 
-        # use comptime to fully unroll
-        # in bench_aabb, 3.3x faster then version without comptime
-        # 18% faster then arvo version
-        comptime for j in range(3):
-            comptime for i in range(3):
-                e = rot_mat[i][j] * self._min[j]
-                f = rot_mat[i][j] * self._max[j]
+        def _add_transformed_axis[
+            i: Int,
+        ](
+            m: SIMD[Self.dtype, Self.width],
+            lo: SIMD[Self.dtype, Self.width],
+            hi: SIMD[Self.dtype, Self.width],
+        ) capturing:
+            var e = m * lo
+            var f = m * hi
 
+            comptime if Self.width == 1:
                 if e[0] < f[0]:
-                    txfmed._min.add_axis[i](e)
-                    txfmed._max.add_axis[i](f)
+                    new_min.add_axis[i](e)
+                    new_max.add_axis[i](f)
                 else:
-                    txfmed._min.add_axis[i](f)
-                    txfmed._max.add_axis[i](e)
-        return txfmed
+                    new_min.add_axis[i](f)
+                    new_max.add_axis[i](e)
+            else:
+                var mask = e.lt(f)
+                new_min.add_axis[i](mask.select(e, f))
+                new_max.add_axis[i](mask.select(f, e))
+
+        # X column
+        _add_transformed_axis[0](transform.m00, self._min.x, self._max.x)
+        _add_transformed_axis[1](transform.m10, self._min.x, self._max.x)
+        _add_transformed_axis[2](transform.m20, self._min.x, self._max.x)
+
+        # Y column
+        _add_transformed_axis[0](transform.m01, self._min.y, self._max.y)
+        _add_transformed_axis[1](transform.m11, self._min.y, self._max.y)
+        _add_transformed_axis[2](transform.m21, self._min.y, self._max.y)
+
+        # Z column
+        _add_transformed_axis[0](transform.m02, self._min.z, self._max.z)
+        _add_transformed_axis[1](transform.m12, self._min.z, self._max.z)
+        _add_transformed_axis[2](transform.m22, self._min.z, self._max.z)
+
+        return AxisAlignedBoundingBox[Self.dtype, Self.width](new_min, new_max)
 
     @staticmethod
     def load6[

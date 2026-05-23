@@ -109,7 +109,7 @@ struct Affine3[dtype: DType, width: Int = 1](
 
     @staticmethod
     def from_rotation_scale(
-        r: Quaternion[Self.dtype],
+        r: Quaternion[Self.dtype, Self.width],
         s: Vec3[Self.dtype, Self.width],
     ) -> Self where Self.dtype.is_floating_point():
         return Self.from_rotation_scale_translation(
@@ -120,7 +120,7 @@ struct Affine3[dtype: DType, width: Int = 1](
 
     @staticmethod
     def from_rotation_scale_translation(
-        r: Quaternion[Self.dtype],
+        r: Quaternion[Self.dtype, Self.width],
         s: Vec3[Self.dtype, Self.width],
         t: Vec3[Self.dtype, Self.width],
     ) -> Self where Self.dtype.is_floating_point():

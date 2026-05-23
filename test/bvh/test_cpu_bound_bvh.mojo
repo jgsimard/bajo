@@ -328,46 +328,24 @@ def test_bounds_bvh_empty_input() raises:
     assert_true(len(wide.nodes) == 0)
 
 
-def test_bounds_bvh_leaf_size_2_invariant() raises:
-    var verts = _make_strip(12)
+def _test_bounds_bvh_leaf_size_N_invariant[size: Int]() raises:
+    var verts = _make_strip(12 * size)
     var items = _make_bounds_items(verts)
 
-    var builder = BoundsBvhBuilder[2](items)
+    var builder = BoundsBvhBuilder[size](items)
     builder.build["median"]()
 
     assert_true(builder.nodes_used > 0)
     _assert_builder_leaf_sizes_at_most(builder, UInt32(2))
 
-    var wide = BoundsBvh[2](builder)
-    _assert_wide_leaf_counts_at_most_width[2](wide)
+    var wide = BoundsBvh[size](builder)
+    _assert_wide_leaf_counts_at_most_width[size](wide)
 
 
-def test_bounds_bvh_leaf_size_4_invariant() raises:
-    var verts = _make_strip(24)
-    var items = _make_bounds_items(verts)
-
-    var builder = BoundsBvhBuilder[4](items)
-    builder.build["median"]()
-
-    assert_true(builder.nodes_used > 0)
-    _assert_builder_leaf_sizes_at_most(builder, UInt32(4))
-
-    var wide = BoundsBvh[4](builder)
-    _assert_wide_leaf_counts_at_most_width[4](wide)
-
-
-def test_bounds_bvh_leaf_size_8_invariant() raises:
-    var verts = _make_strip(40)
-    var items = _make_bounds_items(verts)
-
-    var builder = BoundsBvhBuilder[8](items)
-    builder.build["median"]()
-
-    assert_true(builder.nodes_used > 0)
-    _assert_builder_leaf_sizes_at_most(builder, UInt32(8))
-
-    var wide = BoundsBvh[8](builder)
-    _assert_wide_leaf_counts_at_most_width[8](wide)
+def _test_bounds_bvh_leaf_size_N_invariant() raises:
+    _test_bounds_bvh_leaf_size_N_invariant[2]()
+    _test_bounds_bvh_leaf_size_N_invariant[4]()
+    _test_bounds_bvh_leaf_size_N_invariant[8]()
 
 
 def test_wide_bounds_root_bounds_is_valid() raises:
@@ -400,58 +378,31 @@ def test_triangle_bvh2_leaf_size_equals_width_returns_nearest_triangle() raises:
     assert_almost_equal(hit.t, 2.0)
 
 
-def test_triangle_bvh2_leaf_size_equals_width_matches_bruteforce() raises:
-    var verts = _make_strip(24)
-    var bvh = TriangleBvh[2].__init__["median"](
+def _test_triangle_bvhN_leaf_size_equals_width_matches_bruteforce[
+    N: Int
+]() raises:
+    var n = {2: 24, 4: 32, 8: 40}[N]
+    var verts = _make_strip(n)
+    var bvh = TriangleBvh[N].__init__["median"](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
 
-    for i in range(24):
+    for i in range(n):
         var O = _triangle_center_xy(verts, i)
         var D = Vec3f32(0.0, 0.0, 1.0)
-        _assert_triangle_bvh_matches_bruteforce[2](bvh, verts, O, D)
+        _assert_triangle_bvh_matches_bruteforce[N](bvh, verts, O, D)
 
     for i in range(8):
         var O = Vec3f32(100.0 + Float32(i), 100.0, 0.0)
         var D = Vec3f32(0.0, 0.0, 1.0)
-        _assert_triangle_bvh_matches_bruteforce[2](bvh, verts, O, D)
+        _assert_triangle_bvh_matches_bruteforce[N](bvh, verts, O, D)
 
 
-def test_triangle_bvh4_leaf_size_equals_width_matches_bruteforce() raises:
-    var verts = _make_strip(32)
-    var bvh = TriangleBvh[4].__init__["median"](
-        verts.unsafe_ptr(),
-        UInt32(len(verts) / 3),
-    )
-
-    for i in range(32):
-        var O = _triangle_center_xy(verts, i)
-        var D = Vec3f32(0.0, 0.0, 1.0)
-        _assert_triangle_bvh_matches_bruteforce[4](bvh, verts, O, D)
-
-    for i in range(8):
-        var O = Vec3f32(-100.0 - Float32(i), 100.0, 0.0)
-        var D = Vec3f32(0.0, 0.0, 1.0)
-        _assert_triangle_bvh_matches_bruteforce[4](bvh, verts, O, D)
-
-
-def test_triangle_bvh8_leaf_size_equals_width_matches_bruteforce() raises:
-    var verts = _make_strip(40)
-    var bvh = TriangleBvh[8].__init__["median"](
-        verts.unsafe_ptr(),
-        UInt32(len(verts) / 3),
-    )
-
-    for i in range(40):
-        var O = _triangle_center_xy(verts, i)
-        var D = Vec3f32(0.0, 0.0, 1.0)
-        _assert_triangle_bvh_matches_bruteforce[8](bvh, verts, O, D)
-
-    for i in range(8):
-        var O = Vec3f32(100.0, -100.0 - Float32(i), 0.0)
-        var D = Vec3f32(0.0, 0.0, 1.0)
-        _assert_triangle_bvh_matches_bruteforce[8](bvh, verts, O, D)
+def test_triangle_bvhN_leaf_size_equals_width_matches_bruteforce() raises:
+    _test_triangle_bvhN_leaf_size_equals_width_matches_bruteforce[2]()
+    _test_triangle_bvhN_leaf_size_equals_width_matches_bruteforce[4]()
+    _test_triangle_bvhN_leaf_size_equals_width_matches_bruteforce[8]()
 
 
 def test_triangle_bvh4_shadow_hit_and_miss() raises:

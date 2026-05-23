@@ -13,10 +13,10 @@ comptime num_elements = 100000
 
 
 def quat_mul_1(q1: Quat, q2: Quat) -> Quat:
-    x = q1.w() * q2.x() + q1.x() * q2.w() + q1.y() * q2.z() - q1.z() * q2.y()
-    y = q1.w() * q2.y() - q1.x() * q2.z() + q1.y() * q2.w() + q1.z() * q2.x()
-    z = q1.w() * q2.z() + q1.x() * q2.y() - q1.y() * q2.x() + q1.z() * q2.w()
-    w = q1.w() * q2.w() - q1.x() * q2.x() - q1.y() * q2.y() - q1.z() * q2.z()
+    x = q1.w * q2.x + q1.x * q2.w + q1.y * q2.z - q1.z * q2.y
+    y = q1.w * q2.y - q1.x * q2.z + q1.y * q2.w + q1.z * q2.x
+    z = q1.w * q2.z + q1.x * q2.y - q1.y * q2.x + q1.z * q2.w
+    w = q1.w * q2.w - q1.x * q2.x - q1.y * q2.y - q1.z * q2.z
     return Quat(x, y, z, w)
 
 
@@ -91,7 +91,7 @@ def main() raises:
                 data.dst[i] = dispatch_mul[version](
                     data.src_a[i], data.src_b[i]
                 )
-            keep(data.dst[0].data)
+            keep(data.dst[0].z)
 
         report = run[func3=wrapper](max_iters=1000)
         avg_time_us = round(report.mean(Unit.us), 2)
@@ -110,7 +110,10 @@ def main() raises:
         q3 = Quat.from_axis_angle(Vec3f32(1, 0, 0), angle)
         a = dispatch_mul[version](q2, q3)
         b = Quat(0.353553, 0.353553, -0.146447, 0.853553)
-        assert_almost_equal(a.data, b.data, atol=1e-6)
+        assert_almost_equal(a.x, b.x, atol=1e-6)
+        assert_almost_equal(a.y, b.y, atol=1e-6)
+        assert_almost_equal(a.z, b.z, atol=1e-6)
+        assert_almost_equal(a.w, b.w, atol=1e-6)
 
         q = a
 

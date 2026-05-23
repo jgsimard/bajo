@@ -282,6 +282,7 @@ struct Vec3[dtype: DType, width: Int = 1](
     def load[
         origin: Origin
     ](ptr: UnsafePointer[Scalar[Self.dtype], origin], base: Int) -> Self:
+        comptime assert Self.width == 1
         return Self(
             ptr[base + 0],
             ptr[base + 1],

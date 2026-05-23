@@ -124,22 +124,17 @@ struct Affine3[dtype: DType, width: Int = 1](
         s: Vec3[Self.dtype, Self.width],
         t: Vec3[Self.dtype, Self.width],
     ) -> Self where Self.dtype.is_floating_point():
-        var x = r.x()
-        var y = r.y()
-        var z = r.z()
-        var w = r.w()
+        var x2 = r.x * r.x
+        var y2 = r.y * r.y
+        var z2 = r.z * r.z
 
-        var x2 = x * x
-        var y2 = y * y
-        var z2 = z * z
+        var xy = r.x * r.y
+        var xz = r.x * r.z
+        var yz = r.y * r.z
 
-        var xy = x * y
-        var xz = x * z
-        var yz = y * z
-
-        var wx = w * x
-        var wy = w * y
-        var wz = w * z
+        var wx = r.w * r.x
+        var wy = r.w * r.y
+        var wz = r.w * r.z
 
         var sx = s.x
         var sy = s.y

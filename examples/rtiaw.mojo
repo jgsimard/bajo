@@ -1,13 +1,11 @@
 from std.algorithm import parallelize
-from std.math import sqrt, tan, pi, cos, fma, min, max
+from std.math import sqrt, tan, pi, cos, fma
 from std.os import abort
 from std.io.file_descriptor import FileDescriptor
-from std.utils.numerics import max_finite, min_finite
+from std.utils.numerics import max_finite
 from std.utils import Variant
 
 from bajo.core.vec import (
-    Vec2f32,
-    Vec3,
     Vec3f32,
     length,
     length2,
@@ -22,7 +20,6 @@ from bajo.core.random import (
     random_in_unit_disk,
     Rng,
 )
-
 from bajo.bvh.types import Ray as bRay, Sphere as bSphere
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
 
@@ -54,10 +51,6 @@ def colorize(color: Color) -> Color:
     )
 
 
-def _pack_color_byte(x: Float32) -> UInt8:
-    return UInt8(Int(x))
-
-
 def write_ppm_from_colors(
     path: String,
     width: Int,
@@ -82,9 +75,9 @@ def write_ppm_from_colors(
         for i in range(pixel_count):
             var out_color = colorize(image_data[i])
 
-            out[j] = _pack_color_byte(out_color.x)
-            out[j + 1] = _pack_color_byte(out_color.y)
-            out[j + 2] = _pack_color_byte(out_color.z)
+            out[j] = UInt8(out_color.x)
+            out[j + 1] = UInt8(out_color.y)
+            out[j + 2] = UInt8(out_color.z)
 
             j += 3
 
@@ -387,11 +380,10 @@ struct Camera(Copyable):
     def get_ray(self, i: Int, j: Int, mut rng: Rng) -> Ray:
         var r1 = rng.f32()
         var r2 = rng.f32()
-        offset = Vec2f32(r1, r2)
         var pixel_sample = (
             self.pixel00_loc
-            + ((Float32(i) + offset.x) * self.pixel_delta_u)
-            + ((Float32(j) + offset.y) * self.pixel_delta_v)
+            + ((Float32(i) + r1) * self.pixel_delta_u)
+            + ((Float32(j) + r2) * self.pixel_delta_v)
         )
 
         origin = (
@@ -413,15 +405,11 @@ struct Camera(Copyable):
         )
 
 
-def reflect[dtype: DType](v: Vec3[dtype], n: Vec3[dtype]) -> Vec3[dtype]:
+def reflect(v: Vec3f32, n: Vec3f32) -> Vec3f32:
     return v - 2.0 * dot(v, n) * n
 
 
-def refract[
-    dtype: DType
-](uv: Vec3[dtype], n: Vec3[dtype], etai_over_etat: Scalar[dtype]) -> Vec3[
-    dtype
-]:
+def refract(uv: Vec3f32, n: Vec3f32, etai_over_etat: Float32) -> Vec3f32:
     var cos_theta = min(-dot(uv, n), 1.0)
     var r_out_perp = etai_over_etat * (uv + cos_theta * n)
     var r_out_parallel = -sqrt(abs(1.0 - length2(r_out_perp))) * n

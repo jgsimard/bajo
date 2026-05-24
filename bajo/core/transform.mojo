@@ -24,9 +24,9 @@ struct Affine3[dtype: DType, width: Int = 1](
 ):
     """3D affine transform.
 
-    Points : p = M * p_in + t
+    Points  : p_out = M * p_in + t
 
-    Vectors : v = M * v_in
+    Vectors : v_out = M * v_in
     """
 
     var m00: SIMD[Self.dtype, Self.width]
@@ -154,6 +154,7 @@ struct Affine3[dtype: DType, width: Int = 1](
     def transform_point(
         self, p: Vec3[Self.dtype, Self.width]
     ) -> Vec3[Self.dtype, Self.width]:
+        """Formula : p_out = M * p_in + t."""
         return Vec3[Self.dtype, Self.width](
             fma(self.m00, p.x, fma(self.m01, p.y, fma(self.m02, p.z, self.tx))),
             fma(self.m10, p.x, fma(self.m11, p.y, fma(self.m12, p.z, self.ty))),
@@ -163,6 +164,7 @@ struct Affine3[dtype: DType, width: Int = 1](
     def transform_vector(
         self, v: Vec3[Self.dtype, Self.width]
     ) -> Vec3[Self.dtype, Self.width]:
+        """Formula : v_out = M * v_in."""
         return Vec3[Self.dtype, Self.width](
             fma(self.m00, v.x, fma(self.m01, v.y, self.m02 * v.z)),
             fma(self.m10, v.x, fma(self.m11, v.y, self.m12 * v.z)),
@@ -177,41 +179,23 @@ struct Affine3[dtype: DType, width: Int = 1](
         origin: Origin
     ](ptr: UnsafePointer[Scalar[Self.dtype], origin], base: Int) -> Self:
         comptime assert Self.width == 1
-
+        # fmt: off
         return Self(
-            ptr[base + 0],
-            ptr[base + 1],
-            ptr[base + 2],
-            ptr[base + 3],
-            ptr[base + 4],
-            ptr[base + 5],
-            ptr[base + 6],
-            ptr[base + 7],
-            ptr[base + 8],
-            ptr[base + 9],
-            ptr[base + 10],
-            ptr[base + 11],
+            ptr[base + 0], ptr[base + 1], ptr[base + 2], ptr[base + 3],
+            ptr[base + 4], ptr[base + 5], ptr[base + 6], ptr[base + 7],
+            ptr[base + 8], ptr[base + 9], ptr[base + 10], ptr[base + 11],
         )
+        # fmt: on
 
     def store[
         origin: Origin[mut=True]
     ](self, ptr: UnsafePointer[Scalar[Self.dtype], origin], base: Int):
         comptime assert Self.width == 1
-
-        ptr[base + 0] = self.m00[0]
-        ptr[base + 1] = self.m01[0]
-        ptr[base + 2] = self.m02[0]
-        ptr[base + 3] = self.tx[0]
-
-        ptr[base + 4] = self.m10[0]
-        ptr[base + 5] = self.m11[0]
-        ptr[base + 6] = self.m12[0]
-        ptr[base + 7] = self.ty[0]
-
-        ptr[base + 8] = self.m20[0]
-        ptr[base + 9] = self.m21[0]
-        ptr[base + 10] = self.m22[0]
-        ptr[base + 11] = self.tz[0]
+        # fmt: off
+        (ptr + base + 0).store[width=4]([self.m00[0], self.m01[0], self.m02[0], self.tx[0]])
+        (ptr + base + 4).store[width=4]([self.m10[0], self.m11[0], self.m12[0], self.ty[0]])
+        (ptr + base + 8).store[width=4]([self.m20[0], self.m21[0], self.m22[0], self.tz[0]])
+        # fmt: on
 
     def inverse(
         self,
@@ -259,18 +243,11 @@ struct Affine3[dtype: DType, width: Int = 1](
 
         return Affine3InverseResult(
             mask,
+            # fmt: off
             Self(
-                inv00,
-                inv01,
-                inv02,
-                inv_tx,
-                inv10,
-                inv11,
-                inv12,
-                inv_ty,
-                inv20,
-                inv21,
-                inv22,
-                inv_tz,
+                inv00, inv01, inv02, inv_tx,
+                inv10, inv11, inv12, inv_ty,
+                inv20, inv21, inv22, inv_tz,
             ),
+            # fmt: on
         )

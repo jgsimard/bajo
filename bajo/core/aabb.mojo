@@ -90,42 +90,26 @@ struct AxisAlignedBoundingBox[dtype: DType, width: Int = 1](
         var new_min = transform.translation()
         var new_max = transform.translation()
 
-        def _add_transformed_axis[
-            i: Int,
-        ](
-            m: SIMD[Self.dtype, Self.width],
-            lo: SIMD[Self.dtype, Self.width],
-            hi: SIMD[Self.dtype, Self.width],
-        ) capturing:
-            var e = m * lo
-            var f = m * hi
-
-            comptime if Self.width == 1:
-                if e[0] < f[0]:
-                    new_min.add_axis[i](e)
-                    new_max.add_axis[i](f)
-                else:
-                    new_min.add_axis[i](f)
-                    new_max.add_axis[i](e)
-            else:
-                var mask = e.lt(f)
-                new_min.add_axis[i](mask.select(e, f))
-                new_max.add_axis[i](mask.select(f, e))
-
         # X column
-        _add_transformed_axis[0](transform.m00, self._min.x, self._max.x)
-        _add_transformed_axis[1](transform.m10, self._min.x, self._max.x)
-        _add_transformed_axis[2](transform.m20, self._min.x, self._max.x)
+        var c0 = Vec3(transform.m00, transform.m10, transform.m20)
+        var c0_a = c0 * self._min.x
+        var c0_b = c0 * self._max.x
+        new_min += vmin(c0_a, c0_b)
+        new_max += vmax(c0_a, c0_b)
 
         # Y column
-        _add_transformed_axis[0](transform.m01, self._min.y, self._max.y)
-        _add_transformed_axis[1](transform.m11, self._min.y, self._max.y)
-        _add_transformed_axis[2](transform.m21, self._min.y, self._max.y)
+        var c1 = Vec3(transform.m01, transform.m11, transform.m21)
+        var c1_a = c1 * self._min.y
+        var c1_b = c1 * self._max.y
+        new_min += vmin(c1_a, c1_b)
+        new_max += vmax(c1_a, c1_b)
 
         # Z column
-        _add_transformed_axis[0](transform.m02, self._min.z, self._max.z)
-        _add_transformed_axis[1](transform.m12, self._min.z, self._max.z)
-        _add_transformed_axis[2](transform.m22, self._min.z, self._max.z)
+        var c2 = Vec3(transform.m02, transform.m12, transform.m22)
+        var c2_a = c2 * self._min.z
+        var c2_b = c2 * self._max.z
+        new_min += vmin(c2_a, c2_b)
+        new_max += vmax(c2_a, c2_b)
 
         return AxisAlignedBoundingBox[Self.dtype, Self.width](new_min, new_max)
 

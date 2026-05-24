@@ -279,7 +279,7 @@ struct Quaternion[dtype: DType, width: Int = 1](
         abs_sinp = abs(sinp)
         comptime pi_2 = Scalar[Self.dtype](pi / 2.0)
         pitch_sat = sinp.lt(0.0).select(-pi_2, pi_2)
-        saturated = abs_sinp.gt(1.0) | abs_sinp.eq(1.0)
+        saturated = abs_sinp.ge(1.0)
         pitch = saturated.select(pitch_sat, asin(sinp))
 
         siny_cosp = 2 * (self.w * self.z + self.x * self.y)

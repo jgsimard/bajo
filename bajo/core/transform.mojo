@@ -143,21 +143,13 @@ struct Affine3[dtype: DType, width: Int = 1](
         var dsx = sx * 2.0
         var dsy = sy * 2.0
         var dsz = sz * 2.0
-
+        # fmt: off
         return Self(
-            sx - dsx * (y2 + z2),
-            dsy * (xy - wz),
-            dsz * (xz + wy),
-            t.x,
-            dsx * (xy + wz),
-            sy - dsy * (x2 + z2),
-            dsz * (yz - wx),
-            t.y,
-            dsx * (xz - wy),
-            dsy * (yz + wx),
-            sz - dsz * (x2 + y2),
-            t.z,
+            sx - dsx * (y2 + z2), dsy * (xy - wz),      dsz * (xz + wy),      t.x,
+            dsx * (xy + wz),      sy - dsy * (x2 + z2), dsz * (yz - wx),      t.y,
+            dsx * (xz - wy),      dsy * (yz + wx),      sz - dsz * (x2 + y2), t.z,
         )
+        # fmt: on
 
     def transform_point(
         self, p: Vec3[Self.dtype, Self.width]

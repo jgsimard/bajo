@@ -3,8 +3,7 @@ from std.sys.info import size_of
 from std.bit import count_trailing_zeros
 from std.memory import pack_bits
 
-from bajo.core.vec import Vec3, Vec3f32
-from bajo.obj import read_obj, triangulated_indices
+from bajo.core.vec import Vec3
 
 
 def print_size_of[type: AnyType]():
@@ -69,12 +68,12 @@ def min_argmin[
 @always_inline
 def fmax[
     dtype: DType, width: Int
-](a: SIMD[dtype, width], b: SIMD[dtype, width],) -> SIMD[dtype, width]:
+](a: SIMD[dtype, width], b: SIMD[dtype, width]) -> SIMD[dtype, width]:
     return a.gt(b).select(a, b)
 
 
 @always_inline
 def fmin[
     dtype: DType, width: Int
-](a: SIMD[dtype, width], b: SIMD[dtype, width],) -> SIMD[dtype, width]:
+](a: SIMD[dtype, width], b: SIMD[dtype, width]) -> SIMD[dtype, width]:
     return a.lt(b).select(a, b)

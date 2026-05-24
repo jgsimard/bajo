@@ -1,10 +1,14 @@
+from std.io.file_descriptor import FileDescriptor
+from std.gpu import DeviceBuffer, DeviceContext
 from std.math import cos, max, round, sin, clamp
 from std.sys import has_accelerator
 from std.time import perf_counter_ns
-from std.gpu import DeviceBuffer, DeviceContext
-from std.io.file_descriptor import FileDescriptor
 
 from bajo.core.aabb import AABB
+from bajo.core.quat import Quat
+from bajo.core.transform import Affine3
+from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
+from bajo.core.vec import Vec3f32, cross, normalize
 from bajo.bvh.cpu.tlas import Tlas
 from bajo.bvh.gpu.tlas import GpuTlas
 from bajo.bvh.gpu.triangle_bvh import GpuTriangleBvh
@@ -14,9 +18,6 @@ from bajo.bvh.host_utils import (
     copy_list_to_device,
 )
 from bajo.bvh.types import Instance
-from bajo.core.transform import Affine3f32
-from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
-from bajo.core.vec import Vec3f32, cross, normalize
 from bajo.obj.pack import pack_obj_triangles
 
 comptime DEFAULT_OBJ_PATH = "./assets/buddha/buddha.obj"
@@ -28,20 +29,6 @@ comptime GRID_Z = 25
 comptime BLAS_WIDTH = 2
 comptime TLAS_WIDTH = 2
 comptime MISS_PRIM = UInt32(0xFFFFFFFF)
-
-
-def _trs_y(
-    tx: Float32, ty: Float32, tz: Float32, angle: Float32, s: Float32
-) -> Affine3f32:
-    var c = cos(angle)
-    var sn = sin(angle)
-    # fmt: off
-    return Affine3f32(
-        s * c,   0.0, s * sn,  tx,
-        0.0,       s,    0.0,  ty,
-        -s * sn, 0.0,  s * c,  tz,
-    )
-    # fmt: on
 
 
 def _make_instances(bounds: AABB) raises -> List[Instance]:
@@ -61,8 +48,12 @@ def _make_instances(bounds: AABB) raises -> List[Instance]:
             var tx = (Float32(x - GRID_X - 1) / 2) * spacing
             var tz = (Float32(z - GRID_Z - 1) / 2) * spacing
             var angle = Float32(idx) * 1.0
-            var scale = BASE_SCALE + Float32(idx % 5) * 0.075
-            var transform = _trs_y(tx, 0.0, tz, angle, scale)
+            var rotation = Quat.from_axis_angle(Vec3f32(0, 1, 0), angle)
+            var scale = Vec3f32(BASE_SCALE + Float32(idx % 5) * 0.075)
+            var translation = Vec3f32(tx, 0.0, tz)
+            var transform = Affine3.from_rotation_scale_translation(
+                rotation, scale, translation
+            )
             var inv_transform = transform.inverse().inv.copy()
             instances.append(Instance(transform, inv_transform, 0, bounds))
     return instances^

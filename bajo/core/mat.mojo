@@ -437,43 +437,61 @@ struct MatInverseResult[
     var value: Mat[Self.dtype, Self.n, Self.n, Self.width]
 
 
-##############
-# inverse
-##############
 def inverse[dtype: DType](m: Mat22[dtype]) raises -> Mat22[dtype]:
     comptime EPSILON = 1e-8
-    det = determinant(m)
+    x00 = m[0][0]
+    x01 = m[0][1]
+    x10 = m[1][0]
+    x11 = m[1][1]
+    det = x00 * x11 - x10 * x01
     if abs(det) < EPSILON:
         raise "nope"
     rcp = 1.0 / det
-    out = Mat22[dtype](uninitialized=True)
-    out[0][0] = m[1][1] * rcp
-    out[0][1] = -m[0][1] * rcp
-    out[1][0] = -m[1][0] * rcp
-    out[1][1] = m[0][0] * rcp
-    return out^
+    # fmt: off
+    return Mat22[dtype](
+        x00 * rcp, -x01 * rcp,
+        -x10 * rcp, x11 * rcp
+    )
+    # fmt: on
 
 
 def inverse[dtype: DType](m: Mat33[dtype]) raises -> Mat33[dtype]:
     comptime EPSILON = 1e-8
-    det = determinant(m)
+
+    var x00 = m[0][0]
+    var x01 = m[0][1]
+    var x02 = m[0][2]
+    var x10 = m[1][0]
+    var x11 = m[1][1]
+    var x12 = m[1][2]
+    var x20 = m[2][0]
+    var x21 = m[2][1]
+    var x22 = m[2][2]
+
+    # cofactors, dont call determinant(m), to not recompute them
+    var z00 = x11 * x22 - x12 * x21
+    var z01 = x02 * x21 - x01 * x22
+    var z02 = x01 * x12 - x02 * x11
+    var z10 = x12 * x20 - x10 * x22
+    var z11 = x00 * x22 - x02 * x20
+    var z12 = x02 * x10 - x00 * x12
+    var z20 = x10 * x21 - x11 * x20
+    var z21 = x01 * x20 - x00 * x21
+    var z22 = x00 * x11 - x01 * x10
+
+    var det = x00 * z00 + x01 * z10 + x02 * z20
+
     if abs(det) < EPSILON:
         raise "nope"
-    rcp = 1.0 / det
-    out = Mat33[dtype](uninitialized=True)
-    out[0][0] = (m[1][1] * m[2][2] - m[1][2] * m[2][1]) * rcp
-    out[1][0] = (m[1][2] * m[2][0] - m[1][0] * m[2][2]) * rcp
-    out[2][0] = (m[1][0] * m[2][1] - m[1][1] * m[2][0]) * rcp
 
-    out[0][1] = (m[0][2] * m[2][1] - m[0][1] * m[2][2]) * rcp
-    out[1][1] = (m[0][0] * m[2][2] - m[0][2] * m[2][0]) * rcp
-    out[2][1] = (m[0][1] * m[2][0] - m[0][0] * m[2][1]) * rcp
-
-    out[0][2] = (m[0][1] * m[1][2] - m[0][2] * m[1][1]) * rcp
-    out[1][2] = (m[0][2] * m[1][0] - m[0][0] * m[1][2]) * rcp
-    out[2][2] = (m[0][0] * m[1][1] - m[0][1] * m[1][0]) * rcp
-
-    return out^
+    var rcp = 1.0 / det
+    # fmt: off
+    return Mat33[dtype](
+        z00 * rcp, z01 * rcp, z02 * rcp,
+        z10 * rcp, z11 * rcp, z12 * rcp,
+        z20 * rcp, z21 * rcp, z22 * rcp
+    )
+    # fmt: on
 
 
 def inverse[dtype: DType](m: Mat44[dtype]) raises -> Mat44[dtype]:

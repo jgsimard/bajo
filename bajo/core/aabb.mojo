@@ -1,7 +1,6 @@
 from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.transform import Affine3
-from bajo.core.quat import Quaternion
 from bajo.core.vec import Vec3, vmin, vmax
 
 comptime AABB = AxisAlignedBoundingBox[DType.float32]
@@ -34,7 +33,7 @@ struct AxisAlignedBoundingBox[dtype: DType, width: Int = 1](
             vmax(a._max, b._max),
         )
 
-    def surface_area(self) -> SIMD[Self.dtype, self.width]:
+    def surface_area(self) -> SIMD[Self.dtype, Self.width]:
         d = self._max - self._min
         return 2.0 * (d.x * d.y + d.x * d.z + d.y * d.z)
 
@@ -86,7 +85,7 @@ struct AxisAlignedBoundingBox[dtype: DType, width: Int = 1](
 
     def apply_transform(
         self, transform: Affine3[Self.dtype, Self.width]
-    ) -> AxisAlignedBoundingBox[Self.dtype, Self.width]:
+    ) -> Self:
         var new_min = transform.translation()
         var new_max = transform.translation()
 
@@ -111,7 +110,7 @@ struct AxisAlignedBoundingBox[dtype: DType, width: Int = 1](
         new_min += vmin(c2_a, c2_b)
         new_max += vmax(c2_a, c2_b)
 
-        return AxisAlignedBoundingBox[Self.dtype, Self.width](new_min, new_max)
+        return Self(new_min, new_max)
 
     @staticmethod
     def load6[

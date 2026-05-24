@@ -1,4 +1,4 @@
-from std.math import acos, cos, pi, sin, sqrt
+from std.math import acos, cos, pi, sin, sqrt, cbrt
 from std.random import Random
 
 from bajo.core.vec import Vec3f32, dot
@@ -25,9 +25,10 @@ struct Rng:
     def vec3f32(
         mut self, lower_bound: Float32 = 0, upper_bound: Float32 = 1
     ) -> Vec3f32:
-        r0 = self.f32() * (upper_bound - lower_bound) + lower_bound
-        r1 = self.f32() * (upper_bound - lower_bound) + lower_bound
-        r2 = self.f32() * (upper_bound - lower_bound) + lower_bound
+        scale = upper_bound - lower_bound
+        r0 = self.f32() * scale + lower_bound
+        r1 = self.f32() * scale + lower_bound
+        r2 = self.f32() * scale + lower_bound
         return Vec3f32(r0, r1, r2)
 
 
@@ -35,14 +36,14 @@ def random_unit_vector(mut rng: Rng) -> Vec3f32:
     u = rng.f32()
     v = rng.f32()
     theta = 2.0 * pi * u
-    phi = acos(1.0 - 2.0 * v)
-    sin_phi = sin(phi)
-    return Vec3f32(sin_phi * cos(theta), sin_phi * sin(theta), cos(phi))
+    z = 1.0 - 2.0 * v
+    r = sqrt(1.0 - z * z)
+    return Vec3f32(r * cos(theta), r * sin(theta), z)
 
 
 def random_on_hemisphere(mut rng: Rng, normal: Vec3f32) -> Vec3f32:
     on_unit_sphere = random_unit_vector(rng)
-    sign = Float32(dot(on_unit_sphere, normal) > 0.0)
+    sign = dot(on_unit_sphere, normal).lt(0.0).select(Float32(-1.0), 1.0)
     return sign * on_unit_sphere
 
 
@@ -56,5 +57,5 @@ def random_in_unit_disk(mut rng: Rng) -> Vec3f32:
 
 def random_in_unit_sphere(mut rng: Rng) -> Vec3f32:
     u = rng.f32()
-    r = pow(u, 1.0 / 3.0)
+    r = cbrt(u)
     return random_unit_vector(rng) * r

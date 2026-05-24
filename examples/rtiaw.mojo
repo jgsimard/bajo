@@ -97,16 +97,6 @@ struct Ray(Copyable, Writable):
     var direction: Point3
     var inv_direction: Point3
     var time: Float32
-    var _pad: InlineArray[Float32, 3]
-
-    def __init__(
-        out self, origin: Point3, direction: Point3, time: Float32 = 0.0
-    ):
-        self.origin = origin.copy()
-        self.direction = direction.copy()
-        self.inv_direction = 1.0 / self.direction
-        self.time = time
-        self._pad = InlineArray[Float32, 3](fill=0.0)
 
     def at(self, t: Float32) -> Point3:
         return self.origin + t * self.direction
@@ -139,60 +129,10 @@ struct HitRecord(Copyable):
 
 
 @fieldwise_init
-struct Interval[T: DType](Copyable, Writable):
-    var min: Scalar[Self.T]
-    var max: Scalar[Self.T]
-
-    def __init__(out self):
-        self.min = max_finite[Self.T]()
-        self.max = min_finite[Self.T]()
-
-    def __contains__(self, other: Scalar[Self.T]) -> Bool:
-        return self.min <= other <= self.max
-
-    def surrounds(self, other: Scalar[Self.T]) -> Bool:
-        return self.min < other < self.max
-
-    def size(self) -> Scalar[Self.T]:
-        return self.max - self.min
-
-    def union(self, other: Self) -> Self:
-        return Interval(min(self.min, other.min), max(self.max, other.max))
-
-    def expand(self, delta: Scalar[Self.T]) -> Self:
-        var padding = delta / 2
-        return Interval(self.min - padding, self.max + padding)
-
-
-@fieldwise_init
 struct Sphere(Copyable, Writable):
-    var center0: Point3
-    var center1: Point3
+    var center: Point3
     var radius: Float32
     var material_id: Int
-    var moving: Bool
-
-    def __init__(out self, center: Point3, radius: Float32, material_id: Int):
-        self.center0 = center.copy()
-        self.center1 = center.copy()
-        self.radius = radius
-        self.material_id = material_id
-        self.moving = False
-
-    def __init__(out self, center_ray: Ray, radius: Float32, material_id: Int):
-        self.center0 = center_ray.at(0.0)
-        self.center1 = center_ray.at(1.0)
-        self.radius = radius
-        self.material_id = material_id
-        self.moving = True
-
-    def static_center(self) -> Point3:
-        return self.center0.copy()
-
-    def center_at(self, time: Float32) -> Point3:
-        if self.moving:
-            return self.center0 + time * (self.center1 - self.center0)
-        return self.center0.copy()
 
 
 @fieldwise_init
@@ -211,7 +151,7 @@ struct World(Copyable):
 
         var bvh_spheres = List[bSphere](capacity=len(self.objects))
         for obj in self.objects:
-            bvh_spheres.append(bSphere(obj.static_center(), obj.radius))
+            bvh_spheres.append(bSphere(obj.center, obj.radius))
 
         self.bvh = SphereBvh[BVH_WIDTH].__init__["median"](
             bvh_spheres.unsafe_ptr(),
@@ -221,16 +161,19 @@ struct World(Copyable):
     def hit(
         self,
         ray: Ray,
-        ray_t: Interval[DType.float32],
+        ray_t_min: Float32,
+        ray_t_max: Float32,
     ) -> Optional[HitRecord]:
-        var origin = ray.at(ray_t.min)
-        var tmax = ray_t.max - ray_t.min
+        var origin = ray.at(ray_t_min)
+        var tmax = ray_t_max - ray_t_min
 
         var bvh_ray = bRay(
             origin,
             ray.direction,
+            ray.inv_direction,
             Float32(0.0),
             tmax,
+            UInt32(0xFFFFFFFF),
         )
 
         var bvh_hit = self.bvh.trace[TRACE_CLOSEST_HIT](bvh_ray)
@@ -241,16 +184,15 @@ struct World(Copyable):
         if bvh_hit.t >= tmax:
             return None
 
-        var t = bvh_hit.t + ray_t.min
-        if not ray_t.surrounds(t):
+        var t = bvh_hit.t + ray_t_min
+        if not (ray_t_min < t < ray_t_max):
             return None
 
         var sphere_idx = Int(bvh_hit.prim)
         ref obj = self.objects[sphere_idx]
 
-        var center = obj.static_center()
         var p = ray.at(t)
-        var normal = (p - center) / obj.radius
+        var normal = (p - obj.center) / obj.radius
 
         return HitRecord(p, normal, obj.material_id, t, ray)
 
@@ -371,7 +313,7 @@ struct Camera(Copyable):
 
         for _bounce in range(self.max_depth):
             comptime infinity = max_finite[DType.float32]()
-            var hit_res = world.hit(cur_ray, Interval(Float32(0.001), infinity))
+            var hit_res = world.hit(cur_ray, 0.001, infinity)
 
             if hit_res:
                 ref hit = hit_res.value()
@@ -459,7 +401,7 @@ struct Camera(Copyable):
         direction = pixel_sample - origin
         time = rng.f32()
 
-        return Ray(origin, direction, time)
+        return Ray(origin, direction, 1.0 / direction, time)
 
     def defocus_disk_sample(self, mut rng: Rng) -> Vec3f32:
         """Returns a random point in the camera defocus disk."""
@@ -509,7 +451,9 @@ struct Lambertian(Material, Writable):
         if scatter_direction.is_near_zero():
             scatter_direction = hit.normal.copy()
 
-        scattered = Ray(hit.p, scatter_direction, ray.time)
+        scattered = Ray(
+            hit.p, scatter_direction, 1.0 / scatter_direction, ray.time
+        )
         return (scattered^, self.albedo.copy())
 
 
@@ -523,7 +467,7 @@ struct Metal(Material, Writable):
     ) -> Optional[Tuple[Ray, Color]]:
         reflected = reflect(ray.direction, hit.normal)
         reflected = normalize(reflected) + (self.fuzz * random_unit_vector(rng))
-        scattered = Ray(hit.p, reflected, ray.time)
+        scattered = Ray(hit.p, reflected, 1.0 / reflected, ray.time)
 
         if dot(scattered.direction, hit.normal) < 0:
             return None
@@ -558,7 +502,7 @@ struct Dielectric(Material, Writable):
         else:
             direction = refract(unit_direction, hit.normal, ri)
 
-        scattered = Ray(hit.p, direction, ray.time)
+        scattered = Ray(hit.p, direction, 1.0 / direction, ray.time)
         return (scattered^, attenuation.copy())
 
 
@@ -634,7 +578,7 @@ def create_random_scene() -> Scene:
     objects.append(Sphere(Point3(4, 1, 0), 1.0, len(materials) - 1))
 
     cam = Camera(
-        image_width=400,
+        image_width=600,
         aspect_ratio=16.0 / 9.0,
         samples_per_pixel=10,
         max_depth=10,
@@ -668,7 +612,7 @@ def create_basic_scene() -> Scene:
     )
 
     cam = Camera(
-        image_width=400,
+        image_width=600,
         aspect_ratio=16.0 / 9.0,
         samples_per_pixel=10,
         max_depth=10,

@@ -1,6 +1,8 @@
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
-from std.math import fma, min, max, sqrt
+from std.math import fma, sqrt
 from std.testing import assert_almost_equal
+
+from bajo.core.utils import fmin, fmax
 
 comptime Vec2f32 = Vec2[DType.float32]
 comptime Vec3f32 = Vec3[DType.float32]
@@ -308,9 +310,9 @@ def vmin[
     dtype: DType, width: Int
 ](a: Vec3[dtype, width], b: Vec3[dtype, width]) -> Vec3[dtype, width]:
     return Vec3[dtype, width](
-        min(a.x, b.x),
-        min(a.y, b.y),
-        min(a.z, b.z),
+        fmin(a.x, b.x),
+        fmin(a.y, b.y),
+        fmin(a.z, b.z),
     )
 
 
@@ -320,9 +322,9 @@ def vmin[
     dtype, width
 ]:
     return Vec3[dtype, width](
-        min(min(a.x, b.x), c.x),
-        min(min(a.y, b.y), c.y),
-        min(min(a.z, b.z), c.z),
+        fmin(fmin(a.x, b.x), c.x),
+        fmin(fmin(a.y, b.y), c.y),
+        fmin(fmin(a.z, b.z), c.z),
     )
 
 
@@ -330,9 +332,9 @@ def vmax[
     dtype: DType, width: Int
 ](a: Vec3[dtype, width], b: Vec3[dtype, width]) -> Vec3[dtype, width]:
     return Vec3[dtype, width](
-        max(a.x, b.x),
-        max(a.y, b.y),
-        max(a.z, b.z),
+        fmax(a.x, b.x),
+        fmax(a.y, b.y),
+        fmax(a.z, b.z),
     )
 
 
@@ -342,9 +344,9 @@ def vmax[
     dtype, width
 ]:
     return Vec3[dtype, width](
-        max(max(a.x, b.x), c.x),
-        max(max(a.y, b.y), c.y),
-        max(max(a.z, b.z), c.z),
+        fmax(fmax(a.x, b.x), c.x),
+        fmax(fmax(a.y, b.y), c.y),
+        fmax(fmax(a.z, b.z), c.z),
     )
 
 

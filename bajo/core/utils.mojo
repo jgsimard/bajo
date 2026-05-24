@@ -64,3 +64,17 @@ def min_argmin[
         var mask = pack_bits(is_min)
         var index = Int(count_trailing_zeros(mask))
         return (_min, index)
+
+
+@always_inline
+def fmax[
+    dtype: DType, width: Int
+](a: SIMD[dtype, width], b: SIMD[dtype, width],) -> SIMD[dtype, width]:
+    return a.gt(b).select(a, b)
+
+
+@always_inline
+def fmin[
+    dtype: DType, width: Int
+](a: SIMD[dtype, width], b: SIMD[dtype, width],) -> SIMD[dtype, width]:
+    return a.lt(b).select(a, b)

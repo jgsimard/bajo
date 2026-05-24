@@ -389,19 +389,19 @@ def main() raises:
 # Benchmarking AABB Transform (apply_trs) - Elements: 100000
 # apply_trs_naive_________| Throughput:34.6, Mops/s | Avg: 2887.25 us
 # apply_trs_naive_comptime| Throughput:199.4, Mops/s | Avg: 501.58 us
-# apply_trs_arvo_v0_______| Throughput:135.8, Mops/s | Avg: 736.61 us
-# apply_trs_arvo_v1_______| Throughput:135.8, Mops/s | Avg: 736.24 us
+# apply_trs_arvo_v0_______| Throughput:253.9, Mops/s | Avg: 393.86 us
+# apply_trs_arvo_v1_______| Throughput:254.0, Mops/s | Avg: 393.73 us
 
 # Benchmarking Affine3 packet widths
 # width = 1
-# apply_trs_affine3_v0_width| Throughput:135.8, Mops/s | Avg: 736.22 us
-# apply_trs_affine3_v1_width| Throughput:199.8, Mops/s | Avg: 500.6 us
+# apply_trs_affine3_v0_width| Throughput:252.7, Mops/s | Avg: 395.75 us
+# apply_trs_affine3_v1_width| Throughput:201.1, Mops/s | Avg: 497.37 us
 # width = 2
-# apply_trs_affine3_v0_width| Throughput:285.8, Mops/s | Avg: 349.9 us
-# apply_trs_affine3_v1_width| Throughput:335.3, Mops/s | Avg: 298.27 us
+# apply_trs_affine3_v0_width| Throughput:338.8, Mops/s | Avg: 295.16 us
+# apply_trs_affine3_v1_width| Throughput:335.5, Mops/s | Avg: 298.09 us
 # width = 4
-# apply_trs_affine3_v0_width| Throughput:578.4, Mops/s | Avg: 172.89 us
-# apply_trs_affine3_v1_width| Throughput:665.9, Mops/s | Avg: 150.17 us
+# apply_trs_affine3_v0_width| Throughput:670.2, Mops/s | Avg: 149.2 us
+# apply_trs_affine3_v1_width| Throughput:668.9, Mops/s | Avg: 149.51 us
 # width = 8
-# apply_trs_affine3_v0_width| Throughput:1095.2, Mops/s | Avg: 91.31 us
-# apply_trs_affine3_v1_width| Throughput:1257.2, Mops/s | Avg: 79.54 us
+# apply_trs_affine3_v0_width| Throughput:1268.1, Mops/s | Avg: 78.86 us
+# apply_trs_affine3_v1_width| Throughput:1262.0, Mops/s | Avg: 79.24 us

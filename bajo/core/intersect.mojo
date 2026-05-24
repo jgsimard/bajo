@@ -1,4 +1,4 @@
-from std.math import fma, abs, max, clamp, sqrt
+from std.math import fma, abs, clamp, sqrt
 from std.utils.numerics import max_finite
 
 from bajo.core.vec import (
@@ -12,6 +12,7 @@ from bajo.core.vec import (
     length,
 )
 from bajo.core.aabb import AxisAlignedBoundingBox
+from bajo.core.utils import fmin, fmax
 
 
 # Result structs
@@ -39,7 +40,6 @@ struct RayAabbHit[dtype: DType, width: Int](TrivialRegisterPassable, Writable):
 
     var mask: SIMD[DType.bool, Self.width]
     var tmin: SIMD[Self.dtype, Self.width]
-    # var tmax: SIMD[Self.dtype, Self.width]
 
 
 def diff_product[
@@ -164,32 +164,6 @@ def furthest_point_to_triangle[
     return Vec2[dtype, width](0, 0)
 
 
-def _axis_t_near[
-    dtype: DType, width: Int
-](
-    o: SIMD[dtype, width],
-    rd: SIMD[dtype, width],
-    mn: SIMD[dtype, width],
-    mx: SIMD[dtype, width],
-) -> SIMD[dtype, width]:
-    var t0 = (mn - o) * rd
-    var t1 = (mx - o) * rd
-    return min(t0, t1)
-
-
-def _axis_t_far[
-    dtype: DType, width: Int
-](
-    o: SIMD[dtype, width],
-    rd: SIMD[dtype, width],
-    mn: SIMD[dtype, width],
-    mx: SIMD[dtype, width],
-) -> SIMD[dtype, width]:
-    var t0 = (mn - o) * rd
-    var t1 = (mx - o) * rd
-    return max(t0, t1)
-
-
 def intersect_ray_aabb[
     dtype: DType, width: Int
 ](
@@ -212,15 +186,13 @@ def intersect_ray_aabb[
 ) -> RayAabbHit[dtype, width]:
     comptime assert dtype in [DType.float32, DType.float64]
 
-    var tx1 = _axis_t_near(o.x, rd.x, bmin.x, bmax.x)
-    var tx2 = _axis_t_far(o.x, rd.x, bmin.x, bmax.x)
-    var ty1 = _axis_t_near(o.y, rd.y, bmin.y, bmax.y)
-    var ty2 = _axis_t_far(o.y, rd.y, bmin.y, bmax.y)
-    var tz1 = _axis_t_near(o.z, rd.z, bmin.z, bmax.z)
-    var tz2 = _axis_t_far(o.z, rd.z, bmin.z, bmax.z)
+    var t0 = (bmin - o) * rd
+    var t1 = (bmax - o) * rd
+    var t_near = vmin(t0, t1)
+    var t_far = vmax(t0, t1)
 
-    var tmin = max(max(tx1, ty1), max(tz1, 0.0))
-    var tmax = min(min(tx2, ty2), min(tz2, t_max))
+    var tmin = fmax(fmax(t_near.x, t_near.y), fmax(t_near.z, 0.0))
+    var tmax = fmin(fmin(t_far.x, t_far.y), fmin(t_far.z, t_max))
 
     var mask = tmin.le(tmax)
 

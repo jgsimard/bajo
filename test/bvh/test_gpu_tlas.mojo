@@ -209,58 +209,6 @@ def test_gpu_tlas_translated_single_instance_hit() raises:
         keep(tlas.tree.leaf_block_count)
 
 
-# def test_gpu_tlas_triangle_shadow_matches_direct_blas() raises:
-#     var verts = _make_small_scene()
-#     var bounds = compute_bounds(verts)
-#     var rays = generate_primary_rays(
-#         bounds,
-#         WIDTH,
-#         HEIGHT,
-#         VIEWS,
-#     )
-#     var rays_flat = flatten_rays(rays)
-#     var instances = [
-#         Instance(
-#             Affine3f32.identity(), Affine3f32.identity(), UInt32(0), bounds
-#         )
-#     ]
-
-#     with DeviceContext() as ctx:
-#         var blas = GpuTriangleBvh[4](ctx, verts)
-#         var tlas = GpuTlas[4](ctx, instances)
-
-#         var d_rays = ctx.enqueue_create_buffer[DType.float32](len(rays_flat))
-#         var d_blas_flags = ctx.enqueue_create_buffer[DType.uint32](len(rays))
-#         var d_tlas_flags = ctx.enqueue_create_buffer[DType.uint32](len(rays))
-#         var d_dummy_f32 = ctx.enqueue_create_buffer[DType.float32](
-#             len(rays) * 3
-#         )
-#         var d_dummy_u32 = ctx.enqueue_create_buffer[DType.uint32](len(rays) * 2)
-
-#         _upload_rays(ctx, d_rays, rays_flat)
-#         blas.launch_uploaded_shadow(ctx, d_rays, d_blas_flags, len(rays))
-#         tlas.launch_uploaded["triangle", TRACE_ANY_HIT, 4](
-#             ctx,
-#             blas.tree.wide_bounds,
-#             blas.tree.wide_data,
-#             blas.tree.wide_counts,
-#             blas.leaf_vertices,
-#             blas.leaf_prims,
-#             blas.tree.root_idx,
-#             d_rays,
-#             d_dummy_f32,
-#             d_dummy_u32,
-#             d_tlas_flags,
-#             len(rays),
-#         )
-#         ctx.synchronize()
-
-#         var blas_occ = _download_shadow_count(d_blas_flags, len(rays))
-#         var tlas_occ = _download_shadow_count(d_tlas_flags, len(rays))
-#         assert_true(blas_occ == tlas_occ)
-#         keep(tlas_occ)
-
-
 def test_gpu_tlas_sphere_single_identity_matches_direct_blas() raises:
     var scene = _make_spheres()
     var spheres = scene[0].copy()

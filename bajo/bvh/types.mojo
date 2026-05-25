@@ -57,7 +57,6 @@ struct Ray(TrivialRegisterPassable, Writable):
         direction: Vec3f32,
         t_min: Float32 = 0.0,
         t_max: Float32 = f32_max,
-        # mask: UInt32 = UInt32(0xFFFFFFFF),
     ):
         self.o = origin
         self.d = direction
@@ -68,7 +67,6 @@ struct Ray(TrivialRegisterPassable, Writable):
         )
         self.t_min = t_min
         self.t_max = t_max
-        # self.mask = mask
 
     def __init__(
         out self,
@@ -81,7 +79,6 @@ struct Ray(TrivialRegisterPassable, Writable):
         self.rd = Vec3f32.load(rays, base + RAY_RD)
         self.t_min = rays[base + RAY_T_MIN]
         self.t_max = rays[base + RAY_T_MAX]
-        # self.mask = UInt32(rays[base + RAY_MASK])
 
 
 @fieldwise_init

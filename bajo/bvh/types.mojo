@@ -2,14 +2,9 @@ from std.math import clamp
 from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.aabb import AABB
+from bajo.bvh.constants import f32_max, EMPTY_LANE
 from bajo.core.vec import Vec3f32, vmin, vmax, Vec3
 from bajo.core.transform import Affine3f32
-
-comptime f32_max = max_finite[DType.float32]()
-comptime f32_min = min_finite[DType.float32]()
-comptime INV_3 = Float32(1.0 / 3.0)
-comptime BVH_BINS = 16
-comptime EMPTY_LANE = UInt32(0xFFFFFFFF)
 
 comptime RAY_FLAT_STRIDE = 8
 comptime RAY_O = 0  # 0, 1, 2

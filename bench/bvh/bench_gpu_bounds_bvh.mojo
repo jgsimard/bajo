@@ -201,7 +201,7 @@ def _bench_uploaded_primary[
     repeats: Int,
 ) raises -> Tuple[Int, Float64, UInt32, Float64]:
     _upload_rays(ctx, d_rays, rays_flat)
-    bvh.launch_uploaded_primary(ctx, d_rays, d_hits_f32, d_hits_u32, ray_count)
+    bvh.launch_uploaded(ctx, d_rays, d_hits_f32, d_hits_u32, ray_count)
     ctx.synchronize()
 
     var best_kernel_ns = Int.MAX
@@ -210,9 +210,7 @@ def _bench_uploaded_primary[
 
     for _ in range(repeats):
         var t0 = perf_counter_ns()
-        bvh.launch_uploaded_primary(
-            ctx, d_rays, d_hits_f32, d_hits_u32, ray_count
-        )
+        bvh.launch_uploaded(ctx, d_rays, d_hits_f32, d_hits_u32, ray_count)
         ctx.synchronize()
         var t1 = perf_counter_ns()
         best_kernel_ns = min(best_kernel_ns, Int(t1 - t0))
@@ -315,7 +313,7 @@ def _bench_uploaded_primary_sphere[
     repeats: Int,
 ) raises -> Tuple[Int, Float64, UInt32, Float64]:
     _upload_rays(ctx, d_rays, rays_flat)
-    bvh.launch_uploaded_primary(ctx, d_rays, d_hits_f32, d_hits_u32, ray_count)
+    bvh.launch_uploaded(ctx, d_rays, d_hits_f32, d_hits_u32, ray_count)
     ctx.synchronize()
 
     var best_kernel_ns = Int.MAX
@@ -324,9 +322,7 @@ def _bench_uploaded_primary_sphere[
 
     for _ in range(repeats):
         var t0 = perf_counter_ns()
-        bvh.launch_uploaded_primary(
-            ctx, d_rays, d_hits_f32, d_hits_u32, ray_count
-        )
+        bvh.launch_uploaded(ctx, d_rays, d_hits_f32, d_hits_u32, ray_count)
         ctx.synchronize()
         var t1 = perf_counter_ns()
         best_kernel_ns = min(best_kernel_ns, Int(t1 - t0))

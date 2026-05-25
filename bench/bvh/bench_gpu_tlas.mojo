@@ -18,7 +18,6 @@ from bajo.bvh.host_utils import (
     generate_primary_rays,
     flatten_rays,
     hit_t_for_checksum,
-    compute_bounds,
 )
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.tlas import Tlas
@@ -196,7 +195,7 @@ def _bench_direct_triangle_primary[
     var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](ray_count)
 
     _upload_rays(ctx, d_rays, rays_flat)
-    blas.launch_uploaded_primary(ctx, d_rays, d_hits_f32, d_hits_u32, ray_count)
+    blas.launch_uploaded(ctx, d_rays, d_hits_f32, d_hits_u32, ray_count)
     ctx.synchronize()
 
     var best_ns = Int.MAX
@@ -205,9 +204,7 @@ def _bench_direct_triangle_primary[
 
     for _ in range(repeats):
         var t0 = perf_counter_ns()
-        blas.launch_uploaded_primary(
-            ctx, d_rays, d_hits_f32, d_hits_u32, ray_count
-        )
+        blas.launch_uploaded(ctx, d_rays, d_hits_f32, d_hits_u32, ray_count)
         ctx.synchronize()
         var t1 = perf_counter_ns()
         best_ns = min(best_ns, Int(t1 - t0))
@@ -301,7 +298,7 @@ def _bench_direct_sphere_primary[
     var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](ray_count)
 
     _upload_rays(ctx, d_rays, rays_flat)
-    blas.launch_uploaded_primary(ctx, d_rays, d_hits_f32, d_hits_u32, ray_count)
+    blas.launch_uploaded(ctx, d_rays, d_hits_f32, d_hits_u32, ray_count)
     ctx.synchronize()
 
     var best_ns = Int.MAX
@@ -310,9 +307,7 @@ def _bench_direct_sphere_primary[
 
     for _ in range(repeats):
         var t0 = perf_counter_ns()
-        blas.launch_uploaded_primary(
-            ctx, d_rays, d_hits_f32, d_hits_u32, ray_count
-        )
+        blas.launch_uploaded(ctx, d_rays, d_hits_f32, d_hits_u32, ray_count)
         ctx.synchronize()
         var t1 = perf_counter_ns()
         best_ns = min(best_ns, Int(t1 - t0))

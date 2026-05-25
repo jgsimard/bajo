@@ -249,7 +249,7 @@ def main() raises:
         )
 
         var trace_t0 = perf_counter_ns()
-        gpu_tlas.launch_camera_primary["triangle", BLAS_WIDTH](
+        gpu_tlas.launch_camera["triangle", BLAS_WIDTH](
             ctx,
             gpu_blas.tree.wide_bounds,
             gpu_blas.tree.wide_data,

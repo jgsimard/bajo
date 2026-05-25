@@ -9,7 +9,7 @@ from bajo.core.aabb import AABB, AxisAlignedBoundingBox
 from bajo.core.vec import Vec3f32, Vec3
 from bajo.core.intersect import (
     intersect_ray_aabb,
-    RayAabbHit,
+    RayDistanceHit,
 )
 from bajo.core.morton import morton3
 from bajo.bvh.types import Ray
@@ -835,7 +835,7 @@ def _intersect_wide_node_bounds[
     node_idx: UInt32,
     ray: Ray,
     t_max: Float32,
-) -> RayAabbHit[DType.float32, width]:
+) -> RayDistanceHit[DType.float32, width]:
     var block = _load_wide_bounds_block[DType.float32, width](
         wide_bounds,
         node_idx,

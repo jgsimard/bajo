@@ -27,4 +27,5 @@ comptime CPU_TRAVERSAL_STACK_SIZE = 64
 comptime BOUNDS_STRIDE = 6
 comptime TRI_LEAF_VERTEX_STRIDE = 9
 comptime SPHERE_STRIDE = 4
+comptime TRANSFORM_STRIDE = 12
 comptime BVH_BINS = 16

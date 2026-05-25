@@ -251,7 +251,7 @@ def _assert_gpu_triangle_width_matches_cpu[
                 h[i] = rays_flat[i]
         ctx.synchronize()
 
-        gpu_bvh.launch_uploaded_primary(
+        gpu_bvh.launch_uploaded(
             ctx,
             d_rays,
             d_hits_f32,
@@ -335,7 +335,7 @@ def _assert_gpu_sphere_width_matches_bruteforce[
                 h[i] = rays_flat[i]
         ctx.synchronize()
 
-        gpu_bvh.launch_uploaded_primary(
+        gpu_bvh.launch_uploaded(
             ctx,
             d_rays,
             d_hits_f32,

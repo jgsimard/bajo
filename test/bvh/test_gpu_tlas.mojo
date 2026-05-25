@@ -125,9 +125,7 @@ def test_gpu_tlas_single_identity_matches_direct_blas() raises:
 
         _upload_rays(ctx, d_rays, rays_flat)
 
-        blas.launch_uploaded_primary(
-            ctx, d_rays, d_blas_f32, d_blas_u32, len(rays)
-        )
+        blas.launch_uploaded(ctx, d_rays, d_blas_f32, d_blas_u32, len(rays))
         tlas.launch_uploaded["triangle", TRACE.CLOSEST_HIT, 4](
             ctx,
             blas.tree.wide_bounds,
@@ -238,9 +236,7 @@ def test_gpu_tlas_sphere_single_identity_matches_direct_blas() raises:
         var d_tlas_flags = ctx.enqueue_create_buffer[DType.uint32](len(rays))
 
         _upload_rays(ctx, d_rays, rays_flat)
-        blas.launch_uploaded_primary(
-            ctx, d_rays, d_blas_f32, d_blas_u32, len(rays)
-        )
+        blas.launch_uploaded(ctx, d_rays, d_blas_f32, d_blas_u32, len(rays))
         tlas.launch_uploaded["sphere", TRACE.CLOSEST_HIT, 4](
             ctx,
             blas.tree.wide_bounds,

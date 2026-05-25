@@ -87,7 +87,7 @@ struct GpuSphereBvh[width: Int]:
         ctx.synchronize()
         self.leaf_pack_ns = Int(perf_counter_ns() - start)
 
-    def launch_uploaded_primary(
+    def launch_uploaded(
         self,
         ctx: DeviceContext,
         d_rays: DeviceBuffer[DType.float32],
@@ -95,7 +95,7 @@ struct GpuSphereBvh[width: Int]:
         d_hits_u32: DeviceBuffer[DType.uint32],
         ray_count: Int,
     ) raises:
-        ctx.enqueue_function[trace_gpu_sphere_bvh_primary_kernel[Self.width]](
+        ctx.enqueue_function[trace_sphere_bvh_kernel[Self.width]](
             self.tree.wide_bounds,
             self.tree.wide_data,
             self.tree.wide_counts,
@@ -111,7 +111,7 @@ struct GpuSphereBvh[width: Int]:
         )
 
 
-def trace_gpu_sphere_bvh_primary_kernel[
+def trace_sphere_bvh_kernel[
     width: Int,
 ](
     wide_bounds: UnsafePointer[Float32, MutAnyOrigin],

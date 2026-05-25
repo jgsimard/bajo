@@ -44,9 +44,7 @@ struct TriangleBvh[width: Int](Copyable):
             ref v2 = vertices[i * 3 + 2]
 
             var bounds = AABB.invalid()
-            bounds.grow(v0)
-            bounds.grow(v1)
-            bounds.grow(v2)
+            bounds.grow(v0, v1, v2)
 
             items.append(BoundsItem(bounds, UInt32(i)))
 
@@ -112,7 +110,7 @@ struct TriangleBvh[width: Int](Copyable):
         def leaf_fn(
             ray: Ray,
             leaf_block_idx: UInt32,
-            item_count: UInt32,
+            _item_count: UInt32,
             mut hit: Hit,
         ) capturing -> Bool:
             ref block = self.leaf_blocks[Int(leaf_block_idx)]
@@ -120,35 +118,32 @@ struct TriangleBvh[width: Int](Copyable):
             var O = Vec3[DType.float32, Self.width](ray.o.x, ray.o.y, ray.o.z)
             var D = Vec3[DType.float32, Self.width](ray.d.x, ray.d.y, ray.d.z)
 
-            var h = intersect_ray_tri(
+            var tri_hit = intersect_ray_tri(
                 O,
                 D,
                 block.v0,
                 block.v1,
                 block.v2,
                 hit.t,
+                ray.t_min,
             )
 
-            var t_valid = h.t.ge(ray.t_min)
-            var hit_mask = h.mask & t_valid & block.valid_lane
+            var hit_mask = tri_hit.mask & block.valid_lane
 
-            if hit_mask.reduce_or():
-                comptime if mode == TRACE.ANY_HIT:
-                    return True
-                else:
-                    _t = hit_mask.select(h.t, f32_max)
-                    min_t, arg_min_t = min_argmin(_t)
+            if not hit_mask.reduce_or():
+                return False
 
-                    if min_t < hit.t:
-                        hit.t = min_t
-                        hit.u = h.u[arg_min_t]
-                        hit.v = h.v[arg_min_t]
-                        hit.prim = block.prim_indices[arg_min_t]
-                        hit.inst = EMPTY_LANE
+            comptime if mode == TRACE.CLOSEST_HIT:
+                _t = hit_mask.select(tri_hit.t, f32_max)
+                min_t, arg_min_t = min_argmin(_t)
 
-                    return True
+                hit.t = min_t
+                hit.u = tri_hit.u[arg_min_t]
+                hit.v = tri_hit.v[arg_min_t]
+                hit.prim = block.prim_indices[arg_min_t]
+                hit.inst = EMPTY_LANE
 
-            return False
+            return True
 
         return trace_bounds_bvh[
             Self.width,

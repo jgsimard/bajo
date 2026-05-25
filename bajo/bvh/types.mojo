@@ -49,7 +49,6 @@ struct Ray(TrivialRegisterPassable, Writable):
     var rd: Vec3f32
     var t_min: Float32
     var t_max: Float32
-    # var mask: UInt32
 
     def __init__(
         out self,

@@ -23,6 +23,8 @@ from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.bvh.cpu.tlas import Tlas
 
+from fixtures import _brute_triangle_trace, _brute_sphere_trace
+
 
 def _rng_f32(mut rng: Rng, lo: Float32, hi: Float32) -> Float32:
     return lo + (hi - lo) * rng.f32()
@@ -54,9 +56,7 @@ def _make_tri_bounds(
     v2: Vec3f32,
 ) -> AABB:
     var bounds = AABB.invalid()
-    bounds.grow(v0)
-    bounds.grow(v1)
-    bounds.grow(v2)
+    bounds.grow(v0, v1, v2)
     return bounds
 
 
@@ -113,56 +113,6 @@ def _make_spheres() -> List[Sphere]:
         Sphere(Vec3f32(-4.0, 0.0, 6.0), 1.0),
         Sphere(Vec3f32(0.0, 4.0, 8.0), 1.0),
     ]
-
-
-def _brute_trace(
-    verts: List[Vec3f32],
-    O: Vec3f32,
-    D: Vec3f32,
-) -> Hit:
-    var hit = Hit.miss()
-
-    for i in range(len(verts) / 3):
-        ref v0 = verts[i * 3 + 0]
-        ref v1 = verts[i * 3 + 1]
-        ref v2 = verts[i * 3 + 2]
-
-        var tri_hit = intersect_ray_tri(
-            O,
-            D,
-            v0,
-            v1,
-            v2,
-            f32_max,
-        )
-
-        if tri_hit.mask and tri_hit.t < hit.t:
-            hit.t = tri_hit.t
-            hit.u = tri_hit.u
-            hit.v = tri_hit.v
-            hit.prim = UInt32(i)
-            hit.inst = EMPTY_LANE
-
-    return hit
-
-
-def _brute_sphere_trace(
-    spheres: List[Sphere],
-    O: Vec3f32,
-    D: Vec3f32,
-) -> Hit:
-    var hit = Hit.miss()
-
-    for i, s in enumerate(spheres):
-        var sphere_hit = intersect_ray_sphere(O, D, s.center, s.radius, f32_max)
-        if sphere_hit.t > 0.0 and sphere_hit.t < hit.t:
-            hit.t = sphere_hit.t
-            hit.u = 0.0
-            hit.v = 0.0
-            hit.prim = UInt32(i)
-            hit.inst = EMPTY_LANE
-
-    return hit
 
 
 def _triangle_center_xy(verts: List[Vec3f32], prim_idx: Int) -> Vec3f32:
@@ -236,7 +186,7 @@ def _assert_triangle_bvh_matches_bruteforce[
     var ray = Ray(O, D)
     var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
 
-    var brute = _brute_trace(verts, O, D)
+    var brute = _brute_triangle_trace(verts, O, D)
     var brute_hit = brute.is_hit()
 
     var bvh_hit = hit.is_hit()

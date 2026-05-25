@@ -21,7 +21,7 @@ from bajo.bvh.gpu.bounds_bvh import (
 from bajo.bvh.gpu.sphere_bvh import GpuSphereBvh
 from bajo.bvh.gpu.triangle_bvh import GpuTriangleBvh
 
-from fixtures import _append_tri
+from fixtures import _append_tri, _brute_triangle_trace, _brute_sphere_trace
 
 
 comptime GPU_BOUNDS_TEST_WIDTH = 64
@@ -112,32 +112,6 @@ def _sphere_scene_bounds(spheres: List[Sphere]) -> AABB:
         bounds.grow(s.center - r)
         bounds.grow(s.center + r)
     return bounds
-
-
-def _brute_sphere_trace(
-    spheres: List[Sphere],
-    O: Vec3f32,
-    D: Vec3f32,
-) -> Hit:
-    var hit = Hit.miss()
-
-    for i, s in enumerate(spheres):
-        var sphere_hit = intersect_ray_sphere(
-            O,
-            D,
-            s.center,
-            s.radius,
-            hit.t,
-        )
-
-        if sphere_hit.mask and sphere_hit.t < hit.t:
-            hit.t = sphere_hit.t
-            hit.u = 0.0
-            hit.v = 0.0
-            hit.prim = UInt32(i)
-            hit.inst = EMPTY_LANE
-
-    return hit
 
 
 def _trace_cpu_spheres_bruteforce(
@@ -315,7 +289,9 @@ def _assert_gpu_triangle_width_matches_cpu[
                     if not same_miss and (
                         t_diff > Float64(1.0e-4) or gpu_prim != cpu_prim
                     ):
-                        var brute_hit = _brute_triangle_trace(verts, rays[i])
+                        var brute_hit = _brute_triangle_trace(
+                            verts, rays[i].o, rays[i].d
+                        )
 
                         if mismatch_count < 16:
                             print(
@@ -333,36 +309,6 @@ def _assert_gpu_triangle_width_matches_cpu[
                 t"diff={diff} mismatches={mismatch_count} hits={hit_count}"
             )
         assert_true(diff <= GPU_BOUNDS_TEST_EPS, "GpuTriangleBvh checksum")
-
-
-def _brute_triangle_trace(
-    verts: List[Vec3f32],
-    ray: Ray,
-) -> Hit:
-    var hit = Hit.miss(ray.t_max)
-
-    for i in range(len(verts) / 3):
-        ref v0 = verts[i * 3 + 0]
-        ref v1 = verts[i * 3 + 1]
-        ref v2 = verts[i * 3 + 2]
-
-        var tri_hit = intersect_ray_tri(
-            ray.o,
-            ray.d,
-            v0,
-            v1,
-            v2,
-            hit.t,
-        )
-
-        if tri_hit.mask and tri_hit.t < hit.t:
-            hit.t = tri_hit.t
-            hit.u = tri_hit.u
-            hit.v = tri_hit.v
-            hit.prim = UInt32(i)
-            hit.inst = EMPTY_LANE
-
-    return hit
 
 
 def _assert_gpu_sphere_width_matches_bruteforce[

@@ -28,8 +28,8 @@ struct Hit(TrivialRegisterPassable, Writable):
     var t: Float32
 
     @staticmethod
-    def miss() -> Self:
-        return Self(0.0, 0.0, EMPTY_LANE, EMPTY_LANE, Vec3f32(0), f32_max)
+    def miss(t: Float32 = f32_max) -> Self:
+        return Self(0.0, 0.0, EMPTY_LANE, EMPTY_LANE, Vec3f32(0), t)
 
     @staticmethod
     def shadow_hit() -> Self:

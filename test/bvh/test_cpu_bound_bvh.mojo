@@ -116,30 +116,30 @@ def _brute_trace(
     O: Vec3f32,
     D: Vec3f32,
 ) -> Hit:
-    var best_hit = Hit.miss()
+    var hit = Hit.miss()
 
     for i in range(len(verts) / 3):
         ref v0 = verts[i * 3 + 0]
         ref v1 = verts[i * 3 + 1]
         ref v2 = verts[i * 3 + 2]
 
-        var h = intersect_ray_tri(
+        var tri_hit = intersect_ray_tri(
             O,
             D,
             v0,
             v1,
             v2,
-            best_hit.t,
+            hit.t,
         )
 
-        if h.mask and h.t < best_hit.t:
-            best_hit.t = h.t
-            best_hit.u = h.u
-            best_hit.v = h.v
-            best_hit.prim = UInt32(i)
-            best_hit.inst = EMPTY_LANE
+        if tri_hit.mask and tri_hit.t < hit.t:
+            hit.t = tri_hit.t
+            hit.u = tri_hit.u
+            hit.v = tri_hit.v
+            hit.prim = UInt32(i)
+            hit.inst = EMPTY_LANE
 
-    return best_hit
+    return hit
 
 
 def _brute_sphere_trace(
@@ -147,11 +147,9 @@ def _brute_sphere_trace(
     O: Vec3f32,
     D: Vec3f32,
 ) -> Hit:
-    var best_hit = Hit.miss()
+    var hit = Hit.miss()
 
-    for i in range(len(spheres)):
-        ref s = spheres[i]
-
+    for i, s in enumerate(spheres):
         var oc = O - s.center
         var a = D.x * D.x + D.y * D.y + D.z * D.z
         var b = 2.0 * (oc.x * D.x + oc.y * D.y + oc.z * D.z)
@@ -171,14 +169,14 @@ def _brute_sphere_trace(
         if t <= 0.0:
             t = t1
 
-        if t > 0.0 and t < best_hit.t:
-            best_hit.t = t
-            best_hit.u = 0.0
-            best_hit.v = 0.0
-            best_hit.prim = UInt32(i)
-            best_hit.inst = EMPTY_LANE
+        if t > 0.0 and t < hit.t:
+            hit.t = t
+            hit.u = 0.0
+            hit.v = 0.0
+            hit.prim = UInt32(i)
+            hit.inst = EMPTY_LANE
 
-    return best_hit
+    return hit
 
 
 def _triangle_center_xy(verts: List[Vec3f32], prim_idx: Int) -> Vec3f32:

@@ -36,9 +36,7 @@ def trace_bounds_bvh[
 ) -> Hit:
     comptime assert mode in [TRACE_CLOSEST_HIT, TRACE_ANY_HIT]
 
-    var hit = Hit.miss()
-    hit.t = ray.t_max
-    hit.prim = EMPTY_LANE
+    var hit = Hit.miss(ray.t_max)
 
     var stack = InlineArray[UInt32, GPU_TRAVERSAL_STACK_SIZE](
         uninitialized=True

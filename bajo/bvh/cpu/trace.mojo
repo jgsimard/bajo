@@ -20,8 +20,7 @@ def trace_bounds_bvh[
     if len(tree.nodes) == 0:
         return Hit.miss()
 
-    var out_hit = Hit.miss()
-    out_hit.t = ray.t_max
+    var hit = Hit.miss(ray.t_max)
 
     var stack = InlineArray[UInt32, CPU_TRAVERSAL_STACK_SIZE](
         uninitialized=True
@@ -35,9 +34,9 @@ def trace_bounds_bvh[
     while True:
         ref node = tree.nodes[Int(n_idx)]
 
-        var hit = intersect_ray_aabb(O, rD, node.aabb, out_hit.t)
+        var aabb_hit = intersect_ray_aabb(O, rD, node.aabb, hit.t)
         var valid_lane = ~node.counts.eq(EMPTY_LANE)
-        var mask = hit.mask & valid_lane
+        var mask = aabb_hit.mask & valid_lane
 
         if mask.reduce_or():
             for i in range(width):
@@ -50,7 +49,7 @@ def trace_bounds_bvh[
                             ray,
                             node.data[i],
                             node.counts[i],
-                            out_hit,
+                            hit,
                         ):
                             comptime if mode == TRACE_ANY_HIT:
                                 return Hit.shadow_hit()
@@ -61,4 +60,4 @@ def trace_bounds_bvh[
         stack_ptr -= 1
         n_idx = stack[stack_ptr]
 
-    return out_hit
+    return hit

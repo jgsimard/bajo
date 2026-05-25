@@ -187,10 +187,7 @@ def trace_gpu_wide_tlas_ray[
 ) -> Hit:
     comptime assert mode in [TRACE_CLOSEST_HIT, TRACE_ANY_HIT]
 
-    var best_hit = Hit.miss()
-    best_hit.t = ray.t_max
-    best_hit.prim = EMPTY_LANE
-    best_hit.inst = EMPTY_LANE
+    var best_hit = Hit.miss(ray.t_max)
 
     var stack = InlineArray[UInt32, GPU_TRAVERSAL_STACK_SIZE](
         uninitialized=True

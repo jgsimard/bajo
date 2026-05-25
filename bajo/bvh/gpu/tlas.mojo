@@ -216,7 +216,7 @@ def trace_gpu_wide_tlas_ray[
                 if count == 0:
                     child_valid[node_lane] = True
                     child_data[node_lane] = data
-                    child_t[node_lane] = bounds_hit.tmin[node_lane]
+                    child_t[node_lane] = bounds_hit.t[node_lane]
                 else:
                     var leaf_hit = _intersect_tlas_instance_block[
                         tlas_width,

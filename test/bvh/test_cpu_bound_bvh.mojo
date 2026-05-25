@@ -4,10 +4,14 @@ from std.utils.numerics import max_finite
 
 from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32, Vec3
-from bajo.core.intersect import intersect_ray_tri, intersect_ray_aabb
+from bajo.core.intersect import (
+    intersect_ray_tri,
+    intersect_ray_aabb,
+    intersect_ray_sphere,
+)
 from bajo.bvh.types import Ray, Sphere, Instance, Hit
 from bajo.core.random import Rng
-from bajo.bvh.constants import EMPTY_LANE, TRACE
+from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
 from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvhBuilder,
     BoundsItem,
@@ -18,6 +22,8 @@ from bajo.bvh.cpu.builder.sah import _find_sah_split, _partition_items_by_bin
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.bvh.cpu.tlas import Tlas
+
+from fixtures import _brute_triangle_trace, _brute_sphere_trace
 
 
 def _rng_f32(mut rng: Rng, lo: Float32, hi: Float32) -> Float32:
@@ -50,9 +56,7 @@ def _make_tri_bounds(
     v2: Vec3f32,
 ) -> AABB:
     var bounds = AABB.invalid()
-    bounds.grow(v0)
-    bounds.grow(v1)
-    bounds.grow(v2)
+    bounds.grow(v0, v1, v2)
     return bounds
 
 
@@ -111,74 +115,6 @@ def _make_spheres() -> List[Sphere]:
     ]
 
 
-def _brute_trace(
-    verts: List[Vec3f32],
-    O: Vec3f32,
-    D: Vec3f32,
-) -> Hit:
-    var hit = Hit.miss()
-
-    for i in range(len(verts) / 3):
-        ref v0 = verts[i * 3 + 0]
-        ref v1 = verts[i * 3 + 1]
-        ref v2 = verts[i * 3 + 2]
-
-        var tri_hit = intersect_ray_tri(
-            O,
-            D,
-            v0,
-            v1,
-            v2,
-            hit.t,
-        )
-
-        if tri_hit.mask and tri_hit.t < hit.t:
-            hit.t = tri_hit.t
-            hit.u = tri_hit.u
-            hit.v = tri_hit.v
-            hit.prim = UInt32(i)
-            hit.inst = EMPTY_LANE
-
-    return hit
-
-
-def _brute_sphere_trace(
-    spheres: List[Sphere],
-    O: Vec3f32,
-    D: Vec3f32,
-) -> Hit:
-    var hit = Hit.miss()
-
-    for i, s in enumerate(spheres):
-        var oc = O - s.center
-        var a = D.x * D.x + D.y * D.y + D.z * D.z
-        var b = 2.0 * (oc.x * D.x + oc.y * D.y + oc.z * D.z)
-        var c = oc.x * oc.x + oc.y * oc.y + oc.z * oc.z - s.radius * s.radius
-
-        var det = b * b - 4.0 * a * c
-        if det < 0.0:
-            continue
-
-        # These test rays are axis-aligned and use simple sphere positions.
-        # The direct formula is fine for the brute-force oracle.
-        var sqrt_det = sqrt(det)
-        var t0 = (-b - sqrt_det) / (2.0 * a)
-        var t1 = (-b + sqrt_det) / (2.0 * a)
-
-        var t = t0
-        if t <= 0.0:
-            t = t1
-
-        if t > 0.0 and t < hit.t:
-            hit.t = t
-            hit.u = 0.0
-            hit.v = 0.0
-            hit.prim = UInt32(i)
-            hit.inst = EMPTY_LANE
-
-    return hit
-
-
 def _triangle_center_xy(verts: List[Vec3f32], prim_idx: Int) -> Vec3f32:
     ref v0 = verts[prim_idx * 3 + 0]
     ref v1 = verts[prim_idx * 3 + 1]
@@ -202,7 +138,10 @@ def _assert_builder_leaf_sizes_at_most(
             assert_true(node.item_count > 0)
             assert_true(
                 node.item_count <= max_leaf_size,
-                "leaf_size invariant violated",
+                String(
+                    t"leaf_size invariant violated,"
+                    t" {node.item_count} {max_leaf_size}"
+                ),
             )
             assert_true(
                 Int(node.first_item()) + Int(node.item_count)
@@ -247,7 +186,7 @@ def _assert_triangle_bvh_matches_bruteforce[
     var ray = Ray(O, D)
     var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
 
-    var brute = _brute_trace(verts, O, D)
+    var brute = _brute_triangle_trace(verts, O, D)
     var brute_hit = brute.is_hit()
 
     var bvh_hit = hit.is_hit()
@@ -324,24 +263,31 @@ def test_bounds_bvh_empty_input() raises:
     assert_true(len(wide.nodes) == 0)
 
 
-def _test_bounds_bvh_leaf_size_N_invariant[size: Int]() raises:
-    var verts = _make_strip(12 * size)
+def _test_bounds_bvh_leaf_invariant[
+    width: Int,
+    mode: String,
+]() raises:
+    comptime assert mode in ["median", "sah", "lbvh"]
+
+    var verts = _make_random_xy_triangles(24 * width, UInt64(606060 + width))
     var items = _make_bounds_items(verts)
 
-    var builder = BoundsBvhBuilder[size](items)
-    builder.build["median"]()
+    var builder = BoundsBvhBuilder[width](items)
+    builder.build[mode]()
 
     assert_true(builder.nodes_used > 0)
-    _assert_builder_leaf_sizes_at_most(builder, UInt32(2))
+    assert_true(Int(builder.nodes_used) <= len(builder.nodes))
 
-    var wide = BoundsBvh[size](builder)
-    _assert_wide_leaf_counts_at_most_width[size](wide)
+    _assert_builder_leaf_sizes_at_most(builder, UInt32(width))
+
+    var wide = BoundsBvh[width](builder)
+    _assert_wide_leaf_counts_at_most_width[width](wide)
 
 
-def _test_bounds_bvh_leaf_size_N_invariant() raises:
-    _test_bounds_bvh_leaf_size_N_invariant[2]()
-    _test_bounds_bvh_leaf_size_N_invariant[4]()
-    _test_bounds_bvh_leaf_size_N_invariant[8]()
+def test_bounds_bvh_leaf_invariants() raises:
+    comptime for w in [2, 4, 8]:
+        comptime for mode in ["median", "sah", "lbvh"]:
+            _test_bounds_bvh_leaf_invariant[w, mode]()
 
 
 def test_wide_bounds_root_bounds_is_valid() raises:
@@ -374,12 +320,10 @@ def test_triangle_bvh2_leaf_size_equals_width_returns_nearest_triangle() raises:
     assert_almost_equal(hit.t, 2.0)
 
 
-def _test_triangle_bvhN_leaf_size_equals_width_matches_bruteforce[
-    N: Int
-]() raises:
+def _test_triangle_bvh_matches_bruteforce[N: Int, split_mode: String]() raises:
     var n = {2: 24, 4: 32, 8: 40}[N]
     var verts = _make_strip(n)
-    var bvh = TriangleBvh[N].__init__["median"](
+    var bvh = TriangleBvh[N].__init__[split_mode](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
@@ -395,20 +339,22 @@ def _test_triangle_bvhN_leaf_size_equals_width_matches_bruteforce[
         _assert_triangle_bvh_matches_bruteforce[N](bvh, verts, O, D)
 
 
-def test_triangle_bvhN_leaf_size_equals_width_matches_bruteforce() raises:
-    _test_triangle_bvhN_leaf_size_equals_width_matches_bruteforce[2]()
-    _test_triangle_bvhN_leaf_size_equals_width_matches_bruteforce[4]()
-    _test_triangle_bvhN_leaf_size_equals_width_matches_bruteforce[8]()
+def test_triangle_bvh_matches_bruteforce() raises:
+    comptime for w in [2, 4, 8]:
+        comptime for mode in ["median", "sah", "lbvh"]:
+            _test_triangle_bvh_matches_bruteforce[w, mode]()
 
 
-def test_triangle_bvh4_shadow_hit_and_miss() raises:
-    var verts = _make_strip(8)
-    var bvh = TriangleBvh[4].__init__["median"](
+def _test_triangle_bvh_shadow_hit_and_miss[
+    width: Int,
+    mode: String,
+]() raises:
+    var verts = _make_strip(2 * width)
+    var bvh = TriangleBvh[width].__init__[mode](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
 
-    # Primitive 4 is centered at x = 0.
     var ray_hit = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
     assert_true(bvh.trace[TRACE.ANY_HIT](ray_hit).is_occluded())
 
@@ -416,17 +362,10 @@ def test_triangle_bvh4_shadow_hit_and_miss() raises:
     assert_true(not bvh.trace[TRACE.ANY_HIT](ray_miss).is_occluded())
 
 
-def test_triangle_bvh4_sah_leaf_size_equals_width_matches_bruteforce() raises:
-    var verts = _make_strip(48)
-    var bvh = TriangleBvh[4].__init__["sah"](
-        verts.unsafe_ptr(),
-        UInt32(len(verts) / 3),
-    )
-
-    for i in range(48):
-        var O = _triangle_center_xy(verts, i)
-        var D = Vec3f32(0.0, 0.0, 1.0)
-        _assert_triangle_bvh_matches_bruteforce[4](bvh, verts, O, D)
+def test_triangle_bvh_shadow_hit_and_miss() raises:
+    comptime for w in [2, 4, 8]:
+        comptime for mode in ["median", "sah", "lbvh"]:
+            _test_triangle_bvh_shadow_hit_and_miss[w, mode]()
 
 
 def test_sphere_bounds() raises:
@@ -456,73 +395,32 @@ def test_sphere_bvh4_returns_nearest_sphere() raises:
     var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
     var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
 
-    assert_true(hit.t < Float32(1e20), "SphereBvh did not hit")
+    assert_true(hit.is_occluded(), "SphereBvh did not hit")
     assert_true(hit.prim == 0)
     assert_almost_equal(hit.t, 1.0)
 
 
-def test_sphere_bvh2_matches_bruteforce() raises:
+def _test_sphere_bvh_shadow_hit_and_miss[
+    width: Int,
+    mode: String,
+]() raises:
     var spheres = _make_spheres()
-    var bvh = SphereBvh[2](
-        spheres.unsafe_ptr(),
-        UInt32(len(spheres)),
-    )
-
-    _assert_sphere_bvh_matches_bruteforce[2](
-        bvh,
-        spheres,
-        Vec3f32(0.0, 0.0, 0.0),
-        Vec3f32(0.0, 0.0, 1.0),
-    )
-    _assert_sphere_bvh_matches_bruteforce[2](
-        bvh,
-        spheres,
-        Vec3f32(4.0, 0.0, 0.0),
-        Vec3f32(0.0, 0.0, 1.0),
-    )
-    _assert_sphere_bvh_matches_bruteforce[2](
-        bvh,
-        spheres,
-        Vec3f32(100.0, 0.0, 0.0),
-        Vec3f32(0.0, 0.0, 1.0),
-    )
-
-
-def test_sphere_bvh4_shadow_hit_and_miss() raises:
-    var spheres = _make_spheres()
-    var bvh = SphereBvh[4](
+    var bvh = SphereBvh[width].__init__[mode](
         spheres.unsafe_ptr(),
         UInt32(len(spheres)),
     )
 
     var ray_hit = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    hit = bvh.trace[TRACE.ANY_HIT](ray_hit)
-    assert_true(hit.is_occluded())
+    assert_true(bvh.trace[TRACE.ANY_HIT](ray_hit).is_occluded())
 
     var ray_miss = Ray(Vec3f32(100.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    hit = bvh.trace[TRACE.ANY_HIT](ray_miss)
-    assert_true(not hit.is_occluded())
+    assert_true(not bvh.trace[TRACE.ANY_HIT](ray_miss).is_occluded())
 
 
-def test_sphere_bvh4_sah_matches_bruteforce() raises:
-    var spheres = _make_spheres()
-    var bvh = SphereBvh[4].__init__["sah"](
-        spheres.unsafe_ptr(),
-        UInt32(len(spheres)),
-    )
-
-    _assert_sphere_bvh_matches_bruteforce[4](
-        bvh,
-        spheres,
-        Vec3f32(-4.0, 0.0, 0.0),
-        Vec3f32(0.0, 0.0, 1.0),
-    )
-    _assert_sphere_bvh_matches_bruteforce[4](
-        bvh,
-        spheres,
-        Vec3f32(0.0, 4.0, 0.0),
-        Vec3f32(0.0, 0.0, 1.0),
-    )
+def test_sphere_bvh_shadow_hit_and_miss() raises:
+    comptime for w in [2, 4, 8]:
+        comptime for mode in ["median", "sah", "lbvh"]:
+            _test_sphere_bvh_shadow_hit_and_miss[w, mode]()
 
 
 def test_tlas_triangle_single_instance_matches_blas() raises:
@@ -729,7 +627,7 @@ def test_bounds_ray_query_inside_outside_regression() raises:
         rcp_dir,
         lower,
         upper,
-        Float32(1e30),
+        f32_max,
     )
     assert_true(hit_outside.mask, "Ray starting outside failed to hit")
 
@@ -739,7 +637,7 @@ def test_bounds_ray_query_inside_outside_regression() raises:
         rcp_dir,
         lower,
         upper,
-        Float32(1e30),
+        f32_max,
     )
     assert_true(hit_inside.mask, "Ray starting inside failed to hit")
 
@@ -836,42 +734,6 @@ def test_bounds_partition_items_non_empty() raises:
     assert_true(builder.item_indices[0] != builder.item_indices[1])
 
 
-def test_triangle_bvh4_median_matches_bruteforce_many_random_rays() raises:
-    var verts = _make_random_xy_triangles(64, UInt64(12345))
-    var bvh = TriangleBvh[4].__init__["median"](
-        verts.unsafe_ptr(),
-        UInt32(len(verts) / 3),
-    )
-
-    for i in range(64):
-        var O = _triangle_center_xy(verts, i)
-        var D = Vec3f32(0.0, 0.0, 1.0)
-        _assert_triangle_bvh_matches_bruteforce[4](bvh, verts, O, D)
-
-    for i in range(16):
-        var O = Vec3f32(100.0 + Float32(i), 100.0, 0.0)
-        var D = Vec3f32(0.0, 0.0, 1.0)
-        _assert_triangle_bvh_matches_bruteforce[4](bvh, verts, O, D)
-
-
-def test_triangle_bvh4_sah_matches_bruteforce_many_random_rays() raises:
-    var verts = _make_random_xy_triangles(96, UInt64(98765))
-    var bvh = TriangleBvh[4].__init__["sah"](
-        verts.unsafe_ptr(),
-        UInt32(len(verts) / 3),
-    )
-
-    for i in range(96):
-        var O = _triangle_center_xy(verts, i)
-        var D = Vec3f32(0.0, 0.0, 1.0)
-        _assert_triangle_bvh_matches_bruteforce[4](bvh, verts, O, D)
-
-    for i in range(24):
-        var O = Vec3f32(-100.0 - Float32(i), 100.0, 0.0)
-        var D = Vec3f32(0.0, 0.0, 1.0)
-        _assert_triangle_bvh_matches_bruteforce[4](bvh, verts, O, D)
-
-
 def test_triangle_bvh4_sah_reports_original_primitive_after_reorder() raises:
     var verts = _make_strip(8)
     var bvh = TriangleBvh[4].__init__["sah"](
@@ -888,94 +750,46 @@ def test_triangle_bvh4_sah_reports_original_primitive_after_reorder() raises:
     assert_almost_equal(hit.t, 2.0)
 
 
-def test_bounds_bvh_lbvh_leaf_size_4_invariant() raises:
-    var verts = _make_random_xy_triangles(96, UInt64(606060))
-    var items = _make_bounds_items(verts)
-
-    var builder = BoundsBvhBuilder[4](items)
-    builder.build["lbvh"]()
-
-    assert_true(builder.nodes_used > 1)
-    assert_true(Int(builder.nodes_used) <= len(builder.nodes))
-    _assert_builder_leaf_sizes_at_most(builder, UInt32(4))
-
-    var wide = BoundsBvh[4](builder)
-    _assert_wide_leaf_counts_at_most_width[4](wide)
-
-    assert_true(len(verts) == 96 * 3)
-
-
-def test_triangle_bvh4_lbvh_matches_bruteforce_many_random_rays() raises:
-    var verts = _make_random_xy_triangles(128, UInt64(707070))
-    var bvh = TriangleBvh[4].__init__["lbvh"](
-        verts.unsafe_ptr(),
-        UInt32(len(verts) / 3),
-    )
-
-    for i in range(128):
-        var O = _triangle_center_xy(verts, i)
-        var D = Vec3f32(0.0, 0.0, 1.0)
-        _assert_triangle_bvh_matches_bruteforce[4](bvh, verts, O, D)
-
-    for i in range(32):
-        var O = Vec3f32(100.0 + Float32(i), 100.0, 0.0)
-        var D = Vec3f32(0.0, 0.0, 1.0)
-        _assert_triangle_bvh_matches_bruteforce[4](bvh, verts, O, D)
-
-    assert_true(len(verts) == 128 * 3)
-
-
-def test_triangle_bvh8_lbvh_matches_bruteforce_many_random_rays() raises:
-    var verts = _make_random_xy_triangles(128, UInt64(808080))
-    var bvh = TriangleBvh[8].__init__["lbvh"](
-        verts.unsafe_ptr(),
-        UInt32(len(verts) / 3),
-    )
-
-    for i in range(128):
-        var O = _triangle_center_xy(verts, i)
-        var D = Vec3f32(0.0, 0.0, 1.0)
-        _assert_triangle_bvh_matches_bruteforce[8](bvh, verts, O, D)
-
-    for i in range(32):
-        var O = Vec3f32(100.0, -100.0 - Float32(i), 0.0)
-        var D = Vec3f32(0.0, 0.0, 1.0)
-        _assert_triangle_bvh_matches_bruteforce[8](bvh, verts, O, D)
-
-    assert_true(len(verts) == 128 * 3)
-
-
-def test_sphere_bvh4_lbvh_matches_bruteforce() raises:
+def _test_sphere_bvh_matches_bruteforce_modes[
+    width: Int,
+    mode: String,
+]() raises:
     var spheres = _make_spheres()
-    var bvh = SphereBvh[4].__init__["lbvh"](
+    var bvh = SphereBvh[width].__init__[mode](
         spheres.unsafe_ptr(),
         UInt32(len(spheres)),
     )
 
-    _assert_sphere_bvh_matches_bruteforce[4](
+    _assert_sphere_bvh_matches_bruteforce[width](
         bvh,
         spheres,
         Vec3f32(0.0, 0.0, 0.0),
         Vec3f32(0.0, 0.0, 1.0),
     )
-    _assert_sphere_bvh_matches_bruteforce[4](
+    _assert_sphere_bvh_matches_bruteforce[width](
         bvh,
         spheres,
         Vec3f32(4.0, 0.0, 0.0),
         Vec3f32(0.0, 0.0, 1.0),
     )
-    _assert_sphere_bvh_matches_bruteforce[4](
+    _assert_sphere_bvh_matches_bruteforce[width](
         bvh,
         spheres,
         Vec3f32(-4.0, 0.0, 0.0),
         Vec3f32(0.0, 0.0, 1.0),
     )
-    _assert_sphere_bvh_matches_bruteforce[4](
+    _assert_sphere_bvh_matches_bruteforce[width](
         bvh,
         spheres,
         Vec3f32(100.0, 0.0, 0.0),
         Vec3f32(0.0, 0.0, 1.0),
     )
+
+
+def test_sphere_bvh_matches_bruteforce() raises:
+    comptime for w in [2, 4, 8]:
+        comptime for mode in ["median", "sah", "lbvh"]:
+            _test_sphere_bvh_matches_bruteforce_modes[w, mode]()
 
 
 def main() raises:

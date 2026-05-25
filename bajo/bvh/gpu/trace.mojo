@@ -68,7 +68,7 @@ def trace_bounds_bvh[
                     if count == 0:
                         child_valid[node_lane] = True
                         child_data[node_lane] = data
-                        child_t[node_lane] = bounds_hit.tmin[node_lane]
+                        child_t[node_lane] = bounds_hit.t[node_lane]
                     else:
                         var leaf_hit = leaf_fn(
                             leaf_data_f32,
@@ -117,7 +117,7 @@ def trace_bounds_bvh[
 
                     if count == 0:
                         comptime if mode != TRACE.ANY_HIT:
-                            if bounds_hit.tmin[node_lane] > hit.t:
+                            if bounds_hit.t[node_lane] > hit.t:
                                 continue
 
                         if stack_ptr < GPU_TRAVERSAL_STACK_SIZE:

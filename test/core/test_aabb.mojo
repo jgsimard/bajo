@@ -15,8 +15,8 @@ from bajo.core.transform import Affine3
 def test_logic() raises:
     box = AABB(Vec3f32(0), Vec3f32(2, 2, 2))
 
-    assert_true(box.contains(Vec3f32(1)))
-    assert_false(box.contains(Vec3f32(3, 1, 1)))
+    assert_true(box.contains_point(Vec3f32(1)))
+    assert_false(box.contains_point(Vec3f32(3, 1, 1)))
 
     box_overlap = AABB(Vec3f32(1), Vec3f32(3))
     box_far = AABB(Vec3f32(4), Vec3f32(5))

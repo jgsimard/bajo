@@ -105,27 +105,23 @@ struct BoundsBvh[width: Int](Copyable):
         return wide_idx
 
     def root_bounds(self) -> AABB:
-        if len(self.nodes) == 0:
-            return AABB.invalid()
-
-        ref root = self.nodes[0]
         var out = AABB.invalid()
-
-        comptime for lane in range(Self.width):
-            if root.counts[lane] != EMPTY_LANE:
-                out.grow(
-                    Vec3f32(
-                        root.aabb._min.x[lane],
-                        root.aabb._min.y[lane],
-                        root.aabb._min.z[lane],
+        if len(self.nodes) != 0:
+            ref root = self.nodes[0]
+            comptime for lane in range(Self.width):
+                if root.counts[lane] != EMPTY_LANE:
+                    out.grow(
+                        Vec3f32(
+                            root.aabb._min.x[lane],
+                            root.aabb._min.y[lane],
+                            root.aabb._min.z[lane],
+                        )
                     )
-                )
-                out.grow(
-                    Vec3f32(
-                        root.aabb._max.x[lane],
-                        root.aabb._max.y[lane],
-                        root.aabb._max.z[lane],
+                    out.grow(
+                        Vec3f32(
+                            root.aabb._max.x[lane],
+                            root.aabb._max.y[lane],
+                            root.aabb._max.z[lane],
+                        )
                     )
-                )
-
         return out

@@ -13,7 +13,7 @@ from bajo.bvh.host_utils import (
     generate_primary_rays,
     hit_t_for_checksum,
 )
-from bajo.bvh.constants import EMPTY_LANE, TRACE_CLOSEST_HIT, TRACE_ANY_HIT
+from bajo.bvh.constants import EMPTY_LANE, TRACE
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
@@ -119,27 +119,25 @@ def _brute_sphere_trace(
     O: Vec3f32,
     D: Vec3f32,
 ) -> Hit:
-    var best_hit = Hit.miss()
+    var hit = Hit.miss()
 
-    for i in range(len(spheres)):
-        ref s = spheres[i]
-
-        var h = intersect_ray_sphere(
+    for i, s in enumerate(spheres):
+        var sphere_hit = intersect_ray_sphere(
             O,
             D,
             s.center,
             s.radius,
-            best_hit.t,
+            hit.t,
         )
 
-        if h.mask and h.t > 1.0e-4 and h.t < best_hit.t:
-            best_hit.t = h.t
-            best_hit.u = 0.0
-            best_hit.v = 0.0
-            best_hit.prim = UInt32(i)
-            best_hit.inst = EMPTY_LANE
+        if sphere_hit.mask and sphere_hit.t < hit.t:
+            hit.t = sphere_hit.t
+            hit.u = 0.0
+            hit.v = 0.0
+            hit.prim = UInt32(i)
+            hit.inst = EMPTY_LANE
 
-    return best_hit
+    return hit
 
 
 def _trace_cpu_spheres_bruteforce(
@@ -194,7 +192,7 @@ def _trace_cpu_triangle_bvh[
 ](mut bvh: TriangleBvh[width], rays: List[Ray]) -> Float64:
     var checksum = 0.0
     for ray in rays:
-        var hit = bvh.trace[TRACE_CLOSEST_HIT](ray)
+        var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
         checksum += hit_t_for_checksum(hit.t)
     return checksum
 
@@ -296,7 +294,7 @@ def _assert_gpu_triangle_width_matches_cpu[
             with d_hits_u32.map_to_host() as hu:
                 for i in range(len(rays)):
                     var ray = rays[i].copy()
-                    var cpu_hit = cpu_bvh.trace[TRACE_CLOSEST_HIT](ray)
+                    var cpu_hit = cpu_bvh.trace[TRACE.CLOSEST_HIT](ray)
 
                     var gpu_t = hf[i * 3 + 0]
                     var gpu_u = hf[i * 3 + 1]
@@ -341,31 +339,30 @@ def _brute_triangle_trace(
     verts: List[Vec3f32],
     ray: Ray,
 ) -> Hit:
-    var best = Hit.miss()
-    best.t = ray.t_max
+    var hit = Hit.miss(ray.t_max)
 
     for i in range(len(verts) / 3):
         ref v0 = verts[i * 3 + 0]
         ref v1 = verts[i * 3 + 1]
         ref v2 = verts[i * 3 + 2]
 
-        var h = intersect_ray_tri(
+        var tri_hit = intersect_ray_tri(
             ray.o,
             ray.d,
             v0,
             v1,
             v2,
-            best.t,
+            hit.t,
         )
 
-        if h.mask and h.t < best.t:
-            best.t = h.t
-            best.u = h.u
-            best.v = h.v
-            best.prim = UInt32(i)
-            best.inst = EMPTY_LANE
+        if tri_hit.mask and tri_hit.t < hit.t:
+            hit.t = tri_hit.t
+            hit.u = tri_hit.u
+            hit.v = tri_hit.v
+            hit.prim = UInt32(i)
+            hit.inst = EMPTY_LANE
 
-    return best
+    return hit
 
 
 def _assert_gpu_sphere_width_matches_bruteforce[

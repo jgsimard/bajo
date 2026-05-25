@@ -6,8 +6,7 @@ from bajo.bvh.gpu.bounds_bvh import (
 from bajo.bvh.constants import (
     GPU_TRAVERSAL_STACK_SIZE,
     f32_max,
-    TRACE_CLOSEST_HIT,
-    TRACE_ANY_HIT,
+    TRACE,
     EMPTY_LANE,
 )
 from bajo.bvh.types import Ray, Hit
@@ -15,7 +14,7 @@ from bajo.bvh.types import Ray, Hit
 
 def trace_bounds_bvh[
     width: Int,
-    mode: String,
+    mode: TRACE,
     leaf_fn: def(
         UnsafePointer[Float32, MutAnyOrigin],
         UnsafePointer[UInt32, MutAnyOrigin],
@@ -34,11 +33,7 @@ def trace_bounds_bvh[
     root_idx: UInt32,
     ray: Ray,
 ) -> Hit:
-    comptime assert mode in [TRACE_CLOSEST_HIT, TRACE_ANY_HIT]
-
-    var hit = Hit.miss()
-    hit.t = ray.t_max
-    hit.prim = EMPTY_LANE
+    var hit = Hit.miss(ray.t_max)
 
     var stack = InlineArray[UInt32, GPU_TRAVERSAL_STACK_SIZE](
         uninitialized=True
@@ -48,7 +43,7 @@ def trace_bounds_bvh[
 
     while True:
         var node_t_max = hit.t
-        comptime if mode == TRACE_ANY_HIT:
+        comptime if mode == TRACE.ANY_HIT:
             node_t_max = ray.t_max
 
         var bounds_hit = _intersect_wide_node_bounds[width](
@@ -84,7 +79,7 @@ def trace_bounds_bvh[
                             hit,
                         )
 
-                        comptime if mode == TRACE_ANY_HIT:
+                        comptime if mode == TRACE.ANY_HIT:
                             if leaf_hit:
                                 return Hit.shadow_hit()
 
@@ -104,7 +99,7 @@ def trace_bounds_bvh[
                 if far_lane != -1:
                     child_valid[far_lane] = False
 
-                    comptime if mode != TRACE_ANY_HIT:
+                    comptime if mode != TRACE.ANY_HIT:
                         if far_t > hit.t:
                             continue
 
@@ -121,7 +116,7 @@ def trace_bounds_bvh[
                     var data = UInt32(wide_data[lane_base])
 
                     if count == 0:
-                        comptime if mode != TRACE_ANY_HIT:
+                        comptime if mode != TRACE.ANY_HIT:
                             if bounds_hit.tmin[node_lane] > hit.t:
                                 continue
 
@@ -138,7 +133,7 @@ def trace_bounds_bvh[
                             hit,
                         )
 
-                        comptime if mode == TRACE_ANY_HIT:
+                        comptime if mode == TRACE.ANY_HIT:
                             if leaf_hit:
                                 return Hit.shadow_hit()
 

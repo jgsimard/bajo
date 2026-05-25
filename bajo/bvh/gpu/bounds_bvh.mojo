@@ -157,10 +157,7 @@ def refit_lbvh_bounds_from_leaves_kernel(
 
     var item_idx = UInt32(sorted_leaf_ids[leaf_idx])
     var b = Int(item_idx) * BOUNDS_STRIDE
-    var bounds = AABB(
-        Vec3f32(leaf_bounds[b + 0], leaf_bounds[b + 1], leaf_bounds[b + 2]),
-        Vec3f32(leaf_bounds[b + 3], leaf_bounds[b + 4], leaf_bounds[b + 5]),
-    )
+    var bounds = AABB.load6(leaf_bounds, b)
 
     var current_encoded = UInt32(leaf_idx) | LBVH_LEAF_FLAG
     var parent = UInt32(leaf_parent[leaf_idx])

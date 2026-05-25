@@ -1,14 +1,12 @@
-from std.utils.numerics import max_finite
-
 from bajo.core.utils import min_argmin
-from bajo.core.vec import Vec3, Vec3f32, vmin, vmax, longest_axis, dot
-from bajo.bvh.constants import EMPTY_LANE, TRACE_CLOSEST_HIT, TRACE_ANY_HIT
+from bajo.core.vec import Vec3, Vec3f32
+from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
 from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvh,
     BoundsItem,
     BoundsBvhBuilder,
 )
-from bajo.core.aabb import AABB, AxisAlignedBoundingBox
+from bajo.core.aabb import AABB
 from bajo.bvh.types import Ray, Hit, TriangleLeafBlock
 from bajo.core.intersect import intersect_ray_tri
 from bajo.bvh.cpu.trace import trace_bounds_bvh
@@ -110,7 +108,7 @@ struct TriangleBvh[width: Int](Copyable):
                     self.leaf_blocks.append(block^)
                     node.data[lane] = block_idx
 
-    def trace[mode: String](self, ray: Ray) -> Hit:
+    def trace[mode: TRACE](self, ray: Ray) -> Hit:
         def leaf_fn(
             ray: Ray,
             leaf_block_idx: UInt32,
@@ -135,10 +133,9 @@ struct TriangleBvh[width: Int](Copyable):
             var hit_mask = h.mask & t_valid & block.valid_lane
 
             if hit_mask.reduce_or():
-                comptime if mode == TRACE_ANY_HIT:
+                comptime if mode == TRACE.ANY_HIT:
                     return True
                 else:
-                    comptime f32_max = max_finite[DType.float32]()
                     _t = hit_mask.select(h.t, f32_max)
                     min_t, arg_min_t = min_argmin(_t)
 

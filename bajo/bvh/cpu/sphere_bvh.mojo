@@ -1,11 +1,6 @@
 from bajo.core.utils import min_argmin
 from bajo.core.vec import Vec3, Vec3f32, vmin, vmax, longest_axis, dot
-from bajo.bvh.constants import (
-    EMPTY_LANE,
-    TRACE_CLOSEST_HIT,
-    TRACE_ANY_HIT,
-    f32_max,
-)
+from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
 from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvh,
     BoundsItem,
@@ -93,7 +88,7 @@ struct SphereBvh[width: Int](Copyable):
                     self.leaf_blocks.append(block^)
                     node.data[lane] = block_idx
 
-    def trace[mode: String](self, ray: Ray) -> Hit:
+    def trace[mode: TRACE](self, ray: Ray) -> Hit:
         def leaf_fn(
             ray: Ray,
             leaf_block_idx: UInt32,
@@ -119,7 +114,7 @@ struct SphereBvh[width: Int](Copyable):
             if not hit_mask.reduce_or():
                 return False
 
-            comptime if mode == TRACE_ANY_HIT:
+            comptime if mode == TRACE.ANY_HIT:
                 return True
             else:
                 _t = hit_mask.select(h.t, f32_max)

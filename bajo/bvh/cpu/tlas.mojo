@@ -1,6 +1,6 @@
 from bajo.core.aabb import AABB
 from bajo.bvh.types import Ray, Hit, Instance
-from bajo.bvh.constants import TRACE_ANY_HIT
+from bajo.bvh.constants import TRACE
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.bvh.cpu.bounds_bvh import BoundsBvh, BoundsBvhBuilder, BoundsItem
@@ -42,7 +42,7 @@ struct Tlas[width: Int](Copyable):
         return self.tree.root_bounds()
 
     def trace_triangles[
-        mode: String,
+        mode: TRACE,
         blas_width: Int,
     ](
         self,
@@ -78,7 +78,7 @@ struct Tlas[width: Int](Copyable):
                     local_ray
                 )
 
-                comptime if mode == TRACE_ANY_HIT:
+                comptime if mode == TRACE.ANY_HIT:
                     if local_hit.is_occluded():
                         return True
                 else:
@@ -101,7 +101,7 @@ struct Tlas[width: Int](Copyable):
         )
 
     def trace_spheres[
-        mode: String,
+        mode: TRACE,
         blas_width: Int,
     ](
         self,
@@ -137,7 +137,7 @@ struct Tlas[width: Int](Copyable):
                     local_ray
                 )
 
-                comptime if mode == TRACE_ANY_HIT:
+                comptime if mode == TRACE.ANY_HIT:
                     if local_hit.is_occluded():
                         return True
                 else:

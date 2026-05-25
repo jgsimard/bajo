@@ -6,7 +6,6 @@ from std.gpu import DeviceContext, DeviceBuffer
 from bajo.core.utils import (
     ns_to_ms,
     ns_to_mrays_per_s,
-    print_vec3_rounded,
 )
 from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32
@@ -408,8 +407,8 @@ def main() raises:
     var bounds = compute_bounds(tri_vertices)
     print(t"triangles: {len(tri_vertices) / 3}")
     print(t"load+pack ms: {round(ns_to_ms(Int(load_t1 - load_t0)), 3)}")
-    print_vec3_rounded("Bounds min:", bounds._min)
-    print_vec3_rounded("Bounds max:", bounds._max)
+    print("Bounds min:", round(bounds._min, 3))
+    print("Bounds max:", round(bounds._max, 3))
 
     print("\nGenerating rays...")
     var rays = generate_primary_rays(

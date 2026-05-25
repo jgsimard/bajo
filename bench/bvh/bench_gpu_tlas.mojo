@@ -7,7 +7,6 @@ from std.gpu import DeviceContext, DeviceBuffer
 from bajo.core.utils import (
     ns_to_ms,
     ns_to_mrays_per_s,
-    print_vec3_rounded,
 )
 from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32
@@ -792,8 +791,8 @@ def _bench_triangle_instance_set[
     print("--------------------------------")
     print(t"Instances: {len(instances)}")
     print(t"Rays: {len(rays)}")
-    print_vec3_rounded("TLAS bounds min:", bounds._min)
-    print_vec3_rounded("TLAS bounds max:", bounds._max)
+    print("TLAS bounds min:", bounds._min)
+    print("TLAS bounds max:", bounds._max)
 
     print("\nTLAS results")
     _print_tlas_table_header(has_ref)
@@ -853,8 +852,8 @@ def main() raises:
     var blas_bounds = compute_bounds(tri_vertices)
     print(t"Triangles: {len(tri_vertices) / 3}")
     print(t"Load+pack ms: {round(ns_to_ms(Int(load_t1 - load_t0)), 3)}")
-    print_vec3_rounded("BLAS bounds min:", blas_bounds._min)
-    print_vec3_rounded("BLAS bounds max:", blas_bounds._max)
+    print("BLAS bounds min:", round(blas_bounds._min, 3))
+    print("BLAS bounds max:", round(blas_bounds._max, 3))
 
     comptime if not has_accelerator():
         raise "No compatible GPU found; skipped Mojo GPU TLAS benchmark."
@@ -966,8 +965,8 @@ def main() raises:
         var spheres = sphere_scene[0].copy()
         var sphere_bounds = sphere_scene[1].copy()
         print(t"Spheres: {len(spheres)}")
-        print_vec3_rounded("Sphere BLAS bounds min:", sphere_bounds._min)
-        print_vec3_rounded("Sphere BLAS bounds max:", sphere_bounds._max)
+        print("Sphere BLAS bounds min:", round(sphere_bounds._min, 3))
+        print("Sphere BLAS bounds max:", round(sphere_bounds._max, 3))
 
         print("Building GpuSphereBvh[4]...")
         _ = GpuSphereBvh[4](ctx, spheres)
@@ -1063,8 +1062,8 @@ def main() raises:
         print("\nSphere TLAS translated grid 4x4")
         print(t"Instances: {len(sphere_grid)}")
         print(t"Rays: {len(sphere_grid_rays)}")
-        print_vec3_rounded("TLAS bounds min:", sphere_grid_bounds._min)
-        print_vec3_rounded("TLAS bounds max:", sphere_grid_bounds._max)
+        print("TLAS bounds min:", round(sphere_grid_bounds._min, 3))
+        print("TLAS bounds max:", round(sphere_grid_bounds._max, 3))
 
         _print_tlas_table_header(False)
 

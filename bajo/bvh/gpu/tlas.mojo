@@ -7,7 +7,7 @@ from bajo.bvh.constants import (
     TRACE_ANY_HIT,
     GPU_TRAVERSAL_STACK_SIZE,
     EMPTY_LANE,
-    _gpu_inf_t,
+    f32_max,
 )
 from bajo.bvh.types import Ray, Hit, Instance
 from bajo.bvh.gpu.bounds_bvh import (
@@ -253,7 +253,7 @@ def trace_gpu_wide_tlas_ray[
 
         comptime for _ in range(tlas_width):
             var far_lane = -1
-            var far_t = Float32(-_gpu_inf_t)
+            var far_t = Float32(-f32_max)
 
             comptime for lane in range(tlas_width):
                 if child_valid[lane]:

@@ -1,8 +1,11 @@
-from std.utils.numerics import max_finite
-
 from bajo.core.utils import min_argmin
 from bajo.core.vec import Vec3, Vec3f32, vmin, vmax, longest_axis, dot
-from bajo.bvh.constants import EMPTY_LANE, TRACE_CLOSEST_HIT, TRACE_ANY_HIT
+from bajo.bvh.constants import (
+    EMPTY_LANE,
+    TRACE_CLOSEST_HIT,
+    TRACE_ANY_HIT,
+    f32_max,
+)
 from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvh,
     BoundsItem,
@@ -119,7 +122,6 @@ struct SphereBvh[width: Int](Copyable):
             comptime if mode == TRACE_ANY_HIT:
                 return True
             else:
-                comptime f32_max = max_finite[DType.float32]()
                 _t = hit_mask.select(h.t, f32_max)
                 min_t, arg_min_t = min_argmin(_t)
 

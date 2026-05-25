@@ -1,11 +1,14 @@
+from std.utils.numerics import max_finite, min_finite
+
+comptime f32_max = max_finite[DType.float32]()
+comptime f32_min = min_finite[DType.float32]()
+
 comptime LBVH_LEAF_FLAG = UInt32(0x80000000)
 comptime LBVH_INDEX_MASK = UInt32(0x7FFFFFFF)
 comptime LBVH_SENTINEL = UInt32(0xFFFFFFFF)
 
 comptime TRACE_CLOSEST_HIT = "closest"
 comptime TRACE_ANY_HIT = "any"
-
-comptime _gpu_inf_t = Float32(3.4028234663852886e38)
 
 comptime GPU_TRAVERSAL_STACK_SIZE = 64
 comptime GPU_REDUCE_THREADS = 4096

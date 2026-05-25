@@ -20,19 +20,20 @@ comptime RAY_T_MAX = 7
 
 @fieldwise_init
 struct Hit(TrivialRegisterPassable, Writable):
-    var t: Float32
     var u: Float32
     var v: Float32
     var prim: UInt32
     var inst: UInt32
+    var normal: Vec3f32
+    var t: Float32
 
     @staticmethod
     def miss() -> Self:
-        return Self(f32_max, 0.0, 0.0, EMPTY_LANE, EMPTY_LANE)
+        return Self(0.0, 0.0, EMPTY_LANE, EMPTY_LANE, Vec3f32(0), f32_max)
 
     @staticmethod
     def shadow_hit() -> Self:
-        return Self(0.0, 0.0, 0.0, EMPTY_LANE, EMPTY_LANE)
+        return Self(0.0, 0.0, EMPTY_LANE, EMPTY_LANE, Vec3f32(0), 0.0)
 
     def is_hit(self) -> Bool:
         return self.prim != EMPTY_LANE and self.t < f32_max

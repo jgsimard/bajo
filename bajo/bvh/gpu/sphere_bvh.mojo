@@ -1,7 +1,6 @@
 from std.math import ceildiv
 from std.time import perf_counter_ns
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
-from std.utils.numerics import max_finite
 
 from bajo.bvh.constants import (
     EMPTY_LANE,
@@ -9,6 +8,7 @@ from bajo.bvh.constants import (
     TRACE_ANY_HIT,
     SPHERE_STRIDE,
     BOUNDS_STRIDE,
+    f32_max,
 )
 from bajo.core.intersect import intersect_ray_sphere
 from bajo.core.vec import Vec3f32, Vec3
@@ -225,7 +225,6 @@ def _intersect_sphere_leaf[
     comptime if mode == TRACE_ANY_HIT:
         return True
     else:
-        comptime f32_max = max_finite[DType.float32]()
         var min_t = hit_mask.select(h.t, f32_max).reduce_min()
 
         if min_t < hit.t:

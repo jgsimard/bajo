@@ -132,7 +132,6 @@ struct Tlas[width: Int](Copyable):
                     local_dir,
                     ray.t_min,
                     hit.t,
-                    # ray.mask,
                 )
 
                 var local_hit = blases[Int(inst.blas_idx)].trace[mode](

@@ -16,19 +16,6 @@ comptime CAMERA_UP = 9
 comptime CAMERA_FOV = 12
 
 
-def _write_primary_full_result(
-    hits_f32: UnsafePointer[Float32, MutAnyOrigin],
-    hits_u32: UnsafePointer[UInt32, MutAnyOrigin],
-    ray_idx: Int,
-    hit: Hit,
-):
-    var hit_base = ray_idx * 3
-    hits_f32[hit_base + 0] = hit.t
-    hits_f32[hit_base + 1] = hit.u
-    hits_f32[hit_base + 2] = hit.v
-    hits_u32[ray_idx] = hit.prim
-
-
 def _make_camera_ray(
     camera_params: UnsafePointer[Float32, MutAnyOrigin],
     ray_idx: Int,
@@ -63,34 +50,3 @@ def _make_camera_ray(
         nd,
         f32_max,
     )
-
-
-def _write_camera_miss_result[
-    mode: String
-](
-    out_f32: UnsafePointer[Float32, MutAnyOrigin],
-    out_u32: UnsafePointer[UInt32, MutAnyOrigin],
-    ray_idx: Int,
-):
-    comptime if mode == TRACE_CLOSEST_HIT:
-        var hit_base = ray_idx * 3
-        out_f32[hit_base + 0] = f32_max
-        out_f32[hit_base + 1] = 0.0
-        out_f32[hit_base + 2] = 0.0
-        out_u32[ray_idx] = EMPTY_LANE
-    else:
-        out_u32[ray_idx] = UInt32(0)
-
-
-def _write_camera_result[
-    mode: String
-](
-    out_f32: UnsafePointer[Float32, MutAnyOrigin],
-    out_u32: UnsafePointer[UInt32, MutAnyOrigin],
-    ray_idx: Int,
-    hit: Hit,
-):
-    comptime if mode == TRACE_CLOSEST_HIT:
-        _write_primary_full_result(out_f32, out_u32, ray_idx, hit)
-    else:
-        out_u32[ray_idx] = hit.occluded

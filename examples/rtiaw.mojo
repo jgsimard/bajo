@@ -2,7 +2,6 @@ from std.algorithm import parallelize
 from std.math import sqrt, tan, pi, cos, fma
 from std.os import abort
 from std.io.file_descriptor import FileDescriptor
-from std.utils.numerics import max_finite
 from std.utils import Variant
 
 from bajo.core.vec import (
@@ -14,7 +13,7 @@ from bajo.core.vec import (
     cross,
 )
 from bajo.core.utils import degrees_to_radians
-from bajo.bvh.constants import TRACE_CLOSEST_HIT
+from bajo.bvh.constants import TRACE_CLOSEST_HIT, f32_max
 from bajo.core.random import (
     random_unit_vector,
     random_in_unit_disk,
@@ -162,11 +161,9 @@ struct World(Copyable):
 
         var bvh_ray = bRay(
             origin,
-            ray.direction,
-            ray.inv_direction,
             Float32(0.0),
+            ray.direction,
             tmax,
-            UInt32(0xFFFFFFFF),
         )
 
         var bvh_hit = self.bvh.trace[TRACE_CLOSEST_HIT](bvh_ray)
@@ -305,8 +302,7 @@ struct Camera(Copyable):
         var accumulated_attenuation = Color(1.0, 1.0, 1.0)
 
         for _bounce in range(self.max_depth):
-            comptime infinity = max_finite[DType.float32]()
-            var hit_res = world.hit(cur_ray, 0.001, infinity)
+            var hit_res = world.hit(cur_ray, 0.001, f32_max)
 
             if hit_res:
                 ref hit = hit_res.value()

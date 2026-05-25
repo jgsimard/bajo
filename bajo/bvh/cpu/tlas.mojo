@@ -72,7 +72,6 @@ struct Tlas[width: Int](Copyable):
                     local_dir,
                     ray.t_min,
                     hit.t,
-                    ray.mask,
                 )
 
                 var local_hit = blases[Int(inst.blas_idx)].trace[mode](
@@ -89,7 +88,6 @@ struct Tlas[width: Int](Copyable):
                         hit.v = local_hit.v
                         hit.prim = local_hit.prim
                         hit.inst = inst_idx
-                        hit.occluded = UInt32(0)
 
             return False
 
@@ -133,7 +131,6 @@ struct Tlas[width: Int](Copyable):
                     local_dir,
                     ray.t_min,
                     hit.t,
-                    ray.mask,
                 )
 
                 var local_hit = blases[Int(inst.blas_idx)].trace[mode](
@@ -150,7 +147,6 @@ struct Tlas[width: Int](Copyable):
                         hit.v = local_hit.v
                         hit.prim = local_hit.prim
                         hit.inst = inst_idx
-                        hit.occluded = UInt32(0)
 
             return False
 

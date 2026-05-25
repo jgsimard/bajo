@@ -845,7 +845,7 @@ def _intersect_wide_node_bounds[
     )
 
     var O = Vec3[DType.float32, width](ray.o.x, ray.o.y, ray.o.z)
-    var RD = Vec3[DType.float32, width](ray.rd.x, ray.rd.y, ray.rd.z)
+    var RD = 1.0 / Vec3[DType.float32, width](ray.d.x, ray.d.y, ray.d.z)
 
     return intersect_ray_aabb[DType.float32, width](
         O,

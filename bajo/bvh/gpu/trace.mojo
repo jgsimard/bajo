@@ -5,7 +5,7 @@ from bajo.bvh.gpu.bounds_bvh import (
 )
 from bajo.bvh.constants import (
     GPU_TRAVERSAL_STACK_SIZE,
-    _gpu_inf_t,
+    f32_max,
     TRACE_CLOSEST_HIT,
     TRACE_ANY_HIT,
     EMPTY_LANE,
@@ -92,7 +92,7 @@ def trace_bounds_bvh[
             # Since stack is LIFO, nearest child is popped first.
             comptime for _ in range(width):
                 var far_lane = -1
-                var far_t = -_gpu_inf_t
+                var far_t = -f32_max
 
                 comptime for lane in range(width):
                     if child_valid[lane]:

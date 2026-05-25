@@ -102,15 +102,9 @@ def print_result_legend():
     var c4 = String("primary").ascii_rjust(9)
     var c5 = String("MRay/s").ascii_rjust(9)
     var c6 = String("checksum").ascii_rjust(9)
-    var c7 = String("shadow").ascii_rjust(8)
-    var c8 = String("MRay/s").ascii_rjust(9)
-    var c9 = String("occ").ascii_rjust(7)
 
-    print(t"{c0} {c1} {c2} {c3} {c4} {c5} {c6} {c7} {c8} {c9}")
-    print(
-        "------------ -------- ------ ------ --------- --------- ---------"
-        " -------- --------- -------"
-    )
+    print(t"{c0} {c1} {c2} {c3} {c4} {c5} {c6}")
+    print("------------ -------- ------ ------ --------- --------- ---------")
 
 
 def print_case_result(
@@ -119,7 +113,6 @@ def print_case_result(
     nodes: Int,
     prims: UInt32,
     primary: PrimaryBenchResult,
-    shadow: ShadowBenchResult,
     ray_count: Int,
 ):
     var build_ms = round(ns_to_ms(build_ns), 3)
@@ -128,9 +121,6 @@ def print_case_result(
     var primary_mrays = round(ns_to_mrays_per_s(primary.ns, ray_count), 3)
     var checksum = round(primary.checksum, 3)
 
-    var shadow_ms = round(ns_to_ms(shadow.ns), 3)
-    var shadow_mrays = round(ns_to_mrays_per_s(shadow.ns, ray_count), 3)
-
     var c0 = name.ascii_ljust(12)
     var c1 = String(t"{build_ms}").ascii_rjust(8)
     var c2 = String(t"{nodes}").ascii_rjust(6)
@@ -138,11 +128,8 @@ def print_case_result(
     var c4 = String(t"{primary_ms}").ascii_rjust(9)
     var c5 = String(t"{primary_mrays}").ascii_rjust(9)
     var c6 = String(t"{checksum}").ascii_rjust(9)
-    var c7 = String(t"{shadow_ms}").ascii_rjust(8)
-    var c8 = String(t"{shadow_mrays}").ascii_rjust(9)
-    var c9 = String(t"{shadow.occluded}").ascii_rjust(7)
 
-    print(t"{c0} {c1} {c2} {c3} {c4} {c5} {c6} {c7} {c8} {c9}")
+    print(t"{c0} {c1} {c2} {c3} {c4} {c5} {c6}")
 
 
 def trace_triangle_primary[
@@ -212,25 +199,6 @@ def bench_triangle_primary[
     return PrimaryBenchResult(best_ns, checksum)
 
 
-def bench_triangle_shadow[
-    width: Int
-](bvh: TriangleBvh[width], rays: List[Ray]) -> ShadowBenchResult:
-    var occluded = trace_triangle_shadow[width](bvh, rays)
-    var best_ns = Int.MAX
-
-    for _ in range(TRAVERSAL_REPEATS):
-        var t0 = perf_counter_ns()
-        occluded = trace_triangle_shadow[width](bvh, rays)
-        var t1 = perf_counter_ns()
-
-        var dt = Int(t1 - t0)
-        if dt < best_ns:
-            best_ns = dt
-
-    keep(occluded)
-    return ShadowBenchResult(best_ns, occluded)
-
-
 def bench_sphere_primary[
     width: Int
 ](bvh: SphereBvh[width], rays: List[Ray]) -> PrimaryBenchResult:
@@ -248,25 +216,6 @@ def bench_sphere_primary[
 
     keep(checksum)
     return PrimaryBenchResult(best_ns, checksum)
-
-
-def bench_sphere_shadow[
-    width: Int
-](bvh: SphereBvh[width], rays: List[Ray]) -> ShadowBenchResult:
-    var occluded = trace_sphere_shadow[width](bvh, rays)
-    var best_ns = Int.MAX
-
-    for _ in range(TRAVERSAL_REPEATS):
-        var t0 = perf_counter_ns()
-        occluded = trace_sphere_shadow[width](bvh, rays)
-        var t1 = perf_counter_ns()
-
-        var dt = Int(t1 - t0)
-        if dt < best_ns:
-            best_ns = dt
-
-    keep(occluded)
-    return ShadowBenchResult(best_ns, occluded)
 
 
 def _case_name[prim: String, width: Int, split_method: String]() -> String:
@@ -297,7 +246,6 @@ def bench_triangle_case[
 
     var build_ns = Int(t1 - t0)
     var primary = bench_triangle_primary[width](bvh, rays)
-    var shadow = bench_triangle_shadow[width](bvh, rays)
 
     print_case_result(
         name,
@@ -305,7 +253,6 @@ def bench_triangle_case[
         len(bvh.tree.nodes),
         bvh.tri_count,
         primary,
-        shadow,
         len(rays),
     )
 
@@ -327,7 +274,6 @@ def bench_sphere_case[
 
     var build_ns = Int(t1 - t0)
     var primary = bench_sphere_primary[width](bvh, rays)
-    var shadow = bench_sphere_shadow[width](bvh, rays)
 
     print_case_result(
         name,
@@ -335,7 +281,6 @@ def bench_sphere_case[
         len(bvh.tree.nodes),
         bvh.sphere_count,
         primary,
-        shadow,
         len(rays),
     )
 

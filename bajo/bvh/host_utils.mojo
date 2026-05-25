@@ -40,15 +40,11 @@ def flatten_rays(rays: List[Ray]) -> List[Float32]:
         out.append(ray.o.x)
         out.append(ray.o.y)
         out.append(ray.o.z)
+        out.append(ray.t_min)
         out.append(ray.d.x)
         out.append(ray.d.y)
         out.append(ray.d.z)
-        out.append(ray.rd.x)
-        out.append(ray.rd.y)
-        out.append(ray.rd.z)
-        out.append(ray.t_min)
         out.append(ray.t_max)
-        out.append(Float32(ray.mask))
     return out^
 
 

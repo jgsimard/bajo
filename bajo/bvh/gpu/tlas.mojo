@@ -7,7 +7,7 @@ from bajo.bvh.constants import (
     TRACE_ANY_HIT,
     GPU_TRAVERSAL_STACK_SIZE,
     EMPTY_LANE,
-    _gpu_inf_t,
+    f32_max,
 )
 from bajo.bvh.types import Ray, Hit, Instance
 from bajo.bvh.gpu.bounds_bvh import (
@@ -81,7 +81,6 @@ def _make_tlas_local_ray(
         d,
         ray.t_min,
         t_max,
-        ray.mask,
     )
 
 
@@ -149,7 +148,7 @@ def _intersect_tlas_instance_block[
                     )
 
                     comptime if mode == TRACE_ANY_HIT:
-                        if local_hit.occluded != UInt32(0):
+                        if local_hit.is_occluded():
                             best_hit = Hit.shadow_hit()
                             best_hit.inst = inst_idx
                             return True
@@ -254,7 +253,7 @@ def trace_gpu_wide_tlas_ray[
 
         comptime for _ in range(tlas_width):
             var far_lane = -1
-            var far_t = Float32(-_gpu_inf_t)
+            var far_t = Float32(-f32_max)
 
             comptime for lane in range(tlas_width):
                 if child_valid[lane]:
@@ -544,17 +543,14 @@ def trace_gpu_tlas_uploaded_kernel[
         ray,
     )
 
-    comptime if mode == TRACE_ANY_HIT:
-        flags[ray_idx] = hit.occluded
-    else:
-        var hit_base = ray_idx * 3
-        hits_f32[hit_base + 0] = hit.t
-        hits_f32[hit_base + 1] = hit.u
-        hits_f32[hit_base + 2] = hit.v
+    var hit_base = ray_idx * 3
+    hits_f32[hit_base + 0] = hit.t
+    hits_f32[hit_base + 1] = hit.u
+    hits_f32[hit_base + 2] = hit.v
 
-        var ubase = ray_idx * 2
-        hits_u32[ubase + 0] = hit.prim
-        hits_u32[ubase + 1] = hit.inst
+    var ubase = ray_idx * 2
+    hits_u32[ubase + 0] = hit.prim
+    hits_u32[ubase + 1] = hit.inst
 
 
 def trace_gpu_tlas_camera_primary_kernel[

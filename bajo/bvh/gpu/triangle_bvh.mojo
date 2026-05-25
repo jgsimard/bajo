@@ -3,7 +3,7 @@ from std.time import perf_counter_ns
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
 from std.utils.numerics import max_finite
 
-from bajo.core.vec import Vec3f32, vmin, vmax, Vec3
+from bajo.core.vec import Vec3f32, vmin, vmax, Vec3, normalize, cross
 from bajo.bvh.types import Ray, Hit, TriangleLeafBlock
 from bajo.bvh.constants import (
     EMPTY_LANE,
@@ -114,27 +114,6 @@ struct GpuTriangleBvh[width: Int]:
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
 
-    def launch_uploaded_shadow(
-        self,
-        ctx: DeviceContext,
-        d_rays: DeviceBuffer[DType.float32],
-        d_flags: DeviceBuffer[DType.uint32],
-        ray_count: Int,
-    ) raises:
-        ctx.enqueue_function[trace_gpu_triangle_bvh_shadow_kernel[Self.width]](
-            self.tree.wide_bounds,
-            self.tree.wide_data,
-            self.tree.wide_counts,
-            self.leaf_vertices,
-            self.leaf_prims,
-            self.tree.root_idx,
-            d_rays,
-            d_flags,
-            ray_count,
-            grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
-            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-        )
-
 
 def pack_triangle_leaf_blocks_kernel[
     width: Int,
@@ -207,44 +186,6 @@ def trace_gpu_triangle_bvh_primary_kernel[
     hits_u32[ray_idx] = hit.prim
 
 
-def trace_gpu_triangle_bvh_shadow_kernel[
-    width: Int,
-](
-    wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    wide_data: UnsafePointer[UInt32, MutAnyOrigin],
-    wide_counts: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_vertices: UnsafePointer[Float32, MutAnyOrigin],
-    leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
-    root_idx: UInt32,
-    rays: UnsafePointer[Float32, MutAnyOrigin],
-    flags: UnsafePointer[UInt32, MutAnyOrigin],
-    ray_count: Int,
-):
-    var ray_idx = global_idx.x
-    if ray_idx >= ray_count:
-        return
-
-    var ray = Ray(rays, ray_idx)
-    var hit = trace_bounds_bvh[
-        width,
-        TRACE_ANY_HIT,
-        _intersect_triangle_leaf[
-            width,
-            TRACE_ANY_HIT,
-        ],
-    ](
-        wide_bounds,
-        wide_data,
-        wide_counts,
-        leaf_vertices,
-        leaf_prims,
-        root_idx,
-        ray,
-    )
-
-    flags[ray_idx] = hit.occluded
-
-
 # this version works !!!!
 def _intersect_triangle_leaf[
     width: Int,
@@ -295,18 +236,15 @@ def _intersect_triangle_leaf[
                 )
 
                 if h.mask and h.t < hit.t:
+                    hit.t = h.t
                     comptime if mode == TRACE_ANY_HIT:
                         return True
                     else:
-                        hit.t = h.t
-
-                        comptime if mode == TRACE_CLOSEST_HIT:
-                            hit.u = h.u
-                            hit.v = h.v
-                            hit.prim = prim
-                            hit.inst = EMPTY_LANE
-                            hit.occluded = UInt32(0)
-
+                        hit.u = h.u
+                        hit.v = h.v
+                        hit.prim = prim
+                        hit.inst = EMPTY_LANE
+                        hit.normal = normalize(cross(v1 - v0, v2 - v0))
                         any_hit = True
 
     return any_hit
@@ -390,7 +328,6 @@ def _intersect_triangle_leaf[
 #     comptime if mode == TRACE_ANY_HIT:
 #         return True
 #     else:
-#         comptime f32_max = max_finite[DType.float32]()
 #         var min_t = hit_mask.select(h.t, f32_max).reduce_min()
 
 #         if min_t < hit.t:
@@ -403,6 +340,4 @@ def _intersect_triangle_leaf[
 #                         hit.v = h.v[lane]
 #                         hit.prim = block.prim_indices[lane]
 #                         hit.inst = EMPTY_LANE
-#                         hit.occluded = 0
-
 #         return True

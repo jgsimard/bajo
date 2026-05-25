@@ -148,7 +148,6 @@ struct TriangleBvh[width: Int](Copyable):
                         hit.v = h.v[arg_min_t]
                         hit.prim = block.prim_indices[arg_min_t]
                         hit.inst = EMPTY_LANE
-                        hit.occluded = UInt32(0)
 
                     return True
 

@@ -1,6 +1,6 @@
 from bajo.bvh.types import Ray, Hit
 from bajo.bvh.constants import (
-    _gpu_inf_t,
+    f32_max,
     EMPTY_LANE,
     TRACE_CLOSEST_HIT,
     TRACE_ANY_HIT,
@@ -59,10 +59,9 @@ def _make_camera_ray(
 
     return Ray(
         o,
+        0.0,
         nd,
-        Float32(0.0),
-        _gpu_inf_t,
-        UInt32(0xFFFFFFFF),
+        f32_max,
     )
 
 
@@ -75,7 +74,7 @@ def _write_camera_miss_result[
 ):
     comptime if mode == TRACE_CLOSEST_HIT:
         var hit_base = ray_idx * 3
-        out_f32[hit_base + 0] = _gpu_inf_t
+        out_f32[hit_base + 0] = f32_max
         out_f32[hit_base + 1] = 0.0
         out_f32[hit_base + 2] = 0.0
         out_u32[ray_idx] = EMPTY_LANE

@@ -111,27 +111,6 @@ struct GpuSphereBvh[width: Int]:
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
 
-    def launch_uploaded_shadow(
-        self,
-        ctx: DeviceContext,
-        d_rays: DeviceBuffer[DType.float32],
-        d_flags: DeviceBuffer[DType.uint32],
-        ray_count: Int,
-    ) raises:
-        ctx.enqueue_function[trace_gpu_sphere_bvh_shadow_kernel[Self.width]](
-            self.tree.wide_bounds,
-            self.tree.wide_data,
-            self.tree.wide_counts,
-            self.leaf_spheres,
-            self.leaf_prims,
-            self.tree.root_idx,
-            d_rays,
-            d_flags,
-            ray_count,
-            grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
-            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-        )
-
 
 def trace_gpu_sphere_bvh_primary_kernel[
     width: Int,
@@ -174,44 +153,6 @@ def trace_gpu_sphere_bvh_primary_kernel[
     hits_f32[hit_base + 1] = hit.u
     hits_f32[hit_base + 2] = hit.v
     hits_u32[ray_idx] = hit.prim
-
-
-def trace_gpu_sphere_bvh_shadow_kernel[
-    width: Int,
-](
-    wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    wide_data: UnsafePointer[UInt32, MutAnyOrigin],
-    wide_counts: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_spheres: UnsafePointer[Float32, MutAnyOrigin],
-    leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
-    root_idx: UInt32,
-    rays: UnsafePointer[Float32, MutAnyOrigin],
-    flags: UnsafePointer[UInt32, MutAnyOrigin],
-    ray_count: Int,
-):
-    var ray_idx = global_idx.x
-    if ray_idx >= ray_count:
-        return
-
-    var ray = Ray(rays, ray_idx)
-    var hit = trace_bounds_bvh[
-        width,
-        TRACE_ANY_HIT,
-        _intersect_sphere_leaf[
-            width,
-            TRACE_ANY_HIT,
-        ],
-    ](
-        wide_bounds,
-        wide_data,
-        wide_counts,
-        leaf_spheres,
-        leaf_prims,
-        root_idx,
-        ray,
-    )
-
-    flags[ray_idx] = hit.occluded
 
 
 def _load_sphere_leaf_packet[
@@ -294,7 +235,6 @@ def _intersect_sphere_leaf[
                 hit.u = 0.0
                 hit.v = 0.0
                 hit.inst = EMPTY_LANE
-                hit.occluded = UInt32(0)
 
                 comptime for lane in range(width):
                     if hit_mask[lane] and h.t[lane] == min_t:

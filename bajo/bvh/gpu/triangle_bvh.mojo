@@ -207,44 +207,6 @@ def trace_gpu_triangle_bvh_primary_kernel[
     hits_u32[ray_idx] = hit.prim
 
 
-def trace_gpu_triangle_bvh_shadow_kernel[
-    width: Int,
-](
-    wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    wide_data: UnsafePointer[UInt32, MutAnyOrigin],
-    wide_counts: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_vertices: UnsafePointer[Float32, MutAnyOrigin],
-    leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
-    root_idx: UInt32,
-    rays: UnsafePointer[Float32, MutAnyOrigin],
-    flags: UnsafePointer[UInt32, MutAnyOrigin],
-    ray_count: Int,
-):
-    var ray_idx = global_idx.x
-    if ray_idx >= ray_count:
-        return
-
-    var ray = Ray(rays, ray_idx)
-    var hit = trace_bounds_bvh[
-        width,
-        TRACE_ANY_HIT,
-        _intersect_triangle_leaf[
-            width,
-            TRACE_ANY_HIT,
-        ],
-    ](
-        wide_bounds,
-        wide_data,
-        wide_counts,
-        leaf_vertices,
-        leaf_prims,
-        root_idx,
-        ray,
-    )
-
-    flags[ray_idx] = hit.occluded
-
-
 # this version works !!!!
 def _intersect_triangle_leaf[
     width: Int,
@@ -305,7 +267,6 @@ def _intersect_triangle_leaf[
                             hit.v = h.v
                             hit.prim = prim
                             hit.inst = EMPTY_LANE
-                            hit.occluded = UInt32(0)
 
                         any_hit = True
 
@@ -403,6 +364,4 @@ def _intersect_triangle_leaf[
 #                         hit.v = h.v[lane]
 #                         hit.prim = block.prim_indices[lane]
 #                         hit.inst = EMPTY_LANE
-#                         hit.occluded = 0
-
 #         return True

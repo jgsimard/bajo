@@ -138,7 +138,6 @@ def _brute_trace(
             best_hit.v = h.v
             best_hit.prim = UInt32(i)
             best_hit.inst = EMPTY_LANE
-            best_hit.occluded = UInt32(0)
 
     return best_hit
 
@@ -178,7 +177,6 @@ def _brute_sphere_trace(
             best_hit.v = 0.0
             best_hit.prim = UInt32(i)
             best_hit.inst = EMPTY_LANE
-            best_hit.occluded = 0
 
     return best_hit
 

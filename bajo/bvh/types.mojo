@@ -26,21 +26,20 @@ struct Hit(TrivialRegisterPassable, Writable):
     var v: Float32
     var prim: UInt32
     var inst: UInt32
-    var occluded: UInt32
 
     @staticmethod
     def miss() -> Self:
-        return Self(f32_max, 0.0, 0.0, EMPTY_LANE, EMPTY_LANE, 0)
+        return Self(f32_max, 0.0, 0.0, EMPTY_LANE, EMPTY_LANE)
 
     @staticmethod
     def shadow_hit() -> Self:
-        return Self(0.0, 0.0, 0.0, EMPTY_LANE, EMPTY_LANE, 1)
+        return Self(0.0, 0.0, 0.0, EMPTY_LANE, EMPTY_LANE)
 
     def is_hit(self) -> Bool:
         return self.prim != EMPTY_LANE and self.t < f32_max
 
     def is_occluded(self) -> Bool:
-        return self.occluded != UInt32(0)
+        return self.t < f32_max
 
 
 @fieldwise_init

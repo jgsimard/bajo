@@ -88,7 +88,6 @@ struct Tlas[width: Int](Copyable):
                         hit.v = local_hit.v
                         hit.prim = local_hit.prim
                         hit.inst = inst_idx
-                        hit.occluded = UInt32(0)
 
             return False
 
@@ -148,7 +147,6 @@ struct Tlas[width: Int](Copyable):
                         hit.v = local_hit.v
                         hit.prim = local_hit.prim
                         hit.inst = inst_idx
-                        hit.occluded = UInt32(0)
 
             return False
 

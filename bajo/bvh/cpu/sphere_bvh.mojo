@@ -128,7 +128,6 @@ struct SphereBvh[width: Int](Copyable):
                     hit.u = 0.0
                     hit.v = 0.0
                     hit.inst = EMPTY_LANE
-                    hit.occluded = UInt32(0)
                     hit.prim = block.prim_indices[arg_min_t]
 
                 return True

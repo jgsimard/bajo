@@ -81,7 +81,6 @@ def _make_tlas_local_ray(
         d,
         ray.t_min,
         t_max,
-        ray.mask,
     )
 
 

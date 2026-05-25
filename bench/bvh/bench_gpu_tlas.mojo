@@ -25,7 +25,7 @@ from bajo.bvh.gpu.tlas import GpuTlas
 from bajo.bvh.gpu.sphere_bvh import GpuSphereBvh
 from bajo.bvh.gpu.triangle_bvh import GpuTriangleBvh
 from bajo.bvh.gpu.utils import _upload_rays, _download_full_hit_checksum
-from bajo.bvh.constants import TRACE, GPU_TRAVERSAL_STACK_SIZE, EMPTY_LANE
+from bajo.bvh.constants import TRACE, GPU_STACK_SIZE, EMPTY_LANE
 from bajo.obj.pack import pack_obj_triangles
 
 

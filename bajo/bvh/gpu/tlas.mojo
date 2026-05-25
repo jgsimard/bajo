@@ -4,7 +4,7 @@ from std.gpu import DeviceBuffer, DeviceContext, global_idx
 from bajo.core.transform import Affine3f32
 from bajo.bvh.constants import (
     TRACE,
-    GPU_TRAVERSAL_STACK_SIZE,
+    GPU_STACK_SIZE,
     EMPTY_LANE,
     f32_max,
     BOUNDS_STRIDE,
@@ -170,9 +170,7 @@ def trace_tlas_ray[
 ) -> Hit:
     var hit = Hit.miss(ray.t_max)
 
-    var stack = InlineArray[UInt32, GPU_TRAVERSAL_STACK_SIZE](
-        uninitialized=True
-    )
+    var stack = InlineArray[UInt32, GPU_STACK_SIZE](uninitialized=True)
     var stack_ptr = 0
     var current = tlas_root_idx
 
@@ -241,11 +239,11 @@ def trace_tlas_ray[
 
                 comptime if mode != TRACE.ANY_HIT:
                     if far_t <= hit.t:
-                        if stack_ptr < GPU_TRAVERSAL_STACK_SIZE:
+                        if stack_ptr < GPU_STACK_SIZE:
                             stack[stack_ptr] = child_data[far_lane]
                             stack_ptr += 1
                 else:
-                    if stack_ptr < GPU_TRAVERSAL_STACK_SIZE:
+                    if stack_ptr < GPU_STACK_SIZE:
                         stack[stack_ptr] = child_data[far_lane]
                         stack_ptr += 1
 

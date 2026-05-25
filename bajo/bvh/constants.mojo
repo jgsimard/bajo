@@ -15,14 +15,14 @@ struct TRACE(Equatable):
     var v: Int
 
 
-comptime GPU_TRAVERSAL_STACK_SIZE = 64
+comptime GPU_STACK_SIZE = 64
 comptime GPU_REDUCE_THREADS = 4096
 
 comptime EMPTY_LANE = UInt32(0xFFFFFFFF)
 comptime MISS_PRIM = EMPTY_LANE
 comptime MISS_INST = EMPTY_LANE
 
-comptime CPU_TRAVERSAL_STACK_SIZE = 64
+comptime CPU_STACK_SIZE = 64
 
 comptime BOUNDS_STRIDE = 6
 comptime TRI_LEAF_VERTEX_STRIDE = 9

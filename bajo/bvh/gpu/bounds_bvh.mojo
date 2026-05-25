@@ -17,7 +17,7 @@ from bajo.bvh.constants import (
     LBVH_LEAF_FLAG,
     LBVH_INDEX_MASK,
     LBVH_SENTINEL,
-    GPU_TRAVERSAL_STACK_SIZE,
+    GPU_STACK_SIZE,
     EMPTY_LANE,
     BOUNDS_STRIDE,
 )
@@ -231,9 +231,7 @@ def _collect_encoded_leaf_payloads_gpu[
     out_leaf_block_indices: UnsafePointer[UInt32, MutAnyOrigin],
     leaf_block_idx: UInt32,
 ):
-    var stack = InlineArray[UInt32, GPU_TRAVERSAL_STACK_SIZE](
-        uninitialized=True
-    )
+    var stack = InlineArray[UInt32, GPU_STACK_SIZE](uninitialized=True)
     var sp = 0
     stack[sp] = encoded
     sp += 1
@@ -256,7 +254,7 @@ def _collect_encoded_leaf_payloads_gpu[
             var left = _node_left(node_meta, node_idx)
             var right = _node_right(node_meta, node_idx)
 
-            if sp + 2 <= GPU_TRAVERSAL_STACK_SIZE:
+            if sp + 2 <= GPU_STACK_SIZE:
                 stack[sp] = right
                 sp += 1
                 stack[sp] = left
@@ -811,21 +809,20 @@ def _load_wide_bounds_block[
     wide_bounds: UnsafePointer[Scalar[dtype], MutAnyOrigin],
     node_idx: UInt32,
 ) -> AxisAlignedBoundingBox[dtype, width]:
-    var bmin = Vec3[dtype, width](0)
-    var bmax = Vec3[dtype, width](0)
+    var aabb = AxisAlignedBoundingBox[dtype, width].invalid()
 
     comptime for lane in range(width):
         var b = _wide_bounds_base[width](node_idx, lane)
 
-        bmin.x[lane] = wide_bounds[b + 0]
-        bmin.y[lane] = wide_bounds[b + 1]
-        bmin.z[lane] = wide_bounds[b + 2]
+        aabb._min.x[lane] = wide_bounds[b + 0]
+        aabb._min.y[lane] = wide_bounds[b + 1]
+        aabb._min.z[lane] = wide_bounds[b + 2]
 
-        bmax.x[lane] = wide_bounds[b + 3]
-        bmax.y[lane] = wide_bounds[b + 4]
-        bmax.z[lane] = wide_bounds[b + 5]
+        aabb._max.x[lane] = wide_bounds[b + 3]
+        aabb._max.y[lane] = wide_bounds[b + 4]
+        aabb._max.z[lane] = wide_bounds[b + 5]
 
-    return AxisAlignedBoundingBox(bmin, bmax)
+    return aabb
 
 
 def _intersect_wide_node_bounds[
@@ -844,7 +841,7 @@ def _intersect_wide_node_bounds[
     var O = Vec3[DType.float32, width](ray.o.x, ray.o.y, ray.o.z)
     var RD = 1.0 / Vec3[DType.float32, width](ray.d.x, ray.d.y, ray.d.z)
 
-    return intersect_ray_aabb[DType.float32, width](
+    return intersect_ray_aabb(
         O,
         RD,
         block._min,
@@ -993,16 +990,7 @@ def init_lbvh_bounds_kernel(
         return
 
     var b = i * LBVH_NODE_BOUNDS_STRIDE
-    node_bounds[b + 0] = Float32.MAX
-    node_bounds[b + 1] = Float32.MAX
-    node_bounds[b + 2] = Float32.MAX
-    node_bounds[b + 3] = Float32.MIN
-    node_bounds[b + 4] = Float32.MIN
-    node_bounds[b + 5] = Float32.MIN
-    node_bounds[b + 6] = Float32.MAX
-    node_bounds[b + 7] = Float32.MAX
-    node_bounds[b + 8] = Float32.MAX
-    node_bounds[b + 9] = Float32.MIN
-    node_bounds[b + 10] = Float32.MIN
-    node_bounds[b + 11] = Float32.MIN
+    invalid = AABB.invalid()
+    invalid.store6(node_bounds, b)
+    invalid.store6(node_bounds, b + 6)
     node_flags[i] = UInt32(0)

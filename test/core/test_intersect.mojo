@@ -66,7 +66,7 @@ def test_intersect_ray_aabb() raises:
     res = intersect_ray_aabb(pos_hit, rcp_dir_hit, lower, upper, 1e30)
     assert_true(res.mask)
     # Starts at z=5, hits z=1, distance is 4
-    assert_almost_equal(res.tmin, 4.0, atol=1e-4)
+    assert_almost_equal(res.t, 4.0, atol=1e-4)
 
     # Ray missing the AABB
     pos_miss = Vec3([5.0, 5.0, 5.0])

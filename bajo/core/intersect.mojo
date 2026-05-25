@@ -39,7 +39,7 @@ struct RayAabbHit[dtype: DType, width: Int](TrivialRegisterPassable, Writable):
     """
 
     var mask: SIMD[DType.bool, Self.width]
-    var tmin: SIMD[Self.dtype, Self.width]
+    var t: SIMD[Self.dtype, Self.width]
 
 
 def diff_product[

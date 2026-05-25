@@ -1,15 +1,11 @@
-from bajo.core.utils import min_argmin
-from bajo.core.vec import Vec3, Vec3f32, vmin, vmax, longest_axis, dot
-from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
-from bajo.bvh.cpu.bounds_bvh import (
-    BoundsBvh,
-    BoundsItem,
-    BoundsBvhBuilder,
-)
-from bajo.core.aabb import AABB, AxisAlignedBoundingBox
-from bajo.bvh.types import Ray, Hit, Sphere, SphereLeafBlock
+from bajo.core.aabb import AABB
 from bajo.core.intersect import intersect_ray_sphere
+from bajo.core.utils import min_argmin
+from bajo.core.vec import Vec3
+from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
+from bajo.bvh.cpu.bounds_bvh import BoundsBvh, BoundsItem, BoundsBvhBuilder
 from bajo.bvh.cpu.trace import trace_bounds_bvh
+from bajo.bvh.types import Ray, Hit, Sphere, SphereLeafBlock
 
 
 struct SphereBvh[width: Int](Copyable):

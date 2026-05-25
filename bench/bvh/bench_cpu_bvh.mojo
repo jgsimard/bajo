@@ -6,7 +6,7 @@ from bajo.bvh.types import Ray, Sphere
 from bajo.bvh.constants import TRACE
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
-
+from bajo.bvh.host_utils import hit_t_for_checksum
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.core.vec import Vec3f32
 
@@ -76,12 +76,6 @@ def make_hit_and_miss_rays() -> List[Ray]:
     return rays^
 
 
-def _hit_t_for_checksum(t: Float32) -> Float64:
-    if t < Float32(1e20):
-        return Float64(t)
-    return 0.0
-
-
 @fieldwise_init
 struct PrimaryBenchResult(Copyable):
     var ns: Int
@@ -139,7 +133,7 @@ def trace_triangle_primary[
 
     for ray in rays:
         var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
-        checksum += _hit_t_for_checksum(hit.t)
+        checksum += hit_t_for_checksum(hit.t)
 
     return checksum
 
@@ -163,7 +157,7 @@ def trace_sphere_primary[
 
     for ray in rays:
         var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
-        checksum += _hit_t_for_checksum(hit.t)
+        checksum += hit_t_for_checksum(hit.t)
 
     return checksum
 

@@ -27,8 +27,6 @@ comptime CHAR_o = UInt8(ord("o"))
 
 
 # parsing primitive
-
-
 def _is_ws(b: UInt8) -> Bool:
     return b == SPACE or b == TAB or b == CR
 
@@ -53,18 +51,13 @@ def _fix_index(raw: Int, count_with_dummy: Int) -> Int:
     return 0
 
 
+@fieldwise_init
 struct FirstFaceIndex(TrivialRegisterPassable):
     var idx: ObjIndex
     var shape: Int
 
-    def __init__(out self, idx: ObjIndex, shape: Int):
-        self.idx = idx
-        self.shape = shape
-
 
 # OBJ parsing
-
-
 def _word_ends_here[
     o: Origin
 ](ptr: UnsafePointer[UInt8, o], p: Int, end: Int) -> Bool:

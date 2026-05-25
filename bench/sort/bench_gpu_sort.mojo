@@ -36,7 +36,7 @@ def calculate_gks(ns_per_iter: Float64, SIZE: Int) -> Float64:
 def fmt(ns: Float64, SIZE: Int) -> String:
     var ms = round(ns / 1_000_000.0, 4)
     var gks = round(calculate_gks(ns, SIZE), 3)
-    return String(ms) + " | " + String(gks)
+    return String(t"{ms} | {gks}")
 
 
 @fieldwise_init

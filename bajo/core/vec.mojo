@@ -87,11 +87,7 @@ struct Vec3[dtype: DType, width: Int = 1](
             The host type's name.
         """
         return String(
-            "Vec3[",
-            reflect[Scalar[Self.dtype]].name(),
-            ", ",
-            Self.width,
-            "]",
+            t"Vec3[{reflect[Scalar[Self.dtype]].name()},{Self.width}]"
         )
 
     def __init__(

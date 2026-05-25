@@ -1,4 +1,4 @@
-from std.math import acos, cos, pi, sin, sqrt, cbrt
+from std.math import cos, pi, sin, sqrt, cbrt
 from std.random import Random
 
 from bajo.core.vec import Vec3f32, dot

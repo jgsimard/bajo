@@ -71,7 +71,7 @@ struct AxisAlignedBoundingBox[dtype: DType, width: Int = 1](
             & o._min.z.le(self._max.z)
         )
 
-    def contains(
+    def contains_point(
         self, p: Vec3[Self.dtype, Self.width]
     ) -> SIMD[DType.bool, Self.width]:
         return (

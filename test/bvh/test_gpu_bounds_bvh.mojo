@@ -13,7 +13,7 @@ from bajo.bvh.host_utils import (
     generate_primary_rays,
     hit_t_for_checksum,
 )
-from bajo.bvh.constants import EMPTY_LANE, TRACE_CLOSEST_HIT, TRACE_ANY_HIT
+from bajo.bvh.constants import EMPTY_LANE, TRACE
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
@@ -192,7 +192,7 @@ def _trace_cpu_triangle_bvh[
 ](mut bvh: TriangleBvh[width], rays: List[Ray]) -> Float64:
     var checksum = 0.0
     for ray in rays:
-        var hit = bvh.trace[TRACE_CLOSEST_HIT](ray)
+        var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
         checksum += hit_t_for_checksum(hit.t)
     return checksum
 
@@ -294,7 +294,7 @@ def _assert_gpu_triangle_width_matches_cpu[
             with d_hits_u32.map_to_host() as hu:
                 for i in range(len(rays)):
                     var ray = rays[i].copy()
-                    var cpu_hit = cpu_bvh.trace[TRACE_CLOSEST_HIT](ray)
+                    var cpu_hit = cpu_bvh.trace[TRACE.CLOSEST_HIT](ray)
 
                     var gpu_t = hf[i * 3 + 0]
                     var gpu_u = hf[i * 3 + 1]

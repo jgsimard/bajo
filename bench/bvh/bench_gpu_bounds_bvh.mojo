@@ -16,7 +16,7 @@ from bajo.bvh.host_utils import (
     flatten_rays,
     hit_t_for_checksum,
 )
-from bajo.bvh.constants import TRACE_CLOSEST_HIT
+from bajo.bvh.constants import TRACE
 from bajo.bvh.types import Ray, Sphere
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
@@ -44,7 +44,7 @@ def _trace_cpu_triangle_bvh[
 ](mut bvh: TriangleBvh[width], rays: List[Ray]) -> Float64:
     var checksum = Float64(0.0)
     for ray in rays:
-        var hit = bvh.trace[TRACE_CLOSEST_HIT](ray)
+        var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
         checksum += hit_t_for_checksum(hit.t)
     return checksum
 
@@ -54,7 +54,7 @@ def _trace_cpu_sphere_bvh[
 ](mut bvh: SphereBvh[width], rays: List[Ray]) -> Float64:
     var checksum = Float64(0.0)
     for ray in rays:
-        var hit = bvh.trace[TRACE_CLOSEST_HIT](ray)
+        var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
         checksum += hit_t_for_checksum(hit.t)
     return checksum
 

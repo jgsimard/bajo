@@ -7,8 +7,7 @@ from bajo.core.vec import Vec3f32, vmin, vmax, Vec3, normalize, cross
 from bajo.bvh.types import Ray, Hit, TriangleLeafBlock
 from bajo.bvh.constants import (
     EMPTY_LANE,
-    TRACE_CLOSEST_HIT,
-    TRACE_ANY_HIT,
+    TRACE,
     TRI_LEAF_VERTEX_STRIDE,
 )
 from bajo.bvh.gpu.bounds_bvh import (
@@ -164,10 +163,10 @@ def trace_gpu_triangle_bvh_primary_kernel[
     var ray = Ray(rays, ray_idx)
     var hit = trace_bounds_bvh[
         width,
-        TRACE_CLOSEST_HIT,
+        TRACE.CLOSEST_HIT,
         _intersect_triangle_leaf[
             width,
-            TRACE_CLOSEST_HIT,
+            TRACE.CLOSEST_HIT,
         ],
     ](
         wide_bounds,
@@ -189,7 +188,7 @@ def trace_gpu_triangle_bvh_primary_kernel[
 # this version works !!!!
 def _intersect_triangle_leaf[
     width: Int,
-    mode: String,
+    mode: TRACE,
 ](
     leaf_vertices: UnsafePointer[Float32, MutAnyOrigin],
     leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
@@ -198,8 +197,6 @@ def _intersect_triangle_leaf[
     ray: Ray,
     mut hit: Hit,
 ) capturing -> Bool:
-    comptime assert mode in [TRACE_CLOSEST_HIT, TRACE_ANY_HIT]
-
     var any_hit = False
 
     comptime for lane in range(width):
@@ -225,7 +222,7 @@ def _intersect_triangle_leaf[
 
                 if tri_hit.mask and tri_hit.t < hit.t:
                     hit.t = tri_hit.t
-                    comptime if mode == TRACE_ANY_HIT:
+                    comptime if mode == TRACE.ANY_HIT:
                         return True
                     else:
                         hit.u = tri_hit.u

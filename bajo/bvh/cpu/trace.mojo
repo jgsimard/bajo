@@ -2,21 +2,14 @@ from bajo.bvh.types import Ray, Hit
 from bajo.core.intersect import intersect_ray_aabb
 from bajo.core.vec import Vec3
 from bajo.bvh.cpu.bounds_bvh import BoundsBvh
-from bajo.bvh.constants import (
-    EMPTY_LANE,
-    CPU_TRAVERSAL_STACK_SIZE,
-    TRACE_ANY_HIT,
-    TRACE_CLOSEST_HIT,
-)
+from bajo.bvh.constants import EMPTY_LANE, CPU_TRAVERSAL_STACK_SIZE, TRACE
 
 
 def trace_bounds_bvh[
     width: Int,
-    mode: String,
+    mode: TRACE,
     leaf_fn: def(Ray, UInt32, UInt32, mut Hit) capturing -> Bool,
 ](tree: BoundsBvh[width], ray: Ray) -> Hit:
-    comptime assert mode in [TRACE_CLOSEST_HIT, TRACE_ANY_HIT]
-
     if len(tree.nodes) == 0:
         return Hit.miss()
 
@@ -51,7 +44,7 @@ def trace_bounds_bvh[
                             node.counts[i],
                             hit,
                         ):
-                            comptime if mode == TRACE_ANY_HIT:
+                            comptime if mode == TRACE.ANY_HIT:
                                 return Hit.shadow_hit()
 
         if stack_ptr == 0:

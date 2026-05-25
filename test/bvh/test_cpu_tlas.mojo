@@ -1,6 +1,6 @@
 from std.testing import TestSuite, assert_true, assert_almost_equal
 
-from bajo.bvh.constants import TRACE_CLOSEST_HIT, TRACE_ANY_HIT
+from bajo.bvh.constants import TRACE
 from bajo.bvh.types import Ray, Instance, Sphere
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
@@ -79,7 +79,7 @@ def test_tlas_triangle_identity_instance_hit() raises:
     var tlas = Tlas[4](instances)
 
     var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    var hit = tlas.trace_triangles[TRACE_CLOSEST_HIT, 4](
+    var hit = tlas.trace_triangles[TRACE.CLOSEST_HIT, 4](
         ray, blases.unsafe_ptr()
     )
 
@@ -106,7 +106,7 @@ def test_tlas_translated_triangle_instance_hit() raises:
 
     # World ray at x = 5 becomes local x = 0 after inverse transform.
     var ray = Ray(Vec3f32(5.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    var hit = tlas.trace_triangles[TRACE_CLOSEST_HIT, 4](
+    var hit = tlas.trace_triangles[TRACE.CLOSEST_HIT, 4](
         ray, blases.unsafe_ptr()
     )
 
@@ -132,7 +132,7 @@ def test_tlas_translated_triangle_instance_miss() raises:
     var tlas = Tlas[4](instances)
 
     var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    var hit = tlas.trace_triangles[TRACE_CLOSEST_HIT, 4](
+    var hit = tlas.trace_triangles[TRACE.CLOSEST_HIT, 4](
         ray, blases.unsafe_ptr()
     )
 
@@ -162,7 +162,7 @@ def test_tlas_translated_triangle_two_instances_nearest_wins() raises:
     var tlas = Tlas[4](instances)
 
     var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    var hit = tlas.trace_triangles[TRACE_CLOSEST_HIT, 4](
+    var hit = tlas.trace_triangles[TRACE.CLOSEST_HIT, 4](
         ray, blases.unsafe_ptr()
     )
 
@@ -194,7 +194,7 @@ def test_tlas_triangle_two_instances_far_wins_when_ray_targets_far() raises:
     var tlas = Tlas[4](instances)
 
     var ray = Ray(Vec3f32(5.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    var hit = tlas.trace_triangles[TRACE_CLOSEST_HIT, 4](
+    var hit = tlas.trace_triangles[TRACE.CLOSEST_HIT, 4](
         ray, blases.unsafe_ptr()
     )
 
@@ -221,14 +221,14 @@ def test_tlas_translated_triangle_shadow_hit_and_miss() raises:
 
     var ray_hit = Ray(Vec3f32(5.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
     assert_true(
-        tlas.trace_triangles[TRACE_ANY_HIT, 4](
+        tlas.trace_triangles[TRACE.ANY_HIT, 4](
             ray_hit, blases.unsafe_ptr()
         ).is_occluded()
     )
 
     var ray_miss = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
     assert_true(
-        not tlas.trace_triangles[TRACE_ANY_HIT, 4](
+        not tlas.trace_triangles[TRACE.ANY_HIT, 4](
             ray_miss, blases.unsafe_ptr()
         ).is_occluded()
     )
@@ -254,7 +254,7 @@ def test_tlas_sphere_identity_instance_hit() raises:
     var tlas = Tlas[4](instances)
 
     var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    var hit = tlas.trace_spheres[TRACE_CLOSEST_HIT, 4](ray, blases.unsafe_ptr())
+    var hit = tlas.trace_spheres[TRACE.CLOSEST_HIT, 4](ray, blases.unsafe_ptr())
 
     assert_true(hit.inst == 0)
     assert_true(hit.prim == 0)
@@ -278,7 +278,7 @@ def test_tlas_translated_sphere_instance_hit() raises:
     var tlas = Tlas[4](instances)
 
     var ray = Ray(Vec3f32(5.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    var hit = tlas.trace_spheres[TRACE_CLOSEST_HIT, 4](ray, blases.unsafe_ptr())
+    var hit = tlas.trace_spheres[TRACE.CLOSEST_HIT, 4](ray, blases.unsafe_ptr())
 
     assert_true(hit.inst == 0)
     assert_true(hit.prim == 0)
@@ -302,7 +302,7 @@ def test_tlas_translated_sphere_instance_miss() raises:
     var tlas = Tlas[4](instances)
 
     var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    var hit = tlas.trace_spheres[TRACE_CLOSEST_HIT, 4](ray, blases.unsafe_ptr())
+    var hit = tlas.trace_spheres[TRACE.CLOSEST_HIT, 4](ray, blases.unsafe_ptr())
 
     assert_true(not hit.is_hit())
 
@@ -330,7 +330,7 @@ def test_tlas_translated_sphere_two_instances_nearest_wins() raises:
     var tlas = Tlas[4](instances)
 
     var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    var hit = tlas.trace_spheres[TRACE_CLOSEST_HIT, 4](ray, blases.unsafe_ptr())
+    var hit = tlas.trace_spheres[TRACE.CLOSEST_HIT, 4](ray, blases.unsafe_ptr())
 
     assert_true(hit.inst == 0)
     assert_true(hit.prim == 0)
@@ -360,7 +360,7 @@ def test_cpu_tlas_sphere_two_instances_far_wins_when_ray_targets_far() raises:
     var tlas = Tlas[4](instances)
 
     var ray = Ray(Vec3f32(5.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    var hit = tlas.trace_spheres[TRACE_CLOSEST_HIT, 4](ray, blases.unsafe_ptr())
+    var hit = tlas.trace_spheres[TRACE.CLOSEST_HIT, 4](ray, blases.unsafe_ptr())
 
     assert_true(hit.inst == 1)
     assert_true(hit.prim == 0)
@@ -385,14 +385,14 @@ def test_tlas_translated_sphere_shadow_hit_and_miss() raises:
 
     var ray_hit = Ray(Vec3f32(5.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
     assert_true(
-        tlas.trace_spheres[TRACE_ANY_HIT, 4](
+        tlas.trace_spheres[TRACE.ANY_HIT, 4](
             ray_hit, blases.unsafe_ptr()
         ).is_occluded()
     )
 
     var ray_miss = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
     assert_true(
-        not tlas.trace_spheres[TRACE_ANY_HIT, 4](
+        not tlas.trace_spheres[TRACE.ANY_HIT, 4](
             ray_miss, blases.unsafe_ptr()
         ).is_occluded()
     )

@@ -3,8 +3,7 @@ from std.gpu import DeviceBuffer, DeviceContext, global_idx
 
 from bajo.core.transform import Affine3f32
 from bajo.bvh.constants import (
-    TRACE_CLOSEST_HIT,
-    TRACE_ANY_HIT,
+    TRACE,
     GPU_TRAVERSAL_STACK_SIZE,
     EMPTY_LANE,
     f32_max,
@@ -88,7 +87,7 @@ def _make_tlas_local_ray(
 def _intersect_tlas_instance_block[
     tlas_width: Int,
     blas_width: Int,
-    mode: String,
+    mode: TRACE,
     blas_leaf_fn: BlasLeafFn,
 ](
     tlas_leaf_instances: UnsafePointer[UInt32, MutAnyOrigin],
@@ -105,8 +104,6 @@ def _intersect_tlas_instance_block[
     ray: Ray,
     mut best_hit: Hit,
 ) -> Bool:
-    comptime assert mode in [TRACE_CLOSEST_HIT, TRACE_ANY_HIT]
-
     var hit_any = False
 
     for lane in range(tlas_width):
@@ -123,7 +120,7 @@ def _intersect_tlas_instance_block[
                 )
                 if blas_idx == UInt32(0):
                     var local_t_max = best_hit.t
-                    comptime if mode == TRACE_ANY_HIT:
+                    comptime if mode == TRACE.ANY_HIT:
                         local_t_max = ray.t_max
 
                     var local_ray = _make_tlas_local_ray(
@@ -147,7 +144,7 @@ def _intersect_tlas_instance_block[
                         local_ray,
                     )
 
-                    comptime if mode == TRACE_ANY_HIT:
+                    comptime if mode == TRACE.ANY_HIT:
                         if local_hit.is_occluded():
                             best_hit = Hit.shadow_hit()
                             best_hit.inst = inst_idx
@@ -167,7 +164,7 @@ def _intersect_tlas_instance_block[
 def trace_gpu_wide_tlas_ray[
     tlas_width: Int,
     blas_width: Int,
-    mode: String,
+    mode: TRACE,
     blas_leaf_fn: BlasLeafFn,
 ](
     tlas_wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
@@ -185,8 +182,6 @@ def trace_gpu_wide_tlas_ray[
     blas_root_idx: UInt32,
     ray: Ray,
 ) -> Hit:
-    comptime assert mode in [TRACE_CLOSEST_HIT, TRACE_ANY_HIT]
-
     var best_hit = Hit.miss(ray.t_max)
 
     var stack = InlineArray[UInt32, GPU_TRAVERSAL_STACK_SIZE](
@@ -197,7 +192,7 @@ def trace_gpu_wide_tlas_ray[
 
     while True:
         var node_t_max = best_hit.t
-        comptime if mode == TRACE_ANY_HIT:
+        comptime if mode == TRACE.ANY_HIT:
             node_t_max = ray.t_max
 
         var bounds_hit = _intersect_wide_node_bounds[tlas_width](
@@ -244,7 +239,7 @@ def trace_gpu_wide_tlas_ray[
                         best_hit,
                     )
 
-                    comptime if mode == TRACE_ANY_HIT:
+                    comptime if mode == TRACE.ANY_HIT:
                         if leaf_hit:
                             return best_hit
 
@@ -262,7 +257,7 @@ def trace_gpu_wide_tlas_ray[
             if far_lane != -1:
                 child_valid[far_lane] = False
 
-                comptime if mode != TRACE_ANY_HIT:
+                comptime if mode != TRACE.ANY_HIT:
                     if far_t <= best_hit.t:
                         if stack_ptr < GPU_TRAVERSAL_STACK_SIZE:
                             stack[stack_ptr] = child_data[far_lane]
@@ -285,7 +280,7 @@ def trace_gpu_wide_tlas_primitive_ray[
     primitive: String,
     tlas_width: Int,
     blas_width: Int,
-    mode: String = TRACE_CLOSEST_HIT,
+    mode: TRACE = TRACE.CLOSEST_HIT,
 ](
     tlas_wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
     tlas_wide_data: UnsafePointer[UInt32, MutAnyOrigin],
@@ -303,7 +298,6 @@ def trace_gpu_wide_tlas_primitive_ray[
     ray: Ray,
 ) -> Hit:
     comptime assert primitive in ["triangle", "sphere"]
-    comptime assert mode in [TRACE_CLOSEST_HIT, TRACE_ANY_HIT]
 
     comptime leaf_fn: BlasLeafFn = (
         _intersect_triangle_leaf[blas_width, mode] if primitive
@@ -379,7 +373,7 @@ struct GpuTlas[width: Int]:
 
     def launch_uploaded[
         primitive: String,
-        mode: String,
+        mode: TRACE,
         blas_width: Int,
     ](
         self,
@@ -397,10 +391,6 @@ struct GpuTlas[width: Int]:
         ray_count: Int,
     ) raises:
         comptime assert primitive in ["triangle", "sphere"]
-        comptime assert mode in [
-            TRACE_CLOSEST_HIT,
-            TRACE_ANY_HIT,
-        ]
 
         ctx.enqueue_function[
             trace_gpu_tlas_uploaded_kernel[
@@ -486,7 +476,7 @@ struct GpuTlas[width: Int]:
 
 def trace_gpu_tlas_uploaded_kernel[
     primitive: String,
-    mode: String,
+    mode: TRACE,
     tlas_width: Int,
     blas_width: Int,
 ](
@@ -510,7 +500,6 @@ def trace_gpu_tlas_uploaded_kernel[
     ray_count: Int,
 ):
     comptime assert primitive in ["triangle", "sphere"]
-    comptime assert mode in [TRACE_CLOSEST_HIT, TRACE_ANY_HIT]
 
     var ray_idx = global_idx.x
     if ray_idx >= ray_count:
@@ -587,7 +576,7 @@ def trace_gpu_tlas_camera_primary_kernel[
         primitive,
         tlas_width,
         blas_width,
-        TRACE_CLOSEST_HIT,
+        TRACE.CLOSEST_HIT,
     ](
         tlas_wide_bounds,
         tlas_wide_data,

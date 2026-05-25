@@ -4,8 +4,7 @@ from std.gpu import DeviceBuffer, DeviceContext, global_idx
 
 from bajo.bvh.constants import (
     EMPTY_LANE,
-    TRACE_CLOSEST_HIT,
-    TRACE_ANY_HIT,
+    TRACE,
     SPHERE_STRIDE,
     BOUNDS_STRIDE,
     f32_max,
@@ -133,10 +132,10 @@ def trace_gpu_sphere_bvh_primary_kernel[
     var ray = Ray(rays, ray_idx)
     var hit = trace_bounds_bvh[
         width,
-        TRACE_CLOSEST_HIT,
+        TRACE.CLOSEST_HIT,
         _intersect_sphere_leaf[
             width,
-            TRACE_CLOSEST_HIT,
+            TRACE.CLOSEST_HIT,
         ],
     ](
         wide_bounds,
@@ -186,7 +185,7 @@ def _load_sphere_leaf_packet[
 
 def _intersect_sphere_leaf[
     width: Int,
-    mode: String,
+    mode: TRACE,
 ](
     leaf_spheres: UnsafePointer[Float32, MutAnyOrigin],
     leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
@@ -195,8 +194,6 @@ def _intersect_sphere_leaf[
     ray: Ray,
     mut hit: Hit,
 ) capturing -> Bool:
-    comptime assert mode in [TRACE_CLOSEST_HIT, TRACE_ANY_HIT]
-
     var block = _load_sphere_leaf_packet[width](
         leaf_spheres,
         leaf_prims,
@@ -207,39 +204,31 @@ def _intersect_sphere_leaf[
     var O = Vec3[DType.float32, width](ray.o.x, ray.o.y, ray.o.z)
     var D = Vec3[DType.float32, width](ray.d.x, ray.d.y, ray.d.z)
 
-    var h = intersect_ray_sphere(
-        O,
-        D,
-        block.center,
-        block.radius,
-        hit.t,
+    var hit_sphere = intersect_ray_sphere(
+        O, D, block.center, block.radius, hit.t, ray.t_min
     )
-
-    var eps_mask = h.t.gt(1.0e-4)
-    var t_min_mask = h.t.ge(ray.t_min)
-    var hit_mask = h.mask & block.valid_lane & eps_mask & t_min_mask
+    var hit_mask = hit_sphere.mask & block.valid_lane
 
     if not hit_mask.reduce_or():
         return False
 
-    comptime if mode == TRACE_ANY_HIT:
-        return True
-    else:
-        var min_t = hit_mask.select(h.t, f32_max).reduce_min()
+    var min_t = hit_mask.select(hit_sphere.t, f32_max).reduce_min()
 
-        if min_t < hit.t:
-            hit.t = min_t
+    if min_t < hit.t:
+        hit.t = min_t
+        comptime if mode == TRACE.ANY_HIT:
+            return True
 
-            comptime if mode == TRACE_CLOSEST_HIT:
-                hit.u = 0.0
-                hit.v = 0.0
-                hit.inst = EMPTY_LANE
+        comptime if mode == TRACE.CLOSEST_HIT:
+            hit.u = 0.0
+            hit.v = 0.0
+            hit.inst = EMPTY_LANE
 
-                comptime for lane in range(width):
-                    if hit_mask[lane] and h.t[lane] == min_t:
-                        hit.prim = block.prim_indices[lane]
+            comptime for lane in range(width):
+                if hit_mask[lane] and hit_sphere.t[lane] == min_t:
+                    hit.prim = block.prim_indices[lane]
 
-        return True
+    return True
 
 
 def pack_sphere_leaf_blocks_kernel[

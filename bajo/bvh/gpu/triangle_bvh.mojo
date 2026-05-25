@@ -210,23 +210,11 @@ def _intersect_triangle_leaf[
             if prim != EMPTY_LANE:
                 var base = idx * TRI_LEAF_VERTEX_STRIDE
 
-                var v0 = Vec3f32(
-                    leaf_vertices[base + 0],
-                    leaf_vertices[base + 1],
-                    leaf_vertices[base + 2],
-                )
-                var v1 = Vec3f32(
-                    leaf_vertices[base + 3],
-                    leaf_vertices[base + 4],
-                    leaf_vertices[base + 5],
-                )
-                var v2 = Vec3f32(
-                    leaf_vertices[base + 6],
-                    leaf_vertices[base + 7],
-                    leaf_vertices[base + 8],
-                )
+                var v0 = Vec3f32.load(leaf_vertices, base)
+                var v1 = Vec3f32.load(leaf_vertices, base + 3)
+                var v2 = Vec3f32.load(leaf_vertices, base + 6)
 
-                var h = intersect_ray_tri(
+                var tri_hit = intersect_ray_tri(
                     ray.o,
                     ray.d,
                     v0,
@@ -235,13 +223,13 @@ def _intersect_triangle_leaf[
                     hit.t,
                 )
 
-                if h.mask and h.t < hit.t:
-                    hit.t = h.t
+                if tri_hit.mask and tri_hit.t < hit.t:
+                    hit.t = tri_hit.t
                     comptime if mode == TRACE_ANY_HIT:
                         return True
                     else:
-                        hit.u = h.u
-                        hit.v = h.v
+                        hit.u = tri_hit.u
+                        hit.v = tri_hit.v
                         hit.prim = prim
                         hit.inst = EMPTY_LANE
                         hit.normal = normalize(cross(v1 - v0, v2 - v0))

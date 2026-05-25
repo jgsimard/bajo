@@ -30,7 +30,7 @@ def trace_bounds_bvh[
     var n_idx = UInt32(0)
 
     var O = Vec3[DType.float32, width](ray.o.x, ray.o.y, ray.o.z)
-    var rD = Vec3[DType.float32, width](ray.rd.x, ray.rd.y, ray.rd.z)
+    var rD = 1.0 / Vec3[DType.float32, width](ray.d.x, ray.d.y, ray.d.z)
 
     while True:
         ref node = tree.nodes[Int(n_idx)]

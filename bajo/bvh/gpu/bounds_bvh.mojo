@@ -1,5 +1,6 @@
 from std.math import max, ceildiv
 from std.gpu import DeviceBuffer, DeviceContext
+from std.time import perf_counter_ns
 
 from bajo.core.aabb import AABB, AxisAlignedBoundingBox
 from bajo.core.vec import Vec3
@@ -20,6 +21,7 @@ from bajo.bvh.gpu.builder.lbvh import (
     LBVH_NODE_BOUNDS_STRIDE,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
+from bajo.bvh.gpu.builder.wide_collapse import GpuBoundsWideCollapse
 
 
 struct GpuBoundsBvh[width: Int]:
@@ -131,8 +133,37 @@ struct GpuBoundsBvh[width: Int]:
         )
 
     def build(mut self, ctx: DeviceContext) raises -> GpuBuildTimings:
-        var builder = GpuBoundsLbvhBuilder[Self.width]()
-        var timings = builder.build(
+        var start_ns = Int(perf_counter_ns())
+
+        if self.leaf_count == 0:
+            return GpuBuildTimings(0, 0, 0, 0, 0, 0)
+
+        # leaf AABBs -> sorted binary LBVH
+        var lbvh = GpuBoundsLbvhBuilder[Self.width]()
+        _ = lbvh.build(
+            ctx,
+            start_ns,
+            self.leaf_count,
+            self.internal_count,
+            self.blocks_leaves,
+            self.blocks_internal,
+            self.blocks_init,
+            self.leaf_bounds_host,
+            self.leaf_bounds,
+            self.keys,
+            self.values,
+            self.node_meta,
+            self.leaf_parent,
+            self.node_bounds,
+            self.node_flags,
+            self.workspace,
+        )
+
+        # binary BVH -> wide BVH
+        var collapse_start = perf_counter_ns()
+
+        var collapse = GpuBoundsWideCollapse[Self.width]()
+        collapse.collapse(
             ctx,
             self.leaf_count,
             self.internal_count,
@@ -140,16 +171,12 @@ struct GpuBoundsBvh[width: Int]:
             self.max_leaf_blocks,
             self.blocks_leaves,
             self.blocks_internal,
-            self.blocks_init,
-            self.leaf_bounds_host,
             self.leaf_bounds,
             self.leaf_payloads,
-            self.keys,
             self.values,
             self.node_meta,
             self.leaf_parent,
             self.node_bounds,
-            self.node_flags,
             self.wide_bounds,
             self.wide_data,
             self.wide_counts,
@@ -157,14 +184,23 @@ struct GpuBoundsBvh[width: Int]:
             self.node_leaf_counts,
             self.leaf_block_counter,
             self.wide_root,
-            self.workspace,
         )
 
-        self.root_idx = builder.root_idx
-        self.node_count = builder.node_count
-        self.leaf_block_count = builder.leaf_block_count
-        self.collapse_ns = builder.collapse_ns
-        return timings
+        var end_ns = perf_counter_ns()
+
+        self.root_idx = collapse.root_idx
+        self.node_count = collapse.node_count
+        self.leaf_block_count = collapse.leaf_block_count
+        self.collapse_ns = Int(end_ns - collapse_start)
+
+        return GpuBuildTimings(
+            0,
+            lbvh.morton_ns,
+            lbvh.sort_ns,
+            lbvh.topology_ns,
+            lbvh.refit_ns,
+            Int(end_ns - UInt(start_ns)),
+        )
 
     def validate(mut self, scene_bounds: AABB) raises -> GpuBVHValidation:
         var sorted_validation = validate_sorted_keys(

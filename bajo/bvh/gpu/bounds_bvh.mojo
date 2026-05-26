@@ -29,8 +29,8 @@ struct GpuBoundsBvh[width: Int]:
 
     Wide lane encoding mirrors the CPU BVH:
         count == EMPTY_LANE -> unused lane
-        count == 0                   -> child node, data = wide child index
-        count > 0                    -> leaf block, data = leaf block index
+        count == 0          -> child node, data = wide child index
+        count > 0           -> leaf block, data = leaf block index
     """
 
     var leaf_count: Int
@@ -40,7 +40,6 @@ struct GpuBoundsBvh[width: Int]:
     var leaf_block_count: Int
     var max_wide_nodes: Int
     var max_leaf_blocks: Int
-    var collapse_ns: Int
 
     var blocks_leaves: Int
     var blocks_internal: Int
@@ -81,7 +80,6 @@ struct GpuBoundsBvh[width: Int]:
         self.leaf_block_count = 0
         self.max_wide_nodes = max(self.internal_count, 1)
         self.max_leaf_blocks = max(self.internal_count * Self.width, 1)
-        self.collapse_ns = 0
 
         n_leaf = max(self.leaf_count, 1)
         n_internal = max(self.internal_count, 1)
@@ -136,11 +134,11 @@ struct GpuBoundsBvh[width: Int]:
         var start_ns = Int(perf_counter_ns())
 
         if self.leaf_count == 0:
-            return GpuBuildTimings(0, 0, 0, 0, 0, 0)
+            return GpuBuildTimings.empty()
 
         # leaf AABBs -> sorted binary LBVH
         var lbvh = GpuBoundsLbvhBuilder[Self.width]()
-        _ = lbvh.build(
+        timings = lbvh.build(
             ctx,
             start_ns,
             self.leaf_count,
@@ -191,16 +189,10 @@ struct GpuBoundsBvh[width: Int]:
         self.root_idx = collapse.root_idx
         self.node_count = collapse.node_count
         self.leaf_block_count = collapse.leaf_block_count
-        self.collapse_ns = Int(end_ns - collapse_start)
 
-        return GpuBuildTimings(
-            0,
-            lbvh.morton_ns,
-            lbvh.sort_ns,
-            lbvh.topology_ns,
-            lbvh.refit_ns,
-            Int(end_ns - UInt(start_ns)),
-        )
+        timings.collapse_ns = Int(end_ns - collapse_start)
+
+        return timings
 
     def validate(mut self, scene_bounds: AABB) raises -> GpuBVHValidation:
         var sorted_validation = validate_sorted_keys(

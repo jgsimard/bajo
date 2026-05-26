@@ -3,30 +3,24 @@ from std.gpu import DeviceContext, DeviceBuffer
 
 @fieldwise_init
 struct GpuBuildTimings(TrivialRegisterPassable):
-    var static_setup_ns: Int
     var morton_ns: Int
     var sort_ns: Int
     var topology_ns: Int
     var refit_ns: Int
-    var total_ns: Int
+    var collapse_ns: Int
 
-    def __init__(out self):
-        self.static_setup_ns = Int.MAX
-        self.morton_ns = Int.MAX
-        self.sort_ns = Int.MAX
-        self.topology_ns = Int.MAX
-        self.refit_ns = Int.MAX
-        self.total_ns = Int.MAX
+    @staticmethod
+    def empty() -> Self:
+        return Self(0, 0, 0, 0, 0)
 
-    def min(mut self, rhs: Self):
-        self.morton_ns = min(self.morton_ns, rhs.morton_ns)
-        self.sort_ns = min(self.sort_ns, rhs.sort_ns)
-        self.topology_ns = min(self.topology_ns, rhs.topology_ns)
-        self.refit_ns = min(self.refit_ns, rhs.refit_ns)
-        self.total_ns = min(self.total_ns, rhs.total_ns)
-
-    def sum(self) -> Int:
-        return self.morton_ns + self.sort_ns + self.topology_ns + self.refit_ns
+    def total(self) -> Int:
+        return (
+            self.morton_ns
+            + self.sort_ns
+            + self.topology_ns
+            + self.refit_ns
+            + self.collapse_ns
+        )
 
 
 @fieldwise_init

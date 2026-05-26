@@ -236,6 +236,7 @@ def init_lbvh_bounds_kernel(
     node_flags[i] = UInt32(0)
 
 
+@fieldwise_init
 struct GpuBoundsLbvhBuilder[width: Int]:
     """Builds the temporary sorted binary LBVH.
 
@@ -246,17 +247,6 @@ struct GpuBoundsLbvhBuilder[width: Int]:
     4. binary topology
     5. refit bounds
     """
-
-    var morton_ns: Int
-    var sort_ns: Int
-    var topology_ns: Int
-    var refit_ns: Int
-
-    def __init__(out self):
-        self.morton_ns = 0
-        self.sort_ns = 0
-        self.topology_ns = 0
-        self.refit_ns = 0
 
     def build(
         mut self,
@@ -345,19 +335,13 @@ struct GpuBoundsLbvhBuilder[width: Int]:
             ctx.synchronize()
         var r = perf_counter_ns()
 
-        self.morton_ns = Int(m - UInt(start_ns))
-        self.sort_ns = Int(s - m)
-        self.topology_ns = Int(t - s)
-        self.refit_ns = Int(r - t)
-        var timings = GpuBuildTimings(
-            0,
-            self.morton_ns,
-            self.sort_ns,
-            self.topology_ns,
-            self.refit_ns,
+        return GpuBuildTimings(
+            Int(m - UInt(start_ns)),
+            Int(s - m),
+            Int(t - s),
+            Int(r - t),
             0,
         )
-        return timings
 
     def _compute_centroid_bounds(
         self,

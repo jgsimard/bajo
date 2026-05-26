@@ -34,12 +34,12 @@ def _encoded_leaf_count_gpu(
 def _encoded_bounds_gpu(
     encoded: UInt32,
     leaf_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    sorted_leaf_ids: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_ids: UnsafePointer[UInt32, MutAnyOrigin],
     node_bounds: UnsafePointer[Float32, MutAnyOrigin],
 ) -> AABB:
     if _is_encoded_leaf(encoded):
         var sorted_leaf_idx = _encoded_index(encoded)
-        var item_idx = UInt32(sorted_leaf_ids[Int(sorted_leaf_idx)])
+        var item_idx = UInt32(leaf_ids[Int(sorted_leaf_idx)])
         var b = Int(item_idx) * BOUNDS_STRIDE
         return AABB.load6(leaf_bounds, b)
 
@@ -62,7 +62,7 @@ def _collect_encoded_leaf_payloads_gpu[
     width: Int,
 ](
     encoded: UInt32,
-    sorted_leaf_ids: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_ids: UnsafePointer[UInt32, MutAnyOrigin],
     leaf_payloads: UnsafePointer[UInt32, MutAnyOrigin],
     node_meta: UnsafePointer[UInt32, MutAnyOrigin],
     out_leaf_block_indices: UnsafePointer[UInt32, MutAnyOrigin],
@@ -81,7 +81,7 @@ def _collect_encoded_leaf_payloads_gpu[
         if _is_encoded_leaf(e):
             if out_count < width:
                 var sorted_leaf_idx = _encoded_index(e)
-                var item_idx = UInt32(sorted_leaf_ids[Int(sorted_leaf_idx)])
+                var item_idx = UInt32(leaf_ids[Int(sorted_leaf_idx)])
                 out_leaf_block_indices[
                     Int(leaf_block_idx) * width + out_count
                 ] = UInt32(leaf_payloads[Int(item_idx)])
@@ -203,7 +203,7 @@ def collapse_binary_to_wide_kernel[
 ](
     leaf_bounds: UnsafePointer[Float32, MutAnyOrigin],
     leaf_payloads: UnsafePointer[UInt32, MutAnyOrigin],
-    sorted_leaf_ids: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_ids: UnsafePointer[UInt32, MutAnyOrigin],
     node_meta: UnsafePointer[UInt32, MutAnyOrigin],
     node_bounds: UnsafePointer[Float32, MutAnyOrigin],
     node_leaf_counts: UnsafePointer[UInt32, MutAnyOrigin],
@@ -240,7 +240,7 @@ def collapse_binary_to_wide_kernel[
                     )
                     if subtree_leaves > UInt32(width):
                         var b = _encoded_bounds_gpu(
-                            e, leaf_bounds, sorted_leaf_ids, node_bounds
+                            e, leaf_bounds, leaf_ids, node_bounds
                         )
                         var area = b.surface_area()
                         if area > best_area:
@@ -263,9 +263,7 @@ def collapse_binary_to_wide_kernel[
             continue
 
         var e = pool[lane]
-        var b = _encoded_bounds_gpu(
-            e, leaf_bounds, sorted_leaf_ids, node_bounds
-        )
+        var b = _encoded_bounds_gpu(e, leaf_bounds, leaf_ids, node_bounds)
         _write_wide_lane_bounds[width](wide_bounds, wide_idx, lane, b)
 
         var subtree_leaves = _encoded_leaf_count_gpu(e, node_leaf_counts)
@@ -273,7 +271,7 @@ def collapse_binary_to_wide_kernel[
             var block_idx = Atomic.fetch_add(leaf_block_counter, UInt32(1))
             _collect_encoded_leaf_payloads_gpu[width](
                 e,
-                sorted_leaf_ids,
+                leaf_ids,
                 leaf_payloads,
                 node_meta,
                 leaf_block_indices,
@@ -355,7 +353,7 @@ def collapse[
         ctx.enqueue_function[collapse_binary_to_wide_kernel[width]](
             binary.leaf_bounds,
             binary.leaf_payloads,
-            binary.sorted_leaf_ids,
+            binary.leaf_ids,
             binary.node_meta,
             binary.node_bounds,
             node_leaf_counts,

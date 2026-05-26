@@ -23,6 +23,8 @@ comptime BINARY_BVH_NODE_FENCE = 3
 comptime BINARY_BVH_NODE_BOUNDS_STRIDE = 12
 
 comptime GPU_BOUNDS_BVH_BLOCK_SIZE = 128
+comptime BOUNDS_REDUCE_CHUNK = 256
+comptime REDUCED_BOUNDS_STRIDE = BOUNDS_STRIDE * 2
 
 
 def _node_meta_base(node_idx: UInt32) -> Int:
@@ -59,24 +61,6 @@ def _node_right(
     return UInt32(node_meta[_node_right_index(node_idx)])
 
 
-def _load_leaf_bounds_host(
-    leaf_bounds: List[Float32],
-    leaf_idx: UInt32,
-) -> AABB:
-    var b = Int(leaf_idx) * BOUNDS_STRIDE
-    return AABB.load6(leaf_bounds.unsafe_ptr(), b)
-
-
-def _load_internal_bounds_host(
-    node_bounds: List[Float32],
-    node_idx: UInt32,
-) -> AABB:
-    var b = Int(node_idx) * BINARY_BVH_NODE_BOUNDS_STRIDE
-    b1 = AABB.load6(node_bounds.unsafe_ptr(), b)
-    b2 = AABB.load6(node_bounds.unsafe_ptr(), b + 6)
-    return AABB.merge(b1, b2)
-
-
 def _is_encoded_leaf(encoded: UInt32) -> Bool:
     return (encoded & LBVH_LEAF_FLAG) != 0
 
@@ -107,22 +91,20 @@ def _load_and_union_node_bounds(
     return AABB.merge(b1, b2)
 
 
-comptime BOUNDS_REDUCE_CHUNK = 256
-comptime REDUCED_BOUNDS_STRIDE = BOUNDS_STRIDE * 2
-
-
-def init_empty_lbvh_bounds_kernel(
-    out_bounds: UnsafePointer[Float32, MutAnyOrigin],
+def init_empty_bounds_kernel(
+    bounds: UnsafePointer[Float32, MutAnyOrigin], n: Int
 ):
-    if global_idx.x != 0:
+    var i = global_idx.x
+    if i >= n:
         return
 
+    var b = i * BINARY_BVH_NODE_BOUNDS_STRIDE
     var invalid = AABB.invalid()
-    invalid.store6(out_bounds, 0)
-    invalid.store6(out_bounds, BOUNDS_STRIDE)
+    invalid.store6(bounds, b)
+    invalid.store6(bounds, b + BOUNDS_STRIDE)
 
 
-def compute_lbvh_bounds_partials_kernel(
+def compute_bounds_partials_kernel(
     leaf_bounds: UnsafePointer[Float32, MutAnyOrigin],
     out_partials: UnsafePointer[Float32, MutAnyOrigin],
     leaf_count: Int,
@@ -149,7 +131,7 @@ def compute_lbvh_bounds_partials_kernel(
     centroid_bounds.store6(out_partials, out + BOUNDS_STRIDE)
 
 
-def reduce_lbvh_bounds_partials_kernel(
+def reduce_bounds_partials_kernel(
     in_partials: UnsafePointer[Float32, MutAnyOrigin],
     out_partials: UnsafePointer[Float32, MutAnyOrigin],
     partial_count: Int,
@@ -205,7 +187,7 @@ struct GpuBinaryBoundsBvh(Movable):
 
     var keys: DeviceBuffer[DType.uint32]
     """Morton keys."""
-    var sorted_leaf_ids: DeviceBuffer[DType.uint32]
+    var leaf_ids: DeviceBuffer[DType.uint32]
 
     # Binary node layout:
     #   node_meta   : parent, left encoded child, right encoded child, fence/range end
@@ -247,8 +229,9 @@ struct GpuBinaryBoundsBvh(Movable):
         )
 
         if self.leaf_count == 0:
-            ctx.enqueue_function[init_empty_lbvh_bounds_kernel](
+            ctx.enqueue_function[init_empty_bounds_kernel](
                 self.bounds_device,
+                1,
                 grid_dim=1,
                 block_dim=1,
             )
@@ -274,7 +257,7 @@ struct GpuBinaryBoundsBvh(Movable):
                 GPU_BOUNDS_BVH_BLOCK_SIZE,
             )
 
-            ctx.enqueue_function[compute_lbvh_bounds_partials_kernel](
+            ctx.enqueue_function[compute_bounds_partials_kernel](
                 self.leaf_bounds,
                 scratch_a,
                 self.leaf_count,
@@ -296,7 +279,7 @@ struct GpuBinaryBoundsBvh(Movable):
                     GPU_BOUNDS_BVH_BLOCK_SIZE,
                 )
 
-                ctx.enqueue_function[reduce_lbvh_bounds_partials_kernel](
+                ctx.enqueue_function[reduce_bounds_partials_kernel](
                     in_buf,
                     out_buf,
                     count,
@@ -318,7 +301,7 @@ struct GpuBinaryBoundsBvh(Movable):
             ctx.synchronize()
 
         self.keys = ctx.enqueue_create_buffer[DType.uint32](n_leaf)
-        self.sorted_leaf_ids = ctx.enqueue_create_buffer[DType.uint32](n_leaf)
+        self.leaf_ids = ctx.enqueue_create_buffer[DType.uint32](n_leaf)
 
         self.node_meta = ctx.enqueue_create_buffer[DType.uint32](
             n_internal * BINARY_BVH_NODE_META_STRIDE
@@ -344,7 +327,7 @@ struct GpuBinaryBoundsBvh(Movable):
     def validate(self, bounds: AABB) raises -> GpuBVHValidation:
         var sorted_validation = validate_sorted_keys(
             self.keys,
-            self.sorted_leaf_ids,
+            self.leaf_ids,
             self.leaf_count,
         )
 

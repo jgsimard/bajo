@@ -18,6 +18,7 @@ from bajo.bvh.gpu.bounds_bvh import (
 )
 from bajo.bvh.gpu.trace import trace_bounds_bvh
 from bajo.bvh.host_utils import copy_list_to_device
+from bajo.bvh.gpu.utils import GpuBuildTimings
 
 
 struct GpuSphereBvh[width: Int]:
@@ -27,6 +28,7 @@ struct GpuSphereBvh[width: Int]:
     var leaf_prims: DeviceBuffer[DType.uint32]
     var sphere_count: Int
     var leaf_pack_ns: Int
+    var timings: GpuBuildTimings
 
     def __init__(
         out self,
@@ -57,7 +59,7 @@ struct GpuSphereBvh[width: Int]:
             payloads.append(UInt32(i))
 
         self.tree = GpuBoundsBvh[Self.width](ctx, leaf_bounds, payloads)
-        _ = self.tree.build(ctx)
+        self.timings = self.tree.build(ctx)
 
         self.leaf_spheres = ctx.enqueue_create_buffer[DType.float32](
             self.tree.max_leaf_blocks * Self.width * SPHERE_STRIDE

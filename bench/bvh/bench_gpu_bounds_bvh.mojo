@@ -15,6 +15,7 @@ from bajo.bvh.host_utils import (
     flatten_rays,
     hit_t_for_checksum,
 )
+from bajo.bvh.gpu.utils import GpuBuildTimings
 from bajo.bvh.constants import TRACE
 from bajo.bvh.types import Ray, Sphere
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
@@ -114,7 +115,7 @@ def _print_gpu_row[
 ](
     label: String,
     build_ns: Int,
-    collapse_ns: Int,
+    timings: GpuBuildTimings,
     pack_ns: Int,
     kernel_ns: Int,
     ray_count: Int,
@@ -126,7 +127,7 @@ def _print_gpu_row[
     comptime CHECKSUM_PER_HIT_EPS = 1.0e-6
 
     var build_ms = round(ns_to_ms(build_ns), 3)
-    var collapse_ms = round(ns_to_ms(collapse_ns), 3)
+    var collapse_ms = round(ns_to_ms(timings.collapse_ns), 3)
     var pack_ms = round(ns_to_ms(pack_ns), 3)
     var kernel_ms = round(ns_to_ms(kernel_ns), 3)
     var mrays = round(ns_to_mrays_per_s(kernel_ns, ray_count), 3)
@@ -263,7 +264,7 @@ def _run_width[
     _print_gpu_row[width](
         String(t"tri{width}"),
         Int(build1 - build0),
-        bvh.tree.collapse_ns,
+        bvh.timings,
         bvh.leaf_pack_ns,
         res[0],
         ray_count,
@@ -375,7 +376,7 @@ def _run_sphere_width[
     _print_gpu_row[width](
         String(t"sph{width}"),
         Int(build1 - build0),
-        bvh.tree.collapse_ns,
+        bvh.timings,
         bvh.leaf_pack_ns,
         res[0],
         ray_count,

@@ -15,12 +15,12 @@ from bajo.bvh.constants import (
 )
 from bajo.bvh.gpu.utils import GpuBuildTimings
 from bajo.bvh.gpu.builder.binary_layout import (
-    LBVH_NODE_META_STRIDE,
-    LBVH_NODE_PARENT,
-    LBVH_NODE_LEFT,
-    LBVH_NODE_RIGHT,
-    LBVH_NODE_FENCE,
-    LBVH_NODE_BOUNDS_STRIDE,
+    BINARY_BVH_NODE_META_STRIDE,
+    BINARY_BVH_NODE_PARENT,
+    BINARY_BVH_NODE_LEFT,
+    BINARY_BVH_NODE_RIGHT,
+    BINARY_BVH_NODE_FENCE,
+    BINARY_BVH_NODE_BOUNDS_STRIDE,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
     _node_parent_index,
     _node_left,
@@ -122,12 +122,12 @@ def init_lbvh_topology_kernel(
     var i = global_idx.x
 
     if i < internal_count:
-        var base = i * LBVH_NODE_META_STRIDE
-        node_meta[base + LBVH_NODE_PARENT] = LBVH_SENTINEL  # parent
-        node_meta[base + LBVH_NODE_LEFT] = 0  # left child, encoded
-        node_meta[base + LBVH_NODE_RIGHT] = 0  # right child, encoded
+        var base = i * BINARY_BVH_NODE_META_STRIDE
+        node_meta[base + BINARY_BVH_NODE_PARENT] = LBVH_SENTINEL  # parent
+        node_meta[base + BINARY_BVH_NODE_LEFT] = 0  # left child, encoded
+        node_meta[base + BINARY_BVH_NODE_RIGHT] = 0  # right child, encoded
         # fence/debug: rightmost leaf in range
-        node_meta[base + LBVH_NODE_FENCE] = 0
+        node_meta[base + BINARY_BVH_NODE_FENCE] = 0
 
     if i < leaf_count:
         leaf_parent[i] = LBVH_SENTINEL
@@ -214,10 +214,10 @@ def build_lbvh_topology_kernel(
         if right_child >= 0 and right_child < internal_count:
             node_meta[_node_parent_index(UInt32(right_child))] = UInt32(i)
 
-    var base = i * LBVH_NODE_META_STRIDE
-    node_meta[base + LBVH_NODE_LEFT] = left_encoded
-    node_meta[base + LBVH_NODE_RIGHT] = right_encoded
-    node_meta[base + LBVH_NODE_FENCE] = UInt32(last)
+    var base = i * BINARY_BVH_NODE_META_STRIDE
+    node_meta[base + BINARY_BVH_NODE_LEFT] = left_encoded
+    node_meta[base + BINARY_BVH_NODE_RIGHT] = right_encoded
+    node_meta[base + BINARY_BVH_NODE_FENCE] = UInt32(last)
 
 
 def init_lbvh_bounds_kernel(
@@ -229,7 +229,7 @@ def init_lbvh_bounds_kernel(
     if i >= internal_count:
         return
 
-    var b = i * LBVH_NODE_BOUNDS_STRIDE
+    var b = i * BINARY_BVH_NODE_BOUNDS_STRIDE
     invalid = AABB.invalid()
     invalid.store6(node_bounds, b)
     invalid.store6(node_bounds, b + 6)

@@ -17,8 +17,8 @@ from bajo.sort.gpu.radix_sort import RadixSortWorkspace
 from bajo.bvh.host_utils import copy_list_to_device
 from bajo.bvh.gpu.builder.lbvh import (
     GpuBoundsLbvhBuilder,
-    LBVH_NODE_META_STRIDE,
-    LBVH_NODE_BOUNDS_STRIDE,
+    BINARY_BVH_NODE_META_STRIDE,
+    BINARY_BVH_NODE_BOUNDS_STRIDE,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
 from bajo.bvh.gpu.builder.wide_collapse import GpuBoundsWideCollapse
@@ -98,11 +98,11 @@ struct GpuBoundsBvh[width: Int]:
         self.keys = ctx.enqueue_create_buffer[DType.uint32](n_leaf)
         self.values = ctx.enqueue_create_buffer[DType.uint32](n_leaf)
         self.node_meta = ctx.enqueue_create_buffer[DType.uint32](
-            n_internal * LBVH_NODE_META_STRIDE
+            n_internal * BINARY_BVH_NODE_META_STRIDE
         )
         self.leaf_parent = ctx.enqueue_create_buffer[DType.uint32](n_leaf)
         self.node_bounds = ctx.enqueue_create_buffer[DType.float32](
-            n_internal * LBVH_NODE_BOUNDS_STRIDE
+            n_internal * BINARY_BVH_NODE_BOUNDS_STRIDE
         )
         self.node_flags = ctx.enqueue_create_buffer[DType.uint32](n_internal)
 

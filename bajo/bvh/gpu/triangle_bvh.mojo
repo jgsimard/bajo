@@ -3,6 +3,7 @@ from std.time import perf_counter_ns
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
 from std.utils.numerics import max_finite
 
+from bajo.bvh.gpu.utils import GpuBuildTimings
 from bajo.core.vec import Vec3f32, vmin, vmax, Vec3, normalize, cross
 from bajo.bvh.types import Ray, Hit, TriangleLeafBlock
 from bajo.bvh.constants import (
@@ -27,6 +28,7 @@ struct GpuTriangleBvh[width: Int]:
     var leaf_prims: DeviceBuffer[DType.uint32]
     var tri_count: Int
     var leaf_pack_ns: Int
+    var timings: GpuBuildTimings
 
     def __init__(
         out self,
@@ -59,7 +61,7 @@ struct GpuTriangleBvh[width: Int]:
             payloads.append(UInt32(i))
 
         self.tree = GpuBoundsBvh[Self.width](ctx, leaf_bounds, payloads)
-        _ = self.tree.build(ctx)
+        self.timings = self.tree.build(ctx)
 
         self.leaf_vertices = ctx.enqueue_create_buffer[DType.float32](
             self.tree.max_leaf_blocks * Self.width * TRI_LEAF_VERTEX_STRIDE

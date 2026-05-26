@@ -26,6 +26,7 @@ from bajo.bvh.gpu.triangle_bvh import GpuTriangleBvh
 from bajo.bvh.gpu.utils import _upload_rays, _download_full_hit_checksum
 from bajo.bvh.constants import TRACE, GPU_STACK_SIZE, EMPTY_LANE
 from bajo.obj.pack import pack_obj_triangles
+from bajo.bvh.gpu.utils import GpuBuildTimings
 
 
 comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"
@@ -459,11 +460,11 @@ def _print_blas_build_table_header():
 def _print_blas_build_row(
     label: String,
     build_ns: Int,
-    collapse_ns: Int,
+    timings: GpuBuildTimings,
     pack_ns: Int,
 ):
     var build_ms = round(ns_to_ms(build_ns), 3)
-    var collapse_ms = round(ns_to_ms(collapse_ns), 3)
+    var collapse_ms = round(ns_to_ms(timings.collapse_ns), 3)
     var pack_ms = round(ns_to_ms(pack_ns), 3)
 
     var c0 = label.ascii_ljust(18)
@@ -579,7 +580,7 @@ def _print_tlas_row(
     label: String,
     inst_count: Int,
     build_ns: Int,
-    collapse_ns: Int,
+    timings: GpuBuildTimings,
     primary_ns: Int,
     ray_count: Int,
     checksum: Float64,
@@ -591,7 +592,7 @@ def _print_tlas_row(
     reference_inst_checksum: UInt64,
 ):
     var build_ms = round(ns_to_ms(build_ns), 3)
-    var collapse_ms = round(ns_to_ms(collapse_ns), 3)
+    var collapse_ms = round(ns_to_ms(timings.collapse_ns), 3)
     var primary_ms = round(ns_to_ms(primary_ns), 3)
     var primary_mrays = round(ns_to_mrays_per_s(primary_ns, ray_count), 3)
     var checksum_r = round(checksum, 3)
@@ -666,7 +667,7 @@ def _run_triangle_tlas_width[
         label,
         len(instances),
         Int(b1 - b0),
-        tlas.tree.collapse_ns,
+        tlas.timings,
         primary[0],
         ray_count,
         primary[1],
@@ -718,7 +719,7 @@ def _run_sphere_tlas_width[
         label,
         len(instances),
         Int(b1 - b0),
-        tlas.tree.collapse_ns,
+        tlas.timings,
         primary[0],
         ray_count,
         primary[1],
@@ -871,7 +872,7 @@ def main() raises:
         _print_blas_build_row(
             "GpuTriangleBvh[4]",
             Int(blas_b1 - blas_b0),
-            blas.tree.collapse_ns,
+            blas.timings,
             blas.leaf_pack_ns,
         )
 
@@ -981,7 +982,7 @@ def main() raises:
         _print_blas_build_row(
             "GpuSphereBvh[4]",
             Int(sph_b1 - sph_b0),
-            sphere_blas.tree.collapse_ns,
+            sphere_blas.timings,
             sphere_blas.leaf_pack_ns,
         )
 

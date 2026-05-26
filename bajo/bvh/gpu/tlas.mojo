@@ -22,6 +22,7 @@ from bajo.bvh.gpu.sphere_bvh import _intersect_sphere_leaf
 from bajo.bvh.gpu.triangle_bvh import _intersect_triangle_leaf
 from bajo.bvh.gpu.trace import trace_bounds_bvh
 from bajo.bvh.host_utils import copy_list_to_device
+from bajo.bvh.gpu.utils import GpuBuildTimings
 
 
 comptime BlasLeafFn = def(
@@ -318,6 +319,7 @@ struct GpuTlas[width: Int]:
     var inst_inv_transform: DeviceBuffer[DType.float32]
     var inst_blas_indices: DeviceBuffer[DType.uint32]
     var inst_count: Int
+    var timings: GpuBuildTimings
 
     def __init__(
         out self,
@@ -342,7 +344,7 @@ struct GpuTlas[width: Int]:
             payloads.append(UInt32(i))
 
         self.tree = GpuBoundsBvh[Self.width](ctx, leaf_bounds, payloads)
-        _ = self.tree.build(ctx)
+        self.timings = self.tree.build(ctx)
 
         self.inst_inv_transform = copy_list_to_device(
             ctx, _flatten_instance_inv_transforms(instances)

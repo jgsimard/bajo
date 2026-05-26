@@ -107,6 +107,88 @@ def _load_and_union_node_bounds(
     return AABB.merge(b1, b2)
 
 
+comptime BOUNDS_REDUCE_CHUNK = 256
+comptime REDUCED_BOUNDS_STRIDE = BOUNDS_STRIDE * 2
+
+
+def init_empty_lbvh_bounds_kernel(
+    out_bounds: UnsafePointer[Float32, MutAnyOrigin],
+):
+    if global_idx.x != 0:
+        return
+
+    var invalid = AABB.invalid()
+    invalid.store6(out_bounds, 0)
+    invalid.store6(out_bounds, BOUNDS_STRIDE)
+
+
+def compute_lbvh_bounds_partials_kernel(
+    leaf_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    out_partials: UnsafePointer[Float32, MutAnyOrigin],
+    leaf_count: Int,
+):
+    var chunk = global_idx.x
+    var first = chunk * BOUNDS_REDUCE_CHUNK
+    if first >= leaf_count:
+        return
+
+    var last = min(first + BOUNDS_REDUCE_CHUNK, leaf_count)
+
+    var bounds = AABB.invalid()
+    var centroid_bounds = AABB.invalid()
+
+    for leaf_idx in range(first, last):
+        var b = leaf_idx * BOUNDS_STRIDE
+        var aabb = AABB.load6(leaf_bounds, b)
+
+        bounds.grow(aabb)
+        centroid_bounds.grow(aabb.centroid())
+
+    var out = chunk * REDUCED_BOUNDS_STRIDE
+    bounds.store6(out_partials, out)
+    centroid_bounds.store6(out_partials, out + BOUNDS_STRIDE)
+
+
+def reduce_lbvh_bounds_partials_kernel(
+    in_partials: UnsafePointer[Float32, MutAnyOrigin],
+    out_partials: UnsafePointer[Float32, MutAnyOrigin],
+    partial_count: Int,
+):
+    var chunk = global_idx.x
+    var first = chunk * BOUNDS_REDUCE_CHUNK
+    if first >= partial_count:
+        return
+
+    var last = min(first + BOUNDS_REDUCE_CHUNK, partial_count)
+
+    var bounds = AABB.invalid()
+    var centroid_bounds = AABB.invalid()
+
+    for i in range(first, last):
+        var b = i * REDUCED_BOUNDS_STRIDE
+
+        var partial_bounds = AABB.load6(in_partials, b)
+        var partial_centroid_bounds = AABB.load6(in_partials, b + BOUNDS_STRIDE)
+
+        bounds.grow(partial_bounds)
+        centroid_bounds.grow(partial_centroid_bounds)
+
+    var out = chunk * REDUCED_BOUNDS_STRIDE
+    bounds.store6(out_partials, out)
+    centroid_bounds.store6(out_partials, out + BOUNDS_STRIDE)
+
+
+def copy_lbvh_bounds_result_kernel(
+    in_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    out_bounds: UnsafePointer[Float32, MutAnyOrigin],
+):
+    var i = global_idx.x
+    if i >= REDUCED_BOUNDS_STRIDE:
+        return
+
+    out_bounds[i] = in_bounds[i]
+
+
 struct GpuBinaryBoundsBvh(Movable):
     var leaf_count: Int
     var internal_count: Int
@@ -115,11 +197,8 @@ struct GpuBinaryBoundsBvh(Movable):
     var blocks_internal: Int
     var blocks_init: Int
 
-    var bounds: AABB
-    var centroid_bounds: AABB
-
-    var leaf_bounds_host: List[Float32]
-    var leaf_payloads_host: List[UInt32]
+    var bounds_device: DeviceBuffer[DType.float32]
+    """[0..5]  = root bounds, [6..11] = centroid bounds."""
 
     var leaf_bounds: DeviceBuffer[DType.float32]
     var leaf_payloads: DeviceBuffer[DType.uint32]
@@ -160,24 +239,83 @@ struct GpuBinaryBoundsBvh(Movable):
             GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
 
-        self.leaf_bounds_host = leaf_bounds.copy()
-        self.leaf_payloads_host = leaf_payloads.copy()
+        self.leaf_bounds = copy_list_to_device(ctx, leaf_bounds)
+        self.leaf_payloads = copy_list_to_device(ctx, leaf_payloads)
 
-        var out = AABB.invalid()
-        for i in range(self.leaf_count):
-            var b = i * BOUNDS_STRIDE
-            var aabb = AABB.load6(self.leaf_bounds_host.unsafe_ptr(), b)
-            out.grow(aabb)
-        self.bounds = out
-        var out2 = AABB.invalid()
-        for i in range(self.leaf_count):
-            var b = i * BOUNDS_STRIDE
-            var aabb = AABB.load6(self.leaf_bounds_host.unsafe_ptr(), b)
-            out2.grow(aabb.centroid())
-        self.centroid_bounds = out2
+        self.bounds_device = ctx.enqueue_create_buffer[DType.float32](
+            REDUCED_BOUNDS_STRIDE
+        )
 
-        self.leaf_bounds = copy_list_to_device(ctx, self.leaf_bounds_host)
-        self.leaf_payloads = copy_list_to_device(ctx, self.leaf_payloads_host)
+        if self.leaf_count == 0:
+            ctx.enqueue_function[init_empty_lbvh_bounds_kernel](
+                self.bounds_device,
+                grid_dim=1,
+                block_dim=1,
+            )
+        else:
+            var partial_count = ceildiv(
+                self.leaf_count,
+                BOUNDS_REDUCE_CHUNK,
+            )
+
+            var scratch_a = ctx.enqueue_create_buffer[DType.float32](
+                max(partial_count, 1) * REDUCED_BOUNDS_STRIDE
+            )
+            var scratch_b = ctx.enqueue_create_buffer[DType.float32](
+                max(
+                    ceildiv(partial_count, BOUNDS_REDUCE_CHUNK),
+                    1,
+                )
+                * REDUCED_BOUNDS_STRIDE
+            )
+
+            var reduce_grid = ceildiv(
+                partial_count,
+                GPU_BOUNDS_BVH_BLOCK_SIZE,
+            )
+
+            ctx.enqueue_function[compute_lbvh_bounds_partials_kernel](
+                self.leaf_bounds,
+                scratch_a,
+                self.leaf_count,
+                grid_dim=reduce_grid,
+                block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+            )
+
+            var in_buf = scratch_a
+            var out_buf = scratch_b
+            var count = partial_count
+
+            while count > 1:
+                var next_count = ceildiv(
+                    count,
+                    BOUNDS_REDUCE_CHUNK,
+                )
+                var grid = ceildiv(
+                    next_count,
+                    GPU_BOUNDS_BVH_BLOCK_SIZE,
+                )
+
+                ctx.enqueue_function[reduce_lbvh_bounds_partials_kernel](
+                    in_buf,
+                    out_buf,
+                    count,
+                    grid_dim=grid,
+                    block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+                )
+
+                swap(in_buf, out_buf)
+                count = next_count
+
+            ctx.enqueue_function[copy_lbvh_bounds_result_kernel](
+                in_buf,
+                self.bounds_device,
+                grid_dim=1,
+                block_dim=REDUCED_BOUNDS_STRIDE,
+            )
+
+            # because scratch_a/scratch_b are temporary buffers
+            ctx.synchronize()
 
         self.keys = ctx.enqueue_create_buffer[DType.uint32](n_leaf)
         self.sorted_leaf_ids = ctx.enqueue_create_buffer[DType.uint32](n_leaf)
@@ -191,8 +329,17 @@ struct GpuBinaryBoundsBvh(Movable):
         )
         self.node_flags = ctx.enqueue_create_buffer[DType.uint32](n_internal)
 
-    def root_bounds(self) -> AABB:
-        return self.bounds
+    def root_bounds(self) raises -> AABB:
+        var out = AABB.invalid()
+        with self.bounds_device.map_to_host() as h:
+            out = AABB.load6(h.unsafe_ptr(), 0)
+        return out
+
+    def centroid_bounds(self) raises -> AABB:
+        var out = AABB.invalid()
+        with self.bounds_device.map_to_host() as h:
+            out = AABB.load6(h.unsafe_ptr(), BOUNDS_STRIDE)
+        return out
 
     def validate(self, bounds: AABB) raises -> GpuBVHValidation:
         var sorted_validation = validate_sorted_keys(

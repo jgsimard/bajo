@@ -33,15 +33,18 @@ from bajo.bvh.gpu.builder.binary_layout import (
 
 def compute_bounds_morton_codes_kernel(
     leaf_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    bounds_device: UnsafePointer[Float32, MutAnyOrigin],
     keys: UnsafePointer[UInt32, MutAnyOrigin],
     values: UnsafePointer[UInt32, MutAnyOrigin],
     leaf_count: Int,
-    cmin: Vec3f32,
-    inv_extent: Vec3f32,
 ):
     var i = global_idx.x
     if i >= leaf_count:
         return
+
+    var centroid_bounds = AABB.load6(bounds_device, BOUNDS_STRIDE)
+    var cmin = centroid_bounds._min
+    var inv_extent = centroid_bounds.extent().safe_inv()
 
     var b = i * BOUNDS_STRIDE
     var bounds = AABB.load6(leaf_bounds, b)
@@ -252,26 +255,25 @@ def build_binary_bvh_with_lbvh(
     5. refit bounds
     """
     var start_ns = perf_counter_ns()
-    var centroid_bounds = _compute_centroid_bounds(
-        binary.leaf_count,
-        binary.leaf_bounds_host,
-    )
-    var extent = centroid_bounds.extent()
-    var inv = extent.safe_inv()
+
+    # leaf AABB
+    # for now: inside binary_bvh __init__
+
+    # morton codes
 
     ctx.enqueue_function[compute_bounds_morton_codes_kernel](
         binary.leaf_bounds,
+        binary.bounds_device,
         binary.keys,
         binary.sorted_leaf_ids,
         binary.leaf_count,
-        centroid_bounds._min,
-        inv,
         grid_dim=binary.blocks_leaves,
         block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
     )
     ctx.synchronize()
     var m = perf_counter_ns()
 
+    # sort by morton codes
     device_radix_sort_pairs[DType.uint32, DType.uint32](
         ctx,
         workspace,
@@ -283,6 +285,7 @@ def build_binary_bvh_with_lbvh(
     ctx.synchronize()
     var s = perf_counter_ns()
 
+    # merge nodes
     if binary.internal_count > 0:
         ctx.enqueue_function[init_lbvh_topology_kernel](
             binary.node_meta,
@@ -303,6 +306,7 @@ def build_binary_bvh_with_lbvh(
         ctx.synchronize()
     var t = perf_counter_ns()
 
+    # compute aabb over merged nodes
     if binary.internal_count > 0:
         ctx.enqueue_function[init_lbvh_bounds_kernel](
             binary.node_bounds,
@@ -332,15 +336,3 @@ def build_binary_bvh_with_lbvh(
         Int(r - t),
         0,
     )
-
-
-def _compute_centroid_bounds(
-    leaf_count: Int,
-    leaf_bounds_host: List[Float32],
-) -> AABB:
-    var out = AABB.invalid()
-    for i in range(leaf_count):
-        var b = i * BOUNDS_STRIDE
-        aabb = AABB.load6(leaf_bounds_host.unsafe_ptr(), b)
-        out.grow(aabb.centroid())
-    return out

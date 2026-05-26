@@ -178,7 +178,6 @@ def _assert_gpu_bounds_width[width: Int](verts: List[Vec3f32]) raises:
     var payloads = build[1].copy()
 
     with DeviceContext() as ctx:
-        # var binary_bvh = GpuBinaryBoundsBvh(ctx, leaf_bounds, payloads)
         var bvh = GpuBoundsBvh[width](ctx, leaf_bounds, payloads)
         binary_bvh = bvh.build_test(ctx)
         var validation = binary_bvh.validate(binary_bvh.root_bounds())

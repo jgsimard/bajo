@@ -698,17 +698,16 @@ struct GpuBoundsBvh[width: Int]:
         var out = AABB.invalid()
         for i in range(self.leaf_count):
             var b = i * BOUNDS_STRIDE
-            out.grow(Vec3f32.load(self.leaf_bounds_host.unsafe_ptr(), b))
-            out.grow(Vec3f32.load(self.leaf_bounds_host.unsafe_ptr(), b + 3))
+            aabb = AABB.load6(self.leaf_bounds_host.unsafe_ptr(), b)
+            out.grow(aabb)
         return out
 
     def _compute_centroid_bounds(self) -> AABB:
         var out = AABB.invalid()
         for i in range(self.leaf_count):
             var b = i * BOUNDS_STRIDE
-            v0 = Vec3f32.load(self.leaf_bounds_host.unsafe_ptr(), b)
-            v1 = Vec3f32.load(self.leaf_bounds_host.unsafe_ptr(), b + 3)
-            out.grow((v0 + v1) * 0.5)
+            aabb = AABB.load6(self.leaf_bounds_host.unsafe_ptr(), b)
+            out.grow(aabb.centroid())
         return out
 
     def _collapse_to_wide(mut self, ctx: DeviceContext) raises:

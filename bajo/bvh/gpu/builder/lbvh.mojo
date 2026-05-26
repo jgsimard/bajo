@@ -27,6 +27,7 @@ from bajo.bvh.gpu.builder.binary_layout import (
     _node_right,
     _write_child_bounds,
     _load_and_union_node_bounds,
+    GpuBinaryBoundsBvh,
 )
 
 
@@ -251,92 +252,85 @@ struct GpuBoundsLbvhBuilder[width: Int]:
     def build(
         mut self,
         ctx: DeviceContext,
-        start_ns: Int,
-        leaf_count: Int,
-        internal_count: Int,
-        blocks_leaves: Int,
-        blocks_internal: Int,
-        blocks_init: Int,
-        leaf_bounds_host: List[Float32],
-        leaf_bounds: DeviceBuffer[DType.float32],
-        mut keys: DeviceBuffer[DType.uint32],
-        mut values: DeviceBuffer[DType.uint32],
-        node_meta: DeviceBuffer[DType.uint32],
-        leaf_parent: DeviceBuffer[DType.uint32],
-        node_bounds: DeviceBuffer[DType.float32],
-        node_flags: DeviceBuffer[DType.uint32],
+        mut binary: GpuBinaryBoundsBvh,
         mut workspace: RadixSortWorkspace[DType.uint32, DType.uint32],
     ) raises -> GpuBuildTimings:
+        var start_ns = perf_counter_ns()
         var centroid_bounds = self._compute_centroid_bounds(
-            leaf_count,
-            leaf_bounds_host,
+            binary.leaf_count,
+            binary.leaf_bounds_host,
         )
         var extent = centroid_bounds.extent()
         var inv = extent.safe_inv()
 
         ctx.enqueue_function[compute_bounds_morton_codes_kernel](
-            leaf_bounds,
-            keys,
-            values,
-            leaf_count,
+            binary.leaf_bounds,
+            binary.keys,
+            binary.sorted_leaf_ids,
+            binary.leaf_count,
             centroid_bounds._min,
             inv,
-            grid_dim=blocks_leaves,
+            grid_dim=binary.blocks_leaves,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
         ctx.synchronize()
         var m = perf_counter_ns()
 
         device_radix_sort_pairs[DType.uint32, DType.uint32](
-            ctx, workspace, keys, values, leaf_count
+            ctx,
+            workspace,
+            binary.keys,
+            binary.sorted_leaf_ids,
+            binary.leaf_count,
         )
+
         ctx.synchronize()
         var s = perf_counter_ns()
 
-        if internal_count > 0:
+        if binary.internal_count > 0:
             ctx.enqueue_function[init_lbvh_topology_kernel](
-                node_meta,
-                leaf_parent,
-                internal_count,
-                leaf_count,
-                grid_dim=blocks_init,
+                binary.node_meta,
+                binary.leaf_parent,
+                binary.internal_count,
+                binary.leaf_count,
+                grid_dim=binary.blocks_init,
                 block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
             )
             ctx.enqueue_function[build_lbvh_topology_kernel](
-                keys,
-                node_meta,
-                leaf_parent,
-                leaf_count,
-                grid_dim=blocks_internal,
+                binary.keys,
+                binary.node_meta,
+                binary.leaf_parent,
+                binary.leaf_count,
+                grid_dim=binary.blocks_internal,
                 block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
             )
             ctx.synchronize()
         var t = perf_counter_ns()
 
-        if internal_count > 0:
+        if binary.internal_count > 0:
             ctx.enqueue_function[init_lbvh_bounds_kernel](
-                node_bounds,
-                node_flags,
-                internal_count,
-                grid_dim=blocks_internal,
+                binary.node_bounds,
+                binary.node_flags,
+                binary.internal_count,
+                grid_dim=binary.blocks_internal,
                 block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
             )
             ctx.enqueue_function[refit_lbvh_bounds_from_leaves_kernel](
-                leaf_bounds,
-                values,
-                node_meta,
-                leaf_parent,
-                node_bounds,
-                node_flags,
-                leaf_count,
-                grid_dim=blocks_leaves,
+                binary.leaf_bounds,
+                binary.sorted_leaf_ids,
+                binary.node_meta,
+                binary.leaf_parent,
+                binary.node_bounds,
+                binary.node_flags,
+                binary.leaf_count,
+                grid_dim=binary.blocks_leaves,
                 block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
             )
             ctx.synchronize()
         var r = perf_counter_ns()
 
         return GpuBuildTimings(
-            Int(m - UInt(start_ns)),
+            Int(m - start_ns),
             Int(s - m),
             Int(t - s),
             Int(r - t),

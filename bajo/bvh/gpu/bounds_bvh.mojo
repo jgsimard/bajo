@@ -22,6 +22,7 @@ from bajo.bvh.gpu.builder.lbvh import (
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
 from bajo.bvh.gpu.builder.wide_collapse import GpuBoundsWideCollapse
+from bajo.bvh.gpu.builder.binary_layout import GpuBinaryBoundsBvh
 
 
 struct GpuBoundsBvh[width: Int]:
@@ -40,6 +41,7 @@ struct GpuBoundsBvh[width: Int]:
     var leaf_block_count: Int
     var max_wide_nodes: Int
     var max_leaf_blocks: Int
+    var collapse_ns: Int
 
     var blocks_leaves: Int
     var blocks_internal: Int
@@ -80,6 +82,7 @@ struct GpuBoundsBvh[width: Int]:
         self.leaf_block_count = 0
         self.max_wide_nodes = max(self.internal_count, 1)
         self.max_leaf_blocks = max(self.internal_count * Self.width, 1)
+        self.collapse_ns = 0
 
         n_leaf = max(self.leaf_count, 1)
         n_internal = max(self.internal_count, 1)
@@ -130,59 +133,23 @@ struct GpuBoundsBvh[width: Int]:
             ctx, max(self.leaf_count, 1)
         )
 
-    def build(mut self, ctx: DeviceContext) raises -> GpuBuildTimings:
-        var start_ns = Int(perf_counter_ns())
-
+    def build(mut self, mut ctx: DeviceContext) raises -> GpuBuildTimings:
         if self.leaf_count == 0:
             return GpuBuildTimings.empty()
 
+        var binary = GpuBinaryBoundsBvh(
+            ctx, self.leaf_bounds_host, self.leaf_payloads_host
+        )
+
         # leaf AABBs -> sorted binary LBVH
         var lbvh = GpuBoundsLbvhBuilder[Self.width]()
-        timings = lbvh.build(
-            ctx,
-            start_ns,
-            self.leaf_count,
-            self.internal_count,
-            self.blocks_leaves,
-            self.blocks_internal,
-            self.blocks_init,
-            self.leaf_bounds_host,
-            self.leaf_bounds,
-            self.keys,
-            self.values,
-            self.node_meta,
-            self.leaf_parent,
-            self.node_bounds,
-            self.node_flags,
-            self.workspace,
-        )
+        timings = lbvh.build(ctx, binary, self.workspace)
 
         # binary BVH -> wide BVH
         var collapse_start = perf_counter_ns()
 
         var collapse = GpuBoundsWideCollapse[Self.width]()
-        collapse.collapse(
-            ctx,
-            self.leaf_count,
-            self.internal_count,
-            self.max_wide_nodes,
-            self.max_leaf_blocks,
-            self.blocks_leaves,
-            self.blocks_internal,
-            self.leaf_bounds,
-            self.leaf_payloads,
-            self.values,
-            self.node_meta,
-            self.leaf_parent,
-            self.node_bounds,
-            self.wide_bounds,
-            self.wide_data,
-            self.wide_counts,
-            self.leaf_block_indices,
-            self.node_leaf_counts,
-            self.leaf_block_counter,
-            self.wide_root,
-        )
+        collapse.collapse(ctx, binary, self)
 
         var end_ns = perf_counter_ns()
 

@@ -1,6 +1,6 @@
 from std.math import max, ceildiv
 from std.atomic import Atomic
-from std.gpu import DeviceBuffer, DeviceContext, global_idx
+from std.gpu import DeviceContext, global_idx
 
 from bajo.core.aabb import AABB
 from bajo.bvh.constants import (
@@ -9,6 +9,8 @@ from bajo.bvh.constants import (
     EMPTY_LANE,
     BOUNDS_STRIDE,
 )
+from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh
+from bajo.bvh.gpu.builder.binary_layout import GpuBinaryBoundsBvh
 from bajo.bvh.gpu.builder.binary_layout import (
     GPU_BOUNDS_BVH_BLOCK_SIZE,
     _node_parent_index,
@@ -298,97 +300,89 @@ struct GpuBoundsWideCollapse[width: Int]:
 
     def collapse(
         mut self,
-        ctx: DeviceContext,
-        leaf_count: Int,
-        internal_count: Int,
-        max_wide_nodes: Int,
-        max_leaf_blocks: Int,
-        blocks_leaves: Int,
-        blocks_internal: Int,
-        leaf_bounds: DeviceBuffer[DType.float32],
-        leaf_payloads: DeviceBuffer[DType.uint32],
-        sorted_leaf_ids: DeviceBuffer[DType.uint32],
-        node_meta: DeviceBuffer[DType.uint32],
-        leaf_parent: DeviceBuffer[DType.uint32],
-        node_bounds: DeviceBuffer[DType.float32],
-        wide_bounds: DeviceBuffer[DType.float32],
-        wide_data: DeviceBuffer[DType.uint32],
-        wide_counts: DeviceBuffer[DType.uint32],
-        leaf_block_indices: DeviceBuffer[DType.uint32],
-        node_leaf_counts: DeviceBuffer[DType.uint32],
-        leaf_block_counter: DeviceBuffer[DType.uint32],
-        wide_root: DeviceBuffer[DType.uint32],
+        mut ctx: DeviceContext,
+        binary: GpuBinaryBoundsBvh,
+        mut out: GpuBoundsBvh[Self.width],
     ) raises:
-        self.node_count = max(internal_count, 1)
+        self.node_count = max(binary.internal_count, 1)
         self.leaf_block_count = 0
 
-        var max_wide_lanes = max_wide_nodes * Self.width
-        var max_leaf_slots = max_leaf_blocks * Self.width
+        var n_internal = max(binary.internal_count, 1)
+        var max_wide_lanes = out.max_wide_nodes * Self.width
+        var max_leaf_slots = out.max_leaf_blocks * Self.width
         var init_n = max(
-            max(max_wide_lanes, max_leaf_slots), max(internal_count, 1)
+            max(max_wide_lanes, max_leaf_slots),
+            n_internal,
         )
         var init_blocks = ceildiv(init_n, GPU_BOUNDS_BVH_BLOCK_SIZE)
 
+        # Collapse scratch. These buffers are not traversal data.
+        var node_leaf_counts = ctx.enqueue_create_buffer[DType.uint32](
+            n_internal
+        )
+        var leaf_block_counter = ctx.enqueue_create_buffer[DType.uint32](1)
+        var wide_root = ctx.enqueue_create_buffer[DType.uint32](1)
+
         ctx.enqueue_function[init_gpu_wide_collapse_kernel[Self.width]](
-            wide_bounds,
-            wide_data,
-            wide_counts,
-            leaf_block_indices,
+            out.wide_bounds,
+            out.wide_data,
+            out.wide_counts,
+            out.leaf_block_indices,
             node_leaf_counts,
             leaf_block_counter,
             wide_root,
             max_wide_lanes,
             max_leaf_slots,
-            internal_count,
+            binary.internal_count,
             grid_dim=init_blocks,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
 
-        if leaf_count == 1:
+        if binary.leaf_count == 1:
             ctx.enqueue_function[
                 collapse_single_leaf_to_wide_kernel[Self.width]
             ](
-                leaf_bounds,
-                leaf_payloads,
-                wide_bounds,
-                wide_data,
-                wide_counts,
-                leaf_block_indices,
+                binary.leaf_bounds,
+                binary.leaf_payloads,
+                out.wide_bounds,
+                out.wide_data,
+                out.wide_counts,
+                out.leaf_block_indices,
                 leaf_block_counter,
                 wide_root,
                 grid_dim=1,
                 block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
             )
-        elif leaf_count > 1:
+        elif binary.leaf_count > 1:
             ctx.enqueue_function[compute_binary_subtree_leaf_counts_kernel](
-                node_meta,
-                leaf_parent,
+                binary.node_meta,
+                binary.leaf_parent,
                 node_leaf_counts,
-                leaf_count,
-                grid_dim=blocks_leaves,
+                binary.leaf_count,
+                grid_dim=binary.blocks_leaves,
                 block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
             )
             ctx.enqueue_function[find_binary_root_kernel](
-                node_meta,
+                binary.node_meta,
                 wide_root,
-                internal_count,
-                grid_dim=blocks_internal,
+                binary.internal_count,
+                grid_dim=binary.blocks_internal,
                 block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
             )
             ctx.enqueue_function[collapse_binary_to_wide_kernel[Self.width]](
-                leaf_bounds,
-                leaf_payloads,
-                sorted_leaf_ids,
-                node_meta,
-                node_bounds,
+                binary.leaf_bounds,
+                binary.leaf_payloads,
+                binary.sorted_leaf_ids,
+                binary.node_meta,
+                binary.node_bounds,
                 node_leaf_counts,
-                wide_bounds,
-                wide_data,
-                wide_counts,
-                leaf_block_indices,
+                out.wide_bounds,
+                out.wide_data,
+                out.wide_counts,
+                out.leaf_block_indices,
                 leaf_block_counter,
-                internal_count,
-                grid_dim=blocks_internal,
+                binary.internal_count,
+                grid_dim=binary.blocks_internal,
                 block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
             )
 
@@ -399,3 +393,7 @@ struct GpuBoundsWideCollapse[width: Int]:
 
         with wide_root.map_to_host() as h:
             self.root_idx = UInt32(h[0])
+
+        out.root_idx = self.root_idx
+        out.node_count = self.node_count
+        out.leaf_block_count = self.leaf_block_count

@@ -2,7 +2,7 @@ from std.gpu import DeviceContext, DeviceBuffer
 
 
 @fieldwise_init
-struct GpuBuildTimings(TrivialRegisterPassable):
+struct GpuBuildTimings(TrivialRegisterPassable, Writable):
     var morton_ns: Int
     var sort_ns: Int
     var topology_ns: Int

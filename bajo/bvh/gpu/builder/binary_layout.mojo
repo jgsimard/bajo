@@ -1,8 +1,18 @@
+from std.math import max, ceildiv
+from std.gpu import DeviceBuffer, DeviceContext, global_idx
+
 from bajo.core.aabb import AABB
 from bajo.bvh.constants import (
     LBVH_LEAF_FLAG,
     LBVH_INDEX_MASK,
     BOUNDS_STRIDE,
+)
+from bajo.bvh.host_utils import copy_list_to_device
+from bajo.bvh.gpu.utils import GpuBuildTimings, GpuBVHValidation
+from bajo.bvh.gpu.validate import (
+    validate_sorted_keys,
+    validate_topology,
+    validate_refit_bounds,
 )
 
 
@@ -96,3 +106,141 @@ def _load_and_union_node_bounds(
     b1 = AABB.load6(node_bounds, b)
     b2 = AABB.load6(node_bounds, b + 6)
     return AABB.merge(b1, b2)
+
+
+struct GpuBinaryBoundsBvh:
+    var leaf_count: Int
+    var internal_count: Int
+
+    var blocks_leaves: Int
+    var blocks_internal: Int
+    var blocks_init: Int
+
+    var bounds: AABB
+    var centroid_bounds: AABB
+
+    var leaf_bounds_host: List[Float32]
+    var leaf_payloads_host: List[UInt32]
+
+    var leaf_bounds: DeviceBuffer[DType.float32]
+    var leaf_payloads: DeviceBuffer[DType.uint32]
+
+    var keys: DeviceBuffer[DType.uint32]
+    """Morton keys."""
+    var sorted_leaf_ids: DeviceBuffer[DType.uint32]
+
+    # Binary node layout:
+    #   node_meta   : parent, left encoded child, right encoded child, fence/range end
+    #   leaf_parent : parent internal node for each sorted leaf
+    #   node_bounds : two child AABBs per internal node, 12 floats total
+    #   node_flags  : refit synchronization flags
+    var node_meta: DeviceBuffer[DType.uint32]
+    var leaf_parent: DeviceBuffer[DType.uint32]
+    var node_bounds: DeviceBuffer[DType.float32]
+    var node_flags: DeviceBuffer[DType.uint32]
+
+    def __init__(
+        out self,
+        mut ctx: DeviceContext,
+        leaf_bounds: List[Float32],
+        leaf_payloads: List[UInt32],
+    ) raises:
+        self.leaf_count = len(leaf_payloads)
+        self.internal_count = max(self.leaf_count - 1, 0)
+
+        var n_leaf = max(self.leaf_count, 1)
+        var n_internal = max(self.internal_count, 1)
+
+        self.blocks_leaves = ceildiv(n_leaf, GPU_BOUNDS_BVH_BLOCK_SIZE)
+        self.blocks_internal = ceildiv(
+            n_internal,
+            GPU_BOUNDS_BVH_BLOCK_SIZE,
+        )
+        self.blocks_init = ceildiv(
+            max(n_leaf, n_internal),
+            GPU_BOUNDS_BVH_BLOCK_SIZE,
+        )
+
+        self.leaf_bounds_host = leaf_bounds.copy()
+        self.leaf_payloads_host = leaf_payloads.copy()
+
+        var out = AABB.invalid()
+        for i in range(self.leaf_count):
+            var b = i * BOUNDS_STRIDE
+            var aabb = AABB.load6(self.leaf_bounds_host.unsafe_ptr(), b)
+            out.grow(aabb)
+        self.bounds = out
+        var out2 = AABB.invalid()
+        for i in range(self.leaf_count):
+            var b = i * BOUNDS_STRIDE
+            var aabb = AABB.load6(self.leaf_bounds_host.unsafe_ptr(), b)
+            out2.grow(aabb.centroid())
+        self.centroid_bounds = out2
+
+        self.leaf_bounds = copy_list_to_device(ctx, self.leaf_bounds_host)
+        self.leaf_payloads = copy_list_to_device(ctx, self.leaf_payloads_host)
+
+        self.keys = ctx.enqueue_create_buffer[DType.uint32](n_leaf)
+        self.sorted_leaf_ids = ctx.enqueue_create_buffer[DType.uint32](n_leaf)
+
+        self.node_meta = ctx.enqueue_create_buffer[DType.uint32](
+            n_internal * BINARY_BVH_NODE_META_STRIDE
+        )
+        self.leaf_parent = ctx.enqueue_create_buffer[DType.uint32](n_leaf)
+        self.node_bounds = ctx.enqueue_create_buffer[DType.float32](
+            n_internal * BINARY_BVH_NODE_BOUNDS_STRIDE
+        )
+        self.node_flags = ctx.enqueue_create_buffer[DType.uint32](n_internal)
+
+    def root_bounds(self) -> AABB:
+        return self.bounds
+
+    def validate(self) raises -> GpuBVHValidation:
+        var sorted_validation = validate_sorted_keys(
+            self.keys,
+            self.sorted_leaf_ids,
+            self.leaf_count,
+        )
+
+        if self.leaf_count <= 1:
+            return GpuBVHValidation(
+                sorted_validation.sorted_ok,
+                sorted_validation.values_ok,
+                True,
+                UInt32(1),
+                UInt32(0),
+                True,
+                0.0,
+                UInt32(0),
+                sorted_validation.guard,
+            )
+
+        var topo_validation = validate_topology(
+            self.node_meta,
+            self.leaf_parent,
+            self.leaf_count,
+        )
+        var refit_validation = validate_refit_bounds(
+            self.node_bounds,
+            self.node_flags,
+            self.node_meta,
+            self.leaf_count,
+            self.bounds,
+        )
+        var guard = (
+            sorted_validation.guard
+            + topo_validation.guard
+            + refit_validation.guard
+        )
+
+        return GpuBVHValidation(
+            sorted_validation.sorted_ok,
+            sorted_validation.values_ok,
+            topo_validation.ok,
+            topo_validation.root_count,
+            topo_validation.root_idx,
+            refit_validation.ok,
+            refit_validation.diff,
+            refit_validation.root_idx,
+            guard,
+        )

@@ -28,38 +28,43 @@ struct GpuTriangleBvh[width: Int]:
     var leaf_prims: DeviceBuffer[DType.uint32]
     var tri_count: Int
     var leaf_pack_ns: Int
+    var bounds_pack_ns: Int
     var timings: GpuBuildTimings
 
     def __init__(
         out self,
         mut ctx: DeviceContext,
-        tri_vertices: List[Vec3f32],
+        vertices: DeviceBuffer[DType.float32],
+        tri_count: Int,
     ) raises:
-        self.tri_count = len(tri_vertices) / 3
+        self.vertices = vertices
+        self.tri_count = tri_count
         self.leaf_pack_ns = 0
+        self.bounds_pack_ns = 0
 
-        var flat_vertices = flatten_vertices(tri_vertices)
-        self.vertices = copy_list_to_device(ctx, flat_vertices)
-
-        var leaf_bounds = List[Float32](
-            capacity=max(self.tri_count, 1) * BOUNDS_STRIDE
+        var leaf_bounds = ctx.enqueue_create_buffer[DType.float32](
+            self.tri_count * BOUNDS_STRIDE
         )
-        var payloads = List[UInt32](capacity=max(self.tri_count, 1))
+        var payloads = ctx.enqueue_create_buffer[DType.uint32](self.tri_count)
 
-        for i in range(self.tri_count):
-            ref v0 = tri_vertices[i * 3 + 0]
-            ref v1 = tri_vertices[i * 3 + 1]
-            ref v2 = tri_vertices[i * 3 + 2]
-            var bmin = vmin(vmin(v0, v1), v2)
-            var bmax = vmax(vmax(v0, v1), v2)
-            leaf_bounds.append(bmin.x)
-            leaf_bounds.append(bmin.y)
-            leaf_bounds.append(bmin.z)
-            leaf_bounds.append(bmax.x)
-            leaf_bounds.append(bmax.y)
-            leaf_bounds.append(bmax.z)
-            payloads.append(UInt32(i))
+        var start = perf_counter_ns()
+        var blocks = ceildiv(
+            max(self.tri_count, 1),
+            GPU_BOUNDS_BVH_BLOCK_SIZE,
+        )
 
+        ctx.enqueue_function[compute_triangle_bounds_kernel](
+            self.vertices,
+            leaf_bounds,
+            payloads,
+            self.tri_count,
+            grid_dim=blocks,
+            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+        )
+        ctx.synchronize()
+        self.bounds_pack_ns = Int(perf_counter_ns() - start)
+
+        # Assumes GpuBoundsBvh now accepts device buffers directly.
         self.tree = GpuBoundsBvh[Self.width](ctx, leaf_bounds, payloads)
         self.timings = self.tree.build(ctx)
 
@@ -114,6 +119,37 @@ struct GpuTriangleBvh[width: Int]:
             grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
+
+
+def compute_triangle_bounds_kernel(
+    vertices: UnsafePointer[Float32, MutAnyOrigin],
+    leaf_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    payloads: UnsafePointer[UInt32, MutAnyOrigin],
+    tri_count: Int,
+):
+    var tri_idx = global_idx.x
+    if tri_idx >= tri_count:
+        return
+
+    var vbase = tri_idx * TRI_LEAF_VERTEX_STRIDE
+
+    var v0 = Vec3f32.load(vertices, vbase + 0)
+    var v1 = Vec3f32.load(vertices, vbase + 3)
+    var v2 = Vec3f32.load(vertices, vbase + 6)
+
+    var bmin = vmin(vmin(v0, v1), v2)
+    var bmax = vmax(vmax(v0, v1), v2)
+
+    var bbase = tri_idx * BOUNDS_STRIDE
+
+    leaf_bounds[bbase + 0] = bmin.x
+    leaf_bounds[bbase + 1] = bmin.y
+    leaf_bounds[bbase + 2] = bmin.z
+    leaf_bounds[bbase + 3] = bmax.x
+    leaf_bounds[bbase + 4] = bmax.y
+    leaf_bounds[bbase + 5] = bmax.z
+
+    payloads[tri_idx] = UInt32(tri_idx)
 
 
 def pack_triangle_leaf_blocks_kernel[

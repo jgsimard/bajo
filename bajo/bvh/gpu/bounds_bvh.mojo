@@ -42,8 +42,8 @@ struct GpuBoundsBvh[width: Int]:
     var max_wide_nodes: Int
     var max_leaf_blocks: Int
 
-    var leaf_bounds_host: List[Float32]
-    var leaf_payloads_host: List[UInt32]
+    var leaf_bounds: DeviceBuffer[DType.float32]
+    var leaf_payloads: DeviceBuffer[DType.uint32]
 
     var wide_bounds: DeviceBuffer[DType.float32]
     var wide_data: DeviceBuffer[DType.uint32]
@@ -58,8 +58,8 @@ struct GpuBoundsBvh[width: Int]:
     def __init__(
         out self,
         mut ctx: DeviceContext,
-        leaf_bounds: List[Float32],
-        leaf_payloads: List[UInt32],
+        leaf_bounds: DeviceBuffer[DType.float32],
+        leaf_payloads: DeviceBuffer[DType.uint32],
     ) raises:
         self.leaf_count = len(leaf_payloads)
         self.internal_count = max(self.leaf_count - 1, 0)
@@ -71,8 +71,8 @@ struct GpuBoundsBvh[width: Int]:
 
         n_internal = max(self.internal_count, 1)
 
-        self.leaf_bounds_host = leaf_bounds.copy()
-        self.leaf_payloads_host = leaf_payloads.copy()
+        self.leaf_bounds = leaf_bounds
+        self.leaf_payloads = leaf_payloads
 
         # Wide node index is the binary internal node index. Leaf blocks are
         # allocated on the GPU during collapse with an atomic counter.
@@ -103,7 +103,7 @@ struct GpuBoundsBvh[width: Int]:
             return GpuBuildTimings.empty()
 
         var binary = GpuBinaryBoundsBvh(
-            ctx, self.leaf_bounds_host, self.leaf_payloads_host
+            ctx, self.leaf_bounds, self.leaf_payloads
         )
 
         # leaf AABBs -> sorted binary LBVH

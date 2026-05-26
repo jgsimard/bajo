@@ -343,7 +343,21 @@ struct GpuTlas[width: Int]:
             leaf_bounds.append(inst.bounds._max.z)
             payloads.append(UInt32(i))
 
-        self.tree = GpuBoundsBvh[Self.width](ctx, leaf_bounds, payloads)
+        if self.inst_count == 0:
+            for _ in range(BOUNDS_STRIDE):
+                leaf_bounds.append(0.0)
+            payloads.append(EMPTY_LANE)
+
+        var d_leaf_bounds = copy_list_to_device[DType.float32](
+            ctx,
+            leaf_bounds,
+        )
+        var d_payloads = copy_list_to_device[DType.uint32](
+            ctx,
+            payloads,
+        )
+
+        self.tree = GpuBoundsBvh[Self.width](ctx, d_leaf_bounds, d_payloads)
         self.timings = self.tree.build(ctx)
 
         self.inst_inv_transform = copy_list_to_device(

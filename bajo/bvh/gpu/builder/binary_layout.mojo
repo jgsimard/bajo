@@ -202,8 +202,8 @@ struct GpuBinaryBoundsBvh(Movable):
     def __init__(
         out self,
         mut ctx: DeviceContext,
-        leaf_bounds: List[Float32],
-        leaf_payloads: List[UInt32],
+        leaf_bounds: DeviceBuffer[DType.float32],
+        leaf_payloads: DeviceBuffer[DType.uint32],
     ) raises:
         self.leaf_count = len(leaf_payloads)
         self.internal_count = max(self.leaf_count - 1, 0)
@@ -221,8 +221,8 @@ struct GpuBinaryBoundsBvh(Movable):
             GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
 
-        self.leaf_bounds = copy_list_to_device(ctx, leaf_bounds)
-        self.leaf_payloads = copy_list_to_device(ctx, leaf_payloads)
+        self.leaf_bounds = leaf_bounds
+        self.leaf_payloads = leaf_payloads
 
         self.bounds_device = ctx.enqueue_create_buffer[DType.float32](
             REDUCED_BOUNDS_STRIDE

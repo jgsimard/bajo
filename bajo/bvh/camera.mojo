@@ -3,7 +3,7 @@ from bajo.bvh.constants import f32_max
 from bajo.core.vec import Vec3f32, normalize
 
 
-comptime CAMERA_PARAM_STRIDE = 13
+comptime CAMERA_STRIDE = 13
 comptime CAMERA_ORIGIN = 0
 comptime CAMERA_FORWARD = 3
 comptime CAMERA_RIGHT = 6

@@ -237,8 +237,11 @@ def init_lbvh_bounds_kernel(
     node_flags[i] = UInt32(0)
 
 
-@fieldwise_init
-struct GpuBoundsLbvhBuilder[width: Int]:
+def build_binary_bvh_with_lbvh(
+    ctx: DeviceContext,
+    mut binary: GpuBinaryBoundsBvh,
+    mut workspace: RadixSortWorkspace[DType.uint32, DType.uint32],
+) raises -> GpuBuildTimings:
     """Builds the temporary sorted binary LBVH.
 
     This stage owns:
@@ -248,103 +251,96 @@ struct GpuBoundsLbvhBuilder[width: Int]:
     4. binary topology
     5. refit bounds
     """
+    var start_ns = perf_counter_ns()
+    var centroid_bounds = _compute_centroid_bounds(
+        binary.leaf_count,
+        binary.leaf_bounds_host,
+    )
+    var extent = centroid_bounds.extent()
+    var inv = extent.safe_inv()
 
-    def build(
-        mut self,
-        ctx: DeviceContext,
-        mut binary: GpuBinaryBoundsBvh,
-        mut workspace: RadixSortWorkspace[DType.uint32, DType.uint32],
-    ) raises -> GpuBuildTimings:
-        var start_ns = perf_counter_ns()
-        var centroid_bounds = self._compute_centroid_bounds(
+    ctx.enqueue_function[compute_bounds_morton_codes_kernel](
+        binary.leaf_bounds,
+        binary.keys,
+        binary.sorted_leaf_ids,
+        binary.leaf_count,
+        centroid_bounds._min,
+        inv,
+        grid_dim=binary.blocks_leaves,
+        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+    )
+    ctx.synchronize()
+    var m = perf_counter_ns()
+
+    device_radix_sort_pairs[DType.uint32, DType.uint32](
+        ctx,
+        workspace,
+        binary.keys,
+        binary.sorted_leaf_ids,
+        binary.leaf_count,
+    )
+
+    ctx.synchronize()
+    var s = perf_counter_ns()
+
+    if binary.internal_count > 0:
+        ctx.enqueue_function[init_lbvh_topology_kernel](
+            binary.node_meta,
+            binary.leaf_parent,
+            binary.internal_count,
             binary.leaf_count,
-            binary.leaf_bounds_host,
+            grid_dim=binary.blocks_init,
+            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
-        var extent = centroid_bounds.extent()
-        var inv = extent.safe_inv()
-
-        ctx.enqueue_function[compute_bounds_morton_codes_kernel](
-            binary.leaf_bounds,
+        ctx.enqueue_function[build_lbvh_topology_kernel](
             binary.keys,
-            binary.sorted_leaf_ids,
+            binary.node_meta,
+            binary.leaf_parent,
             binary.leaf_count,
-            centroid_bounds._min,
-            inv,
+            grid_dim=binary.blocks_internal,
+            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+        )
+        ctx.synchronize()
+    var t = perf_counter_ns()
+
+    if binary.internal_count > 0:
+        ctx.enqueue_function[init_lbvh_bounds_kernel](
+            binary.node_bounds,
+            binary.node_flags,
+            binary.internal_count,
+            grid_dim=binary.blocks_internal,
+            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+        )
+        ctx.enqueue_function[refit_lbvh_bounds_from_leaves_kernel](
+            binary.leaf_bounds,
+            binary.sorted_leaf_ids,
+            binary.node_meta,
+            binary.leaf_parent,
+            binary.node_bounds,
+            binary.node_flags,
+            binary.leaf_count,
             grid_dim=binary.blocks_leaves,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
         ctx.synchronize()
-        var m = perf_counter_ns()
+    var r = perf_counter_ns()
 
-        device_radix_sort_pairs[DType.uint32, DType.uint32](
-            ctx,
-            workspace,
-            binary.keys,
-            binary.sorted_leaf_ids,
-            binary.leaf_count,
-        )
+    return GpuBuildTimings(
+        Int(m - start_ns),
+        Int(s - m),
+        Int(t - s),
+        Int(r - t),
+        0,
+    )
 
-        ctx.synchronize()
-        var s = perf_counter_ns()
 
-        if binary.internal_count > 0:
-            ctx.enqueue_function[init_lbvh_topology_kernel](
-                binary.node_meta,
-                binary.leaf_parent,
-                binary.internal_count,
-                binary.leaf_count,
-                grid_dim=binary.blocks_init,
-                block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-            )
-            ctx.enqueue_function[build_lbvh_topology_kernel](
-                binary.keys,
-                binary.node_meta,
-                binary.leaf_parent,
-                binary.leaf_count,
-                grid_dim=binary.blocks_internal,
-                block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-            )
-            ctx.synchronize()
-        var t = perf_counter_ns()
-
-        if binary.internal_count > 0:
-            ctx.enqueue_function[init_lbvh_bounds_kernel](
-                binary.node_bounds,
-                binary.node_flags,
-                binary.internal_count,
-                grid_dim=binary.blocks_internal,
-                block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-            )
-            ctx.enqueue_function[refit_lbvh_bounds_from_leaves_kernel](
-                binary.leaf_bounds,
-                binary.sorted_leaf_ids,
-                binary.node_meta,
-                binary.leaf_parent,
-                binary.node_bounds,
-                binary.node_flags,
-                binary.leaf_count,
-                grid_dim=binary.blocks_leaves,
-                block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-            )
-            ctx.synchronize()
-        var r = perf_counter_ns()
-
-        return GpuBuildTimings(
-            Int(m - start_ns),
-            Int(s - m),
-            Int(t - s),
-            Int(r - t),
-            0,
-        )
-
-    def _compute_centroid_bounds(
-        self,
-        leaf_count: Int,
-        leaf_bounds_host: List[Float32],
-    ) -> AABB:
-        var out = AABB.invalid()
-        for i in range(leaf_count):
-            var b = i * BOUNDS_STRIDE
-            aabb = AABB.load6(leaf_bounds_host.unsafe_ptr(), b)
-            out.grow(aabb.centroid())
-        return out
+def _compute_centroid_bounds(
+    leaf_count: Int,
+    leaf_bounds_host: List[Float32],
+) -> AABB:
+    var out = AABB.invalid()
+    for i in range(leaf_count):
+        var b = i * BOUNDS_STRIDE
+        aabb = AABB.load6(leaf_bounds_host.unsafe_ptr(), b)
+        out.grow(aabb.centroid())
+    return out

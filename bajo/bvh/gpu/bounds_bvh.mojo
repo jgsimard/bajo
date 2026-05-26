@@ -16,12 +16,12 @@ from bajo.bvh.gpu.utils import GpuBuildTimings, GpuBVHValidation
 from bajo.sort.gpu.radix_sort import RadixSortWorkspace
 from bajo.bvh.host_utils import copy_list_to_device
 from bajo.bvh.gpu.builder.lbvh import (
-    GpuBoundsLbvhBuilder,
+    build_binary_bvh_with_lbvh,
     BINARY_BVH_NODE_META_STRIDE,
     BINARY_BVH_NODE_BOUNDS_STRIDE,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
-from bajo.bvh.gpu.builder.wide_collapse import GpuBoundsWideCollapse
+from bajo.bvh.gpu.builder.wide_collapse import collapse
 from bajo.bvh.gpu.builder.binary_layout import GpuBinaryBoundsBvh
 
 
@@ -41,23 +41,9 @@ struct GpuBoundsBvh[width: Int]:
     var leaf_block_count: Int
     var max_wide_nodes: Int
     var max_leaf_blocks: Int
-    var collapse_ns: Int
-
-    var blocks_leaves: Int
-    var blocks_internal: Int
-    var blocks_init: Int
 
     var leaf_bounds_host: List[Float32]
     var leaf_payloads_host: List[UInt32]
-
-    var leaf_bounds: DeviceBuffer[DType.float32]
-    var leaf_payloads: DeviceBuffer[DType.uint32]
-    var keys: DeviceBuffer[DType.uint32]
-    var values: DeviceBuffer[DType.uint32]
-    var node_meta: DeviceBuffer[DType.uint32]
-    var leaf_parent: DeviceBuffer[DType.uint32]
-    var node_bounds: DeviceBuffer[DType.float32]
-    var node_flags: DeviceBuffer[DType.uint32]
 
     var wide_bounds: DeviceBuffer[DType.float32]
     var wide_data: DeviceBuffer[DType.uint32]
@@ -82,32 +68,11 @@ struct GpuBoundsBvh[width: Int]:
         self.leaf_block_count = 0
         self.max_wide_nodes = max(self.internal_count, 1)
         self.max_leaf_blocks = max(self.internal_count * Self.width, 1)
-        self.collapse_ns = 0
 
-        n_leaf = max(self.leaf_count, 1)
         n_internal = max(self.internal_count, 1)
-        self.blocks_leaves = ceildiv(n_leaf, GPU_BOUNDS_BVH_BLOCK_SIZE)
-        self.blocks_internal = ceildiv(n_internal, GPU_BOUNDS_BVH_BLOCK_SIZE)
-        self.blocks_init = ceildiv(
-            max(n_leaf, n_internal),
-            GPU_BOUNDS_BVH_BLOCK_SIZE,
-        )
 
         self.leaf_bounds_host = leaf_bounds.copy()
         self.leaf_payloads_host = leaf_payloads.copy()
-
-        self.leaf_bounds = copy_list_to_device(ctx, self.leaf_bounds_host)
-        self.leaf_payloads = copy_list_to_device(ctx, self.leaf_payloads_host)
-        self.keys = ctx.enqueue_create_buffer[DType.uint32](n_leaf)
-        self.values = ctx.enqueue_create_buffer[DType.uint32](n_leaf)
-        self.node_meta = ctx.enqueue_create_buffer[DType.uint32](
-            n_internal * BINARY_BVH_NODE_META_STRIDE
-        )
-        self.leaf_parent = ctx.enqueue_create_buffer[DType.uint32](n_leaf)
-        self.node_bounds = ctx.enqueue_create_buffer[DType.float32](
-            n_internal * BINARY_BVH_NODE_BOUNDS_STRIDE
-        )
-        self.node_flags = ctx.enqueue_create_buffer[DType.uint32](n_internal)
 
         # Wide node index is the binary internal node index. Leaf blocks are
         # allocated on the GPU during collapse with an atomic counter.
@@ -142,71 +107,33 @@ struct GpuBoundsBvh[width: Int]:
         )
 
         # leaf AABBs -> sorted binary LBVH
-        var lbvh = GpuBoundsLbvhBuilder[Self.width]()
-        timings = lbvh.build(ctx, binary, self.workspace)
+        timings = build_binary_bvh_with_lbvh(ctx, binary, self.workspace)
 
         # binary BVH -> wide BVH
         var collapse_start = perf_counter_ns()
 
-        var collapse = GpuBoundsWideCollapse[Self.width]()
-        collapse.collapse(ctx, binary, self)
+        collapse(ctx, binary, self)
 
         var end_ns = perf_counter_ns()
-
-        self.root_idx = collapse.root_idx
-        self.node_count = collapse.node_count
-        self.leaf_block_count = collapse.leaf_block_count
 
         timings.collapse_ns = Int(end_ns - collapse_start)
 
         return timings
 
-    def validate(mut self, scene_bounds: AABB) raises -> GpuBVHValidation:
-        var sorted_validation = validate_sorted_keys(
-            self.keys, self.values, self.leaf_count
+    def build_test(
+        mut self, mut ctx: DeviceContext
+    ) raises -> GpuBinaryBoundsBvh:
+        var binary = GpuBinaryBoundsBvh(
+            ctx, self.leaf_bounds_host, self.leaf_payloads_host
         )
 
-        if self.leaf_count <= 1:
-            return GpuBVHValidation(
-                sorted_validation.sorted_ok,
-                sorted_validation.values_ok,
-                True,
-                UInt32(1),
-                UInt32(0),
-                True,
-                0.0,
-                UInt32(0),
-                sorted_validation.guard,
-            )
+        # leaf AABBs -> sorted binary LBVH
+        timings = build_binary_bvh_with_lbvh(ctx, binary, self.workspace)
 
-        var topo_validation = validate_topology(
-            self.node_meta, self.leaf_parent, self.leaf_count
-        )
-        var refit_validation = validate_refit_bounds(
-            self.node_bounds,
-            self.node_flags,
-            self.node_meta,
-            self.leaf_count,
-            scene_bounds,
-        )
-        self.root_idx = refit_validation.root_idx
-        var guard = (
-            sorted_validation.guard
-            + topo_validation.guard
-            + refit_validation.guard
-        )
+        # binary BVH -> wide BVH
+        collapse(ctx, binary, self)
 
-        return GpuBVHValidation(
-            sorted_validation.sorted_ok,
-            sorted_validation.values_ok,
-            topo_validation.ok,
-            topo_validation.root_count,
-            topo_validation.root_idx,
-            refit_validation.ok,
-            refit_validation.diff,
-            refit_validation.root_idx,
-            guard,
-        )
+        return binary^
 
     def root_bounds(self) -> AABB:
         var out = AABB.invalid()

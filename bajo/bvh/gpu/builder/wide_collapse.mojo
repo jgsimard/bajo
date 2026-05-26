@@ -286,114 +286,98 @@ def collapse_binary_to_wide_kernel[
             wide_counts[lane_base] = UInt32(0)
 
 
-struct GpuBoundsWideCollapse[width: Int]:
+def collapse[
+    width: Int
+](
+    mut ctx: DeviceContext,
+    binary: GpuBinaryBoundsBvh,
+    mut out: GpuBoundsBvh[width],
+) raises:
     """Converts a sorted binary bounds BVH into the final wide layout."""
+    var n_internal = max(binary.internal_count, 1)
+    var max_wide_lanes = out.max_wide_nodes * width
+    var max_leaf_slots = out.max_leaf_blocks * width
+    var init_n = max(
+        max(max_wide_lanes, max_leaf_slots),
+        n_internal,
+    )
+    var init_blocks = ceildiv(init_n, GPU_BOUNDS_BVH_BLOCK_SIZE)
 
-    var root_idx: UInt32
-    var node_count: Int
-    var leaf_block_count: Int
+    # Collapse scratch. These buffers are not traversal data.
+    var node_leaf_counts = ctx.enqueue_create_buffer[DType.uint32](n_internal)
+    var leaf_block_counter = ctx.enqueue_create_buffer[DType.uint32](1)
+    var wide_root = ctx.enqueue_create_buffer[DType.uint32](1)
 
-    def __init__(out self):
-        self.root_idx = UInt32(0)
-        self.node_count = 0
-        self.leaf_block_count = 0
+    ctx.enqueue_function[init_gpu_wide_collapse_kernel[width]](
+        out.wide_bounds,
+        out.wide_data,
+        out.wide_counts,
+        out.leaf_block_indices,
+        node_leaf_counts,
+        leaf_block_counter,
+        wide_root,
+        max_wide_lanes,
+        max_leaf_slots,
+        binary.internal_count,
+        grid_dim=init_blocks,
+        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+    )
 
-    def collapse(
-        mut self,
-        mut ctx: DeviceContext,
-        binary: GpuBinaryBoundsBvh,
-        mut out: GpuBoundsBvh[Self.width],
-    ) raises:
-        self.node_count = max(binary.internal_count, 1)
-        self.leaf_block_count = 0
-
-        var n_internal = max(binary.internal_count, 1)
-        var max_wide_lanes = out.max_wide_nodes * Self.width
-        var max_leaf_slots = out.max_leaf_blocks * Self.width
-        var init_n = max(
-            max(max_wide_lanes, max_leaf_slots),
-            n_internal,
-        )
-        var init_blocks = ceildiv(init_n, GPU_BOUNDS_BVH_BLOCK_SIZE)
-
-        # Collapse scratch. These buffers are not traversal data.
-        var node_leaf_counts = ctx.enqueue_create_buffer[DType.uint32](
-            n_internal
-        )
-        var leaf_block_counter = ctx.enqueue_create_buffer[DType.uint32](1)
-        var wide_root = ctx.enqueue_create_buffer[DType.uint32](1)
-
-        ctx.enqueue_function[init_gpu_wide_collapse_kernel[Self.width]](
+    if binary.leaf_count == 1:
+        ctx.enqueue_function[collapse_single_leaf_to_wide_kernel[width]](
+            binary.leaf_bounds,
+            binary.leaf_payloads,
             out.wide_bounds,
             out.wide_data,
             out.wide_counts,
             out.leaf_block_indices,
-            node_leaf_counts,
             leaf_block_counter,
             wide_root,
-            max_wide_lanes,
-            max_leaf_slots,
+            grid_dim=1,
+            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+        )
+    elif binary.leaf_count > 1:
+        ctx.enqueue_function[compute_binary_subtree_leaf_counts_kernel](
+            binary.node_meta,
+            binary.leaf_parent,
+            node_leaf_counts,
+            binary.leaf_count,
+            grid_dim=binary.blocks_leaves,
+            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+        )
+        ctx.enqueue_function[find_binary_root_kernel](
+            binary.node_meta,
+            wide_root,
             binary.internal_count,
-            grid_dim=init_blocks,
+            grid_dim=binary.blocks_internal,
+            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+        )
+        ctx.enqueue_function[collapse_binary_to_wide_kernel[width]](
+            binary.leaf_bounds,
+            binary.leaf_payloads,
+            binary.sorted_leaf_ids,
+            binary.node_meta,
+            binary.node_bounds,
+            node_leaf_counts,
+            out.wide_bounds,
+            out.wide_data,
+            out.wide_counts,
+            out.leaf_block_indices,
+            leaf_block_counter,
+            binary.internal_count,
+            grid_dim=binary.blocks_internal,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
 
-        if binary.leaf_count == 1:
-            ctx.enqueue_function[
-                collapse_single_leaf_to_wide_kernel[Self.width]
-            ](
-                binary.leaf_bounds,
-                binary.leaf_payloads,
-                out.wide_bounds,
-                out.wide_data,
-                out.wide_counts,
-                out.leaf_block_indices,
-                leaf_block_counter,
-                wide_root,
-                grid_dim=1,
-                block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-            )
-        elif binary.leaf_count > 1:
-            ctx.enqueue_function[compute_binary_subtree_leaf_counts_kernel](
-                binary.node_meta,
-                binary.leaf_parent,
-                node_leaf_counts,
-                binary.leaf_count,
-                grid_dim=binary.blocks_leaves,
-                block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-            )
-            ctx.enqueue_function[find_binary_root_kernel](
-                binary.node_meta,
-                wide_root,
-                binary.internal_count,
-                grid_dim=binary.blocks_internal,
-                block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-            )
-            ctx.enqueue_function[collapse_binary_to_wide_kernel[Self.width]](
-                binary.leaf_bounds,
-                binary.leaf_payloads,
-                binary.sorted_leaf_ids,
-                binary.node_meta,
-                binary.node_bounds,
-                node_leaf_counts,
-                out.wide_bounds,
-                out.wide_data,
-                out.wide_counts,
-                out.leaf_block_indices,
-                leaf_block_counter,
-                binary.internal_count,
-                grid_dim=binary.blocks_internal,
-                block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-            )
+    ctx.synchronize()
 
-        ctx.synchronize()
+    leaf_block_count: Int
+    with leaf_block_counter.map_to_host() as h:
+        leaf_block_count = Int(h[0])
 
-        with leaf_block_counter.map_to_host() as h:
-            self.leaf_block_count = Int(h[0])
+    with wide_root.map_to_host() as h:
+        root_idx = UInt32(h[0])
 
-        with wide_root.map_to_host() as h:
-            self.root_idx = UInt32(h[0])
-
-        out.root_idx = self.root_idx
-        out.node_count = self.node_count
-        out.leaf_block_count = self.leaf_block_count
+    out.root_idx = root_idx
+    out.node_count = max(binary.internal_count, 1)
+    out.leaf_block_count = leaf_block_count

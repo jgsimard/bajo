@@ -15,7 +15,6 @@ from bajo.bvh.gpu.validate import (
     validate_refit_bounds,
 )
 
-
 comptime BINARY_BVH_NODE_META_STRIDE = 4
 comptime BINARY_BVH_NODE_PARENT = 0
 comptime BINARY_BVH_NODE_LEFT = 1
@@ -108,7 +107,7 @@ def _load_and_union_node_bounds(
     return AABB.merge(b1, b2)
 
 
-struct GpuBinaryBoundsBvh:
+struct GpuBinaryBoundsBvh(Movable):
     var leaf_count: Int
     var internal_count: Int
 
@@ -195,7 +194,7 @@ struct GpuBinaryBoundsBvh:
     def root_bounds(self) -> AABB:
         return self.bounds
 
-    def validate(self) raises -> GpuBVHValidation:
+    def validate(self, bounds: AABB) raises -> GpuBVHValidation:
         var sorted_validation = validate_sorted_keys(
             self.keys,
             self.sorted_leaf_ids,
@@ -225,7 +224,7 @@ struct GpuBinaryBoundsBvh:
             self.node_flags,
             self.node_meta,
             self.leaf_count,
-            self.bounds,
+            bounds,
         )
         var guard = (
             sorted_validation.guard

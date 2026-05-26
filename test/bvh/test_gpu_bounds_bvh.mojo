@@ -20,6 +20,7 @@ from bajo.bvh.gpu.bounds_bvh import (
 )
 from bajo.bvh.gpu.sphere_bvh import GpuSphereBvh
 from bajo.bvh.gpu.triangle_bvh import GpuTriangleBvh
+from bajo.bvh.gpu.builder.binary_layout import GpuBinaryBoundsBvh
 
 from fixtures import _append_tri, _brute_triangle_trace, _brute_sphere_trace
 
@@ -177,9 +178,10 @@ def _assert_gpu_bounds_width[width: Int](verts: List[Vec3f32]) raises:
     var payloads = build[1].copy()
 
     with DeviceContext() as ctx:
+        # var binary_bvh = GpuBinaryBoundsBvh(ctx, leaf_bounds, payloads)
         var bvh = GpuBoundsBvh[width](ctx, leaf_bounds, payloads)
-        _ = bvh.build(ctx)
-        var validation = bvh.validate(bvh.root_bounds())
+        binary_bvh = bvh.build_test(ctx)
+        var validation = binary_bvh.validate(binary_bvh.root_bounds())
 
         assert_true(validation.sorted_ok, "generic bounds keys sorted")
         assert_true(validation.values_ok, "generic bounds values valid")
@@ -365,8 +367,8 @@ def _assert_gpu_sphere_bounds_width[width: Int](spheres: List[Sphere]) raises:
 
     with DeviceContext() as ctx:
         var bvh = GpuBoundsBvh[width](ctx, leaf_bounds, payloads)
-        _ = bvh.build(ctx)
-        var validation = bvh.validate(bvh.root_bounds())
+        binary_bvh = bvh.build_test(ctx)
+        var validation = binary_bvh.validate(bvh.root_bounds())
 
         assert_true(validation.sorted_ok, "sphere bounds keys sorted")
         assert_true(validation.values_ok, "sphere bounds values valid")

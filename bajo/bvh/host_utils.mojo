@@ -3,7 +3,7 @@ from std.gpu.host import DeviceContext
 
 from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32, vmin, vmax, cross, length, normalize
-from bajo.bvh.types import Ray, RAY_FLAT_STRIDE
+from bajo.bvh.types import Ray, RAY_STRIDE
 from bajo.bvh.constants import f32_max
 
 
@@ -36,7 +36,7 @@ def copy_list_to_device[
 
 
 def flatten_rays(rays: List[Ray]) -> List[Float32]:
-    var out = List[Float32](capacity=len(rays) * RAY_FLAT_STRIDE)
+    var out = List[Float32](capacity=len(rays) * RAY_STRIDE)
     for ray in rays:
         out.append(ray.o.x)
         out.append(ray.o.y)

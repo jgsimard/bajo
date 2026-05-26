@@ -49,7 +49,7 @@ struct Vec2[dtype: DType, width: Int = 1](TrivialRegisterPassable, Writable):
 
 @fieldwise_init
 struct Vec3[dtype: DType, width: Int = 1](
-    DevicePassable, TrivialRegisterPassable, Writable
+    DevicePassable, Roundable, TrivialRegisterPassable, Writable
 ):
     var x: SIMD[Self.dtype, Self.width]
     var y: SIMD[Self.dtype, Self.width]
@@ -294,6 +294,17 @@ struct Vec3[dtype: DType, width: Int = 1](
         ptr[base + 0] = self.x[0]
         ptr[base + 1] = self.y[0]
         ptr[base + 2] = self.z[0]
+
+    # roundable
+    def __round__(self) -> Self:
+        return Self(round(self.x), round(self.y), round(self.z))
+
+    def __round__(self, ndigits: Int) -> Self:
+        return Self(
+            round(self.x, ndigits),
+            round(self.y, ndigits),
+            round(self.z, ndigits),
+        )
 
 
 def dot[

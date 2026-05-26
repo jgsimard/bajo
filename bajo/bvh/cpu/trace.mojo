@@ -2,7 +2,7 @@ from bajo.bvh.types import Ray, Hit
 from bajo.core.intersect import intersect_ray_aabb
 from bajo.core.vec import Vec3
 from bajo.bvh.cpu.bounds_bvh import BoundsBvh
-from bajo.bvh.constants import EMPTY_LANE, CPU_TRAVERSAL_STACK_SIZE, TRACE
+from bajo.bvh.constants import EMPTY_LANE, CPU_STACK_SIZE, TRACE
 
 
 def trace_bounds_bvh[
@@ -15,9 +15,7 @@ def trace_bounds_bvh[
 
     var hit = Hit.miss(ray.t_max)
 
-    var stack = InlineArray[UInt32, CPU_TRAVERSAL_STACK_SIZE](
-        uninitialized=True
-    )
+    var stack = InlineArray[UInt32, CPU_STACK_SIZE](uninitialized=True)
     var stack_ptr = 0
     var n_idx = UInt32(0)
 

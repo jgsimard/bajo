@@ -7,7 +7,6 @@ from std.gpu import DeviceContext, DeviceBuffer
 from bajo.core.utils import (
     ns_to_ms,
     ns_to_mrays_per_s,
-    print_vec3_rounded,
 )
 from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32
@@ -18,7 +17,6 @@ from bajo.bvh.host_utils import (
     generate_primary_rays,
     flatten_rays,
     hit_t_for_checksum,
-    compute_bounds,
 )
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.tlas import Tlas
@@ -26,8 +24,9 @@ from bajo.bvh.gpu.tlas import GpuTlas
 from bajo.bvh.gpu.sphere_bvh import GpuSphereBvh
 from bajo.bvh.gpu.triangle_bvh import GpuTriangleBvh
 from bajo.bvh.gpu.utils import _upload_rays, _download_full_hit_checksum
-from bajo.bvh.constants import TRACE, GPU_TRAVERSAL_STACK_SIZE, EMPTY_LANE
+from bajo.bvh.constants import TRACE, GPU_STACK_SIZE, EMPTY_LANE
 from bajo.obj.pack import pack_obj_triangles
+from bajo.bvh.gpu.utils import GpuBuildTimings
 
 
 comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"
@@ -196,7 +195,7 @@ def _bench_direct_triangle_primary[
     var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](ray_count)
 
     _upload_rays(ctx, d_rays, rays_flat)
-    blas.launch_uploaded_primary(ctx, d_rays, d_hits_f32, d_hits_u32, ray_count)
+    blas.launch_uploaded(ctx, d_rays, d_hits_f32, d_hits_u32, ray_count)
     ctx.synchronize()
 
     var best_ns = Int.MAX
@@ -205,9 +204,7 @@ def _bench_direct_triangle_primary[
 
     for _ in range(repeats):
         var t0 = perf_counter_ns()
-        blas.launch_uploaded_primary(
-            ctx, d_rays, d_hits_f32, d_hits_u32, ray_count
-        )
+        blas.launch_uploaded(ctx, d_rays, d_hits_f32, d_hits_u32, ray_count)
         ctx.synchronize()
         var t1 = perf_counter_ns()
         best_ns = min(best_ns, Int(t1 - t0))
@@ -301,7 +298,7 @@ def _bench_direct_sphere_primary[
     var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](ray_count)
 
     _upload_rays(ctx, d_rays, rays_flat)
-    blas.launch_uploaded_primary(ctx, d_rays, d_hits_f32, d_hits_u32, ray_count)
+    blas.launch_uploaded(ctx, d_rays, d_hits_f32, d_hits_u32, ray_count)
     ctx.synchronize()
 
     var best_ns = Int.MAX
@@ -310,9 +307,7 @@ def _bench_direct_sphere_primary[
 
     for _ in range(repeats):
         var t0 = perf_counter_ns()
-        blas.launch_uploaded_primary(
-            ctx, d_rays, d_hits_f32, d_hits_u32, ray_count
-        )
+        blas.launch_uploaded(ctx, d_rays, d_hits_f32, d_hits_u32, ray_count)
         ctx.synchronize()
         var t1 = perf_counter_ns()
         best_ns = min(best_ns, Int(t1 - t0))
@@ -465,11 +460,11 @@ def _print_blas_build_table_header():
 def _print_blas_build_row(
     label: String,
     build_ns: Int,
-    collapse_ns: Int,
+    timings: GpuBuildTimings,
     pack_ns: Int,
 ):
     var build_ms = round(ns_to_ms(build_ns), 3)
-    var collapse_ms = round(ns_to_ms(collapse_ns), 3)
+    var collapse_ms = round(ns_to_ms(timings.collapse_ns), 3)
     var pack_ms = round(ns_to_ms(pack_ns), 3)
 
     var c0 = label.ascii_ljust(18)
@@ -585,7 +580,7 @@ def _print_tlas_row(
     label: String,
     inst_count: Int,
     build_ns: Int,
-    collapse_ns: Int,
+    timings: GpuBuildTimings,
     primary_ns: Int,
     ray_count: Int,
     checksum: Float64,
@@ -597,7 +592,7 @@ def _print_tlas_row(
     reference_inst_checksum: UInt64,
 ):
     var build_ms = round(ns_to_ms(build_ns), 3)
-    var collapse_ms = round(ns_to_ms(collapse_ns), 3)
+    var collapse_ms = round(ns_to_ms(timings.collapse_ns), 3)
     var primary_ms = round(ns_to_ms(primary_ns), 3)
     var primary_mrays = round(ns_to_mrays_per_s(primary_ns, ray_count), 3)
     var checksum_r = round(checksum, 3)
@@ -672,7 +667,7 @@ def _run_triangle_tlas_width[
         label,
         len(instances),
         Int(b1 - b0),
-        tlas.tree.collapse_ns,
+        tlas.timings,
         primary[0],
         ray_count,
         primary[1],
@@ -724,7 +719,7 @@ def _run_sphere_tlas_width[
         label,
         len(instances),
         Int(b1 - b0),
-        tlas.tree.collapse_ns,
+        tlas.timings,
         primary[0],
         ray_count,
         primary[1],
@@ -797,8 +792,8 @@ def _bench_triangle_instance_set[
     print("--------------------------------")
     print(t"Instances: {len(instances)}")
     print(t"Rays: {len(rays)}")
-    print_vec3_rounded("TLAS bounds min:", bounds._min)
-    print_vec3_rounded("TLAS bounds max:", bounds._max)
+    print("TLAS bounds min:", bounds._min)
+    print("TLAS bounds max:", bounds._max)
 
     print("\nTLAS results")
     _print_tlas_table_header(has_ref)
@@ -858,8 +853,8 @@ def main() raises:
     var blas_bounds = compute_bounds(tri_vertices)
     print(t"Triangles: {len(tri_vertices) / 3}")
     print(t"Load+pack ms: {round(ns_to_ms(Int(load_t1 - load_t0)), 3)}")
-    print_vec3_rounded("BLAS bounds min:", blas_bounds._min)
-    print_vec3_rounded("BLAS bounds max:", blas_bounds._max)
+    print("BLAS bounds min:", round(blas_bounds._min, 3))
+    print("BLAS bounds max:", round(blas_bounds._max, 3))
 
     comptime if not has_accelerator():
         raise "No compatible GPU found; skipped Mojo GPU TLAS benchmark."
@@ -877,7 +872,7 @@ def main() raises:
         _print_blas_build_row(
             "GpuTriangleBvh[4]",
             Int(blas_b1 - blas_b0),
-            blas.tree.collapse_ns,
+            blas.timings,
             blas.leaf_pack_ns,
         )
 
@@ -971,8 +966,8 @@ def main() raises:
         var spheres = sphere_scene[0].copy()
         var sphere_bounds = sphere_scene[1].copy()
         print(t"Spheres: {len(spheres)}")
-        print_vec3_rounded("Sphere BLAS bounds min:", sphere_bounds._min)
-        print_vec3_rounded("Sphere BLAS bounds max:", sphere_bounds._max)
+        print("Sphere BLAS bounds min:", round(sphere_bounds._min, 3))
+        print("Sphere BLAS bounds max:", round(sphere_bounds._max, 3))
 
         print("Building GpuSphereBvh[4]...")
         _ = GpuSphereBvh[4](ctx, spheres)
@@ -987,7 +982,7 @@ def main() raises:
         _print_blas_build_row(
             "GpuSphereBvh[4]",
             Int(sph_b1 - sph_b0),
-            sphere_blas.tree.collapse_ns,
+            sphere_blas.timings,
             sphere_blas.leaf_pack_ns,
         )
 
@@ -1068,8 +1063,8 @@ def main() raises:
         print("\nSphere TLAS translated grid 4x4")
         print(t"Instances: {len(sphere_grid)}")
         print(t"Rays: {len(sphere_grid_rays)}")
-        print_vec3_rounded("TLAS bounds min:", sphere_grid_bounds._min)
-        print_vec3_rounded("TLAS bounds max:", sphere_grid_bounds._max)
+        print("TLAS bounds min:", round(sphere_grid_bounds._min, 3))
+        print("TLAS bounds max:", round(sphere_grid_bounds._max, 3))
 
         _print_tlas_table_header(False)
 

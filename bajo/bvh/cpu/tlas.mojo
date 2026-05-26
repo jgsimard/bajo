@@ -41,6 +41,7 @@ struct Tlas[width: Int](Copyable):
     def bounds(self) -> AABB:
         return self.tree.root_bounds()
 
+    # parametric traits would colapse trace_triangles and trace_spheres into one function
     def trace_triangles[
         mode: TRACE,
         blas_width: Int,
@@ -59,20 +60,12 @@ struct Tlas[width: Int](Copyable):
                 var item_ref = Int(self.tree.item_indices[Int(first_item) + i])
                 var inst_idx = self.tree.item_payloads[item_ref]
                 ref inst = self.instances[Int(inst_idx)]
+                ref transform = inst.inv_transform
 
-                var local_origin = inst.inv_transform.transform_point(
-                    ray.o,
-                )
-                var local_dir = inst.inv_transform.transform_vector(
-                    ray.d,
-                )
+                var local_origin = transform.transform_point(ray.o)
+                var local_dir = transform.transform_vector(ray.d)
 
-                var local_ray = Ray(
-                    local_origin,
-                    local_dir,
-                    ray.t_min,
-                    hit.t,
-                )
+                var local_ray = Ray(local_origin, local_dir, ray.t_min, hit.t)
 
                 var local_hit = blases[Int(inst.blas_idx)].trace[mode](
                     local_ray
@@ -118,20 +111,12 @@ struct Tlas[width: Int](Copyable):
                 var item_ref = Int(self.tree.item_indices[Int(first_item) + i])
                 var inst_idx = self.tree.item_payloads[item_ref]
                 ref inst = self.instances[Int(inst_idx)]
+                ref transform = inst.inv_transform
 
-                var local_origin = inst.inv_transform.transform_point(
-                    ray.o,
-                )
-                var local_dir = inst.inv_transform.transform_vector(
-                    ray.d,
-                )
+                var local_origin = transform.transform_point(ray.o)
+                var local_dir = transform.transform_vector(ray.d)
 
-                var local_ray = Ray(
-                    local_origin,
-                    local_dir,
-                    ray.t_min,
-                    hit.t,
-                )
+                var local_ray = Ray(local_origin, local_dir, ray.t_min, hit.t)
 
                 var local_hit = blases[Int(inst.blas_idx)].trace[mode](
                     local_ray

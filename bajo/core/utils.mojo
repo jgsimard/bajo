@@ -40,13 +40,6 @@ def ns_to_mrays_per_s(ns: Int, ray_count: Int) -> Float64:
     return (Float64(ray_count) / seconds) / 1_000_000.0
 
 
-def print_vec3_rounded[dtype: DType](name: String, v: Vec3[dtype]):
-    var x = round(v.x, 3)
-    var y = round(v.y, 3)
-    var z = round(v.z, 3)
-    print(t"{name} ({x}, {y}, {z})")
-
-
 def min_argmin[
     dtype: DType, width: Int
 ](x: SIMD[dtype, width]) -> Tuple[Scalar[dtype], Int]:

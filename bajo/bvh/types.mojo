@@ -6,7 +6,7 @@ from bajo.bvh.constants import f32_max, EMPTY_LANE
 from bajo.core.vec import Vec3f32, vmin, vmax, Vec3
 from bajo.core.transform import Affine3f32
 
-comptime RAY_FLAT_STRIDE = 8
+comptime RAY_STRIDE = 8
 comptime RAY_O = 0  # 0, 1, 2
 comptime RAY_T_MIN = 3
 comptime RAY_D = 4  # 4, 5, 6
@@ -61,7 +61,7 @@ struct Ray(TrivialRegisterPassable, Writable):
         rays: UnsafePointer[Float32, MutAnyOrigin],
         ray_idx: Int,
     ):
-        var base = ray_idx * RAY_FLAT_STRIDE
+        var base = ray_idx * RAY_STRIDE
         self.o = Vec3f32.load(rays, base + RAY_O)
         self.t_min = rays[base + RAY_T_MIN]
         self.d = Vec3f32.load(rays, base + RAY_D)

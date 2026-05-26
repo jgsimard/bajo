@@ -6,7 +6,6 @@ from std.gpu import DeviceContext, DeviceBuffer
 from bajo.core.utils import (
     ns_to_ms,
     ns_to_mrays_per_s,
-    print_vec3_rounded,
 )
 from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32
@@ -16,6 +15,7 @@ from bajo.bvh.host_utils import (
     flatten_rays,
     hit_t_for_checksum,
 )
+from bajo.bvh.gpu.utils import GpuBuildTimings
 from bajo.bvh.constants import TRACE
 from bajo.bvh.types import Ray, Sphere
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
@@ -115,7 +115,7 @@ def _print_gpu_row[
 ](
     label: String,
     build_ns: Int,
-    collapse_ns: Int,
+    timings: GpuBuildTimings,
     pack_ns: Int,
     kernel_ns: Int,
     ray_count: Int,
@@ -127,7 +127,7 @@ def _print_gpu_row[
     comptime CHECKSUM_PER_HIT_EPS = 1.0e-6
 
     var build_ms = round(ns_to_ms(build_ns), 3)
-    var collapse_ms = round(ns_to_ms(collapse_ns), 3)
+    var collapse_ms = round(ns_to_ms(timings.collapse_ns), 3)
     var pack_ms = round(ns_to_ms(pack_ns), 3)
     var kernel_ms = round(ns_to_ms(kernel_ns), 3)
     var mrays = round(ns_to_mrays_per_s(kernel_ns, ray_count), 3)
@@ -201,7 +201,7 @@ def _bench_uploaded_primary[
     repeats: Int,
 ) raises -> Tuple[Int, Float64, UInt32, Float64]:
     _upload_rays(ctx, d_rays, rays_flat)
-    bvh.launch_uploaded_primary(ctx, d_rays, d_hits_f32, d_hits_u32, ray_count)
+    bvh.launch_uploaded(ctx, d_rays, d_hits_f32, d_hits_u32, ray_count)
     ctx.synchronize()
 
     var best_kernel_ns = Int.MAX
@@ -210,9 +210,7 @@ def _bench_uploaded_primary[
 
     for _ in range(repeats):
         var t0 = perf_counter_ns()
-        bvh.launch_uploaded_primary(
-            ctx, d_rays, d_hits_f32, d_hits_u32, ray_count
-        )
+        bvh.launch_uploaded(ctx, d_rays, d_hits_f32, d_hits_u32, ray_count)
         ctx.synchronize()
         var t1 = perf_counter_ns()
         best_kernel_ns = min(best_kernel_ns, Int(t1 - t0))
@@ -266,7 +264,7 @@ def _run_width[
     _print_gpu_row[width](
         String(t"tri{width}"),
         Int(build1 - build0),
-        bvh.tree.collapse_ns,
+        bvh.timings,
         bvh.leaf_pack_ns,
         res[0],
         ray_count,
@@ -315,7 +313,7 @@ def _bench_uploaded_primary_sphere[
     repeats: Int,
 ) raises -> Tuple[Int, Float64, UInt32, Float64]:
     _upload_rays(ctx, d_rays, rays_flat)
-    bvh.launch_uploaded_primary(ctx, d_rays, d_hits_f32, d_hits_u32, ray_count)
+    bvh.launch_uploaded(ctx, d_rays, d_hits_f32, d_hits_u32, ray_count)
     ctx.synchronize()
 
     var best_kernel_ns = Int.MAX
@@ -324,9 +322,7 @@ def _bench_uploaded_primary_sphere[
 
     for _ in range(repeats):
         var t0 = perf_counter_ns()
-        bvh.launch_uploaded_primary(
-            ctx, d_rays, d_hits_f32, d_hits_u32, ray_count
-        )
+        bvh.launch_uploaded(ctx, d_rays, d_hits_f32, d_hits_u32, ray_count)
         ctx.synchronize()
         var t1 = perf_counter_ns()
         best_kernel_ns = min(best_kernel_ns, Int(t1 - t0))
@@ -380,7 +376,7 @@ def _run_sphere_width[
     _print_gpu_row[width](
         String(t"sph{width}"),
         Int(build1 - build0),
-        bvh.tree.collapse_ns,
+        bvh.timings,
         bvh.leaf_pack_ns,
         res[0],
         ray_count,
@@ -412,8 +408,8 @@ def main() raises:
     var bounds = compute_bounds(tri_vertices)
     print(t"triangles: {len(tri_vertices) / 3}")
     print(t"load+pack ms: {round(ns_to_ms(Int(load_t1 - load_t0)), 3)}")
-    print_vec3_rounded("Bounds min:", bounds._min)
-    print_vec3_rounded("Bounds max:", bounds._max)
+    print("Bounds min:", round(bounds._min, 3))
+    print("Bounds max:", round(bounds._max, 3))
 
     print("\nGenerating rays...")
     var rays = generate_primary_rays(

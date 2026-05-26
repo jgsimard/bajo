@@ -25,17 +25,11 @@ struct RayTriHit[dtype: DType, width: Int](TrivialRegisterPassable, Writable):
 
 
 @fieldwise_init
-struct RaySphereHit[dtype: DType, width: Int](TrivialRegisterPassable):
-    var mask: SIMD[DType.bool, Self.width]
-    var t: SIMD[Self.dtype, Self.width]
-
-
-@fieldwise_init
-struct RayAabbHit[dtype: DType, width: Int](TrivialRegisterPassable, Writable):
-    """RayAabbHit.
+struct RayDistanceHit[dtype: DType, width: Int](TrivialRegisterPassable):
+    """RayDistanceHit.
 
     - mask: SIMD[DType.bool, Self.width]
-    - tmin: SIMD[Self.dtype, Self.width]
+    - t   : SIMD[Self.dtype, Self.width]
     """
 
     var mask: SIMD[DType.bool, Self.width]
@@ -171,7 +165,7 @@ def intersect_ray_aabb[
     rd: Vec3[dtype, width],
     aabb: AxisAlignedBoundingBox[dtype, width],
     t_max: SIMD[dtype, width],
-) -> RayAabbHit[dtype, width]:
+) -> RayDistanceHit[dtype, width]:
     return intersect_ray_aabb(o, rd, aabb._min, aabb._max, t_max)
 
 
@@ -183,7 +177,7 @@ def intersect_ray_aabb[
     bmin: Vec3[dtype, width],
     bmax: Vec3[dtype, width],
     t_max: SIMD[dtype, width],
-) -> RayAabbHit[dtype, width]:
+) -> RayDistanceHit[dtype, width]:
     comptime assert dtype in [DType.float32, DType.float64]
 
     var t0 = (bmin - o) * rd
@@ -196,7 +190,7 @@ def intersect_ray_aabb[
 
     var mask = tmin.le(tmax)
 
-    return RayAabbHit(mask, tmin)
+    return RayDistanceHit(mask, tmin)
 
 
 def intersect_aabb_aabb[
@@ -227,7 +221,7 @@ def intersect_ray_sphere[
     radius: SIMD[dtype, width],
     t_max: SIMD[dtype, width],
     t_min: SIMD[dtype, width] = SIMD[dtype, width](1.0e-4),
-) -> RaySphereHit[dtype, width]:
+) -> RayDistanceHit[dtype, width]:
     comptime assert dtype in [DType.float32, DType.float64]
 
     var oc = o - center
@@ -256,7 +250,7 @@ def intersect_ray_sphere[
         far_mask.select(t1, max_finite[dtype]()),
     )
 
-    return RaySphereHit(mask, t)
+    return RayDistanceHit(mask, t)
 
 
 def intersect_ray_tri[

@@ -4,7 +4,7 @@ from bajo.bvh.gpu.bounds_bvh import (
     _intersect_wide_node_bounds,
 )
 from bajo.bvh.constants import (
-    GPU_TRAVERSAL_STACK_SIZE,
+    GPU_STACK_SIZE,
     f32_max,
     TRACE,
     EMPTY_LANE,
@@ -35,9 +35,7 @@ def trace_bounds_bvh[
 ) -> Hit:
     var hit = Hit.miss(ray.t_max)
 
-    var stack = InlineArray[UInt32, GPU_TRAVERSAL_STACK_SIZE](
-        uninitialized=True
-    )
+    var stack = InlineArray[UInt32, GPU_STACK_SIZE](uninitialized=True)
     var stack_ptr = 0
     var current = root_idx
 
@@ -103,7 +101,7 @@ def trace_bounds_bvh[
                         if far_t > hit.t:
                             continue
 
-                    if stack_ptr < GPU_TRAVERSAL_STACK_SIZE:
+                    if stack_ptr < GPU_STACK_SIZE:
                         stack[stack_ptr] = child_data[far_lane]
                         stack_ptr += 1
         else:
@@ -120,7 +118,7 @@ def trace_bounds_bvh[
                             if bounds_hit.t[node_lane] > hit.t:
                                 continue
 
-                        if stack_ptr < GPU_TRAVERSAL_STACK_SIZE:
+                        if stack_ptr < GPU_STACK_SIZE:
                             stack[stack_ptr] = data
                             stack_ptr += 1
                     else:

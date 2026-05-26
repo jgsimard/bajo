@@ -4,25 +4,26 @@ from std.gpu import DeviceBuffer, DeviceContext, global_idx
 from bajo.core.transform import Affine3f32
 from bajo.bvh.constants import (
     TRACE,
-    GPU_TRAVERSAL_STACK_SIZE,
+    GPU_STACK_SIZE,
     EMPTY_LANE,
     f32_max,
+    BOUNDS_STRIDE,
+    TRANSFORM_STRIDE,
 )
 from bajo.bvh.types import Ray, Hit, Instance
 from bajo.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
-    BOUNDS_STRIDE,
     _wide_lane_base,
     _intersect_wide_node_bounds,
 )
-from bajo.bvh.gpu.camera import _make_camera_ray
+from bajo.bvh.camera import Camera
 from bajo.bvh.gpu.sphere_bvh import _intersect_sphere_leaf
 from bajo.bvh.gpu.triangle_bvh import _intersect_triangle_leaf
 from bajo.bvh.gpu.trace import trace_bounds_bvh
 from bajo.bvh.host_utils import copy_list_to_device
+from bajo.bvh.gpu.utils import GpuBuildTimings
 
-comptime GPU_TLAS_TRANSFORM_STRIDE = 12
 
 comptime BlasLeafFn = def(
     UnsafePointer[Float32, MutAnyOrigin],
@@ -37,9 +38,7 @@ comptime BlasLeafFn = def(
 def _flatten_instance_inv_transforms(
     instances: List[Instance],
 ) -> List[Float32]:
-    var out = List[Float32](
-        capacity=max(len(instances), 1) * GPU_TLAS_TRANSFORM_STRIDE
-    )
+    var out = List[Float32](capacity=len(instances) * TRANSFORM_STRIDE)
     for instance in instances:
         out.append(instance.inv_transform.m00[0])
         out.append(instance.inv_transform.m01[0])
@@ -64,23 +63,18 @@ def _flatten_instance_blas_indices(
     return [instance.blas_idx for instance in instances]
 
 
-def _make_tlas_local_ray(
-    inst_inv_transform: UnsafePointer[Float32, MutAnyOrigin],
-    inst_idx: UInt32,
+def transform_ray(
+    transforms: UnsafePointer[Float32, MutAnyOrigin],
+    idx: UInt32,
     ray: Ray,
     t_max: Float32,
 ) -> Ray:
-    var base = Int(inst_idx) * GPU_TLAS_TRANSFORM_STRIDE
-    var transform = Affine3f32.load(inst_inv_transform, base)
+    var base = Int(idx) * TRANSFORM_STRIDE
+    var transform = Affine3f32.load(transforms, base)
     var o = transform.transform_point(ray.o)
     var d = transform.transform_vector(ray.d)
 
-    return Ray(
-        o,
-        d,
-        ray.t_min,
-        t_max,
-    )
+    return Ray(o, d, ray.t_min, t_max)
 
 
 @always_inline
@@ -102,7 +96,7 @@ def _intersect_tlas_instance_block[
     leaf_block_idx: UInt32,
     item_count: UInt32,
     ray: Ray,
-    mut best_hit: Hit,
+    mut hit: Hit,
 ) -> Bool:
     var hit_any = False
 
@@ -118,50 +112,43 @@ def _intersect_tlas_instance_block[
                     blas_idx == 0,
                     "current implementation assumes a single BLAS root",
                 )
-                if blas_idx == UInt32(0):
-                    var local_t_max = best_hit.t
-                    comptime if mode == TRACE.ANY_HIT:
-                        local_t_max = ray.t_max
 
-                    var local_ray = _make_tlas_local_ray(
-                        inst_inv_transform,
-                        inst_idx,
-                        ray,
-                        local_t_max,
-                    )
+                var local_ray = transform_ray(
+                    inst_inv_transform,
+                    inst_idx,
+                    ray,
+                    hit.t,
+                )
 
-                    var local_hit = trace_bounds_bvh[
-                        blas_width,
-                        mode,
-                        blas_leaf_fn,
-                    ](
-                        blas_wide_bounds,
-                        blas_wide_data,
-                        blas_wide_counts,
-                        blas_leaf_data_f32,
-                        blas_leaf_data_u32,
-                        blas_root_idx,
-                        local_ray,
-                    )
+                var local_hit = trace_bounds_bvh[
+                    blas_width,
+                    mode,
+                    blas_leaf_fn,
+                ](
+                    blas_wide_bounds,
+                    blas_wide_data,
+                    blas_wide_counts,
+                    blas_leaf_data_f32,
+                    blas_leaf_data_u32,
+                    blas_root_idx,
+                    local_ray,
+                )
 
-                    comptime if mode == TRACE.ANY_HIT:
-                        if local_hit.is_occluded():
-                            best_hit = Hit.shadow_hit()
-                            best_hit.inst = inst_idx
-                            return True
-                    else:
-                        if (
-                            local_hit.t < best_hit.t
-                            and local_hit.prim != EMPTY_LANE
-                        ):
-                            best_hit = local_hit
-                            best_hit.inst = inst_idx
-                            hit_any = True
+                comptime if mode == TRACE.ANY_HIT:
+                    if local_hit.is_occluded():
+                        hit = Hit.shadow_hit()
+                        hit.inst = inst_idx
+                        return True
+                else:
+                    if local_hit.t < hit.t and local_hit.prim != EMPTY_LANE:
+                        hit = local_hit
+                        hit.inst = inst_idx
+                        hit_any = True
 
     return hit_any
 
 
-def trace_gpu_wide_tlas_ray[
+def trace_tlas_ray[
     tlas_width: Int,
     blas_width: Int,
     mode: TRACE,
@@ -182,24 +169,18 @@ def trace_gpu_wide_tlas_ray[
     blas_root_idx: UInt32,
     ray: Ray,
 ) -> Hit:
-    var best_hit = Hit.miss(ray.t_max)
+    var hit = Hit.miss(ray.t_max)
 
-    var stack = InlineArray[UInt32, GPU_TRAVERSAL_STACK_SIZE](
-        uninitialized=True
-    )
+    var stack = InlineArray[UInt32, GPU_STACK_SIZE](uninitialized=True)
     var stack_ptr = 0
     var current = tlas_root_idx
 
     while True:
-        var node_t_max = best_hit.t
-        comptime if mode == TRACE.ANY_HIT:
-            node_t_max = ray.t_max
-
         var bounds_hit = _intersect_wide_node_bounds[tlas_width](
             tlas_wide_bounds,
             current,
             ray,
-            node_t_max,
+            hit.t,
         )
 
         var child_valid = InlineArray[Bool, tlas_width](fill=False)
@@ -236,12 +217,12 @@ def trace_gpu_wide_tlas_ray[
                         data,
                         count,
                         ray,
-                        best_hit,
+                        hit,
                     )
 
                     comptime if mode == TRACE.ANY_HIT:
                         if leaf_hit:
-                            return best_hit
+                            return hit
 
         comptime for _ in range(tlas_width):
             var far_lane = -1
@@ -258,12 +239,12 @@ def trace_gpu_wide_tlas_ray[
                 child_valid[far_lane] = False
 
                 comptime if mode != TRACE.ANY_HIT:
-                    if far_t <= best_hit.t:
-                        if stack_ptr < GPU_TRAVERSAL_STACK_SIZE:
+                    if far_t <= hit.t:
+                        if stack_ptr < GPU_STACK_SIZE:
                             stack[stack_ptr] = child_data[far_lane]
                             stack_ptr += 1
                 else:
-                    if stack_ptr < GPU_TRAVERSAL_STACK_SIZE:
+                    if stack_ptr < GPU_STACK_SIZE:
                         stack[stack_ptr] = child_data[far_lane]
                         stack_ptr += 1
 
@@ -273,10 +254,10 @@ def trace_gpu_wide_tlas_ray[
         stack_ptr -= 1
         current = stack[stack_ptr]
 
-    return best_hit
+    return hit
 
 
-def trace_gpu_wide_tlas_primitive_ray[
+def trace_tlas_primitive_ray[
     primitive: String,
     tlas_width: Int,
     blas_width: Int,
@@ -304,7 +285,7 @@ def trace_gpu_wide_tlas_primitive_ray[
         == "triangle" else _intersect_sphere_leaf[blas_width, mode]
     )
 
-    return trace_gpu_wide_tlas_ray[
+    return trace_tlas_ray[
         tlas_width,
         blas_width,
         mode,
@@ -338,6 +319,7 @@ struct GpuTlas[width: Int]:
     var inst_inv_transform: DeviceBuffer[DType.float32]
     var inst_blas_indices: DeviceBuffer[DType.uint32]
     var inst_count: Int
+    var timings: GpuBuildTimings
 
     def __init__(
         out self,
@@ -362,7 +344,7 @@ struct GpuTlas[width: Int]:
             payloads.append(UInt32(i))
 
         self.tree = GpuBoundsBvh[Self.width](ctx, leaf_bounds, payloads)
-        _ = self.tree.build(ctx)
+        self.timings = self.tree.build(ctx)
 
         self.inst_inv_transform = copy_list_to_device(
             ctx, _flatten_instance_inv_transforms(instances)
@@ -393,7 +375,7 @@ struct GpuTlas[width: Int]:
         comptime assert primitive in ["triangle", "sphere"]
 
         ctx.enqueue_function[
-            trace_gpu_tlas_uploaded_kernel[
+            trace_tlas_uploaded_kernel[
                 primitive,
                 mode,
                 Self.width,
@@ -422,7 +404,7 @@ struct GpuTlas[width: Int]:
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
 
-    def launch_camera_primary[
+    def launch_camera[
         primitive: String,
         blas_width: Int,
     ](
@@ -444,7 +426,7 @@ struct GpuTlas[width: Int]:
         comptime assert primitive in ["triangle", "sphere"]
 
         ctx.enqueue_function[
-            trace_gpu_tlas_camera_primary_kernel[
+            trace_tlas_camera_kernel[
                 primitive,
                 Self.width,
                 blas_width,
@@ -474,7 +456,7 @@ struct GpuTlas[width: Int]:
         )
 
 
-def trace_gpu_tlas_uploaded_kernel[
+def trace_tlas_uploaded_kernel[
     primitive: String,
     mode: TRACE,
     tlas_width: Int,
@@ -507,7 +489,7 @@ def trace_gpu_tlas_uploaded_kernel[
 
     var ray = Ray(rays, ray_idx)
 
-    var hit = trace_gpu_wide_tlas_primitive_ray[
+    var hit = trace_tlas_primitive_ray[
         primitive,
         tlas_width,
         blas_width,
@@ -539,7 +521,7 @@ def trace_gpu_tlas_uploaded_kernel[
     hits_u32[ubase + 1] = hit.inst
 
 
-def trace_gpu_tlas_camera_primary_kernel[
+def trace_tlas_camera_kernel[
     primitive: String,
     tlas_width: Int,
     blas_width: Int,
@@ -570,9 +552,15 @@ def trace_gpu_tlas_camera_primary_kernel[
     if ray_idx >= ray_count:
         return
 
-    var ray = _make_camera_ray(camera_params, ray_idx, width, height)
+    var camera = Camera(camera_params)
+    var pixels_per_view = width * height
+    var view_idx = ray_idx / pixels_per_view
+    var local_idx = ray_idx - view_idx * pixels_per_view
+    var px_i = local_idx % width
+    var py_i = local_idx / width
+    var ray = camera.make_ray(px_i, py_i, width, height)
 
-    var hit = trace_gpu_wide_tlas_primitive_ray[
+    var hit = trace_tlas_primitive_ray[
         primitive,
         tlas_width,
         blas_width,

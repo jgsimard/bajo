@@ -10,13 +10,11 @@ from bajo.core.vec import Vec3f32
 
 
 def _make_one_local_triangle_z2() -> List[Vec3f32]:
-    var verts = List[Vec3f32](capacity=3)
-
-    verts.append(Vec3f32(-1.0, -1.0, 2.0))
-    verts.append(Vec3f32(1.0, -1.0, 2.0))
-    verts.append(Vec3f32(0.0, 1.0, 2.0))
-
-    return verts^
+    return [
+        Vec3f32(-1.0, -1.0, 2.0),
+        Vec3f32(1.0, -1.0, 2.0),
+        Vec3f32(0.0, 1.0, 2.0),
+    ]
 
 
 def _make_one_local_sphere_z2() -> List[Sphere]:

@@ -439,12 +439,11 @@ def test_tlas_triangle_single_instance_matches_blas() raises:
 
     var tlas = Tlas[4](instances)
 
-    var ray_blas = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    var ray_tlas = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
+    var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
 
-    var hit_blas = blas.trace[TRACE.CLOSEST_HIT](ray_blas)
+    var hit_blas = blas.trace[TRACE.CLOSEST_HIT](ray)
     var hit_tlas = tlas.trace_triangles[TRACE.CLOSEST_HIT, 4](
-        ray_tlas, blases.unsafe_ptr()
+        ray, blases.unsafe_ptr()
     )
 
     assert_true(hit_tlas.prim == hit_blas.prim)
@@ -539,12 +538,11 @@ def test_tlas_sphere_single_instance_matches_blas() raises:
 
     var tlas = Tlas[4](instances)
 
-    var ray_blas = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    var ray_tlas = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
+    var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
 
-    var hit_blas = blas.trace[TRACE.CLOSEST_HIT](ray_blas)
+    var hit_blas = blas.trace[TRACE.CLOSEST_HIT](ray)
     var hit_tlas = tlas.trace_spheres[TRACE.CLOSEST_HIT, 4](
-        ray_tlas, blases.unsafe_ptr()
+        ray, blases.unsafe_ptr()
     )
 
     assert_true(hit_tlas.prim == hit_blas.prim)

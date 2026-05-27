@@ -1,11 +1,11 @@
 from std.math import ceildiv, max
 from std.time import perf_counter_ns
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
-from std.utils.numerics import max_finite
 
+from bajo.bvh.camera import Camera, CAMERA_STRIDE
 from bajo.bvh.gpu.utils import GpuBuildTimings
-from bajo.core.vec import Vec3f32, vmin, vmax, Vec3, normalize, cross
-from bajo.bvh.types import Ray, Hit, TriangleLeafBlock
+from bajo.core.vec import Vec3f32, vmin, vmax, normalize, cross
+from bajo.bvh.types import Ray, Hit
 from bajo.bvh.constants import (
     EMPTY_LANE,
     TRACE,
@@ -18,7 +18,6 @@ from bajo.bvh.gpu.bounds_bvh import (
 )
 from bajo.core.intersect import intersect_ray_tri
 from bajo.bvh.gpu.trace import trace_bounds_bvh
-from bajo.bvh.host_utils import copy_list_to_device, flatten_vertices
 
 
 struct GpuTriangleBvh[width: Int]:
@@ -64,7 +63,6 @@ struct GpuTriangleBvh[width: Int]:
         ctx.synchronize()
         self.bounds_pack_ns = Int(perf_counter_ns() - start)
 
-        # Assumes GpuBoundsBvh now accepts device buffers directly.
         self.tree = GpuBoundsBvh[Self.width](ctx, leaf_bounds, payloads)
         self.timings = self.tree.build(ctx)
 
@@ -97,25 +95,29 @@ struct GpuTriangleBvh[width: Int]:
         ctx.synchronize()
         self.leaf_pack_ns = Int(perf_counter_ns() - start)
 
-    def launch_uploaded(
+    def launch_camera(
         self,
         ctx: DeviceContext,
-        rays: DeviceBuffer[DType.float32],
-        hits_f32: DeviceBuffer[DType.float32],
-        hits_u32: DeviceBuffer[DType.uint32],
+        d_camera_params: DeviceBuffer[DType.float32],
+        d_hits_f32: DeviceBuffer[DType.float32],
+        d_hits_u32: DeviceBuffer[DType.uint32],
         ray_count: Int,
+        cwidth: Int,
+        cheight: Int,
     ) raises:
-        ctx.enqueue_function[trace_triangle_bvh_kernel[Self.width]](
+        ctx.enqueue_function[trace_triangle_bvh_camera_kernel[Self.width]](
             self.tree.wide_bounds,
             self.tree.wide_data,
             self.tree.wide_counts,
             self.leaf_vertices,
             self.leaf_prims,
             self.tree.root_idx,
-            rays,
-            hits_f32,
-            hits_u32,
+            d_camera_params,
+            d_hits_f32,
+            d_hits_u32,
             ray_count,
+            cwidth,
+            cheight,
             grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
@@ -180,7 +182,7 @@ def pack_triangle_leaf_blocks_kernel[
                 leaf_vertices[out_base + k] = vertices[in_base + k]
 
 
-def trace_triangle_bvh_kernel[
+def trace_triangle_bvh_camera_kernel[
     width: Int,
 ](
     wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
@@ -189,16 +191,26 @@ def trace_triangle_bvh_kernel[
     leaf_vertices: UnsafePointer[Float32, MutAnyOrigin],
     leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
     root_idx: UInt32,
-    rays: UnsafePointer[Float32, MutAnyOrigin],
+    camera_params: UnsafePointer[Float32, MutAnyOrigin],
     hits_f32: UnsafePointer[Float32, MutAnyOrigin],
     hits_u32: UnsafePointer[UInt32, MutAnyOrigin],
     ray_count: Int,
+    width_px: Int,
+    height_px: Int,
 ):
     var ray_idx = global_idx.x
     if ray_idx >= ray_count:
         return
 
-    var ray = Ray(rays, ray_idx)
+    var pixels_per_view = width_px * height_px
+    var view_idx = ray_idx / pixels_per_view
+    var local_idx = ray_idx - view_idx * pixels_per_view
+    var px_i = local_idx % width_px
+    var py_i = local_idx / width_px
+
+    var camera = Camera(camera_params, view_idx * CAMERA_STRIDE)
+    var ray = camera.make_ray(px_i, py_i, width_px, height_px)
+
     var hit = trace_bounds_bvh[
         width,
         TRACE.CLOSEST_HIT,
@@ -256,6 +268,7 @@ def _intersect_triangle_leaf[
                     v1,
                     v2,
                     hit.t,
+                    ray.t_min,
                 )
 
                 if tri_hit.mask and tri_hit.t < hit.t:

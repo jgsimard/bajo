@@ -1,7 +1,8 @@
-from std.math import ceildiv
+from std.math import ceildiv, max
 from std.time import perf_counter_ns
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
 
+from bajo.bvh.camera import Camera, CAMERA_STRIDE
 from bajo.bvh.constants import (
     EMPTY_LANE,
     TRACE,
@@ -10,7 +11,7 @@ from bajo.bvh.constants import (
     f32_max,
 )
 from bajo.core.intersect import intersect_ray_sphere
-from bajo.core.vec import Vec3f32, Vec3
+from bajo.core.vec import Vec3
 from bajo.bvh.types import Sphere, Ray, Hit, SphereLeafBlock
 from bajo.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
@@ -105,31 +106,35 @@ struct GpuSphereBvh[width: Int]:
         ctx.synchronize()
         self.leaf_pack_ns = Int(perf_counter_ns() - start)
 
-    def launch_uploaded(
+    def launch_camera(
         self,
         ctx: DeviceContext,
-        d_rays: DeviceBuffer[DType.float32],
+        d_camera_params: DeviceBuffer[DType.float32],
         d_hits_f32: DeviceBuffer[DType.float32],
         d_hits_u32: DeviceBuffer[DType.uint32],
         ray_count: Int,
+        cwidth: Int,
+        cheight: Int,
     ) raises:
-        ctx.enqueue_function[trace_sphere_bvh_kernel[Self.width]](
+        ctx.enqueue_function[trace_sphere_bvh_camera_kernel[Self.width]](
             self.tree.wide_bounds,
             self.tree.wide_data,
             self.tree.wide_counts,
             self.leaf_spheres,
             self.leaf_prims,
             self.tree.root_idx,
-            d_rays,
+            d_camera_params,
             d_hits_f32,
             d_hits_u32,
             ray_count,
+            cwidth,
+            cheight,
             grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
 
 
-def trace_sphere_bvh_kernel[
+def trace_sphere_bvh_camera_kernel[
     width: Int,
 ](
     wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
@@ -138,16 +143,26 @@ def trace_sphere_bvh_kernel[
     leaf_spheres: UnsafePointer[Float32, MutAnyOrigin],
     leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
     root_idx: UInt32,
-    rays: UnsafePointer[Float32, MutAnyOrigin],
+    camera_params: UnsafePointer[Float32, MutAnyOrigin],
     hits_f32: UnsafePointer[Float32, MutAnyOrigin],
     hits_u32: UnsafePointer[UInt32, MutAnyOrigin],
     ray_count: Int,
+    width_px: Int,
+    height_px: Int,
 ):
     var ray_idx = global_idx.x
     if ray_idx >= ray_count:
         return
 
-    var ray = Ray(rays, ray_idx)
+    var pixels_per_view = width_px * height_px
+    var view_idx = ray_idx / pixels_per_view
+    var local_idx = ray_idx - view_idx * pixels_per_view
+    var px_i = local_idx % width_px
+    var py_i = local_idx / width_px
+
+    var camera = Camera(camera_params, view_idx * CAMERA_STRIDE)
+    var ray = camera.make_ray(px_i, py_i, width_px, height_px)
+
     var hit = trace_bounds_bvh[
         width,
         TRACE.CLOSEST_HIT,
@@ -246,7 +261,8 @@ def _intersect_sphere_leaf[
                 if hit_mask[lane] and hit_sphere.t[lane] == min_t:
                     hit.prim = block.prim_indices[lane]
 
-    return True
+        return True
+    return False
 
 
 def pack_sphere_leaf_blocks_kernel[

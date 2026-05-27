@@ -102,10 +102,10 @@ struct SphereBvh[width: Int](Copyable, TypedBvh):
                 block.center,
                 block.radius,
                 hit.t,
+                ray.t_min,
             )
 
-            var t_valid = h.t.ge(ray.t_min)
-            var hit_mask = h.mask & t_valid & block.valid_lane
+            var hit_mask = h.mask & block.valid_lane
 
             if not hit_mask.reduce_or():
                 return False
@@ -123,7 +123,9 @@ struct SphereBvh[width: Int](Copyable, TypedBvh):
                     hit.inst = EMPTY_LANE
                     hit.prim = block.prim_indices[arg_min_t]
 
-                return True
+                    return True
+
+                return False
 
         return trace_bounds_bvh[
             Self.width,

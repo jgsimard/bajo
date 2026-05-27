@@ -1,5 +1,8 @@
 from std.gpu import DeviceContext, DeviceBuffer
 
+from bajo.bvh.camera import Camera
+from bajo.core.vec import Vec3f32
+
 
 @fieldwise_init
 struct GpuBuildTimings(TrivialRegisterPassable, Writable):
@@ -87,45 +90,36 @@ def _download_full_hit_checksum(
     return (checksum, hit_count)
 
 
-def _download_reduced_hit_t[
-    GPU_REDUCE_THREADS: Int
+def _upload_camera(
+    mut ctx: DeviceContext,
+    camera: Camera,
+) raises -> DeviceBuffer[DType.float32]:
+    var params = camera.flatten()
+    return _upload_list(ctx, params)
+
+
+def _upload_vertices(
+    mut ctx: DeviceContext,
+    verts: List[Vec3f32],
+) raises -> DeviceBuffer[DType.float32]:
+    var flat = List[Float32](capacity=len(verts) * 3)
+    for v in verts:
+        flat.append(v.x)
+        flat.append(v.y)
+        flat.append(v.z)
+    return _upload_list(ctx, flat)
+
+
+def _upload_list[
+    dtype: DType
 ](
-    ctx: DeviceContext,
-    d_partial_sums: DeviceBuffer[DType.float64],
-    d_partial_counts: DeviceBuffer[DType.uint32],
-) raises -> Tuple[Float64, UInt32]:
-    var checksum = 0.0
-    var hit_count = UInt32(0)
-    with d_partial_sums.map_to_host() as sums:
-        for i in range(GPU_REDUCE_THREADS):
-            checksum += sums[i]
-    with d_partial_counts.map_to_host() as counts:
-        for i in range(GPU_REDUCE_THREADS):
-            hit_count += counts[i]
-    ctx.synchronize()
-    return (checksum, hit_count)
-
-
-def _download_reduced_u32_count[
-    GPU_REDUCE_THREADS: Int
-](
-    ctx: DeviceContext,
-    d_partial_counts: DeviceBuffer[DType.uint32],
-) raises -> UInt32:
-    var total = UInt32(0)
-    with d_partial_counts.map_to_host() as counts:
-        for i in range(GPU_REDUCE_THREADS):
-            total += counts[i]
-    ctx.synchronize()
-    return total
-
-
-def _upload_rays(
-    ctx: DeviceContext,
-    d_rays: DeviceBuffer[DType.float32],
-    rays_flat: List[Float32],
-) raises:
-    with d_rays.map_to_host() as h:
-        for i in range(len(rays_flat)):
-            h[i] = rays_flat[i]
-    ctx.synchronize()
+    mut ctx: DeviceContext,
+    a: List[Scalar[dtype]],
+) raises -> DeviceBuffer[
+    dtype
+]:
+    var h_a = ctx.enqueue_create_host_buffer[dtype](len(a))
+    var d_a = ctx.enqueue_create_buffer[dtype](len(a))
+    h_a.enqueue_copy_from(Span(a))
+    h_a.enqueue_copy_to(d_a)
+    return d_a^

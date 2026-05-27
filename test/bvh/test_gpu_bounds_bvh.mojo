@@ -1,28 +1,22 @@
 from std.benchmark import keep
-from std.math import abs, min, max, sqrt
+from std.math import abs, max
 from std.sys import has_accelerator
-from std.testing import TestSuite, assert_true, assert_almost_equal
+from std.testing import TestSuite, assert_true
 from std.gpu import DeviceContext, DeviceBuffer
 
 from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32, vmin, vmax
-from bajo.core.intersect import intersect_ray_sphere, intersect_ray_tri
-from bajo.bvh.types import Ray, Hit, Sphere
-from bajo.bvh.host_utils import (
-    flatten_rays,
-    generate_primary_rays,
-    hit_t_for_checksum,
-)
-from bajo.bvh.constants import EMPTY_LANE, TRACE, Primitive
+from bajo.bvh.camera import Camera, CAMERA_STRIDE
+from bajo.bvh.types import Ray, Sphere
+from bajo.bvh.host_utils import hit_t_for_checksum
+from bajo.bvh.constants import EMPTY_LANE, TRACE
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
-from bajo.bvh.gpu.bounds_bvh import (
-    GpuBoundsBvh,
-)
+from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh
 from bajo.bvh.gpu.sphere_bvh import GpuSphereBvh
 from bajo.bvh.gpu.triangle_bvh import GpuTriangleBvh
-from bajo.bvh.gpu.builder.binary_layout import GpuBinaryBoundsBvh
+from bajo.bvh.gpu.utils import _upload_vertices, _upload_list
 
-from fixtures import _append_tri, _brute_triangle_trace, _brute_sphere_trace
+from fixtures import _append_tri, _brute_sphere_trace
 
 
 comptime GPU_BOUNDS_TEST_WIDTH = 64
@@ -83,6 +77,47 @@ def _make_duplicate_sphere_centroid_scene() -> List[Sphere]:
             Sphere(Vec3f32(0.0, 0.0, 2.0), 1.0 + Float32(i % 3) * 0.01)
         )
     return spheres^
+
+
+def _make_camera_rays_and_params(
+    bounds: AABB,
+    width: Int,
+    height: Int,
+    views: Int,
+) -> Tuple[List[Ray], List[Float32]]:
+    var center = bounds.centroid()
+    var extent = bounds.extent()
+
+    var scene_w = max(max(extent.x, extent.y), extent.z)
+    if scene_w < 1.0:
+        scene_w = 1.0
+
+    var rays = List[Ray](capacity=width * height * views)
+    var params = List[Float32](capacity=views * CAMERA_STRIDE)
+
+    for view in range(views):
+        var view_offset = Float32(view) - Float32(views - 1) * 0.5
+        var eye = center + Vec3f32(
+            view_offset * scene_w * 0.30,
+            extent.y * 0.20,
+            -scene_w * 2.50,
+        )
+        var camera = Camera(
+            eye,
+            center,
+            Vec3f32(0.0, 1.0, 0.0),
+            Float32(0.75),
+        )
+
+        var flat = camera.flatten()
+        for i in range(len(flat)):
+            params.append(flat[i])
+
+        for py in range(height):
+            for px in range(width):
+                rays.append(camera.make_ray(px, py, width, height))
+
+    return (rays^, params^)
 
 
 def _make_sphere_leaf_bounds(
@@ -195,11 +230,28 @@ def _make_triangle_leaf_bounds(
 def _trace_cpu_triangle_bvh[
     width: Int
 ](mut bvh: TriangleBvh[width], rays: List[Ray]) -> Float64:
-    var checksum = 0.0
+    var checksum = Float64(0.0)
     for ray in rays:
         var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
         checksum += hit_t_for_checksum(hit.t)
     return checksum
+
+
+def _download_hit_checksum(
+    hits_f32: DeviceBuffer[DType.float32],
+    ray_count: Int,
+) raises -> Tuple[Float64, UInt32]:
+    var checksum = Float64(0.0)
+    var hit_count = UInt32(0)
+
+    with hits_f32.map_to_host() as h:
+        for i in range(ray_count):
+            var t = h[i * 3]
+            checksum += hit_t_for_checksum(t)
+            if t < 1.0e20:
+                hit_count += 1
+
+    return (checksum, hit_count)
 
 
 def _assert_gpu_bounds_width[width: Int](verts: List[Vec3f32]) raises:
@@ -209,7 +261,7 @@ def _assert_gpu_bounds_width[width: Int](verts: List[Vec3f32]) raises:
         var payloads = build[1].copy()
 
         var bvh = GpuBoundsBvh[width](ctx, leaf_bounds, payloads)
-        binary_bvh = bvh.build_test(ctx)
+        var binary_bvh = bvh.build_test(ctx)
         var validation = binary_bvh.validate(binary_bvh.root_bounds())
 
         assert_true(validation.sorted_ok, "generic bounds keys sorted")
@@ -255,146 +307,119 @@ def _assert_wide_lane_invariants[width: Int](verts: List[Vec3f32]) raises:
         assert_true(seen_live_lane, "wide collapse had no live lanes")
 
 
-def _assert_gpu_triangle_width_matches_cpu[
+def _assert_gpu_triangle_width_matches_cpu_camera[
     width: Int
 ](verts: List[Vec3f32]) raises:
     var v = verts.copy()
     var cpu_bvh = TriangleBvh[width].__init__["lbvh"](
         v.unsafe_ptr(), UInt32(len(verts) / 3)
     )
-    var rays = generate_primary_rays(
+    var camera_data = _make_camera_rays_and_params(
         cpu_bvh.bounds(),
         GPU_BOUNDS_TEST_WIDTH,
         GPU_BOUNDS_TEST_HEIGHT,
         GPU_BOUNDS_TEST_VIEWS,
     )
-    var rays_flat = flatten_rays(rays)
+    var rays = camera_data[0].copy()
+    var camera_params = camera_data[1].copy()
     var cpu_checksum = _trace_cpu_triangle_bvh[width](cpu_bvh, rays)
-    var vf32 = List[Float32](capacity=len(verts) * 3)
-    for v in verts:
-        vf32.append(v.x)
-        vf32.append(v.y)
-        vf32.append(v.z)
 
     with DeviceContext() as ctx:
-        var h_verts = ctx.enqueue_create_host_buffer[DType.float32](len(vf32))
-        var d_verts = ctx.enqueue_create_buffer[DType.float32](len(vf32))
-        h_verts.enqueue_copy_from(Span(vf32))
-        h_verts.enqueue_copy_to(d_verts)
-
+        var d_verts = _upload_vertices(ctx, verts)
         var gpu_bvh = GpuTriangleBvh[width](ctx, d_verts, len(verts) / 3)
-        var d_rays = ctx.enqueue_create_buffer[DType.float32](len(rays_flat))
+        var d_camera = _upload_list(ctx, camera_params)
         var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](len(rays) * 3)
         var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](len(rays))
 
-        with d_rays.map_to_host() as h:
-            for i in range(len(rays_flat)):
-                h[i] = rays_flat[i]
-        ctx.synchronize()
-
-        gpu_bvh.launch_uploaded(
+        gpu_bvh.launch_camera(
             ctx,
-            d_rays,
+            d_camera,
             d_hits_f32,
             d_hits_u32,
             len(rays),
+            GPU_BOUNDS_TEST_WIDTH,
+            GPU_BOUNDS_TEST_HEIGHT,
         )
         ctx.synchronize()
 
-        var gpu_checksum = Float64(0.0)
-        var hit_count = 0
-        var mismatch_count = 0
+        var gpu_result = _download_hit_checksum(d_hits_f32, len(rays))
+        var gpu_checksum = gpu_result[0]
+        var gpu_hits = gpu_result[1]
+        var mismatch_count = UInt32(0)
 
         with d_hits_f32.map_to_host() as hf:
             with d_hits_u32.map_to_host() as hu:
                 for i in range(len(rays)):
-                    var ray = rays[i].copy()
-                    var cpu_hit = cpu_bvh.trace[TRACE.CLOSEST_HIT](ray)
-
+                    var cpu_hit = cpu_bvh.trace[TRACE.CLOSEST_HIT](rays[i])
                     var gpu_t = hf[i * 3 + 0]
-                    var gpu_u = hf[i * 3 + 1]
-                    var gpu_v = hf[i * 3 + 2]
                     var gpu_prim = UInt32(hu[i])
-
-                    gpu_checksum += hit_t_for_checksum(gpu_t)
-
-                    if gpu_t < 1.0e20:
-                        hit_count += 1
-
                     var cpu_t = cpu_hit.t
                     var cpu_prim = cpu_hit.prim
-
-                    var t_diff = abs(Float64(gpu_t) - Float64(cpu_t))
                     var same_miss = cpu_t >= 1.0e20 and gpu_t >= 1.0e20
+                    var t_diff = abs(Float64(gpu_t) - Float64(cpu_t))
 
                     if not same_miss and (
                         t_diff > Float64(1.0e-4) or gpu_prim != cpu_prim
                     ):
-                        var brute_hit = _brute_triangle_trace(
-                            verts, rays[i].o, rays[i].d
-                        )
-
                         if mismatch_count < 16:
                             print(
-                                t"mismatch"
-                                t" ray={i} brute_t={brute_hit.t} brute_prim={brute_hit.prim} cpu_t={cpu_t} cpu_prim={cpu_prim} gpu_t={gpu_t} gpu_prim={gpu_prim} gpu_uv=({gpu_u},"
-                                t" {gpu_v})"
+                                t"mismatch ray={i} cpu_t={cpu_t} "
+                                t"cpu_prim={cpu_prim} gpu_t={gpu_t} "
+                                t"gpu_prim={gpu_prim}"
                             )
-
                         mismatch_count += 1
 
         var diff = abs(gpu_checksum - cpu_checksum)
-        if diff > GPU_BOUNDS_TEST_EPS:
+        if diff > GPU_BOUNDS_TEST_EPS or mismatch_count != 0:
             print(
                 t"width={width} gpu={gpu_checksum} cpu={cpu_checksum} "
-                t"diff={diff} mismatches={mismatch_count} hits={hit_count}"
+                t"diff={diff} mismatches={mismatch_count} hits={gpu_hits}"
             )
         assert_true(diff <= GPU_BOUNDS_TEST_EPS, "GpuTriangleBvh checksum")
+        assert_true(mismatch_count == 0, "GpuTriangleBvh primitive/t mismatch")
 
 
-def _assert_gpu_sphere_width_matches_bruteforce[
+def _assert_gpu_sphere_width_matches_bruteforce_camera[
     width: Int
 ](spheres: List[Sphere]) raises:
     var bounds = _sphere_scene_bounds(spheres)
-    var rays = generate_primary_rays(
+    var camera_data = _make_camera_rays_and_params(
         bounds,
         GPU_BOUNDS_TEST_WIDTH,
         GPU_BOUNDS_TEST_HEIGHT,
         GPU_BOUNDS_TEST_VIEWS,
     )
-    var rays_flat = flatten_rays(rays)
+    var rays = camera_data[0].copy()
+    var camera_params = camera_data[1].copy()
     var cpu_checksum = _trace_cpu_spheres_bruteforce(spheres, rays)
 
     with DeviceContext() as ctx:
         var gpu_bvh = GpuSphereBvh[width](ctx, spheres)
-        var d_rays = ctx.enqueue_create_buffer[DType.float32](len(rays_flat))
+        var d_camera = _upload_list(ctx, camera_params)
         var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](len(rays) * 3)
         var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](len(rays))
 
-        with d_rays.map_to_host() as h:
-            for i in range(len(rays_flat)):
-                h[i] = rays_flat[i]
-        ctx.synchronize()
-
-        gpu_bvh.launch_uploaded(
+        gpu_bvh.launch_camera(
             ctx,
-            d_rays,
+            d_camera,
             d_hits_f32,
             d_hits_u32,
             len(rays),
+            GPU_BOUNDS_TEST_WIDTH,
+            GPU_BOUNDS_TEST_HEIGHT,
         )
         ctx.synchronize()
 
-        var gpu_checksum = Float64(0.0)
-        var hit_count = 0
-        with d_hits_f32.map_to_host() as h:
-            for i in range(len(rays)):
-                var t = h[i * 3]
-                gpu_checksum += hit_t_for_checksum(t)
-                if t < 1.0e20:
-                    hit_count += 1
+        var gpu_result = _download_hit_checksum(d_hits_f32, len(rays))
+        var gpu_checksum = gpu_result[0]
+        var hit_count = gpu_result[1]
 
         var diff = abs(gpu_checksum - cpu_checksum)
+        if diff > GPU_BOUNDS_TEST_EPS:
+            print(
+                t"width={width} gpu={gpu_checksum} cpu={cpu_checksum} "
+                t"diff={diff} hits={hit_count}"
+            )
         assert_true(diff <= GPU_BOUNDS_TEST_EPS, "GpuSphereBvh checksum")
         keep(hit_count)
 
@@ -406,7 +431,7 @@ def _assert_gpu_sphere_bounds_width[width: Int](spheres: List[Sphere]) raises:
         var payloads = build[1].copy()
 
         var bvh = GpuBoundsBvh[width](ctx, leaf_bounds, payloads)
-        binary_bvh = bvh.build_test(ctx)
+        var binary_bvh = bvh.build_test(ctx)
         var validation = binary_bvh.validate(bvh.root_bounds())
 
         assert_true(validation.sorted_ok, "sphere bounds keys sorted")
@@ -431,7 +456,7 @@ def test_gpu_bounds_bvh_width_N_build_validate_small_scene() raises:
 def test_gpu_bounds_bvh_width4_single_triangle() raises:
     scene = _make_single_triangle_scene()
     _assert_gpu_bounds_width[4](scene)
-    _assert_gpu_triangle_width_matches_cpu[4](scene)
+    _assert_gpu_triangle_width_matches_cpu_camera[4](scene)
 
 
 def test_gpu_bounds_bvh_width4_duplicate_morton_codes() raises:
@@ -453,30 +478,30 @@ def test_gpu_bounds_bvh_width_N_wide_lane_invariants() raises:
     _assert_wide_lane_invariants[8](scene)
 
 
-def test_gpu_triangle_bvh_width2_uploaded_primary_matches_cpu() raises:
+def test_gpu_triangle_bvh_width_N_camera_primary_matches_cpu() raises:
     scene = _make_small_scene()
-    _assert_gpu_triangle_width_matches_cpu[2](scene)
-    _assert_gpu_triangle_width_matches_cpu[4](scene)
-    _assert_gpu_triangle_width_matches_cpu[8](scene)
+    _assert_gpu_triangle_width_matches_cpu_camera[2](scene)
+    _assert_gpu_triangle_width_matches_cpu_camera[4](scene)
+    _assert_gpu_triangle_width_matches_cpu_camera[8](scene)
 
 
-def test_gpu_sphere_bvh_width_N_uploaded_primary_matches_bruteforce() raises:
+def test_gpu_sphere_bvh_width_N_camera_primary_matches_bruteforce() raises:
     scene = _make_small_sphere_scene()
-    _assert_gpu_sphere_width_matches_bruteforce[2](scene)
-    _assert_gpu_sphere_width_matches_bruteforce[4](scene)
-    _assert_gpu_sphere_width_matches_bruteforce[8](scene)
+    _assert_gpu_sphere_width_matches_bruteforce_camera[2](scene)
+    _assert_gpu_sphere_width_matches_bruteforce_camera[4](scene)
+    _assert_gpu_sphere_width_matches_bruteforce_camera[8](scene)
 
 
 def test_gpu_sphere_bvh_width4_single_sphere() raises:
     scene = _make_single_sphere_scene()
     _assert_gpu_sphere_bounds_width[4](scene)
-    _assert_gpu_sphere_width_matches_bruteforce[4](scene)
+    _assert_gpu_sphere_width_matches_bruteforce_camera[4](scene)
 
 
 def test_gpu_sphere_bvh_width4_duplicate_morton_codes() raises:
     scene = _make_duplicate_sphere_centroid_scene()
     _assert_gpu_sphere_bounds_width[4](scene)
-    _assert_gpu_sphere_width_matches_bruteforce[4](scene)
+    _assert_gpu_sphere_width_matches_bruteforce_camera[4](scene)
 
 
 def main() raises:

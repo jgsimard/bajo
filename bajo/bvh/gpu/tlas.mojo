@@ -18,7 +18,7 @@ from bajo.bvh.gpu.bounds_bvh import (
     _wide_lane_base,
     _intersect_wide_node_bounds,
 )
-from bajo.bvh.camera import Camera
+from bajo.bvh.camera import Camera, CAMERA_STRIDE
 from bajo.bvh.gpu.sphere_bvh import _intersect_sphere_leaf
 from bajo.bvh.gpu.triangle_bvh import _intersect_triangle_leaf
 from bajo.bvh.gpu.trace import trace_bounds_bvh
@@ -142,8 +142,9 @@ def _intersect_tlas_instance_block[
                         return True
                 else:
                     if local_hit.t < hit.t and local_hit.prim != EMPTY_LANE:
-                        inv_transform = Affine3f32.load(
-                            inst_inv_transform, Int(inst_idx)
+                        var inv_transform = Affine3f32.load(
+                            inst_inv_transform,
+                            Int(inst_idx) * TRANSFORM_STRIDE,
                         )
 
                         hit = local_hit
@@ -414,12 +415,13 @@ def trace_tlas_camera_kernel[
     if ray_idx >= ray_count:
         return
 
-    var camera = Camera(camera_params)
     var pixels_per_view = width * height
     var view_idx = ray_idx / pixels_per_view
     var local_idx = ray_idx - view_idx * pixels_per_view
     var px_i = local_idx % width
     var py_i = local_idx / width
+
+    var camera = Camera(camera_params, view_idx * CAMERA_STRIDE)
     var ray = camera.make_ray(px_i, py_i, width, height)
 
     var hit = trace_tlas_ray[

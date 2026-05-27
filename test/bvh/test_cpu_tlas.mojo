@@ -1,7 +1,7 @@
 from std.testing import TestSuite, assert_true, assert_almost_equal
 
-from bajo.bvh.constants import TRACE
-from bajo.bvh.types import Ray, Instance, Sphere
+from bajo.bvh.constants import TRACE, Primitive
+from bajo.bvh.types import Ray, Instance, Sphere, Hit
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.bvh.cpu.tlas import Tlas
@@ -10,13 +10,11 @@ from bajo.core.vec import Vec3f32
 
 
 def _make_one_local_triangle_z2() -> List[Vec3f32]:
-    var verts = List[Vec3f32](capacity=3)
-
-    verts.append(Vec3f32(-1.0, -1.0, 2.0))
-    verts.append(Vec3f32(1.0, -1.0, 2.0))
-    verts.append(Vec3f32(0.0, 1.0, 2.0))
-
-    return verts^
+    return [
+        Vec3f32(-1.0, -1.0, 2.0),
+        Vec3f32(1.0, -1.0, 2.0),
+        Vec3f32(0.0, 1.0, 2.0),
+    ]
 
 
 def _make_one_local_sphere_z2() -> List[Sphere]:
@@ -38,6 +36,7 @@ def _triangle_instance[
         Affine3f32.from_translation(-t),
         blas_idx,
         blas.bounds(),
+        Primitive.TRIANGLE,
     )
 
 
@@ -56,13 +55,25 @@ def _sphere_instance[
         Affine3f32.from_translation(-t),
         blas_idx,
         blas.bounds(),
+        Primitive.SPHERE,
     )
+
+
+def _assert_hit(
+    hit: Hit,
+    inst: UInt32,
+    prim: UInt32,
+    t: Float32,
+) raises:
+    assert_true(hit.inst == inst)
+    assert_true(hit.prim == prim)
+    assert_almost_equal(hit.t, t)
 
 
 # -----------------------------------------------------------------------------
 # Triangle TLAS
 # -----------------------------------------------------------------------------
-def test_tlas_triangle_identity_instance_hit() raises:
+def test_tlas_triangle_single_instance_cases() raises:
     var verts = _make_one_local_triangle_z2()
 
     var blas = TriangleBvh[4](
@@ -70,140 +81,104 @@ def test_tlas_triangle_identity_instance_hit() raises:
         UInt32(len(verts) / 3),
     )
 
-    var blases = List[TriangleBvh[4]](capacity=1)
-    blases.append(blas.copy())
+    var blases = [blas.copy()]
 
-    var instances = List[Instance](capacity=1)
-    instances.append(_triangle_instance[4](0, 0.0, 0.0, 0.0, blas))
+    # Identity hit.
+    var identity_instances = [_triangle_instance[4](0, 0.0, 0.0, 0.0, blas)]
+    var identity_tlas = Tlas[4](identity_instances)
 
-    var tlas = Tlas[4](instances)
-
-    var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    var hit = tlas.trace_triangles[TRACE.CLOSEST_HIT, 4](
-        ray, blases.unsafe_ptr()
+    var identity_ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
+    _assert_hit(
+        identity_tlas.trace[TriangleBvh[4], TRACE.CLOSEST_HIT](
+            identity_ray,
+            blases.unsafe_ptr(),
+        ),
+        0,
+        0,
+        2.0,
     )
 
-    assert_true(hit.inst == 0)
-    assert_true(hit.prim == 0)
-    assert_almost_equal(hit.t, 2.0)
+    # Translated hit.
+    var translated_instances = [_triangle_instance[4](0, 5.0, 0.0, 0.0, blas)]
+    var translated_tlas = Tlas[4](translated_instances)
 
-
-def test_tlas_translated_triangle_instance_hit() raises:
-    var verts = _make_one_local_triangle_z2()
-
-    var blas = TriangleBvh[4](
-        verts.unsafe_ptr(),
-        UInt32(len(verts) / 3),
+    var translated_hit_ray = Ray(Vec3f32(5.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
+    _assert_hit(
+        translated_tlas.trace[TriangleBvh[4], TRACE.CLOSEST_HIT](
+            translated_hit_ray,
+            blases.unsafe_ptr(),
+        ),
+        0,
+        0,
+        2.0,
     )
 
-    var blases = List[TriangleBvh[4]](capacity=1)
-    blases.append(blas.copy())
-
-    var instances = List[Instance](capacity=1)
-    instances.append(_triangle_instance[4](0, 5.0, 0.0, 0.0, blas))
-
-    var tlas = Tlas[4](instances)
-
-    # World ray at x = 5 becomes local x = 0 after inverse transform.
-    var ray = Ray(Vec3f32(5.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    var hit = tlas.trace_triangles[TRACE.CLOSEST_HIT, 4](
-        ray, blases.unsafe_ptr()
+    # Translated miss.
+    var translated_miss_ray = Ray(
+        Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0)
     )
-
-    assert_true(hit.inst == 0)
-    assert_true(hit.prim == 0)
-    assert_almost_equal(hit.t, 2.0)
-
-
-def test_tlas_translated_triangle_instance_miss() raises:
-    var verts = _make_one_local_triangle_z2()
-
-    var blas = TriangleBvh[4](
-        verts.unsafe_ptr(),
-        UInt32(len(verts) / 3),
+    var hit = translated_tlas.trace[TriangleBvh[4], TRACE.CLOSEST_HIT](
+        translated_miss_ray,
+        blases.unsafe_ptr(),
     )
-
-    var blases = List[TriangleBvh[4]](capacity=1)
-    blases.append(blas.copy())
-
-    var instances = List[Instance](capacity=1)
-    instances.append(_triangle_instance[4](0, 5.0, 0.0, 0.0, blas))
-
-    var tlas = Tlas[4](instances)
-
-    var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    var hit = tlas.trace_triangles[TRACE.CLOSEST_HIT, 4](
-        ray, blases.unsafe_ptr()
-    )
-
     assert_true(not hit.is_hit())
 
 
-def test_tlas_translated_triangle_two_instances_nearest_wins() raises:
+def test_tlas_triangle_two_instance_cases() raises:
     var verts = _make_one_local_triangle_z2()
 
-    var near_blas = TriangleBvh[4](
+    var first_blas = TriangleBvh[4](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
-    var far_blas = TriangleBvh[4](
-        verts.unsafe_ptr(),
-        UInt32(len(verts) / 3),
-    )
-
-    var blases = List[TriangleBvh[4]](capacity=2)
-    blases.append(near_blas.copy())
-    blases.append(far_blas.copy())
-
-    var instances = List[Instance](capacity=2)
-    instances.append(_triangle_instance[4](0, 0.0, 0.0, 0.0, near_blas))
-    instances.append(_triangle_instance[4](1, 0.0, 0.0, 6.0, far_blas))
-
-    var tlas = Tlas[4](instances)
-
-    var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    var hit = tlas.trace_triangles[TRACE.CLOSEST_HIT, 4](
-        ray, blases.unsafe_ptr()
-    )
-
-    assert_true(hit.inst == 0)
-    assert_true(hit.prim == 0)
-    assert_almost_equal(hit.t, 2.0)
-
-
-def test_tlas_triangle_two_instances_far_wins_when_ray_targets_far() raises:
-    var verts = _make_one_local_triangle_z2()
-
-    var left_blas = TriangleBvh[4](
-        verts.unsafe_ptr(),
-        UInt32(len(verts) / 3),
-    )
-    var right_blas = TriangleBvh[4](
+    var second_blas = TriangleBvh[4](
         verts.unsafe_ptr(),
         UInt32(len(verts) / 3),
     )
 
-    var blases = List[TriangleBvh[4]](capacity=2)
-    blases.append(left_blas.copy())
-    blases.append(right_blas.copy())
+    var blases = [first_blas.copy(), second_blas.copy()]
 
-    var instances = List[Instance](capacity=2)
-    instances.append(_triangle_instance[4](0, -5.0, 0.0, 0.0, left_blas))
-    instances.append(_triangle_instance[4](1, 5.0, 0.0, 0.0, right_blas))
+    # Near/far along z: nearest should win.
+    var near_far_instances = [
+        _triangle_instance[4](0, 0.0, 0.0, 0.0, first_blas),
+        _triangle_instance[4](1, 0.0, 0.0, 6.0, second_blas),
+    ]
 
-    var tlas = Tlas[4](instances)
+    var near_far_tlas = Tlas[4](near_far_instances)
 
-    var ray = Ray(Vec3f32(5.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    var hit = tlas.trace_triangles[TRACE.CLOSEST_HIT, 4](
-        ray, blases.unsafe_ptr()
+    var center_ray = Ray(
+        Vec3f32(0.0, 0.0, 0.0),
+        Vec3f32(0.0, 0.0, 1.0),
+    )
+    _assert_hit(
+        near_far_tlas.trace[TriangleBvh[4], TRACE.CLOSEST_HIT](
+            center_ray,
+            blases.unsafe_ptr(),
+        ),
+        0,
+        0,
+        2.0,
+    )
+    # Left/right along x: ray targets second instance.
+    var left_right_instances = [
+        _triangle_instance[4](0, -5.0, 0.0, 0.0, first_blas),
+        _triangle_instance[4](1, 5.0, 0.0, 0.0, second_blas),
+    ]
+    var left_right_tlas = Tlas[4](left_right_instances)
+
+    var right_ray = Ray(Vec3f32(5.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
+    _assert_hit(
+        left_right_tlas.trace[TriangleBvh[4], TRACE.CLOSEST_HIT](
+            right_ray,
+            blases.unsafe_ptr(),
+        ),
+        1,
+        0,
+        2.0,
     )
 
-    assert_true(hit.inst == 1)
-    assert_true(hit.prim == 0)
-    assert_almost_equal(hit.t, 2.0)
 
-
-def test_tlas_translated_triangle_shadow_hit_and_miss() raises:
+def test_tlas_triangle_shadow_cases() raises:
     var verts = _make_one_local_triangle_z2()
 
     var blas = TriangleBvh[4](
@@ -211,25 +186,28 @@ def test_tlas_translated_triangle_shadow_hit_and_miss() raises:
         UInt32(len(verts) / 3),
     )
 
-    var blases = List[TriangleBvh[4]](capacity=1)
-    blases.append(blas.copy())
+    var blases = [blas.copy()]
 
-    var instances = List[Instance](capacity=1)
-    instances.append(_triangle_instance[4](0, 5.0, 0.0, 0.0, blas))
+    var instances = [_triangle_instance[4](0, 5.0, 0.0, 0.0, blas)]
 
     var tlas = Tlas[4](instances)
 
     var ray_hit = Ray(Vec3f32(5.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
     assert_true(
-        tlas.trace_triangles[TRACE.ANY_HIT, 4](
-            ray_hit, blases.unsafe_ptr()
+        tlas.trace[TriangleBvh[4], TRACE.ANY_HIT](
+            ray_hit,
+            blases.unsafe_ptr(),
         ).is_occluded()
     )
 
-    var ray_miss = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
+    var ray_miss = Ray(
+        Vec3f32(0.0, 0.0, 0.0),
+        Vec3f32(0.0, 0.0, 1.0),
+    )
     assert_true(
-        not tlas.trace_triangles[TRACE.ANY_HIT, 4](
-            ray_miss, blases.unsafe_ptr()
+        not tlas.trace[TriangleBvh[4], TRACE.ANY_HIT](
+            ray_miss,
+            blases.unsafe_ptr(),
         ).is_occluded()
     )
 
@@ -237,7 +215,7 @@ def test_tlas_translated_triangle_shadow_hit_and_miss() raises:
 # -----------------------------------------------------------------------------
 # Sphere TLAS
 # -----------------------------------------------------------------------------
-def test_tlas_sphere_identity_instance_hit() raises:
+def test_tlas_sphere_single_instance_cases() raises:
     var spheres = _make_one_local_sphere_z2()
 
     var blas = SphereBvh[4](
@@ -245,129 +223,106 @@ def test_tlas_sphere_identity_instance_hit() raises:
         UInt32(len(spheres)),
     )
 
-    var blases = List[SphereBvh[4]](capacity=1)
-    blases.append(blas.copy())
+    var blases = [blas.copy()]
 
-    var instances = List[Instance](capacity=1)
-    instances.append(_sphere_instance[4](0, 0.0, 0.0, 0.0, blas))
+    # Identity hit.
+    var identity_instances = [_sphere_instance[4](0, 0.0, 0.0, 0.0, blas)]
 
-    var tlas = Tlas[4](instances)
+    var identity_tlas = Tlas[4](identity_instances)
 
-    var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    var hit = tlas.trace_spheres[TRACE.CLOSEST_HIT, 4](ray, blases.unsafe_ptr())
-
-    assert_true(hit.inst == 0)
-    assert_true(hit.prim == 0)
-    assert_almost_equal(hit.t, 1.0)
-
-
-def test_tlas_translated_sphere_instance_hit() raises:
-    var spheres = _make_one_local_sphere_z2()
-
-    var blas = SphereBvh[4](
-        spheres.unsafe_ptr(),
-        UInt32(len(spheres)),
+    var identity_ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
+    _assert_hit(
+        identity_tlas.trace[SphereBvh[4], TRACE.CLOSEST_HIT](
+            identity_ray,
+            blases.unsafe_ptr(),
+        ),
+        0,
+        0,
+        1.0,
     )
 
-    var blases = List[SphereBvh[4]](capacity=1)
-    blases.append(blas.copy())
+    # Translated hit.
+    var translated_instances = [_sphere_instance[4](0, 5.0, 0.0, 0.0, blas)]
+    var translated_tlas = Tlas[4](translated_instances)
 
-    var instances = List[Instance](capacity=1)
-    instances.append(_sphere_instance[4](0, 5.0, 0.0, 0.0, blas))
-
-    var tlas = Tlas[4](instances)
-
-    var ray = Ray(Vec3f32(5.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    var hit = tlas.trace_spheres[TRACE.CLOSEST_HIT, 4](ray, blases.unsafe_ptr())
-
-    assert_true(hit.inst == 0)
-    assert_true(hit.prim == 0)
-    assert_almost_equal(hit.t, 1.0)
-
-
-def test_tlas_translated_sphere_instance_miss() raises:
-    var spheres = _make_one_local_sphere_z2()
-
-    var blas = SphereBvh[4](
-        spheres.unsafe_ptr(),
-        UInt32(len(spheres)),
+    var translated_hit_ray = Ray(
+        Vec3f32(5.0, 0.0, 0.0),
+        Vec3f32(0.0, 0.0, 1.0),
+    )
+    _assert_hit(
+        translated_tlas.trace[SphereBvh[4], TRACE.CLOSEST_HIT](
+            translated_hit_ray,
+            blases.unsafe_ptr(),
+        ),
+        0,
+        0,
+        1.0,
     )
 
-    var blases = List[SphereBvh[4]](capacity=1)
-    blases.append(blas.copy())
+    # Translated miss.
+    var translated_miss_ray = Ray(
+        Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0)
+    )
 
-    var instances = List[Instance](capacity=1)
-    instances.append(_sphere_instance[4](0, 5.0, 0.0, 0.0, blas))
-
-    var tlas = Tlas[4](instances)
-
-    var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    var hit = tlas.trace_spheres[TRACE.CLOSEST_HIT, 4](ray, blases.unsafe_ptr())
-
+    var hit = translated_tlas.trace[SphereBvh[4], TRACE.CLOSEST_HIT](
+        translated_miss_ray,
+        blases.unsafe_ptr(),
+    )
     assert_true(not hit.is_hit())
 
 
-def test_tlas_translated_sphere_two_instances_nearest_wins() raises:
+def test_tlas_sphere_two_instance_cases() raises:
     var spheres = _make_one_local_sphere_z2()
 
-    var near_blas = SphereBvh[4](
+    var first_blas = SphereBvh[4](
         spheres.unsafe_ptr(),
         UInt32(len(spheres)),
     )
-    var far_blas = SphereBvh[4](
-        spheres.unsafe_ptr(),
-        UInt32(len(spheres)),
-    )
-
-    var blases = List[SphereBvh[4]](capacity=2)
-    blases.append(near_blas.copy())
-    blases.append(far_blas.copy())
-
-    var instances = List[Instance](capacity=2)
-    instances.append(_sphere_instance[4](0, 0.0, 0.0, 0.0, near_blas))
-    instances.append(_sphere_instance[4](1, 0.0, 0.0, 6.0, far_blas))
-
-    var tlas = Tlas[4](instances)
-
-    var ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    var hit = tlas.trace_spheres[TRACE.CLOSEST_HIT, 4](ray, blases.unsafe_ptr())
-
-    assert_true(hit.inst == 0)
-    assert_true(hit.prim == 0)
-    assert_almost_equal(hit.t, 1.0)
-
-
-def test_cpu_tlas_sphere_two_instances_far_wins_when_ray_targets_far() raises:
-    var spheres = _make_one_local_sphere_z2()
-
-    var left_blas = SphereBvh[4](
-        spheres.unsafe_ptr(),
-        UInt32(len(spheres)),
-    )
-    var right_blas = SphereBvh[4](
+    var second_blas = SphereBvh[4](
         spheres.unsafe_ptr(),
         UInt32(len(spheres)),
     )
 
-    var blases = List[SphereBvh[4]](capacity=2)
-    blases.append(left_blas.copy())
-    blases.append(right_blas.copy())
+    var blases = [first_blas.copy(), second_blas.copy()]
 
-    var instances = List[Instance](capacity=2)
-    instances.append(_sphere_instance[4](0, -5.0, 0.0, 0.0, left_blas))
-    instances.append(_sphere_instance[4](1, 5.0, 0.0, 0.0, right_blas))
+    # Near/far along z: nearest should win.
+    var near_far_instances = [
+        _sphere_instance[4](0, 0.0, 0.0, 0.0, first_blas),
+        _sphere_instance[4](1, 0.0, 0.0, 6.0, second_blas),
+    ]
+    var near_far_tlas = Tlas[4](near_far_instances)
 
-    var tlas = Tlas[4](instances)
+    var center_ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
+    _assert_hit(
+        near_far_tlas.trace[SphereBvh[4], TRACE.CLOSEST_HIT](
+            center_ray,
+            blases.unsafe_ptr(),
+        ),
+        0,
+        0,
+        1.0,
+    )
 
-    var ray = Ray(Vec3f32(5.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
-    var hit = tlas.trace_spheres[TRACE.CLOSEST_HIT, 4](ray, blases.unsafe_ptr())
+    # Left/right along x: ray targets second instance.
+    var left_right_instances = [
+        _sphere_instance[4](0, -5.0, 0.0, 0.0, first_blas),
+        _sphere_instance[4](1, 5.0, 0.0, 0.0, second_blas),
+    ]
+    var left_right_tlas = Tlas[4](left_right_instances)
 
-    assert_true(hit.inst == 1)
-    assert_true(hit.prim == 0)
-    assert_almost_equal(hit.t, 1.0)
+    var right_ray = Ray(Vec3f32(5.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
+    _assert_hit(
+        left_right_tlas.trace[SphereBvh[4], TRACE.CLOSEST_HIT](
+            right_ray,
+            blases.unsafe_ptr(),
+        ),
+        1,
+        0,
+        1.0,
+    )
 
 
-def test_tlas_translated_sphere_shadow_hit_and_miss() raises:
+def test_tlas_sphere_shadow_cases() raises:
     var spheres = _make_one_local_sphere_z2()
 
     var blas = SphereBvh[4](
@@ -375,25 +330,24 @@ def test_tlas_translated_sphere_shadow_hit_and_miss() raises:
         UInt32(len(spheres)),
     )
 
-    var blases = List[SphereBvh[4]](capacity=1)
-    blases.append(blas.copy())
+    var blases = [blas.copy()]
 
-    var instances = List[Instance](capacity=1)
-    instances.append(_sphere_instance[4](0, 5.0, 0.0, 0.0, blas))
+    var instances = [_sphere_instance[4](0, 5.0, 0.0, 0.0, blas)]
 
     var tlas = Tlas[4](instances)
 
     var ray_hit = Ray(Vec3f32(5.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
     assert_true(
-        tlas.trace_spheres[TRACE.ANY_HIT, 4](
+        tlas.trace[SphereBvh[4], TRACE.ANY_HIT](
             ray_hit, blases.unsafe_ptr()
         ).is_occluded()
     )
 
     var ray_miss = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(0.0, 0.0, 1.0))
     assert_true(
-        not tlas.trace_spheres[TRACE.ANY_HIT, 4](
-            ray_miss, blases.unsafe_ptr()
+        not tlas.trace[SphereBvh[4], TRACE.ANY_HIT](
+            ray_miss,
+            blases.unsafe_ptr(),
         ).is_occluded()
     )
 

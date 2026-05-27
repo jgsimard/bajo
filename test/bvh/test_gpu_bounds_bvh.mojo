@@ -2,7 +2,7 @@ from std.benchmark import keep
 from std.math import abs, min, max, sqrt
 from std.sys import has_accelerator
 from std.testing import TestSuite, assert_true, assert_almost_equal
-from std.gpu import DeviceContext
+from std.gpu import DeviceContext, DeviceBuffer
 
 from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32, vmin, vmax
@@ -13,7 +13,7 @@ from bajo.bvh.host_utils import (
     generate_primary_rays,
     hit_t_for_checksum,
 )
-from bajo.bvh.constants import EMPTY_LANE, TRACE
+from bajo.bvh.constants import EMPTY_LANE, TRACE, Primitive
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
@@ -86,8 +86,9 @@ def _make_duplicate_sphere_centroid_scene() -> List[Sphere]:
 
 
 def _make_sphere_leaf_bounds(
+    mut ctx: DeviceContext,
     spheres: List[Sphere],
-) -> Tuple[List[Float32], List[UInt32]]:
+) raises -> Tuple[DeviceBuffer[DType.float32], DeviceBuffer[DType.uint32]]:
     var leaf_bounds = List[Float32](capacity=max(len(spheres), 1) * 6)
     var payloads = List[UInt32](capacity=max(len(spheres), 1))
 
@@ -103,7 +104,21 @@ def _make_sphere_leaf_bounds(
         leaf_bounds.append(s.center.z + r)
         payloads.append(UInt32(i))
 
-    return (leaf_bounds^, payloads^)
+    var h_leaf_bounds = ctx.enqueue_create_host_buffer[DType.float32](
+        len(leaf_bounds)
+    )
+    var h_payloads = ctx.enqueue_create_host_buffer[DType.uint32](len(payloads))
+    var d_leaf_bounds = ctx.enqueue_create_buffer[DType.float32](
+        len(leaf_bounds)
+    )
+    var d_payloads = ctx.enqueue_create_buffer[DType.uint32](len(payloads))
+    h_leaf_bounds.enqueue_copy_from(Span(leaf_bounds))
+    h_payloads.enqueue_copy_from(Span(payloads))
+
+    h_leaf_bounds.enqueue_copy_to(d_leaf_bounds)
+    h_payloads.enqueue_copy_to(d_payloads)
+
+    return (d_leaf_bounds^, d_payloads^)
 
 
 def _sphere_scene_bounds(spheres: List[Sphere]) -> AABB:
@@ -137,8 +152,9 @@ def _make_degenerate_axis_scene() -> List[Vec3f32]:
 
 
 def _make_triangle_leaf_bounds(
+    mut ctx: DeviceContext,
     verts: List[Vec3f32],
-) -> Tuple[List[Float32], List[UInt32]]:
+) raises -> Tuple[DeviceBuffer[DType.float32], DeviceBuffer[DType.uint32]]:
     var tri_count = len(verts) / 3
     var leaf_bounds = List[Float32](capacity=max(tri_count, 1) * 6)
     var payloads = List[UInt32](capacity=max(tri_count, 1))
@@ -159,7 +175,21 @@ def _make_triangle_leaf_bounds(
         leaf_bounds.append(_max.z)
         payloads.append(UInt32(i))
 
-    return (leaf_bounds^, payloads^)
+    var h_leaf_bounds = ctx.enqueue_create_host_buffer[DType.float32](
+        len(leaf_bounds)
+    )
+    var h_payloads = ctx.enqueue_create_host_buffer[DType.uint32](len(payloads))
+    var d_leaf_bounds = ctx.enqueue_create_buffer[DType.float32](
+        len(leaf_bounds)
+    )
+    var d_payloads = ctx.enqueue_create_buffer[DType.uint32](len(payloads))
+    h_leaf_bounds.enqueue_copy_from(Span(leaf_bounds))
+    h_payloads.enqueue_copy_from(Span(payloads))
+
+    h_leaf_bounds.enqueue_copy_to(d_leaf_bounds)
+    h_payloads.enqueue_copy_to(d_payloads)
+
+    return (d_leaf_bounds^, d_payloads^)
 
 
 def _trace_cpu_triangle_bvh[
@@ -173,12 +203,11 @@ def _trace_cpu_triangle_bvh[
 
 
 def _assert_gpu_bounds_width[width: Int](verts: List[Vec3f32]) raises:
-    var build = _make_triangle_leaf_bounds(verts)
-    var leaf_bounds = build[0].copy()
-    var payloads = build[1].copy()
-
     with DeviceContext() as ctx:
-        # var binary_bvh = GpuBinaryBoundsBvh(ctx, leaf_bounds, payloads)
+        var build = _make_triangle_leaf_bounds(ctx, verts)
+        var leaf_bounds = build[0].copy()
+        var payloads = build[1].copy()
+
         var bvh = GpuBoundsBvh[width](ctx, leaf_bounds, payloads)
         binary_bvh = bvh.build_test(ctx)
         var validation = binary_bvh.validate(binary_bvh.root_bounds())
@@ -195,11 +224,11 @@ def _assert_gpu_bounds_width[width: Int](verts: List[Vec3f32]) raises:
 
 
 def _assert_wide_lane_invariants[width: Int](verts: List[Vec3f32]) raises:
-    var build = _make_triangle_leaf_bounds(verts)
-    var leaf_bounds = build[0].copy()
-    var payloads = build[1].copy()
-
     with DeviceContext() as ctx:
+        var build = _make_triangle_leaf_bounds(ctx, verts)
+        var leaf_bounds = build[0].copy()
+        var payloads = build[1].copy()
+
         var bvh = GpuBoundsBvh[width](ctx, leaf_bounds, payloads)
         _ = bvh.build(ctx)
 
@@ -241,9 +270,19 @@ def _assert_gpu_triangle_width_matches_cpu[
     )
     var rays_flat = flatten_rays(rays)
     var cpu_checksum = _trace_cpu_triangle_bvh[width](cpu_bvh, rays)
+    var vf32 = List[Float32](capacity=len(verts) * 3)
+    for v in verts:
+        vf32.append(v.x)
+        vf32.append(v.y)
+        vf32.append(v.z)
 
     with DeviceContext() as ctx:
-        var gpu_bvh = GpuTriangleBvh[width](ctx, verts)
+        var h_verts = ctx.enqueue_create_host_buffer[DType.float32](len(vf32))
+        var d_verts = ctx.enqueue_create_buffer[DType.float32](len(vf32))
+        h_verts.enqueue_copy_from(Span(vf32))
+        h_verts.enqueue_copy_to(d_verts)
+
+        var gpu_bvh = GpuTriangleBvh[width](ctx, d_verts, len(verts) / 3)
         var d_rays = ctx.enqueue_create_buffer[DType.float32](len(rays_flat))
         var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](len(rays) * 3)
         var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](len(rays))
@@ -361,11 +400,11 @@ def _assert_gpu_sphere_width_matches_bruteforce[
 
 
 def _assert_gpu_sphere_bounds_width[width: Int](spheres: List[Sphere]) raises:
-    var build = _make_sphere_leaf_bounds(spheres)
-    var leaf_bounds = build[0].copy()
-    var payloads = build[1].copy()
-
     with DeviceContext() as ctx:
+        var build = _make_sphere_leaf_bounds(ctx, spheres)
+        var leaf_bounds = build[0].copy()
+        var payloads = build[1].copy()
+
         var bvh = GpuBoundsBvh[width](ctx, leaf_bounds, payloads)
         binary_bvh = bvh.build_test(ctx)
         var validation = binary_bvh.validate(bvh.root_bounds())

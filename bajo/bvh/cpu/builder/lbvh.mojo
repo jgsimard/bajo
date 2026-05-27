@@ -5,14 +5,14 @@ from bajo.core.morton import morton3
 
 
 @fieldwise_init
-struct BoundsMortonItem(TrivialRegisterPassable):
+struct MortonItem(TrivialRegisterPassable):
     var code: UInt32
     var item_idx: UInt32
 
 
 def _bounds_morton_item_less(
-    a: BoundsMortonItem,
-    b: BoundsMortonItem,
+    a: MortonItem,
+    b: MortonItem,
 ) capturing -> Bool:
     if a.code < b.code:
         return True
@@ -23,34 +23,56 @@ def _bounds_morton_item_less(
     return a.item_idx < b.item_idx
 
 
-def _find_lbvh_split(
-    pairs: UnsafePointer[BoundsMortonItem, ImmutAnyOrigin],
+def _common_prefix(
+    pairs: UnsafePointer[MortonItem, ImmutAnyOrigin],
+    i: Int,
+    j: Int,
+    n: Int,
+) -> Int:
+    if j < 0 or j >= n:
+        return -1
+
+    var a = pairs[i].code
+    var b = pairs[j].code
+
+    if a != b:
+        return Int(count_leading_zeros(a ^ b))
+
+    # duplicate Morton codes are ordered by sorted position
+    var x = UInt32(i) ^ UInt32(j)
+    if x == 0:
+        return 64
+
+    return 32 + Int(count_leading_zeros(x))
+
+
+def _lbvh_find_split(
+    pairs: UnsafePointer[MortonItem, ImmutAnyOrigin],
     first: Int,
     last: Int,
+    n: Int,
 ) -> Int:
-    var first_code = pairs[first].code
-    var last_code = pairs[last - 1].code
-    var diff = first_code ^ last_code
+    var node_prefix = _common_prefix(pairs, first, last, n)
 
-    if diff == 0:
-        return (first + last) / 2
+    var split = first
+    var step = last - first
 
-    var bit = 31 - Int(count_leading_zeros(diff))
-    var mask = UInt32(1) << UInt32(bit)
-    var left_bit = first_code & mask
+    while step > 1:
+        step = (step + 1) >> 1
 
-    # binary search
-    var lo = first + 1
-    var hi = last - 1
+        var new_split = split + step
+        if new_split < last:
+            var split_prefix = _common_prefix(
+                pairs,
+                first,
+                new_split,
+                n,
+            )
 
-    while lo < hi:
-        var mid = (lo + hi) / 2
-        if (pairs[mid].code & mask) == left_bit:
-            lo = mid + 1
-        else:
-            hi = mid
+            if split_prefix > node_prefix:
+                split = new_split
 
-    return lo
+    return split
 
 
 def _build_lbvh[leaf_size: Int](mut builder: BoundsBvhBuilder[leaf_size]):
@@ -69,13 +91,13 @@ def _build_lbvh[leaf_size: Int](mut builder: BoundsBvhBuilder[leaf_size]):
     var extent = centroid_bounds.extent()
     var inv = extent.safe_inv()
 
-    var pairs = List[BoundsMortonItem](capacity=item_count)
+    var pairs = List[MortonItem](capacity=item_count)
 
     for i, item in enumerate(builder.items):
         var centroid = item.bounds.centroid()
         var c = (centroid - centroid_bounds._min) * inv
         var code = morton3(c.x, c.y, c.z)
-        pairs.append(BoundsMortonItem(code, UInt32(i)))
+        pairs.append(MortonItem(code, UInt32(i)))
 
     sort[_bounds_morton_item_less](Span(pairs))
 
@@ -95,7 +117,7 @@ def _build_lbvh_recursive[
     leaf_size: Int
 ](
     mut builder: BoundsBvhBuilder[leaf_size],
-    pairs: UnsafePointer[BoundsMortonItem, ImmutAnyOrigin],
+    pairs: UnsafePointer[MortonItem, ImmutAnyOrigin],
     node_idx: UInt32,
     first: Int,
     count: Int,
@@ -111,8 +133,16 @@ def _build_lbvh_recursive[
 
         return leaf.aabb
 
-    var split = _find_lbvh_split(pairs, first, first + count)
-    var left_count = split - first
+    var last = first + count - 1
+    var split = _lbvh_find_split(
+        pairs,
+        first,
+        last,
+        Int(builder.item_count),
+    )
+
+    var left_count = split - first + 1
+    var right_count = count - left_count
 
     var left_child_idx = builder.nodes_used
     builder.nodes_used += 2
@@ -129,8 +159,8 @@ def _build_lbvh_recursive[
         builder,
         pairs,
         left_child_idx + 1,
-        split,
-        count - left_count,
+        split + 1,
+        right_count,
     )
 
     ref node = builder.nodes[Int(node_idx)]

@@ -7,12 +7,12 @@ from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvhBuilder,
 )
 from bajo.core.aabb import AABB
-from bajo.bvh.types import Ray, Hit, TriangleLeafBlock
+from bajo.bvh.types import Ray, Hit, TriangleLeafBlock, TypedBvh
 from bajo.core.intersect import intersect_ray_tri
 from bajo.bvh.cpu.trace import trace_bounds_bvh
 
 
-struct TriangleBvh[width: Int](Copyable):
+struct TriangleBvh[width: Int](Copyable, TypedBvh):
     """Triangle-specific wrapper around BoundsBvh[width].
 
     After construction, leaf primitive data is packed into TriangleLeafBlock.

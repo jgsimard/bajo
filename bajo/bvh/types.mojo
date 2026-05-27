@@ -2,7 +2,7 @@ from std.math import clamp
 from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.aabb import AABB
-from bajo.bvh.constants import f32_max, EMPTY_LANE
+from bajo.bvh.constants import f32_max, EMPTY_LANE, Primitive, TRACE
 from bajo.core.vec import Vec3f32, vmin, vmax, Vec3
 from bajo.core.transform import Affine3f32
 
@@ -121,12 +121,14 @@ struct Instance(Copyable):
     var inv_transform: Affine3f32
     var bounds: AABB
     var blas_idx: UInt32
+    var kind: Primitive
 
     def __init__(out self):
         self.transform = Affine3f32.identity()
         self.inv_transform = Affine3f32.identity()
         self.bounds = AABB.invalid()
         self.blas_idx = UInt32(0)
+        self.kind = Primitive.UNKNOWN
 
     def __init__(
         out self,
@@ -134,11 +136,13 @@ struct Instance(Copyable):
         inv_transform: Affine3f32,
         blas_idx: UInt32,
         blas_bounds: AABB,
+        kind: Primitive,
     ):
         self.transform = transform.copy()
         self.inv_transform = inv_transform.copy()
         self.blas_idx = blas_idx
         self.bounds = transform_bounds(transform, blas_bounds)
+        self.kind = kind
 
 
 def transform_bounds(transform: Affine3f32, bounds: AABB) -> AABB:
@@ -159,3 +163,8 @@ def transform_bounds(transform: Affine3f32, bounds: AABB) -> AABB:
         out.grow(transform.transform_point(corners[i]))
 
     return out
+
+
+trait TypedBvh:
+    def trace[mode: TRACE](self, ray: Ray) -> Hit:
+        ...

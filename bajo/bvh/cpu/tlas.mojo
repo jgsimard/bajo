@@ -1,5 +1,5 @@
 from bajo.core.aabb import AABB
-from bajo.bvh.types import Ray, Hit, Instance
+from bajo.bvh.types import Ray, Hit, Instance, TypedBvh
 from bajo.bvh.constants import TRACE
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
@@ -41,66 +41,10 @@ struct Tlas[width: Int](Copyable):
     def bounds(self) -> AABB:
         return self.tree.root_bounds()
 
-    # parametric traits would colapse trace_triangles and trace_spheres into one function
-    def trace_triangles[
+    def trace[
+        typed_bvh: TypedBvh,
         mode: TRACE,
-        blas_width: Int,
-    ](
-        self,
-        ray: Ray,
-        blases: UnsafePointer[TriangleBvh[blas_width], MutAnyOrigin],
-    ) -> Hit:
-        def leaf_fn(
-            ray: Ray,
-            first_item: UInt32,
-            item_count: UInt32,
-            mut hit: Hit,
-        ) capturing -> Bool:
-            for i in range(Int(item_count)):
-                var item_ref = Int(self.tree.item_indices[Int(first_item) + i])
-                var inst_idx = self.tree.item_payloads[item_ref]
-                ref inst = self.instances[Int(inst_idx)]
-                ref transform = inst.inv_transform
-
-                var local_origin = transform.transform_point(ray.o)
-                var local_dir = transform.transform_vector(ray.d)
-
-                var local_ray = Ray(local_origin, local_dir, ray.t_min, hit.t)
-
-                var local_hit = blases[Int(inst.blas_idx)].trace[mode](
-                    local_ray
-                )
-
-                comptime if mode == TRACE.ANY_HIT:
-                    if local_hit.is_occluded():
-                        return True
-                else:
-                    if local_hit.is_hit() and local_hit.t < hit.t:
-                        hit.t = local_hit.t
-                        hit.u = local_hit.u
-                        hit.v = local_hit.v
-                        hit.prim = local_hit.prim
-                        hit.inst = inst_idx
-
-            return False
-
-        return trace_bounds_bvh[
-            Self.width,
-            mode,
-            leaf_fn,
-        ](
-            self.tree,
-            ray,
-        )
-
-    def trace_spheres[
-        mode: TRACE,
-        blas_width: Int,
-    ](
-        self,
-        ray: Ray,
-        blases: UnsafePointer[SphereBvh[blas_width], MutAnyOrigin],
-    ) -> Hit:
+    ](self, ray: Ray, blases: UnsafePointer[typed_bvh, MutAnyOrigin],) -> Hit:
         def leaf_fn(
             ray: Ray,
             first_item: UInt32,

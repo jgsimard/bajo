@@ -29,3 +29,11 @@ comptime TRI_LEAF_VERTEX_STRIDE = 9
 comptime SPHERE_STRIDE = 4
 comptime TRANSFORM_STRIDE = 12
 comptime BVH_BINS = 16
+
+
+@fieldwise_init
+struct Primitive(Equatable, TrivialRegisterPassable):
+    comptime UNKNOWN = Self(-1)
+    comptime TRIANGLE = Self(0)
+    comptime SPHERE = Self(1)
+    var v: Int32

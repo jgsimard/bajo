@@ -5,10 +5,10 @@ from bajo.core.vec import Vec3
 from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
 from bajo.bvh.cpu.bounds_bvh import BoundsBvh, BoundsItem, BoundsBvhBuilder
 from bajo.bvh.cpu.trace import trace_bounds_bvh
-from bajo.bvh.types import Ray, Hit, Sphere, SphereLeafBlock
+from bajo.bvh.types import Ray, Hit, Sphere, SphereLeafBlock, TypedBvh
 
 
-struct SphereBvh[width: Int](Copyable):
+struct SphereBvh[width: Int](Copyable, TypedBvh):
     """Sphere-specific wrapper around BoundsBvh[width].
     The generic tree is built from BoundsItem ranges.
     After construction, sphere leaf data is packed into SphereLeafBlock.

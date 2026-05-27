@@ -35,25 +35,25 @@ def morton3[
     y: SIMD[DType.float32, size],
     z: SIMD[DType.float32, size],
 ) -> SIMD[DType.uint32, size]:
-    """Takes values in the range [0, 1] and assigns an index based Morton codes of length 3*lwp2(dim) bits.
+    """Takes values in the range [0, 1] and assigns an index based Morton codes of length 3*log_base2(dim) bits.
     """
-
-    # lwp2(dim):stands for Log Width base 2.
-    # function that returns the number of bits needed to represent the value dim.
-    # lwp2(1024) = 10, because 2^10 = 1024
-
-    # masks for ux, uy, uz = use 3*10 = 30 bits
+    # masks for ux, uy, uz use 3*log_base2(dim) = 3*log_base2(1024) = 3*10 = 30 bits
     # 0000 1001 0010 0100 1001 0010 0100 1001
     # 0001 0010 0100 1001 0010 0100 1001 0010
     # 0010 0100 1001 0010 0100 1001 0010 0100
 
     comptime dimf = Float32(dim)
-    comptime T = SIMD[DType.uint32, size]
-    ux = clamp(T(x * dimf), 0, dim - 1)
-    uy = clamp(T(y * dimf), 0, dim - 1)
-    uz = clamp(T(z * dimf), 0, dim - 1)
-    return (
-        (expand_bits_3d(uz) << 2)
-        | (expand_bits_3d(uy) << 1)
-        | expand_bits_3d(ux)
-    )
+    comptime if size == 1:
+        v = SIMD[DType.float32, 4](x[0], y[0], z[0], 0)
+        u = clamp((v * dimf).cast[DType.uint32](), 0, dim - 1)
+        ex = expand_bits_3d(u)
+        return (ex[2] << 2) | (ex[1] << 1) | ex[0]
+    else:
+        ux = clamp((x * dimf).cast[DType.uint32](), 0, dim - 1)
+        uy = clamp((y * dimf).cast[DType.uint32](), 0, dim - 1)
+        uz = clamp((z * dimf).cast[DType.uint32](), 0, dim - 1)
+        return (
+            (expand_bits_3d(uz) << 2)
+            | (expand_bits_3d(uy) << 1)
+            | expand_bits_3d(ux)
+        )

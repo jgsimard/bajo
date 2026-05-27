@@ -149,10 +149,10 @@ def _intersect_tlas_instance_block[
 
 
 def trace_tlas_ray[
+    primitive: String,
     tlas_width: Int,
     blas_width: Int,
-    mode: TRACE,
-    blas_leaf_fn: BlasLeafFn,
+    mode: TRACE = TRACE.CLOSEST_HIT,
 ](
     tlas_wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
     tlas_wide_data: UnsafePointer[UInt32, MutAnyOrigin],
@@ -169,6 +169,13 @@ def trace_tlas_ray[
     blas_root_idx: UInt32,
     ray: Ray,
 ) -> Hit:
+    comptime assert primitive in ["triangle", "sphere"]
+
+    comptime leaf_fn: BlasLeafFn = (
+        _intersect_triangle_leaf[blas_width, mode] if primitive
+        == "triangle" else _intersect_sphere_leaf[blas_width, mode]
+    )
+
     var hit = Hit.miss(ray.t_max)
 
     var stack = InlineArray[UInt32, GPU_STACK_SIZE](uninitialized=True)
@@ -203,7 +210,7 @@ def trace_tlas_ray[
                         tlas_width,
                         blas_width,
                         mode,
-                        blas_leaf_fn,
+                        leaf_fn,
                     ](
                         tlas_leaf_instances,
                         inst_inv_transform,
@@ -255,57 +262,6 @@ def trace_tlas_ray[
         current = stack[stack_ptr]
 
     return hit
-
-
-def trace_tlas_primitive_ray[
-    primitive: String,
-    tlas_width: Int,
-    blas_width: Int,
-    mode: TRACE = TRACE.CLOSEST_HIT,
-](
-    tlas_wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    tlas_wide_data: UnsafePointer[UInt32, MutAnyOrigin],
-    tlas_wide_counts: UnsafePointer[UInt32, MutAnyOrigin],
-    tlas_leaf_instances: UnsafePointer[UInt32, MutAnyOrigin],
-    inst_inv_transform: UnsafePointer[Float32, MutAnyOrigin],
-    inst_blas_indices: UnsafePointer[UInt32, MutAnyOrigin],
-    blas_wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    blas_wide_data: UnsafePointer[UInt32, MutAnyOrigin],
-    blas_wide_counts: UnsafePointer[UInt32, MutAnyOrigin],
-    blas_leaf_data_f32: UnsafePointer[Float32, MutAnyOrigin],
-    blas_leaf_data_u32: UnsafePointer[UInt32, MutAnyOrigin],
-    tlas_root_idx: UInt32,
-    blas_root_idx: UInt32,
-    ray: Ray,
-) -> Hit:
-    comptime assert primitive in ["triangle", "sphere"]
-
-    comptime leaf_fn: BlasLeafFn = (
-        _intersect_triangle_leaf[blas_width, mode] if primitive
-        == "triangle" else _intersect_sphere_leaf[blas_width, mode]
-    )
-
-    return trace_tlas_ray[
-        tlas_width,
-        blas_width,
-        mode,
-        leaf_fn,
-    ](
-        tlas_wide_bounds,
-        tlas_wide_data,
-        tlas_wide_counts,
-        tlas_leaf_instances,
-        inst_inv_transform,
-        inst_blas_indices,
-        blas_wide_bounds,
-        blas_wide_data,
-        blas_wide_counts,
-        blas_leaf_data_f32,
-        blas_leaf_data_u32,
-        tlas_root_idx,
-        blas_root_idx,
-        ray,
-    )
 
 
 struct GpuTlas[width: Int]:
@@ -458,7 +414,7 @@ def trace_tlas_camera_kernel[
     var py_i = local_idx / width
     var ray = camera.make_ray(px_i, py_i, width, height)
 
-    var hit = trace_tlas_primitive_ray[
+    var hit = trace_tlas_ray[
         primitive,
         tlas_width,
         blas_width,

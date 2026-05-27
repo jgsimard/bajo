@@ -1,6 +1,6 @@
 from std.io.file_descriptor import FileDescriptor
 from std.gpu import DeviceBuffer, DeviceContext, HostBuffer
-from std.math import cos, max, round, sin, clamp
+from std.math import max, round, clamp
 from std.sys import has_accelerator
 from std.time import perf_counter_ns
 
@@ -12,13 +12,11 @@ from bajo.core.vec import Vec3f32, cross, normalize
 from bajo.bvh.cpu.tlas import Tlas
 from bajo.bvh.gpu.tlas import GpuTlas
 from bajo.bvh.gpu.triangle_bvh import GpuTriangleBvh
-from bajo.bvh.host_utils import (
-    append_camera_params,
-    compute_bounds,
-    flatten_vertices,
-)
+from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.types import Instance
 from bajo.obj.pack import pack_obj_triangles
+from bajo.bvh.constants import Primitive
+from bajo.bvh.camera import Camera
 
 comptime DEFAULT_OBJ_PATH = "./assets/buddha/buddha.obj"
 comptime DEFAULT_OUTPUT_PATH = "./example_tlas_lbvh_normals.ppm"
@@ -55,15 +53,16 @@ def _make_instances(bounds: AABB) raises -> List[Instance]:
                 rotation, scale, translation
             )
             var inv_transform = transform.inverse().inv.copy()
-            instances.append(Instance(transform, inv_transform, 0, bounds))
+            instances.append(
+                Instance(
+                    transform,
+                    inv_transform,
+                    0,
+                    bounds,
+                    Primitive.TRIANGLE,
+                )
+            )
     return instances^
-
-
-def _instances_bounds(instances: List[Instance]) -> AABB:
-    var out = AABB.invalid()
-    for instance in instances:
-        out.grow(instance.bounds)
-    return out
 
 
 def _make_camera_params(tlas: Tlas[TLAS_WIDTH]) -> List[Float32]:
@@ -86,17 +85,13 @@ def _make_camera_params(tlas: Tlas[TLAS_WIDTH]) -> List[Float32]:
         extent.y * 0.18,
         scene_w * 0.10,
     )
-    var fov = Float32(0.75)
-
-    var params = List[Float32](capacity=12)
-    append_camera_params(
-        params,
+    var camera = Camera(
         eye,
         target,
         Vec3f32(0.0, 1.0, 0.0),
-        fov,
+        Float32(0.75),
     )
-    return params^
+    return camera.flatten()
 
 
 def _unit_to_u8(x: Float32) -> UInt8:
@@ -202,14 +197,15 @@ def main() raises:
 
     with DeviceContext() as ctx:
         # Warm up GPU runtime / allocator / copy path.
-        var bob_t0 = perf_counter_ns()
+        var warm_t0 = perf_counter_ns()
         var warm_h = ctx.enqueue_create_host_buffer[DType.float32](1024)
         var warm_d = ctx.enqueue_create_buffer[DType.float32](1024)
         warm_h.enqueue_copy_to(warm_d)
         ctx.synchronize()
-        var bob_t1 = perf_counter_ns()
+        var warm_t1 = perf_counter_ns()
         print(
-            t"\nGPU warmup time ={round(ns_to_ms(Int(bob_t1 - bob_t0)), 3)} ms "
+            t"\nGPU warmup time ="
+            t"{round(ns_to_ms(Int(warm_t1 - warm_t0)), 3)} ms "
         )
 
         print("\nUploading vertices...")
@@ -218,7 +214,6 @@ def main() raises:
         var vertices = ctx.enqueue_create_buffer[DType.float32](len(h_vertices))
         h_vertices.enqueue_copy_to(vertices)
         ctx.synchronize()
-        # var vertices = copy_list_to_device(ctx, flat_vertices)
         var up_t1 = perf_counter_ns()
         print(t"Upload time ={round(ns_to_ms(Int(up_t1 - up_t0)), 3)} ms ")
 
@@ -244,7 +239,6 @@ def main() raises:
         ctx.synchronize()
         var tlas_t1 = perf_counter_ns()
 
-        # var tlas_validation = gpu_tlas.tree.validate(tlas_bounds)
         print(
             t"TLAS build:"
             t" total={round(ns_to_ms(Int(tlas_t1 - tlas_t0)), 3)} ms |"

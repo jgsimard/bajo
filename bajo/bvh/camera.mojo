@@ -1,6 +1,6 @@
 from bajo.bvh.types import Ray
 from bajo.bvh.constants import f32_max
-from bajo.core.vec import Vec3f32, normalize
+from bajo.core.vec import Vec3f32, normalize, cross
 
 
 comptime CAMERA_STRIDE = 13
@@ -30,6 +30,19 @@ struct Camera(TrivialRegisterPassable, Writable):
         self.up = Vec3f32.load(ptr, base + CAMERA_UP)
         self.fov_scale = ptr[base + CAMERA_FOV]
 
+    def __init__(
+        out self,
+        origin: Vec3f32,
+        target: Vec3f32,
+        world_up: Vec3f32,
+        fov_scale: Float32,
+    ):
+        self.origin = origin
+        self.forward = normalize(target - origin)
+        self.right = normalize(cross(self.forward, world_up))
+        self.up = normalize(cross(self.right, self.forward))
+        self.fov_scale = fov_scale
+
     def make_ray(
         self,
         px_i: Int,
@@ -54,3 +67,20 @@ struct Camera(TrivialRegisterPassable, Writable):
             normalize(dir),
             f32_max,
         )
+
+    def flatten(self) -> List[Float32]:
+        return [
+            self.origin.x,
+            self.origin.y,
+            self.origin.z,
+            self.forward.x,
+            self.forward.y,
+            self.forward.z,
+            self.right.x,
+            self.right.y,
+            self.right.z,
+            self.up.x,
+            self.up.y,
+            self.up.z,
+            self.fov_scale,
+        ]

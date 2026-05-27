@@ -141,8 +141,15 @@ def _intersect_tlas_instance_block[
                         return True
                 else:
                     if local_hit.t < hit.t and local_hit.prim != EMPTY_LANE:
+                        inv_transform = Affine3f32.load(
+                            inst_inv_transform, Int(inst_idx)
+                        )
+
                         hit = local_hit
                         hit.inst = inst_idx
+                        hit.normal = inv_transform.transform_vector(
+                            local_hit.normal
+                        )
                         hit_any = True
 
     return hit_any

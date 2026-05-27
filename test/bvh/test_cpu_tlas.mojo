@@ -72,8 +72,7 @@ def test_tlas_triangle_identity_instance_hit() raises:
         UInt32(len(verts) / 3),
     )
 
-    var blases = List[TriangleBvh[4]](capacity=1)
-    blases.append(blas.copy())
+    var blases = [blas.copy()]
 
     var instances = List[Instance](capacity=1)
     instances.append(_triangle_instance[4](0, 0.0, 0.0, 0.0, blas))
@@ -98,8 +97,7 @@ def test_tlas_translated_triangle_instance_hit() raises:
         UInt32(len(verts) / 3),
     )
 
-    var blases = List[TriangleBvh[4]](capacity=1)
-    blases.append(blas.copy())
+    var blases = [blas.copy()]
 
     var instances = List[Instance](capacity=1)
     instances.append(_triangle_instance[4](0, 5.0, 0.0, 0.0, blas))
@@ -125,11 +123,9 @@ def test_tlas_translated_triangle_instance_miss() raises:
         UInt32(len(verts) / 3),
     )
 
-    var blases = List[TriangleBvh[4]](capacity=1)
-    blases.append(blas.copy())
+    var blases = [blas.copy()]
 
-    var instances = List[Instance](capacity=1)
-    instances.append(_triangle_instance[4](0, 5.0, 0.0, 0.0, blas))
+    var instances = [_triangle_instance[4](0, 5.0, 0.0, 0.0, blas)]
 
     var tlas = Tlas[4](instances)
 
@@ -153,13 +149,12 @@ def test_tlas_translated_triangle_two_instances_nearest_wins() raises:
         UInt32(len(verts) / 3),
     )
 
-    var blases = List[TriangleBvh[4]](capacity=2)
-    blases.append(near_blas.copy())
-    blases.append(far_blas.copy())
+    var blases = [near_blas.copy(), far_blas.copy()]
 
-    var instances = List[Instance](capacity=2)
-    instances.append(_triangle_instance[4](0, 0.0, 0.0, 0.0, near_blas))
-    instances.append(_triangle_instance[4](1, 0.0, 0.0, 6.0, far_blas))
+    var instances = [
+        _triangle_instance[4](0, 0.0, 0.0, 0.0, near_blas),
+        _triangle_instance[4](1, 0.0, 0.0, 6.0, far_blas),
+    ]
 
     var tlas = Tlas[4](instances)
 
@@ -185,13 +180,12 @@ def test_tlas_triangle_two_instances_far_wins_when_ray_targets_far() raises:
         UInt32(len(verts) / 3),
     )
 
-    var blases = List[TriangleBvh[4]](capacity=2)
-    blases.append(left_blas.copy())
-    blases.append(right_blas.copy())
+    var blases = [left_blas.copy(), right_blas.copy()]
 
-    var instances = List[Instance](capacity=2)
-    instances.append(_triangle_instance[4](0, -5.0, 0.0, 0.0, left_blas))
-    instances.append(_triangle_instance[4](1, 5.0, 0.0, 0.0, right_blas))
+    var instances = [
+        _triangle_instance[4](0, -5.0, 0.0, 0.0, left_blas),
+        _triangle_instance[4](1, 5.0, 0.0, 0.0, right_blas),
+    ]
 
     var tlas = Tlas[4](instances)
 
@@ -213,11 +207,9 @@ def test_tlas_translated_triangle_shadow_hit_and_miss() raises:
         UInt32(len(verts) / 3),
     )
 
-    var blases = List[TriangleBvh[4]](capacity=1)
-    blases.append(blas.copy())
+    var blases = [blas.copy()]
 
-    var instances = List[Instance](capacity=1)
-    instances.append(_triangle_instance[4](0, 5.0, 0.0, 0.0, blas))
+    var instances = [_triangle_instance[4](0, 5.0, 0.0, 0.0, blas)]
 
     var tlas = Tlas[4](instances)
 
@@ -247,11 +239,9 @@ def test_tlas_sphere_identity_instance_hit() raises:
         UInt32(len(spheres)),
     )
 
-    var blases = List[SphereBvh[4]](capacity=1)
-    blases.append(blas.copy())
+    var blases = [blas.copy()]
 
-    var instances = List[Instance](capacity=1)
-    instances.append(_sphere_instance[4](0, 0.0, 0.0, 0.0, blas))
+    var instances = [_sphere_instance[4](0, 0.0, 0.0, 0.0, blas)]
 
     var tlas = Tlas[4](instances)
 
@@ -273,11 +263,9 @@ def test_tlas_translated_sphere_instance_hit() raises:
         UInt32(len(spheres)),
     )
 
-    var blases = List[SphereBvh[4]](capacity=1)
-    blases.append(blas.copy())
+    var blases = [blas.copy()]
 
-    var instances = List[Instance](capacity=1)
-    instances.append(_sphere_instance[4](0, 5.0, 0.0, 0.0, blas))
+    var instances = [_sphere_instance[4](0, 5.0, 0.0, 0.0, blas)]
 
     var tlas = Tlas[4](instances)
 
@@ -299,11 +287,9 @@ def test_tlas_translated_sphere_instance_miss() raises:
         UInt32(len(spheres)),
     )
 
-    var blases = List[SphereBvh[4]](capacity=1)
-    blases.append(blas.copy())
+    var blases = [blas.copy()]
 
-    var instances = List[Instance](capacity=1)
-    instances.append(_sphere_instance[4](0, 5.0, 0.0, 0.0, blas))
+    var instances = [_sphere_instance[4](0, 5.0, 0.0, 0.0, blas)]
 
     var tlas = Tlas[4](instances)
 
@@ -327,13 +313,12 @@ def test_tlas_translated_sphere_two_instances_nearest_wins() raises:
         UInt32(len(spheres)),
     )
 
-    var blases = List[SphereBvh[4]](capacity=2)
-    blases.append(near_blas.copy())
-    blases.append(far_blas.copy())
+    var blases = [near_blas.copy(), far_blas.copy()]
 
-    var instances = List[Instance](capacity=2)
-    instances.append(_sphere_instance[4](0, 0.0, 0.0, 0.0, near_blas))
-    instances.append(_sphere_instance[4](1, 0.0, 0.0, 6.0, far_blas))
+    var instances = [
+        _sphere_instance[4](0, 0.0, 0.0, 0.0, near_blas),
+        _sphere_instance[4](1, 0.0, 0.0, 6.0, far_blas),
+    ]
 
     var tlas = Tlas[4](instances)
 
@@ -359,13 +344,12 @@ def test_cpu_tlas_sphere_two_instances_far_wins_when_ray_targets_far() raises:
         UInt32(len(spheres)),
     )
 
-    var blases = List[SphereBvh[4]](capacity=2)
-    blases.append(left_blas.copy())
-    blases.append(right_blas.copy())
+    var blases = [left_blas.copy(), right_blas.copy()]
 
-    var instances = List[Instance](capacity=2)
-    instances.append(_sphere_instance[4](0, -5.0, 0.0, 0.0, left_blas))
-    instances.append(_sphere_instance[4](1, 5.0, 0.0, 0.0, right_blas))
+    var instances = [
+        _sphere_instance[4](0, -5.0, 0.0, 0.0, left_blas),
+        _sphere_instance[4](1, 5.0, 0.0, 0.0, right_blas),
+    ]
 
     var tlas = Tlas[4](instances)
 
@@ -387,11 +371,9 @@ def test_tlas_translated_sphere_shadow_hit_and_miss() raises:
         UInt32(len(spheres)),
     )
 
-    var blases = List[SphereBvh[4]](capacity=1)
-    blases.append(blas.copy())
+    var blases = [blas.copy()]
 
-    var instances = List[Instance](capacity=1)
-    instances.append(_sphere_instance[4](0, 5.0, 0.0, 0.0, blas))
+    var instances = [_sphere_instance[4](0, 5.0, 0.0, 0.0, blas)]
 
     var tlas = Tlas[4](instances)
 

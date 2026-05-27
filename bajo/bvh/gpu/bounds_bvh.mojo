@@ -42,6 +42,9 @@ struct GpuBoundsBvh[width: Int]:
     var max_wide_nodes: Int
     var max_leaf_blocks: Int
 
+    var bounds_device: DeviceBuffer[DType.float32]
+    """[0..5]  = root bounds, [6..11] = centroid bounds."""
+
     var leaf_bounds: DeviceBuffer[DType.float32]
     var leaf_payloads: DeviceBuffer[DType.uint32]
 
@@ -70,6 +73,8 @@ struct GpuBoundsBvh[width: Int]:
         self.max_leaf_blocks = max(self.internal_count * Self.width, 1)
 
         n_internal = max(self.internal_count, 1)
+
+        self.bounds_device = ctx.enqueue_create_buffer[DType.float32](12)
 
         self.leaf_bounds = leaf_bounds
         self.leaf_payloads = leaf_payloads
@@ -105,6 +110,7 @@ struct GpuBoundsBvh[width: Int]:
         var binary = GpuBinaryBoundsBvh(
             ctx, self.leaf_bounds, self.leaf_payloads
         )
+        self.bounds_device = binary.bounds_device.copy()
 
         # leaf AABBs -> sorted binary LBVH
         timings = build_binary_bvh_with_lbvh(ctx, binary, self.workspace)
@@ -124,8 +130,9 @@ struct GpuBoundsBvh[width: Int]:
         mut self, mut ctx: DeviceContext
     ) raises -> GpuBinaryBoundsBvh:
         var binary = GpuBinaryBoundsBvh(
-            ctx, self.leaf_bounds_host, self.leaf_payloads_host
+            ctx, self.leaf_bounds, self.leaf_payloads
         )
+        self.bounds_device = binary.bounds_device.copy()
 
         # leaf AABBs -> sorted binary LBVH
         timings = build_binary_bvh_with_lbvh(ctx, binary, self.workspace)
@@ -135,12 +142,16 @@ struct GpuBoundsBvh[width: Int]:
 
         return binary^
 
-    def root_bounds(self) -> AABB:
+    def root_bounds(self) raises -> AABB:
         var out = AABB.invalid()
-        for i in range(self.leaf_count):
-            var b = i * BOUNDS_STRIDE
-            aabb = AABB.load6(self.leaf_bounds_host.unsafe_ptr(), b)
-            out.grow(aabb)
+        with self.bounds_device.map_to_host() as h:
+            out = AABB.load6(h.unsafe_ptr(), 0)
+        return out
+
+    def centroid_bounds(self) raises -> AABB:
+        var out = AABB.invalid()
+        with self.bounds_device.map_to_host() as h:
+            out = AABB.load6(h.unsafe_ptr(), BOUNDS_STRIDE)
         return out
 
 

@@ -58,7 +58,23 @@ struct GpuSphereBvh[width: Int]:
             leaf_bounds.append(s.center.z + r)
             payloads.append(UInt32(i))
 
-        self.tree = GpuBoundsBvh[Self.width](ctx, leaf_bounds, payloads)
+        var h_leaf_bounds = ctx.enqueue_create_host_buffer[DType.float32](
+            len(leaf_bounds)
+        )
+        var h_payloads = ctx.enqueue_create_host_buffer[DType.uint32](
+            len(payloads)
+        )
+        var d_leaf_bounds = ctx.enqueue_create_buffer[DType.float32](
+            len(leaf_bounds)
+        )
+        var d_payloads = ctx.enqueue_create_buffer[DType.uint32](len(payloads))
+        h_leaf_bounds.enqueue_copy_from(Span(leaf_bounds))
+        h_payloads.enqueue_copy_from(Span(payloads))
+
+        h_leaf_bounds.enqueue_copy_to(d_leaf_bounds)
+        h_payloads.enqueue_copy_to(d_payloads)
+
+        self.tree = GpuBoundsBvh[Self.width](ctx, d_leaf_bounds, d_payloads)
         self.timings = self.tree.build(ctx)
 
         self.leaf_spheres = ctx.enqueue_create_buffer[DType.float32](

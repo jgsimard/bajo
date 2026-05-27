@@ -306,6 +306,9 @@ struct Vec3[dtype: DType, width: Int = 1](
             round(self.z, ndigits),
         )
 
+    def write_to(self, mut writer: Some[Writer]):
+        writer.write(t"Vec3[{self.x}, {self.y}, {self.z}]")
+
 
 def dot[
     dtype: DType, width: Int

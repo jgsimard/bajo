@@ -121,36 +121,30 @@ def write_ppm_normals_from_hits(
         var _bytes = List[UInt8](length=byte_count, fill=0)
         var out = _bytes.unsafe_ptr()
 
-        with hits_f32.map_to_host() as hf:
-            with hits_u32.map_to_host() as hu:
-                var j = 0
-                for i in range(pixel_count):
-                    var prim = UInt32(hu[i * 2 + 0])
-                    var inst = UInt32(hu[i * 2 + 1])
-                    var t = hf[i * 3 + 0]
+        with hits_f32.map_to_host() as hf, hits_u32.map_to_host() as hu:
+            for i in range(pixel_count):
+                var prim = UInt32(hu[i * 2 + 0])
+                var inst = UInt32(hu[i * 2 + 1])
+                if prim == MISS_PRIM or inst == MISS_PRIM:
+                    out[i * 3 + 0] = UInt8(18)
+                    out[i * 3 + 1] = UInt8(22)
+                    out[i * 3 + 2] = UInt8(30)
+                else:
+                    var base = Int(prim) * 3
+                    ref v0 = tri_vertices[base + 0]
+                    ref v1 = tri_vertices[base + 1]
+                    ref v2 = tri_vertices[base + 2]
 
-                    if prim == MISS_PRIM or inst == MISS_PRIM or t >= 1.0e20:
-                        out[j + 0] = UInt8(18)
-                        out[j + 1] = UInt8(22)
-                        out[j + 2] = UInt8(30)
-                    else:
-                        var base = Int(prim) * 3
-                        ref v0 = tri_vertices[base + 0]
-                        ref v1 = tri_vertices[base + 1]
-                        ref v2 = tri_vertices[base + 2]
-
-                        var local_n = normalize(cross(v1 - v0, v2 - v0))
-                        var world_n = normalize(
-                            instances[Int(inst)].transform.transform_vector(
-                                local_n,
-                            )
+                    var local_n = normalize(cross(v1 - v0, v2 - v0))
+                    var world_n = normalize(
+                        instances[Int(inst)].transform.transform_vector(
+                            local_n,
                         )
+                    )
 
-                        out[j + 0] = _unit_to_u8(world_n.x[0] * 0.5 + 0.5)
-                        out[j + 1] = _unit_to_u8(world_n.y[0] * 0.5 + 0.5)
-                        out[j + 2] = _unit_to_u8(world_n.z[0] * 0.5 + 0.5)
-
-                    j += 3
+                    out[i * 3 + 0] = _unit_to_u8(world_n.x[0] * 0.5 + 0.5)
+                    out[i * 3 + 1] = _unit_to_u8(world_n.y[0] * 0.5 + 0.5)
+                    out[i * 3 + 2] = _unit_to_u8(world_n.z[0] * 0.5 + 0.5)
 
         fd.write_bytes(_bytes)
 

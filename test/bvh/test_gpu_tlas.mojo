@@ -15,7 +15,7 @@ from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.gpu.tlas import GpuTlas
 from bajo.bvh.gpu.sphere_bvh import GpuSphereBvh
 from bajo.bvh.gpu.triangle_bvh import GpuTriangleBvh
-from bajo.bvh.gpu.utils import _upload_camera, _upload_vertices
+from bajo.bvh.gpu.utils import upload_camera, upload_vertices
 
 from fixtures import _append_tri, _brute_sphere_trace
 
@@ -171,10 +171,10 @@ def test_gpu_tlas_triangle_camera_single_identity_matches_cpu_blas() raises:
     ]
 
     with DeviceContext() as ctx:
-        var d_vertices = _upload_vertices(ctx, verts)
+        var d_vertices = upload_vertices(ctx, verts)
         var blas = GpuTriangleBvh[4](ctx, d_vertices, len(verts) / 3)
         var tlas = GpuTlas[4](ctx, instances)
-        var d_camera = _upload_camera(ctx, camera)
+        var d_camera = upload_camera(ctx, camera)
 
         var ray_count = WIDTH * HEIGHT
         var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](ray_count * 3)
@@ -224,10 +224,10 @@ def test_gpu_tlas_triangle_camera_translated_single_instance_hit() raises:
     ]
 
     with DeviceContext() as ctx:
-        var d_vertices = _upload_vertices(ctx, verts)
+        var d_vertices = upload_vertices(ctx, verts)
         var blas = GpuTriangleBvh[4](ctx, d_vertices, len(verts) / 3)
         var tlas = GpuTlas[4](ctx, instances)
-        var d_camera = _upload_camera(ctx, camera)
+        var d_camera = upload_camera(ctx, camera)
 
         var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](3)
         var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](2)
@@ -279,7 +279,7 @@ def test_gpu_tlas_sphere_camera_single_identity_matches_cpu_bruteforce() raises:
     with DeviceContext() as ctx:
         var blas = GpuSphereBvh[4](ctx, spheres)
         var tlas = GpuTlas[4](ctx, instances)
-        var d_camera = _upload_camera(ctx, camera)
+        var d_camera = upload_camera(ctx, camera)
 
         var ray_count = WIDTH * HEIGHT
         var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](ray_count * 3)
@@ -331,7 +331,7 @@ def test_gpu_tlas_sphere_camera_translated_single_instance_hit() raises:
     with DeviceContext() as ctx:
         var blas = GpuSphereBvh[4](ctx, spheres)
         var tlas = GpuTlas[4](ctx, instances)
-        var d_camera = _upload_camera(ctx, camera)
+        var d_camera = upload_camera(ctx, camera)
 
         var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](3)
         var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](2)

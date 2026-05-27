@@ -24,7 +24,7 @@ from bajo.bvh.gpu.sphere_bvh import GpuSphereBvh
 from bajo.bvh.gpu.triangle_bvh import GpuTriangleBvh
 from bajo.core.intersect import intersect_ray_sphere
 from bajo.obj.pack import pack_obj_triangles
-from bajo.bvh.gpu.utils import _upload_list, _upload_vertices
+from bajo.bvh.gpu.utils import upload_list, upload_vertices
 
 
 comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"
@@ -813,8 +813,8 @@ def main() raises:
         raise "No compatible GPU found; skipped Mojo GPU BoundsBvh benchmark."
 
     with DeviceContext() as ctx:
-        var d_vertices = _upload_vertices(ctx, tri_vertices)
-        var d_camera_params = _upload_list(ctx, camera_params)
+        var d_vertices = upload_vertices(ctx, tri_vertices)
+        var d_camera_params = upload_list(ctx, camera_params)
         ctx.synchronize()
 
         _print_gpu_table_header(True)
@@ -871,7 +871,7 @@ def main() raises:
         )
         var debug_sphere_rays = debug_sphere_camera[0].copy()
         var debug_sphere_camera_params = debug_sphere_camera[1].copy()
-        var d_debug_sphere_camera_params = _upload_list(
+        var d_debug_sphere_camera_params = upload_list(
             ctx,
             debug_sphere_camera_params,
         )
@@ -1002,7 +1002,7 @@ def main() raises:
         )
         var sphere_rays = sphere_camera[0].copy()
         var sphere_camera_params = sphere_camera[1].copy()
-        var d_sphere_camera_params = _upload_list(
+        var d_sphere_camera_params = upload_list(
             ctx,
             sphere_camera_params,
         )

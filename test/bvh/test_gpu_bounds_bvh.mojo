@@ -14,7 +14,7 @@ from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh
 from bajo.bvh.gpu.sphere_bvh import GpuSphereBvh
 from bajo.bvh.gpu.triangle_bvh import GpuTriangleBvh
-from bajo.bvh.gpu.utils import _upload_vertices, _upload_list
+from bajo.bvh.gpu.utils import upload_vertices, upload_list
 
 from fixtures import _append_tri, _brute_sphere_trace
 
@@ -325,9 +325,9 @@ def _assert_gpu_triangle_width_matches_cpu_camera[
     var cpu_checksum = _trace_cpu_triangle_bvh[width](cpu_bvh, rays)
 
     with DeviceContext() as ctx:
-        var d_verts = _upload_vertices(ctx, verts)
+        var d_verts = upload_vertices(ctx, verts)
         var gpu_bvh = GpuTriangleBvh[width](ctx, d_verts, len(verts) / 3)
-        var d_camera = _upload_list(ctx, camera_params)
+        var d_camera = upload_list(ctx, camera_params)
         var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](len(rays) * 3)
         var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](len(rays))
 
@@ -395,7 +395,7 @@ def _assert_gpu_sphere_width_matches_bruteforce_camera[
 
     with DeviceContext() as ctx:
         var gpu_bvh = GpuSphereBvh[width](ctx, spheres)
-        var d_camera = _upload_list(ctx, camera_params)
+        var d_camera = upload_list(ctx, camera_params)
         var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](len(rays) * 3)
         var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](len(rays))
 

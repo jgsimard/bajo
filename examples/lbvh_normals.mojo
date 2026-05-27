@@ -17,6 +17,7 @@ from bajo.bvh.types import Instance
 from bajo.obj.pack import pack_obj_triangles
 from bajo.bvh.constants import Primitive
 from bajo.bvh.camera import Camera
+from bajo.bvh.gpu.utils import upload_vertices, upload_list
 
 comptime DEFAULT_OBJ_PATH = "./assets/buddha/buddha.obj"
 comptime DEFAULT_OUTPUT_PATH = "./example_tlas_lbvh_normals.ppm"
@@ -144,20 +145,6 @@ def write_ppm_normals_from_hits(
         fd.write_bytes(_bytes)
 
 
-def flatten_vertices_to_host_buffer(
-    mut ctx: DeviceContext,
-    tri_vertices: List[Vec3f32],
-) raises -> HostBuffer[DType.float32]:
-    var out = ctx.enqueue_create_host_buffer[DType.float32](
-        len(tri_vertices) * 3
-    )
-    for i, v in enumerate(tri_vertices):
-        out[i * 3 + 0] = v.x
-        out[i * 3 + 1] = v.y
-        out[i * 3 + 2] = v.z
-    return out^
-
-
 def main() raises:
     print("GPU instanced TLAS normal render")
     print(t"OBJ: {DEFAULT_OBJ_PATH}")
@@ -170,7 +157,6 @@ def main() raises:
     print("\nLoading and packing geometry...")
     var load_t0 = perf_counter_ns()
     var tri_vertices = pack_obj_triangles(DEFAULT_OBJ_PATH)
-    # var flat_vertices = flatten_vertices(tri_vertices)
     var load_t1 = perf_counter_ns()
 
     var tri_count = len(tri_vertices) / 3
@@ -210,9 +196,7 @@ def main() raises:
 
         print("\nUploading vertices...")
         var up_t0 = perf_counter_ns()
-        var h_vertices = flatten_vertices_to_host_buffer(ctx, tri_vertices)
-        var vertices = ctx.enqueue_create_buffer[DType.float32](len(h_vertices))
-        h_vertices.enqueue_copy_to(vertices)
+        var vertices = upload_vertices(ctx, tri_vertices)
         ctx.synchronize()
         var up_t1 = perf_counter_ns()
         print(t"Upload time ={round(ns_to_ms(Int(up_t1 - up_t0)), 3)} ms ")
@@ -246,14 +230,7 @@ def main() raises:
 
         print("\nUploading camera params and tracing TLAS on GPU...")
         var setup_t0 = perf_counter_ns()
-        var h_camera_params = ctx.enqueue_create_host_buffer[DType.float32](
-            len(camera_params)
-        )
-        var d_camera_params = ctx.enqueue_create_buffer[DType.float32](
-            len(camera_params)
-        )
-        h_camera_params.enqueue_copy_from(Span(camera_params))
-        h_camera_params.enqueue_copy_to(d_camera_params)
+        var d_camera_params = upload_list(ctx, camera_params)
 
         var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](ray_count * 3)
         var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](ray_count * 2)

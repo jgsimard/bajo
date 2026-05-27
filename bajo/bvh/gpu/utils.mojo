@@ -90,15 +90,15 @@ def _download_full_hit_checksum(
     return (checksum, hit_count)
 
 
-def _upload_camera(
+def upload_camera(
     mut ctx: DeviceContext,
     camera: Camera,
 ) raises -> DeviceBuffer[DType.float32]:
     var params = camera.flatten()
-    return _upload_list(ctx, params)
+    return upload_list(ctx, params)
 
 
-def _upload_vertices(
+def upload_vertices(
     mut ctx: DeviceContext,
     verts: List[Vec3f32],
 ) raises -> DeviceBuffer[DType.float32]:
@@ -107,10 +107,10 @@ def _upload_vertices(
         flat.append(v.x)
         flat.append(v.y)
         flat.append(v.z)
-    return _upload_list(ctx, flat)
+    return upload_list(ctx, flat)
 
 
-def _upload_list[
+def upload_list[
     dtype: DType
 ](
     mut ctx: DeviceContext,

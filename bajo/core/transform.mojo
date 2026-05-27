@@ -251,3 +251,19 @@ struct Affine3[dtype: DType, width: Int = 1](
             ),
             # fmt: on
         )
+
+    def flatten(self) -> List[SIMD[Self.dtype, Self.width]]:
+        return [
+            self.m00,
+            self.m01,
+            self.m02,
+            self.tx,
+            self.m10,
+            self.m11,
+            self.m12,
+            self.ty,
+            self.m20,
+            self.m21,
+            self.m22,
+            self.tz,
+        ]

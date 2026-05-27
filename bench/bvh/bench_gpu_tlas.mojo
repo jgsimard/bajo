@@ -24,7 +24,7 @@ from bajo.bvh.gpu.sphere_bvh import GpuSphereBvh
 from bajo.bvh.gpu.triangle_bvh import GpuTriangleBvh
 from bajo.bvh.constants import TRACE, Primitive
 from bajo.obj.pack import pack_obj_triangles
-from bajo.bvh.gpu.utils import GpuBuildTimings, _upload_list, _upload_vertices
+from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list, upload_vertices
 
 
 comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"
@@ -256,7 +256,7 @@ def _bench_direct_triangle_camera[
     height_px: Int,
     repeats: Int,
 ) raises -> Tuple[Int, Float64, UInt32]:
-    var d_camera = _upload_list(ctx, camera_params)
+    var d_camera = upload_list(ctx, camera_params)
     var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](ray_count * 3)
     var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](ray_count)
 
@@ -310,7 +310,7 @@ def _bench_tlas_triangles_camera[
     height: Int,
     repeats: Int,
 ) raises -> Tuple[Int, Float64, UInt32, UInt64]:
-    var d_camera = _upload_list(ctx, camera_params)
+    var d_camera = upload_list(ctx, camera_params)
     var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](ray_count * 3)
     var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](ray_count * 2)
 
@@ -378,7 +378,7 @@ def _bench_direct_sphere_camera[
     height_px: Int,
     repeats: Int,
 ) raises -> Tuple[Int, Float64, UInt32]:
-    var d_camera = _upload_list(ctx, camera_params)
+    var d_camera = upload_list(ctx, camera_params)
     var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](ray_count * 3)
     var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](ray_count)
 
@@ -432,7 +432,7 @@ def _bench_tlas_spheres_camera[
     height: Int,
     repeats: Int,
 ) raises -> Tuple[Int, Float64, UInt32, UInt64]:
-    var d_camera = _upload_list(ctx, camera_params)
+    var d_camera = upload_list(ctx, camera_params)
     var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](ray_count * 3)
     var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](ray_count * 2)
 
@@ -923,7 +923,7 @@ def main() raises:
 
     with DeviceContext() as ctx:
         print("\nUploading triangle vertices...")
-        var d_vertices = _upload_vertices(ctx, tri_vertices)
+        var d_vertices = upload_vertices(ctx, tri_vertices)
         ctx.synchronize()
 
         print("\nBuilding GpuTriangleBvh[4]...")

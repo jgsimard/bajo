@@ -7,8 +7,7 @@ from bajo.bvh.constants import (
     LBVH_INDEX_MASK,
     BOUNDS_STRIDE,
 )
-from bajo.bvh.host_utils import copy_list_to_device
-from bajo.bvh.gpu.utils import GpuBuildTimings, GpuBVHValidation
+from bajo.bvh.gpu.utils import GpuBuildTimings, GpuBVHValidation, upload_list
 from bajo.bvh.gpu.validate import (
     validate_sorted_keys,
     validate_topology,

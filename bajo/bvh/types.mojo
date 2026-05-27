@@ -67,6 +67,18 @@ struct Ray(TrivialRegisterPassable, Writable):
         self.d = Vec3f32.load(rays, base + RAY_D)
         self.t_max = rays[base + RAY_T_MAX]
 
+    def flatten(self) -> List[Float32]:
+        return [
+            self.o.x,
+            self.o.y,
+            self.o.z,
+            self.t_min,
+            self.d.x,
+            self.d.y,
+            self.d.z,
+            self.t_max,
+        ]
+
 
 @fieldwise_init
 struct Sphere(TrivialRegisterPassable):

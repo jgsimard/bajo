@@ -22,8 +22,7 @@ from bajo.bvh.camera import Camera, CAMERA_STRIDE
 from bajo.bvh.gpu.sphere_bvh import _intersect_sphere_leaf
 from bajo.bvh.gpu.triangle_bvh import _intersect_triangle_leaf
 from bajo.bvh.gpu.trace import trace_bounds_bvh
-from bajo.bvh.host_utils import copy_list_to_device
-from bajo.bvh.gpu.utils import GpuBuildTimings
+from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list
 
 
 comptime BlasLeafFn = def(
@@ -41,20 +40,7 @@ def _flatten_instance_inv_transforms(
 ) -> List[Float32]:
     var out = List[Float32](capacity=len(instances) * TRANSFORM_STRIDE)
     for instance in instances:
-        out.append(instance.inv_transform.m00[0])
-        out.append(instance.inv_transform.m01[0])
-        out.append(instance.inv_transform.m02[0])
-        out.append(instance.inv_transform.tx[0])
-
-        out.append(instance.inv_transform.m10[0])
-        out.append(instance.inv_transform.m11[0])
-        out.append(instance.inv_transform.m12[0])
-        out.append(instance.inv_transform.ty[0])
-
-        out.append(instance.inv_transform.m20[0])
-        out.append(instance.inv_transform.m21[0])
-        out.append(instance.inv_transform.m22[0])
-        out.append(instance.inv_transform.tz[0])
+        out.extend(instance.inv_transform.flatten())
     return out^
 
 
@@ -313,22 +299,16 @@ struct GpuTlas[width: Int]:
                 leaf_bounds.append(0.0)
             payloads.append(EMPTY_LANE)
 
-        var d_leaf_bounds = copy_list_to_device[DType.float32](
-            ctx,
-            leaf_bounds,
-        )
-        var d_payloads = copy_list_to_device[DType.uint32](
-            ctx,
-            payloads,
-        )
+        var d_leaf_bounds = upload_list(ctx, leaf_bounds)
+        var d_payloads = upload_list(ctx, payloads)
 
         self.tree = GpuBoundsBvh[Self.width](ctx, d_leaf_bounds, d_payloads)
         self.timings = self.tree.build(ctx)
 
-        self.inst_inv_transform = copy_list_to_device(
+        self.inst_inv_transform = upload_list(
             ctx, _flatten_instance_inv_transforms(instances)
         )
-        self.inst_blas_indices = copy_list_to_device(
+        self.inst_blas_indices = upload_list(
             ctx, _flatten_instance_blas_indices(instances)
         )
 

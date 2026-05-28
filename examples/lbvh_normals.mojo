@@ -12,7 +12,7 @@ from bajo.core.vec import Vec3f32, cross, normalize
 from bajo.bvh.cpu.tlas import Tlas
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.gpu.tlas import GpuTriangleTlas
-from bajo.bvh.gpu.triangle_bvh import GpuTriangleBlasSetBuilder
+from bajo.bvh.gpu.triangle_bvh import build_triangle_blas_set
 from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.types import Instance
 from bajo.obj.pack import pack_obj_triangles
@@ -396,10 +396,9 @@ def main() raises:
 
         print("\nBuilding GPU BLAS set...")
         var blas_t0 = perf_counter_ns()
-        var blas_builder = GpuTriangleBlasSetBuilder[BLAS_WIDTH]()
-        for i in range(len(tri_vertex_sets)):
-            _ = blas_builder.add(tri_vertex_sets[i])
-        var gpu_blases = blas_builder.build(ctx)
+        var gpu_blases = build_triangle_blas_set[BLAS_WIDTH](
+            ctx, tri_vertex_sets
+        )
         ctx.synchronize()
         var blas_t1 = perf_counter_ns()
 

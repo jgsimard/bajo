@@ -13,8 +13,8 @@ from bajo.bvh.types import Ray, Sphere, Instance
 from bajo.bvh.host_utils import hit_t_for_checksum, compute_bounds
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.gpu.tlas import GpuTriangleTlas, GpuSphereTlas
-from bajo.bvh.gpu.sphere_bvh import GpuSphereBlasSetBuilder
-from bajo.bvh.gpu.triangle_bvh import GpuTriangleBlasSetBuilder
+from bajo.bvh.gpu.sphere_bvh import build_sphere_blas_set
+from bajo.bvh.gpu.triangle_bvh import build_triangle_blas_set
 from bajo.bvh.gpu.utils import upload_camera
 
 from fixtures import _append_tri, _brute_sphere_trace
@@ -171,9 +171,7 @@ def test_gpu_tlas_triangle_camera_single_identity_matches_cpu_blas() raises:
     ]
 
     with DeviceContext() as ctx:
-        var builder = GpuTriangleBlasSetBuilder[4]()
-        _ = builder.add(verts)
-        var blases = builder.build(ctx)
+        var blases = build_triangle_blas_set[4](ctx, [verts^])
         var tlas = GpuTriangleTlas[4, 4](ctx, instances)
         var d_camera = upload_camera(ctx, camera)
 
@@ -219,9 +217,7 @@ def test_gpu_tlas_triangle_camera_translated_single_instance_hit() raises:
     ]
 
     with DeviceContext() as ctx:
-        var builder = GpuTriangleBlasSetBuilder[4]()
-        _ = builder.add(verts)
-        var blases = builder.build(ctx)
+        var blases = build_triangle_blas_set[4](ctx, [verts^])
         var tlas = GpuTriangleTlas[4, 4](ctx, instances)
         var d_camera = upload_camera(ctx, camera)
 
@@ -266,9 +262,7 @@ def test_gpu_tlas_sphere_camera_single_identity_matches_cpu_bruteforce() raises:
     ]
 
     with DeviceContext() as ctx:
-        var builder = GpuSphereBlasSetBuilder[4]()
-        _ = builder.add(spheres)
-        var blases = builder.build(ctx)
+        var blases = build_sphere_blas_set[4](ctx, [spheres^])
         var tlas = GpuSphereTlas[4, 4](ctx, instances)
         var d_camera = upload_camera(ctx, camera)
 
@@ -314,9 +308,7 @@ def test_gpu_tlas_sphere_camera_translated_single_instance_hit() raises:
     ]
 
     with DeviceContext() as ctx:
-        var builder = GpuSphereBlasSetBuilder[4]()
-        _ = builder.add(spheres)
-        var blases = builder.build(ctx)
+        var blases = build_sphere_blas_set[4](ctx, [spheres^])
         var tlas = GpuSphereTlas[4, 4](ctx, instances)
         var d_camera = upload_camera(ctx, camera)
 

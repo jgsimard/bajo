@@ -20,14 +20,8 @@ from bajo.bvh.host_utils import (
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.tlas import Tlas
 from bajo.bvh.gpu.tlas import GpuTriangleTlas, GpuSphereTlas
-from bajo.bvh.gpu.sphere_bvh import (
-    GpuSphereBvh,
-    GpuSphereBlasSetBuilder,
-)
-from bajo.bvh.gpu.triangle_bvh import (
-    GpuTriangleBvh,
-    GpuTriangleBlasSetBuilder,
-)
+from bajo.bvh.gpu.sphere_bvh import GpuSphereBvh, build_sphere_blas_set
+from bajo.bvh.gpu.triangle_bvh import GpuTriangleBvh, build_triangle_blas_set
 from bajo.bvh.constants import TRACE, Primitive, MISS_PRIM
 from bajo.obj.pack import pack_obj_triangles
 from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list, upload_vertices
@@ -1052,16 +1046,15 @@ def main() raises:
         )
 
         print("Building GpuTriangleBlasSet[4]...")
-        var triangle_blas_set_builder = GpuTriangleBlasSetBuilder[4]()
-        _ = triangle_blas_set_builder.add(tri_vertices)
-        var triangle_blas_set = triangle_blas_set_builder.build(ctx)
+        var triangle_blas_set = build_triangle_blas_set[4](
+            ctx, [tri_vertices.copy()]
+        )
         ctx.synchronize()
 
         print("Building multi-object GpuTriangleBlasSet[4]...")
-        var multi_blas_set_builder = GpuTriangleBlasSetBuilder[4]()
-        for i in range(len(multi_vertices)):
-            _ = multi_blas_set_builder.add(multi_vertices[i])
-        var multi_triangle_blas_set = multi_blas_set_builder.build(ctx)
+        var multi_triangle_blas_set = build_triangle_blas_set[4](
+            ctx, multi_vertices
+        )
         ctx.synchronize()
 
         print("Building CPU TriangleBvh[8] LBVH reference for 4x4 grid...")
@@ -1194,9 +1187,7 @@ def main() raises:
         )
 
         print("Building GpuSphere BlasSet[4]...")
-        var sphere_blas_set_builder = GpuSphereBlasSetBuilder[4]()
-        _ = sphere_blas_set_builder.add(spheres)
-        var sphere_blas_set = sphere_blas_set_builder.build(ctx)
+        var sphere_blas_set = build_sphere_blas_set[4](ctx, [spheres^])
         ctx.synchronize()
 
         var sphere_single = _make_single_instance(

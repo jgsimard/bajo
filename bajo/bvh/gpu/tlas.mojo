@@ -1,7 +1,6 @@
-from std.math import ceildiv, max, clamp
+from std.math import ceildiv, max
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
 
-from bajo.core.vec import Vec3f32, normalize
 from bajo.core.transform import Affine3f32
 from bajo.bvh.constants import (
     TRACE,
@@ -10,8 +9,14 @@ from bajo.bvh.constants import (
     f32_max,
     BOUNDS_STRIDE,
     TRANSFORM_STRIDE,
+    BLAS_DESC_WIDE_BOUNDS_BASE,
+    BLAS_DESC_WIDE_LANE_BASE,
+    BLAS_DESC_LEAF_F32_BASE,
+    BLAS_DESC_LEAF_U32_BASE,
+    BLAS_DESC_ROOT_IDX,
+    BLAS_DESC_STRIDE,
 )
-from bajo.bvh.types import Ray, Hit, Instance
+from bajo.bvh.types import Ray, Hit, Instance, BlasSet
 from bajo.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
@@ -38,16 +43,27 @@ comptime BlasLeafFn = def(
 def _flatten_instance_inv_transforms(
     instances: List[Instance],
 ) -> List[Float32]:
-    var out = List[Float32](capacity=len(instances) * TRANSFORM_STRIDE)
+    var out = List[Float32](capacity=max(len(instances), 1) * TRANSFORM_STRIDE)
     for instance in instances:
         out.extend(instance.inv_transform.flatten())
+
+    if len(out) == 0:
+        var identity = Affine3f32.identity().flatten()
+        for i in range(len(identity)):
+            out.append(identity[i])
+
     return out^
 
 
 def _flatten_instance_blas_indices(
     instances: List[Instance],
 ) -> List[UInt32]:
-    return [instance.blas_idx for instance in instances]
+    var out = List[UInt32](capacity=max(len(instances), 1))
+    for instance in instances:
+        out.append(instance.blas_idx)
+    if len(out) == 0:
+        out.append(UInt32(0))
+    return out^
 
 
 def transform_ray(
@@ -74,12 +90,12 @@ def _intersect_tlas_instance_block[
     tlas_leaf_instances: UnsafePointer[UInt32, MutAnyOrigin],
     inst_inv_transform: UnsafePointer[Float32, MutAnyOrigin],
     inst_blas_indices: UnsafePointer[UInt32, MutAnyOrigin],
+    blas_descs: UnsafePointer[UInt32, MutAnyOrigin],
     blas_wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
     blas_wide_data: UnsafePointer[UInt32, MutAnyOrigin],
     blas_wide_counts: UnsafePointer[UInt32, MutAnyOrigin],
     blas_leaf_data_f32: UnsafePointer[Float32, MutAnyOrigin],
     blas_leaf_data_u32: UnsafePointer[UInt32, MutAnyOrigin],
-    blas_root_idx: UInt32,
     leaf_block_idx: UInt32,
     item_count: UInt32,
     ray: Ray,
@@ -94,11 +110,7 @@ def _intersect_tlas_instance_block[
 
             if inst_idx != EMPTY_LANE:
                 var blas_idx = UInt32(inst_blas_indices[Int(inst_idx)])
-
-                debug_assert["safe"](
-                    blas_idx == 0,
-                    "current implementation assumes a single BLAS root",
-                )
+                var desc_base = Int(blas_idx) * BLAS_DESC_STRIDE
 
                 var local_ray = transform_ray(
                     inst_inv_transform,
@@ -112,12 +124,17 @@ def _intersect_tlas_instance_block[
                     mode,
                     blas_leaf_fn,
                 ](
-                    blas_wide_bounds,
-                    blas_wide_data,
-                    blas_wide_counts,
-                    blas_leaf_data_f32,
-                    blas_leaf_data_u32,
-                    blas_root_idx,
+                    blas_wide_bounds
+                    + Int(blas_descs[desc_base + BLAS_DESC_WIDE_BOUNDS_BASE]),
+                    blas_wide_data
+                    + Int(blas_descs[desc_base + BLAS_DESC_WIDE_LANE_BASE]),
+                    blas_wide_counts
+                    + Int(blas_descs[desc_base + BLAS_DESC_WIDE_LANE_BASE]),
+                    blas_leaf_data_f32
+                    + Int(blas_descs[desc_base + BLAS_DESC_LEAF_F32_BASE]),
+                    blas_leaf_data_u32
+                    + Int(blas_descs[desc_base + BLAS_DESC_LEAF_U32_BASE]),
+                    UInt32(blas_descs[desc_base + BLAS_DESC_ROOT_IDX]),
                     local_ray,
                 )
 
@@ -141,11 +158,11 @@ def _intersect_tlas_instance_block[
     return hit_any
 
 
-def trace_tlas_ray[
-    primitive: String,
+def _trace_tlas_ray[
     tlas_width: Int,
     blas_width: Int,
-    mode: TRACE = TRACE.CLOSEST_HIT,
+    mode: TRACE,
+    blas_leaf_fn: BlasLeafFn,
 ](
     tlas_wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
     tlas_wide_data: UnsafePointer[UInt32, MutAnyOrigin],
@@ -153,22 +170,15 @@ def trace_tlas_ray[
     tlas_leaf_instances: UnsafePointer[UInt32, MutAnyOrigin],
     inst_inv_transform: UnsafePointer[Float32, MutAnyOrigin],
     inst_blas_indices: UnsafePointer[UInt32, MutAnyOrigin],
+    blas_descs: UnsafePointer[UInt32, MutAnyOrigin],
     blas_wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
     blas_wide_data: UnsafePointer[UInt32, MutAnyOrigin],
     blas_wide_counts: UnsafePointer[UInt32, MutAnyOrigin],
     blas_leaf_data_f32: UnsafePointer[Float32, MutAnyOrigin],
     blas_leaf_data_u32: UnsafePointer[UInt32, MutAnyOrigin],
     tlas_root_idx: UInt32,
-    blas_root_idx: UInt32,
     ray: Ray,
 ) -> Hit:
-    comptime assert primitive in ["triangle", "sphere"]
-
-    comptime leaf_fn: BlasLeafFn = (
-        _intersect_triangle_leaf[blas_width, mode] if primitive
-        == "triangle" else _intersect_sphere_leaf[blas_width, mode]
-    )
-
     var hit = Hit.miss(ray.t_max)
 
     var stack = InlineArray[UInt32, GPU_STACK_SIZE](uninitialized=True)
@@ -203,17 +213,17 @@ def trace_tlas_ray[
                         tlas_width,
                         blas_width,
                         mode,
-                        leaf_fn,
+                        blas_leaf_fn,
                     ](
                         tlas_leaf_instances,
                         inst_inv_transform,
                         inst_blas_indices,
+                        blas_descs,
                         blas_wide_bounds,
                         blas_wide_data,
                         blas_wide_counts,
                         blas_leaf_data_f32,
                         blas_leaf_data_u32,
-                        blas_root_idx,
                         data,
                         count,
                         ray,
@@ -224,6 +234,8 @@ def trace_tlas_ray[
                         if leaf_hit:
                             return hit
 
+        # Push internal children far-to-near.  The stack is LIFO, so the nearest
+        # surviving child is popped first.
         comptime for _ in range(tlas_width):
             var far_lane = -1
             var far_t = Float32(-f32_max)
@@ -257,8 +269,152 @@ def trace_tlas_ray[
     return hit
 
 
-struct GpuTlas[width: Int]:
-    """GPU TLAS built with the same generic GpuBoundsBvh[width] as BLAS.
+def trace_triangle_tlas_camera_kernel[
+    tlas_width: Int,
+    blas_width: Int,
+](
+    tlas_wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    tlas_wide_data: UnsafePointer[UInt32, MutAnyOrigin],
+    tlas_wide_counts: UnsafePointer[UInt32, MutAnyOrigin],
+    tlas_leaf_instances: UnsafePointer[UInt32, MutAnyOrigin],
+    inst_inv_transform: UnsafePointer[Float32, MutAnyOrigin],
+    inst_blas_indices: UnsafePointer[UInt32, MutAnyOrigin],
+    blas_descs: UnsafePointer[UInt32, MutAnyOrigin],
+    blas_wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    blas_wide_data: UnsafePointer[UInt32, MutAnyOrigin],
+    blas_wide_counts: UnsafePointer[UInt32, MutAnyOrigin],
+    blas_leaf_vertices: UnsafePointer[Float32, MutAnyOrigin],
+    blas_leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
+    tlas_root_idx: UInt32,
+    camera_params: UnsafePointer[Float32, MutAnyOrigin],
+    hits_f32: UnsafePointer[Float32, MutAnyOrigin],
+    hits_u32: UnsafePointer[UInt32, MutAnyOrigin],
+    ray_count: Int,
+    width: Int,
+    height: Int,
+):
+    var ray_idx = global_idx.x
+    if ray_idx >= ray_count:
+        return
+
+    var pixels_per_view = width * height
+    var view_idx = ray_idx / pixels_per_view
+    var local_idx = ray_idx - view_idx * pixels_per_view
+    var px_i = local_idx % width
+    var py_i = local_idx / width
+
+    var camera = Camera(camera_params, view_idx * CAMERA_STRIDE)
+    var ray = camera.make_ray(px_i, py_i, width, height)
+
+    var hit = _trace_tlas_ray[
+        tlas_width,
+        blas_width,
+        TRACE.CLOSEST_HIT,
+        _intersect_triangle_leaf[
+            blas_width,
+            TRACE.CLOSEST_HIT,
+        ],
+    ](
+        tlas_wide_bounds,
+        tlas_wide_data,
+        tlas_wide_counts,
+        tlas_leaf_instances,
+        inst_inv_transform,
+        inst_blas_indices,
+        blas_descs,
+        blas_wide_bounds,
+        blas_wide_data,
+        blas_wide_counts,
+        blas_leaf_vertices,
+        blas_leaf_prims,
+        tlas_root_idx,
+        ray,
+    )
+
+    var hit_base = ray_idx * 3
+    hits_f32[hit_base + 0] = hit.t
+    hits_f32[hit_base + 1] = hit.u
+    hits_f32[hit_base + 2] = hit.v
+
+    var ubase = ray_idx * 2
+    hits_u32[ubase + 0] = hit.prim
+    hits_u32[ubase + 1] = hit.inst
+
+
+def trace_sphere_tlas_camera_kernel[
+    tlas_width: Int,
+    blas_width: Int,
+](
+    tlas_wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    tlas_wide_data: UnsafePointer[UInt32, MutAnyOrigin],
+    tlas_wide_counts: UnsafePointer[UInt32, MutAnyOrigin],
+    tlas_leaf_instances: UnsafePointer[UInt32, MutAnyOrigin],
+    inst_inv_transform: UnsafePointer[Float32, MutAnyOrigin],
+    inst_blas_indices: UnsafePointer[UInt32, MutAnyOrigin],
+    blas_descs: UnsafePointer[UInt32, MutAnyOrigin],
+    blas_wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    blas_wide_data: UnsafePointer[UInt32, MutAnyOrigin],
+    blas_wide_counts: UnsafePointer[UInt32, MutAnyOrigin],
+    blas_leaf_spheres: UnsafePointer[Float32, MutAnyOrigin],
+    blas_leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
+    tlas_root_idx: UInt32,
+    camera_params: UnsafePointer[Float32, MutAnyOrigin],
+    hits_f32: UnsafePointer[Float32, MutAnyOrigin],
+    hits_u32: UnsafePointer[UInt32, MutAnyOrigin],
+    ray_count: Int,
+    width: Int,
+    height: Int,
+):
+    var ray_idx = global_idx.x
+    if ray_idx >= ray_count:
+        return
+
+    var pixels_per_view = width * height
+    var view_idx = ray_idx / pixels_per_view
+    var local_idx = ray_idx - view_idx * pixels_per_view
+    var px_i = local_idx % width
+    var py_i = local_idx / width
+
+    var camera = Camera(camera_params, view_idx * CAMERA_STRIDE)
+    var ray = camera.make_ray(px_i, py_i, width, height)
+
+    var hit = _trace_tlas_ray[
+        tlas_width,
+        blas_width,
+        TRACE.CLOSEST_HIT,
+        _intersect_sphere_leaf[
+            blas_width,
+            TRACE.CLOSEST_HIT,
+        ],
+    ](
+        tlas_wide_bounds,
+        tlas_wide_data,
+        tlas_wide_counts,
+        tlas_leaf_instances,
+        inst_inv_transform,
+        inst_blas_indices,
+        blas_descs,
+        blas_wide_bounds,
+        blas_wide_data,
+        blas_wide_counts,
+        blas_leaf_spheres,
+        blas_leaf_prims,
+        tlas_root_idx,
+        ray,
+    )
+
+    var hit_base = ray_idx * 3
+    hits_f32[hit_base + 0] = hit.t
+    hits_f32[hit_base + 1] = hit.u
+    hits_f32[hit_base + 2] = hit.v
+
+    var ubase = ray_idx * 2
+    hits_u32[ubase + 0] = hit.prim
+    hits_u32[ubase + 1] = hit.inst
+
+
+struct GpuTypedTlasCore[width: Int]:
+    """GPU TLAS core shared by typed TLAS wrappers.
 
     Instance leaves are packed by the generic wide collapse:
     `tree.leaf_block_indices[leaf_block * width + lane]` stores the instance id.
@@ -310,18 +466,23 @@ struct GpuTlas[width: Int]:
             ctx, _flatten_instance_blas_indices(instances)
         )
 
-    def launch_camera[
-        primitive: String,
-        blas_width: Int,
-    ](
+
+struct GpuTriangleTlas[tlas_width: Int, blas_width: Int]:
+    """Typed triangle TLAS over a descriptor-backed triangle BLAS set."""
+
+    var core: GpuTypedTlasCore[Self.tlas_width]
+
+    def __init__(
+        out self,
+        mut ctx: DeviceContext,
+        instances: List[Instance],
+    ) raises:
+        self.core = GpuTypedTlasCore[Self.tlas_width](ctx, instances)
+
+    def launch_camera(
         self,
         ctx: DeviceContext,
-        blas_wide_bounds: DeviceBuffer[DType.float32],
-        blas_wide_data: DeviceBuffer[DType.uint32],
-        blas_wide_counts: DeviceBuffer[DType.uint32],
-        blas_leaf_data_f32: DeviceBuffer[DType.float32],
-        blas_leaf_data_u32: DeviceBuffer[DType.uint32],
-        blas_root_idx: UInt32,
+        blases: BlasSet[Self.blas_width],
         d_camera_params: DeviceBuffer[DType.float32],
         d_hits_f32: DeviceBuffer[DType.float32],
         d_hits_u32: DeviceBuffer[DType.uint32],
@@ -329,28 +490,25 @@ struct GpuTlas[width: Int]:
         cwidth: Int,
         cheight: Int,
     ) raises:
-        comptime assert primitive in ["triangle", "sphere"]
-
         ctx.enqueue_function[
-            trace_tlas_camera_kernel[
-                primitive,
-                Self.width,
-                blas_width,
+            trace_triangle_tlas_camera_kernel[
+                Self.tlas_width,
+                Self.blas_width,
             ]
         ](
-            self.tree.wide_bounds.unsafe_ptr(),
-            self.tree.wide_data.unsafe_ptr(),
-            self.tree.wide_counts.unsafe_ptr(),
-            self.tree.leaf_block_indices.unsafe_ptr(),
-            self.inst_inv_transform.unsafe_ptr(),
-            self.inst_blas_indices.unsafe_ptr(),
-            blas_wide_bounds.unsafe_ptr(),
-            blas_wide_data.unsafe_ptr(),
-            blas_wide_counts.unsafe_ptr(),
-            blas_leaf_data_f32.unsafe_ptr(),
-            blas_leaf_data_u32.unsafe_ptr(),
-            self.tree.root_idx,
-            blas_root_idx,
+            self.core.tree.wide_bounds.unsafe_ptr(),
+            self.core.tree.wide_data.unsafe_ptr(),
+            self.core.tree.wide_counts.unsafe_ptr(),
+            self.core.tree.leaf_block_indices.unsafe_ptr(),
+            self.core.inst_inv_transform.unsafe_ptr(),
+            self.core.inst_blas_indices.unsafe_ptr(),
+            blases.descs.unsafe_ptr(),
+            blases.wide_bounds.unsafe_ptr(),
+            blases.wide_data.unsafe_ptr(),
+            blases.wide_counts.unsafe_ptr(),
+            blases.leaf_data_f32.unsafe_ptr(),
+            blases.leaf_prims.unsafe_ptr(),
+            self.core.tree.root_idx,
             d_camera_params.unsafe_ptr(),
             d_hits_f32.unsafe_ptr(),
             d_hits_u32.unsafe_ptr(),
@@ -362,73 +520,54 @@ struct GpuTlas[width: Int]:
         )
 
 
-def trace_tlas_camera_kernel[
-    primitive: String,
-    tlas_width: Int,
-    blas_width: Int,
-](
-    tlas_wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    tlas_wide_data: UnsafePointer[UInt32, MutAnyOrigin],
-    tlas_wide_counts: UnsafePointer[UInt32, MutAnyOrigin],
-    tlas_leaf_instances: UnsafePointer[UInt32, MutAnyOrigin],
-    inst_inv_transform: UnsafePointer[Float32, MutAnyOrigin],
-    inst_blas_indices: UnsafePointer[UInt32, MutAnyOrigin],
-    blas_wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    blas_wide_data: UnsafePointer[UInt32, MutAnyOrigin],
-    blas_wide_counts: UnsafePointer[UInt32, MutAnyOrigin],
-    blas_leaf_data_f32: UnsafePointer[Float32, MutAnyOrigin],
-    blas_leaf_data_u32: UnsafePointer[UInt32, MutAnyOrigin],
-    tlas_root_idx: UInt32,
-    blas_root_idx: UInt32,
-    camera_params: UnsafePointer[Float32, MutAnyOrigin],
-    hits_f32: UnsafePointer[Float32, MutAnyOrigin],
-    hits_u32: UnsafePointer[UInt32, MutAnyOrigin],
-    ray_count: Int,
-    width: Int,
-    height: Int,
-):
-    comptime assert primitive in ["triangle", "sphere"]
+struct GpuSphereTlas[tlas_width: Int, blas_width: Int]:
+    """Typed sphere TLAS over a descriptor-backed sphere BLAS set."""
 
-    var ray_idx = global_idx.x
-    if ray_idx >= ray_count:
-        return
+    var core: GpuTypedTlasCore[Self.tlas_width]
 
-    var pixels_per_view = width * height
-    var view_idx = ray_idx / pixels_per_view
-    var local_idx = ray_idx - view_idx * pixels_per_view
-    var px_i = local_idx % width
-    var py_i = local_idx / width
+    def __init__(
+        out self,
+        mut ctx: DeviceContext,
+        instances: List[Instance],
+    ) raises:
+        self.core = GpuTypedTlasCore[Self.tlas_width](ctx, instances)
 
-    var camera = Camera(camera_params, view_idx * CAMERA_STRIDE)
-    var ray = camera.make_ray(px_i, py_i, width, height)
-
-    var hit = trace_tlas_ray[
-        primitive,
-        tlas_width,
-        blas_width,
-        TRACE.CLOSEST_HIT,
-    ](
-        tlas_wide_bounds,
-        tlas_wide_data,
-        tlas_wide_counts,
-        tlas_leaf_instances,
-        inst_inv_transform,
-        inst_blas_indices,
-        blas_wide_bounds,
-        blas_wide_data,
-        blas_wide_counts,
-        blas_leaf_data_f32,
-        blas_leaf_data_u32,
-        tlas_root_idx,
-        blas_root_idx,
-        ray,
-    )
-
-    var hit_base = ray_idx * 3
-    hits_f32[hit_base + 0] = hit.t
-    hits_f32[hit_base + 1] = hit.u
-    hits_f32[hit_base + 2] = hit.v
-
-    var ubase = ray_idx * 2
-    hits_u32[ubase + 0] = hit.prim
-    hits_u32[ubase + 1] = hit.inst
+    def launch_camera(
+        self,
+        ctx: DeviceContext,
+        blases: BlasSet[Self.blas_width],
+        d_camera_params: DeviceBuffer[DType.float32],
+        d_hits_f32: DeviceBuffer[DType.float32],
+        d_hits_u32: DeviceBuffer[DType.uint32],
+        ray_count: Int,
+        cwidth: Int,
+        cheight: Int,
+    ) raises:
+        ctx.enqueue_function[
+            trace_sphere_tlas_camera_kernel[
+                Self.tlas_width,
+                Self.blas_width,
+            ]
+        ](
+            self.core.tree.wide_bounds.unsafe_ptr(),
+            self.core.tree.wide_data.unsafe_ptr(),
+            self.core.tree.wide_counts.unsafe_ptr(),
+            self.core.tree.leaf_block_indices.unsafe_ptr(),
+            self.core.inst_inv_transform.unsafe_ptr(),
+            self.core.inst_blas_indices.unsafe_ptr(),
+            blases.descs.unsafe_ptr(),
+            blases.wide_bounds.unsafe_ptr(),
+            blases.wide_data.unsafe_ptr(),
+            blases.wide_counts.unsafe_ptr(),
+            blases.leaf_data_f32.unsafe_ptr(),
+            blases.leaf_prims.unsafe_ptr(),
+            self.core.tree.root_idx,
+            d_camera_params.unsafe_ptr(),
+            d_hits_f32.unsafe_ptr(),
+            d_hits_u32.unsafe_ptr(),
+            ray_count,
+            cwidth,
+            cheight,
+            grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
+            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+        )

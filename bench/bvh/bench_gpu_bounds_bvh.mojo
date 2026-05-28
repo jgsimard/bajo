@@ -505,11 +505,11 @@ def _run_width[
     reference_hit_count: UInt32,
     repeats: Int,
 ) raises:
-    _ = GpuTriangleBvh[width](ctx, d_vertices, tri_count)
+    _ = GpuTriangleBvh[width](ctx, d_vertices)
     ctx.synchronize()
 
     var build0 = perf_counter_ns()
-    var bvh = GpuTriangleBvh[width](ctx, d_vertices, tri_count)
+    var bvh = GpuTriangleBvh[width](ctx, d_vertices)
     ctx.synchronize()
     var build1 = perf_counter_ns()
 
@@ -542,9 +542,6 @@ def _run_width[
         reference_hit_count,
         TRIANGLE_HIT_REL_EPS,
     )
-
-    keep(bvh.tree.leaf_block_count)
-    keep(res[2])
 
 
 def _make_sphere_grid_sized(grid_x: Int, grid_y: Int) -> List[Sphere]:
@@ -680,9 +677,6 @@ def _run_sphere_width[
         SPHERE_HIT_REL_EPS,
     )
 
-    keep(bvh.tree.leaf_block_count)
-    keep(res[2])
-
 
 def _run_sphere_debug_width[
     width: Int
@@ -748,9 +742,6 @@ def _run_sphere_debug_width[
             image_height,
             16,
         )
-
-    keep(bvh.tree.leaf_block_count)
-    keep(res[2])
 
 
 def main() raises:

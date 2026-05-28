@@ -272,7 +272,6 @@ def _assert_gpu_bounds_width[width: Int](verts: List[Vec3f32]) raises:
             bvh.leaf_block_count > 0, "wide collapse produced leaf blocks"
         )
         assert_true(bvh.leaf_block_count <= bvh.max_leaf_blocks)
-        keep(validation.guard)
 
 
 def _assert_wide_lane_invariants[width: Int](verts: List[Vec3f32]) raises:
@@ -326,7 +325,7 @@ def _assert_gpu_triangle_width_matches_cpu_camera[
 
     with DeviceContext() as ctx:
         var d_verts = upload_vertices(ctx, verts)
-        var gpu_bvh = GpuTriangleBvh[width](ctx, d_verts, len(verts) / 3)
+        var gpu_bvh = GpuTriangleBvh[width](ctx, d_verts)
         var d_camera = upload_list(ctx, camera_params)
         var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](len(rays) * 3)
         var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](len(rays))
@@ -421,7 +420,6 @@ def _assert_gpu_sphere_width_matches_bruteforce_camera[
                 t"diff={diff} hits={hit_count}"
             )
         assert_true(diff <= GPU_BOUNDS_TEST_EPS, "GpuSphereBvh checksum")
-        keep(hit_count)
 
 
 def _assert_gpu_sphere_bounds_width[width: Int](spheres: List[Sphere]) raises:
@@ -443,7 +441,6 @@ def _assert_gpu_sphere_bounds_width[width: Int](spheres: List[Sphere]) raises:
             bvh.leaf_block_count > 0,
             "sphere wide collapse produced leaf blocks",
         )
-        keep(validation.guard)
 
 
 def test_gpu_bounds_bvh_width_N_build_validate_small_scene() raises:

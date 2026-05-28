@@ -3,13 +3,24 @@ from std.time import perf_counter_ns
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
 
 from bajo.bvh.camera import Camera, CAMERA_STRIDE
-from bajo.bvh.gpu.utils import GpuBuildTimings
+from bajo.bvh.gpu.utils import (
+    GpuBuildTimings,
+    upload_vertices,
+    upload_list,
+    append_buffer,
+)
 from bajo.core.vec import Vec3f32, vmin, vmax, normalize, cross
-from bajo.bvh.types import Ray, Hit
+from bajo.bvh.types import Ray, Hit, BlasSet
 from bajo.bvh.constants import (
     EMPTY_LANE,
     TRACE,
     TRI_LEAF_VERTEX_STRIDE,
+    BLAS_DESC_STRIDE,
+    BLAS_DESC_ROOT_IDX,
+    BLAS_DESC_WIDE_BOUNDS_BASE,
+    BLAS_DESC_WIDE_LANE_BASE,
+    BLAS_DESC_LEAF_F32_BASE,
+    BLAS_DESC_LEAF_U32_BASE,
 )
 from bajo.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
@@ -18,6 +29,140 @@ from bajo.bvh.gpu.bounds_bvh import (
 )
 from bajo.core.intersect import intersect_ray_tri
 from bajo.bvh.gpu.trace import trace_bounds_bvh
+
+
+struct GpuTriangleBlasSetBuilder[width: Int]:
+    """Builds each BLAS, then pack them."""
+
+    var vertex_sets: List[List[Vec3f32]]
+
+    def __init__(out self):
+        self.vertex_sets = List[List[Vec3f32]]()
+
+    def add(mut self, vertices: List[Vec3f32]) -> UInt32:
+        var idx = UInt32(len(self.vertex_sets))
+        self.vertex_sets.append(vertices.copy())
+        return idx
+
+    def build(mut self, mut ctx: DeviceContext) raises -> BlasSet[Self.width]:
+        if len(self.vertex_sets) == 0:
+            var descs = List[UInt32](length=BLAS_DESC_STRIDE, fill=0)
+            var dummy_f32 = [Float32(0.0)]
+            var dummy_u32 = [EMPTY_LANE]
+
+            return BlasSet[Self.width](
+                upload_list(ctx, descs),
+                upload_list(ctx, dummy_f32),
+                upload_list(ctx, dummy_u32),
+                upload_list(ctx, dummy_u32),
+                upload_list(ctx, dummy_f32),
+                upload_list(ctx, dummy_u32),
+                0,
+            )
+
+        var descs = List[UInt32](
+            capacity=len(self.vertex_sets) * BLAS_DESC_STRIDE
+        )
+
+        var total_wide_bounds = 0
+        var total_wide_lanes = 0
+        var total_leaf_vertices = 0
+        var total_leaf_prims = 0
+
+        # First pass: compute final packed offsets without building/downloading.
+        for blas_idx in range(len(self.vertex_sets)):
+            var tri_count = len(self.vertex_sets[blas_idx]) / 3
+            var internal_count = max(tri_count - 1, 0)
+            var max_wide_nodes = max(internal_count, 1)
+            var max_leaf_blocks = max(internal_count * Self.width, 1)
+
+            var wide_bounds_base = UInt32(total_wide_bounds)
+            var wide_lane_base = UInt32(total_wide_lanes)
+            var leaf_f32_base = UInt32(total_leaf_vertices)
+            var leaf_u32_base = UInt32(total_leaf_prims)
+
+            descs.append(wide_bounds_base)
+            descs.append(wide_lane_base)
+            descs.append(leaf_f32_base)
+            descs.append(leaf_u32_base)
+
+            # Filled after the actual GPU BLAS build.
+            descs.append(UInt32(0))  # BLAS_DESC_ROOT_IDX
+
+            descs.append(UInt32(max_wide_nodes))
+            descs.append(UInt32(max_leaf_blocks))
+            descs.append(UInt32(tri_count))
+
+            total_wide_bounds += max_wide_nodes * Self.width * BOUNDS_STRIDE
+            total_wide_lanes += max_wide_nodes * Self.width
+            total_leaf_vertices += (
+                max_leaf_blocks * Self.width * TRI_LEAF_VERTEX_STRIDE
+            )
+            total_leaf_prims += max_leaf_blocks * Self.width
+
+        var packed_wide_bounds = ctx.enqueue_create_buffer[DType.float32](
+            max(total_wide_bounds, 1)
+        )
+        var packed_wide_data = ctx.enqueue_create_buffer[DType.uint32](
+            max(total_wide_lanes, 1)
+        )
+        var packed_wide_counts = ctx.enqueue_create_buffer[DType.uint32](
+            max(total_wide_lanes, 1)
+        )
+        var packed_leaf_vertices = ctx.enqueue_create_buffer[DType.float32](
+            max(total_leaf_vertices, 1)
+        )
+        var packed_leaf_prims = ctx.enqueue_create_buffer[DType.uint32](
+            max(total_leaf_prims, 1)
+        )
+
+        # Second pass: build each BLAS, then copy its device buffers into the
+        # final packed device buffers. We synchronize inside the loop so the
+        # temporary BLAS buffers stay alive until their copy kernels finish.
+        for blas_idx in range(len(self.vertex_sets)):
+            var d_vertices = upload_vertices(ctx, self.vertex_sets[blas_idx])
+            var blas = GpuTriangleBvh[Self.width](ctx, d_vertices)
+
+            var desc_base = blas_idx * BLAS_DESC_STRIDE
+
+            descs[desc_base + BLAS_DESC_ROOT_IDX] = blas.tree.root_idx
+
+            var wide_bounds_base = Int(
+                descs[desc_base + BLAS_DESC_WIDE_BOUNDS_BASE]
+            )
+            var wide_lane_base = Int(
+                descs[desc_base + BLAS_DESC_WIDE_LANE_BASE]
+            )
+            var leaf_f32_base = Int(descs[desc_base + BLAS_DESC_LEAF_F32_BASE])
+            var leaf_u32_base = Int(descs[desc_base + BLAS_DESC_LEAF_U32_BASE])
+
+            blas.tree.wide_bounds.enqueue_copy_to(
+                packed_wide_bounds.unsafe_ptr() + wide_bounds_base
+            )
+            blas.tree.wide_data.enqueue_copy_to(
+                packed_wide_data.unsafe_ptr() + wide_lane_base
+            )
+            blas.tree.wide_counts.enqueue_copy_to(
+                packed_wide_counts.unsafe_ptr() + wide_lane_base
+            )
+            blas.leaf_vertices.enqueue_copy_to(
+                packed_leaf_vertices.unsafe_ptr() + leaf_f32_base
+            )
+            blas.leaf_prims.enqueue_copy_to(
+                packed_leaf_prims.unsafe_ptr() + leaf_u32_base
+            )
+
+            ctx.synchronize()
+
+        return BlasSet[Self.width](
+            upload_list(ctx, descs),
+            packed_wide_bounds,
+            packed_wide_data,
+            packed_wide_counts,
+            packed_leaf_vertices,
+            packed_leaf_prims,
+            len(self.vertex_sets),
+        )
 
 
 struct GpuTriangleBvh[width: Int]:
@@ -34,10 +179,9 @@ struct GpuTriangleBvh[width: Int]:
         out self,
         mut ctx: DeviceContext,
         vertices: DeviceBuffer[DType.float32],
-        tri_count: Int,
     ) raises:
         self.vertices = vertices
-        self.tri_count = tri_count
+        self.tri_count = len(vertices) / 9
         self.leaf_pack_ns = 0
         self.bounds_pack_ns = 0
 

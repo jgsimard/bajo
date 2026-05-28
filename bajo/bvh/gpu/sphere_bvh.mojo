@@ -9,16 +9,152 @@ from bajo.bvh.constants import (
     SPHERE_STRIDE,
     BOUNDS_STRIDE,
     f32_max,
+    BLAS_DESC_STRIDE,
+    BLAS_DESC_ROOT_IDX,
+    BLAS_DESC_WIDE_BOUNDS_BASE,
+    BLAS_DESC_WIDE_LANE_BASE,
+    BLAS_DESC_LEAF_F32_BASE,
+    BLAS_DESC_LEAF_U32_BASE,
 )
 from bajo.core.intersect import intersect_ray_sphere
 from bajo.core.vec import Vec3
-from bajo.bvh.types import Sphere, Ray, Hit, SphereLeafBlock
+from bajo.bvh.types import Sphere, Ray, Hit, SphereLeafBlock, BlasSet
 from bajo.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
 from bajo.bvh.gpu.trace import trace_bounds_bvh
-from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list
+from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list, append_buffer
+
+
+struct GpuSphereBlasSetBuilder[width: Int]:
+    """Builds each sphere BLAS, then packs them."""
+
+    var sphere_sets: List[List[Sphere]]
+
+    def __init__(out self):
+        self.sphere_sets = List[List[Sphere]]()
+
+    def add(mut self, spheres: List[Sphere]) -> UInt32:
+        var idx = UInt32(len(self.sphere_sets))
+        self.sphere_sets.append(spheres.copy())
+        return idx
+
+    def build(mut self, mut ctx: DeviceContext) raises -> BlasSet[Self.width]:
+        if len(self.sphere_sets) == 0:
+            var descs = List[UInt32](length=BLAS_DESC_STRIDE, fill=0)
+            var dummy_f32 = [Float32(0.0)]
+            var dummy_u32 = [EMPTY_LANE]
+
+            return BlasSet[Self.width](
+                upload_list(ctx, descs),
+                upload_list(ctx, dummy_f32),
+                upload_list(ctx, dummy_u32),
+                upload_list(ctx, dummy_u32),
+                upload_list(ctx, dummy_f32),
+                upload_list(ctx, dummy_u32),
+                0,
+            )
+
+        var descs = List[UInt32](
+            capacity=len(self.sphere_sets) * BLAS_DESC_STRIDE
+        )
+
+        var total_wide_bounds = 0
+        var total_wide_lanes = 0
+        var total_leaf_spheres = 0
+        var total_leaf_prims = 0
+
+        # First pass: compute final packed offsets without building/downloading.
+        for blas_idx in range(len(self.sphere_sets)):
+            var sphere_count = len(self.sphere_sets[blas_idx])
+            var internal_count = max(sphere_count - 1, 0)
+            var max_wide_nodes = max(internal_count, 1)
+            var max_leaf_blocks = max(internal_count * Self.width, 1)
+
+            var wide_bounds_base = UInt32(total_wide_bounds)
+            var wide_lane_base = UInt32(total_wide_lanes)
+            var leaf_f32_base = UInt32(total_leaf_spheres)
+            var leaf_u32_base = UInt32(total_leaf_prims)
+
+            descs.append(wide_bounds_base)
+            descs.append(wide_lane_base)
+            descs.append(leaf_f32_base)
+            descs.append(leaf_u32_base)
+
+            # Filled after the actual GPU BLAS build.
+            descs.append(UInt32(0))  # BLAS_DESC_ROOT_IDX
+
+            descs.append(UInt32(max_wide_nodes))
+            descs.append(UInt32(max_leaf_blocks))
+            descs.append(UInt32(sphere_count))
+
+            total_wide_bounds += max_wide_nodes * Self.width * BOUNDS_STRIDE
+            total_wide_lanes += max_wide_nodes * Self.width
+            total_leaf_spheres += max_leaf_blocks * Self.width * SPHERE_STRIDE
+            total_leaf_prims += max_leaf_blocks * Self.width
+
+        var packed_wide_bounds = ctx.enqueue_create_buffer[DType.float32](
+            max(total_wide_bounds, 1)
+        )
+        var packed_wide_data = ctx.enqueue_create_buffer[DType.uint32](
+            max(total_wide_lanes, 1)
+        )
+        var packed_wide_counts = ctx.enqueue_create_buffer[DType.uint32](
+            max(total_wide_lanes, 1)
+        )
+        var packed_leaf_spheres = ctx.enqueue_create_buffer[DType.float32](
+            max(total_leaf_spheres, 1)
+        )
+        var packed_leaf_prims = ctx.enqueue_create_buffer[DType.uint32](
+            max(total_leaf_prims, 1)
+        )
+
+        # Second pass: build each BLAS, then copy its device buffers into the
+        # final packed device buffers.
+        for blas_idx in range(len(self.sphere_sets)):
+            var blas = GpuSphereBvh[Self.width](ctx, self.sphere_sets[blas_idx])
+
+            var desc_base = blas_idx * BLAS_DESC_STRIDE
+
+            descs[desc_base + BLAS_DESC_ROOT_IDX] = blas.tree.root_idx
+
+            var wide_bounds_base = Int(
+                descs[desc_base + BLAS_DESC_WIDE_BOUNDS_BASE]
+            )
+            var wide_lane_base = Int(
+                descs[desc_base + BLAS_DESC_WIDE_LANE_BASE]
+            )
+            var leaf_f32_base = Int(descs[desc_base + BLAS_DESC_LEAF_F32_BASE])
+            var leaf_u32_base = Int(descs[desc_base + BLAS_DESC_LEAF_U32_BASE])
+
+            blas.tree.wide_bounds.enqueue_copy_to(
+                packed_wide_bounds.unsafe_ptr() + wide_bounds_base
+            )
+            blas.tree.wide_data.enqueue_copy_to(
+                packed_wide_data.unsafe_ptr() + wide_lane_base
+            )
+            blas.tree.wide_counts.enqueue_copy_to(
+                packed_wide_counts.unsafe_ptr() + wide_lane_base
+            )
+            blas.leaf_spheres.enqueue_copy_to(
+                packed_leaf_spheres.unsafe_ptr() + leaf_f32_base
+            )
+            blas.leaf_prims.enqueue_copy_to(
+                packed_leaf_prims.unsafe_ptr() + leaf_u32_base
+            )
+
+            ctx.synchronize()
+
+        return BlasSet[Self.width](
+            upload_list(ctx, descs),
+            packed_wide_bounds,
+            packed_wide_data,
+            packed_wide_counts,
+            packed_leaf_spheres,
+            packed_leaf_prims,
+            len(self.sphere_sets),
+        )
 
 
 struct GpuSphereBvh[width: Int]:

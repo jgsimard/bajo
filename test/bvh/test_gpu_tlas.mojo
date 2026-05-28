@@ -12,10 +12,10 @@ from bajo.bvh.constants import Primitive, TRACE
 from bajo.bvh.types import Ray, Sphere, Instance
 from bajo.bvh.host_utils import hit_t_for_checksum, compute_bounds
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
-from bajo.bvh.gpu.tlas import GpuTlas
-from bajo.bvh.gpu.sphere_bvh import GpuSphereBvh
-from bajo.bvh.gpu.triangle_bvh import GpuTriangleBvh
-from bajo.bvh.gpu.utils import upload_camera, upload_vertices
+from bajo.bvh.gpu.tlas import GpuTriangleTlas, GpuSphereTlas
+from bajo.bvh.gpu.sphere_bvh import GpuSphereBlasSetBuilder
+from bajo.bvh.gpu.triangle_bvh import GpuTriangleBlasSetBuilder
+from bajo.bvh.gpu.utils import upload_camera
 
 from fixtures import _append_tri, _brute_sphere_trace
 
@@ -171,23 +171,19 @@ def test_gpu_tlas_triangle_camera_single_identity_matches_cpu_blas() raises:
     ]
 
     with DeviceContext() as ctx:
-        var d_vertices = upload_vertices(ctx, verts)
-        var blas = GpuTriangleBvh[4](ctx, d_vertices, len(verts) / 3)
-        var tlas = GpuTlas[4](ctx, instances)
+        var builder = GpuTriangleBlasSetBuilder[4]()
+        _ = builder.add(verts)
+        var blases = builder.build(ctx)
+        var tlas = GpuTriangleTlas[4, 4](ctx, instances)
         var d_camera = upload_camera(ctx, camera)
 
         var ray_count = WIDTH * HEIGHT
         var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](ray_count * 3)
         var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](ray_count * 2)
 
-        tlas.launch_camera["triangle", 4](
+        tlas.launch_camera(
             ctx,
-            blas.tree.wide_bounds,
-            blas.tree.wide_data,
-            blas.tree.wide_counts,
-            blas.leaf_vertices,
-            blas.leaf_prims,
-            blas.tree.root_idx,
+            blases,
             d_camera,
             d_hits_f32,
             d_hits_u32,
@@ -204,7 +200,6 @@ def test_gpu_tlas_triangle_camera_single_identity_matches_cpu_blas() raises:
         assert_true(abs(cpu_res[0] - tlas_res[0]) <= EPS)
         assert_true(cpu_res[1] == tlas_res[1])
         assert_true(tlas_res[2] == UInt64(0))
-        keep(tlas.tree.leaf_block_count)
 
 
 def test_gpu_tlas_triangle_camera_translated_single_instance_hit() raises:
@@ -224,22 +219,18 @@ def test_gpu_tlas_triangle_camera_translated_single_instance_hit() raises:
     ]
 
     with DeviceContext() as ctx:
-        var d_vertices = upload_vertices(ctx, verts)
-        var blas = GpuTriangleBvh[4](ctx, d_vertices, len(verts) / 3)
-        var tlas = GpuTlas[4](ctx, instances)
+        var builder = GpuTriangleBlasSetBuilder[4]()
+        _ = builder.add(verts)
+        var blases = builder.build(ctx)
+        var tlas = GpuTriangleTlas[4, 4](ctx, instances)
         var d_camera = upload_camera(ctx, camera)
 
         var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](3)
         var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](2)
 
-        tlas.launch_camera["triangle", 4](
+        tlas.launch_camera(
             ctx,
-            blas.tree.wide_bounds,
-            blas.tree.wide_data,
-            blas.tree.wide_counts,
-            blas.leaf_vertices,
-            blas.leaf_prims,
-            blas.tree.root_idx,
+            blases,
             d_camera,
             d_hits_f32,
             d_hits_u32,
@@ -255,8 +246,6 @@ def test_gpu_tlas_triangle_camera_translated_single_instance_hit() raises:
         with d_hits_u32.map_to_host() as hu:
             assert_true(UInt32(hu[0]) == UInt32(0))
             assert_true(UInt32(hu[1]) == UInt32(0))
-
-        keep(tlas.tree.leaf_block_count)
 
 
 def test_gpu_tlas_sphere_camera_single_identity_matches_cpu_bruteforce() raises:
@@ -277,22 +266,19 @@ def test_gpu_tlas_sphere_camera_single_identity_matches_cpu_bruteforce() raises:
     ]
 
     with DeviceContext() as ctx:
-        var blas = GpuSphereBvh[4](ctx, spheres)
-        var tlas = GpuTlas[4](ctx, instances)
+        var builder = GpuSphereBlasSetBuilder[4]()
+        _ = builder.add(spheres)
+        var blases = builder.build(ctx)
+        var tlas = GpuSphereTlas[4, 4](ctx, instances)
         var d_camera = upload_camera(ctx, camera)
 
         var ray_count = WIDTH * HEIGHT
         var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](ray_count * 3)
         var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](ray_count * 2)
 
-        tlas.launch_camera["sphere", 4](
+        tlas.launch_camera(
             ctx,
-            blas.tree.wide_bounds,
-            blas.tree.wide_data,
-            blas.tree.wide_counts,
-            blas.leaf_spheres,
-            blas.leaf_prims,
-            blas.tree.root_idx,
+            blases,
             d_camera,
             d_hits_f32,
             d_hits_u32,
@@ -309,7 +295,6 @@ def test_gpu_tlas_sphere_camera_single_identity_matches_cpu_bruteforce() raises:
         assert_true(abs(cpu_res[0] - tlas_res[0]) <= EPS)
         assert_true(cpu_res[1] == tlas_res[1])
         assert_true(tlas_res[2] == UInt64(0))
-        keep(tlas.tree.leaf_block_count)
 
 
 def test_gpu_tlas_sphere_camera_translated_single_instance_hit() raises:
@@ -329,21 +314,18 @@ def test_gpu_tlas_sphere_camera_translated_single_instance_hit() raises:
     ]
 
     with DeviceContext() as ctx:
-        var blas = GpuSphereBvh[4](ctx, spheres)
-        var tlas = GpuTlas[4](ctx, instances)
+        var builder = GpuSphereBlasSetBuilder[4]()
+        _ = builder.add(spheres)
+        var blases = builder.build(ctx)
+        var tlas = GpuSphereTlas[4, 4](ctx, instances)
         var d_camera = upload_camera(ctx, camera)
 
         var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](3)
         var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](2)
 
-        tlas.launch_camera["sphere", 4](
+        tlas.launch_camera(
             ctx,
-            blas.tree.wide_bounds,
-            blas.tree.wide_data,
-            blas.tree.wide_counts,
-            blas.leaf_spheres,
-            blas.leaf_prims,
-            blas.tree.root_idx,
+            blases,
             d_camera,
             d_hits_f32,
             d_hits_u32,
@@ -359,8 +341,6 @@ def test_gpu_tlas_sphere_camera_translated_single_instance_hit() raises:
         with d_hits_u32.map_to_host() as hu:
             assert_true(UInt32(hu[0]) == UInt32(0))
             assert_true(UInt32(hu[1]) == UInt32(0))
-
-        keep(tlas.tree.leaf_block_count)
 
 
 def main() raises:

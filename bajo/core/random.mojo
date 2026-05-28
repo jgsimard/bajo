@@ -14,13 +14,15 @@ struct Rng:
         self._buffer = self._rng.step_uniform()
         self._consumed = 0
 
-    def f32(mut self) -> Float32:
+    def f32(
+        mut self, lower_bound: Float32 = 0, upper_bound: Float32 = 1
+    ) -> Float32:
         if self._consumed >= 4:
             self._buffer = self._rng.step_uniform()
             self._consumed = 0
         val = self._buffer[self._consumed]
         self._consumed += 1
-        return val
+        return val * (upper_bound - lower_bound) + lower_bound
 
     def vec3f32(
         mut self, lower_bound: Float32 = 0, upper_bound: Float32 = 1

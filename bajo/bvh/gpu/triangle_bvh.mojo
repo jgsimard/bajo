@@ -194,14 +194,14 @@ struct GpuTriangleBvh[width: Int]:
 
         self._pack_leaf_blocks(ctx)
 
-        print(t"tri_count = {self.tri_count}")
-        print(t"leaf_block_count = {self.tree.leaf_block_count}")
-        print(t"max_leaf_blocks = {self.tree.max_leaf_blocks}")
-        print(t"packed leaf lanes = {self.tree.leaf_block_count * Self.width}")
-        print(
-            t"leaf lanes / triangles = "
-            t"{Float64(self.tree.leaf_block_count * Self.width) / Float64(self.tri_count)}"
-        )
+        # print(t"tri_count = {self.tri_count}")
+        # print(t"leaf_block_count = {self.tree.leaf_block_count}")
+        # print(t"max_leaf_blocks = {self.tree.max_leaf_blocks}")
+        # print(t"packed leaf lanes = {self.tree.leaf_block_count * Self.width}")
+        # print(
+        #     t"leaf lanes / triangles = "
+        #     t"{Float64(self.tree.leaf_block_count * Self.width) / Float64(self.tri_count)}"
+        # )
 
     def _pack_leaf_blocks(
         mut self,

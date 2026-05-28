@@ -2,12 +2,11 @@ from std.math import ceildiv, max
 from std.time import perf_counter_ns
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
 
-from bajo.bvh.camera import Camera, CAMERA_STRIDE
+from bajo.bvh.camera import Camera
 from bajo.bvh.gpu.utils import (
     GpuBuildTimings,
     upload_vertices,
     upload_list,
-    append_buffer,
 )
 from bajo.core.vec import Vec3f32, vmin, vmax, normalize, cross
 from bajo.bvh.types import Ray, Hit, BlasSet
@@ -21,12 +20,10 @@ from bajo.bvh.constants import (
     BLAS_DESC_WIDE_LANE_BASE,
     BLAS_DESC_LEAF_F32_BASE,
     BLAS_DESC_LEAF_U32_BASE,
-)
-from bajo.bvh.gpu.bounds_bvh import (
-    GpuBoundsBvh,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
     BOUNDS_STRIDE,
 )
+from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh
 from bajo.core.intersect import intersect_ray_tri
 from bajo.bvh.gpu.trace import trace_bounds_bvh
 
@@ -352,7 +349,7 @@ def trace_triangle_bvh_camera_kernel[
     var px_i = local_idx % width_px
     var py_i = local_idx / width_px
 
-    var camera = Camera(camera_params, view_idx * CAMERA_STRIDE)
+    var camera = Camera(camera_params, view_idx * Camera.STRIDE)
     var ray = camera.make_ray(px_i, py_i, width_px, height_px)
 
     var hit = trace_bounds_bvh[

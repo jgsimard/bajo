@@ -15,15 +15,15 @@ from bajo.bvh.constants import (
     BLAS_DESC_LEAF_U32_BASE,
     BLAS_DESC_ROOT_IDX,
     BLAS_DESC_STRIDE,
+    GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
 from bajo.bvh.types import Ray, Hit, Instance, BlasSet
 from bajo.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
-    GPU_BOUNDS_BVH_BLOCK_SIZE,
     _wide_lane_base,
     _intersect_wide_node_bounds,
 )
-from bajo.bvh.camera import Camera, CAMERA_STRIDE
+from bajo.bvh.camera import Camera
 from bajo.bvh.gpu.sphere_bvh import _intersect_sphere_leaf
 from bajo.bvh.gpu.triangle_bvh import _intersect_triangle_leaf
 from bajo.bvh.gpu.trace import trace_bounds_bvh
@@ -303,7 +303,7 @@ def trace_triangle_tlas_camera_kernel[
     var px_i = local_idx % width
     var py_i = local_idx / width
 
-    var camera = Camera(camera_params, view_idx * CAMERA_STRIDE)
+    var camera = Camera(camera_params, view_idx * Camera.STRIDE)
     var ray = camera.make_ray(px_i, py_i, width, height)
 
     var hit = _trace_tlas_ray[
@@ -375,7 +375,7 @@ def trace_sphere_tlas_camera_kernel[
     var px_i = local_idx % width
     var py_i = local_idx / width
 
-    var camera = Camera(camera_params, view_idx * CAMERA_STRIDE)
+    var camera = Camera(camera_params, view_idx * Camera.STRIDE)
     var ray = camera.make_ray(px_i, py_i, width, height)
 
     var hit = _trace_tlas_ray[

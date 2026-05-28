@@ -2,7 +2,7 @@ from std.math import ceildiv, max
 from std.time import perf_counter_ns
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
 
-from bajo.bvh.camera import Camera, CAMERA_STRIDE
+from bajo.bvh.camera import Camera
 from bajo.bvh.constants import (
     EMPTY_LANE,
     TRACE,
@@ -15,16 +15,14 @@ from bajo.bvh.constants import (
     BLAS_DESC_WIDE_LANE_BASE,
     BLAS_DESC_LEAF_F32_BASE,
     BLAS_DESC_LEAF_U32_BASE,
+    GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
 from bajo.core.intersect import intersect_ray_sphere
 from bajo.core.vec import Vec3
 from bajo.bvh.types import Sphere, Ray, Hit, SphereLeafBlock, BlasSet
-from bajo.bvh.gpu.bounds_bvh import (
-    GpuBoundsBvh,
-    GPU_BOUNDS_BVH_BLOCK_SIZE,
-)
+from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh
 from bajo.bvh.gpu.trace import trace_bounds_bvh
-from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list, append_buffer
+from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list
 
 
 struct GpuSphereBlasSetBuilder[width: Int]:
@@ -282,7 +280,7 @@ def trace_sphere_bvh_camera_kernel[
     var px_i = local_idx % width_px
     var py_i = local_idx / width_px
 
-    var camera = Camera(camera_params, view_idx * CAMERA_STRIDE)
+    var camera = Camera(camera_params, view_idx * Camera.STRIDE)
     var ray = camera.make_ray(px_i, py_i, width_px, height_px)
 
     var hit = trace_bounds_bvh[

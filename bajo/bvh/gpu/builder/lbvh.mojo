@@ -12,9 +12,6 @@ from bajo.bvh.constants import (
     LBVH_LEAF_FLAG,
     LBVH_SENTINEL,
     BOUNDS_STRIDE,
-)
-from bajo.bvh.gpu.utils import GpuBuildTimings
-from bajo.bvh.gpu.builder.binary_layout import (
     BINARY_BVH_NODE_META_STRIDE,
     BINARY_BVH_NODE_PARENT,
     BINARY_BVH_NODE_LEFT,
@@ -22,6 +19,9 @@ from bajo.bvh.gpu.builder.binary_layout import (
     BINARY_BVH_NODE_FENCE,
     BINARY_BVH_NODE_BOUNDS_STRIDE,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
+)
+from bajo.bvh.gpu.utils import GpuBuildTimings
+from bajo.bvh.gpu.builder.binary_layout import (
     _node_parent_index,
     _node_left,
     _node_right,

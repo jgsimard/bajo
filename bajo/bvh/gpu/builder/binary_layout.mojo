@@ -6,6 +6,14 @@ from bajo.bvh.constants import (
     LBVH_LEAF_FLAG,
     LBVH_INDEX_MASK,
     BOUNDS_STRIDE,
+    BINARY_BVH_NODE_META_STRIDE,
+    BINARY_BVH_NODE_BOUNDS_STRIDE,
+    BINARY_BVH_NODE_PARENT,
+    BINARY_BVH_NODE_LEFT,
+    BINARY_BVH_NODE_RIGHT,
+    REDUCED_BOUNDS_STRIDE,
+    BOUNDS_REDUCE_CHUNK,
+    GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
 from bajo.bvh.gpu.utils import GpuBuildTimings, GpuBVHValidation, upload_list
 from bajo.bvh.gpu.validate import (
@@ -13,17 +21,6 @@ from bajo.bvh.gpu.validate import (
     validate_topology,
     validate_refit_bounds,
 )
-
-comptime BINARY_BVH_NODE_META_STRIDE = 4
-comptime BINARY_BVH_NODE_PARENT = 0
-comptime BINARY_BVH_NODE_LEFT = 1
-comptime BINARY_BVH_NODE_RIGHT = 2
-comptime BINARY_BVH_NODE_FENCE = 3
-comptime BINARY_BVH_NODE_BOUNDS_STRIDE = 12
-
-comptime GPU_BOUNDS_BVH_BLOCK_SIZE = 128
-comptime BOUNDS_REDUCE_CHUNK = 256
-comptime REDUCED_BOUNDS_STRIDE = BOUNDS_STRIDE * 2
 
 
 def _node_meta_base(node_idx: UInt32) -> Int:

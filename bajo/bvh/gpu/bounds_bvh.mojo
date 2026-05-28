@@ -18,7 +18,6 @@ from bajo.bvh.gpu.builder.lbvh import (
     build_binary_bvh_with_lbvh,
     BINARY_BVH_NODE_META_STRIDE,
     BINARY_BVH_NODE_BOUNDS_STRIDE,
-    GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
 from bajo.bvh.gpu.builder.wide_collapse import collapse
 from bajo.bvh.gpu.builder.binary_layout import GpuBinaryBoundsBvh

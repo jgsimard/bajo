@@ -127,7 +127,7 @@ struct AxisAlignedBoundingBox[dtype: DType, width: Int = 1](
     ](self, ptr: UnsafePointer[Scalar[Self.dtype], origin], base: Int):
         comptime assert Self.width == 1
         self._min.store(ptr, base)
-        self._max.store(ptr + 3, base)
+        self._max.store(ptr, base + 3)
 
     def translate(self, translation: Vec3[Self.dtype, Self.width]) -> Self:
         return Self(self._min + translation, self._max + translation)

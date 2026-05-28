@@ -3,6 +3,7 @@ from std.testing import (
     TestSuite,
     assert_true,
     assert_false,
+    assert_almost_equal,
 )
 
 from bajo.core.aabb import AABB
@@ -48,6 +49,20 @@ def test_apply_trs_rotated() raises:
     sqrt_2 = Float32(sqrt(2.0))
     assert_vec_equal(new_box._min, Vec3f32(-sqrt_2, -sqrt_2, -1.0))
     assert_vec_equal(new_box._max, Vec3f32(sqrt_2, sqrt_2, 1.0))
+
+
+def test_aabb_store6_with_nonzero_base() raises:
+    var data = List[Float32](length=18, fill=-1.0)
+    var b = AABB(Vec3f32(1.0, 2.0, 3.0), Vec3f32(4.0, 5.0, 6.0))
+
+    b.store6(data.unsafe_ptr(), 6)
+
+    assert_almost_equal(data[6], 1.0)
+    assert_almost_equal(data[7], 2.0)
+    assert_almost_equal(data[8], 3.0)
+    assert_almost_equal(data[9], 4.0)
+    assert_almost_equal(data[10], 5.0)
+    assert_almost_equal(data[11], 6.0)
 
 
 def main() raises:

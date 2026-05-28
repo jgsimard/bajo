@@ -11,8 +11,8 @@ from bajo.bvh.constants import (
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
 from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh
-from bajo.bvh.gpu.builder.binary_layout import GpuBinaryBoundsBvh
 from bajo.bvh.gpu.builder.binary_layout import (
+    GpuBinaryBoundsBvh,
     _node_parent_index,
     _node_left,
     _node_right,

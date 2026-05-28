@@ -7,9 +7,9 @@ from bajo.bvh.constants import (
     GPU_STACK_SIZE,
     EMPTY_LANE,
     f32_max,
-    BOUNDS_STRIDE,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
+from bajo.core.aabb import AABB
 from bajo.bvh.types import Ray, Hit, Instance, BlasSet
 from bajo.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
@@ -427,7 +427,7 @@ struct GpuTypedTlasCore[width: Int]:
         self.inst_count = len(instances)
 
         var leaf_bounds = List[Float32](
-            capacity=max(self.inst_count, 1) * BOUNDS_STRIDE
+            capacity=max(self.inst_count, 1) * AABB.STRIDE
         )
         var payloads = List[UInt32](capacity=max(self.inst_count, 1))
 
@@ -442,7 +442,7 @@ struct GpuTypedTlasCore[width: Int]:
             payloads.append(UInt32(i))
 
         if self.inst_count == 0:
-            for _ in range(BOUNDS_STRIDE):
+            for _ in range(AABB.STRIDE):
                 leaf_bounds.append(0.0)
             payloads.append(EMPTY_LANE)
 

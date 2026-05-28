@@ -8,6 +8,7 @@ from bajo.bvh.gpu.utils import (
     upload_vertices,
     upload_list,
 )
+from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32, vmin, vmax, normalize, cross
 from bajo.bvh.types import Ray, Hit, BlasSet
 from bajo.bvh.constants import (
@@ -15,7 +16,6 @@ from bajo.bvh.constants import (
     TRACE,
     TRI_LEAF_VERTEX_STRIDE,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
-    BOUNDS_STRIDE,
 )
 from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh
 from bajo.core.intersect import intersect_ray_tri
@@ -84,7 +84,7 @@ struct GpuTriangleBlasSetBuilder[width: Int]:
             descs.append(UInt32(max_leaf_blocks))
             descs.append(UInt32(tri_count))
 
-            total_wide_bounds += max_wide_nodes * Self.width * BOUNDS_STRIDE
+            total_wide_bounds += max_wide_nodes * Self.width * AABB.STRIDE
             total_wide_lanes += max_wide_nodes * Self.width
             total_leaf_vertices += (
                 max_leaf_blocks * Self.width * TRI_LEAF_VERTEX_STRIDE
@@ -175,7 +175,7 @@ struct GpuTriangleBvh[width: Int]:
         self.bounds_pack_ns = 0
 
         var leaf_bounds = ctx.enqueue_create_buffer[DType.float32](
-            self.tri_count * BOUNDS_STRIDE
+            self.tri_count * AABB.STRIDE
         )
         var payloads = ctx.enqueue_create_buffer[DType.uint32](self.tri_count)
 
@@ -275,7 +275,7 @@ def compute_triangle_bounds_kernel(
     var bmin = vmin(vmin(v0, v1), v2)
     var bmax = vmax(vmax(v0, v1), v2)
 
-    var bbase = tri_idx * BOUNDS_STRIDE
+    var bbase = tri_idx * AABB.STRIDE
 
     leaf_bounds[bbase + 0] = bmin.x
     leaf_bounds[bbase + 1] = bmin.y

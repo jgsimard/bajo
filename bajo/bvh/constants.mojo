@@ -24,7 +24,6 @@ comptime MISS_INST = EMPTY_LANE
 
 comptime CPU_STACK_SIZE = 64
 
-comptime BOUNDS_STRIDE = 6
 comptime TRI_LEAF_VERTEX_STRIDE = 9
 comptime BVH_BINS = 16
 
@@ -48,4 +47,4 @@ struct BinaryBvhNode:
 
 comptime GPU_BOUNDS_BVH_BLOCK_SIZE = 128
 comptime BOUNDS_REDUCE_CHUNK = 256
-comptime REDUCED_BOUNDS_STRIDE = BOUNDS_STRIDE * 2
+comptime REDUCED_BOUNDS_STRIDE = 12

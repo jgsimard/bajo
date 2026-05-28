@@ -10,6 +10,7 @@ comptime AABB = AxisAlignedBoundingBox[DType.float32]
 struct AxisAlignedBoundingBox[dtype: DType, width: Int = 1](
     TrivialRegisterPassable, Writable
 ):
+    comptime STRIDE = 6
     var _min: Vec3[Self.dtype, Self.width]
     var _max: Vec3[Self.dtype, Self.width]
 

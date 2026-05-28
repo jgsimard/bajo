@@ -5,7 +5,6 @@ from bajo.core.aabb import AABB
 from bajo.bvh.constants import (
     LBVH_LEAF_FLAG,
     LBVH_INDEX_MASK,
-    BOUNDS_STRIDE,
     BinaryBvhNode,
     REDUCED_BOUNDS_STRIDE,
     BOUNDS_REDUCE_CHUNK,
@@ -93,7 +92,7 @@ def init_empty_bounds_kernel(
     var b = i * BinaryBvhNode.BOUNDS_STRIDE
     var invalid = AABB.invalid()
     invalid.store6(bounds, b)
-    invalid.store6(bounds, b + BOUNDS_STRIDE)
+    invalid.store6(bounds, b + AABB.STRIDE)
 
 
 def compute_bounds_partials_kernel(
@@ -112,7 +111,7 @@ def compute_bounds_partials_kernel(
     var centroid_bounds = AABB.invalid()
 
     for leaf_idx in range(first, last):
-        var b = leaf_idx * BOUNDS_STRIDE
+        var b = leaf_idx * AABB.STRIDE
         var aabb = AABB.load6(leaf_bounds, b)
 
         bounds.grow(aabb)
@@ -120,7 +119,7 @@ def compute_bounds_partials_kernel(
 
     var out = chunk * REDUCED_BOUNDS_STRIDE
     bounds.store6(out_partials, out)
-    centroid_bounds.store6(out_partials, out + BOUNDS_STRIDE)
+    centroid_bounds.store6(out_partials, out + AABB.STRIDE)
 
 
 def reduce_bounds_partials_kernel(
@@ -142,14 +141,14 @@ def reduce_bounds_partials_kernel(
         var b = i * REDUCED_BOUNDS_STRIDE
 
         var partial_bounds = AABB.load6(in_partials, b)
-        var partial_centroid_bounds = AABB.load6(in_partials, b + BOUNDS_STRIDE)
+        var partial_centroid_bounds = AABB.load6(in_partials, b + AABB.STRIDE)
 
         bounds.grow(partial_bounds)
         centroid_bounds.grow(partial_centroid_bounds)
 
     var out = chunk * REDUCED_BOUNDS_STRIDE
     bounds.store6(out_partials, out)
-    centroid_bounds.store6(out_partials, out + BOUNDS_STRIDE)
+    centroid_bounds.store6(out_partials, out + AABB.STRIDE)
 
 
 def copy_lbvh_bounds_result_kernel(
@@ -313,7 +312,7 @@ struct GpuBinaryBoundsBvh(Movable):
     def centroid_bounds(self) raises -> AABB:
         var out = AABB.invalid()
         with self.bounds_device.map_to_host() as h:
-            out = AABB.load6(h.unsafe_ptr(), BOUNDS_STRIDE)
+            out = AABB.load6(h.unsafe_ptr(), AABB.STRIDE)
         return out
 
     def validate(self, bounds: AABB) raises -> GpuBVHValidation:

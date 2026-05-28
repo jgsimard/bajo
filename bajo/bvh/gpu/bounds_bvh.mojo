@@ -6,7 +6,7 @@ from bajo.core.aabb import AABB, AxisAlignedBoundingBox
 from bajo.core.vec import Vec3
 from bajo.core.intersect import intersect_ray_aabb, RayDistanceHit
 from bajo.bvh.types import Ray
-from bajo.bvh.constants import EMPTY_LANE, BOUNDS_STRIDE
+from bajo.bvh.constants import EMPTY_LANE
 from bajo.bvh.gpu.validate import (
     validate_sorted_keys,
     validate_topology,
@@ -76,7 +76,7 @@ struct GpuBoundsBvh[width: Int]:
         # Wide node index is the binary internal node index. Leaf blocks are
         # allocated on the GPU during collapse with an atomic counter.
         self.wide_bounds = ctx.enqueue_create_buffer[DType.float32](
-            self.max_wide_nodes * Self.width * BOUNDS_STRIDE
+            self.max_wide_nodes * Self.width * AABB.STRIDE
         )
         self.wide_data = ctx.enqueue_create_buffer[DType.uint32](
             self.max_wide_nodes * Self.width
@@ -145,7 +145,7 @@ struct GpuBoundsBvh[width: Int]:
     def centroid_bounds(self) raises -> AABB:
         var out = AABB.invalid()
         with self.bounds_device.map_to_host() as h:
-            out = AABB.load6(h.unsafe_ptr(), BOUNDS_STRIDE)
+            out = AABB.load6(h.unsafe_ptr(), AABB.STRIDE)
         return out
 
 
@@ -154,7 +154,7 @@ def _wide_lane_base[width: Int](node_idx: UInt32, lane: Int) -> Int:
 
 
 def _wide_bounds_base[width: Int](node_idx: UInt32, lane: Int) -> Int:
-    return _wide_lane_base[width](node_idx, lane) * BOUNDS_STRIDE
+    return _wide_lane_base[width](node_idx, lane) * AABB.STRIDE
 
 
 def _load_wide_bounds_block[

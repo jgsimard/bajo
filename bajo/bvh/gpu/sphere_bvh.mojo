@@ -6,10 +6,10 @@ from bajo.bvh.camera import Camera
 from bajo.bvh.constants import (
     EMPTY_LANE,
     TRACE,
-    BOUNDS_STRIDE,
     f32_max,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
+from bajo.core.aabb import AABB
 from bajo.core.intersect import intersect_ray_sphere
 from bajo.core.vec import Vec3
 from bajo.bvh.types import Sphere, Ray, Hit, SphereLeafBlock, BlasSet
@@ -80,7 +80,7 @@ struct GpuSphereBlasSetBuilder[width: Int]:
             descs.append(UInt32(max_leaf_blocks))
             descs.append(UInt32(sphere_count))
 
-            total_wide_bounds += max_wide_nodes * Self.width * BOUNDS_STRIDE
+            total_wide_bounds += max_wide_nodes * Self.width * AABB.STRIDE
             total_wide_lanes += max_wide_nodes * Self.width
             total_leaf_spheres += max_leaf_blocks * Self.width * Sphere.STRIDE
             total_leaf_prims += max_leaf_blocks * Self.width
@@ -167,7 +167,7 @@ struct GpuSphereBvh[width: Int]:
         self.spheres = upload_list(ctx, flat_spheres)
 
         var leaf_bounds = List[Float32](
-            capacity=max(self.sphere_count, 1) * BOUNDS_STRIDE
+            capacity=max(self.sphere_count, 1) * AABB.STRIDE
         )
         var payloads = List[UInt32](capacity=max(self.sphere_count, 1))
 

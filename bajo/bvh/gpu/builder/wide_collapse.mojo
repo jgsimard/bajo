@@ -7,7 +7,6 @@ from bajo.bvh.constants import (
     LBVH_SENTINEL,
     GPU_STACK_SIZE,
     EMPTY_LANE,
-    BOUNDS_STRIDE,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
 from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh
@@ -40,7 +39,7 @@ def _encoded_bounds_gpu(
     if _is_encoded_leaf(encoded):
         var sorted_leaf_idx = _encoded_index(encoded)
         var item_idx = UInt32(leaf_ids[Int(sorted_leaf_idx)])
-        var b = Int(item_idx) * BOUNDS_STRIDE
+        var b = Int(item_idx) * AABB.STRIDE
         return AABB.load6(leaf_bounds, b)
 
     return _load_and_union_node_bounds(node_bounds, _encoded_index(encoded))
@@ -54,7 +53,7 @@ def _write_wide_lane_bounds[
     lane: Int,
     bounds: AABB,
 ):
-    var b = (Int(wide_node_idx) * width + lane) * BOUNDS_STRIDE
+    var b = (Int(wide_node_idx) * width + lane) * AABB.STRIDE
     bounds.store6(wide_bounds, b)
 
 
@@ -124,7 +123,7 @@ def init_gpu_wide_collapse_kernel[
         wide_data[i] = UInt32(0)
         wide_counts[i] = EMPTY_LANE
 
-        var b = i * BOUNDS_STRIDE
+        var b = i * AABB.STRIDE
         AABB.invalid().store6(wide_bounds, b)
 
     if i < max_leaf_slots:

@@ -24,10 +24,7 @@ comptime MISS_INST = EMPTY_LANE
 
 comptime CPU_STACK_SIZE = 64
 
-comptime BOUNDS_STRIDE = 6
 comptime TRI_LEAF_VERTEX_STRIDE = 9
-comptime SPHERE_STRIDE = 4
-comptime TRANSFORM_STRIDE = 12
 comptime BVH_BINS = 16
 
 
@@ -39,12 +36,15 @@ struct Primitive(Equatable, TrivialRegisterPassable):
     var v: Int32
 
 
-comptime BLAS_DESC_WIDE_BOUNDS_BASE = 0
-comptime BLAS_DESC_WIDE_LANE_BASE = 1
-comptime BLAS_DESC_LEAF_F32_BASE = 2
-comptime BLAS_DESC_LEAF_U32_BASE = 3
-comptime BLAS_DESC_ROOT_IDX = 4
-comptime BLAS_DESC_NODE_COUNT = 5
-comptime BLAS_DESC_LEAF_BLOCK_COUNT = 6
-comptime BLAS_DESC_PRIM_COUNT = 7
-comptime BLAS_DESC_STRIDE = 8
+struct BinaryBvhNode:
+    comptime META_STRIDE = 4
+    comptime PARENT = 0
+    comptime LEFT = 1
+    comptime RIGHT = 2
+    comptime FENCE = 3
+    comptime BOUNDS_STRIDE = 12
+
+
+comptime GPU_BOUNDS_BVH_BLOCK_SIZE = 128
+comptime BOUNDS_REDUCE_CHUNK = 256
+comptime REDUCED_BOUNDS_STRIDE = 12

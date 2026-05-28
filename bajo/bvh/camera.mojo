@@ -3,16 +3,15 @@ from bajo.bvh.constants import f32_max
 from bajo.core.vec import Vec3f32, normalize, cross
 
 
-comptime CAMERA_STRIDE = 13
-comptime CAMERA_ORIGIN = 0
-comptime CAMERA_FORWARD = 3
-comptime CAMERA_RIGHT = 6
-comptime CAMERA_UP = 9
-comptime CAMERA_FOV = 12
-
-
 @fieldwise_init
 struct Camera(TrivialRegisterPassable, Writable):
+    comptime STRIDE = 13
+    comptime ORIGIN = 0
+    comptime FORWARD = 3
+    comptime RIGHT = 6
+    comptime UP = 9
+    comptime FOV = 12
+
     var origin: Vec3f32
     var forward: Vec3f32
     var right: Vec3f32
@@ -24,11 +23,11 @@ struct Camera(TrivialRegisterPassable, Writable):
         ptr: UnsafePointer[Float32, MutAnyOrigin],
         base: Int = 0,
     ):
-        self.origin = Vec3f32.load(ptr, base + CAMERA_ORIGIN)
-        self.forward = Vec3f32.load(ptr, base + CAMERA_FORWARD)
-        self.right = Vec3f32.load(ptr, base + CAMERA_RIGHT)
-        self.up = Vec3f32.load(ptr, base + CAMERA_UP)
-        self.fov_scale = ptr[base + CAMERA_FOV]
+        self.origin = Vec3f32.load(ptr, base + Camera.ORIGIN)
+        self.forward = Vec3f32.load(ptr, base + Camera.FORWARD)
+        self.right = Vec3f32.load(ptr, base + Camera.RIGHT)
+        self.up = Vec3f32.load(ptr, base + Camera.UP)
+        self.fov_scale = ptr[base + Camera.FOV]
 
     def __init__(
         out self,

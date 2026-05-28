@@ -2,29 +2,20 @@ from std.math import ceildiv, max
 from std.time import perf_counter_ns
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
 
-from bajo.bvh.camera import Camera, CAMERA_STRIDE
+from bajo.bvh.camera import Camera
 from bajo.bvh.constants import (
     EMPTY_LANE,
     TRACE,
-    SPHERE_STRIDE,
-    BOUNDS_STRIDE,
     f32_max,
-    BLAS_DESC_STRIDE,
-    BLAS_DESC_ROOT_IDX,
-    BLAS_DESC_WIDE_BOUNDS_BASE,
-    BLAS_DESC_WIDE_LANE_BASE,
-    BLAS_DESC_LEAF_F32_BASE,
-    BLAS_DESC_LEAF_U32_BASE,
+    GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
+from bajo.core.aabb import AABB
 from bajo.core.intersect import intersect_ray_sphere
 from bajo.core.vec import Vec3
 from bajo.bvh.types import Sphere, Ray, Hit, SphereLeafBlock, BlasSet
-from bajo.bvh.gpu.bounds_bvh import (
-    GpuBoundsBvh,
-    GPU_BOUNDS_BVH_BLOCK_SIZE,
-)
+from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh
 from bajo.bvh.gpu.trace import trace_bounds_bvh
-from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list, append_buffer
+from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list
 
 
 struct GpuSphereBlasSetBuilder[width: Int]:
@@ -42,7 +33,7 @@ struct GpuSphereBlasSetBuilder[width: Int]:
 
     def build(mut self, mut ctx: DeviceContext) raises -> BlasSet[Self.width]:
         if len(self.sphere_sets) == 0:
-            var descs = List[UInt32](length=BLAS_DESC_STRIDE, fill=0)
+            var descs = List[UInt32](length=BlasSet.STRIDE, fill=0)
             var dummy_f32 = [Float32(0.0)]
             var dummy_u32 = [EMPTY_LANE]
 
@@ -57,7 +48,7 @@ struct GpuSphereBlasSetBuilder[width: Int]:
             )
 
         var descs = List[UInt32](
-            capacity=len(self.sphere_sets) * BLAS_DESC_STRIDE
+            capacity=len(self.sphere_sets) * BlasSet.STRIDE
         )
 
         var total_wide_bounds = 0
@@ -83,15 +74,15 @@ struct GpuSphereBlasSetBuilder[width: Int]:
             descs.append(leaf_u32_base)
 
             # Filled after the actual GPU BLAS build.
-            descs.append(UInt32(0))  # BLAS_DESC_ROOT_IDX
+            descs.append(UInt32(0))  # BlasSet.ROOT_IDX
 
             descs.append(UInt32(max_wide_nodes))
             descs.append(UInt32(max_leaf_blocks))
             descs.append(UInt32(sphere_count))
 
-            total_wide_bounds += max_wide_nodes * Self.width * BOUNDS_STRIDE
+            total_wide_bounds += max_wide_nodes * Self.width * AABB.STRIDE
             total_wide_lanes += max_wide_nodes * Self.width
-            total_leaf_spheres += max_leaf_blocks * Self.width * SPHERE_STRIDE
+            total_leaf_spheres += max_leaf_blocks * Self.width * Sphere.STRIDE
             total_leaf_prims += max_leaf_blocks * Self.width
 
         var packed_wide_bounds = ctx.enqueue_create_buffer[DType.float32](
@@ -115,18 +106,16 @@ struct GpuSphereBlasSetBuilder[width: Int]:
         for blas_idx in range(len(self.sphere_sets)):
             var blas = GpuSphereBvh[Self.width](ctx, self.sphere_sets[blas_idx])
 
-            var desc_base = blas_idx * BLAS_DESC_STRIDE
+            var desc_base = blas_idx * BlasSet.STRIDE
 
-            descs[desc_base + BLAS_DESC_ROOT_IDX] = blas.tree.root_idx
+            descs[desc_base + BlasSet.ROOT_IDX] = blas.tree.root_idx
 
             var wide_bounds_base = Int(
-                descs[desc_base + BLAS_DESC_WIDE_BOUNDS_BASE]
+                descs[desc_base + BlasSet.WIDE_BOUNDS_BASE]
             )
-            var wide_lane_base = Int(
-                descs[desc_base + BLAS_DESC_WIDE_LANE_BASE]
-            )
-            var leaf_f32_base = Int(descs[desc_base + BLAS_DESC_LEAF_F32_BASE])
-            var leaf_u32_base = Int(descs[desc_base + BLAS_DESC_LEAF_U32_BASE])
+            var wide_lane_base = Int(descs[desc_base + BlasSet.WIDE_LANE_BASE])
+            var leaf_f32_base = Int(descs[desc_base + BlasSet.LEAF_F32_BASE])
+            var leaf_u32_base = Int(descs[desc_base + BlasSet.LEAF_U32_BASE])
 
             blas.tree.wide_bounds.enqueue_copy_to(
                 packed_wide_bounds.unsafe_ptr() + wide_bounds_base
@@ -178,7 +167,7 @@ struct GpuSphereBvh[width: Int]:
         self.spheres = upload_list(ctx, flat_spheres)
 
         var leaf_bounds = List[Float32](
-            capacity=max(self.sphere_count, 1) * BOUNDS_STRIDE
+            capacity=max(self.sphere_count, 1) * AABB.STRIDE
         )
         var payloads = List[UInt32](capacity=max(self.sphere_count, 1))
 
@@ -201,7 +190,7 @@ struct GpuSphereBvh[width: Int]:
         self.timings = self.tree.build(ctx)
 
         self.leaf_spheres = ctx.enqueue_create_buffer[DType.float32](
-            self.tree.max_leaf_blocks * Self.width * SPHERE_STRIDE
+            self.tree.max_leaf_blocks * Self.width * Sphere.STRIDE
         )
         self.leaf_prims = ctx.enqueue_create_buffer[DType.uint32](
             self.tree.max_leaf_blocks * Self.width
@@ -282,7 +271,7 @@ def trace_sphere_bvh_camera_kernel[
     var px_i = local_idx % width_px
     var py_i = local_idx / width_px
 
-    var camera = Camera(camera_params, view_idx * CAMERA_STRIDE)
+    var camera = Camera(camera_params, view_idx * Camera.STRIDE)
     var ray = camera.make_ray(px_i, py_i, width_px, height_px)
 
     var hit = trace_bounds_bvh[
@@ -325,7 +314,7 @@ def _load_sphere_leaf_packet[
             var prim = UInt32(leaf_prims[idx])
 
             if prim != EMPTY_LANE:
-                var base = idx * SPHERE_STRIDE
+                var base = idx * Sphere.STRIDE
 
                 block.center.x[lane] = leaf_spheres[base + 0]
                 block.center.y[lane] = leaf_spheres[base + 1]
@@ -405,18 +394,18 @@ def pack_sphere_leaf_blocks_kernel[
         var prim = UInt32(leaf_block_indices[idx])
         leaf_prims[idx] = prim
 
-        var out_base = idx * SPHERE_STRIDE
+        var out_base = idx * Sphere.STRIDE
         if prim == EMPTY_LANE:
-            for k in range(SPHERE_STRIDE):
+            for k in range(Sphere.STRIDE):
                 leaf_spheres[out_base + k] = 0.0
         else:
-            var in_base = Int(prim) * SPHERE_STRIDE
-            for k in range(SPHERE_STRIDE):
+            var in_base = Int(prim) * Sphere.STRIDE
+            for k in range(Sphere.STRIDE):
                 leaf_spheres[out_base + k] = spheres[in_base + k]
 
 
 def _flatten_spheres(spheres: List[Sphere]) -> List[Float32]:
-    var out = List[Float32](capacity=max(len(spheres), 1) * SPHERE_STRIDE)
+    var out = List[Float32](capacity=max(len(spheres), 1) * Sphere.STRIDE)
     for sphere in spheres:
         out.append(sphere.center.x)
         out.append(sphere.center.y)

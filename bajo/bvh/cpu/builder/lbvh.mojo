@@ -5,22 +5,12 @@ from bajo.core.morton import morton3
 
 
 @fieldwise_init
-struct MortonItem(TrivialRegisterPassable):
+struct MortonItem(Comparable, TrivialRegisterPassable):
     var code: UInt32
     var item_idx: UInt32
 
-
-def _bounds_morton_item_less(
-    a: MortonItem,
-    b: MortonItem,
-) capturing -> Bool:
-    if a.code < b.code:
-        return True
-
-    if a.code > b.code:
-        return False
-
-    return a.item_idx < b.item_idx
+    def __lt__(self, rhs: Self) -> Bool:
+        return self.code < rhs.code
 
 
 def _common_prefix(
@@ -99,7 +89,7 @@ def _build_lbvh[leaf_size: Int](mut builder: BoundsBvhBuilder[leaf_size]):
         var code = morton3(c.x, c.y, c.z)
         pairs.append(MortonItem(code, UInt32(i)))
 
-    sort[_bounds_morton_item_less](Span(pairs))
+    sort(Span(pairs))
 
     for i in range(len(pairs)):
         builder.item_indices[i] = pairs[i].item_idx

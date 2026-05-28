@@ -7,23 +7,16 @@ from bajo.bvh.constants import (
     GPU_STACK_SIZE,
     EMPTY_LANE,
     f32_max,
-    BOUNDS_STRIDE,
-    TRANSFORM_STRIDE,
-    BLAS_DESC_WIDE_BOUNDS_BASE,
-    BLAS_DESC_WIDE_LANE_BASE,
-    BLAS_DESC_LEAF_F32_BASE,
-    BLAS_DESC_LEAF_U32_BASE,
-    BLAS_DESC_ROOT_IDX,
-    BLAS_DESC_STRIDE,
+    GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
+from bajo.core.aabb import AABB
 from bajo.bvh.types import Ray, Hit, Instance, BlasSet
 from bajo.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
-    GPU_BOUNDS_BVH_BLOCK_SIZE,
     _wide_lane_base,
     _intersect_wide_node_bounds,
 )
-from bajo.bvh.camera import Camera, CAMERA_STRIDE
+from bajo.bvh.camera import Camera
 from bajo.bvh.gpu.sphere_bvh import _intersect_sphere_leaf
 from bajo.bvh.gpu.triangle_bvh import _intersect_triangle_leaf
 from bajo.bvh.gpu.trace import trace_bounds_bvh
@@ -43,7 +36,7 @@ comptime BlasLeafFn = def(
 def _flatten_instance_inv_transforms(
     instances: List[Instance],
 ) -> List[Float32]:
-    var out = List[Float32](capacity=max(len(instances), 1) * TRANSFORM_STRIDE)
+    var out = List[Float32](capacity=max(len(instances), 1) * Affine3f32.STRIDE)
     for instance in instances:
         out.extend(instance.inv_transform.flatten())
 
@@ -72,7 +65,7 @@ def transform_ray(
     ray: Ray,
     t_max: Float32,
 ) -> Ray:
-    var base = Int(idx) * TRANSFORM_STRIDE
+    var base = Int(idx) * Affine3f32.STRIDE
     var transform = Affine3f32.load(transforms, base)
     var o = transform.point(ray.o)
     var d = transform.vector(ray.d)
@@ -110,7 +103,7 @@ def _intersect_tlas_instance_block[
 
             if inst_idx != EMPTY_LANE:
                 var blas_idx = UInt32(inst_blas_indices[Int(inst_idx)])
-                var desc_base = Int(blas_idx) * BLAS_DESC_STRIDE
+                var desc_base = Int(blas_idx) * BlasSet.STRIDE
 
                 var local_ray = transform_ray(
                     inst_inv_transform,
@@ -125,16 +118,16 @@ def _intersect_tlas_instance_block[
                     blas_leaf_fn,
                 ](
                     blas_wide_bounds
-                    + Int(blas_descs[desc_base + BLAS_DESC_WIDE_BOUNDS_BASE]),
+                    + Int(blas_descs[desc_base + BlasSet.WIDE_BOUNDS_BASE]),
                     blas_wide_data
-                    + Int(blas_descs[desc_base + BLAS_DESC_WIDE_LANE_BASE]),
+                    + Int(blas_descs[desc_base + BlasSet.WIDE_LANE_BASE]),
                     blas_wide_counts
-                    + Int(blas_descs[desc_base + BLAS_DESC_WIDE_LANE_BASE]),
+                    + Int(blas_descs[desc_base + BlasSet.WIDE_LANE_BASE]),
                     blas_leaf_data_f32
-                    + Int(blas_descs[desc_base + BLAS_DESC_LEAF_F32_BASE]),
+                    + Int(blas_descs[desc_base + BlasSet.LEAF_F32_BASE]),
                     blas_leaf_data_u32
-                    + Int(blas_descs[desc_base + BLAS_DESC_LEAF_U32_BASE]),
-                    UInt32(blas_descs[desc_base + BLAS_DESC_ROOT_IDX]),
+                    + Int(blas_descs[desc_base + BlasSet.LEAF_U32_BASE]),
+                    UInt32(blas_descs[desc_base + BlasSet.ROOT_IDX]),
                     local_ray,
                 )
 
@@ -147,7 +140,7 @@ def _intersect_tlas_instance_block[
                     if local_hit.t < hit.t and local_hit.prim != EMPTY_LANE:
                         var inv_transform = Affine3f32.load(
                             inst_inv_transform,
-                            Int(inst_idx) * TRANSFORM_STRIDE,
+                            Int(inst_idx) * Affine3f32.STRIDE,
                         )
 
                         hit = local_hit
@@ -303,7 +296,7 @@ def trace_triangle_tlas_camera_kernel[
     var px_i = local_idx % width
     var py_i = local_idx / width
 
-    var camera = Camera(camera_params, view_idx * CAMERA_STRIDE)
+    var camera = Camera(camera_params, view_idx * Camera.STRIDE)
     var ray = camera.make_ray(px_i, py_i, width, height)
 
     var hit = _trace_tlas_ray[
@@ -375,7 +368,7 @@ def trace_sphere_tlas_camera_kernel[
     var px_i = local_idx % width
     var py_i = local_idx / width
 
-    var camera = Camera(camera_params, view_idx * CAMERA_STRIDE)
+    var camera = Camera(camera_params, view_idx * Camera.STRIDE)
     var ray = camera.make_ray(px_i, py_i, width, height)
 
     var hit = _trace_tlas_ray[
@@ -434,7 +427,7 @@ struct GpuTypedTlasCore[width: Int]:
         self.inst_count = len(instances)
 
         var leaf_bounds = List[Float32](
-            capacity=max(self.inst_count, 1) * BOUNDS_STRIDE
+            capacity=max(self.inst_count, 1) * AABB.STRIDE
         )
         var payloads = List[UInt32](capacity=max(self.inst_count, 1))
 
@@ -449,7 +442,7 @@ struct GpuTypedTlasCore[width: Int]:
             payloads.append(UInt32(i))
 
         if self.inst_count == 0:
-            for _ in range(BOUNDS_STRIDE):
+            for _ in range(AABB.STRIDE):
                 leaf_bounds.append(0.0)
             payloads.append(EMPTY_LANE)
 

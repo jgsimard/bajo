@@ -2,31 +2,22 @@ from std.math import ceildiv, max
 from std.time import perf_counter_ns
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
 
-from bajo.bvh.camera import Camera, CAMERA_STRIDE
+from bajo.bvh.camera import Camera
 from bajo.bvh.gpu.utils import (
     GpuBuildTimings,
     upload_vertices,
     upload_list,
-    append_buffer,
 )
+from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3f32, vmin, vmax, normalize, cross
 from bajo.bvh.types import Ray, Hit, BlasSet
 from bajo.bvh.constants import (
     EMPTY_LANE,
     TRACE,
     TRI_LEAF_VERTEX_STRIDE,
-    BLAS_DESC_STRIDE,
-    BLAS_DESC_ROOT_IDX,
-    BLAS_DESC_WIDE_BOUNDS_BASE,
-    BLAS_DESC_WIDE_LANE_BASE,
-    BLAS_DESC_LEAF_F32_BASE,
-    BLAS_DESC_LEAF_U32_BASE,
-)
-from bajo.bvh.gpu.bounds_bvh import (
-    GpuBoundsBvh,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
-    BOUNDS_STRIDE,
 )
+from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh
 from bajo.core.intersect import intersect_ray_tri
 from bajo.bvh.gpu.trace import trace_bounds_bvh
 
@@ -46,7 +37,7 @@ struct GpuTriangleBlasSetBuilder[width: Int]:
 
     def build(mut self, mut ctx: DeviceContext) raises -> BlasSet[Self.width]:
         if len(self.vertex_sets) == 0:
-            var descs = List[UInt32](length=BLAS_DESC_STRIDE, fill=0)
+            var descs = List[UInt32](length=BlasSet.STRIDE, fill=0)
             var dummy_f32 = [Float32(0.0)]
             var dummy_u32 = [EMPTY_LANE]
 
@@ -61,7 +52,7 @@ struct GpuTriangleBlasSetBuilder[width: Int]:
             )
 
         var descs = List[UInt32](
-            capacity=len(self.vertex_sets) * BLAS_DESC_STRIDE
+            capacity=len(self.vertex_sets) * BlasSet.STRIDE
         )
 
         var total_wide_bounds = 0
@@ -87,13 +78,13 @@ struct GpuTriangleBlasSetBuilder[width: Int]:
             descs.append(leaf_u32_base)
 
             # Filled after the actual GPU BLAS build.
-            descs.append(UInt32(0))  # BLAS_DESC_ROOT_IDX
+            descs.append(UInt32(0))  # BlasSet.ROOT_IDX
 
             descs.append(UInt32(max_wide_nodes))
             descs.append(UInt32(max_leaf_blocks))
             descs.append(UInt32(tri_count))
 
-            total_wide_bounds += max_wide_nodes * Self.width * BOUNDS_STRIDE
+            total_wide_bounds += max_wide_nodes * Self.width * AABB.STRIDE
             total_wide_lanes += max_wide_nodes * Self.width
             total_leaf_vertices += (
                 max_leaf_blocks * Self.width * TRI_LEAF_VERTEX_STRIDE
@@ -123,18 +114,16 @@ struct GpuTriangleBlasSetBuilder[width: Int]:
             var d_vertices = upload_vertices(ctx, self.vertex_sets[blas_idx])
             var blas = GpuTriangleBvh[Self.width](ctx, d_vertices)
 
-            var desc_base = blas_idx * BLAS_DESC_STRIDE
+            var desc_base = blas_idx * BlasSet.STRIDE
 
-            descs[desc_base + BLAS_DESC_ROOT_IDX] = blas.tree.root_idx
+            descs[desc_base + BlasSet.ROOT_IDX] = blas.tree.root_idx
 
             var wide_bounds_base = Int(
-                descs[desc_base + BLAS_DESC_WIDE_BOUNDS_BASE]
+                descs[desc_base + BlasSet.WIDE_BOUNDS_BASE]
             )
-            var wide_lane_base = Int(
-                descs[desc_base + BLAS_DESC_WIDE_LANE_BASE]
-            )
-            var leaf_f32_base = Int(descs[desc_base + BLAS_DESC_LEAF_F32_BASE])
-            var leaf_u32_base = Int(descs[desc_base + BLAS_DESC_LEAF_U32_BASE])
+            var wide_lane_base = Int(descs[desc_base + BlasSet.WIDE_LANE_BASE])
+            var leaf_f32_base = Int(descs[desc_base + BlasSet.LEAF_F32_BASE])
+            var leaf_u32_base = Int(descs[desc_base + BlasSet.LEAF_U32_BASE])
 
             blas.tree.wide_bounds.enqueue_copy_to(
                 packed_wide_bounds.unsafe_ptr() + wide_bounds_base
@@ -186,7 +175,7 @@ struct GpuTriangleBvh[width: Int]:
         self.bounds_pack_ns = 0
 
         var leaf_bounds = ctx.enqueue_create_buffer[DType.float32](
-            self.tri_count * BOUNDS_STRIDE
+            self.tri_count * AABB.STRIDE
         )
         var payloads = ctx.enqueue_create_buffer[DType.uint32](self.tri_count)
 
@@ -286,7 +275,7 @@ def compute_triangle_bounds_kernel(
     var bmin = vmin(vmin(v0, v1), v2)
     var bmax = vmax(vmax(v0, v1), v2)
 
-    var bbase = tri_idx * BOUNDS_STRIDE
+    var bbase = tri_idx * AABB.STRIDE
 
     leaf_bounds[bbase + 0] = bmin.x
     leaf_bounds[bbase + 1] = bmin.y
@@ -352,7 +341,7 @@ def trace_triangle_bvh_camera_kernel[
     var px_i = local_idx % width_px
     var py_i = local_idx / width_px
 
-    var camera = Camera(camera_params, view_idx * CAMERA_STRIDE)
+    var camera = Camera(camera_params, view_idx * Camera.STRIDE)
     var ray = camera.make_ray(px_i, py_i, width_px, height_px)
 
     var hit = trace_bounds_bvh[

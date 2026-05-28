@@ -7,12 +7,6 @@ from bajo.bvh.constants import f32_max, EMPTY_LANE, Primitive, TRACE
 from bajo.core.vec import Vec3f32, vmin, vmax, Vec3
 from bajo.core.transform import Affine3f32
 
-comptime RAY_STRIDE = 8
-comptime RAY_O = 0  # 0, 1, 2
-comptime RAY_T_MIN = 3
-comptime RAY_D = 4  # 4, 5, 6
-comptime RAY_T_MAX = 7
-
 
 @fieldwise_init
 struct Hit(TrivialRegisterPassable, Writable):
@@ -40,6 +34,12 @@ struct Hit(TrivialRegisterPassable, Writable):
 
 @fieldwise_init
 struct Ray(TrivialRegisterPassable, Writable):
+    comptime STRIDE = 8
+    comptime ORIGIN = 0  # 0, 1, 2
+    comptime T_MIN = 3
+    comptime DIRECTION = 4  # 4, 5, 6
+    comptime T_MAX = 7
+
     var o: Vec3f32
     var t_min: Float32
     var d: Vec3f32
@@ -62,11 +62,11 @@ struct Ray(TrivialRegisterPassable, Writable):
         rays: UnsafePointer[Float32, MutAnyOrigin],
         ray_idx: Int,
     ):
-        var base = ray_idx * RAY_STRIDE
-        self.o = Vec3f32.load(rays, base + RAY_O)
-        self.t_min = rays[base + RAY_T_MIN]
-        self.d = Vec3f32.load(rays, base + RAY_D)
-        self.t_max = rays[base + RAY_T_MAX]
+        var base = ray_idx * Ray.STRIDE
+        self.o = Vec3f32.load(rays, base + Ray.ORIGIN)
+        self.t_min = rays[base + Ray.T_MIN]
+        self.d = Vec3f32.load(rays, base + Ray.DIRECTION)
+        self.t_max = rays[base + Ray.T_MAX]
 
     def flatten(self) -> List[Float32]:
         return [
@@ -83,6 +83,7 @@ struct Ray(TrivialRegisterPassable, Writable):
 
 @fieldwise_init
 struct Sphere(TrivialRegisterPassable):
+    comptime STRIDE = 4
     var center: Vec3f32
     var radius: Float32
 
@@ -180,6 +181,16 @@ trait TypedBvh:
 
 @fieldwise_init
 struct BlasSet[width: Int]:
+    comptime WIDE_BOUNDS_BASE = 0
+    comptime WIDE_LANE_BASE = 1
+    comptime LEAF_F32_BASE = 2
+    comptime LEAF_U32_BASE = 3
+    comptime ROOT_IDX = 4
+    comptime NODE_COUNT = 5
+    comptime LEAF_BLOCK_COUNT = 6
+    comptime PRIM_COUNT = 7
+    comptime STRIDE = 8
+
     var descs: DeviceBuffer[DType.uint32]
     var wide_bounds: DeviceBuffer[DType.float32]
     var wide_data: DeviceBuffer[DType.uint32]

@@ -5,7 +5,10 @@ from bajo.core.aabb import AABB
 from bajo.bvh.constants import (
     LBVH_LEAF_FLAG,
     LBVH_INDEX_MASK,
-    BOUNDS_STRIDE,
+    BinaryBvhNode,
+    REDUCED_BOUNDS_STRIDE,
+    BOUNDS_REDUCE_CHUNK,
+    GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
 from bajo.bvh.gpu.utils import GpuBuildTimings, GpuBVHValidation, upload_list
 from bajo.bvh.gpu.validate import (
@@ -14,36 +17,25 @@ from bajo.bvh.gpu.validate import (
     validate_refit_bounds,
 )
 
-comptime BINARY_BVH_NODE_META_STRIDE = 4
-comptime BINARY_BVH_NODE_PARENT = 0
-comptime BINARY_BVH_NODE_LEFT = 1
-comptime BINARY_BVH_NODE_RIGHT = 2
-comptime BINARY_BVH_NODE_FENCE = 3
-comptime BINARY_BVH_NODE_BOUNDS_STRIDE = 12
-
-comptime GPU_BOUNDS_BVH_BLOCK_SIZE = 128
-comptime BOUNDS_REDUCE_CHUNK = 256
-comptime REDUCED_BOUNDS_STRIDE = BOUNDS_STRIDE * 2
-
 
 def _node_meta_base(node_idx: UInt32) -> Int:
-    return Int(node_idx) * BINARY_BVH_NODE_META_STRIDE
+    return Int(node_idx) * BinaryBvhNode.META_STRIDE
 
 
 def _node_bounds_base(node_idx: UInt32) -> Int:
-    return Int(node_idx) * BINARY_BVH_NODE_BOUNDS_STRIDE
+    return Int(node_idx) * BinaryBvhNode.BOUNDS_STRIDE
 
 
 def _node_parent_index(node_idx: UInt32) -> Int:
-    return _node_meta_base(node_idx) + BINARY_BVH_NODE_PARENT
+    return _node_meta_base(node_idx) + BinaryBvhNode.PARENT
 
 
 def _node_left_index(node_idx: UInt32) -> Int:
-    return _node_meta_base(node_idx) + BINARY_BVH_NODE_LEFT
+    return _node_meta_base(node_idx) + BinaryBvhNode.LEFT
 
 
 def _node_right_index(node_idx: UInt32) -> Int:
-    return _node_meta_base(node_idx) + BINARY_BVH_NODE_RIGHT
+    return _node_meta_base(node_idx) + BinaryBvhNode.RIGHT
 
 
 def _node_left(
@@ -97,10 +89,10 @@ def init_empty_bounds_kernel(
     if i >= n:
         return
 
-    var b = i * BINARY_BVH_NODE_BOUNDS_STRIDE
+    var b = i * BinaryBvhNode.BOUNDS_STRIDE
     var invalid = AABB.invalid()
     invalid.store6(bounds, b)
-    invalid.store6(bounds, b + BOUNDS_STRIDE)
+    invalid.store6(bounds, b + AABB.STRIDE)
 
 
 def compute_bounds_partials_kernel(
@@ -119,7 +111,7 @@ def compute_bounds_partials_kernel(
     var centroid_bounds = AABB.invalid()
 
     for leaf_idx in range(first, last):
-        var b = leaf_idx * BOUNDS_STRIDE
+        var b = leaf_idx * AABB.STRIDE
         var aabb = AABB.load6(leaf_bounds, b)
 
         bounds.grow(aabb)
@@ -127,7 +119,7 @@ def compute_bounds_partials_kernel(
 
     var out = chunk * REDUCED_BOUNDS_STRIDE
     bounds.store6(out_partials, out)
-    centroid_bounds.store6(out_partials, out + BOUNDS_STRIDE)
+    centroid_bounds.store6(out_partials, out + AABB.STRIDE)
 
 
 def reduce_bounds_partials_kernel(
@@ -149,14 +141,14 @@ def reduce_bounds_partials_kernel(
         var b = i * REDUCED_BOUNDS_STRIDE
 
         var partial_bounds = AABB.load6(in_partials, b)
-        var partial_centroid_bounds = AABB.load6(in_partials, b + BOUNDS_STRIDE)
+        var partial_centroid_bounds = AABB.load6(in_partials, b + AABB.STRIDE)
 
         bounds.grow(partial_bounds)
         centroid_bounds.grow(partial_centroid_bounds)
 
     var out = chunk * REDUCED_BOUNDS_STRIDE
     bounds.store6(out_partials, out)
-    centroid_bounds.store6(out_partials, out + BOUNDS_STRIDE)
+    centroid_bounds.store6(out_partials, out + AABB.STRIDE)
 
 
 def copy_lbvh_bounds_result_kernel(
@@ -303,11 +295,11 @@ struct GpuBinaryBoundsBvh(Movable):
         self.leaf_ids = ctx.enqueue_create_buffer[DType.uint32](n_leaf)
 
         self.node_meta = ctx.enqueue_create_buffer[DType.uint32](
-            n_internal * BINARY_BVH_NODE_META_STRIDE
+            n_internal * BinaryBvhNode.META_STRIDE
         )
         self.leaf_parent = ctx.enqueue_create_buffer[DType.uint32](n_leaf)
         self.node_bounds = ctx.enqueue_create_buffer[DType.float32](
-            n_internal * BINARY_BVH_NODE_BOUNDS_STRIDE
+            n_internal * BinaryBvhNode.BOUNDS_STRIDE
         )
         self.node_flags = ctx.enqueue_create_buffer[DType.uint32](n_internal)
 
@@ -320,7 +312,7 @@ struct GpuBinaryBoundsBvh(Movable):
     def centroid_bounds(self) raises -> AABB:
         var out = AABB.invalid()
         with self.bounds_device.map_to_host() as h:
-            out = AABB.load6(h.unsafe_ptr(), BOUNDS_STRIDE)
+            out = AABB.load6(h.unsafe_ptr(), AABB.STRIDE)
         return out
 
     def validate(self, bounds: AABB) raises -> GpuBVHValidation:

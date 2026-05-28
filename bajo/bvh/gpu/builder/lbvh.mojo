@@ -11,17 +11,11 @@ from bajo.sort.gpu.radix_sort import device_radix_sort_pairs, RadixSortWorkspace
 from bajo.bvh.constants import (
     LBVH_LEAF_FLAG,
     LBVH_SENTINEL,
-    BOUNDS_STRIDE,
+    BinaryBvhNode,
+    GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
 from bajo.bvh.gpu.utils import GpuBuildTimings
 from bajo.bvh.gpu.builder.binary_layout import (
-    BINARY_BVH_NODE_META_STRIDE,
-    BINARY_BVH_NODE_PARENT,
-    BINARY_BVH_NODE_LEFT,
-    BINARY_BVH_NODE_RIGHT,
-    BINARY_BVH_NODE_FENCE,
-    BINARY_BVH_NODE_BOUNDS_STRIDE,
-    GPU_BOUNDS_BVH_BLOCK_SIZE,
     _node_parent_index,
     _node_left,
     _node_right,
@@ -43,11 +37,11 @@ def compute_bounds_morton_codes_kernel(
     if i >= leaf_count:
         return
 
-    var centroid_bounds = AABB.load6(bounds_device, BOUNDS_STRIDE)
+    var centroid_bounds = AABB.load6(bounds_device, AABB.STRIDE)
     var cmin = centroid_bounds._min
     var inv_extent = centroid_bounds.extent().safe_inv()
 
-    var b = i * BOUNDS_STRIDE
+    var b = i * AABB.STRIDE
     var bounds = AABB.load6(leaf_bounds, b)
     var c = (bounds.centroid() - cmin) * inv_extent
 
@@ -69,7 +63,7 @@ def refit_lbvh_bounds_from_leaves_kernel(
         return
 
     var item_idx = UInt32(leaf_ids[leaf_idx])
-    var b = Int(item_idx) * BOUNDS_STRIDE
+    var b = Int(item_idx) * AABB.STRIDE
     var bounds = AABB.load6(leaf_bounds, b)
 
     var current_encoded = UInt32(leaf_idx) | LBVH_LEAF_FLAG
@@ -186,11 +180,11 @@ def init_lbvh_topology_kernel(
     var i = global_idx.x
 
     if i < internal_count:
-        var base = i * BINARY_BVH_NODE_META_STRIDE
-        node_meta[base + BINARY_BVH_NODE_PARENT] = LBVH_SENTINEL
-        node_meta[base + BINARY_BVH_NODE_LEFT] = 0
-        node_meta[base + BINARY_BVH_NODE_RIGHT] = 0
-        node_meta[base + BINARY_BVH_NODE_FENCE] = 0
+        var base = i * BinaryBvhNode.META_STRIDE
+        node_meta[base + BinaryBvhNode.PARENT] = LBVH_SENTINEL
+        node_meta[base + BinaryBvhNode.LEFT] = 0
+        node_meta[base + BinaryBvhNode.RIGHT] = 0
+        node_meta[base + BinaryBvhNode.FENCE] = 0
 
     if i < leaf_count:
         leaf_parent[i] = LBVH_SENTINEL
@@ -228,10 +222,10 @@ def build_lbvh_topology_kernel(
     else:
         node_meta[_node_parent_index(UInt32(right_child))] = UInt32(i)
 
-    var base = i * BINARY_BVH_NODE_META_STRIDE
-    node_meta[base + BINARY_BVH_NODE_LEFT] = left_encoded
-    node_meta[base + BINARY_BVH_NODE_RIGHT] = right_encoded
-    node_meta[base + BINARY_BVH_NODE_FENCE] = UInt32(last)
+    var base = i * BinaryBvhNode.META_STRIDE
+    node_meta[base + BinaryBvhNode.LEFT] = left_encoded
+    node_meta[base + BinaryBvhNode.RIGHT] = right_encoded
+    node_meta[base + BinaryBvhNode.FENCE] = UInt32(last)
 
 
 def build_binary_bvh_with_lbvh(

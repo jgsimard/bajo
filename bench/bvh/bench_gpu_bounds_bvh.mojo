@@ -10,7 +10,7 @@ from bajo.core.utils import (
 )
 from bajo.core.aabb import AABB
 from bajo.core.vec import Vec3, Vec3f32, dot
-from bajo.bvh.camera import Camera, CAMERA_STRIDE
+from bajo.bvh.camera import Camera
 from bajo.bvh.host_utils import (
     compute_bounds,
     hit_t_for_checksum,
@@ -64,7 +64,7 @@ def _make_camera_rays_and_params(
         scene_w = 1.0
 
     var rays = List[Ray](capacity=width * height * views)
-    var params = List[Float32](capacity=views * CAMERA_STRIDE)
+    var params = List[Float32](capacity=views * Camera.STRIDE)
 
     for view in range(views):
         var view_offset = Float32(view) - Float32(views - 1) * 0.5

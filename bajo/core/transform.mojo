@@ -29,6 +29,8 @@ struct Affine3[dtype: DType, width: Int = 1](
     Vectors : v_out = M * v_in
     """
 
+    comptime STRIDE = 12
+
     var m00: SIMD[Self.dtype, Self.width]
     var m01: SIMD[Self.dtype, Self.width]
     var m02: SIMD[Self.dtype, Self.width]

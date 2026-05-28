@@ -1,5 +1,6 @@
 from std.math import clamp
 from std.utils.numerics import max_finite, min_finite
+from std.gpu import DeviceBuffer
 
 from bajo.core.aabb import AABB
 from bajo.bvh.constants import f32_max, EMPTY_LANE, Primitive, TRACE
@@ -175,3 +176,14 @@ def transform_bounds(transform: Affine3f32, bounds: AABB) -> AABB:
 trait TypedBvh:
     def trace[mode: TRACE](self, ray: Ray) -> Hit:
         ...
+
+
+@fieldwise_init
+struct BlasSet[width: Int]:
+    var descs: DeviceBuffer[DType.uint32]
+    var wide_bounds: DeviceBuffer[DType.float32]
+    var wide_data: DeviceBuffer[DType.uint32]
+    var wide_counts: DeviceBuffer[DType.uint32]
+    var leaf_data_f32: DeviceBuffer[DType.float32]
+    var leaf_prims: DeviceBuffer[DType.uint32]
+    var blas_count: Int

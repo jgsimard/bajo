@@ -37,3 +37,14 @@ struct Primitive(Equatable, TrivialRegisterPassable):
     comptime TRIANGLE = Self(0)
     comptime SPHERE = Self(1)
     var v: Int32
+
+
+comptime BLAS_DESC_WIDE_BOUNDS_BASE = 0
+comptime BLAS_DESC_WIDE_LANE_BASE = 1
+comptime BLAS_DESC_LEAF_F32_BASE = 2
+comptime BLAS_DESC_LEAF_U32_BASE = 3
+comptime BLAS_DESC_ROOT_IDX = 4
+comptime BLAS_DESC_NODE_COUNT = 5
+comptime BLAS_DESC_LEAF_BLOCK_COUNT = 6
+comptime BLAS_DESC_PRIM_COUNT = 7
+comptime BLAS_DESC_STRIDE = 8

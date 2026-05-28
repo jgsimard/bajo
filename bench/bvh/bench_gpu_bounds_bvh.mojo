@@ -433,6 +433,7 @@ def _print_gpu_row[
     var c11 = status.ascii_ljust(6)
 
     print(t"{c0} {c1} {c2} {c3} {c4} {c5} {c6} {c7} {c8} {c9} {c10} {c11}")
+    print(timings)
 
 
 def _bench_camera_primary_triangle[

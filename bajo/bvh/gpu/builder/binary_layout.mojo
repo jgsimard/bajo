@@ -189,6 +189,7 @@ struct GpuBinaryBoundsBvh(Movable):
     var leaf_parent: DeviceBuffer[DType.uint32]
     var node_bounds: DeviceBuffer[DType.float32]
     var node_flags: DeviceBuffer[DType.uint32]
+    var node_leaf_counts: DeviceBuffer[DType.uint32]
 
     def __init__(
         out self,
@@ -298,6 +299,9 @@ struct GpuBinaryBoundsBvh(Movable):
             n_internal * BinaryBvhNode.META_STRIDE
         )
         self.leaf_parent = ctx.enqueue_create_buffer[DType.uint32](n_leaf)
+        self.node_leaf_counts = ctx.enqueue_create_buffer[DType.uint32](
+            n_internal
+        )
         self.node_bounds = ctx.enqueue_create_buffer[DType.float32](
             n_internal * BinaryBvhNode.BOUNDS_STRIDE
         )

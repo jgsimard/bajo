@@ -15,8 +15,8 @@ def test_identity() raises:
     v = Vec3f32(4, 5, 6)
     m = Affine3f32.identity()
 
-    assert_vec_equal(m.transform_point(p), p)
-    assert_vec_equal(m.transform_vector(v), v)
+    assert_vec_equal(m.point(p), p)
+    assert_vec_equal(m.vector(v), v)
     assert_vec_equal(m.translation(), Vec3f32(0, 0, 0))
 
 
@@ -27,8 +27,8 @@ def test_translation() raises:
 
     m = Affine3f32.from_translation(t)
 
-    assert_vec_equal(m.transform_point(p), Vec3f32(11, 0, 6.5))
-    assert_vec_equal(m.transform_vector(v), v)
+    assert_vec_equal(m.point(p), Vec3f32(11, 0, 6.5))
+    assert_vec_equal(m.vector(v), v)
     assert_vec_equal(m.translation(), t)
 
 
@@ -39,8 +39,8 @@ def test_scale() raises:
 
     m = Affine3f32.from_scale(s)
 
-    assert_vec_equal(m.transform_point(p), Vec3f32(2, 6, 12))
-    assert_vec_equal(m.transform_vector(v), Vec3f32(8, 15, 24))
+    assert_vec_equal(m.point(p), Vec3f32(2, 6, 12))
+    assert_vec_equal(m.vector(v), Vec3f32(8, 15, 24))
     assert_vec_equal(m.translation(), Vec3f32(0, 0, 0))
 
 
@@ -54,8 +54,8 @@ def test_rotation_scale_from_quat() raises:
 
     expected = q.rotate(Vec3f32(v.x * s.x, v.y * s.y, v.z * s.z))
 
-    assert_vec_equal(m.transform_vector(v), expected)
-    assert_vec_equal(m.transform_point(v), expected)
+    assert_vec_equal(m.vector(v), expected)
+    assert_vec_equal(m.point(v), expected)
 
 
 def test_rotation_scale_translation_from_quat() raises:
@@ -72,8 +72,8 @@ def test_rotation_scale_translation_from_quat() raises:
     expected_v = q.rotate(Vec3f32(p.x * s.x, p.y * s.y, p.z * s.z))
     expected_p = expected_v + t
 
-    assert_vec_equal(m.transform_vector(p), expected_v)
-    assert_vec_equal(m.transform_point(p), expected_p)
+    assert_vec_equal(m.vector(p), expected_v)
+    assert_vec_equal(m.point(p), expected_p)
     assert_vec_equal(m.translation(), t)
 
 
@@ -89,19 +89,19 @@ def test_width4_translation_and_scale() raises:
     ms = Affine3[T, W].from_scale(s)
 
     assert_vec_equal(
-        mt.transform_point(p),
+        mt.point(p),
         Vec3[T, W](11.0, 22.0, 33.0),
     )
 
-    assert_vec_equal(mt.transform_vector(p), p)
+    assert_vec_equal(mt.vector(p), p)
 
     assert_vec_equal(
-        ms.transform_point(p),
+        ms.point(p),
         Vec3[T, W](2.0, 6.0, 12.0),
     )
 
     assert_vec_equal(
-        ms.transform_vector(p),
+        ms.vector(p),
         Vec3[T, W](2.0, 6.0, 12.0),
     )
 
@@ -121,8 +121,8 @@ def test_load_store() raises:
     m.store(ptr, 0)
     loaded = Affine3f32.load(ptr, 0)
 
-    assert_vec_equal(loaded.transform_point(p), m.transform_point(p))
-    assert_vec_equal(loaded.transform_vector(p), m.transform_vector(p))
+    assert_vec_equal(loaded.point(p), m.point(p))
+    assert_vec_equal(loaded.vector(p), m.vector(p))
 
     assert_almost_equal(loaded.m00[0], 1.0)
     assert_almost_equal(loaded.m01[0], 2.0)
@@ -156,7 +156,7 @@ def test_load_transform_helpers() raises:
 
     # p = M * p_in + t
     assert_vec_equal(
-        loaded.transform_point(p),
+        loaded.point(p),
         Vec3f32(
             1 * 2 + 2 * 3 + 3 * 4 + 4,
             5 * 2 + 6 * 3 + 7 * 4 + 8,
@@ -166,7 +166,7 @@ def test_load_transform_helpers() raises:
 
     # v = M * v_in
     assert_vec_equal(
-        loaded.transform_vector(p),
+        loaded.vector(p),
         Vec3f32(
             1 * 2 + 2 * 3 + 3 * 4,
             5 * 2 + 6 * 3 + 7 * 4,
@@ -190,8 +190,8 @@ def test_inverse_translation_scale() raises:
 
     assert_true(res.mask[0])
 
-    p2 = m.transform_point(p)
-    assert_vec_equal(res.inv.transform_point(p2), p)
+    p2 = m.point(p)
+    assert_vec_equal(res.inv.point(p2), p)
 
 
 def test_inverse_rotation_scale_translation() raises:
@@ -208,8 +208,8 @@ def test_inverse_rotation_scale_translation() raises:
 
     assert_true(res.mask[0])
 
-    p2 = m.transform_point(p)
-    assert_vec_equal(res.inv.transform_point(p2), p, atol=1e-4)
+    p2 = m.point(p)
+    assert_vec_equal(res.inv.point(p2), p, atol=1e-4)
 
 
 def test_inverse_singular_scale() raises:
@@ -227,8 +227,8 @@ def test_inverse_identity() raises:
     p = Vec3f32(1, 2, 3)
     v = Vec3f32(4, 5, 6)
 
-    assert_vec_equal(res.inv.transform_point(p), p)
-    assert_vec_equal(res.inv.transform_vector(v), v)
+    assert_vec_equal(res.inv.point(p), p)
+    assert_vec_equal(res.inv.vector(v), v)
 
 
 def main() raises:

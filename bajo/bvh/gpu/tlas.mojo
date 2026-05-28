@@ -58,8 +58,8 @@ def transform_ray(
 ) -> Ray:
     var base = Int(idx) * TRANSFORM_STRIDE
     var transform = Affine3f32.load(transforms, base)
-    var o = transform.transform_point(ray.o)
-    var d = transform.transform_vector(ray.d)
+    var o = transform.point(ray.o)
+    var d = transform.vector(ray.d)
 
     return Ray(o, d, ray.t_min, t_max)
 
@@ -135,9 +135,7 @@ def _intersect_tlas_instance_block[
 
                         hit = local_hit
                         hit.inst = inst_idx
-                        hit.normal = inv_transform.transform_vector(
-                            local_hit.normal
-                        )
+                        hit.normal = inv_transform.vector(local_hit.normal)
                         hit_any = True
 
     return hit_any

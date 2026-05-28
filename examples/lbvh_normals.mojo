@@ -133,9 +133,7 @@ def write_ppm_normals_from_hits(
 
                     var local_n = normalize(cross(v1 - v0, v2 - v0))
                     var world_n = normalize(
-                        instances[Int(inst)].transform.transform_vector(
-                            local_n,
-                        )
+                        instances[Int(inst)].transform.vector(local_n)
                     )
 
                     out[i * 3 + 0] = _unit_to_u8(world_n.x[0] * 0.5 + 0.5)

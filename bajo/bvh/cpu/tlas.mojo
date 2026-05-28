@@ -57,8 +57,8 @@ struct Tlas[width: Int](Copyable):
                 ref inst = self.instances[Int(inst_idx)]
                 ref transform = inst.inv_transform
 
-                var local_origin = transform.transform_point(ray.o)
-                var local_dir = transform.transform_vector(ray.d)
+                var local_origin = transform.point(ray.o)
+                var local_dir = transform.vector(ray.d)
 
                 var local_ray = Ray(local_origin, local_dir, ray.t_min, hit.t)
 

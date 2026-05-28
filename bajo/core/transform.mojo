@@ -151,7 +151,7 @@ struct Affine3[dtype: DType, width: Int = 1](
         )
         # fmt: on
 
-    def transform_point(
+    def point(
         self, p: Vec3[Self.dtype, Self.width]
     ) -> Vec3[Self.dtype, Self.width]:
         """Formula : p_out = M * p_in + t."""
@@ -161,7 +161,7 @@ struct Affine3[dtype: DType, width: Int = 1](
             fma(self.m20, p.x, fma(self.m21, p.y, fma(self.m22, p.z, self.tz))),
         )
 
-    def transform_vector(
+    def vector(
         self, v: Vec3[Self.dtype, Self.width]
     ) -> Vec3[Self.dtype, Self.width]:
         """Formula : v_out = M * v_in."""

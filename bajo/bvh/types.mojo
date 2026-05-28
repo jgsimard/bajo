@@ -158,22 +158,17 @@ struct Instance(Copyable):
 
 
 def transform_bounds(transform: Affine3f32, bounds: AABB) -> AABB:
-    var corners = InlineArray[Vec3f32, 8](uninitialized=True)
-
-    corners[0] = Vec3f32(bounds._min.x, bounds._min.y, bounds._min.z)
-    corners[1] = Vec3f32(bounds._max.x, bounds._min.y, bounds._min.z)
-    corners[2] = Vec3f32(bounds._min.x, bounds._max.y, bounds._min.z)
-    corners[3] = Vec3f32(bounds._max.x, bounds._max.y, bounds._min.z)
-    corners[4] = Vec3f32(bounds._min.x, bounds._min.y, bounds._max.z)
-    corners[5] = Vec3f32(bounds._max.x, bounds._min.y, bounds._max.z)
-    corners[6] = Vec3f32(bounds._min.x, bounds._max.y, bounds._max.z)
-    corners[7] = Vec3f32(bounds._max.x, bounds._max.y, bounds._max.z)
-
     var out = AABB.invalid()
-
-    comptime for i in range(8):
-        out.grow(transform.transform_point(corners[i]))
-
+    out.grow(
+        transform.point(Vec3f32(bounds._min.x, bounds._min.y, bounds._min.z)),
+        transform.point(Vec3f32(bounds._max.x, bounds._min.y, bounds._min.z)),
+        transform.point(Vec3f32(bounds._min.x, bounds._max.y, bounds._min.z)),
+        transform.point(Vec3f32(bounds._max.x, bounds._max.y, bounds._min.z)),
+        transform.point(Vec3f32(bounds._min.x, bounds._min.y, bounds._max.z)),
+        transform.point(Vec3f32(bounds._max.x, bounds._min.y, bounds._max.z)),
+        transform.point(Vec3f32(bounds._min.x, bounds._max.y, bounds._max.z)),
+        transform.point(Vec3f32(bounds._max.x, bounds._max.y, bounds._max.z)),
+    )
     return out
 
 

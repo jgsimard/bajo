@@ -9,12 +9,6 @@ from bajo.bvh.constants import (
     SPHERE_STRIDE,
     BOUNDS_STRIDE,
     f32_max,
-    BLAS_DESC_STRIDE,
-    BLAS_DESC_ROOT_IDX,
-    BLAS_DESC_WIDE_BOUNDS_BASE,
-    BLAS_DESC_WIDE_LANE_BASE,
-    BLAS_DESC_LEAF_F32_BASE,
-    BLAS_DESC_LEAF_U32_BASE,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
 from bajo.core.intersect import intersect_ray_sphere
@@ -40,7 +34,7 @@ struct GpuSphereBlasSetBuilder[width: Int]:
 
     def build(mut self, mut ctx: DeviceContext) raises -> BlasSet[Self.width]:
         if len(self.sphere_sets) == 0:
-            var descs = List[UInt32](length=BLAS_DESC_STRIDE, fill=0)
+            var descs = List[UInt32](length=BlasSet.STRIDE, fill=0)
             var dummy_f32 = [Float32(0.0)]
             var dummy_u32 = [EMPTY_LANE]
 
@@ -55,7 +49,7 @@ struct GpuSphereBlasSetBuilder[width: Int]:
             )
 
         var descs = List[UInt32](
-            capacity=len(self.sphere_sets) * BLAS_DESC_STRIDE
+            capacity=len(self.sphere_sets) * BlasSet.STRIDE
         )
 
         var total_wide_bounds = 0
@@ -81,7 +75,7 @@ struct GpuSphereBlasSetBuilder[width: Int]:
             descs.append(leaf_u32_base)
 
             # Filled after the actual GPU BLAS build.
-            descs.append(UInt32(0))  # BLAS_DESC_ROOT_IDX
+            descs.append(UInt32(0))  # BlasSet.ROOT_IDX
 
             descs.append(UInt32(max_wide_nodes))
             descs.append(UInt32(max_leaf_blocks))
@@ -113,18 +107,16 @@ struct GpuSphereBlasSetBuilder[width: Int]:
         for blas_idx in range(len(self.sphere_sets)):
             var blas = GpuSphereBvh[Self.width](ctx, self.sphere_sets[blas_idx])
 
-            var desc_base = blas_idx * BLAS_DESC_STRIDE
+            var desc_base = blas_idx * BlasSet.STRIDE
 
-            descs[desc_base + BLAS_DESC_ROOT_IDX] = blas.tree.root_idx
+            descs[desc_base + BlasSet.ROOT_IDX] = blas.tree.root_idx
 
             var wide_bounds_base = Int(
-                descs[desc_base + BLAS_DESC_WIDE_BOUNDS_BASE]
+                descs[desc_base + BlasSet.WIDE_BOUNDS_BASE]
             )
-            var wide_lane_base = Int(
-                descs[desc_base + BLAS_DESC_WIDE_LANE_BASE]
-            )
-            var leaf_f32_base = Int(descs[desc_base + BLAS_DESC_LEAF_F32_BASE])
-            var leaf_u32_base = Int(descs[desc_base + BLAS_DESC_LEAF_U32_BASE])
+            var wide_lane_base = Int(descs[desc_base + BlasSet.WIDE_LANE_BASE])
+            var leaf_f32_base = Int(descs[desc_base + BlasSet.LEAF_F32_BASE])
+            var leaf_u32_base = Int(descs[desc_base + BlasSet.LEAF_U32_BASE])
 
             blas.tree.wide_bounds.enqueue_copy_to(
                 packed_wide_bounds.unsafe_ptr() + wide_bounds_base

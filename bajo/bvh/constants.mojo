@@ -38,16 +38,6 @@ struct Primitive(Equatable, TrivialRegisterPassable):
     var v: Int32
 
 
-comptime BLAS_DESC_WIDE_BOUNDS_BASE = 0
-comptime BLAS_DESC_WIDE_LANE_BASE = 1
-comptime BLAS_DESC_LEAF_F32_BASE = 2
-comptime BLAS_DESC_LEAF_U32_BASE = 3
-comptime BLAS_DESC_ROOT_IDX = 4
-comptime BLAS_DESC_NODE_COUNT = 5
-comptime BLAS_DESC_LEAF_BLOCK_COUNT = 6
-comptime BLAS_DESC_PRIM_COUNT = 7
-comptime BLAS_DESC_STRIDE = 8
-
 comptime BINARY_BVH_NODE_META_STRIDE = 4
 comptime BINARY_BVH_NODE_PARENT = 0
 comptime BINARY_BVH_NODE_LEFT = 1

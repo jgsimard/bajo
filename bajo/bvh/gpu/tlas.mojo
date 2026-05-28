@@ -8,12 +8,6 @@ from bajo.bvh.constants import (
     EMPTY_LANE,
     f32_max,
     BOUNDS_STRIDE,
-    BLAS_DESC_WIDE_BOUNDS_BASE,
-    BLAS_DESC_WIDE_LANE_BASE,
-    BLAS_DESC_LEAF_F32_BASE,
-    BLAS_DESC_LEAF_U32_BASE,
-    BLAS_DESC_ROOT_IDX,
-    BLAS_DESC_STRIDE,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
 from bajo.bvh.types import Ray, Hit, Instance, BlasSet
@@ -109,7 +103,7 @@ def _intersect_tlas_instance_block[
 
             if inst_idx != EMPTY_LANE:
                 var blas_idx = UInt32(inst_blas_indices[Int(inst_idx)])
-                var desc_base = Int(blas_idx) * BLAS_DESC_STRIDE
+                var desc_base = Int(blas_idx) * BlasSet.STRIDE
 
                 var local_ray = transform_ray(
                     inst_inv_transform,
@@ -124,16 +118,16 @@ def _intersect_tlas_instance_block[
                     blas_leaf_fn,
                 ](
                     blas_wide_bounds
-                    + Int(blas_descs[desc_base + BLAS_DESC_WIDE_BOUNDS_BASE]),
+                    + Int(blas_descs[desc_base + BlasSet.WIDE_BOUNDS_BASE]),
                     blas_wide_data
-                    + Int(blas_descs[desc_base + BLAS_DESC_WIDE_LANE_BASE]),
+                    + Int(blas_descs[desc_base + BlasSet.WIDE_LANE_BASE]),
                     blas_wide_counts
-                    + Int(blas_descs[desc_base + BLAS_DESC_WIDE_LANE_BASE]),
+                    + Int(blas_descs[desc_base + BlasSet.WIDE_LANE_BASE]),
                     blas_leaf_data_f32
-                    + Int(blas_descs[desc_base + BLAS_DESC_LEAF_F32_BASE]),
+                    + Int(blas_descs[desc_base + BlasSet.LEAF_F32_BASE]),
                     blas_leaf_data_u32
-                    + Int(blas_descs[desc_base + BLAS_DESC_LEAF_U32_BASE]),
-                    UInt32(blas_descs[desc_base + BLAS_DESC_ROOT_IDX]),
+                    + Int(blas_descs[desc_base + BlasSet.LEAF_U32_BASE]),
+                    UInt32(blas_descs[desc_base + BlasSet.ROOT_IDX]),
                     local_ray,
                 )
 

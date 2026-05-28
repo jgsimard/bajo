@@ -180,6 +180,16 @@ trait TypedBvh:
 
 @fieldwise_init
 struct BlasSet[width: Int]:
+    comptime WIDE_BOUNDS_BASE = 0
+    comptime WIDE_LANE_BASE = 1
+    comptime LEAF_F32_BASE = 2
+    comptime LEAF_U32_BASE = 3
+    comptime ROOT_IDX = 4
+    comptime NODE_COUNT = 5
+    comptime LEAF_BLOCK_COUNT = 6
+    comptime PRIM_COUNT = 7
+    comptime STRIDE = 8
+
     var descs: DeviceBuffer[DType.uint32]
     var wide_bounds: DeviceBuffer[DType.float32]
     var wide_data: DeviceBuffer[DType.uint32]

@@ -37,12 +37,14 @@ struct Primitive(Equatable, TrivialRegisterPassable):
     var v: Int32
 
 
-comptime BINARY_BVH_NODE_META_STRIDE = 4
-comptime BINARY_BVH_NODE_PARENT = 0
-comptime BINARY_BVH_NODE_LEFT = 1
-comptime BINARY_BVH_NODE_RIGHT = 2
-comptime BINARY_BVH_NODE_FENCE = 3
-comptime BINARY_BVH_NODE_BOUNDS_STRIDE = 12
+struct BinaryBvhNode:
+    comptime META_STRIDE = 4
+    comptime PARENT = 0
+    comptime LEFT = 1
+    comptime RIGHT = 2
+    comptime FENCE = 3
+    comptime BOUNDS_STRIDE = 12
+
 
 comptime GPU_BOUNDS_BVH_BLOCK_SIZE = 128
 comptime BOUNDS_REDUCE_CHUNK = 256

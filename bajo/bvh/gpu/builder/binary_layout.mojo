@@ -6,11 +6,7 @@ from bajo.bvh.constants import (
     LBVH_LEAF_FLAG,
     LBVH_INDEX_MASK,
     BOUNDS_STRIDE,
-    BINARY_BVH_NODE_META_STRIDE,
-    BINARY_BVH_NODE_BOUNDS_STRIDE,
-    BINARY_BVH_NODE_PARENT,
-    BINARY_BVH_NODE_LEFT,
-    BINARY_BVH_NODE_RIGHT,
+    BinaryBvhNode,
     REDUCED_BOUNDS_STRIDE,
     BOUNDS_REDUCE_CHUNK,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
@@ -24,23 +20,23 @@ from bajo.bvh.gpu.validate import (
 
 
 def _node_meta_base(node_idx: UInt32) -> Int:
-    return Int(node_idx) * BINARY_BVH_NODE_META_STRIDE
+    return Int(node_idx) * BinaryBvhNode.META_STRIDE
 
 
 def _node_bounds_base(node_idx: UInt32) -> Int:
-    return Int(node_idx) * BINARY_BVH_NODE_BOUNDS_STRIDE
+    return Int(node_idx) * BinaryBvhNode.BOUNDS_STRIDE
 
 
 def _node_parent_index(node_idx: UInt32) -> Int:
-    return _node_meta_base(node_idx) + BINARY_BVH_NODE_PARENT
+    return _node_meta_base(node_idx) + BinaryBvhNode.PARENT
 
 
 def _node_left_index(node_idx: UInt32) -> Int:
-    return _node_meta_base(node_idx) + BINARY_BVH_NODE_LEFT
+    return _node_meta_base(node_idx) + BinaryBvhNode.LEFT
 
 
 def _node_right_index(node_idx: UInt32) -> Int:
-    return _node_meta_base(node_idx) + BINARY_BVH_NODE_RIGHT
+    return _node_meta_base(node_idx) + BinaryBvhNode.RIGHT
 
 
 def _node_left(
@@ -94,7 +90,7 @@ def init_empty_bounds_kernel(
     if i >= n:
         return
 
-    var b = i * BINARY_BVH_NODE_BOUNDS_STRIDE
+    var b = i * BinaryBvhNode.BOUNDS_STRIDE
     var invalid = AABB.invalid()
     invalid.store6(bounds, b)
     invalid.store6(bounds, b + BOUNDS_STRIDE)
@@ -300,11 +296,11 @@ struct GpuBinaryBoundsBvh(Movable):
         self.leaf_ids = ctx.enqueue_create_buffer[DType.uint32](n_leaf)
 
         self.node_meta = ctx.enqueue_create_buffer[DType.uint32](
-            n_internal * BINARY_BVH_NODE_META_STRIDE
+            n_internal * BinaryBvhNode.META_STRIDE
         )
         self.leaf_parent = ctx.enqueue_create_buffer[DType.uint32](n_leaf)
         self.node_bounds = ctx.enqueue_create_buffer[DType.float32](
-            n_internal * BINARY_BVH_NODE_BOUNDS_STRIDE
+            n_internal * BinaryBvhNode.BOUNDS_STRIDE
         )
         self.node_flags = ctx.enqueue_create_buffer[DType.uint32](n_internal)
 

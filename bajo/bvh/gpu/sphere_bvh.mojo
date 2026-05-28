@@ -6,7 +6,6 @@ from bajo.bvh.camera import Camera
 from bajo.bvh.constants import (
     EMPTY_LANE,
     TRACE,
-    SPHERE_STRIDE,
     BOUNDS_STRIDE,
     f32_max,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
@@ -83,7 +82,7 @@ struct GpuSphereBlasSetBuilder[width: Int]:
 
             total_wide_bounds += max_wide_nodes * Self.width * BOUNDS_STRIDE
             total_wide_lanes += max_wide_nodes * Self.width
-            total_leaf_spheres += max_leaf_blocks * Self.width * SPHERE_STRIDE
+            total_leaf_spheres += max_leaf_blocks * Self.width * Sphere.STRIDE
             total_leaf_prims += max_leaf_blocks * Self.width
 
         var packed_wide_bounds = ctx.enqueue_create_buffer[DType.float32](
@@ -191,7 +190,7 @@ struct GpuSphereBvh[width: Int]:
         self.timings = self.tree.build(ctx)
 
         self.leaf_spheres = ctx.enqueue_create_buffer[DType.float32](
-            self.tree.max_leaf_blocks * Self.width * SPHERE_STRIDE
+            self.tree.max_leaf_blocks * Self.width * Sphere.STRIDE
         )
         self.leaf_prims = ctx.enqueue_create_buffer[DType.uint32](
             self.tree.max_leaf_blocks * Self.width
@@ -315,7 +314,7 @@ def _load_sphere_leaf_packet[
             var prim = UInt32(leaf_prims[idx])
 
             if prim != EMPTY_LANE:
-                var base = idx * SPHERE_STRIDE
+                var base = idx * Sphere.STRIDE
 
                 block.center.x[lane] = leaf_spheres[base + 0]
                 block.center.y[lane] = leaf_spheres[base + 1]
@@ -395,18 +394,18 @@ def pack_sphere_leaf_blocks_kernel[
         var prim = UInt32(leaf_block_indices[idx])
         leaf_prims[idx] = prim
 
-        var out_base = idx * SPHERE_STRIDE
+        var out_base = idx * Sphere.STRIDE
         if prim == EMPTY_LANE:
-            for k in range(SPHERE_STRIDE):
+            for k in range(Sphere.STRIDE):
                 leaf_spheres[out_base + k] = 0.0
         else:
-            var in_base = Int(prim) * SPHERE_STRIDE
-            for k in range(SPHERE_STRIDE):
+            var in_base = Int(prim) * Sphere.STRIDE
+            for k in range(Sphere.STRIDE):
                 leaf_spheres[out_base + k] = spheres[in_base + k]
 
 
 def _flatten_spheres(spheres: List[Sphere]) -> List[Float32]:
-    var out = List[Float32](capacity=max(len(spheres), 1) * SPHERE_STRIDE)
+    var out = List[Float32](capacity=max(len(spheres), 1) * Sphere.STRIDE)
     for sphere in spheres:
         out.append(sphere.center.x)
         out.append(sphere.center.y)

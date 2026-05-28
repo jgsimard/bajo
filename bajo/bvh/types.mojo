@@ -83,6 +83,7 @@ struct Ray(TrivialRegisterPassable, Writable):
 
 @fieldwise_init
 struct Sphere(TrivialRegisterPassable):
+    comptime STRIDE = 4
     var center: Vec3f32
     var radius: Float32
 

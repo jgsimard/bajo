@@ -14,11 +14,7 @@ from bajo.bvh.gpu.validate import (
 )
 from bajo.bvh.gpu.utils import GpuBuildTimings, GpuBVHValidation
 from bajo.sort.gpu.radix_sort import RadixSortWorkspace
-from bajo.bvh.gpu.builder.lbvh import (
-    build_binary_bvh_with_lbvh,
-    BINARY_BVH_NODE_META_STRIDE,
-    BINARY_BVH_NODE_BOUNDS_STRIDE,
-)
+from bajo.bvh.gpu.builder.lbvh import build_binary_bvh_with_lbvh
 from bajo.bvh.gpu.builder.wide_collapse import collapse
 from bajo.bvh.gpu.builder.binary_layout import GpuBinaryBoundsBvh
 

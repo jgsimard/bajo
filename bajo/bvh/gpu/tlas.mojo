@@ -8,7 +8,6 @@ from bajo.bvh.constants import (
     EMPTY_LANE,
     f32_max,
     BOUNDS_STRIDE,
-    TRANSFORM_STRIDE,
     BLAS_DESC_WIDE_BOUNDS_BASE,
     BLAS_DESC_WIDE_LANE_BASE,
     BLAS_DESC_LEAF_F32_BASE,
@@ -43,7 +42,7 @@ comptime BlasLeafFn = def(
 def _flatten_instance_inv_transforms(
     instances: List[Instance],
 ) -> List[Float32]:
-    var out = List[Float32](capacity=max(len(instances), 1) * TRANSFORM_STRIDE)
+    var out = List[Float32](capacity=max(len(instances), 1) * Affine3f32.STRIDE)
     for instance in instances:
         out.extend(instance.inv_transform.flatten())
 
@@ -72,7 +71,7 @@ def transform_ray(
     ray: Ray,
     t_max: Float32,
 ) -> Ray:
-    var base = Int(idx) * TRANSFORM_STRIDE
+    var base = Int(idx) * Affine3f32.STRIDE
     var transform = Affine3f32.load(transforms, base)
     var o = transform.point(ray.o)
     var d = transform.vector(ray.d)
@@ -147,7 +146,7 @@ def _intersect_tlas_instance_block[
                     if local_hit.t < hit.t and local_hit.prim != EMPTY_LANE:
                         var inv_transform = Affine3f32.load(
                             inst_inv_transform,
-                            Int(inst_idx) * TRANSFORM_STRIDE,
+                            Int(inst_idx) * Affine3f32.STRIDE,
                         )
 
                         hit = local_hit

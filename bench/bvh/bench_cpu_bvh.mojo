@@ -188,8 +188,6 @@ def bench_triangle_primary[
         var dt = Int(t1 - t0)
         if dt < best_ns:
             best_ns = dt
-
-    keep(checksum)
     return PrimaryBenchResult(best_ns, checksum)
 
 
@@ -207,8 +205,6 @@ def bench_sphere_primary[
         var dt = Int(t1 - t0)
         if dt < best_ns:
             best_ns = dt
-
-    keep(checksum)
     return PrimaryBenchResult(best_ns, checksum)
 
 
@@ -250,8 +246,6 @@ def bench_triangle_case[
         len(rays),
     )
 
-    keep(len(bvh.tree.nodes))
-
 
 def bench_sphere_case[
     width: Int,
@@ -277,8 +271,6 @@ def bench_sphere_case[
         primary,
         len(rays),
     )
-
-    keep(len(bvh.tree.nodes))
 
 
 def bench_triangle_widths[
@@ -323,8 +315,3 @@ def main() raises:
     bench_sphere_widths["median"](spheres, rays)
     bench_sphere_widths["sah"](spheres, rays)
     bench_sphere_widths["lbvh"](spheres, rays)
-
-    # Keep owning lists alive until after all BVHs and traversals are done.
-    keep(len(tri_vertices))
-    keep(len(spheres))
-    keep(len(rays))

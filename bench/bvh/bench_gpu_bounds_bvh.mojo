@@ -543,9 +543,6 @@ def _run_width[
         TRIANGLE_HIT_REL_EPS,
     )
 
-    keep(bvh.tree.leaf_block_count)
-    keep(res[2])
-
 
 def _make_sphere_grid_sized(grid_x: Int, grid_y: Int) -> List[Sphere]:
     var spheres = List[Sphere](capacity=grid_x * grid_y)
@@ -680,9 +677,6 @@ def _run_sphere_width[
         SPHERE_HIT_REL_EPS,
     )
 
-    keep(bvh.tree.leaf_block_count)
-    keep(res[2])
-
 
 def _run_sphere_debug_width[
     width: Int
@@ -748,9 +742,6 @@ def _run_sphere_debug_width[
             image_height,
             16,
         )
-
-    keep(bvh.tree.leaf_block_count)
-    keep(res[2])
 
 
 def main() raises:

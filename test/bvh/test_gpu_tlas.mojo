@@ -172,7 +172,7 @@ def test_gpu_tlas_triangle_camera_single_identity_matches_cpu_blas() raises:
 
     with DeviceContext() as ctx:
         var d_vertices = upload_vertices(ctx, verts)
-        var blas = GpuTriangleBvh[4](ctx, d_vertices, len(verts) / 3)
+        var blas = GpuTriangleBvh[4](ctx, d_vertices)
         var tlas = GpuTlas[4](ctx, instances)
         var d_camera = upload_camera(ctx, camera)
 
@@ -225,7 +225,7 @@ def test_gpu_tlas_triangle_camera_translated_single_instance_hit() raises:
 
     with DeviceContext() as ctx:
         var d_vertices = upload_vertices(ctx, verts)
-        var blas = GpuTriangleBvh[4](ctx, d_vertices, len(verts) / 3)
+        var blas = GpuTriangleBvh[4](ctx, d_vertices)
         var tlas = GpuTlas[4](ctx, instances)
         var d_camera = upload_camera(ctx, camera)
 

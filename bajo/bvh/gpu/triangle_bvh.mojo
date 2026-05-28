@@ -34,10 +34,9 @@ struct GpuTriangleBvh[width: Int]:
         out self,
         mut ctx: DeviceContext,
         vertices: DeviceBuffer[DType.float32],
-        tri_count: Int,
     ) raises:
         self.vertices = vertices
-        self.tri_count = tri_count
+        self.tri_count = len(vertices) / 9
         self.leaf_pack_ns = 0
         self.bounds_pack_ns = 0
 

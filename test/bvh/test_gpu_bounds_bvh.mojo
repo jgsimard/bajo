@@ -326,7 +326,7 @@ def _assert_gpu_triangle_width_matches_cpu_camera[
 
     with DeviceContext() as ctx:
         var d_verts = upload_vertices(ctx, verts)
-        var gpu_bvh = GpuTriangleBvh[width](ctx, d_verts, len(verts) / 3)
+        var gpu_bvh = GpuTriangleBvh[width](ctx, d_verts)
         var d_camera = upload_list(ctx, camera_params)
         var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](len(rays) * 3)
         var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](len(rays))

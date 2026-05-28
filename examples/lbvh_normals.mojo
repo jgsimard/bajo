@@ -15,7 +15,7 @@ from bajo.bvh.gpu.triangle_bvh import GpuTriangleBvh
 from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.types import Instance
 from bajo.obj.pack import pack_obj_triangles
-from bajo.bvh.constants import Primitive
+from bajo.bvh.constants import Primitive, MISS_PRIM
 from bajo.bvh.camera import Camera
 from bajo.bvh.gpu.utils import upload_vertices, upload_list
 
@@ -27,7 +27,6 @@ comptime GRID_X = 25
 comptime GRID_Z = 25
 comptime BLAS_WIDTH = 2
 comptime TLAS_WIDTH = 2
-comptime MISS_PRIM = UInt32(0xFFFFFFFF)
 
 
 def _make_instances(bounds: AABB) raises -> List[Instance]:
@@ -163,7 +162,7 @@ def main() raises:
     print(t"Triangles: {tri_count}")
     print(t"Load time: {round(ns_to_ms(Int(load_t1 - load_t0)), 3)} ms")
 
-    print("\nBuilding CPU TLAS layout for instance bounds + camera...")
+    print("\nBuilding Scene...")
     var cpu_t0 = perf_counter_ns()
     var instances = _make_instances(blas_bounds)
     var cpu_tlas = Tlas[TLAS_WIDTH](instances)
@@ -202,9 +201,7 @@ def main() raises:
         print("\nBuilding GPU BLAS...")
         var blas_t0 = perf_counter_ns()
 
-        var gpu_blas = GpuTriangleBvh[BLAS_WIDTH](
-            ctx, vertices, len(tri_vertices) / 3
-        )
+        var gpu_blas = GpuTriangleBvh[BLAS_WIDTH](ctx, vertices)
         ctx.synchronize()
         var blas_t1 = perf_counter_ns()
 

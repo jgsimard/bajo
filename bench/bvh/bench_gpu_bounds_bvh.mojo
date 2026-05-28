@@ -505,11 +505,11 @@ def _run_width[
     reference_hit_count: UInt32,
     repeats: Int,
 ) raises:
-    _ = GpuTriangleBvh[width](ctx, d_vertices, tri_count)
+    _ = GpuTriangleBvh[width](ctx, d_vertices)
     ctx.synchronize()
 
     var build0 = perf_counter_ns()
-    var bvh = GpuTriangleBvh[width](ctx, d_vertices, tri_count)
+    var bvh = GpuTriangleBvh[width](ctx, d_vertices)
     ctx.synchronize()
     var build1 = perf_counter_ns()
 

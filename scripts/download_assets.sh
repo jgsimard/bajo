@@ -7,6 +7,10 @@ mkdir -p \
   assets/dragon \
   assets/sponza \
   assets/rungholt \
+  assets/lucy \
+  assets/igea \
+  assets/nefertiti \
+  assets/armadillo \
   .cache/assets
 
 # Bunny
@@ -65,4 +69,31 @@ if [ ! -f assets/rungholt/rungholt.obj ]; then
   fi
 fi
 
+# Lucy statue
+if [ ! -f assets/lucy/lucy.obj ]; then
+  curl -L --fail \
+    -o assets/lucy/lucy.obj \
+    https://raw.githubusercontent.com/alecjacobson/common-3d-test-models/master/data/lucy.obj
+fi
+
+# Igea bust/head
+if [ ! -f assets/igea/igea.obj ]; then
+  curl -L --fail \
+    -o assets/igea/igea.obj \
+    https://raw.githubusercontent.com/alecjacobson/common-3d-test-models/master/data/igea.obj
+fi
+
+# Nefertiti bust
+if [ ! -f assets/nefertiti/nefertiti.obj ]; then
+  curl -L --fail \
+    -o assets/nefertiti/nefertiti.obj \
+    https://raw.githubusercontent.com/alecjacobson/common-3d-test-models/master/data/nefertiti.obj
+fi
+
+# Stanford Armadillo
+if [ ! -f assets/armadillo/armadillo.obj ]; then
+  curl -L --fail \
+    -o assets/armadillo/armadillo.obj \
+    https://raw.githubusercontent.com/alecjacobson/common-3d-test-models/master/data/armadillo.obj
+fi
 echo "Assets downloaded."

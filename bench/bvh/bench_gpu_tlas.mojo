@@ -927,11 +927,11 @@ def main() raises:
         ctx.synchronize()
 
         print("\nBuilding GpuTriangleBvh[4]...")
-        _ = GpuTriangleBvh[4](ctx, d_vertices, tri_count)
+        _ = GpuTriangleBvh[4](ctx, d_vertices)
         ctx.synchronize()
 
         var blas_b0 = perf_counter_ns()
-        var blas = GpuTriangleBvh[4](ctx, d_vertices, tri_count)
+        var blas = GpuTriangleBvh[4](ctx, d_vertices)
         ctx.synchronize()
         var blas_b1 = perf_counter_ns()
 

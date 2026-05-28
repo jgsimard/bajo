@@ -28,7 +28,7 @@ from bajo.bvh.gpu.triangle_bvh import (
     GpuTriangleBvh,
     GpuTriangleBlasSetBuilder,
 )
-from bajo.bvh.constants import TRACE, Primitive
+from bajo.bvh.constants import TRACE, Primitive, MISS_PRIM
 from bajo.obj.pack import pack_obj_triangles
 from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list, upload_vertices
 
@@ -40,7 +40,6 @@ comptime PRIMARY_WIDTH = 640
 comptime PRIMARY_HEIGHT = 360
 comptime PRIMARY_VIEWS = 3
 comptime BENCH_REPEATS = 8
-comptime MISS_PRIM = UInt32(0xFFFFFFFF)
 
 
 def _make_single_instance(bounds: AABB, primitive: Primitive) -> List[Instance]:

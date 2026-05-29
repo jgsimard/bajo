@@ -116,31 +116,30 @@ def collapse_single_leaf_to_wide_kernel[
     wide_root: UnsafePointer[UInt32, MutAnyOrigin],
 ):
     var i = global_idx.x
-    if i != 0:
+    if i >= width:
         return
 
     wide_root[0] = 0
     leaf_block_counter[0] = 1
 
-    comptime for lane in range(width):
-        comptime if lane == 0:
-            wide_bounds[0] = leaf_bounds[0]
-            wide_bounds[1] = leaf_bounds[1]
-            wide_bounds[2] = leaf_bounds[2]
-            wide_bounds[3] = leaf_bounds[3]
-            wide_bounds[4] = leaf_bounds[4]
-            wide_bounds[5] = leaf_bounds[5]
+    if i == 0:
+        wide_bounds[0] = leaf_bounds[0]
+        wide_bounds[1] = leaf_bounds[1]
+        wide_bounds[2] = leaf_bounds[2]
+        wide_bounds[3] = leaf_bounds[3]
+        wide_bounds[4] = leaf_bounds[4]
+        wide_bounds[5] = leaf_bounds[5]
 
-            wide_data[lane] = 0
-            wide_counts[lane] = 1
-            leaf_block_indices[0] = leaf_payloads[0]
-        else:
-            wide_data[lane] = 0
-            wide_counts[lane] = EMPTY_LANE
+        wide_data[i] = 0
+        wide_counts[i] = 1
+        leaf_block_indices[0] = leaf_payloads[0]
+    else:
+        wide_data[i] = 0
+        wide_counts[i] = EMPTY_LANE
 
-            var b = lane * AABB.STRIDE
-            AABB.invalid().store6(wide_bounds, b)
-            leaf_block_indices[lane] = EMPTY_LANE
+        var b = i * AABB.STRIDE
+        AABB.invalid().store6(wide_bounds, b)
+        leaf_block_indices[i] = EMPTY_LANE
 
 
 def collapse[
@@ -162,7 +161,7 @@ def collapse[
             out.leaf_block_indices,
             out.leaf_block_counter,
             out.wide_root,
-            grid_dim=1,
+            grid_dim=width,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
 
@@ -171,6 +170,35 @@ def collapse[
         out.root_idx = 0
         out.node_count = 1
         out.leaf_block_count = 1
+        return
+
+    comptime if width == 2:
+        ctx.enqueue_function[collapse_binary_to_wide2_direct_kernel](
+            binary.leaf_bounds,
+            binary.leaf_payloads,
+            binary.leaf_ids,
+            binary.node_meta,
+            binary.node_bounds,
+            out.wide_bounds,
+            out.wide_data,
+            out.wide_counts,
+            out.leaf_block_indices,
+            out.leaf_block_counter,
+            out.wide_node_counter,
+            out.wide_root,
+            binary.internal_count,
+            binary.leaf_count,
+            grid_dim=binary.blocks_internal,
+            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+        )
+
+        ctx.synchronize()
+
+        with out.wide_root.map_to_host() as wr:
+            out.root_idx = UInt32(wr[0])
+
+        out.node_count = binary.internal_count
+        out.leaf_block_count = binary.leaf_count
         return
 
     if binary.leaf_count > 1:
@@ -384,3 +412,93 @@ def collapse_dense_frontier_kernel[
                 var out_i = Atomic.fetch_add(next_count, UInt32(1))
                 work_encoded_out[Int(out_i)] = e
                 work_wide_out[Int(out_i)] = child_wide_idx
+
+
+def collapse_binary_to_wide2_direct_kernel(
+    leaf_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    leaf_payloads: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_ids: UnsafePointer[UInt32, MutAnyOrigin],
+    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
+    node_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    wide_data: UnsafePointer[UInt32, MutAnyOrigin],
+    wide_counts: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_block_indices: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_block_counter: UnsafePointer[UInt32, MutAnyOrigin],
+    wide_node_counter: UnsafePointer[UInt32, MutAnyOrigin],
+    wide_root: UnsafePointer[UInt32, MutAnyOrigin],
+    internal_count: Int,
+    leaf_count: Int,
+):
+    var node_i = global_idx.x
+
+    if node_i == 0:
+        leaf_block_counter[0] = UInt32(leaf_count)
+        wide_node_counter[0] = UInt32(internal_count)
+
+    if node_i >= internal_count:
+        return
+
+    var node_idx = UInt32(node_i)
+
+    if UInt32(node_meta[_node_parent_index(node_idx)]) == LBVH_SENTINEL:
+        wide_root[0] = node_idx
+
+    var left = _node_left(node_meta, node_idx)
+    var right = _node_right(node_meta, node_idx)
+
+    # Lane 0 = left child.
+    var left_bounds = _encoded_bounds_gpu(
+        left,
+        leaf_bounds,
+        leaf_ids,
+        node_bounds,
+    )
+    _write_wide_lane_bounds[2](
+        wide_bounds,
+        node_idx,
+        0,
+        left_bounds,
+    )
+
+    if _is_encoded_leaf(left):
+        var sorted_leaf_idx = _encoded_index(left)
+        var item_idx = UInt32(leaf_ids[Int(sorted_leaf_idx)])
+        var payload = UInt32(leaf_payloads[Int(item_idx)])
+
+        wide_data[Int(node_idx) * 2 + 0] = sorted_leaf_idx
+        wide_counts[Int(node_idx) * 2 + 0] = UInt32(1)
+
+        leaf_block_indices[Int(sorted_leaf_idx) * 2 + 0] = payload
+        leaf_block_indices[Int(sorted_leaf_idx) * 2 + 1] = EMPTY_LANE
+    else:
+        wide_data[Int(node_idx) * 2 + 0] = _encoded_index(left)
+        wide_counts[Int(node_idx) * 2 + 0] = UInt32(0)
+
+    # Lane 1 = right child.
+    var right_bounds = _encoded_bounds_gpu(
+        right,
+        leaf_bounds,
+        leaf_ids,
+        node_bounds,
+    )
+    _write_wide_lane_bounds[2](
+        wide_bounds,
+        node_idx,
+        1,
+        right_bounds,
+    )
+
+    if _is_encoded_leaf(right):
+        var sorted_leaf_idx = _encoded_index(right)
+        var item_idx = UInt32(leaf_ids[Int(sorted_leaf_idx)])
+        var payload = UInt32(leaf_payloads[Int(item_idx)])
+
+        wide_data[Int(node_idx) * 2 + 1] = sorted_leaf_idx
+        wide_counts[Int(node_idx) * 2 + 1] = UInt32(1)
+
+        leaf_block_indices[Int(sorted_leaf_idx) * 2 + 0] = payload
+        leaf_block_indices[Int(sorted_leaf_idx) * 2 + 1] = EMPTY_LANE
+    else:
+        wide_data[Int(node_idx) * 2 + 1] = _encoded_index(right)
+        wide_counts[Int(node_idx) * 2 + 1] = UInt32(0)

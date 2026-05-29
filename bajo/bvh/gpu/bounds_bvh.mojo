@@ -46,9 +46,15 @@ struct GpuBoundsBvh[width: Int]:
     var wide_data: DeviceBuffer[DType.uint32]
     var wide_counts: DeviceBuffer[DType.uint32]
     var leaf_block_indices: DeviceBuffer[DType.uint32]
-    var node_leaf_counts: DeviceBuffer[DType.uint32]
     var leaf_block_counter: DeviceBuffer[DType.uint32]
     var wide_root: DeviceBuffer[DType.uint32]
+
+    var wide_node_counter: DeviceBuffer[DType.uint32]
+    var frontier_count: DeviceBuffer[DType.uint32]
+    var work_encoded_in: DeviceBuffer[DType.uint32]
+    var work_encoded_out: DeviceBuffer[DType.uint32]
+    var work_wide_in: DeviceBuffer[DType.uint32]
+    var work_wide_out: DeviceBuffer[DType.uint32]
 
     var workspace: RadixSortWorkspace[DType.uint32, DType.uint32]
 
@@ -64,9 +70,7 @@ struct GpuBoundsBvh[width: Int]:
         self.node_count = 0
         self.leaf_block_count = 0
         self.max_wide_nodes = max(self.internal_count, 1)
-        self.max_leaf_blocks = max(self.internal_count * Self.width, 1)
-
-        n_internal = max(self.internal_count, 1)
+        self.max_leaf_blocks = max(self.leaf_count, 1)
 
         self.bounds_device = ctx.enqueue_create_buffer[DType.float32](12)
 
@@ -87,11 +91,24 @@ struct GpuBoundsBvh[width: Int]:
         self.leaf_block_indices = ctx.enqueue_create_buffer[DType.uint32](
             self.max_leaf_blocks * Self.width
         )
-        self.node_leaf_counts = ctx.enqueue_create_buffer[DType.uint32](
-            n_internal
-        )
         self.leaf_block_counter = ctx.enqueue_create_buffer[DType.uint32](1)
         self.wide_root = ctx.enqueue_create_buffer[DType.uint32](1)
+
+        self.wide_node_counter = ctx.enqueue_create_buffer[DType.uint32](1)
+        self.frontier_count = ctx.enqueue_create_buffer[DType.uint32](1)
+
+        self.work_encoded_in = ctx.enqueue_create_buffer[DType.uint32](
+            self.max_wide_nodes
+        )
+        self.work_encoded_out = ctx.enqueue_create_buffer[DType.uint32](
+            self.max_wide_nodes
+        )
+        self.work_wide_in = ctx.enqueue_create_buffer[DType.uint32](
+            self.max_wide_nodes
+        )
+        self.work_wide_out = ctx.enqueue_create_buffer[DType.uint32](
+            self.max_wide_nodes
+        )
 
         self.workspace = RadixSortWorkspace[DType.uint32, DType.uint32](
             ctx, max(self.leaf_count, 1)

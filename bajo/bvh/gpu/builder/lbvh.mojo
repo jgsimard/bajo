@@ -194,6 +194,7 @@ def build_lbvh_topology_kernel(
     sorted_morton_codes: UnsafePointer[UInt32, MutAnyOrigin],
     node_meta: UnsafePointer[UInt32, MutAnyOrigin],
     leaf_parent: UnsafePointer[UInt32, MutAnyOrigin],
+    node_leaf_counts: UnsafePointer[UInt32, MutAnyOrigin],
     leaf_count: Int,
 ):
     var i = global_idx.x
@@ -204,6 +205,7 @@ def build_lbvh_topology_kernel(
     var r = _lbvh_find_range(sorted_morton_codes, i, leaf_count)
     var first = r[0]
     var last = r[1]
+    node_leaf_counts[i] = UInt32(last - first + 1)
 
     var split = _lbvh_find_split(sorted_morton_codes, first, last, leaf_count)
 
@@ -287,6 +289,7 @@ def build_binary_bvh_with_lbvh(
             binary.keys,
             binary.node_meta,
             binary.leaf_parent,
+            binary.node_leaf_counts,
             binary.leaf_count,
             grid_dim=binary.blocks_internal,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,

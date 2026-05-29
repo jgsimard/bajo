@@ -9,13 +9,14 @@ from bajo.bvh.gpu.utils import (
     upload_list,
 )
 from bajo.core.aabb import AABB
-from bajo.core.vec import Vec3f32, vmin, vmax, normalize, cross
-from bajo.bvh.types import Ray, Hit, BlasSet
+from bajo.core.vec import Vec3f32, vmin, vmax, normalize, cross, Vec3
+from bajo.bvh.types import Ray, Hit, BlasSet, TriangleLeafBlock
 from bajo.bvh.constants import (
     EMPTY_LANE,
     TRACE,
     TRI_LEAF_VERTEX_STRIDE,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
+    f32_max,
 )
 from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh
 from bajo.core.intersect import intersect_ray_tri
@@ -415,7 +416,7 @@ def _intersect_triangle_leaf[
     return any_hit
 
 
-# I dont know why but this version doesnt work :((((
+# # it works now, but it is slower
 # def _load_triangle_leaf[
 #     width: Int,
 # ](
@@ -454,7 +455,7 @@ def _intersect_triangle_leaf[
 
 # def _intersect_triangle_leaf[
 #     width: Int,
-#     mode: String,
+#     mode: TRACE,
 # ](
 #     leaf_vertices: UnsafePointer[Float32, MutAnyOrigin],
 #     leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
@@ -463,8 +464,6 @@ def _intersect_triangle_leaf[
 #     ray: Ray,
 #     mut hit: Hit,
 # ) capturing -> Bool:
-#     comptime assert mode in [TRACE_CLOSEST_HIT, TRACE_ANY_HIT]
-
 #     var block = _load_triangle_leaf[width](
 #         leaf_vertices,
 #         leaf_prims,
@@ -484,13 +483,12 @@ def _intersect_triangle_leaf[
 #         hit.t,
 #     )
 
-#     var t_min_mask = h.t.ge(ray.t_min)
-#     var hit_mask = h.mask & block.valid_lane & t_min_mask
+#     var hit_mask = h.mask & block.valid_lane
 
 #     if not hit_mask.reduce_or():
 #         return False
 
-#     comptime if mode == TRACE_ANY_HIT:
+#     comptime if mode == TRACE.ANY_HIT:
 #         return True
 #     else:
 #         var min_t = hit_mask.select(h.t, f32_max).reduce_min()
@@ -498,7 +496,7 @@ def _intersect_triangle_leaf[
 #         if min_t < hit.t:
 #             hit.t = min_t
 
-#             comptime if mode == TRACE_CLOSEST_HIT:
+#             comptime if mode == TRACE.CLOSEST_HIT:
 #                 comptime for lane in range(width):
 #                     if hit_mask[lane] and h.t[lane] == min_t:
 #                         hit.u = h.u[lane]

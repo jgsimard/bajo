@@ -115,16 +115,13 @@ struct SphereBvh[width: Int](Copyable, TypedBvh):
                 _t = hit_mask.select(h.t, f32_max)
                 min_t, arg_min_t = min_argmin(_t)
 
-                if min_t < hit.t:
-                    hit.t = min_t
-                    hit.u = 0.0
-                    hit.v = 0.0
-                    hit.inst = EMPTY_LANE
-                    hit.prim = block.prim_indices[arg_min_t]
+                hit.t = min_t
+                hit.u = 0.0
+                hit.v = 0.0
+                hit.inst = EMPTY_LANE
+                hit.prim = block.prim_indices[arg_min_t]
 
-                    return True
-
-                return False
+                return True
 
         return trace_bounds_bvh[
             Self.width,

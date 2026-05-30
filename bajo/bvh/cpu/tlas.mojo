@@ -1,4 +1,5 @@
 from bajo.core.aabb import AABB
+from bajo.core.vec import Vec3
 from bajo.bvh.types import Ray, Hit, Instance, TypedBvh
 from bajo.bvh.constants import TRACE
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
@@ -47,6 +48,8 @@ struct Tlas[width: Int](Copyable):
     ](self, ray: Ray, blases: UnsafePointer[typed_bvh, MutAnyOrigin],) -> Hit:
         def leaf_fn(
             ray: Ray,
+            O: Vec3[DType.float32, Self.width],
+            D: Vec3[DType.float32, Self.width],
             first_item: UInt32,
             item_count: UInt32,
             mut hit: Hit,

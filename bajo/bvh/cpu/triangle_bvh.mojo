@@ -109,14 +109,16 @@ struct TriangleBvh[width: Int](Copyable, TypedBvh):
     def trace[mode: TRACE](self, ray: Ray) -> Hit:
         def leaf_fn(
             ray: Ray,
+            O: Vec3[DType.float32, Self.width],
+            D: Vec3[DType.float32, Self.width],
             leaf_block_idx: UInt32,
             _item_count: UInt32,
             mut hit: Hit,
         ) capturing -> Bool:
             ref block = self.leaf_blocks[Int(leaf_block_idx)]
 
-            var O = Vec3[DType.float32, Self.width](ray.o.x, ray.o.y, ray.o.z)
-            var D = Vec3[DType.float32, Self.width](ray.d.x, ray.d.y, ray.d.z)
+            # var O = Vec3[DType.float32, Self.width](ray.o.x, ray.o.y, ray.o.z)
+            # var D = Vec3[DType.float32, Self.width](ray.d.x, ray.d.y, ray.d.z)
 
             var tri_hit = intersect_ray_tri(
                 O,

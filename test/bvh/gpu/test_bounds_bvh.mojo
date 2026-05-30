@@ -16,7 +16,7 @@ from bajo.bvh.gpu.sphere_bvh import GpuSphereBvh
 from bajo.bvh.gpu.triangle_bvh import GpuTriangleBvh
 from bajo.bvh.gpu.utils import upload_vertices, upload_list
 
-from fixtures import _append_tri, _brute_sphere_trace
+from test.bvh.fixtures import _append_tri, _brute_sphere_trace
 
 
 comptime GPU_BOUNDS_TEST_WIDTH = 64

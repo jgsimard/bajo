@@ -16,7 +16,7 @@ from bajo.bvh.cpu.builder.sah import _find_sah_split
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
 
-from fixtures import _brute_triangle_trace, _brute_sphere_trace
+from test.bvh.fixtures import _brute_triangle_trace, _brute_sphere_trace
 
 
 def _rng_f32(mut rng: Rng, lo: Float32, hi: Float32) -> Float32:

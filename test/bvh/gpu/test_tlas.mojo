@@ -17,7 +17,7 @@ from bajo.bvh.gpu.sphere_bvh import build_sphere_blas_set
 from bajo.bvh.gpu.triangle_bvh import build_triangle_blas_set
 from bajo.bvh.gpu.utils import upload_camera
 
-from fixtures import _append_tri, _brute_sphere_trace
+from test.bvh.fixtures import _append_tri, _brute_sphere_trace
 
 
 comptime WIDTH = 64

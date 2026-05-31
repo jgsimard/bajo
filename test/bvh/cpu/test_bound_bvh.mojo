@@ -489,10 +489,7 @@ def test_sphere_bounds() raises:
 
 def test_sphere_bvh4_single_leaf_layout_and_hit() raises:
     var spheres = _make_spheres()
-    var bvh = SphereBvh[4](
-        spheres.unsafe_ptr(),
-        UInt32(len(spheres)),
-    )
+    var bvh = SphereBvh[4](spheres^)
 
     assert_true(len(bvh.tree.nodes) == 1)
     assert_true(bvh.tree.nodes[0].counts[0] == 4)
@@ -510,10 +507,7 @@ def _test_sphere_bvh_matches_bruteforce[
     mode: String,
 ]() raises:
     var spheres = _make_spheres()
-    var bvh = SphereBvh[width].__init__[mode](
-        spheres.unsafe_ptr(),
-        UInt32(len(spheres)),
-    )
+    var bvh = SphereBvh[width].__init__[mode](spheres.copy())
 
     _assert_sphere_bvh_matches_bruteforce[width](
         bvh,
@@ -548,10 +542,7 @@ def _test_sphere_bvh_shadow_hit_and_miss[
     mode: String,
 ]() raises:
     var spheres = _make_spheres()
-    var bvh = SphereBvh[width].__init__[mode](
-        spheres.unsafe_ptr(),
-        UInt32(len(spheres)),
-    )
+    var bvh = SphereBvh[width].__init__[mode](spheres^)
 
     assert_true(
         bvh.trace[TRACE.ANY_HIT](_z_ray(Vec3f32(0.0, 0.0, 0.0))).is_occluded()

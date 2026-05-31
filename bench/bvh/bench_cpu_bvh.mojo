@@ -254,10 +254,7 @@ def bench_sphere_case[
     var name = _case_name["sph", width, split_method]()
 
     var t0 = perf_counter_ns()
-    var bvh = SphereBvh[width].__init__[split_method](
-        spheres.unsafe_ptr().unsafe_mut_cast[True](),
-        UInt32(len(spheres)),
-    )
+    var bvh = SphereBvh[width].__init__[split_method](spheres.copy())
     var t1 = perf_counter_ns()
 
     var build_ns = Int(t1 - t0)

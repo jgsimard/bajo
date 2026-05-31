@@ -218,10 +218,7 @@ def test_tlas_triangle_shadow_cases() raises:
 def test_tlas_sphere_single_instance_cases() raises:
     var spheres = _make_one_local_sphere_z2()
 
-    var blas = SphereBvh[4](
-        spheres.unsafe_ptr(),
-        UInt32(len(spheres)),
-    )
+    var blas = SphereBvh[4](spheres^)
 
     var blases = [blas.copy()]
 
@@ -274,14 +271,8 @@ def test_tlas_sphere_single_instance_cases() raises:
 def test_tlas_sphere_two_instance_cases() raises:
     var spheres = _make_one_local_sphere_z2()
 
-    var first_blas = SphereBvh[4](
-        spheres.unsafe_ptr(),
-        UInt32(len(spheres)),
-    )
-    var second_blas = SphereBvh[4](
-        spheres.unsafe_ptr(),
-        UInt32(len(spheres)),
-    )
+    var first_blas = SphereBvh[4](spheres.copy())
+    var second_blas = SphereBvh[4](spheres^)
 
     var blases = [first_blas.copy(), second_blas.copy()]
 
@@ -325,10 +316,7 @@ def test_tlas_sphere_two_instance_cases() raises:
 def test_tlas_sphere_shadow_cases() raises:
     var spheres = _make_one_local_sphere_z2()
 
-    var blas = SphereBvh[4](
-        spheres.unsafe_ptr(),
-        UInt32(len(spheres)),
-    )
+    var blas = SphereBvh[4](spheres^)
 
     var blases = [blas.copy()]
 

@@ -31,11 +31,6 @@ struct BoundsBvh[width: Int](Copyable):
     var item_indices: List[UInt32]
     var item_payloads: List[UInt32]
 
-    def __init__(out self):
-        self.nodes = List[WideBvhNode[Self.width]]()
-        self.item_indices = List[UInt32]()
-        self.item_payloads = List[UInt32]()
-
     def __init__(out self, bvh: BoundsBvhBuilder):
         self.nodes = List[WideBvhNode[Self.width]]()
         self.item_indices = bvh.item_indices.copy()

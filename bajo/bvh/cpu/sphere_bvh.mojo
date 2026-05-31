@@ -24,21 +24,15 @@ struct SphereBvh[width: Int](Copyable, TypedBvh):
 
     def __init__[
         split_method: String = "median"
-    ](
-        out self,
-        spheres: UnsafePointer[Sphere, MutAnyOrigin],
-        sphere_count: UInt32,
-    ):
-        self.spheres = List[Sphere](capacity=Int(sphere_count))
-        self.leaf_blocks = List[SphereLeafBlock[Self.width]]()
-        self.sphere_count = sphere_count
+    ](out self, var spheres: List[Sphere]):
+        self.spheres = spheres^
+        self.sphere_count = UInt32(len(self.spheres))
+        self.leaf_blocks = []
 
-        var items = List[BoundsItem](capacity=Int(sphere_count))
-
-        for i in range(Int(sphere_count)):
-            var s = spheres[i]
-            self.spheres.append(s)
-            items.append(BoundsItem(s.bounds(), UInt32(i)))
+        var items = [
+            BoundsItem(s.bounds(), UInt32(i))
+            for i, s in enumerate(self.spheres)
+        ]
 
         var builder = BoundsBvhBuilder[Self.width](items)
         builder.build[split_method]()

@@ -308,16 +308,12 @@ struct GpuBinaryBoundsBvh(Movable):
         self.node_flags = ctx.enqueue_create_buffer[DType.uint32](n_internal)
 
     def root_bounds(self) raises -> AABB:
-        var out = AABB.invalid()
         with self.bounds_device.map_to_host() as h:
-            out = AABB.load6(h.unsafe_ptr(), 0)
-        return out
+            return AABB.load6(h.unsafe_ptr(), 0)
 
     def centroid_bounds(self) raises -> AABB:
-        var out = AABB.invalid()
         with self.bounds_device.map_to_host() as h:
-            out = AABB.load6(h.unsafe_ptr(), AABB.STRIDE)
-        return out
+            return AABB.load6(h.unsafe_ptr(), AABB.STRIDE)
 
     def validate(self, bounds: AABB) raises -> GpuBVHValidation:
         var sorted_validation = validate_sorted_keys(

@@ -43,7 +43,7 @@ struct Tlas[width: Int](Copyable):
     def trace[
         typed_bvh: TypedBvh,
         mode: TRACE,
-    ](self, ray: Ray, blases: UnsafePointer[typed_bvh, MutAnyOrigin],) -> Hit:
+    ](self, ray: Ray, blases: UnsafePointer[typed_bvh, MutAnyOrigin]) -> Hit:
         def leaf_fn(
             ray: Ray,
             O: Vec3[DType.float32, Self.width],

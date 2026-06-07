@@ -1,54 +1,14 @@
-from bajo.obj.types import ObjIndex
-from bajo.obj.mtl import _read_mtl_file
-
-
-comptime TAB = UInt8(ord("\t"))
-comptime SPACE = UInt8(ord(" "))
-comptime CR = UInt8(ord("\r"))
-comptime LF = UInt8(ord("\n"))
-
-comptime ZERO = UInt8(ord("0"))
-comptime NINE = UInt8(ord("9"))
-comptime PLUS = UInt8(ord("+"))
-comptime MINUS = UInt8(ord("-"))
-comptime SLASH = UInt8(ord("/"))
-comptime DOT = UInt8(ord("."))
-comptime HASH = UInt8(ord("#"))
-
-comptime CHAR_e = UInt8(ord("e"))
-comptime CHAR_E = UInt8(ord("E"))
-comptime CHAR_v = UInt8(ord("v"))
-comptime CHAR_t = UInt8(ord("t"))
-comptime CHAR_n = UInt8(ord("n"))
-comptime CHAR_f = UInt8(ord("f"))
-comptime CHAR_l = UInt8(ord("l"))
-comptime CHAR_g = UInt8(ord("g"))
-comptime CHAR_o = UInt8(ord("o"))
-
-
-# parsing primitive
-def _is_ws(b: UInt8) -> Bool:
-    return b == SPACE or b == TAB or b == CR
-
-
-def _is_line_cut(b: UInt8) -> Bool:
-    return b == CR or b == HASH
-
-
-def _is_ws_or_line_cut(b: UInt8) -> Bool:
-    return _is_ws(b) or b == HASH
-
-
-def _is_digit(b: UInt8) -> Bool:
-    return b >= ZERO and b <= NINE
-
-
-def _fix_index(raw: Int, count_with_dummy: Int) -> Int:
-    if raw > 0:
-        return raw
-    if raw < 0:
-        return count_with_dummy + raw
-    return 0
+from .types import ObjIndex
+from .mtl import _read_mtl_file
+from .f32 import parse_f32_at
+from .primitives import (
+    _fix_index,
+    _is_digit,
+    _is_line_cut,
+    _is_ws,
+    _is_ws_or_line_cut,
+)
+from .constants import *
 
 
 @fieldwise_init
@@ -92,77 +52,11 @@ struct ObjLineCursor[o: Origin]:
         self.skip_ws()
         return self.pos < self.end
 
+    @always_inline
     def _next_f32_at_pos(mut self) -> Float32:
-        if self.pos >= self.end:
-            return 0.0
-
-        var p = self.pos
-        var sign: Float64 = 1.0
-
-        if self.ptr.load(p) == MINUS:
-            sign = -1.0
-            p += 1
-        elif self.ptr.load(p) == PLUS:
-            p += 1
-
-        var num: Float64 = 0.0
-        while p < self.end:
-            var b = self.ptr.load(p)
-            if _is_digit(b):
-                num = num * 10.0 + Float64(Int(b - ZERO))
-                p += 1
-            else:
-                break
-
-        if p < self.end and self.ptr.load(p) == DOT:
-            p += 1
-            var fra: Float64 = 0.0
-            var div: Float64 = 1.0
-
-            while p < self.end:
-                var b = self.ptr.load(p)
-                if _is_digit(b):
-                    fra = fra * 10.0 + Float64(Int(b - ZERO))
-                    div *= 10.0
-                    p += 1
-                else:
-                    break
-
-            num += fra / div
-
-        if p < self.end:
-            var b = self.ptr.load(p)
-            if b == CHAR_e or b == CHAR_E:
-                p += 1
-                var exp_sign = 1
-
-                if p < self.end and self.ptr.load(p) == MINUS:
-                    exp_sign = -1
-                    p += 1
-                elif p < self.end and self.ptr.load(p) == PLUS:
-                    p += 1
-
-                var eval = 0
-                while p < self.end:
-                    var eb = self.ptr.load(p)
-                    if _is_digit(eb):
-                        eval = eval * 10 + Int(eb - ZERO)
-                        p += 1
-                    else:
-                        break
-
-                if eval > 0:
-                    var power: Float64 = 1.0
-                    for _ in range(eval):
-                        power *= 10.0
-
-                    if exp_sign == 1:
-                        num *= power
-                    else:
-                        num /= power
-
-        self.pos = p
-        return Float32(sign * num)
+        var parsed = parse_f32_at(self.ptr, self.pos, self.end)
+        self.pos = parsed.pos
+        return parsed.value
 
     def next_f32(mut self) -> Float32:
         self.skip_ws()

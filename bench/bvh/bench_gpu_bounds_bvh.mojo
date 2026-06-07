@@ -889,8 +889,7 @@ def main() raises:
         )
 
         var debug_cpu_sphere_bvh2 = SphereBvh[2].__init__["lbvh"](
-            debug_spheres.unsafe_ptr().unsafe_mut_cast[True](),
-            UInt32(len(debug_spheres)),
+            debug_spheres.copy()
         )
         var debug_cpu_sphere_t20 = perf_counter_ns()
         var debug_sphere_reference2 = _trace_cpu_sphere_bvh[2](
@@ -906,8 +905,7 @@ def main() raises:
         )
 
         var debug_cpu_sphere_bvh4 = SphereBvh[4].__init__["lbvh"](
-            debug_spheres.unsafe_ptr().unsafe_mut_cast[True](),
-            UInt32(len(debug_spheres)),
+            debug_spheres.copy()
         )
         var debug_cpu_sphere_t40 = perf_counter_ns()
         var debug_sphere_reference4 = _trace_cpu_sphere_bvh[4](
@@ -923,8 +921,7 @@ def main() raises:
         )
 
         var debug_cpu_sphere_bvh8 = SphereBvh[8].__init__["lbvh"](
-            debug_spheres.unsafe_ptr().unsafe_mut_cast[True](),
-            UInt32(len(debug_spheres)),
+            debug_spheres.copy()
         )
         var debug_cpu_sphere_t80 = perf_counter_ns()
         var debug_sphere_reference8 = _trace_cpu_sphere_bvh[8](
@@ -1006,10 +1003,7 @@ def main() raises:
         print("\nCPU sphere reference")
         _print_cpu_ref_header()
 
-        var cpu_sphere_bvh2 = SphereBvh[2].__init__["lbvh"](
-            spheres.unsafe_ptr().unsafe_mut_cast[True](),
-            UInt32(len(spheres)),
-        )
+        var cpu_sphere_bvh2 = SphereBvh[2].__init__["lbvh"](spheres.copy())
         var cpu_sphere_t20 = perf_counter_ns()
         var sphere_reference2 = _trace_cpu_sphere_bvh[2](
             cpu_sphere_bvh2,
@@ -1023,10 +1017,7 @@ def main() raises:
             sphere_reference2[0],
         )
 
-        var cpu_sphere_bvh4 = SphereBvh[4].__init__["lbvh"](
-            spheres.unsafe_ptr().unsafe_mut_cast[True](),
-            UInt32(len(spheres)),
-        )
+        var cpu_sphere_bvh4 = SphereBvh[4].__init__["lbvh"](spheres.copy())
         var cpu_sphere_t40 = perf_counter_ns()
         var sphere_reference4 = _trace_cpu_sphere_bvh[4](
             cpu_sphere_bvh4,
@@ -1040,10 +1031,7 @@ def main() raises:
             sphere_reference4[0],
         )
 
-        var cpu_sphere_bvh8 = SphereBvh[8].__init__["lbvh"](
-            spheres.unsafe_ptr().unsafe_mut_cast[True](),
-            UInt32(len(spheres)),
-        )
+        var cpu_sphere_bvh8 = SphereBvh[8].__init__["lbvh"](spheres.copy())
         var cpu_sphere_t80 = perf_counter_ns()
         var sphere_reference8 = _trace_cpu_sphere_bvh[8](
             cpu_sphere_bvh8,

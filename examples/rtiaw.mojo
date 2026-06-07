@@ -13,7 +13,7 @@ from bajo.core.vec import (
     cross,
 )
 from bajo.core.utils import degrees_to_radians
-from bajo.bvh.constants import TRACE_CLOSEST_HIT, f32_max
+from bajo.bvh.constants import TRACE, f32_max
 from bajo.core.random import (
     random_unit_vector,
     random_in_unit_disk,
@@ -166,7 +166,7 @@ struct World(Copyable):
             tmax,
         )
 
-        var bvh_hit = self.bvh.trace[TRACE_CLOSEST_HIT](bvh_ray)
+        var bvh_hit = self.bvh.trace[TRACE.CLOSEST_HIT](bvh_ray)
 
         if not bvh_hit.is_hit():
             return None

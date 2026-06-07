@@ -8,7 +8,14 @@ from bajo.bvh.constants import EMPTY_LANE, CPU_STACK_SIZE, TRACE
 def trace_bounds_bvh[
     width: Int,
     mode: TRACE,
-    leaf_fn: def(Ray, UInt32, UInt32, mut Hit) capturing -> Bool,
+    leaf_fn: def(
+        Ray,
+        Vec3[DType.float32, width],
+        Vec3[DType.float32, width],
+        UInt32,
+        UInt32,
+        mut Hit,
+    ) capturing -> Bool,
 ](tree: BoundsBvh[width], ray: Ray) -> Hit:
     if len(tree.nodes) == 0:
         return Hit.miss()
@@ -20,7 +27,8 @@ def trace_bounds_bvh[
     var n_idx = UInt32(0)
 
     var O = Vec3[DType.float32, width](ray.o.x, ray.o.y, ray.o.z)
-    var rD = 1.0 / Vec3[DType.float32, width](ray.d.x, ray.d.y, ray.d.z)
+    var D = Vec3[DType.float32, width](ray.d.x, ray.d.y, ray.d.z)
+    var rD = 1.0 / D
 
     while True:
         ref node = tree.nodes[Int(n_idx)]
@@ -38,6 +46,8 @@ def trace_bounds_bvh[
                     else:
                         if leaf_fn(
                             ray,
+                            O,
+                            D,
                             node.data[i],
                             node.counts[i],
                             hit,

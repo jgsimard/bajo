@@ -154,16 +154,12 @@ struct GpuBoundsBvh[width: Int]:
         return binary^
 
     def root_bounds(self) raises -> AABB:
-        var out = AABB.invalid()
         with self.bounds_device.map_to_host() as h:
-            out = AABB.load6(h.unsafe_ptr(), 0)
-        return out
+            return AABB.load6(h.unsafe_ptr(), 0)
 
     def centroid_bounds(self) raises -> AABB:
-        var out = AABB.invalid()
         with self.bounds_device.map_to_host() as h:
-            out = AABB.load6(h.unsafe_ptr(), AABB.STRIDE)
-        return out
+            return AABB.load6(h.unsafe_ptr(), AABB.STRIDE)
 
 
 def _wide_lane_base[width: Int](node_idx: UInt32, lane: Int) -> Int:

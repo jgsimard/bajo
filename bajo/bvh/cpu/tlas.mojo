@@ -1,4 +1,5 @@
 from bajo.core.aabb import AABB
+from bajo.core.vec import Vec3
 from bajo.bvh.types import Ray, Hit, Instance, TypedBvh
 from bajo.bvh.constants import TRACE
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
@@ -7,36 +8,34 @@ from bajo.bvh.cpu.bounds_bvh import BoundsBvh, BoundsBvhBuilder, BoundsItem
 from bajo.bvh.cpu.trace import trace_bounds_bvh
 
 
+def _tree[
+    width: Int, split_method: String
+](instances: List[Instance]) -> BoundsBvh[width]:
+    var builder = BoundsBvhBuilder[width](
+        [BoundsItem(inst.bounds, UInt32(i)) for i, inst in enumerate(instances)]
+    )
+    builder.build[split_method]()
+    return BoundsBvh[width](builder)
+
+
 struct Tlas[width: Int](Copyable):
     """Wide TLAS over Instance records."""
 
     var tree: BoundsBvh[Self.width]
     var instances: List[Instance]
-    var inst_count: UInt32
+    var inst_count: Int
 
     def __init__(out self, instances: List[Instance]):
-        self.tree = BoundsBvh[Self.width]()
         self.instances = instances.copy()
-        self.inst_count = UInt32(len(self.instances))
-        self.build["median"]()
+        self.inst_count = len(self.instances)
+        self.tree = _tree[self.width, "lbvh"](instances)
 
     def add_instance(mut self, instance: Instance):
         self.instances.append(instance.copy())
-        self.inst_count = UInt32(len(self.instances))
+        self.inst_count += 1
 
     def build[split_method: String](mut self):
-        self.inst_count = UInt32(len(self.instances))
-
-        var items = List[BoundsItem](capacity=Int(self.inst_count))
-
-        for i in range(Int(self.inst_count)):
-            ref inst = self.instances[i]
-            items.append(BoundsItem(inst.bounds, UInt32(i)))
-
-        var builder = BoundsBvhBuilder[Self.width](items)
-        builder.build[split_method]()
-
-        self.tree = BoundsBvh[Self.width](builder)
+        self.tree = _tree[self.width, "lbvh"](self.instances)
 
     def bounds(self) -> AABB:
         return self.tree.root_bounds()
@@ -47,6 +46,8 @@ struct Tlas[width: Int](Copyable):
     ](self, ray: Ray, blases: UnsafePointer[typed_bvh, MutAnyOrigin],) -> Hit:
         def leaf_fn(
             ray: Ray,
+            O: Vec3[DType.float32, Self.width],
+            D: Vec3[DType.float32, Self.width],
             first_item: UInt32,
             item_count: UInt32,
             mut hit: Hit,

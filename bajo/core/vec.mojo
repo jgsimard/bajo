@@ -278,7 +278,7 @@ struct Vec3[dtype: DType, width: Int = 1](
 
     @staticmethod
     def load[
-        origin: Origin
+        origin: ImmutOrigin
     ](ptr: UnsafePointer[Scalar[Self.dtype], origin], base: Int) -> Self:
         comptime assert Self.width == 1
         return Self(
@@ -288,7 +288,7 @@ struct Vec3[dtype: DType, width: Int = 1](
         )
 
     def store[
-        origin: Origin[mut=True]
+        origin: MutOrigin
     ](self, ptr: UnsafePointer[Scalar[Self.dtype], origin], base: Int):
         comptime assert Self.width == 1
         ptr[base + 0] = self.x[0]

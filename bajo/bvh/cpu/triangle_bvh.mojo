@@ -27,12 +27,8 @@ struct TriangleBvh[width: Int](Copyable, TypedBvh):
     var tri_count: UInt32
 
     def __init__[
-        split_method: String = "median"
-    ](
-        out self,
-        vertices: UnsafePointer[Vec3f32, MutAnyOrigin],
-        tri_count: UInt32,
-    ):
+        origin: ImmutOrigin, //, split_method: String = "median"
+    ](out self, vertices: UnsafePointer[Vec3f32, origin], tri_count: UInt32):
         self.tri_count = tri_count
         self.leaf_blocks = List[TriangleLeafBlock[Self.width]]()
 
@@ -58,10 +54,9 @@ struct TriangleBvh[width: Int](Copyable, TypedBvh):
     def bounds(self) -> AABB:
         return self.tree.root_bounds()
 
-    def _pack_leaves(
-        mut self,
-        vertices: UnsafePointer[Vec3f32, MutAnyOrigin],
-    ):
+    def _pack_leaves[
+        origin: ImmutOrigin
+    ](mut self, vertices: UnsafePointer[Vec3f32, origin]):
         self.leaf_blocks = List[TriangleLeafBlock[Self.width]]()
 
         for ref node in self.tree.nodes:

@@ -18,11 +18,9 @@ struct Camera(TrivialRegisterPassable, Writable):
     var up: Vec3f32
     var fov_scale: Float32
 
-    def __init__(
-        out self,
-        ptr: UnsafePointer[Float32, MutAnyOrigin],
-        base: Int = 0,
-    ):
+    def __init__[
+        origin: ImmutOrigin
+    ](out self, ptr: UnsafePointer[Float32, origin], base: Int = 0):
         self.origin = Vec3f32.load(ptr, base + Camera.ORIGIN)
         self.forward = Vec3f32.load(ptr, base + Camera.FORWARD)
         self.right = Vec3f32.load(ptr, base + Camera.RIGHT)

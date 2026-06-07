@@ -57,11 +57,9 @@ struct Ray(TrivialRegisterPassable, Writable):
         self.t_min = t_min
         self.t_max = t_max
 
-    def __init__(
-        out self,
-        rays: UnsafePointer[Float32, MutAnyOrigin],
-        ray_idx: Int,
-    ):
+    def __init__[
+        origin: ImmutOrigin
+    ](out self, rays: UnsafePointer[Float32, origin], ray_idx: Int):
         var base = ray_idx * Ray.STRIDE
         self.o = Vec3f32.load(rays, base + Ray.ORIGIN)
         self.t_min = rays[base + Ray.T_MIN]

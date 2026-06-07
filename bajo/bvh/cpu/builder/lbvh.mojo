@@ -13,12 +13,9 @@ struct MortonItem(Comparable, TrivialRegisterPassable):
         return self.code < rhs.code
 
 
-def _common_prefix(
-    pairs: UnsafePointer[MortonItem, ImmutAnyOrigin],
-    i: Int,
-    j: Int,
-    n: Int,
-) -> Int:
+def _common_prefix[
+    origin: ImmutOrigin
+](pairs: UnsafePointer[MortonItem, origin], i: Int, j: Int, n: Int) -> Int:
     if j < 0 or j >= n:
         return -1
 
@@ -36,8 +33,10 @@ def _common_prefix(
     return 32 + Int(count_leading_zeros(x))
 
 
-def _lbvh_find_split(
-    pairs: UnsafePointer[MortonItem, ImmutAnyOrigin],
+def _lbvh_find_split[
+    origin: ImmutOrigin
+](
+    pairs: UnsafePointer[MortonItem, origin],
     first: Int,
     last: Int,
     n: Int,

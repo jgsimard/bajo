@@ -304,9 +304,9 @@ def intersect_ray_tri[
 
 
 def intersect_ray_tri[
-    dtype: DType
+    origin: ImmutOrigin, //, dtype: DType
 ](
-    vertices: UnsafePointer[Scalar[dtype], MutAnyOrigin],
+    vertices: UnsafePointer[Scalar[dtype], origin],
     prim_idx: UInt32,
     o: Vec3[dtype],
     d: Vec3[dtype],

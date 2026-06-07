@@ -27,8 +27,8 @@ from bajo.bvh.gpu.builder.binary_layout import (
 
 
 def compute_bounds_morton_codes_kernel(
-    leaf_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    bounds_device: UnsafePointer[Float32, MutAnyOrigin],
+    leaf_bounds: UnsafePointer[Float32, ImmutAnyOrigin],
+    bounds_device: UnsafePointer[Float32, ImmutAnyOrigin],
     morton_codes: UnsafePointer[UInt32, MutAnyOrigin],
     values: UnsafePointer[UInt32, MutAnyOrigin],
     leaf_count: Int,
@@ -89,11 +89,15 @@ def refit_lbvh_bounds_from_leaves_kernel(
         parent = UInt32(node_meta[_node_parent_index(current_encoded)])
 
 
-def _lbvh_find_range(
-    morton_codes: UnsafePointer[UInt32, MutAnyOrigin],
+def _lbvh_find_range[
+    origin: ImmutOrigin
+](
+    morton_codes: UnsafePointer[UInt32, origin],
     i: Int,
     n: Int,
-) -> Tuple[Int, Int]:
+) -> Tuple[
+    Int, Int
+]:
     var d_next = _common_prefix(morton_codes, i, i + 1, n)
     var d_prev = _common_prefix(morton_codes, i, i - 1, n)
 
@@ -120,8 +124,10 @@ def _lbvh_find_range(
     return (min(i, j), max(i, j))
 
 
-def _lbvh_find_split(
-    morton_codes: UnsafePointer[UInt32, MutAnyOrigin],
+def _lbvh_find_split[
+    origin: ImmutOrigin
+](
+    morton_codes: UnsafePointer[UInt32, origin],
     first: Int,
     last: Int,
     n: Int,
@@ -150,7 +156,7 @@ def _lbvh_find_split(
 
 
 def _common_prefix(
-    morton_codes: UnsafePointer[UInt32, MutAnyOrigin],
+    morton_codes: UnsafePointer[UInt32, ImmutAnyOrigin],
     i: Int,
     j: Int,
     n: Int,
@@ -191,7 +197,7 @@ def init_lbvh_topology_kernel(
 
 
 def build_lbvh_topology_kernel(
-    sorted_morton_codes: UnsafePointer[UInt32, MutAnyOrigin],
+    sorted_morton_codes: UnsafePointer[UInt32, ImmutAnyOrigin],
     node_meta: UnsafePointer[UInt32, MutAnyOrigin],
     leaf_parent: UnsafePointer[UInt32, MutAnyOrigin],
     node_leaf_counts: UnsafePointer[UInt32, MutAnyOrigin],

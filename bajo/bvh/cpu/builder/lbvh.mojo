@@ -103,10 +103,10 @@ def _build_lbvh[leaf_size: Int](mut builder: BoundsBvhBuilder[leaf_size]):
 
 
 def _build_lbvh_recursive[
-    leaf_size: Int
+    origin: ImmutOrigin, //, leaf_size: Int
 ](
     mut builder: BoundsBvhBuilder[leaf_size],
-    pairs: UnsafePointer[MortonItem, ImmutAnyOrigin],
+    pairs: UnsafePointer[MortonItem, origin],
     node_idx: UInt32,
     first: Int,
     count: Int,

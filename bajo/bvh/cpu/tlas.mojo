@@ -25,25 +25,29 @@ struct Tlas[width: Int](Copyable):
     var instances: List[Instance]
     var inst_count: Int
 
-    def __init__(out self, instances: List[Instance]):
+    def __init__[
+        split_method: String = "lbvh"
+    ](out self, instances: List[Instance]):
         self.instances = instances.copy()
         self.inst_count = len(self.instances)
-        self.tree = _tree[self.width, "lbvh"](instances)
+        self.tree = _tree[self.width, split_method](instances)
 
     def add_instance(mut self, instance: Instance):
         self.instances.append(instance.copy())
         self.inst_count += 1
 
-    def build[split_method: String](mut self):
-        self.tree = _tree[self.width, "lbvh"](self.instances)
+    def build[split_method: String = "lbvh"](mut self):
+        self.tree = _tree[self.width, split_method](self.instances)
 
     def bounds(self) -> AABB:
         return self.tree.root_bounds()
 
     def trace[
+        origin: ImmutOrigin,
+        //,
         typed_bvh: TypedBvh,
         mode: TRACE,
-    ](self, ray: Ray, blases: UnsafePointer[typed_bvh, MutAnyOrigin]) -> Hit:
+    ](self, ray: Ray, blases: UnsafePointer[typed_bvh, origin]) -> Hit:
         def leaf_fn(
             ray: Ray,
             O: Vec3[DType.float32, Self.width],

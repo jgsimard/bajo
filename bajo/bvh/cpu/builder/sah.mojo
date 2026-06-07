@@ -4,7 +4,7 @@ from .builder import BoundsItem, BoundsBvhNode
 
 
 @fieldwise_init
-struct BoundsSplitResult(Copyable):
+struct BoundsSplitResult(Movable):
     var axis: Int
     var bin: Int
     var pos: Float32
@@ -114,8 +114,10 @@ struct BoundsBin(TrivialRegisterPassable):
         self.item_count = 0
 
 
-def _item_bin(
-    items: UnsafePointer[BoundsItem, ImmutAnyOrigin],
+def _item_bin[
+    origin: ImmutOrigin
+](
+    items: UnsafePointer[BoundsItem, origin],
     item_idx: Int,
     axis: Int,
     bin_min: Float32,
@@ -152,7 +154,7 @@ def _partition_items_by_bin(
         if b_idx <= split_bin:
             i += 1
         else:
-            indices[i], indices[j] = indices[j], indices[i]
+            swap(indices[i], indices[j])
             j -= 1
 
     return i

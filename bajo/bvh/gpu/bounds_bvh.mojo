@@ -171,10 +171,12 @@ def _wide_bounds_base[width: Int](node_idx: UInt32, lane: Int) -> Int:
 
 
 def _load_wide_bounds_block[
+    origin: ImmutOrigin,
+    //,
     dtype: DType,
     width: Int,
 ](
-    wide_bounds: UnsafePointer[Scalar[dtype], MutAnyOrigin],
+    wide_bounds: UnsafePointer[Scalar[dtype], origin],
     node_idx: UInt32,
 ) -> AxisAlignedBoundingBox[dtype, width]:
     var aabb = AxisAlignedBoundingBox[dtype, width].invalid()
@@ -194,9 +196,11 @@ def _load_wide_bounds_block[
 
 
 def _intersect_wide_node_bounds[
+    origin: ImmutOrigin,
+    //,
     width: Int,
 ](
-    wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    wide_bounds: UnsafePointer[Float32, origin],
     node_idx: UInt32,
     ray: Ray,
     t_max: Float32,

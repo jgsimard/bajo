@@ -224,7 +224,7 @@ def _case_name[prim: String, width: Int, split_method: String]() -> String:
 def bench_triangle_case[
     width: Int,
     split_method: String,
-](vertices: List[Vec3f32], rays: List[Ray],):
+](vertices: List[Vec3f32], rays: List[Ray]):
     var name = _case_name["tri", width, split_method]()
 
     var t0 = perf_counter_ns()
@@ -250,7 +250,7 @@ def bench_triangle_case[
 def bench_sphere_case[
     width: Int,
     split_method: String,
-](spheres: List[Sphere], rays: List[Ray],):
+](spheres: List[Sphere], rays: List[Ray]):
     var name = _case_name["sph", width, split_method]()
 
     var t0 = perf_counter_ns()
@@ -272,7 +272,7 @@ def bench_sphere_case[
 
 def bench_triangle_widths[
     split_method: String
-](vertices: List[Vec3f32], rays: List[Ray],):
+](vertices: List[Vec3f32], rays: List[Ray]):
     bench_triangle_case[2, split_method](vertices, rays)
     bench_triangle_case[4, split_method](vertices, rays)
     bench_triangle_case[8, split_method](vertices, rays)
@@ -280,7 +280,7 @@ def bench_triangle_widths[
 
 def bench_sphere_widths[
     split_method: String
-](spheres: List[Sphere], rays: List[Ray],):
+](spheres: List[Sphere], rays: List[Ray]):
     bench_sphere_case[2, split_method](spheres, rays)
     bench_sphere_case[4, split_method](spheres, rays)
     bench_sphere_case[8, split_method](spheres, rays)

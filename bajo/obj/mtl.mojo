@@ -4,7 +4,9 @@ from bajo.obj.types import ObjMaterial
 from bajo.obj.obj import ObjLineCursor, MINUS
 
 
-def _map_name_from_tail[o: Origin](mut cur: ObjLineCursor[o]) -> String:
+def _map_name_from_tail[
+    origin: Origin
+](mut cur: ObjLineCursor[origin]) -> String:
     var candidate = ""
     while cur.has_next():
         var word = cur.next_word()

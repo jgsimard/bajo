@@ -235,13 +235,13 @@ struct GpuSphereBvh[width: Int]:
 def trace_sphere_bvh_camera_kernel[
     width: Int,
 ](
-    wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    wide_data: UnsafePointer[UInt32, MutAnyOrigin],
-    wide_counts: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_spheres: UnsafePointer[Float32, MutAnyOrigin],
-    leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
+    wide_bounds: UnsafePointer[Float32, ImmutAnyOrigin],
+    wide_data: UnsafePointer[UInt32, ImmutAnyOrigin],
+    wide_counts: UnsafePointer[UInt32, ImmutAnyOrigin],
+    leaf_spheres: UnsafePointer[Float32, ImmutAnyOrigin],
+    leaf_prims: UnsafePointer[UInt32, ImmutAnyOrigin],
     root_idx: UInt32,
-    camera_params: UnsafePointer[Float32, MutAnyOrigin],
+    camera_params: UnsafePointer[Float32, ImmutAnyOrigin],
     hits_f32: UnsafePointer[Float32, MutAnyOrigin],
     hits_u32: UnsafePointer[UInt32, MutAnyOrigin],
     ray_count: Int,
@@ -288,8 +288,8 @@ def trace_sphere_bvh_camera_kernel[
 def _load_sphere_leaf_packet[
     width: Int,
 ](
-    leaf_spheres: UnsafePointer[Float32, MutAnyOrigin],
-    leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_spheres: UnsafePointer[Float32, ImmutAnyOrigin],
+    leaf_prims: UnsafePointer[UInt32, ImmutAnyOrigin],
     leaf_block_idx: UInt32,
     item_count: UInt32,
 ) -> SphereLeafBlock[width]:
@@ -318,8 +318,8 @@ def _intersect_sphere_leaf[
     width: Int,
     mode: TRACE,
 ](
-    leaf_spheres: UnsafePointer[Float32, MutAnyOrigin],
-    leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_spheres: UnsafePointer[Float32, ImmutAnyOrigin],
+    leaf_prims: UnsafePointer[UInt32, ImmutAnyOrigin],
     leaf_block_idx: UInt32,
     item_count: UInt32,
     ray: Ray,

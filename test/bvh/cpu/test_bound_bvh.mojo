@@ -174,7 +174,7 @@ def _assert_wide_leaf_counts_at_most_width[
 
 def _assert_triangle_bvh_matches_bruteforce[
     width: Int
-](mut bvh: TriangleBvh[width], verts: List[Vec3f32], origin: Vec3f32,) raises:
+](mut bvh: TriangleBvh[width], verts: List[Vec3f32], origin: Vec3f32) raises:
     var ray = _z_ray(origin)
     var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
 
@@ -202,7 +202,7 @@ def _assert_triangle_bvh_matches_bruteforce[
 
 def _assert_sphere_bvh_matches_bruteforce[
     width: Int
-](mut bvh: SphereBvh[width], spheres: List[Sphere], origin: Vec3f32,) raises:
+](mut bvh: SphereBvh[width], spheres: List[Sphere], origin: Vec3f32) raises:
     var ray = _z_ray(origin)
     var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
 

@@ -4,7 +4,7 @@ from bajo.obj.loaders import (
     ObjTextLoader,
     MemoryObjTextLoader,
 )
-from bajo.obj.obj import _parse_obj_text, _parse_obj_slice
+from bajo.obj.obj import _parse_obj
 from bajo.obj.mmap import MMap
 
 
@@ -28,8 +28,8 @@ def parse_obj(text: String, path: String = "") raises -> ObjMesh:
 
 
 def parse_obj[
-    o: Origin
-](text: StringSlice[o], path: String = "") raises -> ObjMesh:
+    origin: Origin
+](text: StringSlice[origin], path: String = "") raises -> ObjMesh:
     """Raw OBJ StringSlice."""
     var loader = MemoryObjTextLoader()
     return parse_obj(text, path, loader)
@@ -39,14 +39,14 @@ def parse_obj[
     Loader: ObjTextLoader
 ](text: String, path: String, loader: Loader) raises -> ObjMesh:
     """Raw OBJ text plus loader for mtllib resolution."""
-    return _parse_obj_text(path, text, loader)
+    return _parse_obj(path, text, loader)
 
 
 def parse_obj[
-    o: Origin, Loader: ObjTextLoader
-](text: StringSlice[o], path: String, loader: Loader) raises -> ObjMesh:
+    origin: Origin, Loader: ObjTextLoader
+](text: StringSlice[origin], path: String, loader: Loader) raises -> ObjMesh:
     """Raw OBJ StringSlice plus loader for mtllib resolution."""
-    return _parse_obj_slice(path, text, loader)
+    return _parse_obj(path, text, loader)
 
 
 def triangulated_indices(mesh: ObjMesh) -> List[ObjIndex]:

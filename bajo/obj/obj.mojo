@@ -364,7 +364,9 @@ struct ObjLineCursor[o: Origin]:
         return self.text[byte = start : self.pos]
 
 
-def _parse_v_cursor[o: Origin](mut mesh: ObjMesh, mut cur: ObjLineCursor[o]):
+def _parse_v_cursor[
+    origin: Origin
+](mut mesh: ObjMesh, mut cur: ObjLineCursor[origin]):
     cur.skip_ws()
     if cur.pos >= cur.end:
         return
@@ -399,7 +401,9 @@ def _parse_v_cursor[o: Origin](mut mesh: ObjMesh, mut cur: ObjLineCursor[o]):
                 mesh._push_color(r, g, b)
 
 
-def _parse_vt_cursor[o: Origin](mut mesh: ObjMesh, mut cur: ObjLineCursor[o]):
+def _parse_vt_cursor[
+    origin: Origin
+](mut mesh: ObjMesh, mut cur: ObjLineCursor[origin]):
     cur.skip_ws()
     if cur.pos >= cur.end:
         return
@@ -414,7 +418,9 @@ def _parse_vt_cursor[o: Origin](mut mesh: ObjMesh, mut cur: ObjLineCursor[o]):
     mesh.texcoords.append(v)
 
 
-def _parse_vn_cursor[o: Origin](mut mesh: ObjMesh, mut cur: ObjLineCursor[o]):
+def _parse_vn_cursor[
+    origin: Origin
+](mut mesh: ObjMesh, mut cur: ObjLineCursor[origin]):
     cur.skip_ws()
     if cur.pos >= cur.end:
         return
@@ -458,8 +464,8 @@ def _finish_face_parse(
 
 
 def _parse_face_cursor[
-    o: Origin
-](mut mesh: ObjMesh, mut cur: ObjLineCursor[o], is_line: Bool = False):
+    origin: Origin
+](mut mesh: ObjMesh, mut cur: ObjLineCursor[origin], is_line: Bool = False):
     var index_start = len(mesh.indices)
     var count = 0
     var valid = True
@@ -563,19 +569,19 @@ def _parse_face_cursor[
     _finish_face_parse(mesh, index_start, count, valid, is_line)
 
 
-def _parse_obj_text[
+def _parse_obj[
     Loader: ObjTextLoader
 ](path: String, text: String, loader: Loader) raises -> ObjMesh:
-    return _parse_obj_slice(path, StringSlice(text), loader)
+    return _parse_obj(path, StringSlice(text), loader)
 
 
-def _parse_obj_slice[
-    o: Origin, Loader: ObjTextLoader
-](path: String, text_slice: StringSlice[o], loader: Loader) raises -> ObjMesh:
+def _parse_obj[
+    origin: Origin, Loader: ObjTextLoader
+](path: String, text: StringSlice[origin], loader: Loader) raises -> ObjMesh:
     var mesh = ObjMesh()
 
     # Same rough heuristic as before, with reserves for the other hot arrays too.
-    var est_elements = text_slice.byte_length() / 15
+    var est_elements = text.byte_length() / 15
     mesh.positions.reserve(est_elements * 3)
     mesh.texcoords.reserve(est_elements * 2)
     mesh.normals.reserve(est_elements * 3)
@@ -583,19 +589,19 @@ def _parse_obj_slice[
     mesh.face_vertices.reserve(est_elements)
     mesh.face_materials.reserve(est_elements)
 
-    var ptr = text_slice.unsafe_ptr()
-    var text_len = text_slice.byte_length()
+    var ptr = text.unsafe_ptr()
+    var text_len = text.byte_length()
     var line_start = 0
 
     while line_start < text_len:
-        var line_end = text_slice.find("\n", line_start)
+        var line_end = text.find("\n", line_start)
         if line_end == -1:
             line_end = text_len
 
         # Do not pre-scan the whole line for CR/comments here. ObjLineCursor
         # treats CR and # as lazy logical line-end markers while parsing.
         var end = line_end
-        var cur = ObjLineCursor(text_slice, line_start, end)
+        var cur = ObjLineCursor(text, line_start, end)
         cur.skip_ws()
 
         if cur.pos < cur.end:
@@ -641,7 +647,7 @@ def _parse_obj_slice[
                 ):
                     tag_end += 1
 
-                var tag = text_slice[byte=tag_start:tag_end]
+                var tag = text[byte=tag_start:tag_end]
                 cur.pos = tag_end
 
                 if tag == "usemtl":

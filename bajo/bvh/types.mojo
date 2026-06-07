@@ -4,11 +4,12 @@ from std.gpu import DeviceBuffer
 
 from bajo.core import AABB, Vec3f32, Affine3f32
 from bajo.bvh.constants import f32_max, EMPTY_LANE, Primitive, TRACE
-from bajo.core.vec import vmin, vmax, Vec3
+from bajo.core import vmin, vmax, Vec3, Affine3f32
+from bajo.core.frame import Frame
 
 
 @fieldwise_init
-struct Hit(TrivialRegisterPassable, Writable):
+struct Hit[frame: Frame](TrivialRegisterPassable, Writable):
     var u: Float32
     var v: Float32
     var prim: UInt32
@@ -32,7 +33,7 @@ struct Hit(TrivialRegisterPassable, Writable):
 
 
 # @fieldwise_init
-struct Ray(TrivialRegisterPassable, Writable):
+struct Ray[frame: Frame](TrivialRegisterPassable, Writable):
     comptime STRIDE = 8
     comptime ORIGIN = 0  # 0, 1, 2
     comptime T_MIN = 3

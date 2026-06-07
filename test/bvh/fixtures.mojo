@@ -2,6 +2,7 @@ from bajo.core import Vec3f32
 from bajo.bvh.types import Ray, Sphere, Hit
 from bajo.core.intersect import intersect_ray_tri, intersect_ray_sphere
 from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
+from bajo.core.frame import Frame
 
 
 def _append_tri(mut verts: List[Vec3f32], cx: Float32, z: Float32):
@@ -42,8 +43,8 @@ def _brute_triangle_trace(
     verts: List[Vec3f32],
     O: Vec3f32,
     D: Vec3f32,
-) -> Hit:
-    var hit = Hit.miss()
+) -> Hit[Frame.WORLD]:
+    var hit = Hit[Frame.WORLD].miss()
 
     for i in range(len(verts) / 3):
         ref v0 = verts[i * 3 + 0]
@@ -73,8 +74,8 @@ def _brute_sphere_trace(
     spheres: List[Sphere],
     O: Vec3f32,
     D: Vec3f32,
-) -> Hit:
-    var hit = Hit.miss()
+) -> Hit[Frame.WORLD]:
+    var hit = Hit[Frame.WORLD].miss()
 
     for i, s in enumerate(spheres):
         var sphere_hit = intersect_ray_sphere(O, D, s.center, s.radius, f32_max)

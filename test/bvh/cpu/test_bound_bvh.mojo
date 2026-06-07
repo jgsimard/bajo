@@ -14,6 +14,7 @@ from bajo.bvh.cpu.builder.builder import _partition_items_by_median_center
 from bajo.bvh.cpu.builder.sah import _find_sah_split
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
+from bajo.core.frame import Frame
 
 from test.bvh.fixtures import _brute_triangle_trace, _brute_sphere_trace
 
@@ -22,8 +23,8 @@ def _rng_f32(mut rng: Rng, lo: Float32, hi: Float32) -> Float32:
     return lo + (hi - lo) * rng.f32()
 
 
-def _z_ray(origin: Vec3f32) -> Ray:
-    return Ray(origin, Vec3f32(0.0, 0.0, 1.0))
+def _z_ray(origin: Vec3f32) -> Ray[Frame.WORLD]:
+    return Ray[Frame.WORLD](origin, Vec3f32(0.0, 0.0, 1.0))
 
 
 def _make_random_xy_triangles(count: Int, seed: UInt64) -> List[Vec3f32]:

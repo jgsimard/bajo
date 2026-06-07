@@ -58,12 +58,7 @@ struct Camera(TrivialRegisterPassable, Writable):
             + self.up * (sy * self.fov_scale)
         )
 
-        return Ray(
-            self.origin,
-            0.0,
-            normalize(dir),
-            f32_max,
-        )
+        return Ray(self.origin, normalize(dir))
 
     def flatten(self) -> List[Float32]:
         return [

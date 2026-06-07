@@ -31,7 +31,7 @@ struct Hit(TrivialRegisterPassable, Writable):
         return self.t < f32_max
 
 
-@fieldwise_init
+# @fieldwise_init
 struct Ray(TrivialRegisterPassable, Writable):
     comptime STRIDE = 8
     comptime ORIGIN = 0  # 0, 1, 2
@@ -60,9 +60,9 @@ struct Ray(TrivialRegisterPassable, Writable):
         origin: ImmutOrigin
     ](out self, rays: UnsafePointer[Float32, origin], ray_idx: Int):
         var base = ray_idx * Ray.STRIDE
-        self.o = Vec3f32.load(rays, base + Ray.ORIGIN)
+        self.o = Vec3.load(rays, base + Ray.ORIGIN)
         self.t_min = rays[base + Ray.T_MIN]
-        self.d = Vec3f32.load(rays, base + Ray.DIRECTION)
+        self.d = Vec3.load(rays, base + Ray.DIRECTION)
         self.t_max = rays[base + Ray.T_MAX]
 
     def flatten(self) -> List[Float32]:
@@ -155,14 +155,14 @@ struct Instance(Copyable):
 def transform_bounds(transform: Affine3f32, bounds: AABB) -> AABB:
     var out = AABB.invalid()
     out.grow(
-        transform.point(Vec3f32(bounds._min.x, bounds._min.y, bounds._min.z)),
-        transform.point(Vec3f32(bounds._max.x, bounds._min.y, bounds._min.z)),
-        transform.point(Vec3f32(bounds._min.x, bounds._max.y, bounds._min.z)),
-        transform.point(Vec3f32(bounds._max.x, bounds._max.y, bounds._min.z)),
-        transform.point(Vec3f32(bounds._min.x, bounds._min.y, bounds._max.z)),
-        transform.point(Vec3f32(bounds._max.x, bounds._min.y, bounds._max.z)),
-        transform.point(Vec3f32(bounds._min.x, bounds._max.y, bounds._max.z)),
-        transform.point(Vec3f32(bounds._max.x, bounds._max.y, bounds._max.z)),
+        transform.point(Vec3(bounds._min.x, bounds._min.y, bounds._min.z)),
+        transform.point(Vec3(bounds._max.x, bounds._min.y, bounds._min.z)),
+        transform.point(Vec3(bounds._min.x, bounds._max.y, bounds._min.z)),
+        transform.point(Vec3(bounds._max.x, bounds._max.y, bounds._min.z)),
+        transform.point(Vec3(bounds._min.x, bounds._min.y, bounds._max.z)),
+        transform.point(Vec3(bounds._max.x, bounds._min.y, bounds._max.z)),
+        transform.point(Vec3(bounds._min.x, bounds._max.y, bounds._max.z)),
+        transform.point(Vec3(bounds._max.x, bounds._max.y, bounds._max.z)),
     )
     return out
 

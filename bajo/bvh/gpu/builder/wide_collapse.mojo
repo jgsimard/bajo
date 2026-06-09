@@ -144,7 +144,7 @@ def collapse[
         block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
     )
 
-    ctx.enqueue_function[collapse_precomputed_exact_wide_kernel[width]](
+    ctx.enqueue_function[collapse_precomputed_wide_kernel[width]](
         binary.leaf_bounds,
         binary.leaf_ids,
         binary.node_meta,
@@ -199,7 +199,7 @@ def init_precomputed_wide_leaf_blocks_kernel[
             leaf_block_indices[base + lane] = EMPTY_LANE
 
 
-def collapse_precomputed_exact_wide_kernel[
+def collapse_precomputed_wide_kernel[
     width: Int,
 ](
     leaf_bounds: UnsafePointer[Float32, MutAnyOrigin],

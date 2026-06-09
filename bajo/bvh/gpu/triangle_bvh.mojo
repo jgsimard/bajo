@@ -208,16 +208,17 @@ struct GpuTriangleBvh[width: Int]:
         ctx: DeviceContext,
     ) raises:
         var start = perf_counter_ns()
+        var leaf_lane_count = max(self.tree.leaf_block_count * Self.width, 1)
         var blocks = ceildiv(
-            max(self.tree.leaf_block_count, 1),
+            leaf_lane_count,
             GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
-        ctx.enqueue_function[pack_triangle_leaf_blocks_kernel[Self.width]](
+        ctx.enqueue_function[pack_triangle_leaf_lanes_kernel[Self.width]](
             self.vertices,
             self.tree.leaf_block_indices,
             self.leaf_vertices,
             self.leaf_prims,
-            self.tree.leaf_block_count,
+            leaf_lane_count,
             grid_dim=blocks,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
@@ -283,32 +284,29 @@ def compute_triangle_bounds_kernel(
     payloads[tri_idx] = UInt32(tri_idx)
 
 
-def pack_triangle_leaf_blocks_kernel[
+def pack_triangle_leaf_lanes_kernel[
     width: Int,
 ](
     vertices: UnsafePointer[Float32, ImmutAnyOrigin],
     leaf_block_indices: UnsafePointer[UInt32, ImmutAnyOrigin],
     leaf_vertices: UnsafePointer[Float32, MutAnyOrigin],
     leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_block_count: Int,
+    leaf_lane_count: Int,
 ):
-    var block_idx = global_idx.x
-    if block_idx >= leaf_block_count:
+    var lane_idx = global_idx.x
+    if lane_idx >= leaf_lane_count:
         return
 
-    comptime for lane in range(width):
-        var idx = block_idx * width + lane
-        var prim = leaf_block_indices[idx]
-        leaf_prims[idx] = prim
+    var prim = leaf_block_indices[lane_idx]
+    leaf_prims[lane_idx] = prim
 
-        var out_base = idx * TRI_LEAF_VERTEX_STRIDE
-        if prim == EMPTY_LANE:
-            for k in range(TRI_LEAF_VERTEX_STRIDE):
-                leaf_vertices[out_base + k] = 0.0
-        else:
-            var in_base = Int(prim) * TRI_LEAF_VERTEX_STRIDE
-            for k in range(TRI_LEAF_VERTEX_STRIDE):
-                leaf_vertices[out_base + k] = vertices[in_base + k]
+    # traversal checks prim != EMPTY_LANE
+    if prim == EMPTY_LANE:
+        return
+    var in_base = Int(prim) * TRI_LEAF_VERTEX_STRIDE
+    var out_base = lane_idx * TRI_LEAF_VERTEX_STRIDE
+    comptime for k in range(TRI_LEAF_VERTEX_STRIDE):
+        leaf_vertices[out_base + k] = vertices[in_base + k]
 
 
 def trace_triangle_bvh_camera_kernel[

@@ -24,17 +24,13 @@ struct BoundsBvhBuilder[leaf_size: Int](Copyable):
         self.items = items.copy()
         self.item_count = UInt32(len(self.items))
 
-        self.item_indices = List[UInt32](capacity=Int(self.item_count))
-        for i in range(Int(self.item_count)):
-            self.item_indices.append(UInt32(i))
+        self.item_indices = [i for i in range(self.item_count)]
 
         var max_nodes = 1
         if self.item_count > 0:
             max_nodes = Int(self.item_count * 2 - 1)
 
-        self.nodes = List[BoundsBvhNode](capacity=max_nodes)
-        for _ in range(max_nodes):
-            self.nodes.append(BoundsBvhNode())
+        self.nodes = [BoundsBvhNode() for _ in range(max_nodes)]
 
         if self.item_count > 0:
             self.nodes_used = 1

@@ -309,10 +309,7 @@ def _assert_wide_lane_invariants[width: Int](verts: List[Vec3f32]) raises:
 def _assert_gpu_triangle_width_matches_cpu_camera[
     width: Int
 ](verts: List[Vec3f32]) raises:
-    var v = verts.copy()
-    var cpu_bvh = TriangleBvh[width].__init__["lbvh"](
-        v.unsafe_ptr(), UInt32(len(verts) / 3)
-    )
+    var cpu_bvh = TriangleBvh[width].__init__["lbvh"](verts.copy())
     var camera_data = _make_camera_rays_and_params(
         cpu_bvh.bounds(),
         GPU_BOUNDS_TEST_WIDTH,

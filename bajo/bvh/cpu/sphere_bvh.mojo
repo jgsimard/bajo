@@ -19,13 +19,13 @@ struct SphereBvh[width: Int](Copyable, TypedBvh):
     var tree: BoundsBvh[Self.width]
     var spheres: List[Sphere]
     var leaf_blocks: List[SphereLeafBlock[Self.width]]
-    var sphere_count: UInt32
+    var sphere_count: Int
 
     def __init__[
         split_method: String = "median"
     ](out self, var spheres: List[Sphere]):
         self.spheres = spheres^
-        self.sphere_count = UInt32(len(self.spheres))
+        self.sphere_count = len(self.spheres)
         self.leaf_blocks = []
 
         var items = [

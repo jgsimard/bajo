@@ -402,10 +402,7 @@ def test_bounds_partition_items_non_empty() raises:
 
 def test_triangle_bvh2_leaf_size_equals_width_returns_nearest_triangle() raises:
     var verts = _make_depth_pair()
-    var bvh = TriangleBvh[2].__init__["median"](
-        verts.unsafe_ptr(),
-        UInt32(len(verts) / 3),
-    )
+    var bvh = TriangleBvh[2].__init__["median"](verts^)
 
     var hit = bvh.trace[TRACE.CLOSEST_HIT](_z_ray(Vec3f32(0.0, 0.0, 0.0)))
 
@@ -420,10 +417,7 @@ def _test_triangle_bvh_matches_bruteforce[
 ]() raises:
     var n = {2: 24, 4: 32, 8: 40}[width]
     var verts = _make_strip(n)
-    var bvh = TriangleBvh[width].__init__[split_mode](
-        verts.unsafe_ptr(),
-        UInt32(len(verts) / 3),
-    )
+    var bvh = TriangleBvh[width].__init__[split_mode](verts.copy())
 
     for i in range(n):
         _assert_triangle_bvh_matches_bruteforce[width](
@@ -451,10 +445,7 @@ def _test_triangle_bvh_shadow_hit_and_miss[
     mode: String,
 ]() raises:
     var verts = _make_strip(2 * width)
-    var bvh = TriangleBvh[width].__init__[mode](
-        verts.unsafe_ptr(),
-        UInt32(len(verts) / 3),
-    )
+    var bvh = TriangleBvh[width].__init__[mode](verts^)
 
     assert_true(
         bvh.trace[TRACE.ANY_HIT](_z_ray(Vec3f32(0.0, 0.0, 0.0))).is_occluded()

@@ -742,10 +742,7 @@ def main() raises:
     print("\nGPU TriangleBvh[width]")
     print("----------------------")
     print("\nCPU reference")
-    var cpu_bvh = TriangleBvh[8].__init__["lbvh"](
-        tri_vertices.unsafe_ptr().unsafe_mut_cast[True](),
-        UInt32(tri_count),
-    )
+    var cpu_bvh = TriangleBvh[8].__init__["lbvh"](tri_vertices.copy())
     var cpu_t0 = perf_counter_ns()
     var reference = _trace_cpu_triangle_bvh[8](cpu_bvh, rays)
     var cpu_t1 = perf_counter_ns()

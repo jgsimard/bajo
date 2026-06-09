@@ -105,7 +105,7 @@ def print_case_result(
     name: String,
     build_ns: Int,
     nodes: Int,
-    prims: UInt32,
+    prims: Int,
     primary: PrimaryBenchResult,
     ray_count: Int,
 ):
@@ -228,10 +228,7 @@ def bench_triangle_case[
     var name = _case_name["tri", width, split_method]()
 
     var t0 = perf_counter_ns()
-    var bvh = TriangleBvh[width].__init__[split_method](
-        vertices.unsafe_ptr().unsafe_mut_cast[True](),
-        UInt32(len(vertices) / 3),
-    )
+    var bvh = TriangleBvh[width].__init__[split_method](vertices.copy())
     var t1 = perf_counter_ns()
 
     var build_ns = Int(t1 - t0)

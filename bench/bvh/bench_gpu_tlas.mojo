@@ -1056,10 +1056,7 @@ def main() raises:
         ctx.synchronize()
 
         print("Building CPU TriangleBvh[8] LBVH reference for 4x4 grid...")
-        var cpu_blas = TriangleBvh[8].__init__["lbvh"](
-            tri_vertices.unsafe_ptr(),
-            UInt32(tri_count),
-        )
+        var cpu_blas = TriangleBvh[8].__init__["lbvh"](tri_vertices^)
 
         print("\nSingle instance triangle TLAS")
         print("-----------------------------")

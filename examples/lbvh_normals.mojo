@@ -288,17 +288,10 @@ def print_hit_counts_by_blas(
 def _build_cpu_triangle_blas_set[
     width: Int
 ](tri_vertex_sets: List[List[Vec3f32]]) -> List[TriangleBvh[width]]:
-    var out = List[TriangleBvh[width]](capacity=len(tri_vertex_sets))
-    for i in range(len(tri_vertex_sets)):
-        ref tri_vertices = tri_vertex_sets[i]
-        var tri_count = UInt32(len(tri_vertices) / 3)
-        out.append(
-            TriangleBvh[width].__init__["lbvh"](
-                tri_vertices.unsafe_ptr(),
-                tri_count,
-            )
-        )
-    return out^
+    return [
+        TriangleBvh[width].__init__["lbvh"](tri_vertices.copy())
+        for tri_vertices in tri_vertex_sets
+    ]
 
 
 def _trace_cpu_tlas_camera[

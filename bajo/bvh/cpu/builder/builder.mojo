@@ -76,8 +76,6 @@ struct BoundsBvhBuilder[leaf_size: Int](Copyable):
         var first = Int(node.first_item())
         var count = Int(node.item_count)
 
-        var axis = 0
-        var pos = Float32(0.0)
         var split_idx: Int
         var use_sah_bounds = False
         var cached_left_bounds = AABB.invalid()
@@ -85,7 +83,7 @@ struct BoundsBvhBuilder[leaf_size: Int](Copyable):
 
         comptime if split_method == "median":
             var extent = node.aabb._max - node.aabb._min
-            axis = longest_axis(extent)
+            var axis = longest_axis(extent)
             split_idx = _partition_items_by_median_center(
                 Span(self.item_indices),
                 self.items.unsafe_ptr(),
@@ -106,8 +104,7 @@ struct BoundsBvhBuilder[leaf_size: Int](Copyable):
 
             if (not split.valid()) or split_cost >= leaf_cost:
                 var extent = node.aabb._max - node.aabb._min
-                axis = longest_axis(extent)
-                pos = node.aabb._min[axis] + extent[axis] * 0.5
+                var axis = longest_axis(extent)
 
                 split_idx = _partition_items_by_median_center(
                     Span(self.item_indices),

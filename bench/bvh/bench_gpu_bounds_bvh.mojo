@@ -366,10 +366,10 @@ def _print_transposed_ms_row(
     v4_ns: Int,
     v8_ns: Int,
 ):
-    var c0 = name.ascii_ljust(10)
-    var c1 = String(t"{round(ns_to_ms(v2_ns), 3)}").ascii_rjust(10)
-    var c2 = String(t"{round(ns_to_ms(v4_ns), 3)}").ascii_rjust(10)
-    var c3 = String(t"{round(ns_to_ms(v8_ns), 3)}").ascii_rjust(10)
+    var c0 = String(t"{name} (ms)").ascii_ljust(15)
+    var c1 = String(t"{round(ns_to_ms(v2_ns), 3)}").ascii_rjust(15)
+    var c2 = String(t"{round(ns_to_ms(v4_ns), 3)}").ascii_rjust(15)
+    var c3 = String(t"{round(ns_to_ms(v8_ns), 3)}").ascii_rjust(15)
 
     print(t"{c0} {c1} {c2} {c3}")
 
@@ -381,10 +381,10 @@ def _print_transposed_f64_row(
     v8: Float64,
     digits: Int = 3,
 ):
-    var c0 = name.ascii_ljust(10)
-    var c1 = String(t"{round(v2, digits)}").ascii_rjust(10)
-    var c2 = String(t"{round(v4, digits)}").ascii_rjust(10)
-    var c3 = String(t"{round(v8, digits)}").ascii_rjust(10)
+    var c0 = name.ascii_ljust(15)
+    var c1 = String(t"{round(v2, digits)}").ascii_rjust(15)
+    var c2 = String(t"{round(v4, digits)}").ascii_rjust(15)
+    var c3 = String(t"{round(v8, digits)}").ascii_rjust(15)
 
     print(t"{c0} {c1} {c2} {c3}")
 
@@ -395,10 +395,10 @@ def _print_transposed_int_row(
     v4: Int,
     v8: Int,
 ):
-    var c0 = name.ascii_ljust(10)
-    var c1 = String(t"{v2}").ascii_rjust(10)
-    var c2 = String(t"{v4}").ascii_rjust(10)
-    var c3 = String(t"{v8}").ascii_rjust(10)
+    var c0 = name.ascii_ljust(15)
+    var c1 = String(t"{v2}").ascii_rjust(15)
+    var c2 = String(t"{v4}").ascii_rjust(15)
+    var c3 = String(t"{v8}").ascii_rjust(15)
 
     print(t"{c0} {c1} {c2} {c3}")
 
@@ -418,10 +418,10 @@ def _print_transposed_string_row(
     v4: String,
     v8: String,
 ):
-    var c0 = name.ascii_ljust(10)
-    var c1 = v2.ascii_rjust(10)
-    var c2 = v4.ascii_rjust(10)
-    var c3 = v8.ascii_rjust(10)
+    var c0 = name.ascii_ljust(15)
+    var c1 = v2.ascii_rjust(15)
+    var c2 = v4.ascii_rjust(15)
+    var c3 = v8.ascii_rjust(15)
 
     print(t"{c0} {c1} {c2} {c3}")
 
@@ -431,58 +431,58 @@ def _print_gpu_results_transposed(
     row4: GpuBenchResult,
     row8: GpuBenchResult,
 ):
-    var c0 = String("metric").ascii_ljust(10)
-    var c1 = row2.label.ascii_rjust(10)
-    var c2 = row4.label.ascii_rjust(10)
-    var c3 = row8.label.ascii_rjust(10)
+    var c0 = String("metric").ascii_ljust(15)
+    var c1 = row2.label.ascii_rjust(15)
+    var c2 = row4.label.ascii_rjust(15)
+    var c3 = row8.label.ascii_rjust(15)
 
     print(t"{c0} {c1} {c2} {c3}")
-    print("---------- ---------- ---------- ----------")
+    print("--------------- --------------- --------------- ---------------")
 
     _print_transposed_ms_row(
-        String("build"),
+        String("build tot"),
         row2.build_ns,
         row4.build_ns,
         row8.build_ns,
     )
     _print_transposed_ms_row(
-        String("morton"),
+        String("- morton"),
         row2.timings.morton_ns,
         row4.timings.morton_ns,
         row8.timings.morton_ns,
     )
     _print_transposed_ms_row(
-        String("sort"),
+        String("- sort"),
         row2.timings.sort_ns,
         row4.timings.sort_ns,
         row8.timings.sort_ns,
     )
     _print_transposed_ms_row(
-        String("topology"),
+        String("- topology"),
         row2.timings.topology_ns,
         row4.timings.topology_ns,
         row8.timings.topology_ns,
     )
     _print_transposed_ms_row(
-        String("refit"),
+        String("- refit"),
         row2.timings.refit_ns,
         row4.timings.refit_ns,
         row8.timings.refit_ns,
     )
     _print_transposed_ms_row(
-        String("collapse"),
+        String("- collapse"),
         row2.timings.collapse_ns,
         row4.timings.collapse_ns,
         row8.timings.collapse_ns,
     )
     _print_transposed_ms_row(
-        String("pack"),
+        String("- pack"),
         row2.pack_ns,
         row4.pack_ns,
         row8.pack_ns,
     )
     _print_transposed_ms_row(
-        String("other"),
+        String("- other"),
         _gpu_result_other_ns(row2),
         _gpu_result_other_ns(row4),
         _gpu_result_other_ns(row8),

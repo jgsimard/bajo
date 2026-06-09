@@ -1,4 +1,5 @@
 from bajo.core import AABB, vmin, vmax, longest_axis
+from bajo.sort.cpu import nth_element
 
 from .sah import _find_sah_split, _partition_items_by_bin
 from .lbvh import _build_lbvh
@@ -72,19 +73,26 @@ struct BoundsBvhBuilder[leaf_size: Int](Copyable):
         if node.item_count <= UInt32(Self.leaf_size):
             return
 
-        var axis: Int
-        var pos: Float32
+        var first = Int(node.first_item())
+        var count = Int(node.item_count)
+
+        var axis = 0
+        var pos = Float32(0.0)
+        var split_idx: Int
         var use_sah_bounds = False
-        var split_bin = -1
-        var split_bin_min = Float32(0.0)
-        var split_bin_scale = Float32(0.0)
         var cached_left_bounds = AABB.invalid()
         var cached_right_bounds = AABB.invalid()
 
         comptime if split_method == "median":
             var extent = node.aabb._max - node.aabb._min
             axis = longest_axis(extent)
-            pos = node.aabb._min[axis] + extent[axis] * 0.5
+            split_idx = _partition_items_by_median_center(
+                Span(self.item_indices),
+                self.items.unsafe_ptr(),
+                first,
+                count,
+                axis,
+            )
 
         elif split_method == "sah":
             var split = _find_sah_split(
@@ -97,61 +105,40 @@ struct BoundsBvhBuilder[leaf_size: Int](Copyable):
             var split_cost = split.cost + node.surface_area()
 
             if (not split.valid()) or split_cost >= leaf_cost:
-                if node.item_count > UInt32(Self.leaf_size):
-                    var extent = node.aabb._max - node.aabb._min
-                    axis = longest_axis(extent)
-                    pos = node.aabb._min[axis] + extent[axis] * 0.5
-                else:
-                    return
+                var extent = node.aabb._max - node.aabb._min
+                axis = longest_axis(extent)
+                pos = node.aabb._min[axis] + extent[axis] * 0.5
+
+                split_idx = _partition_items_by_median_center(
+                    Span(self.item_indices),
+                    self.items.unsafe_ptr(),
+                    first,
+                    count,
+                    axis,
+                )
             else:
-                axis = split.axis
-                pos = split.pos
-                split_bin = split.bin
-                split_bin_min = split.bin_min
-                split_bin_scale = split.bin_scale
+                split_idx = _partition_items_by_bin(
+                    self.item_indices.unsafe_ptr(),
+                    self.items.unsafe_ptr(),
+                    first,
+                    count,
+                    split.axis,
+                    split.bin,
+                    split.bin_min,
+                    split.bin_scale,
+                )
+
                 cached_left_bounds = split.left_bounds
                 cached_right_bounds = split.right_bounds
                 use_sah_bounds = True
         else:
             comptime assert False, "Unknown BoundsBvh split method"
 
-        var split_idx: Int
-        comptime if split_method == "sah":
-            if use_sah_bounds:
-                split_idx = _partition_items_by_bin(
-                    self.item_indices.unsafe_ptr(),
-                    self.items.unsafe_ptr(),
-                    Int(node.first_item()),
-                    Int(node.item_count),
-                    axis,
-                    split_bin,
-                    split_bin_min,
-                    split_bin_scale,
-                )
-            else:
-                split_idx = _partition_items_by_center(
-                    self.item_indices.unsafe_ptr(),
-                    self.items.unsafe_ptr(),
-                    Int(node.first_item()),
-                    Int(node.item_count),
-                    axis,
-                    pos,
-                )
-        else:
-            split_idx = _partition_items_by_center(
-                self.item_indices.unsafe_ptr(),
-                self.items.unsafe_ptr(),
-                Int(node.first_item()),
-                Int(node.item_count),
-                axis,
-                pos,
-            )
-
-        var left_count = UInt32(split_idx - Int(node.first_item()))
+        var left_count = UInt32(split_idx - first)
 
         if left_count == 0 or left_count == node.item_count:
             left_count = node.item_count / 2
-            split_idx = Int(node.first_item()) + Int(left_count)
+            split_idx = first + Int(left_count)
             use_sah_bounds = False
 
         var left_child_idx = self.nodes_used
@@ -212,7 +199,7 @@ struct BoundsItem(TrivialRegisterPassable):
     var payload: UInt32
 
     def center_axis(self, axis: Int) -> Float32:
-        return self.bounds.centroid()[axis]
+        return (self.bounds._min[axis] + self.bounds._max[axis]) * 0.5
 
     def grow_into(self, mut aabb: AABB):
         aabb._min = vmin(aabb._min, self.bounds._min)
@@ -269,25 +256,27 @@ struct BoundsBvhNode(TrivialRegisterPassable):
         return self.aabb.surface_area()[0]
 
 
-def _partition_items_by_center(
-    indices: UnsafePointer[UInt32, MutAnyOrigin],
+def _partition_items_by_median_center[
+    origin: MutOrigin,
+](
+    indices: Span[UInt32, origin],
     items: UnsafePointer[BoundsItem, ImmutAnyOrigin],
     first: Int,
     count: Int,
     axis: Int,
-    pos: Float32,
 ) -> Int:
-    var i = first
-    var j = first + count - 1
+    var mid = count / 2
 
-    while i <= j:
-        var item_idx = Int(indices[i])
-        var c = items[item_idx].center_axis(axis)
+    def cmp(a_idx: UInt32, b_idx: UInt32) capturing -> Bool:
+        var a = items[Int(a_idx)].center_axis(axis)
+        var b = items[Int(b_idx)].center_axis(axis)
 
-        if c < pos:
-            i += 1
-        else:
-            swap(indices[i], indices[j])
-            j -= 1
+        if a == b:
+            return a_idx < b_idx
 
-    return i
+        return a < b
+
+    var range = indices.unsafe_subspan(offset=first, length=count)
+    nth_element[cmp](range, mid)
+
+    return first + mid

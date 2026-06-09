@@ -294,29 +294,41 @@ def _print_cpu_ref_row(
 def _print_gpu_table_header(has_reference: Bool):
     var c0 = String("case").ascii_ljust(8)
     var c1 = String("build").ascii_rjust(8)
-    var c2 = String("collapse").ascii_rjust(10)
-    var c3 = String("pack").ascii_rjust(8)
-    var c4 = String("camera").ascii_rjust(8)
-    var c5 = String("MRay/s").ascii_rjust(9)
-    var c6 = String("hits").ascii_rjust(8)
-    var c7 = String("checksum").ascii_rjust(12)
+    var c2 = String("morton").ascii_rjust(8)
+    var c3 = String("sort").ascii_rjust(8)
+    var c4 = String("topology").ascii_rjust(9)
+    var c5 = String("refit").ascii_rjust(8)
+    var c6 = String("collapse").ascii_rjust(10)
+    var c7 = String("pack").ascii_rjust(8)
+    var c8 = String("other").ascii_rjust(8)
+    var c9 = String("camera").ascii_rjust(8)
+    var c10 = String("MRay/s").ascii_rjust(9)
+    var c11 = String("hits").ascii_rjust(8)
+    var c12 = String("checksum").ascii_rjust(12)
 
     if has_reference:
-        var c8 = String("diff").ascii_rjust(15)
-        var c9 = String("dhit").ascii_rjust(6)
-        var c10 = String("rel_dhit").ascii_rjust(10)
-        var c11 = String("status").ascii_ljust(6)
+        var c13 = String("diff").ascii_rjust(15)
+        var c14 = String("dhit").ascii_rjust(6)
+        var c15 = String("rel_dhit").ascii_rjust(10)
+        var c16 = String("status").ascii_ljust(6)
 
-        print(t"{c0} {c1} {c2} {c3} {c4} {c5} {c6} {c7} {c8} {c9} {c10} {c11}")
         print(
-            "-------- -------- ---------- -------- -------- --------- --------"
-            " ------------ --------------- ------ ---------- ------"
+            t"{c0} {c1} {c2} {c3} {c4} {c5} {c6} {c7} "
+            t"{c8} {c9} {c10} {c11} {c12} {c13} {c14} {c15} {c16}"
+        )
+        print(
+            "-------- -------- -------- -------- --------- -------- ---------- "
+            "-------- -------- -------- --------- -------- ------------ "
+            "--------------- ------ ---------- ------"
         )
     else:
-        print(t"{c0} {c1} {c2} {c3} {c4} {c5} {c6} {c7}")
         print(
-            "-------- -------- ---------- -------- -------- --------- --------"
-            " ------------"
+            t"{c0} {c1} {c2} {c3} {c4} {c5} {c6} {c7} "
+            t"{c8} {c9} {c10} {c11} {c12}"
+        )
+        print(
+            "-------- -------- -------- -------- --------- -------- ---------- "
+            "-------- -------- -------- --------- -------- ------------"
         )
 
 
@@ -338,9 +350,17 @@ def _print_gpu_row[
     comptime CHECKSUM_ABS_EPS = 1.0e-3
     comptime CHECKSUM_PER_HIT_EPS = 1.0e-6
 
+    var stage_sum_ns = timings.total() + pack_ns
+    var other_ns = build_ns - stage_sum_ns
+
     var build_ms = round(ns_to_ms(build_ns), 3)
+    var morton_ms = round(ns_to_ms(timings.morton_ns), 3)
+    var sort_ms = round(ns_to_ms(timings.sort_ns), 3)
+    var topology_ms = round(ns_to_ms(timings.topology_ns), 3)
+    var refit_ms = round(ns_to_ms(timings.refit_ns), 3)
     var collapse_ms = round(ns_to_ms(timings.collapse_ns), 3)
     var pack_ms = round(ns_to_ms(pack_ns), 3)
+    var other_ms = round(ns_to_ms(other_ns), 3)
     var kernel_ms = round(ns_to_ms(kernel_ns), 3)
     var mrays = round(ns_to_mrays_per_s(kernel_ns, ray_count), 3)
     var checksum_r = round(checksum, 3)
@@ -366,10 +386,6 @@ def _print_gpu_row[
 
     var status = String("OK")
 
-    # Hit/miss disagreement is judged by relative hit-count error.
-    # For strict rows, pass hit_rel_eps = 0.0.
-    # For sphere rows, pass a small tolerance because silhouette/tangent rays
-    # are not bit-stable between CPU and GPU ray reconstruction.
     if hit_rel_diff > hit_rel_eps:
         status = String("CHECK")
     else:
@@ -380,19 +396,26 @@ def _print_gpu_row[
 
     var c0 = label.ascii_ljust(8)
     var c1 = String(t"{build_ms}").ascii_rjust(8)
-    var c2 = String(t"{collapse_ms}").ascii_rjust(10)
-    var c3 = String(t"{pack_ms}").ascii_rjust(8)
-    var c4 = String(t"{kernel_ms}").ascii_rjust(8)
-    var c5 = String(t"{mrays}").ascii_rjust(9)
-    var c6 = String(t"{hit_count}").ascii_rjust(8)
-    var c7 = String(t"{checksum_r}").ascii_rjust(12)
-    var c8 = String(t"{diff_r}").ascii_rjust(15)
-    var c9 = String(t"{hit_diff}").ascii_rjust(6)
-    var c10 = String(t"{hit_rel_diff_r}").ascii_rjust(10)
-    var c11 = status.ascii_ljust(6)
+    var c2 = String(t"{morton_ms}").ascii_rjust(8)
+    var c3 = String(t"{sort_ms}").ascii_rjust(8)
+    var c4 = String(t"{topology_ms}").ascii_rjust(9)
+    var c5 = String(t"{refit_ms}").ascii_rjust(8)
+    var c6 = String(t"{collapse_ms}").ascii_rjust(10)
+    var c7 = String(t"{pack_ms}").ascii_rjust(8)
+    var c8 = String(t"{other_ms}").ascii_rjust(8)
+    var c9 = String(t"{kernel_ms}").ascii_rjust(8)
+    var c10 = String(t"{mrays}").ascii_rjust(9)
+    var c11 = String(t"{hit_count}").ascii_rjust(8)
+    var c12 = String(t"{checksum_r}").ascii_rjust(12)
+    var c13 = String(t"{diff_r}").ascii_rjust(15)
+    var c14 = String(t"{hit_diff}").ascii_rjust(6)
+    var c15 = String(t"{hit_rel_diff_r}").ascii_rjust(10)
+    var c16 = status.ascii_ljust(6)
 
-    print(t"{c0} {c1} {c2} {c3} {c4} {c5} {c6} {c7} {c8} {c9} {c10} {c11}")
-    # print(timings)
+    print(
+        t"{c0} {c1} {c2} {c3} {c4} {c5} {c6} {c7} "
+        t"{c8} {c9} {c10} {c11} {c12} {c13} {c14} {c15} {c16}"
+    )
 
 
 def _bench_camera_primary_triangle[

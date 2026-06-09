@@ -4,7 +4,7 @@ from std.os import abort
 from std.io.file_descriptor import FileDescriptor
 from std.utils import Variant
 
-from bajo.core.vec import (
+from bajo.core import (
     Vec3f32,
     length,
     length2,
@@ -145,10 +145,7 @@ struct World(Copyable):
         for obj in self.objects:
             bvh_spheres.append(bSphere(obj.center, obj.radius))
 
-        self.bvh = SphereBvh[BVH_WIDTH].__init__["median"](
-            bvh_spheres.unsafe_ptr(),
-            UInt32(len(bvh_spheres)),
-        )
+        self.bvh = SphereBvh[BVH_WIDTH](bvh_spheres^)
 
     def hit(
         self,

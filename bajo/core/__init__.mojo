@@ -6,6 +6,7 @@ from .vec import (
     Vec3,
     normalize,
     length,
+    length2,
     vmin,
     vmax,
     cross,

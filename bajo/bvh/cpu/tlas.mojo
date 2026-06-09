@@ -1,5 +1,4 @@
-from bajo.core.aabb import AABB
-from bajo.core.vec import Vec3
+from bajo.core import AABB, Vec3
 from bajo.bvh.types import Ray, Hit, Instance, TypedBvh
 from bajo.bvh.constants import TRACE
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh

@@ -1,6 +1,6 @@
 from std.bit import count_leading_zeros
 
-from bajo.core.aabb import AABB
+from bajo.core import AABB
 from bajo.core.morton import morton3
 
 

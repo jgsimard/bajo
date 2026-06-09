@@ -2,7 +2,7 @@ from std.math import max, ceildiv
 from std.atomic import Atomic
 from std.gpu import DeviceContext, global_idx
 
-from bajo.core.aabb import AABB
+from bajo.core import AABB
 from bajo.bvh.constants import (
     LBVH_SENTINEL,
     GPU_STACK_SIZE,

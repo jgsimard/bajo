@@ -1,7 +1,7 @@
 from std.math import max, ceildiv
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
 
-from bajo.core.aabb import AABB
+from bajo.core import AABB
 from bajo.bvh.constants import (
     LBVH_LEAF_FLAG,
     LBVH_INDEX_MASK,

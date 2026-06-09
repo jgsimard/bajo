@@ -1,13 +1,14 @@
 from std.testing import TestSuite, assert_almost_equal, assert_true
 
-from bajo.core.transform import Affine3, Affine3f32
-from bajo.core.vec import (
+from bajo.core import (
+    Affine3,
+    Affine3f32,
     Vec3,
     Vec3f32,
     assert_vec_equal,
+    Quat,
 )
 from bajo.core.utils import degrees_to_radians
-from bajo.core.quat import Quat
 
 
 def test_identity() raises:

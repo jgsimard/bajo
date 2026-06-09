@@ -1,4 +1,4 @@
-from bajo.core.vec import Vec3f32
+from bajo.core import Vec3f32
 
 
 def pack_obj_triangles(path: String) raises -> List[Vec3f32]:

@@ -1,4 +1,4 @@
-from bajo.core.aabb import AABB
+from bajo.core import AABB
 from bajo.bvh.constants import f32_max, f32_min, BVH_BINS
 from .builder import BoundsItem, BoundsBvhNode
 

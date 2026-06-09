@@ -1,6 +1,6 @@
 from bajo.bvh.types import Ray
 from bajo.bvh.constants import f32_max
-from bajo.core.vec import Vec3f32, normalize, cross
+from bajo.core import Vec3f32, normalize, cross
 
 
 @fieldwise_init

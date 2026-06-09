@@ -8,8 +8,7 @@ from bajo.bvh.gpu.utils import (
     upload_vertices,
     upload_list,
 )
-from bajo.core.aabb import AABB
-from bajo.core.vec import Vec3f32, vmin, vmax, normalize, cross, Vec3
+from bajo.core import AABB, Vec3f32, vmin, vmax, normalize, cross, Vec3
 from bajo.bvh.types import Ray, Hit, BlasSet, TriangleLeafBlock
 from bajo.bvh.constants import (
     EMPTY_LANE,

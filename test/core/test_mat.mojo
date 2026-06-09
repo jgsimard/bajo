@@ -3,6 +3,8 @@ from std.testing import (
     assert_equal,
     assert_almost_equal,
 )
+
+from bajo.core import Vec3f32, assert_vec_equal, Quat
 from bajo.core.mat import (
     Mat22,
     Mat33,
@@ -13,12 +15,7 @@ from bajo.core.mat import (
     _matvec,
     assert_mat_equal,
 )
-from bajo.core.vec import (
-    Vec3f32,
-    assert_vec_equal,
-)
 from bajo.core.utils import degrees_to_radians
-from bajo.core.quat import Quat
 
 
 def test_basics() raises:

@@ -3,8 +3,6 @@ from std.utils.numerics import max_finite, min_finite
 from bajo.core.transform import Affine3
 from bajo.core.vec import Vec3, vmin, vmax
 
-comptime AABB = AxisAlignedBoundingBox[DType.float32]
-
 
 @fieldwise_init
 struct AxisAlignedBoundingBox[dtype: DType, width: Int = 1](

@@ -1,12 +1,11 @@
 from bajo.core.utils import min_argmin
-from bajo.core.vec import Vec3, Vec3f32
+from bajo.core import Vec3, Vec3f32, AABB
 from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
 from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvh,
     BoundsItem,
     BoundsBvhBuilder,
 )
-from bajo.core.aabb import AABB
 from bajo.bvh.types import Ray, Hit, TriangleLeafBlock, TypedBvh
 from bajo.core.intersect import intersect_ray_tri
 from bajo.bvh.cpu.trace import trace_bounds_bvh

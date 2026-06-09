@@ -1,4 +1,4 @@
-from bajo.core.vec import Vec3f32
+from bajo.core import Vec3f32
 from bajo.bvh.types import Ray, Sphere, Hit
 from bajo.core.intersect import intersect_ray_tri, intersect_ray_sphere
 from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max

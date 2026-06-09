@@ -8,7 +8,7 @@ from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.bvh.host_utils import hit_t_for_checksum
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
-from bajo.core.vec import Vec3f32
+from bajo.core import Vec3f32
 
 
 comptime GRID_SIDE = 256

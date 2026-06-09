@@ -1,7 +1,7 @@
 from std.math import ceildiv, max
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
 
-from bajo.core.transform import Affine3f32
+from bajo.core import AABB, Affine3f32
 from bajo.bvh.constants import (
     TRACE,
     GPU_STACK_SIZE,
@@ -9,7 +9,6 @@ from bajo.bvh.constants import (
     f32_max,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
-from bajo.core.aabb import AABB
 from bajo.bvh.types import Ray, Hit, Instance, BlasSet
 from bajo.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,

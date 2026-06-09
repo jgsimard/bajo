@@ -4,8 +4,7 @@ from std.time import perf_counter_ns
 from std.atomic import Atomic
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
 
-from bajo.core.aabb import AABB
-from bajo.core.vec import Vec3f32
+from bajo.core import AABB, Vec3f32
 from bajo.core.morton import morton3
 from bajo.sort.gpu.radix_sort import device_radix_sort_pairs, RadixSortWorkspace
 from bajo.bvh.constants import (

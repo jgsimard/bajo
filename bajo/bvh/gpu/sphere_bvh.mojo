@@ -9,9 +9,8 @@ from bajo.bvh.constants import (
     f32_max,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
-from bajo.core.aabb import AABB
+from bajo.core import AABB, Vec3
 from bajo.core.intersect import intersect_ray_sphere
-from bajo.core.vec import Vec3
 from bajo.bvh.types import Sphere, Ray, Hit, SphereLeafBlock, BlasSet
 from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh
 from bajo.bvh.gpu.trace import trace_bounds_bvh

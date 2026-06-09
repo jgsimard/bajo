@@ -2,8 +2,7 @@ from std.math import max, ceildiv
 from std.gpu import DeviceBuffer, DeviceContext
 from std.time import perf_counter_ns
 
-from bajo.core.aabb import AABB, AxisAlignedBoundingBox
-from bajo.core.vec import Vec3
+from bajo.core import AABB, AxisAlignedBoundingBox, Vec3
 from bajo.core.intersect import intersect_ray_aabb, RayDistanceHit
 from bajo.bvh.types import Ray
 from bajo.bvh.constants import EMPTY_LANE

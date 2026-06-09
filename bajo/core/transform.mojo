@@ -5,10 +5,6 @@ from bajo.core.vec import Vec3
 from bajo.core.quat import Quaternion
 
 
-comptime Affine3f32 = Affine3[DType.float32]
-comptime Affine3f64 = Affine3[DType.float64]
-
-
 @fieldwise_init
 struct Affine3InverseResult[
     dtype: DType,

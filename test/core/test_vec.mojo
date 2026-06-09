@@ -5,7 +5,7 @@ from std.testing import (
     assert_false,
 )
 
-from bajo.core.vec import (
+from bajo.core import (
     Vec2f32,
     Vec3f32,
     dot,

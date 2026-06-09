@@ -4,9 +4,7 @@ from std.sys import has_accelerator
 from std.testing import TestSuite, assert_true, assert_almost_equal
 from std.gpu import DeviceBuffer, DeviceContext
 
-from bajo.core.aabb import AABB
-from bajo.core.vec import Vec3f32
-from bajo.core.transform import Affine3f32
+from bajo.core import AABB, Vec3f32, Affine3f32
 from bajo.bvh.camera import Camera
 from bajo.bvh.constants import Primitive, TRACE
 from bajo.bvh.types import Ray, Sphere, Instance

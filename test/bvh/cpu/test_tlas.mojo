@@ -5,8 +5,7 @@ from bajo.bvh.types import Ray, Instance, Sphere, Hit
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.bvh.cpu.tlas import Tlas
-from bajo.core.transform import Affine3f32
-from bajo.core.vec import Vec3f32
+from bajo.core import Affine3f32, Vec3f32
 
 
 def _make_one_local_triangle_z2() -> List[Vec3f32]:

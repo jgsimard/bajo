@@ -1,7 +1,7 @@
 from std.gpu import DeviceContext, DeviceBuffer
 
 from bajo.bvh.camera import Camera
-from bajo.core.vec import Vec3f32
+from bajo.core import Vec3f32
 
 
 @fieldwise_init

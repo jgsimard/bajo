@@ -4,8 +4,8 @@ from std.sys import has_accelerator
 from std.testing import TestSuite, assert_true
 from std.gpu import DeviceContext, DeviceBuffer
 
-from bajo.core.aabb import AABB
-from bajo.core.vec import Vec3f32, vmin, vmax
+from bajo.core import AABB, Vec3f32
+from bajo.core.vec import vmin, vmax
 from bajo.bvh.camera import Camera
 from bajo.bvh.types import Ray, Sphere
 from bajo.bvh.host_utils import hit_t_for_checksum

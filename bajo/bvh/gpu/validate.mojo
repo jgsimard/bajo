@@ -10,8 +10,7 @@ from bajo.bvh.gpu.utils import (
     TopologyValidation,
     RefitBoundsValidation,
 )
-from bajo.core.vec import Vec3f32
-from bajo.core.aabb import AABB
+from bajo.core import Vec3f32, AABB
 
 
 def validate_sorted_keys(

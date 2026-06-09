@@ -30,9 +30,6 @@ def normalize[
     return q * (1.0 / length(q))
 
 
-comptime Quat = Quaternion[DType.float32]
-
-
 @fieldwise_init
 struct Quaternion[dtype: DType, width: Int = 1](
     DevicePassable, TrivialRegisterPassable, Writable

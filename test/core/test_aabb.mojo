@@ -6,11 +6,8 @@ from std.testing import (
     assert_almost_equal,
 )
 
-from bajo.core.aabb import AABB
+from bajo.core import AABB, Quat, Vec3f32, assert_vec_equal, Affine3
 from bajo.core.utils import degrees_to_radians
-from bajo.core.quat import Quat
-from bajo.core.vec import Vec3f32, assert_vec_equal
-from bajo.core.transform import Affine3
 
 
 def test_logic() raises:

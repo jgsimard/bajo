@@ -4,9 +4,6 @@ from std.testing import assert_almost_equal
 
 from bajo.core.utils import fmin, fmax
 
-comptime Vec2f32 = Vec2[DType.float32]
-comptime Vec3f32 = Vec3[DType.float32]
-
 
 @fieldwise_init
 struct Vec2[dtype: DType, width: Int = 1](TrivialRegisterPassable, Writable):

@@ -1,7 +1,6 @@
 from std.testing import TestSuite, assert_true, assert_almost_equal
 
-from bajo.core.aabb import AABB
-from bajo.core.vec import Vec3f32
+from bajo.core import AABB, Vec3f32
 from bajo.core.intersect import intersect_ray_aabb
 from bajo.bvh.types import Ray, Sphere
 from bajo.core.random import Rng

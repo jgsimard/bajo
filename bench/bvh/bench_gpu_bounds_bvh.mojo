@@ -128,36 +128,7 @@ def _trace_cpu_sphere_bruteforce(
     var hit_count = UInt32(0)
 
     for ray in rays:
-        var hit = Hit.miss(ray.t_max)
-
-        var O = Vec3[DType.float32, 1](ray.o.x, ray.o.y, ray.o.z)
-        var D = Vec3[DType.float32, 1](ray.d.x, ray.d.y, ray.d.z)
-
-        for prim_i in range(len(spheres)):
-            var s = spheres[prim_i]
-            var center = Vec3[DType.float32, 1](
-                s.center.x,
-                s.center.y,
-                s.center.z,
-            )
-            var radius = SIMD[DType.float32, 1](s.radius)
-
-            var h = intersect_ray_sphere(
-                O,
-                D,
-                center,
-                radius,
-                SIMD[DType.float32, 1](hit.t),
-                SIMD[DType.float32, 1](ray.t_min),
-            )
-
-            if h.mask[0] and h.t[0] < hit.t:
-                hit.t = h.t[0]
-                hit.u = 0.0
-                hit.v = 0.0
-                hit.prim = UInt32(prim_i)
-                hit.inst = EMPTY_LANE
-
+        var hit = _trace_cpu_sphere_bruteforce_one(spheres, ray)
         checksum += hit_t_for_checksum(hit.t)
         if hit.t < Float32(1.0e20):
             hit_count += 1
@@ -171,25 +142,14 @@ def _trace_cpu_sphere_bruteforce_one(
 ) -> Hit:
     var hit = Hit.miss(ray.t_max)
 
-    var O = Vec3[DType.float32, 1](ray.o.x, ray.o.y, ray.o.z)
-    var D = Vec3[DType.float32, 1](ray.d.x, ray.d.y, ray.d.z)
-
-    for prim_i in range(len(spheres)):
-        var s = spheres[prim_i]
-        var center = Vec3[DType.float32, 1](
-            s.center.x,
-            s.center.y,
-            s.center.z,
-        )
-        var radius = SIMD[DType.float32, 1](s.radius)
-
+    for prim_i, s in enumerate(spheres):
         var h = intersect_ray_sphere(
-            O,
-            D,
-            center,
-            radius,
-            SIMD[DType.float32, 1](hit.t),
-            SIMD[DType.float32, 1](ray.t_min),
+            ray.o,
+            ray.d,
+            s.center,
+            s.radius,
+            hit.t,
+            ray.t_min,
         )
 
         if h.mask[0] and h.t[0] < hit.t:

@@ -65,7 +65,7 @@ struct GpuBoundsBvh[width: Int]:
     ) raises:
         self.leaf_count = len(leaf_payloads)
         self.internal_count = max(self.leaf_count - 1, 0)
-        self.root_idx = UInt32(0)
+        self.root_idx = 0
         self.node_count = 0
         self.leaf_block_count = 0
         self.max_wide_nodes = max(self.internal_count, 1)

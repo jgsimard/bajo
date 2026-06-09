@@ -42,7 +42,7 @@ struct BoundsBvh[width: Int](Copyable):
             _ = self._collapse(bvh, 0)
 
     def _collapse(mut self, bvh: BoundsBvhBuilder, bin_idx: UInt32) -> UInt32:
-        var wide_idx = UInt32(len(self.nodes))
+        var wide_idx = len(self.nodes)
         self.nodes.append(WideBvhNode[Self.width]())
 
         var pool = InlineArray[UInt32, Self.width](fill=bin_idx)
@@ -95,8 +95,8 @@ struct BoundsBvh[width: Int](Copyable):
             else:
                 node.counts[i] = EMPTY_LANE
 
-        self.nodes[Int(wide_idx)] = node^
-        return wide_idx
+        self.nodes[wide_idx] = node^
+        return UInt32(wide_idx)
 
     def root_bounds(self) -> AABB:
         var out = AABB.invalid()

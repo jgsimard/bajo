@@ -138,7 +138,7 @@ struct Instance(Copyable):
         self.transform = Affine3f32.identity()
         self.inv_transform = Affine3f32.identity()
         self.bounds = AABB.invalid()
-        self.blas_idx = UInt32(0)
+        self.blas_idx = 0
         self.kind = Primitive.UNKNOWN
 
     def __init__(

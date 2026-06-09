@@ -47,18 +47,6 @@ struct SortResult(ImplicitlyCopyable, Writable):
     var name: String
 
 
-def copy_kernel[
-    dtype: DType
-](
-    dst: UnsafePointer[Scalar[dtype], MutAnyOrigin],
-    src: UnsafePointer[Scalar[dtype], MutAnyOrigin],
-    size: Int,
-):
-    var gid = global_idx.x
-    if gid < size:
-        dst[gid] = src[gid]
-
-
 def print_results_table(title: String, results: List[SortResult]):
     print("\n== " + title + " ==")
     print("    N    | Time (ms) | Throughput (GK/s)")
@@ -108,23 +96,9 @@ def benchmark_sorts_pairs(sizes: List[Int]) raises -> List[List[SortResult]]:
                     )
                     host_vals[i] = Scalar[vals_dtype](i)
 
-            var gdim = ceildiv(SIZE, 256)
-
             def reset_data() capturing raises:
-                ctx.enqueue_function[copy_kernel[keys_dtype]](
-                    keys.unsafe_ptr(),
-                    pristine_keys.unsafe_ptr(),
-                    SIZE,
-                    grid_dim=gdim,
-                    block_dim=256,
-                )
-                ctx.enqueue_function[copy_kernel[vals_dtype]](
-                    values.unsafe_ptr(),
-                    pristine_vals.unsafe_ptr(),
-                    SIZE,
-                    grid_dim=gdim,
-                    block_dim=256,
-                )
+                pristine_keys.enqueue_copy_to(keys)
+                pristine_vals.enqueue_copy_to(values)
 
             # copy overhead
             var t_copy_start = perf_counter_ns()
@@ -301,16 +275,8 @@ def benchmark_sort_key(sizes: List[Int]) raises -> List[List[SortResult]]:
                         (i * 1103515245 + 12345) & 0x7FFFFFFF
                     )
 
-            var gdim = ceildiv(SIZE, 256)
-
             def reset_data() capturing raises:
-                ctx.enqueue_function[copy_kernel[dtype]](
-                    keys.unsafe_ptr(),
-                    pristine_keys.unsafe_ptr(),
-                    SIZE,
-                    grid_dim=gdim,
-                    block_dim=256,
-                )
+                pristine_keys.enqueue_copy_to(keys)
 
             # Radix
             reset_data()

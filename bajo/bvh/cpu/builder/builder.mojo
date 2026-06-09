@@ -287,7 +287,7 @@ def _partition_items_by_center(
         if c < pos:
             i += 1
         else:
-            indices[i], indices[j] = indices[j], indices[i]
+            swap(indices[i], indices[j])
             j -= 1
 
     return i

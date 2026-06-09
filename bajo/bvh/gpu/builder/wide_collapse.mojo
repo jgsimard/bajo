@@ -21,13 +21,12 @@ from bajo.bvh.gpu.builder.binary_layout import (
 )
 
 
-def _encoded_leaf_count_gpu(
-    encoded: UInt32,
-    node_leaf_counts: UnsafePointer[UInt32, MutAnyOrigin],
-) -> UInt32:
+def _encoded_leaf_count_gpu[
+    origin: ImmutOrigin
+](encoded: UInt32, node_leaf_counts: UnsafePointer[UInt32, origin]) -> UInt32:
     if _is_encoded_leaf(encoded):
         return UInt32(1)
-    return UInt32(node_leaf_counts[Int(_encoded_index(encoded))])
+    return node_leaf_counts[Int(_encoded_index(encoded))]
 
 
 def _encoded_bounds_gpu(
@@ -46,9 +45,11 @@ def _encoded_bounds_gpu(
 
 
 def _write_wide_lane_bounds[
+    origin: MutOrigin,
+    //,
     width: Int,
 ](
-    wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    wide_bounds: UnsafePointer[Float32, origin],
     wide_node_idx: UInt32,
     lane: Int,
     bounds: AABB,

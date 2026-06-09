@@ -1,4 +1,4 @@
-from std.math import ceildiv, max
+from std.math import ceildiv, max, min
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
 
 from bajo.core import AABB, Affine3f32
@@ -50,16 +50,15 @@ def _flatten_instance_inv_transforms(
 def _flatten_instance_blas_indices(
     instances: List[Instance],
 ) -> List[UInt32]:
-    var out = List[UInt32](capacity=max(len(instances), 1))
-    for instance in instances:
-        out.append(instance.blas_idx)
-    if len(out) == 0:
-        out.append(UInt32(0))
-    return out^
+    if len(instances) == 0:
+        return [0]
+    return [instance.blas_idx for instance in instances]
 
 
-def transform_ray(
-    transforms: UnsafePointer[Float32, ImmutAnyOrigin],
+def transform_ray[
+    origin: ImmutOrigin
+](
+    transforms: UnsafePointer[Float32, origin],
     idx: UInt32,
     ray: Ray,
     t_max: Float32,
@@ -68,7 +67,6 @@ def transform_ray(
     var transform = Affine3f32.load(transforms, base)
     var o = transform.point(ray.o)
     var d = transform.vector(ray.d)
-
     return Ray(o, d, ray.t_min, t_max)
 
 
@@ -95,58 +93,56 @@ def _intersect_tlas_instance_block[
 ) -> Bool:
     var hit_any = False
 
-    for lane in range(tlas_width):
-        if lane < Int(item_count):
-            var idx = Int(leaf_block_idx) * tlas_width + lane
-            var inst_idx = UInt32(tlas_leaf_instances[idx])
+    for lane in range(min(tlas_width, Int(item_count))):
+        var idx = Int(leaf_block_idx) * tlas_width + lane
+        var inst_idx = UInt32(tlas_leaf_instances[idx])
 
-            if inst_idx != EMPTY_LANE:
-                var blas_idx = UInt32(inst_blas_indices[Int(inst_idx)])
-                var desc_base = Int(blas_idx) * BlasSet.STRIDE
+        if inst_idx != EMPTY_LANE:
+            var blas_idx = UInt32(inst_blas_indices[Int(inst_idx)])
+            var desc_base = Int(blas_idx) * BlasSet.STRIDE
 
-                var local_ray = transform_ray(
-                    inst_inv_transform,
-                    inst_idx,
-                    ray,
-                    hit.t,
-                )
+            var local_ray = transform_ray(
+                inst_inv_transform,
+                inst_idx,
+                ray,
+                hit.t,
+            )
 
-                var local_hit = trace_bounds_bvh[
-                    blas_width,
-                    mode,
-                    blas_leaf_fn,
-                ](
-                    blas_wide_bounds
-                    + Int(blas_descs[desc_base + BlasSet.WIDE_BOUNDS_BASE]),
-                    blas_wide_data
-                    + Int(blas_descs[desc_base + BlasSet.WIDE_LANE_BASE]),
-                    blas_wide_counts
-                    + Int(blas_descs[desc_base + BlasSet.WIDE_LANE_BASE]),
-                    blas_leaf_data_f32
-                    + Int(blas_descs[desc_base + BlasSet.LEAF_F32_BASE]),
-                    blas_leaf_data_u32
-                    + Int(blas_descs[desc_base + BlasSet.LEAF_U32_BASE]),
-                    UInt32(blas_descs[desc_base + BlasSet.ROOT_IDX]),
-                    local_ray,
-                )
+            var local_hit = trace_bounds_bvh[
+                blas_width,
+                mode,
+                blas_leaf_fn,
+            ](
+                blas_wide_bounds
+                + Int(blas_descs[desc_base + BlasSet.WIDE_BOUNDS_BASE]),
+                blas_wide_data
+                + Int(blas_descs[desc_base + BlasSet.WIDE_LANE_BASE]),
+                blas_wide_counts
+                + Int(blas_descs[desc_base + BlasSet.WIDE_LANE_BASE]),
+                blas_leaf_data_f32
+                + Int(blas_descs[desc_base + BlasSet.LEAF_F32_BASE]),
+                blas_leaf_data_u32
+                + Int(blas_descs[desc_base + BlasSet.LEAF_U32_BASE]),
+                UInt32(blas_descs[desc_base + BlasSet.ROOT_IDX]),
+                local_ray,
+            )
 
-                comptime if mode == TRACE.ANY_HIT:
-                    if local_hit.is_occluded():
-                        hit = Hit.shadow_hit()
-                        hit.inst = inst_idx
-                        return True
-                else:
-                    if local_hit.t < hit.t and local_hit.prim != EMPTY_LANE:
-                        var inv_transform = Affine3f32.load(
-                            inst_inv_transform,
-                            Int(inst_idx) * Affine3f32.STRIDE,
-                        )
+            comptime if mode == TRACE.ANY_HIT:
+                if local_hit.is_occluded():
+                    hit = Hit.shadow_hit()
+                    hit.inst = inst_idx
+                    return True
+            else:
+                if local_hit.t < hit.t and local_hit.prim != EMPTY_LANE:
+                    var inv_transform = Affine3f32.load(
+                        inst_inv_transform,
+                        Int(inst_idx) * Affine3f32.STRIDE,
+                    )
 
-                        hit = local_hit
-                        hit.inst = inst_idx
-                        hit.normal = inv_transform.vector(local_hit.normal)
-                        hit_any = True
-
+                    hit = local_hit
+                    hit.inst = inst_idx
+                    hit.normal = inv_transform.vector(local_hit.normal)
+                    hit_any = True
     return hit_any
 
 
@@ -488,22 +484,22 @@ struct GpuTriangleTlas[tlas_width: Int, blas_width: Int]:
                 Self.blas_width,
             ]
         ](
-            self.core.tree.wide_bounds.unsafe_ptr(),
-            self.core.tree.wide_data.unsafe_ptr(),
-            self.core.tree.wide_counts.unsafe_ptr(),
-            self.core.tree.leaf_block_indices.unsafe_ptr(),
-            self.core.inst_inv_transform.unsafe_ptr(),
-            self.core.inst_blas_indices.unsafe_ptr(),
-            blases.descs.unsafe_ptr(),
-            blases.wide_bounds.unsafe_ptr(),
-            blases.wide_data.unsafe_ptr(),
-            blases.wide_counts.unsafe_ptr(),
-            blases.leaf_data_f32.unsafe_ptr(),
-            blases.leaf_prims.unsafe_ptr(),
+            self.core.tree.wide_bounds,
+            self.core.tree.wide_data,
+            self.core.tree.wide_counts,
+            self.core.tree.leaf_block_indices,
+            self.core.inst_inv_transform,
+            self.core.inst_blas_indices,
+            blases.descs,
+            blases.wide_bounds,
+            blases.wide_data,
+            blases.wide_counts,
+            blases.leaf_data_f32,
+            blases.leaf_prims,
             self.core.tree.root_idx,
-            d_camera_params.unsafe_ptr(),
-            d_hits_f32.unsafe_ptr(),
-            d_hits_u32.unsafe_ptr(),
+            d_camera_params,
+            d_hits_f32,
+            d_hits_u32,
             ray_count,
             cwidth,
             cheight,
@@ -541,22 +537,22 @@ struct GpuSphereTlas[tlas_width: Int, blas_width: Int]:
                 Self.blas_width,
             ]
         ](
-            self.core.tree.wide_bounds.unsafe_ptr(),
-            self.core.tree.wide_data.unsafe_ptr(),
-            self.core.tree.wide_counts.unsafe_ptr(),
-            self.core.tree.leaf_block_indices.unsafe_ptr(),
-            self.core.inst_inv_transform.unsafe_ptr(),
-            self.core.inst_blas_indices.unsafe_ptr(),
-            blases.descs.unsafe_ptr(),
-            blases.wide_bounds.unsafe_ptr(),
-            blases.wide_data.unsafe_ptr(),
-            blases.wide_counts.unsafe_ptr(),
-            blases.leaf_data_f32.unsafe_ptr(),
-            blases.leaf_prims.unsafe_ptr(),
+            self.core.tree.wide_bounds,
+            self.core.tree.wide_data,
+            self.core.tree.wide_counts,
+            self.core.tree.leaf_block_indices,
+            self.core.inst_inv_transform,
+            self.core.inst_blas_indices,
+            blases.descs,
+            blases.wide_bounds,
+            blases.wide_data,
+            blases.wide_counts,
+            blases.leaf_data_f32,
+            blases.leaf_prims,
             self.core.tree.root_idx,
-            d_camera_params.unsafe_ptr(),
-            d_hits_f32.unsafe_ptr(),
-            d_hits_u32.unsafe_ptr(),
+            d_camera_params,
+            d_hits_f32,
+            d_hits_u32,
             ray_count,
             cwidth,
             cheight,

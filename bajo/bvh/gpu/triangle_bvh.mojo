@@ -286,8 +286,8 @@ def compute_triangle_bounds_kernel(
 def pack_triangle_leaf_blocks_kernel[
     width: Int,
 ](
-    vertices: UnsafePointer[Float32, MutAnyOrigin],
-    leaf_block_indices: UnsafePointer[UInt32, MutAnyOrigin],
+    vertices: UnsafePointer[Float32, ImmutAnyOrigin],
+    leaf_block_indices: UnsafePointer[UInt32, ImmutAnyOrigin],
     leaf_vertices: UnsafePointer[Float32, MutAnyOrigin],
     leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
     leaf_block_count: Int,
@@ -298,7 +298,7 @@ def pack_triangle_leaf_blocks_kernel[
 
     comptime for lane in range(width):
         var idx = block_idx * width + lane
-        var prim = UInt32(leaf_block_indices[idx])
+        var prim = leaf_block_indices[idx]
         leaf_prims[idx] = prim
 
         var out_base = idx * TRI_LEAF_VERTEX_STRIDE

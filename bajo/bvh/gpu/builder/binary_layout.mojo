@@ -38,18 +38,16 @@ def _node_right_index(node_idx: UInt32) -> Int:
     return _node_meta_base(node_idx) + BinaryBvhNode.RIGHT
 
 
-def _node_left(
-    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
-    node_idx: UInt32,
-) -> UInt32:
-    return UInt32(node_meta[_node_left_index(node_idx)])
+def _node_left[
+    origin: ImmutOrigin
+](node_meta: UnsafePointer[UInt32, origin], node_idx: UInt32) -> UInt32:
+    return node_meta[_node_left_index(node_idx)]
 
 
-def _node_right(
-    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
-    node_idx: UInt32,
-) -> UInt32:
-    return UInt32(node_meta[_node_right_index(node_idx)])
+def _node_right[
+    origin: ImmutOrigin
+](node_meta: UnsafePointer[UInt32, origin], node_idx: UInt32) -> UInt32:
+    return node_meta[_node_right_index(node_idx)]
 
 
 def _is_encoded_leaf(encoded: UInt32) -> Bool:
@@ -60,8 +58,10 @@ def _encoded_index(encoded: UInt32) -> UInt32:
     return encoded & LBVH_INDEX_MASK
 
 
-def _write_child_bounds(
-    node_bounds: UnsafePointer[Float32, MutAnyOrigin],
+def _write_child_bounds[
+    origin: MutOrigin
+](
+    node_bounds: UnsafePointer[Float32, origin],
     parent: UInt32,
     write_left: Bool,
     bounds: AABB,
@@ -72,10 +72,9 @@ def _write_child_bounds(
     bounds.store6(node_bounds, b)
 
 
-def _load_and_union_node_bounds(
-    node_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    parent: UInt32,
-) -> AABB:
+def _load_and_union_node_bounds[
+    origin: ImmutOrigin
+](node_bounds: UnsafePointer[Float32, origin], parent: UInt32) -> AABB:
     var b = _node_bounds_base(parent)
     b1 = AABB.load6(node_bounds, b)
     b2 = AABB.load6(node_bounds, b + 6)
@@ -123,7 +122,7 @@ def compute_bounds_partials_kernel(
 
 
 def reduce_bounds_partials_kernel(
-    in_partials: UnsafePointer[Float32, MutAnyOrigin],
+    in_partials: UnsafePointer[Float32, ImmutAnyOrigin],
     out_partials: UnsafePointer[Float32, MutAnyOrigin],
     partial_count: Int,
 ):
@@ -152,7 +151,7 @@ def reduce_bounds_partials_kernel(
 
 
 def copy_lbvh_bounds_result_kernel(
-    in_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    in_bounds: UnsafePointer[Float32, ImmutAnyOrigin],
     out_bounds: UnsafePointer[Float32, MutAnyOrigin],
 ):
     var i = global_idx.x

@@ -188,15 +188,17 @@ struct GpuSphereBvh[width: Int]:
         ctx: DeviceContext,
     ) raises:
         var start = perf_counter_ns()
+        var leaf_lane_count = max(self.tree.leaf_block_count * Self.width, 1)
         var blocks = ceildiv(
-            max(self.tree.leaf_block_count, 1), GPU_BOUNDS_BVH_BLOCK_SIZE
+            leaf_lane_count,
+            GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
-        ctx.enqueue_function[pack_sphere_leaf_blocks_kernel[Self.width]](
+        ctx.enqueue_function[pack_sphere_leaf_lanes_kernel[Self.width]](
             self.spheres,
             self.tree.leaf_block_indices,
             self.leaf_spheres,
             self.leaf_prims,
-            self.tree.leaf_block_count,
+            leaf_lane_count,
             grid_dim=blocks,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
@@ -294,21 +296,20 @@ def _load_sphere_leaf_packet[
 ) -> SphereLeafBlock[width]:
     var block = SphereLeafBlock[width]()
 
+    var block_base = Int(leaf_block_idx) * Sphere.STRIDE * width
+    var prim_base = Int(leaf_block_idx) * width
+
+    block.center.x = leaf_spheres.load[width=width](block_base + 0 * width)
+    block.center.y = leaf_spheres.load[width=width](block_base + 1 * width)
+    block.center.z = leaf_spheres.load[width=width](block_base + 2 * width)
+    block.radius = leaf_spheres.load[width=width](block_base + 3 * width)
+
+    block.prim_indices = leaf_prims.load[width=width](prim_base)
+    block.valid_lane = block.prim_indices.ne(EMPTY_LANE)
+
     comptime for lane in range(width):
-        if lane < Int(item_count):
-            var idx = Int(leaf_block_idx) * width + lane
-            var prim = UInt32(leaf_prims[idx])
-
-            if prim != EMPTY_LANE:
-                var base = idx * Sphere.STRIDE
-
-                block.center.x[lane] = leaf_spheres[base + 0]
-                block.center.y[lane] = leaf_spheres[base + 1]
-                block.center.z[lane] = leaf_spheres[base + 2]
-                block.radius[lane] = leaf_spheres[base + 3]
-
-                block.prim_indices[lane] = prim
-                block.valid_lane[lane] = True
+        if lane >= Int(item_count):
+            block.valid_lane[lane] = False
 
     return block^
 
@@ -362,32 +363,36 @@ def _intersect_sphere_leaf[
     return False
 
 
-def pack_sphere_leaf_blocks_kernel[
+def pack_sphere_leaf_lanes_kernel[
     width: Int,
 ](
-    spheres: UnsafePointer[Float32, MutAnyOrigin],
-    leaf_block_indices: UnsafePointer[UInt32, MutAnyOrigin],
+    spheres: UnsafePointer[Float32, ImmutAnyOrigin],
+    leaf_block_indices: UnsafePointer[UInt32, ImmutAnyOrigin],
     leaf_spheres: UnsafePointer[Float32, MutAnyOrigin],
     leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_block_count: Int,
+    leaf_lane_count: Int,
 ):
-    var block_idx = global_idx.x
-    if block_idx >= leaf_block_count:
+    var lane_idx = global_idx.x
+    if lane_idx >= leaf_lane_count:
         return
 
-    comptime for lane in range(width):
-        var idx = block_idx * width + lane
-        var prim = UInt32(leaf_block_indices[idx])
-        leaf_prims[idx] = prim
+    var lane = lane_idx % width
+    var block_idx = lane_idx / width
 
-        var out_base = idx * Sphere.STRIDE
-        if prim == EMPTY_LANE:
-            for k in range(Sphere.STRIDE):
-                leaf_spheres[out_base + k] = 0.0
-        else:
-            var in_base = Int(prim) * Sphere.STRIDE
-            for k in range(Sphere.STRIDE):
-                leaf_spheres[out_base + k] = spheres[in_base + k]
+    var prim = UInt32(leaf_block_indices[lane_idx])
+    leaf_prims[lane_idx] = prim
+
+    if prim == EMPTY_LANE:
+        return
+
+    var in_base = Int(prim) * Sphere.STRIDE
+    var out_base = block_idx * Sphere.STRIDE * width
+
+    # AoSoA: [block][field][lane]
+    leaf_spheres[out_base + 0 * width + lane] = spheres[in_base + 0]
+    leaf_spheres[out_base + 1 * width + lane] = spheres[in_base + 1]
+    leaf_spheres[out_base + 2 * width + lane] = spheres[in_base + 2]
+    leaf_spheres[out_base + 3 * width + lane] = spheres[in_base + 3]
 
 
 def _flatten_spheres(spheres: List[Sphere]) -> List[Float32]:

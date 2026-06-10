@@ -139,7 +139,7 @@ def build_triangle_blas_set[
     )
 
 
-struct GpuTriangleBvh[width: Int]:
+struct GpuTriangleBvh[width: Int](Movable):
     var tree: GpuBoundsBvh[Self.width]
     var vertices: DeviceBuffer[DType.float32]
     var leaf_vertices: DeviceBuffer[DType.float32]

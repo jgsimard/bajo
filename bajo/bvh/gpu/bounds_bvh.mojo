@@ -18,7 +18,7 @@ from bajo.bvh.gpu.builder.wide_collapse import collapse
 from bajo.bvh.gpu.builder.binary_layout import GpuBinaryBoundsBvh
 
 
-struct GpuBoundsBvh[width: Int]:
+struct GpuBoundsBvh[width: Int](Movable):
     """Generic GPU Bvh. Build input is only leaf AABBs plus payload ids.
 
     Wide lane encoding mirrors the CPU BVH:

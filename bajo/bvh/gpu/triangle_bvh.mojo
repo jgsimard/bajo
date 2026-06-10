@@ -145,8 +145,6 @@ struct GpuTriangleBvh[width: Int](Movable):
     var leaf_vertices: DeviceBuffer[DType.float32]
     var leaf_prims: DeviceBuffer[DType.uint32]
     var tri_count: Int
-    var leaf_pack_ns: Int
-    var bounds_pack_ns: Int
     var timings: GpuBuildTimings
 
     def __init__(
@@ -156,8 +154,6 @@ struct GpuTriangleBvh[width: Int](Movable):
     ) raises:
         self.vertices = vertices
         self.tri_count = len(vertices) / 9
-        self.leaf_pack_ns = 0
-        self.bounds_pack_ns = 0
 
         var leaf_bounds = ctx.enqueue_create_buffer[DType.float32](
             self.tri_count * AABB.STRIDE
@@ -179,10 +175,11 @@ struct GpuTriangleBvh[width: Int](Movable):
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
         ctx.synchronize()
-        self.bounds_pack_ns = Int(perf_counter_ns() - start)
+        var bounds_pack_ns = Int(perf_counter_ns() - start)
 
         self.tree = GpuBoundsBvh[Self.width](ctx, leaf_bounds, payloads)
         self.timings = self.tree.build(ctx)
+        self.timings.bounds_pack_ns = bounds_pack_ns
 
         var leaf_block_capacity = max(self.tree.leaf_block_count, 1)
         self.leaf_vertices = ctx.enqueue_create_buffer[DType.float32](
@@ -223,7 +220,7 @@ struct GpuTriangleBvh[width: Int](Movable):
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
         ctx.synchronize()
-        self.leaf_pack_ns = Int(perf_counter_ns() - start)
+        self.timings.leaf_pack_ns = Int(perf_counter_ns() - start)
 
     def launch_camera(
         self,

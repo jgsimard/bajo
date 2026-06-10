@@ -331,4 +331,6 @@ def build_binary_bvh_with_lbvh(
         Int(t_topology - t_sort),
         Int(t_refit - t_topology),
         0,
+        0,
+        0,
     )

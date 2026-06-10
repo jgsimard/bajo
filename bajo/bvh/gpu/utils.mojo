@@ -11,10 +11,12 @@ struct GpuBuildTimings(TrivialRegisterPassable, Writable):
     var topology_ns: Int
     var refit_ns: Int
     var collapse_ns: Int
+    var bounds_pack_ns: Int
+    var leaf_pack_ns: Int
 
     @staticmethod
     def empty() -> Self:
-        return Self(0, 0, 0, 0, 0)
+        return Self(0, 0, 0, 0, 0, 0, 0)
 
     def total(self) -> Int:
         return (
@@ -23,6 +25,8 @@ struct GpuBuildTimings(TrivialRegisterPassable, Writable):
             + self.topology_ns
             + self.refit_ns
             + self.collapse_ns
+            + self.bounds_pack_ns
+            + self.leaf_pack_ns
         )
 
 

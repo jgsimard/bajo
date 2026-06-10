@@ -7,9 +7,8 @@ from bajo.bvh.gpu.utils import GpuBuildTimings
 def gpu_build_other_ns(
     build_ns: Int,
     timings: GpuBuildTimings,
-    pack_ns: Int,
 ) -> Int:
-    return build_ns - timings.total() - pack_ns
+    return build_ns - timings.total()
 
 
 def _dashes(width: Int) -> String:
@@ -41,7 +40,7 @@ def print_transposed_header(
 
 def print_transposed_row[
     T: Writable
-](name: String, value_width: Int, *values: T,):
+](name: String, value_width: Int, *values: T):
     comptime metric_width = 15
     var row = name.ascii_ljust(metric_width)
     for value in values:
@@ -58,7 +57,7 @@ def print_transposed_ms_row(
     value_width: Int,
 ):
     print_transposed_row(
-        name,
+        String(t"{name} (ms)"),
         value_width,
         round(ns_to_ms(v0_ns), 3),
         round(ns_to_ms(v1_ns), 3),
@@ -69,13 +68,10 @@ def print_transposed_ms_row(
 def print_gpu_build_timing_rows(
     build0_ns: Int,
     timings0: GpuBuildTimings,
-    pack0_ns: Int,
     build1_ns: Int,
     timings1: GpuBuildTimings,
-    pack1_ns: Int,
     build2_ns: Int,
     timings2: GpuBuildTimings,
-    pack2_ns: Int,
     include_pack: Bool,
     value_width: Int,
 ):
@@ -125,16 +121,16 @@ def print_gpu_build_timing_rows(
     if include_pack:
         print_transposed_ms_row(
             String("- pack"),
-            pack0_ns,
-            pack1_ns,
-            pack2_ns,
+            timings0.leaf_pack_ns,
+            timings1.leaf_pack_ns,
+            timings2.leaf_pack_ns,
             value_width,
         )
 
     print_transposed_ms_row(
         String("- other"),
-        gpu_build_other_ns(build0_ns, timings0, pack0_ns),
-        gpu_build_other_ns(build1_ns, timings1, pack1_ns),
-        gpu_build_other_ns(build2_ns, timings2, pack2_ns),
+        gpu_build_other_ns(build0_ns, timings0),
+        gpu_build_other_ns(build1_ns, timings1),
+        gpu_build_other_ns(build2_ns, timings2),
         value_width,
     )

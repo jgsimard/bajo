@@ -506,11 +506,10 @@ def _print_blas_build_row(
     label: String,
     build_ns: Int,
     timings: GpuBuildTimings,
-    pack_ns: Int,
 ):
     var build_ms = round(ns_to_ms(build_ns), 3)
     var collapse_ms = round(ns_to_ms(timings.collapse_ns), 3)
-    var pack_ms = round(ns_to_ms(pack_ns), 3)
+    var pack_ms = round(ns_to_ms(timings.leaf_pack_ns), 3)
 
     var c0 = label.ascii_ljust(18)
     var c1 = String(t"{build_ms}").ascii_rjust(8)
@@ -650,13 +649,10 @@ def _print_tlas_results_transposed(
     print_gpu_build_timing_rows(
         row0.build_ns,
         row0.timings,
-        0,
         row1.build_ns,
         row1.timings,
-        0,
         row2.build_ns,
         row2.timings,
-        0,
         False,
         value_width,
     )
@@ -1075,7 +1071,6 @@ def main() raises:
             "GpuTriangleBvh[4]",
             Int(blas_b1 - blas_b0),
             blas.timings,
-            blas.leaf_pack_ns,
         )
 
         print("Building GpuTriangleBlasSet[4]...")
@@ -1212,7 +1207,6 @@ def main() raises:
             "GpuSphereBvh[4]",
             Int(sph_b1 - sph_b0),
             sphere_blas.timings,
-            sphere_blas.leaf_pack_ns,
         )
 
         print("Building GpuSphere BlasSet[4]...")

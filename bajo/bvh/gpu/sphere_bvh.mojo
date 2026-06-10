@@ -155,16 +155,13 @@ struct GpuSphereBvh[width: Int]:
         )
         var payloads = List[UInt32](capacity=max(self.sphere_count, 1))
 
-        for i in range(self.sphere_count):
-            ref s = spheres[i]
-            var r = s.radius
-
-            leaf_bounds.append(s.center.x - r)
-            leaf_bounds.append(s.center.y - r)
-            leaf_bounds.append(s.center.z - r)
-            leaf_bounds.append(s.center.x + r)
-            leaf_bounds.append(s.center.y + r)
-            leaf_bounds.append(s.center.z + r)
+        for i, s in enumerate(spheres):
+            leaf_bounds.append(s.center.x - s.radius)
+            leaf_bounds.append(s.center.y - s.radius)
+            leaf_bounds.append(s.center.z - s.radius)
+            leaf_bounds.append(s.center.x + s.radius)
+            leaf_bounds.append(s.center.y + s.radius)
+            leaf_bounds.append(s.center.z + s.radius)
             payloads.append(UInt32(i))
 
         var d_payloads = upload_list(ctx, payloads)

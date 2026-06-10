@@ -133,22 +133,6 @@ def _instances_bounds(instances: List[Instance]) -> AABB:
     return out
 
 
-def _make_triangle_cpu_instances(instances: List[Instance]) -> List[Instance]:
-    # Preserve the already-world-space instance bounds. Do not call the
-    # Instance(...) constructor here, because that constructor may transform
-    # local BLAS bounds into world bounds again.
-    var out = List[Instance](capacity=len(instances))
-    for instance in instances:
-        var inst = Instance()
-        inst.transform = instance.transform.copy()
-        inst.inv_transform = instance.inv_transform.copy()
-        inst.blas_idx = instance.blas_idx
-        inst.bounds = instance.bounds.copy()
-        inst.kind = Primitive.TRIANGLE
-        out.append(inst^)
-    return out^
-
-
 def _make_camera_rays_and_params(
     bounds: AABB,
     width: Int,
@@ -196,11 +180,9 @@ def _cpu_tlas_triangle_reference[
     instances: List[Instance],
     rays: List[Ray],
 ) -> Tuple[Float64, UInt32, UInt64]:
-    var cpu_instances = _make_triangle_cpu_instances(instances)
-    var tlas = Tlas[tlas_width](cpu_instances)
+    var tlas = Tlas[tlas_width](instances)
 
-    var blases = List[TriangleBvh[blas_width]](capacity=1)
-    blases.append(cpu_blas.copy())
+    var blases = [cpu_blas.copy()]
 
     var checksum = Float64(0.0)
     var hits = UInt32(0)
@@ -227,11 +209,9 @@ def _cpu_tlas_triangle_shadow_reference[
     instances: List[Instance],
     rays: List[Ray],
 ) -> UInt32:
-    var cpu_instances = _make_triangle_cpu_instances(instances)
-    var tlas = Tlas[tlas_width](cpu_instances)
+    var tlas = Tlas[tlas_width](instances)
 
-    var blases = List[TriangleBvh[blas_width]](capacity=1)
-    blases.append(cpu_blas.copy())
+    var blases = [cpu_blas.copy()]
 
     var occluded = UInt32(0)
 

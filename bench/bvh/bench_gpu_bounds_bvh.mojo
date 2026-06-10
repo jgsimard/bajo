@@ -396,11 +396,11 @@ def _print_gpu_results_transposed(
     )
     print_transposed_f64_row(
         String("MRay/s"),
+        value_width,
+        3,
         ns_to_mrays_per_s(row2.kernel_ns, row2.ray_count),
         ns_to_mrays_per_s(row4.kernel_ns, row4.ray_count),
         ns_to_mrays_per_s(row8.kernel_ns, row8.ray_count),
-        value_width,
-        3,
     )
     print_transposed_row(
         String("hits"),
@@ -411,19 +411,19 @@ def _print_gpu_results_transposed(
     )
     print_transposed_f64_row(
         String("checksum"),
+        value_width,
+        3,
         row2.checksum,
         row4.checksum,
         row8.checksum,
-        value_width,
-        3,
     )
     print_transposed_f64_row(
         String("diff"),
+        value_width,
+        6,
         row2.diff,
         row4.diff,
         row8.diff,
-        value_width,
-        6,
     )
     print_transposed_row(
         String("dhit"),
@@ -434,11 +434,11 @@ def _print_gpu_results_transposed(
     )
     print_transposed_f64_row(
         String("rel_dhit"),
+        value_width,
+        6,
         _gpu_result_rel_hit_diff(row2),
         _gpu_result_rel_hit_diff(row4),
         _gpu_result_rel_hit_diff(row8),
-        value_width,
-        6,
     )
     print_transposed_row(
         String("status"),

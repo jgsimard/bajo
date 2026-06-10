@@ -694,11 +694,11 @@ def _print_tlas_results_transposed(
     )
     print_transposed_f64_row(
         String("MRay/s"),
+        value_width,
+        3,
         ns_to_mrays_per_s(row0.primary_ns, row0.ray_count),
         ns_to_mrays_per_s(row1.primary_ns, row1.ray_count),
         ns_to_mrays_per_s(row2.primary_ns, row2.ray_count),
-        value_width,
-        3,
     )
     print_transposed_row(
         String("hits"),
@@ -709,11 +709,11 @@ def _print_tlas_results_transposed(
     )
     print_transposed_f64_row(
         String("checksum"),
+        value_width,
+        3,
         row0.checksum,
         row1.checksum,
         row2.checksum,
-        value_width,
-        3,
     )
     print_transposed_row(
         String("instsum"),
@@ -726,11 +726,11 @@ def _print_tlas_results_transposed(
     if row0.has_reference:
         print_transposed_f64_row(
             String("dsum"),
+            value_width,
+            6,
             _tlas_result_sum_diff(row0),
             _tlas_result_sum_diff(row1),
             _tlas_result_sum_diff(row2),
-            value_width,
-            6,
         )
         print_transposed_row(
             String("dhit"),

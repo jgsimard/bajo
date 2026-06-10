@@ -27,7 +27,6 @@ from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list, upload_vertices
 from bench.bvh.bench_printing import (
     print_gpu_build_timing_rows,
     print_transposed_header,
-    print_transposed_f64_row,
     print_transposed_row,
     print_transposed_ms_row,
 )
@@ -180,10 +179,7 @@ def _make_camera_rays_and_params(
             Vec3f32(0.0, 1.0, 0.0),
             Float32(0.75),
         )
-
-        var flat = camera.flatten()
-        for i in range(len(flat)):
-            params.append(flat[i])
+        params.extend(camera.flatten())
 
         for py in range(height):
             for px in range(width):
@@ -692,13 +688,12 @@ def _print_tlas_results_transposed(
         row2.primary_ns,
         value_width,
     )
-    print_transposed_f64_row(
+    print_transposed_row(
         String("MRay/s"),
         value_width,
-        3,
-        ns_to_mrays_per_s(row0.primary_ns, row0.ray_count),
-        ns_to_mrays_per_s(row1.primary_ns, row1.ray_count),
-        ns_to_mrays_per_s(row2.primary_ns, row2.ray_count),
+        round(ns_to_mrays_per_s(row0.primary_ns, row0.ray_count), 3),
+        round(ns_to_mrays_per_s(row1.primary_ns, row1.ray_count), 3),
+        round(ns_to_mrays_per_s(row2.primary_ns, row2.ray_count), 3),
     )
     print_transposed_row(
         String("hits"),
@@ -707,13 +702,12 @@ def _print_tlas_results_transposed(
         row1.hits,
         row2.hits,
     )
-    print_transposed_f64_row(
+    print_transposed_row(
         String("checksum"),
         value_width,
-        3,
-        row0.checksum,
-        row1.checksum,
-        row2.checksum,
+        round(row0.checksum, 3),
+        round(row1.checksum, 3),
+        round(row2.checksum, 3),
     )
     print_transposed_row(
         String("instsum"),
@@ -724,13 +718,12 @@ def _print_tlas_results_transposed(
     )
 
     if row0.has_reference:
-        print_transposed_f64_row(
+        print_transposed_row(
             String("dsum"),
             value_width,
-            6,
-            _tlas_result_sum_diff(row0),
-            _tlas_result_sum_diff(row1),
-            _tlas_result_sum_diff(row2),
+            round(_tlas_result_sum_diff(row0), 6),
+            round(_tlas_result_sum_diff(row1), 6),
+            round(_tlas_result_sum_diff(row2), 6),
         )
         print_transposed_row(
             String("dhit"),

@@ -66,23 +66,6 @@ def print_transposed_ms_row(
     )
 
 
-def print_transposed_f64_row(
-    name: String,
-    value_width: Int,
-    digits: Int,
-    v0: Float64,
-    v1: Float64,
-    v2: Float64,
-):
-    print_transposed_row(
-        name,
-        value_width,
-        round(v0, digits),
-        round(v1, digits),
-        round(v2, digits),
-    )
-
-
 def print_gpu_build_timing_rows(
     build0_ns: Int,
     timings0: GpuBuildTimings,

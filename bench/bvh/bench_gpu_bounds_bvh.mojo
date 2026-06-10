@@ -24,7 +24,6 @@ from bajo.bvh.gpu.utils import (
 from bench.bvh.bench_printing import (
     print_gpu_build_timing_rows,
     print_transposed_header,
-    print_transposed_f64_row,
     print_transposed_row,
     print_transposed_ms_row,
 )
@@ -394,13 +393,12 @@ def _print_gpu_results_transposed(
         row8.kernel_ns,
         value_width,
     )
-    print_transposed_f64_row(
+    print_transposed_row(
         String("MRay/s"),
         value_width,
-        3,
-        ns_to_mrays_per_s(row2.kernel_ns, row2.ray_count),
-        ns_to_mrays_per_s(row4.kernel_ns, row4.ray_count),
-        ns_to_mrays_per_s(row8.kernel_ns, row8.ray_count),
+        round(ns_to_mrays_per_s(row2.kernel_ns, row2.ray_count), 3),
+        round(ns_to_mrays_per_s(row4.kernel_ns, row4.ray_count), 3),
+        round(ns_to_mrays_per_s(row8.kernel_ns, row8.ray_count), 3),
     )
     print_transposed_row(
         String("hits"),
@@ -409,21 +407,19 @@ def _print_gpu_results_transposed(
         row4.hit_count,
         row8.hit_count,
     )
-    print_transposed_f64_row(
+    print_transposed_row(
         String("checksum"),
         value_width,
-        3,
-        row2.checksum,
-        row4.checksum,
-        row8.checksum,
+        round(row2.checksum, 3),
+        round(row4.checksum, 3),
+        round(row8.checksum, 3),
     )
-    print_transposed_f64_row(
+    print_transposed_row(
         String("diff"),
         value_width,
-        6,
-        row2.diff,
-        row4.diff,
-        row8.diff,
+        round(row2.diff, 6),
+        round(row4.diff, 6),
+        round(row8.diff, 6),
     )
     print_transposed_row(
         String("dhit"),
@@ -432,13 +428,12 @@ def _print_gpu_results_transposed(
         _gpu_result_hit_diff(row4),
         _gpu_result_hit_diff(row8),
     )
-    print_transposed_f64_row(
+    print_transposed_row(
         String("rel_dhit"),
         value_width,
-        6,
-        _gpu_result_rel_hit_diff(row2),
-        _gpu_result_rel_hit_diff(row4),
-        _gpu_result_rel_hit_diff(row8),
+        round(_gpu_result_rel_hit_diff(row2), 6),
+        round(_gpu_result_rel_hit_diff(row4), 6),
+        round(_gpu_result_rel_hit_diff(row8), 6),
     )
     print_transposed_row(
         String("status"),

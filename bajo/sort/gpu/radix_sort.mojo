@@ -449,7 +449,7 @@ struct RadixSortWorkspace[
     vals_dtype: DType,
     BITS_PER_PASS: Int = 8,
     KEYS_PER_THREAD: Int = 9,
-]:
+](Movable):
     var keys_alternate: DeviceBuffer[Self.keys_dtype]
     var vals_alternate: DeviceBuffer[Self.vals_dtype]
     var global_hist: DeviceBuffer[DType.uint32]

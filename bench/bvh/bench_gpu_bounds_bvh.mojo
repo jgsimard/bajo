@@ -1,32 +1,40 @@
-from std.benchmark import keep
 from std.math import abs, round, min, max
 from std.sys import has_accelerator
 from std.time import perf_counter_ns
 from std.gpu import DeviceContext, DeviceBuffer
 
-from bajo.core.utils import (
-    ns_to_ms,
-    ns_to_mrays_per_s,
-)
-from bajo.core import AABB, Vec3, Vec3f32, dot
+from bajo.core import AABB, Vec3f32, dot
+from bajo.core.intersect import intersect_ray_sphere
+from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.bvh.camera import Camera
 from bajo.bvh.host_utils import (
     compute_bounds,
     hit_t_for_checksum,
+    sphere_bounds,
 )
-from bajo.bvh.gpu.utils import GpuBuildTimings, _download_full_hit_checksum
 from bajo.bvh.constants import EMPTY_LANE, TRACE
 from bajo.bvh.types import Hit, Ray, Sphere
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.bvh.gpu.sphere_bvh import GpuSphereBvh
 from bajo.bvh.gpu.triangle_bvh import GpuTriangleBvh
-from bajo.core.intersect import intersect_ray_sphere
+from bajo.bvh.gpu.utils import (
+    GpuBuildTimings,
+    _download_full_hit_checksum,
+    upload_list,
+    upload_vertices,
+)
+from bench.bvh.bench_printing import (
+    GpuBenchResult,
+    print_transposed_header,
+    _print_gpu_result_trace_rows,
+    _print_gpu_result_validation_rows,
+)
 from bajo.obj.pack import pack_obj_triangles
-from bajo.bvh.gpu.utils import upload_list, upload_vertices
 
 
-comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"
+# comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"
+comptime DEFAULT_OBJ_PATH = "./assets/dragon/dragon.obj"
 comptime PRIMARY_WIDTH = 1280
 comptime PRIMARY_HEIGHT = 640
 comptime FOV_SCALE = 0.2
@@ -46,21 +54,6 @@ comptime DEBUG_SPHERE_RAY_VIEWS = 1
 comptime TRIANGLE_HIT_REL_EPS = 0.0
 comptime SPHERE_HIT_REL_EPS = 1.0e-3
 comptime DEBUG_BENCH_REPEATS = 3
-
-
-@fieldwise_init
-struct GpuBenchResult(Writable):
-    var label: String
-    var build_ns: Int
-    var timings: GpuBuildTimings
-    var pack_ns: Int
-    var kernel_ns: Int
-    var ray_count: Int
-    var checksum: Float64
-    var diff: Float64
-    var hit_count: UInt32
-    var reference_hit_count: UInt32
-    var hit_rel_eps: Float64
 
 
 def _make_camera_rays_and_params(
@@ -93,10 +86,7 @@ def _make_camera_rays_and_params(
             Vec3f32(0.0, 1.0, 0.0),
             fov_scale,
         )
-
-        var flat = camera.flatten()
-        for i in range(len(flat)):
-            params.append(flat[i])
+        params.extend(camera.flatten())
 
         for py in range(height):
             for px in range(width):
@@ -306,240 +296,70 @@ def _print_cpu_ref_row(
     print(t"{c0} {c1} {c2} {c3}")
 
 
-def _gpu_result_status(row: GpuBenchResult) -> String:
-    comptime CHECKSUM_ABS_EPS = 1.0e-3
-    comptime CHECKSUM_PER_HIT_EPS = 1.0e-6
+def _print_cpu_triangle_reference[
+    width: Int
+](
+    label: String,
+    vertices: List[Vec3f32],
+    rays: List[Ray],
+) -> Tuple[
+    Float64, UInt32
+]:
+    var bvh = TriangleBvh[width].__init__["lbvh"](vertices.copy())
+    var t0 = perf_counter_ns()
+    var result = _trace_cpu_triangle_bvh[width](bvh, rays)
+    var t1 = perf_counter_ns()
 
-    var per_hit_diff = Float64(0.0)
-    if row.hit_count > 0:
-        per_hit_diff = row.diff / Float64(row.hit_count)
-
-    var hit_diff = Int(row.hit_count) - Int(row.reference_hit_count)
-    var abs_hit_diff = hit_diff
-    if abs_hit_diff < 0:
-        abs_hit_diff = 0 - abs_hit_diff
-
-    var hit_rel_diff = Float64(0.0)
-    if row.reference_hit_count > 0:
-        hit_rel_diff = Float64(abs_hit_diff) / Float64(row.reference_hit_count)
-    else:
-        if row.hit_count > 0:
-            hit_rel_diff = 1.0
-
-    if hit_rel_diff > row.hit_rel_eps:
-        return String("CHECK")
-
-    if hit_diff == 0 and (
-        row.diff > CHECKSUM_ABS_EPS and per_hit_diff > CHECKSUM_PER_HIT_EPS
-    ):
-        return String("CHECK")
-
-    return String("OK")
+    _print_cpu_ref_row(label, Int(t1 - t0), result[1], result[0])
+    return result
 
 
-def _gpu_result_hit_diff(row: GpuBenchResult) -> Int:
-    return Int(row.hit_count) - Int(row.reference_hit_count)
+def _print_cpu_sphere_reference[
+    width: Int
+](
+    label: String,
+    spheres: List[Sphere],
+    rays: List[Ray],
+) -> Tuple[
+    Float64, UInt32
+]:
+    var bvh = SphereBvh[width].__init__["lbvh"](spheres.copy())
+    var t0 = perf_counter_ns()
+    var result = _trace_cpu_sphere_bvh[width](bvh, rays)
+    var t1 = perf_counter_ns()
+
+    _print_cpu_ref_row(label, Int(t1 - t0), result[1], result[0])
+    return result
 
 
-def _gpu_result_rel_hit_diff(row: GpuBenchResult) -> Float64:
-    var hit_diff = _gpu_result_hit_diff(row)
-    var abs_hit_diff = hit_diff
-    if abs_hit_diff < 0:
-        abs_hit_diff = 0 - abs_hit_diff
+def _print_cpu_sphere_bruteforce_reference(
+    label: String,
+    spheres: List[Sphere],
+    rays: List[Ray],
+) -> Tuple[Float64, UInt32]:
+    var t0 = perf_counter_ns()
+    var result = _trace_cpu_sphere_bruteforce(spheres, rays)
+    var t1 = perf_counter_ns()
 
-    if row.reference_hit_count > 0:
-        return Float64(abs_hit_diff) / Float64(row.reference_hit_count)
-
-    if row.hit_count > 0:
-        return 1.0
-
-    return 0.0
-
-
-def _gpu_result_other_ns(row: GpuBenchResult) -> Int:
-    return row.build_ns - row.timings.total() - row.pack_ns
-
-
-def _print_transposed_ms_row(
-    name: String,
-    v2_ns: Int,
-    v4_ns: Int,
-    v8_ns: Int,
-):
-    var c0 = String(t"{name} (ms)").ascii_ljust(15)
-    var c1 = String(t"{round(ns_to_ms(v2_ns), 3)}").ascii_rjust(15)
-    var c2 = String(t"{round(ns_to_ms(v4_ns), 3)}").ascii_rjust(15)
-    var c3 = String(t"{round(ns_to_ms(v8_ns), 3)}").ascii_rjust(15)
-
-    print(t"{c0} {c1} {c2} {c3}")
-
-
-def _print_transposed_f64_row(
-    name: String,
-    v2: Float64,
-    v4: Float64,
-    v8: Float64,
-    digits: Int = 3,
-):
-    var c0 = name.ascii_ljust(15)
-    var c1 = String(t"{round(v2, digits)}").ascii_rjust(15)
-    var c2 = String(t"{round(v4, digits)}").ascii_rjust(15)
-    var c3 = String(t"{round(v8, digits)}").ascii_rjust(15)
-
-    print(t"{c0} {c1} {c2} {c3}")
-
-
-def _print_transposed_int_row(
-    name: String,
-    v2: Int,
-    v4: Int,
-    v8: Int,
-):
-    var c0 = name.ascii_ljust(15)
-    var c1 = String(t"{v2}").ascii_rjust(15)
-    var c2 = String(t"{v4}").ascii_rjust(15)
-    var c3 = String(t"{v8}").ascii_rjust(15)
-
-    print(t"{c0} {c1} {c2} {c3}")
-
-
-def _print_transposed_u32_row(
-    name: String,
-    v2: UInt32,
-    v4: UInt32,
-    v8: UInt32,
-):
-    _print_transposed_int_row(name, Int(v2), Int(v4), Int(v8))
-
-
-def _print_transposed_string_row(
-    name: String,
-    v2: String,
-    v4: String,
-    v8: String,
-):
-    var c0 = name.ascii_ljust(15)
-    var c1 = v2.ascii_rjust(15)
-    var c2 = v4.ascii_rjust(15)
-    var c3 = v8.ascii_rjust(15)
-
-    print(t"{c0} {c1} {c2} {c3}")
+    _print_cpu_ref_row(label, Int(t1 - t0), result[1], result[0])
+    return result
 
 
 def _print_gpu_results_transposed(
+    row0: GpuBenchResult,
+    row1: GpuBenchResult,
     row2: GpuBenchResult,
-    row4: GpuBenchResult,
-    row8: GpuBenchResult,
 ):
-    var c0 = String("metric").ascii_ljust(15)
-    var c1 = row2.label.ascii_rjust(15)
-    var c2 = row4.label.ascii_rjust(15)
-    var c3 = row8.label.ascii_rjust(15)
+    var value_width = 15
 
-    print(t"{c0} {c1} {c2} {c3}")
-    print("--------------- --------------- --------------- ---------------")
-
-    _print_transposed_ms_row(
-        String("build tot"),
-        row2.build_ns,
-        row4.build_ns,
-        row8.build_ns,
+    print_transposed_header(
+        value_width,
+        row0.label,
+        row1.label,
+        row2.label,
     )
-    _print_transposed_ms_row(
-        String("- morton"),
-        row2.timings.morton_ns,
-        row4.timings.morton_ns,
-        row8.timings.morton_ns,
-    )
-    _print_transposed_ms_row(
-        String("- sort"),
-        row2.timings.sort_ns,
-        row4.timings.sort_ns,
-        row8.timings.sort_ns,
-    )
-    _print_transposed_ms_row(
-        String("- topology"),
-        row2.timings.topology_ns,
-        row4.timings.topology_ns,
-        row8.timings.topology_ns,
-    )
-    _print_transposed_ms_row(
-        String("- refit"),
-        row2.timings.refit_ns,
-        row4.timings.refit_ns,
-        row8.timings.refit_ns,
-    )
-    _print_transposed_ms_row(
-        String("- collapse"),
-        row2.timings.collapse_ns,
-        row4.timings.collapse_ns,
-        row8.timings.collapse_ns,
-    )
-    _print_transposed_ms_row(
-        String("- pack"),
-        row2.pack_ns,
-        row4.pack_ns,
-        row8.pack_ns,
-    )
-    _print_transposed_ms_row(
-        String("- other"),
-        _gpu_result_other_ns(row2),
-        _gpu_result_other_ns(row4),
-        _gpu_result_other_ns(row8),
-    )
-    _print_transposed_ms_row(
-        String("camera"),
-        row2.kernel_ns,
-        row4.kernel_ns,
-        row8.kernel_ns,
-    )
-
-    _print_transposed_f64_row(
-        String("MRay/s"),
-        ns_to_mrays_per_s(row2.kernel_ns, row2.ray_count),
-        ns_to_mrays_per_s(row4.kernel_ns, row4.ray_count),
-        ns_to_mrays_per_s(row8.kernel_ns, row8.ray_count),
-        3,
-    )
-    _print_transposed_u32_row(
-        String("hits"),
-        row2.hit_count,
-        row4.hit_count,
-        row8.hit_count,
-    )
-    _print_transposed_f64_row(
-        String("checksum"),
-        row2.checksum,
-        row4.checksum,
-        row8.checksum,
-        3,
-    )
-    _print_transposed_f64_row(
-        String("diff"),
-        row2.diff,
-        row4.diff,
-        row8.diff,
-        6,
-    )
-    _print_transposed_int_row(
-        String("dhit"),
-        _gpu_result_hit_diff(row2),
-        _gpu_result_hit_diff(row4),
-        _gpu_result_hit_diff(row8),
-    )
-    _print_transposed_f64_row(
-        String("rel_dhit"),
-        _gpu_result_rel_hit_diff(row2),
-        _gpu_result_rel_hit_diff(row4),
-        _gpu_result_rel_hit_diff(row8),
-        6,
-    )
-    _print_transposed_string_row(
-        String("status"),
-        _gpu_result_status(row2),
-        _gpu_result_status(row4),
-        _gpu_result_status(row8),
-    )
+    _print_gpu_result_trace_rows(row0, row1, row2, value_width)
+    _print_gpu_result_validation_rows(row0, row1, row2, value_width)
 
 
 def _bench_camera_primary_triangle[
@@ -603,7 +423,6 @@ def _run_width[
 ](
     mut ctx: DeviceContext,
     d_vertices: DeviceBuffer[DType.float32],
-    tri_count: Int,
     d_camera_params: DeviceBuffer[DType.float32],
     ray_count: Int,
     image_width: Int,
@@ -640,12 +459,12 @@ def _run_width[
         String(t"tri{width}"),
         Int(build1 - build0),
         bvh.timings,
-        bvh.leaf_pack_ns,
         res[0],
         ray_count,
         res[1],
         res[3],
         res[2],
+        reference_checksum,
         reference_hit_count,
         TRIANGLE_HIT_REL_EPS,
     )
@@ -666,15 +485,6 @@ def _make_sphere_grid_sized(grid_x: Int, grid_y: Int) -> List[Sphere]:
 
 def _make_sphere_grid() -> List[Sphere]:
     return _make_sphere_grid_sized(SPHERE_GRID_X, SPHERE_GRID_Y)
-
-
-def _sphere_bounds(spheres: List[Sphere]) -> AABB:
-    var bounds = AABB.invalid()
-    for s in spheres:
-        var r = s.radius
-        bounds.grow(Vec3f32(s.center.x - r, s.center.y - r, s.center.z - r))
-        bounds.grow(Vec3f32(s.center.x + r, s.center.y + r, s.center.z + r))
-    return bounds
 
 
 def _bench_camera_primary_sphere[
@@ -738,61 +548,8 @@ def _run_sphere_width[
 ](
     mut ctx: DeviceContext,
     spheres: List[Sphere],
-    d_camera_params: DeviceBuffer[DType.float32],
-    ray_count: Int,
-    image_width: Int,
-    image_height: Int,
-    reference_checksum: Float64,
-    reference_hit_count: UInt32,
-    repeats: Int,
-) raises -> GpuBenchResult:
-    _ = GpuSphereBvh[width](ctx, spheres)
-    ctx.synchronize()
-
-    var build0 = perf_counter_ns()
-    var bvh = GpuSphereBvh[width](ctx, spheres)
-    ctx.synchronize()
-    var build1 = perf_counter_ns()
-
-    var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](ray_count * 3)
-    var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](ray_count)
-
-    var res = _bench_camera_primary_sphere[width](
-        ctx,
-        bvh,
-        d_camera_params,
-        d_hits_f32,
-        d_hits_u32,
-        ray_count,
-        image_width,
-        image_height,
-        reference_checksum,
-        repeats,
-    )
-
-    return GpuBenchResult(
-        String(t"sph{width}"),
-        Int(build1 - build0),
-        bvh.timings,
-        bvh.leaf_pack_ns,
-        res[0],
-        ray_count,
-        res[1],
-        res[3],
-        res[2],
-        reference_hit_count,
-        SPHERE_HIT_REL_EPS,
-    )
-
-
-def _run_sphere_debug_width[
-    width: Int
-](
-    mut ctx: DeviceContext,
-    spheres: List[Sphere],
     rays: List[Ray],
     d_camera_params: DeviceBuffer[DType.float32],
-    ray_count: Int,
     image_width: Int,
     image_height: Int,
     reference_checksum: Float64,
@@ -808,6 +565,7 @@ def _run_sphere_debug_width[
     ctx.synchronize()
     var build1 = perf_counter_ns()
 
+    var ray_count = len(rays)
     var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](ray_count * 3)
     var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](ray_count)
 
@@ -824,28 +582,28 @@ def _run_sphere_debug_width[
         repeats,
     )
 
-    # if print_mismatches:
-    #     _print_sphere_debug_mismatches(
-    #         ctx,
-    #         spheres,
-    #         rays,
-    #         d_hits_f32,
-    #         d_hits_u32,
-    #         image_width,
-    #         image_height,
-    #         16,
-    #     )
+    if print_mismatches:
+        _print_sphere_debug_mismatches(
+            ctx,
+            spheres,
+            rays,
+            d_hits_f32,
+            d_hits_u32,
+            image_width,
+            image_height,
+            16,
+        )
 
     return GpuBenchResult(
         String(t"sph{width}"),
         Int(build1 - build0),
         bvh.timings,
-        bvh.leaf_pack_ns,
         res[0],
         ray_count,
         res[1],
         res[3],
         res[2],
+        reference_checksum,
         reference_hit_count,
         SPHERE_HIT_REL_EPS,
     )
@@ -889,19 +647,14 @@ def main() raises:
     print("\nGPU TriangleBvh[width]")
     print("----------------------")
     print("\nCPU reference")
-    var cpu_bvh = TriangleBvh[8].__init__["lbvh"](tri_vertices.copy())
-    var cpu_t0 = perf_counter_ns()
-    var reference = _trace_cpu_triangle_bvh[8](cpu_bvh, rays)
-    var cpu_t1 = perf_counter_ns()
+    _print_cpu_ref_header()
+    var reference = _print_cpu_triangle_reference[8](
+        String("TriangleBvh[8] lbvh"),
+        tri_vertices,
+        rays,
+    )
     var reference_checksum = reference[0]
     var reference_hit_count = reference[1]
-    _print_cpu_ref_header()
-    _print_cpu_ref_row(
-        String("TriangleBvh[8] lbvh"),
-        Int(cpu_t1 - cpu_t0),
-        reference_hit_count,
-        reference_checksum,
-    )
     print("")
 
     comptime if not has_accelerator():
@@ -915,7 +668,6 @@ def main() raises:
         var tri2 = _run_width[2](
             ctx,
             d_vertices,
-            tri_count,
             d_camera_params,
             len(rays),
             PRIMARY_WIDTH,
@@ -927,7 +679,6 @@ def main() raises:
         var tri4 = _run_width[4](
             ctx,
             d_vertices,
-            tri_count,
             d_camera_params,
             len(rays),
             PRIMARY_WIDTH,
@@ -939,7 +690,6 @@ def main() raises:
         var tri8 = _run_width[8](
             ctx,
             d_vertices,
-            tri_count,
             d_camera_params,
             len(rays),
             PRIMARY_WIDTH,
@@ -957,7 +707,7 @@ def main() raises:
             DEBUG_SPHERE_GRID_X,
             DEBUG_SPHERE_GRID_Y,
         )
-        var debug_sphere_bounds = _sphere_bounds(debug_spheres)
+        var debug_sphere_bounds = sphere_bounds(debug_spheres)
         var debug_sphere_camera = _make_camera_rays_and_params(
             debug_sphere_bounds,
             DEBUG_SPHERE_RAY_WIDTH,
@@ -979,113 +729,70 @@ def main() raises:
         print("\nCPU debug sphere reference")
         _print_cpu_ref_header()
 
-        var debug_brute_t0 = perf_counter_ns()
-        var debug_brute = _trace_cpu_sphere_bruteforce(
-            debug_spheres,
-            debug_sphere_rays,
-        )
-        var debug_brute_t1 = perf_counter_ns()
-        _print_cpu_ref_row(
-            String("Sphere brute force"),
-            Int(debug_brute_t1 - debug_brute_t0),
-            debug_brute[1],
-            debug_brute[0],
-        )
-
-        var debug_cpu_sphere_bvh2 = SphereBvh[2].__init__["lbvh"](
-            debug_spheres.copy()
-        )
-        var debug_cpu_sphere_t20 = perf_counter_ns()
-        var debug_sphere_reference2 = _trace_cpu_sphere_bvh[2](
-            debug_cpu_sphere_bvh2,
-            debug_sphere_rays,
-        )
-        var debug_cpu_sphere_t21 = perf_counter_ns()
-        _print_cpu_ref_row(
+        # var debug_brute = _print_cpu_sphere_bruteforce_reference(
+        #     String("Sphere brute force"),
+        #     debug_spheres,
+        #     debug_sphere_rays,
+        # )
+        _ = _print_cpu_sphere_reference[2](
             String("SphereBvh[2] lbvh"),
-            Int(debug_cpu_sphere_t21 - debug_cpu_sphere_t20),
-            debug_sphere_reference2[1],
-            debug_sphere_reference2[0],
-        )
-
-        var debug_cpu_sphere_bvh4 = SphereBvh[4].__init__["lbvh"](
-            debug_spheres.copy()
-        )
-        var debug_cpu_sphere_t40 = perf_counter_ns()
-        var debug_sphere_reference4 = _trace_cpu_sphere_bvh[4](
-            debug_cpu_sphere_bvh4,
+            debug_spheres,
             debug_sphere_rays,
         )
-        var debug_cpu_sphere_t41 = perf_counter_ns()
-        _print_cpu_ref_row(
+        _ = _print_cpu_sphere_reference[4](
             String("SphereBvh[4] lbvh"),
-            Int(debug_cpu_sphere_t41 - debug_cpu_sphere_t40),
-            debug_sphere_reference4[1],
-            debug_sphere_reference4[0],
-        )
-
-        var debug_cpu_sphere_bvh8 = SphereBvh[8].__init__["lbvh"](
-            debug_spheres.copy()
-        )
-        var debug_cpu_sphere_t80 = perf_counter_ns()
-        var debug_sphere_reference8 = _trace_cpu_sphere_bvh[8](
-            debug_cpu_sphere_bvh8,
+            debug_spheres,
             debug_sphere_rays,
         )
-        var debug_cpu_sphere_t81 = perf_counter_ns()
-        _print_cpu_ref_row(
+        _ = _print_cpu_sphere_reference[8](
             String("SphereBvh[8] lbvh"),
-            Int(debug_cpu_sphere_t81 - debug_cpu_sphere_t80),
-            debug_sphere_reference8[1],
-            debug_sphere_reference8[0],
+            debug_spheres,
+            debug_sphere_rays,
         )
 
-        print("\nGPU debug sphere vs CPU brute force")
-        var debug_sph2 = _run_sphere_debug_width[2](
-            ctx,
-            debug_spheres,
-            debug_sphere_rays,
-            d_debug_sphere_camera_params,
-            len(debug_sphere_rays),
-            DEBUG_SPHERE_RAY_WIDTH,
-            DEBUG_SPHERE_RAY_HEIGHT,
-            debug_brute[0],
-            debug_brute[1],
-            DEBUG_BENCH_REPEATS,
-            False,
-        )
-        var debug_sph4 = _run_sphere_debug_width[4](
-            ctx,
-            debug_spheres,
-            debug_sphere_rays,
-            d_debug_sphere_camera_params,
-            len(debug_sphere_rays),
-            DEBUG_SPHERE_RAY_WIDTH,
-            DEBUG_SPHERE_RAY_HEIGHT,
-            debug_brute[0],
-            debug_brute[1],
-            DEBUG_BENCH_REPEATS,
-            False,
-        )
-        var debug_sph8 = _run_sphere_debug_width[8](
-            ctx,
-            debug_spheres,
-            debug_sphere_rays,
-            d_debug_sphere_camera_params,
-            len(debug_sphere_rays),
-            DEBUG_SPHERE_RAY_WIDTH,
-            DEBUG_SPHERE_RAY_HEIGHT,
-            debug_brute[0],
-            debug_brute[1],
-            DEBUG_BENCH_REPEATS,
-            True,
-        )
-        _print_gpu_results_transposed(debug_sph2, debug_sph4, debug_sph8)
+        # print("\nGPU debug sphere vs CPU brute force")
+        # var debug_sph2 = _run_sphere_width[2](
+        #     ctx,
+        #     debug_spheres,
+        #     debug_sphere_rays,
+        #     d_debug_sphere_camera_params,
+        #     DEBUG_SPHERE_RAY_WIDTH,
+        #     DEBUG_SPHERE_RAY_HEIGHT,
+        #     debug_brute[0],
+        #     debug_brute[1],
+        #     DEBUG_BENCH_REPEATS,
+        #     False,
+        # )
+        # var debug_sph4 = _run_sphere_width[4](
+        #     ctx,
+        #     debug_spheres,
+        #     debug_sphere_rays,
+        #     d_debug_sphere_camera_params,
+        #     DEBUG_SPHERE_RAY_WIDTH,
+        #     DEBUG_SPHERE_RAY_HEIGHT,
+        #     debug_brute[0],
+        #     debug_brute[1],
+        #     DEBUG_BENCH_REPEATS,
+        #     False,
+        # )
+        # var debug_sph8 = _run_sphere_width[8](
+        #     ctx,
+        #     debug_spheres,
+        #     debug_sphere_rays,
+        #     d_debug_sphere_camera_params,
+        #     DEBUG_SPHERE_RAY_WIDTH,
+        #     DEBUG_SPHERE_RAY_HEIGHT,
+        #     debug_brute[0],
+        #     debug_brute[1],
+        #     DEBUG_BENCH_REPEATS,
+        #     True,
+        # )
+        # _print_gpu_results_transposed(debug_sph2, debug_sph4, debug_sph8)
 
         print("\nGPU SphereBvh[width]")
         print("--------------------")
         var spheres = _make_sphere_grid()
-        var sphere_bounds = _sphere_bounds(spheres)
+        var sphere_bounds = sphere_bounds(spheres)
         var sphere_camera = _make_camera_rays_and_params(
             sphere_bounds,
             SPHERE_RAY_WIDTH,
@@ -1107,80 +814,57 @@ def main() raises:
         print("\nCPU sphere reference")
         _print_cpu_ref_header()
 
-        var cpu_sphere_bvh2 = SphereBvh[2].__init__["lbvh"](spheres.copy())
-        var cpu_sphere_t20 = perf_counter_ns()
-        var sphere_reference2 = _trace_cpu_sphere_bvh[2](
-            cpu_sphere_bvh2,
-            sphere_rays,
-        )
-        var cpu_sphere_t21 = perf_counter_ns()
-        _print_cpu_ref_row(
+        var sphere_reference2 = _print_cpu_sphere_reference[2](
             String("SphereBvh[2] lbvh"),
-            Int(cpu_sphere_t21 - cpu_sphere_t20),
-            sphere_reference2[1],
-            sphere_reference2[0],
-        )
-
-        var cpu_sphere_bvh4 = SphereBvh[4].__init__["lbvh"](spheres.copy())
-        var cpu_sphere_t40 = perf_counter_ns()
-        var sphere_reference4 = _trace_cpu_sphere_bvh[4](
-            cpu_sphere_bvh4,
+            spheres,
             sphere_rays,
         )
-        var cpu_sphere_t41 = perf_counter_ns()
-        _print_cpu_ref_row(
+        var sphere_reference4 = _print_cpu_sphere_reference[4](
             String("SphereBvh[4] lbvh"),
-            Int(cpu_sphere_t41 - cpu_sphere_t40),
-            sphere_reference4[1],
-            sphere_reference4[0],
-        )
-
-        var cpu_sphere_bvh8 = SphereBvh[8].__init__["lbvh"](spheres.copy())
-        var cpu_sphere_t80 = perf_counter_ns()
-        var sphere_reference8 = _trace_cpu_sphere_bvh[8](
-            cpu_sphere_bvh8,
+            spheres,
             sphere_rays,
         )
-        var cpu_sphere_t81 = perf_counter_ns()
-        _print_cpu_ref_row(
+        var sphere_reference8 = _print_cpu_sphere_reference[8](
             String("SphereBvh[8] lbvh"),
-            Int(cpu_sphere_t81 - cpu_sphere_t80),
-            sphere_reference8[1],
-            sphere_reference8[0],
+            spheres,
+            sphere_rays,
         )
 
         print("\n")
         var sph2 = _run_sphere_width[2](
             ctx,
             spheres,
+            sphere_rays,
             d_sphere_camera_params,
-            len(sphere_rays),
             SPHERE_RAY_WIDTH,
             SPHERE_RAY_HEIGHT,
             sphere_reference2[0],
             sphere_reference2[1],
             BENCH_REPEATS,
+            False,
         )
         var sph4 = _run_sphere_width[4](
             ctx,
             spheres,
+            sphere_rays,
             d_sphere_camera_params,
-            len(sphere_rays),
             SPHERE_RAY_WIDTH,
             SPHERE_RAY_HEIGHT,
             sphere_reference4[0],
             sphere_reference4[1],
             BENCH_REPEATS,
+            False,
         )
         var sph8 = _run_sphere_width[8](
             ctx,
             spheres,
+            sphere_rays,
             d_sphere_camera_params,
-            len(sphere_rays),
             SPHERE_RAY_WIDTH,
             SPHERE_RAY_HEIGHT,
             sphere_reference8[0],
             sphere_reference8[1],
             BENCH_REPEATS,
+            False,
         )
         _print_gpu_results_transposed(sph2, sph4, sph8)

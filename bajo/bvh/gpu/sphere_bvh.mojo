@@ -138,7 +138,6 @@ struct GpuSphereBvh[width: Int]:
     var leaf_spheres: DeviceBuffer[DType.float32]
     var leaf_prims: DeviceBuffer[DType.uint32]
     var sphere_count: Int
-    var leaf_pack_ns: Int
     var timings: GpuBuildTimings
 
     def __init__(
@@ -147,7 +146,6 @@ struct GpuSphereBvh[width: Int]:
         spheres: List[Sphere],
     ) raises:
         self.sphere_count = len(spheres)
-        self.leaf_pack_ns = 0
 
         var flat_spheres = _flatten_spheres(spheres)
         self.spheres = upload_list(ctx, flat_spheres)
@@ -157,16 +155,13 @@ struct GpuSphereBvh[width: Int]:
         )
         var payloads = List[UInt32](capacity=max(self.sphere_count, 1))
 
-        for i in range(self.sphere_count):
-            ref s = spheres[i]
-            var r = s.radius
-
-            leaf_bounds.append(s.center.x - r)
-            leaf_bounds.append(s.center.y - r)
-            leaf_bounds.append(s.center.z - r)
-            leaf_bounds.append(s.center.x + r)
-            leaf_bounds.append(s.center.y + r)
-            leaf_bounds.append(s.center.z + r)
+        for i, s in enumerate(spheres):
+            leaf_bounds.append(s.center.x - s.radius)
+            leaf_bounds.append(s.center.y - s.radius)
+            leaf_bounds.append(s.center.z - s.radius)
+            leaf_bounds.append(s.center.x + s.radius)
+            leaf_bounds.append(s.center.y + s.radius)
+            leaf_bounds.append(s.center.z + s.radius)
             payloads.append(UInt32(i))
 
         var d_payloads = upload_list(ctx, payloads)
@@ -203,7 +198,7 @@ struct GpuSphereBvh[width: Int]:
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
         ctx.synchronize()
-        self.leaf_pack_ns = Int(perf_counter_ns() - start)
+        self.timings.leaf_pack_ns = Int(perf_counter_ns() - start)
 
     def launch_camera(
         self,

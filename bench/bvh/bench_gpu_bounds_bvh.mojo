@@ -573,9 +573,8 @@ def _make_sphere_grid() -> List[Sphere]:
 def _sphere_bounds(spheres: List[Sphere]) -> AABB:
     var bounds = AABB.invalid()
     for s in spheres:
-        var r = s.radius
-        bounds.grow(Vec3f32(s.center.x - r, s.center.y - r, s.center.z - r))
-        bounds.grow(Vec3f32(s.center.x + r, s.center.y + r, s.center.z + r))
+        bounds.grow(s.center - s.radius)
+        bounds.grow(s.center + s.radius)
     return bounds
 
 

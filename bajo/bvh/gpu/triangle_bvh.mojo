@@ -303,10 +303,17 @@ def pack_triangle_leaf_lanes_kernel[
     # traversal checks prim != EMPTY_LANE
     if prim == EMPTY_LANE:
         return
+
+    # AoSoA : [block][field][lane]
+    var lane = lane_idx % width
+    var leaf_block_idx = lane_idx / width
     var in_base = Int(prim) * TRI_LEAF_VERTEX_STRIDE
-    var out_base = lane_idx * TRI_LEAF_VERTEX_STRIDE
-    comptime for k in range(TRI_LEAF_VERTEX_STRIDE):
-        leaf_vertices[out_base + k] = vertices[in_base + k]
+    var out_base = leaf_block_idx * TRI_LEAF_VERTEX_STRIDE * width
+
+    comptime for field in range(TRI_LEAF_VERTEX_STRIDE):
+        leaf_vertices[out_base + field * width + lane] = vertices[
+            in_base + field
+        ]
 
 
 def trace_triangle_bvh_camera_kernel[
@@ -362,7 +369,7 @@ def trace_triangle_bvh_camera_kernel[
     hits_u32[ray_idx] = hit.prim
 
 
-# this version works !!!!
+# AoSoA :[block][field][lane]
 def _intersect_triangle_leaf[
     width: Int,
     mode: TRACE,
@@ -375,18 +382,30 @@ def _intersect_triangle_leaf[
     mut hit: Hit,
 ) capturing -> Bool:
     var any_hit = False
+    var block_base = Int(leaf_block_idx) * TRI_LEAF_VERTEX_STRIDE * width
+    var prim_base = Int(leaf_block_idx) * width
 
     comptime for lane in range(width):
         if lane < Int(item_count):
-            var idx = Int(leaf_block_idx) * width + lane
+            var idx = prim_base + lane
             var prim = UInt32(leaf_prims[idx])
 
             if prim != EMPTY_LANE:
-                var base = idx * TRI_LEAF_VERTEX_STRIDE
-
-                var v0 = Vec3f32.load(leaf_vertices, base)
-                var v1 = Vec3f32.load(leaf_vertices, base + 3)
-                var v2 = Vec3f32.load(leaf_vertices, base + 6)
+                var v0 = Vec3f32(
+                    leaf_vertices[block_base + 0 * width + lane],
+                    leaf_vertices[block_base + 1 * width + lane],
+                    leaf_vertices[block_base + 2 * width + lane],
+                )
+                var v1 = Vec3f32(
+                    leaf_vertices[block_base + 3 * width + lane],
+                    leaf_vertices[block_base + 4 * width + lane],
+                    leaf_vertices[block_base + 5 * width + lane],
+                )
+                var v2 = Vec3f32(
+                    leaf_vertices[block_base + 6 * width + lane],
+                    leaf_vertices[block_base + 7 * width + lane],
+                    leaf_vertices[block_base + 8 * width + lane],
+                )
 
                 var tri_hit = intersect_ray_tri(
                     ray.o,
@@ -409,63 +428,58 @@ def _intersect_triangle_leaf[
                         hit.inst = EMPTY_LANE
                         hit.normal = normalize(cross(v1 - v0, v2 - v0))
                         any_hit = True
-
     return any_hit
 
 
 # # it works now, but it is slower
-# def _load_triangle_leaf[
-#     width: Int,
-# ](
-#     leaf_vertices: UnsafePointer[Float32, MutAnyOrigin],
-#     leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
-#     leaf_block_idx: UInt32,
-#     item_count: UInt32,
-# ) -> TriangleLeafBlock[width]:
-#     var block = TriangleLeafBlock[width]()
-
-#     comptime for lane in range(width):
-#         if lane < Int(item_count):
-#             var idx = Int(leaf_block_idx) * width + lane
-#             var prim = UInt32(leaf_prims[idx])
-
-#             if prim != EMPTY_LANE:
-#                 var base = idx * TRI_LEAF_VERTEX_STRIDE
-
-#                 block.v0.x[lane] = leaf_vertices[base + 0]
-#                 block.v0.y[lane] = leaf_vertices[base + 1]
-#                 block.v0.z[lane] = leaf_vertices[base + 2]
-
-#                 block.v1.x[lane] = leaf_vertices[base + 3]
-#                 block.v1.y[lane] = leaf_vertices[base + 4]
-#                 block.v1.z[lane] = leaf_vertices[base + 5]
-
-#                 block.v2.x[lane] = leaf_vertices[base + 6]
-#                 block.v2.y[lane] = leaf_vertices[base + 7]
-#                 block.v2.z[lane] = leaf_vertices[base + 8]
-
-#                 block.prim_indices[lane] = prim
-#                 block.valid_lane[lane] = True
-
-#     return block^
-
-
 # def _intersect_triangle_leaf[
 #     width: Int,
 #     mode: TRACE,
 # ](
-#     leaf_vertices: UnsafePointer[Float32, MutAnyOrigin],
-#     leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
+#     leaf_vertices: UnsafePointer[Float32, ImmutAnyOrigin],
+#     leaf_prims: UnsafePointer[UInt32, ImmutAnyOrigin],
 #     leaf_block_idx: UInt32,
 #     item_count: UInt32,
 #     ray: Ray,
 #     mut hit: Hit,
 # ) capturing -> Bool:
-#     var block = _load_triangle_leaf[width](
-#         leaf_vertices,
-#         leaf_prims,
-#         leaf_block_idx,
-#         item_count,
+#     var block_base = Int(leaf_block_idx) * TRI_LEAF_VERTEX_STRIDE * width
+#     var prim_base = Int(leaf_block_idx) * width
+
+#     var prim_indices = leaf_prims.load[width=width](prim_base)
+
+#     var valid_lane = prim_indices.ne(EMPTY_LANE)
+
+#     comptime for lane in range(width):
+#         if lane >= Int(item_count):
+#             valid_lane[lane] = False
+
+#     if not valid_lane.reduce_or():
+#         return False
+
+#     # AoSoA layout:
+#     #   [block][field][lane]
+#     #
+#     # fields:
+#     #   0..2 = v0.xyz
+#     #   3..5 = v1.xyz
+#     #   6..8 = v2.xyz
+#     var v0 = Vec3[DType.float32, width](
+#         leaf_vertices.load[width=width](block_base + 0 * width),
+#         leaf_vertices.load[width=width](block_base + 1 * width),
+#         leaf_vertices.load[width=width](block_base + 2 * width),
+#     )
+
+#     var v1 = Vec3[DType.float32, width](
+#         leaf_vertices.load[width=width](block_base + 3 * width),
+#         leaf_vertices.load[width=width](block_base + 4 * width),
+#         leaf_vertices.load[width=width](block_base + 5 * width),
+#     )
+
+#     var v2 = Vec3[DType.float32, width](
+#         leaf_vertices.load[width=width](block_base + 6 * width),
+#         leaf_vertices.load[width=width](block_base + 7 * width),
+#         leaf_vertices.load[width=width](block_base + 8 * width),
 #     )
 
 #     var O = Vec3[DType.float32, width](ray.o.x, ray.o.y, ray.o.z)
@@ -474,13 +488,13 @@ def _intersect_triangle_leaf[
 #     var h = intersect_ray_tri(
 #         O,
 #         D,
-#         block.v0,
-#         block.v1,
-#         block.v2,
+#         v0,
+#         v1,
+#         v2,
 #         hit.t,
 #     )
 
-#     var hit_mask = h.mask & block.valid_lane
+#     var hit_mask = h.mask & valid_lane
 
 #     if not hit_mask.reduce_or():
 #         return False
@@ -488,16 +502,26 @@ def _intersect_triangle_leaf[
 #     comptime if mode == TRACE.ANY_HIT:
 #         return True
 #     else:
-#         var min_t = hit_mask.select(h.t, f32_max).reduce_min()
+#         var lane_t = hit_mask.select(h.t, f32_max)
+#         var min_t = lane_t.reduce_min()
 
-#         if min_t < hit.t:
-#             hit.t = min_t
+#         if min_t >= hit.t:
+#             return False
 
-#             comptime if mode == TRACE.CLOSEST_HIT:
-#                 comptime for lane in range(width):
-#                     if hit_mask[lane] and h.t[lane] == min_t:
-#                         hit.u = h.u[lane]
-#                         hit.v = h.v[lane]
-#                         hit.prim = block.prim_indices[lane]
-#                         hit.inst = EMPTY_LANE
+#         hit.t = min_t
+
+#         comptime for lane in range(width):
+#             if hit_mask[lane] and h.t[lane] == min_t:
+#                 hit.u = h.u[lane]
+#                 hit.v = h.v[lane]
+#                 hit.prim = prim_indices[lane]
+#                 hit.inst = EMPTY_LANE
+
+#                 var sv0 = Vec3f32(v0.x[lane], v0.y[lane], v0.z[lane])
+#                 var sv1 = Vec3f32(v1.x[lane], v1.y[lane], v1.z[lane])
+#                 var sv2 = Vec3f32(v2.x[lane], v2.y[lane], v2.z[lane])
+#                 hit.normal = normalize(cross(sv1 - sv0, sv2 - sv0))
+
+#                 return True
+
 #         return True

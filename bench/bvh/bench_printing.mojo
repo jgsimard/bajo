@@ -1,7 +1,71 @@
 from std.math import round
 
-from bajo.core.utils import ns_to_ms
+from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.bvh.gpu.utils import GpuBuildTimings
+
+
+@fieldwise_init
+struct GpuBenchResult(Copyable, Writable):
+    var label: String
+    var build_ns: Int
+    var timings: GpuBuildTimings
+    var kernel_ns: Int
+    var ray_count: Int
+    var checksum: Float64
+    var diff: Float64
+    var hit_count: UInt32
+    var reference_checksum: Float64
+    var reference_hit_count: UInt32
+    var hit_rel_eps: Float64
+
+    def hit_diff(self) -> Int:
+        return Int(self.hit_count) - Int(self.reference_hit_count)
+
+    def rel_hit_diff(self) -> Float64:
+        var hit_diff = self.hit_diff()
+        var abs_hit_diff = hit_diff
+        if abs_hit_diff < 0:
+            abs_hit_diff = 0 - abs_hit_diff
+
+        if self.reference_hit_count > 0:
+            return Float64(abs_hit_diff) / Float64(self.reference_hit_count)
+
+        if self.hit_count > 0:
+            return 1.0
+
+        return 0.0
+
+    def status(self) -> String:
+        comptime CHECKSUM_ABS_EPS = 1.0e-3
+        comptime CHECKSUM_PER_HIT_EPS = 1.0e-6
+
+        var per_hit_diff = Float64(0.0)
+        if self.hit_count > 0:
+            per_hit_diff = self.diff / Float64(self.hit_count)
+
+        var hit_diff = Int(self.hit_count) - Int(self.reference_hit_count)
+        var abs_hit_diff = hit_diff
+        if abs_hit_diff < 0:
+            abs_hit_diff = 0 - abs_hit_diff
+
+        var hit_rel_diff = Float64(0.0)
+        if self.reference_hit_count > 0:
+            hit_rel_diff = Float64(abs_hit_diff) / Float64(
+                self.reference_hit_count
+            )
+        else:
+            if self.hit_count > 0:
+                hit_rel_diff = 1.0
+
+        if hit_rel_diff > self.hit_rel_eps:
+            return String("CHECK")
+
+        if hit_diff == 0 and (
+            self.diff > CHECKSUM_ABS_EPS and per_hit_diff > CHECKSUM_PER_HIT_EPS
+        ):
+            return String("CHECK")
+
+        return String("OK")
 
 
 def gpu_build_other_ns(
@@ -72,7 +136,6 @@ def print_gpu_build_timing_rows(
     timings1: GpuBuildTimings,
     build2_ns: Int,
     timings2: GpuBuildTimings,
-    include_pack: Bool,
     value_width: Int,
 ):
     print_transposed_ms_row(
@@ -118,14 +181,13 @@ def print_gpu_build_timing_rows(
         value_width,
     )
 
-    if include_pack:
-        print_transposed_ms_row(
-            String("- pack"),
-            timings0.leaf_pack_ns,
-            timings1.leaf_pack_ns,
-            timings2.leaf_pack_ns,
-            value_width,
-        )
+    print_transposed_ms_row(
+        String("- pack"),
+        timings0.leaf_pack_ns,
+        timings1.leaf_pack_ns,
+        timings2.leaf_pack_ns,
+        value_width,
+    )
 
     print_transposed_ms_row(
         String("- other"),
@@ -133,4 +195,86 @@ def print_gpu_build_timing_rows(
         gpu_build_other_ns(build1_ns, timings1),
         gpu_build_other_ns(build2_ns, timings2),
         value_width,
+    )
+
+
+def _print_gpu_result_trace_rows(
+    row0: GpuBenchResult,
+    row1: GpuBenchResult,
+    row2: GpuBenchResult,
+    value_width: Int,
+):
+    print_gpu_build_timing_rows(
+        row0.build_ns,
+        row0.timings,
+        row1.build_ns,
+        row1.timings,
+        row2.build_ns,
+        row2.timings,
+        value_width,
+    )
+
+    print_transposed_ms_row(
+        String("camera"),
+        row0.kernel_ns,
+        row1.kernel_ns,
+        row2.kernel_ns,
+        value_width,
+    )
+    print_transposed_row(
+        String("MRay/s"),
+        value_width,
+        round(ns_to_mrays_per_s(row0.kernel_ns, row0.ray_count), 3),
+        round(ns_to_mrays_per_s(row1.kernel_ns, row1.ray_count), 3),
+        round(ns_to_mrays_per_s(row2.kernel_ns, row2.ray_count), 3),
+    )
+    print_transposed_row(
+        String("hits"),
+        value_width,
+        row0.hit_count,
+        row1.hit_count,
+        row2.hit_count,
+    )
+    print_transposed_row(
+        String("checksum"),
+        value_width,
+        round(row0.checksum, 3),
+        round(row1.checksum, 3),
+        round(row2.checksum, 3),
+    )
+
+
+def _print_gpu_result_validation_rows(
+    row0: GpuBenchResult,
+    row1: GpuBenchResult,
+    row2: GpuBenchResult,
+    value_width: Int,
+):
+    print_transposed_row(
+        String("diff"),
+        value_width,
+        round(row0.diff, 6),
+        round(row1.diff, 6),
+        round(row2.diff, 6),
+    )
+    print_transposed_row(
+        String("dhit"),
+        value_width,
+        row0.hit_diff(),
+        row1.hit_diff(),
+        row2.hit_diff(),
+    )
+    print_transposed_row(
+        String("rel_dhit"),
+        value_width,
+        round(row0.rel_hit_diff(), 6),
+        round(row1.rel_hit_diff(), 6),
+        round(row2.rel_hit_diff(), 6),
+    )
+    print_transposed_row(
+        String("status"),
+        value_width,
+        row0.status(),
+        row1.status(),
+        row2.status(),
     )

@@ -21,10 +21,10 @@ from bajo.bvh.gpu.utils import (
     upload_vertices,
 )
 from bench.bvh.bench_printing import (
-    print_gpu_build_timing_rows,
+    GpuBenchResult,
     print_transposed_header,
-    print_transposed_ms_row,
-    print_transposed_row,
+    _print_gpu_result_trace_rows,
+    _print_gpu_result_validation_rows,
 )
 from bajo.obj.pack import pack_obj_triangles
 
@@ -50,20 +50,6 @@ comptime DEBUG_SPHERE_RAY_VIEWS = 1
 comptime TRIANGLE_HIT_REL_EPS = 0.0
 comptime SPHERE_HIT_REL_EPS = 1.0e-3
 comptime DEBUG_BENCH_REPEATS = 3
-
-
-@fieldwise_init
-struct GpuBenchResult(Writable):
-    var label: String
-    var build_ns: Int
-    var timings: GpuBuildTimings
-    var kernel_ns: Int
-    var ray_count: Int
-    var checksum: Float64
-    var diff: Float64
-    var hit_count: UInt32
-    var reference_hit_count: UInt32
-    var hit_rel_eps: Float64
 
 
 def _make_camera_rays_and_params(
@@ -355,139 +341,6 @@ def _print_cpu_sphere_bruteforce_reference(
     return result
 
 
-def _gpu_result_status(row: GpuBenchResult) -> String:
-    comptime CHECKSUM_ABS_EPS = 1.0e-3
-    comptime CHECKSUM_PER_HIT_EPS = 1.0e-6
-
-    var per_hit_diff = Float64(0.0)
-    if row.hit_count > 0:
-        per_hit_diff = row.diff / Float64(row.hit_count)
-
-    var hit_diff = Int(row.hit_count) - Int(row.reference_hit_count)
-    var abs_hit_diff = hit_diff
-    if abs_hit_diff < 0:
-        abs_hit_diff = 0 - abs_hit_diff
-
-    var hit_rel_diff = Float64(0.0)
-    if row.reference_hit_count > 0:
-        hit_rel_diff = Float64(abs_hit_diff) / Float64(row.reference_hit_count)
-    else:
-        if row.hit_count > 0:
-            hit_rel_diff = 1.0
-
-    if hit_rel_diff > row.hit_rel_eps:
-        return String("CHECK")
-
-    if hit_diff == 0 and (
-        row.diff > CHECKSUM_ABS_EPS and per_hit_diff > CHECKSUM_PER_HIT_EPS
-    ):
-        return String("CHECK")
-
-    return String("OK")
-
-
-def _gpu_result_hit_diff(row: GpuBenchResult) -> Int:
-    return Int(row.hit_count) - Int(row.reference_hit_count)
-
-
-def _gpu_result_rel_hit_diff(row: GpuBenchResult) -> Float64:
-    var hit_diff = _gpu_result_hit_diff(row)
-    var abs_hit_diff = hit_diff
-    if abs_hit_diff < 0:
-        abs_hit_diff = 0 - abs_hit_diff
-
-    if row.reference_hit_count > 0:
-        return Float64(abs_hit_diff) / Float64(row.reference_hit_count)
-
-    if row.hit_count > 0:
-        return 1.0
-
-    return 0.0
-
-
-def _print_gpu_result_trace_rows(
-    row0: GpuBenchResult,
-    row1: GpuBenchResult,
-    row2: GpuBenchResult,
-    value_width: Int,
-):
-    print_gpu_build_timing_rows(
-        row0.build_ns,
-        row0.timings,
-        row1.build_ns,
-        row1.timings,
-        row2.build_ns,
-        row2.timings,
-        True,
-        value_width,
-    )
-
-    print_transposed_ms_row(
-        String("camera"),
-        row0.kernel_ns,
-        row1.kernel_ns,
-        row2.kernel_ns,
-        value_width,
-    )
-    print_transposed_row(
-        String("MRay/s"),
-        value_width,
-        round(ns_to_mrays_per_s(row0.kernel_ns, row0.ray_count), 3),
-        round(ns_to_mrays_per_s(row1.kernel_ns, row1.ray_count), 3),
-        round(ns_to_mrays_per_s(row2.kernel_ns, row2.ray_count), 3),
-    )
-    print_transposed_row(
-        String("hits"),
-        value_width,
-        row0.hit_count,
-        row1.hit_count,
-        row2.hit_count,
-    )
-    print_transposed_row(
-        String("checksum"),
-        value_width,
-        round(row0.checksum, 3),
-        round(row1.checksum, 3),
-        round(row2.checksum, 3),
-    )
-
-
-def _print_gpu_result_validation_rows(
-    row0: GpuBenchResult,
-    row1: GpuBenchResult,
-    row2: GpuBenchResult,
-    value_width: Int,
-):
-    print_transposed_row(
-        String("diff"),
-        value_width,
-        round(row0.diff, 6),
-        round(row1.diff, 6),
-        round(row2.diff, 6),
-    )
-    print_transposed_row(
-        String("dhit"),
-        value_width,
-        _gpu_result_hit_diff(row0),
-        _gpu_result_hit_diff(row1),
-        _gpu_result_hit_diff(row2),
-    )
-    print_transposed_row(
-        String("rel_dhit"),
-        value_width,
-        round(_gpu_result_rel_hit_diff(row0), 6),
-        round(_gpu_result_rel_hit_diff(row1), 6),
-        round(_gpu_result_rel_hit_diff(row2), 6),
-    )
-    print_transposed_row(
-        String("status"),
-        value_width,
-        _gpu_result_status(row0),
-        _gpu_result_status(row1),
-        _gpu_result_status(row2),
-    )
-
-
 def _print_gpu_results_transposed(
     row0: GpuBenchResult,
     row1: GpuBenchResult,
@@ -607,6 +460,7 @@ def _run_width[
         res[1],
         res[3],
         res[2],
+        reference_checksum,
         reference_hit_count,
         TRIANGLE_HIT_REL_EPS,
     )
@@ -754,6 +608,7 @@ def _run_sphere_width[
         res[1],
         res[3],
         res[2],
+        reference_checksum,
         reference_hit_count,
         SPHERE_HIT_REL_EPS,
     )

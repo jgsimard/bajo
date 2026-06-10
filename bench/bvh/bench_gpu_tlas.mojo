@@ -165,10 +165,7 @@ def _make_camera_rays_and_params(
             Vec3f32(0.0, 1.0, 0.0),
             Float32(0.75),
         )
-
-        var flat = camera.flatten()
-        for i in range(len(flat)):
-            params.append(flat[i])
+        params.extend(camera.flatten())
 
         for py in range(height):
             for px in range(width):

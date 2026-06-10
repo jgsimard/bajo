@@ -7,7 +7,11 @@ from bajo.core import AABB, Vec3f32, dot
 from bajo.core.intersect import intersect_ray_sphere
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.bvh.camera import Camera
-from bajo.bvh.host_utils import compute_bounds, hit_t_for_checksum
+from bajo.bvh.host_utils import (
+    compute_bounds,
+    hit_t_for_checksum,
+    sphere_bounds,
+)
 from bajo.bvh.constants import EMPTY_LANE, TRACE
 from bajo.bvh.types import Hit, Ray, Sphere
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
@@ -483,15 +487,6 @@ def _make_sphere_grid() -> List[Sphere]:
     return _make_sphere_grid_sized(SPHERE_GRID_X, SPHERE_GRID_Y)
 
 
-def _sphere_bounds(spheres: List[Sphere]) -> AABB:
-    var bounds = AABB.invalid()
-    for s in spheres:
-        var r = s.radius
-        bounds.grow(Vec3f32(s.center.x - r, s.center.y - r, s.center.z - r))
-        bounds.grow(Vec3f32(s.center.x + r, s.center.y + r, s.center.z + r))
-    return bounds
-
-
 def _bench_camera_primary_sphere[
     width: Int
 ](
@@ -712,7 +707,7 @@ def main() raises:
             DEBUG_SPHERE_GRID_X,
             DEBUG_SPHERE_GRID_Y,
         )
-        var debug_sphere_bounds = _sphere_bounds(debug_spheres)
+        var debug_sphere_bounds = sphere_bounds(debug_spheres)
         var debug_sphere_camera = _make_camera_rays_and_params(
             debug_sphere_bounds,
             DEBUG_SPHERE_RAY_WIDTH,
@@ -797,7 +792,7 @@ def main() raises:
         print("\nGPU SphereBvh[width]")
         print("--------------------")
         var spheres = _make_sphere_grid()
-        var sphere_bounds = _sphere_bounds(spheres)
+        var sphere_bounds = sphere_bounds(spheres)
         var sphere_camera = _make_camera_rays_and_params(
             sphere_bounds,
             SPHERE_RAY_WIDTH,

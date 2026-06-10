@@ -6,7 +6,11 @@ from std.gpu import DeviceBuffer, DeviceContext
 from bajo.core import AABB, Vec3f32, Affine3f32
 from bajo.bvh.camera import Camera
 from bajo.bvh.constants import Primitive, EMPTY_LANE, TRACE
-from bajo.bvh.host_utils import compute_bounds, hit_t_for_checksum
+from bajo.bvh.host_utils import (
+    compute_bounds,
+    hit_t_for_checksum,
+    sphere_bounds,
+)
 from bajo.bvh.types import Instance, Sphere, Ray
 from bajo.bvh.gpu.utils import upload_camera
 from bajo.bvh.gpu.triangle_bvh import build_triangle_blas_set
@@ -118,15 +122,6 @@ def _cpu_triangle_tlas_checksum[
                 inst_checksum += UInt64(hit.inst)
 
     return (checksum, hits, inst_checksum)
-
-
-def _sphere_bounds(spheres: List[Sphere]) -> AABB:
-    var bounds = AABB.invalid()
-    for s in spheres:
-        var r = Vec3f32(s.radius)
-        bounds.grow(s.center - r)
-        bounds.grow(s.center + r)
-    return bounds
 
 
 def _triangle_instance(
@@ -274,8 +269,8 @@ def test_gpu_triangle_tlas_closest_hit_across_different_blas() raises:
 def test_gpu_sphere_tlas_uses_instance_blas_index() raises:
     var near_spheres = [Sphere(Vec3f32(0.0, 0.0, 2.0), 1.0)]
     var far_spheres = [Sphere(Vec3f32(0.0, 0.0, 6.0), 1.0)]
-    var near_bounds = _sphere_bounds(near_spheres)
-    var far_bounds = _sphere_bounds(far_spheres)
+    var near_bounds = sphere_bounds(near_spheres)
+    var far_bounds = sphere_bounds(far_spheres)
 
     with DeviceContext() as ctx:
         var blases = build_sphere_blas_set[BLAS_WIDTH](

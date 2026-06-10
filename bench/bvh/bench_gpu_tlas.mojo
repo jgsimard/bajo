@@ -184,8 +184,7 @@ def _cpu_tlas_triangle_reference[
 ) -> Tuple[Float64, UInt32, UInt64]:
     var tlas = Tlas[tlas_width](instances)
 
-    var blases = List[TriangleBvh[blas_width]](capacity=1)
-    blases.append(cpu_blas.copy())
+    var blases = [cpu_blas.copy()]
 
     var checksum = Float64(0.0)
     var hits = UInt32(0)
@@ -214,8 +213,7 @@ def _cpu_tlas_triangle_shadow_reference[
 ) -> UInt32:
     var tlas = Tlas[tlas_width](instances)
 
-    var blases = List[TriangleBvh[blas_width]](capacity=1)
-    blases.append(cpu_blas.copy())
+    var blases = [cpu_blas.copy()]
 
     var occluded = UInt32(0)
 

@@ -8,7 +8,7 @@ from bajo.core import AABB, Vec3f32
 from bajo.core.vec import vmin, vmax
 from bajo.bvh.camera import Camera
 from bajo.bvh.types import Ray, Sphere
-from bajo.bvh.host_utils import hit_t_for_checksum
+from bajo.bvh.host_utils import hit_t_for_checksum, sphere_bounds
 from bajo.bvh.constants import EMPTY_LANE, TRACE
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh
@@ -151,15 +151,6 @@ def _make_sphere_leaf_bounds(
     h_payloads.enqueue_copy_to(d_payloads)
 
     return (d_leaf_bounds^, d_payloads^)
-
-
-def _sphere_scene_bounds(spheres: List[Sphere]) -> AABB:
-    var bounds = AABB.invalid()
-    for s in spheres:
-        var r = s.radius
-        bounds.grow(s.center - r)
-        bounds.grow(s.center + r)
-    return bounds
 
 
 def _trace_cpu_spheres_bruteforce(
@@ -375,7 +366,7 @@ def _assert_gpu_triangle_width_matches_cpu_camera[
 def _assert_gpu_sphere_width_matches_bruteforce_camera[
     width: Int
 ](spheres: List[Sphere]) raises:
-    var bounds = _sphere_scene_bounds(spheres)
+    var bounds = sphere_bounds(spheres)
     var camera_data = _make_camera_rays_and_params(
         bounds,
         GPU_BOUNDS_TEST_WIDTH,

@@ -4,29 +4,35 @@ from std.sys import has_accelerator
 from std.time import perf_counter_ns
 from std.gpu import DeviceContext, DeviceBuffer
 
-from bajo.core.utils import (
-    ns_to_ms,
-    ns_to_mrays_per_s,
-)
 from bajo.core import AABB, Vec3, Vec3f32, dot
+from bajo.core.intersect import intersect_ray_sphere
+from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.bvh.camera import Camera
-from bajo.bvh.host_utils import (
-    compute_bounds,
-    hit_t_for_checksum,
-)
-from bajo.bvh.gpu.utils import GpuBuildTimings, _download_full_hit_checksum
+from bajo.bvh.host_utils import compute_bounds, hit_t_for_checksum
 from bajo.bvh.constants import EMPTY_LANE, TRACE
 from bajo.bvh.types import Hit, Ray, Sphere
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.bvh.gpu.sphere_bvh import GpuSphereBvh
 from bajo.bvh.gpu.triangle_bvh import GpuTriangleBvh
-from bajo.core.intersect import intersect_ray_sphere
+from bajo.bvh.gpu.utils import (
+    GpuBuildTimings,
+    _download_full_hit_checksum,
+    upload_list,
+    upload_vertices,
+)
+from bench.bvh.bench_printing import (
+    print_gpu_build_timing_rows,
+    print_transposed_header,
+    print_transposed_f64_row,
+    print_transposed_row,
+    print_transposed_ms_row,
+)
 from bajo.obj.pack import pack_obj_triangles
-from bajo.bvh.gpu.utils import upload_list, upload_vertices
 
 
-comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"
+# comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"
+comptime DEFAULT_OBJ_PATH = "./assets/dragon/dragon.obj"
 comptime PRIMARY_WIDTH = 1280
 comptime PRIMARY_HEIGHT = 640
 comptime FOV_SCALE = 0.2
@@ -93,10 +99,7 @@ def _make_camera_rays_and_params(
             Vec3f32(0.0, 1.0, 0.0),
             fov_scale,
         )
-
-        var flat = camera.flatten()
-        for i in range(len(flat)):
-            params.append(flat[i])
+        params.extend(camera.flatten())
 
         for py in range(height):
             for px in range(width):
@@ -356,186 +359,90 @@ def _gpu_result_rel_hit_diff(row: GpuBenchResult) -> Float64:
     return 0.0
 
 
-def _gpu_result_other_ns(row: GpuBenchResult) -> Int:
-    return row.build_ns - row.timings.total() - row.pack_ns
-
-
-def _print_transposed_ms_row(
-    name: String,
-    v2_ns: Int,
-    v4_ns: Int,
-    v8_ns: Int,
-):
-    var c0 = String(t"{name} (ms)").ascii_ljust(15)
-    var c1 = String(t"{round(ns_to_ms(v2_ns), 3)}").ascii_rjust(15)
-    var c2 = String(t"{round(ns_to_ms(v4_ns), 3)}").ascii_rjust(15)
-    var c3 = String(t"{round(ns_to_ms(v8_ns), 3)}").ascii_rjust(15)
-
-    print(t"{c0} {c1} {c2} {c3}")
-
-
-def _print_transposed_f64_row(
-    name: String,
-    v2: Float64,
-    v4: Float64,
-    v8: Float64,
-    digits: Int = 3,
-):
-    var c0 = name.ascii_ljust(15)
-    var c1 = String(t"{round(v2, digits)}").ascii_rjust(15)
-    var c2 = String(t"{round(v4, digits)}").ascii_rjust(15)
-    var c3 = String(t"{round(v8, digits)}").ascii_rjust(15)
-
-    print(t"{c0} {c1} {c2} {c3}")
-
-
-def _print_transposed_int_row(
-    name: String,
-    v2: Int,
-    v4: Int,
-    v8: Int,
-):
-    var c0 = name.ascii_ljust(15)
-    var c1 = String(t"{v2}").ascii_rjust(15)
-    var c2 = String(t"{v4}").ascii_rjust(15)
-    var c3 = String(t"{v8}").ascii_rjust(15)
-
-    print(t"{c0} {c1} {c2} {c3}")
-
-
-def _print_transposed_u32_row(
-    name: String,
-    v2: UInt32,
-    v4: UInt32,
-    v8: UInt32,
-):
-    _print_transposed_int_row(name, Int(v2), Int(v4), Int(v8))
-
-
-def _print_transposed_string_row(
-    name: String,
-    v2: String,
-    v4: String,
-    v8: String,
-):
-    var c0 = name.ascii_ljust(15)
-    var c1 = v2.ascii_rjust(15)
-    var c2 = v4.ascii_rjust(15)
-    var c3 = v8.ascii_rjust(15)
-
-    print(t"{c0} {c1} {c2} {c3}")
-
-
 def _print_gpu_results_transposed(
     row2: GpuBenchResult,
     row4: GpuBenchResult,
     row8: GpuBenchResult,
 ):
-    var c0 = String("metric").ascii_ljust(15)
-    var c1 = row2.label.ascii_rjust(15)
-    var c2 = row4.label.ascii_rjust(15)
-    var c3 = row8.label.ascii_rjust(15)
+    var value_width = 15
 
-    print(t"{c0} {c1} {c2} {c3}")
-    print("--------------- --------------- --------------- ---------------")
+    print_transposed_header(
+        value_width,
+        row2.label,
+        row4.label,
+        row8.label,
+    )
 
-    _print_transposed_ms_row(
-        String("build tot"),
+    print_gpu_build_timing_rows(
         row2.build_ns,
-        row4.build_ns,
-        row8.build_ns,
-    )
-    _print_transposed_ms_row(
-        String("- morton"),
-        row2.timings.morton_ns,
-        row4.timings.morton_ns,
-        row8.timings.morton_ns,
-    )
-    _print_transposed_ms_row(
-        String("- sort"),
-        row2.timings.sort_ns,
-        row4.timings.sort_ns,
-        row8.timings.sort_ns,
-    )
-    _print_transposed_ms_row(
-        String("- topology"),
-        row2.timings.topology_ns,
-        row4.timings.topology_ns,
-        row8.timings.topology_ns,
-    )
-    _print_transposed_ms_row(
-        String("- refit"),
-        row2.timings.refit_ns,
-        row4.timings.refit_ns,
-        row8.timings.refit_ns,
-    )
-    _print_transposed_ms_row(
-        String("- collapse"),
-        row2.timings.collapse_ns,
-        row4.timings.collapse_ns,
-        row8.timings.collapse_ns,
-    )
-    _print_transposed_ms_row(
-        String("- pack"),
+        row2.timings,
         row2.pack_ns,
+        row4.build_ns,
+        row4.timings,
         row4.pack_ns,
+        row8.build_ns,
+        row8.timings,
         row8.pack_ns,
+        True,
+        value_width,
     )
-    _print_transposed_ms_row(
-        String("- other"),
-        _gpu_result_other_ns(row2),
-        _gpu_result_other_ns(row4),
-        _gpu_result_other_ns(row8),
-    )
-    _print_transposed_ms_row(
+
+    print_transposed_ms_row(
         String("camera"),
         row2.kernel_ns,
         row4.kernel_ns,
         row8.kernel_ns,
+        value_width,
     )
-
-    _print_transposed_f64_row(
+    print_transposed_f64_row(
         String("MRay/s"),
         ns_to_mrays_per_s(row2.kernel_ns, row2.ray_count),
         ns_to_mrays_per_s(row4.kernel_ns, row4.ray_count),
         ns_to_mrays_per_s(row8.kernel_ns, row8.ray_count),
+        value_width,
         3,
     )
-    _print_transposed_u32_row(
+    print_transposed_row(
         String("hits"),
+        value_width,
         row2.hit_count,
         row4.hit_count,
         row8.hit_count,
     )
-    _print_transposed_f64_row(
+    print_transposed_f64_row(
         String("checksum"),
         row2.checksum,
         row4.checksum,
         row8.checksum,
+        value_width,
         3,
     )
-    _print_transposed_f64_row(
+    print_transposed_f64_row(
         String("diff"),
         row2.diff,
         row4.diff,
         row8.diff,
+        value_width,
         6,
     )
-    _print_transposed_int_row(
+    print_transposed_row(
         String("dhit"),
+        value_width,
         _gpu_result_hit_diff(row2),
         _gpu_result_hit_diff(row4),
         _gpu_result_hit_diff(row8),
     )
-    _print_transposed_f64_row(
+    print_transposed_f64_row(
         String("rel_dhit"),
         _gpu_result_rel_hit_diff(row2),
         _gpu_result_rel_hit_diff(row4),
         _gpu_result_rel_hit_diff(row8),
+        value_width,
         6,
     )
-    _print_transposed_string_row(
+    print_transposed_row(
         String("status"),
+        value_width,
         _gpu_result_status(row2),
         _gpu_result_status(row4),
         _gpu_result_status(row8),

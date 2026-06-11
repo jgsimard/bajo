@@ -7,12 +7,8 @@ from bajo.core import AABB, Vec3f32, dot
 from bajo.core.intersect import intersect_ray_sphere
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.bvh.camera import Camera
-from bajo.bvh.host_utils import (
-    compute_bounds,
-    hit_t_for_checksum,
-    sphere_bounds,
-)
-from bajo.bvh.constants import EMPTY_LANE, TRACE
+from bajo.bvh.host_utils import compute_bounds, sphere_bounds
+from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
 from bajo.bvh.types import Hit, Ray, Sphere
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
@@ -103,8 +99,8 @@ def _trace_cpu_triangle_bvh[
 
     for ray in rays:
         var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
-        checksum += hit_t_for_checksum(hit.t)
-        if hit.t < Float32(1.0e20):
+        if hit.t < f32_max:
+            checksum += Float64(hit.t)
             hit_count += 1
 
     return (checksum, hit_count)
@@ -118,8 +114,8 @@ def _trace_cpu_sphere_bvh[
 
     for ray in rays:
         var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
-        checksum += hit_t_for_checksum(hit.t)
-        if hit.t < Float32(1.0e20):
+        if hit.t < f32_max:
+            checksum += Float64(hit.t)
             hit_count += 1
 
     return (checksum, hit_count)
@@ -134,8 +130,8 @@ def _trace_cpu_sphere_bruteforce(
 
     for ray in rays:
         var hit = _trace_cpu_sphere_bruteforce_one(spheres, ray)
-        checksum += hit_t_for_checksum(hit.t)
-        if hit.t < Float32(1.0e20):
+        if hit.t < f32_max:
+            checksum += Float64(hit.t)
             hit_count += 1
 
     return (checksum, hit_count)

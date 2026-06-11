@@ -3,10 +3,9 @@ from std.math import round
 from std.time import perf_counter_ns
 
 from bajo.bvh.types import Ray, Sphere
-from bajo.bvh.constants import TRACE
+from bajo.bvh.constants import TRACE, f32_max
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
-from bajo.bvh.host_utils import hit_t_for_checksum
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.core import Vec3f32
 
@@ -129,12 +128,11 @@ def print_case_result(
 def trace_triangle_primary[
     width: Int
 ](bvh: TriangleBvh[width], rays: List[Ray]) -> Float64:
-    var checksum = Float64(0.0)
-
+    var checksum = 0.0
     for ray in rays:
         var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
-        checksum += hit_t_for_checksum(hit.t)
-
+        if hit.t < f32_max:
+            checksum += Float64(hit.t)
     return checksum
 
 
@@ -142,23 +140,20 @@ def trace_triangle_shadow[
     width: Int
 ](bvh: TriangleBvh[width], rays: List[Ray]) -> Int:
     var occluded = 0
-
     for ray in rays:
         if bvh.trace[TRACE.ANY_HIT](ray).is_occluded():
             occluded += 1
-
     return occluded
 
 
 def trace_sphere_primary[
     width: Int
 ](bvh: SphereBvh[width], rays: List[Ray]) -> Float64:
-    var checksum = Float64(0.0)
-
+    var checksum = 0.0
     for ray in rays:
         var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
-        checksum += hit_t_for_checksum(hit.t)
-
+        if hit.t < f32_max:
+            checksum += Float64(hit.t)
     return checksum
 
 
@@ -166,11 +161,9 @@ def trace_sphere_shadow[
     width: Int
 ](bvh: SphereBvh[width], rays: List[Ray]) -> Int:
     var occluded = 0
-
     for ray in rays:
         if bvh.trace[TRACE.ANY_HIT](ray).is_occluded():
             occluded += 1
-
     return occluded
 
 

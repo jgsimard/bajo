@@ -68,13 +68,6 @@ struct GpuBenchResult(Copyable, Writable):
         return String("OK")
 
 
-def gpu_build_other_ns(
-    build_ns: Int,
-    timings: GpuBuildTimings,
-) -> Int:
-    return build_ns - timings.total()
-
-
 def _dashes(width: Int) -> String:
     var out = String()
     for _ in range(width):
@@ -191,9 +184,9 @@ def print_gpu_build_timing_rows(
 
     print_transposed_ms_row(
         String("- other"),
-        gpu_build_other_ns(build0_ns, timings0),
-        gpu_build_other_ns(build1_ns, timings1),
-        gpu_build_other_ns(build2_ns, timings2),
+        build0_ns - timings0.total(),
+        build1_ns - timings1.total(),
+        build2_ns - timings2.total(),
         value_width,
     )
 

@@ -18,9 +18,3 @@ def sphere_bounds(spheres: List[Sphere]) -> AABB:
     for s in spheres:
         bounds.grow(s.bounds())
     return bounds
-
-
-def hit_t_for_checksum(t: Float32) -> Float64:
-    if t < f32_max:
-        return Float64(t)
-    return 0.0

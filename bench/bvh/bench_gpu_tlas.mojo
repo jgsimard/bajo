@@ -11,16 +11,13 @@ from bajo.core.utils import (
 from bajo.core import AABB, Vec3f32, Affine3f32
 from bajo.bvh.camera import Camera
 from bajo.bvh.types import Ray, Sphere, Instance, BlasSet
-from bajo.bvh.host_utils import (
-    compute_bounds,
-    hit_t_for_checksum,
-)
+from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.tlas import Tlas
 from bajo.bvh.gpu.tlas import GpuTriangleTlas, GpuSphereTlas
 from bajo.bvh.gpu.sphere_bvh import GpuSphereBvh, build_sphere_blas_set
 from bajo.bvh.gpu.triangle_bvh import GpuTriangleBvh, build_triangle_blas_set
-from bajo.bvh.constants import TRACE, Primitive, MISS_PRIM
+from bajo.bvh.constants import TRACE, Primitive, MISS_PRIM, f32_max
 from bajo.obj.pack import pack_obj_triangles
 from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list, upload_vertices
 
@@ -195,8 +192,8 @@ def _cpu_tlas_triangle_reference[
             ray,
             blases.unsafe_ptr(),
         )
-        checksum += hit_t_for_checksum(hit.t)
-        if hit.t < Float32(1.0e20):
+        if hit.t < f32_max:
+            checksum += Float64(hit.t)
             hits += 1
             inst_checksum += UInt64(hit.inst)
 
@@ -240,8 +237,8 @@ def _download_tlas_hit_checksum(
     with hits_f32.map_to_host() as hf:
         for i in range(ray_count):
             var t = hf[i * 3 + 0]
-            checksum += hit_t_for_checksum(t)
-            if t < Float32(1.0e20):
+            if t < f32_max:
+                checksum += Float64(t)
                 hit_count += 1
 
     with hits_u32.map_to_host() as hu:
@@ -263,8 +260,8 @@ def _download_direct_hit_checksum(
     with hits_f32.map_to_host() as hf:
         for i in range(ray_count):
             var t = hf[i * 3 + 0]
-            checksum += hit_t_for_checksum(t)
-            if t < Float32(1.0e20):
+            if t < f32_max:
+                checksum += Float64(t)
                 hit_count += 1
 
     return (checksum, hit_count)

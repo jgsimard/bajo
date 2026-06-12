@@ -28,20 +28,7 @@ def build_triangle_blas_set[
 ](mut ctx: DeviceContext, vertex_sets: List[List[Vec3f32]]) raises -> BlasSet[
     width
 ]:
-    if len(vertex_sets) == 0:
-        var descs = List[UInt32](length=BlasSet.STRIDE, fill=0)
-        var dummy_f32 = [Float32(0.0)]
-        var dummy_u32 = [EMPTY_LANE]
-
-        return BlasSet[width](
-            upload_list(ctx, descs),
-            upload_list(ctx, dummy_f32),
-            upload_list(ctx, dummy_u32),
-            upload_list(ctx, dummy_u32),
-            upload_list(ctx, dummy_f32),
-            upload_list(ctx, dummy_u32),
-            0,
-        )
+    debug_assert["safe"](len(vertex_sets) != 0)
 
     var descs = List[UInt32](capacity=len(vertex_sets) * BlasSet.STRIDE)
 
@@ -53,7 +40,9 @@ def build_triangle_blas_set[
     # First pass: compute final packed offsets without building/downloading.
     for blas_idx in range(len(vertex_sets)):
         var tri_count = len(vertex_sets[blas_idx]) / 3
-        var internal_count = max(tri_count - 1, 0)
+        debug_assert["safe"](tri_count != 0)
+
+        var internal_count = tri_count - 1
         var max_wide_nodes = max(internal_count, 1)
         var max_leaf_blocks = max(internal_count * width, 1)
 
@@ -79,21 +68,15 @@ def build_triangle_blas_set[
         total_leaf_vertices += max_leaf_blocks * width * TRI_LEAF_VERTEX_STRIDE
         total_leaf_prims += max_leaf_blocks * width
 
-    var packed_wide_bounds = ctx.enqueue_create_buffer[DType.float32](
-        max(total_wide_bounds, 1)
+    var wide_bounds = ctx.enqueue_create_buffer[DType.float32](
+        total_wide_bounds
     )
-    var packed_wide_data = ctx.enqueue_create_buffer[DType.uint32](
-        max(total_wide_lanes, 1)
+    var wide_data = ctx.enqueue_create_buffer[DType.uint32](total_wide_lanes)
+    var wide_counts = ctx.enqueue_create_buffer[DType.uint32](total_wide_lanes)
+    var leaf_vertices = ctx.enqueue_create_buffer[DType.float32](
+        total_leaf_vertices
     )
-    var packed_wide_counts = ctx.enqueue_create_buffer[DType.uint32](
-        max(total_wide_lanes, 1)
-    )
-    var packed_leaf_vertices = ctx.enqueue_create_buffer[DType.float32](
-        max(total_leaf_vertices, 1)
-    )
-    var packed_leaf_prims = ctx.enqueue_create_buffer[DType.uint32](
-        max(total_leaf_prims, 1)
-    )
+    var leaf_prims = ctx.enqueue_create_buffer[DType.uint32](total_leaf_prims)
 
     # Second pass: build each BLAS, then copy its device buffers into the
     # final packed device buffers. We synchronize inside the loop so the
@@ -112,30 +95,28 @@ def build_triangle_blas_set[
         var leaf_u32_base = Int(descs[desc_base + BlasSet.LEAF_U32_BASE])
 
         blas.tree.wide_bounds.enqueue_copy_to(
-            packed_wide_bounds.unsafe_ptr() + wide_bounds_base
+            wide_bounds.unsafe_ptr() + wide_bounds_base
         )
         blas.tree.wide_data.enqueue_copy_to(
-            packed_wide_data.unsafe_ptr() + wide_lane_base
+            wide_data.unsafe_ptr() + wide_lane_base
         )
         blas.tree.wide_counts.enqueue_copy_to(
-            packed_wide_counts.unsafe_ptr() + wide_lane_base
+            wide_counts.unsafe_ptr() + wide_lane_base
         )
         blas.leaf_vertices.enqueue_copy_to(
-            packed_leaf_vertices.unsafe_ptr() + leaf_f32_base
+            leaf_vertices.unsafe_ptr() + leaf_f32_base
         )
-        blas.leaf_prims.enqueue_copy_to(
-            packed_leaf_prims.unsafe_ptr() + leaf_u32_base
-        )
+        blas.leaf_prims.enqueue_copy_to(leaf_prims.unsafe_ptr() + leaf_u32_base)
 
         ctx.synchronize()
 
     return BlasSet[width](
         upload_list(ctx, descs),
-        packed_wide_bounds,
-        packed_wide_data,
-        packed_wide_counts,
-        packed_leaf_vertices,
-        packed_leaf_prims,
+        wide_bounds,
+        wide_data,
+        wide_counts,
+        leaf_vertices,
+        leaf_prims,
         len(vertex_sets),
     )
 

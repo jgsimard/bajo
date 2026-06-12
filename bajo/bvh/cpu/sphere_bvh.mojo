@@ -97,9 +97,7 @@ struct SphereBvh[width: SIMDSize](Copyable, TypedBvh):
             if not hit_mask.reduce_or():
                 return False
 
-            comptime if mode == TRACE.ANY_HIT:
-                return True
-            else:
+            comptime if mode == TRACE.CLOSEST_HIT:
                 _t = hit_mask.select(h.t, f32_max)
                 min_t, arg_min_t = min_argmin(_t)
 
@@ -109,7 +107,7 @@ struct SphereBvh[width: SIMDSize](Copyable, TypedBvh):
                 hit.inst = EMPTY_LANE
                 hit.prim = block.prim_indices[arg_min_t]
 
-                return True
+            return True
 
         return trace_bounds_bvh[
             Self.width,

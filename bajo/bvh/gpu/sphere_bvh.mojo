@@ -9,6 +9,7 @@ from bajo.bvh.constants import (
     f32_max,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
+from bajo.core.utils import min_argmin
 from bajo.core import AABB, Vec3
 from bajo.core.intersect import intersect_ray_sphere
 from bajo.bvh.types import Sphere, Ray, Hit, BlasSet
@@ -22,20 +23,7 @@ def build_sphere_blas_set[
 ](mut ctx: DeviceContext, sphere_sets: List[List[Sphere]]) raises -> BlasSet[
     width
 ]:
-    if len(sphere_sets) == 0:
-        var descs = List[UInt32](length=BlasSet.STRIDE, fill=0)
-        var dummy_f32 = [Float32(0.0)]
-        var dummy_u32 = [EMPTY_LANE]
-
-        return BlasSet[width](
-            upload_list(ctx, descs),
-            upload_list(ctx, dummy_f32),
-            upload_list(ctx, dummy_u32),
-            upload_list(ctx, dummy_u32),
-            upload_list(ctx, dummy_f32),
-            upload_list(ctx, dummy_u32),
-            0,
-        )
+    debug_assert["safe"](len(sphere_sets) != 0)
 
     var descs = List[UInt32](capacity=len(sphere_sets) * BlasSet.STRIDE)
 
@@ -47,7 +35,9 @@ def build_sphere_blas_set[
     # First pass: compute final packed offsets without building/downloading.
     for blas_idx in range(len(sphere_sets)):
         var sphere_count = len(sphere_sets[blas_idx])
-        var internal_count = max(sphere_count - 1, 0)
+        debug_assert["safe"](sphere_count != 0)
+
+        var internal_count = sphere_count - 1
         var max_wide_nodes = max(internal_count, 1)
         var max_leaf_blocks = max(internal_count * width, 1)
 
@@ -73,21 +63,15 @@ def build_sphere_blas_set[
         total_leaf_spheres += max_leaf_blocks * width * Sphere.STRIDE
         total_leaf_prims += max_leaf_blocks * width
 
-    var packed_wide_bounds = ctx.enqueue_create_buffer[DType.float32](
-        max(total_wide_bounds, 1)
+    var wide_bounds = ctx.enqueue_create_buffer[DType.float32](
+        total_wide_bounds
     )
-    var packed_wide_data = ctx.enqueue_create_buffer[DType.uint32](
-        max(total_wide_lanes, 1)
+    var wide_data = ctx.enqueue_create_buffer[DType.uint32](total_wide_lanes)
+    var wide_counts = ctx.enqueue_create_buffer[DType.uint32](total_wide_lanes)
+    var leaf_spheres = ctx.enqueue_create_buffer[DType.float32](
+        total_leaf_spheres
     )
-    var packed_wide_counts = ctx.enqueue_create_buffer[DType.uint32](
-        max(total_wide_lanes, 1)
-    )
-    var packed_leaf_spheres = ctx.enqueue_create_buffer[DType.float32](
-        max(total_leaf_spheres, 1)
-    )
-    var packed_leaf_prims = ctx.enqueue_create_buffer[DType.uint32](
-        max(total_leaf_prims, 1)
-    )
+    var leaf_prims = ctx.enqueue_create_buffer[DType.uint32](total_leaf_prims)
 
     # Second pass: build each BLAS, then copy its device buffers into the
     # final packed device buffers.
@@ -104,30 +88,28 @@ def build_sphere_blas_set[
         var leaf_u32_base = Int(descs[desc_base + BlasSet.LEAF_U32_BASE])
 
         blas.tree.wide_bounds.enqueue_copy_to(
-            packed_wide_bounds.unsafe_ptr() + wide_bounds_base
+            wide_bounds.unsafe_ptr() + wide_bounds_base
         )
         blas.tree.wide_data.enqueue_copy_to(
-            packed_wide_data.unsafe_ptr() + wide_lane_base
+            wide_data.unsafe_ptr() + wide_lane_base
         )
         blas.tree.wide_counts.enqueue_copy_to(
-            packed_wide_counts.unsafe_ptr() + wide_lane_base
+            wide_counts.unsafe_ptr() + wide_lane_base
         )
         blas.leaf_spheres.enqueue_copy_to(
-            packed_leaf_spheres.unsafe_ptr() + leaf_f32_base
+            leaf_spheres.unsafe_ptr() + leaf_f32_base
         )
-        blas.leaf_prims.enqueue_copy_to(
-            packed_leaf_prims.unsafe_ptr() + leaf_u32_base
-        )
+        blas.leaf_prims.enqueue_copy_to(leaf_prims.unsafe_ptr() + leaf_u32_base)
 
         ctx.synchronize()
 
     return BlasSet[width](
         upload_list(ctx, descs),
-        packed_wide_bounds,
-        packed_wide_data,
-        packed_wide_counts,
-        packed_leaf_spheres,
-        packed_leaf_prims,
+        wide_bounds,
+        wide_data,
+        wide_counts,
+        leaf_spheres,
+        leaf_prims,
         len(sphere_sets),
     )
 
@@ -314,24 +296,17 @@ def _intersect_sphere_leaf[
     if not hit_mask.reduce_or():
         return False
 
-    var min_t = hit_mask.select(hit_sphere.t, f32_max).reduce_min()
+    comptime if mode == TRACE.CLOSEST_HIT:
+        _t = hit_mask.select(hit_sphere.t, f32_max)
+        min_t, lane = min_argmin(_t)
 
-    if min_t < hit.t:
         hit.t = min_t
-        comptime if mode == TRACE.ANY_HIT:
-            return True
+        hit.u = 0.0
+        hit.v = 0.0
+        hit.inst = EMPTY_LANE
+        hit.prim = prim_indices[lane]
 
-        comptime if mode == TRACE.CLOSEST_HIT:
-            hit.u = 0.0
-            hit.v = 0.0
-            hit.inst = EMPTY_LANE
-
-            comptime for lane in range(width):
-                if hit_mask[lane] and hit_sphere.t[lane] == min_t:
-                    hit.prim = prim_indices[lane]
-
-        return True
-    return False
+    return True
 
 
 def pack_sphere_leaf_lanes_kernel[

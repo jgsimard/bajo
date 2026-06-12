@@ -186,9 +186,10 @@ struct GpuBinaryBoundsBvh(Movable):
         leaf_payloads: DeviceBuffer[DType.uint32],
     ) raises:
         self.leaf_count = len(leaf_payloads)
-        self.internal_count = max(self.leaf_count - 1, 0)
+        debug_assert["safe"](self.leaf_count != 0, "passed empty input.")
+        self.internal_count = self.leaf_count - 1
 
-        var n_leaf = max(self.leaf_count, 1)
+        var n_leaf = self.leaf_count
         var n_internal = max(self.internal_count, 1)
 
         self.blocks_leaves = ceildiv(n_leaf, GPU_BOUNDS_BVH_BLOCK_SIZE)
@@ -208,71 +209,63 @@ struct GpuBinaryBoundsBvh(Movable):
             REDUCED_BOUNDS_STRIDE
         )
 
-        if self.leaf_count == 0:
-            ctx.enqueue_function[init_empty_bounds_kernel](
-                self.bounds_device,
+        var partial_count = ceildiv(
+            self.leaf_count,
+            BOUNDS_REDUCE_CHUNK,
+        )
+
+        var scratch_a = ctx.enqueue_create_buffer[DType.float32](
+            max(partial_count, 1) * REDUCED_BOUNDS_STRIDE
+        )
+        var scratch_b = ctx.enqueue_create_buffer[DType.float32](
+            max(
+                ceildiv(partial_count, BOUNDS_REDUCE_CHUNK),
                 1,
-                grid_dim=1,
-                block_dim=1,
             )
-        else:
-            var partial_count = ceildiv(
-                self.leaf_count,
+            * REDUCED_BOUNDS_STRIDE
+        )
+
+        var reduce_grid = ceildiv(
+            partial_count,
+            GPU_BOUNDS_BVH_BLOCK_SIZE,
+        )
+
+        ctx.enqueue_function[compute_bounds_partials_kernel](
+            self.leaf_bounds,
+            scratch_a,
+            self.leaf_count,
+            grid_dim=reduce_grid,
+            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+        )
+
+        var in_buf = scratch_a
+        var out_buf = scratch_b
+        var count = partial_count
+
+        while count > 1:
+            var next_count = ceildiv(
+                count,
                 BOUNDS_REDUCE_CHUNK,
             )
-
-            var scratch_a = ctx.enqueue_create_buffer[DType.float32](
-                max(partial_count, 1) * REDUCED_BOUNDS_STRIDE
-            )
-            var scratch_b = ctx.enqueue_create_buffer[DType.float32](
-                max(
-                    ceildiv(partial_count, BOUNDS_REDUCE_CHUNK),
-                    1,
-                )
-                * REDUCED_BOUNDS_STRIDE
-            )
-
-            var reduce_grid = ceildiv(
-                partial_count,
+            var grid = ceildiv(
+                next_count,
                 GPU_BOUNDS_BVH_BLOCK_SIZE,
             )
 
-            ctx.enqueue_function[compute_bounds_partials_kernel](
-                self.leaf_bounds,
-                scratch_a,
-                self.leaf_count,
-                grid_dim=reduce_grid,
+            ctx.enqueue_function[reduce_bounds_partials_kernel](
+                in_buf,
+                out_buf,
+                count,
+                grid_dim=grid,
                 block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
             )
 
-            var in_buf = scratch_a
-            var out_buf = scratch_b
-            var count = partial_count
+            swap(in_buf, out_buf)
+            count = next_count
+        in_buf.enqueue_copy_to(self.bounds_device)
 
-            while count > 1:
-                var next_count = ceildiv(
-                    count,
-                    BOUNDS_REDUCE_CHUNK,
-                )
-                var grid = ceildiv(
-                    next_count,
-                    GPU_BOUNDS_BVH_BLOCK_SIZE,
-                )
-
-                ctx.enqueue_function[reduce_bounds_partials_kernel](
-                    in_buf,
-                    out_buf,
-                    count,
-                    grid_dim=grid,
-                    block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-                )
-
-                swap(in_buf, out_buf)
-                count = next_count
-            in_buf.enqueue_copy_to(self.bounds_device)
-
-            # because scratch_a/scratch_b are temporary buffers
-            ctx.synchronize()
+        # because scratch_a/scratch_b are temporary buffers
+        ctx.synchronize()
 
         self.keys = ctx.enqueue_create_buffer[DType.uint32](n_leaf)
         self.leaf_ids = ctx.enqueue_create_buffer[DType.uint32](n_leaf)

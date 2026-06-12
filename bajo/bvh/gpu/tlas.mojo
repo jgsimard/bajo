@@ -34,8 +34,7 @@ comptime BlasLeafFn = def(
 def _flatten_instance_inv_transforms(
     instances: List[Instance],
 ) -> List[Float32]:
-    if len(instances) == 0:
-        return Affine3f32.identity().flatten()
+    debug_assert["safe"](len(instances) != 0)
 
     var out = List[Float32](capacity=len(instances) * Affine3f32.STRIDE)
     for instance in instances:
@@ -46,8 +45,7 @@ def _flatten_instance_inv_transforms(
 def _flatten_instance_blas_indices(
     instances: List[Instance],
 ) -> List[UInt32]:
-    if len(instances) == 0:
-        return [0]
+    debug_assert["safe"](len(instances) != 0)
     return [instance.blas_idx for instance in instances]
 
 
@@ -416,14 +414,11 @@ struct GpuTypedTlasCore[width: SIMDSize]:
         instances: List[Instance],
     ) raises:
         self.inst_count = len(instances)
+        debug_assert["safe"](self.inst_count != 0, "passed empty input.")
 
-        var leaf_bounds = List[Float32](
-            capacity=max(self.inst_count, 1) * AABB.STRIDE
-        )
-        var payloads = List[UInt32](capacity=max(self.inst_count, 1))
-
-        for i in range(self.inst_count):
-            ref inst = instances[i]
+        var leaf_bounds = List[Float32](capacity=self.inst_count * AABB.STRIDE)
+        var payloads = List[UInt32](capacity=self.inst_count)
+        for i, inst in enumerate(instances):
             leaf_bounds.append(inst.bounds._min.x)
             leaf_bounds.append(inst.bounds._min.y)
             leaf_bounds.append(inst.bounds._min.z)
@@ -431,11 +426,6 @@ struct GpuTypedTlasCore[width: SIMDSize]:
             leaf_bounds.append(inst.bounds._max.y)
             leaf_bounds.append(inst.bounds._max.z)
             payloads.append(UInt32(i))
-
-        if self.inst_count == 0:
-            for _ in range(AABB.STRIDE):
-                leaf_bounds.append(0.0)
-            payloads.append(EMPTY_LANE)
 
         var d_leaf_bounds = upload_list(ctx, leaf_bounds)
         var d_payloads = upload_list(ctx, payloads)

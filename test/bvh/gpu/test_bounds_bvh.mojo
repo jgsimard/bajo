@@ -295,7 +295,7 @@ def _assert_wide_lane_invariants[width: SIMDSize](verts: List[Vec3f32]) raises:
         assert_true(seen_live_lane, "wide collapse had no live lanes")
 
 
-def _assert_gpu_triangle_width_matches_cpu_camera[
+def _assert_gpu_triangle_matches_cpu_camera[
     width: SIMDSize
 ](verts: List[Vec3f32]) raises:
     var cpu_bvh = TriangleBvh[width].__init__["lbvh"](verts.copy())
@@ -364,7 +364,7 @@ def _assert_gpu_triangle_width_matches_cpu_camera[
         assert_true(mismatch_count == 0, "GpuTriangleBvh primitive/t mismatch")
 
 
-def _assert_gpu_sphere_width_matches_bruteforce_camera[
+def _assert_sphere_matches_bruteforce_camera[
     width: SIMDSize
 ](spheres: List[Sphere]) raises:
     var bounds = sphere_bounds(spheres)
@@ -408,9 +408,7 @@ def _assert_gpu_sphere_width_matches_bruteforce_camera[
         assert_true(diff <= GPU_BOUNDS_TEST_EPS, "GpuSphereBvh checksum")
 
 
-def _assert_gpu_sphere_bounds_width[
-    width: SIMDSize
-](spheres: List[Sphere]) raises:
+def _assert_gpu_sphere_bounds[width: SIMDSize](spheres: List[Sphere]) raises:
     with DeviceContext() as ctx:
         var build = _make_sphere_leaf_bounds(ctx, spheres)
         var leaf_bounds = build[0].copy()
@@ -431,62 +429,63 @@ def _assert_gpu_sphere_bounds_width[
         )
 
 
-def test_gpu_bounds_bvh_width_N_build_validate_small_scene() raises:
+def test_gpu_bounds_bvh_build_validate_small_scene() raises:
     scene = _make_small_scene()
-    _assert_gpu_bounds_width[2](scene)
-    _assert_gpu_bounds_width[4](scene)
-    _assert_gpu_bounds_width[8](scene)
+    comptime for N in [2, 4, 8]:
+        _assert_gpu_bounds_width[N](scene)
 
 
-def test_gpu_bounds_bvh_width4_single_triangle() raises:
+def test_gpu_bounds_bvh_single_triangle() raises:
     scene = _make_single_triangle_scene()
-    _assert_gpu_bounds_width[4](scene)
-    _assert_gpu_triangle_width_matches_cpu_camera[4](scene)
+    comptime for N in [2, 4, 8]:
+        _assert_gpu_bounds_width[N](scene)
+        _assert_gpu_triangle_matches_cpu_camera[N](scene)
 
 
-def test_gpu_bounds_bvh_width4_duplicate_morton_codes() raises:
+def test_gpu_bounds_bvh_duplicate_morton_codes() raises:
     scene = _make_duplicate_centroid_scene()
-    _assert_gpu_bounds_width[4](scene)
-    _assert_wide_lane_invariants[4](scene)
+    comptime for N in [2, 4, 8]:
+        _assert_gpu_bounds_width[N](scene)
+        _assert_wide_lane_invariants[N](scene)
 
 
-def test_gpu_bounds_bvh_width8_degenerate_axis() raises:
+def test_gpu_bounds_bvh_degenerate_axis() raises:
     scene = _make_degenerate_axis_scene()
-    _assert_gpu_bounds_width[8](scene)
-    _assert_wide_lane_invariants[8](scene)
+    comptime for N in [2, 4, 8]:
+        _assert_gpu_bounds_width[N](scene)
+        _assert_wide_lane_invariants[N](scene)
 
 
-def test_gpu_bounds_bvh_width_N_wide_lane_invariants() raises:
+def test_gpu_bounds_bvh_wide_lane_invariants() raises:
     scene = _make_small_scene()
-    _assert_wide_lane_invariants[2](scene)
-    _assert_wide_lane_invariants[4](scene)
-    _assert_wide_lane_invariants[8](scene)
+    comptime for N in [2, 4, 8]:
+        _assert_wide_lane_invariants[N](scene)
 
 
-def test_gpu_triangle_bvh_width_N_camera_primary_matches_cpu() raises:
+def test_gpu_triangle_bvh_camera_primary_matches_cpu() raises:
     scene = _make_small_scene()
-    _assert_gpu_triangle_width_matches_cpu_camera[2](scene)
-    _assert_gpu_triangle_width_matches_cpu_camera[4](scene)
-    _assert_gpu_triangle_width_matches_cpu_camera[8](scene)
+    comptime for N in [2, 4, 8]:
+        _assert_gpu_triangle_matches_cpu_camera[N](scene)
 
 
-def test_gpu_sphere_bvh_width_N_camera_primary_matches_bruteforce() raises:
+def test_gpu_sphere_bvh_camera_primary_matches_bruteforce() raises:
     scene = _make_small_sphere_scene()
-    _assert_gpu_sphere_width_matches_bruteforce_camera[2](scene)
-    _assert_gpu_sphere_width_matches_bruteforce_camera[4](scene)
-    _assert_gpu_sphere_width_matches_bruteforce_camera[8](scene)
+    comptime for N in [2, 4, 8]:
+        _assert_sphere_matches_bruteforce_camera[N](scene)
 
 
-def test_gpu_sphere_bvh_width4_single_sphere() raises:
+def test_gpu_sphere_bvh_single_sphere() raises:
     scene = _make_single_sphere_scene()
-    _assert_gpu_sphere_bounds_width[4](scene)
-    _assert_gpu_sphere_width_matches_bruteforce_camera[4](scene)
+    comptime for N in [2, 4, 8]:
+        _assert_gpu_sphere_bounds[N](scene)
+        _assert_sphere_matches_bruteforce_camera[N](scene)
 
 
-def test_gpu_sphere_bvh_width4_duplicate_morton_codes() raises:
+def test_gpu_sphere_bvh_duplicate_morton_codes() raises:
     scene = _make_duplicate_sphere_centroid_scene()
-    _assert_gpu_sphere_bounds_width[4](scene)
-    _assert_gpu_sphere_width_matches_bruteforce_camera[4](scene)
+    comptime for N in [2, 4, 8]:
+        _assert_gpu_sphere_bounds[N](scene)
+        _assert_sphere_matches_bruteforce_camera[N](scene)
 
 
 def main() raises:

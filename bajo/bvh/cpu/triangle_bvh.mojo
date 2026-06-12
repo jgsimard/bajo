@@ -100,7 +100,6 @@ struct TriangleBvh[width: Int](Copyable, TypedBvh):
             O: Vec3[DType.float32, Self.width],
             D: Vec3[DType.float32, Self.width],
             leaf_block_idx: UInt32,
-            _item_count: UInt32,
             mut hit: Hit,
         ) capturing -> Bool:
             ref block = self.leaf_blocks[Int(leaf_block_idx)]

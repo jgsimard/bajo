@@ -6,7 +6,7 @@ from bajo.bvh.constants import EMPTY_LANE, CPU_STACK_SIZE, TRACE
 
 
 def trace_bounds_bvh[
-    width: Int,
+    width: SIMDSize,
     mode: TRACE,
     leaf_fn: def(
         Ray,

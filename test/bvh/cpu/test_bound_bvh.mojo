@@ -152,7 +152,7 @@ def _assert_builder_leaf_sizes_at_most(
 
 
 def _assert_wide_leaf_counts_at_most_width[
-    width: Int
+    width: SIMDSize
 ](wide: BoundsBvh[width]) raises:
     for ref node in wide.nodes:
         for lane in range(width):
@@ -172,7 +172,7 @@ def _assert_wide_leaf_counts_at_most_width[
 
 
 def _assert_triangle_bvh_matches_bruteforce[
-    width: Int
+    width: SIMDSize
 ](mut bvh: TriangleBvh[width], verts: List[Vec3f32], origin: Vec3f32) raises:
     var ray = _z_ray(origin)
     var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
@@ -200,7 +200,7 @@ def _assert_triangle_bvh_matches_bruteforce[
 
 
 def _assert_sphere_bvh_matches_bruteforce[
-    width: Int
+    width: SIMDSize
 ](mut bvh: SphereBvh[width], spheres: List[Sphere], origin: Vec3f32) raises:
     var ray = _z_ray(origin)
     var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
@@ -240,7 +240,7 @@ def test_bounds_bvh_empty_input() raises:
 
 
 def _test_bounds_bvh_leaf_invariant[
-    width: Int,
+    width: SIMDSize,
     mode: String,
 ]() raises:
     comptime assert mode in ["median", "sah", "lbvh"]
@@ -411,7 +411,7 @@ def test_triangle_bvh2_leaf_size_equals_width_returns_nearest_triangle() raises:
 
 
 def _test_triangle_bvh_matches_bruteforce[
-    width: Int,
+    width: SIMDSize,
     split_mode: String,
 ]() raises:
     var n = {2: 24, 4: 32, 8: 40}[width]
@@ -440,7 +440,7 @@ def test_triangle_bvh_matches_bruteforce() raises:
 
 
 def _test_triangle_bvh_shadow_hit_and_miss[
-    width: Int,
+    width: SIMDSize,
     mode: String,
 ]() raises:
     var verts = _make_strip(2 * width)
@@ -492,7 +492,7 @@ def test_sphere_bvh4_single_leaf_layout_and_hit() raises:
 
 
 def _test_sphere_bvh_matches_bruteforce[
-    width: Int,
+    width: SIMDSize,
     mode: String,
 ]() raises:
     var spheres = _make_spheres()
@@ -527,7 +527,7 @@ def test_sphere_bvh_matches_bruteforce() raises:
 
 
 def _test_sphere_bvh_shadow_hit_and_miss[
-    width: Int,
+    width: SIMDSize,
     mode: String,
 ]() raises:
     var spheres = _make_spheres()

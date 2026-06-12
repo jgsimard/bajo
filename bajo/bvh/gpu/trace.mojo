@@ -13,7 +13,7 @@ from bajo.bvh.types import Ray, Hit
 
 
 def trace_bounds_bvh[
-    width: Int,
+    width: SIMDSize,
     mode: TRACE,
     leaf_fn: def(
         UnsafePointer[Float32, ImmutAnyOrigin],

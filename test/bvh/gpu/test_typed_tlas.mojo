@@ -91,13 +91,13 @@ def _download_tlas_checksum(
 
 
 def _cpu_triangle_tlas_checksum[
-    tlas_width: Int,
-    blas_width: Int,
+    tlas_width: SIMDSize,
+    blas_width: SIMDSize,
 ](
     instances: List[Instance],
     mut cpu_blases: List[TriangleBvh[blas_width]],
     camera: Camera,
-    width: Int,
+    width: SIMDSize,
     height: Int,
 ) -> Tuple[Float64, UInt32, UInt64]:
     var tlas = Tlas[tlas_width](instances)

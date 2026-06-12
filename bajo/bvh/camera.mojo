@@ -44,7 +44,7 @@ struct Camera(TrivialRegisterPassable, Writable):
         self,
         px_i: Int,
         py_i: Int,
-        width: Int,
+        width: SIMDSize,
         height: Int,
     ) -> Ray:
         var aspect = Float32(width) / Float32(height)

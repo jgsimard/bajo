@@ -8,14 +8,14 @@ from bajo.core.quat import Quaternion
 @fieldwise_init
 struct Affine3InverseResult[
     dtype: DType,
-    width: Int,
+    width: SIMDSize,
 ](Movable):
     var mask: SIMD[DType.bool, Self.width]
     var inv: Affine3[Self.dtype, Self.width]
 
 
 @fieldwise_init
-struct Affine3[dtype: DType, width: Int = 1](
+struct Affine3[dtype: DType, width: SIMDSize = 1](
     Copyable, DevicePassable, Writable
 ):
     """3D affine transform.
@@ -56,7 +56,7 @@ struct Affine3[dtype: DType, width: Int = 1](
     @staticmethod
     def get_type_name() -> String:
         return String(
-            t"Affine3[{reflect[Scalar[Self.dtype]].name()},{Self.width}]"
+            t"Affine3[{reflect[Scalar[Self.dtype]].name()},{Int(Self.width)}]"
         )
 
     def __init__(out self, v: Scalar[Self.dtype]):

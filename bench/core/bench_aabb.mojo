@@ -107,7 +107,7 @@ def apply_trs_arvo_v1_______(
 
 
 def apply_trs_affine3_v0_width[
-    width: Int
+    width: SIMDSize
 ](
     box: AxisAlignedBoundingBox[DType.float32, width],
     translation: Vec3[DType.float32, width],
@@ -152,7 +152,7 @@ def apply_trs_affine3_v0_width[
 
 
 def apply_trs_affine3_v1_width[
-    width: Int
+    width: SIMDSize
 ](
     box: AxisAlignedBoundingBox[DType.float32, width],
     translation: Vec3[DType.float32, width],
@@ -208,7 +208,7 @@ def apply_trs_affine3_v1_width[
 
 def dispatch_affine3_width[
     version: Int,
-    width: Int,
+    width: SIMDSize,
 ](
     box: AxisAlignedBoundingBox[DType.float32, width],
     translation: Vec3[DType.float32, width],
@@ -225,7 +225,7 @@ def dispatch_affine3_width[
         )
 
 
-struct Affine3WidthBenchmarkData[width: Int]:
+struct Affine3WidthBenchmarkData[width: SIMDSize]:
     var boxes: UnsafePointer[
         AxisAlignedBoundingBox[DType.float32, Self.width], MutAnyOrigin
     ]
@@ -292,7 +292,7 @@ struct Affine3WidthBenchmarkData[width: Int]:
 
 def bench_affine3_width[
     version: Int,
-    width: Int,
+    width: SIMDSize,
 ]() raises:
     comptime packet_count = num_elements / width
     data = Affine3WidthBenchmarkData[width]()

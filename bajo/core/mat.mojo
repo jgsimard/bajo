@@ -10,7 +10,7 @@ struct Mat[
     dtype: DType,
     rows: Int,
     cols: Int,
-    width: Int = 1,
+    width: SIMDSize = 1,
 ](Copyable, Writable):
     comptime Elem = SIMD[Self.dtype, Self.width]
     comptime Row = InlineArray[Self.Elem, Self.cols]
@@ -292,7 +292,7 @@ def _matmul[
     a_rows: Int,
     a_cols: Int,
     b_cols: Int,
-    width: Int,
+    width: SIMDSize,
 ](
     a: Mat[dtype, a_rows, a_cols, width],
     b: Mat[dtype, a_cols, b_cols, width],
@@ -312,7 +312,7 @@ def _matmul[
 
 
 def _matvec[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](m: Mat[dtype, 3, 3, width], v: Vec3[dtype, width]) -> Vec3[dtype, width]:
     return Vec3[dtype, width](
         m[0][0] * v.x + m[0][1] * v.y + m[0][2] * v.z,
@@ -325,7 +325,7 @@ def assert_mat_equal[
     dtype: DType,
     rows: Int,
     cols: Int,
-    width: Int,
+    width: SIMDSize,
 ](
     a: Mat[dtype, rows, cols, width],
     b: Mat[dtype, rows, cols, width],
@@ -346,13 +346,13 @@ def assert_mat_equal[
 # determinant
 ##############
 def determinant[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](m: Mat[dtype, 2, 2, width]) -> SIMD[dtype, width]:
     return m[0][0] * m[1][1] - m[0][1] * m[1][0]
 
 
 def determinant[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](m: Mat[dtype, 3, 3, width]) -> SIMD[dtype, width]:
     var a00 = m[0][0]
     var a01 = m[0][1]
@@ -374,7 +374,7 @@ def determinant[
 
 
 def determinant[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](m: Mat[dtype, 4, 4, width]) -> SIMD[dtype, width]:
     """Adapted from USD - see licenses/usd-LICENSE.txt Copyright 2016 Pixar."""
     # Pickle 1st two columns of matrix into registers
@@ -422,7 +422,7 @@ def determinant[
 struct MatInverseResult[
     dtype: DType,
     n: Int,
-    width: Int,
+    width: SIMDSize,
 ](Movable):
     var mask: SIMD[DType.bool, Self.width]
     var value: Mat[Self.dtype, Self.n, Self.n, Self.width]

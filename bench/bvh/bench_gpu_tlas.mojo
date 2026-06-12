@@ -134,7 +134,7 @@ def _instances_bounds(instances: List[Instance]) -> AABB:
 
 def _make_camera_rays_and_params(
     bounds: AABB,
-    width: Int,
+    width: SIMDSize,
     height: Int,
     views: Int,
 ) -> Tuple[List[Ray], List[Float32]]:
@@ -172,8 +172,8 @@ def _make_camera_rays_and_params(
 
 
 def _cpu_tlas_triangle_reference[
-    tlas_width: Int,
-    blas_width: Int,
+    tlas_width: SIMDSize,
+    blas_width: SIMDSize,
 ](
     cpu_blas: TriangleBvh[blas_width],
     instances: List[Instance],
@@ -201,8 +201,8 @@ def _cpu_tlas_triangle_reference[
 
 
 def _cpu_tlas_triangle_shadow_reference[
-    tlas_width: Int,
-    blas_width: Int,
+    tlas_width: SIMDSize,
+    blas_width: SIMDSize,
 ](
     cpu_blas: TriangleBvh[blas_width],
     instances: List[Instance],
@@ -268,7 +268,7 @@ def _download_direct_hit_checksum(
 
 
 def _bench_direct_triangle_camera[
-    width: Int,
+    width: SIMDSize,
 ](
     mut ctx: DeviceContext,
     blas: GpuTriangleBvh[width],
@@ -320,15 +320,15 @@ def _bench_direct_triangle_camera[
 
 
 def _bench_tlas_triangles_camera[
-    tlas_width: Int,
-    blas_width: Int,
+    tlas_width: SIMDSize,
+    blas_width: SIMDSize,
 ](
     mut ctx: DeviceContext,
     tlas: GpuTriangleTlas[tlas_width, blas_width],
     blases: BlasSet[blas_width],
     camera_params: List[Float32],
     ray_count: Int,
-    width: Int,
+    width: SIMDSize,
     height: Int,
     repeats: Int,
 ) raises -> Tuple[Int, Float64, UInt32, UInt64]:
@@ -380,7 +380,7 @@ def _bench_tlas_triangles_camera[
 
 
 def _bench_direct_sphere_camera[
-    width: Int,
+    width: SIMDSize,
 ](
     mut ctx: DeviceContext,
     blas: GpuSphereBvh[width],
@@ -432,15 +432,15 @@ def _bench_direct_sphere_camera[
 
 
 def _bench_tlas_spheres_camera[
-    tlas_width: Int,
-    blas_width: Int,
+    tlas_width: SIMDSize,
+    blas_width: SIMDSize,
 ](
     mut ctx: DeviceContext,
     tlas: GpuSphereTlas[tlas_width, blas_width],
     blases: BlasSet[blas_width],
     camera_params: List[Float32],
     ray_count: Int,
-    width: Int,
+    width: SIMDSize,
     height: Int,
     repeats: Int,
 ) raises -> Tuple[Int, Float64, UInt32, UInt64]:
@@ -677,8 +677,8 @@ def _print_tlas_results_transposed(
 
 
 def _run_triangle_tlas_width[
-    tlas_width: Int,
-    blas_width: Int,
+    tlas_width: SIMDSize,
+    blas_width: SIMDSize,
 ](
     mut ctx: DeviceContext,
     blases: BlasSet[blas_width],
@@ -729,8 +729,8 @@ def _run_triangle_tlas_width[
 
 
 def _run_sphere_tlas_width[
-    tlas_width: Int,
-    blas_width: Int,
+    tlas_width: SIMDSize,
+    blas_width: SIMDSize,
 ](
     mut ctx: DeviceContext,
     blases: BlasSet[blas_width],

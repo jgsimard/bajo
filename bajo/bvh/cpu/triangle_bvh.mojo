@@ -11,7 +11,7 @@ from bajo.core.intersect import intersect_ray_tri
 from bajo.bvh.cpu.trace import trace_bounds_bvh
 
 
-struct TriangleBvh[width: Int](Copyable, TypedBvh):
+struct TriangleBvh[width: SIMDSize](Copyable, TypedBvh):
     """Triangle-specific wrapper around BoundsBvh[width].
 
     After construction, leaf primitive data is packed into TriangleLeafBlock.

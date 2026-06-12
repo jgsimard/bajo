@@ -90,7 +90,7 @@ struct Sphere(TrivialRegisterPassable):
 
 
 @fieldwise_init
-struct SphereLeafBlock[width: Int](Copyable):
+struct SphereLeafBlock[width: SIMDSize](Copyable):
     var center: Vec3[DType.float32, Self.width]
     var radius: SIMD[DType.float32, Self.width]
     var prim_indices: SIMD[DType.uint32, Self.width]
@@ -102,7 +102,7 @@ struct SphereLeafBlock[width: Int](Copyable):
 
 
 @fieldwise_init
-struct TriangleLeafBlock[width: Int](Copyable):
+struct TriangleLeafBlock[width: SIMDSize](Copyable):
     var v0: Vec3[DType.float32, Self.width]
     var v1: Vec3[DType.float32, Self.width]
     var v2: Vec3[DType.float32, Self.width]
@@ -173,7 +173,7 @@ trait TypedBvh:
 
 
 @fieldwise_init
-struct BlasSet[width: Int]:
+struct BlasSet[width: SIMDSize]:
     comptime WIDE_BOUNDS_BASE = 0
     comptime WIDE_LANE_BASE = 1
     comptime LEAF_F32_BASE = 2

@@ -11,27 +11,27 @@ from bajo.core.mat import Mat
 
 def length2[
     dtype: DType,
-    width: Int,
+    width: SIMDSize,
 ](q: Quaternion[dtype, width]) -> SIMD[dtype, width]:
     return q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w
 
 
 def length[
     dtype: DType,
-    width: Int,
+    width: SIMDSize,
 ](q: Quaternion[dtype, width]) -> SIMD[dtype, width]:
     return sqrt(length2(q))
 
 
 def normalize[
     dtype: DType,
-    width: Int,
+    width: SIMDSize,
 ](q: Quaternion[dtype, width]) -> Quaternion[dtype, width]:
     return q * (1.0 / length(q))
 
 
 @fieldwise_init
-struct Quaternion[dtype: DType, width: Int = 1](
+struct Quaternion[dtype: DType, width: SIMDSize = 1](
     DevicePassable, TrivialRegisterPassable, Writable
 ):
     var x: SIMD[Self.dtype, Self.width]
@@ -53,7 +53,7 @@ struct Quaternion[dtype: DType, width: Int = 1](
     @staticmethod
     def get_type_name() -> String:
         return String(
-            t"Quaternion[{reflect[Scalar[Self.dtype]].name()},{Self.width}]"
+            t"Quaternion[{reflect[Scalar[Self.dtype]].name()},{Int(Self.width)}]"
         )
 
     def __init__(
@@ -356,7 +356,7 @@ struct Quaternion[dtype: DType, width: Int = 1](
 
 def slerp[
     dtype: DType,
-    width: Int,
+    width: SIMDSize,
 ](
     q0: Quaternion[dtype, width],
     q1: Quaternion[dtype, width],

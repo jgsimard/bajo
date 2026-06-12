@@ -17,7 +17,9 @@ from bajo.core.utils import fmin, fmax
 
 # Result structs
 @fieldwise_init
-struct RayTriHit[dtype: DType, width: Int](TrivialRegisterPassable, Writable):
+struct RayTriHit[dtype: DType, width: SIMDSize](
+    TrivialRegisterPassable, Writable
+):
     var mask: SIMD[DType.bool, Self.width]
     var t: SIMD[Self.dtype, Self.width]
     var u: SIMD[Self.dtype, Self.width]
@@ -25,7 +27,7 @@ struct RayTriHit[dtype: DType, width: Int](TrivialRegisterPassable, Writable):
 
 
 @fieldwise_init
-struct RayDistanceHit[dtype: DType, width: Int](TrivialRegisterPassable):
+struct RayDistanceHit[dtype: DType, width: SIMDSize](TrivialRegisterPassable):
     """RayDistanceHit.
 
     - mask: SIMD[DType.bool, Self.width]
@@ -37,7 +39,7 @@ struct RayDistanceHit[dtype: DType, width: Int](TrivialRegisterPassable):
 
 
 def diff_product[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](
     a: SIMD[dtype, width],
     b: SIMD[dtype, width],
@@ -56,7 +58,7 @@ def diff_product[
 
 # intersection functions
 def closest_point_to_aabb[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](
     p: Vec3[dtype, width],
     lower: Vec3[dtype, width],
@@ -66,7 +68,7 @@ def closest_point_to_aabb[
 
 
 def closest_point_to_triangle[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](
     a: Vec3[dtype, width],
     b: Vec3[dtype, width],
@@ -129,7 +131,7 @@ def closest_point_to_triangle[
 
 
 def furthest_point_to_triangle[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](
     a: Vec3[dtype, width],
     b: Vec3[dtype, width],
@@ -159,7 +161,7 @@ def furthest_point_to_triangle[
 
 
 def intersect_ray_aabb[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](
     o: Vec3[dtype, width],
     rd: Vec3[dtype, width],
@@ -170,7 +172,7 @@ def intersect_ray_aabb[
 
 
 def intersect_ray_aabb[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](
     o: Vec3[dtype, width],
     rd: Vec3[dtype, width],
@@ -194,7 +196,7 @@ def intersect_ray_aabb[
 
 
 def intersect_aabb_aabb[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](
     a_lower: Vec3[dtype, width],
     a_upper: Vec3[dtype, width],
@@ -213,7 +215,7 @@ def intersect_aabb_aabb[
 
 def intersect_ray_sphere[
     dtype: DType,
-    width: Int,
+    width: SIMDSize,
 ](
     o: Vec3[dtype, width],
     d: Vec3[dtype, width],
@@ -254,7 +256,7 @@ def intersect_ray_sphere[
 
 
 def intersect_ray_tri[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](
     o: Vec3[dtype, width],
     d: Vec3[dtype, width],
@@ -327,7 +329,7 @@ def intersect_ray_tri[
     )
 
 
-def max_dim[dtype: DType, width: Int](v: Vec3[dtype, width]) -> Int:
+def max_dim[dtype: DType, width: SIMDSize](v: Vec3[dtype, width]) -> Int:
     comptime assert width == 1
 
     var x = abs(v.x)
@@ -342,7 +344,7 @@ def max_dim[dtype: DType, width: Int](v: Vec3[dtype, width]) -> Int:
 
 
 def edge_edge_test[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](
     v0: Vec3[dtype, width],
     u0: Vec3[dtype, width],
@@ -376,7 +378,7 @@ def edge_edge_test[
 
 
 def edge_against_tri_edges[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](
     v0: Vec3[dtype, width],
     v1: Vec3[dtype, width],
@@ -402,7 +404,7 @@ def edge_against_tri_edges[
 
 
 def _point_in_tri_check[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](
     v0: Vec3[dtype, width],
     p1: Vec3[dtype, width],
@@ -417,7 +419,7 @@ def _point_in_tri_check[
 
 
 def point_in_tri[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](
     v0: Vec3[dtype, width],
     u0: Vec3[dtype, width],
@@ -436,7 +438,7 @@ def point_in_tri[
 
 
 def coplanar_tri_tri[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](
     n: Vec3[dtype, width],
     v0: Vec3[dtype, width],
@@ -486,7 +488,7 @@ def coplanar_tri_tri[
 
 
 @fieldwise_init
-struct Intervals[dtype: DType, width: Int](Movable):
+struct Intervals[dtype: DType, width: SIMDSize](Movable):
     var a: SIMD[Self.dtype, Self.width]
     var b: SIMD[Self.dtype, Self.width]
     var c: SIMD[Self.dtype, Self.width]
@@ -496,7 +498,7 @@ struct Intervals[dtype: DType, width: Int](Movable):
 
 
 def get_intervals[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](
     vv0: SIMD[dtype, width],
     vv1: SIMD[dtype, width],
@@ -573,7 +575,7 @@ comptime intersect_tri_tri = no_div_tri_tri_isect
 
 
 def no_div_tri_tri_isect[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](
     v0: Vec3[dtype, width],
     v1: Vec3[dtype, width],
@@ -681,7 +683,7 @@ def no_div_tri_tri_isect[
 
 
 def closest_point_edge_edge[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](
     p1: Vec3[dtype, width],
     q1: Vec3[dtype, width],

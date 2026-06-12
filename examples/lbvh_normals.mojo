@@ -177,7 +177,7 @@ def write_ppm_normals_from_hits[
     origin: ImmutOrigin,
 ](
     path: String,
-    width: Int,
+    width: SIMDSize,
     height: Int,
     tri_vertex_sets: List[List[Vec3f32]],
     instances: List[Instance],
@@ -249,7 +249,7 @@ def _print_bounds_by_blas(instances: List[Instance]):
 
 
 def print_hit_counts_by_blas(
-    width: Int,
+    width: SIMDSize,
     height: Int,
     instances: List[Instance],
     hits_u32: DeviceBuffer[DType.uint32],
@@ -286,7 +286,7 @@ def print_hit_counts_by_blas(
 
 
 def _build_cpu_triangle_blas_set[
-    width: Int
+    width: SIMDSize
 ](tri_vertex_sets: List[List[Vec3f32]]) -> List[TriangleBvh[width]]:
     return [
         TriangleBvh[width].__init__["lbvh"](tri_vertices.copy())
@@ -295,10 +295,10 @@ def _build_cpu_triangle_blas_set[
 
 
 def _trace_cpu_tlas_camera[
-    tlas_width: Int,
-    blas_width: Int,
+    tlas_width: SIMDSize,
+    blas_width: SIMDSize,
 ](
-    width: Int,
+    width: SIMDSize,
     height: Int,
     tlas: Tlas[tlas_width],
     mut cpu_blases: List[TriangleBvh[blas_width]],
@@ -330,7 +330,7 @@ def _trace_cpu_tlas_camera[
 
 def print_hit_counts_by_blas_host(
     label: String,
-    width: Int,
+    width: SIMDSize,
     height: Int,
     instances: List[Instance],
     hits_u32: List[UInt32],

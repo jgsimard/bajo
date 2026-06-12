@@ -81,7 +81,7 @@ def _make_duplicate_sphere_centroid_scene() -> List[Sphere]:
 
 def _make_camera_rays_and_params(
     bounds: AABB,
-    width: Int,
+    width: SIMDSize,
     height: Int,
     views: Int,
 ) -> Tuple[List[Ray], List[Float32]]:
@@ -216,7 +216,7 @@ def _make_triangle_leaf_bounds(
 
 
 def _trace_cpu_triangle_bvh[
-    width: Int
+    width: SIMDSize
 ](mut bvh: TriangleBvh[width], rays: List[Ray]) -> Float64:
     var checksum = Float64(0.0)
     for ray in rays:
@@ -243,7 +243,7 @@ def _download_hit_checksum(
     return (checksum, hit_count)
 
 
-def _assert_gpu_bounds_width[width: Int](verts: List[Vec3f32]) raises:
+def _assert_gpu_bounds_width[width: SIMDSize](verts: List[Vec3f32]) raises:
     with DeviceContext() as ctx:
         var build = _make_triangle_leaf_bounds(ctx, verts)
         var leaf_bounds = build[0].copy()
@@ -263,7 +263,7 @@ def _assert_gpu_bounds_width[width: Int](verts: List[Vec3f32]) raises:
         assert_true(bvh.leaf_block_count <= bvh.max_leaf_blocks)
 
 
-def _assert_wide_lane_invariants[width: Int](verts: List[Vec3f32]) raises:
+def _assert_wide_lane_invariants[width: SIMDSize](verts: List[Vec3f32]) raises:
     with DeviceContext() as ctx:
         var build = _make_triangle_leaf_bounds(ctx, verts)
         var leaf_bounds = build[0].copy()
@@ -296,7 +296,7 @@ def _assert_wide_lane_invariants[width: Int](verts: List[Vec3f32]) raises:
 
 
 def _assert_gpu_triangle_width_matches_cpu_camera[
-    width: Int
+    width: SIMDSize
 ](verts: List[Vec3f32]) raises:
     var cpu_bvh = TriangleBvh[width].__init__["lbvh"](verts.copy())
     var camera_data = _make_camera_rays_and_params(
@@ -357,7 +357,7 @@ def _assert_gpu_triangle_width_matches_cpu_camera[
         var diff = abs(gpu_checksum - cpu_checksum)
         if diff > GPU_BOUNDS_TEST_EPS or mismatch_count != 0:
             print(
-                t"width={width} gpu={gpu_checksum} cpu={cpu_checksum} "
+                t"width={Int(width)} gpu={gpu_checksum} cpu={cpu_checksum} "
                 t"diff={diff} mismatches={mismatch_count} hits={gpu_hits}"
             )
         assert_true(diff <= GPU_BOUNDS_TEST_EPS, "GpuTriangleBvh checksum")
@@ -365,7 +365,7 @@ def _assert_gpu_triangle_width_matches_cpu_camera[
 
 
 def _assert_gpu_sphere_width_matches_bruteforce_camera[
-    width: Int
+    width: SIMDSize
 ](spheres: List[Sphere]) raises:
     var bounds = sphere_bounds(spheres)
     var camera_data = _make_camera_rays_and_params(
@@ -402,13 +402,15 @@ def _assert_gpu_sphere_width_matches_bruteforce_camera[
         var diff = abs(gpu_checksum - cpu_checksum)
         if diff > GPU_BOUNDS_TEST_EPS:
             print(
-                t"width={width} gpu={gpu_checksum} cpu={cpu_checksum} "
+                t"width={Int(width)} gpu={gpu_checksum} cpu={cpu_checksum} "
                 t"diff={diff} hits={hit_count}"
             )
         assert_true(diff <= GPU_BOUNDS_TEST_EPS, "GpuSphereBvh checksum")
 
 
-def _assert_gpu_sphere_bounds_width[width: Int](spheres: List[Sphere]) raises:
+def _assert_gpu_sphere_bounds_width[
+    width: SIMDSize
+](spheres: List[Sphere]) raises:
     with DeviceContext() as ctx:
         var build = _make_sphere_leaf_bounds(ctx, spheres)
         var leaf_bounds = build[0].copy()

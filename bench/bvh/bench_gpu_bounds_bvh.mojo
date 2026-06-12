@@ -54,7 +54,7 @@ comptime DEBUG_BENCH_REPEATS = 3
 
 def _make_camera_rays_and_params(
     bounds: AABB,
-    width: Int,
+    width: SIMDSize,
     height: Int,
     views: Int,
     fov_scale: Float32,
@@ -92,7 +92,7 @@ def _make_camera_rays_and_params(
 
 
 def _trace_cpu_triangle_bvh[
-    width: Int
+    width: SIMDSize
 ](mut bvh: TriangleBvh[width], rays: List[Ray]) -> Tuple[Float64, UInt32]:
     var checksum = Float64(0.0)
     var hit_count = UInt32(0)
@@ -107,7 +107,7 @@ def _trace_cpu_triangle_bvh[
 
 
 def _trace_cpu_sphere_bvh[
-    width: Int
+    width: SIMDSize
 ](mut bvh: SphereBvh[width], rays: List[Ray]) -> Tuple[Float64, UInt32]:
     var checksum = Float64(0.0)
     var hit_count = UInt32(0)
@@ -169,7 +169,7 @@ def _print_sphere_debug_mismatches(
     rays: List[Ray],
     d_hits_f32: DeviceBuffer[DType.float32],
     d_hits_u32: DeviceBuffer[DType.uint32],
-    image_width: Int,
+    image_width: SIMDSize,
     image_height: Int,
     max_print: Int,
 ) raises:
@@ -293,7 +293,7 @@ def _print_cpu_ref_row(
 
 
 def _print_cpu_triangle_reference[
-    width: Int
+    width: SIMDSize
 ](
     label: String,
     vertices: List[Vec3f32],
@@ -311,7 +311,7 @@ def _print_cpu_triangle_reference[
 
 
 def _print_cpu_sphere_reference[
-    width: Int
+    width: SIMDSize
 ](
     label: String,
     spheres: List[Sphere],
@@ -359,7 +359,7 @@ def _print_gpu_results_transposed(
 
 
 def _bench_camera_primary_triangle[
-    width: Int
+    width: SIMDSize
 ](
     ctx: DeviceContext,
     mut bvh: GpuTriangleBvh[width],
@@ -367,7 +367,7 @@ def _bench_camera_primary_triangle[
     d_hits_f32: DeviceBuffer[DType.float32],
     d_hits_u32: DeviceBuffer[DType.uint32],
     ray_count: Int,
-    image_width: Int,
+    image_width: SIMDSize,
     image_height: Int,
     reference_checksum: Float64,
     repeats: Int,
@@ -415,13 +415,13 @@ def _bench_camera_primary_triangle[
 
 
 def _run_width[
-    width: Int
+    width: SIMDSize
 ](
     mut ctx: DeviceContext,
     d_vertices: DeviceBuffer[DType.float32],
     d_camera_params: DeviceBuffer[DType.float32],
     ray_count: Int,
-    image_width: Int,
+    image_width: SIMDSize,
     image_height: Int,
     reference_checksum: Float64,
     reference_hit_count: UInt32,
@@ -452,7 +452,7 @@ def _run_width[
     )
 
     return GpuBenchResult(
-        String(t"tri{width}"),
+        String(t"tri{Int(width)}"),
         Int(build1 - build0),
         bvh.timings,
         res[0],
@@ -484,7 +484,7 @@ def _make_sphere_grid() -> List[Sphere]:
 
 
 def _bench_camera_primary_sphere[
-    width: Int
+    width: SIMDSize
 ](
     ctx: DeviceContext,
     mut bvh: GpuSphereBvh[width],
@@ -492,7 +492,7 @@ def _bench_camera_primary_sphere[
     d_hits_f32: DeviceBuffer[DType.float32],
     d_hits_u32: DeviceBuffer[DType.uint32],
     ray_count: Int,
-    image_width: Int,
+    image_width: SIMDSize,
     image_height: Int,
     reference_checksum: Float64,
     repeats: Int,
@@ -540,13 +540,13 @@ def _bench_camera_primary_sphere[
 
 
 def _run_sphere_width[
-    width: Int
+    width: SIMDSize
 ](
     mut ctx: DeviceContext,
     spheres: List[Sphere],
     rays: List[Ray],
     d_camera_params: DeviceBuffer[DType.float32],
-    image_width: Int,
+    image_width: SIMDSize,
     image_height: Int,
     reference_checksum: Float64,
     reference_hit_count: UInt32,
@@ -591,7 +591,7 @@ def _run_sphere_width[
         )
 
     return GpuBenchResult(
-        String(t"sph{width}"),
+        String(t"sph{Int(width)}"),
         Int(build1 - build0),
         bvh.timings,
         res[0],

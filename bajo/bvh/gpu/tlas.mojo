@@ -68,8 +68,8 @@ def transform_ray[
 
 @always_inline
 def _intersect_tlas_instance_block[
-    tlas_width: Int,
-    blas_width: Int,
+    tlas_width: SIMDSize,
+    blas_width: SIMDSize,
     mode: TRACE,
     blas_leaf_fn: BlasLeafFn,
 ](
@@ -143,8 +143,8 @@ def _intersect_tlas_instance_block[
 
 
 def _trace_tlas_ray[
-    tlas_width: Int,
-    blas_width: Int,
+    tlas_width: SIMDSize,
+    blas_width: SIMDSize,
     mode: TRACE,
     blas_leaf_fn: BlasLeafFn,
 ](
@@ -254,8 +254,8 @@ def _trace_tlas_ray[
 
 
 def trace_triangle_tlas_camera_kernel[
-    tlas_width: Int,
-    blas_width: Int,
+    tlas_width: SIMDSize,
+    blas_width: SIMDSize,
 ](
     tlas_wide_bounds: UnsafePointer[Float32, ImmutAnyOrigin],
     tlas_wide_data: UnsafePointer[UInt32, ImmutAnyOrigin],
@@ -326,8 +326,8 @@ def trace_triangle_tlas_camera_kernel[
 
 
 def trace_sphere_tlas_camera_kernel[
-    tlas_width: Int,
-    blas_width: Int,
+    tlas_width: SIMDSize,
+    blas_width: SIMDSize,
 ](
     tlas_wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
     tlas_wide_data: UnsafePointer[UInt32, MutAnyOrigin],
@@ -397,7 +397,7 @@ def trace_sphere_tlas_camera_kernel[
     hits_u32[ubase + 1] = hit.inst
 
 
-struct GpuTypedTlasCore[width: Int]:
+struct GpuTypedTlasCore[width: SIMDSize]:
     """GPU TLAS core shared by typed TLAS wrappers.
 
     Instance leaves are packed by the generic wide collapse:
@@ -451,7 +451,7 @@ struct GpuTypedTlasCore[width: Int]:
         )
 
 
-struct GpuTriangleTlas[tlas_width: Int, blas_width: Int]:
+struct GpuTriangleTlas[tlas_width: SIMDSize, blas_width: SIMDSize]:
     """Typed triangle TLAS over a descriptor-backed triangle BLAS set."""
 
     var core: GpuTypedTlasCore[Self.tlas_width]
@@ -504,7 +504,7 @@ struct GpuTriangleTlas[tlas_width: Int, blas_width: Int]:
         )
 
 
-struct GpuSphereTlas[tlas_width: Int, blas_width: Int]:
+struct GpuSphereTlas[tlas_width: SIMDSize, blas_width: SIMDSize]:
     """Typed sphere TLAS over a descriptor-backed sphere BLAS set."""
 
     var core: GpuTypedTlasCore[Self.tlas_width]

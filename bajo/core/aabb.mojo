@@ -5,7 +5,7 @@ from bajo.core.vec import Vec3, vmin, vmax
 
 
 @fieldwise_init
-struct AxisAlignedBoundingBox[dtype: DType, width: Int = 1](
+struct AxisAlignedBoundingBox[dtype: DType, width: SIMDSize = 1](
     TrivialRegisterPassable, Writable
 ):
     comptime STRIDE = 6

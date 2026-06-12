@@ -13,7 +13,7 @@ comptime num_elements = 100000
 
 
 def quat_mul_0[
-    width: Int
+    width: SIMDSize
 ](q1: Quaternion[dtype, width], q2: Quaternion[dtype, width]) -> Quaternion[
     dtype, width
 ]:
@@ -24,7 +24,7 @@ def quat_mul_0[
     return Quaternion[dtype, width](x, y, z, w)
 
 
-struct BenchmarkData[width: Int](Copyable):
+struct BenchmarkData[width: SIMDSize](Copyable):
     var src_a: List[Quaternion[dtype, Self.width]]
     var src_b: List[Quaternion[dtype, Self.width]]
     var dst: List[Quaternion[dtype, Self.width]]
@@ -51,7 +51,7 @@ struct BenchmarkData[width: Int](Copyable):
 
 
 def dispatch_mul[
-    version: Int, width: Int
+    version: Int, width: SIMDSize
 ](q1: Quaternion[dtype, width], q2: Quaternion[dtype, width]) -> Quaternion[
     dtype, width
 ]:
@@ -62,7 +62,7 @@ def dispatch_mul[
 
 
 def main() raises:
-    def bench_throughput[version: Int, width: Int]() raises:
+    def bench_throughput[version: Int, width: SIMDSize]() raises:
         data = BenchmarkData[width]()
 
         # bounds checking makes this benchmars 3X slower !
@@ -79,7 +79,7 @@ def main() raises:
 
         print(t"Throughput: {mops} Mops/s | Avg Time: {avg_time_us} us")
 
-    def bench_latency[version: Int, width: Int]() raises:
+    def bench_latency[version: Int, width: SIMDSize]() raises:
         angle = degrees_to_radians(Float32(45))
         q2 = Quaternion[dtype, width].from_axis_angle(
             Vec3[dtype, width](0, 1, 0), angle

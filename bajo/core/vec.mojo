@@ -6,7 +6,9 @@ from bajo.core.utils import fmin, fmax
 
 
 @fieldwise_init
-struct Vec2[dtype: DType, width: Int = 1](TrivialRegisterPassable, Writable):
+struct Vec2[dtype: DType, width: SIMDSize = 1](
+    TrivialRegisterPassable, Writable
+):
     var x: SIMD[Self.dtype, Self.width]
     var y: SIMD[Self.dtype, Self.width]
 
@@ -45,7 +47,7 @@ struct Vec2[dtype: DType, width: Int = 1](TrivialRegisterPassable, Writable):
 
 
 @fieldwise_init
-struct Vec3[dtype: DType, width: Int = 1](
+struct Vec3[dtype: DType, width: SIMDSize = 1](
     DevicePassable, Roundable, TrivialRegisterPassable, Writable
 ):
     var x: SIMD[Self.dtype, Self.width]
@@ -84,7 +86,7 @@ struct Vec3[dtype: DType, width: Int = 1](
             The host type's name.
         """
         return String(
-            t"Vec3[{reflect[Scalar[Self.dtype]].name()},{Self.width}]"
+            t"Vec3[{reflect[Scalar[Self.dtype]].name()},{Int(Self.width)}]"
         )
 
     def __init__(
@@ -308,13 +310,13 @@ struct Vec3[dtype: DType, width: Int = 1](
 
 
 def dot[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](a: Vec3[dtype, width], b: Vec3[dtype, width]) -> SIMD[dtype, width]:
     return fma(a.x, b.x, fma(a.y, b.y, a.z * b.z))
 
 
 def vmin[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](a: Vec3[dtype, width], b: Vec3[dtype, width]) -> Vec3[dtype, width]:
     return Vec3[dtype, width](
         fmin(a.x, b.x),
@@ -324,7 +326,7 @@ def vmin[
 
 
 def vmin[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](a: Vec3[dtype, width], b: Vec3[dtype, width], c: Vec3[dtype, width]) -> Vec3[
     dtype, width
 ]:
@@ -336,7 +338,7 @@ def vmin[
 
 
 def vmax[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](a: Vec3[dtype, width], b: Vec3[dtype, width]) -> Vec3[dtype, width]:
     return Vec3[dtype, width](
         fmax(a.x, b.x),
@@ -346,7 +348,7 @@ def vmax[
 
 
 def vmax[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](a: Vec3[dtype, width], b: Vec3[dtype, width], c: Vec3[dtype, width]) -> Vec3[
     dtype, width
 ]:
@@ -358,7 +360,7 @@ def vmax[
 
 
 def vclamp[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](
     p: Vec3[dtype, width],
     lower: Vec3[dtype, width],
@@ -368,19 +370,19 @@ def vclamp[
 
 
 def length2[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](v: Vec3[dtype, width]) -> SIMD[dtype, width]:
     return dot(v, v)
 
 
 def length[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](v: Vec3[dtype, width]) -> SIMD[dtype, width]:
     return sqrt(dot(v, v))
 
 
 def cross[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](a: Vec3[dtype, width], b: Vec3[dtype, width]) -> Vec3[dtype, width]:
     return Vec3[dtype, width](
         fma(a.y, b.z, -(a.z * b.y)),
@@ -390,7 +392,7 @@ def cross[
 
 
 def normalize[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](v: Vec3[dtype, width], threshold: Scalar[dtype] = 1.0e-20) -> Vec3[
     dtype, width
 ]:
@@ -403,7 +405,7 @@ def normalize[
 
 
 def assert_vec_equal[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](a: Vec3[dtype, width], b: Vec3[dtype, width], atol: Float64 = 1e-5) raises:
     assert_almost_equal(
         a.x,
@@ -425,7 +427,7 @@ def assert_vec_equal[
     )
 
 
-def longest_axis[dtype: DType, width: Int](v: Vec3[dtype, width]) -> Int:
+def longest_axis[dtype: DType, width: SIMDSize](v: Vec3[dtype, width]) -> Int:
     comptime assert width == 1
 
     var x = v.x[0]

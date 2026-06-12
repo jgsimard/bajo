@@ -18,7 +18,7 @@ from bajo.bvh.gpu.builder.wide_collapse import collapse
 from bajo.bvh.gpu.builder.binary_layout import GpuBinaryBoundsBvh
 
 
-struct GpuBoundsBvh[width: Int](Movable):
+struct GpuBoundsBvh[width: SIMDSize](Movable):
     """Generic GPU Bvh. Build input is only leaf AABBs plus payload ids.
 
     Wide lane encoding mirrors the CPU BVH:
@@ -161,11 +161,11 @@ struct GpuBoundsBvh[width: Int](Movable):
             return AABB.load6(h.unsafe_ptr(), AABB.STRIDE)
 
 
-def _wide_lane_base[width: Int](node_idx: UInt32, lane: Int) -> Int:
+def _wide_lane_base[width: SIMDSize](node_idx: UInt32, lane: Int) -> Int:
     return Int(node_idx) * width + lane
 
 
-def _wide_bounds_base[width: Int](node_idx: UInt32, lane: Int) -> Int:
+def _wide_bounds_base[width: SIMDSize](node_idx: UInt32, lane: Int) -> Int:
     return _wide_lane_base[width](node_idx, lane) * AABB.STRIDE
 
 
@@ -173,7 +173,7 @@ def _load_wide_bounds_block[
     origin: ImmutOrigin,
     //,
     dtype: DType,
-    width: Int,
+    width: SIMDSize,
 ](
     wide_bounds: UnsafePointer[Scalar[dtype], origin],
     node_idx: UInt32,
@@ -197,7 +197,7 @@ def _load_wide_bounds_block[
 def _intersect_wide_node_bounds[
     origin: ImmutOrigin,
     //,
-    width: Int,
+    width: SIMDSize,
 ](
     wide_bounds: UnsafePointer[Float32, origin],
     node_idx: UInt32,

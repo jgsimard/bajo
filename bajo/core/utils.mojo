@@ -18,7 +18,7 @@ def is_power_of_2(n: Int) -> Bool:
 
 
 def degrees_to_radians[
-    dtype: DType, size: Int
+    dtype: DType, size: SIMDSize
 ](degrees: SIMD[dtype, size]) -> SIMD[dtype, size]:
     return degrees * comptime (pi / 180.0)
 
@@ -41,7 +41,7 @@ def ns_to_mrays_per_s(ns: Int, ray_count: Int) -> Float64:
 
 
 def min_argmin[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](x: SIMD[dtype, width]) -> Tuple[Scalar[dtype], Int]:
     comptime if width == 2:
         var best = x[0]
@@ -60,13 +60,13 @@ def min_argmin[
 
 @always_inline
 def fmax[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](a: SIMD[dtype, width], b: SIMD[dtype, width]) -> SIMD[dtype, width]:
     return a.gt(b).select(a, b)
 
 
 @always_inline
 def fmin[
-    dtype: DType, width: Int
+    dtype: DType, width: SIMDSize
 ](a: SIMD[dtype, width], b: SIMD[dtype, width]) -> SIMD[dtype, width]:
     return a.lt(b).select(a, b)

@@ -18,7 +18,7 @@ from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list
 
 
 def build_sphere_blas_set[
-    width: Int
+    width: SIMDSize
 ](mut ctx: DeviceContext, sphere_sets: List[List[Sphere]]) raises -> BlasSet[
     width
 ]:
@@ -132,7 +132,7 @@ def build_sphere_blas_set[
     )
 
 
-struct GpuSphereBvh[width: Int]:
+struct GpuSphereBvh[width: SIMDSize]:
     var tree: GpuBoundsBvh[Self.width]
     var spheres: DeviceBuffer[DType.float32]
     var leaf_spheres: DeviceBuffer[DType.float32]
@@ -229,7 +229,7 @@ struct GpuSphereBvh[width: Int]:
 
 
 def trace_sphere_bvh_camera_kernel[
-    width: Int,
+    width: SIMDSize,
 ](
     wide_bounds: UnsafePointer[Float32, ImmutAnyOrigin],
     wide_data: UnsafePointer[UInt32, ImmutAnyOrigin],
@@ -282,7 +282,7 @@ def trace_sphere_bvh_camera_kernel[
 
 
 def _intersect_sphere_leaf[
-    width: Int,
+    width: SIMDSize,
     mode: TRACE,
 ](
     leaf_spheres: UnsafePointer[Float32, ImmutAnyOrigin],
@@ -335,7 +335,7 @@ def _intersect_sphere_leaf[
 
 
 def pack_sphere_leaf_lanes_kernel[
-    width: Int,
+    width: SIMDSize,
 ](
     spheres: UnsafePointer[Float32, ImmutAnyOrigin],
     leaf_block_indices: UnsafePointer[UInt32, ImmutAnyOrigin],

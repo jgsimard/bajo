@@ -4,7 +4,7 @@ from bajo.bvh.cpu.builder import BoundsBvhBuilder, BoundsItem
 
 
 @fieldwise_init
-struct WideBvhNode[width: Int](Copyable):
+struct WideBvhNode[width: SIMDSize](Copyable):
     """Lane node used by BoundsBvh.
 
     Lane encoding:
@@ -23,7 +23,7 @@ struct WideBvhNode[width: Int](Copyable):
         self.counts = SIMD[DType.uint32, Self.width](EMPTY_LANE)
 
 
-struct BoundsBvh[width: Int](Copyable):
+struct BoundsBvh[width: SIMDSize](Copyable):
     """Generic wide/lane BVH layout with range leaves."""
 
     var nodes: List[WideBvhNode[Self.width]]

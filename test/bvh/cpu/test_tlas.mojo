@@ -21,7 +21,7 @@ def _make_one_local_sphere_z2() -> List[Sphere]:
 
 
 def _triangle_instance[
-    width: Int
+    width: SIMDSize
 ](
     blas_idx: UInt32,
     tx: Float32,
@@ -40,7 +40,7 @@ def _triangle_instance[
 
 
 def _sphere_instance[
-    width: Int
+    width: SIMDSize
 ](
     blas_idx: UInt32,
     tx: Float32,

@@ -126,7 +126,7 @@ def print_case_result(
 
 
 def trace_triangle_primary[
-    width: Int
+    width: SIMDSize
 ](bvh: TriangleBvh[width], rays: List[Ray]) -> Float64:
     var checksum = 0.0
     for ray in rays:
@@ -137,7 +137,7 @@ def trace_triangle_primary[
 
 
 def trace_triangle_shadow[
-    width: Int
+    width: SIMDSize
 ](bvh: TriangleBvh[width], rays: List[Ray]) -> Int:
     var occluded = 0
     for ray in rays:
@@ -147,7 +147,7 @@ def trace_triangle_shadow[
 
 
 def trace_sphere_primary[
-    width: Int
+    width: SIMDSize
 ](bvh: SphereBvh[width], rays: List[Ray]) -> Float64:
     var checksum = 0.0
     for ray in rays:
@@ -158,7 +158,7 @@ def trace_sphere_primary[
 
 
 def trace_sphere_shadow[
-    width: Int
+    width: SIMDSize
 ](bvh: SphereBvh[width], rays: List[Ray]) -> Int:
     var occluded = 0
     for ray in rays:
@@ -168,7 +168,7 @@ def trace_sphere_shadow[
 
 
 def bench_triangle_primary[
-    width: Int
+    width: SIMDSize
 ](bvh: TriangleBvh[width], rays: List[Ray]) -> PrimaryBenchResult:
     var checksum = trace_triangle_primary[width](bvh, rays)
     var best_ns = Int.MAX
@@ -185,7 +185,7 @@ def bench_triangle_primary[
 
 
 def bench_sphere_primary[
-    width: Int
+    width: SIMDSize
 ](bvh: SphereBvh[width], rays: List[Ray]) -> PrimaryBenchResult:
     var checksum = trace_sphere_primary[width](bvh, rays)
     var best_ns = Int.MAX
@@ -201,7 +201,7 @@ def bench_sphere_primary[
     return PrimaryBenchResult(best_ns, checksum)
 
 
-def _case_name[prim: String, width: Int, split_method: String]() -> String:
+def _case_name[prim: String, width: SIMDSize, split_method: String]() -> String:
     name: String
     comptime if split_method == "median":
         name = "median "
@@ -211,11 +211,11 @@ def _case_name[prim: String, width: Int, split_method: String]() -> String:
         name = "lbvh   "
     else:
         comptime assert False
-    return String(t"{prim}{width} {name}")
+    return String(t"{prim}{Int(width)} {name}")
 
 
 def bench_triangle_case[
-    width: Int,
+    width: SIMDSize,
     split_method: String,
 ](vertices: List[Vec3f32], rays: List[Ray]):
     var name = _case_name["tri", width, split_method]()
@@ -238,7 +238,7 @@ def bench_triangle_case[
 
 
 def bench_sphere_case[
-    width: Int,
+    width: SIMDSize,
     split_method: String,
 ](spheres: List[Sphere], rays: List[Ray]):
     var name = _case_name["sph", width, split_method]()

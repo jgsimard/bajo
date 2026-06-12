@@ -52,7 +52,7 @@ def colorize(color: Color) -> Color:
 
 def write_ppm_from_colors(
     path: String,
-    width: Int,
+    width: SIMDSize,
     height: Int,
     image_data: List[Color],
 ) raises:
@@ -187,7 +187,7 @@ struct World(Copyable):
 struct Camera(Copyable):
     var aspect_ratio: Float32
     """Ratio of image width over height."""
-    var image_width: Int
+    var image_width: SIMDSize
     """Rendered image width in pixel count."""
     var image_height: Int
     """Rendered image height."""
@@ -225,7 +225,7 @@ struct Camera(Copyable):
 
     def __init__(
         out self,
-        image_width: Int,
+        image_width: SIMDSize,
         aspect_ratio: Float32,
         samples_per_pixel: Int,
         max_depth: Int,

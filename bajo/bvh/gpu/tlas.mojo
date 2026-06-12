@@ -26,7 +26,6 @@ comptime BlasLeafFn = def(
     UnsafePointer[Float32, ImmutAnyOrigin],
     UnsafePointer[UInt32, ImmutAnyOrigin],
     UInt32,
-    UInt32,
     Ray,
     mut Hit,
 ) capturing -> Bool

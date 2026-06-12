@@ -288,7 +288,6 @@ def _intersect_sphere_leaf[
     leaf_spheres: UnsafePointer[Float32, ImmutAnyOrigin],
     leaf_prims: UnsafePointer[UInt32, ImmutAnyOrigin],
     leaf_block_idx: UInt32,
-    item_count: UInt32,
     ray: Ray,
     mut hit: Hit,
 ) capturing -> Bool:

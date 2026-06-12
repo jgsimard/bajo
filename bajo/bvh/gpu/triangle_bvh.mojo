@@ -375,7 +375,6 @@ def _intersect_triangle_leaf[
     leaf_vertices: UnsafePointer[Float32, ImmutAnyOrigin],
     leaf_prims: UnsafePointer[UInt32, ImmutAnyOrigin],
     leaf_block_idx: UInt32,
-    item_count: UInt32,
     ray: Ray,
     mut hit: Hit,
 ) capturing -> Bool:

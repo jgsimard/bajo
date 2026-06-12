@@ -19,7 +19,6 @@ def trace_bounds_bvh[
         UnsafePointer[Float32, ImmutAnyOrigin],
         UnsafePointer[UInt32, ImmutAnyOrigin],
         UInt32,
-        UInt32,
         Ray,
         mut Hit,
     ) capturing -> Bool,
@@ -72,7 +71,6 @@ def trace_bounds_bvh[
                             leaf_data_f32,
                             leaf_data_u32,
                             data,
-                            count,
                             ray,
                             hit,
                         )
@@ -126,7 +124,6 @@ def trace_bounds_bvh[
                             leaf_data_f32,
                             leaf_data_u32,
                             data,
-                            count,
                             ray,
                             hit,
                         )

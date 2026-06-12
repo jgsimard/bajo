@@ -20,14 +20,17 @@ def circular_shift(val: UInt32) -> UInt32:
 
 
 def warp_level_multi_split[
-    keys_dtype: DType, BITS_PER_PASS: Int, KEYS_PER_THREAD: Int
+    origin: MutOrigin,
+    address_space: AddressSpace,
+    //,
+    keys_dtype: DType,
+    BITS_PER_PASS: Int,
+    KEYS_PER_THREAD: Int,
 ](
     keys: InlineArray[Scalar[keys_dtype], KEYS_PER_THREAD],
     lid: Int,
     radix_shift: Scalar[keys_dtype],
-    s_warp_hist_ptr: UnsafePointer[
-        UInt32, MutExternalOrigin, address_space=AddressSpace.SHARED
-    ],
+    s_warp_hist_ptr: UnsafePointer[UInt32, origin, address_space=address_space],
 ) -> InlineArray[UInt32, KEYS_PER_THREAD]:
     comptime RADIX = 2**BITS_PER_PASS
     comptime RADIX_MASK = Scalar[keys_dtype](RADIX - 1)

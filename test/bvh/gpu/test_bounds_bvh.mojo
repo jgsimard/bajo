@@ -8,8 +8,8 @@ from bajo.core import AABB, Vec3f32
 from bajo.core.vec import vmin, vmax
 from bajo.bvh.camera import Camera
 from bajo.bvh.types import Ray, Sphere
-from bajo.bvh.host_utils import hit_t_for_checksum, sphere_bounds
-from bajo.bvh.constants import EMPTY_LANE, TRACE
+from bajo.bvh.host_utils import sphere_bounds
+from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh
 from bajo.bvh.gpu.sphere_bvh import GpuSphereBvh
@@ -161,8 +161,8 @@ def _trace_cpu_spheres_bruteforce(
 
     for ray in rays:
         var brute = _brute_sphere_trace(spheres, ray.o, ray.d)
-        checksum += hit_t_for_checksum(brute.t)
-
+        if brute.t < f32_max:
+            checksum += Float64(brute.t)
     return checksum
 
 
@@ -221,7 +221,8 @@ def _trace_cpu_triangle_bvh[
     var checksum = Float64(0.0)
     for ray in rays:
         var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
-        checksum += hit_t_for_checksum(hit.t)
+        if hit.t < f32_max:
+            checksum += Float64(hit.t)
     return checksum
 
 
@@ -235,8 +236,8 @@ def _download_hit_checksum(
     with hits_f32.map_to_host() as h:
         for i in range(ray_count):
             var t = h[i * 3]
-            checksum += hit_t_for_checksum(t)
-            if t < 1.0e20:
+            if t < f32_max:
+                checksum += Float64(t)
                 hit_count += 1
 
     return (checksum, hit_count)

@@ -35,15 +35,12 @@ comptime BlasLeafFn = def(
 def _flatten_instance_inv_transforms(
     instances: List[Instance],
 ) -> List[Float32]:
-    var out = List[Float32](capacity=max(len(instances), 1) * Affine3f32.STRIDE)
+    if len(instances) == 0:
+        return Affine3f32.identity().flatten()
+
+    var out = List[Float32](capacity=len(instances) * Affine3f32.STRIDE)
     for instance in instances:
         out.extend(instance.inv_transform.flatten())
-
-    if len(out) == 0:
-        var identity = Affine3f32.identity().flatten()
-        for i in range(len(identity)):
-            out.append(identity[i])
-
     return out^
 
 

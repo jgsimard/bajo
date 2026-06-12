@@ -68,10 +68,6 @@ struct SphereBvh[width: Int](Copyable, TypedBvh):
                             block.radius[k] = s.radius
 
                             block.prim_indices[k] = sphere_idx
-                            block.valid_lane[k] = True
-                        else:
-                            block.prim_indices[k] = EMPTY_LANE
-                            block.valid_lane[k] = False
 
                     var block_idx = UInt32(len(self.leaf_blocks))
                     self.leaf_blocks.append(block^)
@@ -96,8 +92,8 @@ struct SphereBvh[width: Int](Copyable, TypedBvh):
                 hit.t,
                 ray.t_min,
             )
-
-            var hit_mask = h.mask & block.valid_lane
+            var valid_lane = block.prim_indices.ne(EMPTY_LANE)
+            var hit_mask = h.mask & valid_lane
 
             if not hit_mask.reduce_or():
                 return False

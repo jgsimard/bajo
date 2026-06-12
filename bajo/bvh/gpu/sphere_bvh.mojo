@@ -11,7 +11,7 @@ from bajo.bvh.constants import (
 )
 from bajo.core import AABB, Vec3
 from bajo.core.intersect import intersect_ray_sphere
-from bajo.bvh.types import Sphere, Ray, Hit, SphereLeafBlock, BlasSet
+from bajo.bvh.types import Sphere, Ray, Hit, BlasSet
 from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh
 from bajo.bvh.gpu.trace import trace_bounds_bvh
 from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list
@@ -281,34 +281,6 @@ def trace_sphere_bvh_camera_kernel[
     hits_u32[ray_idx] = hit.prim
 
 
-def _load_sphere_leaf_packet[
-    width: Int,
-](
-    leaf_spheres: UnsafePointer[Float32, ImmutAnyOrigin],
-    leaf_prims: UnsafePointer[UInt32, ImmutAnyOrigin],
-    leaf_block_idx: UInt32,
-    item_count: UInt32,
-) -> SphereLeafBlock[width]:
-    var block = SphereLeafBlock[width]()
-
-    var block_base = Int(leaf_block_idx) * Sphere.STRIDE * width
-    var prim_base = Int(leaf_block_idx) * width
-
-    block.center.x = leaf_spheres.load[width=width](block_base + 0 * width)
-    block.center.y = leaf_spheres.load[width=width](block_base + 1 * width)
-    block.center.z = leaf_spheres.load[width=width](block_base + 2 * width)
-    block.radius = leaf_spheres.load[width=width](block_base + 3 * width)
-
-    block.prim_indices = leaf_prims.load[width=width](prim_base)
-    block.valid_lane = block.prim_indices.ne(EMPTY_LANE)
-
-    comptime for lane in range(width):
-        if lane >= Int(item_count):
-            block.valid_lane[lane] = False
-
-    return block^
-
-
 def _intersect_sphere_leaf[
     width: Int,
     mode: TRACE,
@@ -320,20 +292,25 @@ def _intersect_sphere_leaf[
     ray: Ray,
     mut hit: Hit,
 ) capturing -> Bool:
-    var block = _load_sphere_leaf_packet[width](
-        leaf_spheres,
-        leaf_prims,
-        leaf_block_idx,
-        item_count,
+    var block_base = Int(leaf_block_idx) * Sphere.STRIDE * width
+    var prim_base = Int(leaf_block_idx) * width
+
+    var center = Vec3(
+        leaf_spheres.load[width=width](block_base + 0 * width),
+        leaf_spheres.load[width=width](block_base + 1 * width),
+        leaf_spheres.load[width=width](block_base + 2 * width),
     )
+    var radius = leaf_spheres.load[width=width](block_base + 3 * width)
+    var prim_indices = leaf_prims.load[width=width](prim_base)
 
     var O = Vec3[DType.float32, width](ray.o.x, ray.o.y, ray.o.z)
     var D = Vec3[DType.float32, width](ray.d.x, ray.d.y, ray.d.z)
 
     var hit_sphere = intersect_ray_sphere(
-        O, D, block.center, block.radius, hit.t, ray.t_min
+        O, D, center, radius, hit.t, ray.t_min
     )
-    var hit_mask = hit_sphere.mask & block.valid_lane
+    var valid_lanes = prim_indices.ne(EMPTY_LANE)
+    var hit_mask = hit_sphere.mask & valid_lanes
 
     if not hit_mask.reduce_or():
         return False
@@ -352,7 +329,7 @@ def _intersect_sphere_leaf[
 
             comptime for lane in range(width):
                 if hit_mask[lane] and hit_sphere.t[lane] == min_t:
-                    hit.prim = block.prim_indices[lane]
+                    hit.prim = prim_indices[lane]
 
         return True
     return False

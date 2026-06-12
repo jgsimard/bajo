@@ -6,15 +6,6 @@ from bajo.core.vec import Vec3
 from bajo.core.quat import Quaternion
 
 
-comptime Mat22 = Mat[_, 2, 2]
-comptime Mat33 = Mat[_, 3, 3]
-comptime Mat44 = Mat[_, 4, 4]
-
-comptime Mat22f32 = Mat[DType.float32, 2, 2]
-comptime Mat33f32 = Mat[DType.float32, 3, 3]
-comptime Mat44f32 = Mat[DType.float32, 4, 4]
-
-
 struct Mat[
     dtype: DType,
     rows: Int,

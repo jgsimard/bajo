@@ -23,9 +23,9 @@ from bajo.bvh.gpu.builder.binary_layout import (
 
 def _encoded_bounds(
     encoded: UInt32,
-    leaf_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    leaf_ids: UnsafePointer[UInt32, MutAnyOrigin],
-    node_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    leaf_bounds: UnsafePointer[mut=True, Float32, _],
+    leaf_ids: UnsafePointer[mut=True, UInt32, _],
+    node_bounds: UnsafePointer[mut=True, Float32, _],
 ) -> AABB:
     if _is_encoded_leaf(encoded):
         var sorted_leaf_idx = _encoded_index(encoded)

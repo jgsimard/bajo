@@ -253,7 +253,7 @@ def _partition_items_by_median_center[
     origin: MutOrigin,
 ](
     indices: Span[UInt32, origin],
-    items: UnsafePointer[BoundsItem, ImmutAnyOrigin],
+    items: UnsafePointer[mut=False, BoundsItem, _],
     first: Int,
     count: Int,
     axis: Int,

@@ -30,8 +30,8 @@ struct BoundsSplitResult(Movable):
 
 def _find_sah_split(
     node: BoundsBvhNode,
-    indices: UnsafePointer[UInt32, ImmutAnyOrigin],
-    items: UnsafePointer[BoundsItem, ImmutAnyOrigin],
+    indices: UnsafePointer[mut=False, UInt32, _],
+    items: UnsafePointer[mut=False, BoundsItem, _],
 ) -> BoundsSplitResult:
     var best = BoundsSplitResult()
     var first = Int(node.first_item())
@@ -135,8 +135,8 @@ def _item_bin[
 
 
 def _partition_items_by_bin(
-    indices: UnsafePointer[UInt32, MutAnyOrigin],
-    items: UnsafePointer[BoundsItem, ImmutAnyOrigin],
+    indices: UnsafePointer[mut=True, UInt32, _],
+    items: UnsafePointer[mut=False, BoundsItem, _],
     first: Int,
     count: Int,
     axis: Int,
@@ -154,7 +154,7 @@ def _partition_items_by_bin(
         if b_idx <= split_bin:
             i += 1
         else:
-            swap(indices[i], indices[j])
+            indices[i], indices[j] = indices[j], indices[i]
             j -= 1
 
     return i

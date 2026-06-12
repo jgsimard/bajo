@@ -17,7 +17,7 @@ from std.math import ceildiv
 from std.memory import stack_allocation
 from std.sys.info import bit_width_of
 
-from .utils import DoubleBuffer, circular_shift, warp_level_multi_split
+from .utils import circular_shift, warp_level_multi_split
 
 comptime ordering = Ordering.RELAXED
 comptime LANE_LOG = count_trailing_zeros(WARP_SIZE)  # 2^5 = 32 => 5
@@ -378,8 +378,6 @@ def device_radix_sort_keys[
     var global_hist = ctx.enqueue_create_buffer[DType.uint32](GLOBAL_HIST)
     var pass_hist = ctx.enqueue_create_buffer[DType.uint32](gdim * RADIX)
 
-    var db_keys = DoubleBuffer(keys.unsafe_ptr(), keys_alternate.unsafe_ptr())
-
     comptime UPSWEEP_BLOC_SIZE = 256
     comptime SCAN_BLOCK_SIZE = 256
     comptime DOWNSWEEP_BLOCK_SIZE = 512
@@ -405,7 +403,7 @@ def device_radix_sort_keys[
 
         # Upsweep (Global Histogram)
         ctx.enqueue_function[_upsweep](
-            db_keys.current,
+            keys,
             global_hist.unsafe_ptr(),
             pass_hist.unsafe_ptr(),
             size,
@@ -424,8 +422,8 @@ def device_radix_sort_keys[
 
         # Downsweep (Scatter keys only)
         ctx.enqueue_function[_downsweep_keys](
-            db_keys.current,
-            db_keys.alternate,
+            keys,
+            keys_alternate,
             _dummy_ptr,
             _dummy_ptr,
             global_hist.unsafe_ptr(),
@@ -436,10 +434,7 @@ def device_radix_sort_keys[
             block_dim=DOWNSWEEP_BLOCK_SIZE,
         )
 
-        db_keys.swap()
-
-    comptime if NUM_PASSES % 2 != 0:
-        db_keys.swap()
+        swap(keys, keys_alternate)
 
     ctx.synchronize()
 

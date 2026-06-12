@@ -19,17 +19,16 @@ def trace_bounds_bvh[
         UnsafePointer[Float32, ImmutAnyOrigin],
         UnsafePointer[UInt32, ImmutAnyOrigin],
         UInt32,
-        UInt32,
         Ray,
         mut Hit,
     ) capturing -> Bool,
     lifo: Bool = True,
 ](
-    wide_bounds: UnsafePointer[Float32, ImmutAnyOrigin],
-    wide_data: UnsafePointer[UInt32, ImmutAnyOrigin],
-    wide_counts: UnsafePointer[UInt32, ImmutAnyOrigin],
-    leaf_data_f32: UnsafePointer[Float32, ImmutAnyOrigin],
-    leaf_data_u32: UnsafePointer[UInt32, ImmutAnyOrigin],
+    wide_bounds: UnsafePointer[mut=False, Float32, _],
+    wide_data: UnsafePointer[mut=False, UInt32, _],
+    wide_counts: UnsafePointer[mut=False, UInt32, _],
+    leaf_data_f32: UnsafePointer[mut=False, Float32, _],
+    leaf_data_u32: UnsafePointer[mut=False, UInt32, _],
     root_idx: UInt32,
     ray: Ray,
 ) -> Hit:
@@ -72,7 +71,6 @@ def trace_bounds_bvh[
                             leaf_data_f32,
                             leaf_data_u32,
                             data,
-                            count,
                             ray,
                             hit,
                         )
@@ -126,7 +124,6 @@ def trace_bounds_bvh[
                             leaf_data_f32,
                             leaf_data_u32,
                             data,
-                            count,
                             ray,
                             hit,
                         )

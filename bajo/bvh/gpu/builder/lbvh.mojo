@@ -155,7 +155,7 @@ def _lbvh_find_split[
 
 
 def _common_prefix(
-    morton_codes: UnsafePointer[UInt32, ImmutAnyOrigin],
+    morton_codes: UnsafePointer[mut=False, UInt32, _],
     i: Int,
     j: Int,
     n: Int,

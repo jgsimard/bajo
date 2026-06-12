@@ -13,7 +13,6 @@ def trace_bounds_bvh[
         Vec3[DType.float32, width],
         Vec3[DType.float32, width],
         UInt32,
-        UInt32,
         mut Hit,
     ) capturing -> Bool,
 ](tree: BoundsBvh[width], ray: Ray) -> Hit:
@@ -49,7 +48,6 @@ def trace_bounds_bvh[
                             O,
                             D,
                             node.data[i],
-                            node.counts[i],
                             hit,
                         ):
                             comptime if mode == TRACE.ANY_HIT:

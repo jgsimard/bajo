@@ -26,7 +26,6 @@ comptime BlasLeafFn = def(
     UnsafePointer[Float32, ImmutAnyOrigin],
     UnsafePointer[UInt32, ImmutAnyOrigin],
     UInt32,
-    UInt32,
     Ray,
     mut Hit,
 ) capturing -> Bool
@@ -35,15 +34,12 @@ comptime BlasLeafFn = def(
 def _flatten_instance_inv_transforms(
     instances: List[Instance],
 ) -> List[Float32]:
-    var out = List[Float32](capacity=max(len(instances), 1) * Affine3f32.STRIDE)
+    if len(instances) == 0:
+        return Affine3f32.identity().flatten()
+
+    var out = List[Float32](capacity=len(instances) * Affine3f32.STRIDE)
     for instance in instances:
         out.extend(instance.inv_transform.flatten())
-
-    if len(out) == 0:
-        var identity = Affine3f32.identity().flatten()
-        for i in range(len(identity)):
-            out.append(identity[i])
-
     return out^
 
 
@@ -77,15 +73,15 @@ def _intersect_tlas_instance_block[
     mode: TRACE,
     blas_leaf_fn: BlasLeafFn,
 ](
-    tlas_leaf_instances: UnsafePointer[UInt32, ImmutAnyOrigin],
-    inst_inv_transform: UnsafePointer[Float32, ImmutAnyOrigin],
-    inst_blas_indices: UnsafePointer[UInt32, ImmutAnyOrigin],
-    blas_descs: UnsafePointer[UInt32, ImmutAnyOrigin],
-    blas_wide_bounds: UnsafePointer[Float32, ImmutAnyOrigin],
-    blas_wide_data: UnsafePointer[UInt32, ImmutAnyOrigin],
-    blas_wide_counts: UnsafePointer[UInt32, ImmutAnyOrigin],
-    blas_leaf_data_f32: UnsafePointer[Float32, MutAnyOrigin],
-    blas_leaf_data_u32: UnsafePointer[UInt32, MutAnyOrigin],
+    tlas_leaf_instances: UnsafePointer[mut=False, UInt32, _],
+    inst_inv_transform: UnsafePointer[mut=False, Float32, _],
+    inst_blas_indices: UnsafePointer[mut=False, UInt32, _],
+    blas_descs: UnsafePointer[mut=False, UInt32, _],
+    blas_wide_bounds: UnsafePointer[mut=False, Float32, _],
+    blas_wide_data: UnsafePointer[mut=False, UInt32, _],
+    blas_wide_counts: UnsafePointer[mut=False, UInt32, _],
+    blas_leaf_data_f32: UnsafePointer[mut=True, Float32, _],
+    blas_leaf_data_u32: UnsafePointer[mut=True, UInt32, _],
     leaf_block_idx: UInt32,
     item_count: UInt32,
     ray: Ray,
@@ -152,18 +148,18 @@ def _trace_tlas_ray[
     mode: TRACE,
     blas_leaf_fn: BlasLeafFn,
 ](
-    tlas_wide_bounds: UnsafePointer[Float32, ImmutAnyOrigin],
-    tlas_wide_data: UnsafePointer[UInt32, ImmutAnyOrigin],
-    tlas_wide_counts: UnsafePointer[UInt32, ImmutAnyOrigin],
-    tlas_leaf_instances: UnsafePointer[UInt32, ImmutAnyOrigin],
-    inst_inv_transform: UnsafePointer[Float32, ImmutAnyOrigin],
-    inst_blas_indices: UnsafePointer[UInt32, ImmutAnyOrigin],
-    blas_descs: UnsafePointer[UInt32, ImmutAnyOrigin],
-    blas_wide_bounds: UnsafePointer[Float32, ImmutAnyOrigin],
-    blas_wide_data: UnsafePointer[UInt32, ImmutAnyOrigin],
-    blas_wide_counts: UnsafePointer[UInt32, ImmutAnyOrigin],
-    blas_leaf_data_f32: UnsafePointer[Float32, MutAnyOrigin],
-    blas_leaf_data_u32: UnsafePointer[UInt32, MutAnyOrigin],
+    tlas_wide_bounds: UnsafePointer[mut=False, Float32, _],
+    tlas_wide_data: UnsafePointer[mut=False, UInt32, _],
+    tlas_wide_counts: UnsafePointer[mut=False, UInt32, _],
+    tlas_leaf_instances: UnsafePointer[mut=False, UInt32, _],
+    inst_inv_transform: UnsafePointer[mut=False, Float32, _],
+    inst_blas_indices: UnsafePointer[mut=False, UInt32, _],
+    blas_descs: UnsafePointer[mut=False, UInt32, _],
+    blas_wide_bounds: UnsafePointer[mut=False, Float32, _],
+    blas_wide_data: UnsafePointer[mut=False, UInt32, _],
+    blas_wide_counts: UnsafePointer[mut=False, UInt32, _],
+    blas_leaf_data_f32: UnsafePointer[mut=True, Float32, _],
+    blas_leaf_data_u32: UnsafePointer[mut=True, UInt32, _],
     tlas_root_idx: UInt32,
     ray: Ray,
 ) -> Hit:

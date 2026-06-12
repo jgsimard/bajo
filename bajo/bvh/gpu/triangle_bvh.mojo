@@ -20,6 +20,7 @@ from bajo.bvh.constants import (
 from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh
 from bajo.core.intersect import intersect_ray_tri
 from bajo.bvh.gpu.trace import trace_bounds_bvh
+from bajo.core.utils import min_argmin
 
 
 def build_triangle_blas_set[
@@ -374,57 +375,53 @@ def _intersect_triangle_leaf[
     leaf_vertices: UnsafePointer[Float32, ImmutAnyOrigin],
     leaf_prims: UnsafePointer[UInt32, ImmutAnyOrigin],
     leaf_block_idx: UInt32,
-    item_count: UInt32,
     ray: Ray,
     mut hit: Hit,
 ) capturing -> Bool:
     var any_hit = False
     var block_base = Int(leaf_block_idx) * TRI_LEAF_VERTEX_STRIDE * width
     var prim_base = Int(leaf_block_idx) * width
+    var prims = leaf_prims.load[width=width](prim_base)
 
     comptime for lane in range(width):
-        if lane < Int(item_count):
-            var idx = prim_base + lane
-            var prim = UInt32(leaf_prims[idx])
+        if prims[lane] != EMPTY_LANE:
+            var v0 = Vec3f32(
+                leaf_vertices[block_base + 0 * width + lane],
+                leaf_vertices[block_base + 1 * width + lane],
+                leaf_vertices[block_base + 2 * width + lane],
+            )
+            var v1 = Vec3f32(
+                leaf_vertices[block_base + 3 * width + lane],
+                leaf_vertices[block_base + 4 * width + lane],
+                leaf_vertices[block_base + 5 * width + lane],
+            )
+            var v2 = Vec3f32(
+                leaf_vertices[block_base + 6 * width + lane],
+                leaf_vertices[block_base + 7 * width + lane],
+                leaf_vertices[block_base + 8 * width + lane],
+            )
 
-            if prim != EMPTY_LANE:
-                var v0 = Vec3f32(
-                    leaf_vertices[block_base + 0 * width + lane],
-                    leaf_vertices[block_base + 1 * width + lane],
-                    leaf_vertices[block_base + 2 * width + lane],
-                )
-                var v1 = Vec3f32(
-                    leaf_vertices[block_base + 3 * width + lane],
-                    leaf_vertices[block_base + 4 * width + lane],
-                    leaf_vertices[block_base + 5 * width + lane],
-                )
-                var v2 = Vec3f32(
-                    leaf_vertices[block_base + 6 * width + lane],
-                    leaf_vertices[block_base + 7 * width + lane],
-                    leaf_vertices[block_base + 8 * width + lane],
-                )
+            var tri_hit = intersect_ray_tri(
+                ray.o,
+                ray.d,
+                v0,
+                v1,
+                v2,
+                hit.t,
+                ray.t_min,
+            )
 
-                var tri_hit = intersect_ray_tri(
-                    ray.o,
-                    ray.d,
-                    v0,
-                    v1,
-                    v2,
-                    hit.t,
-                    ray.t_min,
-                )
-
-                if tri_hit.mask and tri_hit.t < hit.t:
-                    hit.t = tri_hit.t
-                    comptime if mode == TRACE.ANY_HIT:
-                        return True
-                    else:
-                        hit.u = tri_hit.u
-                        hit.v = tri_hit.v
-                        hit.prim = prim
-                        hit.inst = EMPTY_LANE
-                        hit.normal = normalize(cross(v1 - v0, v2 - v0))
-                        any_hit = True
+            if tri_hit.mask and tri_hit.t < hit.t:
+                hit.t = tri_hit.t
+                comptime if mode == TRACE.ANY_HIT:
+                    return True
+                else:
+                    hit.u = tri_hit.u
+                    hit.v = tri_hit.v
+                    hit.prim = prims[lane]
+                    hit.inst = EMPTY_LANE
+                    hit.normal = normalize(cross(v1 - v0, v2 - v0))
+                    any_hit = True
     return any_hit
 
 
@@ -496,9 +493,7 @@ def _intersect_triangle_leaf[
 #     if not hit_mask.reduce_or():
 #         return False
 
-#     comptime if mode == TRACE.ANY_HIT:
-#         return True
-#     else:
+#     comptime if mode == TRACE.CLOSEST_HIT:
 #         var lane_t = hit_mask.select(h.t, f32_max)
 #         var min_t = lane_t.reduce_min()
 

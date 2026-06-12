@@ -3,7 +3,6 @@ from std.random import random_float64
 from std.reflection import get_function_name
 
 
-from bajo.core.mat import Mat33f32
 from bajo.core import (
     Affine3f32,
     Affine3,
@@ -15,6 +14,7 @@ from bajo.core import (
     Quaternion,
     AABB,
     AxisAlignedBoundingBox,
+    Mat33f32,
 )
 from bajo.core.random import Rng
 

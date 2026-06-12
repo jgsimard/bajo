@@ -89,10 +89,6 @@ struct TriangleBvh[width: Int](Copyable, TypedBvh):
                             block.v2.z[k] = p2.z
 
                             block.prim_indices[k] = prim_idx
-                            block.valid_lane[k] = True
-                        else:
-                            block.prim_indices[k] = EMPTY_LANE
-                            block.valid_lane[k] = False
 
                     var block_idx = UInt32(len(self.leaf_blocks))
                     self.leaf_blocks.append(block^)
@@ -104,7 +100,6 @@ struct TriangleBvh[width: Int](Copyable, TypedBvh):
             O: Vec3[DType.float32, Self.width],
             D: Vec3[DType.float32, Self.width],
             leaf_block_idx: UInt32,
-            _item_count: UInt32,
             mut hit: Hit,
         ) capturing -> Bool:
             ref block = self.leaf_blocks[Int(leaf_block_idx)]
@@ -117,20 +112,20 @@ struct TriangleBvh[width: Int](Copyable, TypedBvh):
                 hit.t,
                 ray.t_min,
             )
-
-            var hit_mask = tri_hit.mask & block.valid_lane
+            var valid_lane = block.prim_indices.ne(EMPTY_LANE)
+            var hit_mask = tri_hit.mask & valid_lane
 
             if not hit_mask.reduce_or():
                 return False
 
             comptime if mode == TRACE.CLOSEST_HIT:
                 _t = hit_mask.select(tri_hit.t, f32_max)
-                min_t, arg_min_t = min_argmin(_t)
+                min_t, lane = min_argmin(_t)
 
                 hit.t = min_t
-                hit.u = tri_hit.u[arg_min_t]
-                hit.v = tri_hit.v[arg_min_t]
-                hit.prim = block.prim_indices[arg_min_t]
+                hit.u = tri_hit.u[lane]
+                hit.v = tri_hit.v[lane]
+                hit.prim = block.prim_indices[lane]
                 hit.inst = EMPTY_LANE
 
             return True

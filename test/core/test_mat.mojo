@@ -4,11 +4,8 @@ from std.testing import (
     assert_almost_equal,
 )
 
-from bajo.core import Vec3f32, assert_vec_equal, Quat
+from bajo.core import Vec3f32, assert_vec_equal, Quat, Mat22, Mat33, Mat44
 from bajo.core.mat import (
-    Mat22,
-    Mat33,
-    Mat44,
     inverse,
     determinant,
     _matmul,

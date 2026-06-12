@@ -76,7 +76,7 @@ def _dashes(width: SIMDSize) -> String:
 
 
 def print_transposed_header(
-    value_width: SIMDSize,
+    value_width: Int,
     *labels: String,
 ):
     comptime metric_width = 15
@@ -97,7 +97,7 @@ def print_transposed_header(
 
 def print_transposed_row[
     T: Writable
-](name: String, value_width: SIMDSize, *values: T):
+](name: String, value_width: Int, *values: T):
     comptime metric_width = 15
     var row = name.ascii_ljust(metric_width)
     for value in values:
@@ -111,7 +111,7 @@ def print_transposed_ms_row(
     v0_ns: Int,
     v1_ns: Int,
     v2_ns: Int,
-    value_width: SIMDSize,
+    value_width: Int,
 ):
     print_transposed_row(
         String(t"{name} (ms)"),
@@ -129,7 +129,7 @@ def print_gpu_build_timing_rows(
     timings1: GpuBuildTimings,
     build2_ns: Int,
     timings2: GpuBuildTimings,
-    value_width: SIMDSize,
+    value_width: Int,
 ):
     print_transposed_ms_row(
         String("build tot"),
@@ -195,7 +195,7 @@ def _print_gpu_result_trace_rows(
     row0: GpuBenchResult,
     row1: GpuBenchResult,
     row2: GpuBenchResult,
-    value_width: SIMDSize,
+    value_width: Int,
 ):
     print_gpu_build_timing_rows(
         row0.build_ns,
@@ -241,7 +241,7 @@ def _print_gpu_result_validation_rows(
     row0: GpuBenchResult,
     row1: GpuBenchResult,
     row2: GpuBenchResult,
-    value_width: SIMDSize,
+    value_width: Int,
 ):
     print_transposed_row(
         String("diff"),

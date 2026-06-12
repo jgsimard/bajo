@@ -97,7 +97,7 @@ def _cpu_triangle_tlas_checksum[
     instances: List[Instance],
     mut cpu_blases: List[TriangleBvh[blas_width]],
     camera: Camera,
-    width: SIMDSize,
+    width: Int,
     height: Int,
 ) -> Tuple[Float64, UInt32, UInt64]:
     var tlas = Tlas[tlas_width](instances)

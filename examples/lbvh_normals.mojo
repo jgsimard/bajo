@@ -177,7 +177,7 @@ def write_ppm_normals_from_hits[
     origin: ImmutOrigin,
 ](
     path: String,
-    width: SIMDSize,
+    width: Int,
     height: Int,
     tri_vertex_sets: List[List[Vec3f32]],
     instances: List[Instance],
@@ -249,7 +249,7 @@ def _print_bounds_by_blas(instances: List[Instance]):
 
 
 def print_hit_counts_by_blas(
-    width: SIMDSize,
+    width: Int,
     height: Int,
     instances: List[Instance],
     hits_u32: DeviceBuffer[DType.uint32],
@@ -298,7 +298,7 @@ def _trace_cpu_tlas_camera[
     tlas_width: SIMDSize,
     blas_width: SIMDSize,
 ](
-    width: SIMDSize,
+    width: Int,
     height: Int,
     tlas: Tlas[tlas_width],
     mut cpu_blases: List[TriangleBvh[blas_width]],
@@ -330,7 +330,7 @@ def _trace_cpu_tlas_camera[
 
 def print_hit_counts_by_blas_host(
     label: String,
-    width: SIMDSize,
+    width: Int,
     height: Int,
     instances: List[Instance],
     hits_u32: List[UInt32],

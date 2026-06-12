@@ -81,7 +81,7 @@ def _make_duplicate_sphere_centroid_scene() -> List[Sphere]:
 
 def _make_camera_rays_and_params(
     bounds: AABB,
-    width: SIMDSize,
+    width: Int,
     height: Int,
     views: Int,
 ) -> Tuple[List[Ray], List[Float32]]:

@@ -52,7 +52,7 @@ def colorize(color: Color) -> Color:
 
 def write_ppm_from_colors(
     path: String,
-    width: SIMDSize,
+    width: Int,
     height: Int,
     image_data: List[Color],
 ) raises:
@@ -225,7 +225,7 @@ struct Camera(Copyable):
 
     def __init__(
         out self,
-        image_width: SIMDSize,
+        image_width: Int,
         aspect_ratio: Float32,
         samples_per_pixel: Int,
         max_depth: Int,
@@ -488,7 +488,7 @@ struct Dielectric(Material, Writable):
 
 
 def reflectance[
-    dtype: DType, size: Int
+    dtype: DType, size: SIMDSize
 ](cosine: SIMD[dtype, size], ref_idx: SIMD[dtype, size]) -> SIMD[dtype, size]:
     """
     Schlick's approximation for reflectance.

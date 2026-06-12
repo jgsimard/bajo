@@ -134,7 +134,7 @@ def _instances_bounds(instances: List[Instance]) -> AABB:
 
 def _make_camera_rays_and_params(
     bounds: AABB,
-    width: SIMDSize,
+    width: Int,
     height: Int,
     views: Int,
 ) -> Tuple[List[Ray], List[Float32]]:
@@ -328,7 +328,7 @@ def _bench_tlas_triangles_camera[
     blases: BlasSet[blas_width],
     camera_params: List[Float32],
     ray_count: Int,
-    width: SIMDSize,
+    width: Int,
     height: Int,
     repeats: Int,
 ) raises -> Tuple[Int, Float64, UInt32, UInt64]:
@@ -440,7 +440,7 @@ def _bench_tlas_spheres_camera[
     blases: BlasSet[blas_width],
     camera_params: List[Float32],
     ray_count: Int,
-    width: SIMDSize,
+    width: Int,
     height: Int,
     repeats: Int,
 ) raises -> Tuple[Int, Float64, UInt32, UInt64]:

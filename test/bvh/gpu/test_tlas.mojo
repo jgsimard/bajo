@@ -88,7 +88,7 @@ def _center_ray_camera(origin: Vec3f32, direction: Vec3f32) -> Camera:
 def _trace_cpu_triangle_camera[
     width: SIMDSize
 ](
-    mut bvh: TriangleBvh[width], camera: Camera, cwidth: SIMDSize, cheight: Int
+    mut bvh: TriangleBvh[width], camera: Camera, cwidth: Int, cheight: Int
 ) -> Tuple[Float64, UInt32]:
     var checksum = Float64(0.0)
     var hits = UInt32(0)
@@ -107,7 +107,7 @@ def _trace_cpu_triangle_camera[
 def _trace_cpu_sphere_camera(
     spheres: List[Sphere],
     camera: Camera,
-    cwidth: SIMDSize,
+    cwidth: Int,
     cheight: Int,
 ) -> Tuple[Float64, UInt32]:
     var checksum = Float64(0.0)

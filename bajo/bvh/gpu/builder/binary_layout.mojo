@@ -150,17 +150,6 @@ def reduce_bounds_partials_kernel(
     centroid_bounds.store6(out_partials, out + AABB.STRIDE)
 
 
-def copy_lbvh_bounds_result_kernel(
-    in_bounds: UnsafePointer[Float32, ImmutAnyOrigin],
-    out_bounds: UnsafePointer[Float32, MutAnyOrigin],
-):
-    var i = global_idx.x
-    if i >= REDUCED_BOUNDS_STRIDE:
-        return
-
-    out_bounds[i] = in_bounds[i]
-
-
 struct GpuBinaryBoundsBvh(Movable):
     var leaf_count: Int
     var internal_count: Int
@@ -280,13 +269,7 @@ struct GpuBinaryBoundsBvh(Movable):
 
                 swap(in_buf, out_buf)
                 count = next_count
-
-            ctx.enqueue_function[copy_lbvh_bounds_result_kernel](
-                in_buf,
-                self.bounds_device,
-                grid_dim=1,
-                block_dim=REDUCED_BOUNDS_STRIDE,
-            )
+            in_buf.enqueue_copy_to(self.bounds_device)
 
             # because scratch_a/scratch_b are temporary buffers
             ctx.synchronize()

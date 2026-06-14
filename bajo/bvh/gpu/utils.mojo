@@ -14,10 +14,6 @@ struct GpuBuildTimings(TrivialRegisterPassable, Writable):
     var bounds_pack_ns: Int
     var leaf_pack_ns: Int
 
-    @staticmethod
-    def empty() -> Self:
-        return Self(0, 0, 0, 0, 0, 0, 0)
-
     def total(self) -> Int:
         return (
             self.morton_ns

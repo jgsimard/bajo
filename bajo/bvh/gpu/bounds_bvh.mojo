@@ -114,8 +114,7 @@ struct GpuBoundsBvh[width: SIMDSize](Movable):
         )
 
     def build(mut self, mut ctx: DeviceContext) raises -> GpuBuildTimings:
-        if self.leaf_count == 0:
-            return GpuBuildTimings.empty()
+        debug_assert["safe"](len(self.leaf_count) != 0)
 
         var binary = GpuBinaryBoundsBvh(
             ctx, self.leaf_bounds, self.leaf_payloads

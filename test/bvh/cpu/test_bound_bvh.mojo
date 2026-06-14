@@ -227,18 +227,6 @@ def _assert_sphere_bvh_matches_bruteforce[
         assert_almost_equal(hit.t, brute.t)
 
 
-def test_bounds_bvh_empty_input() raises:
-    var items = List[BoundsItem]()
-    var builder = BoundsBvhBuilder[4](items)
-    builder.build["median"]()
-
-    assert_true(builder.item_count == 0)
-    assert_true(builder.nodes_used == 0)
-
-    var wide = BoundsBvh[4](builder)
-    assert_true(len(wide.nodes) == 0)
-
-
 def _test_bounds_bvh_leaf_invariant[
     width: SIMDSize,
     mode: String,

@@ -66,10 +66,7 @@ def _lbvh_find_split[
 
 def _build_lbvh[leaf_size: Int](mut builder: BoundsBvhBuilder[leaf_size]):
     """Build a binary LBVH using sorted Morton codes over BoundsItem centers."""
-
-    if builder.item_count == 0:
-        builder.nodes_used = 0
-        return
+    debug_assert["safe"](len(builder.item_count) != 0)
 
     builder.nodes_used = 1
     var item_count = Int(builder.item_count)

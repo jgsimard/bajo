@@ -23,21 +23,16 @@ struct BoundsBvhBuilder[leaf_size: Int](Copyable):
     def __init__(out self, items: List[BoundsItem]):
         self.items = items.copy()
         self.item_count = UInt32(len(self.items))
+        debug_assert["safe"](self.item_count != 0)
 
         self.item_indices = [i for i in range(self.item_count)]
 
-        var max_nodes = 1
-        if self.item_count > 0:
-            max_nodes = Int(self.item_count * 2 - 1)
-
+        var max_nodes = Int(self.item_count * 2 - 1)
         self.nodes = [BoundsBvhNode() for _ in range(max_nodes)]
 
-        if self.item_count > 0:
-            self.nodes_used = 1
-            self.nodes[0].set_leaf(0, self.item_count)
-            self.update_node_bounds(0)
-        else:
-            self.nodes_used = 0
+        self.nodes_used = 1
+        self.nodes[0].set_leaf(0, self.item_count)
+        self.update_node_bounds(0)
 
     def update_node_bounds(mut self, node_idx: UInt32):
         ref node = self.nodes[Int(node_idx)]

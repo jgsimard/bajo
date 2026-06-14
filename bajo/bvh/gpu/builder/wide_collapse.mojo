@@ -82,11 +82,8 @@ def collapse_terminal_root_to_wide_kernel[
         # Single primitive: no binary internal node exists.
         root_bounds = AABB.load6(leaf_bounds, 0)
 
+        leaf_block_indices.store[width=width](EMPTY_LANE)
         leaf_block_indices[0] = leaf_payloads[0]
-
-        comptime for lane in range(width):
-            if lane > 0:
-                leaf_block_indices[lane] = EMPTY_LANE
 
     else:
         # Small tree: find the binary root and pack the whole subtree into
@@ -125,18 +122,17 @@ def collapse_terminal_root_to_wide_kernel[
     wide_counts[0] = UInt32(leaf_count)
 
     # Remaining lanes are empty.
-    comptime for lane in range(width):
-        if lane > 0:
-            var lane_base = lane
-            wide_data[lane_base] = UInt32(0)
-            wide_counts[lane_base] = EMPTY_LANE
+    comptime for lane in range(1, width):
+        var lane_base = lane
+        wide_data[lane_base] = UInt32(0)
+        wide_counts[lane_base] = EMPTY_LANE
 
-            _write_wide_lane_bounds[width](
-                wide_bounds,
-                UInt32(0),
-                lane,
-                AABB.invalid(),
-            )
+        _write_wide_lane_bounds[width](
+            wide_bounds,
+            UInt32(0),
+            lane,
+            AABB.invalid(),
+        )
 
 
 def collapse[
@@ -304,11 +300,8 @@ def init_precomputed_wide_leaf_blocks_kernel[
     var payload = UInt32(leaf_payloads[Int(item_idx)])
 
     var base = i * width
+    leaf_block_indices.store[width=width](EMPTY_LANE)
     leaf_block_indices[base] = payload
-
-    comptime for lane in range(width):
-        if lane > 0:
-            leaf_block_indices[base + lane] = EMPTY_LANE
 
 
 def collapse_precomputed_wide_kernel[
@@ -492,11 +485,8 @@ def _write_one_leaf_block[
     var payload = UInt32(leaf_payloads[Int(item_idx)])
 
     var base = Int(leaf_block_idx) * width
+    leaf_block_indices.store[width=width](EMPTY_LANE)
     leaf_block_indices[base] = payload
-
-    comptime for lane in range(width):
-        if lane > 0:
-            leaf_block_indices[base + lane] = EMPTY_LANE
 
 
 def init_hploc_index_pairs_kernel(

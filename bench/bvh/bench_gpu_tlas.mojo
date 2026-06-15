@@ -226,24 +226,20 @@ def _cpu_tlas_triangle_shadow_reference[
 
 
 def _download_tlas_hit_checksum(
-    hits_f32: DeviceBuffer[DType.float32],
-    hits_u32: DeviceBuffer[DType.uint32],
+    hits: DeviceBuffer[DType.float32],
     ray_count: Int,
 ) raises -> Tuple[Float64, UInt32, UInt64]:
     var checksum = Float64(0.0)
     var hit_count = UInt32(0)
     var inst_checksum = UInt64(0)
-
-    with hits_f32.map_to_host() as hf:
+    with hits.map_to_host() as hf:
         for i in range(ray_count):
-            var t = hf[i * 3 + 0]
+            var gpu_hit = Hit.load(hf.unsafe_ptr(), i)
+            var t = gpu_hit.t
             if t < f32_max:
                 checksum += Float64(t)
                 hit_count += 1
-
-    with hits_u32.map_to_host() as hu:
-        for i in range(ray_count):
-            var inst = UInt32(hu[i * 2 + 1])
+            var inst = gpu_hit.inst
             if inst != MISS_PRIM:
                 inst_checksum += UInt64(inst)
 
@@ -333,15 +329,15 @@ def _bench_tlas_triangles_camera[
     repeats: Int,
 ) raises -> Tuple[Int, Float64, UInt32, UInt64]:
     var d_camera = upload_list(ctx, camera_params)
-    var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](ray_count * 3)
-    var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](ray_count * 2)
+    var d_hits = ctx.enqueue_create_buffer[DType.float32](
+        ray_count * Hit.STRIDE
+    )
 
     tlas.launch_camera(
         ctx,
         blases,
         d_camera,
-        d_hits_f32,
-        d_hits_u32,
+        d_hits,
         ray_count,
         width,
         height,
@@ -359,8 +355,7 @@ def _bench_tlas_triangles_camera[
             ctx,
             blases,
             d_camera,
-            d_hits_f32,
-            d_hits_u32,
+            d_hits,
             ray_count,
             width,
             height,
@@ -369,9 +364,7 @@ def _bench_tlas_triangles_camera[
         var t1 = perf_counter_ns()
         best_ns = min(best_ns, Int(t1 - t0))
 
-        var downloaded = _download_tlas_hit_checksum(
-            d_hits_f32, d_hits_u32, ray_count
-        )
+        var downloaded = _download_tlas_hit_checksum(d_hits, ray_count)
         checksum = downloaded[0]
         hits = downloaded[1]
         inst_checksum = downloaded[2]
@@ -444,15 +437,15 @@ def _bench_tlas_spheres_camera[
     repeats: Int,
 ) raises -> Tuple[Int, Float64, UInt32, UInt64]:
     var d_camera = upload_list(ctx, camera_params)
-    var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](ray_count * 3)
-    var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](ray_count * 2)
+    var d_hits = ctx.enqueue_create_buffer[DType.float32](
+        ray_count * Hit.STRIDE
+    )
 
     tlas.launch_camera(
         ctx,
         blases,
         d_camera,
-        d_hits_f32,
-        d_hits_u32,
+        d_hits,
         ray_count,
         width,
         height,
@@ -470,8 +463,7 @@ def _bench_tlas_spheres_camera[
             ctx,
             blases,
             d_camera,
-            d_hits_f32,
-            d_hits_u32,
+            d_hits,
             ray_count,
             width,
             height,
@@ -480,9 +472,7 @@ def _bench_tlas_spheres_camera[
         var t1 = perf_counter_ns()
         best_ns = min(best_ns, Int(t1 - t0))
 
-        var downloaded = _download_tlas_hit_checksum(
-            d_hits_f32, d_hits_u32, ray_count
-        )
+        var downloaded = _download_tlas_hit_checksum(d_hits, ray_count)
         checksum = downloaded[0]
         hits = downloaded[1]
         inst_checksum = downloaded[2]

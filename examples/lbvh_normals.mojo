@@ -11,7 +11,7 @@ from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.gpu.tlas import GpuTriangleTlas
 from bajo.bvh.gpu.triangle_bvh import build_triangle_blas_set
 from bajo.bvh.host_utils import compute_bounds
-from bajo.bvh.types import Instance
+from bajo.bvh.types import Instance, Hit
 from bajo.obj.pack import pack_obj_triangles
 from bajo.bvh.constants import Primitive, MISS_PRIM, TRACE
 from bajo.bvh.camera import Camera
@@ -181,7 +181,7 @@ def write_ppm_normals_from_hits[
     height: Int,
     tri_vertex_sets: List[List[Vec3f32]],
     instances: List[Instance],
-    hits_u32: UnsafePointer[UInt32, origin],
+    hits: UnsafePointer[Float32, origin],
 ) raises:
     var pixel_count = width * height
     var byte_count = pixel_count * 3
@@ -193,8 +193,9 @@ def write_ppm_normals_from_hits[
         var out = _bytes.unsafe_ptr()
 
         for i in range(pixel_count):
-            var prim = hits_u32[i * 2 + 0]
-            var inst = hits_u32[i * 2 + 1]
+            var hit = Hit.load(hits, i)
+            var prim = hit.prim
+            var inst = hit.inst
             if prim == MISS_PRIM or inst == MISS_PRIM:
                 out[i * 3 + 0] = 18
                 out[i * 3 + 1] = 22
@@ -252,7 +253,7 @@ def print_hit_counts_by_blas(
     width: Int,
     height: Int,
     instances: List[Instance],
-    hits_u32: DeviceBuffer[DType.uint32],
+    hits: DeviceBuffer[DType.float32],
 ) raises:
     var blas_count = 0
 
@@ -265,9 +266,10 @@ def print_hit_counts_by_blas(
     var total_hits = 0
     var pixel_count = width * height
 
-    with hits_u32.map_to_host() as hu:
+    with hits.map_to_host() as hu:
         for i in range(pixel_count):
-            var inst = UInt32(hu[i * 2 + 1])
+            var hit = Hit.load(hu.unsafe_ptr(), i)
+            var inst = hit.inst
 
             if inst != MISS_PRIM:
                 total_hits += 1
@@ -303,8 +305,7 @@ def _trace_cpu_tlas_camera[
     tlas: Tlas[tlas_width],
     mut cpu_blases: List[TriangleBvh[blas_width]],
     camera: Camera,
-    mut hits_f32: List[Float32],
-    mut hits_u32: List[UInt32],
+    mut hits: List[Float32],
 ):
     for py in range(height):
         for px in range(width):
@@ -317,15 +318,7 @@ def _trace_cpu_tlas_camera[
                 ray,
                 cpu_blases.unsafe_ptr(),
             )
-
-            var hit_base = ray_idx * 3
-            hits_f32[hit_base + 0] = hit.t
-            hits_f32[hit_base + 1] = hit.u
-            hits_f32[hit_base + 2] = hit.v
-
-            var ubase = ray_idx * 2
-            hits_u32[ubase + 0] = hit.prim
-            hits_u32[ubase + 1] = hit.inst
+            hit.store(hits.unsafe_ptr(), ray_idx)
 
 
 def print_hit_counts_by_blas_host(
@@ -333,7 +326,7 @@ def print_hit_counts_by_blas_host(
     width: Int,
     height: Int,
     instances: List[Instance],
-    hits_u32: List[UInt32],
+    hits: List[Float32],
 ):
     var blas_count = 0
 
@@ -347,7 +340,8 @@ def print_hit_counts_by_blas_host(
     var pixel_count = width * height
 
     for i in range(pixel_count):
-        var inst = hits_u32[i * 2 + 1]
+        var hit = Hit.load(hits.unsafe_ptr(), i)
+        var inst = hit.inst
 
         if inst != MISS_PRIM:
             total_hits += 1
@@ -383,8 +377,7 @@ def render_cpu(
     )
 
     print("\nTracing TLAS on CPU...")
-    var hits_f32 = List[Float32](length=ray_count * 3, fill=0.0)
-    var hits_u32 = List[UInt32](length=ray_count * 2, fill=MISS_PRIM)
+    var hits = List[Float32](length=ray_count * Hit.STRIDE, fill=0.0)
 
     var trace_t0 = perf_counter_ns()
     _trace_cpu_tlas_camera[TLAS_WIDTH, BLAS_WIDTH](
@@ -393,8 +386,7 @@ def render_cpu(
         cpu_tlas,
         cpu_blases,
         camera,
-        hits_f32,
-        hits_u32,
+        hits,
     )
     var trace_t1 = perf_counter_ns()
     var trace_ns = Int(trace_t1 - trace_t0)
@@ -407,7 +399,7 @@ def render_cpu(
         WIDTH,
         HEIGHT,
         instances,
-        hits_u32,
+        hits,
     )
 
     print("\nWriting CPU normal PPM...")
@@ -418,7 +410,7 @@ def render_cpu(
         HEIGHT,
         tri_vertex_sets,
         instances,
-        hits_u32.unsafe_ptr(),
+        hits.unsafe_ptr(),
     )
     var write_t1 = perf_counter_ns()
     print(t"CPU write: {round(ns_to_ms(Int(write_t1 - write_t0)), 3)} ms")
@@ -472,8 +464,9 @@ def render_gpu(
         var setup_t0 = perf_counter_ns()
         var d_camera_params = upload_list(ctx, camera_params)
 
-        var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](ray_count * 3)
-        var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](ray_count * 2)
+        var d_hits = ctx.enqueue_create_buffer[DType.float32](
+            ray_count * Hit.STRIDE
+        )
         ctx.synchronize()
         var setup_t1 = perf_counter_ns()
         print(
@@ -486,8 +479,7 @@ def render_gpu(
             ctx,
             gpu_blases,
             d_camera_params,
-            d_hits_f32,
-            d_hits_u32,
+            d_hits,
             ray_count,
             WIDTH,
             HEIGHT,
@@ -499,18 +491,18 @@ def render_gpu(
             t"GPU trace: {round(ns_to_ms(trace_ns), 3)} ms | "
             t"{round(ns_to_mrays_per_s(trace_ns, ray_count), 3)} Mrays/s"
         )
-        print_hit_counts_by_blas(WIDTH, HEIGHT, instances, d_hits_u32)
+        print_hit_counts_by_blas(WIDTH, HEIGHT, instances, d_hits)
 
         print("\nWriting GPU normal PPM...")
         var write_t0 = perf_counter_ns()
-        with d_hits_u32.map_to_host() as hu:
+        with d_hits.map_to_host() as h:
             write_ppm_normals_from_hits(
                 GPU_OUTPUT_PATH,
                 WIDTH,
                 HEIGHT,
                 tri_vertex_sets,
                 instances,
-                hu.unsafe_ptr(),
+                h.unsafe_ptr(),
             )
         ctx.synchronize()
         var write_t1 = perf_counter_ns()

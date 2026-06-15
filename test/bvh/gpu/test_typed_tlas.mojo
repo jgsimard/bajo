@@ -7,7 +7,7 @@ from bajo.core import AABB, Vec3f32, Affine3f32
 from bajo.bvh.camera import Camera
 from bajo.bvh.constants import Primitive, EMPTY_LANE, TRACE, f32_max
 from bajo.bvh.host_utils import compute_bounds, sphere_bounds
-from bajo.bvh.types import Instance, Sphere, Ray
+from bajo.bvh.types import Instance, Sphere, Ray, Hit
 from bajo.bvh.gpu.utils import upload_camera
 from bajo.bvh.gpu.triangle_bvh import build_triangle_blas_set
 from bajo.bvh.gpu.sphere_bvh import build_sphere_blas_set
@@ -66,24 +66,21 @@ def _instances_bounds(instances: List[Instance]) -> AABB:
 
 
 def _download_tlas_checksum(
-    hits_f32: DeviceBuffer[DType.float32],
-    hits_u32: DeviceBuffer[DType.uint32],
+    d_hits: DeviceBuffer[DType.float32],
     ray_count: Int,
 ) raises -> Tuple[Float64, UInt32, UInt64]:
     var checksum = Float64(0.0)
     var hits = UInt32(0)
     var inst_checksum = UInt64(0)
 
-    with hits_f32.map_to_host() as hf:
+    with d_hits.map_to_host() as hf:
         for i in range(ray_count):
-            var t = hf[i * 3]
+            var gpu_hit = Hit.load(hf.unsafe_ptr(), i)
+            var t = gpu_hit.t
             if t < f32_max:
                 checksum += Float64(t)
                 hits += 1
-
-    with hits_u32.map_to_host() as hu:
-        for i in range(ray_count):
-            var inst = UInt32(hu[i * 2 + 1])
+            var inst = gpu_hit.inst
             if inst != MISS:
                 inst_checksum += UInt64(inst)
 
@@ -149,21 +146,11 @@ def _sphere_instance(
 
 
 def _download_single_hit(
-    hits_f32: DeviceBuffer[DType.float32],
-    hits_u32: DeviceBuffer[DType.uint32],
+    hits: DeviceBuffer[DType.float32],
 ) raises -> Tuple[Float32, UInt32, UInt32]:
-    var t: Float32
-    var prim: UInt32
-    var inst: UInt32
-
-    with hits_f32.map_to_host() as hf:
-        t = hf[0]
-
-    with hits_u32.map_to_host() as hu:
-        prim = UInt32(hu[0])
-        inst = UInt32(hu[1])
-
-    return (t, prim, inst)
+    with hits.map_to_host() as hf:
+        var hit = Hit.load(hf.unsafe_ptr(), 0)
+        return (hit.t, hit.prim, hit.inst)
 
 
 def _assert_hit(
@@ -198,15 +185,13 @@ def test_gpu_triangle_tlas_uses_instance_blas_index() raises:
         var tlas = GpuTriangleTlas[TLAS_WIDTH, BLAS_WIDTH](ctx, instances)
         var camera = _make_camera_ray(right, Vec3f32(0.0, 0.0, 1.0))
         var d_camera = upload_camera(ctx, camera)
-        var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](3)
-        var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](2)
+        var d_hits = ctx.enqueue_create_buffer[DType.float32](Hit.STRIDE)
 
         tlas.launch_camera(
             ctx,
             blases,
             d_camera,
-            d_hits_f32,
-            d_hits_u32,
+            d_hits,
             1,
             1,
             1,
@@ -216,7 +201,7 @@ def test_gpu_triangle_tlas_uses_instance_blas_index() raises:
         # If traversal ignores Instance.blas_idx and always uses BLAS 0, this
         # returns t=2.0 or trips the old blas_idx == 0 assertion. The correct
         # typed TLAS must select BLAS 1 for instance 1 and return t=6.0.
-        _assert_hit(_download_single_hit(d_hits_f32, d_hits_u32), 6.0, 0, 1)
+        _assert_hit(_download_single_hit(d_hits), 6.0, 0, 1)
 
 
 def test_gpu_triangle_tlas_closest_hit_across_different_blas() raises:
@@ -239,15 +224,13 @@ def test_gpu_triangle_tlas_closest_hit_across_different_blas() raises:
         var tlas = GpuTriangleTlas[TLAS_WIDTH, BLAS_WIDTH](ctx, instances)
         var camera = _make_camera_ray(zero, Vec3f32(0.0, 0.0, 1.0))
         var d_camera = upload_camera(ctx, camera)
-        var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](3)
-        var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](2)
+        var d_hits = ctx.enqueue_create_buffer[DType.float32](Hit.STRIDE)
 
         tlas.launch_camera(
             ctx,
             blases,
             d_camera,
-            d_hits_f32,
-            d_hits_u32,
+            d_hits,
             1,
             1,
             1,
@@ -256,7 +239,7 @@ def test_gpu_triangle_tlas_closest_hit_across_different_blas() raises:
 
         # Both TLAS instances are hit by the same ray. Closest-hit traversal must
         # query each instance's own BLAS and keep the nearer BLAS-1 result.
-        _assert_hit(_download_single_hit(d_hits_f32, d_hits_u32), 3.0, 0, 1)
+        _assert_hit(_download_single_hit(d_hits), 3.0, 0, 1)
 
 
 # -----------------------------------------------------------------------------
@@ -283,15 +266,13 @@ def test_gpu_sphere_tlas_uses_instance_blas_index() raises:
         var tlas = GpuSphereTlas[TLAS_WIDTH, BLAS_WIDTH](ctx, instances)
         var camera = _make_camera_ray(right, Vec3f32(0.0, 0.0, 1.0))
         var d_camera = upload_camera(ctx, camera)
-        var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](3)
-        var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](2)
+        var d_hits = ctx.enqueue_create_buffer[DType.float32](Hit.STRIDE)
 
         tlas.launch_camera(
             ctx,
             blases,
             d_camera,
-            d_hits_f32,
-            d_hits_u32,
+            d_hits,
             1,
             1,
             1,
@@ -300,7 +281,7 @@ def test_gpu_sphere_tlas_uses_instance_blas_index() raises:
 
         # Far sphere center is at local z=6 with radius 1, so the expected hit
         # distance is 5.0. Using BLAS 0 would incorrectly return 1.0.
-        _assert_hit(_download_single_hit(d_hits_f32, d_hits_u32), 5.0, 0, 1)
+        _assert_hit(_download_single_hit(d_hits), 5.0, 0, 1)
 
 
 def test_gpu_triangle_tlas_stress_8_blas_512_instances_matches_cpu() raises:
@@ -360,22 +341,22 @@ def test_gpu_triangle_tlas_stress_8_blas_512_instances_matches_cpu() raises:
         var tlas = GpuTriangleTlas[TLAS_WIDTH, BLAS_WIDTH](ctx, instances)
         var d_camera = upload_camera(ctx, camera)
         var ray_count = STRESS_WIDTH * STRESS_HEIGHT
-        var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](ray_count * 3)
-        var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](ray_count * 2)
+        var d_hits = ctx.enqueue_create_buffer[DType.float32](
+            ray_count * Hit.STRIDE
+        )
 
         tlas.launch_camera(
             ctx,
             blases,
             d_camera,
-            d_hits_f32,
-            d_hits_u32,
+            d_hits,
             ray_count,
             STRESS_WIDTH,
             STRESS_HEIGHT,
         )
         ctx.synchronize()
 
-        var gpu = _download_tlas_checksum(d_hits_f32, d_hits_u32, ray_count)
+        var gpu = _download_tlas_checksum(d_hits, ray_count)
 
         assert_true(abs(cpu[0] - gpu[0]) <= Float64(0.01))
         assert_true(cpu[1] == gpu[1])

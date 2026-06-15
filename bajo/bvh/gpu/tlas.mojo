@@ -251,8 +251,7 @@ def trace_triangle_tlas_camera_kernel[
     blas_leaf_vertices: UnsafePointer[Float32, MutAnyOrigin],
     tlas_root_idx: UInt32,
     camera_params: UnsafePointer[Float32, ImmutAnyOrigin],
-    hits_f32: UnsafePointer[Float32, MutAnyOrigin],
-    hits_u32: UnsafePointer[UInt32, MutAnyOrigin],
+    hits: UnsafePointer[Float32, MutAnyOrigin],
     ray_count: Int,
     width: Int,
     height: Int,
@@ -289,15 +288,7 @@ def trace_triangle_tlas_camera_kernel[
         tlas_root_idx,
         ray,
     )
-
-    var hit_base = ray_idx * 3
-    hits_f32[hit_base + 0] = hit.t
-    hits_f32[hit_base + 1] = hit.u
-    hits_f32[hit_base + 2] = hit.v
-
-    var ubase = ray_idx * 2
-    hits_u32[ubase + 0] = hit.prim
-    hits_u32[ubase + 1] = hit.inst
+    hit.store(hits, ray_idx)
 
 
 def trace_sphere_tlas_camera_kernel[
@@ -313,8 +304,7 @@ def trace_sphere_tlas_camera_kernel[
     blas_leaf_spheres: UnsafePointer[Float32, MutAnyOrigin],
     tlas_root_idx: UInt32,
     camera_params: UnsafePointer[Float32, MutAnyOrigin],
-    hits_f32: UnsafePointer[Float32, MutAnyOrigin],
-    hits_u32: UnsafePointer[UInt32, MutAnyOrigin],
+    hits: UnsafePointer[Float32, MutAnyOrigin],
     ray_count: Int,
     width: Int,
     height: Int,
@@ -351,15 +341,7 @@ def trace_sphere_tlas_camera_kernel[
         tlas_root_idx,
         ray,
     )
-
-    var hit_base = ray_idx * 3
-    hits_f32[hit_base + 0] = hit.t
-    hits_f32[hit_base + 1] = hit.u
-    hits_f32[hit_base + 2] = hit.v
-
-    var ubase = ray_idx * 2
-    hits_u32[ubase + 0] = hit.prim
-    hits_u32[ubase + 1] = hit.inst
+    hit.store(hits, ray_idx)
 
 
 struct GpuTypedTlasCore[width: SIMDSize]:
@@ -425,8 +407,7 @@ struct GpuTriangleTlas[tlas_width: SIMDSize, blas_width: SIMDSize]:
         ctx: DeviceContext,
         blases: BlasSet[Self.blas_width],
         d_camera_params: DeviceBuffer[DType.float32],
-        d_hits_f32: DeviceBuffer[DType.float32],
-        d_hits_u32: DeviceBuffer[DType.uint32],
+        d_hits: DeviceBuffer[DType.float32],
         ray_count: Int,
         cwidth: Int,
         cheight: Int,
@@ -446,8 +427,7 @@ struct GpuTriangleTlas[tlas_width: SIMDSize, blas_width: SIMDSize]:
             blases.leaves,
             self.core.tree.root_idx,
             d_camera_params,
-            d_hits_f32,
-            d_hits_u32,
+            d_hits,
             ray_count,
             cwidth,
             cheight,
@@ -473,8 +453,7 @@ struct GpuSphereTlas[tlas_width: SIMDSize, blas_width: SIMDSize]:
         ctx: DeviceContext,
         blases: BlasSet[Self.blas_width],
         d_camera_params: DeviceBuffer[DType.float32],
-        d_hits_f32: DeviceBuffer[DType.float32],
-        d_hits_u32: DeviceBuffer[DType.uint32],
+        d_hits: DeviceBuffer[DType.float32],
         ray_count: Int,
         cwidth: Int,
         cheight: Int,
@@ -494,8 +473,7 @@ struct GpuSphereTlas[tlas_width: SIMDSize, blas_width: SIMDSize]:
             blases.leaves,
             self.core.tree.root_idx,
             d_camera_params,
-            d_hits_f32,
-            d_hits_u32,
+            d_hits,
             ray_count,
             cwidth,
             cheight,

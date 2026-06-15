@@ -39,7 +39,7 @@ def build_sphere_blas_set[
 
         var internal_count = sphere_count - 1
         var max_wide_nodes = max(internal_count, 1)
-        var max_leaf_blocks = max(internal_count * width, 1)
+        var max_leaf_blocks = max(sphere_count, 1)
 
         var wide_node_base = UInt32(total_wide_nodes)
         var leaf_f32_base = UInt32(total_leaf_spheres)
@@ -72,6 +72,10 @@ def build_sphere_blas_set[
         var desc_base = blas_idx * BlasSet.STRIDE
 
         descs[desc_base + BlasSet.ROOT_IDX] = blas.tree.root_idx
+        descs[desc_base + BlasSet.NODE_COUNT] = UInt32(blas.tree.node_count)
+        descs[desc_base + BlasSet.LEAF_BLOCK_COUNT] = UInt32(
+            blas.tree.leaf_block_count
+        )
 
         var wide_node_base = Int(descs[desc_base + BlasSet.WIDE_NODE_BASE])
         var leaf_f32_base = Int(descs[desc_base + BlasSet.LEAF_F32_BASE])
@@ -127,11 +131,12 @@ struct GpuSphereBvh[width: SIMDSize]:
         var d_payloads = upload_list(ctx, payloads)
         var d_leaf_bounds = upload_list(ctx, leaf_bounds)
 
-        self.tree = GpuBoundsBvh[Self.width](ctx, d_leaf_bounds, d_payloads)
-        self.timings = self.tree.build(ctx)
+        self.tree = GpuBoundsBvh[Self.width](ctx, self.sphere_count)
+        self.timings = self.tree.build(ctx, d_leaf_bounds, d_payloads)
 
+        var leaf_block_capacity = max(self.tree.leaf_block_count, 1)
         self.leaf_spheres = ctx.enqueue_create_buffer[DType.float32](
-            self.tree.max_leaf_blocks * Self.width * SPHERE_LEAF_PACKED_STRIDE
+            leaf_block_capacity * Self.width * SPHERE_LEAF_PACKED_STRIDE
         )
         self._pack_leaf_blocks(ctx)
 

@@ -44,7 +44,7 @@ def build_triangle_blas_set[
 
         var internal_count = tri_count - 1
         var max_wide_nodes = max(internal_count, 1)
-        var max_leaf_blocks = max(internal_count * width, 1)
+        var max_leaf_blocks = max(tri_count, 1)
 
         var wide_node_base = UInt32(total_wide_nodes)
         var leaf_f32_base = UInt32(total_leaf_vertices)
@@ -75,6 +75,10 @@ def build_triangle_blas_set[
         var desc_base = blas_idx * BlasSet.STRIDE
 
         descs[desc_base + BlasSet.ROOT_IDX] = blas.tree.root_idx
+        descs[desc_base + BlasSet.NODE_COUNT] = UInt32(blas.tree.node_count)
+        descs[desc_base + BlasSet.LEAF_BLOCK_COUNT] = UInt32(
+            blas.tree.leaf_block_count
+        )
 
         var wide_node_base = Int(descs[desc_base + BlasSet.WIDE_NODE_BASE])
         var leaf_f32_base = Int(descs[desc_base + BlasSet.LEAF_F32_BASE])
@@ -131,8 +135,8 @@ struct GpuTriangleBvh[width: SIMDSize](Movable):
         ctx.synchronize()
         var bounds_pack_ns = Int(perf_counter_ns() - start)
 
-        self.tree = GpuBoundsBvh[Self.width](ctx, leaf_bounds, payloads)
-        self.timings = self.tree.build(ctx)
+        self.tree = GpuBoundsBvh[Self.width](ctx, self.tri_count)
+        self.timings = self.tree.build(ctx, leaf_bounds, payloads)
         self.timings.bounds_pack_ns = bounds_pack_ns
 
         var leaf_block_capacity = max(self.tree.leaf_block_count, 1)

@@ -123,6 +123,10 @@ def collapse[
     binary: GpuBinaryBoundsBvh,
     mut out: GpuBoundsBvh[width],
 ) raises:
+    var leaf_block_counter = ctx.enqueue_create_buffer[DType.uint32](1)
+    var wide_node_counter = ctx.enqueue_create_buffer[DType.uint32](1)
+    var wide_root = ctx.enqueue_create_buffer[DType.uint32](1)
+
     if binary.leaf_count <= width:
         ctx.enqueue_function[collapse_terminal_root_to_wide_kernel[width]](
             binary.leaf_bounds,
@@ -132,9 +136,9 @@ def collapse[
             binary.node_bounds,
             out.wide_nodes,
             out.leaf_block_indices,
-            out.leaf_block_counter,
-            out.wide_node_counter,
-            out.wide_root,
+            leaf_block_counter,
+            wide_node_counter,
+            wide_root,
             binary.leaf_count,
             binary.internal_count,
             grid_dim=1,
@@ -169,8 +173,8 @@ def collapse[
             binary.leaf_payloads,
             binary.leaf_ids,
             out.leaf_block_indices,
-            out.leaf_block_counter,
-            out.wide_node_counter,
+            leaf_block_counter,
+            wide_node_counter,
             binary.leaf_count,
             binary.internal_count,
             grid_dim=leaf_blocks,
@@ -183,7 +187,7 @@ def collapse[
             binary.node_meta,
             binary.node_bounds,
             out.wide_nodes,
-            out.wide_root,
+            wide_root,
             binary.internal_count,
             grid_dim=binary.blocks_internal,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
@@ -191,7 +195,7 @@ def collapse[
 
         ctx.synchronize()
 
-        with out.wide_root.map_to_host() as wr:
+        with wide_root.map_to_host() as wr:
             out.root_idx = UInt32(wr[0])
 
         out.node_count = binary.internal_count
@@ -209,10 +213,10 @@ def collapse[
             binary.node_meta,
             index_pairs,
             slot_counter,
-            out.leaf_block_counter,
-            out.wide_node_counter,
+            leaf_block_counter,
+            wide_node_counter,
             hploc_status,
-            out.wide_root,
+            wide_root,
             binary.internal_count,
             slot_count,
             grid_dim=slot_blocks,
@@ -228,8 +232,8 @@ def collapse[
             binary.node_leaf_counts,
             index_pairs,
             slot_counter,
-            out.leaf_block_counter,
-            out.wide_node_counter,
+            leaf_block_counter,
+            wide_node_counter,
             hploc_status,
             out.wide_nodes,
             out.leaf_block_indices,
@@ -242,7 +246,7 @@ def collapse[
 
         ctx.synchronize()
 
-        with out.wide_root.map_to_host() as wr, out.leaf_block_counter.map_to_host() as lbc, out.wide_node_counter.map_to_host() as wnc, hploc_status.map_to_host() as hs:
+        with wide_root.map_to_host() as wr, leaf_block_counter.map_to_host() as lbc, wide_node_counter.map_to_host() as wnc, hploc_status.map_to_host() as hs:
             out.root_idx = UInt32(wr[0])
             out.node_count = Int(wnc[0])
             out.leaf_block_count = Int(lbc[0])

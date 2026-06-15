@@ -38,30 +38,15 @@ struct GpuBoundsBvh[width: SIMDSize](Movable):
     var bounds_device: DeviceBuffer[DType.float32]
     """[0..5]  = root bounds, [6..11] = centroid bounds."""
 
-    var leaf_bounds: DeviceBuffer[DType.float32]
-    var leaf_payloads: DeviceBuffer[DType.uint32]
-
     var wide_nodes: DeviceBuffer[DType.float32]
     var leaf_block_indices: DeviceBuffer[DType.uint32]
-    var leaf_block_counter: DeviceBuffer[DType.uint32]
-    var wide_root: DeviceBuffer[DType.uint32]
-
-    var wide_node_counter: DeviceBuffer[DType.uint32]
-    var frontier_count: DeviceBuffer[DType.uint32]
-    var work_encoded_in: DeviceBuffer[DType.uint32]
-    var work_encoded_out: DeviceBuffer[DType.uint32]
-    var work_wide_in: DeviceBuffer[DType.uint32]
-    var work_wide_out: DeviceBuffer[DType.uint32]
-
-    var workspace: RadixSortWorkspace[DType.uint32, DType.uint32]
 
     def __init__(
         out self,
         mut ctx: DeviceContext,
-        leaf_bounds: DeviceBuffer[DType.float32],
-        leaf_payloads: DeviceBuffer[DType.uint32],
+        leaf_count: Int,
     ) raises:
-        self.leaf_count = len(leaf_payloads)
+        self.leaf_count = leaf_count
         self.internal_count = max(self.leaf_count - 1, 0)
         self.root_idx = 0
         self.node_count = 0
@@ -71,54 +56,34 @@ struct GpuBoundsBvh[width: SIMDSize](Movable):
 
         self.bounds_device = ctx.enqueue_create_buffer[DType.float32](12)
 
-        self.leaf_bounds = leaf_bounds
-        self.leaf_payloads = leaf_payloads
-
-        # Wide node index is the binary internal node index. Leaf blocks are
-        # allocated on the GPU during collapse with an atomic counter.
         self.wide_nodes = ctx.enqueue_create_buffer[DType.float32](
             self.max_wide_nodes * Self.width * WideNode.CHILD_STRIDE
         )
         self.leaf_block_indices = ctx.enqueue_create_buffer[DType.uint32](
             self.max_leaf_blocks * Self.width
         )
-        self.leaf_block_counter = ctx.enqueue_create_buffer[DType.uint32](1)
-        self.wide_root = ctx.enqueue_create_buffer[DType.uint32](1)
 
-        self.wide_node_counter = ctx.enqueue_create_buffer[DType.uint32](1)
-        self.frontier_count = ctx.enqueue_create_buffer[DType.uint32](1)
+    def build(
+        mut self,
+        mut ctx: DeviceContext,
+        leaf_bounds: DeviceBuffer[DType.float32],
+        leaf_payloads: DeviceBuffer[DType.uint32],
+    ) raises -> GpuBuildTimings:
+        debug_assert["safe"](self.leaf_count != 0, "passed empty input.")
+        debug_assert["safe"](len(leaf_payloads) == self.leaf_count)
 
-        self.work_encoded_in = ctx.enqueue_create_buffer[DType.uint32](
-            self.max_wide_nodes
-        )
-        self.work_encoded_out = ctx.enqueue_create_buffer[DType.uint32](
-            self.max_wide_nodes
-        )
-        self.work_wide_in = ctx.enqueue_create_buffer[DType.uint32](
-            self.max_wide_nodes
-        )
-        self.work_wide_out = ctx.enqueue_create_buffer[DType.uint32](
-            self.max_wide_nodes
-        )
+        var binary = GpuBinaryBoundsBvh(ctx, leaf_bounds, leaf_payloads)
+        self.bounds_device = binary.bounds_device.copy()
 
-        self.workspace = RadixSortWorkspace[DType.uint32, DType.uint32](
+        var workspace = RadixSortWorkspace[DType.uint32, DType.uint32](
             ctx, max(self.leaf_count, 1)
         )
 
-    def build(mut self, mut ctx: DeviceContext) raises -> GpuBuildTimings:
-        debug_assert["safe"](len(self.leaf_count) != 0)
-
-        var binary = GpuBinaryBoundsBvh(
-            ctx, self.leaf_bounds, self.leaf_payloads
-        )
-        self.bounds_device = binary.bounds_device.copy()
-
         # leaf AABBs -> sorted binary LBVH
-        timings = build_binary_bvh_with_lbvh(ctx, binary, self.workspace)
+        timings = build_binary_bvh_with_lbvh(ctx, binary, workspace)
 
         # binary BVH -> wide BVH
         var collapse_start = perf_counter_ns()
-
         collapse(ctx, binary, self)
 
         var end_ns = perf_counter_ns()
@@ -128,15 +93,21 @@ struct GpuBoundsBvh[width: SIMDSize](Movable):
         return timings
 
     def build_test(
-        mut self, mut ctx: DeviceContext
+        mut self,
+        mut ctx: DeviceContext,
+        leaf_bounds: DeviceBuffer[DType.float32],
+        leaf_payloads: DeviceBuffer[DType.uint32],
     ) raises -> GpuBinaryBoundsBvh:
-        var binary = GpuBinaryBoundsBvh(
-            ctx, self.leaf_bounds, self.leaf_payloads
-        )
+        debug_assert["safe"](self.leaf_count != 0, "passed empty input.")
+        debug_assert["safe"](len(leaf_payloads) == self.leaf_count)
+        var binary = GpuBinaryBoundsBvh(ctx, leaf_bounds, leaf_payloads)
         self.bounds_device = binary.bounds_device.copy()
+        var workspace = RadixSortWorkspace[DType.uint32, DType.uint32](
+            ctx, max(self.leaf_count, 1)
+        )
 
         # leaf AABBs -> sorted binary LBVH
-        timings = build_binary_bvh_with_lbvh(ctx, binary, self.workspace)
+        _ = build_binary_bvh_with_lbvh(ctx, binary, workspace)
 
         # binary BVH -> wide BVH
         collapse(ctx, binary, self)

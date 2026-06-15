@@ -251,8 +251,8 @@ def _assert_gpu_bounds_width[width: SIMDSize](verts: List[Vec3f32]) raises:
         var leaf_bounds = build[0].copy()
         var payloads = build[1].copy()
 
-        var bvh = GpuBoundsBvh[width](ctx, leaf_bounds, payloads)
-        var binary_bvh = bvh.build_test(ctx)
+        var bvh = GpuBoundsBvh[width](ctx, len(payloads))
+        var binary_bvh = bvh.build_test(ctx, leaf_bounds, payloads)
         var validation = binary_bvh.validate(binary_bvh.root_bounds())
 
         assert_true(validation.sorted_ok, "generic bounds keys sorted")
@@ -271,8 +271,8 @@ def _assert_wide_lane_invariants[width: SIMDSize](verts: List[Vec3f32]) raises:
         var leaf_bounds = build[0].copy()
         var payloads = build[1].copy()
 
-        var bvh = GpuBoundsBvh[width](ctx, leaf_bounds, payloads)
-        _ = bvh.build(ctx)
+        var bvh = GpuBoundsBvh[width](ctx, len(payloads))
+        _ = bvh.build(ctx, leaf_bounds, payloads)
 
         var seen_live_lane = False
         with bvh.wide_nodes.map_to_host() as nodes:
@@ -419,8 +419,8 @@ def _assert_gpu_sphere_bounds[width: SIMDSize](spheres: List[Sphere]) raises:
         var leaf_bounds = build[0].copy()
         var payloads = build[1].copy()
 
-        var bvh = GpuBoundsBvh[width](ctx, leaf_bounds, payloads)
-        var binary_bvh = bvh.build_test(ctx)
+        var bvh = GpuBoundsBvh[width](ctx, len(payloads))
+        var binary_bvh = bvh.build_test(ctx, leaf_bounds, payloads)
         var validation = binary_bvh.validate(bvh.root_bounds())
 
         assert_true(validation.sorted_ok, "sphere bounds keys sorted")

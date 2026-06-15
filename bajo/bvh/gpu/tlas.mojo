@@ -379,8 +379,8 @@ struct GpuTypedTlasCore[width: SIMDSize]:
         var d_leaf_bounds = upload_list(ctx, leaf_bounds)
         var d_payloads = upload_list(ctx, payloads)
 
-        self.tree = GpuBoundsBvh[Self.width](ctx, d_leaf_bounds, d_payloads)
-        self.timings = self.tree.build(ctx)
+        self.tree = GpuBoundsBvh[Self.width](ctx, self.inst_count)
+        self.timings = self.tree.build(ctx, d_leaf_bounds, d_payloads)
 
         self.inst_inv_transform = upload_list(
             ctx, _flatten_instance_inv_transforms(instances)

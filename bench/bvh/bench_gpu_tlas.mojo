@@ -10,7 +10,7 @@ from bajo.core.utils import (
 )
 from bajo.core import AABB, Vec3f32, Affine3f32
 from bajo.bvh.camera import Camera
-from bajo.bvh.types import Ray, Sphere, Instance, BlasSet
+from bajo.bvh.types import Ray, Sphere, Instance, BlasSet, Hit
 from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.tlas import Tlas
@@ -259,7 +259,8 @@ def _download_direct_hit_checksum(
 
     with hits_f32.map_to_host() as hf:
         for i in range(ray_count):
-            var t = hf[i * 3 + 0]
+            var base = i * Hit.STRIDE
+            var t = hf[base + Hit.T]
             if t < f32_max:
                 checksum += Float64(t)
                 hit_count += 1
@@ -279,14 +280,14 @@ def _bench_direct_triangle_camera[
     repeats: Int,
 ) raises -> Tuple[Int, Float64, UInt32]:
     var d_camera = upload_list(ctx, camera_params)
-    var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](ray_count * 3)
-    var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](ray_count)
+    var d_hits = ctx.enqueue_create_buffer[DType.float32](
+        ray_count * Hit.STRIDE
+    )
 
     blas.launch_camera(
         ctx,
         d_camera,
-        d_hits_f32,
-        d_hits_u32,
+        d_hits,
         ray_count,
         width_px,
         height_px,
@@ -302,8 +303,7 @@ def _bench_direct_triangle_camera[
         blas.launch_camera(
             ctx,
             d_camera,
-            d_hits_f32,
-            d_hits_u32,
+            d_hits,
             ray_count,
             width_px,
             height_px,
@@ -312,7 +312,7 @@ def _bench_direct_triangle_camera[
         var t1 = perf_counter_ns()
         best_ns = min(best_ns, Int(t1 - t0))
 
-        var downloaded = _download_direct_hit_checksum(d_hits_f32, ray_count)
+        var downloaded = _download_direct_hit_checksum(d_hits, ray_count)
         checksum = downloaded[0]
         hits = downloaded[1]
 
@@ -391,14 +391,14 @@ def _bench_direct_sphere_camera[
     repeats: Int,
 ) raises -> Tuple[Int, Float64, UInt32]:
     var d_camera = upload_list(ctx, camera_params)
-    var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](ray_count * 3)
-    var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](ray_count)
+    var d_hits = ctx.enqueue_create_buffer[DType.float32](
+        ray_count * Hit.STRIDE
+    )
 
     blas.launch_camera(
         ctx,
         d_camera,
-        d_hits_f32,
-        d_hits_u32,
+        d_hits,
         ray_count,
         width_px,
         height_px,
@@ -414,8 +414,7 @@ def _bench_direct_sphere_camera[
         blas.launch_camera(
             ctx,
             d_camera,
-            d_hits_f32,
-            d_hits_u32,
+            d_hits,
             ray_count,
             width_px,
             height_px,
@@ -424,7 +423,7 @@ def _bench_direct_sphere_camera[
         var t1 = perf_counter_ns()
         best_ns = min(best_ns, Int(t1 - t0))
 
-        var downloaded = _download_direct_hit_checksum(d_hits_f32, ray_count)
+        var downloaded = _download_direct_hit_checksum(d_hits, ray_count)
         checksum = downloaded[0]
         hits = downloaded[1]
 

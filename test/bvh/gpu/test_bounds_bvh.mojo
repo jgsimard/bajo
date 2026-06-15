@@ -11,7 +11,8 @@ from bajo.bvh.types import Ray, Sphere
 from bajo.bvh.host_utils import sphere_bounds
 from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
-from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh
+from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh, _wide_node_load_meta
+from bajo.bvh.gpu.wide_meta import _wide_meta_count, _wide_meta_data
 from bajo.bvh.gpu.sphere_bvh import GpuSphereBvh
 from bajo.bvh.gpu.triangle_bvh import GpuTriangleBvh
 from bajo.bvh.gpu.utils import upload_vertices, upload_list
@@ -273,24 +274,26 @@ def _assert_wide_lane_invariants[width: SIMDSize](verts: List[Vec3f32]) raises:
         _ = bvh.build(ctx)
 
         var seen_live_lane = False
-        with bvh.wide_counts.map_to_host() as counts:
-            with bvh.wide_data.map_to_host() as data:
-                for n in range(bvh.node_count):
-                    for lane in range(width):
-                        var idx = n * width + lane
-                        var count = UInt32(counts[idx])
+        with bvh.wide_nodes.map_to_host() as nodes:
+            for n in range(bvh.node_count):
+                for lane in range(width):
+                    var lane_meta = _wide_node_load_meta[width](
+                        nodes.unsafe_ptr(),
+                        UInt32(n),
+                        lane,
+                    )
+                    var count = _wide_meta_count(lane_meta)
+                    var data = _wide_meta_data(lane_meta)
 
-                        if count == EMPTY_LANE:
-                            continue
+                    if count == EMPTY_LANE:
+                        continue
 
-                        seen_live_lane = True
-                        if count == 0:
-                            assert_true(data[idx] < UInt32(bvh.node_count))
-                        else:
-                            assert_true(count <= UInt32(width))
-                            assert_true(
-                                data[idx] < UInt32(bvh.leaf_block_count)
-                            )
+                    seen_live_lane = True
+                    if count == 0:
+                        assert_true(data < UInt32(bvh.node_count))
+                    else:
+                        assert_true(count <= UInt32(width))
+                        assert_true(data < UInt32(bvh.leaf_block_count))
 
         assert_true(seen_live_lane, "wide collapse had no live lanes")
 

@@ -9,7 +9,8 @@ from bajo.bvh.constants import (
     EMPTY_LANE,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
-from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh
+from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh, _wide_node_store_child
+from bajo.bvh.gpu.wide_meta import _pack_wide_meta
 from bajo.bvh.gpu.builder.binary_layout import (
     GpuBinaryBoundsBvh,
     _node_parent_index,
@@ -36,20 +37,6 @@ def _encoded_bounds(
     return _load_and_union_node_bounds(node_bounds, _encoded_index(encoded))
 
 
-def _write_wide_lane_bounds[
-    origin: MutOrigin,
-    //,
-    width: SIMDSize,
-](
-    wide_bounds: UnsafePointer[Float32, origin],
-    wide_node_idx: UInt32,
-    lane: Int,
-    bounds: AABB,
-):
-    var b = (Int(wide_node_idx) * width + lane) * AABB.STRIDE
-    bounds.store6(wide_bounds, b)
-
-
 def collapse_terminal_root_to_wide_kernel[
     width: SIMDSize,
 ](
@@ -58,9 +45,7 @@ def collapse_terminal_root_to_wide_kernel[
     leaf_ids: UnsafePointer[UInt32, MutAnyOrigin],
     node_meta: UnsafePointer[UInt32, MutAnyOrigin],
     node_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    wide_data: UnsafePointer[UInt32, MutAnyOrigin],
-    wide_counts: UnsafePointer[UInt32, MutAnyOrigin],
+    wide_nodes: UnsafePointer[Float32, MutAnyOrigin],
     leaf_block_indices: UnsafePointer[UInt32, MutAnyOrigin],
     leaf_block_counter: UnsafePointer[UInt32, MutAnyOrigin],
     wide_node_counter: UnsafePointer[UInt32, MutAnyOrigin],
@@ -82,7 +67,7 @@ def collapse_terminal_root_to_wide_kernel[
         # Single primitive: no binary internal node exists.
         root_bounds = AABB.load6(leaf_bounds, 0)
 
-        leaf_block_indices.store[width=width](EMPTY_LANE)
+        (leaf_block_indices + 0).store[width=width](EMPTY_LANE)
         leaf_block_indices[0] = leaf_payloads[0]
 
     else:
@@ -112,26 +97,22 @@ def collapse_terminal_root_to_wide_kernel[
         )
 
     # Root wide node: lane 0 is one packed leaf block.
-    _write_wide_lane_bounds[width](
-        wide_bounds,
+    _wide_node_store_child[width](
+        wide_nodes,
         UInt32(0),
         0,
         root_bounds,
+        _pack_wide_meta(UInt32(0), UInt32(leaf_count)),
     )
-    wide_data[0] = UInt32(0)
-    wide_counts[0] = UInt32(leaf_count)
 
     # Remaining lanes are empty.
     comptime for lane in range(1, width):
-        var lane_base = lane
-        wide_data[lane_base] = UInt32(0)
-        wide_counts[lane_base] = EMPTY_LANE
-
-        _write_wide_lane_bounds[width](
-            wide_bounds,
+        _wide_node_store_child[width](
+            wide_nodes,
             UInt32(0),
             lane,
             AABB.invalid(),
+            _pack_wide_meta(UInt32(0), EMPTY_LANE),
         )
 
 
@@ -149,9 +130,7 @@ def collapse[
             binary.leaf_ids,
             binary.node_meta,
             binary.node_bounds,
-            out.wide_bounds,
-            out.wide_data,
-            out.wide_counts,
+            out.wide_nodes,
             out.leaf_block_indices,
             out.leaf_block_counter,
             out.wide_node_counter,
@@ -203,9 +182,7 @@ def collapse[
             binary.leaf_ids,
             binary.node_meta,
             binary.node_bounds,
-            out.wide_bounds,
-            out.wide_data,
-            out.wide_counts,
+            out.wide_nodes,
             out.wide_root,
             binary.internal_count,
             grid_dim=binary.blocks_internal,
@@ -254,9 +231,7 @@ def collapse[
             out.leaf_block_counter,
             out.wide_node_counter,
             hploc_status,
-            out.wide_bounds,
-            out.wide_data,
-            out.wide_counts,
+            out.wide_nodes,
             out.leaf_block_indices,
             slot_count,
             out.max_wide_nodes,
@@ -300,7 +275,7 @@ def init_precomputed_wide_leaf_blocks_kernel[
     var payload = UInt32(leaf_payloads[Int(item_idx)])
 
     var base = i * width
-    leaf_block_indices.store[width=width](EMPTY_LANE)
+    (leaf_block_indices + base).store[width=width](EMPTY_LANE)
     leaf_block_indices[base] = payload
 
 
@@ -311,9 +286,7 @@ def collapse_precomputed_wide_kernel[
     leaf_ids: UnsafePointer[UInt32, MutAnyOrigin],
     node_meta: UnsafePointer[UInt32, MutAnyOrigin],
     node_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    wide_data: UnsafePointer[UInt32, MutAnyOrigin],
-    wide_counts: UnsafePointer[UInt32, MutAnyOrigin],
+    wide_nodes: UnsafePointer[Float32, MutAnyOrigin],
     wide_root: UnsafePointer[UInt32, MutAnyOrigin],
     internal_count: Int,
 ):
@@ -362,36 +335,31 @@ def collapse_precomputed_wide_kernel[
         p_size += 1
 
     comptime for lane in range(width):
-        var lane_base = Int(node_idx) * width + lane
-
         if lane >= p_size:
-            wide_data[lane_base] = UInt32(0)
-            wide_counts[lane_base] = EMPTY_LANE
-            _write_wide_lane_bounds[width](
-                wide_bounds,
+            _wide_node_store_child[width](
+                wide_nodes,
                 node_idx,
                 lane,
                 AABB.invalid(),
+                _pack_wide_meta(UInt32(0), EMPTY_LANE),
             )
             continue
 
         var e = pool[lane]
         var b = _encoded_bounds(e, leaf_bounds, leaf_ids, node_bounds)
 
-        _write_wide_lane_bounds[width](
-            wide_bounds,
+        var meta = _pack_wide_meta(_encoded_index(e), UInt32(0))
+        if _is_encoded_leaf(e):
+            var sorted_leaf_idx = _encoded_index(e)
+            meta = _pack_wide_meta(sorted_leaf_idx, UInt32(1))
+
+        _wide_node_store_child[width](
+            wide_nodes,
             node_idx,
             lane,
             b,
+            meta,
         )
-
-        if _is_encoded_leaf(e):
-            var sorted_leaf_idx = _encoded_index(e)
-            wide_data[lane_base] = sorted_leaf_idx
-            wide_counts[lane_base] = UInt32(1)
-        else:
-            wide_data[lane_base] = _encoded_index(e)
-            wide_counts[lane_base] = UInt32(0)
 
 
 # hploc
@@ -428,10 +396,10 @@ def _write_terminal_leaf_block[
     width: SIMDSize,
 ](
     encoded: UInt32,
-    leaf_payloads: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_ids: UnsafePointer[UInt32, MutAnyOrigin],
-    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_block_indices: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_payloads: UnsafePointer[mut=False, UInt32, _],
+    leaf_ids: UnsafePointer[mut=False, UInt32, _],
+    node_meta: UnsafePointer[mut=False, UInt32, _],
+    leaf_block_indices: UnsafePointer[mut=True, UInt32, _],
     leaf_block_idx: UInt32,
 ):
     var stack = InlineArray[UInt32, GPU_STACK_SIZE](uninitialized=True)
@@ -448,8 +416,8 @@ def _write_terminal_leaf_block[
         if _is_encoded_leaf(e):
             if out_count < width:
                 var sorted_leaf_idx = _encoded_index(e)
-                var item_idx = UInt32(leaf_ids[Int(sorted_leaf_idx)])
-                var payload = UInt32(leaf_payloads[Int(item_idx)])
+                var item_idx = leaf_ids[Int(sorted_leaf_idx)]
+                var payload = leaf_payloads[Int(item_idx)]
 
                 leaf_block_indices[
                     Int(leaf_block_idx) * width + out_count
@@ -475,9 +443,9 @@ def _write_one_leaf_block[
     width: SIMDSize,
 ](
     encoded_leaf: UInt32,
-    leaf_payloads: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_ids: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_block_indices: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_payloads: UnsafePointer[mut=False, UInt32, _],
+    leaf_ids: UnsafePointer[mut=False, UInt32, _],
+    leaf_block_indices: UnsafePointer[mut=True, UInt32, _],
     leaf_block_idx: UInt32,
 ):
     var sorted_leaf_idx = _encoded_index(encoded_leaf)
@@ -485,7 +453,7 @@ def _write_one_leaf_block[
     var payload = UInt32(leaf_payloads[Int(item_idx)])
 
     var base = Int(leaf_block_idx) * width
-    leaf_block_indices.store[width=width](EMPTY_LANE)
+    (leaf_block_indices + base).store[width=width](EMPTY_LANE)
     leaf_block_indices[base] = payload
 
 
@@ -536,9 +504,7 @@ def hploc_to_wide_kernel[
     leaf_block_counter: UnsafePointer[UInt32, MutAnyOrigin],
     wide_node_counter: UnsafePointer[UInt32, MutAnyOrigin],
     status: UnsafePointer[UInt32, MutAnyOrigin],
-    wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    wide_data: UnsafePointer[UInt32, MutAnyOrigin],
-    wide_counts: UnsafePointer[UInt32, MutAnyOrigin],
+    wide_nodes: UnsafePointer[Float32, MutAnyOrigin],
     leaf_block_indices: UnsafePointer[UInt32, MutAnyOrigin],
     slot_count: Int,
     max_wide_nodes: Int,
@@ -803,16 +769,13 @@ def hploc_to_wide_kernel[
         # emit this wide node
         # lane order = scheduled child order: leaves first,then internal nodes
         comptime for lane in range(width):
-            var lane_base = Int(out_idx) * width + lane
-
             if lane >= child_count:
-                wide_data[lane_base] = UInt32(0)
-                wide_counts[lane_base] = EMPTY_LANE
-                _write_wide_lane_bounds[width](
-                    wide_bounds,
+                _wide_node_store_child[width](
+                    wide_nodes,
                     out_idx,
                     lane,
                     AABB.invalid(),
+                    _pack_wide_meta(UInt32(0), EMPTY_LANE),
                 )
                 continue
 
@@ -835,17 +798,16 @@ def hploc_to_wide_kernel[
                 leaf_ids,
                 node_bounds,
             )
-            _write_wide_lane_bounds[width](
-                wide_bounds,
+            var meta = _pack_wide_meta(child_ref_idx, UInt32(0))
+            if child_is_leaf:
+                meta = _pack_wide_meta(child_ref_idx, leaf_counts[lane])
+
+            _wide_node_store_child[width](
+                wide_nodes,
                 out_idx,
                 lane,
                 b,
+                meta,
             )
-
-            wide_data[lane_base] = child_ref_idx
-            if child_is_leaf:
-                wide_counts[lane_base] = leaf_counts[lane]
-            else:
-                wide_counts[lane_base] = UInt32(0)
 
         # continue with the child assigned to the current slot

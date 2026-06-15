@@ -174,20 +174,15 @@ trait TypedBvh:
 
 @fieldwise_init
 struct BlasSet[width: SIMDSize]:
-    comptime WIDE_BOUNDS_BASE = 0
-    comptime WIDE_LANE_BASE = 1
-    comptime LEAF_F32_BASE = 2
-    comptime LEAF_U32_BASE = 3
-    comptime ROOT_IDX = 4
-    comptime NODE_COUNT = 5
-    comptime LEAF_BLOCK_COUNT = 6
-    comptime PRIM_COUNT = 7
-    comptime STRIDE = 8
+    comptime WIDE_NODE_BASE = 0
+    comptime LEAF_F32_BASE = 1
+    comptime ROOT_IDX = 2
+    comptime NODE_COUNT = 3
+    comptime LEAF_BLOCK_COUNT = 4
+    comptime PRIM_COUNT = 5
+    comptime STRIDE = 6
 
     var descs: DeviceBuffer[DType.uint32]
-    var wide_bounds: DeviceBuffer[DType.float32]
-    var wide_data: DeviceBuffer[DType.uint32]
-    var wide_counts: DeviceBuffer[DType.uint32]
-    var leaf_data_f32: DeviceBuffer[DType.float32]
-    var leaf_prims: DeviceBuffer[DType.uint32]
+    var wide_nodes: DeviceBuffer[DType.float32]
+    var leaves: DeviceBuffer[DType.float32]
     var blas_count: Int

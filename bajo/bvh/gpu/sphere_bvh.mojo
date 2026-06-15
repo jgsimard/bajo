@@ -7,7 +7,9 @@ from bajo.bvh.constants import (
     EMPTY_LANE,
     TRACE,
     f32_max,
+    SPHERE_LEAF_PACKED_STRIDE,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
+    WideNode,
 )
 from bajo.core.utils import min_argmin
 from bajo.core import AABB, Vec3
@@ -27,10 +29,8 @@ def build_sphere_blas_set[
 
     var descs = List[UInt32](capacity=len(sphere_sets) * BlasSet.STRIDE)
 
-    var total_wide_bounds = 0
-    var total_wide_lanes = 0
+    var total_wide_nodes = 0
     var total_leaf_spheres = 0
-    var total_leaf_prims = 0
 
     # First pass: compute final packed offsets without building/downloading.
     for blas_idx in range(len(sphere_sets)):
@@ -41,15 +41,11 @@ def build_sphere_blas_set[
         var max_wide_nodes = max(internal_count, 1)
         var max_leaf_blocks = max(internal_count * width, 1)
 
-        var wide_bounds_base = UInt32(total_wide_bounds)
-        var wide_lane_base = UInt32(total_wide_lanes)
+        var wide_node_base = UInt32(total_wide_nodes)
         var leaf_f32_base = UInt32(total_leaf_spheres)
-        var leaf_u32_base = UInt32(total_leaf_prims)
 
-        descs.append(wide_bounds_base)
-        descs.append(wide_lane_base)
+        descs.append(wide_node_base)
         descs.append(leaf_f32_base)
-        descs.append(leaf_u32_base)
 
         # Filled after the actual GPU BLAS build.
         descs.append(UInt32(0))  # BlasSet.ROOT_IDX
@@ -58,20 +54,15 @@ def build_sphere_blas_set[
         descs.append(UInt32(max_leaf_blocks))
         descs.append(UInt32(sphere_count))
 
-        total_wide_bounds += max_wide_nodes * width * AABB.STRIDE
-        total_wide_lanes += max_wide_nodes * width
-        total_leaf_spheres += max_leaf_blocks * width * Sphere.STRIDE
-        total_leaf_prims += max_leaf_blocks * width
+        total_wide_nodes += max_wide_nodes * width * WideNode.CHILD_STRIDE
+        total_leaf_spheres += (
+            max_leaf_blocks * width * SPHERE_LEAF_PACKED_STRIDE
+        )
 
-    var wide_bounds = ctx.enqueue_create_buffer[DType.float32](
-        total_wide_bounds
-    )
-    var wide_data = ctx.enqueue_create_buffer[DType.uint32](total_wide_lanes)
-    var wide_counts = ctx.enqueue_create_buffer[DType.uint32](total_wide_lanes)
+    var wide_nodes = ctx.enqueue_create_buffer[DType.float32](total_wide_nodes)
     var leaf_spheres = ctx.enqueue_create_buffer[DType.float32](
         total_leaf_spheres
     )
-    var leaf_prims = ctx.enqueue_create_buffer[DType.uint32](total_leaf_prims)
 
     # Second pass: build each BLAS, then copy its device buffers into the
     # final packed device buffers.
@@ -82,34 +73,22 @@ def build_sphere_blas_set[
 
         descs[desc_base + BlasSet.ROOT_IDX] = blas.tree.root_idx
 
-        var wide_bounds_base = Int(descs[desc_base + BlasSet.WIDE_BOUNDS_BASE])
-        var wide_lane_base = Int(descs[desc_base + BlasSet.WIDE_LANE_BASE])
+        var wide_node_base = Int(descs[desc_base + BlasSet.WIDE_NODE_BASE])
         var leaf_f32_base = Int(descs[desc_base + BlasSet.LEAF_F32_BASE])
-        var leaf_u32_base = Int(descs[desc_base + BlasSet.LEAF_U32_BASE])
 
-        blas.tree.wide_bounds.enqueue_copy_to(
-            wide_bounds.unsafe_ptr() + wide_bounds_base
-        )
-        blas.tree.wide_data.enqueue_copy_to(
-            wide_data.unsafe_ptr() + wide_lane_base
-        )
-        blas.tree.wide_counts.enqueue_copy_to(
-            wide_counts.unsafe_ptr() + wide_lane_base
+        blas.tree.wide_nodes.enqueue_copy_to(
+            wide_nodes.unsafe_ptr() + wide_node_base
         )
         blas.leaf_spheres.enqueue_copy_to(
             leaf_spheres.unsafe_ptr() + leaf_f32_base
         )
-        blas.leaf_prims.enqueue_copy_to(leaf_prims.unsafe_ptr() + leaf_u32_base)
 
         ctx.synchronize()
 
     return BlasSet[width](
         upload_list(ctx, descs),
-        wide_bounds,
-        wide_data,
-        wide_counts,
+        wide_nodes,
         leaf_spheres,
-        leaf_prims,
         len(sphere_sets),
     )
 
@@ -118,7 +97,6 @@ struct GpuSphereBvh[width: SIMDSize]:
     var tree: GpuBoundsBvh[Self.width]
     var spheres: DeviceBuffer[DType.float32]
     var leaf_spheres: DeviceBuffer[DType.float32]
-    var leaf_prims: DeviceBuffer[DType.uint32]
     var sphere_count: Int
     var timings: GpuBuildTimings
 
@@ -153,10 +131,7 @@ struct GpuSphereBvh[width: SIMDSize]:
         self.timings = self.tree.build(ctx)
 
         self.leaf_spheres = ctx.enqueue_create_buffer[DType.float32](
-            self.tree.max_leaf_blocks * Self.width * Sphere.STRIDE
-        )
-        self.leaf_prims = ctx.enqueue_create_buffer[DType.uint32](
-            self.tree.max_leaf_blocks * Self.width
+            self.tree.max_leaf_blocks * Self.width * SPHERE_LEAF_PACKED_STRIDE
         )
         self._pack_leaf_blocks(ctx)
 
@@ -174,7 +149,6 @@ struct GpuSphereBvh[width: SIMDSize]:
             self.spheres,
             self.tree.leaf_block_indices,
             self.leaf_spheres,
-            self.leaf_prims,
             leaf_lane_count,
             grid_dim=blocks,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
@@ -193,11 +167,8 @@ struct GpuSphereBvh[width: SIMDSize]:
         cheight: Int,
     ) raises:
         ctx.enqueue_function[trace_sphere_bvh_camera_kernel[Self.width]](
-            self.tree.wide_bounds,
-            self.tree.wide_data,
-            self.tree.wide_counts,
+            self.tree.wide_nodes,
             self.leaf_spheres,
-            self.leaf_prims,
             self.tree.root_idx,
             d_camera_params,
             d_hits_f32,
@@ -213,11 +184,8 @@ struct GpuSphereBvh[width: SIMDSize]:
 def trace_sphere_bvh_camera_kernel[
     width: SIMDSize,
 ](
-    wide_bounds: UnsafePointer[Float32, ImmutAnyOrigin],
-    wide_data: UnsafePointer[UInt32, ImmutAnyOrigin],
-    wide_counts: UnsafePointer[UInt32, ImmutAnyOrigin],
+    wide_nodes: UnsafePointer[Float32, ImmutAnyOrigin],
     leaf_spheres: UnsafePointer[Float32, ImmutAnyOrigin],
-    leaf_prims: UnsafePointer[UInt32, ImmutAnyOrigin],
     root_idx: UInt32,
     camera_params: UnsafePointer[Float32, ImmutAnyOrigin],
     hits_f32: UnsafePointer[Float32, MutAnyOrigin],
@@ -247,11 +215,8 @@ def trace_sphere_bvh_camera_kernel[
             TRACE.CLOSEST_HIT,
         ],
     ](
-        wide_bounds,
-        wide_data,
-        wide_counts,
+        wide_nodes,
         leaf_spheres,
-        leaf_prims,
         root_idx,
         ray,
     )
@@ -267,14 +232,13 @@ def _intersect_sphere_leaf[
     width: SIMDSize,
     mode: TRACE,
 ](
-    leaf_spheres: UnsafePointer[Float32, ImmutAnyOrigin],
-    leaf_prims: UnsafePointer[UInt32, ImmutAnyOrigin],
+    leaf_spheres: UnsafePointer[mut=False, Float32, _],
     leaf_block_idx: UInt32,
     ray: Ray,
     mut hit: Hit,
 ) capturing -> Bool:
-    var block_base = Int(leaf_block_idx) * Sphere.STRIDE * width
-    var prim_base = Int(leaf_block_idx) * width
+    var block_base = Int(leaf_block_idx) * SPHERE_LEAF_PACKED_STRIDE * width
+    var leaf_spheres_u32 = leaf_spheres.bitcast[UInt32]()
 
     var center = Vec3(
         leaf_spheres.load[width=width](block_base + 0 * width),
@@ -282,7 +246,9 @@ def _intersect_sphere_leaf[
         leaf_spheres.load[width=width](block_base + 2 * width),
     )
     var radius = leaf_spheres.load[width=width](block_base + 3 * width)
-    var prim_indices = leaf_prims.load[width=width](prim_base)
+    var prim_indices = leaf_spheres_u32.load[width=width](
+        block_base + 4 * width
+    )
 
     var O = Vec3[DType.float32, width](ray.o.x, ray.o.y, ray.o.z)
     var D = Vec3[DType.float32, width](ray.d.x, ray.d.y, ray.d.z)
@@ -315,7 +281,6 @@ def pack_sphere_leaf_lanes_kernel[
     spheres: UnsafePointer[Float32, ImmutAnyOrigin],
     leaf_block_indices: UnsafePointer[UInt32, ImmutAnyOrigin],
     leaf_spheres: UnsafePointer[Float32, MutAnyOrigin],
-    leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
     leaf_lane_count: Int,
 ):
     var lane_idx = global_idx.x
@@ -326,15 +291,22 @@ def pack_sphere_leaf_lanes_kernel[
     var block_idx = lane_idx / width
 
     var prim = UInt32(leaf_block_indices[lane_idx])
-    leaf_prims[lane_idx] = prim
+    var out_base = block_idx * SPHERE_LEAF_PACKED_STRIDE * width
+    var leaf_spheres_u32 = leaf_spheres.bitcast[UInt32]()
 
+    # AoSoA: [block][field][lane]
+    # Packed fields:
+    #   0..2 = center.xyz
+    #   3    = radius
+    #   4    = prim id bits
+    leaf_spheres_u32[out_base + 4 * width + lane] = prim
+
+    # traversal checks packed prim != EMPTY_LANE
     if prim == EMPTY_LANE:
         return
 
     var in_base = Int(prim) * Sphere.STRIDE
-    var out_base = block_idx * Sphere.STRIDE * width
 
-    # AoSoA: [block][field][lane]
     leaf_spheres[out_base + 0 * width + lane] = spheres[in_base + 0]
     leaf_spheres[out_base + 1 * width + lane] = spheres[in_base + 1]
     leaf_spheres[out_base + 2 * width + lane] = spheres[in_base + 2]

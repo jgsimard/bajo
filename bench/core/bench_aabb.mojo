@@ -226,68 +226,55 @@ def dispatch_affine3_width[
 
 
 struct Affine3WidthBenchmarkData[width: SIMDSize]:
-    var boxes: UnsafePointer[
-        AxisAlignedBoundingBox[DType.float32, Self.width], MutAnyOrigin
-    ]
-    var translations: UnsafePointer[
-        Vec3[DType.float32, Self.width], MutAnyOrigin
-    ]
-    var rotations: UnsafePointer[
-        Quaternion[DType.float32, Self.width], MutAnyOrigin
-    ]
-    var scales: UnsafePointer[Vec3[DType.float32, Self.width], MutAnyOrigin]
-    var dst: UnsafePointer[
-        AxisAlignedBoundingBox[DType.float32, Self.width], MutAnyOrigin
-    ]
+    comptime aabb = AxisAlignedBoundingBox[DType.float32, Self.width]
+    var boxes: List[Self.aabb]
+    var translations: List[Vec3[DType.float32, Self.width]]
+    var rotations: List[Quaternion[DType.float32, Self.width]]
+    var scales: List[Vec3[DType.float32, Self.width]]
+    var dst: List[AxisAlignedBoundingBox[DType.float32, Self.width]]
 
     def __init__(out self):
         comptime packet_count = num_elements / Self.width
 
-        self.boxes = alloc[AxisAlignedBoundingBox[DType.float32, Self.width]](
-            packet_count
-        )
-        self.translations = alloc[Vec3[DType.float32, Self.width]](packet_count)
-        self.rotations = alloc[Quaternion[DType.float32, Self.width]](
-            packet_count
-        )
-        self.scales = alloc[Vec3[DType.float32, Self.width]](packet_count)
-        self.dst = alloc[AxisAlignedBoundingBox[DType.float32, Self.width]](
-            packet_count
-        )
+        self.boxes = []
+        self.translations = []
+        self.rotations = []
+        self.scales = []
 
         rng = Rng(123, 123)
 
-        for i in range(packet_count):
-            self.boxes[i] = AxisAlignedBoundingBox[DType.float32, Self.width](
-                Vec3[DType.float32, Self.width](-1),
-                Vec3[DType.float32, Self.width](1),
+        for _ in range(packet_count):
+            self.boxes.append(
+                AxisAlignedBoundingBox[DType.float32, Self.width](
+                    Vec3[DType.float32, Self.width](-1),
+                    Vec3[DType.float32, Self.width](1),
+                )
             )
 
-            self.translations[i] = Vec3[DType.float32, Self.width](
-                rng.f32(),
-                rng.f32(),
-                rng.f32(),
+            self.translations.append(
+                Vec3[DType.float32, Self.width](
+                    rng.f32(),
+                    rng.f32(),
+                    rng.f32(),
+                )
             )
 
-            self.rotations[i] = Quaternion[
-                DType.float32, Self.width
-            ].from_axis_angle(
-                Vec3[DType.float32, Self.width](0, 1, 0),
-                rng.f32(),
+            self.rotations.append(
+                Quaternion[DType.float32, Self.width].from_axis_angle(
+                    Vec3[DType.float32, Self.width](0, 1, 0),
+                    rng.f32(),
+                )
             )
 
-            self.scales[i] = Vec3[DType.float32, Self.width](
-                rng.f32(),
-                rng.f32(),
-                rng.f32(),
+            self.scales.append(
+                Vec3[DType.float32, Self.width](
+                    rng.f32(),
+                    rng.f32(),
+                    rng.f32(),
+                )
             )
 
-    def __del__(deinit self):
-        self.boxes.free()
-        self.translations.free()
-        self.rotations.free()
-        self.scales.free()
-        self.dst.free()
+        self.dst = self.boxes.copy()
 
 
 def bench_affine3_width[
@@ -299,11 +286,11 @@ def bench_affine3_width[
 
     def wrapper() raises capturing:
         for i in range(packet_count):
-            data.dst[i] = dispatch_affine3_width[version, width](
-                data.boxes[i],
-                data.translations[i],
-                data.rotations[i],
-                data.scales[i],
+            data.dst.unsafe_ptr()[i] = dispatch_affine3_width[version, width](
+                data.boxes.unsafe_ptr()[i],
+                data.translations.unsafe_ptr()[i],
+                data.rotations.unsafe_ptr()[i],
+                data.scales.unsafe_ptr()[i],
             )
 
         keep(data.dst[0]._min)
@@ -326,36 +313,32 @@ def bench_affine3_width[
 
 
 struct AABBBenchmarkData:
-    var boxes: UnsafePointer[AABB, MutAnyOrigin]
-    var translations: UnsafePointer[Vec3f32, MutAnyOrigin]
-    var rotations: UnsafePointer[Quat, MutAnyOrigin]
-    var scales: UnsafePointer[Vec3f32, MutAnyOrigin]
-    var dst: UnsafePointer[AABB, MutAnyOrigin]
+    var boxes: List[AABB]
+    var translations: List[Vec3f32]
+    var rotations: List[Quat]
+    var scales: List[Vec3f32]
+    var dst: List[AABB]
 
     def __init__(out self):
-        self.boxes = alloc[AABB](num_elements)
-        self.translations = alloc[Vec3f32](num_elements)
-        self.rotations = alloc[Quat](num_elements)
-        self.scales = alloc[Vec3f32](num_elements)
-        self.dst = alloc[AABB](num_elements)
+        self.boxes = []
+        self.translations = []
+        self.rotations = []
+        self.scales = []
         rng = Rng(123, 123)
 
-        for i in range(num_elements):
-            self.boxes[i] = AABB(Vec3f32(-1), Vec3f32(1))
-            self.translations[i] = rng.vec3f32()
-            self.rotations[i] = Quat.from_axis_angle(
-                Vec3f32(0, 1, 0),
-                rng.f32(),
+        for _ in range(num_elements):
+            self.boxes.append(AABB(Vec3f32(-1), Vec3f32(1)))
+            self.translations.append(rng.vec3f32())
+            self.rotations.append(
+                Quat.from_axis_angle(
+                    Vec3f32(0, 1, 0),
+                    rng.f32(),
+                )
             )
 
-            self.scales[i] = rng.vec3f32()
+            self.scales.append(rng.vec3f32())
 
-    def __del__(deinit self):
-        self.boxes.free()
-        self.translations.free()
-        self.rotations.free()
-        self.scales.free()
-        self.dst.free()
+        self.dst = self.boxes.copy()
 
 
 def main() raises:
@@ -367,11 +350,11 @@ def main() raises:
     ]() capturing raises:
         def wrapper() raises capturing:
             for i in range(num_elements):
-                data.dst[i] = f(
-                    data.boxes[i],
-                    data.translations[i],
-                    data.rotations[i],
-                    data.scales[i],
+                data.dst.unsafe_ptr()[i] = f(
+                    data.boxes.unsafe_ptr()[i],
+                    data.translations.unsafe_ptr()[i],
+                    data.rotations.unsafe_ptr()[i],
+                    data.scales.unsafe_ptr()[i],
                 )
             keep(data.dst[0]._min)
 

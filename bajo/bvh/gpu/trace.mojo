@@ -1,6 +1,6 @@
 from bajo.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
-    _wide_lane_base,
+    _wide_node_load_meta,
     _intersect_wide_node_bounds,
 )
 from bajo.bvh.gpu.wide_meta import _wide_meta_count, _wide_meta_data
@@ -18,17 +18,14 @@ def trace_bounds_bvh[
     mode: TRACE,
     leaf_fn: def(
         UnsafePointer[Float32, ImmutAnyOrigin],
-        UnsafePointer[UInt32, ImmutAnyOrigin],
         UInt32,
         Ray,
         mut Hit,
     ) capturing -> Bool,
     lifo: Bool = True,
 ](
-    wide_bounds: UnsafePointer[mut=False, Float32, _],
-    wide_meta: UnsafePointer[mut=False, UInt32, _],
-    leaf_data_f32: UnsafePointer[mut=False, Float32, _],
-    leaf_data_u32: UnsafePointer[mut=False, UInt32, _],
+    wide_nodes: UnsafePointer[mut=False, Float32, _],
+    leaves: UnsafePointer[mut=False, Float32, _],
     root_idx: UInt32,
     ray: Ray,
 ) -> Hit:
@@ -44,7 +41,7 @@ def trace_bounds_bvh[
             node_t_max = ray.t_max
 
         var bounds_hit = _intersect_wide_node_bounds[width](
-            wide_bounds,
+            wide_nodes,
             current,
             ray,
             node_t_max,
@@ -56,8 +53,11 @@ def trace_bounds_bvh[
             var child_t = InlineArray[Float32, width](fill=0.0)
 
             comptime for node_lane in range(width):
-                var lane_base = _wide_lane_base[width](current, node_lane)
-                var meta = wide_meta[lane_base]
+                var meta = _wide_node_load_meta[width](
+                    wide_nodes,
+                    current,
+                    node_lane,
+                )
                 var count = _wide_meta_count(meta)
 
                 if count != EMPTY_LANE and bounds_hit.mask[node_lane]:
@@ -69,8 +69,7 @@ def trace_bounds_bvh[
                         child_t[node_lane] = bounds_hit.t[node_lane]
                     else:
                         var leaf_hit = leaf_fn(
-                            leaf_data_f32,
-                            leaf_data_u32,
+                            leaves,
                             data,
                             ray,
                             hit,
@@ -106,8 +105,11 @@ def trace_bounds_bvh[
         else:
             # basically the same as the cpu version
             comptime for node_lane in range(width):
-                var lane_base = _wide_lane_base[width](current, node_lane)
-                var meta = wide_meta[lane_base]
+                var meta = _wide_node_load_meta[width](
+                    wide_nodes,
+                    current,
+                    node_lane,
+                )
                 var count = _wide_meta_count(meta)
 
                 if count != EMPTY_LANE and bounds_hit.mask[node_lane]:
@@ -123,8 +125,7 @@ def trace_bounds_bvh[
                             stack_ptr += 1
                     else:
                         var leaf_hit = leaf_fn(
-                            leaf_data_f32,
-                            leaf_data_u32,
+                            leaves,
                             data,
                             ray,
                             hit,

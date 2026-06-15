@@ -26,6 +26,7 @@ comptime CPU_STACK_SIZE = 64
 
 comptime TRI_LEAF_VERTEX_STRIDE = 9
 comptime TRI_LEAF_PACKED_STRIDE = 12
+comptime SPHERE_LEAF_PACKED_STRIDE = 5
 comptime BVH_BINS = 16
 
 
@@ -44,6 +45,18 @@ struct BinaryBvhNode:
     comptime RIGHT = 2
     comptime FENCE = 3
     comptime BOUNDS_STRIDE = 12
+
+
+struct WideNode:
+    comptime CHILD_STRIDE = 8
+    comptime MIN_X = 0
+    comptime MIN_Y = 1
+    comptime MIN_Z = 2
+    comptime MAX_X = 3
+    comptime MAX_Y = 4
+    comptime MAX_Z = 5
+    comptime META = 6
+    comptime PAD = 7
 
 
 comptime GPU_BOUNDS_BVH_BLOCK_SIZE = 128

@@ -17,6 +17,7 @@ from bajo.bvh.constants import (
     TRI_LEAF_PACKED_STRIDE,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
     f32_max,
+    WideNode,
 )
 from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh
 from bajo.core.intersect import intersect_ray_tri
@@ -33,8 +34,7 @@ def build_triangle_blas_set[
 
     var descs = List[UInt32](capacity=len(vertex_sets) * BlasSet.STRIDE)
 
-    var total_wide_bounds = 0
-    var total_wide_lanes = 0
+    var total_wide_nodes = 0
     var total_leaf_vertices = 0
 
     # First pass: compute final packed offsets without building/downloading.
@@ -46,15 +46,10 @@ def build_triangle_blas_set[
         var max_wide_nodes = max(internal_count, 1)
         var max_leaf_blocks = max(internal_count * width, 1)
 
-        var wide_bounds_base = UInt32(total_wide_bounds)
-        var wide_lane_base = UInt32(total_wide_lanes)
+        var wide_node_base = UInt32(total_wide_nodes)
         var leaf_f32_base = UInt32(total_leaf_vertices)
-        var leaf_u32_base = UInt32(0)
-
-        descs.append(wide_bounds_base)
-        descs.append(wide_lane_base)
+        descs.append(wide_node_base)
         descs.append(leaf_f32_base)
-        descs.append(leaf_u32_base)
 
         # Filled after the actual GPU BLAS build.
         descs.append(UInt32(0))  # BlasSet.ROOT_IDX
@@ -63,19 +58,13 @@ def build_triangle_blas_set[
         descs.append(UInt32(max_leaf_blocks))
         descs.append(UInt32(tri_count))
 
-        total_wide_bounds += max_wide_nodes * width * AABB.STRIDE
-        total_wide_lanes += max_wide_nodes * width
+        total_wide_nodes += max_wide_nodes * width * WideNode.CHILD_STRIDE
         total_leaf_vertices += max_leaf_blocks * width * TRI_LEAF_PACKED_STRIDE
 
-    var wide_bounds = ctx.enqueue_create_buffer[DType.float32](
-        total_wide_bounds
-    )
-    var wide_meta = ctx.enqueue_create_buffer[DType.uint32](total_wide_lanes)
+    var wide_nodes = ctx.enqueue_create_buffer[DType.float32](total_wide_nodes)
     var leaf_vertices = ctx.enqueue_create_buffer[DType.float32](
         total_leaf_vertices
     )
-    var leaf_prims = ctx.enqueue_create_buffer[DType.uint32](1)
-
     # Second pass: build each BLAS, then copy its device buffers into the
     # final packed device buffers. We synchronize inside the loop so the
     # temporary BLAS buffers stay alive until their copy kernels finish.
@@ -87,14 +76,10 @@ def build_triangle_blas_set[
 
         descs[desc_base + BlasSet.ROOT_IDX] = blas.tree.root_idx
 
-        var wide_bounds_base = Int(descs[desc_base + BlasSet.WIDE_BOUNDS_BASE])
-        var wide_lane_base = Int(descs[desc_base + BlasSet.WIDE_LANE_BASE])
+        var wide_node_base = Int(descs[desc_base + BlasSet.WIDE_NODE_BASE])
         var leaf_f32_base = Int(descs[desc_base + BlasSet.LEAF_F32_BASE])
-        blas.tree.wide_bounds.enqueue_copy_to(
-            wide_bounds.unsafe_ptr() + wide_bounds_base
-        )
-        blas.tree.wide_meta.enqueue_copy_to(
-            wide_meta.unsafe_ptr() + wide_lane_base
+        blas.tree.wide_nodes.enqueue_copy_to(
+            wide_nodes.unsafe_ptr() + wide_node_base
         )
         blas.leaf_vertices.enqueue_copy_to(
             leaf_vertices.unsafe_ptr() + leaf_f32_base
@@ -103,10 +88,8 @@ def build_triangle_blas_set[
 
     return BlasSet[width](
         upload_list(ctx, descs),
-        wide_bounds,
-        wide_meta,
+        wide_nodes,
         leaf_vertices,
-        leaf_prims,
         len(vertex_sets),
     )
 
@@ -200,8 +183,7 @@ struct GpuTriangleBvh[width: SIMDSize](Movable):
         cheight: Int,
     ) raises:
         ctx.enqueue_function[trace_triangle_bvh_camera_kernel[Self.width]](
-            self.tree.wide_bounds,
-            self.tree.wide_meta,
+            self.tree.wide_nodes,
             self.leaf_vertices,
             self.tree.root_idx,
             d_camera_params,
@@ -297,8 +279,7 @@ def pack_triangle_leaf_lanes_kernel[
 def trace_triangle_bvh_camera_kernel[
     width: SIMDSize,
 ](
-    wide_bounds: UnsafePointer[Float32, ImmutAnyOrigin],
-    wide_meta: UnsafePointer[UInt32, ImmutAnyOrigin],
+    wide_nodes: UnsafePointer[Float32, ImmutAnyOrigin],
     leaf_vertices: UnsafePointer[Float32, ImmutAnyOrigin],
     root_idx: UInt32,
     camera_params: UnsafePointer[Float32, ImmutAnyOrigin],
@@ -329,10 +310,8 @@ def trace_triangle_bvh_camera_kernel[
             TRACE.CLOSEST_HIT,
         ],
     ](
-        wide_bounds,
-        wide_meta,
+        wide_nodes,
         leaf_vertices,
-        wide_meta,
         root_idx,
         ray,
     )
@@ -350,7 +329,6 @@ def _intersect_triangle_leaf[
     mode: TRACE,
 ](
     leaf_vertices: UnsafePointer[Float32, ImmutAnyOrigin],
-    _unused_leaf_data_u32: UnsafePointer[UInt32, ImmutAnyOrigin],
     leaf_block_idx: UInt32,
     ray: Ray,
     mut hit: Hit,
@@ -400,97 +378,3 @@ def _intersect_triangle_leaf[
                     hit.normal = normalize(cross(v1 - v0, v2 - v0))
                     any_hit = True
     return any_hit
-
-
-# # it works now, but it is slower
-# def _intersect_triangle_leaf[
-#     width: SIMDSize,
-#     mode: TRACE,
-# ](
-#     leaf_vertices: UnsafePointer[Float32, ImmutAnyOrigin],
-#     leaf_prims: UnsafePointer[UInt32, ImmutAnyOrigin],
-#     leaf_block_idx: UInt32,
-#     item_count: UInt32,
-#     ray: Ray,
-#     mut hit: Hit,
-# ) capturing -> Bool:
-#     var block_base = Int(leaf_block_idx) * TRI_LEAF_VERTEX_STRIDE * width
-#     var prim_base = Int(leaf_block_idx) * width
-
-#     var prim_indices = leaf_prims.load[width=width](prim_base)
-
-#     var valid_lane = prim_indices.ne(EMPTY_LANE)
-
-#     comptime for lane in range(width):
-#         if lane >= Int(item_count):
-#             valid_lane[lane] = False
-
-#     if not valid_lane.reduce_or():
-#         return False
-
-#     # AoSoA layout:
-#     #   [block][field][lane]
-#     #
-#     # fields:
-#     #   0..2 = v0.xyz
-#     #   3..5 = v1.xyz
-#     #   6..8 = v2.xyz
-#     var v0 = Vec3[DType.float32, width](
-#         leaf_vertices.load[width=width](block_base + 0 * width),
-#         leaf_vertices.load[width=width](block_base + 1 * width),
-#         leaf_vertices.load[width=width](block_base + 2 * width),
-#     )
-
-#     var v1 = Vec3[DType.float32, width](
-#         leaf_vertices.load[width=width](block_base + 3 * width),
-#         leaf_vertices.load[width=width](block_base + 4 * width),
-#         leaf_vertices.load[width=width](block_base + 5 * width),
-#     )
-
-#     var v2 = Vec3[DType.float32, width](
-#         leaf_vertices.load[width=width](block_base + 6 * width),
-#         leaf_vertices.load[width=width](block_base + 7 * width),
-#         leaf_vertices.load[width=width](block_base + 8 * width),
-#     )
-
-#     var O = Vec3[DType.float32, width](ray.o.x, ray.o.y, ray.o.z)
-#     var D = Vec3[DType.float32, width](ray.d.x, ray.d.y, ray.d.z)
-
-#     var h = intersect_ray_tri(
-#         O,
-#         D,
-#         v0,
-#         v1,
-#         v2,
-#         hit.t,
-#     )
-
-#     var hit_mask = h.mask & valid_lane
-
-#     if not hit_mask.reduce_or():
-#         return False
-
-#     comptime if mode == TRACE.CLOSEST_HIT:
-#         var lane_t = hit_mask.select(h.t, f32_max)
-#         var min_t = lane_t.reduce_min()
-
-#         if min_t >= hit.t:
-#             return False
-
-#         hit.t = min_t
-
-#         comptime for lane in range(width):
-#             if hit_mask[lane] and h.t[lane] == min_t:
-#                 hit.u = h.u[lane]
-#                 hit.v = h.v[lane]
-#                 hit.prim = prim_indices[lane]
-#                 hit.inst = EMPTY_LANE
-
-#                 var sv0 = Vec3f32(v0.x[lane], v0.y[lane], v0.z[lane])
-#                 var sv1 = Vec3f32(v1.x[lane], v1.y[lane], v1.z[lane])
-#                 var sv2 = Vec3f32(v2.x[lane], v2.y[lane], v2.z[lane])
-#                 hit.normal = normalize(cross(sv1 - sv0, sv2 - sv0))
-
-#                 return True
-
-#         return True

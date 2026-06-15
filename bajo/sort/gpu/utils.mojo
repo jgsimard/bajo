@@ -17,6 +17,7 @@ def warp_level_multi_split[
     keys_dtype: DType,
     BITS_PER_PASS: Int,
     KEYS_PER_THREAD: Int,
+    USE_MATCH_ANY: Bool = False,
 ](
     keys: InlineArray[Scalar[keys_dtype], KEYS_PER_THREAD],
     lid: Int,
@@ -33,14 +34,22 @@ def warp_level_multi_split[
     var lane_mask_lt = (MaskInt(1) << MaskInt(lid)) - 1
 
     comptime for i in range(KEYS_PER_THREAD):
-        var warp_flags: MaskInt = ~MaskInt(0)
+        var warp_flags: MaskInt
         var key = keys[i]
 
-        comptime for k in range(BITS_PER_PASS):
-            var t2 = ((key >> (radix_shift + Scalar[keys_dtype](k))) & 1) == 1
-            var ballot = warp.vote[mask_dtype](t2)
-            var match_mask = ballot if t2 else ~ballot
-            warp_flags &= match_mask
+        comptime if USE_MATCH_ANY:
+            warp_flags = MaskInt(
+                warp.match_any(UInt32((key >> radix_shift) & RADIX_MASK))
+            )
+        else:
+            warp_flags = ~MaskInt(0)
+            comptime for k in range(BITS_PER_PASS):
+                var bit_is_set = (
+                    (key >> (radix_shift + Scalar[keys_dtype](k))) & 1
+                ) == 1
+                var ballot = warp.vote[mask_dtype](bit_is_set)
+                var match_mask = ballot if bit_is_set else ~ballot
+                warp_flags &= match_mask
 
         var bits = UInt32(pop_count(warp_flags & lane_mask_lt))
         var pre_increment_val: UInt32 = 0
@@ -57,5 +66,5 @@ def warp_level_multi_split[
             pre_increment_val, UInt32(leader_lane)
         )
 
-        offsets[i] = pre_increment_val + UInt32(bits)
+        offsets[i] = pre_increment_val + bits
     return offsets^

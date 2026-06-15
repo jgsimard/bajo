@@ -9,6 +9,14 @@ from bajo.core.vec import vmin, vmax, Vec3
 
 @fieldwise_init
 struct Hit(TrivialRegisterPassable, Writable):
+    comptime U = 0
+    comptime V = 1
+    comptime PRIM = 2
+    comptime INST = 3
+    comptime NORMAL = 4
+    comptime T = 7
+    comptime STRIDE = 8
+
     var u: Float32
     var v: Float32
     var prim: UInt32
@@ -29,6 +37,51 @@ struct Hit(TrivialRegisterPassable, Writable):
 
     def is_occluded(self) -> Bool:
         return self.t < f32_max
+
+    def store[
+        origin: MutOrigin,
+        address_space: AddressSpace,
+    ](
+        self,
+        hits: UnsafePointer[Float32, origin, address_space=address_space],
+        idx: Int,
+    ):
+        var base = idx * Hit.STRIDE
+
+        hits[base + Hit.U] = self.u
+        hits[base + Hit.V] = self.v
+        hits[base + Hit.NORMAL + 0] = self.normal.x
+        hits[base + Hit.NORMAL + 1] = self.normal.y
+        hits[base + Hit.NORMAL + 2] = self.normal.z
+        hits[base + Hit.T] = self.t
+
+        var hits_u32 = hits.bitcast[UInt32]()
+        hits_u32[base + Hit.PRIM] = self.prim
+        hits_u32[base + Hit.INST] = self.inst
+
+    @staticmethod
+    def load[
+        origin: ImmutOrigin,
+        address_space: AddressSpace,
+    ](
+        hits: UnsafePointer[Float32, origin, address_space=address_space],
+        idx: Int,
+    ) -> Hit:
+        var base = idx * Hit.STRIDE
+        var hits_u32 = hits.bitcast[UInt32]()
+
+        return Hit(
+            hits[base + Hit.U],
+            hits[base + Hit.V],
+            hits_u32[base + Hit.PRIM],
+            hits_u32[base + Hit.INST],
+            Vec3f32(
+                hits[base + Hit.NORMAL + 0],
+                hits[base + Hit.NORMAL + 1],
+                hits[base + Hit.NORMAL + 2],
+            ),
+            hits[base + Hit.T],
+        )
 
 
 @fieldwise_init

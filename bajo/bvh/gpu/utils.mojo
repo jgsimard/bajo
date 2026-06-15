@@ -2,6 +2,8 @@ from std.gpu import DeviceContext, DeviceBuffer
 
 from bajo.bvh.camera import Camera
 from bajo.core import Vec3f32
+from bajo.bvh.types import Hit
+from bajo.bvh.constants import f32_max
 
 
 @fieldwise_init
@@ -75,15 +77,15 @@ struct GpuBuildResult(TrivialRegisterPassable):
 
 def _download_full_hit_checksum(
     ctx: DeviceContext,
-    d_hits_f32: DeviceBuffer[DType.float32],
+    d_hits: DeviceBuffer[DType.float32],
     ray_count: Int,
 ) raises -> Tuple[Float64, UInt32]:
     var checksum = 0.0
     var hit_count = UInt32(0)
-    with d_hits_f32.map_to_host() as h:
+    with d_hits.map_to_host() as h:
         for i in range(ray_count):
-            var t = h[i * 3]
-            if t < 1.0e20:
+            var t = h[i * Hit.STRIDE + Hit.T]
+            if t < f32_max:
                 checksum += Float64(t)
                 hit_count += 1
     ctx.synchronize()

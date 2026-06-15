@@ -176,8 +176,7 @@ struct GpuTriangleBvh[width: SIMDSize](Movable):
         self,
         ctx: DeviceContext,
         d_camera_params: DeviceBuffer[DType.float32],
-        d_hits_f32: DeviceBuffer[DType.float32],
-        d_hits_u32: DeviceBuffer[DType.uint32],
+        d_hits: DeviceBuffer[DType.float32],
         ray_count: Int,
         cwidth: Int,
         cheight: Int,
@@ -187,8 +186,7 @@ struct GpuTriangleBvh[width: SIMDSize](Movable):
             self.leaf_vertices,
             self.tree.root_idx,
             d_camera_params,
-            d_hits_f32,
-            d_hits_u32,
+            d_hits,
             ray_count,
             cwidth,
             cheight,
@@ -283,8 +281,7 @@ def trace_triangle_bvh_camera_kernel[
     leaf_vertices: UnsafePointer[Float32, ImmutAnyOrigin],
     root_idx: UInt32,
     camera_params: UnsafePointer[Float32, ImmutAnyOrigin],
-    hits_f32: UnsafePointer[Float32, MutAnyOrigin],
-    hits_u32: UnsafePointer[UInt32, MutAnyOrigin],
+    hits: UnsafePointer[Float32, MutAnyOrigin],
     ray_count: Int,
     width_px: Int,
     height_px: Int,
@@ -315,12 +312,7 @@ def trace_triangle_bvh_camera_kernel[
         root_idx,
         ray,
     )
-
-    var hit_base = ray_idx * 3
-    hits_f32[hit_base + 0] = hit.t
-    hits_f32[hit_base + 1] = hit.u
-    hits_f32[hit_base + 2] = hit.v
-    hits_u32[ray_idx] = hit.prim
+    hit.store(hits, ray_idx)
 
 
 # AoSoA :[block][field][lane]

@@ -167,8 +167,7 @@ def _print_sphere_debug_mismatches(
     mut ctx: DeviceContext,
     spheres: List[Sphere],
     rays: List[Ray],
-    d_hits_f32: DeviceBuffer[DType.float32],
-    d_hits_u32: DeviceBuffer[DType.uint32],
+    d_hits: DeviceBuffer[DType.float32],
     image_width: Int,
     image_height: Int,
     max_print: Int,
@@ -177,13 +176,11 @@ def _print_sphere_debug_mismatches(
 
     var ray_count = len(rays)
 
-    var h_hits_f32 = ctx.enqueue_create_host_buffer[DType.float32](
-        ray_count * 3
+    var h_hits = ctx.enqueue_create_host_buffer[DType.float32](
+        ray_count * Hit.STRIDE
     )
-    var h_hits_u32 = ctx.enqueue_create_host_buffer[DType.uint32](ray_count)
 
-    d_hits_f32.enqueue_copy_to(h_hits_f32)
-    d_hits_u32.enqueue_copy_to(h_hits_u32)
+    d_hits.enqueue_copy_to(h_hits)
     ctx.synchronize()
 
     var printed = 0
@@ -192,14 +189,15 @@ def _print_sphere_debug_mismatches(
     var cpu_only = 0
     var both_hit_diff_t = 0
 
-    for ray_idx in range(ray_count):
+    for i in range(ray_count):
+        var ray_idx = i * Hit.STRIDE
         var cpu_hit = _trace_cpu_sphere_bruteforce_one(
             spheres,
             rays[ray_idx],
         )
 
-        var gpu_t = h_hits_f32[ray_idx * 3 + 0]
-        var gpu_prim = UInt32(h_hits_u32[ray_idx])
+        var gpu_t = h_hits[ray_idx + Hit.T]
+        var gpu_prim = UInt32(h_hits[ray_idx + Hit.PRIM])
 
         var cpu_has_hit = cpu_hit.t < Float32(1.0e20)
         var gpu_has_hit = gpu_t < Float32(1.0e20)
@@ -364,8 +362,7 @@ def _bench_camera_primary_triangle[
     ctx: DeviceContext,
     mut bvh: GpuTriangleBvh[width],
     d_camera_params: DeviceBuffer[DType.float32],
-    d_hits_f32: DeviceBuffer[DType.float32],
-    d_hits_u32: DeviceBuffer[DType.uint32],
+    d_hits: DeviceBuffer[DType.float32],
     ray_count: Int,
     image_width: Int,
     image_height: Int,
@@ -375,8 +372,7 @@ def _bench_camera_primary_triangle[
     bvh.launch_camera(
         ctx,
         d_camera_params,
-        d_hits_f32,
-        d_hits_u32,
+        d_hits,
         ray_count,
         image_width,
         image_height,
@@ -392,8 +388,7 @@ def _bench_camera_primary_triangle[
         bvh.launch_camera(
             ctx,
             d_camera_params,
-            d_hits_f32,
-            d_hits_u32,
+            d_hits,
             ray_count,
             image_width,
             image_height,
@@ -402,7 +397,7 @@ def _bench_camera_primary_triangle[
         var t1 = perf_counter_ns()
         best_kernel_ns = min(best_kernel_ns, Int(t1 - t0))
 
-        var downloaded = _download_full_hit_checksum(ctx, d_hits_f32, ray_count)
+        var downloaded = _download_full_hit_checksum(ctx, d_hits, ray_count)
         checksum = downloaded[0]
         hit_count = downloaded[1]
 
@@ -435,15 +430,15 @@ def _run_width[
     ctx.synchronize()
     var build1 = perf_counter_ns()
 
-    var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](ray_count * 3)
-    var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](ray_count)
+    var d_hits = ctx.enqueue_create_buffer[DType.float32](
+        ray_count * Hit.STRIDE
+    )
 
     var res = _bench_camera_primary_triangle[width](
         ctx,
         bvh,
         d_camera_params,
-        d_hits_f32,
-        d_hits_u32,
+        d_hits,
         ray_count,
         image_width,
         image_height,
@@ -489,8 +484,7 @@ def _bench_camera_primary_sphere[
     ctx: DeviceContext,
     mut bvh: GpuSphereBvh[width],
     d_camera_params: DeviceBuffer[DType.float32],
-    d_hits_f32: DeviceBuffer[DType.float32],
-    d_hits_u32: DeviceBuffer[DType.uint32],
+    d_hits: DeviceBuffer[DType.float32],
     ray_count: Int,
     image_width: Int,
     image_height: Int,
@@ -500,8 +494,7 @@ def _bench_camera_primary_sphere[
     bvh.launch_camera(
         ctx,
         d_camera_params,
-        d_hits_f32,
-        d_hits_u32,
+        d_hits,
         ray_count,
         image_width,
         image_height,
@@ -517,8 +510,7 @@ def _bench_camera_primary_sphere[
         bvh.launch_camera(
             ctx,
             d_camera_params,
-            d_hits_f32,
-            d_hits_u32,
+            d_hits,
             ray_count,
             image_width,
             image_height,
@@ -527,7 +519,7 @@ def _bench_camera_primary_sphere[
         var t1 = perf_counter_ns()
         best_kernel_ns = min(best_kernel_ns, Int(t1 - t0))
 
-        var downloaded = _download_full_hit_checksum(ctx, d_hits_f32, ray_count)
+        var downloaded = _download_full_hit_checksum(ctx, d_hits, ray_count)
         checksum = downloaded[0]
         hit_count = downloaded[1]
 
@@ -562,15 +554,15 @@ def _run_sphere_width[
     var build1 = perf_counter_ns()
 
     var ray_count = len(rays)
-    var d_hits_f32 = ctx.enqueue_create_buffer[DType.float32](ray_count * 3)
-    var d_hits_u32 = ctx.enqueue_create_buffer[DType.uint32](ray_count)
+    var d_hits = ctx.enqueue_create_buffer[DType.float32](
+        ray_count * Hit.STRIDE
+    )
 
     var res = _bench_camera_primary_sphere[width](
         ctx,
         bvh,
         d_camera_params,
-        d_hits_f32,
-        d_hits_u32,
+        d_hits,
         ray_count,
         image_width,
         image_height,
@@ -583,8 +575,7 @@ def _run_sphere_width[
             ctx,
             spheres,
             rays,
-            d_hits_f32,
-            d_hits_u32,
+            d_hits,
             image_width,
             image_height,
             16,

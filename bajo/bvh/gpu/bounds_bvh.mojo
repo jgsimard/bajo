@@ -42,8 +42,7 @@ struct GpuBoundsBvh[width: SIMDSize](Movable):
     var leaf_payloads: DeviceBuffer[DType.uint32]
 
     var wide_bounds: DeviceBuffer[DType.float32]
-    var wide_data: DeviceBuffer[DType.uint32]
-    var wide_counts: DeviceBuffer[DType.uint32]
+    var wide_meta: DeviceBuffer[DType.uint32]
     var leaf_block_indices: DeviceBuffer[DType.uint32]
     var leaf_block_counter: DeviceBuffer[DType.uint32]
     var wide_root: DeviceBuffer[DType.uint32]
@@ -81,10 +80,7 @@ struct GpuBoundsBvh[width: SIMDSize](Movable):
         self.wide_bounds = ctx.enqueue_create_buffer[DType.float32](
             self.max_wide_nodes * Self.width * AABB.STRIDE
         )
-        self.wide_data = ctx.enqueue_create_buffer[DType.uint32](
-            self.max_wide_nodes * Self.width
-        )
-        self.wide_counts = ctx.enqueue_create_buffer[DType.uint32](
+        self.wide_meta = ctx.enqueue_create_buffer[DType.uint32](
             self.max_wide_nodes * Self.width
         )
         self.leaf_block_indices = ctx.enqueue_create_buffer[DType.uint32](

@@ -10,6 +10,7 @@ from bajo.bvh.constants import (
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
 from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh
+from bajo.bvh.gpu.wide_meta import _pack_wide_meta
 from bajo.bvh.gpu.builder.binary_layout import (
     GpuBinaryBoundsBvh,
     _node_parent_index,
@@ -59,8 +60,7 @@ def collapse_terminal_root_to_wide_kernel[
     node_meta: UnsafePointer[UInt32, MutAnyOrigin],
     node_bounds: UnsafePointer[Float32, MutAnyOrigin],
     wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    wide_data: UnsafePointer[UInt32, MutAnyOrigin],
-    wide_counts: UnsafePointer[UInt32, MutAnyOrigin],
+    wide_meta: UnsafePointer[UInt32, MutAnyOrigin],
     leaf_block_indices: UnsafePointer[UInt32, MutAnyOrigin],
     leaf_block_counter: UnsafePointer[UInt32, MutAnyOrigin],
     wide_node_counter: UnsafePointer[UInt32, MutAnyOrigin],
@@ -118,14 +118,12 @@ def collapse_terminal_root_to_wide_kernel[
         0,
         root_bounds,
     )
-    wide_data[0] = UInt32(0)
-    wide_counts[0] = UInt32(leaf_count)
+    wide_meta[0] = _pack_wide_meta(UInt32(0), UInt32(leaf_count))
 
     # Remaining lanes are empty.
     comptime for lane in range(1, width):
         var lane_base = lane
-        wide_data[lane_base] = UInt32(0)
-        wide_counts[lane_base] = EMPTY_LANE
+        wide_meta[lane_base] = _pack_wide_meta(UInt32(0), EMPTY_LANE)
 
         _write_wide_lane_bounds[width](
             wide_bounds,
@@ -150,8 +148,7 @@ def collapse[
             binary.node_meta,
             binary.node_bounds,
             out.wide_bounds,
-            out.wide_data,
-            out.wide_counts,
+            out.wide_meta,
             out.leaf_block_indices,
             out.leaf_block_counter,
             out.wide_node_counter,
@@ -204,8 +201,7 @@ def collapse[
             binary.node_meta,
             binary.node_bounds,
             out.wide_bounds,
-            out.wide_data,
-            out.wide_counts,
+            out.wide_meta,
             out.wide_root,
             binary.internal_count,
             grid_dim=binary.blocks_internal,
@@ -255,8 +251,7 @@ def collapse[
             out.wide_node_counter,
             hploc_status,
             out.wide_bounds,
-            out.wide_data,
-            out.wide_counts,
+            out.wide_meta,
             out.leaf_block_indices,
             slot_count,
             out.max_wide_nodes,
@@ -300,7 +295,7 @@ def init_precomputed_wide_leaf_blocks_kernel[
     var payload = UInt32(leaf_payloads[Int(item_idx)])
 
     var base = i * width
-    leaf_block_indices.store[width=width](EMPTY_LANE)
+    (leaf_block_indices + base).store[width=width](EMPTY_LANE)
     leaf_block_indices[base] = payload
 
 
@@ -312,8 +307,7 @@ def collapse_precomputed_wide_kernel[
     node_meta: UnsafePointer[UInt32, MutAnyOrigin],
     node_bounds: UnsafePointer[Float32, MutAnyOrigin],
     wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    wide_data: UnsafePointer[UInt32, MutAnyOrigin],
-    wide_counts: UnsafePointer[UInt32, MutAnyOrigin],
+    wide_meta: UnsafePointer[UInt32, MutAnyOrigin],
     wide_root: UnsafePointer[UInt32, MutAnyOrigin],
     internal_count: Int,
 ):
@@ -365,8 +359,7 @@ def collapse_precomputed_wide_kernel[
         var lane_base = Int(node_idx) * width + lane
 
         if lane >= p_size:
-            wide_data[lane_base] = UInt32(0)
-            wide_counts[lane_base] = EMPTY_LANE
+            wide_meta[lane_base] = _pack_wide_meta(UInt32(0), EMPTY_LANE)
             _write_wide_lane_bounds[width](
                 wide_bounds,
                 node_idx,
@@ -387,11 +380,9 @@ def collapse_precomputed_wide_kernel[
 
         if _is_encoded_leaf(e):
             var sorted_leaf_idx = _encoded_index(e)
-            wide_data[lane_base] = sorted_leaf_idx
-            wide_counts[lane_base] = UInt32(1)
+            wide_meta[lane_base] = _pack_wide_meta(sorted_leaf_idx, UInt32(1))
         else:
-            wide_data[lane_base] = _encoded_index(e)
-            wide_counts[lane_base] = UInt32(0)
+            wide_meta[lane_base] = _pack_wide_meta(_encoded_index(e), UInt32(0))
 
 
 # hploc
@@ -485,7 +476,7 @@ def _write_one_leaf_block[
     var payload = UInt32(leaf_payloads[Int(item_idx)])
 
     var base = Int(leaf_block_idx) * width
-    leaf_block_indices.store[width=width](EMPTY_LANE)
+    (leaf_block_indices + base).store[width=width](EMPTY_LANE)
     leaf_block_indices[base] = payload
 
 
@@ -537,8 +528,7 @@ def hploc_to_wide_kernel[
     wide_node_counter: UnsafePointer[UInt32, MutAnyOrigin],
     status: UnsafePointer[UInt32, MutAnyOrigin],
     wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    wide_data: UnsafePointer[UInt32, MutAnyOrigin],
-    wide_counts: UnsafePointer[UInt32, MutAnyOrigin],
+    wide_meta: UnsafePointer[UInt32, MutAnyOrigin],
     leaf_block_indices: UnsafePointer[UInt32, MutAnyOrigin],
     slot_count: Int,
     max_wide_nodes: Int,
@@ -806,8 +796,7 @@ def hploc_to_wide_kernel[
             var lane_base = Int(out_idx) * width + lane
 
             if lane >= child_count:
-                wide_data[lane_base] = UInt32(0)
-                wide_counts[lane_base] = EMPTY_LANE
+                wide_meta[lane_base] = _pack_wide_meta(UInt32(0), EMPTY_LANE)
                 _write_wide_lane_bounds[width](
                     wide_bounds,
                     out_idx,
@@ -842,10 +831,11 @@ def hploc_to_wide_kernel[
                 b,
             )
 
-            wide_data[lane_base] = child_ref_idx
             if child_is_leaf:
-                wide_counts[lane_base] = leaf_counts[lane]
+                wide_meta[lane_base] = _pack_wide_meta(
+                    child_ref_idx, leaf_counts[lane]
+                )
             else:
-                wide_counts[lane_base] = UInt32(0)
+                wide_meta[lane_base] = _pack_wide_meta(child_ref_idx, UInt32(0))
 
         # continue with the child assigned to the current slot

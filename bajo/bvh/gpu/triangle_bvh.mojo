@@ -71,8 +71,7 @@ def build_triangle_blas_set[
     var wide_bounds = ctx.enqueue_create_buffer[DType.float32](
         total_wide_bounds
     )
-    var wide_data = ctx.enqueue_create_buffer[DType.uint32](total_wide_lanes)
-    var wide_counts = ctx.enqueue_create_buffer[DType.uint32](total_wide_lanes)
+    var wide_meta = ctx.enqueue_create_buffer[DType.uint32](total_wide_lanes)
     var leaf_vertices = ctx.enqueue_create_buffer[DType.float32](
         total_leaf_vertices
     )
@@ -97,11 +96,8 @@ def build_triangle_blas_set[
         blas.tree.wide_bounds.enqueue_copy_to(
             wide_bounds.unsafe_ptr() + wide_bounds_base
         )
-        blas.tree.wide_data.enqueue_copy_to(
-            wide_data.unsafe_ptr() + wide_lane_base
-        )
-        blas.tree.wide_counts.enqueue_copy_to(
-            wide_counts.unsafe_ptr() + wide_lane_base
+        blas.tree.wide_meta.enqueue_copy_to(
+            wide_meta.unsafe_ptr() + wide_lane_base
         )
         blas.leaf_vertices.enqueue_copy_to(
             leaf_vertices.unsafe_ptr() + leaf_f32_base
@@ -113,8 +109,7 @@ def build_triangle_blas_set[
     return BlasSet[width](
         upload_list(ctx, descs),
         wide_bounds,
-        wide_data,
-        wide_counts,
+        wide_meta,
         leaf_vertices,
         leaf_prims,
         len(vertex_sets),
@@ -216,8 +211,7 @@ struct GpuTriangleBvh[width: SIMDSize](Movable):
     ) raises:
         ctx.enqueue_function[trace_triangle_bvh_camera_kernel[Self.width]](
             self.tree.wide_bounds,
-            self.tree.wide_data,
-            self.tree.wide_counts,
+            self.tree.wide_meta,
             self.leaf_vertices,
             self.leaf_prims,
             self.tree.root_idx,
@@ -299,8 +293,7 @@ def trace_triangle_bvh_camera_kernel[
     width: SIMDSize,
 ](
     wide_bounds: UnsafePointer[Float32, ImmutAnyOrigin],
-    wide_data: UnsafePointer[UInt32, ImmutAnyOrigin],
-    wide_counts: UnsafePointer[UInt32, ImmutAnyOrigin],
+    wide_meta: UnsafePointer[UInt32, ImmutAnyOrigin],
     leaf_vertices: UnsafePointer[Float32, ImmutAnyOrigin],
     leaf_prims: UnsafePointer[UInt32, ImmutAnyOrigin],
     root_idx: UInt32,
@@ -333,8 +326,7 @@ def trace_triangle_bvh_camera_kernel[
         ],
     ](
         wide_bounds,
-        wide_data,
-        wide_counts,
+        wide_meta,
         leaf_vertices,
         leaf_prims,
         root_idx,

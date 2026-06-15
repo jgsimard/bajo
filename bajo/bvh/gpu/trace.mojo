@@ -3,6 +3,7 @@ from bajo.bvh.gpu.bounds_bvh import (
     _wide_lane_base,
     _intersect_wide_node_bounds,
 )
+from bajo.bvh.gpu.wide_meta import _wide_meta_count, _wide_meta_data
 from bajo.bvh.constants import (
     GPU_STACK_SIZE,
     f32_max,
@@ -25,8 +26,7 @@ def trace_bounds_bvh[
     lifo: Bool = True,
 ](
     wide_bounds: UnsafePointer[mut=False, Float32, _],
-    wide_data: UnsafePointer[mut=False, UInt32, _],
-    wide_counts: UnsafePointer[mut=False, UInt32, _],
+    wide_meta: UnsafePointer[mut=False, UInt32, _],
     leaf_data_f32: UnsafePointer[mut=False, Float32, _],
     leaf_data_u32: UnsafePointer[mut=False, UInt32, _],
     root_idx: UInt32,
@@ -57,10 +57,11 @@ def trace_bounds_bvh[
 
             comptime for node_lane in range(width):
                 var lane_base = _wide_lane_base[width](current, node_lane)
-                var count = UInt32(wide_counts[lane_base])
+                var meta = wide_meta[lane_base]
+                var count = _wide_meta_count(meta)
 
                 if count != EMPTY_LANE and bounds_hit.mask[node_lane]:
-                    var data = UInt32(wide_data[lane_base])
+                    var data = _wide_meta_data(meta)
 
                     if count == 0:
                         child_valid[node_lane] = True
@@ -106,10 +107,11 @@ def trace_bounds_bvh[
             # basically the same as the cpu version
             comptime for node_lane in range(width):
                 var lane_base = _wide_lane_base[width](current, node_lane)
-                var count = UInt32(wide_counts[lane_base])
+                var meta = wide_meta[lane_base]
+                var count = _wide_meta_count(meta)
 
                 if count != EMPTY_LANE and bounds_hit.mask[node_lane]:
-                    var data = UInt32(wide_data[lane_base])
+                    var data = _wide_meta_data(meta)
 
                     if count == 0:
                         comptime if mode != TRACE.ANY_HIT:

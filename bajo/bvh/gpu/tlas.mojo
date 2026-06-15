@@ -15,6 +15,7 @@ from bajo.bvh.gpu.bounds_bvh import (
     _wide_lane_base,
     _intersect_wide_node_bounds,
 )
+from bajo.bvh.gpu.wide_meta import _wide_meta_count, _wide_meta_data
 from bajo.bvh.camera import Camera
 from bajo.bvh.gpu.sphere_bvh import _intersect_sphere_leaf
 from bajo.bvh.gpu.triangle_bvh import _intersect_triangle_leaf
@@ -76,8 +77,7 @@ def _intersect_tlas_instance_block[
     inst_blas_indices: UnsafePointer[mut=False, UInt32, _],
     blas_descs: UnsafePointer[mut=False, UInt32, _],
     blas_wide_bounds: UnsafePointer[mut=False, Float32, _],
-    blas_wide_data: UnsafePointer[mut=False, UInt32, _],
-    blas_wide_counts: UnsafePointer[mut=False, UInt32, _],
+    blas_wide_meta: UnsafePointer[mut=False, UInt32, _],
     blas_leaf_data_f32: UnsafePointer[mut=True, Float32, _],
     blas_leaf_data_u32: UnsafePointer[mut=True, UInt32, _],
     leaf_block_idx: UInt32,
@@ -109,9 +109,7 @@ def _intersect_tlas_instance_block[
             ](
                 blas_wide_bounds
                 + Int(blas_descs[desc_base + BlasSet.WIDE_BOUNDS_BASE]),
-                blas_wide_data
-                + Int(blas_descs[desc_base + BlasSet.WIDE_LANE_BASE]),
-                blas_wide_counts
+                blas_wide_meta
                 + Int(blas_descs[desc_base + BlasSet.WIDE_LANE_BASE]),
                 blas_leaf_data_f32
                 + Int(blas_descs[desc_base + BlasSet.LEAF_F32_BASE]),
@@ -147,15 +145,13 @@ def _trace_tlas_ray[
     blas_leaf_fn: BlasLeafFn,
 ](
     tlas_wide_bounds: UnsafePointer[mut=False, Float32, _],
-    tlas_wide_data: UnsafePointer[mut=False, UInt32, _],
-    tlas_wide_counts: UnsafePointer[mut=False, UInt32, _],
+    tlas_wide_meta: UnsafePointer[mut=False, UInt32, _],
     tlas_leaf_instances: UnsafePointer[mut=False, UInt32, _],
     inst_inv_transform: UnsafePointer[mut=False, Float32, _],
     inst_blas_indices: UnsafePointer[mut=False, UInt32, _],
     blas_descs: UnsafePointer[mut=False, UInt32, _],
     blas_wide_bounds: UnsafePointer[mut=False, Float32, _],
-    blas_wide_data: UnsafePointer[mut=False, UInt32, _],
-    blas_wide_counts: UnsafePointer[mut=False, UInt32, _],
+    blas_wide_meta: UnsafePointer[mut=False, UInt32, _],
     blas_leaf_data_f32: UnsafePointer[mut=True, Float32, _],
     blas_leaf_data_u32: UnsafePointer[mut=True, UInt32, _],
     tlas_root_idx: UInt32,
@@ -181,10 +177,11 @@ def _trace_tlas_ray[
 
         comptime for node_lane in range(tlas_width):
             var lane_base = _wide_lane_base[tlas_width](current, node_lane)
-            var count = UInt32(tlas_wide_counts[lane_base])
+            var meta = UInt32(tlas_wide_meta[lane_base])
+            var count = _wide_meta_count(meta)
 
             if count != EMPTY_LANE and bounds_hit.mask[node_lane]:
-                var data = UInt32(tlas_wide_data[lane_base])
+                var data = _wide_meta_data(meta)
 
                 if count == 0:
                     child_valid[node_lane] = True
@@ -202,8 +199,7 @@ def _trace_tlas_ray[
                         inst_blas_indices,
                         blas_descs,
                         blas_wide_bounds,
-                        blas_wide_data,
-                        blas_wide_counts,
+                        blas_wide_meta,
                         blas_leaf_data_f32,
                         blas_leaf_data_u32,
                         data,
@@ -256,15 +252,13 @@ def trace_triangle_tlas_camera_kernel[
     blas_width: SIMDSize,
 ](
     tlas_wide_bounds: UnsafePointer[Float32, ImmutAnyOrigin],
-    tlas_wide_data: UnsafePointer[UInt32, ImmutAnyOrigin],
-    tlas_wide_counts: UnsafePointer[UInt32, ImmutAnyOrigin],
+    tlas_wide_meta: UnsafePointer[UInt32, ImmutAnyOrigin],
     tlas_leaf_instances: UnsafePointer[UInt32, ImmutAnyOrigin],
     inst_inv_transform: UnsafePointer[Float32, ImmutAnyOrigin],
     inst_blas_indices: UnsafePointer[UInt32, ImmutAnyOrigin],
     blas_descs: UnsafePointer[UInt32, ImmutAnyOrigin],
     blas_wide_bounds: UnsafePointer[Float32, ImmutAnyOrigin],
-    blas_wide_data: UnsafePointer[UInt32, ImmutAnyOrigin],
-    blas_wide_counts: UnsafePointer[UInt32, ImmutAnyOrigin],
+    blas_wide_meta: UnsafePointer[UInt32, ImmutAnyOrigin],
     blas_leaf_vertices: UnsafePointer[Float32, MutAnyOrigin],
     blas_leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
     tlas_root_idx: UInt32,
@@ -298,15 +292,13 @@ def trace_triangle_tlas_camera_kernel[
         ],
     ](
         tlas_wide_bounds,
-        tlas_wide_data,
-        tlas_wide_counts,
+        tlas_wide_meta,
         tlas_leaf_instances,
         inst_inv_transform,
         inst_blas_indices,
         blas_descs,
         blas_wide_bounds,
-        blas_wide_data,
-        blas_wide_counts,
+        blas_wide_meta,
         blas_leaf_vertices,
         blas_leaf_prims,
         tlas_root_idx,
@@ -328,15 +320,13 @@ def trace_sphere_tlas_camera_kernel[
     blas_width: SIMDSize,
 ](
     tlas_wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    tlas_wide_data: UnsafePointer[UInt32, MutAnyOrigin],
-    tlas_wide_counts: UnsafePointer[UInt32, MutAnyOrigin],
+    tlas_wide_meta: UnsafePointer[UInt32, MutAnyOrigin],
     tlas_leaf_instances: UnsafePointer[UInt32, MutAnyOrigin],
     inst_inv_transform: UnsafePointer[Float32, MutAnyOrigin],
     inst_blas_indices: UnsafePointer[UInt32, MutAnyOrigin],
     blas_descs: UnsafePointer[UInt32, MutAnyOrigin],
     blas_wide_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    blas_wide_data: UnsafePointer[UInt32, MutAnyOrigin],
-    blas_wide_counts: UnsafePointer[UInt32, MutAnyOrigin],
+    blas_wide_meta: UnsafePointer[UInt32, MutAnyOrigin],
     blas_leaf_spheres: UnsafePointer[Float32, MutAnyOrigin],
     blas_leaf_prims: UnsafePointer[UInt32, MutAnyOrigin],
     tlas_root_idx: UInt32,
@@ -370,15 +360,13 @@ def trace_sphere_tlas_camera_kernel[
         ],
     ](
         tlas_wide_bounds,
-        tlas_wide_data,
-        tlas_wide_counts,
+        tlas_wide_meta,
         tlas_leaf_instances,
         inst_inv_transform,
         inst_blas_indices,
         blas_descs,
         blas_wide_bounds,
-        blas_wide_data,
-        blas_wide_counts,
+        blas_wide_meta,
         blas_leaf_spheres,
         blas_leaf_prims,
         tlas_root_idx,
@@ -471,15 +459,13 @@ struct GpuTriangleTlas[tlas_width: SIMDSize, blas_width: SIMDSize]:
             ]
         ](
             self.core.tree.wide_bounds,
-            self.core.tree.wide_data,
-            self.core.tree.wide_counts,
+            self.core.tree.wide_meta,
             self.core.tree.leaf_block_indices,
             self.core.inst_inv_transform,
             self.core.inst_blas_indices,
             blases.descs,
             blases.wide_bounds,
-            blases.wide_data,
-            blases.wide_counts,
+            blases.wide_meta,
             blases.leaf_data_f32,
             blases.leaf_prims,
             self.core.tree.root_idx,
@@ -524,15 +510,13 @@ struct GpuSphereTlas[tlas_width: SIMDSize, blas_width: SIMDSize]:
             ]
         ](
             self.core.tree.wide_bounds,
-            self.core.tree.wide_data,
-            self.core.tree.wide_counts,
+            self.core.tree.wide_meta,
             self.core.tree.leaf_block_indices,
             self.core.inst_inv_transform,
             self.core.inst_blas_indices,
             blases.descs,
             blases.wide_bounds,
-            blases.wide_data,
-            blases.wide_counts,
+            blases.wide_meta,
             blases.leaf_data_f32,
             blases.leaf_prims,
             self.core.tree.root_idx,

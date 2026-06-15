@@ -232,7 +232,7 @@ def _intersect_sphere_leaf[
     width: SIMDSize,
     mode: TRACE,
 ](
-    leaf_spheres: UnsafePointer[Float32, ImmutAnyOrigin],
+    leaf_spheres: UnsafePointer[mut=False, Float32, _],
     leaf_block_idx: UInt32,
     ray: Ray,
     mut hit: Hit,

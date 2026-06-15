@@ -328,7 +328,7 @@ def _intersect_triangle_leaf[
     width: SIMDSize,
     mode: TRACE,
 ](
-    leaf_vertices: UnsafePointer[Float32, ImmutAnyOrigin],
+    leaf_vertices: UnsafePointer[mut=False, Float32, _],
     leaf_block_idx: UInt32,
     ray: Ray,
     mut hit: Hit,

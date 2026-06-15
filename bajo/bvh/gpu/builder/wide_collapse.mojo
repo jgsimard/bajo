@@ -396,10 +396,10 @@ def _write_terminal_leaf_block[
     width: SIMDSize,
 ](
     encoded: UInt32,
-    leaf_payloads: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_ids: UnsafePointer[UInt32, MutAnyOrigin],
-    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_block_indices: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_payloads: UnsafePointer[mut=False, UInt32, _],
+    leaf_ids: UnsafePointer[mut=False, UInt32, _],
+    node_meta: UnsafePointer[mut=False, UInt32, _],
+    leaf_block_indices: UnsafePointer[mut=True, UInt32, _],
     leaf_block_idx: UInt32,
 ):
     var stack = InlineArray[UInt32, GPU_STACK_SIZE](uninitialized=True)
@@ -416,8 +416,8 @@ def _write_terminal_leaf_block[
         if _is_encoded_leaf(e):
             if out_count < width:
                 var sorted_leaf_idx = _encoded_index(e)
-                var item_idx = UInt32(leaf_ids[Int(sorted_leaf_idx)])
-                var payload = UInt32(leaf_payloads[Int(item_idx)])
+                var item_idx = leaf_ids[Int(sorted_leaf_idx)]
+                var payload = leaf_payloads[Int(item_idx)]
 
                 leaf_block_indices[
                     Int(leaf_block_idx) * width + out_count
@@ -443,9 +443,9 @@ def _write_one_leaf_block[
     width: SIMDSize,
 ](
     encoded_leaf: UInt32,
-    leaf_payloads: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_ids: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_block_indices: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_payloads: UnsafePointer[mut=False, UInt32, _],
+    leaf_ids: UnsafePointer[mut=False, UInt32, _],
+    leaf_block_indices: UnsafePointer[mut=True, UInt32, _],
     leaf_block_idx: UInt32,
 ):
     var sorted_leaf_idx = _encoded_index(encoded_leaf)

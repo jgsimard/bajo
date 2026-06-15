@@ -24,7 +24,7 @@ from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list
 
 
 comptime BlasLeafFn = def(
-    UnsafePointer[Float32, ImmutAnyOrigin],
+    UnsafePointer[mut=False, Float32, _],
     UInt32,
     Ray,
     mut Hit,

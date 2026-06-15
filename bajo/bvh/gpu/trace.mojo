@@ -17,7 +17,7 @@ def trace_bounds_bvh[
     width: SIMDSize,
     mode: TRACE,
     leaf_fn: def(
-        UnsafePointer[Float32, ImmutAnyOrigin],
+        UnsafePointer[mut=False, Float32, _],
         UInt32,
         Ray,
         mut Hit,

@@ -25,6 +25,7 @@ comptime MISS_INST = EMPTY_LANE
 comptime CPU_STACK_SIZE = 64
 
 comptime TRI_LEAF_VERTEX_STRIDE = 9
+comptime TRI_LEAF_PACKED_STRIDE = 12
 comptime BVH_BINS = 16
 
 

@@ -108,10 +108,10 @@ def print_transposed_row[
 
 def print_transposed_ms_row(
     name: String,
+    value_width: Int,
     v0_ns: Int,
     v1_ns: Int,
     v2_ns: Int,
-    value_width: Int,
 ):
     print_transposed_row(
         String(t"{name} (ms)"),
@@ -133,61 +133,61 @@ def print_gpu_build_timing_rows(
 ):
     print_transposed_ms_row(
         String("build tot"),
+        value_width,
         build0_ns,
         build1_ns,
         build2_ns,
-        value_width,
     )
     print_transposed_ms_row(
         String("- morton"),
+        value_width,
         timings0.morton_ns,
         timings1.morton_ns,
         timings2.morton_ns,
-        value_width,
     )
     print_transposed_ms_row(
         String("- sort"),
+        value_width,
         timings0.sort_ns,
         timings1.sort_ns,
         timings2.sort_ns,
-        value_width,
     )
     print_transposed_ms_row(
         String("- topology"),
+        value_width,
         timings0.topology_ns,
         timings1.topology_ns,
         timings2.topology_ns,
-        value_width,
     )
     print_transposed_ms_row(
         String("- refit"),
+        value_width,
         timings0.refit_ns,
         timings1.refit_ns,
         timings2.refit_ns,
-        value_width,
     )
     print_transposed_ms_row(
         String("- collapse"),
+        value_width,
         timings0.collapse_ns,
         timings1.collapse_ns,
         timings2.collapse_ns,
-        value_width,
     )
 
     print_transposed_ms_row(
         String("- pack"),
+        value_width,
         timings0.leaf_pack_ns,
         timings1.leaf_pack_ns,
         timings2.leaf_pack_ns,
-        value_width,
     )
 
     print_transposed_ms_row(
         String("- other"),
+        value_width,
         build0_ns - timings0.total(),
         build1_ns - timings1.total(),
         build2_ns - timings2.total(),
-        value_width,
     )
 
 
@@ -209,10 +209,10 @@ def _print_gpu_result_trace_rows(
 
     print_transposed_ms_row(
         String("camera"),
+        value_width,
         row0.kernel_ns,
         row1.kernel_ns,
         row2.kernel_ns,
-        value_width,
     )
     print_transposed_row(
         String("MRay/s"),

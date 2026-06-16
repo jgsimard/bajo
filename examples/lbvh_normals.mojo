@@ -28,8 +28,10 @@ comptime HEIGHT = 720
 comptime GRID_X = 6
 comptime GRID_Z = 6
 comptime DEMO_BLAS_COUNT = 3
-comptime BLAS_WIDTH = 2
-comptime TLAS_WIDTH = 2
+comptime BLAS_WIDTH_CPU = 8
+comptime TLAS_WIDTH_CPU = 2
+comptime BLAS_WIDTH_GPU = 2
+comptime TLAS_WIDTH_GPU = 2
 
 
 def _max_blas_extent(bounds_list: List[AABB]) -> Float32:
@@ -134,7 +136,7 @@ def _make_instances(bounds_list: List[AABB]) raises -> List[Instance]:
     return instances^
 
 
-def _make_camera(tlas: Tlas[TLAS_WIDTH]) -> Camera:
+def _make_camera[width: SIMDSize](tlas: Tlas[width]) -> Camera:
     var bounds = tlas.bounds()
     var center = bounds.centroid()
     var extent = bounds.extent()
@@ -165,7 +167,7 @@ def _make_camera(tlas: Tlas[TLAS_WIDTH]) -> Camera:
     )
 
 
-def _make_camera_params(tlas: Tlas[TLAS_WIDTH]) -> List[Float32]:
+def _make_camera_params[width: SIMDSize](tlas: Tlas[width]) -> List[Float32]:
     return _make_camera(tlas).flatten()
 
 
@@ -362,14 +364,16 @@ def print_hit_counts_by_blas_host(
 def render_cpu(
     tri_vertex_sets: List[List[Vec3f32]],
     instances: List[Instance],
-    cpu_tlas: Tlas[TLAS_WIDTH],
+    cpu_tlas: Tlas[TLAS_WIDTH_CPU],
     camera: Camera,
 ) raises:
     var ray_count = WIDTH * HEIGHT
 
     print("\nBuilding CPU BLAS set...")
     var blas_t0 = perf_counter_ns()
-    var cpu_blases = _build_cpu_triangle_blas_set[BLAS_WIDTH](tri_vertex_sets)
+    var cpu_blases = _build_cpu_triangle_blas_set[BLAS_WIDTH_CPU](
+        tri_vertex_sets
+    )
     var blas_t1 = perf_counter_ns()
     print(
         t"CPU BLAS set build: "
@@ -380,7 +384,7 @@ def render_cpu(
     var hits = List[Float32](length=ray_count * Hit.STRIDE, fill=0.0)
 
     var trace_t0 = perf_counter_ns()
-    _trace_cpu_tlas_camera[TLAS_WIDTH, BLAS_WIDTH](
+    _trace_cpu_tlas_camera[TLAS_WIDTH_CPU, BLAS_WIDTH_CPU](
         WIDTH,
         HEIGHT,
         cpu_tlas,
@@ -438,7 +442,7 @@ def render_gpu(
 
         print("\nBuilding GPU BLAS set...")
         var blas_t0 = perf_counter_ns()
-        var gpu_blases = build_triangle_blas_set[BLAS_WIDTH](
+        var gpu_blases = build_triangle_blas_set[BLAS_WIDTH_GPU](
             ctx, tri_vertex_sets
         )
         ctx.synchronize()
@@ -451,7 +455,9 @@ def render_gpu(
 
         print("\nBuilding GPU TLAS...")
         var tlas_t0 = perf_counter_ns()
-        var gpu_tlas = GpuTriangleTlas[TLAS_WIDTH, BLAS_WIDTH](ctx, instances)
+        var gpu_tlas = GpuTriangleTlas[TLAS_WIDTH_GPU, BLAS_WIDTH_GPU](
+            ctx, instances
+        )
         ctx.synchronize()
         var tlas_t1 = perf_counter_ns()
 
@@ -518,8 +524,10 @@ def main() raises:
     print(t"Instances: {GRID_X * GRID_Z * DEMO_BLAS_COUNT}")
     print(t"Cells: {GRID_X} x {GRID_Z}")
     print(t"Instances per cell: {DEMO_BLAS_COUNT}")
-    print(t"BLAS width: {BLAS_WIDTH}")
-    print(t"TLAS width: {TLAS_WIDTH}")
+    print(t"BLAS width CPU: {BLAS_WIDTH_CPU}")
+    print(t"TLAS width CPU: {TLAS_WIDTH_CPU}")
+    print(t"BLAS width GPU: {BLAS_WIDTH_GPU}")
+    print(t"TLAS width GPU: {TLAS_WIDTH_GPU}")
     print(t"CPU output: {CPU_OUTPUT_PATH}")
     print(t"GPU output: {GPU_OUTPUT_PATH}")
     print("Scene layout: each cell = bunny | buddha | dragon")
@@ -573,7 +581,7 @@ def main() raises:
     )
     _print_bounds_by_blas(instances)
 
-    var cpu_tlas = Tlas[TLAS_WIDTH](instances)
+    var cpu_tlas = Tlas[TLAS_WIDTH_CPU](instances)
     var camera = _make_camera(cpu_tlas)
     var camera_params = camera.flatten()
 

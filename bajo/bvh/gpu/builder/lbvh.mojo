@@ -176,29 +176,12 @@ def _common_prefix(
     return 32 + Int(count_leading_zeros(x))
 
 
-def init_lbvh_topology_kernel(
-    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_parent: UnsafePointer[UInt32, MutAnyOrigin],
-    internal_count: Int,
-    leaf_count: Int,
-):
-    var i = global_idx.x
-
-    if i < internal_count:
-        var base = i * BinaryBvhNode.META_STRIDE
-        node_meta[base + BinaryBvhNode.PARENT] = LBVH_SENTINEL
-        node_meta[base + BinaryBvhNode.LEFT] = 0
-        node_meta[base + BinaryBvhNode.RIGHT] = 0
-        node_meta[base + BinaryBvhNode.FENCE] = 0
-
-    if i < leaf_count:
-        leaf_parent[i] = LBVH_SENTINEL
-
-
 def build_lbvh_topology_kernel(
     sorted_morton_codes: UnsafePointer[UInt32, ImmutAnyOrigin],
     node_meta: UnsafePointer[UInt32, MutAnyOrigin],
     leaf_parent: UnsafePointer[UInt32, MutAnyOrigin],
+    node_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    node_flags: UnsafePointer[UInt32, MutAnyOrigin],
     node_leaf_counts: UnsafePointer[UInt32, MutAnyOrigin],
     leaf_count: Int,
 ):
@@ -207,10 +190,19 @@ def build_lbvh_topology_kernel(
     if i >= internal_count:
         return
 
-    var r = _lbvh_find_range(sorted_morton_codes, i, leaf_count)
-    var first = r[0]
-    var last = r[1]
+    node_flags[i] = UInt32(0)
+
+    var invalid = AABB.invalid()
+    var bounds_base = i * BinaryBvhNode.BOUNDS_STRIDE
+    invalid.store6(node_bounds, bounds_base)
+    invalid.store6(node_bounds, bounds_base + AABB.STRIDE)
+
+    first, last = _lbvh_find_range(sorted_morton_codes, i, leaf_count)
     node_leaf_counts[i] = UInt32(last - first + 1)
+
+    # only root parent is sentinel
+    if first == 0 and last == leaf_count - 1:
+        node_meta[_node_parent_index(UInt32(i))] = LBVH_SENTINEL
 
     var split = _lbvh_find_split(sorted_morton_codes, first, last, leaf_count)
 
@@ -282,18 +274,12 @@ def build_binary_bvh_with_lbvh(
 
     # merge nodes
     if binary.internal_count > 0:
-        ctx.enqueue_function[init_lbvh_topology_kernel](
-            binary.node_meta,
-            binary.leaf_parent,
-            binary.internal_count,
-            binary.leaf_count,
-            grid_dim=binary.blocks_init,
-            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-        )
         ctx.enqueue_function[build_lbvh_topology_kernel](
             binary.keys,
             binary.node_meta,
             binary.leaf_parent,
+            binary.node_bounds,
+            binary.node_flags,
             binary.node_leaf_counts,
             binary.leaf_count,
             grid_dim=binary.blocks_internal,
@@ -304,13 +290,6 @@ def build_binary_bvh_with_lbvh(
 
     # compute aabb over merged nodes
     if binary.internal_count > 0:
-        ctx.enqueue_function[init_empty_bounds_kernel](
-            binary.node_bounds,
-            binary.internal_count,
-            grid_dim=binary.blocks_internal,
-            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-        )
-        binary.node_flags.enqueue_fill(0)
         ctx.enqueue_function[refit_lbvh_bounds_from_leaves_kernel](
             binary.leaf_bounds,
             binary.leaf_ids,

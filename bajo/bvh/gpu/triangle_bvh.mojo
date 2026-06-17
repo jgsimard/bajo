@@ -335,42 +335,43 @@ def _intersect_triangle_leaf[
 
     comptime for lane in range(width):
         var prim = leaf_vertices_u32[block_base + 3 * width + lane]
-        if prim != EMPTY_LANE:
-            var v0 = Vec3f32(
-                leaf_vertices[block_base + 0 * width + lane],
-                leaf_vertices[block_base + 1 * width + lane],
-                leaf_vertices[block_base + 2 * width + lane],
-            )
-            var v1 = Vec3f32(
-                leaf_vertices[block_base + 4 * width + lane],
-                leaf_vertices[block_base + 5 * width + lane],
-                leaf_vertices[block_base + 6 * width + lane],
-            )
-            var v2 = Vec3f32(
-                leaf_vertices[block_base + 8 * width + lane],
-                leaf_vertices[block_base + 9 * width + lane],
-                leaf_vertices[block_base + 10 * width + lane],
-            )
+        if prim == EMPTY_LANE:
+            continue
+        var v0 = Vec3f32(
+            leaf_vertices[block_base + 0 * width + lane],
+            leaf_vertices[block_base + 1 * width + lane],
+            leaf_vertices[block_base + 2 * width + lane],
+        )
+        var v1 = Vec3f32(
+            leaf_vertices[block_base + 4 * width + lane],
+            leaf_vertices[block_base + 5 * width + lane],
+            leaf_vertices[block_base + 6 * width + lane],
+        )
+        var v2 = Vec3f32(
+            leaf_vertices[block_base + 8 * width + lane],
+            leaf_vertices[block_base + 9 * width + lane],
+            leaf_vertices[block_base + 10 * width + lane],
+        )
 
-            var tri_hit = intersect_ray_tri(
-                ray.o,
-                ray.d,
-                v0,
-                v1,
-                v2,
-                hit.t,
-                ray.t_min,
-            )
+        var tri_hit = intersect_ray_tri(
+            ray.o,
+            ray.d,
+            v0,
+            v1,
+            v2,
+            hit.t,
+            ray.t_min,
+        )
 
-            if tri_hit.mask and tri_hit.t < hit.t:
-                hit.t = tri_hit.t
-                comptime if mode == TRACE.ANY_HIT:
-                    return True
-                else:
-                    hit.u = tri_hit.u
-                    hit.v = tri_hit.v
-                    hit.prim = prim
-                    hit.inst = EMPTY_LANE
-                    hit.normal = normalize(cross(v1 - v0, v2 - v0))
-                    any_hit = True
+        if tri_hit.mask and tri_hit.t < hit.t:
+            hit.t = tri_hit.t
+            comptime if mode == TRACE.ANY_HIT:
+                return True
+            else:
+                hit.u = tri_hit.u
+                hit.v = tri_hit.v
+                hit.prim = prim
+                hit.inst = EMPTY_LANE
+                hit.normal = normalize(cross(v1 - v0, v2 - v0))
+                any_hit = True
     return any_hit

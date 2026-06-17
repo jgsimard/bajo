@@ -109,13 +109,11 @@ struct BoundsBvh[width: SIMDSize](Copyable):
                             root.aabb._min.x[lane],
                             root.aabb._min.y[lane],
                             root.aabb._min.z[lane],
-                        )
-                    )
-                    out.grow(
+                        ),
                         Vec3f32(
                             root.aabb._max.x[lane],
                             root.aabb._max.y[lane],
                             root.aabb._max.z[lane],
-                        )
+                        ),
                     )
         return out

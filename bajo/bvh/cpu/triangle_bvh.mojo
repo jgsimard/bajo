@@ -54,8 +54,9 @@ struct TriangleBvh[width: SIMDSize](Copyable, TypedBvh):
         return self.tree.root_bounds()
 
     def _pack_leaves(mut self, var vertices: List[Vec3f32]):
-        self.leaf_blocks = List[TriangleLeafBlock[Self.width]]()
-
+        self.leaf_blocks = List[TriangleLeafBlock[Self.width]](
+            capacity=(self.tri_count + Int(Self.width) - 1) // Int(Self.width)
+        )
         for ref node in self.tree.nodes:
             comptime for lane in range(Self.width):
                 if node.counts[lane] != EMPTY_LANE and node.counts[lane] > 0:
@@ -64,31 +65,30 @@ struct TriangleBvh[width: SIMDSize](Copyable, TypedBvh):
 
                     var block = TriangleLeafBlock[Self.width]()
 
-                    comptime for k in range(Self.width):
-                        if k < Int(item_count):
-                            var item_ref = Int(
-                                self.tree.item_indices[Int(first_item) + k]
-                            )
-                            var prim_idx = self.tree.item_payloads[item_ref]
-                            var base = Int(prim_idx) * 3
+                    for k in range(Int(item_count)):
+                        var item_ref = Int(
+                            self.tree.item_indices[Int(first_item) + k]
+                        )
+                        var prim_idx = self.tree.item_payloads[item_ref]
+                        var base = Int(prim_idx) * 3
 
-                            ref p0 = vertices[base + 0]
-                            ref p1 = vertices[base + 1]
-                            ref p2 = vertices[base + 2]
+                        ref p0 = vertices[base + 0]
+                        ref p1 = vertices[base + 1]
+                        ref p2 = vertices[base + 2]
 
-                            block.v0.x[k] = p0.x
-                            block.v0.y[k] = p0.y
-                            block.v0.z[k] = p0.z
+                        block.v0.x[k] = p0.x
+                        block.v0.y[k] = p0.y
+                        block.v0.z[k] = p0.z
 
-                            block.v1.x[k] = p1.x
-                            block.v1.y[k] = p1.y
-                            block.v1.z[k] = p1.z
+                        block.v1.x[k] = p1.x
+                        block.v1.y[k] = p1.y
+                        block.v1.z[k] = p1.z
 
-                            block.v2.x[k] = p2.x
-                            block.v2.y[k] = p2.y
-                            block.v2.z[k] = p2.z
+                        block.v2.x[k] = p2.x
+                        block.v2.y[k] = p2.y
+                        block.v2.z[k] = p2.z
 
-                            block.prim_indices[k] = prim_idx
+                        block.prim_indices[k] = prim_idx
 
                     var block_idx = UInt32(len(self.leaf_blocks))
                     self.leaf_blocks.append(block^)

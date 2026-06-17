@@ -32,7 +32,7 @@ def trace_bounds_bvh[
         ref node = tree.nodes[Int(n_idx)]
 
         var aabb_hit = intersect_ray_aabb(O, rD, node.aabb, hit.t)
-        var valid_lane = ~node.counts.eq(EMPTY_LANE)
+        var valid_lane = node.counts.ne(EMPTY_LANE)
         var mask = aabb_hit.mask & valid_lane
 
         if mask.reduce_or():

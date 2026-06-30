@@ -25,7 +25,7 @@ def build_sphere_blas_set[
 ](mut ctx: DeviceContext, sphere_sets: List[List[Sphere]]) raises -> BlasSet[
     width
 ]:
-    debug_assert["safe"](len(sphere_sets) != 0)
+    debug_assert["safe"](len(sphere_sets) > 0)
 
     var descs = List[UInt32](capacity=len(sphere_sets) * BlasSet.STRIDE)
 
@@ -35,7 +35,7 @@ def build_sphere_blas_set[
     # First pass: compute final packed offsets without building/downloading.
     for blas_idx in range(len(sphere_sets)):
         var sphere_count = len(sphere_sets[blas_idx])
-        debug_assert["safe"](sphere_count != 0)
+        debug_assert["safe"](sphere_count > 0)
 
         var internal_count = sphere_count - 1
         var max_wide_nodes = max(internal_count, 1)

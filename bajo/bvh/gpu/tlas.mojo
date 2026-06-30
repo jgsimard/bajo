@@ -34,7 +34,7 @@ comptime BlasLeafFn = def(
 def _flatten_instance_inv_transforms(
     instances: List[Instance],
 ) -> List[Float32]:
-    debug_assert["safe"](len(instances) != 0)
+    debug_assert["safe"](len(instances) > 0)
 
     var out = List[Float32](capacity=len(instances) * Affine3f32.STRIDE)
     for instance in instances:
@@ -45,7 +45,7 @@ def _flatten_instance_inv_transforms(
 def _flatten_instance_blas_indices(
     instances: List[Instance],
 ) -> List[UInt32]:
-    debug_assert["safe"](len(instances) != 0)
+    debug_assert["safe"](len(instances) > 0)
     return [instance.blas_idx for instance in instances]
 
 
@@ -363,7 +363,7 @@ struct GpuTypedTlasCore[width: SIMDSize]:
         instances: List[Instance],
     ) raises:
         self.inst_count = len(instances)
-        debug_assert["safe"](self.inst_count != 0, "passed empty input.")
+        debug_assert["safe"](self.inst_count > 0, "passed empty input.")
 
         var leaf_bounds = List[Float32](capacity=self.inst_count * AABB.STRIDE)
         var payloads = List[UInt32](capacity=self.inst_count)

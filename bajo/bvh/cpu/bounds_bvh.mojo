@@ -100,7 +100,7 @@ struct BoundsBvh[width: SIMDSize](Copyable):
 
     def root_bounds(self) -> AABB:
         var out = AABB.invalid()
-        if len(self.nodes) != 0:
+        if len(self.nodes) > 0:
             ref root = self.nodes[0]
             comptime for lane in range(Self.width):
                 if root.counts[lane] != EMPTY_LANE:

@@ -16,7 +16,7 @@ def trace_bounds_bvh[
         mut Hit,
     ) capturing -> Bool,
 ](tree: BoundsBvh[width], ray: Ray) -> Hit:
-    debug_assert["safe"](len(tree.nodes) != 0)
+    debug_assert["safe"](len(tree.nodes) > 0)
 
     var hit = Hit.miss(ray.t_max)
 

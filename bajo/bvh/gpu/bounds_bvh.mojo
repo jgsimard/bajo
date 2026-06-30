@@ -69,7 +69,7 @@ struct GpuBoundsBvh[width: SIMDSize](Movable):
         leaf_bounds: DeviceBuffer[DType.float32],
         leaf_payloads: DeviceBuffer[DType.uint32],
     ) raises -> GpuBuildTimings:
-        debug_assert["safe"](self.leaf_count != 0, "passed empty input.")
+        debug_assert["safe"](self.leaf_count > 0, "passed empty input.")
         debug_assert["safe"](len(leaf_payloads) == self.leaf_count)
 
         var binary = GpuBinaryBoundsBvh(ctx, leaf_bounds, leaf_payloads)
@@ -98,7 +98,7 @@ struct GpuBoundsBvh[width: SIMDSize](Movable):
         leaf_bounds: DeviceBuffer[DType.float32],
         leaf_payloads: DeviceBuffer[DType.uint32],
     ) raises -> GpuBinaryBoundsBvh:
-        debug_assert["safe"](self.leaf_count != 0, "passed empty input.")
+        debug_assert["safe"](self.leaf_count > 0, "passed empty input.")
         debug_assert["safe"](len(leaf_payloads) == self.leaf_count)
         var binary = GpuBinaryBoundsBvh(ctx, leaf_bounds, leaf_payloads)
         self.bounds_device = binary.bounds_device.copy()

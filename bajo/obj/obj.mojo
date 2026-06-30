@@ -660,10 +660,7 @@ def _parse_obj[
                 elif tag == "mtllib":
                     var mtl_name = cur.joined_rest_of_line()
                     if mtl_name.byte_length() > 0:
-                        try:
-                            _read_mtl_file(mesh, path, mtl_name, loader)
-                        except:
-                            pass
+                        _read_mtl_file(mesh, path, mtl_name, loader)
 
         line_start = line_end + 1
 

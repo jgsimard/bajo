@@ -84,7 +84,6 @@ struct Hit(TrivialRegisterPassable, Writable):
         )
 
 
-@fieldwise_init
 struct Ray(TrivialRegisterPassable, Writable):
     comptime STRIDE = 8
     comptime ORIGIN = 0  # 0, 1, 2

@@ -60,8 +60,8 @@ struct Camera(TrivialRegisterPassable, Writable):
 
         return Ray(
             self.origin,
-            0.0,
             normalize(dir),
+            0.0,
             f32_max,
         )
 

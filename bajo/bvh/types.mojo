@@ -200,23 +200,8 @@ struct Instance(Copyable):
         self.transform = transform.copy()
         self.inv_transform = inv_transform.copy()
         self.blas_idx = blas_idx
-        self.bounds = transform_bounds(transform, blas_bounds)
+        self.bounds = blas_bounds.apply_transform(transform)
         self.kind = kind
-
-
-def transform_bounds(transform: Affine3f32, bounds: AABB) -> AABB:
-    var out = AABB.invalid()
-    out.grow(
-        transform.point(Vec3f32(bounds._min.x, bounds._min.y, bounds._min.z)),
-        transform.point(Vec3f32(bounds._max.x, bounds._min.y, bounds._min.z)),
-        transform.point(Vec3f32(bounds._min.x, bounds._max.y, bounds._min.z)),
-        transform.point(Vec3f32(bounds._max.x, bounds._max.y, bounds._min.z)),
-        transform.point(Vec3f32(bounds._min.x, bounds._min.y, bounds._max.z)),
-        transform.point(Vec3f32(bounds._max.x, bounds._min.y, bounds._max.z)),
-        transform.point(Vec3f32(bounds._min.x, bounds._max.y, bounds._max.z)),
-        transform.point(Vec3f32(bounds._max.x, bounds._max.y, bounds._max.z)),
-    )
-    return out
 
 
 trait TypedBvh:

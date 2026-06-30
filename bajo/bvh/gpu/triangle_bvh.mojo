@@ -200,7 +200,7 @@ struct GpuTriangleBvh[width: SIMDSize](Movable):
 
 
 def compute_triangle_bounds_kernel(
-    vertices: UnsafePointer[Float32, MutAnyOrigin],
+    vertices: UnsafePointer[Float32, ImmutAnyOrigin],
     leaf_bounds: UnsafePointer[Float32, MutAnyOrigin],
     payloads: UnsafePointer[UInt32, MutAnyOrigin],
     tri_count: Int,

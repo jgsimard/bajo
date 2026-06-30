@@ -95,7 +95,7 @@ def init_empty_bounds_kernel(
 
 
 def compute_bounds_partials_kernel(
-    leaf_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    leaf_bounds: UnsafePointer[Float32, ImmutAnyOrigin],
     out_partials: UnsafePointer[Float32, MutAnyOrigin],
     leaf_count: Int,
 ):

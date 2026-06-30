@@ -24,9 +24,9 @@ from bajo.bvh.gpu.builder.binary_layout import (
 
 def _encoded_bounds(
     encoded: UInt32,
-    leaf_bounds: UnsafePointer[mut=True, Float32, _],
-    leaf_ids: UnsafePointer[mut=True, UInt32, _],
-    node_bounds: UnsafePointer[mut=True, Float32, _],
+    leaf_bounds: UnsafePointer[mut=False, Float32, _],
+    leaf_ids: UnsafePointer[mut=False, UInt32, _],
+    node_bounds: UnsafePointer[mut=False, Float32, _],
 ) -> AABB:
     if _is_encoded_leaf(encoded):
         var sorted_leaf_idx = _encoded_index(encoded)
@@ -40,10 +40,10 @@ def _encoded_bounds(
 def collapse_terminal_root_to_wide_kernel[
     width: SIMDSize,
 ](
-    leaf_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    leaf_payloads: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_ids: UnsafePointer[UInt32, MutAnyOrigin],
-    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_bounds: UnsafePointer[Float32, ImmutAnyOrigin],
+    leaf_payloads: UnsafePointer[UInt32, ImmutAnyOrigin],
+    leaf_ids: UnsafePointer[UInt32, ImmutAnyOrigin],
+    node_meta: UnsafePointer[UInt32, ImmutAnyOrigin],
     node_bounds: UnsafePointer[Float32, MutAnyOrigin],
     wide_nodes: UnsafePointer[Float32, MutAnyOrigin],
     leaf_block_indices: UnsafePointer[UInt32, MutAnyOrigin],

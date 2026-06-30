@@ -49,10 +49,10 @@ def compute_bounds_morton_codes_kernel(
 
 
 def refit_lbvh_bounds_from_leaves_kernel(
-    leaf_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    leaf_ids: UnsafePointer[UInt32, MutAnyOrigin],
-    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_parent: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_bounds: UnsafePointer[Float32, ImmutAnyOrigin],
+    leaf_ids: UnsafePointer[UInt32, ImmutAnyOrigin],
+    node_meta: UnsafePointer[UInt32, ImmutAnyOrigin],
+    leaf_parent: UnsafePointer[UInt32, ImmutAnyOrigin],
     node_bounds: UnsafePointer[Float32, MutAnyOrigin],
     node_flags: UnsafePointer[UInt32, MutAnyOrigin],
     leaf_count: Int,

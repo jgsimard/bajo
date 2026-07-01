@@ -6,7 +6,6 @@ from std.testing import (
 )
 
 from bajo.core import (
-    Vec2f32,
     Vec3f32,
     dot,
     cross,
@@ -46,6 +45,14 @@ def test_near_zero() raises:
 
     assert_false(Vec3f32(0.1).is_near_zero())
     assert_false(Vec3f32(1e-9, 1e-9, 0.1).is_near_zero())
+
+
+def test_safe_inv_zero_and_nonzero_components() raises:
+    inv = Vec3f32(2.0, 0.0, -4.0).safe_inv()
+
+    assert_almost_equal(inv.x, 0.5)
+    assert_almost_equal(inv.y, 0.0)
+    assert_almost_equal(inv.z, -0.25)
 
 
 def main() raises:

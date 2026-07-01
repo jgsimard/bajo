@@ -5,20 +5,24 @@ from std.gpu import DeviceBuffer, DeviceContext
 
 from bajo.core import AABB, Vec3f32, Affine3f32
 from bajo.bvh.camera import Camera
-from bajo.bvh.constants import Primitive, EMPTY_LANE, TRACE, f32_max
+from bajo.bvh.constants import Primitive, TRACE, f32_max
 from bajo.bvh.host_utils import compute_bounds, sphere_bounds
-from bajo.bvh.types import Instance, Sphere, Ray, Hit
+from bajo.bvh.types import Instance, Sphere, Hit
 from bajo.bvh.gpu.utils import upload_camera
 from bajo.bvh.gpu.triangle_bvh import build_triangle_blas_set
 from bajo.bvh.gpu.sphere_bvh import build_sphere_blas_set
 from bajo.bvh.gpu.tlas import GpuTriangleTlas, GpuSphereTlas
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.tlas import Tlas
+from test.bvh.fixtures import (
+    _camera_for_bounds,
+    _download_tlas_checksum,
+    _make_camera_ray,
+)
 
 
 comptime TLAS_WIDTH = 4
 comptime BLAS_WIDTH = 4
-comptime MISS = UInt32(0xFFFFFFFF)
 
 
 def _make_triangle_at_z(z: Float32) -> List[Vec3f32]:
@@ -29,62 +33,11 @@ def _make_triangle_at_z(z: Float32) -> List[Vec3f32]:
     ]
 
 
-def _make_camera_ray(origin: Vec3f32, direction: Vec3f32) -> Camera:
-    return Camera(
-        origin,
-        origin + direction,
-        Vec3f32(0.0, 1.0, 0.0),
-        Float32(0.75),
-    )
-
-
-def _camera_for_bounds(bounds: AABB) -> Camera:
-    var center = bounds.centroid()
-    var extent = bounds.extent()
-    var scene_w = extent.x
-    if extent.y > scene_w:
-        scene_w = extent.y
-    if extent.z > scene_w:
-        scene_w = extent.z
-    if scene_w < 1.0:
-        scene_w = 1.0
-
-    var eye = center + Vec3f32(0.0, 0.0, -scene_w * 2.5)
-    return Camera(
-        eye,
-        center,
-        Vec3f32(0.0, 1.0, 0.0),
-        Float32(0.75),
-    )
-
-
 def _instances_bounds(instances: List[Instance]) -> AABB:
     var bounds = AABB.invalid()
     for inst in instances:
         bounds.grow(inst.bounds)
     return bounds
-
-
-def _download_tlas_checksum(
-    d_hits: DeviceBuffer[DType.float32],
-    ray_count: Int,
-) raises -> Tuple[Float64, UInt32, UInt64]:
-    var checksum = Float64(0.0)
-    var hits = UInt32(0)
-    var inst_checksum = UInt64(0)
-
-    with d_hits.map_to_host() as hf:
-        for i in range(ray_count):
-            var gpu_hit = Hit.load(hf.unsafe_ptr(), i)
-            var t = gpu_hit.t
-            if t < f32_max:
-                checksum += Float64(t)
-                hits += 1
-            var inst = gpu_hit.inst
-            if inst != MISS:
-                inst_checksum += UInt64(inst)
-
-    return (checksum, hits, inst_checksum)
 
 
 def _cpu_triangle_tlas_checksum[

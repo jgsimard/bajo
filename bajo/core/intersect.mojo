@@ -160,30 +160,31 @@ def furthest_point_to_triangle[
     return Vec2[dtype, width](0, 0)
 
 
-def intersect_ray_aabb[
+def intersect_ray_aabb_rcp[
     dtype: DType, width: SIMDSize
 ](
     o: Vec3[dtype, width],
-    rd: Vec3[dtype, width],
+    rcp_d: Vec3[dtype, width],
     aabb: AxisAlignedBoundingBox[dtype, width],
     t_max: SIMD[dtype, width],
 ) -> RayDistanceHit[dtype, width]:
-    return intersect_ray_aabb(o, rd, aabb._min, aabb._max, t_max)
+    return intersect_ray_aabb_rcp(o, rcp_d, aabb._min, aabb._max, t_max)
 
 
-def intersect_ray_aabb[
+def intersect_ray_aabb_rcp[
     dtype: DType, width: SIMDSize
 ](
     o: Vec3[dtype, width],
-    rd: Vec3[dtype, width],
+    rcp_d: Vec3[dtype, width],
     bmin: Vec3[dtype, width],
     bmax: Vec3[dtype, width],
     t_max: SIMD[dtype, width],
 ) -> RayDistanceHit[dtype, width]:
+    """Intersect a ray with an AABB using precomputed reciprocal direction."""
     comptime assert dtype in [DType.float32, DType.float64]
 
-    var t0 = (bmin - o) * rd
-    var t1 = (bmax - o) * rd
+    var t0 = (bmin - o) * rcp_d
+    var t1 = (bmax - o) * rcp_d
     var t_near = vmin(t0, t1)
     var t_far = vmax(t0, t1)
 
@@ -193,6 +194,29 @@ def intersect_ray_aabb[
     var mask = tmin.le(tmax)
 
     return RayDistanceHit(mask, tmin)
+
+
+def intersect_ray_aabb[
+    dtype: DType, width: SIMDSize
+](
+    o: Vec3[dtype, width],
+    rcp_d: Vec3[dtype, width],
+    aabb: AxisAlignedBoundingBox[dtype, width],
+    t_max: SIMD[dtype, width],
+) -> RayDistanceHit[dtype, width]:
+    return intersect_ray_aabb_rcp(o, rcp_d, aabb, t_max)
+
+
+def intersect_ray_aabb[
+    dtype: DType, width: SIMDSize
+](
+    o: Vec3[dtype, width],
+    rcp_d: Vec3[dtype, width],
+    bmin: Vec3[dtype, width],
+    bmax: Vec3[dtype, width],
+    t_max: SIMD[dtype, width],
+) -> RayDistanceHit[dtype, width]:
+    return intersect_ray_aabb_rcp(o, rcp_d, bmin, bmax, t_max)
 
 
 def intersect_aabb_aabb[

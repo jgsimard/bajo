@@ -11,12 +11,13 @@ from bajo.core.intersect import (
     closest_point_to_triangle,
     furthest_point_to_triangle,
     intersect_ray_aabb,
+    intersect_ray_aabb_rcp,
     intersect_aabb_aabb,
     no_div_tri_tri_isect,
     intersect_tri_tri,
 )
 
-from bajo.core.vec import Vec2, Vec3, assert_vec_equal
+from bajo.core.vec import Vec3, assert_vec_equal
 
 
 # AABB
@@ -73,6 +74,29 @@ def test_intersect_ray_aabb() raises:
     dir_miss = Vec3([0.0, 1.0, 0.0])
     rcp_dir_miss = Vec3(1e9, 1.0 / dir_miss.y, 1e9)
     res = intersect_ray_aabb(pos_miss, rcp_dir_miss, lower, upper, 1e30)
+    assert_false(res.mask)
+
+
+def test_intersect_ray_aabb_rcp_name_and_inside_hit() raises:
+    lower = Vec3(-1.0)
+    upper = Vec3(1.0)
+
+    pos_inside = Vec3(0.0, 0.0, 0.0)
+    rcp_dir = Vec3(1.0, 1e9, 1e9)
+
+    res = intersect_ray_aabb_rcp(pos_inside, rcp_dir, lower, upper, 1e30)
+    assert_true(res.mask)
+    assert_almost_equal(res.t, 0.0, atol=1e-4)
+
+
+def test_intersect_ray_aabb_parallel_outside_miss() raises:
+    lower = Vec3(-1.0)
+    upper = Vec3(1.0)
+
+    pos = Vec3(2.0, 0.0, 0.0)
+    rcp_dir = Vec3(1e9, 1.0, 1e9)
+
+    res = intersect_ray_aabb_rcp(pos, rcp_dir, lower, upper, 1e30)
     assert_false(res.mask)
 
 

@@ -23,7 +23,7 @@ struct BoundsBvhBuilder[leaf_size: Int](Copyable):
     def __init__(out self, items: List[BoundsItem]):
         self.items = items.copy()
         self.item_count = UInt32(len(self.items))
-        debug_assert["safe"](self.item_count != 0)
+        debug_assert["safe"](self.item_count > 0)
 
         self.item_indices = [i for i in range(self.item_count)]
 
@@ -45,7 +45,7 @@ struct BoundsBvhBuilder[leaf_size: Int](Copyable):
 
     def build[split_method: String = "median"](mut self):
         comptime assert split_method in ["median", "sah", "lbvh"]
-        debug_assert["safe"](self.item_count != 0, "passed empty input.")
+        debug_assert["safe"](self.item_count > 0, "passed empty input.")
 
         comptime if split_method == "lbvh":
             _build_lbvh[Self.leaf_size](self)
@@ -153,7 +153,7 @@ struct BoundsBvhBuilder[leaf_size: Int](Copyable):
         self._subdivide[split_method](left_child_idx + 1)
 
     def tree_quality(self) -> Float32:
-        debug_assert["safe"](self.nodes_used != 0)
+        debug_assert["safe"](self.nodes_used > 0)
 
         ref root = self.nodes[0]
         var root_area = root.surface_area()

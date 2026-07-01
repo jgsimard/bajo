@@ -95,7 +95,7 @@ def init_empty_bounds_kernel(
 
 
 def compute_bounds_partials_kernel(
-    leaf_bounds: UnsafePointer[Float32, MutAnyOrigin],
+    leaf_bounds: UnsafePointer[Float32, ImmutAnyOrigin],
     out_partials: UnsafePointer[Float32, MutAnyOrigin],
     leaf_count: Int,
 ):
@@ -186,7 +186,7 @@ struct GpuBinaryBoundsBvh(Movable):
         leaf_payloads: DeviceBuffer[DType.uint32],
     ) raises:
         self.leaf_count = len(leaf_payloads)
-        debug_assert["safe"](self.leaf_count != 0, "passed empty input.")
+        debug_assert["safe"](self.leaf_count > 0, "passed empty input.")
         self.internal_count = self.leaf_count - 1
 
         var n_leaf = self.leaf_count

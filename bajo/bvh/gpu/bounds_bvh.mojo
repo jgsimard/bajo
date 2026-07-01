@@ -3,7 +3,7 @@ from std.gpu import DeviceBuffer, DeviceContext
 from std.time import perf_counter_ns
 
 from bajo.core import AABB, AxisAlignedBoundingBox, Vec3
-from bajo.core.intersect import intersect_ray_aabb, RayDistanceHit
+from bajo.core.intersect import intersect_ray_aabb_rcp, RayDistanceHit
 from bajo.bvh.types import Ray
 from bajo.bvh.constants import EMPTY_LANE, WideNode
 from bajo.bvh.gpu.validate import (
@@ -69,7 +69,7 @@ struct GpuBoundsBvh[width: SIMDSize](Movable):
         leaf_bounds: DeviceBuffer[DType.float32],
         leaf_payloads: DeviceBuffer[DType.uint32],
     ) raises -> GpuBuildTimings:
-        debug_assert["safe"](self.leaf_count != 0, "passed empty input.")
+        debug_assert["safe"](self.leaf_count > 0, "passed empty input.")
         debug_assert["safe"](len(leaf_payloads) == self.leaf_count)
 
         var binary = GpuBinaryBoundsBvh(ctx, leaf_bounds, leaf_payloads)
@@ -98,7 +98,7 @@ struct GpuBoundsBvh[width: SIMDSize](Movable):
         leaf_bounds: DeviceBuffer[DType.float32],
         leaf_payloads: DeviceBuffer[DType.uint32],
     ) raises -> GpuBinaryBoundsBvh:
-        debug_assert["safe"](self.leaf_count != 0, "passed empty input.")
+        debug_assert["safe"](self.leaf_count > 0, "passed empty input.")
         debug_assert["safe"](len(leaf_payloads) == self.leaf_count)
         var binary = GpuBinaryBoundsBvh(ctx, leaf_bounds, leaf_payloads)
         self.bounds_device = binary.bounds_device.copy()
@@ -209,12 +209,12 @@ def _intersect_wide_node_bounds[
         node_idx,
     )
 
-    var O = Vec3[DType.float32, width](ray.o.x, ray.o.y, ray.o.z)
-    var RD = 1.0 / Vec3[DType.float32, width](ray.d.x, ray.d.y, ray.d.z)
+    var O = ray.origin[width]()
+    var rcp_d = ray.rcp_direction[width]()
 
-    return intersect_ray_aabb(
+    return intersect_ray_aabb_rcp(
         O,
-        RD,
+        rcp_d,
         block._min,
         block._max,
         t_max,

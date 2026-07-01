@@ -6,7 +6,6 @@ from std.gpu import DeviceContext, DeviceBuffer
 from bajo.core import AABB, Vec3f32, dot
 from bajo.core.intersect import intersect_ray_sphere
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
-from bajo.bvh.camera import Camera
 from bajo.bvh.host_utils import compute_bounds, sphere_bounds
 from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
 from bajo.bvh.types import Hit, Ray, Sphere
@@ -26,6 +25,7 @@ from bench.bvh.bench_printing import (
     _print_gpu_result_trace_rows,
     _print_gpu_result_validation_rows,
 )
+from bench.bvh.fixtures import make_camera_rays_and_params
 from bajo.obj.pack import pack_obj_triangles
 
 
@@ -52,48 +52,9 @@ comptime SPHERE_HIT_REL_EPS = 1.0e-3
 comptime DEBUG_BENCH_REPEATS = 3
 
 
-def _make_camera_rays_and_params(
-    bounds: AABB,
-    width: Int,
-    height: Int,
-    views: Int,
-    fov_scale: Float32,
-) -> Tuple[List[Ray], List[Float32]]:
-    var center = bounds.centroid()
-    var extent = bounds.extent()
-
-    var scene_w = max(max(extent.x, extent.y), extent.z)
-    if scene_w < 1.0:
-        scene_w = 1.0
-
-    var rays = List[Ray](capacity=width * height * views)
-    var params = List[Float32](capacity=views * Camera.STRIDE)
-
-    for view in range(views):
-        var view_offset = Float32(view) - Float32(views - 1) * 0.5
-        var eye = center + Vec3f32(
-            view_offset * scene_w * 0.30,
-            extent.y * 0.20,
-            -scene_w * 2.50,
-        )
-        var camera = Camera(
-            eye,
-            center,
-            Vec3f32(0.0, 1.0, 0.0),
-            fov_scale,
-        )
-        params.extend(camera.flatten())
-
-        for py in range(height):
-            for px in range(width):
-                rays.append(camera.make_ray(px, py, width, height))
-
-    return (rays^, params^)
-
-
 def _trace_cpu_triangle_bvh[
     width: SIMDSize
-](mut bvh: TriangleBvh[width], rays: List[Ray]) -> Tuple[Float64, UInt32]:
+](bvh: TriangleBvh[width], rays: List[Ray]) -> Tuple[Float64, UInt32]:
     var checksum = Float64(0.0)
     var hit_count = UInt32(0)
 
@@ -108,7 +69,7 @@ def _trace_cpu_triangle_bvh[
 
 def _trace_cpu_sphere_bvh[
     width: SIMDSize
-](mut bvh: SphereBvh[width], rays: List[Ray]) -> Tuple[Float64, UInt32]:
+](bvh: SphereBvh[width], rays: List[Ray]) -> Tuple[Float64, UInt32]:
     var checksum = Float64(0.0)
     var hit_count = UInt32(0)
 
@@ -620,7 +581,7 @@ def main() raises:
     print("Bounds max:", round(bounds._max, 3))
 
     print("\nGenerating CPU reference camera rays...")
-    var camera = _make_camera_rays_and_params(
+    var camera = make_camera_rays_and_params(
         bounds,
         PRIMARY_WIDTH,
         PRIMARY_HEIGHT,
@@ -695,7 +656,7 @@ def main() raises:
             DEBUG_SPHERE_GRID_Y,
         )
         var debug_sphere_bounds = sphere_bounds(debug_spheres)
-        var debug_sphere_camera = _make_camera_rays_and_params(
+        var debug_sphere_camera = make_camera_rays_and_params(
             debug_sphere_bounds,
             DEBUG_SPHERE_RAY_WIDTH,
             DEBUG_SPHERE_RAY_HEIGHT,
@@ -780,7 +741,7 @@ def main() raises:
         print("--------------------")
         var spheres = _make_sphere_grid()
         var sphere_bounds = sphere_bounds(spheres)
-        var sphere_camera = _make_camera_rays_and_params(
+        var sphere_camera = make_camera_rays_and_params(
             sphere_bounds,
             SPHERE_RAY_WIDTH,
             SPHERE_RAY_HEIGHT,

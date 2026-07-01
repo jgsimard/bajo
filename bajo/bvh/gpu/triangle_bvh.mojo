@@ -30,7 +30,7 @@ def build_triangle_blas_set[
 ](mut ctx: DeviceContext, vertex_sets: List[List[Vec3f32]]) raises -> BlasSet[
     width
 ]:
-    debug_assert["safe"](len(vertex_sets) != 0)
+    debug_assert["safe"](len(vertex_sets) > 0)
 
     var descs = List[UInt32](capacity=len(vertex_sets) * BlasSet.STRIDE)
 
@@ -40,7 +40,7 @@ def build_triangle_blas_set[
     # First pass: compute final packed offsets without building/downloading.
     for blas_idx in range(len(vertex_sets)):
         var tri_count = len(vertex_sets[blas_idx]) / 3
-        debug_assert["safe"](tri_count != 0)
+        debug_assert["safe"](tri_count > 0)
 
         var internal_count = tri_count - 1
         var max_wide_nodes = max(internal_count, 1)
@@ -200,7 +200,7 @@ struct GpuTriangleBvh[width: SIMDSize](Movable):
 
 
 def compute_triangle_bounds_kernel(
-    vertices: UnsafePointer[Float32, MutAnyOrigin],
+    vertices: UnsafePointer[Float32, ImmutAnyOrigin],
     leaf_bounds: UnsafePointer[Float32, MutAnyOrigin],
     payloads: UnsafePointer[UInt32, MutAnyOrigin],
     tri_count: Int,

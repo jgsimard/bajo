@@ -1,5 +1,5 @@
 from bajo.bvh.types import Ray, Hit
-from bajo.core.intersect import intersect_ray_aabb
+from bajo.core.intersect import intersect_ray_aabb_rcp
 from bajo.core.vec import Vec3
 from bajo.bvh.cpu.bounds_bvh import BoundsBvh
 from bajo.bvh.constants import EMPTY_LANE, CPU_STACK_SIZE, TRACE
@@ -16,7 +16,7 @@ def trace_bounds_bvh[
         mut Hit,
     ) capturing -> Bool,
 ](tree: BoundsBvh[width], ray: Ray) -> Hit:
-    debug_assert["safe"](len(tree.nodes) != 0)
+    debug_assert["safe"](len(tree.nodes) > 0)
 
     var hit = Hit.miss(ray.t_max)
 
@@ -24,14 +24,14 @@ def trace_bounds_bvh[
     var stack_ptr = 0
     var n_idx = UInt32(0)
 
-    var O = Vec3[DType.float32, width](ray.o.x, ray.o.y, ray.o.z)
-    var D = Vec3[DType.float32, width](ray.d.x, ray.d.y, ray.d.z)
-    var rD = 1.0 / D
+    var O = ray.origin[width]()
+    var D = ray.direction[width]()
+    var rcp_d = ray.rcp_direction[width]()
 
     while True:
         ref node = tree.nodes[Int(n_idx)]
 
-        var aabb_hit = intersect_ray_aabb(O, rD, node.aabb, hit.t)
+        var aabb_hit = intersect_ray_aabb_rcp(O, rcp_d, node.aabb, hit.t)
         var valid_lane = node.counts.ne(EMPTY_LANE)
         var mask = aabb_hit.mask & valid_lane
 

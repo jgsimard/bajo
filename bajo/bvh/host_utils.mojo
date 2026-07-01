@@ -1,9 +1,11 @@
-from std.gpu import DeviceBuffer
-from std.gpu.host import DeviceContext
+from bajo.core import AABB, Vec3f32
+from bajo.bvh.types import Sphere
 
-from bajo.core import AABB, Vec3f32, vmin, vmax, cross, length, normalize
-from bajo.bvh.types import Ray, Sphere
-from bajo.bvh.constants import f32_max
+
+def triangle_bounds(v0: Vec3f32, v1: Vec3f32, v2: Vec3f32) -> AABB:
+    var bounds = AABB.invalid()
+    bounds.grow(v0, v1, v2)
+    return bounds
 
 
 def compute_bounds(verts: List[Vec3f32]) -> AABB:

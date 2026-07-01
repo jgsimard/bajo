@@ -1,13 +1,12 @@
 from std.benchmark import keep
-from std.math import abs, max
+from std.math import abs
 from std.sys import has_accelerator
 from std.testing import TestSuite, assert_true, assert_almost_equal
-from std.gpu import DeviceBuffer, DeviceContext
+from std.gpu import DeviceContext
 
 from bajo.core import AABB, Vec3f32, Affine3f32
-from bajo.bvh.camera import Camera
 from bajo.bvh.constants import Primitive, TRACE, f32_max
-from bajo.bvh.types import Ray, Sphere, Instance, Hit
+from bajo.bvh.types import Sphere, Instance, Hit
 from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.gpu.tlas import GpuTriangleTlas, GpuSphereTlas
@@ -15,143 +14,27 @@ from bajo.bvh.gpu.sphere_bvh import build_sphere_blas_set
 from bajo.bvh.gpu.triangle_bvh import build_triangle_blas_set
 from bajo.bvh.gpu.utils import upload_camera
 
-from test.bvh.fixtures import _append_tri, _brute_sphere_trace
+from test.bvh.fixtures import (
+    _camera_for_bounds,
+    _download_tlas_checksum,
+    _make_camera_ray,
+    _make_single_triangle_scene,
+    _make_small_scene,
+    _make_small_sphere_scene_with_bounds,
+    _trace_cpu_sphere_camera,
+    _trace_cpu_triangle_camera,
+)
 
 
 comptime WIDTH = 64
 comptime HEIGHT = 48
 comptime EPS = 0.05
-comptime MISS = UInt32(0xFFFFFFFF)
-
-
-def _make_small_scene() -> List[Vec3f32]:
-    var verts = List[Vec3f32](capacity=8 * 3)
-    _append_tri(verts, -1.0, -1.0, 2.0)
-    _append_tri(verts, 1.0, -1.0, 2.0)
-    _append_tri(verts, -1.0, 1.0, 2.0)
-    _append_tri(verts, 1.0, 1.0, 2.0)
-    _append_tri(verts, -1.0, -1.0, 4.0)
-    _append_tri(verts, 1.0, -1.0, 4.0)
-    _append_tri(verts, -1.0, 1.0, 4.0)
-    _append_tri(verts, 1.0, 1.0, 4.0)
-    return verts^
-
-
-def _make_single_triangle_scene() -> List[Vec3f32]:
-    var verts = List[Vec3f32](capacity=3)
-    _append_tri(verts, 0.0, 0.0, 2.0)
-    return verts^
-
-
-def _make_spheres() -> Tuple[List[Sphere], AABB]:
-    var spheres = List[Sphere](capacity=4)
-    var bounds = AABB.invalid()
-
-    spheres.append(Sphere(Vec3f32(0.0, 0.0, 2.0), 1.0))
-    spheres.append(Sphere(Vec3f32(4.0, 0.0, 4.0), 1.0))
-    spheres.append(Sphere(Vec3f32(-4.0, 0.0, 6.0), 1.0))
-    spheres.append(Sphere(Vec3f32(0.0, 4.0, 8.0), 1.0))
-
-    for s in spheres:
-        var r = s.radius
-        bounds.grow(Vec3f32(s.center.x - r, s.center.y - r, s.center.z - r))
-        bounds.grow(Vec3f32(s.center.x + r, s.center.y + r, s.center.z + r))
-
-    return (spheres^, bounds)
-
-
-def _camera_for_bounds(bounds: AABB) -> Camera:
-    var center = bounds.centroid()
-    var extent = bounds.extent()
-    var scene_w = max(max(extent.x, extent.y), extent.z)
-    if scene_w < 1.0:
-        scene_w = 1.0
-
-    var eye = center + Vec3f32(0.0, 0.0, -scene_w * 2.0)
-    return Camera(
-        eye,
-        center,
-        Vec3f32(0.0, 1.0, 0.0),
-        Float32(0.75),
-    )
-
-
-def _center_ray_camera(origin: Vec3f32, direction: Vec3f32) -> Camera:
-    return Camera(
-        origin,
-        origin + direction,
-        Vec3f32(0.0, 1.0, 0.0),
-        Float32(0.75),
-    )
-
-
-def _trace_cpu_triangle_camera[
-    width: SIMDSize
-](
-    mut bvh: TriangleBvh[width], camera: Camera, cwidth: Int, cheight: Int
-) -> Tuple[Float64, UInt32]:
-    var checksum = Float64(0.0)
-    var hits = UInt32(0)
-
-    for py in range(cheight):
-        for px in range(cwidth):
-            var ray = camera.make_ray(px, py, cwidth, cheight)
-            var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
-            if hit.t < f32_max:
-                checksum += Float64(hit.t)
-                hits += 1
-
-    return (checksum, hits)
-
-
-def _trace_cpu_sphere_camera(
-    spheres: List[Sphere],
-    camera: Camera,
-    cwidth: Int,
-    cheight: Int,
-) -> Tuple[Float64, UInt32]:
-    var checksum = Float64(0.0)
-    var hits = UInt32(0)
-
-    for py in range(cheight):
-        for px in range(cwidth):
-            var ray = camera.make_ray(px, py, cwidth, cheight)
-            var hit = _brute_sphere_trace(spheres, ray.o, ray.d)
-            if hit.t < f32_max:
-                checksum += Float64(hit.t)
-                hits += 1
-
-    return (checksum, hits)
-
-
-def _download_tlas_checksum(
-    d_hits: DeviceBuffer[DType.float32],
-    ray_count: Int,
-) raises -> Tuple[Float64, UInt32, UInt64]:
-    var checksum = Float64(0.0)
-    var hits = UInt32(0)
-    var inst_checksum = UInt64(0)
-
-    with d_hits.map_to_host() as hf:
-        var gpu_hits_ptr = hf.unsafe_ptr()
-        for i in range(ray_count):
-            var gpu_hit = Hit.load(gpu_hits_ptr, i)
-            var t = gpu_hit.t
-            if t < f32_max:
-                checksum += Float64(t)
-                hits += 1
-
-            var inst = gpu_hit.inst
-            if inst != MISS:
-                inst_checksum += UInt64(inst)
-
-    return (checksum, hits, inst_checksum)
 
 
 def test_gpu_tlas_triangle_camera_single_identity_matches_cpu_blas() raises:
     var verts = _make_small_scene()
     var bounds = compute_bounds(verts)
-    var camera = _camera_for_bounds(bounds)
+    var camera = _camera_for_bounds(bounds, 2.0)
     var cpu_bvh = TriangleBvh[4].__init__["lbvh"](verts.copy())
     var cpu_res = _trace_cpu_triangle_camera[4](cpu_bvh, camera, WIDTH, HEIGHT)
 
@@ -196,7 +79,7 @@ def test_gpu_tlas_triangle_camera_translated_single_instance_hit() raises:
     var verts = _make_single_triangle_scene()
     var bounds = compute_bounds(verts)
     var t = Vec3f32(10.0, 0.0, 0.0)
-    var camera = _center_ray_camera(t, Vec3f32(0.0, 0.0, 1.0))
+    var camera = _make_camera_ray(t, Vec3f32(0.0, 0.0, 1.0))
 
     var instances = [
         Instance(
@@ -235,10 +118,10 @@ def test_gpu_tlas_triangle_camera_translated_single_instance_hit() raises:
 
 
 def test_gpu_tlas_sphere_camera_single_identity_matches_cpu_bruteforce() raises:
-    var scene = _make_spheres()
+    var scene = _make_small_sphere_scene_with_bounds()
     var spheres = scene[0].copy()
     var bounds = scene[1].copy()
-    var camera = _camera_for_bounds(bounds)
+    var camera = _camera_for_bounds(bounds, 2.0)
     var cpu_res = _trace_cpu_sphere_camera(spheres, camera, WIDTH, HEIGHT)
 
     var instances = [
@@ -283,7 +166,7 @@ def test_gpu_tlas_sphere_camera_translated_single_instance_hit() raises:
     var spheres = [Sphere(Vec3f32(0.0, 0.0, 2.0), 1.0)]
     var bounds = AABB(Vec3f32(-1.0, -1.0, 1.0), Vec3f32(1.0, 1.0, 3.0))
     var t = Vec3f32(10.0, 0.0, 0.0)
-    var camera = _center_ray_camera(t, Vec3f32(0.0, 0.0, 1.0))
+    var camera = _make_camera_ray(t, Vec3f32(0.0, 0.0, 1.0))
 
     var instances = [
         Instance(

@@ -9,7 +9,6 @@ from bajo.core.utils import (
     ns_to_mrays_per_s,
 )
 from bajo.core import AABB, Vec3f32, Affine3f32
-from bajo.bvh.camera import Camera
 from bajo.bvh.types import Ray, Sphere, Instance, BlasSet, Hit
 from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
@@ -28,6 +27,7 @@ from bench.bvh.bench_printing import (
     _print_gpu_result_trace_rows,
     _print_gpu_result_validation_rows,
 )
+from bench.bvh.fixtures import make_camera_rays_and_params
 
 
 comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"
@@ -130,45 +130,6 @@ def _instances_bounds(instances: List[Instance]) -> AABB:
     for instance in instances:
         out.grow(instance.bounds)
     return out
-
-
-def _make_camera_rays_and_params(
-    bounds: AABB,
-    width: Int,
-    height: Int,
-    views: Int,
-) -> Tuple[List[Ray], List[Float32]]:
-    var center = bounds.centroid()
-    var extent = bounds.extent()
-
-    var scene_w = max(max(extent.x, extent.y), extent.z)
-    if scene_w < 1.0:
-        scene_w = 1.0
-
-    var rays = List[Ray](capacity=width * height * views)
-    var params = List[Float32](capacity=views * Camera.STRIDE)
-
-    for view in range(views):
-        var view_offset = Float32(view) - Float32(views - 1) * 0.5
-        var eye = center + Vec3f32(
-            view_offset * scene_w * 0.30,
-            extent.y * 0.20,
-            -scene_w * 2.50,
-        )
-        var target = center
-        var camera = Camera(
-            eye,
-            target,
-            Vec3f32(0.0, 1.0, 0.0),
-            Float32(0.75),
-        )
-        params.extend(camera.flatten())
-
-        for py in range(height):
-            for px in range(width):
-                rays.append(camera.make_ray(px, py, width, height))
-
-    return (rays^, params^)
 
 
 def _cpu_tlas_triangle_reference[
@@ -775,7 +736,7 @@ def _bench_triangle_multi_blas_instance_set(
 ) raises:
     var instances = _make_multi_blas_grid_instances(blas_bounds, 32, 16)
     var bounds = _instances_bounds(instances)
-    var camera_data = _make_camera_rays_and_params(
+    var camera_data = make_camera_rays_and_params(
         bounds,
         PRIMARY_WIDTH,
         PRIMARY_HEIGHT,
@@ -866,7 +827,7 @@ def _bench_triangle_instance_set[
         Primitive.TRIANGLE,
     )
     var bounds = _instances_bounds(instances)
-    var camera_data = _make_camera_rays_and_params(
+    var camera_data = make_camera_rays_and_params(
         bounds,
         PRIMARY_WIDTH,
         PRIMARY_HEIGHT,
@@ -1036,7 +997,7 @@ def main() raises:
             Primitive.TRIANGLE,
         )
         var single_bounds = _instances_bounds(single_instances)
-        var single_camera_data = _make_camera_rays_and_params(
+        var single_camera_data = make_camera_rays_and_params(
             single_bounds,
             PRIMARY_WIDTH,
             PRIMARY_HEIGHT,
@@ -1158,7 +1119,7 @@ def main() raises:
             sphere_bounds,
             Primitive.SPHERE,
         )
-        var sphere_camera_data = _make_camera_rays_and_params(
+        var sphere_camera_data = make_camera_rays_and_params(
             sphere_bounds,
             PRIMARY_WIDTH,
             PRIMARY_HEIGHT,
@@ -1234,7 +1195,7 @@ def main() raises:
             Primitive.SPHERE,
         )
         var sphere_grid_bounds = _instances_bounds(sphere_grid)
-        var sphere_grid_camera_data = _make_camera_rays_and_params(
+        var sphere_grid_camera_data = make_camera_rays_and_params(
             sphere_grid_bounds,
             PRIMARY_WIDTH,
             PRIMARY_HEIGHT,

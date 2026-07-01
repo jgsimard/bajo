@@ -27,15 +27,18 @@ bench_all = { depends-on = [
   "bench_bvh_gpu_tlas"
 ] }
 example_lbvh = { cmd = "mojo -I . examples/lbvh_normals.mojo", depends-on = ["download_assets"] }
+example_rtiaw = "mojo -I . examples/rtiaw.mojo"
 test_core = "scripts/run_tests.sh test/core"
 test_obj = "scripts/run_tests.sh test/obj"
 test_sort = "scripts/run_tests.sh test/sort"
+test_rt = "scripts/run_tests.sh test/rt"
 test_bvh = "scripts/run_tests.sh test/bvh"
 test_bvh_cpu = "scripts/run_tests.sh test/bvh/cpu"
 test_bvh_gpu = "scripts/run_tests.sh test/bvh/gpu"
 test_host = { depends-on = [
   "test_core",
   "test_obj",
+  "test_rt",
   "test_bvh_cpu"
 ] }
 test_gpu = { depends-on = [

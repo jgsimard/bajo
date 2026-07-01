@@ -129,6 +129,15 @@ struct Ray(TrivialRegisterPassable, Writable):
             self.t_max,
         ]
 
+    def simd_origin[width: SIMDSize](self) -> Vec3[DType.float32, width]:
+        return Vec3[DType.float32, width](self.o.x, self.o.y, self.o.z)
+
+    def simd_direction[width: SIMDSize](self) -> Vec3[DType.float32, width]:
+        return Vec3[DType.float32, width](self.d.x, self.d.y, self.d.z)
+
+    def simd_rcp_direction[width: SIMDSize](self) -> Vec3[DType.float32, width]:
+        return 1.0 / self.simd_direction[width]()
+
 
 @fieldwise_init
 struct Sphere(TrivialRegisterPassable):

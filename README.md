@@ -11,9 +11,13 @@ Because Mojo is still relatively new, I am currently building out the foundation
 Common commands:
 
 ```bash
-pixi run test              # run all tests
+pixi run check             # run the no-accelerator host test gate
+pixi run test              # run all tests, including GPU tests
+pixi run test_gpu          # run GPU tests only
 pixi run bench_all         # run all benchmarks
 ```
+
+GPU tests and GPU benchmarks require a supported accelerator.
 
 Examples:
 ```

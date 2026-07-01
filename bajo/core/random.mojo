@@ -4,7 +4,7 @@ from std.random import Random
 from bajo.core import Vec3f32, dot
 
 
-struct Rng:
+struct Rng(Movable):
     var _rng: Random[10]
     var _buffer: SIMD[DType.float32, 4]
     var _consumed: Int

@@ -1,8 +1,6 @@
 from bajo.core import AABB, Vec3
 from bajo.bvh.types import Ray, Hit, Instance, TypedBvh
 from bajo.bvh.constants import TRACE, EMPTY_LANE
-from bajo.bvh.cpu.triangle_bvh import TriangleBvh
-from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.bvh.cpu.bounds_bvh import BoundsBvh, BoundsBvhBuilder, BoundsItem
 from bajo.bvh.cpu.trace import trace_bounds_bvh
 

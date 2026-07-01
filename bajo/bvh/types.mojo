@@ -4,7 +4,7 @@ from std.gpu import DeviceBuffer
 
 from bajo.core import AABB, Vec3f32, Affine3f32
 from bajo.bvh.constants import f32_max, EMPTY_LANE, Primitive, TRACE
-from bajo.core.vec import vmin, vmax, Vec3
+from bajo.core.vec import Vec3
 
 
 @fieldwise_init
@@ -129,14 +129,37 @@ struct Ray(TrivialRegisterPassable, Writable):
             self.t_max,
         ]
 
-    def simd_origin[width: SIMDSize](self) -> Vec3[DType.float32, width]:
+    def origin[width: SIMDSize](self) -> Vec3[DType.float32, width]:
         return Vec3[DType.float32, width](self.o.x, self.o.y, self.o.z)
 
-    def simd_direction[width: SIMDSize](self) -> Vec3[DType.float32, width]:
+    def direction[width: SIMDSize](self) -> Vec3[DType.float32, width]:
         return Vec3[DType.float32, width](self.d.x, self.d.y, self.d.z)
 
-    def simd_rcp_direction[width: SIMDSize](self) -> Vec3[DType.float32, width]:
-        return 1.0 / self.simd_direction[width]()
+    def rcp_direction[
+        width: SIMDSize
+    ](self, eps: Float32 = 1.0e-9) -> Vec3[DType.float32, width]:
+        var d = self.direction[width]()
+        var e = SIMD[DType.float32, width](eps)
+        var large = SIMD[DType.float32, width](1.0 / eps)
+        var one = SIMD[DType.float32, width](1.0)
+
+        var mx = abs(d.x).gt(e)
+        var my = abs(d.y).gt(e)
+        var mz = abs(d.z).gt(e)
+
+        var sx = d.x.lt(0.0).select(-large, large)
+        var sy = d.y.lt(0.0).select(-large, large)
+        var sz = d.z.lt(0.0).select(-large, large)
+
+        var dx = mx.select(d.x, one)
+        var dy = my.select(d.y, one)
+        var dz = mz.select(d.z, one)
+
+        return Vec3[DType.float32, width](
+            mx.select(one / dx, sx),
+            my.select(one / dy, sy),
+            mz.select(one / dz, sz),
+        )
 
 
 @fieldwise_init

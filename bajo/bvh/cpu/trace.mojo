@@ -24,9 +24,9 @@ def trace_bounds_bvh[
     var stack_ptr = 0
     var n_idx = UInt32(0)
 
-    var O = ray.simd_origin[width]()
-    var D = ray.simd_direction[width]()
-    var rcp_d = ray.simd_rcp_direction[width]()
+    var O = ray.origin[width]()
+    var D = ray.direction[width]()
+    var rcp_d = ray.rcp_direction[width]()
 
     while True:
         ref node = tree.nodes[Int(n_idx)]

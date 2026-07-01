@@ -247,8 +247,8 @@ def _intersect_sphere_leaf[
         block_base + 4 * width
     )
 
-    var O = ray.simd_origin[width]()
-    var D = ray.simd_direction[width]()
+    var O = ray.origin[width]()
+    var D = ray.direction[width]()
 
     var hit_sphere = intersect_ray_sphere(
         O, D, center, radius, hit.t, ray.t_min

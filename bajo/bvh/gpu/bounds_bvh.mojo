@@ -209,8 +209,8 @@ def _intersect_wide_node_bounds[
         node_idx,
     )
 
-    var O = ray.simd_origin[width]()
-    var rcp_d = ray.simd_rcp_direction[width]()
+    var O = ray.origin[width]()
+    var rcp_d = ray.rcp_direction[width]()
 
     return intersect_ray_aabb_rcp(
         O,

@@ -5,10 +5,9 @@ from std.testing import TestSuite, assert_true
 from std.gpu import DeviceContext, DeviceBuffer
 
 from bajo.core import AABB, Vec3f32
-from bajo.core.vec import vmin, vmax
 from bajo.bvh.camera import Camera
 from bajo.bvh.types import Ray, Sphere, Hit
-from bajo.bvh.host_utils import sphere_bounds
+from bajo.bvh.host_utils import sphere_bounds, triangle_bounds
 from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh, _wide_node_load_meta
@@ -188,15 +187,14 @@ def _make_triangle_leaf_bounds(
         ref v1 = verts[i * 3 + 1]
         ref v2 = verts[i * 3 + 2]
 
-        var _min = vmin(vmin(v0, v1), v2)
-        var _max = vmax(vmax(v0, v1), v2)
+        var bounds = triangle_bounds(v0, v1, v2)
 
-        leaf_bounds.append(_min.x)
-        leaf_bounds.append(_min.y)
-        leaf_bounds.append(_min.z)
-        leaf_bounds.append(_max.x)
-        leaf_bounds.append(_max.y)
-        leaf_bounds.append(_max.z)
+        leaf_bounds.append(bounds._min.x)
+        leaf_bounds.append(bounds._min.y)
+        leaf_bounds.append(bounds._min.z)
+        leaf_bounds.append(bounds._max.x)
+        leaf_bounds.append(bounds._max.y)
+        leaf_bounds.append(bounds._max.z)
         payloads.append(UInt32(i))
 
     var h_leaf_bounds = ctx.enqueue_create_host_buffer[DType.float32](

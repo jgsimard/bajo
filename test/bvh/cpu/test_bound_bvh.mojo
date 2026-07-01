@@ -14,6 +14,7 @@ from bajo.bvh.cpu.builder.builder import _partition_items_by_median_center
 from bajo.bvh.cpu.builder.sah import _find_sah_split
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
+from bajo.bvh.host_utils import triangle_bounds
 
 from test.bvh.fixtures import _brute_triangle_trace, _brute_sphere_trace
 
@@ -44,16 +45,6 @@ def _make_random_xy_triangles(count: Int, seed: UInt64) -> List[Vec3f32]:
         verts.append(Vec3f32(cx, cy + sy, z))
 
     return verts^
-
-
-def _make_tri_bounds(
-    v0: Vec3f32,
-    v1: Vec3f32,
-    v2: Vec3f32,
-) -> AABB:
-    var bounds = AABB.invalid()
-    bounds.grow(v0, v1, v2)
-    return bounds
 
 
 def _make_strip(count: Int) -> List[Vec3f32]:
@@ -97,7 +88,7 @@ def _make_bounds_items(verts: List[Vec3f32]) -> List[BoundsItem]:
         ref v1 = verts[i * 3 + 1]
         ref v2 = verts[i * 3 + 2]
 
-        items.append(BoundsItem(_make_tri_bounds(v0, v1, v2), UInt32(i)))
+        items.append(BoundsItem(triangle_bounds(v0, v1, v2), UInt32(i)))
 
     return items^
 
@@ -274,8 +265,8 @@ def test_bounds_ray_query_inside_outside_regression() raises:
     var lower = Vec3f32(0.5, -1.0, -1.0)
     var upper = Vec3f32(1.0, 1.0, 1.0)
 
-    var query_dir = Vec3f32(1.0, 0.0, 0.0)
-    var rcp_dir = 1.0 / query_dir
+    var query_ray = Ray(Vec3f32(0.0, 0.0, 0.0), Vec3f32(1.0, 0.0, 0.0))
+    var rcp_dir = query_ray.rcp_direction[1]()
 
     var hit_outside = intersect_ray_aabb(
         Vec3f32(0.0, 0.0, 0.0),
@@ -296,8 +287,17 @@ def test_bounds_ray_query_inside_outside_regression() raises:
     assert_true(hit_inside.mask, "Ray starting inside failed to hit")
 
 
+def test_ray_rcp_direction_uses_finite_parallel_axes() raises:
+    var ray = Ray(Vec3f32(0.0), Vec3f32(2.0, 0.0, -4.0))
+    var rcp_dir = ray.rcp_direction[4]()
+
+    assert_almost_equal(rcp_dir.x, 0.5)
+    assert_almost_equal(rcp_dir.y, 1.0e9)
+    assert_almost_equal(rcp_dir.z, -0.25)
+
+
 def test_bounds_item_bounds_and_payload_mapping() raises:
-    var bounds = _make_tri_bounds(
+    var bounds = triangle_bounds(
         Vec3f32(-1.0, 2.0, 3.0),
         Vec3f32(2.0, -4.0, 5.0),
         Vec3f32(0.0, 1.0, -6.0),

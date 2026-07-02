@@ -8,6 +8,7 @@ from std.gpu import (
     grid_dim,
     WARP_SIZE,
     warp_id,
+    DeviceBuffer,
 )
 from std.gpu.host import DeviceContext
 from std.gpu.memory import AddressSpace

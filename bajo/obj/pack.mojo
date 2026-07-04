@@ -1,4 +1,5 @@
 from bajo.core import Vec3f32
+from bajo.obj import read_obj, triangulated_indices
 
 
 def pack_obj_triangles(path: String) raises -> List[Vec3f32]:

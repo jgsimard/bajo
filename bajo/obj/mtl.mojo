@@ -1,6 +1,7 @@
 import std.os
 
-from bajo.obj.types import ObjMaterial
+from bajo.obj.types import ObjMaterial, ObjMesh, ObjIndex
+from bajo.obj.loaders import ObjTextLoader
 from bajo.obj.obj import ObjLineCursor, MINUS
 
 

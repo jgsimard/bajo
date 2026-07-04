@@ -2,6 +2,7 @@ from std.bit import count_leading_zeros
 
 from bajo.core import AABB
 from bajo.core.morton import morton3
+from bajo.bvh.cpu.builder import BoundsBvhBuilder
 
 
 @fieldwise_init

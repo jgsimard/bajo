@@ -1,4 +1,4 @@
-from .types import ObjIndex
+from .types import ObjIndex, ObjMesh
 from .mtl import _read_mtl_file
 from .f32 import parse_f32_at
 from .primitives import (
@@ -9,6 +9,7 @@ from .primitives import (
     _is_ws_or_line_cut,
 )
 from .constants import *
+from .loaders import ObjTextLoader
 
 
 @fieldwise_init

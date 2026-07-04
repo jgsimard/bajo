@@ -428,7 +428,7 @@ struct MatInverseResult[
     var value: Mat[Self.dtype, Self.n, Self.n, Self.width]
 
 
-def inverse[dtype: DType](m: Mat22[dtype]) raises -> Mat22[dtype]:
+def inverse[dtype: DType](m: Mat[dtype, 2, 2]) raises -> Mat[dtype, 2, 2]:
     comptime EPSILON = 1e-8
     x00 = m[0][0]
     x01 = m[0][1]
@@ -439,14 +439,14 @@ def inverse[dtype: DType](m: Mat22[dtype]) raises -> Mat22[dtype]:
         raise "nope"
     rcp = 1.0 / det
     # fmt: off
-    return Mat22[dtype](
+    return Mat[dtype, 2, 2](
         x00 * rcp, -x01 * rcp,
         -x10 * rcp, x11 * rcp
     )
     # fmt: on
 
 
-def inverse[dtype: DType](m: Mat33[dtype]) raises -> Mat33[dtype]:
+def inverse[dtype: DType](m: Mat[dtype, 3, 3]) raises -> Mat[dtype, 3, 3]:
     comptime EPSILON = 1e-8
 
     var x00 = m[0][0]
@@ -477,7 +477,7 @@ def inverse[dtype: DType](m: Mat33[dtype]) raises -> Mat33[dtype]:
 
     var rcp = 1.0 / det
     # fmt: off
-    return Mat33[dtype](
+    return Mat[dtype, 3, 3](
         z00 * rcp, z01 * rcp, z02 * rcp,
         z10 * rcp, z11 * rcp, z12 * rcp,
         z20 * rcp, z21 * rcp, z22 * rcp
@@ -485,7 +485,7 @@ def inverse[dtype: DType](m: Mat33[dtype]) raises -> Mat33[dtype]:
     # fmt: on
 
 
-def inverse[dtype: DType](m: Mat44[dtype]) raises -> Mat44[dtype]:
+def inverse[dtype: DType](m: Mat[dtype, 4, 4]) raises -> Mat[dtype, 4, 4]:
     """Adapted from USD - see licenses/usd-LICENSE.txt Copyright 2016 Pixar."""
 
     comptime EPSILON = 1e-8
@@ -554,7 +554,7 @@ def inverse[dtype: DType](m: Mat44[dtype]) raises -> Mat44[dtype]:
 
     rcp = 1.0 / det
 
-    invm = Mat44[dtype](uninitialized=True)
+    invm = Mat[dtype, 4, 4](uninitialized=True)
 
     # Multiply all 3x3 cofactors by reciprocal & transpose
     invm[0][0] = z00 * rcp

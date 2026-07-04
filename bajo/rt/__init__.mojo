@@ -1,16 +1,34 @@
 from bajo.bvh.camera import Camera
-from .cpu import render, write_ppm_from_colors
+from .cpu import (
+    render,
+    render_depth_first,
+    render_wavefront,
+    write_ppm_from_colors,
+)
 from .types import (
     Color,
+    Dielectric,
     HitRecord,
-    Material,
+    Lambertian,
+    Metal,
     Point3,
+    PrimitiveId,
+    RENDER_AO,
+    RENDER_MIS,
+    RENDER_NEE,
+    RENDER_NORMALS,
+    RENDER_PATH,
     RenderResult,
     RenderSettings,
     RenderTimings,
-    RtSphere,
     ScatterResult,
+    SurfaceId,
+    SurfaceStore,
     World,
-    add_material,
     add_sphere,
+    add_triangle_instance,
+    add_triangle,
+    add_triangle_mesh,
+    add_triangle_mesh_instance,
 )
+from bajo.bvh.types import Instance, Sphere

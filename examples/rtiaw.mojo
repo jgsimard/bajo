@@ -6,12 +6,14 @@ from bajo.core.utils import ns_to_ms
 from bajo.rt import (
     Camera,
     Color,
-    Material,
+    Instance,
     Point3,
+    RENDER_PATH,
     RenderSettings,
-    RtSphere,
+    Sphere,
+    SurfaceId,
+    SurfaceStore,
     World,
-    add_material,
     add_sphere,
     render,
     write_ppm_from_colors,
@@ -24,17 +26,28 @@ comptime IMAGE_HEIGHT = 270
 comptime SAMPLES_PER_PIXEL = 10
 comptime MAX_DEPTH = 12
 comptime RNG_SEED = UInt64(1234)
+comptime RENDER_ALGORITHM = RENDER_PATH
 
 
 def make_weekend_world() -> World:
     var rng = Rng(seed=42, id=7)
-    var materials = List[Material]()
-    var spheres = List[RtSphere]()
+    var surfaces = SurfaceStore()
+    var spheres = List[Sphere]()
+    var sphere_surfaces = List[SurfaceId]()
+    var triangle_vertices = List[Vec3f32]()
+    var triangle_surfaces = List[SurfaceId]()
+    var triangle_meshes = List[List[Vec3f32]]()
+    var triangle_instances = List[Instance]()
+    var triangle_instance_surfaces = List[SurfaceId]()
 
-    var ground_mat = add_material(
-        materials, Material.lambertian(Color(0.5, 0.5, 0.5))
+    var ground_surface = surfaces.add_lambertian(Color(0.5, 0.5, 0.5))
+    add_sphere(
+        spheres,
+        sphere_surfaces,
+        Point3(0.0, -1000.0, 0.0),
+        1000.0,
+        ground_surface,
     )
-    add_sphere(spheres, Point3(0.0, -1000.0, 0.0), 1000.0, ground_mat)
 
     for a in range(-11, 11):
         for b in range(-11, 11):
@@ -48,41 +61,54 @@ def make_weekend_world() -> World:
             if length(center - Point3(4.0, 0.2, 0.0)) > 0.9:
                 if choose_mat < 0.8:
                     var albedo = rng.vec3f32() * rng.vec3f32()
-                    var material_id = add_material(
-                        materials,
-                        Material.lambertian(albedo),
-                    )
-                    add_sphere(spheres, center, 0.2, material_id)
+                    var surface = surfaces.add_lambertian(albedo)
+                    add_sphere(spheres, sphere_surfaces, center, 0.2, surface)
                 elif choose_mat < 0.95:
                     var albedo = rng.vec3f32(0.5, 1.0)
                     var fuzz = rng.f32(0.0, 0.5)
-                    var material_id = add_material(
-                        materials,
-                        Material.metal(albedo, fuzz),
-                    )
-                    add_sphere(spheres, center, 0.2, material_id)
+                    var surface = surfaces.add_metal(albedo, fuzz)
+                    add_sphere(spheres, sphere_surfaces, center, 0.2, surface)
                 else:
-                    var material_id = add_material(
-                        materials,
-                        Material.dielectric(1.5),
-                    )
-                    add_sphere(spheres, center, 0.2, material_id)
+                    var surface = surfaces.add_dielectric(1.5)
+                    add_sphere(spheres, sphere_surfaces, center, 0.2, surface)
 
-    var glass = add_material(materials, Material.dielectric(1.5))
-    add_sphere(spheres, Point3(0.0, 1.0, 0.0), 1.0, glass)
-
-    var diffuse = add_material(
-        materials, Material.lambertian(Color(0.4, 0.2, 0.1))
+    var glass = surfaces.add_dielectric(1.5)
+    add_sphere(
+        spheres,
+        sphere_surfaces,
+        Point3(0.0, 1.0, 0.0),
+        1.0,
+        glass,
     )
-    add_sphere(spheres, Point3(-4.0, 1.0, 0.0), 1.0, diffuse)
 
-    var metal = add_material(
-        materials,
-        Material.metal(Color(0.7, 0.6, 0.5), 0.0),
+    var diffuse = surfaces.add_lambertian(Color(0.4, 0.2, 0.1))
+    add_sphere(
+        spheres,
+        sphere_surfaces,
+        Point3(-4.0, 1.0, 0.0),
+        1.0,
+        diffuse,
     )
-    add_sphere(spheres, Point3(4.0, 1.0, 0.0), 1.0, metal)
 
-    return World(spheres^, materials^)
+    var metal = surfaces.add_metal(Color(0.7, 0.6, 0.5), 0.0)
+    add_sphere(
+        spheres,
+        sphere_surfaces,
+        Point3(4.0, 1.0, 0.0),
+        1.0,
+        metal,
+    )
+
+    return World(
+        spheres^,
+        sphere_surfaces^,
+        triangle_vertices^,
+        triangle_surfaces^,
+        triangle_meshes^,
+        triangle_instances^,
+        triangle_instance_surfaces^,
+        surfaces^,
+    )
 
 
 def main() raises:
@@ -91,7 +117,6 @@ def main() raises:
         IMAGE_WIDTH,
         IMAGE_HEIGHT,
         SAMPLES_PER_PIXEL,
-        MAX_DEPTH,
         RNG_SEED,
     )
     print(
@@ -110,10 +135,13 @@ def main() raises:
     )
 
     print(t"spheres: {len(world.spheres)}")
-    print(t"materials: {len(world.materials)}")
+    print(
+        t"surfaces:"
+        t" {len(world.surfaces.lambertians) + len(world.surfaces.metals) + len(world.surfaces.dielectrics)}"
+    )
 
     var t0 = perf_counter_ns()
-    var result = render(settings, camera, world)
+    var result = render[RENDER_ALGORITHM, MAX_DEPTH](settings, camera, world)
     var t1 = perf_counter_ns()
 
     write_ppm_from_colors(

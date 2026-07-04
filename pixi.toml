@@ -8,8 +8,29 @@ version = "0.1.0"
 [tasks]
 download_assets = "bash scripts/download_assets.sh"
 install_prek = "prek install"
-test = "scripts/run_tests.sh"
-check = { depends-on = ["test_host"] }
+fmt = "mojo format ."
+
+# examples
+example_lbvh = { cmd = "mojo -I . examples/lbvh_normals.mojo", depends-on = ["download_assets"] }
+example_rtiaw = "mojo -I . examples/rtiaw.mojo"
+
+# tests
+test = { cmd = "bash scripts/run_tests.sh test/{{suite}}", args = [
+  { arg = "suite", default = ".", choices = [ ".", "core", "obj", "sort", "rt", "bvh", "bvh/cpu", "bvh/gpu", ] }
+] }
+
+test_host = { depends-on = [
+  { task = "test", args = ["core"] },
+  { task = "test", args = ["obj"] },
+  { task = "test", args = ["rt"] },
+  { task = "test", args = ["bvh/cpu"] },
+] }
+test_gpu = { depends-on = [
+  { task = "test", args = ["sort"] },
+  { task = "test", args = ["bvh/gpu"] },
+] }
+
+# benchmarks
 bench_quat = "mojo -I. bench/core/bench_quat.mojo"
 bench_aabb = "mojo -I. bench/core/bench_aabb.mojo"
 bench_obj = { cmd = "mojo -I. bench/obj/bench_obj.mojo", depends-on = ["download_assets"] }
@@ -26,31 +47,11 @@ bench_all = { depends-on = [
   "bench_bvh_gpu",
   "bench_bvh_gpu_tlas"
 ] }
-example_lbvh = { cmd = "mojo -I . examples/lbvh_normals.mojo", depends-on = ["download_assets"] }
-example_rtiaw = "mojo -I . examples/rtiaw.mojo"
-test_core = "scripts/run_tests.sh test/core"
-test_obj = "scripts/run_tests.sh test/obj"
-test_sort = "scripts/run_tests.sh test/sort"
-test_rt = "scripts/run_tests.sh test/rt"
-test_bvh = "scripts/run_tests.sh test/bvh"
-test_bvh_cpu = "scripts/run_tests.sh test/bvh/cpu"
-test_bvh_gpu = "scripts/run_tests.sh test/bvh/gpu"
-test_host = { depends-on = [
-  "test_core",
-  "test_obj",
-  "test_rt",
-  "test_bvh_cpu"
-] }
-test_gpu = { depends-on = [
-  "test_sort",
-  "test_bvh_gpu"
-] }
 bench_bvh = { depends-on = [
   "bench_bvh_cpu",
   "bench_bvh_gpu",
   "bench_bvh_gpu_tlas"
 ] }
-fmt = "mojo format ."
 
 [dependencies]
 mojo = ">=1.0.0b3.dev2026070406,<2"

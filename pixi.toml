@@ -16,7 +16,7 @@ example_rtiaw = "mojo -I . examples/rtiaw.mojo"
 
 # tests
 test = { cmd = "bash scripts/run_tests.sh test/{{suite}}", args = [
-  { arg = "suite", default = ".", choices = [ ".", "core", "obj", "sort", "rt", "bvh", "bvh/cpu", "bvh/gpu", ] }
+  { arg = "suite", default = "."}
 ] }
 
 test_host = { depends-on = [
@@ -54,6 +54,6 @@ bench_bvh = { depends-on = [
 ] }
 
 [dependencies]
-mojo = ">=1.0.0b3.dev2026070406,<2"
-max = ">=26.5.0.dev2026070406,<27"
+mojo = ">=1.0.0b3.dev2026070506,<2"
+max = ">=26.5.0.dev2026070506,<27"
 python = ">=3.14.6,<3.15"

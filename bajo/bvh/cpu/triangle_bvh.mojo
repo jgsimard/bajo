@@ -1,5 +1,5 @@
 from bajo.core.utils import min_argmin
-from bajo.core import Vec3, Vec3f32, AABB
+from bajo.core import Vec3, Vec3f32, AABB, Point3
 from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
 from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvh,
@@ -97,7 +97,7 @@ struct TriangleBvh[width: SIMDSize](Copyable, TypedBvh):
     def trace[mode: TRACE](self, ray: Ray) -> Hit:
         def leaf_fn(
             ray: Ray,
-            O: Vec3[DType.float32, Self.width],
+            O: Point3[DType.float32, Self.width],
             D: Vec3[DType.float32, Self.width],
             leaf_block_idx: UInt32,
             mut hit: Hit,

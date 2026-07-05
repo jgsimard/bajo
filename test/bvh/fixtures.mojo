@@ -1,7 +1,7 @@
 from std.math import max
 from std.gpu import DeviceBuffer
 
-from bajo.core import AABB, Vec3f32
+from bajo.core import AABB, Vec3f32, Point3f32
 from bajo.bvh.camera import Camera
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.types import Ray, Sphere, Hit
@@ -74,14 +74,14 @@ def _make_duplicate_centroid_scene() -> List[Vec3f32]:
 
 def _make_small_sphere_scene() -> List[Sphere]:
     return [
-        Sphere(Vec3f32(0.0, 0.0, 2.0), 1.0),
-        Sphere(Vec3f32(4.0, 0.0, 4.0), 1.0),
-        Sphere(Vec3f32(-4.0, 0.0, 6.0), 1.0),
-        Sphere(Vec3f32(0.0, 4.0, 8.0), 1.0),
-        Sphere(Vec3f32(4.0, 4.0, 10.0), 1.0),
-        Sphere(Vec3f32(-4.0, 4.0, 12.0), 1.0),
-        Sphere(Vec3f32(4.0, -4.0, 14.0), 1.0),
-        Sphere(Vec3f32(-4.0, -4.0, 16.0), 1.0),
+        Sphere(Point3f32(0.0, 0.0, 2.0), 1.0),
+        Sphere(Point3f32(4.0, 0.0, 4.0), 1.0),
+        Sphere(Point3f32(-4.0, 0.0, 6.0), 1.0),
+        Sphere(Point3f32(0.0, 4.0, 8.0), 1.0),
+        Sphere(Point3f32(4.0, 4.0, 10.0), 1.0),
+        Sphere(Point3f32(-4.0, 4.0, 12.0), 1.0),
+        Sphere(Point3f32(4.0, -4.0, 14.0), 1.0),
+        Sphere(Point3f32(-4.0, -4.0, 16.0), 1.0),
     ]
 
 
@@ -92,14 +92,14 @@ def _make_small_sphere_scene_with_bounds() -> Tuple[List[Sphere], AABB]:
 
 
 def _make_single_sphere_scene() -> List[Sphere]:
-    return [Sphere(Vec3f32(0.0, 0.0, 2.0), 1.0)]
+    return [Sphere(Point3f32(0.0, 0.0, 2.0), 1.0)]
 
 
 def _make_duplicate_sphere_centroid_scene() -> List[Sphere]:
     var spheres = List[Sphere](capacity=12)
     for i in range(12):
         spheres.append(
-            Sphere(Vec3f32(0.0, 0.0, 2.0), 1.0 + Float32(i % 3) * 0.01)
+            Sphere(Point3f32(0.0, 0.0, 2.0), 1.0 + Float32(i % 3) * 0.01)
         )
     return spheres^
 
@@ -169,7 +169,7 @@ def _make_camera_rays_and_params(
 
 def _brute_triangle_trace(
     verts: List[Vec3f32],
-    O: Vec3f32,
+    O: Point3f32,
     D: Vec3f32,
 ) -> Hit:
     var hit = Hit.miss()
@@ -200,7 +200,7 @@ def _brute_triangle_trace(
 
 def _brute_sphere_trace(
     spheres: List[Sphere],
-    O: Vec3f32,
+    O: Point3f32,
     D: Vec3f32,
 ) -> Hit:
     var hit = Hit.miss()

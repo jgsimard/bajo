@@ -8,7 +8,7 @@ from bajo.core.utils import (
     ns_to_ms,
     ns_to_mrays_per_s,
 )
-from bajo.core import AABB, Vec3f32, Affine3f32
+from bajo.core import AABB, Vec3f32, Affine3f32, Point3f32
 from bajo.bvh.types import Ray, Sphere, Instance, BlasSet, Hit
 from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
@@ -805,7 +805,7 @@ def _make_sphere_scene(count_x: Int, count_y: Int) -> Tuple[List[Sphere], AABB]:
             var cy = (Float32(y) - Float32(count_y - 1) * 0.5) * 3.0
             var cz = 8.0 + Float32((x + y) % 5) * 0.5
             var r = Float32(0.8)
-            spheres.append(Sphere(Vec3f32(cx, cy, cz), r))
+            spheres.append(Sphere(Point3f32(cx, cy, cz), r))
             bounds.grow(Vec3f32(cx - r, cy - r, cz - r))
             bounds.grow(Vec3f32(cx + r, cy + r, cz + r))
 

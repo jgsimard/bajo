@@ -1,4 +1,4 @@
-from bajo.core import AABB, Vec3
+from bajo.core import AABB, Vec3, Point3
 from bajo.bvh.types import Ray, Hit, Instance, TypedBvh
 from bajo.bvh.constants import TRACE, EMPTY_LANE
 from bajo.bvh.cpu.bounds_bvh import BoundsBvh, BoundsBvhBuilder, BoundsItem
@@ -75,7 +75,7 @@ struct Tlas[width: SIMDSize](Copyable):
     ](self, ray: Ray, blases: UnsafePointer[typed_bvh, origin]) -> Hit:
         def leaf_fn(
             ray: Ray,
-            O: Vec3[DType.float32, Self.width],
+            O: Point3[DType.float32, Self.width],
             D: Vec3[DType.float32, Self.width],
             leaf_block_idx: UInt32,
             mut hit: Hit,

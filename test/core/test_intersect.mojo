@@ -17,7 +17,7 @@ from bajo.core.intersect import (
     intersect_tri_tri,
 )
 
-from bajo.core.vec import Vec3, assert_vec_equal
+from bajo.core.vec import Vec3, assert_vec_equal, Point3
 
 
 # AABB
@@ -27,7 +27,7 @@ def test_closest_point_to_aabb() raises:
     upper = Vec3(10.0)
 
     # Point inside (should return itself)
-    p_in = Vec3(5.0)
+    p_in = Vec3(5.0, 5.0, 5.0)
     c_in = closest_point_to_aabb(p_in, lower, upper)
     expected_c_in = Vec3(5.0)
     assert_vec_equal(c_in, expected_c_in)
@@ -59,7 +59,7 @@ def test_intersect_ray_aabb() raises:
     upper = Vec3(1.0)
 
     # Ray hitting the AABB head on
-    pos_hit = Vec3(0.01, 0.01, 5.0)
+    pos_hit = Point3(0.01, 0.01, 5.0)
     dir_hit = Vec3(0.0, 0.0, -1.0)
     # Prevent Inf*0 NaNs for exact 0
     rcp_dir_hit = Vec3(1e9, 1e9, 1.0 / dir_hit.z)
@@ -70,7 +70,7 @@ def test_intersect_ray_aabb() raises:
     assert_almost_equal(res.t, 4.0, atol=1e-4)
 
     # Ray missing the AABB
-    pos_miss = Vec3([5.0, 5.0, 5.0])
+    pos_miss = Point3([5.0, 5.0, 5.0])
     dir_miss = Vec3([0.0, 1.0, 0.0])
     rcp_dir_miss = Vec3(1e9, 1.0 / dir_miss.y, 1e9)
     res = intersect_ray_aabb(pos_miss, rcp_dir_miss, lower, upper, 1e30)
@@ -81,7 +81,7 @@ def test_intersect_ray_aabb_rcp_name_and_inside_hit() raises:
     lower = Vec3(-1.0)
     upper = Vec3(1.0)
 
-    pos_inside = Vec3(0.0, 0.0, 0.0)
+    pos_inside = Point3(0.0, 0.0, 0.0)
     rcp_dir = Vec3(1.0, 1e9, 1e9)
 
     res = intersect_ray_aabb_rcp(pos_inside, rcp_dir, lower, upper, 1e30)
@@ -93,7 +93,7 @@ def test_intersect_ray_aabb_parallel_outside_miss() raises:
     lower = Vec3(-1.0)
     upper = Vec3(1.0)
 
-    pos = Vec3(2.0, 0.0, 0.0)
+    pos = Point3(2.0, 0.0, 0.0)
     rcp_dir = Vec3(1e9, 1.0, 1e9)
 
     res = intersect_ray_aabb_rcp(pos, rcp_dir, lower, upper, 1e30)

@@ -4,6 +4,7 @@ from std.utils.numerics import max_finite
 from bajo.core.vec import (
     Vec2,
     Vec3,
+    Point3,
     dot,
     vmin,
     vmax,
@@ -163,7 +164,7 @@ def furthest_point_to_triangle[
 def intersect_ray_aabb_rcp[
     dtype: DType, width: SIMDSize
 ](
-    o: Vec3[dtype, width],
+    o: Point3[dtype, width],
     rcp_d: Vec3[dtype, width],
     aabb: AxisAlignedBoundingBox[dtype, width],
     t_max: SIMD[dtype, width],
@@ -174,7 +175,7 @@ def intersect_ray_aabb_rcp[
 def intersect_ray_aabb_rcp[
     dtype: DType, width: SIMDSize
 ](
-    o: Vec3[dtype, width],
+    o: Point3[dtype, width],
     rcp_d: Vec3[dtype, width],
     bmin: Vec3[dtype, width],
     bmax: Vec3[dtype, width],
@@ -183,8 +184,8 @@ def intersect_ray_aabb_rcp[
     """Intersect a ray with an AABB using precomputed reciprocal direction."""
     comptime assert dtype in [DType.float32, DType.float64]
 
-    var t0 = (bmin - o) * rcp_d
-    var t1 = (bmax - o) * rcp_d
+    var t0 = (bmin - o.to_vec()) * rcp_d
+    var t1 = (bmax - o.to_vec()) * rcp_d
     var t_near = vmin(t0, t1)
     var t_far = vmax(t0, t1)
 
@@ -199,7 +200,7 @@ def intersect_ray_aabb_rcp[
 def intersect_ray_aabb[
     dtype: DType, width: SIMDSize
 ](
-    o: Vec3[dtype, width],
+    o: Point3[dtype, width],
     rcp_d: Vec3[dtype, width],
     aabb: AxisAlignedBoundingBox[dtype, width],
     t_max: SIMD[dtype, width],
@@ -210,7 +211,7 @@ def intersect_ray_aabb[
 def intersect_ray_aabb[
     dtype: DType, width: SIMDSize
 ](
-    o: Vec3[dtype, width],
+    o: Point3[dtype, width],
     rcp_d: Vec3[dtype, width],
     bmin: Vec3[dtype, width],
     bmax: Vec3[dtype, width],
@@ -241,16 +242,16 @@ def intersect_ray_sphere[
     dtype: DType,
     width: SIMDSize,
 ](
-    o: Vec3[dtype, width],
+    o: Point3[dtype, width],
     d: Vec3[dtype, width],
-    center: Vec3[dtype, width],
+    center: Point3[dtype, width],
     radius: SIMD[dtype, width],
     t_max: SIMD[dtype, width],
     t_min: SIMD[dtype, width] = SIMD[dtype, width](1.0e-4),
 ) -> RayDistanceHit[dtype, width]:
     comptime assert dtype in [DType.float32, DType.float64]
 
-    var oc = o - center
+    var oc = (o - center).to_vec()  # TODO
 
     var a = dot(d, d)
     var half_b = dot(oc, d)
@@ -282,7 +283,7 @@ def intersect_ray_sphere[
 def intersect_ray_tri[
     dtype: DType, width: SIMDSize
 ](
-    o: Vec3[dtype, width],
+    o: Point3[dtype, width],
     d: Vec3[dtype, width],
     v0: Vec3[dtype, width],
     v1: Vec3[dtype, width],
@@ -304,7 +305,7 @@ def intersect_ray_tri[
     var det_ok = det.gt(EPSILON) | det.lt(-EPSILON)
     var inv_det = 1.0 / det
 
-    var tv = o - v0
+    var tv = o.to_vec() - v0
     var u = dot(tv, p) * inv_det
 
     var q = cross(tv, e1)
@@ -334,7 +335,7 @@ def intersect_ray_tri[
 ](
     vertices: UnsafePointer[Scalar[dtype], origin],
     prim_idx: UInt32,
-    o: Vec3[dtype],
+    o: Point3[dtype],
     d: Vec3[dtype],
     t_max: Scalar[dtype],
 ) -> RayTriHit[dtype, 1]:

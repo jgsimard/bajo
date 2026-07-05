@@ -12,7 +12,7 @@ from bajo.bvh.constants import (
     WideNode,
 )
 from bajo.core.utils import min_argmin
-from bajo.core import AABB, Vec3
+from bajo.core import AABB, Vec3, Point3
 from bajo.core.intersect import intersect_ray_sphere
 from bajo.bvh.types import Sphere, Ray, Hit, BlasSet
 from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh
@@ -237,7 +237,7 @@ def _intersect_sphere_leaf[
     var block_base = Int(leaf_block_idx) * SPHERE_LEAF_PACKED_STRIDE * width
     var leaf_spheres_u32 = leaf_spheres.bitcast[UInt32]()
 
-    var center = Vec3(
+    var center = Point3(
         leaf_spheres.load[width=width](block_base + 0 * width),
         leaf_spheres.load[width=width](block_base + 1 * width),
         leaf_spheres.load[width=width](block_base + 2 * width),

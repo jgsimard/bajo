@@ -129,7 +129,7 @@ struct Camera(TrivialRegisterPassable, Writable):
         var dir = focal_point - ray_origin
 
         return Ray(
-            ray_origin,
+            ray_origin.to_point(),
             normalize(dir),
             t_min,
             f32_max,

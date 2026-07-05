@@ -3,7 +3,7 @@ from std.math import abs
 from std.testing import TestSuite, assert_true, assert_almost_equal
 from std.gpu import DeviceBuffer, DeviceContext
 
-from bajo.core import AABB, Vec3f32, Affine3f32
+from bajo.core import AABB, Vec3f32, Affine3f32, Point3f32
 from bajo.bvh.camera import Camera
 from bajo.bvh.constants import Primitive, TRACE, f32_max
 from bajo.bvh.host_utils import compute_bounds, sphere_bounds
@@ -199,8 +199,8 @@ def test_gpu_triangle_tlas_closest_hit_across_different_blas() raises:
 # Sphere typed TLAS
 # -----------------------------------------------------------------------------
 def test_gpu_sphere_tlas_uses_instance_blas_index() raises:
-    var near_spheres = [Sphere(Vec3f32(0.0, 0.0, 2.0), 1.0)]
-    var far_spheres = [Sphere(Vec3f32(0.0, 0.0, 6.0), 1.0)]
+    var near_spheres = [Sphere(Point3f32(0.0, 0.0, 2.0), 1.0)]
+    var far_spheres = [Sphere(Point3f32(0.0, 0.0, 6.0), 1.0)]
     var near_bounds = sphere_bounds(near_spheres)
     var far_bounds = sphere_bounds(far_spheres)
 

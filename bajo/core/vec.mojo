@@ -6,7 +6,30 @@ from bajo.core.utils import fmin, fmax
 
 
 @fieldwise_init
-struct Vec2[dtype: DType, width: SIMDSize = 1](
+struct GeoKind(Equatable):
+    var v: Int
+
+    comptime VECTOR: GeoKind = GeoKind(0)
+    comptime POINT: GeoKind = GeoKind(1)
+    comptime NORMAL: GeoKind = GeoKind(2)
+
+
+comptime Vec2[dtype: DType, width: SIMDSize = 1] = Geo2[
+    dtype, GeoKind.VECTOR, width
+]
+comptime Vec3[dtype: DType, width: SIMDSize = 1] = Geo3[
+    dtype, GeoKind.VECTOR, width
+]
+comptime Point3[dtype: DType, width: SIMDSize = 1] = Geo3[
+    dtype, GeoKind.POINT, width
+]
+comptime Normal3[dtype: DType, width: SIMDSize = 1] = Geo3[
+    dtype, GeoKind.NORMAL, width
+]
+
+
+@fieldwise_init
+struct Geo2[dtype: DType, kind: GeoKind, width: SIMDSize = 1](
     TrivialRegisterPassable, Writable
 ):
     var x: SIMD[Self.dtype, Self.width]
@@ -47,7 +70,7 @@ struct Vec2[dtype: DType, width: SIMDSize = 1](
 
 
 @fieldwise_init
-struct Vec3[dtype: DType, width: SIMDSize = 1](
+struct Geo3[dtype: DType, kind: GeoKind, width: SIMDSize = 1](
     DevicePassable, Roundable, TrivialRegisterPassable, Writable
 ):
     var x: SIMD[Self.dtype, Self.width]
@@ -97,7 +120,54 @@ struct Vec3[dtype: DType, width: SIMDSize = 1](
         self.y = SIMD[Self.dtype, Self.width](x)
         self.z = SIMD[Self.dtype, Self.width](x)
 
+    def convert[
+        new_kind: GeoKind
+    ](deinit self) -> Geo3[self.dtype, new_kind, self.width]:
+        return Geo3[self.dtype, new_kind, self.width](self.x, self.y, self.z)
+
+    def to_point(deinit self) -> Geo3[self.dtype, GeoKind.POINT, self.width]:
+        return Point3[self.dtype, self.width](self.x, self.y, self.z)
+
+    def to_vec(deinit self) -> Geo3[self.dtype, GeoKind.VECTOR, self.width]:
+        return Vec3[self.dtype, self.width](self.x, self.y, self.z)
+
+    # def __add__[
+    #     rhs_kind: GeoKind
+    # ](self, rhs: Geo3[Self.dtype, rhs_kind, Self.width]) -> Point3[
+    #     Self.dtype, Self.width
+    # ] where (self.kind == GeoKind.POINT and rhs_kind == GeoKind.VECTOR) or (
+    #     self.kind == GeoKind.VECTOR and rhs_kind == GeoKind.POINT
+    # ):
+    #     return Point3[Self.dtype, Self.width](
+    #         self.x + rhs.x,
+    #         self.y + rhs.y,
+    #         self.z + rhs.z,
+    #     )
+
+    # p + v = p
+    def __add__(
+        self, rhs: Vec3[Self.dtype, Self.width]
+    ) -> Point3[Self.dtype, Self.width] where self.kind == GeoKind.POINT:
+        return Point3[Self.dtype, Self.width](
+            self.x + rhs.x,
+            self.y + rhs.y,
+            self.z + rhs.z,
+        )
+
+    # v + p = p
+    def __add__(
+        self, rhs: Point3[Self.dtype, Self.width]
+    ) -> Point3[Self.dtype, Self.width] where self.kind == GeoKind.POINT:
+        return Point3[Self.dtype, Self.width](
+            self.x + rhs.x,
+            self.y + rhs.y,
+            self.z + rhs.z,
+        )
+
+    # v + v = v
     def __add__(self, rhs: Self) -> Self:
+        # TODO: put this into where when it works
+        comptime assert self.kind == GeoKind.VECTOR
         return Self(
             self.x + rhs.x,
             self.y + rhs.y,
@@ -116,6 +186,7 @@ struct Vec3[dtype: DType, width: SIMDSize = 1](
         self.y += rhs.y
         self.z += rhs.z
 
+    # TODO: put this into where when it works
     def __sub__(self, rhs: Self) -> Self:
         return Self(
             self.x - rhs.x,
@@ -405,8 +476,12 @@ def normalize[
 
 
 def assert_vec_equal[
-    dtype: DType, width: SIMDSize
-](a: Vec3[dtype, width], b: Vec3[dtype, width], atol: Float64 = 1e-5) raises:
+    dtype: DType, kind: GeoKind, width: SIMDSize
+](
+    a: Geo3[dtype, kind, width],
+    b: Geo3[dtype, kind, width],
+    atol: Float64 = 1e-5,
+) raises:
     assert_almost_equal(
         a.x,
         b.x,

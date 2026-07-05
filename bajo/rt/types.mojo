@@ -1,6 +1,14 @@
 from std.math import abs
 
-from bajo.core import AABB, Affine3f32, Vec3f32, cross, dot, normalize
+from bajo.core import (
+    AABB,
+    Affine3f32,
+    Vec3f32,
+    cross,
+    dot,
+    normalize,
+    Point3f32,
+)
 from bajo.bvh.constants import EMPTY_LANE, Primitive, TRACE
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.bvh.cpu.tlas import Tlas
@@ -9,7 +17,6 @@ from bajo.bvh.types import Instance, Ray, Sphere
 
 
 comptime Color = Vec3f32
-comptime Point3 = Vec3f32
 comptime BVH_WIDTH = 8
 
 comptime MAT_LAMBERTIAN = UInt32(0)
@@ -121,7 +128,7 @@ struct SurfaceStore(Movable):
 @fieldwise_init
 struct HitRecord(Copyable, Writable):
     var primitive: PrimitiveId
-    var p: Point3
+    var p: Point3f32
     var normal: Vec3f32
     var surface: SurfaceId
     var t: Float32
@@ -359,7 +366,9 @@ struct World(Movable):
             "hit sphere surface id is out of range",
         )
         var p = ray_at(ray, bvh_hit.t)
-        var outward_normal = (p - sphere.center) / sphere.radius
+        var outward_normal = (
+            p.to_vec() - sphere.center.to_vec()
+        ) / sphere.radius  # TODO
         var front_face = dot(ray.d, outward_normal) < 0.0
         var normal = outward_normal if front_face else -outward_normal
 
@@ -459,8 +468,9 @@ struct World(Movable):
         )
 
 
-def ray_at(ray: Ray, t: Float32) -> Point3:
-    return ray.o + t * ray.d
+def ray_at(ray: Ray, t: Float32) -> Point3f32:
+    # TODO: fix that
+    return (ray.o.to_vec() + t * ray.d).to_point()
 
 
 def _closest_hit2(a: HitRecord, b: HitRecord) -> Optional[HitRecord]:
@@ -482,7 +492,7 @@ def _closest_hit3(
 def add_sphere(
     mut spheres: List[Sphere],
     mut sphere_surfaces: List[SurfaceId],
-    center: Point3,
+    center: Point3f32,
     radius: Float32,
     surface: SurfaceId,
 ):
@@ -494,14 +504,14 @@ def add_sphere(
 def add_triangle(
     mut triangle_vertices: List[Vec3f32],
     mut triangle_surfaces: List[SurfaceId],
-    v0: Point3,
-    v1: Point3,
-    v2: Point3,
+    v0: Point3f32,
+    v1: Point3f32,
+    v2: Point3f32,
     surface: SurfaceId,
 ):
-    triangle_vertices.append(v0)
-    triangle_vertices.append(v1)
-    triangle_vertices.append(v2)
+    triangle_vertices.append(v0.to_vec())  # TODO
+    triangle_vertices.append(v1.to_vec())  # TODO
+    triangle_vertices.append(v2.to_vec())  # TODO
     triangle_surfaces.append(surface.copy())
 
 

@@ -11,7 +11,6 @@ from .types import (
     HitRecord,
     Lambertian,
     Metal,
-    Point3,
     PrimitiveId,
     RENDER_AO,
     RENDER_MIS,

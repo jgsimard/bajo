@@ -41,8 +41,8 @@ def apply_trs_naive_________(
 ) -> BenchAABB:
     rot_mat = BenchMat33f32.from_rotation_scale(rotation, scale)
     txfmed = BenchAABB(
-        translation.copy().unsafe_convert_kind[GeoKind.POINT](),
-        translation.copy().unsafe_convert_kind[GeoKind.POINT](),
+        translation.unsafe_convert[new_kind=GeoKind.POINT](),
+        translation.unsafe_convert[new_kind=GeoKind.POINT](),
     )
 
     for i in range(3):
@@ -67,8 +67,8 @@ def apply_trs_naive_comptime(
 ) -> BenchAABB:
     rot_mat = BenchMat33f32.from_rotation_scale(rotation, scale)
     txfmed = BenchAABB(
-        translation.copy().unsafe_convert_kind[GeoKind.POINT](),
-        translation.copy().unsafe_convert_kind[GeoKind.POINT](),
+        translation.unsafe_convert[new_kind=GeoKind.POINT](),
+        translation.unsafe_convert[new_kind=GeoKind.POINT](),
     )
 
     comptime for j in range(3):
@@ -114,8 +114,8 @@ def apply_trs_arvo_v0_______(
     new_max += vmax(c2_a, c2_b)
 
     return BenchAABB(
-        new_min.copy().unsafe_convert_kind[GeoKind.POINT](),
-        new_max.copy().unsafe_convert_kind[GeoKind.POINT](),
+        new_min.unsafe_convert[new_kind=GeoKind.POINT](),
+        new_max.unsafe_convert[new_kind=GeoKind.POINT](),
     )
 
 
@@ -136,8 +136,8 @@ def apply_trs_arvo_v1_______(
         new_max += vmax(c_a, c_b)
 
     return BenchAABB(
-        new_min.copy().unsafe_convert_kind[GeoKind.POINT](),
-        new_max.copy().unsafe_convert_kind[GeoKind.POINT](),
+        new_min.unsafe_convert[new_kind=GeoKind.POINT](),
+        new_max.unsafe_convert[new_kind=GeoKind.POINT](),
     )
 
 
@@ -187,8 +187,8 @@ def apply_trs_affine3_v0_width[
     new_max += vmax(c2_a, c2_b)
 
     return AxisAlignedBoundingBox[DType.float32, BENCH_FRAME, width](
-        new_min.copy().unsafe_convert_kind[GeoKind.POINT](),
-        new_max.copy().unsafe_convert_kind[GeoKind.POINT](),
+        new_min.unsafe_convert[new_kind=GeoKind.POINT](),
+        new_max.unsafe_convert[new_kind=GeoKind.POINT](),
     )
 
 
@@ -248,8 +248,8 @@ def apply_trs_affine3_v1_width[
     _add_transformed_axis_width[2](transform.m22, box._min.z, box._max.z)
 
     return AxisAlignedBoundingBox[DType.float32, BENCH_FRAME, width](
-        new_min.copy().unsafe_convert_kind[GeoKind.POINT](),
-        new_max.copy().unsafe_convert_kind[GeoKind.POINT](),
+        new_min.unsafe_convert[new_kind=GeoKind.POINT](),
+        new_max.unsafe_convert[new_kind=GeoKind.POINT](),
     )
 
 

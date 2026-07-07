@@ -102,14 +102,17 @@ struct Tlas[width: SIMDSize](Copyable):
                     var local_origin = inst.inv_transform.point(ray.o)
                     var local_dir = inst.inv_transform.vector(ray.d)
 
+                    # TODO: use this version when parametric raises are a thing in mojo
                     # var local_ray = Ray[Frame.LOCAL](
                     #     local_origin, local_dir, ray.t_min, hit.t
                     # )
                     var local_ray = Ray[typed_bvh.bvh_frame](
-                        local_origin.unsafe_convert_frame[
-                            typed_bvh.bvh_frame
+                        local_origin.unsafe_convert[
+                            new_frame=typed_bvh.bvh_frame
                         ](),
-                        local_dir.unsafe_convert_frame[typed_bvh.bvh_frame](),
+                        local_dir.unsafe_convert[
+                            new_frame=typed_bvh.bvh_frame
+                        ](),
                         ray.t_min,
                         hit.t,
                     )
@@ -129,8 +132,8 @@ struct Tlas[width: SIMDSize](Copyable):
                             hit.prim = local_hit.prim
                             hit.inst = inst_idx
                             hit.normal = inst.transform.vector(
-                                local_hit.normal.unsafe_convert_frame[
-                                    Frame.LOCAL
+                                local_hit.normal.unsafe_convert[
+                                    new_frame=Frame.LOCAL
                                 ]()
                             )
                             any_hit = True

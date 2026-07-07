@@ -1,7 +1,7 @@
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.math import abs, fma
 
-from bajo.core.vec import Vec3, Normal3, Point3, Geo3
+from bajo.core.vec import Vec3, Normal3, Point3, Geo3, GeoKind
 from bajo.core.quat import Quaternion
 from bajo.core.frame import Frame
 
@@ -174,8 +174,12 @@ struct Affine3[dtype: DType, From: Frame, To: Frame, width: SIMDSize = 1](
             fma(self.m20, v.x, fma(self.m21, v.y, self.m22 * v.z)),
         )
 
-    def translation(self) -> Vec3[Self.dtype, Self.To, Self.width]:
-        return Vec3[Self.dtype, Self.To, Self.width](self.tx, self.ty, self.tz)
+    def translation[
+        kind: GeoKind = GeoKind.VECTOR
+    ](self) -> Geo3[Self.dtype, kind, Self.To, Self.width]:
+        return Geo3[Self.dtype, kind, Self.To, Self.width](
+            self.tx, self.ty, self.tz
+        )
 
     @staticmethod
     def load[

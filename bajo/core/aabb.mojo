@@ -88,12 +88,8 @@ struct AxisAlignedBoundingBox[dtype: DType, frame: Frame, width: SIMDSize = 1](
     ](
         self, transform: Affine3[Self.dtype, Self.frame, To, Self.width]
     ) -> AxisAlignedBoundingBox[Self.dtype, To, Self.width]:
-        var new_min = transform.translation().unsafe_convert_kind[
-            GeoKind.POINT
-        ]()
-        var new_max = transform.translation().unsafe_convert_kind[
-            GeoKind.POINT
-        ]()
+        var new_min = transform.translation[GeoKind.POINT]()
+        var new_max = transform.translation[GeoKind.POINT]()
 
         # X column
         var c0 = Point3[Self.dtype, To, self.width](
@@ -152,6 +148,6 @@ struct AxisAlignedBoundingBox[dtype: DType, frame: Frame, width: SIMDSize = 1](
         new_frame: Frame
     ](self) -> AxisAlignedBoundingBox[Self.dtype, new_frame, Self.width]:
         return AxisAlignedBoundingBox[Self.dtype, new_frame, Self.width](
-            self._min.unsafe_convert_frame[new_frame](),
-            self._max.unsafe_convert_frame[new_frame](),
+            self._min.unsafe_convert[new_frame=new_frame](),
+            self._max.unsafe_convert[new_frame=new_frame](),
         )

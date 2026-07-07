@@ -63,12 +63,14 @@ def test_rotation_scale_from_quat() raises:
     p = Point3W(1, 2, 3)
     m = Affine3f32[Frame.WORLD, Frame.CAMERA].from_rotation_scale(q, s)
 
-    expected = q.rotate(
-        Vec3W(v.x * s.x, v.y * s.y, v.z * s.z)
-    ).unsafe_convert_frame[Frame.CAMERA]()
+    expected = q.rotate(Vec3W(v.x * s.x, v.y * s.y, v.z * s.z)).unsafe_convert[
+        new_frame=Frame.CAMERA
+    ]()
 
     assert_vec_equal(m.vector(v), expected)
-    assert_vec_equal(m.point(p), expected.unsafe_convert_kind[GeoKind.POINT]())
+    assert_vec_equal(
+        m.point(p), expected.unsafe_convert[new_kind=GeoKind.POINT]()
+    )
 
 
 def test_rotation_scale_translation_from_quat() raises:
@@ -86,17 +88,17 @@ def test_rotation_scale_translation_from_quat() raises:
     )
 
     expected_v = q.rotate(Vec3W(p.x * s.x, p.y * s.y, p.z * s.z))
-    expected_p = (
-        (expected_v + t)
-        .unsafe_convert_frame[Frame.CAMERA]()
-        .unsafe_convert_kind[GeoKind.POINT]()
-    )
+    expected_p = (expected_v + t).unsafe_convert[
+        new_frame=Frame.CAMERA, new_kind=GeoKind.POINT
+    ]()
 
     assert_vec_equal(
-        m.vector(v), expected_v.unsafe_convert_frame[Frame.CAMERA]()
+        m.vector(v), expected_v.unsafe_convert[new_frame=Frame.CAMERA]()
     )
     assert_vec_equal(m.point(p), expected_p)
-    assert_vec_equal(m.translation(), t.unsafe_convert_frame[Frame.CAMERA]())
+    assert_vec_equal(
+        m.translation(), t.unsafe_convert[new_frame=Frame.CAMERA]()
+    )
 
 
 def test_width4_translation_and_scale() raises:

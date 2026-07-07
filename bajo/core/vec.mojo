@@ -129,21 +129,14 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize = 1](
         self.y = SIMD[Self.dtype, Self.width](x)
         self.z = SIMD[Self.dtype, Self.width](x)
 
-    def unsafe_convert_kind[
-        new_kind: GeoKind
-    ](deinit self) -> Geo3[Self.dtype, new_kind, Self.frame, Self.width]:
-        return Geo3[Self.dtype, new_kind, Self.frame, Self.width](
+    def unsafe_convert[
+        new_kind: GeoKind = Self.kind, new_frame: Frame = Self.frame
+    ](self) -> Geo3[Self.dtype, new_kind, new_frame, Self.width]:
+        return Geo3[Self.dtype, new_kind, new_frame, Self.width](
             self.x, self.y, self.z
         )
 
-    def unsafe_convert_frame[
-        new_frame: Frame
-    ](deinit self) -> Geo3[Self.dtype, Self.kind, new_frame, Self.width]:
-        return Geo3[Self.dtype, Self.kind, new_frame, Self.width](
-            self.x, self.y, self.z
-        )
-
-    # p + v = p
+    # g + g = g
     def unsafe_add(self: Self, rhs: Self) -> Self:
         return Self(
             self.x + rhs.x,

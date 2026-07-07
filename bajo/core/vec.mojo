@@ -76,9 +76,9 @@ struct Geo2[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize = 1](
 
 
 @fieldwise_init
-struct Geo3[
-    dtype: DType, kind: GeoKind, frame: Frame = Frame.WORLD, width: SIMDSize = 1
-](DevicePassable, Roundable, TrivialRegisterPassable, Writable):
+struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize = 1](
+    DevicePassable, Roundable, TrivialRegisterPassable, Writable
+):
     comptime V3 = Vec3[Self.dtype, Self.frame, Self.width]
     comptime P3 = Point3[Self.dtype, Self.frame, Self.width]
 

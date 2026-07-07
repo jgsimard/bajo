@@ -4,7 +4,7 @@ from std.testing import (
     assert_almost_equal,
 )
 
-from bajo.core import Vec3f32, assert_vec_equal, Quat, Mat22, Mat33, Mat44
+from bajo.core import Vec3W, assert_vec_equal, Quat, Mat22, Mat33, Mat44
 from bajo.core.mat import (
     inverse,
     determinant,
@@ -49,11 +49,11 @@ def test_basics() raises:
 
 
 def test_Mat3f_from_quat() raises:
-    axis = Vec3f32(1, 0, 0)
+    axis = Vec3W(1, 0, 0)
     angle = degrees_to_radians(Float32(30))
     q = Quat.from_axis_angle(axis, angle)
     m = q.to_matrix()
-    v = Vec3f32(0, 1, 0)
+    v = Vec3W(0, 1, 0)
     assert_vec_equal(_matvec(m, v), q.rotate(v))
 
 

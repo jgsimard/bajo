@@ -5,8 +5,10 @@ from bajo.core import (
     Affine3f32,
     Vec3,
     Vec3f32,
+    Vec3W,
     Point3,
     Point3f32,
+    Point3W,
     assert_vec_equal,
     Quat,
     Frame,
@@ -28,9 +30,9 @@ def test_identity() raises:
 
 
 def test_translation() raises:
-    p = Point3f32(1, 2, 3)
-    v = Vec3f32(4, 5, 6)
-    t = Vec3f32(10, -2, 3.5)
+    p = Point3W(1, 2, 3)
+    v = Vec3W(4, 5, 6)
+    t = Vec3W(10, -2, 3.5)
     tc = Vec3f32[Frame.CAMERA](10, -2, 3.5)
 
     m = Affine3f32[Frame.WORLD, Frame.CAMERA].from_translation(t)
@@ -41,9 +43,9 @@ def test_translation() raises:
 
 
 def test_scale() raises:
-    p = Point3f32(1, 2, 3)
-    v = Vec3f32(4, 5, 6)
-    s = Vec3f32(2, 3, 4)
+    p = Point3W(1, 2, 3)
+    v = Vec3W(4, 5, 6)
+    s = Vec3W(2, 3, 4)
 
     m = Affine3f32[Frame.WORLD, Frame.CAMERA].from_scale(s)
 
@@ -53,16 +55,16 @@ def test_scale() raises:
 
 
 def test_rotation_scale_from_quat() raises:
-    axis = Vec3f32(1, 0, 0)
+    axis = Vec3W(1, 0, 0)
     angle = degrees_to_radians(Float32(30))
     q = Quat.from_axis_angle(axis, angle)
-    s = Vec3f32(2, 3, 4)
-    v = Vec3f32(1, 2, 3)
-    p = Point3f32(1, 2, 3)
+    s = Vec3W(2, 3, 4)
+    v = Vec3W(1, 2, 3)
+    p = Point3W(1, 2, 3)
     m = Affine3f32[Frame.WORLD, Frame.CAMERA].from_rotation_scale(q, s)
 
     expected = q.rotate(
-        Vec3f32(v.x * s.x, v.y * s.y, v.z * s.z)
+        Vec3W(v.x * s.x, v.y * s.y, v.z * s.z)
     ).unsafe_convert_frame[Frame.CAMERA]()
 
     assert_vec_equal(m.vector(v), expected)
@@ -70,20 +72,20 @@ def test_rotation_scale_from_quat() raises:
 
 
 def test_rotation_scale_translation_from_quat() raises:
-    axis = Vec3f32(0, 1, 0)
+    axis = Vec3W(0, 1, 0)
     angle = degrees_to_radians(Float32(45))
     q = Quat.from_axis_angle(axis, angle)
 
-    s = Vec3f32(2, 3, 4)
-    t = Vec3f32(10, 20, 30)
-    v = Vec3f32(1, 2, 3)
-    p = Point3f32(1, 2, 3)
+    s = Vec3W(2, 3, 4)
+    t = Vec3W(10, 20, 30)
+    v = Vec3W(1, 2, 3)
+    p = Point3W(1, 2, 3)
 
     m = Affine3f32[Frame.WORLD, Frame.CAMERA].from_rotation_scale_translation(
         q, s, t
     )
 
-    expected_v = q.rotate(Vec3f32(p.x * s.x, p.y * s.y, p.z * s.z))
+    expected_v = q.rotate(Vec3W(p.x * s.x, p.y * s.y, p.z * s.z))
     expected_p = (
         (expected_v + t)
         .unsafe_convert_frame[Frame.CAMERA]()
@@ -139,8 +141,8 @@ def test_load_store() raises:
     )
     # fmt: on
 
-    v = Vec3f32(2, 3, 4)
-    p = Point3f32(2, 3, 4)
+    v = Vec3W(2, 3, 4)
+    p = Point3W(2, 3, 4)
 
     m.store(ptr, 0)
     loaded = Affine3f32[Frame.WORLD, Frame.CAMERA].load(ptr, 0)
@@ -174,7 +176,7 @@ def test_load_transform_helpers() raises:
         9, 10, 11, 12
     ]
     # fmt: on
-    p = Point3f32(2, 3, 4)
+    p = Point3W(2, 3, 4)
 
     loaded = Affine3f32[Frame.WORLD, Frame.CAMERA].load(arr.unsafe_ptr(), 0)
 
@@ -189,7 +191,7 @@ def test_load_transform_helpers() raises:
     )
 
     # v = M * v_in
-    v = Vec3f32(2, 3, 4)
+    v = Vec3W(2, 3, 4)
     assert_vec_equal(
         loaded.vector(v),
         Vec3f32[Frame.CAMERA](
@@ -201,9 +203,9 @@ def test_load_transform_helpers() raises:
 
 
 def test_inverse_translation_scale() raises:
-    s = Vec3f32(2, 4, 5)
-    t = Vec3f32(10, 20, 30)
-    p = Point3f32(1, 2, 3)
+    s = Vec3W(2, 4, 5)
+    t = Vec3W(10, 20, 30)
+    p = Point3W(1, 2, 3)
 
     m = Affine3f32[Frame.WORLD, Frame.CAMERA].from_rotation_scale_translation(
         Quat.identity(),
@@ -220,13 +222,13 @@ def test_inverse_translation_scale() raises:
 
 
 def test_inverse_rotation_scale_translation() raises:
-    axis = Vec3f32(0, 1, 0)
+    axis = Vec3W(0, 1, 0)
     angle = degrees_to_radians(Float32(45))
     q = Quat.from_axis_angle(axis, angle)
 
-    s = Vec3f32(2, 3, 4)
-    t = Vec3f32(10, 20, 30)
-    p = Point3f32(1, 2, 3)
+    s = Vec3W(2, 3, 4)
+    t = Vec3W(10, 20, 30)
+    p = Point3W(1, 2, 3)
 
     m = Affine3f32[Frame.WORLD, Frame.CAMERA].from_rotation_scale_translation(
         q, s, t
@@ -240,7 +242,7 @@ def test_inverse_rotation_scale_translation() raises:
 
 
 def test_inverse_singular_scale() raises:
-    m = Affine3f32[Frame.WORLD, Frame.CAMERA].from_scale(Vec3f32(1, 0, 1))
+    m = Affine3f32[Frame.WORLD, Frame.CAMERA].from_scale(Vec3W(1, 0, 1))
     res = m.inverse()
     assert_true(not res.mask[0])
 

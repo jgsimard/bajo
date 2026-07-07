@@ -1,6 +1,6 @@
 from std.testing import TestSuite, assert_true, assert_almost_equal
 
-from bajo.core import AABB, Vec3f32, Point3f32, Frame
+from bajo.core import AABB, Vec3f32, Point3f32, Frame, Vec3W, Point3W
 from bajo.core.intersect import intersect_ray_aabb
 from bajo.bvh.types import Ray, Sphere
 from bajo.core.random import Rng
@@ -279,14 +279,14 @@ def test_wide_bounds_root_bounds_is_valid() raises:
 
 
 def test_bounds_ray_query_inside_outside_regression() raises:
-    var lower = Point3f32(0.5, -1.0, -1.0)
-    var upper = Point3f32(1.0, 1.0, 1.0)
+    var lower = Point3W(0.5, -1.0, -1.0)
+    var upper = Point3W(1.0, 1.0, 1.0)
 
-    var query_ray = Ray(Point3f32(0.0, 0.0, 0.0), Vec3f32(1.0, 0.0, 0.0))
+    var query_ray = Ray(Point3W(0.0, 0.0, 0.0), Vec3W(1.0, 0.0, 0.0))
     var rcp_dir = query_ray.rcp_direction[1]()
 
     var hit_outside = intersect_ray_aabb(
-        Point3f32(0.0, 0.0, 0.0),
+        Point3W(0.0, 0.0, 0.0),
         rcp_dir,
         lower,
         upper,
@@ -295,7 +295,7 @@ def test_bounds_ray_query_inside_outside_regression() raises:
     assert_true(hit_outside.mask, "Ray starting outside failed to hit")
 
     var hit_inside = intersect_ray_aabb(
-        Point3f32(0.75, 0.0, 0.0),
+        Point3W(0.75, 0.0, 0.0),
         rcp_dir,
         lower,
         upper,
@@ -305,7 +305,7 @@ def test_bounds_ray_query_inside_outside_regression() raises:
 
 
 def test_ray_rcp_direction_uses_finite_parallel_axes() raises:
-    var ray = Ray(Point3f32(0.0), Vec3f32(2.0, 0.0, -4.0))
+    var ray = Ray(Point3W(0.0), Vec3W(2.0, 0.0, -4.0))
     var rcp_dir = ray.rcp_direction[4]()
 
     assert_almost_equal(rcp_dir.x, 0.5)
@@ -315,9 +315,9 @@ def test_ray_rcp_direction_uses_finite_parallel_axes() raises:
 
 def test_bounds_item_bounds_and_payload_mapping() raises:
     var bounds = triangle_bounds(
-        Point3f32(-1.0, 2.0, 3.0),
-        Point3f32(2.0, -4.0, 5.0),
-        Point3f32(0.0, 1.0, -6.0),
+        Point3W(-1.0, 2.0, 3.0),
+        Point3W(2.0, -4.0, 5.0),
+        Point3W(0.0, 1.0, -6.0),
     )
     var item = BoundsItem(bounds, UInt32(42))
 
@@ -333,12 +333,12 @@ def test_bounds_item_bounds_and_payload_mapping() raises:
 
 def test_bounds_sah_clear_separation() raises:
     var verts: List[Point3f32[Frame.WORLD]] = [
-        Point3f32(-11.0, -1.0, 0.0),
-        Point3f32(-9.0, -1.0, 0.0),
-        Point3f32(-10.0, 1.0, 0.0),  # Tri 0, centered near x=-10
-        Point3f32(9.0, -1.0, 0.0),
-        Point3f32(11.0, -1.0, 0.0),
-        Point3f32(10.0, 1.0, 0.0),  # Tri 1, centered near x=10
+        Point3W(-11.0, -1.0, 0.0),
+        Point3W(-9.0, -1.0, 0.0),
+        Point3W(-10.0, 1.0, 0.0),  # Tri 0, centered near x=-10
+        Point3W(9.0, -1.0, 0.0),
+        Point3W(11.0, -1.0, 0.0),
+        Point3W(10.0, 1.0, 0.0),  # Tri 1, centered near x=10
     ]
     var items = _make_bounds_items(verts)
     var builder = BoundsBvhBuilder[Frame.WORLD, 2](items)
@@ -358,12 +358,12 @@ def test_bounds_sah_clear_separation() raises:
 
 def test_bounds_sah_degenerate() raises:
     var verts: List[Point3f32[Frame.WORLD]] = [
-        Point3f32(0.0, 0.0, 0.0),
-        Point3f32(1.0, 0.0, 0.0),
-        Point3f32(0.0, 1.0, 0.0),
-        Point3f32(0.0, 0.0, 0.0),
-        Point3f32(1.0, 0.0, 0.0),
-        Point3f32(0.0, 1.0, 0.0),
+        Point3W(0.0, 0.0, 0.0),
+        Point3W(1.0, 0.0, 0.0),
+        Point3W(0.0, 1.0, 0.0),
+        Point3W(0.0, 0.0, 0.0),
+        Point3W(1.0, 0.0, 0.0),
+        Point3W(0.0, 1.0, 0.0),
     ]
     var items = _make_bounds_items(verts)
     var builder = BoundsBvhBuilder[Frame.WORLD, 2](items)
@@ -381,12 +381,12 @@ def test_bounds_sah_degenerate() raises:
 
 def test_bounds_partition_items_non_empty() raises:
     var verts: List[Point3f32[Frame.WORLD]] = [
-        Point3f32(-11.0, -1.0, 0.0),
-        Point3f32(-9.0, -1.0, 0.0),
-        Point3f32(-10.0, 1.0, 0.0),
-        Point3f32(9.0, -1.0, 0.0),
-        Point3f32(11.0, -1.0, 0.0),
-        Point3f32(10.0, 1.0, 0.0),
+        Point3W(-11.0, -1.0, 0.0),
+        Point3W(-9.0, -1.0, 0.0),
+        Point3W(-10.0, 1.0, 0.0),
+        Point3W(9.0, -1.0, 0.0),
+        Point3W(11.0, -1.0, 0.0),
+        Point3W(10.0, 1.0, 0.0),
     ]
     var items = _make_bounds_items(verts)
     var builder = BoundsBvhBuilder[Frame.WORLD, 2](items)
@@ -408,7 +408,7 @@ def test_triangle_bvh2_leaf_size_equals_width_returns_nearest_triangle() raises:
     var verts = _make_depth_pair[Frame.WORLD]()
     var bvh = TriangleBvh[Frame.WORLD, 2].__init__["median"](verts^)
 
-    var hit = bvh.trace[TRACE.CLOSEST_HIT](_z_ray(Point3f32(0.0, 0.0, 0.0)))
+    var hit = bvh.trace[TRACE.CLOSEST_HIT](_z_ray(Point3W(0.0, 0.0, 0.0)))
 
     assert_true(hit.is_hit())
     assert_true(hit.prim == 0)
@@ -434,7 +434,7 @@ def _test_triangle_bvh_matches_bruteforce[
         _assert_triangle_bvh_matches_bruteforce[Frame.WORLD, width](
             bvh,
             verts,
-            Point3f32(100.0 + Float32(i), 100.0, 0.0),
+            Point3W(100.0 + Float32(i), 100.0, 0.0),
         )
 
 
@@ -452,12 +452,12 @@ def _test_triangle_bvh_shadow_hit_and_miss[
     var bvh = TriangleBvh[Frame.WORLD, width].__init__[mode](verts^)
 
     assert_true(
-        bvh.trace[TRACE.ANY_HIT](_z_ray(Point3f32(0.0, 0.0, 0.0))).is_occluded()
+        bvh.trace[TRACE.ANY_HIT](_z_ray(Point3W(0.0, 0.0, 0.0))).is_occluded()
     )
 
     assert_true(
         not bvh.trace[TRACE.ANY_HIT](
-            _z_ray(Point3f32(100.0, 100.0, 0.0))
+            _z_ray(Point3W(100.0, 100.0, 0.0))
         ).is_occluded()
     )
 
@@ -489,7 +489,7 @@ def test_sphere_bvh4_single_leaf_layout_and_hit() raises:
     assert_true(bvh.tree.nodes[0].counts[0] == 4)
     assert_true(bvh.tree.nodes[0].data[0] == 0)
 
-    var hit = bvh.trace[TRACE.CLOSEST_HIT](_z_ray(Point3f32(0.0, 0.0, 0.0)))
+    var hit = bvh.trace[TRACE.CLOSEST_HIT](_z_ray(Point3W(0.0, 0.0, 0.0)))
 
     assert_true(hit.is_hit())
     assert_true(hit.prim == 0)
@@ -506,22 +506,22 @@ def _test_sphere_bvh_matches_bruteforce[
     _assert_sphere_bvh_matches_bruteforce[Frame.WORLD, width](
         bvh,
         spheres,
-        Point3f32(0.0, 0.0, 0.0),
+        Point3W(0.0, 0.0, 0.0),
     )
     _assert_sphere_bvh_matches_bruteforce[Frame.WORLD, width](
         bvh,
         spheres,
-        Point3f32(4.0, 0.0, 0.0),
+        Point3W(4.0, 0.0, 0.0),
     )
     _assert_sphere_bvh_matches_bruteforce[Frame.WORLD, width](
         bvh,
         spheres,
-        Point3f32(-4.0, 0.0, 0.0),
+        Point3W(-4.0, 0.0, 0.0),
     )
     _assert_sphere_bvh_matches_bruteforce[Frame.WORLD, width](
         bvh,
         spheres,
-        Point3f32(100.0, 0.0, 0.0),
+        Point3W(100.0, 0.0, 0.0),
     )
 
 
@@ -539,12 +539,12 @@ def _test_sphere_bvh_shadow_hit_and_miss[
     var bvh = SphereBvh[Frame.WORLD, width].__init__[mode](spheres^)
 
     assert_true(
-        bvh.trace[TRACE.ANY_HIT](_z_ray(Point3f32(0.0, 0.0, 0.0))).is_occluded()
+        bvh.trace[TRACE.ANY_HIT](_z_ray(Point3W(0.0, 0.0, 0.0))).is_occluded()
     )
 
     assert_true(
         not bvh.trace[TRACE.ANY_HIT](
-            _z_ray(Point3f32(100.0, 0.0, 0.0))
+            _z_ray(Point3W(100.0, 0.0, 0.0))
         ).is_occluded()
     )
 

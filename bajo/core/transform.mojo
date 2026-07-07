@@ -118,7 +118,7 @@ struct Affine3[dtype: DType, From: Frame, To: Frame, width: SIMDSize = 1](
         return Self.from_rotation_scale_translation(
             r,
             s,
-            Vec3[Self.dtype, _, Self.width](0),
+            Vec3[Self.dtype, Self.To, Self.width](0),
         )
 
     @staticmethod

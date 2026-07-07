@@ -1,4 +1,4 @@
-from bajo.core import AABB, Vec3, Point3
+from bajo.core import AABB, Vec3, Point3, Frame
 from bajo.bvh.types import Ray, Hit, Instance, TypedBvh
 from bajo.bvh.constants import TRACE, EMPTY_LANE
 from bajo.bvh.cpu.bounds_bvh import BoundsBvh, BoundsBvhBuilder, BoundsItem
@@ -7,18 +7,18 @@ from bajo.bvh.cpu.trace import trace_bounds_bvh
 
 def _tree[
     width: SIMDSize, split_method: String
-](instances: List[Instance]) -> BoundsBvh[width]:
-    var builder = BoundsBvhBuilder[width](
+](instances: List[Instance]) -> BoundsBvh[Frame.WORLD, width]:
+    var builder = BoundsBvhBuilder[Frame.WORLD, width](
         [BoundsItem(inst.bounds, UInt32(i)) for i, inst in enumerate(instances)]
     )
     builder.build[split_method]()
-    return BoundsBvh[width](builder)
+    return BoundsBvh[Frame.WORLD, width](builder)
 
 
 struct Tlas[width: SIMDSize](Copyable):
     """Wide TLAS over Instance records."""
 
-    var tree: BoundsBvh[Self.width]
+    var tree: BoundsBvh[Frame.WORLD, Self.width]
     var instances: List[Instance]
     var leaf_blocks_inst_indices: List[SIMD[DType.uint32, Self.width]]
     var inst_count: Int
@@ -40,7 +40,7 @@ struct Tlas[width: SIMDSize](Copyable):
         self.tree = _tree[self.width, split_method](self.instances)
         self._pack_leaves()
 
-    def bounds(self) -> AABB:
+    def bounds(self) -> AABB[Frame.WORLD]:
         return self.tree.root_bounds()
 
     def _pack_leaves(mut self):
@@ -72,13 +72,15 @@ struct Tlas[width: SIMDSize](Copyable):
         //,
         typed_bvh: TypedBvh,
         mode: TRACE,
-    ](self, ray: Ray, blases: UnsafePointer[typed_bvh, origin]) -> Hit:
+    ](self, ray: Ray, blases: UnsafePointer[typed_bvh, origin]) -> Hit[
+        Frame.WORLD
+    ]:
         def leaf_fn(
-            ray: Ray,
-            O: Point3[DType.float32, Self.width],
-            D: Vec3[DType.float32, Self.width],
+            ray: Ray[Frame.WORLD],
+            O: Point3[DType.float32, Frame.WORLD, Self.width],
+            D: Vec3[DType.float32, Frame.WORLD, Self.width],
             leaf_block_idx: UInt32,
-            mut hit: Hit,
+            mut hit: Hit[Frame.WORLD],
         ) capturing -> Bool:
             ref inst_indices = self.leaf_blocks_inst_indices[
                 Int(leaf_block_idx)
@@ -91,18 +93,23 @@ struct Tlas[width: SIMDSize](Copyable):
 
                 if inst_idx != EMPTY_LANE:
                     ref inst = self.instances[Int(inst_idx)]
+                    # TODO: fix this
                     ref transform = inst.inv_transform
 
-                    var local_origin = transform.point(ray.o)
-                    var local_dir = transform.vector(ray.d)
+                    var local_origin = transform.point(
+                        ray.o.unsafe_convert_frame[Frame.LOCAL]()
+                    )
+                    var local_dir = transform.vector(
+                        ray.d.unsafe_convert_frame[Frame.LOCAL]()
+                    )
 
                     var local_ray = Ray(
                         local_origin, local_dir, ray.t_min, hit.t
                     )
 
-                    var local_hit = blases[Int(inst.blas_idx)].trace[mode](
-                        local_ray
-                    )
+                    var local_hit = blases[Int(inst.blas_idx)].trace[
+                        Frame.LOCAL, mode
+                    ](local_ray)
 
                     comptime if mode == TRACE.ANY_HIT:
                         if local_hit.is_occluded():
@@ -114,12 +121,15 @@ struct Tlas[width: SIMDSize](Copyable):
                             hit.v = local_hit.v
                             hit.prim = local_hit.prim
                             hit.inst = inst_idx
-                            hit.normal = local_hit.normal
+                            hit.normal = local_hit.normal.unsafe_convert_frame[
+                                Frame.WORLD
+                            ]()
                             any_hit = True
 
             return any_hit
 
         return trace_bounds_bvh[
+            Frame.WORLD,
             Self.width,
             mode,
             leaf_fn,

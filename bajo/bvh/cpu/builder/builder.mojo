@@ -48,7 +48,7 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
         debug_assert["safe"](self.item_count > 0, "passed empty input.")
 
         comptime if split_method == "lbvh":
-            _build_lbvh[Self.leaf_size](self)
+            _build_lbvh[Self.frame, Self.leaf_size](self)
         else:
             self.nodes_used = 1
             self.nodes[0].set_leaf(0, self.item_count)

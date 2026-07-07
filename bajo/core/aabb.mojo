@@ -147,3 +147,11 @@ struct AxisAlignedBoundingBox[dtype: DType, frame: Frame, width: SIMDSize = 1](
         self, translation: Vec3[Self.dtype, Self.frame, Self.width]
     ) -> Self:
         return Self(self._min + translation, self._max + translation)
+
+    def unsafe_convert_frame[
+        new_frame: Frame
+    ](self) -> AxisAlignedBoundingBox[Self.dtype, new_frame, Self.width]:
+        return AxisAlignedBoundingBox[Self.dtype, new_frame, Self.width](
+            self._min.unsafe_convert_frame[new_frame](),
+            self._max.unsafe_convert_frame[new_frame](),
+        )

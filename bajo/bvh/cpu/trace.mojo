@@ -1,24 +1,25 @@
 from bajo.bvh.types import Ray, Hit
 from bajo.core.intersect import intersect_ray_aabb_rcp
-from bajo.core.vec import Vec3, Point3
+from bajo.core import Vec3, Point3, Frame
 from bajo.bvh.cpu.bounds_bvh import BoundsBvh
 from bajo.bvh.constants import EMPTY_LANE, CPU_STACK_SIZE, TRACE
 
 
 def trace_bounds_bvh[
+    frame: Frame,
     width: SIMDSize,
     mode: TRACE,
     leaf_fn: def(
-        Ray,
-        Point3[DType.float32, width],
-        Vec3[DType.float32, width],
+        Ray[frame],
+        Point3[DType.float32, frame, width],
+        Vec3[DType.float32, frame, width],
         UInt32,
         mut Hit,
     ) capturing -> Bool,
-](tree: BoundsBvh[width], ray: Ray) -> Hit:
+](tree: BoundsBvh[frame, width], ray: Ray[frame]) -> Hit[frame]:
     debug_assert["safe"](len(tree.nodes) > 0)
 
-    var hit = Hit.miss(ray.t_max)
+    var hit = Hit[frame].miss(ray.t_max)
 
     var stack = InlineArray[UInt32, CPU_STACK_SIZE](uninitialized=True)
     var stack_ptr = 0
@@ -50,7 +51,7 @@ def trace_bounds_bvh[
                             hit,
                         ):
                             comptime if mode == TRACE.ANY_HIT:
-                                return Hit.shadow_hit()
+                                return Hit[frame].shadow_hit()
 
         if stack_ptr == 0:
             break

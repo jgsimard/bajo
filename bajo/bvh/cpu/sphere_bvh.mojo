@@ -73,9 +73,9 @@ struct SphereBvh[frame: Frame, width: SIMDSize](Copyable, TypedBvh):
                     self.leaf_blocks.append(block^)
                     node.data[lane] = block_idx
 
-    def trace[mode: TRACE](self, ray: Ray) -> Hit[Self.frame]:
+    def trace[mode: TRACE](self, ray: Ray[Self.frame]) -> Hit[Self.frame]:
         def leaf_fn(
-            ray: Ray,
+            ray: Ray[Self.frame],
             O: Point3[DType.float32, Self.frame, Self.width],
             D: Vec3[DType.float32, Self.frame, Self.width],
             leaf_block_idx: UInt32,
@@ -110,6 +110,7 @@ struct SphereBvh[frame: Frame, width: SIMDSize](Copyable, TypedBvh):
             return True
 
         return trace_bounds_bvh[
+            Self.frame,
             Self.width,
             mode,
             leaf_fn,

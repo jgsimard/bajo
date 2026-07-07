@@ -142,9 +142,9 @@ def test_world_hit_maps_material_and_normal() raises:
     var surfaces = SurfaceStore()
     var spheres = List[Sphere]()
     var sphere_surfaces = List[SurfaceId]()
-    var triangle_vertices = List[Vec3f32]()
+    var triangle_vertices = List[Point3f32]()
     var triangle_surfaces = List[SurfaceId]()
-    var triangle_meshes = List[List[Vec3f32]]()
+    var triangle_meshes = List[List[Point3f32]]()
     var triangle_instances = List[Instance]()
     var triangle_instance_surfaces = List[SurfaceId]()
     var matte = surfaces.add_lambertian(Color(0.5))
@@ -176,9 +176,9 @@ def test_world_preserves_signed_radius_normals() raises:
     var surfaces = SurfaceStore()
     var spheres = List[Sphere]()
     var sphere_surfaces = List[SurfaceId]()
-    var triangle_vertices = List[Vec3f32]()
+    var triangle_vertices = List[Point3f32]()
     var triangle_surfaces = List[SurfaceId]()
-    var triangle_meshes = List[List[Vec3f32]]()
+    var triangle_meshes = List[List[Point3f32]]()
     var triangle_instances = List[Instance]()
     var triangle_instance_surfaces = List[SurfaceId]()
     var glass = surfaces.add_dielectric(1.5)
@@ -206,9 +206,9 @@ def test_world_hits_triangle() raises:
     var surfaces = SurfaceStore()
     var spheres = List[Sphere]()
     var sphere_surfaces = List[SurfaceId]()
-    var triangle_vertices = List[Vec3f32]()
+    var triangle_vertices = List[Point3f32]()
     var triangle_surfaces = List[SurfaceId]()
-    var triangle_meshes = List[List[Vec3f32]]()
+    var triangle_meshes = List[List[Point3f32]]()
     var triangle_instances = List[Instance]()
     var triangle_instance_surfaces = List[SurfaceId]()
     var matte = surfaces.add_lambertian(Color(0.25, 0.5, 0.75))
@@ -246,9 +246,9 @@ def test_world_picks_closest_sphere_or_triangle() raises:
     var surfaces = SurfaceStore()
     var spheres = List[Sphere]()
     var sphere_surfaces = List[SurfaceId]()
-    var triangle_vertices = List[Vec3f32]()
+    var triangle_vertices = List[Point3f32]()
     var triangle_surfaces = List[SurfaceId]()
-    var triangle_meshes = List[List[Vec3f32]]()
+    var triangle_meshes = List[List[Point3f32]]()
     var triangle_instances = List[Instance]()
     var triangle_instance_surfaces = List[SurfaceId]()
     var sphere_surface = surfaces.add_lambertian(Color(0.5))
@@ -292,19 +292,19 @@ def test_add_triangle_mesh_assigns_surface_per_triangle() raises:
     var surfaces = SurfaceStore()
     var spheres = List[Sphere]()
     var sphere_surfaces = List[SurfaceId]()
-    var triangle_vertices = List[Vec3f32]()
+    var triangle_vertices = List[Point3f32]()
     var triangle_surfaces = List[SurfaceId]()
-    var triangle_meshes = List[List[Vec3f32]]()
+    var triangle_meshes = List[List[Point3f32]]()
     var triangle_instances = List[Instance]()
     var triangle_instance_surfaces = List[SurfaceId]()
     var matte = surfaces.add_lambertian(Color(0.3, 0.4, 0.5))
-    var mesh = List[Vec3f32]()
-    mesh.append(Vec3f32(-1.0, -1.0, -2.0))
-    mesh.append(Vec3f32(1.0, -1.0, -2.0))
-    mesh.append(Vec3f32(0.0, 1.0, -2.0))
-    mesh.append(Vec3f32(-1.0, -1.0, -3.0))
-    mesh.append(Vec3f32(1.0, -1.0, -3.0))
-    mesh.append(Vec3f32(0.0, 1.0, -3.0))
+    var mesh = List[Point3f32]()
+    mesh.append(Point3f32(-1.0, -1.0, -2.0))
+    mesh.append(Point3f32(1.0, -1.0, -2.0))
+    mesh.append(Point3f32(0.0, 1.0, -2.0))
+    mesh.append(Point3f32(-1.0, -1.0, -3.0))
+    mesh.append(Point3f32(1.0, -1.0, -3.0))
+    mesh.append(Point3f32(0.0, 1.0, -3.0))
 
     add_triangle_mesh(triangle_vertices, triangle_surfaces, mesh, matte)
     assert_equal(len(triangle_vertices), 6)
@@ -333,18 +333,18 @@ def test_triangle_mesh_instances_use_instance_surfaces() raises:
     var surfaces = SurfaceStore()
     var spheres = List[Sphere]()
     var sphere_surfaces = List[SurfaceId]()
-    var triangle_vertices = List[Vec3f32]()
+    var triangle_vertices = List[Point3f32]()
     var triangle_surfaces = List[SurfaceId]()
-    var triangle_meshes = List[List[Vec3f32]]()
+    var triangle_meshes = List[List[Point3f32]]()
     var triangle_instances = List[Instance]()
     var triangle_instance_surfaces = List[SurfaceId]()
     var matte = surfaces.add_lambertian(Color(0.2, 0.4, 0.8))
     var metal = surfaces.add_metal(Color(0.9, 0.8, 0.7), 0.0)
 
-    var mesh = List[Vec3f32]()
-    mesh.append(Vec3f32(-0.5, -0.5, -2.0))
-    mesh.append(Vec3f32(0.5, -0.5, -2.0))
-    mesh.append(Vec3f32(0.0, 0.5, -2.0))
+    var mesh = List[Point3f32]()
+    mesh.append(Point3f32(-0.5, -0.5, -2.0))
+    mesh.append(Point3f32(0.5, -0.5, -2.0))
+    mesh.append(Point3f32(0.0, 0.5, -2.0))
     var mesh_bounds = compute_bounds(mesh)
 
     var id = Affine3f32.identity()
@@ -410,9 +410,9 @@ def test_render_settings_and_tiny_render() raises:
     var surfaces = SurfaceStore()
     var spheres = List[Sphere]()
     var sphere_surfaces = List[SurfaceId]()
-    var triangle_vertices = List[Vec3f32]()
+    var triangle_vertices = List[Point3f32]()
     var triangle_surfaces = List[SurfaceId]()
-    var triangle_meshes = List[List[Vec3f32]]()
+    var triangle_meshes = List[List[Point3f32]]()
     var triangle_instances = List[Instance]()
     var triangle_instance_surfaces = List[SurfaceId]()
     var matte = surfaces.add_lambertian(Color(0.5))
@@ -428,8 +428,8 @@ def test_render_settings_and_tiny_render() raises:
         surfaces^,
     )
     var camera = Camera.from_vfov(
-        Vec3f32(0.0, 0.0, 0.0),
-        Vec3f32(0.0, 0.0, -1.0),
+        Point3f32(0.0, 0.0, 0.0),
+        Point3f32(0.0, 0.0, -1.0),
         Vec3f32(0.0, 1.0, 0.0),
         90.0,
     )
@@ -449,9 +449,9 @@ def test_render_can_select_normal_algorithm_at_compile_time() raises:
     var surfaces = SurfaceStore()
     var spheres = List[Sphere]()
     var sphere_surfaces = List[SurfaceId]()
-    var triangle_vertices = List[Vec3f32]()
+    var triangle_vertices = List[Point3f32]()
     var triangle_surfaces = List[SurfaceId]()
-    var triangle_meshes = List[List[Vec3f32]]()
+    var triangle_meshes = List[List[Point3f32]]()
     var triangle_instances = List[Instance]()
     var triangle_instance_surfaces = List[SurfaceId]()
     var matte = surfaces.add_lambertian(Color(0.5))
@@ -467,8 +467,8 @@ def test_render_can_select_normal_algorithm_at_compile_time() raises:
         surfaces^,
     )
     var camera = Camera.from_vfov(
-        Vec3f32(0.0, 0.0, 0.0),
-        Vec3f32(0.0, 0.0, -1.0),
+        Point3f32(0.0, 0.0, 0.0),
+        Point3f32(0.0, 0.0, -1.0),
         Vec3f32(0.0, 1.0, 0.0),
         90.0,
     )
@@ -483,9 +483,9 @@ def test_render_can_select_ao_algorithm_at_compile_time() raises:
     var surfaces = SurfaceStore()
     var spheres = List[Sphere]()
     var sphere_surfaces = List[SurfaceId]()
-    var triangle_vertices = List[Vec3f32]()
+    var triangle_vertices = List[Point3f32]()
     var triangle_surfaces = List[SurfaceId]()
-    var triangle_meshes = List[List[Vec3f32]]()
+    var triangle_meshes = List[List[Point3f32]]()
     var triangle_instances = List[Instance]()
     var triangle_instance_surfaces = List[SurfaceId]()
     var matte = surfaces.add_lambertian(Color(0.5))
@@ -501,8 +501,8 @@ def test_render_can_select_ao_algorithm_at_compile_time() raises:
         surfaces^,
     )
     var camera = Camera.from_vfov(
-        Vec3f32(0.0, 0.0, 0.0),
-        Vec3f32(0.0, 0.0, -1.0),
+        Point3f32(0.0, 0.0, 0.0),
+        Point3f32(0.0, 0.0, -1.0),
         Vec3f32(0.0, 1.0, 0.0),
         90.0,
     )
@@ -521,9 +521,9 @@ def test_wavefront_tiny_render() raises:
     var surfaces = SurfaceStore()
     var spheres = List[Sphere]()
     var sphere_surfaces = List[SurfaceId]()
-    var triangle_vertices = List[Vec3f32]()
+    var triangle_vertices = List[Point3f32]()
     var triangle_surfaces = List[SurfaceId]()
-    var triangle_meshes = List[List[Vec3f32]]()
+    var triangle_meshes = List[List[Point3f32]]()
     var triangle_instances = List[Instance]()
     var triangle_instance_surfaces = List[SurfaceId]()
     var matte = surfaces.add_lambertian(Color(0.5))
@@ -539,8 +539,8 @@ def test_wavefront_tiny_render() raises:
         surfaces^,
     )
     var camera = Camera.from_vfov(
-        Vec3f32(0.0, 0.0, 0.0),
-        Vec3f32(0.0, 0.0, -1.0),
+        Point3f32(0.0, 0.0, 0.0),
+        Point3f32(0.0, 0.0, -1.0),
         Vec3f32(0.0, 1.0, 0.0),
         90.0,
     )

@@ -177,15 +177,15 @@ def intersect_ray_aabb_rcp[
 ](
     o: Point3[dtype, width],
     rcp_d: Vec3[dtype, width],
-    bmin: Vec3[dtype, width],
-    bmax: Vec3[dtype, width],
+    bmin: Point3[dtype, width],
+    bmax: Point3[dtype, width],
     t_max: SIMD[dtype, width],
 ) -> RayDistanceHit[dtype, width]:
     """Intersect a ray with an AABB using precomputed reciprocal direction."""
     comptime assert dtype in [DType.float32, DType.float64]
 
-    var t0 = (bmin - o.to_vec()) * rcp_d
-    var t1 = (bmax - o.to_vec()) * rcp_d
+    var t0 = (bmin - o) * rcp_d
+    var t1 = (bmax - o) * rcp_d
     var t_near = vmin(t0, t1)
     var t_far = vmax(t0, t1)
 
@@ -213,8 +213,8 @@ def intersect_ray_aabb[
 ](
     o: Point3[dtype, width],
     rcp_d: Vec3[dtype, width],
-    bmin: Vec3[dtype, width],
-    bmax: Vec3[dtype, width],
+    bmin: Point3[dtype, width],
+    bmax: Point3[dtype, width],
     t_max: SIMD[dtype, width],
 ) -> RayDistanceHit[dtype, width]:
     return intersect_ray_aabb_rcp(o, rcp_d, bmin, bmax, t_max)
@@ -285,9 +285,9 @@ def intersect_ray_tri[
 ](
     o: Point3[dtype, width],
     d: Vec3[dtype, width],
-    v0: Vec3[dtype, width],
-    v1: Vec3[dtype, width],
-    v2: Vec3[dtype, width],
+    v0: Point3[dtype, width],
+    v1: Point3[dtype, width],
+    v2: Point3[dtype, width],
     t_max: SIMD[dtype, width],
     t_min: SIMD[dtype, width] = SIMD[dtype, width](1.0e-4),
 ) -> RayTriHit[dtype, width]:
@@ -305,7 +305,7 @@ def intersect_ray_tri[
     var det_ok = det.gt(EPSILON) | det.lt(-EPSILON)
     var inv_det = 1.0 / det
 
-    var tv = o.to_vec() - v0
+    var tv = o - v0
     var u = dot(tv, p) * inv_det
 
     var q = cross(tv, e1)
@@ -340,9 +340,9 @@ def intersect_ray_tri[
     t_max: Scalar[dtype],
 ) -> RayTriHit[dtype, 1]:
     var base = Int(prim_idx) * 9
-    var v0 = Vec3.load(vertices, base)
-    var v1 = Vec3.load(vertices, base + 3)
-    var v2 = Vec3.load(vertices, base + 6)
+    var v0 = Point3.load(vertices, base)
+    var v1 = Point3.load(vertices, base + 3)
+    var v2 = Point3.load(vertices, base + 6)
 
     return intersect_ray_tri(
         o,

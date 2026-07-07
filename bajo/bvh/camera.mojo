@@ -2,7 +2,7 @@ from std.math import tan
 
 from bajo.bvh.types import Ray
 from bajo.bvh.constants import f32_max
-from bajo.core import Vec3f32, normalize, cross
+from bajo.core import Vec3f32, normalize, cross, Point3f32
 from bajo.core.utils import degrees_to_radians
 
 
@@ -18,7 +18,7 @@ struct Camera(TrivialRegisterPassable, Writable):
     comptime DEFOCUS_DISK_U = 14
     comptime DEFOCUS_DISK_V = 17
 
-    var origin: Vec3f32
+    var origin: Point3f32
     var forward: Vec3f32
     var right: Vec3f32
     var up: Vec3f32
@@ -30,7 +30,7 @@ struct Camera(TrivialRegisterPassable, Writable):
     def __init__[
         origin: ImmutOrigin
     ](out self, ptr: UnsafePointer[Float32, origin], base: Int = 0):
-        self.origin = Vec3f32.load(ptr, base + Camera.ORIGIN)
+        self.origin = Point3f32.load(ptr, base + Camera.ORIGIN)
         self.forward = Vec3f32.load(ptr, base + Camera.FORWARD)
         self.right = Vec3f32.load(ptr, base + Camera.RIGHT)
         self.up = Vec3f32.load(ptr, base + Camera.UP)
@@ -41,8 +41,8 @@ struct Camera(TrivialRegisterPassable, Writable):
 
     def __init__(
         out self,
-        origin: Vec3f32,
-        target: Vec3f32,
+        origin: Point3f32,
+        target: Point3f32,
         world_up: Vec3f32,
         fov_scale: Float32,
         focus_dist: Float32 = 1.0,
@@ -63,8 +63,8 @@ struct Camera(TrivialRegisterPassable, Writable):
 
     @staticmethod
     def from_vfov(
-        origin: Vec3f32,
-        target: Vec3f32,
+        origin: Point3f32,
+        target: Point3f32,
         world_up: Vec3f32,
         vfov: Float32,
         focus_dist: Float32 = 1.0,
@@ -129,7 +129,7 @@ struct Camera(TrivialRegisterPassable, Writable):
         var dir = focal_point - ray_origin
 
         return Ray(
-            ray_origin.to_point(),
+            ray_origin,
             normalize(dir),
             t_min,
             f32_max,

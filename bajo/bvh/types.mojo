@@ -170,9 +170,7 @@ struct Sphere(TrivialRegisterPassable):
 
     def bounds(self) -> AABB:
         var r = Vec3f32(self.radius)
-        return AABB(
-            (self.center - r).to_vec(), (self.center + r).to_vec()
-        )  # TODO
+        return AABB(self.center - r, self.center + r)
 
 
 @fieldwise_init
@@ -189,15 +187,15 @@ struct SphereLeafBlock[width: SIMDSize](Copyable):
 
 @fieldwise_init
 struct TriangleLeafBlock[width: SIMDSize](Copyable):
-    var v0: Vec3[DType.float32, Self.width]
-    var v1: Vec3[DType.float32, Self.width]
-    var v2: Vec3[DType.float32, Self.width]
+    var v0: Point3[DType.float32, Self.width]
+    var v1: Point3[DType.float32, Self.width]
+    var v2: Point3[DType.float32, Self.width]
     var prim_indices: SIMD[DType.uint32, Self.width]
 
     def __init__(out self):
-        self.v0 = Vec3[DType.float32, Self.width](0.0)
-        self.v1 = Vec3[DType.float32, Self.width](0.0)
-        self.v2 = Vec3[DType.float32, Self.width](0.0)
+        self.v0 = Point3[DType.float32, Self.width](0.0)
+        self.v1 = Point3[DType.float32, Self.width](0.0)
+        self.v2 = Point3[DType.float32, Self.width](0.0)
         self.prim_indices = SIMD[DType.uint32, Self.width](EMPTY_LANE)
 
 

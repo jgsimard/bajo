@@ -27,9 +27,9 @@ def _z_ray(origin: Point3f32) -> Ray:
     return Ray(origin, Vec3f32(0.0, 0.0, 1.0))
 
 
-def _make_random_xy_triangles(count: Int, seed: UInt64) -> List[Vec3f32]:
+def _make_random_xy_triangles(count: Int, seed: UInt64) -> List[Point3f32]:
     var rng = Rng(seed, 0)
-    var verts = List[Vec3f32](capacity=count * 3)
+    var verts = List[Point3f32](capacity=count * 3)
 
     for _ in range(count):
         var cx = _rng_f32(rng, -8.0, 8.0)
@@ -40,46 +40,46 @@ def _make_random_xy_triangles(count: Int, seed: UInt64) -> List[Vec3f32]:
 
         # Flat XY triangle. This deliberately creates zero-thickness AABBs on Z,
         # which catches the tmin == tmax AABB case.
-        verts.append(Vec3f32(cx - sx, cy - sy, z))
-        verts.append(Vec3f32(cx + sx, cy - sy, z))
-        verts.append(Vec3f32(cx, cy + sy, z))
+        verts.append(Point3f32(cx - sx, cy - sy, z))
+        verts.append(Point3f32(cx + sx, cy - sy, z))
+        verts.append(Point3f32(cx, cy + sy, z))
 
     return verts^
 
 
-def _make_strip(count: Int) -> List[Vec3f32]:
+def _make_strip(count: Int) -> List[Point3f32]:
     """Create `count` separated triangles at z = 2.
 
     Primitive i is centered at x = i * 4 - count * 2.
     """
-    var verts = List[Vec3f32](capacity=count * 3)
+    var verts = List[Point3f32](capacity=count * 3)
 
     for i in range(count):
         var cx = Float32(i * 4 - count * 2)
-        verts.append(Vec3f32(cx - 1.0, -1.0, 2.0))
-        verts.append(Vec3f32(cx + 1.0, -1.0, 2.0))
-        verts.append(Vec3f32(cx, 1.0, 2.0))
+        verts.append(Point3f32(cx - 1.0, -1.0, 2.0))
+        verts.append(Point3f32(cx + 1.0, -1.0, 2.0))
+        verts.append(Point3f32(cx, 1.0, 2.0))
 
     return verts^
 
 
-def _make_depth_pair() -> List[Vec3f32]:
-    var verts = List[Vec3f32](capacity=6)
+def _make_depth_pair() -> List[Point3f32]:
+    var verts = List[Point3f32](capacity=6)
 
     # Primitive 0 at z = 2.
-    verts.append(Vec3f32(-1.0, -1.0, 2.0))
-    verts.append(Vec3f32(1.0, -1.0, 2.0))
-    verts.append(Vec3f32(0.0, 1.0, 2.0))
+    verts.append(Point3f32(-1.0, -1.0, 2.0))
+    verts.append(Point3f32(1.0, -1.0, 2.0))
+    verts.append(Point3f32(0.0, 1.0, 2.0))
 
     # Primitive 1 at z = 4, behind primitive 0.
-    verts.append(Vec3f32(-1.0, -1.0, 4.0))
-    verts.append(Vec3f32(1.0, -1.0, 4.0))
-    verts.append(Vec3f32(0.0, 1.0, 4.0))
+    verts.append(Point3f32(-1.0, -1.0, 4.0))
+    verts.append(Point3f32(1.0, -1.0, 4.0))
+    verts.append(Point3f32(0.0, 1.0, 4.0))
 
     return verts^
 
 
-def _make_bounds_items(verts: List[Vec3f32]) -> List[BoundsItem]:
+def _make_bounds_items(verts: List[Point3f32]) -> List[BoundsItem]:
     var tri_count = len(verts) / 3
     var items = List[BoundsItem](capacity=tri_count)
 
@@ -102,14 +102,14 @@ def _make_spheres() -> List[Sphere]:
     ]
 
 
-def _triangle_center_xy(verts: List[Vec3f32], prim_idx: Int) -> Point3f32:
+def _triangle_center_xy(verts: List[Point3f32], prim_idx: Int) -> Point3f32:
     ref v0 = verts[prim_idx * 3 + 0]
     ref v1 = verts[prim_idx * 3 + 1]
     ref v2 = verts[prim_idx * 3 + 2]
 
-    var out = (v0 + v1 + v2) / 3.0
+    var out = v0.unsafe_add(v1).unsafe_add(v2) / 3.0
     out.z = 0.0
-    return out.to_point()
+    return out
 
 
 def _assert_builder_leaf_sizes_at_most(
@@ -164,7 +164,9 @@ def _assert_wide_leaf_counts_at_most_width[
 
 def _assert_triangle_bvh_matches_bruteforce[
     width: SIMDSize
-](mut bvh: TriangleBvh[width], verts: List[Vec3f32], origin: Point3f32) raises:
+](
+    mut bvh: TriangleBvh[width], verts: List[Point3f32], origin: Point3f32
+) raises:
     var ray = _z_ray(origin)
     var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
 
@@ -262,8 +264,8 @@ def test_wide_bounds_root_bounds_is_valid() raises:
 
 
 def test_bounds_ray_query_inside_outside_regression() raises:
-    var lower = Vec3f32(0.5, -1.0, -1.0)
-    var upper = Vec3f32(1.0, 1.0, 1.0)
+    var lower = Point3f32(0.5, -1.0, -1.0)
+    var upper = Point3f32(1.0, 1.0, 1.0)
 
     var query_ray = Ray(Point3f32(0.0, 0.0, 0.0), Vec3f32(1.0, 0.0, 0.0))
     var rcp_dir = query_ray.rcp_direction[1]()
@@ -298,9 +300,9 @@ def test_ray_rcp_direction_uses_finite_parallel_axes() raises:
 
 def test_bounds_item_bounds_and_payload_mapping() raises:
     var bounds = triangle_bounds(
-        Vec3f32(-1.0, 2.0, 3.0),
-        Vec3f32(2.0, -4.0, 5.0),
-        Vec3f32(0.0, 1.0, -6.0),
+        Point3f32(-1.0, 2.0, 3.0),
+        Point3f32(2.0, -4.0, 5.0),
+        Point3f32(0.0, 1.0, -6.0),
     )
     var item = BoundsItem(bounds, UInt32(42))
 
@@ -315,13 +317,13 @@ def test_bounds_item_bounds_and_payload_mapping() raises:
 
 
 def test_bounds_sah_clear_separation() raises:
-    var verts: List[Vec3f32] = [
-        Vec3f32(-11.0, -1.0, 0.0),
-        Vec3f32(-9.0, -1.0, 0.0),
-        Vec3f32(-10.0, 1.0, 0.0),  # Tri 0, centered near x=-10
-        Vec3f32(9.0, -1.0, 0.0),
-        Vec3f32(11.0, -1.0, 0.0),
-        Vec3f32(10.0, 1.0, 0.0),  # Tri 1, centered near x=10
+    var verts: List[Point3f32] = [
+        Point3f32(-11.0, -1.0, 0.0),
+        Point3f32(-9.0, -1.0, 0.0),
+        Point3f32(-10.0, 1.0, 0.0),  # Tri 0, centered near x=-10
+        Point3f32(9.0, -1.0, 0.0),
+        Point3f32(11.0, -1.0, 0.0),
+        Point3f32(10.0, 1.0, 0.0),  # Tri 1, centered near x=10
     ]
     var items = _make_bounds_items(verts)
     var builder = BoundsBvhBuilder[2](items)
@@ -340,13 +342,13 @@ def test_bounds_sah_clear_separation() raises:
 
 
 def test_bounds_sah_degenerate() raises:
-    var verts: List[Vec3f32] = [
-        Vec3f32(0.0, 0.0, 0.0),
-        Vec3f32(1.0, 0.0, 0.0),
-        Vec3f32(0.0, 1.0, 0.0),
-        Vec3f32(0.0, 0.0, 0.0),
-        Vec3f32(1.0, 0.0, 0.0),
-        Vec3f32(0.0, 1.0, 0.0),
+    var verts: List[Point3f32] = [
+        Point3f32(0.0, 0.0, 0.0),
+        Point3f32(1.0, 0.0, 0.0),
+        Point3f32(0.0, 1.0, 0.0),
+        Point3f32(0.0, 0.0, 0.0),
+        Point3f32(1.0, 0.0, 0.0),
+        Point3f32(0.0, 1.0, 0.0),
     ]
     var items = _make_bounds_items(verts)
     var builder = BoundsBvhBuilder[2](items)
@@ -363,13 +365,13 @@ def test_bounds_sah_degenerate() raises:
 
 
 def test_bounds_partition_items_non_empty() raises:
-    var verts: List[Vec3f32] = [
-        Vec3f32(-11.0, -1.0, 0.0),
-        Vec3f32(-9.0, -1.0, 0.0),
-        Vec3f32(-10.0, 1.0, 0.0),
-        Vec3f32(9.0, -1.0, 0.0),
-        Vec3f32(11.0, -1.0, 0.0),
-        Vec3f32(10.0, 1.0, 0.0),
+    var verts: List[Point3f32] = [
+        Point3f32(-11.0, -1.0, 0.0),
+        Point3f32(-9.0, -1.0, 0.0),
+        Point3f32(-10.0, 1.0, 0.0),
+        Point3f32(9.0, -1.0, 0.0),
+        Point3f32(11.0, -1.0, 0.0),
+        Point3f32(10.0, 1.0, 0.0),
     ]
     var items = _make_bounds_items(verts)
     var builder = BoundsBvhBuilder[2](items)

@@ -10,25 +10,25 @@ from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
 from bajo.bvh.host_utils import sphere_bounds
 
 
-def _append_tri(mut verts: List[Vec3f32], cx: Float32, z: Float32):
-    verts.append(Vec3f32(cx - 1.0, -1.0, z))
-    verts.append(Vec3f32(cx + 1.0, -1.0, z))
-    verts.append(Vec3f32(cx, 1.0, z))
+def _append_tri(mut verts: List[Point3f32], cx: Float32, z: Float32):
+    verts.append(Point3f32(cx - 1.0, -1.0, z))
+    verts.append(Point3f32(cx + 1.0, -1.0, z))
+    verts.append(Point3f32(cx, 1.0, z))
 
 
 def _append_tri(
-    mut verts: List[Vec3f32],
+    mut verts: List[Point3f32],
     cx: Float32,
     cy: Float32,
     z: Float32,
 ):
-    verts.append(Vec3f32(cx - 1.0, cy - 1.0, z))
-    verts.append(Vec3f32(cx + 1.0, cy - 1.0, z))
-    verts.append(Vec3f32(cx, cy + 1.0, z))
+    verts.append(Point3f32(cx - 1.0, cy - 1.0, z))
+    verts.append(Point3f32(cx + 1.0, cy - 1.0, z))
+    verts.append(Point3f32(cx, cy + 1.0, z))
 
 
-def _make_strip(count: Int, z: Float32 = 2.0) -> List[Vec3f32]:
-    var verts = List[Vec3f32](capacity=count * 3)
+def _make_strip(count: Int, z: Float32 = 2.0) -> List[Point3f32]:
+    var verts = List[Point3f32](capacity=count * 3)
 
     for i in range(count):
         var cx = Float32(i * 4 - count * 2)
@@ -37,15 +37,15 @@ def _make_strip(count: Int, z: Float32 = 2.0) -> List[Vec3f32]:
     return verts^
 
 
-def _make_two_depth_triangles() -> List[Vec3f32]:
-    var verts = List[Vec3f32](capacity=6)
+def _make_two_depth_triangles() -> List[Point3f32]:
+    var verts = List[Point3f32](capacity=6)
     _append_tri(verts, 0.0, 0.0, 2.0)
     _append_tri(verts, 0.0, 0.0, 4.0)
     return verts^
 
 
-def _make_small_scene() -> List[Vec3f32]:
-    var verts = List[Vec3f32](capacity=8 * 3)
+def _make_small_scene() -> List[Point3f32]:
+    var verts = List[Point3f32](capacity=8 * 3)
     _append_tri(verts, -1.0, -1.0, 2.0)
     _append_tri(verts, 1.0, -1.0, 2.0)
     _append_tri(verts, -1.0, 1.0, 2.0)
@@ -57,18 +57,18 @@ def _make_small_scene() -> List[Vec3f32]:
     return verts^
 
 
-def _make_single_triangle_scene() -> List[Vec3f32]:
-    var verts = List[Vec3f32](capacity=3)
+def _make_single_triangle_scene() -> List[Point3f32]:
+    var verts = List[Point3f32](capacity=3)
     _append_tri(verts, 0.0, 0.0, 2.0)
     return verts^
 
 
-def _make_duplicate_centroid_scene() -> List[Vec3f32]:
-    var verts = List[Vec3f32](capacity=12 * 3)
+def _make_duplicate_centroid_scene() -> List[Point3f32]:
+    var verts = List[Point3f32](capacity=12 * 3)
     for _ in range(12):
-        verts.append(Vec3f32(-0.5, -0.5, 2.0))
-        verts.append(Vec3f32(0.5, -0.5, 2.0))
-        verts.append(Vec3f32(0.0, 0.5, 2.0))
+        verts.append(Point3f32(-0.5, -0.5, 2.0))
+        verts.append(Point3f32(0.5, -0.5, 2.0))
+        verts.append(Point3f32(0.0, 0.5, 2.0))
     return verts^
 
 
@@ -120,7 +120,7 @@ def _camera_for_bounds(bounds: AABB, distance: Float32 = 2.5) -> Camera:
     )
 
 
-def _make_camera_ray(origin: Vec3f32, direction: Vec3f32) -> Camera:
+def _make_camera_ray(origin: Point3f32, direction: Vec3f32) -> Camera:
     return Camera(
         origin,
         origin + direction,
@@ -168,7 +168,7 @@ def _make_camera_rays_and_params(
 
 
 def _brute_triangle_trace(
-    verts: List[Vec3f32],
+    verts: List[Point3f32],
     O: Point3f32,
     D: Vec3f32,
 ) -> Hit:

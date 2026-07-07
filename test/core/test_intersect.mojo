@@ -55,8 +55,8 @@ def test_intersect_aabb_aabb() raises:
 
 
 def test_intersect_ray_aabb() raises:
-    lower = Vec3(-1.0)
-    upper = Vec3(1.0)
+    lower = Point3(-1.0)
+    upper = Point3(1.0)
 
     # Ray hitting the AABB head on
     pos_hit = Point3(0.01, 0.01, 5.0)
@@ -78,8 +78,8 @@ def test_intersect_ray_aabb() raises:
 
 
 def test_intersect_ray_aabb_rcp_name_and_inside_hit() raises:
-    lower = Vec3(-1.0)
-    upper = Vec3(1.0)
+    lower = Point3(-1.0)
+    upper = Point3(1.0)
 
     pos_inside = Point3(0.0, 0.0, 0.0)
     rcp_dir = Vec3(1.0, 1e9, 1e9)
@@ -90,8 +90,8 @@ def test_intersect_ray_aabb_rcp_name_and_inside_hit() raises:
 
 
 def test_intersect_ray_aabb_parallel_outside_miss() raises:
-    lower = Vec3(-1.0)
-    upper = Vec3(1.0)
+    lower = Point3(-1.0)
+    upper = Point3(1.0)
 
     pos = Point3(2.0, 0.0, 0.0)
     rcp_dir = Vec3(1e9, 1.0, 1e9)

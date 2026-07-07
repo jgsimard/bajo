@@ -25,11 +25,11 @@ comptime TLAS_WIDTH = 4
 comptime BLAS_WIDTH = 4
 
 
-def _make_triangle_at_z(z: Float32) -> List[Vec3f32]:
+def _make_triangle_at_z(z: Float32) -> List[Point3f32]:
     return [
-        Vec3f32(-1.0, -1.0, z),
-        Vec3f32(1.0, -1.0, z),
-        Vec3f32(0.0, 1.0, z),
+        Point3f32(-1.0, -1.0, z),
+        Point3f32(1.0, -1.0, z),
+        Point3f32(0.0, 1.0, z),
     ]
 
 
@@ -72,7 +72,7 @@ def _cpu_triangle_tlas_checksum[
 
 def _triangle_instance(
     blas_idx: UInt32,
-    translation: Vec3f32,
+    translation: Point3f32,
     local_bounds: AABB,
 ) -> Instance:
     return Instance(
@@ -86,7 +86,7 @@ def _triangle_instance(
 
 def _sphere_instance(
     blas_idx: UInt32,
-    translation: Vec3f32,
+    translation: Point3f32,
     local_bounds: AABB,
 ) -> Instance:
     return Instance(
@@ -128,8 +128,8 @@ def test_gpu_triangle_tlas_uses_instance_blas_index() raises:
             ctx, [near_verts^, far_verts^]
         )
 
-        var left = Vec3f32(-10.0, 0.0, 0.0)
-        var right = Vec3f32(10.0, 0.0, 0.0)
+        var left = Point3f32(-10.0, 0.0, 0.0)
+        var right = Point3f32(10.0, 0.0, 0.0)
         var instances = [
             _triangle_instance(0, left, near_bounds),
             _triangle_instance(1, right, far_bounds),
@@ -168,7 +168,7 @@ def test_gpu_triangle_tlas_closest_hit_across_different_blas() raises:
             ctx, [far_verts^, near_verts^]
         )
 
-        var zero = Vec3f32(0.0, 0.0, 0.0)
+        var zero = Point3f32(0.0, 0.0, 0.0)
         var instances = [
             _triangle_instance(0, zero, far_bounds),
             _triangle_instance(1, zero, near_bounds),
@@ -209,8 +209,8 @@ def test_gpu_sphere_tlas_uses_instance_blas_index() raises:
             ctx, [near_spheres^, far_spheres^]
         )
 
-        var left = Vec3f32(-10.0, 0.0, 0.0)
-        var right = Vec3f32(10.0, 0.0, 0.0)
+        var left = Point3f32(-10.0, 0.0, 0.0)
+        var right = Point3f32(10.0, 0.0, 0.0)
         var instances = [
             _sphere_instance(0, left, near_bounds),
             _sphere_instance(1, right, far_bounds),
@@ -244,16 +244,16 @@ def test_gpu_triangle_tlas_stress_8_blas_512_instances_matches_cpu() raises:
     comptime STRESS_WIDTH = 64
     comptime STRESS_HEIGHT = 32
 
-    var vertex_sets = List[List[Vec3f32]](capacity=STRESS_BLAS_COUNT)
+    var vertex_sets = List[List[Point3f32]](capacity=STRESS_BLAS_COUNT)
     var local_bounds = List[AABB](capacity=STRESS_BLAS_COUNT)
     var cpu_blases = List[TriangleBvh[BLAS_WIDTH]](capacity=STRESS_BLAS_COUNT)
 
     for b in range(STRESS_BLAS_COUNT):
         var z = Float32(2.0 + Float32(b) * 0.35)
         var verts = [
-            Vec3f32(-0.8, -0.7, z),
-            Vec3f32(0.8 + Float32(b % 3) * 0.05, -0.7, z),
-            Vec3f32(0.0, 0.9, z),
+            Point3f32(-0.8, -0.7, z),
+            Point3f32(0.8 + Float32(b % 3) * 0.05, -0.7, z),
+            Point3f32(0.0, 0.9, z),
         ]
         var bounds = compute_bounds(verts)
         vertex_sets.append(verts.copy())
@@ -273,7 +273,7 @@ def test_gpu_triangle_tlas_stress_8_blas_512_instances_matches_cpu() raises:
             instances.append(
                 _triangle_instance(
                     blas_idx,
-                    Vec3f32(tx, ty, tz),
+                    Point3f32(tx, ty, tz),
                     local_bounds[Int(blas_idx)],
                 )
             )

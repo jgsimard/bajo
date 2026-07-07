@@ -25,16 +25,16 @@ def _grid_y(i: Int) -> Float32:
     return (Float32(i / GRID_SIDE) - Float32(GRID_SIDE) * 0.5) * 3.0
 
 
-def make_grid_triangles() -> List[Vec3f32]:
-    var verts = List[Vec3f32](capacity=PRIM_COUNT * 3)
+def make_grid_triangles() -> List[Point3f32]:
+    var verts = List[Point3f32](capacity=PRIM_COUNT * 3)
 
     for i in range(PRIM_COUNT):
         var cx = _grid_x(i)
         var cy = _grid_y(i)
 
-        verts.append(Vec3f32(cx - 0.75, cy - 0.75, 2.0))
-        verts.append(Vec3f32(cx + 0.75, cy - 0.75, 2.0))
-        verts.append(Vec3f32(cx, cy + 0.75, 2.0))
+        verts.append(Point3f32(cx - 0.75, cy - 0.75, 2.0))
+        verts.append(Point3f32(cx + 0.75, cy - 0.75, 2.0))
+        verts.append(Point3f32(cx, cy + 0.75, 2.0))
 
     return verts^
 
@@ -217,7 +217,7 @@ def _case_name[prim: String, width: SIMDSize, split_method: String]() -> String:
 def bench_triangle_case[
     width: SIMDSize,
     split_method: String,
-](vertices: List[Vec3f32], rays: List[Ray]):
+](vertices: List[Point3f32], rays: List[Ray]):
     var name = _case_name["tri", width, split_method]()
 
     var t0 = perf_counter_ns()
@@ -262,7 +262,7 @@ def bench_sphere_case[
 
 def bench_triangle_widths[
     split_method: String
-](vertices: List[Vec3f32], rays: List[Ray]):
+](vertices: List[Point3f32], rays: List[Ray]):
     bench_triangle_case[2, split_method](vertices, rays)
     bench_triangle_case[4, split_method](vertices, rays)
     bench_triangle_case[8, split_method](vertices, rays)

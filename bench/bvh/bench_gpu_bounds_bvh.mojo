@@ -196,7 +196,7 @@ def _print_sphere_debug_mismatches(
                 if prim != EMPTY_LANE:
                     var sphere = spheres[Int(prim)]
                     var ray = rays[ray_idx]
-                    var oc = (ray.o - sphere.center).to_vec()  # TODO
+                    var oc = ray.o - sphere.center
                     var a = dot(ray.d, ray.d)
                     var half_b = dot(oc, ray.d)
                     var c = dot(oc, oc) - sphere.radius * sphere.radius
@@ -255,7 +255,7 @@ def _print_cpu_triangle_reference[
     width: SIMDSize
 ](
     label: String,
-    vertices: List[Vec3f32],
+    vertices: List[Point3f32],
     rays: List[Ray],
 ) -> Tuple[
     Float64, UInt32

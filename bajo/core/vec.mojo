@@ -133,10 +133,14 @@ struct Geo3[dtype: DType, kind: GeoKind, width: SIMDSize = 1](
     def to_point(deinit self) -> Geo3[self.dtype, GeoKind.POINT, self.width]:
         return Point3[self.dtype, self.width](self.x, self.y, self.z)
 
-    def to_vec(deinit self) -> Geo3[self.dtype, GeoKind.VECTOR, self.width]:
-        return Vec3[self.dtype, self.width](self.x, self.y, self.z)
-
     # p + v = p
+    def unsafe_add(self: Self, rhs: Self) -> Self:
+        return Self(
+            self.x + rhs.x,
+            self.y + rhs.y,
+            self.z + rhs.z,
+        )
+
     def __add__(
         self: Point3[Self.dtype, Self.width], rhs: Vec3[Self.dtype, Self.width]
     ) -> Point3[Self.dtype, Self.width]:
@@ -407,9 +411,11 @@ def dot[
 
 
 def vmin[
-    dtype: DType, width: SIMDSize
-](a: Vec3[dtype, width], b: Vec3[dtype, width]) -> Vec3[dtype, width]:
-    return Vec3[dtype, width](
+    dtype: DType, kind: GeoKind, width: SIMDSize
+](a: Geo3[dtype, kind, width], b: Geo3[dtype, kind, width]) -> Geo3[
+    dtype, kind, width
+]:
+    return Geo3[dtype, kind, width](
         fmin(a.x, b.x),
         fmin(a.y, b.y),
         fmin(a.z, b.z),
@@ -417,11 +423,13 @@ def vmin[
 
 
 def vmin[
-    dtype: DType, width: SIMDSize
-](a: Vec3[dtype, width], b: Vec3[dtype, width], c: Vec3[dtype, width]) -> Vec3[
-    dtype, width
-]:
-    return Vec3[dtype, width](
+    dtype: DType, kind: GeoKind, width: SIMDSize
+](
+    a: Geo3[dtype, kind, width],
+    b: Geo3[dtype, kind, width],
+    c: Geo3[dtype, kind, width],
+) -> Geo3[dtype, kind, width]:
+    return Geo3[dtype, kind, width](
         fmin(fmin(a.x, b.x), c.x),
         fmin(fmin(a.y, b.y), c.y),
         fmin(fmin(a.z, b.z), c.z),
@@ -429,9 +437,11 @@ def vmin[
 
 
 def vmax[
-    dtype: DType, width: SIMDSize
-](a: Vec3[dtype, width], b: Vec3[dtype, width]) -> Vec3[dtype, width]:
-    return Vec3[dtype, width](
+    dtype: DType, kind: GeoKind, width: SIMDSize
+](a: Geo3[dtype, kind, width], b: Geo3[dtype, kind, width]) -> Geo3[
+    dtype, kind, width
+]:
+    return Geo3[dtype, kind, width](
         fmax(a.x, b.x),
         fmax(a.y, b.y),
         fmax(a.z, b.z),
@@ -439,11 +449,13 @@ def vmax[
 
 
 def vmax[
-    dtype: DType, width: SIMDSize
-](a: Vec3[dtype, width], b: Vec3[dtype, width], c: Vec3[dtype, width]) -> Vec3[
-    dtype, width
-]:
-    return Vec3[dtype, width](
+    dtype: DType, kind: GeoKind, width: SIMDSize
+](
+    a: Geo3[dtype, kind, width],
+    b: Geo3[dtype, kind, width],
+    c: Geo3[dtype, kind, width],
+) -> Geo3[dtype, kind, width]:
+    return Geo3[dtype, kind, width](
         fmax(fmax(a.x, b.x), c.x),
         fmax(fmax(a.y, b.y), c.y),
         fmax(fmax(a.z, b.z), c.z),
@@ -451,12 +463,12 @@ def vmax[
 
 
 def vclamp[
-    dtype: DType, width: SIMDSize
+    dtype: DType, kind: GeoKind, width: SIMDSize
 ](
-    p: Vec3[dtype, width],
-    lower: Vec3[dtype, width],
-    upper: Vec3[dtype, width],
-) -> Vec3[dtype, width]:
+    p: Geo3[dtype, kind, width],
+    lower: Geo3[dtype, kind, width],
+    upper: Geo3[dtype, kind, width],
+) -> Geo3[dtype, kind, width]:
     return vmin(vmax(p, lower), upper)
 
 

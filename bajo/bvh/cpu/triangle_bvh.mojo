@@ -1,5 +1,5 @@
 from bajo.core.utils import min_argmin
-from bajo.core import Vec3, Vec3f32, AABB, Point3
+from bajo.core import Vec3, Vec3f32, AABB, Point3, Point3f32
 from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
 from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvh,
@@ -27,7 +27,7 @@ struct TriangleBvh[width: SIMDSize](Copyable, TypedBvh):
 
     def __init__[
         split_method: String = "median"
-    ](out self, var vertices: List[Vec3f32]):
+    ](out self, var vertices: List[Point3f32]):
         self.tri_count = len(vertices) / 3
         self.leaf_blocks = List[TriangleLeafBlock[Self.width]]()
 
@@ -53,7 +53,7 @@ struct TriangleBvh[width: SIMDSize](Copyable, TypedBvh):
     def bounds(self) -> AABB:
         return self.tree.root_bounds()
 
-    def _pack_leaves(mut self, var vertices: List[Vec3f32]):
+    def _pack_leaves(mut self, var vertices: List[Point3f32]):
         self.leaf_blocks = List[TriangleLeafBlock[Self.width]](
             capacity=(self.tri_count + Int(Self.width) - 1) // Int(Self.width)
         )

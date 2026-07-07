@@ -806,8 +806,8 @@ def _make_sphere_scene(count_x: Int, count_y: Int) -> Tuple[List[Sphere], AABB]:
             var cz = 8.0 + Float32((x + y) % 5) * 0.5
             var r = Float32(0.8)
             spheres.append(Sphere(Point3f32(cx, cy, cz), r))
-            bounds.grow(Vec3f32(cx - r, cy - r, cz - r))
-            bounds.grow(Vec3f32(cx + r, cy + r, cz + r))
+            bounds.grow(Point3f32(cx - r, cy - r, cz - r))
+            bounds.grow(Point3f32(cx + r, cy + r, cz + r))
 
     return (spheres^, bounds)
 
@@ -932,7 +932,7 @@ def main() raises:
     print("BLAS bounds max:", round(blas_bounds._max, 3))
 
     print("\nLoading multi-BLAS OBJ set...")
-    var multi_vertices = List[List[Vec3f32]](capacity=3)
+    var multi_vertices = List[List[Point3f32]](capacity=3)
     var multi_bounds = List[AABB](capacity=3)
     multi_vertices.append(tri_vertices.copy())
     multi_bounds.append(blas_bounds)

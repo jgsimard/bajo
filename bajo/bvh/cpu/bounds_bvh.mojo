@@ -1,4 +1,4 @@
-from bajo.core import AABB, AxisAlignedBoundingBox, Vec3f32
+from bajo.core import AABB, AxisAlignedBoundingBox, Vec3f32, Point3f32
 from bajo.bvh.constants import EMPTY_LANE
 from bajo.bvh.cpu.builder import BoundsBvhBuilder, BoundsItem
 
@@ -105,12 +105,12 @@ struct BoundsBvh[width: SIMDSize](Copyable):
             comptime for lane in range(Self.width):
                 if root.counts[lane] != EMPTY_LANE:
                     out.grow(
-                        Vec3f32(
+                        Point3f32(
                             root.aabb._min.x[lane],
                             root.aabb._min.y[lane],
                             root.aabb._min.z[lane],
                         ),
-                        Vec3f32(
+                        Point3f32(
                             root.aabb._max.x[lane],
                             root.aabb._max.y[lane],
                             root.aabb._max.z[lane],

@@ -196,9 +196,9 @@ struct World(Movable):
     var triangle_tlas: Optional[Tlas[BVH_WIDTH]]
     var spheres: List[Sphere]
     var sphere_surfaces: List[SurfaceId]
-    var triangle_vertices: List[Vec3f32]
+    var triangle_vertices: List[Point3f32]
     var triangle_surfaces: List[SurfaceId]
-    var triangle_meshes: List[List[Vec3f32]]
+    var triangle_meshes: List[List[Point3f32]]
     var triangle_mesh_blases: List[TriangleBvh[BVH_WIDTH]]
     var triangle_instances: List[Instance]
     var triangle_instance_surfaces: List[SurfaceId]
@@ -208,9 +208,9 @@ struct World(Movable):
         out self,
         var spheres: List[Sphere],
         var sphere_surfaces: List[SurfaceId],
-        var triangle_vertices: List[Vec3f32],
+        var triangle_vertices: List[Point3f32],
         var triangle_surfaces: List[SurfaceId],
-        var triangle_meshes: List[List[Vec3f32]],
+        var triangle_meshes: List[List[Point3f32]],
         var triangle_instances: List[Instance],
         var triangle_instance_surfaces: List[SurfaceId],
         var surfaces: SurfaceStore,
@@ -467,8 +467,7 @@ struct World(Movable):
 
 
 def ray_at(ray: Ray, t: Float32) -> Point3f32:
-    # TODO: fix that
-    return (ray.o.to_vec() + t * ray.d).to_point()
+    return ray.o + t * ray.d
 
 
 def _closest_hit2(a: HitRecord, b: HitRecord) -> Optional[HitRecord]:
@@ -500,23 +499,23 @@ def add_sphere(
 
 
 def add_triangle(
-    mut triangle_vertices: List[Vec3f32],
+    mut triangle_vertices: List[Point3f32],
     mut triangle_surfaces: List[SurfaceId],
     v0: Point3f32,
     v1: Point3f32,
     v2: Point3f32,
     surface: SurfaceId,
 ):
-    triangle_vertices.append(v0.to_vec())  # TODO
-    triangle_vertices.append(v1.to_vec())  # TODO
-    triangle_vertices.append(v2.to_vec())  # TODO
+    triangle_vertices.append(v0)
+    triangle_vertices.append(v1)
+    triangle_vertices.append(v2)
     triangle_surfaces.append(surface.copy())
 
 
 def add_triangle_mesh(
-    mut triangle_vertices: List[Vec3f32],
+    mut triangle_vertices: List[Point3f32],
     mut triangle_surfaces: List[SurfaceId],
-    vertices: List[Vec3f32],
+    vertices: List[Point3f32],
     surface: SurfaceId,
 ):
     debug_assert["safe"](
@@ -530,10 +529,10 @@ def add_triangle_mesh(
 
 
 def add_triangle_mesh_instance(
-    mut triangle_meshes: List[List[Vec3f32]],
+    mut triangle_meshes: List[List[Point3f32]],
     mut triangle_instances: List[Instance],
     mut triangle_instance_surfaces: List[SurfaceId],
-    vertices: List[Vec3f32],
+    vertices: List[Point3f32],
     transform: Affine3f32,
     inv_transform: Affine3f32,
     bounds: AABB,

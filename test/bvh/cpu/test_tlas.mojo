@@ -8,11 +8,11 @@ from bajo.bvh.cpu.tlas import Tlas
 from bajo.core import Affine3f32, Vec3f32, Point3f32
 
 
-def _make_one_local_triangle_z2() -> List[Vec3f32]:
+def _make_one_local_triangle_z2() -> List[Point3f32]:
     return [
-        Vec3f32(-1.0, -1.0, 2.0),
-        Vec3f32(1.0, -1.0, 2.0),
-        Vec3f32(0.0, 1.0, 2.0),
+        Point3f32(-1.0, -1.0, 2.0),
+        Point3f32(1.0, -1.0, 2.0),
+        Point3f32(0.0, 1.0, 2.0),
     ]
 
 

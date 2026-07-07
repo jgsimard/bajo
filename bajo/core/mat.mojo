@@ -4,12 +4,14 @@ from std.testing import assert_almost_equal
 
 from bajo.core.vec import Vec3
 from bajo.core.quat import Quaternion
+from bajo.core.frame import Frame
 
 
 struct Mat[
     dtype: DType,
     rows: Int,
     cols: Int,
+    frame: Frame,
     width: SIMDSize = 1,
 ](Copyable, Writable):
     comptime Elem = SIMD[Self.dtype, Self.width]
@@ -70,9 +72,9 @@ struct Mat[
 
     @staticmethod
     def from_cols(
-        c0: Vec3[Self.dtype, Self.width],
-        c1: Vec3[Self.dtype, Self.width],
-        c2: Vec3[Self.dtype, Self.width],
+        c0: Vec3[Self.dtype, Self.frame, Self.width],
+        c1: Vec3[Self.dtype, Self.frame, Self.width],
+        c2: Vec3[Self.dtype, Self.frame, Self.width],
     ) -> Self:
         comptime assert Self.rows == 3
         comptime assert Self.cols == 3
@@ -215,19 +217,21 @@ struct Mat[
 
         return res^
 
-    def col[j: Int](self) -> Vec3[Self.dtype, Self.width]:
+    def col[j: Int](self) -> Vec3[Self.dtype, Self.frame, Self.width]:
         comptime assert Self.rows == 3
         comptime assert Self.cols == 3
         comptime assert j >= 0 and j < 3
 
-        return Vec3[Self.dtype, Self.width](
+        return Vec3[Self.dtype, Self.frame, Self.width](
             self[0][j],
             self[1][j],
             self[2][j],
         )
 
-    def transpose(self) -> Mat[Self.dtype, Self.cols, Self.rows, Self.width]:
-        var res = Mat[Self.dtype, Self.cols, Self.rows, Self.width](
+    def transpose(
+        self,
+    ) -> Mat[Self.dtype, Self.cols, Self.rows, Self.frame, Self.width]:
+        var res = Mat[Self.dtype, Self.cols, Self.rows, Self.frame, Self.width](
             uninitialized=True
         )
 
@@ -292,12 +296,13 @@ def _matmul[
     a_rows: Int,
     a_cols: Int,
     b_cols: Int,
+    frame: Frame,
     width: SIMDSize,
 ](
-    a: Mat[dtype, a_rows, a_cols, width],
-    b: Mat[dtype, a_cols, b_cols, width],
-) -> Mat[dtype, a_rows, b_cols, width]:
-    var res = Mat[dtype, a_rows, b_cols, width](uninitialized=True)
+    a: Mat[dtype, a_rows, a_cols, frame, width],
+    b: Mat[dtype, a_cols, b_cols, frame, width],
+) -> Mat[dtype, a_rows, b_cols, frame, width]:
+    var res = Mat[dtype, a_rows, b_cols, frame, width](uninitialized=True)
 
     comptime for i in range(a_rows):
         comptime for j in range(b_cols):
@@ -312,9 +317,11 @@ def _matmul[
 
 
 def _matvec[
-    dtype: DType, width: SIMDSize
-](m: Mat[dtype, 3, 3, width], v: Vec3[dtype, width]) -> Vec3[dtype, width]:
-    return Vec3[dtype, width](
+    dtype: DType, frame: Frame, width: SIMDSize
+](m: Mat[dtype, 3, 3, frame, width], v: Vec3[dtype, frame, width]) -> Vec3[
+    dtype, frame, width
+]:
+    return Vec3[dtype, frame, width](
         m[0][0] * v.x + m[0][1] * v.y + m[0][2] * v.z,
         m[1][0] * v.x + m[1][1] * v.y + m[1][2] * v.z,
         m[2][0] * v.x + m[2][1] * v.y + m[2][2] * v.z,
@@ -325,10 +332,11 @@ def assert_mat_equal[
     dtype: DType,
     rows: Int,
     cols: Int,
+    frame: Frame,
     width: SIMDSize,
 ](
-    a: Mat[dtype, rows, cols, width],
-    b: Mat[dtype, rows, cols, width],
+    a: Mat[dtype, rows, cols, frame, width],
+    b: Mat[dtype, rows, cols, frame, width],
     atol: Float64 = 1e-5,
 ) raises:
     comptime for i in range(rows):
@@ -347,13 +355,13 @@ def assert_mat_equal[
 ##############
 def determinant[
     dtype: DType, width: SIMDSize
-](m: Mat[dtype, 2, 2, width]) -> SIMD[dtype, width]:
+](m: Mat[dtype, 2, 2, _, width]) -> SIMD[dtype, width]:
     return m[0][0] * m[1][1] - m[0][1] * m[1][0]
 
 
 def determinant[
     dtype: DType, width: SIMDSize
-](m: Mat[dtype, 3, 3, width]) -> SIMD[dtype, width]:
+](m: Mat[dtype, 3, 3, _, width]) -> SIMD[dtype, width]:
     var a00 = m[0][0]
     var a01 = m[0][1]
     var a02 = m[0][2]
@@ -375,7 +383,7 @@ def determinant[
 
 def determinant[
     dtype: DType, width: SIMDSize
-](m: Mat[dtype, 4, 4, width]) -> SIMD[dtype, width]:
+](m: Mat[dtype, 4, 4, _, width]) -> SIMD[dtype, width]:
     """Adapted from USD - see licenses/usd-LICENSE.txt Copyright 2016 Pixar."""
     # Pickle 1st two columns of matrix into registers
     x00 = m[0][0]
@@ -422,13 +430,16 @@ def determinant[
 struct MatInverseResult[
     dtype: DType,
     n: Int,
+    frame: Frame,
     width: SIMDSize,
 ](Movable):
     var mask: SIMD[DType.bool, Self.width]
-    var value: Mat[Self.dtype, Self.n, Self.n, Self.width]
+    var value: Mat[Self.dtype, Self.n, Self.n, Self.frame, Self.width]
 
 
-def inverse[dtype: DType](m: Mat[dtype, 2, 2]) raises -> Mat[dtype, 2, 2]:
+def inverse[
+    dtype: DType, frame: Frame
+](m: Mat[dtype, 2, 2, frame]) raises -> Mat[dtype, 2, 2, frame]:
     comptime EPSILON = 1e-8
     x00 = m[0][0]
     x01 = m[0][1]
@@ -439,14 +450,16 @@ def inverse[dtype: DType](m: Mat[dtype, 2, 2]) raises -> Mat[dtype, 2, 2]:
         raise "nope"
     rcp = 1.0 / det
     # fmt: off
-    return Mat[dtype, 2, 2](
+    return Mat[dtype, 2, 2, frame](
         x00 * rcp, -x01 * rcp,
         -x10 * rcp, x11 * rcp
     )
     # fmt: on
 
 
-def inverse[dtype: DType](m: Mat[dtype, 3, 3]) raises -> Mat[dtype, 3, 3]:
+def inverse[
+    dtype: DType, frame: Frame
+](m: Mat[dtype, 3, 3, frame]) raises -> Mat[dtype, 3, 3, frame]:
     comptime EPSILON = 1e-8
 
     var x00 = m[0][0]
@@ -477,7 +490,7 @@ def inverse[dtype: DType](m: Mat[dtype, 3, 3]) raises -> Mat[dtype, 3, 3]:
 
     var rcp = 1.0 / det
     # fmt: off
-    return Mat[dtype, 3, 3](
+    return Mat[dtype, 3, 3, frame](
         z00 * rcp, z01 * rcp, z02 * rcp,
         z10 * rcp, z11 * rcp, z12 * rcp,
         z20 * rcp, z21 * rcp, z22 * rcp
@@ -485,7 +498,9 @@ def inverse[dtype: DType](m: Mat[dtype, 3, 3]) raises -> Mat[dtype, 3, 3]:
     # fmt: on
 
 
-def inverse[dtype: DType](m: Mat[dtype, 4, 4]) raises -> Mat[dtype, 4, 4]:
+def inverse[
+    dtype: DType, frame: Frame
+](m: Mat[dtype, 4, 4, frame]) raises -> Mat[dtype, 4, 4, frame]:
     """Adapted from USD - see licenses/usd-LICENSE.txt Copyright 2016 Pixar."""
 
     comptime EPSILON = 1e-8
@@ -554,7 +569,7 @@ def inverse[dtype: DType](m: Mat[dtype, 4, 4]) raises -> Mat[dtype, 4, 4]:
 
     rcp = 1.0 / det
 
-    invm = Mat[dtype, 4, 4](uninitialized=True)
+    invm = Mat[dtype, 4, 4, frame](uninitialized=True)
 
     # Multiply all 3x3 cofactors by reciprocal & transpose
     invm[0][0] = z00 * rcp

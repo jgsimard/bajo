@@ -8,7 +8,9 @@ from bajo.core.quat import Quaternion
 from bajo.core.vec import Vec3, assert_vec_equal
 
 
-def assert_quat_equal[T: DType](a: Quaternion[T], b: Quaternion[T]) raises:
+def assert_quat_equal[
+    T: DType
+](a: Quaternion[T, _], b: Quaternion[T, _]) raises:
     assert_almost_equal(a.x, b.x, atol=1e-8)
     assert_almost_equal(a.y, b.y, atol=1e-8)
     assert_almost_equal(a.z, b.z, atol=1e-8)

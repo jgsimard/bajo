@@ -7,33 +7,37 @@ from bajo.core.vec import (
     length as vlength,
 )
 from bajo.core.mat import Mat
+from bajo.core.frame import Frame
 
 
 def length2[
     dtype: DType,
+    frame: Frame,
     width: SIMDSize,
-](q: Quaternion[dtype, width]) -> SIMD[dtype, width]:
+](q: Quaternion[dtype, frame, width]) -> SIMD[dtype, width]:
     return q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w
 
 
 def length[
     dtype: DType,
+    frame: Frame,
     width: SIMDSize,
-](q: Quaternion[dtype, width]) -> SIMD[dtype, width]:
+](q: Quaternion[dtype, frame, width]) -> SIMD[dtype, width]:
     return sqrt(length2(q))
 
 
 def normalize[
     dtype: DType,
+    frame: Frame,
     width: SIMDSize,
-](q: Quaternion[dtype, width]) -> Quaternion[dtype, width]:
+](q: Quaternion[dtype, frame, width]) -> Quaternion[dtype, frame, width]:
     return q * (1.0 / length(q))
 
 
 @fieldwise_init
-struct Quaternion[dtype: DType, width: SIMDSize = 1](
-    DevicePassable, TrivialRegisterPassable, Writable
-):
+struct Quaternion[
+    dtype: DType, frame: Frame = Frame.WORLD, width: SIMDSize = 1
+](DevicePassable, TrivialRegisterPassable, Writable):
     var x: SIMD[Self.dtype, Self.width]
     var y: SIMD[Self.dtype, Self.width]
     var z: SIMD[Self.dtype, Self.width]
@@ -58,7 +62,7 @@ struct Quaternion[dtype: DType, width: SIMDSize = 1](
 
     def __init__(
         out self,
-        xyz: Vec3[Self.dtype, Self.width],
+        xyz: Vec3[Self.dtype, Self.frame, Self.width],
         w: SIMD[Self.dtype, Self.width],
     ):
         self.x = xyz.x
@@ -70,8 +74,8 @@ struct Quaternion[dtype: DType, width: SIMDSize = 1](
     def identity() -> Self:
         return Self(0, 0, 0, 1)
 
-    def xyz(self) -> Vec3[Self.dtype, Self.width]:
-        return Vec3[Self.dtype, Self.width](self.x, self.y, self.z)
+    def xyz(self) -> Vec3[Self.dtype, Self.frame, Self.width]:
+        return Vec3[Self.dtype, Self.frame, Self.width](self.x, self.y, self.z)
 
     def conjugate(self) -> Self:
         return Self(-self.x, -self.y, -self.z, self.w)
@@ -91,8 +95,8 @@ struct Quaternion[dtype: DType, width: SIMDSize = 1](
         )
 
     def rotate(
-        self, v: Vec3[Self.dtype, Self.width]
-    ) -> Vec3[Self.dtype, Self.width]:
+        self, v: Vec3[Self.dtype, Self.frame, Self.width]
+    ) -> Vec3[Self.dtype, Self.frame, Self.width]:
         var c = 2.0 * self.w * self.w - 1.0
         var d = 2.0 * (self.x * v.x + self.y * v.y + self.z * v.z)
         var w2 = 2.0 * self.w
@@ -101,11 +105,11 @@ struct Quaternion[dtype: DType, width: SIMDSize = 1](
         var ry = v.y * c + self.y * d + (self.z * v.x - self.x * v.z) * w2
         var rz = v.z * c + self.z * d + (self.x * v.y - self.y * v.x) * w2
 
-        return Vec3[Self.dtype, Self.width](rx, ry, rz)
+        return Vec3[Self.dtype, Self.frame, Self.width](rx, ry, rz)
 
     def rotate_inverse(
-        self, v: Vec3[Self.dtype, Self.width]
-    ) -> Vec3[Self.dtype, Self.width]:
+        self, v: Vec3[Self.dtype, Self.frame, Self.width]
+    ) -> Vec3[Self.dtype, Self.frame, Self.width]:
         var c = 2.0 * self.w * self.w - 1.0
         var d = 2.0 * (self.x * v.x + self.y * v.y + self.z * v.z)
         var w2 = 2.0 * self.w
@@ -114,11 +118,11 @@ struct Quaternion[dtype: DType, width: SIMDSize = 1](
         var ry = v.y * c + self.y * d - (self.z * v.x - self.x * v.z) * w2
         var rz = v.z * c + self.z * d - (self.x * v.y - self.y * v.x) * w2
 
-        return Vec3[Self.dtype, Self.width](rx, ry, rz)
+        return Vec3[Self.dtype, Self.frame, Self.width](rx, ry, rz)
 
     @staticmethod
     def from_axis_angle(
-        axis: Vec3[Self.dtype, Self.width],
+        axis: Vec3[Self.dtype, Self.frame, Self.width],
         angle: SIMD[Self.dtype, Self.width],
     ) -> Self where Self.dtype.is_floating_point():
         half_angle = angle * 0.5
@@ -129,7 +133,7 @@ struct Quaternion[dtype: DType, width: SIMDSize = 1](
     def to_axis_angle(
         self,
     ) -> Tuple[
-        Vec3[Self.dtype, Self.width],
+        Vec3[Self.dtype, Self.frame, Self.width],
         SIMD[Self.dtype, Self.width],
     ] where Self.dtype.is_floating_point():
         v = self.xyz()
@@ -138,11 +142,13 @@ struct Quaternion[dtype: DType, width: SIMDSize = 1](
         angle = 2.0 * atan2(vlength(v), abs(self.w))
         return (axis, angle)
 
-    def to_matrix(self) -> Mat[Self.dtype, 3, 3, Self.width]:
-        c0 = self.rotate(Vec3[Self.dtype, Self.width](1, 0, 0))
-        c1 = self.rotate(Vec3[Self.dtype, Self.width](0, 1, 0))
-        c2 = self.rotate(Vec3[Self.dtype, Self.width](0, 0, 1))
-        return Mat[Self.dtype, 3, 3, Self.width].from_cols(c0, c1, c2)
+    def to_matrix(self) -> Mat[Self.dtype, 3, 3, Self.frame, Self.width]:
+        c0 = self.rotate(Vec3[Self.dtype, Self.frame, Self.width](1, 0, 0))
+        c1 = self.rotate(Vec3[Self.dtype, Self.frame, Self.width](0, 1, 0))
+        c2 = self.rotate(Vec3[Self.dtype, Self.frame, Self.width](0, 0, 1))
+        return Mat[Self.dtype, 3, 3, Self.frame, Self.width].from_cols(
+            c0, c1, c2
+        )
 
     @staticmethod
     def _from_rotation_matrix_elements(
@@ -206,7 +212,7 @@ struct Quaternion[dtype: DType, width: SIMDSize = 1](
     def from_matrix[
         rows: Int,
         cols: Int,
-    ](m: Mat[Self.dtype, rows, cols, Self.width]) -> Self where (
+    ](m: Mat[Self.dtype, rows, cols, Self.frame, Self.width]) -> Self where (
         (rows == cols) and (rows == 3) and (Self.dtype.is_floating_point())
     ):
         return Self._from_rotation_matrix_elements(
@@ -225,9 +231,9 @@ struct Quaternion[dtype: DType, width: SIMDSize = 1](
     def from_basis[
         version: Int = 0,
     ](
-        a: Vec3[Self.dtype, Self.width],
-        b: Vec3[Self.dtype, Self.width],
-        c: Vec3[Self.dtype, Self.width],
+        a: Vec3[Self.dtype, Self.frame, Self.width],
+        b: Vec3[Self.dtype, Self.frame, Self.width],
+        c: Vec3[Self.dtype, Self.frame, Self.width],
     ) -> Self where Self.dtype.is_floating_point():
         return Self._from_rotation_matrix_elements(
             a.x,
@@ -267,7 +273,9 @@ struct Quaternion[dtype: DType, width: SIMDSize = 1](
 
     def to_euler(
         self,
-    ) -> Vec3[Self.dtype, Self.width] where Self.dtype.is_floating_point():
+    ) -> Vec3[
+        Self.dtype, Self.frame, Self.width
+    ] where Self.dtype.is_floating_point():
         var sinr_cosp = 2.0 * (self.w * self.x + self.y * self.z)
         cosr_cosp = 1 - 2 * (self.x * self.x + self.y * self.y)
         roll = atan2(sinr_cosp, cosr_cosp)
@@ -283,7 +291,7 @@ struct Quaternion[dtype: DType, width: SIMDSize = 1](
         cosy_cosp = 1 - 2 * (self.y * self.y + self.z * self.z)
         yaw = atan2(siny_cosp, cosy_cosp)
 
-        return Vec3[Self.dtype, Self.width](roll, pitch, yaw)
+        return Vec3[Self.dtype, Self.frame, Self.width](roll, pitch, yaw)
 
     def __neg__(self) -> Self:
         return Self(-self.x, -self.y, -self.z, -self.w)
@@ -356,16 +364,17 @@ struct Quaternion[dtype: DType, width: SIMDSize = 1](
 
 def slerp[
     dtype: DType,
+    frame: Frame,
     width: SIMDSize,
 ](
-    q0: Quaternion[dtype, width],
-    q1: Quaternion[dtype, width],
+    q0: Quaternion[dtype, frame, width],
+    q1: Quaternion[dtype, frame, width],
     t: SIMD[dtype, width],
-) -> Quaternion[dtype, width] where dtype.is_floating_point():
+) -> Quaternion[dtype, frame, width] where dtype.is_floating_point():
     """Spherical Linear Interpolation."""
     var axis_angle = (q0.inverse_unit() * q1).to_axis_angle()
 
-    return q0 * Quaternion[dtype, width].from_axis_angle(
+    return q0 * Quaternion[dtype, frame, width].from_axis_angle(
         axis_angle[0],
         t * axis_angle[1],
     )

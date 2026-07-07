@@ -14,6 +14,7 @@ from bajo.core.vec import (
 )
 from bajo.core.aabb import AxisAlignedBoundingBox
 from bajo.core.utils import fmin, fmax
+from bajo.core.frame import Frame
 
 
 # Result structs
@@ -59,23 +60,23 @@ def diff_product[
 
 # intersection functions
 def closest_point_to_aabb[
-    dtype: DType, width: SIMDSize
+    dtype: DType, frame: Frame, width: SIMDSize
 ](
-    p: Vec3[dtype, width],
-    lower: Vec3[dtype, width],
-    upper: Vec3[dtype, width],
-) -> Vec3[dtype, width]:
+    p: Vec3[dtype, frame, width],
+    lower: Vec3[dtype, frame, width],
+    upper: Vec3[dtype, frame, width],
+) -> Vec3[dtype, frame, width]:
     return vclamp(p, lower, upper)
 
 
 def closest_point_to_triangle[
-    dtype: DType, width: SIMDSize
+    dtype: DType, frame: Frame, width: SIMDSize
 ](
-    a: Vec3[dtype, width],
-    b: Vec3[dtype, width],
-    c: Vec3[dtype, width],
-    p: Vec3[dtype, width],
-) -> Vec2[dtype, width]:
+    a: Vec3[dtype, frame, width],
+    b: Vec3[dtype, frame, width],
+    c: Vec3[dtype, frame, width],
+    p: Vec3[dtype, frame, width],
+) -> Vec2[dtype, frame, width]:
     comptime assert width == 1, "current limitation :("
     ab = b - a
     ac = c - a
@@ -86,59 +87,59 @@ def closest_point_to_triangle[
 
     if d1 <= 0 and d2 <= 0:
         # Vertex A: v=0, w=0, u=1
-        return Vec2[dtype, width](1, 0)
+        return Vec2[dtype, frame, width](1, 0)
 
     bp = p - b
     d3 = dot(ab, bp)
     d4 = dot(ac, bp)
     if d3 >= 0 and d4 <= d3:
         # Vertex B: v=1, w=0, u=0
-        return Vec2[dtype, width](0, 1)
+        return Vec2[dtype, frame, width](0, 1)
 
     vc = d1 * d4 - d3 * d2
     if vc <= 0 and d1 >= 0 and d3 <= 0:
         # Edge AB
         v = d1 / (d1 - d3)
         u = 1 - v
-        return Vec2[dtype, width](u, v)
+        return Vec2[dtype, frame, width](u, v)
 
     cp = p - c
     d5 = dot(ab, cp)
     d6 = dot(ac, cp)
     if d6 >= 0 and d5 <= d6:
         # Vertex C: v=0, w=1, u=0
-        return Vec2[dtype, width](0, 0)
+        return Vec2[dtype, frame, width](0, 0)
 
     vb = d5 * d2 - d1 * d6
     if vb <= 0 and d2 >= 0 and d6 <= 0:
         # Edge AC
         w = d2 / (d2 - d6)
         u = 1 - w
-        return Vec2[dtype, width](u, 0)
+        return Vec2[dtype, frame, width](u, 0)
 
     va = d3 * d6 - d5 * d4
     if va <= 0 and (d4 - d3) >= 0 and (d5 - d6) >= 0:
         # Edge BC
         w = (d4 - d3) / ((d4 - d3) + (d5 - d6))
         v = 1 - w
-        return Vec2[dtype, width](0, v)
+        return Vec2[dtype, frame, width](0, v)
 
     # Inside Face
     denom = 1 / (va + vb + vc)
     v = vb * denom
     w = vc * denom
     u = 1 - v - w
-    return Vec2[dtype, width](u, v)
+    return Vec2[dtype, frame, width](u, v)
 
 
 def furthest_point_to_triangle[
-    dtype: DType, width: SIMDSize
+    dtype: DType, frame: Frame, width: SIMDSize
 ](
-    a: Vec3[dtype, width],
-    b: Vec3[dtype, width],
-    c: Vec3[dtype, width],
-    p: Vec3[dtype, width],
-) -> Vec2[dtype, width]:
+    a: Vec3[dtype, frame, width],
+    b: Vec3[dtype, frame, width],
+    c: Vec3[dtype, frame, width],
+    p: Vec3[dtype, frame, width],
+) -> Vec2[dtype, frame, width]:
     comptime assert width == 1, "current limitation :("
 
     pa = p - a
@@ -151,34 +152,34 @@ def furthest_point_to_triangle[
 
     # a is furthest
     if dist_a > dist_b and dist_a > dist_c:
-        return Vec2[dtype, width](1, 0)
+        return Vec2[dtype, frame, width](1, 0)
 
     # b is furthest
     if dist_b > dist_c:
-        return Vec2[dtype, width](0, 1)
+        return Vec2[dtype, frame, width](0, 1)
 
     #  c is furthest
-    return Vec2[dtype, width](0, 0)
+    return Vec2[dtype, frame, width](0, 0)
 
 
 def intersect_ray_aabb_rcp[
-    dtype: DType, width: SIMDSize
+    dtype: DType, frame: Frame, width: SIMDSize
 ](
-    o: Point3[dtype, width],
-    rcp_d: Vec3[dtype, width],
-    aabb: AxisAlignedBoundingBox[dtype, width],
+    o: Point3[dtype, frame, width],
+    rcp_d: Vec3[dtype, frame, width],
+    aabb: AxisAlignedBoundingBox[dtype, frame, width],
     t_max: SIMD[dtype, width],
 ) -> RayDistanceHit[dtype, width]:
     return intersect_ray_aabb_rcp(o, rcp_d, aabb._min, aabb._max, t_max)
 
 
 def intersect_ray_aabb_rcp[
-    dtype: DType, width: SIMDSize
+    dtype: DType, frame: Frame, width: SIMDSize
 ](
-    o: Point3[dtype, width],
-    rcp_d: Vec3[dtype, width],
-    bmin: Point3[dtype, width],
-    bmax: Point3[dtype, width],
+    o: Point3[dtype, frame, width],
+    rcp_d: Vec3[dtype, frame, width],
+    bmin: Point3[dtype, frame, width],
+    bmax: Point3[dtype, frame, width],
     t_max: SIMD[dtype, width],
 ) -> RayDistanceHit[dtype, width]:
     """Intersect a ray with an AABB using precomputed reciprocal direction."""
@@ -198,35 +199,35 @@ def intersect_ray_aabb_rcp[
 
 
 def intersect_ray_aabb[
-    dtype: DType, width: SIMDSize
+    dtype: DType, frame: Frame, width: SIMDSize
 ](
-    o: Point3[dtype, width],
-    rcp_d: Vec3[dtype, width],
-    aabb: AxisAlignedBoundingBox[dtype, width],
+    o: Point3[dtype, frame, width],
+    rcp_d: Vec3[dtype, frame, width],
+    aabb: AxisAlignedBoundingBox[dtype, frame, width],
     t_max: SIMD[dtype, width],
 ) -> RayDistanceHit[dtype, width]:
     return intersect_ray_aabb_rcp(o, rcp_d, aabb, t_max)
 
 
 def intersect_ray_aabb[
-    dtype: DType, width: SIMDSize
+    dtype: DType, frame: Frame, width: SIMDSize
 ](
-    o: Point3[dtype, width],
-    rcp_d: Vec3[dtype, width],
-    bmin: Point3[dtype, width],
-    bmax: Point3[dtype, width],
+    o: Point3[dtype, frame, width],
+    rcp_d: Vec3[dtype, frame, width],
+    bmin: Point3[dtype, frame, width],
+    bmax: Point3[dtype, frame, width],
     t_max: SIMD[dtype, width],
 ) -> RayDistanceHit[dtype, width]:
     return intersect_ray_aabb_rcp(o, rcp_d, bmin, bmax, t_max)
 
 
 def intersect_aabb_aabb[
-    dtype: DType, width: SIMDSize
+    dtype: DType, frame: Frame, width: SIMDSize
 ](
-    a_lower: Vec3[dtype, width],
-    a_upper: Vec3[dtype, width],
-    b_lower: Vec3[dtype, width],
-    b_upper: Vec3[dtype, width],
+    a_lower: Vec3[dtype, frame, width],
+    a_upper: Vec3[dtype, frame, width],
+    b_lower: Vec3[dtype, frame, width],
+    b_upper: Vec3[dtype, frame, width],
 ) -> SIMD[DType.bool, width]:
     return (
         a_lower.x.le(b_upper.x)
@@ -240,11 +241,12 @@ def intersect_aabb_aabb[
 
 def intersect_ray_sphere[
     dtype: DType,
+    frame: Frame,
     width: SIMDSize,
 ](
-    o: Point3[dtype, width],
-    d: Vec3[dtype, width],
-    center: Point3[dtype, width],
+    o: Point3[dtype, frame, width],
+    d: Vec3[dtype, frame, width],
+    center: Point3[dtype, frame, width],
     radius: SIMD[dtype, width],
     t_max: SIMD[dtype, width],
     t_min: SIMD[dtype, width] = SIMD[dtype, width](1.0e-4),
@@ -281,13 +283,13 @@ def intersect_ray_sphere[
 
 
 def intersect_ray_tri[
-    dtype: DType, width: SIMDSize
+    dtype: DType, frame: Frame, width: SIMDSize
 ](
-    o: Point3[dtype, width],
-    d: Vec3[dtype, width],
-    v0: Point3[dtype, width],
-    v1: Point3[dtype, width],
-    v2: Point3[dtype, width],
+    o: Point3[dtype, frame, width],
+    d: Vec3[dtype, frame, width],
+    v0: Point3[dtype, frame, width],
+    v1: Point3[dtype, frame, width],
+    v2: Point3[dtype, frame, width],
     t_max: SIMD[dtype, width],
     t_min: SIMD[dtype, width] = SIMD[dtype, width](1.0e-4),
 ) -> RayTriHit[dtype, width]:
@@ -331,18 +333,18 @@ def intersect_ray_tri[
 
 
 def intersect_ray_tri[
-    origin: ImmutOrigin, //, dtype: DType
+    origin: ImmutOrigin, //, dtype: DType, frame: Frame
 ](
     vertices: UnsafePointer[Scalar[dtype], origin],
     prim_idx: UInt32,
-    o: Point3[dtype],
-    d: Vec3[dtype],
+    o: Point3[dtype, frame],
+    d: Vec3[dtype, frame],
     t_max: Scalar[dtype],
 ) -> RayTriHit[dtype, 1]:
     var base = Int(prim_idx) * 9
-    var v0 = Point3.load(vertices, base)
-    var v1 = Point3.load(vertices, base + 3)
-    var v2 = Point3.load(vertices, base + 6)
+    var v0 = Point3[frame=frame].load(vertices, base)
+    var v1 = Point3[frame=frame].load(vertices, base + 3)
+    var v2 = Point3[frame=frame].load(vertices, base + 6)
 
     return intersect_ray_tri(
         o,
@@ -354,7 +356,9 @@ def intersect_ray_tri[
     )
 
 
-def max_dim[dtype: DType, width: SIMDSize](v: Vec3[dtype, width]) -> Int:
+def max_dim[
+    dtype: DType, frame: Frame, width: SIMDSize
+](v: Vec3[dtype, frame, width]) -> Int:
     comptime assert width == 1
 
     var x = abs(v.x)
@@ -369,11 +373,11 @@ def max_dim[dtype: DType, width: SIMDSize](v: Vec3[dtype, width]) -> Int:
 
 
 def edge_edge_test[
-    dtype: DType, width: SIMDSize
+    dtype: DType, frame: Frame, width: SIMDSize
 ](
-    v0: Vec3[dtype, width],
-    u0: Vec3[dtype, width],
-    u1: Vec3[dtype, width],
+    v0: Vec3[dtype, frame, width],
+    u0: Vec3[dtype, frame, width],
+    u1: Vec3[dtype, frame, width],
     i0: Int,
     i1: Int,
     Ax: SIMD[dtype, width],
@@ -403,13 +407,13 @@ def edge_edge_test[
 
 
 def edge_against_tri_edges[
-    dtype: DType, width: SIMDSize
+    dtype: DType, frame: Frame, width: SIMDSize
 ](
-    v0: Vec3[dtype, width],
-    v1: Vec3[dtype, width],
-    u0: Vec3[dtype, width],
-    u1: Vec3[dtype, width],
-    u2: Vec3[dtype, width],
+    v0: Vec3[dtype, frame, width],
+    v1: Vec3[dtype, frame, width],
+    u0: Vec3[dtype, frame, width],
+    u1: Vec3[dtype, frame, width],
+    u2: Vec3[dtype, frame, width],
     i0: Int,
     i1: Int,
 ) -> Bool:
@@ -429,11 +433,11 @@ def edge_against_tri_edges[
 
 
 def _point_in_tri_check[
-    dtype: DType, width: SIMDSize
+    dtype: DType, frame: Frame, width: SIMDSize
 ](
-    v0: Vec3[dtype, width],
-    p1: Vec3[dtype, width],
-    p2: Vec3[dtype, width],
+    v0: Vec3[dtype, frame, width],
+    p1: Vec3[dtype, frame, width],
+    p2: Vec3[dtype, frame, width],
     i0: Int,
     i1: Int,
 ) -> SIMD[dtype, width]:
@@ -444,12 +448,12 @@ def _point_in_tri_check[
 
 
 def point_in_tri[
-    dtype: DType, width: SIMDSize
+    dtype: DType, frame: Frame, width: SIMDSize
 ](
-    v0: Vec3[dtype, width],
-    u0: Vec3[dtype, width],
-    u1: Vec3[dtype, width],
-    u2: Vec3[dtype, width],
+    v0: Vec3[dtype, frame, width],
+    u0: Vec3[dtype, frame, width],
+    u1: Vec3[dtype, frame, width],
+    u2: Vec3[dtype, frame, width],
     i0: Int,
     i1: Int,
 ) -> Bool:
@@ -463,15 +467,15 @@ def point_in_tri[
 
 
 def coplanar_tri_tri[
-    dtype: DType, width: SIMDSize
+    dtype: DType, frame: Frame, width: SIMDSize
 ](
-    n: Vec3[dtype, width],
-    v0: Vec3[dtype, width],
-    v1: Vec3[dtype, width],
-    v2: Vec3[dtype, width],
-    u0: Vec3[dtype, width],
-    u1: Vec3[dtype, width],
-    u2: Vec3[dtype, width],
+    n: Vec3[dtype, frame, width],
+    v0: Vec3[dtype, frame, width],
+    v1: Vec3[dtype, frame, width],
+    v2: Vec3[dtype, frame, width],
+    u0: Vec3[dtype, frame, width],
+    u1: Vec3[dtype, frame, width],
+    u2: Vec3[dtype, frame, width],
 ) -> Bool:
     comptime assert width == 1
 
@@ -600,14 +604,14 @@ comptime intersect_tri_tri = no_div_tri_tri_isect
 
 
 def no_div_tri_tri_isect[
-    dtype: DType, width: SIMDSize
+    dtype: DType, frame: Frame, width: SIMDSize
 ](
-    v0: Vec3[dtype, width],
-    v1: Vec3[dtype, width],
-    v2: Vec3[dtype, width],
-    u0: Vec3[dtype, width],
-    u1: Vec3[dtype, width],
-    u2: Vec3[dtype, width],
+    v0: Vec3[dtype, frame, width],
+    v1: Vec3[dtype, frame, width],
+    v2: Vec3[dtype, frame, width],
+    u0: Vec3[dtype, frame, width],
+    u1: Vec3[dtype, frame, width],
+    u2: Vec3[dtype, frame, width],
 ) -> Bool:
     comptime assert width == 1
     comptime EPSILON = 0.000001
@@ -708,14 +712,14 @@ def no_div_tri_tri_isect[
 
 
 def closest_point_edge_edge[
-    dtype: DType, width: SIMDSize
+    dtype: DType, frame: Frame, width: SIMDSize
 ](
-    p1: Vec3[dtype, width],
-    q1: Vec3[dtype, width],
-    p2: Vec3[dtype, width],
-    q2: Vec3[dtype, width],
+    p1: Vec3[dtype, frame, width],
+    q1: Vec3[dtype, frame, width],
+    p2: Vec3[dtype, frame, width],
+    q2: Vec3[dtype, frame, width],
     epsilon: SIMD[dtype, width],
-) -> Vec3[dtype, width]:
+) -> Vec3[dtype, frame, width]:
     """Return (s, t, distance) for the closest points between two edges."""
     comptime assert width == 1
 
@@ -733,7 +737,7 @@ def closest_point_edge_edge[
 
     # Both segments degenerate into points.
     if a <= epsilon and e <= epsilon:
-        return Vec3[dtype, width](s, t, dist)
+        return Vec3[dtype, frame, width](s, t, dist)
 
     if a <= epsilon:
         s = 0.0
@@ -767,4 +771,4 @@ def closest_point_edge_edge[
     var c2 = p2 + (q2 - p2) * t
     dist = length(c2 - c1)
 
-    return Vec3[dtype, width](s, t, dist)
+    return Vec3[dtype, frame, width](s, t, dist)

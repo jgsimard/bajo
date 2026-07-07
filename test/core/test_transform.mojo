@@ -9,18 +9,21 @@ from bajo.core import (
     Point3f32,
     assert_vec_equal,
     Quat,
+    Frame,
 )
 from bajo.core.utils import degrees_to_radians
 
 
 def test_identity() raises:
-    p = Point3f32(1, 2, 3)
-    v = Vec3f32(4, 5, 6)
-    m = Affine3f32.identity()
+    p_w = Point3f32[Frame.WORLD](1, 2, 3)
+    v_w = Vec3f32[Frame.WORLD](4, 5, 6)
+    p_c = Point3f32[Frame.CAMERA](1, 2, 3)
+    v_c = Vec3f32[Frame.CAMERA](4, 5, 6)
+    m = Affine3f32[Frame.WORLD, Frame.CAMERA].identity()
 
-    assert_vec_equal(m.point(p), p)
-    assert_vec_equal(m.vector(v), v)
-    assert_vec_equal(m.translation(), Vec3f32(0, 0, 0))
+    assert_vec_equal(m.point(p_w), p_c)
+    assert_vec_equal(m.vector(v_w), v_c)
+    assert_vec_equal(m.translation(), Vec3f32[Frame.CAMERA](0, 0, 0))
 
 
 def test_translation() raises:

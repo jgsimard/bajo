@@ -3,19 +3,22 @@ from std.math import abs, fma
 
 from bajo.core.vec import Vec3, Normal3, Point3, Geo3
 from bajo.core.quat import Quaternion
+from bajo.core.frame import Frame
 
 
 @fieldwise_init
 struct Affine3InverseResult[
     dtype: DType,
+    From: Frame,
+    To: Frame,
     width: SIMDSize,
 ](Movable):
     var mask: SIMD[DType.bool, Self.width]
-    var inv: Affine3[Self.dtype, Self.width]
+    var inv: Affine3[Self.dtype, Self.From, Self.To, Self.width]
 
 
 @fieldwise_init
-struct Affine3[dtype: DType, width: SIMDSize = 1](
+struct Affine3[dtype: DType, From: Frame, To: Frame, width: SIMDSize = 1](
     Copyable, DevicePassable, Writable
 ):
     """3D affine transform.
@@ -87,7 +90,7 @@ struct Affine3[dtype: DType, width: SIMDSize = 1](
 
     @staticmethod
     def from_translation(
-        t: Geo3[Self.dtype, _, Self.width]
+        t: Geo3[Self.dtype, _, _, Self.width]
     ) -> Self:  # TODO: fix this ?
         var m = Self.identity()
 
@@ -98,7 +101,7 @@ struct Affine3[dtype: DType, width: SIMDSize = 1](
         return m^
 
     @staticmethod
-    def from_scale(s: Vec3[Self.dtype, Self.width]) -> Self:
+    def from_scale(s: Vec3[Self.dtype, _, Self.width]) -> Self:
         var m = Self(Scalar[Self.dtype](0))
 
         m.m00 = s.x
@@ -109,20 +112,20 @@ struct Affine3[dtype: DType, width: SIMDSize = 1](
 
     @staticmethod
     def from_rotation_scale(
-        r: Quaternion[Self.dtype, Self.width],
-        s: Vec3[Self.dtype, Self.width],
+        r: Quaternion[Self.dtype, _, Self.width],
+        s: Vec3[Self.dtype, _, Self.width],
     ) -> Self where Self.dtype.is_floating_point():
         return Self.from_rotation_scale_translation(
             r,
             s,
-            Vec3[Self.dtype, Self.width](0),
+            Vec3[Self.dtype, _, Self.width](0),
         )
 
     @staticmethod
     def from_rotation_scale_translation(
-        r: Quaternion[Self.dtype, Self.width],
-        s: Vec3[Self.dtype, Self.width],
-        t: Vec3[Self.dtype, Self.width],
+        r: Quaternion[Self.dtype, _, Self.width],
+        s: Vec3[Self.dtype, _, Self.width],
+        t: Vec3[Self.dtype, _, Self.width],
     ) -> Self where Self.dtype.is_floating_point():
         var x2 = r.x * r.x
         var y2 = r.y * r.y
@@ -152,27 +155,27 @@ struct Affine3[dtype: DType, width: SIMDSize = 1](
         # fmt: on
 
     def point(
-        self, p: Point3[Self.dtype, Self.width]
-    ) -> Point3[Self.dtype, Self.width]:
+        self, p: Point3[Self.dtype, Self.From, Self.width]
+    ) -> Point3[Self.dtype, Self.To, Self.width]:
         """Formula : p_out = M * p_in + t."""
-        return Point3[Self.dtype, Self.width](
+        return Point3[Self.dtype, Self.To, Self.width](
             fma(self.m00, p.x, fma(self.m01, p.y, fma(self.m02, p.z, self.tx))),
             fma(self.m10, p.x, fma(self.m11, p.y, fma(self.m12, p.z, self.ty))),
             fma(self.m20, p.x, fma(self.m21, p.y, fma(self.m22, p.z, self.tz))),
         )
 
     def vector(
-        self, v: Vec3[Self.dtype, Self.width]
-    ) -> Vec3[Self.dtype, Self.width]:
+        self, v: Vec3[Self.dtype, Self.From, Self.width]
+    ) -> Vec3[Self.dtype, Self.To, Self.width]:
         """Formula : v_out = M * v_in."""
-        return Vec3[Self.dtype, Self.width](
+        return Vec3[Self.dtype, Self.To, Self.width](
             fma(self.m00, v.x, fma(self.m01, v.y, self.m02 * v.z)),
             fma(self.m10, v.x, fma(self.m11, v.y, self.m12 * v.z)),
             fma(self.m20, v.x, fma(self.m21, v.y, self.m22 * v.z)),
         )
 
-    def translation(self) -> Vec3[Self.dtype, Self.width]:
-        return Vec3[Self.dtype, Self.width](self.tx, self.ty, self.tz)
+    def translation(self) -> Vec3[Self.dtype, Self.To, Self.width]:
+        return Vec3[Self.dtype, Self.To, Self.width](self.tx, self.ty, self.tz)
 
     @staticmethod
     def load[
@@ -201,7 +204,7 @@ struct Affine3[dtype: DType, width: SIMDSize = 1](
         self,
         eps: Scalar[Self.dtype] = 1.0e-8,
     ) -> Affine3InverseResult[
-        Self.dtype, Self.width
+        Self.dtype, Self.To, Self.From, Self.width
     ] where Self.dtype.is_floating_point():
         # full fma version = harder to read, but asm is the same length
         # inverse of the 3x3 linear part : inv(Mat33)
@@ -244,7 +247,7 @@ struct Affine3[dtype: DType, width: SIMDSize = 1](
         return Affine3InverseResult(
             mask,
             # fmt: off
-            Self(
+            Affine3[Self.dtype, Self.To, Self.From, Self.width](
                 inv00, inv01, inv02, inv_tx,
                 inv10, inv11, inv12, inv_ty,
                 inv20, inv21, inv22, inv_tz,

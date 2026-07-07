@@ -3,6 +3,7 @@ from std.math import fma, sqrt
 from std.testing import assert_almost_equal
 
 from bajo.core.utils import fmin, fmax
+from bajo.core.frame import Frame
 
 
 @fieldwise_init
@@ -19,22 +20,22 @@ struct GeoKind(Equatable, TrivialRegisterPassable):
         return self.v == rhs.v
 
 
-comptime Vec2[dtype: DType, width: SIMDSize = 1] = Geo2[
-    dtype, GeoKind.VECTOR, width
+comptime Vec2[dtype: DType, frame: Frame, width: SIMDSize = 1] = Geo2[
+    dtype, GeoKind.VECTOR, frame, width
 ]
-comptime Vec3[dtype: DType, width: SIMDSize = 1] = Geo3[
-    dtype, GeoKind.VECTOR, width
+comptime Vec3[dtype: DType, frame: Frame, width: SIMDSize = 1] = Geo3[
+    dtype, GeoKind.VECTOR, frame, width
 ]
-comptime Point3[dtype: DType, width: SIMDSize = 1] = Geo3[
-    dtype, GeoKind.POINT, width
+comptime Point3[dtype: DType, frame: Frame, width: SIMDSize = 1] = Geo3[
+    dtype, GeoKind.POINT, frame, width
 ]
-comptime Normal3[dtype: DType, width: SIMDSize = 1] = Geo3[
-    dtype, GeoKind.NORMAL, width
+comptime Normal3[dtype: DType, frame: Frame, width: SIMDSize = 1] = Geo3[
+    dtype, GeoKind.NORMAL, frame, width
 ]
 
 
 @fieldwise_init
-struct Geo2[dtype: DType, kind: GeoKind, width: SIMDSize = 1](
+struct Geo2[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize = 1](
     TrivialRegisterPassable, Writable
 ):
     var x: SIMD[Self.dtype, Self.width]
@@ -75,9 +76,12 @@ struct Geo2[dtype: DType, kind: GeoKind, width: SIMDSize = 1](
 
 
 @fieldwise_init
-struct Geo3[dtype: DType, kind: GeoKind, width: SIMDSize = 1](
-    DevicePassable, Roundable, TrivialRegisterPassable, Writable
-):
+struct Geo3[
+    dtype: DType, kind: GeoKind, frame: Frame = Frame.WORLD, width: SIMDSize = 1
+](DevicePassable, Roundable, TrivialRegisterPassable, Writable):
+    comptime V3 = Vec3[Self.dtype, Self.frame, Self.width]
+    comptime P3 = Point3[Self.dtype, Self.frame, Self.width]
+
     var x: SIMD[Self.dtype, Self.width]
     var y: SIMD[Self.dtype, Self.width]
     var z: SIMD[Self.dtype, Self.width]
@@ -127,11 +131,17 @@ struct Geo3[dtype: DType, kind: GeoKind, width: SIMDSize = 1](
 
     def convert[
         new_kind: GeoKind
-    ](deinit self) -> Geo3[self.dtype, new_kind, self.width]:
-        return Geo3[self.dtype, new_kind, self.width](self.x, self.y, self.z)
+    ](deinit self) -> Geo3[Self.dtype, new_kind, Self.frame, Self.width]:
+        return Geo3[Self.dtype, new_kind, Self.frame, Self.width](
+            self.x, self.y, self.z
+        )
 
-    def to_point(deinit self) -> Geo3[self.dtype, GeoKind.POINT, self.width]:
-        return Point3[self.dtype, self.width](self.x, self.y, self.z)
+    def to_point(
+        deinit self,
+    ) -> Geo3[Self.dtype, GeoKind.POINT, Self.frame, Self.width]:
+        return Point3[Self.dtype, Self.frame, Self.width](
+            self.x, self.y, self.z
+        )
 
     # p + v = p
     def unsafe_add(self: Self, rhs: Self) -> Self:
@@ -141,10 +151,12 @@ struct Geo3[dtype: DType, kind: GeoKind, width: SIMDSize = 1](
             self.z + rhs.z,
         )
 
+    # p + v = p
     def __add__(
-        self: Point3[Self.dtype, Self.width], rhs: Vec3[Self.dtype, Self.width]
-    ) -> Point3[Self.dtype, Self.width]:
-        return Point3[Self.dtype, Self.width](
+        self: Self.P3,
+        rhs: Self.V3,
+    ) -> Self.P3:
+        return Self.P3(
             self.x + rhs.x,
             self.y + rhs.y,
             self.z + rhs.z,
@@ -152,32 +164,31 @@ struct Geo3[dtype: DType, kind: GeoKind, width: SIMDSize = 1](
 
     # v + p = p
     def __add__(
-        self: Vec3[Self.dtype, Self.width], rhs: Point3[Self.dtype, Self.width]
-    ) -> Point3[Self.dtype, Self.width]:
-        return Point3[Self.dtype, Self.width](
+        self: Self.V3,
+        rhs: Self.P3,
+    ) -> Self.P3:
+        return Self.P3(
             self.x + rhs.x,
             self.y + rhs.y,
             self.z + rhs.z,
         )
 
     # v + v = v
-    def __add__(
-        self: Vec3[Self.dtype, Self.width], rhs: Vec3[Self.dtype, Self.width]
-    ) -> Vec3[Self.dtype, Self.width]:
+    def __add__(self: Self.V3, rhs: Self.V3) -> Self.V3:
         # TODO: put this into where when it works
         # comptime assert self.kind == GeoKind.VECTOR
-        return Vec3[Self.dtype, Self.width](
+        return Self.V3(
             self.x + rhs.x,
             self.y + rhs.y,
             self.z + rhs.z,
         )
 
-    def __add__(self, rhs: SIMD[Self.dtype, Self.width]) -> Self:
-        return Self(
-            self.x + rhs,
-            self.y + rhs,
-            self.z + rhs,
-        )
+    # def __add__(self, rhs: SIMD[Self.dtype, Self.width]) -> Self:
+    #     return Self(
+    #         self.x + rhs,
+    #         self.y + rhs,
+    #         self.z + rhs,
+    #     )
 
     def __iadd__(mut self, rhs: Self):
         self.x += rhs.x
@@ -187,10 +198,10 @@ struct Geo3[dtype: DType, kind: GeoKind, width: SIMDSize = 1](
     # TODO: put this into where when (if?) it works
     # p - p = v
     def __sub__(
-        self: Point3[Self.dtype, Self.width],
-        rhs: Point3[Self.dtype, Self.width],
-    ) -> Vec3[Self.dtype, Self.width]:
-        return Vec3(
+        self: Self.P3,
+        rhs: Self.P3,
+    ) -> Self.V3:
+        return Self.V3(
             self.x - rhs.x,
             self.y - rhs.y,
             self.z - rhs.z,
@@ -198,10 +209,10 @@ struct Geo3[dtype: DType, kind: GeoKind, width: SIMDSize = 1](
 
     # v - v = v
     def __sub__(
-        self: Vec3[Self.dtype, Self.width],
-        rhs: Vec3[Self.dtype, Self.width],
-    ) -> Vec3[Self.dtype, Self.width]:
-        return Vec3(
+        self: Self.V3,
+        rhs: Self.V3,
+    ) -> Self.V3:
+        return Self.V3(
             self.x - rhs.x,
             self.y - rhs.y,
             self.z - rhs.z,
@@ -209,10 +220,10 @@ struct Geo3[dtype: DType, kind: GeoKind, width: SIMDSize = 1](
 
     # p - v = p
     def __sub__(
-        self: Point3[Self.dtype, Self.width],
-        rhs: Vec3[Self.dtype, Self.width],
-    ) -> Point3[Self.dtype, Self.width]:
-        return Point3(
+        self: Self.P3,
+        rhs: Self.V3,
+    ) -> Self.P3:
+        return Self.P3(
             self.x - rhs.x,
             self.y - rhs.y,
             self.z - rhs.z,
@@ -405,17 +416,19 @@ struct Geo3[dtype: DType, kind: GeoKind, width: SIMDSize = 1](
 
 
 def dot[
-    dtype: DType, width: SIMDSize
-](a: Vec3[dtype, width], b: Vec3[dtype, width]) -> SIMD[dtype, width]:
+    dtype: DType, frame: Frame, width: SIMDSize
+](a: Vec3[dtype, frame, width], b: Vec3[dtype, frame, width]) -> SIMD[
+    dtype, width
+]:
     return fma(a.x, b.x, fma(a.y, b.y, a.z * b.z))
 
 
 def vmin[
-    dtype: DType, kind: GeoKind, width: SIMDSize
-](a: Geo3[dtype, kind, width], b: Geo3[dtype, kind, width]) -> Geo3[
-    dtype, kind, width
-]:
-    return Geo3[dtype, kind, width](
+    dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize
+](
+    a: Geo3[dtype, kind, frame, width], b: Geo3[dtype, kind, frame, width]
+) -> Geo3[dtype, kind, frame, width]:
+    return Geo3[dtype, kind, frame, width](
         fmin(a.x, b.x),
         fmin(a.y, b.y),
         fmin(a.z, b.z),
@@ -423,13 +436,13 @@ def vmin[
 
 
 def vmin[
-    dtype: DType, kind: GeoKind, width: SIMDSize
+    dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize
 ](
-    a: Geo3[dtype, kind, width],
-    b: Geo3[dtype, kind, width],
-    c: Geo3[dtype, kind, width],
-) -> Geo3[dtype, kind, width]:
-    return Geo3[dtype, kind, width](
+    a: Geo3[dtype, kind, frame, width],
+    b: Geo3[dtype, kind, frame, width],
+    c: Geo3[dtype, kind, frame, width],
+) -> Geo3[dtype, kind, frame, width]:
+    return Geo3[dtype, kind, frame, width](
         fmin(fmin(a.x, b.x), c.x),
         fmin(fmin(a.y, b.y), c.y),
         fmin(fmin(a.z, b.z), c.z),
@@ -437,11 +450,11 @@ def vmin[
 
 
 def vmax[
-    dtype: DType, kind: GeoKind, width: SIMDSize
-](a: Geo3[dtype, kind, width], b: Geo3[dtype, kind, width]) -> Geo3[
-    dtype, kind, width
-]:
-    return Geo3[dtype, kind, width](
+    dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize
+](
+    a: Geo3[dtype, kind, frame, width], b: Geo3[dtype, kind, frame, width]
+) -> Geo3[dtype, kind, frame, width]:
+    return Geo3[dtype, kind, frame, width](
         fmax(a.x, b.x),
         fmax(a.y, b.y),
         fmax(a.z, b.z),
@@ -449,13 +462,13 @@ def vmax[
 
 
 def vmax[
-    dtype: DType, kind: GeoKind, width: SIMDSize
+    dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize
 ](
-    a: Geo3[dtype, kind, width],
-    b: Geo3[dtype, kind, width],
-    c: Geo3[dtype, kind, width],
-) -> Geo3[dtype, kind, width]:
-    return Geo3[dtype, kind, width](
+    a: Geo3[dtype, kind, frame, width],
+    b: Geo3[dtype, kind, frame, width],
+    c: Geo3[dtype, kind, frame, width],
+) -> Geo3[dtype, kind, frame, width]:
+    return Geo3[dtype, kind, frame, width](
         fmax(fmax(a.x, b.x), c.x),
         fmax(fmax(a.y, b.y), c.y),
         fmax(fmax(a.z, b.z), c.z),
@@ -463,31 +476,33 @@ def vmax[
 
 
 def vclamp[
-    dtype: DType, kind: GeoKind, width: SIMDSize
+    dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize
 ](
-    p: Geo3[dtype, kind, width],
-    lower: Geo3[dtype, kind, width],
-    upper: Geo3[dtype, kind, width],
-) -> Geo3[dtype, kind, width]:
+    p: Geo3[dtype, kind, frame, width],
+    lower: Geo3[dtype, kind, frame, width],
+    upper: Geo3[dtype, kind, frame, width],
+) -> Geo3[dtype, kind, frame, width]:
     return vmin(vmax(p, lower), upper)
 
 
 def length2[
-    dtype: DType, width: SIMDSize
-](v: Vec3[dtype, width]) -> SIMD[dtype, width]:
+    dtype: DType, frame: Frame, width: SIMDSize
+](v: Vec3[dtype, frame, width]) -> SIMD[dtype, width]:
     return dot(v, v)
 
 
 def length[
-    dtype: DType, width: SIMDSize
-](v: Vec3[dtype, width]) -> SIMD[dtype, width]:
+    dtype: DType, frame: Frame, width: SIMDSize
+](v: Vec3[dtype, frame, width]) -> SIMD[dtype, width]:
     return sqrt(dot(v, v))
 
 
 def cross[
-    dtype: DType, width: SIMDSize
-](a: Vec3[dtype, width], b: Vec3[dtype, width]) -> Vec3[dtype, width]:
-    return Vec3[dtype, width](
+    dtype: DType, frame: Frame, width: SIMDSize
+](a: Vec3[dtype, frame, width], b: Vec3[dtype, frame, width]) -> Vec3[
+    dtype, frame, width
+]:
+    return Vec3[dtype, frame, width](
         fma(a.y, b.z, -(a.z * b.y)),
         fma(a.z, b.x, -(a.x * b.z)),
         fma(a.x, b.y, -(a.y * b.x)),
@@ -495,9 +510,9 @@ def cross[
 
 
 def normalize[
-    dtype: DType, width: SIMDSize
-](v: Vec3[dtype, width], threshold: Scalar[dtype] = 1.0e-20) -> Vec3[
-    dtype, width
+    dtype: DType, frame: Frame, width: SIMDSize
+](v: Vec3[dtype, frame, width], threshold: Scalar[dtype] = 1.0e-20) -> Vec3[
+    dtype, frame, width
 ]:
     comptime assert dtype in [DType.float32, DType.float64]
 
@@ -508,10 +523,10 @@ def normalize[
 
 
 def assert_vec_equal[
-    dtype: DType, kind: GeoKind, width: SIMDSize
+    dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize
 ](
-    a: Geo3[dtype, kind, width],
-    b: Geo3[dtype, kind, width],
+    a: Geo3[dtype, kind, frame, width],
+    b: Geo3[dtype, kind, frame, width],
     atol: Float64 = 1e-5,
 ) raises:
     assert_almost_equal(
@@ -534,7 +549,9 @@ def assert_vec_equal[
     )
 
 
-def longest_axis[dtype: DType, width: SIMDSize](v: Vec3[dtype, width]) -> Int:
+def longest_axis[
+    dtype: DType, frame: Frame, width: SIMDSize
+](v: Vec3[dtype, frame, width]) -> Int:
     comptime assert width == 1
 
     var x = v.x[0]

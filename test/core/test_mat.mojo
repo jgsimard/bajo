@@ -13,18 +13,19 @@ from bajo.core.mat import (
     assert_mat_equal,
 )
 from bajo.core.utils import degrees_to_radians
+from bajo.core.frame import Frame
 
 
 def test_basics() raises:
     comptime T = DType.float32
     # Transpose check
     # fmt: off
-    m = Mat33[T](
+    m = Mat33[T, Frame.WORLD](
         1, 2, 3, 
         4, 5, 6, 
         7, 8, 9
     )
-    mt = Mat33[T](
+    mt = Mat33[T, Frame.WORLD](
         1, 4, 7, 
         2, 5, 8, 
         3, 6, 9
@@ -32,17 +33,17 @@ def test_basics() raises:
     # fmt: on
     assert_mat_equal(m.transpose(), mt)
 
-    assert_almost_equal(determinant(Mat33[T].identity()), 1.0)
+    assert_almost_equal(determinant(Mat33[T, Frame.WORLD].identity()), 1.0)
 
-    m2 = Mat22[T](1, 2, 3, 4)
+    m2 = Mat22[T, Frame.WORLD](1, 2, 3, 4)
     assert_almost_equal(determinant(m2), -2.0)
     assert_almost_equal(determinant(_matmul(m2, inverse(m2))), 1.0)
 
-    m3 = Mat33[T](1, 2, 3, 4, 5, 6, 7, 8, 10)
+    m3 = Mat33[T, Frame.WORLD](1, 2, 3, 4, 5, 6, 7, 8, 10)
     assert_almost_equal(determinant(m3), -3.0)
     assert_almost_equal(determinant(_matmul(m3, inverse(m3))), 1.0)
 
-    m4 = Mat44[T](1, 3, 5, 9, 1, 3, 1, 7, 4, 3, 9, 7, 5, 2, 0, 9)
+    m4 = Mat44[T, Frame.WORLD](1, 3, 5, 9, 1, 3, 1, 7, 4, 3, 9, 7, 5, 2, 0, 9)
     assert_almost_equal(determinant(m4), -376.0)
     assert_almost_equal(determinant(_matmul(m4, inverse(m4))), 1.0)
 

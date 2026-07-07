@@ -8,7 +8,7 @@ from bajo.core.utils import (
     ns_to_ms,
     ns_to_mrays_per_s,
 )
-from bajo.core import AABB, Vec3f32, Affine3f32, Point3f32
+from bajo.core import Frame, AABB, Vec3f32, Affine3f32, Point3f32
 from bajo.bvh.types import Ray, Sphere, Instance, BlasSet, Hit
 from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
@@ -40,11 +40,13 @@ comptime BENCH_REPEATS = 8
 comptime TLAS_HIT_REL_EPS = 0.0
 
 
-def _make_single_instance(bounds: AABB, primitive: Primitive) -> List[Instance]:
+def _make_single_instance(
+    bounds: AABB[Frame.LOCAL], primitive: Primitive
+) -> List[Instance]:
     return [
         Instance(
-            Affine3f32.identity(),
-            Affine3f32.identity(),
+            Affine3f32[Frame.LOCAL, Frame.WORLD].identity(),
+            Affine3f32[Frame.WORLD, Frame.LOCAL].identity(),
             0,
             bounds,
             primitive,
@@ -53,7 +55,7 @@ def _make_single_instance(bounds: AABB, primitive: Primitive) -> List[Instance]:
 
 
 def _make_translated_grid_instances(
-    bounds: AABB,
+    bounds: AABB[Frame.LOCAL],
     count_x: Int,
     count_y: Int,
     primitive: Primitive,
@@ -66,7 +68,7 @@ def _make_translated_grid_instances(
 
     for y in range(count_y):
         for x in range(count_x):
-            var t = Vec3f32(
+            var t = Vec3f32[Frame.WORLD](
                 (Float32(x) - Float32(count_x - 1) * 0.5) * spacing_x,
                 (Float32(y) - Float32(count_y - 1) * 0.5) * spacing_y,
                 Float32(0.0),
@@ -74,8 +76,8 @@ def _make_translated_grid_instances(
 
             out.append(
                 Instance(
-                    Affine3f32.from_translation(t),
-                    Affine3f32.from_translation(-t),
+                    Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(t),
+                    Affine3f32[Frame.WORLD, Frame.LOCAL].from_translation(-t),
                     0,
                     bounds,
                     primitive,
@@ -86,7 +88,7 @@ def _make_translated_grid_instances(
 
 
 def _make_multi_blas_grid_instances(
-    bounds_list: List[AABB],
+    bounds_list: List[AABB[Frame.LOCAL]],
     count_x: Int,
     count_y: Int,
 ) -> List[Instance]:
@@ -105,7 +107,7 @@ def _make_multi_blas_grid_instances(
         for x in range(count_x):
             var idx = y * count_x + x
             var blas_idx = UInt32(idx % len(bounds_list))
-            var t = Vec3f32(
+            var t = Vec3f32[Frame.WORLD](
                 (Float32(x) - Float32(count_x - 1) * 0.5) * spacing,
                 (Float32(y) - Float32(count_y - 1) * 0.5) * spacing,
                 Float32((idx * 17) % 13) * max_extent * 0.025,
@@ -114,8 +116,8 @@ def _make_multi_blas_grid_instances(
             ref bounds = bounds_list[Int(blas_idx)]
             out.append(
                 Instance(
-                    Affine3f32.from_translation(t),
-                    Affine3f32.from_translation(-t),
+                    Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(t),
+                    Affine3f32[Frame.WORLD, Frame.LOCAL].from_translation(-t),
                     blas_idx,
                     bounds,
                     Primitive.TRIANGLE,
@@ -125,8 +127,8 @@ def _make_multi_blas_grid_instances(
     return out^
 
 
-def _instances_bounds(instances: List[Instance]) -> AABB:
-    var out = AABB.invalid()
+def _instances_bounds(instances: List[Instance]) -> AABB[Frame.WORLD]:
+    var out = AABB[Frame.WORLD].invalid()
     for instance in instances:
         out.grow(instance.bounds)
     return out
@@ -136,9 +138,9 @@ def _cpu_tlas_triangle_reference[
     tlas_width: SIMDSize,
     blas_width: SIMDSize,
 ](
-    cpu_blas: TriangleBvh[blas_width],
+    cpu_blas: TriangleBvh[Frame.LOCAL, blas_width],
     instances: List[Instance],
-    rays: List[Ray],
+    rays: List[Ray[Frame.WORLD]],
 ) -> Tuple[Float64, UInt32, UInt64]:
     var tlas = Tlas[tlas_width](instances)
 
@@ -149,7 +151,9 @@ def _cpu_tlas_triangle_reference[
     var inst_checksum = UInt64(0)
 
     for ray in rays:
-        var hit = tlas.trace[TriangleBvh[blas_width], TRACE.CLOSEST_HIT](
+        var hit = tlas.trace[
+            TriangleBvh[Frame.LOCAL, blas_width], TRACE.CLOSEST_HIT
+        ](
             ray,
             blases.unsafe_ptr(),
         )
@@ -165,9 +169,9 @@ def _cpu_tlas_triangle_shadow_reference[
     tlas_width: SIMDSize,
     blas_width: SIMDSize,
 ](
-    cpu_blas: TriangleBvh[blas_width],
+    cpu_blas: TriangleBvh[Frame.LOCAL, blas_width],
     instances: List[Instance],
-    rays: List[Ray],
+    rays: List[Ray[Frame.WORLD]],
 ) -> UInt32:
     var tlas = Tlas[tlas_width](instances)
 
@@ -176,7 +180,9 @@ def _cpu_tlas_triangle_shadow_reference[
     var occluded = UInt32(0)
 
     for ray in rays:
-        var hit = tlas.trace[TriangleBvh[blas_width], TRACE.ANY_HIT](
+        var hit = tlas.trace[
+            TriangleBvh[Frame.LOCAL, blas_width], TRACE.ANY_HIT
+        ](
             ray,
             blases.unsafe_ptr(),
         )
@@ -195,7 +201,7 @@ def _download_tlas_hit_checksum(
     var inst_checksum = UInt64(0)
     with hits.map_to_host() as hf:
         for i in range(ray_count):
-            var gpu_hit = Hit.load(hf.unsafe_ptr(), i)
+            var gpu_hit = Hit[Frame.WORLD].load(hf.unsafe_ptr(), i)
             var t = gpu_hit.t
             if t < f32_max:
                 checksum += Float64(t)
@@ -216,8 +222,8 @@ def _download_direct_hit_checksum(
 
     with hits_f32.map_to_host() as hf:
         for i in range(ray_count):
-            var base = i * Hit.STRIDE
-            var t = hf[base + Hit.T]
+            var base = i * Hit[Frame.WORLD].STRIDE
+            var t = hf[base + Hit[Frame.WORLD].T]
             if t < f32_max:
                 checksum += Float64(t)
                 hit_count += 1
@@ -229,7 +235,7 @@ def _bench_direct_triangle_camera[
     width: SIMDSize,
 ](
     mut ctx: DeviceContext,
-    blas: GpuTriangleBvh[width],
+    blas: GpuTriangleBvh[Frame.WORLD, width],
     camera_params: List[Float32],
     ray_count: Int,
     width_px: Int,
@@ -238,7 +244,7 @@ def _bench_direct_triangle_camera[
 ) raises -> Tuple[Int, Float64, UInt32]:
     var d_camera = upload_list(ctx, camera_params)
     var d_hits = ctx.enqueue_create_buffer[DType.float32](
-        ray_count * Hit.STRIDE
+        ray_count * Hit[Frame.WORLD].STRIDE
     )
 
     blas.launch_camera(
@@ -291,7 +297,7 @@ def _bench_tlas_triangles_camera[
 ) raises -> Tuple[Int, Float64, UInt32, UInt64]:
     var d_camera = upload_list(ctx, camera_params)
     var d_hits = ctx.enqueue_create_buffer[DType.float32](
-        ray_count * Hit.STRIDE
+        ray_count * Hit[Frame.WORLD].STRIDE
     )
 
     tlas.launch_camera(
@@ -337,7 +343,7 @@ def _bench_direct_sphere_camera[
     width: SIMDSize,
 ](
     mut ctx: DeviceContext,
-    blas: GpuSphereBvh[width],
+    blas: GpuSphereBvh[Frame.WORLD, width],
     camera_params: List[Float32],
     ray_count: Int,
     width_px: Int,
@@ -346,7 +352,7 @@ def _bench_direct_sphere_camera[
 ) raises -> Tuple[Int, Float64, UInt32]:
     var d_camera = upload_list(ctx, camera_params)
     var d_hits = ctx.enqueue_create_buffer[DType.float32](
-        ray_count * Hit.STRIDE
+        ray_count * Hit[Frame.WORLD].STRIDE
     )
 
     blas.launch_camera(
@@ -399,7 +405,7 @@ def _bench_tlas_spheres_camera[
 ) raises -> Tuple[Int, Float64, UInt32, UInt64]:
     var d_camera = upload_list(ctx, camera_params)
     var d_hits = ctx.enqueue_create_buffer[DType.float32](
-        ray_count * Hit.STRIDE
+        ray_count * Hit[Frame.WORLD].STRIDE
     )
 
     tlas.launch_camera(
@@ -732,7 +738,7 @@ def _run_sphere_tlas_width[
 def _bench_triangle_multi_blas_instance_set(
     mut ctx: DeviceContext,
     blases: BlasSet[4],
-    blas_bounds: List[AABB],
+    blas_bounds: List[AABB[Frame.LOCAL]],
 ) raises:
     var instances = _make_multi_blas_grid_instances(blas_bounds, 32, 16)
     var bounds = _instances_bounds(instances)
@@ -795,9 +801,11 @@ def _bench_triangle_multi_blas_instance_set(
     _print_tlas_results_transposed(tlas2, tlas4, tlas8)
 
 
-def _make_sphere_scene(count_x: Int, count_y: Int) -> Tuple[List[Sphere], AABB]:
-    var spheres = List[Sphere](capacity=count_x * count_y)
-    var bounds = AABB.invalid()
+def _make_sphere_scene[
+    frame: Frame
+](count_x: Int, count_y: Int) -> Tuple[List[Sphere[frame]], AABB[frame]]:
+    var spheres = List[Sphere[frame]](capacity=count_x * count_y)
+    var bounds = AABB[frame].invalid()
 
     for y in range(count_y):
         for x in range(count_x):
@@ -805,9 +813,9 @@ def _make_sphere_scene(count_x: Int, count_y: Int) -> Tuple[List[Sphere], AABB]:
             var cy = (Float32(y) - Float32(count_y - 1) * 0.5) * 3.0
             var cz = 8.0 + Float32((x + y) % 5) * 0.5
             var r = Float32(0.8)
-            spheres.append(Sphere(Point3f32(cx, cy, cz), r))
-            bounds.grow(Point3f32(cx - r, cy - r, cz - r))
-            bounds.grow(Point3f32(cx + r, cy + r, cz + r))
+            spheres.append(Sphere(Point3f32[frame](cx, cy, cz), r))
+            bounds.grow(Point3f32[frame](cx - r, cy - r, cz - r))
+            bounds.grow(Point3f32[frame](cx + r, cy + r, cz + r))
 
     return (spheres^, bounds)
 
@@ -817,8 +825,8 @@ def _bench_triangle_instance_set[
 ](
     mut ctx: DeviceContext,
     blases: BlasSet[4],
-    cpu_blas: TriangleBvh[8],
-    blas_bounds: AABB,
+    cpu_blas: TriangleBvh[Frame.LOCAL, 8],
+    blas_bounds: AABB[Frame.LOCAL],
 ) raises:
     var instances = _make_translated_grid_instances(
         blas_bounds,
@@ -854,7 +862,7 @@ def _bench_triangle_instance_set[
         print("\nCPU reference")
         _print_cpu_reference_table_header()
         _print_cpu_reference_row(
-            "CPU Tlas[2]/TriangleBvh[8]",
+            "CPU Tlas[2]/TriangleBvh[Frame.LOCAL, 8]",
             len(instances),
             ref_primary[0],
             ref_primary[1],
@@ -932,14 +940,15 @@ def main() raises:
     print("BLAS bounds max:", round(blas_bounds._max, 3))
 
     print("\nLoading multi-BLAS OBJ set...")
-    var multi_vertices = List[List[Point3f32]](capacity=3)
-    var multi_bounds = List[AABB](capacity=3)
+    var multi_vertices = List[List[Point3f32[Frame.LOCAL]]](capacity=3)
+    var multi_bounds = List[AABB[Frame.LOCAL]](capacity=3)
     multi_vertices.append(tri_vertices.copy())
     multi_bounds.append(blas_bounds)
 
     var multi_load_t0 = perf_counter_ns()
     var multi_tri1 = pack_obj_triangles(MULTI_OBJ_PATH_1)
     var multi_tri2 = pack_obj_triangles(MULTI_OBJ_PATH_2)
+
     var multi_load_t1 = perf_counter_ns()
     multi_vertices.append(multi_tri1.copy())
     multi_vertices.append(multi_tri2.copy())
@@ -960,11 +969,11 @@ def main() raises:
         ctx.synchronize()
 
         print("\nBuilding GpuTriangleBvh[4]...")
-        _ = GpuTriangleBvh[4](ctx, d_vertices)
+        _ = GpuTriangleBvh[Frame.WORLD, 4](ctx, d_vertices)
         ctx.synchronize()
 
         var blas_b0 = perf_counter_ns()
-        var blas = GpuTriangleBvh[4](ctx, d_vertices)
+        var blas = GpuTriangleBvh[Frame.WORLD, 4](ctx, d_vertices)
         ctx.synchronize()
         var blas_b1 = perf_counter_ns()
 
@@ -977,7 +986,8 @@ def main() raises:
 
         print("Building GpuTriangleBlasSet[4]...")
         var triangle_blas_set = build_triangle_blas_set[4](
-            ctx, [tri_vertices.copy()]
+            ctx,
+            [tri_vertices.copy()],
         )
         ctx.synchronize()
 
@@ -988,7 +998,9 @@ def main() raises:
         ctx.synchronize()
 
         print("Building CPU TriangleBvh[8] LBVH reference for 4x4 grid...")
-        var cpu_blas = TriangleBvh[8].__init__["lbvh"](tri_vertices^)
+        var cpu_blas = TriangleBvh[Frame.LOCAL, 8].__init__["lbvh"](
+            tri_vertices.copy()
+        )
 
         print("\nSingle instance triangle TLAS")
         print("-----------------------------")
@@ -1088,19 +1100,20 @@ def main() raises:
 
         print("\nSphere TLAS")
         print("-----------")
-        var sphere_scene = _make_sphere_scene(32, 32)
+        var sphere_scene = _make_sphere_scene[Frame.WORLD](32, 32)
         var spheres = sphere_scene[0].copy()
+        var spheres_local = _make_sphere_scene[Frame.LOCAL](32, 32)
         var sphere_bounds = sphere_scene[1].copy()
         print(t"Spheres: {len(spheres)}")
         print("Sphere BLAS bounds min:", round(sphere_bounds._min, 3))
         print("Sphere BLAS bounds max:", round(sphere_bounds._max, 3))
 
         print("Building GpuSphereBvh[4]...")
-        _ = GpuSphereBvh[4](ctx, spheres)
+        _ = GpuSphereBvh[Frame.WORLD, 4](ctx, spheres)
         ctx.synchronize()
 
         var sph_b0 = perf_counter_ns()
-        var sphere_blas = GpuSphereBvh[4](ctx, spheres)
+        var sphere_blas = GpuSphereBvh[Frame.WORLD, 4](ctx, spheres)
         ctx.synchronize()
         var sph_b1 = perf_counter_ns()
 
@@ -1112,15 +1125,19 @@ def main() raises:
         )
 
         print("Building GpuSphere BlasSet[4]...")
-        var sphere_blas_set = build_sphere_blas_set[4](ctx, [spheres^])
+        var sphere_blas_set = build_sphere_blas_set[4](
+            ctx,
+            [spheres_local[0].copy()],
+        )
         ctx.synchronize()
 
         var sphere_single = _make_single_instance(
-            sphere_bounds,
+            spheres_local[1].copy(),
             Primitive.SPHERE,
         )
+        var sphere_single_bounds = _instances_bounds(sphere_single)
         var sphere_camera_data = make_camera_rays_and_params(
-            sphere_bounds,
+            sphere_single_bounds,
             PRIMARY_WIDTH,
             PRIMARY_HEIGHT,
             PRIMARY_VIEWS,
@@ -1189,7 +1206,7 @@ def main() raises:
         _print_tlas_results_transposed(sph_tlas2, sph_tlas4, sph_tlas8)
 
         var sphere_grid = _make_translated_grid_instances(
-            sphere_bounds,
+            sphere_bounds.unsafe_convert_frame[Frame.LOCAL](),
             4,
             4,
             Primitive.SPHERE,

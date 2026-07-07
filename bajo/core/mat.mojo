@@ -97,8 +97,8 @@ struct Mat[
 
     @staticmethod
     def from_rotation_scale(
-        r: Quaternion[Self.dtype],
-        s: Vec3[Self.dtype, Self.width],
+        r: Quaternion[Self.dtype, Self.frame],
+        s: Vec3[Self.dtype, Self.frame, Self.width],
     ) -> Self where Self.dtype.is_floating_point():
         comptime assert Self.rows == 3
         comptime assert Self.cols == 3

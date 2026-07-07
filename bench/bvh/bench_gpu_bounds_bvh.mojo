@@ -3,7 +3,7 @@ from std.sys import has_accelerator
 from std.time import perf_counter_ns
 from std.gpu import DeviceContext, DeviceBuffer
 
-from bajo.core import AABB, Vec3f32, dot
+from bajo.core import AABB, Vec3f32, dot, Point3f32
 from bajo.core.intersect import intersect_ray_sphere
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.bvh.host_utils import compute_bounds, sphere_bounds
@@ -255,7 +255,7 @@ def _print_cpu_triangle_reference[
     width: SIMDSize
 ](
     label: String,
-    vertices: List[Vec3f32],
+    vertices: List[Point3f32],
     rays: List[Ray],
 ) -> Tuple[
     Float64, UInt32
@@ -430,7 +430,7 @@ def _make_sphere_grid_sized(grid_x: Int, grid_y: Int) -> List[Sphere]:
             var fx = Float32(x) - Float32(grid_x) * 0.5
             var fy = Float32(y) - Float32(grid_y) * 0.5
             var z = Float32(4 + ((x + y) % 8))
-            spheres.append(Sphere(Vec3f32(fx * 2.5, fy * 2.5, z), 0.75))
+            spheres.append(Sphere(Point3f32(fx * 2.5, fy * 2.5, z), 0.75))
 
     return spheres^
 

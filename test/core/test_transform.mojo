@@ -5,6 +5,8 @@ from bajo.core import (
     Affine3f32,
     Vec3,
     Vec3f32,
+    Point3,
+    Point3f32,
     assert_vec_equal,
     Quat,
 )
@@ -12,7 +14,7 @@ from bajo.core.utils import degrees_to_radians
 
 
 def test_identity() raises:
-    p = Vec3f32(1, 2, 3)
+    p = Point3f32(1, 2, 3)
     v = Vec3f32(4, 5, 6)
     m = Affine3f32.identity()
 
@@ -22,25 +24,25 @@ def test_identity() raises:
 
 
 def test_translation() raises:
-    p = Vec3f32(1, 2, 3)
+    p = Point3f32(1, 2, 3)
     v = Vec3f32(4, 5, 6)
     t = Vec3f32(10, -2, 3.5)
 
     m = Affine3f32.from_translation(t)
 
-    assert_vec_equal(m.point(p), Vec3f32(11, 0, 6.5))
+    assert_vec_equal(m.point(p), Point3f32(11, 0, 6.5))
     assert_vec_equal(m.vector(v), v)
     assert_vec_equal(m.translation(), t)
 
 
 def test_scale() raises:
-    p = Vec3f32(1, 2, 3)
+    p = Point3f32(1, 2, 3)
     v = Vec3f32(4, 5, 6)
     s = Vec3f32(2, 3, 4)
 
     m = Affine3f32.from_scale(s)
 
-    assert_vec_equal(m.point(p), Vec3f32(2, 6, 12))
+    assert_vec_equal(m.point(p), Point3f32(2, 6, 12))
     assert_vec_equal(m.vector(v), Vec3f32(8, 15, 24))
     assert_vec_equal(m.translation(), Vec3f32(0, 0, 0))
 
@@ -51,12 +53,13 @@ def test_rotation_scale_from_quat() raises:
     q = Quat.from_axis_angle(axis, angle)
     s = Vec3f32(2, 3, 4)
     v = Vec3f32(1, 2, 3)
+    p = Point3f32(1, 2, 3)
     m = Affine3f32.from_rotation_scale(q, s)
 
     expected = q.rotate(Vec3f32(v.x * s.x, v.y * s.y, v.z * s.z))
 
     assert_vec_equal(m.vector(v), expected)
-    assert_vec_equal(m.point(v), expected)
+    assert_vec_equal(m.point(p), expected.to_point())
 
 
 def test_rotation_scale_translation_from_quat() raises:
@@ -66,15 +69,16 @@ def test_rotation_scale_translation_from_quat() raises:
 
     s = Vec3f32(2, 3, 4)
     t = Vec3f32(10, 20, 30)
-    p = Vec3f32(1, 2, 3)
+    v = Vec3f32(1, 2, 3)
+    p = Point3f32(1, 2, 3)
 
     m = Affine3f32.from_rotation_scale_translation(q, s, t)
 
     expected_v = q.rotate(Vec3f32(p.x * s.x, p.y * s.y, p.z * s.z))
     expected_p = expected_v + t
 
-    assert_vec_equal(m.vector(p), expected_v)
-    assert_vec_equal(m.point(p), expected_p)
+    assert_vec_equal(m.vector(v), expected_v)
+    assert_vec_equal(m.point(p), expected_p.to_point())
     assert_vec_equal(m.translation(), t)
 
 
@@ -82,7 +86,8 @@ def test_width4_translation_and_scale() raises:
     comptime T = DType.float32
     comptime W = 4
 
-    p = Vec3[T, W](1.0, 2.0, 3.0)
+    p = Point3[T, W](1.0, 2.0, 3.0)
+    v = Vec3[T, W](1.0, 2.0, 3.0)
     t = Vec3[T, W](10.0, 20.0, 30.0)
     s = Vec3[T, W](2.0, 3.0, 4.0)
 
@@ -91,18 +96,18 @@ def test_width4_translation_and_scale() raises:
 
     assert_vec_equal(
         mt.point(p),
-        Vec3[T, W](11.0, 22.0, 33.0),
+        Point3[T, W](11.0, 22.0, 33.0),
     )
 
-    assert_vec_equal(mt.vector(p), p)
+    assert_vec_equal(mt.vector(v), v)
 
     assert_vec_equal(
         ms.point(p),
-        Vec3[T, W](2.0, 6.0, 12.0),
+        Point3[T, W](2.0, 6.0, 12.0),
     )
 
     assert_vec_equal(
-        ms.vector(p),
+        ms.vector(v),
         Vec3[T, W](2.0, 6.0, 12.0),
     )
 
@@ -117,13 +122,14 @@ def test_load_store() raises:
     )
     # fmt: on
 
-    p = Vec3f32(2, 3, 4)
+    v = Vec3f32(2, 3, 4)
+    p = Point3f32(2, 3, 4)
 
     m.store(ptr, 0)
     loaded = Affine3f32.load(ptr, 0)
 
     assert_vec_equal(loaded.point(p), m.point(p))
-    assert_vec_equal(loaded.vector(p), m.vector(p))
+    assert_vec_equal(loaded.vector(v), m.vector(v))
 
     assert_almost_equal(loaded.m00[0], 1.0)
     assert_almost_equal(loaded.m01[0], 2.0)
@@ -151,14 +157,14 @@ def test_load_transform_helpers() raises:
         9, 10, 11, 12
     ]
     # fmt: on
-    p = Vec3f32(2, 3, 4)
+    p = Point3f32(2, 3, 4)
 
     loaded = Affine3f32.load(arr.unsafe_ptr(), 0)
 
     # p = M * p_in + t
     assert_vec_equal(
         loaded.point(p),
-        Vec3f32(
+        Point3f32(
             1 * 2 + 2 * 3 + 3 * 4 + 4,
             5 * 2 + 6 * 3 + 7 * 4 + 8,
             9 * 2 + 10 * 3 + 11 * 4 + 12,
@@ -166,8 +172,9 @@ def test_load_transform_helpers() raises:
     )
 
     # v = M * v_in
+    v = Vec3f32(2, 3, 4)
     assert_vec_equal(
-        loaded.vector(p),
+        loaded.vector(v),
         Vec3f32(
             1 * 2 + 2 * 3 + 3 * 4,
             5 * 2 + 6 * 3 + 7 * 4,
@@ -179,7 +186,7 @@ def test_load_transform_helpers() raises:
 def test_inverse_translation_scale() raises:
     s = Vec3f32(2, 4, 5)
     t = Vec3f32(10, 20, 30)
-    p = Vec3f32(1, 2, 3)
+    p = Point3f32(1, 2, 3)
 
     m = Affine3f32.from_rotation_scale_translation(
         Quat.identity(),
@@ -202,7 +209,7 @@ def test_inverse_rotation_scale_translation() raises:
 
     s = Vec3f32(2, 3, 4)
     t = Vec3f32(10, 20, 30)
-    p = Vec3f32(1, 2, 3)
+    p = Point3f32(1, 2, 3)
 
     m = Affine3f32.from_rotation_scale_translation(q, s, t)
     res = m.inverse()
@@ -225,7 +232,7 @@ def test_inverse_identity() raises:
 
     assert_true(res.mask[0])
 
-    p = Vec3f32(1, 2, 3)
+    p = Point3f32(1, 2, 3)
     v = Vec3f32(4, 5, 6)
 
     assert_vec_equal(res.inv.point(p), p)

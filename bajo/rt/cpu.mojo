@@ -3,7 +3,7 @@ from std.io.file_descriptor import FileDescriptor
 from std.math import abs, fma, sqrt
 from std.time import perf_counter_ns
 
-from bajo.core import Vec3f32, dot, length2, normalize
+from bajo.core import Vec3f32, dot, length2, normalize, Point3f32
 from bajo.core.random import (
     Rng,
     random_in_unit_disk,
@@ -50,7 +50,7 @@ struct PathHit(Copyable, Writable):
             False,
             HitRecord(
                 PrimitiveId(PRIM_SPHERE, UInt32(0)),
-                Vec3f32(0.0),
+                Point3f32(0.0),
                 Vec3f32(0.0),
                 SurfaceId(MAT_LAMBERTIAN, UInt32(0)),
                 f32_max,

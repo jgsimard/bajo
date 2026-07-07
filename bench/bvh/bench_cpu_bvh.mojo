@@ -7,7 +7,7 @@ from bajo.bvh.constants import TRACE, f32_max
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
-from bajo.core import Vec3f32
+from bajo.core import Vec3f32, Point3f32
 
 
 comptime GRID_SIDE = 256
@@ -25,16 +25,16 @@ def _grid_y(i: Int) -> Float32:
     return (Float32(i / GRID_SIDE) - Float32(GRID_SIDE) * 0.5) * 3.0
 
 
-def make_grid_triangles() -> List[Vec3f32]:
-    var verts = List[Vec3f32](capacity=PRIM_COUNT * 3)
+def make_grid_triangles() -> List[Point3f32]:
+    var verts = List[Point3f32](capacity=PRIM_COUNT * 3)
 
     for i in range(PRIM_COUNT):
         var cx = _grid_x(i)
         var cy = _grid_y(i)
 
-        verts.append(Vec3f32(cx - 0.75, cy - 0.75, 2.0))
-        verts.append(Vec3f32(cx + 0.75, cy - 0.75, 2.0))
-        verts.append(Vec3f32(cx, cy + 0.75, 2.0))
+        verts.append(Point3f32(cx - 0.75, cy - 0.75, 2.0))
+        verts.append(Point3f32(cx + 0.75, cy - 0.75, 2.0))
+        verts.append(Point3f32(cx, cy + 0.75, 2.0))
 
     return verts^
 
@@ -43,7 +43,7 @@ def make_grid_spheres() -> List[Sphere]:
     var spheres = List[Sphere](capacity=PRIM_COUNT)
 
     for i in range(PRIM_COUNT):
-        var s = Sphere(Vec3f32(_grid_x(i), _grid_y(i), 2.0), 0.75)
+        var s = Sphere(Point3f32(_grid_x(i), _grid_y(i), 2.0), 0.75)
         spheres.append(s)
 
     return spheres^
@@ -59,7 +59,7 @@ def make_hit_and_miss_rays() -> List[Ray]:
             # Deliberate miss.
             rays.append(
                 Ray(
-                    Vec3f32(10000.0 + Float32(i), 10000.0, 0.0),
+                    Point3f32(10000.0 + Float32(i), 10000.0, 0.0),
                     Vec3f32(0.0, 0.0, 1.0),
                 )
             )
@@ -67,7 +67,7 @@ def make_hit_and_miss_rays() -> List[Ray]:
             # Hit the corresponding grid primitive.
             rays.append(
                 Ray(
-                    Vec3f32(_grid_x(prim_idx), _grid_y(prim_idx), 0.0),
+                    Point3f32(_grid_x(prim_idx), _grid_y(prim_idx), 0.0),
                     Vec3f32(0.0, 0.0, 1.0),
                 )
             )
@@ -217,7 +217,7 @@ def _case_name[prim: String, width: SIMDSize, split_method: String]() -> String:
 def bench_triangle_case[
     width: SIMDSize,
     split_method: String,
-](vertices: List[Vec3f32], rays: List[Ray]):
+](vertices: List[Point3f32], rays: List[Ray]):
     var name = _case_name["tri", width, split_method]()
 
     var t0 = perf_counter_ns()
@@ -262,7 +262,7 @@ def bench_sphere_case[
 
 def bench_triangle_widths[
     split_method: String
-](vertices: List[Vec3f32], rays: List[Ray]):
+](vertices: List[Point3f32], rays: List[Ray]):
     bench_triangle_case[2, split_method](vertices, rays)
     bench_triangle_case[4, split_method](vertices, rays)
     bench_triangle_case[8, split_method](vertices, rays)

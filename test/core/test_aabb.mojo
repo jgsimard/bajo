@@ -6,32 +6,32 @@ from std.testing import (
     assert_almost_equal,
 )
 
-from bajo.core import AABB, Quat, Vec3f32, assert_vec_equal, Affine3
+from bajo.core import AABB, Quat, Vec3f32, assert_vec_equal, Affine3, Point3f32
 from bajo.core.utils import degrees_to_radians
 
 
 def test_logic() raises:
-    box = AABB(Vec3f32(0), Vec3f32(2, 2, 2))
+    box = AABB(Point3f32(0), Point3f32(2, 2, 2))
 
-    assert_true(box.contains_point(Vec3f32(1)))
-    assert_false(box.contains_point(Vec3f32(3, 1, 1)))
+    assert_true(box.contains_point(Point3f32(1)))
+    assert_false(box.contains_point(Point3f32(3, 1, 1)))
 
-    box_overlap = AABB(Vec3f32(1), Vec3f32(3))
-    box_far = AABB(Vec3f32(4), Vec3f32(5))
+    box_overlap = AABB(Point3f32(1), Point3f32(3))
+    box_far = AABB(Point3f32(4), Point3f32(5))
     assert_true(box.overlaps(box_overlap))
     assert_false(box.overlaps(box_far))
 
 
 def test_merge() raises:
-    a = AABB(Vec3f32(0), Vec3f32(1))
-    b = AABB(Vec3f32(-1), Vec3f32(0.5))
+    a = AABB(Point3f32(0), Point3f32(1))
+    b = AABB(Point3f32(-1), Point3f32(0.5))
     merged = AABB.merge(a, b)
-    assert_vec_equal(merged._min, Vec3f32(-1))
-    assert_vec_equal(merged._max, Vec3f32(1))
+    assert_vec_equal(merged._min, Point3f32(-1))
+    assert_vec_equal(merged._max, Point3f32(1))
 
 
 def test_apply_trs_rotated() raises:
-    box = AABB(Vec3f32(-1), Vec3f32(1))
+    box = AABB(Point3f32(-1), Point3f32(1))
 
     # Rotate 45 degrees around Z
     angle = degrees_to_radians(Float32(45))
@@ -44,13 +44,13 @@ def test_apply_trs_rotated() raises:
 
     # the corners should move to ±sqrt(2)
     sqrt_2 = Float32(sqrt(2.0))
-    assert_vec_equal(new_box._min, Vec3f32(-sqrt_2, -sqrt_2, -1.0))
-    assert_vec_equal(new_box._max, Vec3f32(sqrt_2, sqrt_2, 1.0))
+    assert_vec_equal(new_box._min, Point3f32(-sqrt_2, -sqrt_2, -1.0))
+    assert_vec_equal(new_box._max, Point3f32(sqrt_2, sqrt_2, 1.0))
 
 
 def test_aabb_store6_with_nonzero_base() raises:
     var data = List[Float32](length=18, fill=-1.0)
-    var b = AABB(Vec3f32(1.0, 2.0, 3.0), Vec3f32(4.0, 5.0, 6.0))
+    var b = AABB(Point3f32(1.0, 2.0, 3.0), Point3f32(4.0, 5.0, 6.0))
 
     b.store6(data.unsafe_ptr(), 6)
 

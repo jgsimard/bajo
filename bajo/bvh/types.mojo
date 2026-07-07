@@ -2,9 +2,9 @@ from std.math import clamp
 from std.utils.numerics import max_finite, min_finite
 from std.gpu import DeviceBuffer
 
-from bajo.core import AABB, Vec3f32, Affine3f32
+from bajo.core import AABB, Vec3f32, Affine3f32, Point3f32
 from bajo.bvh.constants import f32_max, EMPTY_LANE, Primitive, TRACE
-from bajo.core.vec import Vec3
+from bajo.core.vec import Vec3, Point3, Normal3
 
 
 @fieldwise_init
@@ -91,14 +91,14 @@ struct Ray(TrivialRegisterPassable, Writable):
     comptime DIRECTION = 4  # 4, 5, 6
     comptime T_MAX = 7
 
-    var o: Vec3f32
+    var o: Point3f32
     var t_min: Float32
     var d: Vec3f32
     var t_max: Float32
 
     def __init__(
         out self,
-        origin: Vec3f32,
+        origin: Point3f32,
         direction: Vec3f32,
         t_min: Float32 = 0.0,
         t_max: Float32 = f32_max,
@@ -112,7 +112,7 @@ struct Ray(TrivialRegisterPassable, Writable):
         origin: ImmutOrigin
     ](out self, rays: UnsafePointer[Float32, origin], ray_idx: Int):
         var base = ray_idx * Ray.STRIDE
-        self.o = Vec3f32.load(rays, base + Ray.ORIGIN)
+        self.o = Point3f32.load(rays, base + Ray.ORIGIN)
         self.t_min = rays[base + Ray.T_MIN]
         self.d = Vec3f32.load(rays, base + Ray.DIRECTION)
         self.t_max = rays[base + Ray.T_MAX]
@@ -129,8 +129,8 @@ struct Ray(TrivialRegisterPassable, Writable):
             self.t_max,
         ]
 
-    def origin[width: SIMDSize](self) -> Vec3[DType.float32, width]:
-        return Vec3[DType.float32, width](self.o.x, self.o.y, self.o.z)
+    def origin[width: SIMDSize](self) -> Point3[DType.float32, width]:
+        return Point3[DType.float32, width](self.o.x, self.o.y, self.o.z)
 
     def direction[width: SIMDSize](self) -> Vec3[DType.float32, width]:
         return Vec3[DType.float32, width](self.d.x, self.d.y, self.d.z)
@@ -165,7 +165,7 @@ struct Ray(TrivialRegisterPassable, Writable):
 @fieldwise_init
 struct Sphere(TrivialRegisterPassable):
     comptime STRIDE = 4
-    var center: Vec3f32
+    var center: Point3f32
     var radius: Float32
 
     def bounds(self) -> AABB:
@@ -175,27 +175,27 @@ struct Sphere(TrivialRegisterPassable):
 
 @fieldwise_init
 struct SphereLeafBlock[width: SIMDSize](Copyable):
-    var center: Vec3[DType.float32, Self.width]
+    var center: Point3[DType.float32, Self.width]
     var radius: SIMD[DType.float32, Self.width]
     var prim_indices: SIMD[DType.uint32, Self.width]
 
     def __init__(out self):
-        self.center = Vec3[DType.float32, Self.width](0.0)
+        self.center = Point3[DType.float32, Self.width](0.0)
         self.radius = SIMD[DType.float32, Self.width](0.0)
         self.prim_indices = SIMD[DType.uint32, Self.width](EMPTY_LANE)
 
 
 @fieldwise_init
 struct TriangleLeafBlock[width: SIMDSize](Copyable):
-    var v0: Vec3[DType.float32, Self.width]
-    var v1: Vec3[DType.float32, Self.width]
-    var v2: Vec3[DType.float32, Self.width]
+    var v0: Point3[DType.float32, Self.width]
+    var v1: Point3[DType.float32, Self.width]
+    var v2: Point3[DType.float32, Self.width]
     var prim_indices: SIMD[DType.uint32, Self.width]
 
     def __init__(out self):
-        self.v0 = Vec3[DType.float32, Self.width](0.0)
-        self.v1 = Vec3[DType.float32, Self.width](0.0)
-        self.v2 = Vec3[DType.float32, Self.width](0.0)
+        self.v0 = Point3[DType.float32, Self.width](0.0)
+        self.v1 = Point3[DType.float32, Self.width](0.0)
+        self.v2 = Point3[DType.float32, Self.width](0.0)
         self.prim_indices = SIMD[DType.uint32, Self.width](EMPTY_LANE)
 
 

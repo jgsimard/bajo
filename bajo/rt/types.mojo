@@ -1,6 +1,14 @@
 from std.math import abs
 
-from bajo.core import AABB, Affine3f32, Vec3f32, cross, dot, normalize
+from bajo.core import (
+    AABB,
+    Affine3f32,
+    Vec3f32,
+    cross,
+    dot,
+    normalize,
+    Point3f32,
+)
 from bajo.bvh.constants import EMPTY_LANE, Primitive, TRACE
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.bvh.cpu.tlas import Tlas
@@ -9,7 +17,6 @@ from bajo.bvh.types import Instance, Ray, Sphere
 
 
 comptime Color = Vec3f32
-comptime Point3 = Vec3f32
 comptime BVH_WIDTH = 8
 
 comptime MAT_LAMBERTIAN = UInt32(0)
@@ -121,7 +128,7 @@ struct SurfaceStore(Movable):
 @fieldwise_init
 struct HitRecord(Copyable, Writable):
     var primitive: PrimitiveId
-    var p: Point3
+    var p: Point3f32
     var normal: Vec3f32
     var surface: SurfaceId
     var t: Float32
@@ -189,9 +196,9 @@ struct World(Movable):
     var triangle_tlas: Optional[Tlas[BVH_WIDTH]]
     var spheres: List[Sphere]
     var sphere_surfaces: List[SurfaceId]
-    var triangle_vertices: List[Vec3f32]
+    var triangle_vertices: List[Point3f32]
     var triangle_surfaces: List[SurfaceId]
-    var triangle_meshes: List[List[Vec3f32]]
+    var triangle_meshes: List[List[Point3f32]]
     var triangle_mesh_blases: List[TriangleBvh[BVH_WIDTH]]
     var triangle_instances: List[Instance]
     var triangle_instance_surfaces: List[SurfaceId]
@@ -201,9 +208,9 @@ struct World(Movable):
         out self,
         var spheres: List[Sphere],
         var sphere_surfaces: List[SurfaceId],
-        var triangle_vertices: List[Vec3f32],
+        var triangle_vertices: List[Point3f32],
         var triangle_surfaces: List[SurfaceId],
-        var triangle_meshes: List[List[Vec3f32]],
+        var triangle_meshes: List[List[Point3f32]],
         var triangle_instances: List[Instance],
         var triangle_instance_surfaces: List[SurfaceId],
         var surfaces: SurfaceStore,
@@ -459,7 +466,7 @@ struct World(Movable):
         )
 
 
-def ray_at(ray: Ray, t: Float32) -> Point3:
+def ray_at(ray: Ray, t: Float32) -> Point3f32:
     return ray.o + t * ray.d
 
 
@@ -482,7 +489,7 @@ def _closest_hit3(
 def add_sphere(
     mut spheres: List[Sphere],
     mut sphere_surfaces: List[SurfaceId],
-    center: Point3,
+    center: Point3f32,
     radius: Float32,
     surface: SurfaceId,
 ):
@@ -492,11 +499,11 @@ def add_sphere(
 
 
 def add_triangle(
-    mut triangle_vertices: List[Vec3f32],
+    mut triangle_vertices: List[Point3f32],
     mut triangle_surfaces: List[SurfaceId],
-    v0: Point3,
-    v1: Point3,
-    v2: Point3,
+    v0: Point3f32,
+    v1: Point3f32,
+    v2: Point3f32,
     surface: SurfaceId,
 ):
     triangle_vertices.append(v0)
@@ -506,9 +513,9 @@ def add_triangle(
 
 
 def add_triangle_mesh(
-    mut triangle_vertices: List[Vec3f32],
+    mut triangle_vertices: List[Point3f32],
     mut triangle_surfaces: List[SurfaceId],
-    vertices: List[Vec3f32],
+    vertices: List[Point3f32],
     surface: SurfaceId,
 ):
     debug_assert["safe"](
@@ -522,10 +529,10 @@ def add_triangle_mesh(
 
 
 def add_triangle_mesh_instance(
-    mut triangle_meshes: List[List[Vec3f32]],
+    mut triangle_meshes: List[List[Point3f32]],
     mut triangle_instances: List[Instance],
     mut triangle_instance_surfaces: List[SurfaceId],
-    vertices: List[Vec3f32],
+    vertices: List[Point3f32],
     transform: Affine3f32,
     inv_transform: Affine3f32,
     bounds: AABB,

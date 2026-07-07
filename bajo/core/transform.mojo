@@ -1,7 +1,7 @@
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.math import abs, fma
 
-from bajo.core.vec import Vec3
+from bajo.core.vec import Vec3, Normal3, Point3, Geo3
 from bajo.core.quat import Quaternion
 
 
@@ -86,7 +86,9 @@ struct Affine3[dtype: DType, width: SIMDSize = 1](
         return m^
 
     @staticmethod
-    def from_translation(t: Vec3[Self.dtype, Self.width]) -> Self:
+    def from_translation(
+        t: Geo3[Self.dtype, _, Self.width]
+    ) -> Self:  # TODO: fix this ?
         var m = Self.identity()
 
         m.tx = t.x
@@ -150,10 +152,10 @@ struct Affine3[dtype: DType, width: SIMDSize = 1](
         # fmt: on
 
     def point(
-        self, p: Vec3[Self.dtype, Self.width]
-    ) -> Vec3[Self.dtype, Self.width]:
+        self, p: Point3[Self.dtype, Self.width]
+    ) -> Point3[Self.dtype, Self.width]:
         """Formula : p_out = M * p_in + t."""
-        return Vec3[Self.dtype, Self.width](
+        return Point3[Self.dtype, Self.width](
             fma(self.m00, p.x, fma(self.m01, p.y, fma(self.m02, p.z, self.tx))),
             fma(self.m10, p.x, fma(self.m11, p.y, fma(self.m12, p.z, self.ty))),
             fma(self.m20, p.x, fma(self.m21, p.y, fma(self.m22, p.z, self.tz))),

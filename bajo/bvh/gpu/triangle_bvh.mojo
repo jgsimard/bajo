@@ -8,7 +8,16 @@ from bajo.bvh.gpu.utils import (
     upload_vertices,
     upload_list,
 )
-from bajo.core import AABB, Vec3f32, vmin, vmax, normalize, cross, Vec3
+from bajo.core import (
+    AABB,
+    Vec3f32,
+    vmin,
+    vmax,
+    normalize,
+    cross,
+    Vec3,
+    Point3f32,
+)
 from bajo.bvh.types import Ray, Hit, BlasSet, TriangleLeafBlock
 from bajo.bvh.constants import (
     EMPTY_LANE,
@@ -27,7 +36,7 @@ from bajo.core.utils import min_argmin
 
 def build_triangle_blas_set[
     width: SIMDSize
-](mut ctx: DeviceContext, vertex_sets: List[List[Vec3f32]]) raises -> BlasSet[
+](mut ctx: DeviceContext, vertex_sets: List[List[Point3f32]]) raises -> BlasSet[
     width
 ]:
     debug_assert["safe"](len(vertex_sets) > 0)
@@ -337,17 +346,17 @@ def _intersect_triangle_leaf[
         var prim = leaf_vertices_u32[block_base + 3 * width + lane]
         if prim == EMPTY_LANE:
             continue
-        var v0 = Vec3f32(
+        var v0 = Point3f32(
             leaf_vertices[block_base + 0 * width + lane],
             leaf_vertices[block_base + 1 * width + lane],
             leaf_vertices[block_base + 2 * width + lane],
         )
-        var v1 = Vec3f32(
+        var v1 = Point3f32(
             leaf_vertices[block_base + 4 * width + lane],
             leaf_vertices[block_base + 5 * width + lane],
             leaf_vertices[block_base + 6 * width + lane],
         )
-        var v2 = Vec3f32(
+        var v2 = Point3f32(
             leaf_vertices[block_base + 8 * width + lane],
             leaf_vertices[block_base + 9 * width + lane],
             leaf_vertices[block_base + 10 * width + lane],

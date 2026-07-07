@@ -4,7 +4,7 @@ from std.sys import has_accelerator
 from std.testing import TestSuite, assert_true
 from std.gpu import DeviceContext, DeviceBuffer
 
-from bajo.core import Vec3f32
+from bajo.core import Vec3f32, Point3f32
 from bajo.bvh.types import Sphere, Hit
 from bajo.bvh.host_utils import sphere_bounds, triangle_bounds
 from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
@@ -72,8 +72,8 @@ def _make_sphere_leaf_bounds(
     return (d_leaf_bounds^, d_payloads^)
 
 
-def _make_degenerate_axis_scene() -> List[Vec3f32]:
-    var verts = List[Vec3f32](capacity=16 * 3)
+def _make_degenerate_axis_scene() -> List[Point3f32]:
+    var verts = List[Point3f32](capacity=16 * 3)
     for i in range(16):
         var cx = Float32(i * 2 - 15)
         _append_tri(verts, cx, 0.0, 2.0)
@@ -82,7 +82,7 @@ def _make_degenerate_axis_scene() -> List[Vec3f32]:
 
 def _make_triangle_leaf_bounds(
     mut ctx: DeviceContext,
-    verts: List[Vec3f32],
+    verts: List[Point3f32],
 ) raises -> Tuple[DeviceBuffer[DType.float32], DeviceBuffer[DType.uint32]]:
     var tri_count = len(verts) / 3
     var leaf_bounds = List[Float32](capacity=max(tri_count, 1) * 6)
@@ -120,7 +120,7 @@ def _make_triangle_leaf_bounds(
     return (d_leaf_bounds^, d_payloads^)
 
 
-def _assert_gpu_bounds_width[width: SIMDSize](verts: List[Vec3f32]) raises:
+def _assert_gpu_bounds_width[width: SIMDSize](verts: List[Point3f32]) raises:
     with DeviceContext() as ctx:
         var build = _make_triangle_leaf_bounds(ctx, verts)
         var leaf_bounds = build[0].copy()
@@ -140,7 +140,9 @@ def _assert_gpu_bounds_width[width: SIMDSize](verts: List[Vec3f32]) raises:
         assert_true(bvh.leaf_block_count <= bvh.max_leaf_blocks)
 
 
-def _assert_wide_lane_invariants[width: SIMDSize](verts: List[Vec3f32]) raises:
+def _assert_wide_lane_invariants[
+    width: SIMDSize
+](verts: List[Point3f32]) raises:
     with DeviceContext() as ctx:
         var build = _make_triangle_leaf_bounds(ctx, verts)
         var leaf_bounds = build[0].copy()
@@ -176,7 +178,7 @@ def _assert_wide_lane_invariants[width: SIMDSize](verts: List[Vec3f32]) raises:
 
 def _assert_gpu_triangle_matches_cpu_camera[
     width: SIMDSize
-](verts: List[Vec3f32]) raises:
+](verts: List[Point3f32]) raises:
     var cpu_bvh = TriangleBvh[width].__init__["lbvh"](verts.copy())
     var camera_data = _make_camera_rays_and_params(
         cpu_bvh.bounds(),

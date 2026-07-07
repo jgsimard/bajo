@@ -4,7 +4,7 @@ from std.sys import has_accelerator
 from std.testing import TestSuite, assert_true, assert_almost_equal
 from std.gpu import DeviceContext
 
-from bajo.core import AABB, Vec3f32, Affine3f32
+from bajo.core import AABB, Vec3f32, Affine3f32, Point3f32
 from bajo.bvh.constants import Primitive, TRACE, f32_max
 from bajo.bvh.types import Sphere, Instance, Hit
 from bajo.bvh.host_utils import compute_bounds
@@ -78,7 +78,7 @@ def test_gpu_tlas_triangle_camera_single_identity_matches_cpu_blas() raises:
 def test_gpu_tlas_triangle_camera_translated_single_instance_hit() raises:
     var verts = _make_single_triangle_scene()
     var bounds = compute_bounds(verts)
-    var t = Vec3f32(10.0, 0.0, 0.0)
+    var t = Point3f32(10.0, 0.0, 0.0)
     var camera = _make_camera_ray(t, Vec3f32(0.0, 0.0, 1.0))
 
     var instances = [
@@ -163,9 +163,9 @@ def test_gpu_tlas_sphere_camera_single_identity_matches_cpu_bruteforce() raises:
 
 
 def test_gpu_tlas_sphere_camera_translated_single_instance_hit() raises:
-    var spheres = [Sphere(Vec3f32(0.0, 0.0, 2.0), 1.0)]
-    var bounds = AABB(Vec3f32(-1.0, -1.0, 1.0), Vec3f32(1.0, 1.0, 3.0))
-    var t = Vec3f32(10.0, 0.0, 0.0)
+    var spheres = [Sphere(Point3f32(0.0, 0.0, 2.0), 1.0)]
+    var bounds = AABB(Point3f32(-1.0, -1.0, 1.0), Point3f32(1.0, 1.0, 3.0))
+    var t = Point3f32(10.0, 0.0, 0.0)
     var camera = _make_camera_ray(t, Vec3f32(0.0, 0.0, 1.0))
 
     var instances = [

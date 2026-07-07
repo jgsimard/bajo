@@ -1,6 +1,6 @@
 from bajo.bvh.types import Ray, Hit
 from bajo.core.intersect import intersect_ray_aabb_rcp
-from bajo.core.vec import Vec3
+from bajo.core.vec import Vec3, Point3
 from bajo.bvh.cpu.bounds_bvh import BoundsBvh
 from bajo.bvh.constants import EMPTY_LANE, CPU_STACK_SIZE, TRACE
 
@@ -10,7 +10,7 @@ def trace_bounds_bvh[
     mode: TRACE,
     leaf_fn: def(
         Ray,
-        Vec3[DType.float32, width],
+        Point3[DType.float32, width],
         Vec3[DType.float32, width],
         UInt32,
         mut Hit,

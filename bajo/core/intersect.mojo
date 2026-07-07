@@ -4,6 +4,7 @@ from std.utils.numerics import max_finite
 from bajo.core.vec import (
     Vec2,
     Vec3,
+    Point3,
     dot,
     vmin,
     vmax,
@@ -163,7 +164,7 @@ def furthest_point_to_triangle[
 def intersect_ray_aabb_rcp[
     dtype: DType, width: SIMDSize
 ](
-    o: Vec3[dtype, width],
+    o: Point3[dtype, width],
     rcp_d: Vec3[dtype, width],
     aabb: AxisAlignedBoundingBox[dtype, width],
     t_max: SIMD[dtype, width],
@@ -174,10 +175,10 @@ def intersect_ray_aabb_rcp[
 def intersect_ray_aabb_rcp[
     dtype: DType, width: SIMDSize
 ](
-    o: Vec3[dtype, width],
+    o: Point3[dtype, width],
     rcp_d: Vec3[dtype, width],
-    bmin: Vec3[dtype, width],
-    bmax: Vec3[dtype, width],
+    bmin: Point3[dtype, width],
+    bmax: Point3[dtype, width],
     t_max: SIMD[dtype, width],
 ) -> RayDistanceHit[dtype, width]:
     """Intersect a ray with an AABB using precomputed reciprocal direction."""
@@ -199,7 +200,7 @@ def intersect_ray_aabb_rcp[
 def intersect_ray_aabb[
     dtype: DType, width: SIMDSize
 ](
-    o: Vec3[dtype, width],
+    o: Point3[dtype, width],
     rcp_d: Vec3[dtype, width],
     aabb: AxisAlignedBoundingBox[dtype, width],
     t_max: SIMD[dtype, width],
@@ -210,10 +211,10 @@ def intersect_ray_aabb[
 def intersect_ray_aabb[
     dtype: DType, width: SIMDSize
 ](
-    o: Vec3[dtype, width],
+    o: Point3[dtype, width],
     rcp_d: Vec3[dtype, width],
-    bmin: Vec3[dtype, width],
-    bmax: Vec3[dtype, width],
+    bmin: Point3[dtype, width],
+    bmax: Point3[dtype, width],
     t_max: SIMD[dtype, width],
 ) -> RayDistanceHit[dtype, width]:
     return intersect_ray_aabb_rcp(o, rcp_d, bmin, bmax, t_max)
@@ -241,9 +242,9 @@ def intersect_ray_sphere[
     dtype: DType,
     width: SIMDSize,
 ](
-    o: Vec3[dtype, width],
+    o: Point3[dtype, width],
     d: Vec3[dtype, width],
-    center: Vec3[dtype, width],
+    center: Point3[dtype, width],
     radius: SIMD[dtype, width],
     t_max: SIMD[dtype, width],
     t_min: SIMD[dtype, width] = SIMD[dtype, width](1.0e-4),
@@ -282,11 +283,11 @@ def intersect_ray_sphere[
 def intersect_ray_tri[
     dtype: DType, width: SIMDSize
 ](
-    o: Vec3[dtype, width],
+    o: Point3[dtype, width],
     d: Vec3[dtype, width],
-    v0: Vec3[dtype, width],
-    v1: Vec3[dtype, width],
-    v2: Vec3[dtype, width],
+    v0: Point3[dtype, width],
+    v1: Point3[dtype, width],
+    v2: Point3[dtype, width],
     t_max: SIMD[dtype, width],
     t_min: SIMD[dtype, width] = SIMD[dtype, width](1.0e-4),
 ) -> RayTriHit[dtype, width]:
@@ -334,14 +335,14 @@ def intersect_ray_tri[
 ](
     vertices: UnsafePointer[Scalar[dtype], origin],
     prim_idx: UInt32,
-    o: Vec3[dtype],
+    o: Point3[dtype],
     d: Vec3[dtype],
     t_max: Scalar[dtype],
 ) -> RayTriHit[dtype, 1]:
     var base = Int(prim_idx) * 9
-    var v0 = Vec3.load(vertices, base)
-    var v1 = Vec3.load(vertices, base + 3)
-    var v2 = Vec3.load(vertices, base + 6)
+    var v0 = Point3.load(vertices, base)
+    var v1 = Point3.load(vertices, base + 3)
+    var v2 = Point3.load(vertices, base + 6)
 
     return intersect_ray_tri(
         o,

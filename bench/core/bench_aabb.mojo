@@ -10,6 +10,8 @@ from bajo.core import (
     vmax,
     Vec3f32,
     Vec3,
+    Point3,
+    Point3f32,
     Quat,
     Quaternion,
     AABB,
@@ -26,7 +28,7 @@ def apply_trs_naive_________(
     box: AABB, translation: Vec3f32, rotation: Quat, scale: Vec3f32
 ) -> AABB:
     rot_mat = Mat33f32.from_rotation_scale(rotation, scale)
-    txfmed = AABB(translation.copy(), translation.copy())
+    txfmed = AABB(translation.to_point(), translation.to_point())
 
     for i in range(3):
         for j in range(3):
@@ -46,7 +48,7 @@ def apply_trs_naive_comptime(
     box: AABB, translation: Vec3f32, rotation: Quat, scale: Vec3f32
 ) -> AABB:
     rot_mat = Mat33f32.from_rotation_scale(rotation, scale)
-    txfmed = AABB(translation.copy(), translation.copy())
+    txfmed = AABB(translation.to_point(), translation.to_point())
 
     comptime for j in range(3):
         comptime for i in range(3):
@@ -87,7 +89,7 @@ def apply_trs_arvo_v0_______(
     new_min += vmin(c2_a, c2_b)
     new_max += vmax(c2_a, c2_b)
 
-    return AABB(new_min, new_max)
+    return AABB(new_min.to_point(), new_max.to_point())
 
 
 def apply_trs_arvo_v1_______(
@@ -103,7 +105,7 @@ def apply_trs_arvo_v1_______(
         new_min += vmin(c_a, c_b)
         new_max += vmax(c_a, c_b)
 
-    return AABB(new_min, new_max)
+    return AABB(new_min.to_point(), new_max.to_point())
 
 
 def apply_trs_affine3_v0_width[
@@ -148,7 +150,7 @@ def apply_trs_affine3_v0_width[
     new_min += vmin(c2_a, c2_b)
     new_max += vmax(c2_a, c2_b)
 
-    return AxisAlignedBoundingBox[DType.float32, width](new_min, new_max)
+    return AxisAlignedBoundingBox(new_min.to_point(), new_max.to_point())
 
 
 def apply_trs_affine3_v1_width[
@@ -203,7 +205,7 @@ def apply_trs_affine3_v1_width[
     _add_transformed_axis_width[1](transform.m12, box._min.z, box._max.z)
     _add_transformed_axis_width[2](transform.m22, box._min.z, box._max.z)
 
-    return AxisAlignedBoundingBox[DType.float32, width](new_min, new_max)
+    return AxisAlignedBoundingBox(new_min.to_point(), new_max.to_point())
 
 
 def dispatch_affine3_width[
@@ -246,8 +248,8 @@ struct Affine3WidthBenchmarkData[width: SIMDSize]:
         for _ in range(packet_count):
             self.boxes.append(
                 AxisAlignedBoundingBox[DType.float32, Self.width](
-                    Vec3[DType.float32, Self.width](-1),
-                    Vec3[DType.float32, Self.width](1),
+                    Point3[DType.float32, Self.width](-1),
+                    Point3[DType.float32, Self.width](1),
                 )
             )
 
@@ -327,7 +329,7 @@ struct AABBBenchmarkData:
         rng = Rng(123, 123)
 
         for _ in range(num_elements):
-            self.boxes.append(AABB(Vec3f32(-1), Vec3f32(1)))
+            self.boxes.append(AABB(Point3f32(-1), Point3f32(1)))
             self.translations.append(rng.vec3f32())
             self.rotations.append(
                 Quat.from_axis_angle(

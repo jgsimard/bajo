@@ -1,18 +1,18 @@
-from bajo.core import AABB
+from bajo.core import AABB, Frame
 from bajo.bvh.constants import f32_max, f32_min, BVH_BINS
 from .builder import BoundsItem, BoundsBvhNode
 
 
 @fieldwise_init
-struct BoundsSplitResult(Movable):
+struct BoundsSplitResult[frame: Frame](Movable):
     var axis: Int
     var bin: Int
     var pos: Float32
     var cost: Float32
     var bin_min: Float32
     var bin_scale: Float32
-    var left_bounds: AABB
-    var right_bounds: AABB
+    var left_bounds: AABB[Self.frame]
+    var right_bounds: AABB[Self.frame]
 
     def __init__(out self):
         self.axis = -1
@@ -21,19 +21,21 @@ struct BoundsSplitResult(Movable):
         self.cost = f32_max
         self.bin_min = 0.0
         self.bin_scale = 0.0
-        self.left_bounds = AABB.invalid()
-        self.right_bounds = AABB.invalid()
+        self.left_bounds = AABB[Self.frame].invalid()
+        self.right_bounds = AABB[Self.frame].invalid()
 
     def valid(self) -> Bool:
         return self.axis >= 0 and self.bin >= 0
 
 
-def _find_sah_split(
+def _find_sah_split[
+    frame: Frame
+](
     node: BoundsBvhNode,
     indices: UnsafePointer[mut=False, UInt32, _],
-    items: UnsafePointer[mut=False, BoundsItem, _],
-) -> BoundsSplitResult:
-    var best = BoundsSplitResult()
+    items: UnsafePointer[mut=False, BoundsItem[frame], _],
+) -> BoundsSplitResult[frame]:
+    var best = BoundsSplitResult[frame]()
     var first = Int(node.first_item())
     var count = Int(node.item_count)
 
@@ -62,7 +64,7 @@ def _find_sah_split(
 
         # from the left
         var left_prefix = InlineArray[BoundsBin, BVH_BINS](fill=BoundsBin())
-        var left_box = AABB.invalid()
+        var left_box = AABB[frame].invalid()
         var left_count = UInt32(0)
 
         for i in range(BVH_BINS - 1):
@@ -72,7 +74,7 @@ def _find_sah_split(
             left_prefix[i].bounds = left_box
 
         # from the right
-        var right_box = AABB.invalid()
+        var right_box = AABB[frame].invalid()
         var right_count = UInt32(0)
 
         for i in range(BVH_BINS - 1, 0, -1):
@@ -105,19 +107,19 @@ def _find_sah_split(
 
 
 @fieldwise_init
-struct BoundsBin(TrivialRegisterPassable):
-    var bounds: AABB
+struct BoundsBin[frame: Frame](TrivialRegisterPassable):
+    var bounds: AABB[Self.frame]
     var item_count: UInt32
 
     def __init__(out self):
-        self.bounds = AABB.invalid()
+        self.bounds = AABB[Self.frame].invalid()
         self.item_count = 0
 
 
 def _item_bin[
-    origin: ImmutOrigin
+    origin: ImmutOrigin, frame: Frame
 ](
-    items: UnsafePointer[BoundsItem, origin],
+    items: UnsafePointer[BoundsItem[frame], origin],
     item_idx: Int,
     axis: Int,
     bin_min: Float32,
@@ -134,9 +136,11 @@ def _item_bin[
     return b_idx
 
 
-def _partition_items_by_bin(
+def _partition_items_by_bin[
+    frame: Frame
+](
     indices: UnsafePointer[mut=True, UInt32, _],
-    items: UnsafePointer[mut=False, BoundsItem, _],
+    items: UnsafePointer[mut=False, BoundsItem[frame], _],
     first: Int,
     count: Int,
     axis: Int,

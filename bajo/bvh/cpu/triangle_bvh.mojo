@@ -1,5 +1,5 @@
 from bajo.core.utils import min_argmin
-from bajo.core import Vec3, Vec3f32, AABB, Point3, Point3f32
+from bajo.core import Vec3, Vec3f32, AABB, Point3, Point3f32, Frame
 from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
 from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvh,
@@ -11,7 +11,7 @@ from bajo.core.intersect import intersect_ray_tri
 from bajo.bvh.cpu.trace import trace_bounds_bvh
 
 
-struct TriangleBvh[width: SIMDSize](Copyable, TypedBvh):
+struct TriangleBvh[frame: Frame, width: SIMDSize](Copyable, TypedBvh):
     """Triangle-specific wrapper around BoundsBvh[width].
 
     After construction, leaf primitive data is packed into TriangleLeafBlock.
@@ -21,40 +21,40 @@ struct TriangleBvh[width: SIMDSize](Copyable, TypedBvh):
         node.data[lane] = TriangleLeafBlock index
     """
 
-    var tree: BoundsBvh[Self.width]
-    var leaf_blocks: List[TriangleLeafBlock[Self.width]]
+    var tree: BoundsBvh[Self.frame, Self.width]
+    var leaf_blocks: List[TriangleLeafBlock[Self.frame, Self.width]]
     var tri_count: Int
 
     def __init__[
         split_method: String = "median"
-    ](out self, var vertices: List[Point3f32]):
+    ](out self, var vertices: List[Point3f32[Self.frame]]):
         self.tri_count = len(vertices) / 3
-        self.leaf_blocks = List[TriangleLeafBlock[Self.width]]()
+        self.leaf_blocks = List[TriangleLeafBlock[Self.frame, Self.width]]()
 
-        var items = List[BoundsItem](capacity=self.tri_count)
+        var items = List[BoundsItem[Self.frame]](capacity=self.tri_count)
 
         for i in range(self.tri_count):
             ref v0 = vertices[i * 3 + 0]
             ref v1 = vertices[i * 3 + 1]
             ref v2 = vertices[i * 3 + 2]
 
-            var bounds = AABB.invalid()
+            var bounds = AABB[Self.frame].invalid()
             bounds.grow(v0, v1, v2)
 
             items.append(BoundsItem(bounds, UInt32(i)))
 
-        var builder = BoundsBvhBuilder[Self.width](items)
+        var builder = BoundsBvhBuilder[Self.frame, Self.width](items)
         builder.build[split_method]()
 
-        self.tree = BoundsBvh[Self.width](builder)
+        self.tree = BoundsBvh[Self.frame, Self.width](builder)
 
         self._pack_leaves(vertices^)
 
-    def bounds(self) -> AABB:
+    def bounds(self) -> AABB[Self.frame]:
         return self.tree.root_bounds()
 
-    def _pack_leaves(mut self, var vertices: List[Point3f32]):
-        self.leaf_blocks = List[TriangleLeafBlock[Self.width]](
+    def _pack_leaves(mut self, var vertices: List[Point3f32[Self.frame]]):
+        self.leaf_blocks = List[TriangleLeafBlock[Self.frame, Self.width]](
             capacity=(self.tri_count + Int(Self.width) - 1) // Int(Self.width)
         )
         for ref node in self.tree.nodes:
@@ -63,7 +63,7 @@ struct TriangleBvh[width: SIMDSize](Copyable, TypedBvh):
                     var first_item = node.data[lane]
                     var item_count = node.counts[lane]
 
-                    var block = TriangleLeafBlock[Self.width]()
+                    var block = TriangleLeafBlock[Self.frame, Self.width]()
 
                     for k in range(Int(item_count)):
                         var item_ref = Int(
@@ -94,11 +94,11 @@ struct TriangleBvh[width: SIMDSize](Copyable, TypedBvh):
                     self.leaf_blocks.append(block^)
                     node.data[lane] = block_idx
 
-    def trace[mode: TRACE](self, ray: Ray) -> Hit:
+    def trace[mode: TRACE](self, ray: Ray) -> Hit[Self.frame]:
         def leaf_fn(
             ray: Ray,
-            O: Point3[DType.float32, Self.width],
-            D: Vec3[DType.float32, Self.width],
+            O: Point3[DType.float32, Self.frame, Self.width],
+            D: Vec3[DType.float32, Self.frame, Self.width],
             leaf_block_idx: UInt32,
             mut hit: Hit,
         ) capturing -> Bool:

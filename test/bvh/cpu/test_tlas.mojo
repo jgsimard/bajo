@@ -5,10 +5,10 @@ from bajo.bvh.types import Ray, Instance, Sphere, Hit
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.bvh.cpu.tlas import Tlas
-from bajo.core import Affine3f32, Vec3f32, Point3f32
+from bajo.core import Affine3f32, Vec3f32, Point3f32, Frame
 
 
-def _make_one_local_triangle_z2() -> List[Point3f32]:
+def _make_one_local_triangle_z2[frame: Frame]() -> List[Point3f32[frame]]:
     return [
         Point3f32(-1.0, -1.0, 2.0),
         Point3f32(1.0, -1.0, 2.0),
@@ -16,18 +16,18 @@ def _make_one_local_triangle_z2() -> List[Point3f32]:
     ]
 
 
-def _make_one_local_sphere_z2() -> List[Sphere]:
-    return [Sphere(Point3f32(0.0, 0.0, 2.0), 1.0)]
+def _make_one_local_sphere_z2[frame: Frame]() -> List[Sphere[frame]]:
+    return [Sphere(Point3f32[frame](0.0, 0.0, 2.0), 1.0)]
 
 
 def _triangle_instance[
-    width: SIMDSize
+    frame: Frame, width: SIMDSize
 ](
     blas_idx: UInt32,
     tx: Float32,
     ty: Float32,
     tz: Float32,
-    blas: TriangleBvh[width],
+    blas: TriangleBvh[frame, width],
 ) -> Instance:
     t = Vec3f32(tx, ty, tz)
     return Instance(
@@ -258,10 +258,10 @@ def test_tlas_sphere_single_instance_cases() raises:
 
 
 def test_tlas_sphere_two_instance_cases() raises:
-    var spheres = _make_one_local_sphere_z2()
+    var spheres = _make_one_local_sphere_z2[Frame.WORLD]()
 
-    var first_blas = SphereBvh[4](spheres.copy())
-    var second_blas = SphereBvh[4](spheres^)
+    var first_blas = SphereBvh[Frame.WORLD, 4](spheres.copy())
+    var second_blas = SphereBvh[Frame.WORLD, 4](spheres^)
 
     var blases = [first_blas.copy(), second_blas.copy()]
 
@@ -303,9 +303,9 @@ def test_tlas_sphere_two_instance_cases() raises:
 
 
 def test_tlas_sphere_shadow_cases() raises:
-    var spheres = _make_one_local_sphere_z2()
+    var spheres = _make_one_local_sphere_z2[Frame.WORLD]()
 
-    var blas = SphereBvh[4](spheres^)
+    var blas = SphereBvh[Frame.WORLD, 4](spheres^)
 
     var blases = [blas.copy()]
 

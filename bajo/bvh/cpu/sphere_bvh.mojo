@@ -1,4 +1,4 @@
-from bajo.core import AABB, Vec3, Point3
+from bajo.core import AABB, Vec3, Point3, Frame
 from bajo.core.intersect import intersect_ray_sphere
 from bajo.core.utils import min_argmin
 from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
@@ -7,7 +7,7 @@ from bajo.bvh.cpu.trace import trace_bounds_bvh
 from bajo.bvh.types import Ray, Hit, Sphere, SphereLeafBlock, TypedBvh
 
 
-struct SphereBvh[width: SIMDSize](Copyable, TypedBvh):
+struct SphereBvh[frame: Frame, width: SIMDSize](Copyable, TypedBvh):
     """Sphere-specific wrapper around BoundsBvh[width].
     The generic tree is built from BoundsItem ranges.
     After construction, sphere leaf data is packed into SphereLeafBlock.
@@ -16,14 +16,14 @@ struct SphereBvh[width: SIMDSize](Copyable, TypedBvh):
         node.data[lane] = SphereLeafBlock index.
     """
 
-    var tree: BoundsBvh[Self.width]
-    var spheres: List[Sphere]
-    var leaf_blocks: List[SphereLeafBlock[Self.width]]
+    var tree: BoundsBvh[Self.frame, Self.width]
+    var spheres: List[Sphere[Self.frame]]
+    var leaf_blocks: List[SphereLeafBlock[Self.frame, Self.width]]
     var sphere_count: Int
 
     def __init__[
         split_method: String = "median"
-    ](out self, var spheres: List[Sphere]):
+    ](out self, var spheres: List[Sphere[Self.frame]]):
         self.spheres = spheres^
         self.sphere_count = len(self.spheres)
         self.leaf_blocks = []
@@ -33,18 +33,18 @@ struct SphereBvh[width: SIMDSize](Copyable, TypedBvh):
             for i, s in enumerate(self.spheres)
         ]
 
-        var builder = BoundsBvhBuilder[Self.width](items)
+        var builder = BoundsBvhBuilder[Self.frame, Self.width](items)
         builder.build[split_method]()
 
-        self.tree = BoundsBvh[Self.width](builder)
+        self.tree = BoundsBvh[Self.frame, Self.width](builder)
 
         self._pack_leaves()
 
-    def bounds(self) -> AABB:
+    def bounds(self) -> AABB[Self.frame]:
         return self.tree.root_bounds()
 
     def _pack_leaves(mut self):
-        self.leaf_blocks = List[SphereLeafBlock[Self.width]]()
+        self.leaf_blocks = List[SphereLeafBlock[Self.frame, Self.width]]()
 
         for ref node in self.tree.nodes:
             comptime for lane in range(Self.width):
@@ -52,7 +52,7 @@ struct SphereBvh[width: SIMDSize](Copyable, TypedBvh):
                     var first_item = node.data[lane]
                     var item_count = node.counts[lane]
 
-                    var block = SphereLeafBlock[Self.width]()
+                    var block = SphereLeafBlock[Self.frame, Self.width]()
 
                     comptime for k in range(Self.width):
                         if k < Int(item_count):
@@ -73,11 +73,11 @@ struct SphereBvh[width: SIMDSize](Copyable, TypedBvh):
                     self.leaf_blocks.append(block^)
                     node.data[lane] = block_idx
 
-    def trace[mode: TRACE](self, ray: Ray) -> Hit:
+    def trace[mode: TRACE](self, ray: Ray) -> Hit[Self.frame]:
         def leaf_fn(
             ray: Ray,
-            O: Point3[DType.float32, Self.width],
-            D: Vec3[DType.float32, Self.width],
+            O: Point3[DType.float32, Self.frame, Self.width],
+            D: Vec3[DType.float32, Self.frame, Self.width],
             leaf_block_idx: UInt32,
             mut hit: Hit,
         ) capturing -> Bool:

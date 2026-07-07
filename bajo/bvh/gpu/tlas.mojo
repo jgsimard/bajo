@@ -1,7 +1,7 @@
 from std.math import ceildiv, max, min
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
 
-from bajo.core import AABB, Affine3f32
+from bajo.core import AABB, Affine3f32, Frame
 from bajo.bvh.constants import (
     TRACE,
     GPU_STACK_SIZE,
@@ -23,11 +23,11 @@ from bajo.bvh.gpu.trace import trace_bounds_bvh
 from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list
 
 
-comptime BlasLeafFn = def(
+comptime BlasLeafFn[frame: Frame] = def(
     UnsafePointer[mut=False, Float32, _],
     UInt32,
-    Ray,
-    mut Hit,
+    Ray[frame],
+    mut Hit[frame],
 ) capturing -> Bool
 
 
@@ -36,9 +36,24 @@ def _flatten_instance_inv_transforms(
 ) -> List[Float32]:
     debug_assert["safe"](len(instances) > 0)
 
-    var out = List[Float32](capacity=len(instances) * Affine3f32.STRIDE)
+    var out = List[Float32](
+        capacity=len(instances) * Affine3f32[Frame.WORLD, Frame.LOCAL].STRIDE
+    )
     for instance in instances:
         out.extend(instance.inv_transform.flatten())
+    return out^
+
+
+def _flatten_instance_transforms(
+    instances: List[Instance],
+) -> List[Float32]:
+    debug_assert["safe"](len(instances) > 0)
+
+    var out = List[Float32](
+        capacity=len(instances) * Affine3f32[Frame.LOCAL, Frame.WORLD].STRIDE
+    )
+    for instance in instances:
+        out.extend(instance.transform.flatten())
     return out^
 
 
@@ -54,14 +69,14 @@ def transform_ray[
 ](
     transforms: UnsafePointer[Float32, origin],
     idx: UInt32,
-    ray: Ray,
+    ray: Ray[Frame.WORLD],
     t_max: Float32,
-) -> Ray:
-    var base = Int(idx) * Affine3f32.STRIDE
-    var transform = Affine3f32.load(transforms, base)
+) -> Ray[Frame.LOCAL]:
+    var base = Int(idx) * Affine3f32[Frame.WORLD, Frame.LOCAL].STRIDE
+    var transform = Affine3f32[Frame.WORLD, Frame.LOCAL].load(transforms, base)
     var o = transform.point(ray.o)
     var d = transform.vector(ray.d)
-    return Ray(o, d, ray.t_min, t_max)
+    return Ray[Frame.LOCAL](o, d, ray.t_min, t_max)
 
 
 @always_inline
@@ -69,9 +84,10 @@ def _intersect_tlas_instance_block[
     tlas_width: SIMDSize,
     blas_width: SIMDSize,
     mode: TRACE,
-    blas_leaf_fn: BlasLeafFn,
+    blas_leaf_fn: BlasLeafFn[Frame.LOCAL],
 ](
     tlas_leaf_instances: UnsafePointer[mut=False, UInt32, _],
+    inst_transform: UnsafePointer[mut=False, Float32, _],
     inst_inv_transform: UnsafePointer[mut=False, Float32, _],
     inst_blas_indices: UnsafePointer[mut=False, UInt32, _],
     blas_descs: UnsafePointer[mut=False, UInt32, _],
@@ -79,8 +95,8 @@ def _intersect_tlas_instance_block[
     blas_leaves: UnsafePointer[mut=False, Float32, _],
     leaf_block_idx: UInt32,
     item_count: UInt32,
-    ray: Ray,
-    mut hit: Hit,
+    ray: Ray[Frame.WORLD],
+    mut hit: Hit[Frame.WORLD],
 ) -> Bool:
     var hit_any = False
 
@@ -100,6 +116,7 @@ def _intersect_tlas_instance_block[
             )
 
             var local_hit = trace_bounds_bvh[
+                Frame.LOCAL,
                 blas_width,
                 mode,
                 blas_leaf_fn,
@@ -114,19 +131,23 @@ def _intersect_tlas_instance_block[
 
             comptime if mode == TRACE.ANY_HIT:
                 if local_hit.is_occluded():
-                    hit = Hit.shadow_hit()
+                    hit = Hit[Frame.WORLD].shadow_hit()
                     hit.inst = inst_idx
                     return True
             else:
                 if local_hit.t < hit.t and local_hit.prim != EMPTY_LANE:
-                    var inv_transform = Affine3f32.load(
-                        inst_inv_transform,
-                        Int(inst_idx) * Affine3f32.STRIDE,
+                    var transform = Affine3f32[Frame.LOCAL, Frame.WORLD].load(
+                        inst_transform,
+                        Int(inst_idx)
+                        * Affine3f32[Frame.LOCAL, Frame.WORLD].STRIDE,
                     )
 
-                    hit = local_hit
+                    hit.t = local_hit.t
+                    hit.u = local_hit.u
+                    hit.v = local_hit.v
+                    hit.prim = local_hit.prim
                     hit.inst = inst_idx
-                    hit.normal = inv_transform.vector(local_hit.normal)
+                    hit.normal = transform.vector(local_hit.normal)
                     hit_any = True
     return hit_any
 
@@ -135,26 +156,27 @@ def _trace_tlas_ray[
     tlas_width: SIMDSize,
     blas_width: SIMDSize,
     mode: TRACE,
-    blas_leaf_fn: BlasLeafFn,
+    blas_leaf_fn: BlasLeafFn[Frame.LOCAL],
 ](
     tlas_wide_nodes: UnsafePointer[mut=False, Float32, _],
     tlas_leaf_instances: UnsafePointer[mut=False, UInt32, _],
+    inst_transform: UnsafePointer[mut=False, Float32, _],
     inst_inv_transform: UnsafePointer[mut=False, Float32, _],
     inst_blas_indices: UnsafePointer[mut=False, UInt32, _],
     blas_descs: UnsafePointer[mut=False, UInt32, _],
     blas_wide_nodes: UnsafePointer[mut=False, Float32, _],
     blas_leaves: UnsafePointer[mut=False, Float32, _],
     tlas_root_idx: UInt32,
-    ray: Ray,
-) -> Hit:
-    var hit = Hit.miss(ray.t_max)
+    ray: Ray[Frame.WORLD],
+) -> Hit[Frame.WORLD]:
+    var hit = Hit[Frame.WORLD].miss(ray.t_max)
 
     var stack = InlineArray[UInt32, GPU_STACK_SIZE](uninitialized=True)
     var stack_ptr = 0
     var current = tlas_root_idx
 
     while True:
-        var bounds_hit = _intersect_wide_node_bounds[tlas_width](
+        var bounds_hit = _intersect_wide_node_bounds[Frame.WORLD, tlas_width](
             tlas_wide_nodes,
             current,
             ray,
@@ -188,6 +210,7 @@ def _trace_tlas_ray[
                         blas_leaf_fn,
                     ](
                         tlas_leaf_instances,
+                        inst_transform,
                         inst_inv_transform,
                         inst_blas_indices,
                         blas_descs,
@@ -244,6 +267,7 @@ def trace_triangle_tlas_camera_kernel[
 ](
     tlas_wide_nodes: UnsafePointer[Float32, ImmutAnyOrigin],
     tlas_leaf_instances: UnsafePointer[UInt32, ImmutAnyOrigin],
+    inst_transform: UnsafePointer[Float32, ImmutAnyOrigin],
     inst_inv_transform: UnsafePointer[Float32, ImmutAnyOrigin],
     inst_blas_indices: UnsafePointer[UInt32, ImmutAnyOrigin],
     blas_descs: UnsafePointer[UInt32, ImmutAnyOrigin],
@@ -274,12 +298,14 @@ def trace_triangle_tlas_camera_kernel[
         blas_width,
         TRACE.CLOSEST_HIT,
         _intersect_triangle_leaf[
+            Frame.LOCAL,
             blas_width,
             TRACE.CLOSEST_HIT,
         ],
     ](
         tlas_wide_nodes,
         tlas_leaf_instances,
+        inst_transform,
         inst_inv_transform,
         inst_blas_indices,
         blas_descs,
@@ -297,6 +323,7 @@ def trace_sphere_tlas_camera_kernel[
 ](
     tlas_wide_nodes: UnsafePointer[Float32, ImmutAnyOrigin],
     tlas_leaf_instances: UnsafePointer[UInt32, ImmutAnyOrigin],
+    inst_transform: UnsafePointer[Float32, ImmutAnyOrigin],
     inst_inv_transform: UnsafePointer[Float32, ImmutAnyOrigin],
     inst_blas_indices: UnsafePointer[UInt32, ImmutAnyOrigin],
     blas_descs: UnsafePointer[UInt32, ImmutAnyOrigin],
@@ -327,12 +354,14 @@ def trace_sphere_tlas_camera_kernel[
         blas_width,
         TRACE.CLOSEST_HIT,
         _intersect_sphere_leaf[
+            Frame.LOCAL,
             blas_width,
             TRACE.CLOSEST_HIT,
         ],
     ](
         tlas_wide_nodes,
         tlas_leaf_instances,
+        inst_transform,
         inst_inv_transform,
         inst_blas_indices,
         blas_descs,
@@ -352,6 +381,7 @@ struct GpuTypedTlasCore[width: SIMDSize]:
     """
 
     var tree: GpuBoundsBvh[Self.width]
+    var inst_transform: DeviceBuffer[DType.float32]
     var inst_inv_transform: DeviceBuffer[DType.float32]
     var inst_blas_indices: DeviceBuffer[DType.uint32]
     var inst_count: Int
@@ -365,7 +395,9 @@ struct GpuTypedTlasCore[width: SIMDSize]:
         self.inst_count = len(instances)
         debug_assert["safe"](self.inst_count > 0, "passed empty input.")
 
-        var leaf_bounds = List[Float32](capacity=self.inst_count * AABB.STRIDE)
+        var leaf_bounds = List[Float32](
+            capacity=self.inst_count * AABB[Frame.WORLD].STRIDE
+        )
         var payloads = List[UInt32](capacity=self.inst_count)
         for i, inst in enumerate(instances):
             leaf_bounds.append(inst.bounds._min.x)
@@ -382,6 +414,9 @@ struct GpuTypedTlasCore[width: SIMDSize]:
         self.tree = GpuBoundsBvh[Self.width](ctx, self.inst_count)
         self.timings = self.tree.build(ctx, d_leaf_bounds, d_payloads)
 
+        self.inst_transform = upload_list(
+            ctx, _flatten_instance_transforms(instances)
+        )
         self.inst_inv_transform = upload_list(
             ctx, _flatten_instance_inv_transforms(instances)
         )
@@ -420,6 +455,7 @@ struct GpuTriangleTlas[tlas_width: SIMDSize, blas_width: SIMDSize]:
         ](
             self.core.tree.wide_nodes,
             self.core.tree.leaf_block_indices,
+            self.core.inst_transform,
             self.core.inst_inv_transform,
             self.core.inst_blas_indices,
             blases.descs,
@@ -466,6 +502,7 @@ struct GpuSphereTlas[tlas_width: SIMDSize, blas_width: SIMDSize]:
         ](
             self.core.tree.wide_nodes,
             self.core.tree.leaf_block_indices,
+            self.core.inst_transform,
             self.core.inst_inv_transform,
             self.core.inst_blas_indices,
             blases.descs,

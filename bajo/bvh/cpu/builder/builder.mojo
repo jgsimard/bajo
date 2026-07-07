@@ -1,11 +1,11 @@
-from bajo.core import AABB, vmin, vmax, longest_axis
+from bajo.core import AABB, vmin, vmax, longest_axis, Frame
 from bajo.sort.cpu import nth_element
 
 from .sah import _find_sah_split, _partition_items_by_bin
 from .lbvh import _build_lbvh
 
 
-struct BoundsBvhBuilder[leaf_size: Int](Copyable):
+struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
     """Generic binary BVH builder over AABBs/items.
 
     Build modes:
@@ -14,13 +14,13 @@ struct BoundsBvhBuilder[leaf_size: Int](Copyable):
         "lbvh"   -> sorted-Morton recursive LBVH
     """
 
-    var nodes: List[BoundsBvhNode]
+    var nodes: List[BoundsBvhNode[Self.frame]]
     var item_indices: List[UInt32]
-    var items: List[BoundsItem]
+    var items: List[BoundsItem[Self.frame]]
     var item_count: UInt32
     var nodes_used: UInt32
 
-    def __init__(out self, items: List[BoundsItem]):
+    def __init__(out self, items: List[BoundsItem[Self.frame]]):
         self.items = items.copy()
         self.item_count = UInt32(len(self.items))
         debug_assert["safe"](self.item_count > 0)
@@ -28,7 +28,7 @@ struct BoundsBvhBuilder[leaf_size: Int](Copyable):
         self.item_indices = [i for i in range(self.item_count)]
 
         var max_nodes = Int(self.item_count * 2 - 1)
-        self.nodes = [BoundsBvhNode() for _ in range(max_nodes)]
+        self.nodes = [BoundsBvhNode[Self.frame]() for _ in range(max_nodes)]
 
         self.nodes_used = 1
         self.nodes[0].set_leaf(0, self.item_count)
@@ -36,7 +36,7 @@ struct BoundsBvhBuilder[leaf_size: Int](Copyable):
 
     def update_node_bounds(mut self, node_idx: UInt32):
         ref node = self.nodes[Int(node_idx)]
-        node.aabb = AABB.invalid()
+        node.aabb = AABB[Self.frame].invalid()
 
         var first = Int(node.first_item())
         for i in range(Int(node.item_count)):
@@ -48,7 +48,7 @@ struct BoundsBvhBuilder[leaf_size: Int](Copyable):
         debug_assert["safe"](self.item_count > 0, "passed empty input.")
 
         comptime if split_method == "lbvh":
-            _build_lbvh[Self.leaf_size](self)
+            _build_lbvh[Self.frame, Self.leaf_size](self)
         else:
             self.nodes_used = 1
             self.nodes[0].set_leaf(0, self.item_count)
@@ -67,8 +67,8 @@ struct BoundsBvhBuilder[leaf_size: Int](Copyable):
 
         var split_idx: Int
         var use_sah_bounds = False
-        var cached_left_bounds = AABB.invalid()
-        var cached_right_bounds = AABB.invalid()
+        var cached_left_bounds = AABB[Self.frame].invalid()
+        var cached_right_bounds = AABB[Self.frame].invalid()
 
         comptime if split_method == "median":
             var extent = node.aabb._max - node.aabb._min
@@ -169,7 +169,7 @@ struct BoundsBvhBuilder[leaf_size: Int](Copyable):
 
 
 @fieldwise_init
-struct BoundsItem(TrivialRegisterPassable):
+struct BoundsItem[frame: Frame](TrivialRegisterPassable):
     """Generic build item.
 
     `bounds` is what the BVH builder sees.
@@ -180,19 +180,19 @@ struct BoundsItem(TrivialRegisterPassable):
     - Broadphase: index into an ItemRef array
     """
 
-    var bounds: AABB
+    var bounds: AABB[Self.frame]
     var payload: UInt32
 
     def center_axis(self, axis: Int) -> Float32:
         return (self.bounds._min[axis] + self.bounds._max[axis]) * 0.5
 
-    def grow_into(self, mut aabb: AABB):
+    def grow_into(self, mut aabb: AABB[Self.frame]):
         aabb._min = vmin(aabb._min, self.bounds._min)
         aabb._max = vmax(aabb._max, self.bounds._max)
 
 
 @fieldwise_init
-struct BoundsBvhNode(TrivialRegisterPassable):
+struct BoundsBvhNode[frame: Frame](TrivialRegisterPassable):
     """Binary builder node over generic item ranges.
 
     Leaf:
@@ -205,12 +205,12 @@ struct BoundsBvhNode(TrivialRegisterPassable):
         right child   = left child + 1
     """
 
-    var aabb: AABB
+    var aabb: AABB[Self.frame]
     var first_or_left: UInt32
     var item_count: UInt32
 
     def __init__(out self):
-        self.aabb = AABB.invalid()
+        self.aabb = AABB[Self.frame].invalid()
         self.first_or_left = 0
         self.item_count = 0
 
@@ -242,10 +242,10 @@ struct BoundsBvhNode(TrivialRegisterPassable):
 
 
 def _partition_items_by_median_center[
-    origin: MutOrigin,
+    origin: MutOrigin, frame: Frame
 ](
     indices: Span[UInt32, origin],
-    items: UnsafePointer[mut=False, BoundsItem, _],
+    items: UnsafePointer[mut=False, BoundsItem[frame], _],
     first: Int,
     count: Int,
     axis: Int,

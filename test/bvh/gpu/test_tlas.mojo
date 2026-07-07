@@ -4,7 +4,7 @@ from std.sys import has_accelerator
 from std.testing import TestSuite, assert_true, assert_almost_equal
 from std.gpu import DeviceContext
 
-from bajo.core import AABB, Vec3f32, Affine3f32, Point3f32
+from bajo.core import AABB, Vec3f32, Affine3f32, Point3f32, Frame
 from bajo.bvh.constants import Primitive, TRACE, f32_max
 from bajo.bvh.types import Sphere, Instance, Hit
 from bajo.bvh.host_utils import compute_bounds
@@ -32,24 +32,28 @@ comptime EPS = 0.05
 
 
 def test_gpu_tlas_triangle_camera_single_identity_matches_cpu_blas() raises:
-    var verts = _make_small_scene()
-    var bounds = compute_bounds(verts)
-    var camera = _camera_for_bounds(bounds, 2.0)
-    var cpu_bvh = TriangleBvh[4].__init__["lbvh"](verts.copy())
+    var local_verts = _make_small_scene[Frame.LOCAL]()
+    var world_verts = _make_small_scene[Frame.WORLD]()
+    var local_bounds = compute_bounds(local_verts)
+    var world_bounds = compute_bounds(world_verts)
+    var camera = _camera_for_bounds(world_bounds, 2.0)
+    var cpu_bvh = TriangleBvh[Frame.WORLD, 4].__init__["lbvh"](
+        world_verts.copy()
+    )
     var cpu_res = _trace_cpu_triangle_camera[4](cpu_bvh, camera, WIDTH, HEIGHT)
 
     var instances = [
         Instance(
-            Affine3f32.identity(),
-            Affine3f32.identity(),
+            Affine3f32[Frame.LOCAL, Frame.WORLD].identity(),
+            Affine3f32[Frame.WORLD, Frame.LOCAL].identity(),
             UInt32(0),
-            bounds,
+            local_bounds,
             Primitive.TRIANGLE,
         )
     ]
 
     with DeviceContext() as ctx:
-        var blases = build_triangle_blas_set[4](ctx, [verts^])
+        var blases = build_triangle_blas_set[4](ctx, [local_verts^])
         var tlas = GpuTriangleTlas[4, 4](ctx, instances)
         var d_camera = upload_camera(ctx, camera)
 
@@ -68,7 +72,7 @@ def test_gpu_tlas_triangle_camera_single_identity_matches_cpu_blas() raises:
         )
         ctx.synchronize()
 
-        var tlas_res = _download_tlas_checksum(d_hits, ray_count)
+        var tlas_res = _download_tlas_checksum[Frame.WORLD](d_hits, ray_count)
 
         assert_true(abs(cpu_res[0] - tlas_res[0]) <= EPS)
         assert_true(cpu_res[1] == tlas_res[1])
@@ -76,15 +80,15 @@ def test_gpu_tlas_triangle_camera_single_identity_matches_cpu_blas() raises:
 
 
 def test_gpu_tlas_triangle_camera_translated_single_instance_hit() raises:
-    var verts = _make_single_triangle_scene()
+    var verts = _make_single_triangle_scene[Frame.LOCAL]()
     var bounds = compute_bounds(verts)
-    var t = Point3f32(10.0, 0.0, 0.0)
-    var camera = _make_camera_ray(t, Vec3f32(0.0, 0.0, 1.0))
+    var t = Point3f32[Frame.WORLD](10.0, 0.0, 0.0)
+    var camera = _make_camera_ray(t, Vec3f32[Frame.WORLD](0.0, 0.0, 1.0))
 
     var instances = [
         Instance(
-            Affine3f32.from_translation(t),
-            Affine3f32.from_translation(-t),
+            Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(t),
+            Affine3f32[Frame.WORLD, Frame.LOCAL].from_translation(-t),
             UInt32(0),
             bounds,
             Primitive.TRIANGLE,
@@ -110,7 +114,7 @@ def test_gpu_tlas_triangle_camera_translated_single_instance_hit() raises:
         ctx.synchronize()
 
         with d_hits.map_to_host() as hf:
-            var gpu_hit = Hit.load(hf.unsafe_ptr(), 0)
+            var gpu_hit = Hit[Frame.WORLD].load(hf.unsafe_ptr(), 0)
 
             assert_almost_equal(gpu_hit.t, 2.0)
             assert_true(gpu_hit.prim == UInt32(0))
@@ -118,16 +122,19 @@ def test_gpu_tlas_triangle_camera_translated_single_instance_hit() raises:
 
 
 def test_gpu_tlas_sphere_camera_single_identity_matches_cpu_bruteforce() raises:
-    var scene = _make_small_sphere_scene_with_bounds()
-    var spheres = scene[0].copy()
-    var bounds = scene[1].copy()
-    var camera = _camera_for_bounds(bounds, 2.0)
-    var cpu_res = _trace_cpu_sphere_camera(spheres, camera, WIDTH, HEIGHT)
+    var local_scene = _make_small_sphere_scene_with_bounds[Frame.LOCAL]()
+    var world_scene = _make_small_sphere_scene_with_bounds[Frame.WORLD]()
+    var spheres = local_scene[0].copy()
+    var bounds = local_scene[1].copy()
+    var world_spheres = world_scene[0].copy()
+    var world_bounds = world_scene[1].copy()
+    var camera = _camera_for_bounds(world_bounds, 2.0)
+    var cpu_res = _trace_cpu_sphere_camera(world_spheres, camera, WIDTH, HEIGHT)
 
     var instances = [
         Instance(
-            Affine3f32.identity(),
-            Affine3f32.identity(),
+            Affine3f32[Frame.LOCAL, Frame.WORLD].identity(),
+            Affine3f32[Frame.WORLD, Frame.LOCAL].identity(),
             UInt32(0),
             bounds,
             Primitive.SPHERE,
@@ -155,7 +162,7 @@ def test_gpu_tlas_sphere_camera_single_identity_matches_cpu_bruteforce() raises:
         )
         ctx.synchronize()
 
-        var tlas_res = _download_tlas_checksum(d_hits, ray_count)
+        var tlas_res = _download_tlas_checksum[Frame.WORLD](d_hits, ray_count)
 
         assert_true(abs(cpu_res[0] - tlas_res[0]) <= EPS)
         assert_true(cpu_res[1] == tlas_res[1])
@@ -163,15 +170,20 @@ def test_gpu_tlas_sphere_camera_single_identity_matches_cpu_bruteforce() raises:
 
 
 def test_gpu_tlas_sphere_camera_translated_single_instance_hit() raises:
-    var spheres = [Sphere(Point3f32(0.0, 0.0, 2.0), 1.0)]
-    var bounds = AABB(Point3f32(-1.0, -1.0, 1.0), Point3f32(1.0, 1.0, 3.0))
-    var t = Point3f32(10.0, 0.0, 0.0)
-    var camera = _make_camera_ray(t, Vec3f32(0.0, 0.0, 1.0))
+    var spheres = [
+        Sphere[Frame.LOCAL](Point3f32[Frame.LOCAL](0.0, 0.0, 2.0), 1.0)
+    ]
+    var bounds = AABB[Frame.LOCAL](
+        Point3f32[Frame.LOCAL](-1.0, -1.0, 1.0),
+        Point3f32[Frame.LOCAL](1.0, 1.0, 3.0),
+    )
+    var t = Point3f32[Frame.WORLD](10.0, 0.0, 0.0)
+    var camera = _make_camera_ray(t, Vec3f32[Frame.WORLD](0.0, 0.0, 1.0))
 
     var instances = [
         Instance(
-            Affine3f32.from_translation(t),
-            Affine3f32.from_translation(-t),
+            Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(t),
+            Affine3f32[Frame.WORLD, Frame.LOCAL].from_translation(-t),
             UInt32(0),
             bounds,
             Primitive.SPHERE,
@@ -197,7 +209,7 @@ def test_gpu_tlas_sphere_camera_translated_single_instance_hit() raises:
         ctx.synchronize()
 
         with d_hits.map_to_host() as hf:
-            var gpu_hit = Hit.load(hf.unsafe_ptr(), 0)
+            var gpu_hit = Hit[Frame.WORLD].load(hf.unsafe_ptr(), 0)
 
             assert_almost_equal(gpu_hit.t, 1.0)
             assert_true(gpu_hit.prim == UInt32(0))

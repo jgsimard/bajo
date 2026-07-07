@@ -2,7 +2,7 @@ from std.math import ceildiv
 from std.atomic import Atomic, Ordering
 from std.gpu import DeviceContext, DeviceBuffer, global_idx
 
-from bajo.core import AABB
+from bajo.core import AABB, Frame
 from bajo.bvh.constants import (
     LBVH_SENTINEL,
     GPU_STACK_SIZE,
@@ -27,12 +27,12 @@ def _encoded_bounds(
     leaf_bounds: UnsafePointer[mut=False, Float32, _],
     leaf_ids: UnsafePointer[mut=False, UInt32, _],
     node_bounds: UnsafePointer[mut=False, Float32, _],
-) -> AABB:
+) -> AABB[Frame.WORLD]:
     if _is_encoded_leaf(encoded):
         var sorted_leaf_idx = _encoded_index(encoded)
         var item_idx = UInt32(leaf_ids[Int(sorted_leaf_idx)])
         var b = Int(item_idx) * AABB.STRIDE
-        return AABB.load6(leaf_bounds, b)
+        return AABB[Frame.WORLD].load6(leaf_bounds, b)
 
     return _load_and_union_node_bounds(node_bounds, _encoded_index(encoded))
 
@@ -61,11 +61,11 @@ def collapse_terminal_root_to_wide_kernel[
     wide_node_counter[0] = UInt32(1)
     leaf_block_counter[0] = UInt32(1)
 
-    var root_bounds = AABB.invalid()
+    var root_bounds = AABB[Frame.WORLD].invalid()
 
     if leaf_count == 1:
         # Single primitive: no binary internal node exists.
-        root_bounds = AABB.load6(leaf_bounds, 0)
+        root_bounds = AABB[Frame.WORLD].load6(leaf_bounds, 0)
 
         (leaf_block_indices + 0).store[width=width](EMPTY_LANE)
         leaf_block_indices[0] = leaf_payloads[0]
@@ -111,7 +111,7 @@ def collapse_terminal_root_to_wide_kernel[
             wide_nodes,
             UInt32(0),
             lane,
-            AABB.invalid(),
+            AABB[Frame.WORLD].invalid(),
             _pack_wide_meta(UInt32(0), EMPTY_LANE),
         )
 
@@ -344,7 +344,7 @@ def collapse_precomputed_wide_kernel[
                 wide_nodes,
                 node_idx,
                 lane,
-                AABB.invalid(),
+                AABB[Frame.WORLD].invalid(),
                 _pack_wide_meta(UInt32(0), EMPTY_LANE),
             )
             continue
@@ -778,7 +778,7 @@ def hploc_to_wide_kernel[
                     wide_nodes,
                     out_idx,
                     lane,
-                    AABB.invalid(),
+                    AABB[Frame.WORLD].invalid(),
                     _pack_wide_meta(UInt32(0), EMPTY_LANE),
                 )
                 continue

@@ -1,6 +1,6 @@
 from std.bit import count_leading_zeros
 
-from bajo.core import AABB
+from bajo.core import AABB, Frame
 from bajo.core.morton import morton3
 from bajo.bvh.cpu.builder import BoundsBvhBuilder
 
@@ -65,13 +65,15 @@ def _lbvh_find_split[
     return split
 
 
-def _build_lbvh[leaf_size: Int](mut builder: BoundsBvhBuilder[leaf_size]):
+def _build_lbvh[
+    frame: Frame, leaf_size: Int
+](mut builder: BoundsBvhBuilder[frame, leaf_size]):
     """Build a binary LBVH using sorted Morton codes over BoundsItem centers."""
     debug_assert["safe"](builder.item_count > 0)
 
     builder.nodes_used = 1
     var item_count = Int(builder.item_count)
-    var centroid_bounds = AABB.invalid()
+    var centroid_bounds = AABB[frame].invalid()
     for item in builder.items:
         centroid_bounds.grow(item.bounds.centroid())
 
@@ -91,7 +93,7 @@ def _build_lbvh[leaf_size: Int](mut builder: BoundsBvhBuilder[leaf_size]):
     for i in range(len(pairs)):
         builder.item_indices[i] = pairs[i].item_idx
 
-    _ = _build_lbvh_recursive[leaf_size](
+    _ = _build_lbvh_recursive[frame, leaf_size](
         builder,
         pairs.unsafe_ptr(),
         0,
@@ -101,18 +103,18 @@ def _build_lbvh[leaf_size: Int](mut builder: BoundsBvhBuilder[leaf_size]):
 
 
 def _build_lbvh_recursive[
-    origin: ImmutOrigin, //, leaf_size: Int
+    origin: ImmutOrigin, //, frame: Frame, leaf_size: Int
 ](
-    mut builder: BoundsBvhBuilder[leaf_size],
+    mut builder: BoundsBvhBuilder[frame, leaf_size],
     pairs: UnsafePointer[MortonItem, origin],
     node_idx: UInt32,
     first: Int,
     count: Int,
-) -> AABB:
+) -> AABB[frame]:
     if count <= leaf_size:
         ref leaf = builder.nodes[Int(node_idx)]
         leaf.set_leaf(UInt32(first), UInt32(count))
-        leaf.aabb = AABB.invalid()
+        leaf.aabb = AABB[frame].invalid()
 
         for i in range(count):
             var item_idx = Int(builder.item_indices[first + i])
@@ -134,7 +136,7 @@ def _build_lbvh_recursive[
     var left_child_idx = builder.nodes_used
     builder.nodes_used += 2
 
-    var left_bounds = _build_lbvh_recursive[leaf_size](
+    var left_bounds = _build_lbvh_recursive[frame, leaf_size](
         builder,
         pairs,
         left_child_idx,
@@ -142,7 +144,7 @@ def _build_lbvh_recursive[
         left_count,
     )
 
-    var right_bounds = _build_lbvh_recursive[leaf_size](
+    var right_bounds = _build_lbvh_recursive[frame, leaf_size](
         builder,
         pairs,
         left_child_idx + 1,

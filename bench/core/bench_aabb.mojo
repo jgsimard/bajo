@@ -17,18 +17,33 @@ from bajo.core import (
     AABB,
     AxisAlignedBoundingBox,
     Mat33f32,
+    Frame,
+    GeoKind,
 )
 from bajo.core.random import Rng
 
 
 comptime num_elements = 100_000
 
+comptime BENCH_FRAME = Frame.WORLD
+comptime BenchAABB = AABB[BENCH_FRAME]
+comptime BenchVec3f32 = Vec3f32[BENCH_FRAME]
+comptime BenchPoint3f32 = Point3f32[BENCH_FRAME]
+comptime BenchQuat = Quat[BENCH_FRAME]
+comptime BenchMat33f32 = Mat33f32[BENCH_FRAME]
+
 
 def apply_trs_naive_________(
-    box: AABB, translation: Vec3f32, rotation: Quat, scale: Vec3f32
-) -> AABB:
-    rot_mat = Mat33f32.from_rotation_scale(rotation, scale)
-    txfmed = AABB(translation.to_point(), translation.to_point())
+    box: BenchAABB,
+    translation: BenchVec3f32,
+    rotation: BenchQuat,
+    scale: BenchVec3f32,
+) -> BenchAABB:
+    rot_mat = BenchMat33f32.from_rotation_scale(rotation, scale)
+    txfmed = BenchAABB(
+        translation.copy().unsafe_convert_kind[GeoKind.POINT](),
+        translation.copy().unsafe_convert_kind[GeoKind.POINT](),
+    )
 
     for i in range(3):
         for j in range(3):
@@ -45,10 +60,16 @@ def apply_trs_naive_________(
 
 
 def apply_trs_naive_comptime(
-    box: AABB, translation: Vec3f32, rotation: Quat, scale: Vec3f32
-) -> AABB:
-    rot_mat = Mat33f32.from_rotation_scale(rotation, scale)
-    txfmed = AABB(translation.to_point(), translation.to_point())
+    box: BenchAABB,
+    translation: BenchVec3f32,
+    rotation: BenchQuat,
+    scale: BenchVec3f32,
+) -> BenchAABB:
+    rot_mat = BenchMat33f32.from_rotation_scale(rotation, scale)
+    txfmed = BenchAABB(
+        translation.copy().unsafe_convert_kind[GeoKind.POINT](),
+        translation.copy().unsafe_convert_kind[GeoKind.POINT](),
+    )
 
     comptime for j in range(3):
         comptime for i in range(3):
@@ -65,9 +86,12 @@ def apply_trs_naive_comptime(
 
 
 def apply_trs_arvo_v0_______(
-    box: AABB, translation: Vec3f32, rotation: Quat, scale: Vec3f32
-) -> AABB:
-    mat = Mat33f32.from_rotation_scale(rotation, scale)
+    box: BenchAABB,
+    translation: BenchVec3f32,
+    rotation: BenchQuat,
+    scale: BenchVec3f32,
+) -> BenchAABB:
+    mat = BenchMat33f32.from_rotation_scale(rotation, scale)
     new_min = translation.copy()
     new_max = translation.copy()
 
@@ -89,13 +113,19 @@ def apply_trs_arvo_v0_______(
     new_min += vmin(c2_a, c2_b)
     new_max += vmax(c2_a, c2_b)
 
-    return AABB(new_min.to_point(), new_max.to_point())
+    return BenchAABB(
+        new_min.copy().unsafe_convert_kind[GeoKind.POINT](),
+        new_max.copy().unsafe_convert_kind[GeoKind.POINT](),
+    )
 
 
 def apply_trs_arvo_v1_______(
-    box: AABB, translation: Vec3f32, rotation: Quat, scale: Vec3f32
-) -> AABB:
-    mat = Mat33f32.from_rotation_scale(rotation, scale)
+    box: BenchAABB,
+    translation: BenchVec3f32,
+    rotation: BenchQuat,
+    scale: BenchVec3f32,
+) -> BenchAABB:
+    mat = BenchMat33f32.from_rotation_scale(rotation, scale)
     new_min = translation.copy()
     new_max = translation.copy()
 
@@ -105,26 +135,32 @@ def apply_trs_arvo_v1_______(
         new_min += vmin(c_a, c_b)
         new_max += vmax(c_a, c_b)
 
-    return AABB(new_min.to_point(), new_max.to_point())
+    return BenchAABB(
+        new_min.copy().unsafe_convert_kind[GeoKind.POINT](),
+        new_max.copy().unsafe_convert_kind[GeoKind.POINT](),
+    )
 
 
 def apply_trs_affine3_v0_width[
     width: SIMDSize
 ](
-    box: AxisAlignedBoundingBox[DType.float32, width],
-    translation: Vec3[DType.float32, width],
-    rotation: Quaternion[DType.float32, width],
-    scale: Vec3[DType.float32, width],
-) -> AxisAlignedBoundingBox[DType.float32, width]:
-    transform = Affine3[DType.float32, width].from_rotation_scale(
-        rotation, scale
-    )
+    box: AxisAlignedBoundingBox[DType.float32, BENCH_FRAME, width],
+    translation: Vec3[DType.float32, BENCH_FRAME, width],
+    rotation: Quaternion[DType.float32, BENCH_FRAME, width],
+    scale: Vec3[DType.float32, BENCH_FRAME, width],
+) -> AxisAlignedBoundingBox[DType.float32, BENCH_FRAME, width]:
+    transform = Affine3[
+        DType.float32,
+        BENCH_FRAME,
+        BENCH_FRAME,
+        width,
+    ].from_rotation_scale(rotation, scale)
 
     var new_min = translation.copy()
     var new_max = translation.copy()
 
     # X column
-    var c0 = Vec3[DType.float32, width](
+    var c0 = Vec3[DType.float32, BENCH_FRAME, width](
         transform.m00, transform.m10, transform.m20
     )
     var c0_a = c0 * box._min.x
@@ -133,7 +169,7 @@ def apply_trs_affine3_v0_width[
     new_max += vmax(c0_a, c0_b)
 
     # Y column
-    var c1 = Vec3[DType.float32, width](
+    var c1 = Vec3[DType.float32, BENCH_FRAME, width](
         transform.m01, transform.m11, transform.m21
     )
     var c1_a = c1 * box._min.y
@@ -142,7 +178,7 @@ def apply_trs_affine3_v0_width[
     new_max += vmax(c1_a, c1_b)
 
     # Z column
-    var c2 = Vec3[DType.float32, width](
+    var c2 = Vec3[DType.float32, BENCH_FRAME, width](
         transform.m02, transform.m12, transform.m22
     )
     var c2_a = c2 * box._min.z
@@ -150,20 +186,26 @@ def apply_trs_affine3_v0_width[
     new_min += vmin(c2_a, c2_b)
     new_max += vmax(c2_a, c2_b)
 
-    return AxisAlignedBoundingBox(new_min.to_point(), new_max.to_point())
+    return AxisAlignedBoundingBox[DType.float32, BENCH_FRAME, width](
+        new_min.copy().unsafe_convert_kind[GeoKind.POINT](),
+        new_max.copy().unsafe_convert_kind[GeoKind.POINT](),
+    )
 
 
 def apply_trs_affine3_v1_width[
     width: SIMDSize
 ](
-    box: AxisAlignedBoundingBox[DType.float32, width],
-    translation: Vec3[DType.float32, width],
-    rotation: Quaternion[DType.float32, width],
-    scale: Vec3[DType.float32, width],
-) -> AxisAlignedBoundingBox[DType.float32, width]:
-    transform = Affine3[DType.float32, width].from_rotation_scale(
-        rotation, scale
-    )
+    box: AxisAlignedBoundingBox[DType.float32, BENCH_FRAME, width],
+    translation: Vec3[DType.float32, BENCH_FRAME, width],
+    rotation: Quaternion[DType.float32, BENCH_FRAME, width],
+    scale: Vec3[DType.float32, BENCH_FRAME, width],
+) -> AxisAlignedBoundingBox[DType.float32, BENCH_FRAME, width]:
+    transform = Affine3[
+        DType.float32,
+        BENCH_FRAME,
+        BENCH_FRAME,
+        width,
+    ].from_rotation_scale(rotation, scale)
 
     var new_min = translation.copy()
     var new_max = translation.copy()
@@ -205,18 +247,21 @@ def apply_trs_affine3_v1_width[
     _add_transformed_axis_width[1](transform.m12, box._min.z, box._max.z)
     _add_transformed_axis_width[2](transform.m22, box._min.z, box._max.z)
 
-    return AxisAlignedBoundingBox(new_min.to_point(), new_max.to_point())
+    return AxisAlignedBoundingBox[DType.float32, BENCH_FRAME, width](
+        new_min.copy().unsafe_convert_kind[GeoKind.POINT](),
+        new_max.copy().unsafe_convert_kind[GeoKind.POINT](),
+    )
 
 
 def dispatch_affine3_width[
     version: Int,
     width: SIMDSize,
 ](
-    box: AxisAlignedBoundingBox[DType.float32, width],
-    translation: Vec3[DType.float32, width],
-    rotation: Quaternion[DType.float32, width],
-    scale: Vec3[DType.float32, width],
-) -> AxisAlignedBoundingBox[DType.float32, width]:
+    box: AxisAlignedBoundingBox[DType.float32, BENCH_FRAME, width],
+    translation: Vec3[DType.float32, BENCH_FRAME, width],
+    rotation: Quaternion[DType.float32, BENCH_FRAME, width],
+    scale: Vec3[DType.float32, BENCH_FRAME, width],
+) -> AxisAlignedBoundingBox[DType.float32, BENCH_FRAME, width]:
     comptime if version == 0:
         return apply_trs_affine3_v0_width[width](
             box, translation, rotation, scale
@@ -228,12 +273,17 @@ def dispatch_affine3_width[
 
 
 struct Affine3WidthBenchmarkData[width: SIMDSize]:
-    comptime aabb = AxisAlignedBoundingBox[DType.float32, Self.width]
+    comptime aabb = AxisAlignedBoundingBox[
+        DType.float32,
+        BENCH_FRAME,
+        Self.width,
+    ]
+
     var boxes: List[Self.aabb]
-    var translations: List[Vec3[DType.float32, Self.width]]
-    var rotations: List[Quaternion[DType.float32, Self.width]]
-    var scales: List[Vec3[DType.float32, Self.width]]
-    var dst: List[AxisAlignedBoundingBox[DType.float32, Self.width]]
+    var translations: List[Vec3[DType.float32, BENCH_FRAME, Self.width]]
+    var rotations: List[Quaternion[DType.float32, BENCH_FRAME, Self.width]]
+    var scales: List[Vec3[DType.float32, BENCH_FRAME, Self.width]]
+    var dst: List[Self.aabb]
 
     def __init__(out self):
         comptime packet_count = num_elements / Self.width
@@ -247,14 +297,14 @@ struct Affine3WidthBenchmarkData[width: SIMDSize]:
 
         for _ in range(packet_count):
             self.boxes.append(
-                AxisAlignedBoundingBox[DType.float32, Self.width](
-                    Point3[DType.float32, Self.width](-1),
-                    Point3[DType.float32, Self.width](1),
+                Self.aabb(
+                    Point3[DType.float32, BENCH_FRAME, Self.width](-1),
+                    Point3[DType.float32, BENCH_FRAME, Self.width](1),
                 )
             )
 
             self.translations.append(
-                Vec3[DType.float32, Self.width](
+                Vec3[DType.float32, BENCH_FRAME, Self.width](
                     rng.f32(),
                     rng.f32(),
                     rng.f32(),
@@ -262,14 +312,18 @@ struct Affine3WidthBenchmarkData[width: SIMDSize]:
             )
 
             self.rotations.append(
-                Quaternion[DType.float32, Self.width].from_axis_angle(
-                    Vec3[DType.float32, Self.width](0, 1, 0),
+                Quaternion[
+                    DType.float32,
+                    BENCH_FRAME,
+                    Self.width,
+                ].from_axis_angle(
+                    Vec3[DType.float32, BENCH_FRAME, Self.width](0, 1, 0),
                     rng.f32(),
                 )
             )
 
             self.scales.append(
-                Vec3[DType.float32, Self.width](
+                Vec3[DType.float32, BENCH_FRAME, Self.width](
                     rng.f32(),
                     rng.f32(),
                     rng.f32(),
@@ -315,11 +369,11 @@ def bench_affine3_width[
 
 
 struct AABBBenchmarkData:
-    var boxes: List[AABB]
-    var translations: List[Vec3f32]
-    var rotations: List[Quat]
-    var scales: List[Vec3f32]
-    var dst: List[AABB]
+    var boxes: List[BenchAABB]
+    var translations: List[BenchVec3f32]
+    var rotations: List[BenchQuat]
+    var scales: List[BenchVec3f32]
+    var dst: List[BenchAABB]
 
     def __init__(out self):
         self.boxes = []
@@ -329,16 +383,18 @@ struct AABBBenchmarkData:
         rng = Rng(123, 123)
 
         for _ in range(num_elements):
-            self.boxes.append(AABB(Point3f32(-1), Point3f32(1)))
-            self.translations.append(rng.vec3f32())
+            self.boxes.append(BenchAABB(BenchPoint3f32(-1), BenchPoint3f32(1)))
+            self.translations.append(
+                BenchVec3f32(rng.f32(), rng.f32(), rng.f32())
+            )
             self.rotations.append(
-                Quat.from_axis_angle(
-                    Vec3f32(0, 1, 0),
+                BenchQuat.from_axis_angle(
+                    BenchVec3f32(0, 1, 0),
                     rng.f32(),
                 )
             )
 
-            self.scales.append(rng.vec3f32())
+            self.scales.append(BenchVec3f32(rng.f32(), rng.f32(), rng.f32()))
 
         self.dst = self.boxes.copy()
 
@@ -348,7 +404,12 @@ def main() raises:
     print("Benchmarking AABB Transform (apply_trs) - Elements:", num_elements)
 
     def bench[
-        f: def(AABB, Vec3f32, Quat, Vec3f32) thin -> AABB
+        f: def(
+            BenchAABB,
+            BenchVec3f32,
+            BenchQuat,
+            BenchVec3f32,
+        ) thin -> BenchAABB
     ]() capturing raises:
         def wrapper() raises capturing:
             for i in range(num_elements):

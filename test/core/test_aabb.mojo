@@ -6,51 +6,64 @@ from std.testing import (
     assert_almost_equal,
 )
 
-from bajo.core import AABB, Quat, Vec3f32, assert_vec_equal, Affine3, Point3f32
+from bajo.core import (
+    AABB,
+    Quat,
+    Vec3W,
+    assert_vec_equal,
+    Affine3,
+    Point3W,
+    Point3f32,
+    Frame,
+)
 from bajo.core.utils import degrees_to_radians
 
 
 def test_logic() raises:
-    box = AABB(Point3f32(0), Point3f32(2, 2, 2))
+    box = AABB[Frame.WORLD](Point3W(0), Point3W(2, 2, 2))
 
-    assert_true(box.contains_point(Point3f32(1)))
-    assert_false(box.contains_point(Point3f32(3, 1, 1)))
+    assert_true(box.contains_point(Point3W(1)))
+    assert_false(box.contains_point(Point3W(3, 1, 1)))
 
-    box_overlap = AABB(Point3f32(1), Point3f32(3))
-    box_far = AABB(Point3f32(4), Point3f32(5))
+    box_overlap = AABB[Frame.WORLD](Point3W(1), Point3W(3))
+    box_far = AABB[Frame.WORLD](Point3W(4), Point3W(5))
     assert_true(box.overlaps(box_overlap))
     assert_false(box.overlaps(box_far))
 
 
 def test_merge() raises:
-    a = AABB(Point3f32(0), Point3f32(1))
-    b = AABB(Point3f32(-1), Point3f32(0.5))
+    a = AABB[Frame.WORLD](Point3W(0), Point3W(1))
+    b = AABB[Frame.WORLD](Point3W(-1), Point3W(0.5))
     merged = AABB.merge(a, b)
-    assert_vec_equal(merged._min, Point3f32(-1))
-    assert_vec_equal(merged._max, Point3f32(1))
+    assert_vec_equal(merged._min, Point3W(-1))
+    assert_vec_equal(merged._max, Point3W(1))
 
 
 def test_apply_trs_rotated() raises:
-    box = AABB(Point3f32(-1), Point3f32(1))
+    box = AABB[Frame.WORLD](Point3W(-1), Point3W(1))
 
     # Rotate 45 degrees around Z
     angle = degrees_to_radians(Float32(45))
-    r = Quat.from_axis_angle(Vec3f32(0, 0, 1), angle)
-    t = Vec3f32(0)
-    s = Vec3f32(1)
-    transform = Affine3.from_rotation_scale_translation(r, s, t)
+    r = Quat.from_axis_angle(Vec3W(0, 0, 1), angle)
+    t = Vec3W(0)
+    s = Vec3W(1)
+    transform = Affine3[
+        DType.float32, Frame.WORLD, Frame.CAMERA
+    ].from_rotation_scale_translation(r, s, t)
 
     new_box = box.apply_transform(transform)
 
     # the corners should move to ±sqrt(2)
     sqrt_2 = Float32(sqrt(2.0))
-    assert_vec_equal(new_box._min, Point3f32(-sqrt_2, -sqrt_2, -1.0))
-    assert_vec_equal(new_box._max, Point3f32(sqrt_2, sqrt_2, 1.0))
+    assert_vec_equal(
+        new_box._min, Point3f32[Frame.CAMERA](-sqrt_2, -sqrt_2, -1.0)
+    )
+    assert_vec_equal(new_box._max, Point3f32[Frame.CAMERA](sqrt_2, sqrt_2, 1.0))
 
 
 def test_aabb_store6_with_nonzero_base() raises:
     var data = List[Float32](length=18, fill=-1.0)
-    var b = AABB(Point3f32(1.0, 2.0, 3.0), Point3f32(4.0, 5.0, 6.0))
+    var b = AABB[Frame.WORLD](Point3W(1.0, 2.0, 3.0), Point3W(4.0, 5.0, 6.0))
 
     b.store6(data.unsafe_ptr(), 6)
 

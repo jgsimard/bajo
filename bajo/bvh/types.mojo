@@ -2,13 +2,13 @@ from std.math import clamp
 from std.utils.numerics import max_finite, min_finite
 from std.gpu import DeviceBuffer
 
-from bajo.core import AABB, Vec3f32, Affine3f32, Point3f32
+from bajo.core import AABB, Vec3f32, Affine3f32, Point3f32, Frame
 from bajo.bvh.constants import f32_max, EMPTY_LANE, Primitive, TRACE
 from bajo.core.vec import Vec3, Point3, Normal3
 
 
 @fieldwise_init
-struct Hit(TrivialRegisterPassable, Writable):
+struct Hit[frame: Frame = Frame.WORLD](TrivialRegisterPassable, Writable):
     comptime U = 0
     comptime V = 1
     comptime PRIM = 2
@@ -21,16 +21,18 @@ struct Hit(TrivialRegisterPassable, Writable):
     var v: Float32
     var prim: UInt32
     var inst: UInt32
-    var normal: Vec3f32
+    var normal: Vec3f32[Self.frame]
     var t: Float32
 
     @staticmethod
     def miss(t: Float32 = f32_max) -> Self:
-        return Self(0.0, 0.0, EMPTY_LANE, EMPTY_LANE, Vec3f32(0), t)
+        return Self(0.0, 0.0, EMPTY_LANE, EMPTY_LANE, Vec3f32[Self.frame](0), t)
 
     @staticmethod
     def shadow_hit() -> Self:
-        return Self(0.0, 0.0, EMPTY_LANE, EMPTY_LANE, Vec3f32(0), 0.0)
+        return Self(
+            0.0, 0.0, EMPTY_LANE, EMPTY_LANE, Vec3f32[Self.frame](0), 0.0
+        )
 
     def is_hit(self) -> Bool:
         return self.prim != EMPTY_LANE and self.t < f32_max
@@ -66,16 +68,16 @@ struct Hit(TrivialRegisterPassable, Writable):
     ](
         hits: UnsafePointer[Float32, origin, address_space=address_space],
         idx: Int,
-    ) -> Hit:
+    ) -> Self:
         var base = idx * Hit.STRIDE
         var hits_u32 = hits.bitcast[UInt32]()
 
-        return Hit(
+        return Self(
             hits[base + Hit.U],
             hits[base + Hit.V],
             hits_u32[base + Hit.PRIM],
             hits_u32[base + Hit.INST],
-            Vec3f32(
+            Vec3f32[Self.frame](
                 hits[base + Hit.NORMAL + 0],
                 hits[base + Hit.NORMAL + 1],
                 hits[base + Hit.NORMAL + 2],
@@ -84,22 +86,22 @@ struct Hit(TrivialRegisterPassable, Writable):
         )
 
 
-struct Ray(TrivialRegisterPassable, Writable):
+struct Ray[frame: Frame = Frame.WORLD](TrivialRegisterPassable, Writable):
     comptime STRIDE = 8
     comptime ORIGIN = 0  # 0, 1, 2
     comptime T_MIN = 3
     comptime DIRECTION = 4  # 4, 5, 6
     comptime T_MAX = 7
 
-    var o: Point3f32
+    var o: Point3f32[Self.frame]
     var t_min: Float32
-    var d: Vec3f32
+    var d: Vec3f32[Self.frame]
     var t_max: Float32
 
     def __init__(
         out self,
-        origin: Point3f32,
-        direction: Vec3f32,
+        origin: Point3f32[Self.frame],
+        direction: Vec3f32[Self.frame],
         t_min: Float32 = 0.0,
         t_max: Float32 = f32_max,
     ):
@@ -112,9 +114,9 @@ struct Ray(TrivialRegisterPassable, Writable):
         origin: ImmutOrigin
     ](out self, rays: UnsafePointer[Float32, origin], ray_idx: Int):
         var base = ray_idx * Ray.STRIDE
-        self.o = Point3f32.load(rays, base + Ray.ORIGIN)
+        self.o = Point3f32[Self.frame].load(rays, base + Ray.ORIGIN)
         self.t_min = rays[base + Ray.T_MIN]
-        self.d = Vec3f32.load(rays, base + Ray.DIRECTION)
+        self.d = Vec3f32[Self.frame].load(rays, base + Ray.DIRECTION)
         self.t_max = rays[base + Ray.T_MAX]
 
     def flatten(self) -> List[Float32]:
@@ -129,15 +131,23 @@ struct Ray(TrivialRegisterPassable, Writable):
             self.t_max,
         ]
 
-    def origin[width: SIMDSize](self) -> Point3[DType.float32, width]:
-        return Point3[DType.float32, width](self.o.x, self.o.y, self.o.z)
+    def origin[
+        width: SIMDSize
+    ](self) -> Point3[DType.float32, Self.frame, width]:
+        return Point3[DType.float32, Self.frame, width](
+            self.o.x, self.o.y, self.o.z
+        )
 
-    def direction[width: SIMDSize](self) -> Vec3[DType.float32, width]:
-        return Vec3[DType.float32, width](self.d.x, self.d.y, self.d.z)
+    def direction[
+        width: SIMDSize
+    ](self) -> Vec3[DType.float32, Self.frame, width]:
+        return Vec3[DType.float32, Self.frame, width](
+            self.d.x, self.d.y, self.d.z
+        )
 
     def rcp_direction[
         width: SIMDSize
-    ](self, eps: Float32 = 1.0e-9) -> Vec3[DType.float32, width]:
+    ](self, eps: Float32 = 1.0e-9) -> Vec3[DType.float32, Self.frame, width]:
         var d = self.direction[width]()
         var e = SIMD[DType.float32, width](eps)
         var large = SIMD[DType.float32, width](1.0 / eps)
@@ -155,7 +165,7 @@ struct Ray(TrivialRegisterPassable, Writable):
         var dy = my.select(d.y, one)
         var dz = mz.select(d.z, one)
 
-        return Vec3[DType.float32, width](
+        return Vec3[DType.float32, Self.frame, width](
             mx.select(one / dx, sx),
             my.select(one / dy, sy),
             mz.select(one / dz, sz),
@@ -163,39 +173,39 @@ struct Ray(TrivialRegisterPassable, Writable):
 
 
 @fieldwise_init
-struct Sphere(TrivialRegisterPassable):
+struct Sphere[frame: Frame = Frame.WORLD](TrivialRegisterPassable):
     comptime STRIDE = 4
-    var center: Point3f32
+    var center: Point3f32[Self.frame]
     var radius: Float32
 
-    def bounds(self) -> AABB:
-        var r = Vec3f32(self.radius)
-        return AABB(self.center - r, self.center + r)
+    def bounds(self) -> AABB[Self.frame]:
+        var r = Vec3f32[Self.frame](self.radius)
+        return AABB[Self.frame](self.center - r, self.center + r)
 
 
 @fieldwise_init
-struct SphereLeafBlock[width: SIMDSize](Copyable):
-    var center: Point3[DType.float32, Self.width]
+struct SphereLeafBlock[frame: Frame, width: SIMDSize](Copyable):
+    var center: Point3[DType.float32, Self.frame, Self.width]
     var radius: SIMD[DType.float32, Self.width]
     var prim_indices: SIMD[DType.uint32, Self.width]
 
     def __init__(out self):
-        self.center = Point3[DType.float32, Self.width](0.0)
+        self.center = Point3[DType.float32, Self.frame, Self.width](0.0)
         self.radius = SIMD[DType.float32, Self.width](0.0)
         self.prim_indices = SIMD[DType.uint32, Self.width](EMPTY_LANE)
 
 
 @fieldwise_init
-struct TriangleLeafBlock[width: SIMDSize](Copyable):
-    var v0: Point3[DType.float32, Self.width]
-    var v1: Point3[DType.float32, Self.width]
-    var v2: Point3[DType.float32, Self.width]
+struct TriangleLeafBlock[frame: Frame, width: SIMDSize](Copyable):
+    var v0: Point3[DType.float32, Self.frame, Self.width]
+    var v1: Point3[DType.float32, Self.frame, Self.width]
+    var v2: Point3[DType.float32, Self.frame, Self.width]
     var prim_indices: SIMD[DType.uint32, Self.width]
 
     def __init__(out self):
-        self.v0 = Point3[DType.float32, Self.width](0.0)
-        self.v1 = Point3[DType.float32, Self.width](0.0)
-        self.v2 = Point3[DType.float32, Self.width](0.0)
+        self.v0 = Point3[DType.float32, Self.frame, Self.width](0.0)
+        self.v1 = Point3[DType.float32, Self.frame, Self.width](0.0)
+        self.v2 = Point3[DType.float32, Self.frame, Self.width](0.0)
         self.prim_indices = SIMD[DType.uint32, Self.width](EMPTY_LANE)
 
 
@@ -208,25 +218,25 @@ struct Instance(Copyable):
     - `blas_idx` indexes the BLAS array passed to traversal.
     """
 
-    var transform: Affine3f32
-    var inv_transform: Affine3f32
-    var bounds: AABB
+    var transform: Affine3f32[Frame.LOCAL, Frame.WORLD]
+    var inv_transform: Affine3f32[Frame.WORLD, Frame.LOCAL]
+    var bounds: AABB[Frame.WORLD]
     var blas_idx: UInt32
     var kind: Primitive
 
     def __init__(out self):
-        self.transform = Affine3f32.identity()
-        self.inv_transform = Affine3f32.identity()
-        self.bounds = AABB.invalid()
+        self.transform = Affine3f32[Frame.LOCAL, Frame.WORLD].identity()
+        self.inv_transform = Affine3f32[Frame.WORLD, Frame.LOCAL].identity()
+        self.bounds = AABB[Frame.WORLD].invalid()
         self.blas_idx = 0
         self.kind = Primitive.UNKNOWN
 
     def __init__(
         out self,
-        transform: Affine3f32,
-        inv_transform: Affine3f32,
+        transform: Affine3f32[Frame.LOCAL, Frame.WORLD],
+        inv_transform: Affine3f32[Frame.WORLD, Frame.LOCAL],
         blas_idx: UInt32,
-        blas_bounds: AABB,
+        blas_bounds: AABB[Frame.LOCAL],
         kind: Primitive,
     ):
         self.transform = transform.copy()
@@ -236,8 +246,13 @@ struct Instance(Copyable):
         self.kind = kind
 
 
+# TODO: use paramatric traits when they will be finally introduced
 trait TypedBvh:
-    def trace[mode: TRACE](self, ray: Ray) -> Hit:
+    comptime bvh_frame: Frame
+
+    def trace[
+        mode: TRACE
+    ](self, ray: Ray[Self.bvh_frame]) -> Hit[Self.bvh_frame]:
         ...
 
 

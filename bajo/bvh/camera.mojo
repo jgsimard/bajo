@@ -2,7 +2,7 @@ from std.math import tan
 
 from bajo.bvh.types import Ray
 from bajo.bvh.constants import f32_max
-from bajo.core import Vec3f32, normalize, cross, Point3f32
+from bajo.core import Vec3f32, normalize, cross, Point3f32, Frame
 from bajo.core.utils import degrees_to_radians
 
 
@@ -18,32 +18,36 @@ struct Camera(TrivialRegisterPassable, Writable):
     comptime DEFOCUS_DISK_U = 14
     comptime DEFOCUS_DISK_V = 17
 
-    var origin: Point3f32
-    var forward: Vec3f32
-    var right: Vec3f32
-    var up: Vec3f32
+    var origin: Point3f32[Frame.WORLD]
+    var forward: Vec3f32[Frame.WORLD]
+    var right: Vec3f32[Frame.WORLD]
+    var up: Vec3f32[Frame.WORLD]
     var fov_scale: Float32
     var focus_dist: Float32
-    var defocus_disk_u: Vec3f32
-    var defocus_disk_v: Vec3f32
+    var defocus_disk_u: Vec3f32[Frame.WORLD]
+    var defocus_disk_v: Vec3f32[Frame.WORLD]
 
     def __init__[
         origin: ImmutOrigin
     ](out self, ptr: UnsafePointer[Float32, origin], base: Int = 0):
-        self.origin = Point3f32.load(ptr, base + Camera.ORIGIN)
-        self.forward = Vec3f32.load(ptr, base + Camera.FORWARD)
-        self.right = Vec3f32.load(ptr, base + Camera.RIGHT)
-        self.up = Vec3f32.load(ptr, base + Camera.UP)
+        self.origin = Point3f32[Frame.WORLD].load(ptr, base + Camera.ORIGIN)
+        self.forward = Vec3f32[Frame.WORLD].load(ptr, base + Camera.FORWARD)
+        self.right = Vec3f32[Frame.WORLD].load(ptr, base + Camera.RIGHT)
+        self.up = Vec3f32[Frame.WORLD].load(ptr, base + Camera.UP)
         self.fov_scale = ptr[base + Camera.FOV]
         self.focus_dist = ptr[base + Camera.FOCUS_DIST]
-        self.defocus_disk_u = Vec3f32.load(ptr, base + Camera.DEFOCUS_DISK_U)
-        self.defocus_disk_v = Vec3f32.load(ptr, base + Camera.DEFOCUS_DISK_V)
+        self.defocus_disk_u = Vec3f32[Frame.WORLD].load(
+            ptr, base + Camera.DEFOCUS_DISK_U
+        )
+        self.defocus_disk_v = Vec3f32[Frame.WORLD].load(
+            ptr, base + Camera.DEFOCUS_DISK_V
+        )
 
     def __init__(
         out self,
-        origin: Point3f32,
-        target: Point3f32,
-        world_up: Vec3f32,
+        origin: Point3f32[Frame.WORLD],
+        target: Point3f32[Frame.WORLD],
+        world_up: Vec3f32[Frame.WORLD],
         fov_scale: Float32,
         focus_dist: Float32 = 1.0,
         defocus_angle: Float32 = 0.0,
@@ -63,9 +67,9 @@ struct Camera(TrivialRegisterPassable, Writable):
 
     @staticmethod
     def from_vfov(
-        origin: Point3f32,
-        target: Point3f32,
-        world_up: Vec3f32,
+        origin: Point3f32[Frame.WORLD],
+        target: Point3f32[Frame.WORLD],
+        world_up: Vec3f32[Frame.WORLD],
         vfov: Float32,
         focus_dist: Float32 = 1.0,
         defocus_angle: Float32 = 0.0,
@@ -86,7 +90,7 @@ struct Camera(TrivialRegisterPassable, Writable):
         py_i: Int,
         width: Int,
         height: Int,
-    ) -> Ray:
+    ) -> Ray[Frame.WORLD]:
         return self.make_ray_sampled(
             px_i,
             py_i,
@@ -110,7 +114,7 @@ struct Camera(TrivialRegisterPassable, Writable):
         lens_u: Float32 = 0.0,
         lens_v: Float32 = 0.0,
         t_min: Float32 = 0.0,
-    ) -> Ray:
+    ) -> Ray[Frame.WORLD]:
         var aspect = Float32(width) / Float32(height)
 
         var sx = ((Float32(px_i) + pixel_u) / Float32(width)) * 2.0 - 1.0
@@ -128,7 +132,7 @@ struct Camera(TrivialRegisterPassable, Writable):
         )
         var dir = focal_point - ray_origin
 
-        return Ray(
+        return Ray[Frame.WORLD](
             ray_origin,
             normalize(dir),
             t_min,

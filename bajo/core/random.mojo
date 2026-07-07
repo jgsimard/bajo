@@ -1,7 +1,7 @@
 from std.math import cos, pi, sin, sqrt, cbrt
 from std.random import Random
 
-from bajo.core import Vec3f32, dot
+from bajo.core import Vec3f32, dot, Frame
 
 
 struct Rng(Movable):
@@ -24,40 +24,44 @@ struct Rng(Movable):
         self._consumed += 1
         return val * (upper_bound - lower_bound) + lower_bound
 
-    def vec3f32(
-        mut self, lower_bound: Float32 = 0, upper_bound: Float32 = 1
-    ) -> Vec3f32:
+    def vec3f32[
+        frame: Frame
+    ](mut self, lower_bound: Float32 = 0, upper_bound: Float32 = 1) -> Vec3f32[
+        frame
+    ]:
         scale = upper_bound - lower_bound
         r0 = self.f32() * scale + lower_bound
         r1 = self.f32() * scale + lower_bound
         r2 = self.f32() * scale + lower_bound
-        return Vec3f32(r0, r1, r2)
+        return Vec3f32[frame](r0, r1, r2)
 
 
-def random_unit_vector(mut rng: Rng) -> Vec3f32:
+def random_unit_vector[frame: Frame](mut rng: Rng) -> Vec3f32[frame]:
     u = rng.f32()
     v = rng.f32()
     theta = 2.0 * pi * u
     z = 1.0 - 2.0 * v
     r = sqrt(1.0 - z * z)
-    return Vec3f32(r * cos(theta), r * sin(theta), z)
+    return Vec3f32[frame](r * cos(theta), r * sin(theta), z)
 
 
-def random_on_hemisphere(mut rng: Rng, normal: Vec3f32) -> Vec3f32:
-    on_unit_sphere = random_unit_vector(rng)
+def random_on_hemisphere[
+    frame: Frame
+](mut rng: Rng, normal: Vec3f32[frame]) -> Vec3f32[frame]:
+    on_unit_sphere = random_unit_vector[frame](rng)
     sign = dot(on_unit_sphere, normal).lt(0.0).select(Float32(-1.0), 1.0)
     return sign * on_unit_sphere
 
 
-def random_in_unit_disk(mut rng: Rng) -> Vec3f32:
+def random_in_unit_disk[frame: Frame](mut rng: Rng) -> Vec3f32[frame]:
     u = rng.f32()
     v = rng.f32()
     theta = 2.0 * pi * u
     r = sqrt(v)
-    return Vec3f32(r * cos(theta), r * sin(theta), 0.0)
+    return Vec3f32[frame](r * cos(theta), r * sin(theta), 0.0)
 
 
-def random_in_unit_sphere(mut rng: Rng) -> Vec3f32:
+def random_in_unit_sphere[frame: Frame](mut rng: Rng) -> Vec3f32[frame]:
     u = rng.f32()
     r = cbrt(u)
-    return random_unit_vector(rng) * r
+    return random_unit_vector[frame](rng) * r

@@ -1,7 +1,7 @@
 from std.gpu import DeviceContext, DeviceBuffer
 
 from bajo.bvh.camera import Camera
-from bajo.core import Vec3f32, Point3f32
+from bajo.core import Vec3f32, Point3f32, Frame
 from bajo.bvh.types import Hit
 from bajo.bvh.constants import f32_max
 
@@ -100,9 +100,11 @@ def upload_camera(
     return upload_list(ctx, params)
 
 
-def upload_vertices(
+def upload_vertices[
+    frame: Frame
+](
     mut ctx: DeviceContext,
-    verts: List[Point3f32],
+    verts: List[Point3f32[frame]],
 ) raises -> DeviceBuffer[DType.float32]:
     var flat = List[Float32](capacity=len(verts) * 3)
     for v in verts:

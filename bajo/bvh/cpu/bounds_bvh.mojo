@@ -1,10 +1,10 @@
-from bajo.core import AABB, AxisAlignedBoundingBox, Vec3f32, Point3f32
+from bajo.core import AABB, AxisAlignedBoundingBox, Vec3f32, Point3f32, Frame
 from bajo.bvh.constants import EMPTY_LANE
 from bajo.bvh.cpu.builder import BoundsBvhBuilder, BoundsItem
 
 
 @fieldwise_init
-struct WideBvhNode[width: SIMDSize](Copyable):
+struct WideBvhNode[frame: Frame, width: SIMDSize](Copyable):
     """Lane node used by BoundsBvh.
 
     Lane encoding:
@@ -13,25 +13,27 @@ struct WideBvhNode[width: SIMDSize](Copyable):
         counts[i] > 0           -> leaf range, data[i] = first item
     """
 
-    var aabb: AxisAlignedBoundingBox[DType.float32, Self.width]
+    var aabb: AxisAlignedBoundingBox[DType.float32, Self.frame, Self.width]
     var data: SIMD[DType.uint32, Self.width]
     var counts: SIMD[DType.uint32, Self.width]
 
     def __init__(out self):
-        self.aabb = AxisAlignedBoundingBox[DType.float32, Self.width].invalid()
+        self.aabb = AxisAlignedBoundingBox[
+            DType.float32, Self.frame, Self.width
+        ].invalid()
         self.data = SIMD[DType.uint32, Self.width](0)
         self.counts = SIMD[DType.uint32, Self.width](EMPTY_LANE)
 
 
-struct BoundsBvh[width: SIMDSize](Copyable):
+struct BoundsBvh[frame: Frame, width: SIMDSize](Copyable):
     """Generic wide/lane BVH layout with range leaves."""
 
-    var nodes: List[WideBvhNode[Self.width]]
+    var nodes: List[WideBvhNode[Self.frame, Self.width]]
     var item_indices: List[UInt32]
     var item_payloads: List[UInt32]
 
     def __init__(out self, bvh: BoundsBvhBuilder):
-        self.nodes = List[WideBvhNode[Self.width]]()
+        self.nodes = List[WideBvhNode[Self.frame, Self.width]]()
         self.item_indices = bvh.item_indices.copy()
         self.item_payloads = List[UInt32](capacity=len(bvh.items))
 
@@ -43,7 +45,7 @@ struct BoundsBvh[width: SIMDSize](Copyable):
 
     def _collapse(mut self, bvh: BoundsBvhBuilder, bin_idx: UInt32) -> UInt32:
         var wide_idx = len(self.nodes)
-        self.nodes.append(WideBvhNode[Self.width]())
+        self.nodes.append(WideBvhNode[Self.frame, Self.width]())
 
         var pool = InlineArray[UInt32, Self.width](fill=bin_idx)
         var p_size = 1
@@ -72,7 +74,7 @@ struct BoundsBvh[width: SIMDSize](Copyable):
             pool[p_size] = n.right_child()
             p_size += 1
 
-        var node = WideBvhNode[Self.width]()
+        var node = WideBvhNode[Self.frame, Self.width]()
 
         comptime for i in range(Self.width):
             if i < p_size:
@@ -98,19 +100,19 @@ struct BoundsBvh[width: SIMDSize](Copyable):
         self.nodes[wide_idx] = node^
         return UInt32(wide_idx)
 
-    def root_bounds(self) -> AABB:
-        var out = AABB.invalid()
+    def root_bounds(self) -> AABB[Self.frame]:
+        var out = AABB[Self.frame].invalid()
         if len(self.nodes) > 0:
             ref root = self.nodes[0]
             comptime for lane in range(Self.width):
                 if root.counts[lane] != EMPTY_LANE:
                     out.grow(
-                        Point3f32(
+                        Point3f32[Self.frame](
                             root.aabb._min.x[lane],
                             root.aabb._min.y[lane],
                             root.aabb._min.z[lane],
                         ),
-                        Point3f32(
+                        Point3f32[Self.frame](
                             root.aabb._max.x[lane],
                             root.aabb._max.y[lane],
                             root.aabb._max.z[lane],

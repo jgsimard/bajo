@@ -11,25 +11,27 @@ from bajo.bvh.constants import (
     EMPTY_LANE,
 )
 from bajo.bvh.types import Ray, Hit
+from bajo.core import Frame
 
 
 def trace_bounds_bvh[
+    frame: Frame,
     width: SIMDSize,
     mode: TRACE,
     leaf_fn: def(
         UnsafePointer[mut=False, Float32, _],
         UInt32,
-        Ray,
-        mut Hit,
+        Ray[frame],
+        mut Hit[frame],
     ) capturing -> Bool,
     lifo: Bool = True,
 ](
     wide_nodes: UnsafePointer[mut=False, Float32, _],
     leaves: UnsafePointer[mut=False, Float32, _],
     root_idx: UInt32,
-    ray: Ray,
-) -> Hit:
-    var hit = Hit.miss(ray.t_max)
+    ray: Ray[frame],
+) -> Hit[frame]:
+    var hit = Hit[frame].miss(ray.t_max)
 
     var stack = InlineArray[UInt32, GPU_STACK_SIZE](uninitialized=True)
     var stack_ptr = 0
@@ -40,7 +42,7 @@ def trace_bounds_bvh[
         comptime if mode == TRACE.ANY_HIT:
             node_t_max = ray.t_max
 
-        var bounds_hit = _intersect_wide_node_bounds[width](
+        var bounds_hit = _intersect_wide_node_bounds[frame, width](
             wide_nodes,
             current,
             ray,
@@ -77,7 +79,7 @@ def trace_bounds_bvh[
 
                         comptime if mode == TRACE.ANY_HIT:
                             if leaf_hit:
-                                return Hit.shadow_hit()
+                                return Hit[frame].shadow_hit()
 
             # Push internal children far-to-near.
             # Since stack is LIFO, nearest child is popped first.
@@ -133,7 +135,7 @@ def trace_bounds_bvh[
 
                         comptime if mode == TRACE.ANY_HIT:
                             if leaf_hit:
-                                return Hit.shadow_hit()
+                                return Hit[frame].shadow_hit()
 
         if stack_ptr == 0:
             break

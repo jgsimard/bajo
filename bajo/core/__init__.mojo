@@ -2,6 +2,7 @@ from .aabb import AxisAlignedBoundingBox
 from .quat import Quaternion
 from .transform import Affine3
 from .vec import (
+    GeoKind,
     Vec2,
     Vec3,
     Point3,
@@ -16,17 +17,23 @@ from .vec import (
     longest_axis,
 )
 from .mat import Mat
+from .frame import Frame
 
 
-comptime AABB = AxisAlignedBoundingBox[DType.float32]
-comptime Quat = Quaternion[DType.float32]
-comptime Affine3f32 = Affine3[DType.float32]
-comptime Vec2f32 = Vec2[DType.float32]
-comptime Vec3f32 = Vec3[DType.float32]
-comptime Point3f32 = Point3[DType.float32]
+comptime AABB[frame: Frame = Frame.WORLD] = AxisAlignedBoundingBox[
+    DType.float32, frame
+]
+comptime Quat = Quaternion[DType.float32, _]
+comptime Affine3f32[From: Frame, To: Frame] = Affine3[DType.float32, From, To]
+comptime Vec2f32 = Vec2[DType.float32, _]
+comptime Vec3f32[frame: Frame] = Vec3[DType.float32, frame]
+comptime Point3f32[frame: Frame] = Point3[DType.float32, frame]
+
+comptime Vec3W = Vec3[DType.float32, Frame.WORLD]
+comptime Point3W = Point3[DType.float32, Frame.WORLD]
 
 
-comptime Mat22 = Mat[_, 2, 2]
-comptime Mat33 = Mat[_, 3, 3]
-comptime Mat44 = Mat[_, 4, 4]
-comptime Mat33f32 = Mat[DType.float32, 3, 3]
+comptime Mat22 = Mat[_, 2, 2, _]
+comptime Mat33 = Mat[_, 3, 3, _]
+comptime Mat44 = Mat[_, 4, 4, _]
+comptime Mat33f32 = Mat[DType.float32, 3, 3, _]

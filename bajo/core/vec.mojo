@@ -6,12 +6,17 @@ from bajo.core.utils import fmin, fmax
 
 
 @fieldwise_init
-struct GeoKind(Equatable):
+struct GeoKind(Equatable, TrivialRegisterPassable):
     var v: Int
 
     comptime VECTOR: GeoKind = GeoKind(0)
     comptime POINT: GeoKind = GeoKind(1)
     comptime NORMAL: GeoKind = GeoKind(2)
+
+    # see : https://github.com/modular/modular/issues/6744#issuecomment-4898810092
+    @always_inline("builtin")
+    def __eq__(self, rhs: Self) -> Bool:
+        return self.v == rhs.v
 
 
 comptime Vec2[dtype: DType, width: SIMDSize = 1] = Geo2[
@@ -131,23 +136,10 @@ struct Geo3[dtype: DType, kind: GeoKind, width: SIMDSize = 1](
     def to_vec(deinit self) -> Geo3[self.dtype, GeoKind.VECTOR, self.width]:
         return Vec3[self.dtype, self.width](self.x, self.y, self.z)
 
-    # def __add__[
-    #     rhs_kind: GeoKind
-    # ](self, rhs: Geo3[Self.dtype, rhs_kind, Self.width]) -> Point3[
-    #     Self.dtype, Self.width
-    # ] where (self.kind == GeoKind.POINT and rhs_kind == GeoKind.VECTOR) or (
-    #     self.kind == GeoKind.VECTOR and rhs_kind == GeoKind.POINT
-    # ):
-    #     return Point3[Self.dtype, Self.width](
-    #         self.x + rhs.x,
-    #         self.y + rhs.y,
-    #         self.z + rhs.z,
-    #     )
-
     # p + v = p
     def __add__(
-        self, rhs: Vec3[Self.dtype, Self.width]
-    ) -> Point3[Self.dtype, Self.width] where self.kind == GeoKind.POINT:
+        self: Point3[Self.dtype, Self.width], rhs: Vec3[Self.dtype, Self.width]
+    ) -> Point3[Self.dtype, Self.width]:
         return Point3[Self.dtype, Self.width](
             self.x + rhs.x,
             self.y + rhs.y,
@@ -156,8 +148,8 @@ struct Geo3[dtype: DType, kind: GeoKind, width: SIMDSize = 1](
 
     # v + p = p
     def __add__(
-        self, rhs: Point3[Self.dtype, Self.width]
-    ) -> Point3[Self.dtype, Self.width] where self.kind == GeoKind.POINT:
+        self: Vec3[Self.dtype, Self.width], rhs: Point3[Self.dtype, Self.width]
+    ) -> Point3[Self.dtype, Self.width]:
         return Point3[Self.dtype, Self.width](
             self.x + rhs.x,
             self.y + rhs.y,
@@ -165,10 +157,12 @@ struct Geo3[dtype: DType, kind: GeoKind, width: SIMDSize = 1](
         )
 
     # v + v = v
-    def __add__(self, rhs: Self) -> Self:
+    def __add__(
+        self: Vec3[Self.dtype, Self.width], rhs: Vec3[Self.dtype, Self.width]
+    ) -> Vec3[Self.dtype, Self.width]:
         # TODO: put this into where when it works
-        comptime assert self.kind == GeoKind.VECTOR
-        return Self(
+        # comptime assert self.kind == GeoKind.VECTOR
+        return Vec3[Self.dtype, Self.width](
             self.x + rhs.x,
             self.y + rhs.y,
             self.z + rhs.z,
@@ -186,9 +180,35 @@ struct Geo3[dtype: DType, kind: GeoKind, width: SIMDSize = 1](
         self.y += rhs.y
         self.z += rhs.z
 
-    # TODO: put this into where when it works
-    def __sub__(self, rhs: Self) -> Self:
-        return Self(
+    # TODO: put this into where when (if?) it works
+    # p - p = v
+    def __sub__(
+        self: Point3[Self.dtype, Self.width],
+        rhs: Point3[Self.dtype, Self.width],
+    ) -> Vec3[Self.dtype, Self.width]:
+        return Vec3(
+            self.x - rhs.x,
+            self.y - rhs.y,
+            self.z - rhs.z,
+        )
+
+    # v - v = v
+    def __sub__(
+        self: Vec3[Self.dtype, Self.width],
+        rhs: Vec3[Self.dtype, Self.width],
+    ) -> Vec3[Self.dtype, Self.width]:
+        return Vec3(
+            self.x - rhs.x,
+            self.y - rhs.y,
+            self.z - rhs.z,
+        )
+
+    # p - v = p
+    def __sub__(
+        self: Point3[Self.dtype, Self.width],
+        rhs: Vec3[Self.dtype, Self.width],
+    ) -> Point3[Self.dtype, Self.width]:
+        return Point3(
             self.x - rhs.x,
             self.y - rhs.y,
             self.z - rhs.z,

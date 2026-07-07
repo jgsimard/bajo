@@ -170,7 +170,9 @@ struct Sphere(TrivialRegisterPassable):
 
     def bounds(self) -> AABB:
         var r = Vec3f32(self.radius)
-        return AABB(self.center.to_vec() - r, self.center.to_vec() + r)  # TODO
+        return AABB(
+            (self.center - r).to_vec(), (self.center + r).to_vec()
+        )  # TODO
 
 
 @fieldwise_init

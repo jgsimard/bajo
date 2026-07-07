@@ -251,7 +251,7 @@ def intersect_ray_sphere[
 ) -> RayDistanceHit[dtype, width]:
     comptime assert dtype in [DType.float32, DType.float64]
 
-    var oc = (o - center).to_vec()  # TODO
+    var oc = o - center
 
     var a = dot(d, d)
     var half_b = dot(oc, d)

@@ -366,9 +366,7 @@ struct World(Movable):
             "hit sphere surface id is out of range",
         )
         var p = ray_at(ray, bvh_hit.t)
-        var outward_normal = (
-            p.to_vec() - sphere.center.to_vec()
-        ) / sphere.radius  # TODO
+        var outward_normal = (p - sphere.center) / sphere.radius
         var front_face = dot(ray.d, outward_normal) < 0.0
         var normal = outward_normal if front_face else -outward_normal
 

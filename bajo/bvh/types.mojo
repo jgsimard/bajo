@@ -218,25 +218,25 @@ struct Instance(Copyable):
     - `blas_idx` indexes the BLAS array passed to traversal.
     """
 
-    var transform: Affine3f32[Frame.WORLD, Frame.LOCAL]
-    var inv_transform: Affine3f32[Frame.LOCAL, Frame.WORLD]
-    var bounds: AABB[Frame.LOCAL]
+    var transform: Affine3f32[Frame.LOCAL, Frame.WORLD]
+    var inv_transform: Affine3f32[Frame.WORLD, Frame.LOCAL]
+    var bounds: AABB[Frame.WORLD]
     var blas_idx: UInt32
     var kind: Primitive
 
     def __init__(out self):
-        self.transform = Affine3f32[Frame.WORLD, Frame.LOCAL].identity()
-        self.inv_transform = Affine3f32[Frame.LOCAL, Frame.WORLD].identity()
-        self.bounds = AABB[Frame.LOCAL].invalid()
+        self.transform = Affine3f32[Frame.LOCAL, Frame.WORLD].identity()
+        self.inv_transform = Affine3f32[Frame.WORLD, Frame.LOCAL].identity()
+        self.bounds = AABB[Frame.WORLD].invalid()
         self.blas_idx = 0
         self.kind = Primitive.UNKNOWN
 
     def __init__(
         out self,
-        transform: Affine3f32[Frame.WORLD, Frame.LOCAL],
-        inv_transform: Affine3f32[Frame.LOCAL, Frame.WORLD],
+        transform: Affine3f32[Frame.LOCAL, Frame.WORLD],
+        inv_transform: Affine3f32[Frame.WORLD, Frame.LOCAL],
         blas_idx: UInt32,
-        blas_bounds: AABB[Frame.WORLD],
+        blas_bounds: AABB[Frame.LOCAL],
         kind: Primitive,
     ):
         self.transform = transform.copy()
@@ -246,8 +246,13 @@ struct Instance(Copyable):
         self.kind = kind
 
 
+# TODO: use paramatric traits when they will be finally introduced
 trait TypedBvh:
-    def trace[frame: Frame, mode: TRACE](self, ray: Ray) -> Hit[frame]:
+    comptime bvh_frame: Frame
+
+    def trace[
+        mode: TRACE
+    ](self, ray: Ray[Self.bvh_frame]) -> Hit[Self.bvh_frame]:
         ...
 
 

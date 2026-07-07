@@ -72,9 +72,15 @@ struct Tlas[width: SIMDSize](Copyable):
         //,
         typed_bvh: TypedBvh,
         mode: TRACE,
-    ](self, ray: Ray, blases: UnsafePointer[typed_bvh, origin]) -> Hit[
-        Frame.WORLD
-    ]:
+    ](
+        self,
+        ray: Ray[Frame.WORLD],
+        blases: UnsafePointer[typed_bvh, origin],
+    ) -> Hit[Frame.WORLD]:
+        comptime assert (
+            typed_bvh.bvh_frame == Frame.LOCAL
+        ), "TLAS expects BLASes in Frame.LOCAL"
+
         def leaf_fn(
             ray: Ray[Frame.WORLD],
             O: Point3[DType.float32, Frame.WORLD, Self.width],
@@ -93,23 +99,24 @@ struct Tlas[width: SIMDSize](Copyable):
 
                 if inst_idx != EMPTY_LANE:
                     ref inst = self.instances[Int(inst_idx)]
-                    # TODO: fix this
-                    ref transform = inst.inv_transform
+                    var local_origin = inst.inv_transform.point(ray.o)
+                    var local_dir = inst.inv_transform.vector(ray.d)
 
-                    var local_origin = transform.point(
-                        ray.o.unsafe_convert_frame[Frame.LOCAL]()
-                    )
-                    var local_dir = transform.vector(
-                        ray.d.unsafe_convert_frame[Frame.LOCAL]()
+                    # var local_ray = Ray[Frame.LOCAL](
+                    #     local_origin, local_dir, ray.t_min, hit.t
+                    # )
+                    var local_ray = Ray[typed_bvh.bvh_frame](
+                        local_origin.unsafe_convert_frame[
+                            typed_bvh.bvh_frame
+                        ](),
+                        local_dir.unsafe_convert_frame[typed_bvh.bvh_frame](),
+                        ray.t_min,
+                        hit.t,
                     )
 
-                    var local_ray = Ray(
-                        local_origin, local_dir, ray.t_min, hit.t
+                    var local_hit = blases[Int(inst.blas_idx)].trace[mode](
+                        local_ray
                     )
-
-                    var local_hit = blases[Int(inst.blas_idx)].trace[
-                        Frame.LOCAL, mode
-                    ](local_ray)
 
                     comptime if mode == TRACE.ANY_HIT:
                         if local_hit.is_occluded():
@@ -121,9 +128,11 @@ struct Tlas[width: SIMDSize](Copyable):
                             hit.v = local_hit.v
                             hit.prim = local_hit.prim
                             hit.inst = inst_idx
-                            hit.normal = local_hit.normal.unsafe_convert_frame[
-                                Frame.WORLD
-                            ]()
+                            hit.normal = inst.transform.vector(
+                                local_hit.normal.unsafe_convert_frame[
+                                    Frame.LOCAL
+                                ]()
+                            )
                             any_hit = True
 
             return any_hit

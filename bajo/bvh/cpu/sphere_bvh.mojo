@@ -8,6 +8,8 @@ from bajo.bvh.types import Ray, Hit, Sphere, SphereLeafBlock, TypedBvh
 
 
 struct SphereBvh[frame: Frame, width: SIMDSize](Copyable, TypedBvh):
+    comptime bvh_frame: Frame = Self.frame
+
     """Sphere-specific wrapper around BoundsBvh[width].
     The generic tree is built from BoundsItem ranges.
     After construction, sphere leaf data is packed into SphereLeafBlock.
@@ -73,13 +75,15 @@ struct SphereBvh[frame: Frame, width: SIMDSize](Copyable, TypedBvh):
                     self.leaf_blocks.append(block^)
                     node.data[lane] = block_idx
 
-    def trace[mode: TRACE](self, ray: Ray[Self.frame]) -> Hit[Self.frame]:
+    def trace[
+        mode: TRACE
+    ](self, ray: Ray[Self.bvh_frame]) -> Hit[Self.bvh_frame]:
         def leaf_fn(
-            ray: Ray[Self.frame],
-            O: Point3[DType.float32, Self.frame, Self.width],
-            D: Vec3[DType.float32, Self.frame, Self.width],
+            ray: Ray[Self.bvh_frame],
+            O: Point3[DType.float32, Self.bvh_frame, Self.width],
+            D: Vec3[DType.float32, Self.bvh_frame, Self.width],
             leaf_block_idx: UInt32,
-            mut hit: Hit,
+            mut hit: Hit[Self.bvh_frame],
         ) capturing -> Bool:
             ref block = self.leaf_blocks[Int(leaf_block_idx)]
 

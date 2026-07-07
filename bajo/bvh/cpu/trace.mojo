@@ -14,7 +14,7 @@ def trace_bounds_bvh[
         Point3[DType.float32, frame, width],
         Vec3[DType.float32, frame, width],
         UInt32,
-        mut Hit,
+        mut Hit[frame],
     ) capturing -> Bool,
 ](tree: BoundsBvh[frame, width], ray: Ray[frame]) -> Hit[frame]:
     debug_assert["safe"](len(tree.nodes) > 0)

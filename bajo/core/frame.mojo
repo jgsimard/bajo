@@ -4,4 +4,4 @@ struct Frame(Equatable, TrivialRegisterPassable):
 
     comptime WORLD: Frame = Frame(0)
     comptime CAMERA: Frame = Frame(1)
-    comptime OBJECT: Frame = Frame(2)
+    comptime LOCAL: Frame = Frame(2)

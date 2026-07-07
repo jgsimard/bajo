@@ -218,23 +218,23 @@ struct Instance(Copyable):
     - `blas_idx` indexes the BLAS array passed to traversal.
     """
 
-    var transform: Affine3f32[Frame.WORLD, Frame.OBJECT]
-    var inv_transform: Affine3f32[Frame.OBJECT, Frame.WORLD]
-    var bounds: AABB[Frame.OBJECT]
+    var transform: Affine3f32[Frame.WORLD, Frame.LOCAL]
+    var inv_transform: Affine3f32[Frame.LOCAL, Frame.WORLD]
+    var bounds: AABB[Frame.LOCAL]
     var blas_idx: UInt32
     var kind: Primitive
 
     def __init__(out self):
-        self.transform = Affine3f32[Frame.WORLD, Frame.OBJECT].identity()
-        self.inv_transform = Affine3f32[Frame.OBJECT, Frame.WORLD].identity()
-        self.bounds = AABB[Frame.OBJECT].invalid()
+        self.transform = Affine3f32[Frame.WORLD, Frame.LOCAL].identity()
+        self.inv_transform = Affine3f32[Frame.LOCAL, Frame.WORLD].identity()
+        self.bounds = AABB[Frame.LOCAL].invalid()
         self.blas_idx = 0
         self.kind = Primitive.UNKNOWN
 
     def __init__(
         out self,
-        transform: Affine3f32[Frame.WORLD, Frame.OBJECT],
-        inv_transform: Affine3f32[Frame.OBJECT, Frame.WORLD],
+        transform: Affine3f32[Frame.WORLD, Frame.LOCAL],
+        inv_transform: Affine3f32[Frame.LOCAL, Frame.WORLD],
         blas_idx: UInt32,
         blas_bounds: AABB[Frame.WORLD],
         kind: Primitive,

@@ -4,7 +4,7 @@ from std.time import perf_counter_ns
 from std.atomic import Atomic
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
 
-from bajo.core import AABB, Vec3f32
+from bajo.core import AABB, Vec3f32, Frame
 from bajo.core.morton import morton3
 from bajo.sort.gpu.radix_sort import device_radix_sort_pairs, RadixSortWorkspace
 from bajo.bvh.constants import (
@@ -36,12 +36,12 @@ def compute_bounds_morton_codes_kernel(
     if i >= leaf_count:
         return
 
-    var centroid_bounds = AABB.load6(bounds_device, AABB.STRIDE)
+    var centroid_bounds = AABB[Frame.WORLD].load6(bounds_device, AABB.STRIDE)
     var cmin = centroid_bounds._min
     var inv_extent = centroid_bounds.extent().safe_inv()
 
     var b = i * AABB.STRIDE
-    var bounds = AABB.load6(leaf_bounds, b)
+    var bounds = AABB[Frame.WORLD].load6(leaf_bounds, b)
     var c = (bounds.centroid() - cmin) * inv_extent
 
     morton_codes[i] = morton3(c.x, c.y, c.z)
@@ -63,7 +63,7 @@ def refit_lbvh_bounds_from_leaves_kernel(
 
     var item_idx = UInt32(leaf_ids[leaf_idx])
     var b = Int(item_idx) * AABB.STRIDE
-    var bounds = AABB.load6(leaf_bounds, b)
+    var bounds = AABB[Frame.WORLD].load6(leaf_bounds, b)
 
     var current_encoded = UInt32(leaf_idx) | LBVH_LEAF_FLAG
     var parent = UInt32(leaf_parent[leaf_idx])
@@ -192,7 +192,7 @@ def build_lbvh_topology_kernel(
 
     node_flags[i] = UInt32(0)
 
-    var invalid = AABB.invalid()
+    var invalid = AABB[Frame.WORLD].invalid()
     var bounds_base = i * BinaryBvhNode.BOUNDS_STRIDE
     invalid.store6(node_bounds, bounds_base)
     invalid.store6(node_bounds, bounds_base + AABB.STRIDE)

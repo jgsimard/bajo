@@ -8,7 +8,7 @@ from bajo.core.vec import Vec3, Point3, Normal3
 
 
 @fieldwise_init
-struct Hit[frame: Frame](TrivialRegisterPassable, Writable):
+struct Hit[frame: Frame = Frame.WORLD](TrivialRegisterPassable, Writable):
     comptime U = 0
     comptime V = 1
     comptime PRIM = 2
@@ -86,7 +86,7 @@ struct Hit[frame: Frame](TrivialRegisterPassable, Writable):
         )
 
 
-struct Ray[frame: Frame](TrivialRegisterPassable, Writable):
+struct Ray[frame: Frame = Frame.WORLD](TrivialRegisterPassable, Writable):
     comptime STRIDE = 8
     comptime ORIGIN = 0  # 0, 1, 2
     comptime T_MIN = 3
@@ -173,7 +173,7 @@ struct Ray[frame: Frame](TrivialRegisterPassable, Writable):
 
 
 @fieldwise_init
-struct Sphere[frame: Frame](TrivialRegisterPassable):
+struct Sphere[frame: Frame = Frame.WORLD](TrivialRegisterPassable):
     comptime STRIDE = 4
     var center: Point3f32[Self.frame]
     var radius: Float32

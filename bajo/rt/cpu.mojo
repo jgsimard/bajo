@@ -3,7 +3,7 @@ from std.io.file_descriptor import FileDescriptor
 from std.math import abs, fma, sqrt
 from std.time import perf_counter_ns
 
-from bajo.core import Vec3f32, dot, length2, normalize, Point3f32
+from bajo.core import Vec3f32, dot, length2, normalize, Point3f32, Frame, Vec3
 from bajo.core.random import (
     Rng,
     random_in_unit_disk,
@@ -50,8 +50,8 @@ struct PathHit(Copyable, Writable):
             False,
             HitRecord(
                 PrimitiveId(PRIM_SPHERE, UInt32(0)),
-                Point3f32(0.0),
-                Vec3f32(0.0),
+                Point3f32[Frame.WORLD](0.0),
+                Vec3f32[Frame.WORLD](0.0),
                 SurfaceId(MAT_LAMBERTIAN, UInt32(0)),
                 f32_max,
                 True,
@@ -63,7 +63,7 @@ struct PathHit(Copyable, Writable):
 struct PathState(Copyable, Writable):
     var path_id: UInt32
     var pixel_id: UInt32
-    var ray: Ray
+    var ray: Ray[Frame.WORLD]
     var throughput: Color
 
 
@@ -73,18 +73,28 @@ struct ShadeWork(Copyable, Writable):
     var hit: HitRecord
 
 
-def reflect(v: Vec3f32, n: Vec3f32) -> Vec3f32:
+def reflect[
+    dtype: DType, frame: Frame
+](v: Vec3[dtype, frame], n: Vec3[dtype, frame]) -> Vec3[dtype, frame]:
     return v - 2.0 * dot(v, n) * n
 
 
-def refract(uv: Vec3f32, n: Vec3f32, etai_over_etat: Float32) -> Vec3f32:
+def refract[
+    dtype: DType, frame: Frame
+](
+    uv: Vec3[dtype, frame],
+    n: Vec3[dtype, frame],
+    etai_over_etat: Scalar[dtype],
+) -> Vec3[dtype, frame]:
     var cos_theta = min(dot(-uv, n), 1.0)
     var r_out_perp = etai_over_etat * (uv + cos_theta * n)
     var r_out_parallel = -sqrt(abs(1.0 - length2(r_out_perp))) * n
     return r_out_perp + r_out_parallel
 
 
-def reflectance(cosine: Float32, ref_idx: Float32) -> Float32:
+def reflectance[
+    dtype: DType
+](cosine: Scalar[dtype], ref_idx: Scalar[dtype]) -> Scalar[dtype]:
     var root = (1.0 - ref_idx) / (1.0 + ref_idx)
     var r2 = root * root
     var x = 1.0 - cosine
@@ -98,28 +108,32 @@ def scatter_lambertian(
     hit: HitRecord,
     mut rng: Rng,
 ) -> ScatterResult:
-    var scatter_direction = hit.normal + random_unit_vector(rng)
+    var scatter_direction = hit.normal + random_unit_vector[Frame.WORLD](rng)
     if scatter_direction.is_near_zero():
         scatter_direction = hit.normal
 
     return ScatterResult(
         True,
-        Ray(hit.p, normalize(scatter_direction), 0.001, f32_max),
+        Ray[Frame.WORLD](hit.p, normalize(scatter_direction), 0.001, f32_max),
         material.albedo,
     )
 
 
 def scatter_metal(
     ref material: Metal,
-    ray: Ray,
+    ray: Ray[Frame.WORLD],
     hit: HitRecord,
     mut rng: Rng,
 ) -> ScatterResult:
     debug_assert["safe"](material.fuzz >= 0.0 and material.fuzz <= 1.0)
 
-    var reflected = reflect(normalize(ray.d), hit.normal)
-    reflected = normalize(reflected + material.fuzz * random_unit_vector(rng))
-    var scattered = Ray(hit.p, reflected, 0.001, f32_max)
+    var reflected = reflect[DType.float32, Frame.WORLD](
+        normalize(ray.d), hit.normal
+    )
+    reflected = normalize(
+        reflected + material.fuzz * random_unit_vector[Frame.WORLD](rng)
+    )
+    var scattered = Ray[Frame.WORLD](hit.p, reflected, 0.001, f32_max)
     return ScatterResult(
         dot(scattered.d, hit.normal) > 0.0,
         scattered,
@@ -129,7 +143,7 @@ def scatter_metal(
 
 def scatter_dielectric(
     ref material: Dielectric,
-    ray: Ray,
+    ray: Ray[Frame.WORLD],
     hit: HitRecord,
     mut rng: Rng,
 ) -> ScatterResult:
@@ -143,15 +157,19 @@ def scatter_dielectric(
     var cos_theta = min(dot(-unit_direction, hit.normal), 1.0)
     var sin_theta = sqrt(1.0 - cos_theta * cos_theta)
 
-    var direction: Vec3f32
+    var direction: Vec3f32[Frame.WORLD]
     if ri * sin_theta > 1.0 or reflectance(cos_theta, ri) > rng.f32():
-        direction = reflect(unit_direction, hit.normal)
+        direction = reflect[DType.float32, Frame.WORLD](
+            unit_direction, hit.normal
+        )
     else:
-        direction = refract(unit_direction, hit.normal, ri)
+        direction = refract[DType.float32, Frame.WORLD](
+            unit_direction, hit.normal, ri
+        )
 
     return ScatterResult(
         True,
-        Ray(hit.p, normalize(direction), 0.001, f32_max),
+        Ray[Frame.WORLD](hit.p, normalize(direction), 0.001, f32_max),
         Color(1.0),
     )
 
@@ -159,7 +177,7 @@ def scatter_dielectric(
 def scatter(
     surface: SurfaceId,
     surfaces: SurfaceStore,
-    ray: Ray,
+    ray: Ray[Frame.WORLD],
     hit: HitRecord,
     mut rng: Rng,
 ) -> ScatterResult:
@@ -175,17 +193,17 @@ def scatter(
 
     debug_assert["safe"](False, "unknown RT surface kind")
     return ScatterResult(
-        False, Ray(hit.p, hit.normal, 0.001, f32_max), Color(0.0)
+        False, Ray[Frame.WORLD](hit.p, hit.normal, 0.001, f32_max), Color(0.0)
     )
 
 
-def _sky_color(ray: Ray) -> Color:
+def _sky_color(ray: Ray[Frame.WORLD]) -> Color:
     var unit_direction = normalize(ray.d)
     var a = 0.5 * (unit_direction.y + 1.0)
     return (1.0 - a) * Color(1.0) + a * Color(0.5, 0.7, 1.0)
 
 
-def _trace_world(world: World, ray: Ray) -> PathHit:
+def _trace_world(world: World, ray: Ray[Frame.WORLD]) -> PathHit:
     var hit = world.trace(ray)
     if not hit:
         return PathHit.miss()
@@ -220,8 +238,8 @@ def _make_primary_ray(
     px: Int,
     py: Int,
     mut rng: Rng,
-) -> Ray:
-    var lens = random_in_unit_disk(rng)
+) -> Ray[Frame.WORLD]:
+    var lens = random_in_unit_disk[Frame.WORLD](rng)
     return camera.make_ray_sampled(
         px,
         py,
@@ -237,7 +255,12 @@ def _make_primary_ray(
 
 def _trace_path[
     MAX_DEPTH: Int
-](settings: RenderSettings, world: World, ray: Ray, mut rng: Rng,) -> Color:
+](
+    settings: RenderSettings,
+    world: World,
+    ray: Ray[Frame.WORLD],
+    mut rng: Rng,
+) -> Color:
     comptime assert MAX_DEPTH >= 0, "max depth must be non-negative"
 
     var cur_ray = ray
@@ -265,7 +288,7 @@ def _trace_path[
     return Color(0.0)
 
 
-def _trace_normals(world: World, ray: Ray) -> Color:
+def _trace_normals(world: World, ray: Ray[Frame.WORLD]) -> Color:
     var hit = _trace_world(world, ray)
     if not hit.hit:
         return Color(0.0)
@@ -274,14 +297,14 @@ def _trace_normals(world: World, ray: Ray) -> Color:
     return 0.5 * (record.normal + Color(1.0))
 
 
-def _trace_ao(world: World, ray: Ray, mut rng: Rng) -> Color:
+def _trace_ao(world: World, ray: Ray[Frame.WORLD], mut rng: Rng) -> Color:
     var hit = _trace_world(world, ray)
     if not hit.hit:
         return _sky_color(ray)
 
     ref record = hit.record
-    var ao_dir = random_on_hemisphere(rng, record.normal)
-    var ao_ray = Ray(record.p, normalize(ao_dir), 0.001, 4.0)
+    var ao_dir = random_on_hemisphere[Frame.WORLD](rng, record.normal)
+    var ao_ray = Ray[Frame.WORLD](record.p, normalize(ao_dir), 0.001, 4.0)
     var occluder = world.trace(ao_ray)
     if occluder:
         return Color(0.08)
@@ -291,7 +314,12 @@ def _trace_ao(world: World, ray: Ray, mut rng: Rng) -> Color:
 
 def _trace_algorithm[
     ALGORITHM: UInt32, MAX_DEPTH: Int
-](settings: RenderSettings, world: World, ray: Ray, mut rng: Rng,) -> Color:
+](
+    settings: RenderSettings,
+    world: World,
+    ray: Ray[Frame.WORLD],
+    mut rng: Rng,
+) -> Color:
     comptime if ALGORITHM == RENDER_PATH:
         return _trace_path[MAX_DEPTH](settings, world, ray, rng)
     elif ALGORITHM == RENDER_NORMALS:

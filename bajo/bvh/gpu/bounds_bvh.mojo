@@ -2,7 +2,7 @@ from std.math import max, ceildiv
 from std.gpu import DeviceBuffer, DeviceContext
 from std.time import perf_counter_ns
 
-from bajo.core import AABB, AxisAlignedBoundingBox, Vec3
+from bajo.core import AABB, AxisAlignedBoundingBox, Vec3, Frame
 from bajo.core.intersect import intersect_ray_aabb_rcp, RayDistanceHit
 from bajo.bvh.types import Ray
 from bajo.bvh.constants import EMPTY_LANE, WideNode
@@ -114,13 +114,15 @@ struct GpuBoundsBvh[width: SIMDSize](Movable):
 
         return binary^
 
-    def root_bounds(self) raises -> AABB:
+    def root_bounds(self) raises -> AABB[Frame.WORLD]:
         with self.bounds_device.map_to_host() as h:
-            return AABB.load6(h.unsafe_ptr(), 0)
+            return AABB[Frame.WORLD].load6(h.unsafe_ptr(), 0)
 
-    def centroid_bounds(self) raises -> AABB:
+    def centroid_bounds(self) raises -> AABB[Frame.WORLD]:
         with self.bounds_device.map_to_host() as h:
-            return AABB.load6(h.unsafe_ptr(), AABB.STRIDE)
+            return AABB[Frame.WORLD].load6(
+                h.unsafe_ptr(), AABB[Frame.WORLD].STRIDE
+            )
 
 
 def _wide_lane_base[width: SIMDSize](node_idx: UInt32, lane: Int) -> Int:
@@ -173,12 +175,13 @@ def _load_wide_node_bounds_block[
     origin: ImmutOrigin,
     //,
     dtype: DType,
+    frame: Frame,
     width: SIMDSize,
 ](
     wide_nodes: UnsafePointer[Scalar[dtype], origin],
     node_idx: UInt32,
-) -> AxisAlignedBoundingBox[dtype, width]:
-    var aabb = AxisAlignedBoundingBox[dtype, width].invalid()
+) -> AxisAlignedBoundingBox[dtype, frame, width]:
+    var aabb = AxisAlignedBoundingBox[dtype, frame, width].invalid()
 
     comptime for lane in range(width):
         var b = _wide_node_base[width](node_idx, lane)
@@ -197,14 +200,15 @@ def _load_wide_node_bounds_block[
 def _intersect_wide_node_bounds[
     origin: ImmutOrigin,
     //,
+    frame: Frame,
     width: SIMDSize,
 ](
     wide_nodes: UnsafePointer[Float32, origin],
     node_idx: UInt32,
-    ray: Ray,
+    ray: Ray[frame],
     t_max: Float32,
 ) -> RayDistanceHit[DType.float32, width]:
-    var block = _load_wide_node_bounds_block[DType.float32, width](
+    var block = _load_wide_node_bounds_block[DType.float32, frame, width](
         wide_nodes,
         node_idx,
     )

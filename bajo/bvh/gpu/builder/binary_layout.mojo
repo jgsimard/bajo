@@ -1,7 +1,7 @@
 from std.math import max, ceildiv
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
 
-from bajo.core import AABB
+from bajo.core import AABB, Frame
 from bajo.bvh.constants import (
     LBVH_LEAF_FLAG,
     LBVH_INDEX_MASK,
@@ -74,10 +74,12 @@ def _write_child_bounds[
 
 def _load_and_union_node_bounds[
     origin: ImmutOrigin
-](node_bounds: UnsafePointer[Float32, origin], parent: UInt32) -> AABB:
+](node_bounds: UnsafePointer[Float32, origin], parent: UInt32) -> AABB[
+    Frame.WORLD
+]:
     var b = _node_bounds_base(parent)
-    b1 = AABB.load6(node_bounds, b)
-    b2 = AABB.load6(node_bounds, b + 6)
+    b1 = AABB[Frame.WORLD].load6(node_bounds, b)
+    b2 = AABB[Frame.WORLD].load6(node_bounds, b + 6)
     return AABB.merge(b1, b2)
 
 
@@ -89,7 +91,7 @@ def init_empty_bounds_kernel(
         return
 
     var b = i * BinaryBvhNode.BOUNDS_STRIDE
-    var invalid = AABB.invalid()
+    var invalid = AABB[Frame.WORLD].invalid()
     invalid.store6(bounds, b)
     invalid.store6(bounds, b + AABB.STRIDE)
 
@@ -106,12 +108,12 @@ def compute_bounds_partials_kernel(
 
     var last = min(first + BOUNDS_REDUCE_CHUNK, leaf_count)
 
-    var bounds = AABB.invalid()
-    var centroid_bounds = AABB.invalid()
+    var bounds = AABB[Frame.WORLD].invalid()
+    var centroid_bounds = AABB[Frame.WORLD].invalid()
 
     for leaf_idx in range(first, last):
         var b = leaf_idx * AABB.STRIDE
-        var aabb = AABB.load6(leaf_bounds, b)
+        var aabb = AABB[Frame.WORLD].load6(leaf_bounds, b)
 
         bounds.grow(aabb)
         centroid_bounds.grow(aabb.centroid())
@@ -133,14 +135,16 @@ def reduce_bounds_partials_kernel(
 
     var last = min(first + BOUNDS_REDUCE_CHUNK, partial_count)
 
-    var bounds = AABB.invalid()
-    var centroid_bounds = AABB.invalid()
+    var bounds = AABB[Frame.WORLD].invalid()
+    var centroid_bounds = AABB[Frame.WORLD].invalid()
 
     for i in range(first, last):
         var b = i * REDUCED_BOUNDS_STRIDE
 
-        var partial_bounds = AABB.load6(in_partials, b)
-        var partial_centroid_bounds = AABB.load6(in_partials, b + AABB.STRIDE)
+        var partial_bounds = AABB[Frame.WORLD].load6(in_partials, b)
+        var partial_centroid_bounds = AABB[Frame.WORLD].load6(
+            in_partials, b + AABB.STRIDE
+        )
 
         bounds.grow(partial_bounds)
         centroid_bounds.grow(partial_centroid_bounds)
@@ -282,13 +286,13 @@ struct GpuBinaryBoundsBvh(Movable):
         )
         self.node_flags = ctx.enqueue_create_buffer[DType.uint32](n_internal)
 
-    def root_bounds(self) raises -> AABB:
+    def root_bounds(self) raises -> AABB[Frame.WORLD]:
         with self.bounds_device.map_to_host() as h:
-            return AABB.load6(h.unsafe_ptr(), 0)
+            return AABB[Frame.WORLD].load6(h.unsafe_ptr(), 0)
 
-    def centroid_bounds(self) raises -> AABB:
+    def centroid_bounds(self) raises -> AABB[Frame.WORLD]:
         with self.bounds_device.map_to_host() as h:
-            return AABB.load6(h.unsafe_ptr(), AABB.STRIDE)
+            return AABB[Frame.WORLD].load6(h.unsafe_ptr(), AABB.STRIDE)
 
     def validate(self, bounds: AABB) raises -> GpuBVHValidation:
         var sorted_validation = validate_sorted_keys(

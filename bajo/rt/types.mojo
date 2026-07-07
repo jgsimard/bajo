@@ -3,6 +3,7 @@ from std.math import abs
 from bajo.core import (
     AABB,
     Affine3f32,
+    Frame,
     Vec3f32,
     cross,
     dot,
@@ -16,7 +17,7 @@ from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.types import Instance, Ray, Sphere
 
 
-comptime Color = Vec3f32
+comptime Color = Vec3f32[Frame.WORLD]
 comptime BVH_WIDTH = 8
 
 comptime MAT_LAMBERTIAN = UInt32(0)
@@ -128,8 +129,8 @@ struct SurfaceStore(Movable):
 @fieldwise_init
 struct HitRecord(Copyable, Writable):
     var primitive: PrimitiveId
-    var p: Point3f32
-    var normal: Vec3f32
+    var p: Point3f32[Frame.WORLD]
+    var normal: Vec3f32[Frame.WORLD]
     var surface: SurfaceId
     var t: Float32
     var front_face: Bool
@@ -138,7 +139,7 @@ struct HitRecord(Copyable, Writable):
 @fieldwise_init
 struct ScatterResult(Copyable, Writable):
     var ok: Bool
-    var ray: Ray
+    var ray: Ray[Frame.WORLD]
     var attenuation: Color
 
 
@@ -191,26 +192,26 @@ struct RenderResult(Movable):
 
 
 struct World(Movable):
-    var sphere_bvh: Optional[SphereBvh[BVH_WIDTH]]
-    var triangle_bvh: Optional[TriangleBvh[BVH_WIDTH]]
+    var sphere_bvh: Optional[SphereBvh[Frame.WORLD, BVH_WIDTH]]
+    var triangle_bvh: Optional[TriangleBvh[Frame.WORLD, BVH_WIDTH]]
     var triangle_tlas: Optional[Tlas[BVH_WIDTH]]
-    var spheres: List[Sphere]
+    var spheres: List[Sphere[Frame.WORLD]]
     var sphere_surfaces: List[SurfaceId]
-    var triangle_vertices: List[Point3f32]
+    var triangle_vertices: List[Point3f32[Frame.WORLD]]
     var triangle_surfaces: List[SurfaceId]
-    var triangle_meshes: List[List[Point3f32]]
-    var triangle_mesh_blases: List[TriangleBvh[BVH_WIDTH]]
+    var triangle_meshes: List[List[Point3f32[Frame.LOCAL]]]
+    var triangle_mesh_blases: List[TriangleBvh[Frame.LOCAL, BVH_WIDTH]]
     var triangle_instances: List[Instance]
     var triangle_instance_surfaces: List[SurfaceId]
     var surfaces: SurfaceStore
 
     def __init__(
         out self,
-        var spheres: List[Sphere],
+        var spheres: List[Sphere[Frame.WORLD]],
         var sphere_surfaces: List[SurfaceId],
-        var triangle_vertices: List[Point3f32],
+        var triangle_vertices: List[Point3f32[Frame.WORLD]],
         var triangle_surfaces: List[SurfaceId],
-        var triangle_meshes: List[List[Point3f32]],
+        var triangle_meshes: List[List[Point3f32[Frame.LOCAL]]],
         var triangle_instances: List[Instance],
         var triangle_instance_surfaces: List[SurfaceId],
         var surfaces: SurfaceStore,
@@ -247,13 +248,15 @@ struct World(Movable):
         self.triangle_instance_surfaces = triangle_instance_surfaces^
         self.surfaces = surfaces^
 
-        self.sphere_bvh = Optional[SphereBvh[BVH_WIDTH]]()
-        self.triangle_bvh = Optional[TriangleBvh[BVH_WIDTH]]()
+        self.sphere_bvh = Optional[SphereBvh[Frame.WORLD, BVH_WIDTH]]()
+        self.triangle_bvh = Optional[TriangleBvh[Frame.WORLD, BVH_WIDTH]]()
         self.triangle_tlas = Optional[Tlas[BVH_WIDTH]]()
-        self.triangle_mesh_blases = List[TriangleBvh[BVH_WIDTH]]()
+        self.triangle_mesh_blases = List[TriangleBvh[Frame.LOCAL, BVH_WIDTH]]()
 
         if len(self.spheres) > 0:
-            var bvh_spheres = List[Sphere](capacity=len(self.spheres))
+            var bvh_spheres = List[Sphere[Frame.WORLD]](
+                capacity=len(self.spheres)
+            )
             for i in range(len(self.spheres)):
                 ref s = self.spheres[i]
                 debug_assert["safe"](
@@ -263,10 +266,10 @@ struct World(Movable):
                     self.surfaces.validate(self.sphere_surfaces[i]),
                     "sphere surface id is out of range",
                 )
-                bvh_spheres.append(Sphere(s.center, abs(s.radius)))
+                bvh_spheres.append(Sphere[Frame.WORLD](s.center, abs(s.radius)))
 
-            self.sphere_bvh = Optional[SphereBvh[BVH_WIDTH]](
-                SphereBvh[BVH_WIDTH].__init__["lbvh"](bvh_spheres^)
+            self.sphere_bvh = Optional[SphereBvh[Frame.WORLD, BVH_WIDTH]](
+                SphereBvh[Frame.WORLD, BVH_WIDTH].__init__["lbvh"](bvh_spheres^)
             )
 
         if len(self.triangle_vertices) > 0:
@@ -276,8 +279,8 @@ struct World(Movable):
                     "triangle surface id is out of range",
                 )
 
-            self.triangle_bvh = Optional[TriangleBvh[BVH_WIDTH]](
-                TriangleBvh[BVH_WIDTH].__init__["lbvh"](
+            self.triangle_bvh = Optional[TriangleBvh[Frame.WORLD, BVH_WIDTH]](
+                TriangleBvh[Frame.WORLD, BVH_WIDTH].__init__["lbvh"](
                     self.triangle_vertices.copy()
                 )
             )
@@ -293,7 +296,9 @@ struct World(Movable):
                     ),
                 )
                 self.triangle_mesh_blases.append(
-                    TriangleBvh[BVH_WIDTH].__init__["lbvh"](vertices.copy())
+                    TriangleBvh[Frame.LOCAL, BVH_WIDTH].__init__["lbvh"](
+                        vertices.copy()
+                    )
                 )
 
             for i in range(len(self.triangle_instances)):
@@ -315,10 +320,10 @@ struct World(Movable):
                 Tlas[BVH_WIDTH](self.triangle_instances)
             )
 
-    def hit(self, ray: Ray) -> Optional[HitRecord]:
+    def hit(self, ray: Ray[Frame.WORLD]) -> Optional[HitRecord]:
         return self.trace(ray)
 
-    def trace(self, ray: Ray) -> Optional[HitRecord]:
+    def trace(self, ray: Ray[Frame.WORLD]) -> Optional[HitRecord]:
         var sphere_hit = self._trace_spheres(ray)
         var triangle_hit = self._trace_triangles(ray)
         var instance_hit = self._trace_triangle_instances(ray)
@@ -346,7 +351,7 @@ struct World(Movable):
 
         return None
 
-    def _trace_spheres(self, ray: Ray) -> Optional[HitRecord]:
+    def _trace_spheres(self, ray: Ray[Frame.WORLD]) -> Optional[HitRecord]:
         if not self.sphere_bvh:
             return None
 
@@ -379,12 +384,14 @@ struct World(Movable):
             front_face,
         )
 
-    def _trace_triangle_instances(self, ray: Ray) -> Optional[HitRecord]:
+    def _trace_triangle_instances(
+        self, ray: Ray[Frame.WORLD]
+    ) -> Optional[HitRecord]:
         if not self.triangle_tlas:
             return None
 
         var bvh_hit = self.triangle_tlas.value().trace[
-            TriangleBvh[BVH_WIDTH],
+            TriangleBvh[Frame.LOCAL, BVH_WIDTH],
             TRACE.CLOSEST_HIT,
         ](ray, self.triangle_mesh_blases.unsafe_ptr())
         if not bvh_hit.is_hit() or bvh_hit.inst == EMPTY_LANE:
@@ -427,7 +434,7 @@ struct World(Movable):
             front_face,
         )
 
-    def _trace_triangles(self, ray: Ray) -> Optional[HitRecord]:
+    def _trace_triangles(self, ray: Ray[Frame.WORLD]) -> Optional[HitRecord]:
         if not self.triangle_bvh:
             return None
 
@@ -466,7 +473,7 @@ struct World(Movable):
         )
 
 
-def ray_at(ray: Ray, t: Float32) -> Point3f32:
+def ray_at(ray: Ray[Frame.WORLD], t: Float32) -> Point3f32[Frame.WORLD]:
     return ray.o + t * ray.d
 
 
@@ -487,23 +494,23 @@ def _closest_hit3(
 
 
 def add_sphere(
-    mut spheres: List[Sphere],
+    mut spheres: List[Sphere[Frame.WORLD]],
     mut sphere_surfaces: List[SurfaceId],
-    center: Point3f32,
+    center: Point3f32[Frame.WORLD],
     radius: Float32,
     surface: SurfaceId,
 ):
     debug_assert["safe"](radius != 0.0, "sphere radius must be non-zero")
-    spheres.append(Sphere(center, radius))
+    spheres.append(Sphere[Frame.WORLD](center, radius))
     sphere_surfaces.append(surface.copy())
 
 
 def add_triangle(
-    mut triangle_vertices: List[Point3f32],
+    mut triangle_vertices: List[Point3f32[Frame.WORLD]],
     mut triangle_surfaces: List[SurfaceId],
-    v0: Point3f32,
-    v1: Point3f32,
-    v2: Point3f32,
+    v0: Point3f32[Frame.WORLD],
+    v1: Point3f32[Frame.WORLD],
+    v2: Point3f32[Frame.WORLD],
     surface: SurfaceId,
 ):
     triangle_vertices.append(v0)
@@ -513,9 +520,9 @@ def add_triangle(
 
 
 def add_triangle_mesh(
-    mut triangle_vertices: List[Point3f32],
+    mut triangle_vertices: List[Point3f32[Frame.WORLD]],
     mut triangle_surfaces: List[SurfaceId],
-    vertices: List[Point3f32],
+    vertices: List[Point3f32[Frame.WORLD]],
     surface: SurfaceId,
 ):
     debug_assert["safe"](
@@ -529,13 +536,13 @@ def add_triangle_mesh(
 
 
 def add_triangle_mesh_instance(
-    mut triangle_meshes: List[List[Point3f32]],
+    mut triangle_meshes: List[List[Point3f32[Frame.LOCAL]]],
     mut triangle_instances: List[Instance],
     mut triangle_instance_surfaces: List[SurfaceId],
-    vertices: List[Point3f32],
-    transform: Affine3f32,
-    inv_transform: Affine3f32,
-    bounds: AABB,
+    vertices: List[Point3f32[Frame.LOCAL]],
+    transform: Affine3f32[Frame.LOCAL, Frame.WORLD],
+    inv_transform: Affine3f32[Frame.WORLD, Frame.LOCAL],
+    bounds: AABB[Frame.LOCAL],
     surface: SurfaceId,
 ) -> UInt32:
     debug_assert["safe"](
@@ -561,9 +568,9 @@ def add_triangle_instance(
     mut triangle_instances: List[Instance],
     mut triangle_instance_surfaces: List[SurfaceId],
     mesh_idx: UInt32,
-    transform: Affine3f32,
-    inv_transform: Affine3f32,
-    mesh_bounds: AABB,
+    transform: Affine3f32[Frame.LOCAL, Frame.WORLD],
+    inv_transform: Affine3f32[Frame.WORLD, Frame.LOCAL],
+    mesh_bounds: AABB[Frame.LOCAL],
     surface: SurfaceId,
 ):
     triangle_instances.append(

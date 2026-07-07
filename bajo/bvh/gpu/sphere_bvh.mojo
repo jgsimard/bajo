@@ -12,7 +12,7 @@ from bajo.bvh.constants import (
     WideNode,
 )
 from bajo.core.utils import min_argmin
-from bajo.core import AABB, Vec3, Point3
+from bajo.core import AABB, Vec3, Point3, Frame
 from bajo.core.intersect import intersect_ray_sphere
 from bajo.bvh.types import Sphere, Ray, Hit, BlasSet
 from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh
@@ -22,9 +22,10 @@ from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list
 
 def build_sphere_blas_set[
     width: SIMDSize
-](mut ctx: DeviceContext, sphere_sets: List[List[Sphere]]) raises -> BlasSet[
-    width
-]:
+](
+    mut ctx: DeviceContext,
+    sphere_sets: List[List[Sphere[Frame.LOCAL]]],
+) raises -> BlasSet[width]:
     debug_assert["safe"](len(sphere_sets) > 0)
 
     var descs = List[UInt32](capacity=len(sphere_sets) * BlasSet.STRIDE)
@@ -67,7 +68,7 @@ def build_sphere_blas_set[
     # Second pass: build each BLAS, then copy its device buffers into the
     # final packed device buffers.
     for blas_idx in range(len(sphere_sets)):
-        var blas = GpuSphereBvh[width](ctx, sphere_sets[blas_idx])
+        var blas = GpuSphereBvh[Frame.LOCAL, width](ctx, sphere_sets[blas_idx])
 
         var desc_base = blas_idx * BlasSet.STRIDE
 
@@ -97,7 +98,7 @@ def build_sphere_blas_set[
     )
 
 
-struct GpuSphereBvh[width: SIMDSize]:
+struct GpuSphereBvh[frame: Frame, width: SIMDSize]:
     var tree: GpuBoundsBvh[Self.width]
     var spheres: DeviceBuffer[DType.float32]
     var leaf_spheres: DeviceBuffer[DType.float32]
@@ -107,7 +108,7 @@ struct GpuSphereBvh[width: SIMDSize]:
     def __init__(
         out self,
         mut ctx: DeviceContext,
-        spheres: List[Sphere],
+        spheres: List[Sphere[Self.frame]],
     ) raises:
         self.sphere_count = len(spheres)
 
@@ -115,7 +116,7 @@ struct GpuSphereBvh[width: SIMDSize]:
         self.spheres = upload_list(ctx, flat_spheres)
 
         var leaf_bounds = List[Float32](
-            capacity=max(self.sphere_count, 1) * AABB.STRIDE
+            capacity=max(self.sphere_count, 1) * AABB[Self.frame].STRIDE
         )
         var payloads = List[UInt32](capacity=max(self.sphere_count, 1))
 
@@ -170,6 +171,7 @@ struct GpuSphereBvh[width: SIMDSize]:
         cwidth: Int,
         cheight: Int,
     ) raises:
+        comptime assert Self.frame == Frame.WORLD
         ctx.enqueue_function[trace_sphere_bvh_camera_kernel[Self.width]](
             self.tree.wide_nodes,
             self.leaf_spheres,
@@ -210,9 +212,11 @@ def trace_sphere_bvh_camera_kernel[
     var ray = camera.make_ray(px_i, py_i, width_px, height_px)
 
     var hit = trace_bounds_bvh[
+        Frame.WORLD,
         width,
         TRACE.CLOSEST_HIT,
         _intersect_sphere_leaf[
+            Frame.WORLD,
             width,
             TRACE.CLOSEST_HIT,
         ],
@@ -226,18 +230,19 @@ def trace_sphere_bvh_camera_kernel[
 
 
 def _intersect_sphere_leaf[
+    frame: Frame,
     width: SIMDSize,
     mode: TRACE,
 ](
     leaf_spheres: UnsafePointer[mut=False, Float32, _],
     leaf_block_idx: UInt32,
-    ray: Ray,
-    mut hit: Hit,
+    ray: Ray[frame],
+    mut hit: Hit[frame],
 ) capturing -> Bool:
     var block_base = Int(leaf_block_idx) * SPHERE_LEAF_PACKED_STRIDE * width
     var leaf_spheres_u32 = leaf_spheres.bitcast[UInt32]()
 
-    var center = Point3(
+    var center = Point3[DType.float32, frame, width](
         leaf_spheres.load[width=width](block_base + 0 * width),
         leaf_spheres.load[width=width](block_base + 1 * width),
         leaf_spheres.load[width=width](block_base + 2 * width),
@@ -310,7 +315,9 @@ def pack_sphere_leaf_lanes_kernel[
     leaf_spheres[out_base + 3 * width + lane] = spheres[in_base + 3]
 
 
-def _flatten_spheres(spheres: List[Sphere]) -> List[Float32]:
+def _flatten_spheres[
+    frame: Frame
+](spheres: List[Sphere[frame]]) -> List[Float32]:
     var out = List[Float32](capacity=max(len(spheres), 1) * Sphere.STRIDE)
     for sphere in spheres:
         out.append(sphere.center.x)

@@ -75,14 +75,14 @@ def _make_duplicate_centroid_scene[frame: Frame]() -> List[Point3f32[frame]]:
 
 def _make_small_sphere_scene[frame: Frame]() -> List[Sphere[frame]]:
     return [
-        Sphere(Point3f32[frame](0.0, 0.0, 2.0), 1.0),
-        Sphere(Point3f32[frame](4.0, 0.0, 4.0), 1.0),
-        Sphere(Point3f32[frame](-4.0, 0.0, 6.0), 1.0),
-        Sphere(Point3f32[frame](0.0, 4.0, 8.0), 1.0),
-        Sphere(Point3f32[frame](4.0, 4.0, 10.0), 1.0),
-        Sphere(Point3f32[frame](-4.0, 4.0, 12.0), 1.0),
-        Sphere(Point3f32[frame](4.0, -4.0, 14.0), 1.0),
-        Sphere(Point3f32[frame](-4.0, -4.0, 16.0), 1.0),
+        Sphere[frame](Point3f32[frame](0.0, 0.0, 2.0), 1.0),
+        Sphere[frame](Point3f32[frame](4.0, 0.0, 4.0), 1.0),
+        Sphere[frame](Point3f32[frame](-4.0, 0.0, 6.0), 1.0),
+        Sphere[frame](Point3f32[frame](0.0, 4.0, 8.0), 1.0),
+        Sphere[frame](Point3f32[frame](4.0, 4.0, 10.0), 1.0),
+        Sphere[frame](Point3f32[frame](-4.0, 4.0, 12.0), 1.0),
+        Sphere[frame](Point3f32[frame](4.0, -4.0, 14.0), 1.0),
+        Sphere[frame](Point3f32[frame](-4.0, -4.0, 16.0), 1.0),
     ]
 
 
@@ -95,7 +95,7 @@ def _make_small_sphere_scene_with_bounds[
 
 
 def _make_single_sphere_scene[frame: Frame]() -> List[Sphere[frame]]:
-    return [Sphere(Point3f32[frame](0.0, 0.0, 2.0), 1.0)]
+    return [Sphere[frame](Point3f32[frame](0.0, 0.0, 2.0), 1.0)]
 
 
 def _make_duplicate_sphere_centroid_scene[
@@ -104,48 +104,48 @@ def _make_duplicate_sphere_centroid_scene[
     var spheres = List[Sphere[frame]](capacity=12)
     for i in range(12):
         spheres.append(
-            Sphere(Point3f32[frame](0.0, 0.0, 2.0), 1.0 + Float32(i % 3) * 0.01)
+            Sphere[frame](
+                Point3f32[frame](0.0, 0.0, 2.0), 1.0 + Float32(i % 3) * 0.01
+            )
         )
     return spheres^
 
 
-def _camera_for_bounds[
-    frame: Frame
-](bounds: AABB[frame], distance: Float32 = 2.5) -> Camera:
+def _camera_for_bounds(
+    bounds: AABB[Frame.WORLD], distance: Float32 = 2.5
+) -> Camera:
     var center = bounds.centroid()
     var extent = bounds.extent()
     var scene_w = max(max(extent.x, extent.y), extent.z)
     if scene_w < 1.0:
         scene_w = 1.0
 
-    var eye = center + Vec3f32[frame](0.0, 0.0, -scene_w * distance)
+    var eye = center + Vec3f32[Frame.WORLD](0.0, 0.0, -scene_w * distance)
     return Camera(
         eye,
         center,
-        Vec3f32(0.0, 1.0, 0.0),
+        Vec3f32[Frame.WORLD](0.0, 1.0, 0.0),
         Float32(0.75),
     )
 
 
-def _make_camera_ray(origin: Point3f32, direction: Vec3f32) -> Camera:
+def _make_camera_ray(
+    origin: Point3f32[Frame.WORLD], direction: Vec3f32[Frame.WORLD]
+) -> Camera:
     return Camera(
         origin,
         origin + direction,
-        Vec3f32(0.0, 1.0, 0.0),
+        Vec3f32[Frame.WORLD](0.0, 1.0, 0.0),
         Float32(0.75),
     )
 
 
-def _make_camera_rays_and_params[
-    frame: Frame
-](
-    bounds: AABB[frame],
+def _make_camera_rays_and_params(
+    bounds: AABB[Frame.WORLD],
     width: Int,
     height: Int,
     views: Int,
-) -> Tuple[
-    List[Ray[frame]], List[Float32]
-]:
+) -> Tuple[List[Ray[Frame.WORLD]], List[Float32]]:
     var center = bounds.centroid()
     var extent = bounds.extent()
 
@@ -153,12 +153,12 @@ def _make_camera_rays_and_params[
     if scene_w < 1.0:
         scene_w = 1.0
 
-    var rays = List[Ray[frame]](capacity=width * height * views)
+    var rays = List[Ray[Frame.WORLD]](capacity=width * height * views)
     var params = List[Float32](capacity=views * Camera.STRIDE)
 
     for view in range(views):
         var view_offset = Float32(view) - Float32(views - 1) * 0.5
-        var eye = center + Vec3f32[frame](
+        var eye = center + Vec3f32[Frame.WORLD](
             view_offset * scene_w * 0.30,
             extent.y * 0.20,
             -scene_w * 2.50,
@@ -166,7 +166,7 @@ def _make_camera_rays_and_params[
         var camera = Camera(
             eye,
             center,
-            Vec3f32(0.0, 1.0, 0.0),
+            Vec3f32[Frame.WORLD](0.0, 1.0, 0.0),
             Float32(0.75),
         )
         params.extend(camera.flatten())
@@ -236,7 +236,7 @@ def _brute_sphere_trace[
 
 def _trace_cpu_triangle_bvh[
     frame: Frame, width: SIMDSize
-](mut bvh: TriangleBvh[width], rays: List[Ray[frame]]) -> Float64:
+](mut bvh: TriangleBvh[frame, width], rays: List[Ray[frame]]) -> Float64:
     var checksum = Float64(0.0)
     for ray in rays:
         var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
@@ -248,7 +248,10 @@ def _trace_cpu_triangle_bvh[
 def _trace_cpu_triangle_camera[
     width: SIMDSize
 ](
-    mut bvh: TriangleBvh[width], camera: Camera, cwidth: Int, cheight: Int
+    mut bvh: TriangleBvh[Frame.WORLD, width],
+    camera: Camera,
+    cwidth: Int,
+    cheight: Int,
 ) -> Tuple[Float64, UInt32]:
     var checksum = Float64(0.0)
     var hits = UInt32(0)
@@ -264,10 +267,8 @@ def _trace_cpu_triangle_camera[
     return (checksum, hits)
 
 
-def _trace_cpu_sphere_camera[
-    frame: Frame
-](
-    spheres: List[Sphere[frame]],
+def _trace_cpu_sphere_camera(
+    spheres: List[Sphere[Frame.WORLD]],
     camera: Camera,
     cwidth: Int,
     cheight: Int,
@@ -317,7 +318,7 @@ def _download_hit_checksum(
 
 
 def _download_tlas_checksum[
-    frame: Frame
+    frame: Frame = Frame.WORLD
 ](
     d_hits: DeviceBuffer[DType.float32],
     ray_count: Int,

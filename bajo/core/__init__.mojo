@@ -20,12 +20,14 @@ from .mat import Mat
 from .frame import Frame
 
 
-comptime AABB = AxisAlignedBoundingBox[DType.float32, _]
+comptime AABB[frame: Frame = Frame.WORLD] = AxisAlignedBoundingBox[
+    DType.float32, frame
+]
 comptime Quat = Quaternion[DType.float32, _]
 comptime Affine3f32[From: Frame, To: Frame] = Affine3[DType.float32, From, To]
 comptime Vec2f32 = Vec2[DType.float32, _]
-comptime Vec3f32 = Vec3[DType.float32, _]
-comptime Point3f32 = Point3[DType.float32, _]
+comptime Vec3f32[frame: Frame = Frame.WORLD] = Vec3[DType.float32, frame]
+comptime Point3f32[frame: Frame = Frame.WORLD] = Point3[DType.float32, frame]
 
 
 comptime Mat22 = Mat[_, 2, 2, _]

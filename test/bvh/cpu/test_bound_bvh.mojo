@@ -469,7 +469,7 @@ def test_triangle_bvh_shadow_hit_and_miss() raises:
 
 
 def test_sphere_bounds() raises:
-    var s = Sphere(Point3f32(1.0, 2.0, 3.0), 2.0)
+    var s = Sphere(Point3f32[Frame.WORLD](1.0, 2.0, 3.0), 2.0)
     var b = s.bounds()
 
     assert_almost_equal(b._min.x, -1.0)

@@ -28,7 +28,10 @@ def apply_trs_naive_________(
     box: AABB, translation: Vec3f32, rotation: Quat, scale: Vec3f32
 ) -> AABB:
     rot_mat = Mat33f32.from_rotation_scale(rotation, scale)
-    txfmed = AABB(translation.to_point(), translation.to_point())
+    txfmed = AABB(
+        translation.unsafe_convert_kind[GeoKind.POINT](),
+        translation.unsafe_convert_kind[GeoKind.POINT](),
+    )
 
     for i in range(3):
         for j in range(3):
@@ -48,7 +51,10 @@ def apply_trs_naive_comptime(
     box: AABB, translation: Vec3f32, rotation: Quat, scale: Vec3f32
 ) -> AABB:
     rot_mat = Mat33f32.from_rotation_scale(rotation, scale)
-    txfmed = AABB(translation.to_point(), translation.to_point())
+    txfmed = AABB(
+        translation.unsafe_convert_kind[GeoKind.POINT](),
+        translation.unsafe_convert_kind[GeoKind.POINT](),
+    )
 
     comptime for j in range(3):
         comptime for i in range(3):
@@ -89,7 +95,10 @@ def apply_trs_arvo_v0_______(
     new_min += vmin(c2_a, c2_b)
     new_max += vmax(c2_a, c2_b)
 
-    return AABB(new_min.to_point(), new_max.to_point())
+    return AABB(
+        new_min.unsafe_convert_kind[GeoKind.POINT](),
+        new_max.unsafe_convert_kind[GeoKind.POINT](),
+    )
 
 
 def apply_trs_arvo_v1_______(
@@ -105,7 +114,10 @@ def apply_trs_arvo_v1_______(
         new_min += vmin(c_a, c_b)
         new_max += vmax(c_a, c_b)
 
-    return AABB(new_min.to_point(), new_max.to_point())
+    return AABB(
+        new_min.unsafe_convert_kind[GeoKind.POINT](),
+        new_max.unsafe_convert_kind[GeoKind.POINT](),
+    )
 
 
 def apply_trs_affine3_v0_width[
@@ -150,7 +162,10 @@ def apply_trs_affine3_v0_width[
     new_min += vmin(c2_a, c2_b)
     new_max += vmax(c2_a, c2_b)
 
-    return AxisAlignedBoundingBox(new_min.to_point(), new_max.to_point())
+    return AxisAlignedBoundingBox(
+        new_min.unsafe_convert_kind[GeoKind.POINT](),
+        new_max.unsafe_convert_kind[GeoKind.POINT](),
+    )
 
 
 def apply_trs_affine3_v1_width[
@@ -205,7 +220,10 @@ def apply_trs_affine3_v1_width[
     _add_transformed_axis_width[1](transform.m12, box._min.z, box._max.z)
     _add_transformed_axis_width[2](transform.m22, box._min.z, box._max.z)
 
-    return AxisAlignedBoundingBox(new_min.to_point(), new_max.to_point())
+    return AxisAlignedBoundingBox(
+        new_min.unsafe_convert_kind[GeoKind.POINT](),
+        new_max.unsafe_convert_kind[GeoKind.POINT](),
+    )
 
 
 def dispatch_affine3_width[

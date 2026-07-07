@@ -44,16 +44,20 @@ def test_apply_trs_rotated() raises:
     # Rotate 45 degrees around Z
     angle = degrees_to_radians(Float32(45))
     r = Quat.from_axis_angle(Vec3f32(0, 0, 1), angle)
-    t = Vec3f32(0)
-    s = Vec3f32(1)
-    transform = Affine3.from_rotation_scale_translation(r, s, t)
+    t = Vec3f32[Frame.WORLD](0)
+    s = Vec3f32[Frame.WORLD](1)
+    transform = Affine3[
+        DType.float32, Frame.WORLD, Frame.CAMERA
+    ].from_rotation_scale_translation(r, s, t)
 
     new_box = box.apply_transform(transform)
 
     # the corners should move to ±sqrt(2)
     sqrt_2 = Float32(sqrt(2.0))
-    assert_vec_equal(new_box._min, Point3f32(-sqrt_2, -sqrt_2, -1.0))
-    assert_vec_equal(new_box._max, Point3f32(sqrt_2, sqrt_2, 1.0))
+    assert_vec_equal(
+        new_box._min, Point3f32[Frame.CAMERA](-sqrt_2, -sqrt_2, -1.0)
+    )
+    assert_vec_equal(new_box._max, Point3f32[Frame.CAMERA](sqrt_2, sqrt_2, 1.0))
 
 
 def test_aabb_store6_with_nonzero_base() raises:

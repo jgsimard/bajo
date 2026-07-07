@@ -1,7 +1,7 @@
 from std.utils.numerics import max_finite, min_finite
 
 from bajo.core.transform import Affine3
-from bajo.core.vec import Vec3, vmin, vmax, Point3
+from bajo.core.vec import Vec3, vmin, vmax, Point3, GeoKind
 from bajo.core.frame import Frame
 
 
@@ -88,25 +88,35 @@ struct AxisAlignedBoundingBox[dtype: DType, frame: Frame, width: SIMDSize = 1](
     ](
         self, transform: Affine3[Self.dtype, Self.frame, To, Self.width]
     ) -> AxisAlignedBoundingBox[Self.dtype, To, Self.width]:
-        var new_min = transform.translation().to_point()
-        var new_max = transform.translation().to_point()
+        var new_min = transform.translation().unsafe_convert_kind[
+            GeoKind.POINT
+        ]()
+        var new_max = transform.translation().unsafe_convert_kind[
+            GeoKind.POINT
+        ]()
 
         # X column
-        var c0 = Point3(transform.m00, transform.m10, transform.m20)
+        var c0 = Point3[Self.dtype, To, self.width](
+            transform.m00, transform.m10, transform.m20
+        )
         var c0_a = c0 * self._min.x
         var c0_b = c0 * self._max.x
         new_min += vmin(c0_a, c0_b)
         new_max += vmax(c0_a, c0_b)
 
         # Y column
-        var c1 = Point3(transform.m01, transform.m11, transform.m21)
+        var c1 = Point3[Self.dtype, To, self.width](
+            transform.m01, transform.m11, transform.m21
+        )
         var c1_a = c1 * self._min.y
         var c1_b = c1 * self._max.y
         new_min += vmin(c1_a, c1_b)
         new_max += vmax(c1_a, c1_b)
 
         # Z column
-        var c2 = Point3(transform.m02, transform.m12, transform.m22)
+        var c2 = Point3[Self.dtype, To, self.width](
+            transform.m02, transform.m12, transform.m22
+        )
         var c2_a = c2 * self._min.z
         var c2_b = c2 * self._max.z
         new_min += vmin(c2_a, c2_b)

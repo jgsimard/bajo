@@ -2,6 +2,7 @@ from .aabb import AxisAlignedBoundingBox
 from .quat import Quaternion
 from .transform import Affine3
 from .vec import (
+    GeoKind,
     Vec2,
     Vec3,
     Point3,

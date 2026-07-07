@@ -129,17 +129,17 @@ struct Geo3[
         self.y = SIMD[Self.dtype, Self.width](x)
         self.z = SIMD[Self.dtype, Self.width](x)
 
-    def convert[
+    def unsafe_convert_kind[
         new_kind: GeoKind
     ](deinit self) -> Geo3[Self.dtype, new_kind, Self.frame, Self.width]:
         return Geo3[Self.dtype, new_kind, Self.frame, Self.width](
             self.x, self.y, self.z
         )
 
-    def to_point(
-        deinit self,
-    ) -> Geo3[Self.dtype, GeoKind.POINT, Self.frame, Self.width]:
-        return Point3[Self.dtype, Self.frame, Self.width](
+    def unsafe_convert_frame[
+        new_frame: Frame
+    ](deinit self) -> Geo3[Self.dtype, Self.kind, new_frame, Self.width]:
+        return Geo3[Self.dtype, Self.kind, new_frame, Self.width](
             self.x, self.y, self.z
         )
 

@@ -18,7 +18,7 @@ from std.math import ceildiv
 from std.memory import stack_allocation
 from std.sys.info import bit_width_of
 
-from .utils import circular_shift, warp_level_multi_split
+from .utils import circular_shift, warp_level_multi_split, DoubleBuffer
 
 comptime ordering = Ordering.RELAXED
 comptime LANE_LOG = count_trailing_zeros(WARP_SIZE)  # 2^5 = 32 => 5
@@ -376,6 +376,8 @@ def device_radix_sort_keys[
 
     var keys_alternate = ctx.enqueue_create_buffer[dtype](size)
 
+    db_keys = DoubleBuffer(keys.unsafe_ptr(), keys_alternate.unsafe_ptr())
+
     var global_hist = ctx.enqueue_create_buffer[DType.uint32](GLOBAL_HIST)
     var pass_hist = ctx.enqueue_create_buffer[DType.uint32](gdim * RADIX)
 
@@ -404,7 +406,7 @@ def device_radix_sort_keys[
 
         # Upsweep (Global Histogram)
         ctx.enqueue_function[_upsweep](
-            keys,
+            db_keys.current,
             global_hist.unsafe_ptr(),
             pass_hist.unsafe_ptr(),
             size,
@@ -423,8 +425,8 @@ def device_radix_sort_keys[
 
         # Downsweep (Scatter keys only)
         ctx.enqueue_function[_downsweep_keys](
-            keys,
-            keys_alternate,
+            db_keys.current,
+            db_keys.alternate,
             _dummy_ptr,
             _dummy_ptr,
             global_hist.unsafe_ptr(),
@@ -434,8 +436,7 @@ def device_radix_sort_keys[
             grid_dim=gdim,
             block_dim=DOWNSWEEP_BLOCK_SIZE,
         )
-
-        swap(keys, keys_alternate)
+        db_keys.swap()
 
     ctx.synchronize()
 
@@ -492,10 +493,13 @@ def device_radix_sort_pairs[
 
     var gdim = ceildiv(size, PART_SIZE)
 
-    keys_current = keys.unsafe_ptr()
-    keys_alternate = workspace.keys_alternate.unsafe_ptr()
-    vals_current = values.unsafe_ptr()
-    vals_alternate = workspace.vals_alternate.unsafe_ptr()
+    db_keys = DoubleBuffer(
+        keys.unsafe_ptr(), workspace.keys_alternate.unsafe_ptr()
+    )
+    db_vals = DoubleBuffer(
+        values.unsafe_ptr(), workspace.vals_alternate.unsafe_ptr()
+    )
+
     global_hist = workspace.global_hist.unsafe_ptr()
     pass_hist = workspace.pass_hist.unsafe_ptr()
 
@@ -521,7 +525,7 @@ def device_radix_sort_pairs[
 
         # 1. Upsweep (Global Histogram)
         ctx.enqueue_function[_upsweep](
-            keys_current,
+            db_keys.current,
             global_hist,
             pass_hist,
             size,
@@ -540,10 +544,10 @@ def device_radix_sort_pairs[
 
         # 3. Downsweep (Scatter)
         ctx.enqueue_function[_downsweep_pairs](
-            keys_current,
-            keys_alternate,
-            Optional(vals_current),
-            Optional(vals_alternate),
+            db_keys.current,
+            db_keys.alternate,
+            Optional(db_vals.current),
+            Optional(db_vals.alternate),
             global_hist,
             pass_hist,
             size,
@@ -552,8 +556,8 @@ def device_radix_sort_pairs[
             block_dim=DOWNSWEEP_BLOCK_SIZE,
         )
 
-        swap(keys_current, keys_alternate)
-        swap(vals_current, vals_alternate)
+        db_keys.swap()
+        db_vals.swap()
 
     ctx.synchronize()
 

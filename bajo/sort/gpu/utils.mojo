@@ -4,6 +4,17 @@ from std.gpu.primitives import warp, block
 from std.atomic import Atomic, Ordering
 
 
+@fieldwise_init
+struct DoubleBuffer[origin_c: MutOrigin, origin_a: MutOrigin, dtype: DType]:
+    var current: UnsafePointer[Scalar[Self.dtype], Self.origin_c]
+    var alternate: UnsafePointer[Scalar[Self.dtype], Self.origin_a]
+
+    def swap(mut self):
+        var tmp = self.current
+        self.current = self.alternate.unsafe_origin_cast[Self.origin_c]()
+        self.alternate = tmp.unsafe_origin_cast[Self.origin_a]()
+
+
 def circular_shift(val: UInt32) -> UInt32:
     comptime WARP_MASK = UInt32(WARP_SIZE - 1)
     var lid = UInt32(lane_id())

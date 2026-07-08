@@ -15,7 +15,7 @@ from std.math import ceildiv
 from std.memory import stack_allocation, bitcast
 from std.sys.info import bit_width_of
 
-from .utils import circular_shift, warp_level_multi_split
+from .utils import circular_shift, warp_level_multi_split, DoubleBuffer
 
 comptime ordering = Ordering.RELAXED
 comptime LANE_LOG = count_trailing_zeros(WARP_SIZE)  # 2^5 = 32 => 5
@@ -368,8 +368,9 @@ def onesweep_radix_sort_keys[
     workspace.pass_hist.enqueue_fill(0)
     ctx.synchronize()
 
-    keys_current = keys.unsafe_ptr()
-    keys_alternate = workspace.keys_alternate.unsafe_ptr()
+    db_keys = DoubleBuffer(
+        keys.unsafe_ptr(), workspace.keys_alternate.unsafe_ptr()
+    )
     dummy_v_ptr = Optional[UnsafePointer[Scalar[DType.invalid], MutAnyOrigin]]()
     global_hist = workspace.global_hist.unsafe_ptr()
     pass_hist = workspace.pass_hist.unsafe_ptr()
@@ -383,7 +384,7 @@ def onesweep_radix_sort_keys[
         ITEMS_PER_THREAD=G_HIST_ITEMS_PER_THREAD,
     ]
     ctx.enqueue_function[_ghist](
-        keys_current,
+        db_keys.current,
         global_hist,
         size,
         grid_dim=g_hist_blocks,
@@ -415,8 +416,8 @@ def onesweep_radix_sort_keys[
         var pass_hist_offset = pass_idx * hist_blocks * RADIX
         var pass_hist_ptr = pass_hist + pass_hist_offset
         ctx.enqueue_function[_bin](
-            keys_current,
-            keys_alternate,
+            db_keys.current,
+            db_keys.alternate,
             dummy_v_ptr,
             dummy_v_ptr,
             pass_hist_ptr,
@@ -426,7 +427,7 @@ def onesweep_radix_sort_keys[
             grid_dim=binning_blocks,
             block_dim=BINNING_TPB,
         )
-        swap(keys_current, keys_alternate)
+        db_keys.swap()
 
     ctx.synchronize()
 
@@ -467,10 +468,13 @@ def onesweep_radix_sort_pairs[
     workspace.pass_hist.enqueue_fill(0)
     ctx.synchronize()
 
-    keys_current = keys.unsafe_ptr()
-    keys_alternate = workspace.keys_alternate.unsafe_ptr()
-    vals_current = values.unsafe_ptr()
-    vals_alternate = workspace.vals_alternate.unsafe_ptr()
+    db_keys = DoubleBuffer(
+        keys.unsafe_ptr(), workspace.keys_alternate.unsafe_ptr()
+    )
+    db_vals = DoubleBuffer(
+        values.unsafe_ptr(), workspace.vals_alternate.unsafe_ptr()
+    )
+
     global_hist = workspace.global_hist.unsafe_ptr()
     pass_hist = workspace.pass_hist.unsafe_ptr()
 
@@ -483,7 +487,7 @@ def onesweep_radix_sort_pairs[
         ITEMS_PER_THREAD=G_HIST_ITEMS_PER_THREAD,
     ]
     ctx.enqueue_function[_ghist](
-        keys_current,
+        db_keys.current,
         global_hist,
         size,
         grid_dim=g_hist_blocks,
@@ -514,10 +518,10 @@ def onesweep_radix_sort_pairs[
         comptime radix_shift = UInt32(pass_idx * 8)
         var pass_hist_offset = pass_idx * hist_blocks * RADIX
         ctx.enqueue_function[_bin](
-            keys_current,
-            keys_alternate,
-            Optional(vals_current),
-            Optional(vals_alternate),
+            db_keys.current,
+            db_keys.alternate,
+            Optional(db_vals.current),
+            Optional(db_vals.alternate),
             pass_hist + pass_hist_offset,
             workspace.index.unsafe_ptr(),
             size,
@@ -525,8 +529,8 @@ def onesweep_radix_sort_pairs[
             grid_dim=binning_blocks,
             block_dim=BINNING_TPB,
         )
-        swap(keys_current, keys_alternate)
-        swap(vals_current, vals_alternate)
+        db_keys.swap()
+        db_vals.swap()
 
     ctx.synchronize()
 

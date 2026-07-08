@@ -237,8 +237,8 @@ def bitonic_sort_pairs[
     ITEMS_PER_THREAD: Int = 4,
 ](
     ctx: DeviceContext,
-    keys: DeviceBuffer[keys_dtype],
-    values: DeviceBuffer[vals_dtype],
+    mut keys: DeviceBuffer[keys_dtype],
+    mut values: DeviceBuffer[vals_dtype],
     size: Int,
 ) raises:
     """
@@ -316,8 +316,8 @@ def naive_bitonic_sort_pairs[
     keys_dtype: DType, vals_dtype: DType, //, THREADS_PER_BLOCK: Int = 256
 ](
     ctx: DeviceContext,
-    keys: DeviceBuffer[keys_dtype],
-    values: DeviceBuffer[vals_dtype],
+    mut keys: DeviceBuffer[keys_dtype],
+    mut values: DeviceBuffer[vals_dtype],
     size: Int,
 ) raises:
     debug_assert["safe"](is_power_of_2(size))

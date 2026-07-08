@@ -1,86 +1,221 @@
+import os
+import sys
+
 import polars as pl
 import matplotlib.pyplot as plt
-import os
+
+
+OUTPUT_FILENAME = "gpu_sort_benchmark_plot.png"
+
+DEFAULT_CSV_FILES = [
+    "gpu_sort_benchmark_results.csv",
+    "cub_sort_benchmark_results.csv",
+]
+
+# Ordered list. Lines are plotted only if present in the CSV.
+PLOT_ALGORITHMS = [
+    # Main comparison
+    "Radix_Pairs",
+    "Radix_Keys",
+    "Onesweep_Pairs",
+    "Onesweep_Keys",
+    "CUB_Radix_Pairs",
+    "CUB_Radix_Keys",
+
+    # Bajo/Mojo baselines
+    "Basic_Bitonic_Sort_Pairs",
+    "Shared_Memory_Bitonic_Sort_Pairs",
+    "SMEM bitonic + Onesweep_Pairs",
+]
+
+STYLES = {
+    # Bajo / Mojo radix
+    "Radix_Pairs": {
+        "color": "#2ca02c",
+        "marker": "^",
+        "ls": "-",
+        "alpha": 0.85,
+        "lw": 2.0,
+        "label": "Mojo Radix pairs",
+    },
+    "Radix_Keys": {
+        "color": "#2ca02c",
+        "marker": "^",
+        "ls": "--",
+        "alpha": 0.85,
+        "lw": 2.0,
+        "label": "Mojo Radix keys",
+    },
+
+    # Bajo / Mojo OneSweep
+    "Onesweep_Pairs": {
+        "color": "#ff7f0e",
+        "marker": "D",
+        "ls": "-",
+        "alpha": 0.95,
+        "lw": 2.5,
+        "label": "Mojo OneSweep pairs",
+    },
+    "Onesweep_Keys": {
+        "color": "#ff7f0e",
+        "marker": "D",
+        "ls": "--",
+        "alpha": 0.95,
+        "lw": 2.5,
+        "label": "Mojo OneSweep keys",
+    },
+
+    # CUB
+    "CUB_Radix_Pairs": {
+        "color": "#1f77b4",
+        "marker": "s",
+        "ls": "-",
+        "alpha": 0.95,
+        "lw": 2.0,
+        "label": "CUB pairs",
+    },
+    "CUB_Radix_Keys": {
+        "color": "#1f77b4",
+        "marker": "s",
+        "ls": "--",
+        "alpha": 0.95,
+        "lw": 2.0,
+        "label": "CUB keys",
+    },
+
+    # Bajo / Mojo bitonic baselines
+    "Basic_Bitonic_Sort_Pairs": {
+        "color": "#8c564b",
+        "marker": "o",
+        "ls": ":",
+        "alpha": 0.70,
+        "lw": 1.6,
+        "label": "Mojo basic bitonic pairs",
+    },
+    "Shared_Memory_Bitonic_Sort_Pairs": {
+        "color": "#9467bd",
+        "marker": "o",
+        "ls": "-.",
+        "alpha": 0.75,
+        "lw": 1.8,
+        "label": "Mojo shared-memory bitonic pairs",
+    },
+    "SMEM bitonic + Onesweep_Pairs": {
+        "color": "#d62728",
+        "marker": "o",
+        "ls": "-",
+        "alpha": 0.80,
+        "lw": 2.0,
+        "label": "Mojo hybrid pairs",
+    },
+}
+
 
 def format_size(n):
-    """Formats large integers into k/M human-readable strings."""
     try:
         n = int(n)
         if n >= 1_000_000:
-            return f"{int(n/1_000_000)}M"
+            return f"{int(n / 1_000_000)}M"
         if n >= 1_000:
-            return f"{int(n/1_000)}k"
+            return f"{int(n / 1_000)}k"
         return str(n)
-    except:
+    except Exception:
         return str(n)
 
-def plot_results(csv_file="gpu_sort_benchmark_results.csv"):
-    if not os.path.exists(csv_file):
-        print(f"Error: {csv_file} not found. Run the Mojo benchmark first.")
-        return
 
-    # Load data
-    df = pl.read_csv(csv_file)
+def load_results(csv_files):
+    frames = []
 
-    
-    # Define visual styles for the labels used in your Mojo code
-    styles = {
-        'Radix_Pairs':    {'color': '#2ca02c', 'marker': '^', 'ls': '-',  'alpha': 0.8, 'label': 'Radix Sort (Pairs)'},
-        'Radix_Keys':     {'color': '#2ca02c', 'marker': '^', 'ls': '--', 'alpha': 0.7, 'label': 'Radix Sort (Keys)'},
-        'Onesweep_Pairs': {'color': '#ff7f0e', 'marker': 'D', 'ls': '-',  'alpha': 0.9, 'lw': 2.5, 'label': 'OneSweep (Pairs)'},
-        'Onesweep_Keys': {'color': '#ff7f0e', 'marker': 'D', 'ls': '--',  'alpha': 0.9, 'lw': 2.5, 'label': 'OneSweep (Keys)'},
-    }
+    for csv_file in csv_files:
+        if not os.path.exists(csv_file):
+            print(f"Warning: {csv_file} not found; skipping.")
+            continue
 
-    plt.figure(figsize=(12, 7), facecolor='#f8f9fa')
-    plt.xscale('log', base=2)
-    plt.grid(True, which="both", ls="-", alpha=0.1, color='black')
+        frames.append(pl.read_csv(csv_file))
 
-    # Get unique labels
-    algorithms = df["Algorithm"].unique().to_list()
-
-    for algo in algorithms:
-        subset = df.filter(pl.col("Algorithm") == algo).sort("N")
-        style = styles.get(algo, {'marker': 'o', 'label': algo})
-        
-        plt.plot(
-            subset["N"].to_list(), 
-            subset["Throughput_GKs"].to_list(), 
-            **style
+    if not frames:
+        raise FileNotFoundError(
+            "No benchmark CSV found. Expected at least one input CSV."
         )
 
-    # Hardware Specifics: RTX 5060 Ti L2 Cache (32MB)
-    # Pairs (uint32 keys + uint32 vals) = 16 bytes/element total (Double Buffered)
-    # Keys (uint32 keys) = 8 bytes/element total (Double Buffered)
-    l2_limit_pairs = 2_000_000 
-    l2_limit_keys = 4_000_000  
+    return pl.concat(frames, how="vertical")
 
-    plt.axvline(x=l2_limit_pairs, color='navy', linestyle=':', alpha=0.4)
-    plt.text(l2_limit_pairs * 0.85, 0.5, 'L2 Limit (Pairs)', rotation=90, color='navy', fontsize=9, alpha=0.6)
-    
-    plt.axvline(x=l2_limit_keys, color='darkred', linestyle=':', alpha=0.4)
-    plt.text(l2_limit_keys * 1.1, 0.5, 'L2 Limit (Keys)', rotation=90, color='darkred', fontsize=9, alpha=0.6)
 
-    # Formatting
-    plt.title('Mojo GPU Sort: OneSweep vs Radix (RTX 5060 Ti)', fontsize=16, fontweight='bold', pad=20)
-    plt.xlabel('Input Size (N)', fontsize=12)
-    plt.ylabel('Throughput (GK/s)', fontsize=12)
-    
+def filter_for_plot(df):
+    available = set(df["Algorithm"].unique().to_list())
+
+    plotted = [algo for algo in PLOT_ALGORITHMS if algo in available]
+
+    if not plotted:
+        raise ValueError(
+            "No plottable algorithms found. Check Algorithm names in the CSV files."
+        )
+
+    ignored = sorted(available - set(PLOT_ALGORITHMS))
+    if ignored:
+        print("Info: ignoring unstyled algorithms:")
+        for algo in ignored:
+            print(f"  - {algo}")
+
+    return df.filter(pl.col("Algorithm").is_in(plotted)), plotted
+
+
+def plot_results(csv_files=None):
+    if csv_files is None:
+        csv_files = DEFAULT_CSV_FILES
+
+    df = load_results(csv_files)
+    df, plotted_algorithms = filter_for_plot(df)
+
+    plt.figure(figsize=(12, 7), facecolor="#f8f9fa")
+    plt.xscale("log", base=2)
+    plt.grid(True, which="both", ls="-", alpha=0.12, color="black")
+
+    for algo in plotted_algorithms:
+        subset = df.filter(pl.col("Algorithm") == algo).sort("N")
+        if subset.is_empty():
+            continue
+
+        plt.plot(
+            subset["N"].to_list(),
+            subset["Throughput_GKs"].to_list(),
+            **STYLES[algo],
+        )
+
+    plt.title(
+        "GPU Sort Throughput: Bajo/Mojo vs CUB on RTX 5060 Ti",
+        fontsize=16,
+        fontweight="bold",
+        pad=20,
+    )
+    plt.xlabel("Input size (N)", fontsize=12)
+    plt.ylabel("Throughput (GK/s)", fontsize=12)
+
     unique_n = df["N"].unique().sort().to_list()
     plt.xticks(unique_n, [format_size(n) for n in unique_n])
-    
-    plt.legend(loc='upper left', frameon=True, shadow=True)
 
-    # 10 GK/s Breakthrough Line
-    plt.axhline(y=10.0, color='gold', linestyle='--', alpha=0.5, lw=1)
-    plt.text(unique_n[0], 10.2, '10 GK/s Barrier', color='#997a00', fontweight='bold')
+    max_y = df["Throughput_GKs"].max()
+    plt.ylim(0, max_y * 1.15)
 
-    plt.ylim(0, df["Throughput_GKs"].max() * 1.15)
+    # Clean external legend. More columns if bitonic baselines are present.
+    ncol = 3 if len(plotted_algorithms) <= 6 else 4
+
+    plt.legend(
+        loc="upper left",
+        frameon=True,
+        fancybox=True,
+        shadow=False,
+        fontsize=9,
+        handlelength=2.4,
+        columnspacing=1.4,
+    )
+
     plt.tight_layout()
-    
-    output_filename = "gpu_sort_benchmark_plot.png"
-    plt.savefig(output_filename, dpi=300)
-    print(f"Graph successfully saved as {output_filename}")
+    plt.savefig(OUTPUT_FILENAME, dpi=300)
+    print(f"Graph successfully saved as {OUTPUT_FILENAME}")
     plt.show()
 
+
 if __name__ == "__main__":
-    plot_results()
+    csv_files = sys.argv[1:] if len(sys.argv) > 1 else None
+    plot_results(csv_files)

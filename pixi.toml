@@ -30,6 +30,11 @@ test_gpu = { depends-on = [
   { task = "test", args = ["bvh/gpu"] },
 ] }
 
+# sort
+bench_sort_mojo = { cmd = "bash -lc 'cd bench/sort && mojo run -I ../.. bench_gpu_sort.mojo'" }
+bench_sort_cub = { cmd = "bash -lc 'cd bench/sort && make run-radix'" }
+plot_sort = { cmd = "bash -lc 'cd bench/sort && python plot_gpu_sort.py gpu_sort_benchmark_results.csv cub_sort_benchmark_results.csv'" }
+
 # benchmarks
 bench_quat = "mojo -I. bench/core/bench_quat.mojo"
 bench_aabb = "mojo -I. bench/core/bench_aabb.mojo"
@@ -42,7 +47,6 @@ bench_all = { depends-on = [
   "bench_quat",
   "bench_aabb",
   "bench_obj",
-  "bench_gpu_sort",
   "bench_bvh_cpu",
   "bench_bvh_gpu",
   "bench_bvh_gpu_tlas"
@@ -57,3 +61,5 @@ bench_bvh = { depends-on = [
 mojo = ">=1.0.0b3.dev2026070606,<2"
 max = ">=26.5.0.dev2026070606,<27"
 python = ">=3.14.6,<3.15"
+polars = ">=1.42.1,<2"
+matplotlib = ">=3.11.0,<4"

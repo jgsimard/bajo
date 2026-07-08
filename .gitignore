@@ -229,5 +229,9 @@ sources/*
 assets/*
 
 *.h
-*.cu
+# *.cu
 *.cuh
+
+bench/sort/bench_cub_radix
+bench/sort/cub_sort_benchmark_results.csv
+bench/sort/gpu_sort_benchmark_plot.png

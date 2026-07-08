@@ -2,17 +2,39 @@ from std.bit import pop_count, count_trailing_zeros
 from std.gpu import WARP_SIZE, lane_id
 from std.gpu.primitives import warp, block
 from std.atomic import Atomic, Ordering
+from std.reflection import SourceLocation, call_location
 
 
-@fieldwise_init
 struct DoubleBuffer[origin_c: MutOrigin, origin_a: MutOrigin, dtype: DType]:
     var current: UnsafePointer[Scalar[Self.dtype], Self.origin_c]
     var alternate: UnsafePointer[Scalar[Self.dtype], Self.origin_a]
+    var in_original_order: Bool
+    var created_at: SourceLocation
+
+    def __init__(
+        out self,
+        current: UnsafePointer[Scalar[Self.dtype], Self.origin_c],
+        alternate: UnsafePointer[Scalar[Self.dtype], Self.origin_a],
+    ):
+        self.current = current
+        self.alternate = alternate
+        self.in_original_order = True
+        self.created_at = call_location()
 
     def swap(mut self):
         var tmp = self.current
         self.current = self.alternate.unsafe_origin_cast[Self.origin_c]()
         self.alternate = tmp.unsafe_origin_cast[Self.origin_a]()
+        self.in_original_order = not self.in_original_order
+
+    def __del__(deinit self):
+        debug_assert["safe"](
+            self.in_original_order,
+            self.created_at.prefix(
+                "\nDoubleBuffer destroyed while swapped. Missing a swap before"
+                " destroy."
+            ),
+        )
 
 
 def circular_shift(val: UInt32) -> UInt32:

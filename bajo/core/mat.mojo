@@ -451,8 +451,8 @@ def inverse[
     rcp = 1.0 / det
     # fmt: off
     return Mat[dtype, 2, 2, frame](
-        x00 * rcp, -x01 * rcp,
-        -x10 * rcp, x11 * rcp
+        x11 * rcp, -x01 * rcp,
+        -x10 * rcp, x00 * rcp
     )
     # fmt: on
 

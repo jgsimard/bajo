@@ -67,14 +67,14 @@ def main() raises:
         data = BenchmarkData[width]()
 
         # bounds checking makes this benchmars 3X slower !
-        def wrapper() raises capturing:
+        def wrapper() raises {mut data}:
             for i in range(num_elements / width):
                 data.dst.unsafe_ptr()[i] = dispatch_mul[version](
                     data.src_a.unsafe_ptr()[i], data.src_b.unsafe_ptr()[i]
                 )
             keep(data.dst[0].z)
 
-        report = run[func3=wrapper](max_iters=1000)
+        report = run(wrapper, max_iters=1000)
         avg_time_us = round(report.mean(Unit.us), 2)
         mops = round(num_elements / avg_time_us, 2)
 
@@ -99,13 +99,13 @@ def main() raises:
 
         q = a
 
-        def bench_fn() raises capturing:
+        def bench_fn() raises {q2, q3, mut q}:
             for _ in range(1e6):
                 q = dispatch_mul[version](q, q2)
                 q = dispatch_mul[version](q, q3)
             keep(q)
 
-        var time_us = round(run[func3=bench_fn](max_iters=100).mean(Unit.us), 1)
+        var time_us = round(run(bench_fn, max_iters=100).mean(Unit.us), 1)
 
         print(t"v{version} : {time_us} us")
 

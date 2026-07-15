@@ -340,7 +340,7 @@ def bench_affine3_width[
     comptime packet_count = num_elements / width
     data = Affine3WidthBenchmarkData[width]()
 
-    def wrapper() raises capturing:
+    def wrapper() raises {mut data}:
         for i in range(packet_count):
             data.dst.unsafe_ptr()[i] = dispatch_affine3_width[version, width](
                 data.boxes.unsafe_ptr()[i],
@@ -351,7 +351,7 @@ def bench_affine3_width[
 
         keep(data.dst[0]._min)
 
-    report = run[func3=wrapper](max_iters=200)
+    report = run(wrapper, max_iters=200)
     avg_time_us = round(report.mean(Unit.us), 2)
     throughput = round(num_elements / avg_time_us, 1)
 
@@ -411,7 +411,7 @@ def main() raises:
             BenchVec3f32,
         ) thin -> BenchAABB
     ]() capturing raises:
-        def wrapper() raises capturing:
+        def wrapper() raises {mut data}:
             for i in range(num_elements):
                 data.dst.unsafe_ptr()[i] = f(
                     data.boxes.unsafe_ptr()[i],
@@ -421,7 +421,7 @@ def main() raises:
                 )
             keep(data.dst[0]._min)
 
-        report = run[wrapper](max_iters=200)
+        report = run(wrapper, max_iters=200)
         avg_time = report.mean(Unit.us)
         name = get_function_name[f]()
         throughput = round(num_elements / avg_time, 1)

@@ -51,24 +51,22 @@ def main() raises:
     var mesh = parse_obj(text, path)
     mesh.print_summary()
 
-    print("")
-
-    def run_read_obj() raises capturing:
+    def run_read_obj() raises {path}:
         bench_read_obj(path)
 
-    def run_parse_obj() raises capturing:
+    def run_parse_obj() raises {path, text}:
         bench_parse_obj(path, text)
 
-    def run_triangulated_indices() raises capturing:
+    def run_triangulated_indices() raises {mesh}:
         bench_triangulated_indices(mesh)
 
-    var report_read = run[run_read_obj](max_iters=PARSE_ITERS)
+    var report_read = run(run_read_obj, max_iters=PARSE_ITERS)
     var read_us = report_read.mean(Unit.us)
 
-    var report_parse = run[run_parse_obj](max_iters=PARSE_ITERS)
+    var report_parse = run(run_parse_obj, max_iters=PARSE_ITERS)
     var parse_us = report_parse.mean(Unit.us)
 
-    var report_tris = run[run_triangulated_indices](max_iters=TRI_ITERS)
+    var report_tris = run(run_triangulated_indices, max_iters=TRI_ITERS)
     var tris_us = report_tris.mean(Unit.us)
 
     var faces = mesh.face_count()
@@ -76,7 +74,7 @@ def main() raises:
     var tris = triangulated_indices(mesh)
     var tri_indices = len(tris)
 
-    print("Results")
+    print("\nResults")
     print("-------")
     print(
         t"read_obj              | Avg: {round(read_us, 2)} us"

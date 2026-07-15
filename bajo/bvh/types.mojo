@@ -7,7 +7,6 @@ from bajo.core import (
     Affine3f32,
     Point3f32,
     Frame,
-    Ray,
     Rayf32,
 )
 from bajo.bvh.constants import f32_max, EMPTY_LANE, Primitive, TRACE

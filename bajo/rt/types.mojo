@@ -9,12 +9,14 @@ from bajo.core import (
     dot,
     normalize,
     Point3f32,
+    GeoKind,
+    Rayf32,
 )
 from bajo.bvh.constants import EMPTY_LANE, Primitive, TRACE
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.bvh.cpu.tlas import Tlas
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
-from bajo.bvh.types import Instance, Ray, Sphere
+from bajo.bvh.types import Instance, Sphere
 
 
 comptime Color = Vec3f32[Frame.WORLD]
@@ -139,7 +141,7 @@ struct HitRecord(Copyable, Writable):
 @fieldwise_init
 struct ScatterResult(Copyable, Writable):
     var ok: Bool
-    var ray: Ray[Frame.WORLD]
+    var ray: Rayf32[Frame.WORLD]
     var attenuation: Color
 
 
@@ -320,10 +322,10 @@ struct World(Movable):
                 Tlas[BVH_WIDTH](self.triangle_instances)
             )
 
-    def hit(self, ray: Ray[Frame.WORLD]) -> Optional[HitRecord]:
+    def hit(self, ray: Rayf32[Frame.WORLD]) -> Optional[HitRecord]:
         return self.trace(ray)
 
-    def trace(self, ray: Ray[Frame.WORLD]) -> Optional[HitRecord]:
+    def trace(self, ray: Rayf32[Frame.WORLD]) -> Optional[HitRecord]:
         var sphere_hit = self._trace_spheres(ray)
         var triangle_hit = self._trace_triangles(ray)
         var instance_hit = self._trace_triangle_instances(ray)
@@ -351,7 +353,7 @@ struct World(Movable):
 
         return None
 
-    def _trace_spheres(self, ray: Ray[Frame.WORLD]) -> Optional[HitRecord]:
+    def _trace_spheres(self, ray: Rayf32[Frame.WORLD]) -> Optional[HitRecord]:
         if not self.sphere_bvh:
             return None
 
@@ -385,7 +387,7 @@ struct World(Movable):
         )
 
     def _trace_triangle_instances(
-        self, ray: Ray[Frame.WORLD]
+        self, ray: Rayf32[Frame.WORLD]
     ) -> Optional[HitRecord]:
         if not self.triangle_tlas:
             return None
@@ -409,19 +411,11 @@ struct World(Movable):
             "hit triangle instance surface id is out of range",
         )
 
-        ref inst = self.triangle_instances[instance_idx]
-        var mesh_idx = Int(inst.blas_idx)
-        ref vertices = self.triangle_meshes[mesh_idx]
-        var tri_idx = Int(bvh_hit.prim)
-        var base = tri_idx * 3
-        ref v0 = vertices[base + 0]
-        ref v1 = vertices[base + 1]
-        ref v2 = vertices[base + 2]
-
         var primitive = PrimitiveId(PRIM_TRIANGLE_INSTANCE, bvh_hit.inst)
         var p = ray_at(ray, bvh_hit.t)
-        var local_normal = normalize(cross(v1 - v0, v2 - v0))
-        var outward_normal = normalize(inst.transform.vector(local_normal))
+        var outward_normal = bvh_hit.normal.unsafe_convert[
+            new_kind=GeoKind.VECTOR
+        ]()
         var front_face = dot(ray.d, outward_normal) < 0.0
         var normal = outward_normal if front_face else -outward_normal
 
@@ -434,7 +428,7 @@ struct World(Movable):
             front_face,
         )
 
-    def _trace_triangles(self, ray: Ray[Frame.WORLD]) -> Optional[HitRecord]:
+    def _trace_triangles(self, ray: Rayf32[Frame.WORLD]) -> Optional[HitRecord]:
         if not self.triangle_bvh:
             return None
 
@@ -473,7 +467,7 @@ struct World(Movable):
         )
 
 
-def ray_at(ray: Ray[Frame.WORLD], t: Float32) -> Point3f32[Frame.WORLD]:
+def ray_at(ray: Rayf32[Frame.WORLD], t: Float32) -> Point3f32[Frame.WORLD]:
     return ray.o + t * ray.d
 
 

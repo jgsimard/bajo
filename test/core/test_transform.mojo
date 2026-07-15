@@ -9,7 +9,10 @@ from bajo.core import (
     Point3,
     Point3f32,
     Point3W,
+    Normal3f32,
+    Ray,
     assert_vec_equal,
+    normalize,
     Quat,
     Frame,
     GeoKind,
@@ -131,6 +134,21 @@ def test_width4_translation_and_scale() raises:
         ms.vector(v),
         Vec3[T, To, W](2.0, 6.0, 12.0),
     )
+
+
+def test_normal_uses_inverse_transpose_for_nonuniform_scale() raises:
+    var transform = Affine3f32[Frame.WORLD, Frame.CAMERA].from_scale(
+        Vec3W(2.0, 3.0, 4.0)
+    )
+    var inverse = Affine3f32[Frame.CAMERA, Frame.WORLD].from_scale(
+        Vec3f32[Frame.CAMERA](0.5, 1.0 / 3.0, 0.25)
+    )
+    var normal = Normal3f32[Frame.WORLD](1.0, 1.0, 0.0)
+    var expected = normalize(
+        Vec3f32[Frame.CAMERA](0.5, 1.0 / 3.0, 0.0)
+    ).unsafe_convert[new_kind=GeoKind.NORMAL]()
+
+    assert_vec_equal(transform.normal(normal, inverse), expected)
 
 
 def test_load_store() raises:
@@ -260,6 +278,32 @@ def test_inverse_identity() raises:
 
     assert_vec_equal(res.inv.point(p), Point3f32[Frame.WORLD](1, 2, 3))
     assert_vec_equal(res.inv.vector(v), Vec3f32[Frame.WORLD](4, 5, 6))
+
+
+def test_ray_transform() raises:
+    ray = Ray[DType.float64, Frame.WORLD](
+        Point3[DType.float64, Frame.WORLD](1, 2, 3),
+        Vec3[DType.float64, Frame.WORLD](4, 5, 6),
+        0.25,
+        10,
+    )
+    # fmt: off
+    transform = Affine3[DType.float64, Frame.WORLD, Frame.CAMERA](
+        2, 0, 0, 10,
+        0, 3, 0, -2,
+        0, 0, 4, 3,
+    )
+    # fmt: on
+    transformed = transform.ray(ray, 7)
+
+    assert_vec_equal(
+        transformed.o, Point3[DType.float64, Frame.CAMERA](12, 4, 15)
+    )
+    assert_vec_equal(
+        transformed.d, Vec3[DType.float64, Frame.CAMERA](8, 15, 24)
+    )
+    assert_almost_equal(transformed.t_min, 0.25)
+    assert_almost_equal(transformed.t_max, 7)
 
 
 def main() raises:

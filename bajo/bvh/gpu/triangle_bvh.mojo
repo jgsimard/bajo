@@ -18,8 +18,10 @@ from bajo.core import (
     Vec3,
     Point3f32,
     Frame,
+    GeoKind,
+    Rayf32,
 )
-from bajo.bvh.types import Ray, Hit, BlasSet, TriangleLeafBlock
+from bajo.bvh.types import Hit, BlasSet, TriangleLeafBlock
 from bajo.bvh.constants import (
     EMPTY_LANE,
     TRACE,
@@ -343,7 +345,7 @@ def _intersect_triangle_leaf[
 ](
     leaf_vertices: UnsafePointer[mut=False, Float32, _],
     leaf_block_idx: UInt32,
-    ray: Ray[frame],
+    ray: Rayf32[frame],
     mut hit: Hit[frame],
 ) capturing -> Bool:
     var any_hit = False
@@ -389,6 +391,8 @@ def _intersect_triangle_leaf[
                 hit.v = tri_hit.v
                 hit.prim = prim
                 hit.inst = EMPTY_LANE
-                hit.normal = normalize(cross(v1 - v0, v2 - v0))
+                hit.normal = normalize(cross(v1 - v0, v2 - v0)).unsafe_convert[
+                    new_kind=GeoKind.NORMAL
+                ]()
                 any_hit = True
     return any_hit

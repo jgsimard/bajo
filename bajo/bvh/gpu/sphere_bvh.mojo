@@ -12,9 +12,18 @@ from bajo.bvh.constants import (
     WideNode,
 )
 from bajo.core.utils import min_argmin
-from bajo.core import AABB, Vec3, Point3, Frame
+from bajo.core import (
+    AABB,
+    Vec3,
+    Point3,
+    Point3f32,
+    Frame,
+    GeoKind,
+    normalize,
+    Rayf32,
+)
 from bajo.core.intersect import intersect_ray_sphere
-from bajo.bvh.types import Sphere, Ray, Hit, BlasSet
+from bajo.bvh.types import Sphere, Hit, BlasSet
 from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh
 from bajo.bvh.gpu.trace import trace_bounds_bvh
 from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list
@@ -236,7 +245,7 @@ def _intersect_sphere_leaf[
 ](
     leaf_spheres: UnsafePointer[mut=False, Float32, _],
     leaf_block_idx: UInt32,
-    ray: Ray[frame],
+    ray: Rayf32[frame],
     mut hit: Hit[frame],
 ) capturing -> Bool:
     var block_base = Int(leaf_block_idx) * SPHERE_LEAF_PACKED_STRIDE * width
@@ -273,6 +282,13 @@ def _intersect_sphere_leaf[
         hit.v = 0.0
         hit.inst = EMPTY_LANE
         hit.prim = prim_indices[lane]
+        var lane_center = Point3f32[frame](
+            center.x[lane], center.y[lane], center.z[lane]
+        )
+        var p = ray.o + min_t * ray.d
+        hit.normal = normalize(p - lane_center).unsafe_convert[
+            new_kind=GeoKind.NORMAL
+        ]()
 
     return True
 

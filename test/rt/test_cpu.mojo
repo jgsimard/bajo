@@ -8,7 +8,6 @@ from std.testing import (
 
 from bajo.bvh.camera import Camera
 from bajo.bvh.host_utils import compute_bounds
-from bajo.bvh.types import Ray
 from bajo.core import (
     Affine3f32,
     Frame,
@@ -17,6 +16,7 @@ from bajo.core import (
     dot,
     length,
     Point3f32,
+    Rayf32,
 )
 from bajo.core.random import Rng
 from bajo.rt import (
@@ -89,7 +89,7 @@ def test_lambertian_scatter_is_explicit() raises:
     var surfaces = SurfaceStore()
     var surface = surfaces.add_lambertian(material.albedo)
     var hit = _front_hit()
-    var incoming = Ray[Frame.WORLD](
+    var incoming = Rayf32[Frame.WORLD](
         Point3f32[Frame.WORLD](0.0), Vec3f32[Frame.WORLD](0.0, 0.0, -1.0)
     )
 
@@ -107,7 +107,7 @@ def test_metal_scatter_can_absorb() raises:
     var rng = Rng(seed=2, id=0)
     var material = Metal(Color(0.8, 0.7, 0.6), 0.0)
     var hit = _front_hit()
-    var incoming = Ray[Frame.WORLD](
+    var incoming = Rayf32[Frame.WORLD](
         Point3f32[Frame.WORLD](0.0), Vec3f32[Frame.WORLD](0.0, 0.0, -1.0)
     )
 
@@ -134,7 +134,7 @@ def test_dielectric_scatter_is_explicit() raises:
     var surfaces = SurfaceStore()
     var surface = surfaces.add_dielectric(material.refraction_index)
     var hit = _front_hit()
-    var incoming = Ray[Frame.WORLD](
+    var incoming = Rayf32[Frame.WORLD](
         Point3f32[Frame.WORLD](0.0), Vec3f32[Frame.WORLD](0.0, 0.0, -1.0)
     )
 
@@ -178,7 +178,7 @@ def test_world_hit_maps_material_and_normal() raises:
 
     var hit = (
         world.hit(
-            Ray[Frame.WORLD](
+            Rayf32[Frame.WORLD](
                 Point3f32[Frame.WORLD](0.0),
                 Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
             )
@@ -225,7 +225,7 @@ def test_world_preserves_signed_radius_normals() raises:
 
     var hit = (
         world.hit(
-            Ray[Frame.WORLD](
+            Rayf32[Frame.WORLD](
                 Point3f32[Frame.WORLD](0.0),
                 Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
             )
@@ -269,7 +269,7 @@ def test_world_hits_triangle() raises:
 
     var hit = (
         world.hit(
-            Ray[Frame.WORLD](
+            Rayf32[Frame.WORLD](
                 Point3f32[Frame.WORLD](0.0),
                 Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
             )
@@ -325,7 +325,7 @@ def test_world_picks_closest_sphere_or_triangle() raises:
 
     var hit = (
         world.hit(
-            Ray[Frame.WORLD](
+            Rayf32[Frame.WORLD](
                 Point3f32[Frame.WORLD](0.0),
                 Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
             )
@@ -373,7 +373,7 @@ def test_add_triangle_mesh_assigns_surface_per_triangle() raises:
 
     var hit = (
         world.hit(
-            Ray[Frame.WORLD](
+            Rayf32[Frame.WORLD](
                 Point3f32[Frame.WORLD](0.0),
                 Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
             )
@@ -446,7 +446,7 @@ def test_triangle_mesh_instances_use_instance_surfaces() raises:
 
     var hit0 = (
         world.hit(
-            Ray[Frame.WORLD](
+            Rayf32[Frame.WORLD](
                 Point3f32[Frame.WORLD](0.0),
                 Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
             )
@@ -461,7 +461,7 @@ def test_triangle_mesh_instances_use_instance_surfaces() raises:
 
     var hit1 = (
         world.hit(
-            Ray[Frame.WORLD](
+            Rayf32[Frame.WORLD](
                 Point3f32[Frame.WORLD](1.5, 0.0, 0.0),
                 Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
             )

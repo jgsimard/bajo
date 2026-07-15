@@ -8,8 +8,8 @@ from bajo.core.utils import (
     ns_to_ms,
     ns_to_mrays_per_s,
 )
-from bajo.core import Frame, AABB, Vec3f32, Affine3f32, Point3f32
-from bajo.bvh.types import Ray, Sphere, Instance, BlasSet, Hit
+from bajo.core import Frame, AABB, Vec3f32, Affine3f32, Point3f32, Rayf32
+from bajo.bvh.types import Sphere, Instance, BlasSet, Hit
 from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.tlas import Tlas
@@ -140,7 +140,7 @@ def _cpu_tlas_triangle_reference[
 ](
     cpu_blas: TriangleBvh[Frame.LOCAL, blas_width],
     instances: List[Instance],
-    rays: List[Ray[Frame.WORLD]],
+    rays: List[Rayf32[Frame.WORLD]],
 ) -> Tuple[Float64, UInt32, UInt64]:
     var tlas = Tlas[tlas_width](instances)
 
@@ -171,7 +171,7 @@ def _cpu_tlas_triangle_shadow_reference[
 ](
     cpu_blas: TriangleBvh[Frame.LOCAL, blas_width],
     instances: List[Instance],
-    rays: List[Ray[Frame.WORLD]],
+    rays: List[Rayf32[Frame.WORLD]],
 ) -> UInt32:
     var tlas = Tlas[tlas_width](instances)
 

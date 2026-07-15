@@ -1,8 +1,8 @@
 from std.testing import TestSuite, assert_true, assert_almost_equal
 
-from bajo.core import AABB, Vec3f32, Point3f32, Frame, Vec3W, Point3W
+from bajo.core import AABB, Vec3f32, Point3f32, Frame, Vec3W, Point3W, Rayf32
 from bajo.core.intersect import intersect_ray_aabb
-from bajo.bvh.types import Ray, Sphere
+from bajo.bvh.types import Sphere
 from bajo.core.random import Rng
 from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
 from bajo.bvh.cpu.bounds_bvh import (
@@ -23,8 +23,8 @@ def _rng_f32(mut rng: Rng, lo: Float32, hi: Float32) -> Float32:
     return lo + (hi - lo) * rng.f32()
 
 
-def _z_ray[frame: Frame](origin: Point3f32[frame]) -> Ray[frame]:
-    return Ray(origin, Vec3f32[frame](0.0, 0.0, 1.0))
+def _z_ray[frame: Frame](origin: Point3f32[frame]) -> Rayf32[frame]:
+    return Rayf32[frame](origin, Vec3f32[frame](0.0, 0.0, 1.0))
 
 
 def _make_random_xy_triangles[
@@ -282,7 +282,9 @@ def test_bounds_ray_query_inside_outside_regression() raises:
     var lower = Point3W(0.5, -1.0, -1.0)
     var upper = Point3W(1.0, 1.0, 1.0)
 
-    var query_ray = Ray(Point3W(0.0, 0.0, 0.0), Vec3W(1.0, 0.0, 0.0))
+    var query_ray = Rayf32[Frame.WORLD](
+        Point3W(0.0, 0.0, 0.0), Vec3W(1.0, 0.0, 0.0)
+    )
     var rcp_dir = query_ray.rcp_direction[1]()
 
     var hit_outside = intersect_ray_aabb(
@@ -292,7 +294,7 @@ def test_bounds_ray_query_inside_outside_regression() raises:
         upper,
         f32_max,
     )
-    assert_true(hit_outside.mask, "Ray starting outside failed to hit")
+    assert_true(hit_outside.mask, "Rayf32 starting outside failed to hit")
 
     var hit_inside = intersect_ray_aabb(
         Point3W(0.75, 0.0, 0.0),
@@ -301,11 +303,11 @@ def test_bounds_ray_query_inside_outside_regression() raises:
         upper,
         f32_max,
     )
-    assert_true(hit_inside.mask, "Ray starting inside failed to hit")
+    assert_true(hit_inside.mask, "Rayf32 starting inside failed to hit")
 
 
 def test_ray_rcp_direction_uses_finite_parallel_axes() raises:
-    var ray = Ray(Point3W(0.0), Vec3W(2.0, 0.0, -4.0))
+    var ray = Rayf32[Frame.WORLD](Point3W(0.0), Vec3W(2.0, 0.0, -4.0))
     var rcp_dir = ray.rcp_direction[4]()
 
     assert_almost_equal(rcp_dir.x, 0.5)

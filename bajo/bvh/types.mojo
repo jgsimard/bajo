@@ -1,10 +1,17 @@
-from std.math import clamp
-from std.utils.numerics import max_finite, min_finite
 from std.gpu import DeviceBuffer
 
-from bajo.core import AABB, Vec3f32, Affine3f32, Point3f32, Frame
+from bajo.core import (
+    AABB,
+    Vec3f32,
+    Normal3f32,
+    Affine3f32,
+    Point3f32,
+    Frame,
+    Ray,
+    Rayf32,
+)
 from bajo.bvh.constants import f32_max, EMPTY_LANE, Primitive, TRACE
-from bajo.core.vec import Vec3, Point3, Normal3
+from bajo.core.vec import Vec3, Point3
 
 
 @fieldwise_init
@@ -21,17 +28,29 @@ struct Hit[frame: Frame = Frame.WORLD](TrivialRegisterPassable, Writable):
     var v: Float32
     var prim: UInt32
     var inst: UInt32
-    var normal: Vec3f32[Self.frame]
+    var normal: Normal3f32[Self.frame]
     var t: Float32
 
     @staticmethod
     def miss(t: Float32 = f32_max) -> Self:
-        return Self(0.0, 0.0, EMPTY_LANE, EMPTY_LANE, Vec3f32[Self.frame](0), t)
+        return Self(
+            0.0,
+            0.0,
+            EMPTY_LANE,
+            EMPTY_LANE,
+            Normal3f32[Self.frame](0),
+            t,
+        )
 
     @staticmethod
     def shadow_hit() -> Self:
         return Self(
-            0.0, 0.0, EMPTY_LANE, EMPTY_LANE, Vec3f32[Self.frame](0), 0.0
+            0.0,
+            0.0,
+            EMPTY_LANE,
+            EMPTY_LANE,
+            Normal3f32[Self.frame](0),
+            0.0,
         )
 
     def is_hit(self) -> Bool:
@@ -77,98 +96,12 @@ struct Hit[frame: Frame = Frame.WORLD](TrivialRegisterPassable, Writable):
             hits[base + Hit.V],
             hits_u32[base + Hit.PRIM],
             hits_u32[base + Hit.INST],
-            Vec3f32[Self.frame](
+            Normal3f32[Self.frame](
                 hits[base + Hit.NORMAL + 0],
                 hits[base + Hit.NORMAL + 1],
                 hits[base + Hit.NORMAL + 2],
             ),
             hits[base + Hit.T],
-        )
-
-
-struct Ray[frame: Frame = Frame.WORLD](TrivialRegisterPassable, Writable):
-    comptime STRIDE = 8
-    comptime ORIGIN = 0  # 0, 1, 2
-    comptime T_MIN = 3
-    comptime DIRECTION = 4  # 4, 5, 6
-    comptime T_MAX = 7
-
-    var o: Point3f32[Self.frame]
-    var t_min: Float32
-    var d: Vec3f32[Self.frame]
-    var t_max: Float32
-
-    def __init__(
-        out self,
-        origin: Point3f32[Self.frame],
-        direction: Vec3f32[Self.frame],
-        t_min: Float32 = 0.0,
-        t_max: Float32 = f32_max,
-    ):
-        self.o = origin
-        self.d = direction
-        self.t_min = t_min
-        self.t_max = t_max
-
-    def __init__[
-        origin: ImmutOrigin
-    ](out self, rays: UnsafePointer[Float32, origin], ray_idx: Int):
-        var base = ray_idx * Ray.STRIDE
-        self.o = Point3f32[Self.frame].load(rays, base + Ray.ORIGIN)
-        self.t_min = rays[base + Ray.T_MIN]
-        self.d = Vec3f32[Self.frame].load(rays, base + Ray.DIRECTION)
-        self.t_max = rays[base + Ray.T_MAX]
-
-    def flatten(self) -> List[Float32]:
-        return [
-            self.o.x,
-            self.o.y,
-            self.o.z,
-            self.t_min,
-            self.d.x,
-            self.d.y,
-            self.d.z,
-            self.t_max,
-        ]
-
-    def origin[
-        width: SIMDSize
-    ](self) -> Point3[DType.float32, Self.frame, width]:
-        return Point3[DType.float32, Self.frame, width](
-            self.o.x, self.o.y, self.o.z
-        )
-
-    def direction[
-        width: SIMDSize
-    ](self) -> Vec3[DType.float32, Self.frame, width]:
-        return Vec3[DType.float32, Self.frame, width](
-            self.d.x, self.d.y, self.d.z
-        )
-
-    def rcp_direction[
-        width: SIMDSize
-    ](self, eps: Float32 = 1.0e-9) -> Vec3[DType.float32, Self.frame, width]:
-        var d = self.direction[width]()
-        var e = SIMD[DType.float32, width](eps)
-        var large = SIMD[DType.float32, width](1.0 / eps)
-        var one = SIMD[DType.float32, width](1.0)
-
-        var mx = abs(d.x).gt(e)
-        var my = abs(d.y).gt(e)
-        var mz = abs(d.z).gt(e)
-
-        var sx = d.x.lt(0.0).select(-large, large)
-        var sy = d.y.lt(0.0).select(-large, large)
-        var sz = d.z.lt(0.0).select(-large, large)
-
-        var dx = mx.select(d.x, one)
-        var dy = my.select(d.y, one)
-        var dz = mz.select(d.z, one)
-
-        return Vec3[DType.float32, Self.frame, width](
-            mx.select(one / dx, sx),
-            my.select(one / dy, sy),
-            mz.select(one / dz, sz),
         )
 
 
@@ -252,7 +185,7 @@ trait TypedBvh:
 
     def trace[
         mode: TRACE
-    ](self, ray: Ray[Self.bvh_frame]) -> Hit[Self.bvh_frame]:
+    ](self, ray: Rayf32[Self.bvh_frame]) -> Hit[Self.bvh_frame]:
         ...
 
 

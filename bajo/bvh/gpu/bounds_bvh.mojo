@@ -2,9 +2,8 @@ from std.math import max, ceildiv
 from std.gpu import DeviceBuffer, DeviceContext
 from std.time import perf_counter_ns
 
-from bajo.core import AABB, AxisAlignedBoundingBox, Vec3, Frame
+from bajo.core import AABB, AxisAlignedBoundingBox, Vec3, Frame, Rayf32
 from bajo.core.intersect import intersect_ray_aabb_rcp, RayDistanceHit
-from bajo.bvh.types import Ray
 from bajo.bvh.constants import EMPTY_LANE, WideNode
 from bajo.bvh.gpu.validate import (
     validate_sorted_keys,
@@ -205,7 +204,7 @@ def _intersect_wide_node_bounds[
 ](
     wide_nodes: UnsafePointer[Float32, origin],
     node_idx: UInt32,
-    ray: Ray[frame],
+    ray: Rayf32[frame],
     t_max: Float32,
 ) -> RayDistanceHit[DType.float32, width]:
     var block = _load_wide_node_bounds_block[DType.float32, frame, width](

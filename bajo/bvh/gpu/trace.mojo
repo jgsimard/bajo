@@ -10,8 +10,8 @@ from bajo.bvh.constants import (
     TRACE,
     EMPTY_LANE,
 )
-from bajo.bvh.types import Ray, Hit
-from bajo.core import Frame
+from bajo.bvh.types import Hit
+from bajo.core import Frame, Rayf32
 
 
 def trace_bounds_bvh[
@@ -21,7 +21,7 @@ def trace_bounds_bvh[
     leaf_fn: def(
         UnsafePointer[mut=False, Float32, _],
         UInt32,
-        Ray[frame],
+        Rayf32[frame],
         mut Hit[frame],
     ) capturing -> Bool,
     lifo: Bool = True,
@@ -29,7 +29,7 @@ def trace_bounds_bvh[
     wide_nodes: UnsafePointer[mut=False, Float32, _],
     leaves: UnsafePointer[mut=False, Float32, _],
     root_idx: UInt32,
-    ray: Ray[frame],
+    ray: Rayf32[frame],
 ) -> Hit[frame]:
     var hit = Hit[frame].miss(ray.t_max)
 

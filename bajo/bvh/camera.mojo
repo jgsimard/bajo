@@ -1,8 +1,7 @@
 from std.math import tan
 
-from bajo.bvh.types import Ray
 from bajo.bvh.constants import f32_max
-from bajo.core import Vec3f32, normalize, cross, Point3f32, Frame
+from bajo.core import Vec3f32, normalize, cross, Point3f32, Frame, Rayf32
 from bajo.core.utils import degrees_to_radians
 
 
@@ -90,7 +89,7 @@ struct Camera(TrivialRegisterPassable, Writable):
         py_i: Int,
         width: Int,
         height: Int,
-    ) -> Ray[Frame.WORLD]:
+    ) -> Rayf32[Frame.WORLD]:
         return self.make_ray_sampled(
             px_i,
             py_i,
@@ -114,7 +113,7 @@ struct Camera(TrivialRegisterPassable, Writable):
         lens_u: Float32 = 0.0,
         lens_v: Float32 = 0.0,
         t_min: Float32 = 0.0,
-    ) -> Ray[Frame.WORLD]:
+    ) -> Rayf32[Frame.WORLD]:
         var aspect = Float32(width) / Float32(height)
 
         var sx = ((Float32(px_i) + pixel_u) / Float32(width)) * 2.0 - 1.0
@@ -132,7 +131,7 @@ struct Camera(TrivialRegisterPassable, Writable):
         )
         var dir = focal_point - ray_origin
 
-        return Ray[Frame.WORLD](
+        return Rayf32[Frame.WORLD](
             ray_origin,
             normalize(dir),
             t_min,

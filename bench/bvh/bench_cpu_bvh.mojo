@@ -2,12 +2,12 @@ from std.benchmark import keep
 from std.math import round
 from std.time import perf_counter_ns
 
-from bajo.bvh.types import Ray, Sphere
+from bajo.bvh.types import Sphere
 from bajo.bvh.constants import TRACE, f32_max
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
-from bajo.core import Frame, Vec3f32, Point3f32
+from bajo.core import Frame, Vec3f32, Point3f32, Rayf32
 
 
 comptime GRID_SIDE = 256
@@ -51,8 +51,8 @@ def make_grid_spheres() -> List[Sphere[Frame.WORLD]]:
     return spheres^
 
 
-def make_hit_and_miss_rays() -> List[Ray[Frame.WORLD]]:
-    var rays = List[Ray[Frame.WORLD]](capacity=RAY_COUNT)
+def make_hit_and_miss_rays() -> List[Rayf32[Frame.WORLD]]:
+    var rays = List[Rayf32[Frame.WORLD]](capacity=RAY_COUNT)
 
     for i in range(RAY_COUNT):
         var prim_idx = i % PRIM_COUNT
@@ -60,7 +60,7 @@ def make_hit_and_miss_rays() -> List[Ray[Frame.WORLD]]:
         if i % 4 == 0:
             # Deliberate miss.
             rays.append(
-                Ray[Frame.WORLD](
+                Rayf32[Frame.WORLD](
                     Point3f32[Frame.WORLD](10000.0 + Float32(i), 10000.0, 0.0),
                     Vec3f32[Frame.WORLD](0.0, 0.0, 1.0),
                 )
@@ -68,7 +68,7 @@ def make_hit_and_miss_rays() -> List[Ray[Frame.WORLD]]:
         else:
             # Hit the corresponding grid primitive.
             rays.append(
-                Ray[Frame.WORLD](
+                Rayf32[Frame.WORLD](
                     Point3f32[Frame.WORLD](
                         _grid_x(prim_idx), _grid_y(prim_idx), 0.0
                     ),
@@ -133,7 +133,7 @@ def trace_triangle_primary[
     width: SIMDSize
 ](
     bvh: TriangleBvh[Frame.WORLD, width],
-    rays: List[Ray[Frame.WORLD]],
+    rays: List[Rayf32[Frame.WORLD]],
 ) -> Float64:
     var checksum = 0.0
     for ray in rays:
@@ -145,7 +145,10 @@ def trace_triangle_primary[
 
 def trace_triangle_shadow[
     width: SIMDSize
-](bvh: TriangleBvh[Frame.WORLD, width], rays: List[Ray[Frame.WORLD]],) -> Int:
+](
+    bvh: TriangleBvh[Frame.WORLD, width],
+    rays: List[Rayf32[Frame.WORLD]],
+) -> Int:
     var occluded = 0
     for ray in rays:
         if bvh.trace[TRACE.ANY_HIT](ray).is_occluded():
@@ -155,7 +158,10 @@ def trace_triangle_shadow[
 
 def trace_sphere_primary[
     width: SIMDSize
-](bvh: SphereBvh[Frame.WORLD, width], rays: List[Ray[Frame.WORLD]],) -> Float64:
+](
+    bvh: SphereBvh[Frame.WORLD, width],
+    rays: List[Rayf32[Frame.WORLD]],
+) -> Float64:
     var checksum = 0.0
     for ray in rays:
         var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
@@ -166,7 +172,7 @@ def trace_sphere_primary[
 
 def trace_sphere_shadow[
     width: SIMDSize
-](bvh: SphereBvh[Frame.WORLD, width], rays: List[Ray[Frame.WORLD]],) -> Int:
+](bvh: SphereBvh[Frame.WORLD, width], rays: List[Rayf32[Frame.WORLD]],) -> Int:
     var occluded = 0
     for ray in rays:
         if bvh.trace[TRACE.ANY_HIT](ray).is_occluded():
@@ -178,7 +184,7 @@ def bench_triangle_primary[
     width: SIMDSize
 ](
     bvh: TriangleBvh[Frame.WORLD, width],
-    rays: List[Ray[Frame.WORLD]],
+    rays: List[Rayf32[Frame.WORLD]],
 ) -> PrimaryBenchResult:
     var checksum = trace_triangle_primary[width](bvh, rays)
     var best_ns = Int.MAX
@@ -198,7 +204,7 @@ def bench_sphere_primary[
     width: SIMDSize
 ](
     bvh: SphereBvh[Frame.WORLD, width],
-    rays: List[Ray[Frame.WORLD]],
+    rays: List[Rayf32[Frame.WORLD]],
 ) -> PrimaryBenchResult:
     var checksum = trace_sphere_primary[width](bvh, rays)
     var best_ns = Int.MAX
@@ -230,7 +236,7 @@ def _case_name[prim: String, width: SIMDSize, split_method: String]() -> String:
 def bench_triangle_case[
     width: SIMDSize,
     split_method: String,
-](vertices: List[Point3f32[Frame.WORLD]], rays: List[Ray[Frame.WORLD]]):
+](vertices: List[Point3f32[Frame.WORLD]], rays: List[Rayf32[Frame.WORLD]]):
     var name = _case_name["tri", width, split_method]()
 
     var t0 = perf_counter_ns()
@@ -255,7 +261,7 @@ def bench_triangle_case[
 def bench_sphere_case[
     width: SIMDSize,
     split_method: String,
-](spheres: List[Sphere[Frame.WORLD]], rays: List[Ray[Frame.WORLD]]):
+](spheres: List[Sphere[Frame.WORLD]], rays: List[Rayf32[Frame.WORLD]]):
     var name = _case_name["sph", width, split_method]()
 
     var t0 = perf_counter_ns()
@@ -279,7 +285,7 @@ def bench_sphere_case[
 
 def bench_triangle_widths[
     split_method: String
-](vertices: List[Point3f32[Frame.WORLD]], rays: List[Ray[Frame.WORLD]]):
+](vertices: List[Point3f32[Frame.WORLD]], rays: List[Rayf32[Frame.WORLD]]):
     bench_triangle_case[2, split_method](vertices, rays)
     bench_triangle_case[4, split_method](vertices, rays)
     bench_triangle_case[8, split_method](vertices, rays)
@@ -287,7 +293,7 @@ def bench_triangle_widths[
 
 def bench_sphere_widths[
     split_method: String
-](spheres: List[Sphere[Frame.WORLD]], rays: List[Ray[Frame.WORLD]]):
+](spheres: List[Sphere[Frame.WORLD]], rays: List[Rayf32[Frame.WORLD]]):
     bench_sphere_case[2, split_method](spheres, rays)
     bench_sphere_case[4, split_method](spheres, rays)
     bench_sphere_case[8, split_method](spheres, rays)

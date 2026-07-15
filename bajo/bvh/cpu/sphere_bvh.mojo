@@ -1,10 +1,19 @@
-from bajo.core import AABB, Vec3, Point3, Frame
+from bajo.core import (
+    AABB,
+    Vec3,
+    Point3,
+    Point3f32,
+    Frame,
+    GeoKind,
+    normalize,
+    Rayf32,
+)
 from bajo.core.intersect import intersect_ray_sphere
 from bajo.core.utils import min_argmin
 from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
 from bajo.bvh.cpu.bounds_bvh import BoundsBvh, BoundsItem, BoundsBvhBuilder
 from bajo.bvh.cpu.trace import trace_bounds_bvh
-from bajo.bvh.types import Ray, Hit, Sphere, SphereLeafBlock, TypedBvh
+from bajo.bvh.types import Hit, Sphere, SphereLeafBlock, TypedBvh
 
 
 struct SphereBvh[frame: Frame, width: SIMDSize](Copyable, TypedBvh):
@@ -77,9 +86,9 @@ struct SphereBvh[frame: Frame, width: SIMDSize](Copyable, TypedBvh):
 
     def trace[
         mode: TRACE
-    ](self, ray: Ray[Self.bvh_frame]) -> Hit[Self.bvh_frame]:
+    ](self, ray: Rayf32[Self.bvh_frame]) -> Hit[Self.bvh_frame]:
         def leaf_fn(
-            ray: Ray[Self.bvh_frame],
+            ray: Rayf32[Self.bvh_frame],
             O: Point3[DType.float32, Self.bvh_frame, Self.width],
             D: Vec3[DType.float32, Self.bvh_frame, Self.width],
             leaf_block_idx: UInt32,
@@ -110,6 +119,15 @@ struct SphereBvh[frame: Frame, width: SIMDSize](Copyable, TypedBvh):
                 hit.v = 0.0
                 hit.inst = EMPTY_LANE
                 hit.prim = block.prim_indices[arg_min_t]
+                var center = Point3f32[Self.bvh_frame](
+                    block.center.x[arg_min_t],
+                    block.center.y[arg_min_t],
+                    block.center.z[arg_min_t],
+                )
+                var p = ray.o + min_t * ray.d
+                hit.normal = normalize(p - center).unsafe_convert[
+                    new_kind=GeoKind.NORMAL
+                ]()
 
             return True
 

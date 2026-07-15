@@ -1,8 +1,7 @@
 from std.math import max
 
-from bajo.core import AABB, Frame, Vec3f32
+from bajo.core import AABB, Frame, Vec3f32, Rayf32
 from bajo.bvh.camera import Camera
-from bajo.bvh.types import Ray
 
 
 def make_camera_rays_and_params(
@@ -11,7 +10,7 @@ def make_camera_rays_and_params(
     height: Int,
     views: Int,
     fov_scale: Float32 = 0.75,
-) -> Tuple[List[Ray[Frame.WORLD]], List[Float32]]:
+) -> Tuple[List[Rayf32[Frame.WORLD]], List[Float32]]:
     var center = bounds.centroid()
     var extent = bounds.extent()
 
@@ -19,7 +18,7 @@ def make_camera_rays_and_params(
     if scene_w < 1.0:
         scene_w = 1.0
 
-    var rays = List[Ray[Frame.WORLD]](capacity=width * height * views)
+    var rays = List[Rayf32[Frame.WORLD]](capacity=width * height * views)
     var params = List[Float32](capacity=views * Camera.STRIDE)
 
     for view in range(views):

@@ -119,6 +119,9 @@ def test_gpu_tlas_triangle_camera_translated_single_instance_hit() raises:
             assert_almost_equal(gpu_hit.t, 2.0)
             assert_true(gpu_hit.prim == UInt32(0))
             assert_true(gpu_hit.inst == UInt32(0))
+            assert_almost_equal(gpu_hit.normal.x, 0.0)
+            assert_almost_equal(gpu_hit.normal.y, 0.0)
+            assert_almost_equal(gpu_hit.normal.z, 1.0)
 
 
 def test_gpu_tlas_sphere_camera_single_identity_matches_cpu_bruteforce() raises:
@@ -214,6 +217,54 @@ def test_gpu_tlas_sphere_camera_translated_single_instance_hit() raises:
             assert_almost_equal(gpu_hit.t, 1.0)
             assert_true(gpu_hit.prim == UInt32(0))
             assert_true(gpu_hit.inst == UInt32(0))
+            assert_almost_equal(gpu_hit.normal.x, 0.0)
+            assert_almost_equal(gpu_hit.normal.y, 0.0)
+            assert_almost_equal(gpu_hit.normal.z, -1.0)
+
+
+def test_gpu_tlas_sphere_nonuniform_scale_normal() raises:
+    var spheres = [
+        Sphere[Frame.LOCAL](Point3f32[Frame.LOCAL](0.0, 0.0, 2.0), 1.0)
+    ]
+    var bounds = AABB[Frame.LOCAL](
+        Point3f32[Frame.LOCAL](-1.0, -1.0, 1.0),
+        Point3f32[Frame.LOCAL](1.0, 1.0, 3.0),
+    )
+    var transform = Affine3f32[Frame.LOCAL, Frame.WORLD].from_scale(
+        Vec3f32[Frame.LOCAL](2.0, 1.0, 1.0)
+    )
+    var inverse = Affine3f32[Frame.WORLD, Frame.LOCAL].from_scale(
+        Vec3f32[Frame.WORLD](0.5, 1.0, 1.0)
+    )
+    var instances = [
+        Instance(
+            transform,
+            inverse,
+            UInt32(0),
+            bounds,
+            Primitive.SPHERE,
+        )
+    ]
+    var camera = _make_camera_ray(
+        Point3f32[Frame.WORLD](1.0, 0.0, 0.0),
+        Vec3f32[Frame.WORLD](0.0, 0.0, 1.0),
+    )
+
+    with DeviceContext() as ctx:
+        var blases = build_sphere_blas_set[4](ctx, [spheres^])
+        var tlas = GpuSphereTlas[4, 4](ctx, instances)
+        var d_camera = upload_camera(ctx, camera)
+        var d_hits = ctx.enqueue_create_buffer[DType.float32](Hit.STRIDE)
+
+        tlas.launch_camera(ctx, blases, d_camera, d_hits, 1, 1, 1)
+        ctx.synchronize()
+
+        with d_hits.map_to_host() as hf:
+            var gpu_hit = Hit[Frame.WORLD].load(hf.unsafe_ptr(), 0)
+            assert_almost_equal(gpu_hit.t, 1.1339746, atol=1.0e-5)
+            assert_almost_equal(gpu_hit.normal.x, 0.2773501, atol=1.0e-5)
+            assert_almost_equal(gpu_hit.normal.y, 0.0, atol=1.0e-5)
+            assert_almost_equal(gpu_hit.normal.z, -0.9607689, atol=1.0e-5)
 
 
 def main() raises:

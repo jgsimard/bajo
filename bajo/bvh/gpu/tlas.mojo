@@ -1,7 +1,7 @@
 from std.math import ceildiv, max, min
 from std.gpu import DeviceBuffer, DeviceContext, global_idx
 
-from bajo.core import AABB, Affine3f32, Frame
+from bajo.core import AABB, Affine3f32, Frame, Rayf32
 from bajo.bvh.constants import (
     TRACE,
     GPU_STACK_SIZE,
@@ -9,7 +9,7 @@ from bajo.bvh.constants import (
     f32_max,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
-from bajo.bvh.types import Ray, Hit, Instance, BlasSet
+from bajo.bvh.types import Hit, Instance, BlasSet
 from bajo.bvh.gpu.bounds_bvh import (
     GpuBoundsBvh,
     _wide_node_load_meta,
@@ -26,7 +26,7 @@ from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list
 comptime BlasLeafFn[frame: Frame] = def(
     UnsafePointer[mut=False, Float32, _],
     UInt32,
-    Ray[frame],
+    Rayf32[frame],
     mut Hit[frame],
 ) capturing -> Bool
 
@@ -64,21 +64,6 @@ def _flatten_instance_blas_indices(
     return [instance.blas_idx for instance in instances]
 
 
-def transform_ray[
-    origin: ImmutOrigin
-](
-    transforms: UnsafePointer[Float32, origin],
-    idx: UInt32,
-    ray: Ray[Frame.WORLD],
-    t_max: Float32,
-) -> Ray[Frame.LOCAL]:
-    var base = Int(idx) * Affine3f32[Frame.WORLD, Frame.LOCAL].STRIDE
-    var transform = Affine3f32[Frame.WORLD, Frame.LOCAL].load(transforms, base)
-    var o = transform.point(ray.o)
-    var d = transform.vector(ray.d)
-    return Ray[Frame.LOCAL](o, d, ray.t_min, t_max)
-
-
 @always_inline
 def _intersect_tlas_instance_block[
     tlas_width: SIMDSize,
@@ -95,7 +80,7 @@ def _intersect_tlas_instance_block[
     blas_leaves: UnsafePointer[mut=False, Float32, _],
     leaf_block_idx: UInt32,
     item_count: UInt32,
-    ray: Ray[Frame.WORLD],
+    ray: Rayf32[Frame.WORLD],
     mut hit: Hit[Frame.WORLD],
 ) -> Bool:
     var hit_any = False
@@ -107,13 +92,12 @@ def _intersect_tlas_instance_block[
         if inst_idx != EMPTY_LANE:
             var blas_idx = UInt32(inst_blas_indices[Int(inst_idx)])
             var desc_base = Int(blas_idx) * BlasSet.STRIDE
-
-            var local_ray = transform_ray(
-                inst_inv_transform,
-                inst_idx,
-                ray,
-                hit.t,
+            var transform_base = Int(inst_idx) * Affine3f32.STRIDE
+            var inverse = Affine3f32[Frame.WORLD, Frame.LOCAL].load(
+                inst_inv_transform, transform_base
             )
+
+            var local_ray = inverse.ray(ray, hit.t)
 
             var local_hit = trace_bounds_bvh[
                 Frame.LOCAL,
@@ -138,8 +122,7 @@ def _intersect_tlas_instance_block[
                 if local_hit.t < hit.t and local_hit.prim != EMPTY_LANE:
                     var transform = Affine3f32[Frame.LOCAL, Frame.WORLD].load(
                         inst_transform,
-                        Int(inst_idx)
-                        * Affine3f32[Frame.LOCAL, Frame.WORLD].STRIDE,
+                        transform_base,
                     )
 
                     hit.t = local_hit.t
@@ -147,7 +130,7 @@ def _intersect_tlas_instance_block[
                     hit.v = local_hit.v
                     hit.prim = local_hit.prim
                     hit.inst = inst_idx
-                    hit.normal = transform.vector(local_hit.normal)
+                    hit.normal = transform.normal(local_hit.normal, inverse)
                     hit_any = True
     return hit_any
 
@@ -167,7 +150,7 @@ def _trace_tlas_ray[
     blas_wide_nodes: UnsafePointer[mut=False, Float32, _],
     blas_leaves: UnsafePointer[mut=False, Float32, _],
     tlas_root_idx: UInt32,
-    ray: Ray[Frame.WORLD],
+    ray: Rayf32[Frame.WORLD],
 ) -> Hit[Frame.WORLD]:
     var hit = Hit[Frame.WORLD].miss(ray.t_max)
 

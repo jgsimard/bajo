@@ -1,10 +1,10 @@
 from std.math import max
 from std.gpu import DeviceBuffer
 
-from bajo.core import AABB, Vec3f32, Point3f32, Frame
+from bajo.core import AABB, Vec3f32, Point3f32, Frame, Rayf32
 from bajo.bvh.camera import Camera
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
-from bajo.bvh.types import Ray, Sphere, Hit
+from bajo.bvh.types import Sphere, Hit
 from bajo.core.intersect import intersect_ray_tri, intersect_ray_sphere
 from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
 from bajo.bvh.host_utils import sphere_bounds
@@ -145,7 +145,7 @@ def _make_camera_rays_and_params(
     width: Int,
     height: Int,
     views: Int,
-) -> Tuple[List[Ray[Frame.WORLD]], List[Float32]]:
+) -> Tuple[List[Rayf32[Frame.WORLD]], List[Float32]]:
     var center = bounds.centroid()
     var extent = bounds.extent()
 
@@ -153,7 +153,7 @@ def _make_camera_rays_and_params(
     if scene_w < 1.0:
         scene_w = 1.0
 
-    var rays = List[Ray[Frame.WORLD]](capacity=width * height * views)
+    var rays = List[Rayf32[Frame.WORLD]](capacity=width * height * views)
     var params = List[Float32](capacity=views * Camera.STRIDE)
 
     for view in range(views):
@@ -236,7 +236,7 @@ def _brute_sphere_trace[
 
 def _trace_cpu_triangle_bvh[
     frame: Frame, width: SIMDSize
-](mut bvh: TriangleBvh[frame, width], rays: List[Ray[frame]]) -> Float64:
+](mut bvh: TriangleBvh[frame, width], rays: List[Rayf32[frame]]) -> Float64:
     var checksum = Float64(0.0)
     for ray in rays:
         var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
@@ -289,7 +289,7 @@ def _trace_cpu_sphere_camera(
 
 def _trace_cpu_spheres_bruteforce[
     frame: Frame
-](spheres: List[Sphere[frame]], rays: List[Ray[frame]],) -> Float64:
+](spheres: List[Sphere[frame]], rays: List[Rayf32[frame]],) -> Float64:
     var checksum = Float64(0.0)
 
     for ray in rays:

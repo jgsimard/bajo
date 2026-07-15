@@ -3,12 +3,12 @@ from std.sys import has_accelerator
 from std.time import perf_counter_ns
 from std.gpu import DeviceContext, DeviceBuffer
 
-from bajo.core import Frame, AABB, Vec3f32, dot, Point3f32
+from bajo.core import Frame, AABB, Vec3f32, dot, Point3f32, Rayf32
 from bajo.core.intersect import intersect_ray_sphere
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.bvh.host_utils import compute_bounds, sphere_bounds
 from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
-from bajo.bvh.types import Hit, Ray, Sphere
+from bajo.bvh.types import Hit, Sphere
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.bvh.gpu.sphere_bvh import GpuSphereBvh
@@ -54,9 +54,9 @@ comptime DEBUG_BENCH_REPEATS = 3
 
 def _trace_cpu_triangle_bvh[
     width: SIMDSize
-](bvh: TriangleBvh[Frame.WORLD, width], rays: List[Ray[Frame.WORLD]]) -> Tuple[
-    Float64, UInt32
-]:
+](
+    bvh: TriangleBvh[Frame.WORLD, width], rays: List[Rayf32[Frame.WORLD]]
+) -> Tuple[Float64, UInt32]:
     var checksum = Float64(0.0)
     var hit_count = UInt32(0)
 
@@ -71,7 +71,7 @@ def _trace_cpu_triangle_bvh[
 
 def _trace_cpu_sphere_bvh[
     width: SIMDSize
-](bvh: SphereBvh[Frame.WORLD, width], rays: List[Ray[Frame.WORLD]]) -> Tuple[
+](bvh: SphereBvh[Frame.WORLD, width], rays: List[Rayf32[Frame.WORLD]]) -> Tuple[
     Float64, UInt32
 ]:
     var checksum = Float64(0.0)
@@ -88,7 +88,7 @@ def _trace_cpu_sphere_bvh[
 
 def _trace_cpu_sphere_bruteforce(
     spheres: List[Sphere[Frame.WORLD]],
-    rays: List[Ray[Frame.WORLD]],
+    rays: List[Rayf32[Frame.WORLD]],
 ) -> Tuple[Float64, UInt32]:
     var checksum = Float64(0.0)
     var hit_count = UInt32(0)
@@ -104,7 +104,7 @@ def _trace_cpu_sphere_bruteforce(
 
 def _trace_cpu_sphere_bruteforce_one(
     spheres: List[Sphere[Frame.WORLD]],
-    ray: Ray[Frame.WORLD],
+    ray: Rayf32[Frame.WORLD],
 ) -> Hit[Frame.WORLD]:
     var hit = Hit[Frame.WORLD].miss(ray.t_max)
 
@@ -131,7 +131,7 @@ def _trace_cpu_sphere_bruteforce_one(
 def _print_sphere_debug_mismatches(
     mut ctx: DeviceContext,
     spheres: List[Sphere[Frame.WORLD]],
-    rays: List[Ray[Frame.WORLD]],
+    rays: List[Rayf32[Frame.WORLD]],
     d_hits: DeviceBuffer[DType.float32],
     image_width: Int,
     image_height: Int,
@@ -260,7 +260,7 @@ def _print_cpu_triangle_reference[
 ](
     label: String,
     vertices: List[Point3f32[Frame.WORLD]],
-    rays: List[Ray[Frame.WORLD]],
+    rays: List[Rayf32[Frame.WORLD]],
 ) -> Tuple[Float64, UInt32]:
     var bvh = TriangleBvh[Frame.WORLD, width].__init__["lbvh"](vertices.copy())
     var t0 = perf_counter_ns()
@@ -276,7 +276,7 @@ def _print_cpu_sphere_reference[
 ](
     label: String,
     spheres: List[Sphere[Frame.WORLD]],
-    rays: List[Ray[Frame.WORLD]],
+    rays: List[Rayf32[Frame.WORLD]],
 ) -> Tuple[Float64, UInt32]:
     var bvh = SphereBvh[Frame.WORLD, width].__init__["lbvh"](spheres.copy())
     var t0 = perf_counter_ns()
@@ -290,7 +290,7 @@ def _print_cpu_sphere_reference[
 def _print_cpu_sphere_bruteforce_reference(
     label: String,
     spheres: List[Sphere[Frame.WORLD]],
-    rays: List[Ray[Frame.WORLD]],
+    rays: List[Rayf32[Frame.WORLD]],
 ) -> Tuple[Float64, UInt32]:
     var t0 = perf_counter_ns()
     var result = _trace_cpu_sphere_bruteforce(spheres, rays)
@@ -503,7 +503,7 @@ def _run_sphere_width[
 ](
     mut ctx: DeviceContext,
     spheres: List[Sphere[Frame.WORLD]],
-    rays: List[Ray[Frame.WORLD]],
+    rays: List[Rayf32[Frame.WORLD]],
     d_camera_params: DeviceBuffer[DType.float32],
     image_width: Int,
     image_height: Int,

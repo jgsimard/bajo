@@ -1,12 +1,22 @@
 from bajo.core.utils import min_argmin
-from bajo.core import Vec3, Vec3f32, AABB, Point3, Point3f32, Frame
+from bajo.core import (
+    Vec3,
+    Normal3f32,
+    AABB,
+    Point3,
+    Point3f32,
+    Frame,
+    cross,
+    normalize,
+    Rayf32,
+)
 from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
 from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvh,
     BoundsItem,
     BoundsBvhBuilder,
 )
-from bajo.bvh.types import Ray, Hit, TriangleLeafBlock, TypedBvh
+from bajo.bvh.types import Hit, TriangleLeafBlock, TypedBvh
 from bajo.core.intersect import intersect_ray_tri
 from bajo.bvh.cpu.trace import trace_bounds_bvh
 
@@ -98,9 +108,9 @@ struct TriangleBvh[frame: Frame, width: SIMDSize](Copyable, TypedBvh):
 
     def trace[
         mode: TRACE
-    ](self, ray: Ray[Self.bvh_frame]) -> Hit[Self.bvh_frame]:
+    ](self, ray: Rayf32[Self.bvh_frame]) -> Hit[Self.bvh_frame]:
         def leaf_fn(
-            ray: Ray[Self.bvh_frame],
+            ray: Rayf32[Self.bvh_frame],
             O: Point3[DType.float32, Self.bvh_frame, Self.width],
             D: Vec3[DType.float32, Self.bvh_frame, Self.width],
             leaf_block_idx: UInt32,
@@ -131,6 +141,12 @@ struct TriangleBvh[frame: Frame, width: SIMDSize](Copyable, TypedBvh):
                 hit.v = tri_hit.v[lane]
                 hit.prim = block.prim_indices[lane]
                 hit.inst = EMPTY_LANE
+                var normals = normalize(
+                    cross(block.v1 - block.v0, block.v2 - block.v0)
+                )
+                hit.normal = Normal3f32[Self.bvh_frame](
+                    normals.x[lane], normals.y[lane], normals.z[lane]
+                )
 
             return True
 

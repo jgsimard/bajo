@@ -1,6 +1,6 @@
-from bajo.bvh.types import Ray, Hit
+from bajo.bvh.types import Hit
 from bajo.core.intersect import intersect_ray_aabb_rcp
-from bajo.core import Vec3, Point3, Frame
+from bajo.core import Vec3, Point3, Frame, Rayf32
 from bajo.bvh.cpu.bounds_bvh import BoundsBvh
 from bajo.bvh.constants import EMPTY_LANE, CPU_STACK_SIZE, TRACE
 
@@ -10,13 +10,13 @@ def trace_bounds_bvh[
     width: SIMDSize,
     mode: TRACE,
     leaf_fn: def(
-        Ray[frame],
+        Rayf32[frame],
         Point3[DType.float32, frame, width],
         Vec3[DType.float32, frame, width],
         UInt32,
         mut Hit[frame],
     ) capturing -> Bool,
-](tree: BoundsBvh[frame, width], ray: Ray[frame]) -> Hit[frame]:
+](tree: BoundsBvh[frame, width], ray: Rayf32[frame]) -> Hit[frame]:
     debug_assert["safe"](len(tree.nodes) > 0)
 
     var hit = Hit[frame].miss(ray.t_max)

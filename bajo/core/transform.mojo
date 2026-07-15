@@ -1,9 +1,10 @@
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.math import abs, fma
 
-from bajo.core.vec import Vec3, Normal3, Point3, Geo3, GeoKind
+from bajo.core.vec import Vec3, Normal3, Point3, Geo3, GeoKind, normalize
 from bajo.core.quat import Quaternion
 from bajo.core.frame import Frame
+from bajo.core.ray import Ray
 
 
 @fieldwise_init
@@ -173,6 +174,72 @@ struct Affine3[dtype: DType, From: Frame, To: Frame, width: SIMDSize = 1](
             fma(self.m10, v.x, fma(self.m11, v.y, self.m12 * v.z)),
             fma(self.m20, v.x, fma(self.m21, v.y, self.m22 * v.z)),
         )
+
+    def ray(
+        self,
+        ray: Ray[Self.dtype, Self.From],
+        t_max: Scalar[Self.dtype],
+    ) -> Ray[Self.dtype, Self.To]:
+        comptime assert Self.width == 1
+        var origin = self.point(
+            Point3[Self.dtype, Self.From, Self.width](
+                ray.o.x,
+                ray.o.y,
+                ray.o.z,
+            )
+        )
+        var direction = self.vector(
+            Vec3[Self.dtype, Self.From, Self.width](
+                ray.d.x,
+                ray.d.y,
+                ray.d.z,
+            )
+        )
+        return Ray[Self.dtype, Self.To](
+            Point3[Self.dtype, Self.To](
+                origin.x[0],
+                origin.y[0],
+                origin.z[0],
+            ),
+            Vec3[Self.dtype, Self.To](
+                direction.x[0],
+                direction.y[0],
+                direction.z[0],
+            ),
+            ray.t_min,
+            t_max,
+        )
+
+    def normal(
+        self,
+        n: Normal3[Self.dtype, Self.From, Self.width],
+        inverse: Affine3[Self.dtype, Self.To, Self.From, Self.width],
+    ) -> Normal3[
+        Self.dtype, Self.To, Self.width
+    ] where Self.dtype.is_floating_point():
+        """
+        `inverse` must be the inverse of `self`.
+        # TODO : clunky, change that
+        """
+        return normalize(
+            Vec3[Self.dtype, Self.To, Self.width](
+                fma(
+                    inverse.m00,
+                    n.x,
+                    fma(inverse.m10, n.y, inverse.m20 * n.z),
+                ),
+                fma(
+                    inverse.m01,
+                    n.x,
+                    fma(inverse.m11, n.y, inverse.m21 * n.z),
+                ),
+                fma(
+                    inverse.m02,
+                    n.x,
+                    fma(inverse.m12, n.y, inverse.m22 * n.z),
+                ),
+            )
+        ).unsafe_convert[new_kind=GeoKind.NORMAL]()
 
     def translation[
         kind: GeoKind = GeoKind.VECTOR

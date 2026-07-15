@@ -1,5 +1,5 @@
-from bajo.core import AABB, Vec3, Point3, Frame
-from bajo.bvh.types import Ray, Hit, Instance, TypedBvh
+from bajo.core import AABB, Vec3, Point3, Frame, GeoKind, Rayf32
+from bajo.bvh.types import Hit, Instance, TypedBvh
 from bajo.bvh.constants import TRACE, EMPTY_LANE
 from bajo.bvh.cpu.bounds_bvh import BoundsBvh, BoundsBvhBuilder, BoundsItem
 from bajo.bvh.cpu.trace import trace_bounds_bvh
@@ -74,7 +74,7 @@ struct Tlas[width: SIMDSize](Copyable):
         mode: TRACE,
     ](
         self,
-        ray: Ray[Frame.WORLD],
+        ray: Rayf32[Frame.WORLD],
         blases: UnsafePointer[typed_bvh, origin],
     ) -> Hit[Frame.WORLD]:
         comptime assert (
@@ -82,7 +82,7 @@ struct Tlas[width: SIMDSize](Copyable):
         ), "TLAS expects BLASes in Frame.LOCAL"
 
         def leaf_fn(
-            ray: Ray[Frame.WORLD],
+            ray: Rayf32[Frame.WORLD],
             O: Point3[DType.float32, Frame.WORLD, Self.width],
             D: Vec3[DType.float32, Frame.WORLD, Self.width],
             leaf_block_idx: UInt32,
@@ -99,22 +99,19 @@ struct Tlas[width: SIMDSize](Copyable):
 
                 if inst_idx != EMPTY_LANE:
                     ref inst = self.instances[Int(inst_idx)]
-                    var local_origin = inst.inv_transform.point(ray.o)
-                    var local_dir = inst.inv_transform.vector(ray.d)
+                    var local_ray_base = inst.inv_transform.ray(ray, hit.t)
 
                     # TODO: use this version when parametric raises are a thing in mojo
-                    # var local_ray = Ray[Frame.LOCAL](
-                    #     local_origin, local_dir, ray.t_min, hit.t
-                    # )
-                    var local_ray = Ray[typed_bvh.bvh_frame](
-                        local_origin.unsafe_convert[
+                    # var local_ray = inst.inv_transform.ray(ray, hit.t)
+                    var local_ray = Rayf32[typed_bvh.bvh_frame](
+                        local_ray_base.o.unsafe_convert[
                             new_frame=typed_bvh.bvh_frame
                         ](),
-                        local_dir.unsafe_convert[
+                        local_ray_base.d.unsafe_convert[
                             new_frame=typed_bvh.bvh_frame
                         ](),
-                        ray.t_min,
-                        hit.t,
+                        local_ray_base.t_min,
+                        local_ray_base.t_max,
                     )
 
                     var local_hit = blases[Int(inst.blas_idx)].trace[mode](
@@ -131,10 +128,11 @@ struct Tlas[width: SIMDSize](Copyable):
                             hit.v = local_hit.v
                             hit.prim = local_hit.prim
                             hit.inst = inst_idx
-                            hit.normal = inst.transform.vector(
+                            hit.normal = inst.transform.normal(
                                 local_hit.normal.unsafe_convert[
                                     new_frame=Frame.LOCAL
-                                ]()
+                                ](),
+                                inst.inv_transform,
                             )
                             any_hit = True
 

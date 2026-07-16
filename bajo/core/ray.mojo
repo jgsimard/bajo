@@ -29,7 +29,7 @@ struct Ray[dtype: DType, frame: Frame](TrivialRegisterPassable, Writable):
         self.t_max = t_max
 
     def __init__[
-        origin: ImmutOrigin
+        origin: ImmOrigin
     ](out self, rays: UnsafePointer[Scalar[Self.dtype], origin], ray_idx: Int,):
         var base = ray_idx * Ray.STRIDE
         self.o = Point3[Self.dtype, Self.frame].load(rays, base + Ray.ORIGIN)

@@ -15,7 +15,7 @@ struct MortonItem(Comparable, TrivialRegisterPassable):
 
 
 def _common_prefix[
-    origin: ImmutOrigin
+    origin: ImmOrigin
 ](pairs: UnsafePointer[MortonItem, origin], i: Int, j: Int, n: Int) -> Int:
     if j < 0 or j >= n:
         return -1
@@ -35,7 +35,7 @@ def _common_prefix[
 
 
 def _lbvh_find_split[
-    origin: ImmutOrigin
+    origin: ImmOrigin
 ](
     pairs: UnsafePointer[MortonItem, origin],
     first: Int,
@@ -103,7 +103,7 @@ def _build_lbvh[
 
 
 def _build_lbvh_recursive[
-    origin: ImmutOrigin, //, frame: Frame, leaf_size: Int
+    origin: ImmOrigin, //, frame: Frame, leaf_size: Int
 ](
     mut builder: BoundsBvhBuilder[frame, leaf_size],
     pairs: UnsafePointer[MortonItem, origin],

@@ -176,7 +176,7 @@ def _unit_to_u8(x: Float32) -> UInt8:
 
 
 def write_ppm_normals_from_hits[
-    origin: ImmutOrigin,
+    origin: ImmOrigin,
 ](
     path: String,
     width: Int,

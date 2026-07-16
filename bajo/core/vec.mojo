@@ -376,7 +376,7 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize = 1](
 
     @staticmethod
     def load[
-        origin: ImmutOrigin
+        origin: ImmOrigin
     ](ptr: UnsafePointer[Scalar[Self.dtype], origin], base: Int) -> Self:
         comptime assert Self.width == 1
         return Self(

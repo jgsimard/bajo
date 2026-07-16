@@ -158,7 +158,7 @@ def _wide_node_store_child[
 
 
 def _wide_node_load_meta[
-    origin: ImmutOrigin,
+    origin: ImmOrigin,
     //,
     width: SIMDSize,
 ](
@@ -171,7 +171,7 @@ def _wide_node_load_meta[
 
 
 def _load_wide_node_bounds_block[
-    origin: ImmutOrigin,
+    origin: ImmOrigin,
     //,
     dtype: DType,
     frame: Frame,
@@ -197,7 +197,7 @@ def _load_wide_node_bounds_block[
 
 
 def _intersect_wide_node_bounds[
-    origin: ImmutOrigin,
+    origin: ImmOrigin,
     //,
     frame: Frame,
     width: SIMDSize,

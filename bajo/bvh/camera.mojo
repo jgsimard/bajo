@@ -27,7 +27,7 @@ struct Camera(TrivialRegisterPassable, Writable):
     var defocus_disk_v: Vec3f32[Frame.WORLD]
 
     def __init__[
-        origin: ImmutOrigin
+        origin: ImmOrigin
     ](out self, ptr: UnsafePointer[Float32, origin], base: Int = 0):
         self.origin = Point3f32[Frame.WORLD].load(ptr, base + Camera.ORIGIN)
         self.forward = Vec3f32[Frame.WORLD].load(ptr, base + Camera.FORWARD)

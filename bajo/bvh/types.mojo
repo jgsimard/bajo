@@ -81,7 +81,7 @@ struct Hit[frame: Frame = Frame.WORLD](TrivialRegisterPassable, Writable):
 
     @staticmethod
     def load[
-        origin: ImmutOrigin,
+        origin: ImmOrigin,
         address_space: AddressSpace,
     ](
         hits: UnsafePointer[Float32, origin, address_space=address_space],

@@ -89,7 +89,7 @@ def refit_lbvh_bounds_from_leaves_kernel(
 
 
 def _lbvh_find_range[
-    origin: ImmutOrigin
+    origin: ImmOrigin
 ](
     morton_codes: UnsafePointer[UInt32, origin],
     i: Int,
@@ -124,7 +124,7 @@ def _lbvh_find_range[
 
 
 def _lbvh_find_split[
-    origin: ImmutOrigin
+    origin: ImmOrigin
 ](
     morton_codes: UnsafePointer[UInt32, origin],
     first: Int,

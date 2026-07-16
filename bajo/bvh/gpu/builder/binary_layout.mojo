@@ -39,13 +39,13 @@ def _node_right_index(node_idx: UInt32) -> Int:
 
 
 def _node_left[
-    origin: ImmutOrigin
+    origin: ImmOrigin
 ](node_meta: UnsafePointer[UInt32, origin], node_idx: UInt32) -> UInt32:
     return node_meta[_node_left_index(node_idx)]
 
 
 def _node_right[
-    origin: ImmutOrigin
+    origin: ImmOrigin
 ](node_meta: UnsafePointer[UInt32, origin], node_idx: UInt32) -> UInt32:
     return node_meta[_node_right_index(node_idx)]
 
@@ -73,7 +73,7 @@ def _write_child_bounds[
 
 
 def _load_and_union_node_bounds[
-    origin: ImmutOrigin
+    origin: ImmOrigin
 ](node_bounds: UnsafePointer[Float32, origin], parent: UInt32) -> AABB[
     Frame.WORLD
 ]:

@@ -121,7 +121,7 @@ struct BoundsBin[frame: Frame](TrivialRegisterPassable):
 
 
 def _item_bin[
-    origin: ImmutOrigin, frame: Frame
+    origin: ImmOrigin, frame: Frame
 ](
     items: UnsafePointer[BoundsItem[frame], origin],
     item_idx: Int,

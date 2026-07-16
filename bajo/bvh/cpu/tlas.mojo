@@ -68,7 +68,7 @@ struct Tlas[width: SIMDSize](Copyable):
                     node.data[lane] = block_idx
 
     def trace[
-        origin: ImmutOrigin,
+        origin: ImmOrigin,
         //,
         typed_bvh: TypedBvh,
         mode: TRACE,

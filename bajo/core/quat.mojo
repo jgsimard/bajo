@@ -35,9 +35,9 @@ def normalize[
 
 
 @fieldwise_init
-struct Quaternion[
-    dtype: DType, frame: Frame = Frame.WORLD, width: SIMDSize = 1
-](DevicePassable, TrivialRegisterPassable, Writable):
+struct Quaternion[dtype: DType, frame: Frame, width: SIMDSize = 1](
+    DevicePassable, TrivialRegisterPassable, Writable
+):
     var x: SIMD[Self.dtype, Self.width]
     var y: SIMD[Self.dtype, Self.width]
     var z: SIMD[Self.dtype, Self.width]

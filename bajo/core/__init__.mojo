@@ -22,16 +22,14 @@ from .frame import Frame
 from .ray import Ray
 
 
-comptime AABB[frame: Frame = Frame.WORLD] = AxisAlignedBoundingBox[
-    DType.float32, frame
-]
+comptime AABB = AxisAlignedBoundingBox[DType.float32, _]
 comptime Quat = Quaternion[DType.float32, _]
-comptime Affine3f32[From: Frame, To: Frame] = Affine3[DType.float32, From, To]
+comptime Affine3f32 = Affine3[DType.float32, _, _]
 comptime Vec2f32 = Vec2[DType.float32, _]
-comptime Vec3f32[frame: Frame] = Vec3[DType.float32, frame]
-comptime Point3f32[frame: Frame] = Point3[DType.float32, frame]
-comptime Normal3f32[frame: Frame] = Normal3[DType.float32, frame]
-comptime Rayf32[frame: Frame] = Ray[DType.float32, frame]
+comptime Vec3f32 = Vec3[DType.float32, _]
+comptime Point3f32 = Point3[DType.float32, _]
+comptime Normal3f32 = Normal3[DType.float32, _]
+comptime Rayf32 = Ray[DType.float32, _]
 
 comptime Vec3W = Vec3[DType.float32, Frame.WORLD]
 comptime Point3W = Point3[DType.float32, Frame.WORLD]

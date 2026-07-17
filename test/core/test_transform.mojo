@@ -228,7 +228,7 @@ def test_inverse_translation_scale() raises:
     p = Point3W(1, 2, 3)
 
     m = Affine3f32[Frame.WORLD, Frame.CAMERA].from_rotation_scale_translation(
-        Quat.identity(),
+        Quat[Frame.WORLD].identity(),
         s,
         t,
     )

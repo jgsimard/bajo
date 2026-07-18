@@ -405,14 +405,12 @@ def test_triangle_mesh_instances_use_instance_surfaces() raises:
     var mesh_bounds = compute_bounds(mesh)
 
     var transform = Affine3f32[Frame.LOCAL, Frame.WORLD].identity()
-    var inv_transform = Affine3f32[Frame.WORLD, Frame.LOCAL].identity()
     var mesh_idx = add_triangle_mesh_instance(
         triangle_meshes,
         triangle_instances,
         triangle_instance_surfaces,
         mesh,
         transform,
-        inv_transform,
         mesh_bounds,
         matte,
     )
@@ -420,15 +418,11 @@ def test_triangle_mesh_instances_use_instance_surfaces() raises:
     var t = Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(
         Vec3f32[Frame.WORLD](1.5, 0.0, 0.0)
     )
-    var inv_t = Affine3f32[Frame.WORLD, Frame.LOCAL].from_translation(
-        Vec3f32[Frame.LOCAL](-1.5, 0.0, 0.0)
-    )
     add_triangle_instance(
         triangle_instances,
         triangle_instance_surfaces,
         mesh_idx,
         t,
-        inv_t,
         mesh_bounds,
         metal,
     )

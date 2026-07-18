@@ -123,11 +123,9 @@ def _make_instances(bounds_list: List[AABB]) raises -> List[Instance]:
                 var transform = _make_centered_transform(
                     bounds, rotation, scale, bottom_center
                 )
-                var inv_transform = transform.inverse().inv.copy()
                 instances.append(
                     Instance(
                         transform,
-                        inv_transform,
                         blas_idx,
                         bounds,
                         Primitive.TRIANGLE,

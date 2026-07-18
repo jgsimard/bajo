@@ -46,7 +46,6 @@ def _make_single_instance(
     return [
         Instance(
             Affine3f32[Frame.LOCAL, Frame.WORLD].identity(),
-            Affine3f32[Frame.WORLD, Frame.LOCAL].identity(),
             0,
             bounds,
             primitive,
@@ -77,7 +76,6 @@ def _make_translated_grid_instances(
             out.append(
                 Instance(
                     Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(t),
-                    Affine3f32[Frame.WORLD, Frame.LOCAL].from_translation(-t),
                     0,
                     bounds,
                     primitive,
@@ -117,7 +115,6 @@ def _make_multi_blas_grid_instances(
             out.append(
                 Instance(
                     Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(t),
-                    Affine3f32[Frame.WORLD, Frame.LOCAL].from_translation(-t),
                     blas_idx,
                     bounds,
                     Primitive.TRIANGLE,

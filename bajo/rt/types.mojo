@@ -535,7 +535,6 @@ def add_triangle_mesh_instance(
     mut triangle_instance_surfaces: List[SurfaceId],
     vertices: List[Point3f32[Frame.LOCAL]],
     transform: Affine3f32[Frame.LOCAL, Frame.WORLD],
-    inv_transform: Affine3f32[Frame.WORLD, Frame.LOCAL],
     bounds: AABB[Frame.LOCAL],
     surface: SurfaceId,
 ) -> UInt32:
@@ -548,7 +547,6 @@ def add_triangle_mesh_instance(
     triangle_instances.append(
         Instance(
             transform,
-            inv_transform,
             mesh_idx,
             bounds,
             Primitive.TRIANGLE,
@@ -563,14 +561,12 @@ def add_triangle_instance(
     mut triangle_instance_surfaces: List[SurfaceId],
     mesh_idx: UInt32,
     transform: Affine3f32[Frame.LOCAL, Frame.WORLD],
-    inv_transform: Affine3f32[Frame.WORLD, Frame.LOCAL],
     mesh_bounds: AABB[Frame.LOCAL],
     surface: SurfaceId,
 ):
     triangle_instances.append(
         Instance(
             transform,
-            inv_transform,
             mesh_idx,
             mesh_bounds,
             Primitive.TRIANGLE,

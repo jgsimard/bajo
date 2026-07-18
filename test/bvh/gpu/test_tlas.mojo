@@ -45,7 +45,6 @@ def test_gpu_tlas_triangle_camera_single_identity_matches_cpu_blas() raises:
     var instances = [
         Instance(
             Affine3f32[Frame.LOCAL, Frame.WORLD].identity(),
-            Affine3f32[Frame.WORLD, Frame.LOCAL].identity(),
             UInt32(0),
             local_bounds,
             Primitive.TRIANGLE,
@@ -88,7 +87,6 @@ def test_gpu_tlas_triangle_camera_translated_single_instance_hit() raises:
     var instances = [
         Instance(
             Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(t),
-            Affine3f32[Frame.WORLD, Frame.LOCAL].from_translation(-t),
             UInt32(0),
             bounds,
             Primitive.TRIANGLE,
@@ -137,7 +135,6 @@ def test_gpu_tlas_sphere_camera_single_identity_matches_cpu_bruteforce() raises:
     var instances = [
         Instance(
             Affine3f32[Frame.LOCAL, Frame.WORLD].identity(),
-            Affine3f32[Frame.WORLD, Frame.LOCAL].identity(),
             UInt32(0),
             bounds,
             Primitive.SPHERE,
@@ -186,7 +183,6 @@ def test_gpu_tlas_sphere_camera_translated_single_instance_hit() raises:
     var instances = [
         Instance(
             Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(t),
-            Affine3f32[Frame.WORLD, Frame.LOCAL].from_translation(-t),
             UInt32(0),
             bounds,
             Primitive.SPHERE,
@@ -233,13 +229,9 @@ def test_gpu_tlas_sphere_nonuniform_scale_normal() raises:
     var transform = Affine3f32[Frame.LOCAL, Frame.WORLD].from_scale(
         Vec3f32[Frame.LOCAL](2.0, 1.0, 1.0)
     )
-    var inverse = Affine3f32[Frame.WORLD, Frame.LOCAL].from_scale(
-        Vec3f32[Frame.WORLD](0.5, 1.0, 1.0)
-    )
     var instances = [
         Instance(
             transform,
-            inverse,
             UInt32(0),
             bounds,
             Primitive.SPHERE,

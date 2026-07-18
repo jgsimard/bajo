@@ -145,7 +145,7 @@ struct Instance(Copyable):
     """Instance of a BLAS in world space.
 
     - `transform` maps BLAS-local points/vectors to world space.
-    - `inv_transform` maps world-space rays to BLAS-local space.
+    - `inv_transform`
     - `bounds` is the transformed world-space root AABB.
     - `blas_idx` indexes the BLAS array passed to traversal.
     """
@@ -166,13 +166,16 @@ struct Instance(Copyable):
     def __init__(
         out self,
         transform: Affine3f32[Frame.LOCAL, Frame.WORLD],
-        inv_transform: Affine3f32[Frame.WORLD, Frame.LOCAL],
         blas_idx: UInt32,
         blas_bounds: AABB[Frame.LOCAL],
         kind: Primitive,
     ):
+        var inverse = transform.inverse()
+        debug_assert["safe"](
+            inverse.mask[0], "instance transform must be invertible"
+        )
         self.transform = transform.copy()
-        self.inv_transform = inv_transform.copy()
+        self.inv_transform = inverse.inv.copy()
         self.blas_idx = blas_idx
         self.bounds = blas_bounds.apply_transform(transform)
         self.kind = kind

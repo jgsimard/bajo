@@ -79,7 +79,6 @@ def _triangle_instance(
 ) -> Instance:
     return Instance(
         Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(translation),
-        Affine3f32[Frame.WORLD, Frame.LOCAL].from_translation(-translation),
         blas_idx,
         local_bounds,
         Primitive.TRIANGLE,
@@ -93,7 +92,6 @@ def _sphere_instance(
 ) -> Instance:
     return Instance(
         Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(translation),
-        Affine3f32[Frame.WORLD, Frame.LOCAL].from_translation(-translation),
         blas_idx,
         local_bounds,
         Primitive.SPHERE,

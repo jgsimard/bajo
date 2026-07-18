@@ -6,6 +6,7 @@ from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.bvh.cpu.tlas import Tlas
 from bajo.core import (
+    AABB,
     Affine3f32,
     Vec3f32,
     Point3f32,
@@ -14,6 +15,24 @@ from bajo.core import (
     Point3W,
     Rayf32,
 )
+
+
+def test_instance_derives_inverse_from_transform() raises:
+    var transform = Affine3f32[Frame.LOCAL, Frame.WORLD].from_scale(
+        Vec3f32[Frame.LOCAL](2.0, 4.0, 5.0)
+    )
+    var bounds = AABB[Frame.LOCAL](
+        Point3f32[Frame.LOCAL](-1.0),
+        Point3f32[Frame.LOCAL](1.0),
+    )
+    var instance = Instance(transform, UInt32(0), bounds, Primitive.SPHERE)
+    var local_point = Point3f32[Frame.LOCAL](1.5, -2.0, 3.0)
+    var world_point = instance.transform.point(local_point)
+    var round_trip = instance.inv_transform.point(world_point)
+
+    assert_almost_equal(round_trip.x, local_point.x)
+    assert_almost_equal(round_trip.y, local_point.y)
+    assert_almost_equal(round_trip.z, local_point.z)
 
 
 def _make_one_local_triangle_z2[frame: Frame]() -> List[Point3f32[frame]]:
@@ -38,10 +57,8 @@ def _triangle_instance[
     blas: TriangleBvh[Frame.LOCAL, width],
 ) -> Instance:
     var t_world = Vec3f32[Frame.WORLD](tx, ty, tz)
-    var neg_t_local = Vec3f32[Frame.LOCAL](-tx, -ty, -tz)
     return Instance(
         Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(t_world),
-        Affine3f32[Frame.WORLD, Frame.LOCAL].from_translation(neg_t_local),
         blas_idx,
         blas.bounds(),
         Primitive.TRIANGLE,
@@ -58,10 +75,8 @@ def _sphere_instance[
     blas: SphereBvh[Frame.LOCAL, width],
 ) -> Instance:
     var t_world = Vec3f32[Frame.WORLD](tx, ty, tz)
-    var neg_t_local = Vec3f32[Frame.LOCAL](-tx, -ty, -tz)
     return Instance(
         Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(t_world),
-        Affine3f32[Frame.WORLD, Frame.LOCAL].from_translation(neg_t_local),
         blas_idx,
         blas.bounds(),
         Primitive.SPHERE,
@@ -338,13 +353,9 @@ def test_tlas_sphere_nonuniform_scale_normal() raises:
     var transform = Affine3f32[Frame.LOCAL, Frame.WORLD].from_scale(
         Vec3f32[Frame.LOCAL](2.0, 1.0, 1.0)
     )
-    var inverse = Affine3f32[Frame.WORLD, Frame.LOCAL].from_scale(
-        Vec3f32[Frame.WORLD](0.5, 1.0, 1.0)
-    )
     var instances = [
         Instance(
             transform,
-            inverse,
             UInt32(0),
             blas.bounds(),
             Primitive.SPHERE,

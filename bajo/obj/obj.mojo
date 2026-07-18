@@ -24,16 +24,14 @@ struct ObjIndexLimit(TrivialRegisterPassable):
     var count_with_dummy: Int
     var max_magnitude: Int
 
+    @always_inline
     def __init__(out self, count_with_dummy: Int):
         self.count_with_dummy = count_with_dummy
         self.max_magnitude = count_with_dummy - 1
-        debug_assert["safe"](
-            self.max_magnitude <= _MAX_OBJ_INDEX,
-            "OBJ element count exceeds the supported index range",
-        )
 
 
 # OBJ parsing
+@always_inline
 def _word_ends_here[
     o: Origin
 ](ptr: UnsafePointer[UInt8, o], p: Int, end: Int) -> Bool:
@@ -48,12 +46,14 @@ struct ObjLineCursor[o: Origin]:
     var pos: Int
     var end: Int
 
+    @always_inline
     def __init__(out self, text: StringSlice[Self.o], start: Int, end: Int):
         self.text = text
         self.ptr = text.unsafe_ptr()
         self.pos = start
         self.end = end
 
+    @always_inline
     def skip_ws(mut self):
         while self.pos < self.end:
             var b = self.ptr.load(self.pos)
@@ -95,18 +95,17 @@ struct ObjLineCursor[o: Origin]:
 
         while self.pos < self.end:
             b = self.ptr.load(self.pos)
-            if slash_terminates and b == SLASH:
-                break
-            if _is_ws_or_line_cut(b):
-                break
-            if not _is_digit(b):
-                break
+            if _is_digit(b):
+                var digit = Int(b - ZERO)
+                output = output * 10 + digit
+                if output > limit.max_magnitude:
+                    raise String(
+                        "OBJ index exceeds the available element count"
+                    )
+                self.pos += 1
+                continue
 
-            var digit = Int(b - ZERO)
-            output = output * 10 + digit
-            if output > limit.max_magnitude:
-                raise String("OBJ index exceeds the available element count")
-            self.pos += 1
+            break
 
         if output == 0:
             raise String("missing or zero OBJ index")
@@ -135,18 +134,17 @@ struct ObjLineCursor[o: Origin]:
         var output = 0
         while self.pos < self.end:
             var b = self.ptr.load(self.pos)
-            if slash_terminates and b == SLASH:
-                break
-            if _is_ws_or_line_cut(b):
-                break
-            if not _is_digit(b):
-                break
+            if _is_digit(b):
+                var digit = Int(b - ZERO)
+                output = output * 10 + digit
+                if output > limit.max_magnitude:
+                    raise String(
+                        "OBJ index exceeds the available element count"
+                    )
+                self.pos += 1
+                continue
 
-            var digit = Int(b - ZERO)
-            output = output * 10 + digit
-            if output > limit.max_magnitude:
-                raise String("OBJ index exceeds the available element count")
-            self.pos += 1
+            break
 
         if output == 0:
             raise String("missing or zero OBJ index")
@@ -165,6 +163,7 @@ struct ObjLineCursor[o: Origin]:
         var b = self.ptr.load(self.pos)
         return b == MINUS or b == PLUS
 
+    @always_inline
     def next_index_p_only_at_token(
         mut self, position_limit: ObjIndexLimit
     ) raises -> ObjIndex:
@@ -462,6 +461,10 @@ def _parse_v_cursor[
     mesh.positions.append(x)
     mesh.positions.append(y)
     mesh.positions.append(z)
+    debug_assert["safe"](
+        mesh.position_count(include_dummy=False) <= _MAX_OBJ_INDEX,
+        "OBJ position count exceeds the supported index range",
+    )
 
     # Optional vertex color: v x y z r g b.
     cur.skip_ws()
@@ -493,6 +496,10 @@ def _parse_vt_cursor[
 
     mesh.texcoords.append(u)
     mesh.texcoords.append(v)
+    debug_assert["safe"](
+        mesh.texcoord_count(include_dummy=False) <= _MAX_OBJ_INDEX,
+        "OBJ texture coordinate count exceeds the supported index range",
+    )
 
 
 def _parse_vn_cursor[
@@ -516,6 +523,10 @@ def _parse_vn_cursor[
     mesh.normals.append(x)
     mesh.normals.append(y)
     mesh.normals.append(z)
+    debug_assert["safe"](
+        mesh.normal_count(include_dummy=False) <= _MAX_OBJ_INDEX,
+        "OBJ normal count exceeds the supported index range",
+    )
 
 
 def _finish_face_parse(

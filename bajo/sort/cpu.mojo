@@ -1,5 +1,4 @@
 from std.math import min, max
-from std.memory import Span
 from std.builtin.sort import (
     _insertion_sort,
     _sort3,

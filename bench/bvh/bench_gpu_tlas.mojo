@@ -649,7 +649,9 @@ def _run_triangle_tlas_width[
     ctx.synchronize()
 
     var b0 = perf_counter_ns()
-    var tlas = GpuTriangleTlas[tlas_width, blas_width](ctx, instances)
+    var tlas = GpuTriangleTlas[tlas_width, blas_width](
+        ctx, instances, measure_build=True
+    )
     ctx.synchronize()
     var b1 = perf_counter_ns()
 
@@ -700,7 +702,9 @@ def _run_sphere_tlas_width[
     ctx.synchronize()
 
     var b0 = perf_counter_ns()
-    var tlas = GpuSphereTlas[tlas_width, blas_width](ctx, instances)
+    var tlas = GpuSphereTlas[tlas_width, blas_width](
+        ctx, instances, measure_build=True
+    )
     ctx.synchronize()
     var b1 = perf_counter_ns()
 
@@ -970,7 +974,9 @@ def main() raises:
         ctx.synchronize()
 
         var blas_b0 = perf_counter_ns()
-        var blas = GpuTriangleBvh[Frame.WORLD, 4](ctx, d_vertices)
+        var blas = GpuTriangleBvh[Frame.WORLD, 4](
+            ctx, d_vertices, measure_build=True
+        )
         ctx.synchronize()
         var blas_b1 = perf_counter_ns()
 
@@ -1110,7 +1116,9 @@ def main() raises:
         ctx.synchronize()
 
         var sph_b0 = perf_counter_ns()
-        var sphere_blas = GpuSphereBvh[Frame.WORLD, 4](ctx, spheres)
+        var sphere_blas = GpuSphereBvh[Frame.WORLD, 4](
+            ctx, spheres, measure_build=True
+        )
         ctx.synchronize()
         var sph_b1 = perf_counter_ns()
 

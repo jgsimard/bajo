@@ -164,6 +164,8 @@ struct GpuBinaryBoundsBvh(Movable):
 
     var bounds_device: DeviceBuffer[DType.float32]
     """[0..5]  = root bounds, [6..11] = centroid bounds."""
+    var bounds_scratch_a: DeviceBuffer[DType.float32]
+    var bounds_scratch_b: DeviceBuffer[DType.float32]
 
     var leaf_bounds: DeviceBuffer[DType.float32]
     var leaf_payloads: DeviceBuffer[DType.uint32]
@@ -218,10 +220,10 @@ struct GpuBinaryBoundsBvh(Movable):
             BOUNDS_REDUCE_CHUNK,
         )
 
-        var scratch_a = ctx.enqueue_create_buffer[DType.float32](
+        self.bounds_scratch_a = ctx.enqueue_create_buffer[DType.float32](
             max(partial_count, 1) * REDUCED_BOUNDS_STRIDE
         )
-        var scratch_b = ctx.enqueue_create_buffer[DType.float32](
+        self.bounds_scratch_b = ctx.enqueue_create_buffer[DType.float32](
             max(
                 ceildiv(partial_count, BOUNDS_REDUCE_CHUNK),
                 1,
@@ -236,14 +238,14 @@ struct GpuBinaryBoundsBvh(Movable):
 
         ctx.enqueue_function[compute_bounds_partials_kernel](
             self.leaf_bounds,
-            scratch_a,
+            self.bounds_scratch_a,
             self.leaf_count,
             grid_dim=reduce_grid,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
 
-        var in_buf = scratch_a
-        var out_buf = scratch_b
+        var in_buf = self.bounds_scratch_a.copy()
+        var out_buf = self.bounds_scratch_b.copy()
         var count = partial_count
 
         while count > 1:
@@ -267,9 +269,6 @@ struct GpuBinaryBoundsBvh(Movable):
             swap(in_buf, out_buf)
             count = next_count
         in_buf.enqueue_copy_to(self.bounds_device)
-
-        # because scratch_a/scratch_b are temporary buffers
-        ctx.synchronize()
 
         self.keys = ctx.enqueue_create_buffer[DType.uint32](n_leaf)
         self.leaf_ids = ctx.enqueue_create_buffer[DType.uint32](n_leaf)

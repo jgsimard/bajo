@@ -387,7 +387,9 @@ def _run_width[
     ctx.synchronize()
 
     var build0 = perf_counter_ns()
-    var bvh = GpuTriangleBvh[Frame.WORLD, width](ctx, d_vertices)
+    var bvh = GpuTriangleBvh[Frame.WORLD, width](
+        ctx, d_vertices, measure_build=True
+    )
     ctx.synchronize()
     var build1 = perf_counter_ns()
 
@@ -516,7 +518,7 @@ def _run_sphere_width[
     ctx.synchronize()
 
     var build0 = perf_counter_ns()
-    var bvh = GpuSphereBvh[Frame.WORLD, width](ctx, spheres)
+    var bvh = GpuSphereBvh[Frame.WORLD, width](ctx, spheres, measure_build=True)
     ctx.synchronize()
     var build1 = perf_counter_ns()
 

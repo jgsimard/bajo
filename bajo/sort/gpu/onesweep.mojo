@@ -366,7 +366,6 @@ def onesweep_radix_sort_keys[
     workspace.index.enqueue_fill(0)
     workspace.global_hist.enqueue_fill(0)
     workspace.pass_hist.enqueue_fill(0)
-    ctx.synchronize()
 
     db_keys = DoubleBuffer(
         keys.unsafe_ptr(), workspace.keys_alternate.unsafe_ptr()
@@ -429,8 +428,6 @@ def onesweep_radix_sort_keys[
         )
         db_keys.swap()
 
-    ctx.synchronize()
-
 
 def onesweep_radix_sort_pairs[
     keys_dtype: DType,
@@ -466,7 +463,6 @@ def onesweep_radix_sort_pairs[
     workspace.index.enqueue_fill(0)
     workspace.global_hist.enqueue_fill(0)
     workspace.pass_hist.enqueue_fill(0)
-    ctx.synchronize()
 
     db_keys = DoubleBuffer(
         keys.unsafe_ptr(), workspace.keys_alternate.unsafe_ptr()
@@ -531,8 +527,6 @@ def onesweep_radix_sort_pairs[
         )
         db_keys.swap()
         db_vals.swap()
-
-    ctx.synchronize()
 
 
 def onesweep_radix_sort_pairs[

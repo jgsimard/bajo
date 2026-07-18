@@ -231,6 +231,7 @@ def build_binary_bvh_with_lbvh(
     ctx: DeviceContext,
     mut binary: GpuBinaryBoundsBvh,
     mut workspace: RadixSortWorkspace[DType.uint32, DType.uint32],
+    measure_stages: Bool = False,
 ) raises -> GpuBuildTimings:
     """Builds the temporary sorted binary LBVH.
 
@@ -241,7 +242,12 @@ def build_binary_bvh_with_lbvh(
     4. binary topology
     5. refit bounds
     """
-    var t_start = perf_counter_ns()
+    var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
+    var stage_start = Int(0)
+
+    if measure_stages:
+        ctx.synchronize()
+        stage_start = perf_counter_ns()
 
     # leaf AABB
     # for now: inside binary_bvh __init__
@@ -257,8 +263,11 @@ def build_binary_bvh_with_lbvh(
         grid_dim=binary.blocks_leaves,
         block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
     )
-    ctx.synchronize()
-    var t_morton = perf_counter_ns()
+    if measure_stages:
+        ctx.synchronize()
+        var stage_end = perf_counter_ns()
+        timings.morton_ns = Int(stage_end - stage_start)
+        stage_start = stage_end
 
     # sort by morton codes
     device_radix_sort_pairs[DType.uint32, DType.uint32](
@@ -269,8 +278,11 @@ def build_binary_bvh_with_lbvh(
         binary.leaf_count,
     )
 
-    ctx.synchronize()
-    var t_sort = perf_counter_ns()
+    if measure_stages:
+        ctx.synchronize()
+        var stage_end = perf_counter_ns()
+        timings.sort_ns = Int(stage_end - stage_start)
+        stage_start = stage_end
 
     # merge nodes
     if binary.internal_count > 0:
@@ -285,8 +297,11 @@ def build_binary_bvh_with_lbvh(
             grid_dim=binary.blocks_internal,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
+    if measure_stages:
         ctx.synchronize()
-    var t_topology = perf_counter_ns()
+        var stage_end = perf_counter_ns()
+        timings.topology_ns = Int(stage_end - stage_start)
+        stage_start = stage_end
 
     # compute aabb over merged nodes
     if binary.internal_count > 0:
@@ -301,15 +316,8 @@ def build_binary_bvh_with_lbvh(
             grid_dim=binary.blocks_leaves,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
+    if measure_stages:
         ctx.synchronize()
-    var t_refit = perf_counter_ns()
+        timings.refit_ns = Int(perf_counter_ns() - stage_start)
 
-    return GpuBuildTimings(
-        Int(t_morton - t_start),
-        Int(t_sort - t_morton),
-        Int(t_topology - t_sort),
-        Int(t_refit - t_topology),
-        0,
-        0,
-        0,
-    )
+    return timings

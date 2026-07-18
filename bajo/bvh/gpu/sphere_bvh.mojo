@@ -118,6 +118,7 @@ struct GpuSphereBvh[frame: Frame, width: SIMDSize]:
         out self,
         mut ctx: DeviceContext,
         spheres: List[Sphere[Self.frame]],
+        measure_build: Bool = False,
     ) raises:
         self.sphere_count = len(spheres)
 
@@ -142,19 +143,28 @@ struct GpuSphereBvh[frame: Frame, width: SIMDSize]:
         var d_leaf_bounds = upload_list(ctx, leaf_bounds)
 
         self.tree = GpuBoundsBvh[Self.width](ctx, self.sphere_count)
-        self.timings = self.tree.build(ctx, d_leaf_bounds, d_payloads)
+        self.timings = self.tree.build(
+            ctx,
+            d_leaf_bounds,
+            d_payloads,
+            measure_build=measure_build,
+        )
 
         var leaf_block_capacity = max(self.tree.leaf_block_count, 1)
         self.leaf_spheres = ctx.enqueue_create_buffer[DType.float32](
             leaf_block_capacity * Self.width * SPHERE_LEAF_PACKED_STRIDE
         )
-        self._pack_leaf_blocks(ctx)
+        self._pack_leaf_blocks(ctx, measure_build)
 
     def _pack_leaf_blocks(
         mut self,
         ctx: DeviceContext,
+        measure_build: Bool,
     ) raises:
-        var start = perf_counter_ns()
+        var start = Int(0)
+        if measure_build:
+            start = perf_counter_ns()
+
         var leaf_lane_count = max(self.tree.leaf_block_count * Self.width, 1)
         var blocks = ceildiv(
             leaf_lane_count,
@@ -168,8 +178,9 @@ struct GpuSphereBvh[frame: Frame, width: SIMDSize]:
             grid_dim=blocks,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
-        ctx.synchronize()
-        self.timings.leaf_pack_ns = Int(perf_counter_ns() - start)
+        if measure_build:
+            ctx.synchronize()
+            self.timings.leaf_pack_ns = Int(perf_counter_ns() - start)
 
     def launch_camera(
         self,

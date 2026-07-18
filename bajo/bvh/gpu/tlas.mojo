@@ -380,6 +380,7 @@ struct GpuTypedTlasCore[width: SIMDSize]:
         out self,
         mut ctx: DeviceContext,
         instances: List[Instance],
+        measure_build: Bool = False,
     ) raises:
         self.inst_count = len(instances)
         debug_assert["safe"](self.inst_count > 0, "passed empty input.")
@@ -401,7 +402,12 @@ struct GpuTypedTlasCore[width: SIMDSize]:
         var d_payloads = upload_list(ctx, payloads)
 
         self.tree = GpuBoundsBvh[Self.width](ctx, self.inst_count)
-        self.timings = self.tree.build(ctx, d_leaf_bounds, d_payloads)
+        self.timings = self.tree.build(
+            ctx,
+            d_leaf_bounds,
+            d_payloads,
+            measure_build=measure_build,
+        )
 
         self.inst_transform = upload_list(
             ctx, _flatten_instance_transforms(instances)
@@ -423,8 +429,13 @@ struct GpuTriangleTlas[tlas_width: SIMDSize, blas_width: SIMDSize]:
         out self,
         mut ctx: DeviceContext,
         instances: List[Instance],
+        measure_build: Bool = False,
     ) raises:
-        self.core = GpuTypedTlasCore[Self.tlas_width](ctx, instances)
+        self.core = GpuTypedTlasCore[Self.tlas_width](
+            ctx,
+            instances,
+            measure_build=measure_build,
+        )
 
     def launch_camera(
         self,
@@ -470,8 +481,13 @@ struct GpuSphereTlas[tlas_width: SIMDSize, blas_width: SIMDSize]:
         out self,
         mut ctx: DeviceContext,
         instances: List[Instance],
+        measure_build: Bool = False,
     ) raises:
-        self.core = GpuTypedTlasCore[Self.tlas_width](ctx, instances)
+        self.core = GpuTypedTlasCore[Self.tlas_width](
+            ctx,
+            instances,
+            measure_build=measure_build,
+        )
 
     def launch_camera(
         self,

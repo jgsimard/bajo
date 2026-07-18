@@ -67,6 +67,7 @@ struct GpuBoundsBvh[width: SIMDSize](Movable):
         mut ctx: DeviceContext,
         leaf_bounds: DeviceBuffer[DType.float32],
         leaf_payloads: DeviceBuffer[DType.uint32],
+        measure_build: Bool = False,
     ) raises -> GpuBuildTimings:
         debug_assert["safe"](self.leaf_count > 0, "passed empty input.")
         debug_assert["safe"](len(leaf_payloads) == self.leaf_count)
@@ -79,15 +80,22 @@ struct GpuBoundsBvh[width: SIMDSize](Movable):
         )
 
         # leaf AABBs -> sorted binary LBVH
-        timings = build_binary_bvh_with_lbvh(ctx, binary, workspace)
+        timings = build_binary_bvh_with_lbvh(
+            ctx,
+            binary,
+            workspace,
+            measure_stages=measure_build,
+        )
 
         # binary BVH -> wide BVH
-        var collapse_start = perf_counter_ns()
+        var collapse_start = Int(0)
+        if measure_build:
+            collapse_start = perf_counter_ns()
+
         collapse(ctx, binary, self)
 
-        var end_ns = perf_counter_ns()
-
-        timings.collapse_ns = Int(end_ns - collapse_start)
+        if measure_build:
+            timings.collapse_ns = Int(perf_counter_ns() - collapse_start)
 
         return timings
 

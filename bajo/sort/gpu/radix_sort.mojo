@@ -438,8 +438,6 @@ def device_radix_sort_keys[
         )
         db_keys.swap()
 
-    ctx.synchronize()
-
 
 struct RadixSortWorkspace[
     keys_dtype: DType,
@@ -558,8 +556,6 @@ def device_radix_sort_pairs[
 
         db_keys.swap()
         db_vals.swap()
-
-    ctx.synchronize()
 
 
 def device_radix_sort_pairs[

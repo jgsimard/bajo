@@ -122,6 +122,7 @@ struct GpuTriangleBvh[frame: Frame, width: SIMDSize](Movable):
         out self,
         mut ctx: DeviceContext,
         vertices: DeviceBuffer[DType.float32],
+        measure_build: Bool = False,
     ) raises:
         self.vertices = vertices
         self.tri_count = len(vertices) / 9
@@ -131,7 +132,11 @@ struct GpuTriangleBvh[frame: Frame, width: SIMDSize](Movable):
         )
         var payloads = ctx.enqueue_create_buffer[DType.uint32](self.tri_count)
 
-        var start = perf_counter_ns()
+        var bounds_pack_start = Int(0)
+        if measure_build:
+            ctx.synchronize()
+            bounds_pack_start = perf_counter_ns()
+
         var blocks = ceildiv(
             max(self.tri_count, 1),
             GPU_BOUNDS_BVH_BLOCK_SIZE,
@@ -145,11 +150,18 @@ struct GpuTriangleBvh[frame: Frame, width: SIMDSize](Movable):
             grid_dim=blocks,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
-        ctx.synchronize()
-        var bounds_pack_ns = Int(perf_counter_ns() - start)
+        var bounds_pack_ns = Int(0)
+        if measure_build:
+            ctx.synchronize()
+            bounds_pack_ns = Int(perf_counter_ns() - bounds_pack_start)
 
         self.tree = GpuBoundsBvh[Self.width](ctx, self.tri_count)
-        self.timings = self.tree.build(ctx, leaf_bounds, payloads)
+        self.timings = self.tree.build(
+            ctx,
+            leaf_bounds,
+            payloads,
+            measure_build=measure_build,
+        )
         self.timings.bounds_pack_ns = bounds_pack_ns
 
         var leaf_block_capacity = max(self.tree.leaf_block_count, 1)
@@ -157,7 +169,7 @@ struct GpuTriangleBvh[frame: Frame, width: SIMDSize](Movable):
             leaf_block_capacity * Self.width * TRI_LEAF_PACKED_STRIDE
         )
 
-        self._pack_leaf_blocks(ctx)
+        self._pack_leaf_blocks(ctx, measure_build)
 
         # print(t"tri_count = {self.tri_count}")
         # print(t"leaf_block_count = {self.tree.leaf_block_count}")
@@ -171,8 +183,12 @@ struct GpuTriangleBvh[frame: Frame, width: SIMDSize](Movable):
     def _pack_leaf_blocks(
         mut self,
         ctx: DeviceContext,
+        measure_build: Bool,
     ) raises:
-        var start = perf_counter_ns()
+        var start = Int(0)
+        if measure_build:
+            start = perf_counter_ns()
+
         var leaf_lane_count = max(self.tree.leaf_block_count * Self.width, 1)
         var blocks = ceildiv(
             leaf_lane_count,
@@ -186,8 +202,9 @@ struct GpuTriangleBvh[frame: Frame, width: SIMDSize](Movable):
             grid_dim=blocks,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
-        ctx.synchronize()
-        self.timings.leaf_pack_ns = Int(perf_counter_ns() - start)
+        if measure_build:
+            ctx.synchronize()
+            self.timings.leaf_pack_ns = Int(perf_counter_ns() - start)
 
     def launch_camera(
         self,

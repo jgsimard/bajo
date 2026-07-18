@@ -309,8 +309,6 @@ def bitonic_sort_pairs[
                 break
         k *= 2
 
-    ctx.synchronize()
-
 
 def naive_bitonic_sort_pairs[
     keys_dtype: DType, vals_dtype: DType, //, THREADS_PER_BLOCK: Int = 256
@@ -320,6 +318,7 @@ def naive_bitonic_sort_pairs[
     mut values: DeviceBuffer[vals_dtype],
     size: Int,
 ) raises:
+    """Enqueue an in-place pair sort without synchronizing the context."""
     debug_assert["safe"](is_power_of_2(size))
 
     # 1 thread maps to 1 pair
@@ -341,4 +340,3 @@ def naive_bitonic_sort_pairs[
             )
             j /= 2
         k *= 2
-    ctx.synchronize()

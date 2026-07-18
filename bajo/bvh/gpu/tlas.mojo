@@ -227,13 +227,19 @@ def _trace_tlas_ray[
 
                 comptime if mode != TRACE.ANY_HIT:
                     if far_t <= hit.t:
-                        if stack_ptr < GPU_STACK_SIZE:
-                            stack[stack_ptr] = child_data[far_lane]
-                            stack_ptr += 1
-                else:
-                    if stack_ptr < GPU_STACK_SIZE:
+                        debug_assert["safe"](
+                            stack_ptr < GPU_STACK_SIZE,
+                            "GPU TLAS traversal stack overflow",
+                        )
                         stack[stack_ptr] = child_data[far_lane]
                         stack_ptr += 1
+                else:
+                    debug_assert["safe"](
+                        stack_ptr < GPU_STACK_SIZE,
+                        "GPU TLAS traversal stack overflow",
+                    )
+                    stack[stack_ptr] = child_data[far_lane]
+                    stack_ptr += 1
 
         if stack_ptr == 0:
             break

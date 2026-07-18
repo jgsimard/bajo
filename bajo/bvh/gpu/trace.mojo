@@ -101,9 +101,12 @@ def trace_bounds_bvh[
                         if far_t > hit.t:
                             continue
 
-                    if stack_ptr < GPU_STACK_SIZE:
-                        stack[stack_ptr] = child_data[far_lane]
-                        stack_ptr += 1
+                    debug_assert["safe"](
+                        stack_ptr < GPU_STACK_SIZE,
+                        "GPU BVH traversal stack overflow",
+                    )
+                    stack[stack_ptr] = child_data[far_lane]
+                    stack_ptr += 1
         else:
             # basically the same as the cpu version
             comptime for node_lane in range(width):
@@ -122,9 +125,12 @@ def trace_bounds_bvh[
                             if bounds_hit.t[node_lane] > hit.t:
                                 continue
 
-                        if stack_ptr < GPU_STACK_SIZE:
-                            stack[stack_ptr] = data
-                            stack_ptr += 1
+                        debug_assert["safe"](
+                            stack_ptr < GPU_STACK_SIZE,
+                            "GPU BVH traversal stack overflow",
+                        )
+                        stack[stack_ptr] = data
+                        stack_ptr += 1
                     else:
                         var leaf_hit = leaf_fn(
                             leaves,

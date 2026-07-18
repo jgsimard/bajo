@@ -40,6 +40,10 @@ def trace_bounds_bvh[
             for i in range(width):
                 if mask[i]:
                     if node.counts[i] == 0:
+                        debug_assert["safe"](
+                            stack_ptr < CPU_STACK_SIZE,
+                            "CPU BVH traversal stack overflow",
+                        )
                         stack[stack_ptr] = node.data[i]
                         stack_ptr += 1
                     else:

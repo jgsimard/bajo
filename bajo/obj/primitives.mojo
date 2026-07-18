@@ -17,9 +17,18 @@ def _is_digit(b: UInt8) -> Bool:
     return b >= ZERO and b <= NINE
 
 
-def _fix_index(raw: Int, count_with_dummy: Int) -> Int:
+@always_inline
+def _fix_index(raw: Int, count_with_dummy: Int) raises -> Int:
+    var resolved = 0
     if raw > 0:
-        return raw
-    if raw < 0:
-        return count_with_dummy + raw
-    return 0
+        resolved = raw
+    elif raw < 0:
+        resolved = count_with_dummy + raw
+
+    if resolved <= 0 or resolved >= count_with_dummy:
+        raise String(
+            t"OBJ index {raw} is out of range for "
+            t"{count_with_dummy - 1} available elements"
+        )
+
+    return resolved

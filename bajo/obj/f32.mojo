@@ -1,6 +1,8 @@
 from .constants import *
 from .primitives import _is_digit
 
+comptime _MAX_DECIMAL_EXPONENT = 308
+
 
 @fieldwise_init
 struct F32ParseResult(TrivialRegisterPassable):
@@ -11,7 +13,7 @@ struct F32ParseResult(TrivialRegisterPassable):
 @always_inline
 def parse_f32_at[
     o: Origin
-](ptr: UnsafePointer[UInt8, o], pos: Int, end: Int) -> F32ParseResult:
+](ptr: UnsafePointer[UInt8, o], pos: Int, end: Int) raises -> F32ParseResult:
     if pos >= end:
         return F32ParseResult(0.0, pos)
 
@@ -62,18 +64,37 @@ def parse_f32_at[
                 p += 1
 
             var eval = 0
+            var has_exp_digit = False
             while p < end:
                 var eb = ptr.load(p)
                 if _is_digit(eb):
-                    eval = eval * 10 + Int(eb - ZERO)
+                    has_exp_digit = True
+                    var digit = Int(eb - ZERO)
+                    if eval > (_MAX_DECIMAL_EXPONENT - digit) // 10:
+                        raise String(
+                            t"OBJ decimal exponent exceeds "
+                            t"{_MAX_DECIMAL_EXPONENT}"
+                        )
+
+                    eval = eval * 10 + digit
                     p += 1
                 else:
                     break
 
+            if not has_exp_digit:
+                raise String("missing OBJ decimal exponent digits")
+
             if eval > 0:
                 var power: Float64 = 1.0
-                for _ in range(eval):
-                    power *= 10.0
+                var base: Float64 = 10.0
+                var remaining = eval
+
+                while remaining > 0:
+                    if remaining & 1:
+                        power *= base
+                    remaining //= 2
+                    if remaining > 0:
+                        base *= base
 
                 if exp_sign == 1:
                     num *= power

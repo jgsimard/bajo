@@ -136,6 +136,8 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
         left_child.set_leaf(node.first_item(), left_count)
         right_child.set_leaf(UInt32(split_idx), node.item_count - left_count)
 
+        node.set_internal(left_child_idx)
+
         comptime if split_method == "sah":
             if use_sah_bounds:
                 left_child.aabb = cached_left_bounds
@@ -146,8 +148,6 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
         else:
             self.update_node_bounds(left_child_idx)
             self.update_node_bounds(left_child_idx + 1)
-
-        node.set_internal(left_child_idx)
 
         self._subdivide[split_method](left_child_idx)
         self._subdivide[split_method](left_child_idx + 1)

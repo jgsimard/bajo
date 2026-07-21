@@ -99,8 +99,8 @@ def main() raises:
 
         q = a
 
-        def bench_fn() raises {q2, q3, mut q}:
-            for _ in range(1e6):
+        def bench_fn() {q2, q3, mut q}:
+            for _ in range(1_000_000):
                 q = dispatch_mul[version](q, q2)
                 q = dispatch_mul[version](q, q3)
             keep(q)

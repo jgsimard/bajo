@@ -38,7 +38,7 @@ def _encoded_bounds(
 
 
 def collapse_terminal_root_to_wide_kernel[
-    width: SIMDSize,
+    width: SIMDLength,
 ](
     leaf_bounds: UnsafePointer[Float32, ImmutAnyOrigin],
     leaf_payloads: UnsafePointer[UInt32, ImmutAnyOrigin],
@@ -117,7 +117,7 @@ def collapse_terminal_root_to_wide_kernel[
 
 
 def collapse[
-    width: SIMDSize
+    width: SIMDLength
 ](
     mut ctx: DeviceContext,
     binary: GpuBinaryBoundsBvh,
@@ -256,7 +256,7 @@ def collapse[
 
 
 def init_precomputed_wide_leaf_blocks_kernel[
-    width: SIMDSize,
+    width: SIMDLength,
 ](
     leaf_payloads: UnsafePointer[UInt32, MutAnyOrigin],
     leaf_ids: UnsafePointer[UInt32, MutAnyOrigin],
@@ -284,7 +284,7 @@ def init_precomputed_wide_leaf_blocks_kernel[
 
 
 def collapse_precomputed_wide_kernel[
-    width: SIMDSize,
+    width: SIMDLength,
 ](
     leaf_bounds: UnsafePointer[Float32, MutAnyOrigin],
     leaf_ids: UnsafePointer[UInt32, MutAnyOrigin],
@@ -397,7 +397,7 @@ def _encoded_leaf_count[
 
 
 def _write_terminal_leaf_block[
-    width: SIMDSize,
+    width: SIMDLength,
 ](
     encoded: UInt32,
     leaf_payloads: UnsafePointer[mut=False, UInt32, _],
@@ -444,7 +444,7 @@ def _write_terminal_leaf_block[
 
 
 def _write_one_leaf_block[
-    width: SIMDSize,
+    width: SIMDLength,
 ](
     encoded_leaf: UInt32,
     leaf_payloads: UnsafePointer[mut=False, UInt32, _],
@@ -495,7 +495,7 @@ def init_hploc_index_pairs_kernel(
 
 
 def hploc_to_wide_kernel[
-    width: SIMDSize,
+    width: SIMDLength,
 ](
     leaf_bounds: UnsafePointer[Float32, MutAnyOrigin],
     leaf_payloads: UnsafePointer[UInt32, MutAnyOrigin],

@@ -41,8 +41,8 @@ def _instances_bounds(instances: List[Instance]) -> AABB[Frame.WORLD]:
 
 
 def _cpu_triangle_tlas_checksum[
-    tlas_width: SIMDSize,
-    blas_width: SIMDSize,
+    tlas_width: SIMDLength,
+    blas_width: SIMDLength,
 ](
     instances: List[Instance],
     mut cpu_blases: List[TriangleBvh[Frame.LOCAL, blas_width]],

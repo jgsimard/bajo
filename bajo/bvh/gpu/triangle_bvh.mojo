@@ -38,7 +38,7 @@ from bajo.core.utils import min_argmin
 
 
 def build_triangle_blas_set[
-    width: SIMDSize
+    width: SIMDLength
 ](
     mut ctx: DeviceContext,
     vertex_sets: List[List[Point3f32[Frame.LOCAL]]],
@@ -111,7 +111,7 @@ def build_triangle_blas_set[
     )
 
 
-struct GpuTriangleBvh[frame: Frame, width: SIMDSize](Movable):
+struct GpuTriangleBvh[frame: Frame, width: SIMDLength](Movable):
     var tree: GpuBoundsBvh[Self.width]
     var vertices: DeviceBuffer[DType.float32]
     var leaf_vertices: DeviceBuffer[DType.float32]
@@ -264,7 +264,7 @@ def compute_triangle_bounds_kernel[
 
 
 def pack_triangle_leaf_lanes_kernel[
-    width: SIMDSize,
+    width: SIMDLength,
 ](
     vertices: UnsafePointer[Float32, ImmutAnyOrigin],
     leaf_block_indices: UnsafePointer[UInt32, ImmutAnyOrigin],
@@ -312,7 +312,7 @@ def pack_triangle_leaf_lanes_kernel[
 
 
 def trace_triangle_bvh_camera_kernel[
-    width: SIMDSize,
+    width: SIMDLength,
 ](
     wide_nodes: UnsafePointer[Float32, ImmutAnyOrigin],
     leaf_vertices: UnsafePointer[Float32, ImmutAnyOrigin],
@@ -357,7 +357,7 @@ def trace_triangle_bvh_camera_kernel[
 # AoSoA :[block][field][lane]
 def _intersect_triangle_leaf[
     frame: Frame,
-    width: SIMDSize,
+    width: SIMDLength,
     mode: TRACE,
 ](
     leaf_vertices: UnsafePointer[mut=False, Float32, _],

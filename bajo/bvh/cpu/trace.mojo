@@ -7,7 +7,7 @@ from bajo.bvh.constants import EMPTY_LANE, CPU_STACK_SIZE, TRACE
 
 def trace_bounds_bvh[
     frame: Frame,
-    width: SIMDSize,
+    width: SIMDLength,
     mode: TRACE,
     leaf_fn: def(
         Rayf32[frame],

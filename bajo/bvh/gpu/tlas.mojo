@@ -66,8 +66,8 @@ def _flatten_instance_blas_indices(
 
 @always_inline
 def _intersect_tlas_instance_block[
-    tlas_width: SIMDSize,
-    blas_width: SIMDSize,
+    tlas_width: SIMDLength,
+    blas_width: SIMDLength,
     mode: TRACE,
     blas_leaf_fn: BlasLeafFn[Frame.LOCAL],
 ](
@@ -136,8 +136,8 @@ def _intersect_tlas_instance_block[
 
 
 def _trace_tlas_ray[
-    tlas_width: SIMDSize,
-    blas_width: SIMDSize,
+    tlas_width: SIMDLength,
+    blas_width: SIMDLength,
     mode: TRACE,
     blas_leaf_fn: BlasLeafFn[Frame.LOCAL],
 ](
@@ -251,8 +251,8 @@ def _trace_tlas_ray[
 
 
 def trace_triangle_tlas_camera_kernel[
-    tlas_width: SIMDSize,
-    blas_width: SIMDSize,
+    tlas_width: SIMDLength,
+    blas_width: SIMDLength,
 ](
     tlas_wide_nodes: UnsafePointer[Float32, ImmutAnyOrigin],
     tlas_leaf_instances: UnsafePointer[UInt32, ImmutAnyOrigin],
@@ -307,8 +307,8 @@ def trace_triangle_tlas_camera_kernel[
 
 
 def trace_sphere_tlas_camera_kernel[
-    tlas_width: SIMDSize,
-    blas_width: SIMDSize,
+    tlas_width: SIMDLength,
+    blas_width: SIMDLength,
 ](
     tlas_wide_nodes: UnsafePointer[Float32, ImmutAnyOrigin],
     tlas_leaf_instances: UnsafePointer[UInt32, ImmutAnyOrigin],
@@ -362,7 +362,7 @@ def trace_sphere_tlas_camera_kernel[
     hit.store(hits, ray_idx)
 
 
-struct GpuTypedTlasCore[width: SIMDSize]:
+struct GpuTypedTlasCore[width: SIMDLength]:
     """GPU TLAS core shared by typed TLAS wrappers.
 
     Instance leaves are packed by the generic wide collapse:
@@ -420,7 +420,7 @@ struct GpuTypedTlasCore[width: SIMDSize]:
         )
 
 
-struct GpuTriangleTlas[tlas_width: SIMDSize, blas_width: SIMDSize]:
+struct GpuTriangleTlas[tlas_width: SIMDLength, blas_width: SIMDLength]:
     """Typed triangle TLAS over a descriptor-backed triangle BLAS set."""
 
     var core: GpuTypedTlasCore[Self.tlas_width]
@@ -472,7 +472,7 @@ struct GpuTriangleTlas[tlas_width: SIMDSize, blas_width: SIMDSize]:
         )
 
 
-struct GpuSphereTlas[tlas_width: SIMDSize, blas_width: SIMDSize]:
+struct GpuSphereTlas[tlas_width: SIMDLength, blas_width: SIMDLength]:
     """Typed sphere TLAS over a descriptor-backed sphere BLAS set."""
 
     var core: GpuTypedTlasCore[Self.tlas_width]

@@ -28,7 +28,7 @@ def upsweep[
     keys_dtype: DType,
     BLOCK_SIZE: Int,
     RADIX: Int,
-    VEC_WIDTH: SIMDSize,
+    VEC_WIDTH: SIMDLength,
     KEYS_PER_THREAD: Int,
 ](
     keys_current: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
@@ -61,7 +61,7 @@ def upsweep[
     # Histogram Binning
     var s_warp_hist = s_global_hist + (wid * PADDED_RADIX)
 
-    def _f[width: SIMDSize](i: Int) capturing:
+    def _f[width: SIMDLength](i: Int) capturing:
         var t = keys_current.load[width=width](i)
         t = (t >> radix_shift) & RADIX_MASK
         comptime for j in range(width):

@@ -20,22 +20,22 @@ struct GeoKind(Equatable, TrivialRegisterPassable):
         return self.v == rhs.v
 
 
-comptime Vec2[dtype: DType, frame: Frame, width: SIMDSize = 1] = Geo2[
+comptime Vec2[dtype: DType, frame: Frame, width: SIMDLength = 1] = Geo2[
     dtype, GeoKind.VECTOR, frame, width
 ]
-comptime Vec3[dtype: DType, frame: Frame, width: SIMDSize = 1] = Geo3[
+comptime Vec3[dtype: DType, frame: Frame, width: SIMDLength = 1] = Geo3[
     dtype, GeoKind.VECTOR, frame, width
 ]
-comptime Point3[dtype: DType, frame: Frame, width: SIMDSize = 1] = Geo3[
+comptime Point3[dtype: DType, frame: Frame, width: SIMDLength = 1] = Geo3[
     dtype, GeoKind.POINT, frame, width
 ]
-comptime Normal3[dtype: DType, frame: Frame, width: SIMDSize = 1] = Geo3[
+comptime Normal3[dtype: DType, frame: Frame, width: SIMDLength = 1] = Geo3[
     dtype, GeoKind.NORMAL, frame, width
 ]
 
 
 @fieldwise_init
-struct Geo2[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize = 1](
+struct Geo2[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
     TrivialRegisterPassable, Writable
 ):
     var x: SIMD[Self.dtype, Self.width]
@@ -76,7 +76,7 @@ struct Geo2[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize = 1](
 
 
 @fieldwise_init
-struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize = 1](
+struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
     DevicePassable, Roundable, TrivialRegisterPassable, Writable
 ):
     comptime V3 = Vec3[Self.dtype, Self.frame, Self.width]
@@ -409,7 +409,7 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize = 1](
 
 
 def dot[
-    dtype: DType, frame: Frame, width: SIMDSize
+    dtype: DType, frame: Frame, width: SIMDLength
 ](a: Vec3[dtype, frame, width], b: Vec3[dtype, frame, width]) -> SIMD[
     dtype, width
 ]:
@@ -417,7 +417,7 @@ def dot[
 
 
 def vmin[
-    dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize
+    dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength
 ](
     a: Geo3[dtype, kind, frame, width], b: Geo3[dtype, kind, frame, width]
 ) -> Geo3[dtype, kind, frame, width]:
@@ -429,7 +429,7 @@ def vmin[
 
 
 def vmin[
-    dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize
+    dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength
 ](
     a: Geo3[dtype, kind, frame, width],
     b: Geo3[dtype, kind, frame, width],
@@ -443,7 +443,7 @@ def vmin[
 
 
 def vmax[
-    dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize
+    dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength
 ](
     a: Geo3[dtype, kind, frame, width], b: Geo3[dtype, kind, frame, width]
 ) -> Geo3[dtype, kind, frame, width]:
@@ -455,7 +455,7 @@ def vmax[
 
 
 def vmax[
-    dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize
+    dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength
 ](
     a: Geo3[dtype, kind, frame, width],
     b: Geo3[dtype, kind, frame, width],
@@ -469,7 +469,7 @@ def vmax[
 
 
 def vclamp[
-    dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize
+    dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength
 ](
     p: Geo3[dtype, kind, frame, width],
     lower: Geo3[dtype, kind, frame, width],
@@ -479,19 +479,19 @@ def vclamp[
 
 
 def length2[
-    dtype: DType, frame: Frame, width: SIMDSize
+    dtype: DType, frame: Frame, width: SIMDLength
 ](v: Vec3[dtype, frame, width]) -> SIMD[dtype, width]:
     return dot(v, v)
 
 
 def length[
-    dtype: DType, frame: Frame, width: SIMDSize
+    dtype: DType, frame: Frame, width: SIMDLength
 ](v: Vec3[dtype, frame, width]) -> SIMD[dtype, width]:
     return sqrt(dot(v, v))
 
 
 def cross[
-    dtype: DType, frame: Frame, width: SIMDSize
+    dtype: DType, frame: Frame, width: SIMDLength
 ](a: Vec3[dtype, frame, width], b: Vec3[dtype, frame, width]) -> Vec3[
     dtype, frame, width
 ]:
@@ -503,7 +503,7 @@ def cross[
 
 
 def normalize[
-    dtype: DType, frame: Frame, width: SIMDSize
+    dtype: DType, frame: Frame, width: SIMDLength
 ](v: Vec3[dtype, frame, width], threshold: Scalar[dtype] = 1.0e-20) -> Vec3[
     dtype, frame, width
 ]:
@@ -516,7 +516,7 @@ def normalize[
 
 
 def assert_vec_equal[
-    dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize
+    dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength
 ](
     a: Geo3[dtype, kind, frame, width],
     b: Geo3[dtype, kind, frame, width],
@@ -543,7 +543,7 @@ def assert_vec_equal[
 
 
 def longest_axis[
-    dtype: DType, frame: Frame, width: SIMDSize
+    dtype: DType, frame: Frame, width: SIMDLength
 ](v: Vec3[dtype, frame, width]) -> Int:
     comptime assert width == 1
 

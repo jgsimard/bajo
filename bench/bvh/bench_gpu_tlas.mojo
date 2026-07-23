@@ -132,8 +132,8 @@ def _instances_bounds(instances: List[Instance]) -> AABB[Frame.WORLD]:
 
 
 def _cpu_tlas_triangle_reference[
-    tlas_width: SIMDSize,
-    blas_width: SIMDSize,
+    tlas_width: SIMDLength,
+    blas_width: SIMDLength,
 ](
     cpu_blas: TriangleBvh[Frame.LOCAL, blas_width],
     instances: List[Instance],
@@ -163,8 +163,8 @@ def _cpu_tlas_triangle_reference[
 
 
 def _cpu_tlas_triangle_shadow_reference[
-    tlas_width: SIMDSize,
-    blas_width: SIMDSize,
+    tlas_width: SIMDLength,
+    blas_width: SIMDLength,
 ](
     cpu_blas: TriangleBvh[Frame.LOCAL, blas_width],
     instances: List[Instance],
@@ -229,7 +229,7 @@ def _download_direct_hit_checksum(
 
 
 def _bench_direct_triangle_camera[
-    width: SIMDSize,
+    width: SIMDLength,
 ](
     mut ctx: DeviceContext,
     blas: GpuTriangleBvh[Frame.WORLD, width],
@@ -280,8 +280,8 @@ def _bench_direct_triangle_camera[
 
 
 def _bench_tlas_triangles_camera[
-    tlas_width: SIMDSize,
-    blas_width: SIMDSize,
+    tlas_width: SIMDLength,
+    blas_width: SIMDLength,
 ](
     mut ctx: DeviceContext,
     tlas: GpuTriangleTlas[tlas_width, blas_width],
@@ -337,7 +337,7 @@ def _bench_tlas_triangles_camera[
 
 
 def _bench_direct_sphere_camera[
-    width: SIMDSize,
+    width: SIMDLength,
 ](
     mut ctx: DeviceContext,
     blas: GpuSphereBvh[Frame.WORLD, width],
@@ -388,8 +388,8 @@ def _bench_direct_sphere_camera[
 
 
 def _bench_tlas_spheres_camera[
-    tlas_width: SIMDSize,
-    blas_width: SIMDSize,
+    tlas_width: SIMDLength,
+    blas_width: SIMDLength,
 ](
     mut ctx: DeviceContext,
     tlas: GpuSphereTlas[tlas_width, blas_width],
@@ -630,8 +630,8 @@ def _print_tlas_results_transposed(
 
 
 def _run_triangle_tlas_width[
-    tlas_width: SIMDSize,
-    blas_width: SIMDSize,
+    tlas_width: SIMDLength,
+    blas_width: SIMDLength,
 ](
     mut ctx: DeviceContext,
     blases: BlasSet[blas_width],
@@ -684,8 +684,8 @@ def _run_triangle_tlas_width[
 
 
 def _run_sphere_tlas_width[
-    tlas_width: SIMDSize,
-    blas_width: SIMDSize,
+    tlas_width: SIMDLength,
+    blas_width: SIMDLength,
 ](
     mut ctx: DeviceContext,
     blases: BlasSet[blas_width],

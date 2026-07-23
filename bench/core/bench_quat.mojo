@@ -14,7 +14,7 @@ comptime num_elements = 100000
 
 
 def quat_mul_0[
-    frame: Frame, width: SIMDSize
+    frame: Frame, width: SIMDLength
 ](
     q1: Quaternion[dtype, frame, width], q2: Quaternion[dtype, frame, width]
 ) -> Quaternion[dtype, frame, width]:
@@ -25,7 +25,7 @@ def quat_mul_0[
     return Quaternion[dtype, frame, width](x, y, z, w)
 
 
-struct BenchmarkData[width: SIMDSize](Copyable):
+struct BenchmarkData[width: SIMDLength](Copyable):
     var src_a: List[Quaternion[dtype, Frame.WORLD, Self.width]]
     var src_b: List[Quaternion[dtype, Frame.WORLD, Self.width]]
     var dst: List[Quaternion[dtype, Frame.WORLD, Self.width]]
@@ -52,7 +52,7 @@ struct BenchmarkData[width: SIMDSize](Copyable):
 
 
 def dispatch_mul[
-    version: Int, frame: Frame, width: SIMDSize
+    version: Int, frame: Frame, width: SIMDLength
 ](
     q1: Quaternion[dtype, frame, width], q2: Quaternion[dtype, frame, width]
 ) -> Quaternion[dtype, frame, width]:
@@ -63,7 +63,7 @@ def dispatch_mul[
 
 
 def main() raises:
-    def bench_throughput[version: Int, width: SIMDSize]() raises:
+    def bench_throughput[version: Int, width: SIMDLength]() raises:
         data = BenchmarkData[width]()
 
         # bounds checking makes this benchmars 3X slower !
@@ -80,7 +80,7 @@ def main() raises:
 
         print(t"Throughput: {mops} Mops/s | Avg Time: {avg_time_us} us")
 
-    def bench_latency[version: Int, frame: Frame, width: SIMDSize]() raises:
+    def bench_latency[version: Int, frame: Frame, width: SIMDLength]() raises:
         angle = degrees_to_radians(Float32(45))
         q2 = Quaternion[dtype, frame, width].from_axis_angle(
             Vec3[dtype, frame, width](0, 1, 0), angle

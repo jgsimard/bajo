@@ -49,16 +49,20 @@ struct Ray[dtype: DType, frame: Frame](TrivialRegisterPassable, Writable):
             self.t_max,
         ]
 
-    def origin[width: SIMDSize](self) -> Point3[Self.dtype, Self.frame, width]:
+    def origin[
+        width: SIMDLength
+    ](self) -> Point3[Self.dtype, Self.frame, width]:
         return Point3[Self.dtype, Self.frame, width](
             self.o.x, self.o.y, self.o.z
         )
 
-    def direction[width: SIMDSize](self) -> Vec3[Self.dtype, Self.frame, width]:
+    def direction[
+        width: SIMDLength
+    ](self) -> Vec3[Self.dtype, Self.frame, width]:
         return Vec3[Self.dtype, Self.frame, width](self.d.x, self.d.y, self.d.z)
 
     def rcp_direction[
-        width: SIMDSize
+        width: SIMDLength
     ](self, eps: Scalar[Self.dtype] = 1.0e-9) -> Vec3[
         Self.dtype, Self.frame, width
     ] where Self.dtype.is_floating_point():

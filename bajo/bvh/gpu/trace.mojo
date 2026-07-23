@@ -16,7 +16,7 @@ from bajo.core import Frame, Rayf32
 
 def trace_bounds_bvh[
     frame: Frame,
-    width: SIMDSize,
+    width: SIMDLength,
     mode: TRACE,
     leaf_fn: def(
         UnsafePointer[mut=False, Float32, _],

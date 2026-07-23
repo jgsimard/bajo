@@ -12,14 +12,14 @@ struct Affine3InverseResult[
     dtype: DType,
     From: Frame,
     To: Frame,
-    width: SIMDSize,
+    width: SIMDLength,
 ](Movable):
     var mask: SIMD[DType.bool, Self.width]
     var inv: Affine3[Self.dtype, Self.From, Self.To, Self.width]
 
 
 @fieldwise_init
-struct Affine3[dtype: DType, From: Frame, To: Frame, width: SIMDSize = 1](
+struct Affine3[dtype: DType, From: Frame, To: Frame, width: SIMDLength = 1](
     Copyable, DevicePassable, Writable
 ):
     """3D affine transform.

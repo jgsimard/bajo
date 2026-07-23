@@ -13,7 +13,7 @@ from bajo.core.frame import Frame
 def length2[
     dtype: DType,
     frame: Frame,
-    width: SIMDSize,
+    width: SIMDLength,
 ](q: Quaternion[dtype, frame, width]) -> SIMD[dtype, width]:
     return q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w
 
@@ -21,7 +21,7 @@ def length2[
 def length[
     dtype: DType,
     frame: Frame,
-    width: SIMDSize,
+    width: SIMDLength,
 ](q: Quaternion[dtype, frame, width]) -> SIMD[dtype, width]:
     return sqrt(length2(q))
 
@@ -29,13 +29,13 @@ def length[
 def normalize[
     dtype: DType,
     frame: Frame,
-    width: SIMDSize,
+    width: SIMDLength,
 ](q: Quaternion[dtype, frame, width]) -> Quaternion[dtype, frame, width]:
     return q * (1.0 / length(q))
 
 
 @fieldwise_init
-struct Quaternion[dtype: DType, frame: Frame, width: SIMDSize = 1](
+struct Quaternion[dtype: DType, frame: Frame, width: SIMDLength = 1](
     DevicePassable, TrivialRegisterPassable, Writable
 ):
     var x: SIMD[Self.dtype, Self.width]
@@ -365,7 +365,7 @@ struct Quaternion[dtype: DType, frame: Frame, width: SIMDSize = 1](
 def slerp[
     dtype: DType,
     frame: Frame,
-    width: SIMDSize,
+    width: SIMDLength,
 ](
     q0: Quaternion[dtype, frame, width],
     q1: Quaternion[dtype, frame, width],

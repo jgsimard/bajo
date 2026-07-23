@@ -21,7 +21,7 @@ from bajo.core.intersect import intersect_ray_tri
 from bajo.bvh.cpu.trace import trace_bounds_bvh
 
 
-struct TriangleBvh[frame: Frame, width: SIMDSize](Copyable, TypedBvh):
+struct TriangleBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
     comptime bvh_frame: Frame = Self.frame
 
     """Triangle-specific wrapper around BoundsBvh[width].

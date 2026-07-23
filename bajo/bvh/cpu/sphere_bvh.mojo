@@ -16,7 +16,7 @@ from bajo.bvh.cpu.trace import trace_bounds_bvh
 from bajo.bvh.types import Hit, Sphere, SphereLeafBlock, TypedBvh
 
 
-struct SphereBvh[frame: Frame, width: SIMDSize](Copyable, TypedBvh):
+struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
     comptime bvh_frame: Frame = Self.frame
 
     """Sphere-specific wrapper around BoundsBvh[width].

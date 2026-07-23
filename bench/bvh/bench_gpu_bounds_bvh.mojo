@@ -53,7 +53,7 @@ comptime DEBUG_BENCH_REPEATS = 3
 
 
 def _trace_cpu_triangle_bvh[
-    width: SIMDSize
+    width: SIMDLength
 ](
     bvh: TriangleBvh[Frame.WORLD, width], rays: List[Rayf32[Frame.WORLD]]
 ) -> Tuple[Float64, UInt32]:
@@ -70,7 +70,7 @@ def _trace_cpu_triangle_bvh[
 
 
 def _trace_cpu_sphere_bvh[
-    width: SIMDSize
+    width: SIMDLength
 ](bvh: SphereBvh[Frame.WORLD, width], rays: List[Rayf32[Frame.WORLD]]) -> Tuple[
     Float64, UInt32
 ]:
@@ -256,7 +256,7 @@ def _print_cpu_ref_row(
 
 
 def _print_cpu_triangle_reference[
-    width: SIMDSize
+    width: SIMDLength
 ](
     label: String,
     vertices: List[Point3f32[Frame.WORLD]],
@@ -272,7 +272,7 @@ def _print_cpu_triangle_reference[
 
 
 def _print_cpu_sphere_reference[
-    width: SIMDSize
+    width: SIMDLength
 ](
     label: String,
     spheres: List[Sphere[Frame.WORLD]],
@@ -318,7 +318,7 @@ def _print_gpu_results_transposed(
 
 
 def _bench_camera_primary_triangle[
-    width: SIMDSize
+    width: SIMDLength
 ](
     ctx: DeviceContext,
     mut bvh: GpuTriangleBvh[Frame.WORLD, width],
@@ -371,7 +371,7 @@ def _bench_camera_primary_triangle[
 
 
 def _run_width[
-    width: SIMDSize
+    width: SIMDLength
 ](
     mut ctx: DeviceContext,
     d_vertices: DeviceBuffer[DType.float32],
@@ -448,7 +448,7 @@ def _make_sphere_grid() -> List[Sphere[Frame.WORLD]]:
 
 
 def _bench_camera_primary_sphere[
-    width: SIMDSize
+    width: SIMDLength
 ](
     ctx: DeviceContext,
     mut bvh: GpuSphereBvh[Frame.WORLD, width],
@@ -501,7 +501,7 @@ def _bench_camera_primary_sphere[
 
 
 def _run_sphere_width[
-    width: SIMDSize
+    width: SIMDLength
 ](
     mut ctx: DeviceContext,
     spheres: List[Sphere[Frame.WORLD]],

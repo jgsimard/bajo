@@ -63,8 +63,6 @@ def triangulated_indices(mesh: ObjMesh) -> List[ObjIndex]:
 
     var out = List[ObjIndex](length=total_indices, fill=ObjIndex(0, 0, 0))
 
-    var dest_ptr = out.unsafe_ptr()
-    var src_ptr = mesh.indices.unsafe_ptr()
     var write_idx = 0
     var offset = 0
 
@@ -75,11 +73,11 @@ def triangulated_indices(mesh: ObjMesh) -> List[ObjIndex]:
             is_line = mesh.face_lines[f] != 0
 
         if not is_line and n >= 3:
-            var first = src_ptr[offset]
+            var first = mesh.indices[offset]
             for i in range(1, n - 1):
-                dest_ptr[write_idx] = first
-                dest_ptr[write_idx + 1] = src_ptr[offset + i]
-                dest_ptr[write_idx + 2] = src_ptr[offset + i + 1]
+                out[write_idx] = first
+                out[write_idx + 1] = mesh.indices[offset + i]
+                out[write_idx + 2] = mesh.indices[offset + i + 1]
                 write_idx += 3
         offset += n
 

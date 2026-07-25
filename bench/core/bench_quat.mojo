@@ -69,8 +69,8 @@ def main() raises:
         # bounds checking makes this benchmars 3X slower !
         def wrapper() raises {mut data}:
             for i in range(num_elements / width):
-                data.dst.unsafe_ptr()[i] = dispatch_mul[version](
-                    data.src_a.unsafe_ptr()[i], data.src_b.unsafe_ptr()[i]
+                data.dst[i] = dispatch_mul[version](
+                    data.src_a[i], data.src_b[i]
                 )
             keep(data.dst[0].z)
 

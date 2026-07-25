@@ -342,11 +342,11 @@ def bench_affine3_width[
 
     def wrapper() raises {mut data}:
         for i in range(packet_count):
-            data.dst.unsafe_ptr()[i] = dispatch_affine3_width[version, width](
-                data.boxes.unsafe_ptr()[i],
-                data.translations.unsafe_ptr()[i],
-                data.rotations.unsafe_ptr()[i],
-                data.scales.unsafe_ptr()[i],
+            data.dst[i] = dispatch_affine3_width[version, width](
+                data.boxes[i],
+                data.translations[i],
+                data.rotations[i],
+                data.scales[i],
             )
 
         keep(data.dst[0]._min)
@@ -413,11 +413,11 @@ def main() raises:
     ]() capturing raises:
         def wrapper() raises {mut data}:
             for i in range(num_elements):
-                data.dst.unsafe_ptr()[i] = f(
-                    data.boxes.unsafe_ptr()[i],
-                    data.translations.unsafe_ptr()[i],
-                    data.rotations.unsafe_ptr()[i],
-                    data.scales.unsafe_ptr()[i],
+                data.dst[i] = f(
+                    data.boxes[i],
+                    data.translations[i],
+                    data.rotations[i],
+                    data.scales[i],
                 )
             keep(data.dst[0]._min)
 

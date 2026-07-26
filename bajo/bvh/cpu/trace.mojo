@@ -21,16 +21,19 @@ def trace_bounds_bvh[
 
     var hit = Hit[frame].miss(ray.t_max)
 
+    # avoid bounds checks in hot loop
     var stack = Array[UInt32, CPU_STACK_SIZE](uninitialized=True)
+    var stack_data = stack.unsafe_ptr()
     var stack_ptr = 0
     var n_idx = UInt32(0)
 
     var O = ray.origin[width]()
     var D = ray.direction[width]()
     var rcp_d = ray.rcp_direction[width]()
+    var nodes = tree.nodes.unsafe_ptr()
 
     while True:
-        ref node = tree.nodes[Int(n_idx)]
+        ref node = nodes[unsafe_offset=Int(n_idx)]
 
         var aabb_hit = intersect_ray_aabb_rcp(O, rcp_d, node.aabb, hit.t)
         var valid_lane = node.counts.ne(EMPTY_LANE)
@@ -44,7 +47,7 @@ def trace_bounds_bvh[
                             stack_ptr < CPU_STACK_SIZE,
                             "CPU BVH traversal stack overflow",
                         )
-                        stack[stack_ptr] = node.data[i]
+                        stack_data[unsafe_offset=stack_ptr] = node.data[i]
                         stack_ptr += 1
                     else:
                         if leaf_fn(
@@ -61,6 +64,6 @@ def trace_bounds_bvh[
             break
 
         stack_ptr -= 1
-        n_idx = stack[stack_ptr]
+        n_idx = stack_data[unsafe_offset=stack_ptr]
 
     return hit

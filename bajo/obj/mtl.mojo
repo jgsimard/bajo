@@ -14,7 +14,7 @@ def _map_name_from_tail[
         if word.byte_length() == 0:
             break
         # Skip flags like '-clamp' or '-s'
-        if word.unsafe_ptr().load(0) == MINUS:
+        if word.unsafe_ptr().unsafe_load(0) == MINUS:
             continue
         candidate = String(word)
     return candidate

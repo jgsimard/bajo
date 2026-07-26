@@ -673,18 +673,18 @@ def _parse_obj[
 
         if cur.pos < cur.end:
             var p = cur.pos
-            var c0 = ptr.load(p)
+            var c0 = ptr.unsafe_load(p)
 
             # Hot one/two-byte tag dispatch.
             if c0 == CHAR_v:
                 if _word_ends_here(ptr, p + 1, end):
                     cur.pos = p + 1
                     _parse_v_cursor(mesh, cur)
-                elif p + 1 < end and ptr.load(p + 1) == CHAR_t:
+                elif p + 1 < end and ptr.unsafe_load(p + 1) == CHAR_t:
                     if _word_ends_here(ptr, p + 2, end):
                         cur.pos = p + 2
                         _parse_vt_cursor(mesh, cur)
-                elif p + 1 < end and ptr.load(p + 1) == CHAR_n:
+                elif p + 1 < end and ptr.unsafe_load(p + 1) == CHAR_n:
                     if _word_ends_here(ptr, p + 2, end):
                         cur.pos = p + 2
                         _parse_vn_cursor(mesh, cur)
@@ -710,7 +710,7 @@ def _parse_obj[
                 var tag_start = p
                 var tag_end = p
                 while tag_end < end and not _is_ws_or_line_cut(
-                    ptr.load(tag_end)
+                    ptr.unsafe_load(tag_end)
                 ):
                     tag_end += 1
 

@@ -145,6 +145,7 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
         )
 
     # p + v = p
+    @__allow_legacy_custom_self_type
     def __add__(
         self: Self.P3,
         rhs: Self.V3,
@@ -156,6 +157,7 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
         )
 
     # v + p = p
+    @__allow_legacy_custom_self_type
     def __add__(
         self: Self.V3,
         rhs: Self.P3,
@@ -167,6 +169,7 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
         )
 
     # v + v = v
+    @__allow_legacy_custom_self_type
     def __add__(self: Self.V3, rhs: Self.V3) -> Self.V3:
         # TODO: put this into where when it works
         # comptime assert self.kind == GeoKind.VECTOR
@@ -190,6 +193,7 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
 
     # TODO: put this into where when (if?) it works
     # p - p = v
+    @__allow_legacy_custom_self_type
     def __sub__(
         self: Self.P3,
         rhs: Self.P3,
@@ -201,6 +205,7 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
         )
 
     # v - v = v
+    @__allow_legacy_custom_self_type
     def __sub__(
         self: Self.V3,
         rhs: Self.V3,
@@ -212,6 +217,7 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
         )
 
     # p - v = p
+    @__allow_legacy_custom_self_type
     def __sub__(
         self: Self.P3,
         rhs: Self.V3,

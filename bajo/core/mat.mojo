@@ -1,5 +1,4 @@
 from std.math import abs, cos, sin
-from std.collections.inline_array import InlineArray
 from std.testing import assert_almost_equal
 
 from bajo.core.vec import Vec3

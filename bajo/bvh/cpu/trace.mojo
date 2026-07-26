@@ -21,7 +21,7 @@ def trace_bounds_bvh[
 
     var hit = Hit[frame].miss(ray.t_max)
 
-    var stack = InlineArray[UInt32, CPU_STACK_SIZE](uninitialized=True)
+    var stack = Array[UInt32, CPU_STACK_SIZE](uninitialized=True)
     var stack_ptr = 0
     var n_idx = UInt32(0)
 

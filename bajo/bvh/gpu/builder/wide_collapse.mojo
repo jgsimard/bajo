@@ -303,7 +303,7 @@ def collapse_precomputed_wide_kernel[
     if UInt32(node_meta[_node_parent_index(node_idx)]) == UInt32(LBVH_SENTINEL):
         wide_root[0] = node_idx
 
-    var pool = InlineArray[UInt32, width](uninitialized=True)
+    var pool = Array[UInt32, width](uninitialized=True)
     pool[0] = node_idx
     var p_size = 1
 
@@ -406,7 +406,7 @@ def _write_terminal_leaf_block[
     leaf_block_indices: UnsafePointer[mut=True, UInt32, _],
     leaf_block_idx: UInt32,
 ):
-    var stack = InlineArray[UInt32, GPU_STACK_SIZE](uninitialized=True)
+    var stack = Array[UInt32, GPU_STACK_SIZE](uninitialized=True)
     var sp = 0
     stack[sp] = encoded
     sp += 1
@@ -572,9 +572,9 @@ def hploc_to_wide_kernel[
             status[0] = HPLOC_STATUS_OUT_OF_WIDE_NODES
             return
 
-        var leaves = InlineArray[UInt32, width](uninitialized=True)
-        var leaf_counts = InlineArray[UInt32, width](uninitialized=True)
-        var nodes = InlineArray[UInt32, width](uninitialized=True)
+        var leaves = Array[UInt32, width](uninitialized=True)
+        var leaf_counts = Array[UInt32, width](uninitialized=True)
+        var nodes = Array[UInt32, width](uninitialized=True)
         var num_leaves = 0
         var num_nodes = 0
 

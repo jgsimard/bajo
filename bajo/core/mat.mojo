@@ -14,8 +14,8 @@ struct Mat[
     width: SIMDLength = 1,
 ](Copyable, Writable):
     comptime Elem = SIMD[Self.dtype, Self.width]
-    comptime Row = InlineArray[Self.Elem, Self.cols]
-    comptime Data = InlineArray[Self.Row, Self.rows]
+    comptime Row = Array[Self.Elem, Self.cols]
+    comptime Data = Array[Self.Row, Self.rows]
 
     var data: Self.Data
 

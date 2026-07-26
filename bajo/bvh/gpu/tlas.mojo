@@ -154,7 +154,7 @@ def _trace_tlas_ray[
 ) -> Hit[Frame.WORLD]:
     var hit = Hit[Frame.WORLD].miss(ray.t_max)
 
-    var stack = InlineArray[UInt32, GPU_STACK_SIZE](uninitialized=True)
+    var stack = Array[UInt32, GPU_STACK_SIZE](uninitialized=True)
     var stack_ptr = 0
     var current = tlas_root_idx
 
@@ -166,9 +166,9 @@ def _trace_tlas_ray[
             hit.t,
         )
 
-        var child_valid = InlineArray[Bool, tlas_width](fill=False)
-        var child_data = InlineArray[UInt32, tlas_width](fill=0)
-        var child_t = InlineArray[Float32, tlas_width](fill=0.0)
+        var child_valid = Array[Bool, tlas_width](fill=False)
+        var child_data = Array[UInt32, tlas_width](fill=0)
+        var child_t = Array[Float32, tlas_width](fill=0.0)
 
         comptime for node_lane in range(tlas_width):
             var meta = _wide_node_load_meta[tlas_width](

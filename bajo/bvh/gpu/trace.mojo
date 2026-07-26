@@ -33,7 +33,7 @@ def trace_bounds_bvh[
 ) -> Hit[frame]:
     var hit = Hit[frame].miss(ray.t_max)
 
-    var stack = InlineArray[UInt32, GPU_STACK_SIZE](uninitialized=True)
+    var stack = Array[UInt32, GPU_STACK_SIZE](uninitialized=True)
     var stack_ptr = 0
     var current = root_idx
 
@@ -50,9 +50,9 @@ def trace_bounds_bvh[
         )
 
         comptime if lifo:
-            var child_valid = InlineArray[Bool, width](fill=False)
-            var child_data = InlineArray[UInt32, width](fill=0)
-            var child_t = InlineArray[Float32, width](fill=0.0)
+            var child_valid = Array[Bool, width](fill=False)
+            var child_data = Array[UInt32, width](fill=0)
+            var child_t = Array[Float32, width](fill=0.0)
 
             comptime for node_lane in range(width):
                 var meta = _wide_node_load_meta[width](

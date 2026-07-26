@@ -47,7 +47,7 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
         var wide_idx = len(self.nodes)
         self.nodes.append(WideBvhNode[Self.frame, Self.width]())
 
-        var pool = InlineArray[UInt32, Self.width](fill=bin_idx)
+        var pool = Array[UInt32, Self.width](fill=bin_idx)
         var p_size = 1
 
         # Pull up the largest internal nodes until we fill the wide node or run

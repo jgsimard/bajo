@@ -53,9 +53,7 @@ def _find_sah_split[
         if min_c == max_c:
             continue
 
-        var bins = InlineArray[BoundsBin[frame], BVH_BINS](
-            fill=BoundsBin[frame]()
-        )
+        var bins = Array[BoundsBin[frame], BVH_BINS](fill=BoundsBin[frame]())
         var scale = Float32(BVH_BINS) / (max_c - min_c)
 
         for i in range(count):
@@ -65,7 +63,7 @@ def _find_sah_split[
             items[item_idx].grow_into(bins[b_idx].bounds)
 
         # from the left
-        var left_prefix = InlineArray[BoundsBin[frame], BVH_BINS](
+        var left_prefix = Array[BoundsBin[frame], BVH_BINS](
             fill=BoundsBin[frame]()
         )
         var left_box = AABB[frame].invalid()

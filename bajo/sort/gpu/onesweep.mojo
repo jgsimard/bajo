@@ -167,9 +167,7 @@ def digit_binning[
     var partition_index = Int(s_warp_histograms[BIN_PART_SIZE - 1])
 
     # load keys
-    var keys = InlineArray[Scalar[keys_dtype], KEYS_PER_THREAD](
-        uninitialized=True
-    )
+    var keys = Array[Scalar[keys_dtype], KEYS_PER_THREAD](uninitialized=True)
     var BIN_SUB_PART_START = wid * WARP_PART_SIZE
     var BIN_PART_START = partition_index * PART_SIZE
     var t_base = lid + BIN_SUB_PART_START + BIN_PART_START
@@ -262,10 +260,10 @@ def digit_binning[
         var vals_current = vals_current_opt.unsafe_value()
         var vals_alternate = vals_alternate_opt.unsafe_value()
 
-        var vals = InlineArray[Scalar[vals_dtype], KEYS_PER_THREAD](
+        var vals = Array[Scalar[vals_dtype], KEYS_PER_THREAD](
             uninitialized=True
         )
-        var digits = InlineArray[UInt8, KEYS_PER_THREAD](uninitialized=True)
+        var digits = Array[UInt8, KEYS_PER_THREAD](uninitialized=True)
 
         comptime for i in range(KEYS_PER_THREAD):
             var t_idx = tid + i * BLOCK_SIZE

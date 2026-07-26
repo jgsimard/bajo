@@ -201,9 +201,7 @@ def downsweep[
     barrier()
 
     # Load keys
-    var keys = InlineArray[Scalar[keys_dtype], KEYS_PER_THREAD](
-        uninitialized=True
-    )
+    var keys = Array[Scalar[keys_dtype], KEYS_PER_THREAD](uninitialized=True)
     var BIN_SUB_PART_START = wid * WARP_PART_SIZE
     var BIN_PART_START = bid * PART_SIZE
     var t_base = lid + BIN_SUB_PART_START + BIN_PART_START
@@ -283,10 +281,10 @@ def downsweep[
         debug_assert["safe"](Bool(vals_alternate_opt))
         var vals_current = vals_current_opt.unsafe_value()
         var vals_alternate = vals_alternate_opt.unsafe_value()
-        var vals = InlineArray[Scalar[vals_dtype], KEYS_PER_THREAD](
+        var vals = Array[Scalar[vals_dtype], KEYS_PER_THREAD](
             uninitialized=True
         )
-        var digits = InlineArray[UInt8, KEYS_PER_THREAD](uninitialized=True)
+        var digits = Array[UInt8, KEYS_PER_THREAD](uninitialized=True)
         if bid < gdim - 1:
             comptime for i in range(KEYS_PER_THREAD):
                 var t = tid + (i * BLOCK_SIZE)

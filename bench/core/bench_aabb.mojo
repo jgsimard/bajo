@@ -413,11 +413,11 @@ def main() raises:
     ]() capturing raises:
         def wrapper() raises {mut data}:
             for i in range(num_elements):
-                data.dst[i] = f(
-                    data.boxes[i],
-                    data.translations[i],
-                    data.rotations[i],
-                    data.scales[i],
+                data.dst.unsafe_ptr()[unsafe_offset=i] = f(
+                    data.boxes.unsafe_ptr()[unsafe_offset=i],
+                    data.translations.unsafe_ptr()[unsafe_offset=i],
+                    data.rotations.unsafe_ptr()[unsafe_offset=i],
+                    data.scales.unsafe_ptr()[unsafe_offset=i],
                 )
             keep(data.dst[0]._min)
 

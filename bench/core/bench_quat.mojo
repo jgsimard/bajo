@@ -69,8 +69,9 @@ def main() raises:
         # bounds checking makes this benchmars 3X slower !
         def wrapper() raises {mut data}:
             for i in range(num_elements / width):
-                data.dst[i] = dispatch_mul[version](
-                    data.src_a[i], data.src_b[i]
+                data.dst.unsafe_ptr()[unsafe_offset=i] = dispatch_mul[version](
+                    data.src_a.unsafe_ptr()[unsafe_offset=i],
+                    data.src_b.unsafe_ptr()[unsafe_offset=i],
                 )
             keep(data.dst[0].z)
 
@@ -80,39 +81,7 @@ def main() raises:
 
         print(t"Throughput: {mops} Mops/s | Avg Time: {avg_time_us} us")
 
-    def bench_latency[version: Int, frame: Frame, width: SIMDLength]() raises:
-        angle = degrees_to_radians(Float32(45))
-        q2 = Quaternion[dtype, frame, width].from_axis_angle(
-            Vec3[dtype, frame, width](0, 1, 0), angle
-        )
-        q3 = Quaternion[dtype, frame, width].from_axis_angle(
-            Vec3[dtype, frame, width](1, 0, 0), angle
-        )
-        a = dispatch_mul[version](q2, q3)
-        b = Quaternion[dtype, frame, width](
-            0.353553, 0.353553, -0.146447, 0.853553
-        )
-        assert_almost_equal(a.x, b.x, atol=1e-6)
-        assert_almost_equal(a.y, b.y, atol=1e-6)
-        assert_almost_equal(a.z, b.z, atol=1e-6)
-        assert_almost_equal(a.w, b.w, atol=1e-6)
-
-        q = a
-
-        def bench_fn() {q2, q3, mut q}:
-            for _ in range(1_000_000):
-                q = dispatch_mul[version](q, q2)
-                q = dispatch_mul[version](q, q3)
-            keep(q)
-
-        var time_us = round(run(bench_fn, max_iters=100).mean(Unit.us), 1)
-
-        print(t"v{version} : {time_us} us")
-
     comptime for w in [1, 2, 4, 8]:
         print(t"width = {w}")
         bench_throughput[0, w]()
         bench_throughput[1, w]()
-
-        bench_latency[0, Frame.WORLD, w]()
-        bench_latency[1, Frame.WORLD, w]()

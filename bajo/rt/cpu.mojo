@@ -1,4 +1,4 @@
-from std.algorithm import parallelize
+from max.algorithm import parallelize
 from std.io.file_descriptor import FileDescriptor
 from std.math import abs, fma, sqrt
 from std.time import perf_counter_ns
@@ -604,9 +604,9 @@ def write_ppm_from_colors(
         var out_i = 0
 
         for p in pixels:
-            out[out_i + 0] = color_to_byte(p.x)
-            out[out_i + 1] = color_to_byte(p.y)
-            out[out_i + 2] = color_to_byte(p.z)
+            out[unsafe_offset=out_i + 0] = color_to_byte(p.x)
+            out[unsafe_offset=out_i + 1] = color_to_byte(p.y)
+            out[unsafe_offset=out_i + 2] = color_to_byte(p.z)
             out_i += 3
 
         fd.write_bytes(bytes)

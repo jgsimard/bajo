@@ -89,15 +89,6 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
     comptime device_type: AnyType = Self
     """The device-side type for this array."""
 
-    def _to_device_type(self, target: MutOpaquePointer[_]):
-        """Convert the host type object to a device_type and store it at the
-        target address.
-
-        Args:
-            target: The target address to store the device type.
-        """
-        target.bitcast[Self.device_type]()[] = self.copy()
-
     def _to_device_type(
         self, mut encoder: Some[DeviceTypeEncoder], target: MutOpaquePointer[_]
     ):

@@ -49,9 +49,6 @@ struct Affine3[dtype: DType, From: Frame, To: Frame, width: SIMDLength = 1](
     # DevicePassable stuff
     comptime device_type: AnyType = Self
 
-    def _to_device_type(self, target: MutOpaquePointer[_]):
-        target.bitcast[Self.device_type]()[] = self.copy()
-
     def _to_device_type(
         self, mut encoder: Some[DeviceTypeEncoder], target: MutOpaquePointer[_]
     ):

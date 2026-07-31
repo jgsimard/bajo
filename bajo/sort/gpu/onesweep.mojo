@@ -341,7 +341,7 @@ def onesweep_radix_sort_keys[
     ctx: DeviceContext,
     mut workspace: OneSweepWorkspace[
         keys_dtype,
-        DType.invalid,
+        keys_dtype,
         BLOCK_SIZE=BINNING_TPB,
         KEYS_PER_THREAD=KEYS_PER_THREAD,
     ],
@@ -368,7 +368,7 @@ def onesweep_radix_sort_keys[
     db_keys = DoubleBuffer(
         keys.unsafe_ptr(), workspace.keys_alternate.unsafe_ptr()
     )
-    dummy_v_ptr = Optional[UnsafePointer[Scalar[DType.invalid], MutAnyOrigin]]()
+    dummy_v_ptr = Optional[UnsafePointer[Scalar[keys_dtype], MutAnyOrigin]]()
     global_hist = workspace.global_hist.unsafe_ptr()
     pass_hist = workspace.pass_hist.unsafe_ptr()
 
@@ -401,7 +401,7 @@ def onesweep_radix_sort_keys[
     # 3. Digit Binning Passes (Decoupled Look-back)
     comptime _bin = digit_binning[
         keys_dtype,
-        DType.invalid,
+        keys_dtype,
         BITS_PER_PASS=BITS_PER_PASS,
         BLOCK_SIZE=BINNING_TPB,
         KEYS_PER_THREAD=KEYS_PER_THREAD,

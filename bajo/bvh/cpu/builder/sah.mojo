@@ -45,8 +45,8 @@ def _find_sah_split[
 
         # centroid range
         for i in range(count):
-            var item_idx = Int(indices[first + i])
-            var c = items[item_idx].center_axis(axis)
+            var item_idx = Int(indices[unsafe_offset=first + i])
+            var c = items[unsafe_offset=item_idx].center_axis(axis)
             min_c = min(min_c, c)
             max_c = max(max_c, c)
 
@@ -57,10 +57,10 @@ def _find_sah_split[
         var scale = Float32(BVH_BINS) / (max_c - min_c)
 
         for i in range(count):
-            var item_idx = Int(indices[first + i])
+            var item_idx = Int(indices[unsafe_offset=first + i])
             var b_idx = _item_bin(items, item_idx, axis, min_c, scale)
             bins[b_idx].item_count += 1
-            items[item_idx].grow_into(bins[b_idx].bounds)
+            items[unsafe_offset=item_idx].grow_into(bins[b_idx].bounds)
 
         # from the left
         var left_prefix = Array[BoundsBin[frame], BVH_BINS](
@@ -127,7 +127,7 @@ def _item_bin[
     bin_min: Float32,
     bin_scale: Float32,
 ) -> Int:
-    var c = items[item_idx].center_axis(axis)
+    var c = items[unsafe_offset=item_idx].center_axis(axis)
     var b_idx = Int((c - bin_min) * bin_scale)
 
     if b_idx < 0:
@@ -154,13 +154,16 @@ def _partition_items_by_bin[
     var j = first + count - 1
 
     while i <= j:
-        var item_idx = Int(indices[i])
+        var item_idx = Int(indices[unsafe_offset=i])
         var b_idx = _item_bin(items, item_idx, axis, bin_min, bin_scale)
 
         if b_idx <= split_bin:
             i += 1
         else:
-            indices[i], indices[j] = indices[j], indices[i]
+            indices[unsafe_offset=i], indices[unsafe_offset=j] = (
+                indices[unsafe_offset=j],
+                indices[unsafe_offset=i],
+            )
             j -= 1
 
     return i

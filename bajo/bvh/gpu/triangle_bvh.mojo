@@ -253,14 +253,14 @@ def compute_triangle_bounds_kernel[
 
     var bbase = tri_idx * AABB[frame].STRIDE
 
-    leaf_bounds[bbase + 0] = bmin.x
-    leaf_bounds[bbase + 1] = bmin.y
-    leaf_bounds[bbase + 2] = bmin.z
-    leaf_bounds[bbase + 3] = bmax.x
-    leaf_bounds[bbase + 4] = bmax.y
-    leaf_bounds[bbase + 5] = bmax.z
+    leaf_bounds[unsafe_offset=bbase + 0] = bmin.x
+    leaf_bounds[unsafe_offset=bbase + 1] = bmin.y
+    leaf_bounds[unsafe_offset=bbase + 2] = bmin.z
+    leaf_bounds[unsafe_offset=bbase + 3] = bmax.x
+    leaf_bounds[unsafe_offset=bbase + 4] = bmax.y
+    leaf_bounds[unsafe_offset=bbase + 5] = bmax.z
 
-    payloads[tri_idx] = UInt32(tri_idx)
+    payloads[unsafe_offset=tri_idx] = UInt32(tri_idx)
 
 
 def pack_triangle_leaf_lanes_kernel[
@@ -275,7 +275,7 @@ def pack_triangle_leaf_lanes_kernel[
     if lane_idx >= leaf_lane_count:
         return
 
-    var prim = leaf_block_indices[lane_idx]
+    var prim = leaf_block_indices[unsafe_offset=lane_idx]
 
     # AoSoA : [block][field][lane]
     # Packed fields:
@@ -288,9 +288,9 @@ def pack_triangle_leaf_lanes_kernel[
     var lane = lane_idx % width
     var leaf_block_idx = lane_idx / width
     var out_base = leaf_block_idx * TRI_LEAF_PACKED_STRIDE * width
-    var leaf_vertices_u32 = leaf_vertices.bitcast[UInt32]()
+    var leaf_vertices_u32 = leaf_vertices.unsafe_bitcast[UInt32]()
 
-    leaf_vertices_u32[out_base + 3 * width + lane] = prim
+    leaf_vertices_u32[unsafe_offset=out_base + 3 * width + lane] = prim
 
     # traversal checks packed prim != EMPTY_LANE
     if prim == EMPTY_LANE:
@@ -298,17 +298,35 @@ def pack_triangle_leaf_lanes_kernel[
 
     var in_base = Int(prim) * TRI_LEAF_VERTEX_STRIDE
 
-    leaf_vertices[out_base + 0 * width + lane] = vertices[in_base + 0]
-    leaf_vertices[out_base + 1 * width + lane] = vertices[in_base + 1]
-    leaf_vertices[out_base + 2 * width + lane] = vertices[in_base + 2]
-    leaf_vertices[out_base + 4 * width + lane] = vertices[in_base + 3]
-    leaf_vertices[out_base + 5 * width + lane] = vertices[in_base + 4]
-    leaf_vertices[out_base + 6 * width + lane] = vertices[in_base + 5]
-    leaf_vertices[out_base + 7 * width + lane] = 0.0
-    leaf_vertices[out_base + 8 * width + lane] = vertices[in_base + 6]
-    leaf_vertices[out_base + 9 * width + lane] = vertices[in_base + 7]
-    leaf_vertices[out_base + 10 * width + lane] = vertices[in_base + 8]
-    leaf_vertices[out_base + 11 * width + lane] = 0.0
+    leaf_vertices[unsafe_offset=out_base + 0 * width + lane] = vertices[
+        unsafe_offset=in_base + 0
+    ]
+    leaf_vertices[unsafe_offset=out_base + 1 * width + lane] = vertices[
+        unsafe_offset=in_base + 1
+    ]
+    leaf_vertices[unsafe_offset=out_base + 2 * width + lane] = vertices[
+        unsafe_offset=in_base + 2
+    ]
+    leaf_vertices[unsafe_offset=out_base + 4 * width + lane] = vertices[
+        unsafe_offset=in_base + 3
+    ]
+    leaf_vertices[unsafe_offset=out_base + 5 * width + lane] = vertices[
+        unsafe_offset=in_base + 4
+    ]
+    leaf_vertices[unsafe_offset=out_base + 6 * width + lane] = vertices[
+        unsafe_offset=in_base + 5
+    ]
+    leaf_vertices[unsafe_offset=out_base + 7 * width + lane] = 0.0
+    leaf_vertices[unsafe_offset=out_base + 8 * width + lane] = vertices[
+        unsafe_offset=in_base + 6
+    ]
+    leaf_vertices[unsafe_offset=out_base + 9 * width + lane] = vertices[
+        unsafe_offset=in_base + 7
+    ]
+    leaf_vertices[unsafe_offset=out_base + 10 * width + lane] = vertices[
+        unsafe_offset=in_base + 8
+    ]
+    leaf_vertices[unsafe_offset=out_base + 11 * width + lane] = 0.0
 
 
 def trace_triangle_bvh_camera_kernel[
@@ -367,26 +385,28 @@ def _intersect_triangle_leaf[
 ) capturing -> Bool:
     var any_hit = False
     var block_base = Int(leaf_block_idx) * TRI_LEAF_PACKED_STRIDE * width
-    var leaf_vertices_u32 = leaf_vertices.bitcast[UInt32]()
+    var leaf_vertices_u32 = leaf_vertices.unsafe_bitcast[UInt32]()
 
     comptime for lane in range(width):
-        var prim = leaf_vertices_u32[block_base + 3 * width + lane]
+        var prim = leaf_vertices_u32[
+            unsafe_offset=block_base + 3 * width + lane
+        ]
         if prim == EMPTY_LANE:
             continue
         var v0 = Point3f32[frame](
-            leaf_vertices[block_base + 0 * width + lane],
-            leaf_vertices[block_base + 1 * width + lane],
-            leaf_vertices[block_base + 2 * width + lane],
+            leaf_vertices[unsafe_offset=block_base + 0 * width + lane],
+            leaf_vertices[unsafe_offset=block_base + 1 * width + lane],
+            leaf_vertices[unsafe_offset=block_base + 2 * width + lane],
         )
         var v1 = Point3f32[frame](
-            leaf_vertices[block_base + 4 * width + lane],
-            leaf_vertices[block_base + 5 * width + lane],
-            leaf_vertices[block_base + 6 * width + lane],
+            leaf_vertices[unsafe_offset=block_base + 4 * width + lane],
+            leaf_vertices[unsafe_offset=block_base + 5 * width + lane],
+            leaf_vertices[unsafe_offset=block_base + 6 * width + lane],
         )
         var v2 = Point3f32[frame](
-            leaf_vertices[block_base + 8 * width + lane],
-            leaf_vertices[block_base + 9 * width + lane],
-            leaf_vertices[block_base + 10 * width + lane],
+            leaf_vertices[unsafe_offset=block_base + 8 * width + lane],
+            leaf_vertices[unsafe_offset=block_base + 9 * width + lane],
+            leaf_vertices[unsafe_offset=block_base + 10 * width + lane],
         )
 
         var tri_hit = intersect_ray_tri(

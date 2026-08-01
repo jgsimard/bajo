@@ -20,8 +20,8 @@ def _common_prefix[
     if j < 0 or j >= n:
         return -1
 
-    var a = pairs[i].code
-    var b = pairs[j].code
+    var a = pairs[unsafe_offset=i].code
+    var b = pairs[unsafe_offset=j].code
 
     if a != b:
         return Int(count_leading_zeros(a ^ b))

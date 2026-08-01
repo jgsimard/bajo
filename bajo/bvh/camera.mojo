@@ -33,8 +33,8 @@ struct Camera(TrivialRegisterPassable, Writable):
         self.forward = Vec3f32[Frame.WORLD].load(ptr, base + Camera.FORWARD)
         self.right = Vec3f32[Frame.WORLD].load(ptr, base + Camera.RIGHT)
         self.up = Vec3f32[Frame.WORLD].load(ptr, base + Camera.UP)
-        self.fov_scale = ptr[base + Camera.FOV]
-        self.focus_dist = ptr[base + Camera.FOCUS_DIST]
+        self.fov_scale = ptr[unsafe_offset=base + Camera.FOV]
+        self.focus_dist = ptr[unsafe_offset=base + Camera.FOCUS_DIST]
         self.defocus_disk_u = Vec3f32[Frame.WORLD].load(
             ptr, base + Camera.DEFOCUS_DISK_U
         )

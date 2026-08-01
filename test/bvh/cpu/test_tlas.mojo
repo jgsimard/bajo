@@ -105,7 +105,9 @@ def test_tlas_triangle_single_instance_cases() raises:
     var blases = [blas.copy()]
 
     # Identity hit.
-    var identity_instances = [_triangle_instance[4](0, 0.0, 0.0, 0.0, blas)]
+    var identity_instances: List = [
+        _triangle_instance[4](0, 0.0, 0.0, 0.0, blas)
+    ]
     var identity_tlas = Tlas[4](identity_instances)
 
     var identity_ray = Rayf32[Frame.WORLD](
@@ -123,7 +125,9 @@ def test_tlas_triangle_single_instance_cases() raises:
     assert_almost_equal(identity_hit.normal.z, 1.0)
 
     # Translated hit.
-    var translated_instances = [_triangle_instance[4](0, 5.0, 0.0, 0.0, blas)]
+    var translated_instances: List = [
+        _triangle_instance[4](0, 5.0, 0.0, 0.0, blas)
+    ]
     var translated_tlas = Tlas[4](translated_instances)
 
     var translated_hit_ray = Rayf32[Frame.WORLD](
@@ -161,7 +165,7 @@ def test_tlas_triangle_two_instance_cases() raises:
     var blases = [first_blas.copy(), second_blas.copy()]
 
     # Near/far along z: nearest should win.
-    var near_far_instances = [
+    var near_far_instances: List = [
         _triangle_instance[4](0, 0.0, 0.0, 0.0, first_blas),
         _triangle_instance[4](1, 0.0, 0.0, 6.0, second_blas),
     ]
@@ -182,7 +186,7 @@ def test_tlas_triangle_two_instance_cases() raises:
         2.0,
     )
     # Left/right along x: ray targets second instance.
-    var left_right_instances = [
+    var left_right_instances: List = [
         _triangle_instance[4](0, -5.0, 0.0, 0.0, first_blas),
         _triangle_instance[4](1, 5.0, 0.0, 0.0, second_blas),
     ]
@@ -209,7 +213,7 @@ def test_tlas_triangle_shadow_cases() raises:
 
     var blases = [blas.copy()]
 
-    var instances = [_triangle_instance[4](0, 5.0, 0.0, 0.0, blas)]
+    var instances: List = [_triangle_instance[4](0, 5.0, 0.0, 0.0, blas)]
 
     var tlas = Tlas[4](instances)
 
@@ -246,7 +250,7 @@ def test_tlas_sphere_single_instance_cases() raises:
     var blases = [blas.copy()]
 
     # Identity hit.
-    var identity_instances = [_sphere_instance[4](0, 0.0, 0.0, 0.0, blas)]
+    var identity_instances: List = [_sphere_instance[4](0, 0.0, 0.0, 0.0, blas)]
 
     var identity_tlas = Tlas[4](identity_instances)
 
@@ -265,7 +269,9 @@ def test_tlas_sphere_single_instance_cases() raises:
     assert_almost_equal(identity_hit.normal.z, -1.0)
 
     # Translated hit.
-    var translated_instances = [_sphere_instance[4](0, 5.0, 0.0, 0.0, blas)]
+    var translated_instances: List = [
+        _sphere_instance[4](0, 5.0, 0.0, 0.0, blas)
+    ]
     var translated_tlas = Tlas[4](translated_instances)
 
     var translated_hit_ray = Rayf32[Frame.WORLD](
@@ -305,7 +311,7 @@ def test_tlas_sphere_two_instance_cases() raises:
     var blases = [first_blas.copy(), second_blas.copy()]
 
     # Near/far along z: nearest should win.
-    var near_far_instances = [
+    var near_far_instances: List = [
         _sphere_instance[4](0, 0.0, 0.0, 0.0, first_blas),
         _sphere_instance[4](1, 0.0, 0.0, 6.0, second_blas),
     ]
@@ -325,7 +331,7 @@ def test_tlas_sphere_two_instance_cases() raises:
     )
 
     # Left/right along x: ray targets second instance.
-    var left_right_instances = [
+    var left_right_instances: List = [
         _sphere_instance[4](0, -5.0, 0.0, 0.0, first_blas),
         _sphere_instance[4](1, 5.0, 0.0, 0.0, second_blas),
     ]
@@ -353,7 +359,7 @@ def test_tlas_sphere_nonuniform_scale_normal() raises:
     var transform = Affine3f32[Frame.LOCAL, Frame.WORLD].from_scale(
         Vec3f32[Frame.LOCAL](2.0, 1.0, 1.0)
     )
-    var instances = [
+    var instances: List = [
         Instance(
             transform,
             UInt32(0),
@@ -380,7 +386,7 @@ def test_tlas_sphere_shadow_cases() raises:
 
     var blases = [blas.copy()]
 
-    var instances = [_sphere_instance[4](0, 5.0, 0.0, 0.0, blas)]
+    var instances: List = [_sphere_instance[4](0, 5.0, 0.0, 0.0, blas)]
 
     var tlas = Tlas[4](instances)
 

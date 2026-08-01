@@ -106,10 +106,14 @@ def _intersect_tlas_instance_block[
                 blas_leaf_fn,
             ](
                 blas_wide_nodes
-                + Int(blas_descs[desc_base + BlasSet.WIDE_NODE_BASE]),
+                + Int(
+                    blas_descs[unsafe_offset=desc_base + BlasSet.WIDE_NODE_BASE]
+                ),
                 blas_leaves
-                + Int(blas_descs[desc_base + BlasSet.LEAF_F32_BASE]),
-                UInt32(blas_descs[desc_base + BlasSet.ROOT_IDX]),
+                + Int(
+                    blas_descs[unsafe_offset=desc_base + BlasSet.LEAF_F32_BASE]
+                ),
+                UInt32(blas_descs[unsafe_offset=desc_base + BlasSet.ROOT_IDX]),
                 local_ray,
             )
 

@@ -253,8 +253,8 @@ def _partition_items_by_median_center[
     var mid = count / 2
 
     def cmp(a_idx: UInt32, b_idx: UInt32) capturing -> Bool:
-        var a = items[Int(a_idx)].center_axis(axis)
-        var b = items[Int(b_idx)].center_axis(axis)
+        var a = items[unsafe_offset=Int(a_idx)].center_axis(axis)
+        var b = items[unsafe_offset=Int(b_idx)].center_axis(axis)
 
         if a == b:
             return a_idx < b_idx

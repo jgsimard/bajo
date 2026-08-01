@@ -57,9 +57,9 @@ def collapse_terminal_root_to_wide_kernel[
     if i != 0:
         return
 
-    wide_root[0] = UInt32(0)
-    wide_node_counter[0] = UInt32(1)
-    leaf_block_counter[0] = UInt32(1)
+    wide_root[unsafe_offset=0] = UInt32(0)
+    wide_node_counter[unsafe_offset=0] = UInt32(1)
+    leaf_block_counter[unsafe_offset=0] = UInt32(1)
 
     var root_bounds = AABB[Frame.WORLD].invalid()
 
@@ -68,7 +68,7 @@ def collapse_terminal_root_to_wide_kernel[
         root_bounds = AABB[Frame.WORLD].load6(leaf_bounds, 0)
 
         (leaf_block_indices + 0).store[width=width](EMPTY_LANE)
-        leaf_block_indices[0] = leaf_payloads[0]
+        leaf_block_indices[unsafe_offset=0] = leaf_payloads[unsafe_offset=0]
 
     else:
         # Small tree: find the binary root and pack the whole subtree into
@@ -77,7 +77,10 @@ def collapse_terminal_root_to_wide_kernel[
 
         for n in range(internal_count):
             var node_idx = UInt32(n)
-            if UInt32(node_meta[_node_parent_index(node_idx)]) == LBVH_SENTINEL:
+            if (
+                UInt32(node_meta[unsafe_offset=_node_parent_index(node_idx)])
+                == LBVH_SENTINEL
+            ):
                 root = node_idx
 
         _write_terminal_leaf_block[width](
@@ -271,16 +274,16 @@ def init_precomputed_wide_leaf_blocks_kernel[
         return
 
     if i == 0:
-        leaf_block_counter[0] = UInt32(leaf_count)
-        wide_node_counter[0] = UInt32(internal_count)
+        leaf_block_counter[unsafe_offset=0] = UInt32(leaf_count)
+        wide_node_counter[unsafe_offset=0] = UInt32(internal_count)
 
     var sorted_leaf_idx = UInt32(i)
-    var item_idx = UInt32(leaf_ids[i])
-    var payload = UInt32(leaf_payloads[Int(item_idx)])
+    var item_idx = UInt32(leaf_ids[unsafe_offset=i])
+    var payload = UInt32(leaf_payloads[unsafe_offset=Int(item_idx)])
 
     var base = i * width
-    (leaf_block_indices + base).store[width=width](EMPTY_LANE)
-    leaf_block_indices[base] = payload
+    (leaf_block_indices + base).unasfe_store[width=width](EMPTY_LANE)
+    leaf_block_indices[unsafe_offset=base] = payload
 
 
 def collapse_precomputed_wide_kernel[
@@ -301,7 +304,7 @@ def collapse_precomputed_wide_kernel[
     var node_idx = UInt32(node_i)
 
     if UInt32(node_meta[_node_parent_index(node_idx)]) == UInt32(LBVH_SENTINEL):
-        wide_root[0] = node_idx
+        wide_root[unsafe_offset=0] = node_idx
 
     var pool = Array[UInt32, width](uninitialized=True)
     pool[0] = node_idx
@@ -420,11 +423,11 @@ def _write_terminal_leaf_block[
         if _is_encoded_leaf(e):
             if out_count < width:
                 var sorted_leaf_idx = _encoded_index(e)
-                var item_idx = leaf_ids[Int(sorted_leaf_idx)]
-                var payload = leaf_payloads[Int(item_idx)]
+                var item_idx = leaf_ids[unsafe_offset=Int(sorted_leaf_idx)]
+                var payload = leaf_payloads[unsafe_offset=Int(item_idx)]
 
                 leaf_block_indices[
-                    Int(leaf_block_idx) * width + out_count
+                    unsafe_offset=Int(leaf_block_idx) * width + out_count
                 ] = payload
                 out_count += 1
         else:
@@ -440,7 +443,9 @@ def _write_terminal_leaf_block[
 
     comptime for lane in range(width):
         if lane >= out_count:
-            leaf_block_indices[Int(leaf_block_idx) * width + lane] = EMPTY_LANE
+            leaf_block_indices[
+                unsafe_offset=Int(leaf_block_idx) * width + lane
+            ] = EMPTY_LANE
 
 
 def _write_one_leaf_block[
@@ -453,12 +458,12 @@ def _write_one_leaf_block[
     leaf_block_idx: UInt32,
 ):
     var sorted_leaf_idx = _encoded_index(encoded_leaf)
-    var item_idx = UInt32(leaf_ids[Int(sorted_leaf_idx)])
-    var payload = UInt32(leaf_payloads[Int(item_idx)])
+    var item_idx = UInt32(leaf_ids[unsafe_offset=Int(sorted_leaf_idx)])
+    var payload = UInt32(leaf_payloads[unsafe_offset=Int(item_idx)])
 
     var base = Int(leaf_block_idx) * width
-    (leaf_block_indices + base).store[width=width](EMPTY_LANE)
-    leaf_block_indices[base] = payload
+    (leaf_block_indices + base).unsafe_store[width=width](EMPTY_LANE)
+    leaf_block_indices[unsafe_offset=base] = payload
 
 
 def init_hploc_index_pairs_kernel(
@@ -477,21 +482,24 @@ def init_hploc_index_pairs_kernel(
     var i = global_idx.x
 
     if i < slot_count:
-        index_pairs[i] = UInt64.MAX
+        index_pairs[unsafe_offset=i] = UInt64.MAX
 
     if i == 0:
-        slot_counter[0] = UInt32(0)
-        leaf_block_counter[0] = UInt32(0)
-        wide_node_counter[0] = UInt32(1)
-        status[0] = HPLOC_STATUS_OK
-        wide_root[0] = UInt32(0)
+        slot_counter[unsafe_offset=0] = UInt32(0)
+        leaf_block_counter[unsafe_offset=0] = UInt32(0)
+        wide_node_counter[unsafe_offset=0] = UInt32(1)
+        status[unsafe_offset=0] = HPLOC_STATUS_OK
+        wide_root[unsafe_offset=0] = UInt32(0)
 
     if i >= internal_count:
         return
 
     var node_idx = UInt32(i)
-    if UInt32(node_meta[_node_parent_index(node_idx)]) == LBVH_SENTINEL:
-        index_pairs[0] = _pack_hploc_pair(node_idx, UInt32(0))
+    if (
+        UInt32(node_meta[unsafe_offset=_node_parent_index(node_idx)])
+        == LBVH_SENTINEL
+    ):
+        index_pairs[unsafe_offset=0] = _pack_hploc_pair(node_idx, UInt32(0))
 
 
 def hploc_to_wide_kernel[
@@ -528,15 +536,15 @@ def hploc_to_wide_kernel[
     var failsafe = 1000000
 
     while True:
-        if status[0] != HPLOC_STATUS_OK:
+        if status[unsafe_offset=0] != HPLOC_STATUS_OK:
             return
 
-        var pair = (index_pairs + thread_id).load[volatile=True]()
+        var pair = (index_pairs + thread_id).unsafe_load[volatile=True]()
 
         if pair == UInt64.MAX:
             failsafe -= 1
             if failsafe <= 0:
-                status[0] = HPLOC_STATUS_TIMEOUT
+                status[unsafe_offset=0] = HPLOC_STATUS_TIMEOUT
                 return
             continue
 
@@ -554,7 +562,7 @@ def hploc_to_wide_kernel[
         )
         if encoded_leaf_count <= UInt32(width):
             if Int(out_idx) >= max_leaf_blocks:
-                status[0] = HPLOC_STATUS_OUT_OF_LEAF_BLOCKS
+                status[unsafe_offset=0] = HPLOC_STATUS_OUT_OF_LEAF_BLOCKS
                 return
 
             _write_terminal_leaf_block[width](
@@ -569,7 +577,7 @@ def hploc_to_wide_kernel[
 
         # internal task: collapse one binary subtree into one wide node
         if Int(out_idx) >= max_wide_nodes:
-            status[0] = HPLOC_STATUS_OUT_OF_WIDE_NODES
+            status[unsafe_offset=0] = HPLOC_STATUS_OUT_OF_WIDE_NODES
             return
 
         var leaves = Array[UInt32, width](uninitialized=True)
@@ -714,11 +722,11 @@ def hploc_to_wide_kernel[
         )
 
         if Int(child_node_base) + num_nodes > max_wide_nodes:
-            status[0] = HPLOC_STATUS_OUT_OF_WIDE_NODES
+            status[unsafe_offset=0] = HPLOC_STATUS_OUT_OF_WIDE_NODES
             return
 
         if Int(leaf_block_base) + num_leaves > max_leaf_blocks:
-            status[0] = HPLOC_STATUS_OUT_OF_LEAF_BLOCKS
+            status[unsafe_offset=0] = HPLOC_STATUS_OUT_OF_LEAF_BLOCKS
             return
 
         # schedule children: 1. terminal subtrees, 2. internal nodes
@@ -743,10 +751,10 @@ def hploc_to_wide_kernel[
                     worker_addr = Int(base_worker_offset) + publish_i
 
                 if worker_addr >= slot_count:
-                    status[0] = HPLOC_STATUS_OUT_OF_WORK_SLOTS
+                    status[unsafe_offset=0] = HPLOC_STATUS_OUT_OF_WORK_SLOTS
                     return
 
-                index_pairs[worker_addr] = _pack_hploc_pair(
+                index_pairs[unsafe_offset=worker_addr] = _pack_hploc_pair(
                     child_encoded,
                     child_out_idx,
                 )
@@ -761,10 +769,10 @@ def hploc_to_wide_kernel[
                         worker_addr = Int(base_worker_offset) + publish_i
 
                     if worker_addr >= slot_count:
-                        status[0] = HPLOC_STATUS_OUT_OF_WORK_SLOTS
+                        status[unsafe_offset=0] = HPLOC_STATUS_OUT_OF_WORK_SLOTS
                         return
 
-                    index_pairs[worker_addr] = _pack_hploc_pair(
+                    index_pairs[unsafe_offset=worker_addr] = _pack_hploc_pair(
                         HPLOC_NOOP_ENCODED,
                         UInt32(0),
                     )

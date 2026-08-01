@@ -153,16 +153,16 @@ def _wide_node_store_child[
 ):
     var b = _wide_node_base[width](node_idx, lane)
 
-    wide_nodes[b + WideNode.MIN_X] = bounds._min.x
-    wide_nodes[b + WideNode.MIN_Y] = bounds._min.y
-    wide_nodes[b + WideNode.MIN_Z] = bounds._min.z
-    wide_nodes[b + WideNode.MAX_X] = bounds._max.x
-    wide_nodes[b + WideNode.MAX_Y] = bounds._max.y
-    wide_nodes[b + WideNode.MAX_Z] = bounds._max.z
+    wide_nodes[unsafe_offset=b + WideNode.MIN_X] = bounds._min.x
+    wide_nodes[unsafe_offset=b + WideNode.MIN_Y] = bounds._min.y
+    wide_nodes[unsafe_offset=b + WideNode.MIN_Z] = bounds._min.z
+    wide_nodes[unsafe_offset=b + WideNode.MAX_X] = bounds._max.x
+    wide_nodes[unsafe_offset=b + WideNode.MAX_Y] = bounds._max.y
+    wide_nodes[unsafe_offset=b + WideNode.MAX_Z] = bounds._max.z
 
-    var wide_nodes_u32 = wide_nodes.bitcast[UInt32]()
-    wide_nodes_u32[b + WideNode.META] = meta
-    wide_nodes[b + WideNode.PAD] = 0.0
+    var wide_nodes_u32 = wide_nodes.unsafe_bitcast[UInt32]()
+    wide_nodes_u32[unsafe_offset=b + WideNode.META] = meta
+    wide_nodes[unsafe_offset=b + WideNode.PAD] = 0.0
 
 
 def _wide_node_load_meta[
@@ -175,7 +175,7 @@ def _wide_node_load_meta[
     lane: Int,
 ) -> UInt32:
     var b = _wide_node_base[width](node_idx, lane)
-    return wide_nodes.bitcast[UInt32]()[b + WideNode.META]
+    return wide_nodes.unsafe_bitcast[UInt32]()[unsafe_offset=b + WideNode.META]
 
 
 def _load_wide_node_bounds_block[
@@ -193,13 +193,13 @@ def _load_wide_node_bounds_block[
     comptime for lane in range(width):
         var b = _wide_node_base[width](node_idx, lane)
 
-        aabb._min.x[lane] = wide_nodes[b + WideNode.MIN_X]
-        aabb._min.y[lane] = wide_nodes[b + WideNode.MIN_Y]
-        aabb._min.z[lane] = wide_nodes[b + WideNode.MIN_Z]
+        aabb._min.x[lane] = wide_nodes[unsafe_offset=b + WideNode.MIN_X]
+        aabb._min.y[lane] = wide_nodes[unsafe_offset=b + WideNode.MIN_Y]
+        aabb._min.z[lane] = wide_nodes[unsafe_offset=b + WideNode.MIN_Z]
 
-        aabb._max.x[lane] = wide_nodes[b + WideNode.MAX_X]
-        aabb._max.y[lane] = wide_nodes[b + WideNode.MAX_Y]
-        aabb._max.z[lane] = wide_nodes[b + WideNode.MAX_Z]
+        aabb._max.x[lane] = wide_nodes[unsafe_offset=b + WideNode.MAX_X]
+        aabb._max.y[lane] = wide_nodes[unsafe_offset=b + WideNode.MAX_Y]
+        aabb._max.z[lane] = wide_nodes[unsafe_offset=b + WideNode.MAX_Z]
 
     return aabb
 

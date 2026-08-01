@@ -61,12 +61,12 @@ def refit_lbvh_bounds_from_leaves_kernel(
     if leaf_idx >= leaf_count:
         return
 
-    var item_idx = UInt32(leaf_ids[leaf_idx])
+    var item_idx = UInt32(leaf_ids[unsafe_offset=leaf_idx])
     var b = Int(item_idx) * AABB.STRIDE
     var bounds = AABB[Frame.WORLD].load6(leaf_bounds, b)
 
     var current_encoded = UInt32(leaf_idx) | LBVH_LEAF_FLAG
-    var parent = UInt32(leaf_parent[leaf_idx])
+    var parent = UInt32(leaf_parent[unsafe_offset=leaf_idx])
 
     while parent != LBVH_SENTINEL:
         var left = _node_left(node_meta, parent)
@@ -85,7 +85,9 @@ def refit_lbvh_bounds_from_leaves_kernel(
 
         bounds = _load_and_union_node_bounds(node_bounds, parent)
         current_encoded = parent
-        parent = UInt32(node_meta[_node_parent_index(current_encoded)])
+        parent = UInt32(
+            node_meta[unsafe_offset=_node_parent_index(current_encoded)]
+        )
 
 
 def _lbvh_find_range[
@@ -163,8 +165,8 @@ def _common_prefix(
     if j < 0 or j >= n:
         return -1
 
-    var a = UInt32(morton_codes[i])
-    var b = UInt32(morton_codes[j])
+    var a = UInt32(morton_codes[unsafe_offset=i])
+    var b = UInt32(morton_codes[unsafe_offset=j])
 
     if a != b:
         return Int(count_leading_zeros(a ^ b))
@@ -190,7 +192,7 @@ def build_lbvh_topology_kernel(
     if i >= internal_count:
         return
 
-    node_flags[i] = UInt32(0)
+    node_flags[unsafe_offset=i] = UInt32(0)
 
     var invalid = AABB[Frame.WORLD].invalid()
     var bounds_base = i * BinaryBvhNode.BOUNDS_STRIDE
@@ -198,33 +200,35 @@ def build_lbvh_topology_kernel(
     invalid.store6(node_bounds, bounds_base + AABB.STRIDE)
 
     first, last = _lbvh_find_range(sorted_morton_codes, i, leaf_count)
-    node_leaf_counts[i] = UInt32(last - first + 1)
+    node_leaf_counts[unsafe_offset=i] = UInt32(last - first + 1)
 
     # only root parent is sentinel
     if first == 0 and last == leaf_count - 1:
-        node_meta[_node_parent_index(UInt32(i))] = LBVH_SENTINEL
+        node_meta[unsafe_offset=_node_parent_index(UInt32(i))] = LBVH_SENTINEL
 
     var split = _lbvh_find_split(sorted_morton_codes, first, last, leaf_count)
 
     var left_encoded = UInt32(split)
     if split == first:
         left_encoded |= LBVH_LEAF_FLAG
-        leaf_parent[split] = UInt32(i)
+        leaf_parent[unsafe_offset=split] = UInt32(i)
     else:
-        node_meta[_node_parent_index(UInt32(split))] = UInt32(i)
+        node_meta[unsafe_offset=_node_parent_index(UInt32(split))] = UInt32(i)
 
     var right_child = split + 1
     var right_encoded = UInt32(right_child)
     if right_child == last:
         right_encoded |= LBVH_LEAF_FLAG
-        leaf_parent[right_child] = UInt32(i)
+        leaf_parent[unsafe_offset=right_child] = UInt32(i)
     else:
-        node_meta[_node_parent_index(UInt32(right_child))] = UInt32(i)
+        node_meta[
+            unsafe_offset=_node_parent_index(UInt32(right_child))
+        ] = UInt32(i)
 
     var base = i * BinaryBvhNode.META_STRIDE
-    node_meta[base + BinaryBvhNode.LEFT] = left_encoded
-    node_meta[base + BinaryBvhNode.RIGHT] = right_encoded
-    node_meta[base + BinaryBvhNode.FENCE] = UInt32(last)
+    node_meta[unsafe_offset=base + BinaryBvhNode.LEFT] = left_encoded
+    node_meta[unsafe_offset=base + BinaryBvhNode.RIGHT] = right_encoded
+    node_meta[unsafe_offset=base + BinaryBvhNode.FENCE] = UInt32(last)
 
 
 def build_binary_bvh_with_lbvh(

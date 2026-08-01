@@ -68,16 +68,16 @@ struct Hit[frame: Frame = Frame.WORLD](TrivialRegisterPassable, Writable):
     ):
         var base = idx * Hit.STRIDE
 
-        hits[base + Hit.U] = self.u
-        hits[base + Hit.V] = self.v
-        hits[base + Hit.NORMAL + 0] = self.normal.x
-        hits[base + Hit.NORMAL + 1] = self.normal.y
-        hits[base + Hit.NORMAL + 2] = self.normal.z
-        hits[base + Hit.T] = self.t
+        hits[unsafe_offset=base + Hit.U] = self.u
+        hits[unsafe_offset=base + Hit.V] = self.v
+        hits[unsafe_offset=base + Hit.NORMAL + 0] = self.normal.x
+        hits[unsafe_offset=base + Hit.NORMAL + 1] = self.normal.y
+        hits[unsafe_offset=base + Hit.NORMAL + 2] = self.normal.z
+        hits[unsafe_offset=base + Hit.T] = self.t
 
-        var hits_u32 = hits.bitcast[UInt32]()
-        hits_u32[base + Hit.PRIM] = self.prim
-        hits_u32[base + Hit.INST] = self.inst
+        var hits_u32 = hits.unsafe_bitcast[UInt32]()
+        hits_u32[unsafe_offset=base + Hit.PRIM] = self.prim
+        hits_u32[unsafe_offset=base + Hit.INST] = self.inst
 
     @staticmethod
     def load[
@@ -88,19 +88,19 @@ struct Hit[frame: Frame = Frame.WORLD](TrivialRegisterPassable, Writable):
         idx: Int,
     ) -> Self:
         var base = idx * Hit.STRIDE
-        var hits_u32 = hits.bitcast[UInt32]()
+        var hits_u32 = hits.unsafe_bitcast[UInt32]()
 
         return Self(
-            hits[base + Hit.U],
-            hits[base + Hit.V],
-            hits_u32[base + Hit.PRIM],
-            hits_u32[base + Hit.INST],
+            hits[unsafe_offset=base + Hit.U],
+            hits[unsafe_offset=base + Hit.V],
+            hits_u32[unsafe_offset=base + Hit.PRIM],
+            hits_u32[unsafe_offset=base + Hit.INST],
             Normal3f32[Self.frame](
-                hits[base + Hit.NORMAL + 0],
-                hits[base + Hit.NORMAL + 1],
-                hits[base + Hit.NORMAL + 2],
+                hits[unsafe_offset=base + Hit.NORMAL + 0],
+                hits[unsafe_offset=base + Hit.NORMAL + 1],
+                hits[unsafe_offset=base + Hit.NORMAL + 2],
             ),
-            hits[base + Hit.T],
+            hits[unsafe_offset=base + Hit.T],
         )
 
 

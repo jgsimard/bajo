@@ -33,9 +33,9 @@ struct Ray[dtype: DType, frame: Frame](TrivialRegisterPassable, Writable):
     ](out self, rays: UnsafePointer[Scalar[Self.dtype], origin], ray_idx: Int,):
         var base = ray_idx * Ray.STRIDE
         self.o = Point3[Self.dtype, Self.frame].load(rays, base + Ray.ORIGIN)
-        self.t_min = rays[base + Ray.T_MIN]
+        self.t_min = rays[unsafe_offset=base + Ray.T_MIN]
         self.d = Vec3[Self.dtype, Self.frame].load(rays, base + Ray.DIRECTION)
-        self.t_max = rays[base + Ray.T_MAX]
+        self.t_max = rays[unsafe_offset=base + Ray.T_MAX]
 
     def flatten(self) -> List[Scalar[Self.dtype]]:
         return [

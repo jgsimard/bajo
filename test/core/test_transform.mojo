@@ -185,7 +185,7 @@ def test_load_store() raises:
     assert_almost_equal(loaded.m22[0], 11.0)
     assert_almost_equal(loaded.tz[0], 12.0)
 
-    ptr.free()
+    ptr.unsafe_free()
 
 
 def test_load_transform_helpers() raises:

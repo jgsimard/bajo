@@ -377,18 +377,18 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
     ](ptr: UnsafePointer[Scalar[Self.dtype], origin], base: Int) -> Self:
         comptime assert Self.width == 1
         return Self(
-            ptr[base + 0],
-            ptr[base + 1],
-            ptr[base + 2],
+            ptr[unsafe_offset=base + 0],
+            ptr[unsafe_offset=base + 1],
+            ptr[unsafe_offset=base + 2],
         )
 
     def store[
         origin: MutOrigin
     ](self, ptr: UnsafePointer[Scalar[Self.dtype], origin], base: Int):
         comptime assert Self.width == 1
-        ptr[base + 0] = self.x[0]
-        ptr[base + 1] = self.y[0]
-        ptr[base + 2] = self.z[0]
+        ptr[unsafe_offset=base + 0] = self.x[0]
+        ptr[unsafe_offset=base + 1] = self.y[0]
+        ptr[unsafe_offset=base + 2] = self.z[0]
 
     # roundable
     def __round__(self) -> Self:

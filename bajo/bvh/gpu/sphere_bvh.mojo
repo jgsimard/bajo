@@ -260,15 +260,15 @@ def _intersect_sphere_leaf[
     mut hit: Hit[frame],
 ) capturing -> Bool:
     var block_base = Int(leaf_block_idx) * SPHERE_LEAF_PACKED_STRIDE * width
-    var leaf_spheres_u32 = leaf_spheres.bitcast[UInt32]()
+    var leaf_spheres_u32 = leaf_spheres.unsafe_bitcast[UInt32]()
 
     var center = Point3[DType.float32, frame, width](
-        leaf_spheres.load[width=width](block_base + 0 * width),
-        leaf_spheres.load[width=width](block_base + 1 * width),
-        leaf_spheres.load[width=width](block_base + 2 * width),
+        leaf_spheres.unsafe_load[width=width](block_base + 0 * width),
+        leaf_spheres.unsafe_load[width=width](block_base + 1 * width),
+        leaf_spheres.unsafe_load[width=width](block_base + 2 * width),
     )
-    var radius = leaf_spheres.load[width=width](block_base + 3 * width)
-    var prim_indices = leaf_spheres_u32.load[width=width](
+    var radius = leaf_spheres.unsafe_load[width=width](block_base + 3 * width)
+    var prim_indices = leaf_spheres_u32.unsafe_load[width=width](
         block_base + 4 * width
     )
 
@@ -319,16 +319,16 @@ def pack_sphere_leaf_lanes_kernel[
     var lane = lane_idx % width
     var block_idx = lane_idx / width
 
-    var prim = UInt32(leaf_block_indices[lane_idx])
+    var prim = UInt32(leaf_block_indices[unsafe_offset=lane_idx])
     var out_base = block_idx * SPHERE_LEAF_PACKED_STRIDE * width
-    var leaf_spheres_u32 = leaf_spheres.bitcast[UInt32]()
+    var leaf_spheres_u32 = leaf_spheres.unsafe_bitcast[UInt32]()
 
     # AoSoA: [block][field][lane]
     # Packed fields:
     #   0..2 = center.xyz
     #   3    = radius
     #   4    = prim id bits
-    leaf_spheres_u32[out_base + 4 * width + lane] = prim
+    leaf_spheres_u32[unsafe_offset=out_base + 4 * width + lane] = prim
 
     # traversal checks packed prim != EMPTY_LANE
     if prim == EMPTY_LANE:
@@ -336,10 +336,18 @@ def pack_sphere_leaf_lanes_kernel[
 
     var in_base = Int(prim) * Sphere.STRIDE
 
-    leaf_spheres[out_base + 0 * width + lane] = spheres[in_base + 0]
-    leaf_spheres[out_base + 1 * width + lane] = spheres[in_base + 1]
-    leaf_spheres[out_base + 2 * width + lane] = spheres[in_base + 2]
-    leaf_spheres[out_base + 3 * width + lane] = spheres[in_base + 3]
+    leaf_spheres[unsafe_offset=out_base + 0 * width + lane] = spheres[
+        unsafe_offset=in_base + 0
+    ]
+    leaf_spheres[unsafe_offset=out_base + 1 * width + lane] = spheres[
+        unsafe_offset=in_base + 1
+    ]
+    leaf_spheres[unsafe_offset=out_base + 2 * width + lane] = spheres[
+        unsafe_offset=in_base + 2
+    ]
+    leaf_spheres[unsafe_offset=out_base + 3 * width + lane] = spheres[
+        unsafe_offset=in_base + 3
+    ]
 
 
 def _flatten_spheres[

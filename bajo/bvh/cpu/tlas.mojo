@@ -114,9 +114,9 @@ struct Tlas[width: SIMDLength](Copyable):
                         local_ray_base.t_max,
                     )
 
-                    var local_hit = blases[Int(inst.blas_idx)].trace[mode](
-                        local_ray
-                    )
+                    var local_hit = blases[
+                        unsafe_offset=Int(inst.blas_idx)
+                    ].trace[mode](local_ray)
 
                     comptime if mode == TRACE.ANY_HIT:
                         if local_hit.is_occluded():

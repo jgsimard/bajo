@@ -42,7 +42,7 @@ def test_gpu_tlas_triangle_camera_single_identity_matches_cpu_blas() raises:
     )
     var cpu_res = _trace_cpu_triangle_camera[4](cpu_bvh, camera, WIDTH, HEIGHT)
 
-    var instances = [
+    var instances: List = [
         Instance(
             Affine3f32[Frame.LOCAL, Frame.WORLD].identity(),
             UInt32(0),
@@ -84,7 +84,7 @@ def test_gpu_tlas_triangle_camera_translated_single_instance_hit() raises:
     var t = Point3f32[Frame.WORLD](10.0, 0.0, 0.0)
     var camera = _make_camera_ray(t, Vec3f32[Frame.WORLD](0.0, 0.0, 1.0))
 
-    var instances = [
+    var instances: List = [
         Instance(
             Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(t),
             UInt32(0),
@@ -132,7 +132,7 @@ def test_gpu_tlas_sphere_camera_single_identity_matches_cpu_bruteforce() raises:
     var camera = _camera_for_bounds(world_bounds, 2.0)
     var cpu_res = _trace_cpu_sphere_camera(world_spheres, camera, WIDTH, HEIGHT)
 
-    var instances = [
+    var instances: List = [
         Instance(
             Affine3f32[Frame.LOCAL, Frame.WORLD].identity(),
             UInt32(0),
@@ -170,7 +170,7 @@ def test_gpu_tlas_sphere_camera_single_identity_matches_cpu_bruteforce() raises:
 
 
 def test_gpu_tlas_sphere_camera_translated_single_instance_hit() raises:
-    var spheres = [
+    var spheres: List = [
         Sphere[Frame.LOCAL](Point3f32[Frame.LOCAL](0.0, 0.0, 2.0), 1.0)
     ]
     var bounds = AABB[Frame.LOCAL](
@@ -180,7 +180,7 @@ def test_gpu_tlas_sphere_camera_translated_single_instance_hit() raises:
     var t = Point3f32[Frame.WORLD](10.0, 0.0, 0.0)
     var camera = _make_camera_ray(t, Vec3f32[Frame.WORLD](0.0, 0.0, 1.0))
 
-    var instances = [
+    var instances: List = [
         Instance(
             Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(t),
             UInt32(0),
@@ -219,7 +219,7 @@ def test_gpu_tlas_sphere_camera_translated_single_instance_hit() raises:
 
 
 def test_gpu_tlas_sphere_nonuniform_scale_normal() raises:
-    var spheres = [
+    var spheres: List = [
         Sphere[Frame.LOCAL](Point3f32[Frame.LOCAL](0.0, 0.0, 2.0), 1.0)
     ]
     var bounds = AABB[Frame.LOCAL](
@@ -229,7 +229,7 @@ def test_gpu_tlas_sphere_nonuniform_scale_normal() raises:
     var transform = Affine3f32[Frame.LOCAL, Frame.WORLD].from_scale(
         Vec3f32[Frame.LOCAL](2.0, 1.0, 1.0)
     )
-    var instances = [
+    var instances: List = [
         Instance(
             transform,
             UInt32(0),

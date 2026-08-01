@@ -41,13 +41,13 @@ def _node_right_index(node_idx: UInt32) -> Int:
 def _node_left[
     origin: ImmOrigin
 ](node_meta: UnsafePointer[UInt32, origin], node_idx: UInt32) -> UInt32:
-    return node_meta[_node_left_index(node_idx)]
+    return node_meta[unsafe_offset=_node_left_index(node_idx)]
 
 
 def _node_right[
     origin: ImmOrigin
 ](node_meta: UnsafePointer[UInt32, origin], node_idx: UInt32) -> UInt32:
-    return node_meta[_node_right_index(node_idx)]
+    return node_meta[unsafe_offset=_node_right_index(node_idx)]
 
 
 def _is_encoded_leaf(encoded: UInt32) -> Bool:

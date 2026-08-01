@@ -91,10 +91,10 @@ def build_sphere_blas_set[
         var leaf_f32_base = Int(descs[desc_base + BlasSet.LEAF_F32_BASE])
 
         blas.tree.wide_nodes.enqueue_copy_to(
-            wide_nodes.unsafe_ptr() + wide_node_base
+            wide_nodes.unsafe_ptr().unsafe_offset(wide_node_base)
         )
         blas.leaf_spheres.enqueue_copy_to(
-            leaf_spheres.unsafe_ptr() + leaf_f32_base
+            leaf_spheres.unsafe_ptr().unsafe_offset(leaf_f32_base)
         )
 
         ctx.synchronize()

@@ -30,7 +30,7 @@ def _encoded_bounds(
 ) -> AABB[Frame.WORLD]:
     if _is_encoded_leaf(encoded):
         var sorted_leaf_idx = _encoded_index(encoded)
-        var item_idx = UInt32(leaf_ids[Int(sorted_leaf_idx)])
+        var item_idx = UInt32(leaf_ids[unsafe_offset=Int(sorted_leaf_idx)])
         var b = Int(item_idx) * AABB.STRIDE
         return AABB[Frame.WORLD].load6(leaf_bounds, b)
 
@@ -67,7 +67,9 @@ def collapse_terminal_root_to_wide_kernel[
         # Single primitive: no binary internal node exists.
         root_bounds = AABB[Frame.WORLD].load6(leaf_bounds, 0)
 
-        (leaf_block_indices + 0).store[width=width](EMPTY_LANE)
+        leaf_block_indices.unsafe_offset(0).unsafe_store[width=width](
+            EMPTY_LANE
+        )
         leaf_block_indices[unsafe_offset=0] = leaf_payloads[unsafe_offset=0]
 
     else:
@@ -282,7 +284,7 @@ def init_precomputed_wide_leaf_blocks_kernel[
     var payload = UInt32(leaf_payloads[unsafe_offset=Int(item_idx)])
 
     var base = i * width
-    (leaf_block_indices + base).unasfe_store[width=width](EMPTY_LANE)
+    leaf_block_indices.unsafe_offset(base).unsafe_store[width=width](EMPTY_LANE)
     leaf_block_indices[unsafe_offset=base] = payload
 
 
@@ -303,7 +305,9 @@ def collapse_precomputed_wide_kernel[
 
     var node_idx = UInt32(node_i)
 
-    if UInt32(node_meta[_node_parent_index(node_idx)]) == UInt32(LBVH_SENTINEL):
+    if UInt32(node_meta[unsafe_offset=_node_parent_index(node_idx)]) == UInt32(
+        LBVH_SENTINEL
+    ):
         wide_root[unsafe_offset=0] = node_idx
 
     var pool = Array[UInt32, width](uninitialized=True)
@@ -396,7 +400,7 @@ def _encoded_leaf_count[
 ](encoded: UInt32, node_leaf_counts: UnsafePointer[UInt32, origin]) -> UInt32:
     if _is_encoded_leaf(encoded):
         return UInt32(1)
-    return node_leaf_counts[Int(_encoded_index(encoded))]
+    return node_leaf_counts[unsafe_offset=Int(_encoded_index(encoded))]
 
 
 def _write_terminal_leaf_block[
@@ -462,7 +466,7 @@ def _write_one_leaf_block[
     var payload = UInt32(leaf_payloads[unsafe_offset=Int(item_idx)])
 
     var base = Int(leaf_block_idx) * width
-    (leaf_block_indices + base).unsafe_store[width=width](EMPTY_LANE)
+    leaf_block_indices.unsafe_offset(base).unsafe_store[width=width](EMPTY_LANE)
     leaf_block_indices[unsafe_offset=base] = payload
 
 
@@ -539,7 +543,9 @@ def hploc_to_wide_kernel[
         if status[unsafe_offset=0] != HPLOC_STATUS_OK:
             return
 
-        var pair = (index_pairs + thread_id).unsafe_load[volatile=True]()
+        var pair = index_pairs.unsafe_offset(thread_id).unsafe_load[
+            volatile=True
+        ]()
 
         if pair == UInt64.MAX:
             failsafe -= 1

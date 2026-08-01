@@ -44,8 +44,8 @@ def compute_bounds_morton_codes_kernel(
     var bounds = AABB[Frame.WORLD].load6(leaf_bounds, b)
     var c = (bounds.centroid() - cmin) * inv_extent
 
-    morton_codes[i] = morton3(c.x, c.y, c.z)
-    values[i] = UInt32(i)
+    morton_codes[unsafe_offset=i] = morton3(c.x, c.y, c.z)
+    values[unsafe_offset=i] = UInt32(i)
 
 
 def refit_lbvh_bounds_from_leaves_kernel(
@@ -79,7 +79,7 @@ def refit_lbvh_bounds_from_leaves_kernel(
 
         _write_child_bounds(node_bounds, parent, is_left, bounds)
 
-        var old = Atomic.fetch_add(node_flags + Int(parent), 1)
+        var old = Atomic.fetch_add(node_flags.unsafe_offset(Int(parent)), 1)
         if old == 0:
             break
 

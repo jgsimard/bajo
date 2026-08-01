@@ -27,7 +27,7 @@ struct DoubleBuffer[origin_c: MutOrigin, origin_a: MutOrigin, dtype: DType]:
         self.alternate = tmp.unsafe_origin_cast[Self.origin_a]()
         self.in_original_order = not self.in_original_order
 
-    def __del__(deinit self):
+    def __deinit__(deinit self):
         debug_assert["safe"](
             self.in_original_order,
             self.created_at.prefix(
@@ -91,7 +91,7 @@ def warp_level_multi_split[
             var digit = Int((key >> radix_shift) & RADIX_MASK)
             var count = UInt32(pop_count(warp_flags))
             pre_increment_val = Atomic.fetch_add[ordering=Ordering.RELAXED](
-                s_warp_hist_ptr + digit, count
+                s_warp_hist_ptr.unsafe_offset(digit), count
             )
 
         var leader_lane = count_trailing_zeros(warp_flags)

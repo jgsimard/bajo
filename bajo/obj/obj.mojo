@@ -37,7 +37,7 @@ def _word_ends_here[
 ](ptr: UnsafePointer[UInt8, o], p: Int, end: Int) -> Bool:
     if p >= end:
         return True
-    return _is_ws_or_line_cut(ptr.load(p))
+    return _is_ws_or_line_cut(ptr.unsafe_load(p))
 
 
 struct ObjLineCursor[o: Origin]:
@@ -56,7 +56,7 @@ struct ObjLineCursor[o: Origin]:
     @always_inline
     def skip_ws(mut self):
         while self.pos < self.end:
-            var b = self.ptr.load(self.pos)
+            var b = self.ptr.unsafe_load(self.pos)
             if _is_line_cut(b):
                 self.end = self.pos
                 break
@@ -86,7 +86,7 @@ struct ObjLineCursor[o: Origin]:
 
         var sign = 1
         var output = 0
-        var b = self.ptr.load(self.pos)
+        var b = self.ptr.unsafe_load(self.pos)
         if b == MINUS:
             sign = -1
             self.pos += 1
@@ -94,7 +94,7 @@ struct ObjLineCursor[o: Origin]:
             self.pos += 1
 
         while self.pos < self.end:
-            b = self.ptr.load(self.pos)
+            b = self.ptr.unsafe_load(self.pos)
             if _is_digit(b):
                 var digit = Int(b - ZERO)
                 output = output * 10 + digit
@@ -111,7 +111,7 @@ struct ObjLineCursor[o: Origin]:
             raise String("missing or zero OBJ index")
 
         if self.pos < self.end:
-            b = self.ptr.load(self.pos)
+            b = self.ptr.unsafe_load(self.pos)
             if not ((slash_terminates and b == SLASH) or _is_ws_or_line_cut(b)):
                 raise String("invalid character in OBJ index")
 
@@ -127,13 +127,13 @@ struct ObjLineCursor[o: Origin]:
             raise String("missing OBJ index")
 
         if self.pos < self.end:
-            var first = self.ptr.load(self.pos)
+            var first = self.ptr.unsafe_load(self.pos)
             if first == MINUS or first == PLUS:
                 return self._parse_index_int(slash_terminates, limit)
 
         var output = 0
         while self.pos < self.end:
-            var b = self.ptr.load(self.pos)
+            var b = self.ptr.unsafe_load(self.pos)
             if _is_digit(b):
                 var digit = Int(b - ZERO)
                 output = output * 10 + digit
@@ -150,7 +150,7 @@ struct ObjLineCursor[o: Origin]:
             raise String("missing or zero OBJ index")
 
         if self.pos < self.end:
-            var b = self.ptr.load(self.pos)
+            var b = self.ptr.unsafe_load(self.pos)
             if not ((slash_terminates and b == SLASH) or _is_ws_or_line_cut(b)):
                 raise String("invalid character in OBJ index")
 
@@ -160,7 +160,7 @@ struct ObjLineCursor[o: Origin]:
     def _at_signed_index(self) -> Bool:
         if self.pos >= self.end:
             return False
-        var b = self.ptr.load(self.pos)
+        var b = self.ptr.unsafe_load(self.pos)
         return b == MINUS or b == PLUS
 
     @always_inline
@@ -188,7 +188,7 @@ struct ObjLineCursor[o: Origin]:
         )
         var t_raw = 0
 
-        if self.pos < self.end and self.ptr.load(self.pos) == SLASH:
+        if self.pos < self.end and self.ptr.unsafe_load(self.pos) == SLASH:
             self.pos += 1
             if self._at_signed_index():
                 needs_fix = True
@@ -218,9 +218,9 @@ struct ObjLineCursor[o: Origin]:
         )
         var n_raw = 0
 
-        if self.pos < self.end and self.ptr.load(self.pos) == SLASH:
+        if self.pos < self.end and self.ptr.unsafe_load(self.pos) == SLASH:
             self.pos += 1
-            if self.pos < self.end and self.ptr.load(self.pos) == SLASH:
+            if self.pos < self.end and self.ptr.unsafe_load(self.pos) == SLASH:
                 self.pos += 1
                 if self._at_signed_index():
                     needs_fix = True
@@ -254,7 +254,7 @@ struct ObjLineCursor[o: Origin]:
         var t_raw = 0
         var n_raw = 0
 
-        if self.pos < self.end and self.ptr.load(self.pos) == SLASH:
+        if self.pos < self.end and self.ptr.unsafe_load(self.pos) == SLASH:
             self.pos += 1
             if self._at_signed_index():
                 needs_fix = True
@@ -263,7 +263,7 @@ struct ObjLineCursor[o: Origin]:
                 limit=texcoord_limit,
             )
 
-            if self.pos < self.end and self.ptr.load(self.pos) == SLASH:
+            if self.pos < self.end and self.ptr.unsafe_load(self.pos) == SLASH:
                 self.pos += 1
                 if self._at_signed_index():
                     needs_fix = True
@@ -296,14 +296,14 @@ struct ObjLineCursor[o: Origin]:
         var t_raw = 0
         var n_raw = 0
 
-        if self.pos < self.end and self.ptr.load(self.pos) == SLASH:
+        if self.pos < self.end and self.ptr.unsafe_load(self.pos) == SLASH:
             self.pos += 1
             t_raw = self._parse_index_int(
                 slash_terminates=True,
                 limit=texcoord_limit,
             )
 
-            if self.pos < self.end and self.ptr.load(self.pos) == SLASH:
+            if self.pos < self.end and self.ptr.unsafe_load(self.pos) == SLASH:
                 self.pos += 1
                 n_raw = self._parse_index_int(
                     slash_terminates=False,
@@ -339,10 +339,10 @@ struct ObjLineCursor[o: Origin]:
         var t_raw = 0
         var n_raw = 0
 
-        if self.pos < self.end and self.ptr.load(self.pos) == SLASH:
+        if self.pos < self.end and self.ptr.unsafe_load(self.pos) == SLASH:
             self.pos += 1
 
-            if self.pos < self.end and self.ptr.load(self.pos) == SLASH:
+            if self.pos < self.end and self.ptr.unsafe_load(self.pos) == SLASH:
                 # p//n
                 self.pos += 1
                 shape = 3
@@ -365,7 +365,10 @@ struct ObjLineCursor[o: Origin]:
                     limit=texcoord_limit,
                 )
 
-                if self.pos < self.end and self.ptr.load(self.pos) == SLASH:
+                if (
+                    self.pos < self.end
+                    and self.ptr.unsafe_load(self.pos) == SLASH
+                ):
                     self.pos += 1
                     shape = 4
 
@@ -401,7 +404,7 @@ struct ObjLineCursor[o: Origin]:
         # lazy here instead of pre-scanning every geometry line.
         var p = start
         while p < logical_end:
-            var b = self.ptr.load(p)
+            var b = self.ptr.unsafe_load(p)
             if _is_line_cut(b):
                 logical_end = p
                 break
@@ -411,7 +414,7 @@ struct ObjLineCursor[o: Origin]:
 
         # Trim trailing whitespace.
         while end_pos >= start:
-            var b = self.ptr.load(end_pos)
+            var b = self.ptr.unsafe_load(end_pos)
             if not _is_ws(b):
                 break
             end_pos -= 1
@@ -430,7 +433,7 @@ struct ObjLineCursor[o: Origin]:
 
         var start = self.pos
         while self.pos < self.end:
-            var b = self.ptr.load(self.pos)
+            var b = self.ptr.unsafe_load(self.pos)
             if _is_ws_or_line_cut(b):
                 if _is_line_cut(b):
                     self.end = self.pos

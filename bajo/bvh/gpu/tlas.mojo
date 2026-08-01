@@ -87,10 +87,12 @@ def _intersect_tlas_instance_block[
 
     for lane in range(min(tlas_width, Int(item_count))):
         var idx = Int(leaf_block_idx) * tlas_width + lane
-        var inst_idx = UInt32(tlas_leaf_instances[idx])
+        var inst_idx = UInt32(tlas_leaf_instances[unsafe_offset=idx])
 
         if inst_idx != EMPTY_LANE:
-            var blas_idx = UInt32(inst_blas_indices[Int(inst_idx)])
+            var blas_idx = UInt32(
+                inst_blas_indices[unsafe_offset=Int(inst_idx)]
+            )
             var desc_base = Int(blas_idx) * BlasSet.STRIDE
             var transform_base = Int(inst_idx) * Affine3f32.STRIDE
             var inverse = Affine3f32[Frame.WORLD, Frame.LOCAL].load(
@@ -105,13 +107,19 @@ def _intersect_tlas_instance_block[
                 mode,
                 blas_leaf_fn,
             ](
-                blas_wide_nodes
-                + Int(
-                    blas_descs[unsafe_offset=desc_base + BlasSet.WIDE_NODE_BASE]
+                blas_wide_nodes.unsafe_offset(
+                    Int(
+                        blas_descs[
+                            unsafe_offset=desc_base + BlasSet.WIDE_NODE_BASE
+                        ]
+                    )
                 ),
-                blas_leaves
-                + Int(
-                    blas_descs[unsafe_offset=desc_base + BlasSet.LEAF_F32_BASE]
+                blas_leaves.unsafe_offset(
+                    Int(
+                        blas_descs[
+                            unsafe_offset=desc_base + BlasSet.LEAF_F32_BASE
+                        ]
+                    )
                 ),
                 UInt32(blas_descs[unsafe_offset=desc_base + BlasSet.ROOT_IDX]),
                 local_ray,

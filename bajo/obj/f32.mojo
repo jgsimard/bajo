@@ -20,28 +20,28 @@ def parse_f32_at[
     var p = pos
     var sign: Float64 = 1.0
 
-    if ptr.load(p) == MINUS:
+    if ptr.unsafe_load(p) == MINUS:
         sign = -1.0
         p += 1
-    elif ptr.load(p) == PLUS:
+    elif ptr.unsafe_load(p) == PLUS:
         p += 1
 
     var num: Float64 = 0.0
     while p < end:
-        var b = ptr.load(p)
+        var b = ptr.unsafe_load(p)
         if _is_digit(b):
             num = num * 10.0 + Float64(Int(b - ZERO))
             p += 1
         else:
             break
 
-    if p < end and ptr.load(p) == DOT:
+    if p < end and ptr.unsafe_load(p) == DOT:
         p += 1
         var fra: Float64 = 0.0
         var div: Float64 = 1.0
 
         while p < end:
-            var b = ptr.load(p)
+            var b = ptr.unsafe_load(p)
             if _is_digit(b):
                 fra = fra * 10.0 + Float64(Int(b - ZERO))
                 div *= 10.0
@@ -52,21 +52,21 @@ def parse_f32_at[
         num += fra / div
 
     if p < end:
-        var b = ptr.load(p)
+        var b = ptr.unsafe_load(p)
         if b == CHAR_e or b == CHAR_E:
             p += 1
             var exp_sign = 1
 
-            if p < end and ptr.load(p) == MINUS:
+            if p < end and ptr.unsafe_load(p) == MINUS:
                 exp_sign = -1
                 p += 1
-            elif p < end and ptr.load(p) == PLUS:
+            elif p < end and ptr.unsafe_load(p) == PLUS:
                 p += 1
 
             var eval = 0
             var has_exp_digit = False
             while p < end:
-                var eb = ptr.load(p)
+                var eb = ptr.unsafe_load(p)
                 if _is_digit(eb):
                     has_exp_digit = True
                     var digit = Int(eb - ZERO)

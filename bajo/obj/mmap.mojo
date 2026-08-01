@@ -31,7 +31,7 @@ struct MMap[mut: Bool, //, origin: Origin[mut=mut]]:
         if not self._data:
             raise Error("mmap failed")
 
-    def __del__(deinit self):
+    def __deinit__(deinit self):
         if self._data:
             _ = external_call["munmap", Int](self._data, self._size)
 

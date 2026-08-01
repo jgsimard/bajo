@@ -52,8 +52,8 @@ def bitonic_sort_shared[
     var r_vals = SIMD[vals_dtype, ITEMS_PER_THREAD]()
 
     if g_base < size:
-        r_keys = keys.load[width=ITEMS_PER_THREAD](g_base)
-        r_vals = values.load[width=ITEMS_PER_THREAD](g_base)
+        r_keys = keys.unsafe_load[width=ITEMS_PER_THREAD](g_base)
+        r_vals = values.unsafe_load[width=ITEMS_PER_THREAD](g_base)
     else:
         r_keys = Scalar[keys_dtype].MAX
         r_vals = 0
@@ -68,17 +68,17 @@ def bitonic_sort_shared[
             var global_idx_a = block_start + idx_a
             var sort_dir = (global_idx_a & k) == 0
 
-            var key_a = shared_keys[idx_a]
-            var key_b = shared_keys[idx_b]
-            var val_a = shared_vals[idx_a]
-            var val_b = shared_vals[idx_b]
+            var key_a = shared_keys[unsafe_offset=idx_a]
+            var key_b = shared_keys[unsafe_offset=idx_b]
+            var val_a = shared_vals[unsafe_offset=idx_a]
+            var val_b = shared_vals[unsafe_offset=idx_b]
 
             var should_swap = (key_a > key_b) if sort_dir else (key_a < key_b)
 
-            shared_keys[idx_a] = key_b if should_swap else key_a
-            shared_keys[idx_b] = key_a if should_swap else key_b
-            shared_vals[idx_a] = val_b if should_swap else val_a
-            shared_vals[idx_b] = val_a if should_swap else val_b
+            shared_keys[unsafe_offset=idx_a] = key_b if should_swap else key_a
+            shared_keys[unsafe_offset=idx_b] = key_a if should_swap else key_b
+            shared_vals[unsafe_offset=idx_a] = val_b if should_swap else val_a
+            shared_vals[unsafe_offset=idx_b] = val_a if should_swap else val_b
 
         barrier()
 
@@ -157,10 +157,10 @@ def bitonic_sort_shared[
 
         # Stage 3: Block sort
         comptime if PART_SIZE > MAX_WARP_K:
-            var _keys = shared_keys + tid * ITEMS_PER_THREAD
-            var _vals = shared_vals + tid * ITEMS_PER_THREAD
-            _keys.store(r_keys)
-            _vals.store(r_vals)
+            var _keys = shared_keys.unsafe_offset(tid * ITEMS_PER_THREAD)
+            var _vals = shared_vals.unsafe_offset(tid * ITEMS_PER_THREAD)
+            _keys.unsafe_store(r_keys)
+            _vals.unsafe_store(r_vals)
             barrier()
 
             comptime start_stage = count_trailing_zeros(MAX_WARP_K) + 1
@@ -170,15 +170,15 @@ def bitonic_sort_shared[
                     comptime j = 1 << (stage - 1 - step_idx)
                     _step(j, k)
 
-            r_keys = _keys.load[width=ITEMS_PER_THREAD]()
-            r_vals = _vals.load[width=ITEMS_PER_THREAD]()
+            r_keys = _keys.unsafe_load[width=ITEMS_PER_THREAD]()
+            r_vals = _vals.unsafe_load[width=ITEMS_PER_THREAD]()
 
     else:
         # Stage 4: Cross-block merge
-        var _keys = shared_keys + tid * ITEMS_PER_THREAD
-        var _vals = shared_vals + tid * ITEMS_PER_THREAD
-        _keys.store(r_keys)
-        _vals.store(r_vals)
+        var _keys = shared_keys.unsafe_offset(tid * ITEMS_PER_THREAD)
+        var _vals = shared_vals.unsafe_offset(tid * ITEMS_PER_THREAD)
+        _keys.unsafe_store(r_keys)
+        _vals.unsafe_store(r_vals)
         barrier()
 
         var limit = min(PART_SIZE, size)
@@ -187,13 +187,13 @@ def bitonic_sort_shared[
             _step(j, k_merge)
             j /= 2
 
-        r_keys = _keys.load[width=ITEMS_PER_THREAD]()
-        r_vals = _vals.load[width=ITEMS_PER_THREAD]()
+        r_keys = _keys.unsafe_load[width=ITEMS_PER_THREAD]()
+        r_vals = _vals.unsafe_load[width=ITEMS_PER_THREAD]()
 
     # write back to global memory
     if g_base < size:
-        keys.store[width=ITEMS_PER_THREAD](g_base, r_keys)
-        values.store[width=ITEMS_PER_THREAD](g_base, r_vals)
+        keys.unsafe_store[width=ITEMS_PER_THREAD](g_base, r_keys)
+        values.unsafe_store[width=ITEMS_PER_THREAD](g_base, r_vals)
 
 
 def bitonic_sort_step[
@@ -216,17 +216,17 @@ def bitonic_sort_step[
 
     var sort_dir = (idx_a & k) == 0
 
-    var key_a = keys[idx_a]
-    var key_b = keys[idx_b]
-    var val_a = values[idx_a]
-    var val_b = values[idx_b]
+    var key_a = keys[unsafe_offset=idx_a]
+    var key_b = keys[unsafe_offset=idx_b]
+    var val_a = values[unsafe_offset=idx_a]
+    var val_b = values[unsafe_offset=idx_b]
 
     var should_swap = (key_a > key_b) if sort_dir else (key_a < key_b)
 
-    keys[idx_a] = key_b if should_swap else key_a
-    keys[idx_b] = key_a if should_swap else key_b
-    values[idx_a] = val_b if should_swap else val_a
-    values[idx_b] = val_a if should_swap else val_b
+    keys[unsafe_offset=idx_a] = key_b if should_swap else key_a
+    keys[unsafe_offset=idx_b] = key_a if should_swap else key_b
+    values[unsafe_offset=idx_a] = val_b if should_swap else val_a
+    values[unsafe_offset=idx_b] = val_a if should_swap else val_b
 
 
 def bitonic_sort_pairs[

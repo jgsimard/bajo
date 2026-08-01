@@ -59,13 +59,15 @@ def upsweep[
     barrier()
 
     # Histogram Binning
-    var s_warp_hist = s_global_hist + (wid * PADDED_RADIX)
+    var s_warp_hist = s_global_hist.unsafe_offset(wid * PADDED_RADIX)
 
     def _f[width: SIMDLength](i: Int) capturing:
         var t = keys_current.unsafe_load[width=width](i)
         t = (t >> radix_shift) & RADIX_MASK
         comptime for j in range(width):
-            _ = Atomic.fetch_add[ordering=ordering](s_warp_hist + t[j], 1)
+            _ = Atomic.fetch_add[ordering=ordering](
+                s_warp_hist.unsafe_offset(t[j]), 1
+            )
 
     var block_start = bid * PART_SIZE
     if bid < gdim - 1:
@@ -115,7 +117,7 @@ def upsweep[
         var val_to_add = s_global_hist[unsafe_offset=i] + prev_sum
         var global_idx = i + Int(radix_shift << Scalar[keys_dtype](LANE_LOG))
         _ = Atomic.fetch_add[ordering=ordering](
-            global_hist + global_idx, val_to_add
+            global_hist.unsafe_offset(global_idx), val_to_add
         )
 
 
@@ -194,7 +196,7 @@ def downsweep[
     var lid = lane_id()
     var wid = warp_id()
 
-    var s_warp_hist_ptr = s_warp_histograms + (wid << BITS_PER_PASS)
+    var s_warp_hist_ptr = s_warp_histograms.unsafe_offset(wid << BITS_PER_PASS)
 
     for i in range(tid, TOTAL_WARP_HISTS_SIZE, BLOCK_SIZE):
         s_warp_histograms[unsafe_offset=i] = 0

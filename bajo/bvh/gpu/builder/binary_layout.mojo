@@ -84,10 +84,11 @@ def _load_and_union_node_bounds[
 
 
 def init_empty_bounds_kernel(
-    bounds: UnsafePointer[Float32, MutAnyOrigin], n: Int
+    bounds: UnsafePointer[Float32, MutAnyOrigin], n: Int32
 ):
+    var n_int = Int(n)
     var i = global_idx.x
-    if i >= n:
+    if i >= n_int:
         return
 
     var b = i * BinaryBvhNode.BOUNDS_STRIDE
@@ -99,14 +100,15 @@ def init_empty_bounds_kernel(
 def compute_bounds_partials_kernel(
     leaf_bounds: UnsafePointer[Float32, ImmutAnyOrigin],
     out_partials: UnsafePointer[Float32, MutAnyOrigin],
-    leaf_count: Int,
+    leaf_count: Int32,
 ):
+    var leaf_count_int = Int(leaf_count)
     var chunk = global_idx.x
     var first = chunk * BOUNDS_REDUCE_CHUNK
-    if first >= leaf_count:
+    if first >= leaf_count_int:
         return
 
-    var last = min(first + BOUNDS_REDUCE_CHUNK, leaf_count)
+    var last = min(first + BOUNDS_REDUCE_CHUNK, leaf_count_int)
 
     var bounds = AABB[Frame.WORLD].invalid()
     var centroid_bounds = AABB[Frame.WORLD].invalid()
@@ -126,14 +128,15 @@ def compute_bounds_partials_kernel(
 def reduce_bounds_partials_kernel(
     in_partials: UnsafePointer[Float32, ImmutAnyOrigin],
     out_partials: UnsafePointer[Float32, MutAnyOrigin],
-    partial_count: Int,
+    partial_count: Int32,
 ):
+    var partial_count_int = Int(partial_count)
     var chunk = global_idx.x
     var first = chunk * BOUNDS_REDUCE_CHUNK
-    if first >= partial_count:
+    if first >= partial_count_int:
         return
 
-    var last = min(first + BOUNDS_REDUCE_CHUNK, partial_count)
+    var last = min(first + BOUNDS_REDUCE_CHUNK, partial_count_int)
 
     var bounds = AABB[Frame.WORLD].invalid()
     var centroid_bounds = AABB[Frame.WORLD].invalid()
@@ -239,7 +242,7 @@ struct GpuBinaryBoundsBvh(Movable):
         ctx.enqueue_function[compute_bounds_partials_kernel](
             self.leaf_bounds,
             self.bounds_scratch_a,
-            self.leaf_count,
+            Int32(self.leaf_count),
             grid_dim=reduce_grid,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
@@ -261,7 +264,7 @@ struct GpuBinaryBoundsBvh(Movable):
             ctx.enqueue_function[reduce_bounds_partials_kernel](
                 in_buf,
                 out_buf,
-                count,
+                Int32(count),
                 grid_dim=grid,
                 block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
             )

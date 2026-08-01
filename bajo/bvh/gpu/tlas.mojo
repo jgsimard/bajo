@@ -277,22 +277,25 @@ def trace_triangle_tlas_camera_kernel[
     tlas_root_idx: UInt32,
     camera_params: UnsafePointer[Float32, ImmutAnyOrigin],
     hits: UnsafePointer[Float32, MutAnyOrigin],
-    ray_count: Int,
-    width: Int,
-    height: Int,
+    ray_count: Int32,
+    width: Int32,
+    height: Int32,
 ):
+    var ray_count_int = Int(ray_count)
+    var width_int = Int(width)
+    var height_int = Int(height)
     var ray_idx = global_idx.x
-    if ray_idx >= ray_count:
+    if ray_idx >= ray_count_int:
         return
 
-    var pixels_per_view = width * height
+    var pixels_per_view = width_int * height_int
     var view_idx = ray_idx / pixels_per_view
     var local_idx = ray_idx - view_idx * pixels_per_view
-    var px_i = local_idx % width
-    var py_i = local_idx / width
+    var px_i = local_idx % width_int
+    var py_i = local_idx / width_int
 
     var camera = Camera(camera_params, view_idx * Camera.STRIDE)
-    var ray = camera.make_ray(px_i, py_i, width, height)
+    var ray = camera.make_ray(px_i, py_i, width_int, height_int)
 
     var hit = _trace_tlas_ray[
         tlas_width,
@@ -333,22 +336,25 @@ def trace_sphere_tlas_camera_kernel[
     tlas_root_idx: UInt32,
     camera_params: UnsafePointer[Float32, ImmutAnyOrigin],
     hits: UnsafePointer[Float32, MutAnyOrigin],
-    ray_count: Int,
-    width: Int,
-    height: Int,
+    ray_count: Int32,
+    width: Int32,
+    height: Int32,
 ):
+    var ray_count_int = Int(ray_count)
+    var width_int = Int(width)
+    var height_int = Int(height)
     var ray_idx = global_idx.x
-    if ray_idx >= ray_count:
+    if ray_idx >= ray_count_int:
         return
 
-    var pixels_per_view = width * height
+    var pixels_per_view = width_int * height_int
     var view_idx = ray_idx / pixels_per_view
     var local_idx = ray_idx - view_idx * pixels_per_view
-    var px_i = local_idx % width
-    var py_i = local_idx / width
+    var px_i = local_idx % width_int
+    var py_i = local_idx / width_int
 
     var camera = Camera(camera_params, view_idx * Camera.STRIDE)
-    var ray = camera.make_ray(px_i, py_i, width, height)
+    var ray = camera.make_ray(px_i, py_i, width_int, height_int)
 
     var hit = _trace_tlas_ray[
         tlas_width,
@@ -476,9 +482,9 @@ struct GpuTriangleTlas[tlas_width: SIMDLength, blas_width: SIMDLength]:
             self.core.tree.root_idx,
             d_camera_params,
             d_hits,
-            ray_count,
-            cwidth,
-            cheight,
+            Int32(ray_count),
+            Int32(cwidth),
+            Int32(cheight),
             grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
@@ -528,9 +534,9 @@ struct GpuSphereTlas[tlas_width: SIMDLength, blas_width: SIMDLength]:
             self.core.tree.root_idx,
             d_camera_params,
             d_hits,
-            ray_count,
-            cwidth,
-            cheight,
+            Int32(ray_count),
+            Int32(cwidth),
+            Int32(cheight),
             grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )

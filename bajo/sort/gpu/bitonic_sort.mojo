@@ -25,8 +25,8 @@ def bitonic_sort_shared[
 ](
     keys: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
     values: UnsafePointer[Scalar[vals_dtype], MutAnyOrigin],
-    k_merge: Int,  # Target bitonic sequence length
-    size: Int,
+    k_merge: Int32,  # Target bitonic sequence length
+    size: Int32,
 ):
     """
     Sorts a tile of data of size `PART_SIZE` within a block. It has three stages: 1) SIMD, 2) Warp 3) block
@@ -35,6 +35,8 @@ def bitonic_sort_shared[
     comptime PART_SIZE = THREADS_PER_BLOCK * ITEMS_PER_THREAD
     comptime MAX_WARP_K = ITEMS_PER_THREAD * WARP_SIZE
     comptime NUM_STAGES = count_trailing_zeros(PART_SIZE)
+    var k_merge_int = Int(k_merge)
+    var size_int = Int(size)
 
     var bid = block_idx.x
     var tid = thread_idx.x
@@ -51,7 +53,7 @@ def bitonic_sort_shared[
     var r_keys = SIMD[keys_dtype, ITEMS_PER_THREAD]()
     var r_vals = SIMD[vals_dtype, ITEMS_PER_THREAD]()
 
-    if g_base < size:
+    if g_base < size_int:
         r_keys = keys.unsafe_load[width=ITEMS_PER_THREAD](g_base)
         r_vals = values.unsafe_load[width=ITEMS_PER_THREAD](g_base)
     else:
@@ -181,17 +183,17 @@ def bitonic_sort_shared[
         _vals.unsafe_store(r_vals)
         barrier()
 
-        var limit = min(PART_SIZE, size)
+        var limit = min(PART_SIZE, size_int)
         var j = limit / 2
         while j > 0:
-            _step(j, k_merge)
+            _step(j, k_merge_int)
             j /= 2
 
         r_keys = _keys.unsafe_load[width=ITEMS_PER_THREAD]()
         r_vals = _vals.unsafe_load[width=ITEMS_PER_THREAD]()
 
     # write back to global memory
-    if g_base < size:
+    if g_base < size_int:
         keys.unsafe_store[width=ITEMS_PER_THREAD](g_base, r_keys)
         values.unsafe_store[width=ITEMS_PER_THREAD](g_base, r_vals)
 
@@ -201,20 +203,23 @@ def bitonic_sort_step[
 ](
     keys: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
     values: UnsafePointer[Scalar[vals_dtype], MutAnyOrigin],
-    j: Int,
-    k: Int,
-    size: Int,
+    j: Int32,
+    k: Int32,
+    size: Int32,
 ):
+    var j_int = Int(j)
+    var k_int = Int(k)
+    var size_int = Int(size)
     var pair_id = global_idx.x
-    var total_pairs = size / 2
+    var total_pairs = size_int / 2
 
     if pair_id >= total_pairs:
         return
 
-    var idx_a = ((pair_id & -j) << 1) | (pair_id & (j - 1))
-    var idx_b = idx_a ^ j
+    var idx_a = ((pair_id & -j_int) << 1) | (pair_id & (j_int - 1))
+    var idx_b = idx_a ^ j_int
 
-    var sort_dir = (idx_a & k) == 0
+    var sort_dir = (idx_a & k_int) == 0
 
     var key_a = keys[unsafe_offset=idx_a]
     var key_b = keys[unsafe_offset=idx_b]
@@ -260,8 +265,8 @@ def bitonic_sort_pairs[
     ctx.enqueue_function[shared_block_kernel](
         keys.unsafe_ptr(),
         values.unsafe_ptr(),
-        0,
-        size,
+        Int32(0),
+        Int32(size),
         grid_dim=blocks,
         block_dim=THREADS_PER_BLOCK,
     )
@@ -283,9 +288,9 @@ def bitonic_sort_pairs[
                 ctx.enqueue_function[global_step_kernel](
                     keys.unsafe_ptr(),
                     values.unsafe_ptr(),
-                    j,
-                    k,
-                    size,
+                    Int32(j),
+                    Int32(k),
+                    Int32(size),
                     grid_dim=global_blocks,
                     block_dim=THREADS_PER_BLOCK,
                 )
@@ -301,8 +306,8 @@ def bitonic_sort_pairs[
                 ctx.enqueue_function[shared_merge_kernel](
                     keys.unsafe_ptr(),
                     values.unsafe_ptr(),
-                    k,
-                    size,
+                    Int32(k),
+                    Int32(size),
                     grid_dim=blocks,
                     block_dim=THREADS_PER_BLOCK,
                 )
@@ -332,9 +337,9 @@ def naive_bitonic_sort_pairs[
             ctx.enqueue_function[bitonic_sort_step[keys_dtype, vals_dtype]](
                 keys.unsafe_ptr(),
                 values.unsafe_ptr(),
-                j,
-                k,
-                size,
+                Int32(j),
+                Int32(k),
+                Int32(size),
                 grid_dim=blocks,
                 block_dim=THREADS_PER_BLOCK,
             )

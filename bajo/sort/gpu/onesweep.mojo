@@ -37,8 +37,9 @@ def global_histogram[
 ](
     sort: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
     global_hist: UnsafePointer[UInt32, MutAnyOrigin],
-    size: Int,
+    size: Int32,
 ):
+    var size_int = Int(size)
     comptime BYTES_PER_KEY = bit_width_of[keys_dtype]() / 8
     comptime PART_SIZE = BLOCK_SIZE * ITEMS_PER_THREAD
     comptime PADDED_RADIX = RADIX * 2
@@ -81,7 +82,7 @@ def global_histogram[
         ):
             _accumulate_hist[VEC_WIDTH](i)
     else:
-        for i in range(block_start + tid, size, BLOCK_SIZE):
+        for i in range(block_start + tid, size_int, BLOCK_SIZE):
             _accumulate_hist[1](i)
     barrier()
 
@@ -100,8 +101,9 @@ def global_histogram[
 def scan_global(
     global_hist: UnsafePointer[UInt32, MutAnyOrigin],
     pass_hist: UnsafePointer[UInt32, MutAnyOrigin],
-    hist_blocks: Int,
+    hist_blocks: Int32,
 ):
+    var hist_blocks_int = Int(hist_blocks)
     comptime RADIX = 256
     var tid = thread_idx.x
     var bid = block_idx.x
@@ -112,7 +114,7 @@ def scan_global(
         exclusive=True,
     ](val)
     out_val = (out_val << 2) | FLAG_INCLUSIVE
-    pass_hist[unsafe_offset=tid + bid * RADIX * hist_blocks] = out_val
+    pass_hist[unsafe_offset=tid + bid * RADIX * hist_blocks_int] = out_val
 
 
 def digit_binning[
@@ -132,9 +134,10 @@ def digit_binning[
     ],
     pass_hist: UnsafePointer[UInt32, MutAnyOrigin],
     index: UnsafePointer[UInt32, MutAnyOrigin],
-    size: Int,
+    size: Int32,
     radix_shift: UInt32,
 ):
+    var size_int = Int(size)
     comptime RADIX = 2**BITS_PER_PASS
     comptime RADIX_MASK = Scalar[keys_dtype](RADIX - 1)
     comptime NUM_WARPS = BLOCK_SIZE / WARP_SIZE
@@ -185,7 +188,7 @@ def digit_binning[
         else:
             keys[i] = (
                 keys_current[unsafe_offset=t] if t
-                < size else Scalar[keys_dtype].MAX
+                < size_int else Scalar[keys_dtype].MAX
             )
         t += WARP_SIZE
 
@@ -269,7 +272,8 @@ def digit_binning[
 
     # Scatter to Device Memory
     var part_size = (
-        BIN_PART_SIZE if partition_index < gdim - 1 else size - BIN_PART_START
+        BIN_PART_SIZE if partition_index
+        < gdim - 1 else size_int - BIN_PART_START
     )
     comptime if HAVE_PAYLOAD:
         debug_assert["safe"](Bool(vals_current_opt))
@@ -296,7 +300,7 @@ def digit_binning[
 
         var t_payload = t_base
         comptime for i in range(KEYS_PER_THREAD):
-            if t_payload < size:
+            if t_payload < size_int:
                 vals[i] = vals_current[unsafe_offset=t_payload]
             else:
                 vals[i] = Scalar[vals_dtype].MAX
@@ -402,7 +406,7 @@ def onesweep_radix_sort_keys[
     ctx.enqueue_function[_ghist](
         db_keys.current,
         global_hist,
-        size,
+        Int32(size),
         grid_dim=g_hist_blocks,
         block_dim=G_HIST_TPB,
     )
@@ -412,7 +416,7 @@ def onesweep_radix_sort_keys[
     ctx.enqueue_function[_scan](
         global_hist,
         pass_hist,
-        hist_blocks,
+        Int32(hist_blocks),
         grid_dim=NUM_PASSES,
         block_dim=RADIX,
     )
@@ -438,7 +442,7 @@ def onesweep_radix_sort_keys[
             dummy_v_ptr,
             pass_hist_ptr,
             workspace.index.unsafe_ptr(),
-            size,
+            Int32(size),
             radix_shift,
             grid_dim=binning_blocks,
             block_dim=BINNING_TPB,
@@ -502,7 +506,7 @@ def onesweep_radix_sort_pairs[
     ctx.enqueue_function[_ghist](
         db_keys.current,
         global_hist,
-        size,
+        Int32(size),
         grid_dim=g_hist_blocks,
         block_dim=G_HIST_TPB,
     )
@@ -512,7 +516,7 @@ def onesweep_radix_sort_pairs[
     ctx.enqueue_function[_scan](
         global_hist,
         pass_hist,
-        hist_blocks,
+        Int32(hist_blocks),
         grid_dim=NUM_PASSES,
         block_dim=RADIX,
     )
@@ -537,7 +541,7 @@ def onesweep_radix_sort_pairs[
             Optional(db_vals.alternate),
             pass_hist.unsafe_offset(pass_hist_offset),
             workspace.index.unsafe_ptr(),
-            size,
+            Int32(size),
             radix_shift,
             grid_dim=binning_blocks,
             block_dim=BINNING_TPB,

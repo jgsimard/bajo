@@ -56,7 +56,7 @@ def test_global_histogram() raises:
         ctx.enqueue_function[_hist](
             keys,
             global_hist,
-            size,
+            Int32(size),
             grid_dim=gdim,
             block_dim=TPB,
         )
@@ -89,7 +89,7 @@ def test_scan_global() raises:
         ctx.enqueue_function[_scan](
             global_hist,
             pass_hist,
-            1,
+            Int32(1),
             grid_dim=4,
             block_dim=RADIX,
         )
@@ -148,7 +148,7 @@ def test_digit_binning_end_to_end() raises:
         ctx.enqueue_function[_hist](
             keys,
             global_hist,
-            size,
+            Int32(size),
             grid_dim=g_hist_blocks,
             block_dim=TPB,
         )
@@ -157,7 +157,7 @@ def test_digit_binning_end_to_end() raises:
         ctx.enqueue_function[_scan](
             global_hist,
             pass_hist,
-            binning_blocks + 1,
+            Int32(binning_blocks + 1),
             grid_dim=1,
             block_dim=RADIX,
         )
@@ -177,7 +177,7 @@ def test_digit_binning_end_to_end() raises:
             _dummy_ptr,
             pass_hist,
             d_index,
-            size,
+            Int32(size),
             UInt32(0),
             grid_dim=binning_blocks,
             block_dim=BLOCK_SIZE,
@@ -257,7 +257,7 @@ def test_digit_binning_pairs_end_to_end() raises:
         ctx.enqueue_function[_hist](
             keys,
             global_hist,
-            size,
+            Int32(size),
             grid_dim=g_hist_blocks,
             block_dim=TPB,
         )
@@ -266,7 +266,7 @@ def test_digit_binning_pairs_end_to_end() raises:
         ctx.enqueue_function[_scan](
             global_hist,
             pass_hist,
-            binning_blocks + 1,
+            Int32(binning_blocks + 1),
             grid_dim=1,
             block_dim=RADIX,
         )
@@ -286,7 +286,7 @@ def test_digit_binning_pairs_end_to_end() raises:
             Optional(vals_alternate.unsafe_ptr()),
             pass_hist,
             d_index,
-            size,
+            Int32(size),
             UInt32(0),
             grid_dim=binning_blocks,
             block_dim=BLOCK_SIZE,

@@ -34,9 +34,10 @@ def upsweep[
     keys_current: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
     global_hist: UnsafePointer[UInt32, MutAnyOrigin],
     pass_hist: UnsafePointer[UInt32, MutAnyOrigin],
-    size: Int,
+    size: Int32,
     radix_shift: Scalar[keys_dtype],
 ):
+    var size_int = Int(size)
     comptime PART_SIZE = 512 * KEYS_PER_THREAD  # = BLOCK_SIZE * KEYS_PER_THREAD = 512 * 8
     comptime VEC_PART_SIZE = PART_SIZE / VEC_WIDTH
     comptime NUM_WARPS = BLOCK_SIZE / WARP_SIZE
@@ -78,7 +79,7 @@ def upsweep[
         ):
             _f[VEC_WIDTH](i)
     else:
-        for i in range(block_start + tid, size, BLOCK_SIZE):
+        for i in range(block_start + tid, size_int, BLOCK_SIZE):
             _f[1](i)
 
     barrier()
@@ -123,13 +124,14 @@ def upsweep[
 
 def scan[
     BLOCK_SIZE: Int
-](pass_hist: UnsafePointer[UInt32, MutAnyOrigin], thread_blocks: Int):
+](pass_hist: UnsafePointer[UInt32, MutAnyOrigin], thread_blocks: Int32):
+    var thread_blocks_int = Int(thread_blocks)
     var tid = Int(thread_idx.x)
     var bid = Int(block_idx.x)
 
     var reduction: UInt32 = 0
-    var partitions_end = (thread_blocks / BLOCK_SIZE) * BLOCK_SIZE
-    var digit_offset = bid * thread_blocks
+    var partitions_end = (thread_blocks_int / BLOCK_SIZE) * BLOCK_SIZE
+    var digit_offset = bid * thread_blocks_int
 
     var i = tid
     while i < partitions_end:
@@ -144,7 +146,7 @@ def scan[
 
     # tail
     var val_tail: UInt32 = 0
-    var has_data = i < thread_blocks
+    var has_data = i < thread_blocks_int
     if has_data:
         val_tail = pass_hist[unsafe_offset=i + digit_offset]
 
@@ -172,9 +174,10 @@ def downsweep[
     ],
     global_hist: UnsafePointer[UInt32, MutAnyOrigin],
     pass_hist: UnsafePointer[UInt32, MutAnyOrigin],
-    size: Int,
+    size: Int32,
     radix_shift: UInt32,
 ):
+    var size_int = Int(size)
     comptime RADIX = 2**BITS_PER_PASS
     comptime RADIX_MASK = Scalar[keys_dtype](RADIX - 1)
     comptime NUM_WARPS = BLOCK_SIZE / WARP_SIZE
@@ -215,7 +218,7 @@ def downsweep[
         else:
             keys[i] = (
                 keys_current[unsafe_offset=t] if t
-                < size else Scalar[keys_dtype].MAX
+                < size_int else Scalar[keys_dtype].MAX
             )
         t += WARP_SIZE
     barrier()
@@ -328,7 +331,7 @@ def downsweep[
 
         # tail
         else:
-            var final_part_size = size - BIN_PART_START
+            var final_part_size = size_int - BIN_PART_START
             comptime for i in range(KEYS_PER_THREAD):
                 var t = tid + (i * BLOCK_SIZE)
                 if t < final_part_size:
@@ -344,7 +347,7 @@ def downsweep[
             # Load payloads into registers
             var t_payload = t_base
             comptime for i in range(KEYS_PER_THREAD):
-                if t_payload < size:
+                if t_payload < size_int:
                     vals[i] = vals_current[unsafe_offset=t_payload]
                 t_payload += WARP_SIZE
 
@@ -367,7 +370,9 @@ def downsweep[
 
     else:
         # Scatter runs of keys into device memory (alt buffer)
-        var upper_bound = PART_SIZE if bid < gdim - 1 else size - BIN_PART_START
+        var upper_bound = (
+            PART_SIZE if bid < gdim - 1 else size_int - BIN_PART_START
+        )
         for i in range(tid, upper_bound, BLOCK_SIZE):
             var key = s_warp_histograms[unsafe_offset=i]
             var digit = Int((key >> radix_shift) & UInt32(RADIX_MASK))
@@ -422,7 +427,7 @@ def device_radix_sort_keys[
             db_keys.current,
             global_hist.unsafe_ptr(),
             pass_hist.unsafe_ptr(),
-            size,
+            Int32(size),
             Scalar[dtype](radix_shift),
             grid_dim=gdim,
             block_dim=UPSWEEP_BLOC_SIZE,
@@ -431,7 +436,7 @@ def device_radix_sort_keys[
         # Scan (Prefix Sum of partial histograms)
         ctx.enqueue_function[_scan](
             pass_hist.unsafe_ptr(),
-            gdim,
+            Int32(gdim),
             grid_dim=RADIX,
             block_dim=SCAN_BLOCK_SIZE,
         )
@@ -444,7 +449,7 @@ def device_radix_sort_keys[
             _dummy_ptr,
             global_hist.unsafe_ptr(),
             pass_hist.unsafe_ptr(),
-            size,
+            Int32(size),
             radix_shift,
             grid_dim=gdim,
             block_dim=DOWNSWEEP_BLOCK_SIZE,
@@ -539,7 +544,7 @@ def device_radix_sort_pairs[
             db_keys.current,
             global_hist,
             pass_hist,
-            size,
+            Int32(size),
             Scalar[keys_dtype](radix_shift),
             grid_dim=gdim,
             block_dim=UPSWEEP_BLOC_SIZE,
@@ -548,7 +553,7 @@ def device_radix_sort_pairs[
         # 2. Scan (Prefix Sum of histograms)
         ctx.enqueue_function[_scan](
             pass_hist,
-            gdim,
+            Int32(gdim),
             grid_dim=RADIX,
             block_dim=SCAN_BLOCK_SIZE,
         )
@@ -561,7 +566,7 @@ def device_radix_sort_pairs[
             Optional(db_vals.alternate),
             global_hist,
             pass_hist,
-            size,
+            Int32(size),
             radix_shift,
             grid_dim=gdim,
             block_dim=DOWNSWEEP_BLOCK_SIZE,

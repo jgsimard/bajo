@@ -52,7 +52,7 @@ def test_upsweep() raises:
             keys,
             global_hist,
             pass_hist,
-            size,
+            Int32(size),
             UInt32(0),  # Testing radixShift = 0 first
             grid_dim=gdim,
             block_dim=bdim,
@@ -105,7 +105,7 @@ def test_scan() raises:
         # Execute
         ctx.enqueue_function[scan[128]](
             pass_hist,
-            thread_blocks,
+            Int32(thread_blocks),
             grid_dim=RADIX,
             block_dim=128,
         )
@@ -165,7 +165,7 @@ def test_downsweep_end_to_end() raises:
             keys,
             global_hist,
             pass_hist,
-            size,
+            Int32(size),
             UInt32(0),
             grid_dim=gdim,
             block_dim=128,
@@ -174,7 +174,7 @@ def test_downsweep_end_to_end() raises:
 
         # 2. SCAN
         ctx.enqueue_function[scan[128]](
-            pass_hist, gdim, grid_dim=RADIX, block_dim=128
+            pass_hist, Int32(gdim), grid_dim=RADIX, block_dim=128
         )
         ctx.synchronize()
 
@@ -189,7 +189,7 @@ def test_downsweep_end_to_end() raises:
             _dummy_ptr,
             global_hist,
             pass_hist,
-            size,
+            Int32(size),
             UInt32(0),
             grid_dim=gdim,
             block_dim=BLOCK_SIZE,
@@ -266,7 +266,7 @@ def test_downsweep_pairs_end_to_end() raises:
             keys,
             global_hist,
             pass_hist,
-            size,
+            Int32(size),
             UInt32(0),
             grid_dim=gdim,
             block_dim=128,
@@ -275,7 +275,7 @@ def test_downsweep_pairs_end_to_end() raises:
 
         # 2. SCAN
         ctx.enqueue_function[scan[128]](
-            pass_hist, gdim, grid_dim=RADIX, block_dim=128
+            pass_hist, Int32(gdim), grid_dim=RADIX, block_dim=128
         )
         ctx.synchronize()
 
@@ -289,7 +289,7 @@ def test_downsweep_pairs_end_to_end() raises:
             Optional(keys_alternate_vals.unsafe_ptr()),
             global_hist,
             pass_hist,
-            size,
+            Int32(size),
             UInt32(0),
             grid_dim=gdim,
             block_dim=bdim,

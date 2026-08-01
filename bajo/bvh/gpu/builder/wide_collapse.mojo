@@ -50,9 +50,11 @@ def collapse_terminal_root_to_wide_kernel[
     leaf_block_counter: UnsafePointer[UInt32, MutAnyOrigin],
     wide_node_counter: UnsafePointer[UInt32, MutAnyOrigin],
     wide_root: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_count: Int,
-    internal_count: Int,
+    leaf_count: Int32,
+    internal_count: Int32,
 ):
+    var leaf_count_int = Int(leaf_count)
+    var internal_count_int = Int(internal_count)
     var i = global_idx.x
     if i != 0:
         return
@@ -63,7 +65,7 @@ def collapse_terminal_root_to_wide_kernel[
 
     var root_bounds = AABB[Frame.WORLD].invalid()
 
-    if leaf_count == 1:
+    if leaf_count_int == 1:
         # Single primitive: no binary internal node exists.
         root_bounds = AABB[Frame.WORLD].load6(leaf_bounds, 0)
 
@@ -77,7 +79,7 @@ def collapse_terminal_root_to_wide_kernel[
         # leaf block 0.
         var root = UInt32(0)
 
-        for n in range(internal_count):
+        for n in range(internal_count_int):
             var node_idx = UInt32(n)
             if (
                 UInt32(node_meta[unsafe_offset=_node_parent_index(node_idx)])
@@ -107,7 +109,7 @@ def collapse_terminal_root_to_wide_kernel[
         UInt32(0),
         0,
         root_bounds,
-        _pack_wide_meta(UInt32(0), UInt32(leaf_count)),
+        _pack_wide_meta(UInt32(0), UInt32(leaf_count_int)),
     )
 
     # Remaining lanes are empty.
@@ -144,8 +146,8 @@ def collapse[
             leaf_block_counter,
             wide_node_counter,
             wide_root,
-            binary.leaf_count,
-            binary.internal_count,
+            Int32(binary.leaf_count),
+            Int32(binary.internal_count),
             grid_dim=1,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
@@ -180,8 +182,8 @@ def collapse[
             out.leaf_block_indices,
             leaf_block_counter,
             wide_node_counter,
-            binary.leaf_count,
-            binary.internal_count,
+            Int32(binary.leaf_count),
+            Int32(binary.internal_count),
             grid_dim=leaf_blocks,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
@@ -193,7 +195,7 @@ def collapse[
             binary.node_bounds,
             out.wide_nodes,
             wide_root,
-            binary.internal_count,
+            Int32(binary.internal_count),
             grid_dim=binary.blocks_internal,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
@@ -222,8 +224,8 @@ def collapse[
             wide_node_counter,
             hploc_status,
             wide_root,
-            binary.internal_count,
-            slot_count,
+            Int32(binary.internal_count),
+            Int32(slot_count),
             grid_dim=slot_blocks,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
@@ -242,9 +244,9 @@ def collapse[
             hploc_status,
             out.wide_nodes,
             out.leaf_block_indices,
-            slot_count,
-            out.max_wide_nodes,
-            out.max_leaf_blocks,
+            Int32(slot_count),
+            Int32(out.max_wide_nodes),
+            Int32(out.max_leaf_blocks),
             grid_dim=slot_blocks,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
@@ -268,16 +270,18 @@ def init_precomputed_wide_leaf_blocks_kernel[
     leaf_block_indices: UnsafePointer[UInt32, MutAnyOrigin],
     leaf_block_counter: UnsafePointer[UInt32, MutAnyOrigin],
     wide_node_counter: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_count: Int,
-    internal_count: Int,
+    leaf_count: Int32,
+    internal_count: Int32,
 ):
+    var leaf_count_int = Int(leaf_count)
+    var internal_count_int = Int(internal_count)
     var i = global_idx.x
-    if i >= leaf_count:
+    if i >= leaf_count_int:
         return
 
     if i == 0:
-        leaf_block_counter[unsafe_offset=0] = UInt32(leaf_count)
-        wide_node_counter[unsafe_offset=0] = UInt32(internal_count)
+        leaf_block_counter[unsafe_offset=0] = UInt32(leaf_count_int)
+        wide_node_counter[unsafe_offset=0] = UInt32(internal_count_int)
 
     var sorted_leaf_idx = UInt32(i)
     var item_idx = UInt32(leaf_ids[unsafe_offset=i])
@@ -297,10 +301,10 @@ def collapse_precomputed_wide_kernel[
     node_bounds: UnsafePointer[Float32, MutAnyOrigin],
     wide_nodes: UnsafePointer[Float32, MutAnyOrigin],
     wide_root: UnsafePointer[UInt32, MutAnyOrigin],
-    internal_count: Int,
+    internal_count: Int32,
 ):
     var node_i = global_idx.x
-    if node_i >= internal_count:
+    if node_i >= Int(internal_count):
         return
 
     var node_idx = UInt32(node_i)
@@ -478,14 +482,16 @@ def init_hploc_index_pairs_kernel(
     wide_node_counter: UnsafePointer[UInt32, MutAnyOrigin],
     status: UnsafePointer[UInt32, MutAnyOrigin],
     wide_root: UnsafePointer[UInt32, MutAnyOrigin],
-    internal_count: Int,
-    slot_count: Int,
+    internal_count: Int32,
+    slot_count: Int32,
 ):
+    var internal_count_int = Int(internal_count)
+    var slot_count_int = Int(slot_count)
     # slot 0 receives the pair (binary root cluster, wide root index 0) all other slots are invalid
     # worker-slot counter starts at 0, first child reuses the current worker and the remaining children use base + i
     var i = global_idx.x
 
-    if i < slot_count:
+    if i < slot_count_int:
         index_pairs[unsafe_offset=i] = UInt64.MAX
 
     if i == 0:
@@ -495,7 +501,7 @@ def init_hploc_index_pairs_kernel(
         status[unsafe_offset=0] = HPLOC_STATUS_OK
         wide_root[unsafe_offset=0] = UInt32(0)
 
-    if i >= internal_count:
+    if i >= internal_count_int:
         return
 
     var node_idx = UInt32(i)
@@ -522,10 +528,13 @@ def hploc_to_wide_kernel[
     status: UnsafePointer[UInt32, MutAnyOrigin],
     wide_nodes: UnsafePointer[Float32, MutAnyOrigin],
     leaf_block_indices: UnsafePointer[UInt32, MutAnyOrigin],
-    slot_count: Int,
-    max_wide_nodes: Int,
-    max_leaf_blocks: Int,
+    slot_count: Int32,
+    max_wide_nodes: Int32,
+    max_leaf_blocks: Int32,
 ):
+    var slot_count_int = Int(slot_count)
+    var max_wide_nodes_int = Int(max_wide_nodes)
+    var max_leaf_blocks_int = Int(max_leaf_blocks)
     # algo:
     #   - each GPU thread owns one slot in index_pairs
     #   - invalid slots spin until another worker writes a valid pair
@@ -534,7 +543,7 @@ def hploc_to_wide_kernel[
     #   - the current worker slot is reused for the first child, and the remaining
     #     children are assigned to atomically allocated slots.
     var thread_id = global_idx.x
-    if thread_id >= slot_count:
+    if thread_id >= slot_count_int:
         return
 
     var failsafe = 1000000
@@ -567,7 +576,7 @@ def hploc_to_wide_kernel[
             node_leaf_counts,
         )
         if encoded_leaf_count <= UInt32(width):
-            if Int(out_idx) >= max_leaf_blocks:
+            if Int(out_idx) >= max_leaf_blocks_int:
                 status[unsafe_offset=0] = HPLOC_STATUS_OUT_OF_LEAF_BLOCKS
                 return
 
@@ -582,7 +591,7 @@ def hploc_to_wide_kernel[
             return
 
         # internal task: collapse one binary subtree into one wide node
-        if Int(out_idx) >= max_wide_nodes:
+        if Int(out_idx) >= max_wide_nodes_int:
             status[unsafe_offset=0] = HPLOC_STATUS_OUT_OF_WIDE_NODES
             return
 
@@ -727,11 +736,11 @@ def hploc_to_wide_kernel[
             UInt32(num_leaves),
         )
 
-        if Int(child_node_base) + num_nodes > max_wide_nodes:
+        if Int(child_node_base) + num_nodes > max_wide_nodes_int:
             status[unsafe_offset=0] = HPLOC_STATUS_OUT_OF_WIDE_NODES
             return
 
-        if Int(leaf_block_base) + num_leaves > max_leaf_blocks:
+        if Int(leaf_block_base) + num_leaves > max_leaf_blocks_int:
             status[unsafe_offset=0] = HPLOC_STATUS_OUT_OF_LEAF_BLOCKS
             return
 
@@ -756,7 +765,7 @@ def hploc_to_wide_kernel[
                 if publish_i > 0:
                     worker_addr = Int(base_worker_offset) + publish_i
 
-                if worker_addr >= slot_count:
+                if worker_addr >= slot_count_int:
                     status[unsafe_offset=0] = HPLOC_STATUS_OUT_OF_WORK_SLOTS
                     return
 
@@ -774,7 +783,7 @@ def hploc_to_wide_kernel[
                     if publish_i > 0:
                         worker_addr = Int(base_worker_offset) + publish_i
 
-                    if worker_addr >= slot_count:
+                    if worker_addr >= slot_count_int:
                         status[unsafe_offset=0] = HPLOC_STATUS_OUT_OF_WORK_SLOTS
                         return
 

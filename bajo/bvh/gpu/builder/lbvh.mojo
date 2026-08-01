@@ -30,10 +30,11 @@ def compute_bounds_morton_codes_kernel(
     bounds_device: UnsafePointer[Float32, ImmutAnyOrigin],
     morton_codes: UnsafePointer[UInt32, MutAnyOrigin],
     values: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_count: Int,
+    leaf_count: Int32,
 ):
+    var leaf_count_int = Int(leaf_count)
     var i = global_idx.x
-    if i >= leaf_count:
+    if i >= leaf_count_int:
         return
 
     var centroid_bounds = AABB[Frame.WORLD].load6(bounds_device, AABB.STRIDE)
@@ -55,10 +56,11 @@ def refit_lbvh_bounds_from_leaves_kernel(
     leaf_parent: UnsafePointer[UInt32, ImmutAnyOrigin],
     node_bounds: UnsafePointer[Float32, MutAnyOrigin],
     node_flags: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_count: Int,
+    leaf_count: Int32,
 ):
+    var leaf_count_int = Int(leaf_count)
     var leaf_idx = global_idx.x
-    if leaf_idx >= leaf_count:
+    if leaf_idx >= leaf_count_int:
         return
 
     var item_idx = UInt32(leaf_ids[unsafe_offset=leaf_idx])
@@ -185,10 +187,11 @@ def build_lbvh_topology_kernel(
     node_bounds: UnsafePointer[Float32, MutAnyOrigin],
     node_flags: UnsafePointer[UInt32, MutAnyOrigin],
     node_leaf_counts: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_count: Int,
+    leaf_count: Int32,
 ):
+    var leaf_count_int = Int(leaf_count)
     var i = global_idx.x
-    var internal_count = leaf_count - 1
+    var internal_count = leaf_count_int - 1
     if i >= internal_count:
         return
 
@@ -199,14 +202,16 @@ def build_lbvh_topology_kernel(
     invalid.store6(node_bounds, bounds_base)
     invalid.store6(node_bounds, bounds_base + AABB.STRIDE)
 
-    first, last = _lbvh_find_range(sorted_morton_codes, i, leaf_count)
+    first, last = _lbvh_find_range(sorted_morton_codes, i, leaf_count_int)
     node_leaf_counts[unsafe_offset=i] = UInt32(last - first + 1)
 
     # only root parent is sentinel
-    if first == 0 and last == leaf_count - 1:
+    if first == 0 and last == leaf_count_int - 1:
         node_meta[unsafe_offset=_node_parent_index(UInt32(i))] = LBVH_SENTINEL
 
-    var split = _lbvh_find_split(sorted_morton_codes, first, last, leaf_count)
+    var split = _lbvh_find_split(
+        sorted_morton_codes, first, last, leaf_count_int
+    )
 
     var left_encoded = UInt32(split)
     if split == first:
@@ -263,7 +268,7 @@ def build_binary_bvh_with_lbvh(
         binary.bounds_device,
         binary.keys,
         binary.leaf_ids,
-        binary.leaf_count,
+        Int32(binary.leaf_count),
         grid_dim=binary.blocks_leaves,
         block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
     )
@@ -297,7 +302,7 @@ def build_binary_bvh_with_lbvh(
             binary.node_bounds,
             binary.node_flags,
             binary.node_leaf_counts,
-            binary.leaf_count,
+            Int32(binary.leaf_count),
             grid_dim=binary.blocks_internal,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
@@ -316,7 +321,7 @@ def build_binary_bvh_with_lbvh(
             binary.leaf_parent,
             binary.node_bounds,
             binary.node_flags,
-            binary.leaf_count,
+            Int32(binary.leaf_count),
             grid_dim=binary.blocks_leaves,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )

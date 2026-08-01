@@ -174,7 +174,7 @@ struct GpuSphereBvh[frame: Frame, width: SIMDLength]:
             self.spheres,
             self.tree.leaf_block_indices,
             self.leaf_spheres,
-            leaf_lane_count,
+            Int32(leaf_lane_count),
             grid_dim=blocks,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
@@ -198,9 +198,9 @@ struct GpuSphereBvh[frame: Frame, width: SIMDLength]:
             self.tree.root_idx,
             d_camera_params,
             d_hits,
-            ray_count,
-            cwidth,
-            cheight,
+            Int32(ray_count),
+            Int32(cwidth),
+            Int32(cheight),
             grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
@@ -214,22 +214,25 @@ def trace_sphere_bvh_camera_kernel[
     root_idx: UInt32,
     camera_params: UnsafePointer[Float32, ImmutAnyOrigin],
     hits: UnsafePointer[Float32, MutAnyOrigin],
-    ray_count: Int,
-    width_px: Int,
-    height_px: Int,
+    ray_count: Int32,
+    width_px: Int32,
+    height_px: Int32,
 ):
+    var ray_count_int = Int(ray_count)
+    var width_px_int = Int(width_px)
+    var height_px_int = Int(height_px)
     var ray_idx = global_idx.x
-    if ray_idx >= ray_count:
+    if ray_idx >= ray_count_int:
         return
 
-    var pixels_per_view = width_px * height_px
+    var pixels_per_view = width_px_int * height_px_int
     var view_idx = ray_idx / pixels_per_view
     var local_idx = ray_idx - view_idx * pixels_per_view
-    var px_i = local_idx % width_px
-    var py_i = local_idx / width_px
+    var px_i = local_idx % width_px_int
+    var py_i = local_idx / width_px_int
 
     var camera = Camera(camera_params, view_idx * Camera.STRIDE)
-    var ray = camera.make_ray(px_i, py_i, width_px, height_px)
+    var ray = camera.make_ray(px_i, py_i, width_px_int, height_px_int)
 
     var hit = trace_bounds_bvh[
         Frame.WORLD,
@@ -310,10 +313,11 @@ def pack_sphere_leaf_lanes_kernel[
     spheres: UnsafePointer[Float32, ImmutAnyOrigin],
     leaf_block_indices: UnsafePointer[UInt32, ImmutAnyOrigin],
     leaf_spheres: UnsafePointer[Float32, MutAnyOrigin],
-    leaf_lane_count: Int,
+    leaf_lane_count: Int32,
 ):
+    var leaf_lane_count_int = Int(leaf_lane_count)
     var lane_idx = global_idx.x
-    if lane_idx >= leaf_lane_count:
+    if lane_idx >= leaf_lane_count_int:
         return
 
     var lane = lane_idx % width

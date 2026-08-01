@@ -30,10 +30,11 @@ def compute_bounds_morton_codes_kernel(
     bounds_device: UnsafePointer[Float32, ImmutAnyOrigin],
     morton_codes: UnsafePointer[UInt32, MutAnyOrigin],
     values: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_count: Int,
+    leaf_count: Int32,
 ):
+    var leaf_count_int = Int(leaf_count)
     var i = global_idx.x
-    if i >= leaf_count:
+    if i >= leaf_count_int:
         return
 
     var centroid_bounds = AABB[Frame.WORLD].load6(bounds_device, AABB.STRIDE)
@@ -44,8 +45,8 @@ def compute_bounds_morton_codes_kernel(
     var bounds = AABB[Frame.WORLD].load6(leaf_bounds, b)
     var c = (bounds.centroid() - cmin) * inv_extent
 
-    morton_codes[i] = morton3(c.x, c.y, c.z)
-    values[i] = UInt32(i)
+    morton_codes[unsafe_offset=i] = morton3(c.x, c.y, c.z)
+    values[unsafe_offset=i] = UInt32(i)
 
 
 def refit_lbvh_bounds_from_leaves_kernel(
@@ -55,18 +56,19 @@ def refit_lbvh_bounds_from_leaves_kernel(
     leaf_parent: UnsafePointer[UInt32, ImmutAnyOrigin],
     node_bounds: UnsafePointer[Float32, MutAnyOrigin],
     node_flags: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_count: Int,
+    leaf_count: Int32,
 ):
+    var leaf_count_int = Int(leaf_count)
     var leaf_idx = global_idx.x
-    if leaf_idx >= leaf_count:
+    if leaf_idx >= leaf_count_int:
         return
 
-    var item_idx = UInt32(leaf_ids[leaf_idx])
+    var item_idx = UInt32(leaf_ids[unsafe_offset=leaf_idx])
     var b = Int(item_idx) * AABB.STRIDE
     var bounds = AABB[Frame.WORLD].load6(leaf_bounds, b)
 
     var current_encoded = UInt32(leaf_idx) | LBVH_LEAF_FLAG
-    var parent = UInt32(leaf_parent[leaf_idx])
+    var parent = UInt32(leaf_parent[unsafe_offset=leaf_idx])
 
     while parent != LBVH_SENTINEL:
         var left = _node_left(node_meta, parent)
@@ -79,24 +81,22 @@ def refit_lbvh_bounds_from_leaves_kernel(
 
         _write_child_bounds(node_bounds, parent, is_left, bounds)
 
-        var old = Atomic.fetch_add(node_flags + Int(parent), 1)
+        var old = Atomic.fetch_add(node_flags.unsafe_offset(Int(parent)), 1)
         if old == 0:
             break
 
         bounds = _load_and_union_node_bounds(node_bounds, parent)
         current_encoded = parent
-        parent = UInt32(node_meta[_node_parent_index(current_encoded)])
+        parent = UInt32(
+            node_meta[unsafe_offset=_node_parent_index(current_encoded)]
+        )
 
 
-def _lbvh_find_range[
-    origin: ImmOrigin
-](
-    morton_codes: UnsafePointer[UInt32, origin],
+def _lbvh_find_range(
+    morton_codes: UnsafePointer[mut=False, UInt32, _],
     i: Int,
     n: Int,
-) -> Tuple[
-    Int, Int
-]:
+) -> Tuple[Int, Int]:
     var d_next = _common_prefix(morton_codes, i, i + 1, n)
     var d_prev = _common_prefix(morton_codes, i, i - 1, n)
 
@@ -123,10 +123,8 @@ def _lbvh_find_range[
     return (min(i, j), max(i, j))
 
 
-def _lbvh_find_split[
-    origin: ImmOrigin
-](
-    morton_codes: UnsafePointer[UInt32, origin],
+def _lbvh_find_split(
+    morton_codes: UnsafePointer[mut=False, UInt32, _],
     first: Int,
     last: Int,
     n: Int,
@@ -163,8 +161,8 @@ def _common_prefix(
     if j < 0 or j >= n:
         return -1
 
-    var a = UInt32(morton_codes[i])
-    var b = UInt32(morton_codes[j])
+    var a = UInt32(morton_codes[unsafe_offset=i])
+    var b = UInt32(morton_codes[unsafe_offset=j])
 
     if a != b:
         return Int(count_leading_zeros(a ^ b))
@@ -183,54 +181,60 @@ def build_lbvh_topology_kernel(
     node_bounds: UnsafePointer[Float32, MutAnyOrigin],
     node_flags: UnsafePointer[UInt32, MutAnyOrigin],
     node_leaf_counts: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_count: Int,
+    leaf_count: Int32,
 ):
+    var leaf_count_int = Int(leaf_count)
     var i = global_idx.x
-    var internal_count = leaf_count - 1
+    var internal_count = leaf_count_int - 1
     if i >= internal_count:
         return
 
-    node_flags[i] = UInt32(0)
+    node_flags[unsafe_offset=i] = UInt32(0)
 
     var invalid = AABB[Frame.WORLD].invalid()
     var bounds_base = i * BinaryBvhNode.BOUNDS_STRIDE
     invalid.store6(node_bounds, bounds_base)
     invalid.store6(node_bounds, bounds_base + AABB.STRIDE)
 
-    first, last = _lbvh_find_range(sorted_morton_codes, i, leaf_count)
-    node_leaf_counts[i] = UInt32(last - first + 1)
+    first, last = _lbvh_find_range(sorted_morton_codes, i, leaf_count_int)
+    node_leaf_counts[unsafe_offset=i] = UInt32(last - first + 1)
 
     # only root parent is sentinel
-    if first == 0 and last == leaf_count - 1:
-        node_meta[_node_parent_index(UInt32(i))] = LBVH_SENTINEL
+    if first == 0 and last == leaf_count_int - 1:
+        node_meta[unsafe_offset=_node_parent_index(UInt32(i))] = LBVH_SENTINEL
 
-    var split = _lbvh_find_split(sorted_morton_codes, first, last, leaf_count)
+    var split = _lbvh_find_split(
+        sorted_morton_codes, first, last, leaf_count_int
+    )
 
     var left_encoded = UInt32(split)
     if split == first:
         left_encoded |= LBVH_LEAF_FLAG
-        leaf_parent[split] = UInt32(i)
+        leaf_parent[unsafe_offset=split] = UInt32(i)
     else:
-        node_meta[_node_parent_index(UInt32(split))] = UInt32(i)
+        node_meta[unsafe_offset=_node_parent_index(UInt32(split))] = UInt32(i)
 
     var right_child = split + 1
     var right_encoded = UInt32(right_child)
     if right_child == last:
         right_encoded |= LBVH_LEAF_FLAG
-        leaf_parent[right_child] = UInt32(i)
+        leaf_parent[unsafe_offset=right_child] = UInt32(i)
     else:
-        node_meta[_node_parent_index(UInt32(right_child))] = UInt32(i)
+        node_meta[
+            unsafe_offset=_node_parent_index(UInt32(right_child))
+        ] = UInt32(i)
 
     var base = i * BinaryBvhNode.META_STRIDE
-    node_meta[base + BinaryBvhNode.LEFT] = left_encoded
-    node_meta[base + BinaryBvhNode.RIGHT] = right_encoded
-    node_meta[base + BinaryBvhNode.FENCE] = UInt32(last)
+    node_meta[unsafe_offset=base + BinaryBvhNode.LEFT] = left_encoded
+    node_meta[unsafe_offset=base + BinaryBvhNode.RIGHT] = right_encoded
+    node_meta[unsafe_offset=base + BinaryBvhNode.FENCE] = UInt32(last)
 
 
 def build_binary_bvh_with_lbvh(
     ctx: DeviceContext,
     mut binary: GpuBinaryBoundsBvh,
     mut workspace: RadixSortWorkspace[DType.uint32, DType.uint32],
+    measure_stages: Bool = False,
 ) raises -> GpuBuildTimings:
     """Builds the temporary sorted binary LBVH.
 
@@ -241,7 +245,12 @@ def build_binary_bvh_with_lbvh(
     4. binary topology
     5. refit bounds
     """
-    var t_start = perf_counter_ns()
+    var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
+    var stage_start = Int(0)
+
+    if measure_stages:
+        ctx.synchronize()
+        stage_start = perf_counter_ns()
 
     # leaf AABB
     # for now: inside binary_bvh __init__
@@ -253,12 +262,15 @@ def build_binary_bvh_with_lbvh(
         binary.bounds_device,
         binary.keys,
         binary.leaf_ids,
-        binary.leaf_count,
+        Int32(binary.leaf_count),
         grid_dim=binary.blocks_leaves,
         block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
     )
-    ctx.synchronize()
-    var t_morton = perf_counter_ns()
+    if measure_stages:
+        ctx.synchronize()
+        var stage_end = perf_counter_ns()
+        timings.morton_ns = Int(stage_end - stage_start)
+        stage_start = stage_end
 
     # sort by morton codes
     device_radix_sort_pairs[DType.uint32, DType.uint32](
@@ -269,8 +281,11 @@ def build_binary_bvh_with_lbvh(
         binary.leaf_count,
     )
 
-    ctx.synchronize()
-    var t_sort = perf_counter_ns()
+    if measure_stages:
+        ctx.synchronize()
+        var stage_end = perf_counter_ns()
+        timings.sort_ns = Int(stage_end - stage_start)
+        stage_start = stage_end
 
     # merge nodes
     if binary.internal_count > 0:
@@ -281,12 +296,15 @@ def build_binary_bvh_with_lbvh(
             binary.node_bounds,
             binary.node_flags,
             binary.node_leaf_counts,
-            binary.leaf_count,
+            Int32(binary.leaf_count),
             grid_dim=binary.blocks_internal,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
+    if measure_stages:
         ctx.synchronize()
-    var t_topology = perf_counter_ns()
+        var stage_end = perf_counter_ns()
+        timings.topology_ns = Int(stage_end - stage_start)
+        stage_start = stage_end
 
     # compute aabb over merged nodes
     if binary.internal_count > 0:
@@ -297,19 +315,12 @@ def build_binary_bvh_with_lbvh(
             binary.leaf_parent,
             binary.node_bounds,
             binary.node_flags,
-            binary.leaf_count,
+            Int32(binary.leaf_count),
             grid_dim=binary.blocks_leaves,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
+    if measure_stages:
         ctx.synchronize()
-    var t_refit = perf_counter_ns()
+        timings.refit_ns = Int(perf_counter_ns() - stage_start)
 
-    return GpuBuildTimings(
-        Int(t_morton - t_start),
-        Int(t_sort - t_morton),
-        Int(t_topology - t_sort),
-        Int(t_refit - t_topology),
-        0,
-        0,
-        0,
-    )
+    return timings

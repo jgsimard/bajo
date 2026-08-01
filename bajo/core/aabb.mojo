@@ -6,9 +6,9 @@ from bajo.core.frame import Frame
 
 
 @fieldwise_init
-struct AxisAlignedBoundingBox[dtype: DType, frame: Frame, width: SIMDSize = 1](
-    TrivialRegisterPassable, Writable
-):
+struct AxisAlignedBoundingBox[
+    dtype: DType, frame: Frame, width: SIMDLength = 1
+](TrivialRegisterPassable, Writable):
     comptime STRIDE = 6
     var _min: Point3[Self.dtype, Self.frame, Self.width]
     var _max: Point3[Self.dtype, Self.frame, Self.width]
@@ -123,18 +123,18 @@ struct AxisAlignedBoundingBox[dtype: DType, frame: Frame, width: SIMDSize = 1](
         )
 
     @staticmethod
-    def load6[
-        origin: Origin
-    ](ptr: UnsafePointer[Scalar[Self.dtype], origin], base: Int) -> Self:
+    def load6(
+        ptr: UnsafePointer[mut=False, Scalar[Self.dtype], _], base: Int
+    ) -> Self:
         comptime assert Self.width == 1
         return Self(
             Point3[Self.dtype, Self.frame, Self.width].load(ptr, base),
             Point3[Self.dtype, Self.frame, Self.width].load(ptr, base + 3),
         )
 
-    def store6[
-        origin: Origin[mut=True]
-    ](self, ptr: UnsafePointer[Scalar[Self.dtype], origin], base: Int):
+    def store6(
+        self, ptr: UnsafePointer[mut=True, Scalar[Self.dtype], _], base: Int
+    ):
         comptime assert Self.width == 1
         self._min.store(ptr, base)
         self._max.store(ptr, base + 3)

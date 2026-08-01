@@ -31,7 +31,7 @@ struct MMap[mut: Bool, //, origin: Origin[mut=mut]]:
         if not self._data:
             raise Error("mmap failed")
 
-    def __del__(deinit self):
+    def __deinit__(deinit self):
         if self._data:
             _ = external_call["munmap", Int](self._data, self._size)
 
@@ -41,5 +41,5 @@ struct MMap[mut: Bool, //, origin: Origin[mut=mut]]:
     def as_string_slice(ref self) -> StringSlice[Self.origin]:
         if self._size == 0:
             return StringSlice[Self.origin]()
-        span = Span(ptr=self._data.unsafe_value(), length=self._size)
+        span = Span(unsafe_ptr=self._data.unsafe_value(), length=self._size)
         return StringSlice[Self.origin](unsafe_from_utf8=span)

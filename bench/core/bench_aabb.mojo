@@ -142,7 +142,7 @@ def apply_trs_arvo_v1_______(
 
 
 def apply_trs_affine3_v0_width[
-    width: SIMDSize
+    width: SIMDLength
 ](
     box: AxisAlignedBoundingBox[DType.float32, BENCH_FRAME, width],
     translation: Vec3[DType.float32, BENCH_FRAME, width],
@@ -193,7 +193,7 @@ def apply_trs_affine3_v0_width[
 
 
 def apply_trs_affine3_v1_width[
-    width: SIMDSize
+    width: SIMDLength
 ](
     box: AxisAlignedBoundingBox[DType.float32, BENCH_FRAME, width],
     translation: Vec3[DType.float32, BENCH_FRAME, width],
@@ -255,7 +255,7 @@ def apply_trs_affine3_v1_width[
 
 def dispatch_affine3_width[
     version: Int,
-    width: SIMDSize,
+    width: SIMDLength,
 ](
     box: AxisAlignedBoundingBox[DType.float32, BENCH_FRAME, width],
     translation: Vec3[DType.float32, BENCH_FRAME, width],
@@ -272,7 +272,7 @@ def dispatch_affine3_width[
         )
 
 
-struct Affine3WidthBenchmarkData[width: SIMDSize]:
+struct Affine3WidthBenchmarkData[width: SIMDLength]:
     comptime aabb = AxisAlignedBoundingBox[
         DType.float32,
         BENCH_FRAME,
@@ -335,18 +335,18 @@ struct Affine3WidthBenchmarkData[width: SIMDSize]:
 
 def bench_affine3_width[
     version: Int,
-    width: SIMDSize,
+    width: SIMDLength,
 ]() raises:
     comptime packet_count = num_elements / width
     data = Affine3WidthBenchmarkData[width]()
 
     def wrapper() raises {mut data}:
         for i in range(packet_count):
-            data.dst.unsafe_ptr()[i] = dispatch_affine3_width[version, width](
-                data.boxes.unsafe_ptr()[i],
-                data.translations.unsafe_ptr()[i],
-                data.rotations.unsafe_ptr()[i],
-                data.scales.unsafe_ptr()[i],
+            data.dst[i] = dispatch_affine3_width[version, width](
+                data.boxes[i],
+                data.translations[i],
+                data.rotations[i],
+                data.scales[i],
             )
 
         keep(data.dst[0]._min)
@@ -413,11 +413,11 @@ def main() raises:
     ]() capturing raises:
         def wrapper() raises {mut data}:
             for i in range(num_elements):
-                data.dst.unsafe_ptr()[i] = f(
-                    data.boxes.unsafe_ptr()[i],
-                    data.translations.unsafe_ptr()[i],
-                    data.rotations.unsafe_ptr()[i],
-                    data.scales.unsafe_ptr()[i],
+                data.dst.unsafe_ptr()[unsafe_offset=i] = f(
+                    data.boxes.unsafe_ptr()[unsafe_offset=i],
+                    data.translations.unsafe_ptr()[unsafe_offset=i],
+                    data.rotations.unsafe_ptr()[unsafe_offset=i],
+                    data.scales.unsafe_ptr()[unsafe_offset=i],
                 )
             keep(data.dst[0]._min)
 

@@ -41,8 +41,8 @@ def _instances_bounds(instances: List[Instance]) -> AABB[Frame.WORLD]:
 
 
 def _cpu_triangle_tlas_checksum[
-    tlas_width: SIMDSize,
-    blas_width: SIMDSize,
+    tlas_width: SIMDLength,
+    blas_width: SIMDLength,
 ](
     instances: List[Instance],
     mut cpu_blases: List[TriangleBvh[Frame.LOCAL, blas_width]],
@@ -62,7 +62,7 @@ def _cpu_triangle_tlas_checksum[
                 TriangleBvh[Frame.LOCAL, blas_width], TRACE.CLOSEST_HIT
             ](
                 ray,
-                cpu_blases.unsafe_ptr(),
+                Span(cpu_blases),
             )
             if hit.t < f32_max:
                 checksum += Float64(hit.t)
@@ -79,7 +79,6 @@ def _triangle_instance(
 ) -> Instance:
     return Instance(
         Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(translation),
-        Affine3f32[Frame.WORLD, Frame.LOCAL].from_translation(-translation),
         blas_idx,
         local_bounds,
         Primitive.TRIANGLE,
@@ -93,7 +92,6 @@ def _sphere_instance(
 ) -> Instance:
     return Instance(
         Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(translation),
-        Affine3f32[Frame.WORLD, Frame.LOCAL].from_translation(-translation),
         blas_idx,
         local_bounds,
         Primitive.SPHERE,
@@ -132,7 +130,7 @@ def test_gpu_triangle_tlas_uses_instance_blas_index() raises:
 
         var left = Point3f32[Frame.WORLD](-10.0, 0.0, 0.0)
         var right = Point3f32[Frame.WORLD](10.0, 0.0, 0.0)
-        var instances = [
+        var instances: List = [
             _triangle_instance(0, left, near_bounds),
             _triangle_instance(1, right, far_bounds),
         ]
@@ -173,7 +171,7 @@ def test_gpu_triangle_tlas_closest_hit_across_different_blas() raises:
         )
 
         var zero = Point3f32[Frame.WORLD](0.0, 0.0, 0.0)
-        var instances = [
+        var instances: List = [
             _triangle_instance(0, zero, far_bounds),
             _triangle_instance(1, zero, near_bounds),
         ]
@@ -203,10 +201,10 @@ def test_gpu_triangle_tlas_closest_hit_across_different_blas() raises:
 # Sphere typed TLAS
 # -----------------------------------------------------------------------------
 def test_gpu_sphere_tlas_uses_instance_blas_index() raises:
-    var near_spheres = [
+    var near_spheres: List = [
         Sphere[Frame.LOCAL](Point3f32[Frame.LOCAL](0.0, 0.0, 2.0), 1.0)
     ]
-    var far_spheres = [
+    var far_spheres: List = [
         Sphere[Frame.LOCAL](Point3f32[Frame.LOCAL](0.0, 0.0, 6.0), 1.0)
     ]
     var near_bounds = sphere_bounds(near_spheres)
@@ -219,7 +217,7 @@ def test_gpu_sphere_tlas_uses_instance_blas_index() raises:
 
         var left = Point3f32[Frame.WORLD](-10.0, 0.0, 0.0)
         var right = Point3f32[Frame.WORLD](10.0, 0.0, 0.0)
-        var instances = [
+        var instances: List = [
             _sphere_instance(0, left, near_bounds),
             _sphere_instance(1, right, far_bounds),
         ]
@@ -264,7 +262,7 @@ def test_gpu_triangle_tlas_stress_8_blas_512_instances_matches_cpu() raises:
 
     for b in range(STRESS_BLAS_COUNT):
         var z = Float32(2.0 + Float32(b) * 0.35)
-        var verts = [
+        var verts: List = [
             Point3f32[Frame.LOCAL](-0.8, -0.7, z),
             Point3f32[Frame.LOCAL](0.8 + Float32(b % 3) * 0.05, -0.7, z),
             Point3f32[Frame.LOCAL](0.0, 0.9, z),

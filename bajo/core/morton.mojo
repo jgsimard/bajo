@@ -2,7 +2,7 @@ from std.math import clamp
 
 
 def expand_bits_2d[
-    size: SIMDSize
+    size: SIMDLength
 ](n_in: SIMD[DType.uint32, size]) -> SIMD[DType.uint32, size]:
     # 0000 0000 0000 0000 gfed cba9 8675 4321
     # 0g0f 0e0d 0c0b 0a09 0807 0605 0403 0201
@@ -16,7 +16,7 @@ def expand_bits_2d[
 
 
 def expand_bits_3d[
-    size: SIMDSize
+    size: SIMDLength
 ](n_in: SIMD[DType.uint32, size]) -> SIMD[DType.uint32, size]:
     # 0000 0000 0000 0000 0000 00a9 8675 4321
     # 0000 a009 0080 0700 6005 0040 0300 2001
@@ -29,7 +29,7 @@ def expand_bits_3d[
 
 
 def morton3[
-    size: SIMDSize, dim: UInt32 = 1024
+    size: SIMDLength, dim: UInt32 = 1024
 ](
     x: SIMD[DType.float32, size],
     y: SIMD[DType.float32, size],

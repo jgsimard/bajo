@@ -68,7 +68,7 @@ struct GpuBenchResult(Copyable, Writable):
         return String("OK")
 
 
-def _dashes(width: SIMDSize) -> String:
+def _dashes(width: SIMDLength) -> String:
     var out = String()
     for _ in range(width):
         out += "-"

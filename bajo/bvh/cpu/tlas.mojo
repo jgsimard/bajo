@@ -6,7 +6,7 @@ from bajo.bvh.cpu.trace import trace_bounds_bvh
 
 
 def _tree[
-    width: SIMDSize, split_method: String
+    width: SIMDLength, split_method: String
 ](instances: List[Instance]) -> BoundsBvh[Frame.WORLD, width]:
     var builder = BoundsBvhBuilder[Frame.WORLD, width](
         [BoundsItem(inst.bounds, UInt32(i)) for i, inst in enumerate(instances)]
@@ -15,7 +15,7 @@ def _tree[
     return BoundsBvh[Frame.WORLD, width](builder)
 
 
-struct Tlas[width: SIMDSize](Copyable):
+struct Tlas[width: SIMDLength](Copyable):
     """Wide TLAS over Instance records."""
 
     var tree: BoundsBvh[Frame.WORLD, Self.width]
@@ -68,14 +68,12 @@ struct Tlas[width: SIMDSize](Copyable):
                     node.data[lane] = block_idx
 
     def trace[
-        origin: ImmOrigin,
-        //,
         typed_bvh: TypedBvh,
         mode: TRACE,
     ](
         self,
         ray: Rayf32[Frame.WORLD],
-        blases: UnsafePointer[typed_bvh, origin],
+        blases: Span[mut=False, typed_bvh, _],
     ) -> Hit[Frame.WORLD]:
         comptime assert (
             typed_bvh.bvh_frame == Frame.LOCAL

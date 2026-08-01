@@ -5,16 +5,17 @@ from bajo.obj.loaders import ObjTextLoader
 from bajo.obj.obj import ObjLineCursor, MINUS
 
 
-def _map_name_from_tail[
-    origin: Origin
-](mut cur: ObjLineCursor[origin]) -> String:
+def _map_name_from_tail(mut cur: ObjLineCursor) -> String:
     var candidate = ""
     while cur.has_next():
         var word = cur.next_word()
         if word.byte_length() == 0:
             break
         # Skip flags like '-clamp' or '-s'
-        if word.unsafe_ptr().load(0) == MINUS:
+        var word_bytes = Span(
+            unsafe_ptr=word.unsafe_ptr(), length=word.byte_length()
+        )
+        if word_bytes[0] == MINUS:
             continue
         candidate = String(word)
     return candidate
@@ -27,6 +28,9 @@ def _read_mtl_text(mut mesh: ObjMesh, base: String, text: String) raises:
 
     var text_slice = StringSlice(text)
     var text_len = text_slice.byte_length()
+    var bytes = Span(
+        unsafe_ptr=text_slice.unsafe_ptr(), length=text_slice.byte_length()
+    )
     var line_start = 0
 
     while line_start < text_len:
@@ -35,7 +39,7 @@ def _read_mtl_text(mut mesh: ObjMesh, base: String, text: String) raises:
         if line_end == -1:
             line_end = text_len
 
-        var cur = ObjLineCursor(text_slice, line_start, line_end)
+        var cur = ObjLineCursor(bytes[line_start:line_end])
         var tag = cur.next_word()
 
         if tag.byte_length() == 0:

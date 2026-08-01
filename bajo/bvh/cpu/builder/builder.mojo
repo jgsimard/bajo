@@ -23,7 +23,7 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
     def __init__(out self, items: List[BoundsItem[Self.frame]]):
         self.items = items.copy()
         self.item_count = UInt32(len(self.items))
-        debug_assert["safe"](self.item_count > 0)
+        debug_assert["safe", _use_compiler_assume=True](self.item_count > 0)
 
         self.item_indices = [i for i in range(self.item_count)]
 
@@ -45,7 +45,9 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
 
     def build[split_method: String = "median"](mut self):
         comptime assert split_method in ["median", "sah", "lbvh"]
-        debug_assert["safe"](self.item_count > 0, "passed empty input.")
+        debug_assert["safe", _use_compiler_assume=True](
+            self.item_count > 0, "passed empty input."
+        )
 
         comptime if split_method == "lbvh":
             _build_lbvh[Self.frame, Self.leaf_size](self)
@@ -75,7 +77,7 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
             var axis = longest_axis(extent)
             split_idx = _partition_items_by_median_center(
                 Span(self.item_indices),
-                self.items.unsafe_ptr(),
+                Span(self.items),
                 first,
                 count,
                 axis,
@@ -84,8 +86,8 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
         elif split_method == "sah":
             var split = _find_sah_split(
                 node,
-                self.item_indices.unsafe_ptr(),
-                self.items.unsafe_ptr(),
+                Span(self.item_indices),
+                Span(self.items),
             )
 
             var leaf_cost = node.surface_area() * Float32(node.item_count)
@@ -97,15 +99,15 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
 
                 split_idx = _partition_items_by_median_center(
                     Span(self.item_indices),
-                    self.items.unsafe_ptr(),
+                    Span(self.items),
                     first,
                     count,
                     axis,
                 )
             else:
                 split_idx = _partition_items_by_bin(
-                    self.item_indices.unsafe_ptr(),
-                    self.items.unsafe_ptr(),
+                    Span(self.item_indices),
+                    Span(self.items),
                     first,
                     count,
                     split.axis,
@@ -136,6 +138,8 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
         left_child.set_leaf(node.first_item(), left_count)
         right_child.set_leaf(UInt32(split_idx), node.item_count - left_count)
 
+        node.set_internal(left_child_idx)
+
         comptime if split_method == "sah":
             if use_sah_bounds:
                 left_child.aabb = cached_left_bounds
@@ -147,13 +151,11 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
             self.update_node_bounds(left_child_idx)
             self.update_node_bounds(left_child_idx + 1)
 
-        node.set_internal(left_child_idx)
-
         self._subdivide[split_method](left_child_idx)
         self._subdivide[split_method](left_child_idx + 1)
 
     def tree_quality(self) -> Float32:
-        debug_assert["safe"](self.nodes_used > 0)
+        debug_assert["safe", _use_compiler_assume=True](self.nodes_used > 0)
 
         ref root = self.nodes[0]
         var root_area = root.surface_area()
@@ -242,26 +244,42 @@ struct BoundsBvhNode[frame: Frame](TrivialRegisterPassable):
 
 
 def _partition_items_by_median_center[
-    origin: MutOrigin, frame: Frame
+    frame: Frame
 ](
-    indices: Span[UInt32, origin],
-    items: UnsafePointer[mut=False, BoundsItem[frame], _],
+    indices: Span[mut=True, UInt32, _],
+    items: Span[mut=False, BoundsItem[frame], _],
     first: Int,
     count: Int,
     axis: Int,
 ) -> Int:
+    debug_assert["safe", _use_compiler_assume=True](
+        first >= 0
+        and count > 0
+        and first <= len(indices)
+        and count <= len(indices) - first,
+        "median partition range is outside item indices",
+    )
+    debug_assert["safe", _use_compiler_assume=True](
+        len(indices) == len(items),
+        "BVH item indices and items have different lengths",
+    )
+    debug_assert["safe", _use_compiler_assume=True](
+        axis >= 0 and axis < 3,
+        "median partition axis is outside [0, 3)",
+    )
+
     var mid = count / 2
 
     def cmp(a_idx: UInt32, b_idx: UInt32) capturing -> Bool:
-        var a = items[Int(a_idx)].center_axis(axis)
-        var b = items[Int(b_idx)].center_axis(axis)
+        var a = items.unsafe_get(Int(a_idx)).center_axis(axis)
+        var b = items.unsafe_get(Int(b_idx)).center_axis(axis)
 
         if a == b:
             return a_idx < b_idx
 
         return a < b
 
-    var range = indices.unsafe_subspan(offset=first, length=count)
+    var range = indices[first : first + count]
     nth_element[cmp](range, mid)
 
     return first + mid

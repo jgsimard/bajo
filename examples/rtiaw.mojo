@@ -1,13 +1,12 @@
 from std.time import perf_counter_ns
 
-from bajo.core import Vec3f32, length
+from bajo.core import Vec3f32, length, Vec3W, Point3W, Frame, Point3, Point3f32
 from bajo.core.random import Rng
 from bajo.core.utils import ns_to_ms
 from bajo.rt import (
     Camera,
     Color,
     Instance,
-    Point3,
     RENDER_PATH,
     RenderSettings,
     Sphere,
@@ -32,11 +31,11 @@ comptime RENDER_ALGORITHM = RENDER_PATH
 def make_weekend_world() -> World:
     var rng = Rng(seed=42, id=7)
     var surfaces = SurfaceStore()
-    var spheres = List[Sphere]()
+    var spheres = List[Sphere[Frame.WORLD]]()
     var sphere_surfaces = List[SurfaceId]()
-    var triangle_vertices = List[Vec3f32]()
+    var triangle_vertices = List[Point3W]()
     var triangle_surfaces = List[SurfaceId]()
-    var triangle_meshes = List[List[Vec3f32]]()
+    var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
     var triangle_instances = List[Instance]()
     var triangle_instance_surfaces = List[SurfaceId]()
 
@@ -44,7 +43,7 @@ def make_weekend_world() -> World:
     add_sphere(
         spheres,
         sphere_surfaces,
-        Point3(0.0, -1000.0, 0.0),
+        Point3W(0.0, -1000.0, 0.0),
         1000.0,
         ground_surface,
     )
@@ -52,19 +51,21 @@ def make_weekend_world() -> World:
     for a in range(-11, 11):
         for b in range(-11, 11):
             var choose_mat = rng.f32()
-            var center = Point3(
+            var center = Point3W(
                 Float32(a) + 0.9 * rng.f32(),
                 0.2,
                 Float32(b) + 0.9 * rng.f32(),
             )
 
-            if length(center - Point3(4.0, 0.2, 0.0)) > 0.9:
+            if length(center - Point3W(4.0, 0.2, 0.0)) > 0.9:
                 if choose_mat < 0.8:
-                    var albedo = rng.vec3f32() * rng.vec3f32()
+                    var albedo = (
+                        rng.vec3f32[Frame.WORLD]() * rng.vec3f32[Frame.WORLD]()
+                    )
                     var surface = surfaces.add_lambertian(albedo)
                     add_sphere(spheres, sphere_surfaces, center, 0.2, surface)
                 elif choose_mat < 0.95:
-                    var albedo = rng.vec3f32(0.5, 1.0)
+                    var albedo = rng.vec3f32[Frame.WORLD](0.5, 1.0)
                     var fuzz = rng.f32(0.0, 0.5)
                     var surface = surfaces.add_metal(albedo, fuzz)
                     add_sphere(spheres, sphere_surfaces, center, 0.2, surface)
@@ -76,7 +77,7 @@ def make_weekend_world() -> World:
     add_sphere(
         spheres,
         sphere_surfaces,
-        Point3(0.0, 1.0, 0.0),
+        Point3W(0.0, 1.0, 0.0),
         1.0,
         glass,
     )
@@ -85,7 +86,7 @@ def make_weekend_world() -> World:
     add_sphere(
         spheres,
         sphere_surfaces,
-        Point3(-4.0, 1.0, 0.0),
+        Point3W(-4.0, 1.0, 0.0),
         1.0,
         diffuse,
     )
@@ -94,7 +95,7 @@ def make_weekend_world() -> World:
     add_sphere(
         spheres,
         sphere_surfaces,
-        Point3(4.0, 1.0, 0.0),
+        Point3W(4.0, 1.0, 0.0),
         1.0,
         metal,
     )
@@ -126,9 +127,9 @@ def main() raises:
 
     var world = make_weekend_world()
     var camera = Camera.from_vfov(
-        Point3(13.0, 2.0, 3.0),
-        Point3(0.0, 0.0, 0.0),
-        Vec3f32(0.0, 1.0, 0.0),
+        Point3W(13.0, 2.0, 3.0),
+        Point3W(0.0, 0.0, 0.0),
+        Vec3W(0.0, 1.0, 0.0),
         20.0,
         10.0,
         0.6,

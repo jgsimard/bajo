@@ -7,7 +7,7 @@ from bajo.bvh.constants import EMPTY_LANE, CPU_STACK_SIZE, TRACE
 
 def trace_bounds_bvh[
     frame: Frame,
-    width: SIMDSize,
+    width: SIMDLength,
     mode: TRACE,
     leaf_fn: def(
         Rayf32[frame],
@@ -17,20 +17,23 @@ def trace_bounds_bvh[
         mut Hit[frame],
     ) capturing -> Bool,
 ](tree: BoundsBvh[frame, width], ray: Rayf32[frame]) -> Hit[frame]:
-    debug_assert["safe"](len(tree.nodes) > 0)
+    debug_assert["safe", _use_compiler_assume=True](len(tree.nodes) > 0)
 
     var hit = Hit[frame].miss(ray.t_max)
 
-    var stack = InlineArray[UInt32, CPU_STACK_SIZE](uninitialized=True)
+    # avoid bounds checks in hot loop
+    var stack = Array[UInt32, CPU_STACK_SIZE](uninitialized=True)
+    var stack_data = Span(stack)
     var stack_ptr = 0
     var n_idx = UInt32(0)
 
     var O = ray.origin[width]()
     var D = ray.direction[width]()
     var rcp_d = ray.rcp_direction[width]()
+    var nodes = Span(tree.nodes)
 
     while True:
-        ref node = tree.nodes[Int(n_idx)]
+        ref node = nodes.unsafe_get(Int(n_idx))
 
         var aabb_hit = intersect_ray_aabb_rcp(O, rcp_d, node.aabb, hit.t)
         var valid_lane = node.counts.ne(EMPTY_LANE)
@@ -40,7 +43,11 @@ def trace_bounds_bvh[
             for i in range(width):
                 if mask[i]:
                     if node.counts[i] == 0:
-                        stack[stack_ptr] = node.data[i]
+                        debug_assert["safe", _use_compiler_assume=True](
+                            stack_ptr < CPU_STACK_SIZE,
+                            "CPU BVH traversal stack overflow",
+                        )
+                        stack_data.unsafe_get(stack_ptr) = node.data[i]
                         stack_ptr += 1
                     else:
                         if leaf_fn(
@@ -57,6 +64,6 @@ def trace_bounds_bvh[
             break
 
         stack_ptr -= 1
-        n_idx = stack[stack_ptr]
+        n_idx = stack_data.unsafe_get(stack_ptr)
 
     return hit

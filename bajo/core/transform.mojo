@@ -12,14 +12,14 @@ struct Affine3InverseResult[
     dtype: DType,
     From: Frame,
     To: Frame,
-    width: SIMDSize,
+    width: SIMDLength,
 ](Movable):
     var mask: SIMD[DType.bool, Self.width]
     var inv: Affine3[Self.dtype, Self.From, Self.To, Self.width]
 
 
 @fieldwise_init
-struct Affine3[dtype: DType, From: Frame, To: Frame, width: SIMDSize = 1](
+struct Affine3[dtype: DType, From: Frame, To: Frame, width: SIMDLength = 1](
     Copyable, DevicePassable, Writable
 ):
     """3D affine transform.
@@ -48,9 +48,6 @@ struct Affine3[dtype: DType, From: Frame, To: Frame, width: SIMDSize = 1](
 
     # DevicePassable stuff
     comptime device_type: AnyType = Self
-
-    def _to_device_type(self, target: MutOpaquePointer[_]):
-        target.bitcast[Self.device_type]()[] = self.copy()
 
     def _to_device_type(
         self, mut encoder: Some[DeviceTypeEncoder], target: MutOpaquePointer[_]
@@ -249,26 +246,29 @@ struct Affine3[dtype: DType, From: Frame, To: Frame, width: SIMDSize = 1](
         )
 
     @staticmethod
-    def load[
-        origin: Origin
-    ](ptr: UnsafePointer[Scalar[Self.dtype], origin], base: Int) -> Self:
+    def load(
+        ptr: UnsafePointer[mut=False, Scalar[Self.dtype], _], base: Int
+    ) -> Self:
         comptime assert Self.width == 1
         # fmt: off
+        var r0 = ptr.unsafe_offset(base + 0).unsafe_load[width=4]()
+        var r1 = ptr.unsafe_offset(base + 4).unsafe_load[width=4]()
+        var r2 = ptr.unsafe_offset(base + 8).unsafe_load[width=4]()
         return Self(
-            ptr[base + 0], ptr[base + 1], ptr[base + 2], ptr[base + 3],
-            ptr[base + 4], ptr[base + 5], ptr[base + 6], ptr[base + 7],
-            ptr[base + 8], ptr[base + 9], ptr[base + 10], ptr[base + 11],
+            r0[0], r0[1], r0[2], r0[3],
+            r1[0], r1[1], r1[2], r1[3],
+            r2[0], r2[1], r2[2], r2[3],
         )
         # fmt: on
 
-    def store[
-        origin: Origin[mut=True]
-    ](self, ptr: UnsafePointer[Scalar[Self.dtype], origin], base: Int):
+    def store(
+        self, ptr: UnsafePointer[mut=True, Scalar[Self.dtype], _], base: Int
+    ):
         comptime assert Self.width == 1
         # fmt: off
-        (ptr + base + 0).store[width=4]([self.m00[0], self.m01[0], self.m02[0], self.tx[0]])
-        (ptr + base + 4).store[width=4]([self.m10[0], self.m11[0], self.m12[0], self.ty[0]])
-        (ptr + base + 8).store[width=4]([self.m20[0], self.m21[0], self.m22[0], self.tz[0]])
+        ptr.unsafe_offset(base + 0).unsafe_store[width=4]([self.m00[0], self.m01[0], self.m02[0], self.tx[0]])
+        ptr.unsafe_offset(base + 4).unsafe_store[width=4]([self.m10[0], self.m11[0], self.m12[0], self.ty[0]])
+        ptr.unsafe_offset(base + 8).unsafe_store[width=4]([self.m20[0], self.m21[0], self.m22[0], self.tz[0]])
         # fmt: on
 
     def inverse(

@@ -16,7 +16,7 @@ from bajo.bvh.cpu.trace import trace_bounds_bvh
 from bajo.bvh.types import Hit, Sphere, SphereLeafBlock, TypedBvh
 
 
-struct SphereBvh[frame: Frame, width: SIMDSize](Copyable, TypedBvh):
+struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
     comptime bvh_frame: Frame = Self.frame
 
     """Sphere-specific wrapper around BoundsBvh[width].
@@ -56,29 +56,49 @@ struct SphereBvh[frame: Frame, width: SIMDSize](Copyable, TypedBvh):
 
     def _pack_leaves(mut self):
         self.leaf_blocks = List[SphereLeafBlock[Self.frame, Self.width]]()
+        debug_assert["safe", _use_compiler_assume=True](
+            len(self.tree.item_indices) == len(self.tree.item_payloads),
+            "sphere BVH item arrays have inconsistent lengths",
+        )
+        debug_assert["safe", _use_compiler_assume=True](
+            len(self.spheres) == self.sphere_count,
+            "sphere count changed while packing leaves",
+        )
 
         for ref node in self.tree.nodes:
             comptime for lane in range(Self.width):
                 if node.counts[lane] != EMPTY_LANE and node.counts[lane] > 0:
                     var first_item = node.data[lane]
                     var item_count = node.counts[lane]
+                    var first = Int(first_item)
+                    var count = Int(item_count)
+                    debug_assert["safe", _use_compiler_assume=True](
+                        count <= Int(Self.width),
+                        "sphere BVH leaf exceeds SIMD width",
+                    )
+                    debug_assert["safe", _use_compiler_assume=True](
+                        first <= len(self.tree.item_indices)
+                        and count <= len(self.tree.item_indices) - first,
+                        "sphere BVH leaf range is outside item indices",
+                    )
+
+                    var leaf_indices = Span(self.tree.item_indices)[
+                        first : first + count
+                    ]
 
                     var block = SphereLeafBlock[Self.frame, Self.width]()
 
-                    comptime for k in range(Self.width):
-                        if k < Int(item_count):
-                            var item_ref = Int(
-                                self.tree.item_indices[Int(first_item) + k]
-                            )
-                            var sphere_idx = self.tree.item_payloads[item_ref]
-                            ref s = self.spheres[Int(sphere_idx)]
+                    for k, item_idx_u32 in enumerate(leaf_indices):
+                        var item_ref = Int(item_idx_u32)
+                        var sphere_idx = self.tree.item_payloads[item_ref]
+                        ref s = self.spheres[Int(sphere_idx)]
 
-                            block.center.x[k] = s.center.x
-                            block.center.y[k] = s.center.y
-                            block.center.z[k] = s.center.z
-                            block.radius[k] = s.radius
+                        block.center.x[k] = s.center.x
+                        block.center.y[k] = s.center.y
+                        block.center.z[k] = s.center.z
+                        block.radius[k] = s.radius
 
-                            block.prim_indices[k] = sphere_idx
+                        block.prim_indices[k] = sphere_idx
 
                     var block_idx = UInt32(len(self.leaf_blocks))
                     self.leaf_blocks.append(block^)
@@ -94,7 +114,8 @@ struct SphereBvh[frame: Frame, width: SIMDSize](Copyable, TypedBvh):
             leaf_block_idx: UInt32,
             mut hit: Hit[Self.bvh_frame],
         ) capturing -> Bool:
-            ref block = self.leaf_blocks[Int(leaf_block_idx)]
+            # using unsafe = 20-45% speedup
+            ref block = Span(self.leaf_blocks).unsafe_get(Int(leaf_block_idx))
 
             var h = intersect_ray_sphere(
                 O,

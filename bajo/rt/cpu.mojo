@@ -1,4 +1,4 @@
-from std.algorithm import parallelize
+from max.algorithm import parallelize
 from std.io.file_descriptor import FileDescriptor
 from std.math import abs, fma, sqrt
 from std.time import perf_counter_ns
@@ -135,7 +135,9 @@ def scatter_metal(
     hit: HitRecord,
     mut rng: Rng,
 ) -> ScatterResult:
-    debug_assert["safe"](material.fuzz >= 0.0 and material.fuzz <= 1.0)
+    debug_assert["safe", _use_compiler_assume=True](
+        material.fuzz >= 0.0 and material.fuzz <= 1.0
+    )
 
     var reflected = reflect[DType.float32, Frame.WORLD](
         normalize(ray.d), hit.normal
@@ -157,7 +159,9 @@ def scatter_dielectric(
     hit: HitRecord,
     mut rng: Rng,
 ) -> ScatterResult:
-    debug_assert["safe"](material.refraction_index > 0.0)
+    debug_assert["safe", _use_compiler_assume=True](
+        material.refraction_index > 0.0
+    )
 
     var ri = (
         1.0
@@ -201,7 +205,9 @@ def scatter(
         ref material = surfaces.dielectrics[Int(surface.index())]
         return scatter_dielectric(material, ray, hit, rng)
 
-    debug_assert["safe"](False, "unknown RT surface kind")
+    debug_assert["safe", _use_compiler_assume=True](
+        False, "unknown RT surface kind"
+    )
     return ScatterResult(
         False,
         Rayf32[Frame.WORLD](hit.p, hit.normal, 0.001, f32_max),
@@ -459,7 +465,9 @@ def render_wavefront[
     comptime assert MAX_DEPTH >= 0, "max depth must be non-negative"
 
     comptime if ALGORITHM != RENDER_PATH:
-        debug_assert["safe"](False, "wavefront currently supports RENDER_PATH")
+        debug_assert["safe", _use_compiler_assume=True](
+            False, "wavefront currently supports RENDER_PATH"
+        )
 
     var total_t0 = perf_counter_ns()
     var pixel_count = settings.image_width * settings.image_height
@@ -491,7 +499,9 @@ def render_wavefront[
                 elif record.surface.kind() == MAT_DIELECTRIC:
                     dielectric_queue.append(work.copy())
                 else:
-                    debug_assert["safe"](False, "unknown RT surface kind")
+                    debug_assert["safe", _use_compiler_assume=True](
+                        False, "unknown RT surface kind"
+                    )
             else:
                 pixels[Int(path.pixel_id)] += path.throughput * _sky_color(
                     path.ray
@@ -604,9 +614,9 @@ def write_ppm_from_colors(
         var out_i = 0
 
         for p in pixels:
-            out[out_i + 0] = color_to_byte(p.x)
-            out[out_i + 1] = color_to_byte(p.y)
-            out[out_i + 2] = color_to_byte(p.z)
+            out[unsafe_offset=out_i + 0] = color_to_byte(p.x)
+            out[unsafe_offset=out_i + 1] = color_to_byte(p.y)
+            out[unsafe_offset=out_i + 2] = color_to_byte(p.z)
             out_i += 3
 
         fd.write_bytes(bytes)

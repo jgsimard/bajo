@@ -38,12 +38,12 @@ from bajo.core.utils import min_argmin
 
 
 def build_triangle_blas_set[
-    width: SIMDSize
+    width: SIMDLength
 ](
     mut ctx: DeviceContext,
     vertex_sets: List[List[Point3f32[Frame.LOCAL]]],
 ) raises -> BlasSet[width]:
-    debug_assert["safe"](len(vertex_sets) > 0)
+    debug_assert["safe", _use_compiler_assume=True](len(vertex_sets) > 0)
 
     var descs = List[UInt32](capacity=len(vertex_sets) * BlasSet.STRIDE)
 
@@ -53,7 +53,7 @@ def build_triangle_blas_set[
     # First pass: compute final packed offsets without building/downloading.
     for blas_idx in range(len(vertex_sets)):
         var tri_count = len(vertex_sets[blas_idx]) / 3
-        debug_assert["safe"](tri_count > 0)
+        debug_assert["safe", _use_compiler_assume=True](tri_count > 0)
 
         var internal_count = tri_count - 1
         var max_wide_nodes = max(internal_count, 1)
@@ -96,10 +96,10 @@ def build_triangle_blas_set[
         var wide_node_base = Int(descs[desc_base + BlasSet.WIDE_NODE_BASE])
         var leaf_f32_base = Int(descs[desc_base + BlasSet.LEAF_F32_BASE])
         blas.tree.wide_nodes.enqueue_copy_to(
-            wide_nodes.unsafe_ptr() + wide_node_base
+            wide_nodes.unsafe_ptr().unsafe_offset(wide_node_base)
         )
         blas.leaf_vertices.enqueue_copy_to(
-            leaf_vertices.unsafe_ptr() + leaf_f32_base
+            leaf_vertices.unsafe_ptr().unsafe_offset(leaf_f32_base)
         )
         ctx.synchronize()
 
@@ -111,7 +111,7 @@ def build_triangle_blas_set[
     )
 
 
-struct GpuTriangleBvh[frame: Frame, width: SIMDSize](Movable):
+struct GpuTriangleBvh[frame: Frame, width: SIMDLength](Movable):
     var tree: GpuBoundsBvh[Self.width]
     var vertices: DeviceBuffer[DType.float32]
     var leaf_vertices: DeviceBuffer[DType.float32]
@@ -122,6 +122,7 @@ struct GpuTriangleBvh[frame: Frame, width: SIMDSize](Movable):
         out self,
         mut ctx: DeviceContext,
         vertices: DeviceBuffer[DType.float32],
+        measure_build: Bool = False,
     ) raises:
         self.vertices = vertices
         self.tri_count = len(vertices) / 9
@@ -131,7 +132,11 @@ struct GpuTriangleBvh[frame: Frame, width: SIMDSize](Movable):
         )
         var payloads = ctx.enqueue_create_buffer[DType.uint32](self.tri_count)
 
-        var start = perf_counter_ns()
+        var bounds_pack_start = Int(0)
+        if measure_build:
+            ctx.synchronize()
+            bounds_pack_start = perf_counter_ns()
+
         var blocks = ceildiv(
             max(self.tri_count, 1),
             GPU_BOUNDS_BVH_BLOCK_SIZE,
@@ -141,15 +146,22 @@ struct GpuTriangleBvh[frame: Frame, width: SIMDSize](Movable):
             self.vertices,
             leaf_bounds,
             payloads,
-            self.tri_count,
+            Int32(self.tri_count),
             grid_dim=blocks,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
-        ctx.synchronize()
-        var bounds_pack_ns = Int(perf_counter_ns() - start)
+        var bounds_pack_ns = Int(0)
+        if measure_build:
+            ctx.synchronize()
+            bounds_pack_ns = Int(perf_counter_ns() - bounds_pack_start)
 
         self.tree = GpuBoundsBvh[Self.width](ctx, self.tri_count)
-        self.timings = self.tree.build(ctx, leaf_bounds, payloads)
+        self.timings = self.tree.build(
+            ctx,
+            leaf_bounds,
+            payloads,
+            measure_build=measure_build,
+        )
         self.timings.bounds_pack_ns = bounds_pack_ns
 
         var leaf_block_capacity = max(self.tree.leaf_block_count, 1)
@@ -157,7 +169,7 @@ struct GpuTriangleBvh[frame: Frame, width: SIMDSize](Movable):
             leaf_block_capacity * Self.width * TRI_LEAF_PACKED_STRIDE
         )
 
-        self._pack_leaf_blocks(ctx)
+        self._pack_leaf_blocks(ctx, measure_build)
 
         # print(t"tri_count = {self.tri_count}")
         # print(t"leaf_block_count = {self.tree.leaf_block_count}")
@@ -171,8 +183,12 @@ struct GpuTriangleBvh[frame: Frame, width: SIMDSize](Movable):
     def _pack_leaf_blocks(
         mut self,
         ctx: DeviceContext,
+        measure_build: Bool,
     ) raises:
-        var start = perf_counter_ns()
+        var start = Int(0)
+        if measure_build:
+            start = perf_counter_ns()
+
         var leaf_lane_count = max(self.tree.leaf_block_count * Self.width, 1)
         var blocks = ceildiv(
             leaf_lane_count,
@@ -182,12 +198,13 @@ struct GpuTriangleBvh[frame: Frame, width: SIMDSize](Movable):
             self.vertices,
             self.tree.leaf_block_indices,
             self.leaf_vertices,
-            leaf_lane_count,
+            Int32(leaf_lane_count),
             grid_dim=blocks,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
-        ctx.synchronize()
-        self.timings.leaf_pack_ns = Int(perf_counter_ns() - start)
+        if measure_build:
+            ctx.synchronize()
+            self.timings.leaf_pack_ns = Int(perf_counter_ns() - start)
 
     def launch_camera(
         self,
@@ -205,9 +222,9 @@ struct GpuTriangleBvh[frame: Frame, width: SIMDSize](Movable):
             self.tree.root_idx,
             d_camera_params,
             d_hits,
-            ray_count,
-            cwidth,
-            cheight,
+            Int32(ray_count),
+            Int32(cwidth),
+            Int32(cheight),
             grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
@@ -219,10 +236,11 @@ def compute_triangle_bounds_kernel[
     vertices: UnsafePointer[Float32, ImmutAnyOrigin],
     leaf_bounds: UnsafePointer[Float32, MutAnyOrigin],
     payloads: UnsafePointer[UInt32, MutAnyOrigin],
-    tri_count: Int,
+    tri_count: Int32,
 ):
+    var tri_count_int = Int(tri_count)
     var tri_idx = global_idx.x
-    if tri_idx >= tri_count:
+    if tri_idx >= tri_count_int:
         return
 
     var vbase = tri_idx * TRI_LEAF_VERTEX_STRIDE
@@ -236,29 +254,30 @@ def compute_triangle_bounds_kernel[
 
     var bbase = tri_idx * AABB[frame].STRIDE
 
-    leaf_bounds[bbase + 0] = bmin.x
-    leaf_bounds[bbase + 1] = bmin.y
-    leaf_bounds[bbase + 2] = bmin.z
-    leaf_bounds[bbase + 3] = bmax.x
-    leaf_bounds[bbase + 4] = bmax.y
-    leaf_bounds[bbase + 5] = bmax.z
+    leaf_bounds[unsafe_offset=bbase + 0] = bmin.x
+    leaf_bounds[unsafe_offset=bbase + 1] = bmin.y
+    leaf_bounds[unsafe_offset=bbase + 2] = bmin.z
+    leaf_bounds[unsafe_offset=bbase + 3] = bmax.x
+    leaf_bounds[unsafe_offset=bbase + 4] = bmax.y
+    leaf_bounds[unsafe_offset=bbase + 5] = bmax.z
 
-    payloads[tri_idx] = UInt32(tri_idx)
+    payloads[unsafe_offset=tri_idx] = UInt32(tri_idx)
 
 
 def pack_triangle_leaf_lanes_kernel[
-    width: SIMDSize,
+    width: SIMDLength,
 ](
     vertices: UnsafePointer[Float32, ImmutAnyOrigin],
     leaf_block_indices: UnsafePointer[UInt32, ImmutAnyOrigin],
     leaf_vertices: UnsafePointer[Float32, MutAnyOrigin],
-    leaf_lane_count: Int,
+    leaf_lane_count: Int32,
 ):
+    var leaf_lane_count_int = Int(leaf_lane_count)
     var lane_idx = global_idx.x
-    if lane_idx >= leaf_lane_count:
+    if lane_idx >= leaf_lane_count_int:
         return
 
-    var prim = leaf_block_indices[lane_idx]
+    var prim = leaf_block_indices[unsafe_offset=lane_idx]
 
     # AoSoA : [block][field][lane]
     # Packed fields:
@@ -271,9 +290,9 @@ def pack_triangle_leaf_lanes_kernel[
     var lane = lane_idx % width
     var leaf_block_idx = lane_idx / width
     var out_base = leaf_block_idx * TRI_LEAF_PACKED_STRIDE * width
-    var leaf_vertices_u32 = leaf_vertices.bitcast[UInt32]()
+    var leaf_vertices_u32 = leaf_vertices.unsafe_bitcast[UInt32]()
 
-    leaf_vertices_u32[out_base + 3 * width + lane] = prim
+    leaf_vertices_u32[unsafe_offset=out_base + 3 * width + lane] = prim
 
     # traversal checks packed prim != EMPTY_LANE
     if prim == EMPTY_LANE:
@@ -281,43 +300,64 @@ def pack_triangle_leaf_lanes_kernel[
 
     var in_base = Int(prim) * TRI_LEAF_VERTEX_STRIDE
 
-    leaf_vertices[out_base + 0 * width + lane] = vertices[in_base + 0]
-    leaf_vertices[out_base + 1 * width + lane] = vertices[in_base + 1]
-    leaf_vertices[out_base + 2 * width + lane] = vertices[in_base + 2]
-    leaf_vertices[out_base + 4 * width + lane] = vertices[in_base + 3]
-    leaf_vertices[out_base + 5 * width + lane] = vertices[in_base + 4]
-    leaf_vertices[out_base + 6 * width + lane] = vertices[in_base + 5]
-    leaf_vertices[out_base + 7 * width + lane] = 0.0
-    leaf_vertices[out_base + 8 * width + lane] = vertices[in_base + 6]
-    leaf_vertices[out_base + 9 * width + lane] = vertices[in_base + 7]
-    leaf_vertices[out_base + 10 * width + lane] = vertices[in_base + 8]
-    leaf_vertices[out_base + 11 * width + lane] = 0.0
+    leaf_vertices[unsafe_offset=out_base + 0 * width + lane] = vertices[
+        unsafe_offset=in_base + 0
+    ]
+    leaf_vertices[unsafe_offset=out_base + 1 * width + lane] = vertices[
+        unsafe_offset=in_base + 1
+    ]
+    leaf_vertices[unsafe_offset=out_base + 2 * width + lane] = vertices[
+        unsafe_offset=in_base + 2
+    ]
+    leaf_vertices[unsafe_offset=out_base + 4 * width + lane] = vertices[
+        unsafe_offset=in_base + 3
+    ]
+    leaf_vertices[unsafe_offset=out_base + 5 * width + lane] = vertices[
+        unsafe_offset=in_base + 4
+    ]
+    leaf_vertices[unsafe_offset=out_base + 6 * width + lane] = vertices[
+        unsafe_offset=in_base + 5
+    ]
+    leaf_vertices[unsafe_offset=out_base + 7 * width + lane] = 0.0
+    leaf_vertices[unsafe_offset=out_base + 8 * width + lane] = vertices[
+        unsafe_offset=in_base + 6
+    ]
+    leaf_vertices[unsafe_offset=out_base + 9 * width + lane] = vertices[
+        unsafe_offset=in_base + 7
+    ]
+    leaf_vertices[unsafe_offset=out_base + 10 * width + lane] = vertices[
+        unsafe_offset=in_base + 8
+    ]
+    leaf_vertices[unsafe_offset=out_base + 11 * width + lane] = 0.0
 
 
 def trace_triangle_bvh_camera_kernel[
-    width: SIMDSize,
+    width: SIMDLength,
 ](
     wide_nodes: UnsafePointer[Float32, ImmutAnyOrigin],
     leaf_vertices: UnsafePointer[Float32, ImmutAnyOrigin],
     root_idx: UInt32,
     camera_params: UnsafePointer[Float32, ImmutAnyOrigin],
     hits: UnsafePointer[Float32, MutAnyOrigin],
-    ray_count: Int,
-    width_px: Int,
-    height_px: Int,
+    ray_count: Int32,
+    width_px: Int32,
+    height_px: Int32,
 ):
+    var ray_count_int = Int(ray_count)
+    var width_px_int = Int(width_px)
+    var height_px_int = Int(height_px)
     var ray_idx = global_idx.x
-    if ray_idx >= ray_count:
+    if ray_idx >= ray_count_int:
         return
 
-    var pixels_per_view = width_px * height_px
+    var pixels_per_view = width_px_int * height_px_int
     var view_idx = ray_idx / pixels_per_view
     var local_idx = ray_idx - view_idx * pixels_per_view
-    var px_i = local_idx % width_px
-    var py_i = local_idx / width_px
+    var px_i = local_idx % width_px_int
+    var py_i = local_idx / width_px_int
 
     var camera = Camera(camera_params, view_idx * Camera.STRIDE)
-    var ray = camera.make_ray(px_i, py_i, width_px, height_px)
+    var ray = camera.make_ray(px_i, py_i, width_px_int, height_px_int)
 
     var hit = trace_bounds_bvh[
         Frame.WORLD,
@@ -340,7 +380,7 @@ def trace_triangle_bvh_camera_kernel[
 # AoSoA :[block][field][lane]
 def _intersect_triangle_leaf[
     frame: Frame,
-    width: SIMDSize,
+    width: SIMDLength,
     mode: TRACE,
 ](
     leaf_vertices: UnsafePointer[mut=False, Float32, _],
@@ -350,26 +390,28 @@ def _intersect_triangle_leaf[
 ) capturing -> Bool:
     var any_hit = False
     var block_base = Int(leaf_block_idx) * TRI_LEAF_PACKED_STRIDE * width
-    var leaf_vertices_u32 = leaf_vertices.bitcast[UInt32]()
+    var leaf_vertices_u32 = leaf_vertices.unsafe_bitcast[UInt32]()
 
     comptime for lane in range(width):
-        var prim = leaf_vertices_u32[block_base + 3 * width + lane]
+        var prim = leaf_vertices_u32[
+            unsafe_offset=block_base + 3 * width + lane
+        ]
         if prim == EMPTY_LANE:
             continue
         var v0 = Point3f32[frame](
-            leaf_vertices[block_base + 0 * width + lane],
-            leaf_vertices[block_base + 1 * width + lane],
-            leaf_vertices[block_base + 2 * width + lane],
+            leaf_vertices[unsafe_offset=block_base + 0 * width + lane],
+            leaf_vertices[unsafe_offset=block_base + 1 * width + lane],
+            leaf_vertices[unsafe_offset=block_base + 2 * width + lane],
         )
         var v1 = Point3f32[frame](
-            leaf_vertices[block_base + 4 * width + lane],
-            leaf_vertices[block_base + 5 * width + lane],
-            leaf_vertices[block_base + 6 * width + lane],
+            leaf_vertices[unsafe_offset=block_base + 4 * width + lane],
+            leaf_vertices[unsafe_offset=block_base + 5 * width + lane],
+            leaf_vertices[unsafe_offset=block_base + 6 * width + lane],
         )
         var v2 = Point3f32[frame](
-            leaf_vertices[block_base + 8 * width + lane],
-            leaf_vertices[block_base + 9 * width + lane],
-            leaf_vertices[block_base + 10 * width + lane],
+            leaf_vertices[unsafe_offset=block_base + 8 * width + lane],
+            leaf_vertices[unsafe_offset=block_base + 9 * width + lane],
+            leaf_vertices[unsafe_offset=block_base + 10 * width + lane],
         )
 
         var tri_hit = intersect_ray_tri(

@@ -46,7 +46,6 @@ def _make_single_instance(
     return [
         Instance(
             Affine3f32[Frame.LOCAL, Frame.WORLD].identity(),
-            Affine3f32[Frame.WORLD, Frame.LOCAL].identity(),
             0,
             bounds,
             primitive,
@@ -77,7 +76,6 @@ def _make_translated_grid_instances(
             out.append(
                 Instance(
                     Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(t),
-                    Affine3f32[Frame.WORLD, Frame.LOCAL].from_translation(-t),
                     0,
                     bounds,
                     primitive,
@@ -117,7 +115,6 @@ def _make_multi_blas_grid_instances(
             out.append(
                 Instance(
                     Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(t),
-                    Affine3f32[Frame.WORLD, Frame.LOCAL].from_translation(-t),
                     blas_idx,
                     bounds,
                     Primitive.TRIANGLE,
@@ -135,8 +132,8 @@ def _instances_bounds(instances: List[Instance]) -> AABB[Frame.WORLD]:
 
 
 def _cpu_tlas_triangle_reference[
-    tlas_width: SIMDSize,
-    blas_width: SIMDSize,
+    tlas_width: SIMDLength,
+    blas_width: SIMDLength,
 ](
     cpu_blas: TriangleBvh[Frame.LOCAL, blas_width],
     instances: List[Instance],
@@ -155,7 +152,7 @@ def _cpu_tlas_triangle_reference[
             TriangleBvh[Frame.LOCAL, blas_width], TRACE.CLOSEST_HIT
         ](
             ray,
-            blases.unsafe_ptr(),
+            Span(blases),
         )
         if hit.t < f32_max:
             checksum += Float64(hit.t)
@@ -166,8 +163,8 @@ def _cpu_tlas_triangle_reference[
 
 
 def _cpu_tlas_triangle_shadow_reference[
-    tlas_width: SIMDSize,
-    blas_width: SIMDSize,
+    tlas_width: SIMDLength,
+    blas_width: SIMDLength,
 ](
     cpu_blas: TriangleBvh[Frame.LOCAL, blas_width],
     instances: List[Instance],
@@ -184,7 +181,7 @@ def _cpu_tlas_triangle_shadow_reference[
             TriangleBvh[Frame.LOCAL, blas_width], TRACE.ANY_HIT
         ](
             ray,
-            blases.unsafe_ptr(),
+            Span(blases),
         )
         if hit.is_occluded():
             occluded += 1
@@ -232,7 +229,7 @@ def _download_direct_hit_checksum(
 
 
 def _bench_direct_triangle_camera[
-    width: SIMDSize,
+    width: SIMDLength,
 ](
     mut ctx: DeviceContext,
     blas: GpuTriangleBvh[Frame.WORLD, width],
@@ -283,8 +280,8 @@ def _bench_direct_triangle_camera[
 
 
 def _bench_tlas_triangles_camera[
-    tlas_width: SIMDSize,
-    blas_width: SIMDSize,
+    tlas_width: SIMDLength,
+    blas_width: SIMDLength,
 ](
     mut ctx: DeviceContext,
     tlas: GpuTriangleTlas[tlas_width, blas_width],
@@ -340,7 +337,7 @@ def _bench_tlas_triangles_camera[
 
 
 def _bench_direct_sphere_camera[
-    width: SIMDSize,
+    width: SIMDLength,
 ](
     mut ctx: DeviceContext,
     blas: GpuSphereBvh[Frame.WORLD, width],
@@ -391,8 +388,8 @@ def _bench_direct_sphere_camera[
 
 
 def _bench_tlas_spheres_camera[
-    tlas_width: SIMDSize,
-    blas_width: SIMDSize,
+    tlas_width: SIMDLength,
+    blas_width: SIMDLength,
 ](
     mut ctx: DeviceContext,
     tlas: GpuSphereTlas[tlas_width, blas_width],
@@ -633,8 +630,8 @@ def _print_tlas_results_transposed(
 
 
 def _run_triangle_tlas_width[
-    tlas_width: SIMDSize,
-    blas_width: SIMDSize,
+    tlas_width: SIMDLength,
+    blas_width: SIMDLength,
 ](
     mut ctx: DeviceContext,
     blases: BlasSet[blas_width],
@@ -652,7 +649,9 @@ def _run_triangle_tlas_width[
     ctx.synchronize()
 
     var b0 = perf_counter_ns()
-    var tlas = GpuTriangleTlas[tlas_width, blas_width](ctx, instances)
+    var tlas = GpuTriangleTlas[tlas_width, blas_width](
+        ctx, instances, measure_build=True
+    )
     ctx.synchronize()
     var b1 = perf_counter_ns()
 
@@ -685,8 +684,8 @@ def _run_triangle_tlas_width[
 
 
 def _run_sphere_tlas_width[
-    tlas_width: SIMDSize,
-    blas_width: SIMDSize,
+    tlas_width: SIMDLength,
+    blas_width: SIMDLength,
 ](
     mut ctx: DeviceContext,
     blases: BlasSet[blas_width],
@@ -703,7 +702,9 @@ def _run_sphere_tlas_width[
     ctx.synchronize()
 
     var b0 = perf_counter_ns()
-    var tlas = GpuSphereTlas[tlas_width, blas_width](ctx, instances)
+    var tlas = GpuSphereTlas[tlas_width, blas_width](
+        ctx, instances, measure_build=True
+    )
     ctx.synchronize()
     var b1 = perf_counter_ns()
 
@@ -973,7 +974,9 @@ def main() raises:
         ctx.synchronize()
 
         var blas_b0 = perf_counter_ns()
-        var blas = GpuTriangleBvh[Frame.WORLD, 4](ctx, d_vertices)
+        var blas = GpuTriangleBvh[Frame.WORLD, 4](
+            ctx, d_vertices, measure_build=True
+        )
         ctx.synchronize()
         var blas_b1 = perf_counter_ns()
 
@@ -1113,7 +1116,9 @@ def main() raises:
         ctx.synchronize()
 
         var sph_b0 = perf_counter_ns()
-        var sphere_blas = GpuSphereBvh[Frame.WORLD, 4](ctx, spheres)
+        var sphere_blas = GpuSphereBvh[Frame.WORLD, 4](
+            ctx, spheres, measure_build=True
+        )
         ctx.synchronize()
         var sph_b1 = perf_counter_ns()
 

@@ -313,7 +313,7 @@ def benchmark_sort_key(sizes: List[Int]) raises -> List[List[SortResult]]:
             reset_data()
             var onesweep_ws = OneSweepWorkspace[
                 dtype,
-                DType.invalid,
+                dtype,
                 BLOCK_SIZE=TPB,
                 KEYS_PER_THREAD=KEYS_PER_THREAD_ONESWEEP,
             ](ctx, SIZE)
@@ -364,7 +364,7 @@ def save_results_csv(filename: String, data: List[List[SortResult]]) raises:
 
 
 def main() raises:
-    sizes = [
+    sizes: List = [
         # 1 << 8,
         # 1 << 9,
         1 << 10,
@@ -385,7 +385,7 @@ def main() raises:
         # 1 << 25,
         1 << 26,
         # 1 << 27,
-        1 << 28,
+        # 1 << 28,
     ]
     res = benchmark_sorts_pairs(sizes)
     res_keys = benchmark_sort_key(sizes)

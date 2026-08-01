@@ -34,7 +34,7 @@ comptime BlasLeafFn[frame: Frame] = def(
 def _flatten_instance_inv_transforms(
     instances: List[Instance],
 ) -> List[Float32]:
-    debug_assert["safe"](len(instances) > 0)
+    debug_assert["safe", _use_compiler_assume=True](len(instances) > 0)
 
     var out = List[Float32](
         capacity=len(instances) * Affine3f32[Frame.WORLD, Frame.LOCAL].STRIDE
@@ -47,7 +47,7 @@ def _flatten_instance_inv_transforms(
 def _flatten_instance_transforms(
     instances: List[Instance],
 ) -> List[Float32]:
-    debug_assert["safe"](len(instances) > 0)
+    debug_assert["safe", _use_compiler_assume=True](len(instances) > 0)
 
     var out = List[Float32](
         capacity=len(instances) * Affine3f32[Frame.LOCAL, Frame.WORLD].STRIDE
@@ -60,14 +60,14 @@ def _flatten_instance_transforms(
 def _flatten_instance_blas_indices(
     instances: List[Instance],
 ) -> List[UInt32]:
-    debug_assert["safe"](len(instances) > 0)
+    debug_assert["safe", _use_compiler_assume=True](len(instances) > 0)
     return [instance.blas_idx for instance in instances]
 
 
 @always_inline
 def _intersect_tlas_instance_block[
-    tlas_width: SIMDSize,
-    blas_width: SIMDSize,
+    tlas_width: SIMDLength,
+    blas_width: SIMDLength,
     mode: TRACE,
     blas_leaf_fn: BlasLeafFn[Frame.LOCAL],
 ](
@@ -87,10 +87,12 @@ def _intersect_tlas_instance_block[
 
     for lane in range(min(tlas_width, Int(item_count))):
         var idx = Int(leaf_block_idx) * tlas_width + lane
-        var inst_idx = UInt32(tlas_leaf_instances[idx])
+        var inst_idx = UInt32(tlas_leaf_instances[unsafe_offset=idx])
 
         if inst_idx != EMPTY_LANE:
-            var blas_idx = UInt32(inst_blas_indices[Int(inst_idx)])
+            var blas_idx = UInt32(
+                inst_blas_indices[unsafe_offset=Int(inst_idx)]
+            )
             var desc_base = Int(blas_idx) * BlasSet.STRIDE
             var transform_base = Int(inst_idx) * Affine3f32.STRIDE
             var inverse = Affine3f32[Frame.WORLD, Frame.LOCAL].load(
@@ -105,11 +107,21 @@ def _intersect_tlas_instance_block[
                 mode,
                 blas_leaf_fn,
             ](
-                blas_wide_nodes
-                + Int(blas_descs[desc_base + BlasSet.WIDE_NODE_BASE]),
-                blas_leaves
-                + Int(blas_descs[desc_base + BlasSet.LEAF_F32_BASE]),
-                UInt32(blas_descs[desc_base + BlasSet.ROOT_IDX]),
+                blas_wide_nodes.unsafe_offset(
+                    Int(
+                        blas_descs[
+                            unsafe_offset=desc_base + BlasSet.WIDE_NODE_BASE
+                        ]
+                    )
+                ),
+                blas_leaves.unsafe_offset(
+                    Int(
+                        blas_descs[
+                            unsafe_offset=desc_base + BlasSet.LEAF_F32_BASE
+                        ]
+                    )
+                ),
+                UInt32(blas_descs[unsafe_offset=desc_base + BlasSet.ROOT_IDX]),
                 local_ray,
             )
 
@@ -136,8 +148,8 @@ def _intersect_tlas_instance_block[
 
 
 def _trace_tlas_ray[
-    tlas_width: SIMDSize,
-    blas_width: SIMDSize,
+    tlas_width: SIMDLength,
+    blas_width: SIMDLength,
     mode: TRACE,
     blas_leaf_fn: BlasLeafFn[Frame.LOCAL],
 ](
@@ -154,7 +166,7 @@ def _trace_tlas_ray[
 ) -> Hit[Frame.WORLD]:
     var hit = Hit[Frame.WORLD].miss(ray.t_max)
 
-    var stack = InlineArray[UInt32, GPU_STACK_SIZE](uninitialized=True)
+    var stack = Array[UInt32, GPU_STACK_SIZE](uninitialized=True)
     var stack_ptr = 0
     var current = tlas_root_idx
 
@@ -166,9 +178,9 @@ def _trace_tlas_ray[
             hit.t,
         )
 
-        var child_valid = InlineArray[Bool, tlas_width](fill=False)
-        var child_data = InlineArray[UInt32, tlas_width](fill=0)
-        var child_t = InlineArray[Float32, tlas_width](fill=0.0)
+        var child_valid = Array[Bool, tlas_width](fill=False)
+        var child_data = Array[UInt32, tlas_width](fill=0)
+        var child_t = Array[Float32, tlas_width](fill=0.0)
 
         comptime for node_lane in range(tlas_width):
             var meta = _wide_node_load_meta[tlas_width](
@@ -227,13 +239,19 @@ def _trace_tlas_ray[
 
                 comptime if mode != TRACE.ANY_HIT:
                     if far_t <= hit.t:
-                        if stack_ptr < GPU_STACK_SIZE:
-                            stack[stack_ptr] = child_data[far_lane]
-                            stack_ptr += 1
-                else:
-                    if stack_ptr < GPU_STACK_SIZE:
+                        debug_assert["safe", _use_compiler_assume=True](
+                            stack_ptr < GPU_STACK_SIZE,
+                            "GPU TLAS traversal stack overflow",
+                        )
                         stack[stack_ptr] = child_data[far_lane]
                         stack_ptr += 1
+                else:
+                    debug_assert["safe", _use_compiler_assume=True](
+                        stack_ptr < GPU_STACK_SIZE,
+                        "GPU TLAS traversal stack overflow",
+                    )
+                    stack[stack_ptr] = child_data[far_lane]
+                    stack_ptr += 1
 
         if stack_ptr == 0:
             break
@@ -245,8 +263,8 @@ def _trace_tlas_ray[
 
 
 def trace_triangle_tlas_camera_kernel[
-    tlas_width: SIMDSize,
-    blas_width: SIMDSize,
+    tlas_width: SIMDLength,
+    blas_width: SIMDLength,
 ](
     tlas_wide_nodes: UnsafePointer[Float32, ImmutAnyOrigin],
     tlas_leaf_instances: UnsafePointer[UInt32, ImmutAnyOrigin],
@@ -259,22 +277,25 @@ def trace_triangle_tlas_camera_kernel[
     tlas_root_idx: UInt32,
     camera_params: UnsafePointer[Float32, ImmutAnyOrigin],
     hits: UnsafePointer[Float32, MutAnyOrigin],
-    ray_count: Int,
-    width: Int,
-    height: Int,
+    ray_count: Int32,
+    width: Int32,
+    height: Int32,
 ):
+    var ray_count_int = Int(ray_count)
+    var width_int = Int(width)
+    var height_int = Int(height)
     var ray_idx = global_idx.x
-    if ray_idx >= ray_count:
+    if ray_idx >= ray_count_int:
         return
 
-    var pixels_per_view = width * height
+    var pixels_per_view = width_int * height_int
     var view_idx = ray_idx / pixels_per_view
     var local_idx = ray_idx - view_idx * pixels_per_view
-    var px_i = local_idx % width
-    var py_i = local_idx / width
+    var px_i = local_idx % width_int
+    var py_i = local_idx / width_int
 
     var camera = Camera(camera_params, view_idx * Camera.STRIDE)
-    var ray = camera.make_ray(px_i, py_i, width, height)
+    var ray = camera.make_ray(px_i, py_i, width_int, height_int)
 
     var hit = _trace_tlas_ray[
         tlas_width,
@@ -301,8 +322,8 @@ def trace_triangle_tlas_camera_kernel[
 
 
 def trace_sphere_tlas_camera_kernel[
-    tlas_width: SIMDSize,
-    blas_width: SIMDSize,
+    tlas_width: SIMDLength,
+    blas_width: SIMDLength,
 ](
     tlas_wide_nodes: UnsafePointer[Float32, ImmutAnyOrigin],
     tlas_leaf_instances: UnsafePointer[UInt32, ImmutAnyOrigin],
@@ -315,22 +336,25 @@ def trace_sphere_tlas_camera_kernel[
     tlas_root_idx: UInt32,
     camera_params: UnsafePointer[Float32, ImmutAnyOrigin],
     hits: UnsafePointer[Float32, MutAnyOrigin],
-    ray_count: Int,
-    width: Int,
-    height: Int,
+    ray_count: Int32,
+    width: Int32,
+    height: Int32,
 ):
+    var ray_count_int = Int(ray_count)
+    var width_int = Int(width)
+    var height_int = Int(height)
     var ray_idx = global_idx.x
-    if ray_idx >= ray_count:
+    if ray_idx >= ray_count_int:
         return
 
-    var pixels_per_view = width * height
+    var pixels_per_view = width_int * height_int
     var view_idx = ray_idx / pixels_per_view
     var local_idx = ray_idx - view_idx * pixels_per_view
-    var px_i = local_idx % width
-    var py_i = local_idx / width
+    var px_i = local_idx % width_int
+    var py_i = local_idx / width_int
 
     var camera = Camera(camera_params, view_idx * Camera.STRIDE)
-    var ray = camera.make_ray(px_i, py_i, width, height)
+    var ray = camera.make_ray(px_i, py_i, width_int, height_int)
 
     var hit = _trace_tlas_ray[
         tlas_width,
@@ -356,7 +380,7 @@ def trace_sphere_tlas_camera_kernel[
     hit.store(hits, ray_idx)
 
 
-struct GpuTypedTlasCore[width: SIMDSize]:
+struct GpuTypedTlasCore[width: SIMDLength]:
     """GPU TLAS core shared by typed TLAS wrappers.
 
     Instance leaves are packed by the generic wide collapse:
@@ -374,9 +398,12 @@ struct GpuTypedTlasCore[width: SIMDSize]:
         out self,
         mut ctx: DeviceContext,
         instances: List[Instance],
+        measure_build: Bool = False,
     ) raises:
         self.inst_count = len(instances)
-        debug_assert["safe"](self.inst_count > 0, "passed empty input.")
+        debug_assert["safe", _use_compiler_assume=True](
+            self.inst_count > 0, "passed empty input."
+        )
 
         var leaf_bounds = List[Float32](
             capacity=self.inst_count * AABB[Frame.WORLD].STRIDE
@@ -395,7 +422,12 @@ struct GpuTypedTlasCore[width: SIMDSize]:
         var d_payloads = upload_list(ctx, payloads)
 
         self.tree = GpuBoundsBvh[Self.width](ctx, self.inst_count)
-        self.timings = self.tree.build(ctx, d_leaf_bounds, d_payloads)
+        self.timings = self.tree.build(
+            ctx,
+            d_leaf_bounds,
+            d_payloads,
+            measure_build=measure_build,
+        )
 
         self.inst_transform = upload_list(
             ctx, _flatten_instance_transforms(instances)
@@ -408,7 +440,7 @@ struct GpuTypedTlasCore[width: SIMDSize]:
         )
 
 
-struct GpuTriangleTlas[tlas_width: SIMDSize, blas_width: SIMDSize]:
+struct GpuTriangleTlas[tlas_width: SIMDLength, blas_width: SIMDLength]:
     """Typed triangle TLAS over a descriptor-backed triangle BLAS set."""
 
     var core: GpuTypedTlasCore[Self.tlas_width]
@@ -417,8 +449,13 @@ struct GpuTriangleTlas[tlas_width: SIMDSize, blas_width: SIMDSize]:
         out self,
         mut ctx: DeviceContext,
         instances: List[Instance],
+        measure_build: Bool = False,
     ) raises:
-        self.core = GpuTypedTlasCore[Self.tlas_width](ctx, instances)
+        self.core = GpuTypedTlasCore[Self.tlas_width](
+            ctx,
+            instances,
+            measure_build=measure_build,
+        )
 
     def launch_camera(
         self,
@@ -447,15 +484,15 @@ struct GpuTriangleTlas[tlas_width: SIMDSize, blas_width: SIMDSize]:
             self.core.tree.root_idx,
             d_camera_params,
             d_hits,
-            ray_count,
-            cwidth,
-            cheight,
+            Int32(ray_count),
+            Int32(cwidth),
+            Int32(cheight),
             grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
 
 
-struct GpuSphereTlas[tlas_width: SIMDSize, blas_width: SIMDSize]:
+struct GpuSphereTlas[tlas_width: SIMDLength, blas_width: SIMDLength]:
     """Typed sphere TLAS over a descriptor-backed sphere BLAS set."""
 
     var core: GpuTypedTlasCore[Self.tlas_width]
@@ -464,8 +501,13 @@ struct GpuSphereTlas[tlas_width: SIMDSize, blas_width: SIMDSize]:
         out self,
         mut ctx: DeviceContext,
         instances: List[Instance],
+        measure_build: Bool = False,
     ) raises:
-        self.core = GpuTypedTlasCore[Self.tlas_width](ctx, instances)
+        self.core = GpuTypedTlasCore[Self.tlas_width](
+            ctx,
+            instances,
+            measure_build=measure_build,
+        )
 
     def launch_camera(
         self,
@@ -494,9 +536,9 @@ struct GpuSphereTlas[tlas_width: SIMDSize, blas_width: SIMDSize]:
             self.core.tree.root_idx,
             d_camera_params,
             d_hits,
-            ray_count,
-            cwidth,
-            cheight,
+            Int32(ray_count),
+            Int32(cwidth),
+            Int32(cheight),
             grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )

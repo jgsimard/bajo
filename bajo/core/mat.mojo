@@ -1,5 +1,4 @@
 from std.math import abs, cos, sin
-from std.collections.inline_array import InlineArray
 from std.testing import assert_almost_equal
 
 from bajo.core.vec import Vec3
@@ -12,11 +11,11 @@ struct Mat[
     rows: Int,
     cols: Int,
     frame: Frame,
-    width: SIMDSize = 1,
+    width: SIMDLength = 1,
 ](Copyable, Writable):
     comptime Elem = SIMD[Self.dtype, Self.width]
-    comptime Row = InlineArray[Self.Elem, Self.cols]
-    comptime Data = InlineArray[Self.Row, Self.rows]
+    comptime Row = Array[Self.Elem, Self.cols]
+    comptime Data = Array[Self.Row, Self.rows]
 
     var data: Self.Data
 
@@ -41,7 +40,7 @@ struct Mat[
         comptime assert Self.rows >= 1
         comptime assert Self.cols >= 1
 
-        debug_assert["safe"](
+        debug_assert["safe", _use_compiler_assume=True](
             len(elems) == Self.rows * Self.cols,
             (
                 t"Matrix constructor requires exactly rows ({Self.rows})"
@@ -297,7 +296,7 @@ def _matmul[
     a_cols: Int,
     b_cols: Int,
     frame: Frame,
-    width: SIMDSize,
+    width: SIMDLength,
 ](
     a: Mat[dtype, a_rows, a_cols, frame, width],
     b: Mat[dtype, a_cols, b_cols, frame, width],
@@ -317,7 +316,7 @@ def _matmul[
 
 
 def _matvec[
-    dtype: DType, frame: Frame, width: SIMDSize
+    dtype: DType, frame: Frame, width: SIMDLength
 ](m: Mat[dtype, 3, 3, frame, width], v: Vec3[dtype, frame, width]) -> Vec3[
     dtype, frame, width
 ]:
@@ -333,7 +332,7 @@ def assert_mat_equal[
     rows: Int,
     cols: Int,
     frame: Frame,
-    width: SIMDSize,
+    width: SIMDLength,
 ](
     a: Mat[dtype, rows, cols, frame, width],
     b: Mat[dtype, rows, cols, frame, width],
@@ -354,13 +353,13 @@ def assert_mat_equal[
 # determinant
 ##############
 def determinant[
-    dtype: DType, width: SIMDSize
+    dtype: DType, width: SIMDLength
 ](m: Mat[dtype, 2, 2, _, width]) -> SIMD[dtype, width]:
     return m[0][0] * m[1][1] - m[0][1] * m[1][0]
 
 
 def determinant[
-    dtype: DType, width: SIMDSize
+    dtype: DType, width: SIMDLength
 ](m: Mat[dtype, 3, 3, _, width]) -> SIMD[dtype, width]:
     var a00 = m[0][0]
     var a01 = m[0][1]
@@ -382,7 +381,7 @@ def determinant[
 
 
 def determinant[
-    dtype: DType, width: SIMDSize
+    dtype: DType, width: SIMDLength
 ](m: Mat[dtype, 4, 4, _, width]) -> SIMD[dtype, width]:
     """Adapted from USD - see licenses/usd-LICENSE.txt Copyright 2016 Pixar."""
     # Pickle 1st two columns of matrix into registers
@@ -431,7 +430,7 @@ struct MatInverseResult[
     dtype: DType,
     n: Int,
     frame: Frame,
-    width: SIMDSize,
+    width: SIMDLength,
 ](Movable):
     var mask: SIMD[DType.bool, Self.width]
     var value: Mat[Self.dtype, Self.n, Self.n, Self.frame, Self.width]

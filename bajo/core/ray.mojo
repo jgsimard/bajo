@@ -28,14 +28,16 @@ struct Ray[dtype: DType, frame: Frame](TrivialRegisterPassable, Writable):
         self.t_min = t_min
         self.t_max = t_max
 
-    def __init__[
-        origin: ImmOrigin
-    ](out self, rays: UnsafePointer[Scalar[Self.dtype], origin], ray_idx: Int,):
+    def __init__(
+        out self,
+        rays: UnsafePointer[mut=False, Scalar[Self.dtype], _],
+        ray_idx: Int,
+    ):
         var base = ray_idx * Ray.STRIDE
         self.o = Point3[Self.dtype, Self.frame].load(rays, base + Ray.ORIGIN)
-        self.t_min = rays[base + Ray.T_MIN]
+        self.t_min = rays[unsafe_offset=base + Ray.T_MIN]
         self.d = Vec3[Self.dtype, Self.frame].load(rays, base + Ray.DIRECTION)
-        self.t_max = rays[base + Ray.T_MAX]
+        self.t_max = rays[unsafe_offset=base + Ray.T_MAX]
 
     def flatten(self) -> List[Scalar[Self.dtype]]:
         return [
@@ -49,16 +51,20 @@ struct Ray[dtype: DType, frame: Frame](TrivialRegisterPassable, Writable):
             self.t_max,
         ]
 
-    def origin[width: SIMDSize](self) -> Point3[Self.dtype, Self.frame, width]:
+    def origin[
+        width: SIMDLength
+    ](self) -> Point3[Self.dtype, Self.frame, width]:
         return Point3[Self.dtype, Self.frame, width](
             self.o.x, self.o.y, self.o.z
         )
 
-    def direction[width: SIMDSize](self) -> Vec3[Self.dtype, Self.frame, width]:
+    def direction[
+        width: SIMDLength
+    ](self) -> Vec3[Self.dtype, Self.frame, width]:
         return Vec3[Self.dtype, Self.frame, width](self.d.x, self.d.y, self.d.z)
 
     def rcp_direction[
-        width: SIMDSize
+        width: SIMDLength
     ](self, eps: Scalar[Self.dtype] = 1.0e-9) -> Vec3[
         Self.dtype, Self.frame, width
     ] where Self.dtype.is_floating_point():

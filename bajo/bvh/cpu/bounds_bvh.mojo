@@ -4,7 +4,7 @@ from bajo.bvh.cpu.builder import BoundsBvhBuilder, BoundsItem
 
 
 @fieldwise_init
-struct WideBvhNode[frame: Frame, width: SIMDSize](Copyable):
+struct WideBvhNode[frame: Frame, width: SIMDLength](Copyable):
     """Lane node used by BoundsBvh.
 
     Lane encoding:
@@ -25,7 +25,7 @@ struct WideBvhNode[frame: Frame, width: SIMDSize](Copyable):
         self.counts = SIMD[DType.uint32, Self.width](EMPTY_LANE)
 
 
-struct BoundsBvh[frame: Frame, width: SIMDSize](Copyable):
+struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
     """Generic wide/lane BVH layout with range leaves."""
 
     var nodes: List[WideBvhNode[Self.frame, Self.width]]
@@ -47,7 +47,7 @@ struct BoundsBvh[frame: Frame, width: SIMDSize](Copyable):
         var wide_idx = len(self.nodes)
         self.nodes.append(WideBvhNode[Self.frame, Self.width]())
 
-        var pool = InlineArray[UInt32, Self.width](fill=bin_idx)
+        var pool = Array[UInt32, Self.width](fill=bin_idx)
         var p_size = 1
 
         # Pull up the largest internal nodes until we fill the wide node or run

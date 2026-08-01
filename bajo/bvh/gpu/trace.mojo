@@ -16,7 +16,7 @@ from bajo.core import Frame, Rayf32
 
 def trace_bounds_bvh[
     frame: Frame,
-    width: SIMDSize,
+    width: SIMDLength,
     mode: TRACE,
     leaf_fn: def(
         UnsafePointer[mut=False, Float32, _],
@@ -33,7 +33,7 @@ def trace_bounds_bvh[
 ) -> Hit[frame]:
     var hit = Hit[frame].miss(ray.t_max)
 
-    var stack = InlineArray[UInt32, GPU_STACK_SIZE](uninitialized=True)
+    var stack = Array[UInt32, GPU_STACK_SIZE](uninitialized=True)
     var stack_ptr = 0
     var current = root_idx
 
@@ -50,9 +50,9 @@ def trace_bounds_bvh[
         )
 
         comptime if lifo:
-            var child_valid = InlineArray[Bool, width](fill=False)
-            var child_data = InlineArray[UInt32, width](fill=0)
-            var child_t = InlineArray[Float32, width](fill=0.0)
+            var child_valid = Array[Bool, width](fill=False)
+            var child_data = Array[UInt32, width](fill=0)
+            var child_t = Array[Float32, width](fill=0.0)
 
             comptime for node_lane in range(width):
                 var meta = _wide_node_load_meta[width](
@@ -101,9 +101,12 @@ def trace_bounds_bvh[
                         if far_t > hit.t:
                             continue
 
-                    if stack_ptr < GPU_STACK_SIZE:
-                        stack[stack_ptr] = child_data[far_lane]
-                        stack_ptr += 1
+                    debug_assert["safe", _use_compiler_assume=True](
+                        stack_ptr < GPU_STACK_SIZE,
+                        "GPU BVH traversal stack overflow",
+                    )
+                    stack[stack_ptr] = child_data[far_lane]
+                    stack_ptr += 1
         else:
             # basically the same as the cpu version
             comptime for node_lane in range(width):
@@ -122,9 +125,12 @@ def trace_bounds_bvh[
                             if bounds_hit.t[node_lane] > hit.t:
                                 continue
 
-                        if stack_ptr < GPU_STACK_SIZE:
-                            stack[stack_ptr] = data
-                            stack_ptr += 1
+                        debug_assert["safe", _use_compiler_assume=True](
+                            stack_ptr < GPU_STACK_SIZE,
+                            "GPU BVH traversal stack overflow",
+                        )
+                        stack[stack_ptr] = data
+                        stack_ptr += 1
                     else:
                         var leaf_hit = leaf_fn(
                             leaves,

@@ -17,7 +17,7 @@ from bajo.bvh.gpu.builder.wide_collapse import collapse
 from bajo.bvh.gpu.builder.binary_layout import GpuBinaryBoundsBvh
 
 
-struct GpuBoundsBvh[width: SIMDSize](Movable):
+struct GpuBoundsBvh[width: SIMDLength](Movable):
     """Generic GPU Bvh. Build input is only leaf AABBs plus payload ids.
 
     Wide lane encoding mirrors the CPU BVH:
@@ -67,9 +67,14 @@ struct GpuBoundsBvh[width: SIMDSize](Movable):
         mut ctx: DeviceContext,
         leaf_bounds: DeviceBuffer[DType.float32],
         leaf_payloads: DeviceBuffer[DType.uint32],
+        measure_build: Bool = False,
     ) raises -> GpuBuildTimings:
-        debug_assert["safe"](self.leaf_count > 0, "passed empty input.")
-        debug_assert["safe"](len(leaf_payloads) == self.leaf_count)
+        debug_assert["safe", _use_compiler_assume=True](
+            self.leaf_count > 0, "passed empty input."
+        )
+        debug_assert["safe", _use_compiler_assume=True](
+            len(leaf_payloads) == self.leaf_count
+        )
 
         var binary = GpuBinaryBoundsBvh(ctx, leaf_bounds, leaf_payloads)
         self.bounds_device = binary.bounds_device.copy()
@@ -79,15 +84,22 @@ struct GpuBoundsBvh[width: SIMDSize](Movable):
         )
 
         # leaf AABBs -> sorted binary LBVH
-        timings = build_binary_bvh_with_lbvh(ctx, binary, workspace)
+        timings = build_binary_bvh_with_lbvh(
+            ctx,
+            binary,
+            workspace,
+            measure_stages=measure_build,
+        )
 
         # binary BVH -> wide BVH
-        var collapse_start = perf_counter_ns()
+        var collapse_start = Int(0)
+        if measure_build:
+            collapse_start = perf_counter_ns()
+
         collapse(ctx, binary, self)
 
-        var end_ns = perf_counter_ns()
-
-        timings.collapse_ns = Int(end_ns - collapse_start)
+        if measure_build:
+            timings.collapse_ns = Int(perf_counter_ns() - collapse_start)
 
         return timings
 
@@ -97,8 +109,12 @@ struct GpuBoundsBvh[width: SIMDSize](Movable):
         leaf_bounds: DeviceBuffer[DType.float32],
         leaf_payloads: DeviceBuffer[DType.uint32],
     ) raises -> GpuBinaryBoundsBvh:
-        debug_assert["safe"](self.leaf_count > 0, "passed empty input.")
-        debug_assert["safe"](len(leaf_payloads) == self.leaf_count)
+        debug_assert["safe", _use_compiler_assume=True](
+            self.leaf_count > 0, "passed empty input."
+        )
+        debug_assert["safe", _use_compiler_assume=True](
+            len(leaf_payloads) == self.leaf_count
+        )
         var binary = GpuBinaryBoundsBvh(ctx, leaf_bounds, leaf_payloads)
         self.bounds_device = binary.bounds_device.copy()
         var workspace = RadixSortWorkspace[DType.uint32, DType.uint32](
@@ -124,20 +140,18 @@ struct GpuBoundsBvh[width: SIMDSize](Movable):
             )
 
 
-def _wide_lane_base[width: SIMDSize](node_idx: UInt32, lane: Int) -> Int:
+def _wide_lane_base[width: SIMDLength](node_idx: UInt32, lane: Int) -> Int:
     return Int(node_idx) * width + lane
 
 
-def _wide_node_base[width: SIMDSize](node_idx: UInt32, lane: Int) -> Int:
+def _wide_node_base[width: SIMDLength](node_idx: UInt32, lane: Int) -> Int:
     return _wide_lane_base[width](node_idx, lane) * WideNode.CHILD_STRIDE
 
 
 def _wide_node_store_child[
-    origin: MutOrigin,
-    //,
-    width: SIMDSize,
+    width: SIMDLength,
 ](
-    wide_nodes: UnsafePointer[Float32, origin],
+    wide_nodes: UnsafePointer[mut=True, Float32, _],
     node_idx: UInt32,
     lane: Int,
     bounds: AABB,
@@ -145,39 +159,35 @@ def _wide_node_store_child[
 ):
     var b = _wide_node_base[width](node_idx, lane)
 
-    wide_nodes[b + WideNode.MIN_X] = bounds._min.x
-    wide_nodes[b + WideNode.MIN_Y] = bounds._min.y
-    wide_nodes[b + WideNode.MIN_Z] = bounds._min.z
-    wide_nodes[b + WideNode.MAX_X] = bounds._max.x
-    wide_nodes[b + WideNode.MAX_Y] = bounds._max.y
-    wide_nodes[b + WideNode.MAX_Z] = bounds._max.z
+    wide_nodes[unsafe_offset=b + WideNode.MIN_X] = bounds._min.x
+    wide_nodes[unsafe_offset=b + WideNode.MIN_Y] = bounds._min.y
+    wide_nodes[unsafe_offset=b + WideNode.MIN_Z] = bounds._min.z
+    wide_nodes[unsafe_offset=b + WideNode.MAX_X] = bounds._max.x
+    wide_nodes[unsafe_offset=b + WideNode.MAX_Y] = bounds._max.y
+    wide_nodes[unsafe_offset=b + WideNode.MAX_Z] = bounds._max.z
 
-    var wide_nodes_u32 = wide_nodes.bitcast[UInt32]()
-    wide_nodes_u32[b + WideNode.META] = meta
-    wide_nodes[b + WideNode.PAD] = 0.0
+    var wide_nodes_u32 = wide_nodes.unsafe_bitcast[UInt32]()
+    wide_nodes_u32[unsafe_offset=b + WideNode.META] = meta
+    wide_nodes[unsafe_offset=b + WideNode.PAD] = 0.0
 
 
 def _wide_node_load_meta[
-    origin: ImmOrigin,
-    //,
-    width: SIMDSize,
+    width: SIMDLength,
 ](
-    wide_nodes: UnsafePointer[Float32, origin],
+    wide_nodes: UnsafePointer[mut=False, Float32, _],
     node_idx: UInt32,
     lane: Int,
 ) -> UInt32:
     var b = _wide_node_base[width](node_idx, lane)
-    return wide_nodes.bitcast[UInt32]()[b + WideNode.META]
+    return wide_nodes.unsafe_bitcast[UInt32]()[unsafe_offset=b + WideNode.META]
 
 
 def _load_wide_node_bounds_block[
-    origin: ImmOrigin,
-    //,
     dtype: DType,
     frame: Frame,
-    width: SIMDSize,
+    width: SIMDLength,
 ](
-    wide_nodes: UnsafePointer[Scalar[dtype], origin],
+    wide_nodes: UnsafePointer[mut=False, Scalar[dtype], _],
     node_idx: UInt32,
 ) -> AxisAlignedBoundingBox[dtype, frame, width]:
     var aabb = AxisAlignedBoundingBox[dtype, frame, width].invalid()
@@ -185,24 +195,22 @@ def _load_wide_node_bounds_block[
     comptime for lane in range(width):
         var b = _wide_node_base[width](node_idx, lane)
 
-        aabb._min.x[lane] = wide_nodes[b + WideNode.MIN_X]
-        aabb._min.y[lane] = wide_nodes[b + WideNode.MIN_Y]
-        aabb._min.z[lane] = wide_nodes[b + WideNode.MIN_Z]
+        aabb._min.x[lane] = wide_nodes[unsafe_offset=b + WideNode.MIN_X]
+        aabb._min.y[lane] = wide_nodes[unsafe_offset=b + WideNode.MIN_Y]
+        aabb._min.z[lane] = wide_nodes[unsafe_offset=b + WideNode.MIN_Z]
 
-        aabb._max.x[lane] = wide_nodes[b + WideNode.MAX_X]
-        aabb._max.y[lane] = wide_nodes[b + WideNode.MAX_Y]
-        aabb._max.z[lane] = wide_nodes[b + WideNode.MAX_Z]
+        aabb._max.x[lane] = wide_nodes[unsafe_offset=b + WideNode.MAX_X]
+        aabb._max.y[lane] = wide_nodes[unsafe_offset=b + WideNode.MAX_Y]
+        aabb._max.z[lane] = wide_nodes[unsafe_offset=b + WideNode.MAX_Z]
 
     return aabb
 
 
 def _intersect_wide_node_bounds[
-    origin: ImmOrigin,
-    //,
     frame: Frame,
-    width: SIMDSize,
+    width: SIMDLength,
 ](
-    wide_nodes: UnsafePointer[Float32, origin],
+    wide_nodes: UnsafePointer[mut=False, Float32, _],
     node_idx: UInt32,
     ray: Rayf32[frame],
     t_max: Float32,

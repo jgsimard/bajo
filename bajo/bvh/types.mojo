@@ -59,48 +59,46 @@ struct Hit[frame: Frame = Frame.WORLD](TrivialRegisterPassable, Writable):
         return self.t < f32_max
 
     def store[
-        origin: MutOrigin,
         address_space: AddressSpace,
     ](
         self,
-        hits: UnsafePointer[Float32, origin, address_space=address_space],
+        hits: UnsafePointer[mut=True, Float32, _, address_space=address_space],
         idx: Int,
     ):
         var base = idx * Hit.STRIDE
 
-        hits[base + Hit.U] = self.u
-        hits[base + Hit.V] = self.v
-        hits[base + Hit.NORMAL + 0] = self.normal.x
-        hits[base + Hit.NORMAL + 1] = self.normal.y
-        hits[base + Hit.NORMAL + 2] = self.normal.z
-        hits[base + Hit.T] = self.t
+        hits[unsafe_offset=base + Hit.U] = self.u
+        hits[unsafe_offset=base + Hit.V] = self.v
+        hits[unsafe_offset=base + Hit.NORMAL + 0] = self.normal.x
+        hits[unsafe_offset=base + Hit.NORMAL + 1] = self.normal.y
+        hits[unsafe_offset=base + Hit.NORMAL + 2] = self.normal.z
+        hits[unsafe_offset=base + Hit.T] = self.t
 
-        var hits_u32 = hits.bitcast[UInt32]()
-        hits_u32[base + Hit.PRIM] = self.prim
-        hits_u32[base + Hit.INST] = self.inst
+        var hits_u32 = hits.unsafe_bitcast[UInt32]()
+        hits_u32[unsafe_offset=base + Hit.PRIM] = self.prim
+        hits_u32[unsafe_offset=base + Hit.INST] = self.inst
 
     @staticmethod
     def load[
-        origin: ImmOrigin,
         address_space: AddressSpace,
     ](
-        hits: UnsafePointer[Float32, origin, address_space=address_space],
+        hits: UnsafePointer[mut=False, Float32, _, address_space=address_space],
         idx: Int,
     ) -> Self:
         var base = idx * Hit.STRIDE
-        var hits_u32 = hits.bitcast[UInt32]()
+        var hits_u32 = hits.unsafe_bitcast[UInt32]()
 
         return Self(
-            hits[base + Hit.U],
-            hits[base + Hit.V],
-            hits_u32[base + Hit.PRIM],
-            hits_u32[base + Hit.INST],
+            hits[unsafe_offset=base + Hit.U],
+            hits[unsafe_offset=base + Hit.V],
+            hits_u32[unsafe_offset=base + Hit.PRIM],
+            hits_u32[unsafe_offset=base + Hit.INST],
             Normal3f32[Self.frame](
-                hits[base + Hit.NORMAL + 0],
-                hits[base + Hit.NORMAL + 1],
-                hits[base + Hit.NORMAL + 2],
+                hits[unsafe_offset=base + Hit.NORMAL + 0],
+                hits[unsafe_offset=base + Hit.NORMAL + 1],
+                hits[unsafe_offset=base + Hit.NORMAL + 2],
             ),
-            hits[base + Hit.T],
+            hits[unsafe_offset=base + Hit.T],
         )
 
 
@@ -116,7 +114,7 @@ struct Sphere[frame: Frame = Frame.WORLD](TrivialRegisterPassable):
 
 
 @fieldwise_init
-struct SphereLeafBlock[frame: Frame, width: SIMDSize](Copyable):
+struct SphereLeafBlock[frame: Frame, width: SIMDLength](Copyable):
     var center: Point3[DType.float32, Self.frame, Self.width]
     var radius: SIMD[DType.float32, Self.width]
     var prim_indices: SIMD[DType.uint32, Self.width]
@@ -128,7 +126,7 @@ struct SphereLeafBlock[frame: Frame, width: SIMDSize](Copyable):
 
 
 @fieldwise_init
-struct TriangleLeafBlock[frame: Frame, width: SIMDSize](Copyable):
+struct TriangleLeafBlock[frame: Frame, width: SIMDLength](Copyable):
     var v0: Point3[DType.float32, Self.frame, Self.width]
     var v1: Point3[DType.float32, Self.frame, Self.width]
     var v2: Point3[DType.float32, Self.frame, Self.width]
@@ -145,7 +143,7 @@ struct Instance(Copyable):
     """Instance of a BLAS in world space.
 
     - `transform` maps BLAS-local points/vectors to world space.
-    - `inv_transform` maps world-space rays to BLAS-local space.
+    - `inv_transform`
     - `bounds` is the transformed world-space root AABB.
     - `blas_idx` indexes the BLAS array passed to traversal.
     """
@@ -166,13 +164,16 @@ struct Instance(Copyable):
     def __init__(
         out self,
         transform: Affine3f32[Frame.LOCAL, Frame.WORLD],
-        inv_transform: Affine3f32[Frame.WORLD, Frame.LOCAL],
         blas_idx: UInt32,
         blas_bounds: AABB[Frame.LOCAL],
         kind: Primitive,
     ):
+        var inverse = transform.inverse()
+        debug_assert["safe", _use_compiler_assume=True](
+            inverse.mask[0], "instance transform must be invertible"
+        )
         self.transform = transform.copy()
-        self.inv_transform = inv_transform.copy()
+        self.inv_transform = inverse.inv.copy()
         self.blas_idx = blas_idx
         self.bounds = blas_bounds.apply_transform(transform)
         self.kind = kind
@@ -189,7 +190,7 @@ trait TypedBvh:
 
 
 @fieldwise_init
-struct BlasSet[width: SIMDSize]:
+struct BlasSet[width: SIMDLength]:
     comptime WIDE_NODE_BASE = 0
     comptime LEAF_F32_BASE = 1
     comptime ROOT_IDX = 2

@@ -235,7 +235,7 @@ def _brute_sphere_trace[
 
 
 def _trace_cpu_triangle_bvh[
-    frame: Frame, width: SIMDSize
+    frame: Frame, width: SIMDLength
 ](mut bvh: TriangleBvh[frame, width], rays: List[Rayf32[frame]]) -> Float64:
     var checksum = Float64(0.0)
     for ray in rays:
@@ -246,7 +246,7 @@ def _trace_cpu_triangle_bvh[
 
 
 def _trace_cpu_triangle_camera[
-    width: SIMDSize
+    width: SIMDLength
 ](
     mut bvh: TriangleBvh[Frame.WORLD, width],
     camera: Camera,

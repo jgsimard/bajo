@@ -20,22 +20,22 @@ struct GeoKind(Equatable, TrivialRegisterPassable):
         return self.v == rhs.v
 
 
-comptime Vec2[dtype: DType, frame: Frame, width: SIMDSize = 1] = Geo2[
+comptime Vec2[dtype: DType, frame: Frame, width: SIMDLength = 1] = Geo2[
     dtype, GeoKind.VECTOR, frame, width
 ]
-comptime Vec3[dtype: DType, frame: Frame, width: SIMDSize = 1] = Geo3[
+comptime Vec3[dtype: DType, frame: Frame, width: SIMDLength = 1] = Geo3[
     dtype, GeoKind.VECTOR, frame, width
 ]
-comptime Point3[dtype: DType, frame: Frame, width: SIMDSize = 1] = Geo3[
+comptime Point3[dtype: DType, frame: Frame, width: SIMDLength = 1] = Geo3[
     dtype, GeoKind.POINT, frame, width
 ]
-comptime Normal3[dtype: DType, frame: Frame, width: SIMDSize = 1] = Geo3[
+comptime Normal3[dtype: DType, frame: Frame, width: SIMDLength = 1] = Geo3[
     dtype, GeoKind.NORMAL, frame, width
 ]
 
 
 @fieldwise_init
-struct Geo2[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize = 1](
+struct Geo2[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
     TrivialRegisterPassable, Writable
 ):
     var x: SIMD[Self.dtype, Self.width]
@@ -76,7 +76,7 @@ struct Geo2[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize = 1](
 
 
 @fieldwise_init
-struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize = 1](
+struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
     DevicePassable, Roundable, TrivialRegisterPassable, Writable
 ):
     comptime V3 = Vec3[Self.dtype, Self.frame, Self.width]
@@ -88,15 +88,6 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize = 1](
 
     comptime device_type: AnyType = Self
     """The device-side type for this array."""
-
-    def _to_device_type(self, target: MutOpaquePointer[_]):
-        """Convert the host type object to a device_type and store it at the
-        target address.
-
-        Args:
-            target: The target address to store the device type.
-        """
-        target.bitcast[Self.device_type]()[] = self.copy()
 
     def _to_device_type(
         self, mut encoder: Some[DeviceTypeEncoder], target: MutOpaquePointer[_]
@@ -145,6 +136,7 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize = 1](
         )
 
     # p + v = p
+    @__allow_legacy_custom_self_type
     def __add__(
         self: Self.P3,
         rhs: Self.V3,
@@ -156,6 +148,7 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize = 1](
         )
 
     # v + p = p
+    @__allow_legacy_custom_self_type
     def __add__(
         self: Self.V3,
         rhs: Self.P3,
@@ -167,6 +160,7 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize = 1](
         )
 
     # v + v = v
+    @__allow_legacy_custom_self_type
     def __add__(self: Self.V3, rhs: Self.V3) -> Self.V3:
         # TODO: put this into where when it works
         # comptime assert self.kind == GeoKind.VECTOR
@@ -190,6 +184,7 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize = 1](
 
     # TODO: put this into where when (if?) it works
     # p - p = v
+    @__allow_legacy_custom_self_type
     def __sub__(
         self: Self.P3,
         rhs: Self.P3,
@@ -201,6 +196,7 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize = 1](
         )
 
     # v - v = v
+    @__allow_legacy_custom_self_type
     def __sub__(
         self: Self.V3,
         rhs: Self.V3,
@@ -212,6 +208,7 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize = 1](
         )
 
     # p - v = p
+    @__allow_legacy_custom_self_type
     def __sub__(
         self: Self.P3,
         rhs: Self.V3,
@@ -375,23 +372,23 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize = 1](
         )
 
     @staticmethod
-    def load[
-        origin: ImmOrigin
-    ](ptr: UnsafePointer[Scalar[Self.dtype], origin], base: Int) -> Self:
+    def load(
+        ptr: UnsafePointer[mut=False, Scalar[Self.dtype], _], base: Int
+    ) -> Self:
         comptime assert Self.width == 1
         return Self(
-            ptr[base + 0],
-            ptr[base + 1],
-            ptr[base + 2],
+            ptr[unsafe_offset=base + 0],
+            ptr[unsafe_offset=base + 1],
+            ptr[unsafe_offset=base + 2],
         )
 
-    def store[
-        origin: MutOrigin
-    ](self, ptr: UnsafePointer[Scalar[Self.dtype], origin], base: Int):
+    def store(
+        self, ptr: UnsafePointer[mut=True, Scalar[Self.dtype], _], base: Int
+    ):
         comptime assert Self.width == 1
-        ptr[base + 0] = self.x[0]
-        ptr[base + 1] = self.y[0]
-        ptr[base + 2] = self.z[0]
+        ptr[unsafe_offset=base + 0] = self.x[0]
+        ptr[unsafe_offset=base + 1] = self.y[0]
+        ptr[unsafe_offset=base + 2] = self.z[0]
 
     # roundable
     def __round__(self) -> Self:
@@ -409,7 +406,7 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize = 1](
 
 
 def dot[
-    dtype: DType, frame: Frame, width: SIMDSize
+    dtype: DType, frame: Frame, width: SIMDLength
 ](a: Vec3[dtype, frame, width], b: Vec3[dtype, frame, width]) -> SIMD[
     dtype, width
 ]:
@@ -417,7 +414,7 @@ def dot[
 
 
 def vmin[
-    dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize
+    dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength
 ](
     a: Geo3[dtype, kind, frame, width], b: Geo3[dtype, kind, frame, width]
 ) -> Geo3[dtype, kind, frame, width]:
@@ -429,7 +426,7 @@ def vmin[
 
 
 def vmin[
-    dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize
+    dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength
 ](
     a: Geo3[dtype, kind, frame, width],
     b: Geo3[dtype, kind, frame, width],
@@ -443,7 +440,7 @@ def vmin[
 
 
 def vmax[
-    dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize
+    dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength
 ](
     a: Geo3[dtype, kind, frame, width], b: Geo3[dtype, kind, frame, width]
 ) -> Geo3[dtype, kind, frame, width]:
@@ -455,7 +452,7 @@ def vmax[
 
 
 def vmax[
-    dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize
+    dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength
 ](
     a: Geo3[dtype, kind, frame, width],
     b: Geo3[dtype, kind, frame, width],
@@ -469,7 +466,7 @@ def vmax[
 
 
 def vclamp[
-    dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize
+    dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength
 ](
     p: Geo3[dtype, kind, frame, width],
     lower: Geo3[dtype, kind, frame, width],
@@ -479,19 +476,19 @@ def vclamp[
 
 
 def length2[
-    dtype: DType, frame: Frame, width: SIMDSize
+    dtype: DType, frame: Frame, width: SIMDLength
 ](v: Vec3[dtype, frame, width]) -> SIMD[dtype, width]:
     return dot(v, v)
 
 
 def length[
-    dtype: DType, frame: Frame, width: SIMDSize
+    dtype: DType, frame: Frame, width: SIMDLength
 ](v: Vec3[dtype, frame, width]) -> SIMD[dtype, width]:
     return sqrt(dot(v, v))
 
 
 def cross[
-    dtype: DType, frame: Frame, width: SIMDSize
+    dtype: DType, frame: Frame, width: SIMDLength
 ](a: Vec3[dtype, frame, width], b: Vec3[dtype, frame, width]) -> Vec3[
     dtype, frame, width
 ]:
@@ -503,7 +500,7 @@ def cross[
 
 
 def normalize[
-    dtype: DType, frame: Frame, width: SIMDSize
+    dtype: DType, frame: Frame, width: SIMDLength
 ](v: Vec3[dtype, frame, width], threshold: Scalar[dtype] = 1.0e-20) -> Vec3[
     dtype, frame, width
 ]:
@@ -516,7 +513,7 @@ def normalize[
 
 
 def assert_vec_equal[
-    dtype: DType, kind: GeoKind, frame: Frame, width: SIMDSize
+    dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength
 ](
     a: Geo3[dtype, kind, frame, width],
     b: Geo3[dtype, kind, frame, width],
@@ -543,7 +540,7 @@ def assert_vec_equal[
 
 
 def longest_axis[
-    dtype: DType, frame: Frame, width: SIMDSize
+    dtype: DType, frame: Frame, width: SIMDLength
 ](v: Vec3[dtype, frame, width]) -> Int:
     comptime assert width == 1
 

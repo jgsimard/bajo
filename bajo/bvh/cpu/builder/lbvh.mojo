@@ -14,14 +14,14 @@ struct MortonItem(Comparable, TrivialRegisterPassable):
         return self.code < rhs.code
 
 
-def _common_prefix[
-    origin: ImmOrigin
-](pairs: UnsafePointer[MortonItem, origin], i: Int, j: Int, n: Int) -> Int:
+def _common_prefix(
+    pairs: Span[mut=False, MortonItem, _], i: Int, j: Int, n: Int
+) -> Int:
     if j < 0 or j >= n:
         return -1
 
-    var a = pairs[i].code
-    var b = pairs[j].code
+    var a = pairs.unsafe_get(i).code
+    var b = pairs.unsafe_get(j).code
 
     if a != b:
         return Int(count_leading_zeros(a ^ b))
@@ -34,14 +34,21 @@ def _common_prefix[
     return 32 + Int(count_leading_zeros(x))
 
 
-def _lbvh_find_split[
-    origin: ImmOrigin
-](
-    pairs: UnsafePointer[MortonItem, origin],
+def _lbvh_find_split(
+    pairs: Span[mut=False, MortonItem, _],
     first: Int,
     last: Int,
     n: Int,
 ) -> Int:
+    debug_assert["safe", _use_compiler_assume=True](
+        n > 0 and n <= len(pairs),
+        "LBVH item count is outside Morton pairs",
+    )
+    debug_assert["safe", _use_compiler_assume=True](
+        first >= 0 and first <= last and last < n,
+        "LBVH split range is invalid",
+    )
+
     var node_prefix = _common_prefix(pairs, first, last, n)
 
     var split = first
@@ -69,7 +76,7 @@ def _build_lbvh[
     frame: Frame, leaf_size: Int
 ](mut builder: BoundsBvhBuilder[frame, leaf_size]):
     """Build a binary LBVH using sorted Morton codes over BoundsItem centers."""
-    debug_assert["safe"](builder.item_count > 0)
+    debug_assert["safe", _use_compiler_assume=True](builder.item_count > 0)
 
     builder.nodes_used = 1
     var item_count = Int(builder.item_count)
@@ -93,9 +100,19 @@ def _build_lbvh[
     for i in range(len(pairs)):
         builder.item_indices[i] = pairs[i].item_idx
 
+    debug_assert["safe", _use_compiler_assume=True](
+        len(pairs) == item_count,
+        "LBVH Morton pair count does not match item count",
+    )
+    debug_assert["safe", _use_compiler_assume=True](
+        len(builder.item_indices) == item_count
+        and len(builder.items) == item_count,
+        "LBVH builder arrays have inconsistent lengths",
+    )
+
     _ = _build_lbvh_recursive[frame, leaf_size](
         builder,
-        pairs.unsafe_ptr(),
+        Span(pairs),
         0,
         0,
         item_count,
@@ -103,14 +120,26 @@ def _build_lbvh[
 
 
 def _build_lbvh_recursive[
-    origin: ImmOrigin, //, frame: Frame, leaf_size: Int
+    frame: Frame, leaf_size: Int
 ](
     mut builder: BoundsBvhBuilder[frame, leaf_size],
-    pairs: UnsafePointer[MortonItem, origin],
+    pairs: Span[mut=False, MortonItem, _],
     node_idx: UInt32,
     first: Int,
     count: Int,
 ) -> AABB[frame]:
+    debug_assert["safe", _use_compiler_assume=True](
+        first >= 0
+        and count > 0
+        and first <= len(pairs)
+        and count <= len(pairs) - first,
+        "LBVH recursive range is outside Morton pairs",
+    )
+    debug_assert["safe", _use_compiler_assume=True](
+        Int(node_idx) < len(builder.nodes),
+        "LBVH node index is outside builder nodes",
+    )
+
     if count <= leaf_size:
         ref leaf = builder.nodes[Int(node_idx)]
         leaf.set_leaf(UInt32(first), UInt32(count))

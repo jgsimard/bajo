@@ -123,11 +123,9 @@ def _make_instances(bounds_list: List[AABB]) raises -> List[Instance]:
                 var transform = _make_centered_transform(
                     bounds, rotation, scale, bottom_center
                 )
-                var inv_transform = transform.inverse().inv.copy()
                 instances.append(
                     Instance(
                         transform,
-                        inv_transform,
                         blas_idx,
                         bounds,
                         Primitive.TRIANGLE,
@@ -136,7 +134,7 @@ def _make_instances(bounds_list: List[AABB]) raises -> List[Instance]:
     return instances^
 
 
-def _make_camera[width: SIMDSize](tlas: Tlas[width]) -> Camera:
+def _make_camera[width: SIMDLength](tlas: Tlas[width]) -> Camera:
     var bounds = tlas.bounds()
     var center = bounds.centroid()
     var extent = bounds.extent()
@@ -167,7 +165,7 @@ def _make_camera[width: SIMDSize](tlas: Tlas[width]) -> Camera:
     )
 
 
-def _make_camera_params[width: SIMDSize](tlas: Tlas[width]) -> List[Float32]:
+def _make_camera_params[width: SIMDLength](tlas: Tlas[width]) -> List[Float32]:
     return _make_camera(tlas).flatten()
 
 
@@ -290,7 +288,7 @@ def print_hit_counts_by_blas(
 
 
 def _build_cpu_triangle_blas_set[
-    width: SIMDSize
+    width: SIMDLength
 ](tri_vertex_sets: List[List[Vec3f32]]) -> List[TriangleBvh[width]]:
     return [
         TriangleBvh[width].__init__["lbvh"](tri_vertices.copy())
@@ -299,8 +297,8 @@ def _build_cpu_triangle_blas_set[
 
 
 def _trace_cpu_tlas_camera[
-    tlas_width: SIMDSize,
-    blas_width: SIMDSize,
+    tlas_width: SIMDLength,
+    blas_width: SIMDLength,
 ](
     width: Int,
     height: Int,

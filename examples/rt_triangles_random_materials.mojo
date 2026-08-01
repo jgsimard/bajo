@@ -170,14 +170,12 @@ def _append_mesh_instance(
     var transform = _make_centered_transform(
         bounds, rotation, scale, Vec3f32(x, 0.0, z)
     )
-    var inv_transform = transform.inverse().inv.copy()
     var surface = _random_surface(surfaces, material_rng)
     add_triangle_instance(
         triangle_instances,
         triangle_instance_surfaces,
         mesh_idx,
         transform,
-        inv_transform,
         bounds,
         surface,
     )

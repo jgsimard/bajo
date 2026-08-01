@@ -149,7 +149,7 @@ def _assert_builder_leaf_sizes_at_most(
 
 
 def _assert_wide_leaf_counts_at_most_width[
-    frame: Frame, width: SIMDSize
+    frame: Frame, width: SIMDLength
 ](wide: BoundsBvh[frame, width]) raises:
     for ref node in wide.nodes:
         for lane in range(width):
@@ -169,7 +169,7 @@ def _assert_wide_leaf_counts_at_most_width[
 
 
 def _assert_triangle_bvh_matches_bruteforce[
-    frame: Frame, width: SIMDSize
+    frame: Frame, width: SIMDLength
 ](
     mut bvh: TriangleBvh[frame, width],
     verts: List[Point3f32[frame]],
@@ -201,7 +201,7 @@ def _assert_triangle_bvh_matches_bruteforce[
 
 
 def _assert_sphere_bvh_matches_bruteforce[
-    frame: Frame, width: SIMDSize
+    frame: Frame, width: SIMDLength
 ](
     mut bvh: SphereBvh[frame, width],
     spheres: List[Sphere[frame]],
@@ -234,7 +234,7 @@ def _assert_sphere_bvh_matches_bruteforce[
 
 def _test_bounds_bvh_leaf_invariant[
     frame: Frame,
-    width: SIMDSize,
+    width: SIMDLength,
     mode: String,
 ]() raises:
     comptime assert mode in ["median", "sah", "lbvh"]
@@ -348,8 +348,8 @@ def test_bounds_sah_clear_separation() raises:
 
     var split = _find_sah_split(
         builder.nodes[0],
-        builder.item_indices.unsafe_ptr(),
-        builder.items.unsafe_ptr(),
+        Span(builder.item_indices),
+        Span(builder.items),
     )
 
     assert_true(split.axis == 0)
@@ -373,8 +373,8 @@ def test_bounds_sah_degenerate() raises:
 
     var split = _find_sah_split(
         builder.nodes[0],
-        builder.item_indices.unsafe_ptr(),
-        builder.items.unsafe_ptr(),
+        Span(builder.item_indices),
+        Span(builder.items),
     )
 
     assert_true(split.axis == -1)
@@ -396,7 +396,7 @@ def test_bounds_partition_items_non_empty() raises:
 
     var split_idx = _partition_items_by_median_center(
         Span(builder.item_indices),
-        builder.items.unsafe_ptr(),
+        Span(builder.items),
         0,
         2,
         0,
@@ -418,7 +418,7 @@ def test_triangle_bvh2_leaf_size_equals_width_returns_nearest_triangle() raises:
 
 
 def _test_triangle_bvh_matches_bruteforce[
-    width: SIMDSize,
+    width: SIMDLength,
     split_mode: String,
 ]() raises:
     var n = {2: 24, 4: 32, 8: 40}[width]
@@ -447,7 +447,7 @@ def test_triangle_bvh_matches_bruteforce() raises:
 
 
 def _test_triangle_bvh_shadow_hit_and_miss[
-    width: SIMDSize,
+    width: SIMDLength,
     mode: String,
 ]() raises:
     var verts = _make_strip[Frame.WORLD](2 * width)
@@ -499,7 +499,7 @@ def test_sphere_bvh4_single_leaf_layout_and_hit() raises:
 
 
 def _test_sphere_bvh_matches_bruteforce[
-    width: SIMDSize,
+    width: SIMDLength,
     mode: String,
 ]() raises:
     var spheres = _make_spheres[Frame.WORLD]()
@@ -534,7 +534,7 @@ def test_sphere_bvh_matches_bruteforce() raises:
 
 
 def _test_sphere_bvh_shadow_hit_and_miss[
-    width: SIMDSize,
+    width: SIMDLength,
     mode: String,
 ]() raises:
     var spheres = _make_spheres[Frame.WORLD]()

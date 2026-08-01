@@ -1,6 +1,7 @@
 from std.testing import (
     TestSuite,
     assert_almost_equal,
+    assert_raises,
     assert_true,
     assert_false,
 )
@@ -12,6 +13,11 @@ from bajo.obj import (
     parse_obj,
     triangulated_indices,
 )
+
+
+def _assert_obj_parse_error(text: String) raises:
+    with assert_raises():
+        _ = parse_obj(text, "invalid.obj")
 
 
 def test_basic_triangle() raises:
@@ -57,6 +63,26 @@ f -4 -3 -2 -1"""
     assert_true(tris[3].p == 1)
     assert_true(tris[4].p == 3)
     assert_true(tris[5].p == 4)
+
+
+def test_face_indices_are_range_validated() raises:
+    _assert_obj_parse_error("v 0 0 0\nf 2 1 1")
+    _assert_obj_parse_error("v 0 0 0\nf -2 -1 -1")
+    _assert_obj_parse_error("v 0 0 0\nvt 0 0\nf 1/2 1/1 1/1")
+    _assert_obj_parse_error("v 0 0 0\nvn 0 0 1\nf 1//2 1//1 1//1")
+    _assert_obj_parse_error("v 0 0 0\nf 999999999999999999999 1 1")
+    _assert_obj_parse_error("v 0 0 0\nvt 0 0\nvn 0 0 1\nf 1/1/1 1/1 1/1/1")
+
+
+def test_decimal_exponent_work_is_bounded() raises:
+    var mesh = parse_obj("v 1e3 1e-3 1e+2", "exponents.obj")
+    assert_almost_equal(mesh.positions[3], 1000.0)
+    assert_almost_equal(mesh.positions[4], 0.001)
+    assert_almost_equal(mesh.positions[5], 100.0)
+
+    _assert_obj_parse_error("v 1e309 0 0")
+    _assert_obj_parse_error("v 1e-309 0 0")
+    _assert_obj_parse_error("v 1e999999999999999999999 0 0")
 
 
 def test_vertex_colors_lazy_fill() raises:

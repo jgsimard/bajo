@@ -30,12 +30,12 @@ from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list
 
 
 def build_sphere_blas_set[
-    width: SIMDSize
+    width: SIMDLength
 ](
     mut ctx: DeviceContext,
     sphere_sets: List[List[Sphere[Frame.LOCAL]]],
 ) raises -> BlasSet[width]:
-    debug_assert["safe"](len(sphere_sets) > 0)
+    debug_assert["safe", _use_compiler_assume=True](len(sphere_sets) > 0)
 
     var descs = List[UInt32](capacity=len(sphere_sets) * BlasSet.STRIDE)
 
@@ -45,7 +45,7 @@ def build_sphere_blas_set[
     # First pass: compute final packed offsets without building/downloading.
     for blas_idx in range(len(sphere_sets)):
         var sphere_count = len(sphere_sets[blas_idx])
-        debug_assert["safe"](sphere_count > 0)
+        debug_assert["safe", _use_compiler_assume=True](sphere_count > 0)
 
         var internal_count = sphere_count - 1
         var max_wide_nodes = max(internal_count, 1)
@@ -91,10 +91,10 @@ def build_sphere_blas_set[
         var leaf_f32_base = Int(descs[desc_base + BlasSet.LEAF_F32_BASE])
 
         blas.tree.wide_nodes.enqueue_copy_to(
-            wide_nodes.unsafe_ptr() + wide_node_base
+            wide_nodes.unsafe_ptr().unsafe_offset(wide_node_base)
         )
         blas.leaf_spheres.enqueue_copy_to(
-            leaf_spheres.unsafe_ptr() + leaf_f32_base
+            leaf_spheres.unsafe_ptr().unsafe_offset(leaf_f32_base)
         )
 
         ctx.synchronize()
@@ -107,7 +107,7 @@ def build_sphere_blas_set[
     )
 
 
-struct GpuSphereBvh[frame: Frame, width: SIMDSize]:
+struct GpuSphereBvh[frame: Frame, width: SIMDLength]:
     var tree: GpuBoundsBvh[Self.width]
     var spheres: DeviceBuffer[DType.float32]
     var leaf_spheres: DeviceBuffer[DType.float32]
@@ -118,6 +118,7 @@ struct GpuSphereBvh[frame: Frame, width: SIMDSize]:
         out self,
         mut ctx: DeviceContext,
         spheres: List[Sphere[Self.frame]],
+        measure_build: Bool = False,
     ) raises:
         self.sphere_count = len(spheres)
 
@@ -142,19 +143,28 @@ struct GpuSphereBvh[frame: Frame, width: SIMDSize]:
         var d_leaf_bounds = upload_list(ctx, leaf_bounds)
 
         self.tree = GpuBoundsBvh[Self.width](ctx, self.sphere_count)
-        self.timings = self.tree.build(ctx, d_leaf_bounds, d_payloads)
+        self.timings = self.tree.build(
+            ctx,
+            d_leaf_bounds,
+            d_payloads,
+            measure_build=measure_build,
+        )
 
         var leaf_block_capacity = max(self.tree.leaf_block_count, 1)
         self.leaf_spheres = ctx.enqueue_create_buffer[DType.float32](
             leaf_block_capacity * Self.width * SPHERE_LEAF_PACKED_STRIDE
         )
-        self._pack_leaf_blocks(ctx)
+        self._pack_leaf_blocks(ctx, measure_build)
 
     def _pack_leaf_blocks(
         mut self,
         ctx: DeviceContext,
+        measure_build: Bool,
     ) raises:
-        var start = perf_counter_ns()
+        var start = Int(0)
+        if measure_build:
+            start = perf_counter_ns()
+
         var leaf_lane_count = max(self.tree.leaf_block_count * Self.width, 1)
         var blocks = ceildiv(
             leaf_lane_count,
@@ -164,12 +174,13 @@ struct GpuSphereBvh[frame: Frame, width: SIMDSize]:
             self.spheres,
             self.tree.leaf_block_indices,
             self.leaf_spheres,
-            leaf_lane_count,
+            Int32(leaf_lane_count),
             grid_dim=blocks,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
-        ctx.synchronize()
-        self.timings.leaf_pack_ns = Int(perf_counter_ns() - start)
+        if measure_build:
+            ctx.synchronize()
+            self.timings.leaf_pack_ns = Int(perf_counter_ns() - start)
 
     def launch_camera(
         self,
@@ -187,38 +198,41 @@ struct GpuSphereBvh[frame: Frame, width: SIMDSize]:
             self.tree.root_idx,
             d_camera_params,
             d_hits,
-            ray_count,
-            cwidth,
-            cheight,
+            Int32(ray_count),
+            Int32(cwidth),
+            Int32(cheight),
             grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
 
 
 def trace_sphere_bvh_camera_kernel[
-    width: SIMDSize,
+    width: SIMDLength,
 ](
     wide_nodes: UnsafePointer[Float32, ImmutAnyOrigin],
     leaf_spheres: UnsafePointer[Float32, ImmutAnyOrigin],
     root_idx: UInt32,
     camera_params: UnsafePointer[Float32, ImmutAnyOrigin],
     hits: UnsafePointer[Float32, MutAnyOrigin],
-    ray_count: Int,
-    width_px: Int,
-    height_px: Int,
+    ray_count: Int32,
+    width_px: Int32,
+    height_px: Int32,
 ):
+    var ray_count_int = Int(ray_count)
+    var width_px_int = Int(width_px)
+    var height_px_int = Int(height_px)
     var ray_idx = global_idx.x
-    if ray_idx >= ray_count:
+    if ray_idx >= ray_count_int:
         return
 
-    var pixels_per_view = width_px * height_px
+    var pixels_per_view = width_px_int * height_px_int
     var view_idx = ray_idx / pixels_per_view
     var local_idx = ray_idx - view_idx * pixels_per_view
-    var px_i = local_idx % width_px
-    var py_i = local_idx / width_px
+    var px_i = local_idx % width_px_int
+    var py_i = local_idx / width_px_int
 
     var camera = Camera(camera_params, view_idx * Camera.STRIDE)
-    var ray = camera.make_ray(px_i, py_i, width_px, height_px)
+    var ray = camera.make_ray(px_i, py_i, width_px_int, height_px_int)
 
     var hit = trace_bounds_bvh[
         Frame.WORLD,
@@ -240,7 +254,7 @@ def trace_sphere_bvh_camera_kernel[
 
 def _intersect_sphere_leaf[
     frame: Frame,
-    width: SIMDSize,
+    width: SIMDLength,
     mode: TRACE,
 ](
     leaf_spheres: UnsafePointer[mut=False, Float32, _],
@@ -249,15 +263,15 @@ def _intersect_sphere_leaf[
     mut hit: Hit[frame],
 ) capturing -> Bool:
     var block_base = Int(leaf_block_idx) * SPHERE_LEAF_PACKED_STRIDE * width
-    var leaf_spheres_u32 = leaf_spheres.bitcast[UInt32]()
+    var leaf_spheres_u32 = leaf_spheres.unsafe_bitcast[UInt32]()
 
     var center = Point3[DType.float32, frame, width](
-        leaf_spheres.load[width=width](block_base + 0 * width),
-        leaf_spheres.load[width=width](block_base + 1 * width),
-        leaf_spheres.load[width=width](block_base + 2 * width),
+        leaf_spheres.unsafe_load[width=width](block_base + 0 * width),
+        leaf_spheres.unsafe_load[width=width](block_base + 1 * width),
+        leaf_spheres.unsafe_load[width=width](block_base + 2 * width),
     )
-    var radius = leaf_spheres.load[width=width](block_base + 3 * width)
-    var prim_indices = leaf_spheres_u32.load[width=width](
+    var radius = leaf_spheres.unsafe_load[width=width](block_base + 3 * width)
+    var prim_indices = leaf_spheres_u32.unsafe_load[width=width](
         block_base + 4 * width
     )
 
@@ -294,30 +308,31 @@ def _intersect_sphere_leaf[
 
 
 def pack_sphere_leaf_lanes_kernel[
-    width: SIMDSize,
+    width: SIMDLength,
 ](
     spheres: UnsafePointer[Float32, ImmutAnyOrigin],
     leaf_block_indices: UnsafePointer[UInt32, ImmutAnyOrigin],
     leaf_spheres: UnsafePointer[Float32, MutAnyOrigin],
-    leaf_lane_count: Int,
+    leaf_lane_count: Int32,
 ):
+    var leaf_lane_count_int = Int(leaf_lane_count)
     var lane_idx = global_idx.x
-    if lane_idx >= leaf_lane_count:
+    if lane_idx >= leaf_lane_count_int:
         return
 
     var lane = lane_idx % width
     var block_idx = lane_idx / width
 
-    var prim = UInt32(leaf_block_indices[lane_idx])
+    var prim = UInt32(leaf_block_indices[unsafe_offset=lane_idx])
     var out_base = block_idx * SPHERE_LEAF_PACKED_STRIDE * width
-    var leaf_spheres_u32 = leaf_spheres.bitcast[UInt32]()
+    var leaf_spheres_u32 = leaf_spheres.unsafe_bitcast[UInt32]()
 
     # AoSoA: [block][field][lane]
     # Packed fields:
     #   0..2 = center.xyz
     #   3    = radius
     #   4    = prim id bits
-    leaf_spheres_u32[out_base + 4 * width + lane] = prim
+    leaf_spheres_u32[unsafe_offset=out_base + 4 * width + lane] = prim
 
     # traversal checks packed prim != EMPTY_LANE
     if prim == EMPTY_LANE:
@@ -325,10 +340,18 @@ def pack_sphere_leaf_lanes_kernel[
 
     var in_base = Int(prim) * Sphere.STRIDE
 
-    leaf_spheres[out_base + 0 * width + lane] = spheres[in_base + 0]
-    leaf_spheres[out_base + 1 * width + lane] = spheres[in_base + 1]
-    leaf_spheres[out_base + 2 * width + lane] = spheres[in_base + 2]
-    leaf_spheres[out_base + 3 * width + lane] = spheres[in_base + 3]
+    leaf_spheres[unsafe_offset=out_base + 0 * width + lane] = spheres[
+        unsafe_offset=in_base + 0
+    ]
+    leaf_spheres[unsafe_offset=out_base + 1 * width + lane] = spheres[
+        unsafe_offset=in_base + 1
+    ]
+    leaf_spheres[unsafe_offset=out_base + 2 * width + lane] = spheres[
+        unsafe_offset=in_base + 2
+    ]
+    leaf_spheres[unsafe_offset=out_base + 3 * width + lane] = spheres[
+        unsafe_offset=in_base + 3
+    ]
 
 
 def _flatten_spheres[

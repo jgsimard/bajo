@@ -27,8 +27,8 @@ struct DoubleBuffer[origin_c: MutOrigin, origin_a: MutOrigin, dtype: DType]:
         self.alternate = tmp.unsafe_origin_cast[Self.origin_a]()
         self.in_original_order = not self.in_original_order
 
-    def __del__(deinit self):
-        debug_assert["safe"](
+    def __deinit__(deinit self):
+        debug_assert["safe", _use_compiler_assume=True](
             self.in_original_order,
             self.created_at.prefix(
                 "\nDoubleBuffer destroyed while swapped. Missing a swap before"
@@ -52,18 +52,18 @@ def warp_level_multi_split[
     KEYS_PER_THREAD: Int,
     USE_MATCH_ANY: Bool = False,
 ](
-    keys: InlineArray[Scalar[keys_dtype], KEYS_PER_THREAD],
+    keys: Array[Scalar[keys_dtype], KEYS_PER_THREAD],
     lid: Int,
     radix_shift: Scalar[keys_dtype],
     s_warp_hist_ptr: UnsafePointer[UInt32, origin, address_space=address_space],
-) -> InlineArray[UInt32, KEYS_PER_THREAD]:
+) -> Array[UInt32, KEYS_PER_THREAD]:
     comptime RADIX = 2**BITS_PER_PASS
     comptime RADIX_MASK = Scalar[keys_dtype](RADIX - 1)
 
     comptime mask_dtype = DType.uint64 if WARP_SIZE > 32 else DType.uint32
     comptime MaskInt = SIMD[mask_dtype, 1]
 
-    var offsets = InlineArray[UInt32, KEYS_PER_THREAD](uninitialized=True)
+    var offsets = Array[UInt32, KEYS_PER_THREAD](uninitialized=True)
     var lane_mask_lt = (MaskInt(1) << MaskInt(lid)) - 1
 
     comptime for i in range(KEYS_PER_THREAD):
@@ -91,7 +91,7 @@ def warp_level_multi_split[
             var digit = Int((key >> radix_shift) & RADIX_MASK)
             var count = UInt32(pop_count(warp_flags))
             pre_increment_val = Atomic.fetch_add[ordering=Ordering.RELAXED](
-                s_warp_hist_ptr + digit, count
+                s_warp_hist_ptr.unsafe_offset(digit), count
             )
 
         var leader_lane = count_trailing_zeros(warp_flags)

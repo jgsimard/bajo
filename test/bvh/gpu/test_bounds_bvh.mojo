@@ -121,7 +121,7 @@ def _make_triangle_leaf_bounds(
 
 
 def _assert_gpu_bounds_width[
-    width: SIMDSize
+    width: SIMDLength
 ](verts: List[Point3f32[Frame.WORLD]]) raises:
     with DeviceContext() as ctx:
         var build = _make_triangle_leaf_bounds(ctx, verts)
@@ -143,7 +143,7 @@ def _assert_gpu_bounds_width[
 
 
 def _assert_wide_lane_invariants[
-    width: SIMDSize
+    width: SIMDLength
 ](verts: List[Point3f32[Frame.WORLD]]) raises:
     with DeviceContext() as ctx:
         var build = _make_triangle_leaf_bounds(ctx, verts)
@@ -179,7 +179,7 @@ def _assert_wide_lane_invariants[
 
 
 def _assert_gpu_triangle_matches_cpu_camera[
-    width: SIMDSize
+    width: SIMDLength
 ](verts: List[Point3f32[Frame.WORLD]]) raises:
     var cpu_bvh = TriangleBvh[Frame.WORLD, width].__init__["lbvh"](verts.copy())
     var camera_data = _make_camera_rays_and_params(
@@ -251,7 +251,7 @@ def _assert_gpu_triangle_matches_cpu_camera[
 
 
 def _assert_sphere_matches_bruteforce_camera[
-    width: SIMDSize
+    width: SIMDLength
 ](spheres: List[Sphere[Frame.WORLD]]) raises:
     var bounds = sphere_bounds(spheres)
     var camera_data = _make_camera_rays_and_params(
@@ -295,7 +295,7 @@ def _assert_sphere_matches_bruteforce_camera[
 
 
 def _assert_gpu_sphere_bounds[
-    width: SIMDSize
+    width: SIMDLength
 ](spheres: List[Sphere[Frame.WORLD]]) raises:
     with DeviceContext() as ctx:
         var build = _make_sphere_leaf_bounds(ctx, spheres)

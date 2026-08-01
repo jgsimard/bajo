@@ -26,15 +26,15 @@ struct Camera(TrivialRegisterPassable, Writable):
     var defocus_disk_u: Vec3f32[Frame.WORLD]
     var defocus_disk_v: Vec3f32[Frame.WORLD]
 
-    def __init__[
-        origin: ImmOrigin
-    ](out self, ptr: UnsafePointer[Float32, origin], base: Int = 0):
+    def __init__(
+        out self, ptr: UnsafePointer[mut=False, Float32, _], base: Int = 0
+    ):
         self.origin = Point3f32[Frame.WORLD].load(ptr, base + Camera.ORIGIN)
         self.forward = Vec3f32[Frame.WORLD].load(ptr, base + Camera.FORWARD)
         self.right = Vec3f32[Frame.WORLD].load(ptr, base + Camera.RIGHT)
         self.up = Vec3f32[Frame.WORLD].load(ptr, base + Camera.UP)
-        self.fov_scale = ptr[base + Camera.FOV]
-        self.focus_dist = ptr[base + Camera.FOCUS_DIST]
+        self.fov_scale = ptr[unsafe_offset=base + Camera.FOV]
+        self.focus_dist = ptr[unsafe_offset=base + Camera.FOCUS_DIST]
         self.defocus_disk_u = Vec3f32[Frame.WORLD].load(
             ptr, base + Camera.DEFOCUS_DISK_U
         )

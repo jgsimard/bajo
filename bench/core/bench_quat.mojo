@@ -14,7 +14,7 @@ comptime num_elements = 100000
 
 
 def quat_mul_0[
-    frame: Frame, width: SIMDSize
+    frame: Frame, width: SIMDLength
 ](
     q1: Quaternion[dtype, frame, width], q2: Quaternion[dtype, frame, width]
 ) -> Quaternion[dtype, frame, width]:
@@ -25,7 +25,7 @@ def quat_mul_0[
     return Quaternion[dtype, frame, width](x, y, z, w)
 
 
-struct BenchmarkData[width: SIMDSize](Copyable):
+struct BenchmarkData[width: SIMDLength](Copyable):
     var src_a: List[Quaternion[dtype, Frame.WORLD, Self.width]]
     var src_b: List[Quaternion[dtype, Frame.WORLD, Self.width]]
     var dst: List[Quaternion[dtype, Frame.WORLD, Self.width]]
@@ -52,7 +52,7 @@ struct BenchmarkData[width: SIMDSize](Copyable):
 
 
 def dispatch_mul[
-    version: Int, frame: Frame, width: SIMDSize
+    version: Int, frame: Frame, width: SIMDLength
 ](
     q1: Quaternion[dtype, frame, width], q2: Quaternion[dtype, frame, width]
 ) -> Quaternion[dtype, frame, width]:
@@ -63,14 +63,15 @@ def dispatch_mul[
 
 
 def main() raises:
-    def bench_throughput[version: Int, width: SIMDSize]() raises:
+    def bench_throughput[version: Int, width: SIMDLength]() raises:
         data = BenchmarkData[width]()
 
         # bounds checking makes this benchmars 3X slower !
         def wrapper() raises {mut data}:
             for i in range(num_elements / width):
-                data.dst.unsafe_ptr()[i] = dispatch_mul[version](
-                    data.src_a.unsafe_ptr()[i], data.src_b.unsafe_ptr()[i]
+                data.dst.unsafe_ptr()[unsafe_offset=i] = dispatch_mul[version](
+                    data.src_a.unsafe_ptr()[unsafe_offset=i],
+                    data.src_b.unsafe_ptr()[unsafe_offset=i],
                 )
             keep(data.dst[0].z)
 
@@ -80,39 +81,7 @@ def main() raises:
 
         print(t"Throughput: {mops} Mops/s | Avg Time: {avg_time_us} us")
 
-    def bench_latency[version: Int, frame: Frame, width: SIMDSize]() raises:
-        angle = degrees_to_radians(Float32(45))
-        q2 = Quaternion[dtype, frame, width].from_axis_angle(
-            Vec3[dtype, frame, width](0, 1, 0), angle
-        )
-        q3 = Quaternion[dtype, frame, width].from_axis_angle(
-            Vec3[dtype, frame, width](1, 0, 0), angle
-        )
-        a = dispatch_mul[version](q2, q3)
-        b = Quaternion[dtype, frame, width](
-            0.353553, 0.353553, -0.146447, 0.853553
-        )
-        assert_almost_equal(a.x, b.x, atol=1e-6)
-        assert_almost_equal(a.y, b.y, atol=1e-6)
-        assert_almost_equal(a.z, b.z, atol=1e-6)
-        assert_almost_equal(a.w, b.w, atol=1e-6)
-
-        q = a
-
-        def bench_fn() raises {q2, q3, mut q}:
-            for _ in range(1e6):
-                q = dispatch_mul[version](q, q2)
-                q = dispatch_mul[version](q, q3)
-            keep(q)
-
-        var time_us = round(run(bench_fn, max_iters=100).mean(Unit.us), 1)
-
-        print(t"v{version} : {time_us} us")
-
     comptime for w in [1, 2, 4, 8]:
         print(t"width = {w}")
         bench_throughput[0, w]()
         bench_throughput[1, w]()
-
-        bench_latency[0, Frame.WORLD, w]()
-        bench_latency[1, Frame.WORLD, w]()

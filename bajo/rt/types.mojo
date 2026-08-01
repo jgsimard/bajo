@@ -46,8 +46,12 @@ struct PrimitiveId(Copyable, Writable):
     var value: UInt32
 
     def __init__(out self, kind: UInt32, index: UInt32):
-        debug_assert["safe"](kind < (UInt32(1) << PRIMITIVE_KIND_BITS))
-        debug_assert["safe"](index < (UInt32(1) << PRIMITIVE_INDEX_BITS))
+        debug_assert["safe", _use_compiler_assume=True](
+            kind < (UInt32(1) << PRIMITIVE_KIND_BITS)
+        )
+        debug_assert["safe", _use_compiler_assume=True](
+            index < (UInt32(1) << PRIMITIVE_INDEX_BITS)
+        )
         self.value = (kind << PRIMITIVE_INDEX_BITS) | index
 
     def kind(self) -> UInt32:
@@ -62,8 +66,12 @@ struct SurfaceId(Copyable, Writable):
     var value: UInt32
 
     def __init__(out self, kind: UInt32, index: UInt32):
-        debug_assert["safe"](kind < (UInt32(1) << SURFACE_KIND_BITS))
-        debug_assert["safe"](index < (UInt32(1) << SURFACE_INDEX_BITS))
+        debug_assert["safe", _use_compiler_assume=True](
+            kind < (UInt32(1) << SURFACE_KIND_BITS)
+        )
+        debug_assert["safe", _use_compiler_assume=True](
+            index < (UInt32(1) << SURFACE_INDEX_BITS)
+        )
         self.value = (kind << SURFACE_INDEX_BITS) | index
 
     def kind(self) -> UInt32:
@@ -115,14 +123,14 @@ struct SurfaceStore(Movable):
         return SurfaceId(MAT_LAMBERTIAN, index)
 
     def add_metal(mut self, albedo: Color, fuzz: Float32) -> SurfaceId:
-        debug_assert["safe"](fuzz >= 0.0)
-        debug_assert["safe"](fuzz <= 1.0)
+        debug_assert["safe", _use_compiler_assume=True](fuzz >= 0.0)
+        debug_assert["safe", _use_compiler_assume=True](fuzz <= 1.0)
         var index = UInt32(len(self.metals))
         self.metals.append(Metal(albedo, fuzz))
         return SurfaceId(MAT_METAL, index)
 
     def add_dielectric(mut self, refraction_index: Float32) -> SurfaceId:
-        debug_assert["safe"](refraction_index > 0.0)
+        debug_assert["safe", _use_compiler_assume=True](refraction_index > 0.0)
         var index = UInt32(len(self.dielectrics))
         self.dielectrics.append(Dielectric(refraction_index))
         return SurfaceId(MAT_DIELECTRIC, index)
@@ -158,9 +166,13 @@ struct RenderSettings(Copyable, Writable):
         samples_per_pixel: Int,
         rng_seed: UInt64,
     ):
-        debug_assert["safe"](image_width > 0, "image width must be positive")
-        debug_assert["safe"](image_height > 0, "image height must be positive")
-        debug_assert["safe"](
+        debug_assert["safe", _use_compiler_assume=True](
+            image_width > 0, "image width must be positive"
+        )
+        debug_assert["safe", _use_compiler_assume=True](
+            image_height > 0, "image height must be positive"
+        )
+        debug_assert["safe", _use_compiler_assume=True](
             samples_per_pixel > 0, "samples per pixel must be positive"
         )
 
@@ -218,25 +230,25 @@ struct World(Movable):
         var triangle_instance_surfaces: List[SurfaceId],
         var surfaces: SurfaceStore,
     ):
-        debug_assert["safe"](
+        debug_assert["safe", _use_compiler_assume=True](
             len(spheres) > 0
             or len(triangle_vertices) > 0
             or len(triangle_instances) > 0,
             "world requires at least one primitive",
         )
-        debug_assert["safe"](
+        debug_assert["safe", _use_compiler_assume=True](
             len(spheres) == len(sphere_surfaces),
             "sphere and surface sidecar lengths must match",
         )
-        debug_assert["safe"](
+        debug_assert["safe", _use_compiler_assume=True](
             len(triangle_vertices) % 3 == 0,
             "triangle vertex count must be a multiple of three",
         )
-        debug_assert["safe"](
+        debug_assert["safe", _use_compiler_assume=True](
             len(triangle_vertices) / 3 == len(triangle_surfaces),
             "triangle and surface sidecar lengths must match",
         )
-        debug_assert["safe"](
+        debug_assert["safe", _use_compiler_assume=True](
             len(triangle_instances) == len(triangle_instance_surfaces),
             "triangle instance and surface sidecar lengths must match",
         )
@@ -261,10 +273,10 @@ struct World(Movable):
             )
             for i in range(len(self.spheres)):
                 ref s = self.spheres[i]
-                debug_assert["safe"](
+                debug_assert["safe", _use_compiler_assume=True](
                     s.radius != 0.0, "sphere radius must be non-zero"
                 )
-                debug_assert["safe"](
+                debug_assert["safe", _use_compiler_assume=True](
                     self.surfaces.validate(self.sphere_surfaces[i]),
                     "sphere surface id is out of range",
                 )
@@ -276,7 +288,7 @@ struct World(Movable):
 
         if len(self.triangle_vertices) > 0:
             for i in range(len(self.triangle_surfaces)):
-                debug_assert["safe"](
+                debug_assert["safe", _use_compiler_assume=True](
                     self.surfaces.validate(self.triangle_surfaces[i]),
                     "triangle surface id is out of range",
                 )
@@ -290,7 +302,7 @@ struct World(Movable):
         if len(self.triangle_instances) > 0:
             for mesh_idx in range(len(self.triangle_meshes)):
                 ref vertices = self.triangle_meshes[mesh_idx]
-                debug_assert["safe"](
+                debug_assert["safe", _use_compiler_assume=True](
                     len(vertices) > 0 and len(vertices) % 3 == 0,
                     (
                         "triangle mesh vertex count must be a positive multiple"
@@ -305,15 +317,15 @@ struct World(Movable):
 
             for i in range(len(self.triangle_instances)):
                 ref inst = self.triangle_instances[i]
-                debug_assert["safe"](
+                debug_assert["safe", _use_compiler_assume=True](
                     inst.kind == Primitive.TRIANGLE,
                     "triangle instance must have triangle primitive kind",
                 )
-                debug_assert["safe"](
+                debug_assert["safe", _use_compiler_assume=True](
                     inst.blas_idx < UInt32(len(self.triangle_meshes)),
                     "triangle instance blas_idx is out of range",
                 )
-                debug_assert["safe"](
+                debug_assert["safe", _use_compiler_assume=True](
                     self.surfaces.validate(self.triangle_instance_surfaces[i]),
                     "triangle instance surface id is out of range",
                 )
@@ -363,12 +375,12 @@ struct World(Movable):
 
         var primitive = PrimitiveId(PRIM_SPHERE, bvh_hit.prim)
         var sphere_idx = Int(primitive.index())
-        debug_assert["safe"](
+        debug_assert["safe", _use_compiler_assume=True](
             sphere_idx >= 0 and sphere_idx < len(self.spheres),
             "BVH returned an out-of-range sphere index",
         )
         ref sphere = self.spheres[sphere_idx]
-        debug_assert["safe"](
+        debug_assert["safe", _use_compiler_assume=True](
             self.surfaces.validate(self.sphere_surfaces[sphere_idx]),
             "hit sphere surface id is out of range",
         )
@@ -395,16 +407,16 @@ struct World(Movable):
         var bvh_hit = self.triangle_tlas.value().trace[
             TriangleBvh[Frame.LOCAL, BVH_WIDTH],
             TRACE.CLOSEST_HIT,
-        ](ray, self.triangle_mesh_blases.unsafe_ptr())
+        ](ray, Span(self.triangle_mesh_blases))
         if not bvh_hit.is_hit() or bvh_hit.inst == EMPTY_LANE:
             return None
 
         var instance_idx = Int(bvh_hit.inst)
-        debug_assert["safe"](
+        debug_assert["safe", _use_compiler_assume=True](
             instance_idx >= 0 and instance_idx < len(self.triangle_instances),
             "TLAS returned an out-of-range triangle instance index",
         )
-        debug_assert["safe"](
+        debug_assert["safe", _use_compiler_assume=True](
             self.surfaces.validate(
                 self.triangle_instance_surfaces[instance_idx]
             ),
@@ -438,11 +450,11 @@ struct World(Movable):
 
         var primitive = PrimitiveId(PRIM_TRIANGLE, bvh_hit.prim)
         var tri_idx = Int(primitive.index())
-        debug_assert["safe"](
+        debug_assert["safe", _use_compiler_assume=True](
             tri_idx >= 0 and tri_idx < len(self.triangle_surfaces),
             "BVH returned an out-of-range triangle index",
         )
-        debug_assert["safe"](
+        debug_assert["safe", _use_compiler_assume=True](
             self.surfaces.validate(self.triangle_surfaces[tri_idx]),
             "hit triangle surface id is out of range",
         )
@@ -494,7 +506,9 @@ def add_sphere(
     radius: Float32,
     surface: SurfaceId,
 ):
-    debug_assert["safe"](radius != 0.0, "sphere radius must be non-zero")
+    debug_assert["safe", _use_compiler_assume=True](
+        radius != 0.0, "sphere radius must be non-zero"
+    )
     spheres.append(Sphere[Frame.WORLD](center, radius))
     sphere_surfaces.append(surface.copy())
 
@@ -519,7 +533,7 @@ def add_triangle_mesh(
     vertices: List[Point3f32[Frame.WORLD]],
     surface: SurfaceId,
 ):
-    debug_assert["safe"](
+    debug_assert["safe", _use_compiler_assume=True](
         len(vertices) % 3 == 0,
         "triangle mesh vertex count must be a multiple of three",
     )
@@ -535,11 +549,10 @@ def add_triangle_mesh_instance(
     mut triangle_instance_surfaces: List[SurfaceId],
     vertices: List[Point3f32[Frame.LOCAL]],
     transform: Affine3f32[Frame.LOCAL, Frame.WORLD],
-    inv_transform: Affine3f32[Frame.WORLD, Frame.LOCAL],
     bounds: AABB[Frame.LOCAL],
     surface: SurfaceId,
 ) -> UInt32:
-    debug_assert["safe"](
+    debug_assert["safe", _use_compiler_assume=True](
         len(vertices) > 0 and len(vertices) % 3 == 0,
         "triangle mesh vertex count must be a positive multiple of three",
     )
@@ -548,7 +561,6 @@ def add_triangle_mesh_instance(
     triangle_instances.append(
         Instance(
             transform,
-            inv_transform,
             mesh_idx,
             bounds,
             Primitive.TRIANGLE,
@@ -563,14 +575,12 @@ def add_triangle_instance(
     mut triangle_instance_surfaces: List[SurfaceId],
     mesh_idx: UInt32,
     transform: Affine3f32[Frame.LOCAL, Frame.WORLD],
-    inv_transform: Affine3f32[Frame.WORLD, Frame.LOCAL],
     mesh_bounds: AABB[Frame.LOCAL],
     surface: SurfaceId,
 ):
     triangle_instances.append(
         Instance(
             transform,
-            inv_transform,
             mesh_idx,
             mesh_bounds,
             Primitive.TRIANGLE,

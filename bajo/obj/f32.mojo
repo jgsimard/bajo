@@ -11,9 +11,9 @@ struct F32ParseResult(TrivialRegisterPassable):
 
 
 @always_inline
-def parse_f32_at[
-    o: Origin
-](ptr: UnsafePointer[UInt8, o], pos: Int, end: Int) raises -> F32ParseResult:
+def parse_f32_at(
+    ptr: UnsafePointer[mut=False, UInt8, _], pos: Int, end: Int
+) raises -> F32ParseResult:
     if pos >= end:
         return F32ParseResult(0.0, pos)
 

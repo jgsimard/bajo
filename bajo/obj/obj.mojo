@@ -32,22 +32,24 @@ struct ObjIndexLimit(TrivialRegisterPassable):
 
 # OBJ parsing
 @always_inline
-def _word_ends_here[
-    o: Origin
-](ptr: UnsafePointer[UInt8, o], p: Int, end: Int) -> Bool:
+def _word_ends_here(
+    ptr: UnsafePointer[mut=False, UInt8, _], p: Int, end: Int
+) -> Bool:
     if p >= end:
         return True
     return _is_ws_or_line_cut(ptr.unsafe_load(p))
 
 
-struct ObjLineCursor[o: Origin]:
-    var text: StringSlice[Self.o]
-    var ptr: UnsafePointer[UInt8, Self.o]
+struct ObjLineCursor[origin: ImmOrigin]:
+    var text: StringSlice[Self.origin]
+    var ptr: UnsafePointer[UInt8, Self.origin]
     var pos: Int
     var end: Int
 
     @always_inline
-    def __init__(out self, text: StringSlice[Self.o], start: Int, end: Int):
+    def __init__(
+        out self, text: StringSlice[Self.origin], start: Int, end: Int
+    ):
         self.text = text
         self.ptr = text.unsafe_ptr()
         self.pos = start
@@ -426,10 +428,10 @@ struct ObjLineCursor[o: Origin]:
 
         return String(self.text[byte = start : end_pos + 1])
 
-    def next_word(mut self) -> StringSlice[Self.o]:
+    def next_word(mut self) -> StringSlice[Self.origin]:
         self.skip_ws()
         if self.pos >= self.end:
-            return StringSlice[Self.o]()
+            return StringSlice[Self.origin]()
 
         var start = self.pos
         while self.pos < self.end:
@@ -443,9 +445,7 @@ struct ObjLineCursor[o: Origin]:
         return self.text[byte = start : self.pos]
 
 
-def _parse_v_cursor[
-    origin: ImmOrigin
-](mut mesh: ObjMesh, mut cur: ObjLineCursor[origin]) raises:
+def _parse_v_cursor(mut mesh: ObjMesh, mut cur: ObjLineCursor) raises:
     cur.skip_ws()
     if cur.pos >= cur.end:
         return
@@ -484,9 +484,7 @@ def _parse_v_cursor[
                 mesh._push_color(r, g, b)
 
 
-def _parse_vt_cursor[
-    origin: ImmOrigin
-](mut mesh: ObjMesh, mut cur: ObjLineCursor[origin]) raises:
+def _parse_vt_cursor(mut mesh: ObjMesh, mut cur: ObjLineCursor) raises:
     cur.skip_ws()
     if cur.pos >= cur.end:
         return
@@ -505,9 +503,7 @@ def _parse_vt_cursor[
     )
 
 
-def _parse_vn_cursor[
-    origin: ImmOrigin
-](mut mesh: ObjMesh, mut cur: ObjLineCursor[origin]) raises:
+def _parse_vn_cursor(mut mesh: ObjMesh, mut cur: ObjLineCursor) raises:
     cur.skip_ws()
     if cur.pos >= cur.end:
         return
@@ -550,10 +546,8 @@ def _finish_face_parse(
             mesh.indices.shrink(index_start)
 
 
-def _parse_face_cursor[
-    origin: ImmOrigin
-](
-    mut mesh: ObjMesh, mut cur: ObjLineCursor[origin], is_line: Bool = False
+def _parse_face_cursor(
+    mut mesh: ObjMesh, mut cur: ObjLineCursor, is_line: Bool = False
 ) raises:
     var index_start = len(mesh.indices)
     var count = 0
@@ -646,8 +640,10 @@ def _parse_obj[
 
 
 def _parse_obj[
-    origin: ImmOrigin, Loader: ObjTextLoader
-](path: String, text: StringSlice[origin], loader: Loader) raises -> ObjMesh:
+    Loader: ObjTextLoader
+](
+    path: String, text: StringSlice[mut=False, _], loader: Loader
+) raises -> ObjMesh:
     var mesh = ObjMesh()
 
     # Same rough heuristic as before, with reserves for the other hot arrays too.

@@ -27,9 +27,9 @@ def parse_obj(text: String, path: String = "") raises -> ObjMesh:
     return parse_obj(text, path, loader)
 
 
-def parse_obj[
-    origin: Origin
-](text: StringSlice[origin], path: String = "") raises -> ObjMesh:
+def parse_obj(
+    text: StringSlice[mut=False, _], path: String = ""
+) raises -> ObjMesh:
     """Raw OBJ StringSlice."""
     var loader = MemoryObjTextLoader()
     return parse_obj(text, path, loader)
@@ -43,8 +43,10 @@ def parse_obj[
 
 
 def parse_obj[
-    origin: Origin, Loader: ObjTextLoader
-](text: StringSlice[origin], path: String, loader: Loader) raises -> ObjMesh:
+    Loader: ObjTextLoader
+](
+    text: StringSlice[mut=False, _], path: String, loader: Loader
+) raises -> ObjMesh:
     """Raw OBJ StringSlice plus loader for mtllib resolution."""
     return _parse_obj(path, text, loader)
 

@@ -395,7 +395,7 @@ struct World(Movable):
         var bvh_hit = self.triangle_tlas.value().trace[
             TriangleBvh[Frame.LOCAL, BVH_WIDTH],
             TRACE.CLOSEST_HIT,
-        ](ray, self.triangle_mesh_blases.unsafe_ptr())
+        ](ray, Span(self.triangle_mesh_blases))
         if not bvh_hit.is_hit() or bvh_hit.inst == EMPTY_LANE:
             return None
 

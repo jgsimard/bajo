@@ -38,15 +38,15 @@ def _node_right_index(node_idx: UInt32) -> Int:
     return _node_meta_base(node_idx) + BinaryBvhNode.RIGHT
 
 
-def _node_left[
-    origin: ImmOrigin
-](node_meta: UnsafePointer[UInt32, origin], node_idx: UInt32) -> UInt32:
+def _node_left(
+    node_meta: UnsafePointer[mut=False, UInt32, _], node_idx: UInt32
+) -> UInt32:
     return node_meta[unsafe_offset=_node_left_index(node_idx)]
 
 
-def _node_right[
-    origin: ImmOrigin
-](node_meta: UnsafePointer[UInt32, origin], node_idx: UInt32) -> UInt32:
+def _node_right(
+    node_meta: UnsafePointer[mut=False, UInt32, _], node_idx: UInt32
+) -> UInt32:
     return node_meta[unsafe_offset=_node_right_index(node_idx)]
 
 
@@ -58,10 +58,8 @@ def _encoded_index(encoded: UInt32) -> UInt32:
     return encoded & LBVH_INDEX_MASK
 
 
-def _write_child_bounds[
-    origin: MutOrigin
-](
-    node_bounds: UnsafePointer[Float32, origin],
+def _write_child_bounds(
+    node_bounds: UnsafePointer[mut=True, Float32, _],
     parent: UInt32,
     write_left: Bool,
     bounds: AABB,
@@ -72,11 +70,9 @@ def _write_child_bounds[
     bounds.store6(node_bounds, b)
 
 
-def _load_and_union_node_bounds[
-    origin: ImmOrigin
-](node_bounds: UnsafePointer[Float32, origin], parent: UInt32) -> AABB[
-    Frame.WORLD
-]:
+def _load_and_union_node_bounds(
+    node_bounds: UnsafePointer[mut=False, Float32, _], parent: UInt32
+) -> AABB[Frame.WORLD]:
     var b = _node_bounds_base(parent)
     b1 = AABB[Frame.WORLD].load6(node_bounds, b)
     b2 = AABB[Frame.WORLD].load6(node_bounds, b + 6)

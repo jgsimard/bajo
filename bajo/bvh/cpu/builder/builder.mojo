@@ -75,7 +75,7 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
             var axis = longest_axis(extent)
             split_idx = _partition_items_by_median_center(
                 Span(self.item_indices),
-                self.items.unsafe_ptr(),
+                Span(self.items),
                 first,
                 count,
                 axis,
@@ -84,8 +84,8 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
         elif split_method == "sah":
             var split = _find_sah_split(
                 node,
-                self.item_indices.unsafe_ptr(),
-                self.items.unsafe_ptr(),
+                Span(self.item_indices),
+                Span(self.items),
             )
 
             var leaf_cost = node.surface_area() * Float32(node.item_count)
@@ -97,15 +97,15 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
 
                 split_idx = _partition_items_by_median_center(
                     Span(self.item_indices),
-                    self.items.unsafe_ptr(),
+                    Span(self.items),
                     first,
                     count,
                     axis,
                 )
             else:
                 split_idx = _partition_items_by_bin(
-                    self.item_indices.unsafe_ptr(),
-                    self.items.unsafe_ptr(),
+                    Span(self.item_indices),
+                    Span(self.items),
                     first,
                     count,
                     split.axis,
@@ -242,10 +242,10 @@ struct BoundsBvhNode[frame: Frame](TrivialRegisterPassable):
 
 
 def _partition_items_by_median_center[
-    origin: MutOrigin, frame: Frame
+    frame: Frame
 ](
-    indices: Span[UInt32, origin],
-    items: UnsafePointer[mut=False, BoundsItem[frame], _],
+    indices: Span[mut=True, UInt32, _],
+    items: Span[mut=False, BoundsItem[frame], _],
     first: Int,
     count: Int,
     axis: Int,
@@ -253,8 +253,8 @@ def _partition_items_by_median_center[
     var mid = count / 2
 
     def cmp(a_idx: UInt32, b_idx: UInt32) capturing -> Bool:
-        var a = items[unsafe_offset=Int(a_idx)].center_axis(axis)
-        var b = items[unsafe_offset=Int(b_idx)].center_axis(axis)
+        var a = items.unsafe_get(Int(a_idx)).center_axis(axis)
+        var b = items.unsafe_get(Int(b_idx)).center_axis(axis)
 
         if a == b:
             return a_idx < b_idx

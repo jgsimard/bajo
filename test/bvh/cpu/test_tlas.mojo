@@ -117,7 +117,7 @@ def test_tlas_triangle_single_instance_cases() raises:
         TriangleBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT
     ](
         identity_ray,
-        blases.unsafe_ptr(),
+        Span(blases),
     )
     _assert_hit(identity_hit, 0, 0, 2.0)
     assert_almost_equal(identity_hit.normal.x, 0.0)
@@ -136,7 +136,7 @@ def test_tlas_triangle_single_instance_cases() raises:
     _assert_hit(
         translated_tlas.trace[TriangleBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT](
             translated_hit_ray,
-            blases.unsafe_ptr(),
+            Span(blases),
         ),
         0,
         0,
@@ -151,7 +151,7 @@ def test_tlas_triangle_single_instance_cases() raises:
         TriangleBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT
     ](
         translated_miss_ray,
-        blases.unsafe_ptr(),
+        Span(blases),
     )
     assert_true(not hit.is_hit())
 
@@ -179,7 +179,7 @@ def test_tlas_triangle_two_instance_cases() raises:
     _assert_hit(
         near_far_tlas.trace[TriangleBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT](
             center_ray,
-            blases.unsafe_ptr(),
+            Span(blases),
         ),
         0,
         0,
@@ -198,7 +198,7 @@ def test_tlas_triangle_two_instance_cases() raises:
     _assert_hit(
         left_right_tlas.trace[TriangleBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT](
             right_ray,
-            blases.unsafe_ptr(),
+            Span(blases),
         ),
         1,
         0,
@@ -223,7 +223,7 @@ def test_tlas_triangle_shadow_cases() raises:
     assert_true(
         tlas.trace[TriangleBvh[Frame.LOCAL, 4], TRACE.ANY_HIT](
             ray_hit,
-            blases.unsafe_ptr(),
+            Span(blases),
         ).is_occluded()
     )
 
@@ -234,7 +234,7 @@ def test_tlas_triangle_shadow_cases() raises:
     assert_true(
         not tlas.trace[TriangleBvh[Frame.LOCAL, 4], TRACE.ANY_HIT](
             ray_miss,
-            blases.unsafe_ptr(),
+            Span(blases),
         ).is_occluded()
     )
 
@@ -261,7 +261,7 @@ def test_tlas_sphere_single_instance_cases() raises:
         SphereBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT
     ](
         identity_ray,
-        blases.unsafe_ptr(),
+        Span(blases),
     )
     _assert_hit(identity_hit, 0, 0, 1.0)
     assert_almost_equal(identity_hit.normal.x, 0.0)
@@ -281,7 +281,7 @@ def test_tlas_sphere_single_instance_cases() raises:
     _assert_hit(
         translated_tlas.trace[SphereBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT](
             translated_hit_ray,
-            blases.unsafe_ptr(),
+            Span(blases),
         ),
         0,
         0,
@@ -297,7 +297,7 @@ def test_tlas_sphere_single_instance_cases() raises:
         SphereBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT
     ](
         translated_miss_ray,
-        blases.unsafe_ptr(),
+        Span(blases),
     )
     assert_true(not hit.is_hit())
 
@@ -323,7 +323,7 @@ def test_tlas_sphere_two_instance_cases() raises:
     _assert_hit(
         near_far_tlas.trace[SphereBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT](
             center_ray,
-            blases.unsafe_ptr(),
+            Span(blases),
         ),
         0,
         0,
@@ -343,7 +343,7 @@ def test_tlas_sphere_two_instance_cases() raises:
     _assert_hit(
         left_right_tlas.trace[SphereBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT](
             right_ray,
-            blases.unsafe_ptr(),
+            Span(blases),
         ),
         1,
         0,
@@ -370,7 +370,7 @@ def test_tlas_sphere_nonuniform_scale_normal() raises:
     var tlas = Tlas[4](instances)
     var ray = Rayf32[Frame.WORLD](Point3W(1.0, 0.0, 0.0), Vec3W(0.0, 0.0, 1.0))
     var hit = tlas.trace[SphereBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT](
-        ray, blases.unsafe_ptr()
+        ray, Span(blases)
     )
 
     _assert_hit(hit, 0, 0, 1.1339746)
@@ -395,7 +395,7 @@ def test_tlas_sphere_shadow_cases() raises:
     )
     assert_true(
         tlas.trace[SphereBvh[Frame.LOCAL, 4], TRACE.ANY_HIT](
-            ray_hit, blases.unsafe_ptr()
+            ray_hit, Span(blases)
         ).is_occluded()
     )
 
@@ -405,7 +405,7 @@ def test_tlas_sphere_shadow_cases() raises:
     assert_true(
         not tlas.trace[SphereBvh[Frame.LOCAL, 4], TRACE.ANY_HIT](
             ray_miss,
-            blases.unsafe_ptr(),
+            Span(blases),
         ).is_occluded()
     )
 

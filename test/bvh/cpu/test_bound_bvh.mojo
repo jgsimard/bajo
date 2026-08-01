@@ -348,8 +348,8 @@ def test_bounds_sah_clear_separation() raises:
 
     var split = _find_sah_split(
         builder.nodes[0],
-        builder.item_indices.unsafe_ptr(),
-        builder.items.unsafe_ptr(),
+        Span(builder.item_indices),
+        Span(builder.items),
     )
 
     assert_true(split.axis == 0)
@@ -373,8 +373,8 @@ def test_bounds_sah_degenerate() raises:
 
     var split = _find_sah_split(
         builder.nodes[0],
-        builder.item_indices.unsafe_ptr(),
-        builder.items.unsafe_ptr(),
+        Span(builder.item_indices),
+        Span(builder.items),
     )
 
     assert_true(split.axis == -1)
@@ -396,7 +396,7 @@ def test_bounds_partition_items_non_empty() raises:
 
     var split_idx = _partition_items_by_median_center(
         Span(builder.item_indices),
-        builder.items.unsafe_ptr(),
+        Span(builder.items),
         0,
         2,
         0,

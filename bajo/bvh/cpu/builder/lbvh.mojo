@@ -14,14 +14,14 @@ struct MortonItem(Comparable, TrivialRegisterPassable):
         return self.code < rhs.code
 
 
-def _common_prefix[
-    origin: ImmOrigin
-](pairs: UnsafePointer[MortonItem, origin], i: Int, j: Int, n: Int) -> Int:
+def _common_prefix(
+    pairs: Span[mut=False, MortonItem, _], i: Int, j: Int, n: Int
+) -> Int:
     if j < 0 or j >= n:
         return -1
 
-    var a = pairs[unsafe_offset=i].code
-    var b = pairs[unsafe_offset=j].code
+    var a = pairs.unsafe_get(i).code
+    var b = pairs.unsafe_get(j).code
 
     if a != b:
         return Int(count_leading_zeros(a ^ b))
@@ -34,10 +34,8 @@ def _common_prefix[
     return 32 + Int(count_leading_zeros(x))
 
 
-def _lbvh_find_split[
-    origin: ImmOrigin
-](
-    pairs: UnsafePointer[MortonItem, origin],
+def _lbvh_find_split(
+    pairs: Span[mut=False, MortonItem, _],
     first: Int,
     last: Int,
     n: Int,
@@ -95,7 +93,7 @@ def _build_lbvh[
 
     _ = _build_lbvh_recursive[frame, leaf_size](
         builder,
-        pairs.unsafe_ptr(),
+        Span(pairs),
         0,
         0,
         item_count,
@@ -103,10 +101,10 @@ def _build_lbvh[
 
 
 def _build_lbvh_recursive[
-    origin: ImmOrigin, //, frame: Frame, leaf_size: Int
+    frame: Frame, leaf_size: Int
 ](
     mut builder: BoundsBvhBuilder[frame, leaf_size],
-    pairs: UnsafePointer[MortonItem, origin],
+    pairs: Span[mut=False, MortonItem, _],
     node_idx: UInt32,
     first: Int,
     count: Int,

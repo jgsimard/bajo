@@ -68,14 +68,12 @@ struct Tlas[width: SIMDLength](Copyable):
                     node.data[lane] = block_idx
 
     def trace[
-        origin: ImmOrigin,
-        //,
         typed_bvh: TypedBvh,
         mode: TRACE,
     ](
         self,
         ray: Rayf32[Frame.WORLD],
-        blases: UnsafePointer[typed_bvh, origin],
+        blases: Span[mut=False, typed_bvh, _],
     ) -> Hit[Frame.WORLD]:
         comptime assert (
             typed_bvh.bvh_frame == Frame.LOCAL
@@ -114,9 +112,9 @@ struct Tlas[width: SIMDLength](Copyable):
                         local_ray_base.t_max,
                     )
 
-                    var local_hit = blases[
-                        unsafe_offset=Int(inst.blas_idx)
-                    ].trace[mode](local_ray)
+                    var local_hit = blases[Int(inst.blas_idx)].trace[mode](
+                        local_ray
+                    )
 
                     comptime if mode == TRACE.ANY_HIT:
                         if local_hit.is_occluded():

@@ -95,9 +95,7 @@ struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
             mut hit: Hit[Self.bvh_frame],
         ) capturing -> Bool:
             # using unsafe = 20-45% speedup
-            ref block = self.leaf_blocks.unsafe_ptr()[
-                unsafe_offset=Int(leaf_block_idx)
-            ]
+            ref block = Span(self.leaf_blocks).unsafe_get(Int(leaf_block_idx))
 
             var h = intersect_ray_sphere(
                 O,

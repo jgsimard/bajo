@@ -116,10 +116,7 @@ struct TriangleBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
             leaf_block_idx: UInt32,
             mut hit: Hit[Self.bvh_frame],
         ) capturing -> Bool:
-            # avoid bound checks in hot loop
-            ref block = self.leaf_blocks.unsafe_ptr()[
-                unsafe_offset=Int(leaf_block_idx)
-            ]
+            ref block = Span(self.leaf_blocks).unsafe_get(Int(leaf_block_idx))
             var tri_hit = intersect_ray_tri(
                 O,
                 D,

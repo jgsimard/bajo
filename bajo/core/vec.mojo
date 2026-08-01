@@ -372,9 +372,9 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
         )
 
     @staticmethod
-    def load[
-        origin: ImmOrigin
-    ](ptr: UnsafePointer[Scalar[Self.dtype], origin], base: Int) -> Self:
+    def load(
+        ptr: UnsafePointer[mut=False, Scalar[Self.dtype], _], base: Int
+    ) -> Self:
         comptime assert Self.width == 1
         return Self(
             ptr[unsafe_offset=base + 0],
@@ -382,9 +382,9 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
             ptr[unsafe_offset=base + 2],
         )
 
-    def store[
-        origin: MutOrigin
-    ](self, ptr: UnsafePointer[Scalar[Self.dtype], origin], base: Int):
+    def store(
+        self, ptr: UnsafePointer[mut=True, Scalar[Self.dtype], _], base: Int
+    ):
         comptime assert Self.width == 1
         ptr[unsafe_offset=base + 0] = self.x[0]
         ptr[unsafe_offset=base + 1] = self.y[0]

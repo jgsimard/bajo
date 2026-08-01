@@ -92,15 +92,11 @@ def refit_lbvh_bounds_from_leaves_kernel(
         )
 
 
-def _lbvh_find_range[
-    origin: ImmOrigin
-](
-    morton_codes: UnsafePointer[UInt32, origin],
+def _lbvh_find_range(
+    morton_codes: UnsafePointer[mut=False, UInt32, _],
     i: Int,
     n: Int,
-) -> Tuple[
-    Int, Int
-]:
+) -> Tuple[Int, Int]:
     var d_next = _common_prefix(morton_codes, i, i + 1, n)
     var d_prev = _common_prefix(morton_codes, i, i - 1, n)
 
@@ -127,10 +123,8 @@ def _lbvh_find_range[
     return (min(i, j), max(i, j))
 
 
-def _lbvh_find_split[
-    origin: ImmOrigin
-](
-    morton_codes: UnsafePointer[UInt32, origin],
+def _lbvh_find_split(
+    morton_codes: UnsafePointer[mut=False, UInt32, _],
     first: Int,
     last: Int,
     n: Int,

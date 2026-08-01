@@ -444,7 +444,7 @@ struct ObjLineCursor[o: Origin]:
 
 
 def _parse_v_cursor[
-    origin: Origin
+    origin: ImmOrigin
 ](mut mesh: ObjMesh, mut cur: ObjLineCursor[origin]) raises:
     cur.skip_ws()
     if cur.pos >= cur.end:
@@ -485,7 +485,7 @@ def _parse_v_cursor[
 
 
 def _parse_vt_cursor[
-    origin: Origin
+    origin: ImmOrigin
 ](mut mesh: ObjMesh, mut cur: ObjLineCursor[origin]) raises:
     cur.skip_ws()
     if cur.pos >= cur.end:
@@ -506,7 +506,7 @@ def _parse_vt_cursor[
 
 
 def _parse_vn_cursor[
-    origin: Origin
+    origin: ImmOrigin
 ](mut mesh: ObjMesh, mut cur: ObjLineCursor[origin]) raises:
     cur.skip_ws()
     if cur.pos >= cur.end:
@@ -551,7 +551,7 @@ def _finish_face_parse(
 
 
 def _parse_face_cursor[
-    origin: Origin
+    origin: ImmOrigin
 ](
     mut mesh: ObjMesh, mut cur: ObjLineCursor[origin], is_line: Bool = False
 ) raises:
@@ -646,7 +646,7 @@ def _parse_obj[
 
 
 def _parse_obj[
-    origin: Origin, Loader: ObjTextLoader
+    origin: ImmOrigin, Loader: ObjTextLoader
 ](path: String, text: StringSlice[origin], loader: Loader) raises -> ObjMesh:
     var mesh = ObjMesh()
 

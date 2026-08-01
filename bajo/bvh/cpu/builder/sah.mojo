@@ -32,8 +32,8 @@ def _find_sah_split[
     frame: Frame
 ](
     node: BoundsBvhNode,
-    indices: UnsafePointer[mut=False, UInt32, _],
-    items: UnsafePointer[mut=False, BoundsItem[frame], _],
+    indices: Span[mut=False, UInt32, _],
+    items: Span[mut=False, BoundsItem[frame], _],
 ) -> BoundsSplitResult[frame]:
     var best = BoundsSplitResult[frame]()
     var first = Int(node.first_item())
@@ -45,8 +45,8 @@ def _find_sah_split[
 
         # centroid range
         for i in range(count):
-            var item_idx = Int(indices[unsafe_offset=first + i])
-            var c = items[unsafe_offset=item_idx].center_axis(axis)
+            var item_idx = Int(indices.unsafe_get(first + i))
+            var c = items.unsafe_get(item_idx).center_axis(axis)
             min_c = min(min_c, c)
             max_c = max(max_c, c)
 
@@ -57,10 +57,10 @@ def _find_sah_split[
         var scale = Float32(BVH_BINS) / (max_c - min_c)
 
         for i in range(count):
-            var item_idx = Int(indices[unsafe_offset=first + i])
+            var item_idx = Int(indices.unsafe_get(first + i))
             var b_idx = _item_bin(items, item_idx, axis, min_c, scale)
             bins[b_idx].item_count += 1
-            items[unsafe_offset=item_idx].grow_into(bins[b_idx].bounds)
+            items.unsafe_get(item_idx).grow_into(bins[b_idx].bounds)
 
         # from the left
         var left_prefix = Array[BoundsBin[frame], BVH_BINS](
@@ -119,15 +119,15 @@ struct BoundsBin[frame: Frame](TrivialRegisterPassable):
 
 
 def _item_bin[
-    origin: ImmOrigin, frame: Frame
+    frame: Frame
 ](
-    items: UnsafePointer[BoundsItem[frame], origin],
+    items: Span[mut=False, BoundsItem[frame], _],
     item_idx: Int,
     axis: Int,
     bin_min: Float32,
     bin_scale: Float32,
 ) -> Int:
-    var c = items[unsafe_offset=item_idx].center_axis(axis)
+    var c = items.unsafe_get(item_idx).center_axis(axis)
     var b_idx = Int((c - bin_min) * bin_scale)
 
     if b_idx < 0:
@@ -141,8 +141,8 @@ def _item_bin[
 def _partition_items_by_bin[
     frame: Frame
 ](
-    indices: UnsafePointer[mut=True, UInt32, _],
-    items: UnsafePointer[mut=False, BoundsItem[frame], _],
+    indices: Span[mut=True, UInt32, _],
+    items: Span[mut=False, BoundsItem[frame], _],
     first: Int,
     count: Int,
     axis: Int,
@@ -154,15 +154,15 @@ def _partition_items_by_bin[
     var j = first + count - 1
 
     while i <= j:
-        var item_idx = Int(indices[unsafe_offset=i])
+        var item_idx = Int(indices.unsafe_get(i))
         var b_idx = _item_bin(items, item_idx, axis, bin_min, bin_scale)
 
         if b_idx <= split_bin:
             i += 1
         else:
-            indices[unsafe_offset=i], indices[unsafe_offset=j] = (
-                indices[unsafe_offset=j],
-                indices[unsafe_offset=i],
+            indices.unsafe_get(i), indices.unsafe_get(j) = (
+                indices.unsafe_get(j),
+                indices.unsafe_get(i),
             )
             j -= 1
 

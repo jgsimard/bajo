@@ -246,9 +246,9 @@ struct Affine3[dtype: DType, From: Frame, To: Frame, width: SIMDLength = 1](
         )
 
     @staticmethod
-    def load[
-        origin: Origin
-    ](ptr: UnsafePointer[Scalar[Self.dtype], origin], base: Int) -> Self:
+    def load(
+        ptr: UnsafePointer[mut=False, Scalar[Self.dtype], _], base: Int
+    ) -> Self:
         comptime assert Self.width == 1
         # fmt: off
         var r0 = ptr.unsafe_offset(base + 0).unsafe_load[width=4]()
@@ -261,9 +261,9 @@ struct Affine3[dtype: DType, From: Frame, To: Frame, width: SIMDLength = 1](
         )
         # fmt: on
 
-    def store[
-        origin: Origin[mut=True]
-    ](self, ptr: UnsafePointer[Scalar[Self.dtype], origin], base: Int):
+    def store(
+        self, ptr: UnsafePointer[mut=True, Scalar[Self.dtype], _], base: Int
+    ):
         comptime assert Self.width == 1
         # fmt: off
         ptr.unsafe_offset(base + 0).unsafe_store[width=4]([self.m00[0], self.m01[0], self.m02[0], self.tx[0]])

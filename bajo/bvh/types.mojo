@@ -59,11 +59,10 @@ struct Hit[frame: Frame = Frame.WORLD](TrivialRegisterPassable, Writable):
         return self.t < f32_max
 
     def store[
-        origin: MutOrigin,
         address_space: AddressSpace,
     ](
         self,
-        hits: UnsafePointer[Float32, origin, address_space=address_space],
+        hits: UnsafePointer[mut=True, Float32, _, address_space=address_space],
         idx: Int,
     ):
         var base = idx * Hit.STRIDE
@@ -81,10 +80,9 @@ struct Hit[frame: Frame = Frame.WORLD](TrivialRegisterPassable, Writable):
 
     @staticmethod
     def load[
-        origin: ImmOrigin,
         address_space: AddressSpace,
     ](
-        hits: UnsafePointer[Float32, origin, address_space=address_space],
+        hits: UnsafePointer[mut=False, Float32, _, address_space=address_space],
         idx: Int,
     ) -> Self:
         var base = idx * Hit.STRIDE

@@ -141,11 +141,9 @@ def _wide_node_base[width: SIMDLength](node_idx: UInt32, lane: Int) -> Int:
 
 
 def _wide_node_store_child[
-    origin: MutOrigin,
-    //,
     width: SIMDLength,
 ](
-    wide_nodes: UnsafePointer[Float32, origin],
+    wide_nodes: UnsafePointer[mut=True, Float32, _],
     node_idx: UInt32,
     lane: Int,
     bounds: AABB,
@@ -166,11 +164,9 @@ def _wide_node_store_child[
 
 
 def _wide_node_load_meta[
-    origin: ImmOrigin,
-    //,
     width: SIMDLength,
 ](
-    wide_nodes: UnsafePointer[Float32, origin],
+    wide_nodes: UnsafePointer[mut=False, Float32, _],
     node_idx: UInt32,
     lane: Int,
 ) -> UInt32:
@@ -179,13 +175,11 @@ def _wide_node_load_meta[
 
 
 def _load_wide_node_bounds_block[
-    origin: ImmOrigin,
-    //,
     dtype: DType,
     frame: Frame,
     width: SIMDLength,
 ](
-    wide_nodes: UnsafePointer[Scalar[dtype], origin],
+    wide_nodes: UnsafePointer[mut=False, Scalar[dtype], _],
     node_idx: UInt32,
 ) -> AxisAlignedBoundingBox[dtype, frame, width]:
     var aabb = AxisAlignedBoundingBox[dtype, frame, width].invalid()
@@ -205,12 +199,10 @@ def _load_wide_node_bounds_block[
 
 
 def _intersect_wide_node_bounds[
-    origin: ImmOrigin,
-    //,
     frame: Frame,
     width: SIMDLength,
 ](
-    wide_nodes: UnsafePointer[Float32, origin],
+    wide_nodes: UnsafePointer[mut=False, Float32, _],
     node_idx: UInt32,
     ray: Rayf32[frame],
     t_max: Float32,

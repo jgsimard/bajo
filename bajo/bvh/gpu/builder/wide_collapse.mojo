@@ -399,9 +399,9 @@ def _hploc_pair_out_idx(pair: UInt64) -> UInt32:
     return UInt32(pair & UInt64(0xFFFFFFFF))
 
 
-def _encoded_leaf_count[
-    origin: ImmOrigin
-](encoded: UInt32, node_leaf_counts: UnsafePointer[UInt32, origin]) -> UInt32:
+def _encoded_leaf_count(
+    encoded: UInt32, node_leaf_counts: UnsafePointer[mut=False, UInt32, _]
+) -> UInt32:
     if _is_encoded_leaf(encoded):
         return UInt32(1)
     return node_leaf_counts[unsafe_offset=Int(_encoded_index(encoded))]

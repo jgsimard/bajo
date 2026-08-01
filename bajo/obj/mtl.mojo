@@ -6,7 +6,7 @@ from bajo.obj.obj import ObjLineCursor, MINUS
 
 
 def _map_name_from_tail[
-    origin: Origin
+    origin: ImmOrigin
 ](mut cur: ObjLineCursor[origin]) -> String:
     var candidate = ""
     while cur.has_next():

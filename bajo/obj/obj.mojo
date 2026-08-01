@@ -32,35 +32,27 @@ struct ObjIndexLimit(TrivialRegisterPassable):
 
 # OBJ parsing
 @always_inline
-def _word_ends_here(
-    ptr: UnsafePointer[mut=False, UInt8, _], p: Int, end: Int
-) -> Bool:
-    if p >= end:
+def _word_ends_here(bytes: Span[mut=False, UInt8, _], p: Int) -> Bool:
+    if p >= len(bytes):
         return True
-    return _is_ws_or_line_cut(ptr.unsafe_load(p))
+    return _is_ws_or_line_cut(bytes.unsafe_get(p))
 
 
 struct ObjLineCursor[origin: ImmOrigin]:
-    var text: StringSlice[Self.origin]
-    var ptr: UnsafePointer[UInt8, Self.origin]
+    var bytes: Span[mut=False, UInt8, Self.origin]
     var pos: Int
-    var end: Int
 
     @always_inline
-    def __init__(
-        out self, text: StringSlice[Self.origin], start: Int, end: Int
-    ):
-        self.text = text
-        self.ptr = text.unsafe_ptr()
-        self.pos = start
-        self.end = end
+    def __init__(out self, bytes: Span[mut=False, UInt8, Self.origin]):
+        self.bytes = bytes
+        self.pos = 0
 
     @always_inline
     def skip_ws(mut self):
-        while self.pos < self.end:
-            var b = self.ptr.unsafe_load(self.pos)
+        while self.pos < len(self.bytes):
+            var b = self.bytes.unsafe_get(self.pos)
             if _is_line_cut(b):
-                self.end = self.pos
+                self.bytes = self.bytes[: self.pos]
                 break
             if not _is_ws(b):
                 break
@@ -68,11 +60,11 @@ struct ObjLineCursor[origin: ImmOrigin]:
 
     def has_next(mut self) -> Bool:
         self.skip_ws()
-        return self.pos < self.end
+        return self.pos < len(self.bytes)
 
     @always_inline
     def _next_f32_at_pos(mut self) raises -> Float32:
-        var parsed = parse_f32_at(self.ptr, self.pos, self.end)
+        var parsed = parse_f32_at(self.bytes, self.pos)
         self.pos = parsed.pos
         return parsed.value
 
@@ -83,20 +75,20 @@ struct ObjLineCursor[origin: ImmOrigin]:
     def _parse_index_int(
         mut self, slash_terminates: Bool, limit: ObjIndexLimit
     ) raises -> Int:
-        if self.pos >= self.end:
+        if self.pos >= len(self.bytes):
             raise String("missing OBJ index")
 
         var sign = 1
         var output = 0
-        var b = self.ptr.unsafe_load(self.pos)
+        var b = self.bytes.unsafe_get(self.pos)
         if b == MINUS:
             sign = -1
             self.pos += 1
         elif b == PLUS:
             self.pos += 1
 
-        while self.pos < self.end:
-            b = self.ptr.unsafe_load(self.pos)
+        while self.pos < len(self.bytes):
+            b = self.bytes.unsafe_get(self.pos)
             if _is_digit(b):
                 var digit = Int(b - ZERO)
                 output = output * 10 + digit
@@ -112,8 +104,8 @@ struct ObjLineCursor[origin: ImmOrigin]:
         if output == 0:
             raise String("missing or zero OBJ index")
 
-        if self.pos < self.end:
-            b = self.ptr.unsafe_load(self.pos)
+        if self.pos < len(self.bytes):
+            b = self.bytes.unsafe_get(self.pos)
             if not ((slash_terminates and b == SLASH) or _is_ws_or_line_cut(b)):
                 raise String("invalid character in OBJ index")
 
@@ -125,17 +117,17 @@ struct ObjLineCursor[origin: ImmOrigin]:
     ) raises -> Int:
         # Fast path for the common OBJ case: positive decimal indices.
         # Falls back to signed parsing only when a sign is actually present.
-        if self.pos >= self.end:
+        if self.pos >= len(self.bytes):
             raise String("missing OBJ index")
 
-        if self.pos < self.end:
-            var first = self.ptr.unsafe_load(self.pos)
+        if self.pos < len(self.bytes):
+            var first = self.bytes.unsafe_get(self.pos)
             if first == MINUS or first == PLUS:
                 return self._parse_index_int(slash_terminates, limit)
 
         var output = 0
-        while self.pos < self.end:
-            var b = self.ptr.unsafe_load(self.pos)
+        while self.pos < len(self.bytes):
+            var b = self.bytes.unsafe_get(self.pos)
             if _is_digit(b):
                 var digit = Int(b - ZERO)
                 output = output * 10 + digit
@@ -151,8 +143,8 @@ struct ObjLineCursor[origin: ImmOrigin]:
         if output == 0:
             raise String("missing or zero OBJ index")
 
-        if self.pos < self.end:
-            var b = self.ptr.unsafe_load(self.pos)
+        if self.pos < len(self.bytes):
+            var b = self.bytes.unsafe_get(self.pos)
             if not ((slash_terminates and b == SLASH) or _is_ws_or_line_cut(b)):
                 raise String("invalid character in OBJ index")
 
@@ -160,9 +152,9 @@ struct ObjLineCursor[origin: ImmOrigin]:
 
     @always_inline
     def _at_signed_index(self) -> Bool:
-        if self.pos >= self.end:
+        if self.pos >= len(self.bytes):
             return False
-        var b = self.ptr.unsafe_load(self.pos)
+        var b = self.bytes.unsafe_get(self.pos)
         return b == MINUS or b == PLUS
 
     @always_inline
@@ -190,7 +182,10 @@ struct ObjLineCursor[origin: ImmOrigin]:
         )
         var t_raw = 0
 
-        if self.pos < self.end and self.ptr.unsafe_load(self.pos) == SLASH:
+        if (
+            self.pos < len(self.bytes)
+            and self.bytes.unsafe_get(self.pos) == SLASH
+        ):
             self.pos += 1
             if self._at_signed_index():
                 needs_fix = True
@@ -220,9 +215,15 @@ struct ObjLineCursor[origin: ImmOrigin]:
         )
         var n_raw = 0
 
-        if self.pos < self.end and self.ptr.unsafe_load(self.pos) == SLASH:
+        if (
+            self.pos < len(self.bytes)
+            and self.bytes.unsafe_get(self.pos) == SLASH
+        ):
             self.pos += 1
-            if self.pos < self.end and self.ptr.unsafe_load(self.pos) == SLASH:
+            if (
+                self.pos < len(self.bytes)
+                and self.bytes.unsafe_get(self.pos) == SLASH
+            ):
                 self.pos += 1
                 if self._at_signed_index():
                     needs_fix = True
@@ -256,7 +257,10 @@ struct ObjLineCursor[origin: ImmOrigin]:
         var t_raw = 0
         var n_raw = 0
 
-        if self.pos < self.end and self.ptr.unsafe_load(self.pos) == SLASH:
+        if (
+            self.pos < len(self.bytes)
+            and self.bytes.unsafe_get(self.pos) == SLASH
+        ):
             self.pos += 1
             if self._at_signed_index():
                 needs_fix = True
@@ -265,7 +269,10 @@ struct ObjLineCursor[origin: ImmOrigin]:
                 limit=texcoord_limit,
             )
 
-            if self.pos < self.end and self.ptr.unsafe_load(self.pos) == SLASH:
+            if (
+                self.pos < len(self.bytes)
+                and self.bytes.unsafe_get(self.pos) == SLASH
+            ):
                 self.pos += 1
                 if self._at_signed_index():
                     needs_fix = True
@@ -298,14 +305,20 @@ struct ObjLineCursor[origin: ImmOrigin]:
         var t_raw = 0
         var n_raw = 0
 
-        if self.pos < self.end and self.ptr.unsafe_load(self.pos) == SLASH:
+        if (
+            self.pos < len(self.bytes)
+            and self.bytes.unsafe_get(self.pos) == SLASH
+        ):
             self.pos += 1
             t_raw = self._parse_index_int(
                 slash_terminates=True,
                 limit=texcoord_limit,
             )
 
-            if self.pos < self.end and self.ptr.unsafe_load(self.pos) == SLASH:
+            if (
+                self.pos < len(self.bytes)
+                and self.bytes.unsafe_get(self.pos) == SLASH
+            ):
                 self.pos += 1
                 n_raw = self._parse_index_int(
                     slash_terminates=False,
@@ -341,10 +354,16 @@ struct ObjLineCursor[origin: ImmOrigin]:
         var t_raw = 0
         var n_raw = 0
 
-        if self.pos < self.end and self.ptr.unsafe_load(self.pos) == SLASH:
+        if (
+            self.pos < len(self.bytes)
+            and self.bytes.unsafe_get(self.pos) == SLASH
+        ):
             self.pos += 1
 
-            if self.pos < self.end and self.ptr.unsafe_load(self.pos) == SLASH:
+            if (
+                self.pos < len(self.bytes)
+                and self.bytes.unsafe_get(self.pos) == SLASH
+            ):
                 # p//n
                 self.pos += 1
                 shape = 3
@@ -368,8 +387,8 @@ struct ObjLineCursor[origin: ImmOrigin]:
                 )
 
                 if (
-                    self.pos < self.end
-                    and self.ptr.unsafe_load(self.pos) == SLASH
+                    self.pos < len(self.bytes)
+                    and self.bytes.unsafe_get(self.pos) == SLASH
                 ):
                     self.pos += 1
                     shape = 4
@@ -396,19 +415,20 @@ struct ObjLineCursor[origin: ImmOrigin]:
 
     def joined_rest_of_line(mut self) -> String:
         self.skip_ws()
-        if self.pos >= self.end:
+        if self.pos >= len(self.bytes):
             return ""
 
         var start = self.pos
-        var logical_end = self.end
+        var logical_end = len(self.bytes)
 
         # Only string-like OBJ/MTL commands use this rare path. Keep comments
         # lazy here instead of pre-scanning every geometry line.
         var p = start
         while p < logical_end:
-            var b = self.ptr.unsafe_load(p)
+            var b = self.bytes.unsafe_get(p)
             if _is_line_cut(b):
                 logical_end = p
+                self.bytes = self.bytes[:logical_end]
                 break
             p += 1
 
@@ -416,48 +436,54 @@ struct ObjLineCursor[origin: ImmOrigin]:
 
         # Trim trailing whitespace.
         while end_pos >= start:
-            var b = self.ptr.unsafe_load(end_pos)
+            var b = self.bytes.unsafe_get(end_pos)
             if not _is_ws(b):
                 break
             end_pos -= 1
 
-        self.pos = self.end
+        self.pos = len(self.bytes)
 
         if end_pos < start:
             return ""
 
-        return String(self.text[byte = start : end_pos + 1])
+        return String(
+            StringSlice[Self.origin](
+                unsafe_from_utf8=self.bytes[start : end_pos + 1]
+            )
+        )
 
     def next_word(mut self) -> StringSlice[Self.origin]:
         self.skip_ws()
-        if self.pos >= self.end:
+        if self.pos >= len(self.bytes):
             return StringSlice[Self.origin]()
 
         var start = self.pos
-        while self.pos < self.end:
-            var b = self.ptr.unsafe_load(self.pos)
+        while self.pos < len(self.bytes):
+            var b = self.bytes.unsafe_get(self.pos)
             if _is_ws_or_line_cut(b):
                 if _is_line_cut(b):
-                    self.end = self.pos
+                    self.bytes = self.bytes[: self.pos]
                 break
             self.pos += 1
 
-        return self.text[byte = start : self.pos]
+        return StringSlice[Self.origin](
+            unsafe_from_utf8=self.bytes[start : self.pos]
+        )
 
 
 def _parse_v_cursor(mut mesh: ObjMesh, mut cur: ObjLineCursor) raises:
     cur.skip_ws()
-    if cur.pos >= cur.end:
+    if cur.pos >= len(cur.bytes):
         return
     var x = cur._next_f32_at_pos()
 
     cur.skip_ws()
-    if cur.pos >= cur.end:
+    if cur.pos >= len(cur.bytes):
         return
     var y = cur._next_f32_at_pos()
 
     cur.skip_ws()
-    if cur.pos >= cur.end:
+    if cur.pos >= len(cur.bytes):
         return
     var z = cur._next_f32_at_pos()
 
@@ -471,27 +497,27 @@ def _parse_v_cursor(mut mesh: ObjMesh, mut cur: ObjLineCursor) raises:
 
     # Optional vertex color: v x y z r g b.
     cur.skip_ws()
-    if cur.pos < cur.end:
+    if cur.pos < len(cur.bytes):
         var r = cur._next_f32_at_pos()
 
         cur.skip_ws()
-        if cur.pos < cur.end:
+        if cur.pos < len(cur.bytes):
             var g = cur._next_f32_at_pos()
 
             cur.skip_ws()
-            if cur.pos < cur.end:
+            if cur.pos < len(cur.bytes):
                 var b = cur._next_f32_at_pos()
                 mesh._push_color(r, g, b)
 
 
 def _parse_vt_cursor(mut mesh: ObjMesh, mut cur: ObjLineCursor) raises:
     cur.skip_ws()
-    if cur.pos >= cur.end:
+    if cur.pos >= len(cur.bytes):
         return
     var u = cur._next_f32_at_pos()
 
     cur.skip_ws()
-    if cur.pos >= cur.end:
+    if cur.pos >= len(cur.bytes):
         return
     var v = cur._next_f32_at_pos()
 
@@ -505,17 +531,17 @@ def _parse_vt_cursor(mut mesh: ObjMesh, mut cur: ObjLineCursor) raises:
 
 def _parse_vn_cursor(mut mesh: ObjMesh, mut cur: ObjLineCursor) raises:
     cur.skip_ws()
-    if cur.pos >= cur.end:
+    if cur.pos >= len(cur.bytes):
         return
     var x = cur._next_f32_at_pos()
 
     cur.skip_ws()
-    if cur.pos >= cur.end:
+    if cur.pos >= len(cur.bytes):
         return
     var y = cur._next_f32_at_pos()
 
     cur.skip_ws()
-    if cur.pos >= cur.end:
+    if cur.pos >= len(cur.bytes):
         return
     var z = cur._next_f32_at_pos()
 
@@ -559,7 +585,7 @@ def _parse_face_cursor(
 
     # Parse first token once.
     cur.skip_ws()
-    if cur.pos >= cur.end:
+    if cur.pos >= len(cur.bytes):
         _finish_face_parse(mesh, index_start, count, is_line)
         return
 
@@ -578,7 +604,7 @@ def _parse_face_cursor(
         # f p p p ...
         while True:
             cur.skip_ws()
-            if cur.pos >= cur.end:
+            if cur.pos >= len(cur.bytes):
                 break
 
             mesh.indices.append(cur.next_index_p_only_at_token(position_limit))
@@ -588,7 +614,7 @@ def _parse_face_cursor(
         # f p/t p/t p/t ...
         while True:
             cur.skip_ws()
-            if cur.pos >= cur.end:
+            if cur.pos >= len(cur.bytes):
                 break
 
             mesh.indices.append(
@@ -603,7 +629,7 @@ def _parse_face_cursor(
         # f p//n p//n p//n ...
         while True:
             cur.skip_ws()
-            if cur.pos >= cur.end:
+            if cur.pos >= len(cur.bytes):
                 break
 
             mesh.indices.append(
@@ -618,7 +644,7 @@ def _parse_face_cursor(
         # f p/t/n p/t/n p/t/n ...
         while True:
             cur.skip_ws()
-            if cur.pos >= cur.end:
+            if cur.pos >= len(cur.bytes):
                 break
 
             mesh.indices.append(
@@ -655,8 +681,8 @@ def _parse_obj[
     mesh.face_vertices.reserve(est_elements)
     mesh.face_materials.reserve(est_elements)
 
-    var ptr = text.unsafe_ptr()
     var text_len = text.byte_length()
+    var bytes = Span(unsafe_ptr=text.unsafe_ptr(), length=text.byte_length())
     var line_start = 0
 
     while line_start < text_len:
@@ -666,41 +692,46 @@ def _parse_obj[
 
         # Do not pre-scan the whole line for CR/comments here. ObjLineCursor
         # treats CR and # as lazy logical line-end markers while parsing.
-        var end = line_end
-        var cur = ObjLineCursor(text, line_start, end)
+        var cur = ObjLineCursor(bytes[line_start:line_end])
         cur.skip_ws()
 
-        if cur.pos < cur.end:
+        if cur.pos < len(cur.bytes):
             var p = cur.pos
-            var c0 = ptr.unsafe_load(p)
+            var c0 = cur.bytes.unsafe_get(p)
 
             # Hot one/two-byte tag dispatch.
             if c0 == CHAR_v:
-                if _word_ends_here(ptr, p + 1, end):
+                if _word_ends_here(cur.bytes, p + 1):
                     cur.pos = p + 1
                     _parse_v_cursor(mesh, cur)
-                elif p + 1 < end and ptr.unsafe_load(p + 1) == CHAR_t:
-                    if _word_ends_here(ptr, p + 2, end):
+                elif (
+                    p + 1 < len(cur.bytes)
+                    and cur.bytes.unsafe_get(p + 1) == CHAR_t
+                ):
+                    if _word_ends_here(cur.bytes, p + 2):
                         cur.pos = p + 2
                         _parse_vt_cursor(mesh, cur)
-                elif p + 1 < end and ptr.unsafe_load(p + 1) == CHAR_n:
-                    if _word_ends_here(ptr, p + 2, end):
+                elif (
+                    p + 1 < len(cur.bytes)
+                    and cur.bytes.unsafe_get(p + 1) == CHAR_n
+                ):
+                    if _word_ends_here(cur.bytes, p + 2):
                         cur.pos = p + 2
                         _parse_vn_cursor(mesh, cur)
 
-            elif c0 == CHAR_f and _word_ends_here(ptr, p + 1, end):
+            elif c0 == CHAR_f and _word_ends_here(cur.bytes, p + 1):
                 cur.pos = p + 1
                 _parse_face_cursor(mesh, cur, is_line=False)
 
-            elif c0 == CHAR_l and _word_ends_here(ptr, p + 1, end):
+            elif c0 == CHAR_l and _word_ends_here(cur.bytes, p + 1):
                 cur.pos = p + 1
                 _parse_face_cursor(mesh, cur, is_line=True)
 
-            elif c0 == CHAR_g and _word_ends_here(ptr, p + 1, end):
+            elif c0 == CHAR_g and _word_ends_here(cur.bytes, p + 1):
                 cur.pos = p + 1
                 mesh._begin_group(cur.joined_rest_of_line())
 
-            elif c0 == CHAR_o and _word_ends_here(ptr, p + 1, end):
+            elif c0 == CHAR_o and _word_ends_here(cur.bytes, p + 1):
                 cur.pos = p + 1
                 mesh._begin_object(cur.joined_rest_of_line())
 
@@ -708,12 +739,14 @@ def _parse_obj[
                 # Rare multi-char tags.
                 var tag_start = p
                 var tag_end = p
-                while tag_end < end and not _is_ws_or_line_cut(
-                    ptr.unsafe_load(tag_end)
+                while tag_end < len(cur.bytes) and not _is_ws_or_line_cut(
+                    cur.bytes.unsafe_get(tag_end)
                 ):
                     tag_end += 1
 
-                var tag = text[byte=tag_start:tag_end]
+                var tag = StringSlice(
+                    unsafe_from_utf8=cur.bytes[tag_start:tag_end]
+                )
                 cur.pos = tag_end
 
                 if tag == "usemtl":

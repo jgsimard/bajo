@@ -464,7 +464,7 @@ def _parse_v_cursor(mut mesh: ObjMesh, mut cur: ObjLineCursor) raises:
     mesh.positions.append(x)
     mesh.positions.append(y)
     mesh.positions.append(z)
-    debug_assert["safe"](
+    debug_assert["safe", _use_compiler_assume=True](
         mesh.position_count(include_dummy=False) <= _MAX_OBJ_INDEX,
         "OBJ position count exceeds the supported index range",
     )
@@ -497,7 +497,7 @@ def _parse_vt_cursor(mut mesh: ObjMesh, mut cur: ObjLineCursor) raises:
 
     mesh.texcoords.append(u)
     mesh.texcoords.append(v)
-    debug_assert["safe"](
+    debug_assert["safe", _use_compiler_assume=True](
         mesh.texcoord_count(include_dummy=False) <= _MAX_OBJ_INDEX,
         "OBJ texture coordinate count exceeds the supported index range",
     )
@@ -522,7 +522,7 @@ def _parse_vn_cursor(mut mesh: ObjMesh, mut cur: ObjLineCursor) raises:
     mesh.normals.append(x)
     mesh.normals.append(y)
     mesh.normals.append(z)
-    debug_assert["safe"](
+    debug_assert["safe", _use_compiler_assume=True](
         mesh.normal_count(include_dummy=False) <= _MAX_OBJ_INDEX,
         "OBJ normal count exceeds the supported index range",
     )

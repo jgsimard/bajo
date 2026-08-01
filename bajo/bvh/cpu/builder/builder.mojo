@@ -23,7 +23,7 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
     def __init__(out self, items: List[BoundsItem[Self.frame]]):
         self.items = items.copy()
         self.item_count = UInt32(len(self.items))
-        debug_assert["safe"](self.item_count > 0)
+        debug_assert["safe", _use_compiler_assume=True](self.item_count > 0)
 
         self.item_indices = [i for i in range(self.item_count)]
 
@@ -45,7 +45,9 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
 
     def build[split_method: String = "median"](mut self):
         comptime assert split_method in ["median", "sah", "lbvh"]
-        debug_assert["safe"](self.item_count > 0, "passed empty input.")
+        debug_assert["safe", _use_compiler_assume=True](
+            self.item_count > 0, "passed empty input."
+        )
 
         comptime if split_method == "lbvh":
             _build_lbvh[Self.frame, Self.leaf_size](self)
@@ -153,7 +155,7 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
         self._subdivide[split_method](left_child_idx + 1)
 
     def tree_quality(self) -> Float32:
-        debug_assert["safe"](self.nodes_used > 0)
+        debug_assert["safe", _use_compiler_assume=True](self.nodes_used > 0)
 
         ref root = self.nodes[0]
         var root_area = root.surface_area()
@@ -250,6 +252,22 @@ def _partition_items_by_median_center[
     count: Int,
     axis: Int,
 ) -> Int:
+    debug_assert["safe", _use_compiler_assume=True](
+        first >= 0
+        and count > 0
+        and first <= len(indices)
+        and count <= len(indices) - first,
+        "median partition range is outside item indices",
+    )
+    debug_assert["safe", _use_compiler_assume=True](
+        len(indices) == len(items),
+        "BVH item indices and items have different lengths",
+    )
+    debug_assert["safe", _use_compiler_assume=True](
+        axis >= 0 and axis < 3,
+        "median partition axis is outside [0, 3)",
+    )
+
     var mid = count / 2
 
     def cmp(a_idx: UInt32, b_idx: UInt32) capturing -> Bool:
@@ -261,7 +279,7 @@ def _partition_items_by_median_center[
 
         return a < b
 
-    var range = indices.unsafe_subspan(offset=first, length=count)
+    var range = indices[first : first + count]
     nth_element[cmp](range, mid)
 
     return first + mid

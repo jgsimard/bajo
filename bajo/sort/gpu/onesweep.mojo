@@ -276,8 +276,10 @@ def digit_binning[
         < gdim - 1 else size_int - BIN_PART_START
     )
     comptime if HAVE_PAYLOAD:
-        debug_assert["safe"](Bool(vals_current_opt))
-        debug_assert["safe"](Bool(vals_alternate_opt))
+        debug_assert["safe", _use_compiler_assume=True](Bool(vals_current_opt))
+        debug_assert["safe", _use_compiler_assume=True](
+            Bool(vals_alternate_opt)
+        )
         var vals_current = vals_current_opt.unsafe_value()
         var vals_alternate = vals_alternate_opt.unsafe_value()
 

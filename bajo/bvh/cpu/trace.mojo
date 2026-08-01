@@ -17,7 +17,7 @@ def trace_bounds_bvh[
         mut Hit[frame],
     ) capturing -> Bool,
 ](tree: BoundsBvh[frame, width], ray: Rayf32[frame]) -> Hit[frame]:
-    debug_assert["safe"](len(tree.nodes) > 0)
+    debug_assert["safe", _use_compiler_assume=True](len(tree.nodes) > 0)
 
     var hit = Hit[frame].miss(ray.t_max)
 
@@ -43,7 +43,7 @@ def trace_bounds_bvh[
             for i in range(width):
                 if mask[i]:
                     if node.counts[i] == 0:
-                        debug_assert["safe"](
+                        debug_assert["safe", _use_compiler_assume=True](
                             stack_ptr < CPU_STACK_SIZE,
                             "CPU BVH traversal stack overflow",
                         )

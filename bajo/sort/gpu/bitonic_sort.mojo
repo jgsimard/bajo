@@ -249,7 +249,7 @@ def bitonic_sort_pairs[
     """
     Bitonic Sort.
     """
-    debug_assert["safe"](is_power_of_2(size))
+    debug_assert["safe", _use_compiler_assume=True](is_power_of_2(size))
 
     comptime PART_SIZE = THREADS_PER_BLOCK * ITEMS_PER_THREAD
     var blocks = (size + PART_SIZE - 1) / PART_SIZE
@@ -324,7 +324,7 @@ def naive_bitonic_sort_pairs[
     size: Int,
 ) raises:
     """Enqueue an in-place pair sort without synchronizing the context."""
-    debug_assert["safe"](is_power_of_2(size))
+    debug_assert["safe", _use_compiler_assume=True](is_power_of_2(size))
 
     # 1 thread maps to 1 pair
     var total_pairs = size / 2

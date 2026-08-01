@@ -38,14 +38,27 @@ def _find_sah_split[
     var best = BoundsSplitResult[frame]()
     var first = Int(node.first_item())
     var count = Int(node.item_count)
+    debug_assert["safe", _use_compiler_assume=True](
+        first >= 0
+        and count > 0
+        and first <= len(indices)
+        and count <= len(indices) - first,
+        "SAH node range is outside item indices",
+    )
+    debug_assert["safe", _use_compiler_assume=True](
+        len(indices) == len(items),
+        "BVH item indices and items have different lengths",
+    )
+
+    var node_indices = indices[first : first + count]
 
     for axis in range(3):
         var min_c = f32_max
         var max_c = f32_min
 
         # centroid range
-        for i in range(count):
-            var item_idx = Int(indices.unsafe_get(first + i))
+        for item_idx_u32 in node_indices:
+            var item_idx = Int(item_idx_u32)
             var c = items.unsafe_get(item_idx).center_axis(axis)
             min_c = min(min_c, c)
             max_c = max(max_c, c)
@@ -56,8 +69,8 @@ def _find_sah_split[
         var bins = Array[BoundsBin[frame], BVH_BINS](fill=BoundsBin[frame]())
         var scale = Float32(BVH_BINS) / (max_c - min_c)
 
-        for i in range(count):
-            var item_idx = Int(indices.unsafe_get(first + i))
+        for item_idx_u32 in node_indices:
+            var item_idx = Int(item_idx_u32)
             var b_idx = _item_bin(items, item_idx, axis, min_c, scale)
             bins[b_idx].item_count += 1
             items.unsafe_get(item_idx).grow_into(bins[b_idx].bounds)
@@ -150,20 +163,40 @@ def _partition_items_by_bin[
     bin_min: Float32,
     bin_scale: Float32,
 ) -> Int:
-    var i = first
-    var j = first + count - 1
+    debug_assert["safe", _use_compiler_assume=True](
+        first >= 0
+        and count > 0
+        and first <= len(indices)
+        and count <= len(indices) - first,
+        "SAH partition range is outside item indices",
+    )
+    debug_assert["safe", _use_compiler_assume=True](
+        len(indices) == len(items),
+        "BVH item indices and items have different lengths",
+    )
+    debug_assert["safe", _use_compiler_assume=True](
+        axis >= 0 and axis < 3,
+        "SAH partition axis is outside [0, 3)",
+    )
+    debug_assert["safe", _use_compiler_assume=True](
+        split_bin >= 0 and split_bin < BVH_BINS,
+        "SAH split bin is outside the bin array",
+    )
+
+    var node_indices = indices[first : first + count]
+    var i = 0
+    var j = len(node_indices) - 1
 
     while i <= j:
-        var item_idx = Int(indices.unsafe_get(i))
+        var item_idx = Int(node_indices.unsafe_get(i))
         var b_idx = _item_bin(items, item_idx, axis, bin_min, bin_scale)
 
         if b_idx <= split_bin:
             i += 1
         else:
-            indices.unsafe_get(i), indices.unsafe_get(j) = (
-                indices.unsafe_get(j),
-                indices.unsafe_get(i),
-            )
+            var tmp = node_indices.unsafe_get(i)
+            node_indices.unsafe_get(i) = node_indices.unsafe_get(j)
+            node_indices.unsafe_get(j) = tmp
             j -= 1
 
-    return i
+    return first + i

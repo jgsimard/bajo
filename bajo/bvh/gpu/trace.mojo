@@ -101,7 +101,7 @@ def trace_bounds_bvh[
                         if far_t > hit.t:
                             continue
 
-                    debug_assert["safe"](
+                    debug_assert["safe", _use_compiler_assume=True](
                         stack_ptr < GPU_STACK_SIZE,
                         "GPU BVH traversal stack overflow",
                     )
@@ -125,7 +125,7 @@ def trace_bounds_bvh[
                             if bounds_hit.t[node_lane] > hit.t:
                                 continue
 
-                        debug_assert["safe"](
+                        debug_assert["safe", _use_compiler_assume=True](
                             stack_ptr < GPU_STACK_SIZE,
                             "GPU BVH traversal stack overflow",
                         )

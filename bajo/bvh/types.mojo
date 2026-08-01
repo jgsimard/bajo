@@ -169,7 +169,7 @@ struct Instance(Copyable):
         kind: Primitive,
     ):
         var inverse = transform.inverse()
-        debug_assert["safe"](
+        debug_assert["safe", _use_compiler_assume=True](
             inverse.mask[0], "instance transform must be invertible"
         )
         self.transform = transform.copy()

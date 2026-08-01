@@ -40,7 +40,7 @@ struct Mat[
         comptime assert Self.rows >= 1
         comptime assert Self.cols >= 1
 
-        debug_assert["safe"](
+        debug_assert["safe", _use_compiler_assume=True](
             len(elems) == Self.rows * Self.cols,
             (
                 t"Matrix constructor requires exactly rows ({Self.rows})"

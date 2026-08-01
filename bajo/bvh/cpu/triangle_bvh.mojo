@@ -69,18 +69,40 @@ struct TriangleBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
         self.leaf_blocks = List[TriangleLeafBlock[Self.frame, Self.width]](
             capacity=(self.tri_count + Int(Self.width) - 1) // Int(Self.width)
         )
+        debug_assert["safe", _use_compiler_assume=True](
+            len(self.tree.item_indices) == len(self.tree.item_payloads),
+            "triangle BVH item arrays have inconsistent lengths",
+        )
+        debug_assert["safe", _use_compiler_assume=True](
+            len(vertices) == self.tri_count * 3,
+            "triangle vertex count changed while packing leaves",
+        )
+
         for ref node in self.tree.nodes:
             comptime for lane in range(Self.width):
                 if node.counts[lane] != EMPTY_LANE and node.counts[lane] > 0:
                     var first_item = node.data[lane]
                     var item_count = node.counts[lane]
+                    var first = Int(first_item)
+                    var count = Int(item_count)
+                    debug_assert["safe", _use_compiler_assume=True](
+                        count <= Int(Self.width),
+                        "triangle BVH leaf exceeds SIMD width",
+                    )
+                    debug_assert["safe", _use_compiler_assume=True](
+                        first <= len(self.tree.item_indices)
+                        and count <= len(self.tree.item_indices) - first,
+                        "triangle BVH leaf range is outside item indices",
+                    )
+
+                    var leaf_indices = Span(self.tree.item_indices)[
+                        first : first + count
+                    ]
 
                     var block = TriangleLeafBlock[Self.frame, Self.width]()
 
-                    for k in range(Int(item_count)):
-                        var item_ref = Int(
-                            self.tree.item_indices[Int(first_item) + k]
-                        )
+                    for k, item_idx_u32 in enumerate(leaf_indices):
+                        var item_ref = Int(item_idx_u32)
                         var prim_idx = self.tree.item_payloads[item_ref]
                         var base = Int(prim_idx) * 3
 

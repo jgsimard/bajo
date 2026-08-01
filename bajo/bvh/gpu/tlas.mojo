@@ -34,7 +34,7 @@ comptime BlasLeafFn[frame: Frame] = def(
 def _flatten_instance_inv_transforms(
     instances: List[Instance],
 ) -> List[Float32]:
-    debug_assert["safe"](len(instances) > 0)
+    debug_assert["safe", _use_compiler_assume=True](len(instances) > 0)
 
     var out = List[Float32](
         capacity=len(instances) * Affine3f32[Frame.WORLD, Frame.LOCAL].STRIDE
@@ -47,7 +47,7 @@ def _flatten_instance_inv_transforms(
 def _flatten_instance_transforms(
     instances: List[Instance],
 ) -> List[Float32]:
-    debug_assert["safe"](len(instances) > 0)
+    debug_assert["safe", _use_compiler_assume=True](len(instances) > 0)
 
     var out = List[Float32](
         capacity=len(instances) * Affine3f32[Frame.LOCAL, Frame.WORLD].STRIDE
@@ -60,7 +60,7 @@ def _flatten_instance_transforms(
 def _flatten_instance_blas_indices(
     instances: List[Instance],
 ) -> List[UInt32]:
-    debug_assert["safe"](len(instances) > 0)
+    debug_assert["safe", _use_compiler_assume=True](len(instances) > 0)
     return [instance.blas_idx for instance in instances]
 
 
@@ -239,14 +239,14 @@ def _trace_tlas_ray[
 
                 comptime if mode != TRACE.ANY_HIT:
                     if far_t <= hit.t:
-                        debug_assert["safe"](
+                        debug_assert["safe", _use_compiler_assume=True](
                             stack_ptr < GPU_STACK_SIZE,
                             "GPU TLAS traversal stack overflow",
                         )
                         stack[stack_ptr] = child_data[far_lane]
                         stack_ptr += 1
                 else:
-                    debug_assert["safe"](
+                    debug_assert["safe", _use_compiler_assume=True](
                         stack_ptr < GPU_STACK_SIZE,
                         "GPU TLAS traversal stack overflow",
                     )
@@ -401,7 +401,9 @@ struct GpuTypedTlasCore[width: SIMDLength]:
         measure_build: Bool = False,
     ) raises:
         self.inst_count = len(instances)
-        debug_assert["safe"](self.inst_count > 0, "passed empty input.")
+        debug_assert["safe", _use_compiler_assume=True](
+            self.inst_count > 0, "passed empty input."
+        )
 
         var leaf_bounds = List[Float32](
             capacity=self.inst_count * AABB[Frame.WORLD].STRIDE

@@ -28,7 +28,7 @@ struct DoubleBuffer[origin_c: MutOrigin, origin_a: MutOrigin, dtype: DType]:
         self.in_original_order = not self.in_original_order
 
     def __deinit__(deinit self):
-        debug_assert["safe"](
+        debug_assert["safe", _use_compiler_assume=True](
             self.in_original_order,
             self.created_at.prefix(
                 "\nDoubleBuffer destroyed while swapped. Missing a swap before"

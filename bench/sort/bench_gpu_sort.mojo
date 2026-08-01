@@ -364,7 +364,7 @@ def save_results_csv(filename: String, data: List[List[SortResult]]) raises:
 
 
 def main() raises:
-    sizes = [
+    sizes: List = [
         # 1 << 8,
         # 1 << 9,
         1 << 10,

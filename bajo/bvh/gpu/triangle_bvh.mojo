@@ -111,7 +111,7 @@ def build_triangle_blas_set[
     )
 
 
-struct GpuTriangleBvh[frame: Frame, width: SIMDLength](Movable):
+struct GpuTriangleBvh[frame: Frame, width: SIMDLength]:
     var tree: GpuBoundsBvh[Self.width]
     var vertices: DeviceBuffer[DType.float32]
     var leaf_vertices: DeviceBuffer[DType.float32]
@@ -216,6 +216,16 @@ struct GpuTriangleBvh[frame: Frame, width: SIMDLength](Movable):
         cheight: Int,
     ) raises:
         comptime assert Self.frame == Frame.WORLD
+        debug_assert["safe", _use_compiler_assume=True](
+            ray_count > 0 and cwidth > 0 and cheight > 0,
+            "camera launch dimensions must be positive",
+        )
+        var pixels_per_view = cwidth * cheight
+        debug_assert["safe", _use_compiler_assume=True](
+            len(d_camera_params)
+            >= ceildiv(ray_count, pixels_per_view) * Camera.STRIDE,
+            "camera parameter buffer is too short",
+        )
         ctx.enqueue_function[trace_triangle_bvh_camera_kernel[Self.width]](
             self.tree.wide_nodes,
             self.leaf_vertices,
@@ -244,10 +254,27 @@ def compute_triangle_bounds_kernel[
         return
 
     var vbase = tri_idx * TRI_LEAF_VERTEX_STRIDE
-
-    var v0 = Point3f32[frame].load(vertices, vbase + 0)
-    var v1 = Point3f32[frame].load(vertices, vbase + 3)
-    var v2 = Point3f32[frame].load(vertices, vbase + 6)
+    var vertices_span = Span(
+        unsafe_ptr=vertices, length=tri_count_int * TRI_LEAF_VERTEX_STRIDE
+    )
+    debug_assert["safe", _use_compiler_assume=True](
+        vbase >= 0 and vbase <= len(vertices_span) - TRI_LEAF_VERTEX_STRIDE
+    )
+    var v0 = Point3f32[frame](
+        vertices_span.unsafe_get(vbase + 0),
+        vertices_span.unsafe_get(vbase + 1),
+        vertices_span.unsafe_get(vbase + 2),
+    )
+    var v1 = Point3f32[frame](
+        vertices_span.unsafe_get(vbase + 3),
+        vertices_span.unsafe_get(vbase + 4),
+        vertices_span.unsafe_get(vbase + 5),
+    )
+    var v2 = Point3f32[frame](
+        vertices_span.unsafe_get(vbase + 6),
+        vertices_span.unsafe_get(vbase + 7),
+        vertices_span.unsafe_get(vbase + 8),
+    )
 
     var bmin = vmin(vmin(v0, v1), v2)
     var bmax = vmax(vmax(v0, v1), v2)
@@ -356,7 +383,11 @@ def trace_triangle_bvh_camera_kernel[
     var px_i = local_idx % width_px_int
     var py_i = local_idx / width_px_int
 
-    var camera = Camera(camera_params, view_idx * Camera.STRIDE)
+    var camera_params_span = Span(
+        unsafe_ptr=camera_params,
+        length=ceildiv(ray_count_int, pixels_per_view) * Camera.STRIDE,
+    )
+    var camera = Camera(camera_params_span, view_idx * Camera.STRIDE)
     var ray = camera.make_ray(px_i, py_i, width_px_int, height_px_int)
 
     var hit = trace_bounds_bvh[

@@ -97,7 +97,7 @@ struct Dielectric(Copyable, Writable):
     var refraction_index: Float32
 
 
-struct SurfaceStore(Movable):
+struct SurfaceStore:
     var lambertians: List[Lambertian]
     var metals: List[Metal]
     var dielectrics: List[Dielectric]
@@ -192,7 +192,7 @@ struct RenderTimings(Copyable, Writable):
     var max_depth: Int
 
 
-struct RenderResult(Movable):
+struct RenderResult:
     var pixels: List[Color]
     var timings: RenderTimings
 
@@ -205,7 +205,7 @@ struct RenderResult(Movable):
         self.timings = timings.copy()
 
 
-struct World(Movable):
+struct World:
     var sphere_bvh: Optional[SphereBvh[Frame.WORLD, BVH_WIDTH]]
     var triangle_bvh: Optional[TriangleBvh[Frame.WORLD, BVH_WIDTH]]
     var triangle_tlas: Optional[Tlas[BVH_WIDTH]]

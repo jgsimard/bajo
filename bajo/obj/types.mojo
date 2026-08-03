@@ -73,7 +73,7 @@ struct ObjGroup(Copyable):
     var index_offset: Int
 
 
-struct ObjMesh(Movable):
+struct ObjMesh:
     # arrays use OBJ-style dummy element at index 0 for p/t/n/texture
     var positions: List[Float32]
     var texcoords: List[Float32]

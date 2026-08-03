@@ -1,4 +1,4 @@
-from std.math import ceildiv
+from std.math import ceildiv, max
 from std.atomic import Atomic, Ordering
 from std.gpu import DeviceContext, DeviceBuffer, global_idx
 
@@ -7,6 +7,7 @@ from bajo.bvh.constants import (
     LBVH_SENTINEL,
     GPU_STACK_SIZE,
     EMPTY_LANE,
+    BinaryBvhNode,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
 from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh, _wide_node_store_child
@@ -27,14 +28,25 @@ def _encoded_bounds(
     leaf_bounds: UnsafePointer[mut=False, Float32, _],
     leaf_ids: UnsafePointer[mut=False, UInt32, _],
     node_bounds: UnsafePointer[mut=False, Float32, _],
+    leaf_count: Int,
+    internal_count: Int,
 ) -> AABB[Frame.WORLD]:
+    var leaf_bounds_span = Span(
+        unsafe_ptr=leaf_bounds, length=leaf_count * AABB.STRIDE
+    )
+    var node_bounds_span = Span(
+        unsafe_ptr=node_bounds,
+        length=max(internal_count, 1) * BinaryBvhNode.BOUNDS_STRIDE,
+    )
     if _is_encoded_leaf(encoded):
         var sorted_leaf_idx = _encoded_index(encoded)
         var item_idx = UInt32(leaf_ids[unsafe_offset=Int(sorted_leaf_idx)])
         var b = Int(item_idx) * AABB.STRIDE
-        return AABB[Frame.WORLD].load6(leaf_bounds, b)
+        return AABB[Frame.WORLD].load6(leaf_bounds_span, b)
 
-    return _load_and_union_node_bounds(node_bounds, _encoded_index(encoded))
+    return _load_and_union_node_bounds(
+        node_bounds_span, _encoded_index(encoded)
+    )
 
 
 def collapse_terminal_root_to_wide_kernel[
@@ -64,10 +76,13 @@ def collapse_terminal_root_to_wide_kernel[
     leaf_block_counter[unsafe_offset=0] = UInt32(1)
 
     var root_bounds = AABB[Frame.WORLD].invalid()
+    var leaf_bounds_span = Span(
+        unsafe_ptr=leaf_bounds, length=leaf_count_int * AABB.STRIDE
+    )
 
     if leaf_count_int == 1:
         # Single primitive: no binary internal node exists.
-        root_bounds = AABB[Frame.WORLD].load6(leaf_bounds, 0)
+        root_bounds = AABB[Frame.WORLD].load6(leaf_bounds_span, 0)
 
         leaf_block_indices.unsafe_offset(0).unsafe_store[width=width](
             EMPTY_LANE
@@ -101,6 +116,8 @@ def collapse_terminal_root_to_wide_kernel[
             leaf_bounds,
             leaf_ids,
             node_bounds,
+            leaf_count_int,
+            internal_count_int,
         )
 
     # Root wide node: lane 0 is one packed leaf block.
@@ -303,8 +320,10 @@ def collapse_precomputed_wide_kernel[
     wide_root: UnsafePointer[UInt32, MutAnyOrigin],
     internal_count: Int32,
 ):
+    var internal_count_int = Int(internal_count)
+    var leaf_count_int = internal_count_int + 1
     var node_i = global_idx.x
-    if node_i >= Int(internal_count):
+    if node_i >= internal_count_int:
         return
 
     var node_idx = UInt32(node_i)
@@ -334,6 +353,8 @@ def collapse_precomputed_wide_kernel[
                         leaf_bounds,
                         leaf_ids,
                         node_bounds,
+                        leaf_count_int,
+                        internal_count_int,
                     )
                     var area = b.surface_area()
 
@@ -361,7 +382,14 @@ def collapse_precomputed_wide_kernel[
             continue
 
         var e = pool[lane]
-        var b = _encoded_bounds(e, leaf_bounds, leaf_ids, node_bounds)
+        var b = _encoded_bounds(
+            e,
+            leaf_bounds,
+            leaf_ids,
+            node_bounds,
+            leaf_count_int,
+            internal_count_int,
+        )
 
         var meta = _pack_wide_meta(_encoded_index(e), UInt32(0))
         if _is_encoded_leaf(e):
@@ -533,6 +561,8 @@ def hploc_to_wide_kernel[
     max_leaf_blocks: Int32,
 ):
     var slot_count_int = Int(slot_count)
+    var leaf_count_int = slot_count_int
+    var internal_count_int = leaf_count_int - 1
     var max_wide_nodes_int = Int(max_wide_nodes)
     var max_leaf_blocks_int = Int(max_leaf_blocks)
     # algo:
@@ -614,12 +644,16 @@ def hploc_to_wide_kernel[
             leaf_bounds,
             leaf_ids,
             node_bounds,
+            leaf_count_int,
+            internal_count_int,
         )
         var right_bounds = _encoded_bounds(
             right,
             leaf_bounds,
             leaf_ids,
             node_bounds,
+            leaf_count_int,
+            internal_count_int,
         )
 
         var first = left
@@ -665,12 +699,16 @@ def hploc_to_wide_kernel[
                 leaf_bounds,
                 leaf_ids,
                 node_bounds,
+                leaf_count_int,
+                internal_count_int,
             )
             var c1_bounds = _encoded_bounds(
                 c1,
                 leaf_bounds,
                 leaf_ids,
                 node_bounds,
+                leaf_count_int,
+                internal_count_int,
             )
 
             var ordered0 = c0
@@ -824,6 +862,8 @@ def hploc_to_wide_kernel[
                 leaf_bounds,
                 leaf_ids,
                 node_bounds,
+                leaf_count_int,
+                internal_count_int,
             )
             var meta = _pack_wide_meta(child_ref_idx, UInt32(0))
             if child_is_leaf:

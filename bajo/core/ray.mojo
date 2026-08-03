@@ -30,14 +30,26 @@ struct Ray[dtype: DType, frame: Frame](TrivialRegisterPassable, Writable):
 
     def __init__(
         out self,
-        rays: UnsafePointer[mut=False, Scalar[Self.dtype], _],
+        rays: Span[mut=False, Scalar[Self.dtype], _],
         ray_idx: Int,
     ):
+        debug_assert["safe", _use_compiler_assume=True](
+            ray_idx >= 0 and ray_idx < len(rays) / Ray.STRIDE,
+            "Ray load is outside the input span",
+        )
         var base = ray_idx * Ray.STRIDE
-        self.o = Point3[Self.dtype, Self.frame].load(rays, base + Ray.ORIGIN)
-        self.t_min = rays[unsafe_offset=base + Ray.T_MIN]
-        self.d = Vec3[Self.dtype, Self.frame].load(rays, base + Ray.DIRECTION)
-        self.t_max = rays[unsafe_offset=base + Ray.T_MAX]
+        self.o = Point3[Self.dtype, Self.frame](
+            rays.unsafe_get(base + Ray.ORIGIN + 0),
+            rays.unsafe_get(base + Ray.ORIGIN + 1),
+            rays.unsafe_get(base + Ray.ORIGIN + 2),
+        )
+        self.t_min = rays.unsafe_get(base + Ray.T_MIN)
+        self.d = Vec3[Self.dtype, Self.frame](
+            rays.unsafe_get(base + Ray.DIRECTION + 0),
+            rays.unsafe_get(base + Ray.DIRECTION + 1),
+            rays.unsafe_get(base + Ray.DIRECTION + 2),
+        )
+        self.t_max = rays.unsafe_get(base + Ray.T_MAX)
 
     def flatten(self) -> List[Scalar[Self.dtype]]:
         return [

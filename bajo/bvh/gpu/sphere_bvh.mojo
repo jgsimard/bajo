@@ -192,6 +192,16 @@ struct GpuSphereBvh[frame: Frame, width: SIMDLength]:
         cheight: Int,
     ) raises:
         comptime assert Self.frame == Frame.WORLD
+        debug_assert["safe", _use_compiler_assume=True](
+            ray_count > 0 and cwidth > 0 and cheight > 0,
+            "camera launch dimensions must be positive",
+        )
+        var pixels_per_view = cwidth * cheight
+        debug_assert["safe", _use_compiler_assume=True](
+            len(d_camera_params)
+            >= ceildiv(ray_count, pixels_per_view) * Camera.STRIDE,
+            "camera parameter buffer is too short",
+        )
         ctx.enqueue_function[trace_sphere_bvh_camera_kernel[Self.width]](
             self.tree.wide_nodes,
             self.leaf_spheres,
@@ -231,7 +241,11 @@ def trace_sphere_bvh_camera_kernel[
     var px_i = local_idx % width_px_int
     var py_i = local_idx / width_px_int
 
-    var camera = Camera(camera_params, view_idx * Camera.STRIDE)
+    var camera_params_span = Span(
+        unsafe_ptr=camera_params,
+        length=ceildiv(ray_count_int, pixels_per_view) * Camera.STRIDE,
+    )
+    var camera = Camera(camera_params_span, view_idx * Camera.STRIDE)
     var ray = camera.make_ray(px_i, py_i, width_px_int, height_px_int)
 
     var hit = trace_bounds_bvh[

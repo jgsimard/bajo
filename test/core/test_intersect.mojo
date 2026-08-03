@@ -15,6 +15,7 @@ from bajo.core.intersect import (
     intersect_aabb_aabb,
     no_div_tri_tri_isect,
     intersect_tri_tri,
+    intersect_ray_tri,
 )
 
 from bajo.core import Vec3, assert_vec_equal, Point3, Vec3W, Point3W, Frame
@@ -140,6 +141,30 @@ def test_furthest_point_to_triangle() raises:
 
 
 # Ray / Triangle Intersection Tests
+
+
+def test_intersect_packed_triangle_span() raises:
+    var vertices: List[Float32] = [
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+    ]
+    var hit = intersect_ray_tri(
+        Span(vertices),
+        UInt32(0),
+        Point3W(0.25, 0.25, 1.0),
+        Vec3W(0.0, 0.0, -1.0),
+        10.0,
+    )
+
+    assert_true(hit.mask)
+    assert_almost_equal(hit.t, 1.0)
 
 
 # Triangle / Triangle Intersection Tests

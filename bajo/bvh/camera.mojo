@@ -26,20 +26,42 @@ struct Camera(TrivialRegisterPassable, Writable):
     var defocus_disk_u: Vec3f32[Frame.WORLD]
     var defocus_disk_v: Vec3f32[Frame.WORLD]
 
-    def __init__(
-        out self, ptr: UnsafePointer[mut=False, Float32, _], base: Int = 0
-    ):
-        self.origin = Point3f32[Frame.WORLD].load(ptr, base + Camera.ORIGIN)
-        self.forward = Vec3f32[Frame.WORLD].load(ptr, base + Camera.FORWARD)
-        self.right = Vec3f32[Frame.WORLD].load(ptr, base + Camera.RIGHT)
-        self.up = Vec3f32[Frame.WORLD].load(ptr, base + Camera.UP)
-        self.fov_scale = ptr[unsafe_offset=base + Camera.FOV]
-        self.focus_dist = ptr[unsafe_offset=base + Camera.FOCUS_DIST]
-        self.defocus_disk_u = Vec3f32[Frame.WORLD].load(
-            ptr, base + Camera.DEFOCUS_DISK_U
+    def __init__(out self, data: Span[mut=False, Float32, _], base: Int = 0):
+        debug_assert["safe", _use_compiler_assume=True](
+            base >= 0 and base <= len(data) - Self.STRIDE,
+            "Camera load is outside the input span",
         )
-        self.defocus_disk_v = Vec3f32[Frame.WORLD].load(
-            ptr, base + Camera.DEFOCUS_DISK_V
+        self.origin = Point3f32[Frame.WORLD](
+            data.unsafe_get(base + Camera.ORIGIN + 0),
+            data.unsafe_get(base + Camera.ORIGIN + 1),
+            data.unsafe_get(base + Camera.ORIGIN + 2),
+        )
+        self.forward = Vec3f32[Frame.WORLD](
+            data.unsafe_get(base + Camera.FORWARD + 0),
+            data.unsafe_get(base + Camera.FORWARD + 1),
+            data.unsafe_get(base + Camera.FORWARD + 2),
+        )
+        self.right = Vec3f32[Frame.WORLD](
+            data.unsafe_get(base + Camera.RIGHT + 0),
+            data.unsafe_get(base + Camera.RIGHT + 1),
+            data.unsafe_get(base + Camera.RIGHT + 2),
+        )
+        self.up = Vec3f32[Frame.WORLD](
+            data.unsafe_get(base + Camera.UP + 0),
+            data.unsafe_get(base + Camera.UP + 1),
+            data.unsafe_get(base + Camera.UP + 2),
+        )
+        self.fov_scale = data.unsafe_get(base + Camera.FOV)
+        self.focus_dist = data.unsafe_get(base + Camera.FOCUS_DIST)
+        self.defocus_disk_u = Vec3f32[Frame.WORLD](
+            data.unsafe_get(base + Camera.DEFOCUS_DISK_U + 0),
+            data.unsafe_get(base + Camera.DEFOCUS_DISK_U + 1),
+            data.unsafe_get(base + Camera.DEFOCUS_DISK_U + 2),
+        )
+        self.defocus_disk_v = Vec3f32[Frame.WORLD](
+            data.unsafe_get(base + Camera.DEFOCUS_DISK_V + 0),
+            data.unsafe_get(base + Camera.DEFOCUS_DISK_V + 1),
+            data.unsafe_get(base + Camera.DEFOCUS_DISK_V + 2),
         )
 
     def __init__(

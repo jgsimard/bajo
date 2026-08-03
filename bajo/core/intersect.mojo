@@ -335,16 +335,32 @@ def intersect_ray_tri[
 def intersect_ray_tri[
     dtype: DType, frame: Frame
 ](
-    vertices: UnsafePointer[mut=False, Scalar[dtype], _],
+    vertices: Span[mut=False, Scalar[dtype], _],
     prim_idx: UInt32,
     o: Point3[dtype, frame],
     d: Vec3[dtype, frame],
     t_max: Scalar[dtype],
 ) -> RayTriHit[dtype, 1]:
     var base = Int(prim_idx) * 9
-    var v0 = Point3[frame=frame].load(vertices, base)
-    var v1 = Point3[frame=frame].load(vertices, base + 3)
-    var v2 = Point3[frame=frame].load(vertices, base + 6)
+    debug_assert["safe", _use_compiler_assume=True](
+        base >= 0 and base <= len(vertices) - 9,
+        "triangle load is outside the input span",
+    )
+    var v0 = Point3[frame=frame](
+        vertices.unsafe_get(base + 0),
+        vertices.unsafe_get(base + 1),
+        vertices.unsafe_get(base + 2),
+    )
+    var v1 = Point3[frame=frame](
+        vertices.unsafe_get(base + 3),
+        vertices.unsafe_get(base + 4),
+        vertices.unsafe_get(base + 5),
+    )
+    var v2 = Point3[frame=frame](
+        vertices.unsafe_get(base + 6),
+        vertices.unsafe_get(base + 7),
+        vertices.unsafe_get(base + 8),
+    )
 
     return intersect_ray_tri(
         o,
@@ -517,7 +533,7 @@ def coplanar_tri_tri[
 
 
 @fieldwise_init
-struct Intervals[dtype: DType, width: SIMDLength](Movable):
+struct Intervals[dtype: DType, width: SIMDLength]:
     var a: SIMD[Self.dtype, Self.width]
     var b: SIMD[Self.dtype, Self.width]
     var c: SIMD[Self.dtype, Self.width]

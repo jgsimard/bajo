@@ -78,12 +78,21 @@ def _intersect_tlas_instance_block[
     blas_descs: UnsafePointer[mut=False, UInt32, _],
     blas_wide_nodes: UnsafePointer[mut=False, Float32, _],
     blas_leaves: UnsafePointer[mut=False, Float32, _],
+    instance_count: Int,
     leaf_block_idx: UInt32,
     item_count: UInt32,
     ray: Rayf32[Frame.WORLD],
     mut hit: Hit[Frame.WORLD],
 ) -> Bool:
     var hit_any = False
+    var inst_transform_span = Span(
+        unsafe_ptr=inst_transform,
+        length=instance_count * Affine3f32.STRIDE,
+    )
+    var inst_inv_transform_span = Span(
+        unsafe_ptr=inst_inv_transform,
+        length=instance_count * Affine3f32.STRIDE,
+    )
 
     for lane in range(min(tlas_width, Int(item_count))):
         var idx = Int(leaf_block_idx) * tlas_width + lane
@@ -96,7 +105,7 @@ def _intersect_tlas_instance_block[
             var desc_base = Int(blas_idx) * BlasSet.STRIDE
             var transform_base = Int(inst_idx) * Affine3f32.STRIDE
             var inverse = Affine3f32[Frame.WORLD, Frame.LOCAL].load(
-                inst_inv_transform, transform_base
+                inst_inv_transform_span, transform_base
             )
 
             var local_ray = inverse.ray(ray, hit.t)
@@ -133,7 +142,7 @@ def _intersect_tlas_instance_block[
             else:
                 if local_hit.t < hit.t and local_hit.prim != EMPTY_LANE:
                     var transform = Affine3f32[Frame.LOCAL, Frame.WORLD].load(
-                        inst_transform,
+                        inst_transform_span,
                         transform_base,
                     )
 
@@ -161,6 +170,7 @@ def _trace_tlas_ray[
     blas_descs: UnsafePointer[mut=False, UInt32, _],
     blas_wide_nodes: UnsafePointer[mut=False, Float32, _],
     blas_leaves: UnsafePointer[mut=False, Float32, _],
+    instance_count: Int,
     tlas_root_idx: UInt32,
     ray: Rayf32[Frame.WORLD],
 ) -> Hit[Frame.WORLD]:
@@ -211,6 +221,7 @@ def _trace_tlas_ray[
                         blas_descs,
                         blas_wide_nodes,
                         blas_leaves,
+                        instance_count,
                         data,
                         count,
                         ray,
@@ -277,6 +288,7 @@ def trace_triangle_tlas_camera_kernel[
     tlas_root_idx: UInt32,
     camera_params: UnsafePointer[Float32, ImmutAnyOrigin],
     hits: UnsafePointer[Float32, MutAnyOrigin],
+    instance_count: Int32,
     ray_count: Int32,
     width: Int32,
     height: Int32,
@@ -294,7 +306,11 @@ def trace_triangle_tlas_camera_kernel[
     var px_i = local_idx % width_int
     var py_i = local_idx / width_int
 
-    var camera = Camera(camera_params, view_idx * Camera.STRIDE)
+    var camera_params_span = Span(
+        unsafe_ptr=camera_params,
+        length=ceildiv(ray_count_int, pixels_per_view) * Camera.STRIDE,
+    )
+    var camera = Camera(camera_params_span, view_idx * Camera.STRIDE)
     var ray = camera.make_ray(px_i, py_i, width_int, height_int)
 
     var hit = _trace_tlas_ray[
@@ -315,6 +331,7 @@ def trace_triangle_tlas_camera_kernel[
         blas_descs,
         blas_wide_nodes,
         blas_leaf_vertices,
+        Int(instance_count),
         tlas_root_idx,
         ray,
     )
@@ -336,6 +353,7 @@ def trace_sphere_tlas_camera_kernel[
     tlas_root_idx: UInt32,
     camera_params: UnsafePointer[Float32, ImmutAnyOrigin],
     hits: UnsafePointer[Float32, MutAnyOrigin],
+    instance_count: Int32,
     ray_count: Int32,
     width: Int32,
     height: Int32,
@@ -353,7 +371,11 @@ def trace_sphere_tlas_camera_kernel[
     var px_i = local_idx % width_int
     var py_i = local_idx / width_int
 
-    var camera = Camera(camera_params, view_idx * Camera.STRIDE)
+    var camera_params_span = Span(
+        unsafe_ptr=camera_params,
+        length=ceildiv(ray_count_int, pixels_per_view) * Camera.STRIDE,
+    )
+    var camera = Camera(camera_params_span, view_idx * Camera.STRIDE)
     var ray = camera.make_ray(px_i, py_i, width_int, height_int)
 
     var hit = _trace_tlas_ray[
@@ -374,6 +396,7 @@ def trace_sphere_tlas_camera_kernel[
         blas_descs,
         blas_wide_nodes,
         blas_leaf_spheres,
+        Int(instance_count),
         tlas_root_idx,
         ray,
     )
@@ -467,6 +490,16 @@ struct GpuTriangleTlas[tlas_width: SIMDLength, blas_width: SIMDLength]:
         cwidth: Int,
         cheight: Int,
     ) raises:
+        debug_assert["safe", _use_compiler_assume=True](
+            ray_count > 0 and cwidth > 0 and cheight > 0,
+            "camera launch dimensions must be positive",
+        )
+        var pixels_per_view = cwidth * cheight
+        debug_assert["safe", _use_compiler_assume=True](
+            len(d_camera_params)
+            >= ceildiv(ray_count, pixels_per_view) * Camera.STRIDE,
+            "camera parameter buffer is too short",
+        )
         ctx.enqueue_function[
             trace_triangle_tlas_camera_kernel[
                 Self.tlas_width,
@@ -484,6 +517,7 @@ struct GpuTriangleTlas[tlas_width: SIMDLength, blas_width: SIMDLength]:
             self.core.tree.root_idx,
             d_camera_params,
             d_hits,
+            Int32(self.core.inst_count),
             Int32(ray_count),
             Int32(cwidth),
             Int32(cheight),
@@ -519,6 +553,16 @@ struct GpuSphereTlas[tlas_width: SIMDLength, blas_width: SIMDLength]:
         cwidth: Int,
         cheight: Int,
     ) raises:
+        debug_assert["safe", _use_compiler_assume=True](
+            ray_count > 0 and cwidth > 0 and cheight > 0,
+            "camera launch dimensions must be positive",
+        )
+        var pixels_per_view = cwidth * cheight
+        debug_assert["safe", _use_compiler_assume=True](
+            len(d_camera_params)
+            >= ceildiv(ray_count, pixels_per_view) * Camera.STRIDE,
+            "camera parameter buffer is too short",
+        )
         ctx.enqueue_function[
             trace_sphere_tlas_camera_kernel[
                 Self.tlas_width,
@@ -536,6 +580,7 @@ struct GpuSphereTlas[tlas_width: SIMDLength, blas_width: SIMDLength]:
             self.core.tree.root_idx,
             d_camera_params,
             d_hits,
+            Int32(self.core.inst_count),
             Int32(ray_count),
             Int32(cwidth),
             Int32(cheight),

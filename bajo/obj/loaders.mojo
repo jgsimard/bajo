@@ -12,7 +12,7 @@ struct PathObjTextLoader(Copyable, ObjTextLoader):
         return Path(path).read_text()
 
 
-struct MemoryObjTextLoader(Movable, ObjTextLoader):
+struct MemoryObjTextLoader(ObjTextLoader):
     var files: Dict[String, String]
 
     def __init__(out self):

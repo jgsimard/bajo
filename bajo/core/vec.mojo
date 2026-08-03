@@ -372,23 +372,27 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
         )
 
     @staticmethod
-    def load(
-        ptr: UnsafePointer[mut=False, Scalar[Self.dtype], _], base: Int
-    ) -> Self:
+    def load(data: Span[mut=False, Scalar[Self.dtype], _], base: Int) -> Self:
         comptime assert Self.width == 1
+        debug_assert["safe", _use_compiler_assume=True](
+            base >= 0 and base <= len(data) - 3,
+            "Geo3 load is outside the input span",
+        )
         return Self(
-            ptr[unsafe_offset=base + 0],
-            ptr[unsafe_offset=base + 1],
-            ptr[unsafe_offset=base + 2],
+            data.unsafe_get(base + 0),
+            data.unsafe_get(base + 1),
+            data.unsafe_get(base + 2),
         )
 
-    def store(
-        self, ptr: UnsafePointer[mut=True, Scalar[Self.dtype], _], base: Int
-    ):
+    def store(self, data: Span[mut=True, Scalar[Self.dtype], _], base: Int):
         comptime assert Self.width == 1
-        ptr[unsafe_offset=base + 0] = self.x[0]
-        ptr[unsafe_offset=base + 1] = self.y[0]
-        ptr[unsafe_offset=base + 2] = self.z[0]
+        debug_assert["safe", _use_compiler_assume=True](
+            base >= 0 and base <= len(data) - 3,
+            "Geo3 store is outside the output span",
+        )
+        data.unsafe_get(base + 0) = self.x[0]
+        data.unsafe_get(base + 1) = self.y[0]
+        data.unsafe_get(base + 2) = self.z[0]
 
     # roundable
     def __round__(self) -> Self:

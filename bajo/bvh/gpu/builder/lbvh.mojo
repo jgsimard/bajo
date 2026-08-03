@@ -37,12 +37,20 @@ def compute_bounds_morton_codes_kernel(
     if i >= leaf_count_int:
         return
 
-    var centroid_bounds = AABB[Frame.WORLD].load6(bounds_device, AABB.STRIDE)
+    var leaf_bounds_span = Span(
+        unsafe_ptr=leaf_bounds, length=leaf_count_int * AABB.STRIDE
+    )
+    var bounds_device_span = Span(
+        unsafe_ptr=bounds_device, length=2 * AABB.STRIDE
+    )
+    var centroid_bounds = AABB[Frame.WORLD].load6(
+        bounds_device_span, AABB.STRIDE
+    )
     var cmin = centroid_bounds._min
     var inv_extent = centroid_bounds.extent().safe_inv()
 
     var b = i * AABB.STRIDE
-    var bounds = AABB[Frame.WORLD].load6(leaf_bounds, b)
+    var bounds = AABB[Frame.WORLD].load6(leaf_bounds_span, b)
     var c = (bounds.centroid() - cmin) * inv_extent
 
     morton_codes[unsafe_offset=i] = morton3(c.x, c.y, c.z)
@@ -63,9 +71,16 @@ def refit_lbvh_bounds_from_leaves_kernel(
     if leaf_idx >= leaf_count_int:
         return
 
+    var leaf_bounds_span = Span(
+        unsafe_ptr=leaf_bounds, length=leaf_count_int * AABB.STRIDE
+    )
+    var node_bounds_span = Span(
+        unsafe_ptr=node_bounds,
+        length=max(leaf_count_int - 1, 1) * BinaryBvhNode.BOUNDS_STRIDE,
+    )
     var item_idx = UInt32(leaf_ids[unsafe_offset=leaf_idx])
     var b = Int(item_idx) * AABB.STRIDE
-    var bounds = AABB[Frame.WORLD].load6(leaf_bounds, b)
+    var bounds = AABB[Frame.WORLD].load6(leaf_bounds_span, b)
 
     var current_encoded = UInt32(leaf_idx) | LBVH_LEAF_FLAG
     var parent = UInt32(leaf_parent[unsafe_offset=leaf_idx])
@@ -79,13 +94,13 @@ def refit_lbvh_bounds_from_leaves_kernel(
         if not is_left and not is_right:
             break
 
-        _write_child_bounds(node_bounds, parent, is_left, bounds)
+        _write_child_bounds(node_bounds_span, parent, is_left, bounds)
 
         var old = Atomic.fetch_add(node_flags.unsafe_offset(Int(parent)), 1)
         if old == 0:
             break
 
-        bounds = _load_and_union_node_bounds(node_bounds, parent)
+        bounds = _load_and_union_node_bounds(node_bounds_span, parent)
         current_encoded = parent
         parent = UInt32(
             node_meta[unsafe_offset=_node_parent_index(current_encoded)]
@@ -189,12 +204,16 @@ def build_lbvh_topology_kernel(
     if i >= internal_count:
         return
 
+    var node_bounds_span = Span(
+        unsafe_ptr=node_bounds,
+        length=max(internal_count, 1) * BinaryBvhNode.BOUNDS_STRIDE,
+    )
     node_flags[unsafe_offset=i] = UInt32(0)
 
     var invalid = AABB[Frame.WORLD].invalid()
     var bounds_base = i * BinaryBvhNode.BOUNDS_STRIDE
-    invalid.store6(node_bounds, bounds_base)
-    invalid.store6(node_bounds, bounds_base + AABB.STRIDE)
+    invalid.store6(node_bounds_span, bounds_base)
+    invalid.store6(node_bounds_span, bounds_base + AABB.STRIDE)
 
     first, last = _lbvh_find_range(sorted_morton_codes, i, leaf_count_int)
     node_leaf_counts[unsafe_offset=i] = UInt32(last - first + 1)

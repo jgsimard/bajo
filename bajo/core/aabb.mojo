@@ -123,21 +123,37 @@ struct AxisAlignedBoundingBox[
         )
 
     @staticmethod
-    def load6(
-        ptr: UnsafePointer[mut=False, Scalar[Self.dtype], _], base: Int
-    ) -> Self:
+    def load6(data: Span[mut=False, Scalar[Self.dtype], _], base: Int) -> Self:
         comptime assert Self.width == 1
+        debug_assert["safe", _use_compiler_assume=True](
+            base >= 0 and base <= len(data) - Self.STRIDE,
+            "AABB load is outside the input span",
+        )
         return Self(
-            Point3[Self.dtype, Self.frame, Self.width].load(ptr, base),
-            Point3[Self.dtype, Self.frame, Self.width].load(ptr, base + 3),
+            Point3[Self.dtype, Self.frame, Self.width](
+                data.unsafe_get(base + 0),
+                data.unsafe_get(base + 1),
+                data.unsafe_get(base + 2),
+            ),
+            Point3[Self.dtype, Self.frame, Self.width](
+                data.unsafe_get(base + 3),
+                data.unsafe_get(base + 4),
+                data.unsafe_get(base + 5),
+            ),
         )
 
-    def store6(
-        self, ptr: UnsafePointer[mut=True, Scalar[Self.dtype], _], base: Int
-    ):
+    def store6(self, data: Span[mut=True, Scalar[Self.dtype], _], base: Int):
         comptime assert Self.width == 1
-        self._min.store(ptr, base)
-        self._max.store(ptr, base + 3)
+        debug_assert["safe", _use_compiler_assume=True](
+            base >= 0 and base <= len(data) - Self.STRIDE,
+            "AABB store is outside the output span",
+        )
+        data.unsafe_get(base + 0) = self._min.x[0]
+        data.unsafe_get(base + 1) = self._min.y[0]
+        data.unsafe_get(base + 2) = self._min.z[0]
+        data.unsafe_get(base + 3) = self._max.x[0]
+        data.unsafe_get(base + 4) = self._max.y[0]
+        data.unsafe_get(base + 5) = self._max.z[0]
 
     def translate(
         self, translation: Vec3[Self.dtype, Self.frame, Self.width]

@@ -17,7 +17,7 @@ from bajo.bvh.gpu.builder.wide_collapse import collapse
 from bajo.bvh.gpu.builder.binary_layout import GpuBinaryBoundsBvh
 
 
-struct GpuBoundsBvh[width: SIMDLength](Movable):
+struct GpuBoundsBvh[width: SIMDLength]:
     """Generic GPU Bvh. Build input is only leaf AABBs plus payload ids.
 
     Wide lane encoding mirrors the CPU BVH:
@@ -131,12 +131,15 @@ struct GpuBoundsBvh[width: SIMDLength](Movable):
 
     def root_bounds(self) raises -> AABB[Frame.WORLD]:
         with self.bounds_device.map_to_host() as h:
-            return AABB[Frame.WORLD].load6(h.unsafe_ptr(), 0)
+            return AABB[Frame.WORLD].load6(
+                Span(unsafe_ptr=h.unsafe_ptr(), length=len(h)), 0
+            )
 
     def centroid_bounds(self) raises -> AABB[Frame.WORLD]:
         with self.bounds_device.map_to_host() as h:
             return AABB[Frame.WORLD].load6(
-                h.unsafe_ptr(), AABB[Frame.WORLD].STRIDE
+                Span(unsafe_ptr=h.unsafe_ptr(), length=len(h)),
+                AABB[Frame.WORLD].STRIDE,
             )
 
 

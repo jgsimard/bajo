@@ -431,7 +431,7 @@ struct MatInverseResult[
     n: Int,
     frame: Frame,
     width: SIMDLength,
-](Movable):
+]:
     var mask: SIMD[DType.bool, Self.width]
     var value: Mat[Self.dtype, Self.n, Self.n, Self.frame, Self.width]
 

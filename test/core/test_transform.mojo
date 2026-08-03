@@ -164,8 +164,9 @@ def test_load_store() raises:
     v = Vec3W(2, 3, 4)
     p = Point3W(2, 3, 4)
 
-    m.store(ptr, 0)
-    loaded = Affine3f32[Frame.WORLD, Frame.CAMERA].load(ptr, 0)
+    var data = Span(unsafe_ptr=ptr, length=12)
+    m.store(data, 0)
+    loaded = Affine3f32[Frame.WORLD, Frame.CAMERA].load(data, 0)
 
     assert_vec_equal(loaded.point(p), m.point(p))
     assert_vec_equal(loaded.vector(v), m.vector(v))
@@ -198,7 +199,7 @@ def test_load_transform_helpers() raises:
     # fmt: on
     p = Point3W(2, 3, 4)
 
-    loaded = Affine3f32[Frame.WORLD, Frame.CAMERA].load(arr.unsafe_ptr(), 0)
+    loaded = Affine3f32[Frame.WORLD, Frame.CAMERA].load(Span(arr), 0)
 
     # p = M * p_in + t
     assert_vec_equal(

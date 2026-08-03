@@ -4,7 +4,7 @@ from .builder import BoundsItem, BoundsBvhNode
 
 
 @fieldwise_init
-struct BoundsSplitResult[frame: Frame](Movable):
+struct BoundsSplitResult[frame: Frame]:
     var axis: Int
     var bin: Int
     var pos: Float32

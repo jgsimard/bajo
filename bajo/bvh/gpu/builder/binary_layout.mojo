@@ -59,7 +59,7 @@ def _encoded_index(encoded: UInt32) -> UInt32:
 
 
 def _write_child_bounds(
-    node_bounds: UnsafePointer[mut=True, Float32, _],
+    node_bounds: Span[mut=True, Float32, _],
     parent: UInt32,
     write_left: Bool,
     bounds: AABB,
@@ -71,7 +71,7 @@ def _write_child_bounds(
 
 
 def _load_and_union_node_bounds(
-    node_bounds: UnsafePointer[mut=False, Float32, _], parent: UInt32
+    node_bounds: Span[mut=False, Float32, _], parent: UInt32
 ) -> AABB[Frame.WORLD]:
     var b = _node_bounds_base(parent)
     b1 = AABB[Frame.WORLD].load6(node_bounds, b)
@@ -87,10 +87,13 @@ def init_empty_bounds_kernel(
     if i >= n_int:
         return
 
+    var bounds_span = Span(
+        unsafe_ptr=bounds, length=n_int * BinaryBvhNode.BOUNDS_STRIDE
+    )
     var b = i * BinaryBvhNode.BOUNDS_STRIDE
     var invalid = AABB[Frame.WORLD].invalid()
-    invalid.store6(bounds, b)
-    invalid.store6(bounds, b + AABB.STRIDE)
+    invalid.store6(bounds_span, b)
+    invalid.store6(bounds_span, b + AABB.STRIDE)
 
 
 def compute_bounds_partials_kernel(
@@ -105,20 +108,28 @@ def compute_bounds_partials_kernel(
         return
 
     var last = min(first + BOUNDS_REDUCE_CHUNK, leaf_count_int)
+    var leaf_bounds_span = Span(
+        unsafe_ptr=leaf_bounds, length=leaf_count_int * AABB.STRIDE
+    )
+    var out_partials_span = Span(
+        unsafe_ptr=out_partials,
+        length=ceildiv(leaf_count_int, BOUNDS_REDUCE_CHUNK)
+        * REDUCED_BOUNDS_STRIDE,
+    )
 
     var bounds = AABB[Frame.WORLD].invalid()
     var centroid_bounds = AABB[Frame.WORLD].invalid()
 
     for leaf_idx in range(first, last):
         var b = leaf_idx * AABB.STRIDE
-        var aabb = AABB[Frame.WORLD].load6(leaf_bounds, b)
+        var aabb = AABB[Frame.WORLD].load6(leaf_bounds_span, b)
 
         bounds.grow(aabb)
         centroid_bounds.grow(aabb.centroid())
 
     var out = chunk * REDUCED_BOUNDS_STRIDE
-    bounds.store6(out_partials, out)
-    centroid_bounds.store6(out_partials, out + AABB.STRIDE)
+    bounds.store6(out_partials_span, out)
+    centroid_bounds.store6(out_partials_span, out + AABB.STRIDE)
 
 
 def reduce_bounds_partials_kernel(
@@ -133,6 +144,15 @@ def reduce_bounds_partials_kernel(
         return
 
     var last = min(first + BOUNDS_REDUCE_CHUNK, partial_count_int)
+    var in_partials_span = Span(
+        unsafe_ptr=in_partials,
+        length=partial_count_int * REDUCED_BOUNDS_STRIDE,
+    )
+    var out_partials_span = Span(
+        unsafe_ptr=out_partials,
+        length=ceildiv(partial_count_int, BOUNDS_REDUCE_CHUNK)
+        * REDUCED_BOUNDS_STRIDE,
+    )
 
     var bounds = AABB[Frame.WORLD].invalid()
     var centroid_bounds = AABB[Frame.WORLD].invalid()
@@ -140,20 +160,20 @@ def reduce_bounds_partials_kernel(
     for i in range(first, last):
         var b = i * REDUCED_BOUNDS_STRIDE
 
-        var partial_bounds = AABB[Frame.WORLD].load6(in_partials, b)
+        var partial_bounds = AABB[Frame.WORLD].load6(in_partials_span, b)
         var partial_centroid_bounds = AABB[Frame.WORLD].load6(
-            in_partials, b + AABB.STRIDE
+            in_partials_span, b + AABB.STRIDE
         )
 
         bounds.grow(partial_bounds)
         centroid_bounds.grow(partial_centroid_bounds)
 
     var out = chunk * REDUCED_BOUNDS_STRIDE
-    bounds.store6(out_partials, out)
-    centroid_bounds.store6(out_partials, out + AABB.STRIDE)
+    bounds.store6(out_partials_span, out)
+    centroid_bounds.store6(out_partials_span, out + AABB.STRIDE)
 
 
-struct GpuBinaryBoundsBvh(Movable):
+struct GpuBinaryBoundsBvh:
     var leaf_count: Int
     var internal_count: Int
 
@@ -193,6 +213,10 @@ struct GpuBinaryBoundsBvh(Movable):
         self.leaf_count = len(leaf_payloads)
         debug_assert["safe", _use_compiler_assume=True](
             self.leaf_count > 0, "passed empty input."
+        )
+        debug_assert["safe", _use_compiler_assume=True](
+            len(leaf_bounds) == self.leaf_count * AABB.STRIDE,
+            "leaf bounds buffer has the wrong length",
         )
         self.internal_count = self.leaf_count - 1
 
@@ -288,11 +312,15 @@ struct GpuBinaryBoundsBvh(Movable):
 
     def root_bounds(self) raises -> AABB[Frame.WORLD]:
         with self.bounds_device.map_to_host() as h:
-            return AABB[Frame.WORLD].load6(h.unsafe_ptr(), 0)
+            return AABB[Frame.WORLD].load6(
+                Span(unsafe_ptr=h.unsafe_ptr(), length=len(h)), 0
+            )
 
     def centroid_bounds(self) raises -> AABB[Frame.WORLD]:
         with self.bounds_device.map_to_host() as h:
-            return AABB[Frame.WORLD].load6(h.unsafe_ptr(), AABB.STRIDE)
+            return AABB[Frame.WORLD].load6(
+                Span(unsafe_ptr=h.unsafe_ptr(), length=len(h)), AABB.STRIDE
+            )
 
     def validate(self, bounds: AABB) raises -> GpuBVHValidation:
         var sorted_validation = validate_sorted_keys(

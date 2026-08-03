@@ -335,7 +335,8 @@ def trace_triangle_tlas_camera_kernel[
         tlas_root_idx,
         ray,
     )
-    hit.store(hits, ray_idx)
+    var hits_span = Span(unsafe_ptr=hits, length=ray_count_int * Hit.STRIDE)
+    hit._store_unchecked(hits_span, ray_idx)
 
 
 def trace_sphere_tlas_camera_kernel[
@@ -400,7 +401,8 @@ def trace_sphere_tlas_camera_kernel[
         tlas_root_idx,
         ray,
     )
-    hit.store(hits, ray_idx)
+    var hits_span = Span(unsafe_ptr=hits, length=ray_count_int * Hit.STRIDE)
+    hit._store_unchecked(hits_span, ray_idx)
 
 
 struct GpuTypedTlasCore[width: SIMDLength]:
@@ -500,6 +502,10 @@ struct GpuTriangleTlas[tlas_width: SIMDLength, blas_width: SIMDLength]:
             >= ceildiv(ray_count, pixels_per_view) * Camera.STRIDE,
             "camera parameter buffer is too short",
         )
+        debug_assert["safe", _use_compiler_assume=True](
+            len(d_hits) >= ray_count * Hit.STRIDE,
+            "hit output buffer is too short",
+        )
         ctx.enqueue_function[
             trace_triangle_tlas_camera_kernel[
                 Self.tlas_width,
@@ -562,6 +568,10 @@ struct GpuSphereTlas[tlas_width: SIMDLength, blas_width: SIMDLength]:
             len(d_camera_params)
             >= ceildiv(ray_count, pixels_per_view) * Camera.STRIDE,
             "camera parameter buffer is too short",
+        )
+        debug_assert["safe", _use_compiler_assume=True](
+            len(d_hits) >= ray_count * Hit.STRIDE,
+            "hit output buffer is too short",
         )
         ctx.enqueue_function[
             trace_sphere_tlas_camera_kernel[

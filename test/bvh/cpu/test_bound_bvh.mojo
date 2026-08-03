@@ -1,8 +1,17 @@
 from std.testing import TestSuite, assert_true, assert_almost_equal
 
-from bajo.core import AABB, Vec3f32, Point3f32, Frame, Vec3W, Point3W, Rayf32
+from bajo.core import (
+    AABB,
+    Vec3f32,
+    Point3f32,
+    Normal3f32,
+    Frame,
+    Vec3W,
+    Point3W,
+    Rayf32,
+)
 from bajo.core.intersect import intersect_ray_aabb
-from bajo.bvh.types import Sphere
+from bajo.bvh.types import Hit, Sphere
 from bajo.core.random import Rng
 from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
 from bajo.bvh.cpu.bounds_bvh import (
@@ -17,6 +26,30 @@ from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.bvh.host_utils import triangle_bounds
 
 from test.bvh.fixtures import _brute_triangle_trace, _brute_sphere_trace
+
+
+def test_hit_load_store_span_with_nonzero_index() raises:
+    var data = List[Float32](length=2 * Hit.STRIDE, fill=-1.0)
+    var expected = Hit[Frame.WORLD](
+        0.25,
+        0.5,
+        UInt32(7),
+        UInt32(3),
+        Normal3f32[Frame.WORLD](1.0, 2.0, 3.0),
+        4.0,
+    )
+
+    expected.store(Span(data), 1)
+    var actual = Hit[Frame.WORLD].load(Span(data), 1)
+
+    assert_almost_equal(actual.u, expected.u)
+    assert_almost_equal(actual.v, expected.v)
+    assert_true(actual.prim == expected.prim)
+    assert_true(actual.inst == expected.inst)
+    assert_almost_equal(actual.normal.x, expected.normal.x)
+    assert_almost_equal(actual.normal.y, expected.normal.y)
+    assert_almost_equal(actual.normal.z, expected.normal.z)
+    assert_almost_equal(actual.t, expected.t)
 
 
 def _rng_f32(mut rng: Rng, lo: Float32, hi: Float32) -> Float32:

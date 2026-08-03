@@ -330,9 +330,9 @@ def _download_tlas_checksum[
     var inst_checksum = UInt64(0)
 
     with d_hits.map_to_host() as hf:
-        var gpu_hits_ptr = hf.unsafe_ptr()
+        var gpu_hits = Span(unsafe_ptr=hf.unsafe_ptr(), length=len(hf))
         for i in range(ray_count):
-            var gpu_hit = Hit[frame].load(gpu_hits_ptr, i)
+            var gpu_hit = Hit[frame].load(gpu_hits, i)
             var t = gpu_hit.t
             if t < f32_max:
                 checksum += Float64(t)

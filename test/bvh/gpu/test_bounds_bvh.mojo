@@ -218,9 +218,9 @@ def _assert_gpu_triangle_matches_cpu_camera[
         var mismatch_count = UInt32(0)
 
         with d_hits.map_to_host() as hf:
-            var gpu_hits_ptr = hf.unsafe_ptr()
+            var gpu_hits = Span(unsafe_ptr=hf.unsafe_ptr(), length=len(hf))
             for i in range(len(rays)):
-                var gpu_hit = Hit[Frame.WORLD].load(gpu_hits_ptr, i)
+                var gpu_hit = Hit[Frame.WORLD].load(gpu_hits, i)
                 var cpu_hit = cpu_bvh.trace[TRACE.CLOSEST_HIT](rays[i])
                 var gpu_t = gpu_hit.t
                 var gpu_prim = gpu_hit.prim

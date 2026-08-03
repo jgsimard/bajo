@@ -26,7 +26,11 @@ from bajo.core.intersect import intersect_ray_sphere
 from bajo.bvh.types import Sphere, Hit, BlasSet
 from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh
 from bajo.bvh.gpu.trace import trace_bounds_bvh
-from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list
+from bajo.bvh.gpu.utils import (
+    GpuBuildTimings,
+    _device_span,
+    upload_list,
+)
 
 
 def build_sphere_blas_set[
@@ -171,10 +175,9 @@ struct GpuSphereBvh[frame: Frame, width: SIMDLength]:
             GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
         ctx.enqueue_function[pack_sphere_leaf_lanes_kernel[Self.width]](
-            self.spheres,
-            self.tree.leaf_block_indices,
-            self.leaf_spheres,
-            Int32(leaf_lane_count),
+            _device_span[mut=False](self.spheres),
+            _device_span[mut=False](self.tree.leaf_block_indices),
+            _device_span[mut=True](self.leaf_spheres),
             grid_dim=blocks,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
@@ -201,6 +204,10 @@ struct GpuSphereBvh[frame: Frame, width: SIMDLength]:
             len(d_camera_params)
             >= ceildiv(ray_count, pixels_per_view) * Camera.STRIDE,
             "camera parameter buffer is too short",
+        )
+        debug_assert["safe", _use_compiler_assume=True](
+            len(d_hits) >= ray_count * Hit.STRIDE,
+            "hit output buffer is too short",
         )
         ctx.enqueue_function[trace_sphere_bvh_camera_kernel[Self.width]](
             self.tree.wide_nodes,
@@ -263,7 +270,8 @@ def trace_sphere_bvh_camera_kernel[
         root_idx,
         ray,
     )
-    hit.store(hits, ray_idx)
+    var hits_span = Span(unsafe_ptr=hits, length=ray_count_int * Hit.STRIDE)
+    hit._store_unchecked(hits_span, ray_idx)
 
 
 def _intersect_sphere_leaf[
@@ -324,22 +332,27 @@ def _intersect_sphere_leaf[
 def pack_sphere_leaf_lanes_kernel[
     width: SIMDLength,
 ](
-    spheres: UnsafePointer[Float32, ImmutAnyOrigin],
-    leaf_block_indices: UnsafePointer[UInt32, ImmutAnyOrigin],
-    leaf_spheres: UnsafePointer[Float32, MutAnyOrigin],
-    leaf_lane_count: Int32,
+    spheres: Span[mut=False, Float32, ImmutAnyOrigin],
+    leaf_block_indices: Span[mut=False, UInt32, ImmutAnyOrigin],
+    leaf_spheres: Span[mut=True, Float32, MutAnyOrigin],
 ):
-    var leaf_lane_count_int = Int(leaf_lane_count)
+    var leaf_lane_count = len(leaf_spheres) / SPHERE_LEAF_PACKED_STRIDE
     var lane_idx = global_idx.x
-    if lane_idx >= leaf_lane_count_int:
+    if lane_idx >= leaf_lane_count:
         return
 
     var lane = lane_idx % width
     var block_idx = lane_idx / width
 
-    var prim = UInt32(leaf_block_indices[unsafe_offset=lane_idx])
     var out_base = block_idx * SPHERE_LEAF_PACKED_STRIDE * width
-    var leaf_spheres_u32 = leaf_spheres.unsafe_bitcast[UInt32]()
+    debug_assert["safe", _use_compiler_assume=True](
+        lane_idx < len(leaf_block_indices)
+        and out_base <= len(leaf_spheres) - SPHERE_LEAF_PACKED_STRIDE * width,
+        "packed sphere output block is outside a device span",
+    )
+    var prim = UInt32(leaf_block_indices.unsafe_get(lane_idx))
+    var leaf_spheres_ptr = leaf_spheres.unsafe_ptr()
+    var leaf_spheres_u32 = leaf_spheres_ptr.unsafe_bitcast[UInt32]()
 
     # AoSoA: [block][field][lane]
     # Packed fields:
@@ -353,17 +366,22 @@ def pack_sphere_leaf_lanes_kernel[
         return
 
     var in_base = Int(prim) * Sphere.STRIDE
+    debug_assert["safe", _use_compiler_assume=True](
+        in_base >= 0 and in_base <= len(spheres) - Sphere.STRIDE,
+        "sphere input record is outside the sphere span",
+    )
+    var spheres_ptr = spheres.unsafe_ptr()
 
-    leaf_spheres[unsafe_offset=out_base + 0 * width + lane] = spheres[
+    leaf_spheres_ptr[unsafe_offset=out_base + 0 * width + lane] = spheres_ptr[
         unsafe_offset=in_base + 0
     ]
-    leaf_spheres[unsafe_offset=out_base + 1 * width + lane] = spheres[
+    leaf_spheres_ptr[unsafe_offset=out_base + 1 * width + lane] = spheres_ptr[
         unsafe_offset=in_base + 1
     ]
-    leaf_spheres[unsafe_offset=out_base + 2 * width + lane] = spheres[
+    leaf_spheres_ptr[unsafe_offset=out_base + 2 * width + lane] = spheres_ptr[
         unsafe_offset=in_base + 2
     ]
-    leaf_spheres[unsafe_offset=out_base + 3 * width + lane] = spheres[
+    leaf_spheres_ptr[unsafe_offset=out_base + 3 * width + lane] = spheres_ptr[
         unsafe_offset=in_base + 3
     ]
 

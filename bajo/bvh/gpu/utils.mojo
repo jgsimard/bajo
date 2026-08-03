@@ -6,6 +6,23 @@ from bajo.bvh.types import Hit
 from bajo.bvh.constants import f32_max
 
 
+def _device_span[
+    mut: Bool,
+    dtype: DType,
+](
+    ref buffer: DeviceBuffer[dtype],
+) -> Span[
+    mut=mut, Scalar[dtype], AnyOrigin[mut=mut]
+]:
+    """Create a length-backed view at the device ABI boundary."""
+    return Span(
+        unsafe_ptr=buffer.unsafe_ptr()
+        .unsafe_mut_cast[mut]()
+        .unsafe_origin_cast[AnyOrigin[mut=mut]](),
+        length=len(buffer),
+    )
+
+
 @fieldwise_init
 struct GpuBuildTimings(TrivialRegisterPassable, Writable):
     var morton_ns: Int

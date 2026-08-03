@@ -10,7 +10,12 @@ from bajo.bvh.constants import (
     BOUNDS_REDUCE_CHUNK,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
-from bajo.bvh.gpu.utils import GpuBuildTimings, GpuBVHValidation, upload_list
+from bajo.bvh.gpu.utils import (
+    GpuBuildTimings,
+    GpuBVHValidation,
+    _device_span,
+    upload_list,
+)
 from bajo.bvh.gpu.validate import (
     validate_sorted_keys,
     validate_topology,
@@ -38,6 +43,30 @@ def _node_right_index(node_idx: UInt32) -> Int:
     return _node_meta_base(node_idx) + BinaryBvhNode.RIGHT
 
 
+def _node_left(
+    node_meta: Span[mut=False, UInt32, _], node_idx: UInt32
+) -> UInt32:
+    var base = _node_meta_base(node_idx)
+    debug_assert["safe", _use_compiler_assume=True](
+        base >= 0 and base <= len(node_meta) - BinaryBvhNode.META_STRIDE,
+        "binary node metadata is outside the input span",
+    )
+    return node_meta.unsafe_get(base + BinaryBvhNode.LEFT)
+
+
+def _node_right(
+    node_meta: Span[mut=False, UInt32, _], node_idx: UInt32
+) -> UInt32:
+    var base = _node_meta_base(node_idx)
+    debug_assert["safe", _use_compiler_assume=True](
+        base >= 0 and base <= len(node_meta) - BinaryBvhNode.META_STRIDE,
+        "binary node metadata is outside the input span",
+    )
+    return node_meta.unsafe_get(base + BinaryBvhNode.RIGHT)
+
+
+# Raw-pointer overloads remain for GPU kernels that have not yet crossed a
+# length-carrying ABI boundary. They are removed as those kernels migrate.
 def _node_left(
     node_meta: UnsafePointer[mut=False, UInt32, _], node_idx: UInt32
 ) -> UInt32:
@@ -79,62 +108,47 @@ def _load_and_union_node_bounds(
     return AABB.merge(b1, b2)
 
 
-def init_empty_bounds_kernel(
-    bounds: UnsafePointer[Float32, MutAnyOrigin], n: Int32
-):
-    var n_int = Int(n)
+def init_empty_bounds_kernel(bounds: Span[mut=True, Float32, MutAnyOrigin]):
+    var node_count = len(bounds) / BinaryBvhNode.BOUNDS_STRIDE
     var i = global_idx.x
-    if i >= n_int:
+    if i >= node_count:
         return
 
-    var bounds_span = Span(
-        unsafe_ptr=bounds, length=n_int * BinaryBvhNode.BOUNDS_STRIDE
-    )
     var b = i * BinaryBvhNode.BOUNDS_STRIDE
     var invalid = AABB[Frame.WORLD].invalid()
-    invalid.store6(bounds_span, b)
-    invalid.store6(bounds_span, b + AABB.STRIDE)
+    invalid.store6(bounds, b)
+    invalid.store6(bounds, b + AABB.STRIDE)
 
 
 def compute_bounds_partials_kernel(
-    leaf_bounds: UnsafePointer[Float32, ImmutAnyOrigin],
-    out_partials: UnsafePointer[Float32, MutAnyOrigin],
-    leaf_count: Int32,
+    leaf_bounds: Span[mut=False, Float32, ImmutAnyOrigin],
+    out_partials: Span[mut=True, Float32, MutAnyOrigin],
 ):
-    var leaf_count_int = Int(leaf_count)
+    var leaf_count = len(leaf_bounds) / AABB.STRIDE
     var chunk = global_idx.x
     var first = chunk * BOUNDS_REDUCE_CHUNK
-    if first >= leaf_count_int:
+    if first >= leaf_count:
         return
 
-    var last = min(first + BOUNDS_REDUCE_CHUNK, leaf_count_int)
-    var leaf_bounds_span = Span(
-        unsafe_ptr=leaf_bounds, length=leaf_count_int * AABB.STRIDE
-    )
-    var out_partials_span = Span(
-        unsafe_ptr=out_partials,
-        length=ceildiv(leaf_count_int, BOUNDS_REDUCE_CHUNK)
-        * REDUCED_BOUNDS_STRIDE,
-    )
-
+    var last = min(first + BOUNDS_REDUCE_CHUNK, leaf_count)
     var bounds = AABB[Frame.WORLD].invalid()
     var centroid_bounds = AABB[Frame.WORLD].invalid()
 
     for leaf_idx in range(first, last):
         var b = leaf_idx * AABB.STRIDE
-        var aabb = AABB[Frame.WORLD].load6(leaf_bounds_span, b)
+        var aabb = AABB[Frame.WORLD].load6(leaf_bounds, b)
 
         bounds.grow(aabb)
         centroid_bounds.grow(aabb.centroid())
 
     var out = chunk * REDUCED_BOUNDS_STRIDE
-    bounds.store6(out_partials_span, out)
-    centroid_bounds.store6(out_partials_span, out + AABB.STRIDE)
+    bounds.store6(out_partials, out)
+    centroid_bounds.store6(out_partials, out + AABB.STRIDE)
 
 
 def reduce_bounds_partials_kernel(
-    in_partials: UnsafePointer[Float32, ImmutAnyOrigin],
-    out_partials: UnsafePointer[Float32, MutAnyOrigin],
+    in_partials: Span[mut=False, Float32, ImmutAnyOrigin],
+    out_partials: Span[mut=True, Float32, MutAnyOrigin],
     partial_count: Int32,
 ):
     var partial_count_int = Int(partial_count)
@@ -144,33 +158,23 @@ def reduce_bounds_partials_kernel(
         return
 
     var last = min(first + BOUNDS_REDUCE_CHUNK, partial_count_int)
-    var in_partials_span = Span(
-        unsafe_ptr=in_partials,
-        length=partial_count_int * REDUCED_BOUNDS_STRIDE,
-    )
-    var out_partials_span = Span(
-        unsafe_ptr=out_partials,
-        length=ceildiv(partial_count_int, BOUNDS_REDUCE_CHUNK)
-        * REDUCED_BOUNDS_STRIDE,
-    )
-
     var bounds = AABB[Frame.WORLD].invalid()
     var centroid_bounds = AABB[Frame.WORLD].invalid()
 
     for i in range(first, last):
         var b = i * REDUCED_BOUNDS_STRIDE
 
-        var partial_bounds = AABB[Frame.WORLD].load6(in_partials_span, b)
+        var partial_bounds = AABB[Frame.WORLD].load6(in_partials, b)
         var partial_centroid_bounds = AABB[Frame.WORLD].load6(
-            in_partials_span, b + AABB.STRIDE
+            in_partials, b + AABB.STRIDE
         )
 
         bounds.grow(partial_bounds)
         centroid_bounds.grow(partial_centroid_bounds)
 
     var out = chunk * REDUCED_BOUNDS_STRIDE
-    bounds.store6(out_partials_span, out)
-    centroid_bounds.store6(out_partials_span, out + AABB.STRIDE)
+    bounds.store6(out_partials, out)
+    centroid_bounds.store6(out_partials, out + AABB.STRIDE)
 
 
 struct GpuBinaryBoundsBvh:
@@ -262,9 +266,8 @@ struct GpuBinaryBoundsBvh:
         )
 
         ctx.enqueue_function[compute_bounds_partials_kernel](
-            self.leaf_bounds,
-            self.bounds_scratch_a,
-            Int32(self.leaf_count),
+            _device_span[mut=False](self.leaf_bounds),
+            _device_span[mut=True](self.bounds_scratch_a),
             grid_dim=reduce_grid,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
@@ -284,8 +287,8 @@ struct GpuBinaryBoundsBvh:
             )
 
             ctx.enqueue_function[reduce_bounds_partials_kernel](
-                in_buf,
-                out_buf,
+                _device_span[mut=False](in_buf),
+                _device_span[mut=True](out_buf),
                 Int32(count),
                 grid_dim=grid,
                 block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,

@@ -102,7 +102,9 @@ def _download_single_hit(
     hits: DeviceBuffer[DType.float32],
 ) raises -> Tuple[Float32, UInt32, UInt32]:
     with hits.map_to_host() as hf:
-        var hit = Hit[Frame.WORLD].load(hf.unsafe_ptr(), 0)
+        var hit = Hit[Frame.WORLD].load(
+            Span(unsafe_ptr=hf.unsafe_ptr(), length=len(hf)), 0
+        )
         return (hit.t, hit.prim, hit.inst)
 
 

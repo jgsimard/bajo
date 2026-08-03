@@ -112,7 +112,9 @@ def test_gpu_tlas_triangle_camera_translated_single_instance_hit() raises:
         ctx.synchronize()
 
         with d_hits.map_to_host() as hf:
-            var gpu_hit = Hit[Frame.WORLD].load(hf.unsafe_ptr(), 0)
+            var gpu_hit = Hit[Frame.WORLD].load(
+                Span(unsafe_ptr=hf.unsafe_ptr(), length=len(hf)), 0
+            )
 
             assert_almost_equal(gpu_hit.t, 2.0)
             assert_true(gpu_hit.prim == UInt32(0))
@@ -208,7 +210,9 @@ def test_gpu_tlas_sphere_camera_translated_single_instance_hit() raises:
         ctx.synchronize()
 
         with d_hits.map_to_host() as hf:
-            var gpu_hit = Hit[Frame.WORLD].load(hf.unsafe_ptr(), 0)
+            var gpu_hit = Hit[Frame.WORLD].load(
+                Span(unsafe_ptr=hf.unsafe_ptr(), length=len(hf)), 0
+            )
 
             assert_almost_equal(gpu_hit.t, 1.0)
             assert_true(gpu_hit.prim == UInt32(0))
@@ -252,7 +256,9 @@ def test_gpu_tlas_sphere_nonuniform_scale_normal() raises:
         ctx.synchronize()
 
         with d_hits.map_to_host() as hf:
-            var gpu_hit = Hit[Frame.WORLD].load(hf.unsafe_ptr(), 0)
+            var gpu_hit = Hit[Frame.WORLD].load(
+                Span(unsafe_ptr=hf.unsafe_ptr(), length=len(hf)), 0
+            )
             assert_almost_equal(gpu_hit.t, 1.1339746, atol=1.0e-5)
             assert_almost_equal(gpu_hit.normal.x, 0.2773501, atol=1.0e-5)
             assert_almost_equal(gpu_hit.normal.y, 0.0, atol=1.0e-5)

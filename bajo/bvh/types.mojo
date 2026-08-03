@@ -58,47 +58,50 @@ struct Hit[frame: Frame = Frame.WORLD](TrivialRegisterPassable, Writable):
     def is_occluded(self) -> Bool:
         return self.t < f32_max
 
-    def store[
-        address_space: AddressSpace,
-    ](
-        self,
-        hits: UnsafePointer[mut=True, Float32, _, address_space=address_space],
-        idx: Int,
-    ):
+    def store(self, hits: Span[mut=True, Float32, _], idx: Int):
+        debug_assert["safe", _use_compiler_assume=True](
+            idx >= 0 and idx < len(hits) / Self.STRIDE,
+            "Hit store is outside the output span",
+        )
+        self._store_unchecked(hits, idx)
+
+    def _store_unchecked(self, hits: Span[mut=True, Float32, _], idx: Int):
+        """Store after the caller has validated the complete Hit block."""
         var base = idx * Hit.STRIDE
+        var ptr = hits.unsafe_ptr()
 
-        hits[unsafe_offset=base + Hit.U] = self.u
-        hits[unsafe_offset=base + Hit.V] = self.v
-        hits[unsafe_offset=base + Hit.NORMAL + 0] = self.normal.x
-        hits[unsafe_offset=base + Hit.NORMAL + 1] = self.normal.y
-        hits[unsafe_offset=base + Hit.NORMAL + 2] = self.normal.z
-        hits[unsafe_offset=base + Hit.T] = self.t
+        ptr[unsafe_offset=base + Hit.U] = self.u
+        ptr[unsafe_offset=base + Hit.V] = self.v
+        ptr[unsafe_offset=base + Hit.NORMAL + 0] = self.normal.x
+        ptr[unsafe_offset=base + Hit.NORMAL + 1] = self.normal.y
+        ptr[unsafe_offset=base + Hit.NORMAL + 2] = self.normal.z
+        ptr[unsafe_offset=base + Hit.T] = self.t
 
-        var hits_u32 = hits.unsafe_bitcast[UInt32]()
+        var hits_u32 = ptr.unsafe_bitcast[UInt32]()
         hits_u32[unsafe_offset=base + Hit.PRIM] = self.prim
         hits_u32[unsafe_offset=base + Hit.INST] = self.inst
 
     @staticmethod
-    def load[
-        address_space: AddressSpace,
-    ](
-        hits: UnsafePointer[mut=False, Float32, _, address_space=address_space],
-        idx: Int,
-    ) -> Self:
+    def load(hits: Span[mut=False, Float32, _], idx: Int) -> Self:
+        debug_assert["safe", _use_compiler_assume=True](
+            idx >= 0 and idx < len(hits) / Self.STRIDE,
+            "Hit load is outside the input span",
+        )
         var base = idx * Hit.STRIDE
-        var hits_u32 = hits.unsafe_bitcast[UInt32]()
+        var ptr = hits.unsafe_ptr()
+        var hits_u32 = ptr.unsafe_bitcast[UInt32]()
 
         return Self(
-            hits[unsafe_offset=base + Hit.U],
-            hits[unsafe_offset=base + Hit.V],
+            ptr[unsafe_offset=base + Hit.U],
+            ptr[unsafe_offset=base + Hit.V],
             hits_u32[unsafe_offset=base + Hit.PRIM],
             hits_u32[unsafe_offset=base + Hit.INST],
             Normal3f32[Self.frame](
-                hits[unsafe_offset=base + Hit.NORMAL + 0],
-                hits[unsafe_offset=base + Hit.NORMAL + 1],
-                hits[unsafe_offset=base + Hit.NORMAL + 2],
+                ptr[unsafe_offset=base + Hit.NORMAL + 0],
+                ptr[unsafe_offset=base + Hit.NORMAL + 1],
+                ptr[unsafe_offset=base + Hit.NORMAL + 2],
             ),
-            hits[unsafe_offset=base + Hit.T],
+            ptr[unsafe_offset=base + Hit.T],
         )
 
 

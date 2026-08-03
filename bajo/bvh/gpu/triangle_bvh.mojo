@@ -5,6 +5,7 @@ from std.gpu import DeviceBuffer, DeviceContext, global_idx
 from bajo.bvh.camera import Camera
 from bajo.bvh.gpu.utils import (
     GpuBuildTimings,
+    _device_span,
     upload_vertices,
     upload_list,
 )
@@ -125,6 +126,10 @@ struct GpuTriangleBvh[frame: Frame, width: SIMDLength]:
         measure_build: Bool = False,
     ) raises:
         self.vertices = vertices
+        debug_assert["safe", _use_compiler_assume=True](
+            len(vertices) % TRI_LEAF_VERTEX_STRIDE == 0,
+            "triangle vertex buffer must contain complete triangle records",
+        )
         self.tri_count = len(vertices) / 9
 
         var leaf_bounds = ctx.enqueue_create_buffer[DType.float32](
@@ -143,10 +148,9 @@ struct GpuTriangleBvh[frame: Frame, width: SIMDLength]:
         )
 
         ctx.enqueue_function[compute_triangle_bounds_kernel[Self.frame]](
-            self.vertices,
-            leaf_bounds,
-            payloads,
-            Int32(self.tri_count),
+            _device_span[mut=False](self.vertices),
+            _device_span[mut=True](leaf_bounds),
+            _device_span[mut=True](payloads),
             grid_dim=blocks,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
@@ -226,6 +230,10 @@ struct GpuTriangleBvh[frame: Frame, width: SIMDLength]:
             >= ceildiv(ray_count, pixels_per_view) * Camera.STRIDE,
             "camera parameter buffer is too short",
         )
+        debug_assert["safe", _use_compiler_assume=True](
+            len(d_hits) >= ray_count * Hit.STRIDE,
+            "hit output buffer is too short",
+        )
         ctx.enqueue_function[trace_triangle_bvh_camera_kernel[Self.width]](
             self.tree.wide_nodes,
             self.leaf_vertices,
@@ -243,52 +251,51 @@ struct GpuTriangleBvh[frame: Frame, width: SIMDLength]:
 def compute_triangle_bounds_kernel[
     frame: Frame,
 ](
-    vertices: UnsafePointer[Float32, ImmutAnyOrigin],
-    leaf_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    payloads: UnsafePointer[UInt32, MutAnyOrigin],
-    tri_count: Int32,
+    vertices: Span[mut=False, Float32, ImmutAnyOrigin],
+    leaf_bounds: Span[mut=True, Float32, MutAnyOrigin],
+    payloads: Span[mut=True, UInt32, MutAnyOrigin],
 ):
-    var tri_count_int = Int(tri_count)
+    var tri_count = len(payloads)
     var tri_idx = global_idx.x
-    if tri_idx >= tri_count_int:
+    if tri_idx >= tri_count:
         return
 
     var vbase = tri_idx * TRI_LEAF_VERTEX_STRIDE
-    var vertices_span = Span(
-        unsafe_ptr=vertices, length=tri_count_int * TRI_LEAF_VERTEX_STRIDE
-    )
+    var bbase = tri_idx * AABB[frame].STRIDE
     debug_assert["safe", _use_compiler_assume=True](
-        vbase >= 0 and vbase <= len(vertices_span) - TRI_LEAF_VERTEX_STRIDE
+        vbase >= 0
+        and vbase <= len(vertices) - TRI_LEAF_VERTEX_STRIDE
+        and bbase <= len(leaf_bounds) - AABB[frame].STRIDE
+        and tri_idx < len(payloads),
+        "triangle bounds record is outside a device span",
     )
     var v0 = Point3f32[frame](
-        vertices_span.unsafe_get(vbase + 0),
-        vertices_span.unsafe_get(vbase + 1),
-        vertices_span.unsafe_get(vbase + 2),
+        vertices.unsafe_get(vbase + 0),
+        vertices.unsafe_get(vbase + 1),
+        vertices.unsafe_get(vbase + 2),
     )
     var v1 = Point3f32[frame](
-        vertices_span.unsafe_get(vbase + 3),
-        vertices_span.unsafe_get(vbase + 4),
-        vertices_span.unsafe_get(vbase + 5),
+        vertices.unsafe_get(vbase + 3),
+        vertices.unsafe_get(vbase + 4),
+        vertices.unsafe_get(vbase + 5),
     )
     var v2 = Point3f32[frame](
-        vertices_span.unsafe_get(vbase + 6),
-        vertices_span.unsafe_get(vbase + 7),
-        vertices_span.unsafe_get(vbase + 8),
+        vertices.unsafe_get(vbase + 6),
+        vertices.unsafe_get(vbase + 7),
+        vertices.unsafe_get(vbase + 8),
     )
 
     var bmin = vmin(vmin(v0, v1), v2)
     var bmax = vmax(vmax(v0, v1), v2)
 
-    var bbase = tri_idx * AABB[frame].STRIDE
+    leaf_bounds.unsafe_get(bbase + 0) = bmin.x
+    leaf_bounds.unsafe_get(bbase + 1) = bmin.y
+    leaf_bounds.unsafe_get(bbase + 2) = bmin.z
+    leaf_bounds.unsafe_get(bbase + 3) = bmax.x
+    leaf_bounds.unsafe_get(bbase + 4) = bmax.y
+    leaf_bounds.unsafe_get(bbase + 5) = bmax.z
 
-    leaf_bounds[unsafe_offset=bbase + 0] = bmin.x
-    leaf_bounds[unsafe_offset=bbase + 1] = bmin.y
-    leaf_bounds[unsafe_offset=bbase + 2] = bmin.z
-    leaf_bounds[unsafe_offset=bbase + 3] = bmax.x
-    leaf_bounds[unsafe_offset=bbase + 4] = bmax.y
-    leaf_bounds[unsafe_offset=bbase + 5] = bmax.z
-
-    payloads[unsafe_offset=tri_idx] = UInt32(tri_idx)
+    payloads.unsafe_get(tri_idx) = UInt32(tri_idx)
 
 
 def pack_triangle_leaf_lanes_kernel[
@@ -405,7 +412,8 @@ def trace_triangle_bvh_camera_kernel[
         root_idx,
         ray,
     )
-    hit.store(hits, ray_idx)
+    var hits_span = Span(unsafe_ptr=hits, length=ray_count_int * Hit.STRIDE)
+    hit._store_unchecked(hits_span, ray_idx)
 
 
 # AoSoA :[block][field][lane]

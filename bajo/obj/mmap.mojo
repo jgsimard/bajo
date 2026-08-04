@@ -3,7 +3,7 @@ from std.os import SEEK_END
 
 
 struct MMap[mut: Bool, //, origin: Origin[mut=mut]]:
-    comptime ptr = Optional[UnsafePointer[UInt8, Self.origin]]
+    comptime ptr = Optional[Pointer[UInt8, Self.origin]]
     var _data: Self.ptr
     var _size: Int
 

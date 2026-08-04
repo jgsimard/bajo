@@ -140,7 +140,7 @@ def test_downsweep_end_to_end() raises:
         comptime KEYS_PER_THREAD = 8
         comptime PART_SIZE = BLOCK_SIZE * KEYS_PER_THREAD
 
-        var _dummy_ptr = Optional[UnsafePointer[UInt32, MutAnyOrigin]]()
+        var _dummy_ptr = Optional[Pointer[UInt32, MutAnyOrigin]]()
 
         var size = 20_000
         var gdim = ceildiv(size, PART_SIZE)

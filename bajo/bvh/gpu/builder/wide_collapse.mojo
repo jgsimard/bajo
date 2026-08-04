@@ -46,16 +46,16 @@ def _encoded_bounds(
 def collapse_terminal_root_to_wide_kernel[
     width: SIMDLength,
 ](
-    leaf_bounds: UnsafePointer[Float32, ImmutAnyOrigin],
-    leaf_payloads: UnsafePointer[UInt32, ImmutAnyOrigin],
-    leaf_ids: UnsafePointer[UInt32, ImmutAnyOrigin],
-    node_meta: UnsafePointer[UInt32, ImmutAnyOrigin],
-    node_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    wide_nodes: UnsafePointer[Float32, MutAnyOrigin],
-    leaf_block_indices: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_block_counter: UnsafePointer[UInt32, MutAnyOrigin],
-    wide_node_counter: UnsafePointer[UInt32, MutAnyOrigin],
-    wide_root: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_bounds: Pointer[Float32, ImmutAnyOrigin],
+    leaf_payloads: Pointer[UInt32, ImmutAnyOrigin],
+    leaf_ids: Pointer[UInt32, ImmutAnyOrigin],
+    node_meta: Pointer[UInt32, ImmutAnyOrigin],
+    node_bounds: Pointer[Float32, MutAnyOrigin],
+    wide_nodes: Pointer[Float32, MutAnyOrigin],
+    leaf_block_indices: Pointer[UInt32, MutAnyOrigin],
+    leaf_block_counter: Pointer[UInt32, MutAnyOrigin],
+    wide_node_counter: Pointer[UInt32, MutAnyOrigin],
+    wide_root: Pointer[UInt32, MutAnyOrigin],
     leaf_count: Int32,
     internal_count: Int32,
 ):
@@ -279,11 +279,11 @@ def collapse[
 def init_precomputed_wide_leaf_blocks_kernel[
     width: SIMDLength,
 ](
-    leaf_payloads: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_ids: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_block_indices: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_block_counter: UnsafePointer[UInt32, MutAnyOrigin],
-    wide_node_counter: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_payloads: Pointer[UInt32, MutAnyOrigin],
+    leaf_ids: Pointer[UInt32, MutAnyOrigin],
+    leaf_block_indices: Pointer[UInt32, MutAnyOrigin],
+    leaf_block_counter: Pointer[UInt32, MutAnyOrigin],
+    wide_node_counter: Pointer[UInt32, MutAnyOrigin],
     leaf_count: Int32,
     internal_count: Int32,
 ):
@@ -309,12 +309,12 @@ def init_precomputed_wide_leaf_blocks_kernel[
 def collapse_precomputed_wide_kernel[
     width: SIMDLength,
 ](
-    leaf_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    leaf_ids: UnsafePointer[UInt32, MutAnyOrigin],
-    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
-    node_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    wide_nodes: UnsafePointer[Float32, MutAnyOrigin],
-    wide_root: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_bounds: Pointer[Float32, MutAnyOrigin],
+    leaf_ids: Pointer[UInt32, MutAnyOrigin],
+    node_meta: Pointer[UInt32, MutAnyOrigin],
+    node_bounds: Pointer[Float32, MutAnyOrigin],
+    wide_nodes: Pointer[Float32, MutAnyOrigin],
+    wide_root: Pointer[UInt32, MutAnyOrigin],
     internal_count: Int32,
 ):
     var internal_count_int = Int(internal_count)
@@ -429,7 +429,7 @@ def _hploc_pair_out_idx(pair: UInt64) -> UInt32:
 
 
 def _encoded_leaf_count(
-    encoded: UInt32, node_leaf_counts: UnsafePointer[mut=False, UInt32, _]
+    encoded: UInt32, node_leaf_counts: Pointer[mut=False, UInt32, _]
 ) -> UInt32:
     if _is_encoded_leaf(encoded):
         return UInt32(1)
@@ -440,10 +440,10 @@ def _write_terminal_leaf_block[
     width: SIMDLength,
 ](
     encoded: UInt32,
-    leaf_payloads: UnsafePointer[mut=False, UInt32, _],
-    leaf_ids: UnsafePointer[mut=False, UInt32, _],
-    node_meta: UnsafePointer[mut=False, UInt32, _],
-    leaf_block_indices: UnsafePointer[mut=True, UInt32, _],
+    leaf_payloads: Pointer[mut=False, UInt32, _],
+    leaf_ids: Pointer[mut=False, UInt32, _],
+    node_meta: Pointer[mut=False, UInt32, _],
+    leaf_block_indices: Pointer[mut=True, UInt32, _],
     leaf_block_idx: UInt32,
 ):
     var stack = Array[UInt32, GPU_STACK_SIZE](uninitialized=True)
@@ -489,9 +489,9 @@ def _write_one_leaf_block[
     width: SIMDLength,
 ](
     encoded_leaf: UInt32,
-    leaf_payloads: UnsafePointer[mut=False, UInt32, _],
-    leaf_ids: UnsafePointer[mut=False, UInt32, _],
-    leaf_block_indices: UnsafePointer[mut=True, UInt32, _],
+    leaf_payloads: Pointer[mut=False, UInt32, _],
+    leaf_ids: Pointer[mut=False, UInt32, _],
+    leaf_block_indices: Pointer[mut=True, UInt32, _],
     leaf_block_idx: UInt32,
 ):
     var sorted_leaf_idx = _encoded_index(encoded_leaf)
@@ -504,13 +504,13 @@ def _write_one_leaf_block[
 
 
 def init_hploc_index_pairs_kernel(
-    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
-    index_pairs: UnsafePointer[UInt64, MutAnyOrigin],
-    slot_counter: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_block_counter: UnsafePointer[UInt32, MutAnyOrigin],
-    wide_node_counter: UnsafePointer[UInt32, MutAnyOrigin],
-    status: UnsafePointer[UInt32, MutAnyOrigin],
-    wide_root: UnsafePointer[UInt32, MutAnyOrigin],
+    node_meta: Pointer[UInt32, MutAnyOrigin],
+    index_pairs: Pointer[UInt64, MutAnyOrigin],
+    slot_counter: Pointer[UInt32, MutAnyOrigin],
+    leaf_block_counter: Pointer[UInt32, MutAnyOrigin],
+    wide_node_counter: Pointer[UInt32, MutAnyOrigin],
+    status: Pointer[UInt32, MutAnyOrigin],
+    wide_root: Pointer[UInt32, MutAnyOrigin],
     internal_count: Int32,
     slot_count: Int32,
 ):
@@ -544,19 +544,19 @@ def init_hploc_index_pairs_kernel(
 def hploc_to_wide_kernel[
     width: SIMDLength,
 ](
-    leaf_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    leaf_payloads: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_ids: UnsafePointer[UInt32, MutAnyOrigin],
-    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
-    node_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    node_leaf_counts: UnsafePointer[UInt32, MutAnyOrigin],
-    index_pairs: UnsafePointer[UInt64, MutAnyOrigin],
-    slot_counter: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_block_counter: UnsafePointer[UInt32, MutAnyOrigin],
-    wide_node_counter: UnsafePointer[UInt32, MutAnyOrigin],
-    status: UnsafePointer[UInt32, MutAnyOrigin],
-    wide_nodes: UnsafePointer[Float32, MutAnyOrigin],
-    leaf_block_indices: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_bounds: Pointer[Float32, MutAnyOrigin],
+    leaf_payloads: Pointer[UInt32, MutAnyOrigin],
+    leaf_ids: Pointer[UInt32, MutAnyOrigin],
+    node_meta: Pointer[UInt32, MutAnyOrigin],
+    node_bounds: Pointer[Float32, MutAnyOrigin],
+    node_leaf_counts: Pointer[UInt32, MutAnyOrigin],
+    index_pairs: Pointer[UInt64, MutAnyOrigin],
+    slot_counter: Pointer[UInt32, MutAnyOrigin],
+    leaf_block_counter: Pointer[UInt32, MutAnyOrigin],
+    wide_node_counter: Pointer[UInt32, MutAnyOrigin],
+    status: Pointer[UInt32, MutAnyOrigin],
+    wide_nodes: Pointer[Float32, MutAnyOrigin],
+    leaf_block_indices: Pointer[UInt32, MutAnyOrigin],
     slot_count: Int32,
     max_wide_nodes: Int32,
     max_leaf_blocks: Int32,

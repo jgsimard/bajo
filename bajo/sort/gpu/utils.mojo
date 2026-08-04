@@ -6,15 +6,15 @@ from std.reflection import SourceLocation, call_location
 
 
 struct DoubleBuffer[origin_c: MutOrigin, origin_a: MutOrigin, dtype: DType]:
-    var current: UnsafePointer[Scalar[Self.dtype], Self.origin_c]
-    var alternate: UnsafePointer[Scalar[Self.dtype], Self.origin_a]
+    var current: Pointer[Scalar[Self.dtype], Self.origin_c]
+    var alternate: Pointer[Scalar[Self.dtype], Self.origin_a]
     var in_original_order: Bool
     var created_at: SourceLocation
 
     def __init__(
         out self,
-        current: UnsafePointer[Scalar[Self.dtype], Self.origin_c],
-        alternate: UnsafePointer[Scalar[Self.dtype], Self.origin_a],
+        current: Pointer[Scalar[Self.dtype], Self.origin_c],
+        alternate: Pointer[Scalar[Self.dtype], Self.origin_a],
     ):
         self.current = current
         self.alternate = alternate
@@ -55,7 +55,7 @@ def warp_level_multi_split[
     keys: Array[Scalar[keys_dtype], KEYS_PER_THREAD],
     lid: Int,
     radix_shift: Scalar[keys_dtype],
-    s_warp_hist_ptr: UnsafePointer[UInt32, origin, address_space=address_space],
+    s_warp_hist_ptr: Pointer[UInt32, origin, address_space=address_space],
 ) -> Array[UInt32, KEYS_PER_THREAD]:
     comptime RADIX = 2**BITS_PER_PASS
     comptime RADIX_MASK = Scalar[keys_dtype](RADIX - 1)

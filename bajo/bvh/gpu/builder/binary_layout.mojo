@@ -69,13 +69,13 @@ def _node_right(
 # Raw-pointer overloads remain for GPU kernels that have not yet crossed a
 # length-carrying ABI boundary. They are removed as those kernels migrate.
 def _node_left(
-    node_meta: UnsafePointer[mut=False, UInt32, _], node_idx: UInt32
+    node_meta: Pointer[mut=False, UInt32, _], node_idx: UInt32
 ) -> UInt32:
     return node_meta[unsafe_offset=_node_left_index(node_idx)]
 
 
 def _node_right(
-    node_meta: UnsafePointer[mut=False, UInt32, _], node_idx: UInt32
+    node_meta: Pointer[mut=False, UInt32, _], node_idx: UInt32
 ) -> UInt32:
     return node_meta[unsafe_offset=_node_right_index(node_idx)]
 

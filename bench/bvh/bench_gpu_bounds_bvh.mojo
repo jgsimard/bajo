@@ -1,7 +1,7 @@
 from std.math import abs, round, min, max
 from std.sys import has_accelerator
 from std.time import perf_counter_ns
-from std.gpu import DeviceContext, DeviceBuffer
+from max.gpu.host import DeviceContext, DeviceBuffer
 
 from bajo.core import Frame, AABB, Vec3f32, dot, Point3f32, Rayf32
 from bajo.core.intersect import intersect_ray_sphere

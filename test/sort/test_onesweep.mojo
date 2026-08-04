@@ -6,7 +6,7 @@ from std.testing import (
     assert_false,
     assert_equal,
 )
-from std.gpu import DeviceContext
+from max.gpu.host import DeviceContext
 
 from bajo.sort.gpu.onesweep import (
     global_histogram,
@@ -116,7 +116,7 @@ def test_digit_binning_end_to_end() raises:
         comptime PART_SIZE = TPB * ITEMS_PER_THREAD
         comptime VEC_WIDTH = 4
 
-        var _dummy_ptr = Optional[UnsafePointer[UInt32, MutAnyOrigin]]()
+        var _dummy_ptr = Optional[Pointer[UInt32, MutAnyOrigin]]()
         var size = 20_000
         var binning_blocks = ceildiv(Int(size), BIN_PART_SIZE)
 
@@ -244,7 +244,7 @@ def test_digit_binning_pairs_end_to_end() raises:
                 host_keys[i] = UInt32((i * 17) ^ (i << 13))
                 host_vals[i] = UInt32(i)
 
-        var _dummy_ptr = Optional[UnsafePointer[UInt32, MutAnyOrigin]]()
+        var _dummy_ptr = Optional[Pointer[UInt32, MutAnyOrigin]]()
         var g_hist_blocks = ceildiv(size, PART_SIZE)
 
         comptime _hist = global_histogram[

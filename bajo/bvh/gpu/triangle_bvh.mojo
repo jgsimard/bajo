@@ -1,6 +1,7 @@
 from std.math import ceildiv, max
 from std.time import perf_counter_ns
-from std.gpu import DeviceBuffer, DeviceContext, global_idx
+from std.gpu import global_idx
+from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh.camera import Camera
 from bajo.bvh.gpu.utils import (

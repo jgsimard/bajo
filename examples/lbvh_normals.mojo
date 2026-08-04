@@ -181,7 +181,7 @@ def write_ppm_normals_from_hits[
     height: Int,
     tri_vertex_sets: List[List[Vec3f32]],
     instances: List[Instance],
-    hits: UnsafePointer[Float32, origin],
+    hits: Pointer[Float32, origin],
 ) raises:
     var pixel_count = width * height
     var byte_count = pixel_count * 3

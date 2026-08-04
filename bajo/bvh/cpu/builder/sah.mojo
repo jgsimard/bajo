@@ -1,5 +1,5 @@
 from bajo.core import AABB, Frame
-from bajo.bvh.constants import f32_max, f32_min, BVH_BINS
+from bajo.bvh.constants import f32_max, f32_min
 from .builder import BoundsItem, BoundsBvhNode
 
 
@@ -29,7 +29,7 @@ struct BoundsSplitResult[frame: Frame]:
 
 
 def _find_sah_split[
-    frame: Frame
+    frame: Frame, BVH_BINS: Int
 ](
     node: BoundsBvhNode,
     indices: Span[mut=False, UInt32, _],
@@ -71,7 +71,9 @@ def _find_sah_split[
 
         for item_idx_u32 in node_indices:
             var item_idx = Int(item_idx_u32)
-            var b_idx = _item_bin(items, item_idx, axis, min_c, scale)
+            var b_idx = _item_bin[frame, BVH_BINS](
+                items, item_idx, axis, min_c, scale
+            )
             bins[b_idx].item_count += 1
             items.unsafe_get(item_idx).grow_into(bins[b_idx].bounds)
 
@@ -132,7 +134,7 @@ struct BoundsBin[frame: Frame](TrivialRegisterPassable):
 
 
 def _item_bin[
-    frame: Frame
+    frame: Frame, BVH_BINS: Int
 ](
     items: Span[mut=False, BoundsItem[frame], _],
     item_idx: Int,
@@ -152,7 +154,7 @@ def _item_bin[
 
 
 def _partition_items_by_bin[
-    frame: Frame
+    frame: Frame, BVH_BINS: Int
 ](
     indices: Span[mut=True, UInt32, _],
     items: Span[mut=False, BoundsItem[frame], _],
@@ -189,7 +191,9 @@ def _partition_items_by_bin[
 
     while i <= j:
         var item_idx = Int(node_indices.unsafe_get(i))
-        var b_idx = _item_bin(items, item_idx, axis, bin_min, bin_scale)
+        var b_idx = _item_bin[frame, BVH_BINS](
+            items, item_idx, axis, bin_min, bin_scale
+        )
 
         if b_idx <= split_bin:
             i += 1

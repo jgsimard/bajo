@@ -84,7 +84,8 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
             )
 
         elif split_method == "sah":
-            var split = _find_sah_split(
+            comptime BVH_BINS = 16
+            var split = _find_sah_split[Self.frame, BVH_BINS](
                 node,
                 Span(self.item_indices),
                 Span(self.items),
@@ -105,7 +106,7 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
                     axis,
                 )
             else:
-                split_idx = _partition_items_by_bin(
+                split_idx = _partition_items_by_bin[Self.frame, BVH_BINS](
                     Span(self.item_indices),
                     Span(self.items),
                     first,

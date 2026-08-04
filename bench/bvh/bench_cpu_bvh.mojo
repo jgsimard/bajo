@@ -1,4 +1,3 @@
-from std.benchmark import keep
 from std.math import round
 from std.time import perf_counter_ns
 
@@ -8,6 +7,7 @@ from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.core import Frame, Vec3f32, Point3f32, Rayf32
+from bench.bvh.bench_printing import TablePrinter
 
 
 comptime GRID_SIDE = 256
@@ -85,50 +85,6 @@ struct PrimaryBenchResult(Copyable):
     var checksum: Float64
 
 
-@fieldwise_init
-struct ShadowBenchResult(Copyable):
-    var ns: Int
-    var occluded: Int
-
-
-def print_result_legend():
-    var c0 = String("case").ascii_ljust(12)
-    var c1 = String("build").ascii_rjust(8)
-    var c2 = String("nodes").ascii_rjust(6)
-    var c3 = String("prims").ascii_rjust(6)
-    var c4 = String("primary").ascii_rjust(9)
-    var c5 = String("MRay/s").ascii_rjust(9)
-    var c6 = String("checksum").ascii_rjust(9)
-
-    print(t"{c0} {c1} {c2} {c3} {c4} {c5} {c6}")
-    print("------------ -------- ------ ------ --------- --------- ---------")
-
-
-def print_case_result(
-    name: String,
-    build_ns: Int,
-    nodes: Int,
-    prims: Int,
-    primary: PrimaryBenchResult,
-    ray_count: Int,
-):
-    var build_ms = round(ns_to_ms(build_ns), 3)
-
-    var primary_ms = round(ns_to_ms(primary.ns), 3)
-    var primary_mrays = round(ns_to_mrays_per_s(primary.ns, ray_count), 3)
-    var checksum = round(primary.checksum, 3)
-
-    var c0 = name.ascii_ljust(12)
-    var c1 = String(t"{build_ms}").ascii_rjust(8)
-    var c2 = String(t"{nodes}").ascii_rjust(6)
-    var c3 = String(t"{prims}").ascii_rjust(6)
-    var c4 = String(t"{primary_ms}").ascii_rjust(9)
-    var c5 = String(t"{primary_mrays}").ascii_rjust(9)
-    var c6 = String(t"{checksum}").ascii_rjust(9)
-
-    print(t"{c0} {c1} {c2} {c3} {c4} {c5} {c6}")
-
-
 def trace_triangle_primary[
     width: SIMDLength
 ](
@@ -139,21 +95,16 @@ def trace_triangle_primary[
     for ray in rays:
         var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
         if hit.t < f32_max:
-            checksum += Float64(hit.t)
+            checksum += (
+                Float64(hit.t)
+                + Float64(hit.u)
+                + Float64(hit.v)
+                + Float64(hit.normal.x)
+                + Float64(hit.normal.y)
+                + Float64(hit.normal.z)
+                + Float64(hit.prim)
+            )
     return checksum
-
-
-def trace_triangle_shadow[
-    width: SIMDLength
-](
-    bvh: TriangleBvh[Frame.WORLD, width],
-    rays: List[Rayf32[Frame.WORLD]],
-) -> Int:
-    var occluded = 0
-    for ray in rays:
-        if bvh.trace[TRACE.ANY_HIT](ray).is_occluded():
-            occluded += 1
-    return occluded
 
 
 def trace_sphere_primary[
@@ -168,16 +119,6 @@ def trace_sphere_primary[
         if hit.t < f32_max:
             checksum += Float64(hit.t)
     return checksum
-
-
-def trace_sphere_shadow[
-    width: SIMDLength
-](bvh: SphereBvh[Frame.WORLD, width], rays: List[Rayf32[Frame.WORLD]],) -> Int:
-    var occluded = 0
-    for ray in rays:
-        if bvh.trace[TRACE.ANY_HIT](ray).is_occluded():
-            occluded += 1
-    return occluded
 
 
 def bench_triangle_primary[
@@ -220,27 +161,46 @@ def bench_sphere_primary[
     return PrimaryBenchResult(best_ns, checksum)
 
 
-def _case_name[
-    prim: String, width: SIMDLength, split_method: String
-]() -> String:
-    name: String
-    comptime if split_method == "median":
-        name = "median "
-    elif split_method == "sah":
-        name = "sah    "
-    elif split_method == "lbvh":
-        name = "lbvh   "
-    else:
-        comptime assert False
-    return String(t"{prim}{Int(width)} {name}")
+def print_case_result(
+    table: TablePrinter,
+    prim: String,
+    width: Int,
+    split_method: String,
+    build_ns: Int,
+    nodes: Int,
+    prims: Int,
+    primary: PrimaryBenchResult,
+    ray_count: Int,
+) raises:
+    var build_ms = round(ns_to_ms(build_ns), 3)
+    var primary_ms = round(ns_to_ms(primary.ns), 3)
+    var primary_mrays = round(
+        ns_to_mrays_per_s(primary.ns, ray_count),
+        3,
+    )
+    var checksum = round(primary.checksum, 3)
+
+    table.result_line(
+        prim=prim,
+        width=String(width),
+        split_method=split_method,
+        build=String(build_ms),
+        nodes=String(nodes),
+        prims=String(prims),
+        primary=String(primary_ms),
+        MRay_s=String(primary_mrays),
+        checksum=String(checksum),
+    )
 
 
 def bench_triangle_case[
     width: SIMDLength,
     split_method: String,
-](vertices: List[Point3f32[Frame.WORLD]], rays: List[Rayf32[Frame.WORLD]]):
-    var name = _case_name["tri", width, split_method]()
-
+](
+    table: TablePrinter,
+    vertices: List[Point3f32[Frame.WORLD]],
+    rays: List[Rayf32[Frame.WORLD]],
+) raises:
     var t0 = perf_counter_ns()
     var bvh = TriangleBvh[Frame.WORLD, width].__init__[split_method](
         vertices.copy()
@@ -251,7 +211,10 @@ def bench_triangle_case[
     var primary = bench_triangle_primary[width](bvh, rays)
 
     print_case_result(
-        name,
+        table,
+        "tri",
+        width,
+        split_method,
         build_ns,
         len(bvh.tree.nodes),
         bvh.tri_count,
@@ -263,9 +226,11 @@ def bench_triangle_case[
 def bench_sphere_case[
     width: SIMDLength,
     split_method: String,
-](spheres: List[Sphere[Frame.WORLD]], rays: List[Rayf32[Frame.WORLD]]):
-    var name = _case_name["sph", width, split_method]()
-
+](
+    table: TablePrinter,
+    spheres: List[Sphere[Frame.WORLD]],
+    rays: List[Rayf32[Frame.WORLD]],
+) raises:
     var t0 = perf_counter_ns()
     var bvh = SphereBvh[Frame.WORLD, width].__init__[split_method](
         spheres.copy()
@@ -276,7 +241,10 @@ def bench_sphere_case[
     var primary = bench_sphere_primary[width](bvh, rays)
 
     print_case_result(
-        name,
+        table,
+        "sph",
+        width,
+        split_method,
         build_ns,
         len(bvh.tree.nodes),
         bvh.sphere_count,
@@ -287,18 +255,32 @@ def bench_sphere_case[
 
 def bench_triangle_widths[
     split_method: String
-](vertices: List[Point3f32[Frame.WORLD]], rays: List[Rayf32[Frame.WORLD]]):
-    bench_triangle_case[2, split_method](vertices, rays)
-    bench_triangle_case[4, split_method](vertices, rays)
-    bench_triangle_case[8, split_method](vertices, rays)
+](
+    table: TablePrinter,
+    vertices: List[Point3f32[Frame.WORLD]],
+    rays: List[Rayf32[Frame.WORLD]],
+) raises:
+    comptime for width in [2, 4, 8, 16]:
+        bench_triangle_case[width, split_method](
+            table,
+            vertices,
+            rays,
+        )
 
 
 def bench_sphere_widths[
     split_method: String
-](spheres: List[Sphere[Frame.WORLD]], rays: List[Rayf32[Frame.WORLD]]):
-    bench_sphere_case[2, split_method](spheres, rays)
-    bench_sphere_case[4, split_method](spheres, rays)
-    bench_sphere_case[8, split_method](spheres, rays)
+](
+    table: TablePrinter,
+    spheres: List[Sphere[Frame.WORLD]],
+    rays: List[Rayf32[Frame.WORLD]],
+) raises:
+    comptime for width in [2, 4, 8, 16]:
+        bench_sphere_case[width, split_method](
+            table,
+            spheres,
+            rays,
+        )
 
 
 def main() raises:
@@ -318,12 +300,30 @@ def main() raises:
 
     print("\nResults")
     print("-------")
-    print_result_legend()
 
-    bench_triangle_widths["median"](tri_vertices, rays)
-    bench_triangle_widths["sah"](tri_vertices, rays)
-    bench_triangle_widths["lbvh"](tri_vertices, rays)
+    var table = TablePrinter(
+        prim=4,
+        width=5,
+        split_method=12,
+        build=8,
+        nodes=6,
+        prims=6,
+        primary=9,
+        MRay_s=7,
+        checksum=14,
+    )
+    table.header()
 
-    bench_sphere_widths["median"](spheres, rays)
-    bench_sphere_widths["sah"](spheres, rays)
-    bench_sphere_widths["lbvh"](spheres, rays)
+    comptime for m in ["median", "sah", "lbvh"]:
+        bench_triangle_widths[m](
+            table,
+            tri_vertices,
+            rays,
+        )
+
+    comptime for m in ["median", "sah", "lbvh"]:
+        bench_sphere_widths[m](
+            table,
+            spheres,
+            rays,
+        )

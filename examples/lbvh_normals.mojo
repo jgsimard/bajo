@@ -1,5 +1,5 @@
 from std.io.file_descriptor import FileDescriptor
-from std.gpu import DeviceBuffer, DeviceContext
+from max.gpu.host import DeviceBuffer, DeviceContext
 from std.math import max, round, clamp
 from std.sys import has_accelerator
 from std.time import perf_counter_ns

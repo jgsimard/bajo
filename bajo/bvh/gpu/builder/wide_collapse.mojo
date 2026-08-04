@@ -1,6 +1,7 @@
 from std.math import ceildiv, max
 from std.atomic import Atomic, Ordering
-from std.gpu import DeviceContext, DeviceBuffer, global_idx
+from std.gpu import global_idx
+from max.gpu.host import DeviceContext, DeviceBuffer
 
 from bajo.core import AABB, Frame
 from bajo.bvh.constants import (

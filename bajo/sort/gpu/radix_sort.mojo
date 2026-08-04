@@ -8,9 +8,8 @@ from std.gpu import (
     grid_dim,
     WARP_SIZE,
     warp_id,
-    DeviceBuffer,
 )
-from std.gpu.host import DeviceContext
+from max.gpu.host import DeviceContext, DeviceBuffer
 from std.gpu.memory import AddressSpace
 from std.gpu.primitives import warp, block
 from std.gpu.sync import barrier

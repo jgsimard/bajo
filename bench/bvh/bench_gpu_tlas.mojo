@@ -2,7 +2,7 @@ from std.benchmark import keep
 from std.math import abs, round, min, max
 from std.sys import has_accelerator
 from std.time import perf_counter_ns
-from std.gpu import DeviceContext, DeviceBuffer
+from max.gpu.host import DeviceContext, DeviceBuffer
 
 from bajo.core.utils import (
     ns_to_ms,

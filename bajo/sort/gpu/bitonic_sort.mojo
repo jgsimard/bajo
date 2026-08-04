@@ -6,7 +6,7 @@ from std.gpu import (
     global_idx,
     WARP_SIZE,
 )
-from std.gpu.host import DeviceContext, DeviceBuffer
+from max.gpu.host import DeviceContext, DeviceBuffer
 from std.gpu.memory import AddressSpace
 from std.gpu.primitives import warp
 from std.math import iota

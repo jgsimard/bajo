@@ -4,7 +4,7 @@ from std.testing import (
     assert_true,
     assert_equal,
 )
-from std.gpu.host import DeviceContext
+from max.gpu.host import DeviceContext
 
 from bajo.sort.gpu.radix_sort import (
     upsweep,

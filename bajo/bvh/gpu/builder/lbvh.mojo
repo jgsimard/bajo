@@ -2,7 +2,8 @@ from std.bit import count_leading_zeros
 from std.math import min, max
 from std.time import perf_counter_ns
 from std.atomic import Atomic
-from std.gpu import DeviceBuffer, DeviceContext, global_idx
+from max.gpu.host import DeviceBuffer, DeviceContext
+from std.gpu import global_idx
 
 from bajo.core import AABB, Vec3f32, Frame
 from bajo.core.morton import morton3

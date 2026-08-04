@@ -2,7 +2,7 @@ from std.benchmark import keep
 from std.math import abs, max
 from std.sys import has_accelerator
 from std.testing import TestSuite, assert_true
-from std.gpu import DeviceContext, DeviceBuffer
+from max.gpu.host import DeviceContext, DeviceBuffer
 
 from bajo.core import Vec3f32, Point3f32, Frame
 from bajo.bvh.types import Sphere, Hit

@@ -6,7 +6,7 @@ from std.testing import (
     assert_false,
     assert_equal,
 )
-from std.gpu.host import DeviceContext
+from max.gpu.host import DeviceContext
 
 from bajo.sort.gpu.bitonic_sort import (
     naive_bitonic_sort_pairs,

@@ -1,5 +1,6 @@
 from std.math import max, ceildiv
-from std.gpu import DeviceBuffer, DeviceContext, global_idx
+from max.gpu.host import DeviceBuffer, DeviceContext
+from std.gpu import global_idx
 
 from bajo.core import AABB, Frame
 from bajo.bvh.constants import (

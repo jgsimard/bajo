@@ -1,4 +1,4 @@
-from std.gpu import DeviceContext, DeviceBuffer
+from max.gpu.host import DeviceContext, DeviceBuffer
 
 from bajo.bvh.camera import Camera
 from bajo.core import Vec3f32, Point3f32, Frame

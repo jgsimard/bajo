@@ -1,5 +1,5 @@
 from std.math import max
-from std.gpu import DeviceBuffer
+from max.gpu.host import DeviceBuffer
 
 from bajo.core import AABB, Vec3f32, Point3f32, Frame, Rayf32
 from bajo.bvh.camera import Camera

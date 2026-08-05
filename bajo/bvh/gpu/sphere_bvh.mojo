@@ -1,6 +1,7 @@
 from std.math import ceildiv, max
 from std.time import perf_counter_ns
-from std.gpu import DeviceBuffer, DeviceContext, global_idx
+from max.gpu.host import DeviceBuffer, DeviceContext
+from std.gpu import global_idx
 
 from bajo.bvh.camera import Camera
 from bajo.bvh.constants import (
@@ -218,6 +219,7 @@ struct GpuSphereBvh[frame: Frame, width: SIMDLength]:
             Int32(ray_count),
             Int32(cwidth),
             Int32(cheight),
+            Float32(1.0) / Float32(cheight),
             grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
@@ -226,14 +228,15 @@ struct GpuSphereBvh[frame: Frame, width: SIMDLength]:
 def trace_sphere_bvh_camera_kernel[
     width: SIMDLength,
 ](
-    wide_nodes: UnsafePointer[Float32, ImmutAnyOrigin],
-    leaf_spheres: UnsafePointer[Float32, ImmutAnyOrigin],
+    wide_nodes: Pointer[Float32, ImmutAnyOrigin],
+    leaf_spheres: Pointer[Float32, ImmutAnyOrigin],
     root_idx: UInt32,
-    camera_params: UnsafePointer[Float32, ImmutAnyOrigin],
-    hits: UnsafePointer[Float32, MutAnyOrigin],
+    camera_params: Pointer[Float32, ImmutAnyOrigin],
+    hits: Pointer[Float32, MutAnyOrigin],
     ray_count: Int32,
     width_px: Int32,
     height_px: Int32,
+    inv_height: Float32,
 ):
     var ray_count_int = Int(ray_count)
     var width_px_int = Int(width_px)
@@ -253,8 +256,10 @@ def trace_sphere_bvh_camera_kernel[
         length=ceildiv(ray_count_int, pixels_per_view) * Camera.STRIDE,
     )
     var camera = Camera(camera_params_span, view_idx * Camera.STRIDE)
-    var ray = camera.make_ray(px_i, py_i, width_px_int, height_px_int)
+    var ray = camera.make_ray_raster(px_i, py_i, width_px_int, inv_height)
 
+    # extra distance stack benchmarks positively for sphere BVH2
+    # BVH4 and BVH8 retain the lower-memory stack specialization
     var hit = trace_bounds_bvh[
         Frame.WORLD,
         width,
@@ -264,6 +269,8 @@ def trace_sphere_bvh_camera_kernel[
             width,
             TRACE.CLOSEST_HIT,
         ],
+        True,
+        width == 2,
     ](
         wide_nodes,
         leaf_spheres,
@@ -279,7 +286,7 @@ def _intersect_sphere_leaf[
     width: SIMDLength,
     mode: TRACE,
 ](
-    leaf_spheres: UnsafePointer[mut=False, Float32, _],
+    leaf_spheres: Pointer[mut=False, Float32, _],
     leaf_block_idx: UInt32,
     ray: Rayf32[frame],
     mut hit: Hit[frame],

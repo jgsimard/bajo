@@ -124,6 +124,25 @@ struct Camera(TrivialRegisterPassable, Writable):
             0.0,
         )
 
+    def make_ray_raster(
+        self,
+        px_i: Int,
+        py_i: Int,
+        width: Int,
+        inv_height: Float32,
+    ) -> Rayf32[Frame.WORLD]:
+        var screen_x = (
+            2.0 * (Float32(px_i) + 0.5) - Float32(width)
+        ) * inv_height
+        var screen_y = 1.0 - 2.0 * (Float32(py_i) + 0.5) * inv_height
+
+        var direction = normalize(
+            self.forward
+            + self.right * (screen_x * self.fov_scale)
+            + self.up * (screen_y * self.fov_scale)
+        )
+        return Rayf32[Frame.WORLD](self.origin, direction, 0.0, f32_max)
+
     def make_ray_sampled(
         self,
         px_i: Int,

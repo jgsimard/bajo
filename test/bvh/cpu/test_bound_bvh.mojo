@@ -114,6 +114,18 @@ def _make_depth_pair[frame: Frame]() -> List[Point3f32[frame]]:
     return verts^
 
 
+def _make_depth_stack[frame: Frame](count: Int) -> List[Point3f32[frame]]:
+    var verts = List[Point3f32[frame]](capacity=count * 3)
+
+    for i in range(count):
+        var z = 2.0 + Float32(i)
+        verts.append(Point3f32[frame](-1.0, -1.0, z))
+        verts.append(Point3f32[frame](1.0, -1.0, z))
+        verts.append(Point3f32[frame](0.0, 1.0, z))
+
+    return verts^
+
+
 def _make_bounds_items[
     frame: Frame
 ](verts: List[Point3f32[frame]]) -> List[BoundsItem[frame]]:

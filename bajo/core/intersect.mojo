@@ -282,6 +282,46 @@ def intersect_ray_sphere[
     return RayDistanceHit(mask, t)
 
 
+def intersect_ray_sphere_coefficients[
+    dtype: DType,
+    frame: Frame,
+    width: SIMDLength,
+](
+    o: Point3[dtype, frame, width],
+    d: Vec3[dtype, frame, width],
+    center: Point3[dtype, frame, width],
+    radius: SIMD[dtype, width],
+    a: SIMD[dtype, width],
+    inv_a: SIMD[dtype, width],
+    t_max: SIMD[dtype, width],
+    t_min: SIMD[dtype, width] = SIMD[dtype, width](1.0e-4),
+) -> RayDistanceHit[dtype, width]:
+    comptime assert dtype in [DType.float32, DType.float64]
+
+    var oc = o - center
+
+    var half_b = dot(oc, d)
+    var c = dot(oc, oc) - radius * radius
+
+    var det = half_b * half_b - a * c
+    var det_ok = det.ge(0.0)
+
+    var sqrt_det = sqrt(max(det, 0.0))
+    var t0 = (-half_b - sqrt_det) * inv_a
+    var t1 = (-half_b + sqrt_det) * inv_a
+
+    var near_mask = det_ok & t0.gt(t_min) & t0.lt(t_max)
+    var far_mask = det_ok & (~near_mask) & t1.gt(t_min) & t1.lt(t_max)
+    var mask = near_mask | far_mask
+
+    var t = near_mask.select(
+        t0,
+        far_mask.select(t1, max_finite[dtype]()),
+    )
+
+    return RayDistanceHit(mask, t)
+
+
 def intersect_ray_tri[
     dtype: DType, frame: Frame, width: SIMDLength
 ](
@@ -294,12 +334,32 @@ def intersect_ray_tri[
     t_min: SIMD[dtype, width] = SIMD[dtype, width](1.0e-4),
 ) -> RayTriHit[dtype, width]:
     """Moller and Trumbore's method."""
+    return intersect_ray_tri_edges(
+        o,
+        d,
+        v0,
+        v1 - v0,
+        v2 - v0,
+        t_max,
+        t_min,
+    )
+
+
+def intersect_ray_tri_edges[
+    dtype: DType, frame: Frame, width: SIMDLength
+](
+    o: Point3[dtype, frame, width],
+    d: Vec3[dtype, frame, width],
+    v0: Point3[dtype, frame, width],
+    e1: Vec3[dtype, frame, width],
+    e2: Vec3[dtype, frame, width],
+    t_max: SIMD[dtype, width],
+    t_min: SIMD[dtype, width] = SIMD[dtype, width](1.0e-4),
+) -> RayTriHit[dtype, width]:
+    """Moller-Trumbore intersection with precomputed triangle edges"""
     comptime assert dtype.is_floating_point()
     comptime EPSILON = Scalar[dtype](1e-8 if dtype == DType.float32 else 1e-16)
     comptime INF = max_finite[dtype]()
-
-    var e1 = v1 - v0
-    var e2 = v2 - v0
 
     var p = cross(d, e2)
     var det = dot(e1, p)

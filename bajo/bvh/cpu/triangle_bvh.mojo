@@ -1,6 +1,7 @@
 from bajo.core.utils import min_argmin
 from bajo.core import (
     Vec3,
+    Vec3f32,
     Normal3f32,
     AABB,
     Point3,
@@ -17,7 +18,7 @@ from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvhBuilder,
 )
 from bajo.bvh.types import Hit, TriangleLeafBlock, TypedBvh
-from bajo.core.intersect import intersect_ray_tri
+from bajo.core.intersect import intersect_ray_tri_edges
 from bajo.bvh.cpu.trace import trace_bounds_bvh
 
 
@@ -114,13 +115,13 @@ struct TriangleBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
                         block.v0.y[k] = p0.y
                         block.v0.z[k] = p0.z
 
-                        block.v1.x[k] = p1.x
-                        block.v1.y[k] = p1.y
-                        block.v1.z[k] = p1.z
+                        block.e1.x[k] = p1.x - p0.x
+                        block.e1.y[k] = p1.y - p0.y
+                        block.e1.z[k] = p1.z - p0.z
 
-                        block.v2.x[k] = p2.x
-                        block.v2.y[k] = p2.y
-                        block.v2.z[k] = p2.z
+                        block.e2.x[k] = p2.x - p0.x
+                        block.e2.y[k] = p2.y - p0.y
+                        block.e2.z[k] = p2.z - p0.z
 
                         block.prim_indices[k] = prim_idx
 
@@ -135,16 +136,18 @@ struct TriangleBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
             ray: Rayf32[Self.bvh_frame],
             O: Point3[DType.float32, Self.bvh_frame, Self.width],
             D: Vec3[DType.float32, Self.bvh_frame, Self.width],
+            _ray_a: SIMD[DType.float32, Self.width],
+            _ray_inv_a: SIMD[DType.float32, Self.width],
             leaf_block_idx: UInt32,
             mut hit: Hit[Self.bvh_frame],
         ) capturing -> Bool:
-            ref block = Span(self.leaf_blocks).unsafe_get(Int(leaf_block_idx))
-            var tri_hit = intersect_ray_tri(
+            ref block = self.leaf_blocks.unsafe_get(Int(leaf_block_idx))
+            var tri_hit = intersect_ray_tri_edges(
                 O,
                 D,
                 block.v0,
-                block.v1,
-                block.v2,
+                block.e1,
+                block.e2,
                 hit.t,
                 ray.t_min,
             )
@@ -163,21 +166,23 @@ struct TriangleBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
                 hit.v = tri_hit.v[lane]
                 hit.prim = block.prim_indices[lane]
                 hit.inst = EMPTY_LANE
-                var normals = normalize(
-                    cross(block.v1 - block.v0, block.v2 - block.v0)
-                )
+                var normals = normalize(cross(block.e1, block.e2))
                 hit.normal = Normal3f32[Self.bvh_frame](
                     normals.x[lane], normals.y[lane], normals.z[lane]
                 )
+                # e1 = Vec3f32[Self.bvh_frame](
+                #     block.e1.x[lane], block.e1.y[lane], block.e1.z[lane]
+                # )
+                # e2 = Vec3f32[Self.bvh_frame](
+                #     block.e2.x[lane], block.e2.y[lane], block.e2.z[lane]
+                # )
+                # normal= normalize(cross(e1, e2))
+                # hit.normal = Normal3f32[Self.bvh_frame](
+                #     normal.x, normal.y, normal.z
+                # )
 
             return True
 
-        return trace_bounds_bvh[
-            Self.frame,
-            Self.width,
-            mode,
-            leaf_fn,
-        ](
-            self.tree,
-            ray,
+        return trace_bounds_bvh[Self.frame, Self.width, mode, leaf_fn](
+            self.tree, ray
         )

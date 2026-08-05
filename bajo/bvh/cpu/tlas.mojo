@@ -83,6 +83,8 @@ struct Tlas[width: SIMDLength](Copyable):
             ray: Rayf32[Frame.WORLD],
             O: Point3[DType.float32, Frame.WORLD, Self.width],
             D: Vec3[DType.float32, Frame.WORLD, Self.width],
+            _ray_a: SIMD[DType.float32, Self.width],
+            _ray_inv_a: SIMD[DType.float32, Self.width],
             leaf_block_idx: UInt32,
             mut hit: Hit[Frame.WORLD],
         ) capturing -> Bool:

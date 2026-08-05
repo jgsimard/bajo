@@ -27,7 +27,6 @@ comptime CPU_STACK_SIZE = 64
 comptime TRI_LEAF_VERTEX_STRIDE = 9
 comptime TRI_LEAF_PACKED_STRIDE = 12
 comptime SPHERE_LEAF_PACKED_STRIDE = 5
-comptime BVH_BINS = 16
 
 
 @fieldwise_init

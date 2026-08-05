@@ -34,7 +34,7 @@ from bajo.bvh.constants import (
     WideNode,
 )
 from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh
-from bajo.core.intersect import intersect_ray_tri
+from bajo.core.intersect import intersect_ray_tri_edges
 from bajo.bvh.gpu.trace import trace_bounds_bvh
 from bajo.core.utils import min_argmin
 
@@ -244,6 +244,7 @@ struct GpuTriangleBvh[frame: Frame, width: SIMDLength]:
             Int32(ray_count),
             Int32(cwidth),
             Int32(cheight),
+            Float32(1.0) / Float32(cheight),
             grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
@@ -302,9 +303,9 @@ def compute_triangle_bounds_kernel[
 def pack_triangle_leaf_lanes_kernel[
     width: SIMDLength,
 ](
-    vertices: UnsafePointer[Float32, ImmutAnyOrigin],
-    leaf_block_indices: UnsafePointer[UInt32, ImmutAnyOrigin],
-    leaf_vertices: UnsafePointer[Float32, MutAnyOrigin],
+    vertices: Pointer[Float32, ImmutAnyOrigin],
+    leaf_block_indices: Pointer[UInt32, ImmutAnyOrigin],
+    leaf_vertices: Pointer[Float32, MutAnyOrigin],
     leaf_lane_count: Int32,
 ):
     var leaf_lane_count_int = Int(leaf_lane_count)
@@ -318,9 +319,9 @@ def pack_triangle_leaf_lanes_kernel[
     # Packed fields:
     #   0..2   = v0.xyz
     #   3      = prim id bits
-    #   4..6   = v1.xyz
+    #   4..6   = e1.xyz (v1 - v0)
     #   7      = pad
-    #   8..10  = v2.xyz
+    #   8..10  = e2.xyz (v2 - v0)
     #   11     = pad
     var lane = lane_idx % width
     var leaf_block_idx = lane_idx / width
@@ -334,49 +335,47 @@ def pack_triangle_leaf_lanes_kernel[
         return
 
     var in_base = Int(prim) * TRI_LEAF_VERTEX_STRIDE
+    var v0x = vertices[unsafe_offset=in_base + 0]
+    var v0y = vertices[unsafe_offset=in_base + 1]
+    var v0z = vertices[unsafe_offset=in_base + 2]
 
-    leaf_vertices[unsafe_offset=out_base + 0 * width + lane] = vertices[
-        unsafe_offset=in_base + 0
-    ]
-    leaf_vertices[unsafe_offset=out_base + 1 * width + lane] = vertices[
-        unsafe_offset=in_base + 1
-    ]
-    leaf_vertices[unsafe_offset=out_base + 2 * width + lane] = vertices[
-        unsafe_offset=in_base + 2
-    ]
-    leaf_vertices[unsafe_offset=out_base + 4 * width + lane] = vertices[
-        unsafe_offset=in_base + 3
-    ]
-    leaf_vertices[unsafe_offset=out_base + 5 * width + lane] = vertices[
-        unsafe_offset=in_base + 4
-    ]
-    leaf_vertices[unsafe_offset=out_base + 6 * width + lane] = vertices[
-        unsafe_offset=in_base + 5
-    ]
+    leaf_vertices[unsafe_offset=out_base + 0 * width + lane] = v0x
+    leaf_vertices[unsafe_offset=out_base + 1 * width + lane] = v0y
+    leaf_vertices[unsafe_offset=out_base + 2 * width + lane] = v0z
+    leaf_vertices[unsafe_offset=out_base + 4 * width + lane] = (
+        vertices[unsafe_offset=in_base + 3] - v0x
+    )
+    leaf_vertices[unsafe_offset=out_base + 5 * width + lane] = (
+        vertices[unsafe_offset=in_base + 4] - v0y
+    )
+    leaf_vertices[unsafe_offset=out_base + 6 * width + lane] = (
+        vertices[unsafe_offset=in_base + 5] - v0z
+    )
     leaf_vertices[unsafe_offset=out_base + 7 * width + lane] = 0.0
-    leaf_vertices[unsafe_offset=out_base + 8 * width + lane] = vertices[
-        unsafe_offset=in_base + 6
-    ]
-    leaf_vertices[unsafe_offset=out_base + 9 * width + lane] = vertices[
-        unsafe_offset=in_base + 7
-    ]
-    leaf_vertices[unsafe_offset=out_base + 10 * width + lane] = vertices[
-        unsafe_offset=in_base + 8
-    ]
+    leaf_vertices[unsafe_offset=out_base + 8 * width + lane] = (
+        vertices[unsafe_offset=in_base + 6] - v0x
+    )
+    leaf_vertices[unsafe_offset=out_base + 9 * width + lane] = (
+        vertices[unsafe_offset=in_base + 7] - v0y
+    )
+    leaf_vertices[unsafe_offset=out_base + 10 * width + lane] = (
+        vertices[unsafe_offset=in_base + 8] - v0z
+    )
     leaf_vertices[unsafe_offset=out_base + 11 * width + lane] = 0.0
 
 
 def trace_triangle_bvh_camera_kernel[
     width: SIMDLength,
 ](
-    wide_nodes: UnsafePointer[Float32, ImmutAnyOrigin],
-    leaf_vertices: UnsafePointer[Float32, ImmutAnyOrigin],
+    wide_nodes: Pointer[Float32, ImmutAnyOrigin],
+    leaf_vertices: Pointer[Float32, ImmutAnyOrigin],
     root_idx: UInt32,
-    camera_params: UnsafePointer[Float32, ImmutAnyOrigin],
-    hits: UnsafePointer[Float32, MutAnyOrigin],
+    camera_params: Pointer[Float32, ImmutAnyOrigin],
+    hits: Pointer[Float32, MutAnyOrigin],
     ray_count: Int32,
     width_px: Int32,
     height_px: Int32,
+    inv_height: Float32,
 ):
     var ray_count_int = Int(ray_count)
     var width_px_int = Int(width_px)
@@ -396,8 +395,10 @@ def trace_triangle_bvh_camera_kernel[
         length=ceildiv(ray_count_int, pixels_per_view) * Camera.STRIDE,
     )
     var camera = Camera(camera_params_span, view_idx * Camera.STRIDE)
-    var ray = camera.make_ray(px_i, py_i, width_px_int, height_px_int)
+    var ray = camera.make_ray_raster(px_i, py_i, width_px_int, inv_height)
 
+    # extra distance stack benchmarks positively for triangle BVH4
+    # BVH2 and BVH8 retain the lower-memory stack specialization.
     var hit = trace_bounds_bvh[
         Frame.WORLD,
         width,
@@ -407,6 +408,8 @@ def trace_triangle_bvh_camera_kernel[
             width,
             TRACE.CLOSEST_HIT,
         ],
+        True,
+        width == 4,
     ](
         wide_nodes,
         leaf_vertices,
@@ -423,7 +426,7 @@ def _intersect_triangle_leaf[
     width: SIMDLength,
     mode: TRACE,
 ](
-    leaf_vertices: UnsafePointer[mut=False, Float32, _],
+    leaf_vertices: Pointer[mut=False, Float32, _],
     leaf_block_idx: UInt32,
     ray: Rayf32[frame],
     mut hit: Hit[frame],
@@ -443,23 +446,23 @@ def _intersect_triangle_leaf[
             leaf_vertices[unsafe_offset=block_base + 1 * width + lane],
             leaf_vertices[unsafe_offset=block_base + 2 * width + lane],
         )
-        var v1 = Point3f32[frame](
+        var e1 = Vec3f32[frame](
             leaf_vertices[unsafe_offset=block_base + 4 * width + lane],
             leaf_vertices[unsafe_offset=block_base + 5 * width + lane],
             leaf_vertices[unsafe_offset=block_base + 6 * width + lane],
         )
-        var v2 = Point3f32[frame](
+        var e2 = Vec3f32[frame](
             leaf_vertices[unsafe_offset=block_base + 8 * width + lane],
             leaf_vertices[unsafe_offset=block_base + 9 * width + lane],
             leaf_vertices[unsafe_offset=block_base + 10 * width + lane],
         )
 
-        var tri_hit = intersect_ray_tri(
+        var tri_hit = intersect_ray_tri_edges(
             ray.o,
             ray.d,
             v0,
-            v1,
-            v2,
+            e1,
+            e2,
             hit.t,
             ray.t_min,
         )
@@ -473,7 +476,7 @@ def _intersect_triangle_leaf[
                 hit.v = tri_hit.v
                 hit.prim = prim
                 hit.inst = EMPTY_LANE
-                hit.normal = normalize(cross(v1 - v0, v2 - v0)).unsafe_convert[
+                hit.normal = normalize(cross(e1, e2)).unsafe_convert[
                     new_kind=GeoKind.NORMAL
                 ]()
                 any_hit = True

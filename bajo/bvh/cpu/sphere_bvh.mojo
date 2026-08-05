@@ -8,7 +8,7 @@ from bajo.core import (
     normalize,
     Rayf32,
 )
-from bajo.core.intersect import intersect_ray_sphere
+from bajo.core.intersect import intersect_ray_sphere_coefficients
 from bajo.core.utils import min_argmin
 from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
 from bajo.bvh.cpu.bounds_bvh import BoundsBvh, BoundsItem, BoundsBvhBuilder
@@ -111,17 +111,21 @@ struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
             ray: Rayf32[Self.bvh_frame],
             O: Point3[DType.float32, Self.bvh_frame, Self.width],
             D: Vec3[DType.float32, Self.bvh_frame, Self.width],
+            ray_a: SIMD[DType.float32, Self.width],
+            ray_inv_a: SIMD[DType.float32, Self.width],
             leaf_block_idx: UInt32,
             mut hit: Hit[Self.bvh_frame],
         ) capturing -> Bool:
             # using unsafe = 20-45% speedup
-            ref block = Span(self.leaf_blocks).unsafe_get(Int(leaf_block_idx))
+            ref block = self.leaf_blocks.unsafe_get(Int(leaf_block_idx))
 
-            var h = intersect_ray_sphere(
+            var h = intersect_ray_sphere_coefficients(
                 O,
                 D,
                 block.center,
                 block.radius,
+                ray_a,
+                ray_inv_a,
                 hit.t,
                 ray.t_min,
             )
@@ -157,6 +161,7 @@ struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
             Self.width,
             mode,
             leaf_fn,
+            True,
         ](
             self.tree,
             ray,

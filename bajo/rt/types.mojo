@@ -20,7 +20,7 @@ from bajo.bvh.types import Instance, Sphere
 
 
 comptime Color = Vec3f32[Frame.WORLD]
-comptime BVH_WIDTH = 8
+comptime BVH_WIDTH = 16
 
 comptime MAT_LAMBERTIAN = UInt32(0)
 comptime MAT_METAL = UInt32(1)

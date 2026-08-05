@@ -91,21 +91,7 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
                 Span(self.items),
             )
 
-            var leaf_cost = node.surface_area() * Float32(node.item_count)
-            var split_cost = split.cost + node.surface_area()
-
-            if (not split.valid()) or split_cost >= leaf_cost:
-                var extent = node.aabb._max - node.aabb._min
-                var axis = longest_axis(extent)
-
-                split_idx = _partition_items_by_median_center(
-                    Span(self.item_indices),
-                    Span(self.items),
-                    first,
-                    count,
-                    axis,
-                )
-            else:
+            if split.valid():
                 split_idx = _partition_items_by_bin[Self.frame, BVH_BINS](
                     Span(self.item_indices),
                     Span(self.items),
@@ -120,6 +106,18 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
                 cached_left_bounds = split.left_bounds
                 cached_right_bounds = split.right_bounds
                 use_sah_bounds = True
+
+            else:
+                var extent = node.aabb._max - node.aabb._min
+                var axis = longest_axis(extent)
+
+                split_idx = _partition_items_by_median_center(
+                    Span(self.item_indices),
+                    Span(self.items),
+                    first,
+                    count,
+                    axis,
+                )
         else:
             comptime assert False, "Unknown BoundsBvh split method"
 

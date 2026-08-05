@@ -25,20 +25,6 @@ def _grid_y(i: Int) -> Float32:
     return (Float32(i / GRID_SIDE) - Float32(GRID_SIDE) * 0.5) * 3.0
 
 
-def make_grid_triangles() -> List[Point3f32[Frame.WORLD]]:
-    var verts = List[Point3f32[Frame.WORLD]](capacity=PRIM_COUNT * 3)
-
-    for i in range(PRIM_COUNT):
-        var cx = _grid_x(i)
-        var cy = _grid_y(i)
-
-        verts.append(Point3f32[Frame.WORLD](cx - 0.75, cy - 0.75, 2.0))
-        verts.append(Point3f32[Frame.WORLD](cx + 0.75, cy - 0.75, 2.0))
-        verts.append(Point3f32[Frame.WORLD](cx, cy + 0.75, 2.0))
-
-    return verts^
-
-
 def make_grid_spheres() -> List[Sphere[Frame.WORLD]]:
     var spheres = List[Sphere[Frame.WORLD]](capacity=PRIM_COUNT)
 
@@ -85,29 +71,7 @@ struct PrimaryBenchResult(Copyable):
     var checksum: Float64
 
 
-def trace_triangle_primary[
-    width: SIMDLength
-](
-    bvh: TriangleBvh[Frame.WORLD, width],
-    rays: List[Rayf32[Frame.WORLD]],
-) -> Float64:
-    var checksum = 0.0
-    for ray in rays:
-        var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
-        if hit.t < f32_max:
-            checksum += (
-                Float64(hit.t)
-                + Float64(hit.u)
-                + Float64(hit.v)
-                + Float64(hit.normal.x)
-                + Float64(hit.normal.y)
-                + Float64(hit.normal.z)
-                + Float64(hit.prim)
-            )
-    return checksum
-
-
-def trace_sphere_primary[
+def trace_sphere[
     width: SIMDLength
 ](
     bvh: SphereBvh[Frame.WORLD, width],
@@ -121,38 +85,18 @@ def trace_sphere_primary[
     return checksum
 
 
-def bench_triangle_primary[
-    width: SIMDLength
-](
-    bvh: TriangleBvh[Frame.WORLD, width],
-    rays: List[Rayf32[Frame.WORLD]],
-) -> PrimaryBenchResult:
-    var checksum = trace_triangle_primary[width](bvh, rays)
-    var best_ns = Int.MAX
-
-    for _ in range(TRAVERSAL_REPEATS):
-        var t0 = perf_counter_ns()
-        checksum = trace_triangle_primary[width](bvh, rays)
-        var t1 = perf_counter_ns()
-
-        var dt = Int(t1 - t0)
-        if dt < best_ns:
-            best_ns = dt
-    return PrimaryBenchResult(best_ns, checksum)
-
-
-def bench_sphere_primary[
+def bench_sphere[
     width: SIMDLength
 ](
     bvh: SphereBvh[Frame.WORLD, width],
     rays: List[Rayf32[Frame.WORLD]],
 ) -> PrimaryBenchResult:
-    var checksum = trace_sphere_primary[width](bvh, rays)
+    var checksum = trace_sphere[width](bvh, rays)
     var best_ns = Int.MAX
 
     for _ in range(TRAVERSAL_REPEATS):
         var t0 = perf_counter_ns()
-        checksum = trace_sphere_primary[width](bvh, rays)
+        checksum = trace_sphere[width](bvh, rays)
         var t1 = perf_counter_ns()
 
         var dt = Int(t1 - t0)
@@ -182,44 +126,14 @@ def print_case_result(
 
     table.result_line(
         prim=prim,
-        width=String(width),
         split_method=split_method,
+        width=String(width),
         build=String(build_ms),
         nodes=String(nodes),
         prims=String(prims),
         primary=String(primary_ms),
         MRay_s=String(primary_mrays),
         checksum=String(checksum),
-    )
-
-
-def bench_triangle_case[
-    width: SIMDLength,
-    split_method: String,
-](
-    table: TablePrinter,
-    vertices: List[Point3f32[Frame.WORLD]],
-    rays: List[Rayf32[Frame.WORLD]],
-) raises:
-    var t0 = perf_counter_ns()
-    var bvh = TriangleBvh[Frame.WORLD, width].__init__[split_method](
-        vertices.copy()
-    )
-    var t1 = perf_counter_ns()
-
-    var build_ns = Int(t1 - t0)
-    var primary = bench_triangle_primary[width](bvh, rays)
-
-    print_case_result(
-        table,
-        "tri",
-        width,
-        split_method,
-        build_ns,
-        len(bvh.tree.nodes),
-        bvh.tri_count,
-        primary,
-        len(rays),
     )
 
 
@@ -238,7 +152,7 @@ def bench_sphere_case[
     var t1 = perf_counter_ns()
 
     var build_ns = Int(t1 - t0)
-    var primary = bench_sphere_primary[width](bvh, rays)
+    var primary = bench_sphere[width](bvh, rays)
 
     print_case_result(
         table,
@@ -251,21 +165,6 @@ def bench_sphere_case[
         primary,
         len(rays),
     )
-
-
-def bench_triangle_widths[
-    split_method: String
-](
-    table: TablePrinter,
-    vertices: List[Point3f32[Frame.WORLD]],
-    rays: List[Rayf32[Frame.WORLD]],
-) raises:
-    comptime for width in [2, 4, 8, 16]:
-        bench_triangle_case[width, split_method](
-            table,
-            vertices,
-            rays,
-        )
 
 
 def bench_sphere_widths[
@@ -290,11 +189,9 @@ def main() raises:
     print(t"Traversal repeats: {TRAVERSAL_REPEATS}")
 
     print("\nGenerating primitives + rays...")
-    var tri_vertices = make_grid_triangles()
     var spheres = make_grid_spheres()
     var rays = make_hit_and_miss_rays()
 
-    print(t"Triangle vertices: {len(tri_vertices)}")
     print(t"Spheres: {len(spheres)}")
     print(t"Rays: {len(rays)}")
 
@@ -303,8 +200,8 @@ def main() raises:
 
     var table = TablePrinter(
         prim=4,
-        width=5,
         split_method=12,
+        width=5,
         build=8,
         nodes=6,
         prims=6,
@@ -313,13 +210,6 @@ def main() raises:
         checksum=14,
     )
     table.header()
-
-    comptime for m in ["median", "sah", "lbvh"]:
-        bench_triangle_widths[m](
-            table,
-            tri_vertices,
-            rays,
-        )
 
     comptime for m in ["median", "sah", "lbvh"]:
         bench_sphere_widths[m](

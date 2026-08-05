@@ -20,41 +20,41 @@ from bajo.core.utils import degrees_to_radians
 
 
 def test_logic() raises:
-    box = AABB[Frame.WORLD](Point3W(0), Point3W(2, 2, 2))
+    var box = AABB[Frame.WORLD](Point3W(0), Point3W(2, 2, 2))
 
     assert_true(box.contains_point(Point3W(1)))
     assert_false(box.contains_point(Point3W(3, 1, 1)))
 
-    box_overlap = AABB[Frame.WORLD](Point3W(1), Point3W(3))
-    box_far = AABB[Frame.WORLD](Point3W(4), Point3W(5))
+    var box_overlap = AABB[Frame.WORLD](Point3W(1), Point3W(3))
+    var box_far = AABB[Frame.WORLD](Point3W(4), Point3W(5))
     assert_true(box.overlaps(box_overlap))
     assert_false(box.overlaps(box_far))
 
 
 def test_merge() raises:
-    a = AABB[Frame.WORLD](Point3W(0), Point3W(1))
-    b = AABB[Frame.WORLD](Point3W(-1), Point3W(0.5))
-    merged = AABB.merge(a, b)
+    var a = AABB[Frame.WORLD](Point3W(0), Point3W(1))
+    var b = AABB[Frame.WORLD](Point3W(-1), Point3W(0.5))
+    var merged = AABB.merge(a, b)
     assert_vec_equal(merged._min, Point3W(-1))
     assert_vec_equal(merged._max, Point3W(1))
 
 
 def test_apply_trs_rotated() raises:
-    box = AABB[Frame.WORLD](Point3W(-1), Point3W(1))
+    var box = AABB[Frame.WORLD](Point3W(-1), Point3W(1))
 
     # Rotate 45 degrees around Z
-    angle = degrees_to_radians(Float32(45))
-    r = Quat.from_axis_angle(Vec3W(0, 0, 1), angle)
-    t = Vec3W(0)
-    s = Vec3W(1)
-    transform = Affine3[
+    var angle = degrees_to_radians(Float32(45))
+    var r = Quat.from_axis_angle(Vec3W(0, 0, 1), angle)
+    var t = Vec3W(0)
+    var s = Vec3W(1)
+    var transform = Affine3[
         DType.float32, Frame.WORLD, Frame.CAMERA
     ].from_rotation_scale_translation(r, s, t)
 
-    new_box = box.apply_transform(transform)
+    var new_box = box.apply_transform(transform)
 
     # the corners should move to ±sqrt(2)
-    sqrt_2 = Float32(sqrt(2.0))
+    var sqrt_2 = Float32(sqrt(2.0))
     assert_vec_equal(
         new_box._min, Point3f32[Frame.CAMERA](-sqrt_2, -sqrt_2, -1.0)
     )

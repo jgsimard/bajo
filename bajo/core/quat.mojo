@@ -122,9 +122,9 @@ struct Quaternion[dtype: DType, frame: Frame, width: SIMDLength = 1](
         axis: Vec3[Self.dtype, Self.frame, Self.width],
         angle: SIMD[Self.dtype, Self.width],
     ) -> Self where Self.dtype.is_floating_point():
-        half_angle = angle * 0.5
-        w = cos(half_angle)
-        xyz = axis * sin(half_angle)
+        var half_angle = angle * 0.5
+        var w = cos(half_angle)
+        var xyz = axis * sin(half_angle)
         return Self(xyz, w)
 
     def to_axis_angle(
@@ -133,16 +133,16 @@ struct Quaternion[dtype: DType, frame: Frame, width: SIMDLength = 1](
         Vec3[Self.dtype, Self.frame, Self.width],
         SIMD[Self.dtype, Self.width],
     ] where Self.dtype.is_floating_point():
-        v = self.xyz()
-        sign = self.w.lt(0).select(Scalar[Self.dtype](-1.0), 1.0)
-        axis = vnormalize(v) * sign
-        angle = 2.0 * atan2(vlength(v), abs(self.w))
+        var v = self.xyz()
+        var sign = self.w.lt(0).select(Scalar[Self.dtype](-1.0), 1.0)
+        var axis = vnormalize(v) * sign
+        var angle = 2.0 * atan2(vlength(v), abs(self.w))
         return (axis, angle)
 
     def to_matrix(self) -> Mat[Self.dtype, 3, 3, Self.frame, Self.width]:
-        c0 = self.rotate(Vec3[Self.dtype, Self.frame, Self.width](1, 0, 0))
-        c1 = self.rotate(Vec3[Self.dtype, Self.frame, Self.width](0, 1, 0))
-        c2 = self.rotate(Vec3[Self.dtype, Self.frame, Self.width](0, 0, 1))
+        var c0 = self.rotate(Vec3[Self.dtype, Self.frame, Self.width](1, 0, 0))
+        var c1 = self.rotate(Vec3[Self.dtype, Self.frame, Self.width](0, 1, 0))
+        var c2 = self.rotate(Vec3[Self.dtype, Self.frame, Self.width](0, 0, 1))
         return Mat[Self.dtype, 3, 3, Self.frame, Self.width].from_cols(
             c0, c1, c2
         )
@@ -254,17 +254,17 @@ struct Quaternion[dtype: DType, frame: Frame, width: SIMDLength = 1](
         Converts Euler angles (Roll, Pitch, Yaw) to a Quaternion.
         Order: Z (Yaw) -> Y (Pitch) -> X (Roll).
         """
-        cr = cos(roll * 0.5)
-        sr = sin(roll * 0.5)
-        cp = cos(pitch * 0.5)
-        sp = sin(pitch * 0.5)
-        cy = cos(yaw * 0.5)
-        sy = sin(yaw * 0.5)
+        var cr = cos(roll * 0.5)
+        var sr = sin(roll * 0.5)
+        var cp = cos(pitch * 0.5)
+        var sp = sin(pitch * 0.5)
+        var cy = cos(yaw * 0.5)
+        var sy = sin(yaw * 0.5)
 
-        x = sr * cp * cy - cr * sp * sy
-        y = cr * sp * cy + sr * cp * sy
-        z = cr * cp * sy - sr * sp * cy
-        w = cr * cp * cy + sr * sp * sy
+        var x = sr * cp * cy - cr * sp * sy
+        var y = cr * sp * cy + sr * cp * sy
+        var z = cr * cp * sy - sr * sp * cy
+        var w = cr * cp * cy + sr * sp * sy
 
         return Self(x, y, z, w)
 
@@ -274,19 +274,19 @@ struct Quaternion[dtype: DType, frame: Frame, width: SIMDLength = 1](
         Self.dtype, Self.frame, Self.width
     ] where Self.dtype.is_floating_point():
         var sinr_cosp = 2.0 * (self.w * self.x + self.y * self.z)
-        cosr_cosp = 1 - 2 * (self.x * self.x + self.y * self.y)
-        roll = atan2(sinr_cosp, cosr_cosp)
+        var cosr_cosp = 1 - 2 * (self.x * self.x + self.y * self.y)
+        var roll = atan2(sinr_cosp, cosr_cosp)
 
-        sinp = 2 * (self.w * self.y - self.z * self.x)
-        abs_sinp = abs(sinp)
+        var sinp = 2 * (self.w * self.y - self.z * self.x)
+        var abs_sinp = abs(sinp)
         comptime pi_2 = Scalar[Self.dtype](pi / 2.0)
-        pitch_sat = sinp.lt(0.0).select(-pi_2, pi_2)
-        saturated = abs_sinp.ge(1.0)
-        pitch = saturated.select(pitch_sat, asin(sinp))
+        var pitch_sat = sinp.lt(0.0).select(-pi_2, pi_2)
+        var saturated = abs_sinp.ge(1.0)
+        var pitch = saturated.select(pitch_sat, asin(sinp))
 
-        siny_cosp = 2 * (self.w * self.z + self.x * self.y)
-        cosy_cosp = 1 - 2 * (self.y * self.y + self.z * self.z)
-        yaw = atan2(siny_cosp, cosy_cosp)
+        var siny_cosp = 2 * (self.w * self.z + self.x * self.y)
+        var cosy_cosp = 1 - 2 * (self.y * self.y + self.z * self.z)
+        var yaw = atan2(siny_cosp, cosy_cosp)
 
         return Vec3[Self.dtype, Self.frame, Self.width](roll, pitch, yaw)
 
@@ -317,25 +317,27 @@ struct Quaternion[dtype: DType, frame: Frame, width: SIMDLength = 1](
             comptime s1 = SIMD[Self.dtype, 4](1.0, -1.0, 1.0, -1.0)
             comptime s2 = SIMD[Self.dtype, 4](1.0, 1.0, -1.0, -1.0)
             comptime s3 = SIMD[Self.dtype, 4](-1.0, 1.0, 1.0, -1.0)
-            b_simd = SIMD[Self.dtype, 4](b.x[0], b.y[0], b.z[0], b.w[0])
+            var b_simd = SIMD[Self.dtype, 4](b.x[0], b.y[0], b.z[0], b.w[0])
             # two independent branches to maximize Instruction Level Parallelism (ILP)
             # branch A
-            a_w = self.w[0]
-            a_x_signed = self.x[0] * s1
+            var a_w = self.w[0]
+            var a_x_signed = self.x[0] * s1
             # shuffling B to [w2, z2, y2, x2]
-            res_a = fma(a_x_signed, b_simd.shuffle[3, 2, 1, 0](), a_w * b_simd)
+            var res_a = fma(
+                a_x_signed, b_simd.shuffle[3, 2, 1, 0](), a_w * b_simd
+            )
 
             # branch B
-            a_y_signed = self.y[0] * s2
-            a_z_signed = self.z[0] * s3
+            var a_y_signed = self.y[0] * s2
+            var a_z_signed = self.z[0] * s3
             # shuffle B for y1: [z2, w2, x2, y2]
             # shuffle B for z1: [y2, x2, w2, z2]
-            res_b = fma(
+            var res_b = fma(
                 a_y_signed,
                 b_simd.shuffle[2, 3, 0, 1](),
                 a_z_signed * b_simd.shuffle[1, 0, 3, 2](),
             )
-            res = res_a + res_b
+            var res = res_a + res_b
             return Self(res[0], res[1], res[2], res[3])
         else:
             # hamilton product directly

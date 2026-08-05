@@ -2,10 +2,10 @@ from std.bit import count_trailing_zeros
 from std.gpu import (
     thread_idx,
     block_idx,
-    barrier,
     global_idx,
     WARP_SIZE,
 )
+from max.gpu import barrier
 from max.gpu.host import DeviceContext, DeviceBuffer
 from max.gpu.memory import AddressSpace
 from std.gpu.primitives import warp

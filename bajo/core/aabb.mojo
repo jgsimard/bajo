@@ -34,7 +34,7 @@ struct AxisAlignedBoundingBox[
         )
 
     def surface_area(self) -> SIMD[Self.dtype, Self.width]:
-        d = self._max - self._min
+        var d = self._max - self._min
         return 2.0 * (d.x * d.y + d.x * d.z + d.y * d.z)
 
     comptime area = Self.surface_area

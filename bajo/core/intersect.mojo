@@ -52,9 +52,9 @@ def diff_product[
     Computes the difference of products a*b - c*d using
     FMA instructions for improved numerical precision.
     """
-    cd = c * d
-    diff = fma(a, b, -cd)
-    error = fma(-c, d, cd)
+    var cd = c * d
+    var diff = fma(a, b, -cd)
+    var error = fma(-c, d, cd)
     return diff + error
 
 
@@ -78,57 +78,57 @@ def closest_point_to_triangle[
     p: Vec3[dtype, frame, width],
 ) -> Vec2[dtype, frame, width]:
     comptime assert width == 1, "current limitation :("
-    ab = b - a
-    ac = c - a
-    ap = p - a
+    var ab = b - a
+    var ac = c - a
+    var ap = p - a
 
-    d1 = dot(ab, ap)
-    d2 = dot(ac, ap)
+    var d1 = dot(ab, ap)
+    var d2 = dot(ac, ap)
 
     if d1 <= 0 and d2 <= 0:
         # Vertex A: v=0, w=0, u=1
         return Vec2[dtype, frame, width](1, 0)
 
-    bp = p - b
-    d3 = dot(ab, bp)
-    d4 = dot(ac, bp)
+    var bp = p - b
+    var d3 = dot(ab, bp)
+    var d4 = dot(ac, bp)
     if d3 >= 0 and d4 <= d3:
         # Vertex B: v=1, w=0, u=0
         return Vec2[dtype, frame, width](0, 1)
 
-    vc = d1 * d4 - d3 * d2
+    var vc = d1 * d4 - d3 * d2
     if vc <= 0 and d1 >= 0 and d3 <= 0:
         # Edge AB
-        v = d1 / (d1 - d3)
-        u = 1 - v
+        var v = d1 / (d1 - d3)
+        var u = 1 - v
         return Vec2[dtype, frame, width](u, v)
 
-    cp = p - c
-    d5 = dot(ab, cp)
-    d6 = dot(ac, cp)
+    var cp = p - c
+    var d5 = dot(ab, cp)
+    var d6 = dot(ac, cp)
     if d6 >= 0 and d5 <= d6:
         # Vertex C: v=0, w=1, u=0
         return Vec2[dtype, frame, width](0, 0)
 
-    vb = d5 * d2 - d1 * d6
+    var vb = d5 * d2 - d1 * d6
     if vb <= 0 and d2 >= 0 and d6 <= 0:
         # Edge AC
-        w = d2 / (d2 - d6)
-        u = 1 - w
+        var w = d2 / (d2 - d6)
+        var u = 1 - w
         return Vec2[dtype, frame, width](u, 0)
 
-    va = d3 * d6 - d5 * d4
+    var va = d3 * d6 - d5 * d4
     if va <= 0 and (d4 - d3) >= 0 and (d5 - d6) >= 0:
         # Edge BC
-        w = (d4 - d3) / ((d4 - d3) + (d5 - d6))
-        v = 1 - w
+        var w = (d4 - d3) / ((d4 - d3) + (d5 - d6))
+        var v = 1 - w
         return Vec2[dtype, frame, width](0, v)
 
     # Inside Face
-    denom = 1 / (va + vb + vc)
-    v = vb * denom
-    w = vc * denom
-    u = 1 - v - w
+    var denom = 1 / (va + vb + vc)
+    var v = vb * denom
+    var w = vc * denom
+    var u = 1 - v - w
     return Vec2[dtype, frame, width](u, v)
 
 
@@ -142,13 +142,13 @@ def furthest_point_to_triangle[
 ) -> Vec2[dtype, frame, width]:
     comptime assert width == 1, "current limitation :("
 
-    pa = p - a
-    pb = p - b
-    pc = p - c
+    var pa = p - a
+    var pb = p - b
+    var pc = p - c
 
-    dist_a = dot(pa, pa)
-    dist_b = dot(pb, pb)
-    dist_c = dot(pc, pc)
+    var dist_a = dot(pa, pa)
+    var dist_b = dot(pb, pb)
+    var dist_c = dot(pc, pc)
 
     # a is furthest
     if dist_a > dist_b and dist_a > dist_c:
@@ -356,7 +356,7 @@ def intersect_ray_tri_edges[
     t_max: SIMD[dtype, width],
     t_min: SIMD[dtype, width] = SIMD[dtype, width](1.0e-4),
 ) -> RayTriHit[dtype, width]:
-    """Moller-Trumbore intersection with precomputed triangle edges"""
+    """Moller-Trumbore intersection with precomputed triangle edges."""
     comptime assert dtype.is_floating_point()
     comptime EPSILON = Scalar[dtype](1e-8 if dtype == DType.float32 else 1e-16)
     comptime INF = max_finite[dtype]()

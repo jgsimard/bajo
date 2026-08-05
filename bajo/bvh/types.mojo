@@ -1,4 +1,4 @@
-from std.gpu import DeviceBuffer
+from max.gpu.host import DeviceBuffer
 
 from bajo.core import (
     AABB,
@@ -131,14 +131,14 @@ struct SphereLeafBlock[frame: Frame, width: SIMDLength](Copyable):
 @fieldwise_init
 struct TriangleLeafBlock[frame: Frame, width: SIMDLength](Copyable):
     var v0: Point3[DType.float32, Self.frame, Self.width]
-    var v1: Point3[DType.float32, Self.frame, Self.width]
-    var v2: Point3[DType.float32, Self.frame, Self.width]
+    var e1: Vec3[DType.float32, Self.frame, Self.width]
+    var e2: Vec3[DType.float32, Self.frame, Self.width]
     var prim_indices: SIMD[DType.uint32, Self.width]
 
     def __init__(out self):
         self.v0 = Point3[DType.float32, Self.frame, Self.width](0.0)
-        self.v1 = Point3[DType.float32, Self.frame, Self.width](0.0)
-        self.v2 = Point3[DType.float32, Self.frame, Self.width](0.0)
+        self.e1 = Vec3[DType.float32, Self.frame, Self.width](0.0)
+        self.e2 = Vec3[DType.float32, Self.frame, Self.width](0.0)
         self.prim_indices = SIMD[DType.uint32, Self.width](EMPTY_LANE)
 
 

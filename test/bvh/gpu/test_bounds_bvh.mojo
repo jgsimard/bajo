@@ -318,59 +318,59 @@ def _assert_gpu_sphere_bounds[
 
 
 def test_gpu_bounds_bvh_build_validate_small_scene() raises:
-    scene = _make_small_scene[Frame.WORLD]()
+    var scene = _make_small_scene[Frame.WORLD]()
     comptime for N in [2, 4, 8]:
         _assert_gpu_bounds_width[N](scene)
 
 
 def test_gpu_bounds_bvh_single_triangle() raises:
-    scene = _make_single_triangle_scene[Frame.WORLD]()
+    var scene = _make_single_triangle_scene[Frame.WORLD]()
     comptime for N in [2, 4, 8]:
         _assert_gpu_bounds_width[N](scene)
         _assert_gpu_triangle_matches_cpu_camera[N](scene)
 
 
 def test_gpu_bounds_bvh_duplicate_morton_codes() raises:
-    scene = _make_duplicate_centroid_scene[Frame.WORLD]()
+    var scene = _make_duplicate_centroid_scene[Frame.WORLD]()
     comptime for N in [2, 4, 8]:
         _assert_gpu_bounds_width[N](scene)
         _assert_wide_lane_invariants[N](scene)
 
 
 def test_gpu_bounds_bvh_degenerate_axis() raises:
-    scene = _make_degenerate_axis_scene()
+    var scene = _make_degenerate_axis_scene()
     comptime for N in [2, 4, 8]:
         _assert_gpu_bounds_width[N](scene)
         _assert_wide_lane_invariants[N](scene)
 
 
 def test_gpu_bounds_bvh_wide_lane_invariants() raises:
-    scene = _make_small_scene[Frame.WORLD]()
+    var scene = _make_small_scene[Frame.WORLD]()
     comptime for N in [2, 4, 8]:
         _assert_wide_lane_invariants[N](scene)
 
 
 def test_gpu_triangle_bvh_camera_primary_matches_cpu() raises:
-    scene = _make_small_scene[Frame.WORLD]()
+    var scene = _make_small_scene[Frame.WORLD]()
     comptime for N in [2, 4, 8]:
         _assert_gpu_triangle_matches_cpu_camera[N](scene)
 
 
 def test_gpu_sphere_bvh_camera_primary_matches_bruteforce() raises:
-    scene = _make_small_sphere_scene[Frame.WORLD]()
+    var scene = _make_small_sphere_scene[Frame.WORLD]()
     comptime for N in [2, 4, 8]:
         _assert_sphere_matches_bruteforce_camera[N](scene)
 
 
 def test_gpu_sphere_bvh_single_sphere() raises:
-    scene = _make_single_sphere_scene[Frame.WORLD]()
+    var scene = _make_single_sphere_scene[Frame.WORLD]()
     comptime for N in [2, 4, 8]:
         _assert_gpu_sphere_bounds[N](scene)
         _assert_sphere_matches_bruteforce_camera[N](scene)
 
 
 def test_gpu_sphere_bvh_duplicate_morton_codes() raises:
-    scene = _make_duplicate_sphere_centroid_scene[Frame.WORLD]()
+    var scene = _make_duplicate_sphere_centroid_scene[Frame.WORLD]()
     comptime for N in [2, 4, 8]:
         _assert_gpu_sphere_bounds[N](scene)
         _assert_sphere_matches_bruteforce_camera[N](scene)

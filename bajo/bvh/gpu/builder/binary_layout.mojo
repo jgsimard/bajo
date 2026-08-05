@@ -104,8 +104,8 @@ def _load_and_union_node_bounds(
     node_bounds: Span[mut=False, Float32, _], parent: UInt32
 ) -> AABB[Frame.WORLD]:
     var b = _node_bounds_base(parent)
-    b1 = AABB[Frame.WORLD].load6(node_bounds, b)
-    b2 = AABB[Frame.WORLD].load6(node_bounds, b + 6)
+    var b1 = AABB[Frame.WORLD].load6(node_bounds, b)
+    var b2 = AABB[Frame.WORLD].load6(node_bounds, b + 6)
     return AABB.merge(b1, b2)
 
 

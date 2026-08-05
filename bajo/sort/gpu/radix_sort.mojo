@@ -11,8 +11,9 @@ from std.gpu import (
 )
 from max.gpu.host import DeviceContext, DeviceBuffer
 from max.gpu.memory import AddressSpace
-from std.gpu.primitives import warp, block
-from std.gpu.sync import barrier
+from std.gpu.primitives import warp
+from max.gpu.primitives import block
+from max.gpu.sync import barrier
 from std.math import ceildiv
 from std.memory import stack_allocation
 from std.sys.info import bit_width_of
@@ -508,15 +509,15 @@ def device_radix_sort_pairs[
 
     var gdim = ceildiv(size, PART_SIZE)
 
-    db_keys = DoubleBuffer(
+    var db_keys = DoubleBuffer(
         keys.unsafe_ptr(), workspace.keys_alternate.unsafe_ptr()
     )
-    db_vals = DoubleBuffer(
+    var db_vals = DoubleBuffer(
         values.unsafe_ptr(), workspace.vals_alternate.unsafe_ptr()
     )
 
-    global_hist = workspace.global_hist.unsafe_ptr()
-    pass_hist = workspace.pass_hist.unsafe_ptr()
+    var global_hist = workspace.global_hist.unsafe_ptr()
+    var pass_hist = workspace.pass_hist.unsafe_ptr()
 
     comptime UPSWEEP_BLOC_SIZE = 256
     comptime SCAN_BLOCK_SIZE = 256

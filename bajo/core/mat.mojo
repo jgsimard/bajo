@@ -385,38 +385,38 @@ def determinant[
 ](m: Mat[dtype, 4, 4, _, width]) -> SIMD[dtype, width]:
     """Adapted from USD - see licenses/usd-LICENSE.txt Copyright 2016 Pixar."""
     # Pickle 1st two columns of matrix into registers
-    x00 = m[0][0]
-    x01 = m[0][1]
-    x10 = m[1][0]
-    x11 = m[1][1]
-    x20 = m[2][0]
-    x21 = m[2][1]
-    x30 = m[3][0]
-    x31 = m[3][1]
+    var x00 = m[0][0]
+    var x01 = m[0][1]
+    var x10 = m[1][0]
+    var x11 = m[1][1]
+    var x20 = m[2][0]
+    var x21 = m[2][1]
+    var x30 = m[3][0]
+    var x31 = m[3][1]
 
     # Pickle 2nd two columns of matrix into registers
-    x02 = m[0][2]
-    x03 = m[0][3]
-    x12 = m[1][2]
-    x13 = m[1][3]
-    x22 = m[2][2]
-    x23 = m[2][3]
-    x32 = m[3][2]
-    x33 = m[3][3]
+    var x02 = m[0][2]
+    var x03 = m[0][3]
+    var x12 = m[1][2]
+    var x13 = m[1][3]
+    var x22 = m[2][2]
+    var x23 = m[2][3]
+    var x32 = m[3][2]
+    var x33 = m[3][3]
 
     # Compute all six 2x2 determinants of 2nd two columns
-    y01 = x02 * x13 - x12 * x03
-    y02 = x02 * x23 - x22 * x03
-    y03 = x02 * x33 - x32 * x03
-    y12 = x12 * x23 - x22 * x13
-    y13 = x12 * x33 - x32 * x13
-    y23 = x22 * x33 - x32 * x23
+    var y01 = x02 * x13 - x12 * x03
+    var y02 = x02 * x23 - x22 * x03
+    var y03 = x02 * x33 - x32 * x03
+    var y12 = x12 * x23 - x22 * x13
+    var y13 = x12 * x33 - x32 * x13
+    var y23 = x22 * x33 - x32 * x23
 
     # Compute all 3x3 cofactors for 1st two columns
-    z30 = x11 * y02 - x21 * y01 - x01 * y12
-    z20 = x01 * y13 - x11 * y03 + x31 * y01
-    z10 = x21 * y03 - x31 * y02 - x01 * y23
-    z00 = x11 * y23 - x21 * y13 + x31 * y12
+    var z30 = x11 * y02 - x21 * y01 - x01 * y12
+    var z20 = x01 * y13 - x11 * y03 + x31 * y01
+    var z10 = x21 * y03 - x31 * y02 - x01 * y23
+    var z00 = x11 * y23 - x21 * y13 + x31 * y12
 
     # compute 4x4 determinant & its reciprocal
     return x30 * z30 + x20 * z20 + x10 * z10 + x00 * z00
@@ -440,14 +440,14 @@ def inverse[
     dtype: DType, frame: Frame
 ](m: Mat[dtype, 2, 2, frame]) raises -> Mat[dtype, 2, 2, frame]:
     comptime EPSILON = 1e-8
-    x00 = m[0][0]
-    x01 = m[0][1]
-    x10 = m[1][0]
-    x11 = m[1][1]
-    det = x00 * x11 - x10 * x01
+    var x00 = m[0][0]
+    var x01 = m[0][1]
+    var x10 = m[1][0]
+    var x11 = m[1][1]
+    var det = x00 * x11 - x10 * x01
     if abs(det) < EPSILON:
         raise "nope"
-    rcp = 1.0 / det
+    var rcp = 1.0 / det
     # fmt: off
     return Mat[dtype, 2, 2, frame](
         x11 * rcp, -x01 * rcp,
@@ -505,42 +505,42 @@ def inverse[
     comptime EPSILON = 1e-8
 
     # Pickle 1st two columns of matrix into registers
-    x00 = m[0][0]
-    x01 = m[0][1]
-    x10 = m[1][0]
-    x11 = m[1][1]
-    x20 = m[2][0]
-    x21 = m[2][1]
-    x30 = m[3][0]
-    x31 = m[3][1]
+    var x00 = m[0][0]
+    var x01 = m[0][1]
+    var x10 = m[1][0]
+    var x11 = m[1][1]
+    var x20 = m[2][0]
+    var x21 = m[2][1]
+    var x30 = m[3][0]
+    var x31 = m[3][1]
 
     # Compute all six 2x2 determinants of 1st two columns
-    y01 = x00 * x11 - x10 * x01
-    y02 = x00 * x21 - x20 * x01
-    y03 = x00 * x31 - x30 * x01
-    y12 = x10 * x21 - x20 * x11
-    y13 = x10 * x31 - x30 * x11
-    y23 = x20 * x31 - x30 * x21
+    var y01 = x00 * x11 - x10 * x01
+    var y02 = x00 * x21 - x20 * x01
+    var y03 = x00 * x31 - x30 * x01
+    var y12 = x10 * x21 - x20 * x11
+    var y13 = x10 * x31 - x30 * x11
+    var y23 = x20 * x31 - x30 * x21
 
     # Pickle 2nd two columns of matrix into registers
-    x02 = m[0][2]
-    x03 = m[0][3]
-    x12 = m[1][2]
-    x13 = m[1][3]
-    x22 = m[2][2]
-    x23 = m[2][3]
-    x32 = m[3][2]
-    x33 = m[3][3]
+    var x02 = m[0][2]
+    var x03 = m[0][3]
+    var x12 = m[1][2]
+    var x13 = m[1][3]
+    var x22 = m[2][2]
+    var x23 = m[2][3]
+    var x32 = m[3][2]
+    var x33 = m[3][3]
 
     # Compute all 3x3 cofactors for 2nd two columns
-    z33 = x02 * y12 - x12 * y02 + x22 * y01
-    z23 = x12 * y03 - x32 * y01 - x02 * y13
-    z13 = x02 * y23 - x22 * y03 + x32 * y02
-    z03 = x22 * y13 - x32 * y12 - x12 * y23
-    z32 = x13 * y02 - x23 * y01 - x03 * y12
-    z22 = x03 * y13 - x13 * y03 + x33 * y01
-    z12 = x23 * y03 - x33 * y02 - x03 * y23
-    z02 = x13 * y23 - x23 * y13 + x33 * y12
+    var z33 = x02 * y12 - x12 * y02 + x22 * y01
+    var z23 = x12 * y03 - x32 * y01 - x02 * y13
+    var z13 = x02 * y23 - x22 * y03 + x32 * y02
+    var z03 = x22 * y13 - x32 * y12 - x12 * y23
+    var z32 = x13 * y02 - x23 * y01 - x03 * y12
+    var z22 = x03 * y13 - x13 * y03 + x33 * y01
+    var z12 = x23 * y03 - x33 * y02 - x03 * y23
+    var z02 = x13 * y23 - x23 * y13 + x33 * y12
 
     # Compute all six 2x2 determinants of 2nd two columns
     y01 = x02 * x13 - x12 * x03
@@ -551,24 +551,24 @@ def inverse[
     y23 = x22 * x33 - x32 * x23
 
     # Compute all 3x3 cofactors for 1st two columns
-    z30 = x11 * y02 - x21 * y01 - x01 * y12
-    z20 = x01 * y13 - x11 * y03 + x31 * y01
-    z10 = x21 * y03 - x31 * y02 - x01 * y23
-    z00 = x11 * y23 - x21 * y13 + x31 * y12
-    z31 = x00 * y12 - x10 * y02 + x20 * y01
-    z21 = x10 * y03 - x30 * y01 - x00 * y13
-    z11 = x00 * y23 - x20 * y03 + x30 * y02
-    z01 = x20 * y13 - x30 * y12 - x10 * y23
+    var z30 = x11 * y02 - x21 * y01 - x01 * y12
+    var z20 = x01 * y13 - x11 * y03 + x31 * y01
+    var z10 = x21 * y03 - x31 * y02 - x01 * y23
+    var z00 = x11 * y23 - x21 * y13 + x31 * y12
+    var z31 = x00 * y12 - x10 * y02 + x20 * y01
+    var z21 = x10 * y03 - x30 * y01 - x00 * y13
+    var z11 = x00 * y23 - x20 * y03 + x30 * y02
+    var z01 = x20 * y13 - x30 * y12 - x10 * y23
 
     # compute 4x4 determinant & its reciprocal
-    det = x30 * z30 + x20 * z20 + x10 * z10 + x00 * z00
+    var det = x30 * z30 + x20 * z20 + x10 * z10 + x00 * z00
 
     if abs(det) < EPSILON:
         raise "nope"
 
-    rcp = 1.0 / det
+    var rcp = 1.0 / det
 
-    invm = Mat[dtype, 4, 4, frame](uninitialized=True)
+    var invm = Mat[dtype, 4, 4, frame](uninitialized=True)
 
     # Multiply all 3x3 cofactors by reciprocal & transpose
     invm[0][0] = z00 * rcp

@@ -9,8 +9,9 @@ from std.gpu import (
 )
 from max.gpu.host import DeviceContext, DeviceBuffer
 from max.gpu.memory import AddressSpace
-from std.gpu.primitives import warp, block
-from std.gpu.sync import barrier
+from std.gpu.primitives import warp
+from max.gpu.primitives import block
+from max.gpu.sync import barrier
 from std.math import ceildiv
 from std.memory import stack_allocation, bitcast
 from std.sys.info import bit_width_of

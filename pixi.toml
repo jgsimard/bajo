@@ -47,8 +47,8 @@ bench_obj = { cmd = "mojo -I. bench/obj/bench_obj.mojo", depends-on = ["download
 
 
 # bvh cpu
-bench_bvh_cpu = "mojo -I . bench/bvh/bench_cpu_bvh_mojo.mojo"
-bench_bvh_cpu_scene = { cmd = "mojo -I . bench/bvh/bench_cpu_scene.mojo", depends-on = ["download_assets"] }
+bench_bvh_cpu_grid = "mojo -I . bench/bvh/bench_cpu_bvh_grid.mojo"
+bench_bvh_cpu_dragon = { cmd = "mojo -I . bench/bvh/bench_cpu_bvh_dragon.mojo", depends-on = ["download_assets"] }
 bench_bvh_cpu_embree = { cmd = "bash -lc 'g++ -O3 -march=native -DNDEBUG -std=c++20 bench/bvh/bench_embree_cpu.cpp -lembree4 -o /tmp/bajo_bench_embree_cpu && /tmp/bajo_bench_embree_cpu assets/dragon/dragon.obj'", depends-on = ["download_assets"] }
 bench_bvh_cpu_tinybvh = { cmd = "bash bench/bvh/bench_tinybvh.sh ./assets/dragon/dragon.obj", depends-on = ["download_assets"] }
 bench_bvh_cpu_compare = { cmd = "bash bench/bvh/bench_bvh_cpu_compare.sh", depends-on = ["download_assets"] }
@@ -63,7 +63,8 @@ bench_all = { depends-on = [
   "bench_quat",
   "bench_aabb",
   "bench_obj",
-  "bench_bvh_cpu",
+  "bench_bvh_cpu_grid",
+  "bench_bvh_cpu_dragon",
   "bench_bvh_gpu",
   "bench_bvh_gpu_tlas"
 ] }
@@ -74,8 +75,8 @@ bench_bvh = { depends-on = [
 ] }
 
 [dependencies]
-mojo = ">=1.0.0b3.dev2026080406,<2"
-max = ">=26.5.0.dev2026080406,<27"
+mojo = ">=1.1.0.dev2026080506,<2"
+max = ">=26.6.0.dev2026080506,<27"
 python = ">=3.14.6,<3.15"
 polars = ">=1.43.2,<2"
 matplotlib = ">=3.11.1,<4"

@@ -391,7 +391,7 @@ def test_bounds_sah_clear_separation() raises:
     var builder = BoundsBvhBuilder[Frame.WORLD, 2](items)
     builder.build["sah"]()
 
-    var split = _find_sah_split(
+    var split = _find_sah_split[Frame.WORLD, 16](
         builder.nodes[0],
         Span(builder.item_indices),
         Span(builder.items),
@@ -416,7 +416,7 @@ def test_bounds_sah_degenerate() raises:
     var builder = BoundsBvhBuilder[Frame.WORLD, 2](items)
     builder.build["sah"]()
 
-    var split = _find_sah_split(
+    var split = _find_sah_split[Frame.WORLD, 16](
         builder.nodes[0],
         Span(builder.item_indices),
         Span(builder.items),

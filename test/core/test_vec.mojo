@@ -16,22 +16,22 @@ from bajo.core import (
 
 
 def test_length_normalize() raises:
-    v = Vec3W(3, 0, 0)
+    var v = Vec3W(3, 0, 0)
     assert_almost_equal(length(v), 3.0)
 
-    n = normalize(v)
+    var n = normalize(v)
     assert_vec_equal(n, Vec3W(1, 0, 0))
 
 
 def test_dot() raises:
-    a = Vec3W(1, 2, 3)
-    b = Vec3W(4, 5, 6)
+    var a = Vec3W(1, 2, 3)
+    var b = Vec3W(4, 5, 6)
     assert_almost_equal(dot(a, b), 32.0)
 
 
 def test_vec3_add_cross() raises:
-    v1 = Vec3W(1, 2, 3)
-    v2 = Vec3W(4, 5, 6)
+    var v1 = Vec3W(1, 2, 3)
+    var v2 = Vec3W(4, 5, 6)
 
     assert_vec_equal(v1 + v2, Vec3W(5, 7, 9))
 
@@ -48,7 +48,7 @@ def test_near_zero() raises:
 
 
 def test_safe_inv_zero_and_nonzero_components() raises:
-    inv = Vec3W(2.0, 0.0, -4.0).safe_inv()
+    var inv = Vec3W(2.0, 0.0, -4.0).safe_inv()
 
     assert_almost_equal(inv.x, 0.5)
     assert_almost_equal(inv.y, 0.0)

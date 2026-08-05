@@ -204,7 +204,7 @@ def build_lbvh_topology_kernel(
     invalid.store6(node_bounds, bounds_base)
     invalid.store6(node_bounds, bounds_base + AABB.STRIDE)
 
-    first, last = _lbvh_find_range(sorted_morton_codes, i)
+    var first, last = _lbvh_find_range(sorted_morton_codes, i)
     node_leaf_counts.unsafe_get(i) = UInt32(last - first + 1)
 
     # only root parent is sentinel

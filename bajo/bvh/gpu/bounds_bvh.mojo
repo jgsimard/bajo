@@ -84,7 +84,7 @@ struct GpuBoundsBvh[width: SIMDLength]:
         )
 
         # leaf AABBs -> sorted binary LBVH
-        timings = build_binary_bvh_with_lbvh(
+        var timings = build_binary_bvh_with_lbvh(
             ctx,
             binary,
             workspace,

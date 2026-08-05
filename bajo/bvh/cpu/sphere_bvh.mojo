@@ -136,8 +136,8 @@ struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
                 return False
 
             comptime if mode == TRACE.CLOSEST_HIT:
-                _t = hit_mask.select(h.t, f32_max)
-                min_t, arg_min_t = min_argmin(_t)
+                var _t = hit_mask.select(h.t, f32_max)
+                var min_t, arg_min_t = min_argmin(_t)
 
                 hit.t = min_t
                 hit.u = 0.0

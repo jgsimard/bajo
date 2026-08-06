@@ -1,3 +1,5 @@
+from std.math import clamp
+
 from bajo.core import AABB, Frame
 from bajo.bvh.constants import f32_max, f32_min
 from .builder import BoundsItem, BoundsBvhNode
@@ -52,13 +54,12 @@ def _find_sah_split[
 
     var node_indices = indices[first : first + count]
 
-    for axis in range(3):
+    comptime for axis in range(3):
         var min_c = f32_max
         var max_c = f32_min
 
         # centroid range
-        for item_idx_u32 in node_indices:
-            var item_idx = Int(item_idx_u32)
+        for item_idx in node_indices:
             var c = items.unsafe_get(item_idx).center_axis(axis)
             min_c = min(min_c, c)
             max_c = max(max_c, c)
@@ -144,13 +145,7 @@ def _item_bin[
 ) -> Int:
     var c = items.unsafe_get(item_idx).center_axis(axis)
     var b_idx = Int((c - bin_min) * bin_scale)
-
-    if b_idx < 0:
-        return 0
-    if b_idx >= BVH_BINS:
-        return BVH_BINS - 1
-
-    return b_idx
+    return clamp(b_idx, 0, BVH_BINS - 1)
 
 
 def _partition_items_by_bin[

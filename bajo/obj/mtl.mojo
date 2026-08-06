@@ -26,16 +26,14 @@ def _read_mtl_text(mut mesh: ObjMesh, base: String, text: String) raises:
     var have_current = False
     var found_d = False
 
-    var text_slice = StringSpan(text)
-    var text_len = text_slice.byte_length()
-    var bytes = Span(
-        unsafe_ptr=text_slice.unsafe_ptr(), length=text_slice.byte_length()
-    )
+    var text_span = StringSpan(text)
+    var text_len = text_span.byte_length()
+    var bytes = text_span.as_bytes()
     var line_start = 0
 
     while line_start < text_len:
         # Fast newline scan. CR and comments are handled lazily by ObjLineCursor.
-        var line_end = text_slice.find("\n", line_start)
+        var line_end = text_span.find("\n", line_start)
         if line_end == -1:
             line_end = text_len
 

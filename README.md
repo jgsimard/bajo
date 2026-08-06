@@ -20,7 +20,7 @@ pixi run bench_bvh_cpu_report # compare Bajo with Embree 4 and Tinybvh
 
 GPU tests and GPU benchmarks require a supported accelerator.
 The Bajo vs Embree vs TinyBvh comparison requires Embree 4 headers and `libembree4`.
-See the recorded [benchmark results](bench/results/bvh_cpu.md).
+See the recorded [benchmark results](bench/results/bvh_cpu/bvh_cpu.md).
 Examples:
 ```
 pixi run example_lbvh

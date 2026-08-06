@@ -342,49 +342,191 @@ TraceSummary trace_scalar_once(RTCScene scene,
   return result;
 }
 
-TraceSummary trace_packet8_once(RTCScene scene,
-                                const std::vector<InputRay>& rays) {
-  RTCIntersectArguments arguments;
+void init_packet_arguments(RTCIntersectArguments& arguments, bool coherent) {
   rtcInitIntersectArguments(&arguments);
-  alignas(32) int valid[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+  arguments.flags = coherent ? RTC_RAY_QUERY_FLAG_COHERENT
+                             : RTC_RAY_QUERY_FLAG_INCOHERENT;
+}
+
+TraceSummary trace_packet4_once(RTCScene scene,
+                                const std::vector<InputRay>& rays,
+                                bool coherent) {
+  RTCIntersectArguments arguments;
+  init_packet_arguments(arguments, coherent);
+
+  alignas(16) int valid[4] = {-1, -1, -1, -1};
 
   TraceSummary result;
-  for (std::size_t base = 0; base < rays.size(); base += 8) {
-    RTCRayHit8 packet;
-    for (std::size_t lane = 0; lane < 8; ++lane) {
+  for (std::size_t base = 0; base < rays.size(); base += 4) {
+    alignas(16) RTCRayHit4 packet;
+
+    for (std::size_t lane = 0; lane < 4; ++lane) {
       const InputRay& input = rays[base + lane];
+
       packet.ray.org_x[lane] = input.ox;
       packet.ray.org_y[lane] = input.oy;
       packet.ray.org_z[lane] = input.oz;
       packet.ray.tnear[lane] = 0.0f;
+
       packet.ray.dir_x[lane] = input.dx;
       packet.ray.dir_y[lane] = input.dy;
       packet.ray.dir_z[lane] = input.dz;
       packet.ray.time[lane] = 0.0f;
+
       packet.ray.tfar[lane] = std::numeric_limits<float>::max();
       packet.ray.mask[lane] = 0xffffffffu;
       packet.ray.id[lane] = 0;
       packet.ray.flags[lane] = 0;
+
       packet.hit.geomID[lane] = RTC_INVALID_GEOMETRY_ID;
       packet.hit.primID[lane] = RTC_INVALID_GEOMETRY_ID;
+
+      for (unsigned level = 0; level < RTC_MAX_INSTANCE_LEVEL_COUNT; ++level) {
+        packet.hit.instID[level][lane] = RTC_INVALID_GEOMETRY_ID;
+      }
+    }
+
+    rtcIntersect4(valid, scene, &packet, &arguments);
+
+    for (std::size_t lane = 0; lane < 4; ++lane) {
+      if (packet.hit.geomID[lane] != RTC_INVALID_GEOMETRY_ID) {
+        result.checksum += hit_checksum(
+            packet.ray.tfar[lane],
+            packet.hit.u[lane],
+            packet.hit.v[lane],
+            packet.hit.Ng_x[lane],
+            packet.hit.Ng_y[lane],
+            packet.hit.Ng_z[lane],
+            packet.hit.primID[lane]);
+        ++result.hits;
+      }
+    }
+  }
+
+  return result;
+}
+
+TraceSummary trace_packet8_once(RTCScene scene,
+                                const std::vector<InputRay>& rays,
+                                bool coherent) {
+  RTCIntersectArguments arguments;
+  init_packet_arguments(arguments, coherent);
+
+  alignas(32) int valid[8] = {
+      -1, -1, -1, -1, -1, -1, -1, -1,
+  };
+
+  TraceSummary result;
+  for (std::size_t base = 0; base < rays.size(); base += 8) {
+    alignas(32) RTCRayHit8 packet;
+
+    for (std::size_t lane = 0; lane < 8; ++lane) {
+      const InputRay& input = rays[base + lane];
+
+      packet.ray.org_x[lane] = input.ox;
+      packet.ray.org_y[lane] = input.oy;
+      packet.ray.org_z[lane] = input.oz;
+      packet.ray.tnear[lane] = 0.0f;
+
+      packet.ray.dir_x[lane] = input.dx;
+      packet.ray.dir_y[lane] = input.dy;
+      packet.ray.dir_z[lane] = input.dz;
+      packet.ray.time[lane] = 0.0f;
+
+      packet.ray.tfar[lane] = std::numeric_limits<float>::max();
+      packet.ray.mask[lane] = 0xffffffffu;
+      packet.ray.id[lane] = 0;
+      packet.ray.flags[lane] = 0;
+
+      packet.hit.geomID[lane] = RTC_INVALID_GEOMETRY_ID;
+      packet.hit.primID[lane] = RTC_INVALID_GEOMETRY_ID;
+
       for (unsigned level = 0; level < RTC_MAX_INSTANCE_LEVEL_COUNT; ++level) {
         packet.hit.instID[level][lane] = RTC_INVALID_GEOMETRY_ID;
       }
     }
 
     rtcIntersect8(valid, scene, &packet, &arguments);
+
     for (std::size_t lane = 0; lane < 8; ++lane) {
       if (packet.hit.geomID[lane] != RTC_INVALID_GEOMETRY_ID) {
         result.checksum += hit_checksum(
-            packet.ray.tfar[lane], packet.hit.u[lane], packet.hit.v[lane],
-            packet.hit.Ng_x[lane], packet.hit.Ng_y[lane],
-            packet.hit.Ng_z[lane], packet.hit.primID[lane]);
+            packet.ray.tfar[lane],
+            packet.hit.u[lane],
+            packet.hit.v[lane],
+            packet.hit.Ng_x[lane],
+            packet.hit.Ng_y[lane],
+            packet.hit.Ng_z[lane],
+            packet.hit.primID[lane]);
         ++result.hits;
       }
     }
   }
+
   return result;
 }
+
+TraceSummary trace_packet16_once(RTCScene scene,
+                                 const std::vector<InputRay>& rays,
+                                 bool coherent) {
+  RTCIntersectArguments arguments;
+  init_packet_arguments(arguments, coherent);
+
+  alignas(64) int valid[16] = {
+      -1, -1, -1, -1, -1, -1, -1, -1,
+      -1, -1, -1, -1, -1, -1, -1, -1,
+  };
+
+  TraceSummary result;
+  for (std::size_t base = 0; base < rays.size(); base += 16) {
+    alignas(64) RTCRayHit16 packet;
+
+    for (std::size_t lane = 0; lane < 16; ++lane) {
+      const InputRay& input = rays[base + lane];
+
+      packet.ray.org_x[lane] = input.ox;
+      packet.ray.org_y[lane] = input.oy;
+      packet.ray.org_z[lane] = input.oz;
+      packet.ray.tnear[lane] = 0.0f;
+
+      packet.ray.dir_x[lane] = input.dx;
+      packet.ray.dir_y[lane] = input.dy;
+      packet.ray.dir_z[lane] = input.dz;
+      packet.ray.time[lane] = 0.0f;
+
+      packet.ray.tfar[lane] = std::numeric_limits<float>::max();
+      packet.ray.mask[lane] = 0xffffffffu;
+      packet.ray.id[lane] = 0;
+      packet.ray.flags[lane] = 0;
+
+      packet.hit.geomID[lane] = RTC_INVALID_GEOMETRY_ID;
+      packet.hit.primID[lane] = RTC_INVALID_GEOMETRY_ID;
+
+      for (unsigned level = 0; level < RTC_MAX_INSTANCE_LEVEL_COUNT; ++level) {
+        packet.hit.instID[level][lane] = RTC_INVALID_GEOMETRY_ID;
+      }
+    }
+
+    rtcIntersect16(valid, scene, &packet, &arguments);
+
+    for (std::size_t lane = 0; lane < 16; ++lane) {
+      if (packet.hit.geomID[lane] != RTC_INVALID_GEOMETRY_ID) {
+        result.checksum += hit_checksum(
+            packet.ray.tfar[lane],
+            packet.hit.u[lane],
+            packet.hit.v[lane],
+            packet.hit.Ng_x[lane],
+            packet.hit.Ng_y[lane],
+            packet.hit.Ng_z[lane],
+            packet.hit.primID[lane]);
+        ++result.hits;
+      }
+    }
+  }
+
+  return result;
+}
+
 
 template <typename TraceFunction>
 TraceResult benchmark_trace(TraceFunction trace) {
@@ -406,7 +548,7 @@ void print_result(std::string_view quality, std::string_view traversal,
                   const TraceResult& result) {
   const double mrays_per_second =
       static_cast<double>(ray_count) / (result.ms * 1000.0);
-  std::cout << std::left << std::setw(9) << quality << std::setw(10) << traversal
+  std::cout << std::left << std::setw(9) << quality << std::setw(14) << traversal
             << std::right << std::fixed << std::setprecision(3)
             << std::setw(11) << build_ms << std::setw(12) << result.ms
             << std::setw(12) << mrays_per_second << std::setw(11) << result.hits
@@ -419,13 +561,42 @@ void benchmark_quality(RTCDevice device, RTCBuildQuality quality,
                        const std::vector<Triangle>& triangles,
                        const std::vector<InputRay>& rays) {
   Scene scene = build_scene(device, quality, vertices, triangles);
+
   const TraceResult scalar = benchmark_trace(
       [&] { return trace_scalar_once(scene.handle, rays); });
-  const TraceResult packet8 = benchmark_trace(
-      [&] { return trace_packet8_once(scene.handle, rays); });
+
+  const TraceResult packet4_incoherent = benchmark_trace(
+      [&] { return trace_packet4_once(scene.handle, rays, false); });
+  const TraceResult packet4_coherent = benchmark_trace(
+      [&] { return trace_packet4_once(scene.handle, rays, true); });
+
+  const TraceResult packet8_incoherent = benchmark_trace(
+      [&] { return trace_packet8_once(scene.handle, rays, false); });
+  const TraceResult packet8_coherent = benchmark_trace(
+      [&] { return trace_packet8_once(scene.handle, rays, true); });
+
+  const TraceResult packet16_incoherent = benchmark_trace(
+      [&] { return trace_packet16_once(scene.handle, rays, false); });
+  const TraceResult packet16_coherent = benchmark_trace(
+      [&] { return trace_packet16_once(scene.handle, rays, true); });
 
   print_result(quality_name, "scalar1", scene.build_ms, rays.size(), scalar);
-  print_result(quality_name, "packet8", scene.build_ms, rays.size(), packet8);
+
+  print_result(quality_name, "inc-packet4", scene.build_ms, rays.size(),
+               packet4_incoherent);
+  print_result(quality_name, "coh-packet4", scene.build_ms, rays.size(),
+               packet4_coherent);
+
+  print_result(quality_name, "inc-packet8", scene.build_ms, rays.size(),
+               packet8_incoherent);
+  print_result(quality_name, "coh-packet8", scene.build_ms, rays.size(),
+               packet8_coherent);
+
+  print_result(quality_name, "inc-packet16", scene.build_ms, rays.size(),
+               packet16_incoherent);
+  print_result(quality_name, "coh-packet16", scene.build_ms, rays.size(),
+               packet16_coherent);
+
   rtcReleaseScene(scene.handle);
 }
 
@@ -433,14 +604,14 @@ void benchmark_case(RTCDevice device, std::string_view name,
                     const std::vector<Vertex>& vertices,
                     const std::vector<Triangle>& triangles,
                     const std::vector<InputRay>& rays) {
-  if (rays.size() % 8 != 0) {
-    throw std::runtime_error("Ray count must be divisible by eight");
+  if (rays.size() % 16 != 0) {
+    throw std::runtime_error("Ray count must be divisible by sixteen");
   }
 
   std::cout << "\n" << name << "\n"
             << "Triangles: " << triangles.size() << "\n"
             << "Rays: " << rays.size() << "\n"
-            << std::left << std::setw(9) << "quality" << std::setw(10)
+            << std::left << std::setw(9) << "quality" << std::setw(14)
             << "traversal" << std::right << std::setw(11) << "build ms"
             << std::setw(12) << "trace ms" << std::setw(12) << "MRay/s"
             << std::setw(11) << "hits" << std::setw(15) << "checksum" << '\n';
@@ -467,9 +638,21 @@ int main(int argc, char** argv) {
 
     std::cout << "Embree " << RTC_VERSION_STRING
               << " CPU triangle benchmark\n"
+              << "Native ray4: "
+              << (rtcGetDeviceProperty(
+                      device, RTC_DEVICE_PROPERTY_NATIVE_RAY4_SUPPORTED)
+                      ? "yes"
+                      : "no")
+              << "\n"
               << "Native ray8: "
               << (rtcGetDeviceProperty(
                       device, RTC_DEVICE_PROPERTY_NATIVE_RAY8_SUPPORTED)
+                      ? "yes"
+                      : "no")
+              << "\n"
+              << "Native ray16 (AVX-512): "
+              << (rtcGetDeviceProperty(
+                      device, RTC_DEVICE_PROPERTY_NATIVE_RAY16_SUPPORTED)
                       ? "yes"
                       : "no")
               << "\n"

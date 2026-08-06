@@ -26,7 +26,7 @@ def _read_mtl_text(mut mesh: ObjMesh, base: String, text: String) raises:
     var have_current = False
     var found_d = False
 
-    var text_slice = StringSlice(text)
+    var text_slice = StringSpan(text)
     var text_len = text_slice.byte_length()
     var bytes = Span(
         unsafe_ptr=text_slice.unsafe_ptr(), length=text_slice.byte_length()

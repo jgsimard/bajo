@@ -447,15 +447,15 @@ struct ObjLineCursor[origin: ImmOrigin]:
             return ""
 
         return String(
-            StringSlice[Self.origin](
+            StringSpan[Self.origin](
                 unsafe_from_utf8=self.bytes[start : end_pos + 1]
             )
         )
 
-    def next_word(mut self) -> StringSlice[Self.origin]:
+    def next_word(mut self) -> StringSpan[Self.origin]:
         self.skip_ws()
         if self.pos >= len(self.bytes):
-            return StringSlice[Self.origin]()
+            return StringSpan[Self.origin]()
 
         var start = self.pos
         while self.pos < len(self.bytes):
@@ -466,7 +466,7 @@ struct ObjLineCursor[origin: ImmOrigin]:
                 break
             self.pos += 1
 
-        return StringSlice[Self.origin](
+        return StringSpan[Self.origin](
             unsafe_from_utf8=self.bytes[start : self.pos]
         )
 
@@ -662,13 +662,13 @@ def _parse_face_cursor(
 def _parse_obj[
     Loader: ObjTextLoader
 ](path: String, text: String, loader: Loader) raises -> ObjMesh:
-    return _parse_obj(path, StringSlice(text), loader)
+    return _parse_obj(path, StringSpan(text), loader)
 
 
 def _parse_obj[
     Loader: ObjTextLoader
 ](
-    path: String, text: StringSlice[mut=False, _], loader: Loader
+    path: String, text: StringSpan[mut=False, _], loader: Loader
 ) raises -> ObjMesh:
     var mesh = ObjMesh()
 
@@ -744,7 +744,7 @@ def _parse_obj[
                 ):
                     tag_end += 1
 
-                var tag = StringSlice(
+                var tag = StringSpan(
                     unsafe_from_utf8=cur.bytes[tag_start:tag_end]
                 )
                 cur.pos = tag_end

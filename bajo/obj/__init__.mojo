@@ -11,7 +11,7 @@ from bajo.obj.mmap import MMap
 def read_obj(path: String) raises -> ObjMesh:
     var loader = PathObjTextLoader()
     var mapped = MMap[ImmutAnyOrigin](path)
-    return parse_obj(mapped.as_string_slice(), path, loader)
+    return parse_obj(mapped.as_string_span(), path, loader)
 
 
 def read_obj[
@@ -28,9 +28,9 @@ def parse_obj(text: String, path: String = "") raises -> ObjMesh:
 
 
 def parse_obj(
-    text: StringSlice[mut=False, _], path: String = ""
+    text: StringSpan[mut=False, _], path: String = ""
 ) raises -> ObjMesh:
-    """Raw OBJ StringSlice."""
+    """Raw OBJ StringSpan."""
     var loader = MemoryObjTextLoader()
     return parse_obj(text, path, loader)
 
@@ -45,9 +45,9 @@ def parse_obj[
 def parse_obj[
     Loader: ObjTextLoader
 ](
-    text: StringSlice[mut=False, _], path: String, loader: Loader
+    text: StringSpan[mut=False, _], path: String, loader: Loader
 ) raises -> ObjMesh:
-    """Raw OBJ StringSlice plus loader for mtllib resolution."""
+    """Raw OBJ StringSpan plus loader for mtllib resolution."""
     return _parse_obj(path, text, loader)
 
 

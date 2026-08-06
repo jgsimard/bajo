@@ -38,8 +38,8 @@ struct MMap[mut: Bool, //, origin: Origin[mut=mut]]:
     def byte_length(ref self) -> Int:
         return self._size
 
-    def as_string_slice(ref self) -> StringSlice[Self.origin]:
+    def as_string_span(ref self) -> StringSpan[Self.origin]:
         if self._size == 0:
-            return StringSlice[Self.origin]()
+            return StringSpan[Self.origin]()
         var span = Span(unsafe_ptr=self._data.unsafe_value(), length=self._size)
-        return StringSlice[Self.origin](unsafe_from_utf8=span)
+        return StringSpan[Self.origin](unsafe_from_utf8=span)

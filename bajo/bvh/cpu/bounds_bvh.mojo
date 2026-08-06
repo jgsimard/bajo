@@ -35,10 +35,7 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
     def __init__(out self, bvh: BoundsBvhBuilder):
         self.nodes = List[WideBvhNode[Self.frame, Self.width]]()
         self.item_indices = bvh.item_indices.copy()
-        self.item_payloads = List[UInt32](capacity=len(bvh.items))
-
-        for item in bvh.items:
-            self.item_payloads.append(item.payload)
+        self.item_payloads = [item.payload for item in bvh.items]
 
         if bvh.nodes_used > 0:
             _ = self._collapse(bvh, 0)

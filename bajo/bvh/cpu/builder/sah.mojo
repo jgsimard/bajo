@@ -193,9 +193,7 @@ def _partition_items_by_bin[
         if b_idx <= split_bin:
             i += 1
         else:
-            var tmp = node_indices.unsafe_get(i)
-            node_indices.unsafe_get(i) = node_indices.unsafe_get(j)
-            node_indices.unsafe_get(j) = tmp
+            node_indices.unsafe_swap_elements(i, j)
             j -= 1
 
     return first + i

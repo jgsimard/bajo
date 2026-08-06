@@ -52,8 +52,7 @@ bench_bvh_cpu_dragon = { cmd = "mojo -I . bench/bvh/bench_cpu_bvh_dragon.mojo", 
 bench_bvh_cpu_embree = { cmd = "bash -lc 'g++ -O3 -march=native -DNDEBUG -std=c++20 bench/bvh/bench_embree_cpu.cpp -lembree4 -o /tmp/bajo_bench_embree_cpu && /tmp/bajo_bench_embree_cpu assets/dragon/dragon.obj'", depends-on = ["download_assets"] }
 bench_bvh_cpu_tinybvh = { cmd = "bash bench/bvh/bench_tinybvh.sh ./assets/dragon/dragon.obj", depends-on = ["download_assets"] }
 bench_bvh_cpu_compare = { cmd = "bash bench/bvh/bench_bvh_cpu_compare.sh", depends-on = ["download_assets"] }
-
-
+bench_bvh_cpu_report = { cmd = "python bench/bvh/bench_bvh_cpu_report.py", depends-on = ["download_assets"] }
 
 
 # bvh gpu

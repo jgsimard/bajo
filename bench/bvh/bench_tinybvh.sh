@@ -27,4 +27,4 @@ fi
     "${SOURCE}" \
     -o "${OUTPUT}"
 
-"${OUTPUT}" "${OBJ_PATH}"
+taskset -c 0 "${OUTPUT}" "${OBJ_PATH}"

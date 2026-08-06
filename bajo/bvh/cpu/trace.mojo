@@ -1,3 +1,6 @@
+from std.bit import count_trailing_zeros
+from std.memory import pack_bits
+
 from bajo.bvh.types import Hit
 from bajo.core.intersect import intersect_ray_aabb_rcp
 from bajo.core import Vec3, Point3, Frame, Rayf32, dot
@@ -56,50 +59,53 @@ def trace_bounds_bvh[
             var nearest_idx = UInt32(0)
             var nearest_t = Float32(0.0)
 
-            if mask.reduce_or():
-                comptime for i in range(width):
-                    if mask[i]:
-                        if node.counts[i] == 0:
-                            var child_idx = node.data[i]
-                            var child_t = aabb_hit.t[i]
+            var bits = pack_bits(mask)
 
-                            if not has_nearest:
-                                nearest_idx = child_idx
-                                nearest_t = child_t
-                                has_nearest = True
+            while bits != 0:
+                var i = Int(count_trailing_zeros(bits))
+                bits &= bits - 1
 
-                            elif child_t < nearest_t:
-                                # previous nearest becomes deferred
-                                debug_assert["safe", _use_compiler_assume=True](
-                                    stack_ptr < CPU_STACK_SIZE,
-                                    "CPU BVH traversal stack overflow",
-                                )
-                                stack.unsafe_get(stack_ptr) = nearest_idx
-                                stack_near.unsafe_get(stack_ptr) = nearest_t
-                                stack_ptr += 1
+                if node.counts[i] == 0:
+                    var child_idx = node.data[i]
+                    var child_t = aabb_hit.t[i]
 
-                                nearest_idx = child_idx
-                                nearest_t = child_t
+                    if not has_nearest:
+                        nearest_idx = child_idx
+                        nearest_t = child_t
+                        has_nearest = True
 
-                            else:
-                                debug_assert["safe", _use_compiler_assume=True](
-                                    stack_ptr < CPU_STACK_SIZE,
-                                    "CPU BVH traversal stack overflow",
-                                )
-                                stack.unsafe_get(stack_ptr) = child_idx
-                                stack_near.unsafe_get(stack_ptr) = child_t
-                                stack_ptr += 1
+                    elif child_t < nearest_t:
+                        # previous nearest becomes deferred
+                        debug_assert["safe", _use_compiler_assume=True](
+                            stack_ptr < CPU_STACK_SIZE,
+                            "CPU BVH traversal stack overflow",
+                        )
+                        stack.unsafe_get(stack_ptr) = nearest_idx
+                        stack_near.unsafe_get(stack_ptr) = nearest_t
+                        stack_ptr += 1
 
-                        else:
-                            _ = leaf_fn(
-                                ray,
-                                O,
-                                D,
-                                ray_a,
-                                ray_inv_a,
-                                node.data[i],
-                                hit,
-                            )
+                        nearest_idx = child_idx
+                        nearest_t = child_t
+
+                    else:
+                        debug_assert["safe", _use_compiler_assume=True](
+                            stack_ptr < CPU_STACK_SIZE,
+                            "CPU BVH traversal stack overflow",
+                        )
+                        stack.unsafe_get(stack_ptr) = child_idx
+                        stack_near.unsafe_get(stack_ptr) = child_t
+                        stack_ptr += 1
+
+                else:
+                    _ = leaf_fn(
+                        ray,
+                        O,
+                        D,
+                        ray_a,
+                        ray_inv_a,
+                        node.data[i],
+                        hit,
+                    )
 
             if has_nearest:
                 if nearest_t <= hit.t:
@@ -150,32 +156,35 @@ def trace_bounds_bvh[
             var has_next = False
             var next_idx = UInt32(0)
 
-            if mask.reduce_or():
-                comptime for i in range(width):
-                    if mask[i]:
-                        if node.counts[i] == 0:
-                            if has_next:
-                                debug_assert["safe", _use_compiler_assume=True](
-                                    stack_ptr < CPU_STACK_SIZE,
-                                    "CPU BVH traversal stack overflow",
-                                )
-                                stack.unsafe_get(stack_ptr) = next_idx
-                                stack_ptr += 1
+            var bits = pack_bits(mask)
 
-                            next_idx = node.data[i]
-                            has_next = True
+            while bits != 0:
+                var i = Int(count_trailing_zeros(bits))
+                bits &= bits - 1
 
-                        else:
-                            if leaf_fn(
-                                ray,
-                                O,
-                                D,
-                                ray_a,
-                                ray_inv_a,
-                                node.data[i],
-                                hit,
-                            ):
-                                return Hit[frame].shadow_hit()
+                if node.counts[i] == 0:
+                    if has_next:
+                        debug_assert["safe", _use_compiler_assume=True](
+                            stack_ptr < CPU_STACK_SIZE,
+                            "CPU BVH traversal stack overflow",
+                        )
+                        stack.unsafe_get(stack_ptr) = next_idx
+                        stack_ptr += 1
+
+                    next_idx = node.data[i]
+                    has_next = True
+
+                else:
+                    if leaf_fn(
+                        ray,
+                        O,
+                        D,
+                        ray_a,
+                        ray_inv_a,
+                        node.data[i],
+                        hit,
+                    ):
+                        return Hit[frame].shadow_hit()
 
             if has_next:
                 n_idx = next_idx

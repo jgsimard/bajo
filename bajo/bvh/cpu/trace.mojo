@@ -4,7 +4,11 @@ from std.memory import pack_bits
 from bajo.bvh.types import Hit
 from bajo.core.intersect import intersect_ray_aabb_rcp
 from bajo.core import Vec3, Point3, Frame, Rayf32, dot
-from bajo.bvh.cpu.bounds_bvh import BoundsBvh
+from bajo.bvh.cpu.bounds_bvh import (
+    BoundsBvh,
+    BVH_LEAF_REF_BIT,
+    BVH_REF_INDEX_MASK,
+)
 from bajo.bvh.constants import EMPTY_LANE, CPU_STACK_SIZE, TRACE
 
 
@@ -27,11 +31,11 @@ def trace_bounds_bvh[
 
     var hit = Hit[frame].miss(ray.t_max)
 
-    # avoid bounds checks in hot loop
+    # avoid bounds checks in the hot loop
+    # stack entries are tagged child references, so they can represent either an internal node or a packed leaf
     var stack = Array[UInt32, CPU_STACK_SIZE](uninitialized=True)
     var stack_near = Array[Float32, CPU_STACK_SIZE](uninitialized=True)
     var stack_ptr = 0
-    var n_idx = UInt32(0)
 
     var O = ray.origin[width]()
     var D = ray.direction[width]()
@@ -43,148 +47,165 @@ def trace_bounds_bvh[
         ray_inv_a = 1.0 / ray_a
     var nodes = Span(tree.nodes)
 
-    while True:
-        ref node = nodes.unsafe_get(Int(n_idx))
+    comptime if mode == TRACE.CLOSEST_HIT:
+        # root is an internal-node reference with index zero
+        var current_ref = UInt32(0)
 
-        var aabb_hit = intersect_ray_aabb_rcp(O, rcp_d, node.aabb, hit.t)
-        var valid_lane = node.counts.ne(EMPTY_LANE)
-        var mask = aabb_hit.mask & valid_lane
+        while True:
+            if (current_ref & BVH_LEAF_REF_BIT) != 0:
+                # leaves are deferred exactly like internal nodes
+                # why: nearby internal subtree run before a distant triangle block
+                _ = leaf_fn(
+                    ray,
+                    O,
+                    D,
+                    ray_a,
+                    ray_inv_a,
+                    current_ref & BVH_REF_INDEX_MASK,
+                    hit,
+                )
 
-        comptime if mode == TRACE.CLOSEST_HIT:
-            var children_begin = stack_ptr
+            else:
+                ref node = nodes.unsafe_get(Int(current_ref))
 
-            # keep the nearest child in registers
-            # only deferred siblings go onto the stack
-            var has_nearest = False
-            var nearest_idx = UInt32(0)
-            var nearest_t = Float32(0.0)
+                var aabb_hit = intersect_ray_aabb_rcp(
+                    O,
+                    rcp_d,
+                    node.aabb,
+                    hit.t,
+                )
+                var mask = aabb_hit.mask & node.data.ne(EMPTY_LANE)
 
-            var bits = pack_bits(mask)
+                # internal children and leaves compete equally for the nearest task
+                # keep that task in registers and defer the others
+                var has_nearest = False
+                var nearest_ref = UInt32(0)
+                var nearest_t = Float32(0.0)
 
-            while bits != 0:
-                var i = Int(count_trailing_zeros(bits))
-                bits &= bits - 1
-
-                if node.counts[i] == 0:
-                    var child_idx = node.data[i]
+                def visit_closest_lane(i: Int) capturing:
                     var child_t = aabb_hit.t[i]
 
+                    # hit.t can only become tighter after a deferred leaf is evaluated
+                    if child_t > hit.t:
+                        return
+
+                    var child_ref = node.data[i]
+
                     if not has_nearest:
-                        nearest_idx = child_idx
+                        nearest_ref = child_ref
                         nearest_t = child_t
                         has_nearest = True
+                        return
 
-                    elif child_t < nearest_t:
-                        # previous nearest becomes deferred
-                        debug_assert["safe", _use_compiler_assume=True](
-                            stack_ptr < CPU_STACK_SIZE,
-                            "CPU BVH traversal stack overflow",
-                        )
-                        stack.unsafe_get(stack_ptr) = nearest_idx
-                        stack_near.unsafe_get(stack_ptr) = nearest_t
-                        stack_ptr += 1
-
-                        nearest_idx = child_idx
-                        nearest_t = child_t
-
-                    else:
-                        debug_assert["safe", _use_compiler_assume=True](
-                            stack_ptr < CPU_STACK_SIZE,
-                            "CPU BVH traversal stack overflow",
-                        )
-                        stack.unsafe_get(stack_ptr) = child_idx
-                        stack_near.unsafe_get(stack_ptr) = child_t
-                        stack_ptr += 1
-
-                else:
-                    _ = leaf_fn(
-                        ray,
-                        O,
-                        D,
-                        ray_a,
-                        ray_inv_a,
-                        node.data[i],
-                        hit,
+                    debug_assert["safe", _use_compiler_assume=True](
+                        stack_ptr < CPU_STACK_SIZE,
+                        "CPU BVH traversal stack overflow",
                     )
 
-            if has_nearest:
-                if nearest_t <= hit.t:
-                    # sort only deferred siblings
-                    # they remain far-to-near, so LIFO pops the nearest remaining sibling
-                    for slot in range(children_begin + 1, stack_ptr):
-                        var deferred_node = stack.unsafe_get(slot)
-                        var deferred_t = stack_near.unsafe_get(slot)
-                        var insert_slot = slot
+                    if child_t < nearest_t:
+                        stack.unsafe_get(stack_ptr) = nearest_ref
+                        stack_near.unsafe_get(stack_ptr) = nearest_t
+                        nearest_ref = child_ref
+                        nearest_t = child_t
+                    else:
+                        stack.unsafe_get(stack_ptr) = child_ref
+                        stack_near.unsafe_get(stack_ptr) = child_t
+                    stack_ptr += 1
 
-                        while (
-                            insert_slot > children_begin
-                            and stack_near.unsafe_get(insert_slot - 1)
-                            < deferred_t
-                        ):
-                            stack.unsafe_get(insert_slot) = stack.unsafe_get(
-                                insert_slot - 1
-                            )
-                            stack_near.unsafe_get(
-                                insert_slot
-                            ) = stack_near.unsafe_get(insert_slot - 1)
-                            insert_slot -= 1
+                comptime if width == 16:
+                    # BVH16 benefits from consuming only set mask bits: see benchmarks
+                    var bits = pack_bits(mask)
 
-                        stack.unsafe_get(insert_slot) = deferred_node
-                        stack_near.unsafe_get(insert_slot) = deferred_t
+                    while bits != 0:
+                        var lane = Int(count_trailing_zeros(bits))
+                        bits &= bits - 1
+                        visit_closest_lane(lane)
 
-                    n_idx = nearest_idx
+                else:
+                    # for BVH2/4/8, fully unrolled checks are faster: see benchmarks
+                    if mask.reduce_or():
+                        comptime for lane in range(width):
+                            if mask[lane]:
+                                visit_closest_lane(lane)
+
+                if has_nearest:
+                    current_ref = nearest_ref
                     continue
 
-                # a leaf in this node tightened hit.t below the nearest internal child
-                # because nearest_t is the minimum, every newly deferred sibling can also be discarded at once
-                stack_ptr = children_begin
-
+            # current leaf finished, or the current node had no children
+            # skip every deferred task that is now farther than the best hit
             var found_pending = False
             while stack_ptr > 0:
                 stack_ptr -= 1
 
                 if stack_near.unsafe_get(stack_ptr) <= hit.t:
-                    n_idx = stack.unsafe_get(stack_ptr)
+                    current_ref = stack.unsafe_get(stack_ptr)
                     found_pending = True
                     break
 
             if not found_pending:
                 break
 
-        else:
-            # keep the child that will be visited immediately out of the stack
+    else:
+        # ANY_HIT : leaf-first behavior
+        var n_idx = UInt32(0)
+
+        while True:
+            ref node = nodes.unsafe_get(Int(n_idx))
+
+            var aabb_hit = intersect_ray_aabb_rcp(
+                O,
+                rcp_d,
+                node.aabb,
+                hit.t,
+            )
+            var mask = aabb_hit.mask & node.data.ne(EMPTY_LANE)
+
+            # keep the internal child visited immediately out of the stack
             var has_next = False
             var next_idx = UInt32(0)
 
-            var bits = pack_bits(mask)
+            def visit_any_lane(i: Int) capturing -> Bool:
+                var child_ref = node.data[i]
 
-            while bits != 0:
-                var i = Int(count_trailing_zeros(bits))
-                bits &= bits - 1
-
-                if node.counts[i] == 0:
-                    if has_next:
-                        debug_assert["safe", _use_compiler_assume=True](
-                            stack_ptr < CPU_STACK_SIZE,
-                            "CPU BVH traversal stack overflow",
-                        )
-                        stack.unsafe_get(stack_ptr) = next_idx
-                        stack_ptr += 1
-
-                    next_idx = node.data[i]
-                    has_next = True
-
-                else:
-                    if leaf_fn(
+                if (child_ref & BVH_LEAF_REF_BIT) != 0:
+                    return leaf_fn(
                         ray,
                         O,
                         D,
                         ray_a,
                         ray_inv_a,
-                        node.data[i],
+                        child_ref & BVH_REF_INDEX_MASK,
                         hit,
-                    ):
+                    )
+
+                if has_next:
+                    debug_assert["safe", _use_compiler_assume=True](
+                        stack_ptr < CPU_STACK_SIZE,
+                        "CPU BVH traversal stack overflow",
+                    )
+                    stack.unsafe_get(stack_ptr) = next_idx
+                    stack_ptr += 1
+
+                next_idx = child_ref
+                has_next = True
+                return False
+
+            comptime if width == 16:
+                var bits = pack_bits(mask)
+
+                while bits != 0:
+                    var lane = Int(count_trailing_zeros(bits))
+                    bits &= bits - 1
+
+                    if visit_any_lane(lane):
                         return Hit[frame].shadow_hit()
+
+            else:
+                if mask.reduce_or():
+                    comptime for lane in range(width):
+                        if mask[lane] and visit_any_lane(lane):
+                            return Hit[frame].shadow_hit()
 
             if has_next:
                 n_idx = next_idx

@@ -1,5 +1,6 @@
 from bajo.core.utils import min_argmin
 from bajo.core import (
+    GeoKind,
     Vec3,
     Vec3f32,
     Normal3f32,
@@ -16,6 +17,9 @@ from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvh,
     BoundsItem,
     BoundsBvhBuilder,
+    encode_leaf_ref,
+    is_leaf_ref,
+    decode_ref_index,
 )
 from bajo.bvh.types import Hit, TriangleLeafBlock, TypedBvh
 from bajo.core.intersect import intersect_ray_tri_edges
@@ -27,11 +31,13 @@ struct TriangleBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
 
     """Triangle-specific wrapper around BoundsBvh[width].
 
-    After construction, leaf primitive data is packed into TriangleLeafBlock.
-    In this typed BLAS, a leaf lane means:
+    During BoundsBvh construction, a tagged leaf reference points into
+    tree.leaf_ranges. After construction, _pack_leaves replaces that payload
+    with a tagged TriangleLeafBlock index:
 
-        node.counts[lane] > 0
-        node.data[lane] = TriangleLeafBlock index
+        node.data[lane] == EMPTY_LANE -> unused lane
+        is_leaf_ref(node.data[lane])  -> TriangleLeafBlock index
+        otherwise                     -> internal node index
     """
 
     var tree: BoundsBvh[Self.frame, Self.width]
@@ -81,11 +87,19 @@ struct TriangleBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
 
         for ref node in self.tree.nodes:
             comptime for lane in range(Self.width):
-                if node.counts[lane] != EMPTY_LANE and node.counts[lane] > 0:
-                    var first_item = node.data[lane]
-                    var item_count = node.counts[lane]
+                var child_ref = node.data[lane]
+
+                if child_ref != EMPTY_LANE and is_leaf_ref(child_ref):
+                    var leaf_range_idx = decode_ref_index(child_ref)
+                    ref leaf_range = self.tree.leaf_ranges.unsafe_get(
+                        Int(leaf_range_idx)
+                    )
+
+                    var first_item = leaf_range.first_item
+                    var item_count = leaf_range.item_count
                     var first = Int(first_item)
                     var count = Int(item_count)
+
                     debug_assert["safe", _use_compiler_assume=True](
                         count <= Int(Self.width),
                         "triangle BVH leaf exceeds SIMD width",
@@ -127,7 +141,9 @@ struct TriangleBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
 
                     var block_idx = UInt32(len(self.leaf_blocks))
                     self.leaf_blocks.append(block^)
-                    node.data[lane] = block_idx
+
+                    # keep the leaf tag
+                    node.data[lane] = encode_leaf_ref(block_idx)
 
     def trace[
         mode: TRACE
@@ -166,20 +182,25 @@ struct TriangleBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
                 hit.v = tri_hit.v[lane]
                 hit.prim = block.prim_indices[lane]
                 hit.inst = EMPTY_LANE
-                var normals = normalize(cross(block.e1, block.e2))
-                hit.normal = Normal3f32[Self.bvh_frame](
-                    normals.x[lane], normals.y[lane], normals.z[lane]
+
+                var e1 = Vec3f32[Self.bvh_frame](
+                    block.e1.x[lane],
+                    block.e1.y[lane],
+                    block.e1.z[lane],
                 )
-                # e1 = Vec3f32[Self.bvh_frame](
-                #     block.e1.x[lane], block.e1.y[lane], block.e1.z[lane]
-                # )
-                # e2 = Vec3f32[Self.bvh_frame](
-                #     block.e2.x[lane], block.e2.y[lane], block.e2.z[lane]
-                # )
-                # normal= normalize(cross(e1, e2))
-                # hit.normal = Normal3f32[Self.bvh_frame](
-                #     normal.x, normal.y, normal.z
-                # )
+                var e2 = Vec3f32[Self.bvh_frame](
+                    block.e2.x[lane],
+                    block.e2.y[lane],
+                    block.e2.z[lane],
+                )
+
+                var normal = normalize(cross(e1, e2))
+
+                hit.normal = Normal3f32[Self.bvh_frame](
+                    normal.x,
+                    normal.y,
+                    normal.z,
+                )
 
             return True
 

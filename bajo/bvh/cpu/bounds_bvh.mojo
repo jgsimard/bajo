@@ -1,39 +1,79 @@
-from bajo.core import AABB, AxisAlignedBoundingBox, Vec3f32, Point3f32, Frame
+from bajo.core import AABB, AxisAlignedBoundingBox, Point3f32, Frame
 from bajo.bvh.constants import EMPTY_LANE
 from bajo.bvh.cpu.builder import BoundsBvhBuilder, BoundsItem
+
+comptime BVH_LEAF_REF_BIT = UInt32(0x80000000)
+comptime BVH_REF_INDEX_MASK = UInt32(0x7FFFFFFF)
+
+
+def encode_internal_ref(index: UInt32) -> UInt32:
+    debug_assert["safe", _use_compiler_assume=True](
+        index < BVH_LEAF_REF_BIT,
+        "BVH internal node index exceeds tagged-reference capacity",
+    )
+    return index
+
+
+def encode_leaf_ref(index: UInt32) -> UInt32:
+    # BVH_LEAF_REF_BIT | BVH_REF_INDEX_MASK equals EMPTY_LANE
+    debug_assert["safe", _use_compiler_assume=True](
+        index < BVH_REF_INDEX_MASK,
+        "BVH leaf index exceeds tagged-reference capacity",
+    )
+    return BVH_LEAF_REF_BIT | index
+
+
+def is_leaf_ref(x: UInt32) -> Bool:
+    return (x & BVH_LEAF_REF_BIT) != 0
+
+
+def decode_ref_index(x: UInt32) -> UInt32:
+    return x & BVH_REF_INDEX_MASK
+
+
+@fieldwise_init
+struct WideLeafRange(Copyable):
+    """Construction-time item range referenced by a tagged leaf."""
+
+    var first_item: UInt32
+    var item_count: UInt32
 
 
 @fieldwise_init
 struct WideBvhNode[frame: Frame, width: SIMDLength](Copyable):
-    """Lane node used by BoundsBvh.
+    """Compact lane node used by BoundsBvh traversal.
 
-    Lane encoding:
-        counts[i] == EMPTY_LANE -> unused lane
-        counts[i] == 0          -> child node, data[i] = child node index
-        counts[i] > 0           -> leaf range, data[i] = first item
+    Lane encoding in data:
+        data[i] == EMPTY_LANE             -> unused lane
+        data[i] & BVH_LEAF_REF_BIT == 0  -> child node index
+        data[i] & BVH_LEAF_REF_BIT != 0  -> leaf payload index
     """
 
     var aabb: AxisAlignedBoundingBox[DType.float32, Self.frame, Self.width]
     var data: SIMD[DType.uint32, Self.width]
-    var counts: SIMD[DType.uint32, Self.width]
 
     def __init__(out self):
         self.aabb = AxisAlignedBoundingBox[
             DType.float32, Self.frame, Self.width
         ].invalid()
-        self.data = SIMD[DType.uint32, Self.width](0)
-        self.counts = SIMD[DType.uint32, Self.width](EMPTY_LANE)
+        self.data = SIMD[DType.uint32, Self.width](EMPTY_LANE)
 
 
 struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
-    """Generic wide/lane BVH layout with range leaves."""
+    """Generic compact wide/lane BVH.
+
+    While building, tagged leaf references point into leaf_ranges. Typed BVHs
+    rewrite those references to point into their packed leaf-block arrays.
+    """
 
     var nodes: List[WideBvhNode[Self.frame, Self.width]]
+    var leaf_ranges: List[WideLeafRange]
     var item_indices: List[UInt32]
     var item_payloads: List[UInt32]
 
     def __init__(out self, bvh: BoundsBvhBuilder):
         self.nodes = List[WideBvhNode[Self.frame, Self.width]]()
+        self.leaf_ranges = List[WideLeafRange]()
         self.item_indices = bvh.item_indices.copy()
         self.item_payloads = [item.payload for item in bvh.items]
 
@@ -86,23 +126,27 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
                 node.aabb._max.z[i] = n.aabb._max.z
 
                 if n.is_leaf():
-                    node.data[i] = n.first_item()
-                    node.counts[i] = n.item_count
+                    var leaf_range_idx = UInt32(len(self.leaf_ranges))
+                    self.leaf_ranges.append(
+                        WideLeafRange(n.first_item(), n.item_count)
+                    )
+                    node.data[i] = encode_leaf_ref(leaf_range_idx)
                 else:
-                    node.data[i] = self._collapse(bvh, pool[i])
-                    node.counts[i] = 0
-            else:
-                node.counts[i] = EMPTY_LANE
+                    node.data[i] = encode_internal_ref(
+                        self._collapse(bvh, pool[i])
+                    )
 
         self.nodes[wide_idx] = node^
         return UInt32(wide_idx)
 
     def root_bounds(self) -> AABB[Self.frame]:
         var out = AABB[Self.frame].invalid()
+
         if len(self.nodes) > 0:
             ref root = self.nodes[0]
+
             comptime for lane in range(Self.width):
-                if root.counts[lane] != EMPTY_LANE:
+                if root.data[lane] != EMPTY_LANE:
                     out.grow(
                         Point3f32[Self.frame](
                             root.aabb._min.x[lane],

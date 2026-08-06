@@ -229,12 +229,10 @@ def _trace_world(world: World, ray: Rayf32[Frame.WORLD]) -> PathHit:
 
 
 def _init_pixel_rngs(settings: RenderSettings) -> List[Rng]:
-    var pixel_count = settings.image_width * settings.image_height
-    var rngs = List[Rng](capacity=pixel_count)
-    for pixel_idx in range(pixel_count):
-        rngs.append(Rng(seed=settings.rng_seed, id=UInt64(pixel_idx)))
-
-    return rngs^
+    return [
+        Rng(seed=settings.rng_seed, id=UInt64(i))
+        for i in range(settings.image_width * settings.image_height)
+    ]
 
 
 def _init_path_rngs(settings: RenderSettings) -> List[Rng]:

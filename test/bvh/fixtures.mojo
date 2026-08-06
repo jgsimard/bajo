@@ -101,14 +101,12 @@ def _make_single_sphere_scene[frame: Frame]() -> List[Sphere[frame]]:
 def _make_duplicate_sphere_centroid_scene[
     frame: Frame
 ]() -> List[Sphere[frame]]:
-    var spheres = List[Sphere[frame]](capacity=12)
-    for i in range(12):
-        spheres.append(
-            Sphere[frame](
-                Point3f32[frame](0.0, 0.0, 2.0), 1.0 + Float32(i % 3) * 0.01
-            )
+    return [
+        Sphere[frame](
+            Point3f32[frame](0.0, 0.0, 2.0), 1.0 + Float32(i % 3) * 0.01
         )
-    return spheres^
+        for i in range(12)
+    ]
 
 
 def _camera_for_bounds(

@@ -222,9 +222,11 @@ def _assert_wide_leaf_ranges_at_most_width[
 
 
 def _assert_triangle_bvh_matches_bruteforce[
-    frame: Frame, width: SIMDLength
+    frame: Frame,
+    bounds_width: SIMDLength,
+    leaf_width: SIMDLength = bounds_width,
 ](
-    mut bvh: TriangleBvh[frame, width],
+    mut bvh: TriangleBvh[frame, bounds_width, leaf_width],
     verts: List[Point3f32[frame]],
     origin: Point3f32[frame],
 ) raises:
@@ -497,6 +499,45 @@ def test_triangle_bvh_matches_bruteforce() raises:
     comptime for w in [2, 4, 8]:
         comptime for mode in ["median", "sah", "lbvh"]:
             _test_triangle_bvh_matches_bruteforce[w, mode]()
+
+
+def _test_triangle_bvh16_leaf_width[
+    leaf_width: SIMDLength,
+    mode: String,
+]() raises:
+    var n = 48
+    var verts = _make_strip[Frame.WORLD](n)
+    var bvh = TriangleBvh[Frame.WORLD, 16, leaf_width].__init__[mode](
+        verts.copy()
+    )
+
+    for ref leaf_range in bvh.tree.leaf_ranges:
+        assert_true(leaf_range.item_count > 0)
+        assert_true(leaf_range.item_count <= UInt32(leaf_width))
+
+    for i in range(n):
+        _assert_triangle_bvh_matches_bruteforce[Frame.WORLD, 16, leaf_width](
+            bvh,
+            verts,
+            _triangle_center_xy(verts, i),
+        )
+
+    assert_true(
+        bvh.trace[TRACE.ANY_HIT](
+            _z_ray(_triangle_center_xy(verts, 0))
+        ).is_occluded()
+    )
+    assert_true(
+        not bvh.trace[TRACE.ANY_HIT](
+            _z_ray(Point3W(100.0, 100.0, 0.0))
+        ).is_occluded()
+    )
+
+
+def test_triangle_bvh16_decoupled_leaf_widths() raises:
+    comptime for leaf_width in [2, 4, 8, 16]:
+        comptime for mode in ["median", "sah", "lbvh"]:
+            _test_triangle_bvh16_leaf_width[leaf_width, mode]()
 
 
 def _test_triangle_bvh_shadow_hit_and_miss[

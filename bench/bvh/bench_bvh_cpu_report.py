@@ -179,6 +179,7 @@ def parse_benchmark_output(output: str) -> pl.DataFrame:
             "primitive_count": primitive_count,
             "ray_count": ray_count,
             "nodes": None,
+            "leaf_width": None,
         }
 
         try:
@@ -194,6 +195,7 @@ def parse_benchmark_output(output: str) -> pl.DataFrame:
                     "build_method": values[1],
                     "layout": f"bvh{width}",
                     "width": width,
+                    "leaf_width": width,
                     "build_ms": float(values[3]),
                     "nodes": int(values[4]),
                     "trace_ms": float(values[6]),
@@ -203,22 +205,24 @@ def parse_benchmark_output(output: str) -> pl.DataFrame:
                 }
 
             elif table_kind == "bajo_dragon":
-                if len(values) != 7:
+                if len(values) != 8:
                     raise ValueError(
-                        f"expected 7 columns, received {len(values)}"
+                        f"expected 8 columns, received {len(values)}"
                     )
 
-                width = int(values[1])
+                bounds_width = int(values[1])
+                leaf_width = int(values[2])
 
                 row = base | {
                     "build_method": values[0],
-                    "layout": f"bvh{width}",
-                    "width": width,
-                    "build_ms": float(values[2]),
-                    "trace_ms": float(values[3]),
-                    "mrays_s": float(values[4]),
-                    "hits": int(values[5]),
-                    "checksum": float(values[6]),
+                    "layout": f"bvh{bounds_width}",
+                    "width": bounds_width,
+                    "leaf_width": leaf_width,
+                    "build_ms": float(values[3]),
+                    "trace_ms": float(values[4]),
+                    "mrays_s": float(values[5]),
+                    "hits": int(values[6]),
+                    "checksum": float(values[7]),
                 }
 
             elif table_kind in ("embree", "tinybvh"):
@@ -231,6 +235,7 @@ def parse_benchmark_output(output: str) -> pl.DataFrame:
                     "build_method": values[0],
                     "layout": values[1],
                     "width": width_from_layout(values[1]),
+                    "leaf_width": None,
                     "build_ms": float(values[2]),
                     "trace_ms": float(values[3]),
                     "mrays_s": float(values[4]),
@@ -260,6 +265,7 @@ def parse_benchmark_output(output: str) -> pl.DataFrame:
             "implementation",
             "build_method",
             "width",
+            "leaf_width",
         ]
     )
 
@@ -387,6 +393,7 @@ def generate_report(
         "build_method": "Build",
         "layout": "Layout",
         "width": "Width",
+        "leaf_width": "Leaf width",
         "build_ms": "Build ms",
         "trace_ms": "Trace ms",
         "mrays_s": "MRay/s",
@@ -401,6 +408,7 @@ def generate_report(
         "build_method",
         "layout",
         "width",
+        "leaf_width",
         "build_ms",
         "trace_ms",
         "mrays_s",

@@ -179,6 +179,7 @@ struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
         return trace_bounds_bvh[
             Self.frame,
             Self.width,
+            Self.width,
             mode,
             leaf_fn,
             True,

@@ -188,6 +188,7 @@ struct Tlas[width: SIMDLength](Copyable):
         return trace_bounds_bvh[
             Frame.WORLD,
             Self.width,
+            Self.width,
             mode,
             leaf_fn,
         ](

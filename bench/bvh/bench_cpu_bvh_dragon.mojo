@@ -26,9 +26,10 @@ struct SceneBenchResult(Copyable):
 
 
 def trace_scene[
-    width: SIMDLength
+    bounds_width: SIMDLength,
+    leaf_width: SIMDLength,
 ](
-    bvh: TriangleBvh[Frame.WORLD, width],
+    bvh: TriangleBvh[Frame.WORLD, bounds_width, leaf_width],
     rays: List[Rayf32[Frame.WORLD]],
 ) -> Tuple[Float64, Int]:
     var checksum = 0.0
@@ -53,18 +54,19 @@ def trace_scene[
 
 
 def benchmark_scene[
-    width: SIMDLength
+    bounds_width: SIMDLength,
+    leaf_width: SIMDLength,
 ](
-    bvh: TriangleBvh[Frame.WORLD, width],
+    bvh: TriangleBvh[Frame.WORLD, bounds_width, leaf_width],
     rays: List[Rayf32[Frame.WORLD]],
 ) -> SceneBenchResult:
     # Warm-up.
-    var summary = trace_scene[width](bvh, rays)
+    var summary = trace_scene[bounds_width, leaf_width](bvh, rays)
     var best_ns = Int.MAX
 
     for _ in range(TRAVERSAL_REPEATS):
         var t0 = perf_counter_ns()
-        summary = trace_scene[width](bvh, rays)
+        summary = trace_scene[bounds_width, leaf_width](bvh, rays)
         var t1 = perf_counter_ns()
 
         var elapsed_ns = Int(t1 - t0)
@@ -81,14 +83,16 @@ def benchmark_scene[
 def print_case_result(
     table: TablePrinter,
     split_method: String,
-    width: Int,
+    bounds_width: Int,
+    leaf_width: Int,
     build_ns: Int,
     result: SceneBenchResult,
     ray_count: Int,
 ) raises:
     table.result_line(
         split_method=split_method,
-        width=String(width),
+        bounds_width=String(bounds_width),
+        leaf_width=String(leaf_width),
         build_ms=String(round(ns_to_ms(build_ns), 3)),
         trace_ms=String(round(ns_to_ms(result.ns), 3)),
         MRay_s=String(
@@ -103,7 +107,8 @@ def print_case_result(
 
 
 def benchmark_case[
-    width: SIMDLength,
+    bounds_width: SIMDLength,
+    leaf_width: SIMDLength,
     split_method: String,
 ](
     table: TablePrinter,
@@ -113,33 +118,42 @@ def benchmark_case[
     var t0 = perf_counter_ns()
     var bvh = TriangleBvh[
         Frame.WORLD,
-        width,
+        bounds_width,
+        leaf_width,
     ].__init__[
         split_method
     ](vertices.copy())
     var t1 = perf_counter_ns()
 
-    var result = benchmark_scene[width](bvh, rays)
+    var result = benchmark_scene[bounds_width, leaf_width](bvh, rays)
 
     print_case_result(
         table,
         split_method,
-        width,
+        bounds_width,
+        leaf_width,
         Int(t1 - t0),
         result,
         len(rays),
     )
 
 
-def benchmark_widths[
+def benchmark_configurations[
     split_method: String
 ](
     table: TablePrinter,
     vertices: List[Point3f32[Frame.WORLD]],
     rays: List[Rayf32[Frame.WORLD]],
 ) raises:
-    comptime for width in [2, 4, 8, 16]:
-        benchmark_case[width, split_method](
+    comptime for bounds_width in [2, 4, 8]:
+        benchmark_case[bounds_width, bounds_width, split_method](
+            table,
+            vertices,
+            rays,
+        )
+
+    comptime for leaf_width in [2, 4, 8, 16]:
+        benchmark_case[16, leaf_width, split_method](
             table,
             vertices,
             rays,
@@ -166,7 +180,8 @@ def main() raises:
 
     var table = TablePrinter(
         split_method=12,
-        width=8,
+        bounds_width=12,
+        leaf_width=10,
         build_ms=10,
         trace_ms=10,
         MRay_s=8,
@@ -176,7 +191,7 @@ def main() raises:
     table.header()
 
     comptime for split_method in ["sah", "lbvh"]:
-        benchmark_widths[split_method](
+        benchmark_configurations[split_method](
             table,
             vertices,
             rays,

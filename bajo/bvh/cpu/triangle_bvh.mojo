@@ -26,10 +26,14 @@ from bajo.core.intersect import intersect_ray_tri_edges
 from bajo.bvh.cpu.trace import trace_bounds_bvh
 
 
-struct TriangleBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
+struct TriangleBvh[
+    frame: Frame,
+    bounds_width: SIMDLength,
+    leaf_width: SIMDLength = bounds_width,
+](Copyable, TypedBvh):
     comptime bvh_frame: Frame = Self.frame
 
-    """Triangle-specific wrapper around BoundsBvh[width].
+    """Triangle BVH with independent bounds and triangle packet widths.
 
     During BoundsBvh construction, a tagged leaf reference points into
     tree.leaf_ranges. After construction, _pack_leaves replaces that payload
@@ -40,15 +44,17 @@ struct TriangleBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
         otherwise                     -> internal node index
     """
 
-    var tree: BoundsBvh[Self.frame, Self.width]
-    var leaf_blocks: List[TriangleLeafBlock[Self.frame, Self.width]]
+    var tree: BoundsBvh[Self.frame, Self.bounds_width]
+    var leaf_blocks: List[TriangleLeafBlock[Self.frame, Self.leaf_width]]
     var tri_count: Int
 
     def __init__[
         split_method: String = "median"
     ](out self, var vertices: List[Point3f32[Self.frame]]):
         self.tri_count = len(vertices) / 3
-        self.leaf_blocks = List[TriangleLeafBlock[Self.frame, Self.width]]()
+        self.leaf_blocks = List[
+            TriangleLeafBlock[Self.frame, Self.leaf_width]
+        ]()
 
         var items = List[BoundsItem[Self.frame]](capacity=self.tri_count)
 
@@ -62,10 +68,10 @@ struct TriangleBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
 
             items.append(BoundsItem(bounds, UInt32(i)))
 
-        var builder = BoundsBvhBuilder[Self.frame, Self.width](items)
+        var builder = BoundsBvhBuilder[Self.frame, Self.leaf_width](items)
         builder.build[split_method]()
 
-        self.tree = BoundsBvh[Self.frame, Self.width](builder)
+        self.tree = BoundsBvh[Self.frame, Self.bounds_width](builder)
 
         self._pack_leaves(vertices^)
 
@@ -73,8 +79,9 @@ struct TriangleBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
         return self.tree.root_bounds()
 
     def _pack_leaves(mut self, var vertices: List[Point3f32[Self.frame]]):
-        self.leaf_blocks = List[TriangleLeafBlock[Self.frame, Self.width]](
-            capacity=(self.tri_count + Int(Self.width) - 1) // Int(Self.width)
+        self.leaf_blocks = List[TriangleLeafBlock[Self.frame, Self.leaf_width]](
+            capacity=(self.tri_count + Int(Self.leaf_width) - 1)
+            // Int(Self.leaf_width)
         )
         debug_assert["safe", _use_compiler_assume=True](
             len(self.tree.item_indices) == len(self.tree.item_payloads),
@@ -86,7 +93,7 @@ struct TriangleBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
         )
 
         for ref node in self.tree.nodes:
-            comptime for lane in range(Self.width):
+            comptime for lane in range(Self.bounds_width):
                 var child_ref = node.data[lane]
 
                 if child_ref != EMPTY_LANE and is_leaf_ref(child_ref):
@@ -101,8 +108,8 @@ struct TriangleBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
                     var count = Int(item_count)
 
                     debug_assert["safe", _use_compiler_assume=True](
-                        count <= Int(Self.width),
-                        "triangle BVH leaf exceeds SIMD width",
+                        count <= Int(Self.leaf_width),
+                        "triangle BVH leaf exceeds leaf SIMD width",
                     )
                     debug_assert["safe", _use_compiler_assume=True](
                         first <= len(self.tree.item_indices)
@@ -114,7 +121,7 @@ struct TriangleBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
                         first : first + count
                     ]
 
-                    var block = TriangleLeafBlock[Self.frame, Self.width]()
+                    var block = TriangleLeafBlock[Self.frame, Self.leaf_width]()
 
                     for k, item_idx_u32 in enumerate(leaf_indices):
                         var item_ref = Int(item_idx_u32)
@@ -150,10 +157,10 @@ struct TriangleBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
     ](self, ray: Rayf32[Self.bvh_frame]) -> Hit[Self.bvh_frame]:
         def leaf_fn(
             ray: Rayf32[Self.bvh_frame],
-            O: Point3[DType.float32, Self.bvh_frame, Self.width],
-            D: Vec3[DType.float32, Self.bvh_frame, Self.width],
-            _ray_a: SIMD[DType.float32, Self.width],
-            _ray_inv_a: SIMD[DType.float32, Self.width],
+            O: Point3[DType.float32, Self.bvh_frame, Self.leaf_width],
+            D: Vec3[DType.float32, Self.bvh_frame, Self.leaf_width],
+            _ray_a: SIMD[DType.float32, Self.leaf_width],
+            _ray_inv_a: SIMD[DType.float32, Self.leaf_width],
             leaf_block_idx: UInt32,
             mut hit: Hit[Self.bvh_frame],
         ) capturing -> Bool:
@@ -204,6 +211,10 @@ struct TriangleBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
 
             return True
 
-        return trace_bounds_bvh[Self.frame, Self.width, mode, leaf_fn](
-            self.tree, ray
-        )
+        return trace_bounds_bvh[
+            Self.frame,
+            Self.bounds_width,
+            Self.leaf_width,
+            mode,
+            leaf_fn,
+        ](self.tree, ray)

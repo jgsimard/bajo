@@ -14,19 +14,20 @@ from bajo.bvh.constants import EMPTY_LANE, CPU_STACK_SIZE, TRACE
 
 def trace_bounds_bvh[
     frame: Frame,
-    width: SIMDLength,
+    bounds_width: SIMDLength,
+    leaf_width: SIMDLength,
     mode: TRACE,
     leaf_fn: def(
         Rayf32[frame],
-        Point3[DType.float32, frame, width],
-        Vec3[DType.float32, frame, width],
-        SIMD[DType.float32, width],
-        SIMD[DType.float32, width],
+        Point3[DType.float32, frame, leaf_width],
+        Vec3[DType.float32, frame, leaf_width],
+        SIMD[DType.float32, leaf_width],
+        SIMD[DType.float32, leaf_width],
         UInt32,
         mut Hit[frame],
     ) capturing -> Bool,
     precompute_ray_coefficients: Bool = False,
-](tree: BoundsBvh[frame, width], ray: Rayf32[frame]) -> Hit[frame]:
+](tree: BoundsBvh[frame, bounds_width], ray: Rayf32[frame]) -> Hit[frame]:
     debug_assert["safe", _use_compiler_assume=True](len(tree.nodes) > 0)
 
     var hit = Hit[frame].miss(ray.t_max)
@@ -37,13 +38,14 @@ def trace_bounds_bvh[
     var stack_near = Array[Float32, CPU_STACK_SIZE](uninitialized=True)
     var stack_ptr = 0
 
-    var O = ray.origin[width]()
-    var D = ray.direction[width]()
-    var rcp_d = ray.rcp_direction[width]()
-    var ray_a = SIMD[DType.float32, width](0.0)
-    var ray_inv_a = SIMD[DType.float32, width](0.0)
+    var bounds_O = ray.origin[bounds_width]()
+    var rcp_d = ray.rcp_direction[bounds_width]()
+    var leaf_O = ray.origin[leaf_width]()
+    var leaf_D = ray.direction[leaf_width]()
+    var ray_a = SIMD[DType.float32, leaf_width](0.0)
+    var ray_inv_a = SIMD[DType.float32, leaf_width](0.0)
     comptime if precompute_ray_coefficients:
-        ray_a = dot(D, D)
+        ray_a = dot(leaf_D, leaf_D)
         ray_inv_a = 1.0 / ray_a
     var nodes = Span(tree.nodes)
 
@@ -57,8 +59,8 @@ def trace_bounds_bvh[
                 # why: nearby internal subtree run before a distant triangle block
                 _ = leaf_fn(
                     ray,
-                    O,
-                    D,
+                    leaf_O,
+                    leaf_D,
                     ray_a,
                     ray_inv_a,
                     current_ref & BVH_REF_INDEX_MASK,
@@ -69,7 +71,7 @@ def trace_bounds_bvh[
                 ref node = nodes.unsafe_get(Int(current_ref))
 
                 var aabb_hit = intersect_ray_aabb_rcp(
-                    O,
+                    bounds_O,
                     rcp_d,
                     node.aabb,
                     hit.t,
@@ -112,7 +114,7 @@ def trace_bounds_bvh[
                         stack_near.unsafe_get(stack_ptr) = child_t
                     stack_ptr += 1
 
-                comptime if width == 16:
+                comptime if bounds_width == 16:
                     # BVH16 benefits from consuming only set mask bits: see benchmarks
                     var bits = pack_bits(mask)
 
@@ -124,7 +126,7 @@ def trace_bounds_bvh[
                 else:
                     # for BVH2/4/8, fully unrolled checks are faster: see benchmarks
                     if mask.reduce_or():
-                        comptime for lane in range(width):
+                        comptime for lane in range(bounds_width):
                             if mask[lane]:
                                 visit_closest_lane(lane)
 
@@ -154,7 +156,7 @@ def trace_bounds_bvh[
             ref node = nodes.unsafe_get(Int(n_idx))
 
             var aabb_hit = intersect_ray_aabb_rcp(
-                O,
+                bounds_O,
                 rcp_d,
                 node.aabb,
                 hit.t,
@@ -165,7 +167,7 @@ def trace_bounds_bvh[
             var has_next = False
             var next_idx = UInt32(0)
 
-            comptime if width == 16:
+            comptime if bounds_width == 16:
                 var bits = pack_bits(mask)
 
                 while bits != 0:
@@ -176,8 +178,8 @@ def trace_bounds_bvh[
                     if (child_ref & BVH_LEAF_REF_BIT) != 0:
                         if leaf_fn(
                             ray,
-                            O,
-                            D,
+                            leaf_O,
+                            leaf_D,
                             ray_a,
                             ray_inv_a,
                             child_ref & BVH_REF_INDEX_MASK,
@@ -198,15 +200,15 @@ def trace_bounds_bvh[
 
             else:
                 if mask.reduce_or():
-                    comptime for lane in range(width):
+                    comptime for lane in range(bounds_width):
                         if mask[lane]:
                             var child_ref = node.data[lane]
 
                             if (child_ref & BVH_LEAF_REF_BIT) != 0:
                                 if leaf_fn(
                                     ray,
-                                    O,
-                                    D,
+                                    leaf_O,
+                                    leaf_D,
                                     ray_a,
                                     ray_inv_a,
                                     child_ref & BVH_REF_INDEX_MASK,

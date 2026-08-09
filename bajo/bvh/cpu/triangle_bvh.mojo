@@ -201,20 +201,36 @@ struct TriangleBvh[
                     block.e2.z[lane],
                 )
 
-                var normal = normalize(cross(e1, e2))
+                var geometric_normal = cross(e1, e2)
 
                 hit.normal = Normal3f32[Self.bvh_frame](
-                    normal.x,
-                    normal.y,
-                    normal.z,
+                    geometric_normal.x,
+                    geometric_normal.y,
+                    geometric_normal.z,
                 )
 
             return True
 
-        return trace_bounds_bvh[
+        var hit = trace_bounds_bvh[
             Self.frame,
             Self.bounds_width,
             Self.leaf_width,
             mode,
             leaf_fn,
         ](self.tree, ray)
+
+        comptime if mode == TRACE.CLOSEST_HIT:
+            if hit.is_hit():
+                var geometric_normal = Vec3f32[Self.bvh_frame](
+                    hit.normal.x,
+                    hit.normal.y,
+                    hit.normal.z,
+                )
+                var unit_normal = normalize(geometric_normal)
+                hit.normal = Normal3f32[Self.bvh_frame](
+                    unit_normal.x,
+                    unit_normal.y,
+                    unit_normal.z,
+                )
+
+        return hit

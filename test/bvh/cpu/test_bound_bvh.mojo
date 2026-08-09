@@ -253,6 +253,12 @@ def _assert_triangle_bvh_matches_bruteforce[
             "TriangleBvh returned the wrong primitive",
         )
         assert_almost_equal(hit.t, brute.t)
+        assert_almost_equal(
+            hit.normal.x * hit.normal.x
+            + hit.normal.y * hit.normal.y
+            + hit.normal.z * hit.normal.z,
+            1.0,
+        )
 
 
 def _assert_sphere_bvh_matches_bruteforce[

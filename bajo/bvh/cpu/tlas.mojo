@@ -1,7 +1,14 @@
 from bajo.core import AABB, Vec3, Point3, Frame, GeoKind, Rayf32
 from bajo.bvh.types import Hit, Instance, TypedBvh
 from bajo.bvh.constants import TRACE, EMPTY_LANE
-from bajo.bvh.cpu.bounds_bvh import BoundsBvh, BoundsBvhBuilder, BoundsItem
+from bajo.bvh.cpu.bounds_bvh import (
+    BoundsBvh,
+    BoundsBvhBuilder,
+    BoundsItem,
+    decode_ref_index,
+    encode_leaf_ref,
+    is_leaf_ref,
+)
 from bajo.bvh.cpu.trace import trace_bounds_bvh
 
 
@@ -16,7 +23,15 @@ def _tree[
 
 
 struct Tlas[width: SIMDLength](Copyable):
-    """Wide TLAS over Instance records."""
+    """Wide TLAS over Instance records.
+
+    During BoundsBvh construction, a tagged leaf reference points into
+    tree.leaf_ranges.
+
+    After construction, each leaf range is packed into a SIMD block of
+    instance indices and the tagged leaf payload is rewritten to the packed
+    block index.
+    """
 
     var tree: BoundsBvh[Frame.WORLD, Self.width]
     var instances: List[Instance]
@@ -44,28 +59,60 @@ struct Tlas[width: SIMDLength](Copyable):
         return self.tree.root_bounds()
 
     def _pack_leaves(mut self):
-        self.leaf_blocks_inst_indices = []
+        self.leaf_blocks_inst_indices = List[SIMD[DType.uint32, Self.width]](
+            capacity=(self.inst_count + Int(Self.width) - 1) // Int(Self.width)
+        )
+
+        debug_assert["safe", _use_compiler_assume=True](
+            len(self.tree.item_indices) == len(self.tree.item_payloads),
+            "TLAS item arrays have inconsistent lengths",
+        )
+        debug_assert["safe", _use_compiler_assume=True](
+            len(self.instances) == self.inst_count,
+            "TLAS instance count changed while packing leaves",
+        )
 
         for ref node in self.tree.nodes:
             comptime for lane in range(Self.width):
-                if node.counts[lane] != EMPTY_LANE and node.counts[lane] > 0:
-                    var first_item = node.data[lane]
-                    var item_count = node.counts[lane]
+                var child_ref = node.data[lane]
+
+                if child_ref != EMPTY_LANE and is_leaf_ref(child_ref):
+                    var leaf_range_idx = decode_ref_index(child_ref)
+                    ref leaf_range = self.tree.leaf_ranges.unsafe_get(
+                        Int(leaf_range_idx)
+                    )
+
+                    var first = Int(leaf_range.first_item)
+                    var count = Int(leaf_range.item_count)
+
+                    debug_assert["safe", _use_compiler_assume=True](
+                        count <= Int(Self.width),
+                        "TLAS leaf exceeds SIMD width",
+                    )
+                    debug_assert["safe", _use_compiler_assume=True](
+                        first <= len(self.tree.item_indices)
+                        and count <= len(self.tree.item_indices) - first,
+                        "TLAS leaf range is outside item indices",
+                    )
 
                     var inst_indices = SIMD[DType.uint32, Self.width](
                         EMPTY_LANE
                     )
 
-                    for k in range(Int(item_count)):
+                    for k in range(count):
                         var item_ref = Int(
-                            self.tree.item_indices[Int(first_item) + k]
+                            self.tree.item_indices.unsafe_get(first + k)
                         )
-                        inst_indices[k] = self.tree.item_payloads[item_ref]
+                        inst_indices[k] = self.tree.item_payloads.unsafe_get(
+                            item_ref
+                        )
 
                     var block_idx = UInt32(len(self.leaf_blocks_inst_indices))
                     self.leaf_blocks_inst_indices.append(inst_indices)
 
-                    node.data[lane] = block_idx
+                    # Preserve the leaf tag, but replace the construction-time
+                    # leaf-range payload with the packed instance-block index.
+                    node.data[lane] = encode_leaf_ref(block_idx)
 
     def trace[
         typed_bvh: TypedBvh,
@@ -88,9 +135,9 @@ struct Tlas[width: SIMDLength](Copyable):
             leaf_block_idx: UInt32,
             mut hit: Hit[Frame.WORLD],
         ) capturing -> Bool:
-            ref inst_indices = self.leaf_blocks_inst_indices[
+            ref inst_indices = self.leaf_blocks_inst_indices.unsafe_get(
                 Int(leaf_block_idx)
-            ]
+            )
 
             var any_hit = False
 
@@ -98,7 +145,7 @@ struct Tlas[width: SIMDLength](Copyable):
                 var inst_idx = inst_indices[lane]
 
                 if inst_idx != EMPTY_LANE:
-                    ref inst = self.instances[Int(inst_idx)]
+                    ref inst = self.instances.unsafe_get(Int(inst_idx))
                     var local_ray_base = inst.inv_transform.ray(ray, hit.t)
 
                     # TODO: use this version when parametric raises are a thing in mojo

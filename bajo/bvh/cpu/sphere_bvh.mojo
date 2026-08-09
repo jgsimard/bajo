@@ -11,7 +11,14 @@ from bajo.core import (
 from bajo.core.intersect import intersect_ray_sphere_coefficients
 from bajo.core.utils import min_argmin
 from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
-from bajo.bvh.cpu.bounds_bvh import BoundsBvh, BoundsItem, BoundsBvhBuilder
+from bajo.bvh.cpu.bounds_bvh import (
+    BoundsBvh,
+    BoundsItem,
+    BoundsBvhBuilder,
+    decode_ref_index,
+    encode_leaf_ref,
+    is_leaf_ref,
+)
 from bajo.bvh.cpu.trace import trace_bounds_bvh
 from bajo.bvh.types import Hit, Sphere, SphereLeafBlock, TypedBvh
 
@@ -20,11 +27,12 @@ struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
     comptime bvh_frame: Frame = Self.frame
 
     """Sphere-specific wrapper around BoundsBvh[width].
-    The generic tree is built from BoundsItem ranges.
-    After construction, sphere leaf data is packed into SphereLeafBlock.
-    In this typed BLAS, a leaf lane means:
-        node.counts[lane] > 0
-        node.data[lane] = SphereLeafBlock index.
+
+    The generic tree is built from BoundsItem ranges. During BoundsBvh
+    construction, a tagged leaf reference points into tree.leaf_ranges.
+
+    After construction, each leaf range is packed into a SphereLeafBlock and
+    the tagged leaf payload is rewritten to the SphereLeafBlock index.
     """
 
     var tree: BoundsBvh[Self.frame, Self.width]
@@ -55,7 +63,10 @@ struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
         return self.tree.root_bounds()
 
     def _pack_leaves(mut self):
-        self.leaf_blocks = List[SphereLeafBlock[Self.frame, Self.width]]()
+        self.leaf_blocks = List[SphereLeafBlock[Self.frame, Self.width]](
+            capacity=(self.sphere_count + Int(Self.width) - 1)
+            // Int(Self.width)
+        )
         debug_assert["safe", _use_compiler_assume=True](
             len(self.tree.item_indices) == len(self.tree.item_payloads),
             "sphere BVH item arrays have inconsistent lengths",
@@ -67,11 +78,17 @@ struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
 
         for ref node in self.tree.nodes:
             comptime for lane in range(Self.width):
-                if node.counts[lane] != EMPTY_LANE and node.counts[lane] > 0:
-                    var first_item = node.data[lane]
-                    var item_count = node.counts[lane]
-                    var first = Int(first_item)
-                    var count = Int(item_count)
+                var child_ref = node.data[lane]
+
+                if child_ref != EMPTY_LANE and is_leaf_ref(child_ref):
+                    var leaf_range_idx = decode_ref_index(child_ref)
+                    ref leaf_range = self.tree.leaf_ranges.unsafe_get(
+                        Int(leaf_range_idx)
+                    )
+
+                    var first = Int(leaf_range.first_item)
+                    var count = Int(leaf_range.item_count)
+
                     debug_assert["safe", _use_compiler_assume=True](
                         count <= Int(Self.width),
                         "sphere BVH leaf exceeds SIMD width",
@@ -91,18 +108,21 @@ struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
                     for k, item_idx_u32 in enumerate(leaf_indices):
                         var item_ref = Int(item_idx_u32)
                         var sphere_idx = self.tree.item_payloads[item_ref]
-                        ref s = self.spheres[Int(sphere_idx)]
+                        ref sphere = self.spheres.unsafe_get(Int(sphere_idx))
 
-                        block.center.x[k] = s.center.x
-                        block.center.y[k] = s.center.y
-                        block.center.z[k] = s.center.z
-                        block.radius[k] = s.radius
+                        block.center.x[k] = sphere.center.x
+                        block.center.y[k] = sphere.center.y
+                        block.center.z[k] = sphere.center.z
+                        block.radius[k] = sphere.radius
 
                         block.prim_indices[k] = sphere_idx
 
                     var block_idx = UInt32(len(self.leaf_blocks))
                     self.leaf_blocks.append(block^)
-                    node.data[lane] = block_idx
+
+                    # Preserve the leaf tag, but replace the construction-time
+                    # leaf-range payload with the packed leaf-block index.
+                    node.data[lane] = encode_leaf_ref(block_idx)
 
     def trace[
         mode: TRACE
@@ -116,10 +136,10 @@ struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
             leaf_block_idx: UInt32,
             mut hit: Hit[Self.bvh_frame],
         ) capturing -> Bool:
-            # using unsafe = 20-45% speedup
+            # Unsafe access avoids bounds checks in the traversal hot path.
             ref block = self.leaf_blocks.unsafe_get(Int(leaf_block_idx))
 
-            var h = intersect_ray_sphere_coefficients(
+            var sphere_hit = intersect_ray_sphere_coefficients(
                 O,
                 D,
                 block.center,
@@ -130,24 +150,24 @@ struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
                 ray.t_min,
             )
             var valid_lane = block.prim_indices.ne(EMPTY_LANE)
-            var hit_mask = h.mask & valid_lane
+            var hit_mask = sphere_hit.mask & valid_lane
 
             if not hit_mask.reduce_or():
                 return False
 
             comptime if mode == TRACE.CLOSEST_HIT:
-                var _t = hit_mask.select(h.t, f32_max)
-                var min_t, arg_min_t = min_argmin(_t)
+                var candidate_t = hit_mask.select(sphere_hit.t, f32_max)
+                var min_t, lane = min_argmin(candidate_t)
 
                 hit.t = min_t
                 hit.u = 0.0
                 hit.v = 0.0
                 hit.inst = EMPTY_LANE
-                hit.prim = block.prim_indices[arg_min_t]
+                hit.prim = block.prim_indices[lane]
                 var center = Point3f32[Self.bvh_frame](
-                    block.center.x[arg_min_t],
-                    block.center.y[arg_min_t],
-                    block.center.z[arg_min_t],
+                    block.center.x[lane],
+                    block.center.y[lane],
+                    block.center.z[lane],
                 )
                 var p = ray.o + min_t * ray.d
                 hit.normal = normalize(p - center).unsafe_convert[

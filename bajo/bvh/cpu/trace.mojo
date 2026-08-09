@@ -165,47 +165,67 @@ def trace_bounds_bvh[
             var has_next = False
             var next_idx = UInt32(0)
 
-            def visit_any_lane(i: Int) capturing -> Bool:
-                var child_ref = node.data[i]
-
-                if (child_ref & BVH_LEAF_REF_BIT) != 0:
-                    return leaf_fn(
-                        ray,
-                        O,
-                        D,
-                        ray_a,
-                        ray_inv_a,
-                        child_ref & BVH_REF_INDEX_MASK,
-                        hit,
-                    )
-
-                if has_next:
-                    debug_assert["safe", _use_compiler_assume=True](
-                        stack_ptr < CPU_STACK_SIZE,
-                        "CPU BVH traversal stack overflow",
-                    )
-                    stack.unsafe_get(stack_ptr) = next_idx
-                    stack_ptr += 1
-
-                next_idx = child_ref
-                has_next = True
-                return False
-
             comptime if width == 16:
                 var bits = pack_bits(mask)
 
                 while bits != 0:
                     var lane = Int(count_trailing_zeros(bits))
                     bits &= bits - 1
+                    var child_ref = node.data[lane]
 
-                    if visit_any_lane(lane):
-                        return Hit[frame].shadow_hit()
+                    if (child_ref & BVH_LEAF_REF_BIT) != 0:
+                        if leaf_fn(
+                            ray,
+                            O,
+                            D,
+                            ray_a,
+                            ray_inv_a,
+                            child_ref & BVH_REF_INDEX_MASK,
+                            hit,
+                        ):
+                            return Hit[frame].shadow_hit()
+                    else:
+                        if has_next:
+                            debug_assert["safe", _use_compiler_assume=True](
+                                stack_ptr < CPU_STACK_SIZE,
+                                "CPU BVH traversal stack overflow",
+                            )
+                            stack.unsafe_get(stack_ptr) = next_idx
+                            stack_ptr += 1
+
+                        next_idx = child_ref
+                        has_next = True
 
             else:
                 if mask.reduce_or():
                     comptime for lane in range(width):
-                        if mask[lane] and visit_any_lane(lane):
-                            return Hit[frame].shadow_hit()
+                        if mask[lane]:
+                            var child_ref = node.data[lane]
+
+                            if (child_ref & BVH_LEAF_REF_BIT) != 0:
+                                if leaf_fn(
+                                    ray,
+                                    O,
+                                    D,
+                                    ray_a,
+                                    ray_inv_a,
+                                    child_ref & BVH_REF_INDEX_MASK,
+                                    hit,
+                                ):
+                                    return Hit[frame].shadow_hit()
+                            else:
+                                if has_next:
+                                    debug_assert[
+                                        "safe", _use_compiler_assume=True
+                                    ](
+                                        stack_ptr < CPU_STACK_SIZE,
+                                        "CPU BVH traversal stack overflow",
+                                    )
+                                    stack.unsafe_get(stack_ptr) = next_idx
+                                    stack_ptr += 1
+
+                                next_idx = child_ref
+                                has_next = True
 
             if has_next:
                 n_idx = next_idx

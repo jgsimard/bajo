@@ -18,6 +18,9 @@ from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvhBuilder,
     BoundsItem,
     BoundsBvh,
+    decode_ref_index,
+    encode_leaf_ref,
+    is_leaf_ref,
 )
 from bajo.bvh.cpu.builder.builder import _partition_items_by_median_center
 from bajo.bvh.cpu.builder.sah import _find_sah_split
@@ -193,24 +196,29 @@ def _assert_builder_leaf_sizes_at_most(
     assert_true(leaf_item_total == builder.item_count)
 
 
-def _assert_wide_leaf_counts_at_most_width[
+def _assert_wide_leaf_ranges_at_most_width[
     frame: Frame, width: SIMDLength
 ](wide: BoundsBvh[frame, width]) raises:
     for ref node in wide.nodes:
         for lane in range(width):
-            var count = node.counts[lane]
+            var child_ref = node.data[lane]
 
-            if count == EMPTY_LANE:
+            if child_ref == EMPTY_LANE:
                 continue
 
-            if count == 0:
-                assert_true(node.data[lane] < UInt32(len(wide.nodes)))
-            else:
-                assert_true(count <= UInt32(width))
-                assert_true(Int(node.data[lane]) < len(wide.item_indices))
+            if is_leaf_ref(child_ref):
+                var leaf_range_idx = decode_ref_index(child_ref)
+                assert_true(Int(leaf_range_idx) < len(wide.leaf_ranges))
+
+                ref leaf_range = wide.leaf_ranges[Int(leaf_range_idx)]
+                assert_true(leaf_range.item_count > 0)
+                assert_true(leaf_range.item_count <= UInt32(width))
                 assert_true(
-                    Int(node.data[lane]) + Int(count) <= len(wide.item_indices)
+                    Int(leaf_range.first_item) + Int(leaf_range.item_count)
+                    <= len(wide.item_indices)
                 )
+            else:
+                assert_true(child_ref < UInt32(len(wide.nodes)))
 
 
 def _assert_triangle_bvh_matches_bruteforce[
@@ -298,7 +306,7 @@ def _test_bounds_bvh_leaf_invariant[
     _assert_builder_leaf_sizes_at_most(builder, UInt32(width))
 
     var wide = BoundsBvh[frame, width](builder)
-    _assert_wide_leaf_counts_at_most_width[frame, width](wide)
+    _assert_wide_leaf_ranges_at_most_width[frame, width](wide)
 
 
 def test_bounds_bvh_leaf_invariants() raises:
@@ -533,8 +541,12 @@ def test_sphere_bvh4_single_leaf_layout_and_hit() raises:
     var bvh = SphereBvh[Frame.WORLD, 4](spheres^)
 
     assert_true(len(bvh.tree.nodes) == 1)
-    assert_true(bvh.tree.nodes[0].counts[0] == 4)
-    assert_true(bvh.tree.nodes[0].data[0] == 0)
+    assert_true(bvh.tree.nodes[0].data[0] == encode_leaf_ref(0))
+    assert_true(len(bvh.leaf_blocks) == 1)
+    assert_true(bvh.leaf_blocks[0].prim_indices[0] == 0)
+    assert_true(bvh.leaf_blocks[0].prim_indices[1] == 1)
+    assert_true(bvh.leaf_blocks[0].prim_indices[2] == 2)
+    assert_true(bvh.leaf_blocks[0].prim_indices[3] == 3)
 
     var hit = bvh.trace[TRACE.CLOSEST_HIT](_z_ray(Point3W(0.0, 0.0, 0.0)))
 

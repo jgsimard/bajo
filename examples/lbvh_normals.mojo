@@ -4,7 +4,16 @@ from std.math import max, round, clamp
 from std.sys import has_accelerator
 from std.time import perf_counter_ns
 
-from bajo.core import AABB, Quat, Affine3f32, Vec3f32, cross, normalize
+from bajo.core import (
+    AABB,
+    Quat,
+    Affine3f32,
+    Vec3f32,
+    Point3f32,
+    cross,
+    normalize,
+    Frame,
+)
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.bvh.cpu.tlas import Tlas
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
@@ -28,13 +37,13 @@ comptime HEIGHT = 720
 comptime GRID_X = 6
 comptime GRID_Z = 6
 comptime DEMO_BLAS_COUNT = 3
-comptime BLAS_WIDTH_CPU = 8
-comptime TLAS_WIDTH_CPU = 2
+comptime BLAS_WIDTH_CPU = 16
+comptime TLAS_WIDTH_CPU = 4
 comptime BLAS_WIDTH_GPU = 2
 comptime TLAS_WIDTH_GPU = 2
 
 
-def _max_blas_extent(bounds_list: List[AABB]) -> Float32:
+def _max_blas_extent[frame: Frame](bounds_list: List[AABB[frame]]) -> Float32:
     var out = Float32(0.0)
     for bounds in bounds_list:
         var extent = bounds.extent()
@@ -48,31 +57,37 @@ def _max_blas_extent(bounds_list: List[AABB]) -> Float32:
     return out
 
 
-def _normalized_instance_scale(
-    bounds: AABB,
+def _normalized_instance_scale[
+    frame: Frame
+](
+    bounds: AABB[frame],
     target_extent: Float32,
     variation: Float32,
-) -> Vec3f32:
+) -> Vec3f32[
+    frame
+]:
     var extent = bounds.extent()
     var local_extent = max(max(extent.x, extent.y), extent.z)
     if local_extent < Float32(1.0e-6):
         local_extent = Float32(1.0)
 
     var s = target_extent / local_extent * variation
-    return Vec3f32(s)
+    return Vec3f32[frame](s)
 
 
 def _make_centered_transform(
-    bounds: AABB,
+    bounds: AABB[Frame.LOCAL],
     rotation: Quat,
-    scale: Vec3f32,
-    bottom_center: Vec3f32,
-) -> Affine3f32:
-    var transform = Affine3f32.from_rotation_scale_translation(
-        rotation, scale, Vec3f32(0.0)
+    scale: Vec3f32[Frame.LOCAL],
+    bottom_center: Vec3f32[Frame.WORLD],
+) -> Affine3f32[Frame.LOCAL, Frame.WORLD]:
+    var transform = Affine3f32[
+        Frame.LOCAL, Frame.WORLD
+    ].from_rotation_scale_translation(
+        rotation, scale, Vec3f32[Frame.WORLD](0.0)
     )
     var c = bounds.centroid()
-    var local_anchor = Vec3f32(c.x, bounds._min.y, c.z)
+    var local_anchor = Vec3f32[Frame.LOCAL](c.x, bounds._min.y, c.z)
     var anchor_delta = transform.vector(local_anchor)
     transform.tx = bottom_center.x - anchor_delta.x
     transform.ty = bottom_center.y - anchor_delta.y
@@ -80,7 +95,9 @@ def _make_centered_transform(
     return transform^
 
 
-def _make_instances(bounds_list: List[AABB]) raises -> List[Instance]:
+def _make_instances(
+    bounds_list: List[AABB[Frame.LOCAL]],
+) raises -> List[Instance]:
     var rng = Rng(123, 123)
     comptime TARGET_WORLD_EXTENT = Float32(1.60)
 
@@ -113,13 +130,17 @@ def _make_instances(bounds_list: List[AABB]) raises -> List[Instance]:
                 ) * blas_spacing
 
                 var angle = rng.f32(-1, 1)
-                var rotation = Quat.from_axis_angle(Vec3f32(0, 1, 0), angle)
+                var rotation = Quat.from_axis_angle(
+                    Vec3f32[Frame.LOCAL](0, 1, 0), angle
+                )
                 var variation = Float32(1.0) + Float32(idx % 3) * Float32(0.025)
                 var scale = (
                     _normalized_instance_scale(bounds, target_extent, variation)
                     * 1.5
                 )
-                var bottom_center = Vec3f32(cell_x + local_x, 0.0, cell_z)
+                var bottom_center = Vec3f32[Frame.WORLD](
+                    cell_x + local_x, 0.0, cell_z
+                )
                 var transform = _make_centered_transform(
                     bounds, rotation, scale, bottom_center
                 )
@@ -146,13 +167,13 @@ def _make_camera[width: SIMDLength](tlas: Tlas[width]) -> Camera:
     comptime CAMERA_DISTANCE_SCALE = Float32(0.3)
     comptime CAMERA_HEIGHT_SCALE = Float32(0.02)
 
-    var eye = Vec3f32(
+    var eye = Point3f32[Frame.WORLD](
         center.x,
         center.y + scene_w * CAMERA_HEIGHT_SCALE + extent.y * 0.35,
         center.z - scene_w * CAMERA_DISTANCE_SCALE,
     )
 
-    var target = Vec3f32(
+    var target = Point3f32[Frame.WORLD](
         center.x,
         bounds._min.y + extent.y * 0.35,
         center.z,
@@ -160,7 +181,7 @@ def _make_camera[width: SIMDLength](tlas: Tlas[width]) -> Camera:
     return Camera(
         eye,
         target,
-        Vec3f32(0.0, 1.0, 0.0),
+        Vec3f32[Frame.WORLD](0.0, 1.0, 0.0),
         Float32(0.78),
     )
 
@@ -173,15 +194,13 @@ def _unit_to_u8(x: Float32) -> UInt8:
     return UInt8(clamp(x, 0.0, 1.0) * 255.0)
 
 
-def write_ppm_normals_from_hits[
-    origin: ImmOrigin,
-](
+def write_ppm_normals_from_hits(
     path: String,
     width: Int,
     height: Int,
-    tri_vertex_sets: List[List[Vec3f32]],
+    tri_vertex_sets: List[List[Point3f32[Frame.LOCAL]]],
     instances: List[Instance],
-    hits: Pointer[Float32, origin],
+    hits: Span[mut=False, Float32, _],
 ) raises:
     var pixel_count = width * height
     var byte_count = pixel_count * 3
@@ -197,9 +216,9 @@ def write_ppm_normals_from_hits[
             var prim = hit.prim
             var inst = hit.inst
             if prim == MISS_PRIM or inst == MISS_PRIM:
-                out[i * 3 + 0] = 18
-                out[i * 3 + 1] = 22
-                out[i * 3 + 2] = 30
+                out[unsafe_offset=i * 3 + 0] = 18
+                out[unsafe_offset=i * 3 + 1] = 22
+                out[unsafe_offset=i * 3 + 2] = 30
             else:
                 var blas_idx = Int(instances[Int(inst)].blas_idx)
                 ref tri_vertices = tri_vertex_sets[blas_idx]
@@ -217,9 +236,9 @@ def write_ppm_normals_from_hits[
                 var g = world_n.y[0] * 0.5 + 0.5
                 var b = world_n.z[0] * 0.5 + 0.5
 
-                out[i * 3 + 0] = _unit_to_u8(r)
-                out[i * 3 + 1] = _unit_to_u8(g)
-                out[i * 3 + 2] = _unit_to_u8(b)
+                out[unsafe_offset=i * 3 + 0] = _unit_to_u8(r)
+                out[unsafe_offset=i * 3 + 1] = _unit_to_u8(g)
+                out[unsafe_offset=i * 3 + 2] = _unit_to_u8(b)
 
         fd.write_bytes(_bytes)
 
@@ -232,7 +251,9 @@ def _print_bounds_by_blas(instances: List[Instance]):
         if idx + 1 > blas_count:
             blas_count = idx + 1
 
-    var bounds = List[AABB](length=blas_count, fill=AABB.invalid())
+    var bounds = List[AABB[Frame.WORLD]](
+        length=blas_count, fill=AABB[Frame.WORLD].invalid()
+    )
     var counts = List[Int](length=blas_count, fill=0)
 
     for inst in instances:
@@ -267,8 +288,9 @@ def print_hit_counts_by_blas(
     var pixel_count = width * height
 
     with hits.map_to_host() as hu:
+        var hit_span = Span(unsafe_ptr=hu.unsafe_ptr(), length=len(hu))
         for i in range(pixel_count):
-            var hit = Hit.load(hu.unsafe_ptr(), i)
+            var hit = Hit[Frame.WORLD].load(hit_span, i)
             var inst = hit.inst
 
             if inst != MISS_PRIM:
@@ -289,9 +311,11 @@ def print_hit_counts_by_blas(
 
 def _build_cpu_triangle_blas_set[
     width: SIMDLength
-](tri_vertex_sets: List[List[Vec3f32]]) -> List[TriangleBvh[width]]:
+](tri_vertex_sets: List[List[Point3f32[Frame.LOCAL]]]) -> List[
+    TriangleBvh[Frame.LOCAL, width]
+]:
     return [
-        TriangleBvh[width].__init__["lbvh"](tri_vertices.copy())
+        TriangleBvh[Frame.LOCAL, width].__init__["sah"](tri_vertices.copy())
         for tri_vertices in tri_vertex_sets
     ]
 
@@ -303,7 +327,7 @@ def _trace_cpu_tlas_camera[
     width: Int,
     height: Int,
     tlas: Tlas[tlas_width],
-    mut cpu_blases: List[TriangleBvh[blas_width]],
+    mut cpu_blases: List[TriangleBvh[Frame.LOCAL, blas_width]],
     camera: Camera,
     mut hits: List[Float32],
 ):
@@ -312,13 +336,13 @@ def _trace_cpu_tlas_camera[
             var ray_idx = py * width + px
             var ray = camera.make_ray(px, py, width, height)
             var hit = tlas.trace[
-                TriangleBvh[blas_width],
+                TriangleBvh[Frame.LOCAL, blas_width],
                 TRACE.CLOSEST_HIT,
             ](
                 ray,
-                cpu_blases.unsafe_ptr(),
+                Span(cpu_blases),
             )
-            hit.store(hits.unsafe_ptr(), ray_idx)
+            hit.store(Span(hits), ray_idx)
 
 
 def print_hit_counts_by_blas_host(
@@ -338,9 +362,10 @@ def print_hit_counts_by_blas_host(
     var hit_counts = List[Int](length=blas_count, fill=0)
     var total_hits = 0
     var pixel_count = width * height
+    var hit_span = Span(hits)
 
     for i in range(pixel_count):
-        var hit = Hit.load(hits.unsafe_ptr(), i)
+        var hit = Hit[Frame.WORLD].load(hit_span, i)
         var inst = hit.inst
 
         if inst != MISS_PRIM:
@@ -360,7 +385,7 @@ def print_hit_counts_by_blas_host(
 
 
 def render_cpu(
-    tri_vertex_sets: List[List[Vec3f32]],
+    tri_vertex_sets: List[List[Point3f32[Frame.LOCAL]]],
     instances: List[Instance],
     cpu_tlas: Tlas[TLAS_WIDTH_CPU],
     camera: Camera,
@@ -412,14 +437,14 @@ def render_cpu(
         HEIGHT,
         tri_vertex_sets,
         instances,
-        hits.unsafe_ptr(),
+        Span(hits),
     )
     var write_t1 = perf_counter_ns()
     print(t"CPU write: {round(ns_to_ms(Int(write_t1 - write_t0)), 3)} ms")
 
 
 def render_gpu(
-    tri_vertex_sets: List[List[Vec3f32]],
+    tri_vertex_sets: List[List[Point3f32[Frame.LOCAL]]],
     instances: List[Instance],
     camera_params: List[Float32],
 ) raises:
@@ -500,13 +525,14 @@ def render_gpu(
         print("\nWriting GPU normal PPM...")
         var write_t0 = perf_counter_ns()
         with d_hits.map_to_host() as h:
+            var hit_span = Span(unsafe_ptr=h.unsafe_ptr(), length=len(h))
             write_ppm_normals_from_hits(
                 GPU_OUTPUT_PATH,
                 WIDTH,
                 HEIGHT,
                 tri_vertex_sets,
                 instances,
-                h.unsafe_ptr(),
+                hit_span,
             )
         ctx.synchronize()
         var write_t1 = perf_counter_ns()
@@ -538,12 +564,12 @@ def main() raises:
     var tri_vertices_2 = pack_obj_triangles(OBJ_PATH_2)
     var load_t1 = perf_counter_ns()
 
-    var tri_vertex_sets = List[List[Vec3f32]](capacity=3)
+    var tri_vertex_sets = List[List[Point3f32[Frame.LOCAL]]](capacity=3)
     tri_vertex_sets.append(tri_vertices_0.copy())
     tri_vertex_sets.append(tri_vertices_1.copy())
     tri_vertex_sets.append(tri_vertices_2.copy())
 
-    var blas_bounds = List[AABB](capacity=3)
+    var blas_bounds = List[AABB[Frame.LOCAL]](capacity=3)
     blas_bounds.append(compute_bounds(tri_vertices_0))
     blas_bounds.append(compute_bounds(tri_vertices_1))
     blas_bounds.append(compute_bounds(tri_vertices_2))
@@ -601,13 +627,14 @@ def main() raises:
     print(t"Wrote {CPU_OUTPUT_PATH}")
 
     print("\n=== GPU render ===")
-    comptime if not has_accelerator():
-        raise "No accelerator available; skipped GPU render."
-    render_gpu(
-        tri_vertex_sets,
-        instances,
-        camera_params,
-    )
-    print(t"Wrote {GPU_OUTPUT_PATH}")
+    comptime if has_accelerator():
+        render_gpu(
+            tri_vertex_sets,
+            instances,
+            camera_params,
+        )
+        print(t"Wrote {GPU_OUTPUT_PATH}")
+    else:
+        print("SKIP: no accelerator available")
 
     print("\nDone.")

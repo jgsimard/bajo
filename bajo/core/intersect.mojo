@@ -198,6 +198,56 @@ def intersect_ray_aabb_rcp[
     return RayDistanceHit(mask, tmin)
 
 
+@always_inline
+def intersect_ray_aabb_octant_fma[
+    dtype: DType,
+    frame: Frame,
+    width: SIMDLength,
+    positive_x: Bool,
+    positive_y: Bool,
+    positive_z: Bool,
+](
+    origin_rcp_d: Vec3[dtype, frame, width],
+    rcp_d: Vec3[dtype, frame, width],
+    aabb: AxisAlignedBoundingBox[dtype, frame, width],
+    t_max: SIMD[dtype, width],
+) -> RayDistanceHit[dtype, width]:
+    """Intersect using ray-octant-selected bounds and fused multiply-subtract.
+    """
+    comptime assert dtype in [DType.float32, DType.float64]
+
+    var tx_near: SIMD[dtype, width]
+    var tx_far: SIMD[dtype, width]
+    comptime if positive_x:
+        tx_near = fma(aabb._min.x, rcp_d.x, -origin_rcp_d.x)
+        tx_far = fma(aabb._max.x, rcp_d.x, -origin_rcp_d.x)
+    else:
+        tx_near = fma(aabb._max.x, rcp_d.x, -origin_rcp_d.x)
+        tx_far = fma(aabb._min.x, rcp_d.x, -origin_rcp_d.x)
+
+    var ty_near: SIMD[dtype, width]
+    var ty_far: SIMD[dtype, width]
+    comptime if positive_y:
+        ty_near = fma(aabb._min.y, rcp_d.y, -origin_rcp_d.y)
+        ty_far = fma(aabb._max.y, rcp_d.y, -origin_rcp_d.y)
+    else:
+        ty_near = fma(aabb._max.y, rcp_d.y, -origin_rcp_d.y)
+        ty_far = fma(aabb._min.y, rcp_d.y, -origin_rcp_d.y)
+
+    var tz_near: SIMD[dtype, width]
+    var tz_far: SIMD[dtype, width]
+    comptime if positive_z:
+        tz_near = fma(aabb._min.z, rcp_d.z, -origin_rcp_d.z)
+        tz_far = fma(aabb._max.z, rcp_d.z, -origin_rcp_d.z)
+    else:
+        tz_near = fma(aabb._max.z, rcp_d.z, -origin_rcp_d.z)
+        tz_far = fma(aabb._min.z, rcp_d.z, -origin_rcp_d.z)
+
+    var tmin = fmax(fmax(tx_near, ty_near), fmax(tz_near, 0.0))
+    var tmax = fmin(fmin(tx_far, ty_far), fmin(tz_far, t_max))
+    return RayDistanceHit(tmin.le(tmax), tmin)
+
+
 def intersect_ray_aabb[
     dtype: DType, frame: Frame, width: SIMDLength
 ](

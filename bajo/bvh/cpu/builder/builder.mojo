@@ -1,3 +1,7 @@
+from max.algorithm import parallelize
+from std.atomic import Atomic, Ordering
+from std.sys import num_performance_cores
+
 from bajo.core import AABB, vmin, vmax, longest_axis, Frame
 from bajo.sort.cpu import nth_element
 
@@ -8,6 +12,10 @@ from .sah import (
     _partition_items_by_bin,
 )
 from .lbvh import _build_lbvh
+
+
+comptime PARALLEL_SAH_MIN_ITEMS = UInt32(4096)
+comptime PARALLEL_SAH_FRONTIER_DEPTH = 3
 
 
 struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
@@ -93,39 +101,143 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
                 var centroid_bounds = (
                     self.update_node_bounds_and_centroid_bounds(0)
                 )
-                self._subdivide[split_method](0, centroid_bounds)
+                if self.item_count >= PARALLEL_SAH_MIN_ITEMS:
+                    self._build_parallel_sah(centroid_bounds)
+                else:
+                    self._subdivide[split_method](0, centroid_bounds)
             else:
                 self.update_node_bounds(0)
                 self._subdivide[split_method](0, AABB[Self.frame].invalid())
 
-    def _subdivide[
-        split_method: String
-    ](mut self, node_idx: UInt32, centroid_bounds: AABB[Self.frame],):
-        comptime assert split_method in ["median", "sah"]
+    def _build_parallel_sah(mut self, root_centroid_bounds: AABB[Self.frame]):
+        # Parallel workers write disjoint item ranges and uniquely allocated
+        # node pairs. Extending the node list without initialization keeps the
+        # old no-worst-case-initialization property while making its storage
+        # stable for concurrent indexed writes.
+        var max_nodes = Int(self.item_count * 2 - 1)
+        self.nodes.resize(unsafe_uninit_length=max_nodes)
 
+        var frontier_nodes = List[UInt32](capacity=8)
+        var frontier_centroid_bounds = List[AABB[Self.frame]](capacity=8)
+        self._collect_sah_frontier(
+            0,
+            root_centroid_bounds,
+            PARALLEL_SAH_FRONTIER_DEPTH,
+            frontier_nodes,
+            frontier_centroid_bounds,
+        )
+
+        var next_node = [self.nodes_used]
+
+        def worker(task_idx: Int) capturing:
+            self._subdivide_parallel_sah(
+                frontier_nodes[task_idx],
+                frontier_centroid_bounds[task_idx],
+                next_node.unsafe_ptr(),
+            )
+
+        var task_count = len(frontier_nodes)
+        if task_count > 0:
+            var thread_count = num_performance_cores()
+            if thread_count < 1:
+                thread_count = 1
+            if thread_count > task_count:
+                thread_count = task_count
+            parallelize[worker](task_count, thread_count)
+
+        self.nodes_used = next_node[0]
+        self.nodes.shrink(Int(self.nodes_used))
+
+    def _collect_sah_frontier(
+        mut self,
+        node_idx: UInt32,
+        centroid_bounds: AABB[Self.frame],
+        depth: Int,
+        mut frontier_nodes: List[UInt32],
+        mut frontier_centroid_bounds: List[AABB[Self.frame]],
+    ):
         var source_node = self.nodes[Int(node_idx)]
         if source_node.item_count <= UInt32(Self.leaf_size):
             return
 
+        if depth == 0:
+            frontier_nodes.append(node_idx)
+            frontier_centroid_bounds.append(centroid_bounds)
+            return
+
+        var left_child_idx = self.allocate_children()
+        var child_centroid_bounds = self._split_node["sah"](
+            node_idx, centroid_bounds, left_child_idx
+        )
+        self._collect_sah_frontier(
+            left_child_idx,
+            child_centroid_bounds[0],
+            depth - 1,
+            frontier_nodes,
+            frontier_centroid_bounds,
+        )
+        self._collect_sah_frontier(
+            left_child_idx + 1,
+            child_centroid_bounds[1],
+            depth - 1,
+            frontier_nodes,
+            frontier_centroid_bounds,
+        )
+
+    def _subdivide_parallel_sah[
+        next_node_origin: MutOrigin
+    ](
+        mut self,
+        node_idx: UInt32,
+        centroid_bounds: AABB[Self.frame],
+        next_node: Pointer[UInt32, next_node_origin],
+    ):
+        var source_node = self.nodes[Int(node_idx)]
+        if source_node.item_count <= UInt32(Self.leaf_size):
+            return
+
+        var left_child_idx = Atomic.fetch_add[ordering=Ordering.RELAXED](
+            next_node, UInt32(2)
+        )
+        var child_centroid_bounds = self._split_node["sah"](
+            node_idx, centroid_bounds, left_child_idx
+        )
+        self._subdivide_parallel_sah(
+            left_child_idx,
+            child_centroid_bounds[0],
+            next_node,
+        )
+        self._subdivide_parallel_sah(
+            left_child_idx + 1,
+            child_centroid_bounds[1],
+            next_node,
+        )
+
+    @always_inline
+    def _split_node[
+        split_method: String
+    ](
+        mut self,
+        node_idx: UInt32,
+        centroid_bounds: AABB[Self.frame],
+        left_child_idx: UInt32,
+    ) -> Tuple[AABB[Self.frame], AABB[Self.frame]]:
+        comptime assert split_method in ["median", "sah"]
+        var source_node = self.nodes[Int(node_idx)]
         var first = Int(source_node.first_item())
         var first_item = source_node.first_item()
         var item_count = source_node.item_count
-
         var partition = self._partition_node[split_method](
             source_node, centroid_bounds
         )
-
         var left_count = UInt32(partition.split_idx - first)
 
         if left_count == 0 or left_count == item_count:
             partition = self._partition_node_by_median(source_node)
             left_count = UInt32(partition.split_idx - first)
 
-        var left_child_idx = self.allocate_children()
-
         ref left_child = self.nodes[Int(left_child_idx)]
         ref right_child = self.nodes[Int(left_child_idx + 1)]
-
         left_child.set_leaf(first_item, left_count)
         right_child.set_leaf(
             UInt32(partition.split_idx), item_count - left_count
@@ -136,11 +248,28 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
         ref node = self.nodes[Int(node_idx)]
         node.set_internal(left_child_idx)
 
-        self._subdivide[split_method](
-            left_child_idx, partition.left_centroid_bounds
+        return (
+            partition.left_centroid_bounds,
+            partition.right_centroid_bounds,
         )
+
+    def _subdivide[
+        split_method: String
+    ](mut self, node_idx: UInt32, centroid_bounds: AABB[Self.frame],):
+        comptime assert split_method in ["median", "sah"]
+
+        var source_node = self.nodes[Int(node_idx)]
+        if source_node.item_count <= UInt32(Self.leaf_size):
+            return
+
+        var left_child_idx = self.allocate_children()
+        var child_centroid_bounds = self._split_node[split_method](
+            node_idx, centroid_bounds, left_child_idx
+        )
+
+        self._subdivide[split_method](left_child_idx, child_centroid_bounds[0])
         self._subdivide[split_method](
-            left_child_idx + 1, partition.right_centroid_bounds
+            left_child_idx + 1, child_centroid_bounds[1]
         )
 
     def _partition_node[

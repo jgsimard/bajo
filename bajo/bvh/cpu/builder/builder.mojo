@@ -118,20 +118,7 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
         var left_count = UInt32(partition.split_idx - first)
 
         if left_count == 0 or left_count == item_count:
-            var split_idx = _partition_items_by_median_center(
-                Span(self.item_indices),
-                Span(self.items),
-                first,
-                Int(item_count),
-                longest_axis(source_node.aabb.extent()),
-            )
-            partition = _calculate_partition_bounds(
-                Span(self.item_indices),
-                Span(self.items),
-                first,
-                Int(item_count),
-                split_idx,
-            )
+            partition = self._partition_node_by_median(source_node)
             left_count = UInt32(partition.split_idx - first)
 
         var left_child_idx = self.allocate_children()
@@ -168,22 +155,7 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
         var count = Int(node.item_count)
 
         comptime if split_method == "median":
-            var extent = node.aabb._max - node.aabb._min
-            var axis = longest_axis(extent)
-            var split_idx = _partition_items_by_median_center(
-                Span(self.item_indices),
-                Span(self.items),
-                first,
-                count,
-                axis,
-            )
-            return _calculate_partition_bounds(
-                Span(self.item_indices),
-                Span(self.items),
-                first,
-                count,
-                split_idx,
-            )
+            return self._partition_node_by_median(node)
 
         else:
             comptime BVH_BINS = 16
@@ -206,22 +178,29 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
                     split.bin_scale,
                 )
 
-            var extent = node.aabb._max - node.aabb._min
-            var axis = longest_axis(extent)
-            var split_idx = _partition_items_by_median_center(
-                Span(self.item_indices),
-                Span(self.items),
-                first,
-                count,
-                axis,
-            )
-            return _calculate_partition_bounds(
-                Span(self.item_indices),
-                Span(self.items),
-                first,
-                count,
-                split_idx,
-            )
+            return self._partition_node_by_median(node)
+
+    @always_inline
+    def _partition_node_by_median(
+        mut self, node: BoundsBvhNode[Self.frame]
+    ) -> BoundsPartitionResult[Self.frame]:
+        var first = Int(node.first_item())
+        var count = Int(node.item_count)
+        var axis = longest_axis(node.aabb.extent())
+        var split_idx = _partition_items_by_median_center(
+            Span(self.item_indices),
+            Span(self.items),
+            first,
+            count,
+            axis,
+        )
+        return _calculate_partition_bounds(
+            Span(self.item_indices),
+            Span(self.items),
+            first,
+            count,
+            split_idx,
+        )
 
     def tree_quality(self) -> Float32:
         debug_assert["safe", _use_compiler_assume=True](self.nodes_used > 0)

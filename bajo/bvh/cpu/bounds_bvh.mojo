@@ -59,6 +59,27 @@ struct WideBvhNode[frame: Frame, width: SIMDLength](Copyable):
         self.data = SIMD[DType.uint32, Self.width](EMPTY_LANE)
 
 
+@always_inline
+def _checked_typed_leaf_range[
+    leaf_width: SIMDLength
+](first_item: UInt32, item_count: UInt32, item_index_count: Int) -> Tuple[
+    Int, Int
+]:
+    """Validate and convert a builder leaf range for typed payload packing."""
+    var first = Int(first_item)
+    var count = Int(item_count)
+
+    debug_assert["safe", _use_compiler_assume=True](
+        count <= Int(leaf_width),
+        "typed BVH leaf exceeds SIMD width",
+    )
+    debug_assert["safe", _use_compiler_assume=True](
+        first <= item_index_count and count <= item_index_count - first,
+        "typed BVH leaf range is outside item indices",
+    )
+    return (first, count)
+
+
 struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
     """Generic compact wide/lane BVH.
 
@@ -74,16 +95,30 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
 
     def __init__(out self, bvh: BoundsBvhBuilder):
         self.nodes = List[WideBvhNode[Self.frame, Self.width]]()
-        self.leaf_ranges = List[WideLeafRange]()
         self.item_indices = bvh.item_indices.copy()
         self.item_payloads = [item.payload for item in bvh.items]
+        var leaf_ranges = List[WideLeafRange]()
+
+        @always_inline
+        def pack_leaf_range(
+            first_item: UInt32, item_count: UInt32
+        ) capturing -> UInt32:
+            var leaf_range_idx = UInt32(len(leaf_ranges))
+            leaf_ranges.append(WideLeafRange(first_item, item_count))
+            return leaf_range_idx
+
+        self.leaf_ranges = List[WideLeafRange]()
 
         if bvh.nodes_used > 0:
-            _ = self._collapse(bvh, 0)
+            _ = self._collapse[
+                pack_leaf_range, pack_leaves_before_children=False
+            ](bvh, 0)
+
+        self.leaf_ranges = leaf_ranges^
 
     def __init__[
         pack_leaf_fn: def(UInt32, UInt32) capturing -> UInt32
-    ](out self, bvh: BoundsBvhBuilder,):
+    ](out self, bvh: BoundsBvhBuilder):
         """Collapse a binary BVH while packing its typed leaf payloads.
 
         Unlike the generic constructor, this path does not materialize
@@ -97,17 +132,22 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
         self.item_payloads = List[UInt32]()
 
         if bvh.nodes_used > 0:
-            _ = self._collapse_packed[pack_leaf_fn](bvh, 0)
+            _ = self._collapse[pack_leaf_fn, pack_leaves_before_children=True](
+                bvh, 0
+            )
 
-    def _collapse(mut self, bvh: BoundsBvhBuilder, bin_idx: UInt32) -> UInt32:
+    def _collapse[
+        pack_leaf_fn: def(UInt32, UInt32) capturing -> UInt32,
+        pack_leaves_before_children: Bool,
+    ](mut self, bvh: BoundsBvhBuilder, bin_idx: UInt32) -> UInt32:
         var wide_idx = len(self.nodes)
         self.nodes.append(WideBvhNode[Self.frame, Self.width]())
 
         var pool = Array[UInt32, Self.width](fill=bin_idx)
         var p_size = 1
 
-        # Pull up the largest internal nodes until we fill the wide node or run
-        # out of internal nodes.
+        # Pull up the largest internal nodes until the wide node is full or no
+        # internal node remains.
         while p_size < Self.width:
             var best_a: Float32 = -1.0
             var best_i: Int = -1
@@ -144,81 +184,43 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
                 node.aabb._max.y[i] = n.aabb._max.y
                 node.aabb._max.z[i] = n.aabb._max.z
 
-                if n.is_leaf():
-                    var leaf_range_idx = UInt32(len(self.leaf_ranges))
-                    self.leaf_ranges.append(
-                        WideLeafRange(n.first_item(), n.item_count)
-                    )
-                    node.data[i] = encode_leaf_ref(leaf_range_idx)
-                else:
-                    node.data[i] = encode_internal_ref(
-                        self._collapse(bvh, pool[i])
-                    )
+        comptime if pack_leaves_before_children:
+            # Typed construction packs every leaf in this node before
+            # descending, preserving node-order typed-block indices.
+            comptime for i in range(Self.width):
+                if i < p_size:
+                    ref n = bvh.nodes[Int(pool[i])]
+                    if n.is_leaf():
+                        node.data[i] = encode_leaf_ref(
+                            pack_leaf_fn(n.first_item(), n.item_count)
+                        )
 
-        self.nodes[wide_idx] = node^
-        return UInt32(wide_idx)
-
-    def _collapse_packed[
-        pack_leaf_fn: def(UInt32, UInt32) capturing -> UInt32
-    ](mut self, bvh: BoundsBvhBuilder, bin_idx: UInt32,) -> UInt32:
-        var wide_idx = len(self.nodes)
-        self.nodes.append(WideBvhNode[Self.frame, Self.width]())
-
-        var pool = Array[UInt32, Self.width](fill=bin_idx)
-        var p_size = 1
-
-        while p_size < Self.width:
-            var best_a: Float32 = -1.0
-            var best_i: Int = -1
-
-            for i in range(p_size):
-                ref candidate = bvh.nodes[Int(pool[i])]
-
-                if not candidate.is_leaf():
-                    var a = candidate.surface_area()
-
-                    if a > best_a:
-                        best_a = a
-                        best_i = i
-
-            if best_i == -1:
-                break
-
-            ref n = bvh.nodes[Int(pool[best_i])]
-            pool[best_i] = n.left_child()
-            pool[p_size] = n.right_child()
-            p_size += 1
-
-        var node = WideBvhNode[Self.frame, Self.width]()
-
-        comptime for i in range(Self.width):
-            if i < p_size:
-                ref n = bvh.nodes[Int(pool[i])]
-
-                node.aabb._min.x[i] = n.aabb._min.x
-                node.aabb._min.y[i] = n.aabb._min.y
-                node.aabb._min.z[i] = n.aabb._min.z
-
-                node.aabb._max.x[i] = n.aabb._max.x
-                node.aabb._max.y[i] = n.aabb._max.y
-                node.aabb._max.z[i] = n.aabb._max.z
-
-                if n.is_leaf():
-                    node.data[i] = encode_leaf_ref(
-                        pack_leaf_fn(n.first_item(), n.item_count)
-                    )
-
-        # Finish every leaf in this node before descending. This preserves
-        # the same packed-block order as a node-order packing pass while still
-        # emitting each block during collapse.
-        comptime for i in range(Self.width):
-            if i < p_size:
-                ref n = bvh.nodes[Int(pool[i])]
-
-                if not n.is_leaf():
-                    node.data[i] = encode_internal_ref(
-                        self._collapse_packed[pack_leaf_fn](bvh, pool[i])
-                    )
+            comptime for i in range(Self.width):
+                if i < p_size:
+                    ref n = bvh.nodes[Int(pool[i])]
+                    if not n.is_leaf():
+                        node.data[i] = encode_internal_ref(
+                            self._collapse[
+                                pack_leaf_fn,
+                                pack_leaves_before_children=True,
+                            ](bvh, pool[i])
+                        )
+        else:
+            # Generic construction retains its depth-first leaf-range order.
+            comptime for i in range(Self.width):
+                if i < p_size:
+                    ref n = bvh.nodes[Int(pool[i])]
+                    if n.is_leaf():
+                        node.data[i] = encode_leaf_ref(
+                            pack_leaf_fn(n.first_item(), n.item_count)
+                        )
+                    else:
+                        node.data[i] = encode_internal_ref(
+                            self._collapse[
+                                pack_leaf_fn,
+                                pack_leaves_before_children=False,
+                            ](bvh, pool[i])
+                        )
 
         self.nodes[wide_idx] = node^
         return UInt32(wide_idx)

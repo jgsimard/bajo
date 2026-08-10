@@ -15,8 +15,9 @@ from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvh,
     BoundsItem,
     BoundsBvhBuilder,
+    _checked_typed_leaf_range,
 )
-from bajo.bvh.cpu.trace import trace_bounds_bvh
+from bajo.bvh.cpu.trace import trace_sphere_bounds_bvh
 from bajo.bvh.types import Hit, Sphere, SphereLeafBlock, TypedBvh
 
 
@@ -55,17 +56,8 @@ struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
         def pack_leaf(
             first_item: UInt32, item_count: UInt32
         ) capturing -> UInt32:
-            var first = Int(first_item)
-            var count = Int(item_count)
-
-            debug_assert["safe", _use_compiler_assume=True](
-                count <= Int(Self.width),
-                "sphere BVH leaf exceeds SIMD width",
-            )
-            debug_assert["safe", _use_compiler_assume=True](
-                first <= len(builder.item_indices)
-                and count <= len(builder.item_indices) - first,
-                "sphere BVH leaf range is outside item indices",
+            var first, count = _checked_typed_leaf_range[Self.width](
+                first_item, item_count, len(builder.item_indices)
             )
 
             var block = SphereLeafBlock[Self.frame, Self.width]()
@@ -147,13 +139,12 @@ struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
 
             return True
 
-        return trace_bounds_bvh[
-            Self.frame,
-            Self.width,
-            Self.width,
-            mode,
-            leaf_fn,
-            True,
+        return trace_sphere_bounds_bvh[
+            frame=Self.frame,
+            bounds_width=Self.width,
+            leaf_width=Self.width,
+            mode=mode,
+            leaf_fn=leaf_fn,
         ](
             self.tree,
             ray,

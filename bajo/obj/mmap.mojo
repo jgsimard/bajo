@@ -51,5 +51,4 @@ struct MMap[mut: Bool, //, origin: Origin[mut=mut]]:
         comptime T = StringSpan[Self.origin]
         if self._size == 0:
             return T()
-        var span = Span(unsafe_ptr=self._data.unsafe_value(), length=self._size)
-        return T(unsafe_from_utf8=span)
+        return T(unsafe_from_utf8=self.as_bytes_span())

@@ -5,6 +5,7 @@ from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvh,
     BoundsBvhBuilder,
     BoundsItem,
+    _checked_typed_leaf_range,
 )
 from bajo.bvh.cpu.trace import trace_bounds_bvh
 
@@ -26,17 +27,8 @@ def _tree[
 
     @always_inline
     def pack_leaf(first_item: UInt32, item_count: UInt32) capturing -> UInt32:
-        var first = Int(first_item)
-        var count = Int(item_count)
-
-        debug_assert["safe", _use_compiler_assume=True](
-            count <= Int(width),
-            "TLAS leaf exceeds SIMD width",
-        )
-        debug_assert["safe", _use_compiler_assume=True](
-            first <= len(builder.item_indices)
-            and count <= len(builder.item_indices) - first,
-            "TLAS leaf range is outside item indices",
+        var first, count = _checked_typed_leaf_range[width](
+            first_item, item_count, len(builder.item_indices)
         )
 
         var inst_indices = SIMD[DType.uint32, width](EMPTY_LANE)
@@ -161,11 +153,11 @@ struct Tlas[width: SIMDLength](Copyable):
             return any_hit
 
         return trace_bounds_bvh[
-            Frame.WORLD,
-            Self.width,
-            Self.width,
-            mode,
-            leaf_fn,
+            frame=Frame.WORLD,
+            bounds_width=Self.width,
+            leaf_width=Self.width,
+            mode=mode,
+            leaf_fn=leaf_fn,
         ](
             self.tree,
             ray,

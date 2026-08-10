@@ -1,5 +1,6 @@
 from std.io.file_descriptor import FileDescriptor
 from max.gpu.host import DeviceBuffer, DeviceContext
+from max.algorithm import parallelize
 from std.math import max, round, clamp
 from std.sys import has_accelerator
 from std.time import perf_counter_ns
@@ -331,7 +332,7 @@ def _trace_cpu_tlas_camera[
     camera: Camera,
     mut hits: List[Float32],
 ):
-    for py in range(height):
+    def worker(py: Int) capturing:
         for px in range(width):
             var ray_idx = py * width + px
             var ray = camera.make_ray(px, py, width, height)
@@ -343,6 +344,8 @@ def _trace_cpu_tlas_camera[
                 Span(cpu_blases),
             )
             hit.store(Span(hits), ray_idx)
+
+    parallelize[worker](height, height)
 
 
 def print_hit_counts_by_blas_host(

@@ -219,12 +219,17 @@ def _assert_builder_leaf_sizes_at_most(
 def _assert_wide_leaf_ranges_at_most_width[
     frame: Frame, width: SIMDLength
 ](wide: BoundsBvh[frame, width]) raises:
-    for ref node in wide.nodes:
+    assert_true(len(wide.child_masks) == len(wide.nodes))
+    for node_idx in range(len(wide.nodes)):
+        ref node = wide.nodes[node_idx]
+        var expected_child_mask = UInt32(0)
         for lane in range(width):
             var child_ref = node.data[lane]
 
             if child_ref == EMPTY_LANE:
                 continue
+
+            expected_child_mask |= UInt32(1) << UInt32(lane)
 
             if is_leaf_ref(child_ref):
                 var leaf_range_idx = decode_ref_index(child_ref)
@@ -239,6 +244,8 @@ def _assert_wide_leaf_ranges_at_most_width[
                 )
             else:
                 assert_true(child_ref < UInt32(len(wide.nodes)))
+
+        assert_true(wide.child_masks[node_idx] == expected_child_mask)
 
 
 def _assert_triangle_bvh_matches_bruteforce[
@@ -341,6 +348,21 @@ def test_bounds_bvh_leaf_invariants() raises:
     comptime for w in [2, 4, 8]:
         comptime for mode in ["median", "sah", "lbvh"]:
             _test_bounds_bvh_leaf_invariant[Frame.WORLD, w, mode]()
+
+
+def test_parallel_sah_builder_leaf_invariants() raises:
+    # Cross the parallel-build threshold and validate both the compacted
+    # binary storage and the final wide leaf ranges.
+    var verts = _make_random_xy_triangles[Frame.WORLD](5000, UInt64(909090))
+    var items = _make_bounds_items(verts)
+    var builder = BoundsBvhBuilder[Frame.WORLD, 16](items^)
+    builder.build["sah"]()
+
+    assert_true(Int(builder.nodes_used) == len(builder.nodes))
+    _assert_builder_leaf_sizes_at_most(builder, UInt32(16))
+
+    var wide = BoundsBvh[Frame.WORLD, 16](builder)
+    _assert_wide_leaf_ranges_at_most_width[Frame.WORLD, 16](wide)
 
 
 def test_wide_bounds_root_bounds_is_valid() raises:

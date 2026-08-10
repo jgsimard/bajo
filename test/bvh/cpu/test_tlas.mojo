@@ -206,6 +206,38 @@ def test_tlas_triangle_two_instance_cases() raises:
     )
 
 
+def _test_tlas_triangle_decoupled_leaf_width[leaf_width: SIMDLength]() raises:
+    var verts = _make_one_local_triangle_z2[Frame.LOCAL]()
+    var blas = TriangleBvh[Frame.LOCAL, 4](verts)
+    var blases = [blas.copy()]
+    var instances: List = [
+        _triangle_instance[4](0, -5.0, 0.0, 0.0, blas),
+        _triangle_instance[4](0, 5.0, 0.0, 0.0, blas),
+        _triangle_instance[4](0, 10.0, 0.0, 0.0, blas),
+    ]
+    var tlas = Tlas[4, leaf_width](instances)
+    var ray = Rayf32[Frame.WORLD](Point3W(5.0, 0.0, 0.0), Vec3W(0.0, 0.0, 1.0))
+
+    _assert_hit(
+        tlas.trace[TriangleBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT](
+            ray, Span(blases)
+        ),
+        1,
+        0,
+        2.0,
+    )
+    assert_true(
+        tlas.trace[TriangleBvh[Frame.LOCAL, 4], TRACE.ANY_HIT](
+            ray, Span(blases)
+        ).is_occluded()
+    )
+
+
+def test_tlas_triangle_decoupled_leaf_widths() raises:
+    comptime for leaf_width in [1, 2]:
+        _test_tlas_triangle_decoupled_leaf_width[leaf_width]()
+
+
 def test_tlas_triangle_shadow_cases() raises:
     var verts = _make_one_local_triangle_z2[Frame.LOCAL]()
 

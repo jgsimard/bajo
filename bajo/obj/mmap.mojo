@@ -48,7 +48,4 @@ struct MMap[mut: Bool, //, origin: Origin[mut=mut]]:
         )
 
     def as_string_span(ref self) -> StringSpan[Self.origin]:
-        comptime T = StringSpan[Self.origin]
-        if self._size == 0:
-            return T()
-        return T(unsafe_from_utf8=self.as_bytes_span())
+        return StringSpan(unsafe_from_utf8=self.as_bytes_span())

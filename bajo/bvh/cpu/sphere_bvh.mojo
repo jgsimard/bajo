@@ -15,9 +15,6 @@ from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvh,
     BoundsItem,
     BoundsBvhBuilder,
-    decode_ref_index,
-    encode_leaf_ref,
-    is_leaf_ref,
 )
 from bajo.bvh.cpu.trace import trace_bounds_bvh
 from bajo.bvh.types import Hit, Sphere, SphereLeafBlock, TypedBvh
@@ -28,11 +25,8 @@ struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
 
     """Sphere-specific wrapper around BoundsBvh[width].
 
-    The generic tree is built from BoundsItem ranges. During BoundsBvh
-    construction, a tagged leaf reference points into tree.leaf_ranges.
-
-    After construction, each leaf range is packed into a SphereLeafBlock and
-    the tagged leaf payload is rewritten to the SphereLeafBlock index.
+    Binary-to-wide collapse packs each SphereLeafBlock in the same pass, so a
+    tagged leaf reference points directly at its typed block.
     """
 
     var tree: BoundsBvh[Self.frame, Self.width]
@@ -43,86 +37,63 @@ struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
     def __init__[
         split_method: String = "median"
     ](out self, var spheres: List[Sphere[Self.frame]]):
-        self.spheres = spheres^
-        self.sphere_count = len(self.spheres)
+        self.sphere_count = len(spheres)
         self.leaf_blocks = []
 
         var items = [
-            BoundsItem(s.bounds(), UInt32(i))
-            for i, s in enumerate(self.spheres)
+            BoundsItem(s.bounds(), UInt32(i)) for i, s in enumerate(spheres)
         ]
 
         var builder = BoundsBvhBuilder[Self.frame, Self.width](items^)
         builder.build[split_method]()
 
-        self.tree = BoundsBvh[Self.frame, Self.width](builder)
+        var leaf_blocks = List[SphereLeafBlock[Self.frame, Self.width]](
+            capacity=(Int(builder.nodes_used) + 1) // 2
+        )
 
-        self._pack_leaves()
+        @always_inline
+        def pack_leaf(
+            first_item: UInt32, item_count: UInt32
+        ) capturing -> UInt32:
+            var first = Int(first_item)
+            var count = Int(item_count)
+
+            debug_assert["safe", _use_compiler_assume=True](
+                count <= Int(Self.width),
+                "sphere BVH leaf exceeds SIMD width",
+            )
+            debug_assert["safe", _use_compiler_assume=True](
+                first <= len(builder.item_indices)
+                and count <= len(builder.item_indices) - first,
+                "sphere BVH leaf range is outside item indices",
+            )
+
+            var block = SphereLeafBlock[Self.frame, Self.width]()
+
+            for k in range(count):
+                var item_ref = Int(builder.item_indices.unsafe_get(first + k))
+                # Typed items are created in primitive order.
+                var sphere_idx = UInt32(item_ref)
+                ref sphere = spheres.unsafe_get(Int(sphere_idx))
+
+                block.center.x[k] = sphere.center.x
+                block.center.y[k] = sphere.center.y
+                block.center.z[k] = sphere.center.z
+                block.radius[k] = sphere.radius
+                block.prim_indices[k] = sphere_idx
+
+            var block_idx = UInt32(len(leaf_blocks))
+            leaf_blocks.append(block^)
+            return block_idx
+
+        self.tree = BoundsBvh[Self.frame, Self.width].__init__[pack_leaf](
+            builder
+        )
+        self.leaf_blocks = leaf_blocks^
+        self.spheres = spheres^
 
     def bounds(self) -> AABB[Self.frame]:
         return self.tree.root_bounds()
-
-    def _pack_leaves(mut self):
-        self.leaf_blocks = List[SphereLeafBlock[Self.frame, Self.width]](
-            capacity=(self.sphere_count + Int(Self.width) - 1)
-            // Int(Self.width)
-        )
-        debug_assert["safe", _use_compiler_assume=True](
-            len(self.tree.item_indices) == len(self.tree.item_payloads),
-            "sphere BVH item arrays have inconsistent lengths",
-        )
-        debug_assert["safe", _use_compiler_assume=True](
-            len(self.spheres) == self.sphere_count,
-            "sphere count changed while packing leaves",
-        )
-
-        for ref node in self.tree.nodes:
-            comptime for lane in range(Self.width):
-                var child_ref = node.data[lane]
-
-                if child_ref != EMPTY_LANE and is_leaf_ref(child_ref):
-                    var leaf_range_idx = decode_ref_index(child_ref)
-                    ref leaf_range = self.tree.leaf_ranges.unsafe_get(
-                        Int(leaf_range_idx)
-                    )
-
-                    var first = Int(leaf_range.first_item)
-                    var count = Int(leaf_range.item_count)
-
-                    debug_assert["safe", _use_compiler_assume=True](
-                        count <= Int(Self.width),
-                        "sphere BVH leaf exceeds SIMD width",
-                    )
-                    debug_assert["safe", _use_compiler_assume=True](
-                        first <= len(self.tree.item_indices)
-                        and count <= len(self.tree.item_indices) - first,
-                        "sphere BVH leaf range is outside item indices",
-                    )
-
-                    var leaf_indices = Span(self.tree.item_indices)[
-                        first : first + count
-                    ]
-
-                    var block = SphereLeafBlock[Self.frame, Self.width]()
-
-                    for k, item_idx_u32 in enumerate(leaf_indices):
-                        var item_ref = Int(item_idx_u32)
-                        var sphere_idx = self.tree.item_payloads[item_ref]
-                        ref sphere = self.spheres.unsafe_get(Int(sphere_idx))
-
-                        block.center.x[k] = sphere.center.x
-                        block.center.y[k] = sphere.center.y
-                        block.center.z[k] = sphere.center.z
-                        block.radius[k] = sphere.radius
-
-                        block.prim_indices[k] = sphere_idx
-
-                    var block_idx = UInt32(len(self.leaf_blocks))
-                    self.leaf_blocks.append(block^)
-
-                    # Preserve the leaf tag, but replace the construction-time
-                    # leaf-range payload with the packed leaf-block index.
-                    node.data[lane] = encode_leaf_ref(block_idx)
 
     def trace[
         mode: TRACE

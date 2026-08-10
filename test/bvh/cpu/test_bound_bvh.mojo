@@ -537,9 +537,24 @@ def _test_triangle_bvh16_leaf_width[
     var verts = _make_strip[Frame.WORLD](n)
     var bvh = TriangleBvh[Frame.WORLD, 16, leaf_width].__init__[mode](verts)
 
-    for ref leaf_range in bvh.tree.leaf_ranges:
-        assert_true(leaf_range.item_count > 0)
-        assert_true(leaf_range.item_count <= UInt32(leaf_width))
+    assert_true(len(bvh.tree.leaf_ranges) == 0)
+    assert_true(len(bvh.tree.item_indices) == 0)
+    assert_true(len(bvh.tree.item_payloads) == 0)
+
+    var packed_primitive_count = 0
+    for ref block in bvh.leaf_blocks:
+        comptime for lane in range(leaf_width):
+            if block.prim_indices[lane] != EMPTY_LANE:
+                packed_primitive_count += 1
+    assert_true(packed_primitive_count == n)
+
+    for ref node in bvh.tree.nodes:
+        comptime for lane in range(16):
+            var child_ref = node.data[lane]
+            if child_ref != EMPTY_LANE and is_leaf_ref(child_ref):
+                assert_true(
+                    Int(decode_ref_index(child_ref)) < len(bvh.leaf_blocks)
+                )
 
     for i in range(n):
         _assert_triangle_bvh_matches_bruteforce[Frame.WORLD, 16, leaf_width](
@@ -608,6 +623,9 @@ def test_sphere_bvh4_single_leaf_layout_and_hit() raises:
     var bvh = SphereBvh[Frame.WORLD, 4](spheres^)
 
     assert_true(len(bvh.tree.nodes) == 1)
+    assert_true(len(bvh.tree.leaf_ranges) == 0)
+    assert_true(len(bvh.tree.item_indices) == 0)
+    assert_true(len(bvh.tree.item_payloads) == 0)
     assert_true(bvh.tree.nodes[0].data[0] == encode_leaf_ref(0))
     assert_true(len(bvh.leaf_blocks) == 1)
     assert_true(bvh.leaf_blocks[0].prim_indices[0] == 0)

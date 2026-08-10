@@ -17,9 +17,6 @@ from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvh,
     BoundsItem,
     BoundsBvhBuilder,
-    encode_leaf_ref,
-    is_leaf_ref,
-    decode_ref_index,
 )
 from bajo.bvh.types import Hit, TriangleLeafBlock, TypedBvh
 from bajo.core.intersect import intersect_ray_tri_edges
@@ -35,9 +32,8 @@ struct TriangleBvh[
 
     """Triangle BVH with independent bounds and triangle packet widths.
 
-    During BoundsBvh construction, a tagged leaf reference points into
-    tree.leaf_ranges. After construction, _pack_leaves replaces that payload
-    with a tagged TriangleLeafBlock index:
+    Binary-to-wide collapse packs triangle leaves in the same pass. Tagged
+    leaf references therefore point directly at TriangleLeafBlock entries:
 
         node.data[lane] == EMPTY_LANE -> unused lane
         is_leaf_ref(node.data[lane])  -> TriangleLeafBlock index
@@ -71,86 +67,69 @@ struct TriangleBvh[
         var builder = BoundsBvhBuilder[Self.frame, Self.leaf_width](items^)
         builder.build[split_method]()
 
-        self.tree = BoundsBvh[Self.frame, Self.bounds_width](builder)
-
-        self._pack_leaves(vertices)
-
-    def bounds(self) -> AABB[Self.frame]:
-        return self.tree.root_bounds()
-
-    def _pack_leaves(mut self, vertices: List[Point3f32[Self.frame]]):
-        self.leaf_blocks = List[TriangleLeafBlock[Self.frame, Self.leaf_width]](
-            capacity=(self.tri_count + Int(Self.leaf_width) - 1)
-            // Int(Self.leaf_width)
-        )
-        debug_assert["safe", _use_compiler_assume=True](
-            len(self.tree.item_indices) == len(self.tree.item_payloads),
-            "triangle BVH item arrays have inconsistent lengths",
+        var leaf_blocks = List[TriangleLeafBlock[Self.frame, Self.leaf_width]](
+            capacity=(Int(builder.nodes_used) + 1) // 2
         )
         debug_assert["safe", _use_compiler_assume=True](
             len(vertices) == self.tri_count * 3,
             "triangle vertex count changed while packing leaves",
         )
 
-        for ref node in self.tree.nodes:
-            comptime for lane in range(Self.bounds_width):
-                var child_ref = node.data[lane]
+        @always_inline
+        def pack_leaf(
+            first_item: UInt32, item_count: UInt32
+        ) capturing -> UInt32:
+            var first = Int(first_item)
+            var count = Int(item_count)
 
-                if child_ref != EMPTY_LANE and is_leaf_ref(child_ref):
-                    var leaf_range_idx = decode_ref_index(child_ref)
-                    ref leaf_range = self.tree.leaf_ranges.unsafe_get(
-                        Int(leaf_range_idx)
-                    )
+            debug_assert["safe", _use_compiler_assume=True](
+                count <= Int(Self.leaf_width),
+                "triangle BVH leaf exceeds leaf SIMD width",
+            )
+            debug_assert["safe", _use_compiler_assume=True](
+                first <= len(builder.item_indices)
+                and count <= len(builder.item_indices) - first,
+                "triangle BVH leaf range is outside item indices",
+            )
 
-                    var first_item = leaf_range.first_item
-                    var item_count = leaf_range.item_count
-                    var first = Int(first_item)
-                    var count = Int(item_count)
+            var block = TriangleLeafBlock[Self.frame, Self.leaf_width]()
 
-                    debug_assert["safe", _use_compiler_assume=True](
-                        count <= Int(Self.leaf_width),
-                        "triangle BVH leaf exceeds leaf SIMD width",
-                    )
-                    debug_assert["safe", _use_compiler_assume=True](
-                        first <= len(self.tree.item_indices)
-                        and count <= len(self.tree.item_indices) - first,
-                        "triangle BVH leaf range is outside item indices",
-                    )
+            for k in range(count):
+                var item_ref = Int(builder.item_indices.unsafe_get(first + k))
+                # Typed items are created in primitive order, so the builder
+                # item index is already the final primitive payload.
+                var prim_idx = UInt32(item_ref)
+                var base = Int(prim_idx) * 3
 
-                    var leaf_indices = Span(self.tree.item_indices)[
-                        first : first + count
-                    ]
+                ref p0 = vertices[base + 0]
+                ref p1 = vertices[base + 1]
+                ref p2 = vertices[base + 2]
 
-                    var block = TriangleLeafBlock[Self.frame, Self.leaf_width]()
+                block.v0.x[k] = p0.x
+                block.v0.y[k] = p0.y
+                block.v0.z[k] = p0.z
 
-                    for k, item_idx_u32 in enumerate(leaf_indices):
-                        var item_ref = Int(item_idx_u32)
-                        var prim_idx = self.tree.item_payloads[item_ref]
-                        var base = Int(prim_idx) * 3
+                block.e1.x[k] = p1.x - p0.x
+                block.e1.y[k] = p1.y - p0.y
+                block.e1.z[k] = p1.z - p0.z
 
-                        ref p0 = vertices[base + 0]
-                        ref p1 = vertices[base + 1]
-                        ref p2 = vertices[base + 2]
+                block.e2.x[k] = p2.x - p0.x
+                block.e2.y[k] = p2.y - p0.y
+                block.e2.z[k] = p2.z - p0.z
 
-                        block.v0.x[k] = p0.x
-                        block.v0.y[k] = p0.y
-                        block.v0.z[k] = p0.z
+                block.prim_indices[k] = prim_idx
 
-                        block.e1.x[k] = p1.x - p0.x
-                        block.e1.y[k] = p1.y - p0.y
-                        block.e1.z[k] = p1.z - p0.z
+            var block_idx = UInt32(len(leaf_blocks))
+            leaf_blocks.append(block^)
+            return block_idx
 
-                        block.e2.x[k] = p2.x - p0.x
-                        block.e2.y[k] = p2.y - p0.y
-                        block.e2.z[k] = p2.z - p0.z
+        self.tree = BoundsBvh[Self.frame, Self.bounds_width].__init__[
+            pack_leaf
+        ](builder)
+        self.leaf_blocks = leaf_blocks^
 
-                        block.prim_indices[k] = prim_idx
-
-                    var block_idx = UInt32(len(self.leaf_blocks))
-                    self.leaf_blocks.append(block^)
-
-                    # keep the leaf tag
-                    node.data[lane] = encode_leaf_ref(block_idx)
+    def bounds(self) -> AABB[Self.frame]:
+        return self.tree.root_bounds()
 
     def trace[
         mode: TRACE

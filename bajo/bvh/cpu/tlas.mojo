@@ -5,33 +5,60 @@ from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvh,
     BoundsBvhBuilder,
     BoundsItem,
-    decode_ref_index,
-    encode_leaf_ref,
-    is_leaf_ref,
 )
 from bajo.bvh.cpu.trace import trace_bounds_bvh
 
 
 def _tree[
     width: SIMDLength, split_method: String
-](instances: List[Instance]) -> BoundsBvh[Frame.WORLD, width]:
+](
+    instances: List[Instance],
+    mut leaf_blocks: List[SIMD[DType.uint32, width]],
+) -> BoundsBvh[Frame.WORLD, width]:
     var items = [
         BoundsItem(inst.bounds, UInt32(i)) for i, inst in enumerate(instances)
     ]
     var builder = BoundsBvhBuilder[Frame.WORLD, width](items^)
     builder.build[split_method]()
-    return BoundsBvh[Frame.WORLD, width](builder)
+    leaf_blocks = List[SIMD[DType.uint32, width]](
+        capacity=(Int(builder.nodes_used) + 1) // 2
+    )
+
+    @always_inline
+    def pack_leaf(first_item: UInt32, item_count: UInt32) capturing -> UInt32:
+        var first = Int(first_item)
+        var count = Int(item_count)
+
+        debug_assert["safe", _use_compiler_assume=True](
+            count <= Int(width),
+            "TLAS leaf exceeds SIMD width",
+        )
+        debug_assert["safe", _use_compiler_assume=True](
+            first <= len(builder.item_indices)
+            and count <= len(builder.item_indices) - first,
+            "TLAS leaf range is outside item indices",
+        )
+
+        var inst_indices = SIMD[DType.uint32, width](EMPTY_LANE)
+
+        for k in range(count):
+            var item_ref = Int(builder.item_indices.unsafe_get(first + k))
+            # Typed items are created in instance order.
+            inst_indices[k] = UInt32(item_ref)
+
+        var block_idx = UInt32(len(leaf_blocks))
+        leaf_blocks.append(inst_indices)
+        return block_idx
+
+    var tree = BoundsBvh[Frame.WORLD, width].__init__[pack_leaf](builder)
+    return tree^
 
 
 struct Tlas[width: SIMDLength](Copyable):
     """Wide TLAS over Instance records.
 
-    During BoundsBvh construction, a tagged leaf reference points into
-    tree.leaf_ranges.
-
-    After construction, each leaf range is packed into a SIMD block of
-    instance indices and the tagged leaf payload is rewritten to the packed
-    block index.
+    Binary-to-wide collapse packs each SIMD instance-index block in the same
+    pass, so tagged leaf references point directly at typed blocks.
     """
 
     var tree: BoundsBvh[Frame.WORLD, Self.width]
@@ -44,76 +71,23 @@ struct Tlas[width: SIMDLength](Copyable):
     ](out self, instances: List[Instance]):
         self.instances = instances.copy()
         self.inst_count = len(self.instances)
-        self.tree = _tree[self.width, split_method](instances)
         self.leaf_blocks_inst_indices = []
-        self._pack_leaves()
+        self.tree = _tree[self.width, split_method](
+            instances, self.leaf_blocks_inst_indices
+        )
 
     def add_instance(mut self, instance: Instance):
         self.instances.append(instance.copy())
         self.inst_count += 1
 
     def build[split_method: String = "lbvh"](mut self):
-        self.tree = _tree[self.width, split_method](self.instances)
-        self._pack_leaves()
+        self.leaf_blocks_inst_indices = []
+        self.tree = _tree[self.width, split_method](
+            self.instances, self.leaf_blocks_inst_indices
+        )
 
     def bounds(self) -> AABB[Frame.WORLD]:
         return self.tree.root_bounds()
-
-    def _pack_leaves(mut self):
-        self.leaf_blocks_inst_indices = List[SIMD[DType.uint32, Self.width]](
-            capacity=(self.inst_count + Int(Self.width) - 1) // Int(Self.width)
-        )
-
-        debug_assert["safe", _use_compiler_assume=True](
-            len(self.tree.item_indices) == len(self.tree.item_payloads),
-            "TLAS item arrays have inconsistent lengths",
-        )
-        debug_assert["safe", _use_compiler_assume=True](
-            len(self.instances) == self.inst_count,
-            "TLAS instance count changed while packing leaves",
-        )
-
-        for ref node in self.tree.nodes:
-            comptime for lane in range(Self.width):
-                var child_ref = node.data[lane]
-
-                if child_ref != EMPTY_LANE and is_leaf_ref(child_ref):
-                    var leaf_range_idx = decode_ref_index(child_ref)
-                    ref leaf_range = self.tree.leaf_ranges.unsafe_get(
-                        Int(leaf_range_idx)
-                    )
-
-                    var first = Int(leaf_range.first_item)
-                    var count = Int(leaf_range.item_count)
-
-                    debug_assert["safe", _use_compiler_assume=True](
-                        count <= Int(Self.width),
-                        "TLAS leaf exceeds SIMD width",
-                    )
-                    debug_assert["safe", _use_compiler_assume=True](
-                        first <= len(self.tree.item_indices)
-                        and count <= len(self.tree.item_indices) - first,
-                        "TLAS leaf range is outside item indices",
-                    )
-
-                    var inst_indices = SIMD[DType.uint32, Self.width](
-                        EMPTY_LANE
-                    )
-
-                    for k in range(count):
-                        var item_ref = Int(
-                            self.tree.item_indices.unsafe_get(first + k)
-                        )
-                        inst_indices[k] = self.tree.item_payloads.unsafe_get(
-                            item_ref
-                        )
-
-                    var block_idx = UInt32(len(self.leaf_blocks_inst_indices))
-                    self.leaf_blocks_inst_indices.append(inst_indices)
-
-                    # Preserve the leaf tag, but replace the construction-time
-                    # leaf-range payload with the packed instance-block index.
-                    node.data[lane] = encode_leaf_ref(block_idx)
 
     def trace[
         typed_bvh: TypedBvh,

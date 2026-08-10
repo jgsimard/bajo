@@ -62,8 +62,9 @@ struct WideBvhNode[frame: Frame, width: SIMDLength](Copyable):
 struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
     """Generic compact wide/lane BVH.
 
-    While building, tagged leaf references point into leaf_ranges. Typed BVHs
-    rewrite those references to point into their packed leaf-block arrays.
+    The generic constructor stores leaf ranges and builder item arrays. Typed
+    BVHs use the packer constructor so collapse emits their final leaf-block
+    references directly and leaves those construction-only arrays empty.
     """
 
     var nodes: List[WideBvhNode[Self.frame, Self.width]]
@@ -79,6 +80,24 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
 
         if bvh.nodes_used > 0:
             _ = self._collapse(bvh, 0)
+
+    def __init__[
+        pack_leaf_fn: def(UInt32, UInt32) capturing -> UInt32
+    ](out self, bvh: BoundsBvhBuilder,):
+        """Collapse a binary BVH while packing its typed leaf payloads.
+
+        Unlike the generic constructor, this path does not materialize
+        construction-time leaf ranges or copy the builder's item arrays. The
+        packer is called exactly when a binary leaf is written into a wide
+        node and its returned index becomes the tagged leaf payload.
+        """
+        self.nodes = List[WideBvhNode[Self.frame, Self.width]]()
+        self.leaf_ranges = List[WideLeafRange]()
+        self.item_indices = List[UInt32]()
+        self.item_payloads = List[UInt32]()
+
+        if bvh.nodes_used > 0:
+            _ = self._collapse_packed[pack_leaf_fn](bvh, 0)
 
     def _collapse(mut self, bvh: BoundsBvhBuilder, bin_idx: UInt32) -> UInt32:
         var wide_idx = len(self.nodes)
@@ -134,6 +153,71 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
                 else:
                     node.data[i] = encode_internal_ref(
                         self._collapse(bvh, pool[i])
+                    )
+
+        self.nodes[wide_idx] = node^
+        return UInt32(wide_idx)
+
+    def _collapse_packed[
+        pack_leaf_fn: def(UInt32, UInt32) capturing -> UInt32
+    ](mut self, bvh: BoundsBvhBuilder, bin_idx: UInt32,) -> UInt32:
+        var wide_idx = len(self.nodes)
+        self.nodes.append(WideBvhNode[Self.frame, Self.width]())
+
+        var pool = Array[UInt32, Self.width](fill=bin_idx)
+        var p_size = 1
+
+        while p_size < Self.width:
+            var best_a: Float32 = -1.0
+            var best_i: Int = -1
+
+            for i in range(p_size):
+                ref candidate = bvh.nodes[Int(pool[i])]
+
+                if not candidate.is_leaf():
+                    var a = candidate.surface_area()
+
+                    if a > best_a:
+                        best_a = a
+                        best_i = i
+
+            if best_i == -1:
+                break
+
+            ref n = bvh.nodes[Int(pool[best_i])]
+            pool[best_i] = n.left_child()
+            pool[p_size] = n.right_child()
+            p_size += 1
+
+        var node = WideBvhNode[Self.frame, Self.width]()
+
+        comptime for i in range(Self.width):
+            if i < p_size:
+                ref n = bvh.nodes[Int(pool[i])]
+
+                node.aabb._min.x[i] = n.aabb._min.x
+                node.aabb._min.y[i] = n.aabb._min.y
+                node.aabb._min.z[i] = n.aabb._min.z
+
+                node.aabb._max.x[i] = n.aabb._max.x
+                node.aabb._max.y[i] = n.aabb._max.y
+                node.aabb._max.z[i] = n.aabb._max.z
+
+                if n.is_leaf():
+                    node.data[i] = encode_leaf_ref(
+                        pack_leaf_fn(n.first_item(), n.item_count)
+                    )
+
+        # Finish every leaf in this node before descending. This preserves
+        # the same packed-block order as a node-order packing pass while still
+        # emitting each block during collapse.
+        comptime for i in range(Self.width):
+            if i < p_size:
+                ref n = bvh.nodes[Int(pool[i])]
+
+                if not n.is_leaf():
+                    node.data[i] = encode_internal_ref(
+                        self._collapse_packed[pack_leaf_fn](bvh, pool[i])
                     )
 
         self.nodes[wide_idx] = node^

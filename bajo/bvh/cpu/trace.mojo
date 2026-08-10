@@ -118,15 +118,8 @@ def _trace_bounds_bvh_impl[
 ) -> Hit[frame]:
     debug_assert["safe", _use_compiler_assume=True](len(tree.nodes) > 0)
 
-    comptime use_ordered_stack = bounds_width > 2
-
     var hit = Hit[frame].miss(ray.t_max)
 
-    # avoid bounds checks in the hot loop
-    # stack entries are tagged child references, so they can represent either an internal node or a packed leaf
-    var stack = Array[UInt32, CPU_STACK_SIZE](uninitialized=True)
-    var stack_near = Array[Float32, CPU_STACK_SIZE](uninitialized=True)
-    var ordered_stack = Array[UInt64, CPU_STACK_SIZE](uninitialized=True)
     var stack_ptr = 0
 
     var bounds_O = ray.origin[bounds_width]()
@@ -157,6 +150,8 @@ def _trace_bounds_bvh_impl[
         ](origin_rcp_d, rcp_d, aabb, hit.t)
 
     comptime if mode == TRACE.CLOSEST_HIT:
+        # stack entries are tagged child references, so they can represent either an internal node or a packed leaf
+        var ordered_stack = Array[UInt64, CPU_STACK_SIZE](uninitialized=True)
 
         @always_inline
         def push_pending(child_ref: UInt32, child_t: Float32) capturing:
@@ -165,23 +160,19 @@ def _trace_bounds_bvh_impl[
                 "CPU BVH traversal stack overflow",
             )
 
-            comptime if use_ordered_stack:
-                # Keep pending tasks far-to-near so the nearest global task is
-                # always the final entry and can be popped in O(1).
-                var task = _pack_pending_task(child_ref, child_t)
-                var insert_idx = stack_ptr
-                while insert_idx > 0:
-                    var previous_idx = insert_idx - 1
-                    var previous = ordered_stack.unsafe_get(previous_idx)
-                    if previous >= task:
-                        break
-                    ordered_stack.unsafe_get(insert_idx) = previous
-                    insert_idx = previous_idx
+            # Keep pending tasks far-to-near so the nearest global task is
+            # always the final entry and can be popped in O(1).
+            var task = _pack_pending_task(child_ref, child_t)
+            var insert_idx = stack_ptr
+            while insert_idx > 0:
+                var previous_idx = insert_idx - 1
+                var previous = ordered_stack.unsafe_get(previous_idx)
+                if previous >= task:
+                    break
+                ordered_stack.unsafe_get(insert_idx) = previous
+                insert_idx = previous_idx
 
-                ordered_stack.unsafe_get(insert_idx) = task
-            else:
-                stack.unsafe_get(stack_ptr) = child_ref
-                stack_near.unsafe_get(stack_ptr) = child_t
+            ordered_stack.unsafe_get(insert_idx) = task
 
             stack_ptr += 1
 
@@ -270,15 +261,14 @@ def _trace_bounds_bvh_impl[
                                 visit_closest_lane(lane)
 
                 if has_nearest:
-                    comptime if use_ordered_stack:
-                        if stack_ptr > 0:
-                            var pending_idx = stack_ptr - 1
-                            var pending = ordered_stack.unsafe_get(pending_idx)
-                            if _pending_task_t(pending) < nearest_t:
-                                stack_ptr = pending_idx
-                                push_pending(nearest_ref, nearest_t)
-                                current_ref = _pending_task_ref(pending)
-                                continue
+                    if stack_ptr > 0:
+                        var pending_idx = stack_ptr - 1
+                        var pending = ordered_stack.unsafe_get(pending_idx)
+                        if _pending_task_t(pending) < nearest_t:
+                            stack_ptr = pending_idx
+                            push_pending(nearest_ref, nearest_t)
+                            current_ref = _pending_task_ref(pending)
+                            continue
 
                     current_ref = nearest_ref
                     continue
@@ -286,32 +276,24 @@ def _trace_bounds_bvh_impl[
             # current leaf finished, or the current node had no children
             # skip every deferred task that is now farther than the best hit
             var found_pending = False
-            comptime if use_ordered_stack:
-                if stack_ptr > 0:
-                    var next_idx = stack_ptr - 1
-                    var task = ordered_stack.unsafe_get(next_idx)
-                    if _pending_task_t(task) <= hit.t:
-                        stack_ptr = next_idx
-                        current_ref = _pending_task_ref(task)
-                        found_pending = True
-                    else:
-                        # The nearest pending task is already too far, so all
-                        # other sorted tasks can be discarded at once.
-                        stack_ptr = 0
-            else:
-                while stack_ptr > 0:
-                    stack_ptr -= 1
-
-                    if stack_near.unsafe_get(stack_ptr) <= hit.t:
-                        current_ref = stack.unsafe_get(stack_ptr)
-                        found_pending = True
-                        break
+            if stack_ptr > 0:
+                var next_idx = stack_ptr - 1
+                var task = ordered_stack.unsafe_get(next_idx)
+                if _pending_task_t(task) <= hit.t:
+                    stack_ptr = next_idx
+                    current_ref = _pending_task_ref(task)
+                    found_pending = True
+                else:
+                    # The nearest pending task is already too far, so all
+                    # other sorted tasks can be discarded at once.
+                    stack_ptr = 0
 
             if not found_pending:
                 break
 
     else:
         # ANY_HIT : leaf-first behavior
+        var stack = Array[UInt32, CPU_STACK_SIZE](uninitialized=True)
         var n_idx = UInt32(0)
 
         while True:
@@ -335,7 +317,33 @@ def _trace_bounds_bvh_impl[
             var has_next = False
             var next_idx = UInt32(0)
 
+            @always_inline
+            def visit_any_child(child_ref: UInt32) capturing -> Bool:
+                if (child_ref & BVH_LEAF_REF_BIT) != 0:
+                    return leaf_fn(
+                        ray,
+                        leaf_O,
+                        leaf_D,
+                        ray_a,
+                        ray_inv_a,
+                        child_ref & BVH_REF_INDEX_MASK,
+                        hit,
+                    )
+
+                if has_next:
+                    debug_assert["safe", _use_compiler_assume=True](
+                        stack_ptr < CPU_STACK_SIZE,
+                        "CPU BVH traversal stack overflow",
+                    )
+                    stack.unsafe_get(stack_ptr) = next_idx
+                    stack_ptr += 1
+
+                next_idx = child_ref
+                has_next = True
+                return False
+
             comptime if bounds_width == 16:
+                # BVH16: consume only active mask bits.
                 var bits = UInt32(pack_bits(mask)) & (
                     tree.child_masks.unsafe_get(Int(n_idx))
                 )
@@ -343,61 +351,17 @@ def _trace_bounds_bvh_impl[
                 while bits != 0:
                     var lane = Int(count_trailing_zeros(bits))
                     bits &= bits - 1
-                    var child_ref = node_data_ptr[unsafe_offset=lane]
 
-                    if (child_ref & BVH_LEAF_REF_BIT) != 0:
-                        if leaf_fn(
-                            ray,
-                            leaf_O,
-                            leaf_D,
-                            ray_a,
-                            ray_inv_a,
-                            child_ref & BVH_REF_INDEX_MASK,
-                            hit,
-                        ):
-                            return Hit[frame].shadow_hit()
-                    else:
-                        if has_next:
-                            debug_assert["safe", _use_compiler_assume=True](
-                                stack_ptr < CPU_STACK_SIZE,
-                                "CPU BVH traversal stack overflow",
-                            )
-                            stack.unsafe_get(stack_ptr) = next_idx
-                            stack_ptr += 1
-
-                        next_idx = child_ref
-                        has_next = True
+                    if visit_any_child(node_data_ptr[unsafe_offset=lane]):
+                        return Hit[frame].shadow_hit()
 
             else:
+                # BVH2/4/8: fully unrolled lane checks are faster
                 if mask.reduce_or():
                     comptime for lane in range(bounds_width):
                         if mask[lane]:
-                            var child_ref = node.data[lane]
-
-                            if (child_ref & BVH_LEAF_REF_BIT) != 0:
-                                if leaf_fn(
-                                    ray,
-                                    leaf_O,
-                                    leaf_D,
-                                    ray_a,
-                                    ray_inv_a,
-                                    child_ref & BVH_REF_INDEX_MASK,
-                                    hit,
-                                ):
-                                    return Hit[frame].shadow_hit()
-                            else:
-                                if has_next:
-                                    debug_assert[
-                                        "safe", _use_compiler_assume=True
-                                    ](
-                                        stack_ptr < CPU_STACK_SIZE,
-                                        "CPU BVH traversal stack overflow",
-                                    )
-                                    stack.unsafe_get(stack_ptr) = next_idx
-                                    stack_ptr += 1
-
-                                next_idx = child_ref
-                                has_next = True
+                            if visit_any_child(node.data[lane]):
+                                return Hit[frame].shadow_hit()
 
             if has_next:
                 n_idx = next_idx

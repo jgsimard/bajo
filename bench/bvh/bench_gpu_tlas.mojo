@@ -1003,7 +1003,7 @@ def main() raises:
 
         print("Building CPU TriangleBvh[8] LBVH reference for 4x4 grid...")
         var cpu_blas = TriangleBvh[Frame.LOCAL, 8].__init__["lbvh"](
-            tri_vertices.copy()
+            tri_vertices
         )
 
         print("\nSingle instance triangle TLAS")

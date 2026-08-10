@@ -295,7 +295,7 @@ struct World:
 
             self.triangle_bvh = Optional[TriangleBvh[Frame.WORLD, BVH_WIDTH]](
                 TriangleBvh[Frame.WORLD, BVH_WIDTH].__init__["lbvh"](
-                    self.triangle_vertices.copy()
+                    self.triangle_vertices
                 )
             )
 
@@ -311,7 +311,7 @@ struct World:
                 )
                 self.triangle_mesh_blases.append(
                     TriangleBvh[Frame.LOCAL, BVH_WIDTH].__init__["lbvh"](
-                        vertices.copy()
+                        vertices
                     )
                 )
 

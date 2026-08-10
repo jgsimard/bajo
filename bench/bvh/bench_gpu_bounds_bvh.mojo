@@ -262,7 +262,7 @@ def _print_cpu_triangle_reference[
     vertices: List[Point3f32[Frame.WORLD]],
     rays: List[Rayf32[Frame.WORLD]],
 ) -> Tuple[Float64, UInt32]:
-    var bvh = TriangleBvh[Frame.WORLD, width].__init__["lbvh"](vertices.copy())
+    var bvh = TriangleBvh[Frame.WORLD, width].__init__["lbvh"](vertices)
     var t0 = perf_counter_ns()
     var result = _trace_cpu_triangle_bvh[width](bvh, rays)
     var t1 = perf_counter_ns()

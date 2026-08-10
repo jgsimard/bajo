@@ -37,9 +37,7 @@ def test_gpu_tlas_triangle_camera_single_identity_matches_cpu_blas() raises:
     var local_bounds = compute_bounds(local_verts)
     var world_bounds = compute_bounds(world_verts)
     var camera = _camera_for_bounds(world_bounds, 2.0)
-    var cpu_bvh = TriangleBvh[Frame.WORLD, 4].__init__["lbvh"](
-        world_verts.copy()
-    )
+    var cpu_bvh = TriangleBvh[Frame.WORLD, 4].__init__["lbvh"](world_verts)
     var cpu_res = _trace_cpu_triangle_camera[4](cpu_bvh, camera, WIDTH, HEIGHT)
 
     var instances: List = [

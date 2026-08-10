@@ -162,8 +162,7 @@ def _build_lbvh_recursive[
     var left_count = split - first + 1
     var right_count = count - left_count
 
-    var left_child_idx = builder.nodes_used
-    builder.nodes_used += 2
+    var left_child_idx = builder.allocate_children()
 
     var left_bounds = _build_lbvh_recursive[frame, leaf_size](
         builder,

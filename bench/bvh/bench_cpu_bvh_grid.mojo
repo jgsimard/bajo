@@ -184,7 +184,7 @@ def benchmark_case[
         width,
     ].__init__[
         split_method
-    ](vertices.copy())
+    ](vertices)
     var t1 = perf_counter_ns()
 
     var result = benchmark_triangle[width](bvh, rays)

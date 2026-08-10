@@ -50,7 +50,7 @@ struct TriangleBvh[
 
     def __init__[
         split_method: String = "median"
-    ](out self, var vertices: List[Point3f32[Self.frame]]):
+    ](out self, vertices: List[Point3f32[Self.frame]]):
         self.tri_count = len(vertices) / 3
         self.leaf_blocks = List[
             TriangleLeafBlock[Self.frame, Self.leaf_width]
@@ -68,17 +68,17 @@ struct TriangleBvh[
 
             items.append(BoundsItem(bounds, UInt32(i)))
 
-        var builder = BoundsBvhBuilder[Self.frame, Self.leaf_width](items)
+        var builder = BoundsBvhBuilder[Self.frame, Self.leaf_width](items^)
         builder.build[split_method]()
 
         self.tree = BoundsBvh[Self.frame, Self.bounds_width](builder)
 
-        self._pack_leaves(vertices^)
+        self._pack_leaves(vertices)
 
     def bounds(self) -> AABB[Self.frame]:
         return self.tree.root_bounds()
 
-    def _pack_leaves(mut self, var vertices: List[Point3f32[Self.frame]]):
+    def _pack_leaves(mut self, vertices: List[Point3f32[Self.frame]]):
         self.leaf_blocks = List[TriangleLeafBlock[Self.frame, Self.leaf_width]](
             capacity=(self.tri_count + Int(Self.leaf_width) - 1)
             // Int(Self.leaf_width)

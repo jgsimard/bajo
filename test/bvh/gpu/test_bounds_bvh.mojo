@@ -181,7 +181,7 @@ def _assert_wide_lane_invariants[
 def _assert_gpu_triangle_matches_cpu_camera[
     width: SIMDLength
 ](verts: List[Point3f32[Frame.WORLD]]) raises:
-    var cpu_bvh = TriangleBvh[Frame.WORLD, width].__init__["lbvh"](verts.copy())
+    var cpu_bvh = TriangleBvh[Frame.WORLD, width].__init__["lbvh"](verts)
     var camera_data = _make_camera_rays_and_params(
         cpu_bvh.bounds(),
         GPU_BOUNDS_TEST_WIDTH,

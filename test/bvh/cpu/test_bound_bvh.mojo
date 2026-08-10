@@ -23,7 +23,7 @@ from bajo.bvh.cpu.bounds_bvh import (
     is_leaf_ref,
 )
 from bajo.bvh.cpu.builder.builder import _partition_items_by_median_center
-from bajo.bvh.cpu.builder.sah import _find_sah_split
+from bajo.bvh.cpu.builder.sah import _find_sah_split, _partition_items_by_bin
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.bvh.host_utils import triangle_bounds
@@ -305,11 +305,11 @@ def _test_bounds_bvh_leaf_invariant[
     )
     var items = _make_bounds_items(verts)
 
-    var builder = BoundsBvhBuilder[frame, width](items)
+    var builder = BoundsBvhBuilder[frame, width](items^)
     builder.build[mode]()
 
     assert_true(builder.nodes_used > 0)
-    assert_true(Int(builder.nodes_used) <= len(builder.nodes))
+    assert_true(Int(builder.nodes_used) == len(builder.nodes))
 
     _assert_builder_leaf_sizes_at_most(builder, UInt32(width))
 
@@ -327,7 +327,7 @@ def test_wide_bounds_root_bounds_is_valid() raises:
     var verts = _make_strip[Frame.WORLD](4)
     var items = _make_bounds_items(verts)
 
-    var builder = BoundsBvhBuilder[Frame.WORLD, 4](items)
+    var builder = BoundsBvhBuilder[Frame.WORLD, 4](items^)
     builder.build["median"]()
 
     var wide = BoundsBvh[Frame.WORLD, 4](builder)
@@ -404,11 +404,13 @@ def test_bounds_sah_clear_separation() raises:
         Point3W(10.0, 1.0, 0.0),  # Tri 1, centered near x=10
     ]
     var items = _make_bounds_items(verts)
-    var builder = BoundsBvhBuilder[Frame.WORLD, 2](items)
+    var builder = BoundsBvhBuilder[Frame.WORLD, 2](items^)
     builder.build["sah"]()
+    var centroid_bounds = builder.update_node_bounds_and_centroid_bounds(0)
 
     var split = _find_sah_split[Frame.WORLD, 16](
         builder.nodes[0],
+        centroid_bounds,
         Span(builder.item_indices),
         Span(builder.items),
     )
@@ -417,6 +419,24 @@ def test_bounds_sah_clear_separation() raises:
     assert_true(split.pos > -10.0 and split.pos < 10.0)
     assert_true(split.cost < 20.0)
     assert_true(split.bin >= 0)
+
+    var partition = _partition_items_by_bin[Frame.WORLD, 16](
+        Span(builder.item_indices),
+        Span(builder.items),
+        0,
+        2,
+        split.axis,
+        split.bin,
+        split.bin_min,
+        split.bin_scale,
+    )
+    assert_true(partition.split_idx == 1)
+    assert_almost_equal(partition.left_bounds._min.x, -11.0)
+    assert_almost_equal(partition.left_bounds._max.x, -9.0)
+    assert_almost_equal(partition.right_bounds._min.x, 9.0)
+    assert_almost_equal(partition.right_bounds._max.x, 11.0)
+    assert_almost_equal(partition.left_centroid_bounds._min.x, -10.0)
+    assert_almost_equal(partition.right_centroid_bounds._min.x, 10.0)
 
 
 def test_bounds_sah_degenerate() raises:
@@ -429,11 +449,13 @@ def test_bounds_sah_degenerate() raises:
         Point3W(0.0, 1.0, 0.0),
     ]
     var items = _make_bounds_items(verts)
-    var builder = BoundsBvhBuilder[Frame.WORLD, 2](items)
+    var builder = BoundsBvhBuilder[Frame.WORLD, 2](items^)
     builder.build["sah"]()
+    var centroid_bounds = builder.update_node_bounds_and_centroid_bounds(0)
 
     var split = _find_sah_split[Frame.WORLD, 16](
         builder.nodes[0],
+        centroid_bounds,
         Span(builder.item_indices),
         Span(builder.items),
     )
@@ -452,7 +474,7 @@ def test_bounds_partition_items_non_empty() raises:
         Point3W(10.0, 1.0, 0.0),
     ]
     var items = _make_bounds_items(verts)
-    var builder = BoundsBvhBuilder[Frame.WORLD, 2](items)
+    var builder = BoundsBvhBuilder[Frame.WORLD, 2](items^)
     builder.build["sah"]()
 
     var split_idx = _partition_items_by_median_center(
@@ -469,7 +491,7 @@ def test_bounds_partition_items_non_empty() raises:
 
 def test_triangle_bvh2_leaf_size_equals_width_returns_nearest_triangle() raises:
     var verts = _make_depth_pair[Frame.WORLD]()
-    var bvh = TriangleBvh[Frame.WORLD, 2].__init__["median"](verts^)
+    var bvh = TriangleBvh[Frame.WORLD, 2].__init__["median"](verts)
 
     var hit = bvh.trace[TRACE.CLOSEST_HIT](_z_ray(Point3W(0.0, 0.0, 0.0)))
 
@@ -484,7 +506,7 @@ def _test_triangle_bvh_matches_bruteforce[
 ]() raises:
     var n = {2: 24, 4: 32, 8: 40}[width]
     var verts = _make_strip[Frame.WORLD](n)
-    var bvh = TriangleBvh[Frame.WORLD, width].__init__[split_mode](verts.copy())
+    var bvh = TriangleBvh[Frame.WORLD, width].__init__[split_mode](verts)
 
     for i in range(n):
         _assert_triangle_bvh_matches_bruteforce[Frame.WORLD, width](
@@ -513,9 +535,7 @@ def _test_triangle_bvh16_leaf_width[
 ]() raises:
     var n = 48
     var verts = _make_strip[Frame.WORLD](n)
-    var bvh = TriangleBvh[Frame.WORLD, 16, leaf_width].__init__[mode](
-        verts.copy()
-    )
+    var bvh = TriangleBvh[Frame.WORLD, 16, leaf_width].__init__[mode](verts)
 
     for ref leaf_range in bvh.tree.leaf_ranges:
         assert_true(leaf_range.item_count > 0)
@@ -551,7 +571,7 @@ def _test_triangle_bvh_shadow_hit_and_miss[
     mode: String,
 ]() raises:
     var verts = _make_strip[Frame.WORLD](2 * width)
-    var bvh = TriangleBvh[Frame.WORLD, width].__init__[mode](verts^)
+    var bvh = TriangleBvh[Frame.WORLD, width].__init__[mode](verts)
 
     assert_true(
         bvh.trace[TRACE.ANY_HIT](_z_ray(Point3W(0.0, 0.0, 0.0))).is_occluded()

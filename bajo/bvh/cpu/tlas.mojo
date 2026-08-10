@@ -15,9 +15,10 @@ from bajo.bvh.cpu.trace import trace_bounds_bvh
 def _tree[
     width: SIMDLength, split_method: String
 ](instances: List[Instance]) -> BoundsBvh[Frame.WORLD, width]:
-    var builder = BoundsBvhBuilder[Frame.WORLD, width](
-        [BoundsItem(inst.bounds, UInt32(i)) for i, inst in enumerate(instances)]
-    )
+    var items = [
+        BoundsItem(inst.bounds, UInt32(i)) for i, inst in enumerate(instances)
+    ]
+    var builder = BoundsBvhBuilder[Frame.WORLD, width](items^)
     builder.build[split_method]()
     return BoundsBvh[Frame.WORLD, width](builder)
 

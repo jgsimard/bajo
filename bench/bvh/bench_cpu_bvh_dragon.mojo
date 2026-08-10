@@ -122,7 +122,7 @@ def benchmark_case[
         leaf_width,
     ].__init__[
         split_method
-    ](vertices.copy())
+    ](vertices)
     var t1 = perf_counter_ns()
 
     var result = benchmark_scene[bounds_width, leaf_width](bvh, rays)

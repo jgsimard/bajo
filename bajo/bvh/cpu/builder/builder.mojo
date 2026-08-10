@@ -1,7 +1,12 @@
 from bajo.core import AABB, vmin, vmax, longest_axis, Frame
 from bajo.sort.cpu import nth_element
 
-from .sah import _find_sah_split, _partition_items_by_bin
+from .sah import (
+    BoundsPartitionResult,
+    _calculate_partition_bounds,
+    _find_sah_split,
+    _partition_items_by_bin,
+)
 from .lbvh import _build_lbvh
 
 
@@ -20,19 +25,33 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
     var item_count: UInt32
     var nodes_used: UInt32
 
-    def __init__(out self, items: List[BoundsItem[Self.frame]]):
-        self.items = items.copy()
+    def __init__(out self, var items: List[BoundsItem[Self.frame]]):
+        self.items = items^
         self.item_count = UInt32(len(self.items))
         debug_assert["safe", _use_compiler_assume=True](self.item_count > 0)
 
         self.item_indices = [i for i in range(self.item_count)]
 
         var max_nodes = Int(self.item_count * 2 - 1)
-        self.nodes = [BoundsBvhNode[Self.frame]() for _ in range(max_nodes)]
+        self.nodes = List[BoundsBvhNode[Self.frame]](capacity=max_nodes)
+        self.nodes.append(BoundsBvhNode[Self.frame]())
 
+        # build() initializes the root for its selected topology.
         self.nodes_used = 1
-        self.nodes[0].set_leaf(0, self.item_count)
-        self.update_node_bounds(0)
+
+    def allocate_children(mut self) -> UInt32:
+        var left_child_idx = self.nodes_used
+        self.nodes_used += 2
+
+        if Int(self.nodes_used) > len(self.nodes):
+            debug_assert["safe", _use_compiler_assume=True](
+                Int(left_child_idx) == len(self.nodes),
+                "BVH nodes must be allocated in index order",
+            )
+            self.nodes.append(BoundsBvhNode[Self.frame]())
+            self.nodes.append(BoundsBvhNode[Self.frame]())
+
+        return left_child_idx
 
     def update_node_bounds(mut self, node_idx: UInt32):
         ref node = self.nodes[Int(node_idx)]
@@ -42,6 +61,22 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
         for i in range(Int(node.item_count)):
             var item_idx = Int(self.item_indices[first + i])
             self.items[item_idx].grow_into(node.aabb)
+
+    def update_node_bounds_and_centroid_bounds(
+        mut self, node_idx: UInt32
+    ) -> AABB[Self.frame]:
+        ref node = self.nodes[Int(node_idx)]
+        node.aabb = AABB[Self.frame].invalid()
+        var centroid_bounds = AABB[Self.frame].invalid()
+
+        var first = Int(node.first_item())
+        for i in range(Int(node.item_count)):
+            var item_idx = Int(self.item_indices[first + i])
+            ref item = self.items[item_idx]
+            item.grow_into(node.aabb)
+            centroid_bounds.grow(item.bounds.centroid())
+
+        return centroid_bounds
 
     def build[split_method: String = "median"](mut self):
         comptime assert split_method in ["median", "sah", "lbvh"]
@@ -54,45 +89,113 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
         else:
             self.nodes_used = 1
             self.nodes[0].set_leaf(0, self.item_count)
-            self.update_node_bounds(0)
-            self._subdivide[split_method](0)
+            comptime if split_method == "sah":
+                var centroid_bounds = (
+                    self.update_node_bounds_and_centroid_bounds(0)
+                )
+                self._subdivide[split_method](0, centroid_bounds)
+            else:
+                self.update_node_bounds(0)
+                self._subdivide[split_method](0, AABB[Self.frame].invalid())
 
-    def _subdivide[split_method: String](mut self, node_idx: UInt32):
+    def _subdivide[
+        split_method: String
+    ](mut self, node_idx: UInt32, centroid_bounds: AABB[Self.frame],):
         comptime assert split_method in ["median", "sah"]
 
-        ref node = self.nodes[Int(node_idx)]
-        if node.item_count <= UInt32(Self.leaf_size):
+        var source_node = self.nodes[Int(node_idx)]
+        if source_node.item_count <= UInt32(Self.leaf_size):
             return
 
+        var first = Int(source_node.first_item())
+        var first_item = source_node.first_item()
+        var item_count = source_node.item_count
+
+        var partition = self._partition_node[split_method](
+            source_node, centroid_bounds
+        )
+
+        var left_count = UInt32(partition.split_idx - first)
+
+        if left_count == 0 or left_count == item_count:
+            var split_idx = _partition_items_by_median_center(
+                Span(self.item_indices),
+                Span(self.items),
+                first,
+                Int(item_count),
+                longest_axis(source_node.aabb.extent()),
+            )
+            partition = _calculate_partition_bounds(
+                Span(self.item_indices),
+                Span(self.items),
+                first,
+                Int(item_count),
+                split_idx,
+            )
+            left_count = UInt32(partition.split_idx - first)
+
+        var left_child_idx = self.allocate_children()
+
+        ref left_child = self.nodes[Int(left_child_idx)]
+        ref right_child = self.nodes[Int(left_child_idx + 1)]
+
+        left_child.set_leaf(first_item, left_count)
+        right_child.set_leaf(
+            UInt32(partition.split_idx), item_count - left_count
+        )
+        left_child.aabb = partition.left_bounds
+        right_child.aabb = partition.right_bounds
+
+        ref node = self.nodes[Int(node_idx)]
+        node.set_internal(left_child_idx)
+
+        self._subdivide[split_method](
+            left_child_idx, partition.left_centroid_bounds
+        )
+        self._subdivide[split_method](
+            left_child_idx + 1, partition.right_centroid_bounds
+        )
+
+    def _partition_node[
+        split_method: String
+    ](
+        mut self,
+        node: BoundsBvhNode[Self.frame],
+        centroid_bounds: AABB[Self.frame],
+    ) -> BoundsPartitionResult[Self.frame]:
+        comptime assert split_method in ["median", "sah"]
         var first = Int(node.first_item())
         var count = Int(node.item_count)
-
-        var split_idx: Int
-        var use_sah_bounds = False
-        var cached_left_bounds = AABB[Self.frame].invalid()
-        var cached_right_bounds = AABB[Self.frame].invalid()
 
         comptime if split_method == "median":
             var extent = node.aabb._max - node.aabb._min
             var axis = longest_axis(extent)
-            split_idx = _partition_items_by_median_center(
+            var split_idx = _partition_items_by_median_center(
                 Span(self.item_indices),
                 Span(self.items),
                 first,
                 count,
                 axis,
             )
+            return _calculate_partition_bounds(
+                Span(self.item_indices),
+                Span(self.items),
+                first,
+                count,
+                split_idx,
+            )
 
-        elif split_method == "sah":
+        else:
             comptime BVH_BINS = 16
             var split = _find_sah_split[Self.frame, BVH_BINS](
                 node,
+                centroid_bounds,
                 Span(self.item_indices),
                 Span(self.items),
             )
 
             if split.valid():
-                split_idx = _partition_items_by_bin[Self.frame, BVH_BINS](
+                return _partition_items_by_bin[Self.frame, BVH_BINS](
                     Span(self.item_indices),
                     Span(self.items),
                     first,
@@ -103,55 +206,22 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
                     split.bin_scale,
                 )
 
-                cached_left_bounds = split.left_bounds
-                cached_right_bounds = split.right_bounds
-                use_sah_bounds = True
-
-            else:
-                var extent = node.aabb._max - node.aabb._min
-                var axis = longest_axis(extent)
-
-                split_idx = _partition_items_by_median_center(
-                    Span(self.item_indices),
-                    Span(self.items),
-                    first,
-                    count,
-                    axis,
-                )
-        else:
-            comptime assert False, "Unknown BoundsBvh split method"
-
-        var left_count = UInt32(split_idx - first)
-
-        if left_count == 0 or left_count == node.item_count:
-            left_count = node.item_count / 2
-            split_idx = first + Int(left_count)
-            use_sah_bounds = False
-
-        var left_child_idx = self.nodes_used
-        self.nodes_used += 2
-
-        ref left_child = self.nodes[Int(left_child_idx)]
-        ref right_child = self.nodes[Int(left_child_idx + 1)]
-
-        left_child.set_leaf(node.first_item(), left_count)
-        right_child.set_leaf(UInt32(split_idx), node.item_count - left_count)
-
-        node.set_internal(left_child_idx)
-
-        comptime if split_method == "sah":
-            if use_sah_bounds:
-                left_child.aabb = cached_left_bounds
-                right_child.aabb = cached_right_bounds
-            else:
-                self.update_node_bounds(left_child_idx)
-                self.update_node_bounds(left_child_idx + 1)
-        else:
-            self.update_node_bounds(left_child_idx)
-            self.update_node_bounds(left_child_idx + 1)
-
-        self._subdivide[split_method](left_child_idx)
-        self._subdivide[split_method](left_child_idx + 1)
+            var extent = node.aabb._max - node.aabb._min
+            var axis = longest_axis(extent)
+            var split_idx = _partition_items_by_median_center(
+                Span(self.item_indices),
+                Span(self.items),
+                first,
+                count,
+                axis,
+            )
+            return _calculate_partition_bounds(
+                Span(self.item_indices),
+                Span(self.items),
+                first,
+                count,
+                split_idx,
+            )
 
     def tree_quality(self) -> Float32:
         debug_assert["safe", _use_compiler_assume=True](self.nodes_used > 0)

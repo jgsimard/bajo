@@ -315,7 +315,7 @@ def _build_cpu_triangle_blas_set[
     TriangleBvh[Frame.LOCAL, width]
 ]:
     return [
-        TriangleBvh[Frame.LOCAL, width].__init__["sah"](tri_vertices.copy())
+        TriangleBvh[Frame.LOCAL, width].__init__["sah"](tri_vertices)
         for tri_vertices in tri_vertex_sets
     ]
 

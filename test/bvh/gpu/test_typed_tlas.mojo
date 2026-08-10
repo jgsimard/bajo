@@ -273,7 +273,7 @@ def test_gpu_triangle_tlas_stress_8_blas_512_instances_matches_cpu() raises:
         vertex_sets.append(verts.copy())
         local_bounds.append(bounds)
         cpu_blases.append(
-            TriangleBvh[Frame.LOCAL, BLAS_WIDTH].__init__["lbvh"](verts.copy())
+            TriangleBvh[Frame.LOCAL, BLAS_WIDTH].__init__["lbvh"](verts)
         )
 
     var instances = List[Instance](capacity=STRESS_X * STRESS_Y)

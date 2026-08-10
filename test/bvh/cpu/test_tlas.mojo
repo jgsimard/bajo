@@ -100,7 +100,7 @@ def _assert_hit(
 def test_tlas_triangle_single_instance_cases() raises:
     var verts = _make_one_local_triangle_z2[Frame.LOCAL]()
 
-    var blas = TriangleBvh[Frame.LOCAL, 4](verts^)
+    var blas = TriangleBvh[Frame.LOCAL, 4](verts)
 
     var blases = [blas.copy()]
 
@@ -159,8 +159,8 @@ def test_tlas_triangle_single_instance_cases() raises:
 def test_tlas_triangle_two_instance_cases() raises:
     var verts = _make_one_local_triangle_z2[Frame.LOCAL]()
 
-    var first_blas = TriangleBvh[Frame.LOCAL, 4](verts.copy())
-    var second_blas = TriangleBvh[Frame.LOCAL, 4](verts^)
+    var first_blas = TriangleBvh[Frame.LOCAL, 4](verts)
+    var second_blas = TriangleBvh[Frame.LOCAL, 4](verts)
 
     var blases = [first_blas.copy(), second_blas.copy()]
 
@@ -209,7 +209,7 @@ def test_tlas_triangle_two_instance_cases() raises:
 def test_tlas_triangle_shadow_cases() raises:
     var verts = _make_one_local_triangle_z2[Frame.LOCAL]()
 
-    var blas = TriangleBvh[Frame.LOCAL, 4](verts^)
+    var blas = TriangleBvh[Frame.LOCAL, 4](verts)
 
     var blases = [blas.copy()]
 

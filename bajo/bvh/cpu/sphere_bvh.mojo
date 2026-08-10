@@ -52,7 +52,7 @@ struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
             for i, s in enumerate(self.spheres)
         ]
 
-        var builder = BoundsBvhBuilder[Self.frame, Self.width](items)
+        var builder = BoundsBvhBuilder[Self.frame, Self.width](items^)
         builder.build[split_method]()
 
         self.tree = BoundsBvh[Self.frame, Self.width](builder)

@@ -1,7 +1,7 @@
 from std.math import clamp
 
 from bajo.core import AABB, Frame
-from bajo.bvh.constants import f32_max, f32_min
+from bajo.bvh.constants import f32_max
 from .builder import BoundsItem, BoundsBvhNode
 
 
@@ -13,8 +13,6 @@ struct BoundsSplitResult[frame: Frame]:
     var cost: Float32
     var bin_min: Float32
     var bin_scale: Float32
-    var left_bounds: AABB[Self.frame]
-    var right_bounds: AABB[Self.frame]
 
     def __init__(out self):
         self.axis = -1
@@ -23,17 +21,42 @@ struct BoundsSplitResult[frame: Frame]:
         self.cost = f32_max
         self.bin_min = 0.0
         self.bin_scale = 0.0
-        self.left_bounds = AABB[Self.frame].invalid()
-        self.right_bounds = AABB[Self.frame].invalid()
 
     def valid(self) -> Bool:
         return self.axis >= 0 and self.bin >= 0
+
+
+@fieldwise_init
+struct BoundsPartitionResult[frame: Frame]:
+    var split_idx: Int
+    var left_bounds: AABB[Self.frame]
+    var right_bounds: AABB[Self.frame]
+    var left_centroid_bounds: AABB[Self.frame]
+    var right_centroid_bounds: AABB[Self.frame]
+
+    def __init__(out self, split_idx: Int):
+        self.split_idx = split_idx
+        self.left_bounds = AABB[Self.frame].invalid()
+        self.right_bounds = AABB[Self.frame].invalid()
+        self.left_centroid_bounds = AABB[Self.frame].invalid()
+        self.right_centroid_bounds = AABB[Self.frame].invalid()
+
+
+@fieldwise_init
+struct BoundsBin[frame: Frame](TrivialRegisterPassable):
+    var bounds: AABB[Self.frame]
+    var item_count: UInt32
+
+    def __init__(out self):
+        self.bounds = AABB[Self.frame].invalid()
+        self.item_count = 0
 
 
 def _find_sah_split[
     frame: Frame, BVH_BINS: Int
 ](
     node: BoundsBvhNode,
+    centroid_bounds: AABB[frame],
     indices: Span[mut=False, UInt32, _],
     items: Span[mut=False, BoundsItem[frame], _],
 ) -> BoundsSplitResult[frame]:
@@ -52,33 +75,39 @@ def _find_sah_split[
         "BVH item indices and items have different lengths",
     )
 
-    var node_indices = indices[first : first + count]
-
+    var bin_min = centroid_bounds._min
+    var centroid_extent = centroid_bounds.extent()
+    var bin_scale = centroid_extent
     comptime for axis in range(3):
-        var min_c = f32_max
-        var max_c = f32_min
+        if centroid_extent[axis] > 0.0:
+            bin_scale.set_axis[axis](Float32(BVH_BINS) / centroid_extent[axis])
+        else:
+            bin_scale.set_axis[axis](0.0)
+    var bins = Array[BoundsBin[frame], 3 * BVH_BINS](fill=BoundsBin[frame]())
 
-        # centroid range
-        for item_idx in node_indices:
-            var c = items.unsafe_get(item_idx).center_axis(axis)
-            min_c = min(min_c, c)
-            max_c = max(max_c, c)
+    # Bin all three axes in one primitive-range pass.
+    var node_indices = indices[first : first + count]
+    for item_idx_u32 in node_indices:
+        var item_idx = Int(item_idx_u32)
+        ref item = items.unsafe_get(item_idx)
+        var centroid = item.bounds.centroid()
 
-        if min_c == max_c:
+        comptime for axis in range(3):
+            if centroid_extent[axis] > 0.0:
+                var b_idx = _centroid_bin[BVH_BINS](
+                    centroid[axis], bin_min[axis], bin_scale[axis]
+                )
+                var flat_idx = axis * BVH_BINS + b_idx
+                bins[flat_idx].item_count += 1
+                item.grow_into(bins[flat_idx].bounds)
+
+    # Prefix/suffix evaluation is constant-sized and performs no primitive
+    # range scans.
+    comptime for axis in range(3):
+        if centroid_extent[axis] == 0.0:
             continue
 
-        var bins = Array[BoundsBin[frame], BVH_BINS](fill=BoundsBin[frame]())
-        var scale = Float32(BVH_BINS) / (max_c - min_c)
-
-        for item_idx_u32 in node_indices:
-            var item_idx = Int(item_idx_u32)
-            var b_idx = _item_bin[frame, BVH_BINS](
-                items, item_idx, axis, min_c, scale
-            )
-            bins[b_idx].item_count += 1
-            items.unsafe_get(item_idx).grow_into(bins[b_idx].bounds)
-
-        # from the left
+        var axis_base = axis * BVH_BINS
         var left_prefix = Array[BoundsBin[frame], BVH_BINS](
             fill=BoundsBin[frame]()
         )
@@ -86,18 +115,19 @@ def _find_sah_split[
         var left_count = UInt32(0)
 
         for i in range(BVH_BINS - 1):
-            left_count += bins[i].item_count
-            left_box.grow(bins[i].bounds)
+            ref bin = bins[axis_base + i]
+            left_count += bin.item_count
+            left_box.grow(bin.bounds)
             left_prefix[i].item_count = left_count
             left_prefix[i].bounds = left_box
 
-        # from the right
         var right_box = AABB[frame].invalid()
         var right_count = UInt32(0)
 
         for i in range(BVH_BINS - 1, 0, -1):
-            right_count += bins[i].item_count
-            right_box.grow(bins[i].bounds)
+            ref bin = bins[axis_base + i]
+            right_count += bin.item_count
+            right_box.grow(bin.bounds)
 
             var split_bin = i - 1
             var left = left_prefix[split_bin]
@@ -114,38 +144,30 @@ def _find_sah_split[
             if cost < best.cost:
                 best.axis = axis
                 best.bin = split_bin
-                best.pos = min_c + Float32(i) / scale
+                best.pos = bin_min[axis] + Float32(i) / bin_scale[axis]
                 best.cost = cost
-                best.bin_min = min_c
-                best.bin_scale = scale
-                best.left_bounds = left.bounds
-                best.right_bounds = right_box
+                best.bin_min = bin_min[axis]
+                best.bin_scale = bin_scale[axis]
 
     return best^
 
 
-@fieldwise_init
-struct BoundsBin[frame: Frame](TrivialRegisterPassable):
-    var bounds: AABB[Self.frame]
-    var item_count: UInt32
-
-    def __init__(out self):
-        self.bounds = AABB[Self.frame].invalid()
-        self.item_count = 0
-
-
-def _item_bin[
-    frame: Frame, BVH_BINS: Int
-](
-    items: Span[mut=False, BoundsItem[frame], _],
-    item_idx: Int,
-    axis: Int,
-    bin_min: Float32,
-    bin_scale: Float32,
-) -> Int:
-    var c = items.unsafe_get(item_idx).center_axis(axis)
-    var b_idx = Int((c - bin_min) * bin_scale)
+def _centroid_bin[
+    BVH_BINS: Int
+](centroid: Float32, bin_min: Float32, bin_scale: Float32) -> Int:
+    var b_idx = Int((centroid - bin_min) * bin_scale)
     return clamp(b_idx, 0, BVH_BINS - 1)
+
+
+def _grow_partition_side[
+    frame: Frame
+](
+    item: BoundsItem[frame],
+    mut bounds: AABB[frame],
+    mut centroid_bounds: AABB[frame],
+):
+    item.grow_into(bounds)
+    centroid_bounds.grow(item.bounds.centroid())
 
 
 def _partition_items_by_bin[
@@ -159,7 +181,7 @@ def _partition_items_by_bin[
     split_bin: Int,
     bin_min: Float32,
     bin_scale: Float32,
-) -> Int:
+) -> BoundsPartitionResult[frame]:
     debug_assert["safe", _use_compiler_assume=True](
         first >= 0
         and count > 0
@@ -180,20 +202,65 @@ def _partition_items_by_bin[
         "SAH split bin is outside the bin array",
     )
 
+    var out = BoundsPartitionResult[frame](first)
     var node_indices = indices[first : first + count]
     var i = 0
     var j = len(node_indices) - 1
 
+    # Each primitive is classified once. Bounds are accumulated before a
+    # right-side item is swapped out of the unclassified range.
     while i <= j:
         var item_idx = Int(node_indices.unsafe_get(i))
-        var b_idx = _item_bin[frame, BVH_BINS](
-            items, item_idx, axis, bin_min, bin_scale
-        )
+        ref item = items.unsafe_get(item_idx)
+        var centroid = item.bounds.centroid()
+        var b_idx = _centroid_bin[BVH_BINS](centroid[axis], bin_min, bin_scale)
 
         if b_idx <= split_bin:
+            _grow_partition_side(
+                item,
+                out.left_bounds,
+                out.left_centroid_bounds,
+            )
             i += 1
         else:
+            _grow_partition_side(
+                item,
+                out.right_bounds,
+                out.right_centroid_bounds,
+            )
             node_indices.unsafe_swap_elements(i, j)
             j -= 1
 
-    return first + i
+    out.split_idx = first + i
+    return out^
+
+
+def _calculate_partition_bounds[
+    frame: Frame
+](
+    indices: Span[mut=False, UInt32, _],
+    items: Span[mut=False, BoundsItem[frame], _],
+    first: Int,
+    count: Int,
+    split_idx: Int,
+) -> BoundsPartitionResult[frame]:
+    var out = BoundsPartitionResult[frame](split_idx)
+
+    for offset in range(count):
+        var item_idx = Int(indices.unsafe_get(first + offset))
+        ref item = items.unsafe_get(item_idx)
+
+        if first + offset < split_idx:
+            _grow_partition_side(
+                item,
+                out.left_bounds,
+                out.left_centroid_bounds,
+            )
+        else:
+            _grow_partition_side(
+                item,
+                out.right_bounds,
+                out.right_centroid_bounds,
+            )
+
+    return out^

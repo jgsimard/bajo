@@ -89,12 +89,14 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
     """
 
     var nodes: List[WideBvhNode[Self.frame, Self.width]]
+    var child_masks: List[UInt32]
     var leaf_ranges: List[WideLeafRange]
     var item_indices: List[UInt32]
     var item_payloads: List[UInt32]
 
     def __init__(out self, bvh: BoundsBvhBuilder):
         self.nodes = List[WideBvhNode[Self.frame, Self.width]]()
+        self.child_masks = List[UInt32]()
         self.item_indices = bvh.item_indices.copy()
         self.item_payloads = [item.payload for item in bvh.items]
         var leaf_ranges = List[WideLeafRange]()
@@ -127,6 +129,7 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
         node and its returned index becomes the tagged leaf payload.
         """
         self.nodes = List[WideBvhNode[Self.frame, Self.width]]()
+        self.child_masks = List[UInt32]()
         self.leaf_ranges = List[WideLeafRange]()
         self.item_indices = List[UInt32]()
         self.item_payloads = List[UInt32]()
@@ -142,6 +145,7 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
     ](mut self, bvh: BoundsBvhBuilder, bin_idx: UInt32) -> UInt32:
         var wide_idx = len(self.nodes)
         self.nodes.append(WideBvhNode[Self.frame, Self.width]())
+        self.child_masks.append(0)
 
         var pool = Array[UInt32, Self.width](fill=bin_idx)
         var p_size = 1
@@ -169,6 +173,11 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
             pool[best_i] = n.left_child()
             pool[p_size] = n.right_child()
             p_size += 1
+
+        var child_mask = UInt32(0)
+        for i in range(p_size):
+            child_mask |= UInt32(1) << UInt32(i)
+        self.child_masks[wide_idx] = child_mask
 
         var node = WideBvhNode[Self.frame, Self.width]()
 

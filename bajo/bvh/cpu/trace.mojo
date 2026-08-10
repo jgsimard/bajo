@@ -215,7 +215,9 @@ def _trace_bounds_bvh_impl[
                 )
 
                 var aabb_hit = intersect_node(node.aabb)
-                var mask = aabb_hit.mask & node.data.ne(EMPTY_LANE)
+                var mask = aabb_hit.mask
+                comptime if bounds_width != 16:
+                    mask &= node.data.ne(EMPTY_LANE)
 
                 # internal children and leaves compete equally for the nearest task
                 # keep that task in registers and defer the others
@@ -248,7 +250,9 @@ def _trace_bounds_bvh_impl[
 
                 comptime if bounds_width == 16:
                     # BVH16 benefits from consuming only set mask bits: see benchmarks
-                    var bits = pack_bits(mask)
+                    var bits = UInt32(pack_bits(mask)) & (
+                        tree.child_masks.unsafe_get(Int(current_ref))
+                    )
 
                     while bits != 0:
                         var lane = Int(count_trailing_zeros(bits))
@@ -323,14 +327,18 @@ def _trace_bounds_bvh_impl[
             )
 
             var aabb_hit = intersect_node(node.aabb)
-            var mask = aabb_hit.mask & node.data.ne(EMPTY_LANE)
+            var mask = aabb_hit.mask
+            comptime if bounds_width != 16:
+                mask &= node.data.ne(EMPTY_LANE)
 
             # keep the internal child visited immediately out of the stack
             var has_next = False
             var next_idx = UInt32(0)
 
             comptime if bounds_width == 16:
-                var bits = pack_bits(mask)
+                var bits = UInt32(pack_bits(mask)) & (
+                    tree.child_masks.unsafe_get(Int(n_idx))
+                )
 
                 while bits != 0:
                     var lane = Int(count_trailing_zeros(bits))

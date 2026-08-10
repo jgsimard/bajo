@@ -1,6 +1,7 @@
 from std.math import ceildiv, max
 from std.time import perf_counter_ns
-from std.gpu import DeviceBuffer, DeviceContext, global_idx
+from max.gpu.host import DeviceBuffer, DeviceContext
+from std.gpu import global_idx
 
 from bajo.bvh.camera import Camera
 from bajo.bvh.constants import (
@@ -26,7 +27,11 @@ from bajo.core.intersect import intersect_ray_sphere
 from bajo.bvh.types import Sphere, Hit, BlasSet
 from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh
 from bajo.bvh.gpu.trace import trace_bounds_bvh
-from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list
+from bajo.bvh.gpu.utils import (
+    GpuBuildTimings,
+    _device_span,
+    upload_list,
+)
 
 
 def build_sphere_blas_set[
@@ -171,10 +176,9 @@ struct GpuSphereBvh[frame: Frame, width: SIMDLength]:
             GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
         ctx.enqueue_function[pack_sphere_leaf_lanes_kernel[Self.width]](
-            self.spheres,
-            self.tree.leaf_block_indices,
-            self.leaf_spheres,
-            Int32(leaf_lane_count),
+            _device_span[mut=False](self.spheres),
+            _device_span[mut=False](self.tree.leaf_block_indices),
+            _device_span[mut=True](self.leaf_spheres),
             grid_dim=blocks,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
@@ -202,6 +206,10 @@ struct GpuSphereBvh[frame: Frame, width: SIMDLength]:
             >= ceildiv(ray_count, pixels_per_view) * Camera.STRIDE,
             "camera parameter buffer is too short",
         )
+        debug_assert["safe", _use_compiler_assume=True](
+            len(d_hits) >= ray_count * Hit.STRIDE,
+            "hit output buffer is too short",
+        )
         ctx.enqueue_function[trace_sphere_bvh_camera_kernel[Self.width]](
             self.tree.wide_nodes,
             self.leaf_spheres,
@@ -211,6 +219,7 @@ struct GpuSphereBvh[frame: Frame, width: SIMDLength]:
             Int32(ray_count),
             Int32(cwidth),
             Int32(cheight),
+            Float32(1.0) / Float32(cheight),
             grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
@@ -219,14 +228,15 @@ struct GpuSphereBvh[frame: Frame, width: SIMDLength]:
 def trace_sphere_bvh_camera_kernel[
     width: SIMDLength,
 ](
-    wide_nodes: UnsafePointer[Float32, ImmutAnyOrigin],
-    leaf_spheres: UnsafePointer[Float32, ImmutAnyOrigin],
+    wide_nodes: Pointer[Float32, ImmutAnyOrigin],
+    leaf_spheres: Pointer[Float32, ImmutAnyOrigin],
     root_idx: UInt32,
-    camera_params: UnsafePointer[Float32, ImmutAnyOrigin],
-    hits: UnsafePointer[Float32, MutAnyOrigin],
+    camera_params: Pointer[Float32, ImmutAnyOrigin],
+    hits: Pointer[Float32, MutAnyOrigin],
     ray_count: Int32,
     width_px: Int32,
     height_px: Int32,
+    inv_height: Float32,
 ):
     var ray_count_int = Int(ray_count)
     var width_px_int = Int(width_px)
@@ -246,8 +256,10 @@ def trace_sphere_bvh_camera_kernel[
         length=ceildiv(ray_count_int, pixels_per_view) * Camera.STRIDE,
     )
     var camera = Camera(camera_params_span, view_idx * Camera.STRIDE)
-    var ray = camera.make_ray(px_i, py_i, width_px_int, height_px_int)
+    var ray = camera.make_ray_raster(px_i, py_i, width_px_int, inv_height)
 
+    # extra distance stack benchmarks positively for sphere BVH2
+    # BVH4 and BVH8 retain the lower-memory stack specialization
     var hit = trace_bounds_bvh[
         Frame.WORLD,
         width,
@@ -257,13 +269,16 @@ def trace_sphere_bvh_camera_kernel[
             width,
             TRACE.CLOSEST_HIT,
         ],
+        True,
+        width == 2,
     ](
         wide_nodes,
         leaf_spheres,
         root_idx,
         ray,
     )
-    hit.store(hits, ray_idx)
+    var hits_span = Span(unsafe_ptr=hits, length=ray_count_int * Hit.STRIDE)
+    hit._store_unchecked(hits_span, ray_idx)
 
 
 def _intersect_sphere_leaf[
@@ -271,7 +286,7 @@ def _intersect_sphere_leaf[
     width: SIMDLength,
     mode: TRACE,
 ](
-    leaf_spheres: UnsafePointer[mut=False, Float32, _],
+    leaf_spheres: Pointer[mut=False, Float32, _],
     leaf_block_idx: UInt32,
     ray: Rayf32[frame],
     mut hit: Hit[frame],
@@ -302,8 +317,8 @@ def _intersect_sphere_leaf[
         return False
 
     comptime if mode == TRACE.CLOSEST_HIT:
-        _t = hit_mask.select(hit_sphere.t, f32_max)
-        min_t, lane = min_argmin(_t)
+        var _t = hit_mask.select(hit_sphere.t, f32_max)
+        var min_t, lane = min_argmin(_t)
 
         hit.t = min_t
         hit.u = 0.0
@@ -324,22 +339,27 @@ def _intersect_sphere_leaf[
 def pack_sphere_leaf_lanes_kernel[
     width: SIMDLength,
 ](
-    spheres: UnsafePointer[Float32, ImmutAnyOrigin],
-    leaf_block_indices: UnsafePointer[UInt32, ImmutAnyOrigin],
-    leaf_spheres: UnsafePointer[Float32, MutAnyOrigin],
-    leaf_lane_count: Int32,
+    spheres: Span[mut=False, Float32, ImmutAnyOrigin],
+    leaf_block_indices: Span[mut=False, UInt32, ImmutAnyOrigin],
+    leaf_spheres: Span[mut=True, Float32, MutAnyOrigin],
 ):
-    var leaf_lane_count_int = Int(leaf_lane_count)
+    var leaf_lane_count = len(leaf_spheres) / SPHERE_LEAF_PACKED_STRIDE
     var lane_idx = global_idx.x
-    if lane_idx >= leaf_lane_count_int:
+    if lane_idx >= leaf_lane_count:
         return
 
     var lane = lane_idx % width
     var block_idx = lane_idx / width
 
-    var prim = UInt32(leaf_block_indices[unsafe_offset=lane_idx])
     var out_base = block_idx * SPHERE_LEAF_PACKED_STRIDE * width
-    var leaf_spheres_u32 = leaf_spheres.unsafe_bitcast[UInt32]()
+    debug_assert["safe", _use_compiler_assume=True](
+        lane_idx < len(leaf_block_indices)
+        and out_base <= len(leaf_spheres) - SPHERE_LEAF_PACKED_STRIDE * width,
+        "packed sphere output block is outside a device span",
+    )
+    var prim = UInt32(leaf_block_indices.unsafe_get(lane_idx))
+    var leaf_spheres_ptr = leaf_spheres.unsafe_ptr()
+    var leaf_spheres_u32 = leaf_spheres_ptr.unsafe_bitcast[UInt32]()
 
     # AoSoA: [block][field][lane]
     # Packed fields:
@@ -353,17 +373,22 @@ def pack_sphere_leaf_lanes_kernel[
         return
 
     var in_base = Int(prim) * Sphere.STRIDE
+    debug_assert["safe", _use_compiler_assume=True](
+        in_base >= 0 and in_base <= len(spheres) - Sphere.STRIDE,
+        "sphere input record is outside the sphere span",
+    )
+    var spheres_ptr = spheres.unsafe_ptr()
 
-    leaf_spheres[unsafe_offset=out_base + 0 * width + lane] = spheres[
+    leaf_spheres_ptr[unsafe_offset=out_base + 0 * width + lane] = spheres_ptr[
         unsafe_offset=in_base + 0
     ]
-    leaf_spheres[unsafe_offset=out_base + 1 * width + lane] = spheres[
+    leaf_spheres_ptr[unsafe_offset=out_base + 1 * width + lane] = spheres_ptr[
         unsafe_offset=in_base + 1
     ]
-    leaf_spheres[unsafe_offset=out_base + 2 * width + lane] = spheres[
+    leaf_spheres_ptr[unsafe_offset=out_base + 2 * width + lane] = spheres_ptr[
         unsafe_offset=in_base + 2
     ]
-    leaf_spheres[unsafe_offset=out_base + 3 * width + lane] = spheres[
+    leaf_spheres_ptr[unsafe_offset=out_base + 3 * width + lane] = spheres_ptr[
         unsafe_offset=in_base + 3
     ]
 

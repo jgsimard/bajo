@@ -7,10 +7,11 @@ from std.gpu import (
     grid_dim,
     WARP_SIZE,
 )
-from std.gpu.host import DeviceContext, DeviceBuffer
-from std.gpu.memory import AddressSpace
-from std.gpu.primitives import warp, block
-from std.gpu.sync import barrier
+from max.gpu.host import DeviceContext, DeviceBuffer
+from max.gpu.memory import AddressSpace
+from std.gpu.primitives import warp
+from max.gpu.primitives import block
+from max.gpu.sync import barrier
 from std.math import ceildiv
 from std.memory import stack_allocation, bitcast
 from std.sys.info import bit_width_of
@@ -35,8 +36,8 @@ def global_histogram[
     VEC_WIDTH: SIMDLength,
     ITEMS_PER_THREAD: Int,
 ](
-    sort: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
-    global_hist: UnsafePointer[UInt32, MutAnyOrigin],
+    sort: Pointer[Scalar[keys_dtype], MutAnyOrigin],
+    global_hist: Pointer[UInt32, MutAnyOrigin],
     size: Int32,
 ):
     var size_int = Int(size)
@@ -99,8 +100,8 @@ def global_histogram[
 
 
 def scan_global(
-    global_hist: UnsafePointer[UInt32, MutAnyOrigin],
-    pass_hist: UnsafePointer[UInt32, MutAnyOrigin],
+    global_hist: Pointer[UInt32, MutAnyOrigin],
+    pass_hist: Pointer[UInt32, MutAnyOrigin],
     hist_blocks: Int32,
 ):
     var hist_blocks_int = Int(hist_blocks)
@@ -126,14 +127,12 @@ def digit_binning[
     KEYS_PER_THREAD: Int,
     HAVE_PAYLOAD: Bool,
 ](
-    keys_current: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
-    keys_alternate: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
-    vals_current_opt: Optional[UnsafePointer[Scalar[vals_dtype], MutAnyOrigin]],
-    vals_alternate_opt: Optional[
-        UnsafePointer[Scalar[vals_dtype], MutAnyOrigin]
-    ],
-    pass_hist: UnsafePointer[UInt32, MutAnyOrigin],
-    index: UnsafePointer[UInt32, MutAnyOrigin],
+    keys_current: Pointer[Scalar[keys_dtype], MutAnyOrigin],
+    keys_alternate: Pointer[Scalar[keys_dtype], MutAnyOrigin],
+    vals_current_opt: Optional[Pointer[Scalar[vals_dtype], MutAnyOrigin]],
+    vals_alternate_opt: Optional[Pointer[Scalar[vals_dtype], MutAnyOrigin]],
+    pass_hist: Pointer[UInt32, MutAnyOrigin],
+    index: Pointer[UInt32, MutAnyOrigin],
     size: Int32,
     radix_shift: UInt32,
 ):
@@ -393,7 +392,7 @@ def onesweep_radix_sort_keys[
     db_keys = DoubleBuffer(
         keys.unsafe_ptr(), workspace.keys_alternate.unsafe_ptr()
     )
-    dummy_v_ptr = Optional[UnsafePointer[Scalar[keys_dtype], MutAnyOrigin]]()
+    dummy_v_ptr = Optional[Pointer[Scalar[keys_dtype], MutAnyOrigin]]()
     global_hist = workspace.global_hist.unsafe_ptr()
     pass_hist = workspace.pass_hist.unsafe_ptr()
 

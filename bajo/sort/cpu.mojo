@@ -36,7 +36,7 @@ def nth_element[
     var size = len(span)
     if size <= 1 or n < 0 or n >= size:
         return
-    k = n
+    var k = n
 
     # If the partition is taking too long, we switch to Heapsort
     # to avoid the O(N^2) worst case of QuickSelect.

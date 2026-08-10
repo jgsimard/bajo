@@ -8,12 +8,12 @@ from std.gpu import (
     grid_dim,
     WARP_SIZE,
     warp_id,
-    DeviceBuffer,
 )
-from std.gpu.host import DeviceContext
-from std.gpu.memory import AddressSpace
-from std.gpu.primitives import warp, block
-from std.gpu.sync import barrier
+from max.gpu.host import DeviceContext, DeviceBuffer
+from max.gpu.memory import AddressSpace
+from std.gpu.primitives import warp
+from max.gpu.primitives import block
+from max.gpu.sync import barrier
 from std.math import ceildiv
 from std.memory import stack_allocation
 from std.sys.info import bit_width_of
@@ -31,9 +31,9 @@ def upsweep[
     VEC_WIDTH: SIMDLength,
     KEYS_PER_THREAD: Int,
 ](
-    keys_current: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
-    global_hist: UnsafePointer[UInt32, MutAnyOrigin],
-    pass_hist: UnsafePointer[UInt32, MutAnyOrigin],
+    keys_current: Pointer[Scalar[keys_dtype], MutAnyOrigin],
+    global_hist: Pointer[UInt32, MutAnyOrigin],
+    pass_hist: Pointer[UInt32, MutAnyOrigin],
     size: Int32,
     radix_shift: Scalar[keys_dtype],
 ):
@@ -124,7 +124,7 @@ def upsweep[
 
 def scan[
     BLOCK_SIZE: Int
-](pass_hist: UnsafePointer[UInt32, MutAnyOrigin], thread_blocks: Int32):
+](pass_hist: Pointer[UInt32, MutAnyOrigin], thread_blocks: Int32):
     var thread_blocks_int = Int(thread_blocks)
     var tid = Int(thread_idx.x)
     var bid = Int(block_idx.x)
@@ -166,14 +166,12 @@ def downsweep[
     KEYS_PER_THREAD: Int,
     HAVE_PAYLOAD: Bool,
 ](
-    keys_current: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
-    keys_alternate: UnsafePointer[Scalar[keys_dtype], MutAnyOrigin],
-    vals_current_opt: Optional[UnsafePointer[Scalar[vals_dtype], MutAnyOrigin]],
-    vals_alternate_opt: Optional[
-        UnsafePointer[Scalar[vals_dtype], MutAnyOrigin]
-    ],
-    global_hist: UnsafePointer[UInt32, MutAnyOrigin],
-    pass_hist: UnsafePointer[UInt32, MutAnyOrigin],
+    keys_current: Pointer[Scalar[keys_dtype], MutAnyOrigin],
+    keys_alternate: Pointer[Scalar[keys_dtype], MutAnyOrigin],
+    vals_current_opt: Optional[Pointer[Scalar[vals_dtype], MutAnyOrigin]],
+    vals_alternate_opt: Optional[Pointer[Scalar[vals_dtype], MutAnyOrigin]],
+    global_hist: Pointer[UInt32, MutAnyOrigin],
+    pass_hist: Pointer[UInt32, MutAnyOrigin],
     size: Int32,
     radix_shift: UInt32,
 ):
@@ -416,7 +414,7 @@ def device_radix_sort_keys[
         KEYS_PER_THREAD,
         False,
     ]
-    var _dummy_ptr = Optional[UnsafePointer[Scalar[dtype], MutAnyOrigin]]()
+    var _dummy_ptr = Optional[Pointer[Scalar[dtype], MutAnyOrigin]]()
 
     comptime for pass_idx in range(NUM_PASSES):
         var radix_shift = UInt32(pass_idx * BITS_PER_PASS)
@@ -511,15 +509,15 @@ def device_radix_sort_pairs[
 
     var gdim = ceildiv(size, PART_SIZE)
 
-    db_keys = DoubleBuffer(
+    var db_keys = DoubleBuffer(
         keys.unsafe_ptr(), workspace.keys_alternate.unsafe_ptr()
     )
-    db_vals = DoubleBuffer(
+    var db_vals = DoubleBuffer(
         values.unsafe_ptr(), workspace.vals_alternate.unsafe_ptr()
     )
 
-    global_hist = workspace.global_hist.unsafe_ptr()
-    pass_hist = workspace.pass_hist.unsafe_ptr()
+    var global_hist = workspace.global_hist.unsafe_ptr()
+    var pass_hist = workspace.pass_hist.unsafe_ptr()
 
     comptime UPSWEEP_BLOC_SIZE = 256
     comptime SCAN_BLOCK_SIZE = 256

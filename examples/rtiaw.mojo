@@ -23,7 +23,7 @@ comptime OUTPUT_PATH = "rtiaw.ppm"
 comptime IMAGE_WIDTH = 480
 comptime IMAGE_HEIGHT = 270
 comptime SAMPLES_PER_PIXEL = 10
-comptime MAX_DEPTH = 12
+comptime MAX_DEPTH = 64
 comptime RNG_SEED = UInt64(1234)
 comptime RENDER_ALGORITHM = RENDER_PATH
 

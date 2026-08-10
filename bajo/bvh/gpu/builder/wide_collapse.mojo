@@ -1,6 +1,7 @@
 from std.math import ceildiv, max
 from std.atomic import Atomic, Ordering
-from std.gpu import DeviceContext, DeviceBuffer, global_idx
+from std.gpu import global_idx
+from max.gpu.host import DeviceContext, DeviceBuffer
 
 from bajo.core import AABB, Frame
 from bajo.bvh.constants import (
@@ -25,43 +26,36 @@ from bajo.bvh.gpu.builder.binary_layout import (
 
 def _encoded_bounds(
     encoded: UInt32,
-    leaf_bounds: UnsafePointer[mut=False, Float32, _],
-    leaf_ids: UnsafePointer[mut=False, UInt32, _],
-    node_bounds: UnsafePointer[mut=False, Float32, _],
-    leaf_count: Int,
-    internal_count: Int,
+    leaf_bounds: Span[mut=False, Float32, _],
+    leaf_ids: Span[mut=False, UInt32, _],
+    node_bounds: Span[mut=False, Float32, _],
 ) -> AABB[Frame.WORLD]:
-    var leaf_bounds_span = Span(
-        unsafe_ptr=leaf_bounds, length=leaf_count * AABB.STRIDE
-    )
-    var node_bounds_span = Span(
-        unsafe_ptr=node_bounds,
-        length=max(internal_count, 1) * BinaryBvhNode.BOUNDS_STRIDE,
-    )
     if _is_encoded_leaf(encoded):
         var sorted_leaf_idx = _encoded_index(encoded)
-        var item_idx = UInt32(leaf_ids[unsafe_offset=Int(sorted_leaf_idx)])
+        debug_assert["safe", _use_compiler_assume=True](
+            Int(sorted_leaf_idx) < len(leaf_ids),
+            "encoded leaf index is outside the leaf-id span",
+        )
+        var item_idx = UInt32(leaf_ids.unsafe_get(Int(sorted_leaf_idx)))
         var b = Int(item_idx) * AABB.STRIDE
-        return AABB[Frame.WORLD].load6(leaf_bounds_span, b)
+        return AABB[Frame.WORLD].load6(leaf_bounds, b)
 
-    return _load_and_union_node_bounds(
-        node_bounds_span, _encoded_index(encoded)
-    )
+    return _load_and_union_node_bounds(node_bounds, _encoded_index(encoded))
 
 
 def collapse_terminal_root_to_wide_kernel[
     width: SIMDLength,
 ](
-    leaf_bounds: UnsafePointer[Float32, ImmutAnyOrigin],
-    leaf_payloads: UnsafePointer[UInt32, ImmutAnyOrigin],
-    leaf_ids: UnsafePointer[UInt32, ImmutAnyOrigin],
-    node_meta: UnsafePointer[UInt32, ImmutAnyOrigin],
-    node_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    wide_nodes: UnsafePointer[Float32, MutAnyOrigin],
-    leaf_block_indices: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_block_counter: UnsafePointer[UInt32, MutAnyOrigin],
-    wide_node_counter: UnsafePointer[UInt32, MutAnyOrigin],
-    wide_root: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_bounds: Pointer[Float32, ImmutAnyOrigin],
+    leaf_payloads: Pointer[UInt32, ImmutAnyOrigin],
+    leaf_ids: Pointer[UInt32, ImmutAnyOrigin],
+    node_meta: Pointer[UInt32, ImmutAnyOrigin],
+    node_bounds: Pointer[Float32, MutAnyOrigin],
+    wide_nodes: Pointer[Float32, MutAnyOrigin],
+    leaf_block_indices: Pointer[UInt32, MutAnyOrigin],
+    leaf_block_counter: Pointer[UInt32, MutAnyOrigin],
+    wide_node_counter: Pointer[UInt32, MutAnyOrigin],
+    wide_root: Pointer[UInt32, MutAnyOrigin],
     leaf_count: Int32,
     internal_count: Int32,
 ):
@@ -78,6 +72,11 @@ def collapse_terminal_root_to_wide_kernel[
     var root_bounds = AABB[Frame.WORLD].invalid()
     var leaf_bounds_span = Span(
         unsafe_ptr=leaf_bounds, length=leaf_count_int * AABB.STRIDE
+    )
+    var leaf_ids_span = Span(unsafe_ptr=leaf_ids, length=leaf_count_int)
+    var node_bounds_span = Span(
+        unsafe_ptr=node_bounds,
+        length=max(internal_count_int, 1) * BinaryBvhNode.BOUNDS_STRIDE,
     )
 
     if leaf_count_int == 1:
@@ -113,11 +112,9 @@ def collapse_terminal_root_to_wide_kernel[
 
         root_bounds = _encoded_bounds(
             root,
-            leaf_bounds,
-            leaf_ids,
-            node_bounds,
-            leaf_count_int,
-            internal_count_int,
+            leaf_bounds_span,
+            leaf_ids_span,
+            node_bounds_span,
         )
 
     # Root wide node: lane 0 is one packed leaf block.
@@ -282,11 +279,11 @@ def collapse[
 def init_precomputed_wide_leaf_blocks_kernel[
     width: SIMDLength,
 ](
-    leaf_payloads: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_ids: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_block_indices: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_block_counter: UnsafePointer[UInt32, MutAnyOrigin],
-    wide_node_counter: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_payloads: Pointer[UInt32, MutAnyOrigin],
+    leaf_ids: Pointer[UInt32, MutAnyOrigin],
+    leaf_block_indices: Pointer[UInt32, MutAnyOrigin],
+    leaf_block_counter: Pointer[UInt32, MutAnyOrigin],
+    wide_node_counter: Pointer[UInt32, MutAnyOrigin],
     leaf_count: Int32,
     internal_count: Int32,
 ):
@@ -312,16 +309,24 @@ def init_precomputed_wide_leaf_blocks_kernel[
 def collapse_precomputed_wide_kernel[
     width: SIMDLength,
 ](
-    leaf_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    leaf_ids: UnsafePointer[UInt32, MutAnyOrigin],
-    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
-    node_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    wide_nodes: UnsafePointer[Float32, MutAnyOrigin],
-    wide_root: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_bounds: Pointer[Float32, MutAnyOrigin],
+    leaf_ids: Pointer[UInt32, MutAnyOrigin],
+    node_meta: Pointer[UInt32, MutAnyOrigin],
+    node_bounds: Pointer[Float32, MutAnyOrigin],
+    wide_nodes: Pointer[Float32, MutAnyOrigin],
+    wide_root: Pointer[UInt32, MutAnyOrigin],
     internal_count: Int32,
 ):
     var internal_count_int = Int(internal_count)
     var leaf_count_int = internal_count_int + 1
+    var leaf_bounds_span = Span(
+        unsafe_ptr=leaf_bounds, length=leaf_count_int * AABB.STRIDE
+    )
+    var leaf_ids_span = Span(unsafe_ptr=leaf_ids, length=leaf_count_int)
+    var node_bounds_span = Span(
+        unsafe_ptr=node_bounds,
+        length=max(internal_count_int, 1) * BinaryBvhNode.BOUNDS_STRIDE,
+    )
     var node_i = global_idx.x
     if node_i >= internal_count_int:
         return
@@ -350,11 +355,9 @@ def collapse_precomputed_wide_kernel[
                 if not _is_encoded_leaf(e):
                     var b = _encoded_bounds(
                         e,
-                        leaf_bounds,
-                        leaf_ids,
-                        node_bounds,
-                        leaf_count_int,
-                        internal_count_int,
+                        leaf_bounds_span,
+                        leaf_ids_span,
+                        node_bounds_span,
                     )
                     var area = b.surface_area()
 
@@ -384,11 +387,9 @@ def collapse_precomputed_wide_kernel[
         var e = pool[lane]
         var b = _encoded_bounds(
             e,
-            leaf_bounds,
-            leaf_ids,
-            node_bounds,
-            leaf_count_int,
-            internal_count_int,
+            leaf_bounds_span,
+            leaf_ids_span,
+            node_bounds_span,
         )
 
         var meta = _pack_wide_meta(_encoded_index(e), UInt32(0))
@@ -428,7 +429,7 @@ def _hploc_pair_out_idx(pair: UInt64) -> UInt32:
 
 
 def _encoded_leaf_count(
-    encoded: UInt32, node_leaf_counts: UnsafePointer[mut=False, UInt32, _]
+    encoded: UInt32, node_leaf_counts: Pointer[mut=False, UInt32, _]
 ) -> UInt32:
     if _is_encoded_leaf(encoded):
         return UInt32(1)
@@ -439,10 +440,10 @@ def _write_terminal_leaf_block[
     width: SIMDLength,
 ](
     encoded: UInt32,
-    leaf_payloads: UnsafePointer[mut=False, UInt32, _],
-    leaf_ids: UnsafePointer[mut=False, UInt32, _],
-    node_meta: UnsafePointer[mut=False, UInt32, _],
-    leaf_block_indices: UnsafePointer[mut=True, UInt32, _],
+    leaf_payloads: Pointer[mut=False, UInt32, _],
+    leaf_ids: Pointer[mut=False, UInt32, _],
+    node_meta: Pointer[mut=False, UInt32, _],
+    leaf_block_indices: Pointer[mut=True, UInt32, _],
     leaf_block_idx: UInt32,
 ):
     var stack = Array[UInt32, GPU_STACK_SIZE](uninitialized=True)
@@ -488,9 +489,9 @@ def _write_one_leaf_block[
     width: SIMDLength,
 ](
     encoded_leaf: UInt32,
-    leaf_payloads: UnsafePointer[mut=False, UInt32, _],
-    leaf_ids: UnsafePointer[mut=False, UInt32, _],
-    leaf_block_indices: UnsafePointer[mut=True, UInt32, _],
+    leaf_payloads: Pointer[mut=False, UInt32, _],
+    leaf_ids: Pointer[mut=False, UInt32, _],
+    leaf_block_indices: Pointer[mut=True, UInt32, _],
     leaf_block_idx: UInt32,
 ):
     var sorted_leaf_idx = _encoded_index(encoded_leaf)
@@ -503,13 +504,13 @@ def _write_one_leaf_block[
 
 
 def init_hploc_index_pairs_kernel(
-    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
-    index_pairs: UnsafePointer[UInt64, MutAnyOrigin],
-    slot_counter: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_block_counter: UnsafePointer[UInt32, MutAnyOrigin],
-    wide_node_counter: UnsafePointer[UInt32, MutAnyOrigin],
-    status: UnsafePointer[UInt32, MutAnyOrigin],
-    wide_root: UnsafePointer[UInt32, MutAnyOrigin],
+    node_meta: Pointer[UInt32, MutAnyOrigin],
+    index_pairs: Pointer[UInt64, MutAnyOrigin],
+    slot_counter: Pointer[UInt32, MutAnyOrigin],
+    leaf_block_counter: Pointer[UInt32, MutAnyOrigin],
+    wide_node_counter: Pointer[UInt32, MutAnyOrigin],
+    status: Pointer[UInt32, MutAnyOrigin],
+    wide_root: Pointer[UInt32, MutAnyOrigin],
     internal_count: Int32,
     slot_count: Int32,
 ):
@@ -543,19 +544,19 @@ def init_hploc_index_pairs_kernel(
 def hploc_to_wide_kernel[
     width: SIMDLength,
 ](
-    leaf_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    leaf_payloads: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_ids: UnsafePointer[UInt32, MutAnyOrigin],
-    node_meta: UnsafePointer[UInt32, MutAnyOrigin],
-    node_bounds: UnsafePointer[Float32, MutAnyOrigin],
-    node_leaf_counts: UnsafePointer[UInt32, MutAnyOrigin],
-    index_pairs: UnsafePointer[UInt64, MutAnyOrigin],
-    slot_counter: UnsafePointer[UInt32, MutAnyOrigin],
-    leaf_block_counter: UnsafePointer[UInt32, MutAnyOrigin],
-    wide_node_counter: UnsafePointer[UInt32, MutAnyOrigin],
-    status: UnsafePointer[UInt32, MutAnyOrigin],
-    wide_nodes: UnsafePointer[Float32, MutAnyOrigin],
-    leaf_block_indices: UnsafePointer[UInt32, MutAnyOrigin],
+    leaf_bounds: Pointer[Float32, MutAnyOrigin],
+    leaf_payloads: Pointer[UInt32, MutAnyOrigin],
+    leaf_ids: Pointer[UInt32, MutAnyOrigin],
+    node_meta: Pointer[UInt32, MutAnyOrigin],
+    node_bounds: Pointer[Float32, MutAnyOrigin],
+    node_leaf_counts: Pointer[UInt32, MutAnyOrigin],
+    index_pairs: Pointer[UInt64, MutAnyOrigin],
+    slot_counter: Pointer[UInt32, MutAnyOrigin],
+    leaf_block_counter: Pointer[UInt32, MutAnyOrigin],
+    wide_node_counter: Pointer[UInt32, MutAnyOrigin],
+    status: Pointer[UInt32, MutAnyOrigin],
+    wide_nodes: Pointer[Float32, MutAnyOrigin],
+    leaf_block_indices: Pointer[UInt32, MutAnyOrigin],
     slot_count: Int32,
     max_wide_nodes: Int32,
     max_leaf_blocks: Int32,
@@ -563,6 +564,14 @@ def hploc_to_wide_kernel[
     var slot_count_int = Int(slot_count)
     var leaf_count_int = slot_count_int
     var internal_count_int = leaf_count_int - 1
+    var leaf_bounds_span = Span(
+        unsafe_ptr=leaf_bounds, length=leaf_count_int * AABB.STRIDE
+    )
+    var leaf_ids_span = Span(unsafe_ptr=leaf_ids, length=leaf_count_int)
+    var node_bounds_span = Span(
+        unsafe_ptr=node_bounds,
+        length=max(internal_count_int, 1) * BinaryBvhNode.BOUNDS_STRIDE,
+    )
     var max_wide_nodes_int = Int(max_wide_nodes)
     var max_leaf_blocks_int = Int(max_leaf_blocks)
     # algo:
@@ -641,19 +650,15 @@ def hploc_to_wide_kernel[
         var right = _node_right(node_meta, node_idx)
         var left_bounds = _encoded_bounds(
             left,
-            leaf_bounds,
-            leaf_ids,
-            node_bounds,
-            leaf_count_int,
-            internal_count_int,
+            leaf_bounds_span,
+            leaf_ids_span,
+            node_bounds_span,
         )
         var right_bounds = _encoded_bounds(
             right,
-            leaf_bounds,
-            leaf_ids,
-            node_bounds,
-            leaf_count_int,
-            internal_count_int,
+            leaf_bounds_span,
+            leaf_ids_span,
+            node_bounds_span,
         )
 
         var first = left
@@ -696,19 +701,15 @@ def hploc_to_wide_kernel[
             var c1 = _node_right(node_meta, open_idx)
             var c0_bounds = _encoded_bounds(
                 c0,
-                leaf_bounds,
-                leaf_ids,
-                node_bounds,
-                leaf_count_int,
-                internal_count_int,
+                leaf_bounds_span,
+                leaf_ids_span,
+                node_bounds_span,
             )
             var c1_bounds = _encoded_bounds(
                 c1,
-                leaf_bounds,
-                leaf_ids,
-                node_bounds,
-                leaf_count_int,
-                internal_count_int,
+                leaf_bounds_span,
+                leaf_ids_span,
+                node_bounds_span,
             )
 
             var ordered0 = c0
@@ -859,11 +860,9 @@ def hploc_to_wide_kernel[
 
             var b = _encoded_bounds(
                 child_encoded,
-                leaf_bounds,
-                leaf_ids,
-                node_bounds,
-                leaf_count_int,
-                internal_count_int,
+                leaf_bounds_span,
+                leaf_ids_span,
+                node_bounds_span,
             )
             var meta = _pack_wide_meta(child_ref_idx, UInt32(0))
             if child_is_leaf:

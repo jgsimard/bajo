@@ -235,3 +235,10 @@ assets/*
 bench/sort/bench_cub_radix
 bench/sort/cub_sort_benchmark_results.csv
 bench/sort/gpu_sort_benchmark_plot.png
+
+external/*
+bench_tinybvh
+
+# benchmarks results
+bench/results/bvh_cpu/bvh_cpu_*
+bench/results/bvh_cpu/latest*

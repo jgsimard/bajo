@@ -3,7 +3,7 @@ from std.os import SEEK_END
 
 
 struct MMap[mut: Bool, //, origin: Origin[mut=mut]]:
-    comptime ptr = Optional[UnsafePointer[UInt8, Self.origin]]
+    comptime ptr = Optional[Pointer[UInt8, Self.origin]]
     var _data: Self.ptr
     var _size: Int
 
@@ -38,8 +38,14 @@ struct MMap[mut: Bool, //, origin: Origin[mut=mut]]:
     def byte_length(ref self) -> Int:
         return self._size
 
-    def as_string_slice(ref self) -> StringSlice[Self.origin]:
+    def as_bytes_span(ref self) -> Span[UInt8, Self.origin]:
+        comptime T = Span[UInt8, Self.origin]
         if self._size == 0:
-            return StringSlice[Self.origin]()
-        span = Span(unsafe_ptr=self._data.unsafe_value(), length=self._size)
-        return StringSlice[Self.origin](unsafe_from_utf8=span)
+            return T()
+        return T(
+            unsafe_ptr=self._data.unsafe_value(),
+            length=self._size,
+        )
+
+    def as_string_span(ref self) -> StringSpan[Self.origin]:
+        return StringSpan(unsafe_from_utf8=self.as_bytes_span())

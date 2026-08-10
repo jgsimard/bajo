@@ -20,7 +20,7 @@ from bajo.bvh.types import Instance, Sphere
 
 
 comptime Color = Vec3f32[Frame.WORLD]
-comptime BVH_WIDTH = 8
+comptime BVH_WIDTH = 16
 
 comptime MAT_LAMBERTIAN = UInt32(0)
 comptime MAT_METAL = UInt32(1)
@@ -295,7 +295,7 @@ struct World:
 
             self.triangle_bvh = Optional[TriangleBvh[Frame.WORLD, BVH_WIDTH]](
                 TriangleBvh[Frame.WORLD, BVH_WIDTH].__init__["lbvh"](
-                    self.triangle_vertices.copy()
+                    self.triangle_vertices
                 )
             )
 
@@ -311,7 +311,7 @@ struct World:
                 )
                 self.triangle_mesh_blases.append(
                     TriangleBvh[Frame.LOCAL, BVH_WIDTH].__init__["lbvh"](
-                        vertices.copy()
+                        vertices
                     )
                 )
 

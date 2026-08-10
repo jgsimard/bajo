@@ -18,10 +18,10 @@ def quat_mul_0[
 ](
     q1: Quaternion[dtype, frame, width], q2: Quaternion[dtype, frame, width]
 ) -> Quaternion[dtype, frame, width]:
-    x = q1.w * q2.x + q1.x * q2.w + q1.y * q2.z - q1.z * q2.y
-    y = q1.w * q2.y - q1.x * q2.z + q1.y * q2.w + q1.z * q2.x
-    z = q1.w * q2.z + q1.x * q2.y - q1.y * q2.x + q1.z * q2.w
-    w = q1.w * q2.w - q1.x * q2.x - q1.y * q2.y - q1.z * q2.z
+    var x = q1.w * q2.x + q1.x * q2.w + q1.y * q2.z - q1.z * q2.y
+    var y = q1.w * q2.y - q1.x * q2.z + q1.y * q2.w + q1.z * q2.x
+    var z = q1.w * q2.z + q1.x * q2.y - q1.y * q2.x + q1.z * q2.w
+    var w = q1.w * q2.w - q1.x * q2.x - q1.y * q2.y - q1.z * q2.z
     return Quaternion[dtype, frame, width](x, y, z, w)
 
 
@@ -31,7 +31,7 @@ struct BenchmarkData[width: SIMDLength](Copyable):
     var dst: List[Quaternion[dtype, Frame.WORLD, Self.width]]
 
     def __init__(out self):
-        rng = Rng(123, 123)
+        var rng = Rng(123, 123)
 
         self.src_a = [
             Quaternion[dtype, Frame.WORLD, Self.width].from_axis_angle(
@@ -64,7 +64,7 @@ def dispatch_mul[
 
 def main() raises:
     def bench_throughput[version: Int, width: SIMDLength]() raises:
-        data = BenchmarkData[width]()
+        var data = BenchmarkData[width]()
 
         # bounds checking makes this benchmars 3X slower !
         def wrapper() raises {mut data}:
@@ -75,9 +75,9 @@ def main() raises:
                 )
             keep(data.dst[0].z)
 
-        report = run(wrapper, max_iters=1000)
-        avg_time_us = round(report.mean(Unit.us), 2)
-        mops = round(num_elements / avg_time_us, 2)
+        var report = run(wrapper, max_iters=1000)
+        var avg_time_us = round(report.mean(Unit.us), 2)
+        var mops = round(num_elements / avg_time_us, 2)
 
         print(t"Throughput: {mops} Mops/s | Avg Time: {avg_time_us} us")
 

@@ -1,4 +1,4 @@
-from std.gpu.host import DeviceBuffer
+from max.gpu.host import DeviceBuffer
 
 from bajo.bvh.constants import (
     LBVH_LEAF_FLAG,

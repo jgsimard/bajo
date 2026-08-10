@@ -1,4 +1,5 @@
 from std.testing import TestSuite, assert_almost_equal, assert_true
+from std.memory.alloc import alloc, dealloc, Layout
 
 from bajo.core import (
     Affine3,
@@ -21,11 +22,11 @@ from bajo.core.utils import degrees_to_radians
 
 
 def test_identity() raises:
-    p_w = Point3f32[Frame.WORLD](1, 2, 3)
-    v_w = Vec3f32[Frame.WORLD](4, 5, 6)
-    p_c = Point3f32[Frame.CAMERA](1, 2, 3)
-    v_c = Vec3f32[Frame.CAMERA](4, 5, 6)
-    m = Affine3f32[Frame.WORLD, Frame.CAMERA].identity()
+    var p_w = Point3f32[Frame.WORLD](1, 2, 3)
+    var v_w = Vec3f32[Frame.WORLD](4, 5, 6)
+    var p_c = Point3f32[Frame.CAMERA](1, 2, 3)
+    var v_c = Vec3f32[Frame.CAMERA](4, 5, 6)
+    var m = Affine3f32[Frame.WORLD, Frame.CAMERA].identity()
 
     assert_vec_equal(m.point(p_w), p_c)
     assert_vec_equal(m.vector(v_w), v_c)
@@ -33,12 +34,11 @@ def test_identity() raises:
 
 
 def test_translation() raises:
-    p = Point3W(1, 2, 3)
-    v = Vec3W(4, 5, 6)
-    t = Vec3W(10, -2, 3.5)
-    tc = Vec3f32[Frame.CAMERA](10, -2, 3.5)
-
-    m = Affine3f32[Frame.WORLD, Frame.CAMERA].from_translation(t)
+    var p = Point3W(1, 2, 3)
+    var v = Vec3W(4, 5, 6)
+    var t = Vec3W(10, -2, 3.5)
+    var tc = Vec3f32[Frame.CAMERA](10, -2, 3.5)
+    var m = Affine3f32[Frame.WORLD, Frame.CAMERA].from_translation(t)
 
     assert_vec_equal(m.point(p), Point3f32[Frame.CAMERA](11, 0, 6.5))
     assert_vec_equal(m.vector(v), Vec3f32[Frame.CAMERA](4, 5, 6))
@@ -46,11 +46,10 @@ def test_translation() raises:
 
 
 def test_scale() raises:
-    p = Point3W(1, 2, 3)
-    v = Vec3W(4, 5, 6)
-    s = Vec3W(2, 3, 4)
-
-    m = Affine3f32[Frame.WORLD, Frame.CAMERA].from_scale(s)
+    var p = Point3W(1, 2, 3)
+    var v = Vec3W(4, 5, 6)
+    var s = Vec3W(2, 3, 4)
+    var m = Affine3f32[Frame.WORLD, Frame.CAMERA].from_scale(s)
 
     assert_vec_equal(m.point(p), Point3f32[Frame.CAMERA](2, 6, 12))
     assert_vec_equal(m.vector(v), Vec3f32[Frame.CAMERA](8, 15, 24))
@@ -58,17 +57,17 @@ def test_scale() raises:
 
 
 def test_rotation_scale_from_quat() raises:
-    axis = Vec3W(1, 0, 0)
-    angle = degrees_to_radians(Float32(30))
-    q = Quat.from_axis_angle(axis, angle)
-    s = Vec3W(2, 3, 4)
-    v = Vec3W(1, 2, 3)
-    p = Point3W(1, 2, 3)
-    m = Affine3f32[Frame.WORLD, Frame.CAMERA].from_rotation_scale(q, s)
+    var axis = Vec3W(1, 0, 0)
+    var angle = degrees_to_radians(Float32(30))
+    var q = Quat.from_axis_angle(axis, angle)
+    var s = Vec3W(2, 3, 4)
+    var v = Vec3W(1, 2, 3)
+    var p = Point3W(1, 2, 3)
+    var m = Affine3f32[Frame.WORLD, Frame.CAMERA].from_rotation_scale(q, s)
 
-    expected = q.rotate(Vec3W(v.x * s.x, v.y * s.y, v.z * s.z)).unsafe_convert[
-        new_frame=Frame.CAMERA
-    ]()
+    var expected = q.rotate(
+        Vec3W(v.x * s.x, v.y * s.y, v.z * s.z)
+    ).unsafe_convert[new_frame=Frame.CAMERA]()
 
     assert_vec_equal(m.vector(v), expected)
     assert_vec_equal(
@@ -77,21 +76,21 @@ def test_rotation_scale_from_quat() raises:
 
 
 def test_rotation_scale_translation_from_quat() raises:
-    axis = Vec3W(0, 1, 0)
-    angle = degrees_to_radians(Float32(45))
-    q = Quat.from_axis_angle(axis, angle)
+    var axis = Vec3W(0, 1, 0)
+    var angle = degrees_to_radians(Float32(45))
+    var q = Quat.from_axis_angle(axis, angle)
 
-    s = Vec3W(2, 3, 4)
-    t = Vec3W(10, 20, 30)
-    v = Vec3W(1, 2, 3)
-    p = Point3W(1, 2, 3)
+    var s = Vec3W(2, 3, 4)
+    var t = Vec3W(10, 20, 30)
+    var v = Vec3W(1, 2, 3)
+    var p = Point3W(1, 2, 3)
 
-    m = Affine3f32[Frame.WORLD, Frame.CAMERA].from_rotation_scale_translation(
-        q, s, t
-    )
+    var m = Affine3f32[
+        Frame.WORLD, Frame.CAMERA
+    ].from_rotation_scale_translation(q, s, t)
 
-    expected_v = q.rotate(Vec3W(p.x * s.x, p.y * s.y, p.z * s.z))
-    expected_p = (expected_v + t).unsafe_convert[
+    var expected_v = q.rotate(Vec3W(p.x * s.x, p.y * s.y, p.z * s.z))
+    var expected_p = (expected_v + t).unsafe_convert[
         new_frame=Frame.CAMERA, new_kind=GeoKind.POINT
     ]()
 
@@ -110,13 +109,13 @@ def test_width4_translation_and_scale() raises:
     comptime From = Frame.WORLD
     comptime To = Frame.CAMERA
 
-    p = Point3[T, From, W](1.0, 2.0, 3.0)
-    v = Vec3[T, From, W](1.0, 2.0, 3.0)
-    t = Vec3[T, From, W](10.0, 20.0, 30.0)
-    s = Vec3[T, From, W](2.0, 3.0, 4.0)
+    var p = Point3[T, From, W](1.0, 2.0, 3.0)
+    var v = Vec3[T, From, W](1.0, 2.0, 3.0)
+    var t = Vec3[T, From, W](10.0, 20.0, 30.0)
+    var s = Vec3[T, From, W](2.0, 3.0, 4.0)
 
-    mt = Affine3[T, From, To, W].from_translation(t)
-    ms = Affine3[T, From, To, W].from_scale(s)
+    var mt = Affine3[T, From, To, W].from_translation(t)
+    var ms = Affine3[T, From, To, W].from_scale(s)
 
     assert_vec_equal(
         mt.point(p),
@@ -152,21 +151,20 @@ def test_normal_uses_inverse_transpose_for_nonuniform_scale() raises:
 
 
 def test_load_store() raises:
-    var ptr = alloc[Float32](12)
+    var data = List[Float32](length=12, fill=0.0)
     # fmt: off
-    m = Affine3f32[Frame.WORLD, Frame.CAMERA](
+    var m = Affine3f32[Frame.WORLD, Frame.CAMERA](
         1, 2, 3, 4,
         5, 6, 7, 8,
         9, 10, 11, 12,
     )
     # fmt: on
 
-    v = Vec3W(2, 3, 4)
-    p = Point3W(2, 3, 4)
+    var v = Vec3W(2, 3, 4)
+    var p = Point3W(2, 3, 4)
 
-    var data = Span(unsafe_ptr=ptr, length=12)
-    m.store(data, 0)
-    loaded = Affine3f32[Frame.WORLD, Frame.CAMERA].load(data, 0)
+    m.store(Span(data), 0)
+    var loaded = Affine3f32[Frame.WORLD, Frame.CAMERA].load(Span(data), 0)
 
     assert_vec_equal(loaded.point(p), m.point(p))
     assert_vec_equal(loaded.vector(v), m.vector(v))
@@ -186,8 +184,6 @@ def test_load_store() raises:
     assert_almost_equal(loaded.m22[0], 11.0)
     assert_almost_equal(loaded.tz[0], 12.0)
 
-    ptr.unsafe_free()
-
 
 def test_load_transform_helpers() raises:
     # fmt: off
@@ -197,9 +193,9 @@ def test_load_transform_helpers() raises:
         9, 10, 11, 12
     ]
     # fmt: on
-    p = Point3W(2, 3, 4)
+    var p = Point3W(2, 3, 4)
 
-    loaded = Affine3f32[Frame.WORLD, Frame.CAMERA].load(Span(arr), 0)
+    var loaded = Affine3f32[Frame.WORLD, Frame.CAMERA].load(Span(arr), 0)
 
     # p = M * p_in + t
     assert_vec_equal(
@@ -212,7 +208,7 @@ def test_load_transform_helpers() raises:
     )
 
     # v = M * v_in
-    v = Vec3W(2, 3, 4)
+    var v = Vec3W(2, 3, 4)
     assert_vec_equal(
         loaded.vector(v),
         Vec3f32[Frame.CAMERA](
@@ -224,78 +220,80 @@ def test_load_transform_helpers() raises:
 
 
 def test_inverse_translation_scale() raises:
-    s = Vec3W(2, 4, 5)
-    t = Vec3W(10, 20, 30)
-    p = Point3W(1, 2, 3)
+    var s = Vec3W(2, 4, 5)
+    var t = Vec3W(10, 20, 30)
+    var p = Point3W(1, 2, 3)
 
-    m = Affine3f32[Frame.WORLD, Frame.CAMERA].from_rotation_scale_translation(
+    var m = Affine3f32[
+        Frame.WORLD, Frame.CAMERA
+    ].from_rotation_scale_translation(
         Quat[Frame.WORLD].identity(),
         s,
         t,
     )
 
-    res = m.inverse()
+    var res = m.inverse()
 
     assert_true(res.mask[0])
 
-    p2 = m.point(p)
+    var p2 = m.point(p)
     assert_vec_equal(res.inv.point(p2), p)
 
 
 def test_inverse_rotation_scale_translation() raises:
-    axis = Vec3W(0, 1, 0)
-    angle = degrees_to_radians(Float32(45))
-    q = Quat.from_axis_angle(axis, angle)
+    var axis = Vec3W(0, 1, 0)
+    var angle = degrees_to_radians(Float32(45))
+    var q = Quat.from_axis_angle(axis, angle)
 
-    s = Vec3W(2, 3, 4)
-    t = Vec3W(10, 20, 30)
-    p = Point3W(1, 2, 3)
+    var s = Vec3W(2, 3, 4)
+    var t = Vec3W(10, 20, 30)
+    var p = Point3W(1, 2, 3)
 
-    m = Affine3f32[Frame.WORLD, Frame.CAMERA].from_rotation_scale_translation(
-        q, s, t
-    )
-    res = m.inverse()
+    var m = Affine3f32[
+        Frame.WORLD, Frame.CAMERA
+    ].from_rotation_scale_translation(q, s, t)
+    var res = m.inverse()
 
     assert_true(res.mask[0])
 
-    p2 = m.point(p)
+    var p2 = m.point(p)
     assert_vec_equal(res.inv.point(p2), p, atol=1e-4)
 
 
 def test_inverse_singular_scale() raises:
-    m = Affine3f32[Frame.WORLD, Frame.CAMERA].from_scale(Vec3W(1, 0, 1))
-    res = m.inverse()
+    var m = Affine3f32[Frame.WORLD, Frame.CAMERA].from_scale(Vec3W(1, 0, 1))
+    var res = m.inverse()
     assert_true(not res.mask[0])
 
 
 def test_inverse_identity() raises:
-    m = Affine3f32[Frame.WORLD, Frame.CAMERA].identity()
-    res = m.inverse()
+    var m = Affine3f32[Frame.WORLD, Frame.CAMERA].identity()
+    var res = m.inverse()
 
     assert_true(res.mask[0])
 
-    p = Point3f32[Frame.CAMERA](1, 2, 3)
-    v = Vec3f32[Frame.CAMERA](4, 5, 6)
+    var p = Point3f32[Frame.CAMERA](1, 2, 3)
+    var v = Vec3f32[Frame.CAMERA](4, 5, 6)
 
     assert_vec_equal(res.inv.point(p), Point3f32[Frame.WORLD](1, 2, 3))
     assert_vec_equal(res.inv.vector(v), Vec3f32[Frame.WORLD](4, 5, 6))
 
 
 def test_ray_transform() raises:
-    ray = Ray[DType.float64, Frame.WORLD](
+    var ray = Ray[DType.float64, Frame.WORLD](
         Point3[DType.float64, Frame.WORLD](1, 2, 3),
         Vec3[DType.float64, Frame.WORLD](4, 5, 6),
         0.25,
         10,
     )
     # fmt: off
-    transform = Affine3[DType.float64, Frame.WORLD, Frame.CAMERA](
+    var transform = Affine3[DType.float64, Frame.WORLD, Frame.CAMERA](
         2, 0, 0, 10,
         0, 3, 0, -2,
         0, 0, 4, 3,
     )
     # fmt: on
-    transformed = transform.ray(ray, 7)
+    var transformed = transform.ray(ray, 7)
 
     assert_vec_equal(
         transformed.o, Point3[DType.float64, Frame.CAMERA](12, 4, 15)

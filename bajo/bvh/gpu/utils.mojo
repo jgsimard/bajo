@@ -1,9 +1,26 @@
-from std.gpu import DeviceContext, DeviceBuffer
+from max.gpu.host import DeviceContext, DeviceBuffer
 
 from bajo.bvh.camera import Camera
 from bajo.core import Vec3f32, Point3f32, Frame
 from bajo.bvh.types import Hit
 from bajo.bvh.constants import f32_max
+
+
+def _device_span[
+    mut: Bool,
+    dtype: DType,
+](
+    ref buffer: DeviceBuffer[dtype],
+) -> Span[
+    mut=mut, Scalar[dtype], AnyOrigin[mut=mut]
+]:
+    """Create a length-backed view at the device ABI boundary."""
+    return Span(
+        unsafe_ptr=buffer.unsafe_ptr()
+        .unsafe_mut_cast[mut]()
+        .unsafe_origin_cast[AnyOrigin[mut=mut]](),
+        length=len(buffer),
+    )
 
 
 @fieldwise_init

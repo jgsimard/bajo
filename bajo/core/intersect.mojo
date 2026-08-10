@@ -29,6 +29,23 @@ struct RayTriHit[dtype: DType, width: SIMDLength](
 
 
 @fieldwise_init
+struct RayTriScaledHit[dtype: DType, width: SIMDLength](
+    TrivialRegisterPassable
+):
+    """Division-free Moller-Trumbore candidate values.
+
+    All numerators have been oriented to a positive determinant, so valid
+    lanes can be tested against abs_det without calculating a reciprocal.
+    """
+
+    var mask: SIMD[DType.bool, Self.width]
+    var abs_det: SIMD[Self.dtype, Self.width]
+    var t_scaled: SIMD[Self.dtype, Self.width]
+    var u_scaled: SIMD[Self.dtype, Self.width]
+    var v_scaled: SIMD[Self.dtype, Self.width]
+
+
+@fieldwise_init
 struct RayDistanceHit[dtype: DType, width: SIMDLength](TrivialRegisterPassable):
     """RayDistanceHit.
 
@@ -52,9 +69,9 @@ def diff_product[
     Computes the difference of products a*b - c*d using
     FMA instructions for improved numerical precision.
     """
-    cd = c * d
-    diff = fma(a, b, -cd)
-    error = fma(-c, d, cd)
+    var cd = c * d
+    var diff = fma(a, b, -cd)
+    var error = fma(-c, d, cd)
     return diff + error
 
 
@@ -78,57 +95,57 @@ def closest_point_to_triangle[
     p: Vec3[dtype, frame, width],
 ) -> Vec2[dtype, frame, width]:
     comptime assert width == 1, "current limitation :("
-    ab = b - a
-    ac = c - a
-    ap = p - a
+    var ab = b - a
+    var ac = c - a
+    var ap = p - a
 
-    d1 = dot(ab, ap)
-    d2 = dot(ac, ap)
+    var d1 = dot(ab, ap)
+    var d2 = dot(ac, ap)
 
     if d1 <= 0 and d2 <= 0:
         # Vertex A: v=0, w=0, u=1
         return Vec2[dtype, frame, width](1, 0)
 
-    bp = p - b
-    d3 = dot(ab, bp)
-    d4 = dot(ac, bp)
+    var bp = p - b
+    var d3 = dot(ab, bp)
+    var d4 = dot(ac, bp)
     if d3 >= 0 and d4 <= d3:
         # Vertex B: v=1, w=0, u=0
         return Vec2[dtype, frame, width](0, 1)
 
-    vc = d1 * d4 - d3 * d2
+    var vc = d1 * d4 - d3 * d2
     if vc <= 0 and d1 >= 0 and d3 <= 0:
         # Edge AB
-        v = d1 / (d1 - d3)
-        u = 1 - v
+        var v = d1 / (d1 - d3)
+        var u = 1 - v
         return Vec2[dtype, frame, width](u, v)
 
-    cp = p - c
-    d5 = dot(ab, cp)
-    d6 = dot(ac, cp)
+    var cp = p - c
+    var d5 = dot(ab, cp)
+    var d6 = dot(ac, cp)
     if d6 >= 0 and d5 <= d6:
         # Vertex C: v=0, w=1, u=0
         return Vec2[dtype, frame, width](0, 0)
 
-    vb = d5 * d2 - d1 * d6
+    var vb = d5 * d2 - d1 * d6
     if vb <= 0 and d2 >= 0 and d6 <= 0:
         # Edge AC
-        w = d2 / (d2 - d6)
-        u = 1 - w
+        var w = d2 / (d2 - d6)
+        var u = 1 - w
         return Vec2[dtype, frame, width](u, 0)
 
-    va = d3 * d6 - d5 * d4
+    var va = d3 * d6 - d5 * d4
     if va <= 0 and (d4 - d3) >= 0 and (d5 - d6) >= 0:
         # Edge BC
-        w = (d4 - d3) / ((d4 - d3) + (d5 - d6))
-        v = 1 - w
+        var w = (d4 - d3) / ((d4 - d3) + (d5 - d6))
+        var v = 1 - w
         return Vec2[dtype, frame, width](0, v)
 
     # Inside Face
-    denom = 1 / (va + vb + vc)
-    v = vb * denom
-    w = vc * denom
-    u = 1 - v - w
+    var denom = 1 / (va + vb + vc)
+    var v = vb * denom
+    var w = vc * denom
+    var u = 1 - v - w
     return Vec2[dtype, frame, width](u, v)
 
 
@@ -142,13 +159,13 @@ def furthest_point_to_triangle[
 ) -> Vec2[dtype, frame, width]:
     comptime assert width == 1, "current limitation :("
 
-    pa = p - a
-    pb = p - b
-    pc = p - c
+    var pa = p - a
+    var pb = p - b
+    var pc = p - c
 
-    dist_a = dot(pa, pa)
-    dist_b = dot(pb, pb)
-    dist_c = dot(pc, pc)
+    var dist_a = dot(pa, pa)
+    var dist_b = dot(pb, pb)
+    var dist_c = dot(pc, pc)
 
     # a is furthest
     if dist_a > dist_b and dist_a > dist_c:
@@ -196,6 +213,56 @@ def intersect_ray_aabb_rcp[
     var mask = tmin.le(tmax)
 
     return RayDistanceHit(mask, tmin)
+
+
+@always_inline
+def intersect_ray_aabb_octant_fma[
+    dtype: DType,
+    frame: Frame,
+    width: SIMDLength,
+    positive_x: Bool,
+    positive_y: Bool,
+    positive_z: Bool,
+](
+    origin_rcp_d: Vec3[dtype, frame, width],
+    rcp_d: Vec3[dtype, frame, width],
+    aabb: AxisAlignedBoundingBox[dtype, frame, width],
+    t_max: SIMD[dtype, width],
+) -> RayDistanceHit[dtype, width]:
+    """Intersect using ray-octant-selected bounds and fused multiply-subtract.
+    """
+    comptime assert dtype in [DType.float32, DType.float64]
+
+    var tx_near: SIMD[dtype, width]
+    var tx_far: SIMD[dtype, width]
+    comptime if positive_x:
+        tx_near = fma(aabb._min.x, rcp_d.x, -origin_rcp_d.x)
+        tx_far = fma(aabb._max.x, rcp_d.x, -origin_rcp_d.x)
+    else:
+        tx_near = fma(aabb._max.x, rcp_d.x, -origin_rcp_d.x)
+        tx_far = fma(aabb._min.x, rcp_d.x, -origin_rcp_d.x)
+
+    var ty_near: SIMD[dtype, width]
+    var ty_far: SIMD[dtype, width]
+    comptime if positive_y:
+        ty_near = fma(aabb._min.y, rcp_d.y, -origin_rcp_d.y)
+        ty_far = fma(aabb._max.y, rcp_d.y, -origin_rcp_d.y)
+    else:
+        ty_near = fma(aabb._max.y, rcp_d.y, -origin_rcp_d.y)
+        ty_far = fma(aabb._min.y, rcp_d.y, -origin_rcp_d.y)
+
+    var tz_near: SIMD[dtype, width]
+    var tz_far: SIMD[dtype, width]
+    comptime if positive_z:
+        tz_near = fma(aabb._min.z, rcp_d.z, -origin_rcp_d.z)
+        tz_far = fma(aabb._max.z, rcp_d.z, -origin_rcp_d.z)
+    else:
+        tz_near = fma(aabb._max.z, rcp_d.z, -origin_rcp_d.z)
+        tz_far = fma(aabb._min.z, rcp_d.z, -origin_rcp_d.z)
+
+    var tmin = fmax(fmax(tx_near, ty_near), fmax(tz_near, 0.0))
+    var tmax = fmin(fmin(tx_far, ty_far), fmin(tz_far, t_max))
+    return RayDistanceHit(tmin.le(tmax), tmin)
 
 
 def intersect_ray_aabb[
@@ -282,6 +349,46 @@ def intersect_ray_sphere[
     return RayDistanceHit(mask, t)
 
 
+def intersect_ray_sphere_coefficients[
+    dtype: DType,
+    frame: Frame,
+    width: SIMDLength,
+](
+    o: Point3[dtype, frame, width],
+    d: Vec3[dtype, frame, width],
+    center: Point3[dtype, frame, width],
+    radius: SIMD[dtype, width],
+    a: SIMD[dtype, width],
+    inv_a: SIMD[dtype, width],
+    t_max: SIMD[dtype, width],
+    t_min: SIMD[dtype, width] = SIMD[dtype, width](1.0e-4),
+) -> RayDistanceHit[dtype, width]:
+    comptime assert dtype in [DType.float32, DType.float64]
+
+    var oc = o - center
+
+    var half_b = dot(oc, d)
+    var c = dot(oc, oc) - radius * radius
+
+    var det = half_b * half_b - a * c
+    var det_ok = det.ge(0.0)
+
+    var sqrt_det = sqrt(max(det, 0.0))
+    var t0 = (-half_b - sqrt_det) * inv_a
+    var t1 = (-half_b + sqrt_det) * inv_a
+
+    var near_mask = det_ok & t0.gt(t_min) & t0.lt(t_max)
+    var far_mask = det_ok & (~near_mask) & t1.gt(t_min) & t1.lt(t_max)
+    var mask = near_mask | far_mask
+
+    var t = near_mask.select(
+        t0,
+        far_mask.select(t1, max_finite[dtype]()),
+    )
+
+    return RayDistanceHit(mask, t)
+
+
 def intersect_ray_tri[
     dtype: DType, frame: Frame, width: SIMDLength
 ](
@@ -294,12 +401,32 @@ def intersect_ray_tri[
     t_min: SIMD[dtype, width] = SIMD[dtype, width](1.0e-4),
 ) -> RayTriHit[dtype, width]:
     """Moller and Trumbore's method."""
+    return intersect_ray_tri_edges(
+        o,
+        d,
+        v0,
+        v1 - v0,
+        v2 - v0,
+        t_max,
+        t_min,
+    )
+
+
+def intersect_ray_tri_edges[
+    dtype: DType, frame: Frame, width: SIMDLength
+](
+    o: Point3[dtype, frame, width],
+    d: Vec3[dtype, frame, width],
+    v0: Point3[dtype, frame, width],
+    e1: Vec3[dtype, frame, width],
+    e2: Vec3[dtype, frame, width],
+    t_max: SIMD[dtype, width],
+    t_min: SIMD[dtype, width] = SIMD[dtype, width](1.0e-4),
+) -> RayTriHit[dtype, width]:
+    """Moller-Trumbore intersection with precomputed triangle edges."""
     comptime assert dtype.is_floating_point()
     comptime EPSILON = Scalar[dtype](1e-8 if dtype == DType.float32 else 1e-16)
     comptime INF = max_finite[dtype]()
-
-    var e1 = v1 - v0
-    var e2 = v2 - v0
 
     var p = cross(d, e2)
     var det = dot(e1, p)
@@ -329,6 +456,55 @@ def intersect_ray_tri[
         mask.select(t, INF),
         u,
         v,
+    )
+
+
+def intersect_ray_tri_edges_scaled[
+    dtype: DType, frame: Frame, width: SIMDLength
+](
+    o: Point3[dtype, frame, width],
+    d: Vec3[dtype, frame, width],
+    v0: Point3[dtype, frame, width],
+    e1: Vec3[dtype, frame, width],
+    e2: Vec3[dtype, frame, width],
+    t_max: SIMD[dtype, width],
+    t_min: SIMD[dtype, width] = SIMD[dtype, width](1.0e-4),
+) -> RayTriScaledHit[dtype, width]:
+    """Return determinant-scaled Moller-Trumbore candidates."""
+    comptime assert dtype.is_floating_point()
+    comptime EPSILON = Scalar[dtype](1e-8 if dtype == DType.float32 else 1e-16)
+
+    var p = cross(d, e2)
+    var det = dot(e1, p)
+    var positive_det = det.ge(0.0)
+    var abs_det = positive_det.select(det, -det)
+
+    var tv = o - v0
+    var u_num = dot(tv, p)
+    var u_scaled = positive_det.select(u_num, -u_num)
+
+    var q = cross(tv, e1)
+    var v_num = dot(d, q)
+    var t_num = dot(e2, q)
+    var v_scaled = positive_det.select(v_num, -v_num)
+    var t_scaled = positive_det.select(t_num, -t_num)
+
+    var mask = (
+        abs_det.gt(EPSILON)
+        & u_scaled.ge(0.0)
+        & u_scaled.le(abs_det)
+        & v_scaled.ge(0.0)
+        & (u_scaled + v_scaled).le(abs_det)
+        & t_scaled.gt(t_min * abs_det)
+        & t_scaled.lt(t_max * abs_det)
+    )
+
+    return RayTriScaledHit(
+        mask,
+        abs_det,
+        t_scaled,
+        u_scaled,
+        v_scaled,
     )
 
 

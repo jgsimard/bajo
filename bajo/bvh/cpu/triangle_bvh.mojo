@@ -1,6 +1,11 @@
-from bajo.core.utils import min_argmin
+from std.bit import count_trailing_zeros
+from std.memory import pack_bits
+from std.sys import size_of
+
 from bajo.core import (
+    GeoKind,
     Vec3,
+    Vec3f32,
     Normal3f32,
     AABB,
     Point3,
@@ -10,38 +15,49 @@ from bajo.core import (
     normalize,
     Rayf32,
 )
-from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
+from bajo.bvh.constants import EMPTY_LANE, TRACE
 from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvh,
     BoundsItem,
     BoundsBvhBuilder,
+    _checked_typed_leaf_range,
 )
 from bajo.bvh.types import Hit, TriangleLeafBlock, TypedBvh
-from bajo.core.intersect import intersect_ray_tri
-from bajo.bvh.cpu.trace import trace_bounds_bvh
+from bajo.core.intersect import (
+    intersect_ray_tri_edges,
+    intersect_ray_tri_edges_scaled,
+)
+from bajo.bvh.cpu.trace import _extract_f32_lane, trace_bounds_bvh
 
 
-struct TriangleBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
+struct TriangleBvh[
+    frame: Frame,
+    bounds_width: SIMDLength,
+    leaf_width: SIMDLength = bounds_width,
+](Copyable, TypedBvh):
     comptime bvh_frame: Frame = Self.frame
 
-    """Triangle-specific wrapper around BoundsBvh[width].
+    """Triangle BVH with independent bounds and triangle packet widths.
 
-    After construction, leaf primitive data is packed into TriangleLeafBlock.
-    In this typed BLAS, a leaf lane means:
+    Binary-to-wide collapse packs triangle leaves in the same pass. Tagged
+    leaf references therefore point directly at TriangleLeafBlock entries:
 
-        node.counts[lane] > 0
-        node.data[lane] = TriangleLeafBlock index
+        node.data[lane] == EMPTY_LANE -> unused lane
+        is_leaf_ref(node.data[lane])  -> TriangleLeafBlock index
+        otherwise                     -> internal node index
     """
 
-    var tree: BoundsBvh[Self.frame, Self.width]
-    var leaf_blocks: List[TriangleLeafBlock[Self.frame, Self.width]]
+    var tree: BoundsBvh[Self.frame, Self.bounds_width]
+    var leaf_blocks: List[TriangleLeafBlock[Self.frame, Self.leaf_width]]
     var tri_count: Int
 
     def __init__[
         split_method: String = "median"
-    ](out self, var vertices: List[Point3f32[Self.frame]]):
+    ](out self, vertices: List[Point3f32[Self.frame]]):
         self.tri_count = len(vertices) / 3
-        self.leaf_blocks = List[TriangleLeafBlock[Self.frame, Self.width]]()
+        self.leaf_blocks = List[
+            TriangleLeafBlock[Self.frame, Self.leaf_width]
+        ]()
 
         var items = List[BoundsItem[Self.frame]](capacity=self.tri_count)
 
@@ -55,129 +71,263 @@ struct TriangleBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
 
             items.append(BoundsItem(bounds, UInt32(i)))
 
-        var builder = BoundsBvhBuilder[Self.frame, Self.width](items)
+        var builder = BoundsBvhBuilder[Self.frame, Self.leaf_width](items^)
         builder.build[split_method]()
 
-        self.tree = BoundsBvh[Self.frame, Self.width](builder)
-
-        self._pack_leaves(vertices^)
-
-    def bounds(self) -> AABB[Self.frame]:
-        return self.tree.root_bounds()
-
-    def _pack_leaves(mut self, var vertices: List[Point3f32[Self.frame]]):
-        self.leaf_blocks = List[TriangleLeafBlock[Self.frame, Self.width]](
-            capacity=(self.tri_count + Int(Self.width) - 1) // Int(Self.width)
-        )
-        debug_assert["safe", _use_compiler_assume=True](
-            len(self.tree.item_indices) == len(self.tree.item_payloads),
-            "triangle BVH item arrays have inconsistent lengths",
+        var leaf_blocks = List[TriangleLeafBlock[Self.frame, Self.leaf_width]](
+            capacity=(Int(builder.nodes_used) + 1) // 2
         )
         debug_assert["safe", _use_compiler_assume=True](
             len(vertices) == self.tri_count * 3,
             "triangle vertex count changed while packing leaves",
         )
 
-        for ref node in self.tree.nodes:
-            comptime for lane in range(Self.width):
-                if node.counts[lane] != EMPTY_LANE and node.counts[lane] > 0:
-                    var first_item = node.data[lane]
-                    var item_count = node.counts[lane]
-                    var first = Int(first_item)
-                    var count = Int(item_count)
-                    debug_assert["safe", _use_compiler_assume=True](
-                        count <= Int(Self.width),
-                        "triangle BVH leaf exceeds SIMD width",
-                    )
-                    debug_assert["safe", _use_compiler_assume=True](
-                        first <= len(self.tree.item_indices)
-                        and count <= len(self.tree.item_indices) - first,
-                        "triangle BVH leaf range is outside item indices",
-                    )
+        @always_inline
+        def pack_leaf(
+            first_item: UInt32, item_count: UInt32
+        ) capturing -> UInt32:
+            var first, count = _checked_typed_leaf_range[Self.leaf_width](
+                first_item, item_count, len(builder.item_indices)
+            )
 
-                    var leaf_indices = Span(self.tree.item_indices)[
-                        first : first + count
-                    ]
+            var block = TriangleLeafBlock[Self.frame, Self.leaf_width]()
 
-                    var block = TriangleLeafBlock[Self.frame, Self.width]()
+            for k in range(count):
+                var item_ref = Int(builder.item_indices.unsafe_get(first + k))
+                # Typed items are created in primitive order, so the builder
+                # item index is already the final primitive payload.
+                var prim_idx = UInt32(item_ref)
+                var base = Int(prim_idx) * 3
 
-                    for k, item_idx_u32 in enumerate(leaf_indices):
-                        var item_ref = Int(item_idx_u32)
-                        var prim_idx = self.tree.item_payloads[item_ref]
-                        var base = Int(prim_idx) * 3
+                ref p0 = vertices[base + 0]
+                ref p1 = vertices[base + 1]
+                ref p2 = vertices[base + 2]
 
-                        ref p0 = vertices[base + 0]
-                        ref p1 = vertices[base + 1]
-                        ref p2 = vertices[base + 2]
+                block.v0.x[k] = p0.x
+                block.v0.y[k] = p0.y
+                block.v0.z[k] = p0.z
 
-                        block.v0.x[k] = p0.x
-                        block.v0.y[k] = p0.y
-                        block.v0.z[k] = p0.z
+                block.e1.x[k] = p1.x - p0.x
+                block.e1.y[k] = p1.y - p0.y
+                block.e1.z[k] = p1.z - p0.z
 
-                        block.v1.x[k] = p1.x
-                        block.v1.y[k] = p1.y
-                        block.v1.z[k] = p1.z
+                block.e2.x[k] = p2.x - p0.x
+                block.e2.y[k] = p2.y - p0.y
+                block.e2.z[k] = p2.z - p0.z
 
-                        block.v2.x[k] = p2.x
-                        block.v2.y[k] = p2.y
-                        block.v2.z[k] = p2.z
+                block.prim_indices[k] = prim_idx
 
-                        block.prim_indices[k] = prim_idx
+            var block_idx = UInt32(len(leaf_blocks))
+            leaf_blocks.append(block^)
+            return block_idx
 
-                    var block_idx = UInt32(len(self.leaf_blocks))
-                    self.leaf_blocks.append(block^)
-                    node.data[lane] = block_idx
+        self.tree = BoundsBvh[Self.frame, Self.bounds_width].__init__[
+            pack_leaf
+        ](builder)
+        self.leaf_blocks = leaf_blocks^
+
+    def bounds(self) -> AABB[Self.frame]:
+        return self.tree.root_bounds()
 
     def trace[
         mode: TRACE
     ](self, ray: Rayf32[Self.bvh_frame]) -> Hit[Self.bvh_frame]:
+        # Zero-filled unused triangles are degenerate. Omitting their explicit
+        # validity load is benchmark-positive only for full-width packets.
+        comptime omit_leaf_validity_mask = Self.leaf_width == 16
+
         def leaf_fn(
             ray: Rayf32[Self.bvh_frame],
-            O: Point3[DType.float32, Self.bvh_frame, Self.width],
-            D: Vec3[DType.float32, Self.bvh_frame, Self.width],
+            O: Point3[DType.float32, Self.bvh_frame, Self.leaf_width],
+            D: Vec3[DType.float32, Self.bvh_frame, Self.leaf_width],
+            _ray_a: SIMD[DType.float32, Self.leaf_width],
+            _ray_inv_a: SIMD[DType.float32, Self.leaf_width],
             leaf_block_idx: UInt32,
             mut hit: Hit[Self.bvh_frame],
         ) capturing -> Bool:
-            ref block = Span(self.leaf_blocks).unsafe_get(Int(leaf_block_idx))
-            var tri_hit = intersect_ray_tri(
+            ref block = self.leaf_blocks.unsafe_get(Int(leaf_block_idx))
+            comptime if mode == TRACE.ANY_HIT:
+                var tri_hit = intersect_ray_tri_edges(
+                    O,
+                    D,
+                    block.v0,
+                    block.e1,
+                    block.e2,
+                    hit.t,
+                    ray.t_min,
+                )
+                comptime if omit_leaf_validity_mask:
+                    return tri_hit.mask.reduce_or()
+                else:
+                    var valid_lane = block.prim_indices.ne(EMPTY_LANE)
+                    return (tri_hit.mask & valid_lane).reduce_or()
+
+            var scaled_hit = intersect_ray_tri_edges_scaled(
                 O,
                 D,
                 block.v0,
-                block.v1,
-                block.v2,
+                block.e1,
+                block.e2,
                 hit.t,
                 ray.t_min,
             )
-            var valid_lane = block.prim_indices.ne(EMPTY_LANE)
-            var hit_mask = tri_hit.mask & valid_lane
+            var hit_mask = scaled_hit.mask
+            comptime if not omit_leaf_validity_mask:
+                hit_mask &= block.prim_indices.ne(EMPTY_LANE)
 
             if not hit_mask.reduce_or():
                 return False
 
             comptime if mode == TRACE.CLOSEST_HIT:
-                _t = hit_mask.select(tri_hit.t, f32_max)
-                min_t, lane = min_argmin(_t)
+                # Compare t_scaled / abs_det ratios without division, then
+                # calculate one reciprocal for the winning scalar lane.
+                var bits = pack_bits(hit_mask)
+                var lane = Int(count_trailing_zeros(bits))
+                bits &= bits - 1
 
-                hit.t = min_t
-                hit.u = tri_hit.u[lane]
-                hit.v = tri_hit.v[lane]
+                comptime if Self.leaf_width == 16:
+                    comptime assert size_of[
+                        TriangleLeafBlock[Self.bvh_frame, Self.leaf_width]
+                    ]() == 10 * 4 * Int(Self.leaf_width)
+                    var best_t_scaled = _extract_f32_lane(
+                        scaled_hit.t_scaled, lane
+                    )
+                    var best_abs_det = _extract_f32_lane(
+                        scaled_hit.abs_det, lane
+                    )
+
+                    while bits != 0:
+                        var candidate = Int(count_trailing_zeros(bits))
+                        bits &= bits - 1
+                        var candidate_t_scaled = _extract_f32_lane(
+                            scaled_hit.t_scaled, candidate
+                        )
+                        var candidate_abs_det = _extract_f32_lane(
+                            scaled_hit.abs_det, candidate
+                        )
+
+                        if (
+                            candidate_t_scaled * best_abs_det
+                            < best_t_scaled * candidate_abs_det
+                        ):
+                            lane = candidate
+                            best_t_scaled = candidate_t_scaled
+                            best_abs_det = candidate_abs_det
+
+                    var inv_det = 1.0 / best_abs_det
+                    hit.t = best_t_scaled * inv_det
+                    hit.u = (
+                        _extract_f32_lane(scaled_hit.u_scaled, lane) * inv_det
+                    )
+                    hit.v = (
+                        _extract_f32_lane(scaled_hit.v_scaled, lane) * inv_det
+                    )
+
+                    # Triangle packet fields already live in memory. Load the
+                    # selected scalars directly rather than first loading and
+                    # spilling their complete SIMD vectors.
+                    var block_ptr = (
+                        self.leaf_blocks.unsafe_ptr()
+                        .unsafe_offset(Int(leaf_block_idx))
+                        .unsafe_bitcast[Float32]()
+                    )
+                    var block_u32 = block_ptr.unsafe_bitcast[UInt32]()
+                    var lane_offset = lane
+                    hit.prim = block_u32[
+                        unsafe_offset=9 * Int(Self.leaf_width) + lane_offset
+                    ]
+                    hit.inst = EMPTY_LANE
+                    var e1 = Vec3f32[Self.bvh_frame](
+                        block_ptr[
+                            unsafe_offset=3 * Int(Self.leaf_width) + lane_offset
+                        ],
+                        block_ptr[
+                            unsafe_offset=4 * Int(Self.leaf_width) + lane_offset
+                        ],
+                        block_ptr[
+                            unsafe_offset=5 * Int(Self.leaf_width) + lane_offset
+                        ],
+                    )
+                    var e2 = Vec3f32[Self.bvh_frame](
+                        block_ptr[
+                            unsafe_offset=6 * Int(Self.leaf_width) + lane_offset
+                        ],
+                        block_ptr[
+                            unsafe_offset=7 * Int(Self.leaf_width) + lane_offset
+                        ],
+                        block_ptr[
+                            unsafe_offset=8 * Int(Self.leaf_width) + lane_offset
+                        ],
+                    )
+                    var geometric_normal = cross(e1, e2)
+                    hit.normal = Normal3f32[Self.bvh_frame](
+                        geometric_normal.x,
+                        geometric_normal.y,
+                        geometric_normal.z,
+                    )
+                    return True
+
+                while bits != 0:
+                    var candidate = Int(count_trailing_zeros(bits))
+                    bits &= bits - 1
+
+                    if (
+                        scaled_hit.t_scaled[candidate]
+                        * scaled_hit.abs_det[lane]
+                        < scaled_hit.t_scaled[lane]
+                        * scaled_hit.abs_det[candidate]
+                    ):
+                        lane = candidate
+
+                var inv_det = 1.0 / scaled_hit.abs_det[lane]
+
+                hit.t = scaled_hit.t_scaled[lane] * inv_det
+                hit.u = scaled_hit.u_scaled[lane] * inv_det
+                hit.v = scaled_hit.v_scaled[lane] * inv_det
                 hit.prim = block.prim_indices[lane]
                 hit.inst = EMPTY_LANE
-                var normals = normalize(
-                    cross(block.v1 - block.v0, block.v2 - block.v0)
+
+                var e1 = Vec3f32[Self.bvh_frame](
+                    block.e1.x[lane],
+                    block.e1.y[lane],
+                    block.e1.z[lane],
                 )
+                var e2 = Vec3f32[Self.bvh_frame](
+                    block.e2.x[lane],
+                    block.e2.y[lane],
+                    block.e2.z[lane],
+                )
+
+                var geometric_normal = cross(e1, e2)
+
                 hit.normal = Normal3f32[Self.bvh_frame](
-                    normals.x[lane], normals.y[lane], normals.z[lane]
+                    geometric_normal.x,
+                    geometric_normal.y,
+                    geometric_normal.z,
                 )
 
             return True
 
-        return trace_bounds_bvh[
-            Self.frame,
-            Self.width,
-            mode,
-            leaf_fn,
-        ](
-            self.tree,
-            ray,
-        )
+        var hit = trace_bounds_bvh[
+            frame=Self.frame,
+            bounds_width=Self.bounds_width,
+            leaf_width=Self.leaf_width,
+            mode=mode,
+            leaf_fn=leaf_fn,
+        ](self.tree, ray)
+
+        comptime if mode == TRACE.CLOSEST_HIT:
+            if hit.is_hit():
+                var geometric_normal = Vec3f32[Self.bvh_frame](
+                    hit.normal.x,
+                    hit.normal.y,
+                    hit.normal.z,
+                )
+                var unit_normal = normalize(geometric_normal)
+                hit.normal = Normal3f32[Self.bvh_frame](
+                    unit_normal.x,
+                    unit_normal.y,
+                    unit_normal.z,
+                )
+
+        return hit

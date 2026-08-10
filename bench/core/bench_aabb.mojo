@@ -39,16 +39,16 @@ def apply_trs_naive_________(
     rotation: BenchQuat,
     scale: BenchVec3f32,
 ) -> BenchAABB:
-    rot_mat = BenchMat33f32.from_rotation_scale(rotation, scale)
-    txfmed = BenchAABB(
+    var rot_mat = BenchMat33f32.from_rotation_scale(rotation, scale)
+    var txfmed = BenchAABB(
         translation.unsafe_convert[new_kind=GeoKind.POINT](),
         translation.unsafe_convert[new_kind=GeoKind.POINT](),
     )
 
     for i in range(3):
         for j in range(3):
-            e = rot_mat[i][j] * box._min[j]
-            f = rot_mat[i][j] * box._max[j]
+            var e = rot_mat[i][j] * box._min[j]
+            var f = rot_mat[i][j] * box._max[j]
 
             if e < f:
                 txfmed._min[i] += e
@@ -65,16 +65,16 @@ def apply_trs_naive_comptime(
     rotation: BenchQuat,
     scale: BenchVec3f32,
 ) -> BenchAABB:
-    rot_mat = BenchMat33f32.from_rotation_scale(rotation, scale)
-    txfmed = BenchAABB(
+    var rot_mat = BenchMat33f32.from_rotation_scale(rotation, scale)
+    var txfmed = BenchAABB(
         translation.unsafe_convert[new_kind=GeoKind.POINT](),
         translation.unsafe_convert[new_kind=GeoKind.POINT](),
     )
 
     comptime for j in range(3):
         comptime for i in range(3):
-            e = rot_mat[i][j] * box._min[j]
-            f = rot_mat[i][j] * box._max[j]
+            var e = rot_mat[i][j] * box._min[j]
+            var f = rot_mat[i][j] * box._max[j]
 
             if e[0] < f[0]:
                 txfmed._min.add_axis[i](e)
@@ -91,25 +91,25 @@ def apply_trs_arvo_v0_______(
     rotation: BenchQuat,
     scale: BenchVec3f32,
 ) -> BenchAABB:
-    mat = BenchMat33f32.from_rotation_scale(rotation, scale)
-    new_min = translation.copy()
-    new_max = translation.copy()
+    var mat = BenchMat33f32.from_rotation_scale(rotation, scale)
+    var new_min = translation.copy()
+    var new_max = translation.copy()
 
     # X column
-    c0_a = mat.col[0]() * box._min.x
-    c0_b = mat.col[0]() * box._max.x
+    var c0_a = mat.col[0]() * box._min.x
+    var c0_b = mat.col[0]() * box._max.x
     new_min += vmin(c0_a, c0_b)
     new_max += vmax(c0_a, c0_b)
 
     # Y column
-    c1_a = mat.col[1]() * box._min.y
-    c1_b = mat.col[1]() * box._max.y
+    var c1_a = mat.col[1]() * box._min.y
+    var c1_b = mat.col[1]() * box._max.y
     new_min += vmin(c1_a, c1_b)
     new_max += vmax(c1_a, c1_b)
 
     # Z column
-    c2_a = mat.col[2]() * box._min.z
-    c2_b = mat.col[2]() * box._max.z
+    var c2_a = mat.col[2]() * box._min.z
+    var c2_b = mat.col[2]() * box._max.z
     new_min += vmin(c2_a, c2_b)
     new_max += vmax(c2_a, c2_b)
 
@@ -125,13 +125,13 @@ def apply_trs_arvo_v1_______(
     rotation: BenchQuat,
     scale: BenchVec3f32,
 ) -> BenchAABB:
-    mat = BenchMat33f32.from_rotation_scale(rotation, scale)
-    new_min = translation.copy()
-    new_max = translation.copy()
+    var mat = BenchMat33f32.from_rotation_scale(rotation, scale)
+    var new_min = translation.copy()
+    var new_max = translation.copy()
 
     comptime for i in range(3):
-        c_a = mat.col[i]() * box._min[i]
-        c_b = mat.col[i]() * box._max[i]
+        var c_a = mat.col[i]() * box._min[i]
+        var c_b = mat.col[i]() * box._max[i]
         new_min += vmin(c_a, c_b)
         new_max += vmax(c_a, c_b)
 
@@ -149,7 +149,7 @@ def apply_trs_affine3_v0_width[
     rotation: Quaternion[DType.float32, BENCH_FRAME, width],
     scale: Vec3[DType.float32, BENCH_FRAME, width],
 ) -> AxisAlignedBoundingBox[DType.float32, BENCH_FRAME, width]:
-    transform = Affine3[
+    var transform = Affine3[
         DType.float32,
         BENCH_FRAME,
         BENCH_FRAME,
@@ -200,7 +200,7 @@ def apply_trs_affine3_v1_width[
     rotation: Quaternion[DType.float32, BENCH_FRAME, width],
     scale: Vec3[DType.float32, BENCH_FRAME, width],
 ) -> AxisAlignedBoundingBox[DType.float32, BENCH_FRAME, width]:
-    transform = Affine3[
+    var transform = Affine3[
         DType.float32,
         BENCH_FRAME,
         BENCH_FRAME,
@@ -293,7 +293,7 @@ struct Affine3WidthBenchmarkData[width: SIMDLength]:
         self.rotations = []
         self.scales = []
 
-        rng = Rng(123, 123)
+        var rng = Rng(123, 123)
 
         for _ in range(packet_count):
             self.boxes.append(
@@ -338,23 +338,27 @@ def bench_affine3_width[
     width: SIMDLength,
 ]() raises:
     comptime packet_count = num_elements / width
-    data = Affine3WidthBenchmarkData[width]()
+    var data = Affine3WidthBenchmarkData[width]()
 
     def wrapper() raises {mut data}:
         for i in range(packet_count):
-            data.dst[i] = dispatch_affine3_width[version, width](
-                data.boxes[i],
-                data.translations[i],
-                data.rotations[i],
-                data.scales[i],
+            data.dst.unsafe_set(
+                i,
+                dispatch_affine3_width[version, width](
+                    data.boxes.unsafe_get(i),
+                    data.translations.unsafe_get(i),
+                    data.rotations.unsafe_get(i),
+                    data.scales.unsafe_get(i),
+                ),
             )
 
         keep(data.dst[0]._min)
 
-    report = run(wrapper, max_iters=200)
-    avg_time_us = round(report.mean(Unit.us), 2)
-    throughput = round(num_elements / avg_time_us, 1)
+    var report = run(wrapper, max_iters=200)
+    var avg_time_us = round(report.mean(Unit.us), 2)
+    var throughput = round(num_elements / avg_time_us, 1)
 
+    var name: String
     comptime if version == 0:
         name = String("apply_trs_affine3_v0_width")
     else:
@@ -380,7 +384,7 @@ struct AABBBenchmarkData:
         self.translations = []
         self.rotations = []
         self.scales = []
-        rng = Rng(123, 123)
+        var rng = Rng(123, 123)
 
         for _ in range(num_elements):
             self.boxes.append(BenchAABB(BenchPoint3f32(-1), BenchPoint3f32(1)))
@@ -400,7 +404,7 @@ struct AABBBenchmarkData:
 
 
 def main() raises:
-    data = AABBBenchmarkData()
+    var data = AABBBenchmarkData()
     print("Benchmarking AABB Transform (apply_trs) - Elements:", num_elements)
 
     def bench[
@@ -413,19 +417,22 @@ def main() raises:
     ]() capturing raises:
         def wrapper() raises {mut data}:
             for i in range(num_elements):
-                data.dst.unsafe_ptr()[unsafe_offset=i] = f(
-                    data.boxes.unsafe_ptr()[unsafe_offset=i],
-                    data.translations.unsafe_ptr()[unsafe_offset=i],
-                    data.rotations.unsafe_ptr()[unsafe_offset=i],
-                    data.scales.unsafe_ptr()[unsafe_offset=i],
+                data.dst.unsafe_set(
+                    i,
+                    f(
+                        data.boxes.unsafe_get(i),
+                        data.translations.unsafe_get(i),
+                        data.rotations.unsafe_get(i),
+                        data.scales.unsafe_get(i),
+                    ),
                 )
             keep(data.dst[0]._min)
 
-        report = run(wrapper, max_iters=200)
-        avg_time = report.mean(Unit.us)
-        name = get_function_name[f]()
-        throughput = round(num_elements / avg_time, 1)
-        mops = round(avg_time, 2)
+        var report = run(wrapper, max_iters=200)
+        var avg_time = report.mean(Unit.us)
+        var name = get_function_name[f]()
+        var throughput = round(num_elements / avg_time, 1)
+        var mops = round(avg_time, 2)
         print(t"{name}| Throughput:{throughput}, Mops/s | Avg: {mops} us")
 
     bench[apply_trs_naive_________]()

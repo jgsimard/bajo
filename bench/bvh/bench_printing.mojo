@@ -1,4 +1,5 @@
 from std.math import round
+from std.collections import StringDict
 
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.bvh.gpu.utils import GpuBuildTimings
@@ -271,3 +272,50 @@ def _print_gpu_result_validation_rows(
         row1.status(),
         row2.status(),
     )
+
+
+struct TablePrinter:
+    var columns: StringDict[Int]
+
+    def __init__(out self, var **columns: Int):
+        self.columns = columns^
+
+    def header(self):
+        var header = String()
+        var separator = String()
+        var first = True
+
+        for column in self.columns.items():
+            if not first:
+                header += " "
+                separator += " "
+
+            if first:
+                header += column.key.ascii_ljust(column.value)
+            else:
+                header += column.key.ascii_rjust(column.value)
+
+            separator += "-" * column.value
+            first = False
+
+        print(header)
+        print(separator)
+
+    def result_line(self, var **values: String) raises:
+        var line = String()
+        var first = True
+
+        for column in self.columns.items():
+            if not first:
+                line += " "
+
+            var value = values[column.key]
+
+            if first:
+                line += value.ascii_ljust(column.value)
+            else:
+                line += value.ascii_rjust(column.value)
+
+            first = False
+
+        print(line)

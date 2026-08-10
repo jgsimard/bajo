@@ -6,7 +6,7 @@ def expand_bits_2d[
 ](n_in: SIMD[DType.uint32, size]) -> SIMD[DType.uint32, size]:
     # 0000 0000 0000 0000 gfed cba9 8675 4321
     # 0g0f 0e0d 0c0b 0a09 0807 0605 0403 0201
-    n = n_in
+    var n = n_in
     n &= 0x0000FFFF
     n = (n ^ (n << 8)) & 0x00FF00FF
     n = (n ^ (n << 4)) & 0x0F0F0F0F
@@ -20,7 +20,7 @@ def expand_bits_3d[
 ](n_in: SIMD[DType.uint32, size]) -> SIMD[DType.uint32, size]:
     # 0000 0000 0000 0000 0000 00a9 8675 4321
     # 0000 a009 0080 0700 6005 0040 0300 2001
-    n = n_in
+    var n = n_in
     n = (n ^ (n << 16)) & 0xFF0000FF
     n = (n ^ (n << 8)) & 0x0300F00F
     n = (n ^ (n << 4)) & 0x030C30C3
@@ -44,14 +44,14 @@ def morton3[
 
     comptime dimf = Float32(dim)
     comptime if size == 1:
-        v = SIMD[DType.float32, 4](x[0], y[0], z[0], 0)
-        u = clamp((v * dimf).cast[DType.uint32](), 0, dim - 1)
-        ex = expand_bits_3d(u)
+        var v = SIMD[DType.float32, 4](x[0], y[0], z[0], 0)
+        var u = clamp((v * dimf).cast[DType.uint32](), 0, dim - 1)
+        var ex = expand_bits_3d(u)
         return (ex[2] << 2) | (ex[1] << 1) | ex[0]
     else:
-        ux = clamp((x * dimf).cast[DType.uint32](), 0, dim - 1)
-        uy = clamp((y * dimf).cast[DType.uint32](), 0, dim - 1)
-        uz = clamp((z * dimf).cast[DType.uint32](), 0, dim - 1)
+        var ux = clamp((x * dimf).cast[DType.uint32](), 0, dim - 1)
+        var uy = clamp((y * dimf).cast[DType.uint32](), 0, dim - 1)
+        var uz = clamp((z * dimf).cast[DType.uint32](), 0, dim - 1)
         return (
             (expand_bits_3d(uz) << 2)
             | (expand_bits_3d(uy) << 1)

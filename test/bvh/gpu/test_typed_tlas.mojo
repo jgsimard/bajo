@@ -1,7 +1,7 @@
 from std.sys import has_accelerator
 from std.math import abs
 from std.testing import TestSuite, assert_true, assert_almost_equal
-from std.gpu import DeviceBuffer, DeviceContext
+from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.core import AABB, Vec3f32, Affine3f32, Point3f32, Frame
 from bajo.bvh.camera import Camera
@@ -102,7 +102,9 @@ def _download_single_hit(
     hits: DeviceBuffer[DType.float32],
 ) raises -> Tuple[Float32, UInt32, UInt32]:
     with hits.map_to_host() as hf:
-        var hit = Hit[Frame.WORLD].load(hf.unsafe_ptr(), 0)
+        var hit = Hit[Frame.WORLD].load(
+            Span(unsafe_ptr=hf.unsafe_ptr(), length=len(hf)), 0
+        )
         return (hit.t, hit.prim, hit.inst)
 
 
@@ -271,7 +273,7 @@ def test_gpu_triangle_tlas_stress_8_blas_512_instances_matches_cpu() raises:
         vertex_sets.append(verts.copy())
         local_bounds.append(bounds)
         cpu_blases.append(
-            TriangleBvh[Frame.LOCAL, BLAS_WIDTH].__init__["lbvh"](verts.copy())
+            TriangleBvh[Frame.LOCAL, BLAS_WIDTH].__init__["lbvh"](verts)
         )
 
     var instances = List[Instance](capacity=STRESS_X * STRESS_Y)

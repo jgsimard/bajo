@@ -1,5 +1,5 @@
 from std.math import max
-from std.gpu import DeviceBuffer
+from max.gpu.host import DeviceBuffer
 
 from bajo.core import AABB, Vec3f32, Point3f32, Frame, Rayf32
 from bajo.bvh.camera import Camera
@@ -101,14 +101,12 @@ def _make_single_sphere_scene[frame: Frame]() -> List[Sphere[frame]]:
 def _make_duplicate_sphere_centroid_scene[
     frame: Frame
 ]() -> List[Sphere[frame]]:
-    var spheres = List[Sphere[frame]](capacity=12)
-    for i in range(12):
-        spheres.append(
-            Sphere[frame](
-                Point3f32[frame](0.0, 0.0, 2.0), 1.0 + Float32(i % 3) * 0.01
-            )
+    return [
+        Sphere[frame](
+            Point3f32[frame](0.0, 0.0, 2.0), 1.0 + Float32(i % 3) * 0.01
         )
-    return spheres^
+        for i in range(12)
+    ]
 
 
 def _camera_for_bounds(
@@ -330,9 +328,9 @@ def _download_tlas_checksum[
     var inst_checksum = UInt64(0)
 
     with d_hits.map_to_host() as hf:
-        var gpu_hits_ptr = hf.unsafe_ptr()
+        var gpu_hits = Span(unsafe_ptr=hf.unsafe_ptr(), length=len(hf))
         for i in range(ray_count):
-            var gpu_hit = Hit[frame].load(gpu_hits_ptr, i)
+            var gpu_hit = Hit[frame].load(gpu_hits, i)
             var t = gpu_hit.t
             if t < f32_max:
                 checksum += Float64(t)

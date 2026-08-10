@@ -229,12 +229,10 @@ def _trace_world(world: World, ray: Rayf32[Frame.WORLD]) -> PathHit:
 
 
 def _init_pixel_rngs(settings: RenderSettings) -> List[Rng]:
-    var pixel_count = settings.image_width * settings.image_height
-    var rngs = List[Rng](capacity=pixel_count)
-    for pixel_idx in range(pixel_count):
-        rngs.append(Rng(seed=settings.rng_seed, id=UInt64(pixel_idx)))
-
-    return rngs^
+    return [
+        Rng(seed=settings.rng_seed, id=UInt64(i))
+        for i in range(settings.image_width * settings.image_height)
+    ]
 
 
 def _init_path_rngs(settings: RenderSettings) -> List[Rng]:
@@ -311,8 +309,7 @@ def _trace_normals(world: World, ray: Rayf32[Frame.WORLD]) -> Color:
     if not hit.hit:
         return Color(0.0)
 
-    ref record = hit.record
-    return 0.5 * (record.normal + Color(1.0))
+    return 0.5 * (hit.record.normal + Color(1.0))
 
 
 def _trace_ao(world: World, ray: Rayf32[Frame.WORLD], mut rng: Rng) -> Color:
@@ -553,8 +550,7 @@ def render_depth_first[
     var pixels = List[Color](length=pixel_count, fill=Color(0.0))
     var init_t1 = perf_counter_ns()
 
-    @parameter
-    def worker(py: Int):
+    def worker(py: Int) capturing:
         for px in range(settings.image_width):
             var pixel_idx = py * settings.image_width + px
             ref rng = rng_states[pixel_idx]

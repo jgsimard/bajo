@@ -2,7 +2,7 @@ from std.benchmark import keep
 from std.math import abs, round, min, max
 from std.sys import has_accelerator
 from std.time import perf_counter_ns
-from std.gpu import DeviceContext, DeviceBuffer
+from max.gpu.host import DeviceContext, DeviceBuffer
 
 from bajo.core.utils import (
     ns_to_ms,
@@ -197,8 +197,9 @@ def _download_tlas_hit_checksum(
     var hit_count = UInt32(0)
     var inst_checksum = UInt64(0)
     with hits.map_to_host() as hf:
+        var hit_span = Span(unsafe_ptr=hf.unsafe_ptr(), length=len(hf))
         for i in range(ray_count):
-            var gpu_hit = Hit[Frame.WORLD].load(hf.unsafe_ptr(), i)
+            var gpu_hit = Hit[Frame.WORLD].load(hit_span, i)
             var t = gpu_hit.t
             if t < f32_max:
                 checksum += Float64(t)
@@ -1002,7 +1003,7 @@ def main() raises:
 
         print("Building CPU TriangleBvh[8] LBVH reference for 4x4 grid...")
         var cpu_blas = TriangleBvh[Frame.LOCAL, 8].__init__["lbvh"](
-            tri_vertices.copy()
+            tri_vertices
         )
 
         print("\nSingle instance triangle TLAS")

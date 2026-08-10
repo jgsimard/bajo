@@ -218,6 +218,16 @@ struct Affine3[dtype: DType, From: Frame, To: Frame, width: SIMDLength = 1](
         `inverse` must be the inverse of `self`.
         # TODO : clunky, change that
         """
+        return Self.normal_from_inverse(n, inverse)
+
+    @staticmethod
+    def normal_from_inverse(
+        n: Normal3[Self.dtype, Self.From, Self.width],
+        inverse: Affine3[Self.dtype, Self.To, Self.From, Self.width],
+    ) -> Normal3[
+        Self.dtype, Self.To, Self.width
+    ] where Self.dtype.is_floating_point():
+        """Transform and normalize a normal using an inverse affine matrix."""
         return normalize(
             Vec3[Self.dtype, Self.To, Self.width](
                 fma(

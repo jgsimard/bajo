@@ -15,10 +15,12 @@ pixi run check             # run the no-accelerator host test gate
 pixi run test              # run all tests, including GPU tests
 pixi run test_gpu          # run GPU tests only
 pixi run bench_all         # run all benchmarks
+pixi run bench_bvh_cpu_report # compare Bajo with Embree 4 and Tinybvh
 ```
 
 GPU tests and GPU benchmarks require a supported accelerator.
-
+The Bajo vs Embree vs TinyBvh comparison requires Embree 4 headers and `libembree4`.
+See the recorded [benchmark results](bench/results/bvh_cpu/bvh_cpu.md).
 Examples:
 ```
 pixi run example_lbvh

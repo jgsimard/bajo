@@ -29,8 +29,8 @@ def test_morton3_logic() raises:
     # If x=0, y=0, z=1/1024 -> index should be 4 (100)
 
     comptime size = 1
-    dim: UInt32 = 1024
-    step = 1.0 / Float32(dim)
+    var dim: UInt32 = 1024
+    var step = 1.0 / Float32(dim)
 
     # Origin
     assert_equal(morton3[size](0.0, 0.0, 0.0), 0)
@@ -52,8 +52,8 @@ def test_morton3_boundaries() raises:
     # Check clamping and max value
     # Max value (1.0, 1.0, 1.0) should map to (1023, 1023, 1023)
     # Since 1023 is 10 bits of 1s, expanded it should be 30 bits of 1s
-    m_max = morton3[size=1](1.0, 1.0, 1.0)
-    expected: UInt32 = (1 << 30) - 1
+    var m_max = morton3[size=1](1.0, 1.0, 1.0)
+    var expected: UInt32 = (1 << 30) - 1
     assert_equal(m_max, expected)
 
 

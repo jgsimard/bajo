@@ -2,7 +2,7 @@ from std.benchmark import keep
 from std.math import abs, max
 from std.sys import has_accelerator
 from std.testing import TestSuite, assert_true
-from std.gpu import DeviceContext, DeviceBuffer
+from max.gpu.host import DeviceContext, DeviceBuffer
 
 from bajo.core import Vec3f32, Point3f32, Frame
 from bajo.bvh.types import Sphere, Hit
@@ -181,7 +181,7 @@ def _assert_wide_lane_invariants[
 def _assert_gpu_triangle_matches_cpu_camera[
     width: SIMDLength
 ](verts: List[Point3f32[Frame.WORLD]]) raises:
-    var cpu_bvh = TriangleBvh[Frame.WORLD, width].__init__["lbvh"](verts.copy())
+    var cpu_bvh = TriangleBvh[Frame.WORLD, width].__init__["lbvh"](verts)
     var camera_data = _make_camera_rays_and_params(
         cpu_bvh.bounds(),
         GPU_BOUNDS_TEST_WIDTH,
@@ -218,9 +218,9 @@ def _assert_gpu_triangle_matches_cpu_camera[
         var mismatch_count = UInt32(0)
 
         with d_hits.map_to_host() as hf:
-            var gpu_hits_ptr = hf.unsafe_ptr()
+            var gpu_hits = Span(unsafe_ptr=hf.unsafe_ptr(), length=len(hf))
             for i in range(len(rays)):
-                var gpu_hit = Hit[Frame.WORLD].load(gpu_hits_ptr, i)
+                var gpu_hit = Hit[Frame.WORLD].load(gpu_hits, i)
                 var cpu_hit = cpu_bvh.trace[TRACE.CLOSEST_HIT](rays[i])
                 var gpu_t = gpu_hit.t
                 var gpu_prim = gpu_hit.prim
@@ -318,59 +318,59 @@ def _assert_gpu_sphere_bounds[
 
 
 def test_gpu_bounds_bvh_build_validate_small_scene() raises:
-    scene = _make_small_scene[Frame.WORLD]()
+    var scene = _make_small_scene[Frame.WORLD]()
     comptime for N in [2, 4, 8]:
         _assert_gpu_bounds_width[N](scene)
 
 
 def test_gpu_bounds_bvh_single_triangle() raises:
-    scene = _make_single_triangle_scene[Frame.WORLD]()
+    var scene = _make_single_triangle_scene[Frame.WORLD]()
     comptime for N in [2, 4, 8]:
         _assert_gpu_bounds_width[N](scene)
         _assert_gpu_triangle_matches_cpu_camera[N](scene)
 
 
 def test_gpu_bounds_bvh_duplicate_morton_codes() raises:
-    scene = _make_duplicate_centroid_scene[Frame.WORLD]()
+    var scene = _make_duplicate_centroid_scene[Frame.WORLD]()
     comptime for N in [2, 4, 8]:
         _assert_gpu_bounds_width[N](scene)
         _assert_wide_lane_invariants[N](scene)
 
 
 def test_gpu_bounds_bvh_degenerate_axis() raises:
-    scene = _make_degenerate_axis_scene()
+    var scene = _make_degenerate_axis_scene()
     comptime for N in [2, 4, 8]:
         _assert_gpu_bounds_width[N](scene)
         _assert_wide_lane_invariants[N](scene)
 
 
 def test_gpu_bounds_bvh_wide_lane_invariants() raises:
-    scene = _make_small_scene[Frame.WORLD]()
+    var scene = _make_small_scene[Frame.WORLD]()
     comptime for N in [2, 4, 8]:
         _assert_wide_lane_invariants[N](scene)
 
 
 def test_gpu_triangle_bvh_camera_primary_matches_cpu() raises:
-    scene = _make_small_scene[Frame.WORLD]()
+    var scene = _make_small_scene[Frame.WORLD]()
     comptime for N in [2, 4, 8]:
         _assert_gpu_triangle_matches_cpu_camera[N](scene)
 
 
 def test_gpu_sphere_bvh_camera_primary_matches_bruteforce() raises:
-    scene = _make_small_sphere_scene[Frame.WORLD]()
+    var scene = _make_small_sphere_scene[Frame.WORLD]()
     comptime for N in [2, 4, 8]:
         _assert_sphere_matches_bruteforce_camera[N](scene)
 
 
 def test_gpu_sphere_bvh_single_sphere() raises:
-    scene = _make_single_sphere_scene[Frame.WORLD]()
+    var scene = _make_single_sphere_scene[Frame.WORLD]()
     comptime for N in [2, 4, 8]:
         _assert_gpu_sphere_bounds[N](scene)
         _assert_sphere_matches_bruteforce_camera[N](scene)
 
 
 def test_gpu_sphere_bvh_duplicate_morton_codes() raises:
-    scene = _make_duplicate_sphere_centroid_scene[Frame.WORLD]()
+    var scene = _make_duplicate_sphere_centroid_scene[Frame.WORLD]()
     comptime for N in [2, 4, 8]:
         _assert_gpu_sphere_bounds[N](scene)
         _assert_sphere_matches_bruteforce_camera[N](scene)

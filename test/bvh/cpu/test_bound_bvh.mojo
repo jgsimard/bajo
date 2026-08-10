@@ -1,22 +1,78 @@
 from std.testing import TestSuite, assert_true, assert_almost_equal
 
-from bajo.core import AABB, Vec3f32, Point3f32, Frame, Vec3W, Point3W, Rayf32
+from bajo.core import (
+    AABB,
+    Vec3f32,
+    Point3f32,
+    Normal3f32,
+    Frame,
+    Vec3W,
+    Point3W,
+    Rayf32,
+)
 from bajo.core.intersect import intersect_ray_aabb
-from bajo.bvh.types import Sphere
+from bajo.bvh.types import Hit, Sphere
 from bajo.core.random import Rng
 from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
 from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvhBuilder,
     BoundsItem,
     BoundsBvh,
+    decode_ref_index,
+    encode_leaf_ref,
+    is_leaf_ref,
 )
 from bajo.bvh.cpu.builder.builder import _partition_items_by_median_center
-from bajo.bvh.cpu.builder.sah import _find_sah_split
+from bajo.bvh.cpu.builder.sah import _find_sah_split, _partition_items_by_bin
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
+from bajo.bvh.cpu.trace import _extract_f32_lane, _extract_u32_lane
 from bajo.bvh.host_utils import triangle_bounds
 
 from test.bvh.fixtures import _brute_triangle_trace, _brute_sphere_trace
+
+
+def test_hit_load_store_span_with_nonzero_index() raises:
+    var data = List[Float32](length=2 * Hit.STRIDE, fill=-1.0)
+    var expected = Hit[Frame.WORLD](
+        0.25,
+        0.5,
+        UInt32(7),
+        UInt32(3),
+        Normal3f32[Frame.WORLD](1.0, 2.0, 3.0),
+        4.0,
+    )
+
+    expected.store(Span(data), 1)
+    var actual = Hit[Frame.WORLD].load(Span(data), 1)
+
+    assert_almost_equal(actual.u, expected.u)
+    assert_almost_equal(actual.v, expected.v)
+    assert_true(actual.prim == expected.prim)
+    assert_true(actual.inst == expected.inst)
+    assert_almost_equal(actual.normal.x, expected.normal.x)
+    assert_almost_equal(actual.normal.y, expected.normal.y)
+    assert_almost_equal(actual.normal.z, expected.normal.z)
+    assert_almost_equal(actual.t, expected.t)
+
+
+def _test_extract_lane[width: SIMDLength]() raises:
+    var u32_values = SIMD[DType.uint32, width](0)
+    var f32_values = SIMD[DType.float32, width](0.0)
+    comptime for lane in range(width):
+        u32_values[lane] = UInt32(100 + lane)
+        f32_values[lane] = Float32(lane) + 0.25
+
+    for lane in range(Int(width)):
+        assert_true(_extract_u32_lane(u32_values, lane) == UInt32(100 + lane))
+        assert_almost_equal(
+            _extract_f32_lane(f32_values, lane), Float32(lane) + 0.25
+        )
+
+
+def test_extract_lane_all_cpu_bvh_widths() raises:
+    comptime for width in [2, 4, 8, 16]:
+        _test_extract_lane[width]()
 
 
 def _rng_f32(mut rng: Rng, lo: Float32, hi: Float32) -> Float32:
@@ -77,6 +133,18 @@ def _make_depth_pair[frame: Frame]() -> List[Point3f32[frame]]:
     verts.append(Point3f32[frame](-1.0, -1.0, 4.0))
     verts.append(Point3f32[frame](1.0, -1.0, 4.0))
     verts.append(Point3f32[frame](0.0, 1.0, 4.0))
+
+    return verts^
+
+
+def _make_depth_stack[frame: Frame](count: Int) -> List[Point3f32[frame]]:
+    var verts = List[Point3f32[frame]](capacity=count * 3)
+
+    for i in range(count):
+        var z = 2.0 + Float32(i)
+        verts.append(Point3f32[frame](-1.0, -1.0, z))
+        verts.append(Point3f32[frame](1.0, -1.0, z))
+        verts.append(Point3f32[frame](0.0, 1.0, z))
 
     return verts^
 
@@ -148,30 +216,44 @@ def _assert_builder_leaf_sizes_at_most(
     assert_true(leaf_item_total == builder.item_count)
 
 
-def _assert_wide_leaf_counts_at_most_width[
+def _assert_wide_leaf_ranges_at_most_width[
     frame: Frame, width: SIMDLength
 ](wide: BoundsBvh[frame, width]) raises:
-    for ref node in wide.nodes:
+    assert_true(len(wide.child_masks) == len(wide.nodes))
+    for node_idx in range(len(wide.nodes)):
+        ref node = wide.nodes[node_idx]
+        var expected_child_mask = UInt32(0)
         for lane in range(width):
-            var count = node.counts[lane]
+            var child_ref = node.data[lane]
 
-            if count == EMPTY_LANE:
+            if child_ref == EMPTY_LANE:
                 continue
 
-            if count == 0:
-                assert_true(node.data[lane] < UInt32(len(wide.nodes)))
-            else:
-                assert_true(count <= UInt32(width))
-                assert_true(Int(node.data[lane]) < len(wide.item_indices))
+            expected_child_mask |= UInt32(1) << UInt32(lane)
+
+            if is_leaf_ref(child_ref):
+                var leaf_range_idx = decode_ref_index(child_ref)
+                assert_true(Int(leaf_range_idx) < len(wide.leaf_ranges))
+
+                ref leaf_range = wide.leaf_ranges[Int(leaf_range_idx)]
+                assert_true(leaf_range.item_count > 0)
+                assert_true(leaf_range.item_count <= UInt32(width))
                 assert_true(
-                    Int(node.data[lane]) + Int(count) <= len(wide.item_indices)
+                    Int(leaf_range.first_item) + Int(leaf_range.item_count)
+                    <= len(wide.item_indices)
                 )
+            else:
+                assert_true(child_ref < UInt32(len(wide.nodes)))
+
+        assert_true(wide.child_masks[node_idx] == expected_child_mask)
 
 
 def _assert_triangle_bvh_matches_bruteforce[
-    frame: Frame, width: SIMDLength
+    frame: Frame,
+    bounds_width: SIMDLength,
+    leaf_width: SIMDLength = bounds_width,
 ](
-    mut bvh: TriangleBvh[frame, width],
+    mut bvh: TriangleBvh[frame, bounds_width, leaf_width],
     verts: List[Point3f32[frame]],
     origin: Point3f32[frame],
 ) raises:
@@ -198,6 +280,12 @@ def _assert_triangle_bvh_matches_bruteforce[
             "TriangleBvh returned the wrong primitive",
         )
         assert_almost_equal(hit.t, brute.t)
+        assert_almost_equal(
+            hit.normal.x * hit.normal.x
+            + hit.normal.y * hit.normal.y
+            + hit.normal.z * hit.normal.z,
+            1.0,
+        )
 
 
 def _assert_sphere_bvh_matches_bruteforce[
@@ -244,16 +332,16 @@ def _test_bounds_bvh_leaf_invariant[
     )
     var items = _make_bounds_items(verts)
 
-    var builder = BoundsBvhBuilder[frame, width](items)
+    var builder = BoundsBvhBuilder[frame, width](items^)
     builder.build[mode]()
 
     assert_true(builder.nodes_used > 0)
-    assert_true(Int(builder.nodes_used) <= len(builder.nodes))
+    assert_true(Int(builder.nodes_used) == len(builder.nodes))
 
     _assert_builder_leaf_sizes_at_most(builder, UInt32(width))
 
     var wide = BoundsBvh[frame, width](builder)
-    _assert_wide_leaf_counts_at_most_width[frame, width](wide)
+    _assert_wide_leaf_ranges_at_most_width[frame, width](wide)
 
 
 def test_bounds_bvh_leaf_invariants() raises:
@@ -262,11 +350,26 @@ def test_bounds_bvh_leaf_invariants() raises:
             _test_bounds_bvh_leaf_invariant[Frame.WORLD, w, mode]()
 
 
+def test_parallel_sah_builder_leaf_invariants() raises:
+    # Cross the parallel-build threshold and validate both the compacted
+    # binary storage and the final wide leaf ranges.
+    var verts = _make_random_xy_triangles[Frame.WORLD](5000, UInt64(909090))
+    var items = _make_bounds_items(verts)
+    var builder = BoundsBvhBuilder[Frame.WORLD, 16](items^)
+    builder.build["sah"]()
+
+    assert_true(Int(builder.nodes_used) == len(builder.nodes))
+    _assert_builder_leaf_sizes_at_most(builder, UInt32(16))
+
+    var wide = BoundsBvh[Frame.WORLD, 16](builder)
+    _assert_wide_leaf_ranges_at_most_width[Frame.WORLD, 16](wide)
+
+
 def test_wide_bounds_root_bounds_is_valid() raises:
     var verts = _make_strip[Frame.WORLD](4)
     var items = _make_bounds_items(verts)
 
-    var builder = BoundsBvhBuilder[Frame.WORLD, 4](items)
+    var builder = BoundsBvhBuilder[Frame.WORLD, 4](items^)
     builder.build["median"]()
 
     var wide = BoundsBvh[Frame.WORLD, 4](builder)
@@ -343,11 +446,13 @@ def test_bounds_sah_clear_separation() raises:
         Point3W(10.0, 1.0, 0.0),  # Tri 1, centered near x=10
     ]
     var items = _make_bounds_items(verts)
-    var builder = BoundsBvhBuilder[Frame.WORLD, 2](items)
+    var builder = BoundsBvhBuilder[Frame.WORLD, 2](items^)
     builder.build["sah"]()
+    var centroid_bounds = builder.update_node_bounds_and_centroid_bounds(0)
 
-    var split = _find_sah_split(
+    var split = _find_sah_split[Frame.WORLD, 16](
         builder.nodes[0],
+        centroid_bounds,
         Span(builder.item_indices),
         Span(builder.items),
     )
@@ -356,6 +461,24 @@ def test_bounds_sah_clear_separation() raises:
     assert_true(split.pos > -10.0 and split.pos < 10.0)
     assert_true(split.cost < 20.0)
     assert_true(split.bin >= 0)
+
+    var partition = _partition_items_by_bin[Frame.WORLD, 16](
+        Span(builder.item_indices),
+        Span(builder.items),
+        0,
+        2,
+        split.axis,
+        split.bin,
+        split.bin_min,
+        split.bin_scale,
+    )
+    assert_true(partition.split_idx == 1)
+    assert_almost_equal(partition.left_bounds._min.x, -11.0)
+    assert_almost_equal(partition.left_bounds._max.x, -9.0)
+    assert_almost_equal(partition.right_bounds._min.x, 9.0)
+    assert_almost_equal(partition.right_bounds._max.x, 11.0)
+    assert_almost_equal(partition.left_centroid_bounds._min.x, -10.0)
+    assert_almost_equal(partition.right_centroid_bounds._min.x, 10.0)
 
 
 def test_bounds_sah_degenerate() raises:
@@ -368,11 +491,13 @@ def test_bounds_sah_degenerate() raises:
         Point3W(0.0, 1.0, 0.0),
     ]
     var items = _make_bounds_items(verts)
-    var builder = BoundsBvhBuilder[Frame.WORLD, 2](items)
+    var builder = BoundsBvhBuilder[Frame.WORLD, 2](items^)
     builder.build["sah"]()
+    var centroid_bounds = builder.update_node_bounds_and_centroid_bounds(0)
 
-    var split = _find_sah_split(
+    var split = _find_sah_split[Frame.WORLD, 16](
         builder.nodes[0],
+        centroid_bounds,
         Span(builder.item_indices),
         Span(builder.items),
     )
@@ -391,7 +516,7 @@ def test_bounds_partition_items_non_empty() raises:
         Point3W(10.0, 1.0, 0.0),
     ]
     var items = _make_bounds_items(verts)
-    var builder = BoundsBvhBuilder[Frame.WORLD, 2](items)
+    var builder = BoundsBvhBuilder[Frame.WORLD, 2](items^)
     builder.build["sah"]()
 
     var split_idx = _partition_items_by_median_center(
@@ -408,7 +533,7 @@ def test_bounds_partition_items_non_empty() raises:
 
 def test_triangle_bvh2_leaf_size_equals_width_returns_nearest_triangle() raises:
     var verts = _make_depth_pair[Frame.WORLD]()
-    var bvh = TriangleBvh[Frame.WORLD, 2].__init__["median"](verts^)
+    var bvh = TriangleBvh[Frame.WORLD, 2].__init__["median"](verts)
 
     var hit = bvh.trace[TRACE.CLOSEST_HIT](_z_ray(Point3W(0.0, 0.0, 0.0)))
 
@@ -423,7 +548,7 @@ def _test_triangle_bvh_matches_bruteforce[
 ]() raises:
     var n = {2: 24, 4: 32, 8: 40}[width]
     var verts = _make_strip[Frame.WORLD](n)
-    var bvh = TriangleBvh[Frame.WORLD, width].__init__[split_mode](verts.copy())
+    var bvh = TriangleBvh[Frame.WORLD, width].__init__[split_mode](verts)
 
     for i in range(n):
         _assert_triangle_bvh_matches_bruteforce[Frame.WORLD, width](
@@ -446,12 +571,64 @@ def test_triangle_bvh_matches_bruteforce() raises:
             _test_triangle_bvh_matches_bruteforce[w, mode]()
 
 
+def _test_triangle_bvh16_leaf_width[
+    leaf_width: SIMDLength,
+    mode: String,
+]() raises:
+    var n = 48
+    var verts = _make_strip[Frame.WORLD](n)
+    var bvh = TriangleBvh[Frame.WORLD, 16, leaf_width].__init__[mode](verts)
+
+    assert_true(len(bvh.tree.leaf_ranges) == 0)
+    assert_true(len(bvh.tree.item_indices) == 0)
+    assert_true(len(bvh.tree.item_payloads) == 0)
+
+    var packed_primitive_count = 0
+    for ref block in bvh.leaf_blocks:
+        comptime for lane in range(leaf_width):
+            if block.prim_indices[lane] != EMPTY_LANE:
+                packed_primitive_count += 1
+    assert_true(packed_primitive_count == n)
+
+    for ref node in bvh.tree.nodes:
+        comptime for lane in range(16):
+            var child_ref = node.data[lane]
+            if child_ref != EMPTY_LANE and is_leaf_ref(child_ref):
+                assert_true(
+                    Int(decode_ref_index(child_ref)) < len(bvh.leaf_blocks)
+                )
+
+    for i in range(n):
+        _assert_triangle_bvh_matches_bruteforce[Frame.WORLD, 16, leaf_width](
+            bvh,
+            verts,
+            _triangle_center_xy(verts, i),
+        )
+
+    assert_true(
+        bvh.trace[TRACE.ANY_HIT](
+            _z_ray(_triangle_center_xy(verts, 0))
+        ).is_occluded()
+    )
+    assert_true(
+        not bvh.trace[TRACE.ANY_HIT](
+            _z_ray(Point3W(100.0, 100.0, 0.0))
+        ).is_occluded()
+    )
+
+
+def test_triangle_bvh16_decoupled_leaf_widths() raises:
+    comptime for leaf_width in [2, 4, 8, 16]:
+        comptime for mode in ["median", "sah", "lbvh"]:
+            _test_triangle_bvh16_leaf_width[leaf_width, mode]()
+
+
 def _test_triangle_bvh_shadow_hit_and_miss[
     width: SIMDLength,
     mode: String,
 ]() raises:
     var verts = _make_strip[Frame.WORLD](2 * width)
-    var bvh = TriangleBvh[Frame.WORLD, width].__init__[mode](verts^)
+    var bvh = TriangleBvh[Frame.WORLD, width].__init__[mode](verts)
 
     assert_true(
         bvh.trace[TRACE.ANY_HIT](_z_ray(Point3W(0.0, 0.0, 0.0))).is_occluded()
@@ -488,8 +665,15 @@ def test_sphere_bvh4_single_leaf_layout_and_hit() raises:
     var bvh = SphereBvh[Frame.WORLD, 4](spheres^)
 
     assert_true(len(bvh.tree.nodes) == 1)
-    assert_true(bvh.tree.nodes[0].counts[0] == 4)
-    assert_true(bvh.tree.nodes[0].data[0] == 0)
+    assert_true(len(bvh.tree.leaf_ranges) == 0)
+    assert_true(len(bvh.tree.item_indices) == 0)
+    assert_true(len(bvh.tree.item_payloads) == 0)
+    assert_true(bvh.tree.nodes[0].data[0] == encode_leaf_ref(0))
+    assert_true(len(bvh.leaf_blocks) == 1)
+    assert_true(bvh.leaf_blocks[0].prim_indices[0] == 0)
+    assert_true(bvh.leaf_blocks[0].prim_indices[1] == 1)
+    assert_true(bvh.leaf_blocks[0].prim_indices[2] == 2)
+    assert_true(bvh.leaf_blocks[0].prim_indices[3] == 3)
 
     var hit = bvh.trace[TRACE.CLOSEST_HIT](_z_ray(Point3W(0.0, 0.0, 0.0)))
 

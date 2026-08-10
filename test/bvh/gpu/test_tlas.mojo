@@ -2,7 +2,7 @@ from std.benchmark import keep
 from std.math import abs
 from std.sys import has_accelerator
 from std.testing import TestSuite, assert_true, assert_almost_equal
-from std.gpu import DeviceContext
+from max.gpu.host import DeviceContext
 
 from bajo.core import AABB, Vec3f32, Affine3f32, Point3f32, Frame
 from bajo.bvh.constants import Primitive, TRACE, f32_max
@@ -37,9 +37,7 @@ def test_gpu_tlas_triangle_camera_single_identity_matches_cpu_blas() raises:
     var local_bounds = compute_bounds(local_verts)
     var world_bounds = compute_bounds(world_verts)
     var camera = _camera_for_bounds(world_bounds, 2.0)
-    var cpu_bvh = TriangleBvh[Frame.WORLD, 4].__init__["lbvh"](
-        world_verts.copy()
-    )
+    var cpu_bvh = TriangleBvh[Frame.WORLD, 4].__init__["lbvh"](world_verts)
     var cpu_res = _trace_cpu_triangle_camera[4](cpu_bvh, camera, WIDTH, HEIGHT)
 
     var instances: List = [
@@ -112,7 +110,9 @@ def test_gpu_tlas_triangle_camera_translated_single_instance_hit() raises:
         ctx.synchronize()
 
         with d_hits.map_to_host() as hf:
-            var gpu_hit = Hit[Frame.WORLD].load(hf.unsafe_ptr(), 0)
+            var gpu_hit = Hit[Frame.WORLD].load(
+                Span(unsafe_ptr=hf.unsafe_ptr(), length=len(hf)), 0
+            )
 
             assert_almost_equal(gpu_hit.t, 2.0)
             assert_true(gpu_hit.prim == UInt32(0))
@@ -208,7 +208,9 @@ def test_gpu_tlas_sphere_camera_translated_single_instance_hit() raises:
         ctx.synchronize()
 
         with d_hits.map_to_host() as hf:
-            var gpu_hit = Hit[Frame.WORLD].load(hf.unsafe_ptr(), 0)
+            var gpu_hit = Hit[Frame.WORLD].load(
+                Span(unsafe_ptr=hf.unsafe_ptr(), length=len(hf)), 0
+            )
 
             assert_almost_equal(gpu_hit.t, 1.0)
             assert_true(gpu_hit.prim == UInt32(0))
@@ -252,7 +254,9 @@ def test_gpu_tlas_sphere_nonuniform_scale_normal() raises:
         ctx.synchronize()
 
         with d_hits.map_to_host() as hf:
-            var gpu_hit = Hit[Frame.WORLD].load(hf.unsafe_ptr(), 0)
+            var gpu_hit = Hit[Frame.WORLD].load(
+                Span(unsafe_ptr=hf.unsafe_ptr(), length=len(hf)), 0
+            )
             assert_almost_equal(gpu_hit.t, 1.1339746, atol=1.0e-5)
             assert_almost_equal(gpu_hit.normal.x, 0.2773501, atol=1.0e-5)
             assert_almost_equal(gpu_hit.normal.y, 0.0, atol=1.0e-5)

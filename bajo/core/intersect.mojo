@@ -29,6 +29,23 @@ struct RayTriHit[dtype: DType, width: SIMDLength](
 
 
 @fieldwise_init
+struct RayTriScaledHit[dtype: DType, width: SIMDLength](
+    TrivialRegisterPassable
+):
+    """Division-free Moller-Trumbore candidate values.
+
+    All numerators have been oriented to a positive determinant, so valid
+    lanes can be tested against abs_det without calculating a reciprocal.
+    """
+
+    var mask: SIMD[DType.bool, Self.width]
+    var abs_det: SIMD[Self.dtype, Self.width]
+    var t_scaled: SIMD[Self.dtype, Self.width]
+    var u_scaled: SIMD[Self.dtype, Self.width]
+    var v_scaled: SIMD[Self.dtype, Self.width]
+
+
+@fieldwise_init
 struct RayDistanceHit[dtype: DType, width: SIMDLength](TrivialRegisterPassable):
     """RayDistanceHit.
 
@@ -439,6 +456,55 @@ def intersect_ray_tri_edges[
         mask.select(t, INF),
         u,
         v,
+    )
+
+
+def intersect_ray_tri_edges_scaled[
+    dtype: DType, frame: Frame, width: SIMDLength
+](
+    o: Point3[dtype, frame, width],
+    d: Vec3[dtype, frame, width],
+    v0: Point3[dtype, frame, width],
+    e1: Vec3[dtype, frame, width],
+    e2: Vec3[dtype, frame, width],
+    t_max: SIMD[dtype, width],
+    t_min: SIMD[dtype, width] = SIMD[dtype, width](1.0e-4),
+) -> RayTriScaledHit[dtype, width]:
+    """Return determinant-scaled Moller-Trumbore candidates."""
+    comptime assert dtype.is_floating_point()
+    comptime EPSILON = Scalar[dtype](1e-8 if dtype == DType.float32 else 1e-16)
+
+    var p = cross(d, e2)
+    var det = dot(e1, p)
+    var positive_det = det.ge(0.0)
+    var abs_det = positive_det.select(det, -det)
+
+    var tv = o - v0
+    var u_num = dot(tv, p)
+    var u_scaled = positive_det.select(u_num, -u_num)
+
+    var q = cross(tv, e1)
+    var v_num = dot(d, q)
+    var t_num = dot(e2, q)
+    var v_scaled = positive_det.select(v_num, -v_num)
+    var t_scaled = positive_det.select(t_num, -t_num)
+
+    var mask = (
+        abs_det.gt(EPSILON)
+        & u_scaled.ge(0.0)
+        & u_scaled.le(abs_det)
+        & v_scaled.ge(0.0)
+        & (u_scaled + v_scaled).le(abs_det)
+        & t_scaled.gt(t_min * abs_det)
+        & t_scaled.lt(t_max * abs_det)
+    )
+
+    return RayTriScaledHit(
+        mask,
+        abs_det,
+        t_scaled,
+        u_scaled,
+        v_scaled,
     )
 
 

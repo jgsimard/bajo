@@ -11,14 +11,26 @@ from bajo.core.intersect import (
     closest_point_to_triangle,
     furthest_point_to_triangle,
     intersect_ray_aabb,
+    intersect_ray_aabb_octant_fma,
     intersect_ray_aabb_rcp,
     intersect_aabb_aabb,
     no_div_tri_tri_isect,
     intersect_tri_tri,
     intersect_ray_tri,
+    intersect_ray_tri_edges,
+    intersect_ray_tri_edges_scaled,
 )
 
-from bajo.core import Vec3, assert_vec_equal, Point3, Vec3W, Point3W, Frame
+from bajo.core import (
+    AABB,
+    Rayf32,
+    Vec3,
+    assert_vec_equal,
+    Point3,
+    Vec3W,
+    Point3W,
+    Frame,
+)
 
 
 # AABB
@@ -101,6 +113,46 @@ def test_intersect_ray_aabb_parallel_outside_miss() raises:
     assert_false(res.mask)
 
 
+def _test_intersect_ray_aabb_octant_fma[
+    positive_x: Bool, positive_y: Bool, positive_z: Bool
+]() raises:
+    comptime dx: Float32 = 1.0 if positive_x else -1.0
+    comptime dy: Float32 = 1.0 if positive_y else -1.0
+    comptime dz: Float32 = 1.0 if positive_z else -1.0
+
+    var ray = Rayf32[Frame.WORLD](
+        Point3W(-3.0 * dx, -3.0 * dy, -3.0 * dz),
+        Vec3W(dx, dy, dz),
+    )
+    var origin = ray.origin[1]()
+    var rcp_d = ray.rcp_direction[1]()
+    var origin_rcp_d = Vec3W(
+        origin.x * rcp_d.x,
+        origin.y * rcp_d.y,
+        origin.z * rcp_d.z,
+    )
+    var bounds = AABB[Frame.WORLD](Point3W(-1.0), Point3W(1.0))
+
+    var baseline = intersect_ray_aabb_rcp(origin, rcp_d, bounds, 100.0)
+    var optimized = intersect_ray_aabb_octant_fma[
+        positive_x=positive_x,
+        positive_y=positive_y,
+        positive_z=positive_z,
+    ](origin_rcp_d, rcp_d, bounds, 100.0)
+
+    assert_equal(optimized.mask, baseline.mask)
+    assert_almost_equal(optimized.t, baseline.t)
+
+
+def test_intersect_ray_aabb_octant_fma_all_octants() raises:
+    comptime for positive_x in [False, True]:
+        comptime for positive_y in [False, True]:
+            comptime for positive_z in [False, True]:
+                _test_intersect_ray_aabb_octant_fma[
+                    positive_x, positive_y, positive_z
+                ]()
+
+
 # Point / Triangle Distance Tests
 def test_closest_point_to_triangle() raises:
     var a = Vec3W(0.0, 0.0, 0.0)
@@ -165,6 +217,45 @@ def test_intersect_packed_triangle_span() raises:
 
     assert_true(hit.mask)
     assert_almost_equal(hit.t, 1.0)
+
+
+def test_scaled_ray_triangle_matches_eager_for_both_windings() raises:
+    var origin = Point3W(0.25, 0.25, 1.0)
+    var direction = Vec3W(0.0, 0.0, -1.0)
+    var v0 = Point3W(0.0, 0.0, 0.0)
+    var edge_x = Vec3W(1.0, 0.0, 0.0)
+    var edge_y = Vec3W(0.0, 1.0, 0.0)
+
+    var eager = intersect_ray_tri_edges(
+        origin, direction, v0, edge_x, edge_y, 10.0
+    )
+    var scaled = intersect_ray_tri_edges_scaled(
+        origin, direction, v0, edge_x, edge_y, 10.0
+    )
+    assert_equal(eager.mask, scaled.mask)
+    var inv_det = 1.0 / scaled.abs_det
+    assert_almost_equal(eager.t, scaled.t_scaled * inv_det, atol=1e-6)
+    assert_almost_equal(eager.u, scaled.u_scaled * inv_det, atol=1e-6)
+    assert_almost_equal(eager.v, scaled.v_scaled * inv_det, atol=1e-6)
+
+    eager = intersect_ray_tri_edges(origin, direction, v0, edge_y, edge_x, 10.0)
+    scaled = intersect_ray_tri_edges_scaled(
+        origin, direction, v0, edge_y, edge_x, 10.0
+    )
+    assert_equal(eager.mask, scaled.mask)
+    inv_det = 1.0 / scaled.abs_det
+    assert_almost_equal(eager.t, scaled.t_scaled * inv_det, atol=1e-6)
+    assert_almost_equal(eager.u, scaled.u_scaled * inv_det, atol=1e-6)
+    assert_almost_equal(eager.v, scaled.v_scaled * inv_det, atol=1e-6)
+
+    var miss_origin = Point3W(2.0, 2.0, 1.0)
+    eager = intersect_ray_tri_edges(
+        miss_origin, direction, v0, edge_x, edge_y, 10.0
+    )
+    scaled = intersect_ray_tri_edges_scaled(
+        miss_origin, direction, v0, edge_x, edge_y, 10.0
+    )
+    assert_equal(eager.mask, scaled.mask)
 
 
 # Triangle / Triangle Intersection Tests

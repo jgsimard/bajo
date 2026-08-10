@@ -26,6 +26,7 @@ from bajo.bvh.cpu.builder.builder import _partition_items_by_median_center
 from bajo.bvh.cpu.builder.sah import _find_sah_split, _partition_items_by_bin
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
+from bajo.bvh.cpu.trace import _extract_f32_lane, _extract_u32_lane
 from bajo.bvh.host_utils import triangle_bounds
 
 from test.bvh.fixtures import _brute_triangle_trace, _brute_sphere_trace
@@ -53,6 +54,25 @@ def test_hit_load_store_span_with_nonzero_index() raises:
     assert_almost_equal(actual.normal.y, expected.normal.y)
     assert_almost_equal(actual.normal.z, expected.normal.z)
     assert_almost_equal(actual.t, expected.t)
+
+
+def _test_extract_lane[width: SIMDLength]() raises:
+    var u32_values = SIMD[DType.uint32, width](0)
+    var f32_values = SIMD[DType.float32, width](0.0)
+    comptime for lane in range(width):
+        u32_values[lane] = UInt32(100 + lane)
+        f32_values[lane] = Float32(lane) + 0.25
+
+    for lane in range(Int(width)):
+        assert_true(_extract_u32_lane(u32_values, lane) == UInt32(100 + lane))
+        assert_almost_equal(
+            _extract_f32_lane(f32_values, lane), Float32(lane) + 0.25
+        )
+
+
+def test_extract_lane_all_cpu_bvh_widths() raises:
+    comptime for width in [2, 4, 8, 16]:
+        _test_extract_lane[width]()
 
 
 def _rng_f32(mut rng: Rng, lo: Float32, hi: Float32) -> Float32:

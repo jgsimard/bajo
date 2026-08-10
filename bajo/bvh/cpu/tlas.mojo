@@ -151,17 +151,17 @@ struct Tlas[
                             hit.v = local_hit.v
                             hit.prim = local_hit.prim
                             hit.inst = inst_idx
-                            hit.normal = inst.transform.normal(
-                                local_hit.normal.unsafe_convert[
-                                    new_frame=Frame.LOCAL
-                                ](),
-                                inst.inv_transform,
-                            )
+                            # Keep the current winner in BLAS-local space.
+                            # The final instance transforms it once after TLAS
+                            # traversal has selected the global closest hit.
+                            hit.normal = local_hit.normal.unsafe_convert[
+                                new_frame=Frame.WORLD
+                            ]()
                             any_hit = True
 
             return any_hit
 
-        return trace_bounds_bvh[
+        var hit = trace_bounds_bvh[
             frame=Frame.WORLD,
             bounds_width=Self.bounds_width,
             leaf_width=Self.leaf_width,
@@ -171,3 +171,13 @@ struct Tlas[
             self.tree,
             ray,
         )
+
+        comptime if mode == TRACE.CLOSEST_HIT:
+            if hit.is_hit():
+                ref inst = self.instances.unsafe_get(Int(hit.inst))
+                hit.normal = inst.transform.normal(
+                    hit.normal.unsafe_convert[new_frame=Frame.LOCAL](),
+                    inst.inv_transform,
+                )
+
+        return hit

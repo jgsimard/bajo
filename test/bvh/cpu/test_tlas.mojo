@@ -238,6 +238,35 @@ def test_tlas_triangle_decoupled_leaf_widths() raises:
         _test_tlas_triangle_decoupled_leaf_width[leaf_width]()
 
 
+def test_tlas_leaf_instance_bounds_filter_missed_blas() raises:
+    """A missed instance must not dispatch its BLAS from a shared TLAS leaf."""
+    var verts = _make_one_local_triangle_z2[Frame.LOCAL]()
+    var blas = TriangleBvh[Frame.LOCAL, 4](verts)
+    var blases = [blas.copy()]
+    var instances: List = [
+        # This deliberately invalid BLAS index is safe only when its SIMD
+        # instance bound is rejected before BLAS dispatch.
+        _triangle_instance[4](99, -5.0, 0.0, 0.0, blas),
+        _triangle_instance[4](0, 5.0, 0.0, 0.0, blas),
+    ]
+    var tlas = Tlas[4, 4](instances)
+    var ray = Rayf32[Frame.WORLD](Point3W(5.0, 0.0, 0.0), Vec3W(0.0, 0.0, 1.0))
+
+    _assert_hit(
+        tlas.trace[TriangleBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT](
+            ray, Span(blases)
+        ),
+        1,
+        0,
+        2.0,
+    )
+    assert_true(
+        tlas.trace[TriangleBvh[Frame.LOCAL, 4], TRACE.ANY_HIT](
+            ray, Span(blases)
+        ).is_occluded()
+    )
+
+
 def test_tlas_triangle_shadow_cases() raises:
     var verts = _make_one_local_triangle_z2[Frame.LOCAL]()
 

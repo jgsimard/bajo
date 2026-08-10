@@ -97,6 +97,7 @@ def _trace_bounds_bvh_impl[
     bounds_width: SIMDLength,
     leaf_width: SIMDLength,
     mode: TRACE,
+    leaf_uses_rcp_direction: Bool,
     leaf_fn: def(
         Rayf32[frame],
         Point3[DType.float32, frame, leaf_width],
@@ -137,6 +138,12 @@ def _trace_bounds_bvh_impl[
     )
     var leaf_O = ray.origin[leaf_width]()
     var leaf_D = ray.direction[leaf_width]()
+    comptime if leaf_uses_rcp_direction:
+        # `rcp_d` is splatted from one scalar ray, so lane zero can be
+        # rebroadcast at a different leaf width without another reciprocal.
+        leaf_D = Vec3[DType.float32, frame, leaf_width](
+            rcp_d.x[0], rcp_d.y[0], rcp_d.z[0]
+        )
     var nodes = Span(tree.nodes)
 
     @always_inline
@@ -401,6 +408,7 @@ def _trace_bounds_bvh_octant[
     bounds_width: SIMDLength,
     leaf_width: SIMDLength,
     mode: TRACE,
+    leaf_uses_rcp_direction: Bool,
     leaf_fn: def(
         Rayf32[frame],
         Point3[DType.float32, frame, leaf_width],
@@ -425,6 +433,7 @@ def _trace_bounds_bvh_octant[
             bounds_width=bounds_width,
             leaf_width=leaf_width,
             mode=mode,
+            leaf_uses_rcp_direction=leaf_uses_rcp_direction,
             leaf_fn=leaf_fn,
             positive_x=positive_x,
             positive_y=positive_y,
@@ -488,6 +497,34 @@ def trace_bounds_bvh[
         bounds_width=bounds_width,
         leaf_width=leaf_width,
         mode=mode,
+        leaf_uses_rcp_direction=False,
+        leaf_fn=leaf_fn,
+    ](tree, ray, zero, zero)
+
+
+def trace_bounds_bvh_leaf_rcp[
+    frame: Frame,
+    bounds_width: SIMDLength,
+    leaf_width: SIMDLength,
+    mode: TRACE,
+    leaf_fn: def(
+        Rayf32[frame],
+        Point3[DType.float32, frame, leaf_width],
+        Vec3[DType.float32, frame, leaf_width],
+        SIMD[DType.float32, leaf_width],
+        SIMD[DType.float32, leaf_width],
+        UInt32,
+        mut Hit[frame],
+    ) capturing -> Bool,
+](tree: BoundsBvh[frame, bounds_width], ray: Rayf32[frame]) -> Hit[frame]:
+    """Trace with reciprocal ray direction in the leaf direction argument."""
+    var zero = SIMD[DType.float32, leaf_width](0.0)
+    return _trace_bounds_bvh_octant[
+        frame=frame,
+        bounds_width=bounds_width,
+        leaf_width=leaf_width,
+        mode=mode,
+        leaf_uses_rcp_direction=True,
         leaf_fn=leaf_fn,
     ](tree, ray, zero, zero)
 
@@ -515,5 +552,6 @@ def trace_sphere_bounds_bvh[
         bounds_width=bounds_width,
         leaf_width=leaf_width,
         mode=mode,
+        leaf_uses_rcp_direction=False,
         leaf_fn=leaf_fn,
     ](tree, ray, ray_a, ray_inv_a)

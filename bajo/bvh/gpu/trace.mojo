@@ -127,6 +127,7 @@ def trace_bounds_bvh[
     ) capturing -> Bool,
     lifo: Bool = True,
     distance_aware: Bool = False,
+    direct_continuation: Bool = True,
 ](
     wide_nodes: Pointer[mut=False, Float32, _],
     leaves: Pointer[mut=False, Float32, _],
@@ -186,8 +187,8 @@ def trace_bounds_bvh[
                             if leaf_hit:
                                 return Hit[frame].shadow_hit()
 
-            # Push all other children first and the nearest child last, so it
-            # is popped first without fully sorting the remaining children.
+            # Keep the nearest child as the direct continuation. Only deferred
+            # siblings consume stack entries.
             var nearest_lane = -1
             var nearest_t = f32_max
             comptime for lane in range(width):
@@ -214,12 +215,16 @@ def trace_bounds_bvh[
                         nearest_lane = -1
 
                 if nearest_lane != -1:
-                    debug_assert["safe", _use_compiler_assume=True](
-                        stack_ptr < GPU_STACK_SIZE,
-                        "GPU BVH traversal stack overflow",
-                    )
-                    stack[stack_ptr] = child_data[nearest_lane]
-                    stack_ptr += 1
+                    comptime if direct_continuation:
+                        current = child_data[nearest_lane]
+                        continue
+                    else:
+                        debug_assert["safe", _use_compiler_assume=True](
+                            stack_ptr < GPU_STACK_SIZE,
+                            "GPU BVH traversal stack overflow",
+                        )
+                        stack[stack_ptr] = child_data[nearest_lane]
+                        stack_ptr += 1
         else:
             # basically the same as the cpu version
             comptime for node_lane in range(width):

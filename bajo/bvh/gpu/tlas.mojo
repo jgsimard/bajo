@@ -330,6 +330,7 @@ def trace_triangle_tlas_camera_kernel[
             Frame.LOCAL,
             blas_leaf_width,
             TRACE.CLOSEST_HIT,
+            blas_leaf_width > blas_node_width or blas_leaf_width == 8,
         ],
     ](
         tlas_wide_nodes,

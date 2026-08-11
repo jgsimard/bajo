@@ -5,7 +5,7 @@ from bajo.bvh.constants import TRACE, f32_max
 from bajo.bvh.cpu.trace import CpuBvhTraversalStats
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.host_utils import compute_bounds
-from bajo.core import Frame, Point3f32, Rayf32
+from bajo.core import Frame, Point3f32, Vec3f32, Rayf32
 from bajo.core.utils import ns_to_mrays_per_s
 from bajo.obj.pack import pack_obj_triangles
 from bench.bvh.bench_cpu_bvh_grid import (
@@ -19,12 +19,15 @@ comptime OBJ_PATH = "./assets/dragon/dragon.obj"
 comptime RAY_WIDTH = 512
 comptime RAY_HEIGHT = 288
 comptime TIMING_REPEATS = 4
+comptime DEPTH_LAYER_COUNT = 4096
+comptime DEPTH_STRESS_RAY_COUNT = RAY_WIDTH * RAY_HEIGHT
 
 
 @fieldwise_init
 struct TimingResult(Copyable):
     var ns: Int
     var checksum: Float64
+    var hits: Int
 
 
 def _ratio(numerator: Int, denominator: Int) -> Float64:
@@ -33,44 +36,113 @@ def _ratio(numerator: Int, denominator: Int) -> Float64:
     return Float64(numerator) / Float64(denominator)
 
 
-def trace_normal(
+def trace_normal[
+    mode: TRACE
+](
     bvh: TriangleBvh[Frame.WORLD, 16, 16],
     rays: List[Rayf32[Frame.WORLD]],
-) -> Float64:
+) -> Tuple[Float64, Int]:
     var checksum = 0.0
+    var hits = 0
     for ray in rays:
-        var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
-        if hit.t < f32_max:
-            checksum += Float64(hit.t) + Float64(hit.prim)
-    return checksum
+        var hit = bvh.trace[mode](ray)
+        comptime if mode == TRACE.CLOSEST_HIT:
+            if hit.t < f32_max:
+                checksum += Float64(hit.t) + Float64(hit.prim)
+                hits += 1
+        else:
+            if hit.is_occluded():
+                checksum += 1.0
+                hits += 1
+    return (checksum, hits)
 
 
-def time_normal(
+def time_normal[
+    mode: TRACE
+](
     bvh: TriangleBvh[Frame.WORLD, 16, 16],
     rays: List[Rayf32[Frame.WORLD]],
 ) -> TimingResult:
-    var checksum = trace_normal(bvh, rays)
+    var summary = trace_normal[mode](bvh, rays)
     var best_ns = Int.MAX
     for _ in range(TIMING_REPEATS):
         var t0 = perf_counter_ns()
-        checksum = trace_normal(bvh, rays)
+        summary = trace_normal[mode](bvh, rays)
         var elapsed = Int(perf_counter_ns() - t0)
         if elapsed < best_ns:
             best_ns = elapsed
-    return TimingResult(best_ns, checksum)
+    return TimingResult(best_ns, summary[0], summary[1])
 
 
-def collect_stats(
+def collect_stats[
+    mode: TRACE
+](
     bvh: TriangleBvh[Frame.WORLD, 16, 16],
     rays: List[Rayf32[Frame.WORLD]],
     mut stats: CpuBvhTraversalStats,
-) -> Float64:
+) -> Tuple[Float64, Int]:
     var checksum = 0.0
+    var hits = 0
     for ray in rays:
-        var hit = bvh.trace_with_stats[TRACE.CLOSEST_HIT](ray, stats)
-        if hit.t < f32_max:
-            checksum += Float64(hit.t) + Float64(hit.prim)
-    return checksum
+        var hit = bvh.trace_with_stats[mode](ray, stats)
+        comptime if mode == TRACE.CLOSEST_HIT:
+            if hit.t < f32_max:
+                checksum += Float64(hit.t) + Float64(hit.prim)
+                hits += 1
+        else:
+            if hit.is_occluded():
+                checksum += 1.0
+                hits += 1
+    return (checksum, hits)
+
+
+def select_and_repeat_hit_rays(
+    bvh: TriangleBvh[Frame.WORLD, 16, 16],
+    rays: List[Rayf32[Frame.WORLD]],
+) -> List[Rayf32[Frame.WORLD]]:
+    """Retain successful camera rays in scanline order, then repeat them.
+
+    Repetition restores the original timing sample count without changing the
+    spatial ordering within each pass over the visible surface.
+    """
+    var hit_rays = List[Rayf32[Frame.WORLD]](capacity=len(rays))
+    for ray in rays:
+        if bvh.trace[TRACE.CLOSEST_HIT](ray).is_hit():
+            hit_rays.append(ray.copy())
+
+    debug_assert["safe", _use_compiler_assume=True](
+        len(hit_rays) > 0, "high-hit benchmark found no Dragon intersections"
+    )
+
+    var repeated = List[Rayf32[Frame.WORLD]](capacity=len(rays))
+    for i in range(len(rays)):
+        repeated.append(hit_rays[i % len(hit_rays)].copy())
+    return repeated^
+
+
+def make_depth_overlap_triangles() -> List[Point3f32[Frame.WORLD]]:
+    """Separated depth layers whose bounds all overlap the benchmark rays."""
+    var vertices = List[Point3f32[Frame.WORLD]](capacity=DEPTH_LAYER_COUNT * 3)
+    for i in range(DEPTH_LAYER_COUNT):
+        var z = 2.0 + 0.01 * Float32(i)
+        vertices.append(Point3f32[Frame.WORLD](-4.0, -4.0, z))
+        vertices.append(Point3f32[Frame.WORLD](4.0, -4.0, z))
+        vertices.append(Point3f32[Frame.WORLD](0.0, 4.0, z))
+    return vertices^
+
+
+def make_depth_overlap_rays() -> List[Rayf32[Frame.WORLD]]:
+    var rays = List[Rayf32[Frame.WORLD]](capacity=DEPTH_STRESS_RAY_COUNT)
+    for i in range(DEPTH_STRESS_RAY_COUNT):
+        var x = (Float32(i % 256) / 255.0 - 0.5) * 0.5
+        var y = (Float32((i / 256) % 256) / 255.0 - 0.5) * 0.5
+        rays.append(
+            Rayf32[Frame.WORLD](
+                Point3f32[Frame.WORLD](x, y, 0.0),
+                Vec3f32[Frame.WORLD](0.0, 0.0, 1.0),
+            )
+        )
+    return rays^
 
 
 def permute_rays(
@@ -137,6 +209,10 @@ def print_stats(label: String, stats: CpuBvhTraversalStats) raises:
         t" {round(_ratio(stats.closer_hit_updates, stats.rays), 3)}"
     )
     print(
+        t"  any-hit early exits/ray:"
+        t" {round(_ratio(stats.any_hit_early_exits, stats.rays), 3)}"
+    )
+    print(
         t"  stack pushes/ray:"
         t" {round(_ratio(stats.stack_pushes, stats.rays), 3)}"
     )
@@ -152,17 +228,22 @@ def print_stats(label: String, stats: CpuBvhTraversalStats) raises:
     print(t"  maximum stack depth: {stats.max_stack_depth}")
 
 
-def run_case(
+def run_case[
+    mode: TRACE
+](
     label: String,
-    vertices: List[Point3f32[Frame.WORLD]],
+    bvh: TriangleBvh[Frame.WORLD, 16, 16],
     rays: List[Rayf32[Frame.WORLD]],
 ) raises:
-    print(t"\n{label}: {len(vertices) / 3} triangles, {len(rays)} rays")
-    var bvh = TriangleBvh[Frame.WORLD, 16, 16].__init__["sah"](vertices)
+    print(t"\n{label}: {bvh.tri_count} triangles, {len(rays)} rays")
     var permuted = permute_rays(rays)
 
-    var coherent_timing = time_normal(bvh, rays)
-    var permuted_timing = time_normal(bvh, permuted)
+    var coherent_timing = time_normal[mode](bvh, rays)
+    var permuted_timing = time_normal[mode](bvh, permuted)
+    print(
+        t"  hit rate:"
+        t" {round(100.0 * _ratio(coherent_timing.hits, len(rays)), 2)}%"
+    )
     print_timing("coherent", coherent_timing, len(rays))
     print_timing("permuted", permuted_timing, len(permuted))
     print(
@@ -177,17 +258,18 @@ def run_case(
     # Traversal work is ray-local, so a permutation has identical counters.
     # Collect once in coherent order; the separate timings expose cache effects.
     var stats = CpuBvhTraversalStats()
-    var measured_checksum = collect_stats(bvh, rays, stats)
+    var measured = collect_stats[mode](bvh, rays, stats)
     print(
         t"  measured checksum delta:"
-        t" {round(measured_checksum - coherent_timing.checksum, 6)}"
+        t" {round(measured[0] - coherent_timing.checksum, 6)}"
     )
+    print(t"  measured hit-count delta: {measured[1] - coherent_timing.hits}")
     print_stats(label, stats)
 
 
 def main() raises:
     print("CPU BVH measurement before micro-optimization")
-    print("BVH16 / triangle packets of 16 / SAH / closest-hit")
+    print("BVH16 / triangle packets of 16 / SAH")
 
     var dragon_vertices = pack_obj_triangles[Frame.WORLD](OBJ_PATH)
     var dragon_bounds = compute_bounds(dragon_vertices)
@@ -199,8 +281,37 @@ def main() raises:
         0.2,
     )
     var dragon_rays = camera[0].copy()
-    run_case("Dragon camera", dragon_vertices, dragon_rays)
+    var dragon_bvh = TriangleBvh[Frame.WORLD, 16, 16].__init__["sah"](
+        dragon_vertices
+    )
+    run_case[TRACE.CLOSEST_HIT](
+        "Dragon camera (natural hit rate)", dragon_bvh, dragon_rays
+    )
+
+    var dragon_hit_rays = select_and_repeat_hit_rays(dragon_bvh, dragon_rays)
+    run_case[TRACE.CLOSEST_HIT](
+        "Dragon visible-surface rays (forced high hit rate)",
+        dragon_bvh,
+        dragon_hit_rays,
+    )
+    run_case[TRACE.ANY_HIT](
+        "Dragon visible-surface shadow rays (any-hit)",
+        dragon_bvh,
+        dragon_hit_rays,
+    )
 
     var grid_vertices = make_grid_triangles()
     var grid_rays = make_hit_and_miss_rays()
-    run_case("Regular grid", grid_vertices, grid_rays)
+    var grid_bvh = TriangleBvh[Frame.WORLD, 16, 16].__init__["sah"](
+        grid_vertices
+    )
+    run_case[TRACE.CLOSEST_HIT]("Regular grid", grid_bvh, grid_rays)
+
+    var depth_vertices = make_depth_overlap_triangles()
+    var depth_rays = make_depth_overlap_rays()
+    var depth_bvh = TriangleBvh[Frame.WORLD, 16, 16].__init__["sah"](
+        depth_vertices
+    )
+    run_case[TRACE.CLOSEST_HIT](
+        "Layered overlap (pending-stack stress)", depth_bvh, depth_rays
+    )

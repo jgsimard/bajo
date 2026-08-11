@@ -56,7 +56,7 @@ struct Hit[frame: Frame = Frame.WORLD](TrivialRegisterPassable, Writable):
         return self.prim != EMPTY_LANE and self.t < f32_max
 
     def is_occluded(self) -> Bool:
-        return self.t < f32_max
+        return self.prim == EMPTY_LANE and self.t == 0.0
 
     def store(self, hits: Span[mut=True, Float32, _], idx: Int):
         debug_assert["safe", _use_compiler_assume=True](

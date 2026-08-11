@@ -320,8 +320,7 @@ def _trace_ao(world: World, ray: Rayf32[Frame.WORLD], mut rng: Rng) -> Color:
     ref record = hit.record
     var ao_dir = random_on_hemisphere[Frame.WORLD](rng, record.normal)
     var ao_ray = Rayf32[Frame.WORLD](record.p, normalize(ao_dir), 0.001, 4.0)
-    var occluder = world.trace(ao_ray)
-    if occluder:
+    if world.occluded(ao_ray):
         return Color(0.08)
 
     return Color(1.0)

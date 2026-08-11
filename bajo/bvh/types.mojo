@@ -193,7 +193,10 @@ trait TypedBvh:
 
 
 @fieldwise_init
-struct BlasSet[width: SIMDLength]:
+struct BlasSet[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength = node_width,
+]:
     comptime WIDE_NODE_BASE = 0
     comptime LEAF_F32_BASE = 1
     comptime ROOT_IDX = 2

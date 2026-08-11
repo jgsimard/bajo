@@ -1,8 +1,10 @@
 from bajo.bvh.constants import EMPTY_LANE
 
 
-comptime WIDE_META_INDEX_MASK = UInt32(0x0FFFFFFF)
-comptime WIDE_META_COUNT_SHIFT = 28
+# Five count bits support independent leaf packets through width 16 while
+# retaining 27 bits (134 million entries) for node and leaf-block indices.
+comptime WIDE_META_INDEX_MASK = UInt32(0x07FFFFFF)
+comptime WIDE_META_COUNT_SHIFT = 27
 
 
 @always_inline

@@ -40,11 +40,12 @@ from bajo.core.utils import min_argmin
 
 
 def build_triangle_blas_set[
-    width: SIMDLength
+    node_width: SIMDLength,
+    leaf_width: SIMDLength = node_width,
 ](
     mut ctx: DeviceContext,
     vertex_sets: List[List[Point3f32[Frame.LOCAL]]],
-) raises -> BlasSet[width]:
+) raises -> BlasSet[node_width, leaf_width]:
     debug_assert["safe", _use_compiler_assume=True](len(vertex_sets) > 0)
 
     var descs = List[UInt32](capacity=len(vertex_sets) * BlasSet.STRIDE)
@@ -73,8 +74,10 @@ def build_triangle_blas_set[
         descs.append(UInt32(max_leaf_blocks))
         descs.append(UInt32(tri_count))
 
-        total_wide_nodes += max_wide_nodes * width * WideNode.CHILD_STRIDE
-        total_leaf_vertices += max_leaf_blocks * width * TRI_LEAF_PACKED_STRIDE
+        total_wide_nodes += max_wide_nodes * node_width * WideNode.CHILD_STRIDE
+        total_leaf_vertices += (
+            max_leaf_blocks * leaf_width * TRI_LEAF_PACKED_STRIDE
+        )
 
     var wide_nodes = ctx.enqueue_create_buffer[DType.float32](total_wide_nodes)
     var leaf_vertices = ctx.enqueue_create_buffer[DType.float32](
@@ -85,7 +88,9 @@ def build_triangle_blas_set[
     # temporary BLAS buffers stay alive until their copy kernels finish.
     for blas_idx in range(len(vertex_sets)):
         var d_vertices = upload_vertices(ctx, vertex_sets[blas_idx])
-        var blas = GpuTriangleBvh[Frame.LOCAL, width](ctx, d_vertices)
+        var blas = GpuTriangleBvh[Frame.LOCAL, node_width, leaf_width](
+            ctx, d_vertices
+        )
 
         var desc_base = blas_idx * BlasSet.STRIDE
 
@@ -105,7 +110,7 @@ def build_triangle_blas_set[
         )
         ctx.synchronize()
 
-    return BlasSet[width](
+    return BlasSet[node_width, leaf_width](
         upload_list(ctx, descs),
         wide_nodes,
         leaf_vertices,
@@ -113,8 +118,12 @@ def build_triangle_blas_set[
     )
 
 
-struct GpuTriangleBvh[frame: Frame, width: SIMDLength]:
-    var tree: GpuBoundsBvh[Self.width]
+struct GpuTriangleBvh[
+    frame: Frame,
+    node_width: SIMDLength,
+    leaf_width: SIMDLength = node_width,
+]:
+    var tree: GpuBoundsBvh[Self.node_width, Self.leaf_width]
     var vertices: DeviceBuffer[DType.float32]
     var leaf_vertices: DeviceBuffer[DType.float32]
     var tri_count: Int
@@ -160,7 +169,9 @@ struct GpuTriangleBvh[frame: Frame, width: SIMDLength]:
             ctx.synchronize()
             bounds_pack_ns = Int(perf_counter_ns() - bounds_pack_start)
 
-        self.tree = GpuBoundsBvh[Self.width](ctx, self.tri_count)
+        self.tree = GpuBoundsBvh[Self.node_width, Self.leaf_width](
+            ctx, self.tri_count
+        )
         self.timings = self.tree.build(
             ctx,
             leaf_bounds,
@@ -171,7 +182,7 @@ struct GpuTriangleBvh[frame: Frame, width: SIMDLength]:
 
         var leaf_block_capacity = max(self.tree.leaf_block_count, 1)
         self.leaf_vertices = ctx.enqueue_create_buffer[DType.float32](
-            leaf_block_capacity * Self.width * TRI_LEAF_PACKED_STRIDE
+            leaf_block_capacity * Self.leaf_width * TRI_LEAF_PACKED_STRIDE
         )
 
         self._pack_leaf_blocks(ctx, measure_build)
@@ -179,10 +190,10 @@ struct GpuTriangleBvh[frame: Frame, width: SIMDLength]:
         # print(t"tri_count = {self.tri_count}")
         # print(t"leaf_block_count = {self.tree.leaf_block_count}")
         # print(t"max_leaf_blocks = {self.tree.max_leaf_blocks}")
-        # print(t"packed leaf lanes = {self.tree.leaf_block_count * Self.width}")
+        # print(t"packed leaf lanes = {self.tree.leaf_block_count * Self.leaf_width}")
         # print(
         #     t"leaf lanes / triangles = "
-        #     t"{Float64(self.tree.leaf_block_count * Self.width) / Float64(self.tri_count)}"
+        #     t"{Float64(self.tree.leaf_block_count * Self.leaf_width) / Float64(self.tri_count)}"
         # )
 
     def _pack_leaf_blocks(
@@ -194,12 +205,14 @@ struct GpuTriangleBvh[frame: Frame, width: SIMDLength]:
         if measure_build:
             start = perf_counter_ns()
 
-        var leaf_lane_count = max(self.tree.leaf_block_count * Self.width, 1)
+        var leaf_lane_count = max(
+            self.tree.leaf_block_count * Self.leaf_width, 1
+        )
         var blocks = ceildiv(
             leaf_lane_count,
             GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
-        ctx.enqueue_function[pack_triangle_leaf_lanes_kernel[Self.width]](
+        ctx.enqueue_function[pack_triangle_leaf_lanes_kernel[Self.leaf_width]](
             self.vertices,
             self.tree.leaf_block_indices,
             self.leaf_vertices,
@@ -235,7 +248,9 @@ struct GpuTriangleBvh[frame: Frame, width: SIMDLength]:
             len(d_hits) >= ray_count * Hit.STRIDE,
             "hit output buffer is too short",
         )
-        ctx.enqueue_function[trace_triangle_bvh_camera_kernel[Self.width]](
+        ctx.enqueue_function[
+            trace_triangle_bvh_camera_kernel[Self.node_width, Self.leaf_width]
+        ](
             self.tree.wide_nodes,
             self.leaf_vertices,
             self.tree.root_idx,
@@ -365,7 +380,8 @@ def pack_triangle_leaf_lanes_kernel[
 
 
 def trace_triangle_bvh_camera_kernel[
-    width: SIMDLength,
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
 ](
     wide_nodes: Pointer[Float32, ImmutAnyOrigin],
     leaf_vertices: Pointer[Float32, ImmutAnyOrigin],
@@ -401,15 +417,15 @@ def trace_triangle_bvh_camera_kernel[
     # BVH2 and BVH8 retain the lower-memory stack specialization.
     var hit = trace_bounds_bvh[
         Frame.WORLD,
-        width,
+        node_width,
         TRACE.CLOSEST_HIT,
         _intersect_triangle_leaf[
             Frame.WORLD,
-            width,
+            leaf_width,
             TRACE.CLOSEST_HIT,
         ],
         True,
-        width == 4,
+        node_width == 4,
     ](
         wide_nodes,
         leaf_vertices,

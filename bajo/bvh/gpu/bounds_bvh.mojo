@@ -17,13 +17,19 @@ from bajo.bvh.gpu.builder.wide_collapse import collapse
 from bajo.bvh.gpu.builder.binary_layout import GpuBinaryBoundsBvh
 
 
-struct GpuBoundsBvh[width: SIMDLength]:
+struct GpuBoundsBvh[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength = node_width,
+]:
     """Generic GPU Bvh. Build input is only leaf AABBs plus payload ids.
 
     Wide lane encoding mirrors the CPU BVH:
         count == EMPTY_LANE -> unused lane
         count == 0          -> child node, data = wide child index
         count > 0           -> leaf block, data = leaf block index
+
+    Node width controls AABB traversal while leaf width independently controls
+    the number of primitive or instance payloads in a packed leaf block.
     """
 
     var leaf_count: Int
@@ -56,10 +62,10 @@ struct GpuBoundsBvh[width: SIMDLength]:
         self.bounds_device = ctx.enqueue_create_buffer[DType.float32](12)
 
         self.wide_nodes = ctx.enqueue_create_buffer[DType.float32](
-            self.max_wide_nodes * Self.width * WideNode.CHILD_STRIDE
+            self.max_wide_nodes * Self.node_width * WideNode.CHILD_STRIDE
         )
         self.leaf_block_indices = ctx.enqueue_create_buffer[DType.uint32](
-            self.max_leaf_blocks * Self.width
+            self.max_leaf_blocks * Self.leaf_width
         )
 
     def build(

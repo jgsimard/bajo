@@ -27,7 +27,13 @@ from bajo.core.intersect import (
     intersect_ray_tri_edges,
     intersect_ray_tri_edges_scaled,
 )
-from bajo.bvh.cpu.trace import _extract_f32_lane, trace_bounds_bvh
+from bajo.bvh.cpu.trace import (
+    CpuBvhTraversalStats,
+    _count_true_lanes,
+    _extract_f32_lane,
+    trace_bounds_bvh,
+    trace_bounds_bvh_measured,
+)
 
 
 struct TriangleBvh[
@@ -132,6 +138,26 @@ struct TriangleBvh[
     def trace[
         mode: TRACE
     ](self, ray: Rayf32[Self.bvh_frame]) -> Hit[Self.bvh_frame]:
+        var unused_stats = CpuBvhTraversalStats()
+        return self._trace[mode, collect_stats=False](ray, unused_stats)
+
+    def trace_with_stats[
+        mode: TRACE
+    ](
+        self,
+        ray: Rayf32[Self.bvh_frame],
+        mut stats: CpuBvhTraversalStats,
+    ) -> Hit[Self.bvh_frame]:
+        """Trace one ray and accumulate traversal diagnostics in `stats`."""
+        return self._trace[mode, collect_stats=True](ray, stats)
+
+    def _trace[
+        mode: TRACE, collect_stats: Bool
+    ](
+        self,
+        ray: Rayf32[Self.bvh_frame],
+        mut stats: CpuBvhTraversalStats,
+    ) -> Hit[Self.bvh_frame]:
         # Zero-filled unused triangles are degenerate. Omitting their explicit
         # validity load is benchmark-positive only for full-width packets.
         comptime omit_leaf_validity_mask = Self.leaf_width == 16
@@ -143,9 +169,16 @@ struct TriangleBvh[
             _ray_a: SIMD[DType.float32, Self.leaf_width],
             _ray_inv_a: SIMD[DType.float32, Self.leaf_width],
             leaf_block_idx: UInt32,
+            mut leaf_stats: CpuBvhTraversalStats,
             mut hit: Hit[Self.bvh_frame],
         ) capturing -> Bool:
             ref block = self.leaf_blocks.unsafe_get(Int(leaf_block_idx))
+            comptime if collect_stats:
+                leaf_stats.primitive_packet_lanes += Int(Self.leaf_width)
+                leaf_stats.valid_primitives += _count_true_lanes(
+                    block.prim_indices.ne(EMPTY_LANE)
+                )
+
             comptime if mode == TRACE.ANY_HIT:
                 var tri_hit = intersect_ray_tri_edges(
                     O,
@@ -156,6 +189,10 @@ struct TriangleBvh[
                     hit.t,
                     ray.t_min,
                 )
+                comptime if collect_stats:
+                    leaf_stats.primitive_hit_candidates += _count_true_lanes(
+                        tri_hit.mask & block.prim_indices.ne(EMPTY_LANE)
+                    )
                 comptime if omit_leaf_validity_mask:
                     return tri_hit.mask.reduce_or()
                 else:
@@ -175,10 +212,17 @@ struct TriangleBvh[
             comptime if not omit_leaf_validity_mask:
                 hit_mask &= block.prim_indices.ne(EMPTY_LANE)
 
+            comptime if collect_stats:
+                leaf_stats.primitive_hit_candidates += _count_true_lanes(
+                    hit_mask & block.prim_indices.ne(EMPTY_LANE)
+                )
+
             if not hit_mask.reduce_or():
                 return False
 
             comptime if mode == TRACE.CLOSEST_HIT:
+                comptime if collect_stats:
+                    leaf_stats.closer_hit_updates += 1
                 # Compare t_scaled / abs_det ratios without division, then
                 # calculate one reciprocal for the winning scalar lane.
                 var bits = pack_bits(hit_mask)
@@ -308,13 +352,44 @@ struct TriangleBvh[
 
             return True
 
-        var hit = trace_bounds_bvh[
-            frame=Self.frame,
-            bounds_width=Self.bounds_width,
-            leaf_width=Self.leaf_width,
-            mode=mode,
-            leaf_fn=leaf_fn,
-        ](self.tree, ray)
+        @always_inline
+        def unmeasured_leaf_fn(
+            ray: Rayf32[Self.bvh_frame],
+            O: Point3[DType.float32, Self.bvh_frame, Self.leaf_width],
+            D: Vec3[DType.float32, Self.bvh_frame, Self.leaf_width],
+            ray_a: SIMD[DType.float32, Self.leaf_width],
+            ray_inv_a: SIMD[DType.float32, Self.leaf_width],
+            leaf_block_idx: UInt32,
+            mut hit: Hit[Self.bvh_frame],
+        ) capturing -> Bool:
+            return leaf_fn(
+                ray,
+                O,
+                D,
+                ray_a,
+                ray_inv_a,
+                leaf_block_idx,
+                stats,
+                hit,
+            )
+
+        var hit: Hit[Self.bvh_frame]
+        comptime if collect_stats:
+            hit = trace_bounds_bvh_measured[
+                frame=Self.frame,
+                bounds_width=Self.bounds_width,
+                leaf_width=Self.leaf_width,
+                mode=mode,
+                leaf_fn=leaf_fn,
+            ](self.tree, ray, stats)
+        else:
+            hit = trace_bounds_bvh[
+                frame=Self.frame,
+                bounds_width=Self.bounds_width,
+                leaf_width=Self.leaf_width,
+                mode=mode,
+                leaf_fn=unmeasured_leaf_fn,
+            ](self.tree, ray)
 
         comptime if mode == TRACE.CLOSEST_HIT:
             if hit.is_hit():

@@ -26,7 +26,11 @@ from bajo.bvh.cpu.builder.builder import _partition_items_by_median_center
 from bajo.bvh.cpu.builder.sah import _find_sah_split, _partition_items_by_bin
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
-from bajo.bvh.cpu.trace import _extract_f32_lane, _extract_u32_lane
+from bajo.bvh.cpu.trace import (
+    CpuBvhTraversalStats,
+    _extract_f32_lane,
+    _extract_u32_lane,
+)
 from bajo.bvh.host_utils import triangle_bounds
 
 from test.bvh.fixtures import _brute_triangle_trace, _brute_sphere_trace
@@ -645,6 +649,50 @@ def test_triangle_bvh_shadow_hit_and_miss() raises:
     comptime for w in [2, 4, 8]:
         comptime for mode in ["median", "sah", "lbvh"]:
             _test_triangle_bvh_shadow_hit_and_miss[w, mode]()
+
+
+def test_triangle_bvh_measured_trace_matches_normal_and_counts_work() raises:
+    var verts = _make_depth_stack[Frame.WORLD](64)
+    var bvh = TriangleBvh[Frame.WORLD, 16, 4].__init__["sah"](verts)
+    var hit_ray = _z_ray(Point3W(0.0, 0.0, 0.0))
+
+    var normal_hit = bvh.trace[TRACE.CLOSEST_HIT](hit_ray)
+    var stats = CpuBvhTraversalStats()
+    var measured_hit = bvh.trace_with_stats[TRACE.CLOSEST_HIT](hit_ray, stats)
+
+    assert_true(normal_hit.is_hit() == measured_hit.is_hit())
+    assert_true(normal_hit.prim == measured_hit.prim)
+    assert_almost_equal(normal_hit.t, measured_hit.t)
+    assert_almost_equal(normal_hit.u, measured_hit.u)
+    assert_almost_equal(normal_hit.v, measured_hit.v)
+
+    assert_true(stats.rays == 1)
+    assert_true(stats.internal_nodes > 0)
+    assert_true(stats.nodes_with_hits > 0)
+    assert_true(stats.aabb_packet_lanes == 16 * stats.internal_nodes)
+    assert_true(stats.active_child_lanes >= stats.aabb_hit_lanes)
+    assert_true(stats.leaf_blocks > 0)
+    assert_true(stats.primitive_packet_lanes == 4 * stats.leaf_blocks)
+    assert_true(stats.valid_primitives > 0)
+    assert_true(stats.valid_primitives <= stats.primitive_packet_lanes)
+    assert_true(stats.primitive_hit_candidates > 0)
+    assert_true(stats.closer_hit_updates > 0)
+    assert_true(stats.stack_pushes >= stats.stack_pops)
+    assert_true(stats.max_stack_depth <= stats.stack_pushes)
+
+    var miss_ray = _z_ray(Point3W(1000.0, 1000.0, 0.0))
+    var normal_miss = bvh.trace[TRACE.CLOSEST_HIT](miss_ray)
+    var measured_miss = bvh.trace_with_stats[TRACE.CLOSEST_HIT](miss_ray, stats)
+    assert_true(normal_miss.is_hit() == measured_miss.is_hit())
+    assert_true(stats.rays == 2)
+
+    var any_stats = CpuBvhTraversalStats()
+    var normal_any = bvh.trace[TRACE.ANY_HIT](hit_ray)
+    var measured_any = bvh.trace_with_stats[TRACE.ANY_HIT](hit_ray, any_stats)
+    assert_true(normal_any.is_occluded() == measured_any.is_occluded())
+    assert_true(any_stats.rays == 1)
+    assert_true(any_stats.primitive_hit_candidates > 0)
+    assert_true(any_stats.any_hit_early_exits == 1)
 
 
 def test_sphere_bounds() raises:

@@ -5,9 +5,7 @@ from bajo.core import (
     Affine3f32,
     Frame,
     Vec3f32,
-    cross,
     dot,
-    normalize,
     Point3f32,
     GeoKind,
     Rayf32,
@@ -486,13 +484,10 @@ struct World:
             "hit triangle surface id is out of range",
         )
 
-        var base = tri_idx * 3
-        ref v0 = self.triangle_vertices[base + 0]
-        ref v1 = self.triangle_vertices[base + 1]
-        ref v2 = self.triangle_vertices[base + 2]
-
         var p = ray_at(ray, bvh_hit.t)
-        var outward_normal = normalize(cross(v1 - v0, v2 - v0))
+        var outward_normal = bvh_hit.normal.unsafe_convert[
+            new_kind=GeoKind.VECTOR
+        ]()
         var front_face = dot(ray.d, outward_normal) < 0.0
         var normal = outward_normal if front_face else -outward_normal
 

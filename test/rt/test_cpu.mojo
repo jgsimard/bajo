@@ -284,6 +284,20 @@ def test_world_hits_triangle() raises:
     assert_vec_equal(hit.normal, Vec3f32[Frame.WORLD](0.0, 0.0, 1.0))
     assert_almost_equal(hit.t, 2.0)
 
+    var back_hit = (
+        world.hit(
+            Rayf32[Frame.WORLD](
+                Point3f32[Frame.WORLD](0.0, 0.0, -4.0),
+                Vec3f32[Frame.WORLD](0.0, 0.0, 1.0),
+            )
+        )
+        .value()
+        .copy()
+    )
+    assert_false(back_hit.front_face)
+    assert_vec_equal(back_hit.normal, Vec3f32[Frame.WORLD](0.0, 0.0, -1.0))
+    assert_almost_equal(back_hit.t, 2.0)
+
 
 def test_world_picks_closest_sphere_or_triangle() raises:
     var surfaces = SurfaceStore()

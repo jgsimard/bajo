@@ -469,6 +469,126 @@ def test_triangle_mesh_instances_use_instance_surfaces() raises:
     assert_almost_equal(hit1.t, 2.0)
 
 
+def test_world_occluded_covers_all_geometry_and_ray_interval() raises:
+    var surfaces = SurfaceStore()
+    var spheres = List[Sphere[Frame.WORLD]]()
+    var sphere_surfaces = List[SurfaceId]()
+    var triangle_vertices = List[Point3f32[Frame.WORLD]]()
+    var triangle_surfaces = List[SurfaceId]()
+    var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
+    var triangle_instances = List[Instance]()
+    var triangle_instance_surfaces = List[SurfaceId]()
+    var matte = surfaces.add_lambertian(Color(0.5))
+
+    add_sphere(
+        spheres,
+        sphere_surfaces,
+        Point3f32[Frame.WORLD](-2.0, 0.0, -2.0),
+        0.5,
+        matte,
+    )
+    add_triangle(
+        triangle_vertices,
+        triangle_surfaces,
+        Point3f32[Frame.WORLD](-0.75, -0.75, -3.0),
+        Point3f32[Frame.WORLD](0.75, -0.75, -3.0),
+        Point3f32[Frame.WORLD](0.0, 0.75, -3.0),
+        matte,
+    )
+
+    var mesh = List[Point3f32[Frame.LOCAL]]()
+    mesh.append(Point3f32[Frame.LOCAL](-0.5, -0.5, -4.0))
+    mesh.append(Point3f32[Frame.LOCAL](0.5, -0.5, -4.0))
+    mesh.append(Point3f32[Frame.LOCAL](0.0, 0.5, -4.0))
+    var mesh_bounds = compute_bounds(mesh)
+    var transform = Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(
+        Vec3f32[Frame.WORLD](2.0, 0.0, 0.0)
+    )
+    _ = add_triangle_mesh_instance(
+        triangle_meshes,
+        triangle_instances,
+        triangle_instance_surfaces,
+        mesh,
+        transform,
+        mesh_bounds,
+        matte,
+    )
+
+    var world = World(
+        spheres^,
+        sphere_surfaces^,
+        triangle_vertices^,
+        triangle_surfaces^,
+        triangle_meshes^,
+        triangle_instances^,
+        triangle_instance_surfaces^,
+        surfaces^,
+    )
+
+    var sphere_ray = Rayf32[Frame.WORLD](
+        Point3f32[Frame.WORLD](-2.0, 0.0, 0.0),
+        Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
+        0.001,
+        3.0,
+    )
+    assert_true(world.occluded(sphere_ray))
+    assert_false(
+        world.occluded(
+            Rayf32[Frame.WORLD](
+                Point3f32[Frame.WORLD](-2.0, 0.0, 0.0),
+                Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
+                0.001,
+                1.0,
+            )
+        )
+    )
+
+    var triangle_ray = Rayf32[Frame.WORLD](
+        Point3f32[Frame.WORLD](0.0),
+        Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
+        0.001,
+        4.0,
+    )
+    assert_true(world.occluded(triangle_ray))
+    assert_false(
+        world.occluded(
+            Rayf32[Frame.WORLD](
+                Point3f32[Frame.WORLD](0.0),
+                Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
+                0.001,
+                2.0,
+            )
+        )
+    )
+
+    var instance_ray = Rayf32[Frame.WORLD](
+        Point3f32[Frame.WORLD](2.0, 0.0, 0.0),
+        Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
+        0.001,
+        5.0,
+    )
+    assert_true(world.occluded(instance_ray))
+    assert_false(
+        world.occluded(
+            Rayf32[Frame.WORLD](
+                Point3f32[Frame.WORLD](2.0, 0.0, 0.0),
+                Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
+                0.001,
+                3.0,
+            )
+        )
+    )
+
+    assert_false(
+        world.occluded(
+            Rayf32[Frame.WORLD](
+                Point3f32[Frame.WORLD](5.0, 0.0, 0.0),
+                Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
+            )
+        )
+    )
+
+
 def test_render_settings_and_tiny_render() raises:
     var settings = RenderSettings(4, 2, 2, UInt64(9))
     assert_equal(settings.image_width, 4)

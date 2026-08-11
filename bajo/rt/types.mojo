@@ -337,6 +337,33 @@ struct World:
     def hit(self, ray: Rayf32[Frame.WORLD]) -> Optional[HitRecord]:
         return self.trace(ray)
 
+    def occluded(self, ray: Rayf32[Frame.WORLD]) -> Bool:
+        """Return as soon as any world primitive intersects `ray`.
+
+        Visibility queries do not need the closest primitive, surface data,
+        hit point, or normal. Keep them on the BVHs' any-hit paths and
+        short-circuit between geometry classes as well.
+        """
+        if self.sphere_bvh:
+            var hit = self.sphere_bvh.value().trace[TRACE.ANY_HIT](ray)
+            if hit.is_occluded():
+                return True
+
+        if self.triangle_bvh:
+            var hit = self.triangle_bvh.value().trace[TRACE.ANY_HIT](ray)
+            if hit.is_occluded():
+                return True
+
+        if self.triangle_tlas:
+            var hit = self.triangle_tlas.value().trace[
+                TriangleBvh[Frame.LOCAL, BVH_WIDTH],
+                TRACE.ANY_HIT,
+            ](ray, Span(self.triangle_mesh_blases))
+            if hit.is_occluded():
+                return True
+
+        return False
+
     def trace(self, ray: Rayf32[Frame.WORLD]) -> Optional[HitRecord]:
         var sphere_hit = self._trace_spheres(ray)
         var triangle_hit = self._trace_triangles(ray)

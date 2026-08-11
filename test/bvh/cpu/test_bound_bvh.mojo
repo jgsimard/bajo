@@ -36,6 +36,11 @@ from bajo.bvh.host_utils import triangle_bounds
 from test.bvh.fixtures import _brute_triangle_trace, _brute_sphere_trace
 
 
+def test_shadow_hit_sentinel_distinguishes_bounded_miss() raises:
+    assert_true(Hit[Frame.WORLD].shadow_hit().is_occluded())
+    assert_true(not Hit[Frame.WORLD].miss(4.0).is_occluded())
+
+
 def test_hit_load_store_span_with_nonzero_index() raises:
     var data = List[Float32](length=2 * Hit.STRIDE, fill=-1.0)
     var expected = Hit[Frame.WORLD](

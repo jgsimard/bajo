@@ -127,7 +127,6 @@ def trace_bounds_bvh[
     ) capturing -> Bool,
     lifo: Bool = True,
     distance_aware: Bool = False,
-    direct_continuation: Bool = True,
 ](
     wide_nodes: Pointer[mut=False, Float32, _],
     leaves: Pointer[mut=False, Float32, _],
@@ -215,16 +214,8 @@ def trace_bounds_bvh[
                         nearest_lane = -1
 
                 if nearest_lane != -1:
-                    comptime if direct_continuation:
-                        current = child_data[nearest_lane]
-                        continue
-                    else:
-                        debug_assert["safe", _use_compiler_assume=True](
-                            stack_ptr < GPU_STACK_SIZE,
-                            "GPU BVH traversal stack overflow",
-                        )
-                        stack[stack_ptr] = child_data[nearest_lane]
-                        stack_ptr += 1
+                    current = child_data[nearest_lane]
+                    continue
         else:
             # basically the same as the cpu version
             comptime for node_lane in range(width):

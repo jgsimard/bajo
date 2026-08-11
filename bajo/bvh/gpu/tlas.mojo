@@ -70,7 +70,6 @@ def _intersect_tlas_instance_block[
     blas_node_width: SIMDLength,
     blas_leaf_width: SIMDLength,
     mode: TRACE,
-    direct_continuation: Bool,
     blas_leaf_fn: BlasLeafFn[Frame.LOCAL],
 ](
     tlas_leaf_instances: Pointer[mut=False, UInt32, _],
@@ -117,9 +116,6 @@ def _intersect_tlas_instance_block[
                 blas_node_width,
                 mode,
                 blas_leaf_fn,
-                True,
-                False,
-                direct_continuation,
             ](
                 blas_wide_nodes.unsafe_offset(
                     Int(
@@ -167,7 +163,6 @@ def _trace_tlas_ray[
     blas_node_width: SIMDLength,
     blas_leaf_width: SIMDLength,
     mode: TRACE,
-    direct_continuation: Bool,
     blas_leaf_fn: BlasLeafFn[Frame.LOCAL],
 ](
     tlas_wide_nodes: Pointer[mut=False, Float32, _],
@@ -218,7 +213,6 @@ def _trace_tlas_ray[
                         blas_node_width,
                         blas_leaf_width,
                         mode,
-                        direct_continuation,
                         blas_leaf_fn,
                     ](
                         tlas_leaf_instances,
@@ -267,16 +261,8 @@ def _trace_tlas_ray[
                     nearest_lane = -1
 
             if nearest_lane != -1:
-                comptime if direct_continuation:
-                    current = child_data[nearest_lane]
-                    continue
-                else:
-                    debug_assert["safe", _use_compiler_assume=True](
-                        stack_ptr < GPU_STACK_SIZE,
-                        "GPU TLAS traversal stack overflow",
-                    )
-                    stack[stack_ptr] = child_data[nearest_lane]
-                    stack_ptr += 1
+                current = child_data[nearest_lane]
+                continue
 
         if stack_ptr == 0:
             break
@@ -336,7 +322,6 @@ def trace_triangle_tlas_camera_kernel[
         blas_node_width,
         blas_leaf_width,
         TRACE.CLOSEST_HIT,
-        True,
         _intersect_triangle_leaf[
             Frame.LOCAL,
             blas_leaf_width,
@@ -409,7 +394,6 @@ def trace_sphere_tlas_camera_kernel[
         blas_node_width,
         blas_leaf_width,
         TRACE.CLOSEST_HIT,
-        False,
         _intersect_sphere_leaf[
             Frame.LOCAL,
             blas_leaf_width,

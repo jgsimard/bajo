@@ -318,10 +318,11 @@ def _print_gpu_results_transposed(
 
 
 def _bench_camera_primary_triangle[
-    width: SIMDLength
+    node_width: SIMDLength,
+    leaf_width: SIMDLength = node_width,
 ](
     ctx: DeviceContext,
-    mut bvh: GpuTriangleBvh[Frame.WORLD, width],
+    mut bvh: GpuTriangleBvh[Frame.WORLD, node_width, leaf_width],
     d_camera_params: DeviceBuffer[DType.float32],
     d_hits: DeviceBuffer[DType.float32],
     ray_count: Int,
@@ -371,7 +372,8 @@ def _bench_camera_primary_triangle[
 
 
 def _run_width[
-    width: SIMDLength
+    node_width: SIMDLength,
+    leaf_width: SIMDLength = node_width,
 ](
     mut ctx: DeviceContext,
     d_vertices: DeviceBuffer[DType.float32],
@@ -383,11 +385,11 @@ def _run_width[
     reference_hit_count: UInt32,
     repeats: Int,
 ) raises -> GpuBenchResult:
-    _ = GpuTriangleBvh[Frame.WORLD, width](ctx, d_vertices)
+    _ = GpuTriangleBvh[Frame.WORLD, node_width, leaf_width](ctx, d_vertices)
     ctx.synchronize()
 
     var build0 = perf_counter_ns()
-    var bvh = GpuTriangleBvh[Frame.WORLD, width](
+    var bvh = GpuTriangleBvh[Frame.WORLD, node_width, leaf_width](
         ctx, d_vertices, measure_build=True
     )
     ctx.synchronize()
@@ -397,7 +399,7 @@ def _run_width[
         ray_count * Hit[Frame.WORLD].STRIDE
     )
 
-    var res = _bench_camera_primary_triangle[width](
+    var res = _bench_camera_primary_triangle[node_width, leaf_width](
         ctx,
         bvh,
         d_camera_params,
@@ -410,7 +412,7 @@ def _run_width[
     )
 
     return GpuBenchResult(
-        String(t"tri{Int(width)}"),
+        String(t"tri n{Int(node_width)}/l{Int(leaf_width)}"),
         Int(build1 - build0),
         bvh.timings,
         res[0],
@@ -448,10 +450,11 @@ def _make_sphere_grid() -> List[Sphere[Frame.WORLD]]:
 
 
 def _bench_camera_primary_sphere[
-    width: SIMDLength
+    node_width: SIMDLength,
+    leaf_width: SIMDLength = node_width,
 ](
     ctx: DeviceContext,
-    mut bvh: GpuSphereBvh[Frame.WORLD, width],
+    mut bvh: GpuSphereBvh[Frame.WORLD, node_width, leaf_width],
     d_camera_params: DeviceBuffer[DType.float32],
     d_hits: DeviceBuffer[DType.float32],
     ray_count: Int,
@@ -501,7 +504,8 @@ def _bench_camera_primary_sphere[
 
 
 def _run_sphere_width[
-    width: SIMDLength
+    node_width: SIMDLength,
+    leaf_width: SIMDLength = node_width,
 ](
     mut ctx: DeviceContext,
     spheres: List[Sphere[Frame.WORLD]],
@@ -514,11 +518,13 @@ def _run_sphere_width[
     repeats: Int,
     print_mismatches: Bool,
 ) raises -> GpuBenchResult:
-    _ = GpuSphereBvh[Frame.WORLD, width](ctx, spheres)
+    _ = GpuSphereBvh[Frame.WORLD, node_width, leaf_width](ctx, spheres)
     ctx.synchronize()
 
     var build0 = perf_counter_ns()
-    var bvh = GpuSphereBvh[Frame.WORLD, width](ctx, spheres, measure_build=True)
+    var bvh = GpuSphereBvh[Frame.WORLD, node_width, leaf_width](
+        ctx, spheres, measure_build=True
+    )
     ctx.synchronize()
     var build1 = perf_counter_ns()
 
@@ -527,7 +533,7 @@ def _run_sphere_width[
         ray_count * Hit[Frame.WORLD].STRIDE
     )
 
-    var res = _bench_camera_primary_sphere[width](
+    var res = _bench_camera_primary_sphere[node_width, leaf_width](
         ctx,
         bvh,
         d_camera_params,
@@ -551,7 +557,7 @@ def _run_sphere_width[
         )
 
     return GpuBenchResult(
-        String(t"sph{Int(width)}"),
+        String(t"sph n{Int(node_width)}/l{Int(leaf_width)}"),
         Int(build1 - build0),
         bvh.timings,
         res[0],
@@ -656,6 +662,20 @@ def main() raises:
         )
 
         _print_gpu_results_transposed(tri2, tri4, tri8)
+
+        var tri2_leaf4 = _run_width[2, 4](
+            ctx,
+            d_vertices,
+            d_camera_params,
+            len(rays),
+            PRIMARY_WIDTH,
+            PRIMARY_HEIGHT,
+            reference_checksum,
+            reference_hit_count,
+            BENCH_REPEATS,
+        )
+        print("\nIndependent node/leaf width comparison")
+        _print_gpu_results_transposed(tri2, tri2_leaf4, tri4)
 
         print("\nGPU SphereBvh debug: small brute-force validation")
         print("------------------------------------------------")
@@ -824,3 +844,18 @@ def main() raises:
             False,
         )
         _print_gpu_results_transposed(sph2, sph4, sph8)
+
+        var sph2_leaf4 = _run_sphere_width[2, 4](
+            ctx,
+            spheres,
+            sphere_rays,
+            d_sphere_camera_params,
+            SPHERE_RAY_WIDTH,
+            SPHERE_RAY_HEIGHT,
+            sphere_reference4[0],
+            sphere_reference4[1],
+            BENCH_REPEATS,
+            False,
+        )
+        print("\nIndependent node/leaf width comparison")
+        _print_gpu_results_transposed(sph2, sph2_leaf4, sph4)

@@ -233,8 +233,13 @@ def _brute_sphere_trace[
 
 
 def _trace_cpu_triangle_bvh[
-    frame: Frame, width: SIMDLength
-](mut bvh: TriangleBvh[frame, width], rays: List[Rayf32[frame]]) -> Float64:
+    frame: Frame,
+    node_width: SIMDLength,
+    leaf_width: SIMDLength = node_width,
+](
+    mut bvh: TriangleBvh[frame, node_width, leaf_width],
+    rays: List[Rayf32[frame]],
+) -> Float64:
     var checksum = Float64(0.0)
     for ray in rays:
         var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)

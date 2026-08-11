@@ -121,14 +121,15 @@ def _make_triangle_leaf_bounds(
 
 
 def _assert_gpu_bounds_width[
-    width: SIMDLength
+    node_width: SIMDLength,
+    leaf_width: SIMDLength = node_width,
 ](verts: List[Point3f32[Frame.WORLD]]) raises:
     with DeviceContext() as ctx:
         var build = _make_triangle_leaf_bounds(ctx, verts)
         var leaf_bounds = build[0].copy()
         var payloads = build[1].copy()
 
-        var bvh = GpuBoundsBvh[width](ctx, len(payloads))
+        var bvh = GpuBoundsBvh[node_width, leaf_width](ctx, len(payloads))
         var binary_bvh = bvh.build_test(ctx, leaf_bounds, payloads)
         var validation = binary_bvh.validate(binary_bvh.root_bounds())
 
@@ -143,21 +144,22 @@ def _assert_gpu_bounds_width[
 
 
 def _assert_wide_lane_invariants[
-    width: SIMDLength
+    node_width: SIMDLength,
+    leaf_width: SIMDLength = node_width,
 ](verts: List[Point3f32[Frame.WORLD]]) raises:
     with DeviceContext() as ctx:
         var build = _make_triangle_leaf_bounds(ctx, verts)
         var leaf_bounds = build[0].copy()
         var payloads = build[1].copy()
 
-        var bvh = GpuBoundsBvh[width](ctx, len(payloads))
+        var bvh = GpuBoundsBvh[node_width, leaf_width](ctx, len(payloads))
         _ = bvh.build(ctx, leaf_bounds, payloads)
 
         var seen_live_lane = False
         with bvh.wide_nodes.map_to_host() as nodes:
             for n in range(bvh.node_count):
-                for lane in range(width):
-                    var lane_meta = _wide_node_load_meta[width](
+                for lane in range(node_width):
+                    var lane_meta = _wide_node_load_meta[node_width](
                         nodes.unsafe_ptr(),
                         UInt32(n),
                         lane,
@@ -172,16 +174,19 @@ def _assert_wide_lane_invariants[
                     if count == 0:
                         assert_true(data < UInt32(bvh.node_count))
                     else:
-                        assert_true(count <= UInt32(width))
+                        assert_true(count <= UInt32(leaf_width))
                         assert_true(data < UInt32(bvh.leaf_block_count))
 
         assert_true(seen_live_lane, "wide collapse had no live lanes")
 
 
 def _assert_gpu_triangle_matches_cpu_camera[
-    width: SIMDLength
+    node_width: SIMDLength,
+    leaf_width: SIMDLength = node_width,
 ](verts: List[Point3f32[Frame.WORLD]]) raises:
-    var cpu_bvh = TriangleBvh[Frame.WORLD, width].__init__["lbvh"](verts)
+    var cpu_bvh = TriangleBvh[Frame.WORLD, node_width, leaf_width].__init__[
+        "lbvh"
+    ](verts)
     var camera_data = _make_camera_rays_and_params(
         cpu_bvh.bounds(),
         GPU_BOUNDS_TEST_WIDTH,
@@ -190,13 +195,15 @@ def _assert_gpu_triangle_matches_cpu_camera[
     )
     var rays = camera_data[0].copy()
     var camera_params = camera_data[1].copy()
-    var cpu_checksum = _trace_cpu_triangle_bvh[Frame.WORLD, width](
-        cpu_bvh, rays
-    )
+    var cpu_checksum = _trace_cpu_triangle_bvh[
+        Frame.WORLD, node_width, leaf_width
+    ](cpu_bvh, rays)
 
     with DeviceContext() as ctx:
         var d_verts = upload_vertices(ctx, verts)
-        var gpu_bvh = GpuTriangleBvh[Frame.WORLD, width](ctx, d_verts)
+        var gpu_bvh = GpuTriangleBvh[Frame.WORLD, node_width, leaf_width](
+            ctx, d_verts
+        )
         var d_camera = upload_list(ctx, camera_params)
         var d_hits = ctx.enqueue_create_buffer[DType.float32](
             len(rays) * Hit.STRIDE
@@ -243,7 +250,8 @@ def _assert_gpu_triangle_matches_cpu_camera[
         var diff = abs(gpu_checksum - cpu_checksum)
         if diff > GPU_BOUNDS_TEST_EPS or mismatch_count != 0:
             print(
-                t"width={Int(width)} gpu={gpu_checksum} cpu={cpu_checksum} "
+                t"node_width={Int(node_width)} leaf_width={Int(leaf_width)} "
+                t"gpu={gpu_checksum} cpu={cpu_checksum} "
                 t"diff={diff} mismatches={mismatch_count} hits={gpu_hits}"
             )
         assert_true(diff <= GPU_BOUNDS_TEST_EPS, "GpuTriangleBvh checksum")
@@ -251,7 +259,8 @@ def _assert_gpu_triangle_matches_cpu_camera[
 
 
 def _assert_sphere_matches_bruteforce_camera[
-    width: SIMDLength
+    node_width: SIMDLength,
+    leaf_width: SIMDLength = node_width,
 ](spheres: List[Sphere[Frame.WORLD]]) raises:
     var bounds = sphere_bounds(spheres)
     var camera_data = _make_camera_rays_and_params(
@@ -265,7 +274,9 @@ def _assert_sphere_matches_bruteforce_camera[
     var cpu_checksum = _trace_cpu_spheres_bruteforce(spheres, rays)
 
     with DeviceContext() as ctx:
-        var gpu_bvh = GpuSphereBvh[Frame.WORLD, width](ctx, spheres)
+        var gpu_bvh = GpuSphereBvh[Frame.WORLD, node_width, leaf_width](
+            ctx, spheres
+        )
         var d_camera = upload_list(ctx, camera_params)
         var d_hits = ctx.enqueue_create_buffer[DType.float32](
             len(rays) * Hit.STRIDE
@@ -288,21 +299,23 @@ def _assert_sphere_matches_bruteforce_camera[
         var diff = abs(gpu_checksum - cpu_checksum)
         if diff > GPU_BOUNDS_TEST_EPS:
             print(
-                t"width={Int(width)} gpu={gpu_checksum} cpu={cpu_checksum} "
+                t"node_width={Int(node_width)} leaf_width={Int(leaf_width)} "
+                t"gpu={gpu_checksum} cpu={cpu_checksum} "
                 t"diff={diff} hits={hit_count}"
             )
         assert_true(diff <= GPU_BOUNDS_TEST_EPS, "GpuSphereBvh checksum")
 
 
 def _assert_gpu_sphere_bounds[
-    width: SIMDLength
+    node_width: SIMDLength,
+    leaf_width: SIMDLength = node_width,
 ](spheres: List[Sphere[Frame.WORLD]]) raises:
     with DeviceContext() as ctx:
         var build = _make_sphere_leaf_bounds(ctx, spheres)
         var leaf_bounds = build[0].copy()
         var payloads = build[1].copy()
 
-        var bvh = GpuBoundsBvh[width](ctx, len(payloads))
+        var bvh = GpuBoundsBvh[node_width, leaf_width](ctx, len(payloads))
         var binary_bvh = bvh.build_test(ctx, leaf_bounds, payloads)
         var validation = binary_bvh.validate(bvh.root_bounds())
 
@@ -374,6 +387,21 @@ def test_gpu_sphere_bvh_duplicate_morton_codes() raises:
     comptime for N in [2, 4, 8]:
         _assert_gpu_sphere_bounds[N](scene)
         _assert_sphere_matches_bruteforce_camera[N](scene)
+
+
+def test_gpu_bvh_independent_node_and_leaf_widths() raises:
+    var triangles = _make_small_scene[Frame.WORLD]()
+    var spheres = _make_small_sphere_scene[Frame.WORLD]()
+
+    _assert_gpu_bounds_width[2, 4](triangles)
+    _assert_wide_lane_invariants[2, 4](triangles)
+    _assert_gpu_triangle_matches_cpu_camera[2, 4](triangles)
+    _assert_sphere_matches_bruteforce_camera[2, 4](spheres)
+
+    _assert_gpu_bounds_width[4, 2](triangles)
+    _assert_wide_lane_invariants[4, 2](triangles)
+    _assert_gpu_triangle_matches_cpu_camera[4, 2](triangles)
+    _assert_sphere_matches_bruteforce_camera[4, 2](spheres)
 
 
 def main() raises:

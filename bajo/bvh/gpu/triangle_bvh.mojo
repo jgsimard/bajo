@@ -38,7 +38,11 @@ from bajo.core.intersect import (
     intersect_ray_tri_edges,
     intersect_ray_tri_edges_scaled,
 )
-from bajo.bvh.gpu.trace import trace_bounds_bvh
+from bajo.bvh.gpu.trace import (
+    GpuTraversalStats,
+    trace_bounds_bvh,
+    trace_bounds_bvh_with_stats,
+)
 
 
 def build_triangle_blas_set[
@@ -266,6 +270,54 @@ struct GpuTriangleBvh[
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
 
+    def launch_camera_instrumented(
+        self,
+        ctx: DeviceContext,
+        d_camera_params: DeviceBuffer[DType.float32],
+        d_hits: DeviceBuffer[DType.float32],
+        d_stats: DeviceBuffer[DType.uint32],
+        ray_count: Int,
+        cwidth: Int,
+        cheight: Int,
+    ) raises:
+        comptime assert Self.frame == Frame.WORLD
+        debug_assert["safe", _use_compiler_assume=True](
+            ray_count > 0 and cwidth > 0 and cheight > 0,
+            "camera launch dimensions must be positive",
+        )
+        var pixels_per_view = cwidth * cheight
+        debug_assert["safe", _use_compiler_assume=True](
+            len(d_camera_params)
+            >= ceildiv(ray_count, pixels_per_view) * Camera.STRIDE,
+            "camera parameter buffer is too short",
+        )
+        debug_assert["safe", _use_compiler_assume=True](
+            len(d_hits) >= ray_count * Hit.STRIDE,
+            "hit output buffer is too short",
+        )
+        debug_assert["safe", _use_compiler_assume=True](
+            len(d_stats) >= ray_count * GpuTraversalStats.STRIDE,
+            "traversal stats output buffer is too short",
+        )
+        ctx.enqueue_function[
+            trace_triangle_bvh_camera_instrumented_kernel[
+                Self.node_width, Self.leaf_width
+            ]
+        ](
+            self.tree.wide_nodes,
+            self.leaf_vertices,
+            self.tree.root_idx,
+            d_camera_params,
+            d_hits,
+            d_stats,
+            Int32(ray_count),
+            Int32(cwidth),
+            Int32(cheight),
+            Float32(1.0) / Float32(cheight),
+            grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
+            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+        )
+
 
 def compute_triangle_bounds_kernel[
     frame: Frame,
@@ -437,6 +489,64 @@ def trace_triangle_bvh_camera_kernel[
     )
     var hits_span = Span(unsafe_ptr=hits, length=ray_count_int * Hit.STRIDE)
     hit._store_unchecked(hits_span, ray_idx)
+
+
+def trace_triangle_bvh_camera_instrumented_kernel[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+](
+    wide_nodes: Pointer[Float32, ImmutAnyOrigin],
+    leaf_vertices: Pointer[Float32, ImmutAnyOrigin],
+    root_idx: UInt32,
+    camera_params: Pointer[Float32, ImmutAnyOrigin],
+    hits: Pointer[Float32, MutAnyOrigin],
+    stats: Pointer[UInt32, MutAnyOrigin],
+    ray_count: Int32,
+    width_px: Int32,
+    height_px: Int32,
+    inv_height: Float32,
+):
+    var ray_count_int = Int(ray_count)
+    var width_px_int = Int(width_px)
+    var height_px_int = Int(height_px)
+    var ray_idx = global_idx.x
+    if ray_idx >= ray_count_int:
+        return
+
+    var pixels_per_view = width_px_int * height_px_int
+    var view_idx = ray_idx / pixels_per_view
+    var local_idx = ray_idx - view_idx * pixels_per_view
+    var px_i = local_idx % width_px_int
+    var py_i = local_idx / width_px_int
+
+    var camera_params_span = Span(
+        unsafe_ptr=camera_params,
+        length=ceildiv(ray_count_int, pixels_per_view) * Camera.STRIDE,
+    )
+    var camera = Camera(camera_params_span, view_idx * Camera.STRIDE)
+    var ray = camera.make_ray_raster(px_i, py_i, width_px_int, inv_height)
+
+    var result = trace_bounds_bvh_with_stats[
+        Frame.WORLD,
+        node_width,
+        TRACE.CLOSEST_HIT,
+        _intersect_triangle_leaf[
+            Frame.WORLD,
+            leaf_width,
+            TRACE.CLOSEST_HIT,
+            leaf_width > node_width or leaf_width == 8,
+        ],
+        True,
+        node_width == 4,
+    ](
+        wide_nodes,
+        leaf_vertices,
+        root_idx,
+        ray,
+    )
+    var hits_span = Span(unsafe_ptr=hits, length=ray_count_int * Hit.STRIDE)
+    result.hit._store_unchecked(hits_span, ray_idx)
+    result.stats.store(stats, ray_idx)
 
 
 # AoSoA :[block][field][lane]

@@ -13,6 +13,7 @@ from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh, _wide_node_load_meta
 from bajo.bvh.gpu.wide_meta import _wide_meta_count, _wide_meta_data
 from bajo.bvh.gpu.sphere_bvh import GpuSphereBvh
 from bajo.bvh.gpu.triangle_bvh import GpuTriangleBvh
+from bajo.bvh.gpu.trace import GpuTraversalStats
 from bajo.bvh.gpu.utils import upload_vertices, upload_list
 
 from test.bvh.fixtures import (
@@ -218,6 +219,36 @@ def _assert_gpu_triangle_matches_cpu_camera[
             GPU_BOUNDS_TEST_HEIGHT,
         )
         ctx.synchronize()
+
+        var d_stats = ctx.enqueue_create_buffer[DType.uint32](
+            len(rays) * GpuTraversalStats.STRIDE
+        )
+        gpu_bvh.launch_camera_instrumented(
+            ctx,
+            d_camera,
+            d_hits,
+            d_stats,
+            len(rays),
+            GPU_BOUNDS_TEST_WIDTH,
+            GPU_BOUNDS_TEST_HEIGHT,
+        )
+        ctx.synchronize()
+
+        var total_node_visits = UInt64(0)
+        var total_primitive_tests = UInt64(0)
+        with d_stats.map_to_host() as stats:
+            for i in range(len(rays)):
+                var base = i * GpuTraversalStats.STRIDE
+                var node_visits = stats[base + GpuTraversalStats.NODE_VISITS]
+                assert_true(
+                    node_visits > 0, "instrumented traversal visits root"
+                )
+                total_node_visits += UInt64(node_visits)
+                total_primitive_tests += UInt64(
+                    stats[base + GpuTraversalStats.PRIMITIVE_TESTS]
+                )
+        assert_true(total_node_visits >= UInt64(len(rays)))
+        assert_true(total_primitive_tests > 0)
 
         var gpu_result = _download_hit_checksum(d_hits, len(rays))
         var gpu_checksum = gpu_result[0]

@@ -199,6 +199,39 @@ def test_gpu_triangle_tlas_closest_hit_across_different_blas() raises:
         _assert_hit(_download_single_hit(d_hits), 3.0, 0, 1)
 
 
+def test_gpu_triangle_tlas_independent_node_and_leaf_widths() raises:
+    var near_verts = _make_triangle_at_z(2.0)
+    var far_verts = _make_triangle_at_z(6.0)
+    var near_bounds = compute_bounds(near_verts)
+    var far_bounds = compute_bounds(far_verts)
+
+    with DeviceContext() as ctx:
+        var blases = build_triangle_blas_set[2, 4](
+            ctx, [near_verts^, far_verts^]
+        )
+
+        var left = Point3f32[Frame.WORLD](-10.0, 0.0, 0.0)
+        var right = Point3f32[Frame.WORLD](10.0, 0.0, 0.0)
+        var instances: List = [
+            _triangle_instance(0, left, near_bounds),
+            _triangle_instance(1, right, far_bounds),
+        ]
+
+        # TLAS2 nodes with four-wide instance leaves over BLAS2 nodes with
+        # four-wide triangle leaves.
+        var tlas = GpuTriangleTlas[2, 2, 4, 4](ctx, instances)
+        var camera = _make_camera_ray(
+            right, Vec3f32[Frame.WORLD](0.0, 0.0, 1.0)
+        )
+        var d_camera = upload_camera(ctx, camera)
+        var d_hits = ctx.enqueue_create_buffer[DType.float32](Hit.STRIDE)
+
+        tlas.launch_camera(ctx, blases, d_camera, d_hits, 1, 1, 1)
+        ctx.synchronize()
+
+        _assert_hit(_download_single_hit(d_hits), 6.0, 0, 1)
+
+
 # -----------------------------------------------------------------------------
 # Sphere typed TLAS
 # -----------------------------------------------------------------------------

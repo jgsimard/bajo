@@ -24,8 +24,7 @@ def nth_element[
     T: Copyable,
     origin: MutOrigin,
     //,
-    cmp_fn: def(T, T) capturing[_] -> Bool,
-](mut span: Span[T, origin], n: Int):
+](mut span: Span[T, origin], n: Int, cmp_fn: Some[def(T, T) -> Bool]):
     """
     Rearranges elements in the span such that the element at index n
     is in the position it would be in a sorted sequence. All elements
@@ -46,16 +45,16 @@ def nth_element[
         if max_iters == 0:
             # Switch to Heapsort for the remaining span to guarantee O(N log N)
             # for this branch, which maintains the overall O(N) guarantee.
-            _heap_sort[cmp_fn](span)
+            _heap_sort(span, cmp_fn)
             return
 
         max_iters -= 1
 
         # pick pivot using Median-of-3 (same as Quicksort)
-        _sort3[T, cmp_fn](span, len(span) >> 1, 0, len(span) - 1)
+        _sort3(span, len(span) >> 1, 0, len(span) - 1, cmp_fn)
 
         # partition
-        var pivot_pos = _quicksort_partition_right[cmp_fn](span)
+        var pivot_pos = _quicksort_partition_right(span, cmp_fn)
 
         # narrow
         if pivot_pos == k:
@@ -70,4 +69,4 @@ def nth_element[
             span = span.unsafe_subspan(offset=offset, length=len(span) - offset)
             k -= offset
 
-    _insertion_sort[cmp_fn](span)
+    _insertion_sort(span, cmp_fn)

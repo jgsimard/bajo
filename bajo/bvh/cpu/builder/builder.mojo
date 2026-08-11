@@ -447,7 +447,7 @@ def _partition_items_by_median_center[
 
     var mid = count / 2
 
-    def cmp(a_idx: UInt32, b_idx: UInt32) capturing -> Bool:
+    def cmp(a_idx: UInt32, b_idx: UInt32) {items, axis} -> Bool:
         var a = items.unsafe_get(Int(a_idx)).center_axis(axis)
         var b = items.unsafe_get(Int(b_idx)).center_axis(axis)
 
@@ -457,6 +457,6 @@ def _partition_items_by_median_center[
         return a < b
 
     var range = indices[first : first + count]
-    nth_element[cmp](range, mid)
+    nth_element(range, mid, cmp)
 
     return first + mid

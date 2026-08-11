@@ -34,9 +34,11 @@ from bajo.bvh.constants import (
     WideNode,
 )
 from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh
-from bajo.core.intersect import intersect_ray_tri_edges
+from bajo.core.intersect import (
+    intersect_ray_tri_edges,
+    intersect_ray_tri_edges_scaled,
+)
 from bajo.bvh.gpu.trace import trace_bounds_bvh
-from bajo.core.utils import min_argmin
 
 
 def build_triangle_blas_set[
@@ -423,6 +425,7 @@ def trace_triangle_bvh_camera_kernel[
             Frame.WORLD,
             leaf_width,
             TRACE.CLOSEST_HIT,
+            leaf_width > node_width or leaf_width == 8,
         ],
         True,
         node_width == 4,
@@ -441,6 +444,7 @@ def _intersect_triangle_leaf[
     frame: Frame,
     width: SIMDLength,
     mode: TRACE,
+    division_free: Bool = False,
 ](
     leaf_vertices: Pointer[mut=False, Float32, _],
     leaf_block_idx: UInt32,
@@ -473,27 +477,55 @@ def _intersect_triangle_leaf[
             leaf_vertices[unsafe_offset=block_base + 10 * width + lane],
         )
 
-        var tri_hit = intersect_ray_tri_edges(
-            ray.o,
-            ray.d,
-            v0,
-            e1,
-            e2,
-            hit.t,
-            ray.t_min,
-        )
+        comptime if division_free:
+            # Reject misses and farther candidates in determinant-scaled space.
+            # Only a surviving closest-hit candidate pays for a reciprocal.
+            var scaled_hit = intersect_ray_tri_edges_scaled(
+                ray.o,
+                ray.d,
+                v0,
+                e1,
+                e2,
+                hit.t,
+                ray.t_min,
+            )
 
-        if tri_hit.mask and tri_hit.t < hit.t:
-            hit.t = tri_hit.t
-            comptime if mode == TRACE.ANY_HIT:
-                return True
-            else:
-                hit.u = tri_hit.u
-                hit.v = tri_hit.v
-                hit.prim = prim
-                hit.inst = EMPTY_LANE
-                hit.normal = normalize(cross(e1, e2)).unsafe_convert[
-                    new_kind=GeoKind.NORMAL
-                ]()
-                any_hit = True
+            if scaled_hit.mask:
+                comptime if mode == TRACE.ANY_HIT:
+                    return True
+                else:
+                    var inv_det = 1.0 / scaled_hit.abs_det
+                    hit.t = scaled_hit.t_scaled * inv_det
+                    hit.u = scaled_hit.u_scaled * inv_det
+                    hit.v = scaled_hit.v_scaled * inv_det
+                    hit.prim = prim
+                    hit.inst = EMPTY_LANE
+                    hit.normal = normalize(cross(e1, e2)).unsafe_convert[
+                        new_kind=GeoKind.NORMAL
+                    ]()
+                    any_hit = True
+        else:
+            var tri_hit = intersect_ray_tri_edges(
+                ray.o,
+                ray.d,
+                v0,
+                e1,
+                e2,
+                hit.t,
+                ray.t_min,
+            )
+
+            if tri_hit.mask:
+                comptime if mode == TRACE.ANY_HIT:
+                    return True
+                else:
+                    hit.t = tri_hit.t
+                    hit.u = tri_hit.u
+                    hit.v = tri_hit.v
+                    hit.prim = prim
+                    hit.inst = EMPTY_LANE
+                    hit.normal = normalize(cross(e1, e2)).unsafe_convert[
+                        new_kind=GeoKind.NORMAL
+                    ]()
+                    any_hit = True
     return any_hit

@@ -2,6 +2,7 @@ from bajo.bvh.camera import Camera
 from .cpu import (
     render,
     render_depth_first,
+    render_depth_first_tiled,
     render_wavefront,
     write_ppm_from_colors,
 )

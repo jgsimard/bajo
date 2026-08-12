@@ -281,7 +281,7 @@ struct World:
                 bvh_spheres.append(Sphere[Frame.WORLD](s.center, abs(s.radius)))
 
             self.sphere_bvh = Optional[SphereBvh[Frame.WORLD, BVH_WIDTH]](
-                SphereBvh[Frame.WORLD, BVH_WIDTH].__init__["lbvh"](bvh_spheres^)
+                SphereBvh[Frame.WORLD, BVH_WIDTH].__init__["sah"](bvh_spheres^)
             )
 
         if len(self.triangle_vertices) > 0:
@@ -292,7 +292,7 @@ struct World:
                 )
 
             self.triangle_bvh = Optional[TriangleBvh[Frame.WORLD, BVH_WIDTH]](
-                TriangleBvh[Frame.WORLD, BVH_WIDTH].__init__["lbvh"](
+                TriangleBvh[Frame.WORLD, BVH_WIDTH].__init__["sah"](
                     self.triangle_vertices
                 )
             )
@@ -308,7 +308,7 @@ struct World:
                     ),
                 )
                 self.triangle_mesh_blases.append(
-                    TriangleBvh[Frame.LOCAL, BVH_WIDTH].__init__["lbvh"](
+                    TriangleBvh[Frame.LOCAL, BVH_WIDTH].__init__["sah"](
                         vertices
                     )
                 )

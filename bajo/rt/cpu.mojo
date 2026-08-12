@@ -1,6 +1,7 @@
 from max.algorithm import parallelize
 from std.io.file_descriptor import FileDescriptor
-from std.math import abs, fma, sqrt
+from std.math import abs, ceildiv, fma, sqrt
+from std.sys import num_logical_cores
 from std.time import perf_counter_ns
 
 from bajo.core import (
@@ -45,6 +46,10 @@ from bajo.rt.types import (
     SurfaceStore,
     World,
 )
+
+
+comptime CPU_RENDER_TILE_WIDTH = 16
+comptime CPU_RENDER_TILE_HEIGHT = 16
 
 
 @fieldwise_init
@@ -537,10 +542,19 @@ def render_wavefront[
     return RenderResult(pixels^, timings)
 
 
-def render_depth_first[
-    ALGORITHM: UInt32 = RENDER_PATH, MAX_DEPTH: Int = 8
+def _render_depth_first_tiled[
+    ALGORITHM: UInt32,
+    MAX_DEPTH: Int,
+    TILE_WIDTH: Int,
+    TILE_HEIGHT: Int,
+    SCHEDULER_MODE: Int,
 ](settings: RenderSettings, camera: Camera, world: World) -> RenderResult:
+    # Scheduler modes are benchmark controls: 0 uses the runtime default,
+    # 1 caps workers to logical cores, and 2 exposes one worker per work item.
     comptime assert MAX_DEPTH >= 0, "max depth must be non-negative"
+    comptime assert TILE_WIDTH > 0, "tile width must be positive"
+    comptime assert TILE_HEIGHT > 0, "tile height must be positive"
+    comptime assert 0 <= SCHEDULER_MODE <= 2, "unknown scheduler mode"
 
     var total_t0 = perf_counter_ns()
     var pixel_count = settings.image_width * settings.image_height
@@ -549,21 +563,37 @@ def render_depth_first[
     var pixels = List[Color](length=pixel_count, fill=Color(0.0))
     var init_t1 = perf_counter_ns()
 
-    def worker(py: Int) capturing:
-        for px in range(settings.image_width):
-            var pixel_idx = py * settings.image_width + px
-            ref rng = rng_states[pixel_idx]
-            pixels[pixel_idx] = _render_pixel[ALGORITHM, MAX_DEPTH](
-                settings,
-                camera,
-                world,
-                px,
-                py,
-                rng,
-            )
+    var tiles_x = ceildiv(settings.image_width, TILE_WIDTH)
+    var tiles_y = ceildiv(settings.image_height, TILE_HEIGHT)
+    var tile_count = tiles_x * tiles_y
+
+    def worker(tile_idx: Int) capturing:
+        var tile_x = tile_idx % tiles_x
+        var tile_y = tile_idx / tiles_x
+        var x0 = tile_x * TILE_WIDTH
+        var y0 = tile_y * TILE_HEIGHT
+        var x1 = min(x0 + TILE_WIDTH, settings.image_width)
+        var y1 = min(y0 + TILE_HEIGHT, settings.image_height)
+        for py in range(y0, y1):
+            for px in range(x0, x1):
+                var pixel_idx = py * settings.image_width + px
+                ref rng = rng_states[pixel_idx]
+                pixels[pixel_idx] = _render_pixel[ALGORITHM, MAX_DEPTH](
+                    settings,
+                    camera,
+                    world,
+                    px,
+                    py,
+                    rng,
+                )
 
     var render_t0 = perf_counter_ns()
-    parallelize[worker](settings.image_height, settings.image_height)
+    comptime if SCHEDULER_MODE == 1:
+        parallelize[worker](tile_count, min(num_logical_cores(), tile_count))
+    elif SCHEDULER_MODE == 2:
+        parallelize[worker](tile_count, tile_count)
+    else:
+        parallelize[worker](tile_count)
     var render_t1 = perf_counter_ns()
     var total_t1 = perf_counter_ns()
 
@@ -576,6 +606,29 @@ def render_depth_first[
         MAX_DEPTH,
     )
     return RenderResult(pixels^, timings)
+
+
+def render_depth_first_tiled[
+    ALGORITHM: UInt32 = RENDER_PATH,
+    MAX_DEPTH: Int = 8,
+    TILE_WIDTH: Int = CPU_RENDER_TILE_WIDTH,
+    TILE_HEIGHT: Int = CPU_RENDER_TILE_HEIGHT,
+](settings: RenderSettings, camera: Camera, world: World) -> RenderResult:
+    """Render independently scheduled fixed-size image tiles on the CPU."""
+    return _render_depth_first_tiled[
+        ALGORITHM, MAX_DEPTH, TILE_WIDTH, TILE_HEIGHT, 2
+    ](settings, camera, world)
+
+
+def render_depth_first[
+    ALGORITHM: UInt32 = RENDER_PATH, MAX_DEPTH: Int = 8
+](settings: RenderSettings, camera: Camera, world: World) -> RenderResult:
+    return render_depth_first_tiled[
+        ALGORITHM,
+        MAX_DEPTH,
+        CPU_RENDER_TILE_WIDTH,
+        CPU_RENDER_TILE_HEIGHT,
+    ](settings, camera, world)
 
 
 def render[

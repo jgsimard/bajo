@@ -389,12 +389,12 @@ def onesweep_radix_sort_keys[
     workspace.global_hist.enqueue_fill(0)
     workspace.pass_hist.enqueue_fill(0)
 
-    db_keys = DoubleBuffer(
+    var db_keys = DoubleBuffer(
         keys.unsafe_ptr(), workspace.keys_alternate.unsafe_ptr()
     )
-    dummy_v_ptr = Optional[Pointer[Scalar[keys_dtype], MutAnyOrigin]]()
-    global_hist = workspace.global_hist.unsafe_ptr()
-    pass_hist = workspace.pass_hist.unsafe_ptr()
+    var dummy_v_ptr = Optional[Pointer[Scalar[keys_dtype], MutAnyOrigin]]()
+    var global_hist = workspace.global_hist.unsafe_ptr()
+    var pass_hist = workspace.pass_hist.unsafe_ptr()
 
     # 1. Global Histogram
     comptime _ghist = global_histogram[
@@ -486,15 +486,15 @@ def onesweep_radix_sort_pairs[
     workspace.global_hist.enqueue_fill(0)
     workspace.pass_hist.enqueue_fill(0)
 
-    db_keys = DoubleBuffer(
+    var db_keys = DoubleBuffer(
         keys.unsafe_ptr(), workspace.keys_alternate.unsafe_ptr()
     )
-    db_vals = DoubleBuffer(
+    var db_vals = DoubleBuffer(
         values.unsafe_ptr(), workspace.vals_alternate.unsafe_ptr()
     )
 
-    global_hist = workspace.global_hist.unsafe_ptr()
-    pass_hist = workspace.pass_hist.unsafe_ptr()
+    var global_hist = workspace.global_hist.unsafe_ptr()
+    var pass_hist = workspace.pass_hist.unsafe_ptr()
 
     # 1. Global Histogram
     comptime _ghist = global_histogram[

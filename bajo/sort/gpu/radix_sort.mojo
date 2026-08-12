@@ -394,7 +394,7 @@ def device_radix_sort_keys[
 
     var keys_alternate = ctx.enqueue_create_buffer[dtype](size)
 
-    db_keys = DoubleBuffer(keys.unsafe_ptr(), keys_alternate.unsafe_ptr())
+    var db_keys = DoubleBuffer(keys.unsafe_ptr(), keys_alternate.unsafe_ptr())
 
     var global_hist = ctx.enqueue_create_buffer[DType.uint32](GLOBAL_HIST)
     var pass_hist = ctx.enqueue_create_buffer[DType.uint32](gdim * RADIX)

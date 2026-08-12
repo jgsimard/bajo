@@ -1,4 +1,4 @@
-from std.gpu.host import DeviceContext, DeviceBuffer
+from max.gpu.host import DeviceContext, DeviceBuffer
 
 from .bitonic_sort import bitonic_sort_pairs
 from .onesweep import onesweep_radix_sort_pairs

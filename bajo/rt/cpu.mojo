@@ -87,18 +87,20 @@ struct ShadeWork(Copyable, Writable):
 
 
 def reflect[
-    dtype: DType, frame: Frame
-](v: Vec3[dtype, frame], n: Vec3[dtype, frame]) -> Vec3[dtype, frame]:
+    dtype: DType, frame: Frame, length: SIMDLength
+](v: Vec3[dtype, frame, length], n: Vec3[dtype, frame, length]) -> Vec3[
+    dtype, frame, length
+]:
     return v - 2.0 * dot(v, n) * n
 
 
 def refract[
-    dtype: DType, frame: Frame
+    dtype: DType, frame: Frame, length: SIMDLength
 ](
-    uv: Vec3[dtype, frame],
-    n: Vec3[dtype, frame],
-    etai_over_etat: Scalar[dtype],
-) -> Vec3[dtype, frame]:
+    uv: Vec3[dtype, frame, length],
+    n: Vec3[dtype, frame, length],
+    etai_over_etat: SIMD[dtype, length],
+) -> Vec3[dtype, frame, length]:
     var cos_theta = min(dot(-uv, n), 1.0)
     var r_out_perp = etai_over_etat * (uv + cos_theta * n)
     var r_out_parallel = -sqrt(abs(1.0 - length2(r_out_perp))) * n
@@ -106,8 +108,10 @@ def refract[
 
 
 def reflectance[
-    dtype: DType
-](cosine: Scalar[dtype], ref_idx: Scalar[dtype]) -> Scalar[dtype]:
+    dtype: DType, length: SIMDLength
+](cosine: SIMD[dtype, length], ref_idx: SIMD[dtype, length]) -> SIMD[
+    dtype, length
+]:
     var root = (1.0 - ref_idx) / (1.0 + ref_idx)
     var r2 = root * root
     var x = 1.0 - cosine
@@ -178,17 +182,13 @@ def scatter_dielectric(
 
     var direction: Vec3f32[Frame.WORLD]
     if ri * sin_theta > 1.0 or reflectance(cos_theta, ri) > rng.f32():
-        direction = reflect[DType.float32, Frame.WORLD](
-            unit_direction, hit.normal
-        )
+        direction = reflect(unit_direction, hit.normal)
     else:
-        direction = refract[DType.float32, Frame.WORLD](
-            unit_direction, hit.normal, ri
-        )
+        direction = refract(unit_direction, hit.normal, ri)
 
     return ScatterResult(
         True,
-        Rayf32[Frame.WORLD](hit.p, normalize(direction), 0.001, f32_max),
+        Rayf32(hit.p, normalize(direction), 0.001, f32_max),
         Color(1.0),
     )
 
@@ -215,7 +215,7 @@ def scatter(
     )
     return ScatterResult(
         False,
-        Rayf32[Frame.WORLD](hit.p, hit.normal, 0.001, f32_max),
+        Rayf32(hit.p, hit.normal, 0.001, f32_max),
         Color(0.0),
     )
 
@@ -365,7 +365,7 @@ def _render_pixel[
 ) -> Color:
     var pixel_color = Color(0.0)
 
-    for _sample in range(settings.samples_per_pixel):
+    for _ in range(settings.samples_per_pixel):
         var ray = _make_primary_ray(settings, camera, px, py, rng)
         pixel_color += _trace_algorithm[ALGORITHM, MAX_DEPTH](
             settings, world, ray, rng
@@ -494,11 +494,11 @@ def render_wavefront[
                 ref record = hit.record
                 var work = ShadeWork(path.copy(), record.copy())
                 if record.surface.kind() == MAT_LAMBERTIAN:
-                    lambertian_queue.append(work.copy())
+                    lambertian_queue.append(work^)
                 elif record.surface.kind() == MAT_METAL:
-                    metal_queue.append(work.copy())
+                    metal_queue.append(work^)
                 elif record.surface.kind() == MAT_DIELECTRIC:
-                    dielectric_queue.append(work.copy())
+                    dielectric_queue.append(work^)
                 else:
                     debug_assert["safe", _use_compiler_assume=True](
                         False, "unknown RT surface kind"
@@ -526,8 +526,9 @@ def render_wavefront[
 
     var render_t1 = perf_counter_ns()
 
-    for i in range(pixel_count):
-        pixels[i] = pixels[i] * (1.0 / Float32(settings.samples_per_pixel))
+    var scale_factor = 1.0 / Float32(settings.samples_per_pixel)
+    for ref pixel in pixels:
+        pixel = pixel * scale_factor
 
     var total_t1 = perf_counter_ns()
 
@@ -567,7 +568,7 @@ def _render_depth_first_tiled[
     var tiles_y = ceildiv(settings.image_height, TILE_HEIGHT)
     var tile_count = tiles_x * tiles_y
 
-    def worker(tile_idx: Int) capturing:
+    def worker(tile_idx: Int) {imm, mut pixels, mut rng_states}:
         var tile_x = tile_idx % tiles_x
         var tile_y = tile_idx / tiles_x
         var x0 = tile_x * TILE_WIDTH
@@ -589,11 +590,11 @@ def _render_depth_first_tiled[
 
     var render_t0 = perf_counter_ns()
     comptime if SCHEDULER_MODE == 1:
-        parallelize[worker](tile_count, min(num_logical_cores(), tile_count))
+        parallelize(worker, tile_count, min(num_logical_cores(), tile_count))
     elif SCHEDULER_MODE == 2:
-        parallelize[worker](tile_count, tile_count)
+        parallelize(worker, tile_count, tile_count)
     else:
-        parallelize[worker](tile_count)
+        parallelize(worker, tile_count)
     var render_t1 = perf_counter_ns()
     var total_t1 = perf_counter_ns()
 
@@ -658,13 +659,12 @@ def write_ppm_from_colors(
         fd.write(t"P6\n{width} {height}\n255\n")
 
         var bytes = List[UInt8](length=width * height * 3, fill=0)
-        var out = bytes.unsafe_ptr()
         var out_i = 0
 
         for p in pixels:
-            out[unsafe_offset=out_i + 0] = color_to_byte(p.x)
-            out[unsafe_offset=out_i + 1] = color_to_byte(p.y)
-            out[unsafe_offset=out_i + 2] = color_to_byte(p.z)
+            bytes[out_i + 0] = color_to_byte(p.x)
+            bytes[out_i + 1] = color_to_byte(p.y)
+            bytes[out_i + 2] = color_to_byte(p.z)
             out_i += 3
 
         fd.write_bytes(bytes)

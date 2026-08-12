@@ -216,7 +216,7 @@ def apply_trs_affine3_v1_width[
         m: SIMD[DType.float32, width],
         lo: SIMD[DType.float32, width],
         hi: SIMD[DType.float32, width],
-    ) capturing:
+    ) {mut}:
         var e = m * lo
         var f = m * hi
 
@@ -414,7 +414,7 @@ def main() raises:
             BenchQuat,
             BenchVec3f32,
         ) thin -> BenchAABB
-    ]() capturing raises:
+    ]() raises {mut data}:
         def wrapper() raises {mut data}:
             for i in range(num_elements):
                 data.dst.unsafe_set(

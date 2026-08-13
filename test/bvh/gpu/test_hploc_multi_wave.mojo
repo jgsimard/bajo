@@ -341,14 +341,15 @@ def test_hploc_multi_wave_crosses_blocks_with_gpu_lbvh_inputs() raises:
         var device_bounds = upload_list(ctx, flat)
         var device_payloads = upload_list(ctx, payloads)
         var wide = GpuWideBoundsBvh[2, 2](ctx, leaf_count)
-        var binary = build_bounds_bvh_for_diagnostics(
+        var diagnostic = build_bounds_bvh_for_diagnostics(
             ctx, wide, device_bounds, device_payloads
         )
+        ref binary = diagnostic.binary
         ctx.synchronize()
 
         var codes = List[UInt32](capacity=leaf_count)
         var sorted_ids = List[UInt32](capacity=leaf_count)
-        with binary.keys.map_to_host() as host_codes:
+        with diagnostic.workspace.topology.value().morton_keys.map_to_host() as host_codes:
             for i in range(leaf_count):
                 codes.append(host_codes[i])
         with binary.leaf_ids.map_to_host() as host_ids:
@@ -361,7 +362,7 @@ def test_hploc_multi_wave_crosses_blocks_with_gpu_lbvh_inputs() raises:
         var gpu = GpuHplocMultiWaveBvh(
             ctx,
             binary.leaf_bounds.copy(),
-            binary.keys.copy(),
+            diagnostic.workspace.topology.value().morton_keys.copy(),
             binary.leaf_ids.copy(),
         )
         ctx.synchronize()
@@ -378,14 +379,15 @@ def test_hploc_multi_wave_stress_4097_triangles() raises:
         var device_bounds = upload_list(ctx, flat)
         var device_payloads = upload_list(ctx, payloads)
         var wide = GpuWideBoundsBvh[2, 2](ctx, leaf_count)
-        var binary = build_bounds_bvh_for_diagnostics(
+        var diagnostic = build_bounds_bvh_for_diagnostics(
             ctx, wide, device_bounds, device_payloads
         )
+        ref binary = diagnostic.binary
         ctx.synchronize()
 
         var codes = List[UInt32](capacity=leaf_count)
         var sorted_ids = List[UInt32](capacity=leaf_count)
-        with binary.keys.map_to_host() as host_codes:
+        with diagnostic.workspace.topology.value().morton_keys.map_to_host() as host_codes:
             for i in range(leaf_count):
                 codes.append(host_codes[i])
         with binary.leaf_ids.map_to_host() as host_ids:
@@ -398,7 +400,7 @@ def test_hploc_multi_wave_stress_4097_triangles() raises:
         var gpu = GpuHplocMultiWaveBvh(
             ctx,
             binary.leaf_bounds.copy(),
-            binary.keys.copy(),
+            diagnostic.workspace.topology.value().morton_keys.copy(),
             binary.leaf_ids.copy(),
         )
         ctx.synchronize()

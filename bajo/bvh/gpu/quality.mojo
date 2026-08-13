@@ -125,7 +125,7 @@ def measure_wide_bvh_quality[
     var cursor = 0
 
     with tree.wide_nodes.map_to_host() as wide_nodes:
-        var nodes_span = Span(
+        var bounds_span = Span(
             unsafe_ptr=wide_nodes.unsafe_ptr(), length=len(wide_nodes)
         )
         var nodes_u32 = wide_nodes.unsafe_ptr().unsafe_bitcast[UInt32]()
@@ -152,7 +152,7 @@ def measure_wide_bvh_quality[
                     continue
 
                 live_lanes += 1
-                var child_bounds = AABB[Frame.WORLD].load6(nodes_span, base)
+                var child_bounds = AABB[Frame.WORLD].load6(bounds_span, base)
                 node_bounds.grow(child_bounds)
                 if count == 0:
                     pending.append(_wide_meta_data(meta))

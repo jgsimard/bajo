@@ -143,14 +143,15 @@ def test_hploc_reference_matches_gpu_lbvh_inputs_and_quality_gate() raises:
         var device_bounds = upload_list(ctx, flat_bounds)
         var device_payloads = upload_list(ctx, payloads)
         var wide = GpuWideBoundsBvh[2, 2](ctx, len(bounds))
-        var binary = build_bounds_bvh_for_diagnostics(
+        var diagnostic = build_bounds_bvh_for_diagnostics(
             ctx, wide, device_bounds, device_payloads
         )
+        ref binary = diagnostic.binary
         ctx.synchronize()
 
         var codes = List[UInt32](capacity=len(bounds))
         var sorted_ids = List[UInt32](capacity=len(bounds))
-        with binary.keys.map_to_host() as host_codes:
+        with diagnostic.workspace.topology.value().morton_keys.map_to_host() as host_codes:
             for i in range(len(host_codes)):
                 codes.append(host_codes[i])
         with binary.leaf_ids.map_to_host() as host_ids:

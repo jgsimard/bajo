@@ -13,7 +13,7 @@ struct TRACE(Equatable):
     var v: Int
 
 
-comptime GPU_STACK_SIZE = 64
+comptime GPU_STACK_SIZE = 24
 comptime GPU_REDUCE_THREADS = 4096
 
 comptime EMPTY_LANE = UInt32(0xFFFFFFFF)

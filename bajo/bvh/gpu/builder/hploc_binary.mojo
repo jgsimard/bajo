@@ -13,6 +13,41 @@ from bajo.bvh.gpu.utils import GpuBuildTimings, _device_span
 from bajo.sort.gpu.radix_sort import device_radix_sort_pairs
 
 
+def enqueue_binary_bvh_with_hploc(
+    mut ctx: DeviceContext,
+    mut binary: GpuBinaryBoundsBvh,
+    mut workspace: GpuBinaryBuildWorkspace,
+) raises -> GpuHplocBuildState:
+    """Queue H-PLOC without synchronizing or reading completion status."""
+    ref topology = workspace.topology.value()
+    ctx.enqueue_function[compute_bounds_morton_codes_kernel](
+        _device_span[mut=False](binary.leaf_bounds),
+        _device_span[mut=False](binary.bounds_device),
+        _device_span[mut=True](topology.morton_keys),
+        _device_span[mut=True](binary.leaf_ids),
+        grid_dim=binary.blocks_leaves(),
+        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+    )
+    device_radix_sort_pairs[DType.uint32, DType.uint32](
+        ctx,
+        workspace.sort,
+        topology.morton_keys,
+        binary.leaf_ids,
+        binary.leaf_count,
+    )
+    return GpuHplocBuildState(
+        ctx,
+        binary.leaf_bounds.copy(),
+        topology.morton_keys.copy(),
+        binary.leaf_ids.copy(),
+        binary.node_meta.copy(),
+        topology.leaf_parent.copy(),
+        binary.node_bounds.copy(),
+        topology.node_flags.copy(),
+        binary.node_leaf_counts.copy(),
+    )
+
+
 def build_binary_bvh_with_hploc(
     mut ctx: DeviceContext,
     mut binary: GpuBinaryBoundsBvh,
@@ -23,6 +58,7 @@ def build_binary_bvh_with_hploc(
 
     var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
     var stage_start = Int(0)
+    ref topology = workspace.topology.value()
     if measure_stages:
         ctx.synchronize()
         stage_start = perf_counter_ns()
@@ -30,7 +66,7 @@ def build_binary_bvh_with_hploc(
     ctx.enqueue_function[compute_bounds_morton_codes_kernel](
         _device_span[mut=False](binary.leaf_bounds),
         _device_span[mut=False](binary.bounds_device),
-        _device_span[mut=True](binary.keys),
+        _device_span[mut=True](topology.morton_keys),
         _device_span[mut=True](binary.leaf_ids),
         grid_dim=binary.blocks_leaves(),
         block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
@@ -44,7 +80,7 @@ def build_binary_bvh_with_hploc(
     device_radix_sort_pairs[DType.uint32, DType.uint32](
         ctx,
         workspace.sort,
-        binary.keys,
+        topology.morton_keys,
         binary.leaf_ids,
         binary.leaf_count,
     )
@@ -57,12 +93,12 @@ def build_binary_bvh_with_hploc(
     var hploc = GpuHplocBuildState(
         ctx,
         binary.leaf_bounds.copy(),
-        binary.keys.copy(),
+        topology.morton_keys.copy(),
         binary.leaf_ids.copy(),
         binary.node_meta.copy(),
-        binary.leaf_parent.copy(),
+        topology.leaf_parent.copy(),
         binary.node_bounds.copy(),
-        binary.node_flags.copy(),
+        topology.node_flags.copy(),
         binary.node_leaf_counts.copy(),
     )
 

@@ -178,6 +178,30 @@ def reduce_bounds_partials_kernel(
     centroid_bounds.store6(out_partials, out + AABB.STRIDE)
 
 
+struct GpuBinaryTopologyWorkspace:
+    """Transient Morton, parent, and refit state."""
+
+    var morton_keys: DeviceBuffer[DType.uint32]
+    var leaf_parent: DeviceBuffer[DType.uint32]
+    var node_flags: DeviceBuffer[DType.uint32]
+
+    def __init__(out self, mut ctx: DeviceContext, leaf_capacity: Int) raises:
+        self.morton_keys = ctx.enqueue_create_buffer[DType.uint32](
+            leaf_capacity
+        )
+        self.leaf_parent = ctx.enqueue_create_buffer[DType.uint32](
+            leaf_capacity
+        )
+        self.node_flags = ctx.enqueue_create_buffer[DType.uint32](
+            max(leaf_capacity - 1, 1)
+        )
+
+    def __init__(out self, other: Self):
+        self.morton_keys = other.morton_keys.copy()
+        self.leaf_parent = other.leaf_parent.copy()
+        self.node_flags = other.node_flags.copy()
+
+
 struct GpuBinaryBuildWorkspace:
     """Reusable scratch for binary builds with one fixed leaf capacity."""
 
@@ -185,6 +209,7 @@ struct GpuBinaryBuildWorkspace:
     var bounds_scratch_a: DeviceBuffer[DType.float32]
     var bounds_scratch_b: DeviceBuffer[DType.float32]
     var sort: RadixSortWorkspace[DType.uint32, DType.uint32]
+    var topology: Optional[GpuBinaryTopologyWorkspace]
 
     def __init__(
         out self,
@@ -206,6 +231,25 @@ struct GpuBinaryBuildWorkspace:
         self.sort = RadixSortWorkspace[DType.uint32, DType.uint32](
             ctx, leaf_capacity
         )
+        self.topology = Optional[GpuBinaryTopologyWorkspace]()
+
+    def __init__(out self, other: Self):
+        """Create a shared-storage lease for a reusable build arena."""
+        self.leaf_capacity = other.leaf_capacity
+        self.bounds_scratch_a = other.bounds_scratch_a.copy()
+        self.bounds_scratch_b = other.bounds_scratch_b.copy()
+        self.sort = RadixSortWorkspace[DType.uint32, DType.uint32](other.sort)
+        self.topology = Optional[GpuBinaryTopologyWorkspace]()
+        if other.topology:
+            self.topology = Optional[GpuBinaryTopologyWorkspace](
+                GpuBinaryTopologyWorkspace(other.topology.value())
+            )
+
+    def ensure_topology(mut self, mut ctx: DeviceContext) raises:
+        if not self.topology:
+            self.topology = Optional[GpuBinaryTopologyWorkspace](
+                GpuBinaryTopologyWorkspace(ctx, self.leaf_capacity)
+            )
 
 
 struct GpuBinaryBoundsBvh:
@@ -220,8 +264,6 @@ struct GpuBinaryBoundsBvh:
     var leaf_bounds: DeviceBuffer[DType.float32]
     var leaf_payloads: DeviceBuffer[DType.uint32]
 
-    var keys: DeviceBuffer[DType.uint32]
-    """Morton keys."""
     var leaf_ids: DeviceBuffer[DType.uint32]
 
     # Binary node layout:
@@ -230,9 +272,7 @@ struct GpuBinaryBoundsBvh:
     #   node_bounds : two child AABBs per internal node, 12 floats total
     #   node_flags  : refit synchronization flags
     var node_meta: DeviceBuffer[DType.uint32]
-    var leaf_parent: DeviceBuffer[DType.uint32]
     var node_bounds: DeviceBuffer[DType.float32]
-    var node_flags: DeviceBuffer[DType.uint32]
     var node_leaf_counts: DeviceBuffer[DType.uint32]
 
     def __init__(
@@ -309,20 +349,18 @@ struct GpuBinaryBoundsBvh:
             count = next_count
         in_buf.enqueue_copy_to(self.bounds_device)
 
-        self.keys = ctx.enqueue_create_buffer[DType.uint32](n_leaf)
         self.leaf_ids = ctx.enqueue_create_buffer[DType.uint32](n_leaf)
 
         self.node_meta = ctx.enqueue_create_buffer[DType.uint32](
             n_internal * BinaryBvhNode.META_STRIDE
         )
-        self.leaf_parent = ctx.enqueue_create_buffer[DType.uint32](n_leaf)
         self.node_leaf_counts = ctx.enqueue_create_buffer[DType.uint32](
             n_internal
         )
         self.node_bounds = ctx.enqueue_create_buffer[DType.float32](
             n_internal * BinaryBvhNode.BOUNDS_STRIDE
         )
-        self.node_flags = ctx.enqueue_create_buffer[DType.uint32](n_internal)
+        workspace.ensure_topology(ctx)
 
     def blocks_leaves(self) -> Int:
         return ceildiv(self.leaf_count, GPU_BOUNDS_BVH_BLOCK_SIZE)

@@ -35,10 +35,31 @@ from bajo.bvh.constants import (
 from bajo.bvh.gpu.bounds_bvh import build_bounds_bvh
 from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvh
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
+from bajo.bvh.gpu.builder.binary_layout import (
+    GpuBinaryBoundsBvh,
+    GpuBinaryBuildWorkspace,
+)
+from bajo.bvh.gpu.builder.hploc_binary import (
+    enqueue_binary_bvh_with_hploc,
+)
+from bajo.bvh.gpu.builder.hploc_layout import HPLOC_STATUS_OK
+from bajo.bvh.gpu.builder.hploc_multi_wave import GpuHplocBuildState
+from bajo.bvh.gpu.builder.lbvh import build_binary_bvh_with_lbvh
+from bajo.bvh.gpu.builder.wide_collapse import (
+    GpuWideCollapseState,
+    GpuWideCollapseWorkspace,
+    enqueue_collapse_binary_to_wide,
+    enqueue_collapse_binary_to_wide_with_workspace,
+)
 from bajo.bvh.gpu.camera_launch import (
     validate_camera_launch,
     _camera_ray,
     _store_camera_hit,
+)
+from bajo.bvh.gpu.ray_launch import (
+    validate_ray_launch,
+    _load_packed_ray,
+    _store_packed_hit,
 )
 
 from bajo.core.intersect import (
@@ -235,6 +256,196 @@ struct GpuTriangleBvh[
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
 
+    def launch_rays[
+        mode: TRACE = TRACE.CLOSEST_HIT,
+        algorithm: GpuTraversalAlgorithm = GpuTraversalAlgorithm.STANDARD,
+    ](
+        self,
+        ctx: DeviceContext,
+        d_rays: DeviceBuffer[DType.float32],
+        d_hits: DeviceBuffer[DType.float32],
+        ray_count: Int,
+    ) raises:
+        """Trace a packed ray buffer without camera-generation assumptions."""
+        validate_ray_launch(d_rays, d_hits, ray_count)
+        ctx.enqueue_function[
+            trace_triangle_bvh_rays_kernel[
+                Self.frame,
+                Self.node_width,
+                Self.leaf_width,
+                mode,
+                algorithm == GpuTraversalAlgorithm.UNIFIED_TASKS,
+            ]
+        ](
+            self.tree.wide_nodes,
+            self.leaf_vertices,
+            self.tree.root_idx,
+            d_rays,
+            d_hits,
+            Int32(ray_count),
+            grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
+            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+        )
+
+
+struct GpuTriangleBvhBuildArena:
+    """Reusable scratch for serial builds with one triangle count."""
+
+    var triangle_capacity: Int
+    var binary: GpuBinaryBuildWorkspace
+    var collapse: GpuWideCollapseWorkspace
+
+    def __init__(
+        out self, mut ctx: DeviceContext, triangle_capacity: Int
+    ) raises:
+        debug_assert["safe", _use_compiler_assume=True](
+            triangle_capacity > 0,
+            "triangle build arena capacity must be positive",
+        )
+        self.triangle_capacity = triangle_capacity
+        self.binary = GpuBinaryBuildWorkspace(ctx, triangle_capacity)
+        self.binary.ensure_topology(ctx)
+        self.collapse = GpuWideCollapseWorkspace(ctx, triangle_capacity)
+
+
+@fieldwise_init
+struct GpuTriangleBvhBuildTicket[
+    frame: Frame,
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+    build_method: GpuBvhBuildMethod,
+]:
+    """Owns queued construction inputs and scratch until `wait` completes."""
+
+    var bvh: GpuTriangleBvh[Self.frame, Self.node_width, Self.leaf_width]
+    var source_vertices: DeviceBuffer[DType.float32]
+    var binary: GpuBinaryBoundsBvh
+    var workspace: GpuBinaryBuildWorkspace
+    var hploc: Optional[GpuHplocBuildState]
+    var collapse: GpuWideCollapseState
+
+    def wait(
+        deinit self, ctx: DeviceContext
+    ) raises -> GpuTriangleBvh[Self.frame, Self.node_width, Self.leaf_width]:
+        """Wait once, validate device status, and release construction state."""
+        ctx.synchronize()
+        if self.hploc:
+            var status = self.hploc.value().result_status()
+            if status != UInt32(HPLOC_STATUS_OK):
+                raise String(t"H-PLOC build status: {status}")
+        self.collapse.finish_synchronized(self.bvh.tree, True)
+        return self.bvh^
+
+
+def enqueue_build_triangle_bvh_with_arena[
+    frame: Frame,
+    node_width: SIMDLength,
+    leaf_width: SIMDLength = node_width,
+    build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
+](
+    mut ctx: DeviceContext,
+    vertices: DeviceBuffer[DType.float32],
+    arena: GpuTriangleBvhBuildArena,
+) raises -> GpuTriangleBvhBuildTicket[
+    frame, node_width, leaf_width, build_method
+]:
+    """Queue a complete triangle build without host synchronization."""
+    debug_assert["safe", _use_compiler_assume=True](
+        len(vertices) % TRI_LEAF_VERTEX_STRIDE == 0,
+        "triangle vertex buffer must contain complete triangle records",
+    )
+    var tri_count = len(vertices) / TRI_LEAF_VERTEX_STRIDE
+    debug_assert["safe", _use_compiler_assume=True](
+        tri_count > 0, "passed empty input."
+    )
+    debug_assert["safe", _use_compiler_assume=True](
+        arena.triangle_capacity == tri_count,
+        "triangle build arena capacity must match the input",
+    )
+
+    var leaf_bounds = ctx.enqueue_create_buffer[DType.float32](
+        tri_count * AABB[frame].STRIDE
+    )
+    var payloads = ctx.enqueue_create_buffer[DType.uint32](tri_count)
+    var blocks = ceildiv(tri_count, GPU_BOUNDS_BVH_BLOCK_SIZE)
+    ctx.enqueue_function[compute_triangle_bounds_kernel[frame]](
+        _device_span[mut=False](vertices),
+        _device_span[mut=True](leaf_bounds),
+        _device_span[mut=True](payloads),
+        grid_dim=blocks,
+        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+    )
+
+    var workspace = GpuBinaryBuildWorkspace(arena.binary)
+    var binary = GpuBinaryBoundsBvh(ctx, leaf_bounds^, payloads^, workspace)
+    var hploc = Optional[GpuHplocBuildState]()
+    comptime if build_method == GpuBvhBuildMethod.LBVH:
+        _ = build_binary_bvh_with_lbvh(ctx, binary, workspace)
+    elif build_method == GpuBvhBuildMethod.HPLOC:
+        hploc = Optional[GpuHplocBuildState](
+            enqueue_binary_bvh_with_hploc(ctx, binary, workspace)
+        )
+    else:
+        comptime assert False, "unknown GPU BVH build method"
+
+    var tree = GpuWideBoundsBvh[node_width, leaf_width, Int(leaf_width)](
+        ctx, tri_count
+    )
+    tree.bounds_device = binary.bounds_device.copy()
+    var collapse = enqueue_collapse_binary_to_wide_with_workspace[
+        node_width,
+        leaf_width,
+        Int(leaf_width),
+        True,
+    ](ctx, binary, tree, arena.collapse)
+
+    var leaf_lane_capacity = tree.max_leaf_blocks * leaf_width
+    var leaf_vertices = ctx.enqueue_create_buffer[DType.float32](
+        leaf_lane_capacity * TRI_LEAF_PACKED_STRIDE
+    )
+    blocks = ceildiv(leaf_lane_capacity, GPU_BOUNDS_BVH_BLOCK_SIZE)
+    ctx.enqueue_function[pack_triangle_leaf_lanes_kernel[leaf_width]](
+        vertices,
+        tree.leaf_block_indices,
+        leaf_vertices,
+        tree.leaf_block_count_device,
+        Int32(leaf_lane_capacity),
+        grid_dim=blocks,
+        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+    )
+
+    return GpuTriangleBvhBuildTicket[
+        frame, node_width, leaf_width, build_method
+    ](
+        GpuTriangleBvh[frame, node_width, leaf_width](
+            tree^, leaf_vertices^, tri_count
+        ),
+        vertices.copy(),
+        binary^,
+        workspace^,
+        hploc^,
+        collapse^,
+    )
+
+
+def enqueue_build_triangle_bvh[
+    frame: Frame,
+    node_width: SIMDLength,
+    leaf_width: SIMDLength = node_width,
+    build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
+](
+    mut ctx: DeviceContext,
+    vertices: DeviceBuffer[DType.float32],
+) raises -> GpuTriangleBvhBuildTicket[
+    frame, node_width, leaf_width, build_method
+]:
+    """Queue a triangle build with a one-shot internal arena."""
+    var tri_count = len(vertices) / TRI_LEAF_VERTEX_STRIDE
+    var arena = GpuTriangleBvhBuildArena(ctx, tri_count)
+    return enqueue_build_triangle_bvh_with_arena[
+        frame, node_width, leaf_width, build_method
+    ](ctx, vertices, arena)
+
 
 def build_triangle_bvh[
     frame: Frame,
@@ -343,6 +554,7 @@ def _build_triangle_bvh[
         vertices,
         tree.leaf_block_indices,
         leaf_vertices,
+        tree.leaf_block_count_device,
         Int32(leaf_lane_count),
         grid_dim=blocks,
         block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
@@ -412,11 +624,13 @@ def pack_triangle_leaf_lanes_kernel[
     vertices: Pointer[Float32, ImmutAnyOrigin],
     leaf_block_indices: Pointer[UInt32, ImmutAnyOrigin],
     leaf_vertices: Pointer[Float32, MutAnyOrigin],
-    leaf_lane_count: Int32,
+    leaf_block_count: Pointer[UInt32, ImmutAnyOrigin],
+    leaf_lane_capacity: Int32,
 ):
-    var leaf_lane_count_int = Int(leaf_lane_count)
+    var leaf_lane_count_int = Int(leaf_block_count[unsafe_offset=0]) * width
+    var leaf_lane_capacity_int = Int(leaf_lane_capacity)
     var lane_idx = global_idx.x
-    if lane_idx >= leaf_lane_count_int:
+    if lane_idx >= leaf_lane_count_int or lane_idx >= leaf_lane_capacity_int:
         return
 
     var prim = leaf_block_indices[unsafe_offset=lane_idx]
@@ -530,6 +744,60 @@ def trace_triangle_bvh_camera_kernel[
             node_width == 4,
         ](wide_nodes, leaf_vertices, root_idx, ray)
     _store_camera_hit(hit, hits, ray_count_int, ray_idx)
+
+
+def trace_triangle_bvh_rays_kernel[
+    frame: Frame,
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+    mode: TRACE = TRACE.CLOSEST_HIT,
+    unified_tasks: Bool = False,
+](
+    wide_nodes: Pointer[Float32, ImmutAnyOrigin],
+    leaf_vertices: Pointer[Float32, ImmutAnyOrigin],
+    root_idx: UInt32,
+    rays: Pointer[Float32, ImmutAnyOrigin],
+    hits: Pointer[Float32, MutAnyOrigin],
+    ray_count: Int32,
+):
+    var ray_count_int = Int(ray_count)
+    var ray_idx = global_idx.x
+    if ray_idx >= ray_count_int:
+        return
+
+    var ray = _load_packed_ray[frame](rays, ray_count_int, ray_idx)
+    var hit = Hit[frame].miss(ray.t_max)
+    comptime if (
+        mode == TRACE.CLOSEST_HIT
+        and unified_tasks
+        and node_width == 2
+        and leaf_width == 4
+    ):
+        hit = trace_bounds_bvh_unified_closest[
+            frame,
+            node_width,
+            _intersect_triangle_leaf[
+                frame,
+                leaf_width,
+                TRACE.CLOSEST_HIT,
+                leaf_width > node_width or leaf_width == 8,
+            ],
+        ](wide_nodes, leaf_vertices, root_idx, ray)
+    else:
+        hit = trace_bounds_bvh[
+            frame,
+            node_width,
+            mode,
+            _intersect_triangle_leaf[
+                frame,
+                leaf_width,
+                mode,
+                leaf_width > node_width or leaf_width == 8,
+            ],
+            True,
+            node_width == 4,
+        ](wide_nodes, leaf_vertices, root_idx, ray)
+    _store_packed_hit[frame](hit, hits, ray_count_int, ray_idx)
 
 
 def trace_triangle_bvh_camera_instrumented_kernel[

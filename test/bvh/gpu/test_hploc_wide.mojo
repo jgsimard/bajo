@@ -115,9 +115,11 @@ def _assert_literature_wide_invariants[
             triangle_bounds(verts[i * 3], verts[i * 3 + 1], verts[i * 3 + 2])
         )
 
-    with tree.wide_nodes.map_to_host() as nodes, tree.leaf_block_indices.map_to_host() as leaf_blocks:
-        var nodes_span = Span(unsafe_ptr=nodes.unsafe_ptr(), length=len(nodes))
-        var nodes_u32 = nodes.unsafe_ptr().unsafe_bitcast[UInt32]()
+    with tree.wide_nodes.map_to_host() as wide_nodes, tree.leaf_block_indices.map_to_host() as leaf_blocks:
+        var nodes_span = Span(
+            unsafe_ptr=wide_nodes.unsafe_ptr(), length=len(wide_nodes)
+        )
+        var nodes_u32 = wide_nodes.unsafe_ptr().unsafe_bitcast[UInt32]()
         var node_unions = List[AABB[Frame.WORLD]](
             length=tree.node_count, fill=AABB[Frame.WORLD].invalid()
         )
@@ -199,7 +201,7 @@ def _assert_root_uses_largest_area_opening[
     var build = _flatten_triangle_bounds(verts)
     with DeviceContext() as ctx:
         var tree = GpuWideBoundsBvh[node_width, node_width](ctx, len(build[1]))
-        var binary = build_bounds_bvh_for_diagnostics[
+        var diagnostic = build_bounds_bvh_for_diagnostics[
             node_width,
             node_width,
             Int(node_width),
@@ -211,6 +213,7 @@ def _assert_root_uses_largest_area_opening[
             upload_list(ctx, build[1]),
         )
         ctx.synchronize()
+        ref binary = diagnostic.binary
         assert_equal(tree.leaf_block_count, len(verts) / 3)
 
         with binary.node_meta.map_to_host() as meta, binary.node_bounds.map_to_host() as node_bounds, binary.leaf_bounds.map_to_host() as leaf_bounds, binary.leaf_ids.map_to_host() as leaf_ids, tree.wide_nodes.map_to_host() as wide_nodes:

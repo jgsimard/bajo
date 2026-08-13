@@ -18,7 +18,7 @@ from bajo.core import (
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.bvh.cpu.tlas import Tlas
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
-from bajo.bvh.gpu.tlas import GpuTriangleTlas
+from bajo.bvh.gpu.tlas import build_triangle_tlas
 from bajo.bvh.gpu.triangle_bvh import build_triangle_blas_set
 from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.types import Instance, Hit
@@ -332,7 +332,7 @@ def _trace_cpu_tlas_camera[
     camera: Camera,
     mut hits: List[Float32],
 ):
-    def worker(py: Int) capturing:
+    def worker(py: Int) {imm, mut hits}:
         for px in range(width):
             var ray_idx = py * width + px
             var ray = camera.make_ray(px, py, width, height)
@@ -345,7 +345,7 @@ def _trace_cpu_tlas_camera[
             )
             hit.store(Span(hits), ray_idx)
 
-    parallelize[worker](height, height)
+    parallelize(worker, height, height)
 
 
 def print_hit_counts_by_blas_host(
@@ -481,7 +481,7 @@ def render_gpu(
 
         print("\nBuilding GPU TLAS...")
         var tlas_t0 = perf_counter_ns()
-        var gpu_tlas = GpuTriangleTlas[TLAS_WIDTH_GPU, BLAS_WIDTH_GPU](
+        var gpu_tlas = build_triangle_tlas[TLAS_WIDTH_GPU, BLAS_WIDTH_GPU](
             ctx, instances
         )
         ctx.synchronize()

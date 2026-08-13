@@ -288,7 +288,7 @@ def trace_packed[
         _ray_inv_a: SIMD[DType.float32, WIDTH],
         leaf_idx: UInt32,
         mut hit: Hit[Frame.WORLD],
-    ) capturing -> Bool:
+    ) {imm} -> Bool:
         ref block = bvh.leaf_blocks.unsafe_get(Int(leaf_idx))
         comptime if mode == TRACE.ANY_HIT:
             var candidate = intersect_ray_tri_edges(
@@ -313,8 +313,7 @@ def trace_packed[
         bounds_width=WIDTH,
         leaf_width=WIDTH,
         mode=mode,
-        leaf_fn=leaf_fn,
-    ](bvh.tree, ray)
+    ](bvh.tree, ray, leaf_fn)
     return _normalize_hit(hit)
 
 
@@ -333,7 +332,7 @@ def trace_split[
         _ray_inv_a: SIMD[DType.float32, WIDTH],
         leaf_idx: UInt32,
         mut hit: Hit[Frame.WORLD],
-    ) capturing -> Bool:
+    ) {imm} -> Bool:
         ref block = leaves.geometry.unsafe_get(Int(leaf_idx))
         comptime if mode == TRACE.ANY_HIT:
             var candidate = intersect_ray_tri_edges(
@@ -358,8 +357,7 @@ def trace_split[
         bounds_width=WIDTH,
         leaf_width=WIDTH,
         mode=mode,
-        leaf_fn=leaf_fn,
-    ](bvh.tree, ray)
+    ](bvh.tree, ray, leaf_fn)
     return _normalize_hit(hit)
 
 
@@ -378,7 +376,7 @@ def trace_dense[
         _ray_inv_a: SIMD[DType.float32, WIDTH],
         leaf_idx: UInt32,
         mut hit: Hit[Frame.WORLD],
-    ) capturing -> Bool:
+    ) {imm} -> Bool:
         var idx = Int(leaf_idx)
         var first = Int(leaves.first.unsafe_get(idx))
         var count = Int(leaves.count.unsafe_get(idx))
@@ -447,8 +445,7 @@ def trace_dense[
         bounds_width=WIDTH,
         leaf_width=WIDTH,
         mode=mode,
-        leaf_fn=leaf_fn,
-    ](bvh.tree, ray)
+    ](bvh.tree, ray, leaf_fn)
     return _normalize_hit(hit)
 
 
@@ -467,7 +464,7 @@ def trace_half_edges[
         _ray_inv_a: SIMD[DType.float32, WIDTH],
         leaf_idx: UInt32,
         mut hit: Hit[Frame.WORLD],
-    ) capturing -> Bool:
+    ) {imm} -> Bool:
         ref block = leaves.blocks.unsafe_get(Int(leaf_idx))
         var e1 = Vec3[DType.float32, Frame.WORLD, WIDTH](
             block.e1.x.cast[DType.float32](),
@@ -502,8 +499,7 @@ def trace_half_edges[
         bounds_width=WIDTH,
         leaf_width=WIDTH,
         mode=mode,
-        leaf_fn=leaf_fn,
-    ](bvh.tree, ray)
+    ](bvh.tree, ray, leaf_fn)
     return _normalize_hit(hit)
 
 

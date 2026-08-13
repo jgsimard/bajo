@@ -129,7 +129,7 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
 
         var next_node = [self.nodes_used]
 
-        def worker(task_idx: Int) capturing:
+        def worker(task_idx: Int) {imm, mut self, mut next_node}:
             self._subdivide_parallel_sah(
                 frontier_nodes[task_idx],
                 frontier_centroid_bounds[task_idx],
@@ -143,7 +143,7 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
                 thread_count = 1
             if thread_count > task_count:
                 thread_count = task_count
-            parallelize[worker](task_count, thread_count)
+            parallelize(worker, task_count, thread_count)
 
         self.nodes_used = next_node[0]
         self.nodes.shrink(Int(self.nodes_used))

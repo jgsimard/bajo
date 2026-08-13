@@ -62,7 +62,7 @@ def upsweep[
     # Histogram Binning
     var s_warp_hist = s_global_hist.unsafe_offset(wid * PADDED_RADIX)
 
-    def _f[width: SIMDLength](i: Int) capturing:
+    def _f[width: SIMDLength](i: Int) {imm}:
         var t = keys_current.unsafe_load[width=width](i)
         t = (t >> radix_shift) & RADIX_MASK
         comptime for j in range(width):

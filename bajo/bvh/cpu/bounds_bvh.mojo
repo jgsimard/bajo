@@ -135,7 +135,7 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
         @always_inline
         def pack_leaf_range(
             first_item: UInt32, item_count: UInt32
-        ) capturing -> UInt32:
+        ) {imm, mut leaf_ranges} -> UInt32:
             var leaf_range_idx = UInt32(len(leaf_ranges))
             leaf_ranges.append(WideLeafRange(first_item, item_count))
             return leaf_range_idx
@@ -143,15 +143,15 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
         self.leaf_ranges = List[WideLeafRange]()
 
         if bvh.nodes_used > 0:
-            self._collapse_root[
-                pack_leaf_range, pack_leaves_before_children=False
-            ](bvh)
+            self._collapse_root[pack_leaves_before_children=False](
+                bvh, pack_leaf_range
+            )
 
         self.leaf_ranges = leaf_ranges^
 
     def __init__[
-        pack_leaf_fn: def(UInt32, UInt32) capturing -> UInt32
-    ](out self, bvh: BoundsBvhBuilder):
+        PackLeafFn: def(UInt32, UInt32) -> UInt32
+    ](out self, bvh: BoundsBvhBuilder, ref pack_leaf_fn: PackLeafFn):
         """Collapse a binary BVH while packing its typed leaf payloads.
 
         Unlike the generic constructor, this path does not materialize
@@ -166,25 +166,25 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
         self.item_payloads = List[UInt32]()
 
         if bvh.nodes_used > 0:
-            self._collapse_root[pack_leaf_fn, pack_leaves_before_children=True](
-                bvh
+            self._collapse_root[pack_leaves_before_children=True](
+                bvh, pack_leaf_fn
             )
 
     def _collapse_root[
-        pack_leaf_fn: def(UInt32, UInt32) capturing -> UInt32,
+        PackLeafFn: def(UInt32, UInt32) -> UInt32,
         pack_leaves_before_children: Bool,
-    ](mut self, bvh: BoundsBvhBuilder):
+    ](mut self, bvh: BoundsBvhBuilder, ref pack_leaf_fn: PackLeafFn):
         comptime if Self.width > 2:
             var dp = _WideCollapseDp(Int(bvh.nodes_used), Int(Self.width))
             self._compute_collapse_dp(bvh, 0, dp)
-            _ = self._collapse_dp[pack_leaf_fn, pack_leaves_before_children](
-                bvh, 0, dp
-            )
+            _ = self._collapse_dp[
+                pack_leaves_before_children=pack_leaves_before_children
+            ](bvh, 0, dp, pack_leaf_fn)
 
         else:
             _ = self._collapse_greedy[
-                pack_leaf_fn, pack_leaves_before_children
-            ](bvh, 0)
+                pack_leaves_before_children=pack_leaves_before_children
+            ](bvh, 0, pack_leaf_fn)
 
     def _compute_collapse_dp(
         self,
@@ -341,13 +341,14 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
         return (pool^, p_size)
 
     def _collapse_dp[
-        pack_leaf_fn: def(UInt32, UInt32) capturing -> UInt32,
+        PackLeafFn: def(UInt32, UInt32) -> UInt32,
         pack_leaves_before_children: Bool,
     ](
         mut self,
         bvh: BoundsBvhBuilder,
         bin_idx: UInt32,
         ref dp: _WideCollapseDp,
+        ref pack_leaf_fn: PackLeafFn,
     ) -> UInt32:
         var wide_idx = len(self.nodes)
         self.nodes.append(WideBvhNode[Self.frame, Self.width]())
@@ -393,10 +394,9 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
                     ref n = bvh.nodes[Int(pool[i])]
                     if not n.is_leaf():
                         node.data[i] = encode_internal_ref(
-                            self._collapse_dp[
-                                pack_leaf_fn,
-                                pack_leaves_before_children=True,
-                            ](bvh, pool[i], dp)
+                            self._collapse_dp[pack_leaves_before_children=True](
+                                bvh, pool[i], dp, pack_leaf_fn
+                            )
                         )
         else:
             # Generic construction retains its depth-first leaf-range order.
@@ -410,18 +410,22 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
                     else:
                         node.data[i] = encode_internal_ref(
                             self._collapse_dp[
-                                pack_leaf_fn,
-                                pack_leaves_before_children=False,
-                            ](bvh, pool[i], dp)
+                                pack_leaves_before_children=False
+                            ](bvh, pool[i], dp, pack_leaf_fn)
                         )
 
         self.nodes[wide_idx] = node^
         return UInt32(wide_idx)
 
     def _collapse_greedy[
-        pack_leaf_fn: def(UInt32, UInt32) capturing -> UInt32,
+        PackLeafFn: def(UInt32, UInt32) -> UInt32,
         pack_leaves_before_children: Bool,
-    ](mut self, bvh: BoundsBvhBuilder, bin_idx: UInt32) -> UInt32:
+    ](
+        mut self,
+        bvh: BoundsBvhBuilder,
+        bin_idx: UInt32,
+        ref pack_leaf_fn: PackLeafFn,
+    ) -> UInt32:
         """Original largest-area greedy collapse, retained for A/B tests."""
         var wide_idx = len(self.nodes)
         self.nodes.append(WideBvhNode[Self.frame, Self.width]())
@@ -490,9 +494,8 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
                     if not n.is_leaf():
                         node.data[i] = encode_internal_ref(
                             self._collapse_greedy[
-                                pack_leaf_fn,
-                                pack_leaves_before_children=True,
-                            ](bvh, pool[i])
+                                pack_leaves_before_children=True
+                            ](bvh, pool[i], pack_leaf_fn)
                         )
         else:
             # Generic construction retains its depth-first leaf-range order.
@@ -506,9 +509,8 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
                     else:
                         node.data[i] = encode_internal_ref(
                             self._collapse_greedy[
-                                pack_leaf_fn,
-                                pack_leaves_before_children=False,
-                            ](bvh, pool[i])
+                                pack_leaves_before_children=False
+                            ](bvh, pool[i], pack_leaf_fn)
                         )
 
         self.nodes[wide_idx] = node^

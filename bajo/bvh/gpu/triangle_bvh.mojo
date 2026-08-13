@@ -597,7 +597,7 @@ def _intersect_triangle_leaf[
     item_count: UInt32,
     ray: Rayf32[frame],
     mut hit: Hit[frame],
-) capturing -> Bool:
+) -> Bool:
     var any_hit = False
     var block_base = Int(leaf_block_idx) * TRI_LEAF_PACKED_STRIDE * width
     var leaf_vertices_u32 = leaf_vertices.unsafe_bitcast[UInt32]()

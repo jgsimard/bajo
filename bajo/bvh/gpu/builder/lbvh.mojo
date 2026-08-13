@@ -7,7 +7,7 @@ from std.gpu import global_idx
 
 from bajo.core import AABB, Vec3f32, Frame
 from bajo.core.morton import morton3
-from bajo.sort.gpu.radix_sort import device_radix_sort_pairs, RadixSortWorkspace
+from bajo.sort.gpu.radix_sort import device_radix_sort_pairs
 from bajo.bvh.constants import (
     LBVH_LEAF_FLAG,
     LBVH_SENTINEL,
@@ -22,6 +22,7 @@ from bajo.bvh.gpu.builder.binary_layout import (
     _write_child_bounds,
     _load_and_union_node_bounds,
     GpuBinaryBoundsBvh,
+    GpuBinaryBuildWorkspace,
     init_empty_bounds_kernel,
 )
 
@@ -239,7 +240,7 @@ def build_lbvh_topology_kernel(
 def build_binary_bvh_with_lbvh(
     ctx: DeviceContext,
     mut binary: GpuBinaryBoundsBvh,
-    mut workspace: RadixSortWorkspace[DType.uint32, DType.uint32],
+    mut workspace: GpuBinaryBuildWorkspace,
     measure_stages: Bool = False,
 ) raises -> GpuBuildTimings:
     """Builds the temporary sorted binary LBVH.
@@ -268,7 +269,7 @@ def build_binary_bvh_with_lbvh(
         _device_span[mut=False](binary.bounds_device),
         _device_span[mut=True](binary.keys),
         _device_span[mut=True](binary.leaf_ids),
-        grid_dim=binary.blocks_leaves,
+        grid_dim=binary.blocks_leaves(),
         block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
     )
     if measure_stages:
@@ -280,7 +281,7 @@ def build_binary_bvh_with_lbvh(
     # sort by morton codes
     device_radix_sort_pairs[DType.uint32, DType.uint32](
         ctx,
-        workspace,
+        workspace.sort,
         binary.keys,
         binary.leaf_ids,
         binary.leaf_count,
@@ -301,7 +302,7 @@ def build_binary_bvh_with_lbvh(
             _device_span[mut=True](binary.node_bounds),
             _device_span[mut=True](binary.node_flags),
             _device_span[mut=True](binary.node_leaf_counts),
-            grid_dim=binary.blocks_internal,
+            grid_dim=binary.blocks_internal(),
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
     if measure_stages:
@@ -319,7 +320,7 @@ def build_binary_bvh_with_lbvh(
             _device_span[mut=False](binary.leaf_parent),
             _device_span[mut=True](binary.node_bounds),
             _device_span[mut=True](binary.node_flags),
-            grid_dim=binary.blocks_leaves,
+            grid_dim=binary.blocks_leaves(),
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
     if measure_stages:

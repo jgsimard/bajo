@@ -1,133 +1,167 @@
-from std.math import ceildiv, max
 from std.atomic import Atomic, Ordering
-from std.gpu import global_idx
-from max.gpu.host import DeviceContext, DeviceBuffer
+from std.gpu import global_idx, thread_idx
+from std.math import ceildiv, max, min
+from std.memory import stack_allocation
+from max.gpu.host import DeviceContext
+from max.gpu.memory import AddressSpace
+from max.gpu.sync import barrier
 
-from bajo.core import AABB, Frame
 from bajo.bvh.constants import (
-    LBVH_SENTINEL,
-    GPU_STACK_SIZE,
-    EMPTY_LANE,
     BinaryBvhNode,
+    EMPTY_LANE,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
+    LBVH_SENTINEL,
+    WideNode,
 )
-from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh, _wide_node_store_child
-from bajo.bvh.gpu.wide_meta import _pack_wide_meta
+from bajo.bvh.gpu.wide_layout import (
+    GpuWideBoundsBvh,
+    _wide_node_store_child,
+)
 from bajo.bvh.gpu.builder.binary_layout import (
     GpuBinaryBoundsBvh,
-    _node_parent_index,
-    _node_left,
-    _node_right,
-    _is_encoded_leaf,
     _encoded_index,
-    _load_and_union_node_bounds,
+    _encoded_bounds,
+    _is_encoded_leaf,
+    _node_left,
+    _node_parent_index,
+    _node_right,
 )
+from bajo.bvh.gpu.wide_meta import _pack_wide_meta
+from bajo.core import AABB, Frame
 
 
-def _encoded_bounds(
+comptime HPLOC_WIDE_STATUS_OK = UInt32(0)
+comptime HPLOC_WIDE_STATUS_OUT_OF_WORK = UInt32(1)
+comptime HPLOC_WIDE_STATUS_OUT_OF_NODES = UInt32(2)
+comptime HPLOC_WIDE_STATUS_OUT_OF_LEAVES = UInt32(3)
+comptime HPLOC_WIDE_STATUS_TIMEOUT = UInt32(4)
+comptime HPLOC_WIDE_NOOP_ENCODED = LBVH_SENTINEL
+
+
+@always_inline
+def _pack_hploc_wide_pair(encoded: UInt32, out_idx: UInt32) -> UInt64:
+    return (UInt64(encoded) << 32) | UInt64(out_idx)
+
+
+@always_inline
+def _hploc_wide_pair_encoded(pair: UInt64) -> UInt32:
+    return UInt32(pair >> 32)
+
+
+@always_inline
+def _hploc_wide_pair_out_idx(pair: UInt64) -> UInt32:
+    return UInt32(pair)
+
+
+@always_inline
+def _hploc_encoded_leaf_count(
     encoded: UInt32,
-    leaf_bounds: Span[mut=False, Float32, _],
-    leaf_ids: Span[mut=False, UInt32, _],
-    node_bounds: Span[mut=False, Float32, _],
-) -> AABB[Frame.WORLD]:
+    node_leaf_counts: Pointer[mut=False, UInt32, _],
+) -> UInt32:
     if _is_encoded_leaf(encoded):
-        var sorted_leaf_idx = _encoded_index(encoded)
-        debug_assert["safe", _use_compiler_assume=True](
-            Int(sorted_leaf_idx) < len(leaf_ids),
-            "encoded leaf index is outside the leaf-id span",
+        return UInt32(1)
+    return node_leaf_counts[unsafe_offset=Int(_encoded_index(encoded))]
+
+
+def _write_hploc_terminal_leaf_block[
+    leaf_width: SIMDLength,
+](
+    encoded: UInt32,
+    leaf_payloads: Pointer[mut=False, UInt32, _],
+    leaf_ids: Pointer[mut=False, UInt32, _],
+    node_meta: Pointer[mut=False, UInt32, _],
+    leaf_block_indices: Pointer[mut=True, UInt32, _],
+    leaf_block_idx: UInt32,
+):
+    var block_base = Int(leaf_block_idx) * leaf_width
+    leaf_block_indices.unsafe_offset(block_base).unsafe_store[width=leaf_width](
+        EMPTY_LANE
+    )
+
+    # HIPRT retains binary subtrees of at most four triangles as fat leaves.
+    # A terminal subtree therefore needs at most leaf_width stack entries.
+    var stack = Array[UInt32, leaf_width](uninitialized=True)
+    var stack_size = 1
+    var out_count = 0
+    stack[0] = encoded
+    while stack_size > 0:
+        stack_size -= 1
+        var current = stack[stack_size]
+        if _is_encoded_leaf(current):
+            var sorted_leaf_idx = _encoded_index(current)
+            var item_idx = leaf_ids[unsafe_offset=Int(sorted_leaf_idx)]
+            leaf_block_indices[
+                unsafe_offset=block_base + out_count
+            ] = leaf_payloads[unsafe_offset=Int(item_idx)]
+            out_count += 1
+        else:
+            var node_idx = _encoded_index(current)
+            # Push right first so payload order remains left-to-right.
+            stack[stack_size] = _node_right(node_meta, node_idx)
+            stack_size += 1
+            stack[stack_size] = _node_left(node_meta, node_idx)
+            stack_size += 1
+
+
+def init_hploc_literature_wide_kernel(
+    node_meta: Pointer[UInt32, MutAnyOrigin],
+    index_pairs: Pointer[UInt64, MutAnyOrigin],
+    work_alloc_counter: Pointer[UInt32, MutAnyOrigin],
+    work_group_counter: Pointer[UInt32, MutAnyOrigin],
+    leaf_block_counter: Pointer[UInt32, MutAnyOrigin],
+    wide_node_counter: Pointer[UInt32, MutAnyOrigin],
+    status: Pointer[UInt32, MutAnyOrigin],
+    internal_count: Int32,
+    slot_count: Int32,
+):
+    var i = global_idx.x
+    var internal_count_int = Int(internal_count)
+    var slot_count_int = Int(slot_count)
+    # Slot zero is exclusively published by the thread that finds the root.
+    # Clearing it here as well would race that publication across the grid.
+    if i > 0 and i < slot_count_int:
+        index_pairs[unsafe_offset=i] = UInt64.MAX
+
+    if i == 0:
+        work_alloc_counter[unsafe_offset=0] = UInt32(1)
+        work_group_counter[unsafe_offset=0] = UInt32(0)
+        leaf_block_counter[unsafe_offset=0] = UInt32(0)
+        wide_node_counter[unsafe_offset=0] = UInt32(1)
+        status[unsafe_offset=0] = HPLOC_WIDE_STATUS_OK
+
+    if i >= internal_count_int:
+        return
+    var node_idx = UInt32(i)
+    if node_meta[unsafe_offset=_node_parent_index(node_idx)] == LBVH_SENTINEL:
+        index_pairs[unsafe_offset=0] = _pack_hploc_wide_pair(
+            node_idx, UInt32(0)
         )
-        var item_idx = UInt32(leaf_ids.unsafe_get(Int(sorted_leaf_idx)))
-        var b = Int(item_idx) * AABB.STRIDE
-        return AABB[Frame.WORLD].load6(leaf_bounds, b)
-
-    return _load_and_union_node_bounds(node_bounds, _encoded_index(encoded))
 
 
-def collapse_terminal_root_to_wide_kernel[
+def hploc_literature_wide_single_leaf_kernel[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
 ](
     leaf_bounds: Pointer[Float32, ImmutAnyOrigin],
     leaf_payloads: Pointer[UInt32, ImmutAnyOrigin],
     leaf_ids: Pointer[UInt32, ImmutAnyOrigin],
-    node_meta: Pointer[UInt32, ImmutAnyOrigin],
-    node_bounds: Pointer[Float32, MutAnyOrigin],
     wide_nodes: Pointer[Float32, MutAnyOrigin],
     leaf_block_indices: Pointer[UInt32, MutAnyOrigin],
-    leaf_block_counter: Pointer[UInt32, MutAnyOrigin],
-    wide_node_counter: Pointer[UInt32, MutAnyOrigin],
-    wide_root: Pointer[UInt32, MutAnyOrigin],
-    leaf_count: Int32,
-    internal_count: Int32,
 ):
-    var leaf_count_int = Int(leaf_count)
-    var internal_count_int = Int(internal_count)
-    var i = global_idx.x
-    if i != 0:
+    if global_idx.x != 0:
         return
-
-    wide_root[unsafe_offset=0] = UInt32(0)
-    wide_node_counter[unsafe_offset=0] = UInt32(1)
-    leaf_block_counter[unsafe_offset=0] = UInt32(1)
-
-    var root_bounds = AABB[Frame.WORLD].invalid()
-    var leaf_bounds_span = Span(
-        unsafe_ptr=leaf_bounds, length=leaf_count_int * AABB.STRIDE
+    var item_idx = leaf_ids[unsafe_offset=0]
+    var bounds_span = Span(unsafe_ptr=leaf_bounds, length=AABB.STRIDE)
+    var bounds = AABB[Frame.WORLD].load6(
+        bounds_span, Int(item_idx) * AABB.STRIDE
     )
-    var leaf_ids_span = Span(unsafe_ptr=leaf_ids, length=leaf_count_int)
-    var node_bounds_span = Span(
-        unsafe_ptr=node_bounds,
-        length=max(internal_count_int, 1) * BinaryBvhNode.BOUNDS_STRIDE,
-    )
-
-    if leaf_count_int == 1:
-        # Single primitive: no binary internal node exists.
-        root_bounds = AABB[Frame.WORLD].load6(leaf_bounds_span, 0)
-
-        leaf_block_indices.unsafe_offset(0).unsafe_store[width=leaf_width](
-            EMPTY_LANE
-        )
-        leaf_block_indices[unsafe_offset=0] = leaf_payloads[unsafe_offset=0]
-
-    else:
-        # Small tree: find the binary root and pack the whole subtree into
-        # leaf block 0.
-        var root = UInt32(0)
-
-        for n in range(internal_count_int):
-            var node_idx = UInt32(n)
-            if (
-                UInt32(node_meta[unsafe_offset=_node_parent_index(node_idx)])
-                == LBVH_SENTINEL
-            ):
-                root = node_idx
-
-        _write_terminal_leaf_block[leaf_width](
-            root,
-            leaf_payloads,
-            leaf_ids,
-            node_meta,
-            leaf_block_indices,
-            UInt32(0),
-        )
-
-        root_bounds = _encoded_bounds(
-            root,
-            leaf_bounds_span,
-            leaf_ids_span,
-            node_bounds_span,
-        )
-
-    # Root wide node: lane 0 is one packed leaf block.
     _wide_node_store_child[node_width](
         wide_nodes,
         UInt32(0),
         0,
-        root_bounds,
-        _pack_wide_meta(UInt32(0), UInt32(leaf_count_int)),
+        bounds,
+        _pack_wide_meta(UInt32(0), UInt32(1)),
     )
-
-    # Remaining lanes are empty.
     comptime for lane in range(1, node_width):
         _wide_node_store_child[node_width](
             wide_nodes,
@@ -137,419 +171,20 @@ def collapse_terminal_root_to_wide_kernel[
             _pack_wide_meta(UInt32(0), EMPTY_LANE),
         )
 
+    leaf_block_indices.unsafe_offset(0).unsafe_store[width=leaf_width](
+        EMPTY_LANE
+    )
+    leaf_block_indices[unsafe_offset=0] = leaf_payloads[
+        unsafe_offset=Int(item_idx)
+    ]
 
-def collapse[
+
+def hploc_literature_to_wide_kernel[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
-](
-    mut ctx: DeviceContext,
-    binary: GpuBinaryBoundsBvh,
-    mut out: GpuBoundsBvh[node_width, leaf_width],
-) raises:
-    var leaf_block_counter = ctx.enqueue_create_buffer[DType.uint32](1)
-    var wide_node_counter = ctx.enqueue_create_buffer[DType.uint32](1)
-    var wide_root = ctx.enqueue_create_buffer[DType.uint32](1)
-
-    if binary.leaf_count <= leaf_width:
-        ctx.enqueue_function[
-            collapse_terminal_root_to_wide_kernel[node_width, leaf_width]
-        ](
-            binary.leaf_bounds,
-            binary.leaf_payloads,
-            binary.leaf_ids,
-            binary.node_meta,
-            binary.node_bounds,
-            out.wide_nodes,
-            out.leaf_block_indices,
-            leaf_block_counter,
-            wide_node_counter,
-            wide_root,
-            Int32(binary.leaf_count),
-            Int32(binary.internal_count),
-            grid_dim=1,
-            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-        )
-
-        ctx.synchronize()
-
-        out.root_idx = 0
-        out.node_count = 1
-        out.leaf_block_count = 1
-        return
-
-    comptime if node_width == 2 and leaf_width == node_width:
-        # Converts a sorted binary bounds BVH into a precomputed wide layout.
-
-        # Every binary internal node gets a possible wide node with the same index.
-        # This is not a dense reachable layout: some wide nodes may be unreachable
-        # because an ancestor wide node opened through their binary subtree.
-
-        # The benefit is that conversion is deterministic, non-polling, and does not
-        # require a host-side frontier loop.
-
-        # Every binary internal node is precomputed as a possible wide node.
-        # Child links use the binary internal node index directly as the wide
-        # node index. Some precomputed wide nodes are unreachable because
-        # their binary subtree was opened into an ancestor wide node,
-        # but this keeps the conversion single-pass, deterministic, and
-        # free of host frontier loops.
-        var leaf_blocks = ceildiv(binary.leaf_count, GPU_BOUNDS_BVH_BLOCK_SIZE)
-        ctx.enqueue_function[
-            init_precomputed_wide_leaf_blocks_kernel[leaf_width]
-        ](
-            binary.leaf_payloads,
-            binary.leaf_ids,
-            out.leaf_block_indices,
-            leaf_block_counter,
-            wide_node_counter,
-            Int32(binary.leaf_count),
-            Int32(binary.internal_count),
-            grid_dim=leaf_blocks,
-            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-        )
-
-        ctx.enqueue_function[collapse_precomputed_wide_kernel[node_width]](
-            binary.leaf_bounds,
-            binary.leaf_ids,
-            binary.node_meta,
-            binary.node_bounds,
-            out.wide_nodes,
-            wide_root,
-            Int32(binary.internal_count),
-            grid_dim=binary.blocks_internal,
-            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-        )
-
-        ctx.synchronize()
-
-        with wide_root.map_to_host() as wr:
-            out.root_idx = UInt32(wr[0])
-
-        out.node_count = binary.internal_count
-        out.leaf_block_count = binary.leaf_count
-
-    else:  # HPLOC
-        var slot_count = binary.leaf_count
-        var slot_blocks = ceildiv(slot_count, GPU_BOUNDS_BVH_BLOCK_SIZE)
-
-        var index_pairs = ctx.enqueue_create_buffer[DType.uint64](slot_count)
-        var slot_counter = ctx.enqueue_create_buffer[DType.uint32](1)
-        var hploc_status = ctx.enqueue_create_buffer[DType.uint32](1)
-
-        ctx.enqueue_function[init_hploc_index_pairs_kernel](
-            binary.node_meta,
-            index_pairs,
-            slot_counter,
-            leaf_block_counter,
-            wide_node_counter,
-            hploc_status,
-            wide_root,
-            Int32(binary.internal_count),
-            Int32(slot_count),
-            grid_dim=slot_blocks,
-            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-        )
-
-        ctx.enqueue_function[hploc_to_wide_kernel[node_width, leaf_width]](
-            binary.leaf_bounds,
-            binary.leaf_payloads,
-            binary.leaf_ids,
-            binary.node_meta,
-            binary.node_bounds,
-            binary.node_leaf_counts,
-            index_pairs,
-            slot_counter,
-            leaf_block_counter,
-            wide_node_counter,
-            hploc_status,
-            out.wide_nodes,
-            out.leaf_block_indices,
-            Int32(slot_count),
-            Int32(out.max_wide_nodes),
-            Int32(out.max_leaf_blocks),
-            grid_dim=slot_blocks,
-            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-        )
-
-        ctx.synchronize()
-
-        with wide_root.map_to_host() as wr, leaf_block_counter.map_to_host() as lbc, wide_node_counter.map_to_host() as wnc, hploc_status.map_to_host() as hs:
-            out.root_idx = UInt32(wr[0])
-            out.node_count = Int(wnc[0])
-            out.leaf_block_count = Int(lbc[0])
-
-            if UInt32(hs[0]) != HPLOC_STATUS_OK:
-                raise String(t"HPLOC collapse status: {UInt32(hs[0])}")
-
-
-def init_precomputed_wide_leaf_blocks_kernel[
-    width: SIMDLength,
-](
-    leaf_payloads: Pointer[UInt32, MutAnyOrigin],
-    leaf_ids: Pointer[UInt32, MutAnyOrigin],
-    leaf_block_indices: Pointer[UInt32, MutAnyOrigin],
-    leaf_block_counter: Pointer[UInt32, MutAnyOrigin],
-    wide_node_counter: Pointer[UInt32, MutAnyOrigin],
-    leaf_count: Int32,
-    internal_count: Int32,
-):
-    var leaf_count_int = Int(leaf_count)
-    var internal_count_int = Int(internal_count)
-    var i = global_idx.x
-    if i >= leaf_count_int:
-        return
-
-    if i == 0:
-        leaf_block_counter[unsafe_offset=0] = UInt32(leaf_count_int)
-        wide_node_counter[unsafe_offset=0] = UInt32(internal_count_int)
-
-    var sorted_leaf_idx = UInt32(i)
-    var item_idx = UInt32(leaf_ids[unsafe_offset=i])
-    var payload = UInt32(leaf_payloads[unsafe_offset=Int(item_idx)])
-
-    var base = i * width
-    leaf_block_indices.unsafe_offset(base).unsafe_store[width=width](EMPTY_LANE)
-    leaf_block_indices[unsafe_offset=base] = payload
-
-
-def collapse_precomputed_wide_kernel[
-    width: SIMDLength,
-](
-    leaf_bounds: Pointer[Float32, MutAnyOrigin],
-    leaf_ids: Pointer[UInt32, MutAnyOrigin],
-    node_meta: Pointer[UInt32, MutAnyOrigin],
-    node_bounds: Pointer[Float32, MutAnyOrigin],
-    wide_nodes: Pointer[Float32, MutAnyOrigin],
-    wide_root: Pointer[UInt32, MutAnyOrigin],
-    internal_count: Int32,
-):
-    var internal_count_int = Int(internal_count)
-    var leaf_count_int = internal_count_int + 1
-    var leaf_bounds_span = Span(
-        unsafe_ptr=leaf_bounds, length=leaf_count_int * AABB.STRIDE
-    )
-    var leaf_ids_span = Span(unsafe_ptr=leaf_ids, length=leaf_count_int)
-    var node_bounds_span = Span(
-        unsafe_ptr=node_bounds,
-        length=max(internal_count_int, 1) * BinaryBvhNode.BOUNDS_STRIDE,
-    )
-    var node_i = global_idx.x
-    if node_i >= internal_count_int:
-        return
-
-    var node_idx = UInt32(node_i)
-
-    if UInt32(node_meta[unsafe_offset=_node_parent_index(node_idx)]) == UInt32(
-        LBVH_SENTINEL
-    ):
-        wide_root[unsafe_offset=0] = node_idx
-
-    var pool = Array[UInt32, width](uninitialized=True)
-    pool[0] = node_idx
-    var p_size = 1
-
-    # repeatedly open the largest-area internal subtree until
-    # the wide node has width entries, or only leaves remain
-    while p_size < width:
-        var best_area = Float32(-1.0)
-        var best_lane = -1
-
-        comptime for lane in range(width):
-            if lane < p_size:
-                var e = pool[lane]
-
-                if not _is_encoded_leaf(e):
-                    var b = _encoded_bounds(
-                        e,
-                        leaf_bounds_span,
-                        leaf_ids_span,
-                        node_bounds_span,
-                    )
-                    var area = b.surface_area()
-
-                    if area > best_area:
-                        best_area = area
-                        best_lane = lane
-
-        if best_lane < 0:
-            break
-
-        var n_idx = _encoded_index(pool[best_lane])
-        pool[best_lane] = _node_left(node_meta, n_idx)
-        pool[p_size] = _node_right(node_meta, n_idx)
-        p_size += 1
-
-    comptime for lane in range(width):
-        if lane >= p_size:
-            _wide_node_store_child[width](
-                wide_nodes,
-                node_idx,
-                lane,
-                AABB[Frame.WORLD].invalid(),
-                _pack_wide_meta(UInt32(0), EMPTY_LANE),
-            )
-            continue
-
-        var e = pool[lane]
-        var b = _encoded_bounds(
-            e,
-            leaf_bounds_span,
-            leaf_ids_span,
-            node_bounds_span,
-        )
-
-        var meta = _pack_wide_meta(_encoded_index(e), UInt32(0))
-        if _is_encoded_leaf(e):
-            var sorted_leaf_idx = _encoded_index(e)
-            meta = _pack_wide_meta(sorted_leaf_idx, UInt32(1))
-
-        _wide_node_store_child[width](
-            wide_nodes,
-            node_idx,
-            lane,
-            b,
-            meta,
-        )
-
-
-# hploc
-
-comptime HPLOC_STATUS_OK = UInt32(0)
-comptime HPLOC_STATUS_OUT_OF_WORK_SLOTS = UInt32(1)
-comptime HPLOC_STATUS_OUT_OF_WIDE_NODES = UInt32(2)
-comptime HPLOC_STATUS_OUT_OF_LEAF_BLOCKS = UInt32(3)
-comptime HPLOC_STATUS_TIMEOUT = UInt32(4)
-comptime HPLOC_NOOP_ENCODED = UInt32(LBVH_SENTINEL)
-
-
-def _pack_hploc_pair(encoded: UInt32, out_idx: UInt32) -> UInt64:
-    return (UInt64(encoded) << 32) | UInt64(out_idx)
-
-
-def _hploc_pair_encoded(pair: UInt64) -> UInt32:
-    return UInt32(pair >> 32)
-
-
-def _hploc_pair_out_idx(pair: UInt64) -> UInt32:
-    return UInt32(pair & UInt64(0xFFFFFFFF))
-
-
-def _encoded_leaf_count(
-    encoded: UInt32, node_leaf_counts: Pointer[mut=False, UInt32, _]
-) -> UInt32:
-    if _is_encoded_leaf(encoded):
-        return UInt32(1)
-    return node_leaf_counts[unsafe_offset=Int(_encoded_index(encoded))]
-
-
-def _write_terminal_leaf_block[
-    width: SIMDLength,
-](
-    encoded: UInt32,
-    leaf_payloads: Pointer[mut=False, UInt32, _],
-    leaf_ids: Pointer[mut=False, UInt32, _],
-    node_meta: Pointer[mut=False, UInt32, _],
-    leaf_block_indices: Pointer[mut=True, UInt32, _],
-    leaf_block_idx: UInt32,
-):
-    var stack = Array[UInt32, GPU_STACK_SIZE](uninitialized=True)
-    var sp = 0
-    stack[sp] = encoded
-    sp += 1
-
-    var out_count = 0
-
-    while sp > 0:
-        sp -= 1
-        var e = stack[sp]
-
-        if _is_encoded_leaf(e):
-            if out_count < width:
-                var sorted_leaf_idx = _encoded_index(e)
-                var item_idx = leaf_ids[unsafe_offset=Int(sorted_leaf_idx)]
-                var payload = leaf_payloads[unsafe_offset=Int(item_idx)]
-
-                leaf_block_indices[
-                    unsafe_offset=Int(leaf_block_idx) * width + out_count
-                ] = payload
-                out_count += 1
-        else:
-            var node_idx = _encoded_index(e)
-            var left = _node_left(node_meta, node_idx)
-            var right = _node_right(node_meta, node_idx)
-
-            if sp + 2 <= GPU_STACK_SIZE:
-                stack[sp] = right
-                sp += 1
-                stack[sp] = left
-                sp += 1
-
-    comptime for lane in range(width):
-        if lane >= out_count:
-            leaf_block_indices[
-                unsafe_offset=Int(leaf_block_idx) * width + lane
-            ] = EMPTY_LANE
-
-
-def _write_one_leaf_block[
-    width: SIMDLength,
-](
-    encoded_leaf: UInt32,
-    leaf_payloads: Pointer[mut=False, UInt32, _],
-    leaf_ids: Pointer[mut=False, UInt32, _],
-    leaf_block_indices: Pointer[mut=True, UInt32, _],
-    leaf_block_idx: UInt32,
-):
-    var sorted_leaf_idx = _encoded_index(encoded_leaf)
-    var item_idx = UInt32(leaf_ids[unsafe_offset=Int(sorted_leaf_idx)])
-    var payload = UInt32(leaf_payloads[unsafe_offset=Int(item_idx)])
-
-    var base = Int(leaf_block_idx) * width
-    leaf_block_indices.unsafe_offset(base).unsafe_store[width=width](EMPTY_LANE)
-    leaf_block_indices[unsafe_offset=base] = payload
-
-
-def init_hploc_index_pairs_kernel(
-    node_meta: Pointer[UInt32, MutAnyOrigin],
-    index_pairs: Pointer[UInt64, MutAnyOrigin],
-    slot_counter: Pointer[UInt32, MutAnyOrigin],
-    leaf_block_counter: Pointer[UInt32, MutAnyOrigin],
-    wide_node_counter: Pointer[UInt32, MutAnyOrigin],
-    status: Pointer[UInt32, MutAnyOrigin],
-    wide_root: Pointer[UInt32, MutAnyOrigin],
-    internal_count: Int32,
-    slot_count: Int32,
-):
-    var internal_count_int = Int(internal_count)
-    var slot_count_int = Int(slot_count)
-    # slot 0 receives the pair (binary root cluster, wide root index 0) all other slots are invalid
-    # worker-slot counter starts at 0, first child reuses the current worker and the remaining children use base + i
-    var i = global_idx.x
-
-    if i < slot_count_int:
-        index_pairs[unsafe_offset=i] = UInt64.MAX
-
-    if i == 0:
-        slot_counter[unsafe_offset=0] = UInt32(0)
-        leaf_block_counter[unsafe_offset=0] = UInt32(0)
-        wide_node_counter[unsafe_offset=0] = UInt32(1)
-        status[unsafe_offset=0] = HPLOC_STATUS_OK
-        wide_root[unsafe_offset=0] = UInt32(0)
-
-    if i >= internal_count_int:
-        return
-
-    var node_idx = UInt32(i)
-    if (
-        UInt32(node_meta[unsafe_offset=_node_parent_index(node_idx)])
-        == LBVH_SENTINEL
-    ):
-        index_pairs[unsafe_offset=0] = _pack_hploc_pair(node_idx, UInt32(0))
-
-
-def hploc_to_wide_kernel[
-    node_width: SIMDLength,
-    leaf_width: SIMDLength,
+    max_leaf_size: Int,
+    fat_leaves: Bool,
+    block_size: Int,
 ](
     leaf_bounds: Pointer[Float32, MutAnyOrigin],
     leaf_payloads: Pointer[UInt32, MutAnyOrigin],
@@ -558,75 +193,86 @@ def hploc_to_wide_kernel[
     node_bounds: Pointer[Float32, MutAnyOrigin],
     node_leaf_counts: Pointer[UInt32, MutAnyOrigin],
     index_pairs: Pointer[UInt64, MutAnyOrigin],
-    slot_counter: Pointer[UInt32, MutAnyOrigin],
+    work_alloc_counter: Pointer[UInt32, MutAnyOrigin],
+    work_group_counter: Pointer[UInt32, MutAnyOrigin],
     leaf_block_counter: Pointer[UInt32, MutAnyOrigin],
     wide_node_counter: Pointer[UInt32, MutAnyOrigin],
     status: Pointer[UInt32, MutAnyOrigin],
     wide_nodes: Pointer[Float32, MutAnyOrigin],
     leaf_block_indices: Pointer[UInt32, MutAnyOrigin],
-    slot_count: Int32,
+    leaf_count: Int32,
     max_wide_nodes: Int32,
     max_leaf_blocks: Int32,
 ):
-    var slot_count_int = Int(slot_count)
-    var leaf_count_int = slot_count_int
-    var internal_count_int = leaf_count_int - 1
+    """Paper §3.4: single-dispatch top-down BVH2-to-N-wide conversion."""
+
+    comptime assert block_size == GPU_BOUNDS_BVH_BLOCK_SIZE
+    comptime fat_leaf_limit = min(max_leaf_size, 4)
+    var logical_block = stack_allocation[
+        1, UInt32, address_space=AddressSpace.SHARED
+    ]()
+    if thread_idx.x == 0:
+        logical_block[unsafe_offset=0] = Atomic.fetch_add[
+            ordering=Ordering.RELAXED
+        ](work_group_counter, UInt32(1))
+    barrier()
+
+    var leaf_count_int = Int(leaf_count)
+    var work_id = (
+        Int(logical_block[unsafe_offset=0]) * block_size + thread_idx.x
+    )
+    if work_id >= leaf_count_int:
+        return
+
+    var internal_count = leaf_count_int - 1
     var leaf_bounds_span = Span(
         unsafe_ptr=leaf_bounds, length=leaf_count_int * AABB.STRIDE
     )
     var leaf_ids_span = Span(unsafe_ptr=leaf_ids, length=leaf_count_int)
     var node_bounds_span = Span(
         unsafe_ptr=node_bounds,
-        length=max(internal_count_int, 1) * BinaryBvhNode.BOUNDS_STRIDE,
+        length=max(internal_count, 1) * BinaryBvhNode.BOUNDS_STRIDE,
     )
     var max_wide_nodes_int = Int(max_wide_nodes)
     var max_leaf_blocks_int = Int(max_leaf_blocks)
-    # algo:
-    #   - each GPU thread owns one slot in index_pairs
-    #   - invalid slots spin until another worker writes a valid pair
-    #   - an internal task collapses one binary subtree into one wide node
-    #   - child leaf tasks and child internal-node tasks are assigned to slots
-    #   - the current worker slot is reused for the first child, and the remaining
-    #     children are assigned to atomically allocated slots.
-    var thread_id = global_idx.x
-    if thread_id >= slot_count_int:
-        return
-
-    var failsafe = 1000000
+    var failsafe = 10000000
 
     while True:
-        if status[unsafe_offset=0] != HPLOC_STATUS_OK:
+        if Atomic.load[ordering=Ordering.ACQUIRE](status) != (
+            HPLOC_WIDE_STATUS_OK
+        ):
             return
 
-        var pair = index_pairs.unsafe_offset(thread_id).unsafe_load[
-            volatile=True
-        ]()
-
+        var pair = Atomic.load[ordering=Ordering.ACQUIRE](
+            index_pairs.unsafe_offset(work_id)
+        )
         if pair == UInt64.MAX:
             failsafe -= 1
-            if failsafe <= 0:
-                status[unsafe_offset=0] = HPLOC_STATUS_TIMEOUT
+            if failsafe == 0:
+                Atomic.store[ordering=Ordering.RELEASE](
+                    status, HPLOC_WIDE_STATUS_TIMEOUT
+                )
                 return
             continue
 
-        var encoded = _hploc_pair_encoded(pair)
-        var out_idx = _hploc_pair_out_idx(pair)
-
-        if encoded == HPLOC_NOOP_ENCODED:
+        var encoded = _hploc_wide_pair_encoded(pair)
+        var out_idx = _hploc_wide_pair_out_idx(pair)
+        if encoded == HPLOC_WIDE_NOOP_ENCODED:
             return
 
-        # terminal task: write one packed leaf block and terminate
-        # terminal = subtree_leaves <= leaf_width
-        var encoded_leaf_count = _encoded_leaf_count(
-            encoded,
-            node_leaf_counts,
+        var encoded_leaf_count = _hploc_encoded_leaf_count(
+            encoded, node_leaf_counts
         )
-        if encoded_leaf_count <= UInt32(leaf_width):
+        var terminal = _is_encoded_leaf(encoded)
+        comptime if fat_leaves:
+            terminal = encoded_leaf_count <= UInt32(fat_leaf_limit)
+        if terminal:
             if Int(out_idx) >= max_leaf_blocks_int:
-                status[unsafe_offset=0] = HPLOC_STATUS_OUT_OF_LEAF_BLOCKS
+                Atomic.store[ordering=Ordering.RELEASE](
+                    status, HPLOC_WIDE_STATUS_OUT_OF_LEAVES
+                )
                 return
-
-            _write_terminal_leaf_block[leaf_width](
+            _write_hploc_terminal_leaf_block[leaf_width](
                 encoded,
                 leaf_payloads,
                 leaf_ids,
@@ -634,213 +280,214 @@ def hploc_to_wide_kernel[
                 leaf_block_indices,
                 out_idx,
             )
+            # The root has no parent task to publish the no-op jobs that make
+            # one fixed paper work slot available per primitive.
+            if work_id == 0 and encoded_leaf_count == UInt32(leaf_count_int):
+                Atomic.store[ordering=Ordering.RELEASE](
+                    leaf_block_counter, UInt32(1)
+                )
+                _wide_node_store_child[node_width](
+                    wide_nodes,
+                    UInt32(0),
+                    0,
+                    _encoded_bounds(
+                        encoded,
+                        leaf_bounds_span,
+                        leaf_ids_span,
+                        node_bounds_span,
+                    ),
+                    _pack_wide_meta(UInt32(0), encoded_leaf_count),
+                )
+                comptime for lane in range(1, node_width):
+                    _wide_node_store_child[node_width](
+                        wide_nodes,
+                        UInt32(0),
+                        lane,
+                        AABB[Frame.WORLD].invalid(),
+                        _pack_wide_meta(UInt32(0), EMPTY_LANE),
+                    )
+                for noop_id in range(1, leaf_count_int):
+                    Atomic.store[ordering=Ordering.RELEASE](
+                        index_pairs.unsafe_offset(noop_id),
+                        _pack_hploc_wide_pair(
+                            HPLOC_WIDE_NOOP_ENCODED, UInt32(0)
+                        ),
+                    )
             return
 
-        # internal task: collapse one binary subtree into one wide node
         if Int(out_idx) >= max_wide_nodes_int:
-            status[unsafe_offset=0] = HPLOC_STATUS_OUT_OF_WIDE_NODES
+            Atomic.store[ordering=Ordering.RELEASE](
+                status, HPLOC_WIDE_STATUS_OUT_OF_NODES
+            )
             return
 
-        var leaves = Array[UInt32, node_width](uninitialized=True)
-        var leaf_counts = Array[UInt32, node_width](uninitialized=True)
-        var nodes = Array[UInt32, node_width](uninitialized=True)
-        var num_leaves = 0
-        var num_nodes = 0
-
-        # starts from the two children of the assigned BVH2 node,ordered by surface area,
-        # loop:
-        #   pop an internal node
-        #   pushes its ordered children
-        #   stop: stack is full or only leaves remain
+        var candidates = Array[UInt32, node_width](uninitialized=True)
         var node_idx = _encoded_index(encoded)
-        var left = _node_left(node_meta, node_idx)
-        var right = _node_right(node_meta, node_idx)
-        var left_bounds = _encoded_bounds(
-            left,
-            leaf_bounds_span,
-            leaf_ids_span,
-            node_bounds_span,
+        candidates[0] = _node_left(node_meta, node_idx)
+        candidates[1] = _node_right(node_meta, node_idx)
+        var child_count = 2
+
+        # HIPRT first opens non-fat internal nodes using the paper's
+        # largest-area rule. This prevents an oversized subtree from becoming
+        # a leaf merely because the wide node filled.
+        while child_count < node_width:
+            var open_pos = -1
+            var largest_area = Float32(-1.0)
+            for candidate_pos in range(child_count):
+                var candidate = candidates[candidate_pos]
+                if _is_encoded_leaf(candidate):
+                    continue
+                comptime if fat_leaves:
+                    if _hploc_encoded_leaf_count(
+                        candidate, node_leaf_counts
+                    ) <= UInt32(fat_leaf_limit):
+                        continue
+                var area = _encoded_bounds(
+                    candidate,
+                    leaf_bounds_span,
+                    leaf_ids_span,
+                    node_bounds_span,
+                ).surface_area()[0]
+                if area > largest_area:
+                    largest_area = area
+                    open_pos = candidate_pos
+
+            if open_pos < 0:
+                break
+            var opened_idx = _encoded_index(candidates[open_pos])
+            candidates[open_pos] = _node_left(node_meta, opened_idx)
+            candidates[child_count] = _node_right(node_meta, opened_idx)
+            child_count += 1
+
+        # Once only legal fat leaves remain, open the largest ones until the
+        # node is full. This is HIPRT's second collapse pass.
+        comptime if fat_leaves:
+            while child_count < node_width:
+                var open_pos = -1
+                var largest_area = Float32(-1.0)
+                for candidate_pos in range(child_count):
+                    var candidate = candidates[candidate_pos]
+                    if _is_encoded_leaf(candidate):
+                        continue
+                    var area = _encoded_bounds(
+                        candidate,
+                        leaf_bounds_span,
+                        leaf_ids_span,
+                        node_bounds_span,
+                    ).surface_area()[0]
+                    if area > largest_area:
+                        largest_area = area
+                        open_pos = candidate_pos
+
+                if open_pos < 0:
+                    break
+                var opened_idx = _encoded_index(candidates[open_pos])
+                candidates[open_pos] = _node_left(node_meta, opened_idx)
+                candidates[child_count] = _node_right(node_meta, opened_idx)
+                child_count += 1
+
+        var inner_count = 0
+        var leaf_count_in_node = 0
+        var published_work_count = 0
+        var candidate_leaf_counts = Array[UInt32, node_width](
+            uninitialized=True
         )
-        var right_bounds = _encoded_bounds(
-            right,
-            leaf_bounds_span,
-            leaf_ids_span,
-            node_bounds_span,
-        )
-
-        var first = left
-        var second = right
-        if right_bounds.surface_area() > left_bounds.surface_area():
-            first = right
-            second = left
-
-        var first_leaf_count = _encoded_leaf_count(
-            first,
-            node_leaf_counts,
-        )
-        if first_leaf_count <= UInt32(leaf_width):
-            leaves[num_leaves] = first
-            leaf_counts[num_leaves] = first_leaf_count
-            num_leaves += 1
-        else:
-            nodes[num_nodes] = first
-            num_nodes += 1
-
-        var second_leaf_count = _encoded_leaf_count(
-            second,
-            node_leaf_counts,
-        )
-        if second_leaf_count <= UInt32(leaf_width):
-            leaves[num_leaves] = second
-            leaf_counts[num_leaves] = second_leaf_count
-            num_leaves += 1
-        else:
-            nodes[num_nodes] = second
-            num_nodes += 1
-
-        while num_leaves + num_nodes < node_width and num_nodes > 0:
-            # pop internal node
-            num_nodes -= 1
-            var open_encoded = nodes[num_nodes]
-            var open_idx = _encoded_index(open_encoded)
-
-            var c0 = _node_left(node_meta, open_idx)
-            var c1 = _node_right(node_meta, open_idx)
-            var c0_bounds = _encoded_bounds(
-                c0,
-                leaf_bounds_span,
-                leaf_ids_span,
-                node_bounds_span,
+        for child_pos in range(child_count):
+            var candidate = candidates[child_pos]
+            var candidate_leaf_count = _hploc_encoded_leaf_count(
+                candidate, node_leaf_counts
             )
-            var c1_bounds = _encoded_bounds(
-                c1,
-                leaf_bounds_span,
-                leaf_ids_span,
-                node_bounds_span,
-            )
-
-            var ordered0 = c0
-            var ordered1 = c1
-            if c1_bounds.surface_area() > c0_bounds.surface_area():
-                ordered0 = c1
-                ordered1 = c0
-
-            var ordered0_leaf_count = _encoded_leaf_count(
-                ordered0,
-                node_leaf_counts,
-            )
-            if ordered0_leaf_count <= UInt32(leaf_width):
-                leaves[num_leaves] = ordered0
-                leaf_counts[num_leaves] = ordered0_leaf_count
-                num_leaves += 1
+            candidate_leaf_counts[child_pos] = candidate_leaf_count
+            var child_is_leaf = _is_encoded_leaf(candidate)
+            comptime if fat_leaves:
+                child_is_leaf = candidate_leaf_count <= UInt32(fat_leaf_limit)
+            if child_is_leaf:
+                leaf_count_in_node += 1
+                published_work_count += Int(candidate_leaf_count)
             else:
-                nodes[num_nodes] = ordered0
-                num_nodes += 1
-
-            var ordered1_leaf_count = _encoded_leaf_count(
-                ordered1,
-                node_leaf_counts,
-            )
-            if ordered1_leaf_count <= UInt32(leaf_width):
-                leaves[num_leaves] = ordered1
-                leaf_counts[num_leaves] = ordered1_leaf_count
-                num_leaves += 1
-            else:
-                nodes[num_nodes] = ordered1
-                num_nodes += 1
-
-        var child_count = num_leaves + num_nodes
-
-        # one worker per primitive leaf
-        # if terminal subtree with k <= leaf_width leaves = packed
-        # publish k - 1 no-op tasks so unused workers can exit instead of timing out
-        var noop_count = UInt32(0)
-        comptime for i in range(node_width):
-            if i < num_leaves:
-                if leaf_counts[i] > UInt32(1):
-                    noop_count += leaf_counts[i] - UInt32(1)
-
-        var total_published = UInt32(child_count) + noop_count
-
-        # Allocate worker slots for every published item except the one that
-        # reuses the current thread's slot.
-        var extra_workers = UInt32(0)
-        if total_published > UInt32(0):
-            extra_workers = total_published - UInt32(1)
-
-        var base_worker_offset = Atomic.fetch_add[ordering=Ordering.RELAXED](
-            slot_counter,
-            extra_workers,
-        )
+                inner_count += 1
+                published_work_count += 1
 
         var child_node_base = Atomic.fetch_add[ordering=Ordering.RELAXED](
-            wide_node_counter,
-            UInt32(num_nodes),
+            wide_node_counter, UInt32(inner_count)
         )
         var leaf_block_base = Atomic.fetch_add[ordering=Ordering.RELAXED](
-            leaf_block_counter,
-            UInt32(num_leaves),
+            leaf_block_counter, UInt32(leaf_count_in_node)
         )
-
-        if Int(child_node_base) + num_nodes > max_wide_nodes_int:
-            status[unsafe_offset=0] = HPLOC_STATUS_OUT_OF_WIDE_NODES
+        var work_base = Atomic.fetch_add[ordering=Ordering.RELAXED](
+            work_alloc_counter, UInt32(published_work_count - 1)
+        )
+        if (
+            Int(child_node_base) + inner_count > max_wide_nodes_int
+            or Int(leaf_block_base) + leaf_count_in_node > max_leaf_blocks_int
+            or Int(work_base) + published_work_count - 1 > leaf_count_int
+        ):
+            var error = HPLOC_WIDE_STATUS_OUT_OF_WORK
+            if Int(child_node_base) + inner_count > max_wide_nodes_int:
+                error = HPLOC_WIDE_STATUS_OUT_OF_NODES
+            elif (
+                Int(leaf_block_base) + leaf_count_in_node > max_leaf_blocks_int
+            ):
+                error = HPLOC_WIDE_STATUS_OUT_OF_LEAVES
+            Atomic.store[ordering=Ordering.RELEASE](status, error)
             return
 
-        if Int(leaf_block_base) + num_leaves > max_leaf_blocks_int:
-            status[unsafe_offset=0] = HPLOC_STATUS_OUT_OF_LEAF_BLOCKS
-            return
-
-        # schedule children: 1. terminal subtrees, 2. internal nodes
-        # current slot is reused by published item 0
-        # others are written to allocated slots
-        var publish_i = 0
-        comptime for i in range(node_width):
-            if i < child_count:
-                var child_encoded: UInt32
-                var child_out_idx: UInt32
-
-                if i < num_leaves:
-                    child_encoded = leaves[i]
-                    child_out_idx = leaf_block_base + UInt32(i)
-                else:
-                    var j = i - num_leaves
-                    child_encoded = nodes[j]
-                    child_out_idx = child_node_base + UInt32(j)
-
-                var worker_addr = thread_id
-                if publish_i > 0:
-                    worker_addr = Int(base_worker_offset) + publish_i
-
-                if worker_addr >= slot_count_int:
-                    status[unsafe_offset=0] = HPLOC_STATUS_OUT_OF_WORK_SLOTS
-                    return
-
-                index_pairs[unsafe_offset=worker_addr] = _pack_hploc_pair(
-                    child_encoded,
-                    child_out_idx,
+        var inner_rank = UInt32(0)
+        var leaf_rank = UInt32(0)
+        var publish_pos = 0
+        for child_pos in range(child_count):
+            var child = candidates[child_pos]
+            var child_is_leaf = _is_encoded_leaf(child)
+            comptime if fat_leaves:
+                child_is_leaf = candidate_leaf_counts[child_pos] <= UInt32(
+                    fat_leaf_limit
                 )
-                publish_i += 1
+            var child_out_idx: UInt32
+            var meta: UInt32
+            if child_is_leaf:
+                child_out_idx = leaf_block_base + leaf_rank
+                leaf_rank += 1
+                meta = _pack_wide_meta(
+                    child_out_idx, candidate_leaf_counts[child_pos]
+                )
+            else:
+                child_out_idx = child_node_base + inner_rank
+                inner_rank += 1
+                meta = _pack_wide_meta(child_out_idx, UInt32(0))
 
-        comptime for i in range(node_width):
-            if i < num_leaves:
-                var extra_noops = Int(leaf_counts[i]) - 1
-                for _ in range(extra_noops):
-                    var worker_addr = thread_id
-                    if publish_i > 0:
-                        worker_addr = Int(base_worker_offset) + publish_i
+            var bounds = _encoded_bounds(
+                child,
+                leaf_bounds_span,
+                leaf_ids_span,
+                node_bounds_span,
+            )
+            _wide_node_store_child[node_width](
+                wide_nodes, out_idx, child_pos, bounds, meta
+            )
 
-                    if worker_addr >= slot_count_int:
-                        status[unsafe_offset=0] = HPLOC_STATUS_OUT_OF_WORK_SLOTS
-                        return
+            var child_work_id = work_id
+            if publish_pos > 0:
+                child_work_id = Int(work_base) + publish_pos - 1
+            Atomic.store[ordering=Ordering.RELEASE](
+                index_pairs.unsafe_offset(child_work_id),
+                _pack_hploc_wide_pair(child, child_out_idx),
+            )
+            publish_pos += 1
 
-                    index_pairs[unsafe_offset=worker_addr] = _pack_hploc_pair(
-                        HPLOC_NOOP_ENCODED,
-                        UInt32(0),
+            # The fixed paper work array still owns one slot per primitive.
+            # A packed k-triangle leaf therefore publishes k-1 no-op jobs.
+            if child_is_leaf:
+                var noops = Int(candidate_leaf_counts[child_pos]) - 1
+                for _ in range(noops):
+                    var noop_work_id = Int(work_base) + publish_pos - 1
+                    Atomic.store[ordering=Ordering.RELEASE](
+                        index_pairs.unsafe_offset(noop_work_id),
+                        _pack_hploc_wide_pair(
+                            HPLOC_WIDE_NOOP_ENCODED, UInt32(0)
+                        ),
                     )
-                    publish_i += 1
+                    publish_pos += 1
 
-        # emit this wide node
-        # lane order = scheduled child order: leaves first,then internal nodes
         comptime for lane in range(node_width):
             if lane >= child_count:
                 _wide_node_store_child[node_width](
@@ -850,37 +497,105 @@ def hploc_to_wide_kernel[
                     AABB[Frame.WORLD].invalid(),
                     _pack_wide_meta(UInt32(0), EMPTY_LANE),
                 )
-                continue
 
-            var child_encoded: UInt32
-            var child_ref_idx: UInt32
-            var child_is_leaf = False
 
-            if lane < num_leaves:
-                child_encoded = leaves[lane]
-                child_ref_idx = leaf_block_base + UInt32(lane)
-                child_is_leaf = True
-            else:
-                var j = lane - num_leaves
-                child_encoded = nodes[j]
-                child_ref_idx = child_node_base + UInt32(j)
+def collapse_binary_to_wide[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+    max_leaf_size: Int,
+    fat_leaves: Bool = False,
+](
+    mut ctx: DeviceContext,
+    binary: GpuBinaryBoundsBvh,
+    mut out: GpuWideBoundsBvh[node_width, leaf_width, max_leaf_size],
+) raises:
+    """Convert any supported BVH2 using the paper's §3.4 GPU method.
 
-            var b = _encoded_bounds(
-                child_encoded,
-                leaf_bounds_span,
-                leaf_ids_span,
-                node_bounds_span,
-            )
-            var meta = _pack_wide_meta(child_ref_idx, UInt32(0))
-            if child_is_leaf:
-                meta = _pack_wide_meta(child_ref_idx, leaf_counts[lane])
+    The optional triangle path follows HIPRT by retaining binary subtrees of
+    at most four primitives as packed leaves. The default remains the paper's
+    one-primitive-per-leaf baseline.
+    """
 
-            _wide_node_store_child[node_width](
-                wide_nodes,
-                out_idx,
-                lane,
-                b,
-                meta,
-            )
+    if binary.leaf_count == 1:
+        ctx.enqueue_function[
+            hploc_literature_wide_single_leaf_kernel[node_width, leaf_width]
+        ](
+            binary.leaf_bounds,
+            binary.leaf_payloads,
+            binary.leaf_ids,
+            out.wide_nodes,
+            out.leaf_block_indices,
+            grid_dim=1,
+            block_dim=1,
+        )
+        ctx.synchronize()
+        out.root_idx = UInt32(0)
+        out.node_count = 1
+        out.leaf_block_count = 1
+        return
 
-        # continue with the child assigned to the current slot
+    var slot_count = binary.leaf_count
+    var blocks = ceildiv(slot_count, GPU_BOUNDS_BVH_BLOCK_SIZE)
+    var index_pairs = ctx.enqueue_create_buffer[DType.uint64](slot_count)
+    var work_alloc_counter = ctx.enqueue_create_buffer[DType.uint32](1)
+    var work_group_counter = ctx.enqueue_create_buffer[DType.uint32](1)
+    var leaf_block_counter = ctx.enqueue_create_buffer[DType.uint32](1)
+    var wide_node_counter = ctx.enqueue_create_buffer[DType.uint32](1)
+    var status = ctx.enqueue_create_buffer[DType.uint32](1)
+
+    ctx.enqueue_function[init_hploc_literature_wide_kernel](
+        binary.node_meta,
+        index_pairs,
+        work_alloc_counter,
+        work_group_counter,
+        leaf_block_counter,
+        wide_node_counter,
+        status,
+        Int32(binary.internal_count),
+        Int32(slot_count),
+        grid_dim=blocks,
+        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+    )
+    ctx.enqueue_function[
+        hploc_literature_to_wide_kernel[
+            node_width,
+            leaf_width,
+            max_leaf_size,
+            fat_leaves,
+            GPU_BOUNDS_BVH_BLOCK_SIZE,
+        ]
+    ](
+        binary.leaf_bounds,
+        binary.leaf_payloads,
+        binary.leaf_ids,
+        binary.node_meta,
+        binary.node_bounds,
+        binary.node_leaf_counts,
+        index_pairs,
+        work_alloc_counter,
+        work_group_counter,
+        leaf_block_counter,
+        wide_node_counter,
+        status,
+        out.wide_nodes,
+        out.leaf_block_indices,
+        Int32(slot_count),
+        Int32(out.max_wide_nodes),
+        Int32(out.max_leaf_blocks),
+        grid_dim=blocks,
+        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+    )
+    ctx.synchronize()
+
+    with leaf_block_counter.map_to_host() as leaves, wide_node_counter.map_to_host() as nodes, status.map_to_host() as build_status:
+        if build_status[0] != HPLOC_WIDE_STATUS_OK:
+            raise String(t"BVH2-to-wide conversion status: {build_status[0]}")
+        comptime if fat_leaves:
+            if Int(leaves[0]) <= 0 or Int(leaves[0]) > binary.leaf_count:
+                raise "fat-leaf conversion emitted an invalid leaf count"
+        else:
+            if Int(leaves[0]) != binary.leaf_count:
+                raise "§3.4 conversion did not emit one leaf per primitive"
+        out.root_idx = UInt32(0)
+        out.node_count = Int(nodes[0])
+        out.leaf_block_count = Int(leaves[0])

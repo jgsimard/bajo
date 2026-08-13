@@ -3,7 +3,6 @@ from std.time import perf_counter_ns
 from std.gpu import global_idx
 from max.gpu.host import DeviceBuffer, DeviceContext
 
-from bajo.bvh.camera import Camera
 from bajo.bvh.gpu.utils import (
     GpuBuildTimings,
     _device_span,
@@ -33,14 +32,24 @@ from bajo.bvh.constants import (
     f32_max,
     WideNode,
 )
-from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh
+from bajo.bvh.gpu.bounds_bvh import build_bounds_bvh
+from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvh
+from bajo.bvh.gpu.builder import GpuBvhBuildMethod
+from bajo.bvh.gpu.camera_launch import (
+    validate_camera_launch,
+    _camera_ray,
+    _store_camera_hit,
+)
+
 from bajo.core.intersect import (
     intersect_ray_tri_edges,
     intersect_ray_tri_edges_scaled,
 )
 from bajo.bvh.gpu.trace import (
+    GpuTraversalAlgorithm,
     GpuTraversalStats,
     trace_bounds_bvh,
+    trace_bounds_bvh_unified_closest,
     trace_bounds_bvh_with_stats,
 )
 
@@ -94,7 +103,7 @@ def build_triangle_blas_set[
     # temporary BLAS buffers stay alive until their copy kernels finish.
     for blas_idx in range(len(vertex_sets)):
         var d_vertices = upload_vertices(ctx, vertex_sets[blas_idx])
-        var blas = GpuTriangleBvh[Frame.LOCAL, node_width, leaf_width](
+        var blas = build_triangle_bvh[Frame.LOCAL, node_width, leaf_width](
             ctx, d_vertices
         )
 
@@ -129,108 +138,33 @@ struct GpuTriangleBvh[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
 ]:
-    var tree: GpuBoundsBvh[Self.node_width, Self.leaf_width]
-    var vertices: DeviceBuffer[DType.float32]
+    """Ready-to-trace triangle BVH containing no builder configuration."""
+
+    var tree: GpuWideBoundsBvh[
+        Self.node_width,
+        Self.leaf_width,
+        Int(Self.leaf_width),
+    ]
     var leaf_vertices: DeviceBuffer[DType.float32]
     var tri_count: Int
-    var timings: GpuBuildTimings
 
     def __init__(
         out self,
-        mut ctx: DeviceContext,
-        vertices: DeviceBuffer[DType.float32],
-        measure_build: Bool = False,
-    ) raises:
-        self.vertices = vertices
-        debug_assert["safe", _use_compiler_assume=True](
-            len(vertices) % TRI_LEAF_VERTEX_STRIDE == 0,
-            "triangle vertex buffer must contain complete triangle records",
-        )
-        self.tri_count = len(vertices) / 9
+        var tree: GpuWideBoundsBvh[
+            Self.node_width,
+            Self.leaf_width,
+            Int(Self.leaf_width),
+        ],
+        var leaf_vertices: DeviceBuffer[DType.float32],
+        tri_count: Int,
+    ):
+        self.tree = tree^
+        self.leaf_vertices = leaf_vertices^
+        self.tri_count = tri_count
 
-        var leaf_bounds = ctx.enqueue_create_buffer[DType.float32](
-            self.tri_count * AABB[Self.frame].STRIDE
-        )
-        var payloads = ctx.enqueue_create_buffer[DType.uint32](self.tri_count)
-
-        var bounds_pack_start = Int(0)
-        if measure_build:
-            ctx.synchronize()
-            bounds_pack_start = perf_counter_ns()
-
-        var blocks = ceildiv(
-            max(self.tri_count, 1),
-            GPU_BOUNDS_BVH_BLOCK_SIZE,
-        )
-
-        ctx.enqueue_function[compute_triangle_bounds_kernel[Self.frame]](
-            _device_span[mut=False](self.vertices),
-            _device_span[mut=True](leaf_bounds),
-            _device_span[mut=True](payloads),
-            grid_dim=blocks,
-            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-        )
-        var bounds_pack_ns = Int(0)
-        if measure_build:
-            ctx.synchronize()
-            bounds_pack_ns = Int(perf_counter_ns() - bounds_pack_start)
-
-        self.tree = GpuBoundsBvh[Self.node_width, Self.leaf_width](
-            ctx, self.tri_count
-        )
-        self.timings = self.tree.build(
-            ctx,
-            leaf_bounds,
-            payloads,
-            measure_build=measure_build,
-        )
-        self.timings.bounds_pack_ns = bounds_pack_ns
-
-        var leaf_block_capacity = max(self.tree.leaf_block_count, 1)
-        self.leaf_vertices = ctx.enqueue_create_buffer[DType.float32](
-            leaf_block_capacity * Self.leaf_width * TRI_LEAF_PACKED_STRIDE
-        )
-
-        self._pack_leaf_blocks(ctx, measure_build)
-
-        # print(t"tri_count = {self.tri_count}")
-        # print(t"leaf_block_count = {self.tree.leaf_block_count}")
-        # print(t"max_leaf_blocks = {self.tree.max_leaf_blocks}")
-        # print(t"packed leaf lanes = {self.tree.leaf_block_count * Self.leaf_width}")
-        # print(
-        #     t"leaf lanes / triangles = "
-        #     t"{Float64(self.tree.leaf_block_count * Self.leaf_width) / Float64(self.tri_count)}"
-        # )
-
-    def _pack_leaf_blocks(
-        mut self,
-        ctx: DeviceContext,
-        measure_build: Bool,
-    ) raises:
-        var start = Int(0)
-        if measure_build:
-            start = perf_counter_ns()
-
-        var leaf_lane_count = max(
-            self.tree.leaf_block_count * Self.leaf_width, 1
-        )
-        var blocks = ceildiv(
-            leaf_lane_count,
-            GPU_BOUNDS_BVH_BLOCK_SIZE,
-        )
-        ctx.enqueue_function[pack_triangle_leaf_lanes_kernel[Self.leaf_width]](
-            self.vertices,
-            self.tree.leaf_block_indices,
-            self.leaf_vertices,
-            Int32(leaf_lane_count),
-            grid_dim=blocks,
-            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-        )
-        if measure_build:
-            ctx.synchronize()
-            self.timings.leaf_pack_ns = Int(perf_counter_ns() - start)
-
-    def launch_camera(
+    def launch_camera[
+        algorithm: GpuTraversalAlgorithm = GpuTraversalAlgorithm.STANDARD,
+    ](
         self,
         ctx: DeviceContext,
         d_camera_params: DeviceBuffer[DType.float32],
@@ -240,22 +174,16 @@ struct GpuTriangleBvh[
         cheight: Int,
     ) raises:
         comptime assert Self.frame == Frame.WORLD
-        debug_assert["safe", _use_compiler_assume=True](
-            ray_count > 0 and cwidth > 0 and cheight > 0,
-            "camera launch dimensions must be positive",
+        validate_camera_launch(
+            d_camera_params, d_hits, ray_count, cwidth, cheight
         )
-        var pixels_per_view = cwidth * cheight
-        debug_assert["safe", _use_compiler_assume=True](
-            len(d_camera_params)
-            >= ceildiv(ray_count, pixels_per_view) * Camera.STRIDE,
-            "camera parameter buffer is too short",
-        )
-        debug_assert["safe", _use_compiler_assume=True](
-            len(d_hits) >= ray_count * Hit.STRIDE,
-            "hit output buffer is too short",
-        )
+
         ctx.enqueue_function[
-            trace_triangle_bvh_camera_kernel[Self.node_width, Self.leaf_width]
+            trace_triangle_bvh_camera_kernel[
+                Self.node_width,
+                Self.leaf_width,
+                algorithm == GpuTraversalAlgorithm.UNIFIED_TASKS,
+            ]
         ](
             self.tree.wide_nodes,
             self.leaf_vertices,
@@ -281,19 +209,8 @@ struct GpuTriangleBvh[
         cheight: Int,
     ) raises:
         comptime assert Self.frame == Frame.WORLD
-        debug_assert["safe", _use_compiler_assume=True](
-            ray_count > 0 and cwidth > 0 and cheight > 0,
-            "camera launch dimensions must be positive",
-        )
-        var pixels_per_view = cwidth * cheight
-        debug_assert["safe", _use_compiler_assume=True](
-            len(d_camera_params)
-            >= ceildiv(ray_count, pixels_per_view) * Camera.STRIDE,
-            "camera parameter buffer is too short",
-        )
-        debug_assert["safe", _use_compiler_assume=True](
-            len(d_hits) >= ray_count * Hit.STRIDE,
-            "hit output buffer is too short",
+        validate_camera_launch(
+            d_camera_params, d_hits, ray_count, cwidth, cheight
         )
         debug_assert["safe", _use_compiler_assume=True](
             len(d_stats) >= ray_count * GpuTraversalStats.STRIDE,
@@ -317,6 +234,126 @@ struct GpuTriangleBvh[
             grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
+
+
+def build_triangle_bvh[
+    frame: Frame,
+    node_width: SIMDLength,
+    leaf_width: SIMDLength = node_width,
+    build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
+](
+    mut ctx: DeviceContext,
+    vertices: DeviceBuffer[DType.float32],
+) raises -> GpuTriangleBvh[frame, node_width, leaf_width]:
+    """Build and return a ready triangle BVH."""
+    var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
+    return _build_triangle_bvh[frame, node_width, leaf_width, build_method](
+        ctx, vertices, timings, False
+    )
+
+
+def build_triangle_bvh_measured[
+    frame: Frame,
+    node_width: SIMDLength,
+    leaf_width: SIMDLength = node_width,
+    build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
+](
+    mut ctx: DeviceContext,
+    vertices: DeviceBuffer[DType.float32],
+    mut timings: GpuBuildTimings,
+) raises -> GpuTriangleBvh[frame, node_width, leaf_width]:
+    """Build a ready triangle BVH and populate per-stage timings."""
+    return _build_triangle_bvh[frame, node_width, leaf_width, build_method](
+        ctx, vertices, timings, True
+    )
+
+
+def _build_triangle_bvh[
+    frame: Frame,
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+    build_method: GpuBvhBuildMethod,
+](
+    mut ctx: DeviceContext,
+    vertices: DeviceBuffer[DType.float32],
+    mut timings: GpuBuildTimings,
+    measure_build: Bool,
+) raises -> GpuTriangleBvh[frame, node_width, leaf_width]:
+    """Build and return a ready triangle BVH.
+
+    The final synchronization makes ownership explicit: temporary source
+    vertices may be released when this function returns.
+    """
+    debug_assert["safe", _use_compiler_assume=True](
+        len(vertices) % TRI_LEAF_VERTEX_STRIDE == 0,
+        "triangle vertex buffer must contain complete triangle records",
+    )
+    var tri_count = len(vertices) / TRI_LEAF_VERTEX_STRIDE
+    var leaf_bounds = ctx.enqueue_create_buffer[DType.float32](
+        tri_count * AABB[frame].STRIDE
+    )
+    var payloads = ctx.enqueue_create_buffer[DType.uint32](tri_count)
+
+    var bounds_pack_start = Int(0)
+    if measure_build:
+        ctx.synchronize()
+        bounds_pack_start = perf_counter_ns()
+
+    var blocks = ceildiv(max(tri_count, 1), GPU_BOUNDS_BVH_BLOCK_SIZE)
+    ctx.enqueue_function[compute_triangle_bounds_kernel[frame]](
+        _device_span[mut=False](vertices),
+        _device_span[mut=True](leaf_bounds),
+        _device_span[mut=True](payloads),
+        grid_dim=blocks,
+        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+    )
+    var bounds_pack_ns = Int(0)
+    if measure_build:
+        ctx.synchronize()
+        bounds_pack_ns = Int(perf_counter_ns() - bounds_pack_start)
+
+    var tree = GpuWideBoundsBvh[node_width, leaf_width, Int(leaf_width)](
+        ctx, tri_count
+    )
+    timings = build_bounds_bvh[
+        node_width,
+        leaf_width,
+        Int(leaf_width),
+        build_method,
+        True,
+    ](
+        ctx,
+        tree,
+        leaf_bounds,
+        payloads,
+        measure_build=measure_build,
+    )
+    timings.bounds_pack_ns = bounds_pack_ns
+
+    var leaf_block_capacity = max(tree.leaf_block_count, 1)
+    var leaf_vertices = ctx.enqueue_create_buffer[DType.float32](
+        leaf_block_capacity * leaf_width * TRI_LEAF_PACKED_STRIDE
+    )
+    var leaf_pack_start = Int(0)
+    if measure_build:
+        leaf_pack_start = perf_counter_ns()
+    var leaf_lane_count = max(tree.leaf_block_count * leaf_width, 1)
+    blocks = ceildiv(leaf_lane_count, GPU_BOUNDS_BVH_BLOCK_SIZE)
+    ctx.enqueue_function[pack_triangle_leaf_lanes_kernel[leaf_width]](
+        vertices,
+        tree.leaf_block_indices,
+        leaf_vertices,
+        Int32(leaf_lane_count),
+        grid_dim=blocks,
+        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+    )
+    ctx.synchronize()
+    if measure_build:
+        timings.leaf_pack_ns = Int(perf_counter_ns() - leaf_pack_start)
+
+    return GpuTriangleBvh[frame, node_width, leaf_width](
+        tree^, leaf_vertices^, tri_count
+    )
 
 
 def compute_triangle_bounds_kernel[
@@ -436,6 +473,7 @@ def pack_triangle_leaf_lanes_kernel[
 def trace_triangle_bvh_camera_kernel[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
+    unified_tasks: Bool = False,
 ](
     wide_nodes: Pointer[Float32, ImmutAnyOrigin],
     leaf_vertices: Pointer[Float32, ImmutAnyOrigin],
@@ -454,41 +492,44 @@ def trace_triangle_bvh_camera_kernel[
     if ray_idx >= ray_count_int:
         return
 
-    var pixels_per_view = width_px_int * height_px_int
-    var view_idx = ray_idx / pixels_per_view
-    var local_idx = ray_idx - view_idx * pixels_per_view
-    var px_i = local_idx % width_px_int
-    var py_i = local_idx / width_px_int
-
-    var camera_params_span = Span(
-        unsafe_ptr=camera_params,
-        length=ceildiv(ray_count_int, pixels_per_view) * Camera.STRIDE,
+    var ray = _camera_ray(
+        camera_params,
+        ray_count_int,
+        ray_idx,
+        width_px_int,
+        height_px_int,
+        inv_height,
     )
-    var camera = Camera(camera_params_span, view_idx * Camera.STRIDE)
-    var ray = camera.make_ray_raster(px_i, py_i, width_px_int, inv_height)
 
-    # extra distance stack benchmarks positively for triangle BVH4
-    # BVH2 and BVH8 retain the lower-memory stack specialization.
-    var hit = trace_bounds_bvh[
-        Frame.WORLD,
-        node_width,
-        TRACE.CLOSEST_HIT,
-        _intersect_triangle_leaf[
+    var hit = Hit[Frame.WORLD].miss(ray.t_max)
+    comptime if (unified_tasks and node_width == 2 and leaf_width == 4):
+        hit = trace_bounds_bvh_unified_closest[
             Frame.WORLD,
-            leaf_width,
+            node_width,
+            _intersect_triangle_leaf[
+                Frame.WORLD,
+                leaf_width,
+                TRACE.CLOSEST_HIT,
+                leaf_width > node_width or leaf_width == 8,
+            ],
+        ](wide_nodes, leaf_vertices, root_idx, ray)
+    else:
+        # extra distance stack benchmarks positively for triangle BVH4;
+        # BVH8 retains the lower-memory stack specialization.
+        hit = trace_bounds_bvh[
+            Frame.WORLD,
+            node_width,
             TRACE.CLOSEST_HIT,
-            leaf_width > node_width or leaf_width == 8,
-        ],
-        True,
-        node_width == 4,
-    ](
-        wide_nodes,
-        leaf_vertices,
-        root_idx,
-        ray,
-    )
-    var hits_span = Span(unsafe_ptr=hits, length=ray_count_int * Hit.STRIDE)
-    hit._store_unchecked(hits_span, ray_idx)
+            _intersect_triangle_leaf[
+                Frame.WORLD,
+                leaf_width,
+                TRACE.CLOSEST_HIT,
+                leaf_width > node_width or leaf_width == 8,
+            ],
+            True,
+            node_width == 4,
+        ](wide_nodes, leaf_vertices, root_idx, ray)
+    _store_camera_hit(hit, hits, ray_count_int, ray_idx)
 
 
 def trace_triangle_bvh_camera_instrumented_kernel[
@@ -513,18 +554,14 @@ def trace_triangle_bvh_camera_instrumented_kernel[
     if ray_idx >= ray_count_int:
         return
 
-    var pixels_per_view = width_px_int * height_px_int
-    var view_idx = ray_idx / pixels_per_view
-    var local_idx = ray_idx - view_idx * pixels_per_view
-    var px_i = local_idx % width_px_int
-    var py_i = local_idx / width_px_int
-
-    var camera_params_span = Span(
-        unsafe_ptr=camera_params,
-        length=ceildiv(ray_count_int, pixels_per_view) * Camera.STRIDE,
+    var ray = _camera_ray(
+        camera_params,
+        ray_count_int,
+        ray_idx,
+        width_px_int,
+        height_px_int,
+        inv_height,
     )
-    var camera = Camera(camera_params_span, view_idx * Camera.STRIDE)
-    var ray = camera.make_ray_raster(px_i, py_i, width_px_int, inv_height)
 
     var result = trace_bounds_bvh_with_stats[
         Frame.WORLD,
@@ -544,8 +581,7 @@ def trace_triangle_bvh_camera_instrumented_kernel[
         root_idx,
         ray,
     )
-    var hits_span = Span(unsafe_ptr=hits, length=ray_count_int * Hit.STRIDE)
-    result.hit._store_unchecked(hits_span, ray_idx)
+    _store_camera_hit(result.hit, hits, ray_count_int, ray_idx)
     result.stats.store(stats, ray_idx)
 
 
@@ -558,6 +594,7 @@ def _intersect_triangle_leaf[
 ](
     leaf_vertices: Pointer[mut=False, Float32, _],
     leaf_block_idx: UInt32,
+    item_count: UInt32,
     ray: Rayf32[frame],
     mut hit: Hit[frame],
 ) capturing -> Bool:

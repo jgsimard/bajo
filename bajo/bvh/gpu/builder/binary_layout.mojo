@@ -11,17 +11,8 @@ from bajo.bvh.constants import (
     BOUNDS_REDUCE_CHUNK,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
-from bajo.bvh.gpu.utils import (
-    GpuBuildTimings,
-    GpuBVHValidation,
-    _device_span,
-    upload_list,
-)
-from bajo.bvh.gpu.validate import (
-    validate_sorted_keys,
-    validate_topology,
-    validate_refit_bounds,
-)
+from bajo.bvh.gpu.utils import _device_span
+from bajo.sort.gpu.radix_sort import RadixSortWorkspace
 
 
 def _node_meta_base(node_idx: UInt32) -> Int:
@@ -86,6 +77,24 @@ def _is_encoded_leaf(encoded: UInt32) -> Bool:
 
 def _encoded_index(encoded: UInt32) -> UInt32:
     return encoded & LBVH_INDEX_MASK
+
+
+def _encoded_bounds(
+    encoded: UInt32,
+    leaf_bounds: Span[mut=False, Float32, _],
+    leaf_ids: Span[mut=False, UInt32, _],
+    node_bounds: Span[mut=False, Float32, _],
+) -> AABB[Frame.WORLD]:
+    """Load bounds for either encoded leaf or internal binary topology."""
+    if _is_encoded_leaf(encoded):
+        var sorted_leaf_idx = _encoded_index(encoded)
+        debug_assert["safe", _use_compiler_assume=True](
+            Int(sorted_leaf_idx) < len(leaf_ids),
+            "encoded leaf index is outside the leaf-id span",
+        )
+        var item_idx = UInt32(leaf_ids.unsafe_get(Int(sorted_leaf_idx)))
+        return AABB[Frame.WORLD].load6(leaf_bounds, Int(item_idx) * AABB.STRIDE)
+    return _load_and_union_node_bounds(node_bounds, _encoded_index(encoded))
 
 
 def _write_child_bounds(
@@ -178,18 +187,44 @@ def reduce_bounds_partials_kernel(
     centroid_bounds.store6(out_partials, out + AABB.STRIDE)
 
 
+struct GpuBinaryBuildWorkspace:
+    """Reusable scratch for binary builds with one fixed leaf capacity."""
+
+    var leaf_capacity: Int
+    var bounds_scratch_a: DeviceBuffer[DType.float32]
+    var bounds_scratch_b: DeviceBuffer[DType.float32]
+    var sort: RadixSortWorkspace[DType.uint32, DType.uint32]
+
+    def __init__(
+        out self,
+        mut ctx: DeviceContext,
+        leaf_capacity: Int,
+    ) raises:
+        debug_assert["safe", _use_compiler_assume=True](
+            leaf_capacity > 0, "binary workspace capacity must be positive"
+        )
+        self.leaf_capacity = leaf_capacity
+        var partial_count = ceildiv(leaf_capacity, BOUNDS_REDUCE_CHUNK)
+        self.bounds_scratch_a = ctx.enqueue_create_buffer[DType.float32](
+            max(partial_count, 1) * REDUCED_BOUNDS_STRIDE
+        )
+        self.bounds_scratch_b = ctx.enqueue_create_buffer[DType.float32](
+            max(ceildiv(partial_count, BOUNDS_REDUCE_CHUNK), 1)
+            * REDUCED_BOUNDS_STRIDE
+        )
+        self.sort = RadixSortWorkspace[DType.uint32, DType.uint32](
+            ctx, leaf_capacity
+        )
+
+
 struct GpuBinaryBoundsBvh:
+    """Compact binary topology consumed by quality and wide collapse."""
+
     var leaf_count: Int
     var internal_count: Int
 
-    var blocks_leaves: Int
-    var blocks_internal: Int
-    var blocks_init: Int
-
     var bounds_device: DeviceBuffer[DType.float32]
     """[0..5]  = root bounds, [6..11] = centroid bounds."""
-    var bounds_scratch_a: DeviceBuffer[DType.float32]
-    var bounds_scratch_b: DeviceBuffer[DType.float32]
 
     var leaf_bounds: DeviceBuffer[DType.float32]
     var leaf_payloads: DeviceBuffer[DType.uint32]
@@ -214,6 +249,7 @@ struct GpuBinaryBoundsBvh:
         mut ctx: DeviceContext,
         leaf_bounds: DeviceBuffer[DType.float32],
         leaf_payloads: DeviceBuffer[DType.uint32],
+        mut workspace: GpuBinaryBuildWorkspace,
     ) raises:
         self.leaf_count = len(leaf_payloads)
         debug_assert["safe", _use_compiler_assume=True](
@@ -224,19 +260,13 @@ struct GpuBinaryBoundsBvh:
             "leaf bounds buffer has the wrong length",
         )
         self.internal_count = self.leaf_count - 1
+        debug_assert["safe", _use_compiler_assume=True](
+            workspace.leaf_capacity == self.leaf_count,
+            "binary workspace capacity must match the input leaf count",
+        )
 
         var n_leaf = self.leaf_count
         var n_internal = max(self.internal_count, 1)
-
-        self.blocks_leaves = ceildiv(n_leaf, GPU_BOUNDS_BVH_BLOCK_SIZE)
-        self.blocks_internal = ceildiv(
-            n_internal,
-            GPU_BOUNDS_BVH_BLOCK_SIZE,
-        )
-        self.blocks_init = ceildiv(
-            max(n_leaf, n_internal),
-            GPU_BOUNDS_BVH_BLOCK_SIZE,
-        )
 
         self.leaf_bounds = leaf_bounds
         self.leaf_payloads = leaf_payloads
@@ -250,17 +280,6 @@ struct GpuBinaryBoundsBvh:
             BOUNDS_REDUCE_CHUNK,
         )
 
-        self.bounds_scratch_a = ctx.enqueue_create_buffer[DType.float32](
-            max(partial_count, 1) * REDUCED_BOUNDS_STRIDE
-        )
-        self.bounds_scratch_b = ctx.enqueue_create_buffer[DType.float32](
-            max(
-                ceildiv(partial_count, BOUNDS_REDUCE_CHUNK),
-                1,
-            )
-            * REDUCED_BOUNDS_STRIDE
-        )
-
         var reduce_grid = ceildiv(
             partial_count,
             GPU_BOUNDS_BVH_BLOCK_SIZE,
@@ -268,13 +287,13 @@ struct GpuBinaryBoundsBvh:
 
         ctx.enqueue_function[compute_bounds_partials_kernel](
             _device_span[mut=False](self.leaf_bounds),
-            _device_span[mut=True](self.bounds_scratch_a),
+            _device_span[mut=True](workspace.bounds_scratch_a),
             grid_dim=reduce_grid,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
 
-        var in_buf = self.bounds_scratch_a.copy()
-        var out_buf = self.bounds_scratch_b.copy()
+        var in_buf = workspace.bounds_scratch_a.copy()
+        var out_buf = workspace.bounds_scratch_b.copy()
         var count = partial_count
 
         while count > 1:
@@ -314,6 +333,12 @@ struct GpuBinaryBoundsBvh:
         )
         self.node_flags = ctx.enqueue_create_buffer[DType.uint32](n_internal)
 
+    def blocks_leaves(self) -> Int:
+        return ceildiv(self.leaf_count, GPU_BOUNDS_BVH_BLOCK_SIZE)
+
+    def blocks_internal(self) -> Int:
+        return ceildiv(max(self.internal_count, 1), GPU_BOUNDS_BVH_BLOCK_SIZE)
+
     def root_bounds(self) raises -> AABB[Frame.WORLD]:
         with self.bounds_device.map_to_host() as h:
             return AABB[Frame.WORLD].load6(
@@ -325,53 +350,3 @@ struct GpuBinaryBoundsBvh:
             return AABB[Frame.WORLD].load6(
                 Span(unsafe_ptr=h.unsafe_ptr(), length=len(h)), AABB.STRIDE
             )
-
-    def validate(self, bounds: AABB) raises -> GpuBVHValidation:
-        var sorted_validation = validate_sorted_keys(
-            self.keys,
-            self.leaf_ids,
-            self.leaf_count,
-        )
-
-        if self.leaf_count <= 1:
-            return GpuBVHValidation(
-                sorted_validation.sorted_ok,
-                sorted_validation.values_ok,
-                True,
-                UInt32(1),
-                UInt32(0),
-                True,
-                0.0,
-                UInt32(0),
-                sorted_validation.guard,
-            )
-
-        var topo_validation = validate_topology(
-            self.node_meta,
-            self.leaf_parent,
-            self.leaf_count,
-        )
-        var refit_validation = validate_refit_bounds(
-            self.node_bounds,
-            self.node_flags,
-            self.node_meta,
-            self.leaf_count,
-            bounds,
-        )
-        var guard = (
-            sorted_validation.guard
-            + topo_validation.guard
-            + refit_validation.guard
-        )
-
-        return GpuBVHValidation(
-            sorted_validation.sorted_ok,
-            sorted_validation.values_ok,
-            topo_validation.ok,
-            topo_validation.root_count,
-            topo_validation.root_idx,
-            refit_validation.ok,
-            refit_validation.diff,
-            refit_validation.root_idx,
-            guard,
-        )

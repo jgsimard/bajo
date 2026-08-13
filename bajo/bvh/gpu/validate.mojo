@@ -1,10 +1,9 @@
 from max.gpu.host import DeviceBuffer
 
 from bajo.bvh.constants import (
-    LBVH_LEAF_FLAG,
-    LBVH_INDEX_MASK,
     LBVH_SENTINEL,
 )
+from bajo.bvh.tagged_ref import decode_ref_index, is_leaf_ref
 from bajo.bvh.gpu.utils import (
     SortedKeysValidation,
     TopologyValidation,
@@ -90,8 +89,8 @@ def validate_topology(
             elif parent >= UInt32(internal_count):
                 ok = False
 
-            var left_is_leaf = (left & LBVH_LEAF_FLAG) != 0
-            var left_idx = left & LBVH_INDEX_MASK
+            var left_is_leaf = is_leaf_ref(left)
+            var left_idx = decode_ref_index(left)
             if left_is_leaf:
                 if left_idx >= UInt32(leaf_count):
                     ok = False
@@ -101,8 +100,8 @@ def validate_topology(
                 elif UInt32(m[Int(left_idx) * 4 + 0]) != UInt32(i):
                     ok = False
 
-            var right_is_leaf = (right & LBVH_LEAF_FLAG) != 0
-            var right_idx = right & LBVH_INDEX_MASK
+            var right_is_leaf = is_leaf_ref(right)
+            var right_idx = decode_ref_index(right)
             if right_is_leaf:
                 if right_idx >= UInt32(leaf_count):
                     ok = False

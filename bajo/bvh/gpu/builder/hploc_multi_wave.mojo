@@ -8,16 +8,18 @@ from max.gpu.host import DeviceBuffer, DeviceContext
 from max.gpu.memory import AddressSpace
 from max.gpu.sync import syncwarp
 
+from bajo.core.morton import morton_key_delta
 from bajo.bvh.constants import (
     BinaryBvhNode,
-    LBVH_INDEX_MASK,
-    LBVH_LEAF_FLAG,
     LBVH_SENTINEL,
 )
-from bajo.bvh.gpu.builder.binary_layout import (
-    _is_encoded_leaf,
-    _node_parent_index,
+from bajo.bvh.tagged_ref import (
+    decode_ref_index,
+    encode_internal_ref,
+    encode_leaf_ref,
+    is_leaf_ref,
 )
+from bajo.bvh.gpu.builder.binary_layout import _node_parent_index
 from bajo.bvh.gpu.builder.hploc_layout import (
     HPLOC_STATUS_OK,
     HPLOC_STATUS_NO_PROGRESS,
@@ -74,8 +76,8 @@ def _hploc_cluster_bounds(
     sorted_leaf_ids: Span[mut=False, UInt32, _],
     scratch_bounds: Span[mut=False, Float32, _],
 ) -> AABB[Frame.WORLD]:
-    var cluster_idx = encoded & LBVH_INDEX_MASK
-    if _is_encoded_leaf(encoded):
+    var cluster_idx = decode_ref_index(encoded)
+    if is_leaf_ref(encoded):
         var leaf_id = sorted_leaf_ids.unsafe_get(Int(cluster_idx))
         return AABB[Frame.WORLD].load6(leaf_bounds, Int(leaf_id) * AABB.STRIDE)
     return _hploc_load_bounds(scratch_bounds, cluster_idx)
@@ -86,9 +88,9 @@ def _hploc_cluster_leaf_count(
     encoded: UInt32,
     node_leaf_counts: Span[mut=False, UInt32, _],
 ) -> UInt32:
-    if _is_encoded_leaf(encoded):
+    if is_leaf_ref(encoded):
         return UInt32(1)
-    return node_leaf_counts.unsafe_get(Int(encoded & LBVH_INDEX_MASK))
+    return node_leaf_counts.unsafe_get(Int(decode_ref_index(encoded)))
 
 
 @always_inline
@@ -98,8 +100,8 @@ def _hploc_set_child_parent(
     node_meta: Span[mut=True, UInt32, _],
     leaf_parent: Span[mut=True, UInt32, _],
 ):
-    var child_idx = encoded & LBVH_INDEX_MASK
-    if _is_encoded_leaf(encoded):
+    var child_idx = decode_ref_index(encoded)
+    if is_leaf_ref(encoded):
         leaf_parent.unsafe_get(Int(child_idx)) = parent
     else:
         node_meta.unsafe_get(_node_parent_index(child_idx)) = parent
@@ -109,9 +111,12 @@ def _hploc_set_child_parent(
 def _hploc_delta(
     sorted_morton_codes: Span[mut=False, UInt32, _], a: Int, b: Int
 ) -> UInt64:
-    var ka = (UInt64(sorted_morton_codes.unsafe_get(a)) << 32) | UInt64(a)
-    var kb = (UInt64(sorted_morton_codes.unsafe_get(b)) << 32) | UInt64(b)
-    return ka ^ kb
+    return morton_key_delta(
+        sorted_morton_codes.unsafe_get(a),
+        UInt32(a),
+        sorted_morton_codes.unsafe_get(b),
+        UInt32(b),
+    )
 
 
 @always_inline
@@ -157,14 +162,14 @@ def init_hploc_multi_wave_kernel(
     var leaf_count = len(sorted_leaf_ids)
     if sorted_pos < leaf_count:
         parent_slots.unsafe_get(sorted_pos) = LBVH_SENTINEL
-        cluster_indices.unsafe_get(sorted_pos) = (
-            UInt32(sorted_pos) | LBVH_LEAF_FLAG
+        cluster_indices.unsafe_get(sorted_pos) = encode_leaf_ref(
+            UInt32(sorted_pos)
         )
 
     if sorted_pos == 0:
         node_counter.unsafe_get(0) = UInt32(0)
         root.unsafe_get(0) = (
-            LBVH_LEAF_FLAG if leaf_count == 1 else LBVH_SENTINEL
+            encode_leaf_ref(UInt32(0)) if leaf_count == 1 else LBVH_SENTINEL
         )
         status.unsafe_get(0) = UInt32(HPLOC_STATUS_OK)
 
@@ -474,7 +479,7 @@ def build_hploc_multi_wave_kernel[
                     _hploc_set_child_parent(
                         neighbor_idx, node_idx, node_meta, leaf_parent
                     )
-                    output_idx = node_idx
+                    output_idx = encode_internal_ref(node_idx)
                 elif active and not mutual:
                     output_idx = cluster_idx
 

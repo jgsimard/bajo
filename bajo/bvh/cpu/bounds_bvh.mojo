@@ -1,34 +1,12 @@
 from bajo.core import AABB, AxisAlignedBoundingBox, Point3f32, Frame
 from bajo.bvh.constants import EMPTY_LANE, f32_max
 from bajo.bvh.cpu.builder import BoundsBvhBuilder, BoundsItem
-
-comptime BVH_LEAF_REF_BIT = UInt32(0x80000000)
-comptime BVH_REF_INDEX_MASK = UInt32(0x7FFFFFFF)
-
-
-def encode_internal_ref(index: UInt32) -> UInt32:
-    debug_assert["safe", _use_compiler_assume=True](
-        index < BVH_LEAF_REF_BIT,
-        "BVH internal node index exceeds tagged-reference capacity",
-    )
-    return index
-
-
-def encode_leaf_ref(index: UInt32) -> UInt32:
-    # BVH_LEAF_REF_BIT | BVH_REF_INDEX_MASK equals EMPTY_LANE
-    debug_assert["safe", _use_compiler_assume=True](
-        index < BVH_REF_INDEX_MASK,
-        "BVH leaf index exceeds tagged-reference capacity",
-    )
-    return BVH_LEAF_REF_BIT | index
-
-
-def is_leaf_ref(x: UInt32) -> Bool:
-    return (x & BVH_LEAF_REF_BIT) != 0
-
-
-def decode_ref_index(x: UInt32) -> UInt32:
-    return x & BVH_REF_INDEX_MASK
+from bajo.bvh.tagged_ref import (
+    encode_internal_ref,
+    encode_leaf_ref,
+    is_leaf_ref,
+    decode_ref_index,
+)
 
 
 @fieldwise_init
@@ -45,8 +23,8 @@ struct WideBvhNode[frame: Frame, width: SIMDLength](Copyable):
 
     Lane encoding in data:
         data[i] == EMPTY_LANE             -> unused lane
-        data[i] & BVH_LEAF_REF_BIT == 0  -> child node index
-        data[i] & BVH_LEAF_REF_BIT != 0  -> leaf payload index
+        is_leaf_ref(data[i]) == False  -> child node index
+        is_leaf_ref(data[i]) == True   -> leaf payload index
     """
 
     var aabb: AxisAlignedBoundingBox[DType.float32, Self.frame, Self.width]

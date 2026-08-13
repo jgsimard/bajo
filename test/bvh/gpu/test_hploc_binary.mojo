@@ -5,10 +5,9 @@ from max.gpu.host import DeviceContext
 
 from bajo.bvh.constants import (
     BinaryBvhNode,
-    LBVH_INDEX_MASK,
-    LBVH_LEAF_FLAG,
     LBVH_SENTINEL,
 )
+from bajo.bvh.tagged_ref import decode_ref_index, is_leaf_ref
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod, build_binary_bvh
 from bajo.bvh.gpu.builder.binary_layout import (
     GpuBinaryBoundsBvh,
@@ -142,8 +141,8 @@ def _assert_binary_matches_reference(
             var left_hash: UInt64
             var left_count: UInt32
             var left_bounds: AABB[Frame.WORLD]
-            if (left & LBVH_LEAF_FLAG) != 0:
-                var sorted_pos = Int(left & LBVH_INDEX_MASK)
+            if is_leaf_ref(left):
+                var sorted_pos = Int(decode_ref_index(left))
                 var leaf_id = leaf_ids[sorted_pos]
                 left_hash = _leaf_hash(leaf_id)
                 left_count = UInt32(1)
@@ -151,7 +150,7 @@ def _assert_binary_matches_reference(
                     leaf_bounds_span, Int(leaf_id) * AABB.STRIDE
                 )
             else:
-                var child = Int(left & LBVH_INDEX_MASK)
+                var child = Int(decode_ref_index(left))
                 assert_true(child < node_idx)
                 left_hash = hashes[child]
                 left_count = counts[child]
@@ -160,8 +159,8 @@ def _assert_binary_matches_reference(
             var right_hash: UInt64
             var right_count: UInt32
             var right_bounds: AABB[Frame.WORLD]
-            if (right & LBVH_LEAF_FLAG) != 0:
-                var sorted_pos = Int(right & LBVH_INDEX_MASK)
+            if is_leaf_ref(right):
+                var sorted_pos = Int(decode_ref_index(right))
                 var leaf_id = leaf_ids[sorted_pos]
                 right_hash = _leaf_hash(leaf_id)
                 right_count = UInt32(1)
@@ -169,7 +168,7 @@ def _assert_binary_matches_reference(
                     leaf_bounds_span, Int(leaf_id) * AABB.STRIDE
                 )
             else:
-                var child = Int(right & LBVH_INDEX_MASK)
+                var child = Int(decode_ref_index(right))
                 assert_true(child < node_idx)
                 right_hash = hashes[child]
                 right_count = counts[child]
@@ -210,9 +209,9 @@ def _assert_binary_matches_reference(
             var base = Int(node_idx) * BinaryBvhNode.META_STRIDE
             var left = meta[base + BinaryBvhNode.LEFT]
             var right = meta[base + BinaryBvhNode.RIGHT]
-            if (left & LBVH_LEAF_FLAG) == 0:
+            if not is_leaf_ref(left):
                 pending.append(left)
-            if (right & LBVH_LEAF_FLAG) == 0:
+            if not is_leaf_ref(right):
                 pending.append(right)
         assert_equal(visited_count, binary.internal_count)
 

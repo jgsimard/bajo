@@ -6,9 +6,9 @@ from std.time import perf_counter_ns
 
 from bajo.bvh.constants import CPU_STACK_SIZE, EMPTY_LANE, TRACE, f32_max
 from bajo.bvh.cpu.bounds_bvh import (
-    BVH_LEAF_REF_BIT,
-    BVH_REF_INDEX_MASK,
     WideBvhNode,
+)
+from bajo.bvh.tagged_ref import (
     decode_ref_index,
     encode_leaf_ref,
     is_leaf_ref,
@@ -703,8 +703,8 @@ def _trace_encoded_octant[
             stats.closer_hit_updates += 1
 
     while True:
-        if (current_ref & BVH_LEAF_REF_BIT) != 0:
-            intersect_leaf(current_ref & BVH_REF_INDEX_MASK)
+        if is_leaf_ref(current_ref):
+            intersect_leaf(decode_ref_index(current_ref))
         else:
             comptime if collect_stats:
                 stats.internal_nodes += 1
@@ -991,8 +991,8 @@ def _trace_any_encoded_octant[
                         compact_first_leaf + UInt32(lane)
                     )
 
-            if (child_ref & BVH_LEAF_REF_BIT) != 0:
-                if leaf_hit(child_ref & BVH_REF_INDEX_MASK):
+            if is_leaf_ref(child_ref):
+                if leaf_hit(decode_ref_index(child_ref)):
                     comptime if collect_stats:
                         stats.any_hit_early_exits += 1
                     return Hit[Frame.WORLD].shadow_hit()

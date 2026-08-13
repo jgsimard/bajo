@@ -20,10 +20,9 @@ from bajo.core import (
 from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvh,
     WideBvhNode,
-    BVH_LEAF_REF_BIT,
-    BVH_REF_INDEX_MASK,
 )
 from bajo.bvh.constants import EMPTY_LANE, CPU_STACK_SIZE, TRACE
+from bajo.bvh.tagged_ref import decode_ref_index, is_leaf_ref
 
 
 @fieldwise_init
@@ -242,7 +241,7 @@ def _trace_bounds_bvh_impl[
         var current_ref = UInt32(0)
 
         while True:
-            if (current_ref & BVH_LEAF_REF_BIT) != 0:
+            if is_leaf_ref(current_ref):
                 # leaves are deferred exactly like internal nodes
                 # why: nearby internal subtree run before a distant triangle block
                 comptime if collect_stats:
@@ -253,7 +252,7 @@ def _trace_bounds_bvh_impl[
                     leaf_D,
                     ray_a,
                     ray_inv_a,
-                    current_ref & BVH_REF_INDEX_MASK,
+                    decode_ref_index(current_ref),
                     stats,
                     hit,
                 )
@@ -422,7 +421,7 @@ def _trace_bounds_bvh_impl[
                 mut stack,
                 mut stack_ptr,
             } -> Bool:
-                if (child_ref & BVH_LEAF_REF_BIT) != 0:
+                if is_leaf_ref(child_ref):
                     comptime if collect_stats:
                         stats.leaf_blocks += 1
                     var leaf_hit = leaf_fn(
@@ -431,7 +430,7 @@ def _trace_bounds_bvh_impl[
                         leaf_D,
                         ray_a,
                         ray_inv_a,
-                        child_ref & BVH_REF_INDEX_MASK,
+                        decode_ref_index(child_ref),
                         stats,
                         hit,
                     )

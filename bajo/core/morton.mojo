@@ -1,4 +1,34 @@
+from std.bit import count_leading_zeros
 from std.math import clamp
+
+
+@always_inline
+def morton_key(code: UInt32, sorted_index: UInt32) -> UInt64:
+    """Create a total-order key, using sorted position to break code ties."""
+    return (UInt64(code) << 32) | UInt64(sorted_index)
+
+
+@always_inline
+def morton_key_delta(
+    code_a: UInt32,
+    index_a: UInt32,
+    code_b: UInt32,
+    index_b: UInt32,
+) -> UInt64:
+    return morton_key(code_a, index_a) ^ morton_key(code_b, index_b)
+
+
+@always_inline
+def morton_common_prefix(
+    code_a: UInt32,
+    index_a: UInt32,
+    code_b: UInt32,
+    index_b: UInt32,
+) -> Int:
+    """Count common bits in Morton code plus deterministic tie-break index."""
+    return Int(
+        count_leading_zeros(morton_key_delta(code_a, index_a, code_b, index_b))
+    )
 
 
 def expand_bits_2d[

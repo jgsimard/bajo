@@ -19,13 +19,12 @@ from bajo.bvh.gpu.wide_layout import (
 )
 from bajo.bvh.gpu.builder.binary_layout import (
     GpuBinaryBoundsBvh,
-    _encoded_index,
     _encoded_bounds,
-    _is_encoded_leaf,
     _node_left,
     _node_parent_index,
     _node_right,
 )
+from bajo.bvh.tagged_ref import decode_ref_index, is_leaf_ref
 from bajo.bvh.gpu.wide_meta import _pack_wide_meta
 from bajo.core import AABB, Frame
 
@@ -58,9 +57,9 @@ def _hploc_encoded_leaf_count(
     encoded: UInt32,
     node_leaf_counts: Pointer[mut=False, UInt32, _],
 ) -> UInt32:
-    if _is_encoded_leaf(encoded):
+    if is_leaf_ref(encoded):
         return UInt32(1)
-    return node_leaf_counts[unsafe_offset=Int(_encoded_index(encoded))]
+    return node_leaf_counts[unsafe_offset=Int(decode_ref_index(encoded))]
 
 
 def _write_hploc_terminal_leaf_block[
@@ -87,15 +86,15 @@ def _write_hploc_terminal_leaf_block[
     while stack_size > 0:
         stack_size -= 1
         var current = stack[stack_size]
-        if _is_encoded_leaf(current):
-            var sorted_leaf_idx = _encoded_index(current)
+        if is_leaf_ref(current):
+            var sorted_leaf_idx = decode_ref_index(current)
             var item_idx = leaf_ids[unsafe_offset=Int(sorted_leaf_idx)]
             leaf_block_indices[
                 unsafe_offset=block_base + out_count
             ] = leaf_payloads[unsafe_offset=Int(item_idx)]
             out_count += 1
         else:
-            var node_idx = _encoded_index(current)
+            var node_idx = decode_ref_index(current)
             # Push right first so payload order remains left-to-right.
             stack[stack_size] = _node_right(node_meta, node_idx)
             stack_size += 1
@@ -263,7 +262,7 @@ def hploc_literature_to_wide_kernel[
         var encoded_leaf_count = _hploc_encoded_leaf_count(
             encoded, node_leaf_counts
         )
-        var terminal = _is_encoded_leaf(encoded)
+        var terminal = is_leaf_ref(encoded)
         comptime if fat_leaves:
             terminal = encoded_leaf_count <= UInt32(fat_leaf_limit)
         if terminal:
@@ -322,7 +321,7 @@ def hploc_literature_to_wide_kernel[
             return
 
         var candidates = Array[UInt32, node_width](uninitialized=True)
-        var node_idx = _encoded_index(encoded)
+        var node_idx = decode_ref_index(encoded)
         candidates[0] = _node_left(node_meta, node_idx)
         candidates[1] = _node_right(node_meta, node_idx)
         var child_count = 2
@@ -335,7 +334,7 @@ def hploc_literature_to_wide_kernel[
             var largest_area = Float32(-1.0)
             for candidate_pos in range(child_count):
                 var candidate = candidates[candidate_pos]
-                if _is_encoded_leaf(candidate):
+                if is_leaf_ref(candidate):
                     continue
                 comptime if fat_leaves:
                     if _hploc_encoded_leaf_count(
@@ -354,7 +353,7 @@ def hploc_literature_to_wide_kernel[
 
             if open_pos < 0:
                 break
-            var opened_idx = _encoded_index(candidates[open_pos])
+            var opened_idx = decode_ref_index(candidates[open_pos])
             candidates[open_pos] = _node_left(node_meta, opened_idx)
             candidates[child_count] = _node_right(node_meta, opened_idx)
             child_count += 1
@@ -367,7 +366,7 @@ def hploc_literature_to_wide_kernel[
                 var largest_area = Float32(-1.0)
                 for candidate_pos in range(child_count):
                     var candidate = candidates[candidate_pos]
-                    if _is_encoded_leaf(candidate):
+                    if is_leaf_ref(candidate):
                         continue
                     var area = _encoded_bounds(
                         candidate,
@@ -381,7 +380,7 @@ def hploc_literature_to_wide_kernel[
 
                 if open_pos < 0:
                     break
-                var opened_idx = _encoded_index(candidates[open_pos])
+                var opened_idx = decode_ref_index(candidates[open_pos])
                 candidates[open_pos] = _node_left(node_meta, opened_idx)
                 candidates[child_count] = _node_right(node_meta, opened_idx)
                 child_count += 1
@@ -398,7 +397,7 @@ def hploc_literature_to_wide_kernel[
                 candidate, node_leaf_counts
             )
             candidate_leaf_counts[child_pos] = candidate_leaf_count
-            var child_is_leaf = _is_encoded_leaf(candidate)
+            var child_is_leaf = is_leaf_ref(candidate)
             comptime if fat_leaves:
                 child_is_leaf = candidate_leaf_count <= UInt32(fat_leaf_limit)
             if child_is_leaf:
@@ -437,7 +436,7 @@ def hploc_literature_to_wide_kernel[
         var publish_pos = 0
         for child_pos in range(child_count):
             var child = candidates[child_pos]
-            var child_is_leaf = _is_encoded_leaf(child)
+            var child_is_leaf = is_leaf_ref(child)
             comptime if fat_leaves:
                 child_is_leaf = candidate_leaf_counts[child_pos] <= UInt32(
                     fat_leaf_limit

@@ -18,6 +18,8 @@ from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvhBuilder,
     BoundsItem,
     BoundsBvh,
+)
+from bajo.bvh.tagged_ref import (
     decode_ref_index,
     encode_leaf_ref,
     is_leaf_ref,

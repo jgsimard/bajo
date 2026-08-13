@@ -204,7 +204,7 @@ def build_hploc_multi_wave_kernel[
         block_size, UInt32, address_space=AddressSpace.SHARED
     ]()
 
-    def load_cached_bounds(slot: Int) capturing -> AABB[Frame.WORLD]:
+    def load_cached_bounds(slot: Int) {imm} -> AABB[Frame.WORLD]:
         var base = slot * AABB.STRIDE
         return AABB[Frame.WORLD](
             Point3f32[Frame.WORLD](
@@ -219,7 +219,7 @@ def build_hploc_multi_wave_kernel[
             ),
         )
 
-    def store_cached_bounds(slot: Int, bounds: AABB[Frame.WORLD]) capturing:
+    def store_cached_bounds(slot: Int, bounds: AABB[Frame.WORLD]) {imm}:
         var base = slot * AABB.STRIDE
         boxes_cache[unsafe_offset=base + 0] = bounds._min.x
         boxes_cache[unsafe_offset=base + 1] = bounds._min.y

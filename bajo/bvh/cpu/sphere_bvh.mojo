@@ -55,7 +55,7 @@ struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
         @always_inline
         def pack_leaf(
             first_item: UInt32, item_count: UInt32
-        ) capturing -> UInt32:
+        ) {imm, mut leaf_blocks} -> UInt32:
             var first, count = _checked_typed_leaf_range[Self.width](
                 first_item, item_count, len(builder.item_indices)
             )
@@ -78,9 +78,7 @@ struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
             leaf_blocks.append(block^)
             return block_idx
 
-        self.tree = BoundsBvh[Self.frame, Self.width].__init__[pack_leaf](
-            builder
-        )
+        self.tree = BoundsBvh[Self.frame, Self.width](builder, pack_leaf)
         self.leaf_blocks = leaf_blocks^
         self.spheres = spheres^
 
@@ -98,7 +96,7 @@ struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
             ray_inv_a: SIMD[DType.float32, Self.width],
             leaf_block_idx: UInt32,
             mut hit: Hit[Self.bvh_frame],
-        ) capturing -> Bool:
+        ) {imm} -> Bool:
             # Unsafe access avoids bounds checks in the traversal hot path.
             ref block = self.leaf_blocks.unsafe_get(Int(leaf_block_idx))
 
@@ -144,8 +142,8 @@ struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
             bounds_width=Self.width,
             leaf_width=Self.width,
             mode=mode,
-            leaf_fn=leaf_fn,
         ](
             self.tree,
             ray,
+            leaf_fn,
         )

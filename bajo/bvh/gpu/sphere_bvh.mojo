@@ -328,7 +328,7 @@ def _intersect_sphere_leaf[
     item_count: UInt32,
     ray: Rayf32[frame],
     mut hit: Hit[frame],
-) capturing -> Bool:
+) -> Bool:
     _ = item_count
     var block_base = Int(leaf_block_idx) * SPHERE_LEAF_PACKED_STRIDE * width
     var leaf_spheres_u32 = leaf_spheres.unsafe_bitcast[UInt32]()

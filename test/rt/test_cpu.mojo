@@ -40,6 +40,7 @@ from bajo.rt import (
     add_triangle_mesh,
     add_triangle_mesh_instance,
     render,
+    render_depth_first_tiled,
     render_wavefront,
 )
 from bajo.rt.cpu import (
@@ -650,6 +651,12 @@ def test_render_settings_and_tiny_render() raises:
     assert_true(result.timings.total_ns >= result.timings.render_ns)
     for p in result.pixels:
         assert_true(p.x >= 0.0 and p.y >= 0.0 and p.z >= 0.0)
+
+    var one_pixel_tiles = render_depth_first_tiled[RENDER_PATH, 2, 1, 1](
+        settings, camera, world
+    )
+    for i in range(len(result.pixels)):
+        assert_vec_equal(one_pixel_tiles.pixels[i], result.pixels[i])
 
 
 def test_render_can_select_normal_algorithm_at_compile_time() raises:

@@ -642,7 +642,9 @@ def _trace_encoded_octant[
     )
 
     @always_inline
-    def push_pending(child_ref: UInt32, child_t: Float32) capturing:
+    def push_pending(
+        child_ref: UInt32, child_t: Float32
+    ) {imm, mut ordered_stack, mut stack_ptr, mut stats}:
         var task = _pack_pending_task(child_ref, child_t)
         var insert_idx = stack_ptr
         while insert_idx > 0:
@@ -661,7 +663,7 @@ def _trace_encoded_octant[
                 stats.max_stack_depth = stack_ptr
 
     @always_inline
-    def intersect_leaf(leaf_idx: UInt32) capturing:
+    def intersect_leaf(leaf_idx: UInt32) {imm, mut stats, mut hit}:
         comptime if collect_stats:
             stats.leaf_blocks += 1
             stats.primitive_packet_lanes += WIDTH
@@ -861,7 +863,7 @@ def trace_encoded[
     @always_inline
     def octant[
         positive_x: Bool, positive_y: Bool, positive_z: Bool
-    ]() capturing -> Hit[Frame.WORLD]:
+    ]() {imm, mut stats} -> Hit[Frame.WORLD]:
         return _trace_encoded_octant[
             encoding,
             collect_stats,
@@ -918,7 +920,7 @@ def _trace_any_encoded_octant[
     )
 
     @always_inline
-    def leaf_hit(leaf_idx: UInt32) capturing -> Bool:
+    def leaf_hit(leaf_idx: UInt32) {imm, mut stats} -> Bool:
         comptime if collect_stats:
             stats.leaf_blocks += 1
             stats.primitive_packet_lanes += WIDTH
@@ -1032,7 +1034,7 @@ def trace_any_encoded[
     @always_inline
     def octant[
         positive_x: Bool, positive_y: Bool, positive_z: Bool
-    ]() capturing -> Hit[Frame.WORLD]:
+    ]() {imm, mut stats} -> Hit[Frame.WORLD]:
         return _trace_any_encoded_octant[
             encoding,
             collect_stats,

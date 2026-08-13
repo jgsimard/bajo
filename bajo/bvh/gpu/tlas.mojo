@@ -22,17 +22,8 @@ from bajo.bvh.gpu.camera_launch import (
 from bajo.bvh.gpu.wide_meta import _wide_meta_count, _wide_meta_data
 from bajo.bvh.gpu.sphere_bvh import _intersect_sphere_leaf
 from bajo.bvh.gpu.triangle_bvh import _intersect_triangle_leaf
-from bajo.bvh.gpu.trace import trace_bounds_bvh
+from bajo.bvh.gpu.trace import GpuLeafFn, trace_bounds_bvh
 from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list
-
-
-comptime BlasLeafFn[frame: Frame] = def(
-    Pointer[mut=False, Float32, _],
-    UInt32,
-    UInt32,
-    Rayf32[frame],
-    mut Hit[frame],
-) capturing -> Bool
 
 
 def _flatten_instance_inv_transforms(
@@ -70,7 +61,7 @@ def _intersect_tlas_instance_block[
     blas_node_width: SIMDLength,
     blas_leaf_width: SIMDLength,
     mode: TRACE,
-    blas_leaf_fn: BlasLeafFn[Frame.LOCAL],
+    blas_leaf_fn: GpuLeafFn[Frame.LOCAL],
 ](
     tlas_leaf_instances: Pointer[mut=False, UInt32, _],
     inst_transform: Pointer[mut=False, Float32, _],
@@ -163,7 +154,7 @@ def _trace_tlas_ray[
     blas_node_width: SIMDLength,
     blas_leaf_width: SIMDLength,
     mode: TRACE,
-    blas_leaf_fn: BlasLeafFn[Frame.LOCAL],
+    blas_leaf_fn: GpuLeafFn[Frame.LOCAL],
 ](
     tlas_wide_nodes: Pointer[mut=False, Float32, _],
     tlas_leaf_instances: Pointer[mut=False, UInt32, _],

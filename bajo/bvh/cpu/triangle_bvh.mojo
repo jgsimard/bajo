@@ -91,7 +91,7 @@ struct TriangleBvh[
         @always_inline
         def pack_leaf(
             first_item: UInt32, item_count: UInt32
-        ) capturing -> UInt32:
+        ) {imm, mut leaf_blocks} -> UInt32:
             var first, count = _checked_typed_leaf_range[Self.leaf_width](
                 first_item, item_count, len(builder.item_indices)
             )
@@ -127,9 +127,7 @@ struct TriangleBvh[
             leaf_blocks.append(block^)
             return block_idx
 
-        self.tree = BoundsBvh[Self.frame, Self.bounds_width].__init__[
-            pack_leaf
-        ](builder)
+        self.tree = BoundsBvh[Self.frame, Self.bounds_width](builder, pack_leaf)
         self.leaf_blocks = leaf_blocks^
 
     def bounds(self) -> AABB[Self.frame]:
@@ -171,7 +169,7 @@ struct TriangleBvh[
             leaf_block_idx: UInt32,
             mut leaf_stats: CpuBvhTraversalStats,
             mut hit: Hit[Self.bvh_frame],
-        ) capturing -> Bool:
+        ) {imm} -> Bool:
             ref block = self.leaf_blocks.unsafe_get(Int(leaf_block_idx))
             comptime if collect_stats:
                 leaf_stats.primitive_packet_lanes += Int(Self.leaf_width)
@@ -361,7 +359,7 @@ struct TriangleBvh[
             ray_inv_a: SIMD[DType.float32, Self.leaf_width],
             leaf_block_idx: UInt32,
             mut hit: Hit[Self.bvh_frame],
-        ) capturing -> Bool:
+        ) {imm, mut stats} -> Bool:
             return leaf_fn(
                 ray,
                 O,
@@ -380,16 +378,14 @@ struct TriangleBvh[
                 bounds_width=Self.bounds_width,
                 leaf_width=Self.leaf_width,
                 mode=mode,
-                leaf_fn=leaf_fn,
-            ](self.tree, ray, stats)
+            ](self.tree, ray, stats, leaf_fn)
         else:
             hit = trace_bounds_bvh[
                 frame=Self.frame,
                 bounds_width=Self.bounds_width,
                 leaf_width=Self.leaf_width,
                 mode=mode,
-                leaf_fn=unmeasured_leaf_fn,
-            ](self.tree, ray)
+            ](self.tree, ray, unmeasured_leaf_fn)
 
         comptime if mode == TRACE.CLOSEST_HIT:
             if hit.is_hit():

@@ -1,6 +1,6 @@
 from std.time import perf_counter_ns
 from std.gpu import global_idx
-from std.gpu.host import DeviceContext, DeviceBuffer
+from max.gpu.host import DeviceContext, DeviceBuffer
 from std.math import ceildiv
 
 from bajo.sort.gpu import gpu_sort_pairs
@@ -96,7 +96,7 @@ def benchmark_sorts_pairs(sizes: List[Int]) raises -> List[List[SortResult]]:
                     )
                     host_vals[i] = Scalar[vals_dtype](i)
 
-            def reset_data() capturing raises:
+            def reset_data() raises {mut}:
                 pristine_keys.enqueue_copy_to(keys)
                 pristine_vals.enqueue_copy_to(values)
 
@@ -170,7 +170,7 @@ def benchmark_sorts_pairs(sizes: List[Int]) raises -> List[List[SortResult]]:
             ctx.synchronize()
             check_validity(keys, SIZE)
 
-            t0 = perf_counter_ns()
+            var t0 = perf_counter_ns()
             for _ in range(N_ITERS):
                 reset_data()
                 device_radix_sort_pairs(ctx, radix_ws, keys, values, SIZE)
@@ -275,7 +275,7 @@ def benchmark_sort_key(sizes: List[Int]) raises -> List[List[SortResult]]:
                         (i * 1103515245 + 12345) & 0x7FFFFFFF
                     )
 
-            def reset_data() capturing raises:
+            def reset_data() raises {mut}:
                 pristine_keys.enqueue_copy_to(keys)
 
             # Radix
@@ -364,7 +364,7 @@ def save_results_csv(filename: String, data: List[List[SortResult]]) raises:
 
 
 def main() raises:
-    sizes: List = [
+    var sizes: List = [
         # 1 << 8,
         # 1 << 9,
         1 << 10,
@@ -387,8 +387,8 @@ def main() raises:
         # 1 << 27,
         # 1 << 28,
     ]
-    res = benchmark_sorts_pairs(sizes)
-    res_keys = benchmark_sort_key(sizes)
+    var res = benchmark_sorts_pairs(sizes)
+    var res_keys = benchmark_sort_key(sizes)
     res.extend(res_keys^)
     # res = benchmark_sort_key(sizes)
 

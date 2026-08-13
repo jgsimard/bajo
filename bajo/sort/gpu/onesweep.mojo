@@ -62,7 +62,7 @@ def global_histogram[
     # 64 threads : 1 histogram in shared memory
     var wave_offset = tid / THREADS_PER_PARTITION * RADIX
 
-    def _accumulate_hist[width: SIMDLength](i: Int) capturing:
+    def _accumulate_hist[width: SIMDLength](i: Int) {imm}:
         var _t = sort.unsafe_load[width=width](i)
         var t = bitcast[DType.uint8, width * BYTES_PER_KEY](_t)
 

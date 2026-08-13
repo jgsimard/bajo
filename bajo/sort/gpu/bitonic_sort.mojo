@@ -60,7 +60,7 @@ def bitonic_sort_shared[
         r_keys = Scalar[keys_dtype].MAX
         r_vals = 0
 
-    def _step(j: Int, k: Int) capturing:
+    def _step(j: Int, k: Int) {imm}:
         comptime for i in range(ITEMS_PER_THREAD / 2):
             var pair_id = tid + i * THREADS_PER_BLOCK
 

@@ -81,7 +81,9 @@ def _tree[
     )
 
     @always_inline
-    def pack_leaf(first_item: UInt32, item_count: UInt32) capturing -> UInt32:
+    def pack_leaf(
+        first_item: UInt32, item_count: UInt32
+    ) {imm, mut leaf_blocks} -> UInt32:
         var first, count = _checked_typed_leaf_range[leaf_width](
             first_item, item_count, len(builder.item_indices)
         )
@@ -104,7 +106,7 @@ def _tree[
         leaf_blocks.append(block^)
         return block_idx
 
-    var tree = BoundsBvh[Frame.WORLD, bounds_width].__init__[pack_leaf](builder)
+    var tree = BoundsBvh[Frame.WORLD, bounds_width](builder, pack_leaf)
     return tree^
 
 
@@ -179,7 +181,7 @@ struct Tlas[
             _ray_inv_a: SIMD[DType.float32, Self.leaf_width],
             leaf_block_idx: UInt32,
             mut hit: Hit[Frame.WORLD],
-        ) capturing -> Bool:
+        ) {imm} -> Bool:
             ref block = self.leaf_blocks.unsafe_get(Int(leaf_block_idx))
             var candidate_mask = block.inst_indices.ne(EMPTY_LANE)
             var candidate_t = SIMD[DType.float32, Self.leaf_width](0.0)
@@ -241,23 +243,21 @@ struct Tlas[
             return any_hit
 
         @always_inline
-        def trace_tree() capturing -> Hit[Frame.WORLD]:
+        def trace_tree() {imm} -> Hit[Frame.WORLD]:
             comptime if Self.leaf_width == 1:
                 return trace_bounds_bvh[
                     frame=Frame.WORLD,
                     bounds_width=Self.bounds_width,
                     leaf_width=Self.leaf_width,
                     mode=mode,
-                    leaf_fn=leaf_fn,
-                ](self.tree, ray)
+                ](self.tree, ray, leaf_fn)
             else:
                 return trace_bounds_bvh_leaf_rcp[
                     frame=Frame.WORLD,
                     bounds_width=Self.bounds_width,
                     leaf_width=Self.leaf_width,
                     mode=mode,
-                    leaf_fn=leaf_fn,
-                ](self.tree, ray)
+                ](self.tree, ray, leaf_fn)
 
         var hit = trace_tree()
 

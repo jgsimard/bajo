@@ -17,6 +17,15 @@ from bajo.bvh.types import Hit
 from bajo.core import Frame, Rayf32
 
 
+comptime GpuLeafFn[frame: Frame] = def(
+    Pointer[mut=False, Float32, _],
+    UInt32,
+    UInt32,
+    Rayf32[frame],
+    mut Hit[frame],
+) thin -> Bool
+
+
 @fieldwise_init
 struct GpuTraversalAlgorithm(Equatable):
     """Compile-time traversal selector, independent of build topology."""
@@ -82,13 +91,7 @@ def _trace_bounds_bvh_distance_aware[
     frame: Frame,
     width: SIMDLength,
     mode: TRACE,
-    leaf_fn: def(
-        Pointer[mut=False, Float32, _],
-        UInt32,
-        UInt32,
-        Rayf32[frame],
-        mut Hit[frame],
-    ) capturing -> Bool,
+    leaf_fn: GpuLeafFn[frame],
     collect_stats: Bool,
 ](
     wide_nodes: Pointer[mut=False, Float32, _],
@@ -198,13 +201,7 @@ def _trace_bounds_bvh_distance_aware[
 def trace_bounds_bvh_unified_closest[
     frame: Frame,
     width: SIMDLength,
-    leaf_fn: def(
-        Pointer[mut=False, Float32, _],
-        UInt32,
-        UInt32,
-        Rayf32[frame],
-        mut Hit[frame],
-    ) capturing -> Bool,
+    leaf_fn: GpuLeafFn[frame],
 ](
     wide_nodes: Pointer[mut=False, Float32, _],
     leaves: Pointer[mut=False, Float32, _],
@@ -318,13 +315,7 @@ def _trace_bounds_bvh_with_counters[
     frame: Frame,
     width: SIMDLength,
     mode: TRACE,
-    leaf_fn: def(
-        Pointer[mut=False, Float32, _],
-        UInt32,
-        UInt32,
-        Rayf32[frame],
-        mut Hit[frame],
-    ) capturing -> Bool,
+    leaf_fn: GpuLeafFn[frame],
     collect_stats: Bool,
     lifo: Bool = True,
     distance_aware: Bool = False,
@@ -487,13 +478,7 @@ def trace_bounds_bvh[
     frame: Frame,
     width: SIMDLength,
     mode: TRACE,
-    leaf_fn: def(
-        Pointer[mut=False, Float32, _],
-        UInt32,
-        UInt32,
-        Rayf32[frame],
-        mut Hit[frame],
-    ) capturing -> Bool,
+    leaf_fn: GpuLeafFn[frame],
     lifo: Bool = True,
     distance_aware: Bool = False,
 ](
@@ -511,13 +496,7 @@ def trace_bounds_bvh_with_stats[
     frame: Frame,
     width: SIMDLength,
     mode: TRACE,
-    leaf_fn: def(
-        Pointer[mut=False, Float32, _],
-        UInt32,
-        UInt32,
-        Rayf32[frame],
-        mut Hit[frame],
-    ) capturing -> Bool,
+    leaf_fn: GpuLeafFn[frame],
     lifo: Bool = True,
     distance_aware: Bool = False,
 ](

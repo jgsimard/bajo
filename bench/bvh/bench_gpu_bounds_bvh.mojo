@@ -11,8 +11,16 @@ from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
 from bajo.bvh.types import Hit, Sphere
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
-from bajo.bvh.gpu.sphere_bvh import GpuSphereBvh
-from bajo.bvh.gpu.triangle_bvh import GpuTriangleBvh
+from bajo.bvh.gpu.sphere_bvh import (
+    GpuSphereBvh,
+    build_sphere_bvh,
+    build_sphere_bvh_measured,
+)
+from bajo.bvh.gpu.triangle_bvh import (
+    GpuTriangleBvh,
+    build_triangle_bvh,
+    build_triangle_bvh_measured,
+)
 from bajo.bvh.gpu.utils import (
     GpuBuildTimings,
     _download_full_hit_checksum,
@@ -385,12 +393,13 @@ def _run_width[
     reference_hit_count: UInt32,
     repeats: Int,
 ) raises -> GpuBenchResult:
-    _ = GpuTriangleBvh[Frame.WORLD, node_width, leaf_width](ctx, d_vertices)
+    _ = build_triangle_bvh[Frame.WORLD, node_width, leaf_width](ctx, d_vertices)
     ctx.synchronize()
 
     var build0 = perf_counter_ns()
-    var bvh = GpuTriangleBvh[Frame.WORLD, node_width, leaf_width](
-        ctx, d_vertices, measure_build=True
+    var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
+    var bvh = build_triangle_bvh_measured[Frame.WORLD, node_width, leaf_width](
+        ctx, d_vertices, timings
     )
     ctx.synchronize()
     var build1 = perf_counter_ns()
@@ -414,7 +423,7 @@ def _run_width[
     return GpuBenchResult(
         String(t"tri n{Int(node_width)}/l{Int(leaf_width)}"),
         Int(build1 - build0),
-        bvh.timings,
+        timings,
         res[0],
         ray_count,
         res[1],
@@ -518,12 +527,13 @@ def _run_sphere_width[
     repeats: Int,
     print_mismatches: Bool,
 ) raises -> GpuBenchResult:
-    _ = GpuSphereBvh[Frame.WORLD, node_width, leaf_width](ctx, spheres)
+    _ = build_sphere_bvh[Frame.WORLD, node_width, leaf_width](ctx, spheres)
     ctx.synchronize()
 
     var build0 = perf_counter_ns()
-    var bvh = GpuSphereBvh[Frame.WORLD, node_width, leaf_width](
-        ctx, spheres, measure_build=True
+    var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
+    var bvh = build_sphere_bvh_measured[Frame.WORLD, node_width, leaf_width](
+        ctx, spheres, timings
     )
     ctx.synchronize()
     var build1 = perf_counter_ns()
@@ -559,7 +569,7 @@ def _run_sphere_width[
     return GpuBenchResult(
         String(t"sph n{Int(node_width)}/l{Int(leaf_width)}"),
         Int(build1 - build0),
-        bvh.timings,
+        timings,
         res[0],
         ray_count,
         res[1],
@@ -676,6 +686,20 @@ def main() raises:
         )
         print("\nIndependent node/leaf width comparison")
         _print_gpu_results_transposed(tri2, tri2_leaf4, tri4)
+
+        var tri8_leaf4 = _run_width[8, 4](
+            ctx,
+            d_vertices,
+            d_camera_params,
+            len(rays),
+            PRIMARY_WIDTH,
+            PRIMARY_HEIGHT,
+            reference_checksum,
+            reference_hit_count,
+            BENCH_REPEATS,
+        )
+        print("\nAdditional node/leaf width comparison")
+        _print_gpu_results_transposed(tri2_leaf4, tri4, tri8_leaf4)
 
         print("\nGPU SphereBvh debug: small brute-force validation")
         print("------------------------------------------------")

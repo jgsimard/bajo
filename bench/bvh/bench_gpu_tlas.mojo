@@ -13,9 +13,26 @@ from bajo.bvh.types import Sphere, Instance, BlasSet, Hit
 from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.tlas import Tlas
-from bajo.bvh.gpu.tlas import GpuTriangleTlas, GpuSphereTlas
-from bajo.bvh.gpu.sphere_bvh import GpuSphereBvh, build_sphere_blas_set
-from bajo.bvh.gpu.triangle_bvh import GpuTriangleBvh, build_triangle_blas_set
+from bajo.bvh.gpu.tlas import (
+    GpuTriangleTlas,
+    GpuSphereTlas,
+    build_triangle_tlas,
+    build_triangle_tlas_measured,
+    build_sphere_tlas,
+    build_sphere_tlas_measured,
+)
+from bajo.bvh.gpu.sphere_bvh import (
+    GpuSphereBvh,
+    build_sphere_blas_set,
+    build_sphere_bvh,
+    build_sphere_bvh_measured,
+)
+from bajo.bvh.gpu.triangle_bvh import (
+    GpuTriangleBvh,
+    build_triangle_blas_set,
+    build_triangle_bvh,
+    build_triangle_bvh_measured,
+)
 from bajo.bvh.constants import TRACE, Primitive, MISS_PRIM, f32_max
 from bajo.obj.pack import pack_obj_triangles
 from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list, upload_vertices
@@ -646,12 +663,13 @@ def _run_triangle_tlas_width[
     reference_hits: UInt32,
     reference_inst_checksum: UInt64,
 ) raises -> TlasBenchResult:
-    _ = GpuTriangleTlas[tlas_width, blas_width](ctx, instances)
+    _ = build_triangle_tlas[tlas_width, blas_width](ctx, instances)
     ctx.synchronize()
 
     var b0 = perf_counter_ns()
-    var tlas = GpuTriangleTlas[tlas_width, blas_width](
-        ctx, instances, measure_build=True
+    var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
+    var tlas = build_triangle_tlas_measured[tlas_width, blas_width](
+        ctx, instances, timings
     )
     ctx.synchronize()
     var b1 = perf_counter_ns()
@@ -671,7 +689,7 @@ def _run_triangle_tlas_width[
         label,
         len(instances),
         Int(b1 - b0),
-        tlas.core.timings,
+        timings,
         primary[0],
         ray_count,
         primary[1],
@@ -699,12 +717,13 @@ def _run_sphere_tlas_width[
     reference_checksum: Float64,
     reference_hits: UInt32,
 ) raises -> TlasBenchResult:
-    _ = GpuSphereTlas[tlas_width, blas_width](ctx, instances)
+    _ = build_sphere_tlas[tlas_width, blas_width](ctx, instances)
     ctx.synchronize()
 
     var b0 = perf_counter_ns()
-    var tlas = GpuSphereTlas[tlas_width, blas_width](
-        ctx, instances, measure_build=True
+    var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
+    var tlas = build_sphere_tlas_measured[tlas_width, blas_width](
+        ctx, instances, timings
     )
     ctx.synchronize()
     var b1 = perf_counter_ns()
@@ -724,7 +743,7 @@ def _run_sphere_tlas_width[
         label,
         len(instances),
         Int(b1 - b0),
-        tlas.core.timings,
+        timings,
         primary[0],
         ray_count,
         primary[1],
@@ -971,12 +990,13 @@ def main() raises:
         ctx.synchronize()
 
         print("\nBuilding GpuTriangleBvh[4]...")
-        _ = GpuTriangleBvh[Frame.WORLD, 4](ctx, d_vertices)
+        _ = build_triangle_bvh[Frame.WORLD, 4](ctx, d_vertices)
         ctx.synchronize()
 
         var blas_b0 = perf_counter_ns()
-        var blas = GpuTriangleBvh[Frame.WORLD, 4](
-            ctx, d_vertices, measure_build=True
+        var blas_timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
+        var blas = build_triangle_bvh_measured[Frame.WORLD, 4](
+            ctx, d_vertices, blas_timings
         )
         ctx.synchronize()
         var blas_b1 = perf_counter_ns()
@@ -985,7 +1005,7 @@ def main() raises:
         _print_blas_build_row(
             "GpuTriangleBvh[4]",
             Int(blas_b1 - blas_b0),
-            blas.timings,
+            blas_timings,
         )
 
         print("Building GpuTriangleBlasSet[4]...")
@@ -1113,12 +1133,13 @@ def main() raises:
         print("Sphere BLAS bounds max:", round(sphere_bounds._max, 3))
 
         print("Building GpuSphereBvh[4]...")
-        _ = GpuSphereBvh[Frame.WORLD, 4](ctx, spheres)
+        _ = build_sphere_bvh[Frame.WORLD, 4](ctx, spheres)
         ctx.synchronize()
 
         var sph_b0 = perf_counter_ns()
-        var sphere_blas = GpuSphereBvh[Frame.WORLD, 4](
-            ctx, spheres, measure_build=True
+        var sphere_blas_timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
+        var sphere_blas = build_sphere_bvh_measured[Frame.WORLD, 4](
+            ctx, spheres, sphere_blas_timings
         )
         ctx.synchronize()
         var sph_b1 = perf_counter_ns()
@@ -1127,7 +1148,7 @@ def main() raises:
         _print_blas_build_row(
             "GpuSphereBvh[4]",
             Int(sph_b1 - sph_b0),
-            sphere_blas.timings,
+            sphere_blas_timings,
         )
 
         print("Building GpuSphere BlasSet[4]...")

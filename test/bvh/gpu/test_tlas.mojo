@@ -9,7 +9,7 @@ from bajo.bvh.constants import Primitive, TRACE, f32_max
 from bajo.bvh.types import Sphere, Instance, Hit
 from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
-from bajo.bvh.gpu.tlas import GpuTriangleTlas, GpuSphereTlas
+from bajo.bvh.gpu.tlas import build_triangle_tlas, build_sphere_tlas
 from bajo.bvh.gpu.sphere_bvh import build_sphere_blas_set
 from bajo.bvh.gpu.triangle_bvh import build_triangle_blas_set
 from bajo.bvh.gpu.utils import upload_camera
@@ -51,7 +51,7 @@ def test_gpu_tlas_triangle_camera_single_identity_matches_cpu_blas() raises:
 
     with DeviceContext() as ctx:
         var blases = build_triangle_blas_set[4](ctx, [local_verts^])
-        var tlas = GpuTriangleTlas[4, 4](ctx, instances)
+        var tlas = build_triangle_tlas[4, 4](ctx, instances)
         var d_camera = upload_camera(ctx, camera)
 
         var ray_count = WIDTH * HEIGHT
@@ -93,7 +93,7 @@ def test_gpu_tlas_triangle_camera_translated_single_instance_hit() raises:
 
     with DeviceContext() as ctx:
         var blases = build_triangle_blas_set[4](ctx, [verts^])
-        var tlas = GpuTriangleTlas[4, 4](ctx, instances)
+        var tlas = build_triangle_tlas[4, 4](ctx, instances)
         var d_camera = upload_camera(ctx, camera)
 
         var d_hits = ctx.enqueue_create_buffer[DType.float32](Hit.STRIDE)
@@ -143,7 +143,7 @@ def test_gpu_tlas_sphere_camera_single_identity_matches_cpu_bruteforce() raises:
 
     with DeviceContext() as ctx:
         var blases = build_sphere_blas_set[4](ctx, [spheres^])
-        var tlas = GpuSphereTlas[4, 4](ctx, instances)
+        var tlas = build_sphere_tlas[4, 4](ctx, instances)
         var d_camera = upload_camera(ctx, camera)
 
         var ray_count = WIDTH * HEIGHT
@@ -191,7 +191,7 @@ def test_gpu_tlas_sphere_camera_translated_single_instance_hit() raises:
 
     with DeviceContext() as ctx:
         var blases = build_sphere_blas_set[4](ctx, [spheres^])
-        var tlas = GpuSphereTlas[4, 4](ctx, instances)
+        var tlas = build_sphere_tlas[4, 4](ctx, instances)
         var d_camera = upload_camera(ctx, camera)
 
         var d_hits = ctx.enqueue_create_buffer[DType.float32](Hit.STRIDE)
@@ -246,7 +246,7 @@ def test_gpu_tlas_sphere_nonuniform_scale_normal() raises:
 
     with DeviceContext() as ctx:
         var blases = build_sphere_blas_set[4](ctx, [spheres^])
-        var tlas = GpuSphereTlas[4, 4](ctx, instances)
+        var tlas = build_sphere_tlas[4, 4](ctx, instances)
         var d_camera = upload_camera(ctx, camera)
         var d_hits = ctx.enqueue_create_buffer[DType.float32](Hit.STRIDE)
 

@@ -1,0 +1,412 @@
+from std.math import abs, max
+from std.sys import has_accelerator
+from std.testing import TestSuite, assert_equal, assert_false, assert_true
+from max.gpu.host import DeviceContext
+
+from bajo.bvh.constants import (
+    BinaryBvhNode,
+    LBVH_INDEX_MASK,
+    LBVH_LEAF_FLAG,
+    LBVH_SENTINEL,
+)
+from bajo.bvh.gpu.diagnostics import build_bounds_bvh_for_diagnostics
+from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvh
+from bajo.bvh.gpu.builder.hploc_layout import HPLOC_STATUS_OK
+from bajo.bvh.gpu.builder.hploc_multi_wave import GpuHplocMultiWaveBvh
+from bajo.bvh.gpu.builder.hploc_reference import (
+    HplocReferenceBvh,
+    build_hploc_reference,
+)
+from bajo.bvh.gpu.utils import upload_list
+from bajo.bvh.host_utils import triangle_bounds
+from bajo.core import AABB, Frame, Point3f32
+
+
+def _box(center_x: Float32) -> AABB[Frame.WORLD]:
+    return AABB[Frame.WORLD](
+        Point3f32[Frame.WORLD](center_x - 0.1, -0.1, -0.1),
+        Point3f32[Frame.WORLD](center_x + 0.1, 0.1, 0.1),
+    )
+
+
+def _identity_ids(count: Int) -> List[UInt32]:
+    var ids = List[UInt32](capacity=count)
+    for i in range(count):
+        ids.append(UInt32(i))
+    return ids^
+
+
+def _flatten_bounds(
+    bounds: List[AABB[Frame.WORLD]],
+) -> List[Float32]:
+    var flat = List[Float32](capacity=len(bounds) * AABB.STRIDE)
+    for bound in bounds:
+        flat.append(bound._min.x)
+        flat.append(bound._min.y)
+        flat.append(bound._min.z)
+        flat.append(bound._max.x)
+        flat.append(bound._max.y)
+        flat.append(bound._max.z)
+    return flat^
+
+
+def _bounds_match(
+    actual: AABB[Frame.WORLD],
+    expected: AABB[Frame.WORLD],
+    tolerance: Float64 = 1.0e-4,
+) -> Bool:
+    return (
+        abs(Float64(actual._min.x - expected._min.x)) <= tolerance
+        and abs(Float64(actual._min.y - expected._min.y)) <= tolerance
+        and abs(Float64(actual._min.z - expected._min.z)) <= tolerance
+        and abs(Float64(actual._max.x - expected._max.x)) <= tolerance
+        and abs(Float64(actual._max.y - expected._max.y)) <= tolerance
+        and abs(Float64(actual._max.z - expected._max.z)) <= tolerance
+    )
+
+
+def _rotate_left(value: UInt64, shift: Int) -> UInt64:
+    return (value << UInt64(shift)) | (value >> UInt64(64 - shift))
+
+
+def _leaf_hash(leaf_id: UInt32) -> UInt64:
+    return (
+        UInt64(leaf_id + 1)
+        ^ (UInt64(leaf_id) << 32)
+        ^ UInt64(0x9E3779B97F4A7C15)
+    )
+
+
+def _inner_hash(left: UInt64, right: UInt64) -> UInt64:
+    return (
+        _rotate_left(left, 13)
+        ^ _rotate_left(right, 37)
+        ^ UInt64(0xD6E8FEB86659FD93)
+    )
+
+
+def _reference_root_hash(reference: HplocReferenceBvh) -> UInt64:
+    var hashes = List[UInt64](length=len(reference.nodes), fill=UInt64(0))
+    for node_idx in range(len(reference.nodes)):
+        var node = reference.nodes[node_idx]
+        if node.left == LBVH_SENTINEL:
+            hashes[node_idx] = _leaf_hash(node.leaf_id)
+        else:
+            hashes[node_idx] = _inner_hash(
+                hashes[Int(node.left)], hashes[Int(node.right)]
+            )
+    return hashes[Int(reference.root)]
+
+
+def _assert_gpu_matches_reference(
+    gpu: GpuHplocMultiWaveBvh,
+    reference: HplocReferenceBvh,
+) raises -> UInt64:
+    var internal_count = max(reference.leaf_count - 1, 0)
+    assert_equal(gpu.result_status(), UInt32(HPLOC_STATUS_OK))
+    assert_equal(gpu.result_node_count(), UInt32(internal_count))
+    var root = gpu.result_root()
+    if reference.leaf_count == 1:
+        assert_equal(root, LBVH_LEAF_FLAG)
+        with gpu.sorted_leaf_ids.map_to_host() as leaf_ids:
+            var result = _leaf_hash(leaf_ids[0])
+            assert_equal(result, _reference_root_hash(reference))
+            return result
+
+    assert_true(root < UInt32(internal_count))
+    with gpu.node_meta.map_to_host() as meta, gpu.leaf_parent.map_to_host() as leaf_parent, gpu.node_bounds.map_to_host() as flat_bounds, gpu.node_flags.map_to_host() as flags, gpu.node_leaf_counts.map_to_host() as leaf_counts, gpu.sorted_leaf_ids.map_to_host() as leaf_ids, gpu.leaf_bounds.map_to_host() as leaf_bounds:
+        var hashes = List[UInt64](length=internal_count, fill=UInt64(0))
+        var counts = List[UInt32](length=internal_count, fill=UInt32(0))
+        var subtree_bounds = List[AABB[Frame.WORLD]](
+            length=internal_count, fill=AABB[Frame.WORLD].invalid()
+        )
+        var seen_leaves = List[Bool](length=reference.leaf_count, fill=False)
+        var node_area_sum = Float64(0.0)
+        var leaf_bounds_span = Span(
+            unsafe_ptr=leaf_bounds.unsafe_ptr(), length=len(leaf_bounds)
+        )
+        var node_bounds_span = Span(
+            unsafe_ptr=flat_bounds.unsafe_ptr(), length=len(flat_bounds)
+        )
+
+        for node_idx in range(internal_count):
+            var base = node_idx * BinaryBvhNode.META_STRIDE
+            var left = meta[base + BinaryBvhNode.LEFT]
+            var right = meta[base + BinaryBvhNode.RIGHT]
+            assert_equal(meta[base + BinaryBvhNode.FENCE], LBVH_SENTINEL)
+            assert_equal(flags[node_idx], UInt32(2))
+
+            var left_hash: UInt64
+            var left_count: UInt32
+            var left_bounds: AABB[Frame.WORLD]
+            if (left & LBVH_LEAF_FLAG) != 0:
+                var sorted_pos = Int(left & LBVH_INDEX_MASK)
+                var leaf_id = leaf_ids[sorted_pos]
+                assert_equal(leaf_parent[sorted_pos], UInt32(node_idx))
+                assert_false(seen_leaves[Int(leaf_id)])
+                seen_leaves[Int(leaf_id)] = True
+                left_hash = _leaf_hash(leaf_id)
+                left_count = UInt32(1)
+                left_bounds = AABB[Frame.WORLD].load6(
+                    leaf_bounds_span, Int(leaf_id) * AABB.STRIDE
+                )
+                node_area_sum += Float64(left_bounds.surface_area()[0])
+            else:
+                var child = Int(left & LBVH_INDEX_MASK)
+                assert_true(child < node_idx)
+                assert_equal(
+                    meta[
+                        child * BinaryBvhNode.META_STRIDE + BinaryBvhNode.PARENT
+                    ],
+                    UInt32(node_idx),
+                )
+                left_hash = hashes[child]
+                left_count = counts[child]
+                left_bounds = subtree_bounds[child]
+
+            var right_hash: UInt64
+            var right_count: UInt32
+            var right_bounds: AABB[Frame.WORLD]
+            if (right & LBVH_LEAF_FLAG) != 0:
+                var sorted_pos = Int(right & LBVH_INDEX_MASK)
+                var leaf_id = leaf_ids[sorted_pos]
+                assert_equal(leaf_parent[sorted_pos], UInt32(node_idx))
+                assert_false(seen_leaves[Int(leaf_id)])
+                seen_leaves[Int(leaf_id)] = True
+                right_hash = _leaf_hash(leaf_id)
+                right_count = UInt32(1)
+                right_bounds = AABB[Frame.WORLD].load6(
+                    leaf_bounds_span, Int(leaf_id) * AABB.STRIDE
+                )
+                node_area_sum += Float64(right_bounds.surface_area()[0])
+            else:
+                var child = Int(right & LBVH_INDEX_MASK)
+                assert_true(child < node_idx)
+                assert_equal(
+                    meta[
+                        child * BinaryBvhNode.META_STRIDE + BinaryBvhNode.PARENT
+                    ],
+                    UInt32(node_idx),
+                )
+                right_hash = hashes[child]
+                right_count = counts[child]
+                right_bounds = subtree_bounds[child]
+
+            var stored_left = AABB[Frame.WORLD].load6(
+                node_bounds_span, node_idx * BinaryBvhNode.BOUNDS_STRIDE
+            )
+            var stored_right = AABB[Frame.WORLD].load6(
+                node_bounds_span,
+                node_idx * BinaryBvhNode.BOUNDS_STRIDE + AABB.STRIDE,
+            )
+            assert_true(_bounds_match(stored_left, left_bounds))
+            assert_true(_bounds_match(stored_right, right_bounds))
+
+            hashes[node_idx] = _inner_hash(left_hash, right_hash)
+            counts[node_idx] = left_count + right_count
+            subtree_bounds[node_idx] = AABB[Frame.WORLD].merge(
+                left_bounds, right_bounds
+            )
+            node_area_sum += Float64(subtree_bounds[node_idx].surface_area()[0])
+            assert_equal(leaf_counts[node_idx], counts[node_idx])
+
+        assert_equal(
+            meta[Int(root) * BinaryBvhNode.META_STRIDE + BinaryBvhNode.PARENT],
+            LBVH_SENTINEL,
+        )
+        assert_equal(hashes[Int(root)], _reference_root_hash(reference))
+        for seen in seen_leaves:
+            assert_true(seen)
+
+        var visited = List[Bool](length=internal_count, fill=False)
+        var pending = List[UInt32]()
+        pending.append(root)
+        var cursor = 0
+        var visited_count = 0
+        while cursor < len(pending):
+            var node_idx = pending[cursor]
+            cursor += 1
+            assert_false(visited[Int(node_idx)])
+            visited[Int(node_idx)] = True
+            visited_count += 1
+            var base = Int(node_idx) * BinaryBvhNode.META_STRIDE
+            var left = meta[base + BinaryBvhNode.LEFT]
+            var right = meta[base + BinaryBvhNode.RIGHT]
+            if (left & LBVH_LEAF_FLAG) == 0:
+                pending.append(left)
+            if (right & LBVH_LEAF_FLAG) == 0:
+                pending.append(right)
+
+        assert_equal(visited_count, internal_count)
+        var root_area = Float64(subtree_bounds[Int(root)].surface_area()[0])
+        var gpu_quality = node_area_sum / root_area
+        assert_true(abs(gpu_quality - reference.quality()) <= 1.0e-4)
+        return hashes[Int(root)]
+
+
+def test_hploc_multi_wave_one_leaf() raises:
+    var bounds: List[AABB[Frame.WORLD]] = [_box(2.0)]
+    var flat = _flatten_bounds(bounds)
+    var codes: List[UInt32] = [9]
+    var ids: List[UInt32] = [0]
+    var reference = build_hploc_reference(Span(bounds), Span(codes), Span(ids))
+
+    with DeviceContext() as ctx:
+        var gpu = GpuHplocMultiWaveBvh(
+            ctx,
+            upload_list(ctx, flat),
+            upload_list(ctx, codes),
+            upload_list(ctx, ids),
+        )
+        ctx.synchronize()
+        _ = _assert_gpu_matches_reference(gpu, reference)
+
+
+def test_hploc_multi_wave_crosses_waves_at_64_leaves() raises:
+    comptime leaf_count = 64
+    var bounds = List[AABB[Frame.WORLD]](capacity=leaf_count)
+    var codes = List[UInt32](capacity=leaf_count)
+    for i in range(leaf_count):
+        bounds.append(_box(Float32(i * 3)))
+        codes.append(UInt32(i))
+    var ids = _identity_ids(leaf_count)
+    var reference = build_hploc_reference(Span(bounds), Span(codes), Span(ids))
+    var flat = _flatten_bounds(bounds)
+
+    with DeviceContext() as ctx:
+        var gpu = GpuHplocMultiWaveBvh(
+            ctx,
+            upload_list(ctx, flat),
+            upload_list(ctx, codes),
+            upload_list(ctx, ids),
+        )
+        ctx.synchronize()
+        _ = _assert_gpu_matches_reference(gpu, reference)
+
+
+def test_hploc_multi_wave_duplicate_codes_repeat_deterministically() raises:
+    comptime leaf_count = 96
+    var bounds = List[AABB[Frame.WORLD]](capacity=leaf_count)
+    var codes = List[UInt32](capacity=leaf_count)
+    var ids = List[UInt32](capacity=leaf_count)
+    for i in range(leaf_count):
+        bounds.append(_box(Float32(i - 48)))
+        codes.append(UInt32(11))
+        ids.append(UInt32((i * 37) % leaf_count))
+    var reference = build_hploc_reference(Span(bounds), Span(codes), Span(ids))
+    var flat = _flatten_bounds(bounds)
+
+    with DeviceContext() as ctx:
+        var first = GpuHplocMultiWaveBvh(
+            ctx,
+            upload_list(ctx, flat),
+            upload_list(ctx, codes),
+            upload_list(ctx, ids),
+        )
+        var second = GpuHplocMultiWaveBvh(
+            ctx,
+            upload_list(ctx, flat),
+            upload_list(ctx, codes),
+            upload_list(ctx, ids),
+        )
+        ctx.synchronize()
+        var first_hash = _assert_gpu_matches_reference(first, reference)
+        var second_hash = _assert_gpu_matches_reference(second, reference)
+        assert_equal(first_hash, second_hash)
+
+
+def _make_triangles(count: Int) -> List[AABB[Frame.WORLD]]:
+    var bounds = List[AABB[Frame.WORLD]](capacity=count)
+    for i in range(count):
+        var x = Float32((i % 19) * 4 - 36)
+        var y = Float32(((i / 19) % 14) * 4 - 26)
+        var z = Float32((i * 7) % 11)
+        var scale = Float32(2.2) if i % 17 == 0 else Float32(0.7)
+        bounds.append(
+            triangle_bounds(
+                Point3f32[Frame.WORLD](x - scale, y - scale, z),
+                Point3f32[Frame.WORLD](x + scale, y - scale, z),
+                Point3f32[Frame.WORLD](x, y + scale, z + 0.1),
+            )
+        )
+    return bounds^
+
+
+def test_hploc_multi_wave_crosses_blocks_with_gpu_lbvh_inputs() raises:
+    comptime leaf_count = 257
+    var bounds = _make_triangles(leaf_count)
+    var flat = _flatten_bounds(bounds)
+    var payloads = _identity_ids(leaf_count)
+
+    with DeviceContext() as ctx:
+        var device_bounds = upload_list(ctx, flat)
+        var device_payloads = upload_list(ctx, payloads)
+        var wide = GpuWideBoundsBvh[2, 2](ctx, leaf_count)
+        var binary = build_bounds_bvh_for_diagnostics(
+            ctx, wide, device_bounds, device_payloads
+        )
+        ctx.synchronize()
+
+        var codes = List[UInt32](capacity=leaf_count)
+        var sorted_ids = List[UInt32](capacity=leaf_count)
+        with binary.keys.map_to_host() as host_codes:
+            for i in range(leaf_count):
+                codes.append(host_codes[i])
+        with binary.leaf_ids.map_to_host() as host_ids:
+            for i in range(leaf_count):
+                sorted_ids.append(host_ids[i])
+
+        var reference = build_hploc_reference(
+            Span(bounds), Span(codes), Span(sorted_ids)
+        )
+        var gpu = GpuHplocMultiWaveBvh(
+            ctx,
+            binary.leaf_bounds.copy(),
+            binary.keys.copy(),
+            binary.leaf_ids.copy(),
+        )
+        ctx.synchronize()
+        _ = _assert_gpu_matches_reference(gpu, reference)
+
+
+def test_hploc_multi_wave_stress_4097_triangles() raises:
+    comptime leaf_count = 4097
+    var bounds = _make_triangles(leaf_count)
+    var flat = _flatten_bounds(bounds)
+    var payloads = _identity_ids(leaf_count)
+
+    with DeviceContext() as ctx:
+        var device_bounds = upload_list(ctx, flat)
+        var device_payloads = upload_list(ctx, payloads)
+        var wide = GpuWideBoundsBvh[2, 2](ctx, leaf_count)
+        var binary = build_bounds_bvh_for_diagnostics(
+            ctx, wide, device_bounds, device_payloads
+        )
+        ctx.synchronize()
+
+        var codes = List[UInt32](capacity=leaf_count)
+        var sorted_ids = List[UInt32](capacity=leaf_count)
+        with binary.keys.map_to_host() as host_codes:
+            for i in range(leaf_count):
+                codes.append(host_codes[i])
+        with binary.leaf_ids.map_to_host() as host_ids:
+            for i in range(leaf_count):
+                sorted_ids.append(host_ids[i])
+
+        var reference = build_hploc_reference(
+            Span(bounds), Span(codes), Span(sorted_ids)
+        )
+        var gpu = GpuHplocMultiWaveBvh(
+            ctx,
+            binary.leaf_bounds.copy(),
+            binary.keys.copy(),
+            binary.leaf_ids.copy(),
+        )
+        ctx.synchronize()
+        _ = _assert_gpu_matches_reference(gpu, reference)
+
+
+def main() raises:
+    comptime if not has_accelerator():
+        raise "No Accelerator found"
+    TestSuite.discover_tests[__functions_in_module()]().run()

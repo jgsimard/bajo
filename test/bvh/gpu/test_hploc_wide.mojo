@@ -14,11 +14,11 @@ from bajo.bvh.gpu.diagnostics import build_bounds_bvh_for_diagnostics
 from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvh, _wide_node_base
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.gpu.builder.binary_layout import (
-    _is_encoded_leaf,
     _node_left,
     _node_right,
 )
 from bajo.bvh.gpu.builder.binary_layout import _encoded_bounds
+from bajo.bvh.tagged_ref import is_leaf_ref
 from bajo.bvh.gpu.triangle_bvh import build_triangle_bvh
 from bajo.bvh.gpu.utils import upload_list, upload_vertices
 from bajo.bvh.gpu.trace import GpuTraversalAlgorithm
@@ -237,7 +237,7 @@ def _assert_root_uses_largest_area_opening[
                 var open_pos = -1
                 var largest_area = Float32(-1.0)
                 for i in range(len(candidates)):
-                    if _is_encoded_leaf(candidates[i]):
+                    if is_leaf_ref(candidates[i]):
                         continue
                     var area = _encoded_bounds(
                         candidates[i],
@@ -271,7 +271,7 @@ def _assert_root_uses_largest_area_opening[
                 var count = _wide_meta_count(
                     wide_u32[unsafe_offset=base + WideNode.META]
                 )
-                if _is_encoded_leaf(candidates[lane]):
+                if is_leaf_ref(candidates[lane]):
                     assert_equal(count, UInt32(1))
                 else:
                     assert_equal(count, UInt32(0))

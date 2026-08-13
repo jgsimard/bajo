@@ -1,7 +1,5 @@
-from std.bit import count_leading_zeros
-
 from bajo.core import AABB, Frame
-from bajo.core.morton import morton3
+from bajo.core.morton import morton3, morton_common_prefix
 from bajo.bvh.cpu.builder import BoundsBvhBuilder
 
 
@@ -23,15 +21,7 @@ def _common_prefix(
     var a = pairs.unsafe_get(i).code
     var b = pairs.unsafe_get(j).code
 
-    if a != b:
-        return Int(count_leading_zeros(a ^ b))
-
-    # duplicate Morton codes are ordered by sorted position
-    var x = UInt32(i) ^ UInt32(j)
-    if x == 0:
-        return 64
-
-    return 32 + Int(count_leading_zeros(x))
+    return morton_common_prefix(a, UInt32(i), b, UInt32(j))
 
 
 def _lbvh_find_split(

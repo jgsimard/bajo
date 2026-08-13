@@ -5,10 +5,9 @@ from max.gpu.host import DeviceContext
 
 from bajo.bvh.constants import (
     BinaryBvhNode,
-    LBVH_INDEX_MASK,
-    LBVH_LEAF_FLAG,
     LBVH_SENTINEL,
 )
+from bajo.bvh.tagged_ref import decode_ref_index, encode_leaf_ref, is_leaf_ref
 from bajo.bvh.gpu.diagnostics import build_bounds_bvh_for_diagnostics
 from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvh
 from bajo.bvh.gpu.builder.hploc_layout import HPLOC_STATUS_OK
@@ -107,7 +106,7 @@ def _assert_gpu_matches_reference(
     assert_equal(gpu.result_node_count(), UInt32(internal_count))
     var root = gpu.result_root()
     if reference.leaf_count == 1:
-        assert_equal(root, LBVH_LEAF_FLAG)
+        assert_equal(root, encode_leaf_ref(UInt32(0)))
         with gpu.sorted_leaf_ids.map_to_host() as leaf_ids:
             var result = _leaf_hash(leaf_ids[0])
             assert_equal(result, _reference_root_hash(reference))
@@ -139,8 +138,8 @@ def _assert_gpu_matches_reference(
             var left_hash: UInt64
             var left_count: UInt32
             var left_bounds: AABB[Frame.WORLD]
-            if (left & LBVH_LEAF_FLAG) != 0:
-                var sorted_pos = Int(left & LBVH_INDEX_MASK)
+            if is_leaf_ref(left):
+                var sorted_pos = Int(decode_ref_index(left))
                 var leaf_id = leaf_ids[sorted_pos]
                 assert_equal(leaf_parent[sorted_pos], UInt32(node_idx))
                 assert_false(seen_leaves[Int(leaf_id)])
@@ -152,7 +151,7 @@ def _assert_gpu_matches_reference(
                 )
                 node_area_sum += Float64(left_bounds.surface_area()[0])
             else:
-                var child = Int(left & LBVH_INDEX_MASK)
+                var child = Int(decode_ref_index(left))
                 assert_true(child < node_idx)
                 assert_equal(
                     meta[
@@ -167,8 +166,8 @@ def _assert_gpu_matches_reference(
             var right_hash: UInt64
             var right_count: UInt32
             var right_bounds: AABB[Frame.WORLD]
-            if (right & LBVH_LEAF_FLAG) != 0:
-                var sorted_pos = Int(right & LBVH_INDEX_MASK)
+            if is_leaf_ref(right):
+                var sorted_pos = Int(decode_ref_index(right))
                 var leaf_id = leaf_ids[sorted_pos]
                 assert_equal(leaf_parent[sorted_pos], UInt32(node_idx))
                 assert_false(seen_leaves[Int(leaf_id)])
@@ -180,7 +179,7 @@ def _assert_gpu_matches_reference(
                 )
                 node_area_sum += Float64(right_bounds.surface_area()[0])
             else:
-                var child = Int(right & LBVH_INDEX_MASK)
+                var child = Int(decode_ref_index(right))
                 assert_true(child < node_idx)
                 assert_equal(
                     meta[
@@ -232,9 +231,9 @@ def _assert_gpu_matches_reference(
             var base = Int(node_idx) * BinaryBvhNode.META_STRIDE
             var left = meta[base + BinaryBvhNode.LEFT]
             var right = meta[base + BinaryBvhNode.RIGHT]
-            if (left & LBVH_LEAF_FLAG) == 0:
+            if not is_leaf_ref(left):
                 pending.append(left)
-            if (right & LBVH_LEAF_FLAG) == 0:
+            if not is_leaf_ref(right):
                 pending.append(right)
 
         assert_equal(visited_count, internal_count)

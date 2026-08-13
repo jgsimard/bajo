@@ -1,4 +1,3 @@
-from std.bit import count_leading_zeros
 from std.math import min, max
 from std.time import perf_counter_ns
 from std.atomic import Atomic
@@ -6,14 +5,14 @@ from max.gpu.host import DeviceBuffer, DeviceContext
 from std.gpu import global_idx
 
 from bajo.core import AABB, Vec3f32, Frame
-from bajo.core.morton import morton3
+from bajo.core.morton import morton3, morton_common_prefix
 from bajo.sort.gpu.radix_sort import device_radix_sort_pairs
 from bajo.bvh.constants import (
-    LBVH_LEAF_FLAG,
     LBVH_SENTINEL,
     BinaryBvhNode,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
+from bajo.bvh.tagged_ref import encode_internal_ref, encode_leaf_ref
 from bajo.bvh.gpu.utils import GpuBuildTimings, _device_span
 from bajo.bvh.gpu.builder.binary_layout import (
     _node_parent_index,
@@ -75,7 +74,7 @@ def refit_lbvh_bounds_from_leaves_kernel(
     var b = Int(item_idx) * AABB.STRIDE
     var bounds = AABB[Frame.WORLD].load6(leaf_bounds, b)
 
-    var current_encoded = UInt32(leaf_idx) | LBVH_LEAF_FLAG
+    var current_encoded = encode_leaf_ref(UInt32(leaf_idx))
     var parent = UInt32(leaf_parent.unsafe_get(leaf_idx))
 
     while parent != LBVH_SENTINEL:
@@ -96,7 +95,7 @@ def refit_lbvh_bounds_from_leaves_kernel(
             break
 
         bounds = _load_and_union_node_bounds(node_bounds, parent)
-        current_encoded = parent
+        current_encoded = encode_internal_ref(parent)
         parent = UInt32(
             node_meta.unsafe_get(_node_parent_index(current_encoded))
         )
@@ -170,14 +169,7 @@ def _common_prefix(
     var a = UInt32(morton_codes.unsafe_get(i))
     var b = UInt32(morton_codes.unsafe_get(j))
 
-    if a != b:
-        return Int(count_leading_zeros(a ^ b))
-
-    # duplicate Morton codes are ordered by sorted position
-    var x = UInt32(i) ^ UInt32(j)
-    if x == 0:
-        return 64
-    return 32 + Int(count_leading_zeros(x))
+    return morton_common_prefix(a, UInt32(i), b, UInt32(j))
 
 
 def build_lbvh_topology_kernel(
@@ -214,17 +206,17 @@ def build_lbvh_topology_kernel(
 
     var split = _lbvh_find_split(sorted_morton_codes, first, last)
 
-    var left_encoded = UInt32(split)
+    var left_encoded = encode_internal_ref(UInt32(split))
     if split == first:
-        left_encoded |= LBVH_LEAF_FLAG
+        left_encoded = encode_leaf_ref(UInt32(split))
         leaf_parent.unsafe_get(split) = UInt32(i)
     else:
         node_meta.unsafe_get(_node_parent_index(UInt32(split))) = UInt32(i)
 
     var right_child = split + 1
-    var right_encoded = UInt32(right_child)
+    var right_encoded = encode_internal_ref(UInt32(right_child))
     if right_child == last:
-        right_encoded |= LBVH_LEAF_FLAG
+        right_encoded = encode_leaf_ref(UInt32(right_child))
         leaf_parent.unsafe_get(right_child) = UInt32(i)
     else:
         node_meta.unsafe_get(_node_parent_index(UInt32(right_child))) = UInt32(

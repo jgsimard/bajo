@@ -1,6 +1,13 @@
 from std.testing import assert_equal, TestSuite
 
-from bajo.core.morton import expand_bits_2d, expand_bits_3d, morton3
+from bajo.core.morton import (
+    expand_bits_2d,
+    expand_bits_3d,
+    morton3,
+    morton_common_prefix,
+    morton_key,
+    morton_key_delta,
+)
 
 
 def test_expand_bits_2d() raises:
@@ -55,6 +62,29 @@ def test_morton3_boundaries() raises:
     var m_max = morton3[size=1](1.0, 1.0, 1.0)
     var expected: UInt32 = (1 << 30) - 1
     assert_equal(m_max, expected)
+
+
+def test_morton_total_order_key_and_prefix() raises:
+    assert_equal(
+        morton_key(UInt32(1), UInt32(2)),
+        (UInt64(1) << 32) | UInt64(2),
+    )
+    assert_equal(
+        morton_key_delta(UInt32(0), UInt32(0), UInt32(0), UInt32(1)),
+        UInt64(1),
+    )
+    assert_equal(
+        morton_common_prefix(UInt32(0), UInt32(0), UInt32(0), UInt32(0)),
+        64,
+    )
+    assert_equal(
+        morton_common_prefix(UInt32(0), UInt32(0), UInt32(0), UInt32(1)),
+        63,
+    )
+    assert_equal(
+        morton_common_prefix(UInt32(0), UInt32(0), UInt32(1), UInt32(0)),
+        31,
+    )
 
 
 def main() raises:

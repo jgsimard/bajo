@@ -4,14 +4,13 @@ from std.gpu import global_idx
 
 from bajo.core import AABB, Frame
 from bajo.bvh.constants import (
-    LBVH_LEAF_FLAG,
-    LBVH_INDEX_MASK,
     BinaryBvhNode,
     REDUCED_BOUNDS_STRIDE,
     BOUNDS_REDUCE_CHUNK,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
 from bajo.bvh.gpu.utils import _device_span
+from bajo.bvh.tagged_ref import is_leaf_ref, decode_ref_index
 from bajo.sort.gpu.radix_sort import RadixSortWorkspace
 
 
@@ -71,14 +70,6 @@ def _node_right(
     return node_meta[unsafe_offset=_node_right_index(node_idx)]
 
 
-def _is_encoded_leaf(encoded: UInt32) -> Bool:
-    return (encoded & LBVH_LEAF_FLAG) != 0
-
-
-def _encoded_index(encoded: UInt32) -> UInt32:
-    return encoded & LBVH_INDEX_MASK
-
-
 def _encoded_bounds(
     encoded: UInt32,
     leaf_bounds: Span[mut=False, Float32, _],
@@ -86,15 +77,15 @@ def _encoded_bounds(
     node_bounds: Span[mut=False, Float32, _],
 ) -> AABB[Frame.WORLD]:
     """Load bounds for either encoded leaf or internal binary topology."""
-    if _is_encoded_leaf(encoded):
-        var sorted_leaf_idx = _encoded_index(encoded)
+    if is_leaf_ref(encoded):
+        var sorted_leaf_idx = decode_ref_index(encoded)
         debug_assert["safe", _use_compiler_assume=True](
             Int(sorted_leaf_idx) < len(leaf_ids),
             "encoded leaf index is outside the leaf-id span",
         )
         var item_idx = UInt32(leaf_ids.unsafe_get(Int(sorted_leaf_idx)))
         return AABB[Frame.WORLD].load6(leaf_bounds, Int(item_idx) * AABB.STRIDE)
-    return _load_and_union_node_bounds(node_bounds, _encoded_index(encoded))
+    return _load_and_union_node_bounds(node_bounds, decode_ref_index(encoded))
 
 
 def _write_child_bounds(

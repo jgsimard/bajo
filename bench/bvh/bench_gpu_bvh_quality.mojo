@@ -49,12 +49,14 @@ def _measure_configuration[
     var tree = GpuWideBoundsBvh[node_width, leaf_width, max_leaf_size](
         ctx, triangle_count
     )
-    var binary = build_bounds_bvh_for_diagnostics(
+    var diagnostic = build_bounds_bvh_for_diagnostics(
         ctx, tree, leaf_bounds.copy(), payloads.copy()
     )
     ctx.synchronize()
 
-    _print_quality_row(label, "binary", measure_binary_bvh_quality(binary))
+    _print_quality_row(
+        label, "binary", measure_binary_bvh_quality(diagnostic.binary)
+    )
     _print_quality_row(label, "wide", measure_wide_bvh_quality(tree))
 
 

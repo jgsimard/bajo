@@ -485,6 +485,13 @@ struct RadixSortWorkspace[
         self.global_hist = ctx.enqueue_create_buffer[DType.uint32](GLOBAL_HIST)
         self.pass_hist = ctx.enqueue_create_buffer[DType.uint32](gdim * RADIX)
 
+    def __init__(out self, other: Self):
+        """Create a shared-storage lease for a reusable build arena."""
+        self.keys_alternate = other.keys_alternate.copy()
+        self.vals_alternate = other.vals_alternate.copy()
+        self.global_hist = other.global_hist.copy()
+        self.pass_hist = other.pass_hist.copy()
+
 
 def device_radix_sort_pairs[
     keys_dtype: DType,

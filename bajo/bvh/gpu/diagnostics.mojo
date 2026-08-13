@@ -22,6 +22,14 @@ from bajo.bvh.gpu.validate import (
 from bajo.core import AABB
 
 
+@fieldwise_init
+struct GpuBinaryDiagnosticBuild:
+    """Binary artifact plus retained construction state for validation."""
+
+    var binary: GpuBinaryBoundsBvh
+    var workspace: GpuBinaryBuildWorkspace
+
+
 def build_bounds_bvh_for_diagnostics[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
@@ -33,7 +41,7 @@ def build_bounds_bvh_for_diagnostics[
     mut out: GpuWideBoundsBvh[node_width, leaf_width, max_leaf_size],
     leaf_bounds: DeviceBuffer[DType.float32],
     leaf_payloads: DeviceBuffer[DType.uint32],
-) raises -> GpuBinaryBoundsBvh:
+) raises -> GpuBinaryDiagnosticBuild:
     """Build both final wide data and the diagnostic binary intermediate."""
     debug_assert["safe", _use_compiler_assume=True](
         out.leaf_count > 0 and len(leaf_payloads) == out.leaf_count
@@ -48,15 +56,17 @@ def build_bounds_bvh_for_diagnostics[
         max_leaf_size,
         pack_subtrees,
     ](ctx, binary, out)
-    return binary^
+    return GpuBinaryDiagnosticBuild(binary^, workspace^)
 
 
 def validate_binary_bvh(
     binary: GpuBinaryBoundsBvh,
+    workspace: GpuBinaryBuildWorkspace,
     bounds: AABB,
 ) raises -> GpuBVHValidation:
+    ref topology_scratch = workspace.topology.value()
     var sorted_validation = validate_sorted_keys(
-        binary.keys,
+        topology_scratch.morton_keys,
         binary.leaf_ids,
         binary.leaf_count,
     )
@@ -75,12 +85,12 @@ def validate_binary_bvh(
 
     var topology = validate_topology(
         binary.node_meta,
-        binary.leaf_parent,
+        topology_scratch.leaf_parent,
         binary.leaf_count,
     )
     var refit = validate_refit_bounds(
         binary.node_bounds,
-        binary.node_flags,
+        topology_scratch.node_flags,
         binary.node_meta,
         binary.leaf_count,
         bounds,

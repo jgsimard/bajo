@@ -30,6 +30,8 @@ struct GpuWideBoundsBvh[
 
     var wide_nodes: DeviceBuffer[DType.float32]
     var leaf_block_indices: DeviceBuffer[DType.uint32]
+    var leaf_block_count_device: DeviceBuffer[DType.uint32]
+    """Device-side count used by dependent asynchronous packing kernels."""
 
     def __init__(
         out self,
@@ -50,6 +52,9 @@ struct GpuWideBoundsBvh[
         )
         self.leaf_block_indices = ctx.enqueue_create_buffer[DType.uint32](
             self.max_leaf_blocks * Self.leaf_width
+        )
+        self.leaf_block_count_device = ctx.enqueue_create_buffer[DType.uint32](
+            1
         )
 
     def root_bounds(self) raises -> AABB[Frame.WORLD]:
@@ -91,9 +96,9 @@ def _wide_node_store_child[
     wide_nodes[unsafe_offset=base + WideNode.MAX_X] = bounds._max.x
     wide_nodes[unsafe_offset=base + WideNode.MAX_Y] = bounds._max.y
     wide_nodes[unsafe_offset=base + WideNode.MAX_Z] = bounds._max.z
-
-    var wide_nodes_u32 = wide_nodes.unsafe_bitcast[UInt32]()
-    wide_nodes_u32[unsafe_offset=base + WideNode.META] = meta
+    wide_nodes.unsafe_bitcast[UInt32]()[
+        unsafe_offset=base + WideNode.META
+    ] = meta
     wide_nodes[unsafe_offset=base + WideNode.PAD] = 0.0
 
 
@@ -147,7 +152,6 @@ def _intersect_wide_node[
         meta[lane] = wide_nodes.unsafe_bitcast[UInt32]()[
             unsafe_offset=base + WideNode.META
         ]
-
     var bounds_hit = intersect_ray_aabb_rcp(
         ray.origin[width](),
         ray.rcp_direction[width](),

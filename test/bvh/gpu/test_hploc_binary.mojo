@@ -24,6 +24,12 @@ from bajo.bvh.host_utils import triangle_bounds
 from bajo.core import AABB, Frame, Point3f32
 
 
+@fieldwise_init
+struct _TestBinaryBuild:
+    var binary: GpuBinaryBoundsBvh
+    var workspace: GpuBinaryBuildWorkspace
+
+
 def _identity_ids(count: Int) -> List[UInt32]:
     return [UInt32(i) for i in range(count)]
 
@@ -100,10 +106,13 @@ def _reference_root_hash(reference: HplocReferenceBvh) -> UInt64:
 
 
 def _assert_binary_matches_reference(
-    binary: GpuBinaryBoundsBvh,
+    build: _TestBinaryBuild,
     reference: HplocReferenceBvh,
 ) raises:
-    var validation = validate_binary_bvh(binary, binary.root_bounds())
+    ref binary = build.binary
+    var validation = validate_binary_bvh(
+        binary, build.workspace, binary.root_bounds()
+    )
     assert_true(validation.sorted_ok)
     assert_true(validation.values_ok)
     assert_true(validation.topology_ok)
@@ -239,7 +248,7 @@ def _make_triangles(count: Int) -> List[AABB[Frame.WORLD]]:
 def _build_hploc_binary(
     mut ctx: DeviceContext,
     bounds: List[AABB[Frame.WORLD]],
-) raises -> GpuBinaryBoundsBvh:
+) raises -> _TestBinaryBuild:
     var flat = _flatten_bounds(bounds)
     var payloads = _identity_ids(len(bounds))
     var workspace = GpuBinaryBuildWorkspace(ctx, len(bounds))
@@ -247,16 +256,17 @@ def _build_hploc_binary(
         ctx, upload_list(ctx, flat), upload_list(ctx, payloads), workspace
     )
     _ = build_binary_bvh[GpuBvhBuildMethod.HPLOC](ctx, binary, workspace)
-    return binary^
+    return _TestBinaryBuild(binary^, workspace^)
 
 
 def _reference_from_binary(
-    binary: GpuBinaryBoundsBvh,
+    build: _TestBinaryBuild,
     bounds: List[AABB[Frame.WORLD]],
 ) raises -> HplocReferenceBvh:
+    ref binary = build.binary
     var codes = List[UInt32](capacity=binary.leaf_count)
     var ids = List[UInt32](capacity=binary.leaf_count)
-    with binary.keys.map_to_host() as host_codes:
+    with build.workspace.topology.value().morton_keys.map_to_host() as host_codes:
         for i in range(binary.leaf_count):
             codes.append(host_codes[i])
     with binary.leaf_ids.map_to_host() as host_ids:
@@ -274,17 +284,17 @@ def test_hploc_binary_layout_one_leaf() raises:
         )
     ]
     with DeviceContext() as ctx:
-        var binary = _build_hploc_binary(ctx, bounds)
-        var reference = _reference_from_binary(binary, bounds)
-        _assert_binary_matches_reference(binary, reference)
+        var build = _build_hploc_binary(ctx, bounds)
+        var reference = _reference_from_binary(build, bounds)
+        _assert_binary_matches_reference(build, reference)
 
 
 def test_hploc_binary_layout_cross_block_matches_reference() raises:
     var bounds = _make_triangles(257)
     with DeviceContext() as ctx:
-        var binary = _build_hploc_binary(ctx, bounds)
-        var reference = _reference_from_binary(binary, bounds)
-        _assert_binary_matches_reference(binary, reference)
+        var build = _build_hploc_binary(ctx, bounds)
+        var reference = _reference_from_binary(build, bounds)
+        _assert_binary_matches_reference(build, reference)
 
 
 def test_hploc_binary_selector_default_remains_lbvh_and_quality_improves() raises:
@@ -306,12 +316,14 @@ def test_hploc_binary_selector_default_remains_lbvh_and_quality_improves() raise
         )
         _ = build_binary_bvh(ctx, lbvh, workspace)
         ctx.synchronize()
-        var validation = validate_binary_bvh(lbvh, lbvh.root_bounds())
+        var validation = validate_binary_bvh(
+            lbvh, workspace, lbvh.root_bounds()
+        )
         assert_true(validation.sorted_ok)
         assert_true(validation.topology_ok)
         assert_true(validation.bounds_ok)
         assert_true(
-            measure_binary_bvh_quality(hploc).quality
+            measure_binary_bvh_quality(hploc.binary).quality
             <= measure_binary_bvh_quality(lbvh).quality + 1.0e-5
         )
 

@@ -1,7 +1,7 @@
 from max.gpu.host import DeviceContext, DeviceBuffer
 
 from bajo.bvh.camera import Camera
-from bajo.core import Vec3f32, Point3f32, Frame
+from bajo.core import Vec3f32, Point3f32, Frame, Rayf32
 from bajo.bvh.types import Hit
 from bajo.bvh.constants import f32_max
 
@@ -121,6 +121,35 @@ def upload_vertices[
         flat.append(v.x)
         flat.append(v.y)
         flat.append(v.z)
+    return upload_list(ctx, flat)
+
+
+def upload_rays[
+    frame: Frame
+](
+    mut ctx: DeviceContext,
+    rays: List[Rayf32[frame]],
+) raises -> DeviceBuffer[
+    DType.float32
+]:
+    """Upload rays in the field-major, warp-coalesced tracing ABI."""
+    var flat = List[Float32](capacity=len(rays) * Rayf32.STRIDE)
+    for ray in rays:
+        flat.append(ray.o.x)
+    for ray in rays:
+        flat.append(ray.o.y)
+    for ray in rays:
+        flat.append(ray.o.z)
+    for ray in rays:
+        flat.append(ray.t_min)
+    for ray in rays:
+        flat.append(ray.d.x)
+    for ray in rays:
+        flat.append(ray.d.y)
+    for ray in rays:
+        flat.append(ray.d.z)
+    for ray in rays:
+        flat.append(ray.t_max)
     return upload_list(ctx, flat)
 
 

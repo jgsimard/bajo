@@ -1,28 +1,29 @@
-from std.math import ceildiv, max, min
+from std.math import ceildiv, min
 from max.gpu.host import DeviceBuffer, DeviceContext
 from std.gpu import global_idx
 
 from bajo.core import AABB, Affine3f32, Frame, Rayf32
 from bajo.bvh.constants import (
     TRACE,
-    GPU_STACK_SIZE,
     EMPTY_LANE,
-    f32_max,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
 from bajo.bvh.types import Hit, Instance, BlasSet
 from bajo.bvh.gpu.bounds_bvh import build_bounds_bvh
-from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvh, _intersect_wide_node
+from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvh
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.gpu.camera_launch import (
     validate_camera_launch,
     _camera_ray,
     _store_camera_hit,
 )
-from bajo.bvh.gpu.wide_meta import _wide_meta_count, _wide_meta_data
 from bajo.bvh.gpu.sphere_bvh import _intersect_sphere_leaf
 from bajo.bvh.gpu.triangle_bvh import _intersect_triangle_leaf
-from bajo.bvh.gpu.trace import GpuLeafFn, trace_bounds_bvh
+from bajo.bvh.gpu.trace import (
+    GpuLeafFn,
+    trace_bounds_bvh,
+    trace_bounds_bvh_state,
+)
 from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list
 
 
@@ -53,6 +54,20 @@ def _flatten_instance_blas_indices(
 ) -> List[UInt32]:
     debug_assert["safe", _use_compiler_assume=True](len(instances) > 0)
     return [instance.blas_idx for instance in instances]
+
+
+@fieldwise_init
+struct GpuTlasLeafState(TrivialRegisterPassable):
+    """Explicit state consumed by the shared BVH traversal loop."""
+
+    var leaf_instances: Pointer[UInt32, ImmUntrackedOrigin]
+    var inst_transform: Pointer[Float32, ImmUntrackedOrigin]
+    var inst_inv_transform: Pointer[Float32, ImmUntrackedOrigin]
+    var inst_blas_indices: Pointer[UInt32, ImmUntrackedOrigin]
+    var blas_descs: Pointer[UInt32, ImmUntrackedOrigin]
+    var blas_wide_nodes: Pointer[Float32, ImmUntrackedOrigin]
+    var blas_leaves: Pointer[Float32, ImmUntrackedOrigin]
+    var instance_count: Int
 
 
 @always_inline
@@ -148,6 +163,42 @@ def _intersect_tlas_instance_block[
     return hit_any
 
 
+@always_inline
+def _intersect_tlas_leaf_state[
+    tlas_leaf_width: SIMDLength,
+    blas_node_width: SIMDLength,
+    blas_leaf_width: SIMDLength,
+    mode: TRACE,
+    blas_leaf_fn: GpuLeafFn[Frame.LOCAL],
+](
+    state: GpuTlasLeafState,
+    leaf_block_idx: UInt32,
+    item_count: UInt32,
+    ray: Rayf32[Frame.WORLD],
+    mut hit: Hit[Frame.WORLD],
+) -> Bool:
+    return _intersect_tlas_instance_block[
+        tlas_leaf_width,
+        blas_node_width,
+        blas_leaf_width,
+        mode,
+        blas_leaf_fn,
+    ](
+        state.leaf_instances,
+        state.inst_transform,
+        state.inst_inv_transform,
+        state.inst_blas_indices,
+        state.blas_descs,
+        state.blas_wide_nodes,
+        state.blas_leaves,
+        state.instance_count,
+        leaf_block_idx,
+        item_count,
+        ray,
+        hit,
+    )
+
+
 def _trace_tlas_ray[
     tlas_node_width: SIMDLength,
     tlas_leaf_width: SIMDLength,
@@ -168,100 +219,29 @@ def _trace_tlas_ray[
     tlas_root_idx: UInt32,
     ray: Rayf32[Frame.WORLD],
 ) -> Hit[Frame.WORLD]:
-    var hit = Hit[Frame.WORLD].miss(ray.t_max)
-
-    var stack = Array[UInt32, GPU_STACK_SIZE](uninitialized=True)
-    var stack_ptr = 0
-    var current = tlas_root_idx
-
-    while True:
-        var node_hit = _intersect_wide_node[Frame.WORLD, tlas_node_width](
-            tlas_wide_nodes,
-            current,
-            ray,
-            hit.t,
-        )
-        var bounds_hit = node_hit.bounds_hit
-
-        var child_valid = Array[Bool, tlas_node_width](fill=False)
-        var child_data = Array[UInt32, tlas_node_width](fill=0)
-        var child_t = Array[Float32, tlas_node_width](fill=0.0)
-
-        comptime for node_lane in range(tlas_node_width):
-            var meta = node_hit.meta[node_lane]
-            var count = _wide_meta_count(meta)
-
-            if count != EMPTY_LANE and bounds_hit.mask[node_lane]:
-                var data = _wide_meta_data(meta)
-
-                if count == 0:
-                    child_valid[node_lane] = True
-                    child_data[node_lane] = data
-                    child_t[node_lane] = bounds_hit.t[node_lane]
-                else:
-                    var leaf_hit = _intersect_tlas_instance_block[
-                        tlas_leaf_width,
-                        blas_node_width,
-                        blas_leaf_width,
-                        mode,
-                        blas_leaf_fn,
-                    ](
-                        tlas_leaf_instances,
-                        inst_transform,
-                        inst_inv_transform,
-                        inst_blas_indices,
-                        blas_descs,
-                        blas_wide_nodes,
-                        blas_leaves,
-                        instance_count,
-                        data,
-                        count,
-                        ray,
-                        hit,
-                    )
-
-                    comptime if mode == TRACE.ANY_HIT:
-                        if leaf_hit:
-                            return hit
-
-        # Keep the nearest child as the direct continuation. Only deferred
-        # siblings consume stack entries.
-        var nearest_lane = -1
-        var nearest_t = f32_max
-        comptime for lane in range(tlas_node_width):
-            if child_valid[lane] and child_t[lane] < nearest_t:
-                nearest_lane = lane
-                nearest_t = child_t[lane]
-
-        comptime for lane in range(tlas_node_width):
-            if child_valid[lane] and lane != nearest_lane:
-                comptime if mode != TRACE.ANY_HIT:
-                    if child_t[lane] > hit.t:
-                        continue
-
-                debug_assert["safe", _use_compiler_assume=True](
-                    stack_ptr < GPU_STACK_SIZE,
-                    "GPU TLAS traversal stack overflow",
-                )
-                stack[stack_ptr] = child_data[lane]
-                stack_ptr += 1
-
-        if nearest_lane != -1:
-            comptime if mode != TRACE.ANY_HIT:
-                if nearest_t > hit.t:
-                    nearest_lane = -1
-
-            if nearest_lane != -1:
-                current = child_data[nearest_lane]
-                continue
-
-        if stack_ptr == 0:
-            break
-
-        stack_ptr -= 1
-        current = stack[stack_ptr]
-
-    return hit
+    var leaf_state = GpuTlasLeafState(
+        tlas_leaf_instances.unsafe_origin_cast[ImmUntrackedOrigin](),
+        inst_transform.unsafe_origin_cast[ImmUntrackedOrigin](),
+        inst_inv_transform.unsafe_origin_cast[ImmUntrackedOrigin](),
+        inst_blas_indices.unsafe_origin_cast[ImmUntrackedOrigin](),
+        blas_descs.unsafe_origin_cast[ImmUntrackedOrigin](),
+        blas_wide_nodes.unsafe_origin_cast[ImmUntrackedOrigin](),
+        blas_leaves.unsafe_origin_cast[ImmUntrackedOrigin](),
+        instance_count,
+    )
+    return trace_bounds_bvh_state[
+        Frame.WORLD,
+        tlas_node_width,
+        mode,
+        GpuTlasLeafState,
+        _intersect_tlas_leaf_state[
+            tlas_leaf_width,
+            blas_node_width,
+            blas_leaf_width,
+            mode,
+            blas_leaf_fn,
+        ],
+    ](tlas_wide_nodes, leaf_state, tlas_root_idx, ray)
 
 
 def trace_triangle_tlas_camera_kernel[

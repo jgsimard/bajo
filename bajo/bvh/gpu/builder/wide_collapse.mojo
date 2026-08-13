@@ -2,7 +2,7 @@ from std.atomic import Atomic, Ordering
 from std.gpu import global_idx, thread_idx
 from std.math import ceildiv, max, min
 from std.memory import stack_allocation
-from max.gpu.host import DeviceContext
+from max.gpu.host import DeviceBuffer, DeviceContext
 from max.gpu.memory import AddressSpace
 from max.gpu.sync import barrier
 
@@ -146,6 +146,7 @@ def hploc_literature_wide_single_leaf_kernel[
     leaf_ids: Pointer[UInt32, ImmutAnyOrigin],
     wide_nodes: Pointer[Float32, MutAnyOrigin],
     leaf_block_indices: Pointer[UInt32, MutAnyOrigin],
+    leaf_block_counter: Pointer[UInt32, MutAnyOrigin],
 ):
     if global_idx.x != 0:
         return
@@ -176,6 +177,7 @@ def hploc_literature_wide_single_leaf_kernel[
     leaf_block_indices[unsafe_offset=0] = leaf_payloads[
         unsafe_offset=Int(item_idx)
     ]
+    leaf_block_counter[unsafe_offset=0] = UInt32(1)
 
 
 def hploc_literature_to_wide_kernel[
@@ -461,7 +463,11 @@ def hploc_literature_to_wide_kernel[
                 node_bounds_span,
             )
             _wide_node_store_child[node_width](
-                wide_nodes, out_idx, child_pos, bounds, meta
+                wide_nodes,
+                out_idx,
+                child_pos,
+                bounds,
+                meta,
             )
 
             var child_work_id = work_id
@@ -498,7 +504,100 @@ def hploc_literature_to_wide_kernel[
                 )
 
 
-def collapse_binary_to_wide[
+@fieldwise_init
+struct GpuWideCollapseState:
+    """Owns device work queues until asynchronous wide conversion completes."""
+
+    var source_leaf_count: Int
+    var single_leaf: Bool
+    var index_pairs: DeviceBuffer[DType.uint64]
+    var work_alloc_counter: DeviceBuffer[DType.uint32]
+    var work_group_counter: DeviceBuffer[DType.uint32]
+    var leaf_block_counter: DeviceBuffer[DType.uint32]
+    var wide_node_counter: DeviceBuffer[DType.uint32]
+    var status: DeviceBuffer[DType.uint32]
+
+    def finish_synchronized[
+        node_width: SIMDLength,
+        leaf_width: SIMDLength,
+        max_leaf_size: Int,
+    ](
+        self,
+        mut out: GpuWideBoundsBvh[node_width, leaf_width, max_leaf_size],
+        fat_leaves: Bool,
+    ) raises:
+        """Read completion state after the owning context has synchronized."""
+        if self.single_leaf:
+            out.root_idx = UInt32(0)
+            out.node_count = 1
+            out.leaf_block_count = 1
+            return
+
+        with self.leaf_block_counter.map_to_host() as leaves, self.wide_node_counter.map_to_host() as nodes, self.status.map_to_host() as build_status:
+            if build_status[0] != HPLOC_WIDE_STATUS_OK:
+                raise String(
+                    t"BVH2-to-wide conversion status: {build_status[0]}"
+                )
+            if fat_leaves:
+                if (
+                    Int(leaves[0]) <= 0
+                    or Int(leaves[0]) > self.source_leaf_count
+                ):
+                    raise "fat-leaf conversion emitted an invalid leaf count"
+            elif Int(leaves[0]) != self.source_leaf_count:
+                raise "§3.4 conversion did not emit one leaf per primitive"
+            out.root_idx = UInt32(0)
+            out.node_count = Int(nodes[0])
+            out.leaf_block_count = Int(leaves[0])
+
+    def wait[
+        node_width: SIMDLength,
+        leaf_width: SIMDLength,
+        max_leaf_size: Int,
+    ](
+        self,
+        ctx: DeviceContext,
+        mut out: GpuWideBoundsBvh[node_width, leaf_width, max_leaf_size],
+        fat_leaves: Bool,
+    ) raises:
+        ctx.synchronize()
+        self.finish_synchronized(out, fat_leaves)
+
+
+struct GpuWideCollapseWorkspace:
+    """Reusable queues and counters for one fixed binary leaf capacity."""
+
+    var leaf_capacity: Int
+    var index_pairs: DeviceBuffer[DType.uint64]
+    var work_alloc_counter: DeviceBuffer[DType.uint32]
+    var work_group_counter: DeviceBuffer[DType.uint32]
+    var wide_node_counter: DeviceBuffer[DType.uint32]
+    var status: DeviceBuffer[DType.uint32]
+
+    def __init__(out self, mut ctx: DeviceContext, leaf_capacity: Int) raises:
+        debug_assert["safe", _use_compiler_assume=True](
+            leaf_capacity > 0, "wide workspace capacity must be positive"
+        )
+        self.leaf_capacity = leaf_capacity
+        self.index_pairs = ctx.enqueue_create_buffer[DType.uint64](
+            leaf_capacity
+        )
+        self.work_alloc_counter = ctx.enqueue_create_buffer[DType.uint32](1)
+        self.work_group_counter = ctx.enqueue_create_buffer[DType.uint32](1)
+        self.wide_node_counter = ctx.enqueue_create_buffer[DType.uint32](1)
+        self.status = ctx.enqueue_create_buffer[DType.uint32](1)
+
+    def __init__(out self, other: Self):
+        """Create a shared-storage lease that keeps arena buffers alive."""
+        self.leaf_capacity = other.leaf_capacity
+        self.index_pairs = other.index_pairs.copy()
+        self.work_alloc_counter = other.work_alloc_counter.copy()
+        self.work_group_counter = other.work_group_counter.copy()
+        self.wide_node_counter = other.wide_node_counter.copy()
+        self.status = other.status.copy()
+
+
+def enqueue_collapse_binary_to_wide_with_workspace[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
     max_leaf_size: Int,
@@ -507,13 +606,26 @@ def collapse_binary_to_wide[
     mut ctx: DeviceContext,
     binary: GpuBinaryBoundsBvh,
     mut out: GpuWideBoundsBvh[node_width, leaf_width, max_leaf_size],
-) raises:
+    workspace: GpuWideCollapseWorkspace,
+) raises -> GpuWideCollapseState:
     """Convert any supported BVH2 using the paper's §3.4 GPU method.
 
     The optional triangle path follows HIPRT by retaining binary subtrees of
     at most four primitives as packed leaves. The default remains the paper's
     one-primitive-per-leaf baseline.
     """
+
+    debug_assert["safe", _use_compiler_assume=True](
+        workspace.leaf_capacity >= binary.leaf_count,
+        "wide workspace is smaller than the input",
+    )
+    var slot_count = binary.leaf_count
+    var index_pairs = workspace.index_pairs.copy()
+    var work_alloc_counter = workspace.work_alloc_counter.copy()
+    var work_group_counter = workspace.work_group_counter.copy()
+    var leaf_block_counter = out.leaf_block_count_device.copy()
+    var wide_node_counter = workspace.wide_node_counter.copy()
+    var status = workspace.status.copy()
 
     if binary.leaf_count == 1:
         ctx.enqueue_function[
@@ -524,23 +636,22 @@ def collapse_binary_to_wide[
             binary.leaf_ids,
             out.wide_nodes,
             out.leaf_block_indices,
+            leaf_block_counter,
             grid_dim=1,
             block_dim=1,
         )
-        ctx.synchronize()
-        out.root_idx = UInt32(0)
-        out.node_count = 1
-        out.leaf_block_count = 1
-        return
+        return GpuWideCollapseState(
+            slot_count,
+            True,
+            index_pairs^,
+            work_alloc_counter^,
+            work_group_counter^,
+            leaf_block_counter^,
+            wide_node_counter^,
+            status^,
+        )
 
-    var slot_count = binary.leaf_count
     var blocks = ceildiv(slot_count, GPU_BOUNDS_BVH_BLOCK_SIZE)
-    var index_pairs = ctx.enqueue_create_buffer[DType.uint64](slot_count)
-    var work_alloc_counter = ctx.enqueue_create_buffer[DType.uint32](1)
-    var work_group_counter = ctx.enqueue_create_buffer[DType.uint32](1)
-    var leaf_block_counter = ctx.enqueue_create_buffer[DType.uint32](1)
-    var wide_node_counter = ctx.enqueue_create_buffer[DType.uint32](1)
-    var status = ctx.enqueue_create_buffer[DType.uint32](1)
 
     ctx.enqueue_function[init_hploc_literature_wide_kernel](
         binary.node_meta,
@@ -584,17 +695,47 @@ def collapse_binary_to_wide[
         grid_dim=blocks,
         block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
     )
-    ctx.synchronize()
+    return GpuWideCollapseState(
+        slot_count,
+        False,
+        index_pairs^,
+        work_alloc_counter^,
+        work_group_counter^,
+        leaf_block_counter^,
+        wide_node_counter^,
+        status^,
+    )
 
-    with leaf_block_counter.map_to_host() as leaves, wide_node_counter.map_to_host() as nodes, status.map_to_host() as build_status:
-        if build_status[0] != HPLOC_WIDE_STATUS_OK:
-            raise String(t"BVH2-to-wide conversion status: {build_status[0]}")
-        comptime if fat_leaves:
-            if Int(leaves[0]) <= 0 or Int(leaves[0]) > binary.leaf_count:
-                raise "fat-leaf conversion emitted an invalid leaf count"
-        else:
-            if Int(leaves[0]) != binary.leaf_count:
-                raise "§3.4 conversion did not emit one leaf per primitive"
-        out.root_idx = UInt32(0)
-        out.node_count = Int(nodes[0])
-        out.leaf_block_count = Int(leaves[0])
+
+def enqueue_collapse_binary_to_wide[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+    max_leaf_size: Int,
+    fat_leaves: Bool = False,
+](
+    mut ctx: DeviceContext,
+    binary: GpuBinaryBoundsBvh,
+    mut out: GpuWideBoundsBvh[node_width, leaf_width, max_leaf_size],
+) raises -> GpuWideCollapseState:
+    """Queue wide conversion with an internally allocated workspace."""
+    var workspace = GpuWideCollapseWorkspace(ctx, binary.leaf_count)
+    return enqueue_collapse_binary_to_wide_with_workspace[
+        node_width, leaf_width, max_leaf_size, fat_leaves
+    ](ctx, binary, out, workspace)
+
+
+def collapse_binary_to_wide[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+    max_leaf_size: Int,
+    fat_leaves: Bool = False,
+](
+    mut ctx: DeviceContext,
+    binary: GpuBinaryBoundsBvh,
+    mut out: GpuWideBoundsBvh[node_width, leaf_width, max_leaf_size],
+) raises:
+    """Synchronous compatibility wrapper around queued wide conversion."""
+    var pending = enqueue_collapse_binary_to_wide[
+        node_width, leaf_width, max_leaf_size, fat_leaves
+    ](ctx, binary, out)
+    pending.wait(ctx, out, fat_leaves)

@@ -136,10 +136,10 @@ def _run_case[
     var quality_tree = GpuWideBoundsBvh[node_width, leaf_width, max_leaf_size](
         ctx, triangle_count
     )
-    var quality_binary = build_bounds_bvh_for_diagnostics[
+    var quality_diagnostic = build_bounds_bvh_for_diagnostics[
         node_width, leaf_width, max_leaf_size, method, True
     ](ctx, quality_tree, d_leaf_bounds.copy(), d_payloads.copy())
-    var binary_quality = measure_binary_bvh_quality(quality_binary)
+    var binary_quality = measure_binary_bvh_quality(quality_diagnostic.binary)
     var wide_quality = measure_wide_bvh_quality(quality_tree)
 
     var bvh = build_triangle_bvh[Frame.WORLD, node_width, leaf_width, method](

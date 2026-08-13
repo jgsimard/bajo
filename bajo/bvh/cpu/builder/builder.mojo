@@ -3,7 +3,7 @@ from std.atomic import Atomic, Ordering
 from std.sys import num_performance_cores
 
 from bajo.core import AABB, vmin, vmax, longest_axis, Frame
-from bajo.sort.cpu import nth_element
+from bajo.sort.cpu.nth_element import nth_element
 
 from .sah import (
     BoundsPartitionResult,

@@ -11,12 +11,15 @@ from bajo.bvh.constants import (
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
 from bajo.bvh.types import Hit, Instance, BlasSet
-from bajo.bvh.gpu.bounds_bvh import (
-    GpuBoundsBvh,
-    _intersect_wide_node,
+from bajo.bvh.gpu.bounds_bvh import build_bounds_bvh
+from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvh, _intersect_wide_node
+from bajo.bvh.gpu.builder import GpuBvhBuildMethod
+from bajo.bvh.gpu.camera_launch import (
+    validate_camera_launch,
+    _camera_ray,
+    _store_camera_hit,
 )
 from bajo.bvh.gpu.wide_meta import _wide_meta_count, _wide_meta_data
-from bajo.bvh.camera import Camera
 from bajo.bvh.gpu.sphere_bvh import _intersect_sphere_leaf
 from bajo.bvh.gpu.triangle_bvh import _intersect_triangle_leaf
 from bajo.bvh.gpu.trace import trace_bounds_bvh
@@ -25,6 +28,7 @@ from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list
 
 comptime BlasLeafFn[frame: Frame] = def(
     Pointer[mut=False, Float32, _],
+    UInt32,
     UInt32,
     Rayf32[frame],
     mut Hit[frame],
@@ -36,9 +40,7 @@ def _flatten_instance_inv_transforms(
 ) -> List[Float32]:
     debug_assert["safe", _use_compiler_assume=True](len(instances) > 0)
 
-    var out = List[Float32](
-        capacity=len(instances) * Affine3f32[Frame.WORLD, Frame.LOCAL].STRIDE
-    )
+    var out = List[Float32](capacity=len(instances) * Affine3f32.STRIDE)
     for instance in instances:
         out.extend(instance.inv_transform.flatten())
     return out^
@@ -49,9 +51,7 @@ def _flatten_instance_transforms(
 ) -> List[Float32]:
     debug_assert["safe", _use_compiler_assume=True](len(instances) > 0)
 
-    var out = List[Float32](
-        capacity=len(instances) * Affine3f32[Frame.LOCAL, Frame.WORLD].STRIDE
-    )
+    var out = List[Float32](capacity=len(instances) * Affine3f32.STRIDE)
     for instance in instances:
         out.extend(instance.transform.flatten())
     return out^
@@ -303,18 +303,14 @@ def trace_triangle_tlas_camera_kernel[
     if ray_idx >= ray_count_int:
         return
 
-    var pixels_per_view = width_int * height_int
-    var view_idx = ray_idx / pixels_per_view
-    var local_idx = ray_idx - view_idx * pixels_per_view
-    var px_i = local_idx % width_int
-    var py_i = local_idx / width_int
-
-    var camera_params_span = Span(
-        unsafe_ptr=camera_params,
-        length=ceildiv(ray_count_int, pixels_per_view) * Camera.STRIDE,
+    var ray = _camera_ray(
+        camera_params,
+        ray_count_int,
+        ray_idx,
+        width_int,
+        height_int,
+        inv_height,
     )
-    var camera = Camera(camera_params_span, view_idx * Camera.STRIDE)
-    var ray = camera.make_ray_raster(px_i, py_i, width_int, inv_height)
 
     var hit = _trace_tlas_ray[
         tlas_node_width,
@@ -341,8 +337,7 @@ def trace_triangle_tlas_camera_kernel[
         tlas_root_idx,
         ray,
     )
-    var hits_span = Span(unsafe_ptr=hits, length=ray_count_int * Hit.STRIDE)
-    hit._store_unchecked(hits_span, ray_idx)
+    _store_camera_hit(hit, hits, ray_count_int, ray_idx)
 
 
 def trace_sphere_tlas_camera_kernel[
@@ -375,18 +370,14 @@ def trace_sphere_tlas_camera_kernel[
     if ray_idx >= ray_count_int:
         return
 
-    var pixels_per_view = width_int * height_int
-    var view_idx = ray_idx / pixels_per_view
-    var local_idx = ray_idx - view_idx * pixels_per_view
-    var px_i = local_idx % width_int
-    var py_i = local_idx / width_int
-
-    var camera_params_span = Span(
-        unsafe_ptr=camera_params,
-        length=ceildiv(ray_count_int, pixels_per_view) * Camera.STRIDE,
+    var ray = _camera_ray(
+        camera_params,
+        ray_count_int,
+        ray_idx,
+        width_int,
+        height_int,
+        inv_height,
     )
-    var camera = Camera(camera_params_span, view_idx * Camera.STRIDE)
-    var ray = camera.make_ray_raster(px_i, py_i, width_int, inv_height)
 
     var hit = _trace_tlas_ray[
         tlas_node_width,
@@ -412,8 +403,7 @@ def trace_sphere_tlas_camera_kernel[
         tlas_root_idx,
         ray,
     )
-    var hits_span = Span(unsafe_ptr=hits, length=ray_count_int * Hit.STRIDE)
-    hit._store_unchecked(hits_span, ray_idx)
+    _store_camera_hit(hit, hits, ray_count_int, ray_idx)
 
 
 struct GpuTypedTlasCore[
@@ -427,59 +417,111 @@ struct GpuTypedTlasCore[
     instance id.
     """
 
-    var tree: GpuBoundsBvh[Self.node_width, Self.leaf_width]
+    var tree: GpuWideBoundsBvh[Self.node_width, Self.leaf_width]
     var inst_transform: DeviceBuffer[DType.float32]
     var inst_inv_transform: DeviceBuffer[DType.float32]
     var inst_blas_indices: DeviceBuffer[DType.uint32]
     var inst_count: Int
-    var timings: GpuBuildTimings
 
     def __init__(
         out self,
-        mut ctx: DeviceContext,
-        instances: List[Instance],
-        measure_build: Bool = False,
-    ) raises:
-        self.inst_count = len(instances)
-        debug_assert["safe", _use_compiler_assume=True](
-            self.inst_count > 0, "passed empty input."
-        )
+        var tree: GpuWideBoundsBvh[Self.node_width, Self.leaf_width],
+        var inst_transform: DeviceBuffer[DType.float32],
+        var inst_inv_transform: DeviceBuffer[DType.float32],
+        var inst_blas_indices: DeviceBuffer[DType.uint32],
+        inst_count: Int,
+    ):
+        self.tree = tree^
+        self.inst_transform = inst_transform^
+        self.inst_inv_transform = inst_inv_transform^
+        self.inst_blas_indices = inst_blas_indices^
+        self.inst_count = inst_count
 
-        var leaf_bounds = List[Float32](
-            capacity=self.inst_count * AABB[Frame.WORLD].STRIDE
-        )
-        var payloads = List[UInt32](capacity=self.inst_count)
-        for i, inst in enumerate(instances):
-            leaf_bounds.append(inst.bounds._min.x)
-            leaf_bounds.append(inst.bounds._min.y)
-            leaf_bounds.append(inst.bounds._min.z)
-            leaf_bounds.append(inst.bounds._max.x)
-            leaf_bounds.append(inst.bounds._max.y)
-            leaf_bounds.append(inst.bounds._max.z)
-            payloads.append(UInt32(i))
 
-        var d_leaf_bounds = upload_list(ctx, leaf_bounds)
-        var d_payloads = upload_list(ctx, payloads)
+def build_typed_tlas_core[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength = node_width,
+](
+    mut ctx: DeviceContext,
+    instances: List[Instance],
+) raises -> GpuTypedTlasCore[node_width, leaf_width]:
+    var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
+    return _build_typed_tlas_core[node_width, leaf_width](
+        ctx, instances, timings, False
+    )
 
-        self.tree = GpuBoundsBvh[Self.node_width, Self.leaf_width](
-            ctx, self.inst_count
-        )
-        self.timings = self.tree.build(
-            ctx,
-            d_leaf_bounds,
-            d_payloads,
-            measure_build=measure_build,
-        )
 
-        self.inst_transform = upload_list(
-            ctx, _flatten_instance_transforms(instances)
-        )
-        self.inst_inv_transform = upload_list(
-            ctx, _flatten_instance_inv_transforms(instances)
-        )
-        self.inst_blas_indices = upload_list(
-            ctx, _flatten_instance_blas_indices(instances)
-        )
+def build_typed_tlas_core_measured[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength = node_width,
+](
+    mut ctx: DeviceContext,
+    instances: List[Instance],
+    mut timings: GpuBuildTimings,
+) raises -> GpuTypedTlasCore[node_width, leaf_width]:
+    return _build_typed_tlas_core[node_width, leaf_width](
+        ctx, instances, timings, True
+    )
+
+
+def _build_typed_tlas_core[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+](
+    mut ctx: DeviceContext,
+    instances: List[Instance],
+    mut timings: GpuBuildTimings,
+    measure_build: Bool,
+) raises -> GpuTypedTlasCore[node_width, leaf_width]:
+    var inst_count = len(instances)
+    debug_assert["safe", _use_compiler_assume=True](
+        inst_count > 0, "passed empty input."
+    )
+    var leaf_bounds = List[Float32](
+        capacity=inst_count * AABB[Frame.WORLD].STRIDE
+    )
+    var payloads = List[UInt32](capacity=inst_count)
+    for i, inst in enumerate(instances):
+        leaf_bounds.append(inst.bounds._min.x)
+        leaf_bounds.append(inst.bounds._min.y)
+        leaf_bounds.append(inst.bounds._min.z)
+        leaf_bounds.append(inst.bounds._max.x)
+        leaf_bounds.append(inst.bounds._max.y)
+        leaf_bounds.append(inst.bounds._max.z)
+        payloads.append(UInt32(i))
+
+    var d_leaf_bounds = upload_list(ctx, leaf_bounds)
+    var d_payloads = upload_list(ctx, payloads)
+    var tree = GpuWideBoundsBvh[node_width, leaf_width](ctx, inst_count)
+    timings = build_bounds_bvh[
+        node_width,
+        leaf_width,
+        Int(leaf_width),
+        GpuBvhBuildMethod.LBVH,
+        True,
+    ](
+        ctx,
+        tree,
+        d_leaf_bounds,
+        d_payloads,
+        measure_build=measure_build,
+    )
+    var inst_transform = upload_list(
+        ctx, _flatten_instance_transforms(instances)
+    )
+    var inst_inv_transform = upload_list(
+        ctx, _flatten_instance_inv_transforms(instances)
+    )
+    var inst_blas_indices = upload_list(
+        ctx, _flatten_instance_blas_indices(instances)
+    )
+    return GpuTypedTlasCore[node_width, leaf_width](
+        tree^,
+        inst_transform^,
+        inst_inv_transform^,
+        inst_blas_indices^,
+        inst_count,
+    )
 
 
 struct GpuTriangleTlas[
@@ -494,17 +536,9 @@ struct GpuTriangleTlas[
 
     def __init__(
         out self,
-        mut ctx: DeviceContext,
-        instances: List[Instance],
-        measure_build: Bool = False,
-    ) raises:
-        self.core = GpuTypedTlasCore[
-            Self.tlas_node_width, Self.tlas_leaf_width
-        ](
-            ctx,
-            instances,
-            measure_build=measure_build,
-        )
+        var core: GpuTypedTlasCore[Self.tlas_node_width, Self.tlas_leaf_width],
+    ):
+        self.core = core^
 
     def launch_camera(
         self,
@@ -516,19 +550,8 @@ struct GpuTriangleTlas[
         cwidth: Int,
         cheight: Int,
     ) raises:
-        debug_assert["safe", _use_compiler_assume=True](
-            ray_count > 0 and cwidth > 0 and cheight > 0,
-            "camera launch dimensions must be positive",
-        )
-        var pixels_per_view = cwidth * cheight
-        debug_assert["safe", _use_compiler_assume=True](
-            len(d_camera_params)
-            >= ceildiv(ray_count, pixels_per_view) * Camera.STRIDE,
-            "camera parameter buffer is too short",
-        )
-        debug_assert["safe", _use_compiler_assume=True](
-            len(d_hits) >= ray_count * Hit.STRIDE,
-            "hit output buffer is too short",
+        validate_camera_launch(
+            d_camera_params, d_hits, ray_count, cwidth, cheight
         )
         ctx.enqueue_function[
             trace_triangle_tlas_camera_kernel[
@@ -571,17 +594,9 @@ struct GpuSphereTlas[
 
     def __init__(
         out self,
-        mut ctx: DeviceContext,
-        instances: List[Instance],
-        measure_build: Bool = False,
-    ) raises:
-        self.core = GpuTypedTlasCore[
-            Self.tlas_node_width, Self.tlas_leaf_width
-        ](
-            ctx,
-            instances,
-            measure_build=measure_build,
-        )
+        var core: GpuTypedTlasCore[Self.tlas_node_width, Self.tlas_leaf_width],
+    ):
+        self.core = core^
 
     def launch_camera(
         self,
@@ -593,19 +608,8 @@ struct GpuSphereTlas[
         cwidth: Int,
         cheight: Int,
     ) raises:
-        debug_assert["safe", _use_compiler_assume=True](
-            ray_count > 0 and cwidth > 0 and cheight > 0,
-            "camera launch dimensions must be positive",
-        )
-        var pixels_per_view = cwidth * cheight
-        debug_assert["safe", _use_compiler_assume=True](
-            len(d_camera_params)
-            >= ceildiv(ray_count, pixels_per_view) * Camera.STRIDE,
-            "camera parameter buffer is too short",
-        )
-        debug_assert["safe", _use_compiler_assume=True](
-            len(d_hits) >= ray_count * Hit.STRIDE,
-            "hit output buffer is too short",
+        validate_camera_launch(
+            d_camera_params, d_hits, ray_count, cwidth, cheight
         )
         ctx.enqueue_function[
             trace_sphere_tlas_camera_kernel[
@@ -634,3 +638,81 @@ struct GpuSphereTlas[
             grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
+
+
+def build_triangle_tlas[
+    tlas_node_width: SIMDLength,
+    blas_node_width: SIMDLength,
+    tlas_leaf_width: SIMDLength = tlas_node_width,
+    blas_leaf_width: SIMDLength = blas_node_width,
+](
+    mut ctx: DeviceContext,
+    instances: List[Instance],
+) raises -> GpuTriangleTlas[
+    tlas_node_width, blas_node_width, tlas_leaf_width, blas_leaf_width
+]:
+    var core = build_typed_tlas_core[tlas_node_width, tlas_leaf_width](
+        ctx, instances
+    )
+    return GpuTriangleTlas[
+        tlas_node_width, blas_node_width, tlas_leaf_width, blas_leaf_width
+    ](core^)
+
+
+def build_triangle_tlas_measured[
+    tlas_node_width: SIMDLength,
+    blas_node_width: SIMDLength,
+    tlas_leaf_width: SIMDLength = tlas_node_width,
+    blas_leaf_width: SIMDLength = blas_node_width,
+](
+    mut ctx: DeviceContext,
+    instances: List[Instance],
+    mut timings: GpuBuildTimings,
+) raises -> GpuTriangleTlas[
+    tlas_node_width, blas_node_width, tlas_leaf_width, blas_leaf_width
+]:
+    var core = build_typed_tlas_core_measured[tlas_node_width, tlas_leaf_width](
+        ctx, instances, timings
+    )
+    return GpuTriangleTlas[
+        tlas_node_width, blas_node_width, tlas_leaf_width, blas_leaf_width
+    ](core^)
+
+
+def build_sphere_tlas[
+    tlas_node_width: SIMDLength,
+    blas_node_width: SIMDLength,
+    tlas_leaf_width: SIMDLength = tlas_node_width,
+    blas_leaf_width: SIMDLength = blas_node_width,
+](
+    mut ctx: DeviceContext,
+    instances: List[Instance],
+) raises -> GpuSphereTlas[
+    tlas_node_width, blas_node_width, tlas_leaf_width, blas_leaf_width
+]:
+    var core = build_typed_tlas_core[tlas_node_width, tlas_leaf_width](
+        ctx, instances
+    )
+    return GpuSphereTlas[
+        tlas_node_width, blas_node_width, tlas_leaf_width, blas_leaf_width
+    ](core^)
+
+
+def build_sphere_tlas_measured[
+    tlas_node_width: SIMDLength,
+    blas_node_width: SIMDLength,
+    tlas_leaf_width: SIMDLength = tlas_node_width,
+    blas_leaf_width: SIMDLength = blas_node_width,
+](
+    mut ctx: DeviceContext,
+    instances: List[Instance],
+    mut timings: GpuBuildTimings,
+) raises -> GpuSphereTlas[
+    tlas_node_width, blas_node_width, tlas_leaf_width, blas_leaf_width
+]:
+    var core = build_typed_tlas_core_measured[tlas_node_width, tlas_leaf_width](
+        ctx, instances, timings
+    )
+    return GpuSphereTlas[
+        tlas_node_width, blas_node_width, tlas_leaf_width, blas_leaf_width
+    ](core^)

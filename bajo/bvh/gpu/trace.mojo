@@ -1,8 +1,12 @@
-from bajo.bvh.gpu.bounds_bvh import (
-    GpuBoundsBvh,
+from bajo.bvh.gpu.wide_layout import (
+    WideNodeIntersection,
     _intersect_wide_node,
 )
-from bajo.bvh.gpu.wide_meta import _wide_meta_count, _wide_meta_data
+from bajo.bvh.gpu.wide_meta import (
+    _pack_wide_meta,
+    _wide_meta_count,
+    _wide_meta_data,
+)
 from bajo.bvh.constants import (
     GPU_STACK_SIZE,
     f32_max,
@@ -11,6 +15,15 @@ from bajo.bvh.constants import (
 )
 from bajo.bvh.types import Hit
 from bajo.core import Frame, Rayf32
+
+
+@fieldwise_init
+struct GpuTraversalAlgorithm(Equatable):
+    """Compile-time traversal selector, independent of build topology."""
+
+    comptime STANDARD = Self(0)
+    comptime UNIFIED_TASKS = Self(1)
+    var value: Int
 
 
 @fieldwise_init
@@ -53,12 +66,25 @@ struct GpuTraceResult[frame: Frame](TrivialRegisterPassable):
     var stats: GpuTraversalStats
 
 
+def _intersect_trace_node[
+    frame: Frame,
+    width: SIMDLength,
+](
+    wide_nodes: Pointer[mut=False, Float32, _],
+    node_idx: UInt32,
+    ray: Rayf32[frame],
+    t_max: Float32,
+) -> WideNodeIntersection[width]:
+    return _intersect_wide_node[frame, width](wide_nodes, node_idx, ray, t_max)
+
+
 def _trace_bounds_bvh_distance_aware[
     frame: Frame,
     width: SIMDLength,
     mode: TRACE,
     leaf_fn: def(
         Pointer[mut=False, Float32, _],
+        UInt32,
         UInt32,
         Rayf32[frame],
         mut Hit[frame],
@@ -84,7 +110,7 @@ def _trace_bounds_bvh_distance_aware[
         comptime if mode == TRACE.ANY_HIT:
             node_t_max = ray.t_max
 
-        var node_hit = _intersect_wide_node[frame, width](
+        var node_hit = _intersect_trace_node[frame, width](
             wide_nodes, current, ray, node_t_max
         )
         var bounds_hit = node_hit.bounds_hit
@@ -108,7 +134,7 @@ def _trace_bounds_bvh_distance_aware[
                     comptime if collect_stats:
                         stats.leaf_blocks += 1
                         stats.primitive_tests += count
-                    var leaf_hit = leaf_fn(leaves, data, ray, hit)
+                    var leaf_hit = leaf_fn(leaves, data, count, ray, hit)
                     comptime if mode == TRACE.ANY_HIT:
                         if leaf_hit:
                             return GpuTraceResult[frame](
@@ -169,12 +195,132 @@ def _trace_bounds_bvh_distance_aware[
     return GpuTraceResult[frame](hit, stats)
 
 
+def trace_bounds_bvh_unified_closest[
+    frame: Frame,
+    width: SIMDLength,
+    leaf_fn: def(
+        Pointer[mut=False, Float32, _],
+        UInt32,
+        UInt32,
+        Rayf32[frame],
+        mut Hit[frame],
+    ) capturing -> Bool,
+](
+    wide_nodes: Pointer[mut=False, Float32, _],
+    leaves: Pointer[mut=False, Float32, _],
+    root_idx: UInt32,
+    ray: Rayf32[frame],
+) -> Hit[frame]:
+    """Near-first traversal where leaf and internal children are both tasks."""
+    var hit = Hit[frame].miss(ray.t_max)
+    var stack = Array[UInt32, GPU_STACK_SIZE](uninitialized=True)
+    var stack_near = Array[Float32, GPU_STACK_SIZE](uninitialized=True)
+    var stack_ptr = 0
+    var current_meta = _pack_wide_meta(root_idx, UInt32(0))
+    var current_near = Float32(0.0)
+
+    while True:
+        if current_near > hit.t:
+            var found_pending = False
+            while stack_ptr > 0:
+                stack_ptr -= 1
+                if stack_near[stack_ptr] <= hit.t:
+                    current_meta = stack[stack_ptr]
+                    current_near = stack_near[stack_ptr]
+                    found_pending = True
+                    break
+            if not found_pending:
+                break
+
+        var current_count = _wide_meta_count(current_meta)
+        if current_count != 0:
+            _ = leaf_fn(
+                leaves,
+                _wide_meta_data(current_meta),
+                current_count,
+                ray,
+                hit,
+            )
+
+            var found_pending = False
+            while stack_ptr > 0:
+                stack_ptr -= 1
+                if stack_near[stack_ptr] <= hit.t:
+                    current_meta = stack[stack_ptr]
+                    current_near = stack_near[stack_ptr]
+                    found_pending = True
+                    break
+            if not found_pending:
+                break
+            continue
+
+        var node_hit = _intersect_trace_node[frame, width](
+            wide_nodes,
+            _wide_meta_data(current_meta),
+            ray,
+            hit.t,
+        )
+        var child_valid = Array[Bool, width](fill=False)
+        var child_meta = Array[UInt32, width](fill=0)
+        var child_t = Array[Float32, width](fill=0.0)
+
+        comptime for lane in range(width):
+            var meta = node_hit.meta[lane]
+            if (
+                _wide_meta_count(meta) != EMPTY_LANE
+                and node_hit.bounds_hit.mask[lane]
+            ):
+                child_valid[lane] = True
+                child_meta[lane] = meta
+                child_t[lane] = node_hit.bounds_hit.t[lane]
+
+        var nearest_lane = -1
+        var nearest_t = f32_max
+        comptime for lane in range(width):
+            if child_valid[lane] and child_t[lane] < nearest_t:
+                nearest_lane = lane
+                nearest_t = child_t[lane]
+
+        comptime for lane in range(width):
+            if (
+                child_valid[lane]
+                and lane != nearest_lane
+                and child_t[lane] <= hit.t
+            ):
+                debug_assert["safe", _use_compiler_assume=True](
+                    stack_ptr < GPU_STACK_SIZE,
+                    "GPU unified BVH traversal stack overflow",
+                )
+                stack[stack_ptr] = child_meta[lane]
+                stack_near[stack_ptr] = child_t[lane]
+                stack_ptr += 1
+
+        if nearest_lane != -1 and nearest_t <= hit.t:
+            current_meta = child_meta[nearest_lane]
+            current_near = nearest_t
+            continue
+
+        var found_pending = False
+        while stack_ptr > 0:
+            stack_ptr -= 1
+            if stack_near[stack_ptr] <= hit.t:
+                current_meta = stack[stack_ptr]
+                current_near = stack_near[stack_ptr]
+                found_pending = True
+                break
+        if not found_pending:
+            break
+
+    return hit
+
+
 def _trace_bounds_bvh_with_counters[
     frame: Frame,
     width: SIMDLength,
     mode: TRACE,
     leaf_fn: def(
         Pointer[mut=False, Float32, _],
+        UInt32,
         UInt32,
         Rayf32[frame],
         mut Hit[frame],
@@ -208,7 +354,7 @@ def _trace_bounds_bvh_with_counters[
         comptime if mode == TRACE.ANY_HIT:
             node_t_max = ray.t_max
 
-        var node_hit = _intersect_wide_node[frame, width](
+        var node_hit = _intersect_trace_node[frame, width](
             wide_nodes,
             current,
             ray,
@@ -241,6 +387,7 @@ def _trace_bounds_bvh_with_counters[
                         var leaf_hit = leaf_fn(
                             leaves,
                             data,
+                            count,
                             ray,
                             hit,
                         )
@@ -316,6 +463,7 @@ def _trace_bounds_bvh_with_counters[
                         var leaf_hit = leaf_fn(
                             leaves,
                             data,
+                            count,
                             ray,
                             hit,
                         )
@@ -342,6 +490,7 @@ def trace_bounds_bvh[
     leaf_fn: def(
         Pointer[mut=False, Float32, _],
         UInt32,
+        UInt32,
         Rayf32[frame],
         mut Hit[frame],
     ) capturing -> Bool,
@@ -364,6 +513,7 @@ def trace_bounds_bvh_with_stats[
     mode: TRACE,
     leaf_fn: def(
         Pointer[mut=False, Float32, _],
+        UInt32,
         UInt32,
         Rayf32[frame],
         mut Hit[frame],

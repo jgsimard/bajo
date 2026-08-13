@@ -85,13 +85,6 @@ struct GpuBVHValidation(TrivialRegisterPassable):
     var guard: UInt64
 
 
-@fieldwise_init
-struct GpuBuildResult(TrivialRegisterPassable):
-    var static_setup_ns: Int
-    var timings: GpuBuildTimings
-    var validation: GpuBVHValidation
-
-
 def _download_full_hit_checksum(
     ctx: DeviceContext,
     d_hits: DeviceBuffer[DType.float32],

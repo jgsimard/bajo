@@ -1,242 +1,95 @@
-from std.math import max, ceildiv
-from max.gpu.host import DeviceBuffer, DeviceContext
+from std.math import max
 from std.time import perf_counter_ns
+from max.gpu.host import DeviceBuffer, DeviceContext
 
-from bajo.core import AABB, AxisAlignedBoundingBox, Vec3, Frame, Rayf32
-from bajo.core.intersect import intersect_ray_aabb_rcp, RayDistanceHit
-from bajo.bvh.constants import EMPTY_LANE, WideNode
-from bajo.bvh.gpu.validate import (
-    validate_sorted_keys,
-    validate_topology,
-    validate_refit_bounds,
+from bajo.bvh.gpu.builder.binary_builder import (
+    GpuBvhBuildMethod,
+    build_binary_bvh,
 )
-from bajo.bvh.gpu.utils import GpuBuildTimings, GpuBVHValidation
-from bajo.sort.gpu.radix_sort import RadixSortWorkspace
-from bajo.bvh.gpu.builder.lbvh import build_binary_bvh_with_lbvh
-from bajo.bvh.gpu.builder.wide_collapse import collapse
-from bajo.bvh.gpu.builder.binary_layout import GpuBinaryBoundsBvh
+from bajo.bvh.gpu.builder.binary_layout import (
+    GpuBinaryBoundsBvh,
+    GpuBinaryBuildWorkspace,
+)
+from bajo.bvh.gpu.builder.wide_collapse import collapse_binary_to_wide
+from bajo.bvh.gpu.utils import GpuBuildTimings
+from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvh
 
 
-struct GpuBoundsBvh[
+def build_bounds_bvh[
     node_width: SIMDLength,
-    leaf_width: SIMDLength = node_width,
-]:
-    """Generic GPU Bvh. Build input is only leaf AABBs plus payload ids.
-
-    Wide lane encoding mirrors the CPU BVH:
-        count == EMPTY_LANE -> unused lane
-        count == 0          -> child node, data = wide child index
-        count > 0           -> leaf block, data = leaf block index
-
-    Node width controls AABB traversal while leaf width independently controls
-    the number of primitive or instance payloads in a packed leaf block.
-    """
-
-    var leaf_count: Int
-    var internal_count: Int
-    var root_idx: UInt32
-    var node_count: Int
-    var leaf_block_count: Int
-    var max_wide_nodes: Int
-    var max_leaf_blocks: Int
-
-    var bounds_device: DeviceBuffer[DType.float32]
-    """[0..5]  = root bounds, [6..11] = centroid bounds."""
-
-    var wide_nodes: DeviceBuffer[DType.float32]
-    var leaf_block_indices: DeviceBuffer[DType.uint32]
-
-    def __init__(
-        out self,
-        mut ctx: DeviceContext,
-        leaf_count: Int,
-    ) raises:
-        self.leaf_count = leaf_count
-        self.internal_count = max(self.leaf_count - 1, 0)
-        self.root_idx = 0
-        self.node_count = 0
-        self.leaf_block_count = 0
-        self.max_wide_nodes = max(self.internal_count, 1)
-        self.max_leaf_blocks = max(self.leaf_count, 1)
-
-        self.bounds_device = ctx.enqueue_create_buffer[DType.float32](12)
-
-        self.wide_nodes = ctx.enqueue_create_buffer[DType.float32](
-            self.max_wide_nodes * Self.node_width * WideNode.CHILD_STRIDE
-        )
-        self.leaf_block_indices = ctx.enqueue_create_buffer[DType.uint32](
-            self.max_leaf_blocks * Self.leaf_width
-        )
-
-    def build(
-        mut self,
-        mut ctx: DeviceContext,
-        leaf_bounds: DeviceBuffer[DType.float32],
-        leaf_payloads: DeviceBuffer[DType.uint32],
-        measure_build: Bool = False,
-    ) raises -> GpuBuildTimings:
-        debug_assert["safe", _use_compiler_assume=True](
-            self.leaf_count > 0, "passed empty input."
-        )
-        debug_assert["safe", _use_compiler_assume=True](
-            len(leaf_payloads) == self.leaf_count
-        )
-
-        var binary = GpuBinaryBoundsBvh(ctx, leaf_bounds, leaf_payloads)
-        self.bounds_device = binary.bounds_device.copy()
-
-        var workspace = RadixSortWorkspace[DType.uint32, DType.uint32](
-            ctx, max(self.leaf_count, 1)
-        )
-
-        # leaf AABBs -> sorted binary LBVH
-        var timings = build_binary_bvh_with_lbvh(
-            ctx,
-            binary,
-            workspace,
-            measure_stages=measure_build,
-        )
-
-        # binary BVH -> wide BVH
-        var collapse_start = Int(0)
-        if measure_build:
-            collapse_start = perf_counter_ns()
-
-        collapse(ctx, binary, self)
-
-        if measure_build:
-            timings.collapse_ns = Int(perf_counter_ns() - collapse_start)
-
-        return timings
-
-    def build_test(
-        mut self,
-        mut ctx: DeviceContext,
-        leaf_bounds: DeviceBuffer[DType.float32],
-        leaf_payloads: DeviceBuffer[DType.uint32],
-    ) raises -> GpuBinaryBoundsBvh:
-        debug_assert["safe", _use_compiler_assume=True](
-            self.leaf_count > 0, "passed empty input."
-        )
-        debug_assert["safe", _use_compiler_assume=True](
-            len(leaf_payloads) == self.leaf_count
-        )
-        var binary = GpuBinaryBoundsBvh(ctx, leaf_bounds, leaf_payloads)
-        self.bounds_device = binary.bounds_device.copy()
-        var workspace = RadixSortWorkspace[DType.uint32, DType.uint32](
-            ctx, max(self.leaf_count, 1)
-        )
-
-        # leaf AABBs -> sorted binary LBVH
-        _ = build_binary_bvh_with_lbvh(ctx, binary, workspace)
-
-        # binary BVH -> wide BVH
-        collapse(ctx, binary, self)
-
-        return binary^
-
-    def root_bounds(self) raises -> AABB[Frame.WORLD]:
-        with self.bounds_device.map_to_host() as h:
-            return AABB[Frame.WORLD].load6(
-                Span(unsafe_ptr=h.unsafe_ptr(), length=len(h)), 0
-            )
-
-    def centroid_bounds(self) raises -> AABB[Frame.WORLD]:
-        with self.bounds_device.map_to_host() as h:
-            return AABB[Frame.WORLD].load6(
-                Span(unsafe_ptr=h.unsafe_ptr(), length=len(h)),
-                AABB[Frame.WORLD].STRIDE,
-            )
-
-
-def _wide_lane_base[width: SIMDLength](node_idx: UInt32, lane: Int) -> Int:
-    return Int(node_idx) * width + lane
-
-
-def _wide_node_base[width: SIMDLength](node_idx: UInt32, lane: Int) -> Int:
-    return _wide_lane_base[width](node_idx, lane) * WideNode.CHILD_STRIDE
-
-
-def _wide_node_store_child[
-    width: SIMDLength,
+    leaf_width: SIMDLength,
+    max_leaf_size: Int,
+    method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
+    pack_subtrees: Bool = False,
 ](
-    wide_nodes: Pointer[mut=True, Float32, _],
-    node_idx: UInt32,
-    lane: Int,
-    bounds: AABB,
-    meta: UInt32,
-):
-    var b = _wide_node_base[width](node_idx, lane)
-
-    wide_nodes[unsafe_offset=b + WideNode.MIN_X] = bounds._min.x
-    wide_nodes[unsafe_offset=b + WideNode.MIN_Y] = bounds._min.y
-    wide_nodes[unsafe_offset=b + WideNode.MIN_Z] = bounds._min.z
-    wide_nodes[unsafe_offset=b + WideNode.MAX_X] = bounds._max.x
-    wide_nodes[unsafe_offset=b + WideNode.MAX_Y] = bounds._max.y
-    wide_nodes[unsafe_offset=b + WideNode.MAX_Z] = bounds._max.z
-
-    var wide_nodes_u32 = wide_nodes.unsafe_bitcast[UInt32]()
-    wide_nodes_u32[unsafe_offset=b + WideNode.META] = meta
-    wide_nodes[unsafe_offset=b + WideNode.PAD] = 0.0
-
-
-def _wide_node_load_meta[
-    width: SIMDLength,
-](
-    wide_nodes: Pointer[mut=False, Float32, _],
-    node_idx: UInt32,
-    lane: Int,
-) -> UInt32:
-    var b = _wide_node_base[width](node_idx, lane)
-    return wide_nodes.unsafe_bitcast[UInt32]()[unsafe_offset=b + WideNode.META]
-
-
-struct WideNodeIntersection[width: SIMDLength](TrivialRegisterPassable):
-    var bounds_hit: RayDistanceHit[DType.float32, Self.width]
-    var meta: SIMD[DType.uint32, Self.width]
-
-    def __init__(
-        out self,
-        bounds_hit: RayDistanceHit[DType.float32, Self.width],
-        meta: SIMD[DType.uint32, Self.width],
-    ):
-        self.bounds_hit = bounds_hit
-        self.meta = meta
-
-
-def _intersect_wide_node[
-    frame: Frame,
-    width: SIMDLength,
-](
-    wide_nodes: Pointer[mut=False, Float32, _],
-    node_idx: UInt32,
-    ray: Rayf32[frame],
-    t_max: Float32,
-) -> WideNodeIntersection[width]:
-    var block = AxisAlignedBoundingBox[DType.float32, frame, width].invalid()
-    var meta = SIMD[DType.uint32, width](0)
-
-    comptime for lane in range(width):
-        var b = _wide_node_base[width](node_idx, lane)
-
-        block._min.x[lane] = wide_nodes[unsafe_offset=b + WideNode.MIN_X]
-        block._min.y[lane] = wide_nodes[unsafe_offset=b + WideNode.MIN_Y]
-        block._min.z[lane] = wide_nodes[unsafe_offset=b + WideNode.MIN_Z]
-
-        block._max.x[lane] = wide_nodes[unsafe_offset=b + WideNode.MAX_X]
-        block._max.y[lane] = wide_nodes[unsafe_offset=b + WideNode.MAX_Y]
-        block._max.z[lane] = wide_nodes[unsafe_offset=b + WideNode.MAX_Z]
-        meta[lane] = wide_nodes.unsafe_bitcast[UInt32]()[
-            unsafe_offset=b + WideNode.META
-        ]
-
-    var O = ray.origin[width]()
-    var rcp_d = ray.rcp_direction[width]()
-    var bounds_hit = intersect_ray_aabb_rcp(
-        O,
-        rcp_d,
-        block._min,
-        block._max,
-        t_max,
+    mut ctx: DeviceContext,
+    mut out: GpuWideBoundsBvh[node_width, leaf_width, max_leaf_size],
+    leaf_bounds: DeviceBuffer[DType.float32],
+    leaf_payloads: DeviceBuffer[DType.uint32],
+    measure_build: Bool = False,
+) raises -> GpuBuildTimings:
+    """Build final wide bounds data with internally allocated scratch."""
+    var workspace = GpuBinaryBuildWorkspace(ctx, max(out.leaf_count, 1))
+    return build_bounds_bvh_with_workspace[
+        node_width,
+        leaf_width,
+        max_leaf_size,
+        method,
+        pack_subtrees,
+    ](
+        ctx,
+        out,
+        leaf_bounds,
+        leaf_payloads,
+        workspace,
+        measure_build,
     )
-    return WideNodeIntersection[width](bounds_hit, meta)
+
+
+def build_bounds_bvh_with_workspace[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+    max_leaf_size: Int,
+    method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
+    pack_subtrees: Bool = False,
+](
+    mut ctx: DeviceContext,
+    mut out: GpuWideBoundsBvh[node_width, leaf_width, max_leaf_size],
+    leaf_bounds: DeviceBuffer[DType.float32],
+    leaf_payloads: DeviceBuffer[DType.uint32],
+    mut workspace: GpuBinaryBuildWorkspace,
+    measure_build: Bool = False,
+) raises -> GpuBuildTimings:
+    """Build final wide bounds data with caller-owned reusable scratch."""
+    debug_assert["safe", _use_compiler_assume=True](
+        out.leaf_count > 0, "passed empty input."
+    )
+    comptime assert max_leaf_size > 0
+    comptime assert max_leaf_size <= Int(leaf_width)
+    debug_assert["safe", _use_compiler_assume=True](
+        len(leaf_payloads) == out.leaf_count
+    )
+
+    var binary = GpuBinaryBoundsBvh(ctx, leaf_bounds, leaf_payloads, workspace)
+    out.bounds_device = binary.bounds_device.copy()
+    var timings = build_binary_bvh[method](
+        ctx,
+        binary,
+        workspace,
+        measure_stages=measure_build,
+    )
+
+    var collapse_start = Int(0)
+    if measure_build:
+        collapse_start = perf_counter_ns()
+
+    collapse_binary_to_wide[
+        node_width,
+        leaf_width,
+        max_leaf_size,
+        pack_subtrees,
+    ](ctx, binary, out)
+
+    if measure_build:
+        timings.collapse_ns = Int(perf_counter_ns() - collapse_start)
+    return timings

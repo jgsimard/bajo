@@ -11,7 +11,7 @@ from bajo.bvh.types import Instance, Sphere, Hit
 from bajo.bvh.gpu.utils import upload_camera
 from bajo.bvh.gpu.triangle_bvh import build_triangle_blas_set
 from bajo.bvh.gpu.sphere_bvh import build_sphere_blas_set
-from bajo.bvh.gpu.tlas import GpuTriangleTlas, GpuSphereTlas
+from bajo.bvh.gpu.tlas import build_triangle_tlas, build_sphere_tlas
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.tlas import Tlas
 from test.bvh.fixtures import (
@@ -137,7 +137,7 @@ def test_gpu_triangle_tlas_uses_instance_blas_index() raises:
             _triangle_instance(1, right, far_bounds),
         ]
 
-        var tlas = GpuTriangleTlas[TLAS_WIDTH, BLAS_WIDTH](ctx, instances)
+        var tlas = build_triangle_tlas[TLAS_WIDTH, BLAS_WIDTH](ctx, instances)
         var camera = _make_camera_ray(
             right, Vec3f32[Frame.WORLD](0.0, 0.0, 1.0)
         )
@@ -178,7 +178,7 @@ def test_gpu_triangle_tlas_closest_hit_across_different_blas() raises:
             _triangle_instance(1, zero, near_bounds),
         ]
 
-        var tlas = GpuTriangleTlas[TLAS_WIDTH, BLAS_WIDTH](ctx, instances)
+        var tlas = build_triangle_tlas[TLAS_WIDTH, BLAS_WIDTH](ctx, instances)
         var camera = _make_camera_ray(zero, Vec3f32[Frame.WORLD](0.0, 0.0, 1.0))
         var d_camera = upload_camera(ctx, camera)
         var d_hits = ctx.enqueue_create_buffer[DType.float32](Hit.STRIDE)
@@ -219,7 +219,7 @@ def test_gpu_triangle_tlas_independent_node_and_leaf_widths() raises:
 
         # TLAS2 nodes with four-wide instance leaves over BLAS2 nodes with
         # four-wide triangle leaves.
-        var tlas = GpuTriangleTlas[2, 2, 4, 4](ctx, instances)
+        var tlas = build_triangle_tlas[2, 2, 4, 4](ctx, instances)
         var camera = _make_camera_ray(
             right, Vec3f32[Frame.WORLD](0.0, 0.0, 1.0)
         )
@@ -257,7 +257,7 @@ def test_gpu_sphere_tlas_uses_instance_blas_index() raises:
             _sphere_instance(1, right, far_bounds),
         ]
 
-        var tlas = GpuSphereTlas[TLAS_WIDTH, BLAS_WIDTH](ctx, instances)
+        var tlas = build_sphere_tlas[TLAS_WIDTH, BLAS_WIDTH](ctx, instances)
         var camera = _make_camera_ray(
             right, Vec3f32[Frame.WORLD](0.0, 0.0, 1.0)
         )
@@ -338,7 +338,7 @@ def test_gpu_triangle_tlas_stress_8_blas_512_instances_matches_cpu() raises:
     with DeviceContext() as ctx:
         var blases = build_triangle_blas_set[BLAS_WIDTH](ctx, vertex_sets)
 
-        var tlas = GpuTriangleTlas[TLAS_WIDTH, BLAS_WIDTH](ctx, instances)
+        var tlas = build_triangle_tlas[TLAS_WIDTH, BLAS_WIDTH](ctx, instances)
         var d_camera = upload_camera(ctx, camera)
         var ray_count = STRESS_WIDTH * STRESS_HEIGHT
         var d_hits = ctx.enqueue_create_buffer[DType.float32](

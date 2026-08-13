@@ -9,10 +9,22 @@ from bajo.bvh.types import Sphere, Hit
 from bajo.bvh.host_utils import sphere_bounds, triangle_bounds
 from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
-from bajo.bvh.gpu.bounds_bvh import GpuBoundsBvh, _wide_node_load_meta
+from bajo.bvh.gpu.bounds_bvh import build_bounds_bvh
+from bajo.bvh.gpu.wide_layout import (
+    GpuWideBoundsBvh,
+    _wide_node_load_meta,
+)
+from bajo.bvh.gpu.quality import (
+    measure_binary_bvh_quality,
+    measure_wide_bvh_quality,
+)
+from bajo.bvh.gpu.diagnostics import (
+    build_bounds_bvh_for_diagnostics,
+    validate_binary_bvh,
+)
 from bajo.bvh.gpu.wide_meta import _wide_meta_count, _wide_meta_data
-from bajo.bvh.gpu.sphere_bvh import GpuSphereBvh
-from bajo.bvh.gpu.triangle_bvh import GpuTriangleBvh
+from bajo.bvh.gpu.sphere_bvh import build_sphere_bvh
+from bajo.bvh.gpu.triangle_bvh import build_triangle_bvh
 from bajo.bvh.gpu.trace import GpuTraversalStats
 from bajo.bvh.gpu.utils import upload_vertices, upload_list
 
@@ -130,9 +142,15 @@ def _assert_gpu_bounds_width[
         var leaf_bounds = build[0].copy()
         var payloads = build[1].copy()
 
-        var bvh = GpuBoundsBvh[node_width, leaf_width](ctx, len(payloads))
-        var binary_bvh = bvh.build_test(ctx, leaf_bounds, payloads)
-        var validation = binary_bvh.validate(binary_bvh.root_bounds())
+        var bvh = GpuWideBoundsBvh[node_width, leaf_width](ctx, len(payloads))
+        var binary_bvh = build_bounds_bvh_for_diagnostics(
+            ctx, bvh, leaf_bounds, payloads
+        )
+        var validation = validate_binary_bvh(
+            binary_bvh, binary_bvh.root_bounds()
+        )
+        var binary_quality = measure_binary_bvh_quality(binary_bvh)
+        var wide_quality = measure_wide_bvh_quality(bvh)
 
         assert_true(validation.sorted_ok, "generic bounds keys sorted")
         assert_true(validation.values_ok, "generic bounds values valid")
@@ -142,6 +160,14 @@ def _assert_gpu_bounds_width[
             bvh.leaf_block_count > 0, "wide collapse produced leaf blocks"
         )
         assert_true(bvh.leaf_block_count <= bvh.max_leaf_blocks)
+        assert_true(binary_quality.quality > 0.0)
+        assert_true(wide_quality.quality > 0.0)
+        assert_true(binary_quality.primitives == len(payloads))
+        assert_true(wide_quality.primitives == len(payloads))
+        assert_true(binary_quality.internal_nodes == max(len(payloads) - 1, 0))
+        assert_true(wide_quality.internal_nodes > 0)
+        assert_true(wide_quality.internal_nodes <= bvh.node_count)
+        assert_true(wide_quality.leaf_references == bvh.leaf_block_count)
 
 
 def _assert_wide_lane_invariants[
@@ -153,8 +179,8 @@ def _assert_wide_lane_invariants[
         var leaf_bounds = build[0].copy()
         var payloads = build[1].copy()
 
-        var bvh = GpuBoundsBvh[node_width, leaf_width](ctx, len(payloads))
-        _ = bvh.build(ctx, leaf_bounds, payloads)
+        var bvh = GpuWideBoundsBvh[node_width, leaf_width](ctx, len(payloads))
+        _ = build_bounds_bvh(ctx, bvh, leaf_bounds, payloads)
 
         var seen_live_lane = False
         with bvh.wide_nodes.map_to_host() as nodes:
@@ -202,7 +228,7 @@ def _assert_gpu_triangle_matches_cpu_camera[
 
     with DeviceContext() as ctx:
         var d_verts = upload_vertices(ctx, verts)
-        var gpu_bvh = GpuTriangleBvh[Frame.WORLD, node_width, leaf_width](
+        var gpu_bvh = build_triangle_bvh[Frame.WORLD, node_width, leaf_width](
             ctx, d_verts
         )
         var d_camera = upload_list(ctx, camera_params)
@@ -305,7 +331,7 @@ def _assert_sphere_matches_bruteforce_camera[
     var cpu_checksum = _trace_cpu_spheres_bruteforce(spheres, rays)
 
     with DeviceContext() as ctx:
-        var gpu_bvh = GpuSphereBvh[Frame.WORLD, node_width, leaf_width](
+        var gpu_bvh = build_sphere_bvh[Frame.WORLD, node_width, leaf_width](
             ctx, spheres
         )
         var d_camera = upload_list(ctx, camera_params)
@@ -346,9 +372,11 @@ def _assert_gpu_sphere_bounds[
         var leaf_bounds = build[0].copy()
         var payloads = build[1].copy()
 
-        var bvh = GpuBoundsBvh[node_width, leaf_width](ctx, len(payloads))
-        var binary_bvh = bvh.build_test(ctx, leaf_bounds, payloads)
-        var validation = binary_bvh.validate(bvh.root_bounds())
+        var bvh = GpuWideBoundsBvh[node_width, leaf_width](ctx, len(payloads))
+        var binary_bvh = build_bounds_bvh_for_diagnostics(
+            ctx, bvh, leaf_bounds, payloads
+        )
+        var validation = validate_binary_bvh(binary_bvh, bvh.root_bounds())
 
         assert_true(validation.sorted_ok, "sphere bounds keys sorted")
         assert_true(validation.values_ok, "sphere bounds values valid")

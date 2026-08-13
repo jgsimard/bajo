@@ -190,7 +190,7 @@ def main() raises:
     )
     table.header()
 
-    comptime for split_method in ["sah", "lbvh"]:
+    comptime for split_method in ["median", "sah", "lbvh"]:
         benchmark_configurations[split_method](
             table,
             vertices,

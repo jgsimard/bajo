@@ -189,6 +189,8 @@ def main() raises:
     var grid_rays = make_hit_and_miss_rays()
     benchmark_scene[16, 16, "median"]("Regular grid", grid_vertices, grid_rays)
     benchmark_scene[8, 8, "median"]("Regular grid", grid_vertices, grid_rays)
+    benchmark_scene[16, 16, "lbvh"]("Regular grid", grid_vertices, grid_rays)
+    benchmark_scene[8, 8, "lbvh"]("Regular grid", grid_vertices, grid_rays)
 
     var dragon_vertices = pack_obj_triangles[Frame.WORLD](OBJ_PATH)
     var bounds = compute_bounds(dragon_vertices)

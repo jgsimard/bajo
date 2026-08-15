@@ -16,6 +16,13 @@ BENCH_SCRIPT = ROOT / "bench/bvh/bench_bvh_cpu_compare.sh"
 RESULTS_DIR = ROOT / "bench/results/bvh_cpu"
 
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+PACKET_SECTION = re.compile(
+    r"^(Regular grid|Dragon camera rays) / ([^/]+) / BVH(\d+) leaf(\d+)$"
+)
+PACKET_TIMING = re.compile(
+    r"^(scalar|packet(\d+)): ([0-9.]+) ms, ([0-9.]+) MRay/s, "
+    r"hits=(\d+), checksum=([-+0-9.eE]+)$"
+)
 
 
 def run_command(*args: str) -> str:
@@ -78,12 +85,23 @@ def parse_benchmark_output(output: str) -> pl.DataFrame:
     primitive_count: int | None = None
     ray_count: int | None = None
     table_kind: str | None = None
+    packet_build_method: str | None = None
+    packet_bounds_width: int | None = None
+    packet_leaf_width: int | None = None
 
     for raw_line in output.splitlines():
         line = raw_line.strip()
 
         if not line:
             table_kind = None
+            continue
+
+        # Mojo runtime diagnostics can be emitted between benchmark processes
+        # without a separating blank line. They are not part of any table.
+        if (
+            (line.startswith("[") and ":ERROR " in line)
+            or line.startswith("Failed to initialize Crashpad.")
+        ):
             continue
 
         # Implementation and benchmark sections.
@@ -114,6 +132,28 @@ def parse_benchmark_output(output: str) -> pl.DataFrame:
             version = line.removesuffix(" CPU triangle benchmark")
             benchmark = None
             table_kind = None
+            continue
+
+        if line == "CPU shared-stack packet BVH benchmark":
+            implementation = "bajo"
+            version = None
+            benchmark = None
+            primitive_count = None
+            ray_count = None
+            table_kind = None
+            continue
+
+        packet_section = PACKET_SECTION.fullmatch(line)
+        if packet_section is not None:
+            benchmark = (
+                "grid"
+                if packet_section.group(1) == "Regular grid"
+                else "dragon"
+            )
+            packet_build_method = packet_section.group(2).strip()
+            packet_bounds_width = int(packet_section.group(3))
+            packet_leaf_width = int(packet_section.group(4))
+            table_kind = "bajo_packet"
             continue
 
         if line == "Regular-grid microbenchmark":
@@ -180,6 +220,8 @@ def parse_benchmark_output(output: str) -> pl.DataFrame:
             "ray_count": ray_count,
             "nodes": None,
             "leaf_width": None,
+            "traversal": "scalar1",
+            "ray_width": 1,
         }
 
         try:
@@ -196,6 +238,8 @@ def parse_benchmark_output(output: str) -> pl.DataFrame:
                     "layout": f"bvh{width}",
                     "width": width,
                     "leaf_width": width,
+                    "traversal": "scalar1",
+                    "ray_width": 1,
                     "build_ms": float(values[3]),
                     "nodes": int(values[4]),
                     "trace_ms": float(values[6]),
@@ -218,11 +262,46 @@ def parse_benchmark_output(output: str) -> pl.DataFrame:
                     "layout": f"bvh{bounds_width}",
                     "width": bounds_width,
                     "leaf_width": leaf_width,
+                    "traversal": "scalar1",
+                    "ray_width": 1,
                     "build_ms": float(values[3]),
                     "trace_ms": float(values[4]),
                     "mrays_s": float(values[5]),
                     "hits": int(values[6]),
                     "checksum": float(values[7]),
+                }
+
+            elif table_kind == "bajo_packet":
+                timing = PACKET_TIMING.fullmatch(line)
+
+                if timing is None:
+                    raise ValueError("expected a packet timing row")
+
+                # Scalar controls are already present in the primary Bajo
+                # tables. Keep only the additional packet configurations.
+                if timing.group(1) == "scalar":
+                    continue
+
+                if (
+                    packet_build_method is None
+                    or packet_bounds_width is None
+                    or packet_leaf_width is None
+                ):
+                    raise ValueError("packet section metadata is incomplete")
+
+                ray_width = int(timing.group(2))
+                row = base | {
+                    "build_method": packet_build_method,
+                    "layout": f"bvh{packet_bounds_width}",
+                    "width": packet_bounds_width,
+                    "leaf_width": packet_leaf_width,
+                    "traversal": f"packet{ray_width}",
+                    "ray_width": ray_width,
+                    "build_ms": None,
+                    "trace_ms": float(timing.group(3)),
+                    "mrays_s": float(timing.group(4)),
+                    "hits": int(timing.group(5)),
+                    "checksum": float(timing.group(6)),
                 }
 
             elif table_kind in ("embree", "tinybvh"):
@@ -231,11 +310,25 @@ def parse_benchmark_output(output: str) -> pl.DataFrame:
                         f"expected 7 columns, received {len(values)}"
                     )
 
+                traversal = values[1] if table_kind == "embree" else "scalar1"
+                ray_width = (
+                    width_from_layout(values[1])
+                    if table_kind == "embree"
+                    else 1
+                )
                 row = base | {
                     "build_method": values[0],
-                    "layout": values[1],
-                    "width": width_from_layout(values[1]),
+                    "layout": (
+                        "native" if table_kind == "embree" else values[1]
+                    ),
+                    "width": (
+                        None
+                        if table_kind == "embree"
+                        else width_from_layout(values[1])
+                    ),
                     "leaf_width": None,
+                    "traversal": traversal,
+                    "ray_width": ray_width,
                     "build_ms": float(values[2]),
                     "trace_ms": float(values[3]),
                     "mrays_s": float(values[4]),
@@ -256,6 +349,38 @@ def parse_benchmark_output(output: str) -> pl.DataFrame:
     if not rows:
         raise ValueError("No benchmark result rows were found")
 
+    # Packet traversal reuses the exact same built hierarchy. Carry the build
+    # time from its matching scalar configuration into the report.
+    bajo_build_times: dict[tuple[object, ...], object] = {}
+    for row in rows:
+        if (
+            row["implementation"] == "bajo"
+            and row["traversal"] == "scalar1"
+            and row["build_ms"] is not None
+        ):
+            key = (
+                row["benchmark"],
+                row["build_method"],
+                row["width"],
+                row["leaf_width"],
+            )
+            bajo_build_times[key] = row["build_ms"]
+
+    for row in rows:
+        if row["implementation"] != "bajo":
+            continue
+
+        if not str(row["traversal"]).startswith("packet"):
+            continue
+
+        key = (
+            row["benchmark"],
+            row["build_method"],
+            row["width"],
+            row["leaf_width"],
+        )
+        row["build_ms"] = bajo_build_times.get(key)
+
     return pl.DataFrame(
         rows,
         infer_schema_length=None,
@@ -266,6 +391,8 @@ def parse_benchmark_output(output: str) -> pl.DataFrame:
             "build_method",
             "width",
             "leaf_width",
+            "traversal",
+            "ray_width",
         ]
     )
 
@@ -394,6 +521,8 @@ def generate_report(
         "layout": "Layout",
         "width": "Width",
         "leaf_width": "Leaf width",
+        "traversal": "Traversal",
+        "ray_width": "Ray width",
         "build_ms": "Build ms",
         "trace_ms": "Trace ms",
         "mrays_s": "MRay/s",
@@ -409,6 +538,8 @@ def generate_report(
         "layout",
         "width",
         "leaf_width",
+        "traversal",
+        "ray_width",
         "build_ms",
         "trace_ms",
         "mrays_s",
@@ -422,6 +553,8 @@ def generate_report(
         "implementation",
         "build_method",
         "layout",
+        "traversal",
+        "ray_width",
         "build_ms",
         "trace_ms",
         "mrays_s",

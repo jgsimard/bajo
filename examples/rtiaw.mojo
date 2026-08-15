@@ -28,7 +28,7 @@ comptime RNG_SEED = UInt64(1234)
 comptime RENDER_ALGORITHM = RENDER.PATH
 
 
-def make_weekend_world() -> World:
+def make_weekend_world() -> World[]:
     var rng = Rng(seed=42, id=7)
     var surfaces = SurfaceStore()
     var spheres = List[Sphere[Frame.WORLD]]()
@@ -100,7 +100,7 @@ def make_weekend_world() -> World:
         metal,
     )
 
-    return World(
+    return World[](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,

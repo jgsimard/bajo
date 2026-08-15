@@ -23,7 +23,6 @@ from bajo.bvh.types import Instance, Sphere
 
 
 comptime Color = Vec3f32[Frame.WORLD]
-comptime BVH_WIDTH = 16
 
 
 @fieldwise_init
@@ -357,16 +356,28 @@ struct RenderResult:
         self.timings = timings.copy()
 
 
-struct World:
-    var sphere_bvh: Optional[SphereBvh[Frame.WORLD, BVH_WIDTH]]
-    var triangle_bvh: Optional[TriangleBvh[Frame.WORLD, BVH_WIDTH]]
-    var triangle_tlas: Optional[Tlas[BVH_WIDTH]]
+struct World[
+    world_bvh_width: SIMDLength = 16,
+    instance_bvh_width: SIMDLength = 16,
+]:
+    """World with BVH widths independent from renderer packet length.
+
+    `World[]` keeps the general-purpose BVH16/BVH16 policy. A packet-oriented
+    scene can instead select, for example, `World[8, 16]` without changing the
+    packet length passed to `render_wavefront`.
+    """
+
+    var sphere_bvh: Optional[SphereBvh[Frame.WORLD, Self.world_bvh_width]]
+    var triangle_bvh: Optional[TriangleBvh[Frame.WORLD, Self.world_bvh_width]]
+    var triangle_tlas: Optional[Tlas[Self.instance_bvh_width]]
     var spheres: List[Sphere[Frame.WORLD]]
     var sphere_surfaces: List[SurfaceId[1]]
     var triangle_vertices: List[Point3f32[Frame.WORLD]]
     var triangle_surfaces: List[SurfaceId[1]]
     var triangle_meshes: List[List[Point3f32[Frame.LOCAL]]]
-    var triangle_mesh_blases: List[TriangleBvh[Frame.LOCAL, BVH_WIDTH]]
+    var triangle_mesh_blases: List[
+        TriangleBvh[Frame.LOCAL, Self.instance_bvh_width]
+    ]
     var triangle_instances: List[Instance]
     var triangle_instance_surfaces: List[SurfaceId[1]]
     var surfaces: SurfaceStore
@@ -416,10 +427,16 @@ struct World:
         self.surfaces = surfaces^
         self.lights = LightStore()
 
-        self.sphere_bvh = Optional[SphereBvh[Frame.WORLD, BVH_WIDTH]]()
-        self.triangle_bvh = Optional[TriangleBvh[Frame.WORLD, BVH_WIDTH]]()
-        self.triangle_tlas = Optional[Tlas[BVH_WIDTH]]()
-        self.triangle_mesh_blases = List[TriangleBvh[Frame.LOCAL, BVH_WIDTH]]()
+        self.sphere_bvh = Optional[
+            SphereBvh[Frame.WORLD, Self.world_bvh_width]
+        ]()
+        self.triangle_bvh = Optional[
+            TriangleBvh[Frame.WORLD, Self.world_bvh_width]
+        ]()
+        self.triangle_tlas = Optional[Tlas[Self.instance_bvh_width]]()
+        self.triangle_mesh_blases = List[
+            TriangleBvh[Frame.LOCAL, Self.instance_bvh_width]
+        ]()
 
         if len(self.spheres) > 0:
             var bvh_spheres = List[Sphere[Frame.WORLD]](
@@ -436,8 +453,12 @@ struct World:
                 )
                 bvh_spheres.append(Sphere[Frame.WORLD](s.center, abs(s.radius)))
 
-            self.sphere_bvh = Optional[SphereBvh[Frame.WORLD, BVH_WIDTH]](
-                SphereBvh[Frame.WORLD, BVH_WIDTH].__init__["sah"](bvh_spheres^)
+            self.sphere_bvh = Optional[
+                SphereBvh[Frame.WORLD, Self.world_bvh_width]
+            ](
+                SphereBvh[Frame.WORLD, Self.world_bvh_width].__init__["sah"](
+                    bvh_spheres^
+                )
             )
 
         if len(self.triangle_vertices) > 0:
@@ -447,8 +468,10 @@ struct World:
                     "triangle surface id is out of range",
                 )
 
-            self.triangle_bvh = Optional[TriangleBvh[Frame.WORLD, BVH_WIDTH]](
-                TriangleBvh[Frame.WORLD, BVH_WIDTH].__init__["sah"](
+            self.triangle_bvh = Optional[
+                TriangleBvh[Frame.WORLD, Self.world_bvh_width]
+            ](
+                TriangleBvh[Frame.WORLD, Self.world_bvh_width].__init__["sah"](
                     self.triangle_vertices
                 )
             )
@@ -464,9 +487,9 @@ struct World:
                     ),
                 )
                 self.triangle_mesh_blases.append(
-                    TriangleBvh[Frame.LOCAL, BVH_WIDTH].__init__["sah"](
-                        vertices
-                    )
+                    TriangleBvh[Frame.LOCAL, Self.instance_bvh_width].__init__[
+                        "sah"
+                    ](vertices)
                 )
 
             for i in range(len(self.triangle_instances)):
@@ -484,8 +507,8 @@ struct World:
                     "triangle instance surface id is out of range",
                 )
 
-            self.triangle_tlas = Optional[Tlas[BVH_WIDTH]](
-                Tlas[BVH_WIDTH](self.triangle_instances)
+            self.triangle_tlas = Optional[Tlas[Self.instance_bvh_width]](
+                Tlas[Self.instance_bvh_width](self.triangle_instances)
             )
 
         self._build_light_store()
@@ -559,7 +582,7 @@ struct World:
                     return result
             if self.triangle_tlas:
                 var hit = self.triangle_tlas.value().trace[
-                    TriangleBvh[Frame.LOCAL, BVH_WIDTH],
+                    TriangleBvh[Frame.LOCAL, Self.instance_bvh_width],
                     TRACE.ANY_HIT,
                 ](ray, Span(self.triangle_mesh_blases))
                 if hit.is_occluded():
@@ -601,7 +624,9 @@ struct World:
                         result[lane] = (
                             self.triangle_tlas.value()
                             .trace[
-                                TriangleBvh[Frame.LOCAL, BVH_WIDTH],
+                                TriangleBvh[
+                                    Frame.LOCAL, Self.instance_bvh_width
+                                ],
                                 TRACE.ANY_HIT,
                             ](ray, Span(self.triangle_mesh_blases))
                             .is_occluded()
@@ -837,7 +862,7 @@ struct World:
             return _WorldHit.miss(ray.t_max)
 
         var bvh_hit = self.triangle_tlas.value().trace[
-            TriangleBvh[Frame.LOCAL, BVH_WIDTH],
+            TriangleBvh[Frame.LOCAL, Self.instance_bvh_width],
             TRACE.CLOSEST_HIT,
         ](ray, Span(self.triangle_mesh_blases))
         if not bvh_hit.is_hit() or bvh_hit.inst == EMPTY_LANE:
@@ -869,7 +894,12 @@ def _light_importance(radiance: Color) -> Float32:
 
 
 @always_inline
-def _world_triangle_area(world: World, triangle_index: Int) -> Float32:
+def _world_triangle_area[
+    world_bvh_width: SIMDLength,
+    instance_bvh_width: SIMDLength,
+](
+    world: World[world_bvh_width, instance_bvh_width], triangle_index: Int
+) -> Float32:
     ref v0 = world.triangle_vertices[3 * triangle_index + 0]
     ref v1 = world.triangle_vertices[3 * triangle_index + 1]
     ref v2 = world.triangle_vertices[3 * triangle_index + 2]

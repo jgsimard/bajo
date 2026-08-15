@@ -268,7 +268,7 @@ def _instance_bounds(instances: List[Instance]) -> AABB:
     return bounds
 
 
-def _triangle_count(world: World) -> Int:
+def _triangle_count(world: World[]) -> Int:
     var total = len(world.triangle_vertices) / 3
     for inst in world.triangle_instances:
         total += len(world.triangle_meshes[Int(inst.blas_idx)]) / 3
@@ -276,7 +276,7 @@ def _triangle_count(world: World) -> Int:
 
 
 def _count_primary_hits(
-    settings: RenderSettings, camera: Camera, world: World
+    settings: RenderSettings, camera: Camera, world: World[]
 ) -> Int:
     var hits = 0
     for py in range(settings.image_height):
@@ -293,7 +293,7 @@ def _count_primary_hits(
     return hits
 
 
-def make_triangle_world() raises -> World:
+def make_triangle_world() raises -> World[]:
     var scene_rng = Rng(seed=99, id=17)
     var material_rng = Rng(seed=RNG_SEED, id=0)
     var surfaces = SurfaceStore()
@@ -414,7 +414,7 @@ def make_triangle_world() raises -> World:
     )
     _append_ground(triangle_vertices, triangle_surfaces, surfaces, scene_bounds)
 
-    return World(
+    return World[](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,

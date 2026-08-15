@@ -5,6 +5,7 @@ from bajo.core import (
     Point3f32,
     Frame,
     GeoKind,
+    dot,
     normalize,
     Rayf32,
 )
@@ -18,6 +19,11 @@ from bajo.bvh.cpu.bounds_bvh import (
     _checked_typed_leaf_range,
 )
 from bajo.bvh.cpu.trace import trace_sphere_bounds_bvh
+from bajo.bvh.cpu.packet import (
+    PacketHit,
+    RayPacket,
+    trace_packet_bounds_bvh,
+)
 from bajo.bvh.types import Hit, Sphere, SphereLeafBlock, TypedBvh
 
 
@@ -147,3 +153,80 @@ struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
             ray,
             leaf_fn,
         )
+
+    def trace_packet[
+        ray_lanes: SIMDLength
+    ](
+        self,
+        rays: RayPacket[Self.bvh_frame, ray_lanes],
+        valid: SIMD[DType.bool, ray_lanes],
+    ) -> PacketHit[Self.bvh_frame, ray_lanes]:
+        """Trace a coherent SIMD ray packet with one shared hierarchy stack."""
+        var hit = PacketHit[Self.bvh_frame, ray_lanes](rays.t_max)
+        var ray_a = dot(rays.d, rays.d)
+        var ray_inv_a = Float32(1.0) / ray_a
+
+        def leaf_fn(
+            active: SIMD[DType.bool, ray_lanes],
+            leaf_block_idx: UInt32,
+            mut packet_hit: PacketHit[Self.bvh_frame, ray_lanes],
+        ) {imm}:
+            ref block = self.leaf_blocks.unsafe_get(Int(leaf_block_idx))
+            comptime for prim_lane in range(Self.width):
+                var prim_idx = block.prim_indices[prim_lane]
+                if prim_idx != EMPTY_LANE:
+                    var center = Point3[
+                        DType.float32, Self.bvh_frame, ray_lanes
+                    ](
+                        block.center.x[prim_lane],
+                        block.center.y[prim_lane],
+                        block.center.z[prim_lane],
+                    )
+                    var radius = SIMD[DType.float32, ray_lanes](
+                        block.radius[prim_lane]
+                    )
+                    var candidate = intersect_ray_sphere_coefficients(
+                        rays.o,
+                        rays.d,
+                        center,
+                        radius,
+                        ray_a,
+                        ray_inv_a,
+                        packet_hit.t,
+                        rays.t_min,
+                    )
+                    var closer = active & candidate.mask
+                    if closer.reduce_or():
+                        packet_hit.t = closer.select(candidate.t, packet_hit.t)
+                        packet_hit.u = closer.select(
+                            SIMD[DType.float32, ray_lanes](0.0), packet_hit.u
+                        )
+                        packet_hit.v = closer.select(
+                            SIMD[DType.float32, ray_lanes](0.0), packet_hit.v
+                        )
+                        packet_hit.prim = closer.select(
+                            SIMD[DType.uint32, ray_lanes](prim_idx),
+                            packet_hit.prim,
+                        )
+                        packet_hit.inst = closer.select(
+                            SIMD[DType.uint32, ray_lanes](EMPTY_LANE),
+                            packet_hit.inst,
+                        )
+                        var p = rays.o + candidate.t * rays.d
+                        var normal = normalize(p - center)
+                        packet_hit.normal.x = closer.select(
+                            normal.x, packet_hit.normal.x
+                        )
+                        packet_hit.normal.y = closer.select(
+                            normal.y, packet_hit.normal.y
+                        )
+                        packet_hit.normal.z = closer.select(
+                            normal.z, packet_hit.normal.z
+                        )
+
+        trace_packet_bounds_bvh[
+            frame=Self.frame,
+            bounds_width=Self.width,
+            ray_lanes=ray_lanes,
+        ](self.tree, rays, valid, hit, leaf_fn)
+        return hit^

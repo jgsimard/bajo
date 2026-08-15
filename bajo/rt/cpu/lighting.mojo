@@ -6,6 +6,7 @@ from bajo.core import (
     Frame,
     Point3f32,
     Rayf32,
+    Vec3,
     Vec3f32,
     cross,
     dot,
@@ -29,23 +30,25 @@ from .bsdf import evaluate_bsdf
 
 
 @fieldwise_init
-struct _DirectLightSample(Copyable):
+struct _DirectLightSample[length: SIMDLength = 1](Copyable):
     """Visible light sample before applying the surface BSDF."""
 
-    var valid: Bool
-    var direction: Vec3f32[Frame.WORLD]
-    var emission: Color
-    var surface_cosine: Float32
-    var light_pdf: Float32
-    var shadow_t_max: Float32
+    var valid: SIMD[DType.bool, Self.length]
+    var direction: Vec3[DType.float32, Frame.WORLD, Self.length]
+    var emission: Vec3[DType.float32, Frame.WORLD, Self.length]
+    var surface_cosine: SIMD[DType.float32, Self.length]
+    var light_pdf: SIMD[DType.float32, Self.length]
+    var shadow_t_max: SIMD[DType.float32, Self.length]
 
 
 @always_inline
-def _empty_direct_light_sample() -> _DirectLightSample:
-    return _DirectLightSample(
-        False,
-        Vec3f32[Frame.WORLD](0.0),
-        Color(0.0),
+def _empty_direct_light_sample[
+    length: SIMDLength = 1
+]() -> _DirectLightSample[length]:
+    return _DirectLightSample[length](
+        SIMD[DType.bool, length](fill=False),
+        Vec3[DType.float32, Frame.WORLD, length](0.0),
+        Vec3[DType.float32, Frame.WORLD, length](0.0),
         0.0,
         0.0,
         0.0,
@@ -64,12 +67,39 @@ def emitted_radiance(
 
 
 @always_inline
-def power_heuristic(pdf_a: Float32, pdf_b: Float32) -> Float32:
+def power_heuristic[
+    length: SIMDLength = 1
+](
+    pdf_a: SIMD[DType.float32, length],
+    pdf_b: SIMD[DType.float32, length],
+) -> SIMD[DType.float32, length]:
     var a2 = pdf_a * pdf_a
     var b2 = pdf_b * pdf_b
-    if a2 + b2 <= 0.0:
-        return 0.0
-    return a2 / (a2 + b2)
+    var denominator = a2 + b2
+    var nonzero = denominator.gt(0.0)
+    return nonzero.select(
+        a2 / nonzero.select(denominator, Float32(1.0)), Float32(0.0)
+    )
+
+
+@always_inline
+def _direct_light_scale[
+    ALGORITHM: RENDER, length: SIMDLength
+](
+    surface_cosine: SIMD[DType.float32, length],
+    light_pdf: SIMD[DType.float32, length],
+    bsdf_pdf: SIMD[DType.float32, length],
+    valid: SIMD[DType.bool, length],
+) -> SIMD[DType.float32, length]:
+    comptime assert ALGORITHM in (RENDER.NEE, RENDER.MIS)
+    var ok = valid & light_pdf.gt(0.0) & bsdf_pdf.gt(0.0)
+    var safe_light_pdf = ok.select(light_pdf, Float32(1.0))
+    var estimator_weight = SIMD[DType.float32, length](1.0)
+    comptime if ALGORITHM == RENDER.MIS:
+        estimator_weight = power_heuristic(light_pdf, bsdf_pdf)
+    return ok.select(
+        surface_cosine * estimator_weight / safe_light_pdf, Float32(0.0)
+    )
 
 
 @always_inline
@@ -89,7 +119,7 @@ def _emissive_hit_weight[
             return 0.0
     elif ALGORITHM == RENDER.MIS:
         if bounce > 0 and not previous_delta:
-            return power_heuristic(
+            return power_heuristic[1](
                 previous_bsdf_pdf,
                 light_pdf_for_emissive_hit(world, ray, hit),
             )
@@ -121,9 +151,9 @@ def light_pdf_for_emissive_hit(
 
 def _sample_direct_light_candidate(
     world: World,
-    point: ShadingPoint,
+    point: ShadingPoint[1],
     mut rng: Rng,
-) -> _DirectLightSample:
+) -> _DirectLightSample[1]:
     """Sample one world-space light without tracing its visibility ray.
 
     Lights are selected proportionally to emitted power. Keeping this scalar
@@ -132,7 +162,7 @@ def _sample_direct_light_candidate(
     """
     var total_weight = world.lights.total_weight
     if total_weight <= 0.0:
-        return _empty_direct_light_sample()
+        return _empty_direct_light_sample[1]()
 
     var selected_weight = rng.f32() * total_weight
     var light_point = Point3f32[Frame.WORLD](0.0)
@@ -155,7 +185,7 @@ def _sample_direct_light_candidate(
                 var area_vector = cross(edge1, edge2)
                 var twice_area_squared = length2(area_vector)
                 if twice_area_squared <= 0.0:
-                    return _empty_direct_light_sample()
+                    return _empty_direct_light_sample[1]()
                 var twice_area = sqrt(twice_area_squared)
                 light_normal = area_vector / twice_area
                 var root_u = sqrt(rng.f32())
@@ -172,27 +202,27 @@ def _sample_direct_light_candidate(
         selected_weight -= light.weight
 
     if not found:
-        return _empty_direct_light_sample()
+        return _empty_direct_light_sample[1]()
     var to_light = light_point - point.p
     var distance_squared = length2(to_light)
     if distance_squared <= 1.0e-8:
-        return _empty_direct_light_sample()
+        return _empty_direct_light_sample[1]()
     var distance = sqrt(distance_squared)
     var direction = to_light / distance
     var surface_cosine = max(dot(point.normal, direction), 0.0)
     var light_cosine = max(dot(light_normal, -direction), 0.0)
     if surface_cosine <= 0.0 or light_cosine <= 0.0:
-        return _empty_direct_light_sample()
+        return _empty_direct_light_sample[1]()
 
     var shadow_t_max = distance - 0.002
     if shadow_t_max <= 0.001:
-        return _empty_direct_light_sample()
+        return _empty_direct_light_sample[1]()
     var light_pdf = (
         distance_squared
         * _light_importance(emission)
         / (light_cosine * total_weight)
     )
-    return _DirectLightSample(
+    return _DirectLightSample[1](
         True,
         direction,
         emission,
@@ -204,9 +234,9 @@ def _sample_direct_light_candidate(
 
 def _sample_direct_light(
     world: World,
-    point: ShadingPoint,
+    point: ShadingPoint[1],
     mut rng: Rng,
-) -> _DirectLightSample:
+) -> _DirectLightSample[1]:
     """Sample one visible world-space light without evaluating the BSDF."""
     var light = _sample_direct_light_candidate(world, point, rng)
     if not light.valid:
@@ -215,7 +245,7 @@ def _sample_direct_light(
         point.p, light.direction, 0.001, light.shadow_t_max
     )
     if world.occluded(shadow_ray):
-        return _empty_direct_light_sample()
+        return _empty_direct_light_sample[1]()
     return light^
 
 
@@ -225,7 +255,7 @@ def sample_direct_lighting[
     surface: SurfaceId[1],
     world: World,
     incoming_ray: Rayf32[Frame.WORLD],
-    point: ShadingPoint,
+    point: ShadingPoint[1],
     mut rng: Rng,
 ) -> Color:
     """Sample direct illumination and apply the scalar reference BSDF."""
@@ -236,13 +266,10 @@ def sample_direct_lighting[
     var evaluation = evaluate_bsdf(
         surface, world.surfaces, incoming_ray, point, light.direction
     )
-    if evaluation.pdf <= 0.0:
-        return Color(0.0)
-    var estimator_weight = Float32(1.0)
-    comptime if ALGORITHM == RENDER.MIS:
-        estimator_weight = power_heuristic(light.light_pdf, evaluation.pdf)
-    return (
-        evaluation.value
-        * light.emission
-        * (light.surface_cosine * estimator_weight / light.light_pdf)
+    var scale = _direct_light_scale[ALGORITHM, 1](
+        light.surface_cosine,
+        light.light_pdf,
+        evaluation.pdf,
+        light.valid,
     )
+    return evaluation.value * light.emission * scale

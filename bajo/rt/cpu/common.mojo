@@ -1,6 +1,6 @@
 """Shared CPU path state, Philox stream selection, and ray helpers."""
 
-from bajo.core import Frame, Rayf32, normalize
+from bajo.core import Frame, Rayf32, Vec3, normalize
 from bajo.core.random import Rng, random_in_unit_disk
 from bajo.bvh.camera import Camera
 from bajo.rt.types import (
@@ -26,15 +26,21 @@ struct RussianRouletteResult(Copyable, Writable):
     var throughput: Color
 
 
-def _sky_color(ray: Rayf32[Frame.WORLD]) -> Color:
-    var unit_direction = normalize(ray.d)
+def _sky_color[
+    length: SIMDLength
+](direction: Vec3[DType.float32, Frame.WORLD, length]) -> Vec3[
+    DType.float32, Frame.WORLD, length
+]:
+    var unit_direction = normalize(direction)
     var a = 0.5 * (unit_direction.y + 1.0)
-    return (1.0 - a) * Color(1.0) + a * Color(0.5, 0.7, 1.0)
+    return (1.0 - a) * Vec3[DType.float32, Frame.WORLD, length](1.0) + a * Vec3[
+        DType.float32, Frame.WORLD, length
+    ](0.5, 0.7, 1.0)
 
 
 def _shading_point(
     ray: Rayf32[Frame.WORLD], hit: SurfaceHit[1]
-) -> ShadingPoint:
+) -> ShadingPoint[1]:
     return ShadingPoint(
         ray.o + hit.t * ray.d,
         hit.normal,
@@ -96,10 +102,10 @@ def _make_primary_ray(
 ) -> Rayf32[Frame.WORLD]:
     var lens = random_in_unit_disk[Frame.WORLD](rng)
     return camera.make_ray_sampled(
-        px,
-        py,
-        settings.image_width,
-        settings.image_height,
+        Float32(px),
+        Float32(py),
+        Float32(settings.image_width),
+        Float32(settings.image_height),
         rng.f32(),
         rng.f32(),
         lens.x,

@@ -3,12 +3,12 @@
 from std.math import sqrt
 
 from bajo.bvh.constants import f32_max
-from bajo.bvh.cpu.packet import RayPacket
 from bajo.core import (
     Frame,
     Point3,
     Point3f32,
     Rayf32,
+    Ray,
     Vec3,
     Vec3f32,
     dot,
@@ -33,15 +33,18 @@ from bajo.rt.wavefront_contract import wavefront_rng_light_stage
 
 
 from ..bsdf import (
-    _evaluate_lambertian,
-    _evaluate_metal,
+    _evaluate_material,
     _sample_material,
 )
 from ..common import (
     _path_stage_rng,
     _russian_roulette,
+    _sky_color,
 )
 from ..lighting import (
+    _DirectLightSample,
+    _direct_light_scale,
+    _empty_direct_light_sample,
     _sample_direct_light_candidate,
     _emissive_hit_weight,
     emitted_radiance,
@@ -62,28 +65,20 @@ struct ScatterBatch[length: SIMDLength]:
 
 
 struct _DirectLightBatch[length: SIMDLength]:
-    var origins: Point3[DType.float32, Frame.WORLD, Self.length]
-    var directions: Vec3[DType.float32, Frame.WORLD, Self.length]
-    var normals: Vec3[DType.float32, Frame.WORLD, Self.length]
-    var emissions: Vec3[DType.float32, Frame.WORLD, Self.length]
-    var surface_cosines: SIMD[DType.float32, Self.length]
-    var light_pdfs: SIMD[DType.float32, Self.length]
-    var shadow_t_max: SIMD[DType.float32, Self.length]
+    var sample: _DirectLightSample[Self.length]
+    var point: ShadingPoint[Self.length]
     var surface_kinds: SIMD[DType.uint32, Self.length]
     var surface_indices: SIMD[DType.uint32, Self.length]
-    var valid: SIMD[DType.bool, Self.length]
 
     def __init__(out self):
-        self.origins = Point3[DType.float32, Frame.WORLD, Self.length](0.0)
-        self.directions = Vec3[DType.float32, Frame.WORLD, Self.length](0.0)
-        self.normals = Vec3[DType.float32, Frame.WORLD, Self.length](0.0)
-        self.emissions = Vec3[DType.float32, Frame.WORLD, Self.length](0.0)
-        self.surface_cosines = 0.0
-        self.light_pdfs = 0.0
-        self.shadow_t_max = 0.0
+        self.sample = _empty_direct_light_sample[Self.length]()
+        self.point = ShadingPoint[Self.length](
+            Point3[DType.float32, Frame.WORLD, Self.length](0.0),
+            Vec3[DType.float32, Frame.WORLD, Self.length](0.0),
+            SIMD[DType.bool, Self.length](fill=False),
+        )
         self.surface_kinds = 0
         self.surface_indices = 0
-        self.valid = SIMD[DType.bool, Self.length](fill=False)
 
 
 @always_inline
@@ -105,7 +100,7 @@ def _accumulate_direct_light_packet[
     var albedo = Vec3[DType.float32, Frame.WORLD, length](0.0)
     var fuzz = SIMD[DType.float32, length](1.0)
     for lane in range(lane_count):
-        if not lights.valid[lane]:
+        if not lights.sample.valid[lane]:
             continue
         if lights.surface_kinds[lane] == MAT.LAMBERTIAN.v:
             ref material = surfaces.lambertians[
@@ -121,37 +116,35 @@ def _accumulate_direct_light_packet[
             albedo.z[lane] = material.albedo.z
             fuzz[lane] = material.fuzz
 
-    var lambertian = _evaluate_lambertian(
-        lights.normals, albedo, lights.directions
-    )
-    var metal = _evaluate_metal(
+    var lambertian = _evaluate_material[MAT.LAMBERTIAN, length](
         ray_direction,
-        lights.normals,
+        lights.point.normal,
         albedo,
         fuzz,
-        lights.directions,
+        lights.sample.direction,
+    )
+    var metal = _evaluate_material[MAT.METAL, length](
+        ray_direction,
+        lights.point.normal,
+        albedo,
+        fuzz,
+        lights.sample.direction,
     )
     var is_lambertian = lights.surface_kinds.eq(MAT.LAMBERTIAN.v)
     var is_metal = lights.surface_kinds.eq(MAT.METAL.v)
     var value = Vec3.select(is_lambertian, lambertian.value, metal.value)
     var pdf = is_lambertian.select(lambertian.pdf, metal.pdf)
     var supported = is_lambertian | is_metal
-    var ok = lights.valid & supported & pdf.gt(0.0)
-    var safe_light_pdf = ok.select(lights.light_pdfs, Float32(1.0))
-    var estimator_weight = SIMD[DType.float32, length](1.0)
-    comptime if ALGORITHM == RENDER.MIS:
-        var light2 = lights.light_pdfs * lights.light_pdfs
-        var bsdf2 = pdf * pdf
-        var denominator = light2 + bsdf2
-        var nonzero = denominator.gt(0.0)
-        estimator_weight = nonzero.select(
-            light2 / nonzero.select(denominator, Float32(1.0)),
-            Float32(0.0),
-        )
-    var scale = lights.surface_cosines * estimator_weight / safe_light_pdf
-    var red = paths.tx * value.x * lights.emissions.x * scale
-    var green = paths.ty * value.y * lights.emissions.y * scale
-    var blue = paths.tz * value.z * lights.emissions.z * scale
+    var ok = lights.sample.valid & supported & pdf.gt(0.0)
+    var scale = _direct_light_scale[ALGORITHM, length](
+        lights.sample.surface_cosine,
+        lights.sample.light_pdf,
+        pdf,
+        ok,
+    )
+    var red = paths.tx * value.x * lights.sample.emission.x * scale
+    var green = paths.ty * value.y * lights.sample.emission.y * scale
+    var blue = paths.tz * value.z * lights.sample.emission.z * scale
     for lane in range(lane_count):
         if ok[lane]:
             var pixel_idx = Int(paths.path_ids[lane]) / samples_per_pixel
@@ -261,15 +254,14 @@ def _accumulate_sky_packet[
     misses: SIMD[DType.bool, length],
     samples_per_pixel: Int,
 ):
-    var ray_length = sqrt(
-        packet.dx * packet.dx + packet.dy * packet.dy + packet.dz * packet.dz
+    var sky = _sky_color(
+        Vec3[DType.float32, Frame.WORLD, length](
+            packet.dx, packet.dy, packet.dz
+        )
     )
-    var valid = ray_length.gt(1.0e-20)
-    var unit_y = valid.select(packet.dy / valid.select(ray_length, 1.0), 0.0)
-    var a = 0.5 * (unit_y + 1.0)
-    var red = packet.tx * (1.0 - 0.5 * a)
-    var green = packet.ty * (1.0 - 0.3 * a)
-    var blue = packet.tz
+    var red = packet.tx * sky.x
+    var green = packet.ty * sky.y
+    var blue = packet.tz * sky.z
     for lane in range(lane_count):
         if misses[lane]:
             var pixel_idx = Int(packet.path_ids[lane]) / samples_per_pixel
@@ -348,7 +340,7 @@ def _trace_path_packets[
             var valid_lanes = SIMD[DType.bool, length](fill=False)
             for lane in range(lane_count):
                 valid_lanes[lane] = True
-            var ray_packet = RayPacket[Frame.WORLD, length](
+            var ray_packet = Ray[DType.float32, Frame.WORLD, length](
                 Point3[DType.float32, Frame.WORLD, length](
                     packet.ox, packet.oy, packet.oz
                 ),
@@ -358,9 +350,7 @@ def _trace_path_packets[
                 packet.t_min,
                 packet.t_max,
             )
-            var surface_hits = world.trace_surface_packet(
-                ray_packet, valid_lanes
-            )
+            var surface_hits = world.trace_surface(ray_packet, valid_lanes)
             for lane in range(lane_count):
                 var ray = Rayf32[Frame.WORLD](
                     Point3f32[Frame.WORLD](
@@ -413,35 +403,44 @@ def _trace_path_packets[
                         var direct = _sample_direct_light_candidate(
                             world, point, light_rng
                         )
-                        direct_lights.normals.x[lane] = hit.normal.x
-                        direct_lights.normals.y[lane] = hit.normal.y
-                        direct_lights.normals.z[lane] = hit.normal.z
+                        direct_lights.point.normal.x[lane] = hit.normal.x
+                        direct_lights.point.normal.y[lane] = hit.normal.y
+                        direct_lights.point.normal.z[lane] = hit.normal.z
+                        direct_lights.point.front_face[lane] = hit.front_face
                         direct_lights.surface_kinds[lane] = hit.surface.kind().v
                         direct_lights.surface_indices[
                             lane
                         ] = hit.surface.index()
                         if direct.valid:
-                            direct_lights.valid[lane] = True
-                            direct_lights.origins.x[lane] = point.p.x
-                            direct_lights.origins.y[lane] = point.p.y
-                            direct_lights.origins.z[lane] = point.p.z
-                            direct_lights.directions.x[
+                            direct_lights.sample.valid[lane] = True
+                            direct_lights.point.p.x[lane] = point.p.x
+                            direct_lights.point.p.y[lane] = point.p.y
+                            direct_lights.point.p.z[lane] = point.p.z
+                            direct_lights.sample.direction.x[
                                 lane
                             ] = direct.direction.x
-                            direct_lights.directions.y[
+                            direct_lights.sample.direction.y[
                                 lane
                             ] = direct.direction.y
-                            direct_lights.directions.z[
+                            direct_lights.sample.direction.z[
                                 lane
                             ] = direct.direction.z
-                            direct_lights.emissions.x[lane] = direct.emission.x
-                            direct_lights.emissions.y[lane] = direct.emission.y
-                            direct_lights.emissions.z[lane] = direct.emission.z
-                            direct_lights.surface_cosines[
+                            direct_lights.sample.emission.x[
+                                lane
+                            ] = direct.emission.x
+                            direct_lights.sample.emission.y[
+                                lane
+                            ] = direct.emission.y
+                            direct_lights.sample.emission.z[
+                                lane
+                            ] = direct.emission.z
+                            direct_lights.sample.surface_cosine[
                                 lane
                             ] = direct.surface_cosine
-                            direct_lights.light_pdfs[lane] = direct.light_pdf
-                            direct_lights.shadow_t_max[
+                            direct_lights.sample.light_pdf[
+                                lane
+                            ] = direct.light_pdf
+                            direct_lights.sample.shadow_t_max[
                                 lane
                             ] = direct.shadow_t_max
 
@@ -455,14 +454,14 @@ def _trace_path_packets[
                     misses[lane] = True
 
             comptime if ALGORITHM != RENDER.PATH:
-                var shadow_rays = RayPacket[Frame.WORLD, length](
-                    direct_lights.origins,
-                    direct_lights.directions,
+                var shadow_rays = Ray[DType.float32, Frame.WORLD, length](
+                    direct_lights.point.p,
+                    direct_lights.sample.direction,
                     SIMD[DType.float32, length](0.001),
-                    direct_lights.shadow_t_max,
+                    direct_lights.sample.shadow_t_max,
                 )
-                direct_lights.valid &= ~world.occluded_packet(
-                    shadow_rays, direct_lights.valid
+                direct_lights.sample.valid &= ~world.occluded(
+                    shadow_rays, direct_lights.sample.valid
                 )
                 _accumulate_direct_light_packet[ALGORITHM, length](
                     pixels,

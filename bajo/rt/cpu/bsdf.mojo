@@ -77,6 +77,38 @@ def _evaluate_metal[
 
 
 @always_inline
+def _evaluate_material[
+    MATERIAL_KIND: MAT, length: SIMDLength
+](
+    ray_direction: Vec3[DType.float32, Frame.WORLD, length],
+    normal: Vec3[DType.float32, Frame.WORLD, length],
+    albedo: Vec3[DType.float32, Frame.WORLD, length],
+    parameter: SIMD[DType.float32, length],
+    out_direction: Vec3[DType.float32, Frame.WORLD, length],
+) -> BsdfEvaluation[length]:
+    """Evaluate one homogeneous material group at compile time."""
+    comptime if MATERIAL_KIND == MAT.LAMBERTIAN:
+        return _evaluate_lambertian(normal, albedo, out_direction)
+    elif MATERIAL_KIND == MAT.METAL:
+        return _evaluate_metal(
+            ray_direction, normal, albedo, parameter, out_direction
+        )
+    elif MATERIAL_KIND == MAT.DIELECTRIC:
+        return BsdfEvaluation[length](
+            Vec3[DType.float32, Frame.WORLD, length](0.0),
+            SIMD[DType.float32, length](0.0),
+            SIMD[DType.bool, length](fill=True),
+        )
+    else:
+        comptime assert MATERIAL_KIND == MAT.EMISSIVE
+        return BsdfEvaluation[length](
+            Vec3[DType.float32, Frame.WORLD, length](0.0),
+            SIMD[DType.float32, length](0.0),
+            SIMD[DType.bool, length](fill=False),
+        )
+
+
+@always_inline
 def _sample_lambertian[
     length: SIMDLength
 ](
@@ -250,18 +282,22 @@ def evaluate_bsdf(
     surface: SurfaceId[1],
     surfaces: SurfaceStore,
     ray: Rayf32[Frame.WORLD],
-    hit: ShadingPoint,
+    hit: ShadingPoint[1],
     out_direction: Vec3f32[Frame.WORLD],
 ) -> BsdfEvaluation[1]:
     """Evaluate the non-delta BSDF and its solid-angle sampling PDF."""
     if surface.kind() == MAT.LAMBERTIAN:
         ref material = surfaces.lambertians[Int(surface.index())]
-        return _evaluate_lambertian[1](
-            hit.normal, material.albedo, out_direction
+        return _evaluate_material[MAT.LAMBERTIAN, 1](
+            ray.d,
+            hit.normal,
+            material.albedo,
+            SIMD[DType.float32, 1](1.0),
+            out_direction,
         )
     if surface.kind() == MAT.METAL:
         ref material = surfaces.metals[Int(surface.index())]
-        return _evaluate_metal[1](
+        return _evaluate_material[MAT.METAL, 1](
             ray.d,
             hit.normal,
             material.albedo,
@@ -270,10 +306,22 @@ def evaluate_bsdf(
         )
 
     if surface.kind() == MAT.DIELECTRIC:
-        return BsdfEvaluation(Color(0.0), 0.0, True)
+        return _evaluate_material[MAT.DIELECTRIC, 1](
+            ray.d,
+            hit.normal,
+            Color(0.0),
+            SIMD[DType.float32, 1](1.0),
+            out_direction,
+        )
 
     if surface.kind() == MAT.EMISSIVE:
-        return BsdfEvaluation(Color(0.0), 0.0, False)
+        return _evaluate_material[MAT.EMISSIVE, 1](
+            ray.d,
+            hit.normal,
+            Color(0.0),
+            SIMD[DType.float32, 1](1.0),
+            out_direction,
+        )
 
     debug_assert["safe", _use_compiler_assume=True](
         False, "unknown RT surface kind"
@@ -285,14 +333,17 @@ def sample_bsdf(
     surface: SurfaceId[1],
     surfaces: SurfaceStore,
     ray: Rayf32[Frame.WORLD],
-    hit: ShadingPoint,
+    hit: ShadingPoint[1],
     mut rng: Rng,
 ) -> BsdfSample[1]:
     if surface.kind() == MAT.LAMBERTIAN:
         ref material = surfaces.lambertians[Int(surface.index())]
-        return _sample_lambertian[1](
+        return _sample_material[MAT.LAMBERTIAN, 1](
+            ray.d,
             hit.normal,
             material.albedo,
+            SIMD[DType.float32, 1](1.0),
+            hit.front_face,
             SIMD[DType.float32, 1](rng.f32()),
             SIMD[DType.float32, 1](rng.f32()),
         )
@@ -307,11 +358,12 @@ def sample_bsdf(
         if material.fuzz > 1.0e-4:
             random_u = rng.f32()
             random_v = rng.f32()
-        return _sample_metal[1](
+        return _sample_material[MAT.METAL, 1](
             ray.d,
             hit.normal,
             material.albedo,
             SIMD[DType.float32, 1](material.fuzz),
+            hit.front_face,
             SIMD[DType.float32, 1](random_u),
             SIMD[DType.float32, 1](random_v),
         )
@@ -331,12 +383,14 @@ def sample_bsdf(
         var random_u = Float32(0.0)
         if ri * sin_theta <= 1.0:
             random_u = rng.f32()
-        return _sample_dielectric[1](
+        return _sample_material[MAT.DIELECTRIC, 1](
             ray.d,
             hit.normal,
+            Color(0.0),
             SIMD[DType.float32, 1](material.refraction_index),
-            SIMD[DType.bool, 1](hit.front_face),
+            hit.front_face,
             SIMD[DType.float32, 1](random_u),
+            SIMD[DType.float32, 1](0.0),
         )
 
     if surface.kind() == MAT.EMISSIVE:

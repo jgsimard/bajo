@@ -198,10 +198,10 @@ def make_primary_ray(
     # Keep this byte-for-byte equivalent to the production depth-first path.
     var lens = random_in_unit_disk[Frame.WORLD](rng)
     return camera.make_ray_sampled(
-        px,
-        py,
-        settings.image_width,
-        settings.image_height,
+        Float32(px),
+        Float32(py),
+        Float32(settings.image_width),
+        Float32(settings.image_height),
         rng.f32(),
         rng.f32(),
         lens.x,

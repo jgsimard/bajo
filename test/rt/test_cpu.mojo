@@ -50,7 +50,7 @@ from bajo.rt.cpu.common import _path_stage_rng, _russian_roulette
 from bajo.rt.types import MAT, PRIM
 
 
-def _front_point() -> ShadingPoint:
+def _front_point() -> ShadingPoint[1]:
     return ShadingPoint(
         Point3f32[Frame.WORLD](0.0, 0.0, -1.0),
         Vec3f32[Frame.WORLD](0.0, 0.0, 1.0),

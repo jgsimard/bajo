@@ -9,15 +9,16 @@ from bajo.core import (
     cross,
     dot,
     length2,
+    Point3,
     Point3f32,
     GeoKind,
     Rayf32,
+    Ray,
 )
 from bajo.bvh.constants import EMPTY_LANE, Primitive, TRACE, f32_max
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.bvh.cpu.tlas import Tlas
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
-from bajo.bvh.cpu.packet import RayPacket
 from bajo.bvh.types import Instance, Sphere
 
 
@@ -278,10 +279,10 @@ struct _WorldHit(Copyable, Writable):
 
 
 @fieldwise_init
-struct ShadingPoint(Copyable, Writable):
-    var p: Point3f32[Frame.WORLD]
-    var normal: Vec3f32[Frame.WORLD]
-    var front_face: Bool
+struct ShadingPoint[length: SIMDLength = 1](Copyable, Writable):
+    var p: Point3[DType.float32, Frame.WORLD, Self.length]
+    var normal: Vec3[DType.float32, Frame.WORLD, Self.length]
+    var front_face: SIMD[DType.bool, Self.length]
 
 
 @fieldwise_init
@@ -527,70 +528,57 @@ struct World:
                         )
                     )
 
-    def occluded(self, ray: Rayf32[Frame.WORLD]) -> Bool:
-        """Return as soon as any world primitive intersects `ray`.
-
-        Visibility queries do not need the closest primitive, surface data,
-        hit point, or normal. Keep them on the BVHs' any-hit paths and
-        short-circuit between geometry classes as well.
-        """
-        if self.sphere_bvh:
-            var hit = self.sphere_bvh.value().trace[TRACE.ANY_HIT](ray)
-            if hit.is_occluded():
-                return True
-
-        if self.triangle_bvh:
-            var hit = self.triangle_bvh.value().trace[TRACE.ANY_HIT](ray)
-            if hit.is_occluded():
-                return True
-
-        if self.triangle_tlas:
-            var hit = self.triangle_tlas.value().trace[
-                TriangleBvh[Frame.LOCAL, BVH_WIDTH],
-                TRACE.ANY_HIT,
-            ](ray, Span(self.triangle_mesh_blases))
-            if hit.is_occluded():
-                return True
-
-        return False
-
     @always_inline
-    def occluded_packet[
+    def occluded[
         length: SIMDLength
     ](
         self,
-        rays: RayPacket[Frame.WORLD, length],
-        valid: SIMD[DType.bool, length],
+        rays: Ray[DType.float32, Frame.WORLD, length],
+        valid: SIMD[DType.bool, length] = SIMD[DType.bool, length](fill=True),
     ) -> SIMD[DType.bool, length]:
         """Trace bounded visibility rays together where packet BVHs exist."""
         comptime if length == 1:
             var result = SIMD[DType.bool, length](fill=False)
-            if valid[0]:
-                result[0] = self.occluded(
-                    Rayf32[Frame.WORLD](
-                        Point3f32[Frame.WORLD](
-                            rays.o.x[0], rays.o.y[0], rays.o.z[0]
-                        ),
-                        Vec3f32[Frame.WORLD](
-                            rays.d.x[0], rays.d.y[0], rays.d.z[0]
-                        ),
-                        rays.t_min[0],
-                        rays.t_max[0],
-                    )
-                )
+            if not valid[0]:
+                return result
+            var ray = Rayf32[Frame.WORLD](
+                Point3f32[Frame.WORLD](rays.o.x[0], rays.o.y[0], rays.o.z[0]),
+                Vec3f32[Frame.WORLD](rays.d.x[0], rays.d.y[0], rays.d.z[0]),
+                rays.t_min[0],
+                rays.t_max[0],
+            )
+            if self.sphere_bvh:
+                var hit = self.sphere_bvh.value().trace[TRACE.ANY_HIT](ray)
+                if hit.is_occluded():
+                    result[0] = True
+                    return result
+            if self.triangle_bvh:
+                var hit = self.triangle_bvh.value().trace[TRACE.ANY_HIT](ray)
+                if hit.is_occluded():
+                    result[0] = True
+                    return result
+            if self.triangle_tlas:
+                var hit = self.triangle_tlas.value().trace[
+                    TriangleBvh[Frame.LOCAL, BVH_WIDTH],
+                    TRACE.ANY_HIT,
+                ](ray, Span(self.triangle_mesh_blases))
+                if hit.is_occluded():
+                    result[0] = True
             return result
         else:
             var result = SIMD[DType.bool, length](fill=False)
             if self.sphere_bvh:
-                var hits = self.sphere_bvh.value().trace_packet(rays, valid)
+                var hits = self.sphere_bvh.value().trace[TRACE.CLOSEST_HIT](
+                    rays, valid
+                )
                 result |= hits.hit_mask()
 
             if self.triangle_bvh:
                 var active = valid & ~result
                 if active.reduce_or():
-                    var hits = self.triangle_bvh.value().trace_packet(
-                        rays, active
-                    )
+                    var hits = self.triangle_bvh.value().trace[
+                        TRACE.CLOSEST_HIT
+                    ](rays, active)
                     result |= hits.hit_mask()
 
             if self.triangle_tlas:
@@ -644,24 +632,13 @@ struct World:
             hit.front_face,
         )
 
-    def trace_surface(self, ray: Rayf32[Frame.WORLD]) -> SurfaceHit[1]:
-        """Trace the compact hit consumed by render integrators."""
-        var hit = self._trace_closest(ray)
-        return SurfaceHit(
-            hit.normal,
-            hit.surface.copy(),
-            hit.t,
-            hit.front_face,
-            hit.hit,
-        )
-
     @always_inline
-    def trace_surface_packet[
+    def trace_surface[
         length: SIMDLength
     ](
         self,
-        rays: RayPacket[Frame.WORLD, length],
-        valid: SIMD[DType.bool, length],
+        rays: Ray[DType.float32, Frame.WORLD, length],
+        valid: SIMD[DType.bool, length] = SIMD[DType.bool, length](fill=True),
     ) -> SurfaceHit[length]:
         comptime if length == 1:
             if valid[0]:
@@ -673,7 +650,7 @@ struct World:
                     rays.t_min[0],
                     rays.t_max[0],
                 )
-                var scalar_hit = self.trace_surface(ray)
+                var scalar_hit = self._trace_closest(ray)
                 var result = SurfaceHit[length](rays.t_max)
                 result.normal.x[0] = scalar_hit.normal.x
                 result.normal.y[0] = scalar_hit.normal.y
@@ -685,20 +662,22 @@ struct World:
                 return result^
             return SurfaceHit[length](rays.t_max)
         else:
-            return self._trace_surface_simd(rays, valid)
+            return self._trace_surface_shared_stack(rays, valid)
 
-    def _trace_surface_simd[
+    def _trace_surface_shared_stack[
         length: SIMDLength
     ](
         self,
-        rays: RayPacket[Frame.WORLD, length],
+        rays: Ray[DType.float32, Frame.WORLD, length],
         valid: SIMD[DType.bool, length],
     ) -> SurfaceHit[length]:
         """Trace SIMD packets, with scalar TLAS fallback."""
         comptime assert length > 1
         var result = SurfaceHit[length](rays.t_max)
         if self.sphere_bvh:
-            var sphere_hits = self.sphere_bvh.value().trace_packet(rays, valid)
+            var sphere_hits = self.sphere_bvh.value().trace[TRACE.CLOSEST_HIT](
+                rays, valid
+            )
             var sphere_mask = sphere_hits.hit_mask()
             var center_x = SIMD[DType.float32, length](0.0)
             var center_y = SIMD[DType.float32, length](0.0)
@@ -742,9 +721,9 @@ struct World:
             result.hit |= sphere_mask
 
         if self.triangle_bvh:
-            var triangle_hits = self.triangle_bvh.value().trace_packet(
-                rays, valid
-            )
+            var triangle_hits = self.triangle_bvh.value().trace[
+                TRACE.CLOSEST_HIT
+            ](rays, valid)
             var triangle_mask = triangle_hits.hit_mask() & triangle_hits.t.lt(
                 result.t
             )
@@ -755,9 +734,12 @@ struct World:
                     surface_values[lane] = self.triangle_surfaces[
                         triangle_idx
                     ].value
-            var front_faces = dot(rays.d, triangle_hits.normal).lt(0.0)
+            var triangle_normal = triangle_hits.normal.unsafe_convert[
+                new_kind=GeoKind.VECTOR
+            ]()
+            var front_faces = dot(rays.d, triangle_normal).lt(0.0)
             var oriented_normal = Vec3.select(
-                front_faces, triangle_hits.normal, -triangle_hits.normal
+                front_faces, triangle_normal, -triangle_normal
             )
             result.normal = Vec3.select(
                 triangle_mask, oriented_normal, result.normal

@@ -2,79 +2,30 @@
 
 from bajo.bvh.constants import EMPTY_LANE, f32_max
 from bajo.bvh.cpu.bounds_bvh import BoundsBvh
+from bajo.bvh.types import Hit
 from bajo.bvh.tagged_ref import decode_ref_index, is_leaf_ref
-from bajo.core import Frame, Point3, Vec3
+from bajo.core import Frame, Point3, Ray, Vec3
 from bajo.core.intersect import intersect_ray_aabb_rcp
 
 
 comptime CPU_PACKET_STACK_SIZE = 256
 
 
-@fieldwise_init
-struct RayPacket[frame: Frame, length: SIMDLength](Copyable):
-    var o: Point3[DType.float32, Self.frame, Self.length]
-    var d: Vec3[DType.float32, Self.frame, Self.length]
-    var t_min: SIMD[DType.float32, Self.length]
-    var t_max: SIMD[DType.float32, Self.length]
-
-
-struct PacketHit[frame: Frame, length: SIMDLength](Copyable):
-    var u: SIMD[DType.float32, Self.length]
-    var v: SIMD[DType.float32, Self.length]
-    var prim: SIMD[DType.uint32, Self.length]
-    var inst: SIMD[DType.uint32, Self.length]
-    var normal: Vec3[DType.float32, Self.frame, Self.length]
-    var t: SIMD[DType.float32, Self.length]
-
-    def __init__(out self, t_max: SIMD[DType.float32, Self.length]):
-        self.u = 0.0
-        self.v = 0.0
-        self.prim = EMPTY_LANE
-        self.inst = EMPTY_LANE
-        self.normal = Vec3[DType.float32, Self.frame, Self.length](0.0)
-        self.t = t_max
-
-    @always_inline
-    def hit_mask(self) -> SIMD[DType.bool, Self.length]:
-        return self.prim.ne(EMPTY_LANE) & self.t.lt(f32_max)
-
-
 @always_inline
-def _packet_rcp_direction[
-    frame: Frame, length: SIMDLength
-](direction: Vec3[DType.float32, frame, length]) -> Vec3[
-    DType.float32, frame, length
-]:
-    var epsilon = SIMD[DType.float32, length](1.0e-9)
-    var large = SIMD[DType.float32, length](1.0e9)
-    var one = SIMD[DType.float32, length](1.0)
-    var mx = abs(direction.x).gt(epsilon)
-    var my = abs(direction.y).gt(epsilon)
-    var mz = abs(direction.z).gt(epsilon)
-    var sx = direction.x.lt(0.0).select(-large, large)
-    var sy = direction.y.lt(0.0).select(-large, large)
-    var sz = direction.z.lt(0.0).select(-large, large)
-    return Vec3[DType.float32, frame, length](
-        mx.select(one / mx.select(direction.x, one), sx),
-        my.select(one / my.select(direction.y, one), sy),
-        mz.select(one / mz.select(direction.z, one), sz),
-    )
-
-
-def trace_packet_bounds_bvh[
+def trace_shared_stack_bounds_bvh[
     frame: Frame,
     bounds_width: SIMDLength,
     length: SIMDLength,
     LeafFn: def(
         SIMD[DType.bool, length],
         UInt32,
-        mut PacketHit[frame, length],
+        mut Hit[frame, length],
     ),
 ](
     tree: BoundsBvh[frame, bounds_width],
-    rays: RayPacket[frame, length],
+    rays: Ray[DType.float32, frame, length],
     valid: SIMD[DType.bool, length],
-    mut hit: PacketHit[frame, length],
+    mut hit: Hit[frame, length],
     ref leaf_fn: LeafFn,
 ):
     """Traverse one wide hierarchy with a shared stack and per-task ray mask."""
@@ -84,7 +35,7 @@ def trace_packet_bounds_bvh[
     if not valid.reduce_or():
         return
 
-    var reciprocal_direction = _packet_rcp_direction(rays.d)
+    var reciprocal_direction = rays.reciprocal_direction()
     var stack_refs = Array[UInt32, CPU_PACKET_STACK_SIZE](uninitialized=True)
     var stack_masks = Array[SIMD[DType.bool, length], CPU_PACKET_STACK_SIZE](
         uninitialized=True

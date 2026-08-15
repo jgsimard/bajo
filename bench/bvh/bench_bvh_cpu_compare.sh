@@ -3,6 +3,7 @@ set -euo pipefail
 
 taskset -c 0 mojo -I . bench/bvh/bench_cpu_bvh_grid.mojo
 taskset -c 0 mojo -I . bench/bvh/bench_cpu_bvh_dragon.mojo
+taskset -c 0 mojo -I . bench/bvh/bench_cpu_bvh_packets.mojo
 g++ -O3 -march=native -DNDEBUG -std=c++20 \
   bench/bvh/bench_embree_cpu.cpp -lembree4 -o /tmp/bajo_bench_embree_cpu
 taskset -c 0 /tmp/bajo_bench_embree_cpu assets/dragon/dragon.obj

@@ -69,6 +69,12 @@ struct PacketPathQueue[PACKET_LANES: SIMDLength](Sized):
         return self.count
 
     @always_inline
+    def clear(mut self):
+        """Reset the queue while retaining its packet storage capacity."""
+        self.packets.clear()
+        self.count = 0
+
+    @always_inline
     def _append_packet_lane(
         mut self,
         packet: PathPacket[Self.PACKET_LANES],

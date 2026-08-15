@@ -10,15 +10,17 @@ from bajo.rt.wavefront_queue import PacketPathQueue, PathPacket
 from ..common import _path_stage_rng
 
 
-def _make_initial_path_packets_range[
+def _initialize_path_packets_range[
     PACKET_LANES: SIMDLength
 ](
+    mut paths: PacketPathQueue[PACKET_LANES],
     settings: RenderSettings,
     camera: Camera,
     path_begin: Int,
     path_end: Int,
-) -> PacketPathQueue[PACKET_LANES]:
-    var paths = PacketPathQueue[PACKET_LANES](path_end - path_begin)
+):
+    """Fill a reusable queue with primary paths for one render range."""
+    paths.clear()
     var width = Float32(settings.image_width)
     var height = Float32(settings.image_height)
     var aspect = width / height
@@ -95,4 +97,3 @@ def _make_initial_path_packets_range[
         packet.ty = 1.0
         packet.tz = 1.0
         paths.append_packet(packet^, lane_count)
-    return paths^

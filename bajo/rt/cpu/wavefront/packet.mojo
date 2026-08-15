@@ -182,7 +182,8 @@ def _trace_path_packets[
     settings: RenderSettings,
     world: World,
     mut pixels: List[Color],
-    var active_paths: PacketPathQueue[PACKET_LANES],
+    mut active_paths: PacketPathQueue[PACKET_LANES],
+    mut next_paths: PacketPathQueue[PACKET_LANES],
     mut lambertian_queue: PacketShadeQueue[PACKET_LANES],
     mut metal_queue: PacketShadeQueue[PACKET_LANES],
     mut dielectric_queue: PacketShadeQueue[PACKET_LANES],
@@ -194,7 +195,7 @@ def _trace_path_packets[
         lambertian_queue.clear()
         metal_queue.clear()
         dielectric_queue.clear()
-        var next_paths = PacketPathQueue[PACKET_LANES](len(active_paths))
+        next_paths.clear()
         for packet_idx in range(len(active_paths.packets)):
             ref packet = active_paths.packets[packet_idx]
             var lane_count = min(
@@ -300,4 +301,4 @@ def _trace_path_packets[
             settings,
             UInt32(bounce + 1),
         )
-        active_paths = next_paths^
+        swap(active_paths, next_paths)

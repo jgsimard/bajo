@@ -7,7 +7,8 @@ from bajo.bvh.camera import Camera
 from bajo.core import Point3W, Vec3W
 from bajo.core.utils import ns_to_ms
 from bajo.rt import RenderSettings
-from bajo.rt.cpu.wavefront.primary import _make_initial_path_packets_range
+from bajo.rt.cpu.wavefront.primary import _initialize_path_packets_range
+from bajo.rt.wavefront_queue import PacketPathQueue
 from bajo.rt.wavefront_contract import (
     WAVE_COUNTER,
     WavePathFloatAbi,
@@ -34,8 +35,9 @@ def main():
         10.0,
         0.6,
     )
-    var packet_paths = _make_initial_path_packets_range[8](
-        settings, camera, 0, CAPACITY
+    var packet_paths = PacketPathQueue[8](CAPACITY)
+    _initialize_path_packets_range[8](
+        packet_paths, settings, camera, 0, CAPACITY
     )
     var paths = packet_path_queue_to_wave_paths(packet_paths)
     var warm_packed = pack_wave_paths(paths, CAPACITY)

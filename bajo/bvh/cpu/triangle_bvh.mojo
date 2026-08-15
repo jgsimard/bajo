@@ -34,6 +34,11 @@ from bajo.bvh.cpu.trace import (
     trace_bounds_bvh,
     trace_bounds_bvh_measured,
 )
+from bajo.bvh.cpu.packet import (
+    PacketHit,
+    RayPacket,
+    trace_packet_bounds_bvh,
+)
 
 
 struct TriangleBvh[
@@ -138,6 +143,89 @@ struct TriangleBvh[
     ](self, ray: Rayf32[Self.bvh_frame]) -> Hit[Self.bvh_frame]:
         var unused_stats = CpuBvhTraversalStats()
         return self._trace[mode, collect_stats=False](ray, unused_stats)
+
+    def trace_packet[
+        ray_lanes: SIMDLength
+    ](
+        self,
+        rays: RayPacket[Self.bvh_frame, ray_lanes],
+        valid: SIMD[DType.bool, ray_lanes],
+    ) -> PacketHit[Self.bvh_frame, ray_lanes]:
+        """Trace a coherent SIMD ray packet with one shared hierarchy stack."""
+        var hit = PacketHit[Self.bvh_frame, ray_lanes](rays.t_max)
+
+        def leaf_fn(
+            active: SIMD[DType.bool, ray_lanes],
+            leaf_block_idx: UInt32,
+            mut packet_hit: PacketHit[Self.bvh_frame, ray_lanes],
+        ) {imm}:
+            ref block = self.leaf_blocks.unsafe_get(Int(leaf_block_idx))
+            comptime for prim_lane in range(Self.leaf_width):
+                var prim_idx = block.prim_indices[prim_lane]
+                if prim_idx != EMPTY_LANE:
+                    var v0 = Point3[DType.float32, Self.bvh_frame, ray_lanes](
+                        block.v0.x[prim_lane],
+                        block.v0.y[prim_lane],
+                        block.v0.z[prim_lane],
+                    )
+                    var e1 = Vec3[DType.float32, Self.bvh_frame, ray_lanes](
+                        block.e1.x[prim_lane],
+                        block.e1.y[prim_lane],
+                        block.e1.z[prim_lane],
+                    )
+                    var e2 = Vec3[DType.float32, Self.bvh_frame, ray_lanes](
+                        block.e2.x[prim_lane],
+                        block.e2.y[prim_lane],
+                        block.e2.z[prim_lane],
+                    )
+                    var candidate = intersect_ray_tri_edges_scaled(
+                        rays.o,
+                        rays.d,
+                        v0,
+                        e1,
+                        e2,
+                        packet_hit.t,
+                        rays.t_min,
+                    )
+                    var closer = active & candidate.mask
+                    if closer.reduce_or():
+                        var safe_det = closer.select(
+                            candidate.abs_det, Float32(1.0)
+                        )
+                        var inv_det = Float32(1.0) / safe_det
+                        var candidate_t = candidate.t_scaled * inv_det
+                        packet_hit.t = closer.select(candidate_t, packet_hit.t)
+                        packet_hit.u = closer.select(
+                            candidate.u_scaled * inv_det, packet_hit.u
+                        )
+                        packet_hit.v = closer.select(
+                            candidate.v_scaled * inv_det, packet_hit.v
+                        )
+                        packet_hit.prim = closer.select(
+                            SIMD[DType.uint32, ray_lanes](prim_idx),
+                            packet_hit.prim,
+                        )
+                        packet_hit.inst = closer.select(
+                            SIMD[DType.uint32, ray_lanes](EMPTY_LANE),
+                            packet_hit.inst,
+                        )
+                        var geometric_normal = normalize(cross(e1, e2))
+                        packet_hit.normal.x = closer.select(
+                            geometric_normal.x, packet_hit.normal.x
+                        )
+                        packet_hit.normal.y = closer.select(
+                            geometric_normal.y, packet_hit.normal.y
+                        )
+                        packet_hit.normal.z = closer.select(
+                            geometric_normal.z, packet_hit.normal.z
+                        )
+
+        trace_packet_bounds_bvh[
+            frame=Self.frame,
+            bounds_width=Self.bounds_width,
+            ray_lanes=ray_lanes,
+        ](self.tree, rays, valid, hit, leaf_fn)
+        return hit^
 
     def trace_with_stats[
         mode: TRACE

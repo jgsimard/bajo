@@ -12,10 +12,10 @@ from bajo.rt import (
     World,
     render_depth_first,
 )
-from bajo.rt.cpu import (
+from bajo.rt.cpu import render_wavefront
+from bajo.rt.cpu.wavefront import (
     CPU_WAVEFRONT_SERIAL_CHUNK_PATHS,
     WAVE_PARALLEL_TASK_PARTITIONS,
-    render_wavefront,
 )
 from bench.rt.bench_cpu_end_to_end import pixel_checksum, sort_timings
 from examples.rtiaw import make_weekend_world

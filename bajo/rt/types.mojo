@@ -203,6 +203,13 @@ struct SurfaceHit(Copyable, Writable):
 
 
 @fieldwise_init
+struct ShadingPoint(Copyable, Writable):
+    var p: Point3f32[Frame.WORLD]
+    var normal: Vec3f32[Frame.WORLD]
+    var front_face: Bool
+
+
+@fieldwise_init
 struct BsdfSample(Copyable, Writable):
     """One sampled continuation and its throughput/PDF metadata."""
 

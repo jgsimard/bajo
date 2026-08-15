@@ -1,14 +1,9 @@
 from bajo.bvh.camera import Camera
 from .cpu import (
-    bsdf_is_delta,
     evaluate_bsdf,
-    pdf_bsdf,
     render_depth_first,
     render_wavefront,
     sample_bsdf,
-    sample_dielectric,
-    sample_lambertian,
-    sample_metal,
     write_ppm_from_colors,
 )
 from .types import (
@@ -26,6 +21,7 @@ from .types import (
     RenderResult,
     RenderSettings,
     RenderTimings,
+    ShadingPoint,
     SurfaceId,
     SurfaceHit,
     SurfaceStore,

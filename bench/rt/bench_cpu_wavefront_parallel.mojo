@@ -5,12 +5,12 @@ from std.math import abs, round
 from bajo.core import Point3W, Vec3W
 from bajo.core.utils import ns_to_ms
 from bajo.rt import Camera, RENDER, RenderResult, RenderSettings, World
-from bajo.rt.cpu import (
+from bajo.rt.cpu import render_wavefront
+from bajo.rt.cpu.wavefront import (
     CPU_WAVEFRONT_SERIAL_CHUNK_PATHS,
     WAVE_PARALLEL_LOGICAL_CORES,
     WAVE_PARALLEL_RUNTIME_DEFAULT,
     WAVE_PARALLEL_TASK_PARTITIONS,
-    render_wavefront,
 )
 from bench.rt.bench_cpu_end_to_end import (
     make_triangle_world,

@@ -6,16 +6,13 @@ from bajo.bvh.camera import Camera
 from bajo.rt.types import (
     Color,
     RenderSettings,
+    ShadingPoint,
     SurfaceHit,
-    World,
 )
 from bajo.rt.wavefront_contract import (
     wavefront_rng_roulette_stage,
     wavefront_rng_subsequence,
 )
-
-
-from .bsdf import ShadingPoint
 
 
 comptime RUSSIAN_ROULETTE_START_DEPTH = UInt32(5)
@@ -33,10 +30,6 @@ def _sky_color(ray: Rayf32[Frame.WORLD]) -> Color:
     var unit_direction = normalize(ray.d)
     var a = 0.5 * (unit_direction.y + 1.0)
     return (1.0 - a) * Color(1.0) + a * Color(0.5, 0.7, 1.0)
-
-
-def _trace_world(world: World, ray: Rayf32[Frame.WORLD]) -> SurfaceHit:
-    return world.trace_surface(ray)
 
 
 def _shading_point(ray: Rayf32[Frame.WORLD], hit: SurfaceHit) -> ShadingPoint:

@@ -14,6 +14,8 @@ from .types import (
     Emissive,
     HitRecord,
     Lambertian,
+    LightRecord,
+    LightStore,
     MAT,
     Metal,
     PrimitiveId,

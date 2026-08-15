@@ -1,11 +1,13 @@
-from std.math import abs
+from std.math import abs, pi, sqrt
 
 from bajo.core import (
     AABB,
     Affine3f32,
     Frame,
     Vec3f32,
+    cross,
     dot,
+    length2,
     Point3f32,
     GeoKind,
     Rayf32,
@@ -172,6 +174,29 @@ struct SurfaceStore:
 
 
 @fieldwise_init
+struct LightRecord(Copyable, Writable):
+    """Compact emissive-primitive entry suitable for device packing."""
+
+    var primitive: PrimitiveId
+    var surface: SurfaceId
+    var weight: Float32
+
+
+struct LightStore:
+    var records: List[LightRecord]
+    var total_weight: Float32
+
+    def __init__(out self):
+        self.records = List[LightRecord]()
+        self.total_weight = 0.0
+
+    @always_inline
+    def append(mut self, var record: LightRecord):
+        self.total_weight += record.weight
+        self.records.append(record^)
+
+
+@fieldwise_init
 struct HitRecord(Copyable, Writable):
     var primitive: PrimitiveId
     var p: Point3f32[Frame.WORLD]
@@ -194,6 +219,29 @@ struct SurfaceHit(Copyable, Writable):
     @staticmethod
     def miss(t: Float32 = f32_max) -> Self:
         return Self(
+            Vec3f32[Frame.WORLD](0.0),
+            SurfaceId(MAT.LAMBERTIAN, UInt32(0)),
+            t,
+            True,
+            False,
+        )
+
+
+@fieldwise_init
+struct _WorldHit(Copyable, Writable):
+    """Canonical closest-hit record shared by public and renderer queries."""
+
+    var primitive: PrimitiveId
+    var normal: Vec3f32[Frame.WORLD]
+    var surface: SurfaceId
+    var t: Float32
+    var front_face: Bool
+    var hit: Bool
+
+    @staticmethod
+    def miss(t: Float32 = f32_max) -> Self:
+        return Self(
+            PrimitiveId(PRIM.SPHERE, UInt32(0)),
             Vec3f32[Frame.WORLD](0.0),
             SurfaceId(MAT.LAMBERTIAN, UInt32(0)),
             t,
@@ -294,6 +342,7 @@ struct World:
     var triangle_instances: List[Instance]
     var triangle_instance_surfaces: List[SurfaceId]
     var surfaces: SurfaceStore
+    var lights: LightStore
 
     def __init__(
         out self,
@@ -337,6 +386,7 @@ struct World:
         self.triangle_instances = triangle_instances^
         self.triangle_instance_surfaces = triangle_instance_surfaces^
         self.surfaces = surfaces^
+        self.lights = LightStore()
 
         self.sphere_bvh = Optional[SphereBvh[Frame.WORLD, BVH_WIDTH]]()
         self.triangle_bvh = Optional[TriangleBvh[Frame.WORLD, BVH_WIDTH]]()
@@ -410,8 +460,45 @@ struct World:
                 Tlas[BVH_WIDTH](self.triangle_instances)
             )
 
-    def hit(self, ray: Rayf32[Frame.WORLD]) -> Optional[HitRecord]:
-        return self.trace(ray)
+        self._build_light_store()
+
+    def _build_light_store(mut self):
+        for idx in range(len(self.triangle_surfaces)):
+            ref surface = self.triangle_surfaces[idx]
+            if surface.kind() == MAT.EMISSIVE:
+                var radiance = self.surfaces.emissives[
+                    Int(surface.index())
+                ].radiance
+                var weight = _world_triangle_area(self, idx) * (
+                    _light_importance(radiance)
+                )
+                if weight > 0.0:
+                    self.lights.append(
+                        LightRecord(
+                            PrimitiveId(PRIM.TRIANGLE, UInt32(idx)),
+                            surface.copy(),
+                            weight,
+                        )
+                    )
+
+        for idx in range(len(self.sphere_surfaces)):
+            ref surface = self.sphere_surfaces[idx]
+            if surface.kind() == MAT.EMISSIVE:
+                var radiance = self.surfaces.emissives[
+                    Int(surface.index())
+                ].radiance
+                var radius = abs(self.spheres[idx].radius)
+                var weight = (
+                    4.0 * pi * radius * radius * _light_importance(radiance)
+                )
+                if weight > 0.0:
+                    self.lights.append(
+                        LightRecord(
+                            PrimitiveId(PRIM.SPHERE, UInt32(idx)),
+                            surface.copy(),
+                            weight,
+                        )
+                    )
 
     def occluded(self, ray: Rayf32[Frame.WORLD]) -> Bool:
         """Return as soon as any world primitive intersects `ray`.
@@ -440,53 +527,48 @@ struct World:
 
         return False
 
-    def trace(self, ray: Rayf32[Frame.WORLD]) -> Optional[HitRecord]:
-        var sphere_hit = self._trace_spheres(ray)
+    def _trace_closest(self, ray: Rayf32[Frame.WORLD]) -> _WorldHit:
+        var closest = self._trace_spheres(ray)
         var triangle_hit = self._trace_triangles(ray)
-        var instance_hit = self._trace_triangle_instances(ray)
-
-        if sphere_hit:
-            if triangle_hit:
-                if instance_hit:
-                    return _closest_hit3(
-                        sphere_hit.value(),
-                        triangle_hit.value(),
-                        instance_hit.value(),
-                    )
-                return _closest_hit2(sphere_hit.value(), triangle_hit.value())
-            if instance_hit:
-                return _closest_hit2(sphere_hit.value(), instance_hit.value())
-            return Optional[HitRecord](sphere_hit.value().copy())
-
-        if triangle_hit:
-            if instance_hit:
-                return _closest_hit2(triangle_hit.value(), instance_hit.value())
-            return Optional[HitRecord](triangle_hit.value().copy())
-
-        if instance_hit:
-            return Optional[HitRecord](instance_hit.value().copy())
-
-        return None
-
-    def trace_surface(self, ray: Rayf32[Frame.WORLD]) -> SurfaceHit:
-        """Trace the compact hit consumed by render integrators."""
-        var closest = self._trace_surface_spheres(ray)
-        var triangle_hit = self._trace_surface_triangles(ray)
         if triangle_hit.hit and (not closest.hit or triangle_hit.t < closest.t):
             closest = triangle_hit^
 
-        var instance_hit = self._trace_surface_triangle_instances(ray)
+        var instance_hit = self._trace_triangle_instances(ray)
         if instance_hit.hit and (not closest.hit or instance_hit.t < closest.t):
             closest = instance_hit^
         return closest^
 
-    def _trace_surface_spheres(self, ray: Rayf32[Frame.WORLD]) -> SurfaceHit:
+    def trace(self, ray: Rayf32[Frame.WORLD]) -> Optional[HitRecord]:
+        var hit = self._trace_closest(ray)
+        if not hit.hit:
+            return None
+        return HitRecord(
+            hit.primitive.copy(),
+            ray_at(ray, hit.t),
+            hit.normal,
+            hit.surface.copy(),
+            hit.t,
+            hit.front_face,
+        )
+
+    def trace_surface(self, ray: Rayf32[Frame.WORLD]) -> SurfaceHit:
+        """Trace the compact hit consumed by render integrators."""
+        var hit = self._trace_closest(ray)
+        return SurfaceHit(
+            hit.normal,
+            hit.surface.copy(),
+            hit.t,
+            hit.front_face,
+            hit.hit,
+        )
+
+    def _trace_spheres(self, ray: Rayf32[Frame.WORLD]) -> _WorldHit:
         if not self.sphere_bvh:
-            return SurfaceHit.miss(ray.t_max)
+            return _WorldHit.miss(ray.t_max)
 
         var bvh_hit = self.sphere_bvh.value().trace[TRACE.CLOSEST_HIT](ray)
         if not bvh_hit.is_hit():
-            return SurfaceHit.miss(ray.t_max)
+            return _WorldHit.miss(ray.t_max)
 
         var sphere_idx = Int(bvh_hit.prim)
         debug_assert["safe", _use_compiler_assume=True](
@@ -498,7 +580,8 @@ struct World:
         var outward_normal = (p - sphere.center) / sphere.radius
         var front_face = dot(ray.d, outward_normal) < 0.0
         var normal = outward_normal if front_face else -outward_normal
-        return SurfaceHit(
+        return _WorldHit(
+            PrimitiveId(PRIM.SPHERE, bvh_hit.prim),
             normal,
             self.sphere_surfaces[sphere_idx].copy(),
             bvh_hit.t,
@@ -506,13 +589,13 @@ struct World:
             True,
         )
 
-    def _trace_surface_triangles(self, ray: Rayf32[Frame.WORLD]) -> SurfaceHit:
+    def _trace_triangles(self, ray: Rayf32[Frame.WORLD]) -> _WorldHit:
         if not self.triangle_bvh:
-            return SurfaceHit.miss(ray.t_max)
+            return _WorldHit.miss(ray.t_max)
 
         var bvh_hit = self.triangle_bvh.value().trace[TRACE.CLOSEST_HIT](ray)
         if not bvh_hit.is_hit():
-            return SurfaceHit.miss(ray.t_max)
+            return _WorldHit.miss(ray.t_max)
 
         var tri_idx = Int(bvh_hit.prim)
         debug_assert["safe", _use_compiler_assume=True](
@@ -524,7 +607,8 @@ struct World:
         ]()
         var front_face = dot(ray.d, outward_normal) < 0.0
         var normal = outward_normal if front_face else -outward_normal
-        return SurfaceHit(
+        return _WorldHit(
+            PrimitiveId(PRIM.TRIANGLE, bvh_hit.prim),
             normal,
             self.triangle_surfaces[tri_idx].copy(),
             bvh_hit.t,
@@ -532,18 +616,16 @@ struct World:
             True,
         )
 
-    def _trace_surface_triangle_instances(
-        self, ray: Rayf32[Frame.WORLD]
-    ) -> SurfaceHit:
+    def _trace_triangle_instances(self, ray: Rayf32[Frame.WORLD]) -> _WorldHit:
         if not self.triangle_tlas:
-            return SurfaceHit.miss(ray.t_max)
+            return _WorldHit.miss(ray.t_max)
 
         var bvh_hit = self.triangle_tlas.value().trace[
             TriangleBvh[Frame.LOCAL, BVH_WIDTH],
             TRACE.CLOSEST_HIT,
         ](ray, Span(self.triangle_mesh_blases))
         if not bvh_hit.is_hit() or bvh_hit.inst == EMPTY_LANE:
-            return SurfaceHit.miss(ray.t_max)
+            return _WorldHit.miss(ray.t_max)
 
         var instance_idx = Int(bvh_hit.inst)
         debug_assert["safe", _use_compiler_assume=True](
@@ -555,7 +637,8 @@ struct World:
         ]()
         var front_face = dot(ray.d, outward_normal) < 0.0
         var normal = outward_normal if front_face else -outward_normal
-        return SurfaceHit(
+        return _WorldHit(
+            PrimitiveId(PRIM.TRIANGLE_INSTANCE, bvh_hit.inst),
             normal,
             self.triangle_instance_surfaces[instance_idx].copy(),
             bvh_hit.t,
@@ -563,135 +646,22 @@ struct World:
             True,
         )
 
-    def _trace_spheres(self, ray: Rayf32[Frame.WORLD]) -> Optional[HitRecord]:
-        if not self.sphere_bvh:
-            return None
 
-        var bvh_hit = self.sphere_bvh.value().trace[TRACE.CLOSEST_HIT](ray)
-        if not bvh_hit.is_hit():
-            return None
+@always_inline
+def _light_importance(radiance: Color) -> Float32:
+    return max((radiance.x + radiance.y + radiance.z) / 3.0, 0.0)
 
-        var primitive = PrimitiveId(PRIM.SPHERE, bvh_hit.prim)
-        var sphere_idx = Int(primitive.index())
-        debug_assert["safe", _use_compiler_assume=True](
-            sphere_idx >= 0 and sphere_idx < len(self.spheres),
-            "BVH returned an out-of-range sphere index",
-        )
-        ref sphere = self.spheres[sphere_idx]
-        debug_assert["safe", _use_compiler_assume=True](
-            self.surfaces.validate(self.sphere_surfaces[sphere_idx]),
-            "hit sphere surface id is out of range",
-        )
-        var p = ray_at(ray, bvh_hit.t)
-        var outward_normal = (p - sphere.center) / sphere.radius
-        var front_face = dot(ray.d, outward_normal) < 0.0
-        var normal = outward_normal if front_face else -outward_normal
 
-        return HitRecord(
-            primitive^,
-            p,
-            normal,
-            self.sphere_surfaces[sphere_idx].copy(),
-            bvh_hit.t,
-            front_face,
-        )
-
-    def _trace_triangle_instances(
-        self, ray: Rayf32[Frame.WORLD]
-    ) -> Optional[HitRecord]:
-        if not self.triangle_tlas:
-            return None
-
-        var bvh_hit = self.triangle_tlas.value().trace[
-            TriangleBvh[Frame.LOCAL, BVH_WIDTH],
-            TRACE.CLOSEST_HIT,
-        ](ray, Span(self.triangle_mesh_blases))
-        if not bvh_hit.is_hit() or bvh_hit.inst == EMPTY_LANE:
-            return None
-
-        var instance_idx = Int(bvh_hit.inst)
-        debug_assert["safe", _use_compiler_assume=True](
-            instance_idx >= 0 and instance_idx < len(self.triangle_instances),
-            "TLAS returned an out-of-range triangle instance index",
-        )
-        debug_assert["safe", _use_compiler_assume=True](
-            self.surfaces.validate(
-                self.triangle_instance_surfaces[instance_idx]
-            ),
-            "hit triangle instance surface id is out of range",
-        )
-
-        var primitive = PrimitiveId(PRIM.TRIANGLE_INSTANCE, bvh_hit.inst)
-        var p = ray_at(ray, bvh_hit.t)
-        var outward_normal = bvh_hit.normal.unsafe_convert[
-            new_kind=GeoKind.VECTOR
-        ]()
-        var front_face = dot(ray.d, outward_normal) < 0.0
-        var normal = outward_normal if front_face else -outward_normal
-
-        return HitRecord(
-            primitive.copy(),
-            p,
-            normal,
-            self.triangle_instance_surfaces[instance_idx].copy(),
-            bvh_hit.t,
-            front_face,
-        )
-
-    def _trace_triangles(self, ray: Rayf32[Frame.WORLD]) -> Optional[HitRecord]:
-        if not self.triangle_bvh:
-            return None
-
-        var bvh_hit = self.triangle_bvh.value().trace[TRACE.CLOSEST_HIT](ray)
-        if not bvh_hit.is_hit():
-            return None
-
-        var primitive = PrimitiveId(PRIM.TRIANGLE, bvh_hit.prim)
-        var tri_idx = Int(primitive.index())
-        debug_assert["safe", _use_compiler_assume=True](
-            tri_idx >= 0 and tri_idx < len(self.triangle_surfaces),
-            "BVH returned an out-of-range triangle index",
-        )
-        debug_assert["safe", _use_compiler_assume=True](
-            self.surfaces.validate(self.triangle_surfaces[tri_idx]),
-            "hit triangle surface id is out of range",
-        )
-
-        var p = ray_at(ray, bvh_hit.t)
-        var outward_normal = bvh_hit.normal.unsafe_convert[
-            new_kind=GeoKind.VECTOR
-        ]()
-        var front_face = dot(ray.d, outward_normal) < 0.0
-        var normal = outward_normal if front_face else -outward_normal
-
-        return HitRecord(
-            primitive.copy(),
-            p,
-            normal,
-            self.triangle_surfaces[tri_idx].copy(),
-            bvh_hit.t,
-            front_face,
-        )
+@always_inline
+def _world_triangle_area(world: World, triangle_index: Int) -> Float32:
+    ref v0 = world.triangle_vertices[3 * triangle_index + 0]
+    ref v1 = world.triangle_vertices[3 * triangle_index + 1]
+    ref v2 = world.triangle_vertices[3 * triangle_index + 2]
+    return 0.5 * sqrt(length2(cross(v1 - v0, v2 - v0)))
 
 
 def ray_at(ray: Rayf32[Frame.WORLD], t: Float32) -> Point3f32[Frame.WORLD]:
     return ray.o + t * ray.d
-
-
-def _closest_hit2(a: HitRecord, b: HitRecord) -> Optional[HitRecord]:
-    if a.t <= b.t:
-        return Optional[HitRecord](a.copy())
-    return Optional[HitRecord](b.copy())
-
-
-def _closest_hit3(
-    a: HitRecord, b: HitRecord, c: HitRecord
-) -> Optional[HitRecord]:
-    if a.t <= b.t and a.t <= c.t:
-        return Optional[HitRecord](a.copy())
-    elif b.t <= c.t:
-        return Optional[HitRecord](b.copy())
-    return Optional[HitRecord](c.copy())
 
 
 def add_sphere(

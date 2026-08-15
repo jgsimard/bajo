@@ -28,7 +28,7 @@ struct TimingResult(Copyable):
 
 
 def trace_recomputed_normal(
-    world: World, ray: Rayf32[Frame.WORLD]
+    world: World[], ray: Rayf32[Frame.WORLD]
 ) -> Optional[HitRecord]:
     var bvh_hit = world.triangle_bvh.value().trace[TRACE.CLOSEST_HIT](ray)
     if not bvh_hit.is_hit():
@@ -54,7 +54,7 @@ def trace_recomputed_normal(
 
 
 def trace_bvh_normal(
-    world: World, ray: Rayf32[Frame.WORLD]
+    world: World[], ray: Rayf32[Frame.WORLD]
 ) -> Optional[HitRecord]:
     var bvh_hit = world.triangle_bvh.value().trace[TRACE.CLOSEST_HIT](ray)
     if not bvh_hit.is_hit():
@@ -79,7 +79,7 @@ def trace_bvh_normal(
 
 def trace_rays[
     reuse_bvh_normal: Bool
-](world: World, rays: List[Rayf32[Frame.WORLD]]) -> Tuple[Float64, Int]:
+](world: World[], rays: List[Rayf32[Frame.WORLD]]) -> Tuple[Float64, Int]:
     var checksum = 0.0
     var hits = 0
     for ray in rays:
@@ -103,7 +103,7 @@ def trace_rays[
 
 def time_rays[
     reuse_bvh_normal: Bool
-](world: World, rays: List[Rayf32[Frame.WORLD]]) -> TimingResult:
+](world: World[], rays: List[Rayf32[Frame.WORLD]]) -> TimingResult:
     var summary = trace_rays[reuse_bvh_normal](world, rays)
     var best_ns = Int.MAX
     for _ in range(TIMING_REPEATS):

@@ -31,7 +31,7 @@ struct ScheduleResult(Copyable):
 
 def run_schedule[
     TILE_WIDTH: Int, TILE_HEIGHT: Int, SCHEDULER_MODE: Int
-](settings: RenderSettings, camera: Camera, world: World) -> Tuple[
+](settings: RenderSettings, camera: Camera, world: World[]) -> Tuple[
     Int, Float64
 ]:
     var result = render_depth_first[
@@ -51,7 +51,7 @@ def record_schedule[
     checksum: Float64,
     settings: RenderSettings,
     camera: Camera,
-    world: World,
+    world: World[],
 ):
     var sample = run_schedule[TILE_WIDTH, TILE_HEIGHT, SCHEDULER_MODE](
         settings, camera, world
@@ -79,7 +79,7 @@ def print_result(
 
 
 def benchmark_world(
-    label: String, settings: RenderSettings, camera: Camera, world: World
+    label: String, settings: RenderSettings, camera: Camera, world: World[]
 ):
     print(t"\n{label}")
     # A tile wider than the image and one pixel high reproduces scanlines.

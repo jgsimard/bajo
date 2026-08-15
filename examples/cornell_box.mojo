@@ -114,7 +114,7 @@ def _add_box(
     )
 
 
-def make_cornell_world() -> World:
+def make_cornell_world() -> World[]:
     var store = SurfaceStore()
     var white = store.add_lambertian(Color(0.73, 0.73, 0.73))
     var red = store.add_lambertian(Color(0.65, 0.05, 0.05))
@@ -202,7 +202,7 @@ def make_cornell_world() -> World:
     var meshes = List[List[Point3f32[Frame.LOCAL]]]()
     var instances = List[Instance]()
     var instance_surfaces = List[SurfaceId[1]]()
-    return World(
+    return World[](
         spheres^,
         sphere_surfaces^,
         vertices^,

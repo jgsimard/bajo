@@ -104,9 +104,11 @@ def _direct_light_scale[
 
 @always_inline
 def _emissive_hit_weight[
-    ALGORITHM: RENDER
+    ALGORITHM: RENDER,
+    world_bvh_width: SIMDLength,
+    instance_bvh_width: SIMDLength,
 ](
-    world: World,
+    world: World[world_bvh_width, instance_bvh_width],
     ray: Rayf32[Frame.WORLD],
     hit: SurfaceHit[1],
     bounce: Int,
@@ -126,8 +128,11 @@ def _emissive_hit_weight[
     return 1.0
 
 
-def light_pdf_for_emissive_hit(
-    world: World,
+def light_pdf_for_emissive_hit[
+    world_bvh_width: SIMDLength,
+    instance_bvh_width: SIMDLength,
+](
+    world: World[world_bvh_width, instance_bvh_width],
     ray: Rayf32[Frame.WORLD],
     hit: SurfaceHit[1],
 ) -> Float32:
@@ -149,8 +154,11 @@ def light_pdf_for_emissive_hit(
     )
 
 
-def _sample_direct_light_candidate(
-    world: World,
+def _sample_direct_light_candidate[
+    world_bvh_width: SIMDLength,
+    instance_bvh_width: SIMDLength,
+](
+    world: World[world_bvh_width, instance_bvh_width],
     point: ShadingPoint[1],
     mut rng: Rng,
 ) -> _DirectLightSample[1]:
@@ -232,8 +240,11 @@ def _sample_direct_light_candidate(
     )
 
 
-def _sample_direct_light(
-    world: World,
+def _sample_direct_light[
+    world_bvh_width: SIMDLength,
+    instance_bvh_width: SIMDLength,
+](
+    world: World[world_bvh_width, instance_bvh_width],
     point: ShadingPoint[1],
     mut rng: Rng,
 ) -> _DirectLightSample[1]:
@@ -250,10 +261,12 @@ def _sample_direct_light(
 
 
 def sample_direct_lighting[
-    ALGORITHM: RENDER
+    ALGORITHM: RENDER,
+    world_bvh_width: SIMDLength,
+    instance_bvh_width: SIMDLength,
 ](
     surface: SurfaceId[1],
-    world: World,
+    world: World[world_bvh_width, instance_bvh_width],
     incoming_ray: Rayf32[Frame.WORLD],
     point: ShadingPoint[1],
     mut rng: Rng,

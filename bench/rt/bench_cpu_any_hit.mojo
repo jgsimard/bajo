@@ -25,7 +25,7 @@ struct TimingResult(Copyable):
     var hits: Int
 
 
-def query_closest(world: World, rays: List[Rayf32[Frame.WORLD]]) -> Int:
+def query_closest(world: World[], rays: List[Rayf32[Frame.WORLD]]) -> Int:
     var hits = 0
     for ray in rays:
         if world.trace(ray):
@@ -33,7 +33,7 @@ def query_closest(world: World, rays: List[Rayf32[Frame.WORLD]]) -> Int:
     return hits
 
 
-def query_any(world: World, rays: List[Rayf32[Frame.WORLD]]) -> Int:
+def query_any(world: World[], rays: List[Rayf32[Frame.WORLD]]) -> Int:
     var hits = 0
     for ray in rays:
         if world.occluded(ray):
@@ -41,7 +41,9 @@ def query_any(world: World, rays: List[Rayf32[Frame.WORLD]]) -> Int:
     return hits
 
 
-def time_closest(world: World, rays: List[Rayf32[Frame.WORLD]]) -> TimingResult:
+def time_closest(
+    world: World[], rays: List[Rayf32[Frame.WORLD]]
+) -> TimingResult:
     var hits = query_closest(world, rays)
     var best_ns = Int.MAX
     for _ in range(TIMING_REPEATS):
@@ -53,7 +55,7 @@ def time_closest(world: World, rays: List[Rayf32[Frame.WORLD]]) -> TimingResult:
     return TimingResult(best_ns, hits)
 
 
-def time_any(world: World, rays: List[Rayf32[Frame.WORLD]]) -> TimingResult:
+def time_any(world: World[], rays: List[Rayf32[Frame.WORLD]]) -> TimingResult:
     var hits = query_any(world, rays)
     var best_ns = Int.MAX
     for _ in range(TIMING_REPEATS):
@@ -66,7 +68,7 @@ def time_any(world: World, rays: List[Rayf32[Frame.WORLD]]) -> TimingResult:
 
 
 def print_case(
-    label: String, world: World, rays: List[Rayf32[Frame.WORLD]]
+    label: String, world: World[], rays: List[Rayf32[Frame.WORLD]]
 ) raises:
     var closest = time_closest(world, rays)
     var any = time_any(world, rays)
@@ -81,7 +83,7 @@ def print_case(
 
 
 def make_weekend_ao_rays(
-    world: World,
+    world: World[],
 ) -> List[Rayf32[Frame.WORLD]]:
     var camera = Camera.from_vfov(
         Point3f32[Frame.WORLD](13.0, 2.0, 3.0),
@@ -113,14 +115,14 @@ def make_weekend_ao_rays(
     return rays^
 
 
-def make_triangle_world() -> World:
+def make_triangle_world() -> World[]:
     var surfaces = SurfaceStore()
     var matte = surfaces.add_lambertian(Color(0.5))
     var vertices = make_grid_triangles()
     var triangle_surfaces = List[SurfaceId[1]](
         length=len(vertices) / 3, fill=matte
     )
-    return World(
+    return World[](
         List[Sphere[Frame.WORLD]](),
         List[SurfaceId[1]](),
         vertices^,

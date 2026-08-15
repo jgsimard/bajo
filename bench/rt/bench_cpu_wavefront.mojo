@@ -83,7 +83,7 @@ struct WaveCounters:
 
 def time_wavefront[
     length: SIMDLength, ALGORITHM: RENDER = RENDER.PATH
-](settings: RenderSettings, camera: Camera, world: World) -> WaveTiming:
+](settings: RenderSettings, camera: Camera, world: World[]) -> WaveTiming:
     var warmup = render_wavefront[
         ALGORITHM, MAX_DEPTH, length, CHUNK_PATHS, False
     ](settings, camera, world)
@@ -120,7 +120,7 @@ def time_wavefront[
 
 
 def count_wavefront(
-    settings: RenderSettings, camera: Camera, world: World
+    settings: RenderSettings, camera: Camera, world: World[]
 ) -> WaveCounters:
     var counters = WaveCounters()
     var path_count = (
@@ -266,7 +266,7 @@ def benchmark_scene(
     timing_settings: RenderSettings,
     counter_settings: RenderSettings,
     camera: Camera,
-    world: World,
+    world: World[],
 ):
     print_timing(
         label + " / packet width 1",
@@ -288,7 +288,7 @@ def benchmark_scene(
 
 
 def benchmark_direct_lighting(
-    settings: RenderSettings, camera: Camera, world: World
+    settings: RenderSettings, camera: Camera, world: World[]
 ):
     print_timing(
         "Cornell NEE / packet width 1",

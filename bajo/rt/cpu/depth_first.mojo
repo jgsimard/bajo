@@ -42,10 +42,13 @@ comptime CPU_RENDER_TILE_HEIGHT = 16
 
 
 def _trace_path[
-    MAX_DEPTH: Int, ALGORITHM: RENDER = RENDER.PATH
+    MAX_DEPTH: Int,
+    ALGORITHM: RENDER,
+    world_bvh_width: SIMDLength,
+    instance_bvh_width: SIMDLength,
 ](
     settings: RenderSettings,
-    world: World,
+    world: World[world_bvh_width, instance_bvh_width],
     ray: Rayf32[Frame.WORLD],
     mut rng: Rng,
     path_id: UInt32,
@@ -115,7 +118,13 @@ def _trace_path[
     return radiance
 
 
-def _trace_normals(world: World, ray: Rayf32[Frame.WORLD]) -> Color:
+def _trace_normals[
+    world_bvh_width: SIMDLength,
+    instance_bvh_width: SIMDLength,
+](
+    world: World[world_bvh_width, instance_bvh_width],
+    ray: Rayf32[Frame.WORLD],
+) -> Color:
     var hit = world.trace_surface(ray)
     if not hit.hit:
         return Color(0.0)
@@ -123,7 +132,14 @@ def _trace_normals(world: World, ray: Rayf32[Frame.WORLD]) -> Color:
     return 0.5 * (hit.normal + Color(1.0))
 
 
-def _trace_ao(world: World, ray: Rayf32[Frame.WORLD], mut rng: Rng) -> Color:
+def _trace_ao[
+    world_bvh_width: SIMDLength,
+    instance_bvh_width: SIMDLength,
+](
+    world: World[world_bvh_width, instance_bvh_width],
+    ray: Rayf32[Frame.WORLD],
+    mut rng: Rng,
+) -> Color:
     var hit = world.trace_surface(ray)
     if not hit.hit:
         return _sky_color(ray.d)
@@ -138,40 +154,46 @@ def _trace_ao(world: World, ray: Rayf32[Frame.WORLD], mut rng: Rng) -> Color:
 
 
 def _trace_algorithm[
-    ALGORITHM: RENDER, MAX_DEPTH: Int
+    ALGORITHM: RENDER,
+    MAX_DEPTH: Int,
+    world_bvh_width: SIMDLength,
+    instance_bvh_width: SIMDLength,
 ](
     settings: RenderSettings,
-    world: World,
+    world: World[world_bvh_width, instance_bvh_width],
     ray: Rayf32[Frame.WORLD],
     mut rng: Rng,
     path_id: UInt32,
 ) -> Color:
     comptime if ALGORITHM == RENDER.PATH:
-        return _trace_path[MAX_DEPTH, RENDER.PATH](
-            settings, world, ray, rng, path_id
-        )
+        return _trace_path[
+            MAX_DEPTH, RENDER.PATH, world_bvh_width, instance_bvh_width
+        ](settings, world, ray, rng, path_id)
     elif ALGORITHM == RENDER.NORMALS:
         return _trace_normals(world, ray)
     elif ALGORITHM == RENDER.AO:
         return _trace_ao(world, ray, rng)
     elif ALGORITHM == RENDER.NEE:
-        return _trace_path[MAX_DEPTH, RENDER.NEE](
-            settings, world, ray, rng, path_id
-        )
+        return _trace_path[
+            MAX_DEPTH, RENDER.NEE, world_bvh_width, instance_bvh_width
+        ](settings, world, ray, rng, path_id)
     elif ALGORITHM == RENDER.MIS:
-        return _trace_path[MAX_DEPTH, RENDER.MIS](
-            settings, world, ray, rng, path_id
-        )
+        return _trace_path[
+            MAX_DEPTH, RENDER.MIS, world_bvh_width, instance_bvh_width
+        ](settings, world, ray, rng, path_id)
     else:
         comptime assert False, "unknown RT render algorithm"
 
 
 def _render_pixel[
-    ALGORITHM: RENDER, MAX_DEPTH: Int
+    ALGORITHM: RENDER,
+    MAX_DEPTH: Int,
+    world_bvh_width: SIMDLength,
+    instance_bvh_width: SIMDLength,
 ](
     settings: RenderSettings,
     camera: Camera,
-    world: World,
+    world: World[world_bvh_width, instance_bvh_width],
     px: Int,
     py: Int,
     mut rng: Rng,
@@ -184,9 +206,9 @@ def _render_pixel[
             pixel_idx * settings.samples_per_pixel + sample_idx
         )
         var ray = _make_primary_ray(settings, camera, px, py, rng)
-        pixel_color += _trace_algorithm[ALGORITHM, MAX_DEPTH](
-            settings, world, ray, rng, path_id
-        )
+        pixel_color += _trace_algorithm[
+            ALGORITHM, MAX_DEPTH, world_bvh_width, instance_bvh_width
+        ](settings, world, ray, rng, path_id)
 
     return pixel_color * (1.0 / Float32(settings.samples_per_pixel))
 
@@ -197,7 +219,13 @@ def render_depth_first[
     TILE_WIDTH: Int = CPU_RENDER_TILE_WIDTH,
     TILE_HEIGHT: Int = CPU_RENDER_TILE_HEIGHT,
     SCHEDULER_MODE: Int = 2,
-](settings: RenderSettings, camera: Camera, world: World) -> RenderResult:
+    world_bvh_width: SIMDLength = 16,
+    instance_bvh_width: SIMDLength = 16,
+](
+    settings: RenderSettings,
+    camera: Camera,
+    world: World[world_bvh_width, instance_bvh_width],
+) -> RenderResult:
     """Render depth-first using compile-time tile and scheduling choices."""
     # Mode 0 uses the runtime default, 1 caps workers to logical cores, and 2
     # exposes one worker per tile.
@@ -228,7 +256,12 @@ def render_depth_first[
             for px in range(x0, x1):
                 var pixel_idx = py * settings.image_width + px
                 ref rng = rng_states[pixel_idx]
-                pixels[pixel_idx] = _render_pixel[ALGORITHM, MAX_DEPTH](
+                pixels[pixel_idx] = _render_pixel[
+                    ALGORITHM,
+                    MAX_DEPTH,
+                    world_bvh_width,
+                    instance_bvh_width,
+                ](
                     settings,
                     camera,
                     world,

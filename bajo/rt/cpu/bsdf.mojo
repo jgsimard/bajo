@@ -24,23 +24,16 @@ from bajo.rt.types import (
     BsdfSample,
     Color,
     Dielectric,
-    HitRecord,
     Lambertian,
     MAT,
     Metal,
+    ShadingPoint,
     SurfaceId,
     SurfaceStore,
 )
 
 
 comptime BSDF_INV_PI = Float32(0.3183098861837907)
-
-
-@fieldwise_init
-struct ShadingPoint(Copyable, Writable):
-    var p: Point3f32[Frame.WORLD]
-    var normal: Vec3f32[Frame.WORLD]
-    var front_face: Bool
 
 
 def reflect[
@@ -94,16 +87,6 @@ def _sample_lambertian(
         material.albedo,
         pdf,
         False,
-    )
-
-
-def sample_lambertian(
-    ref material: Lambertian,
-    hit: HitRecord,
-    mut rng: Rng,
-) -> BsdfSample:
-    return _sample_lambertian(
-        material, ShadingPoint(hit.p, hit.normal, hit.front_face), rng
     )
 
 
@@ -188,20 +171,6 @@ def _sample_metal(
     )
 
 
-def sample_metal(
-    ref material: Metal,
-    ray: Rayf32[Frame.WORLD],
-    hit: HitRecord,
-    mut rng: Rng,
-) -> BsdfSample:
-    return _sample_metal(
-        material,
-        ray,
-        ShadingPoint(hit.p, hit.normal, hit.front_face),
-        rng,
-    )
-
-
 def _sample_dielectric(
     ref material: Dielectric,
     ray: Rayf32[Frame.WORLD],
@@ -244,61 +213,7 @@ def _sample_dielectric(
     )
 
 
-def sample_dielectric(
-    ref material: Dielectric,
-    ray: Rayf32[Frame.WORLD],
-    hit: HitRecord,
-    mut rng: Rng,
-) -> BsdfSample:
-    return _sample_dielectric(
-        material,
-        ray,
-        ShadingPoint(hit.p, hit.normal, hit.front_face),
-        rng,
-    )
-
-
-def sample_bsdf(
-    surface: SurfaceId,
-    surfaces: SurfaceStore,
-    ray: Rayf32[Frame.WORLD],
-    hit: HitRecord,
-    mut rng: Rng,
-) -> BsdfSample:
-    if surface.kind() == MAT.LAMBERTIAN:
-        ref material = surfaces.lambertians[Int(surface.index())]
-        return sample_lambertian(material, hit, rng)
-
-    if surface.kind() == MAT.METAL:
-        ref material = surfaces.metals[Int(surface.index())]
-        return sample_metal(material, ray, hit, rng)
-
-    if surface.kind() == MAT.DIELECTRIC:
-        ref material = surfaces.dielectrics[Int(surface.index())]
-        return sample_dielectric(material, ray, hit, rng)
-
-    if surface.kind() == MAT.EMISSIVE:
-        return BsdfSample(
-            False,
-            Rayf32(hit.p, hit.normal, 0.001, f32_max),
-            Color(0.0),
-            0.0,
-            False,
-        )
-
-    debug_assert["safe", _use_compiler_assume=True](
-        False, "unknown RT surface kind"
-    )
-    return BsdfSample(
-        False,
-        Rayf32(hit.p, hit.normal, 0.001, f32_max),
-        Color(0.0),
-        0.0,
-        False,
-    )
-
-
-def _evaluate_bsdf(
+def evaluate_bsdf(
     surface: SurfaceId,
     surfaces: SurfaceStore,
     ray: Rayf32[Frame.WORLD],
@@ -330,39 +245,7 @@ def _evaluate_bsdf(
     return BsdfEvaluation(Color(0.0), 0.0, False)
 
 
-def evaluate_bsdf(
-    surface: SurfaceId,
-    surfaces: SurfaceStore,
-    ray: Rayf32[Frame.WORLD],
-    hit: HitRecord,
-    out_direction: Vec3f32[Frame.WORLD],
-) -> BsdfEvaluation:
-    """Evaluate the non-delta BSDF and its solid-angle sampling PDF."""
-    return _evaluate_bsdf(
-        surface,
-        surfaces,
-        ray,
-        ShadingPoint(hit.p, hit.normal, hit.front_face),
-        out_direction,
-    )
-
-
-def pdf_bsdf(
-    surface: SurfaceId,
-    surfaces: SurfaceStore,
-    ray: Rayf32[Frame.WORLD],
-    hit: HitRecord,
-    out_direction: Vec3f32[Frame.WORLD],
-) -> Float32:
-    return evaluate_bsdf(surface, surfaces, ray, hit, out_direction).pdf
-
-
-def bsdf_is_delta(surface: SurfaceId) -> Bool:
-    """Return whether the current material is excluded from solid-angle MIS."""
-    return surface.kind() != MAT.LAMBERTIAN
-
-
-def _sample_bsdf(
+def sample_bsdf(
     surface: SurfaceId,
     surfaces: SurfaceStore,
     ray: Rayf32[Frame.WORLD],

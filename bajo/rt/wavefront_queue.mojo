@@ -1,6 +1,6 @@
 """Packet queues and host/device wavefront boundary records."""
 
-from bajo.core import Frame, Point3f32, Rayf32, Vec3f32
+from bajo.core import Frame, Rayf32
 from bajo.rt.types import Color, SurfaceHit
 
 
@@ -69,28 +69,6 @@ struct PacketPathQueue[PACKET_LANES: SIMDLength](Sized):
         return self.count
 
     @always_inline
-    def append(mut self, var path: WavePath):
-        var lane = self.count % Self.PACKET_LANES
-        if lane == 0:
-            self.packets.append(PathPacket[Self.PACKET_LANES]())
-        ref packet = self.packets[self.count / Self.PACKET_LANES]
-        packet.path_ids[lane] = path.path_id
-        packet.ox[lane] = path.ray.o.x
-        packet.oy[lane] = path.ray.o.y
-        packet.oz[lane] = path.ray.o.z
-        packet.t_min[lane] = path.ray.t_min
-        packet.dx[lane] = path.ray.d.x
-        packet.dy[lane] = path.ray.d.y
-        packet.dz[lane] = path.ray.d.z
-        packet.t_max[lane] = path.ray.t_max
-        packet.tx[lane] = path.throughput.x
-        packet.ty[lane] = path.throughput.y
-        packet.tz[lane] = path.throughput.z
-        packet.bsdf_pdfs[lane] = 0.0
-        packet.deltas[lane] = True
-        self.count += 1
-
-    @always_inline
     def _append_packet_lane(
         mut self,
         packet: PathPacket[Self.PACKET_LANES],
@@ -149,25 +127,6 @@ struct PacketPathQueue[PACKET_LANES: SIMDLength](Sized):
         for lane in range(lane_count):
             if mask[lane]:
                 self._append_packet_lane(packet, lane)
-
-    @always_inline
-    def get(self, idx: Int) -> WavePath:
-        ref packet = self.packets[idx / Self.PACKET_LANES]
-        var lane = idx % Self.PACKET_LANES
-        return WavePath(
-            packet.path_ids[lane],
-            Rayf32[Frame.WORLD](
-                Point3f32[Frame.WORLD](
-                    packet.ox[lane], packet.oy[lane], packet.oz[lane]
-                ),
-                Vec3f32[Frame.WORLD](
-                    packet.dx[lane], packet.dy[lane], packet.dz[lane]
-                ),
-                packet.t_min[lane],
-                packet.t_max[lane],
-            ),
-            Color(packet.tx[lane], packet.ty[lane], packet.tz[lane]),
-        )
 
 
 struct ShadePacket[PACKET_LANES: SIMDLength](Copyable):

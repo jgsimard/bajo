@@ -6,6 +6,7 @@ from bajo.core import Frame, Point3f32, Rayf32, Vec3f32
 from bajo.rt.types import Color, SurfaceHit, SurfaceId, MAT
 from bajo.rt.wavefront_queue import (
     FRONT_FACE_BIT,
+    PacketPathQueue,
     PATH_INDEX_MASK,
     WavePath,
     WaveShade,
@@ -615,6 +616,33 @@ def pack_wave_paths(
     for path in paths:
         packed.append(path)
     return packed^
+
+
+def packet_path_queue_to_wave_paths[
+    PACKET_LANES: SIMDLength
+](queue: PacketPathQueue[PACKET_LANES]) -> List[WavePath]:
+    """Convert CPU packets only at the explicit host/device boundary."""
+    var paths = List[WavePath](capacity=len(queue))
+    for path_idx in range(len(queue)):
+        ref packet = queue.packets[path_idx / PACKET_LANES]
+        var lane = path_idx % PACKET_LANES
+        paths.append(
+            WavePath(
+                packet.path_ids[lane],
+                Rayf32[Frame.WORLD](
+                    Point3f32[Frame.WORLD](
+                        packet.ox[lane], packet.oy[lane], packet.oz[lane]
+                    ),
+                    Vec3f32[Frame.WORLD](
+                        packet.dx[lane], packet.dy[lane], packet.dz[lane]
+                    ),
+                    packet.t_min[lane],
+                    packet.t_max[lane],
+                ),
+                Color(packet.tx[lane], packet.ty[lane], packet.tz[lane]),
+            )
+        )
+    return paths^
 
 
 def unpack_wave_paths(packed: PackedWavePathQueue) -> List[WavePath]:

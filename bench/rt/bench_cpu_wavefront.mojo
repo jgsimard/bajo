@@ -2,22 +2,20 @@
 
 from std.math import round
 
-from bajo.core import Point3W, Vec3W
+from bajo.core import Frame, Point3W, Rayf32, Vec3W
 from bajo.core.utils import ns_to_ms
 from bajo.rt import (
     Camera,
+    Color,
     RENDER,
     RenderSettings,
+    ShadingPoint,
     World,
 )
-from bajo.rt.cpu import (
-    _make_initial_path_packets_range,
-    _path_stage_rng,
-    _russian_roulette,
-    render_wavefront,
-    sample_bsdf,
-)
-from bajo.rt.wavefront_queue import PacketPathQueue, WavePath
+from bajo.rt.cpu import render_wavefront, sample_bsdf
+from bajo.rt.cpu.common import _path_stage_rng, _russian_roulette
+from bajo.rt.cpu.wavefront.primary import _make_initial_path_packets_range
+from bajo.rt.wavefront_queue import PacketPathQueue, PathPacket
 from bajo.rt.types import MAT
 from bench.rt.bench_cpu_end_to_end import (
     make_triangle_world,
@@ -144,9 +142,17 @@ def count_wavefront(
         var dielectric_queue = 0
 
         for path_idx in range(len(active_paths)):
-            var path = active_paths.get(path_idx)
+            ref packet = active_paths.packets[path_idx]
+            var path_id = packet.path_ids[0]
+            var ray = Rayf32[Frame.WORLD](
+                Point3W(packet.ox[0], packet.oy[0], packet.oz[0]),
+                Vec3W(packet.dx[0], packet.dy[0], packet.dz[0]),
+                packet.t_min[0],
+                packet.t_max[0],
+            )
+            var throughput = Color(packet.tx[0], packet.ty[0], packet.tz[0])
             counters.rays += 1
-            var hit = world.trace(path.ray)
+            var hit = world.trace(ray)
             if not hit:
                 counters.misses += 1
                 counters.escaped += 1
@@ -165,31 +171,38 @@ def count_wavefront(
                 counters.dielectric_hits += 1
                 dielectric_queue += 1
 
-            var rng = _path_stage_rng(
-                settings, path.path_id, UInt32(_bounce + 1)
-            )
+            var rng = _path_stage_rng(settings, path_id, UInt32(_bounce + 1))
             var scattered = sample_bsdf(
                 record.surface,
                 world.surfaces,
-                path.ray,
-                record,
+                ray,
+                ShadingPoint(record.p, record.normal, record.front_face),
                 rng,
             )
             if scattered.ok:
                 var roulette = _russian_roulette(
                     settings,
-                    path.path_id,
+                    path_id,
                     UInt32(_bounce + 1),
-                    path.throughput * scattered.weight,
+                    throughput * scattered.weight,
                 )
                 if roulette.survived:
-                    next_paths.append(
-                        WavePath(
-                            path.path_id,
-                            scattered.ray,
-                            roulette.throughput,
-                        )
-                    )
+                    var next = PathPacket[1]()
+                    next.path_ids[0] = path_id
+                    next.ox[0] = scattered.ray.o.x
+                    next.oy[0] = scattered.ray.o.y
+                    next.oz[0] = scattered.ray.o.z
+                    next.t_min[0] = scattered.ray.t_min
+                    next.dx[0] = scattered.ray.d.x
+                    next.dy[0] = scattered.ray.d.y
+                    next.dz[0] = scattered.ray.d.z
+                    next.t_max[0] = scattered.ray.t_max
+                    next.tx[0] = roulette.throughput.x
+                    next.ty[0] = roulette.throughput.y
+                    next.tz[0] = roulette.throughput.z
+                    next.bsdf_pdfs[0] = scattered.pdf
+                    next.deltas[0] = scattered.delta
+                    next_paths.append_packet(next^, 1)
                 else:
                     counters.roulette_terminated += 1
             else:

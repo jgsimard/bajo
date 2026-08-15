@@ -16,12 +16,14 @@ from bajo.core.random import Rng, random_unit_vector
 from bajo.rt.types import (
     Color,
     MAT,
+    RENDER,
+    ShadingPoint,
     SurfaceId,
     SurfaceHit,
     SurfaceStore,
     World,
 )
-from .bsdf import ShadingPoint, _evaluate_bsdf
+from .bsdf import evaluate_bsdf
 
 
 def emitted_radiance(
@@ -45,20 +47,35 @@ def power_heuristic(pdf_a: Float32, pdf_b: Float32) -> Float32:
 
 
 @always_inline
+def _emissive_hit_weight[
+    ALGORITHM: RENDER
+](
+    world: World,
+    ray: Rayf32[Frame.WORLD],
+    hit: SurfaceHit,
+    bounce: Int,
+    previous_bsdf_pdf: Float32,
+    previous_delta: Bool,
+) -> Float32:
+    comptime assert ALGORITHM in (RENDER.PATH, RENDER.NEE, RENDER.MIS)
+    comptime if ALGORITHM == RENDER.NEE:
+        if bounce > 0 and not previous_delta:
+            return 0.0
+    elif ALGORITHM == RENDER.MIS:
+        if bounce > 0 and not previous_delta:
+            return power_heuristic(
+                previous_bsdf_pdf,
+                light_pdf_for_emissive_hit(world, ray, hit),
+            )
+    return 1.0
+
+
+@always_inline
 def _triangle_area(world: World, triangle_index: Int) -> Float32:
     ref v0 = world.triangle_vertices[3 * triangle_index + 0]
     ref v1 = world.triangle_vertices[3 * triangle_index + 1]
     ref v2 = world.triangle_vertices[3 * triangle_index + 2]
     return 0.5 * sqrt(length2(cross(v1 - v0, v2 - v0)))
-
-
-def emissive_triangle_area(world: World) -> Float32:
-    """Total area used by the world-space triangle-light distribution."""
-    var total_area = Float32(0.0)
-    for idx in range(len(world.triangle_surfaces)):
-        if world.triangle_surfaces[idx].kind() == MAT.EMISSIVE:
-            total_area += _triangle_area(world, idx)
-    return total_area
 
 
 @always_inline
@@ -114,8 +131,8 @@ def light_pdf_for_emissive_hit(
     )
 
 
-def _sample_direct_lighting[
-    USE_MIS: Bool
+def sample_direct_lighting[
+    ALGORITHM: RENDER
 ](
     surface: SurfaceId,
     world: World,
@@ -129,6 +146,7 @@ def _sample_direct_lighting[
     includes the Lambertian BSDF, geometry term, light-selection PDF, and
     binary visibility; callers only multiply it by path throughput.
     """
+    comptime assert ALGORITHM in (RENDER.NEE, RENDER.MIS)
     var total_weight = emissive_light_weight(world)
     if total_weight <= 0.0:
         return Color(0.0)
@@ -216,40 +234,16 @@ def _sample_direct_lighting[
         * _emission_importance(emission)
         / (light_cosine * total_weight)
     )
-    var evaluation = _evaluate_bsdf(
+    var evaluation = evaluate_bsdf(
         surface, world.surfaces, incoming_ray, point, direction
     )
     if evaluation.pdf <= 0.0:
         return Color(0.0)
     var estimator_weight = Float32(1.0)
-    comptime if USE_MIS:
+    comptime if ALGORITHM == RENDER.MIS:
         estimator_weight = power_heuristic(light_pdf, evaluation.pdf)
     return (
         evaluation.value
         * emission
         * (surface_cosine * estimator_weight / light_pdf)
-    )
-
-
-def sample_direct_lighting(
-    surface: SurfaceId,
-    world: World,
-    incoming_ray: Rayf32[Frame.WORLD],
-    point: ShadingPoint,
-    mut rng: Rng,
-) -> Color:
-    return _sample_direct_lighting[False](
-        surface, world, incoming_ray, point, rng
-    )
-
-
-def sample_direct_lighting_mis(
-    surface: SurfaceId,
-    world: World,
-    incoming_ray: Rayf32[Frame.WORLD],
-    point: ShadingPoint,
-    mut rng: Rng,
-) -> Color:
-    return _sample_direct_lighting[True](
-        surface, world, incoming_ray, point, rng
     )

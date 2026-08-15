@@ -25,9 +25,9 @@ from bajo.rt import (
     Instance,
     Lambertian,
     Metal,
-    PrimitiveId,
     RENDER,
     RenderSettings,
+    ShadingPoint,
     Sphere,
     SurfaceId,
     SurfaceStore,
@@ -37,34 +37,22 @@ from bajo.rt import (
     add_triangle_instance,
     add_triangle_mesh,
     add_triangle_mesh_instance,
-    bsdf_is_delta,
     evaluate_bsdf,
-    pdf_bsdf,
     render_depth_first,
     render_wavefront,
     sample_bsdf,
-    sample_lambertian,
-    sample_metal,
-    sample_dielectric,
     wavefront_rng_roulette_stage,
 )
 from examples.cornell_box import make_cornell_world
-from bajo.rt.cpu import (
-    _path_stage_rng,
-    _russian_roulette,
-    reflect,
-    reflectance,
-)
-from bajo.rt.types import HitRecord, MAT, PRIM
+from bajo.rt.cpu import reflect, reflectance
+from bajo.rt.cpu.common import _path_stage_rng, _russian_roulette
+from bajo.rt.types import MAT, PRIM
 
 
-def _front_hit() -> HitRecord:
-    return HitRecord(
-        PrimitiveId(PRIM.SPHERE, UInt32(0)),
+def _front_point() -> ShadingPoint:
+    return ShadingPoint(
         Point3f32[Frame.WORLD](0.0, 0.0, -1.0),
         Vec3f32[Frame.WORLD](0.0, 0.0, 1.0),
-        SurfaceId(MAT.LAMBERTIAN, UInt32(0)),
-        1.0,
         True,
     )
 
@@ -134,60 +122,48 @@ def test_lambertian_scatter_is_explicit() raises:
     var material = Lambertian(Color(0.2, 0.4, 0.8))
     var surfaces = SurfaceStore()
     var surface = surfaces.add_lambertian(material.albedo)
-    var hit = _front_hit()
+    var point = _front_point()
     var incoming = Rayf32[Frame.WORLD](
         Point3f32[Frame.WORLD](0.0), Vec3f32[Frame.WORLD](0.0, 0.0, -1.0)
     )
 
-    var scattered = sample_lambertian(material, hit, rng)
+    var scattered = sample_bsdf(surface, surfaces, incoming, point, rng)
     assert_true(scattered.ok)
     assert_vec_equal(scattered.weight, material.albedo)
     assert_true(length(scattered.ray.d) > 0.0)
 
-    var dispatched = sample_bsdf(surface, surfaces, incoming, hit, rng)
-    assert_true(dispatched.ok)
-    assert_vec_equal(dispatched.weight, material.albedo)
-
-    var sampled = sample_bsdf(surface, surfaces, incoming, hit, rng)
+    var sampled = sample_bsdf(surface, surfaces, incoming, point, rng)
     var evaluated = evaluate_bsdf(
-        surface, surfaces, incoming, hit, sampled.ray.d
+        surface, surfaces, incoming, point, sampled.ray.d
     )
     assert_false(sampled.delta)
     assert_false(evaluated.delta)
     assert_true(sampled.pdf > 0.0)
     assert_almost_equal(sampled.pdf, evaluated.pdf)
-    assert_almost_equal(
-        pdf_bsdf(surface, surfaces, incoming, hit, sampled.ray.d),
-        sampled.pdf,
-    )
     assert_almost_equal(evaluated.value.x, material.albedo.x / 3.14159265)
-    assert_false(bsdf_is_delta(surface))
 
 
 def test_metal_scatter_can_absorb() raises:
     var rng = Rng(seed=2, id=0)
     var material = Metal(Color(0.8, 0.7, 0.6), 0.0)
-    var hit = _front_hit()
+    var surfaces = SurfaceStore()
+    var surface = surfaces.add_metal(material.albedo, material.fuzz)
+    var point = _front_point()
     var incoming = Rayf32[Frame.WORLD](
         Point3f32[Frame.WORLD](0.0), Vec3f32[Frame.WORLD](0.0, 0.0, -1.0)
     )
 
-    var scattered = sample_metal(material, incoming, hit, rng)
+    var scattered = sample_bsdf(surface, surfaces, incoming, point, rng)
     assert_true(scattered.ok)
     assert_vec_equal(scattered.weight, material.albedo)
-    assert_true(dot(scattered.ray.d, hit.normal) > 0.0)
+    assert_true(dot(scattered.ray.d, point.normal) > 0.0)
     assert_true(scattered.delta)
     assert_equal(scattered.pdf, 1.0)
 
-    var back_face_hit = HitRecord(
-        hit.primitive.copy(),
-        hit.p,
-        -hit.normal,
-        hit.surface.copy(),
-        hit.t,
-        False,
+    var back_face_point = ShadingPoint(point.p, -point.normal, False)
+    var absorbed = sample_bsdf(
+        surface, surfaces, incoming, back_face_point, rng
     )
-    var absorbed = sample_metal(material, incoming, back_face_hit, rng)
     assert_false(absorbed.ok)
 
 
@@ -196,19 +172,19 @@ def test_dielectric_scatter_is_explicit() raises:
     var material = Dielectric(1.5)
     var surfaces = SurfaceStore()
     var surface = surfaces.add_dielectric(material.refraction_index)
-    var hit = _front_hit()
+    var point = _front_point()
     var incoming = Rayf32[Frame.WORLD](
         Point3f32[Frame.WORLD](0.0), Vec3f32[Frame.WORLD](0.0, 0.0, -1.0)
     )
 
-    var scattered = sample_dielectric(material, incoming, hit, rng)
+    var scattered = sample_bsdf(surface, surfaces, incoming, point, rng)
     assert_true(scattered.ok)
     assert_vec_equal(scattered.weight, Color(1.0))
     assert_true(length(scattered.ray.d) > 0.0)
     assert_true(scattered.delta)
     assert_true(scattered.pdf > 0.0 and scattered.pdf <= 1.0)
 
-    var dispatched = sample_bsdf(surface, surfaces, incoming, hit, rng)
+    var dispatched = sample_bsdf(surface, surfaces, incoming, point, rng)
     assert_true(dispatched.ok)
     assert_vec_equal(dispatched.weight, Color(1.0))
 

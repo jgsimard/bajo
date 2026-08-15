@@ -18,6 +18,7 @@ from bajo.core.random import Rng, random_in_unit_disk, random_on_hemisphere
 from bajo.core.utils import ns_to_ms
 from bajo.rt import (
     RENDER,
+    ShadingPoint,
     Camera,
     Color,
     Instance,
@@ -31,7 +32,8 @@ from bajo.rt import (
     add_triangle_mesh_instance,
     render_depth_first,
 )
-from bajo.rt.cpu import _russian_roulette, sample_bsdf
+from bajo.rt.cpu import sample_bsdf
+from bajo.rt.cpu.common import _russian_roulette
 from bajo.rt.types import MAT, PRIM
 from examples.rtiaw import make_weekend_world
 
@@ -259,7 +261,13 @@ def count_path[
                         record.surface.kind(),
                     )
                     var scattered = sample_bsdf(
-                        record.surface, world.surfaces, ray, record, rng
+                        record.surface,
+                        world.surfaces,
+                        ray,
+                        ShadingPoint(
+                            record.p, record.normal, record.front_face
+                        ),
+                        rng,
                     )
                     if not scattered.ok:
                         counters.absorbed_paths += 1

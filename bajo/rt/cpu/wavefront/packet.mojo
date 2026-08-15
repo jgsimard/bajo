@@ -8,6 +8,7 @@ from bajo.rt.types import (
     MAT,
     RENDER,
     RenderSettings,
+    ShadingPoint,
     SurfaceId,
     SurfaceStore,
     World,
@@ -21,21 +22,15 @@ from bajo.rt.wavefront_queue import (
 from bajo.rt.wavefront_contract import wavefront_rng_light_stage
 
 
-from ..bsdf import (
-    ShadingPoint,
-    _sample_bsdf,
-)
+from ..bsdf import sample_bsdf
 from ..common import (
     _path_stage_rng,
     _russian_roulette,
-    _trace_world,
 )
 from ..lighting import (
+    _emissive_hit_weight,
     emitted_radiance,
-    light_pdf_for_emissive_hit,
-    power_heuristic,
     sample_direct_lighting,
-    sample_direct_lighting_mis,
 )
 
 
@@ -86,7 +81,7 @@ def _sample_bsdf_batch[
             batch.front_faces[lane],
         )
         var rng = _path_stage_rng(settings, batch.path_ids[lane], stage)
-        var sampled = _sample_bsdf(
+        var sampled = sample_bsdf(
             SurfaceId(MATERIAL_KIND, batch.surface_indices[lane]),
             surfaces,
             ray,
@@ -217,22 +212,20 @@ def _trace_path_packets[
                     packet.t_min[lane],
                     packet.t_max[lane],
                 )
-                var hit = _trace_world(world, ray)
+                var hit = world.trace_surface(ray)
                 if hit.hit:
                     var pixel_idx = (
                         Int(packet.path_ids[lane]) / settings.samples_per_pixel
                     )
                     if hit.surface.kind() == MAT.EMISSIVE:
-                        var emission_weight = Float32(1.0)
-                        comptime if ALGORITHM == RENDER.NEE:
-                            if bounce > 0 and not packet.deltas[lane]:
-                                continue
-                        elif ALGORITHM == RENDER.MIS:
-                            if bounce > 0 and not packet.deltas[lane]:
-                                emission_weight = power_heuristic(
-                                    packet.bsdf_pdfs[lane],
-                                    light_pdf_for_emissive_hit(world, ray, hit),
-                                )
+                        var emission_weight = _emissive_hit_weight[ALGORITHM](
+                            world,
+                            ray,
+                            hit,
+                            bounce,
+                            packet.bsdf_pdfs[lane],
+                            packet.deltas[lane],
+                        )
                         pixels[pixel_idx] += (
                             Color(
                                 packet.tx[lane],
@@ -257,15 +250,9 @@ def _trace_path_packets[
                             packet.path_ids[lane],
                             wavefront_rng_light_stage(UInt32(bounce)),
                         )
-                        var direct: Color
-                        comptime if ALGORITHM == RENDER.MIS:
-                            direct = sample_direct_lighting_mis(
-                                hit.surface, world, ray, point, light_rng
-                            )
-                        else:
-                            direct = sample_direct_lighting(
-                                hit.surface, world, ray, point, light_rng
-                            )
+                        var direct = sample_direct_lighting[ALGORITHM](
+                            hit.surface, world, ray, point, light_rng
+                        )
                         pixels[pixel_idx] += (
                             Color(
                                 packet.tx[lane],

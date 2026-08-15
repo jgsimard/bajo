@@ -19,7 +19,7 @@ from bajo.rt.types import (
 )
 
 
-from .bsdf import _sample_bsdf
+from .bsdf import sample_bsdf
 from .common import (
     _init_pixel_rngs,
     _make_primary_ray,
@@ -27,14 +27,11 @@ from .common import (
     _russian_roulette,
     _shading_point,
     _sky_color,
-    _trace_world,
 )
 from .lighting import (
+    _emissive_hit_weight,
     emitted_radiance,
-    light_pdf_for_emissive_hit,
-    power_heuristic,
     sample_direct_lighting,
-    sample_direct_lighting_mis,
 )
 from bajo.rt.wavefront_contract import wavefront_rng_light_stage
 
@@ -44,7 +41,7 @@ comptime CPU_RENDER_TILE_HEIGHT = 16
 
 
 def _trace_path[
-    MAX_DEPTH: Int, USE_NEE: Bool = False, USE_MIS: Bool = False
+    MAX_DEPTH: Int, ALGORITHM: RENDER = RENDER.PATH
 ](
     settings: RenderSettings,
     world: World,
@@ -53,6 +50,7 @@ def _trace_path[
     path_id: UInt32,
 ) -> Color:
     comptime assert MAX_DEPTH >= 0, "max depth must be non-negative"
+    comptime assert ALGORITHM in (RENDER.PATH, RENDER.NEE, RENDER.MIS)
 
     var cur_ray = ray
     var throughput = Color(1.0)
@@ -61,48 +59,34 @@ def _trace_path[
     var previous_bsdf_pdf = Float32(0.0)
 
     for _bounce in range(MAX_DEPTH):
-        var hit = _trace_world(world, cur_ray)
+        var hit = world.trace_surface(cur_ray)
         if hit.hit:
             var point = _shading_point(cur_ray, hit)
             var emission = emitted_radiance(
                 hit.surface, world.surfaces, hit.front_face
             )
             if emission.x > 0.0 or emission.y > 0.0 or emission.z > 0.0:
-                comptime if USE_MIS:
-                    var mis_weight = Float32(1.0)
-                    if _bounce > 0 and not previous_delta:
-                        mis_weight = power_heuristic(
-                            previous_bsdf_pdf,
-                            light_pdf_for_emissive_hit(world, cur_ray, hit),
-                        )
-                    radiance += throughput * emission * mis_weight
-                elif USE_NEE:
-                    if _bounce == 0 or previous_delta:
-                        radiance += throughput * emission
-                else:
-                    radiance += throughput * emission
+                var emission_weight = _emissive_hit_weight[ALGORITHM](
+                    world,
+                    cur_ray,
+                    hit,
+                    _bounce,
+                    previous_bsdf_pdf,
+                    previous_delta,
+                )
+                radiance += throughput * emission * emission_weight
                 return radiance
-            comptime if USE_MIS:
+            comptime if ALGORITHM != RENDER.PATH:
                 var light_rng = _path_stage_rng(
                     settings,
                     path_id,
                     wavefront_rng_light_stage(UInt32(_bounce)),
                 )
-                var direct = sample_direct_lighting_mis(
+                var direct = sample_direct_lighting[ALGORITHM](
                     hit.surface, world, cur_ray, point, light_rng
                 )
                 radiance += throughput * direct
-            elif USE_NEE:
-                var light_rng = _path_stage_rng(
-                    settings,
-                    path_id,
-                    wavefront_rng_light_stage(UInt32(_bounce)),
-                )
-                var direct = sample_direct_lighting(
-                    hit.surface, world, cur_ray, point, light_rng
-                )
-                radiance += throughput * direct
-            var scattered = _sample_bsdf(
+            var scattered = sample_bsdf(
                 hit.surface,
                 world.surfaces,
                 cur_ray,
@@ -129,7 +113,7 @@ def _trace_path[
 
 
 def _trace_normals(world: World, ray: Rayf32[Frame.WORLD]) -> Color:
-    var hit = _trace_world(world, ray)
+    var hit = world.trace_surface(ray)
     if not hit.hit:
         return Color(0.0)
 
@@ -137,7 +121,7 @@ def _trace_normals(world: World, ray: Rayf32[Frame.WORLD]) -> Color:
 
 
 def _trace_ao(world: World, ray: Rayf32[Frame.WORLD], mut rng: Rng) -> Color:
-    var hit = _trace_world(world, ray)
+    var hit = world.trace_surface(ray)
     if not hit.hit:
         return _sky_color(ray)
 
@@ -160,15 +144,19 @@ def _trace_algorithm[
     path_id: UInt32,
 ) -> Color:
     comptime if ALGORITHM == RENDER.PATH:
-        return _trace_path[MAX_DEPTH](settings, world, ray, rng, path_id)
+        return _trace_path[MAX_DEPTH, RENDER.PATH](
+            settings, world, ray, rng, path_id
+        )
     elif ALGORITHM == RENDER.NORMALS:
         return _trace_normals(world, ray)
     elif ALGORITHM == RENDER.AO:
         return _trace_ao(world, ray, rng)
     elif ALGORITHM == RENDER.NEE:
-        return _trace_path[MAX_DEPTH, True](settings, world, ray, rng, path_id)
+        return _trace_path[MAX_DEPTH, RENDER.NEE](
+            settings, world, ray, rng, path_id
+        )
     elif ALGORITHM == RENDER.MIS:
-        return _trace_path[MAX_DEPTH, True, True](
+        return _trace_path[MAX_DEPTH, RENDER.MIS](
             settings, world, ray, rng, path_id
         )
     else:

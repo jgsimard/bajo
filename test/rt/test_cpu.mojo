@@ -199,12 +199,20 @@ def test_world_hit_maps_material_and_normal() raises:
     var triangle_instances = List[Instance]()
     var triangle_instance_surfaces = List[SurfaceId]()
     var matte = surfaces.add_lambertian(Color(0.5))
+    var light = surfaces.add_emissive(Color(4.0))
     add_sphere(
         spheres,
         sphere_surfaces,
         Point3f32[Frame.WORLD](0.0, 0.0, -1.0),
         0.5,
         matte,
+    )
+    add_sphere(
+        spheres,
+        sphere_surfaces,
+        Point3f32[Frame.WORLD](10.0, 0.0, -1.0),
+        0.25,
+        light,
     )
     var world = World(
         spheres^,
@@ -216,9 +224,13 @@ def test_world_hit_maps_material_and_normal() raises:
         triangle_instance_surfaces^,
         surfaces^,
     )
+    assert_equal(len(world.lights.records), 1)
+    assert_equal(world.lights.records[0].primitive.kind(), PRIM.SPHERE)
+    assert_equal(world.lights.records[0].surface.value, light.value)
+    assert_true(world.lights.total_weight > 0.0)
 
     var hit = (
-        world.hit(
+        world.trace(
             Rayf32[Frame.WORLD](
                 Point3f32[Frame.WORLD](0.0),
                 Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
@@ -275,7 +287,7 @@ def test_world_preserves_signed_radius_normals() raises:
     )
 
     var hit = (
-        world.hit(
+        world.trace(
             Rayf32[Frame.WORLD](
                 Point3f32[Frame.WORLD](0.0),
                 Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
@@ -319,7 +331,7 @@ def test_world_hits_triangle() raises:
     )
 
     var hit = (
-        world.hit(
+        world.trace(
             Rayf32[Frame.WORLD](
                 Point3f32[Frame.WORLD](0.0),
                 Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
@@ -336,7 +348,7 @@ def test_world_hits_triangle() raises:
     assert_almost_equal(hit.t, 2.0)
 
     var back_hit = (
-        world.hit(
+        world.trace(
             Rayf32[Frame.WORLD](
                 Point3f32[Frame.WORLD](0.0, 0.0, -4.0),
                 Vec3f32[Frame.WORLD](0.0, 0.0, 1.0),
@@ -399,7 +411,7 @@ def test_world_picks_closest_sphere_or_triangle() raises:
     )
 
     var hit = (
-        world.hit(
+        world.trace(
             Rayf32[Frame.WORLD](
                 Point3f32[Frame.WORLD](0.0),
                 Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
@@ -447,7 +459,7 @@ def test_add_triangle_mesh_assigns_surface_per_triangle() raises:
     )
 
     var hit = (
-        world.hit(
+        world.trace(
             Rayf32[Frame.WORLD](
                 Point3f32[Frame.WORLD](0.0),
                 Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
@@ -514,7 +526,7 @@ def test_triangle_mesh_instances_use_instance_surfaces() raises:
     )
 
     var hit0 = (
-        world.hit(
+        world.trace(
             Rayf32[Frame.WORLD](
                 Point3f32[Frame.WORLD](0.0),
                 Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
@@ -529,7 +541,7 @@ def test_triangle_mesh_instances_use_instance_surfaces() raises:
     assert_almost_equal(hit0.t, 2.0)
 
     var hit1 = (
-        world.hit(
+        world.trace(
             Rayf32[Frame.WORLD](
                 Point3f32[Frame.WORLD](1.5, 0.0, 0.0),
                 Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
@@ -985,6 +997,11 @@ def test_direct_light_algorithms_render_cornell() raises:
         4.2,
     )
     var result = render_wavefront[RENDER.NEE, 4](settings, camera, world)
+    assert_true(len(world.lights.records) > 0)
+    assert_true(world.lights.total_weight > 0.0)
+    for light in world.lights.records:
+        assert_equal(light.surface.kind(), MAT.EMISSIVE)
+        assert_true(light.weight > 0.0)
     var depth_first = render_depth_first[RENDER.NEE, 4](settings, camera, world)
     var mis = render_wavefront[RENDER.MIS, 4](settings, camera, world)
     var depth_first_mis = render_depth_first[RENDER.MIS, 4](

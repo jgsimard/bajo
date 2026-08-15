@@ -1,6 +1,6 @@
 """Emission and next-event estimation for CPU path integrators."""
 
-from std.math import abs, pi, sqrt
+from std.math import abs, sqrt
 
 from bajo.core import (
     Frame,
@@ -16,12 +16,14 @@ from bajo.core.random import Rng, random_unit_vector
 from bajo.rt.types import (
     Color,
     MAT,
+    PRIM,
     RENDER,
     ShadingPoint,
     SurfaceId,
     SurfaceHit,
     SurfaceStore,
     World,
+    _light_importance,
 )
 from .bsdf import evaluate_bsdf
 
@@ -70,44 +72,6 @@ def _emissive_hit_weight[
     return 1.0
 
 
-@always_inline
-def _triangle_area(world: World, triangle_index: Int) -> Float32:
-    ref v0 = world.triangle_vertices[3 * triangle_index + 0]
-    ref v1 = world.triangle_vertices[3 * triangle_index + 1]
-    ref v2 = world.triangle_vertices[3 * triangle_index + 2]
-    return 0.5 * sqrt(length2(cross(v1 - v0, v2 - v0)))
-
-
-@always_inline
-def _emission_importance(radiance: Color) -> Float32:
-    return max((radiance.x + radiance.y + radiance.z) / 3.0, 0.0)
-
-
-def emissive_light_weight(world: World) -> Float32:
-    """Total area-times-radiance weight of triangle and sphere emitters."""
-    var total_weight = Float32(0.0)
-    for idx in range(len(world.triangle_surfaces)):
-        ref surface = world.triangle_surfaces[idx]
-        if surface.kind() == MAT.EMISSIVE:
-            var radiance = world.surfaces.emissives[
-                Int(surface.index())
-            ].radiance
-            total_weight += _triangle_area(world, idx) * _emission_importance(
-                radiance
-            )
-    for idx in range(len(world.sphere_surfaces)):
-        ref surface = world.sphere_surfaces[idx]
-        if surface.kind() == MAT.EMISSIVE:
-            var radiance = world.surfaces.emissives[
-                Int(surface.index())
-            ].radiance
-            var radius = abs(world.spheres[idx].radius)
-            total_weight += (
-                4.0 * pi * radius * radius * _emission_importance(radiance)
-            )
-    return total_weight
-
-
 def light_pdf_for_emissive_hit(
     world: World,
     ray: Rayf32[Frame.WORLD],
@@ -116,7 +80,7 @@ def light_pdf_for_emissive_hit(
     """Evaluate the triangle-light distribution in solid-angle measure."""
     if hit.surface.kind() != MAT.EMISSIVE or not hit.front_face:
         return 0.0
-    var total_weight = emissive_light_weight(world)
+    var total_weight = world.lights.total_weight
     if total_weight <= 0.0:
         return 0.0
     var light_cosine = max(dot(hit.normal, -normalize(ray.d)), 0.0)
@@ -126,7 +90,7 @@ def light_pdf_for_emissive_hit(
     var radiance = world.surfaces.emissives[Int(hit.surface.index())].radiance
     return (
         distance_squared
-        * _emission_importance(radiance)
+        * _light_importance(radiance)
         / (light_cosine * total_weight)
     )
 
@@ -147,7 +111,7 @@ def sample_direct_lighting[
     binary visibility; callers only multiply it by path throughput.
     """
     comptime assert ALGORITHM in (RENDER.NEE, RENDER.MIS)
-    var total_weight = emissive_light_weight(world)
+    var total_weight = world.lights.total_weight
     if total_weight <= 0.0:
         return Color(0.0)
 
@@ -156,16 +120,14 @@ def sample_direct_lighting[
     var light_normal = Vec3f32[Frame.WORLD](0.0, 1.0, 0.0)
     var emission = Color(0.0)
     var found = False
-    for idx in range(len(world.triangle_surfaces)):
-        ref candidate = world.triangle_surfaces[idx]
-        if candidate.kind() == MAT.EMISSIVE:
-            var radiance = world.surfaces.emissives[
-                Int(candidate.index())
+    for light in world.lights.records:
+        if selected_weight <= light.weight:
+            var primitive_kind = light.primitive.kind()
+            var idx = Int(light.primitive.index())
+            emission = world.surfaces.emissives[
+                Int(light.surface.index())
             ].radiance
-            var weight = _triangle_area(world, idx) * _emission_importance(
-                radiance
-            )
-            if selected_weight <= weight:
+            if primitive_kind == PRIM.TRIANGLE:
                 ref v0 = world.triangle_vertices[3 * idx + 0]
                 ref v1 = world.triangle_vertices[3 * idx + 1]
                 ref v2 = world.triangle_vertices[3 * idx + 2]
@@ -181,31 +143,14 @@ def sample_direct_lighting[
                 var barycentric1 = root_u * (1.0 - rng.f32())
                 var barycentric2 = root_u - barycentric1
                 light_point = v0 + barycentric1 * edge1 + barycentric2 * edge2
-                emission = radiance
                 found = True
-                break
-            selected_weight -= weight
-
-    if not found:
-        for idx in range(len(world.sphere_surfaces)):
-            ref candidate = world.sphere_surfaces[idx]
-            if candidate.kind() == MAT.EMISSIVE:
-                var radiance = world.surfaces.emissives[
-                    Int(candidate.index())
-                ].radiance
+            elif primitive_kind == PRIM.SPHERE:
                 var radius = abs(world.spheres[idx].radius)
-                var weight = (
-                    4.0 * pi * radius * radius * _emission_importance(radiance)
-                )
-                if selected_weight <= weight:
-                    light_normal = random_unit_vector[Frame.WORLD](rng)
-                    light_point = world.spheres[idx].center + (
-                        radius * light_normal
-                    )
-                    emission = radiance
-                    found = True
-                    break
-                selected_weight -= weight
+                light_normal = random_unit_vector[Frame.WORLD](rng)
+                light_point = world.spheres[idx].center + radius * light_normal
+                found = True
+            break
+        selected_weight -= light.weight
 
     if not found:
         return Color(0.0)
@@ -231,7 +176,7 @@ def sample_direct_lighting[
 
     var light_pdf = (
         distance_squared
-        * _emission_importance(emission)
+        * _light_importance(emission)
         / (light_cosine * total_weight)
     )
     var evaluation = evaluate_bsdf(

@@ -10,7 +10,7 @@ from bajo.obj.pack import pack_obj_triangles
 from bajo.rt import (
     Color,
     Instance,
-    RENDER_PATH,
+    RENDER,
     RenderSettings,
     Sphere,
     SurfaceId,
@@ -18,7 +18,7 @@ from bajo.rt import (
     World,
     add_triangle,
     add_triangle_instance,
-    render,
+    render_depth_first,
     write_ppm_from_colors,
 )
 
@@ -36,7 +36,7 @@ comptime IMAGE_HEIGHT = 540
 comptime SAMPLES_PER_PIXEL = 50
 comptime MAX_DEPTH = 8
 comptime RNG_SEED = UInt64(2026)
-comptime RENDER_ALGORITHM = UInt32(0)
+comptime RENDER_ALGORITHM = RENDER.PATH
 comptime MESH_COUNT = 7
 comptime COPY_COUNT = 3
 comptime TRIANGLE_SAMPLE_STRIDE = 1
@@ -463,7 +463,9 @@ def main() raises:
     print(t"primary hits: {_count_primary_hits(settings, camera, world)}")
 
     var render_t0 = perf_counter_ns()
-    var result = render[RENDER_ALGORITHM, MAX_DEPTH](settings, camera, world)
+    var result = render_depth_first[RENDER_ALGORITHM, MAX_DEPTH](
+        settings, camera, world
+    )
     var render_t1 = perf_counter_ns()
 
     write_ppm_from_colors(

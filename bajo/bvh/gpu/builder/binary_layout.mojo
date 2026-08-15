@@ -178,7 +178,7 @@ def reduce_bounds_partials_kernel(
     centroid_bounds.store6(out_partials, out + AABB.STRIDE)
 
 
-struct GpuBinaryTopologyWorkspace:
+struct GpuBinaryTopologyWorkspace(Copyable):
     """Transient Morton, parent, and refit state."""
 
     var morton_keys: DeviceBuffer[DType.uint32]
@@ -195,11 +195,6 @@ struct GpuBinaryTopologyWorkspace:
         self.node_flags = ctx.enqueue_create_buffer[DType.uint32](
             max(leaf_capacity - 1, 1)
         )
-
-    def __init__(out self, other: Self):
-        self.morton_keys = other.morton_keys.copy()
-        self.leaf_parent = other.leaf_parent.copy()
-        self.node_flags = other.node_flags.copy()
 
 
 struct GpuBinaryBuildWorkspace:
@@ -242,7 +237,7 @@ struct GpuBinaryBuildWorkspace:
         self.topology = Optional[GpuBinaryTopologyWorkspace]()
         if other.topology:
             self.topology = Optional[GpuBinaryTopologyWorkspace](
-                GpuBinaryTopologyWorkspace(other.topology.value())
+                other.topology.value().copy()
             )
 
     def ensure_topology(mut self, mut ctx: DeviceContext) raises:

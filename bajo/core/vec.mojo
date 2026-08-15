@@ -269,6 +269,18 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
     def __neg__(self) -> Self:
         return Self(-self.x, -self.y, -self.z)
 
+    @staticmethod
+    def select(
+        mask: SIMD[DType.bool, Self.width],
+        if_true: Self,
+        if_false: Self,
+    ) -> Self:
+        return Self(
+            mask.select(if_true.x, if_false.x),
+            mask.select(if_true.y, if_false.y),
+            mask.select(if_true.z, if_false.z),
+        )
+
     def __eq__(self, rhs: Self) -> SIMD[DType.bool, Self.width]:
         return self.x.eq(rhs.x) & self.y.eq(rhs.y) & self.z.eq(rhs.z)
 

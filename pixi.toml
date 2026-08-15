@@ -13,6 +13,9 @@ fmt = "mojo format ."
 # examples
 example_lbvh = { cmd = "mojo -I . examples/lbvh_normals.mojo", depends-on = ["download_assets"] }
 example_rtiaw = "mojo -I . examples/rtiaw.mojo"
+example_cornell = "mojo -I . examples/cornell_box.mojo"
+example_mis_showcase = "mojo -I . examples/mis_showcase.mojo"
+bench_rtiaw = "mojo -I . bench/rt/bench_example_rtiaw.mojo"
 
 # tests
 test = { cmd = "bash scripts/run_tests.sh test/{{suite}}", args = [
@@ -73,6 +76,22 @@ bench_rt_cpu_any_hit = "mojo -I . bench/rt/bench_cpu_any_hit.mojo"
 bench_rt_cpu_triangle_normals = "mojo -I . bench/rt/bench_cpu_triangle_normals.mojo"
 bench_rt_cpu_end_to_end = "mojo -I . bench/rt/bench_cpu_end_to_end.mojo"
 bench_rt_cpu_scheduling = "mojo -I . bench/rt/bench_cpu_scheduling.mojo"
+bench_rt_cpu_wavefront = "mojo -I . bench/rt/bench_cpu_wavefront.mojo"
+bench_rt_cpu_wavefront_parallel = "mojo -I . bench/rt/bench_cpu_wavefront_parallel.mojo"
+bench_rt_wavefront_contract = "mojo -I . bench/rt/bench_wavefront_contract.mojo"
+
+bench_rt_cpu = { depends-on = [
+  "bench_rt_cpu_any_hit",
+  "bench_rt_cpu_triangle_normals",
+  "bench_rt_cpu_end_to_end",
+  "bench_rt_cpu_scheduling",
+  "bench_rt_cpu_wavefront",
+  "bench_rt_cpu_wavefront_parallel",
+  "bench_rt_wavefront_contract"
+] }
+
+
+
 bench_all = { depends-on = [
   "bench_quat",
   "bench_aabb",
@@ -89,8 +108,8 @@ bench_bvh = { depends-on = [
 ] }
 
 [dependencies]
-mojo = ">=1.1.0.dev2026081105,<2"
-max = ">=26.6.0.dev2026081105,<27"
+mojo = ">=1.1.0.dev2026081505,<2"
+max = ">=26.6.0.dev2026081505,<27"
 python = ">=3.14.6,<3.15"
 polars = ">=1.43.2,<2"
 matplotlib = ">=3.11.1,<4"

@@ -7,25 +7,25 @@ from bajo.rt import (
     Camera,
     Color,
     Instance,
-    RENDER_PATH,
+    RENDER,
     RenderSettings,
     Sphere,
     SurfaceId,
     SurfaceStore,
     World,
     add_sphere,
-    render,
+    render_wavefront,
     write_ppm_from_colors,
 )
 
 
 comptime OUTPUT_PATH = "rtiaw.ppm"
-comptime IMAGE_WIDTH = 480
-comptime IMAGE_HEIGHT = 270
+comptime IMAGE_WIDTH = 600
+comptime IMAGE_HEIGHT = 400
 comptime SAMPLES_PER_PIXEL = 10
-comptime MAX_DEPTH = 64
+comptime MAX_DEPTH = 32
 comptime RNG_SEED = UInt64(1234)
-comptime RENDER_ALGORITHM = RENDER_PATH
+comptime RENDER_ALGORITHM = RENDER.PATH
 
 
 def make_weekend_world() -> World:
@@ -142,7 +142,9 @@ def main() raises:
     )
 
     var t0 = perf_counter_ns()
-    var result = render[RENDER_ALGORITHM, MAX_DEPTH](settings, camera, world)
+    var result = render_wavefront[RENDER_ALGORITHM, MAX_DEPTH](
+        settings, camera, world
+    )
     var t1 = perf_counter_ns()
 
     write_ppm_from_colors(

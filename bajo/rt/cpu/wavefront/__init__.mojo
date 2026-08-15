@@ -57,10 +57,12 @@ def _trace_packet_range[
     length: SIMDLength,
     ALGORITHM: RENDER,
     MAX_DEPTH: Int,
+    world_bvh_width: SIMDLength,
+    instance_bvh_width: SIMDLength,
 ](
     settings: RenderSettings,
     camera: Camera,
-    world: World,
+    world: World[world_bvh_width, instance_bvh_width],
     mut pixels: List[Color],
     path_begin: Int,
     path_end: Int,
@@ -69,7 +71,13 @@ def _trace_packet_range[
     _initialize_path_packets_range[length](
         queues.active_paths, settings, camera, path_begin, path_end
     )
-    _trace_path_packets[MAX_DEPTH, length, ALGORITHM](
+    _trace_path_packets[
+        MAX_DEPTH,
+        length,
+        ALGORITHM,
+        world_bvh_width,
+        instance_bvh_width,
+    ](
         settings,
         world,
         pixels,
@@ -88,7 +96,13 @@ def render_wavefront[
     CHUNK_PATHS: Int = CPU_WAVEFRONT_PARALLEL_CHUNK_PATHS,
     PARALLEL: Bool = True,
     SCHEDULER_MODE: Int = WAVE_PARALLEL_TASK_PARTITIONS,
-](settings: RenderSettings, camera: Camera, world: World) -> RenderResult:
+    world_bvh_width: SIMDLength = 16,
+    instance_bvh_width: SIMDLength = 16,
+](
+    settings: RenderSettings,
+    camera: Camera,
+    world: World[world_bvh_width, instance_bvh_width],
+) -> RenderResult:
     """Render with compile-time packet, chunk, and CPU scheduling choices."""
     comptime assert CHUNK_PATHS > 0, "wavefront chunk size must be positive"
     comptime assert MAX_DEPTH >= 0, "max depth must be non-negative"
@@ -120,7 +134,13 @@ def render_wavefront[
             var path_begin = chunk_idx * paths_per_chunk
             var path_end = min(path_begin + paths_per_chunk, path_count)
             var queues = _PacketQueueArena[length](path_end - path_begin)
-            _trace_packet_range[length, ALGORITHM, MAX_DEPTH](
+            _trace_packet_range[
+                length,
+                ALGORITHM,
+                MAX_DEPTH,
+                world_bvh_width,
+                instance_bvh_width,
+            ](
                 settings,
                 camera,
                 world,
@@ -143,7 +163,13 @@ def render_wavefront[
         var path_begin = 0
         while path_begin < path_count:
             var path_end = min(path_begin + paths_per_chunk, path_count)
-            _trace_packet_range[length, ALGORITHM, MAX_DEPTH](
+            _trace_packet_range[
+                length,
+                ALGORITHM,
+                MAX_DEPTH,
+                world_bvh_width,
+                instance_bvh_width,
+            ](
                 settings,
                 camera,
                 world,

@@ -130,7 +130,7 @@ def sort_timings(mut values: List[Int]):
 
 def time_render[
     ALGORITHM: RENDER
-](settings: RenderSettings, camera: Camera, world: World) -> TimingResult:
+](settings: RenderSettings, camera: Camera, world: World[]) -> TimingResult:
     # Warm all compiled code and renderer-owned allocations before measuring.
     var warmup = render_depth_first[ALGORITHM, MAX_DEPTH](
         settings, camera, world
@@ -229,7 +229,7 @@ def count_hit(mut counters: TraceCounters, primitive: PRIM, material: MAT):
 
 def count_path[
     DEPTH: Int
-](settings: RenderSettings, camera: Camera, world: World) -> TraceCounters:
+](settings: RenderSettings, camera: Camera, world: World[]) -> TraceCounters:
     var counters = TraceCounters()
     for py in range(settings.image_height):
         for px in range(settings.image_width):
@@ -297,7 +297,7 @@ def count_path[
 
 
 def count_ao(
-    settings: RenderSettings, camera: Camera, world: World
+    settings: RenderSettings, camera: Camera, world: World[]
 ) -> TraceCounters:
     var counters = TraceCounters()
     for py in range(settings.image_height):
@@ -416,7 +416,7 @@ def make_triangle_mesh() -> List[Point3f32[Frame.LOCAL]]:
     return vertices^
 
 
-def make_triangle_world() -> World:
+def make_triangle_world() -> World[]:
     var surfaces = SurfaceStore()
     var diffuse = surfaces.add_lambertian(Color(0.55, 0.32, 0.18))
     var ground = surfaces.add_lambertian(Color(0.35, 0.38, 0.32))
@@ -489,7 +489,7 @@ def make_triangle_world() -> World:
                 surface,
             )
 
-    return World(
+    return World[](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -501,7 +501,7 @@ def make_triangle_world() -> World:
     )
 
 
-def triangle_camera(world: World) -> Camera:
+def triangle_camera(world: World[]) -> Camera:
     var bounds = AABB[Frame.WORLD].invalid()
     for inst in world.triangle_instances:
         bounds.grow(inst.bounds)

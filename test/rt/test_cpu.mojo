@@ -234,7 +234,7 @@ def test_world_hit_maps_material_and_normal() raises:
         0.25,
         light,
     )
-    var world = World(
+    var world = World[4, 8](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -295,7 +295,7 @@ def test_world_preserves_signed_radius_normals() raises:
         -0.5,
         glass,
     )
-    var world = World(
+    var world = World[](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -339,7 +339,7 @@ def test_world_hits_triangle() raises:
         Point3f32[Frame.WORLD](0.0, 1.0, -2.0),
         matte,
     )
-    var world = World(
+    var world = World[](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -419,7 +419,7 @@ def test_world_picks_closest_sphere_or_triangle() raises:
         Point3f32[Frame.WORLD](0.0, 1.0, -2.0),
         tri_surface,
     )
-    var world = World(
+    var world = World[](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -467,7 +467,7 @@ def test_add_triangle_mesh_assigns_surface_per_triangle() raises:
     assert_equal(len(triangle_vertices), 6)
     assert_equal(len(triangle_surfaces), 2)
 
-    var world = World(
+    var world = World[](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -534,7 +534,7 @@ def test_triangle_mesh_instances_use_instance_surfaces() raises:
         metal,
     )
 
-    var world = World(
+    var world = World[4, 8](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -631,7 +631,7 @@ def test_world_occluded_covers_all_geometry_and_ray_interval() raises:
         matte,
     )
 
-    var world = World(
+    var world = World[](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -728,7 +728,7 @@ def test_render_settings_and_tiny_render() raises:
         0.5,
         matte,
     )
-    var world = World(
+    var world = World[4, 8](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -760,6 +760,12 @@ def test_render_settings_and_tiny_render() raises:
     for i in range(len(result.pixels)):
         assert_vec_equal(one_pixel_tiles.pixels[i], result.pixels[i])
 
+    # Renderer packet length and both acceleration widths are independent.
+    var packet_result = render_wavefront[RENDER.PATH, 2, 4, 16, False](
+        settings, camera, world
+    )
+    assert_equal(len(packet_result.pixels), len(result.pixels))
+
 
 def test_render_can_select_normal_algorithm_at_compile_time() raises:
     var settings = RenderSettings(1, 1, 1, UInt64(11))
@@ -779,7 +785,7 @@ def test_render_can_select_normal_algorithm_at_compile_time() raises:
         0.5,
         matte,
     )
-    var world = World(
+    var world = World[](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -819,7 +825,7 @@ def test_render_can_select_ao_algorithm_at_compile_time() raises:
         0.5,
         matte,
     )
-    var world = World(
+    var world = World[](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -863,7 +869,7 @@ def test_wavefront_tiny_render() raises:
         0.5,
         matte,
     )
-    var world = World(
+    var world = World[](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -971,7 +977,7 @@ def test_packet_widths_match_width1_for_mixed_bsdfs() raises:
         0.55,
         glass,
     )
-    var world = World(
+    var world = World[](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,

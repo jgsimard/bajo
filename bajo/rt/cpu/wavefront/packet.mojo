@@ -311,10 +311,12 @@ def _shade_material_packets[
 def _trace_path_packets[
     MAX_DEPTH: Int,
     length: SIMDLength,
-    ALGORITHM: RENDER = RENDER.PATH,
+    ALGORITHM: RENDER,
+    world_bvh_width: SIMDLength,
+    instance_bvh_width: SIMDLength,
 ](
     settings: RenderSettings,
-    world: World,
+    world: World[world_bvh_width, instance_bvh_width],
     mut pixels: List[Color],
     mut active_paths: PacketPathQueue[length],
     mut next_paths: PacketPathQueue[length],

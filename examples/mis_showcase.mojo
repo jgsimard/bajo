@@ -115,7 +115,7 @@ def _add_box(
     )
 
 
-def make_mis_showcase_world() -> World:
+def make_mis_showcase_world() -> World[]:
     var store = SurfaceStore()
     var room = store.add_lambertian(Color(0.48, 0.48, 0.48))
     var rough = store.add_metal(Color(0.64), 0.50)
@@ -242,7 +242,7 @@ def make_mis_showcase_world() -> World:
     var meshes = List[List[Point3f32[Frame.LOCAL]]]()
     var instances = List[Instance]()
     var instance_surfaces = List[SurfaceId[1]]()
-    return World(
+    return World[](
         spheres^,
         sphere_surfaces^,
         vertices^,

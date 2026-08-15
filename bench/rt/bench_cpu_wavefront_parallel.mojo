@@ -42,7 +42,7 @@ def _render_configuration[
     length: SIMDLength = 1,
     SCHEDULER_MODE: Int = WAVE_PARALLEL_TASK_PARTITIONS,
     PARALLEL: Bool = True,
-](settings: RenderSettings, camera: Camera, world: World) -> RenderResult:
+](settings: RenderSettings, camera: Camera, world: World[]) -> RenderResult:
     return render_wavefront[
         RENDER.PATH,
         MAX_DEPTH,
@@ -63,7 +63,7 @@ def _record[
     checksum: Float64,
     settings: RenderSettings,
     camera: Camera,
-    world: World,
+    world: World[],
 ):
     var result = _render_configuration[
         CHUNK_PATHS, length, SCHEDULER_MODE, PARALLEL
@@ -90,7 +90,7 @@ def _print(label: String, timing: Timing, serial: Timing):
 
 
 def benchmark_world(
-    label: String, settings: RenderSettings, camera: Camera, world: World
+    label: String, settings: RenderSettings, camera: Camera, world: World[]
 ):
     print(t"\n{label}")
     var warmup = _render_configuration[

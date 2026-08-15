@@ -110,7 +110,7 @@ def _trace_path[
                 point.p, scattered.direction, 0.001, f32_max
             )
         else:
-            return radiance + throughput * _sky_color(cur_ray)
+            return radiance + throughput * _sky_color(cur_ray.d)
 
     return radiance
 
@@ -126,7 +126,7 @@ def _trace_normals(world: World, ray: Rayf32[Frame.WORLD]) -> Color:
 def _trace_ao(world: World, ray: Rayf32[Frame.WORLD], mut rng: Rng) -> Color:
     var hit = world.trace_surface(ray)
     if not hit.hit:
-        return _sky_color(ray)
+        return _sky_color(ray.d)
 
     var p = ray.o + hit.t * ray.d
     var ao_dir = random_on_hemisphere[Frame.WORLD](rng, hit.normal)

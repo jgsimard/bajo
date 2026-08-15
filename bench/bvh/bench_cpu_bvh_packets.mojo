@@ -4,7 +4,7 @@ from std.math import round
 from std.time import perf_counter_ns
 
 from bajo.bvh.constants import TRACE, f32_max
-from bajo.bvh.cpu.packet import RayPacket
+from bajo.core import Ray
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.host_utils import compute_bounds
 from bajo.core import Frame, Point3, Point3f32, Vec3, Rayf32
@@ -88,13 +88,13 @@ def trace_packet[
             t_max[lane] = ray.t_max
             valid[lane] = True
 
-        var packet = RayPacket[Frame.WORLD, length](
+        var packet = Ray[DType.float32, Frame.WORLD, length](
             Point3[DType.float32, Frame.WORLD, length](ox, oy, oz),
             Vec3[DType.float32, Frame.WORLD, length](dx, dy, dz),
             t_min,
             t_max,
         )
-        var packet_hit = bvh.trace_packet(packet, valid)
+        var packet_hit = bvh.trace[TRACE.CLOSEST_HIT](packet, valid)
         for lane in range(lane_count):
             if packet_hit.prim[lane] != UInt32(0xFFFFFFFF):
                 checksum += (

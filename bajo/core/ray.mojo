@@ -4,24 +4,26 @@ from bajo.core.frame import Frame
 from bajo.core.vec import Point3, Vec3
 
 
-struct Ray[dtype: DType, frame: Frame](TrivialRegisterPassable, Writable):
+struct Ray[dtype: DType, frame: Frame, length: SIMDLength = 1](
+    TrivialRegisterPassable, Writable
+):
     comptime STRIDE = 8
     comptime ORIGIN = 0  # 0, 1, 2
     comptime T_MIN = 3
     comptime DIRECTION = 4  # 4, 5, 6
     comptime T_MAX = 7
 
-    var o: Point3[Self.dtype, Self.frame]
-    var t_min: Scalar[Self.dtype]
-    var d: Vec3[Self.dtype, Self.frame]
-    var t_max: Scalar[Self.dtype]
+    var o: Point3[Self.dtype, Self.frame, Self.length]
+    var t_min: SIMD[Self.dtype, Self.length]
+    var d: Vec3[Self.dtype, Self.frame, Self.length]
+    var t_max: SIMD[Self.dtype, Self.length]
 
     def __init__(
         out self,
-        origin: Point3[Self.dtype, Self.frame],
-        direction: Vec3[Self.dtype, Self.frame],
-        t_min: Scalar[Self.dtype] = 0.0,
-        t_max: Scalar[Self.dtype] = max_finite[Self.dtype](),
+        origin: Point3[Self.dtype, Self.frame, Self.length],
+        direction: Vec3[Self.dtype, Self.frame, Self.length],
+        t_min: SIMD[Self.dtype, Self.length] = 0.0,
+        t_max: SIMD[Self.dtype, Self.length] = max_finite[Self.dtype](),
     ):
         self.o = origin
         self.d = direction
@@ -33,18 +35,19 @@ struct Ray[dtype: DType, frame: Frame](TrivialRegisterPassable, Writable):
         rays: Span[mut=False, Scalar[Self.dtype], _],
         ray_idx: Int,
     ):
+        comptime assert Self.length == 1
         debug_assert["safe", _use_compiler_assume=True](
             ray_idx >= 0 and ray_idx < len(rays) / Ray.STRIDE,
             "Ray load is outside the input span",
         )
         var base = ray_idx * Ray.STRIDE
-        self.o = Point3[Self.dtype, Self.frame](
+        self.o = Point3[Self.dtype, Self.frame, Self.length](
             rays.unsafe_get(base + Ray.ORIGIN + 0),
             rays.unsafe_get(base + Ray.ORIGIN + 1),
             rays.unsafe_get(base + Ray.ORIGIN + 2),
         )
         self.t_min = rays.unsafe_get(base + Ray.T_MIN)
-        self.d = Vec3[Self.dtype, Self.frame](
+        self.d = Vec3[Self.dtype, Self.frame, Self.length](
             rays.unsafe_get(base + Ray.DIRECTION + 0),
             rays.unsafe_get(base + Ray.DIRECTION + 1),
             rays.unsafe_get(base + Ray.DIRECTION + 2),
@@ -52,28 +55,33 @@ struct Ray[dtype: DType, frame: Frame](TrivialRegisterPassable, Writable):
         self.t_max = rays.unsafe_get(base + Ray.T_MAX)
 
     def flatten(self) -> List[Scalar[Self.dtype]]:
+        comptime assert Self.length == 1
         return [
-            self.o.x,
-            self.o.y,
-            self.o.z,
-            self.t_min,
-            self.d.x,
-            self.d.y,
-            self.d.z,
-            self.t_max,
+            self.o.x[0],
+            self.o.y[0],
+            self.o.z[0],
+            self.t_min[0],
+            self.d.x[0],
+            self.d.y[0],
+            self.d.z[0],
+            self.t_max[0],
         ]
 
     def origin[
         width: SIMDLength
     ](self) -> Point3[Self.dtype, Self.frame, width]:
+        comptime assert Self.length == 1
         return Point3[Self.dtype, Self.frame, width](
-            self.o.x, self.o.y, self.o.z
+            self.o.x[0], self.o.y[0], self.o.z[0]
         )
 
     def direction[
         width: SIMDLength
     ](self) -> Vec3[Self.dtype, Self.frame, width]:
-        return Vec3[Self.dtype, Self.frame, width](self.d.x, self.d.y, self.d.z)
+        comptime assert Self.length == 1
+        return Vec3[Self.dtype, Self.frame, width](
+            self.d.x[0], self.d.y[0], self.d.z[0]
+        )
 
     def rcp_direction[
         width: SIMDLength
@@ -98,6 +106,33 @@ struct Ray[dtype: DType, frame: Frame](TrivialRegisterPassable, Writable):
         var dz = mz.select(d.z, one)
 
         return Vec3[Self.dtype, Self.frame, width](
+            mx.select(one / dx, sx),
+            my.select(one / dy, sy),
+            mz.select(one / dz, sz),
+        )
+
+    def reciprocal_direction(
+        self, eps: Scalar[Self.dtype] = 1.0e-9
+    ) -> Vec3[
+        Self.dtype, Self.frame, Self.length
+    ] where Self.dtype.is_floating_point():
+        var e = SIMD[Self.dtype, Self.length](eps)
+        var large = SIMD[Self.dtype, Self.length](1.0 / eps)
+        var one = SIMD[Self.dtype, Self.length](1.0)
+
+        var mx = abs(self.d.x).gt(e)
+        var my = abs(self.d.y).gt(e)
+        var mz = abs(self.d.z).gt(e)
+
+        var sx = self.d.x.lt(0.0).select(-large, large)
+        var sy = self.d.y.lt(0.0).select(-large, large)
+        var sz = self.d.z.lt(0.0).select(-large, large)
+
+        var dx = mx.select(self.d.x, one)
+        var dy = my.select(self.d.y, one)
+        var dz = mz.select(self.d.z, one)
+
+        return Vec3[Self.dtype, Self.frame, Self.length](
             mx.select(one / dx, sx),
             my.select(one / dy, sy),
             mz.select(one / dz, sz),

@@ -1,9 +1,8 @@
 """Packet primary-path generation."""
 
-from bajo.core import Frame, Point3, Vec3, normalize
+from bajo.core import Frame
 from bajo.core.random import random_in_unit_disk
 from bajo.bvh.camera import Camera
-from bajo.bvh.constants import f32_max
 from bajo.rt.types import RenderSettings
 from bajo.rt.wavefront_queue import PacketPathQueue, PathPacket
 
@@ -23,7 +22,6 @@ def _initialize_path_packets_range[
     paths.clear()
     var width = Float32(settings.image_width)
     var height = Float32(settings.image_height)
-    var aspect = width / height
     for packet_begin in range(path_begin, path_end, length):
         var lane_count = min(length, path_end - packet_begin)
         var px = SIMD[DType.float32, length](0.0)
@@ -46,53 +44,25 @@ def _initialize_path_packets_range[
             pixel_v[lane] = rng.f32()
             packet.path_ids[lane] = UInt32(path_idx)
 
-        var sx = ((px + pixel_u) / width) * 2.0 - 1.0
-        var sy = 1.0 - ((py + pixel_v) / height) * 2.0
-        var origin = Point3[DType.float32, Frame.WORLD, length](
-            SIMD[DType.float32, length](camera.origin.x),
-            SIMD[DType.float32, length](camera.origin.y),
-            SIMD[DType.float32, length](camera.origin.z),
+        var ray = camera.make_ray_sampled[length](
+            px,
+            py,
+            width,
+            height,
+            pixel_u,
+            pixel_v,
+            lens_u,
+            lens_v,
+            0.001,
         )
-        var forward = Vec3[DType.float32, Frame.WORLD, length](
-            SIMD[DType.float32, length](camera.forward.x),
-            SIMD[DType.float32, length](camera.forward.y),
-            SIMD[DType.float32, length](camera.forward.z),
-        )
-        var right = Vec3[DType.float32, Frame.WORLD, length](
-            SIMD[DType.float32, length](camera.right.x),
-            SIMD[DType.float32, length](camera.right.y),
-            SIMD[DType.float32, length](camera.right.z),
-        )
-        var up = Vec3[DType.float32, Frame.WORLD, length](
-            SIMD[DType.float32, length](camera.up.x),
-            SIMD[DType.float32, length](camera.up.y),
-            SIMD[DType.float32, length](camera.up.z),
-        )
-        var disk_u = Vec3[DType.float32, Frame.WORLD, length](
-            SIMD[DType.float32, length](camera.defocus_disk_u.x),
-            SIMD[DType.float32, length](camera.defocus_disk_u.y),
-            SIMD[DType.float32, length](camera.defocus_disk_u.z),
-        )
-        var disk_v = Vec3[DType.float32, Frame.WORLD, length](
-            SIMD[DType.float32, length](camera.defocus_disk_v.x),
-            SIMD[DType.float32, length](camera.defocus_disk_v.y),
-            SIMD[DType.float32, length](camera.defocus_disk_v.z),
-        )
-        var focal_point = origin + camera.focus_dist * (
-            forward
-            + (sx * aspect * camera.fov_scale) * right
-            + (sy * camera.fov_scale) * up
-        )
-        var ray_origin = origin + lens_u * disk_u + lens_v * disk_v
-        var direction = normalize(focal_point - ray_origin)
-        packet.ox = ray_origin.x
-        packet.oy = ray_origin.y
-        packet.oz = ray_origin.z
-        packet.t_min = 0.001
-        packet.dx = direction.x
-        packet.dy = direction.y
-        packet.dz = direction.z
-        packet.t_max = f32_max
+        packet.ox = ray.o.x
+        packet.oy = ray.o.y
+        packet.oz = ray.o.z
+        packet.t_min = ray.t_min
+        packet.dx = ray.d.x
+        packet.dy = ray.d.y
+        packet.dz = ray.d.z
+        packet.t_max = ray.t_max
         packet.tx = 1.0
         packet.ty = 1.0
         packet.tz = 1.0

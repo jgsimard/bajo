@@ -7,14 +7,17 @@ from bajo.core import (
     Affine3f32,
     Point3f32,
     Frame,
+    Ray,
     Rayf32,
 )
 from bajo.bvh.constants import f32_max, EMPTY_LANE, Primitive, TRACE
-from bajo.core.vec import Vec3, Point3
+from bajo.core.vec import Vec3, Point3, Normal3
 
 
 @fieldwise_init
-struct Hit[frame: Frame = Frame.WORLD](TrivialRegisterPassable, Writable):
+struct Hit[frame: Frame = Frame.WORLD, length: SIMDLength = 1](
+    TrivialRegisterPassable, Writable
+):
     comptime U = 0
     comptime V = 1
     comptime PRIM = 2
@@ -23,21 +26,21 @@ struct Hit[frame: Frame = Frame.WORLD](TrivialRegisterPassable, Writable):
     comptime T = 7
     comptime STRIDE = 8
 
-    var u: Float32
-    var v: Float32
-    var prim: UInt32
-    var inst: UInt32
-    var normal: Normal3f32[Self.frame]
-    var t: Float32
+    var u: SIMD[DType.float32, Self.length]
+    var v: SIMD[DType.float32, Self.length]
+    var prim: SIMD[DType.uint32, Self.length]
+    var inst: SIMD[DType.uint32, Self.length]
+    var normal: Normal3[DType.float32, Self.frame, Self.length]
+    var t: SIMD[DType.float32, Self.length]
 
     @staticmethod
-    def miss(t: Float32 = f32_max) -> Self:
+    def miss(t: SIMD[DType.float32, Self.length] = f32_max) -> Self:
         return Self(
             0.0,
             0.0,
             EMPTY_LANE,
             EMPTY_LANE,
-            Normal3f32[Self.frame](0),
+            Normal3[DType.float32, Self.frame, Self.length](0),
             t,
         )
 
@@ -48,17 +51,22 @@ struct Hit[frame: Frame = Frame.WORLD](TrivialRegisterPassable, Writable):
             0.0,
             EMPTY_LANE,
             EMPTY_LANE,
-            Normal3f32[Self.frame](0),
+            Normal3[DType.float32, Self.frame, Self.length](0),
             0.0,
         )
 
-    def is_hit(self) -> Bool:
-        return self.prim != EMPTY_LANE and self.t < f32_max
+    def is_hit(self) -> SIMD[DType.bool, Self.length]:
+        return self.prim.ne(EMPTY_LANE) & self.t.lt(f32_max)
 
-    def is_occluded(self) -> Bool:
-        return self.prim == EMPTY_LANE and self.t == 0.0
+    @always_inline
+    def hit_mask(self) -> SIMD[DType.bool, Self.length]:
+        return self.is_hit()
+
+    def is_occluded(self) -> SIMD[DType.bool, Self.length]:
+        return self.prim.eq(EMPTY_LANE) & self.t.eq(0.0)
 
     def store(self, hits: Span[mut=True, Float32, _], idx: Int):
+        comptime assert Self.length == 1
         debug_assert["safe", _use_compiler_assume=True](
             idx >= 0 and idx < len(hits) / Self.STRIDE,
             "Hit store is outside the output span",
@@ -67,22 +75,24 @@ struct Hit[frame: Frame = Frame.WORLD](TrivialRegisterPassable, Writable):
 
     def _store_unchecked(self, hits: Span[mut=True, Float32, _], idx: Int):
         """Store after the caller has validated the complete Hit block."""
+        comptime assert Self.length == 1
         var base = idx * Hit.STRIDE
         var ptr = hits.unsafe_ptr()
 
-        ptr[unsafe_offset=base + Hit.U] = self.u
-        ptr[unsafe_offset=base + Hit.V] = self.v
-        ptr[unsafe_offset=base + Hit.NORMAL + 0] = self.normal.x
-        ptr[unsafe_offset=base + Hit.NORMAL + 1] = self.normal.y
-        ptr[unsafe_offset=base + Hit.NORMAL + 2] = self.normal.z
-        ptr[unsafe_offset=base + Hit.T] = self.t
+        ptr[unsafe_offset=base + Hit.U] = self.u[0]
+        ptr[unsafe_offset=base + Hit.V] = self.v[0]
+        ptr[unsafe_offset=base + Hit.NORMAL + 0] = self.normal.x[0]
+        ptr[unsafe_offset=base + Hit.NORMAL + 1] = self.normal.y[0]
+        ptr[unsafe_offset=base + Hit.NORMAL + 2] = self.normal.z[0]
+        ptr[unsafe_offset=base + Hit.T] = self.t[0]
 
         var hits_u32 = ptr.unsafe_bitcast[UInt32]()
-        hits_u32[unsafe_offset=base + Hit.PRIM] = self.prim
-        hits_u32[unsafe_offset=base + Hit.INST] = self.inst
+        hits_u32[unsafe_offset=base + Hit.PRIM] = self.prim[0]
+        hits_u32[unsafe_offset=base + Hit.INST] = self.inst[0]
 
     @staticmethod
     def load(hits: Span[mut=False, Float32, _], idx: Int) -> Self:
+        comptime assert Self.length == 1
         debug_assert["safe", _use_compiler_assume=True](
             idx >= 0 and idx < len(hits) / Self.STRIDE,
             "Hit load is outside the input span",
@@ -96,7 +106,7 @@ struct Hit[frame: Frame = Frame.WORLD](TrivialRegisterPassable, Writable):
             ptr[unsafe_offset=base + Hit.V],
             hits_u32[unsafe_offset=base + Hit.PRIM],
             hits_u32[unsafe_offset=base + Hit.INST],
-            Normal3f32[Self.frame](
+            Normal3[DType.float32, Self.frame, Self.length](
                 ptr[unsafe_offset=base + Hit.NORMAL + 0],
                 ptr[unsafe_offset=base + Hit.NORMAL + 1],
                 ptr[unsafe_offset=base + Hit.NORMAL + 2],
@@ -187,8 +197,12 @@ trait TypedBvh:
     comptime bvh_frame: Frame
 
     def trace[
-        mode: TRACE
-    ](self, ray: Rayf32[Self.bvh_frame]) -> Hit[Self.bvh_frame]:
+        mode: TRACE, length: SIMDLength
+    ](
+        self,
+        ray: Ray[DType.float32, Self.bvh_frame, length],
+        valid: SIMD[DType.bool, length] = SIMD[DType.bool, length](fill=True),
+    ) -> Hit[Self.bvh_frame, length]:
         ...
 
 

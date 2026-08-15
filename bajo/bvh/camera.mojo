@@ -1,7 +1,17 @@
 from std.math import tan
 
 from bajo.bvh.constants import f32_max
-from bajo.core import Vec3f32, normalize, cross, Point3f32, Frame, Rayf32
+from bajo.core import (
+    Vec3,
+    Vec3f32,
+    normalize,
+    cross,
+    Point3,
+    Point3f32,
+    Frame,
+    Ray,
+    Rayf32,
+)
 from bajo.core.utils import degrees_to_radians
 
 
@@ -113,10 +123,10 @@ struct Camera(TrivialRegisterPassable, Writable):
         height: Int,
     ) -> Rayf32[Frame.WORLD]:
         return self.make_ray_sampled(
-            px_i,
-            py_i,
-            width,
-            height,
+            Float32(px_i),
+            Float32(py_i),
+            Float32(width),
+            Float32(height),
             0.5,
             0.5,
             0.0,
@@ -143,36 +153,54 @@ struct Camera(TrivialRegisterPassable, Writable):
         )
         return Rayf32[Frame.WORLD](self.origin, direction, 0.0, f32_max)
 
-    def make_ray_sampled(
+    def make_ray_sampled[
+        length: SIMDLength = 1
+    ](
         self,
-        px_i: Int,
-        py_i: Int,
-        width: Int,
-        height: Int,
-        pixel_u: Float32,
-        pixel_v: Float32,
-        lens_u: Float32 = 0.0,
-        lens_v: Float32 = 0.0,
-        t_min: Float32 = 0.0,
-    ) -> Rayf32[Frame.WORLD]:
-        var aspect = Float32(width) / Float32(height)
-
-        var sx = ((Float32(px_i) + pixel_u) / Float32(width)) * 2.0 - 1.0
-        var sy = 1.0 - ((Float32(py_i) + pixel_v) / Float32(height)) * 2.0
-
-        var focal_point = self.origin + self.focus_dist * (
-            self.forward
-            + self.right * (sx * aspect * self.fov_scale)
-            + self.up * (sy * self.fov_scale)
+        px: SIMD[DType.float32, length],
+        py: SIMD[DType.float32, length],
+        width: Float32,
+        height: Float32,
+        pixel_u: SIMD[DType.float32, length],
+        pixel_v: SIMD[DType.float32, length],
+        lens_u: SIMD[DType.float32, length] = 0.0,
+        lens_v: SIMD[DType.float32, length] = 0.0,
+        t_min: SIMD[DType.float32, length] = 0.0,
+    ) -> Ray[DType.float32, Frame.WORLD, length]:
+        var aspect = width / height
+        var sx = ((px + pixel_u) / width) * 2.0 - 1.0
+        var sy = 1.0 - ((py + pixel_v) / height) * 2.0
+        var origin = Point3[DType.float32, Frame.WORLD, length](
+            self.origin.x, self.origin.y, self.origin.z
         )
-        var ray_origin = (
-            self.origin
-            + lens_u * self.defocus_disk_u
-            + lens_v * self.defocus_disk_v
+        var forward = Vec3[DType.float32, Frame.WORLD, length](
+            self.forward.x, self.forward.y, self.forward.z
         )
+        var right = Vec3[DType.float32, Frame.WORLD, length](
+            self.right.x, self.right.y, self.right.z
+        )
+        var up = Vec3[DType.float32, Frame.WORLD, length](
+            self.up.x, self.up.y, self.up.z
+        )
+        var disk_u = Vec3[DType.float32, Frame.WORLD, length](
+            self.defocus_disk_u.x,
+            self.defocus_disk_u.y,
+            self.defocus_disk_u.z,
+        )
+        var disk_v = Vec3[DType.float32, Frame.WORLD, length](
+            self.defocus_disk_v.x,
+            self.defocus_disk_v.y,
+            self.defocus_disk_v.z,
+        )
+        var focal_point = origin + self.focus_dist * (
+            forward
+            + right * (sx * aspect * self.fov_scale)
+            + up * (sy * self.fov_scale)
+        )
+        var ray_origin = origin + lens_u * disk_u + lens_v * disk_v
         var dir = focal_point - ray_origin
 
-        return Rayf32[Frame.WORLD](
+        return Ray[DType.float32, Frame.WORLD, length](
             ray_origin,
             normalize(dir),
             t_min,

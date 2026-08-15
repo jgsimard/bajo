@@ -8,6 +8,7 @@ from bajo.core import (
     dot,
     normalize,
     Rayf32,
+    Ray,
 )
 from bajo.core.intersect import intersect_ray_sphere_coefficients
 from bajo.core.utils import min_argmin
@@ -20,9 +21,7 @@ from bajo.bvh.cpu.bounds_bvh import (
 )
 from bajo.bvh.cpu.trace import trace_sphere_bounds_bvh
 from bajo.bvh.cpu.packet import (
-    PacketHit,
-    RayPacket,
-    trace_packet_bounds_bvh,
+    trace_shared_stack_bounds_bvh,
 )
 from bajo.bvh.types import Hit, Sphere, SphereLeafBlock, TypedBvh
 
@@ -91,7 +90,44 @@ struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
     def bounds(self) -> AABB[Self.frame]:
         return self.tree.root_bounds()
 
+    @always_inline
     def trace[
+        mode: TRACE, length: SIMDLength
+    ](
+        self,
+        rays: Ray[DType.float32, Self.bvh_frame, length],
+        valid: SIMD[DType.bool, length] = SIMD[DType.bool, length](fill=True),
+    ) -> Hit[Self.bvh_frame, length]:
+        comptime if length == 1:
+            if not valid[0]:
+                return Hit[Self.bvh_frame, length].miss(rays.t_max)
+            var ray = Rayf32[Self.bvh_frame](
+                Point3f32[Self.bvh_frame](
+                    rays.o.x[0], rays.o.y[0], rays.o.z[0]
+                ),
+                Vec3[DType.float32, Self.bvh_frame](
+                    rays.d.x[0], rays.d.y[0], rays.d.z[0]
+                ),
+                rays.t_min[0],
+                rays.t_max[0],
+            )
+            var scalar_hit = self._trace_ordered[mode](ray)
+            var result = Hit[Self.bvh_frame, length].miss(rays.t_max)
+            result.u[0] = scalar_hit.u[0]
+            result.v[0] = scalar_hit.v[0]
+            result.prim[0] = scalar_hit.prim[0]
+            result.inst[0] = scalar_hit.inst[0]
+            result.normal.x[0] = scalar_hit.normal.x[0]
+            result.normal.y[0] = scalar_hit.normal.y[0]
+            result.normal.z[0] = scalar_hit.normal.z[0]
+            result.t[0] = scalar_hit.t[0]
+            return result
+        else:
+            comptime assert mode == TRACE.CLOSEST_HIT
+            return self._trace_shared_stack(rays, valid)
+
+    @always_inline
+    def _trace_ordered[
         mode: TRACE
     ](self, ray: Rayf32[Self.bvh_frame]) -> Hit[Self.bvh_frame]:
         def leaf_fn(
@@ -154,22 +190,23 @@ struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
             leaf_fn,
         )
 
-    def trace_packet[
+    @always_inline
+    def _trace_shared_stack[
         length: SIMDLength
     ](
         self,
-        rays: RayPacket[Self.bvh_frame, length],
+        rays: Ray[DType.float32, Self.bvh_frame, length],
         valid: SIMD[DType.bool, length],
-    ) -> PacketHit[Self.bvh_frame, length]:
+    ) -> Hit[Self.bvh_frame, length]:
         """Trace a coherent SIMD ray packet with one shared hierarchy stack."""
-        var hit = PacketHit[Self.bvh_frame, length](rays.t_max)
+        var hit = Hit[Self.bvh_frame, length].miss(rays.t_max)
         var ray_a = dot(rays.d, rays.d)
         var ray_inv_a = Float32(1.0) / ray_a
 
         def leaf_fn(
             active: SIMD[DType.bool, length],
             leaf_block_idx: UInt32,
-            mut packet_hit: PacketHit[Self.bvh_frame, length],
+            mut packet_hit: Hit[Self.bvh_frame, length],
         ) {imm}:
             ref block = self.leaf_blocks.unsafe_get(Int(leaf_block_idx))
             comptime for prim_lane in range(Self.width):
@@ -222,9 +259,9 @@ struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
                             normal.z, packet_hit.normal.z
                         )
 
-        trace_packet_bounds_bvh[
+        trace_shared_stack_bounds_bvh[
             frame=Self.frame,
             bounds_width=Self.width,
             length=length,
         ](self.tree, rays, valid, hit, leaf_fn)
-        return hit^
+        return hit

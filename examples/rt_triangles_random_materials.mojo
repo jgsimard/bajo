@@ -73,7 +73,7 @@ def _make_centered_transform(
     return transform^
 
 
-def _random_surface(mut surfaces: SurfaceStore, mut rng: Rng) -> SurfaceId:
+def _random_surface(mut surfaces: SurfaceStore, mut rng: Rng) -> SurfaceId[1]:
     var choose = rng.f32()
     if choose < 0.58:
         var albedo = rng.vec3f32(0.15, 0.95) * rng.vec3f32(0.35, 1.0)
@@ -88,13 +88,13 @@ def _random_surface(mut surfaces: SurfaceStore, mut rng: Rng) -> SurfaceId:
     return surfaces.add_dielectric(ior)
 
 
-def _random_ground_surface(mut surfaces: SurfaceStore) -> SurfaceId:
+def _random_ground_surface(mut surfaces: SurfaceStore) -> SurfaceId[1]:
     return surfaces.add_lambertian(Color(0.42, 0.45, 0.40))
 
 
 def _append_random_material_mesh(
     mut out_vertices: List[Vec3f32],
-    mut out_surfaces: List[SurfaceId],
+    mut out_surfaces: List[SurfaceId[1]],
     vertices: List[Vec3f32],
     transform: Affine3f32,
     mut surfaces: SurfaceStore,
@@ -147,7 +147,7 @@ def _mesh_z(instance_idx: Int) -> Float32:
 
 def _append_mesh_instance(
     mut triangle_instances: List[Instance],
-    mut triangle_instance_surfaces: List[SurfaceId],
+    mut triangle_instance_surfaces: List[SurfaceId[1]],
     mesh_idx: UInt32,
     bounds: AABB,
     instance_idx: Int,
@@ -183,7 +183,7 @@ def _append_mesh_instance(
 
 def _append_hero_glass_triangle(
     mut out_vertices: List[Vec3f32],
-    mut out_surfaces: List[SurfaceId],
+    mut out_surfaces: List[SurfaceId[1]],
     mut surfaces: SurfaceStore,
     bounds: AABB,
 ):
@@ -206,7 +206,7 @@ def _append_hero_glass_triangle(
 
 def _append_ground(
     mut out_vertices: List[Vec3f32],
-    mut out_surfaces: List[SurfaceId],
+    mut out_surfaces: List[SurfaceId[1]],
     mut surfaces: SurfaceStore,
     bounds: AABB,
 ):
@@ -298,12 +298,12 @@ def make_triangle_world() raises -> World:
     var material_rng = Rng(seed=RNG_SEED, id=0)
     var surfaces = SurfaceStore()
     var spheres = List[Sphere]()
-    var sphere_surfaces = List[SurfaceId]()
+    var sphere_surfaces = List[SurfaceId[1]]()
     var triangle_vertices = List[Vec3f32]()
-    var triangle_surfaces = List[SurfaceId]()
+    var triangle_surfaces = List[SurfaceId[1]]()
     var triangle_meshes = List[List[Vec3f32]]()
     var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId]()
+    var triangle_instance_surfaces = List[SurfaceId[1]]()
 
     var mesh0 = pack_obj_triangles(OBJ_PATH_0)
     var mesh1 = pack_obj_triangles(OBJ_PATH_1)

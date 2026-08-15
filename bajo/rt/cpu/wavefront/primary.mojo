@@ -11,9 +11,9 @@ from ..common import _path_stage_rng
 
 
 def _initialize_path_packets_range[
-    PACKET_LANES: SIMDLength
+    length: SIMDLength
 ](
-    mut paths: PacketPathQueue[PACKET_LANES],
+    mut paths: PacketPathQueue[length],
     settings: RenderSettings,
     camera: Camera,
     path_begin: Int,
@@ -24,15 +24,15 @@ def _initialize_path_packets_range[
     var width = Float32(settings.image_width)
     var height = Float32(settings.image_height)
     var aspect = width / height
-    for packet_begin in range(path_begin, path_end, PACKET_LANES):
-        var lane_count = min(PACKET_LANES, path_end - packet_begin)
-        var px = SIMD[DType.float32, PACKET_LANES](0.0)
-        var py = SIMD[DType.float32, PACKET_LANES](0.0)
-        var pixel_u = SIMD[DType.float32, PACKET_LANES](0.0)
-        var pixel_v = SIMD[DType.float32, PACKET_LANES](0.0)
-        var lens_u = SIMD[DType.float32, PACKET_LANES](0.0)
-        var lens_v = SIMD[DType.float32, PACKET_LANES](0.0)
-        var packet = PathPacket[PACKET_LANES]()
+    for packet_begin in range(path_begin, path_end, length):
+        var lane_count = min(length, path_end - packet_begin)
+        var px = SIMD[DType.float32, length](0.0)
+        var py = SIMD[DType.float32, length](0.0)
+        var pixel_u = SIMD[DType.float32, length](0.0)
+        var pixel_v = SIMD[DType.float32, length](0.0)
+        var lens_u = SIMD[DType.float32, length](0.0)
+        var lens_v = SIMD[DType.float32, length](0.0)
+        var packet = PathPacket[length]()
         for lane in range(lane_count):
             var path_idx = packet_begin + lane
             var pixel_idx = path_idx / settings.samples_per_pixel
@@ -48,35 +48,35 @@ def _initialize_path_packets_range[
 
         var sx = ((px + pixel_u) / width) * 2.0 - 1.0
         var sy = 1.0 - ((py + pixel_v) / height) * 2.0
-        var origin = Point3[DType.float32, Frame.WORLD, PACKET_LANES](
-            SIMD[DType.float32, PACKET_LANES](camera.origin.x),
-            SIMD[DType.float32, PACKET_LANES](camera.origin.y),
-            SIMD[DType.float32, PACKET_LANES](camera.origin.z),
+        var origin = Point3[DType.float32, Frame.WORLD, length](
+            SIMD[DType.float32, length](camera.origin.x),
+            SIMD[DType.float32, length](camera.origin.y),
+            SIMD[DType.float32, length](camera.origin.z),
         )
-        var forward = Vec3[DType.float32, Frame.WORLD, PACKET_LANES](
-            SIMD[DType.float32, PACKET_LANES](camera.forward.x),
-            SIMD[DType.float32, PACKET_LANES](camera.forward.y),
-            SIMD[DType.float32, PACKET_LANES](camera.forward.z),
+        var forward = Vec3[DType.float32, Frame.WORLD, length](
+            SIMD[DType.float32, length](camera.forward.x),
+            SIMD[DType.float32, length](camera.forward.y),
+            SIMD[DType.float32, length](camera.forward.z),
         )
-        var right = Vec3[DType.float32, Frame.WORLD, PACKET_LANES](
-            SIMD[DType.float32, PACKET_LANES](camera.right.x),
-            SIMD[DType.float32, PACKET_LANES](camera.right.y),
-            SIMD[DType.float32, PACKET_LANES](camera.right.z),
+        var right = Vec3[DType.float32, Frame.WORLD, length](
+            SIMD[DType.float32, length](camera.right.x),
+            SIMD[DType.float32, length](camera.right.y),
+            SIMD[DType.float32, length](camera.right.z),
         )
-        var up = Vec3[DType.float32, Frame.WORLD, PACKET_LANES](
-            SIMD[DType.float32, PACKET_LANES](camera.up.x),
-            SIMD[DType.float32, PACKET_LANES](camera.up.y),
-            SIMD[DType.float32, PACKET_LANES](camera.up.z),
+        var up = Vec3[DType.float32, Frame.WORLD, length](
+            SIMD[DType.float32, length](camera.up.x),
+            SIMD[DType.float32, length](camera.up.y),
+            SIMD[DType.float32, length](camera.up.z),
         )
-        var disk_u = Vec3[DType.float32, Frame.WORLD, PACKET_LANES](
-            SIMD[DType.float32, PACKET_LANES](camera.defocus_disk_u.x),
-            SIMD[DType.float32, PACKET_LANES](camera.defocus_disk_u.y),
-            SIMD[DType.float32, PACKET_LANES](camera.defocus_disk_u.z),
+        var disk_u = Vec3[DType.float32, Frame.WORLD, length](
+            SIMD[DType.float32, length](camera.defocus_disk_u.x),
+            SIMD[DType.float32, length](camera.defocus_disk_u.y),
+            SIMD[DType.float32, length](camera.defocus_disk_u.z),
         )
-        var disk_v = Vec3[DType.float32, Frame.WORLD, PACKET_LANES](
-            SIMD[DType.float32, PACKET_LANES](camera.defocus_disk_v.x),
-            SIMD[DType.float32, PACKET_LANES](camera.defocus_disk_v.y),
-            SIMD[DType.float32, PACKET_LANES](camera.defocus_disk_v.z),
+        var disk_v = Vec3[DType.float32, Frame.WORLD, length](
+            SIMD[DType.float32, length](camera.defocus_disk_v.x),
+            SIMD[DType.float32, length](camera.defocus_disk_v.y),
+            SIMD[DType.float32, length](camera.defocus_disk_v.z),
         )
         var focal_point = origin + camera.focus_dist * (
             forward

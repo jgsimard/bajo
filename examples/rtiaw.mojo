@@ -32,12 +32,12 @@ def make_weekend_world() -> World:
     var rng = Rng(seed=42, id=7)
     var surfaces = SurfaceStore()
     var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId]()
+    var sphere_surfaces = List[SurfaceId[1]]()
     var triangle_vertices = List[Point3W]()
-    var triangle_surfaces = List[SurfaceId]()
+    var triangle_surfaces = List[SurfaceId[1]]()
     var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
     var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId]()
+    var triangle_instance_surfaces = List[SurfaceId[1]]()
 
     var ground_surface = surfaces.add_lambertian(Color(0.5, 0.5, 0.5))
     add_sphere(

@@ -117,17 +117,17 @@ def make_triangle_world() -> World:
     var surfaces = SurfaceStore()
     var matte = surfaces.add_lambertian(Color(0.5))
     var vertices = make_grid_triangles()
-    var triangle_surfaces = List[SurfaceId](
+    var triangle_surfaces = List[SurfaceId[1]](
         length=len(vertices) / 3, fill=matte
     )
     return World(
         List[Sphere[Frame.WORLD]](),
-        List[SurfaceId](),
+        List[SurfaceId[1]](),
         vertices^,
         triangle_surfaces^,
         List[List[Point3f32[Frame.LOCAL]]](),
         List[Instance](),
-        List[SurfaceId](),
+        List[SurfaceId[1]](),
         surfaces^,
     )
 

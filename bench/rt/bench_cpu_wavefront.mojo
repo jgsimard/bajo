@@ -2,6 +2,7 @@
 
 from std.math import round
 
+from bajo.bvh.constants import f32_max
 from bajo.core import Frame, Point3W, Rayf32, Vec3W
 from bajo.core.utils import ns_to_ms
 from bajo.rt import (
@@ -23,6 +24,7 @@ from bench.rt.bench_cpu_end_to_end import (
     sort_timings,
     triangle_camera,
 )
+from examples.cornell_box import make_cornell_world
 from examples.rtiaw import make_weekend_world
 
 
@@ -80,10 +82,10 @@ struct WaveCounters:
 
 
 def time_wavefront[
-    PACKET_LANES: SIMDLength
+    length: SIMDLength, ALGORITHM: RENDER = RENDER.PATH
 ](settings: RenderSettings, camera: Camera, world: World) -> WaveTiming:
     var warmup = render_wavefront[
-        RENDER.PATH, MAX_DEPTH, PACKET_LANES, CHUNK_PATHS, False
+        ALGORITHM, MAX_DEPTH, length, CHUNK_PATHS, False
     ](settings, camera, world)
     var checksum = pixel_checksum(warmup.pixels)
     var total_times = List[Int](capacity=TIMING_REPEATS)
@@ -92,7 +94,7 @@ def time_wavefront[
 
     for _ in range(TIMING_REPEATS):
         var result = render_wavefront[
-            RENDER.PATH, MAX_DEPTH, PACKET_LANES, CHUNK_PATHS, False
+            ALGORITHM, MAX_DEPTH, length, CHUNK_PATHS, False
         ](settings, camera, world)
         var current_checksum = pixel_checksum(result.pixels)
         debug_assert["safe", _use_compiler_assume=True](
@@ -191,14 +193,14 @@ def count_wavefront(
                 if roulette.survived:
                     var next = PathPacket[1]()
                     next.path_ids[0] = path_id
-                    next.ox[0] = scattered.ray.o.x
-                    next.oy[0] = scattered.ray.o.y
-                    next.oz[0] = scattered.ray.o.z
-                    next.t_min[0] = scattered.ray.t_min
-                    next.dx[0] = scattered.ray.d.x
-                    next.dy[0] = scattered.ray.d.y
-                    next.dz[0] = scattered.ray.d.z
-                    next.t_max[0] = scattered.ray.t_max
+                    next.ox[0] = record.p.x
+                    next.oy[0] = record.p.y
+                    next.oz[0] = record.p.z
+                    next.t_min[0] = 0.001
+                    next.dx[0] = scattered.direction.x
+                    next.dy[0] = scattered.direction.y
+                    next.dz[0] = scattered.direction.z
+                    next.t_max[0] = f32_max
                     next.tx[0] = roulette.throughput.x
                     next.ty[0] = roulette.throughput.y
                     next.tz[0] = roulette.throughput.z
@@ -267,7 +269,7 @@ def benchmark_scene(
     world: World,
 ):
     print_timing(
-        label + " / packet width 1 (scalar)",
+        label + " / packet width 1",
         time_wavefront[1](timing_settings, camera, world),
     )
     print_timing(
@@ -283,6 +285,35 @@ def benchmark_scene(
         time_wavefront[16](timing_settings, camera, world),
     )
     print_counters(label, count_wavefront(counter_settings, camera, world))
+
+
+def benchmark_direct_lighting(
+    settings: RenderSettings, camera: Camera, world: World
+):
+    print_timing(
+        "Cornell NEE / packet width 1",
+        time_wavefront[1, RENDER.NEE](settings, camera, world),
+    )
+    print_timing(
+        "Cornell NEE / packet width 8",
+        time_wavefront[8, RENDER.NEE](settings, camera, world),
+    )
+    print_timing(
+        "Cornell NEE / packet width 16",
+        time_wavefront[16, RENDER.NEE](settings, camera, world),
+    )
+    print_timing(
+        "Cornell MIS / packet width 1",
+        time_wavefront[1, RENDER.MIS](settings, camera, world),
+    )
+    print_timing(
+        "Cornell MIS / packet width 8",
+        time_wavefront[8, RENDER.MIS](settings, camera, world),
+    )
+    print_timing(
+        "Cornell MIS / packet width 16",
+        time_wavefront[16, RENDER.MIS](settings, camera, world),
+    )
 
 
 def main():
@@ -326,3 +357,13 @@ def main():
         triangle_cam,
         triangle_world,
     )
+
+    var cornell_world = make_cornell_world()
+    var cornell_camera = Camera.from_vfov(
+        Point3W(0.0, 1.0, 3.2),
+        Point3W(0.0, 1.0, -1.0),
+        Vec3W(0.0, 1.0, 0.0),
+        28.0,
+        4.2,
+    )
+    benchmark_direct_lighting(timing_settings, cornell_camera, cornell_world)

@@ -30,6 +30,7 @@ from bajo.rt import (
     ShadingPoint,
     Sphere,
     SurfaceId,
+    SurfaceHit,
     SurfaceStore,
     World,
     add_sphere,
@@ -72,6 +73,25 @@ def test_surface_id_is_packed() raises:
     assert_equal(surface.kind().v, UInt32(2))
     assert_equal(surface.index(), UInt32(123))
     assert_equal(surface.value, (UInt32(2) << UInt32(28)) | UInt32(123))
+
+
+def test_surface_hit_is_width_generic() raises:
+    var hits = SurfaceHit[4](SIMD[DType.float32, 4](100.0))
+    hits.normal.x[2] = 1.0
+    hits.normal.y[2] = 2.0
+    hits.normal.z[2] = 3.0
+    hits.surface.value[2] = SurfaceId(MAT.METAL, UInt32(7)).value
+    hits.t[2] = 4.5
+    hits.front_face[2] = False
+    hits.hit[2] = True
+
+    var lane = hits.get(2)
+    assert_vec_equal(lane.normal, Vec3f32[Frame.WORLD](1.0, 2.0, 3.0))
+    assert_equal(lane.surface.kind(), MAT.METAL)
+    assert_equal(lane.surface.index(), UInt32(7))
+    assert_almost_equal(lane.t, 4.5)
+    assert_false(lane.front_face)
+    assert_true(lane.hit)
 
 
 def test_wavefront_philox_streams_are_deterministic_and_separate() raises:
@@ -130,11 +150,11 @@ def test_lambertian_scatter_is_explicit() raises:
     var scattered = sample_bsdf(surface, surfaces, incoming, point, rng)
     assert_true(scattered.ok)
     assert_vec_equal(scattered.weight, material.albedo)
-    assert_true(length(scattered.ray.d) > 0.0)
+    assert_true(length(scattered.direction) > 0.0)
 
     var sampled = sample_bsdf(surface, surfaces, incoming, point, rng)
     var evaluated = evaluate_bsdf(
-        surface, surfaces, incoming, point, sampled.ray.d
+        surface, surfaces, incoming, point, sampled.direction
     )
     assert_false(sampled.delta)
     assert_false(evaluated.delta)
@@ -156,7 +176,7 @@ def test_metal_scatter_can_absorb() raises:
     var scattered = sample_bsdf(surface, surfaces, incoming, point, rng)
     assert_true(scattered.ok)
     assert_vec_equal(scattered.weight, material.albedo)
-    assert_true(dot(scattered.ray.d, point.normal) > 0.0)
+    assert_true(dot(scattered.direction, point.normal) > 0.0)
     assert_true(scattered.delta)
     assert_equal(scattered.pdf, 1.0)
 
@@ -180,7 +200,7 @@ def test_dielectric_scatter_is_explicit() raises:
     var scattered = sample_bsdf(surface, surfaces, incoming, point, rng)
     assert_true(scattered.ok)
     assert_vec_equal(scattered.weight, Color(1.0))
-    assert_true(length(scattered.ray.d) > 0.0)
+    assert_true(length(scattered.direction) > 0.0)
     assert_true(scattered.delta)
     assert_true(scattered.pdf > 0.0 and scattered.pdf <= 1.0)
 
@@ -192,12 +212,12 @@ def test_dielectric_scatter_is_explicit() raises:
 def test_world_hit_maps_material_and_normal() raises:
     var surfaces = SurfaceStore()
     var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId]()
+    var sphere_surfaces = List[SurfaceId[1]]()
     var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId]()
+    var triangle_surfaces = List[SurfaceId[1]]()
     var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
     var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId]()
+    var triangle_instance_surfaces = List[SurfaceId[1]]()
     var matte = surfaces.add_lambertian(Color(0.5))
     var light = surfaces.add_emissive(Color(4.0))
     add_sphere(
@@ -261,12 +281,12 @@ def test_world_hit_maps_material_and_normal() raises:
 def test_world_preserves_signed_radius_normals() raises:
     var surfaces = SurfaceStore()
     var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId]()
+    var sphere_surfaces = List[SurfaceId[1]]()
     var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId]()
+    var triangle_surfaces = List[SurfaceId[1]]()
     var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
     var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId]()
+    var triangle_instance_surfaces = List[SurfaceId[1]]()
     var glass = surfaces.add_dielectric(1.5)
     add_sphere(
         spheres,
@@ -304,12 +324,12 @@ def test_world_preserves_signed_radius_normals() raises:
 def test_world_hits_triangle() raises:
     var surfaces = SurfaceStore()
     var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId]()
+    var sphere_surfaces = List[SurfaceId[1]]()
     var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId]()
+    var triangle_surfaces = List[SurfaceId[1]]()
     var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
     var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId]()
+    var triangle_instance_surfaces = List[SurfaceId[1]]()
     var matte = surfaces.add_lambertian(Color(0.25, 0.5, 0.75))
     add_triangle(
         triangle_vertices,
@@ -375,12 +395,12 @@ def test_world_hits_triangle() raises:
 def test_world_picks_closest_sphere_or_triangle() raises:
     var surfaces = SurfaceStore()
     var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId]()
+    var sphere_surfaces = List[SurfaceId[1]]()
     var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId]()
+    var triangle_surfaces = List[SurfaceId[1]]()
     var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
     var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId]()
+    var triangle_instance_surfaces = List[SurfaceId[1]]()
     var sphere_surface = surfaces.add_lambertian(Color(0.5))
     var tri_surface = surfaces.add_metal(Color(0.9), 0.0)
 
@@ -428,12 +448,12 @@ def test_world_picks_closest_sphere_or_triangle() raises:
 def test_add_triangle_mesh_assigns_surface_per_triangle() raises:
     var surfaces = SurfaceStore()
     var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId]()
+    var sphere_surfaces = List[SurfaceId[1]]()
     var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId]()
+    var triangle_surfaces = List[SurfaceId[1]]()
     var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
     var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId]()
+    var triangle_instance_surfaces = List[SurfaceId[1]]()
     var matte = surfaces.add_lambertian(Color(0.3, 0.4, 0.5))
     var mesh = List[Point3f32[Frame.WORLD]]()
     mesh.append(Point3f32[Frame.WORLD](-1.0, -1.0, -2.0))
@@ -476,12 +496,12 @@ def test_add_triangle_mesh_assigns_surface_per_triangle() raises:
 def test_triangle_mesh_instances_use_instance_surfaces() raises:
     var surfaces = SurfaceStore()
     var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId]()
+    var sphere_surfaces = List[SurfaceId[1]]()
     var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId]()
+    var triangle_surfaces = List[SurfaceId[1]]()
     var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
     var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId]()
+    var triangle_instance_surfaces = List[SurfaceId[1]]()
     var matte = surfaces.add_lambertian(Color(0.2, 0.4, 0.8))
     var metal = surfaces.add_metal(Color(0.9, 0.8, 0.7), 0.0)
 
@@ -569,12 +589,12 @@ def test_triangle_mesh_instances_use_instance_surfaces() raises:
 def test_world_occluded_covers_all_geometry_and_ray_interval() raises:
     var surfaces = SurfaceStore()
     var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId]()
+    var sphere_surfaces = List[SurfaceId[1]]()
     var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId]()
+    var triangle_surfaces = List[SurfaceId[1]]()
     var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
     var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId]()
+    var triangle_instance_surfaces = List[SurfaceId[1]]()
     var matte = surfaces.add_lambertian(Color(0.5))
 
     add_sphere(
@@ -694,12 +714,12 @@ def test_render_settings_and_tiny_render() raises:
 
     var surfaces = SurfaceStore()
     var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId]()
+    var sphere_surfaces = List[SurfaceId[1]]()
     var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId]()
+    var triangle_surfaces = List[SurfaceId[1]]()
     var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
     var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId]()
+    var triangle_instance_surfaces = List[SurfaceId[1]]()
     var matte = surfaces.add_lambertian(Color(0.5))
     add_sphere(
         spheres,
@@ -745,12 +765,12 @@ def test_render_can_select_normal_algorithm_at_compile_time() raises:
     var settings = RenderSettings(1, 1, 1, UInt64(11))
     var surfaces = SurfaceStore()
     var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId]()
+    var sphere_surfaces = List[SurfaceId[1]]()
     var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId]()
+    var triangle_surfaces = List[SurfaceId[1]]()
     var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
     var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId]()
+    var triangle_instance_surfaces = List[SurfaceId[1]]()
     var matte = surfaces.add_lambertian(Color(0.5))
     add_sphere(
         spheres,
@@ -785,12 +805,12 @@ def test_render_can_select_ao_algorithm_at_compile_time() raises:
     var settings = RenderSettings(1, 1, 2, UInt64(12))
     var surfaces = SurfaceStore()
     var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId]()
+    var sphere_surfaces = List[SurfaceId[1]]()
     var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId]()
+    var triangle_surfaces = List[SurfaceId[1]]()
     var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
     var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId]()
+    var triangle_instance_surfaces = List[SurfaceId[1]]()
     var matte = surfaces.add_lambertian(Color(0.5))
     add_sphere(
         spheres,
@@ -829,12 +849,12 @@ def test_wavefront_tiny_render() raises:
     var settings = RenderSettings(3, 2, 2, UInt64(9))
     var surfaces = SurfaceStore()
     var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId]()
+    var sphere_surfaces = List[SurfaceId[1]]()
     var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId]()
+    var triangle_surfaces = List[SurfaceId[1]]()
     var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
     var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId]()
+    var triangle_instance_surfaces = List[SurfaceId[1]]()
     var matte = surfaces.add_lambertian(Color(0.5))
     add_sphere(
         spheres,
@@ -877,7 +897,7 @@ def test_wavefront_tiny_render() raises:
     )
     # Instantiate multiple packet widths and a six-path chunk so every width
     # exercises partial packets as well as the generic queue indexing.
-    var scalar_packet = render_wavefront[RENDER.PATH, 2, 1, 7, False](
+    var width1 = render_wavefront[RENDER.PATH, 2, 1, 7, False](
         settings, camera, world
     )
     var packet4 = render_wavefront[RENDER.PATH, 2, 4, 7, False](
@@ -897,9 +917,9 @@ def test_wavefront_tiny_render() raises:
         assert_equal(parallel.pixels[i].x, result.pixels[i].x)
         assert_equal(parallel.pixels[i].y, result.pixels[i].y)
         assert_equal(parallel.pixels[i].z, result.pixels[i].z)
-        assert_equal(scalar_packet.pixels[i].x, packet4.pixels[i].x)
-        assert_equal(scalar_packet.pixels[i].y, packet4.pixels[i].y)
-        assert_equal(scalar_packet.pixels[i].z, packet4.pixels[i].z)
+        assert_equal(width1.pixels[i].x, packet4.pixels[i].x)
+        assert_equal(width1.pixels[i].y, packet4.pixels[i].y)
+        assert_equal(width1.pixels[i].z, packet4.pixels[i].z)
         assert_equal(packet4.pixels[i].x, packet8.pixels[i].x)
         assert_equal(packet4.pixels[i].y, packet8.pixels[i].y)
         assert_equal(packet4.pixels[i].z, packet8.pixels[i].z)
@@ -908,16 +928,16 @@ def test_wavefront_tiny_render() raises:
         assert_equal(packet8.pixels[i].z, packet16.pixels[i].z)
 
 
-def test_packet_widths_match_scalar_for_mixed_bsdfs() raises:
+def test_packet_widths_match_width1_for_mixed_bsdfs() raises:
     var settings = RenderSettings(9, 3, 3, UInt64(314159))
     var surfaces = SurfaceStore()
     var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId]()
+    var sphere_surfaces = List[SurfaceId[1]]()
     var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId]()
+    var triangle_surfaces = List[SurfaceId[1]]()
     var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
     var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId]()
+    var triangle_instance_surfaces = List[SurfaceId[1]]()
 
     var ground = surfaces.add_lambertian(Color(0.5))
     var diffuse = surfaces.add_lambertian(Color(0.7, 0.2, 0.1))

@@ -6,6 +6,7 @@ from std.math import ceildiv, sqrt
 from std.sys import num_logical_cores
 from std.time import perf_counter_ns
 
+from bajo.bvh.constants import f32_max
 from bajo.core import Frame, Rayf32, normalize
 from bajo.core.random import Rng, random_on_hemisphere
 from bajo.bvh.camera import Camera
@@ -105,7 +106,9 @@ def _trace_path[
             if not roulette.survived:
                 return radiance
             throughput = roulette.throughput
-            cur_ray = scattered.ray
+            cur_ray = Rayf32[Frame.WORLD](
+                point.p, scattered.direction, 0.001, f32_max
+            )
         else:
             return radiance + throughput * _sky_color(cur_ray)
 

@@ -28,8 +28,32 @@ from bajo.rt.types import (
 from .bsdf import evaluate_bsdf
 
 
+@fieldwise_init
+struct _DirectLightSample(Copyable):
+    """Visible light sample before applying the surface BSDF."""
+
+    var valid: Bool
+    var direction: Vec3f32[Frame.WORLD]
+    var emission: Color
+    var surface_cosine: Float32
+    var light_pdf: Float32
+    var shadow_t_max: Float32
+
+
+@always_inline
+def _empty_direct_light_sample() -> _DirectLightSample:
+    return _DirectLightSample(
+        False,
+        Vec3f32[Frame.WORLD](0.0),
+        Color(0.0),
+        0.0,
+        0.0,
+        0.0,
+    )
+
+
 def emitted_radiance(
-    surface: SurfaceId,
+    surface: SurfaceId[1],
     surfaces: SurfaceStore,
     front_face: Bool,
 ) -> Color:
@@ -54,7 +78,7 @@ def _emissive_hit_weight[
 ](
     world: World,
     ray: Rayf32[Frame.WORLD],
-    hit: SurfaceHit,
+    hit: SurfaceHit[1],
     bounce: Int,
     previous_bsdf_pdf: Float32,
     previous_delta: Bool,
@@ -75,7 +99,7 @@ def _emissive_hit_weight[
 def light_pdf_for_emissive_hit(
     world: World,
     ray: Rayf32[Frame.WORLD],
-    hit: SurfaceHit,
+    hit: SurfaceHit[1],
 ) -> Float32:
     """Evaluate the triangle-light distribution in solid-angle measure."""
     if hit.surface.kind() != MAT.EMISSIVE or not hit.front_face:
@@ -95,25 +119,20 @@ def light_pdf_for_emissive_hit(
     )
 
 
-def sample_direct_lighting[
-    ALGORITHM: RENDER
-](
-    surface: SurfaceId,
+def _sample_direct_light_candidate(
     world: World,
-    incoming_ray: Rayf32[Frame.WORLD],
     point: ShadingPoint,
     mut rng: Rng,
-) -> Color:
-    """Sample one world-space emissive triangle for a Lambertian hit.
+) -> _DirectLightSample:
+    """Sample one world-space light without tracing its visibility ray.
 
-    Lights are selected proportionally to emitted power. The returned value already
-    includes the Lambertian BSDF, geometry term, light-selection PDF, and
-    binary visibility; callers only multiply it by path throughput.
+    Lights are selected proportionally to emitted power. Keeping this scalar
+    geometric/visibility work separate lets the packet renderer evaluate BSDFs
+    and MIS weights with SIMD math after collecting a batch of candidates.
     """
-    comptime assert ALGORITHM in (RENDER.NEE, RENDER.MIS)
     var total_weight = world.lights.total_weight
     if total_weight <= 0.0:
-        return Color(0.0)
+        return _empty_direct_light_sample()
 
     var selected_weight = rng.f32() * total_weight
     var light_point = Point3f32[Frame.WORLD](0.0)
@@ -136,7 +155,7 @@ def sample_direct_lighting[
                 var area_vector = cross(edge1, edge2)
                 var twice_area_squared = length2(area_vector)
                 if twice_area_squared <= 0.0:
-                    return Color(0.0)
+                    return _empty_direct_light_sample()
                 var twice_area = sqrt(twice_area_squared)
                 light_normal = area_vector / twice_area
                 var root_u = sqrt(rng.f32())
@@ -153,42 +172,77 @@ def sample_direct_lighting[
         selected_weight -= light.weight
 
     if not found:
-        return Color(0.0)
+        return _empty_direct_light_sample()
     var to_light = light_point - point.p
     var distance_squared = length2(to_light)
     if distance_squared <= 1.0e-8:
-        return Color(0.0)
+        return _empty_direct_light_sample()
     var distance = sqrt(distance_squared)
     var direction = to_light / distance
     var surface_cosine = max(dot(point.normal, direction), 0.0)
     var light_cosine = max(dot(light_normal, -direction), 0.0)
     if surface_cosine <= 0.0 or light_cosine <= 0.0:
-        return Color(0.0)
+        return _empty_direct_light_sample()
 
     var shadow_t_max = distance - 0.002
     if shadow_t_max <= 0.001:
-        return Color(0.0)
-    var shadow_ray = Rayf32[Frame.WORLD](
-        point.p, direction, 0.001, shadow_t_max
-    )
-    if world.occluded(shadow_ray):
-        return Color(0.0)
-
+        return _empty_direct_light_sample()
     var light_pdf = (
         distance_squared
         * _light_importance(emission)
         / (light_cosine * total_weight)
     )
+    return _DirectLightSample(
+        True,
+        direction,
+        emission,
+        surface_cosine,
+        light_pdf,
+        shadow_t_max,
+    )
+
+
+def _sample_direct_light(
+    world: World,
+    point: ShadingPoint,
+    mut rng: Rng,
+) -> _DirectLightSample:
+    """Sample one visible world-space light without evaluating the BSDF."""
+    var light = _sample_direct_light_candidate(world, point, rng)
+    if not light.valid:
+        return light^
+    var shadow_ray = Rayf32[Frame.WORLD](
+        point.p, light.direction, 0.001, light.shadow_t_max
+    )
+    if world.occluded(shadow_ray):
+        return _empty_direct_light_sample()
+    return light^
+
+
+def sample_direct_lighting[
+    ALGORITHM: RENDER
+](
+    surface: SurfaceId[1],
+    world: World,
+    incoming_ray: Rayf32[Frame.WORLD],
+    point: ShadingPoint,
+    mut rng: Rng,
+) -> Color:
+    """Sample direct illumination and apply the scalar reference BSDF."""
+    comptime assert ALGORITHM in (RENDER.NEE, RENDER.MIS)
+    var light = _sample_direct_light(world, point, rng)
+    if not light.valid:
+        return Color(0.0)
     var evaluation = evaluate_bsdf(
-        surface, world.surfaces, incoming_ray, point, direction
+        surface, world.surfaces, incoming_ray, point, light.direction
     )
     if evaluation.pdf <= 0.0:
         return Color(0.0)
     var estimator_weight = Float32(1.0)
     comptime if ALGORITHM == RENDER.MIS:
-        estimator_weight = power_heuristic(light_pdf, evaluation.pdf)
+        estimator_weight = power_heuristic(light.light_pdf, evaluation.pdf)
     return (
         evaluation.value
-        * emission
-        * (surface_cosine * estimator_weight / light_pdf)
+        * light.emission
+        * (light.surface_cosine * estimator_weight / light.light_pdf)
     )

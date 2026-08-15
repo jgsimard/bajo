@@ -4,6 +4,7 @@ from bajo.core import (
     AABB,
     Affine3f32,
     Frame,
+    Vec3,
     Vec3f32,
     cross,
     dot,
@@ -16,6 +17,7 @@ from bajo.bvh.constants import EMPTY_LANE, Primitive, TRACE, f32_max
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.bvh.cpu.tlas import Tlas
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
+from bajo.bvh.cpu.packet import RayPacket
 from bajo.bvh.types import Instance, Sphere
 
 
@@ -81,8 +83,8 @@ struct PrimitiveId(Copyable, Writable):
 
 
 @fieldwise_init
-struct SurfaceId(Copyable, Writable):
-    var value: UInt32
+struct SurfaceId[length: SIMDLength = 1](Copyable, Writable):
+    var value: SIMD[DType.uint32, Self.length]
 
     def __init__(out self, kind: MAT, index: UInt32):
         debug_assert["safe", _use_compiler_assume=True](
@@ -93,11 +95,19 @@ struct SurfaceId(Copyable, Writable):
         )
         self.value = (kind.v << SURFACE_INDEX_BITS) | index
 
+    @always_inline
     def kind(self) -> MAT:
-        return MAT(self.value >> SURFACE_INDEX_BITS)
+        comptime assert Self.length == 1
+        return MAT(self.value[0] >> SURFACE_INDEX_BITS)
 
+    @always_inline
     def index(self) -> UInt32:
-        return self.value & SURFACE_INDEX_MASK
+        comptime assert Self.length == 1
+        return self.value[0] & SURFACE_INDEX_MASK
+
+    @always_inline
+    def get(self, lane: Int) -> SurfaceId[1]:
+        return SurfaceId[1](self.value[lane])
 
 
 @fieldwise_init
@@ -133,7 +143,7 @@ struct SurfaceStore:
         self.dielectrics = List[Dielectric]()
         self.emissives = List[Emissive]()
 
-    def validate(self, surface: SurfaceId) -> Bool:
+    def validate(self, surface: SurfaceId[1]) -> Bool:
         if surface.kind() == MAT.LAMBERTIAN:
             return surface.index() < UInt32(len(self.lambertians))
         elif surface.kind() == MAT.METAL:
@@ -145,25 +155,25 @@ struct SurfaceStore:
 
         return False
 
-    def add_lambertian(mut self, albedo: Color) -> SurfaceId:
+    def add_lambertian(mut self, albedo: Color) -> SurfaceId[1]:
         var index = UInt32(len(self.lambertians))
         self.lambertians.append(Lambertian(albedo))
         return SurfaceId(MAT.LAMBERTIAN, index)
 
-    def add_metal(mut self, albedo: Color, fuzz: Float32) -> SurfaceId:
+    def add_metal(mut self, albedo: Color, fuzz: Float32) -> SurfaceId[1]:
         debug_assert["safe", _use_compiler_assume=True](fuzz >= 0.0)
         debug_assert["safe", _use_compiler_assume=True](fuzz <= 1.0)
         var index = UInt32(len(self.metals))
         self.metals.append(Metal(albedo, fuzz))
         return SurfaceId(MAT.METAL, index)
 
-    def add_dielectric(mut self, refraction_index: Float32) -> SurfaceId:
+    def add_dielectric(mut self, refraction_index: Float32) -> SurfaceId[1]:
         debug_assert["safe", _use_compiler_assume=True](refraction_index > 0.0)
         var index = UInt32(len(self.dielectrics))
         self.dielectrics.append(Dielectric(refraction_index))
         return SurfaceId(MAT.DIELECTRIC, index)
 
-    def add_emissive(mut self, radiance: Color) -> SurfaceId:
+    def add_emissive(mut self, radiance: Color) -> SurfaceId[1]:
         debug_assert["safe", _use_compiler_assume=True](
             radiance.x >= 0.0 and radiance.y >= 0.0 and radiance.z >= 0.0,
             "emissive radiance must be non-negative",
@@ -178,7 +188,7 @@ struct LightRecord(Copyable, Writable):
     """Compact emissive-primitive entry suitable for device packing."""
 
     var primitive: PrimitiveId
-    var surface: SurfaceId
+    var surface: SurfaceId[1]
     var weight: Float32
 
 
@@ -201,29 +211,46 @@ struct HitRecord(Copyable, Writable):
     var primitive: PrimitiveId
     var p: Point3f32[Frame.WORLD]
     var normal: Vec3f32[Frame.WORLD]
-    var surface: SurfaceId
+    var surface: SurfaceId[1]
     var t: Float32
     var front_face: Bool
 
 
 @fieldwise_init
-struct SurfaceHit(Copyable, Writable):
-    """Compact renderer hit without public primitive identity or position."""
+struct SurfaceHit[length: SIMDLength = 1](Copyable, Writable):
+    """Renderer hit without primitive identity or position."""
 
-    var normal: Vec3f32[Frame.WORLD]
-    var surface: SurfaceId
-    var t: Float32
-    var front_face: Bool
-    var hit: Bool
+    var normal: Vec3[DType.float32, Frame.WORLD, Self.length]
+    var surface: SurfaceId[Self.length]
+    var t: SIMD[DType.float32, Self.length]
+    var front_face: SIMD[DType.bool, Self.length]
+    var hit: SIMD[DType.bool, Self.length]
+
+    def __init__(out self, t_max: SIMD[DType.float32, Self.length]):
+        self.normal = Vec3[DType.float32, Frame.WORLD, Self.length](0.0)
+        self.surface = SurfaceId[Self.length](
+            SIMD[DType.uint32, Self.length](0)
+        )
+        self.t = t_max
+        self.front_face = SIMD[DType.bool, Self.length](fill=True)
+        self.hit = SIMD[DType.bool, Self.length](fill=False)
 
     @staticmethod
-    def miss(t: Float32 = f32_max) -> Self:
-        return Self(
-            Vec3f32[Frame.WORLD](0.0),
-            SurfaceId(MAT.LAMBERTIAN, UInt32(0)),
-            t,
-            True,
-            False,
+    def miss(t: SIMD[DType.float32, Self.length] = f32_max) -> Self:
+        return Self(t)
+
+    @always_inline
+    def get(self, lane: Int) -> SurfaceHit[1]:
+        return SurfaceHit[1](
+            Vec3f32[Frame.WORLD](
+                self.normal.x[lane],
+                self.normal.y[lane],
+                self.normal.z[lane],
+            ),
+            self.surface.get(lane),
+            self.t[lane],
+            self.front_face[lane],
+            self.hit[lane],
         )
 
 
@@ -233,7 +260,7 @@ struct _WorldHit(Copyable, Writable):
 
     var primitive: PrimitiveId
     var normal: Vec3f32[Frame.WORLD]
-    var surface: SurfaceId
+    var surface: SurfaceId[1]
     var t: Float32
     var front_face: Bool
     var hit: Bool
@@ -258,23 +285,23 @@ struct ShadingPoint(Copyable, Writable):
 
 
 @fieldwise_init
-struct BsdfSample(Copyable, Writable):
-    """One sampled continuation and its throughput/PDF metadata."""
+struct BsdfSample[length: SIMDLength = 1](Copyable, Writable):
+    """Sampled direction and throughput/PDF metadata."""
 
-    var ok: Bool
-    var ray: Rayf32[Frame.WORLD]
-    var weight: Color
-    var pdf: Float32
-    var delta: Bool
+    var direction: Vec3[DType.float32, Frame.WORLD, Self.length]
+    var weight: Vec3[DType.float32, Frame.WORLD, Self.length]
+    var pdf: SIMD[DType.float32, Self.length]
+    var delta: SIMD[DType.bool, Self.length]
+    var ok: SIMD[DType.bool, Self.length]
 
 
 @fieldwise_init
-struct BsdfEvaluation(Copyable, Writable):
-    """Evaluated BSDF value and solid-angle PDF for one direction."""
+struct BsdfEvaluation[length: SIMDLength = 1](Copyable, Writable):
+    """BSDF value and solid-angle PDF."""
 
-    var value: Color
-    var pdf: Float32
-    var delta: Bool
+    var value: Vec3[DType.float32, Frame.WORLD, Self.length]
+    var pdf: SIMD[DType.float32, Self.length]
+    var delta: SIMD[DType.bool, Self.length]
 
 
 struct RenderSettings(Copyable, Writable):
@@ -334,25 +361,25 @@ struct World:
     var triangle_bvh: Optional[TriangleBvh[Frame.WORLD, BVH_WIDTH]]
     var triangle_tlas: Optional[Tlas[BVH_WIDTH]]
     var spheres: List[Sphere[Frame.WORLD]]
-    var sphere_surfaces: List[SurfaceId]
+    var sphere_surfaces: List[SurfaceId[1]]
     var triangle_vertices: List[Point3f32[Frame.WORLD]]
-    var triangle_surfaces: List[SurfaceId]
+    var triangle_surfaces: List[SurfaceId[1]]
     var triangle_meshes: List[List[Point3f32[Frame.LOCAL]]]
     var triangle_mesh_blases: List[TriangleBvh[Frame.LOCAL, BVH_WIDTH]]
     var triangle_instances: List[Instance]
-    var triangle_instance_surfaces: List[SurfaceId]
+    var triangle_instance_surfaces: List[SurfaceId[1]]
     var surfaces: SurfaceStore
     var lights: LightStore
 
     def __init__(
         out self,
         var spheres: List[Sphere[Frame.WORLD]],
-        var sphere_surfaces: List[SurfaceId],
+        var sphere_surfaces: List[SurfaceId[1]],
         var triangle_vertices: List[Point3f32[Frame.WORLD]],
-        var triangle_surfaces: List[SurfaceId],
+        var triangle_surfaces: List[SurfaceId[1]],
         var triangle_meshes: List[List[Point3f32[Frame.LOCAL]]],
         var triangle_instances: List[Instance],
-        var triangle_instance_surfaces: List[SurfaceId],
+        var triangle_instance_surfaces: List[SurfaceId[1]],
         var surfaces: SurfaceStore,
     ):
         debug_assert["safe", _use_compiler_assume=True](
@@ -527,6 +554,72 @@ struct World:
 
         return False
 
+    @always_inline
+    def occluded_packet[
+        length: SIMDLength
+    ](
+        self,
+        rays: RayPacket[Frame.WORLD, length],
+        valid: SIMD[DType.bool, length],
+    ) -> SIMD[DType.bool, length]:
+        """Trace bounded visibility rays together where packet BVHs exist."""
+        comptime if length == 1:
+            var result = SIMD[DType.bool, length](fill=False)
+            if valid[0]:
+                result[0] = self.occluded(
+                    Rayf32[Frame.WORLD](
+                        Point3f32[Frame.WORLD](
+                            rays.o.x[0], rays.o.y[0], rays.o.z[0]
+                        ),
+                        Vec3f32[Frame.WORLD](
+                            rays.d.x[0], rays.d.y[0], rays.d.z[0]
+                        ),
+                        rays.t_min[0],
+                        rays.t_max[0],
+                    )
+                )
+            return result
+        else:
+            var result = SIMD[DType.bool, length](fill=False)
+            if self.sphere_bvh:
+                var hits = self.sphere_bvh.value().trace_packet(rays, valid)
+                result |= hits.hit_mask()
+
+            if self.triangle_bvh:
+                var active = valid & ~result
+                if active.reduce_or():
+                    var hits = self.triangle_bvh.value().trace_packet(
+                        rays, active
+                    )
+                    result |= hits.hit_mask()
+
+            if self.triangle_tlas:
+                for lane in range(length):
+                    if valid[lane] and not result[lane]:
+                        var ray = Rayf32[Frame.WORLD](
+                            Point3f32[Frame.WORLD](
+                                rays.o.x[lane],
+                                rays.o.y[lane],
+                                rays.o.z[lane],
+                            ),
+                            Vec3f32[Frame.WORLD](
+                                rays.d.x[lane],
+                                rays.d.y[lane],
+                                rays.d.z[lane],
+                            ),
+                            rays.t_min[lane],
+                            rays.t_max[lane],
+                        )
+                        result[lane] = (
+                            self.triangle_tlas.value()
+                            .trace[
+                                TriangleBvh[Frame.LOCAL, BVH_WIDTH],
+                                TRACE.ANY_HIT,
+                            ](ray, Span(self.triangle_mesh_blases))
+                            .is_occluded()
+                        )
+            return result
+
     def _trace_closest(self, ray: Rayf32[Frame.WORLD]) -> _WorldHit:
         var closest = self._trace_spheres(ray)
         var triangle_hit = self._trace_triangles(ray)
@@ -551,7 +644,7 @@ struct World:
             hit.front_face,
         )
 
-    def trace_surface(self, ray: Rayf32[Frame.WORLD]) -> SurfaceHit:
+    def trace_surface(self, ray: Rayf32[Frame.WORLD]) -> SurfaceHit[1]:
         """Trace the compact hit consumed by render integrators."""
         var hit = self._trace_closest(ray)
         return SurfaceHit(
@@ -561,6 +654,147 @@ struct World:
             hit.front_face,
             hit.hit,
         )
+
+    @always_inline
+    def trace_surface_packet[
+        length: SIMDLength
+    ](
+        self,
+        rays: RayPacket[Frame.WORLD, length],
+        valid: SIMD[DType.bool, length],
+    ) -> SurfaceHit[length]:
+        comptime if length == 1:
+            if valid[0]:
+                var ray = Rayf32[Frame.WORLD](
+                    Point3f32[Frame.WORLD](
+                        rays.o.x[0], rays.o.y[0], rays.o.z[0]
+                    ),
+                    Vec3f32[Frame.WORLD](rays.d.x[0], rays.d.y[0], rays.d.z[0]),
+                    rays.t_min[0],
+                    rays.t_max[0],
+                )
+                var scalar_hit = self.trace_surface(ray)
+                var result = SurfaceHit[length](rays.t_max)
+                result.normal.x[0] = scalar_hit.normal.x
+                result.normal.y[0] = scalar_hit.normal.y
+                result.normal.z[0] = scalar_hit.normal.z
+                result.surface.value[0] = scalar_hit.surface.value
+                result.t[0] = scalar_hit.t
+                result.front_face[0] = scalar_hit.front_face
+                result.hit[0] = scalar_hit.hit
+                return result^
+            return SurfaceHit[length](rays.t_max)
+        else:
+            return self._trace_surface_simd(rays, valid)
+
+    def _trace_surface_simd[
+        length: SIMDLength
+    ](
+        self,
+        rays: RayPacket[Frame.WORLD, length],
+        valid: SIMD[DType.bool, length],
+    ) -> SurfaceHit[length]:
+        """Trace SIMD packets, with scalar TLAS fallback."""
+        comptime assert length > 1
+        var result = SurfaceHit[length](rays.t_max)
+        if self.sphere_bvh:
+            var sphere_hits = self.sphere_bvh.value().trace_packet(rays, valid)
+            var sphere_mask = sphere_hits.hit_mask()
+            var center_x = SIMD[DType.float32, length](0.0)
+            var center_y = SIMD[DType.float32, length](0.0)
+            var center_z = SIMD[DType.float32, length](0.0)
+            var radius = SIMD[DType.float32, length](1.0)
+            var surface_values = SIMD[DType.uint32, length](0)
+            for lane in range(length):
+                if sphere_mask[lane]:
+                    var sphere_idx = Int(sphere_hits.prim[lane])
+                    ref sphere = self.spheres[sphere_idx]
+                    center_x[lane] = sphere.center.x
+                    center_y[lane] = sphere.center.y
+                    center_z[lane] = sphere.center.z
+                    radius[lane] = sphere.radius
+                    surface_values[lane] = self.sphere_surfaces[
+                        sphere_idx
+                    ].value
+            var inverse_radius = Float32(1.0) / radius
+            var outward_normal = Vec3[DType.float32, Frame.WORLD, length](
+                (rays.o.x + sphere_hits.t * rays.d.x - center_x)
+                * inverse_radius,
+                (rays.o.y + sphere_hits.t * rays.d.y - center_y)
+                * inverse_radius,
+                (rays.o.z + sphere_hits.t * rays.d.z - center_z)
+                * inverse_radius,
+            )
+            var front_faces = dot(rays.d, outward_normal).lt(0.0)
+            var oriented_normal = Vec3.select(
+                front_faces, outward_normal, -outward_normal
+            )
+            result.normal = Vec3.select(
+                sphere_mask, oriented_normal, result.normal
+            )
+            result.surface.value = sphere_mask.select(
+                surface_values, result.surface.value
+            )
+            result.t = sphere_mask.select(sphere_hits.t, result.t)
+            result.front_face = sphere_mask.select(
+                front_faces, result.front_face
+            )
+            result.hit |= sphere_mask
+
+        if self.triangle_bvh:
+            var triangle_hits = self.triangle_bvh.value().trace_packet(
+                rays, valid
+            )
+            var triangle_mask = triangle_hits.hit_mask() & triangle_hits.t.lt(
+                result.t
+            )
+            var surface_values = SIMD[DType.uint32, length](0)
+            for lane in range(length):
+                if triangle_mask[lane]:
+                    var triangle_idx = Int(triangle_hits.prim[lane])
+                    surface_values[lane] = self.triangle_surfaces[
+                        triangle_idx
+                    ].value
+            var front_faces = dot(rays.d, triangle_hits.normal).lt(0.0)
+            var oriented_normal = Vec3.select(
+                front_faces, triangle_hits.normal, -triangle_hits.normal
+            )
+            result.normal = Vec3.select(
+                triangle_mask, oriented_normal, result.normal
+            )
+            result.surface.value = triangle_mask.select(
+                surface_values, result.surface.value
+            )
+            result.t = triangle_mask.select(triangle_hits.t, result.t)
+            result.front_face = triangle_mask.select(
+                front_faces, result.front_face
+            )
+            result.hit |= triangle_mask
+
+        if self.triangle_tlas:
+            for lane in range(length):
+                if valid[lane]:
+                    var ray = Rayf32[Frame.WORLD](
+                        Point3f32[Frame.WORLD](
+                            rays.o.x[lane], rays.o.y[lane], rays.o.z[lane]
+                        ),
+                        Vec3f32[Frame.WORLD](
+                            rays.d.x[lane], rays.d.y[lane], rays.d.z[lane]
+                        ),
+                        rays.t_min[lane],
+                        result.t[lane],
+                    )
+                    var instance_hit = self._trace_triangle_instances(ray)
+                    if instance_hit.hit and instance_hit.t < result.t[lane]:
+                        result.normal.x[lane] = instance_hit.normal.x
+                        result.normal.y[lane] = instance_hit.normal.y
+                        result.normal.z[lane] = instance_hit.normal.z
+                        result.surface.value[lane] = instance_hit.surface.value
+                        result.t[lane] = instance_hit.t
+                        result.front_face[lane] = instance_hit.front_face
+                        result.hit[lane] = True
+
+        return result^
 
     def _trace_spheres(self, ray: Rayf32[Frame.WORLD]) -> _WorldHit:
         if not self.sphere_bvh:
@@ -666,10 +900,10 @@ def ray_at(ray: Rayf32[Frame.WORLD], t: Float32) -> Point3f32[Frame.WORLD]:
 
 def add_sphere(
     mut spheres: List[Sphere[Frame.WORLD]],
-    mut sphere_surfaces: List[SurfaceId],
+    mut sphere_surfaces: List[SurfaceId[1]],
     center: Point3f32[Frame.WORLD],
     radius: Float32,
-    surface: SurfaceId,
+    surface: SurfaceId[1],
 ):
     debug_assert["safe", _use_compiler_assume=True](
         radius != 0.0, "sphere radius must be non-zero"
@@ -680,11 +914,11 @@ def add_sphere(
 
 def add_triangle(
     mut triangle_vertices: List[Point3f32[Frame.WORLD]],
-    mut triangle_surfaces: List[SurfaceId],
+    mut triangle_surfaces: List[SurfaceId[1]],
     v0: Point3f32[Frame.WORLD],
     v1: Point3f32[Frame.WORLD],
     v2: Point3f32[Frame.WORLD],
-    surface: SurfaceId,
+    surface: SurfaceId[1],
 ):
     triangle_vertices.append(v0)
     triangle_vertices.append(v1)
@@ -694,9 +928,9 @@ def add_triangle(
 
 def add_triangle_mesh(
     mut triangle_vertices: List[Point3f32[Frame.WORLD]],
-    mut triangle_surfaces: List[SurfaceId],
+    mut triangle_surfaces: List[SurfaceId[1]],
     vertices: List[Point3f32[Frame.WORLD]],
-    surface: SurfaceId,
+    surface: SurfaceId[1],
 ):
     debug_assert["safe", _use_compiler_assume=True](
         len(vertices) % 3 == 0,
@@ -711,11 +945,11 @@ def add_triangle_mesh(
 def add_triangle_mesh_instance(
     mut triangle_meshes: List[List[Point3f32[Frame.LOCAL]]],
     mut triangle_instances: List[Instance],
-    mut triangle_instance_surfaces: List[SurfaceId],
+    mut triangle_instance_surfaces: List[SurfaceId[1]],
     vertices: List[Point3f32[Frame.LOCAL]],
     transform: Affine3f32[Frame.LOCAL, Frame.WORLD],
     bounds: AABB[Frame.LOCAL],
-    surface: SurfaceId,
+    surface: SurfaceId[1],
 ) -> UInt32:
     debug_assert["safe", _use_compiler_assume=True](
         len(vertices) > 0 and len(vertices) % 3 == 0,
@@ -737,11 +971,11 @@ def add_triangle_mesh_instance(
 
 def add_triangle_instance(
     mut triangle_instances: List[Instance],
-    mut triangle_instance_surfaces: List[SurfaceId],
+    mut triangle_instance_surfaces: List[SurfaceId[1]],
     mesh_idx: UInt32,
     transform: Affine3f32[Frame.LOCAL, Frame.WORLD],
     mesh_bounds: AABB[Frame.LOCAL],
-    surface: SurfaceId,
+    surface: SurfaceId[1],
 ):
     triangle_instances.append(
         Instance(

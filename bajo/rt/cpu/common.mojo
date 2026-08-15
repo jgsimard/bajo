@@ -32,7 +32,9 @@ def _sky_color(ray: Rayf32[Frame.WORLD]) -> Color:
     return (1.0 - a) * Color(1.0) + a * Color(0.5, 0.7, 1.0)
 
 
-def _shading_point(ray: Rayf32[Frame.WORLD], hit: SurfaceHit) -> ShadingPoint:
+def _shading_point(
+    ray: Rayf32[Frame.WORLD], hit: SurfaceHit[1]
+) -> ShadingPoint:
     return ShadingPoint(
         ray.o + hit.t * ray.d,
         hit.normal,

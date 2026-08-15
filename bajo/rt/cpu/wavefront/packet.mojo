@@ -2,14 +2,24 @@
 
 from std.math import sqrt
 
-from bajo.core import Frame, Point3f32, Rayf32, Vec3f32
+from bajo.bvh.constants import f32_max
+from bajo.bvh.cpu.packet import RayPacket
+from bajo.core import (
+    Frame,
+    Point3,
+    Point3f32,
+    Rayf32,
+    Vec3,
+    Vec3f32,
+    dot,
+    normalize,
+)
 from bajo.rt.types import (
     Color,
     MAT,
     RENDER,
     RenderSettings,
     ShadingPoint,
-    SurfaceId,
     SurfaceStore,
     World,
 )
@@ -22,99 +32,233 @@ from bajo.rt.wavefront_queue import (
 from bajo.rt.wavefront_contract import wavefront_rng_light_stage
 
 
-from ..bsdf import sample_bsdf
+from ..bsdf import (
+    _evaluate_lambertian,
+    _evaluate_metal,
+    _sample_material,
+)
 from ..common import (
     _path_stage_rng,
     _russian_roulette,
 )
 from ..lighting import (
+    _sample_direct_light_candidate,
     _emissive_hit_weight,
     emitted_radiance,
-    sample_direct_lighting,
 )
 
 
-struct ScatterBatch[PACKET_LANES: SIMDLength]:
-    var paths: PathPacket[Self.PACKET_LANES]
-    var ok: SIMD[DType.bool, Self.PACKET_LANES]
+struct ScatterBatch[length: SIMDLength]:
+    var paths: PathPacket[Self.length]
+    var ok: SIMD[DType.bool, Self.length]
 
     def __init__(
         out self,
-        var paths: PathPacket[Self.PACKET_LANES],
-        ok: SIMD[DType.bool, Self.PACKET_LANES],
+        var paths: PathPacket[Self.length],
+        ok: SIMD[DType.bool, Self.length],
     ):
         self.paths = paths^
         self.ok = ok
 
 
-def _sample_bsdf_batch[
-    MATERIAL_KIND: MAT, PACKET_LANES: SIMDLength
+struct _DirectLightBatch[length: SIMDLength]:
+    var origins: Point3[DType.float32, Frame.WORLD, Self.length]
+    var directions: Vec3[DType.float32, Frame.WORLD, Self.length]
+    var normals: Vec3[DType.float32, Frame.WORLD, Self.length]
+    var emissions: Vec3[DType.float32, Frame.WORLD, Self.length]
+    var surface_cosines: SIMD[DType.float32, Self.length]
+    var light_pdfs: SIMD[DType.float32, Self.length]
+    var shadow_t_max: SIMD[DType.float32, Self.length]
+    var surface_kinds: SIMD[DType.uint32, Self.length]
+    var surface_indices: SIMD[DType.uint32, Self.length]
+    var valid: SIMD[DType.bool, Self.length]
+
+    def __init__(out self):
+        self.origins = Point3[DType.float32, Frame.WORLD, Self.length](0.0)
+        self.directions = Vec3[DType.float32, Frame.WORLD, Self.length](0.0)
+        self.normals = Vec3[DType.float32, Frame.WORLD, Self.length](0.0)
+        self.emissions = Vec3[DType.float32, Frame.WORLD, Self.length](0.0)
+        self.surface_cosines = 0.0
+        self.light_pdfs = 0.0
+        self.shadow_t_max = 0.0
+        self.surface_kinds = 0
+        self.surface_indices = 0
+        self.valid = SIMD[DType.bool, Self.length](fill=False)
+
+
+@always_inline
+def _accumulate_direct_light_packet[
+    ALGORITHM: RENDER, length: SIMDLength
 ](
-    batch: ShadePacket[PACKET_LANES],
+    mut pixels: List[Color],
+    paths: PathPacket[length],
+    lights: _DirectLightBatch[length],
+    lane_count: Int,
+    surfaces: SurfaceStore,
+    samples_per_pixel: Int,
+):
+    """Evaluate collected NEE candidates with packet-wide BSDF and MIS math."""
+    comptime assert ALGORITHM in (RENDER.NEE, RENDER.MIS)
+    var ray_direction = Vec3[DType.float32, Frame.WORLD, length](
+        paths.dx, paths.dy, paths.dz
+    )
+    var albedo = Vec3[DType.float32, Frame.WORLD, length](0.0)
+    var fuzz = SIMD[DType.float32, length](1.0)
+    for lane in range(lane_count):
+        if not lights.valid[lane]:
+            continue
+        if lights.surface_kinds[lane] == MAT.LAMBERTIAN.v:
+            ref material = surfaces.lambertians[
+                Int(lights.surface_indices[lane])
+            ]
+            albedo.x[lane] = material.albedo.x
+            albedo.y[lane] = material.albedo.y
+            albedo.z[lane] = material.albedo.z
+        elif lights.surface_kinds[lane] == MAT.METAL.v:
+            ref material = surfaces.metals[Int(lights.surface_indices[lane])]
+            albedo.x[lane] = material.albedo.x
+            albedo.y[lane] = material.albedo.y
+            albedo.z[lane] = material.albedo.z
+            fuzz[lane] = material.fuzz
+
+    var lambertian = _evaluate_lambertian(
+        lights.normals, albedo, lights.directions
+    )
+    var metal = _evaluate_metal(
+        ray_direction,
+        lights.normals,
+        albedo,
+        fuzz,
+        lights.directions,
+    )
+    var is_lambertian = lights.surface_kinds.eq(MAT.LAMBERTIAN.v)
+    var is_metal = lights.surface_kinds.eq(MAT.METAL.v)
+    var value = Vec3.select(is_lambertian, lambertian.value, metal.value)
+    var pdf = is_lambertian.select(lambertian.pdf, metal.pdf)
+    var supported = is_lambertian | is_metal
+    var ok = lights.valid & supported & pdf.gt(0.0)
+    var safe_light_pdf = ok.select(lights.light_pdfs, Float32(1.0))
+    var estimator_weight = SIMD[DType.float32, length](1.0)
+    comptime if ALGORITHM == RENDER.MIS:
+        var light2 = lights.light_pdfs * lights.light_pdfs
+        var bsdf2 = pdf * pdf
+        var denominator = light2 + bsdf2
+        var nonzero = denominator.gt(0.0)
+        estimator_weight = nonzero.select(
+            light2 / nonzero.select(denominator, Float32(1.0)),
+            Float32(0.0),
+        )
+    var scale = lights.surface_cosines * estimator_weight / safe_light_pdf
+    var red = paths.tx * value.x * lights.emissions.x * scale
+    var green = paths.ty * value.y * lights.emissions.y * scale
+    var blue = paths.tz * value.z * lights.emissions.z * scale
+    for lane in range(lane_count):
+        if ok[lane]:
+            var pixel_idx = Int(paths.path_ids[lane]) / samples_per_pixel
+            pixels[pixel_idx] += Color(red[lane], green[lane], blue[lane])
+
+
+def _sample_bsdf_batch[
+    MATERIAL_KIND: MAT, length: SIMDLength
+](
+    batch: ShadePacket[length],
     lane_count: Int,
     surfaces: SurfaceStore,
     settings: RenderSettings,
     stage: UInt32,
-) -> ScatterBatch[PACKET_LANES]:
-    """Sample the canonical scalar BSDF contract for every active lane."""
+) -> ScatterBatch[length]:
+    """Gather material/RNG state, then sample with BSDF math."""
     comptime assert MATERIAL_KIND in (
         MAT.LAMBERTIAN,
         MAT.METAL,
         MAT.DIELECTRIC,
     )
-    var out = PathPacket[PACKET_LANES]()
-    var ok = SIMD[DType.bool, PACKET_LANES](fill=False)
+    var ray_direction = Vec3[DType.float32, Frame.WORLD, length](
+        batch.dx, batch.dy, batch.dz
+    )
+    var normal = Vec3[DType.float32, Frame.WORLD, length](
+        batch.nx, batch.ny, batch.nz
+    )
+    var albedo = Vec3[DType.float32, Frame.WORLD, length](0.0)
+    var parameter = SIMD[DType.float32, length](1.0)
+    var random_u = SIMD[DType.float32, length](0.0)
+    var random_v = SIMD[DType.float32, length](0.0)
+    var active = SIMD[DType.bool, length](fill=False)
+
     for lane in range(lane_count):
-        var ray = Rayf32[Frame.WORLD](
-            Point3f32[Frame.WORLD](
-                batch.ox[lane], batch.oy[lane], batch.oz[lane]
-            ),
-            Vec3f32[Frame.WORLD](
-                batch.dx[lane], batch.dy[lane], batch.dz[lane]
-            ),
-        )
-        var point = ShadingPoint(
-            ray.o + batch.hit_t[lane] * ray.d,
-            Vec3f32[Frame.WORLD](
-                batch.nx[lane], batch.ny[lane], batch.nz[lane]
-            ),
-            batch.front_faces[lane],
-        )
+        active[lane] = True
         var rng = _path_stage_rng(settings, batch.path_ids[lane], stage)
-        var sampled = sample_bsdf(
-            SurfaceId(MATERIAL_KIND, batch.surface_indices[lane]),
-            surfaces,
-            ray,
-            point,
-            rng,
-        )
-        if sampled.ok:
-            ok[lane] = True
-            out.path_ids[lane] = batch.path_ids[lane]
-            out.ox[lane] = sampled.ray.o.x
-            out.oy[lane] = sampled.ray.o.y
-            out.oz[lane] = sampled.ray.o.z
-            out.t_min[lane] = sampled.ray.t_min
-            out.dx[lane] = sampled.ray.d.x
-            out.dy[lane] = sampled.ray.d.y
-            out.dz[lane] = sampled.ray.d.z
-            out.t_max[lane] = sampled.ray.t_max
-            out.tx[lane] = batch.tx[lane] * sampled.weight.x
-            out.ty[lane] = batch.ty[lane] * sampled.weight.y
-            out.tz[lane] = batch.tz[lane] * sampled.weight.z
-            out.bsdf_pdfs[lane] = sampled.pdf
-            out.deltas[lane] = sampled.delta
-    return ScatterBatch[PACKET_LANES](out^, ok)
+        comptime if MATERIAL_KIND == MAT.LAMBERTIAN:
+            ref material = surfaces.lambertians[
+                Int(batch.surface_indices[lane])
+            ]
+            albedo.x[lane] = material.albedo.x
+            albedo.y[lane] = material.albedo.y
+            albedo.z[lane] = material.albedo.z
+            random_u[lane] = rng.f32()
+            random_v[lane] = rng.f32()
+        elif MATERIAL_KIND == MAT.METAL:
+            ref material = surfaces.metals[Int(batch.surface_indices[lane])]
+            albedo.x[lane] = material.albedo.x
+            albedo.y[lane] = material.albedo.y
+            albedo.z[lane] = material.albedo.z
+            parameter[lane] = material.fuzz
+            if material.fuzz > 1.0e-4:
+                random_u[lane] = rng.f32()
+                random_v[lane] = rng.f32()
+        else:
+            ref material = surfaces.dielectrics[
+                Int(batch.surface_indices[lane])
+            ]
+            parameter[lane] = material.refraction_index
+
+    comptime if MATERIAL_KIND == MAT.DIELECTRIC:
+        var ri = batch.front_faces.select(Float32(1.0) / parameter, parameter)
+        var unit_direction = normalize(ray_direction)
+        var cos_theta = min(dot(-unit_direction, normal), 1.0)
+        var sin_theta = sqrt(max(1.0 - cos_theta * cos_theta, 0.0))
+        var cannot_refract = (ri * sin_theta).gt(1.0)
+        for lane in range(lane_count):
+            if not cannot_refract[lane]:
+                var rng = _path_stage_rng(settings, batch.path_ids[lane], stage)
+                random_u[lane] = rng.f32()
+
+    var sampled = _sample_material[MATERIAL_KIND, length](
+        ray_direction,
+        normal,
+        albedo,
+        parameter,
+        batch.front_faces,
+        random_u,
+        random_v,
+    )
+
+    var out = PathPacket[length]()
+    out.path_ids = batch.path_ids
+    out.ox = batch.ox + batch.hit_t * batch.dx
+    out.oy = batch.oy + batch.hit_t * batch.dy
+    out.oz = batch.oz + batch.hit_t * batch.dz
+    out.t_min = 0.001
+    out.dx = sampled.direction.x
+    out.dy = sampled.direction.y
+    out.dz = sampled.direction.z
+    out.t_max = f32_max
+    out.tx = batch.tx * sampled.weight.x
+    out.ty = batch.ty * sampled.weight.y
+    out.tz = batch.tz * sampled.weight.z
+    out.bsdf_pdfs = sampled.pdf
+    out.deltas = sampled.delta
+    return ScatterBatch[length](out^, sampled.ok & active)
 
 
 @always_inline
 def _accumulate_sky_packet[
-    PACKET_LANES: SIMDLength
+    length: SIMDLength
 ](
     mut pixels: List[Color],
-    packet: PathPacket[PACKET_LANES],
+    packet: PathPacket[length],
     lane_count: Int,
-    misses: SIMD[DType.bool, PACKET_LANES],
+    misses: SIMD[DType.bool, length],
     samples_per_pixel: Int,
 ):
     var ray_length = sqrt(
@@ -135,20 +279,18 @@ def _accumulate_sky_packet[
 @always_inline
 def _shade_material_packets[
     MATERIAL_KIND: MAT,
-    PACKET_LANES: SIMDLength,
+    length: SIMDLength,
 ](
-    mut next_paths: PacketPathQueue[PACKET_LANES],
-    queue: PacketShadeQueue[PACKET_LANES],
+    mut next_paths: PacketPathQueue[length],
+    queue: PacketShadeQueue[length],
     surfaces: SurfaceStore,
     settings: RenderSettings,
     stage: UInt32,
 ):
     for packet_idx in range(len(queue.packets)):
-        var lane_count = min(
-            PACKET_LANES, len(queue) - packet_idx * PACKET_LANES
-        )
+        var lane_count = min(length, len(queue) - packet_idx * length)
         ref batch = queue.packets[packet_idx]
-        var scattered = _sample_bsdf_batch[MATERIAL_KIND, PACKET_LANES](
+        var scattered = _sample_bsdf_batch[MATERIAL_KIND, length](
             batch, lane_count, surfaces, settings, stage
         )
         var paths = scattered.paths.copy()
@@ -176,17 +318,17 @@ def _shade_material_packets[
 
 def _trace_path_packets[
     MAX_DEPTH: Int,
-    PACKET_LANES: SIMDLength,
+    length: SIMDLength,
     ALGORITHM: RENDER = RENDER.PATH,
 ](
     settings: RenderSettings,
     world: World,
     mut pixels: List[Color],
-    mut active_paths: PacketPathQueue[PACKET_LANES],
-    mut next_paths: PacketPathQueue[PACKET_LANES],
-    mut lambertian_queue: PacketShadeQueue[PACKET_LANES],
-    mut metal_queue: PacketShadeQueue[PACKET_LANES],
-    mut dielectric_queue: PacketShadeQueue[PACKET_LANES],
+    mut active_paths: PacketPathQueue[length],
+    mut next_paths: PacketPathQueue[length],
+    mut lambertian_queue: PacketShadeQueue[length],
+    mut metal_queue: PacketShadeQueue[length],
+    mut dielectric_queue: PacketShadeQueue[length],
 ):
     comptime assert ALGORITHM in (RENDER.PATH, RENDER.NEE, RENDER.MIS)
     for bounce in range(MAX_DEPTH):
@@ -199,9 +341,26 @@ def _trace_path_packets[
         for packet_idx in range(len(active_paths.packets)):
             ref packet = active_paths.packets[packet_idx]
             var lane_count = min(
-                PACKET_LANES, len(active_paths) - packet_idx * PACKET_LANES
+                length, len(active_paths) - packet_idx * length
             )
-            var misses = SIMD[DType.bool, PACKET_LANES](fill=False)
+            var misses = SIMD[DType.bool, length](fill=False)
+            var direct_lights = _DirectLightBatch[length]()
+            var valid_lanes = SIMD[DType.bool, length](fill=False)
+            for lane in range(lane_count):
+                valid_lanes[lane] = True
+            var ray_packet = RayPacket[Frame.WORLD, length](
+                Point3[DType.float32, Frame.WORLD, length](
+                    packet.ox, packet.oy, packet.oz
+                ),
+                Vec3[DType.float32, Frame.WORLD, length](
+                    packet.dx, packet.dy, packet.dz
+                ),
+                packet.t_min,
+                packet.t_max,
+            )
+            var surface_hits = world.trace_surface_packet(
+                ray_packet, valid_lanes
+            )
             for lane in range(lane_count):
                 var ray = Rayf32[Frame.WORLD](
                     Point3f32[Frame.WORLD](
@@ -213,7 +372,7 @@ def _trace_path_packets[
                     packet.t_min[lane],
                     packet.t_max[lane],
                 )
-                var hit = world.trace_surface(ray)
+                var hit = surface_hits.get(lane)
                 if hit.hit:
                     var pixel_idx = (
                         Int(packet.path_ids[lane]) / settings.samples_per_pixel
@@ -251,17 +410,40 @@ def _trace_path_packets[
                             packet.path_ids[lane],
                             wavefront_rng_light_stage(UInt32(bounce)),
                         )
-                        var direct = sample_direct_lighting[ALGORITHM](
-                            hit.surface, world, ray, point, light_rng
+                        var direct = _sample_direct_light_candidate(
+                            world, point, light_rng
                         )
-                        pixels[pixel_idx] += (
-                            Color(
-                                packet.tx[lane],
-                                packet.ty[lane],
-                                packet.tz[lane],
-                            )
-                            * direct
-                        )
+                        direct_lights.normals.x[lane] = hit.normal.x
+                        direct_lights.normals.y[lane] = hit.normal.y
+                        direct_lights.normals.z[lane] = hit.normal.z
+                        direct_lights.surface_kinds[lane] = hit.surface.kind().v
+                        direct_lights.surface_indices[
+                            lane
+                        ] = hit.surface.index()
+                        if direct.valid:
+                            direct_lights.valid[lane] = True
+                            direct_lights.origins.x[lane] = point.p.x
+                            direct_lights.origins.y[lane] = point.p.y
+                            direct_lights.origins.z[lane] = point.p.z
+                            direct_lights.directions.x[
+                                lane
+                            ] = direct.direction.x
+                            direct_lights.directions.y[
+                                lane
+                            ] = direct.direction.y
+                            direct_lights.directions.z[
+                                lane
+                            ] = direct.direction.z
+                            direct_lights.emissions.x[lane] = direct.emission.x
+                            direct_lights.emissions.y[lane] = direct.emission.y
+                            direct_lights.emissions.z[lane] = direct.emission.z
+                            direct_lights.surface_cosines[
+                                lane
+                            ] = direct.surface_cosine
+                            direct_lights.light_pdfs[lane] = direct.light_pdf
+                            direct_lights.shadow_t_max[
+                                lane
+                            ] = direct.shadow_t_max
 
                     if hit.surface.kind() == MAT.LAMBERTIAN:
                         lambertian_queue.append(packet, lane, hit)
@@ -272,7 +454,25 @@ def _trace_path_packets[
                 else:
                     misses[lane] = True
 
-            _accumulate_sky_packet[PACKET_LANES](
+            comptime if ALGORITHM != RENDER.PATH:
+                var shadow_rays = RayPacket[Frame.WORLD, length](
+                    direct_lights.origins,
+                    direct_lights.directions,
+                    SIMD[DType.float32, length](0.001),
+                    direct_lights.shadow_t_max,
+                )
+                direct_lights.valid &= ~world.occluded_packet(
+                    shadow_rays, direct_lights.valid
+                )
+                _accumulate_direct_light_packet[ALGORITHM, length](
+                    pixels,
+                    packet,
+                    direct_lights,
+                    lane_count,
+                    world.surfaces,
+                    settings.samples_per_pixel,
+                )
+            _accumulate_sky_packet[length](
                 pixels,
                 packet,
                 lane_count,
@@ -280,21 +480,21 @@ def _trace_path_packets[
                 settings.samples_per_pixel,
             )
 
-        _shade_material_packets[MAT.LAMBERTIAN, PACKET_LANES](
+        _shade_material_packets[MAT.LAMBERTIAN, length](
             next_paths,
             lambertian_queue,
             world.surfaces,
             settings,
             UInt32(bounce + 1),
         )
-        _shade_material_packets[MAT.METAL, PACKET_LANES](
+        _shade_material_packets[MAT.METAL, length](
             next_paths,
             metal_queue,
             world.surfaces,
             settings,
             UInt32(bounce + 1),
         )
-        _shade_material_packets[MAT.DIELECTRIC, PACKET_LANES](
+        _shade_material_packets[MAT.DIELECTRIC, length](
             next_paths,
             dielectric_queue,
             world.surfaces,

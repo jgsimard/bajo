@@ -1,6 +1,7 @@
 from std.math import max, round
 from std.time import perf_counter_ns
 
+from bajo.bvh.constants import f32_max
 from bajo.bvh.camera import Camera
 from bajo.bvh.host_utils import compute_bounds
 from bajo.core import (
@@ -285,7 +286,9 @@ def count_path[
                         terminated = True
                         break
                     throughput = roulette.throughput
-                    ray = scattered.ray
+                    ray = Rayf32[Frame.WORLD](
+                        record.p, scattered.direction, 0.001, f32_max
+                    )
 
                 if not terminated:
                     counters.max_depth_paths += 1
@@ -420,12 +423,12 @@ def make_triangle_world() -> World:
     var metal = surfaces.add_metal(Color(0.75, 0.78, 0.82), 0.12)
     var glass = surfaces.add_dielectric(1.45)
     var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId]()
+    var sphere_surfaces = List[SurfaceId[1]]()
     var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId]()
+    var triangle_surfaces = List[SurfaceId[1]]()
     var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
     var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId]()
+    var triangle_instance_surfaces = List[SurfaceId[1]]()
 
     add_triangle(
         triangle_vertices,

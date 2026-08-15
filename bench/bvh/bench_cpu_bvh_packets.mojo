@@ -58,24 +58,24 @@ def trace_scalar[
 def trace_packet[
     bounds_width: SIMDLength,
     leaf_width: SIMDLength,
-    ray_lanes: SIMDLength,
+    length: SIMDLength,
 ](
     bvh: TriangleBvh[Frame.WORLD, bounds_width, leaf_width],
     rays: List[Rayf32[Frame.WORLD]],
 ) -> Tuple[Float64, Int]:
     var checksum = Float64(0.0)
     var hits = 0
-    for base in range(0, len(rays), ray_lanes):
-        var ox = SIMD[DType.float32, ray_lanes](0.0)
-        var oy = SIMD[DType.float32, ray_lanes](0.0)
-        var oz = SIMD[DType.float32, ray_lanes](0.0)
-        var dx = SIMD[DType.float32, ray_lanes](0.0)
-        var dy = SIMD[DType.float32, ray_lanes](0.0)
-        var dz = SIMD[DType.float32, ray_lanes](1.0)
-        var t_min = SIMD[DType.float32, ray_lanes](0.0)
-        var t_max = SIMD[DType.float32, ray_lanes](f32_max)
-        var valid = SIMD[DType.bool, ray_lanes](fill=False)
-        var lane_count = min(ray_lanes, len(rays) - base)
+    for base in range(0, len(rays), length):
+        var ox = SIMD[DType.float32, length](0.0)
+        var oy = SIMD[DType.float32, length](0.0)
+        var oz = SIMD[DType.float32, length](0.0)
+        var dx = SIMD[DType.float32, length](0.0)
+        var dy = SIMD[DType.float32, length](0.0)
+        var dz = SIMD[DType.float32, length](1.0)
+        var t_min = SIMD[DType.float32, length](0.0)
+        var t_max = SIMD[DType.float32, length](f32_max)
+        var valid = SIMD[DType.bool, length](fill=False)
+        var lane_count = min(length, len(rays) - base)
         for lane in range(lane_count):
             ref ray = rays[base + lane]
             ox[lane] = ray.o.x
@@ -88,9 +88,9 @@ def trace_packet[
             t_max[lane] = ray.t_max
             valid[lane] = True
 
-        var packet = RayPacket[Frame.WORLD, ray_lanes](
-            Point3[DType.float32, Frame.WORLD, ray_lanes](ox, oy, oz),
-            Vec3[DType.float32, Frame.WORLD, ray_lanes](dx, dy, dz),
+        var packet = RayPacket[Frame.WORLD, length](
+            Point3[DType.float32, Frame.WORLD, length](ox, oy, oz),
+            Vec3[DType.float32, Frame.WORLD, length](dx, dy, dz),
             t_min,
             t_max,
         )
@@ -113,25 +113,23 @@ def trace_packet[
 def benchmark[
     bounds_width: SIMDLength,
     leaf_width: SIMDLength,
-    ray_lanes: SIMDLength,
+    length: SIMDLength,
 ](
     bvh: TriangleBvh[Frame.WORLD, bounds_width, leaf_width],
     rays: List[Rayf32[Frame.WORLD]],
 ) -> PacketTiming:
     var summary: Tuple[Float64, Int]
-    comptime if ray_lanes == 1:
+    comptime if length == 1:
         summary = trace_scalar[bounds_width, leaf_width](bvh, rays)
     else:
-        summary = trace_packet[bounds_width, leaf_width, ray_lanes](bvh, rays)
+        summary = trace_packet[bounds_width, leaf_width, length](bvh, rays)
     var best = Int.MAX
     for _ in range(REPEATS):
         var t0 = perf_counter_ns()
-        comptime if ray_lanes == 1:
+        comptime if length == 1:
             summary = trace_scalar[bounds_width, leaf_width](bvh, rays)
         else:
-            summary = trace_packet[bounds_width, leaf_width, ray_lanes](
-                bvh, rays
-            )
+            summary = trace_packet[bounds_width, leaf_width, length](bvh, rays)
         var elapsed = Int(perf_counter_ns() - t0)
         best = min(best, elapsed)
     return PacketTiming(best, summary[0], summary[1])

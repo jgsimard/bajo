@@ -36,25 +36,25 @@ def _whole_pixel_chunk_paths(samples_per_pixel: Int, target_paths: Int) -> Int:
     )
 
 
-struct _PacketQueueArena[PACKET_LANES: SIMDLength]:
-    var active_paths: PacketPathQueue[Self.PACKET_LANES]
-    var next_paths: PacketPathQueue[Self.PACKET_LANES]
-    var lambertian: PacketShadeQueue[Self.PACKET_LANES]
-    var metal: PacketShadeQueue[Self.PACKET_LANES]
-    var dielectric: PacketShadeQueue[Self.PACKET_LANES]
+struct _PacketQueueArena[length: SIMDLength]:
+    var active_paths: PacketPathQueue[Self.length]
+    var next_paths: PacketPathQueue[Self.length]
+    var lambertian: PacketShadeQueue[Self.length]
+    var metal: PacketShadeQueue[Self.length]
+    var dielectric: PacketShadeQueue[Self.length]
 
     def __init__(out self, capacity: Int):
         # Two path buffers ping-pong between bounces. Material queues reserve
         # their worst-case size once so appends never grow storage mid-bounce.
-        self.active_paths = PacketPathQueue[Self.PACKET_LANES](capacity)
-        self.next_paths = PacketPathQueue[Self.PACKET_LANES](capacity)
-        self.lambertian = PacketShadeQueue[Self.PACKET_LANES](capacity)
-        self.metal = PacketShadeQueue[Self.PACKET_LANES](capacity)
-        self.dielectric = PacketShadeQueue[Self.PACKET_LANES](capacity)
+        self.active_paths = PacketPathQueue[Self.length](capacity)
+        self.next_paths = PacketPathQueue[Self.length](capacity)
+        self.lambertian = PacketShadeQueue[Self.length](capacity)
+        self.metal = PacketShadeQueue[Self.length](capacity)
+        self.dielectric = PacketShadeQueue[Self.length](capacity)
 
 
 def _trace_packet_range[
-    PACKET_LANES: SIMDLength,
+    length: SIMDLength,
     ALGORITHM: RENDER,
     MAX_DEPTH: Int,
 ](
@@ -64,12 +64,12 @@ def _trace_packet_range[
     mut pixels: List[Color],
     path_begin: Int,
     path_end: Int,
-    mut queues: _PacketQueueArena[PACKET_LANES],
+    mut queues: _PacketQueueArena[length],
 ):
-    _initialize_path_packets_range[PACKET_LANES](
+    _initialize_path_packets_range[length](
         queues.active_paths, settings, camera, path_begin, path_end
     )
-    _trace_path_packets[MAX_DEPTH, PACKET_LANES, ALGORITHM](
+    _trace_path_packets[MAX_DEPTH, length, ALGORITHM](
         settings,
         world,
         pixels,
@@ -84,7 +84,7 @@ def _trace_packet_range[
 def render_wavefront[
     ALGORITHM: RENDER = RENDER.PATH,
     MAX_DEPTH: Int = 8,
-    PACKET_LANES: SIMDLength = 1,
+    length: SIMDLength = 16,
     CHUNK_PATHS: Int = CPU_WAVEFRONT_PARALLEL_CHUNK_PATHS,
     PARALLEL: Bool = True,
     SCHEDULER_MODE: Int = WAVE_PARALLEL_TASK_PARTITIONS,
@@ -119,8 +119,8 @@ def render_wavefront[
         def worker(chunk_idx: Int) {imm, mut pixels}:
             var path_begin = chunk_idx * paths_per_chunk
             var path_end = min(path_begin + paths_per_chunk, path_count)
-            var queues = _PacketQueueArena[PACKET_LANES](path_end - path_begin)
-            _trace_packet_range[PACKET_LANES, ALGORITHM, MAX_DEPTH](
+            var queues = _PacketQueueArena[length](path_end - path_begin)
+            _trace_packet_range[length, ALGORITHM, MAX_DEPTH](
                 settings,
                 camera,
                 world,
@@ -139,11 +139,11 @@ def render_wavefront[
         else:
             parallelize(worker, chunk_count)
     else:
-        var queues = _PacketQueueArena[PACKET_LANES](paths_per_chunk)
+        var queues = _PacketQueueArena[length](paths_per_chunk)
         var path_begin = 0
         while path_begin < path_count:
             var path_end = min(path_begin + paths_per_chunk, path_count)
-            _trace_packet_range[PACKET_LANES, ALGORITHM, MAX_DEPTH](
+            _trace_packet_range[length, ALGORITHM, MAX_DEPTH](
                 settings,
                 camera,
                 world,

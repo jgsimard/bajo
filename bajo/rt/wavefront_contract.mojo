@@ -619,13 +619,13 @@ def pack_wave_paths(
 
 
 def packet_path_queue_to_wave_paths[
-    PACKET_LANES: SIMDLength
-](queue: PacketPathQueue[PACKET_LANES]) -> List[WavePath]:
+    length: SIMDLength
+](queue: PacketPathQueue[length]) -> List[WavePath]:
     """Convert CPU packets only at the explicit host/device boundary."""
     var paths = List[WavePath](capacity=len(queue))
     for path_idx in range(len(queue)):
-        ref packet = queue.packets[path_idx / PACKET_LANES]
-        var lane = path_idx % PACKET_LANES
+        ref packet = queue.packets[path_idx / length]
+        var lane = path_idx % length
         paths.append(
             WavePath(
                 packet.path_ids[lane],

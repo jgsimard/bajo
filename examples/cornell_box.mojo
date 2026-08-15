@@ -33,12 +33,12 @@ comptime MIS_OUTPUT = "cornell_mis.ppm"
 
 def _add_quad(
     mut vertices: List[Point3W],
-    mut surfaces: List[SurfaceId],
+    mut surfaces: List[SurfaceId[1]],
     a: Point3W,
     b: Point3W,
     c: Point3W,
     d: Point3W,
-    surface: SurfaceId,
+    surface: SurfaceId[1],
 ):
     add_triangle(vertices, surfaces, a, b, c, surface)
     add_triangle(vertices, surfaces, a, c, d, surface)
@@ -46,10 +46,10 @@ def _add_quad(
 
 def _add_box(
     mut vertices: List[Point3W],
-    mut surfaces: List[SurfaceId],
+    mut surfaces: List[SurfaceId[1]],
     minimum: Point3W,
     maximum: Point3W,
-    surface: SurfaceId,
+    surface: SurfaceId[1],
 ):
     var x0 = minimum.x
     var y0 = minimum.y
@@ -122,7 +122,7 @@ def make_cornell_world() -> World:
     var light = store.add_emissive(Color(15.0, 15.0, 15.0))
 
     var vertices = List[Point3W]()
-    var surfaces = List[SurfaceId]()
+    var surfaces = List[SurfaceId[1]]()
 
     # Floor, ceiling, back, red left wall, and green right wall.
     _add_quad(
@@ -198,10 +198,10 @@ def make_cornell_world() -> World:
     )
 
     var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId]()
+    var sphere_surfaces = List[SurfaceId[1]]()
     var meshes = List[List[Point3f32[Frame.LOCAL]]]()
     var instances = List[Instance]()
-    var instance_surfaces = List[SurfaceId]()
+    var instance_surfaces = List[SurfaceId[1]]()
     return World(
         spheres^,
         sphere_surfaces^,

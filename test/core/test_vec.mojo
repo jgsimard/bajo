@@ -6,6 +6,8 @@ from std.testing import (
 )
 
 from bajo.core import (
+    Frame,
+    Vec3,
     Vec3W,
     dot,
     cross,
@@ -13,6 +15,23 @@ from bajo.core import (
     normalize,
     assert_vec_equal,
 )
+
+
+def test_select_uses_mask_per_simd_lane() raises:
+    var if_true = Vec3[DType.float32, Frame.WORLD, 4](
+        SIMD[DType.float32, 4](1.0, 2.0, 3.0, 4.0),
+        SIMD[DType.float32, 4](5.0, 6.0, 7.0, 8.0),
+        SIMD[DType.float32, 4](9.0, 10.0, 11.0, 12.0),
+    )
+    var if_false = Vec3[DType.float32, Frame.WORLD, 4](-1.0)
+    var selected = Vec3.select(
+        SIMD[DType.bool, 4](True, False, True, False), if_true, if_false
+    )
+
+    assert_almost_equal(selected.x[0], 1.0)
+    assert_almost_equal(selected.x[1], -1.0)
+    assert_almost_equal(selected.y[2], 7.0)
+    assert_almost_equal(selected.z[3], -1.0)
 
 
 def test_length_normalize() raises:

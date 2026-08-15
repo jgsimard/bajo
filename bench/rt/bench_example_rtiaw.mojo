@@ -53,7 +53,7 @@ def _render_mode[
         return render_wavefront[
             RENDER.PATH,
             MAX_DEPTH,
-            1,
+            16,
             CPU_WAVEFRONT_SERIAL_CHUNK_PATHS,
             False,
         ](settings, camera, world)
@@ -63,7 +63,7 @@ def _render_mode[
         return render_wavefront[
             RENDER.PATH,
             MAX_DEPTH,
-            1,
+            16,
             CHUNK_PATHS,
             True,
             WAVE_PARALLEL_TASK_PARTITIONS,
@@ -291,8 +291,8 @@ def main():
         parallel4k_total, parallel4k_render, parallel_checksum
     )
     _print("parallel depth-first 16x16", depth)
-    _print("serial wavefront 8K", serial)
-    _print("parallel wavefront 512", parallel512)
-    _print("parallel wavefront 1K", parallel1k)
-    _print("parallel wavefront 2K", parallel2k)
-    _print("parallel wavefront 4K", parallel4k)
+    _print("serial packet16 wavefront 8K", serial)
+    _print("parallel packet16 wavefront 512", parallel512)
+    _print("parallel packet16 wavefront 1K", parallel1k)
+    _print("parallel packet16 wavefront 2K", parallel2k)
+    _print("parallel packet16 wavefront 4K", parallel4k)

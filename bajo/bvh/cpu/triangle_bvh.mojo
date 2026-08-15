@@ -145,35 +145,35 @@ struct TriangleBvh[
         return self._trace[mode, collect_stats=False](ray, unused_stats)
 
     def trace_packet[
-        ray_lanes: SIMDLength
+        length: SIMDLength
     ](
         self,
-        rays: RayPacket[Self.bvh_frame, ray_lanes],
-        valid: SIMD[DType.bool, ray_lanes],
-    ) -> PacketHit[Self.bvh_frame, ray_lanes]:
+        rays: RayPacket[Self.bvh_frame, length],
+        valid: SIMD[DType.bool, length],
+    ) -> PacketHit[Self.bvh_frame, length]:
         """Trace a coherent SIMD ray packet with one shared hierarchy stack."""
-        var hit = PacketHit[Self.bvh_frame, ray_lanes](rays.t_max)
+        var hit = PacketHit[Self.bvh_frame, length](rays.t_max)
 
         def leaf_fn(
-            active: SIMD[DType.bool, ray_lanes],
+            active: SIMD[DType.bool, length],
             leaf_block_idx: UInt32,
-            mut packet_hit: PacketHit[Self.bvh_frame, ray_lanes],
+            mut packet_hit: PacketHit[Self.bvh_frame, length],
         ) {imm}:
             ref block = self.leaf_blocks.unsafe_get(Int(leaf_block_idx))
             comptime for prim_lane in range(Self.leaf_width):
                 var prim_idx = block.prim_indices[prim_lane]
                 if prim_idx != EMPTY_LANE:
-                    var v0 = Point3[DType.float32, Self.bvh_frame, ray_lanes](
+                    var v0 = Point3[DType.float32, Self.bvh_frame, length](
                         block.v0.x[prim_lane],
                         block.v0.y[prim_lane],
                         block.v0.z[prim_lane],
                     )
-                    var e1 = Vec3[DType.float32, Self.bvh_frame, ray_lanes](
+                    var e1 = Vec3[DType.float32, Self.bvh_frame, length](
                         block.e1.x[prim_lane],
                         block.e1.y[prim_lane],
                         block.e1.z[prim_lane],
                     )
-                    var e2 = Vec3[DType.float32, Self.bvh_frame, ray_lanes](
+                    var e2 = Vec3[DType.float32, Self.bvh_frame, length](
                         block.e2.x[prim_lane],
                         block.e2.y[prim_lane],
                         block.e2.z[prim_lane],
@@ -202,11 +202,11 @@ struct TriangleBvh[
                             candidate.v_scaled * inv_det, packet_hit.v
                         )
                         packet_hit.prim = closer.select(
-                            SIMD[DType.uint32, ray_lanes](prim_idx),
+                            SIMD[DType.uint32, length](prim_idx),
                             packet_hit.prim,
                         )
                         packet_hit.inst = closer.select(
-                            SIMD[DType.uint32, ray_lanes](EMPTY_LANE),
+                            SIMD[DType.uint32, length](EMPTY_LANE),
                             packet_hit.inst,
                         )
                         var geometric_normal = normalize(cross(e1, e2))
@@ -223,7 +223,7 @@ struct TriangleBvh[
         trace_packet_bounds_bvh[
             frame=Self.frame,
             bounds_width=Self.bounds_width,
-            ray_lanes=ray_lanes,
+            length=length,
         ](self.tree, rays, valid, hit, leaf_fn)
         return hit^
 

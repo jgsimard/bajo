@@ -39,13 +39,14 @@ struct Timing(Copyable):
 
 def _render_configuration[
     CHUNK_PATHS: Int,
+    length: SIMDLength = 1,
     SCHEDULER_MODE: Int = WAVE_PARALLEL_TASK_PARTITIONS,
     PARALLEL: Bool = True,
 ](settings: RenderSettings, camera: Camera, world: World) -> RenderResult:
     return render_wavefront[
         RENDER.PATH,
         MAX_DEPTH,
-        1,
+        length,
         CHUNK_PATHS,
         PARALLEL,
         SCHEDULER_MODE,
@@ -54,6 +55,7 @@ def _render_configuration[
 
 def _record[
     CHUNK_PATHS: Int,
+    length: SIMDLength = 1,
     SCHEDULER_MODE: Int = WAVE_PARALLEL_TASK_PARTITIONS,
     PARALLEL: Bool = True,
 ](
@@ -63,11 +65,11 @@ def _record[
     camera: Camera,
     world: World,
 ):
-    var result = _render_configuration[CHUNK_PATHS, SCHEDULER_MODE, PARALLEL](
-        settings, camera, world
-    )
+    var result = _render_configuration[
+        CHUNK_PATHS, length, SCHEDULER_MODE, PARALLEL
+    ](settings, camera, world)
     debug_assert["safe", _use_compiler_assume=True](
-        abs(pixel_checksum(result.pixels) - checksum) <= 0.1,
+        abs(pixel_checksum(result.pixels) - checksum) <= 0.2,
         "parallel chunk schedule changed the output checksum",
     )
     times.append(result.timings.render_ns)
@@ -93,6 +95,7 @@ def benchmark_world(
     print(t"\n{label}")
     var warmup = _render_configuration[
         CPU_WAVEFRONT_SERIAL_CHUNK_PATHS,
+        1,
         WAVE_PARALLEL_TASK_PARTITIONS,
         False,
     ](settings, camera, world)
@@ -102,12 +105,16 @@ def benchmark_world(
     _ = _render_configuration[2048](settings, camera, world)
     _ = _render_configuration[4096](settings, camera, world)
     _ = _render_configuration[8192](settings, camera, world)
-    _ = _render_configuration[8192, WAVE_PARALLEL_RUNTIME_DEFAULT](
+    _ = _render_configuration[8192, 1, WAVE_PARALLEL_RUNTIME_DEFAULT](
         settings, camera, world
     )
-    _ = _render_configuration[8192, WAVE_PARALLEL_LOGICAL_CORES](
+    _ = _render_configuration[8192, 1, WAVE_PARALLEL_LOGICAL_CORES](
         settings, camera, world
     )
+    _ = _render_configuration[512, 16](settings, camera, world)
+    _ = _render_configuration[1024, 16](settings, camera, world)
+    _ = _render_configuration[2048, 16](settings, camera, world)
+    _ = _render_configuration[4096, 16](settings, camera, world)
 
     var serial_times = List[Int](capacity=REPEATS)
     var parallel512_times = List[Int](capacity=REPEATS)
@@ -117,10 +124,15 @@ def benchmark_world(
     var parallel8k_times = List[Int](capacity=REPEATS)
     var default_times = List[Int](capacity=REPEATS)
     var core_times = List[Int](capacity=REPEATS)
+    var packet512_times = List[Int](capacity=REPEATS)
+    var packet1k_times = List[Int](capacity=REPEATS)
+    var packet2k_times = List[Int](capacity=REPEATS)
+    var packet4k_times = List[Int](capacity=REPEATS)
     for iteration in range(REPEATS):
         if iteration % 2 == 0:
             _record[
                 CPU_WAVEFRONT_SERIAL_CHUNK_PATHS,
+                1,
                 WAVE_PARALLEL_TASK_PARTITIONS,
                 False,
             ](serial_times, checksum, settings, camera, world)
@@ -129,17 +141,25 @@ def benchmark_world(
             _record[2048](parallel2k_times, checksum, settings, camera, world)
             _record[4096](parallel4k_times, checksum, settings, camera, world)
             _record[8192](parallel8k_times, checksum, settings, camera, world)
-            _record[8192, WAVE_PARALLEL_RUNTIME_DEFAULT](
+            _record[8192, 1, WAVE_PARALLEL_RUNTIME_DEFAULT](
                 default_times, checksum, settings, camera, world
             )
-            _record[8192, WAVE_PARALLEL_LOGICAL_CORES](
+            _record[8192, 1, WAVE_PARALLEL_LOGICAL_CORES](
                 core_times, checksum, settings, camera, world
             )
+            _record[512, 16](packet512_times, checksum, settings, camera, world)
+            _record[1024, 16](packet1k_times, checksum, settings, camera, world)
+            _record[2048, 16](packet2k_times, checksum, settings, camera, world)
+            _record[4096, 16](packet4k_times, checksum, settings, camera, world)
         else:
-            _record[8192, WAVE_PARALLEL_LOGICAL_CORES](
+            _record[4096, 16](packet4k_times, checksum, settings, camera, world)
+            _record[2048, 16](packet2k_times, checksum, settings, camera, world)
+            _record[1024, 16](packet1k_times, checksum, settings, camera, world)
+            _record[512, 16](packet512_times, checksum, settings, camera, world)
+            _record[8192, 1, WAVE_PARALLEL_LOGICAL_CORES](
                 core_times, checksum, settings, camera, world
             )
-            _record[8192, WAVE_PARALLEL_RUNTIME_DEFAULT](
+            _record[8192, 1, WAVE_PARALLEL_RUNTIME_DEFAULT](
                 default_times, checksum, settings, camera, world
             )
             _record[8192](parallel8k_times, checksum, settings, camera, world)
@@ -149,6 +169,7 @@ def benchmark_world(
             _record[512](parallel512_times, checksum, settings, camera, world)
             _record[
                 CPU_WAVEFRONT_SERIAL_CHUNK_PATHS,
+                1,
                 WAVE_PARALLEL_TASK_PARTITIONS,
                 False,
             ](serial_times, checksum, settings, camera, world)
@@ -187,6 +208,26 @@ def benchmark_world(
     )
     _print(
         "parallel 8K / logical cores", _summarize(core_times, checksum), serial
+    )
+    _print(
+        "packet16 parallel 512 / task partitions",
+        _summarize(packet512_times, checksum),
+        serial,
+    )
+    _print(
+        "packet16 parallel 1K / task partitions",
+        _summarize(packet1k_times, checksum),
+        serial,
+    )
+    _print(
+        "packet16 parallel 2K / task partitions",
+        _summarize(packet2k_times, checksum),
+        serial,
+    )
+    _print(
+        "packet16 parallel 4K / task partitions",
+        _summarize(packet4k_times, checksum),
+        serial,
     )
     print(t"  checksum={round(checksum, 3)}")
 

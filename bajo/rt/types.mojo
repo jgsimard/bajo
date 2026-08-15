@@ -10,7 +10,7 @@ from bajo.core import (
     GeoKind,
     Rayf32,
 )
-from bajo.bvh.constants import EMPTY_LANE, Primitive, TRACE
+from bajo.bvh.constants import EMPTY_LANE, Primitive, TRACE, f32_max
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.bvh.cpu.tlas import Tlas
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
@@ -20,40 +20,59 @@ from bajo.bvh.types import Instance, Sphere
 comptime Color = Vec3f32[Frame.WORLD]
 comptime BVH_WIDTH = 16
 
-comptime MAT_LAMBERTIAN = UInt32(0)
-comptime MAT_METAL = UInt32(1)
-comptime MAT_DIELECTRIC = UInt32(2)
+
+@fieldwise_init
+struct MAT(Equatable, TrivialRegisterPassable, Writable):
+    var v: UInt32
+    comptime LAMBERTIAN = Self(0)
+    comptime METAL = Self(1)
+    comptime DIELECTRIC = Self(2)
+    comptime EMISSIVE = Self(3)
+
+
 comptime SURFACE_KIND_BITS = UInt32(4)
-comptime SURFACE_INDEX_BITS = UInt32(28)
-comptime SURFACE_INDEX_MASK = UInt32((1 << 28) - 1)
-comptime PRIM_SPHERE = UInt32(0)
-comptime PRIM_TRIANGLE = UInt32(1)
-comptime PRIM_TRIANGLE_INSTANCE = UInt32(2)
+comptime SURFACE_INDEX_BITS = 32 - SURFACE_KIND_BITS
+comptime SURFACE_INDEX_MASK = UInt32((1 << SURFACE_INDEX_BITS) - 1)
+
+
+@fieldwise_init
+struct PRIM(Equatable, TrivialRegisterPassable, Writable):
+    var v: UInt32
+    comptime SPHERE = Self(0)
+    comptime TRIANGLE = Self(1)
+    comptime TRIANGLE_INSTANCE = Self(2)
+
+
 comptime PRIMITIVE_KIND_BITS = UInt32(4)
-comptime PRIMITIVE_INDEX_BITS = UInt32(28)
-comptime PRIMITIVE_INDEX_MASK = UInt32((1 << 28) - 1)
-comptime RENDER_PATH = UInt32(0)
-comptime RENDER_NORMALS = UInt32(1)
-comptime RENDER_AO = UInt32(2)
-comptime RENDER_NEE = UInt32(3)
-comptime RENDER_MIS = UInt32(4)
+comptime PRIMITIVE_INDEX_BITS = 32 - PRIMITIVE_KIND_BITS
+comptime PRIMITIVE_INDEX_MASK = UInt32((1 << PRIMITIVE_INDEX_BITS) - 1)
+
+
+@fieldwise_init
+struct RENDER(Equatable, TrivialRegisterPassable, Writable):
+    var v: UInt32
+    comptime PATH = Self(0)
+    comptime NORMALS = Self(1)
+    comptime AO = Self(2)
+    comptime NEE = Self(3)
+    comptime MIS = Self(4)
 
 
 @fieldwise_init
 struct PrimitiveId(Copyable, Writable):
     var value: UInt32
 
-    def __init__(out self, kind: UInt32, index: UInt32):
+    def __init__(out self, kind: PRIM, index: UInt32):
         debug_assert["safe", _use_compiler_assume=True](
-            kind < (UInt32(1) << PRIMITIVE_KIND_BITS)
+            kind.v < (UInt32(1) << PRIMITIVE_KIND_BITS)
         )
         debug_assert["safe", _use_compiler_assume=True](
             index < (UInt32(1) << PRIMITIVE_INDEX_BITS)
         )
-        self.value = (kind << PRIMITIVE_INDEX_BITS) | index
+        self.value = (kind.v << PRIMITIVE_INDEX_BITS) | index
 
-    def kind(self) -> UInt32:
-        return self.value >> PRIMITIVE_INDEX_BITS
+    def kind(self) -> PRIM:
+        return PRIM(self.value >> PRIMITIVE_INDEX_BITS)
 
     def index(self) -> UInt32:
         return self.value & PRIMITIVE_INDEX_MASK
@@ -63,17 +82,17 @@ struct PrimitiveId(Copyable, Writable):
 struct SurfaceId(Copyable, Writable):
     var value: UInt32
 
-    def __init__(out self, kind: UInt32, index: UInt32):
+    def __init__(out self, kind: MAT, index: UInt32):
         debug_assert["safe", _use_compiler_assume=True](
-            kind < (UInt32(1) << SURFACE_KIND_BITS)
+            kind.v < (UInt32(1) << SURFACE_KIND_BITS)
         )
         debug_assert["safe", _use_compiler_assume=True](
             index < (UInt32(1) << SURFACE_INDEX_BITS)
         )
-        self.value = (kind << SURFACE_INDEX_BITS) | index
+        self.value = (kind.v << SURFACE_INDEX_BITS) | index
 
-    def kind(self) -> UInt32:
-        return self.value >> SURFACE_INDEX_BITS
+    def kind(self) -> MAT:
+        return MAT(self.value >> SURFACE_INDEX_BITS)
 
     def index(self) -> UInt32:
         return self.value & SURFACE_INDEX_MASK
@@ -95,43 +114,61 @@ struct Dielectric(Copyable, Writable):
     var refraction_index: Float32
 
 
+@fieldwise_init
+struct Emissive(Copyable, Writable):
+    var radiance: Color
+
+
 struct SurfaceStore:
     var lambertians: List[Lambertian]
     var metals: List[Metal]
     var dielectrics: List[Dielectric]
+    var emissives: List[Emissive]
 
     def __init__(out self):
         self.lambertians = List[Lambertian]()
         self.metals = List[Metal]()
         self.dielectrics = List[Dielectric]()
+        self.emissives = List[Emissive]()
 
     def validate(self, surface: SurfaceId) -> Bool:
-        if surface.kind() == MAT_LAMBERTIAN:
+        if surface.kind() == MAT.LAMBERTIAN:
             return surface.index() < UInt32(len(self.lambertians))
-        elif surface.kind() == MAT_METAL:
+        elif surface.kind() == MAT.METAL:
             return surface.index() < UInt32(len(self.metals))
-        elif surface.kind() == MAT_DIELECTRIC:
+        elif surface.kind() == MAT.DIELECTRIC:
             return surface.index() < UInt32(len(self.dielectrics))
+        elif surface.kind() == MAT.EMISSIVE:
+            return surface.index() < UInt32(len(self.emissives))
 
         return False
 
     def add_lambertian(mut self, albedo: Color) -> SurfaceId:
         var index = UInt32(len(self.lambertians))
         self.lambertians.append(Lambertian(albedo))
-        return SurfaceId(MAT_LAMBERTIAN, index)
+        return SurfaceId(MAT.LAMBERTIAN, index)
 
     def add_metal(mut self, albedo: Color, fuzz: Float32) -> SurfaceId:
         debug_assert["safe", _use_compiler_assume=True](fuzz >= 0.0)
         debug_assert["safe", _use_compiler_assume=True](fuzz <= 1.0)
         var index = UInt32(len(self.metals))
         self.metals.append(Metal(albedo, fuzz))
-        return SurfaceId(MAT_METAL, index)
+        return SurfaceId(MAT.METAL, index)
 
     def add_dielectric(mut self, refraction_index: Float32) -> SurfaceId:
         debug_assert["safe", _use_compiler_assume=True](refraction_index > 0.0)
         var index = UInt32(len(self.dielectrics))
         self.dielectrics.append(Dielectric(refraction_index))
-        return SurfaceId(MAT_DIELECTRIC, index)
+        return SurfaceId(MAT.DIELECTRIC, index)
+
+    def add_emissive(mut self, radiance: Color) -> SurfaceId:
+        debug_assert["safe", _use_compiler_assume=True](
+            radiance.x >= 0.0 and radiance.y >= 0.0 and radiance.z >= 0.0,
+            "emissive radiance must be non-negative",
+        )
+        var index = UInt32(len(self.emissives))
+        self.emissives.append(Emissive(radiance))
+        return SurfaceId(MAT.EMISSIVE, index)
 
 
 @fieldwise_init
@@ -145,10 +182,44 @@ struct HitRecord(Copyable, Writable):
 
 
 @fieldwise_init
-struct ScatterResult(Copyable, Writable):
+struct SurfaceHit(Copyable, Writable):
+    """Compact renderer hit without public primitive identity or position."""
+
+    var normal: Vec3f32[Frame.WORLD]
+    var surface: SurfaceId
+    var t: Float32
+    var front_face: Bool
+    var hit: Bool
+
+    @staticmethod
+    def miss(t: Float32 = f32_max) -> Self:
+        return Self(
+            Vec3f32[Frame.WORLD](0.0),
+            SurfaceId(MAT.LAMBERTIAN, UInt32(0)),
+            t,
+            True,
+            False,
+        )
+
+
+@fieldwise_init
+struct BsdfSample(Copyable, Writable):
+    """One sampled continuation and its throughput/PDF metadata."""
+
     var ok: Bool
     var ray: Rayf32[Frame.WORLD]
-    var attenuation: Color
+    var weight: Color
+    var pdf: Float32
+    var delta: Bool
+
+
+@fieldwise_init
+struct BsdfEvaluation(Copyable, Writable):
+    """Evaluated BSDF value and solid-angle PDF for one direction."""
+
+    var value: Color
+    var pdf: Float32
+    var delta: Bool
 
 
 struct RenderSettings(Copyable, Writable):
@@ -390,6 +461,101 @@ struct World:
 
         return None
 
+    def trace_surface(self, ray: Rayf32[Frame.WORLD]) -> SurfaceHit:
+        """Trace the compact hit consumed by render integrators."""
+        var closest = self._trace_surface_spheres(ray)
+        var triangle_hit = self._trace_surface_triangles(ray)
+        if triangle_hit.hit and (not closest.hit or triangle_hit.t < closest.t):
+            closest = triangle_hit^
+
+        var instance_hit = self._trace_surface_triangle_instances(ray)
+        if instance_hit.hit and (not closest.hit or instance_hit.t < closest.t):
+            closest = instance_hit^
+        return closest^
+
+    def _trace_surface_spheres(self, ray: Rayf32[Frame.WORLD]) -> SurfaceHit:
+        if not self.sphere_bvh:
+            return SurfaceHit.miss(ray.t_max)
+
+        var bvh_hit = self.sphere_bvh.value().trace[TRACE.CLOSEST_HIT](ray)
+        if not bvh_hit.is_hit():
+            return SurfaceHit.miss(ray.t_max)
+
+        var sphere_idx = Int(bvh_hit.prim)
+        debug_assert["safe", _use_compiler_assume=True](
+            sphere_idx >= 0 and sphere_idx < len(self.spheres),
+            "BVH returned an out-of-range sphere index",
+        )
+        ref sphere = self.spheres[sphere_idx]
+        var p = ray_at(ray, bvh_hit.t)
+        var outward_normal = (p - sphere.center) / sphere.radius
+        var front_face = dot(ray.d, outward_normal) < 0.0
+        var normal = outward_normal if front_face else -outward_normal
+        return SurfaceHit(
+            normal,
+            self.sphere_surfaces[sphere_idx].copy(),
+            bvh_hit.t,
+            front_face,
+            True,
+        )
+
+    def _trace_surface_triangles(self, ray: Rayf32[Frame.WORLD]) -> SurfaceHit:
+        if not self.triangle_bvh:
+            return SurfaceHit.miss(ray.t_max)
+
+        var bvh_hit = self.triangle_bvh.value().trace[TRACE.CLOSEST_HIT](ray)
+        if not bvh_hit.is_hit():
+            return SurfaceHit.miss(ray.t_max)
+
+        var tri_idx = Int(bvh_hit.prim)
+        debug_assert["safe", _use_compiler_assume=True](
+            tri_idx >= 0 and tri_idx < len(self.triangle_surfaces),
+            "BVH returned an out-of-range triangle index",
+        )
+        var outward_normal = bvh_hit.normal.unsafe_convert[
+            new_kind=GeoKind.VECTOR
+        ]()
+        var front_face = dot(ray.d, outward_normal) < 0.0
+        var normal = outward_normal if front_face else -outward_normal
+        return SurfaceHit(
+            normal,
+            self.triangle_surfaces[tri_idx].copy(),
+            bvh_hit.t,
+            front_face,
+            True,
+        )
+
+    def _trace_surface_triangle_instances(
+        self, ray: Rayf32[Frame.WORLD]
+    ) -> SurfaceHit:
+        if not self.triangle_tlas:
+            return SurfaceHit.miss(ray.t_max)
+
+        var bvh_hit = self.triangle_tlas.value().trace[
+            TriangleBvh[Frame.LOCAL, BVH_WIDTH],
+            TRACE.CLOSEST_HIT,
+        ](ray, Span(self.triangle_mesh_blases))
+        if not bvh_hit.is_hit() or bvh_hit.inst == EMPTY_LANE:
+            return SurfaceHit.miss(ray.t_max)
+
+        var instance_idx = Int(bvh_hit.inst)
+        debug_assert["safe", _use_compiler_assume=True](
+            instance_idx >= 0 and instance_idx < len(self.triangle_instances),
+            "TLAS returned an out-of-range triangle instance index",
+        )
+        var outward_normal = bvh_hit.normal.unsafe_convert[
+            new_kind=GeoKind.VECTOR
+        ]()
+        var front_face = dot(ray.d, outward_normal) < 0.0
+        var normal = outward_normal if front_face else -outward_normal
+        return SurfaceHit(
+            normal,
+            self.triangle_instance_surfaces[instance_idx].copy(),
+            bvh_hit.t,
+            front_face,
+            True,
+        )
+
     def _trace_spheres(self, ray: Rayf32[Frame.WORLD]) -> Optional[HitRecord]:
         if not self.sphere_bvh:
             return None
@@ -398,7 +564,7 @@ struct World:
         if not bvh_hit.is_hit():
             return None
 
-        var primitive = PrimitiveId(PRIM_SPHERE, bvh_hit.prim)
+        var primitive = PrimitiveId(PRIM.SPHERE, bvh_hit.prim)
         var sphere_idx = Int(primitive.index())
         debug_assert["safe", _use_compiler_assume=True](
             sphere_idx >= 0 and sphere_idx < len(self.spheres),
@@ -415,7 +581,7 @@ struct World:
         var normal = outward_normal if front_face else -outward_normal
 
         return HitRecord(
-            primitive.copy(),
+            primitive^,
             p,
             normal,
             self.sphere_surfaces[sphere_idx].copy(),
@@ -448,7 +614,7 @@ struct World:
             "hit triangle instance surface id is out of range",
         )
 
-        var primitive = PrimitiveId(PRIM_TRIANGLE_INSTANCE, bvh_hit.inst)
+        var primitive = PrimitiveId(PRIM.TRIANGLE_INSTANCE, bvh_hit.inst)
         var p = ray_at(ray, bvh_hit.t)
         var outward_normal = bvh_hit.normal.unsafe_convert[
             new_kind=GeoKind.VECTOR
@@ -473,7 +639,7 @@ struct World:
         if not bvh_hit.is_hit():
             return None
 
-        var primitive = PrimitiveId(PRIM_TRIANGLE, bvh_hit.prim)
+        var primitive = PrimitiveId(PRIM.TRIANGLE, bvh_hit.prim)
         var tri_idx = Int(primitive.index())
         debug_assert["safe", _use_compiler_assume=True](
             tri_idx >= 0 and tri_idx < len(self.triangle_surfaces),

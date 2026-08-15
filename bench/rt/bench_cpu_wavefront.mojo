@@ -14,7 +14,7 @@ from bajo.rt import (
 )
 from bajo.rt.cpu import render_wavefront, sample_bsdf
 from bajo.rt.cpu.common import _path_stage_rng, _russian_roulette
-from bajo.rt.cpu.wavefront.primary import _make_initial_path_packets_range
+from bajo.rt.cpu.wavefront.primary import _initialize_path_packets_range
 from bajo.rt.wavefront_queue import PacketPathQueue, PathPacket
 from bajo.rt.types import MAT
 from bench.rt.bench_cpu_end_to_end import (
@@ -126,8 +126,10 @@ def count_wavefront(
         * settings.image_height
         * settings.samples_per_pixel
     )
-    var active_paths = _make_initial_path_packets_range[1](
-        settings, camera, 0, path_count
+    var active_paths = PacketPathQueue[1](path_count)
+    var next_paths = PacketPathQueue[1](path_count)
+    _initialize_path_packets_range[1](
+        active_paths, settings, camera, 0, path_count
     )
     counters.primary_paths = len(active_paths)
 
@@ -136,7 +138,7 @@ def count_wavefront(
             break
 
         counters.active_by_bounce.append(len(active_paths))
-        var next_paths = PacketPathQueue[1](len(active_paths))
+        next_paths.clear()
         var lambertian_queue = 0
         var metal_queue = 0
         var dielectric_queue = 0
@@ -212,7 +214,7 @@ def count_wavefront(
             counters.peak_material_queue,
             max(lambertian_queue, max(metal_queue, dielectric_queue)),
         )
-        active_paths = next_paths^
+        swap(active_paths, next_paths)
 
     counters.depth_limited = len(active_paths)
     return counters^

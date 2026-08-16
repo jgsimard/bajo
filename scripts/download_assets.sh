@@ -11,6 +11,7 @@ mkdir -p \
   assets/igea \
   assets/nefertiti \
   assets/armadillo \
+  assets/pbrt/killeroos/geometry \
   .cache/assets
 
 # Bunny
@@ -95,5 +96,18 @@ if [ ! -f assets/armadillo/armadillo.obj ]; then
   curl -L --fail \
     -o assets/armadillo/armadillo.obj \
     https://raw.githubusercontent.com/alecjacobson/common-3d-test-models/master/data/armadillo.obj
+fi
+
+# PBRT-v4 Killeroo gallery scene. Model courtesy of headus; scene maintained
+# by the official pbrt-v4-scenes repository.
+if [ ! -f assets/pbrt/killeroos/killeroo-simple.pbrt ]; then
+  curl -L --fail \
+    -o assets/pbrt/killeroos/killeroo-simple.pbrt \
+    https://raw.githubusercontent.com/mmp/pbrt-v4-scenes/master/killeroos/killeroo-simple.pbrt
+fi
+if [ ! -f assets/pbrt/killeroos/geometry/killeroo.pbrt ]; then
+  curl -L --fail \
+    -o assets/pbrt/killeroos/geometry/killeroo.pbrt \
+    https://raw.githubusercontent.com/mmp/pbrt-v4-scenes/master/killeroos/geometry/killeroo.pbrt
 fi
 echo "Assets downloaded."

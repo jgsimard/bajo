@@ -1,0 +1,17 @@
+AttributeBegin
+NamedMaterial "white"
+Translate -1.05 0.75 -0.35
+Shape "sphere" "float radius" [0.75]
+AttributeEnd
+
+AttributeBegin
+NamedMaterial "metal"
+Translate 0.1 0.62 0.15
+Shape "sphere" "float radius" [0.62]
+AttributeEnd
+
+AttributeBegin
+NamedMaterial "glass"
+Translate 1.05 0.9 -0.55
+Shape "sphere" "float radius" [0.9]
+AttributeEnd

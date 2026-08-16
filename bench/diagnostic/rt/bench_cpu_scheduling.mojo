@@ -37,7 +37,6 @@ def run_schedule[
 ]:
     var result = render_depth_first[
         RENDER.PATH,
-        MAX_DEPTH,
         TILE_WIDTH,
         TILE_HEIGHT,
         SCHEDULER_MODE,
@@ -163,7 +162,7 @@ def main():
         "interleaved median of 7 after warmup; relative to original scanlines"
     )
 
-    var settings = RenderSettings(WIDTH, HEIGHT, SPP, RNG_SEED)
+    var settings = RenderSettings(WIDTH, HEIGHT, SPP, RNG_SEED, MAX_DEPTH)
     var sphere_world = make_weekend_world()
     var sphere_camera = weekend_camera()
     benchmark_world("Weekend spheres", settings, sphere_camera, sphere_world)

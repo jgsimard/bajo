@@ -47,7 +47,7 @@ def _bench_algorithm[
     world: GpuRtMixedWorld[NODE_WIDTH, LEAF_WIDTH],
     settings: RenderSettings,
 ) raises -> GpuRtBenchResult:
-    enqueue_render_gpu_mixed[ALGORITHM, MAX_DEPTH, NODE_WIDTH, LEAF_WIDTH](
+    enqueue_render_gpu_mixed[ALGORITHM, NODE_WIDTH, LEAF_WIDTH](
         ctx, target, world, settings
     )
     ctx.synchronize()
@@ -56,7 +56,7 @@ def _bench_algorithm[
     var render_times = List[Int](capacity=BENCH_REPEATS)
     for _ in range(BENCH_REPEATS):
         var render_t0 = perf_counter_ns()
-        enqueue_render_gpu_mixed[ALGORITHM, MAX_DEPTH, NODE_WIDTH, LEAF_WIDTH](
+        enqueue_render_gpu_mixed[ALGORITHM, NODE_WIDTH, LEAF_WIDTH](
             ctx, target, world, settings
         )
         var submit_t1 = perf_counter_ns()
@@ -77,7 +77,7 @@ def main() raises:
         return
 
     var settings = RenderSettings(
-        IMAGE_WIDTH, IMAGE_HEIGHT, SAMPLES_PER_PIXEL, RNG_SEED
+        IMAGE_WIDTH, IMAGE_HEIGHT, SAMPLES_PER_PIXEL, RNG_SEED, MAX_DEPTH
     )
     var world = make_mis_showcase_world()
     var sample_count = IMAGE_WIDTH * IMAGE_HEIGHT * SAMPLES_PER_PIXEL

@@ -191,7 +191,6 @@ def enqueue_gpu_wavefront[
     Scene: AnyType,
     //,
     ALGORITHM: RENDER,
-    MAX_DEPTH: Int,
     bounce_fn: def(
         DeviceContext,
         GpuWavefrontArena,
@@ -217,7 +216,6 @@ def enqueue_gpu_wavefront[
         RENDER.NEE,
         RENDER.MIS,
     )
-    comptime assert MAX_DEPTH >= 0
     var sample_begin = 0
     while sample_begin < target.sample_count:
         var chunk_sample_count = min(
@@ -240,7 +238,7 @@ def enqueue_gpu_wavefront[
             )
             enqueue_wavefront_advance(ctx, target.arena)
         else:
-            for bounce in range(MAX_DEPTH):
+            for bounce in range(settings.max_depth):
                 if bounce % 2 == 0:
                     bounce_fn(
                         ctx,

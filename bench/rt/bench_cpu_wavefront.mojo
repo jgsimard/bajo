@@ -84,18 +84,18 @@ struct WaveCounters:
 def time_wavefront[
     length: SIMDLength, ALGORITHM: RENDER = RENDER.PATH
 ](settings: RenderSettings, camera: Camera, world: World[]) -> WaveTiming:
-    var warmup = render_wavefront[
-        ALGORITHM, MAX_DEPTH, length, CHUNK_PATHS, False
-    ](settings, camera, world)
+    var warmup = render_wavefront[ALGORITHM, length, CHUNK_PATHS, False](
+        settings, camera, world
+    )
     var checksum = pixel_checksum(warmup.pixels)
     var total_times = List[Int](capacity=TIMING_REPEATS)
     var init_times = List[Int](capacity=TIMING_REPEATS)
     var render_times = List[Int](capacity=TIMING_REPEATS)
 
     for _ in range(TIMING_REPEATS):
-        var result = render_wavefront[
-            ALGORITHM, MAX_DEPTH, length, CHUNK_PATHS, False
-        ](settings, camera, world)
+        var result = render_wavefront[ALGORITHM, length, CHUNK_PATHS, False](
+            settings, camera, world
+        )
         var current_checksum = pixel_checksum(result.pixels)
         debug_assert["safe", _use_compiler_assume=True](
             current_checksum == checksum,
@@ -325,10 +325,10 @@ def main():
     print(t"counters: {COUNTER_WIDTH}x{COUNTER_HEIGHT} x {COUNTER_SPP} spp")
 
     var timing_settings = RenderSettings(
-        TIMING_WIDTH, TIMING_HEIGHT, TIMING_SPP, RNG_SEED
+        TIMING_WIDTH, TIMING_HEIGHT, TIMING_SPP, RNG_SEED, MAX_DEPTH
     )
     var counter_settings = RenderSettings(
-        COUNTER_WIDTH, COUNTER_HEIGHT, COUNTER_SPP, RNG_SEED
+        COUNTER_WIDTH, COUNTER_HEIGHT, COUNTER_SPP, RNG_SEED, MAX_DEPTH
     )
 
     var sphere_world = make_weekend_world()

@@ -204,7 +204,6 @@ def _enqueue_triangle_bounce[
 
 def enqueue_render_gpu_triangles[
     ALGORITHM: RENDER = RENDER.PATH,
-    MAX_DEPTH: Int = 8,
     node_width: SIMDLength = 8,
     leaf_width: SIMDLength = 4,
     MAX_BLOCKS: Int = GPU_RT_MAX_BLOCKS,
@@ -220,7 +219,6 @@ def enqueue_render_gpu_triangles[
     """Submit a triangle render asynchronously into `target.pixels`."""
     enqueue_gpu_wavefront[
         ALGORITHM,
-        MAX_DEPTH,
         _enqueue_triangle_bounce[
             ALGORITHM,
             node_width,
@@ -235,7 +233,6 @@ def enqueue_render_gpu_triangles[
 
 def render_gpu_triangles[
     ALGORITHM: RENDER = RENDER.PATH,
-    MAX_DEPTH: Int = 8,
     node_width: SIMDLength = 8,
     leaf_width: SIMDLength = 4,
     world_bvh_width: SIMDLength = 16,
@@ -255,7 +252,6 @@ def render_gpu_triangles[
         RENDER.NEE,
         RENDER.MIS,
     )
-    comptime assert MAX_DEPTH >= 0
     var total_t0 = perf_counter_ns()
     var pixel_count = settings.image_width * settings.image_height
     var sample_count = pixel_count * settings.samples_per_pixel
@@ -274,7 +270,6 @@ def render_gpu_triangles[
         var render_t0 = perf_counter_ns()
         enqueue_render_gpu_triangles[
             ALGORITHM,
-            MAX_DEPTH,
             node_width,
             leaf_width,
             GPU_RT_MAX_BLOCKS,
@@ -299,6 +294,6 @@ def render_gpu_triangles[
             render_ns,
             pixel_count,
             sample_count,
-            MAX_DEPTH,
+            settings.max_depth,
         ),
     )

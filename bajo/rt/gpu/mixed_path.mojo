@@ -224,7 +224,6 @@ def _enqueue_mixed_bounce[
 
 def enqueue_render_gpu_mixed[
     ALGORITHM: RENDER = RENDER.PATH,
-    MAX_DEPTH: Int = 8,
     node_width: SIMDLength = 4,
     leaf_width: SIMDLength = node_width,
     triangle_node_width: SIMDLength = 8,
@@ -248,7 +247,6 @@ def enqueue_render_gpu_mixed[
     """Submit a mixed static-geometry render into `target.pixels`."""
     enqueue_gpu_wavefront[
         ALGORITHM,
-        MAX_DEPTH,
         _enqueue_mixed_bounce[
             ALGORITHM,
             node_width,
@@ -263,7 +261,6 @@ def enqueue_render_gpu_mixed[
 
 def render_gpu_mixed[
     ALGORITHM: RENDER = RENDER.PATH,
-    MAX_DEPTH: Int = 8,
     node_width: SIMDLength = 4,
     leaf_width: SIMDLength = node_width,
     world_bvh_width: SIMDLength = 16,
@@ -286,7 +283,6 @@ def render_gpu_mixed[
         RENDER.NEE,
         RENDER.MIS,
     )
-    comptime assert MAX_DEPTH >= 0
     var total_t0 = perf_counter_ns()
     var pixel_count = settings.image_width * settings.image_height
     var sample_count = pixel_count * settings.samples_per_pixel
@@ -310,7 +306,6 @@ def render_gpu_mixed[
         var render_t0 = perf_counter_ns()
         enqueue_render_gpu_mixed[
             ALGORITHM,
-            MAX_DEPTH,
             node_width,
             leaf_width,
             triangle_node_width,
@@ -335,6 +330,6 @@ def render_gpu_mixed[
             render_ns,
             pixel_count,
             sample_count,
-            MAX_DEPTH,
+            settings.max_depth,
         ),
     )

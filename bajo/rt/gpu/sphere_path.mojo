@@ -184,7 +184,6 @@ def _enqueue_sphere_bounce[
 
 def enqueue_render_gpu_spheres[
     ALGORITHM: RENDER = RENDER.PATH,
-    MAX_DEPTH: Int = 8,
     node_width: SIMDLength = 4,
     leaf_width: SIMDLength = node_width,
 ](
@@ -196,14 +195,12 @@ def enqueue_render_gpu_spheres[
     """Submit a sphere render asynchronously into `target.pixels`."""
     enqueue_gpu_wavefront[
         ALGORITHM,
-        MAX_DEPTH,
         _enqueue_sphere_bounce[ALGORITHM, node_width, leaf_width],
     ](ctx, target, world, settings)
 
 
 def render_gpu_spheres[
     ALGORITHM: RENDER = RENDER.PATH,
-    MAX_DEPTH: Int = 8,
     node_width: SIMDLength = 4,
     leaf_width: SIMDLength = node_width,
     world_bvh_width: SIMDLength = 16,
@@ -221,7 +218,6 @@ def render_gpu_spheres[
         RENDER.NEE,
         RENDER.MIS,
     )
-    comptime assert MAX_DEPTH >= 0
     var total_t0 = perf_counter_ns()
     var pixel_count = settings.image_width * settings.image_height
     var sample_count = pixel_count * settings.samples_per_pixel
@@ -236,9 +232,7 @@ def render_gpu_spheres[
         init_ns = Int(perf_counter_ns() - init_t0)
 
         var render_t0 = perf_counter_ns()
-        enqueue_render_gpu_spheres[
-            ALGORITHM, MAX_DEPTH, node_width, leaf_width
-        ](
+        enqueue_render_gpu_spheres[ALGORITHM, node_width, leaf_width](
             ctx,
             target,
             gpu_world,
@@ -256,6 +250,6 @@ def render_gpu_spheres[
             render_ns,
             pixel_count,
             sample_count,
-            MAX_DEPTH,
+            settings.max_depth,
         ),
     )

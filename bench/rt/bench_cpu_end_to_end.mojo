@@ -97,18 +97,14 @@ def time_render[
     ALGORITHM: RENDER
 ](settings: RenderSettings, camera: Camera, world: World[]) -> TimingResult:
     # Warm all compiled code and renderer-owned allocations before measuring.
-    var warmup = render_depth_first[ALGORITHM, MAX_DEPTH](
-        settings, camera, world
-    )
+    var warmup = render_depth_first[ALGORITHM](settings, camera, world)
     var checksum = pixel_checksum(warmup.pixels)
     var total_times = List[Int](capacity=TIMING_REPEATS)
     var init_times = List[Int](capacity=TIMING_REPEATS)
     var render_times = List[Int](capacity=TIMING_REPEATS)
 
     for _ in range(TIMING_REPEATS):
-        var result = render_depth_first[ALGORITHM, MAX_DEPTH](
-            settings, camera, world
-        )
+        var result = render_depth_first[ALGORITHM](settings, camera, world)
         var current_checksum = pixel_checksum(result.pixels)
         debug_assert["safe", _use_compiler_assume=True](
             current_checksum == checksum, "render checksum changed between runs"
@@ -375,7 +371,7 @@ def main() raises:
     var triangle_cam = mixed_triangle_camera(triangle_world)
 
     var timing_settings = RenderSettings(
-        TIMING_WIDTH, TIMING_HEIGHT, TIMING_SPP, RNG_SEED
+        TIMING_WIDTH, TIMING_HEIGHT, TIMING_SPP, RNG_SEED, MAX_DEPTH
     )
     var sample_count = TIMING_WIDTH * TIMING_HEIGHT * TIMING_SPP
     print("\nEnd-to-end production renderer timings")
@@ -419,7 +415,7 @@ def main() raises:
     )
 
     var counter_settings = RenderSettings(
-        COUNTER_WIDTH, COUNTER_HEIGHT, COUNTER_SPP, RNG_SEED
+        COUNTER_WIDTH, COUNTER_HEIGHT, COUNTER_SPP, RNG_SEED, MAX_DEPTH
     )
     print("\nDeterministic workload counters (not included in timings)")
     print_path_counters(

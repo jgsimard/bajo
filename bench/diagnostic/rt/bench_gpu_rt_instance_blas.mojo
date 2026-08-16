@@ -115,7 +115,6 @@ def _bench_algorithm[
     comptime effective_width = 8 if compressed else blas_node_width
     enqueue_render_gpu_triangle_instances[
         ALGORITHM,
-        MAX_DEPTH,
         2,
         2,
         effective_width,
@@ -130,7 +129,6 @@ def _bench_algorithm[
         var t0 = perf_counter_ns()
         enqueue_render_gpu_triangle_instances[
             ALGORITHM,
-            MAX_DEPTH,
             2,
             2,
             effective_width,
@@ -204,7 +202,7 @@ def main() raises:
         print("GPU RT instanced-BLAS benchmark skipped: no accelerator")
         return
     var settings = RenderSettings(
-        IMAGE_WIDTH, IMAGE_HEIGHT, SAMPLES_PER_PIXEL, RNG_SEED
+        IMAGE_WIDTH, IMAGE_HEIGHT, SAMPLES_PER_PIXEL, RNG_SEED, MAX_DEPTH
     )
     var world = _dragon_instance_world()
     var sample_count = IMAGE_WIDTH * IMAGE_HEIGHT * SAMPLES_PER_PIXEL

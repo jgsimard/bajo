@@ -359,6 +359,7 @@ struct RenderSettings(Copyable, Writable):
     var image_height: Int
     var samples_per_pixel: Int
     var rng_seed: UInt64
+    var max_depth: Int
 
     def __init__(
         out self,
@@ -366,6 +367,7 @@ struct RenderSettings(Copyable, Writable):
         image_height: Int,
         samples_per_pixel: Int,
         rng_seed: UInt64,
+        max_depth: Int = 8,
     ):
         debug_assert["safe", _use_compiler_assume=True](
             image_width > 0, "image width must be positive"
@@ -376,11 +378,15 @@ struct RenderSettings(Copyable, Writable):
         debug_assert["safe", _use_compiler_assume=True](
             samples_per_pixel > 0, "samples per pixel must be positive"
         )
+        debug_assert["safe", _use_compiler_assume=True](
+            max_depth >= 0, "max depth must be non-negative"
+        )
 
         self.image_width = image_width
         self.image_height = image_height
         self.samples_per_pixel = samples_per_pixel
         self.rng_seed = rng_seed
+        self.max_depth = max_depth
 
 
 @fieldwise_init

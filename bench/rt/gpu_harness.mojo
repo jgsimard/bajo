@@ -156,7 +156,6 @@ def bench_gpu_triangle_algorithm[
 ) raises -> GpuRtBenchResult:
     enqueue_render_gpu_triangles[
         ALGORITHM,
-        MAX_DEPTH,
         node_width,
         leaf_width,
         MAX_BLOCKS,
@@ -172,7 +171,6 @@ def bench_gpu_triangle_algorithm[
         var render_t0 = perf_counter_ns()
         enqueue_render_gpu_triangles[
             ALGORITHM,
-            MAX_DEPTH,
             node_width,
             leaf_width,
             MAX_BLOCKS,

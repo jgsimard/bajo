@@ -37,8 +37,23 @@ from bench.rt.gpu_harness import (
     GpuRtBenchResult,
     finalize_gpu_rt_timings,
     gpu_rt_checksum,
-    print_gpu_rt_result,
 )
+from bench.bvh.reporting import TablePrinter
+
+
+@fieldwise_init
+struct TlasRtLayoutResult:
+    var label: String
+    var build_ns: Int
+    var path: GpuRtBenchResult
+    var ao: GpuRtBenchResult
+    var nee: GpuRtBenchResult
+    var mis: GpuRtBenchResult
+
+
+def _warm_world_build(mut ctx: DeviceContext, world: World[]) raises:
+    _ = GpuRtTriangleInstanceWorld[2, 4, 1, 4](ctx, world)
+    ctx.synchronize()
 
 
 def _instance_grid_world() -> World[]:
@@ -175,9 +190,8 @@ def _run_layout[
     mut target: GpuRtRenderTarget,
     world: World[],
     settings: RenderSettings,
-    sample_count: Int,
     label: String,
-) raises:
+) raises -> TlasRtLayoutResult:
     var t0 = perf_counter_ns()
     var gpu_world = GpuRtTriangleInstanceWorld[
         tlas_node_width,
@@ -189,56 +203,82 @@ def _run_layout[
         tlas_build_method,
     ](ctx, world)
     ctx.synchronize()
-    print(
-        t"\n{label}: build={round(ns_to_ms(Int(perf_counter_ns() - t0)), 3)} ms"
+    var build_ns = Int(perf_counter_ns() - t0)
+    var path = _bench_algorithm[
+        RENDER.PATH,
+        tlas_node_width,
+        tlas_leaf_width,
+        blas_node_width,
+        blas_leaf_width,
+        tlas_build_method,
+    ](ctx, target, gpu_world, settings)
+    var ao = _bench_algorithm[
+        RENDER.AO,
+        tlas_node_width,
+        tlas_leaf_width,
+        blas_node_width,
+        blas_leaf_width,
+        tlas_build_method,
+    ](ctx, target, gpu_world, settings)
+    var nee = _bench_algorithm[
+        RENDER.NEE,
+        tlas_node_width,
+        tlas_leaf_width,
+        blas_node_width,
+        blas_leaf_width,
+        tlas_build_method,
+    ](ctx, target, gpu_world, settings)
+    var mis = _bench_algorithm[
+        RENDER.MIS,
+        tlas_node_width,
+        tlas_leaf_width,
+        blas_node_width,
+        blas_leaf_width,
+        tlas_build_method,
+    ](ctx, target, gpu_world, settings)
+    return TlasRtLayoutResult(label, build_ns, path^, ao^, nee^, mis^)
+
+
+def _print_algorithm_row(
+    table: TablePrinter,
+    layout: String,
+    algorithm: String,
+    build_ns: Int,
+    result: GpuRtBenchResult,
+    sample_count: Int,
+) raises:
+    var throughput = (
+        Float64(sample_count) / Float64(result.median_render_ns) * 1.0e3
     )
-    print_gpu_rt_result(
-        "PATH",
-        _bench_algorithm[
-            RENDER.PATH,
-            tlas_node_width,
-            tlas_leaf_width,
-            blas_node_width,
-            blas_leaf_width,
-            tlas_build_method,
-        ](ctx, target, gpu_world, settings),
-        sample_count,
+    table.result_line(
+        layout=layout,
+        algorithm=algorithm,
+        build_ms=String(t"{round(ns_to_ms(build_ns), 3)}"),
+        submit_ms=String(t"{round(ns_to_ms(result.median_submit_ns), 3)}"),
+        render_ms=String(t"{round(ns_to_ms(result.median_render_ns), 3)}"),
+        min_ms=String(t"{round(ns_to_ms(result.min_render_ns), 3)}"),
+        max_ms=String(t"{round(ns_to_ms(result.max_render_ns), 3)}"),
+        Msample_s=String(t"{round(throughput, 3)}"),
+        checksum=String(t"{round(result.checksum, 3)}"),
     )
-    print_gpu_rt_result(
-        "AO",
-        _bench_algorithm[
-            RENDER.AO,
-            tlas_node_width,
-            tlas_leaf_width,
-            blas_node_width,
-            blas_leaf_width,
-            tlas_build_method,
-        ](ctx, target, gpu_world, settings),
-        sample_count,
+
+
+def _print_layout(
+    table: TablePrinter,
+    result: TlasRtLayoutResult,
+    sample_count: Int,
+) raises:
+    _print_algorithm_row(
+        table, result.label, "PATH", result.build_ns, result.path, sample_count
     )
-    print_gpu_rt_result(
-        "NEE",
-        _bench_algorithm[
-            RENDER.NEE,
-            tlas_node_width,
-            tlas_leaf_width,
-            blas_node_width,
-            blas_leaf_width,
-            tlas_build_method,
-        ](ctx, target, gpu_world, settings),
-        sample_count,
+    _print_algorithm_row(
+        table, result.label, "AO", result.build_ns, result.ao, sample_count
     )
-    print_gpu_rt_result(
-        "MIS",
-        _bench_algorithm[
-            RENDER.MIS,
-            tlas_node_width,
-            tlas_leaf_width,
-            blas_node_width,
-            blas_leaf_width,
-            tlas_build_method,
-        ](ctx, target, gpu_world, settings),
-        sample_count,
+    _print_algorithm_row(
+        table, result.label, "NEE", result.build_ns, result.nee, sample_count
+    )
+    _print_algorithm_row(
+        table, result.label, "MIS", result.build_ns, result.mis, sample_count
     )
 
 
@@ -259,43 +299,76 @@ def main() raises:
     with DeviceContext() as ctx:
         var target = GpuRtRenderTarget(ctx, settings, _camera())
         ctx.synchronize()
-        _run_layout[2, 2, 4, 4](
-            ctx,
-            target,
-            world,
-            settings,
-            sample_count,
-            "TLAS2/leaf2 BLAS4/leaf4",
+        _warm_world_build(ctx, world)
+        var rows = List[TlasRtLayoutResult]()
+        rows.append(
+            _run_layout[2, 1, 4, 4](
+                ctx,
+                target,
+                world,
+                settings,
+                "TLAS2/leaf1 BLAS4/leaf4",
+            )
         )
-        _run_layout[2, 2, 4, 4, GpuBvhBuildMethod.HPLOC](
-            ctx,
-            target,
-            world,
-            settings,
-            sample_count,
-            "H-PLOC TLAS2/leaf2 BLAS4/leaf4",
+        rows.append(
+            _run_layout[2, 2, 4, 4](
+                ctx,
+                target,
+                world,
+                settings,
+                "TLAS2/leaf2 BLAS4/leaf4",
+            )
         )
-        _run_layout[4, 4, 4, 4](
-            ctx,
-            target,
-            world,
-            settings,
-            sample_count,
-            "TLAS4/leaf4 BLAS4/leaf4",
+        rows.append(
+            _run_layout[2, 1, 4, 4, GpuBvhBuildMethod.HPLOC](
+                ctx,
+                target,
+                world,
+                settings,
+                "H-PLOC TLAS2/leaf1 BLAS4/leaf4",
+            )
         )
-        _run_layout[8, 4, 4, 4](
-            ctx,
-            target,
-            world,
-            settings,
-            sample_count,
-            "TLAS8/leaf4 BLAS4/leaf4",
+        rows.append(
+            _run_layout[4, 4, 4, 4](
+                ctx,
+                target,
+                world,
+                settings,
+                "TLAS4/leaf4 BLAS4/leaf4",
+            )
         )
-        _run_layout[8, 8, 4, 4](
-            ctx,
-            target,
-            world,
-            settings,
-            sample_count,
-            "TLAS8/leaf8 BLAS4/leaf4",
+        rows.append(
+            _run_layout[8, 4, 4, 4](
+                ctx,
+                target,
+                world,
+                settings,
+                "TLAS8/leaf4 BLAS4/leaf4",
+            )
         )
+        rows.append(
+            _run_layout[8, 8, 4, 4](
+                ctx,
+                target,
+                world,
+                settings,
+                "TLAS8/leaf8 BLAS4/leaf4",
+            )
+        )
+
+        var table = TablePrinter(
+            layout=32,
+            algorithm=9,
+            build_ms=9,
+            submit_ms=10,
+            render_ms=10,
+            min_ms=9,
+            max_ms=9,
+            Msample_s=11,
+            checksum=16,
+        )
+        print("\nResults")
+        table.header()
+        for i in range(len(rows)):
+            ref row = rows[i]
+            _print_layout(table, row, sample_count)

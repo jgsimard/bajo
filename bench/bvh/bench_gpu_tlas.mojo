@@ -42,6 +42,7 @@ from bench.bvh.reporting import (
     TablePrinter,
 )
 from bench.bvh.fixtures import make_camera_rays_and_params
+from bench.timing import summarize_timings
 
 
 comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"
@@ -269,7 +270,7 @@ def _bench_direct_triangle_camera[
     )
     ctx.synchronize()
 
-    var best_ns = Int.MAX
+    var timings_ns = List[Int](capacity=repeats)
     var checksum = Float64(0.0)
     var hits = UInt32(0)
 
@@ -285,13 +286,13 @@ def _bench_direct_triangle_camera[
         )
         ctx.synchronize()
         var t1 = perf_counter_ns()
-        best_ns = min(best_ns, Int(t1 - t0))
+        timings_ns.append(Int(t1 - t0))
 
         var downloaded = _download_direct_hit_checksum(d_hits, ray_count)
         checksum = downloaded[0]
         hits = downloaded[1]
 
-    return (best_ns, checksum, hits)
+    return (summarize_timings(timings_ns).median_ns, checksum, hits)
 
 
 def _bench_tlas_triangles_camera[
@@ -324,7 +325,7 @@ def _bench_tlas_triangles_camera[
     )
     ctx.synchronize()
 
-    var best_ns = Int.MAX
+    var timings_ns = List[Int](capacity=repeats)
     var checksum = Float64(0.0)
     var hits = UInt32(0)
     var inst_checksum = UInt64(0)
@@ -342,14 +343,19 @@ def _bench_tlas_triangles_camera[
         )
         ctx.synchronize()
         var t1 = perf_counter_ns()
-        best_ns = min(best_ns, Int(t1 - t0))
+        timings_ns.append(Int(t1 - t0))
 
         var downloaded = _download_tlas_hit_checksum(d_hits, ray_count)
         checksum = downloaded[0]
         hits = downloaded[1]
         inst_checksum = downloaded[2]
 
-    return (best_ns, checksum, hits, inst_checksum)
+    return (
+        summarize_timings(timings_ns).median_ns,
+        checksum,
+        hits,
+        inst_checksum,
+    )
 
 
 def _bench_direct_sphere_camera[
@@ -378,7 +384,7 @@ def _bench_direct_sphere_camera[
     )
     ctx.synchronize()
 
-    var best_ns = Int.MAX
+    var timings_ns = List[Int](capacity=repeats)
     var checksum = Float64(0.0)
     var hits = UInt32(0)
 
@@ -394,13 +400,13 @@ def _bench_direct_sphere_camera[
         )
         ctx.synchronize()
         var t1 = perf_counter_ns()
-        best_ns = min(best_ns, Int(t1 - t0))
+        timings_ns.append(Int(t1 - t0))
 
         var downloaded = _download_direct_hit_checksum(d_hits, ray_count)
         checksum = downloaded[0]
         hits = downloaded[1]
 
-    return (best_ns, checksum, hits)
+    return (summarize_timings(timings_ns).median_ns, checksum, hits)
 
 
 def _bench_tlas_spheres_camera[
@@ -433,7 +439,7 @@ def _bench_tlas_spheres_camera[
     )
     ctx.synchronize()
 
-    var best_ns = Int.MAX
+    var timings_ns = List[Int](capacity=repeats)
     var checksum = Float64(0.0)
     var hits = UInt32(0)
     var inst_checksum = UInt64(0)
@@ -451,14 +457,19 @@ def _bench_tlas_spheres_camera[
         )
         ctx.synchronize()
         var t1 = perf_counter_ns()
-        best_ns = min(best_ns, Int(t1 - t0))
+        timings_ns.append(Int(t1 - t0))
 
         var downloaded = _download_tlas_hit_checksum(d_hits, ray_count)
         checksum = downloaded[0]
         hits = downloaded[1]
         inst_checksum = downloaded[2]
 
-    return (best_ns, checksum, hits, inst_checksum)
+    return (
+        summarize_timings(timings_ns).median_ns,
+        checksum,
+        hits,
+        inst_checksum,
+    )
 
 
 def _print_blas_build_table_header():
@@ -1031,7 +1042,7 @@ def main() raises:
     print("GPU TLAS benchmark")
     print(t"Path: {DEFAULT_OBJ_PATH}")
     print(t"Image rays: {PRIMARY_WIDTH} x {PRIMARY_HEIGHT} x {PRIMARY_VIEWS}")
-    print(t"Repeats: {BENCH_REPEATS}")
+    print(t"Trace timing: median of {BENCH_REPEATS}")
 
     print("\nLoading + packing OBJ...")
     var load_t0 = perf_counter_ns()

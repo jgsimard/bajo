@@ -338,13 +338,16 @@ def main() raises:
         _run_layout[2, 2](
             ctx, target, world, settings, sample_count, "Independent TLAS2/2"
         )
-        _run_layout[2, 2, 8, 4, GpuBvhBuildMethod.HPLOC, True](
+        _run_layout[2, 1](
+            ctx, target, world, settings, sample_count, "Default TLAS2/1"
+        )
+        _run_layout[2, 1, 8, 4, GpuBvhBuildMethod.HPLOC, True](
             ctx,
             target,
             world,
             settings,
             sample_count,
-            "Default TLAS2/2 + H-PLOC CWBVH8 BLAS",
+            "Default TLAS2/1 + H-PLOC CWBVH8 BLAS",
         )
         _run_layout[8, 4](
             ctx, target, world, settings, sample_count, "Independent TLAS8/4"

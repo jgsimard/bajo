@@ -2,8 +2,19 @@ from std.math import max
 from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh.constants import WideNode
-from bajo.core import AABB, AxisAlignedBoundingBox, Frame, Rayf32
-from bajo.core.intersect import RayDistanceHit, intersect_ray_aabb_rcp
+from bajo.core import (
+    AABB,
+    AxisAlignedBoundingBox,
+    Frame,
+    Point3,
+    Rayf32,
+    Vec3,
+)
+from bajo.core.intersect import (
+    RayDistanceHit,
+    intersect_ray_aabb_octant_fma,
+    intersect_ray_aabb_rcp,
+)
 
 
 struct GpuWideBoundsBvh[
@@ -99,7 +110,6 @@ def _wide_node_store_child[
     wide_nodes.unsafe_bitcast[UInt32]()[
         unsafe_offset=base + WideNode.META
     ] = meta
-    wide_nodes[unsafe_offset=base + WideNode.PAD] = 0.0
 
 
 def _wide_node_load_meta[
@@ -158,5 +168,88 @@ def _intersect_wide_node[
         block._min,
         block._max,
         t_max,
+    )
+    return WideNodeIntersection[width](bounds_hit, meta)
+
+
+@always_inline
+def _intersect_wide_node_precomputed[
+    frame: Frame,
+    width: SIMDLength,
+](
+    wide_nodes: Pointer[mut=False, Float32, _],
+    node_idx: UInt32,
+    bounds_origin: Point3[DType.float32, frame, width],
+    rcp_direction: Vec3[DType.float32, frame, width],
+    t_max: Float32,
+) -> WideNodeIntersection[width]:
+    """Intersect a wide node with reciprocal direction cached per query."""
+    var block = AxisAlignedBoundingBox[DType.float32, frame, width].invalid()
+    var meta = SIMD[DType.uint32, width](0)
+
+    comptime for lane in range(width):
+        var base = _wide_node_base[width](node_idx, lane)
+        block._min.x[lane] = wide_nodes[unsafe_offset=base + WideNode.MIN_X]
+        block._min.y[lane] = wide_nodes[unsafe_offset=base + WideNode.MIN_Y]
+        block._min.z[lane] = wide_nodes[unsafe_offset=base + WideNode.MIN_Z]
+        block._max.x[lane] = wide_nodes[unsafe_offset=base + WideNode.MAX_X]
+        block._max.y[lane] = wide_nodes[unsafe_offset=base + WideNode.MAX_Y]
+        block._max.z[lane] = wide_nodes[unsafe_offset=base + WideNode.MAX_Z]
+        meta[lane] = wide_nodes.unsafe_bitcast[UInt32]()[
+            unsafe_offset=base + WideNode.META
+        ]
+
+    var bounds_hit = intersect_ray_aabb_rcp(
+        bounds_origin,
+        rcp_direction,
+        block,
+        SIMD[DType.float32, width](t_max),
+    )
+    return WideNodeIntersection[width](bounds_hit, meta)
+
+
+@always_inline
+def _intersect_wide_node_precomputed_octant[
+    frame: Frame,
+    width: SIMDLength,
+    positive_x: Bool,
+    positive_y: Bool,
+    positive_z: Bool,
+](
+    wide_nodes: Pointer[mut=False, Float32, _],
+    node_idx: UInt32,
+    origin_rcp_direction: Vec3[DType.float32, frame, width],
+    rcp_direction: Vec3[DType.float32, frame, width],
+    t_max: Float32,
+) -> WideNodeIntersection[width]:
+    """Intersect a wide node using ray data prepared once per query."""
+    var block = AxisAlignedBoundingBox[DType.float32, frame, width].invalid()
+    var meta = SIMD[DType.uint32, width](0)
+
+    comptime for lane in range(width):
+        var base = _wide_node_base[width](node_idx, lane)
+
+        block._min.x[lane] = wide_nodes[unsafe_offset=base + WideNode.MIN_X]
+        block._min.y[lane] = wide_nodes[unsafe_offset=base + WideNode.MIN_Y]
+        block._min.z[lane] = wide_nodes[unsafe_offset=base + WideNode.MIN_Z]
+        block._max.x[lane] = wide_nodes[unsafe_offset=base + WideNode.MAX_X]
+        block._max.y[lane] = wide_nodes[unsafe_offset=base + WideNode.MAX_Y]
+        block._max.z[lane] = wide_nodes[unsafe_offset=base + WideNode.MAX_Z]
+        meta[lane] = wide_nodes.unsafe_bitcast[UInt32]()[
+            unsafe_offset=base + WideNode.META
+        ]
+
+    var bounds_hit = intersect_ray_aabb_octant_fma[
+        DType.float32,
+        frame,
+        width,
+        positive_x,
+        positive_y,
+        positive_z,
+    ](
+        origin_rcp_direction,
+        rcp_direction,
+        block,
+        SIMD[DType.float32, width](t_max),
     )
     return WideNodeIntersection[width](bounds_hit, meta)

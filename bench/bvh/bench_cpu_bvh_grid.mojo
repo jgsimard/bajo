@@ -4,89 +4,17 @@ from std.time import perf_counter_ns
 from bajo.bvh.constants import TRACE, f32_max
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
-from bajo.core import Frame, Vec3f32, Point3f32, Rayf32
-from bench.bvh.bench_printing import TablePrinter
+from bajo.core import Frame, Point3f32, Rayf32
+from bench.bvh.fixtures import (
+    PRIM_COUNT,
+    RAY_COUNT,
+    make_grid_triangles,
+    make_hit_and_miss_rays,
+)
+from bench.bvh.reporting import TablePrinter
 
 
-comptime GRID_SIDE = 256
-comptime PRIM_COUNT = GRID_SIDE * GRID_SIDE
-comptime RAY_REPEATS_PER_PRIM = 4
-comptime RAY_COUNT = PRIM_COUNT * RAY_REPEATS_PER_PRIM
 comptime TRAVERSAL_REPEATS = 8
-
-
-def _grid_x(i: Int) -> Float32:
-    return (Float32(i % GRID_SIDE) - Float32(GRID_SIDE) * 0.5) * 3.0
-
-
-def _grid_y(i: Int) -> Float32:
-    return (Float32(i / GRID_SIDE) - Float32(GRID_SIDE) * 0.5) * 3.0
-
-
-def make_grid_triangles() -> List[Point3f32[Frame.WORLD]]:
-    var vertices = List[Point3f32[Frame.WORLD]](capacity=PRIM_COUNT * 3)
-
-    for i in range(PRIM_COUNT):
-        var cx = _grid_x(i)
-        var cy = _grid_y(i)
-
-        vertices.append(
-            Point3f32[Frame.WORLD](
-                cx - 0.75,
-                cy - 0.75,
-                2.0,
-            )
-        )
-        vertices.append(
-            Point3f32[Frame.WORLD](
-                cx + 0.75,
-                cy - 0.75,
-                2.0,
-            )
-        )
-        vertices.append(
-            Point3f32[Frame.WORLD](
-                cx,
-                cy + 0.75,
-                2.0,
-            )
-        )
-
-    return vertices^
-
-
-def make_hit_and_miss_rays() -> List[Rayf32[Frame.WORLD]]:
-    var rays = List[Rayf32[Frame.WORLD]](capacity=RAY_COUNT)
-
-    for i in range(RAY_COUNT):
-        var prim_idx = i % PRIM_COUNT
-
-        if i % RAY_REPEATS_PER_PRIM == 0:
-            # Deliberate miss.
-            rays.append(
-                Rayf32[Frame.WORLD](
-                    Point3f32[Frame.WORLD](
-                        10000.0 + Float32(i),
-                        10000.0,
-                        0.0,
-                    ),
-                    Vec3f32[Frame.WORLD](0.0, 0.0, 1.0),
-                )
-            )
-        else:
-            # Hit the corresponding grid primitive.
-            rays.append(
-                Rayf32[Frame.WORLD](
-                    Point3f32[Frame.WORLD](
-                        _grid_x(prim_idx),
-                        _grid_y(prim_idx),
-                        0.0,
-                    ),
-                    Vec3f32[Frame.WORLD](0.0, 0.0, 1.0),
-                )
-            )
-
-    return rays^
 
 
 @fieldwise_init

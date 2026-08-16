@@ -11,6 +11,10 @@ from bajo.core import (
 from bajo.core.intersect import intersect_ray_aabb_rcp
 from bajo.bvh.types import Hit, Instance, TypedBvh
 from bajo.bvh.constants import TRACE, EMPTY_LANE
+from bajo.bvh.tlas_common import (
+    finalize_tlas_hit_normal,
+    promote_tlas_local_hit,
+)
 from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvh,
     BoundsBvhBuilder,
@@ -205,8 +209,8 @@ struct Tlas[
                     ref hot_inst = self.hot_instances.unsafe_get(Int(inst_idx))
                     var local_ray_base = hot_inst.inv_transform.ray(ray, hit.t)
 
-                    # TODO: use this version when parametric raises are a thing in mojo
-                    # var local_ray = inst.inv_transform.ray(ray, hit.t)
+                    # Rebind Frame.LOCAL to the associated BLAS frame. Mojo
+                    # does not yet fold those equivalent types at this call.
                     var local_ray = Rayf32[typed_bvh.bvh_frame](
                         local_ray_base.o.unsafe_convert[
                             new_frame=typed_bvh.bvh_frame
@@ -226,18 +230,7 @@ struct Tlas[
                         if local_hit.is_occluded():
                             return True
                     else:
-                        if local_hit.is_hit() and local_hit.t < hit.t:
-                            hit.t = local_hit.t
-                            hit.u = local_hit.u
-                            hit.v = local_hit.v
-                            hit.prim = local_hit.prim
-                            hit.inst = inst_idx
-                            # Keep the current winner in BLAS-local space.
-                            # The final instance transforms it once after TLAS
-                            # traversal has selected the global closest hit.
-                            hit.normal = local_hit.normal.unsafe_convert[
-                                new_frame=Frame.WORLD
-                            ]()
+                        if promote_tlas_local_hit(local_hit, inst_idx, hit):
                             any_hit = True
 
             return any_hit
@@ -264,11 +257,6 @@ struct Tlas[
         comptime if mode == TRACE.CLOSEST_HIT:
             if hit.is_hit():
                 ref hot_inst = self.hot_instances.unsafe_get(Int(hit.inst))
-                hit.normal = Affine3f32[
-                    Frame.LOCAL, Frame.WORLD
-                ].normal_from_inverse(
-                    hit.normal.unsafe_convert[new_frame=Frame.LOCAL](),
-                    hot_inst.inv_transform,
-                )
+                finalize_tlas_hit_normal(hit, hot_inst.inv_transform)
 
         return hit

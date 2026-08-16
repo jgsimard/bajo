@@ -10,11 +10,11 @@ from bajo.bvh.host_utils import compute_bounds
 from bajo.core import Frame, Point3, Point3f32, Vec3, Rayf32
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.obj.pack import pack_obj_triangles
-from bench.bvh.bench_cpu_bvh_grid import (
+from bench.bvh.fixtures import (
+    make_camera_rays_and_params,
     make_grid_triangles,
     make_hit_and_miss_rays,
 )
-from bench.bvh.fixtures import make_camera_rays_and_params
 
 
 comptime OBJ_PATH = "./assets/dragon/dragon.obj"

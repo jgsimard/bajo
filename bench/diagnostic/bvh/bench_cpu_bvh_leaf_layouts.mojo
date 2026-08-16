@@ -1,3 +1,5 @@
+"""Diagnostic sweep of alternative CPU BVH leaf layouts."""
+
 from std.bit import count_trailing_zeros
 from std.math import abs, round
 from std.memory import pack_bits
@@ -32,11 +34,14 @@ from bajo.core.intersect import (
 )
 from bajo.core.utils import ns_to_mrays_per_s
 from bajo.obj.pack import pack_obj_triangles
-from bench.bvh.bench_cpu_bvh_grid import (
+from bench.bvh.fixtures import (
+    make_camera_rays_and_params,
     make_grid_triangles,
     make_hit_and_miss_rays,
+    permute_rays,
+    select_and_repeat_hit_rays,
 )
-from bench.bvh.fixtures import make_camera_rays_and_params
+from bench.timing import ratio
 
 
 comptime OBJ_PATH = "./assets/dragon/dragon.obj"
@@ -616,43 +621,16 @@ def collect_production_stats[
     return stats^
 
 
-def _ratio(numerator: Int, denominator: Int) -> Float64:
-    if denominator == 0:
-        return 0.0
-    return Float64(numerator) / Float64(denominator)
-
-
 def print_work(label: String, stats: CpuBvhTraversalStats) raises:
     print(
         t"    {label}:"
-        t" nodes/ray={round(_ratio(stats.internal_nodes, stats.rays), 3)},"
-        t" leaves/ray={round(_ratio(stats.leaf_blocks, stats.rays), 3)},"
+        t" nodes/ray={round(ratio(stats.internal_nodes, stats.rays), 3)},"
+        t" leaves/ray={round(ratio(stats.leaf_blocks, stats.rays), 3)},"
         t" valid"
-        t" tris/ray={round(_ratio(stats.valid_primitives, stats.rays), 3)},"
+        t" tris/ray={round(ratio(stats.valid_primitives, stats.rays), 3)},"
         t" visited"
-        t" occupancy={round(100.0 * _ratio(stats.valid_primitives, stats.primitive_packet_lanes), 2)}%"
+        t" occupancy={round(100.0 * ratio(stats.valid_primitives, stats.primitive_packet_lanes), 2)}%"
     )
-
-
-def permute_rays(rays: List[Rayf32[Frame.WORLD]]) -> List[Rayf32[Frame.WORLD]]:
-    var out = List[Rayf32[Frame.WORLD]](capacity=len(rays))
-    for i in range(len(rays)):
-        out.append(rays[(i * 104729) % len(rays)].copy())
-    return out^
-
-
-def select_and_repeat_hit_rays(
-    bvh: TriangleBvh[Frame.WORLD, WIDTH, WIDTH],
-    rays: List[Rayf32[Frame.WORLD]],
-) -> List[Rayf32[Frame.WORLD]]:
-    var hits = List[Rayf32[Frame.WORLD]](capacity=len(rays))
-    for ray in rays:
-        if bvh.trace[TRACE.CLOSEST_HIT](ray).is_hit():
-            hits.append(ray.copy())
-    var out = List[Rayf32[Frame.WORLD]](capacity=len(rays))
-    for i in range(len(rays)):
-        out.append(hits[i % len(hits)].copy())
-    return out^
 
 
 def print_layout_case[

@@ -192,7 +192,7 @@ struct Instance(Copyable):
         self.kind = kind
 
 
-# TODO: use paramatric traits when they will be finally introduced
+# TODO: use parametric traits when they become available.
 trait TypedBvh:
     comptime bvh_frame: Frame
 

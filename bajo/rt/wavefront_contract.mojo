@@ -13,34 +13,20 @@ from bajo.rt.wavefront_queue import (
 )
 
 
-# Execution stages are deliberately separate from RNG stages. All material
-# kernels for one bounce share the bounce's Philox subsequence.
-struct WAVE_STAGE:
-    comptime PRIMARY = UInt32(0)
-    comptime TRACE = UInt32(1)
-    comptime LAMBERTIAN = UInt32(2)
-    comptime METAL = UInt32(3)
-    comptime DIELECTRIC = UInt32(4)
-    comptime RESOLVE = UInt32(5)
-
-
 struct WAVE_COUNTER:
     comptime ACTIVE = 0
     comptime NEXT = 1
-    comptime LAMBERTIAN = 2
-    comptime METAL = 3
-    comptime DIELECTRIC = 4
-    comptime ESCAPED = 5
-    comptime ABSORBED = 6
-    comptime STATUS = 7
-    comptime COUNT = 8
+    comptime SHADE = 2
+    comptime SHADOW = 3
+    comptime STATUS = 4
+    comptime COUNT = 5
 
 
 struct WAVE_STATUS(Equatable, TrivialRegisterPassable, Writable):
-    # var v: UInt32
     comptime OK = UInt32(0)
     comptime PATH_OVERFLOW = UInt32(1)
     comptime SHADE_OVERFLOW = UInt32(2)
+    comptime SHADOW_OVERFLOW = UInt32(3)
 
 
 @fieldwise_init
@@ -66,7 +52,14 @@ struct WavePathFloatAbi:
     comptime TX = 8
     comptime TY = 9
     comptime TZ = 10
-    comptime PLANES = 11
+    comptime BSDF_PDF = 11
+    comptime PLANES = 12
+
+
+# The path queue owns the full UInt32 ID word, unlike material path references.
+# Pack the one-bit previous-event property into its otherwise unused high bit.
+comptime WAVE_PATH_DELTA_BIT = UInt32(0x80000000)
+comptime WAVE_PATH_ID_MASK = UInt32(0x7FFFFFFF)
 
 
 struct WaveShadeFloatAbi:
@@ -86,6 +79,23 @@ struct WaveSampleFloatAbi:
     comptime G = 1
     comptime B = 2
     comptime PLANES = 3
+
+
+struct WaveShadowFloatAbi:
+    """Field-major ray and deferred contribution planes for shadow work."""
+
+    comptime OX = 0
+    comptime OY = 1
+    comptime OZ = 2
+    comptime T_MIN = 3
+    comptime DX = 4
+    comptime DY = 5
+    comptime DZ = 6
+    comptime T_MAX = 7
+    comptime R = 8
+    comptime G = 9
+    comptime B = 10
+    comptime PLANES = 11
 
 
 @always_inline
@@ -139,6 +149,8 @@ struct DeviceWavePath(DevicePassable, TrivialRegisterPassable, Writable):
     var tx: Float32
     var ty: Float32
     var tz: Float32
+    var bsdf_pdf: Float32
+    var delta: Bool
 
     comptime device_type: AnyType = Self
 
@@ -166,6 +178,8 @@ struct DeviceWavePath(DevicePassable, TrivialRegisterPassable, Writable):
             path.throughput.x,
             path.throughput.y,
             path.throughput.z,
+            0.0,
+            True,
         )
 
     def to_path(self) -> WavePath:
@@ -232,6 +246,35 @@ struct DeviceWaveShade(DevicePassable, TrivialRegisterPassable, Writable):
         )
 
 
+@fieldwise_init
+struct DeviceWaveShadow(DevicePassable, TrivialRegisterPassable, Writable):
+    """Compact ray plus deferred radiance for one visibility query."""
+
+    var path_id: UInt32
+    var ox: Float32
+    var oy: Float32
+    var oz: Float32
+    var t_min: Float32
+    var dx: Float32
+    var dy: Float32
+    var dz: Float32
+    var t_max: Float32
+    var r: Float32
+    var g: Float32
+    var b: Float32
+
+    comptime device_type: AnyType = Self
+
+    def _to_device_type(
+        self, mut encoder: Some[DeviceTypeEncoder], target: MutOpaquePointer[_]
+    ):
+        encoder.encode(self, target)
+
+    @staticmethod
+    def get_type_name() -> String:
+        return "DeviceWaveShadow"
+
+
 @always_inline
 def load_device_wave_path(
     path_ids: Pointer[UInt32, ImmutAnyOrigin],
@@ -239,8 +282,9 @@ def load_device_wave_path(
     capacity: Int,
     idx: Int,
 ) -> DeviceWavePath:
+    var packed_path_id = path_ids[unsafe_offset=idx]
     return DeviceWavePath(
-        path_ids[unsafe_offset=idx],
+        packed_path_id & WAVE_PATH_ID_MASK,
         fields[
             unsafe_offset=wavefront_plane_index(
                 WavePathFloatAbi.OX, capacity, idx
@@ -296,6 +340,12 @@ def load_device_wave_path(
                 WavePathFloatAbi.TZ, capacity, idx
             )
         ],
+        fields[
+            unsafe_offset=wavefront_plane_index(
+                WavePathFloatAbi.BSDF_PDF, capacity, idx
+            )
+        ],
+        (packed_path_id & WAVE_PATH_DELTA_BIT) != 0,
     )
 
 
@@ -307,7 +357,9 @@ def store_device_wave_path(
     capacity: Int,
     idx: Int,
 ):
-    path_ids[unsafe_offset=idx] = path.path_id
+    path_ids[unsafe_offset=idx] = (path.path_id & WAVE_PATH_ID_MASK) | (
+        WAVE_PATH_DELTA_BIT if path.delta else UInt32(0)
+    )
     fields[
         unsafe_offset=wavefront_plane_index(WavePathFloatAbi.OX, capacity, idx)
     ] = path.ox
@@ -345,6 +397,11 @@ def store_device_wave_path(
     fields[
         unsafe_offset=wavefront_plane_index(WavePathFloatAbi.TZ, capacity, idx)
     ] = path.tz
+    fields[
+        unsafe_offset=wavefront_plane_index(
+            WavePathFloatAbi.BSDF_PDF, capacity, idx
+        )
+    ] = path.bsdf_pdf
 
 
 @always_inline
@@ -411,6 +468,151 @@ def store_device_wave_shade(
     ] = work.t
 
 
+@always_inline
+def load_device_wave_shadow[
+    LOAD_CONTRIBUTION: Bool = True
+](
+    path_ids: Pointer[UInt32, ImmutAnyOrigin],
+    fields: Pointer[Float32, ImmutAnyOrigin],
+    capacity: Int,
+    idx: Int,
+) -> DeviceWaveShadow:
+    var r = Float32(0.0)
+    var g = Float32(0.0)
+    var b = Float32(0.0)
+    comptime if LOAD_CONTRIBUTION:
+        r = fields[
+            unsafe_offset=wavefront_plane_index(
+                WaveShadowFloatAbi.R, capacity, idx
+            )
+        ]
+        g = fields[
+            unsafe_offset=wavefront_plane_index(
+                WaveShadowFloatAbi.G, capacity, idx
+            )
+        ]
+        b = fields[
+            unsafe_offset=wavefront_plane_index(
+                WaveShadowFloatAbi.B, capacity, idx
+            )
+        ]
+    return DeviceWaveShadow(
+        path_ids[unsafe_offset=idx],
+        fields[
+            unsafe_offset=wavefront_plane_index(
+                WaveShadowFloatAbi.OX, capacity, idx
+            )
+        ],
+        fields[
+            unsafe_offset=wavefront_plane_index(
+                WaveShadowFloatAbi.OY, capacity, idx
+            )
+        ],
+        fields[
+            unsafe_offset=wavefront_plane_index(
+                WaveShadowFloatAbi.OZ, capacity, idx
+            )
+        ],
+        fields[
+            unsafe_offset=wavefront_plane_index(
+                WaveShadowFloatAbi.T_MIN, capacity, idx
+            )
+        ],
+        fields[
+            unsafe_offset=wavefront_plane_index(
+                WaveShadowFloatAbi.DX, capacity, idx
+            )
+        ],
+        fields[
+            unsafe_offset=wavefront_plane_index(
+                WaveShadowFloatAbi.DY, capacity, idx
+            )
+        ],
+        fields[
+            unsafe_offset=wavefront_plane_index(
+                WaveShadowFloatAbi.DZ, capacity, idx
+            )
+        ],
+        fields[
+            unsafe_offset=wavefront_plane_index(
+                WaveShadowFloatAbi.T_MAX, capacity, idx
+            )
+        ],
+        r,
+        g,
+        b,
+    )
+
+
+@always_inline
+def store_device_wave_shadow[
+    STORE_CONTRIBUTION: Bool = True
+](
+    work: DeviceWaveShadow,
+    path_ids: Pointer[UInt32, MutAnyOrigin],
+    fields: Pointer[Float32, MutAnyOrigin],
+    capacity: Int,
+    idx: Int,
+):
+    path_ids[unsafe_offset=idx] = work.path_id
+    fields[
+        unsafe_offset=wavefront_plane_index(
+            WaveShadowFloatAbi.OX, capacity, idx
+        )
+    ] = work.ox
+    fields[
+        unsafe_offset=wavefront_plane_index(
+            WaveShadowFloatAbi.OY, capacity, idx
+        )
+    ] = work.oy
+    fields[
+        unsafe_offset=wavefront_plane_index(
+            WaveShadowFloatAbi.OZ, capacity, idx
+        )
+    ] = work.oz
+    fields[
+        unsafe_offset=wavefront_plane_index(
+            WaveShadowFloatAbi.T_MIN, capacity, idx
+        )
+    ] = work.t_min
+    fields[
+        unsafe_offset=wavefront_plane_index(
+            WaveShadowFloatAbi.DX, capacity, idx
+        )
+    ] = work.dx
+    fields[
+        unsafe_offset=wavefront_plane_index(
+            WaveShadowFloatAbi.DY, capacity, idx
+        )
+    ] = work.dy
+    fields[
+        unsafe_offset=wavefront_plane_index(
+            WaveShadowFloatAbi.DZ, capacity, idx
+        )
+    ] = work.dz
+    fields[
+        unsafe_offset=wavefront_plane_index(
+            WaveShadowFloatAbi.T_MAX, capacity, idx
+        )
+    ] = work.t_max
+    comptime if STORE_CONTRIBUTION:
+        fields[
+            unsafe_offset=wavefront_plane_index(
+                WaveShadowFloatAbi.R, capacity, idx
+            )
+        ] = work.r
+        fields[
+            unsafe_offset=wavefront_plane_index(
+                WaveShadowFloatAbi.G, capacity, idx
+            )
+        ] = work.g
+        fields[
+            unsafe_offset=wavefront_plane_index(
+                WaveShadowFloatAbi.B, capacity, idx
+            )
+        ] = work.b
+
+
 struct PackedWavePathQueue(Sized):
     """Host mirror of the field-major device path queue."""
 
@@ -445,7 +647,9 @@ struct PackedWavePathQueue(Sized):
         debug_assert["safe", _use_compiler_assume=True](
             idx >= 0 and idx < self.capacity
         )
-        self.path_ids[idx] = path.path_id
+        self.path_ids[idx] = (path.path_id & WAVE_PATH_ID_MASK) | (
+            WAVE_PATH_DELTA_BIT if path.delta else UInt32(0)
+        )
         self.fields[
             wavefront_plane_index(WavePathFloatAbi.OX, self.capacity, idx)
         ] = path.ox
@@ -479,13 +683,16 @@ struct PackedWavePathQueue(Sized):
         self.fields[
             wavefront_plane_index(WavePathFloatAbi.TZ, self.capacity, idx)
         ] = path.tz
+        self.fields[
+            wavefront_plane_index(WavePathFloatAbi.BSDF_PDF, self.capacity, idx)
+        ] = path.bsdf_pdf
 
     def get(self, idx: Int) -> WavePath:
         debug_assert["safe", _use_compiler_assume=True](
             idx >= 0 and idx < self.count
         )
         return DeviceWavePath(
-            self.path_ids[idx],
+            self.path_ids[idx] & WAVE_PATH_ID_MASK,
             self.fields[
                 wavefront_plane_index(WavePathFloatAbi.OX, self.capacity, idx)
             ],
@@ -523,6 +730,12 @@ struct PackedWavePathQueue(Sized):
             self.fields[
                 wavefront_plane_index(WavePathFloatAbi.TZ, self.capacity, idx)
             ],
+            self.fields[
+                wavefront_plane_index(
+                    WavePathFloatAbi.BSDF_PDF, self.capacity, idx
+                )
+            ],
+            (self.path_ids[idx] & WAVE_PATH_DELTA_BIT) != 0,
         ).to_path()
 
 

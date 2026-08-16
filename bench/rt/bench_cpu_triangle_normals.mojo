@@ -11,9 +11,9 @@ from bajo.rt.types import (
     World,
     ray_at,
 )
-from bench.rt.bench_cpu_any_hit import (
+from bench.rt.fixtures import (
     make_bounded_grid_rays,
-    make_triangle_world,
+    make_grid_triangle_world,
 )
 
 
@@ -118,7 +118,7 @@ def time_rays[
 def main() raises:
     print("CPU renderer standalone-triangle normal benchmark")
     print("identical BVH, rays, hit-record construction, and checksum")
-    var world = make_triangle_world()
+    var world = make_grid_triangle_world()
     var rays = make_bounded_grid_rays()
     var recomputed = time_rays[False](world, rays)
     var reused = time_rays[True](world, rays)

@@ -2,17 +2,9 @@ from std.math import max, round
 from std.time import perf_counter_ns
 
 from bajo.bvh.constants import f32_max
-from bajo.bvh.camera import Camera
-from bajo.bvh.host_utils import compute_bounds
 from bajo.core import (
-    AABB,
-    Affine3f32,
     Frame,
-    Point3f32,
-    Point3W,
     Rayf32,
-    Vec3f32,
-    Vec3W,
     normalize,
 )
 from bajo.core.random import Rng, random_in_unit_disk, random_on_hemisphere
@@ -22,21 +14,21 @@ from bajo.rt import (
     ShadingPoint,
     Camera,
     Color,
-    Instance,
     RenderSettings,
-    Sphere,
-    SurfaceId,
-    SurfaceStore,
     World,
-    add_triangle,
-    add_triangle_instance,
-    add_triangle_mesh_instance,
     render_depth_first,
 )
 from bajo.rt.cpu import sample_bsdf
 from bajo.rt.cpu.common import _russian_roulette
 from bajo.rt.types import MAT, PRIM
 from examples.rtiaw import make_weekend_world
+from bench.rt.cpu_harness import pixel_checksum
+from bench.rt.fixtures import (
+    make_mixed_triangle_world,
+    mixed_triangle_camera,
+    weekend_camera,
+)
+from bench.timing import ratio
 
 
 comptime TIMING_WIDTH = 960
@@ -48,7 +40,6 @@ comptime COUNTER_HEIGHT = 90
 comptime COUNTER_SPP = 2
 comptime MAX_DEPTH = 8
 comptime RNG_SEED = UInt64(2026)
-comptime TRIANGLE_GRID = 64
 
 
 @fieldwise_init
@@ -102,32 +93,6 @@ struct TraceCounters:
         self.bounce_rays = List[Int](length=MAX_DEPTH, fill=0)
 
 
-def ratio(numerator: Int, denominator: Int) -> Float64:
-    if denominator == 0:
-        return 0.0
-    return Float64(numerator) / Float64(denominator)
-
-
-def pixel_checksum(pixels: List[Vec3W]) -> Float64:
-    var checksum = 0.0
-    for i in range(len(pixels)):
-        ref p = pixels[i]
-        var weight = Float64((i % 251) + 1)
-        checksum += weight * (
-            Float64(p.x) + 2.0 * Float64(p.y) + 3.0 * Float64(p.z)
-        )
-    return checksum
-
-
-def sort_timings(mut values: List[Int]):
-    for i in range(len(values)):
-        for j in range(i + 1, len(values)):
-            if values[j] < values[i]:
-                var tmp = values[i]
-                values[i] = values[j]
-                values[j] = tmp
-
-
 def time_render[
     ALGORITHM: RENDER
 ](settings: RenderSettings, camera: Camera, world: World[]) -> TimingResult:
@@ -152,9 +117,9 @@ def time_render[
         init_times.append(result.timings.init_ns)
         render_times.append(result.timings.render_ns)
 
-    sort_timings(total_times)
-    sort_timings(init_times)
-    sort_timings(render_times)
+    sort(Span(total_times))
+    sort(Span(init_times))
+    sort(Span(render_times))
     var middle = (TIMING_REPEATS - 1) >> 1
     return TimingResult(
         total_times[middle],
@@ -388,133 +353,6 @@ def print_ao_counters(label: String, counters: TraceCounters):
     )
 
 
-def make_triangle_mesh() -> List[Point3f32[Frame.LOCAL]]:
-    var vertices = List[Point3f32[Frame.LOCAL]](
-        capacity=TRIANGLE_GRID * TRIANGLE_GRID * 6
-    )
-    var inv_grid = 1.0 / Float32(TRIANGLE_GRID)
-    for z in range(TRIANGLE_GRID):
-        for x in range(TRIANGLE_GRID):
-            var x0 = -0.9 + 1.8 * Float32(x) * inv_grid
-            var x1 = -0.9 + 1.8 * Float32(x + 1) * inv_grid
-            var z0 = -0.9 + 1.8 * Float32(z) * inv_grid
-            var z1 = -0.9 + 1.8 * Float32(z + 1) * inv_grid
-            var y00 = Float32(0.08) if (x + z) % 7 == 0 else Float32(0.0)
-            var y10 = Float32(0.08) if (x + 1 + z) % 7 == 0 else Float32(0.0)
-            var y01 = Float32(0.08) if (x + z + 1) % 7 == 0 else Float32(0.0)
-            var y11 = Float32(0.08) if (x + z + 2) % 7 == 0 else Float32(0.0)
-            var p00 = Point3f32[Frame.LOCAL](x0, y00, z0)
-            var p10 = Point3f32[Frame.LOCAL](x1, y10, z0)
-            var p01 = Point3f32[Frame.LOCAL](x0, y01, z1)
-            var p11 = Point3f32[Frame.LOCAL](x1, y11, z1)
-            vertices.append(p00)
-            vertices.append(p11)
-            vertices.append(p10)
-            vertices.append(p00)
-            vertices.append(p01)
-            vertices.append(p11)
-    return vertices^
-
-
-def make_triangle_world() -> World[]:
-    var surfaces = SurfaceStore()
-    var diffuse = surfaces.add_lambertian(Color(0.55, 0.32, 0.18))
-    var ground = surfaces.add_lambertian(Color(0.35, 0.38, 0.32))
-    var metal = surfaces.add_metal(Color(0.75, 0.78, 0.82), 0.12)
-    var glass = surfaces.add_dielectric(1.45)
-    var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId[1]]()
-    var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId[1]]()
-    var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
-    var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId[1]]()
-
-    add_triangle(
-        triangle_vertices,
-        triangle_surfaces,
-        Point3W(-7.0, -0.2, -7.0),
-        Point3W(7.0, -0.2, 7.0),
-        Point3W(7.0, -0.2, -7.0),
-        ground,
-    )
-    add_triangle(
-        triangle_vertices,
-        triangle_surfaces,
-        Point3W(-7.0, -0.2, -7.0),
-        Point3W(-7.0, -0.2, 7.0),
-        Point3W(7.0, -0.2, 7.0),
-        ground,
-    )
-
-    var mesh = make_triangle_mesh()
-    var mesh_bounds = compute_bounds(mesh)
-    var first_transform = Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(
-        Vec3f32[Frame.WORLD](-4.0, 0.0, -4.0)
-    )
-    var mesh_idx = add_triangle_mesh_instance(
-        triangle_meshes,
-        triangle_instances,
-        triangle_instance_surfaces,
-        mesh,
-        first_transform,
-        mesh_bounds,
-        diffuse,
-    )
-    for iz in range(5):
-        for ix in range(5):
-            if ix == 0 and iz == 0:
-                continue
-            var transform = Affine3f32[
-                Frame.LOCAL, Frame.WORLD
-            ].from_translation(
-                Vec3f32[Frame.WORLD](
-                    Float32(ix) * 2.0 - 4.0,
-                    0.0,
-                    Float32(iz) * 2.0 - 4.0,
-                )
-            )
-            var selector = (ix + 2 * iz) % 5
-            var surface = diffuse.copy()
-            if selector == 1:
-                surface = metal.copy()
-            elif selector == 2:
-                surface = glass.copy()
-            add_triangle_instance(
-                triangle_instances,
-                triangle_instance_surfaces,
-                mesh_idx,
-                transform,
-                mesh_bounds,
-                surface,
-            )
-
-    return World[](
-        spheres^,
-        sphere_surfaces^,
-        triangle_vertices^,
-        triangle_surfaces^,
-        triangle_meshes^,
-        triangle_instances^,
-        triangle_instance_surfaces^,
-        surfaces^,
-    )
-
-
-def triangle_camera(world: World[]) -> Camera:
-    var bounds = AABB[Frame.WORLD].invalid()
-    for inst in world.triangle_instances:
-        bounds.grow(inst.bounds)
-    var center = bounds.centroid()
-    var extent = bounds.extent()
-    var scene_w = max(extent.x, extent.z)
-    if scene_w < 1.0:
-        scene_w = 1.0
-    var eye = Point3W(center.x, center.y + scene_w * 0.78, center.z + scene_w)
-    var target = Point3W(center.x, center.y, center.z)
-    return Camera.from_vfov(eye, target, Vec3W(0.0, 1.0, 0.0), 44.0)
-
-
 def main() raises:
     print("CPU ray tracer end-to-end benchmark and deterministic counters")
     print(
@@ -529,19 +367,12 @@ def main() raises:
     var sphere_build_t0 = perf_counter_ns()
     var sphere_world = make_weekend_world()
     var sphere_build_ns = Int(perf_counter_ns() - sphere_build_t0)
-    var sphere_camera = Camera.from_vfov(
-        Point3W(13.0, 2.0, 3.0),
-        Point3W(0.0, 0.0, 0.0),
-        Vec3W(0.0, 1.0, 0.0),
-        20.0,
-        10.0,
-        0.6,
-    )
+    var sphere_camera = weekend_camera()
 
     var triangle_build_t0 = perf_counter_ns()
-    var triangle_world = make_triangle_world()
+    var triangle_world = make_mixed_triangle_world()
     var triangle_build_ns = Int(perf_counter_ns() - triangle_build_t0)
-    var triangle_cam = triangle_camera(triangle_world)
+    var triangle_cam = mixed_triangle_camera(triangle_world)
 
     var timing_settings = RenderSettings(
         TIMING_WIDTH, TIMING_HEIGHT, TIMING_SPP, RNG_SEED

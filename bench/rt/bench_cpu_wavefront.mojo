@@ -18,11 +18,11 @@ from bajo.rt.cpu.common import _path_stage_rng, _russian_roulette
 from bajo.rt.cpu.wavefront.primary import _initialize_path_packets_range
 from bajo.rt.wavefront_queue import PacketPathQueue, PathPacket
 from bajo.rt.types import MAT
-from bench.rt.bench_cpu_end_to_end import (
-    make_triangle_world,
-    pixel_checksum,
-    sort_timings,
-    triangle_camera,
+from bench.rt.cpu_harness import pixel_checksum
+from bench.rt.fixtures import (
+    make_mixed_triangle_world,
+    mixed_triangle_camera,
+    weekend_camera,
 )
 from examples.cornell_box import make_cornell_world
 from examples.rtiaw import make_weekend_world
@@ -105,9 +105,9 @@ def time_wavefront[
         init_times.append(result.timings.init_ns)
         render_times.append(result.timings.render_ns)
 
-    sort_timings(total_times)
-    sort_timings(init_times)
-    sort_timings(render_times)
+    sort(Span(total_times))
+    sort(Span(init_times))
+    sort(Span(render_times))
     var middle = (TIMING_REPEATS - 1) >> 1
     return WaveTiming(
         total_times[middle],
@@ -332,14 +332,7 @@ def main():
     )
 
     var sphere_world = make_weekend_world()
-    var sphere_camera = Camera.from_vfov(
-        Point3W(13.0, 2.0, 3.0),
-        Point3W(0.0, 0.0, 0.0),
-        Vec3W(0.0, 1.0, 0.0),
-        20.0,
-        10.0,
-        0.6,
-    )
+    var sphere_camera = weekend_camera()
     benchmark_scene(
         "Weekend spheres",
         timing_settings,
@@ -348,8 +341,8 @@ def main():
         sphere_world,
     )
 
-    var triangle_world = make_triangle_world()
-    var triangle_cam = triangle_camera(triangle_world)
+    var triangle_world = make_mixed_triangle_world()
+    var triangle_cam = mixed_triangle_camera(triangle_world)
     benchmark_scene(
         "Mixed triangles",
         timing_settings,

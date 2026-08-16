@@ -1,7 +1,112 @@
 from std.math import max
 
-from bajo.core import AABB, Frame, Vec3f32, Rayf32
+from bajo.bvh.constants import TRACE
 from bajo.bvh.camera import Camera
+from bajo.bvh.cpu.triangle_bvh import TriangleBvh
+from bajo.core import AABB, Frame, Point3f32, Rayf32, Vec3f32
+
+
+comptime GRID_SIDE = 256
+comptime PRIM_COUNT = GRID_SIDE * GRID_SIDE
+comptime RAY_REPEATS_PER_PRIM = 4
+comptime RAY_COUNT = PRIM_COUNT * RAY_REPEATS_PER_PRIM
+comptime DEPTH_LAYER_COUNT = 4096
+comptime DEPTH_STRESS_RAY_COUNT = 512 * 288
+
+
+def _grid_x(i: Int) -> Float32:
+    return (Float32(i % GRID_SIDE) - Float32(GRID_SIDE) * 0.5) * 3.0
+
+
+def _grid_y(i: Int) -> Float32:
+    return (Float32(i / GRID_SIDE) - Float32(GRID_SIDE) * 0.5) * 3.0
+
+
+def make_grid_triangles() -> List[Point3f32[Frame.WORLD]]:
+    var vertices = List[Point3f32[Frame.WORLD]](capacity=PRIM_COUNT * 3)
+    for i in range(PRIM_COUNT):
+        var cx = _grid_x(i)
+        var cy = _grid_y(i)
+        vertices.append(Point3f32[Frame.WORLD](cx - 0.75, cy - 0.75, 2.0))
+        vertices.append(Point3f32[Frame.WORLD](cx + 0.75, cy - 0.75, 2.0))
+        vertices.append(Point3f32[Frame.WORLD](cx, cy + 0.75, 2.0))
+    return vertices^
+
+
+def make_hit_and_miss_rays() -> List[Rayf32[Frame.WORLD]]:
+    var rays = List[Rayf32[Frame.WORLD]](capacity=RAY_COUNT)
+    for i in range(RAY_COUNT):
+        var prim_idx = i % PRIM_COUNT
+        if i % RAY_REPEATS_PER_PRIM == 0:
+            rays.append(
+                Rayf32[Frame.WORLD](
+                    Point3f32[Frame.WORLD](10000.0 + Float32(i), 10000.0, 0.0),
+                    Vec3f32[Frame.WORLD](0.0, 0.0, 1.0),
+                )
+            )
+        else:
+            rays.append(
+                Rayf32[Frame.WORLD](
+                    Point3f32[Frame.WORLD](
+                        _grid_x(prim_idx), _grid_y(prim_idx), 0.0
+                    ),
+                    Vec3f32[Frame.WORLD](0.0, 0.0, 1.0),
+                )
+            )
+    return rays^
+
+
+def make_depth_overlap_triangles() -> List[Point3f32[Frame.WORLD]]:
+    """Separated depth layers whose bounds all overlap benchmark rays."""
+    var vertices = List[Point3f32[Frame.WORLD]](capacity=DEPTH_LAYER_COUNT * 3)
+    for i in range(DEPTH_LAYER_COUNT):
+        var z = 2.0 + 0.01 * Float32(i)
+        vertices.append(Point3f32[Frame.WORLD](-4.0, -4.0, z))
+        vertices.append(Point3f32[Frame.WORLD](4.0, -4.0, z))
+        vertices.append(Point3f32[Frame.WORLD](0.0, 4.0, z))
+    return vertices^
+
+
+def make_depth_overlap_rays() -> List[Rayf32[Frame.WORLD]]:
+    var rays = List[Rayf32[Frame.WORLD]](capacity=DEPTH_STRESS_RAY_COUNT)
+    for i in range(DEPTH_STRESS_RAY_COUNT):
+        var x = (Float32(i % 256) / 255.0 - 0.5) * 0.5
+        var y = (Float32((i / 256) % 256) / 255.0 - 0.5) * 0.5
+        rays.append(
+            Rayf32[Frame.WORLD](
+                Point3f32[Frame.WORLD](x, y, 0.0),
+                Vec3f32[Frame.WORLD](0.0, 0.0, 1.0),
+            )
+        )
+    return rays^
+
+
+def permute_rays(
+    rays: List[Rayf32[Frame.WORLD]],
+) -> List[Rayf32[Frame.WORLD]]:
+    """Return a deterministic cache-unfriendly permutation."""
+    var permuted = List[Rayf32[Frame.WORLD]](capacity=len(rays))
+    for i in range(len(rays)):
+        permuted.append(rays[(i * 104729) % len(rays)].copy())
+    return permuted^
+
+
+def select_and_repeat_hit_rays(
+    bvh: TriangleBvh[Frame.WORLD, 16, 16],
+    rays: List[Rayf32[Frame.WORLD]],
+) -> List[Rayf32[Frame.WORLD]]:
+    """Retain hit rays in order and repeat them to the original count."""
+    var hit_rays = List[Rayf32[Frame.WORLD]](capacity=len(rays))
+    for ray in rays:
+        if bvh.trace[TRACE.CLOSEST_HIT](ray).is_hit():
+            hit_rays.append(ray.copy())
+    debug_assert["safe", _use_compiler_assume=True](
+        len(hit_rays) > 0, "high-hit benchmark found no intersections"
+    )
+    var repeated = List[Rayf32[Frame.WORLD]](capacity=len(rays))
+    for i in range(len(rays)):
+        repeated.append(hit_rays[i % len(hit_rays)].copy())
+    return repeated^
 
 
 def make_camera_rays_and_params(

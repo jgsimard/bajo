@@ -11,6 +11,7 @@ from bajo.bvh.host_utils import compute_bounds
 from bajo.core import (
     Affine3f32,
     Frame,
+    Vec3,
     Vec3f32,
     assert_vec_equal,
     dot,
@@ -24,7 +25,10 @@ from bajo.rt import (
     Dielectric,
     Instance,
     Lambertian,
+    LightRecord,
+    LightStore,
     Metal,
+    PrimitiveId,
     RENDER,
     RenderSettings,
     ShadingPoint,
@@ -47,6 +51,11 @@ from bajo.rt import (
 from examples.cornell_box import make_cornell_world
 from bajo.rt.cpu import reflect, reflectance
 from bajo.rt.cpu.common import _path_stage_rng, _russian_roulette
+from bajo.rt.geometry import (
+    orient_surface_normal,
+    sphere_for_acceleration,
+    sphere_unsigned_radius,
+)
 from bajo.rt.types import MAT, PRIM
 
 
@@ -56,6 +65,38 @@ def _front_point() -> ShadingPoint[1]:
         Vec3f32[Frame.WORLD](0.0, 0.0, 1.0),
         True,
     )
+
+
+def test_orient_surface_normal_is_width_generic() raises:
+    var scalar = orient_surface_normal(
+        Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
+        Vec3f32[Frame.WORLD](0.0, 0.0, 1.0),
+    )
+    assert_true(scalar.front_face)
+    assert_vec_equal(scalar.normal, Vec3f32[Frame.WORLD](0.0, 0.0, 1.0))
+
+    var directions = Vec3[DType.float32, Frame.WORLD, 2](
+        SIMD[DType.float32, 2](0.0),
+        SIMD[DType.float32, 2](0.0),
+        SIMD[DType.float32, 2](-1.0, 1.0),
+    )
+    var outward = Vec3[DType.float32, Frame.WORLD, 2](0.0, 0.0, 1.0)
+    var packet = orient_surface_normal(directions, outward)
+    assert_true(packet.front_face[0])
+    assert_false(packet.front_face[1])
+    assert_almost_equal(packet.normal.z[0], 1.0)
+    assert_almost_equal(packet.normal.z[1], -1.0)
+
+
+def test_signed_sphere_acceleration_policy() raises:
+    var sphere = Sphere[Frame.WORLD](
+        Point3f32[Frame.WORLD](1.0, 2.0, 3.0), -2.5
+    )
+    var acceleration = sphere_for_acceleration(sphere)
+    assert_almost_equal(sphere_unsigned_radius(sphere), 2.5)
+    assert_almost_equal(acceleration.radius, 2.5)
+    assert_vec_equal(acceleration.center, sphere.center)
+    assert_almost_equal(sphere.radius, -2.5)
 
 
 def test_reflect_and_reflectance() raises:
@@ -92,6 +133,36 @@ def test_surface_hit_is_width_generic() raises:
     assert_almost_equal(lane.t, 4.5)
     assert_false(lane.front_face)
     assert_true(lane.hit)
+
+
+def test_light_alias_table_matches_power_distribution() raises:
+    var lights = LightStore()
+    var surface = SurfaceId(MAT.EMISSIVE, UInt32(0))
+    lights.append(
+        LightRecord(PrimitiveId(PRIM.SPHERE, UInt32(0)), surface.copy(), 1.0)
+    )
+    lights.append(
+        LightRecord(PrimitiveId(PRIM.SPHERE, UInt32(1)), surface.copy(), 3.0)
+    )
+    lights.append(
+        LightRecord(PrimitiveId(PRIM.SPHERE, UInt32(2)), surface.copy(), 6.0)
+    )
+    lights.build_alias_table()
+
+    assert_equal(len(lights.alias_probabilities), 3)
+    assert_equal(len(lights.alias_indices), 3)
+    var reconstructed = List[Float32](length=3, fill=0.0)
+    for column in range(3):
+        var probability = lights.alias_probabilities[column]
+        var alias_idx = Int(lights.alias_indices[column])
+        assert_true(probability >= 0.0 and probability <= 1.0)
+        assert_true(alias_idx >= 0 and alias_idx < 3)
+        reconstructed[column] += probability / 3.0
+        reconstructed[alias_idx] += (1.0 - probability) / 3.0
+
+    assert_almost_equal(reconstructed[0], 0.1, atol=1.0e-6)
+    assert_almost_equal(reconstructed[1], 0.3, atol=1.0e-6)
+    assert_almost_equal(reconstructed[2], 0.6, atol=1.0e-6)
 
 
 def test_wavefront_philox_streams_are_deterministic_and_separate() raises:

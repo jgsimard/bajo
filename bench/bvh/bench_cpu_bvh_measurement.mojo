@@ -8,19 +8,22 @@ from bajo.bvh.host_utils import compute_bounds
 from bajo.core import Frame, Point3f32, Vec3f32, Rayf32
 from bajo.core.utils import ns_to_mrays_per_s
 from bajo.obj.pack import pack_obj_triangles
-from bench.bvh.bench_cpu_bvh_grid import (
+from bench.bvh.fixtures import (
+    make_camera_rays_and_params,
+    make_depth_overlap_rays,
+    make_depth_overlap_triangles,
     make_grid_triangles,
     make_hit_and_miss_rays,
+    permute_rays,
+    select_and_repeat_hit_rays,
 )
-from bench.bvh.fixtures import make_camera_rays_and_params
+from bench.timing import ratio
 
 
 comptime OBJ_PATH = "./assets/dragon/dragon.obj"
 comptime RAY_WIDTH = 512
 comptime RAY_HEIGHT = 288
 comptime TIMING_REPEATS = 4
-comptime DEPTH_LAYER_COUNT = 4096
-comptime DEPTH_STRESS_RAY_COUNT = RAY_WIDTH * RAY_HEIGHT
 
 
 @fieldwise_init
@@ -28,12 +31,6 @@ struct TimingResult(Copyable):
     var ns: Int
     var checksum: Float64
     var hits: Int
-
-
-def _ratio(numerator: Int, denominator: Int) -> Float64:
-    if denominator == 0:
-        return 0.0
-    return Float64(numerator) / Float64(denominator)
 
 
 def trace_normal[
@@ -96,67 +93,6 @@ def collect_stats[
     return (checksum, hits)
 
 
-def select_and_repeat_hit_rays(
-    bvh: TriangleBvh[Frame.WORLD, 16, 16],
-    rays: List[Rayf32[Frame.WORLD]],
-) -> List[Rayf32[Frame.WORLD]]:
-    """Retain successful camera rays in scanline order, then repeat them.
-
-    Repetition restores the original timing sample count without changing the
-    spatial ordering within each pass over the visible surface.
-    """
-    var hit_rays = List[Rayf32[Frame.WORLD]](capacity=len(rays))
-    for ray in rays:
-        if bvh.trace[TRACE.CLOSEST_HIT](ray).is_hit():
-            hit_rays.append(ray.copy())
-
-    debug_assert["safe", _use_compiler_assume=True](
-        len(hit_rays) > 0, "high-hit benchmark found no Dragon intersections"
-    )
-
-    var repeated = List[Rayf32[Frame.WORLD]](capacity=len(rays))
-    for i in range(len(rays)):
-        repeated.append(hit_rays[i % len(hit_rays)].copy())
-    return repeated^
-
-
-def make_depth_overlap_triangles() -> List[Point3f32[Frame.WORLD]]:
-    """Separated depth layers whose bounds all overlap the benchmark rays."""
-    var vertices = List[Point3f32[Frame.WORLD]](capacity=DEPTH_LAYER_COUNT * 3)
-    for i in range(DEPTH_LAYER_COUNT):
-        var z = 2.0 + 0.01 * Float32(i)
-        vertices.append(Point3f32[Frame.WORLD](-4.0, -4.0, z))
-        vertices.append(Point3f32[Frame.WORLD](4.0, -4.0, z))
-        vertices.append(Point3f32[Frame.WORLD](0.0, 4.0, z))
-    return vertices^
-
-
-def make_depth_overlap_rays() -> List[Rayf32[Frame.WORLD]]:
-    var rays = List[Rayf32[Frame.WORLD]](capacity=DEPTH_STRESS_RAY_COUNT)
-    for i in range(DEPTH_STRESS_RAY_COUNT):
-        var x = (Float32(i % 256) / 255.0 - 0.5) * 0.5
-        var y = (Float32((i / 256) % 256) / 255.0 - 0.5) * 0.5
-        rays.append(
-            Rayf32[Frame.WORLD](
-                Point3f32[Frame.WORLD](x, y, 0.0),
-                Vec3f32[Frame.WORLD](0.0, 0.0, 1.0),
-            )
-        )
-    return rays^
-
-
-def permute_rays(
-    rays: List[Rayf32[Frame.WORLD]],
-) -> List[Rayf32[Frame.WORLD]]:
-    """Return a deterministic cache-unfriendly permutation of the same rays."""
-    # 104729 is prime and coprime to both benchmark ray counts.
-    var permuted = List[Rayf32[Frame.WORLD]](capacity=len(rays))
-    for i in range(len(rays)):
-        var source_idx = (i * 104729) % len(rays)
-        permuted.append(rays[source_idx].copy())
-    return permuted^
-
-
 def print_timing(label: String, result: TimingResult, ray_count: Int) raises:
     print(
         t"  {label}: {round(ns_to_mrays_per_s(result.ns, ray_count), 3)} MRay/s"
@@ -167,63 +103,62 @@ def print_stats(label: String, stats: CpuBvhTraversalStats) raises:
     print(t"\n{label} traversal counters ({stats.rays} rays)")
     print(
         t"  internal nodes/ray:"
-        t" {round(_ratio(stats.internal_nodes, stats.rays), 3)}"
+        t" {round(ratio(stats.internal_nodes, stats.rays), 3)}"
     )
     print(
         t"  nodes producing hits/ray:"
-        t" {round(_ratio(stats.nodes_with_hits, stats.rays), 3)}"
+        t" {round(ratio(stats.nodes_with_hits, stats.rays), 3)}"
     )
     print(
         t"  AABB packet lanes/ray:"
-        t" {round(_ratio(stats.aabb_packet_lanes, stats.rays), 3)}"
+        t" {round(ratio(stats.aabb_packet_lanes, stats.rays), 3)}"
     )
     print(
         t"  active child lanes/node:"
-        t" {round(_ratio(stats.active_child_lanes, stats.internal_nodes), 3)}"
+        t" {round(ratio(stats.active_child_lanes, stats.internal_nodes), 3)}"
     )
     print(
         t"  intersected child lanes/node:"
-        t" {round(_ratio(stats.aabb_hit_lanes, stats.internal_nodes), 3)}"
+        t" {round(ratio(stats.aabb_hit_lanes, stats.internal_nodes), 3)}"
     )
     print(
         t"  AABB packet occupancy:"
-        t" {round(100.0 * _ratio(stats.active_child_lanes, stats.aabb_packet_lanes), 2)}%"
+        t" {round(100.0 * ratio(stats.active_child_lanes, stats.aabb_packet_lanes), 2)}%"
     )
     print(
-        t"  leaf blocks/ray: {round(_ratio(stats.leaf_blocks, stats.rays), 3)}"
+        t"  leaf blocks/ray: {round(ratio(stats.leaf_blocks, stats.rays), 3)}"
     )
     print(
         t"  valid primitives/visited leaf:"
-        t" {round(_ratio(stats.valid_primitives, stats.leaf_blocks), 3)}"
+        t" {round(ratio(stats.valid_primitives, stats.leaf_blocks), 3)}"
     )
     print(
         t"  primitive packet occupancy:"
-        t" {round(100.0 * _ratio(stats.valid_primitives, stats.primitive_packet_lanes), 2)}%"
+        t" {round(100.0 * ratio(stats.valid_primitives, stats.primitive_packet_lanes), 2)}%"
     )
     print(
         t"  triangle candidates/ray:"
-        t" {round(_ratio(stats.primitive_hit_candidates, stats.rays), 3)}"
+        t" {round(ratio(stats.primitive_hit_candidates, stats.rays), 3)}"
     )
     print(
         t"  closer-hit updates/ray:"
-        t" {round(_ratio(stats.closer_hit_updates, stats.rays), 3)}"
+        t" {round(ratio(stats.closer_hit_updates, stats.rays), 3)}"
     )
     print(
         t"  any-hit early exits/ray:"
-        t" {round(_ratio(stats.any_hit_early_exits, stats.rays), 3)}"
+        t" {round(ratio(stats.any_hit_early_exits, stats.rays), 3)}"
     )
     print(
-        t"  stack pushes/ray:"
-        t" {round(_ratio(stats.stack_pushes, stats.rays), 3)}"
+        t"  stack pushes/ray: {round(ratio(stats.stack_pushes, stats.rays), 3)}"
     )
     print(
         t"  insertion shifts/push:"
-        t" {round(_ratio(stats.stack_insertion_shifts, stats.stack_pushes), 3)}"
+        t" {round(ratio(stats.stack_insertion_shifts, stats.stack_pushes), 3)}"
     )
-    print(t"  stack pops/ray: {round(_ratio(stats.stack_pops, stats.rays), 3)}")
+    print(t"  stack pops/ray: {round(ratio(stats.stack_pops, stats.rays), 3)}")
     print(
         t"  bulk-pruned tasks/ray:"
-        t" {round(_ratio(stats.stack_pruned_tasks, stats.rays), 3)}"
+        t" {round(ratio(stats.stack_pruned_tasks, stats.rays), 3)}"
     )
     print(t"  maximum stack depth: {stats.max_stack_depth}")
 
@@ -242,7 +177,7 @@ def run_case[
     var permuted_timing = time_normal[mode](bvh, permuted)
     print(
         t"  hit rate:"
-        t" {round(100.0 * _ratio(coherent_timing.hits, len(rays)), 2)}%"
+        t" {round(100.0 * ratio(coherent_timing.hits, len(rays)), 2)}%"
     )
     print_timing("coherent", coherent_timing, len(rays))
     print_timing("permuted", permuted_timing, len(permuted))

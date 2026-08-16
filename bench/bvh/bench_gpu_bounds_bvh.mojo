@@ -1,13 +1,18 @@
-from std.math import abs, round, min, max
+from std.gpu import global_idx
+from std.math import abs, ceildiv, round, min, max
 from std.sys import has_accelerator
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceContext, DeviceBuffer
 
-from bajo.core import Frame, AABB, Vec3f32, dot, Point3f32, Rayf32
-from bajo.core.intersect import intersect_ray_sphere
+from bajo.core import Frame, AABB, Vec3f32, Point3f32, Rayf32
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.bvh.host_utils import compute_bounds, sphere_bounds
-from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
+from bajo.bvh.constants import (
+    GPU_BOUNDS_BVH_BLOCK_SIZE,
+    TRACE,
+    TRI_LEAF_VERTEX_STRIDE,
+    f32_max,
+)
 from bajo.bvh.types import Hit, Sphere
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
@@ -20,14 +25,33 @@ from bajo.bvh.gpu.triangle_bvh import (
     GpuTriangleBvh,
     build_triangle_bvh,
     build_triangle_bvh_measured,
+    enqueue_build_triangle_wide,
+    trace_cwbvh8_triangles,
+)
+from bajo.bvh.gpu.builder import GpuBvhBuildMethod
+from bajo.bvh.gpu.compressed_bounds_bvh import (
+    CWBVH_NODE_WORDS,
+    CWBVH_TRIANGLE_WORDS,
+    build_cwbvh8_representation,
+)
+from bajo.bvh.gpu.camera_launch import (
+    _camera_ray,
+    _store_camera_hit,
+    validate_camera_launch,
+)
+from bajo.bvh.gpu.ray_launch import (
+    _load_packed_ray,
+    _store_packed_hit,
+    validate_ray_launch,
 )
 from bajo.bvh.gpu.utils import (
     GpuBuildTimings,
     _download_full_hit_checksum,
     upload_list,
+    upload_rays,
     upload_vertices,
 )
-from bench.bvh.bench_printing import (
+from bench.bvh.reporting import (
     GpuBenchResult,
     print_transposed_header,
     _print_gpu_result_trace_rows,
@@ -50,14 +74,100 @@ comptime SPHERE_RAY_WIDTH = 1280
 comptime SPHERE_RAY_HEIGHT = 640
 comptime SPHERE_RAY_VIEWS = 3
 
-comptime DEBUG_SPHERE_GRID_X = 16
-comptime DEBUG_SPHERE_GRID_Y = 16
-comptime DEBUG_SPHERE_RAY_WIDTH = 256
-comptime DEBUG_SPHERE_RAY_HEIGHT = 128
-comptime DEBUG_SPHERE_RAY_VIEWS = 1
 comptime TRIANGLE_HIT_REL_EPS = 0.0
 comptime SPHERE_HIT_REL_EPS = 1.0e-3
-comptime DEBUG_BENCH_REPEATS = 3
+
+
+@fieldwise_init
+struct Cwbvh8BenchBvh(Copyable):
+    var nodes: DeviceBuffer[DType.float32]
+    var triangles: DeviceBuffer[DType.float32]
+    var root_idx: UInt32
+
+
+def _build_cwbvh8(
+    mut ctx: DeviceContext, d_vertices: DeviceBuffer[DType.float32]
+) raises -> Cwbvh8BenchBvh:
+    var tri_count = len(d_vertices) / TRI_LEAF_VERTEX_STRIDE
+    var pending = enqueue_build_triangle_wide[
+        Frame.WORLD,
+        8,
+        4,
+        GpuBvhBuildMethod.HPLOC,
+        3,
+        True,
+    ](ctx, d_vertices)
+    ctx.synchronize()
+    pending.finish_synchronized()
+
+    var nodes = ctx.enqueue_create_buffer[DType.float32](
+        max(pending.tree.node_count, 1) * CWBVH_NODE_WORDS
+    )
+    var triangles = ctx.enqueue_create_buffer[DType.float32](
+        max(tri_count, 1) * CWBVH_TRIANGLE_WORDS
+    )
+    build_cwbvh8_representation[4](
+        ctx,
+        pending.tree.wide_nodes,
+        pending.tree.leaf_block_indices,
+        pending.source_vertices,
+        nodes,
+        triangles,
+        pending.tree.node_count,
+        tri_count,
+    )
+    ctx.synchronize()
+    return Cwbvh8BenchBvh(nodes^, triangles^, pending.tree.root_idx)
+
+
+def _trace_cwbvh8_camera_kernel(
+    nodes: Pointer[Float32, ImmutAnyOrigin],
+    triangles: Pointer[Float32, ImmutAnyOrigin],
+    root_idx: UInt32,
+    camera_params: Pointer[Float32, ImmutAnyOrigin],
+    hits: Pointer[Float32, MutAnyOrigin],
+    ray_count: Int32,
+    width_px: Int32,
+    height_px: Int32,
+    inv_height: Float32,
+):
+    var ray_count_int = Int(ray_count)
+    var ray_idx = global_idx.x
+    if ray_idx >= ray_count_int:
+        return
+    var ray = _camera_ray(
+        camera_params,
+        ray_count_int,
+        ray_idx,
+        Int(width_px),
+        Int(height_px),
+        inv_height,
+    )
+    var hit = trace_cwbvh8_triangles[Frame.WORLD, TRACE.CLOSEST_HIT](
+        nodes, triangles, root_idx, ray
+    )
+    _store_camera_hit(hit, hits, ray_count_int, ray_idx)
+
+
+def _trace_cwbvh8_rays_kernel[
+    mode: TRACE,
+](
+    nodes: Pointer[Float32, ImmutAnyOrigin],
+    triangles: Pointer[Float32, ImmutAnyOrigin],
+    root_idx: UInt32,
+    rays: Pointer[Float32, ImmutAnyOrigin],
+    hits: Pointer[Float32, MutAnyOrigin],
+    ray_count: Int32,
+):
+    var ray_count_int = Int(ray_count)
+    var ray_idx = global_idx.x
+    if ray_idx >= ray_count_int:
+        return
+    var ray = _load_packed_ray[Frame.WORLD](rays, ray_count_int, ray_idx)
+    var hit = trace_cwbvh8_triangles[Frame.WORLD, mode](
+        nodes, triangles, root_idx, ray
+    )
+    _store_packed_hit[Frame.WORLD](hit, hits, ray_count_int, ray_idx)
 
 
 def _trace_cpu_triangle_bvh[
@@ -92,148 +202,6 @@ def _trace_cpu_sphere_bvh[
             hit_count += 1
 
     return (checksum, hit_count)
-
-
-def _trace_cpu_sphere_bruteforce(
-    spheres: List[Sphere[Frame.WORLD]],
-    rays: List[Rayf32[Frame.WORLD]],
-) -> Tuple[Float64, UInt32]:
-    var checksum = Float64(0.0)
-    var hit_count = UInt32(0)
-
-    for ray in rays:
-        var hit = _trace_cpu_sphere_bruteforce_one(spheres, ray)
-        if hit.t < f32_max:
-            checksum += Float64(hit.t)
-            hit_count += 1
-
-    return (checksum, hit_count)
-
-
-def _trace_cpu_sphere_bruteforce_one(
-    spheres: List[Sphere[Frame.WORLD]],
-    ray: Rayf32[Frame.WORLD],
-) -> Hit[Frame.WORLD]:
-    var hit = Hit[Frame.WORLD].miss(ray.t_max)
-
-    for prim_i, s in enumerate(spheres):
-        var h = intersect_ray_sphere(
-            ray.o,
-            ray.d,
-            s.center,
-            s.radius,
-            hit.t,
-            ray.t_min,
-        )
-
-        if h.mask[0] and h.t[0] < hit.t:
-            hit.t = h.t[0]
-            hit.u = 0.0
-            hit.v = 0.0
-            hit.prim = UInt32(prim_i)
-            hit.inst = EMPTY_LANE
-
-    return hit
-
-
-def _print_sphere_debug_mismatches(
-    mut ctx: DeviceContext,
-    spheres: List[Sphere[Frame.WORLD]],
-    rays: List[Rayf32[Frame.WORLD]],
-    d_hits: DeviceBuffer[DType.float32],
-    image_width: Int,
-    image_height: Int,
-    max_print: Int,
-) raises:
-    comptime T_DIFF_EPS = Float64(1.0e-3)
-
-    var ray_count = len(rays)
-
-    var h_hits = ctx.enqueue_create_host_buffer[DType.float32](
-        ray_count * Hit[Frame.WORLD].STRIDE
-    )
-
-    d_hits.enqueue_copy_to(h_hits)
-    ctx.synchronize()
-
-    var printed = 0
-    var mismatch_count = 0
-    var gpu_only = 0
-    var cpu_only = 0
-    var both_hit_diff_t = 0
-
-    for i in range(ray_count):
-        var ray_idx = i * Hit[Frame.WORLD].STRIDE
-        var cpu_hit = _trace_cpu_sphere_bruteforce_one(
-            spheres,
-            rays[ray_idx],
-        )
-
-        var gpu_t = h_hits[ray_idx + Hit[Frame.WORLD].T]
-        var gpu_prim = UInt32(h_hits[ray_idx + Hit[Frame.WORLD].PRIM])
-
-        var cpu_has_hit = cpu_hit.t < Float32(1.0e20)
-        var gpu_has_hit = gpu_t < Float32(1.0e20)
-
-        if cpu_has_hit != gpu_has_hit:
-            mismatch_count += 1
-
-            if gpu_has_hit:
-                gpu_only += 1
-            else:
-                cpu_only += 1
-
-            if printed < max_print:
-                var pixels_per_view = image_width * image_height
-                var view_idx = ray_idx / pixels_per_view
-                var local_idx = ray_idx - view_idx * pixels_per_view
-                var px_i = local_idx % image_width
-                var py_i = local_idx / image_width
-
-                print(
-                    t"\nhit/miss ray {ray_idx} "
-                    t"\nview={view_idx} px={px_i} py={py_i}: "
-                    t"\ncpu_hit={cpu_has_hit} "
-                    t"\ncpu_t={cpu_hit.t} "
-                    t"\ncpu_prim={cpu_hit.prim} | "
-                    t"\ngpu_hit={gpu_has_hit} "
-                    t"\ngpu_t={gpu_t} "
-                    t"\ngpu_prim={gpu_prim}"
-                )
-
-                var prim = cpu_hit.prim
-                if gpu_has_hit:
-                    prim = gpu_prim
-
-                if prim != EMPTY_LANE:
-                    var sphere = spheres[Int(prim)]
-                    var ray = rays[ray_idx]
-                    var oc = ray.o - sphere.center
-                    var a = dot(ray.d, ray.d)
-                    var half_b = dot(oc, ray.d)
-                    var c = dot(oc, oc) - sphere.radius * sphere.radius
-                    var det = half_b * half_b - a * c
-
-                    print(
-                        t"    sphere center={sphere.center} "
-                        t"radius={sphere.radius} "
-                        t"det={det} a={a}"
-                    )
-
-                printed += 1
-
-        else:
-            if cpu_has_hit and gpu_has_hit:
-                var t_diff = abs(Float64(cpu_hit.t) - Float64(gpu_t))
-
-                if t_diff > T_DIFF_EPS:
-                    both_hit_diff_t += 1
-
-    print(
-        t"debug hit/miss mismatches: {mismatch_count} | "
-        t"gpu_only={gpu_only} cpu_only={cpu_only} "
-        t"both_hit_t_diff_gt_{T_DIFF_EPS}={both_hit_diff_t}"
-    )
 
 
 def _print_cpu_ref_header():
@@ -289,19 +257,6 @@ def _print_cpu_sphere_reference[
     var bvh = SphereBvh[Frame.WORLD, width].__init__["lbvh"](spheres.copy())
     var t0 = perf_counter_ns()
     var result = _trace_cpu_sphere_bvh[width](bvh, rays)
-    var t1 = perf_counter_ns()
-
-    _print_cpu_ref_row(label, Int(t1 - t0), result[1], result[0])
-    return result
-
-
-def _print_cpu_sphere_bruteforce_reference(
-    label: String,
-    spheres: List[Sphere[Frame.WORLD]],
-    rays: List[Rayf32[Frame.WORLD]],
-) -> Tuple[Float64, UInt32]:
-    var t0 = perf_counter_ns()
-    var result = _trace_cpu_sphere_bruteforce(spheres, rays)
     var t1 = perf_counter_ns()
 
     _print_cpu_ref_row(label, Int(t1 - t0), result[1], result[0])
@@ -376,6 +331,166 @@ def _bench_camera_primary_triangle[
         checksum,
         hit_count,
         abs(checksum - reference_checksum),
+    )
+
+
+def _bench_any_hit_triangle[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength = node_width,
+](
+    mut ctx: DeviceContext,
+    mut bvh: GpuTriangleBvh[Frame.WORLD, node_width, leaf_width],
+    d_rays: DeviceBuffer[DType.float32],
+    d_hits: DeviceBuffer[DType.float32],
+    ray_count: Int,
+    repeats: Int,
+) raises -> Tuple[Int, UInt32]:
+    bvh.launch_rays[mode=TRACE.ANY_HIT](ctx, d_rays, d_hits, ray_count)
+    ctx.synchronize()
+
+    var best_kernel_ns = Int.MAX
+    var hit_count = UInt32(0)
+
+    for _ in range(repeats):
+        var t0 = perf_counter_ns()
+        bvh.launch_rays[mode=TRACE.ANY_HIT](ctx, d_rays, d_hits, ray_count)
+        ctx.synchronize()
+        var t1 = perf_counter_ns()
+        best_kernel_ns = min(best_kernel_ns, Int(t1 - t0))
+
+        var downloaded = _download_full_hit_checksum(ctx, d_hits, ray_count)
+        hit_count = downloaded[1]
+
+    return (best_kernel_ns, hit_count)
+
+
+def _bench_camera_primary_cwbvh8(
+    mut ctx: DeviceContext,
+    bvh: Cwbvh8BenchBvh,
+    d_camera_params: DeviceBuffer[DType.float32],
+    d_hits: DeviceBuffer[DType.float32],
+    ray_count: Int,
+    image_width: Int,
+    image_height: Int,
+    reference_checksum: Float64,
+    repeats: Int,
+) raises -> Tuple[Int, Float64, UInt32, Float64]:
+    validate_camera_launch(
+        d_camera_params, d_hits, ray_count, image_width, image_height
+    )
+
+    var best_kernel_ns = Int.MAX
+    var checksum = Float64(0.0)
+    var hit_count = UInt32(0)
+    for iteration in range(repeats + 1):
+        var t0 = perf_counter_ns()
+        ctx.enqueue_function[_trace_cwbvh8_camera_kernel](
+            bvh.nodes,
+            bvh.triangles,
+            bvh.root_idx,
+            d_camera_params,
+            d_hits,
+            Int32(ray_count),
+            Int32(image_width),
+            Int32(image_height),
+            Float32(1.0) / Float32(image_height),
+            grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
+            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+        )
+        ctx.synchronize()
+        var t1 = perf_counter_ns()
+        if iteration > 0:
+            best_kernel_ns = min(best_kernel_ns, Int(t1 - t0))
+            var downloaded = _download_full_hit_checksum(ctx, d_hits, ray_count)
+            checksum = downloaded[0]
+            hit_count = downloaded[1]
+
+    return (
+        best_kernel_ns,
+        checksum,
+        hit_count,
+        abs(checksum - reference_checksum),
+    )
+
+
+def _bench_any_hit_cwbvh8(
+    mut ctx: DeviceContext,
+    bvh: Cwbvh8BenchBvh,
+    d_rays: DeviceBuffer[DType.float32],
+    d_hits: DeviceBuffer[DType.float32],
+    ray_count: Int,
+    repeats: Int,
+) raises -> Tuple[Int, UInt32]:
+    validate_ray_launch(d_rays, d_hits, ray_count)
+
+    var best_kernel_ns = Int.MAX
+    var hit_count = UInt32(0)
+    for iteration in range(repeats + 1):
+        var t0 = perf_counter_ns()
+        ctx.enqueue_function[_trace_cwbvh8_rays_kernel[TRACE.ANY_HIT]](
+            bvh.nodes,
+            bvh.triangles,
+            bvh.root_idx,
+            d_rays,
+            d_hits,
+            Int32(ray_count),
+            grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
+            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+        )
+        ctx.synchronize()
+        var t1 = perf_counter_ns()
+        if iteration > 0:
+            best_kernel_ns = min(best_kernel_ns, Int(t1 - t0))
+            var downloaded = _download_full_hit_checksum(ctx, d_hits, ray_count)
+            hit_count = downloaded[1]
+
+    return (best_kernel_ns, hit_count)
+
+
+def _run_cwbvh8(
+    mut ctx: DeviceContext,
+    d_vertices: DeviceBuffer[DType.float32],
+    d_camera_params: DeviceBuffer[DType.float32],
+    ray_count: Int,
+    image_width: Int,
+    image_height: Int,
+    reference_checksum: Float64,
+    reference_hit_count: UInt32,
+    repeats: Int,
+) raises -> Tuple[GpuBenchResult, Cwbvh8BenchBvh]:
+    _ = _build_cwbvh8(ctx, d_vertices)
+    var build0 = perf_counter_ns()
+    var bvh = _build_cwbvh8(ctx, d_vertices)
+    var build1 = perf_counter_ns()
+    var d_hits = ctx.enqueue_create_buffer[DType.float32](
+        ray_count * Hit[Frame.WORLD].STRIDE
+    )
+    var trace = _bench_camera_primary_cwbvh8(
+        ctx,
+        bvh,
+        d_camera_params,
+        d_hits,
+        ray_count,
+        image_width,
+        image_height,
+        reference_checksum,
+        repeats,
+    )
+    return (
+        GpuBenchResult(
+            String("tri H-CWBVH8"),
+            Int(build1 - build0),
+            GpuBuildTimings(0, 0, 0, 0, 0, 0, 0),
+            trace[0],
+            ray_count,
+            trace[1],
+            trace[3],
+            trace[2],
+            reference_checksum,
+            reference_hit_count,
+            TRIANGLE_HIT_REL_EPS,
+        ),
+        bvh^,
     )
 
 
@@ -518,14 +633,13 @@ def _run_sphere_width[
 ](
     mut ctx: DeviceContext,
     spheres: List[Sphere[Frame.WORLD]],
-    rays: List[Rayf32[Frame.WORLD]],
+    ray_count: Int,
     d_camera_params: DeviceBuffer[DType.float32],
     image_width: Int,
     image_height: Int,
     reference_checksum: Float64,
     reference_hit_count: UInt32,
     repeats: Int,
-    print_mismatches: Bool,
 ) raises -> GpuBenchResult:
     _ = build_sphere_bvh[Frame.WORLD, node_width, leaf_width](ctx, spheres)
     ctx.synchronize()
@@ -538,7 +652,6 @@ def _run_sphere_width[
     ctx.synchronize()
     var build1 = perf_counter_ns()
 
-    var ray_count = len(rays)
     var d_hits = ctx.enqueue_create_buffer[DType.float32](
         ray_count * Hit[Frame.WORLD].STRIDE
     )
@@ -554,17 +667,6 @@ def _run_sphere_width[
         reference_checksum,
         repeats,
     )
-
-    if print_mismatches:
-        _print_sphere_debug_mismatches(
-            ctx,
-            spheres,
-            rays,
-            d_hits,
-            image_width,
-            image_height,
-            16,
-        )
 
     return GpuBenchResult(
         String(t"sph n{Int(node_width)}/l{Int(leaf_width)}"),
@@ -701,93 +803,73 @@ def main() raises:
         print("\nAdditional node/leaf width comparison")
         _print_gpu_results_transposed(tri2_leaf4, tri4, tri8_leaf4)
 
-        print("\nGPU SphereBvh debug: small brute-force validation")
-        print("------------------------------------------------")
-        var debug_spheres = _make_sphere_grid_sized(
-            DEBUG_SPHERE_GRID_X,
-            DEBUG_SPHERE_GRID_Y,
-        )
-        var debug_sphere_bounds = sphere_bounds(debug_spheres)
-        var debug_sphere_camera = make_camera_rays_and_params(
-            debug_sphere_bounds,
-            DEBUG_SPHERE_RAY_WIDTH,
-            DEBUG_SPHERE_RAY_HEIGHT,
-            DEBUG_SPHERE_RAY_VIEWS,
-            FOV_SCALE,
-        )
-        var debug_sphere_rays = debug_sphere_camera[0].copy()
-        var debug_sphere_camera_params = debug_sphere_camera[1].copy()
-        var d_debug_sphere_camera_params = upload_list(
+        var cwbvh8_result = _run_cwbvh8(
             ctx,
-            debug_sphere_camera_params,
+            d_vertices,
+            d_camera_params,
+            len(rays),
+            PRIMARY_WIDTH,
+            PRIMARY_HEIGHT,
+            reference_checksum,
+            reference_hit_count,
+            BENCH_REPEATS,
+        )
+        var cwbvh8_row = cwbvh8_result[0].copy()
+        var cwbvh8 = cwbvh8_result[1].copy()
+        print("\nPreferred H-PLOC CWBVH8 comparison")
+        print("CWBVH8 build stages are reported together as '- other'.")
+        _print_gpu_results_transposed(tri2_leaf4, tri8_leaf4, cwbvh8_row)
+
+        print("\nGPU any-hit traversal (packed rays)")
+        print("---------------------------------")
+        var d_trace_rays = upload_rays[Frame.WORLD](ctx, rays)
+        var d_any_hits = ctx.enqueue_create_buffer[DType.float32](
+            len(rays) * Hit[Frame.WORLD].STRIDE
+        )
+
+        var any_bvh2 = build_triangle_bvh[Frame.WORLD, 2, 2](ctx, d_vertices)
+        ctx.synchronize()
+        var any2 = _bench_any_hit_triangle[2, 2](
+            ctx, any_bvh2, d_trace_rays, d_any_hits, len(rays), BENCH_REPEATS
+        )
+
+        var any_bvh2_leaf4 = build_triangle_bvh[Frame.WORLD, 2, 4](
+            ctx, d_vertices
         )
         ctx.synchronize()
-
-        print(t"debug spheres : {len(debug_spheres)}")
-        print(t"debug rays : {len(debug_sphere_rays)}")
-
-        print("\nCPU debug sphere reference")
-        _print_cpu_ref_header()
-
-        # var debug_brute = _print_cpu_sphere_bruteforce_reference(
-        #     String("Sphere brute force"),
-        #     debug_spheres,
-        #     debug_sphere_rays,
-        # )
-        _ = _print_cpu_sphere_reference[2](
-            String("SphereBvh[2] lbvh"),
-            debug_spheres,
-            debug_sphere_rays,
+        var any2_leaf4 = _bench_any_hit_triangle[2, 4](
+            ctx,
+            any_bvh2_leaf4,
+            d_trace_rays,
+            d_any_hits,
+            len(rays),
+            BENCH_REPEATS,
         )
-        _ = _print_cpu_sphere_reference[4](
-            String("SphereBvh[4] lbvh"),
-            debug_spheres,
-            debug_sphere_rays,
-        )
-        _ = _print_cpu_sphere_reference[8](
-            String("SphereBvh[8] lbvh"),
-            debug_spheres,
-            debug_sphere_rays,
+        var any_cwbvh8 = _bench_any_hit_cwbvh8(
+            ctx,
+            cwbvh8,
+            d_trace_rays,
+            d_any_hits,
+            len(rays),
+            BENCH_REPEATS,
         )
 
-        # print("\nGPU debug sphere vs CPU brute force")
-        # var debug_sph2 = _run_sphere_width[2](
-        #     ctx,
-        #     debug_spheres,
-        #     debug_sphere_rays,
-        #     d_debug_sphere_camera_params,
-        #     DEBUG_SPHERE_RAY_WIDTH,
-        #     DEBUG_SPHERE_RAY_HEIGHT,
-        #     debug_brute[0],
-        #     debug_brute[1],
-        #     DEBUG_BENCH_REPEATS,
-        #     False,
-        # )
-        # var debug_sph4 = _run_sphere_width[4](
-        #     ctx,
-        #     debug_spheres,
-        #     debug_sphere_rays,
-        #     d_debug_sphere_camera_params,
-        #     DEBUG_SPHERE_RAY_WIDTH,
-        #     DEBUG_SPHERE_RAY_HEIGHT,
-        #     debug_brute[0],
-        #     debug_brute[1],
-        #     DEBUG_BENCH_REPEATS,
-        #     False,
-        # )
-        # var debug_sph8 = _run_sphere_width[8](
-        #     ctx,
-        #     debug_spheres,
-        #     debug_sphere_rays,
-        #     d_debug_sphere_camera_params,
-        #     DEBUG_SPHERE_RAY_WIDTH,
-        #     DEBUG_SPHERE_RAY_HEIGHT,
-        #     debug_brute[0],
-        #     debug_brute[1],
-        #     DEBUG_BENCH_REPEATS,
-        #     True,
-        # )
-        # _print_gpu_results_transposed(debug_sph2, debug_sph4, debug_sph8)
+        print("layout                 best ms       MRay/s       hits")
+        print(
+            t"n2/l2                  {round(ns_to_ms(any2[0]), 3)}"
+            t"     {round(ns_to_mrays_per_s(any2[0], len(rays)), 1)}"
+            t"     {any2[1]}"
+        )
+        print(
+            t"n2/l4                  {round(ns_to_ms(any2_leaf4[0]), 3)}"
+            t"     {round(ns_to_mrays_per_s(any2_leaf4[0], len(rays)), 1)}"
+            t"     {any2_leaf4[1]}"
+        )
+        print(
+            t"H-PLOC CWBVH8          {round(ns_to_ms(any_cwbvh8[0]), 3)}"
+            t"     {round(ns_to_mrays_per_s(any_cwbvh8[0], len(rays)), 1)}"
+            t"     {any_cwbvh8[1]}"
+        )
 
         print("\nGPU SphereBvh[width]")
         print("--------------------")
@@ -834,52 +916,48 @@ def main() raises:
         var sph2 = _run_sphere_width[2](
             ctx,
             spheres,
-            sphere_rays,
+            len(sphere_rays),
             d_sphere_camera_params,
             SPHERE_RAY_WIDTH,
             SPHERE_RAY_HEIGHT,
             sphere_reference2[0],
             sphere_reference2[1],
             BENCH_REPEATS,
-            False,
         )
         var sph4 = _run_sphere_width[4](
             ctx,
             spheres,
-            sphere_rays,
+            len(sphere_rays),
             d_sphere_camera_params,
             SPHERE_RAY_WIDTH,
             SPHERE_RAY_HEIGHT,
             sphere_reference4[0],
             sphere_reference4[1],
             BENCH_REPEATS,
-            False,
         )
         var sph8 = _run_sphere_width[8](
             ctx,
             spheres,
-            sphere_rays,
+            len(sphere_rays),
             d_sphere_camera_params,
             SPHERE_RAY_WIDTH,
             SPHERE_RAY_HEIGHT,
             sphere_reference8[0],
             sphere_reference8[1],
             BENCH_REPEATS,
-            False,
         )
         _print_gpu_results_transposed(sph2, sph4, sph8)
 
         var sph2_leaf4 = _run_sphere_width[2, 4](
             ctx,
             spheres,
-            sphere_rays,
+            len(sphere_rays),
             d_sphere_camera_params,
             SPHERE_RAY_WIDTH,
             SPHERE_RAY_HEIGHT,
             sphere_reference4[0],
             sphere_reference4[1],
             BENCH_REPEATS,
-            False,
         )
         print("\nIndependent node/leaf width comparison")
         _print_gpu_results_transposed(sph2, sph2_leaf4, sph4)

@@ -1,14 +1,15 @@
+"""Diagnostic CPU renderer scheduling sweep."""
+
 from std.math import round
 
-from bajo.core import Point3W, Vec3W
 from bajo.core.utils import ns_to_ms
 from bajo.rt import Camera, RENDER, RenderSettings, World
 from bajo.rt.cpu import render_depth_first
-from bench.rt.bench_cpu_end_to_end import (
-    make_triangle_world,
-    pixel_checksum,
-    sort_timings,
-    triangle_camera,
+from bench.rt.cpu_harness import pixel_checksum
+from bench.rt.fixtures import (
+    make_mixed_triangle_world,
+    mixed_triangle_camera,
+    weekend_camera,
 )
 from examples.rtiaw import make_weekend_world
 
@@ -63,7 +64,7 @@ def record_schedule[
 
 
 def summarize(mut times: List[Int], checksum: Float64) -> ScheduleResult:
-    sort_timings(times)
+    sort(Span(times))
     return ScheduleResult(times[3], times[0], times[REPEATS - 1], checksum)
 
 
@@ -164,18 +165,11 @@ def main():
 
     var settings = RenderSettings(WIDTH, HEIGHT, SPP, RNG_SEED)
     var sphere_world = make_weekend_world()
-    var sphere_camera = Camera.from_vfov(
-        Point3W(13.0, 2.0, 3.0),
-        Point3W(0.0, 0.0, 0.0),
-        Vec3W(0.0, 1.0, 0.0),
-        20.0,
-        10.0,
-        0.6,
-    )
+    var sphere_camera = weekend_camera()
     benchmark_world("Weekend spheres", settings, sphere_camera, sphere_world)
 
-    var triangle_world = make_triangle_world()
-    var triangle_cam = triangle_camera(triangle_world)
+    var triangle_world = make_mixed_triangle_world()
+    var triangle_cam = mixed_triangle_camera(triangle_world)
     benchmark_world(
         "Mixed standalone/instanced triangles",
         settings,

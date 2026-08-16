@@ -9,6 +9,7 @@ from bajo.bvh.constants import Primitive, TRACE, f32_max
 from bajo.bvh.host_utils import compute_bounds, sphere_bounds
 from bajo.bvh.types import Instance, Sphere, Hit
 from bajo.bvh.gpu.utils import upload_camera
+from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.gpu.triangle_bvh import build_triangle_blas_set
 from bajo.bvh.gpu.sphere_bvh import build_sphere_blas_set
 from bajo.bvh.gpu.tlas import build_triangle_tlas, build_sphere_tlas
@@ -161,6 +162,32 @@ def test_gpu_triangle_tlas_uses_instance_blas_index() raises:
         _assert_hit(_download_single_hit(d_hits), 6.0, 0, 1)
 
 
+def test_gpu_triangle_tlas_cwbvh8_camera_matches_expected_hit() raises:
+    var verts = _make_triangle_at_z(2.0)
+    var bounds = compute_bounds(verts)
+
+    with DeviceContext() as ctx:
+        var blases = build_triangle_blas_set[
+            8, 4, GpuBvhBuildMethod.HPLOC, True
+        ](ctx, [verts^])
+        var instances: List = [
+            _triangle_instance(0, Point3f32[Frame.WORLD](0.0, 0.0, 0.0), bounds)
+        ]
+        var tlas = build_triangle_tlas[
+            2, 8, 2, 4, GpuBvhBuildMethod.LBVH, True
+        ](ctx, instances)
+        var camera = _make_camera_ray(
+            Point3f32[Frame.WORLD](0.0, 0.0, 0.0),
+            Vec3f32[Frame.WORLD](0.0, 0.0, 1.0),
+        )
+        var d_camera = upload_camera(ctx, camera)
+        var d_hits = ctx.enqueue_create_buffer[DType.float32](Hit.STRIDE)
+
+        tlas.launch_camera(ctx, blases, d_camera, d_hits, 1, 1, 1)
+        ctx.synchronize()
+        _assert_hit(_download_single_hit(d_hits), 2.0, 0, 0)
+
+
 def test_gpu_triangle_tlas_closest_hit_across_different_blas() raises:
     var far_verts = _make_triangle_at_z(8.0)
     var near_verts = _make_triangle_at_z(3.0)
@@ -280,7 +307,7 @@ def test_gpu_sphere_tlas_uses_instance_blas_index() raises:
         _assert_hit(_download_single_hit(d_hits), 5.0, 0, 1)
 
 
-def test_gpu_triangle_tlas_stress_8_blas_512_instances_matches_cpu() raises:
+def test_gpu_triangle_tlas_builders_stress_8_blas_512_instances_match_cpu() raises:
     comptime STRESS_BLAS_COUNT = 8
     comptime STRESS_X = 32
     comptime STRESS_Y = 16
@@ -361,6 +388,28 @@ def test_gpu_triangle_tlas_stress_8_blas_512_instances_matches_cpu() raises:
         assert_true(abs(cpu[0] - gpu[0]) <= Float64(0.01))
         assert_true(cpu[1] == gpu[1])
         assert_true(cpu[2] == gpu[2])
+
+        var hploc_tlas = build_triangle_tlas[
+            TLAS_WIDTH,
+            BLAS_WIDTH,
+            TLAS_WIDTH,
+            BLAS_WIDTH,
+            GpuBvhBuildMethod.HPLOC,
+        ](ctx, instances)
+        hploc_tlas.launch_camera(
+            ctx,
+            blases,
+            d_camera,
+            d_hits,
+            ray_count,
+            STRESS_WIDTH,
+            STRESS_HEIGHT,
+        )
+        ctx.synchronize()
+        var hploc_gpu = _download_tlas_checksum[Frame.WORLD](d_hits, ray_count)
+        assert_true(abs(cpu[0] - hploc_gpu[0]) <= Float64(0.01))
+        assert_true(cpu[1] == hploc_gpu[1])
+        assert_true(cpu[2] == hploc_gpu[2])
 
 
 def main() raises:

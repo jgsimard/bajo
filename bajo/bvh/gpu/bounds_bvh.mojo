@@ -21,6 +21,7 @@ def build_bounds_bvh[
     max_leaf_size: Int,
     method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
     pack_subtrees: Bool = False,
+    spatial_slots: Bool = False,
 ](
     mut ctx: DeviceContext,
     mut out: GpuWideBoundsBvh[node_width, leaf_width, max_leaf_size],
@@ -36,6 +37,7 @@ def build_bounds_bvh[
         max_leaf_size,
         method,
         pack_subtrees,
+        spatial_slots,
     ](
         ctx,
         out,
@@ -52,6 +54,7 @@ def build_bounds_bvh_with_workspace[
     max_leaf_size: Int,
     method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
     pack_subtrees: Bool = False,
+    spatial_slots: Bool = False,
 ](
     mut ctx: DeviceContext,
     mut out: GpuWideBoundsBvh[node_width, leaf_width, max_leaf_size],
@@ -88,6 +91,7 @@ def build_bounds_bvh_with_workspace[
         leaf_width,
         max_leaf_size,
         pack_subtrees,
+        spatial_slots,
     ](ctx, binary, out)
 
     if measure_build:

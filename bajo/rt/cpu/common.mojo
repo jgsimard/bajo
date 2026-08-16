@@ -1,6 +1,6 @@
 """Shared CPU path state, Philox stream selection, and ray helpers."""
 
-from bajo.core import Frame, Rayf32, Vec3, normalize
+from bajo.core import Frame, Rayf32
 from bajo.core.random import Rng, random_in_unit_disk
 from bajo.bvh.camera import Camera
 from bajo.rt.types import (
@@ -9,33 +9,14 @@ from bajo.rt.types import (
     ShadingPoint,
     SurfaceHit,
 )
-from bajo.rt.wavefront_contract import (
-    wavefront_rng_roulette_stage,
-    wavefront_rng_subsequence,
+from bajo.rt.common import (
+    RussianRouletteResult,
+    path_stage_rng,
+    russian_roulette,
+    sky_color,
 )
 
-
-comptime RUSSIAN_ROULETTE_START_DEPTH = UInt32(5)
-comptime RUSSIAN_ROULETTE_MIN_SURVIVAL = Float32(0.05)
-comptime RUSSIAN_ROULETTE_MAX_SURVIVAL = Float32(0.95)
-
-
-@fieldwise_init
-struct RussianRouletteResult(Copyable, Writable):
-    var survived: Bool
-    var throughput: Color
-
-
-def _sky_color[
-    length: SIMDLength
-](direction: Vec3[DType.float32, Frame.WORLD, length]) -> Vec3[
-    DType.float32, Frame.WORLD, length
-]:
-    var unit_direction = normalize(direction)
-    var a = 0.5 * (unit_direction.y + 1.0)
-    return (1.0 - a) * Vec3[DType.float32, Frame.WORLD, length](1.0) + a * Vec3[
-        DType.float32, Frame.WORLD, length
-    ](0.5, 0.7, 1.0)
+comptime _sky_color = sky_color
 
 
 def _shading_point(
@@ -58,11 +39,7 @@ def _init_pixel_rngs(settings: RenderSettings) -> List[Rng]:
 def _path_stage_rng(
     settings: RenderSettings, path_id: UInt32, stage: UInt32
 ) -> Rng:
-    """Create a deterministic Philox stream for one path and render stage."""
-    return Rng(
-        seed=settings.rng_seed,
-        id=wavefront_rng_subsequence(path_id, stage),
-    )
+    return path_stage_rng(settings.rng_seed, path_id, stage)
 
 
 @always_inline
@@ -72,25 +49,7 @@ def _russian_roulette(
     depth: UInt32,
     throughput: Color,
 ) -> RussianRouletteResult:
-    """Unbiased continuation using a Philox domain separate from the BSDF."""
-    if depth < RUSSIAN_ROULETTE_START_DEPTH:
-        return RussianRouletteResult(True, throughput)
-
-    var maximum = max(throughput.x, max(throughput.y, throughput.z))
-    if maximum <= 0.0:
-        return RussianRouletteResult(False, throughput)
-    var survival = min(
-        max(maximum, RUSSIAN_ROULETTE_MIN_SURVIVAL),
-        RUSSIAN_ROULETTE_MAX_SURVIVAL,
-    )
-    var rng = _path_stage_rng(
-        settings,
-        path_id,
-        wavefront_rng_roulette_stage(depth - UInt32(1)),
-    )
-    if rng.f32() >= survival:
-        return RussianRouletteResult(False, throughput)
-    return RussianRouletteResult(True, throughput / survival)
+    return russian_roulette(settings.rng_seed, path_id, depth, throughput)
 
 
 def _make_primary_ray(

@@ -12,6 +12,7 @@ from bajo.bvh.constants import (
     GPU_BOUNDS_BVH_BLOCK_SIZE,
     LBVH_SENTINEL,
     WideNode,
+    f32_max,
 )
 from bajo.bvh.gpu.wide_layout import (
     GpuWideBoundsBvh,
@@ -185,6 +186,7 @@ def hploc_literature_to_wide_kernel[
     leaf_width: SIMDLength,
     max_leaf_size: Int,
     fat_leaves: Bool,
+    spatial_slots: Bool,
     block_size: Int,
 ](
     leaf_bounds: Pointer[Float32, MutAnyOrigin],
@@ -208,6 +210,8 @@ def hploc_literature_to_wide_kernel[
     """Paper §3.4: single-dispatch top-down BVH2-to-N-wide conversion."""
 
     comptime assert block_size == GPU_BOUNDS_BVH_BLOCK_SIZE
+    comptime if spatial_slots:
+        comptime assert node_width == 8
     comptime fat_leaf_limit = min(max_leaf_size, 4)
     var logical_block = stack_allocation[
         1, UInt32, address_space=AddressSpace.SHARED
@@ -387,6 +391,63 @@ def hploc_literature_to_wide_kernel[
                 candidates[child_count] = _node_right(node_meta, opened_idx)
                 child_count += 1
 
+        # CWBVH traversal encodes ray-octant order in physical child slots.
+        # Greedily assign candidates to the eight spatial slots exactly as in
+        # the reference converter. Node ids are allocated later in ascending
+        # slot order, preserving CWBVH's compact child-base+imask addressing.
+        var slot_candidate = Array[Int, node_width](fill=-1)
+        comptime if spatial_slots:
+            var candidate_assigned = Array[Bool, node_width](fill=False)
+            var parent_center = _encoded_bounds(
+                encoded,
+                leaf_bounds_span,
+                leaf_ids_span,
+                node_bounds_span,
+            ).centroid()
+            for _ in range(child_count):
+                var best_cost = f32_max
+                var best_candidate = -1
+                var best_slot = -1
+                for candidate_pos in range(child_count):
+                    if candidate_assigned[candidate_pos]:
+                        continue
+                    var child_center = _encoded_bounds(
+                        candidates[candidate_pos],
+                        leaf_bounds_span,
+                        leaf_ids_span,
+                        node_bounds_span,
+                    ).centroid()
+                    for slot in range(node_width):
+                        if slot_candidate[slot] != -1:
+                            continue
+                        var sx = Float32(1.0)
+                        var sy = Float32(1.0)
+                        var sz = Float32(1.0)
+                        if (slot & 4) != 0:
+                            sx = -1.0
+                        if (slot & 2) != 0:
+                            sy = -1.0
+                        if (slot & 1) != 0:
+                            sz = -1.0
+                        var cost = (
+                            (child_center.x - parent_center.x) * sx
+                            + (child_center.y - parent_center.y) * sy
+                            + (child_center.z - parent_center.z) * sz
+                        )
+                        if cost < best_cost:
+                            best_cost = cost
+                            best_candidate = candidate_pos
+                            best_slot = slot
+                debug_assert["safe", _use_compiler_assume=True](
+                    best_candidate >= 0 and best_slot >= 0,
+                    "CWBVH spatial child assignment failed",
+                )
+                candidate_assigned[best_candidate] = True
+                slot_candidate[best_slot] = best_candidate
+        else:
+            for candidate_pos in range(child_count):
+                slot_candidate[candidate_pos] = candidate_pos
+
         var inner_count = 0
         var leaf_count_in_node = 0
         var published_work_count = 0
@@ -436,72 +497,72 @@ def hploc_literature_to_wide_kernel[
         var inner_rank = UInt32(0)
         var leaf_rank = UInt32(0)
         var publish_pos = 0
-        for child_pos in range(child_count):
-            var child = candidates[child_pos]
-            var child_is_leaf = is_leaf_ref(child)
-            comptime if fat_leaves:
-                child_is_leaf = candidate_leaf_counts[child_pos] <= UInt32(
-                    fat_leaf_limit
-                )
-            var child_out_idx: UInt32
-            var meta: UInt32
-            if child_is_leaf:
-                child_out_idx = leaf_block_base + leaf_rank
-                leaf_rank += 1
-                meta = _pack_wide_meta(
-                    child_out_idx, candidate_leaf_counts[child_pos]
-                )
-            else:
-                child_out_idx = child_node_base + inner_rank
-                inner_rank += 1
-                meta = _pack_wide_meta(child_out_idx, UInt32(0))
-
-            var bounds = _encoded_bounds(
-                child,
-                leaf_bounds_span,
-                leaf_ids_span,
-                node_bounds_span,
-            )
-            _wide_node_store_child[node_width](
-                wide_nodes,
-                out_idx,
-                child_pos,
-                bounds,
-                meta,
-            )
-
-            var child_work_id = work_id
-            if publish_pos > 0:
-                child_work_id = Int(work_base) + publish_pos - 1
-            Atomic.store[ordering=Ordering.RELEASE](
-                index_pairs.unsafe_offset(child_work_id),
-                _pack_hploc_wide_pair(child, child_out_idx),
-            )
-            publish_pos += 1
-
-            # The fixed paper work array still owns one slot per primitive.
-            # A packed k-triangle leaf therefore publishes k-1 no-op jobs.
-            if child_is_leaf:
-                var noops = Int(candidate_leaf_counts[child_pos]) - 1
-                for _ in range(noops):
-                    var noop_work_id = Int(work_base) + publish_pos - 1
-                    Atomic.store[ordering=Ordering.RELEASE](
-                        index_pairs.unsafe_offset(noop_work_id),
-                        _pack_hploc_wide_pair(
-                            HPLOC_WIDE_NOOP_ENCODED, UInt32(0)
-                        ),
-                    )
-                    publish_pos += 1
-
-        comptime for lane in range(node_width):
-            if lane >= child_count:
+        comptime for child_slot in range(node_width):
+            var child_pos = slot_candidate[child_slot]
+            if child_pos < 0:
                 _wide_node_store_child[node_width](
                     wide_nodes,
                     out_idx,
-                    lane,
+                    child_slot,
                     AABB[Frame.WORLD].invalid(),
                     _pack_wide_meta(UInt32(0), EMPTY_LANE),
                 )
+            else:
+                var child = candidates[child_pos]
+                var child_is_leaf = is_leaf_ref(child)
+                comptime if fat_leaves:
+                    child_is_leaf = candidate_leaf_counts[child_pos] <= UInt32(
+                        fat_leaf_limit
+                    )
+                var child_out_idx: UInt32
+                var meta: UInt32
+                if child_is_leaf:
+                    child_out_idx = leaf_block_base + leaf_rank
+                    leaf_rank += 1
+                    meta = _pack_wide_meta(
+                        child_out_idx, candidate_leaf_counts[child_pos]
+                    )
+                else:
+                    child_out_idx = child_node_base + inner_rank
+                    inner_rank += 1
+                    meta = _pack_wide_meta(child_out_idx, UInt32(0))
+
+                var bounds = _encoded_bounds(
+                    child,
+                    leaf_bounds_span,
+                    leaf_ids_span,
+                    node_bounds_span,
+                )
+                _wide_node_store_child[node_width](
+                    wide_nodes,
+                    out_idx,
+                    child_slot,
+                    bounds,
+                    meta,
+                )
+
+                var child_work_id = work_id
+                if publish_pos > 0:
+                    child_work_id = Int(work_base) + publish_pos - 1
+                Atomic.store[ordering=Ordering.RELEASE](
+                    index_pairs.unsafe_offset(child_work_id),
+                    _pack_hploc_wide_pair(child, child_out_idx),
+                )
+                publish_pos += 1
+
+                # The fixed paper work array still owns one slot per primitive.
+                # A packed k-triangle leaf therefore publishes k-1 no-op jobs.
+                if child_is_leaf:
+                    var noops = Int(candidate_leaf_counts[child_pos]) - 1
+                    for _ in range(noops):
+                        var noop_work_id = Int(work_base) + publish_pos - 1
+                        Atomic.store[ordering=Ordering.RELEASE](
+                            index_pairs.unsafe_offset(noop_work_id),
+                            _pack_hploc_wide_pair(
+                                HPLOC_WIDE_NOOP_ENCODED, UInt32(0)
+                            ),
+                        )
+                        publish_pos += 1
 
 
 @fieldwise_init
@@ -602,6 +663,7 @@ def enqueue_collapse_binary_to_wide_with_workspace[
     leaf_width: SIMDLength,
     max_leaf_size: Int,
     fat_leaves: Bool = False,
+    spatial_slots: Bool = False,
 ](
     mut ctx: DeviceContext,
     binary: GpuBinaryBoundsBvh,
@@ -672,6 +734,7 @@ def enqueue_collapse_binary_to_wide_with_workspace[
             leaf_width,
             max_leaf_size,
             fat_leaves,
+            spatial_slots,
             GPU_BOUNDS_BVH_BLOCK_SIZE,
         ]
     ](
@@ -712,6 +775,7 @@ def enqueue_collapse_binary_to_wide[
     leaf_width: SIMDLength,
     max_leaf_size: Int,
     fat_leaves: Bool = False,
+    spatial_slots: Bool = False,
 ](
     mut ctx: DeviceContext,
     binary: GpuBinaryBoundsBvh,
@@ -720,7 +784,7 @@ def enqueue_collapse_binary_to_wide[
     """Queue wide conversion with an internally allocated workspace."""
     var workspace = GpuWideCollapseWorkspace(ctx, binary.leaf_count)
     return enqueue_collapse_binary_to_wide_with_workspace[
-        node_width, leaf_width, max_leaf_size, fat_leaves
+        node_width, leaf_width, max_leaf_size, fat_leaves, spatial_slots
     ](ctx, binary, out, workspace)
 
 
@@ -729,6 +793,7 @@ def collapse_binary_to_wide[
     leaf_width: SIMDLength,
     max_leaf_size: Int,
     fat_leaves: Bool = False,
+    spatial_slots: Bool = False,
 ](
     mut ctx: DeviceContext,
     binary: GpuBinaryBoundsBvh,
@@ -736,6 +801,6 @@ def collapse_binary_to_wide[
 ) raises:
     """Synchronous compatibility wrapper around queued wide conversion."""
     var pending = enqueue_collapse_binary_to_wide[
-        node_width, leaf_width, max_leaf_size, fat_leaves
+        node_width, leaf_width, max_leaf_size, fat_leaves, spatial_slots
     ](ctx, binary, out)
     pending.wait(ctx, out, fat_leaves)

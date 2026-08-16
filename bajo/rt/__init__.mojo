@@ -6,6 +6,7 @@ from .cpu import (
     sample_bsdf,
     write_ppm_from_colors,
 )
+from .gpu import render_gpu
 from .types import (
     Color,
     BsdfEvaluation,

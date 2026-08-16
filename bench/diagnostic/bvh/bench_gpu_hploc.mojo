@@ -1,3 +1,5 @@
+"""Diagnostic H-PLOC quality, build, and traversal comparison."""
+
 from std.math import abs, min, round
 from std.sys import has_accelerator
 from std.time import perf_counter_ns
@@ -21,12 +23,13 @@ from bajo.bvh.gpu.utils import (
     upload_list,
     upload_vertices,
 )
-from bajo.bvh.host_utils import compute_bounds, triangle_bounds
+from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.types import Hit
 from bajo.core import Frame, Point3f32
 from bajo.core.utils import ns_to_mrays_per_s, ns_to_ms
 from bajo.obj.pack import pack_obj_triangles
 from bench.bvh.fixtures import make_camera_rays_and_params
+from bench.diagnostic.bvh.fixtures import flatten_triangle_bounds
 
 
 comptime DRAGON_PATH = "./assets/dragon/dragon.obj"
@@ -72,26 +75,6 @@ def _make_synthetic_triangles(
         vertices.append(Point3f32[Frame.WORLD](x + scale, y - scale, z))
         vertices.append(Point3f32[Frame.WORLD](x, y + scale, z + 0.1))
     return vertices^
-
-
-def _flatten_triangle_bounds(
-    vertices: List[Point3f32[Frame.WORLD]],
-) -> Tuple[List[Float32], List[UInt32]]:
-    var triangle_count = len(vertices) / 3
-    var bounds = List[Float32](capacity=triangle_count * 6)
-    var payloads = List[UInt32](capacity=triangle_count)
-    for i in range(triangle_count):
-        var box = triangle_bounds(
-            vertices[i * 3], vertices[i * 3 + 1], vertices[i * 3 + 2]
-        )
-        bounds.append(box._min.x)
-        bounds.append(box._min.y)
-        bounds.append(box._min.z)
-        bounds.append(box._max.x)
-        bounds.append(box._max.y)
-        bounds.append(box._max.z)
-        payloads.append(UInt32(i))
-    return (bounds^, payloads^)
 
 
 def _run_case[
@@ -274,7 +257,7 @@ def _run_scene(
         views,
         FOV_SCALE,
     )
-    var flat = _flatten_triangle_bounds(vertices)
+    var flat = flatten_triangle_bounds(vertices)
 
     print(t"\n{name}: {len(vertices) / 3} triangles, {len(camera[0])} rays")
     print(

@@ -15,6 +15,7 @@ example_lbvh = { cmd = "mojo -I . examples/lbvh_normals.mojo", depends-on = ["do
 example_rtiaw = "mojo -I . examples/rtiaw.mojo"
 example_cornell = "mojo -I . examples/cornell_box.mojo"
 example_mis_showcase = "mojo -I . examples/mis_showcase.mojo"
+example_pbrt = "mojo -I . examples/pbrt_scene.mojo"
 bench_rtiaw = "mojo -I . bench/rt/bench_example_rtiaw.mojo"
 
 # tests
@@ -54,13 +55,10 @@ bench_bvh_cpu_grid = "mojo -I . bench/bvh/bench_cpu_bvh_grid.mojo"
 bench_bvh_cpu_dragon = { cmd = "mojo -I . bench/bvh/bench_cpu_bvh_dragon.mojo", depends-on = ["download_assets"] }
 bench_bvh_cpu_packets = { cmd = "mojo -I . bench/bvh/bench_cpu_bvh_packets.mojo", depends-on = ["download_assets"] }
 bench_bvh_cpu_measurement = { cmd = "mojo -I . bench/bvh/bench_cpu_bvh_measurement.mojo", depends-on = ["download_assets"] }
-bench_bvh_cpu_encodings = { cmd = "mojo -I . bench/bvh/bench_cpu_bvh_encodings.mojo", depends-on = ["download_assets"] }
-bench_bvh_cpu_leaf_layouts = { cmd = "mojo -I . bench/bvh/bench_cpu_bvh_leaf_layouts.mojo", depends-on = ["download_assets"] }
+bench_bvh_cpu_encodings = { cmd = "mojo -I . bench/diagnostic/bvh/bench_cpu_bvh_encodings.mojo", depends-on = ["download_assets"] }
+bench_bvh_cpu_leaf_layouts = { cmd = "mojo -I . bench/diagnostic/bvh/bench_cpu_bvh_leaf_layouts.mojo", depends-on = ["download_assets"] }
 bench_bvh_cpu_embree = { cmd = "bash -lc 'g++ -O3 -march=native -DNDEBUG -std=c++20 bench/bvh/bench_embree_cpu.cpp -lembree4 -o /tmp/bajo_bench_embree_cpu && /tmp/bajo_bench_embree_cpu assets/dragon/dragon.obj'", depends-on = ["download_assets"] }
 bench_bvh_cpu_tinybvh = { cmd = "bash bench/bvh/bench_tinybvh.sh ./assets/dragon/dragon.obj", depends-on = ["download_assets"] }
-bench_bvh_cpu_tinybvh_suite = "bash bench/bvh/bench_tinybvh_readme.sh"
-bench_bvh_cpu_tinybvh_readme = "bash bench/bvh/bench_tinybvh_readme.sh"
-bench_bvh_cpu_tinybvh_dragon_suite = "bash bench/bvh/bench_tinybvh_suite.sh"
 bench_bvh_cpu_compare = { cmd = "bash bench/bvh/bench_bvh_cpu_compare.sh", depends-on = ["download_assets"] }
 bench_bvh_cpu_report = { cmd = "python bench/bvh/bench_bvh_cpu_report.py", depends-on = ["download_assets"] }
 
@@ -68,18 +66,30 @@ bench_bvh_cpu_report = { cmd = "python bench/bvh/bench_bvh_cpu_report.py", depen
 # bvh gpu
 bench_bvh_gpu = {cmd = "mojo -I . bench/bvh/bench_gpu_bounds_bvh.mojo",  depends-on = ["download_assets"] }
 bench_bvh_gpu_tlas = { cmd = "mojo -I . bench/bvh/bench_gpu_tlas.mojo",  depends-on = ["download_assets"] }
-bench_bvh_gpu_stats = { cmd = "mojo -I . bench/bvh/bench_gpu_triangle_traversal_stats.mojo", depends-on = ["download_assets"] }
-bench_bvh_gpu_quality = { cmd = "mojo run -I . bench/bvh/bench_gpu_bvh_quality.mojo", depends-on = ["download_assets"] }
-bench_bvh_gpu_hploc = { cmd = "mojo run -I . bench/bvh/bench_gpu_hploc.mojo", depends-on = ["download_assets"] }
+bench_bvh_gpu_stats = { cmd = "mojo -I . bench/diagnostic/bvh/bench_gpu_triangle_traversal_stats.mojo", depends-on = ["download_assets"] }
+bench_bvh_gpu_quality = { cmd = "mojo run -I . bench/diagnostic/bvh/bench_gpu_bvh_quality.mojo", depends-on = ["download_assets"] }
+bench_bvh_gpu_hploc = { cmd = "mojo run -I . bench/diagnostic/bvh/bench_gpu_hploc.mojo", depends-on = ["download_assets"] }
+bench_bvh_gpu_blas_tlas_build = { cmd = "mojo -I . --target-accelerator sm_120 bench/bvh/bench_gpu_blas_tlas_build.mojo", depends-on = ["download_assets"] }
 
 # ray tracing cpu
 bench_rt_cpu_any_hit = "mojo -I . bench/rt/bench_cpu_any_hit.mojo"
 bench_rt_cpu_triangle_normals = "mojo -I . bench/rt/bench_cpu_triangle_normals.mojo"
 bench_rt_cpu_end_to_end = "mojo -I . bench/rt/bench_cpu_end_to_end.mojo"
-bench_rt_cpu_scheduling = "mojo -I . bench/rt/bench_cpu_scheduling.mojo"
+bench_rt_cpu_scheduling = "mojo -I . bench/diagnostic/rt/bench_cpu_scheduling.mojo"
 bench_rt_cpu_wavefront = "mojo -I . bench/rt/bench_cpu_wavefront.mojo"
-bench_rt_cpu_wavefront_parallel = "mojo -I . bench/rt/bench_cpu_wavefront_parallel.mojo"
-bench_rt_wavefront_contract = "mojo -I . bench/rt/bench_wavefront_contract.mojo"
+bench_rt_cpu_wavefront_parallel = "mojo -I . bench/diagnostic/rt/bench_cpu_wavefront_parallel.mojo"
+
+# ray tracing gpu
+bench_rt_gpu = "mojo -I . bench/rt/bench_gpu_rt.mojo"
+bench_rt_gpu_mixed = "mojo -I . bench/rt/bench_gpu_rt_mixed.mojo"
+bench_rt_gpu_builders = "mojo -I . bench/diagnostic/rt/bench_gpu_rt_builders.mojo"
+bench_rt_gpu_tlas = "mojo -I . bench/diagnostic/rt/bench_gpu_rt_tlas.mojo"
+bench_rt_gpu_instance_blas = "mojo -I . --target-accelerator sm_120 bench/diagnostic/rt/bench_gpu_rt_instance_blas.mojo"
+bench_rt_gpu_combined_widths = "mojo -I . --target-accelerator sm_120 bench/diagnostic/rt/bench_gpu_rt_combined_widths.mojo"
+bench_rt_gpu_widths = "mojo -I . bench/diagnostic/rt/bench_gpu_rt_widths.mojo"
+bench_rt_gpu_blocks = "mojo -I . bench/diagnostic/rt/bench_gpu_rt_blocks.mojo"
+bench_rt_gpu_chunks = "mojo -I . bench/diagnostic/rt/bench_gpu_rt_chunks.mojo"
+bench_rt_cpu_gpu = "mojo -I . bench/rt/bench_cpu_gpu_rt.mojo"
 
 bench_rt_cpu = { depends-on = [
   "bench_rt_cpu_any_hit",
@@ -87,8 +97,7 @@ bench_rt_cpu = { depends-on = [
   "bench_rt_cpu_end_to_end",
   "bench_rt_cpu_scheduling",
   "bench_rt_cpu_wavefront",
-  "bench_rt_cpu_wavefront_parallel",
-  "bench_rt_wavefront_contract"
+  "bench_rt_cpu_wavefront_parallel"
 ] }
 
 
@@ -103,7 +112,8 @@ bench_all = { depends-on = [
   "bench_bvh_gpu_tlas"
 ] }
 bench_bvh = { depends-on = [
-  "bench_bvh_cpu",
+  "bench_bvh_cpu_grid",
+  "bench_bvh_cpu_dragon",
   "bench_bvh_gpu",
   "bench_bvh_gpu_tlas"
 ] }

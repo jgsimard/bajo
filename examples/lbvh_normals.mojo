@@ -20,6 +20,7 @@ from bajo.bvh.cpu.tlas import Tlas
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.gpu.tlas import build_triangle_tlas
 from bajo.bvh.gpu.triangle_bvh import build_triangle_blas_set
+from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.types import Instance, Hit
 from bajo.obj.pack import pack_obj_triangles
@@ -40,7 +41,8 @@ comptime GRID_Z = 6
 comptime DEMO_BLAS_COUNT = 3
 comptime BLAS_WIDTH_CPU = 16
 comptime TLAS_WIDTH_CPU = 4
-comptime BLAS_WIDTH_GPU = 2
+comptime BLAS_WIDTH_GPU = 8
+comptime BLAS_LEAF_WIDTH_GPU = 4
 comptime TLAS_WIDTH_GPU = 2
 
 
@@ -468,9 +470,12 @@ def render_gpu(
 
         print("\nBuilding GPU BLAS set...")
         var blas_t0 = perf_counter_ns()
-        var gpu_blases = build_triangle_blas_set[BLAS_WIDTH_GPU](
-            ctx, tri_vertex_sets
-        )
+        var gpu_blases = build_triangle_blas_set[
+            BLAS_WIDTH_GPU,
+            BLAS_LEAF_WIDTH_GPU,
+            GpuBvhBuildMethod.HPLOC,
+            True,
+        ](ctx, tri_vertex_sets)
         ctx.synchronize()
         var blas_t1 = perf_counter_ns()
 
@@ -481,9 +486,14 @@ def render_gpu(
 
         print("\nBuilding GPU TLAS...")
         var tlas_t0 = perf_counter_ns()
-        var gpu_tlas = build_triangle_tlas[TLAS_WIDTH_GPU, BLAS_WIDTH_GPU](
-            ctx, instances
-        )
+        var gpu_tlas = build_triangle_tlas[
+            TLAS_WIDTH_GPU,
+            BLAS_WIDTH_GPU,
+            TLAS_WIDTH_GPU,
+            BLAS_LEAF_WIDTH_GPU,
+            GpuBvhBuildMethod.LBVH,
+            True,
+        ](ctx, instances)
         ctx.synchronize()
         var tlas_t1 = perf_counter_ns()
 
@@ -518,10 +528,27 @@ def render_gpu(
         )
         ctx.synchronize()
         var trace_t1 = perf_counter_ns()
-        var trace_ns = Int(trace_t1 - trace_t0)
+        var first_trace_ns = Int(trace_t1 - trace_t0)
         print(
-            t"GPU trace: {round(ns_to_ms(trace_ns), 3)} ms | "
-            t"{round(ns_to_mrays_per_s(trace_ns, ray_count), 3)} Mrays/s"
+            t"GPU first trace: {round(ns_to_ms(first_trace_ns), 3)} ms | "
+            t"{round(ns_to_mrays_per_s(first_trace_ns, ray_count), 3)} Mrays/s"
+        )
+
+        var hot_trace_t0 = perf_counter_ns()
+        gpu_tlas.launch_camera(
+            ctx,
+            gpu_blases,
+            d_camera_params,
+            d_hits,
+            ray_count,
+            WIDTH,
+            HEIGHT,
+        )
+        ctx.synchronize()
+        var hot_trace_ns = Int(perf_counter_ns() - hot_trace_t0)
+        print(
+            t"GPU hot trace: {round(ns_to_ms(hot_trace_ns), 3)} ms | "
+            t"{round(ns_to_mrays_per_s(hot_trace_ns, ray_count), 3)} Mrays/s"
         )
         print_hit_counts_by_blas(WIDTH, HEIGHT, instances, d_hits)
 
@@ -554,6 +581,8 @@ def main() raises:
     print(t"BLAS width CPU: {BLAS_WIDTH_CPU}")
     print(t"TLAS width CPU: {TLAS_WIDTH_CPU}")
     print(t"BLAS width GPU: {BLAS_WIDTH_GPU}")
+    print(t"BLAS leaf width GPU: {BLAS_LEAF_WIDTH_GPU}")
+    print("GPU BLAS policy: H-PLOC + CWBVH8")
     print(t"TLAS width GPU: {TLAS_WIDTH_GPU}")
     print(t"CPU output: {CPU_OUTPUT_PATH}")
     print(t"GPU output: {GPU_OUTPUT_PATH}")

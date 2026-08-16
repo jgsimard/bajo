@@ -16,6 +16,7 @@ example_rtiaw = "mojo -I . examples/rtiaw.mojo"
 example_cornell = "mojo -I . examples/cornell_box.mojo"
 example_mis_showcase = "mojo -I . examples/mis_showcase.mojo"
 example_pbrt = "mojo -I . examples/pbrt_scene.mojo"
+viewer = "python tools/viewer.py"
 bench_rtiaw = "mojo -I . bench/rt/bench_example_rtiaw.mojo"
 
 # tests

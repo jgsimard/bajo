@@ -176,6 +176,8 @@ def init_hploc_multi_wave_kernel(
 
 def build_hploc_multi_wave_kernel[
     block_size: Int,
+    search_radius: Int,
+    merging_threshold: Int,
 ](
     sorted_morton_codes: Span[mut=False, UInt32, ImmutAnyOrigin],
     leaf_bounds: Span[mut=False, Float32, ImmutAnyOrigin],
@@ -191,8 +193,6 @@ def build_hploc_multi_wave_kernel[
     node_counter: Span[mut=True, UInt32, MutAnyOrigin],
     root: Span[mut=True, UInt32, MutAnyOrigin],
     status: Span[mut=True, UInt32, MutAnyOrigin],
-    search_radius_i32: Int32,
-    merging_threshold_i32: Int32,
 ):
     """Literature H-PLOC outer and inner loops for arbitrary leaf counts."""
 
@@ -245,9 +245,6 @@ def build_hploc_multi_wave_kernel[
     var right = idx
     var split = 0
     var lane_active = idx < leaf_count
-    var search_radius = Int(search_radius_i32)
-    var merging_threshold = Int(merging_threshold_i32)
-
     while hploc_wave_ballot(lane_active) != 0:
         if lane_active:
             var previous = LBVH_SENTINEL
@@ -532,7 +529,10 @@ def finalize_hploc_multi_wave_kernel(
         status.unsafe_get(0) = UInt32(HPLOC_STATUS_INVALID_RESULT)
 
 
-struct GpuHplocBuildState:
+struct GpuHplocBuildState[
+    search_radius: Int = HPLOC_SEARCH_RADIUS,
+    merging_threshold: Int = HPLOC_MERGING_THRESHOLD,
+]:
     """Scratch and completion state for a direct production-layout build."""
 
     var leaf_count: Int
@@ -554,8 +554,6 @@ struct GpuHplocBuildState:
         node_bounds: DeviceBuffer[DType.float32],
         node_flags: DeviceBuffer[DType.uint32],
         node_leaf_counts: DeviceBuffer[DType.uint32],
-        search_radius: Int = HPLOC_SEARCH_RADIUS,
-        merging_threshold: Int = HPLOC_MERGING_THRESHOLD,
     ) raises:
         self.leaf_count = len(sorted_leaf_ids)
         if self.leaf_count <= 0:
@@ -566,9 +564,9 @@ struct GpuHplocBuildState:
         ):
             raise "multi-wave H-PLOC input lengths do not match"
         if (
-            search_radius <= 0
-            or merging_threshold <= 0
-            or merging_threshold > WARP_SIZE / 2
+            Self.search_radius <= 0
+            or Self.merging_threshold <= 0
+            or Self.merging_threshold > WARP_SIZE / 2
         ):
             raise "H-PLOC threshold must be in 1..WARP_SIZE/2"
 
@@ -608,7 +606,11 @@ struct GpuHplocBuildState:
             block_dim=HPLOC_MULTI_WAVE_BLOCK_SIZE,
         )
         ctx.enqueue_function[
-            build_hploc_multi_wave_kernel[HPLOC_MULTI_WAVE_BLOCK_SIZE]
+            build_hploc_multi_wave_kernel[
+                HPLOC_MULTI_WAVE_BLOCK_SIZE,
+                Self.search_radius,
+                Self.merging_threshold,
+            ]
         ](
             _device_span[mut=False](sorted_morton_codes),
             _device_span[mut=False](leaf_bounds),
@@ -624,8 +626,6 @@ struct GpuHplocBuildState:
             _device_span[mut=True](self.node_counter),
             _device_span[mut=True](self.root),
             _device_span[mut=True](self.status),
-            Int32(search_radius),
-            Int32(merging_threshold),
             grid_dim=blocks,
             block_dim=HPLOC_MULTI_WAVE_BLOCK_SIZE,
         )
@@ -651,7 +651,10 @@ struct GpuHplocBuildState:
             return host[0]
 
 
-struct GpuHplocMultiWaveBvh:
+struct GpuHplocMultiWaveBvh[
+    search_radius: Int = HPLOC_SEARCH_RADIUS,
+    merging_threshold: Int = HPLOC_MERGING_THRESHOLD,
+]:
     """Standalone direct-layout H-PLOC builder used by correctness tests."""
 
     var leaf_count: Int
@@ -663,7 +666,7 @@ struct GpuHplocMultiWaveBvh:
     var node_bounds: DeviceBuffer[DType.float32]
     var node_flags: DeviceBuffer[DType.uint32]
     var node_leaf_counts: DeviceBuffer[DType.uint32]
-    var state: GpuHplocBuildState
+    var state: GpuHplocBuildState[Self.search_radius, Self.merging_threshold]
 
     def __init__(
         out self,
@@ -671,8 +674,6 @@ struct GpuHplocMultiWaveBvh:
         leaf_bounds: DeviceBuffer[DType.float32],
         sorted_morton_codes: DeviceBuffer[DType.uint32],
         sorted_leaf_ids: DeviceBuffer[DType.uint32],
-        search_radius: Int = HPLOC_SEARCH_RADIUS,
-        merging_threshold: Int = HPLOC_MERGING_THRESHOLD,
     ) raises:
         self.leaf_count = len(sorted_leaf_ids)
         self.leaf_bounds = leaf_bounds
@@ -695,7 +696,9 @@ struct GpuHplocMultiWaveBvh:
         self.node_leaf_counts = ctx.enqueue_create_buffer[DType.uint32](
             internal_capacity
         )
-        self.state = GpuHplocBuildState(
+        self.state = GpuHplocBuildState[
+            Self.search_radius, Self.merging_threshold
+        ](
             ctx,
             self.leaf_bounds.copy(),
             self.sorted_morton_codes.copy(),
@@ -705,8 +708,6 @@ struct GpuHplocMultiWaveBvh:
             self.node_bounds.copy(),
             self.node_flags.copy(),
             self.node_leaf_counts.copy(),
-            search_radius,
-            merging_threshold,
         )
 
     def result_status(self) raises -> UInt32:

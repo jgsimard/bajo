@@ -122,7 +122,7 @@ struct GpuTriangleWideBuildTicket[
     var source_vertices: DeviceBuffer[DType.float32]
     var binary: GpuBinaryBoundsBvh
     var workspace: GpuBinaryBuildWorkspace
-    var hploc: Optional[GpuHplocBuildState]
+    var hploc: Optional[GpuHplocBuildState[]]
     var collapse: GpuWideCollapseState
 
     def finish_synchronized(mut self) raises:
@@ -188,11 +188,11 @@ def enqueue_build_triangle_wide_with_arena[
 
     var workspace = GpuBinaryBuildWorkspace(arena.binary)
     var binary = GpuBinaryBoundsBvh(ctx, leaf_bounds^, payloads^, workspace)
-    var hploc = Optional[GpuHplocBuildState]()
+    var hploc = Optional[GpuHplocBuildState[]]()
     comptime if build_method == GpuBvhBuildMethod.LBVH:
         _ = build_binary_bvh_with_lbvh(ctx, binary, workspace)
     elif build_method == GpuBvhBuildMethod.HPLOC:
-        hploc = Optional[GpuHplocBuildState](
+        hploc = Optional[GpuHplocBuildState[]](
             enqueue_binary_bvh_with_hploc(ctx, binary, workspace)
         )
     else:

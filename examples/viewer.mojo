@@ -76,7 +76,7 @@ def _viewer_bvh_stats[
                 + String(Int(instance_bvh_width))
                 + "/SAH TLAS"
                 + String(Int(instance_bvh_width))
-                + "/LBVH"
+                + "/1 LBVH"
             )
     else:
         result = "GPU host W" + String(Int(world_bvh_width))

@@ -418,14 +418,16 @@ struct World[
 ]:
     """World with BVH widths independent from renderer packet length.
 
-    `World[]` keeps the general-purpose BVH16/BVH16 policy. A packet-oriented
-    scene can instead select, for example, `World[8, 16]` without changing the
-    packet length passed to `render_wavefront`.
+    `World[]` keeps the general-purpose BVH16/BVH16 policy for world geometry
+    and instance BLASes. CPU instance traversal uses one instance per TLAS leaf
+    independently of those SIMD widths. A packet-oriented scene can instead
+    select, for example, `World[8, 16]` without changing the packet length
+    passed to `render_wavefront`.
     """
 
     var sphere_bvh: Optional[SphereBvh[Frame.WORLD, Self.world_bvh_width]]
     var triangle_bvh: Optional[TriangleBvh[Frame.WORLD, Self.world_bvh_width]]
-    var triangle_tlas: Optional[Tlas[Self.instance_bvh_width]]
+    var triangle_tlas: Optional[Tlas[Self.instance_bvh_width, 1]]
     var spheres: List[Sphere[Frame.WORLD]]
     var sphere_surfaces: List[SurfaceId[1]]
     var triangle_vertices: List[Point3f32[Frame.WORLD]]
@@ -489,7 +491,7 @@ struct World[
         self.triangle_bvh = Optional[
             TriangleBvh[Frame.WORLD, Self.world_bvh_width]
         ]()
-        self.triangle_tlas = Optional[Tlas[Self.instance_bvh_width]]()
+        self.triangle_tlas = Optional[Tlas[Self.instance_bvh_width, 1]]()
         self.triangle_mesh_blases = List[
             TriangleBvh[Frame.LOCAL, Self.instance_bvh_width]
         ]()
@@ -563,8 +565,8 @@ struct World[
                     "triangle instance surface id is out of range",
                 )
 
-            self.triangle_tlas = Optional[Tlas[Self.instance_bvh_width]](
-                Tlas[Self.instance_bvh_width](self.triangle_instances)
+            self.triangle_tlas = Optional[Tlas[Self.instance_bvh_width, 1]](
+                Tlas[Self.instance_bvh_width, 1](self.triangle_instances)
             )
 
         self._build_light_store()

@@ -11,7 +11,8 @@ comptime MAX_DEPTH = 10
 
 def main() raises:
     var scene = read_pbrt(SCENE_PATH)
-    var result = render_wavefront[RENDER.MIS, MAX_DEPTH](
+    scene.settings.max_depth = MAX_DEPTH
+    var result = render_wavefront[RENDER.MIS](
         scene.settings, scene.camera, scene.world
     )
     write_ppm_from_colors(

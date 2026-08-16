@@ -309,7 +309,6 @@ def _shade_material_packets[
 
 
 def _trace_path_packets[
-    MAX_DEPTH: Int,
     length: SIMDLength,
     ALGORITHM: RENDER,
     world_bvh_width: SIMDLength,
@@ -325,7 +324,7 @@ def _trace_path_packets[
     mut dielectric_queue: PacketShadeQueue[length],
 ):
     comptime assert ALGORITHM in (RENDER.PATH, RENDER.NEE, RENDER.MIS)
-    for bounce in range(MAX_DEPTH):
+    for bounce in range(settings.max_depth):
         if len(active_paths) == 0:
             break
         lambertian_queue.clear()

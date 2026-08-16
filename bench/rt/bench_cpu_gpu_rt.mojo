@@ -64,11 +64,10 @@ def _render_cpu[
     ALGORITHM: RENDER
 ](settings: RenderSettings, camera: Camera, world: World[]) -> RenderResult:
     comptime if ALGORITHM == RENDER.AO:
-        return render_depth_first[ALGORITHM, MAX_DEPTH](settings, camera, world)
+        return render_depth_first[ALGORITHM](settings, camera, world)
     else:
         return render_wavefront[
             ALGORITHM,
-            MAX_DEPTH,
             CPU_PACKET_WIDTH,
             CPU_CHUNK_PATHS,
             True,
@@ -117,7 +116,6 @@ def _bench_gpu[
 ) raises -> GpuTiming:
     enqueue_render_gpu_triangles[
         ALGORITHM,
-        MAX_DEPTH,
         NODE_WIDTH,
         LEAF_WIDTH,
         GPU_RT_MAX_BLOCKS,
@@ -134,7 +132,6 @@ def _bench_gpu[
         var t0 = perf_counter_ns()
         enqueue_render_gpu_triangles[
             ALGORITHM,
-            MAX_DEPTH,
             NODE_WIDTH,
             LEAF_WIDTH,
             GPU_RT_MAX_BLOCKS,
@@ -220,7 +217,7 @@ def main() raises:
         print("CPU/GPU RT comparison skipped: no accelerator")
         return
     var settings = RenderSettings(
-        IMAGE_WIDTH, IMAGE_HEIGHT, SAMPLES_PER_PIXEL, RNG_SEED
+        IMAGE_WIDTH, IMAGE_HEIGHT, SAMPLES_PER_PIXEL, RNG_SEED, MAX_DEPTH
     )
     var camera = gpu_rt_camera()
     var world = make_cornell_world()

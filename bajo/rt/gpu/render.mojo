@@ -44,7 +44,6 @@ def _render_gpu_combined_default[
     ALGORITHM: RENDER,
     HAS_SPHERES: Bool,
     HAS_TRIANGLES: Bool,
-    MAX_DEPTH: Int,
     node_width: SIMDLength,
     leaf_width: SIMDLength,
     world_bvh_width: SIMDLength,
@@ -60,7 +59,6 @@ def _render_gpu_combined_default[
                 ALGORITHM,
                 HAS_SPHERES,
                 HAS_TRIANGLES,
-                MAX_DEPTH,
                 node_width,
                 leaf_width,
                 world_bvh_width,
@@ -80,7 +78,6 @@ def _render_gpu_combined_default[
             ALGORITHM,
             HAS_SPHERES,
             HAS_TRIANGLES,
-            MAX_DEPTH,
             node_width,
             leaf_width,
             world_bvh_width,
@@ -101,7 +98,6 @@ def _render_gpu_combined_default[
             ALGORITHM,
             HAS_SPHERES,
             HAS_TRIANGLES,
-            MAX_DEPTH,
             node_width,
             leaf_width,
             world_bvh_width,
@@ -121,7 +117,6 @@ def _render_gpu_combined_default[
         ALGORITHM,
         HAS_SPHERES,
         HAS_TRIANGLES,
-        MAX_DEPTH,
         node_width,
         leaf_width,
         world_bvh_width,
@@ -141,7 +136,6 @@ def _render_gpu_combined_default[
 
 def render_gpu[
     ALGORITHM: RENDER = RENDER.PATH,
-    MAX_DEPTH: Int = 8,
     node_width: SIMDLength = 4,
     leaf_width: SIMDLength = node_width,
     world_bvh_width: SIMDLength = 16,
@@ -167,7 +161,6 @@ def render_gpu[
                     ALGORITHM,
                     True,
                     True,
-                    MAX_DEPTH,
                     node_width,
                     leaf_width,
                     world_bvh_width,
@@ -177,7 +170,6 @@ def render_gpu[
                 ALGORITHM,
                 True,
                 False,
-                MAX_DEPTH,
                 node_width,
                 leaf_width,
                 world_bvh_width,
@@ -188,7 +180,6 @@ def render_gpu[
                 ALGORITHM,
                 False,
                 True,
-                MAX_DEPTH,
                 node_width,
                 leaf_width,
                 world_bvh_width,
@@ -197,7 +188,6 @@ def render_gpu[
         if _prefer_cwbvh8_blases(world):
             return render_gpu_triangle_instances[
                 ALGORITHM,
-                MAX_DEPTH,
                 2,
                 2,
                 8,
@@ -209,7 +199,6 @@ def render_gpu[
             ](settings, camera, world)
         return render_gpu_triangle_instances[
             ALGORITHM,
-            MAX_DEPTH,
             2,
             2,
             4,
@@ -224,7 +213,6 @@ def render_gpu[
             if not _prefer_cwbvh8_triangles(world):
                 return render_gpu_mixed[
                     ALGORITHM,
-                    MAX_DEPTH,
                     node_width,
                     leaf_width,
                     world_bvh_width,
@@ -236,7 +224,6 @@ def render_gpu[
                 ](settings, camera, world)
             return render_gpu_mixed[
                 ALGORITHM,
-                MAX_DEPTH,
                 node_width,
                 leaf_width,
                 world_bvh_width,
@@ -244,7 +231,6 @@ def render_gpu[
             ](settings, camera, world)
         return render_gpu_spheres[
             ALGORITHM,
-            MAX_DEPTH,
             node_width,
             leaf_width,
             world_bvh_width,
@@ -253,7 +239,6 @@ def render_gpu[
     if _prefer_cwbvh8_triangles(world):
         return render_gpu_triangles[
             ALGORITHM,
-            MAX_DEPTH,
             8,
             4,
             world_bvh_width,
@@ -263,7 +248,6 @@ def render_gpu[
         ](settings, camera, world)
     return render_gpu_triangles[
         ALGORITHM,
-        MAX_DEPTH,
         4,
         4,
         world_bvh_width,

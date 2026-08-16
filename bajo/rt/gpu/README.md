@@ -69,7 +69,7 @@ together with their Philox subsequences.
 
 ## Renderer status
 
-`render_gpu[ALGORITHM, MAX_DEPTH, node_width, leaf_width]` is the general entry
+`render_gpu[ALGORITHM, node_width, leaf_width]` is the general entry
 point. It dispatches by scene contents to compile-time-specialized sphere,
 triangle, mixed-static, instance-only, or combined static-plus-instance
 pipelines. All `World` geometry combinations are supported, including signed

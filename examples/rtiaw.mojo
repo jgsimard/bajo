@@ -119,6 +119,7 @@ def main() raises:
         IMAGE_HEIGHT,
         SAMPLES_PER_PIXEL,
         RNG_SEED,
+        MAX_DEPTH,
     )
     print(
         t"image: {settings.image_width}x{settings.image_height} | "
@@ -142,9 +143,7 @@ def main() raises:
     )
 
     var t0 = perf_counter_ns()
-    var result = render_wavefront[RENDER_ALGORITHM, MAX_DEPTH](
-        settings, camera, world
-    )
+    var result = render_wavefront[RENDER_ALGORITHM](settings, camera, world)
     var t1 = perf_counter_ns()
 
     write_ppm_from_colors(

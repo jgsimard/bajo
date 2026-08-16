@@ -56,7 +56,6 @@ struct _PacketQueueArena[length: SIMDLength]:
 def _trace_packet_range[
     length: SIMDLength,
     ALGORITHM: RENDER,
-    MAX_DEPTH: Int,
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
 ](
@@ -72,7 +71,6 @@ def _trace_packet_range[
         queues.active_paths, settings, camera, path_begin, path_end
     )
     _trace_path_packets[
-        MAX_DEPTH,
         length,
         ALGORITHM,
         world_bvh_width,
@@ -91,7 +89,6 @@ def _trace_packet_range[
 
 def render_wavefront[
     ALGORITHM: RENDER = RENDER.PATH,
-    MAX_DEPTH: Int = 8,
     length: SIMDLength = 16,
     CHUNK_PATHS: Int = CPU_WAVEFRONT_PARALLEL_CHUNK_PATHS,
     PARALLEL: Bool = True,
@@ -105,7 +102,6 @@ def render_wavefront[
 ) -> RenderResult:
     """Render with compile-time packet, chunk, and CPU scheduling choices."""
     comptime assert CHUNK_PATHS > 0, "wavefront chunk size must be positive"
-    comptime assert MAX_DEPTH >= 0, "max depth must be non-negative"
     comptime assert ALGORITHM in (RENDER.PATH, RENDER.NEE, RENDER.MIS)
     comptime if PARALLEL:
         comptime assert (
@@ -137,7 +133,6 @@ def render_wavefront[
             _trace_packet_range[
                 length,
                 ALGORITHM,
-                MAX_DEPTH,
                 world_bvh_width,
                 instance_bvh_width,
             ](
@@ -166,7 +161,6 @@ def render_wavefront[
             _trace_packet_range[
                 length,
                 ALGORITHM,
-                MAX_DEPTH,
                 world_bvh_width,
                 instance_bvh_width,
             ](
@@ -193,6 +187,6 @@ def render_wavefront[
             Int(render_t1 - render_t0),
             pixel_count,
             path_count,
-            MAX_DEPTH,
+            settings.max_depth,
         ),
     )

@@ -31,8 +31,9 @@ def main() raises:
         IMAGE_HEIGHT,
         SAMPLES_PER_PIXEL,
         RNG_SEED,
+        MAX_DEPTH,
     )
-    var result = render_wavefront[RENDER.MIS, MAX_DEPTH](
+    var result = render_wavefront[RENDER.MIS](
         scene.settings, scene.camera, scene.world
     )
     write_ppm_from_colors(

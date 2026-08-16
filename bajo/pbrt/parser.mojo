@@ -261,6 +261,7 @@ struct _Builder:
             self.image_height,
             self.samples_per_pixel,
             UInt64(2026),
+            self.max_depth,
         )
         var surfaces = SurfaceStore()
         surfaces.lambertians = self.surfaces.lambertians.copy()

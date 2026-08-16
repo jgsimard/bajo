@@ -278,6 +278,7 @@ def main() raises:
         IMAGE_HEIGHT,
         SAMPLES_PER_PIXEL,
         RNG_SEED,
+        MAX_DEPTH,
     )
     var camera = Camera.from_vfov(
         Point3W(0.0, 3.0, 6.2),
@@ -289,27 +290,21 @@ def main() raises:
     var world = make_mis_showcase_world()
 
     var path_t0 = perf_counter_ns()
-    var path_result = render_wavefront[RENDER.PATH, MAX_DEPTH](
-        settings, camera, world
-    )
+    var path_result = render_wavefront[RENDER.PATH](settings, camera, world)
     var path_t1 = perf_counter_ns()
     write_ppm_from_colors(
         PATH_OUTPUT, IMAGE_WIDTH, IMAGE_HEIGHT, path_result.pixels
     )
 
     var nee_t0 = perf_counter_ns()
-    var nee_result = render_wavefront[RENDER.NEE, MAX_DEPTH](
-        settings, camera, world
-    )
+    var nee_result = render_wavefront[RENDER.NEE](settings, camera, world)
     var nee_t1 = perf_counter_ns()
     write_ppm_from_colors(
         NEE_OUTPUT, IMAGE_WIDTH, IMAGE_HEIGHT, nee_result.pixels
     )
 
     var mis_t0 = perf_counter_ns()
-    var mis_result = render_wavefront[RENDER.MIS, MAX_DEPTH](
-        settings, camera, world
-    )
+    var mis_result = render_wavefront[RENDER.MIS](settings, camera, world)
     var mis_t1 = perf_counter_ns()
     write_ppm_from_colors(
         MIS_OUTPUT, IMAGE_WIDTH, IMAGE_HEIGHT, mis_result.pixels

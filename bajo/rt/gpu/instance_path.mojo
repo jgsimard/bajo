@@ -229,7 +229,6 @@ def _enqueue_instance_bounce[
 
 def enqueue_render_gpu_triangle_instances[
     ALGORITHM: RENDER = RENDER.PATH,
-    MAX_DEPTH: Int = 8,
     tlas_node_width: SIMDLength = 2,
     tlas_leaf_width: SIMDLength = tlas_node_width,
     blas_node_width: SIMDLength = 8,
@@ -254,7 +253,6 @@ def enqueue_render_gpu_triangle_instances[
     """Submit an instanced-triangle render into `target.pixels`."""
     enqueue_gpu_wavefront[
         ALGORITHM,
-        MAX_DEPTH,
         _enqueue_instance_bounce[
             ALGORITHM,
             tlas_node_width,
@@ -270,7 +268,6 @@ def enqueue_render_gpu_triangle_instances[
 
 def render_gpu_triangle_instances[
     ALGORITHM: RENDER = RENDER.PATH,
-    MAX_DEPTH: Int = 8,
     tlas_node_width: SIMDLength = 2,
     tlas_leaf_width: SIMDLength = tlas_node_width,
     blas_node_width: SIMDLength = 8,
@@ -293,7 +290,6 @@ def render_gpu_triangle_instances[
         RENDER.NEE,
         RENDER.MIS,
     )
-    comptime assert MAX_DEPTH >= 0
     var total_t0 = perf_counter_ns()
     var pixel_count = settings.image_width * settings.image_height
     var sample_count = pixel_count * settings.samples_per_pixel
@@ -318,7 +314,6 @@ def render_gpu_triangle_instances[
         var render_t0 = perf_counter_ns()
         enqueue_render_gpu_triangle_instances[
             ALGORITHM,
-            MAX_DEPTH,
             tlas_node_width,
             tlas_leaf_width,
             blas_node_width,
@@ -344,6 +339,6 @@ def render_gpu_triangle_instances[
             render_ns,
             pixel_count,
             sample_count,
-            MAX_DEPTH,
+            settings.max_depth,
         ),
     )

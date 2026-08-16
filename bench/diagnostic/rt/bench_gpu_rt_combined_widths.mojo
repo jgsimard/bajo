@@ -180,7 +180,6 @@ def _bench_algorithm[
         ALGORITHM,
         True,
         True,
-        MAX_DEPTH,
         4,
         4,
         tlas_node_width,
@@ -203,7 +202,6 @@ def _bench_algorithm[
             ALGORITHM,
             True,
             True,
-            MAX_DEPTH,
             4,
             4,
             tlas_node_width,
@@ -321,7 +319,7 @@ def main() raises:
         print("GPU RT combined-width benchmark skipped: no accelerator")
         return
     var settings = RenderSettings(
-        IMAGE_WIDTH, IMAGE_HEIGHT, SAMPLES_PER_PIXEL, RNG_SEED
+        IMAGE_WIDTH, IMAGE_HEIGHT, SAMPLES_PER_PIXEL, RNG_SEED, MAX_DEPTH
     )
     var world = _combined_grid_world()
     var sample_count = IMAGE_WIDTH * IMAGE_HEIGHT * SAMPLES_PER_PIXEL

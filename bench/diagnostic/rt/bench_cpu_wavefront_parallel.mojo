@@ -44,7 +44,6 @@ def _render_configuration[
 ](settings: RenderSettings, camera: Camera, world: World[]) -> RenderResult:
     return render_wavefront[
         RENDER.PATH,
-        MAX_DEPTH,
         length,
         CHUNK_PATHS,
         PARALLEL,
@@ -237,7 +236,7 @@ def main():
         t"{WIDTH}x{HEIGHT} x {SPP} spp, depth {MAX_DEPTH}; interleaved median"
         t" of {REPEATS}"
     )
-    var settings = RenderSettings(WIDTH, HEIGHT, SPP, RNG_SEED)
+    var settings = RenderSettings(WIDTH, HEIGHT, SPP, RNG_SEED, MAX_DEPTH)
     var sphere_world = make_weekend_world()
     var sphere_camera = weekend_camera()
     benchmark_world("Weekend spheres", settings, sphere_camera, sphere_world)

@@ -778,7 +778,7 @@ def test_world_occluded_covers_all_geometry_and_ray_interval() raises:
 
 
 def test_render_settings_and_tiny_render() raises:
-    var settings = RenderSettings(4, 2, 2, UInt64(9))
+    var settings = RenderSettings(4, 2, 2, UInt64(9), 2)
     assert_equal(settings.image_width, 4)
     assert_equal(settings.image_height, 2)
     assert_equal(settings.rng_seed, 9)
@@ -816,7 +816,7 @@ def test_render_settings_and_tiny_render() raises:
         90.0,
     )
 
-    var result = render_depth_first[RENDER.PATH, 2](settings, camera, world)
+    var result = render_depth_first[RENDER.PATH](settings, camera, world)
     assert_equal(len(result.pixels), 8)
     assert_equal(result.timings.pixel_count, 8)
     assert_equal(result.timings.sample_count, 16)
@@ -825,14 +825,14 @@ def test_render_settings_and_tiny_render() raises:
     for p in result.pixels:
         assert_true(p.x >= 0.0 and p.y >= 0.0 and p.z >= 0.0)
 
-    var one_pixel_tiles = render_depth_first[RENDER.PATH, 2, 1, 1](
+    var one_pixel_tiles = render_depth_first[RENDER.PATH, 1, 1](
         settings, camera, world
     )
     for i in range(len(result.pixels)):
         assert_vec_equal(one_pixel_tiles.pixels[i], result.pixels[i])
 
     # Renderer packet length and both acceleration widths are independent.
-    var packet_result = render_wavefront[RENDER.PATH, 2, 4, 16, False](
+    var packet_result = render_wavefront[RENDER.PATH, 4, 16, False](
         settings, camera, world
     )
     assert_equal(len(packet_result.pixels), len(result.pixels))
@@ -873,7 +873,7 @@ def test_render_can_select_normal_algorithm_at_compile_time() raises:
         90.0,
     )
 
-    var result = render_depth_first[RENDER.NORMALS, 1](settings, camera, world)
+    var result = render_depth_first[RENDER.NORMALS](settings, camera, world)
     assert_equal(len(result.pixels), 1)
     assert_true(result.pixels[0].z >= result.pixels[0].x)
 
@@ -913,7 +913,7 @@ def test_render_can_select_ao_algorithm_at_compile_time() raises:
         90.0,
     )
 
-    var result = render_depth_first[RENDER.AO, 1](settings, camera, world)
+    var result = render_depth_first[RENDER.AO](settings, camera, world)
     assert_equal(len(result.pixels), 1)
     assert_true(
         result.pixels[0].x >= 0.0
@@ -957,7 +957,7 @@ def test_wavefront_tiny_render() raises:
         90.0,
     )
 
-    var result = render_wavefront[RENDER.PATH, 2](settings, camera, world)
+    var result = render_wavefront[RENDER.PATH](settings, camera, world)
     assert_equal(len(result.pixels), 6)
     assert_equal(result.timings.sample_count, 12)
     for p in result.pixels:
@@ -966,24 +966,24 @@ def test_wavefront_tiny_render() raises:
     # Whole-pixel chunks preserve Philox stream ownership and accumulation
     # order. The small chunk also exercises a target not divisible by samples
     # per pixel.
-    var chunked = render_wavefront[RENDER.PATH, 2, 1, 3, False](
+    var chunked = render_wavefront[RENDER.PATH, 1, 3, False](
         settings, camera, world
     )
-    var parallel = render_wavefront[RENDER.PATH, 2, 1, 3, True](
+    var parallel = render_wavefront[RENDER.PATH, 1, 3, True](
         settings, camera, world
     )
     # Instantiate multiple packet widths and a six-path chunk so every width
     # exercises partial packets as well as the generic queue indexing.
-    var width1 = render_wavefront[RENDER.PATH, 2, 1, 7, False](
+    var width1 = render_wavefront[RENDER.PATH, 1, 7, False](
         settings, camera, world
     )
-    var packet4 = render_wavefront[RENDER.PATH, 2, 4, 7, False](
+    var packet4 = render_wavefront[RENDER.PATH, 4, 7, False](
         settings, camera, world
     )
-    var packet8 = render_wavefront[RENDER.PATH, 2, 8, 7, False](
+    var packet8 = render_wavefront[RENDER.PATH, 8, 7, False](
         settings, camera, world
     )
-    var packet16 = render_wavefront[RENDER.PATH, 2, 16, 7, False](
+    var packet16 = render_wavefront[RENDER.PATH, 16, 7, False](
         settings, camera, world
     )
     assert_equal(len(chunked.pixels), len(result.pixels))
@@ -1065,16 +1065,16 @@ def test_packet_widths_match_width1_for_mixed_bsdfs() raises:
         52.0,
     )
 
-    var packet1 = render_wavefront[RENDER.PATH, 4, 1, 10, False](
+    var packet1 = render_wavefront[RENDER.PATH, 1, 10, False](
         settings, camera, world
     )
-    var packet4 = render_wavefront[RENDER.PATH, 4, 4, 10, False](
+    var packet4 = render_wavefront[RENDER.PATH, 4, 10, False](
         settings, camera, world
     )
-    var packet8 = render_wavefront[RENDER.PATH, 4, 8, 10, False](
+    var packet8 = render_wavefront[RENDER.PATH, 8, 10, False](
         settings, camera, world
     )
-    var packet16 = render_wavefront[RENDER.PATH, 4, 16, 10, False](
+    var packet16 = render_wavefront[RENDER.PATH, 16, 10, False](
         settings, camera, world
     )
     for pixel_idx in range(len(packet1.pixels)):
@@ -1093,39 +1093,39 @@ def test_direct_light_algorithms_render_cornell() raises:
         28.0,
         4.2,
     )
-    var result = render_wavefront[RENDER.NEE, 4](settings, camera, world)
+    var result = render_wavefront[RENDER.NEE](settings, camera, world)
     assert_true(len(world.lights.records) > 0)
     assert_true(world.lights.total_weight > 0.0)
     for light in world.lights.records:
         assert_equal(light.surface.kind(), MAT.EMISSIVE)
         assert_true(light.weight > 0.0)
-    var depth_first = render_depth_first[RENDER.NEE, 4](settings, camera, world)
-    var mis = render_wavefront[RENDER.MIS, 4](settings, camera, world)
-    var depth_first_mis = render_depth_first[RENDER.MIS, 4](
+    var depth_first = render_depth_first[RENDER.NEE](settings, camera, world)
+    var mis = render_wavefront[RENDER.MIS](settings, camera, world)
+    var depth_first_mis = render_depth_first[RENDER.MIS](
         settings, camera, world
     )
-    var packet_nee1 = render_wavefront[RENDER.NEE, 4, 1, 14, False](
+    var packet_nee1 = render_wavefront[RENDER.NEE, 1, 14, False](
         settings, camera, world
     )
-    var packet_nee4 = render_wavefront[RENDER.NEE, 4, 4, 14, False](
+    var packet_nee4 = render_wavefront[RENDER.NEE, 4, 14, False](
         settings, camera, world
     )
-    var packet_nee8 = render_wavefront[RENDER.NEE, 4, 8, 14, False](
+    var packet_nee8 = render_wavefront[RENDER.NEE, 8, 14, False](
         settings, camera, world
     )
-    var packet_nee16 = render_wavefront[RENDER.NEE, 4, 16, 14, False](
+    var packet_nee16 = render_wavefront[RENDER.NEE, 16, 14, False](
         settings, camera, world
     )
-    var packet_mis1 = render_wavefront[RENDER.MIS, 4, 1, 14, False](
+    var packet_mis1 = render_wavefront[RENDER.MIS, 1, 14, False](
         settings, camera, world
     )
-    var packet_mis4 = render_wavefront[RENDER.MIS, 4, 4, 14, False](
+    var packet_mis4 = render_wavefront[RENDER.MIS, 4, 14, False](
         settings, camera, world
     )
-    var packet_mis8 = render_wavefront[RENDER.MIS, 4, 8, 14, False](
+    var packet_mis8 = render_wavefront[RENDER.MIS, 8, 14, False](
         settings, camera, world
     )
-    var packet_mis16 = render_wavefront[RENDER.MIS, 4, 16, 14, False](
+    var packet_mis16 = render_wavefront[RENDER.MIS, 16, 14, False](
         settings, camera, world
     )
     var total = Float32(0.0)

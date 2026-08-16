@@ -463,9 +463,8 @@ def main() raises:
     print(t"primary hits: {_count_primary_hits(settings, camera, world)}")
 
     var render_t0 = perf_counter_ns()
-    var result = render_depth_first[RENDER_ALGORITHM, MAX_DEPTH](
-        settings, camera, world
-    )
+    settings.max_depth = MAX_DEPTH
+    var result = render_depth_first[RENDER_ALGORITHM](settings, camera, world)
     var render_t1 = perf_counter_ns()
 
     write_ppm_from_colors(

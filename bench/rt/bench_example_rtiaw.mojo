@@ -46,13 +46,10 @@ def _render_mode[
     MODE: Int, CHUNK_PATHS: Int = 0
 ](settings: RenderSettings, camera: Camera, world: World[]) -> RenderResult:
     comptime if MODE == MODE_DEPTH_FIRST:
-        return render_depth_first[RENDER.PATH, MAX_DEPTH](
-            settings, camera, world
-        )
+        return render_depth_first[RENDER.PATH](settings, camera, world)
     elif MODE == MODE_WAVEFRONT_SERIAL:
         return render_wavefront[
             RENDER.PATH,
-            MAX_DEPTH,
             16,
             CPU_WAVEFRONT_SERIAL_CHUNK_PATHS,
             False,
@@ -62,7 +59,6 @@ def _render_mode[
         comptime assert CHUNK_PATHS > 0
         return render_wavefront[
             RENDER.PATH,
-            MAX_DEPTH,
             16,
             CHUNK_PATHS,
             True,
@@ -129,7 +125,7 @@ def main():
         t"{WIDTH}x{HEIGHT} x {SPP} spp, depth {MAX_DEPTH}; interleaved median"
         t" of {REPEATS}"
     )
-    var settings = RenderSettings(WIDTH, HEIGHT, SPP, RNG_SEED)
+    var settings = RenderSettings(WIDTH, HEIGHT, SPP, RNG_SEED, MAX_DEPTH)
     var world = make_weekend_world()
     var camera = weekend_camera()
 

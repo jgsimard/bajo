@@ -101,7 +101,7 @@ Shape "sphere" "float radius" 1
 """,
     )
     var scene = read_pbrt("scene/main.pbrt", loader)
-    var result = render_wavefront[RENDER.MIS, 2, 1, 64, False](
+    var result = render_wavefront[RENDER.MIS, 1, 64, False](
         scene.settings, scene.camera, scene.world
     )
     assert_true(len(result.pixels) == 16)

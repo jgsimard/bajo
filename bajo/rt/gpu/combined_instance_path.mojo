@@ -297,7 +297,6 @@ def enqueue_render_gpu_combined_instances[
     ALGORITHM: RENDER,
     HAS_SPHERES: Bool,
     HAS_TRIANGLES: Bool,
-    MAX_DEPTH: Int = 8,
     node_width: SIMDLength = 4,
     leaf_width: SIMDLength = node_width,
     tlas_node_width: SIMDLength = 2,
@@ -337,7 +336,6 @@ def enqueue_render_gpu_combined_instances[
     """Submit a combined static/instanced render into `target.pixels`."""
     enqueue_gpu_wavefront[
         ALGORITHM,
-        MAX_DEPTH,
         _enqueue_combined_instance_bounce[
             ALGORITHM,
             HAS_SPHERES,
@@ -363,7 +361,6 @@ def render_gpu_combined_instances[
     ALGORITHM: RENDER,
     HAS_SPHERES: Bool,
     HAS_TRIANGLES: Bool,
-    MAX_DEPTH: Int = 8,
     node_width: SIMDLength = 4,
     leaf_width: SIMDLength = node_width,
     world_bvh_width: SIMDLength = 16,
@@ -419,7 +416,6 @@ def render_gpu_combined_instances[
             ALGORITHM,
             HAS_SPHERES,
             HAS_TRIANGLES,
-            MAX_DEPTH,
             node_width,
             leaf_width,
             tlas_node_width,
@@ -450,6 +446,6 @@ def render_gpu_combined_instances[
             render_ns,
             pixel_count,
             sample_count,
-            MAX_DEPTH,
+            settings.max_depth,
         ),
     )

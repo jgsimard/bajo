@@ -42,7 +42,6 @@ comptime CPU_RENDER_TILE_HEIGHT = 16
 
 
 def _trace_path[
-    MAX_DEPTH: Int,
     ALGORITHM: RENDER,
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
@@ -53,7 +52,6 @@ def _trace_path[
     mut rng: Rng,
     path_id: UInt32,
 ) -> Color:
-    comptime assert MAX_DEPTH >= 0, "max depth must be non-negative"
     comptime assert ALGORITHM in (RENDER.PATH, RENDER.NEE, RENDER.MIS)
 
     var cur_ray = ray
@@ -62,7 +60,7 @@ def _trace_path[
     var previous_delta = True
     var previous_bsdf_pdf = Float32(0.0)
 
-    for _bounce in range(MAX_DEPTH):
+    for _bounce in range(settings.max_depth):
         var hit = world.trace_surface(cur_ray)
         if hit.hit:
             var point = _shading_point(cur_ray, hit)
@@ -155,7 +153,6 @@ def _trace_ao[
 
 def _trace_algorithm[
     ALGORITHM: RENDER,
-    MAX_DEPTH: Int,
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
 ](
@@ -166,28 +163,27 @@ def _trace_algorithm[
     path_id: UInt32,
 ) -> Color:
     comptime if ALGORITHM == RENDER.PATH:
-        return _trace_path[
-            MAX_DEPTH, RENDER.PATH, world_bvh_width, instance_bvh_width
-        ](settings, world, ray, rng, path_id)
+        return _trace_path[RENDER.PATH, world_bvh_width, instance_bvh_width](
+            settings, world, ray, rng, path_id
+        )
     elif ALGORITHM == RENDER.NORMALS:
         return _trace_normals(world, ray)
     elif ALGORITHM == RENDER.AO:
         return _trace_ao(world, ray, rng)
     elif ALGORITHM == RENDER.NEE:
-        return _trace_path[
-            MAX_DEPTH, RENDER.NEE, world_bvh_width, instance_bvh_width
-        ](settings, world, ray, rng, path_id)
+        return _trace_path[RENDER.NEE, world_bvh_width, instance_bvh_width](
+            settings, world, ray, rng, path_id
+        )
     elif ALGORITHM == RENDER.MIS:
-        return _trace_path[
-            MAX_DEPTH, RENDER.MIS, world_bvh_width, instance_bvh_width
-        ](settings, world, ray, rng, path_id)
+        return _trace_path[RENDER.MIS, world_bvh_width, instance_bvh_width](
+            settings, world, ray, rng, path_id
+        )
     else:
         comptime assert False, "unknown RT render algorithm"
 
 
 def _render_pixel[
     ALGORITHM: RENDER,
-    MAX_DEPTH: Int,
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
 ](
@@ -207,7 +203,7 @@ def _render_pixel[
         )
         var ray = _make_primary_ray(settings, camera, px, py, rng)
         pixel_color += _trace_algorithm[
-            ALGORITHM, MAX_DEPTH, world_bvh_width, instance_bvh_width
+            ALGORITHM, world_bvh_width, instance_bvh_width
         ](settings, world, ray, rng, path_id)
 
     return pixel_color * (1.0 / Float32(settings.samples_per_pixel))
@@ -215,7 +211,6 @@ def _render_pixel[
 
 def render_depth_first[
     ALGORITHM: RENDER = RENDER.PATH,
-    MAX_DEPTH: Int = 8,
     TILE_WIDTH: Int = CPU_RENDER_TILE_WIDTH,
     TILE_HEIGHT: Int = CPU_RENDER_TILE_HEIGHT,
     SCHEDULER_MODE: Int = 2,
@@ -229,7 +224,6 @@ def render_depth_first[
     """Render depth-first using compile-time tile and scheduling choices."""
     # Mode 0 uses the runtime default, 1 caps workers to logical cores, and 2
     # exposes one worker per tile.
-    comptime assert MAX_DEPTH >= 0, "max depth must be non-negative"
     comptime assert TILE_WIDTH > 0, "tile width must be positive"
     comptime assert TILE_HEIGHT > 0, "tile height must be positive"
     comptime assert 0 <= SCHEDULER_MODE <= 2, "unknown scheduler mode"
@@ -258,7 +252,6 @@ def render_depth_first[
                 ref rng = rng_states[pixel_idx]
                 pixels[pixel_idx] = _render_pixel[
                     ALGORITHM,
-                    MAX_DEPTH,
                     world_bvh_width,
                     instance_bvh_width,
                 ](
@@ -286,7 +279,7 @@ def render_depth_first[
         Int(render_t1 - render_t0),
         pixel_count,
         pixel_count * settings.samples_per_pixel,
-        MAX_DEPTH,
+        settings.max_depth,
     )
     return RenderResult(pixels^, timings)
 

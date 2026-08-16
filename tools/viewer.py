@@ -255,6 +255,17 @@ class Viewer:
             bg="#202020",
         )
         self.status.pack(fill=tk.X)
+        self.stats = tk.Label(
+            self.root,
+            text="BVH/RT stats unavailable",
+            width=1,
+            anchor="w",
+            padx=10,
+            pady=3,
+            fg="#aaaaaa",
+            bg="#181818",
+        )
+        self.stats.pack(fill=tk.X, before=self.status)
 
         self.root.bind("<KeyPress>", self.on_key_press)
         self.root.bind("<KeyRelease>", self.on_key_release)
@@ -431,11 +442,13 @@ class Viewer:
                 render_ms = float(render_stats[0])
                 build_ms = float(render_stats[1])
                 mrays = float(render_stats[2])
+                bvh_stats = str(render_stats[3])
                 error = None
             except Exception as exc:  # surface Mojo/Python errors in the UI
                 render_ms = None
                 build_ms = None
                 mrays = None
+                bvh_stats = None
                 error = str(exc).strip().splitlines()[-1]
             elapsed_ms = (time.monotonic() - started) * 1000.0
 
@@ -469,12 +482,13 @@ class Viewer:
                     return
                 self.root.after(
                     0,
-                    lambda frame=frame, elapsed_ms=elapsed_ms, render_ms=render_ms, build_ms=build_ms, mrays=mrays, target_spp=target_spp, max_depth=options.max_depth: self.show_frame(
+                    lambda frame=frame, elapsed_ms=elapsed_ms, render_ms=render_ms, build_ms=build_ms, mrays=mrays, bvh_stats=bvh_stats, target_spp=target_spp, max_depth=options.max_depth: self.show_frame(
                         frame,
                         elapsed_ms,
                         render_ms,
                         build_ms,
                         mrays,
+                        bvh_stats,
                         target_spp,
                         options.max_samples,
                         max_depth,
@@ -511,6 +525,7 @@ class Viewer:
         render_ms: float,
         build_ms: float,
         mrays: float,
+        bvh_stats: str,
         accumulated_spp: int,
         max_spp: int,
         max_depth: int,
@@ -543,6 +558,7 @@ class Viewer:
             else SCENES[self.scene_index]
         )
         self.refresh_image()
+        self.stats.configure(text=f"BVH/RT  |  {bvh_stats}")
         self.update_status(
             f"{self.image.width}×{self.image.height}  |  "
             f"FPS {fps:.1f}  |  "

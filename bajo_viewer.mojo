@@ -23,7 +23,7 @@ def render_frame(config: PythonObject) raises -> PythonObject:
         Float32(py=config["z"]),
     )
     var total_t0 = perf_counter_ns()
-    var render_ms = _render_frame(
+    var render_stats = _render_frame(
         output,
         width,
         height,
@@ -37,14 +37,19 @@ def render_frame(config: PythonObject) raises -> PythonObject:
         scene_path,
     )
     var total_ms = ns_to_ms(Int(perf_counter_ns() - total_t0))
-    var build_ms = total_ms - render_ms
+    var build_ms = total_ms - render_stats.render_ms
     if build_ms < 0.0:
         build_ms = 0.0
     var primary_rays = width * height * samples
     var mrays = 0.0
-    if render_ms > 0.0:
-        mrays = Float64(primary_rays) / (render_ms * 1000.0)
-    return Python.list(render_ms, build_ms, mrays)
+    if render_stats.render_ms > 0.0:
+        mrays = Float64(primary_rays) / (render_stats.render_ms * 1000.0)
+    return Python.list(
+        render_stats.render_ms,
+        build_ms,
+        mrays,
+        render_stats.bvh_stats,
+    )
 
 
 def pbrt_camera(path: PythonObject) raises -> PythonObject:

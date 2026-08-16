@@ -1,6 +1,6 @@
 from std.math import cos, max, sin
 from std.sys.arg import argv
-from std.sys import has_accelerator
+from std.sys import has_accelerator, simd_width_of
 from std.sys.defines import get_defined_int
 from std.time import perf_counter_ns
 
@@ -52,6 +52,12 @@ comptime LBVH_GRID_X = 6
 comptime LBVH_GRID_Z = 6
 
 
+@fieldwise_init
+struct ViewerRenderStats(Copyable):
+    var render_ms: Float64
+    var bvh_stats: String
+
+
 def _lbvh_centered_transform(
     bounds: AABB[Frame.LOCAL],
     rotation: Quat,
@@ -72,7 +78,10 @@ def _lbvh_centered_transform(
     return transform^
 
 
-def make_lbvh_world() raises -> World[]:
+def make_lbvh_world[
+    world_bvh_width: SIMDLength = 16,
+    instance_bvh_width: SIMDLength = 16,
+]() raises -> World[world_bvh_width, instance_bvh_width]:
     var mesh0 = pack_obj_triangles(LBVH_OBJ_PATH_0)
     var mesh1 = pack_obj_triangles(LBVH_OBJ_PATH_1)
     var mesh2 = pack_obj_triangles(LBVH_OBJ_PATH_2)
@@ -175,7 +184,7 @@ def make_lbvh_world() raises -> World[]:
                     mesh_surfaces[mesh_idx],
                 )
 
-    return World[](
+    return World[world_bvh_width, instance_bvh_width](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -203,9 +212,67 @@ def _int_arg(text: String) raises -> Int:
     return integer
 
 
+def _viewer_bvh_stats[
+    BACKEND: Int,
+    world_bvh_width: SIMDLength,
+    instance_bvh_width: SIMDLength,
+](world: World[world_bvh_width, instance_bvh_width]) -> String:
+    var result = String()
+    if BACKEND == 0:
+        result = "CPU W" + String(Int(world_bvh_width))
+        result += "/I" + String(Int(instance_bvh_width)) + " | "
+        if len(world.spheres) > 0:
+            result += "sphere" + String(Int(world_bvh_width)) + "/SAH"
+        if len(world.triangle_vertices) > 0:
+            if len(world.spheres) > 0:
+                result += " "
+            result += "tri" + String(Int(world_bvh_width)) + "/SAH"
+        if len(world.triangle_instances) > 0:
+            if len(world.spheres) > 0 or len(world.triangle_vertices) > 0:
+                result += " "
+            result += (
+                "BLAS"
+                + String(Int(instance_bvh_width))
+                + "/SAH TLAS"
+                + String(Int(instance_bvh_width))
+                + "/LBVH"
+            )
+    else:
+        result = "GPU host W" + String(Int(world_bvh_width))
+        result += "/I" + String(Int(instance_bvh_width)) + " | "
+        if len(world.spheres) > 0:
+            result += "sphere4/4 LBVH"
+        if len(world.triangle_vertices) > 0:
+            if len(world.spheres) > 0:
+                result += " "
+            if len(world.triangle_vertices) / 3 >= 32:
+                result += "tri8/4 H-PLOC CWBVH8"
+            else:
+                result += "tri4/4 LBVH"
+        if len(world.triangle_instances) > 0:
+            if len(world.spheres) > 0 or len(world.triangle_vertices) > 0:
+                result += " "
+            var weighted_triangles = 0
+            for instance in world.triangle_instances:
+                weighted_triangles += (
+                    len(world.triangle_meshes[Int(instance.blas_idx)]) / 3
+                )
+            if weighted_triangles >= len(world.triangle_instances) * 32:
+                result += "BLAS8/4 H-PLOC CWBVH8"
+            else:
+                result += "BLAS4/4 LBVH"
+            result += " TLAS2/2 LBVH"
+    result += " | S" + String(len(world.spheres))
+    result += " T" + String(len(world.triangle_vertices) / 3)
+    result += " I" + String(len(world.triangle_instances))
+    return result
+
+
 def _render_frame[
     ALGORITHM: RENDER,
     BACKEND: Int,
+    world_bvh_width: SIMDLength,
+    instance_bvh_width: SIMDLength,
 ](
     output: String,
     width: Int,
@@ -216,8 +283,8 @@ def _render_frame[
     yaw_degrees: Float32,
     pitch_degrees: Float32,
     vfov: Float32,
-    world: World[],
-) raises -> Float64:
+    world: World[world_bvh_width, instance_bvh_width],
+) raises -> ViewerRenderStats:
     var yaw = degrees_to_radians(yaw_degrees)
     var pitch = degrees_to_radians(pitch_degrees)
     var cos_pitch = cos(pitch)
@@ -264,7 +331,10 @@ def _render_frame[
             )
     else:
         raise Error("unsupported viewer rendering backend")
-    return ns_to_ms(Int(t1 - t0))
+    return ViewerRenderStats(
+        ns_to_ms(Int(t1 - t0)),
+        _viewer_bvh_stats[BACKEND, world_bvh_width, instance_bvh_width](world),
+    )
 
 
 @fieldwise_init
@@ -285,7 +355,7 @@ struct _ViewerRenderRequest(Copyable):
 def _render_scene[
     ALGORITHM: RENDER,
     BACKEND: Int,
-](request: _ViewerRenderRequest) raises -> Float64:
+](request: _ViewerRenderRequest) raises -> ViewerRenderStats:
     if request.scene == 4 or request.scene == 5:
         var parsed = read_pbrt(request.scene_path)
         return _render_frame[ALGORITHM, BACKEND](
@@ -300,16 +370,19 @@ def _render_scene[
             request.vfov,
             parsed.world,
         )
+    # not everyone has avx-512
+    comptime world_bvh_width = simd_width_of[DType.float32]()
+    comptime instance_bvh_width = simd_width_of[DType.float32]()
 
-    var world: World[]
+    var world: World[world_bvh_width, instance_bvh_width]
     if request.scene == 0:
-        world = make_weekend_world()
+        world = make_weekend_world[world_bvh_width, instance_bvh_width]()
     elif request.scene == 1:
-        world = make_cornell_world()
+        world = make_cornell_world[world_bvh_width, instance_bvh_width]()
     elif request.scene == 2:
-        world = make_mis_showcase_world()
+        world = make_mis_showcase_world[world_bvh_width, instance_bvh_width]()
     elif request.scene == 3:
-        world = make_lbvh_world()
+        world = make_lbvh_world[world_bvh_width, instance_bvh_width]()
     else:
         raise Error("unsupported viewer scene")
 
@@ -339,7 +412,7 @@ def _render_frame_for_config(
     vfov: Float32,
     scene: Int,
     scene_path: String,
-) raises -> Float64:
+) raises -> ViewerRenderStats:
     comptime assert VIEWER_BACKEND >= 0 and VIEWER_BACKEND <= 1
     comptime assert VIEWER_ALGORITHM >= 0 and VIEWER_ALGORITHM <= 4
     var request = _ViewerRenderRequest(
@@ -379,7 +452,7 @@ def render_frame(
     vfov: Float32,
     scene: Int,
     scene_path: String,
-) raises -> Float64:
+) raises -> ViewerRenderStats:
     return _render_frame_for_config(
         output,
         width,
@@ -412,7 +485,7 @@ def main() raises:
         _float_arg(String(args[6])),
         _float_arg(String(args[7])),
     )
-    var render_ms = render_frame(
+    var render_stats = render_frame(
         output,
         width,
         height,
@@ -425,4 +498,4 @@ def main() raises:
         0,
         "",
     )
-    print(t"render_ms={round(render_ms, 2)}")
+    print(t"render_ms={round(render_stats.render_ms, 2)}")

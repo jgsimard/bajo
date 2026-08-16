@@ -39,10 +39,7 @@ from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list, upload_vertices
 
 from bench.bvh.reporting import (
     GpuBenchResult,
-    print_transposed_header,
-    print_transposed_row,
-    _print_gpu_result_trace_rows,
-    _print_gpu_result_validation_rows,
+    TablePrinter,
 )
 from bench.bvh.fixtures import make_camera_rays_and_params
 
@@ -300,9 +297,10 @@ def _bench_direct_triangle_camera[
 def _bench_tlas_triangles_camera[
     tlas_width: SIMDLength,
     blas_width: SIMDLength,
+    tlas_leaf_width: SIMDLength = tlas_width,
 ](
     mut ctx: DeviceContext,
-    tlas: GpuTriangleTlas[tlas_width, blas_width],
+    tlas: GpuTriangleTlas[tlas_width, blas_width, tlas_leaf_width],
     blases: BlasSet[blas_width],
     camera_params: List[Float32],
     ray_count: Int,
@@ -408,9 +406,10 @@ def _bench_direct_sphere_camera[
 def _bench_tlas_spheres_camera[
     tlas_width: SIMDLength,
     blas_width: SIMDLength,
+    tlas_leaf_width: SIMDLength = tlas_width,
 ](
     mut ctx: DeviceContext,
-    tlas: GpuSphereTlas[tlas_width, blas_width],
+    tlas: GpuSphereTlas[tlas_width, blas_width, tlas_leaf_width],
     blases: BlasSet[blas_width],
     camera_params: List[Float32],
     ray_count: Int,
@@ -555,7 +554,7 @@ def _print_cpu_reference_row(
 
 
 @fieldwise_init
-struct TlasBenchResult(Writable):
+struct TlasBenchResult(Copyable, Writable):
     var gpu: GpuBenchResult
     var inst_count: Int
     var inst_checksum: UInt64
@@ -603,53 +602,105 @@ def _tlas_result_inst_diff(row: TlasBenchResult) -> Int:
     return Int(row.inst_checksum) - Int(row.reference_inst_checksum)
 
 
-def _print_tlas_results_transposed(
-    row0: TlasBenchResult,
-    row1: TlasBenchResult,
-    row2: TlasBenchResult,
-):
-    var value_width = 15
+def _tlas_ms(value_ns: Int) -> String:
+    return String(t"{round(ns_to_ms(value_ns), 3)}")
 
-    print_transposed_header(
-        value_width,
-        row0.gpu.label,
-        row1.gpu.label,
-        row2.gpu.label,
+
+def _tlas_mrays(row: GpuBenchResult) -> String:
+    return String(
+        t"{round(ns_to_mrays_per_s(row.kernel_ns, row.ray_count), 3)}"
     )
 
-    print_transposed_row(
-        String("instances"),
-        value_width,
-        row0.inst_count,
-        row1.inst_count,
-        row2.inst_count,
-    )
-    _print_gpu_result_trace_rows(row0.gpu, row1.gpu, row2.gpu, value_width)
 
-    print_transposed_row(
-        String("instsum"),
-        value_width,
-        row0.inst_checksum,
-        row1.inst_checksum,
-        row2.inst_checksum,
+def _print_tlas_build_row(
+    table: TablePrinter,
+    row: TlasBenchResult,
+) raises:
+    ref gpu = row.gpu
+    table.result_line(
+        config=gpu.label,
+        total_ms=_tlas_ms(gpu.build_ns),
+        bounds=_tlas_ms(gpu.timings.bounds_pack_ns),
+        morton=_tlas_ms(gpu.timings.morton_ns),
+        sort=_tlas_ms(gpu.timings.sort_ns),
+        topology=_tlas_ms(gpu.timings.topology_ns),
+        refit=_tlas_ms(gpu.timings.refit_ns),
+        collapse=_tlas_ms(gpu.timings.collapse_ns),
+        pack=_tlas_ms(gpu.timings.leaf_pack_ns),
+        other=_tlas_ms(gpu.build_ns - gpu.timings.total()),
     )
 
-    if row0.has_reference:
-        print_transposed_row(
-            String("dinst"),
-            value_width,
-            _tlas_result_inst_diff(row0),
-            _tlas_result_inst_diff(row1),
-            _tlas_result_inst_diff(row2),
-        )
-        _print_gpu_result_validation_rows(
-            row0.gpu, row1.gpu, row2.gpu, value_width
-        )
+
+def _print_tlas_trace_row(
+    table: TablePrinter,
+    row: TlasBenchResult,
+) raises:
+    ref gpu = row.gpu
+    var diff = String("-")
+    var dhit = String("-")
+    var dinst = String("-")
+    var status = String("-")
+    if row.has_reference:
+        diff = String(t"{round(gpu.diff, 6)}")
+        dhit = String(t"{gpu.hit_diff()}")
+        dinst = String(t"{_tlas_result_inst_diff(row)}")
+        status = gpu.status()
+    table.result_line(
+        config=gpu.label,
+        inst=String(t"{row.inst_count}"),
+        camera_ms=_tlas_ms(gpu.kernel_ns),
+        MRay_s=_tlas_mrays(gpu),
+        hits=String(t"{gpu.hit_count}"),
+        checksum=String(t"{round(gpu.checksum, 3)}"),
+        instsum=String(t"{row.inst_checksum}"),
+        diff=diff,
+        dhit=dhit,
+        dinst=dinst,
+        status=status,
+    )
+
+
+def _print_tlas_results(rows: List[TlasBenchResult]) raises:
+    print("Build timings")
+    var build_table = TablePrinter(
+        config=28,
+        total_ms=9,
+        bounds=8,
+        morton=8,
+        sort=8,
+        topology=8,
+        refit=8,
+        collapse=9,
+        pack=8,
+        other=8,
+    )
+    build_table.header()
+    for row in rows:
+        _print_tlas_build_row(build_table, row)
+
+    print("Trace results")
+    var trace_table = TablePrinter(
+        config=28,
+        inst=5,
+        camera_ms=9,
+        MRay_s=9,
+        hits=8,
+        checksum=12,
+        instsum=12,
+        diff=10,
+        dhit=6,
+        dinst=8,
+        status=7,
+    )
+    trace_table.header()
+    for row in rows:
+        _print_tlas_trace_row(trace_table, row)
 
 
 def _run_triangle_tlas_width[
     tlas_width: SIMDLength,
     blas_width: SIMDLength,
+    tlas_leaf_width: SIMDLength = tlas_width,
 ](
     mut ctx: DeviceContext,
     blases: BlasSet[blas_width],
@@ -663,18 +714,22 @@ def _run_triangle_tlas_width[
     reference_hits: UInt32,
     reference_inst_checksum: UInt64,
 ) raises -> TlasBenchResult:
-    _ = build_triangle_tlas[tlas_width, blas_width](ctx, instances)
+    _ = build_triangle_tlas[tlas_width, blas_width, tlas_leaf_width](
+        ctx, instances
+    )
     ctx.synchronize()
 
     var b0 = perf_counter_ns()
     var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
-    var tlas = build_triangle_tlas_measured[tlas_width, blas_width](
-        ctx, instances, timings
-    )
+    var tlas = build_triangle_tlas_measured[
+        tlas_width, blas_width, tlas_leaf_width
+    ](ctx, instances, timings)
     ctx.synchronize()
     var b1 = perf_counter_ns()
 
-    var primary = _bench_tlas_triangles_camera[tlas_width, blas_width](
+    var primary = _bench_tlas_triangles_camera[
+        tlas_width, blas_width, tlas_leaf_width
+    ](
         ctx,
         tlas,
         blases,
@@ -705,6 +760,7 @@ def _run_triangle_tlas_width[
 def _run_sphere_tlas_width[
     tlas_width: SIMDLength,
     blas_width: SIMDLength,
+    tlas_leaf_width: SIMDLength = tlas_width,
 ](
     mut ctx: DeviceContext,
     blases: BlasSet[blas_width],
@@ -717,18 +773,22 @@ def _run_sphere_tlas_width[
     reference_checksum: Float64,
     reference_hits: UInt32,
 ) raises -> TlasBenchResult:
-    _ = build_sphere_tlas[tlas_width, blas_width](ctx, instances)
+    _ = build_sphere_tlas[tlas_width, blas_width, tlas_leaf_width](
+        ctx, instances
+    )
     ctx.synchronize()
 
     var b0 = perf_counter_ns()
     var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
-    var tlas = build_sphere_tlas_measured[tlas_width, blas_width](
-        ctx, instances, timings
-    )
+    var tlas = build_sphere_tlas_measured[
+        tlas_width, blas_width, tlas_leaf_width
+    ](ctx, instances, timings)
     ctx.synchronize()
     var b1 = perf_counter_ns()
 
-    var primary = _bench_tlas_spheres_camera[tlas_width, blas_width](
+    var primary = _bench_tlas_spheres_camera[
+        tlas_width, blas_width, tlas_leaf_width
+    ](
         ctx,
         tlas,
         blases,
@@ -780,14 +840,27 @@ def _bench_triangle_multi_blas_instance_set(
     print("TLAS bounds min:", round(bounds._min, 3))
     print("TLAS bounds max:", round(bounds._max, 3))
 
-    var tlas2 = _run_triangle_tlas_width[2, 4](
+    var tlas21 = _run_triangle_tlas_width[2, 4, 1](
         ctx,
         blases,
         instances,
         camera_params,
         ray_count,
         BENCH_REPEATS,
-        "t2/b4 32x16",
+        "t2/l1/b4 32x16",
+        False,
+        0.0,
+        UInt32(0),
+        UInt64(0),
+    )
+    var tlas22 = _run_triangle_tlas_width[2, 4, 2](
+        ctx,
+        blases,
+        instances,
+        camera_params,
+        ray_count,
+        BENCH_REPEATS,
+        "t2/l2/b4 32x16",
         False,
         0.0,
         UInt32(0),
@@ -819,7 +892,7 @@ def _bench_triangle_multi_blas_instance_set(
         UInt32(0),
         UInt64(0),
     )
-    _print_tlas_results_transposed(tlas2, tlas4, tlas8)
+    _print_tlas_results([tlas21^, tlas22^, tlas4^, tlas8^])
 
 
 def _make_sphere_scene[
@@ -899,14 +972,27 @@ def _bench_triangle_instance_set[
     print("TLAS bounds max:", bounds._max)
 
     print("\nTLAS camera results")
-    var tlas2 = _run_triangle_tlas_width[2, 4](
+    var tlas21 = _run_triangle_tlas_width[2, 4, 1](
         ctx,
         blases,
         instances,
         camera_params,
         ray_count,
         BENCH_REPEATS,
-        String(t"t2/b4 {side}x{side}"),
+        String(t"t2/l1/b4 {side}x{side}"),
+        has_ref,
+        ref_primary[0],
+        ref_primary[1],
+        ref_primary[2],
+    )
+    var tlas22 = _run_triangle_tlas_width[2, 4, 2](
+        ctx,
+        blases,
+        instances,
+        camera_params,
+        ray_count,
+        BENCH_REPEATS,
+        String(t"t2/l2/b4 {side}x{side}"),
         has_ref,
         ref_primary[0],
         ref_primary[1],
@@ -938,7 +1024,7 @@ def _bench_triangle_instance_set[
         ref_primary[1],
         ref_primary[2],
     )
-    _print_tlas_results_transposed(tlas2, tlas4, tlas8)
+    _print_tlas_results([tlas21^, tlas22^, tlas4^, tlas8^])
 
 
 def main() raises:
@@ -1066,14 +1152,27 @@ def main() raises:
         )
 
         print("\nTLAS camera results")
-        var tlas2 = _run_triangle_tlas_width[2, 4](
+        var tlas21 = _run_triangle_tlas_width[2, 4, 1](
             ctx,
             triangle_blas_set,
             single_instances,
             single_camera_params,
             single_ray_count,
             BENCH_REPEATS,
-            "tlas2/blas4 single",
+            "tlas2/leaf1/blas4 single",
+            True,
+            direct[1],
+            direct[2],
+            UInt64(0),
+        )
+        var tlas22 = _run_triangle_tlas_width[2, 4, 2](
+            ctx,
+            triangle_blas_set,
+            single_instances,
+            single_camera_params,
+            single_ray_count,
+            BENCH_REPEATS,
+            "tlas2/leaf2/blas4 single",
             True,
             direct[1],
             direct[2],
@@ -1105,7 +1204,7 @@ def main() raises:
             direct[2],
             UInt64(0),
         )
-        _print_tlas_results_transposed(tlas2, tlas4, tlas8)
+        _print_tlas_results([tlas21^, tlas22^, tlas4^, tlas8^])
 
         _bench_triangle_instance_set[4](
             ctx, triangle_blas_set, cpu_blas, blas_bounds
@@ -1194,14 +1293,26 @@ def main() raises:
         )
 
         print("\nSphere single-instance TLAS")
-        var sph_tlas2 = _run_sphere_tlas_width[2, 4](
+        var sph_tlas21 = _run_sphere_tlas_width[2, 4, 1](
             ctx,
             sphere_blas_set,
             sphere_single,
             sphere_camera_params,
             sphere_ray_count,
             BENCH_REPEATS,
-            "sph t2/b4 1x1",
+            "sph t2/l1/b4 1x1",
+            True,
+            direct_sphere[1],
+            direct_sphere[2],
+        )
+        var sph_tlas22 = _run_sphere_tlas_width[2, 4, 2](
+            ctx,
+            sphere_blas_set,
+            sphere_single,
+            sphere_camera_params,
+            sphere_ray_count,
+            BENCH_REPEATS,
+            "sph t2/l2/b4 1x1",
             True,
             direct_sphere[1],
             direct_sphere[2],
@@ -1230,7 +1341,7 @@ def main() raises:
             direct_sphere[1],
             direct_sphere[2],
         )
-        _print_tlas_results_transposed(sph_tlas2, sph_tlas4, sph_tlas8)
+        _print_tlas_results([sph_tlas21^, sph_tlas22^, sph_tlas4^, sph_tlas8^])
 
         var sphere_grid = _make_translated_grid_instances(
             sphere_bounds.unsafe_convert_frame[Frame.LOCAL](),
@@ -1254,14 +1365,26 @@ def main() raises:
         print("TLAS bounds min:", round(sphere_grid_bounds._min, 3))
         print("TLAS bounds max:", round(sphere_grid_bounds._max, 3))
 
-        var sph_grid_tlas2 = _run_sphere_tlas_width[2, 4](
+        var sph_grid_tlas21 = _run_sphere_tlas_width[2, 4, 1](
             ctx,
             sphere_blas_set,
             sphere_grid,
             sphere_grid_camera_params,
             sphere_grid_ray_count,
             BENCH_REPEATS,
-            "sph t2/b4 4x4",
+            "sph t2/l1/b4 4x4",
+            False,
+            0.0,
+            UInt32(0),
+        )
+        var sph_grid_tlas22 = _run_sphere_tlas_width[2, 4, 2](
+            ctx,
+            sphere_blas_set,
+            sphere_grid,
+            sphere_grid_camera_params,
+            sphere_grid_ray_count,
+            BENCH_REPEATS,
+            "sph t2/l2/b4 4x4",
             False,
             0.0,
             UInt32(0),
@@ -1290,8 +1413,11 @@ def main() raises:
             0.0,
             UInt32(0),
         )
-        _print_tlas_results_transposed(
-            sph_grid_tlas2,
-            sph_grid_tlas4,
-            sph_grid_tlas8,
+        _print_tlas_results(
+            [
+                sph_grid_tlas21^,
+                sph_grid_tlas22^,
+                sph_grid_tlas4^,
+                sph_grid_tlas8^,
+            ]
         )

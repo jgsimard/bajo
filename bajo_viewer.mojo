@@ -62,7 +62,7 @@ def pbrt_camera(path: PythonObject) raises -> PythonObject:
 
 
 @export
-def PyInit_bajo_viewer() -> PythonObject:
+def PyInit_bajo_viewer() abi("C") -> PythonObject:
     try:
         var module = PythonModuleBuilder("bajo_viewer")
         module.def_function[render_frame]("render_frame")

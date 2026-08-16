@@ -17,7 +17,7 @@ def enqueue_binary_bvh_with_hploc(
     mut ctx: DeviceContext,
     mut binary: GpuBinaryBoundsBvh,
     mut workspace: GpuBinaryBuildWorkspace,
-) raises -> GpuHplocBuildState:
+) raises -> GpuHplocBuildState[]:
     """Queue H-PLOC without synchronizing or reading completion status."""
     ref topology = workspace.topology.value()
     ctx.enqueue_function[compute_bounds_morton_codes_kernel](
@@ -35,7 +35,7 @@ def enqueue_binary_bvh_with_hploc(
         binary.leaf_ids,
         binary.leaf_count,
     )
-    return GpuHplocBuildState(
+    return GpuHplocBuildState[](
         ctx,
         binary.leaf_bounds.copy(),
         topology.morton_keys.copy(),
@@ -90,7 +90,7 @@ def build_binary_bvh_with_hploc(
         timings.sort_ns = Int(stage_end - stage_start)
         stage_start = stage_end
 
-    var hploc = GpuHplocBuildState(
+    var hploc = GpuHplocBuildState[](
         ctx,
         binary.leaf_bounds.copy(),
         topology.morton_keys.copy(),

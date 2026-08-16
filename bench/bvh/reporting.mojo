@@ -142,6 +142,13 @@ def print_gpu_build_timing_rows(
         build2_ns,
     )
     print_transposed_ms_row(
+        String("- bounds"),
+        value_width,
+        timings0.bounds_pack_ns,
+        timings1.bounds_pack_ns,
+        timings2.bounds_pack_ns,
+    )
+    print_transposed_ms_row(
         String("- morton"),
         value_width,
         timings0.morton_ns,

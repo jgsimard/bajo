@@ -327,9 +327,33 @@ def hploc_literature_to_wide_kernel[
             return
 
         var candidates = Array[UInt32, node_width](uninitialized=True)
+        var candidate_leaf_counts = Array[UInt32, node_width](
+            uninitialized=True
+        )
+        var candidate_areas = Array[Float32, node_width](uninitialized=True)
         var node_idx = decode_ref_index(encoded)
         candidates[0] = _node_left(node_meta, node_idx)
         candidates[1] = _node_right(node_meta, node_idx)
+        comptime if fat_leaves:
+            candidate_leaf_counts[0] = _hploc_encoded_leaf_count(
+                candidates[0], node_leaf_counts
+            )
+            candidate_leaf_counts[1] = _hploc_encoded_leaf_count(
+                candidates[1], node_leaf_counts
+            )
+        comptime if spatial_slots:
+            candidate_areas[0] = _encoded_bounds(
+                candidates[0],
+                leaf_bounds_span,
+                leaf_ids_span,
+                node_bounds_span,
+            ).surface_area()[0]
+            candidate_areas[1] = _encoded_bounds(
+                candidates[1],
+                leaf_bounds_span,
+                leaf_ids_span,
+                node_bounds_span,
+            ).surface_area()[0]
         var child_count = 2
 
         # HIPRT first opens non-fat internal nodes using the paper's
@@ -343,16 +367,20 @@ def hploc_literature_to_wide_kernel[
                 if is_leaf_ref(candidate):
                     continue
                 comptime if fat_leaves:
-                    if _hploc_encoded_leaf_count(
-                        candidate, node_leaf_counts
-                    ) <= UInt32(fat_leaf_limit):
+                    if candidate_leaf_counts[candidate_pos] <= UInt32(
+                        fat_leaf_limit
+                    ):
                         continue
-                var area = _encoded_bounds(
-                    candidate,
-                    leaf_bounds_span,
-                    leaf_ids_span,
-                    node_bounds_span,
-                ).surface_area()[0]
+                var area: Float32
+                comptime if spatial_slots:
+                    area = candidate_areas[candidate_pos]
+                else:
+                    area = _encoded_bounds(
+                        candidate,
+                        leaf_bounds_span,
+                        leaf_ids_span,
+                        node_bounds_span,
+                    ).surface_area()[0]
                 if area > largest_area:
                     largest_area = area
                     open_pos = candidate_pos
@@ -362,6 +390,26 @@ def hploc_literature_to_wide_kernel[
             var opened_idx = decode_ref_index(candidates[open_pos])
             candidates[open_pos] = _node_left(node_meta, opened_idx)
             candidates[child_count] = _node_right(node_meta, opened_idx)
+            comptime if fat_leaves:
+                candidate_leaf_counts[open_pos] = _hploc_encoded_leaf_count(
+                    candidates[open_pos], node_leaf_counts
+                )
+                candidate_leaf_counts[child_count] = _hploc_encoded_leaf_count(
+                    candidates[child_count], node_leaf_counts
+                )
+            comptime if spatial_slots:
+                candidate_areas[open_pos] = _encoded_bounds(
+                    candidates[open_pos],
+                    leaf_bounds_span,
+                    leaf_ids_span,
+                    node_bounds_span,
+                ).surface_area()[0]
+                candidate_areas[child_count] = _encoded_bounds(
+                    candidates[child_count],
+                    leaf_bounds_span,
+                    leaf_ids_span,
+                    node_bounds_span,
+                ).surface_area()[0]
             child_count += 1
 
         # Once only legal fat leaves remain, open the largest ones until the
@@ -374,12 +422,16 @@ def hploc_literature_to_wide_kernel[
                     var candidate = candidates[candidate_pos]
                     if is_leaf_ref(candidate):
                         continue
-                    var area = _encoded_bounds(
-                        candidate,
-                        leaf_bounds_span,
-                        leaf_ids_span,
-                        node_bounds_span,
-                    ).surface_area()[0]
+                    var area: Float32
+                    comptime if spatial_slots:
+                        area = candidate_areas[candidate_pos]
+                    else:
+                        area = _encoded_bounds(
+                            candidate,
+                            leaf_bounds_span,
+                            leaf_ids_span,
+                            node_bounds_span,
+                        ).surface_area()[0]
                     if area > largest_area:
                         largest_area = area
                         open_pos = candidate_pos
@@ -389,6 +441,25 @@ def hploc_literature_to_wide_kernel[
                 var opened_idx = decode_ref_index(candidates[open_pos])
                 candidates[open_pos] = _node_left(node_meta, opened_idx)
                 candidates[child_count] = _node_right(node_meta, opened_idx)
+                candidate_leaf_counts[open_pos] = _hploc_encoded_leaf_count(
+                    candidates[open_pos], node_leaf_counts
+                )
+                candidate_leaf_counts[child_count] = _hploc_encoded_leaf_count(
+                    candidates[child_count], node_leaf_counts
+                )
+                comptime if spatial_slots:
+                    candidate_areas[open_pos] = _encoded_bounds(
+                        candidates[open_pos],
+                        leaf_bounds_span,
+                        leaf_ids_span,
+                        node_bounds_span,
+                    ).surface_area()[0]
+                    candidate_areas[child_count] = _encoded_bounds(
+                        candidates[child_count],
+                        leaf_bounds_span,
+                        leaf_ids_span,
+                        node_bounds_span,
+                    ).surface_area()[0]
                 child_count += 1
 
         # CWBVH traversal encodes ray-octant order in physical child slots.
@@ -397,28 +468,39 @@ def hploc_literature_to_wide_kernel[
         # slot order, preserving CWBVH's compact child-base+imask addressing.
         var slot_candidate = Array[Int, node_width](fill=-1)
         comptime if spatial_slots:
-            var candidate_assigned = Array[Bool, node_width](fill=False)
+            var candidate_assigned_mask = UInt32(0)
+            var occupied_slot_mask = UInt32(0)
+            var candidate_centers = Array[SIMD[DType.float32, 4], node_width](
+                uninitialized=True
+            )
             var parent_center = _encoded_bounds(
                 encoded,
                 leaf_bounds_span,
                 leaf_ids_span,
                 node_bounds_span,
             ).centroid()
+            for candidate_pos in range(child_count):
+                var center = _encoded_bounds(
+                    candidates[candidate_pos],
+                    leaf_bounds_span,
+                    leaf_ids_span,
+                    node_bounds_span,
+                ).centroid()
+                candidate_centers[candidate_pos] = SIMD[DType.float32, 4](
+                    center.x, center.y, center.z, 0.0
+                )
             for _ in range(child_count):
                 var best_cost = f32_max
                 var best_candidate = -1
                 var best_slot = -1
                 for candidate_pos in range(child_count):
-                    if candidate_assigned[candidate_pos]:
+                    var candidate_bit = UInt32(1) << UInt32(candidate_pos)
+                    if (candidate_assigned_mask & candidate_bit) != 0:
                         continue
-                    var child_center = _encoded_bounds(
-                        candidates[candidate_pos],
-                        leaf_bounds_span,
-                        leaf_ids_span,
-                        node_bounds_span,
-                    ).centroid()
-                    for slot in range(node_width):
-                        if slot_candidate[slot] != -1:
+                    var candidate_center = candidate_centers[candidate_pos]
+                    comptime for slot in range(node_width):
+                        var slot_bit = UInt32(1) << UInt32(slot)
+                        if (occupied_slot_mask & slot_bit) != 0:
                             continue
                         var sx = Float32(1.0)
                         var sy = Float32(1.0)
@@ -430,9 +512,9 @@ def hploc_literature_to_wide_kernel[
                         if (slot & 1) != 0:
                             sz = -1.0
                         var cost = (
-                            (child_center.x - parent_center.x) * sx
-                            + (child_center.y - parent_center.y) * sy
-                            + (child_center.z - parent_center.z) * sz
+                            (candidate_center[0] - parent_center.x) * sx
+                            + (candidate_center[1] - parent_center.y) * sy
+                            + (candidate_center[2] - parent_center.z) * sz
                         )
                         if cost < best_cost:
                             best_cost = cost
@@ -442,7 +524,8 @@ def hploc_literature_to_wide_kernel[
                     best_candidate >= 0 and best_slot >= 0,
                     "CWBVH spatial child assignment failed",
                 )
-                candidate_assigned[best_candidate] = True
+                candidate_assigned_mask |= UInt32(1) << UInt32(best_candidate)
+                occupied_slot_mask |= UInt32(1) << UInt32(best_slot)
                 slot_candidate[best_slot] = best_candidate
         else:
             for candidate_pos in range(child_count):
@@ -451,14 +534,15 @@ def hploc_literature_to_wide_kernel[
         var inner_count = 0
         var leaf_count_in_node = 0
         var published_work_count = 0
-        var candidate_leaf_counts = Array[UInt32, node_width](
-            uninitialized=True
-        )
         for child_pos in range(child_count):
             var candidate = candidates[child_pos]
-            var candidate_leaf_count = _hploc_encoded_leaf_count(
-                candidate, node_leaf_counts
-            )
+            var candidate_leaf_count: UInt32
+            comptime if fat_leaves:
+                candidate_leaf_count = candidate_leaf_counts[child_pos]
+            else:
+                candidate_leaf_count = _hploc_encoded_leaf_count(
+                    candidate, node_leaf_counts
+                )
             candidate_leaf_counts[child_pos] = candidate_leaf_count
             var child_is_leaf = is_leaf_ref(candidate)
             comptime if fat_leaves:

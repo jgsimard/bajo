@@ -97,8 +97,11 @@ def _reference_root_hash(reference: HplocReferenceBvh) -> UInt64:
     return hashes[Int(reference.root)]
 
 
-def _assert_gpu_matches_reference(
-    gpu: GpuHplocMultiWaveBvh,
+def _assert_gpu_matches_reference[
+    search_radius: Int,
+    merging_threshold: Int,
+](
+    gpu: GpuHplocMultiWaveBvh[search_radius, merging_threshold],
     reference: HplocReferenceBvh,
 ) raises -> UInt64:
     var internal_count = max(reference.leaf_count - 1, 0)
@@ -251,7 +254,7 @@ def test_hploc_multi_wave_one_leaf() raises:
     var reference = build_hploc_reference(Span(bounds), Span(codes), Span(ids))
 
     with DeviceContext() as ctx:
-        var gpu = GpuHplocMultiWaveBvh(
+        var gpu = GpuHplocMultiWaveBvh[](
             ctx,
             upload_list(ctx, flat),
             upload_list(ctx, codes),
@@ -273,7 +276,37 @@ def test_hploc_multi_wave_crosses_waves_at_64_leaves() raises:
     var flat = _flatten_bounds(bounds)
 
     with DeviceContext() as ctx:
-        var gpu = GpuHplocMultiWaveBvh(
+        var gpu = GpuHplocMultiWaveBvh[](
+            ctx,
+            upload_list(ctx, flat),
+            upload_list(ctx, codes),
+            upload_list(ctx, ids),
+        )
+        ctx.synchronize()
+        _ = _assert_gpu_matches_reference(gpu, reference)
+
+
+def test_hploc_multi_wave_parameterized_policy() raises:
+    comptime leaf_count = 48
+    comptime search_radius = 4
+    comptime merging_threshold = 8
+    var bounds = List[AABB[Frame.WORLD]](capacity=leaf_count)
+    var codes = List[UInt32](capacity=leaf_count)
+    for i in range(leaf_count):
+        bounds.append(_box(Float32(i * 3)))
+        codes.append(UInt32(i))
+    var ids = _identity_ids(leaf_count)
+    var reference = build_hploc_reference(
+        Span(bounds),
+        Span(codes),
+        Span(ids),
+        search_radius,
+        merging_threshold,
+    )
+    var flat = _flatten_bounds(bounds)
+
+    with DeviceContext() as ctx:
+        var gpu = GpuHplocMultiWaveBvh[search_radius, merging_threshold](
             ctx,
             upload_list(ctx, flat),
             upload_list(ctx, codes),
@@ -296,13 +329,13 @@ def test_hploc_multi_wave_duplicate_codes_repeat_deterministically() raises:
     var flat = _flatten_bounds(bounds)
 
     with DeviceContext() as ctx:
-        var first = GpuHplocMultiWaveBvh(
+        var first = GpuHplocMultiWaveBvh[](
             ctx,
             upload_list(ctx, flat),
             upload_list(ctx, codes),
             upload_list(ctx, ids),
         )
-        var second = GpuHplocMultiWaveBvh(
+        var second = GpuHplocMultiWaveBvh[](
             ctx,
             upload_list(ctx, flat),
             upload_list(ctx, codes),
@@ -359,7 +392,7 @@ def test_hploc_multi_wave_crosses_blocks_with_gpu_lbvh_inputs() raises:
         var reference = build_hploc_reference(
             Span(bounds), Span(codes), Span(sorted_ids)
         )
-        var gpu = GpuHplocMultiWaveBvh(
+        var gpu = GpuHplocMultiWaveBvh[](
             ctx,
             binary.leaf_bounds.copy(),
             diagnostic.workspace.topology.value().morton_keys.copy(),
@@ -397,7 +430,7 @@ def test_hploc_multi_wave_stress_4097_triangles() raises:
         var reference = build_hploc_reference(
             Span(bounds), Span(codes), Span(sorted_ids)
         )
-        var gpu = GpuHplocMultiWaveBvh(
+        var gpu = GpuHplocMultiWaveBvh[](
             ctx,
             binary.leaf_bounds.copy(),
             diagnostic.workspace.topology.value().morton_keys.copy(),

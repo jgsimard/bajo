@@ -1,77 +1,130 @@
 # bajo
-bajo = low (... level) = batch mojo
 
-Bajo is a work-in-progress, pure-Mojo simulation engine designed for Reinforcement Learning (RL) environments, spatial computing, and physics simulations. The end goal is to run thousands of environments concurrently with high throughput on a single GPU, similar to frameworks like [NVIDIA Warp](https://github.com/NVIDIA/warp) and the [Madrona Engine](https://madrona-engine.github.io/).
+`bajo = low (...) level = batch mojo`
 
-Because Mojo is still relatively new, I am currently building out the foundational GPU primitives required for physics simulations from scratch.
+Bajo is a work-in-progress, pure-Mojo engine for high-throughput geometry and rendering workloads. The long-term goal is to support many concurrent reinforcement-learning, spatial-computing, and physics environments on a GPU.
 
+The current implementation is focused on the foundations needed for that goal: math and geometry primitives, OBJ/MTL and PBRT scene loading, CPU and GPU BVHs, GPU sorting, and CPU/GPU path tracing. Particle simulation, fluids, rigid bodies, and batched environments are planned work. See the detailed [roadmap](roadmap.md) for the current status of individual components.
 
-## Pixi tasks
+## Requirements
 
-Common commands:
+- Linux x86-64
+- [Pixi](https://pixi.sh/)
+- A supported accelerator for GPU tests, GPU examples, and GPU benchmarks
+
+Pixi provides the pinned nightly Mojo, MAX, and Python dependencies declared in
+[`pixi.toml`](pixi.toml):
 
 ```bash
-pixi run check             # run the no-accelerator host test gate
-pixi run test              # run all tests, including GPU tests
-pixi run test_gpu          # run GPU tests only
-pixi run bench_all         # run all benchmarks
-pixi run bench_bvh_cpu_report # compare Bajo with Embree 4 and Tinybvh
+pixi install
 ```
 
-GPU tests and GPU benchmarks require a supported accelerator.
-The Bajo vs Embree vs TinyBvh comparison requires Embree 4 headers and `libembree4`.
-See the recorded [benchmark results](bench/results/bvh_cpu/bvh_cpu.md).
-Examples:
-```
-pixi run example_lbvh
-```
-Runs the GPU LBVH normal-rendering example. It should produce the following image
-![lbvh example](renders/example_tlas_lbvh_normals.png)
+Examples and asset-dependent benchmarks download their meshes on first use:
 
-## Interactive renderer viewer
+```bash
+pixi run download_assets
+```
 
-The CPU or GPU path tracer can be viewed in a window while moving the camera:
+
+## Interactive renderer
+
+Launch the CPU viewer with its default RTIAW scene:
 
 ```bash
 pixi run viewer
 ```
 
-Move with `W/S`, `A/D`, and `Q/E`; drag with the left mouse button to look
-around. Choose a scene, algorithm (`PATH`, `NEE`, `MIS`, `NORMALS`, `AO`),
-backend, `SPP`, `Max spp`, and runtime `Max depth` from the toolbar.
-Accumulation resets when the camera or settings change; movement uses a fast
-preview and accumulation resumes after a short pause.
+![renderer_viwer](renders/renderer_viwer.png)
 
-Useful options include:
+The viewer supports CPU and GPU backends, the `PATH`, `NEE`, `MIS`, `NORMALS`,
+and `AO` algorithms, progressive accumulation, Cornell/Veach/RTIAW scenes,
+the built-in PBRT showcase, and custom PBRT files.
+
+Useful command-line options:
 
 ```bash
 pixi run viewer --scene cornell --spp 4 --max-spp 256
-pixi run viewer --pbrt path/to/scene.pbrt --backend gpu --gpu-arch sm_120
+pixi run viewer --scene lbvh --backend gpu --gpu-arch sm_120
+pixi run viewer --pbrt path/to/scene.pbrt --backend gpu
 ```
 
-Use `R` to reset the camera, `B` to toggle CPU/GPU, `1`–`5` to select an
-algorithm, and `Esc` to close. The status bar shows FPS, build/render time,
-and MRays/s.
+Use `W/S`, `A/D`, and `Q/E` to move; drag with the left mouse button to look
+around. `R` resets the camera, `B` toggles CPU/GPU, `1`–`5` select an algorithm,
+`+`/`-` adjust SPP, and `Esc` closes the viewer. The status bar reports build
+time, render time, FPS, and MRays/s.
 
-## Roadmap
-for a detailed version see [roadmap](roadmap.md)
+For a GPU target other than the default, pass `--gpu-arch` or set
+`BAJO_GPU_ARCH`.
 
-1. Math primitives (Vec, Mat, Quat, Ray, Hit, missing Spatial)
-2. [obj parser](bajo/obj/) (single threaded done)
-3. [GPU sort](bajo/sort/gpu/README.md) (Bitonic, Radix, Onesweep, but only uints, missing segmented)
-4. [CPU BVH](bajo/bvh/cpu/)  (Bounds, Triangle BLAS, Sphere BLAS, TLAS)
-5. [GPU BVH](bajo/bvh/gpu/)  (Bounds, Triangle BLAS, Sphere BLAS, TLAS)
-6. GPU Hash Grid (not started)
-7. Particle Simulation (not started)
-8. SPH Fluid Simulation (not started)
-9. Mesh / Particle Coupling (not started)
-10. Rigid Body Simulation (not started)
-11. Batched Simulation Environments (not started)
 
-## Literature & References
-see [sources](sources.md)
+## Tests
 
-## Things I wish to be added to mojo
-1. struct gpu buffers, not just dtype buffers
-2. Parametric Traits (to simplyfy typed bvh)
-3. enums
+Run the host-only test suites without an accelerator:
+
+```bash
+pixi run test_host
+```
+
+Run GPU tests, or all tests:
+
+```bash
+pixi run test_gpu
+pixi run test
+```
+
+The test runner accepts a suite path when a smaller test run is useful, for
+example `pixi run test core` or `pixi run test bvh/cpu`.
+
+## Examples
+
+The main examples are available as Pixi tasks:
+
+```bash
+pixi run example_rtiaw        # small path-tracing example
+pixi run example_cornell      # Cornell box: PATH, NEE, and MIS
+pixi run example_mis_showcase  # compare PATH, NEE, and MIS
+pixi run example_pbrt         # render the checked-in PBRT scene
+pixi run example_lbvh         # CPU/GPU instanced OBJ normal render
+```
+
+Most examples write a PPM image in the repository root. The LBVH example needs
+the downloaded OBJ assets and produces CPU and GPU outputs. The source files in
+[`examples/`](examples/) are also intended to be runnable and easy to modify.
+
+## Benchmarks
+
+Common benchmark tasks include:
+
+```bash
+pixi run bench_all
+pixi run bench_bvh
+pixi run bench_bvh_cpu_report
+pixi run bench_rt_cpu
+pixi run bench_rt_gpu
+pixi run bench_rt_cpu_gpu
+pixi run bench_sort_mojo
+```
+
+GPU benchmarks require a supported accelerator. The CPU comparison report also
+uses Embree 4 and TinyBVH; the Embree task requires Embree 4 headers and
+`libembree4`. Recorded results are available in
+[`bench/results/`](bench/results/), including the [CPU BVH report](bench/results/bvh_cpu/bvh_cpu.md)
+and [CPU/GPU ray-tracing comparison](bench/results/rt_cpu_gpu/comparison.md).
+
+## Repository layout
+
+- [`bajo/core`](bajo/core/) — vectors, matrices, quaternions, transforms, rays, and intersections
+- [`bajo/obj`](bajo/obj/) — pure-Mojo OBJ/MTL loading
+- [`bajo/pbrt`](bajo/pbrt/) — PBRT text-scene parsing and loading
+- [`bajo/bvh`](bajo/bvh/) — CPU/GPU BVH construction and traversal
+- [`bajo/rt`](bajo/rt/) — CPU and GPU ray-tracing and shading pipelines
+- [`bajo/sort`](bajo/sort/) — CPU and GPU sorting implementations
+- [`test`](test/) — Mojo tests grouped by subsystem
+- [`bench`](bench/) — performance and diagnostic benchmarks
+
+All repeatable commands and dependencies are defined in [`pixi.toml`](pixi.toml).
+
+## References
+
+See [`sources.md`](sources.md) for the papers and other references used by the
+project.

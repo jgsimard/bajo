@@ -28,6 +28,31 @@ pixi run example_lbvh
 Runs the GPU LBVH normal-rendering example. It should produce the following image
 ![lbvh example](renders/example_tlas_lbvh_normals.png)
 
+## Interactive renderer viewer
+
+The CPU or GPU path tracer can be viewed in a window while moving the camera:
+
+```bash
+pixi run viewer
+```
+
+Move with `W/S`, `A/D`, and `Q/E`; drag with the left mouse button to look
+around. Choose a scene, algorithm (`PATH`, `NEE`, `MIS`, `NORMALS`, `AO`),
+backend, `SPP`, `Max spp`, and runtime `Max depth` from the toolbar.
+Accumulation resets when the camera or settings change; movement uses a fast
+preview and accumulation resumes after a short pause.
+
+Useful options include:
+
+```bash
+pixi run viewer --scene cornell --spp 4 --max-spp 256
+pixi run viewer --pbrt path/to/scene.pbrt --backend gpu --gpu-arch sm_120
+```
+
+Use `R` to reset the camera, `B` to toggle CPU/GPU, `1`–`5` to select an
+algorithm, and `Esc` to close. The status bar shows FPS, build/render time,
+and MRays/s.
+
 ## Roadmap
 for a detailed version see [roadmap](roadmap.md)
 

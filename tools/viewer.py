@@ -437,7 +437,7 @@ class Viewer:
                 build_ms = None
                 mrays = None
                 error = str(exc).strip().splitlines()[-1]
-            elapsed = time.monotonic() - started
+            elapsed_ms = (time.monotonic() - started) * 1000.0
 
             with self.lock:
                 latest = generation == self.render_generation
@@ -469,9 +469,9 @@ class Viewer:
                     return
                 self.root.after(
                     0,
-                    lambda frame=frame, elapsed=elapsed, render_ms=render_ms, build_ms=build_ms, mrays=mrays, target_spp=target_spp, max_depth=options.max_depth: self.show_frame(
+                    lambda frame=frame, elapsed_ms=elapsed_ms, render_ms=render_ms, build_ms=build_ms, mrays=mrays, target_spp=target_spp, max_depth=options.max_depth: self.show_frame(
                         frame,
-                        elapsed,
+                        elapsed_ms,
                         render_ms,
                         build_ms,
                         mrays,
@@ -507,7 +507,7 @@ class Viewer:
     def show_frame(
         self,
         frame: Image.Image,
-        elapsed: float,
+        elapsed_ms: float,
         render_ms: float,
         build_ms: float,
         mrays: float,
@@ -553,7 +553,7 @@ class Viewer:
             f"Build {float(build_ms):.1f} ms  |  "
             f"Render {float(render_ms):.2f} ms  |  "
             f"{float(mrays):.2f} MRays/s  |  "
-            f"Wall {elapsed:.2f}s  |  "
+            f"Wall {elapsed_ms:.2f}ms  |  "
             f"{spp_text}"
         )
 

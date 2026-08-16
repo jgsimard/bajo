@@ -2,7 +2,6 @@
 
 from std.math import round
 
-from bajo.core import Point3W, Vec3W
 from bajo.core.utils import ns_to_ms
 from bajo.rt import (
     Camera,
@@ -17,7 +16,8 @@ from bajo.rt.cpu.wavefront import (
     CPU_WAVEFRONT_SERIAL_CHUNK_PATHS,
     WAVE_PARALLEL_TASK_PARTITIONS,
 )
-from bench.rt.bench_cpu_end_to_end import pixel_checksum, sort_timings
+from bench.rt.cpu_harness import pixel_checksum
+from bench.rt.fixtures import weekend_camera
 from examples.rtiaw import make_weekend_world
 
 
@@ -102,8 +102,8 @@ def _summarize(
     mut render_times: List[Int],
     checksum: Float64,
 ) -> Timing:
-    sort_timings(total_times)
-    sort_timings(render_times)
+    sort(Span(total_times))
+    sort(Span(render_times))
     return Timing(
         total_times[REPEATS // 2],
         render_times[REPEATS // 2],
@@ -131,14 +131,7 @@ def main():
     )
     var settings = RenderSettings(WIDTH, HEIGHT, SPP, RNG_SEED)
     var world = make_weekend_world()
-    var camera = Camera.from_vfov(
-        Point3W(13.0, 2.0, 3.0),
-        Point3W(0.0, 0.0, 0.0),
-        Vec3W(0.0, 1.0, 0.0),
-        20.0,
-        10.0,
-        0.6,
-    )
+    var camera = weekend_camera()
 
     var depth_checksum = _warmup[MODE_DEPTH_FIRST](settings, camera, world)
     var serial_checksum = _warmup[MODE_WAVEFRONT_SERIAL](

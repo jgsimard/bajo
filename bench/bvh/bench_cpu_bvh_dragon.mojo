@@ -8,7 +8,7 @@ from bajo.obj.pack import pack_obj_triangles
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.core import Frame, Point3f32, Rayf32
 from bench.bvh.fixtures import make_camera_rays_and_params
-from bench.bvh.bench_printing import TablePrinter
+from bench.bvh.reporting import TablePrinter
 
 
 comptime OBJ_PATH = "./assets/dragon/dragon.obj"

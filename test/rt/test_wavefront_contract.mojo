@@ -6,13 +6,14 @@ from bajo.rt.types import Color, MAT, SurfaceHit, SurfaceId
 from bajo.rt.wavefront_contract import (
     DeviceWavePath,
     DeviceWaveShade,
+    DeviceWaveShadow,
     PackedWavePathQueue,
     PackedWaveShadeQueue,
     WAVE_COUNTER,
-    WAVE_STAGE,
     WAVE_STATUS,
     WavePathFloatAbi,
     WaveShadeFloatAbi,
+    WaveShadowFloatAbi,
     WavefrontCounterBlock,
     WavefrontDispatchState,
     pack_wave_paths,
@@ -41,17 +42,16 @@ def _path(path_id: UInt32) -> WavePath:
 
 
 def test_wavefront_contract_abi_and_philox_ownership() raises:
-    assert_equal(WavePathFloatAbi.PLANES, 11)
+    assert_equal(WavePathFloatAbi.PLANES, 12)
     assert_equal(WaveShadeFloatAbi.PLANES, 4)
-    assert_equal(WAVE_COUNTER.COUNT, 8)
-    assert_equal(size_of[DeviceWavePath](), 48)
+    assert_equal(WaveShadowFloatAbi.PLANES, 11)
+    assert_equal(WAVE_COUNTER.SHADE, 2)
+    assert_equal(WAVE_COUNTER.SHADOW, 3)
+    assert_equal(WAVE_COUNTER.STATUS, 4)
+    assert_equal(WAVE_COUNTER.COUNT, 5)
+    assert_equal(size_of[DeviceWavePath](), 56)
     assert_equal(size_of[DeviceWaveShade](), 28)
-
-    assert_equal(WAVE_STAGE.PRIMARY, UInt32(0))
-    assert_true(WAVE_STAGE.TRACE != WAVE_STAGE.LAMBERTIAN)
-    assert_true(WAVE_STAGE.LAMBERTIAN != WAVE_STAGE.METAL)
-    assert_true(WAVE_STAGE.METAL != WAVE_STAGE.DIELECTRIC)
-    assert_true(WAVE_STAGE.DIELECTRIC != WAVE_STAGE.RESOLVE)
+    assert_equal(size_of[DeviceWaveShadow](), 48)
 
     var expected = (UInt64(7) << UInt64(32)) | UInt64(3)
     assert_equal(wavefront_rng_subsequence(UInt32(7), UInt32(3)), expected)
@@ -143,15 +143,13 @@ def test_wavefront_counter_and_dispatch_transitions() raises:
     assert_equal(counters.values[WAVE_COUNTER.ACTIVE], UInt32(128))
     assert_equal(counters.values[WAVE_COUNTER.STATUS], WAVE_STATUS.OK)
     counters.values[WAVE_COUNTER.NEXT] = UInt32(73)
-    counters.values[WAVE_COUNTER.LAMBERTIAN] = UInt32(40)
-    counters.values[WAVE_COUNTER.METAL] = UInt32(20)
-    counters.values[WAVE_COUNTER.DIELECTRIC] = UInt32(13)
+    counters.values[WAVE_COUNTER.SHADE] = UInt32(20)
+    counters.values[WAVE_COUNTER.SHADOW] = UInt32(13)
     counters.finish_bounce()
     assert_equal(counters.values[WAVE_COUNTER.ACTIVE], UInt32(73))
     assert_equal(counters.values[WAVE_COUNTER.NEXT], UInt32(0))
-    assert_equal(counters.values[WAVE_COUNTER.LAMBERTIAN], UInt32(0))
-    assert_equal(counters.values[WAVE_COUNTER.METAL], UInt32(0))
-    assert_equal(counters.values[WAVE_COUNTER.DIELECTRIC], UInt32(0))
+    assert_equal(counters.values[WAVE_COUNTER.SHADE], UInt32(0))
+    assert_equal(counters.values[WAVE_COUNTER.SHADOW], UInt32(0))
 
     var dispatch = WavefrontDispatchState(
         UInt32(8192), UInt32(512), UInt32(0), UInt32(0)

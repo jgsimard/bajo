@@ -1,4 +1,4 @@
-from std.math import abs, pi, sqrt
+from std.math import pi, sqrt
 
 from bajo.core import (
     AABB,
@@ -20,6 +20,11 @@ from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.bvh.cpu.tlas import Tlas
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.types import Instance, Sphere
+from bajo.rt.geometry import (
+    orient_surface_normal,
+    sphere_for_acceleration,
+    sphere_unsigned_radius,
+)
 
 
 comptime Color = Vec3f32[Frame.WORLD]
@@ -195,15 +200,60 @@ struct LightRecord(Copyable, Writable):
 struct LightStore:
     var records: List[LightRecord]
     var total_weight: Float32
+    var alias_probabilities: List[Float32]
+    var alias_indices: List[UInt32]
 
     def __init__(out self):
         self.records = List[LightRecord]()
         self.total_weight = 0.0
+        self.alias_probabilities = List[Float32]()
+        self.alias_indices = List[UInt32]()
 
     @always_inline
     def append(mut self, var record: LightRecord):
         self.total_weight += record.weight
         self.records.append(record^)
+
+    def build_alias_table(mut self):
+        """Build a reusable Walker-Vose power distribution in linear time."""
+        var count = len(self.records)
+        self.alias_probabilities = List[Float32](length=count, fill=1.0)
+        self.alias_indices = List[UInt32](length=count, fill=UInt32(0))
+        if count == 0 or self.total_weight <= 0.0:
+            return
+
+        var scaled = List[Float32](length=count, fill=0.0)
+        var small = List[Int](capacity=count)
+        var large = List[Int](capacity=count)
+        for i in range(count):
+            self.alias_indices[i] = UInt32(i)
+            scaled[i] = (
+                self.records[i].weight * Float32(count) / self.total_weight
+            )
+            if scaled[i] < 1.0:
+                small.append(i)
+            else:
+                large.append(i)
+
+        while len(small) > 0 and len(large) > 0:
+            var small_idx = small.pop()
+            var large_idx = large.pop()
+            self.alias_probabilities[small_idx] = scaled[small_idx]
+            self.alias_indices[small_idx] = UInt32(large_idx)
+            scaled[large_idx] = scaled[large_idx] + scaled[small_idx] - 1.0
+            if scaled[large_idx] < 1.0:
+                small.append(large_idx)
+            else:
+                large.append(large_idx)
+
+        while len(small) > 0:
+            var idx = small.pop()
+            self.alias_probabilities[idx] = 1.0
+            self.alias_indices[idx] = UInt32(idx)
+        while len(large) > 0:
+            var idx = large.pop()
+            self.alias_probabilities[idx] = 1.0
+            self.alias_indices[idx] = UInt32(idx)
 
 
 @fieldwise_init
@@ -451,7 +501,7 @@ struct World[
                     self.surfaces.validate(self.sphere_surfaces[i]),
                     "sphere surface id is out of range",
                 )
-                bvh_spheres.append(Sphere[Frame.WORLD](s.center, abs(s.radius)))
+                bvh_spheres.append(sphere_for_acceleration(s))
 
             self.sphere_bvh = Optional[
                 SphereBvh[Frame.WORLD, Self.world_bvh_width]
@@ -512,6 +562,7 @@ struct World[
             )
 
         self._build_light_store()
+        self.lights.build_alias_table()
 
     def _build_light_store(mut self):
         for idx in range(len(self.triangle_surfaces)):
@@ -538,7 +589,7 @@ struct World[
                 var radiance = self.surfaces.emissives[
                     Int(surface.index())
                 ].radiance
-                var radius = abs(self.spheres[idx].radius)
+                var radius = sphere_unsigned_radius(self.spheres[idx])
                 var weight = (
                     4.0 * pi * radius * radius * _light_importance(radiance)
                 )
@@ -729,19 +780,16 @@ struct World[
                 (rays.o.z + sphere_hits.t * rays.d.z - center_z)
                 * inverse_radius,
             )
-            var front_faces = dot(rays.d, outward_normal).lt(0.0)
-            var oriented_normal = Vec3.select(
-                front_faces, outward_normal, -outward_normal
-            )
+            var oriented = orient_surface_normal(rays.d, outward_normal)
             result.normal = Vec3.select(
-                sphere_mask, oriented_normal, result.normal
+                sphere_mask, oriented.normal, result.normal
             )
             result.surface.value = sphere_mask.select(
                 surface_values, result.surface.value
             )
             result.t = sphere_mask.select(sphere_hits.t, result.t)
             result.front_face = sphere_mask.select(
-                front_faces, result.front_face
+                oriented.front_face, result.front_face
             )
             result.hit |= sphere_mask
 
@@ -762,19 +810,16 @@ struct World[
             var triangle_normal = triangle_hits.normal.unsafe_convert[
                 new_kind=GeoKind.VECTOR
             ]()
-            var front_faces = dot(rays.d, triangle_normal).lt(0.0)
-            var oriented_normal = Vec3.select(
-                front_faces, triangle_normal, -triangle_normal
-            )
+            var oriented = orient_surface_normal(rays.d, triangle_normal)
             result.normal = Vec3.select(
-                triangle_mask, oriented_normal, result.normal
+                triangle_mask, oriented.normal, result.normal
             )
             result.surface.value = triangle_mask.select(
                 surface_values, result.surface.value
             )
             result.t = triangle_mask.select(triangle_hits.t, result.t)
             result.front_face = triangle_mask.select(
-                front_faces, result.front_face
+                oriented.front_face, result.front_face
             )
             result.hit |= triangle_mask
 
@@ -819,14 +864,13 @@ struct World[
         ref sphere = self.spheres[sphere_idx]
         var p = ray_at(ray, bvh_hit.t)
         var outward_normal = (p - sphere.center) / sphere.radius
-        var front_face = dot(ray.d, outward_normal) < 0.0
-        var normal = outward_normal if front_face else -outward_normal
+        var oriented = orient_surface_normal(ray.d, outward_normal)
         return _WorldHit(
             PrimitiveId(PRIM.SPHERE, bvh_hit.prim),
-            normal,
+            oriented.normal,
             self.sphere_surfaces[sphere_idx].copy(),
             bvh_hit.t,
-            front_face,
+            oriented.front_face,
             True,
         )
 
@@ -846,14 +890,13 @@ struct World[
         var outward_normal = bvh_hit.normal.unsafe_convert[
             new_kind=GeoKind.VECTOR
         ]()
-        var front_face = dot(ray.d, outward_normal) < 0.0
-        var normal = outward_normal if front_face else -outward_normal
+        var oriented = orient_surface_normal(ray.d, outward_normal)
         return _WorldHit(
             PrimitiveId(PRIM.TRIANGLE, bvh_hit.prim),
-            normal,
+            oriented.normal,
             self.triangle_surfaces[tri_idx].copy(),
             bvh_hit.t,
-            front_face,
+            oriented.front_face,
             True,
         )
 
@@ -876,14 +919,13 @@ struct World[
         var outward_normal = bvh_hit.normal.unsafe_convert[
             new_kind=GeoKind.VECTOR
         ]()
-        var front_face = dot(ray.d, outward_normal) < 0.0
-        var normal = outward_normal if front_face else -outward_normal
+        var oriented = orient_surface_normal(ray.d, outward_normal)
         return _WorldHit(
             PrimitiveId(PRIM.TRIANGLE_INSTANCE, bvh_hit.inst),
-            normal,
+            oriented.normal,
             self.triangle_instance_surfaces[instance_idx].copy(),
             bvh_hit.t,
-            front_face,
+            oriented.front_face,
             True,
         )
 

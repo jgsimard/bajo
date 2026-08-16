@@ -37,7 +37,7 @@ from bajo.bvh.constants import TRACE, Primitive, MISS_PRIM, f32_max
 from bajo.obj.pack import pack_obj_triangles
 from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list, upload_vertices
 
-from bench.bvh.bench_printing import (
+from bench.bvh.reporting import (
     GpuBenchResult,
     print_transposed_header,
     print_transposed_row,

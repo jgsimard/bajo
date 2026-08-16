@@ -1,6 +1,6 @@
 """Emission and next-event estimation for CPU path integrators."""
 
-from std.math import abs, sqrt
+from std.math import sqrt
 
 from bajo.core import (
     Frame,
@@ -14,6 +14,8 @@ from bajo.core import (
     normalize,
 )
 from bajo.core.random import Rng, random_unit_vector
+from bajo.rt.lighting import _direct_light_scale, power_heuristic
+from bajo.rt.geometry import sphere_unsigned_radius
 from bajo.rt.types import (
     Color,
     MAT,
@@ -64,42 +66,6 @@ def emitted_radiance(
     if surface.kind() == MAT.EMISSIVE and front_face:
         return surfaces.emissives[Int(surface.index())].radiance
     return Color(0.0)
-
-
-@always_inline
-def power_heuristic[
-    length: SIMDLength = 1
-](
-    pdf_a: SIMD[DType.float32, length],
-    pdf_b: SIMD[DType.float32, length],
-) -> SIMD[DType.float32, length]:
-    var a2 = pdf_a * pdf_a
-    var b2 = pdf_b * pdf_b
-    var denominator = a2 + b2
-    var nonzero = denominator.gt(0.0)
-    return nonzero.select(
-        a2 / nonzero.select(denominator, Float32(1.0)), Float32(0.0)
-    )
-
-
-@always_inline
-def _direct_light_scale[
-    ALGORITHM: RENDER, length: SIMDLength
-](
-    surface_cosine: SIMD[DType.float32, length],
-    light_pdf: SIMD[DType.float32, length],
-    bsdf_pdf: SIMD[DType.float32, length],
-    valid: SIMD[DType.bool, length],
-) -> SIMD[DType.float32, length]:
-    comptime assert ALGORITHM in (RENDER.NEE, RENDER.MIS)
-    var ok = valid & light_pdf.gt(0.0) & bsdf_pdf.gt(0.0)
-    var safe_light_pdf = ok.select(light_pdf, Float32(1.0))
-    var estimator_weight = SIMD[DType.float32, length](1.0)
-    comptime if ALGORITHM == RENDER.MIS:
-        estimator_weight = power_heuristic(light_pdf, bsdf_pdf)
-    return ok.select(
-        surface_cosine * estimator_weight / safe_light_pdf, Float32(0.0)
-    )
 
 
 @always_inline
@@ -172,13 +138,19 @@ def _sample_direct_light_candidate[
     if total_weight <= 0.0:
         return _empty_direct_light_sample[1]()
 
-    var selected_weight = rng.f32() * total_weight
+    var light_count = len(world.lights.records)
+    var alias_sample = rng.f32() * Float32(light_count)
+    var selected_idx = Int(alias_sample)
+    var alias_fraction = alias_sample - Float32(selected_idx)
+    if alias_fraction > world.lights.alias_probabilities[selected_idx]:
+        selected_idx = Int(world.lights.alias_indices[selected_idx])
     var light_point = Point3f32[Frame.WORLD](0.0)
     var light_normal = Vec3f32[Frame.WORLD](0.0, 1.0, 0.0)
     var emission = Color(0.0)
     var found = False
-    for light in world.lights.records:
-        if selected_weight <= light.weight:
+    for light_idx in range(light_count):
+        if light_idx == selected_idx:
+            ref light = world.lights.records[light_idx]
             var primitive_kind = light.primitive.kind()
             var idx = Int(light.primitive.index())
             emission = world.surfaces.emissives[
@@ -202,12 +174,11 @@ def _sample_direct_light_candidate[
                 light_point = v0 + barycentric1 * edge1 + barycentric2 * edge2
                 found = True
             elif primitive_kind == PRIM.SPHERE:
-                var radius = abs(world.spheres[idx].radius)
+                var radius = sphere_unsigned_radius(world.spheres[idx])
                 light_normal = random_unit_vector[Frame.WORLD](rng)
                 light_point = world.spheres[idx].center + radius * light_normal
                 found = True
             break
-        selected_weight -= light.weight
 
     if not found:
         return _empty_direct_light_sample[1]()

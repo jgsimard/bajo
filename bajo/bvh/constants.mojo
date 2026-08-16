@@ -45,7 +45,7 @@ struct BinaryBvhNode:
 
 
 struct WideNode:
-    comptime CHILD_STRIDE = 8
+    comptime CHILD_STRIDE = 7
     comptime MIN_X = 0
     comptime MIN_Y = 1
     comptime MIN_Z = 2
@@ -53,7 +53,6 @@ struct WideNode:
     comptime MAX_Y = 4
     comptime MAX_Z = 5
     comptime META = 6
-    comptime PAD = 7
 
 
 comptime GPU_BOUNDS_BVH_BLOCK_SIZE = 128

@@ -1,6 +1,7 @@
 from bajo.bvh.gpu.wide_layout import (
     WideNodeIntersection,
-    _intersect_wide_node,
+    _intersect_wide_node_precomputed,
+    _intersect_wide_node_precomputed_octant,
 )
 from bajo.bvh.gpu.wide_meta import (
     _pack_wide_meta,
@@ -14,7 +15,7 @@ from bajo.bvh.constants import (
     EMPTY_LANE,
 )
 from bajo.bvh.types import Hit
-from bajo.core import Frame, Rayf32
+from bajo.core import Frame, Point3, Rayf32, Vec3
 
 
 comptime GpuLeafFn[frame: Frame] = def(
@@ -108,16 +109,39 @@ struct GpuTraceResult[frame: Frame](TrivialRegisterPassable):
     var stats: GpuTraversalStats
 
 
-def _intersect_trace_node[
+@always_inline
+def _intersect_trace_node_precomputed[
     frame: Frame,
     width: SIMDLength,
 ](
     wide_nodes: Pointer[mut=False, Float32, _],
     node_idx: UInt32,
-    ray: Rayf32[frame],
+    bounds_origin: Point3[DType.float32, frame, width],
+    rcp_direction: Vec3[DType.float32, frame, width],
     t_max: Float32,
 ) -> WideNodeIntersection[width]:
-    return _intersect_wide_node[frame, width](wide_nodes, node_idx, ray, t_max)
+    return _intersect_wide_node_precomputed[frame, width](
+        wide_nodes, node_idx, bounds_origin, rcp_direction, t_max
+    )
+
+
+@always_inline
+def _intersect_trace_node_precomputed_octant[
+    frame: Frame,
+    width: SIMDLength,
+    positive_x: Bool,
+    positive_y: Bool,
+    positive_z: Bool,
+](
+    wide_nodes: Pointer[mut=False, Float32, _],
+    node_idx: UInt32,
+    origin_rcp_direction: Vec3[DType.float32, frame, width],
+    rcp_direction: Vec3[DType.float32, frame, width],
+    t_max: Float32,
+) -> WideNodeIntersection[width]:
+    return _intersect_wide_node_precomputed_octant[
+        frame, width, positive_x, positive_y, positive_z
+    ](wide_nodes, node_idx, origin_rcp_direction, rcp_direction, t_max)
 
 
 def _trace_bounds_bvh_distance_aware[
@@ -138,7 +162,8 @@ def _trace_bounds_bvh_distance_aware[
     var stack_near = Array[Float32, GPU_STACK_SIZE](uninitialized=True)
     var stack_ptr = 0
     var current = root_idx
-
+    var bounds_origin = ray.origin[width]()
+    var rcp_direction = ray.rcp_direction[width]()
     while True:
         comptime if collect_stats:
             stats.node_visits += 1
@@ -146,8 +171,8 @@ def _trace_bounds_bvh_distance_aware[
         comptime if mode == TRACE.ANY_HIT:
             node_t_max = ray.t_max
 
-        var node_hit = _intersect_trace_node[frame, width](
-            wide_nodes, current, ray, node_t_max
+        var node_hit = _intersect_trace_node_precomputed[frame, width](
+            wide_nodes, current, bounds_origin, rcp_direction, node_t_max
         )
         var bounds_hit = node_hit.bounds_hit
         var child_valid = Array[Bool, width](fill=False)
@@ -231,10 +256,13 @@ def _trace_bounds_bvh_distance_aware[
     return GpuTraceResult[frame](hit, stats)
 
 
-def trace_bounds_bvh_unified_closest[
+def _trace_bounds_bvh_unified_closest_impl[
     frame: Frame,
     width: SIMDLength,
     leaf_fn: GpuLeafFn[frame],
+    positive_x: Bool,
+    positive_y: Bool,
+    positive_z: Bool,
 ](
     wide_nodes: Pointer[mut=False, Float32, _],
     leaves: Pointer[mut=False, Float32, _],
@@ -248,7 +276,13 @@ def trace_bounds_bvh_unified_closest[
     var stack_ptr = 0
     var current_meta = _pack_wide_meta(root_idx, UInt32(0))
     var current_near = Float32(0.0)
-
+    var bounds_origin = ray.origin[width]()
+    var rcp_direction = ray.rcp_direction[width]()
+    var origin_rcp_direction = Vec3[DType.float32, frame, width](
+        bounds_origin.x * rcp_direction.x,
+        bounds_origin.y * rcp_direction.y,
+        bounds_origin.z * rcp_direction.z,
+    )
     while True:
         if current_near > hit.t:
             var found_pending = False
@@ -284,10 +318,13 @@ def trace_bounds_bvh_unified_closest[
                 break
             continue
 
-        var node_hit = _intersect_trace_node[frame, width](
+        var node_hit = _intersect_trace_node_precomputed_octant[
+            frame, width, positive_x, positive_y, positive_z
+        ](
             wide_nodes,
             _wide_meta_data(current_meta),
-            ray,
+            origin_rcp_direction,
+            rcp_direction,
             hit.t,
         )
         var child_valid = Array[Bool, width](fill=False)
@@ -344,6 +381,55 @@ def trace_bounds_bvh_unified_closest[
     return hit
 
 
+def trace_bounds_bvh_unified_closest[
+    frame: Frame,
+    width: SIMDLength,
+    leaf_fn: GpuLeafFn[frame],
+](
+    wide_nodes: Pointer[mut=False, Float32, _],
+    leaves: Pointer[mut=False, Float32, _],
+    root_idx: UInt32,
+    ray: Rayf32[frame],
+) -> Hit[frame]:
+    """Dispatch unified traversal to one compile-time ray octant."""
+    var positive_x = ray.d.x >= 0.0
+    var positive_y = ray.d.y >= 0.0
+    var positive_z = ray.d.z >= 0.0
+
+    if positive_x:
+        if positive_y:
+            if positive_z:
+                return _trace_bounds_bvh_unified_closest_impl[
+                    frame, width, leaf_fn, True, True, True
+                ](wide_nodes, leaves, root_idx, ray)
+            return _trace_bounds_bvh_unified_closest_impl[
+                frame, width, leaf_fn, True, True, False
+            ](wide_nodes, leaves, root_idx, ray)
+        if positive_z:
+            return _trace_bounds_bvh_unified_closest_impl[
+                frame, width, leaf_fn, True, False, True
+            ](wide_nodes, leaves, root_idx, ray)
+        return _trace_bounds_bvh_unified_closest_impl[
+            frame, width, leaf_fn, True, False, False
+        ](wide_nodes, leaves, root_idx, ray)
+
+    if positive_y:
+        if positive_z:
+            return _trace_bounds_bvh_unified_closest_impl[
+                frame, width, leaf_fn, False, True, True
+            ](wide_nodes, leaves, root_idx, ray)
+        return _trace_bounds_bvh_unified_closest_impl[
+            frame, width, leaf_fn, False, True, False
+        ](wide_nodes, leaves, root_idx, ray)
+    if positive_z:
+        return _trace_bounds_bvh_unified_closest_impl[
+            frame, width, leaf_fn, False, False, True
+        ](wide_nodes, leaves, root_idx, ray)
+    return _trace_bounds_bvh_unified_closest_impl[
+        frame, width, leaf_fn, False, False, False
+    ](wide_nodes, leaves, root_idx, ray)
+
+
 def _trace_bounds_bvh_with_counters[
     frame: Frame,
     width: SIMDLength,
@@ -370,6 +456,8 @@ def _trace_bounds_bvh_with_counters[
     var stack = Array[UInt32, GPU_STACK_SIZE](uninitialized=True)
     var stack_ptr = 0
     var current = root_idx
+    var bounds_origin = ray.origin[width]()
+    var rcp_direction = ray.rcp_direction[width]()
 
     while True:
         comptime if collect_stats:
@@ -378,11 +466,8 @@ def _trace_bounds_bvh_with_counters[
         comptime if mode == TRACE.ANY_HIT:
             node_t_max = ray.t_max
 
-        var node_hit = _intersect_trace_node[frame, width](
-            wide_nodes,
-            current,
-            ray,
-            node_t_max,
+        var node_hit = _intersect_trace_node_precomputed[frame, width](
+            wide_nodes, current, bounds_origin, rcp_direction, node_t_max
         )
         var bounds_hit = node_hit.bounds_hit
 
@@ -507,10 +592,9 @@ def _trace_bounds_bvh_with_counters[
     return GpuTraceResult[frame](hit, stats)
 
 
-def trace_bounds_bvh_state[
+@always_inline
+def _trace_bounds_bvh_state_bvh2[
     frame: Frame,
-    width: SIMDLength,
-    mode: TRACE,
     LeafState: AnyType,
     leaf_fn: GpuLeafStateFn[frame, LeafState],
 ](
@@ -519,19 +603,156 @@ def trace_bounds_bvh_state[
     root_idx: UInt32,
     ray: Rayf32[frame],
 ) -> Hit[frame]:
-    """Shared near-first BVH loop for primitive and instance leaf state."""
+    """Two-child closest-hit loop without generic width-N child arrays."""
     var hit = Hit[frame].miss(ray.t_max)
     var stack = Array[UInt32, GPU_STACK_SIZE](uninitialized=True)
     var stack_ptr = 0
     var current = root_idx
+    var bounds_origin = ray.origin[2]()
+    var rcp_direction = ray.rcp_direction[2]()
+
+    while True:
+        var node_hit = _intersect_trace_node_precomputed[frame, 2](
+            wide_nodes,
+            current,
+            bounds_origin,
+            rcp_direction,
+            hit.t,
+        )
+
+        var child0_valid = False
+        var child1_valid = False
+        var child0_data = UInt32(0)
+        var child1_data = UInt32(0)
+        var child0_t = Float32(0.0)
+        var child1_t = Float32(0.0)
+
+        comptime for lane in range(2):
+            var meta = node_hit.meta[lane]
+            var count = _wide_meta_count(meta)
+            if count != EMPTY_LANE and node_hit.bounds_hit.mask[lane]:
+                var data = _wide_meta_data(meta)
+                if count == 0:
+                    if lane == 0:
+                        child0_valid = True
+                        child0_data = data
+                        child0_t = node_hit.bounds_hit.t[lane]
+                    else:
+                        child1_valid = True
+                        child1_data = data
+                        child1_t = node_hit.bounds_hit.t[lane]
+                else:
+                    _ = leaf_fn(leaf_state, data, count, ray, hit)
+
+        var nearest_lane = -1
+        var nearest_t = f32_max
+        if child0_valid:
+            nearest_lane = 0
+            nearest_t = child0_t
+        if child1_valid and (nearest_lane == -1 or child1_t < nearest_t):
+            nearest_lane = 1
+            nearest_t = child1_t
+
+        if child0_valid and nearest_lane != 0 and child0_t <= hit.t:
+            debug_assert["safe", _use_compiler_assume=True](
+                stack_ptr < GPU_STACK_SIZE,
+                "GPU BVH traversal stack overflow",
+            )
+            stack[stack_ptr] = child0_data
+            stack_ptr += 1
+        if child1_valid and nearest_lane != 1 and child1_t <= hit.t:
+            debug_assert["safe", _use_compiler_assume=True](
+                stack_ptr < GPU_STACK_SIZE,
+                "GPU BVH traversal stack overflow",
+            )
+            stack[stack_ptr] = child1_data
+            stack_ptr += 1
+
+        if nearest_lane != -1 and nearest_t <= hit.t:
+            if nearest_lane == 0:
+                current = child0_data
+            else:
+                current = child1_data
+            continue
+
+        if stack_ptr == 0:
+            break
+        stack_ptr -= 1
+        current = stack[stack_ptr]
+
+    return hit
+
+
+def trace_bounds_bvh_state[
+    frame: Frame,
+    width: SIMDLength,
+    mode: TRACE,
+    LeafState: AnyType,
+    leaf_fn: GpuLeafStateFn[frame, LeafState],
+    compact_bvh2: Bool = False,
+](
+    wide_nodes: Pointer[mut=False, Float32, _],
+    leaf_state: LeafState,
+    root_idx: UInt32,
+    ray: Rayf32[frame],
+) -> Hit[frame]:
+    """Shared near-first BVH loop for primitive and instance leaf state."""
+    comptime if compact_bvh2:
+        comptime assert width == 2 and mode == TRACE.CLOSEST_HIT
+        return _trace_bounds_bvh_state_bvh2[frame, LeafState, leaf_fn](
+            wide_nodes, leaf_state, root_idx, ray
+        )
+
+    var hit = Hit[frame].miss(ray.t_max)
+    var stack = Array[UInt32, GPU_STACK_SIZE](uninitialized=True)
+    var stack_ptr = 0
+    var current = root_idx
+    var bounds_origin = ray.origin[width]()
+    var rcp_direction = ray.rcp_direction[width]()
 
     while True:
         var node_t_max = hit.t
         comptime if mode == TRACE.ANY_HIT:
             node_t_max = ray.t_max
-        var node_hit = _intersect_trace_node[frame, width](
-            wide_nodes, current, ray, node_t_max
+        var node_hit = _intersect_trace_node_precomputed[frame, width](
+            wide_nodes,
+            current,
+            bounds_origin,
+            rcp_direction,
+            node_t_max,
         )
+
+        # Any-hit queries only need to find one leaf.  Keep this path
+        # explicitly unordered: closest-hit's nearest-child reduction and
+        # child-distance arrays are unnecessary work here.  The comptime
+        # split preserves the generic leaf callback and the shared stack
+        # while specializing the generated kernel for the query mode.
+        comptime if mode == TRACE.ANY_HIT:
+            comptime for node_lane in range(width):
+                var meta = node_hit.meta[node_lane]
+                var count = _wide_meta_count(meta)
+                if count != EMPTY_LANE and node_hit.bounds_hit.mask[node_lane]:
+                    var data = _wide_meta_data(meta)
+                    if count == 0:
+                        debug_assert["safe", _use_compiler_assume=True](
+                            stack_ptr < GPU_STACK_SIZE,
+                            "GPU BVH traversal stack overflow",
+                        )
+                        stack[stack_ptr] = data
+                        stack_ptr += 1
+                    else:
+                        var leaf_hit = leaf_fn(
+                            leaf_state, data, count, ray, hit
+                        )
+                        if leaf_hit:
+                            return hit
+
+            if stack_ptr == 0:
+                break
+            stack_ptr -= 1
+            current = stack[stack_ptr]
+            continue
+
         var child_valid = Array[Bool, width](fill=False)
         var child_data = Array[UInt32, width](fill=0)
         var child_t = Array[Float32, width](fill=0.0)
@@ -593,6 +814,7 @@ def trace_bounds_bvh[
     leaf_fn: GpuLeafFn[frame],
     lifo: Bool = True,
     distance_aware: Bool = False,
+    compact_bvh2: Bool = False,
 ](
     wide_nodes: Pointer[mut=False, Float32, _],
     leaves: Pointer[mut=False, Float32, _],
@@ -606,6 +828,7 @@ def trace_bounds_bvh[
             mode,
             GpuPrimitiveLeafState,
             _dispatch_primitive_leaf[frame, mode, leaf_fn],
+            compact_bvh2,
         ](
             wide_nodes,
             GpuPrimitiveLeafState(

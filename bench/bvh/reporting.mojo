@@ -1,3 +1,5 @@
+"""Shared formatting for BVH benchmark results."""
+
 from std.math import round
 from std.collections import StringDict
 

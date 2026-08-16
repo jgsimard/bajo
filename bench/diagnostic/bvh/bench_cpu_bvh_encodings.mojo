@@ -1,3 +1,5 @@
+"""Diagnostic sweep of alternative CPU BVH encodings."""
+
 from std.bit import count_trailing_zeros
 from std.math import ceil, floor, fma, round
 from std.memory import bitcast, pack_bits
@@ -39,17 +41,15 @@ from bajo.core.intersect import (
 )
 from bajo.core.utils import ns_to_mrays_per_s
 from bajo.obj.pack import pack_obj_triangles
-from bench.bvh.bench_cpu_bvh_grid import (
-    make_grid_triangles,
-    make_hit_and_miss_rays,
-)
-from bench.bvh.bench_cpu_bvh_measurement import (
+from bench.bvh.fixtures import (
+    make_camera_rays_and_params,
     make_depth_overlap_rays,
     make_depth_overlap_triangles,
+    make_grid_triangles,
+    make_hit_and_miss_rays,
     permute_rays,
     select_and_repeat_hit_rays,
 )
-from bench.bvh.fixtures import make_camera_rays_and_params
 
 
 comptime OBJ_PATH = "./assets/dragon/dragon.obj"

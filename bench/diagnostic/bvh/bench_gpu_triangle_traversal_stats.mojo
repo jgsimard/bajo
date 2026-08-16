@@ -1,3 +1,5 @@
+"""Diagnostic GPU triangle traversal counters."""
+
 from std.math import round
 from std.sys import has_accelerator
 from max.gpu.host import DeviceContext, DeviceBuffer

@@ -1,3 +1,5 @@
+"""Diagnostic GPU BVH quality measurements."""
+
 from std.math import round
 from max.gpu.host import DeviceBuffer, DeviceContext
 
@@ -9,9 +11,9 @@ from bajo.bvh.gpu.quality import (
     measure_wide_bvh_quality,
 )
 from bajo.bvh.gpu.utils import upload_list
-from bajo.bvh.host_utils import triangle_bounds
 from bajo.core import Frame
 from bajo.obj.pack import pack_obj_triangles
+from bench.diagnostic.bvh.fixtures import flatten_triangle_bounds
 
 
 comptime DEFAULT_OBJ_PATH = "./assets/dragon/dragon.obj"
@@ -62,21 +64,7 @@ def _measure_configuration[
 
 def main() raises:
     var vertices = pack_obj_triangles[Frame.WORLD](DEFAULT_OBJ_PATH)
-    var host_leaf_bounds = List[Float32](capacity=(len(vertices) / 3) * 6)
-    var host_payloads = List[UInt32](capacity=len(vertices) / 3)
-    for triangle_idx in range(len(vertices) / 3):
-        var bounds = triangle_bounds(
-            vertices[triangle_idx * 3 + 0],
-            vertices[triangle_idx * 3 + 1],
-            vertices[triangle_idx * 3 + 2],
-        )
-        host_leaf_bounds.append(bounds._min.x)
-        host_leaf_bounds.append(bounds._min.y)
-        host_leaf_bounds.append(bounds._min.z)
-        host_leaf_bounds.append(bounds._max.x)
-        host_leaf_bounds.append(bounds._max.y)
-        host_leaf_bounds.append(bounds._max.z)
-        host_payloads.append(UInt32(triangle_idx))
+    var flat = flatten_triangle_bounds(vertices)
 
     print("GPU LBVH quality baseline")
     print(t"OBJ path: {DEFAULT_OBJ_PATH}")
@@ -91,8 +79,8 @@ def main() raises:
     )
 
     with DeviceContext() as ctx:
-        var leaf_bounds = upload_list(ctx, host_leaf_bounds)
-        var payloads = upload_list(ctx, host_payloads)
+        var leaf_bounds = upload_list(ctx, flat[0])
+        var payloads = upload_list(ctx, flat[1])
         _measure_configuration[2, 2](ctx, leaf_bounds, payloads, "n2/l2")
         _measure_configuration[2, 4](ctx, leaf_bounds, payloads, "n2/l4")
         _measure_configuration[4, 4](ctx, leaf_bounds, payloads, "n4/l4")

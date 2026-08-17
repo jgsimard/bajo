@@ -32,7 +32,7 @@ def validate_camera_launch(
 
 @always_inline
 def _camera_ray(
-    camera_params: Pointer[mut=False, Float32, _],
+    camera_params: ImmPointer[Float32, _],
     ray_count: Int,
     ray_idx: Int,
     width: Int,
@@ -58,7 +58,7 @@ def _camera_ray(
 @always_inline
 def _store_camera_hit(
     hit: Hit[Frame.WORLD],
-    hits: Pointer[mut=True, Float32, _],
+    hits: MutPointer[Float32, _],
     ray_count: Int,
     ray_idx: Int,
 ):

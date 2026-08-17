@@ -32,18 +32,18 @@ struct ObjIndexLimit(TrivialRegisterPassable):
 
 # OBJ parsing
 @always_inline
-def _word_ends_here(bytes: Span[mut=False, UInt8, _], p: Int) -> Bool:
+def _word_ends_here(bytes: ImmSpan[UInt8, _], p: Int) -> Bool:
     if p >= len(bytes):
         return True
     return _is_ws_or_line_cut(bytes.unsafe_get(p))
 
 
 struct ObjLineCursor[origin: ImmOrigin]:
-    var bytes: Span[mut=False, UInt8, Self.origin]
+    var bytes: ImmSpan[UInt8, Self.origin]
     var pos: Int
 
     @always_inline
-    def __init__(out self, bytes: Span[mut=False, UInt8, Self.origin]):
+    def __init__(out self, bytes: ImmSpan[UInt8, Self.origin]):
         self.bytes = bytes
         self.pos = 0
 
@@ -667,9 +667,7 @@ def _parse_obj[
 
 def _parse_obj[
     Loader: ObjTextLoader
-](
-    path: String, text: StringSpan[mut=False, _], loader: Loader
-) raises -> ObjMesh:
+](path: String, text: ImmStringSpan, loader: Loader) raises -> ObjMesh:
     var mesh = ObjMesh()
 
     # Same rough heuristic as before, with reserves for the other hot arrays too.

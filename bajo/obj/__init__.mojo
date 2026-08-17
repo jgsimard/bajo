@@ -27,9 +27,7 @@ def parse_obj(text: String, path: String = "") raises -> ObjMesh:
     return parse_obj(text, path, loader)
 
 
-def parse_obj(
-    text: StringSpan[mut=False, _], path: String = ""
-) raises -> ObjMesh:
+def parse_obj(text: ImmStringSpan, path: String = "") raises -> ObjMesh:
     """Raw OBJ StringSpan."""
     var loader = MemoryObjTextLoader()
     return parse_obj(text, path, loader)
@@ -44,9 +42,7 @@ def parse_obj[
 
 def parse_obj[
     Loader: ObjTextLoader
-](
-    text: StringSpan[mut=False, _], path: String, loader: Loader
-) raises -> ObjMesh:
+](text: ImmStringSpan, path: String, loader: Loader) raises -> ObjMesh:
     """Raw OBJ StringSpan plus loader for mtllib resolution."""
     return _parse_obj(path, text, loader)
 

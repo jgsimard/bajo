@@ -10,7 +10,7 @@ def _device_span[
     mut: Bool,
     dtype: DType,
 ](
-    ref buffer: DeviceBuffer[dtype],
+    buffer: DeviceBuffer[dtype],
 ) -> Span[
     mut=mut, Scalar[dtype], AnyOrigin[mut=mut]
 ]:

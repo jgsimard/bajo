@@ -46,7 +46,7 @@ struct HplocElectionProbe:
 
 def hploc_shuffle_probe_kernel[
     block_size: Int,
-](output: Span[mut=True, UInt64, MutAnyOrigin],):
+](output: MutSpan[UInt64, MutAnyOrigin]):
     comptime assert block_size == HPLOC_WAVE_TEST_THREADS
     var thread = global_idx.x
     var lane = lane_id()
@@ -67,7 +67,7 @@ def hploc_shuffle_probe_kernel[
 
 def hploc_scan_probe_kernel[
     block_size: Int,
-](output: Span[mut=True, UInt32, MutAnyOrigin],):
+](output: MutSpan[UInt32, MutAnyOrigin]):
     comptime assert block_size == HPLOC_WAVE_TEST_THREADS
     var thread = global_idx.x
     var lane = lane_id()
@@ -84,7 +84,7 @@ def hploc_scan_probe_kernel[
 
 def hploc_reduction_probe_kernel[
     block_size: Int,
-](output: Span[mut=True, UInt32, MutAnyOrigin],):
+](output: MutSpan[UInt32, MutAnyOrigin]):
     comptime assert block_size == HPLOC_WAVE_TEST_THREADS
     var thread = global_idx.x
     var lane = lane_id()
@@ -105,7 +105,7 @@ def hploc_reduction_probe_kernel[
 
 def hploc_election_probe_kernel[
     block_size: Int,
-](output: Span[mut=True, UInt64, MutAnyOrigin],):
+](output: MutSpan[UInt64, MutAnyOrigin]):
     comptime assert block_size == HPLOC_WAVE_TEST_THREADS
     var thread = global_idx.x
     var lane = lane_id()

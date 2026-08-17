@@ -511,7 +511,7 @@ def intersect_ray_tri_edges_scaled[
 def intersect_ray_tri[
     dtype: DType, frame: Frame
 ](
-    vertices: Span[mut=False, Scalar[dtype], _],
+    vertices: ImmSpan[Scalar[dtype], _],
     prim_idx: UInt32,
     o: Point3[dtype, frame],
     d: Vec3[dtype, frame],

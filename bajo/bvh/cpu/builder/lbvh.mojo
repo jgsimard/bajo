@@ -13,7 +13,7 @@ struct MortonItem(Comparable, TrivialRegisterPassable):
 
 
 def _common_prefix(
-    pairs: Span[mut=False, MortonItem, _], i: Int, j: Int, n: Int
+    pairs: ImmSpan[MortonItem, _], i: Int, j: Int, n: Int
 ) -> Int:
     if j < 0 or j >= n:
         return -1
@@ -25,7 +25,7 @@ def _common_prefix(
 
 
 def _lbvh_find_split(
-    pairs: Span[mut=False, MortonItem, _],
+    pairs: ImmSpan[MortonItem, _],
     first: Int,
     last: Int,
     n: Int,
@@ -113,7 +113,7 @@ def _build_lbvh_recursive[
     frame: Frame, leaf_size: Int
 ](
     mut builder: BoundsBvhBuilder[frame, leaf_size],
-    pairs: Span[mut=False, MortonItem, _],
+    pairs: ImmSpan[MortonItem, _],
     node_idx: UInt32,
     first: Int,
     count: Int,

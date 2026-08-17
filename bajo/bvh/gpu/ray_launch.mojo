@@ -27,9 +27,7 @@ def validate_ray_launch(
 @always_inline
 def _load_packed_ray[
     frame: Frame,
-](rays: Pointer[mut=False, Float32, _], ray_count: Int, ray_idx: Int) -> Rayf32[
-    frame
-]:
+](rays: ImmPointer[Float32, _], ray_count: Int, ray_idx: Int) -> Rayf32[frame]:
     # Field-major storage keeps each warp's scalar loads coalesced.
     return Rayf32[frame](
         Point3f32[frame](
@@ -50,12 +48,7 @@ def _load_packed_ray[
 @always_inline
 def _store_packed_hit[
     frame: Frame,
-](
-    hit: Hit[frame],
-    hits: Pointer[mut=True, Float32, _],
-    ray_count: Int,
-    ray_idx: Int,
-):
+](hit: Hit[frame], hits: MutPointer[Float32, _], ray_count: Int, ray_idx: Int,):
     hit._store_unchecked(
         Span(unsafe_ptr=hits, length=ray_count * Hit.STRIDE), ray_idx
     )

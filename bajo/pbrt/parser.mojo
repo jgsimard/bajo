@@ -36,11 +36,11 @@ struct _Token:
 
 
 struct _Lexer[origin: ImmOrigin]:
-    var bytes: Span[mut=False, UInt8, Self.origin]
+    var bytes: ImmSpan[UInt8, Self.origin]
     var pos: Int
     var line: Int
 
-    def __init__(out self, bytes: Span[mut=False, UInt8, Self.origin]):
+    def __init__(out self, bytes: ImmSpan[UInt8, Self.origin]):
         self.bytes = bytes
         self.pos = 0
         self.line = 1

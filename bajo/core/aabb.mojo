@@ -123,7 +123,7 @@ struct AxisAlignedBoundingBox[
         )
 
     @staticmethod
-    def load6(data: Span[mut=False, Scalar[Self.dtype], _], base: Int) -> Self:
+    def load6(data: ImmSpan[Scalar[Self.dtype], _], base: Int) -> Self:
         comptime assert Self.width == 1
         debug_assert["safe", _use_compiler_assume=True](
             base >= 0 and base <= len(data) - Self.STRIDE,
@@ -142,7 +142,7 @@ struct AxisAlignedBoundingBox[
             ),
         )
 
-    def store6(self, data: Span[mut=True, Scalar[Self.dtype], _], base: Int):
+    def store6(self, data: MutSpan[Scalar[Self.dtype], _], base: Int):
         comptime assert Self.width == 1
         debug_assert["safe", _use_compiler_assume=True](
             base >= 0 and base <= len(data) - Self.STRIDE,

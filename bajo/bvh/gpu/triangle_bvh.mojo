@@ -755,9 +755,9 @@ def _build_triangle_bvh_measured[
 def compute_triangle_bounds_kernel[
     frame: Frame,
 ](
-    vertices: Span[mut=False, Float32, ImmutAnyOrigin],
-    leaf_bounds: Span[mut=True, Float32, MutAnyOrigin],
-    payloads: Span[mut=True, UInt32, MutAnyOrigin],
+    vertices: ImmSpan[Float32, ImmutAnyOrigin],
+    leaf_bounds: MutSpan[Float32, MutAnyOrigin],
+    payloads: MutSpan[UInt32, MutAnyOrigin],
 ):
     var tri_count = len(payloads)
     var tri_idx = global_idx.x
@@ -1046,7 +1046,7 @@ def _intersect_triangle_leaf[
     mode: TRACE,
     division_free: Bool = False,
 ](
-    leaf_vertices: Pointer[mut=False, Float32, _],
+    leaf_vertices: ImmPointer[Float32, _],
     leaf_block_idx: UInt32,
     item_count: UInt32,
     ray: Rayf32[frame],
@@ -1140,7 +1140,7 @@ def _intersect_cwbvh_triangle[
     frame: Frame,
     mode: TRACE,
 ](
-    triangles: Pointer[mut=False, Float32, _],
+    triangles: ImmPointer[Float32, _],
     triangle_idx: UInt32,
     ray: Rayf32[frame],
     mut hit: Hit[frame],
@@ -1188,8 +1188,8 @@ def trace_cwbvh8_triangles[
     frame: Frame,
     mode: TRACE,
 ](
-    nodes: Pointer[mut=False, Float32, _],
-    triangles: Pointer[mut=False, Float32, _],
+    nodes: ImmPointer[Float32, _],
+    triangles: ImmPointer[Float32, _],
     root_idx: UInt32,
     ray: Rayf32[frame],
 ) -> Hit[frame]:

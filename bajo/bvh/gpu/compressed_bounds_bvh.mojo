@@ -368,7 +368,7 @@ struct Cwbvh8NodeTasks(TrivialRegisterPassable):
 def _intersect_cwbvh8_node_tasks[
     frame: Frame,
 ](
-    cwbvh_nodes: Pointer[mut=False, Float32, _],
+    cwbvh_nodes: ImmPointer[Float32, _],
     node_idx: UInt32,
     ray: Rayf32[frame],
     rcp_x: Float32,

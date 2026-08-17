@@ -171,8 +171,10 @@ struct Tlas[
     ](
         self,
         ray: Rayf32[Frame.WORLD],
-        blases: Span[mut=False, typed_bvh, _],
-    ) -> Hit[Frame.WORLD]:
+        blases: ImmSpan[typed_bvh, _],
+    ) -> Hit[
+        Frame.WORLD
+    ]:
         comptime assert (
             typed_bvh.bvh_frame == Frame.LOCAL
         ), "TLAS expects BLASes in Frame.LOCAL"

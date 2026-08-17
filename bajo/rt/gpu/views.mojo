@@ -9,14 +9,14 @@ from bajo.rt.gpu.wavefront_contract import GpuWavefrontArena
 @always_inline
 def _immut[
     dtype: DType
-](buffer: DeviceBuffer[dtype],) -> Pointer[Scalar[dtype], ImmUntrackedOrigin]:
+](buffer: DeviceBuffer[dtype]) -> Pointer[Scalar[dtype], ImmUntrackedOrigin]:
     return buffer.unsafe_ptr().unsafe_origin_cast[ImmUntrackedOrigin]()
 
 
 @always_inline
 def _mut[
     dtype: DType
-](buffer: DeviceBuffer[dtype],) -> Pointer[Scalar[dtype], MutUntrackedOrigin]:
+](buffer: DeviceBuffer[dtype]) -> Pointer[Scalar[dtype], MutUntrackedOrigin]:
     return (
         buffer.unsafe_ptr()
         .unsafe_mut_cast[True]()

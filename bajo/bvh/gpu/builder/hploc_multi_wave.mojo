@@ -72,9 +72,9 @@ def _hploc_pack_distance_offset(
 @always_inline
 def _hploc_cluster_bounds(
     encoded: UInt32,
-    leaf_bounds: Span[mut=False, Float32, _],
-    sorted_leaf_ids: Span[mut=False, UInt32, _],
-    scratch_bounds: Span[mut=False, Float32, _],
+    leaf_bounds: ImmSpan[Float32, _],
+    sorted_leaf_ids: ImmSpan[UInt32, _],
+    scratch_bounds: ImmSpan[Float32, _],
 ) -> AABB[Frame.WORLD]:
     var cluster_idx = decode_ref_index(encoded)
     if is_leaf_ref(encoded):
@@ -86,7 +86,7 @@ def _hploc_cluster_bounds(
 @always_inline
 def _hploc_cluster_leaf_count(
     encoded: UInt32,
-    node_leaf_counts: Span[mut=False, UInt32, _],
+    node_leaf_counts: ImmSpan[UInt32, _],
 ) -> UInt32:
     if is_leaf_ref(encoded):
         return UInt32(1)
@@ -97,8 +97,8 @@ def _hploc_cluster_leaf_count(
 def _hploc_set_child_parent(
     encoded: UInt32,
     parent: UInt32,
-    node_meta: Span[mut=True, UInt32, _],
-    leaf_parent: Span[mut=True, UInt32, _],
+    node_meta: MutSpan[UInt32, _],
+    leaf_parent: MutSpan[UInt32, _],
 ):
     var child_idx = decode_ref_index(encoded)
     if is_leaf_ref(encoded):
@@ -109,7 +109,7 @@ def _hploc_set_child_parent(
 
 @always_inline
 def _hploc_delta(
-    sorted_morton_codes: Span[mut=False, UInt32, _], a: Int, b: Int
+    sorted_morton_codes: ImmSpan[UInt32, _], a: Int, b: Int
 ) -> UInt64:
     return morton_key_delta(
         sorted_morton_codes.unsafe_get(a),
@@ -121,7 +121,7 @@ def _hploc_delta(
 
 @always_inline
 def _hploc_find_parent_id(
-    sorted_morton_codes: Span[mut=False, UInt32, _],
+    sorted_morton_codes: ImmSpan[UInt32, _],
     left: Int,
     right: Int,
 ) -> Int:
@@ -151,12 +151,12 @@ def _hploc_atomic_exchange(
 
 
 def init_hploc_multi_wave_kernel(
-    sorted_leaf_ids: Span[mut=False, UInt32, ImmutAnyOrigin],
-    parent_slots: Span[mut=True, UInt32, MutAnyOrigin],
-    cluster_indices: Span[mut=True, UInt32, MutAnyOrigin],
-    node_counter: Span[mut=True, UInt32, MutAnyOrigin],
-    root: Span[mut=True, UInt32, MutAnyOrigin],
-    status: Span[mut=True, UInt32, MutAnyOrigin],
+    sorted_leaf_ids: ImmSpan[UInt32, ImmutAnyOrigin],
+    parent_slots: MutSpan[UInt32, MutAnyOrigin],
+    cluster_indices: MutSpan[UInt32, MutAnyOrigin],
+    node_counter: MutSpan[UInt32, MutAnyOrigin],
+    root: MutSpan[UInt32, MutAnyOrigin],
+    status: MutSpan[UInt32, MutAnyOrigin],
 ):
     var sorted_pos = global_idx.x
     var leaf_count = len(sorted_leaf_ids)
@@ -179,20 +179,20 @@ def build_hploc_multi_wave_kernel[
     search_radius: Int,
     merging_threshold: Int,
 ](
-    sorted_morton_codes: Span[mut=False, UInt32, ImmutAnyOrigin],
-    leaf_bounds: Span[mut=False, Float32, ImmutAnyOrigin],
-    sorted_leaf_ids: Span[mut=False, UInt32, ImmutAnyOrigin],
-    parent_slots: Span[mut=True, UInt32, MutAnyOrigin],
-    cluster_indices: Span[mut=True, UInt32, MutAnyOrigin],
-    scratch_bounds: Span[mut=True, Float32, MutAnyOrigin],
-    node_meta: Span[mut=True, UInt32, MutAnyOrigin],
-    leaf_parent: Span[mut=True, UInt32, MutAnyOrigin],
-    node_bounds: Span[mut=True, Float32, MutAnyOrigin],
-    node_flags: Span[mut=True, UInt32, MutAnyOrigin],
-    node_leaf_counts: Span[mut=True, UInt32, MutAnyOrigin],
-    node_counter: Span[mut=True, UInt32, MutAnyOrigin],
-    root: Span[mut=True, UInt32, MutAnyOrigin],
-    status: Span[mut=True, UInt32, MutAnyOrigin],
+    sorted_morton_codes: ImmSpan[UInt32, ImmutAnyOrigin],
+    leaf_bounds: ImmSpan[Float32, ImmutAnyOrigin],
+    sorted_leaf_ids: ImmSpan[UInt32, ImmutAnyOrigin],
+    parent_slots: MutSpan[UInt32, MutAnyOrigin],
+    cluster_indices: MutSpan[UInt32, MutAnyOrigin],
+    scratch_bounds: MutSpan[Float32, MutAnyOrigin],
+    node_meta: MutSpan[UInt32, MutAnyOrigin],
+    leaf_parent: MutSpan[UInt32, MutAnyOrigin],
+    node_bounds: MutSpan[Float32, MutAnyOrigin],
+    node_flags: MutSpan[UInt32, MutAnyOrigin],
+    node_leaf_counts: MutSpan[UInt32, MutAnyOrigin],
+    node_counter: MutSpan[UInt32, MutAnyOrigin],
+    root: MutSpan[UInt32, MutAnyOrigin],
+    status: MutSpan[UInt32, MutAnyOrigin],
 ):
     """Literature H-PLOC outer and inner loops for arbitrary leaf counts."""
 
@@ -514,9 +514,9 @@ def build_hploc_multi_wave_kernel[
 
 
 def finalize_hploc_multi_wave_kernel(
-    node_counter: Span[mut=False, UInt32, ImmutAnyOrigin],
-    root: Span[mut=False, UInt32, ImmutAnyOrigin],
-    status: Span[mut=True, UInt32, MutAnyOrigin],
+    node_counter: ImmSpan[UInt32, ImmutAnyOrigin],
+    root: ImmSpan[UInt32, ImmutAnyOrigin],
+    status: MutSpan[UInt32, MutAnyOrigin],
     leaf_count_i32: Int32,
 ):
     if global_idx.x != 0 or status.unsafe_get(0) != UInt32(HPLOC_STATUS_OK):

@@ -256,7 +256,7 @@ struct Affine3[dtype: DType, From: Frame, To: Frame, width: SIMDLength = 1](
         )
 
     @staticmethod
-    def load(data: Span[mut=False, Scalar[Self.dtype], _], base: Int) -> Self:
+    def load(data: ImmSpan[Scalar[Self.dtype], _], base: Int) -> Self:
         comptime assert Self.width == 1
         debug_assert["safe", _use_compiler_assume=True](
             base >= 0 and base <= len(data) - Self.STRIDE,
@@ -274,7 +274,7 @@ struct Affine3[dtype: DType, From: Frame, To: Frame, width: SIMDLength = 1](
         )
         # fmt: on
 
-    def store(self, data: Span[mut=True, Scalar[Self.dtype], _], base: Int):
+    def store(self, data: MutSpan[Scalar[Self.dtype], _], base: Int):
         comptime assert Self.width == 1
         debug_assert["safe", _use_compiler_assume=True](
             base >= 0 and base <= len(data) - Self.STRIDE,

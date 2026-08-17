@@ -384,7 +384,7 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
         )
 
     @staticmethod
-    def load(data: Span[mut=False, Scalar[Self.dtype], _], base: Int) -> Self:
+    def load(data: ImmSpan[Scalar[Self.dtype], _], base: Int) -> Self:
         comptime assert Self.width == 1
         debug_assert["safe", _use_compiler_assume=True](
             base >= 0 and base <= len(data) - 3,
@@ -396,7 +396,7 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
             data.unsafe_get(base + 2),
         )
 
-    def store(self, data: Span[mut=True, Scalar[Self.dtype], _], base: Int):
+    def store(self, data: MutSpan[Scalar[Self.dtype], _], base: Int):
         comptime assert Self.width == 1
         debug_assert["safe", _use_compiler_assume=True](
             base >= 0 and base <= len(data) - 3,

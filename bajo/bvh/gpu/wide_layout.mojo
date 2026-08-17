@@ -114,11 +114,7 @@ def _wide_node_store_child[
 
 def _wide_node_load_meta[
     width: SIMDLength,
-](
-    wide_nodes: Pointer[mut=False, Float32, _],
-    node_idx: UInt32,
-    lane: Int,
-) -> UInt32:
+](wide_nodes: ImmPointer[Float32, _], node_idx: UInt32, lane: Int) -> UInt32:
     var base = _wide_node_base[width](node_idx, lane)
     return wide_nodes.unsafe_bitcast[UInt32]()[
         unsafe_offset=base + WideNode.META
@@ -142,7 +138,7 @@ def _intersect_wide_node[
     frame: Frame,
     width: SIMDLength,
 ](
-    wide_nodes: Pointer[mut=False, Float32, _],
+    wide_nodes: ImmPointer[Float32, _],
     node_idx: UInt32,
     ray: Rayf32[frame],
     t_max: Float32,
@@ -177,7 +173,7 @@ def _intersect_wide_node_precomputed[
     frame: Frame,
     width: SIMDLength,
 ](
-    wide_nodes: Pointer[mut=False, Float32, _],
+    wide_nodes: ImmPointer[Float32, _],
     node_idx: UInt32,
     bounds_origin: Point3[DType.float32, frame, width],
     rcp_direction: Vec3[DType.float32, frame, width],
@@ -216,7 +212,7 @@ def _intersect_wide_node_precomputed_octant[
     positive_y: Bool,
     positive_z: Bool,
 ](
-    wide_nodes: Pointer[mut=False, Float32, _],
+    wide_nodes: ImmPointer[Float32, _],
     node_idx: UInt32,
     origin_rcp_direction: Vec3[DType.float32, frame, width],
     rcp_direction: Vec3[DType.float32, frame, width],

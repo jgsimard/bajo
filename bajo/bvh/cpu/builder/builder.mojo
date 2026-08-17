@@ -255,7 +255,7 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
 
     def _subdivide[
         split_method: String
-    ](mut self, node_idx: UInt32, centroid_bounds: AABB[Self.frame],):
+    ](mut self, node_idx: UInt32, centroid_bounds: AABB[Self.frame]):
         comptime assert split_method in ["median", "sah"]
 
         var source_node = self.nodes[Int(node_idx)]
@@ -423,8 +423,8 @@ struct BoundsBvhNode[frame: Frame](TrivialRegisterPassable):
 def _partition_items_by_median_center[
     frame: Frame
 ](
-    indices: Span[mut=True, UInt32, _],
-    items: Span[mut=False, BoundsItem[frame], _],
+    indices: MutSpan[UInt32, _],
+    items: ImmSpan[BoundsItem[frame], _],
     first: Int,
     count: Int,
     axis: Int,

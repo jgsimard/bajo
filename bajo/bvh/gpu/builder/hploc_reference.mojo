@@ -282,8 +282,8 @@ def _reduce_clusters(
 
 def _build_hploc_range(
     mut nodes: List[HplocReferenceNode],
-    sorted_morton_codes: Span[mut=False, UInt32, _],
-    sorted_leaf_ids: Span[mut=False, UInt32, _],
+    sorted_morton_codes: ImmSpan[UInt32, _],
+    sorted_leaf_ids: ImmSpan[UInt32, _],
     first: Int,
     last: Int,
     merging_threshold: Int,
@@ -338,9 +338,9 @@ def _build_hploc_range(
 
 
 def build_hploc_reference(
-    leaf_bounds: Span[mut=False, AABB[Frame.WORLD], _],
-    sorted_morton_codes: Span[mut=False, UInt32, _],
-    sorted_leaf_ids: Span[mut=False, UInt32, _],
+    leaf_bounds: ImmSpan[AABB[Frame.WORLD], _],
+    sorted_morton_codes: ImmSpan[UInt32, _],
+    sorted_leaf_ids: ImmSpan[UInt32, _],
     search_radius: Int = HPLOC_SEARCH_RADIUS,
     merging_threshold: Int = HPLOC_MERGING_THRESHOLD,
 ) raises -> HplocReferenceBvh:

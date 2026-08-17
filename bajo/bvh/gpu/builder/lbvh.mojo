@@ -27,10 +27,10 @@ from bajo.bvh.gpu.builder.binary_layout import (
 
 
 def compute_bounds_morton_codes_kernel(
-    leaf_bounds: Span[mut=False, Float32, ImmutAnyOrigin],
-    bounds_device: Span[mut=False, Float32, ImmutAnyOrigin],
-    morton_codes: Span[mut=True, UInt32, MutAnyOrigin],
-    values: Span[mut=True, UInt32, MutAnyOrigin],
+    leaf_bounds: ImmSpan[Float32, ImmutAnyOrigin],
+    bounds_device: ImmSpan[Float32, ImmutAnyOrigin],
+    morton_codes: MutSpan[UInt32, MutAnyOrigin],
+    values: MutSpan[UInt32, MutAnyOrigin],
 ):
     var leaf_count = len(values)
     var i = global_idx.x
@@ -54,12 +54,12 @@ def compute_bounds_morton_codes_kernel(
 
 
 def refit_lbvh_bounds_from_leaves_kernel(
-    leaf_bounds: Span[mut=False, Float32, ImmutAnyOrigin],
-    leaf_ids: Span[mut=False, UInt32, ImmutAnyOrigin],
-    node_meta: Span[mut=False, UInt32, ImmutAnyOrigin],
-    leaf_parent: Span[mut=False, UInt32, ImmutAnyOrigin],
-    node_bounds: Span[mut=True, Float32, MutAnyOrigin],
-    node_flags: Span[mut=True, UInt32, MutAnyOrigin],
+    leaf_bounds: ImmSpan[Float32, ImmutAnyOrigin],
+    leaf_ids: ImmSpan[UInt32, ImmutAnyOrigin],
+    node_meta: ImmSpan[UInt32, ImmutAnyOrigin],
+    leaf_parent: ImmSpan[UInt32, ImmutAnyOrigin],
+    node_bounds: MutSpan[Float32, MutAnyOrigin],
+    node_flags: MutSpan[UInt32, MutAnyOrigin],
 ):
     var leaf_count = len(leaf_ids)
     var leaf_idx = global_idx.x
@@ -102,7 +102,7 @@ def refit_lbvh_bounds_from_leaves_kernel(
 
 
 def _lbvh_find_range(
-    morton_codes: Span[mut=False, UInt32, _],
+    morton_codes: ImmSpan[UInt32, _],
     i: Int,
 ) -> Tuple[Int, Int]:
     var d_next = _common_prefix(morton_codes, i, i + 1)
@@ -132,7 +132,7 @@ def _lbvh_find_range(
 
 
 def _lbvh_find_split(
-    morton_codes: Span[mut=False, UInt32, _],
+    morton_codes: ImmSpan[UInt32, _],
     first: Int,
     last: Int,
 ) -> Int:
@@ -159,7 +159,7 @@ def _lbvh_find_split(
 
 
 def _common_prefix(
-    morton_codes: Span[mut=False, UInt32, _],
+    morton_codes: ImmSpan[UInt32, _],
     i: Int,
     j: Int,
 ) -> Int:
@@ -173,12 +173,12 @@ def _common_prefix(
 
 
 def build_lbvh_topology_kernel(
-    sorted_morton_codes: Span[mut=False, UInt32, ImmutAnyOrigin],
-    node_meta: Span[mut=True, UInt32, MutAnyOrigin],
-    leaf_parent: Span[mut=True, UInt32, MutAnyOrigin],
-    node_bounds: Span[mut=True, Float32, MutAnyOrigin],
-    node_flags: Span[mut=True, UInt32, MutAnyOrigin],
-    node_leaf_counts: Span[mut=True, UInt32, MutAnyOrigin],
+    sorted_morton_codes: ImmSpan[UInt32, ImmutAnyOrigin],
+    node_meta: MutSpan[UInt32, MutAnyOrigin],
+    leaf_parent: MutSpan[UInt32, MutAnyOrigin],
+    node_bounds: MutSpan[Float32, MutAnyOrigin],
+    node_flags: MutSpan[UInt32, MutAnyOrigin],
+    node_leaf_counts: MutSpan[UInt32, MutAnyOrigin],
     input_leaf_count: Int32,
 ):
     var leaf_count = Int(input_leaf_count)

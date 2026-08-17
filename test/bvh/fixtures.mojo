@@ -292,7 +292,7 @@ def _trace_cpu_sphere_camera(
 
 def _trace_cpu_spheres_bruteforce[
     frame: Frame
-](spheres: List[Sphere[frame]], rays: List[Rayf32[frame]],) -> Float64:
+](spheres: List[Sphere[frame]], rays: List[Rayf32[frame]]) -> Float64:
     var checksum = Float64(0.0)
 
     for ray in rays:

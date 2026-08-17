@@ -24,14 +24,14 @@ def _hploc_meta_base(node_idx: UInt32) -> Int:
 
 @always_inline
 def _hploc_load_bounds(
-    node_bounds: Span[mut=False, Float32, _], node_idx: UInt32
+    node_bounds: ImmSpan[Float32, _], node_idx: UInt32
 ) -> AABB[Frame.WORLD]:
     return AABB[Frame.WORLD].load6(node_bounds, Int(node_idx) * AABB.STRIDE)
 
 
 @always_inline
 def _hploc_store_bounds(
-    node_bounds: Span[mut=True, Float32, _],
+    node_bounds: MutSpan[Float32, _],
     node_idx: UInt32,
     bounds: AABB[Frame.WORLD],
 ):

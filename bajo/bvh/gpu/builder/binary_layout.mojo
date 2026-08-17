@@ -34,9 +34,7 @@ def _node_right_index(node_idx: UInt32) -> Int:
     return _node_meta_base(node_idx) + BinaryBvhNode.RIGHT
 
 
-def _node_left(
-    node_meta: Span[mut=False, UInt32, _], node_idx: UInt32
-) -> UInt32:
+def _node_left(node_meta: ImmSpan[UInt32, _], node_idx: UInt32) -> UInt32:
     var base = _node_meta_base(node_idx)
     debug_assert["safe", _use_compiler_assume=True](
         base >= 0 and base <= len(node_meta) - BinaryBvhNode.META_STRIDE,
@@ -45,9 +43,7 @@ def _node_left(
     return node_meta.unsafe_get(base + BinaryBvhNode.LEFT)
 
 
-def _node_right(
-    node_meta: Span[mut=False, UInt32, _], node_idx: UInt32
-) -> UInt32:
+def _node_right(node_meta: ImmSpan[UInt32, _], node_idx: UInt32) -> UInt32:
     var base = _node_meta_base(node_idx)
     debug_assert["safe", _use_compiler_assume=True](
         base >= 0 and base <= len(node_meta) - BinaryBvhNode.META_STRIDE,
@@ -58,23 +54,19 @@ def _node_right(
 
 # Raw-pointer overloads remain for GPU kernels that have not yet crossed a
 # length-carrying ABI boundary. They are removed as those kernels migrate.
-def _node_left(
-    node_meta: Pointer[mut=False, UInt32, _], node_idx: UInt32
-) -> UInt32:
+def _node_left(node_meta: ImmPointer[UInt32, _], node_idx: UInt32) -> UInt32:
     return node_meta[unsafe_offset=_node_left_index(node_idx)]
 
 
-def _node_right(
-    node_meta: Pointer[mut=False, UInt32, _], node_idx: UInt32
-) -> UInt32:
+def _node_right(node_meta: ImmPointer[UInt32, _], node_idx: UInt32) -> UInt32:
     return node_meta[unsafe_offset=_node_right_index(node_idx)]
 
 
 def _encoded_bounds(
     encoded: UInt32,
-    leaf_bounds: Span[mut=False, Float32, _],
-    leaf_ids: Span[mut=False, UInt32, _],
-    node_bounds: Span[mut=False, Float32, _],
+    leaf_bounds: ImmSpan[Float32, _],
+    leaf_ids: ImmSpan[UInt32, _],
+    node_bounds: ImmSpan[Float32, _],
 ) -> AABB[Frame.WORLD]:
     """Load bounds for either encoded leaf or internal binary topology."""
     if is_leaf_ref(encoded):
@@ -89,7 +81,7 @@ def _encoded_bounds(
 
 
 def _write_child_bounds(
-    node_bounds: Span[mut=True, Float32, _],
+    node_bounds: MutSpan[Float32, _],
     parent: UInt32,
     write_left: Bool,
     bounds: AABB,
@@ -101,7 +93,7 @@ def _write_child_bounds(
 
 
 def _load_and_union_node_bounds(
-    node_bounds: Span[mut=False, Float32, _], parent: UInt32
+    node_bounds: ImmSpan[Float32, _], parent: UInt32
 ) -> AABB[Frame.WORLD]:
     var b = _node_bounds_base(parent)
     var b1 = AABB[Frame.WORLD].load6(node_bounds, b)
@@ -109,7 +101,7 @@ def _load_and_union_node_bounds(
     return AABB.merge(b1, b2)
 
 
-def init_empty_bounds_kernel(bounds: Span[mut=True, Float32, MutAnyOrigin]):
+def init_empty_bounds_kernel(bounds: MutSpan[Float32, MutAnyOrigin]):
     var node_count = len(bounds) / BinaryBvhNode.BOUNDS_STRIDE
     var i = global_idx.x
     if i >= node_count:
@@ -122,8 +114,8 @@ def init_empty_bounds_kernel(bounds: Span[mut=True, Float32, MutAnyOrigin]):
 
 
 def compute_bounds_partials_kernel(
-    leaf_bounds: Span[mut=False, Float32, ImmutAnyOrigin],
-    out_partials: Span[mut=True, Float32, MutAnyOrigin],
+    leaf_bounds: ImmSpan[Float32, ImmutAnyOrigin],
+    out_partials: MutSpan[Float32, MutAnyOrigin],
 ):
     var leaf_count = len(leaf_bounds) / AABB.STRIDE
     var chunk = global_idx.x
@@ -148,8 +140,8 @@ def compute_bounds_partials_kernel(
 
 
 def reduce_bounds_partials_kernel(
-    in_partials: Span[mut=False, Float32, ImmutAnyOrigin],
-    out_partials: Span[mut=True, Float32, MutAnyOrigin],
+    in_partials: ImmSpan[Float32, ImmutAnyOrigin],
+    out_partials: MutSpan[Float32, MutAnyOrigin],
     partial_count: Int32,
 ):
     var partial_count_int = Int(partial_count)

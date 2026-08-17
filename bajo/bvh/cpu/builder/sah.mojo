@@ -57,8 +57,8 @@ def _find_sah_split[
 ](
     node: BoundsBvhNode,
     centroid_bounds: AABB[frame],
-    indices: Span[mut=False, UInt32, _],
-    items: Span[mut=False, BoundsItem[frame], _],
+    indices: ImmSpan[UInt32, _],
+    items: ImmSpan[BoundsItem[frame], _],
 ) -> BoundsSplitResult[frame]:
     var best = BoundsSplitResult[frame]()
     var first = Int(node.first_item())
@@ -173,8 +173,8 @@ def _grow_partition_side[
 def _partition_items_by_bin[
     frame: Frame, BVH_BINS: Int
 ](
-    indices: Span[mut=True, UInt32, _],
-    items: Span[mut=False, BoundsItem[frame], _],
+    indices: MutSpan[UInt32, _],
+    items: ImmSpan[BoundsItem[frame], _],
     first: Int,
     count: Int,
     axis: Int,
@@ -238,8 +238,8 @@ def _partition_items_by_bin[
 def _calculate_partition_bounds[
     frame: Frame
 ](
-    indices: Span[mut=False, UInt32, _],
-    items: Span[mut=False, BoundsItem[frame], _],
+    indices: ImmSpan[UInt32, _],
+    items: ImmSpan[BoundsItem[frame], _],
     first: Int,
     count: Int,
     split_idx: Int,

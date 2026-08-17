@@ -19,7 +19,7 @@ from bajo.core import Frame, Point3, Rayf32, Vec3
 
 
 comptime GpuLeafFn[frame: Frame] = def(
-    Pointer[mut=False, Float32, _],
+    ImmPointer[Float32, _],
     UInt32,
     UInt32,
     Rayf32[frame],
@@ -114,7 +114,7 @@ def _intersect_trace_node_precomputed[
     frame: Frame,
     width: SIMDLength,
 ](
-    wide_nodes: Pointer[mut=False, Float32, _],
+    wide_nodes: ImmPointer[Float32, _],
     node_idx: UInt32,
     bounds_origin: Point3[DType.float32, frame, width],
     rcp_direction: Vec3[DType.float32, frame, width],
@@ -133,7 +133,7 @@ def _intersect_trace_node_precomputed_octant[
     positive_y: Bool,
     positive_z: Bool,
 ](
-    wide_nodes: Pointer[mut=False, Float32, _],
+    wide_nodes: ImmPointer[Float32, _],
     node_idx: UInt32,
     origin_rcp_direction: Vec3[DType.float32, frame, width],
     rcp_direction: Vec3[DType.float32, frame, width],
@@ -151,8 +151,8 @@ def _trace_bounds_bvh_distance_aware[
     leaf_fn: GpuLeafFn[frame],
     collect_stats: Bool,
 ](
-    wide_nodes: Pointer[mut=False, Float32, _],
-    leaves: Pointer[mut=False, Float32, _],
+    wide_nodes: ImmPointer[Float32, _],
+    leaves: ImmPointer[Float32, _],
     root_idx: UInt32,
     ray: Rayf32[frame],
 ) -> GpuTraceResult[frame]:
@@ -264,8 +264,8 @@ def _trace_bounds_bvh_unified_closest_impl[
     positive_y: Bool,
     positive_z: Bool,
 ](
-    wide_nodes: Pointer[mut=False, Float32, _],
-    leaves: Pointer[mut=False, Float32, _],
+    wide_nodes: ImmPointer[Float32, _],
+    leaves: ImmPointer[Float32, _],
     root_idx: UInt32,
     ray: Rayf32[frame],
 ) -> Hit[frame]:
@@ -386,8 +386,8 @@ def trace_bounds_bvh_unified_closest[
     width: SIMDLength,
     leaf_fn: GpuLeafFn[frame],
 ](
-    wide_nodes: Pointer[mut=False, Float32, _],
-    leaves: Pointer[mut=False, Float32, _],
+    wide_nodes: ImmPointer[Float32, _],
+    leaves: ImmPointer[Float32, _],
     root_idx: UInt32,
     ray: Rayf32[frame],
 ) -> Hit[frame]:
@@ -439,8 +439,8 @@ def _trace_bounds_bvh_with_counters[
     lifo: Bool = True,
     distance_aware: Bool = False,
 ](
-    wide_nodes: Pointer[mut=False, Float32, _],
-    leaves: Pointer[mut=False, Float32, _],
+    wide_nodes: ImmPointer[Float32, _],
+    leaves: ImmPointer[Float32, _],
     root_idx: UInt32,
     ray: Rayf32[frame],
 ) -> GpuTraceResult[frame]:
@@ -598,7 +598,7 @@ def _trace_bounds_bvh_state_bvh2[
     LeafState: AnyType,
     leaf_fn: GpuLeafStateFn[frame, LeafState],
 ](
-    wide_nodes: Pointer[mut=False, Float32, _],
+    wide_nodes: ImmPointer[Float32, _],
     leaf_state: LeafState,
     root_idx: UInt32,
     ray: Rayf32[frame],
@@ -691,7 +691,7 @@ def trace_bounds_bvh_state[
     leaf_fn: GpuLeafStateFn[frame, LeafState],
     compact_bvh2: Bool = False,
 ](
-    wide_nodes: Pointer[mut=False, Float32, _],
+    wide_nodes: ImmPointer[Float32, _],
     leaf_state: LeafState,
     root_idx: UInt32,
     ray: Rayf32[frame],
@@ -816,8 +816,8 @@ def trace_bounds_bvh[
     distance_aware: Bool = False,
     compact_bvh2: Bool = False,
 ](
-    wide_nodes: Pointer[mut=False, Float32, _],
-    leaves: Pointer[mut=False, Float32, _],
+    wide_nodes: ImmPointer[Float32, _],
+    leaves: ImmPointer[Float32, _],
     root_idx: UInt32,
     ray: Rayf32[frame],
 ) -> Hit[frame]:
@@ -850,8 +850,8 @@ def trace_bounds_bvh_with_stats[
     lifo: Bool = True,
     distance_aware: Bool = False,
 ](
-    wide_nodes: Pointer[mut=False, Float32, _],
-    leaves: Pointer[mut=False, Float32, _],
+    wide_nodes: ImmPointer[Float32, _],
+    leaves: ImmPointer[Float32, _],
     root_idx: UInt32,
     ray: Rayf32[frame],
 ) -> GpuTraceResult[frame]:

@@ -32,7 +32,7 @@ struct Ray[dtype: DType, frame: Frame, length: SIMDLength = 1](
 
     def __init__(
         out self,
-        rays: Span[mut=False, Scalar[Self.dtype], _],
+        rays: ImmSpan[Scalar[Self.dtype], _],
         ray_idx: Int,
     ):
         comptime assert Self.length == 1

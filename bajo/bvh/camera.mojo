@@ -36,7 +36,7 @@ struct Camera(TrivialRegisterPassable, Writable):
     var defocus_disk_u: Vec3f32[Frame.WORLD]
     var defocus_disk_v: Vec3f32[Frame.WORLD]
 
-    def __init__(out self, data: Span[mut=False, Float32, _], base: Int = 0):
+    def __init__(out self, data: ImmSpan[Float32, _], base: Int = 0):
         debug_assert["safe", _use_compiler_assume=True](
             base >= 0 and base <= len(data) - Self.STRIDE,
             "Camera load is outside the input span",

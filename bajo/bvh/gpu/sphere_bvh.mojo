@@ -323,7 +323,7 @@ def _intersect_sphere_leaf[
     width: SIMDLength,
     mode: TRACE,
 ](
-    leaf_spheres: Pointer[mut=False, Float32, _],
+    leaf_spheres: ImmPointer[Float32, _],
     leaf_block_idx: UInt32,
     item_count: UInt32,
     ray: Rayf32[frame],
@@ -378,9 +378,9 @@ def _intersect_sphere_leaf[
 def pack_sphere_leaf_lanes_kernel[
     width: SIMDLength,
 ](
-    spheres: Span[mut=False, Float32, ImmutAnyOrigin],
-    leaf_block_indices: Span[mut=False, UInt32, ImmutAnyOrigin],
-    leaf_spheres: Span[mut=True, Float32, MutAnyOrigin],
+    spheres: ImmSpan[Float32, ImmutAnyOrigin],
+    leaf_block_indices: ImmSpan[UInt32, ImmutAnyOrigin],
+    leaf_spheres: MutSpan[Float32, MutAnyOrigin],
 ):
     var leaf_lane_count = len(leaf_spheres) / SPHERE_LEAF_PACKED_STRIDE
     var lane_idx = global_idx.x

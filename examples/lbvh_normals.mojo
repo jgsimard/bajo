@@ -203,7 +203,7 @@ def write_ppm_normals_from_hits(
     height: Int,
     tri_vertex_sets: List[List[Point3f32[Frame.LOCAL]]],
     instances: List[Instance],
-    hits: Span[mut=False, Float32, _],
+    hits: ImmSpan[Float32, _],
 ) raises:
     var pixel_count = width * height
     var byte_count = pixel_count * 3

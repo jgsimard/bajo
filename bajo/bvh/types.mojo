@@ -65,7 +65,7 @@ struct Hit[frame: Frame = Frame.WORLD, length: SIMDLength = 1](
     def is_occluded(self) -> SIMD[DType.bool, Self.length]:
         return self.prim.eq(EMPTY_LANE) & self.t.eq(0.0)
 
-    def store(self, hits: Span[mut=True, Float32, _], idx: Int):
+    def store(self, hits: MutSpan[Float32, _], idx: Int):
         comptime assert Self.length == 1
         debug_assert["safe", _use_compiler_assume=True](
             idx >= 0 and idx < len(hits) / Self.STRIDE,
@@ -73,7 +73,7 @@ struct Hit[frame: Frame = Frame.WORLD, length: SIMDLength = 1](
         )
         self._store_unchecked(hits, idx)
 
-    def _store_unchecked(self, hits: Span[mut=True, Float32, _], idx: Int):
+    def _store_unchecked(self, hits: MutSpan[Float32, _], idx: Int):
         """Store after the caller has validated the complete Hit block."""
         comptime assert Self.length == 1
         var base = idx * Hit.STRIDE
@@ -91,7 +91,7 @@ struct Hit[frame: Frame = Frame.WORLD, length: SIMDLength = 1](
         hits_u32[unsafe_offset=base + Hit.INST] = self.inst[0]
 
     @staticmethod
-    def load(hits: Span[mut=False, Float32, _], idx: Int) -> Self:
+    def load(hits: ImmSpan[Float32, _], idx: Int) -> Self:
         comptime assert Self.length == 1
         debug_assert["safe", _use_compiler_assume=True](
             idx >= 0 and idx < len(hits) / Self.STRIDE,

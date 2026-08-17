@@ -103,8 +103,8 @@ struct GpuTlasStatsSummary(Copyable, Writable):
 
 @always_inline
 def _trace_cwbvh8_with_stats(
-    nodes: Pointer[mut=False, Float32, _],
-    triangles: Pointer[mut=False, Float32, _],
+    nodes: ImmPointer[Float32, _],
+    triangles: ImmPointer[Float32, _],
     root_idx: UInt32,
     ray: Rayf32[Frame.LOCAL],
 ) -> GpuTraceResult[Frame.LOCAL]:
@@ -192,13 +192,13 @@ def _trace_cwbvh8_with_stats(
 
 @always_inline
 def _trace_tlas2_leaf1_cwbvh8_with_stats(
-    tlas_nodes: Pointer[mut=False, Float32, _],
-    tlas_leaf_instances: Pointer[mut=False, UInt32, _],
-    inst_inv_transform: Pointer[mut=False, Float32, _],
-    inst_blas_indices: Pointer[mut=False, UInt32, _],
-    blas_descs: Pointer[mut=False, UInt32, _],
-    blas_nodes: Pointer[mut=False, Float32, _],
-    blas_leaves: Pointer[mut=False, Float32, _],
+    tlas_nodes: ImmPointer[Float32, _],
+    tlas_leaf_instances: ImmPointer[UInt32, _],
+    inst_inv_transform: ImmPointer[Float32, _],
+    inst_blas_indices: ImmPointer[UInt32, _],
+    blas_descs: ImmPointer[UInt32, _],
+    blas_nodes: ImmPointer[Float32, _],
+    blas_leaves: ImmPointer[Float32, _],
     instance_count: Int,
     tlas_root: UInt32,
     ray: Rayf32[Frame.WORLD],

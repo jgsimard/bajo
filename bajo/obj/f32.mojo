@@ -11,9 +11,7 @@ struct F32ParseResult(TrivialRegisterPassable):
 
 
 @always_inline
-def parse_f32_at(
-    bytes: Span[mut=False, UInt8, _], pos: Int
-) raises -> F32ParseResult:
+def parse_f32_at(bytes: ImmSpan[UInt8, _], pos: Int) raises -> F32ParseResult:
     debug_assert["safe", _use_compiler_assume=True](
         pos >= 0 and pos <= len(bytes),
         "float parse position is outside the input bytes",

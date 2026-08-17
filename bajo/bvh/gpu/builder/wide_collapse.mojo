@@ -56,7 +56,7 @@ def _hploc_wide_pair_out_idx(pair: UInt64) -> UInt32:
 @always_inline
 def _hploc_encoded_leaf_count(
     encoded: UInt32,
-    node_leaf_counts: Pointer[mut=False, UInt32, _],
+    node_leaf_counts: ImmPointer[UInt32, _],
 ) -> UInt32:
     if is_leaf_ref(encoded):
         return UInt32(1)
@@ -67,9 +67,9 @@ def _write_hploc_terminal_leaf_block[
     leaf_width: SIMDLength,
 ](
     encoded: UInt32,
-    leaf_payloads: Pointer[mut=False, UInt32, _],
-    leaf_ids: Pointer[mut=False, UInt32, _],
-    node_meta: Pointer[mut=False, UInt32, _],
+    leaf_payloads: ImmPointer[UInt32, _],
+    leaf_ids: ImmPointer[UInt32, _],
+    node_meta: ImmPointer[UInt32, _],
     leaf_block_indices: Pointer[mut=True, UInt32, _],
     leaf_block_idx: UInt32,
 ):

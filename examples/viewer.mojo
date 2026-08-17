@@ -62,14 +62,17 @@ def _viewer_bvh_stats[
     if BACKEND == 0:
         result = "CPU W" + String(Int(world_bvh_width))
         result += "/I" + String(Int(instance_bvh_width)) + " | "
-        if len(world.spheres) > 0:
+        if len(world.scene.spheres) > 0:
             result += "sphere" + String(Int(world_bvh_width)) + "/SAH"
-        if len(world.triangle_vertices) > 0:
-            if len(world.spheres) > 0:
+        if len(world.scene.triangle_vertices) > 0:
+            if len(world.scene.spheres) > 0:
                 result += " "
             result += "tri" + String(Int(world_bvh_width)) + "/SAH"
-        if len(world.triangle_instances) > 0:
-            if len(world.spheres) > 0 or len(world.triangle_vertices) > 0:
+        if len(world.scene.triangle_instances) > 0:
+            if (
+                len(world.scene.spheres) > 0
+                or len(world.scene.triangle_vertices) > 0
+            ):
                 result += " "
             result += (
                 "BLAS"
@@ -81,31 +84,34 @@ def _viewer_bvh_stats[
     else:
         result = "GPU host W" + String(Int(world_bvh_width))
         result += "/I" + String(Int(instance_bvh_width)) + " | "
-        if len(world.spheres) > 0:
+        if len(world.scene.spheres) > 0:
             result += "sphere4/4 LBVH"
-        if len(world.triangle_vertices) > 0:
-            if len(world.spheres) > 0:
+        if len(world.scene.triangle_vertices) > 0:
+            if len(world.scene.spheres) > 0:
                 result += " "
-            if len(world.triangle_vertices) / 3 >= 32:
+            if len(world.scene.triangle_vertices) / 3 >= 32:
                 result += "tri8/4 H-PLOC CWBVH8"
             else:
                 result += "tri4/4 LBVH"
-        if len(world.triangle_instances) > 0:
-            if len(world.spheres) > 0 or len(world.triangle_vertices) > 0:
+        if len(world.scene.triangle_instances) > 0:
+            if (
+                len(world.scene.spheres) > 0
+                or len(world.scene.triangle_vertices) > 0
+            ):
                 result += " "
             var weighted_triangles = 0
-            for instance in world.triangle_instances:
+            for instance in world.scene.triangle_instances:
                 weighted_triangles += (
-                    len(world.triangle_meshes[Int(instance.blas_idx)]) / 3
+                    len(world.scene.triangle_meshes[Int(instance.blas_idx)]) / 3
                 )
-            if weighted_triangles >= len(world.triangle_instances) * 32:
+            if weighted_triangles >= len(world.scene.triangle_instances) * 32:
                 result += "BLAS8/4 H-PLOC CWBVH8"
             else:
                 result += "BLAS4/4 LBVH"
             result += " TLAS2/1 LBVH"
-    result += " | S" + String(len(world.spheres))
-    result += " T" + String(len(world.triangle_vertices) / 3)
-    result += " I" + String(len(world.triangle_instances))
+    result += " | S" + String(len(world.scene.spheres))
+    result += " T" + String(len(world.scene.triangle_vertices) / 3)
+    result += " I" + String(len(world.scene.triangle_instances))
     return result
 
 
@@ -163,7 +169,7 @@ def _render_frame[
             write_ppm_from_colors(output, width, height, result.pixels)
     elif BACKEND == 1:
         comptime if has_accelerator():
-            var result = render_gpu[ALGORITHM](settings, camera, world)
+            var result = render_gpu[ALGORITHM](settings, camera, world.scene)
             t1 = perf_counter_ns()
             write_ppm_from_colors(output, width, height, result.pixels)
         else:

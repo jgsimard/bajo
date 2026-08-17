@@ -315,10 +315,10 @@ def test_world_hit_maps_material_and_normal() raises:
         triangle_instance_surfaces^,
         surfaces^,
     )
-    assert_equal(len(world.lights.records), 1)
-    assert_equal(world.lights.records[0].primitive.kind(), PRIM.SPHERE)
-    assert_equal(world.lights.records[0].surface.value, light.value)
-    assert_true(world.lights.total_weight > 0.0)
+    assert_equal(len(world.scene.lights.records), 1)
+    assert_equal(world.scene.lights.records[0].primitive.kind(), PRIM.SPHERE)
+    assert_equal(world.scene.lights.records[0].surface.value, light.value)
+    assert_true(world.scene.lights.total_weight > 0.0)
 
     var hit = (
         world.trace(
@@ -1094,9 +1094,9 @@ def test_direct_light_algorithms_render_cornell() raises:
         4.2,
     )
     var result = render_wavefront[RENDER.NEE](settings, camera, world)
-    assert_true(len(world.lights.records) > 0)
-    assert_true(world.lights.total_weight > 0.0)
-    for light in world.lights.records:
+    assert_true(len(world.scene.lights.records) > 0)
+    assert_true(world.scene.lights.total_weight > 0.0)
+    for light in world.scene.lights.records:
         assert_equal(light.surface.kind(), MAT.EMISSIVE)
         assert_true(light.weight > 0.0)
     var depth_first = render_depth_first[RENDER.NEE](settings, camera, world)

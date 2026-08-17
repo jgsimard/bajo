@@ -139,10 +139,10 @@ def main() raises:
         0.6,
     )
 
-    print(t"spheres: {len(world.spheres)}")
+    print(t"spheres: {len(world.scene.spheres)}")
     print(
         t"surfaces:"
-        t" {len(world.surfaces.lambertians) + len(world.surfaces.metals) + len(world.surfaces.dielectrics)}"
+        t" {len(world.scene.surfaces.lambertians) + len(world.scene.surfaces.metals) + len(world.scene.surfaces.dielectrics)}"
     )
 
     var t0 = perf_counter_ns()

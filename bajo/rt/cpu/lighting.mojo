@@ -25,7 +25,7 @@ from bajo.rt.types import (
     SurfaceId,
     SurfaceHit,
     SurfaceStore,
-    World,
+    CpuScene,
     _light_importance,
 )
 from .bsdf import evaluate_bsdf
@@ -74,7 +74,7 @@ def _emissive_hit_weight[
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
 ](
-    world: World[world_bvh_width, instance_bvh_width],
+    world: CpuScene[world_bvh_width, instance_bvh_width],
     ray: Rayf32[Frame.WORLD],
     hit: SurfaceHit[1],
     bounce: Int,
@@ -98,21 +98,23 @@ def light_pdf_for_emissive_hit[
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
 ](
-    world: World[world_bvh_width, instance_bvh_width],
+    world: CpuScene[world_bvh_width, instance_bvh_width],
     ray: Rayf32[Frame.WORLD],
     hit: SurfaceHit[1],
 ) -> Float32:
     """Evaluate the triangle-light distribution in solid-angle measure."""
     if hit.surface.kind() != MAT.EMISSIVE or not hit.front_face:
         return 0.0
-    var total_weight = world.lights.total_weight
+    var total_weight = world.scene.lights.total_weight
     if total_weight <= 0.0:
         return 0.0
     var light_cosine = max(dot(hit.normal, -normalize(ray.d)), 0.0)
     if light_cosine <= 0.0:
         return 0.0
     var distance_squared = hit.t * hit.t * length2(ray.d)
-    var radiance = world.surfaces.emissives[Int(hit.surface.index())].radiance
+    var radiance = world.scene.surfaces.emissives[
+        Int(hit.surface.index())
+    ].radiance
     return (
         distance_squared
         * _light_importance(radiance)
@@ -124,7 +126,7 @@ def _sample_direct_light_candidate[
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
 ](
-    world: World[world_bvh_width, instance_bvh_width],
+    world: CpuScene[world_bvh_width, instance_bvh_width],
     point: ShadingPoint[1],
     mut rng: Rng,
 ) -> _DirectLightSample[1]:
@@ -134,32 +136,32 @@ def _sample_direct_light_candidate[
     geometric/visibility work separate lets the packet renderer evaluate BSDFs
     and MIS weights with SIMD math after collecting a batch of candidates.
     """
-    var total_weight = world.lights.total_weight
+    var total_weight = world.scene.lights.total_weight
     if total_weight <= 0.0:
         return _empty_direct_light_sample[1]()
 
-    var light_count = len(world.lights.records)
+    var light_count = len(world.scene.lights.records)
     var alias_sample = rng.f32() * Float32(light_count)
     var selected_idx = Int(alias_sample)
     var alias_fraction = alias_sample - Float32(selected_idx)
-    if alias_fraction > world.lights.alias_probabilities[selected_idx]:
-        selected_idx = Int(world.lights.alias_indices[selected_idx])
+    if alias_fraction > world.scene.lights.alias_probabilities[selected_idx]:
+        selected_idx = Int(world.scene.lights.alias_indices[selected_idx])
     var light_point = Point3f32[Frame.WORLD](0.0)
     var light_normal = Vec3f32[Frame.WORLD](0.0, 1.0, 0.0)
     var emission = Color(0.0)
     var found = False
     for light_idx in range(light_count):
         if light_idx == selected_idx:
-            ref light = world.lights.records[light_idx]
+            ref light = world.scene.lights.records[light_idx]
             var primitive_kind = light.primitive.kind()
             var idx = Int(light.primitive.index())
-            emission = world.surfaces.emissives[
+            emission = world.scene.surfaces.emissives[
                 Int(light.surface.index())
             ].radiance
             if primitive_kind == PRIM.TRIANGLE:
-                ref v0 = world.triangle_vertices[3 * idx + 0]
-                ref v1 = world.triangle_vertices[3 * idx + 1]
-                ref v2 = world.triangle_vertices[3 * idx + 2]
+                ref v0 = world.scene.triangle_vertices[3 * idx + 0]
+                ref v1 = world.scene.triangle_vertices[3 * idx + 1]
+                ref v2 = world.scene.triangle_vertices[3 * idx + 2]
                 var edge1 = v1 - v0
                 var edge2 = v2 - v0
                 var area_vector = cross(edge1, edge2)
@@ -174,9 +176,11 @@ def _sample_direct_light_candidate[
                 light_point = v0 + barycentric1 * edge1 + barycentric2 * edge2
                 found = True
             elif primitive_kind == PRIM.SPHERE:
-                var radius = sphere_unsigned_radius(world.spheres[idx])
+                var radius = sphere_unsigned_radius(world.scene.spheres[idx])
                 light_normal = random_unit_vector[Frame.WORLD](rng)
-                light_point = world.spheres[idx].center + radius * light_normal
+                light_point = (
+                    world.scene.spheres[idx].center + radius * light_normal
+                )
                 found = True
             break
 
@@ -215,7 +219,7 @@ def _sample_direct_light[
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
 ](
-    world: World[world_bvh_width, instance_bvh_width],
+    world: CpuScene[world_bvh_width, instance_bvh_width],
     point: ShadingPoint[1],
     mut rng: Rng,
 ) -> _DirectLightSample[1]:
@@ -237,7 +241,7 @@ def sample_direct_lighting[
     instance_bvh_width: SIMDLength,
 ](
     surface: SurfaceId[1],
-    world: World[world_bvh_width, instance_bvh_width],
+    world: CpuScene[world_bvh_width, instance_bvh_width],
     incoming_ray: Rayf32[Frame.WORLD],
     point: ShadingPoint[1],
     mut rng: Rng,
@@ -248,7 +252,7 @@ def sample_direct_lighting[
     if not light.valid:
         return Color(0.0)
     var evaluation = evaluate_bsdf(
-        surface, world.surfaces, incoming_ray, point, light.direction
+        surface, world.scene.surfaces, incoming_ray, point, light.direction
     )
     var scale = _direct_light_scale[ALGORITHM, 1](
         light.surface_cosine,

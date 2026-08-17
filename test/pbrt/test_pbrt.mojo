@@ -16,13 +16,13 @@ def test_parse_checked_in_scene_with_include() raises:
     assert_true(scene.settings.samples_per_pixel == 64)
     assert_true(scene.max_depth == 10)
     assert_true(scene.integrator == "path")
-    assert_true(len(scene.world.spheres) == 3)
-    assert_true(len(scene.world.triangle_vertices) / 3 == 10)
-    assert_true(len(scene.world.lights.records) == 2)
-    assert_true(len(scene.world.surfaces.lambertians) == 4)
-    assert_true(len(scene.world.surfaces.metals) == 1)
-    assert_true(len(scene.world.surfaces.dielectrics) == 1)
-    assert_true(len(scene.world.surfaces.emissives) == 1)
+    assert_true(len(scene.world.scene.spheres) == 3)
+    assert_true(len(scene.world.scene.triangle_vertices) / 3 == 10)
+    assert_true(len(scene.world.scene.lights.records) == 2)
+    assert_true(len(scene.world.scene.surfaces.lambertians) == 4)
+    assert_true(len(scene.world.scene.surfaces.metals) == 1)
+    assert_true(len(scene.world.scene.surfaces.dielectrics) == 1)
+    assert_true(len(scene.world.scene.surfaces.emissives) == 1)
 
 
 def test_transform_and_named_material() raises:
@@ -43,12 +43,12 @@ WorldEnd
     var scene = parse_pbrt(source)
     assert_true(scene.settings.image_width == 4)
     assert_true(scene.settings.image_height == 3)
-    assert_true(len(scene.world.spheres) == 1)
-    assert_almost_equal(scene.world.spheres[0].center.x, 1.0)
-    assert_almost_equal(scene.world.spheres[0].center.y, 2.0)
-    assert_almost_equal(scene.world.spheres[0].center.z, 3.0)
-    assert_almost_equal(scene.world.spheres[0].radius, 1.0)
-    assert_true(scene.world.sphere_surfaces[0].kind() == MAT.LAMBERTIAN)
+    assert_true(len(scene.world.scene.spheres) == 1)
+    assert_almost_equal(scene.world.scene.spheres[0].center.x, 1.0)
+    assert_almost_equal(scene.world.scene.spheres[0].center.y, 2.0)
+    assert_almost_equal(scene.world.scene.spheres[0].center.z, 3.0)
+    assert_almost_equal(scene.world.scene.spheres[0].radius, 1.0)
+    assert_true(scene.world.scene.sphere_surfaces[0].kind() == MAT.LAMBERTIAN)
 
 
 def test_coateddiffuse_uses_diffuse_substrate() raises:
@@ -57,9 +57,11 @@ Material "coateddiffuse" "rgb reflectance" [0.4 0.2 0.1] "float roughness" [0.02
 Shape "sphere"
 """
     var scene = parse_pbrt(source)
-    var surface = scene.world.sphere_surfaces[0].copy()
+    var surface = scene.world.scene.sphere_surfaces[0].copy()
     assert_true(surface.kind() == MAT.LAMBERTIAN)
-    var albedo = scene.world.surfaces.lambertians[Int(surface.index())].albedo
+    var albedo = scene.world.scene.surfaces.lambertians[
+        Int(surface.index())
+    ].albedo
     assert_almost_equal(albedo.x, 0.4)
     assert_almost_equal(albedo.y, 0.2)
     assert_almost_equal(albedo.z, 0.1)
@@ -72,8 +74,8 @@ Shape "loopsubdiv" "integer levels" [1]
     "integer indices" [0 1 2]
 """
     var scene = parse_pbrt(source)
-    assert_true(len(scene.world.triangle_vertices) == 3)
-    assert_true(len(scene.world.triangle_surfaces) == 1)
+    assert_true(len(scene.world.scene.triangle_vertices) == 3)
+    assert_true(len(scene.world.scene.triangle_surfaces) == 1)
 
 
 def test_memory_include_and_mis_render() raises:

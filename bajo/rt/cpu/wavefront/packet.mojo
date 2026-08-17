@@ -21,7 +21,7 @@ from bajo.rt.types import (
     RenderSettings,
     ShadingPoint,
     SurfaceStore,
-    World,
+    CpuScene,
 )
 from bajo.rt.wavefront_queue import (
     PacketPathQueue,
@@ -315,7 +315,7 @@ def _trace_path_packets[
     instance_bvh_width: SIMDLength,
 ](
     settings: RenderSettings,
-    world: World[world_bvh_width, instance_bvh_width],
+    world: CpuScene[world_bvh_width, instance_bvh_width],
     mut pixels: List[Color],
     mut active_paths: PacketPathQueue[length],
     mut next_paths: PacketPathQueue[length],
@@ -384,7 +384,9 @@ def _trace_path_packets[
                                 packet.tz[lane],
                             )
                             * emitted_radiance(
-                                hit.surface, world.surfaces, hit.front_face
+                                hit.surface,
+                                world.scene.surfaces,
+                                hit.front_face,
                             )
                             * emission_weight
                         )
@@ -469,7 +471,7 @@ def _trace_path_packets[
                     packet,
                     direct_lights,
                     lane_count,
-                    world.surfaces,
+                    world.scene.surfaces,
                     settings.samples_per_pixel,
                 )
             _accumulate_sky_packet[length](
@@ -483,21 +485,21 @@ def _trace_path_packets[
         _shade_material_packets[MAT.LAMBERTIAN, length](
             next_paths,
             lambertian_queue,
-            world.surfaces,
+            world.scene.surfaces,
             settings,
             UInt32(bounce + 1),
         )
         _shade_material_packets[MAT.METAL, length](
             next_paths,
             metal_queue,
-            world.surfaces,
+            world.scene.surfaces,
             settings,
             UInt32(bounce + 1),
         )
         _shade_material_packets[MAT.DIELECTRIC, length](
             next_paths,
             dielectric_queue,
-            world.surfaces,
+            world.scene.surfaces,
             settings,
             UInt32(bounce + 1),
         )

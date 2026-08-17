@@ -21,7 +21,14 @@ from bajo.rt.common import path_stage_rng, russian_roulette, sky_color
 from bajo.rt.geometry import sphere_unsigned_radius
 from bajo.rt.lighting import _direct_light_scale, power_heuristic
 from bajo.rt.shading import _evaluate_material, _sample_material
-from bajo.rt.types import Color, MAT, PRIM, RENDER, SURFACE_INDEX_MASK, World
+from bajo.rt.types import (
+    Color,
+    MAT,
+    PRIM,
+    RENDER,
+    SURFACE_INDEX_MASK,
+    SceneData,
+)
 from bajo.rt.wavefront_contract import (
     DeviceWavePath,
     DeviceWaveShade,
@@ -82,9 +89,7 @@ def _upload_nonempty_u32(
     return upload_list(ctx, values)
 
 
-def _flatten_lambertians[
-    world_bvh_width: SIMDLength, instance_bvh_width: SIMDLength
-](world: World[world_bvh_width, instance_bvh_width]) -> List[Float32]:
+def _flatten_lambertians(world: SceneData) -> List[Float32]:
     var out = List[Float32](capacity=len(world.surfaces.lambertians) * 3)
     for material in world.surfaces.lambertians:
         out.append(material.albedo.x)
@@ -93,9 +98,7 @@ def _flatten_lambertians[
     return out^
 
 
-def _flatten_metals[
-    world_bvh_width: SIMDLength, instance_bvh_width: SIMDLength
-](world: World[world_bvh_width, instance_bvh_width]) -> List[Float32]:
+def _flatten_metals(world: SceneData) -> List[Float32]:
     var out = List[Float32](capacity=len(world.surfaces.metals) * 4)
     for material in world.surfaces.metals:
         out.append(material.albedo.x)
@@ -105,18 +108,14 @@ def _flatten_metals[
     return out^
 
 
-def _flatten_dielectrics[
-    world_bvh_width: SIMDLength, instance_bvh_width: SIMDLength
-](world: World[world_bvh_width, instance_bvh_width]) -> List[Float32]:
+def _flatten_dielectrics(world: SceneData) -> List[Float32]:
     var out = List[Float32](capacity=len(world.surfaces.dielectrics))
     for material in world.surfaces.dielectrics:
         out.append(material.refraction_index)
     return out^
 
 
-def _flatten_emissives[
-    world_bvh_width: SIMDLength, instance_bvh_width: SIMDLength
-](world: World[world_bvh_width, instance_bvh_width]) -> List[Float32]:
+def _flatten_emissives(world: SceneData) -> List[Float32]:
     var out = List[Float32](capacity=len(world.surfaces.emissives) * 3)
     for material in world.surfaces.emissives:
         out.append(material.radiance.x)
@@ -134,13 +133,10 @@ struct GpuRtMaterials:
     var emissives: DeviceBuffer[DType.float32]
     var has_non_lambertian: Bool
 
-    def __init__[
-        world_bvh_width: SIMDLength,
-        instance_bvh_width: SIMDLength,
-    ](
+    def __init__(
         out self,
         mut ctx: DeviceContext,
-        world: World[world_bvh_width, instance_bvh_width],
+        world: SceneData,
     ) raises:
         self.lambertians = _upload_nonempty_f32(
             ctx, _flatten_lambertians(world)
@@ -164,13 +160,10 @@ struct GpuRtLights:
     var count: Int
     var total_weight: Float32
 
-    def __init__[
-        world_bvh_width: SIMDLength,
-        instance_bvh_width: SIMDLength,
-    ](
+    def __init__(
         out self,
         mut ctx: DeviceContext,
-        world: World[world_bvh_width, instance_bvh_width],
+        world: SceneData,
     ) raises:
         var kinds = List[UInt32](capacity=len(world.lights.records))
         var fields = List[Float32](

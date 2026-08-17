@@ -52,7 +52,7 @@ struct TlasRtLayoutResult:
 
 
 def _warm_world_build(mut ctx: DeviceContext, world: World[]) raises:
-    _ = GpuRtTriangleInstanceWorld[2, 4, 1, 4](ctx, world)
+    _ = GpuRtTriangleInstanceWorld[2, 4, 1, 4](ctx, world.scene)
     ctx.synchronize()
 
 
@@ -201,7 +201,7 @@ def _run_layout[
         GpuBvhBuildMethod.HPLOC,
         False,
         tlas_build_method,
-    ](ctx, world)
+    ](ctx, world.scene)
     ctx.synchronize()
     var build_ns = Int(perf_counter_ns() - t0)
     var path = _bench_algorithm[

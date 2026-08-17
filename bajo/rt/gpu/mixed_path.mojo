@@ -13,9 +13,10 @@ from bajo.rt.types import (
     RenderResult,
     RenderSettings,
     RenderTimings,
-    World,
+    SceneData,
 )
 from bajo.rt.gpu.wavefront_contract import GpuWavefrontArena
+from bajo.rt.gpu.scene import GpuScene
 from bajo.rt.gpu.triangle_geometry import GpuRtTriangleGeometry
 from bajo.rt.gpu.sphere_geometry import GpuRtSphereGeometry
 from bajo.rt.gpu.common_kernels import GPU_RT_BLOCK_SIZE, GPU_RT_MAX_BLOCKS
@@ -50,8 +51,10 @@ struct GpuRtMixedWorld[
     triangle_build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
     triangle_compressed: Bool = triangle_node_width == 8
     and triangle_leaf_width == 4,
-]:
+](GpuScene):
     """Sphere and triangle BVHs plus their compact surface sidecars."""
+
+    comptime is_prepared_gpu_scene = True
 
     var sphere_geometry: GpuRtSphereGeometry[
         Frame.WORLD, Self.node_width, Self.leaf_width
@@ -67,13 +70,10 @@ struct GpuRtMixedWorld[
     var materials: GpuRtMaterials
     var lights: GpuRtLights
 
-    def __init__[
-        world_bvh_width: SIMDLength,
-        instance_bvh_width: SIMDLength,
-    ](
+    def __init__(
         out self,
         mut ctx: DeviceContext,
-        world: World[world_bvh_width, instance_bvh_width],
+        world: SceneData,
     ) raises:
         debug_assert["safe", _use_compiler_assume=True](
             len(world.spheres) > 0 and len(world.triangle_vertices) > 0,
@@ -263,8 +263,6 @@ def render_gpu_mixed[
     ALGORITHM: RENDER = RENDER.PATH,
     node_width: SIMDLength = 4,
     leaf_width: SIMDLength = node_width,
-    world_bvh_width: SIMDLength = 16,
-    instance_bvh_width: SIMDLength = 16,
     triangle_node_width: SIMDLength = 8,
     triangle_leaf_width: SIMDLength = 4,
     triangle_build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
@@ -273,7 +271,7 @@ def render_gpu_mixed[
 ](
     settings: RenderSettings,
     camera: Camera,
-    world: World[world_bvh_width, instance_bvh_width],
+    world: SceneData,
 ) raises -> RenderResult:
     """Render a world containing both spheres and world-space triangles."""
     comptime assert ALGORITHM in (

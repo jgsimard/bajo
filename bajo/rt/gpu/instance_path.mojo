@@ -15,9 +15,10 @@ from bajo.rt.types import (
     RenderResult,
     RenderSettings,
     RenderTimings,
-    World,
+    SceneData,
 )
 from bajo.rt.gpu.wavefront_contract import GpuWavefrontArena
+from bajo.rt.gpu.scene import GpuScene
 from bajo.rt.gpu.common_kernels import GPU_RT_BLOCK_SIZE, GPU_RT_MAX_BLOCKS
 from bajo.rt.gpu.resources import (
     GpuRtRenderTarget,
@@ -50,8 +51,10 @@ struct GpuRtTriangleInstanceWorld[
     blas_build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
     blas_compressed: Bool = blas_node_width == 8 and blas_leaf_width == 4,
     tlas_build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
-]:
+](GpuScene):
     """Packed triangle BLAS set, typed TLAS, surfaces, and materials."""
+
+    comptime is_prepared_gpu_scene = True
 
     var blases: BlasSet[Self.blas_node_width, Self.blas_leaf_width]
     var tlas: GpuTriangleTlas[
@@ -65,13 +68,10 @@ struct GpuRtTriangleInstanceWorld[
     var materials: GpuRtMaterials
     var lights: GpuRtLights
 
-    def __init__[
-        world_bvh_width: SIMDLength,
-        instance_bvh_width: SIMDLength,
-    ](
+    def __init__(
         out self,
         mut ctx: DeviceContext,
-        world: World[world_bvh_width, instance_bvh_width],
+        world: SceneData,
     ) raises:
         debug_assert["safe", _use_compiler_assume=True](
             len(world.triangle_instances) > 0,
@@ -272,15 +272,13 @@ def render_gpu_triangle_instances[
     tlas_leaf_width: SIMDLength = tlas_node_width,
     blas_node_width: SIMDLength = 8,
     blas_leaf_width: SIMDLength = 4,
-    world_bvh_width: SIMDLength = 16,
-    instance_bvh_width: SIMDLength = 16,
     blas_build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
     blas_compressed: Bool = blas_node_width == 8 and blas_leaf_width == 4,
     tlas_build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
 ](
     settings: RenderSettings,
     camera: Camera,
-    world: World[world_bvh_width, instance_bvh_width],
+    world: SceneData,
 ) raises -> RenderResult:
     """Render an instance-only triangle scene through the shared RT stages."""
     comptime assert ALGORITHM in (

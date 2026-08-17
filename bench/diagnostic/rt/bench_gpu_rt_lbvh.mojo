@@ -59,7 +59,7 @@ def _warm_world_build[
         GpuBvhBuildMethod.LBVH,
         False,
         GpuBvhBuildMethod.LBVH,
-    ](ctx, world)
+    ](ctx, world.scene)
     ctx.synchronize()
 
 
@@ -186,10 +186,10 @@ def main() raises:
         t" depth={MAX_DEPTH}, two warmups + {PAIRED_REPEATS} alternating pairs"
     )
     print(
-        t"instances={len(world.triangle_instances)},"
-        t" meshes={len(world.triangle_meshes)},"
-        t" static triangles={len(world.triangle_vertices) / 3},"
-        t" spheres={len(world.spheres)}"
+        t"instances={len(world.scene.triangle_instances)},"
+        t" meshes={len(world.scene.triangle_meshes)},"
+        t" static triangles={len(world.scene.triangle_vertices) / 3},"
+        t" spheres={len(world.scene.spheres)}"
     )
 
     with DeviceContext() as ctx:
@@ -212,7 +212,7 @@ def main() raises:
             GpuBvhBuildMethod.LBVH,
             False,
             GpuBvhBuildMethod.LBVH,
-        ](ctx, world)
+        ](ctx, world.scene)
         ctx.synchronize()
         var build21_ns = Int(perf_counter_ns() - build21_t0)
 
@@ -233,7 +233,7 @@ def main() raises:
             GpuBvhBuildMethod.LBVH,
             False,
             GpuBvhBuildMethod.LBVH,
-        ](ctx, world)
+        ](ctx, world.scene)
         ctx.synchronize()
         var build22_ns = Int(perf_counter_ns() - build22_t0)
 

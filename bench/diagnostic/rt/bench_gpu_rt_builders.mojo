@@ -68,7 +68,7 @@ def _dragon_world() raises -> World[]:
 
 
 def _dragon_camera(world: World[]) -> Camera:
-    var bounds = compute_bounds(world.triangle_vertices)
+    var bounds = compute_bounds(world.scene.triangle_vertices)
     var center = bounds.centroid()
     var extent = bounds.extent()
     var scene_width = max(max(extent.x, extent.y), extent.z)
@@ -94,7 +94,7 @@ def _run_builder[
     var build_t0 = perf_counter_ns()
     var gpu_world = GpuRtTriangleWorld[
         NODE_WIDTH, LEAF_WIDTH, method, compressed
-    ](ctx, world)
+    ](ctx, world.scene)
     ctx.synchronize()
     var build_ns = Int(perf_counter_ns() - build_t0)
     print(t"\n{label}: scene upload + BVH={round(ns_to_ms(build_ns), 3)} ms")

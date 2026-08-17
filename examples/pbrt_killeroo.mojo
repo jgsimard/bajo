@@ -44,7 +44,7 @@ def main() raises:
     )
     print(
         t"Killeroo: {IMAGE_WIDTH}x{IMAGE_HEIGHT}, {SAMPLES_PER_PIXEL} spp, "
-        t"{len(scene.world.spheres)} sphere, "
-        t"{len(scene.world.triangle_vertices) / 3} triangles"
+        t"{len(scene.world.scene.spheres)} sphere, "
+        t"{len(scene.world.scene.triangle_vertices) / 3} triangles"
     )
     print("wrote " + OUTPUT_PATH)

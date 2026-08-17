@@ -19,9 +19,10 @@ from bajo.rt.types import (
     RenderResult,
     RenderSettings,
     RenderTimings,
-    World,
+    SceneData,
 )
 from bajo.rt.gpu.wavefront_contract import GpuWavefrontArena
+from bajo.rt.gpu.scene import GpuScene
 from bajo.rt.gpu.triangle_geometry import GpuRtTriangleGeometry
 from bajo.rt.gpu.sphere_geometry import GpuRtSphereGeometry
 from bajo.rt.gpu.common_kernels import GPU_RT_BLOCK_SIZE, GPU_RT_MAX_BLOCKS
@@ -65,8 +66,10 @@ struct GpuRtCombinedInstanceWorld[
     triangle_compressed: Bool = triangle_node_width == 8
     and triangle_leaf_width == 4,
     tlas_build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
-]:
+](GpuScene):
     """Static BVHs plus a triangle TLAS, specialized by geometry presence."""
+
+    comptime is_prepared_gpu_scene = True
 
     var sphere_geometry: GpuRtSphereGeometry[
         Frame.WORLD, Self.node_width, Self.leaf_width
@@ -91,13 +94,10 @@ struct GpuRtCombinedInstanceWorld[
     var materials: GpuRtMaterials
     var lights: GpuRtLights
 
-    def __init__[
-        world_bvh_width: SIMDLength,
-        instance_bvh_width: SIMDLength,
-    ](
+    def __init__(
         out self,
         mut ctx: DeviceContext,
-        world: World[world_bvh_width, instance_bvh_width],
+        world: SceneData,
     ) raises:
         debug_assert["safe", _use_compiler_assume=True](
             len(world.triangle_instances) > 0,
@@ -363,8 +363,6 @@ def render_gpu_combined_instances[
     HAS_TRIANGLES: Bool,
     node_width: SIMDLength = 4,
     leaf_width: SIMDLength = node_width,
-    world_bvh_width: SIMDLength = 16,
-    instance_bvh_width: SIMDLength = 16,
     tlas_node_width: SIMDLength = 2,
     tlas_leaf_width: SIMDLength = 2,
     blas_node_width: SIMDLength = 8,
@@ -380,7 +378,7 @@ def render_gpu_combined_instances[
 ](
     settings: RenderSettings,
     camera: Camera,
-    world: World[world_bvh_width, instance_bvh_width],
+    world: SceneData,
 ) raises -> RenderResult:
     """Render static geometry and triangle instances in one closest-hit pass."""
     comptime assert HAS_SPHERES or HAS_TRIANGLES

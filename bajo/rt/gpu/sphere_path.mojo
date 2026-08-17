@@ -12,9 +12,10 @@ from bajo.rt.types import (
     RenderResult,
     RenderSettings,
     RenderTimings,
-    World,
+    SceneData,
 )
 from bajo.rt.gpu.wavefront_contract import GpuWavefrontArena
+from bajo.rt.gpu.scene import GpuScene
 from bajo.rt.gpu.sphere_geometry import GpuRtSphereGeometry
 from bajo.rt.gpu.common_kernels import GPU_RT_BLOCK_SIZE, GPU_RT_MAX_BLOCKS
 from bajo.rt.gpu.resources import (
@@ -42,8 +43,10 @@ from bajo.rt.gpu.scene_trace import (
 struct GpuRtSphereWorld[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
-]:
+](GpuScene):
     """Device scene data for the sphere GPU RT specialization."""
+
+    comptime is_prepared_gpu_scene = True
 
     var geometry: GpuRtSphereGeometry[
         Frame.WORLD, Self.node_width, Self.leaf_width
@@ -51,13 +54,10 @@ struct GpuRtSphereWorld[
     var materials: GpuRtMaterials
     var lights: GpuRtLights
 
-    def __init__[
-        world_bvh_width: SIMDLength,
-        instance_bvh_width: SIMDLength,
-    ](
+    def __init__(
         out self,
         mut ctx: DeviceContext,
-        world: World[world_bvh_width, instance_bvh_width],
+        world: SceneData,
     ) raises:
         debug_assert["safe", _use_compiler_assume=True](
             len(world.spheres) > 0, "GPU sphere RT requires spheres"
@@ -203,14 +203,12 @@ def render_gpu_spheres[
     ALGORITHM: RENDER = RENDER.PATH,
     node_width: SIMDLength = 4,
     leaf_width: SIMDLength = node_width,
-    world_bvh_width: SIMDLength = 16,
-    instance_bvh_width: SIMDLength = 16,
 ](
     settings: RenderSettings,
     camera: Camera,
-    world: World[world_bvh_width, instance_bvh_width],
+    world: SceneData,
 ) raises -> RenderResult:
-    """Render a sphere-only `World` with the shared wavefront contract."""
+    """Render a sphere-only `SceneData` with the shared wavefront contract."""
     comptime assert ALGORITHM in (
         RENDER.PATH,
         RENDER.NORMALS,

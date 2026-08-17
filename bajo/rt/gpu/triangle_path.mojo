@@ -13,9 +13,10 @@ from bajo.rt.types import (
     RenderResult,
     RenderSettings,
     RenderTimings,
-    World,
+    SceneData,
 )
 from bajo.rt.gpu.wavefront_contract import GpuWavefrontArena
+from bajo.rt.gpu.scene import GpuScene
 from bajo.rt.gpu.triangle_geometry import GpuRtTriangleGeometry
 from bajo.rt.gpu.common_kernels import GPU_RT_BLOCK_SIZE, GPU_RT_MAX_BLOCKS
 from bajo.rt.gpu.resources import (
@@ -46,8 +47,10 @@ struct GpuRtTriangleWorld[
     leaf_width: SIMDLength = node_width,
     build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
     compressed: Bool = node_width == 8 and leaf_width == 4,
-]:
+](GpuScene):
     """Triangle BVH, surface sidecar, and shared material tables on device."""
+
+    comptime is_prepared_gpu_scene = True
 
     var geometry: GpuRtTriangleGeometry[
         Frame.WORLD,
@@ -60,13 +63,10 @@ struct GpuRtTriangleWorld[
     var materials: GpuRtMaterials
     var lights: GpuRtLights
 
-    def __init__[
-        world_bvh_width: SIMDLength,
-        instance_bvh_width: SIMDLength,
-    ](
+    def __init__(
         out self,
         mut ctx: DeviceContext,
-        world: World[world_bvh_width, instance_bvh_width],
+        world: SceneData,
     ) raises:
         debug_assert["safe", _use_compiler_assume=True](
             len(world.triangle_vertices) > 0,
@@ -235,16 +235,14 @@ def render_gpu_triangles[
     ALGORITHM: RENDER = RENDER.PATH,
     node_width: SIMDLength = 8,
     leaf_width: SIMDLength = 4,
-    world_bvh_width: SIMDLength = 16,
-    instance_bvh_width: SIMDLength = 16,
     build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
     compressed: Bool = node_width == 8 and leaf_width == 4,
 ](
     settings: RenderSettings,
     camera: Camera,
-    world: World[world_bvh_width, instance_bvh_width],
+    world: SceneData,
 ) raises -> RenderResult:
-    """Render a triangle-only `World` with the shared wavefront stages."""
+    """Render a triangle-only `SceneData` with the shared wavefront stages."""
     comptime assert ALGORITHM in (
         RENDER.PATH,
         RENDER.NORMALS,

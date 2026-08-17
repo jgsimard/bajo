@@ -68,7 +68,9 @@ from bajo.obj.pack import pack_obj_triangles
 
 
 # comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"
-comptime DEFAULT_OBJ_PATH = "./assets/dragon/dragon.obj"
+# comptime DEFAULT_OBJ_PATH = "./assets/dragon/dragon.obj"
+# comptime DEFAULT_OBJ_PATH = "./assets/rungholt/rungholt.obj"
+comptime DEFAULT_OBJ_PATH = "./assets/sponza/sponza.obj"
 comptime PRIMARY_WIDTH = 1280
 comptime PRIMARY_HEIGHT = 640
 comptime FOV_SCALE = 0.2

@@ -7,6 +7,7 @@ from .resources import (
     update_gpu_camera,
 )
 from .path_shading import GpuRtLights, GpuRtMaterials
+from .scene import GpuScene
 from .sphere_path import (
     GpuRtSphereWorld,
     enqueue_render_gpu_spheres,

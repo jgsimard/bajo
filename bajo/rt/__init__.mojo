@@ -6,9 +6,10 @@ from .cpu import (
     sample_bsdf,
     write_ppm_from_colors,
 )
-from .gpu import render_gpu
+from .gpu import GpuScene, render_gpu
 from .types import (
     Color,
+    CpuScene,
     BsdfEvaluation,
     BsdfSample,
     Dielectric,
@@ -24,6 +25,7 @@ from .types import (
     RenderResult,
     RenderSettings,
     RenderTimings,
+    SceneData,
     ShadingPoint,
     SurfaceId,
     SurfaceHit,

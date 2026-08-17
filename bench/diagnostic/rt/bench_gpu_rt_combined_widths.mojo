@@ -255,7 +255,7 @@ def _run_layout[
         4,
         GpuBvhBuildMethod.LBVH,
         False,
-    ](ctx, world)
+    ](ctx, world.scene)
     ctx.synchronize()
     print(
         t"\n{label}: build={round(ns_to_ms(Int(perf_counter_ns() - t0)), 3)} ms"

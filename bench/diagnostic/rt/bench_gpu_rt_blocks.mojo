@@ -70,7 +70,9 @@ def main() raises:
         t"depth={MAX_DEPTH}, median of {BENCH_REPEATS}"
     )
     with DeviceContext() as ctx:
-        var gpu_world = GpuRtTriangleWorld[NODE_WIDTH, LEAF_WIDTH](ctx, world)
+        var gpu_world = GpuRtTriangleWorld[NODE_WIDTH, LEAF_WIDTH](
+            ctx, world.scene
+        )
         var target = GpuRtRenderTarget(ctx, settings, camera)
         ctx.synchronize()
         _run_cap[64](

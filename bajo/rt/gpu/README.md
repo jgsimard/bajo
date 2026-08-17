@@ -72,11 +72,18 @@ together with their Philox subsequences.
 `render_gpu[ALGORITHM, node_width, leaf_width]` is the general entry
 point. It dispatches by scene contents to compile-time-specialized sphere,
 triangle, mixed-static, instance-only, or combined static-plus-instance
-pipelines. All `World` geometry combinations are supported, including signed
-sphere radii and transformed triangle BLAS/TLAS instances.
+pipelines. It accepts backend-neutral `SceneData`, so GPU-only callers do not
+construct or retain CPU BVHs. All geometry combinations are supported,
+including signed sphere radii and transformed triangle BLAS/TLAS instances.
+
+`CpuScene` consumes `SceneData` and prepares the CPU BVHs. The concrete
+device-resident scene specializations implement the `GpuScene` contract and
+retain GPU acceleration, material, and light buffers. A caller that needs both
+backends can prepare the GPU scene from `SceneData` first, then move the same
+data into `CpuScene`; a GPU-only caller never needs a `CpuScene`.
 
 Triangle-only rendering defaults to H-PLOC construction and native CWBVH8
-traversal (`node8/leaf4`). Instance rendering defaults to TLAS2/leaf2 and
+traversal (`node8/leaf4`). Instance rendering defaults to TLAS2/leaf1 and
 selects its BLAS specialization once on the host: H-PLOC+CWBVH8 when the
 instance-weighted mean mesh size is at least 32 triangles, otherwise
 LBVH+wide4 for micro-BLASes. This policy follows the measured crossover and
@@ -86,7 +93,7 @@ full compile-time builder, node/leaf width, and compressed/wide overrides.
 Mixed and combined scenes specialize sphere BVH, static-triangle, TLAS, and
 BLAS widths independently. Their static triangles reuse the same wide/CWBVH
 representation and 32-triangle host policy as triangle-only rendering. The
-default TLAS is width2/leaf2; sphere widths continue to use the general
+default TLAS is width2/leaf1; sphere widths continue to use the general
 `node_width`/`leaf_width` parameters. TLAS construction remains LBVH by
 default because it wins PATH, NEE, and MIS on the long 256-instance workload;
 H-PLOC is available as a compile-time TLAS builder policy and is useful for

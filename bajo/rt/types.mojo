@@ -412,30 +412,19 @@ struct RenderResult:
         self.timings = timings.copy()
 
 
-struct World[
-    world_bvh_width: SIMDLength = 16,
-    instance_bvh_width: SIMDLength = 16,
-]:
-    """World with BVH widths independent from renderer packet length.
+struct SceneData:
+    """Backend-neutral scene geometry, materials, and light distribution.
 
-    `World[]` keeps the general-purpose BVH16/BVH16 policy for world geometry
-    and instance BLASes. CPU instance traversal uses one instance per TLAS leaf
-    independently of those SIMD widths. A packet-oriented scene can instead
-    select, for example, `World[8, 16]` without changing the packet length
-    passed to `render_wavefront`.
+    `SceneData` performs no acceleration-structure construction.  It can be
+    prepared independently for the CPU or GPU without paying for the other
+    backend.
     """
 
-    var sphere_bvh: Optional[SphereBvh[Frame.WORLD, Self.world_bvh_width]]
-    var triangle_bvh: Optional[TriangleBvh[Frame.WORLD, Self.world_bvh_width]]
-    var triangle_tlas: Optional[Tlas[Self.instance_bvh_width, 1]]
     var spheres: List[Sphere[Frame.WORLD]]
     var sphere_surfaces: List[SurfaceId[1]]
     var triangle_vertices: List[Point3f32[Frame.WORLD]]
     var triangle_surfaces: List[SurfaceId[1]]
     var triangle_meshes: List[List[Point3f32[Frame.LOCAL]]]
-    var triangle_mesh_blases: List[
-        TriangleBvh[Frame.LOCAL, Self.instance_bvh_width]
-    ]
     var triangle_instances: List[Instance]
     var triangle_instance_surfaces: List[SurfaceId[1]]
     var surfaces: SurfaceStore
@@ -456,7 +445,7 @@ struct World[
             len(spheres) > 0
             or len(triangle_vertices) > 0
             or len(triangle_instances) > 0,
-            "world requires at least one primitive",
+            "scene requires at least one primitive",
         )
         debug_assert["safe", _use_compiler_assume=True](
             len(spheres) == len(sphere_surfaces),
@@ -485,88 +474,45 @@ struct World[
         self.surfaces = surfaces^
         self.lights = LightStore()
 
-        self.sphere_bvh = Optional[
-            SphereBvh[Frame.WORLD, Self.world_bvh_width]
-        ]()
-        self.triangle_bvh = Optional[
-            TriangleBvh[Frame.WORLD, Self.world_bvh_width]
-        ]()
-        self.triangle_tlas = Optional[Tlas[Self.instance_bvh_width, 1]]()
-        self.triangle_mesh_blases = List[
-            TriangleBvh[Frame.LOCAL, Self.instance_bvh_width]
-        ]()
-
-        if len(self.spheres) > 0:
-            var bvh_spheres = List[Sphere[Frame.WORLD]](
-                capacity=len(self.spheres)
+        for i in range(len(self.spheres)):
+            debug_assert["safe", _use_compiler_assume=True](
+                self.spheres[i].radius != 0.0,
+                "sphere radius must be non-zero",
             )
-            for i in range(len(self.spheres)):
-                ref s = self.spheres[i]
-                debug_assert["safe", _use_compiler_assume=True](
-                    s.radius != 0.0, "sphere radius must be non-zero"
-                )
-                debug_assert["safe", _use_compiler_assume=True](
-                    self.surfaces.validate(self.sphere_surfaces[i]),
-                    "sphere surface id is out of range",
-                )
-                bvh_spheres.append(sphere_for_acceleration(s))
-
-            self.sphere_bvh = Optional[
-                SphereBvh[Frame.WORLD, Self.world_bvh_width]
-            ](
-                SphereBvh[Frame.WORLD, Self.world_bvh_width].__init__["sah"](
-                    bvh_spheres^
-                )
+            debug_assert["safe", _use_compiler_assume=True](
+                self.surfaces.validate(self.sphere_surfaces[i]),
+                "sphere surface id is out of range",
             )
 
-        if len(self.triangle_vertices) > 0:
-            for i in range(len(self.triangle_surfaces)):
-                debug_assert["safe", _use_compiler_assume=True](
-                    self.surfaces.validate(self.triangle_surfaces[i]),
-                    "triangle surface id is out of range",
-                )
-
-            self.triangle_bvh = Optional[
-                TriangleBvh[Frame.WORLD, Self.world_bvh_width]
-            ](
-                TriangleBvh[Frame.WORLD, Self.world_bvh_width].__init__["sah"](
-                    self.triangle_vertices
-                )
+        for i in range(len(self.triangle_surfaces)):
+            debug_assert["safe", _use_compiler_assume=True](
+                self.surfaces.validate(self.triangle_surfaces[i]),
+                "triangle surface id is out of range",
             )
 
-        if len(self.triangle_instances) > 0:
-            for mesh_idx in range(len(self.triangle_meshes)):
-                ref vertices = self.triangle_meshes[mesh_idx]
-                debug_assert["safe", _use_compiler_assume=True](
-                    len(vertices) > 0 and len(vertices) % 3 == 0,
-                    (
-                        "triangle mesh vertex count must be a positive multiple"
-                        " of three"
-                    ),
-                )
-                self.triangle_mesh_blases.append(
-                    TriangleBvh[Frame.LOCAL, Self.instance_bvh_width].__init__[
-                        "sah"
-                    ](vertices)
-                )
+        for mesh_idx in range(len(self.triangle_meshes)):
+            ref vertices = self.triangle_meshes[mesh_idx]
+            debug_assert["safe", _use_compiler_assume=True](
+                len(vertices) > 0 and len(vertices) % 3 == 0,
+                (
+                    "triangle mesh vertex count must be a positive multiple of"
+                    " three"
+                ),
+            )
 
-            for i in range(len(self.triangle_instances)):
-                ref inst = self.triangle_instances[i]
-                debug_assert["safe", _use_compiler_assume=True](
-                    inst.kind == Primitive.TRIANGLE,
-                    "triangle instance must have triangle primitive kind",
-                )
-                debug_assert["safe", _use_compiler_assume=True](
-                    inst.blas_idx < UInt32(len(self.triangle_meshes)),
-                    "triangle instance blas_idx is out of range",
-                )
-                debug_assert["safe", _use_compiler_assume=True](
-                    self.surfaces.validate(self.triangle_instance_surfaces[i]),
-                    "triangle instance surface id is out of range",
-                )
-
-            self.triangle_tlas = Optional[Tlas[Self.instance_bvh_width, 1]](
-                Tlas[Self.instance_bvh_width, 1](self.triangle_instances)
+        for i in range(len(self.triangle_instances)):
+            ref inst = self.triangle_instances[i]
+            debug_assert["safe", _use_compiler_assume=True](
+                inst.kind == Primitive.TRIANGLE,
+                "triangle instance must have triangle primitive kind",
+            )
+            debug_assert["safe", _use_compiler_assume=True](
+                inst.blas_idx < UInt32(len(self.triangle_meshes)),
+                "triangle instance blas_idx is out of range",
+            )
+            debug_assert["safe", _use_compiler_assume=True](
+                self.surfaces.validate(self.triangle_instance_surfaces[i]),
+                "triangle instance surface id is out of range",
             )
 
         self._build_light_store()
@@ -579,7 +525,7 @@ struct World[
                 var radiance = self.surfaces.emissives[
                     Int(surface.index())
                 ].radiance
-                var weight = _world_triangle_area(self, idx) * (
+                var weight = _scene_triangle_area(self, idx) * (
                     _light_importance(radiance)
                 )
                 if weight > 0.0:
@@ -609,6 +555,114 @@ struct World[
                             weight,
                         )
                     )
+
+
+struct CpuScene[
+    world_bvh_width: SIMDLength = 16,
+    instance_bvh_width: SIMDLength = 16,
+]:
+    """CPU-prepared scene with BVH widths independent from ray packet length.
+
+    `CpuScene[]` keeps the general-purpose BVH16/BVH16 policy for world geometry
+    and instance BLASes. CPU instance traversal uses one instance per TLAS leaf
+    independently of those SIMD widths. A packet-oriented scene can instead
+    select, for example, `CpuScene[8, 16]` without changing the packet length
+    passed to `render_wavefront`.
+    """
+
+    var sphere_bvh: Optional[SphereBvh[Frame.WORLD, Self.world_bvh_width]]
+    var triangle_bvh: Optional[TriangleBvh[Frame.WORLD, Self.world_bvh_width]]
+    var triangle_tlas: Optional[Tlas[Self.instance_bvh_width, 1]]
+    var scene: SceneData
+    var triangle_mesh_blases: List[
+        TriangleBvh[Frame.LOCAL, Self.instance_bvh_width]
+    ]
+
+    def __init__(out self, var scene: SceneData):
+        self.scene = scene^
+        self.sphere_bvh = Optional[
+            SphereBvh[Frame.WORLD, Self.world_bvh_width]
+        ]()
+        self.triangle_bvh = Optional[
+            TriangleBvh[Frame.WORLD, Self.world_bvh_width]
+        ]()
+        self.triangle_tlas = Optional[Tlas[Self.instance_bvh_width, 1]]()
+        self.triangle_mesh_blases = List[
+            TriangleBvh[Frame.LOCAL, Self.instance_bvh_width]
+        ]()
+        self._build_acceleration()
+
+    def __init__(
+        out self,
+        var spheres: List[Sphere[Frame.WORLD]],
+        var sphere_surfaces: List[SurfaceId[1]],
+        var triangle_vertices: List[Point3f32[Frame.WORLD]],
+        var triangle_surfaces: List[SurfaceId[1]],
+        var triangle_meshes: List[List[Point3f32[Frame.LOCAL]]],
+        var triangle_instances: List[Instance],
+        var triangle_instance_surfaces: List[SurfaceId[1]],
+        var surfaces: SurfaceStore,
+    ):
+        self.scene = SceneData(
+            spheres^,
+            sphere_surfaces^,
+            triangle_vertices^,
+            triangle_surfaces^,
+            triangle_meshes^,
+            triangle_instances^,
+            triangle_instance_surfaces^,
+            surfaces^,
+        )
+        self.sphere_bvh = Optional[
+            SphereBvh[Frame.WORLD, Self.world_bvh_width]
+        ]()
+        self.triangle_bvh = Optional[
+            TriangleBvh[Frame.WORLD, Self.world_bvh_width]
+        ]()
+        self.triangle_tlas = Optional[Tlas[Self.instance_bvh_width, 1]]()
+        self.triangle_mesh_blases = List[
+            TriangleBvh[Frame.LOCAL, Self.instance_bvh_width]
+        ]()
+        self._build_acceleration()
+
+    def _build_acceleration(mut self):
+        if len(self.scene.spheres) > 0:
+            var bvh_spheres = List[Sphere[Frame.WORLD]](
+                capacity=len(self.scene.spheres)
+            )
+            for i in range(len(self.scene.spheres)):
+                ref s = self.scene.spheres[i]
+                bvh_spheres.append(sphere_for_acceleration(s))
+
+            self.sphere_bvh = Optional[
+                SphereBvh[Frame.WORLD, Self.world_bvh_width]
+            ](
+                SphereBvh[Frame.WORLD, Self.world_bvh_width].__init__["sah"](
+                    bvh_spheres^
+                )
+            )
+
+        if len(self.scene.triangle_vertices) > 0:
+            self.triangle_bvh = Optional[
+                TriangleBvh[Frame.WORLD, Self.world_bvh_width]
+            ](
+                TriangleBvh[Frame.WORLD, Self.world_bvh_width].__init__["sah"](
+                    self.scene.triangle_vertices
+                )
+            )
+
+        if len(self.scene.triangle_instances) > 0:
+            for mesh_idx in range(len(self.scene.triangle_meshes)):
+                ref vertices = self.scene.triangle_meshes[mesh_idx]
+                self.triangle_mesh_blases.append(
+                    TriangleBvh[Frame.LOCAL, Self.instance_bvh_width].__init__[
+                        "sah"
+                    ](vertices)
+                )
+
+            self.triangle_tlas = Optional[Tlas[Self.instance_bvh_width, 1]](
+                Tlas[Self.instance_bvh_width, 1](self.scene.triangle_instances)
+            )
 
     @always_inline
     def occluded[
@@ -771,12 +825,12 @@ struct World[
             for lane in range(length):
                 if sphere_mask[lane]:
                     var sphere_idx = Int(sphere_hits.prim[lane])
-                    ref sphere = self.spheres[sphere_idx]
+                    ref sphere = self.scene.spheres[sphere_idx]
                     center_x[lane] = sphere.center.x
                     center_y[lane] = sphere.center.y
                     center_z[lane] = sphere.center.z
                     radius[lane] = sphere.radius
-                    surface_values[lane] = self.sphere_surfaces[
+                    surface_values[lane] = self.scene.sphere_surfaces[
                         sphere_idx
                     ].value
             var inverse_radius = Float32(1.0) / radius
@@ -812,7 +866,7 @@ struct World[
             for lane in range(length):
                 if triangle_mask[lane]:
                     var triangle_idx = Int(triangle_hits.prim[lane])
-                    surface_values[lane] = self.triangle_surfaces[
+                    surface_values[lane] = self.scene.triangle_surfaces[
                         triangle_idx
                     ].value
             var triangle_normal = triangle_hits.normal.unsafe_convert[
@@ -866,17 +920,17 @@ struct World[
 
         var sphere_idx = Int(bvh_hit.prim)
         debug_assert["safe", _use_compiler_assume=True](
-            sphere_idx >= 0 and sphere_idx < len(self.spheres),
+            sphere_idx >= 0 and sphere_idx < len(self.scene.spheres),
             "BVH returned an out-of-range sphere index",
         )
-        ref sphere = self.spheres[sphere_idx]
+        ref sphere = self.scene.spheres[sphere_idx]
         var p = ray_at(ray, bvh_hit.t)
         var outward_normal = (p - sphere.center) / sphere.radius
         var oriented = orient_surface_normal(ray.d, outward_normal)
         return _WorldHit(
             PrimitiveId(PRIM.SPHERE, bvh_hit.prim),
             oriented.normal,
-            self.sphere_surfaces[sphere_idx].copy(),
+            self.scene.sphere_surfaces[sphere_idx].copy(),
             bvh_hit.t,
             oriented.front_face,
             True,
@@ -892,7 +946,7 @@ struct World[
 
         var tri_idx = Int(bvh_hit.prim)
         debug_assert["safe", _use_compiler_assume=True](
-            tri_idx >= 0 and tri_idx < len(self.triangle_surfaces),
+            tri_idx >= 0 and tri_idx < len(self.scene.triangle_surfaces),
             "BVH returned an out-of-range triangle index",
         )
         var outward_normal = bvh_hit.normal.unsafe_convert[
@@ -902,7 +956,7 @@ struct World[
         return _WorldHit(
             PrimitiveId(PRIM.TRIANGLE, bvh_hit.prim),
             oriented.normal,
-            self.triangle_surfaces[tri_idx].copy(),
+            self.scene.triangle_surfaces[tri_idx].copy(),
             bvh_hit.t,
             oriented.front_face,
             True,
@@ -921,7 +975,8 @@ struct World[
 
         var instance_idx = Int(bvh_hit.inst)
         debug_assert["safe", _use_compiler_assume=True](
-            instance_idx >= 0 and instance_idx < len(self.triangle_instances),
+            instance_idx >= 0
+            and instance_idx < len(self.scene.triangle_instances),
             "TLAS returned an out-of-range triangle instance index",
         )
         var outward_normal = bvh_hit.normal.unsafe_convert[
@@ -931,7 +986,7 @@ struct World[
         return _WorldHit(
             PrimitiveId(PRIM.TRIANGLE_INSTANCE, bvh_hit.inst),
             oriented.normal,
-            self.triangle_instance_surfaces[instance_idx].copy(),
+            self.scene.triangle_instance_surfaces[instance_idx].copy(),
             bvh_hit.t,
             oriented.front_face,
             True,
@@ -944,16 +999,15 @@ def _light_importance(radiance: Color) -> Float32:
 
 
 @always_inline
-def _world_triangle_area[
-    world_bvh_width: SIMDLength,
-    instance_bvh_width: SIMDLength,
-](
-    world: World[world_bvh_width, instance_bvh_width], triangle_index: Int
-) -> Float32:
-    ref v0 = world.triangle_vertices[3 * triangle_index + 0]
-    ref v1 = world.triangle_vertices[3 * triangle_index + 1]
-    ref v2 = world.triangle_vertices[3 * triangle_index + 2]
+def _scene_triangle_area(scene: SceneData, triangle_index: Int) -> Float32:
+    ref v0 = scene.triangle_vertices[3 * triangle_index + 0]
+    ref v1 = scene.triangle_vertices[3 * triangle_index + 1]
+    ref v2 = scene.triangle_vertices[3 * triangle_index + 2]
     return 0.5 * sqrt(length2(cross(v1 - v0, v2 - v0)))
+
+
+# Compatibility alias for callers that have not yet migrated to `CpuScene`.
+comptime World = CpuScene
 
 
 def ray_at(ray: Rayf32[Frame.WORLD], t: Float32) -> Point3f32[Frame.WORLD]:

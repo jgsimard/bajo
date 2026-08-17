@@ -224,7 +224,7 @@ def count_path[
                     )
                     var scattered = sample_bsdf(
                         record.surface,
-                        world.surfaces,
+                        world.scene.surfaces,
                         ray,
                         ShadingPoint(
                             record.p, record.normal, record.front_face

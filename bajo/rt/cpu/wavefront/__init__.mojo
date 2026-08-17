@@ -12,7 +12,7 @@ from bajo.rt.types import (
     RenderResult,
     RenderSettings,
     RenderTimings,
-    World,
+    CpuScene,
 )
 from bajo.rt.wavefront_queue import PacketPathQueue, PacketShadeQueue
 
@@ -61,7 +61,7 @@ def _trace_packet_range[
 ](
     settings: RenderSettings,
     camera: Camera,
-    world: World[world_bvh_width, instance_bvh_width],
+    world: CpuScene[world_bvh_width, instance_bvh_width],
     mut pixels: List[Color],
     path_begin: Int,
     path_end: Int,
@@ -98,7 +98,7 @@ def render_wavefront[
 ](
     settings: RenderSettings,
     camera: Camera,
-    world: World[world_bvh_width, instance_bvh_width],
+    world: CpuScene[world_bvh_width, instance_bvh_width],
 ) -> RenderResult:
     """Render with compile-time packet, chunk, and CPU scheduling choices."""
     comptime assert CHUNK_PATHS > 0, "wavefront chunk size must be positive"

@@ -78,7 +78,7 @@ def _dragon_instance_world() raises -> World[]:
 
 
 def _dragon_camera(world: World[]) -> Camera:
-    var bounds = compute_bounds(world.triangle_meshes[0])
+    var bounds = compute_bounds(world.scene.triangle_meshes[0])
     var center_local = bounds.centroid()
     var center = Point3f32[Frame.WORLD](
         center_local.x, center_local.y, center_local.z
@@ -162,7 +162,7 @@ def _run_layout[
     var t0 = perf_counter_ns()
     var gpu_world = GpuRtTriangleInstanceWorld[
         2, effective_width, 2, blas_leaf_width, method, compressed
-    ](ctx, world)
+    ](ctx, world.scene)
     ctx.synchronize()
     print(
         t"\n{label}: build={round(ns_to_ms(Int(perf_counter_ns() - t0)), 3)} ms"

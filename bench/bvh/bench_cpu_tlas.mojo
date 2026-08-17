@@ -193,13 +193,13 @@ def main() raises:
             rays.append(camera.make_ray(px, py, IMAGE_WIDTH, IMAGE_HEIGHT))
 
     var build_start = perf_counter_ns()
-    var tlas_leaf1 = Tlas[width, 1](world.triangle_instances)
+    var tlas_leaf1 = Tlas[width, 1](world.scene.triangle_instances)
     var leaf1_build_ns = Int(perf_counter_ns() - build_start)
     build_start = perf_counter_ns()
-    var tlas_native = Tlas[width, width](world.triangle_instances)
+    var tlas_native = Tlas[width, width](world.scene.triangle_instances)
     var native_build_ns = Int(perf_counter_ns() - build_start)
 
-    print(t"instances={len(world.triangle_instances)}, rays={len(rays)}")
+    print(t"instances={len(world.scene.triangle_instances)}, rays={len(rays)}")
     print(
         t"build leaf1/native: {round(ns_to_ms(leaf1_build_ns), 3)} / "
         t"{round(ns_to_ms(native_build_ns), 3)} ms"

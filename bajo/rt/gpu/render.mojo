@@ -2,7 +2,7 @@
 
 from bajo.bvh.camera import Camera
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
-from bajo.rt.types import RENDER, RenderResult, RenderSettings, World
+from bajo.rt.types import RENDER, RenderResult, RenderSettings, SceneData
 from bajo.rt.gpu.instance_path import render_gpu_triangle_instances
 from bajo.rt.gpu.combined_instance_path import render_gpu_combined_instances
 from bajo.rt.gpu.mixed_path import render_gpu_mixed
@@ -16,20 +16,14 @@ from bajo.rt.gpu.triangle_path import render_gpu_triangles
 comptime GPU_RT_CWBVH8_BLAS_TRIANGLE_THRESHOLD = 32
 
 
-def _prefer_cwbvh8_triangles[
-    world_bvh_width: SIMDLength,
-    instance_bvh_width: SIMDLength,
-](world: World[world_bvh_width, instance_bvh_width]) -> Bool:
+def _prefer_cwbvh8_triangles(world: SceneData) -> Bool:
     return (
         len(world.triangle_vertices) / 3
         >= GPU_RT_CWBVH8_BLAS_TRIANGLE_THRESHOLD
     )
 
 
-def _prefer_cwbvh8_blases[
-    world_bvh_width: SIMDLength,
-    instance_bvh_width: SIMDLength,
-](world: World[world_bvh_width, instance_bvh_width]) -> Bool:
+def _prefer_cwbvh8_blases(world: SceneData) -> Bool:
     var weighted_triangles = 0
     for instance in world.triangle_instances:
         weighted_triangles += (
@@ -46,12 +40,10 @@ def _render_gpu_combined_default[
     HAS_TRIANGLES: Bool,
     node_width: SIMDLength,
     leaf_width: SIMDLength,
-    world_bvh_width: SIMDLength,
-    instance_bvh_width: SIMDLength,
 ](
     settings: RenderSettings,
     camera: Camera,
-    world: World[world_bvh_width, instance_bvh_width],
+    world: SceneData,
 ) raises -> RenderResult:
     if _prefer_cwbvh8_blases(world):
         if HAS_TRIANGLES and _prefer_cwbvh8_triangles(world):
@@ -61,8 +53,6 @@ def _render_gpu_combined_default[
                 HAS_TRIANGLES,
                 node_width,
                 leaf_width,
-                world_bvh_width,
-                instance_bvh_width,
                 2,
                 1,
                 8,
@@ -80,8 +70,6 @@ def _render_gpu_combined_default[
             HAS_TRIANGLES,
             node_width,
             leaf_width,
-            world_bvh_width,
-            instance_bvh_width,
             2,
             1,
             8,
@@ -100,8 +88,6 @@ def _render_gpu_combined_default[
             HAS_TRIANGLES,
             node_width,
             leaf_width,
-            world_bvh_width,
-            instance_bvh_width,
             2,
             1,
             4,
@@ -119,8 +105,6 @@ def _render_gpu_combined_default[
         HAS_TRIANGLES,
         node_width,
         leaf_width,
-        world_bvh_width,
-        instance_bvh_width,
         2,
         1,
         4,
@@ -138,12 +122,10 @@ def render_gpu[
     ALGORITHM: RENDER = RENDER.PATH,
     node_width: SIMDLength = 4,
     leaf_width: SIMDLength = node_width,
-    world_bvh_width: SIMDLength = 16,
-    instance_bvh_width: SIMDLength = 16,
 ](
     settings: RenderSettings,
     camera: Camera,
-    world: World[world_bvh_width, instance_bvh_width],
+    world: SceneData,
 ) raises -> RenderResult:
     """Render supported geometry with compile-time algorithm/BVH specialization.
     """
@@ -163,8 +145,6 @@ def render_gpu[
                     True,
                     node_width,
                     leaf_width,
-                    world_bvh_width,
-                    instance_bvh_width,
                 ](settings, camera, world)
             return _render_gpu_combined_default[
                 ALGORITHM,
@@ -172,8 +152,6 @@ def render_gpu[
                 False,
                 node_width,
                 leaf_width,
-                world_bvh_width,
-                instance_bvh_width,
             ](settings, camera, world)
         if len(world.triangle_vertices) > 0:
             return _render_gpu_combined_default[
@@ -182,8 +160,6 @@ def render_gpu[
                 True,
                 node_width,
                 leaf_width,
-                world_bvh_width,
-                instance_bvh_width,
             ](settings, camera, world)
         if _prefer_cwbvh8_blases(world):
             return render_gpu_triangle_instances[
@@ -192,8 +168,6 @@ def render_gpu[
                 1,
                 8,
                 4,
-                world_bvh_width,
-                instance_bvh_width,
                 GpuBvhBuildMethod.HPLOC,
                 True,
             ](settings, camera, world)
@@ -203,8 +177,6 @@ def render_gpu[
             1,
             4,
             4,
-            world_bvh_width,
-            instance_bvh_width,
             GpuBvhBuildMethod.LBVH,
             False,
         ](settings, camera, world)
@@ -215,8 +187,6 @@ def render_gpu[
                     ALGORITHM,
                     node_width,
                     leaf_width,
-                    world_bvh_width,
-                    instance_bvh_width,
                     4,
                     4,
                     GpuBvhBuildMethod.LBVH,
@@ -226,23 +196,17 @@ def render_gpu[
                 ALGORITHM,
                 node_width,
                 leaf_width,
-                world_bvh_width,
-                instance_bvh_width,
             ](settings, camera, world)
         return render_gpu_spheres[
             ALGORITHM,
             node_width,
             leaf_width,
-            world_bvh_width,
-            instance_bvh_width,
         ](settings, camera, world)
     if _prefer_cwbvh8_triangles(world):
         return render_gpu_triangles[
             ALGORITHM,
             8,
             4,
-            world_bvh_width,
-            instance_bvh_width,
             GpuBvhBuildMethod.HPLOC,
             True,
         ](settings, camera, world)
@@ -250,8 +214,6 @@ def render_gpu[
         ALGORITHM,
         4,
         4,
-        world_bvh_width,
-        instance_bvh_width,
         GpuBvhBuildMethod.LBVH,
         False,
     ](settings, camera, world)

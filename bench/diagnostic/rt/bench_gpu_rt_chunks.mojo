@@ -63,7 +63,9 @@ def main() raises:
         t"median of {BENCH_REPEATS}; total samples={sample_count}"
     )
     with DeviceContext() as ctx:
-        var gpu_world = GpuRtTriangleWorld[NODE_WIDTH, LEAF_WIDTH](ctx, world)
+        var gpu_world = GpuRtTriangleWorld[NODE_WIDTH, LEAF_WIDTH](
+            ctx, world.scene
+        )
         ctx.synchronize()
         _run_capacity[131072](
             ctx, gpu_world, settings, sample_count, "128K paths (64 chunks)"

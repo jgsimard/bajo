@@ -16,7 +16,7 @@ from bajo.rt.types import (
     RenderResult,
     RenderSettings,
     RenderTimings,
-    World,
+    CpuScene,
 )
 
 
@@ -47,7 +47,7 @@ def _trace_path[
     instance_bvh_width: SIMDLength,
 ](
     settings: RenderSettings,
-    world: World[world_bvh_width, instance_bvh_width],
+    world: CpuScene[world_bvh_width, instance_bvh_width],
     ray: Rayf32[Frame.WORLD],
     mut rng: Rng,
     path_id: UInt32,
@@ -65,7 +65,7 @@ def _trace_path[
         if hit.hit:
             var point = _shading_point(cur_ray, hit)
             var emission = emitted_radiance(
-                hit.surface, world.surfaces, hit.front_face
+                hit.surface, world.scene.surfaces, hit.front_face
             )
             if emission.x > 0.0 or emission.y > 0.0 or emission.z > 0.0:
                 var emission_weight = _emissive_hit_weight[ALGORITHM](
@@ -90,7 +90,7 @@ def _trace_path[
                 radiance += throughput * direct
             var scattered = sample_bsdf(
                 hit.surface,
-                world.surfaces,
+                world.scene.surfaces,
                 cur_ray,
                 point,
                 rng,
@@ -120,7 +120,7 @@ def _trace_normals[
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
 ](
-    world: World[world_bvh_width, instance_bvh_width],
+    world: CpuScene[world_bvh_width, instance_bvh_width],
     ray: Rayf32[Frame.WORLD],
 ) -> Color:
     var hit = world.trace_surface(ray)
@@ -134,7 +134,7 @@ def _trace_ao[
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
 ](
-    world: World[world_bvh_width, instance_bvh_width],
+    world: CpuScene[world_bvh_width, instance_bvh_width],
     ray: Rayf32[Frame.WORLD],
     mut rng: Rng,
 ) -> Color:
@@ -157,7 +157,7 @@ def _trace_algorithm[
     instance_bvh_width: SIMDLength,
 ](
     settings: RenderSettings,
-    world: World[world_bvh_width, instance_bvh_width],
+    world: CpuScene[world_bvh_width, instance_bvh_width],
     ray: Rayf32[Frame.WORLD],
     mut rng: Rng,
     path_id: UInt32,
@@ -189,7 +189,7 @@ def _render_pixel[
 ](
     settings: RenderSettings,
     camera: Camera,
-    world: World[world_bvh_width, instance_bvh_width],
+    world: CpuScene[world_bvh_width, instance_bvh_width],
     px: Int,
     py: Int,
     mut rng: Rng,
@@ -219,7 +219,7 @@ def render_depth_first[
 ](
     settings: RenderSettings,
     camera: Camera,
-    world: World[world_bvh_width, instance_bvh_width],
+    world: CpuScene[world_bvh_width, instance_bvh_width],
 ) -> RenderResult:
     """Render depth-first using compile-time tile and scheduling choices."""
     # Mode 0 uses the runtime default, 1 caps workers to logical cores, and 2

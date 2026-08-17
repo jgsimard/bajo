@@ -246,17 +246,17 @@ def main() raises:
     with DeviceContext() as ctx:
         var gpu_world = GpuRtTriangleWorld[
             NODE_WIDTH, LEAF_WIDTH, GpuBvhBuildMethod.LBVH, False
-        ](ctx, world)
+        ](ctx, world.scene)
         var target = GpuRtRenderTarget(ctx, settings, camera)
         var many_gpu_world = GpuRtTriangleWorld[
             NODE_WIDTH, LEAF_WIDTH, GpuBvhBuildMethod.LBVH, False
-        ](ctx, many_light_world)
+        ](ctx, many_light_world.scene)
         var cwbvh_world = GpuRtTriangleWorld[
             NODE_WIDTH, LEAF_WIDTH, GpuBvhBuildMethod.HPLOC, True
-        ](ctx, world)
+        ](ctx, world.scene)
         var many_cwbvh_world = GpuRtTriangleWorld[
             NODE_WIDTH, LEAF_WIDTH, GpuBvhBuildMethod.HPLOC, True
-        ](ctx, many_light_world)
+        ](ctx, many_light_world.scene)
         ctx.synchronize()
         var gpu_path = _bench_gpu[RENDER.PATH](ctx, target, gpu_world, settings)
         var gpu_ao = _bench_gpu[RENDER.AO](ctx, target, gpu_world, settings)

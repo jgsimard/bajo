@@ -178,7 +178,7 @@ def count_wavefront(
             var rng = _path_stage_rng(settings, path_id, UInt32(_bounce + 1))
             var scattered = sample_bsdf(
                 record.surface,
-                world.surfaces,
+                world.scene.surfaces,
                 ray,
                 ShadingPoint(record.p, record.normal, record.front_face),
                 rng,

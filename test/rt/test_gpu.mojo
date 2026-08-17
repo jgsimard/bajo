@@ -13,10 +13,17 @@ from bajo.bvh.types import Instance, Sphere
 from bajo.core import Affine3f32, Frame, Point3f32, Vec3f32
 from bajo.rt.cpu import render_depth_first, render_wavefront
 from bajo.rt.gpu import (
+    GPU_RT_BVH_WIDE4_LBVH,
     GpuRtRenderTarget,
-    GpuRtTriangleWorld,
+    GpuRtTriangleScene,
     download_gpu_pixels,
+    enqueue_render_gpu,
     enqueue_render_gpu_triangles,
+    prepare_gpu_combined_instance_scene,
+    prepare_gpu_mixed_scene,
+    prepare_gpu_sphere_scene,
+    prepare_gpu_triangle_instance_scene,
+    prepare_gpu_triangle_scene,
     render_gpu,
     render_gpu_combined_instances,
     render_gpu_spheres,
@@ -435,7 +442,7 @@ def test_gpu_chunked_triangle_nee_matches_full_capacity() raises:
     var world = _triangle_world()
     var camera = _camera()
     with DeviceContext() as ctx:
-        var gpu_world = GpuRtTriangleWorld[4, 4](ctx, world.scene)
+        var gpu_world = GpuRtTriangleScene[4, 4](ctx, world.scene)
         var full = GpuRtRenderTarget(
             ctx,
             settings,
@@ -463,6 +470,48 @@ def test_gpu_chunked_triangle_nee_matches_full_capacity() raises:
             assert_equal(chunked_pixels[i].x, full_pixels[i].x)
             assert_equal(chunked_pixels[i].y, full_pixels[i].y)
             assert_equal(chunked_pixels[i].z, full_pixels[i].z)
+
+
+def test_prepared_scene_policy_and_common_enqueue_api() raises:
+    var settings = RenderSettings(3, 2, 1, UInt64(233))
+    var world = _triangle_world()
+    with DeviceContext() as ctx:
+        var scene = prepare_gpu_triangle_scene[GPU_RT_BVH_WIDE4_LBVH](
+            ctx, world.scene
+        )
+        var target = GpuRtRenderTarget(ctx, settings, _camera())
+        enqueue_render_gpu[RENDER.NORMALS](ctx, target, scene, settings)
+        var pixels = download_gpu_pixels(ctx, target)
+        assert_equal(len(pixels), settings.image_width * settings.image_height)
+
+
+def test_common_prepared_api_instantiates_every_scene_kind() raises:
+    var settings = RenderSettings(1, 1, 1, UInt64(239), 1)
+    with DeviceContext() as ctx:
+        var target = GpuRtRenderTarget(ctx, settings, _camera())
+
+        var sphere_data = _sphere_world()
+        var spheres = prepare_gpu_sphere_scene(ctx, sphere_data.scene)
+        enqueue_render_gpu(ctx, target, spheres, settings)
+
+        var mixed_data = _mixed_world()
+        var mixed = prepare_gpu_mixed_scene(ctx, mixed_data.scene)
+        enqueue_render_gpu(ctx, target, mixed, settings)
+
+        var instance_data = _instance_world()
+        var instances = prepare_gpu_triangle_instance_scene(
+            ctx, instance_data.scene
+        )
+        enqueue_render_gpu(ctx, target, instances, settings)
+
+        var combined_data = _combined_instance_world()
+        var combined = prepare_gpu_combined_instance_scene[True, True](
+            ctx, combined_data.scene
+        )
+        enqueue_render_gpu[RENDER.NORMALS](ctx, target, combined, settings)
+
+        var pixels = download_gpu_pixels(ctx, target)
+        assert_equal(len(pixels), 1)
 
 
 def test_gpu_mixed_path_matches_cpu_wavefront() raises:

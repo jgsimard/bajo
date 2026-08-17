@@ -25,7 +25,7 @@ from bajo.rt import (
     add_triangle_mesh_instance,
 )
 from bajo.rt.gpu.combined_instance_path import (
-    GpuRtCombinedInstanceWorld,
+    GpuRtCombinedInstanceScene,
     enqueue_render_gpu_combined_instances,
 )
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
@@ -158,7 +158,7 @@ def _bench_algorithm[
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: GpuRtCombinedInstanceWorld[
+    world: GpuRtCombinedInstanceScene[
         True,
         True,
         4,
@@ -240,7 +240,7 @@ def _run_layout[
     label: String,
 ) raises:
     var t0 = perf_counter_ns()
-    var gpu_world = GpuRtCombinedInstanceWorld[
+    var gpu_world = GpuRtCombinedInstanceScene[
         True,
         True,
         4,

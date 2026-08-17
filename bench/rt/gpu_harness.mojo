@@ -22,9 +22,9 @@ from bajo.rt import (
 from bajo.rt.gpu.common_kernels import GPU_RT_MAX_BLOCKS
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
 from bajo.rt.gpu.triangle_path import (
-    GpuRtTriangleWorld,
-    enqueue_render_gpu_triangles,
+    GpuRtTriangleScene,
 )
+from bajo.rt.gpu.render import enqueue_render_gpu
 from bench.timing import summarize_timings
 
 
@@ -151,10 +151,10 @@ def bench_gpu_triangle_algorithm[
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: GpuRtTriangleWorld[node_width, leaf_width, build_method, compressed],
+    world: GpuRtTriangleScene[node_width, leaf_width, build_method, compressed],
     settings: RenderSettings,
 ) raises -> GpuRtBenchResult:
-    enqueue_render_gpu_triangles[
+    enqueue_render_gpu[
         ALGORITHM,
         node_width,
         leaf_width,
@@ -169,7 +169,7 @@ def bench_gpu_triangle_algorithm[
     var render_times = List[Int](capacity=BENCH_REPEATS)
     for _ in range(BENCH_REPEATS):
         var render_t0 = perf_counter_ns()
-        enqueue_render_gpu_triangles[
+        enqueue_render_gpu[
             ALGORITHM,
             node_width,
             leaf_width,

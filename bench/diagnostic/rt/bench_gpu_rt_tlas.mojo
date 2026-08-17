@@ -23,7 +23,7 @@ from bajo.rt import (
     add_triangle_mesh_instance,
 )
 from bajo.rt.gpu.instance_path import (
-    GpuRtTriangleInstanceWorld,
+    GpuRtTriangleInstanceScene,
     enqueue_render_gpu_triangle_instances,
 )
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
@@ -52,7 +52,7 @@ struct TlasRtLayoutResult:
 
 
 def _warm_world_build(mut ctx: DeviceContext, world: World[]) raises:
-    _ = GpuRtTriangleInstanceWorld[2, 4, 1, 4](ctx, world.scene)
+    _ = GpuRtTriangleInstanceScene[2, 4, 1, 4](ctx, world.scene)
     ctx.synchronize()
 
 
@@ -134,7 +134,7 @@ def _bench_algorithm[
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: GpuRtTriangleInstanceWorld[
+    world: GpuRtTriangleInstanceScene[
         tlas_node_width,
         blas_node_width,
         tlas_leaf_width,
@@ -193,7 +193,7 @@ def _run_layout[
     label: String,
 ) raises -> TlasRtLayoutResult:
     var t0 = perf_counter_ns()
-    var gpu_world = GpuRtTriangleInstanceWorld[
+    var gpu_world = GpuRtTriangleInstanceScene[
         tlas_node_width,
         blas_node_width,
         tlas_leaf_width,

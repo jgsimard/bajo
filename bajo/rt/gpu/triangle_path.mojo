@@ -1,6 +1,5 @@
 """End-to-end GPU wavefront renderer for world-space triangle scenes."""
 
-from std.math import ceildiv
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceBuffer, DeviceContext
 
@@ -18,7 +17,7 @@ from bajo.rt.types import (
 from bajo.rt.gpu.wavefront_contract import GpuWavefrontArena
 from bajo.rt.gpu.scene import GpuScene
 from bajo.rt.gpu.triangle_geometry import GpuRtTriangleGeometry
-from bajo.rt.gpu.common_kernels import GPU_RT_BLOCK_SIZE, GPU_RT_MAX_BLOCKS
+from bajo.rt.gpu.common_kernels import GPU_RT_MAX_BLOCKS
 from bajo.rt.gpu.resources import (
     GpuRtRenderTarget,
     download_gpu_pixels,
@@ -26,23 +25,19 @@ from bajo.rt.gpu.resources import (
     upload_surface_ids,
 )
 from bajo.rt.gpu.views import (
-    GpuRtSceneView,
-    gpu_rt_trace_queue_view,
+    GpuRtTriangleView,
     _immut,
-    _immut,
-)
-from bajo.rt.gpu.scene_trace import (
-    enqueue_gpu_shadows,
-    gpu_rt_scene_trace_kernel,
+    empty_gpu_rt_instance_view,
+    empty_gpu_rt_sphere_view,
+    gpu_rt_scene_view,
 )
 from bajo.rt.gpu.path_shading import (
-    GpuRtMaterials,
-    GpuRtLights,
-    _enqueue_material_shading,
+    GpuRtShadingResources,
 )
+from bajo.rt.gpu.bounce import enqueue_gpu_rt_bounce
 
 
-struct GpuRtTriangleWorld[
+struct GpuRtTriangleScene[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
     build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
@@ -60,8 +55,7 @@ struct GpuRtTriangleWorld[
         Self.compressed,
     ]
     var triangle_surfaces: DeviceBuffer[DType.uint32]
-    var materials: GpuRtMaterials
-    var lights: GpuRtLights
+    var shading: GpuRtShadingResources
 
     def __init__(
         out self,
@@ -86,8 +80,7 @@ struct GpuRtTriangleWorld[
         self.triangle_surfaces = upload_surface_ids(
             ctx, world.triangle_surfaces
         )
-        self.materials = GpuRtMaterials(ctx, world)
-        self.lights = GpuRtLights(ctx, world)
+        self.shading = GpuRtShadingResources(ctx, world)
 
 
 def _enqueue_triangle_bounce[
@@ -101,7 +94,7 @@ def _enqueue_triangle_bounce[
 ](
     ctx: DeviceContext,
     arena: GpuWavefrontArena,
-    world: GpuRtTriangleWorld[node_width, leaf_width, build_method, compressed],
+    world: GpuRtTriangleScene[node_width, leaf_width, build_method, compressed],
     src_path_ids: DeviceBuffer[DType.uint32],
     src_path_fields: DeviceBuffer[DType.float32],
     dst_path_ids: DeviceBuffer[DType.uint32],
@@ -109,70 +102,20 @@ def _enqueue_triangle_bounce[
     rng_seed: UInt64,
     bounce: UInt32,
 ) raises:
-    var blocks = min(ceildiv(arena.capacity, GPU_RT_BLOCK_SIZE), MAX_BLOCKS)
     var dummy_f32 = _immut(world.geometry.nodes)
     var dummy_u32 = _immut(world.triangle_surfaces)
-    var scene = GpuRtSceneView(
-        dummy_f32,
-        dummy_f32,
-        UInt32(0),
-        dummy_u32,
-        dummy_f32,
-        _immut(world.geometry.nodes),
-        _immut(world.geometry.leaves),
-        world.geometry.root,
-        _immut(world.triangle_surfaces),
-        dummy_f32,
-        dummy_u32,
-        dummy_f32,
-        dummy_u32,
-        dummy_u32,
-        dummy_f32,
-        dummy_f32,
-        UInt32(0),
-        Int32(0),
-        dummy_u32,
-        _immut(world.materials.emissives),
-        _immut(world.materials.lambertians),
-        _immut(world.materials.metals),
-        _immut(world.materials.dielectrics),
-        _immut(world.lights.kinds),
-        _immut(world.lights.fields),
-        Int32(world.lights.count),
-        world.lights.total_weight,
+    var scene = gpu_rt_scene_view(
+        empty_gpu_rt_sphere_view(dummy_f32, dummy_u32),
+        GpuRtTriangleView(
+            _immut(world.geometry.nodes),
+            _immut(world.geometry.leaves),
+            world.geometry.root,
+            _immut(world.triangle_surfaces),
+        ),
+        empty_gpu_rt_instance_view(dummy_f32, dummy_u32),
+        world.shading.view(),
     )
-    var queues = gpu_rt_trace_queue_view(
-        arena,
-        src_path_ids,
-        src_path_fields,
-        dst_path_ids,
-        dst_path_fields,
-    )
-    ctx.enqueue_function[
-        gpu_rt_scene_trace_kernel[
-            ALGORITHM,
-            False,
-            True,
-            False,
-            node_width,
-            leaf_width,
-            node_width,
-            leaf_width,
-            node_width,
-            leaf_width,
-            node_width,
-            leaf_width,
-            compressed,
-        ]
-    ](
-        scene,
-        queues,
-        rng_seed,
-        bounce,
-        grid_dim=blocks,
-        block_dim=GPU_RT_BLOCK_SIZE,
-    )
-    enqueue_gpu_shadows[
+    enqueue_gpu_rt_bounce[
         ALGORITHM,
         False,
         True,
@@ -185,21 +128,21 @@ def _enqueue_triangle_bounce[
         leaf_width,
         node_width,
         leaf_width,
+        MAX_BLOCKS,
         SHADOW_MAX_BLOCKS,
         compressed,
-    ](ctx, scene, queues, arena.capacity)
-    comptime if ALGORITHM in (RENDER.PATH, RENDER.NEE, RENDER.MIS):
-        _enqueue_material_shading[ALGORITHM, MAX_BLOCKS](
-            ctx,
-            arena,
-            world.materials,
-            src_path_ids,
-            src_path_fields,
-            dst_path_ids,
-            dst_path_fields,
-            rng_seed,
-            bounce,
-        )
+    ](
+        ctx,
+        arena,
+        scene,
+        world.shading.materials,
+        src_path_ids,
+        src_path_fields,
+        dst_path_ids,
+        dst_path_fields,
+        rng_seed,
+        bounce,
+    )
 
 
 def enqueue_render_gpu_triangles[
@@ -213,7 +156,7 @@ def enqueue_render_gpu_triangles[
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: GpuRtTriangleWorld[node_width, leaf_width, build_method, compressed],
+    world: GpuRtTriangleScene[node_width, leaf_width, build_method, compressed],
     settings: RenderSettings,
 ) raises:
     """Submit a triangle render asynchronously into `target.pixels`."""
@@ -259,7 +202,7 @@ def render_gpu_triangles[
 
     with DeviceContext() as ctx:
         var init_t0 = perf_counter_ns()
-        var gpu_world = GpuRtTriangleWorld[
+        var gpu_world = GpuRtTriangleScene[
             node_width, leaf_width, build_method, compressed
         ](ctx, world)
         var target = GpuRtRenderTarget(ctx, settings, camera)

@@ -1,6 +1,5 @@
 """GPU wavefront renderer for mixed world-space sphere/triangle scenes."""
 
-from std.math import ceildiv
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceBuffer, DeviceContext
 
@@ -19,7 +18,6 @@ from bajo.rt.gpu.wavefront_contract import GpuWavefrontArena
 from bajo.rt.gpu.scene import GpuScene
 from bajo.rt.gpu.triangle_geometry import GpuRtTriangleGeometry
 from bajo.rt.gpu.sphere_geometry import GpuRtSphereGeometry
-from bajo.rt.gpu.common_kernels import GPU_RT_BLOCK_SIZE, GPU_RT_MAX_BLOCKS
 from bajo.rt.gpu.resources import (
     GpuRtRenderTarget,
     download_gpu_pixels,
@@ -27,23 +25,19 @@ from bajo.rt.gpu.resources import (
     upload_surface_ids,
 )
 from bajo.rt.gpu.views import (
-    GpuRtSceneView,
-    gpu_rt_trace_queue_view,
+    GpuRtSphereView,
+    GpuRtTriangleView,
     _immut,
-    _immut,
-)
-from bajo.rt.gpu.scene_trace import (
-    enqueue_gpu_shadows,
-    gpu_rt_scene_trace_kernel,
+    empty_gpu_rt_instance_view,
+    gpu_rt_scene_view,
 )
 from bajo.rt.gpu.path_shading import (
-    GpuRtMaterials,
-    GpuRtLights,
-    _enqueue_material_shading,
+    GpuRtShadingResources,
 )
+from bajo.rt.gpu.bounce import enqueue_gpu_rt_bounce
 
 
-struct GpuRtMixedWorld[
+struct GpuRtMixedScene[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
     triangle_node_width: SIMDLength = 8,
@@ -67,8 +61,7 @@ struct GpuRtMixedWorld[
         Self.triangle_compressed,
     ]
     var triangle_surfaces: DeviceBuffer[DType.uint32]
-    var materials: GpuRtMaterials
-    var lights: GpuRtLights
+    var shading: GpuRtShadingResources
 
     def __init__(
         out self,
@@ -97,8 +90,7 @@ struct GpuRtMixedWorld[
         self.triangle_surfaces = upload_surface_ids(
             ctx, world.triangle_surfaces
         )
-        self.materials = GpuRtMaterials(ctx, world)
-        self.lights = GpuRtLights(ctx, world)
+        self.shading = GpuRtShadingResources(ctx, world)
 
 
 def _enqueue_mixed_bounce[
@@ -112,7 +104,7 @@ def _enqueue_mixed_bounce[
 ](
     ctx: DeviceContext,
     arena: GpuWavefrontArena,
-    world: GpuRtMixedWorld[
+    world: GpuRtMixedScene[
         node_width,
         leaf_width,
         triangle_node_width,
@@ -127,72 +119,26 @@ def _enqueue_mixed_bounce[
     rng_seed: UInt64,
     bounce: UInt32,
 ) raises:
-    var blocks = min(
-        ceildiv(arena.capacity, GPU_RT_BLOCK_SIZE), GPU_RT_MAX_BLOCKS
-    )
     var dummy_f32 = _immut(world.sphere_geometry.bvh.tree.wide_nodes)
     var dummy_u32 = _immut(world.sphere_geometry.surfaces)
-    var scene = GpuRtSceneView(
-        _immut(world.sphere_geometry.bvh.tree.wide_nodes),
-        _immut(world.sphere_geometry.bvh.leaf_spheres),
-        world.sphere_geometry.bvh.tree.root_idx,
-        _immut(world.sphere_geometry.surfaces),
-        _immut(world.sphere_geometry.signed_radii),
-        _immut(world.triangle_geometry.nodes),
-        _immut(world.triangle_geometry.leaves),
-        world.triangle_geometry.root,
-        _immut(world.triangle_surfaces),
-        dummy_f32,
-        dummy_u32,
-        dummy_f32,
-        dummy_u32,
-        dummy_u32,
-        dummy_f32,
-        dummy_f32,
-        UInt32(0),
-        Int32(0),
-        dummy_u32,
-        _immut(world.materials.emissives),
-        _immut(world.materials.lambertians),
-        _immut(world.materials.metals),
-        _immut(world.materials.dielectrics),
-        _immut(world.lights.kinds),
-        _immut(world.lights.fields),
-        Int32(world.lights.count),
-        world.lights.total_weight,
+    var scene = gpu_rt_scene_view(
+        GpuRtSphereView(
+            _immut(world.sphere_geometry.bvh.tree.wide_nodes),
+            _immut(world.sphere_geometry.bvh.leaf_spheres),
+            world.sphere_geometry.bvh.tree.root_idx,
+            _immut(world.sphere_geometry.surfaces),
+            _immut(world.sphere_geometry.signed_radii),
+        ),
+        GpuRtTriangleView(
+            _immut(world.triangle_geometry.nodes),
+            _immut(world.triangle_geometry.leaves),
+            world.triangle_geometry.root,
+            _immut(world.triangle_surfaces),
+        ),
+        empty_gpu_rt_instance_view(dummy_f32, dummy_u32),
+        world.shading.view(),
     )
-    var queues = gpu_rt_trace_queue_view(
-        arena,
-        src_path_ids,
-        src_path_fields,
-        dst_path_ids,
-        dst_path_fields,
-    )
-    ctx.enqueue_function[
-        gpu_rt_scene_trace_kernel[
-            ALGORITHM,
-            True,
-            True,
-            False,
-            node_width,
-            leaf_width,
-            triangle_node_width,
-            triangle_leaf_width,
-            node_width,
-            leaf_width,
-            node_width,
-            leaf_width,
-            triangle_compressed,
-        ]
-    ](
-        scene,
-        queues,
-        rng_seed,
-        bounce,
-        grid_dim=blocks,
-        block_dim=GPU_RT_BLOCK_SIZE,
-    )
-    enqueue_gpu_shadows[
+    enqueue_gpu_rt_bounce[
         ALGORITHM,
         True,
         True,
@@ -205,21 +151,19 @@ def _enqueue_mixed_bounce[
         leaf_width,
         node_width,
         leaf_width,
-        GPU_RT_MAX_BLOCKS,
-        triangle_compressed,
-    ](ctx, scene, queues, arena.capacity)
-    comptime if ALGORITHM in (RENDER.PATH, RENDER.NEE, RENDER.MIS):
-        _enqueue_material_shading[ALGORITHM](
-            ctx,
-            arena,
-            world.materials,
-            src_path_ids,
-            src_path_fields,
-            dst_path_ids,
-            dst_path_fields,
-            rng_seed,
-            bounce,
-        )
+        triangle_compressed=triangle_compressed,
+    ](
+        ctx,
+        arena,
+        scene,
+        world.shading.materials,
+        src_path_ids,
+        src_path_fields,
+        dst_path_ids,
+        dst_path_fields,
+        rng_seed,
+        bounce,
+    )
 
 
 def enqueue_render_gpu_mixed[
@@ -234,7 +178,7 @@ def enqueue_render_gpu_mixed[
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: GpuRtMixedWorld[
+    world: GpuRtMixedScene[
         node_width,
         leaf_width,
         triangle_node_width,
@@ -290,7 +234,7 @@ def render_gpu_mixed[
 
     with DeviceContext() as ctx:
         var init_t0 = perf_counter_ns()
-        var gpu_world = GpuRtMixedWorld[
+        var gpu_world = GpuRtMixedScene[
             node_width,
             leaf_width,
             triangle_node_width,

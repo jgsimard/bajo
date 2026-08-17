@@ -1,6 +1,5 @@
 """GPU RT specialization combining static geometry with triangle instances."""
 
-from std.math import ceildiv
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceBuffer, DeviceContext
 
@@ -25,7 +24,6 @@ from bajo.rt.gpu.wavefront_contract import GpuWavefrontArena
 from bajo.rt.gpu.scene import GpuScene
 from bajo.rt.gpu.triangle_geometry import GpuRtTriangleGeometry
 from bajo.rt.gpu.sphere_geometry import GpuRtSphereGeometry
-from bajo.rt.gpu.common_kernels import GPU_RT_BLOCK_SIZE, GPU_RT_MAX_BLOCKS
 from bajo.rt.gpu.resources import (
     GpuRtRenderTarget,
     download_gpu_pixels,
@@ -33,23 +31,19 @@ from bajo.rt.gpu.resources import (
     upload_surface_ids,
 )
 from bajo.rt.gpu.views import (
-    GpuRtSceneView,
-    gpu_rt_trace_queue_view,
+    GpuRtInstanceView,
+    GpuRtSphereView,
+    GpuRtTriangleView,
     _immut,
-    _immut,
-)
-from bajo.rt.gpu.scene_trace import (
-    enqueue_gpu_shadows,
-    gpu_rt_scene_trace_kernel,
+    gpu_rt_scene_view,
 )
 from bajo.rt.gpu.path_shading import (
-    GpuRtLights,
-    GpuRtMaterials,
-    _enqueue_material_shading,
+    GpuRtShadingResources,
 )
+from bajo.rt.gpu.bounce import enqueue_gpu_rt_bounce
 
 
-struct GpuRtCombinedInstanceWorld[
+struct GpuRtCombinedInstanceScene[
     HAS_SPHERES: Bool,
     HAS_TRIANGLES: Bool,
     node_width: SIMDLength,
@@ -91,8 +85,7 @@ struct GpuRtCombinedInstanceWorld[
     ]
     var triangle_surfaces: DeviceBuffer[DType.uint32]
     var instance_surfaces: DeviceBuffer[DType.uint32]
-    var materials: GpuRtMaterials
-    var lights: GpuRtLights
+    var shading: GpuRtShadingResources
 
     def __init__(
         out self,
@@ -150,8 +143,7 @@ struct GpuRtCombinedInstanceWorld[
         self.instance_surfaces = upload_surface_ids(
             ctx, world.triangle_instance_surfaces
         )
-        self.materials = GpuRtMaterials(ctx, world)
-        self.lights = GpuRtLights(ctx, world)
+        self.shading = GpuRtShadingResources(ctx, world)
 
 
 def _enqueue_combined_instance_bounce[
@@ -174,7 +166,7 @@ def _enqueue_combined_instance_bounce[
 ](
     ctx: DeviceContext,
     arena: GpuWavefrontArena,
-    world: GpuRtCombinedInstanceWorld[
+    world: GpuRtCombinedInstanceScene[
         HAS_SPHERES,
         HAS_TRIANGLES,
         node_width,
@@ -198,71 +190,35 @@ def _enqueue_combined_instance_bounce[
     rng_seed: UInt64,
     bounce: UInt32,
 ) raises:
-    var blocks = min(
-        ceildiv(arena.capacity, GPU_RT_BLOCK_SIZE), GPU_RT_MAX_BLOCKS
+    var scene = gpu_rt_scene_view(
+        GpuRtSphereView(
+            _immut(world.sphere_geometry.bvh.tree.wide_nodes),
+            _immut(world.sphere_geometry.bvh.leaf_spheres),
+            world.sphere_geometry.bvh.tree.root_idx,
+            _immut(world.sphere_geometry.surfaces),
+            _immut(world.sphere_geometry.signed_radii),
+        ),
+        GpuRtTriangleView(
+            _immut(world.triangle_geometry.nodes),
+            _immut(world.triangle_geometry.leaves),
+            world.triangle_geometry.root,
+            _immut(world.triangle_surfaces),
+        ),
+        GpuRtInstanceView(
+            _immut(world.tlas.core.tree.wide_nodes),
+            _immut(world.tlas.core.tree.leaf_block_indices),
+            _immut(world.tlas.core.inst_inv_transform),
+            _immut(world.tlas.core.inst_blas_indices),
+            _immut(world.blases.descs),
+            _immut(world.blases.wide_nodes),
+            _immut(world.blases.leaves),
+            world.tlas.core.tree.root_idx,
+            Int32(world.tlas.core.inst_count),
+            _immut(world.instance_surfaces),
+        ),
+        world.shading.view(),
     )
-    var scene = GpuRtSceneView(
-        _immut(world.sphere_geometry.bvh.tree.wide_nodes),
-        _immut(world.sphere_geometry.bvh.leaf_spheres),
-        world.sphere_geometry.bvh.tree.root_idx,
-        _immut(world.sphere_geometry.surfaces),
-        _immut(world.sphere_geometry.signed_radii),
-        _immut(world.triangle_geometry.nodes),
-        _immut(world.triangle_geometry.leaves),
-        world.triangle_geometry.root,
-        _immut(world.triangle_surfaces),
-        _immut(world.tlas.core.tree.wide_nodes),
-        _immut(world.tlas.core.tree.leaf_block_indices),
-        _immut(world.tlas.core.inst_inv_transform),
-        _immut(world.tlas.core.inst_blas_indices),
-        _immut(world.blases.descs),
-        _immut(world.blases.wide_nodes),
-        _immut(world.blases.leaves),
-        world.tlas.core.tree.root_idx,
-        Int32(world.tlas.core.inst_count),
-        _immut(world.instance_surfaces),
-        _immut(world.materials.emissives),
-        _immut(world.materials.lambertians),
-        _immut(world.materials.metals),
-        _immut(world.materials.dielectrics),
-        _immut(world.lights.kinds),
-        _immut(world.lights.fields),
-        Int32(world.lights.count),
-        world.lights.total_weight,
-    )
-    var queues = gpu_rt_trace_queue_view(
-        arena,
-        src_path_ids,
-        src_path_fields,
-        dst_path_ids,
-        dst_path_fields,
-    )
-    ctx.enqueue_function[
-        gpu_rt_scene_trace_kernel[
-            ALGORITHM,
-            HAS_SPHERES,
-            HAS_TRIANGLES,
-            True,
-            node_width,
-            leaf_width,
-            triangle_node_width,
-            triangle_leaf_width,
-            tlas_node_width,
-            tlas_leaf_width,
-            blas_node_width,
-            blas_leaf_width,
-            triangle_compressed,
-            blas_compressed,
-        ]
-    ](
-        scene,
-        queues,
-        rng_seed,
-        bounce,
-        grid_dim=blocks,
-        block_dim=GPU_RT_BLOCK_SIZE,
-    )
-    enqueue_gpu_shadows[
+    enqueue_gpu_rt_bounce[
         ALGORITHM,
         HAS_SPHERES,
         HAS_TRIANGLES,
@@ -275,22 +231,20 @@ def _enqueue_combined_instance_bounce[
         tlas_leaf_width,
         blas_node_width,
         blas_leaf_width,
-        GPU_RT_MAX_BLOCKS,
-        triangle_compressed,
-        blas_compressed,
-    ](ctx, scene, queues, arena.capacity)
-    comptime if ALGORITHM in (RENDER.PATH, RENDER.NEE, RENDER.MIS):
-        _enqueue_material_shading[ALGORITHM](
-            ctx,
-            arena,
-            world.materials,
-            src_path_ids,
-            src_path_fields,
-            dst_path_ids,
-            dst_path_fields,
-            rng_seed,
-            bounce,
-        )
+        triangle_compressed=triangle_compressed,
+        blas_compressed=blas_compressed,
+    ](
+        ctx,
+        arena,
+        scene,
+        world.shading.materials,
+        src_path_ids,
+        src_path_fields,
+        dst_path_ids,
+        dst_path_fields,
+        rng_seed,
+        bounce,
+    )
 
 
 def enqueue_render_gpu_combined_instances[
@@ -314,7 +268,7 @@ def enqueue_render_gpu_combined_instances[
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: GpuRtCombinedInstanceWorld[
+    world: GpuRtCombinedInstanceScene[
         HAS_SPHERES,
         HAS_TRIANGLES,
         node_width,
@@ -390,7 +344,7 @@ def render_gpu_combined_instances[
     var render_ns: Int
     with DeviceContext() as ctx:
         var init_t0 = perf_counter_ns()
-        var gpu_world = GpuRtCombinedInstanceWorld[
+        var gpu_world = GpuRtCombinedInstanceScene[
             HAS_SPHERES,
             HAS_TRIANGLES,
             node_width,

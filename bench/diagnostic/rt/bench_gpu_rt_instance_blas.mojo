@@ -23,7 +23,7 @@ from bajo.rt import (
     add_triangle_mesh_instance,
 )
 from bajo.rt.gpu.instance_path import (
-    GpuRtTriangleInstanceWorld,
+    GpuRtTriangleInstanceScene,
     enqueue_render_gpu_triangle_instances,
 )
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
@@ -102,7 +102,7 @@ def _bench_algorithm[
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: GpuRtTriangleInstanceWorld[
+    world: GpuRtTriangleInstanceScene[
         2,
         8 if compressed else blas_node_width,
         2,
@@ -160,7 +160,7 @@ def _run_layout[
 ) raises:
     comptime effective_width = 8 if compressed else blas_node_width
     var t0 = perf_counter_ns()
-    var gpu_world = GpuRtTriangleInstanceWorld[
+    var gpu_world = GpuRtTriangleInstanceScene[
         2, effective_width, 2, blas_leaf_width, method, compressed
     ](ctx, world.scene)
     ctx.synchronize()

@@ -23,7 +23,7 @@ from bajo.rt import (
 )
 from bajo.rt.gpu.common_kernels import GPU_RT_MAX_BLOCKS
 from bajo.rt.gpu.resources import GpuRtRenderTarget
-from bajo.rt.gpu.triangle_path import GpuRtTriangleWorld
+from bajo.rt.gpu.triangle_path import GpuRtTriangleScene
 from bench.rt.gpu_harness import (
     BENCH_REPEATS,
     IMAGE_HEIGHT,
@@ -92,7 +92,7 @@ def _run_builder[
     label: String,
 ) raises:
     var build_t0 = perf_counter_ns()
-    var gpu_world = GpuRtTriangleWorld[
+    var gpu_world = GpuRtTriangleScene[
         NODE_WIDTH, LEAF_WIDTH, method, compressed
     ](ctx, world.scene)
     ctx.synchronize()

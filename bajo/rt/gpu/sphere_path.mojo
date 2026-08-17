@@ -1,6 +1,5 @@
 """End-to-end GPU wavefront renderer for sphere worlds."""
 
-from std.math import ceildiv
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceBuffer, DeviceContext
 
@@ -17,30 +16,25 @@ from bajo.rt.types import (
 from bajo.rt.gpu.wavefront_contract import GpuWavefrontArena
 from bajo.rt.gpu.scene import GpuScene
 from bajo.rt.gpu.sphere_geometry import GpuRtSphereGeometry
-from bajo.rt.gpu.common_kernels import GPU_RT_BLOCK_SIZE, GPU_RT_MAX_BLOCKS
 from bajo.rt.gpu.resources import (
     GpuRtRenderTarget,
     download_gpu_pixels,
     enqueue_gpu_wavefront,
 )
 from bajo.rt.gpu.path_shading import (
-    GpuRtLights,
-    GpuRtMaterials,
-    _enqueue_material_shading,
+    GpuRtShadingResources,
 )
 from bajo.rt.gpu.views import (
-    GpuRtSceneView,
-    gpu_rt_trace_queue_view,
+    GpuRtSphereView,
     _immut,
-    _immut,
+    empty_gpu_rt_instance_view,
+    empty_gpu_rt_triangle_view,
+    gpu_rt_scene_view,
 )
-from bajo.rt.gpu.scene_trace import (
-    enqueue_gpu_shadows,
-    gpu_rt_scene_trace_kernel,
-)
+from bajo.rt.gpu.bounce import enqueue_gpu_rt_bounce
 
 
-struct GpuRtSphereWorld[
+struct GpuRtSphereScene[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
 ](GpuScene):
@@ -51,8 +45,7 @@ struct GpuRtSphereWorld[
     var geometry: GpuRtSphereGeometry[
         Frame.WORLD, Self.node_width, Self.leaf_width
     ]
-    var materials: GpuRtMaterials
-    var lights: GpuRtLights
+    var shading: GpuRtShadingResources
 
     def __init__(
         out self,
@@ -71,8 +64,7 @@ struct GpuRtSphereWorld[
         self.geometry = GpuRtSphereGeometry[
             Frame.WORLD, Self.node_width, Self.leaf_width
         ](ctx, world.spheres, world.sphere_surfaces)
-        self.materials = GpuRtMaterials(ctx, world)
-        self.lights = GpuRtLights(ctx, world)
+        self.shading = GpuRtShadingResources(ctx, world)
 
 
 def _enqueue_sphere_bounce[
@@ -82,7 +74,7 @@ def _enqueue_sphere_bounce[
 ](
     ctx: DeviceContext,
     arena: GpuWavefrontArena,
-    world: GpuRtSphereWorld[node_width, leaf_width],
+    world: GpuRtSphereScene[node_width, leaf_width],
     src_path_ids: DeviceBuffer[DType.uint32],
     src_path_fields: DeviceBuffer[DType.float32],
     dst_path_ids: DeviceBuffer[DType.uint32],
@@ -90,71 +82,21 @@ def _enqueue_sphere_bounce[
     rng_seed: UInt64,
     bounce: UInt32,
 ) raises:
-    var blocks = min(
-        ceildiv(arena.capacity, GPU_RT_BLOCK_SIZE), GPU_RT_MAX_BLOCKS
-    )
     var dummy_f32 = _immut(world.geometry.bvh.tree.wide_nodes)
     var dummy_u32 = _immut(world.geometry.surfaces)
-    var scene = GpuRtSceneView(
-        _immut(world.geometry.bvh.tree.wide_nodes),
-        _immut(world.geometry.bvh.leaf_spheres),
-        world.geometry.bvh.tree.root_idx,
-        _immut(world.geometry.surfaces),
-        _immut(world.geometry.signed_radii),
-        dummy_f32,
-        dummy_f32,
-        UInt32(0),
-        dummy_u32,
-        dummy_f32,
-        dummy_u32,
-        dummy_f32,
-        dummy_u32,
-        dummy_u32,
-        dummy_f32,
-        dummy_f32,
-        UInt32(0),
-        Int32(0),
-        dummy_u32,
-        _immut(world.materials.emissives),
-        _immut(world.materials.lambertians),
-        _immut(world.materials.metals),
-        _immut(world.materials.dielectrics),
-        _immut(world.lights.kinds),
-        _immut(world.lights.fields),
-        Int32(world.lights.count),
-        world.lights.total_weight,
+    var scene = gpu_rt_scene_view(
+        GpuRtSphereView(
+            _immut(world.geometry.bvh.tree.wide_nodes),
+            _immut(world.geometry.bvh.leaf_spheres),
+            world.geometry.bvh.tree.root_idx,
+            _immut(world.geometry.surfaces),
+            _immut(world.geometry.signed_radii),
+        ),
+        empty_gpu_rt_triangle_view(dummy_f32, dummy_u32),
+        empty_gpu_rt_instance_view(dummy_f32, dummy_u32),
+        world.shading.view(),
     )
-    var queues = gpu_rt_trace_queue_view(
-        arena,
-        src_path_ids,
-        src_path_fields,
-        dst_path_ids,
-        dst_path_fields,
-    )
-    ctx.enqueue_function[
-        gpu_rt_scene_trace_kernel[
-            ALGORITHM,
-            True,
-            False,
-            False,
-            node_width,
-            leaf_width,
-            node_width,
-            leaf_width,
-            node_width,
-            leaf_width,
-            node_width,
-            leaf_width,
-        ]
-    ](
-        scene,
-        queues,
-        rng_seed,
-        bounce,
-        grid_dim=blocks,
-        block_dim=GPU_RT_BLOCK_SIZE,
-    )
-    enqueue_gpu_shadows[
+    enqueue_gpu_rt_bounce[
         ALGORITHM,
         True,
         False,
@@ -167,19 +109,18 @@ def _enqueue_sphere_bounce[
         leaf_width,
         node_width,
         leaf_width,
-    ](ctx, scene, queues, arena.capacity)
-    comptime if ALGORITHM in (RENDER.PATH, RENDER.NEE, RENDER.MIS):
-        _enqueue_material_shading[ALGORITHM](
-            ctx,
-            arena,
-            world.materials,
-            src_path_ids,
-            src_path_fields,
-            dst_path_ids,
-            dst_path_fields,
-            rng_seed,
-            bounce,
-        )
+    ](
+        ctx,
+        arena,
+        scene,
+        world.shading.materials,
+        src_path_ids,
+        src_path_fields,
+        dst_path_ids,
+        dst_path_fields,
+        rng_seed,
+        bounce,
+    )
 
 
 def enqueue_render_gpu_spheres[
@@ -189,7 +130,7 @@ def enqueue_render_gpu_spheres[
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: GpuRtSphereWorld[node_width, leaf_width],
+    world: GpuRtSphereScene[node_width, leaf_width],
     settings: RenderSettings,
 ) raises:
     """Submit a sphere render asynchronously into `target.pixels`."""
@@ -225,7 +166,7 @@ def render_gpu_spheres[
 
     with DeviceContext() as ctx:
         var init_t0 = perf_counter_ns()
-        var gpu_world = GpuRtSphereWorld[node_width, leaf_width](ctx, world)
+        var gpu_world = GpuRtSphereScene[node_width, leaf_width](ctx, world)
         var target = GpuRtRenderTarget(ctx, settings, camera)
         init_ns = Int(perf_counter_ns() - init_t0)
 

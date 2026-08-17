@@ -25,6 +25,57 @@ def _mut[
 
 
 @fieldwise_init
+struct GpuRtSphereView:
+    """Host-side inputs for the sphere portion of a flat scene view."""
+
+    var nodes: Pointer[Float32, ImmUntrackedOrigin]
+    var leaves: Pointer[Float32, ImmUntrackedOrigin]
+    var root: UInt32
+    var surfaces: Pointer[UInt32, ImmUntrackedOrigin]
+    var signed_radii: Pointer[Float32, ImmUntrackedOrigin]
+
+
+@fieldwise_init
+struct GpuRtTriangleView:
+    """Host-side inputs for the static-triangle portion of a scene view."""
+
+    var nodes: Pointer[Float32, ImmUntrackedOrigin]
+    var leaves: Pointer[Float32, ImmUntrackedOrigin]
+    var root: UInt32
+    var surfaces: Pointer[UInt32, ImmUntrackedOrigin]
+
+
+@fieldwise_init
+struct GpuRtInstanceView:
+    """Host-side inputs for the triangle-instance portion of a scene view."""
+
+    var tlas_nodes: Pointer[Float32, ImmUntrackedOrigin]
+    var tlas_leaf_instances: Pointer[UInt32, ImmUntrackedOrigin]
+    var inv_transforms: Pointer[Float32, ImmUntrackedOrigin]
+    var blas_indices: Pointer[UInt32, ImmUntrackedOrigin]
+    var blas_descs: Pointer[UInt32, ImmUntrackedOrigin]
+    var blas_nodes: Pointer[Float32, ImmUntrackedOrigin]
+    var blas_leaves: Pointer[Float32, ImmUntrackedOrigin]
+    var tlas_root: UInt32
+    var count: Int32
+    var surfaces: Pointer[UInt32, ImmUntrackedOrigin]
+
+
+@fieldwise_init
+struct GpuRtShadingView:
+    """Host-side inputs for material and direct-light tables."""
+
+    var emissives: Pointer[Float32, ImmUntrackedOrigin]
+    var lambertians: Pointer[Float32, ImmUntrackedOrigin]
+    var metals: Pointer[Float32, ImmUntrackedOrigin]
+    var dielectrics: Pointer[Float32, ImmUntrackedOrigin]
+    var light_kinds: Pointer[UInt32, ImmUntrackedOrigin]
+    var light_fields: Pointer[Float32, ImmUntrackedOrigin]
+    var light_count: Int32
+    var total_light_weight: Float32
+
+
+@fieldwise_init
 struct GpuRtSceneView(DevicePassable, TrivialRegisterPassable):
     """Non-owning pointers to every optional scene component.
 
@@ -71,6 +122,82 @@ struct GpuRtSceneView(DevicePassable, TrivialRegisterPassable):
     @staticmethod
     def get_type_name() -> String:
         return "GpuRtSceneView"
+
+
+@always_inline
+def gpu_rt_scene_view(
+    spheres: GpuRtSphereView,
+    triangles: GpuRtTriangleView,
+    instances: GpuRtInstanceView,
+    shading: GpuRtShadingView,
+) -> GpuRtSceneView:
+    """Flatten host-side component views into the stable device ABI."""
+    return GpuRtSceneView(
+        spheres.nodes,
+        spheres.leaves,
+        spheres.root,
+        spheres.surfaces,
+        spheres.signed_radii,
+        triangles.nodes,
+        triangles.leaves,
+        triangles.root,
+        triangles.surfaces,
+        instances.tlas_nodes,
+        instances.tlas_leaf_instances,
+        instances.inv_transforms,
+        instances.blas_indices,
+        instances.blas_descs,
+        instances.blas_nodes,
+        instances.blas_leaves,
+        instances.tlas_root,
+        instances.count,
+        instances.surfaces,
+        shading.emissives,
+        shading.lambertians,
+        shading.metals,
+        shading.dielectrics,
+        shading.light_kinds,
+        shading.light_fields,
+        shading.light_count,
+        shading.total_light_weight,
+    )
+
+
+@always_inline
+def empty_gpu_rt_sphere_view(
+    dummy_f32: Pointer[Float32, ImmUntrackedOrigin],
+    dummy_u32: Pointer[UInt32, ImmUntrackedOrigin],
+) -> GpuRtSphereView:
+    return GpuRtSphereView(
+        dummy_f32, dummy_f32, UInt32(0), dummy_u32, dummy_f32
+    )
+
+
+@always_inline
+def empty_gpu_rt_triangle_view(
+    dummy_f32: Pointer[Float32, ImmUntrackedOrigin],
+    dummy_u32: Pointer[UInt32, ImmUntrackedOrigin],
+) -> GpuRtTriangleView:
+    return GpuRtTriangleView(dummy_f32, dummy_f32, UInt32(0), dummy_u32)
+
+
+@always_inline
+def empty_gpu_rt_instance_view(
+    dummy_f32: Pointer[Float32, ImmUntrackedOrigin],
+    dummy_u32: Pointer[UInt32, ImmUntrackedOrigin],
+) -> GpuRtInstanceView:
+    return GpuRtInstanceView(
+        dummy_f32,
+        dummy_u32,
+        dummy_f32,
+        dummy_u32,
+        dummy_u32,
+        dummy_f32,
+        dummy_f32,
+        UInt32(0),
+        Int32(0),
+        dummy_u32,
+    )
 
 
 @fieldwise_init

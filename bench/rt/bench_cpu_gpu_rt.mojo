@@ -12,7 +12,7 @@ from bajo.rt.cpu import render_depth_first, render_wavefront
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
 from bajo.rt.gpu.common_kernels import GPU_RT_MAX_BLOCKS
 from bajo.rt.gpu.triangle_path import (
-    GpuRtTriangleWorld,
+    GpuRtTriangleScene,
     enqueue_render_gpu_triangles,
 )
 from bench.rt.gpu_harness import (
@@ -111,7 +111,7 @@ def _bench_gpu[
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: GpuRtTriangleWorld[NODE_WIDTH, LEAF_WIDTH, build_method, compressed],
+    world: GpuRtTriangleScene[NODE_WIDTH, LEAF_WIDTH, build_method, compressed],
     settings: RenderSettings,
 ) raises -> GpuTiming:
     enqueue_render_gpu_triangles[
@@ -244,17 +244,17 @@ def main() raises:
     var cpu_nee_64 = _bench_cpu[RENDER.NEE](settings, camera, many_light_world)
 
     with DeviceContext() as ctx:
-        var gpu_world = GpuRtTriangleWorld[
+        var gpu_world = GpuRtTriangleScene[
             NODE_WIDTH, LEAF_WIDTH, GpuBvhBuildMethod.LBVH, False
         ](ctx, world.scene)
         var target = GpuRtRenderTarget(ctx, settings, camera)
-        var many_gpu_world = GpuRtTriangleWorld[
+        var many_gpu_world = GpuRtTriangleScene[
             NODE_WIDTH, LEAF_WIDTH, GpuBvhBuildMethod.LBVH, False
         ](ctx, many_light_world.scene)
-        var cwbvh_world = GpuRtTriangleWorld[
+        var cwbvh_world = GpuRtTriangleScene[
             NODE_WIDTH, LEAF_WIDTH, GpuBvhBuildMethod.HPLOC, True
         ](ctx, world.scene)
-        var many_cwbvh_world = GpuRtTriangleWorld[
+        var many_cwbvh_world = GpuRtTriangleScene[
             NODE_WIDTH, LEAF_WIDTH, GpuBvhBuildMethod.HPLOC, True
         ](ctx, many_light_world.scene)
         ctx.synchronize()

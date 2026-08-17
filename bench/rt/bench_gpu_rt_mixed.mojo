@@ -8,7 +8,7 @@ from max.gpu.host import DeviceContext
 from bajo.core import Frame, Point3f32, Vec3f32
 from bajo.core.utils import ns_to_ms
 from bajo.rt import Camera, RENDER, RenderSettings
-from bajo.rt.gpu.mixed_path import GpuRtMixedWorld, enqueue_render_gpu_mixed
+from bajo.rt.gpu.mixed_path import GpuRtMixedScene, enqueue_render_gpu_mixed
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
 from bench.rt.gpu_harness import (
     BENCH_REPEATS,
@@ -44,7 +44,7 @@ def _bench_algorithm[
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: GpuRtMixedWorld[NODE_WIDTH, LEAF_WIDTH],
+    world: GpuRtMixedScene[NODE_WIDTH, LEAF_WIDTH],
     settings: RenderSettings,
 ) raises -> GpuRtBenchResult:
     enqueue_render_gpu_mixed[ALGORITHM, NODE_WIDTH, LEAF_WIDTH](
@@ -90,7 +90,7 @@ def main() raises:
 
     with DeviceContext() as ctx:
         var scene_t0 = perf_counter_ns()
-        var gpu_world = GpuRtMixedWorld[NODE_WIDTH, LEAF_WIDTH](
+        var gpu_world = GpuRtMixedScene[NODE_WIDTH, LEAF_WIDTH](
             ctx, world.scene
         )
         ctx.synchronize()

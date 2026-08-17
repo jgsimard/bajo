@@ -5,7 +5,7 @@ from max.gpu.host import DeviceContext
 
 from bajo.rt import RENDER, RenderSettings
 from bajo.rt.gpu.resources import GpuRtRenderTarget
-from bajo.rt.gpu.triangle_path import GpuRtTriangleWorld
+from bajo.rt.gpu.triangle_path import GpuRtTriangleScene
 from bench.rt.gpu_harness import (
     BENCH_REPEATS,
     IMAGE_HEIGHT,
@@ -26,7 +26,7 @@ def _run_capacity[
     PATH_CAPACITY: Int,
 ](
     mut ctx: DeviceContext,
-    world: GpuRtTriangleWorld[NODE_WIDTH, LEAF_WIDTH],
+    world: GpuRtTriangleScene[NODE_WIDTH, LEAF_WIDTH],
     settings: RenderSettings,
     sample_count: Int,
     label: String,
@@ -63,7 +63,7 @@ def main() raises:
         t"median of {BENCH_REPEATS}; total samples={sample_count}"
     )
     with DeviceContext() as ctx:
-        var gpu_world = GpuRtTriangleWorld[NODE_WIDTH, LEAF_WIDTH](
+        var gpu_world = GpuRtTriangleScene[NODE_WIDTH, LEAF_WIDTH](
             ctx, world.scene
         )
         ctx.synchronize()

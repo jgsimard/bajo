@@ -8,7 +8,7 @@ from max.gpu.host import DeviceContext
 from bajo.core.utils import ns_to_ms
 from bajo.rt import RENDER, RenderSettings
 from bajo.rt.gpu.resources import GpuRtRenderTarget
-from bajo.rt.gpu.triangle_path import GpuRtTriangleWorld
+from bajo.rt.gpu.prepared_scene import prepare_gpu_triangle_scene
 from bench.rt.gpu_harness import (
     BENCH_REPEATS,
     IMAGE_HEIGHT,
@@ -47,9 +47,7 @@ def main() raises:
 
     with DeviceContext() as ctx:
         var scene_t0 = perf_counter_ns()
-        var gpu_world = GpuRtTriangleWorld[NODE_WIDTH, LEAF_WIDTH](
-            ctx, world.scene
-        )
+        var gpu_world = prepare_gpu_triangle_scene(ctx, world.scene)
         ctx.synchronize()
         var scene_ns = Int(perf_counter_ns() - scene_t0)
 
@@ -84,7 +82,7 @@ def main() raises:
 
         var many_light_world = make_many_light_world()
         var many_scene_t0 = perf_counter_ns()
-        var many_gpu_world = GpuRtTriangleWorld[NODE_WIDTH, LEAF_WIDTH](
+        var many_gpu_world = prepare_gpu_triangle_scene(
             ctx, many_light_world.scene
         )
         ctx.synchronize()

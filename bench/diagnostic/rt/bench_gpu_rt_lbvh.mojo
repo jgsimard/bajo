@@ -16,7 +16,7 @@ from bajo.core import Frame
 from bajo.core.utils import ns_to_ms
 from bajo.rt import RENDER, RenderSettings, World
 from bajo.rt.gpu.combined_instance_path import (
-    GpuRtCombinedInstanceWorld,
+    GpuRtCombinedInstanceScene,
     enqueue_render_gpu_combined_instances,
 )
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
@@ -43,7 +43,7 @@ def _warm_world_build[
     world: World[world_bvh_width, instance_bvh_width],
 ) raises:
     """Absorb one-time driver, allocator, and builder initialization."""
-    _ = GpuRtCombinedInstanceWorld[
+    _ = GpuRtCombinedInstanceScene[
         True,
         True,
         4,
@@ -68,7 +68,7 @@ def _enqueue[
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: GpuRtCombinedInstanceWorld[
+    world: GpuRtCombinedInstanceScene[
         True,
         True,
         4,
@@ -112,7 +112,7 @@ def _timed_enqueue[
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: GpuRtCombinedInstanceWorld[
+    world: GpuRtCombinedInstanceScene[
         True,
         True,
         4,
@@ -196,7 +196,7 @@ def main() raises:
         _warm_world_build(ctx, world)
 
         var build21_t0 = perf_counter_ns()
-        var gpu21 = GpuRtCombinedInstanceWorld[
+        var gpu21 = GpuRtCombinedInstanceScene[
             True,
             True,
             4,
@@ -217,7 +217,7 @@ def main() raises:
         var build21_ns = Int(perf_counter_ns() - build21_t0)
 
         var build22_t0 = perf_counter_ns()
-        var gpu22 = GpuRtCombinedInstanceWorld[
+        var gpu22 = GpuRtCombinedInstanceScene[
             True,
             True,
             4,

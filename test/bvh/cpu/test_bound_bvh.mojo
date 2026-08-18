@@ -15,7 +15,7 @@ from bajo.bvh.types import Hit, Sphere
 from bajo.core.random import Rng
 from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
 from bajo.bvh.cpu.bounds_bvh import (
-    BoundsBvhBuilder,
+    BinaryBoundsBvh,
     BoundsItem,
     BoundsBvh,
 )
@@ -198,7 +198,7 @@ def _triangle_center_xy[
 
 
 def _assert_builder_leaf_sizes_at_most(
-    builder: BoundsBvhBuilder,
+    builder: BinaryBoundsBvh,
     max_leaf_size: UInt32,
 ) raises:
     var leaf_item_total = UInt32(0)
@@ -343,7 +343,7 @@ def _test_bounds_bvh_leaf_invariant[
     )
     var items = _make_bounds_items(verts)
 
-    var builder = BoundsBvhBuilder[frame, width, mode](items^)
+    var builder = BinaryBoundsBvh[frame, width, mode](items^)
 
     assert_true(builder.nodes_used > 0)
     assert_true(Int(builder.nodes_used) == len(builder.nodes))
@@ -365,7 +365,7 @@ def test_parallel_sah_builder_leaf_invariants() raises:
     # binary storage and the final wide leaf ranges.
     var verts = _make_random_xy_triangles[Frame.WORLD](5000, UInt64(909090))
     var items = _make_bounds_items(verts)
-    var builder = BoundsBvhBuilder[Frame.WORLD, 16, "sah"](items^)
+    var builder = BinaryBoundsBvh[Frame.WORLD, 16, "sah"](items^)
 
     assert_true(Int(builder.nodes_used) == len(builder.nodes))
     _assert_builder_leaf_sizes_at_most(builder, UInt32(16))
@@ -378,7 +378,7 @@ def test_wide_bounds_root_bounds_is_valid() raises:
     var verts = _make_strip[Frame.WORLD](4)
     var items = _make_bounds_items(verts)
 
-    var builder = BoundsBvhBuilder[Frame.WORLD, 4, "median"](items^)
+    var builder = BinaryBoundsBvh[Frame.WORLD, 4, "median"](items^)
 
     var wide = BoundsBvh[Frame.WORLD, 4](builder)
     var bounds = wide.root_bounds()
@@ -454,7 +454,7 @@ def test_bounds_sah_clear_separation() raises:
         Point3W(10.0, 1.0, 0.0),  # Tri 1, centered near x=10
     ]
     var items = _make_bounds_items(verts)
-    var builder = BoundsBvhBuilder[Frame.WORLD, 2, "sah"](items^)
+    var builder = BinaryBoundsBvh[Frame.WORLD, 2, "sah"](items^)
     var centroid_bounds = builder.update_node_bounds_and_centroid_bounds(0)
 
     var split = _find_sah_split[Frame.WORLD, 16](
@@ -498,7 +498,7 @@ def test_bounds_sah_degenerate() raises:
         Point3W(0.0, 1.0, 0.0),
     ]
     var items = _make_bounds_items(verts)
-    var builder = BoundsBvhBuilder[Frame.WORLD, 2, "sah"](items^)
+    var builder = BinaryBoundsBvh[Frame.WORLD, 2, "sah"](items^)
     var centroid_bounds = builder.update_node_bounds_and_centroid_bounds(0)
 
     var split = _find_sah_split[Frame.WORLD, 16](
@@ -522,7 +522,7 @@ def test_bounds_partition_items_non_empty() raises:
         Point3W(10.0, 1.0, 0.0),
     ]
     var items = _make_bounds_items(verts)
-    var builder = BoundsBvhBuilder[Frame.WORLD, 2, "sah"](items^)
+    var builder = BinaryBoundsBvh[Frame.WORLD, 2, "sah"](items^)
 
     var split_idx = _partition_items_by_median_center(
         Span(builder.item_indices),

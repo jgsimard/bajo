@@ -16,7 +16,7 @@ from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
 from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvh,
     BoundsItem,
-    BoundsBvhBuilder,
+    BinaryBoundsBvh,
     _checked_typed_leaf_range,
 )
 from bajo.bvh.cpu.trace import trace_sphere_bounds_bvh
@@ -50,7 +50,7 @@ struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
             BoundsItem(s.bounds(), UInt32(i)) for i, s in enumerate(spheres)
         ]
 
-        var builder = BoundsBvhBuilder[Self.frame, Self.width, split_method](
+        var builder = BinaryBoundsBvh[Self.frame, Self.width, split_method](
             items^
         )
 

@@ -1,6 +1,6 @@
 from bajo.core import AABB, AxisAlignedBoundingBox, Point3f32, Frame
 from bajo.bvh.constants import EMPTY_LANE, f32_max
-from bajo.bvh.cpu.builder import BoundsBvhBuilder, BoundsItem
+from bajo.bvh.cpu.builder import BinaryBoundsBvh, BoundsItem
 from bajo.bvh.tagged_ref import (
     encode_internal_ref,
     encode_leaf_ref,
@@ -103,7 +103,7 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
     var item_indices: List[UInt32]
     var item_payloads: List[UInt32]
 
-    def __init__(out self, bvh: BoundsBvhBuilder):
+    def __init__(out self, bvh: BinaryBoundsBvh):
         self.nodes = List[WideBvhNode[Self.frame, Self.width]]()
         self.child_masks = List[UInt32]()
         self.item_indices = bvh.item_indices.copy()
@@ -129,7 +129,7 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
 
     def __init__[
         PackLeafFn: def(UInt32, UInt32) -> UInt32
-    ](out self, bvh: BoundsBvhBuilder, ref pack_leaf_fn: PackLeafFn):
+    ](out self, bvh: BinaryBoundsBvh, ref pack_leaf_fn: PackLeafFn):
         """Collapse a binary BVH while packing its typed leaf payloads.
 
         Unlike the generic constructor, this path does not materialize
@@ -151,7 +151,7 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
     def _collapse_root[
         PackLeafFn: def(UInt32, UInt32) -> UInt32,
         pack_leaves_before_children: Bool,
-    ](mut self, bvh: BoundsBvhBuilder, ref pack_leaf_fn: PackLeafFn):
+    ](mut self, bvh: BinaryBoundsBvh, ref pack_leaf_fn: PackLeafFn):
         comptime if Self.width > 2:
             var dp = _WideCollapseDp(Int(bvh.nodes_used), Int(Self.width))
             self._compute_collapse_dp(bvh, 0, dp)
@@ -166,7 +166,7 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
 
     def _compute_collapse_dp(
         self,
-        bvh: BoundsBvhBuilder,
+        bvh: BinaryBoundsBvh,
         bin_idx: UInt32,
         mut dp: _WideCollapseDp,
     ):
@@ -261,7 +261,7 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
 
     def _dp_frontier(
         self,
-        bvh: BoundsBvhBuilder,
+        bvh: BinaryBoundsBvh,
         bin_idx: UInt32,
         ref dp: _WideCollapseDp,
     ) -> Tuple[Array[UInt32, Self.width], Int]:
@@ -323,7 +323,7 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
         pack_leaves_before_children: Bool,
     ](
         mut self,
-        bvh: BoundsBvhBuilder,
+        bvh: BinaryBoundsBvh,
         bin_idx: UInt32,
         ref dp: _WideCollapseDp,
         ref pack_leaf_fn: PackLeafFn,
@@ -400,7 +400,7 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
         pack_leaves_before_children: Bool,
     ](
         mut self,
-        bvh: BoundsBvhBuilder,
+        bvh: BinaryBoundsBvh,
         bin_idx: UInt32,
         ref pack_leaf_fn: PackLeafFn,
     ) -> UInt32:

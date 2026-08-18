@@ -20,7 +20,7 @@ from bajo.bvh.constants import EMPTY_LANE, TRACE
 from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvh,
     BoundsItem,
-    BoundsBvhBuilder,
+    BinaryBoundsBvh,
     _checked_typed_leaf_range,
 )
 from bajo.bvh.types import Hit, TriangleLeafBlock, TypedBvh
@@ -81,7 +81,7 @@ struct TriangleBvh[
 
             items.append(BoundsItem(bounds, UInt32(i)))
 
-        var builder = BoundsBvhBuilder[
+        var builder = BinaryBoundsBvh[
             Self.frame, Self.leaf_width, split_method
         ](items^)
 

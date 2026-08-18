@@ -19,7 +19,7 @@ comptime PARALLEL_SAH_MIN_ITEMS = UInt32(4096)
 comptime PARALLEL_SAH_FRONTIER_DEPTH = 3
 
 
-struct BoundsBvhBuilder[
+struct BinaryBoundsBvh[
     frame: Frame,
     leaf_size: Int,
     split_method: String = "median",
@@ -431,7 +431,7 @@ def _lbvh_find_split(
 
 def _build_lbvh[
     frame: Frame, leaf_size: Int, method: String
-](mut builder: BoundsBvhBuilder[frame, leaf_size, method]):
+](mut builder: BinaryBoundsBvh[frame, leaf_size, method]):
     """Build a binary LBVH using sorted Morton codes over item centers."""
     debug_assert["safe", _use_compiler_assume=True](builder.item_count > 0)
     var item_count = Int(builder.item_count)
@@ -471,7 +471,7 @@ def _build_lbvh[
 def _build_lbvh_recursive[
     frame: Frame, leaf_size: Int, method: String
 ](
-    mut builder: BoundsBvhBuilder[frame, leaf_size, method],
+    mut builder: BinaryBoundsBvh[frame, leaf_size, method],
     pairs: ImmSpan[MortonItem, _],
     node_idx: UInt32,
     first: Int,

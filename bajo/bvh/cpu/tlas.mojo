@@ -17,7 +17,7 @@ from bajo.bvh.tlas_common import (
 )
 from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvh,
-    BoundsBvhBuilder,
+    BinaryBoundsBvh,
     BoundsItem,
     _checked_typed_leaf_range,
 )
@@ -78,9 +78,7 @@ def _tree[
     var items = [
         BoundsItem(inst.bounds, UInt32(i)) for i, inst in enumerate(instances)
     ]
-    var builder = BoundsBvhBuilder[Frame.WORLD, leaf_width, split_method](
-        items^
-    )
+    var builder = BinaryBoundsBvh[Frame.WORLD, leaf_width, split_method](items^)
     leaf_blocks = List[TlasLeafBlock[leaf_width]](
         capacity=(Int(builder.nodes_used) + 1) // 2
     )

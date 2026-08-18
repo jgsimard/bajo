@@ -2,7 +2,7 @@ from std.math import clamp
 
 from bajo.core import AABB, Frame
 from bajo.bvh.constants import f32_max
-from .builder import BoundsItem, BoundsBvhNode
+from .types import BoundsItem, BoundsBvhNode
 
 
 @fieldwise_init

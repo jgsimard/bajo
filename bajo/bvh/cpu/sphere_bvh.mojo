@@ -50,8 +50,9 @@ struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
             BoundsItem(s.bounds(), UInt32(i)) for i, s in enumerate(spheres)
         ]
 
-        var builder = BoundsBvhBuilder[Self.frame, Self.width](items^)
-        builder.build[split_method]()
+        var builder = BoundsBvhBuilder[Self.frame, Self.width, split_method](
+            items^
+        )
 
         var leaf_blocks = List[SphereLeafBlock[Self.frame, Self.width]](
             capacity=(Int(builder.nodes_used) + 1) // 2

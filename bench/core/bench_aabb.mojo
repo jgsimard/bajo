@@ -33,13 +33,23 @@ comptime BenchQuat = Quat[BENCH_FRAME]
 comptime BenchMat33f32 = Mat33f32[BENCH_FRAME]
 
 
+def _rotation_scale_matrix(
+    rotation: BenchQuat, scale: BenchVec3f32
+) -> BenchMat33f32:
+    var matrix = rotation.to_matrix()
+    comptime for row in range(3):
+        comptime for col in range(3):
+            matrix[row][col] *= scale[col]
+    return matrix^
+
+
 def apply_trs_naive_________(
     box: BenchAABB,
     translation: BenchVec3f32,
     rotation: BenchQuat,
     scale: BenchVec3f32,
 ) -> BenchAABB:
-    var rot_mat = BenchMat33f32.from_rotation_scale(rotation, scale)
+    var rot_mat = _rotation_scale_matrix(rotation, scale)
     var txfmed = BenchAABB(
         translation.unsafe_convert[new_kind=GeoKind.POINT](),
         translation.unsafe_convert[new_kind=GeoKind.POINT](),
@@ -65,7 +75,7 @@ def apply_trs_naive_comptime(
     rotation: BenchQuat,
     scale: BenchVec3f32,
 ) -> BenchAABB:
-    var rot_mat = BenchMat33f32.from_rotation_scale(rotation, scale)
+    var rot_mat = _rotation_scale_matrix(rotation, scale)
     var txfmed = BenchAABB(
         translation.unsafe_convert[new_kind=GeoKind.POINT](),
         translation.unsafe_convert[new_kind=GeoKind.POINT](),
@@ -91,7 +101,7 @@ def apply_trs_arvo_v0_______(
     rotation: BenchQuat,
     scale: BenchVec3f32,
 ) -> BenchAABB:
-    var mat = BenchMat33f32.from_rotation_scale(rotation, scale)
+    var mat = _rotation_scale_matrix(rotation, scale)
     var new_min = translation.copy()
     var new_max = translation.copy()
 
@@ -125,7 +135,7 @@ def apply_trs_arvo_v1_______(
     rotation: BenchQuat,
     scale: BenchVec3f32,
 ) -> BenchAABB:
-    var mat = BenchMat33f32.from_rotation_scale(rotation, scale)
+    var mat = _rotation_scale_matrix(rotation, scale)
     var new_min = translation.copy()
     var new_max = translation.copy()
 

@@ -81,8 +81,9 @@ struct TriangleBvh[
 
             items.append(BoundsItem(bounds, UInt32(i)))
 
-        var builder = BoundsBvhBuilder[Self.frame, Self.leaf_width](items^)
-        builder.build[split_method]()
+        var builder = BoundsBvhBuilder[
+            Self.frame, Self.leaf_width, split_method
+        ](items^)
 
         var leaf_blocks = List[TriangleLeafBlock[Self.frame, Self.leaf_width]](
             capacity=(Int(builder.nodes_used) + 1) // 2

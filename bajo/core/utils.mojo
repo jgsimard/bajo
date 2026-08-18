@@ -3,13 +3,11 @@ from std.sys.info import size_of
 from std.bit import count_trailing_zeros
 from std.memory import pack_bits
 
-from bajo.core.vec import Vec3
-
 
 def print_size_of[type: AnyType]():
     comptime name = reflect[type].name()
-    size_bytes = size_of[type]()
-    size_32 = size_bytes / 4
+    var size_bytes = size_of[type]()
+    var size_32 = size_bytes / 4
     print(t"{name}: {size_bytes} bytes, {size_32} x 32 bits")
 
 

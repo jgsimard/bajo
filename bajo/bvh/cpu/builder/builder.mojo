@@ -2,8 +2,10 @@ from max.algorithm import parallelize
 from std.atomic import Atomic, Ordering
 from std.sys import num_performance_cores
 
-from bajo.core import AABB, vmin, vmax, longest_axis, Frame
+from bajo.core import AABB, longest_axis, Frame
+from bajo.core.morton import morton3, morton_common_prefix
 from bajo.sort.cpu.nth_element import nth_element
+from .types import BoundsBvhNode, BoundsItem
 
 from .sah import (
     BoundsPartitionResult,
@@ -11,14 +13,17 @@ from .sah import (
     _find_sah_split,
     _partition_items_by_bin,
 )
-from .lbvh import _build_lbvh
 
 
 comptime PARALLEL_SAH_MIN_ITEMS = UInt32(4096)
 comptime PARALLEL_SAH_FRONTIER_DEPTH = 3
 
 
-struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
+struct BoundsBvhBuilder[
+    frame: Frame,
+    leaf_size: Int,
+    split_method: String = "median",
+](Copyable):
     """Generic binary BVH builder over AABBs/items.
 
     Build modes:
@@ -44,8 +49,22 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
         self.nodes = List[BoundsBvhNode[Self.frame]](capacity=max_nodes)
         self.nodes.append(BoundsBvhNode[Self.frame]())
 
-        # build() initializes the root for its selected topology.
         self.nodes_used = 1
+        comptime if Self.split_method == "lbvh":
+            _build_lbvh[Self.frame, Self.leaf_size, Self.split_method](self)
+        elif Self.split_method == "sah":
+            self.nodes[0].set_leaf(0, self.item_count)
+            var centroid_bounds = self.update_node_bounds_and_centroid_bounds(0)
+            if self.item_count >= PARALLEL_SAH_MIN_ITEMS:
+                self._build_parallel_sah(centroid_bounds)
+            else:
+                self._subdivide[Self.split_method](0, centroid_bounds)
+        elif Self.split_method == "median":
+            self.nodes[0].set_leaf(0, self.item_count)
+            self.update_node_bounds(0)
+            self._subdivide[Self.split_method](0, AABB[Self.frame].invalid())
+        else:
+            comptime assert False
 
     def allocate_children(mut self) -> UInt32:
         var left_child_idx = self.nodes_used
@@ -85,29 +104,6 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
             centroid_bounds.grow(item.bounds.centroid())
 
         return centroid_bounds
-
-    def build[split_method: String = "median"](mut self):
-        comptime assert split_method in ["median", "sah", "lbvh"]
-        debug_assert["safe", _use_compiler_assume=True](
-            self.item_count > 0, "passed empty input."
-        )
-
-        comptime if split_method == "lbvh":
-            _build_lbvh[Self.frame, Self.leaf_size](self)
-        else:
-            self.nodes_used = 1
-            self.nodes[0].set_leaf(0, self.item_count)
-            comptime if split_method == "sah":
-                var centroid_bounds = (
-                    self.update_node_bounds_and_centroid_bounds(0)
-                )
-                if self.item_count >= PARALLEL_SAH_MIN_ITEMS:
-                    self._build_parallel_sah(centroid_bounds)
-                else:
-                    self._subdivide[split_method](0, centroid_bounds)
-            else:
-                self.update_node_bounds(0)
-                self._subdivide[split_method](0, AABB[Self.frame].invalid())
 
     def _build_parallel_sah(mut self, root_centroid_bounds: AABB[Self.frame]):
         # Parallel workers write disjoint item ranges and uniquely allocated
@@ -215,19 +211,19 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
 
     @always_inline
     def _split_node[
-        split_method: String
+        method: String
     ](
         mut self,
         node_idx: UInt32,
         centroid_bounds: AABB[Self.frame],
         left_child_idx: UInt32,
     ) -> Tuple[AABB[Self.frame], AABB[Self.frame]]:
-        comptime assert split_method in ["median", "sah"]
+        comptime assert method in ["median", "sah"]
         var source_node = self.nodes[Int(node_idx)]
         var first = Int(source_node.first_item())
         var first_item = source_node.first_item()
         var item_count = source_node.item_count
-        var partition = self._partition_node[split_method](
+        var partition = self._partition_node[method](
             source_node, centroid_bounds
         )
         var left_count = UInt32(partition.split_idx - first)
@@ -254,39 +250,35 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
         )
 
     def _subdivide[
-        split_method: String
+        method: String
     ](mut self, node_idx: UInt32, centroid_bounds: AABB[Self.frame]):
-        comptime assert split_method in ["median", "sah"]
+        comptime assert method in ["median", "sah"]
 
         var source_node = self.nodes[Int(node_idx)]
         if source_node.item_count <= UInt32(Self.leaf_size):
             return
 
         var left_child_idx = self.allocate_children()
-        var child_centroid_bounds = self._split_node[split_method](
+        var child_centroid_bounds = self._split_node[method](
             node_idx, centroid_bounds, left_child_idx
         )
 
-        self._subdivide[split_method](left_child_idx, child_centroid_bounds[0])
-        self._subdivide[split_method](
-            left_child_idx + 1, child_centroid_bounds[1]
-        )
+        self._subdivide[method](left_child_idx, child_centroid_bounds[0])
+        self._subdivide[method](left_child_idx + 1, child_centroid_bounds[1])
 
     def _partition_node[
-        split_method: String
+        method: String
     ](
         mut self,
         node: BoundsBvhNode[Self.frame],
         centroid_bounds: AABB[Self.frame],
     ) -> BoundsPartitionResult[Self.frame]:
-        comptime assert split_method in ["median", "sah"]
-        var first = Int(node.first_item())
-        var count = Int(node.item_count)
-
-        comptime if split_method == "median":
+        comptime if method == "median":
             return self._partition_node_by_median(node)
 
-        else:
+        elif method == "sah":
+            var first = Int(node.first_item())
+            var count = Int(node.item_count)
             comptime BVH_BINS = 16
             var split = _find_sah_split[Self.frame, BVH_BINS](
                 node,
@@ -308,6 +300,8 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
                 )
 
             return self._partition_node_by_median(node)
+        else:
+            comptime assert False
 
     @always_inline
     def _partition_node_by_median(
@@ -345,79 +339,6 @@ struct BoundsBvhBuilder[frame: Frame, leaf_size: Int](Copyable):
             q += n.surface_area() / root_area
 
         return q
-
-
-@fieldwise_init
-struct BoundsItem[frame: Frame](TrivialRegisterPassable):
-    """Generic build item.
-
-    `bounds` is what the BVH builder sees.
-
-    `payload` is owned by the caller:
-    - TriangleBvh: triangle id
-    - TLAS: instance id
-    - Broadphase: index into an ItemRef array
-    """
-
-    var bounds: AABB[Self.frame]
-    var payload: UInt32
-
-    def center_axis(self, axis: Int) -> Float32:
-        return (self.bounds._min[axis] + self.bounds._max[axis]) * 0.5
-
-    def grow_into(self, mut aabb: AABB[Self.frame]):
-        aabb._min = vmin(aabb._min, self.bounds._min)
-        aabb._max = vmax(aabb._max, self.bounds._max)
-
-
-@fieldwise_init
-struct BoundsBvhNode[frame: Frame](TrivialRegisterPassable):
-    """Binary builder node over generic item ranges.
-
-    Leaf:
-        first_or_left = first item in item_indices
-        item_count    = number of items
-
-    Internal:
-        first_or_left = left child node index
-        item_count    = 0
-        right child   = left child + 1
-    """
-
-    var aabb: AABB[Self.frame]
-    var first_or_left: UInt32
-    var item_count: UInt32
-
-    def __init__(out self):
-        self.aabb = AABB[Self.frame].invalid()
-        self.first_or_left = 0
-        self.item_count = 0
-
-    def is_leaf(self) -> Bool:
-        return self.item_count > 0
-
-    def is_internal(self) -> Bool:
-        return self.item_count == 0
-
-    def first_item(self) -> UInt32:
-        return self.first_or_left
-
-    def left_child(self) -> UInt32:
-        return self.first_or_left
-
-    def right_child(self) -> UInt32:
-        return self.first_or_left + 1
-
-    def set_leaf(mut self, first_item: UInt32, item_count: UInt32):
-        self.first_or_left = first_item
-        self.item_count = item_count
-
-    def set_internal(mut self, left_child: UInt32):
-        self.first_or_left = left_child
-        self.item_count = 0
-
-    def surface_area(self) -> Float32:
-        return self.aabb.surface_area()[0]
 
 
 def _partition_items_by_median_center[
@@ -460,3 +381,147 @@ def _partition_items_by_median_center[
     nth_element(range, mid, cmp)
 
     return first + mid
+
+
+@fieldwise_init
+struct MortonItem(Comparable, TrivialRegisterPassable):
+    var code: UInt32
+    var item_idx: UInt32
+
+    def __lt__(self, rhs: Self) -> Bool:
+        return self.code < rhs.code
+
+
+def _common_prefix(
+    pairs: ImmSpan[MortonItem, _], i: Int, j: Int, n: Int
+) -> Int:
+    if j < 0 or j >= n:
+        return -1
+    var a = pairs.unsafe_get(i).code
+    var b = pairs.unsafe_get(j).code
+    return morton_common_prefix(a, UInt32(i), b, UInt32(j))
+
+
+def _lbvh_find_split(
+    pairs: ImmSpan[MortonItem, _],
+    first: Int,
+    last: Int,
+    n: Int,
+) -> Int:
+    debug_assert["safe", _use_compiler_assume=True](
+        n > 0 and n <= len(pairs),
+        "LBVH item count is outside Morton pairs",
+    )
+    debug_assert["safe", _use_compiler_assume=True](
+        first >= 0 and first <= last and last < n,
+        "LBVH split range is invalid",
+    )
+    var node_prefix = _common_prefix(pairs, first, last, n)
+    var split = first
+    var step = last - first
+    while step > 1:
+        step = (step + 1) >> 1
+        var new_split = split + step
+        if new_split < last:
+            var split_prefix = _common_prefix(pairs, first, new_split, n)
+            if split_prefix > node_prefix:
+                split = new_split
+    return split
+
+
+def _build_lbvh[
+    frame: Frame, leaf_size: Int, method: String
+](mut builder: BoundsBvhBuilder[frame, leaf_size, method]):
+    """Build a binary LBVH using sorted Morton codes over item centers."""
+    debug_assert["safe", _use_compiler_assume=True](builder.item_count > 0)
+    var item_count = Int(builder.item_count)
+    var centroid_bounds = AABB[frame].invalid()
+    for item in builder.items:
+        centroid_bounds.grow(item.bounds.centroid())
+
+    var extent = centroid_bounds.extent()
+    var inv = extent.safe_inv()
+    var pairs = List[MortonItem](capacity=item_count)
+    for i, item in enumerate(builder.items):
+        var centroid = item.bounds.centroid()
+        var c = (centroid - centroid_bounds._min) * inv
+        pairs.append(MortonItem(morton3(c.x, c.y, c.z), UInt32(i)))
+    sort(Span(pairs))
+    for i in range(len(pairs)):
+        builder.item_indices[i] = pairs[i].item_idx
+
+    debug_assert["safe", _use_compiler_assume=True](
+        len(pairs) == item_count,
+        "LBVH Morton pair count does not match item count",
+    )
+    debug_assert["safe", _use_compiler_assume=True](
+        len(builder.item_indices) == item_count
+        and len(builder.items) == item_count,
+        "LBVH builder arrays have inconsistent lengths",
+    )
+    _ = _build_lbvh_recursive[frame, leaf_size, method](
+        builder,
+        Span(pairs),
+        0,
+        0,
+        item_count,
+    )
+
+
+def _build_lbvh_recursive[
+    frame: Frame, leaf_size: Int, method: String
+](
+    mut builder: BoundsBvhBuilder[frame, leaf_size, method],
+    pairs: ImmSpan[MortonItem, _],
+    node_idx: UInt32,
+    first: Int,
+    count: Int,
+) -> AABB[frame]:
+    debug_assert["safe", _use_compiler_assume=True](
+        first >= 0
+        and count > 0
+        and first <= len(pairs)
+        and count <= len(pairs) - first,
+        "LBVH recursive range is outside Morton pairs",
+    )
+    debug_assert["safe", _use_compiler_assume=True](
+        Int(node_idx) < len(builder.nodes),
+        "LBVH node index is outside builder nodes",
+    )
+    if count <= leaf_size:
+        ref leaf = builder.nodes[Int(node_idx)]
+        leaf.set_leaf(UInt32(first), UInt32(count))
+        leaf.aabb = AABB[frame].invalid()
+        for i in range(count):
+            var item_idx = Int(builder.item_indices[first + i])
+            builder.items[item_idx].grow_into(leaf.aabb)
+        return leaf.aabb
+
+    var last = first + count - 1
+    var split = _lbvh_find_split(
+        pairs,
+        first,
+        last,
+        Int(builder.item_count),
+    )
+    var left_count = split - first + 1
+    var right_count = count - left_count
+    var left_child_idx = builder.allocate_children()
+    var left_bounds = _build_lbvh_recursive[frame, leaf_size, method](
+        builder,
+        pairs,
+        left_child_idx,
+        first,
+        left_count,
+    )
+    var right_bounds = _build_lbvh_recursive[frame, leaf_size, method](
+        builder,
+        pairs,
+        left_child_idx + 1,
+        split + 1,
+        right_count,
+    )
+    ref node = builder.nodes[Int(node_idx)]
+    node.set_internal(left_child_idx)
+    node.aabb = AABB.merge(left_bounds, right_bounds)
+    return node.aabb

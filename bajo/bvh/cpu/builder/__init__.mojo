@@ -1,1 +1,2 @@
-from .builder import BoundsBvhBuilder, BoundsItem
+from .builder import BoundsBvhBuilder
+from .types import BoundsItem

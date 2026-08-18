@@ -2,7 +2,6 @@ from std.math import abs, cos, sin
 from std.testing import assert_almost_equal
 
 from bajo.core.vec import Vec3
-from bajo.core.quat import Quaternion
 from bajo.core.frame import Frame
 
 
@@ -91,56 +90,6 @@ struct Mat[
         m[0][2] = c2.x
         m[1][2] = c2.y
         m[2][2] = c2.z
-
-        return m^
-
-    @staticmethod
-    def from_rotation_scale(
-        r: Quaternion[Self.dtype, Self.frame],
-        s: Vec3[Self.dtype, Self.frame, Self.width],
-    ) -> Self where Self.dtype.is_floating_point():
-        comptime assert Self.rows == 3
-        comptime assert Self.cols == 3
-
-        var x = r.x
-        var y = r.y
-        var z = r.z
-        var w = r.w
-
-        var x2 = x * x
-        var y2 = y * y
-        var z2 = z * z
-
-        var xy = x * y
-        var xz = x * z
-        var yz = y * z
-
-        var wx = w * x
-        var wy = w * y
-        var wz = w * z
-
-        var sx = s.x
-        var sy = s.y
-        var sz = s.z
-
-        var dsx = sx * 2.0
-        var dsy = sy * 2.0
-        var dsz = sz * 2.0
-
-        var m = Self(uninitialized=True)
-
-        # R * diag(scale), row-major storage.
-        m[0][0] = sx - dsx * (y2 + z2)
-        m[0][1] = dsy * (xy - wz)
-        m[0][2] = dsz * (xz + wy)
-
-        m[1][0] = dsx * (xy + wz)
-        m[1][1] = sy - dsy * (x2 + z2)
-        m[1][2] = dsz * (yz - wx)
-
-        m[2][0] = dsx * (xz - wy)
-        m[2][1] = dsy * (yz + wx)
-        m[2][2] = sz - dsz * (x2 + y2)
 
         return m^
 

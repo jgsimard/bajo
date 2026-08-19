@@ -37,6 +37,11 @@ from bajo.bvh.tagged_ref import (
     is_leaf_ref,
 )
 from bajo.bvh.cpu.builder.builder import _partition_items_by_median_center
+from bajo.bvh.cpu.builder.hploc import (
+    _HplocClusterBounds,
+    _nearest_neighbors_scalar,
+    _nearest_neighbors_simd,
+)
 from bajo.bvh.cpu.builder.lbvh import (
     MortonItem,
     _radix_sort_morton_pairs,
@@ -413,6 +418,63 @@ def test_parallel_radix_lbvh_builder_leaf_invariants() raises:
 
     var wide = BoundsBvh[Frame.WORLD, 16](builder)
     _assert_wide_leaf_ranges_at_most_width[Frame.WORLD, 16](wide)
+
+
+def test_parallel_hploc_builder_leaf_invariants() raises:
+    # Cross the H-PLOC parallel topology/emission threshold and validate the
+    # compacted binary storage and final wide leaf ranges.
+    var verts = _make_random_xy_triangles[Frame.WORLD](5000, UInt64(939393))
+    var items = _make_bounds_items(verts)
+    var builder = BinaryBoundsBvh[Frame.WORLD, 16, "hploc"](items.copy())
+    var repeated = BinaryBoundsBvh[Frame.WORLD, 16, "hploc"](items^)
+
+    assert_true(Int(builder.nodes_used) == len(builder.nodes))
+    _assert_builder_leaf_sizes_at_most(builder, UInt32(16))
+    assert_equal(len(builder.item_indices), len(repeated.item_indices))
+    for i in range(len(builder.item_indices)):
+        assert_equal(builder.item_indices[i], repeated.item_indices[i])
+
+    var wide = BoundsBvh[Frame.WORLD, 16](builder)
+    _assert_wide_leaf_ranges_at_most_width[Frame.WORLD, 16](wide)
+
+
+def test_hploc_simd_neighbors_match_scalar() raises:
+    var rng = Rng(UInt64(949494), 0)
+
+    for cluster_count in range(2, 33):
+        var bounds = _HplocClusterBounds()
+        for i in range(cluster_count):
+            var x = _rng_f32(rng, -20.0, 20.0)
+            var y = _rng_f32(rng, -20.0, 20.0)
+            var z = _rng_f32(rng, -20.0, 20.0)
+            var dx = _rng_f32(rng, 0.0, 4.0)
+            var dy = _rng_f32(rng, 0.0, 4.0)
+            var dz = _rng_f32(rng, 0.0, 4.0)
+            bounds.set(
+                i,
+                AABB[Frame.WORLD](
+                    Point3W(x, y, z),
+                    Point3W(x + dx, y + dy, z + dz),
+                ),
+            )
+
+        var scalar = _nearest_neighbors_scalar(bounds, cluster_count, 8)
+        bounds.initialize_padding(cluster_count)
+        var simd = _nearest_neighbors_simd(bounds, cluster_count, 8)
+        for i in range(cluster_count):
+            assert_equal(simd[i], scalar[i])
+
+    var tied = _HplocClusterBounds()
+    for i in range(32):
+        tied.set(
+            i,
+            AABB[Frame.WORLD](Point3W(0.0), Point3W(1.0)),
+        )
+    var tied_scalar = _nearest_neighbors_scalar(tied, 32, 8)
+    tied.initialize_padding(32)
+    var tied_simd = _nearest_neighbors_simd(tied, 32, 8)
+    for i in range(32):
+        assert_equal(tied_simd[i], tied_scalar[i])
 
 
 def test_cpu_lbvh_radix_sort_orders_all_bytes() raises:

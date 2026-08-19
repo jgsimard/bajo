@@ -264,6 +264,27 @@ def test_hploc_multi_wave_one_leaf() raises:
         _ = _assert_gpu_matches_reference(gpu, reference)
 
 
+def test_hploc_multi_wave_strict_ties_match_reference() raises:
+    comptime leaf_count = 4
+    var bounds = List[AABB[Frame.WORLD]](capacity=leaf_count)
+    for _ in range(leaf_count):
+        bounds.append(_box(0.0))
+    var flat = _flatten_bounds(bounds)
+    var codes: List[UInt32] = [7, 7, 7, 7]
+    var ids = _identity_ids(leaf_count)
+    var reference = build_hploc_topology(bounds, codes, ids)
+
+    with DeviceContext() as ctx:
+        var gpu = GpuHplocMultiWaveBvh[](
+            ctx,
+            upload_list(ctx, flat),
+            upload_list(ctx, codes),
+            upload_list(ctx, ids),
+        )
+        ctx.synchronize()
+        _ = _assert_gpu_matches_reference(gpu, reference)
+
+
 def test_hploc_multi_wave_crosses_waves_at_64_leaves() raises:
     comptime leaf_count = 64
     var bounds = List[AABB[Frame.WORLD]](capacity=leaf_count)

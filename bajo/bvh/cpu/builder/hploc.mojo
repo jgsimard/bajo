@@ -1,7 +1,12 @@
-from std.math import abs, max
+from max.algorithm import parallelize
+from std.atomic import Atomic, Ordering
+from std.math import abs, max, min
+from std.sys import simd_width_of
 
 from bajo.bvh.constants import LBVH_SENTINEL
 from bajo.core import AABB, Frame
+from bajo.core.utils import fmax, fmin
+from ..parallel import _worker_count
 from .builder import BinaryBoundsBvh
 from .lbvh import MortonItem, _lbvh_find_split, _sorted_morton_pairs
 
@@ -9,26 +14,162 @@ from .lbvh import MortonItem, _lbvh_find_split, _sorted_morton_pairs
 comptime HPLOC_SEARCH_RADIUS = 8
 comptime HPLOC_MERGING_THRESHOLD = 16
 comptime _HPLOC_CLUSTER_CAPACITY = HPLOC_MERGING_THRESHOLD * 2
+comptime _HPLOC_SIMD_WIDTH = simd_width_of[DType.float32]()
+comptime _HPLOC_BOUNDS_PAD = HPLOC_SEARCH_RADIUS
+comptime _HPLOC_PADDED_BOUNDS_CAPACITY = (
+    _HPLOC_CLUSTER_CAPACITY + 2 * _HPLOC_BOUNDS_PAD
+)
+comptime PARALLEL_HPLOC_MIN_ITEMS = 4096
+comptime PARALLEL_HPLOC_FRONTIER_DEPTH = 4
+comptime _PARALLEL_HPLOC_FRONTIER_CAPACITY = 1 << PARALLEL_HPLOC_FRONTIER_DEPTH
+comptime PARALLEL_HPLOC_EMIT_FRONTIER_DEPTH = 4
+comptime _PARALLEL_HPLOC_EMIT_FRONTIER_CAPACITY = (
+    1 << PARALLEL_HPLOC_EMIT_FRONTIER_DEPTH
+)
 
 
-struct _HplocClusters(Copyable):
-    """Fixed storage for two reduced H-PLOC guide children."""
+@fieldwise_init
+struct _HplocFrontierTask(TrivialRegisterPassable):
+    var first: Int
+    var last: Int
 
-    var values: Array[UInt32, _HPLOC_CLUSTER_CAPACITY]
-    var count: Int
 
-    def __init__(out self):
-        self.values = Array[UInt32, _HPLOC_CLUSTER_CAPACITY](fill=0)
-        self.count = 0
+@fieldwise_init
+struct _HplocEmitTask(TrivialRegisterPassable):
+    var topology_idx: UInt32
+    var node_idx: UInt32
+    var first_item: UInt32
+
+
+@fieldwise_init
+struct _HplocBoundsPacket[width: SIMDLength](TrivialRegisterPassable):
+    var min_x: SIMD[DType.float32, Self.width]
+    var min_y: SIMD[DType.float32, Self.width]
+    var min_z: SIMD[DType.float32, Self.width]
+    var max_x: SIMD[DType.float32, Self.width]
+    var max_y: SIMD[DType.float32, Self.width]
+    var max_z: SIMD[DType.float32, Self.width]
 
     @always_inline
-    def append(mut self, value: UInt32):
-        debug_assert["safe", _use_compiler_assume=True](
-            self.count < _HPLOC_CLUSTER_CAPACITY,
-            "H-PLOC cluster scratch overflow",
+    def merged_area(self, rhs: Self) -> SIMD[DType.float32, Self.width]:
+        var dx = fmax(self.max_x, rhs.max_x) - fmin(self.min_x, rhs.min_x)
+        var dy = fmax(self.max_y, rhs.max_y) - fmin(self.min_y, rhs.min_y)
+        var dz = fmax(self.max_z, rhs.max_z) - fmin(self.min_z, rhs.min_z)
+        return 2.0 * (dx * dy + dx * dz + dy * dz)
+
+
+struct _HplocClusterBounds(Copyable):
+    """Padded SoA bounds cache for scalar-reference and CPU SIMD merging."""
+
+    var min_x: Array[Float32, _HPLOC_PADDED_BOUNDS_CAPACITY]
+    var min_y: Array[Float32, _HPLOC_PADDED_BOUNDS_CAPACITY]
+    var min_z: Array[Float32, _HPLOC_PADDED_BOUNDS_CAPACITY]
+    var max_x: Array[Float32, _HPLOC_PADDED_BOUNDS_CAPACITY]
+    var max_y: Array[Float32, _HPLOC_PADDED_BOUNDS_CAPACITY]
+    var max_z: Array[Float32, _HPLOC_PADDED_BOUNDS_CAPACITY]
+
+    def __init__(out self):
+        self.min_x = Array[Float32, _HPLOC_PADDED_BOUNDS_CAPACITY](
+            uninitialized=True
         )
-        self.values[self.count] = value
-        self.count += 1
+        self.min_y = Array[Float32, _HPLOC_PADDED_BOUNDS_CAPACITY](
+            uninitialized=True
+        )
+        self.min_z = Array[Float32, _HPLOC_PADDED_BOUNDS_CAPACITY](
+            uninitialized=True
+        )
+        self.max_x = Array[Float32, _HPLOC_PADDED_BOUNDS_CAPACITY](
+            uninitialized=True
+        )
+        self.max_y = Array[Float32, _HPLOC_PADDED_BOUNDS_CAPACITY](
+            uninitialized=True
+        )
+        self.max_z = Array[Float32, _HPLOC_PADDED_BOUNDS_CAPACITY](
+            uninitialized=True
+        )
+
+    @always_inline
+    def set[frame: Frame](mut self, pos: Int, bounds: AABB[frame]):
+        var storage_pos = _HPLOC_BOUNDS_PAD + pos
+        self.min_x[storage_pos] = bounds._min.x[0]
+        self.min_y[storage_pos] = bounds._min.y[0]
+        self.min_z[storage_pos] = bounds._min.z[0]
+        self.max_x[storage_pos] = bounds._max.x[0]
+        self.max_y[storage_pos] = bounds._max.y[0]
+        self.max_z[storage_pos] = bounds._max.z[0]
+
+    @always_inline
+    def copy(mut self, dst: Int, src: Int):
+        var dst_pos = _HPLOC_BOUNDS_PAD + dst
+        var src_pos = _HPLOC_BOUNDS_PAD + src
+        self.min_x[dst_pos] = self.min_x[src_pos]
+        self.min_y[dst_pos] = self.min_y[src_pos]
+        self.min_z[dst_pos] = self.min_z[src_pos]
+        self.max_x[dst_pos] = self.max_x[src_pos]
+        self.max_y[dst_pos] = self.max_y[src_pos]
+        self.max_z[dst_pos] = self.max_z[src_pos]
+
+    @always_inline
+    def merged_area(self, a: Int, b: Int) -> Float32:
+        var a_pos = _HPLOC_BOUNDS_PAD + a
+        var b_pos = _HPLOC_BOUNDS_PAD + b
+        var dx = max(self.max_x[a_pos], self.max_x[b_pos]) - min(
+            self.min_x[a_pos], self.min_x[b_pos]
+        )
+        var dy = max(self.max_y[a_pos], self.max_y[b_pos]) - min(
+            self.min_y[a_pos], self.min_y[b_pos]
+        )
+        var dz = max(self.max_z[a_pos], self.max_z[b_pos]) - min(
+            self.min_z[a_pos], self.min_z[b_pos]
+        )
+        return 2.0 * (dx * dy + dx * dz + dy * dz)
+
+    @always_inline
+    def load[
+        width: SIMDLength
+    ](self, storage_pos: Int) -> _HplocBoundsPacket[width]:
+        return _HplocBoundsPacket[width](
+            self.min_x.unsafe_ptr()
+            .unsafe_offset(storage_pos)
+            .unsafe_load[width=width](),
+            self.min_y.unsafe_ptr()
+            .unsafe_offset(storage_pos)
+            .unsafe_load[width=width](),
+            self.min_z.unsafe_ptr()
+            .unsafe_offset(storage_pos)
+            .unsafe_load[width=width](),
+            self.max_x.unsafe_ptr()
+            .unsafe_offset(storage_pos)
+            .unsafe_load[width=width](),
+            self.max_y.unsafe_ptr()
+            .unsafe_offset(storage_pos)
+            .unsafe_load[width=width](),
+            self.max_z.unsafe_ptr()
+            .unsafe_offset(storage_pos)
+            .unsafe_load[width=width](),
+        )
+
+    def initialize_padding(mut self, cluster_count: Int):
+        for storage_pos in range(_HPLOC_BOUNDS_PAD):
+            self._clear_storage(storage_pos)
+        for storage_pos in range(
+            _HPLOC_BOUNDS_PAD + cluster_count,
+            _HPLOC_PADDED_BOUNDS_CAPACITY,
+        ):
+            self._clear_storage(storage_pos)
+
+    def clear_positions(mut self, first: Int, last: Int):
+        for pos in range(first, last):
+            self._clear_storage(_HPLOC_BOUNDS_PAD + pos)
+
+    @always_inline
+    def _clear_storage(mut self, storage_pos: Int):
+        self.min_x[storage_pos] = 0.0
+        self.min_y[storage_pos] = 0.0
+        self.min_z[storage_pos] = 0.0
+        self.max_x[storage_pos] = 0.0
+        self.max_y[storage_pos] = 0.0
+        self.max_z[storage_pos] = 0.0
 
 
 @fieldwise_init
@@ -189,41 +330,26 @@ def _bounds_difference[frame: Frame](a: AABB[frame], b: AABB[frame]) -> Float64:
     )
 
 
-def _nearest_neighbors[
-    frame: Frame
-](
-    nodes: ImmSpan[HplocNode[frame], _],
-    clusters: _HplocClusters,
+def _nearest_neighbors_scalar(
+    cluster_bounds: _HplocClusterBounds,
+    cluster_count: Int,
     search_radius: Int,
 ) -> Array[Int, _HPLOC_CLUSTER_CAPACITY]:
-    var nearest = Array[Int, _HPLOC_CLUSTER_CAPACITY](fill=-1)
-
-    for cluster_pos in range(clusters.count):
-        var cluster_idx = clusters.values[cluster_pos]
+    var nearest = Array[Int, _HPLOC_CLUSTER_CAPACITY](uninitialized=True)
+    for cluster_pos in range(cluster_count):
         var best_area = Float32.MAX
         var best_neighbor = -1
-
-        # Match the paper/GPU ordering: test right before left at each radius,
-        # and use strict comparison as the deterministic tie-breaker.
         for radius in range(1, search_radius + 1):
             var right = cluster_pos + radius
-            if right < clusters.count:
-                var bounds = AABB[frame].merge(
-                    nodes[Int(cluster_idx)].bounds,
-                    nodes[Int(clusters.values[right])].bounds,
-                )
-                var area = bounds.surface_area()[0]
+            if right < cluster_count:
+                var area = cluster_bounds.merged_area(cluster_pos, right)
                 if area < best_area:
                     best_area = area
                     best_neighbor = right
 
             var left = cluster_pos - radius
             if left >= 0:
-                var bounds = AABB[frame].merge(
-                    nodes[Int(cluster_idx)].bounds,
-                    nodes[Int(clusters.values[left])].bounds,
-                )
-                var area = bounds.surface_area()[0]
+                var area = cluster_bounds.merged_area(cluster_pos, left)
                 if area < best_area:
                     best_area = area
                     best_neighbor = left
@@ -237,54 +363,121 @@ def _nearest_neighbors[
     return nearest^
 
 
-def _append_merged_node[
-    frame: Frame
-](mut nodes: List[HplocNode[frame]], left: UInt32, right: UInt32,) -> UInt32:
-    var node_idx = UInt32(len(nodes))
+def _nearest_neighbors_simd(
+    mut cluster_bounds: _HplocClusterBounds,
+    cluster_count: Int,
+    search_radius: Int,
+) -> Array[Int, _HPLOC_CLUSTER_CAPACITY]:
+    """Evaluate one radius across a native SIMD packet of CPU clusters."""
+    comptime assert _HPLOC_SIMD_WIDTH <= _HPLOC_CLUSTER_CAPACITY
+    debug_assert["safe", _use_compiler_assume=True](
+        search_radius <= HPLOC_SEARCH_RADIUS,
+        "H-PLOC SIMD search radius exceeds its padded bounds cache",
+    )
+    var nearest = Array[Int, _HPLOC_CLUSTER_CAPACITY](uninitialized=True)
+
+    for cluster_base in range(0, cluster_count, _HPLOC_SIMD_WIDTH):
+        var positions = SIMD[DType.int32, _HPLOC_SIMD_WIDTH](0)
+        comptime for lane in range(_HPLOC_SIMD_WIDTH):
+            positions[lane] = Int32(cluster_base + lane)
+
+        var active = positions.lt(Int32(cluster_count))
+        var own = cluster_bounds.load[_HPLOC_SIMD_WIDTH](
+            _HPLOC_BOUNDS_PAD + cluster_base
+        )
+        var best_areas = SIMD[DType.float32, _HPLOC_SIMD_WIDTH](Float32.MAX)
+        var best_neighbors = SIMD[DType.int32, _HPLOC_SIMD_WIDTH](-1)
+
+        for radius in range(1, search_radius + 1):
+            var right_positions = positions + Int32(radius)
+            var right = cluster_bounds.load[_HPLOC_SIMD_WIDTH](
+                _HPLOC_BOUNDS_PAD + cluster_base + radius
+            )
+            var right_areas = own.merged_area(right)
+            var take_right = (
+                active
+                & right_positions.lt(Int32(cluster_count))
+                & right_areas.lt(best_areas)
+            )
+            best_areas = take_right.select(right_areas, best_areas)
+            best_neighbors = take_right.select(right_positions, best_neighbors)
+
+            var left_positions = positions - Int32(radius)
+            var left = cluster_bounds.load[_HPLOC_SIMD_WIDTH](
+                _HPLOC_BOUNDS_PAD + cluster_base - radius
+            )
+            var left_areas = own.merged_area(left)
+            var take_left = (
+                active & left_positions.ge(Int32(0)) & left_areas.lt(best_areas)
+            )
+            best_areas = take_left.select(left_areas, best_areas)
+            best_neighbors = take_left.select(left_positions, best_neighbors)
+
+        comptime for lane in range(_HPLOC_SIMD_WIDTH):
+            if cluster_base + lane < cluster_count:
+                var best_neighbor = Int(best_neighbors[lane])
+                debug_assert["safe", _use_compiler_assume=True](
+                    best_neighbor >= 0,
+                    "H-PLOC SIMD cluster has no neighbor in the search radius",
+                )
+                nearest[cluster_base + lane] = best_neighbor
+
+    return nearest^
+
+
+def _write_merged_node[
+    frame: Frame,
+    build_metadata: Bool,
+](
+    mut nodes: List[HplocNode[frame]],
+    node_idx: UInt32,
+    left: UInt32,
+    right: UInt32,
+):
     var bounds = AABB[frame].merge(
         nodes[Int(left)].bounds, nodes[Int(right)].bounds
     )
     var leaf_count = nodes[Int(left)].leaf_count + nodes[Int(right)].leaf_count
-    nodes.append(
-        HplocNode[frame](
-            bounds,
-            LBVH_SENTINEL,
-            left,
-            right,
-            LBVH_SENTINEL,
-            leaf_count,
-        )
+    nodes[Int(node_idx)] = HplocNode[frame](
+        bounds,
+        LBVH_SENTINEL,
+        left,
+        right,
+        LBVH_SENTINEL,
+        leaf_count,
     )
-    nodes[Int(left)].parent = node_idx
-    nodes[Int(right)].parent = node_idx
-    return node_idx
+    comptime if build_metadata:
+        nodes[Int(left)].parent = node_idx
+        nodes[Int(right)].parent = node_idx
 
 
 def _merge_round[
-    frame: Frame
+    frame: Frame,
+    build_metadata: Bool,
+    parallel_build: Bool,
 ](
     mut nodes: List[HplocNode[frame]],
-    mut clusters: _HplocClusters,
+    cluster_indices: MutSpan[UInt32, _],
+    first: Int,
+    cluster_count: Int,
+    mut cluster_bounds: _HplocClusterBounds,
     search_radius: Int,
+    mut next_node: List[UInt32],
 ) -> Int:
-    var nearest = _nearest_neighbors(nodes, clusters, search_radius)
-    var compacted = _HplocClusters()
+    var nearest: Array[Int, _HPLOC_CLUSTER_CAPACITY]
+    comptime if build_metadata:
+        nearest = _nearest_neighbors_scalar(
+            cluster_bounds, cluster_count, search_radius
+        )
+    else:
+        nearest = _nearest_neighbors_simd(
+            cluster_bounds, cluster_count, search_radius
+        )
     var merge_count = 0
-
-    for cluster_pos in range(clusters.count):
+    for cluster_pos in range(cluster_count):
         var neighbor = nearest[cluster_pos]
-        var mutual = nearest[neighbor] == cluster_pos
-        if mutual and cluster_pos < neighbor:
-            compacted.append(
-                _append_merged_node(
-                    nodes,
-                    clusters.values[cluster_pos],
-                    clusters.values[neighbor],
-                )
-            )
+        if nearest[neighbor] == cluster_pos and cluster_pos < neighbor:
             merge_count += 1
-        elif not mutual:
-            compacted.append(clusters.values[cluster_pos])
 
     # A symmetric nearest-neighbor graph should always contain a mutual pair.
     # Retain a deterministic adjacent fallback so a release build cannot spin
@@ -293,100 +486,268 @@ def _merge_round[
         debug_assert["safe"](
             False, "H-PLOC mutual-nearest merging made no progress"
         )
-        compacted = _HplocClusters()
-        compacted.append(
-            _append_merged_node(nodes, clusters.values[0], clusters.values[1])
+        var node_idx: UInt32
+        comptime if parallel_build:
+            node_idx = Atomic.fetch_add[ordering=Ordering.RELAXED](
+                next_node.unsafe_ptr(), UInt32(1)
+            )
+        else:
+            node_idx = next_node[0]
+            next_node[0] += 1
+        _write_merged_node[frame, build_metadata](
+            nodes,
+            node_idx,
+            cluster_indices.unsafe_get(first),
+            cluster_indices.unsafe_get(first + 1),
         )
-        for i in range(2, clusters.count):
-            compacted.append(clusters.values[i])
-        merge_count = 1
+        cluster_indices.unsafe_get(first) = node_idx
+        cluster_bounds.set(0, nodes[Int(node_idx)].bounds)
+        for i in range(2, cluster_count):
+            cluster_indices.unsafe_get(
+                first + i - 1
+            ) = cluster_indices.unsafe_get(first + i)
+            cluster_bounds.copy(i - 1, i)
+        cluster_bounds.clear_positions(cluster_count - 1, cluster_count)
+        return cluster_count - 1
 
-    clusters = compacted^
-    return merge_count
+    var allocation_base: UInt32
+    comptime if parallel_build:
+        allocation_base = Atomic.fetch_add[ordering=Ordering.RELAXED](
+            next_node.unsafe_ptr(), UInt32(merge_count)
+        )
+    else:
+        allocation_base = next_node[0]
+        next_node[0] += UInt32(merge_count)
+
+    var merge_rank = 0
+    var compacted_count = 0
+
+    for cluster_pos in range(cluster_count):
+        var neighbor = nearest[cluster_pos]
+        var mutual = nearest[neighbor] == cluster_pos
+        if mutual and cluster_pos < neighbor:
+            var node_idx = allocation_base + UInt32(merge_rank)
+            merge_rank += 1
+            _write_merged_node[frame, build_metadata](
+                nodes,
+                node_idx,
+                cluster_indices.unsafe_get(first + cluster_pos),
+                cluster_indices.unsafe_get(first + neighbor),
+            )
+            cluster_indices.unsafe_get(first + compacted_count) = node_idx
+            cluster_bounds.set(compacted_count, nodes[Int(node_idx)].bounds)
+            compacted_count += 1
+        elif not mutual:
+            var survivor_idx = cluster_indices.unsafe_get(first + cluster_pos)
+            cluster_indices.unsafe_get(first + compacted_count) = survivor_idx
+            cluster_bounds.copy(compacted_count, cluster_pos)
+            compacted_count += 1
+
+    cluster_bounds.clear_positions(compacted_count, cluster_count)
+    return compacted_count
 
 
 def _reduce_clusters[
-    frame: Frame
+    frame: Frame,
+    build_metadata: Bool,
+    parallel_build: Bool,
 ](
     mut nodes: List[HplocNode[frame]],
-    mut clusters: _HplocClusters,
+    cluster_indices: MutSpan[UInt32, _],
+    first: Int,
+    cluster_count: Int,
     threshold: Int,
     search_radius: Int,
     final: Bool,
     mut stats: HplocStats,
-):
-    if clusters.count <= threshold:
-        return
+    mut next_node: List[UInt32],
+) -> Int:
+    if cluster_count <= threshold:
+        return cluster_count
 
-    stats.merge_calls += 1
-    stats.max_cluster_count = max(stats.max_cluster_count, clusters.count)
-    while clusters.count > threshold:
-        _ = _merge_round(nodes, clusters, search_radius)
-        stats.merge_rounds += 1
-        if final:
-            stats.final_rounds += 1
-        else:
-            stats.hierarchical_rounds += 1
+    comptime if build_metadata:
+        stats.merge_calls += 1
+        stats.max_cluster_count = max(stats.max_cluster_count, cluster_count)
+    var cluster_bounds = _HplocClusterBounds()
+    for cluster_pos in range(cluster_count):
+        cluster_bounds.set(
+            cluster_pos,
+            nodes[Int(cluster_indices.unsafe_get(first + cluster_pos))].bounds,
+        )
+    comptime if not build_metadata:
+        cluster_bounds.initialize_padding(cluster_count)
+    var reduced_count = cluster_count
+    while reduced_count > threshold:
+        reduced_count = _merge_round[frame, build_metadata, parallel_build](
+            nodes,
+            cluster_indices,
+            first,
+            reduced_count,
+            cluster_bounds,
+            search_radius,
+            next_node,
+        )
+        comptime if build_metadata:
+            stats.merge_rounds += 1
+            if final:
+                stats.final_rounds += 1
+            else:
+                stats.hierarchical_rounds += 1
+    return reduced_count
 
 
 def _build_hploc_range[
-    frame: Frame
+    frame: Frame,
+    build_metadata: Bool,
+    parallel_build: Bool,
 ](
     mut nodes: List[HplocNode[frame]],
     pairs: ImmSpan[MortonItem, _],
+    cluster_indices: MutSpan[UInt32, _],
     first: Int,
     last: Int,
     merging_threshold: Int,
     search_radius: Int,
     mut stats: HplocStats,
-) -> _HplocClusters:
+    mut next_node: List[UInt32],
+) -> Int:
     if first == last:
-        var leaf = _HplocClusters()
-        leaf.append(pairs.unsafe_get(first).item_idx)
-        return leaf^
+        cluster_indices.unsafe_get(first) = pairs.unsafe_get(first).item_idx
+        return 1
 
-    stats.guide_nodes += 1
+    comptime if build_metadata:
+        stats.guide_nodes += 1
     var split = _lbvh_find_split(pairs, first, last)
-    var left = _build_hploc_range(
+    var left_count = _build_hploc_range[frame, build_metadata, parallel_build](
         nodes,
         pairs,
+        cluster_indices,
         first,
         split,
         merging_threshold,
         search_radius,
         stats,
+        next_node,
     )
-    var right = _build_hploc_range(
+    var right_count = _build_hploc_range[frame, build_metadata, parallel_build](
         nodes,
         pairs,
+        cluster_indices,
         split + 1,
         last,
         merging_threshold,
         search_radius,
         stats,
+        next_node,
     )
 
-    var clusters = _HplocClusters()
-    for i in range(left.count):
-        clusters.append(left.values[i])
-    for i in range(right.count):
-        clusters.append(right.values[i])
+    # Match the GPU range workspace: each child writes a packed list at its
+    # Morton-range start. Move only the right list to concatenate both children
+    # at the parent range start; the left list is already in place.
+    for i in range(right_count):
+        cluster_indices.unsafe_get(
+            first + left_count + i
+        ) = cluster_indices.unsafe_get(split + 1 + i)
 
     var final = first == 0 and last == len(pairs) - 1
     var threshold = 1 if final else merging_threshold
-    _reduce_clusters(
+    return _reduce_clusters[frame, build_metadata, parallel_build](
         nodes,
-        clusters,
+        cluster_indices,
+        first,
+        left_count + right_count,
         threshold,
         search_radius,
         final,
         stats,
+        next_node,
     )
-    return clusters^
+
+
+def _collect_hploc_frontier(
+    pairs: ImmSpan[MortonItem, _],
+    first: Int,
+    last: Int,
+    depth: Int,
+    mut frontier: List[_HplocFrontierTask],
+):
+    if first == last or depth == 0:
+        frontier.append(_HplocFrontierTask(first, last))
+        return
+
+    var split = _lbvh_find_split(pairs, first, last)
+    _collect_hploc_frontier(pairs, first, split, depth - 1, frontier)
+    _collect_hploc_frontier(pairs, split + 1, last, depth - 1, frontier)
+
+
+def _finish_hploc_frontier_ancestors[
+    frame: Frame
+](
+    mut nodes: List[HplocNode[frame]],
+    pairs: ImmSpan[MortonItem, _],
+    cluster_indices: MutSpan[UInt32, _],
+    first: Int,
+    last: Int,
+    depth: Int,
+    frontier_counts: ImmSpan[Int, _],
+    mut frontier_cursor: Int,
+    mut stats: HplocStats,
+    mut next_node: List[UInt32],
+) -> Int:
+    if first == last or depth == 0:
+        var count = frontier_counts.unsafe_get(frontier_cursor)
+        frontier_cursor += 1
+        return count
+
+    var split = _lbvh_find_split(pairs, first, last)
+    var left_count = _finish_hploc_frontier_ancestors(
+        nodes,
+        pairs,
+        cluster_indices,
+        first,
+        split,
+        depth - 1,
+        frontier_counts,
+        frontier_cursor,
+        stats,
+        next_node,
+    )
+    var right_count = _finish_hploc_frontier_ancestors(
+        nodes,
+        pairs,
+        cluster_indices,
+        split + 1,
+        last,
+        depth - 1,
+        frontier_counts,
+        frontier_cursor,
+        stats,
+        next_node,
+    )
+
+    for i in range(right_count):
+        cluster_indices.unsafe_get(
+            first + left_count + i
+        ) = cluster_indices.unsafe_get(split + 1 + i)
+
+    var final = first == 0 and last == len(pairs) - 1
+    var threshold = 1 if final else HPLOC_MERGING_THRESHOLD
+    return _reduce_clusters[frame, False, False](
+        nodes,
+        cluster_indices,
+        first,
+        left_count + right_count,
+        threshold,
+        HPLOC_SEARCH_RADIUS,
+        final,
+        stats,
+        next_node,
+    )
 
 
 def _finish_hploc_topology[
-    frame: Frame
+    frame: Frame,
+    build_metadata: Bool,
 ](
     var nodes: List[HplocNode[frame]],
     pairs: ImmSpan[MortonItem, _],
@@ -395,20 +756,99 @@ def _finish_hploc_topology[
 ) -> HplocTopology[frame]:
     var leaf_count = len(pairs)
     var stats = HplocStats(0, 0, 0, 0, 0, 0)
-    var roots = _build_hploc_range(
-        nodes,
-        pairs,
-        0,
-        leaf_count - 1,
-        merging_threshold,
-        search_radius,
-        stats,
-    )
+    nodes.resize(unsafe_uninit_length=leaf_count * 2 - 1)
+    var next_node: List[UInt32] = [UInt32(leaf_count)]
+    var cluster_indices = List[UInt32](capacity=leaf_count)
+    cluster_indices.resize(unsafe_uninit_length=leaf_count)
+    var root_count: Int
+    comptime if build_metadata:
+        root_count = _build_hploc_range[frame, True, False](
+            nodes,
+            pairs,
+            cluster_indices,
+            0,
+            leaf_count - 1,
+            merging_threshold,
+            search_radius,
+            stats,
+            next_node,
+        )
+    else:
+        if leaf_count >= PARALLEL_HPLOC_MIN_ITEMS:
+            var frontier = List[_HplocFrontierTask](
+                capacity=_PARALLEL_HPLOC_FRONTIER_CAPACITY
+            )
+            _collect_hploc_frontier(
+                pairs,
+                0,
+                leaf_count - 1,
+                PARALLEL_HPLOC_FRONTIER_DEPTH,
+                frontier,
+            )
+            var frontier_counts = List[Int](capacity=len(frontier))
+            frontier_counts.resize(unsafe_uninit_length=len(frontier))
+
+            def worker(
+                task_idx: Int,
+            ) {
+                imm,
+                mut nodes,
+                mut cluster_indices,
+                mut frontier_counts,
+                mut next_node,
+            }:
+                var task = frontier[task_idx]
+                var local_stats = HplocStats(0, 0, 0, 0, 0, 0)
+                frontier_counts[task_idx] = _build_hploc_range[
+                    frame, False, True
+                ](
+                    nodes,
+                    pairs,
+                    cluster_indices,
+                    task.first,
+                    task.last,
+                    HPLOC_MERGING_THRESHOLD,
+                    HPLOC_SEARCH_RADIUS,
+                    local_stats,
+                    next_node,
+                )
+
+            var task_count = len(frontier)
+            parallelize(worker, task_count, _worker_count(task_count))
+            var frontier_cursor = 0
+            root_count = _finish_hploc_frontier_ancestors(
+                nodes,
+                pairs,
+                cluster_indices,
+                0,
+                leaf_count - 1,
+                PARALLEL_HPLOC_FRONTIER_DEPTH,
+                frontier_counts,
+                frontier_cursor,
+                stats,
+                next_node,
+            )
+        else:
+            root_count = _build_hploc_range[frame, False, False](
+                nodes,
+                pairs,
+                cluster_indices,
+                0,
+                leaf_count - 1,
+                merging_threshold,
+                search_radius,
+                stats,
+                next_node,
+            )
     debug_assert["safe", _use_compiler_assume=True](
-        roots.count == 1,
+        root_count == 1,
         "H-PLOC final reduction did not produce one root",
     )
-    return HplocTopology(leaf_count, roots.values[0], nodes^, stats)
+    debug_assert["safe", _use_compiler_assume=True](
+        next_node[0] == UInt32(len(nodes)),
+        "H-PLOC did not initialize every topology node",
+    )
+    return HplocTopology(leaf_count, cluster_indices[0], nodes^, stats)
 
 
 def build_hploc_topology[
@@ -468,7 +908,7 @@ def build_hploc_topology[
             )
         )
 
-    return _finish_hploc_topology(
+    return _finish_hploc_topology[frame, True](
         nodes^,
         pairs,
         search_radius,
@@ -536,6 +976,109 @@ def _emit_hploc_node[
     )
 
 
+def _emit_hploc_node_parallel[
+    frame: Frame,
+    leaf_size: Int,
+    method: String,
+](
+    mut builder: BinaryBoundsBvh[frame, leaf_size, method],
+    topology: HplocTopology[frame],
+    topology_idx: UInt32,
+    node_idx: UInt32,
+    first_item: UInt32,
+    mut next_node: List[UInt32],
+) where (method == "hploc"):
+    var source = topology.nodes[Int(topology_idx)]
+    builder.nodes[Int(node_idx)].aabb = source.bounds
+
+    if source.leaf_count <= UInt32(leaf_size):
+        var item_cursor = first_item
+        _write_hploc_leaf_indices(
+            topology,
+            topology_idx,
+            builder.item_indices,
+            item_cursor,
+        )
+        builder.nodes[Int(node_idx)].set_leaf(first_item, source.leaf_count)
+        return
+
+    var left_child = Atomic.fetch_add[ordering=Ordering.RELAXED](
+        next_node.unsafe_ptr(), UInt32(2)
+    )
+    builder.nodes[Int(node_idx)].set_internal(left_child)
+    var left_item_count = topology.nodes[Int(source.left)].leaf_count
+    _emit_hploc_node_parallel(
+        builder,
+        topology,
+        source.left,
+        left_child,
+        first_item,
+        next_node,
+    )
+    _emit_hploc_node_parallel(
+        builder,
+        topology,
+        source.right,
+        left_child + 1,
+        first_item + left_item_count,
+        next_node,
+    )
+
+
+def _collect_hploc_emit_frontier[
+    frame: Frame,
+    leaf_size: Int,
+    method: String,
+](
+    mut builder: BinaryBoundsBvh[frame, leaf_size, method],
+    topology: HplocTopology[frame],
+    topology_idx: UInt32,
+    node_idx: UInt32,
+    first_item: UInt32,
+    depth: Int,
+    mut frontier: List[_HplocEmitTask],
+) where (method == "hploc"):
+    var source = topology.nodes[Int(topology_idx)]
+    if source.leaf_count <= UInt32(leaf_size):
+        builder.nodes[Int(node_idx)].aabb = source.bounds
+        var item_cursor = first_item
+        _write_hploc_leaf_indices(
+            topology,
+            topology_idx,
+            builder.item_indices,
+            item_cursor,
+        )
+        builder.nodes[Int(node_idx)].set_leaf(first_item, source.leaf_count)
+        return
+
+    if depth == 0:
+        frontier.append(_HplocEmitTask(topology_idx, node_idx, first_item))
+        return
+
+    builder.nodes[Int(node_idx)].aabb = source.bounds
+    var left_child = builder.allocate_children()
+    builder.nodes[Int(node_idx)].set_internal(left_child)
+    var left_item_count = topology.nodes[Int(source.left)].leaf_count
+    _collect_hploc_emit_frontier(
+        builder,
+        topology,
+        source.left,
+        left_child,
+        first_item,
+        depth - 1,
+        frontier,
+    )
+    _collect_hploc_emit_frontier(
+        builder,
+        topology,
+        source.right,
+        left_child + 1,
+        first_item + left_item_count,
+        depth - 1,
+        frontier,
+    )
+
+
 def _build_hploc[
     frame: Frame,
     leaf_size: Int,
@@ -559,22 +1102,56 @@ def _build_hploc[
                 UInt32(1),
             )
         )
-
-    var topology = _finish_hploc_topology(
+    var topology = _finish_hploc_topology[frame, False](
         topology_nodes^,
         pairs,
         HPLOC_SEARCH_RADIUS,
         HPLOC_MERGING_THRESHOLD,
     )
-    var item_cursor = UInt32(0)
-    _emit_hploc_node(
-        builder,
-        topology,
-        topology.root,
-        UInt32(0),
-        item_cursor,
-    )
-    debug_assert["safe", _use_compiler_assume=True](
-        item_cursor == builder.item_count,
-        "H-PLOC emission did not write every item",
-    )
+    if leaf_count >= PARALLEL_HPLOC_MIN_ITEMS:
+        var max_builder_nodes = leaf_count * 2 - 1
+        builder.nodes.resize(unsafe_uninit_length=max_builder_nodes)
+        var emit_frontier = List[_HplocEmitTask](
+            capacity=_PARALLEL_HPLOC_EMIT_FRONTIER_CAPACITY
+        )
+        _collect_hploc_emit_frontier(
+            builder,
+            topology,
+            topology.root,
+            UInt32(0),
+            UInt32(0),
+            PARALLEL_HPLOC_EMIT_FRONTIER_DEPTH,
+            emit_frontier,
+        )
+        var next_builder_node: List[UInt32] = [builder.nodes_used]
+
+        def emit_worker(
+            task_idx: Int,
+        ) {imm, mut builder, mut next_builder_node}:
+            var task = emit_frontier[task_idx]
+            _emit_hploc_node_parallel(
+                builder,
+                topology,
+                task.topology_idx,
+                task.node_idx,
+                task.first_item,
+                next_builder_node,
+            )
+
+        var task_count = len(emit_frontier)
+        parallelize(emit_worker, task_count, _worker_count(task_count))
+        builder.nodes_used = next_builder_node[0]
+        builder.nodes.shrink(Int(builder.nodes_used))
+    else:
+        var item_cursor = UInt32(0)
+        _emit_hploc_node(
+            builder,
+            topology,
+            topology.root,
+            UInt32(0),
+            item_cursor,
+        )
+        debug_assert["safe", _use_compiler_assume=True](
+            item_cursor == builder.item_count,
+            "H-PLOC emission did not write every item",
+        )

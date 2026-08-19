@@ -14,14 +14,21 @@ import polars as pl
 ROOT = Path(__file__).resolve().parents[2]
 BENCH_SCRIPT = ROOT / "bench/bvh/bench_bvh_cpu_compare.sh"
 RESULTS_DIR = ROOT / "bench/results/bvh_cpu"
+SINGLE_THREAD_MODE = "1"
+ALL_THREAD_MODE = "all"
 
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 PACKET_SECTION = re.compile(
     r"^(Regular grid|Dragon camera rays) / ([^/]+) / BVH(\d+) leaf(\d+)$"
 )
 PACKET_TIMING = re.compile(
-    r"^(scalar|packet(\d+)): ([0-9.]+) ms, ([0-9.]+) MRay/s, "
+    r"^((?:unmasked-)?scalar|(?:coh-)?packet(\d+)): "
+    r"([0-9.]+) ms, ([0-9.]+) MRay/s, "
     r"hits=(\d+), checksum=([-+0-9.eE]+)$"
+)
+BUILD_THREAD_MODE = re.compile(
+    r"^=== BVH build threads: (1|all); available CPUs: (\d+); "
+    r"affinity: (.+) ===$"
 )
 
 
@@ -88,11 +95,22 @@ def parse_benchmark_output(output: str) -> pl.DataFrame:
     packet_build_method: str | None = None
     packet_bounds_width: int | None = None
     packet_leaf_width: int | None = None
+    build_threads = SINGLE_THREAD_MODE
+    available_cpus = 1
+    cpu_affinity = "unknown"
 
     for raw_line in output.splitlines():
         line = raw_line.strip()
 
         if not line:
+            table_kind = None
+            continue
+
+        thread_mode = BUILD_THREAD_MODE.fullmatch(line)
+        if thread_mode is not None:
+            build_threads = thread_mode.group(1)
+            available_cpus = int(thread_mode.group(2))
+            cpu_affinity = thread_mode.group(3)
             table_kind = None
             continue
 
@@ -216,6 +234,9 @@ def parse_benchmark_output(output: str) -> pl.DataFrame:
             "benchmark": benchmark,
             "implementation": implementation,
             "version": version,
+            "build_threads": build_threads,
+            "available_cpus": available_cpus,
+            "cpu_affinity": cpu_affinity,
             "primitive_count": primitive_count,
             "ray_count": ray_count,
             "nodes": None,
@@ -249,9 +270,9 @@ def parse_benchmark_output(output: str) -> pl.DataFrame:
                 }
 
             elif table_kind == "bajo_dragon":
-                if len(values) != 8:
+                if len(values) != 9:
                     raise ValueError(
-                        f"expected 8 columns, received {len(values)}"
+                        f"expected 9 columns, received {len(values)}"
                     )
 
                 bounds_width = int(values[1])
@@ -262,13 +283,13 @@ def parse_benchmark_output(output: str) -> pl.DataFrame:
                     "layout": f"bvh{bounds_width}",
                     "width": bounds_width,
                     "leaf_width": leaf_width,
-                    "traversal": "scalar1",
+                    "traversal": values[3],
                     "ray_width": 1,
-                    "build_ms": float(values[3]),
-                    "trace_ms": float(values[4]),
-                    "mrays_s": float(values[5]),
-                    "hits": int(values[6]),
-                    "checksum": float(values[7]),
+                    "build_ms": float(values[4]),
+                    "trace_ms": float(values[5]),
+                    "mrays_s": float(values[6]),
+                    "hits": int(values[7]),
+                    "checksum": float(values[8]),
                 }
 
             elif table_kind == "bajo_packet":
@@ -289,13 +310,15 @@ def parse_benchmark_output(output: str) -> pl.DataFrame:
                 ):
                     raise ValueError("packet section metadata is incomplete")
 
-                ray_width = int(timing.group(2))
+                ray_width = (
+                    1 if timing.group(2) is None else int(timing.group(2))
+                )
                 row = base | {
                     "build_method": packet_build_method,
                     "layout": f"bvh{packet_bounds_width}",
                     "width": packet_bounds_width,
                     "leaf_width": packet_leaf_width,
-                    "traversal": f"packet{ray_width}",
+                    "traversal": timing.group(1),
                     "ray_width": ray_width,
                     "build_ms": None,
                     "trace_ms": float(timing.group(3)),
@@ -349,8 +372,8 @@ def parse_benchmark_output(output: str) -> pl.DataFrame:
     if not rows:
         raise ValueError("No benchmark result rows were found")
 
-    # Packet traversal reuses the exact same built hierarchy. Carry the build
-    # time from its matching scalar configuration into the report.
+    # Auxiliary traversal rows reuse the exact same built hierarchy. Carry the
+    # build time from the matching primary scalar configuration into the report.
     bajo_build_times: dict[tuple[object, ...], object] = {}
     for row in rows:
         if (
@@ -359,6 +382,7 @@ def parse_benchmark_output(output: str) -> pl.DataFrame:
             and row["build_ms"] is not None
         ):
             key = (
+                row["build_threads"],
                 row["benchmark"],
                 row["build_method"],
                 row["width"],
@@ -370,10 +394,11 @@ def parse_benchmark_output(output: str) -> pl.DataFrame:
         if row["implementation"] != "bajo":
             continue
 
-        if not str(row["traversal"]).startswith("packet"):
+        if row["build_ms"] is not None:
             continue
 
         key = (
+            row["build_threads"],
             row["benchmark"],
             row["build_method"],
             row["width"],
@@ -387,6 +412,7 @@ def parse_benchmark_output(output: str) -> pl.DataFrame:
     ).sort(
         [
             "benchmark",
+            "build_threads",
             "implementation",
             "build_method",
             "width",
@@ -488,6 +514,67 @@ def best_results(frame: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def merge_build_modes(frame: pl.DataFrame) -> pl.DataFrame:
+    """Return one canonical traversal row with both build measurements.
+
+    Traversal always uses one calling thread. Use the threads=1 traversal as
+    the canonical sample, while preserving the all-thread build time from the
+    matching configuration. If the same traversal is emitted by more than one
+    benchmark binary, retain its faster canonical sample.
+    """
+    identity = [
+        "benchmark",
+        "implementation",
+        "build_method",
+        "layout",
+        "width",
+        "leaf_width",
+        "traversal",
+        "ray_width",
+    ]
+
+    single = (
+        frame
+        .filter(pl.col("build_threads") == SINGLE_THREAD_MODE)
+        .sort("mrays_s", descending=True)
+        .unique(subset=identity, keep="first", maintain_order=True)
+        .rename({"build_ms": "build_ms_1"})
+    )
+    all_builds = (
+        frame
+        .filter(pl.col("build_threads") == ALL_THREAD_MODE)
+        .sort("mrays_s", descending=True)
+        .unique(subset=identity, keep="first", maintain_order=True)
+        .select(identity + [pl.col("build_ms").alias("build_ms_all")])
+    )
+
+    merged = single.join(
+        all_builds,
+        on=identity,
+        how="left",
+        validate="1:1",
+        nulls_equal=True,
+    )
+    if merged.get_column("build_ms_all").null_count() != 0:
+        raise ValueError("Every traversal row requires an all-thread build time")
+
+    return (
+        merged
+        .drop("build_threads", "available_cpus", "cpu_affinity")
+        .sort(
+            [
+                "benchmark",
+                "implementation",
+                "build_method",
+                "width",
+                "leaf_width",
+                "traversal",
+                "ray_width",
+            ]
+        )
+    )
+
+
 def cpu_name() -> str:
     cpuinfo = Path("/proc/cpuinfo")
 
@@ -511,12 +598,11 @@ def update_latest_link(path: Path, link_name: str) -> None:
 def generate_report(
     frame: pl.DataFrame,
     timestamp: datetime,
-    raw_filename: str,
-    csv_filename: str,
 ) -> str:
     labels = {
         "benchmark": "Benchmark",
         "implementation": "Implementation",
+        "build_threads": "Build threads",
         "build_method": "Build",
         "layout": "Layout",
         "width": "Width",
@@ -530,6 +616,8 @@ def generate_report(
         "hits": "Hits",
         "nodes": "Nodes",
         "checksum": "Checksum",
+        "build_ms_1": "Build ms (1)",
+        "build_ms_all": "Build ms (all)",
     }
 
     result_columns = [
@@ -540,7 +628,8 @@ def generate_report(
         "leaf_width",
         "traversal",
         "ray_width",
-        "build_ms",
+        "build_ms_1",
+        "build_ms_all",
         "trace_ms",
         "mrays_s",
         "hits",
@@ -555,7 +644,8 @@ def generate_report(
         "layout",
         "traversal",
         "ray_width",
-        "build_ms",
+        "build_ms_1",
+        "build_ms_all",
         "trace_ms",
         "mrays_s",
         "vs_bajo_pct",
@@ -563,9 +653,20 @@ def generate_report(
 
     mojo_version = run_command("mojo", "--version")
 
-    grid = frame.filter(pl.col("benchmark") == "grid")
-    dragon = frame.filter(pl.col("benchmark") == "dragon")
-    best = best_results(frame)
+    single_threaded = frame.filter(
+        pl.col("build_threads") == SINGLE_THREAD_MODE
+    )
+    multithreaded = frame.filter(
+        pl.col("build_threads") == ALL_THREAD_MODE
+    )
+    if single_threaded.is_empty() or multithreaded.is_empty():
+        raise ValueError("Report requires both single- and all-thread results")
+    merged = merge_build_modes(frame)
+    grid = merged.filter(pl.col("benchmark") == "grid")
+    dragon = merged.filter(pl.col("benchmark") == "dragon")
+    best = best_results(merged)
+    all_available_cpus = multithreaded.get_column("available_cpus").item(0)
+    all_cpu_affinity = multithreaded.get_column("cpu_affinity").item(0)
 
     return "\n".join(
         [
@@ -575,6 +676,14 @@ def generate_report(
             f"- **CPU:** {cpu_name()}",
             f"- **System:** {platform.platform()}",
             f"- **Mojo:** `{mojo_version}`",
+            "- **Build thread modes:** `1` and `all`",
+            f"- **All-thread affinity:** `{all_cpu_affinity}` "
+            f"({all_available_cpus} logical CPUs)",
+            "- **Traversal:** one calling thread; timings use the `threads=1` "
+            "run",
+            "- **Raw data:** CSV/TXT retain both build-thread runs",
+            "- **Build timing:** one sample per configuration; descriptive, "
+            "not a regression gate",
             "",
             "## Best traversal result per implementation",
             "",
@@ -625,8 +734,6 @@ def main() -> int:
     report = generate_report(
         frame,
         timestamp,
-        raw_path.name,
-        csv_path.name,
     )
     markdown_path.write_text(report, encoding="utf-8")
 

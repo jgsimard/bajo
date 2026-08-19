@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cctype>
 #include <cmath>
+#include <cstdlib>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
@@ -64,6 +66,20 @@ struct TraceSummary {
   double checksum = 0.0;
   std::uint64_t hits = 0;
 };
+
+std::string requested_build_threads() {
+  const char* environment = std::getenv("BVH_BUILD_THREADS");
+  const std::string value = environment == nullptr ? "1" : environment;
+  const bool is_positive_integer =
+      !value.empty() && value != "0" &&
+      std::all_of(value.begin(), value.end(), [](unsigned char character) {
+        return std::isdigit(character);
+      });
+  if (!is_positive_integer) {
+    throw std::runtime_error("BVH_BUILD_THREADS must be a positive integer");
+  }
+  return value;
+}
 
 float grid_x(std::size_t i) {
   return (static_cast<float>(i % kGridSide) -
@@ -630,14 +646,16 @@ int main(int argc, char** argv) {
     const std::vector<Triangle> triangles = make_triangles();
     const std::vector<InputRay> rays = make_hit_and_miss_rays();
 
-    // Match Bajo's single-threaded builder and traversal benchmark.
-    RTCDevice device = rtcNewDevice("threads=1");
+    const std::string build_threads = requested_build_threads();
+    const std::string device_configuration = "threads=" + build_threads;
+    RTCDevice device = rtcNewDevice(device_configuration.c_str());
     if (!device) {
       throw std::runtime_error("Could not create the Embree device");
     }
 
     std::cout << "Embree " << RTC_VERSION_STRING
               << " CPU triangle benchmark\n"
+              << "Build threads: " << build_threads << "\n"
               << "Native ray4: "
               << (rtcGetDeviceProperty(
                       device, RTC_DEVICE_PROPERTY_NATIVE_RAY4_SUPPORTED)

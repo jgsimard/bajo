@@ -13,9 +13,9 @@
 #include <string_view>
 #include <vector>
 
-// Keep construction single-threaded so build times are comparable with Bajo
-// and with the Embree benchmark configured using rtcNewDevice("threads=1").
+#if !defined(BENCH_THREADED_BUILDS)
 #define NO_THREADED_BUILDS
+#endif
 #define NO_CUSTOM_GEOMETRY
 #define NO_INDEXED_GEOMETRY
 #define NO_VOXEL_SUPPORT
@@ -478,7 +478,11 @@ int main(int argc, char** argv) {
               << TINY_BVH_VERSION_MINOR << "."
               << TINY_BVH_VERSION_SUB
               << " CPU triangle benchmark\n"
+#if defined(BENCH_THREADED_BUILDS)
+              << "Build threads: all\n"
+#else
               << "Build threads: 1\n"
+#endif
               << "AVX2/FMA: yes\n"
               << "Traversal repeats: " << kTraversalRepeats << "\n";
 

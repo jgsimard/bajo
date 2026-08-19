@@ -151,7 +151,6 @@ def _trace_bounds_bvh_impl[
     leaf_uses_rcp_direction: Bool,
     single_child_fast_path: Bool,
     terminal_mask_fast_path: Bool,
-    trust_invalid_child_bounds: Bool,
     LeafFn: def(
         Rayf32[frame],
         Point3[DType.float32, frame, leaf_width],
@@ -319,10 +318,10 @@ def _trace_bounds_bvh_impl[
                     visit_closest_child(node.data[i], aabb_hit.t[i])
 
                 comptime if bounds_width == 16:
-                    # BVH16 benefits from consuming only set mask bits: see benchmarks
+                    # Inactive lanes retain the invalid bounds installed by
+                    # WideBvhNode.__init__, so the intersection mask is the
+                    # complete active-child mask.
                     var bits = UInt32(pack_bits(mask))
-                    comptime if not trust_invalid_child_bounds:
-                        bits &= tree.child_masks.unsafe_get(Int(current_ref))
 
                     comptime if single_child_fast_path:
                         # Camera rays overwhelmingly produce either zero or
@@ -537,7 +536,6 @@ def _trace_bounds_bvh_octant[
     ) -> Bool,
     single_child_fast_path: Bool = False,
     terminal_mask_fast_path: Bool = False,
-    trust_invalid_child_bounds: Bool = False,
 ](
     tree: BoundsBvh[frame, bounds_width],
     ray: Rayf32[frame],
@@ -561,7 +559,6 @@ def _trace_bounds_bvh_octant[
             leaf_uses_rcp_direction=leaf_uses_rcp_direction,
             single_child_fast_path=single_child_fast_path,
             terminal_mask_fast_path=terminal_mask_fast_path,
-            trust_invalid_child_bounds=trust_invalid_child_bounds,
             positive_x=positive_x,
             positive_y=positive_y,
             positive_z=positive_z,
@@ -680,7 +677,6 @@ def trace_bounds_bvh_from_ref[
     ) -> Bool,
     single_child_fast_path: Bool = False,
     terminal_mask_fast_path: Bool = False,
-    trust_invalid_child_bounds: Bool = False,
 ](
     tree: BoundsBvh[frame, bounds_width],
     ray: Rayf32[frame],
@@ -714,7 +710,6 @@ def trace_bounds_bvh_from_ref[
         leaf_uses_rcp_direction=False,
         single_child_fast_path=single_child_fast_path,
         terminal_mask_fast_path=terminal_mask_fast_path,
-        trust_invalid_child_bounds=trust_invalid_child_bounds,
     ](
         tree,
         ray,

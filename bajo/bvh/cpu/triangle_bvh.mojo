@@ -328,28 +328,9 @@ struct TriangleBvh[
     @always_inline
     def _trace_ordered[
         mode: TRACE,
-        trust_invalid_child_bounds: Bool = False,
     ](self, ray: Rayf32[Self.bvh_frame]) -> Hit[Self.bvh_frame]:
         var unused_stats = CpuBvhTraversalStats()
-        return self._trace[
-            mode,
-            collect_stats=False,
-            trust_invalid_child_bounds=trust_invalid_child_bounds,
-        ](ray, unused_stats)
-
-    @always_inline
-    def trace_scalar_unmasked[
-        mode: TRACE,
-    ](self, ray: Rayf32[Self.bvh_frame]) -> Hit[Self.bvh_frame]:
-        """Trace using invalid AABBs rather than a BVH16 child-mask load.
-
-        This is exact for Bajo-built nodes. It is a performance specialization:
-        prefer the default scalar path for strongly overlapping hierarchies.
-        """
-        return self._trace_ordered[
-            mode,
-            trust_invalid_child_bounds=True,
-        ](ray)
+        return self._trace[mode, collect_stats=False](ray, unused_stats)
 
     @always_inline
     def _trace_shared_stack[
@@ -617,7 +598,6 @@ struct TriangleBvh[
     def _trace[
         mode: TRACE,
         collect_stats: Bool,
-        trust_invalid_child_bounds: Bool = False,
     ](
         self,
         ray: Rayf32[Self.bvh_frame],
@@ -626,7 +606,6 @@ struct TriangleBvh[
         return self._trace_from_ref[
             mode,
             collect_stats,
-            trust_invalid_child_bounds=trust_invalid_child_bounds,
         ](
             ray,
             UInt32(0),
@@ -637,7 +616,6 @@ struct TriangleBvh[
     def _trace_from_ref[
         mode: TRACE,
         collect_stats: Bool,
-        trust_invalid_child_bounds: Bool = False,
     ](
         self,
         ray: Rayf32[Self.bvh_frame],
@@ -880,7 +858,6 @@ struct TriangleBvh[
                     leaf_width=Self.leaf_width,
                     single_child_fast_path=True,
                     terminal_mask_fast_path=True,
-                    trust_invalid_child_bounds=trust_invalid_child_bounds,
                 ](
                     self.tree,
                     ray,

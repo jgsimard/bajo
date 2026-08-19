@@ -29,7 +29,6 @@ struct SceneBenchResult(Copyable):
 def trace_scene[
     bounds_width: SIMDLength,
     leaf_width: SIMDLength,
-    unmasked: Bool = False,
 ](
     bvh: TriangleBvh[Frame.WORLD, bounds_width, leaf_width],
     rays: List[Rayf32[Frame.WORLD]],
@@ -38,11 +37,7 @@ def trace_scene[
     var hits = 0
 
     for ray in rays:
-        var hit: Hit[Frame.WORLD]
-        comptime if unmasked:
-            hit = bvh.trace_scalar_unmasked[TRACE.CLOSEST_HIT](ray)
-        else:
-            hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
+        var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
 
         if hit.t < f32_max:
             checksum += (
@@ -62,18 +57,17 @@ def trace_scene[
 def benchmark_scene[
     bounds_width: SIMDLength,
     leaf_width: SIMDLength,
-    unmasked: Bool = False,
 ](
     bvh: TriangleBvh[Frame.WORLD, bounds_width, leaf_width],
     rays: List[Rayf32[Frame.WORLD]],
 ) -> SceneBenchResult:
     # Warm-up.
-    var summary = trace_scene[bounds_width, leaf_width, unmasked](bvh, rays)
+    var summary = trace_scene[bounds_width, leaf_width](bvh, rays)
     var best_ns = Int.MAX
 
     for _ in range(TRAVERSAL_REPEATS):
         var t0 = perf_counter_ns()
-        summary = trace_scene[bounds_width, leaf_width, unmasked](bvh, rays)
+        summary = trace_scene[bounds_width, leaf_width](bvh, rays)
         var t1 = perf_counter_ns()
 
         var elapsed_ns = Int(t1 - t0)
@@ -146,21 +140,6 @@ def benchmark_case[
         result,
         len(rays),
     )
-
-    comptime if bounds_width == 16:
-        var unmasked = benchmark_scene[bounds_width, leaf_width, unmasked=True](
-            bvh, rays
-        )
-        print_case_result(
-            table,
-            split_method,
-            "unmasked-scalar",
-            bounds_width,
-            leaf_width,
-            Int(t1 - t0),
-            unmasked,
-            len(rays),
-        )
 
 
 def benchmark_configurations[

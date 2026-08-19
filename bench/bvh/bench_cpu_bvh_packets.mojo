@@ -35,7 +35,6 @@ struct PacketTiming(Copyable):
 def trace_scalar[
     bounds_width: SIMDLength,
     leaf_width: SIMDLength,
-    unmasked: Bool = False,
 ](
     bvh: TriangleBvh[Frame.WORLD, bounds_width, leaf_width],
     rays: List[Rayf32[Frame.WORLD]],
@@ -43,11 +42,7 @@ def trace_scalar[
     var checksum = Float64(0.0)
     var hits = 0
     for ray in rays:
-        var hit: Hit[Frame.WORLD]
-        comptime if unmasked:
-            hit = bvh.trace_scalar_unmasked[TRACE.CLOSEST_HIT](ray)
-        else:
-            hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
+        var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
         if hit.t < f32_max:
             checksum += (
                 Float64(hit.t)
@@ -127,16 +122,13 @@ def benchmark[
     leaf_width: SIMDLength,
     length: SIMDLength,
     common_octant: Bool = False,
-    unmasked_scalar: Bool = False,
 ](
     bvh: TriangleBvh[Frame.WORLD, bounds_width, leaf_width],
     rays: List[Rayf32[Frame.WORLD]],
 ) -> PacketTiming:
     var summary: Tuple[Float64, Int]
     comptime if length == 1:
-        summary = trace_scalar[bounds_width, leaf_width, unmasked_scalar](
-            bvh, rays
-        )
+        summary = trace_scalar[bounds_width, leaf_width](bvh, rays)
     else:
         summary = trace_packet[bounds_width, leaf_width, length, common_octant](
             bvh, rays
@@ -145,9 +137,7 @@ def benchmark[
     for _ in range(REPEATS):
         var t0 = perf_counter_ns()
         comptime if length == 1:
-            summary = trace_scalar[bounds_width, leaf_width, unmasked_scalar](
-                bvh, rays
-            )
+            summary = trace_scalar[bounds_width, leaf_width](bvh, rays)
         else:
             summary = trace_packet[
                 bounds_width, leaf_width, length, common_octant
@@ -184,11 +174,6 @@ def benchmark_scene[
     print_timing(
         "scalar",
         benchmark[bounds_width, leaf_width, 1](bvh, rays),
-        len(rays),
-    )
-    print_timing(
-        "unmasked-scalar",
-        benchmark[bounds_width, leaf_width, 1, False, True](bvh, rays),
         len(rays),
     )
     print_timing(

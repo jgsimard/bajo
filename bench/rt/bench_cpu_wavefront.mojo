@@ -145,8 +145,7 @@ def count_wavefront(
         var metal_queue = 0
         var dielectric_queue = 0
 
-        for path_idx in range(len(active_paths)):
-            ref packet = active_paths.packets[path_idx]
+        for packet in active_paths.packets:
             var path_id = packet.path_ids[0]
             var ray = Rayf32[Frame.WORLD](
                 Point3W(packet.ox[0], packet.oy[0], packet.oz[0]),

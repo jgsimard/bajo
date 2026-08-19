@@ -406,8 +406,8 @@ struct GpuWavefrontArena:
             for i in range(self.capacity):
                 ids[i] = packed.path_ids[i]
         with self.path_a.fields.map_to_host() as fields:
-            for i in range(len(packed.fields)):
-                fields[i] = packed.fields[i]
+            for i, field in enumerate(packed.fields):
+                fields[i] = field
         ctx.synchronize()
 
     def download_next(

@@ -111,8 +111,8 @@ def update_gpu_camera(
     )
     ctx.synchronize()
     with target.camera.map_to_host() as mapped:
-        for i in range(len(values)):
-            mapped[i] = values[i]
+        for i, value in enumerate(values):
+            mapped[i] = value
 
 
 def enqueue_gpu_primary[

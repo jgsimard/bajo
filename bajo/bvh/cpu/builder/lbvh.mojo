@@ -228,8 +228,8 @@ def _build_lbvh[
     var item_count = len(pairs)
     var use_parallel_build = builder.item_count >= PARALLEL_LBVH_MIN_ITEMS
     if not use_parallel_build:
-        for i in range(len(pairs)):
-            builder.item_indices[i] = pairs[i].item_idx
+        for i, pair in enumerate(pairs):
+            builder.item_indices[i] = pair.item_idx
 
     debug_assert["safe", _use_compiler_assume=True](
         len(pairs) == item_count,

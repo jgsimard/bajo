@@ -174,8 +174,7 @@ struct GpuRtLights:
             len(world.lights.records) < (1 << 28),
             "GPU RT alias table supports fewer than 2^28 lights",
         )
-        for light_idx in range(len(world.lights.records)):
-            ref light = world.lights.records[light_idx]
+        for light_idx, light in enumerate(world.lights.records):
             var kind = light.primitive.kind()
             var primitive_idx = Int(light.primitive.index())
             var p0: Point3f32[Frame.WORLD]

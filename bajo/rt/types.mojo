@@ -474,9 +474,9 @@ struct SceneData:
         self.surfaces = surfaces^
         self.lights = LightStore()
 
-        for i in range(len(self.spheres)):
+        for i, sphere in enumerate(self.spheres):
             debug_assert["safe", _use_compiler_assume=True](
-                self.spheres[i].radius != 0.0,
+                sphere.radius != 0.0,
                 "sphere radius must be non-zero",
             )
             debug_assert["safe", _use_compiler_assume=True](
@@ -484,14 +484,13 @@ struct SceneData:
                 "sphere surface id is out of range",
             )
 
-        for i in range(len(self.triangle_surfaces)):
+        for surface in self.triangle_surfaces:
             debug_assert["safe", _use_compiler_assume=True](
-                self.surfaces.validate(self.triangle_surfaces[i]),
+                self.surfaces.validate(surface),
                 "triangle surface id is out of range",
             )
 
-        for mesh_idx in range(len(self.triangle_meshes)):
-            ref vertices = self.triangle_meshes[mesh_idx]
+        for vertices in self.triangle_meshes:
             debug_assert["safe", _use_compiler_assume=True](
                 len(vertices) > 0 and len(vertices) % 3 == 0,
                 (
@@ -500,8 +499,7 @@ struct SceneData:
                 ),
             )
 
-        for i in range(len(self.triangle_instances)):
-            ref inst = self.triangle_instances[i]
+        for i, inst in enumerate(self.triangle_instances):
             debug_assert["safe", _use_compiler_assume=True](
                 inst.kind == Primitive.TRIANGLE,
                 "triangle instance must have triangle primitive kind",
@@ -519,8 +517,7 @@ struct SceneData:
         self.lights.build_alias_table()
 
     def _build_light_store(mut self):
-        for idx in range(len(self.triangle_surfaces)):
-            ref surface = self.triangle_surfaces[idx]
+        for idx, surface in enumerate(self.triangle_surfaces):
             if surface.kind() == MAT.EMISSIVE:
                 var radiance = self.surfaces.emissives[
                     Int(surface.index())
@@ -537,8 +534,7 @@ struct SceneData:
                         )
                     )
 
-        for idx in range(len(self.sphere_surfaces)):
-            ref surface = self.sphere_surfaces[idx]
+        for idx, surface in enumerate(self.sphere_surfaces):
             if surface.kind() == MAT.EMISSIVE:
                 var radiance = self.surfaces.emissives[
                     Int(surface.index())
@@ -630,8 +626,7 @@ struct CpuScene[
             var bvh_spheres = List[Sphere[Frame.WORLD]](
                 capacity=len(self.scene.spheres)
             )
-            for i in range(len(self.scene.spheres)):
-                ref s = self.scene.spheres[i]
+            for s in self.scene.spheres:
                 bvh_spheres.append(sphere_for_acceleration(s))
 
             self.sphere_bvh = Optional[
@@ -652,8 +647,7 @@ struct CpuScene[
             )
 
         if len(self.scene.triangle_instances) > 0:
-            for mesh_idx in range(len(self.scene.triangle_meshes)):
-                ref vertices = self.scene.triangle_meshes[mesh_idx]
+            for vertices in self.scene.triangle_meshes:
                 self.triangle_mesh_blases.append(
                     TriangleBvh[Frame.LOCAL, Self.instance_bvh_width].__init__[
                         "sah"

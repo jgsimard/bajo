@@ -239,11 +239,11 @@ def _assert_root_uses_largest_area_opening[
             while len(candidates) < node_width:
                 var open_pos = -1
                 var largest_area = Float32(-1.0)
-                for i in range(len(candidates)):
-                    if is_leaf_ref(candidates[i]):
+                for i, candidate in enumerate(candidates):
+                    if is_leaf_ref(candidate):
                         continue
                     var area = _encoded_bounds(
-                        candidates[i],
+                        candidate,
                         leaf_bounds_span,
                         leaf_ids_span,
                         node_bounds_span,
@@ -261,11 +261,11 @@ def _assert_root_uses_largest_area_opening[
                 unsafe_ptr=wide_nodes.unsafe_ptr(), length=len(wide_nodes)
             )
             var wide_u32 = wide_nodes.unsafe_ptr().unsafe_bitcast[UInt32]()
-            for lane in range(len(candidates)):
+            for lane, candidate in enumerate(candidates):
                 var base = _wide_node_base[node_width](UInt32(0), lane)
                 var actual = AABB[Frame.WORLD].load6(wide_span, base)
                 var expected = _encoded_bounds(
-                    candidates[lane],
+                    candidate,
                     leaf_bounds_span,
                     leaf_ids_span,
                     node_bounds_span,
@@ -326,9 +326,9 @@ def _assert_hploc_triangle_matches_cpu[
             var hit_span = Span(
                 unsafe_ptr=host_hits.unsafe_ptr(), length=len(host_hits)
             )
-            for i in range(len(rays)):
+            for i, ray in enumerate(rays):
                 var actual = Hit[Frame.WORLD].load(hit_span, i)
-                var expected = cpu.trace[TRACE.CLOSEST_HIT](rays[i])
+                var expected = cpu.trace[TRACE.CLOSEST_HIT](ray)
                 var both_miss = actual.t >= f32_max and expected.t >= f32_max
                 if not both_miss:
                     assert_true(abs(Float64(actual.t - expected.t)) <= 1.0e-4)

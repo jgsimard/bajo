@@ -112,12 +112,12 @@ def make_many_light_world() -> World[]:
 
 def gpu_rt_checksum(pixels: List[Color]) -> Float64:
     var result = Float64(0.0)
-    for i in range(len(pixels)):
+    for i, pixel in enumerate(pixels):
         var weight = Float64((i % 251) + 1)
         result += weight * (
-            Float64(pixels[i].x)
-            + Float64(3.0) * Float64(pixels[i].y)
-            + Float64(7.0) * Float64(pixels[i].z)
+            Float64(pixel.x)
+            + Float64(3.0) * Float64(pixel.y)
+            + Float64(7.0) * Float64(pixel.z)
         )
     return result
 

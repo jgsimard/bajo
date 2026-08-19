@@ -253,8 +253,7 @@ def _assert_wide_leaf_ranges_at_most_width[
     frame: Frame, width: SIMDLength
 ](wide: BoundsBvh[frame, width]) raises:
     assert_true(len(wide.child_masks) == len(wide.nodes))
-    for node_idx in range(len(wide.nodes)):
-        ref node = wide.nodes[node_idx]
+    for node_idx, node in enumerate(wide.nodes):
         var expected_child_mask = UInt32(0)
         for lane in range(width):
             var child_ref = node.data[lane]
@@ -431,8 +430,8 @@ def test_parallel_hploc_builder_leaf_invariants() raises:
     assert_true(Int(builder.nodes_used) == len(builder.nodes))
     _assert_builder_leaf_sizes_at_most(builder, UInt32(16))
     assert_equal(len(builder.item_indices), len(repeated.item_indices))
-    for i in range(len(builder.item_indices)):
-        assert_equal(builder.item_indices[i], repeated.item_indices[i])
+    for i, item_idx in enumerate(builder.item_indices):
+        assert_equal(item_idx, repeated.item_indices[i])
 
     var wide = BoundsBvh[Frame.WORLD, 16](builder)
     _assert_wide_leaf_ranges_at_most_width[Frame.WORLD, 16](wide)
@@ -510,9 +509,9 @@ def test_cpu_lbvh_radix_sort_orders_all_bytes() raises:
     _radix_sort_morton_pairs(serial)
     _radix_sort_morton_pairs_parallel(parallel, 3)
 
-    for i in range(len(pairs)):
-        assert_equal(serial[i].code, expected_codes[i])
-        assert_equal(serial[i].item_idx, expected_indices[i])
+    for i, serial_pair in enumerate(serial):
+        assert_equal(serial_pair.code, expected_codes[i])
+        assert_equal(serial_pair.item_idx, expected_indices[i])
         assert_equal(parallel[i].code, expected_codes[i])
         assert_equal(parallel[i].item_idx, expected_indices[i])
 

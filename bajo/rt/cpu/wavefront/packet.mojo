@@ -279,9 +279,8 @@ def _shade_material_packets[
     settings: RenderSettings,
     stage: UInt32,
 ):
-    for packet_idx in range(len(queue.packets)):
+    for packet_idx, batch in enumerate(queue.packets):
         var lane_count = min(length, len(queue) - packet_idx * length)
-        ref batch = queue.packets[packet_idx]
         var scattered = _sample_bsdf_batch[MATERIAL_KIND, length](
             batch, lane_count, surfaces, settings, stage
         )
@@ -331,8 +330,7 @@ def _trace_path_packets[
         metal_queue.clear()
         dielectric_queue.clear()
         next_paths.clear()
-        for packet_idx in range(len(active_paths.packets)):
-            ref packet = active_paths.packets[packet_idx]
+        for packet_idx, packet in enumerate(active_paths.packets):
             var lane_count = min(
                 length, len(active_paths) - packet_idx * length
             )

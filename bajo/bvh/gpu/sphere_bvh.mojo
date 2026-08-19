@@ -55,8 +55,8 @@ def build_sphere_blas_set[
     var total_leaf_spheres = 0
 
     # First pass: compute final packed offsets without building/downloading.
-    for blas_idx in range(len(sphere_sets)):
-        var sphere_count = len(sphere_sets[blas_idx])
+    for spheres in sphere_sets:
+        var sphere_count = len(spheres)
         debug_assert["safe", _use_compiler_assume=True](sphere_count > 0)
 
         var internal_count = sphere_count - 1
@@ -88,9 +88,9 @@ def build_sphere_blas_set[
 
     # Second pass: build each BLAS, then copy its device buffers into the
     # final packed device buffers.
-    for blas_idx in range(len(sphere_sets)):
+    for blas_idx, spheres in enumerate(sphere_sets):
         var blas = build_sphere_bvh[Frame.LOCAL, node_width, leaf_width](
-            ctx, sphere_sets[blas_idx]
+            ctx, spheres
         )
 
         var desc_base = blas_idx * BlasSet.STRIDE

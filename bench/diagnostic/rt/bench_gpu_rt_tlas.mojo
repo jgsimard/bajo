@@ -369,6 +369,5 @@ def main() raises:
         )
         print("\nResults")
         table.header()
-        for i in range(len(rows)):
-            ref row = rows[i]
+        for row in rows:
             _print_layout(table, row, sample_count)

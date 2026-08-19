@@ -62,8 +62,7 @@ def _make_sphere_leaf_bounds(
     var leaf_bounds = List[Float32](capacity=max(len(spheres), 1) * 6)
     var payloads = List[UInt32](capacity=max(len(spheres), 1))
 
-    for i in range(len(spheres)):
-        ref s = spheres[i]
+    for i, s in enumerate(spheres):
         var r = s.radius
 
         leaf_bounds.append(s.center.x - r)
@@ -271,7 +270,7 @@ def _assert_gpu_triangle_matches_cpu_camera[
         var total_node_visits = UInt64(0)
         var total_primitive_tests = UInt64(0)
         with d_stats.map_to_host() as stats:
-            for i in range(len(rays)):
+            for i, _ in enumerate(rays):
                 var base = i * GpuTraversalStats.STRIDE
                 var node_visits = stats[base + GpuTraversalStats.NODE_VISITS]
                 assert_true(
@@ -291,9 +290,9 @@ def _assert_gpu_triangle_matches_cpu_camera[
 
         with d_hits.map_to_host() as hf:
             var gpu_hits = Span(unsafe_ptr=hf.unsafe_ptr(), length=len(hf))
-            for i in range(len(rays)):
+            for i, ray in enumerate(rays):
                 var gpu_hit = Hit[Frame.WORLD].load(gpu_hits, i)
-                var cpu_hit = cpu_bvh.trace[TRACE.CLOSEST_HIT](rays[i])
+                var cpu_hit = cpu_bvh.trace[TRACE.CLOSEST_HIT](ray)
                 var gpu_t = gpu_hit.t
                 var gpu_prim = gpu_hit.prim
                 var cpu_t = cpu_hit.t
@@ -340,9 +339,9 @@ def _assert_gpu_triangle_matches_cpu_camera[
                 var packed_hits = Span(
                     unsafe_ptr=hf.unsafe_ptr(), length=len(hf)
                 )
-                for i in range(len(rays)):
+                for i, ray in enumerate(rays):
                     var gpu_hit = Hit[Frame.WORLD].load(packed_hits, i)
-                    var cpu_hit = cpu_bvh.trace[TRACE.ANY_HIT](rays[i])
+                    var cpu_hit = cpu_bvh.trace[TRACE.ANY_HIT](ray)
                     assert_true(
                         gpu_hit.is_occluded() == cpu_hit.is_occluded(),
                         "packed-ray any-hit mismatch",

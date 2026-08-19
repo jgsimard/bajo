@@ -828,8 +828,8 @@ def test_render_settings_and_tiny_render() raises:
     var one_pixel_tiles = render_depth_first[RENDER.PATH, 1, 1](
         settings, camera, world
     )
-    for i in range(len(result.pixels)):
-        assert_vec_equal(one_pixel_tiles.pixels[i], result.pixels[i])
+    for i, pixel in enumerate(result.pixels):
+        assert_vec_equal(one_pixel_tiles.pixels[i], pixel)
 
     # Renderer packet length and both acceleration widths are independent.
     var packet_result = render_wavefront[RENDER.PATH, 4, 16, False](
@@ -987,13 +987,13 @@ def test_wavefront_tiny_render() raises:
         settings, camera, world
     )
     assert_equal(len(chunked.pixels), len(result.pixels))
-    for i in range(len(result.pixels)):
-        assert_equal(chunked.pixels[i].x, result.pixels[i].x)
-        assert_equal(chunked.pixels[i].y, result.pixels[i].y)
-        assert_equal(chunked.pixels[i].z, result.pixels[i].z)
-        assert_equal(parallel.pixels[i].x, result.pixels[i].x)
-        assert_equal(parallel.pixels[i].y, result.pixels[i].y)
-        assert_equal(parallel.pixels[i].z, result.pixels[i].z)
+    for i, pixel in enumerate(result.pixels):
+        assert_equal(chunked.pixels[i].x, pixel.x)
+        assert_equal(chunked.pixels[i].y, pixel.y)
+        assert_equal(chunked.pixels[i].z, pixel.z)
+        assert_equal(parallel.pixels[i].x, pixel.x)
+        assert_equal(parallel.pixels[i].y, pixel.y)
+        assert_equal(parallel.pixels[i].z, pixel.z)
         assert_equal(width1.pixels[i].x, packet4.pixels[i].x)
         assert_equal(width1.pixels[i].y, packet4.pixels[i].y)
         assert_equal(width1.pixels[i].z, packet4.pixels[i].z)
@@ -1077,10 +1077,10 @@ def test_packet_widths_match_width1_for_mixed_bsdfs() raises:
     var packet16 = render_wavefront[RENDER.PATH, 16, 10, False](
         settings, camera, world
     )
-    for pixel_idx in range(len(packet1.pixels)):
-        assert_vec_equal(packet4.pixels[pixel_idx], packet1.pixels[pixel_idx])
-        assert_vec_equal(packet8.pixels[pixel_idx], packet1.pixels[pixel_idx])
-        assert_vec_equal(packet16.pixels[pixel_idx], packet1.pixels[pixel_idx])
+    for pixel_idx, pixel in enumerate(packet1.pixels):
+        assert_vec_equal(packet4.pixels[pixel_idx], pixel)
+        assert_vec_equal(packet8.pixels[pixel_idx], pixel)
+        assert_vec_equal(packet16.pixels[pixel_idx], pixel)
 
 
 def test_direct_light_algorithms_render_cornell() raises:
@@ -1132,8 +1132,7 @@ def test_direct_light_algorithms_render_cornell() raises:
     var depth_first_total = Float32(0.0)
     var mis_total = Float32(0.0)
     var depth_first_mis_total = Float32(0.0)
-    for pixel_idx in range(len(result.pixels)):
-        var pixel = result.pixels[pixel_idx]
+    for pixel_idx, pixel in enumerate(result.pixels):
         assert_true(pixel.x >= 0.0 and pixel.y >= 0.0 and pixel.z >= 0.0)
         total += pixel.x + pixel.y + pixel.z
         assert_vec_equal(packet_nee1.pixels[pixel_idx], pixel)
@@ -1149,8 +1148,7 @@ def test_direct_light_algorithms_render_cornell() raises:
     for pixel in depth_first.pixels:
         assert_true(pixel.x >= 0.0 and pixel.y >= 0.0 and pixel.z >= 0.0)
         depth_first_total += pixel.x + pixel.y + pixel.z
-    for pixel_idx in range(len(mis.pixels)):
-        var pixel = mis.pixels[pixel_idx]
+    for pixel_idx, pixel in enumerate(mis.pixels):
         assert_true(pixel.x >= 0.0 and pixel.y >= 0.0 and pixel.z >= 0.0)
         mis_total += pixel.x + pixel.y + pixel.z
         assert_vec_equal(packet_mis1.pixels[pixel_idx], pixel)

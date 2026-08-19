@@ -272,8 +272,8 @@ def build_triangle_blas_set[
     var total_leaf_vertices = 0
 
     # First pass: compute final packed offsets without building/downloading.
-    for blas_idx in range(len(vertex_sets)):
-        var tri_count = len(vertex_sets[blas_idx]) / 3
+    for vertices in vertex_sets:
+        var tri_count = len(vertices) / 3
         debug_assert["safe", _use_compiler_assume=True](tri_count > 0)
 
         var internal_count = tri_count - 1
@@ -386,8 +386,8 @@ def build_triangle_blas_set[
     else:
         # Ordinary wide BLASes retain the serial compatibility path because
         # their packed leaf count is finalized by each build.
-        for blas_idx in range(len(vertex_sets)):
-            var d_vertices = upload_vertices(ctx, vertex_sets[blas_idx])
+        for blas_idx, vertices in enumerate(vertex_sets):
+            var d_vertices = upload_vertices(ctx, vertices)
             var desc_base = blas_idx * BlasSet.STRIDE
             var wide_node_base = Int(descs[desc_base + BlasSet.WIDE_NODE_BASE])
             var leaf_f32_base = Int(descs[desc_base + BlasSet.LEAF_F32_BASE])

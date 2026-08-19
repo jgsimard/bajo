@@ -86,8 +86,7 @@ def _inner_hash(left: UInt64, right: UInt64) -> UInt64:
 
 def _reference_root_hash(reference: HplocTopology[Frame.WORLD]) -> UInt64:
     var hashes = List[UInt64](length=len(reference.nodes), fill=UInt64(0))
-    for node_idx in range(len(reference.nodes)):
-        var node = reference.nodes[node_idx]
+    for node_idx, node in enumerate(reference.nodes):
         if node.left == LBVH_SENTINEL:
             hashes[node_idx] = _leaf_hash(node.leaf_id)
         else:

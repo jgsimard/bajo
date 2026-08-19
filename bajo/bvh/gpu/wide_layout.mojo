@@ -93,7 +93,7 @@ def _wide_node_base[width: SIMDLength](node_idx: UInt32, lane: Int) -> Int:
 def _wide_node_store_child[
     width: SIMDLength,
 ](
-    wide_nodes: Pointer[mut=True, Float32, _],
+    wide_nodes: MutPointer[Float32, _],
     node_idx: UInt32,
     lane: Int,
     bounds: AABB,

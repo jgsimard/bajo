@@ -70,7 +70,7 @@ def _write_hploc_terminal_leaf_block[
     leaf_payloads: ImmPointer[UInt32, _],
     leaf_ids: ImmPointer[UInt32, _],
     node_meta: ImmPointer[UInt32, _],
-    leaf_block_indices: Pointer[mut=True, UInt32, _],
+    leaf_block_indices: MutPointer[UInt32, _],
     leaf_block_idx: UInt32,
 ):
     var block_base = Int(leaf_block_idx) * leaf_width

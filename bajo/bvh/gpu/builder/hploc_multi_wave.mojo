@@ -137,7 +137,7 @@ def _hploc_find_parent_id(
 
 @always_inline
 def _hploc_atomic_exchange(
-    ptr: Pointer[mut=True, UInt32, _], desired: UInt32
+    ptr: MutPointer[UInt32, _], desired: UInt32
 ) -> UInt32:
     """Atomic exchange expressed through the current std.atomic CAS API."""
 

@@ -90,7 +90,7 @@ struct GpuTraversalStats(TrivialRegisterPassable, Writable):
 
     def store(
         self,
-        dst: Pointer[mut=True, UInt32, _],
+        dst: MutPointer[UInt32, _],
         ray_idx: Int,
     ):
         var base = ray_idx * Self.STRIDE

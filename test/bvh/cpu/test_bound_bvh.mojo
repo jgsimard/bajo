@@ -71,8 +71,8 @@ def test_hit_load_store_span_with_nonzero_index() raises:
         4.0,
     )
 
-    expected.store(Span(data), 1)
-    var actual = Hit[Frame.WORLD].load(Span(data), 1)
+    expected.store(data, 1)
+    var actual = Hit[Frame.WORLD].load(data, 1)
 
     assert_almost_equal(actual.u, expected.u)
     assert_almost_equal(actual.v, expected.v)
@@ -541,8 +541,8 @@ def test_bounds_sah_clear_separation() raises:
     var split = _find_sah_split[Frame.WORLD, 16](
         builder.nodes[0],
         centroid_bounds,
-        Span(builder.item_indices),
-        Span(builder.items),
+        builder.item_indices,
+        builder.items,
     )
 
     assert_true(split.axis == 0)
@@ -551,8 +551,8 @@ def test_bounds_sah_clear_separation() raises:
     assert_true(split.bin >= 0)
 
     var partition = _partition_items_by_bin[Frame.WORLD, 16](
-        Span(builder.item_indices),
-        Span(builder.items),
+        builder.item_indices,
+        builder.items,
         0,
         2,
         split.axis,
@@ -585,8 +585,8 @@ def test_bounds_sah_degenerate() raises:
     var split = _find_sah_split[Frame.WORLD, 16](
         builder.nodes[0],
         centroid_bounds,
-        Span(builder.item_indices),
-        Span(builder.items),
+        builder.item_indices,
+        builder.items,
     )
 
     assert_true(split.axis == -1)
@@ -606,8 +606,8 @@ def test_bounds_partition_items_non_empty() raises:
     var builder = BinaryBoundsBvh[Frame.WORLD, 2, "sah"](items^)
 
     var split_idx = _partition_items_by_median_center(
-        Span(builder.item_indices),
-        Span(builder.items),
+        builder.item_indices,
+        builder.items,
         0,
         2,
         0,

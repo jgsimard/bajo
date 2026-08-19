@@ -272,7 +272,7 @@ def _reference_from_binary(
     with binary.leaf_ids.map_to_host() as host_ids:
         for i in range(binary.leaf_count):
             ids.append(host_ids[i])
-    return build_hploc_topology(Span(bounds), Span(codes), Span(ids))
+    return build_hploc_topology(bounds, codes, ids)
 
 
 def test_hploc_binary_layout_one_leaf() raises:

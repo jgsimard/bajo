@@ -98,8 +98,8 @@ def _summarize(
     mut render_times: List[Int],
     checksum: Float64,
 ) -> Timing:
-    sort(Span(total_times))
-    sort(Span(render_times))
+    sort(total_times)
+    sort(render_times)
     return Timing(
         total_times[REPEATS // 2],
         render_times[REPEATS // 2],

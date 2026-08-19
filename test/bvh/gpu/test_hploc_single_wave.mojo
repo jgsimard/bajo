@@ -117,9 +117,9 @@ def test_hploc_single_wave_matches_balanced_reference_exactly() raises:
     var codes: List[UInt32] = [0, 1, 2, 3, 256, 257, 258, 259]
     var ids = _identity_ids(len(leaf_bounds))
     var reference = build_hploc_topology(
-        Span(leaf_bounds),
-        Span(codes),
-        Span(ids),
+        leaf_bounds,
+        codes,
+        ids,
         search_radius=8,
         merging_threshold=2,
     )
@@ -144,9 +144,7 @@ def test_hploc_single_wave_matches_strict_tie_reference_exactly() raises:
         leaf_bounds.append(_box(0.0))
     var codes: List[UInt32] = [7, 7, 7, 7]
     var ids = _identity_ids(4)
-    var reference = build_hploc_topology(
-        Span(leaf_bounds), Span(codes), Span(ids)
-    )
+    var reference = build_hploc_topology(leaf_bounds, codes, ids)
     var flat_bounds = _flatten_bounds(leaf_bounds)
 
     with DeviceContext() as ctx:
@@ -170,7 +168,7 @@ def test_hploc_single_wave_duplicate_codes_and_permutation_repeat() raises:
     var codes: List[UInt32] = [11, 11, 11, 11]
     var ids: List[UInt32] = [3, 1, 2, 0]
     var reference = build_hploc_topology(
-        Span(leaf_bounds), Span(codes), Span(ids), merging_threshold=2
+        leaf_bounds, codes, ids, merging_threshold=2
     )
     var flat_bounds = _flatten_bounds(leaf_bounds)
 
@@ -202,9 +200,7 @@ def test_hploc_single_wave_handles_one_leaf() raises:
     var leaf_bounds: List[AABB[Frame.WORLD]] = [_box(3.0)]
     var codes: List[UInt32] = [42]
     var ids: List[UInt32] = [0]
-    var reference = build_hploc_topology(
-        Span(leaf_bounds), Span(codes), Span(ids)
-    )
+    var reference = build_hploc_topology(leaf_bounds, codes, ids)
     var flat_bounds = _flatten_bounds(leaf_bounds)
 
     with DeviceContext() as ctx:
@@ -267,9 +263,7 @@ def test_hploc_single_wave_matches_reference_from_gpu_lbvh_inputs() raises:
             for i in range(leaf_count):
                 sorted_ids.append(host_ids[i])
 
-        var reference = build_hploc_topology(
-            Span(leaf_bounds), Span(codes), Span(sorted_ids)
-        )
+        var reference = build_hploc_topology(leaf_bounds, codes, sorted_ids)
         var gpu = GpuHplocSingleWaveBvh(
             ctx,
             binary.leaf_bounds.copy(),

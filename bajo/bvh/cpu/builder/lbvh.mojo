@@ -211,7 +211,7 @@ def _sorted_morton_pairs[
         else:
             _radix_sort_morton_pairs(pairs)
     else:
-        sort(Span(pairs))
+        sort(pairs)
     return pairs^
 
 

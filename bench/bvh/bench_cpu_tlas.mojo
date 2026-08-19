@@ -41,9 +41,7 @@ def _trace[
     var hits = UInt64(0)
     var instances = UInt64(0)
     for ray in rays:
-        var hit = tlas.trace[TriangleBvh[Frame.LOCAL, width], mode](
-            ray, Span(blases)
-        )
+        var hit = tlas.trace[TriangleBvh[Frame.LOCAL, width], mode](ray, blases)
         comptime if mode == TRACE.ANY_HIT:
             if hit.is_occluded():
                 hits += 1

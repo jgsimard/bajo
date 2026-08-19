@@ -63,7 +63,7 @@ def record_schedule[
 
 
 def summarize(mut times: List[Int], checksum: Float64) -> ScheduleResult:
-    sort(Span(times))
+    sort(times)
     return ScheduleResult(times[3], times[0], times[REPEATS - 1], checksum)
 
 

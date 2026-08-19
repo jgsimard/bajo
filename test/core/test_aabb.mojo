@@ -65,7 +65,7 @@ def test_aabb_store6_with_nonzero_base() raises:
     var data = List[Float32](length=18, fill=-1.0)
     var b = AABB[Frame.WORLD](Point3W(1.0, 2.0, 3.0), Point3W(4.0, 5.0, 6.0))
 
-    b.store6(Span(data), 6)
+    b.store6(data, 6)
 
     assert_almost_equal(data[6], 1.0)
     assert_almost_equal(data[7], 2.0)

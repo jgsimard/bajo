@@ -45,9 +45,9 @@ def test_hploc_topology_hierarchical_merging_exact_topology() raises:
     var codes: List[UInt32] = [0, 1, 2, 3, 256, 257, 258, 259]
     var ids = _identity_ids(len(bounds))
     var tree = build_hploc_topology(
-        Span(bounds),
-        Span(codes),
-        Span(ids),
+        bounds,
+        codes,
+        ids,
         search_radius=8,
         merging_threshold=2,
     )
@@ -75,9 +75,7 @@ def test_hploc_topology_strict_ties_prefer_right_then_near() raises:
     var codes: List[UInt32] = [7, 7, 7, 7]
     var ids = _identity_ids(4)
 
-    var tree = build_hploc_topology(
-        Span(bounds), Span(codes), Span(ids), merging_threshold=16
-    )
+    var tree = build_hploc_topology(bounds, codes, ids, merging_threshold=16)
     assert_true(tree.validate())
 
     # Equal areas exercise the paper implementation's strict '<' update:
@@ -101,12 +99,8 @@ def test_hploc_topology_duplicate_codes_and_permutation_are_deterministic() rais
     var codes: List[UInt32] = [11, 11, 11, 11]
     var ids: List[UInt32] = [3, 1, 2, 0]
 
-    var first = build_hploc_topology(
-        Span(bounds), Span(codes), Span(ids), merging_threshold=2
-    )
-    var second = build_hploc_topology(
-        Span(bounds), Span(codes), Span(ids), merging_threshold=2
-    )
+    var first = build_hploc_topology(bounds, codes, ids, merging_threshold=2)
+    var second = build_hploc_topology(bounds, codes, ids, merging_threshold=2)
     assert_true(first.validate())
     assert_true(second.validate())
     assert_equal(first.topology_checksum(), second.topology_checksum())
@@ -158,9 +152,7 @@ def test_hploc_topology_matches_gpu_lbvh_inputs_and_quality_gate() raises:
             for i in range(len(host_ids)):
                 sorted_ids.append(host_ids[i])
 
-        var hploc = build_hploc_topology(
-            Span(bounds), Span(codes), Span(sorted_ids)
-        )
+        var hploc = build_hploc_topology(bounds, codes, sorted_ids)
         var lbvh_quality = measure_binary_bvh_quality(binary)
 
         assert_true(hploc.validate())

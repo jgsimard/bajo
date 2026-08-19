@@ -117,7 +117,7 @@ def test_tlas_triangle_single_instance_cases() raises:
         TriangleBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT
     ](
         identity_ray,
-        Span(blases),
+        blases,
     )
     _assert_hit(identity_hit, 0, 0, 2.0)
     assert_almost_equal(identity_hit.normal.x, 0.0)
@@ -136,7 +136,7 @@ def test_tlas_triangle_single_instance_cases() raises:
     _assert_hit(
         translated_tlas.trace[TriangleBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT](
             translated_hit_ray,
-            Span(blases),
+            blases,
         ),
         0,
         0,
@@ -151,7 +151,7 @@ def test_tlas_triangle_single_instance_cases() raises:
         TriangleBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT
     ](
         translated_miss_ray,
-        Span(blases),
+        blases,
     )
     assert_true(not hit.is_hit())
 
@@ -179,7 +179,7 @@ def test_tlas_triangle_two_instance_cases() raises:
     _assert_hit(
         near_far_tlas.trace[TriangleBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT](
             center_ray,
-            Span(blases),
+            blases,
         ),
         0,
         0,
@@ -198,7 +198,7 @@ def test_tlas_triangle_two_instance_cases() raises:
     _assert_hit(
         left_right_tlas.trace[TriangleBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT](
             right_ray,
-            Span(blases),
+            blases,
         ),
         1,
         0,
@@ -219,16 +219,14 @@ def _test_tlas_triangle_decoupled_leaf_width[leaf_width: SIMDLength]() raises:
     var ray = Rayf32[Frame.WORLD](Point3W(5.0, 0.0, 0.0), Vec3W(0.0, 0.0, 1.0))
 
     _assert_hit(
-        tlas.trace[TriangleBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT](
-            ray, Span(blases)
-        ),
+        tlas.trace[TriangleBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT](ray, blases),
         1,
         0,
         2.0,
     )
     assert_true(
         tlas.trace[TriangleBvh[Frame.LOCAL, 4], TRACE.ANY_HIT](
-            ray, Span(blases)
+            ray, blases
         ).is_occluded()
     )
 
@@ -253,16 +251,14 @@ def test_tlas_leaf_instance_bounds_filter_missed_blas() raises:
     var ray = Rayf32[Frame.WORLD](Point3W(5.0, 0.0, 0.0), Vec3W(0.0, 0.0, 1.0))
 
     _assert_hit(
-        tlas.trace[TriangleBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT](
-            ray, Span(blases)
-        ),
+        tlas.trace[TriangleBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT](ray, blases),
         1,
         0,
         2.0,
     )
     assert_true(
         tlas.trace[TriangleBvh[Frame.LOCAL, 4], TRACE.ANY_HIT](
-            ray, Span(blases)
+            ray, blases
         ).is_occluded()
     )
 
@@ -284,7 +280,7 @@ def test_tlas_triangle_shadow_cases() raises:
     assert_true(
         tlas.trace[TriangleBvh[Frame.LOCAL, 4], TRACE.ANY_HIT](
             ray_hit,
-            Span(blases),
+            blases,
         ).is_occluded()
     )
 
@@ -295,7 +291,7 @@ def test_tlas_triangle_shadow_cases() raises:
     assert_true(
         not tlas.trace[TriangleBvh[Frame.LOCAL, 4], TRACE.ANY_HIT](
             ray_miss,
-            Span(blases),
+            blases,
         ).is_occluded()
     )
 
@@ -322,7 +318,7 @@ def test_tlas_sphere_single_instance_cases() raises:
         SphereBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT
     ](
         identity_ray,
-        Span(blases),
+        blases,
     )
     _assert_hit(identity_hit, 0, 0, 1.0)
     assert_almost_equal(identity_hit.normal.x, 0.0)
@@ -342,7 +338,7 @@ def test_tlas_sphere_single_instance_cases() raises:
     _assert_hit(
         translated_tlas.trace[SphereBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT](
             translated_hit_ray,
-            Span(blases),
+            blases,
         ),
         0,
         0,
@@ -358,7 +354,7 @@ def test_tlas_sphere_single_instance_cases() raises:
         SphereBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT
     ](
         translated_miss_ray,
-        Span(blases),
+        blases,
     )
     assert_true(not hit.is_hit())
 
@@ -384,7 +380,7 @@ def test_tlas_sphere_two_instance_cases() raises:
     _assert_hit(
         near_far_tlas.trace[SphereBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT](
             center_ray,
-            Span(blases),
+            blases,
         ),
         0,
         0,
@@ -404,7 +400,7 @@ def test_tlas_sphere_two_instance_cases() raises:
     _assert_hit(
         left_right_tlas.trace[SphereBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT](
             right_ray,
-            Span(blases),
+            blases,
         ),
         1,
         0,
@@ -431,7 +427,7 @@ def test_tlas_sphere_nonuniform_scale_normal() raises:
     var tlas = Tlas[4](instances)
     var ray = Rayf32[Frame.WORLD](Point3W(1.0, 0.0, 0.0), Vec3W(0.0, 0.0, 1.0))
     var hit = tlas.trace[SphereBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT](
-        ray, Span(blases)
+        ray, blases
     )
 
     _assert_hit(hit, 0, 0, 1.1339746)
@@ -456,7 +452,7 @@ def test_tlas_sphere_shadow_cases() raises:
     )
     assert_true(
         tlas.trace[SphereBvh[Frame.LOCAL, 4], TRACE.ANY_HIT](
-            ray_hit, Span(blases)
+            ray_hit, blases
         ).is_occluded()
     )
 
@@ -466,7 +462,7 @@ def test_tlas_sphere_shadow_cases() raises:
     assert_true(
         not tlas.trace[SphereBvh[Frame.LOCAL, 4], TRACE.ANY_HIT](
             ray_miss,
-            Span(blases),
+            blases,
         ).is_occluded()
     )
 

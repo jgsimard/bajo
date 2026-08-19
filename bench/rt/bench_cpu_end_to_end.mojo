@@ -113,9 +113,9 @@ def time_render[
         init_times.append(result.timings.init_ns)
         render_times.append(result.timings.render_ns)
 
-    sort(Span(total_times))
-    sort(Span(init_times))
-    sort(Span(render_times))
+    sort(total_times)
+    sort(init_times)
+    sort(render_times)
     var middle = (TIMING_REPEATS - 1) >> 1
     return TimingResult(
         total_times[middle],

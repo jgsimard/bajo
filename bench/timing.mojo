@@ -8,11 +8,11 @@ struct TimingSummary(Copyable):
     var max_ns: Int
 
 
-def summarize_timings(mut values: List[Int]) -> TimingSummary:
+def summarize_timings(values: MutSpan[Int, _]) -> TimingSummary:
     debug_assert["safe", _use_compiler_assume=True](
         len(values) > 0, "cannot summarize an empty timing sample"
     )
-    sort(Span(values))
+    sort(values)
     var middle = (len(values) - 1) >> 1
     return TimingSummary(values[middle], values[0], values[len(values) - 1])
 

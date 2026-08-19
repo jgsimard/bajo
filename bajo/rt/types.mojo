@@ -697,7 +697,7 @@ struct CpuScene[
                 var hit = self.triangle_tlas.value().trace[
                     TriangleBvh[Frame.LOCAL, Self.instance_bvh_width],
                     TRACE.ANY_HIT,
-                ](ray, Span(self.triangle_mesh_blases))
+                ](ray, self.triangle_mesh_blases)
                 if hit.is_occluded():
                     result[0] = True
             return result
@@ -741,7 +741,7 @@ struct CpuScene[
                                     Frame.LOCAL, Self.instance_bvh_width
                                 ],
                                 TRACE.ANY_HIT,
-                            ](ray, Span(self.triangle_mesh_blases))
+                            ](ray, self.triangle_mesh_blases)
                             .is_occluded()
                         )
             return result
@@ -969,7 +969,7 @@ struct CpuScene[
         var bvh_hit = self.triangle_tlas.value().trace[
             TriangleBvh[Frame.LOCAL, Self.instance_bvh_width],
             TRACE.CLOSEST_HIT,
-        ](ray, Span(self.triangle_mesh_blases))
+        ](ray, self.triangle_mesh_blases)
         if not bvh_hit.is_hit() or bvh_hit.inst == EMPTY_LANE:
             return _WorldHit.miss(ray.t_max)
 

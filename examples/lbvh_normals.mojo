@@ -343,9 +343,9 @@ def _trace_cpu_tlas_camera[
                 TRACE.CLOSEST_HIT,
             ](
                 ray,
-                Span(cpu_blases),
+                cpu_blases,
             )
-            hit.store(Span(hits), ray_idx)
+            hit.store(hits, ray_idx)
 
     parallelize(worker, height, height)
 
@@ -367,10 +367,9 @@ def print_hit_counts_by_blas_host(
     var hit_counts = List[Int](length=blas_count, fill=0)
     var total_hits = 0
     var pixel_count = width * height
-    var hit_span = Span(hits)
 
     for i in range(pixel_count):
-        var hit = Hit[Frame.WORLD].load(hit_span, i)
+        var hit = Hit[Frame.WORLD].load(hits, i)
         var inst = hit.inst
 
         if inst != MISS_PRIM:
@@ -442,7 +441,7 @@ def render_cpu(
         HEIGHT,
         tri_vertex_sets,
         instances,
-        Span(hits),
+        hits,
     )
     var write_t1 = perf_counter_ns()
     print(t"CPU write: {round(ns_to_ms(Int(write_t1 - write_t0)), 3)} ms")

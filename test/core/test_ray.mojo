@@ -23,7 +23,7 @@ def test_load_packed_ray_span() raises:
         8.0,
     ]
 
-    var ray = Rayf32[Frame.WORLD](Span(data), 1)
+    var ray = Rayf32[Frame.WORLD](data, 1)
 
     assert_vec_equal(ray.o, Point3W(2.0, 3.0, 4.0))
     assert_almost_equal(ray.t_min, 0.25)

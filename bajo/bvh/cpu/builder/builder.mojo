@@ -313,8 +313,8 @@ struct BinaryBoundsBvh[
             var split = _find_sah_split[Self.frame, BVH_BINS](
                 node,
                 centroid_bounds,
-                Span(self.item_indices),
-                Span(self.items),
+                self.item_indices,
+                self.items,
             )
 
             if split.valid():
@@ -322,8 +322,8 @@ struct BinaryBoundsBvh[
                     Self.frame,
                     BVH_BINS,
                 ](
-                    Span(self.item_indices),
-                    Span(self.items),
+                    self.item_indices,
+                    self.items,
                     first,
                     count,
                     split.axis,
@@ -344,15 +344,15 @@ struct BinaryBoundsBvh[
         var count = Int(node.item_count)
         var axis = longest_axis(node.aabb.extent())
         var split_idx = _partition_items_by_median_center(
-            Span(self.item_indices),
-            Span(self.items),
+            self.item_indices,
+            self.items,
             first,
             count,
             axis,
         )
         return _calculate_partition_bounds(
-            Span(self.item_indices),
-            Span(self.items),
+            self.item_indices,
+            self.items,
             first,
             count,
             split_idx,

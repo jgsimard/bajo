@@ -82,8 +82,8 @@ def _make_sphere_leaf_bounds(
         len(leaf_bounds)
     )
     var d_payloads = ctx.enqueue_create_buffer[DType.uint32](len(payloads))
-    h_leaf_bounds.enqueue_copy_from(Span(leaf_bounds))
-    h_payloads.enqueue_copy_from(Span(payloads))
+    h_leaf_bounds.enqueue_copy_from(leaf_bounds)
+    h_payloads.enqueue_copy_from(payloads)
 
     h_leaf_bounds.enqueue_copy_to(d_leaf_bounds)
     h_payloads.enqueue_copy_to(d_payloads)
@@ -130,8 +130,8 @@ def _make_triangle_leaf_bounds(
         len(leaf_bounds)
     )
     var d_payloads = ctx.enqueue_create_buffer[DType.uint32](len(payloads))
-    h_leaf_bounds.enqueue_copy_from(Span(leaf_bounds))
-    h_payloads.enqueue_copy_from(Span(payloads))
+    h_leaf_bounds.enqueue_copy_from(leaf_bounds)
+    h_payloads.enqueue_copy_from(payloads)
 
     h_leaf_bounds.enqueue_copy_to(d_leaf_bounds)
     h_payloads.enqueue_copy_to(d_payloads)

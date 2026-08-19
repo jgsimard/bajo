@@ -167,7 +167,7 @@ def _cpu_tlas_triangle_reference[
             TriangleBvh[Frame.LOCAL, blas_width], TRACE.CLOSEST_HIT
         ](
             ray,
-            Span(blases),
+            blases,
         )
         if hit.t < f32_max:
             checksum += Float64(hit.t)
@@ -196,7 +196,7 @@ def _cpu_tlas_triangle_shadow_reference[
             TriangleBvh[Frame.LOCAL, blas_width], TRACE.ANY_HIT
         ](
             ray,
-            Span(blases),
+            blases,
         )
         if hit.is_occluded():
             occluded += 1

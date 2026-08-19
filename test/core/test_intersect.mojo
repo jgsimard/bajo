@@ -208,7 +208,7 @@ def test_intersect_packed_triangle_span() raises:
         0.0,
     ]
     var hit = intersect_ray_tri(
-        Span(vertices),
+        vertices,
         UInt32(0),
         Point3W(0.25, 0.25, 1.0),
         Vec3W(0.0, 0.0, -1.0),

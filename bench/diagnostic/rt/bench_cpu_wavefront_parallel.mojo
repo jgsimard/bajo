@@ -74,7 +74,7 @@ def _record[
 
 
 def _summarize(mut times: List[Int], checksum: Float64) -> Timing:
-    sort(Span(times))
+    sort(times)
     return Timing(times[3], times[0], times[REPEATS - 1], checksum)
 
 

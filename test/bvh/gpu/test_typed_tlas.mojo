@@ -63,7 +63,7 @@ def _cpu_triangle_tlas_checksum[
                 TriangleBvh[Frame.LOCAL, blas_width], TRACE.CLOSEST_HIT
             ](
                 ray,
-                Span(cpu_blases),
+                cpu_blases,
             )
             if hit.t < f32_max:
                 checksum += Float64(hit.t)

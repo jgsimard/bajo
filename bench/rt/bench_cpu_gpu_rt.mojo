@@ -90,8 +90,8 @@ def _bench_cpu[
         )
         total_times.append(result.timings.total_ns)
         render_times.append(result.timings.render_ns)
-    sort(Span(total_times))
-    sort(Span(render_times))
+    sort(total_times)
+    sort(render_times)
     var middle = (BENCH_REPEATS - 1) >> 1
     return CpuTiming(
         total_times[middle],
@@ -152,9 +152,9 @@ def _bench_gpu[
         submit_times.append(Int(submit_t1 - t0))
         device_times.append(Int(device_t1 - t0))
         host_times.append(Int(host_t1 - t0))
-    sort(Span(submit_times))
-    sort(Span(device_times))
-    sort(Span(host_times))
+    sort(submit_times)
+    sort(device_times)
+    sort(host_times)
     var middle = (BENCH_REPEATS - 1) >> 1
     return GpuTiming(
         submit_times[middle],

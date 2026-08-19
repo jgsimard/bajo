@@ -49,7 +49,7 @@ def _make_instances(
 
 def _print_row(label: String, timings: List[Int]):
     var values = timings.copy()
-    sort(Span(values))
+    sort(values)
     var middle = (len(values) - 1) >> 1
     print(
         t"{label}\t{round(ns_to_ms(values[middle]), 3)}\t"

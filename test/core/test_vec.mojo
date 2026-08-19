@@ -78,8 +78,8 @@ def test_load_store_span_with_nonzero_base() raises:
     var data = List[Float32](length=8, fill=-1.0)
     var value = Vec3W(2.0, 3.0, 4.0)
 
-    value.store(Span(data), 3)
-    var loaded = Vec3W.load(Span(data), 3)
+    value.store(data, 3)
+    var loaded = Vec3W.load(data, 3)
 
     assert_vec_equal(loaded, value)
     assert_almost_equal(data[2], -1.0)

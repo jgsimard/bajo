@@ -56,9 +56,11 @@ comptime ROOT_SCALAR_TRIANGLE_MIN_NODES = 2048
 def _make_triangle_bounds_item[
     frame: Frame
 ](vertices: ImmSpan[Point3f32[frame], _], i: Int) -> BoundsItem[frame]:
-    ref v0 = vertices[i * 3 + 0]
-    ref v1 = vertices[i * 3 + 1]
-    ref v2 = vertices[i * 3 + 2]
+    debug_assert["safe", _use_compiler_assume=True](i * 3 + 2 <= len(vertices))
+
+    ref v0 = vertices.unsafe_get(i * 3 + 0)
+    ref v1 = vertices.unsafe_get(i * 3 + 1)
+    ref v2 = vertices.unsafe_get(i * 3 + 2)
     var bounds = AABB[frame].invalid()
     bounds.grow(v0, v1, v2)
     return BoundsItem(bounds, UInt32(i))

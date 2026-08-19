@@ -271,7 +271,7 @@ def _write_comparison(
             comparison[target] = path_pixels[source]
             comparison[target + IMAGE_WIDTH] = nee_pixels[source]
             comparison[target + 2 * IMAGE_WIDTH] = mis_pixels[source]
-    write_ppm_from_colors(COMPARISON_OUTPUT, width, IMAGE_HEIGHT, comparison^)
+    write_ppm_from_colors(COMPARISON_OUTPUT, width, IMAGE_HEIGHT, comparison)
 
 
 def main() raises:

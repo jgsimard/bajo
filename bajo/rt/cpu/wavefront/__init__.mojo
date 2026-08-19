@@ -62,7 +62,7 @@ def _trace_packet_range[
     settings: RenderSettings,
     camera: Camera,
     world: CpuScene[world_bvh_width, instance_bvh_width],
-    mut pixels: List[Color],
+    pixels: MutSpan[Color, _],
     path_begin: Int,
     path_end: Int,
     mut queues: _PacketQueueArena[length],

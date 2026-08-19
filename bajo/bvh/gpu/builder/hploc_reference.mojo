@@ -160,8 +160,8 @@ def _bounds_difference(a: AABB[Frame.WORLD], b: AABB[Frame.WORLD]) -> Float64:
 
 
 def _nearest_neighbors(
-    nodes: List[HplocReferenceNode],
-    clusters: List[UInt32],
+    nodes: ImmSpan[HplocReferenceNode, _],
+    clusters: ImmSpan[UInt32, _],
     search_radius: Int,
 ) raises -> List[Int]:
     var count = len(clusters)

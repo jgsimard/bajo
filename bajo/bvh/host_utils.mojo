@@ -12,14 +12,18 @@ def triangle_bounds[
     return bounds
 
 
-def compute_bounds[frame: Frame](verts: List[Point3f32[frame]]) -> AABB[frame]:
+def compute_bounds[
+    frame: Frame
+](verts: ImmSpan[Point3f32[frame], _]) -> AABB[frame]:
     var bounds = AABB[frame].invalid()
     for vert in verts:
         bounds.grow(vert)
     return bounds
 
 
-def sphere_bounds[frame: Frame](spheres: List[Sphere[frame]]) -> AABB[frame]:
+def sphere_bounds[
+    frame: Frame
+](spheres: ImmSpan[Sphere[frame], _]) -> AABB[frame]:
     var bounds = AABB[frame].invalid()
     for s in spheres:
         bounds.grow(s.bounds())

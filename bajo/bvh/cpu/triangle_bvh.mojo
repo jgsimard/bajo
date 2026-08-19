@@ -53,7 +53,7 @@ comptime ROOT_SCALAR_TRIANGLE_MIN_NODES = 2048
 @always_inline
 def _make_triangle_bounds_item[
     frame: Frame
-](vertices: List[Point3f32[frame]], i: Int) -> BoundsItem[frame]:
+](vertices: ImmSpan[Point3f32[frame], _], i: Int) -> BoundsItem[frame]:
     ref v0 = vertices[i * 3 + 0]
     ref v1 = vertices[i * 3 + 1]
     ref v2 = vertices[i * 3 + 2]
@@ -85,7 +85,7 @@ struct TriangleBvh[
 
     def __init__[
         split_method: String = "median"
-    ](out self, vertices: List[Point3f32[Self.frame]]):
+    ](out self, vertices: ImmSpan[Point3f32[Self.frame], _]):
         self.tri_count = len(vertices) / 3
         self.leaf_blocks = List[
             TriangleLeafBlock[Self.frame, Self.leaf_width]

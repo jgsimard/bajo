@@ -1045,7 +1045,7 @@ def add_triangle(
 def add_triangle_mesh(
     mut triangle_vertices: List[Point3f32[Frame.WORLD]],
     mut triangle_surfaces: List[SurfaceId[1]],
-    vertices: List[Point3f32[Frame.WORLD]],
+    vertices: ImmSpan[Point3f32[Frame.WORLD], _],
     surface: SurfaceId[1],
 ):
     debug_assert["safe", _use_compiler_assume=True](
@@ -1062,7 +1062,7 @@ def add_triangle_mesh_instance(
     mut triangle_meshes: List[List[Point3f32[Frame.LOCAL]]],
     mut triangle_instances: List[Instance],
     mut triangle_instance_surfaces: List[SurfaceId[1]],
-    vertices: List[Point3f32[Frame.LOCAL]],
+    vertices: ImmSpan[Point3f32[Frame.LOCAL], _],
     transform: Affine3f32[Frame.LOCAL, Frame.WORLD],
     bounds: AABB[Frame.LOCAL],
     surface: SurfaceId[1],
@@ -1072,7 +1072,9 @@ def add_triangle_mesh_instance(
         "triangle mesh vertex count must be a positive multiple of three",
     )
     var mesh_idx = UInt32(len(triangle_meshes))
-    triangle_meshes.append(vertices.copy())
+    var owned_vertices = List[Point3f32[Frame.LOCAL]](capacity=len(vertices))
+    owned_vertices.extend(vertices)
+    triangle_meshes.append(owned_vertices^)
     triangle_instances.append(
         Instance(
             transform,

@@ -52,13 +52,13 @@ def _radix_sort_morton_pass[
         offsets[bucket] += 1
 
 
-def _radix_sort_morton_pairs(mut pairs: List[MortonItem]):
+def _radix_sort_morton_pairs(pairs: MutSpan[MortonItem, _]):
     var scratch = List[MortonItem](capacity=len(pairs))
     scratch.resize(unsafe_uninit_length=len(pairs))
-    _radix_sort_morton_pass[0](Span(pairs), Span(scratch))
-    _radix_sort_morton_pass[8](Span(scratch), Span(pairs))
-    _radix_sort_morton_pass[16](Span(pairs), Span(scratch))
-    _radix_sort_morton_pass[24](Span(scratch), Span(pairs))
+    _radix_sort_morton_pass[0](pairs, scratch)
+    _radix_sort_morton_pass[8](scratch, pairs)
+    _radix_sort_morton_pass[16](pairs, scratch)
+    _radix_sort_morton_pass[24](scratch, pairs)
 
 
 def _radix_sort_morton_pass_parallel[
@@ -66,11 +66,11 @@ def _radix_sort_morton_pass_parallel[
 ](
     src: ImmSpan[MortonItem, _],
     dst: MutSpan[MortonItem, _],
-    mut counts: List[UInt32],
-    mut offsets: List[Int],
+    counts: MutSpan[UInt32, _],
+    offsets: MutSpan[Int, _],
     worker_count: Int,
 ):
-    def histogram_worker(task_idx: Int) {imm, mut counts}:
+    def histogram_worker(task_idx: Int) {imm}:
         var counts_base = task_idx * 256
         for bucket in range(256):
             counts[counts_base + bucket] = 0
@@ -112,7 +112,7 @@ def _radix_sort_morton_pass_parallel[
 
 
 def _radix_sort_morton_pairs_parallel(
-    mut pairs: List[MortonItem], worker_count: Int
+    pairs: MutSpan[MortonItem, _], worker_count: Int
 ):
     var scratch = List[MortonItem](capacity=len(pairs))
     scratch.resize(unsafe_uninit_length=len(pairs))

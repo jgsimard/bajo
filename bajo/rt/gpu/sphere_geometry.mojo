@@ -28,34 +28,32 @@ struct GpuRtSphereGeometry[
     ](
         out self,
         mut ctx: DeviceContext,
-        spheres: List[Sphere[Self.frame]],
-        surface_ids: List[SurfaceId[surface_width]],
+        spheres: ImmSpan[Sphere[Self.frame], _],
+        surface_ids: ImmSpan[SurfaceId[surface_width], _],
     ) raises:
         comptime assert surface_width == 1
-        var build_spheres = List[Sphere[Self.frame]]()
-        var dummy_surfaces = List[UInt32]()
-        var signed_radii = List[Float32]()
+        var build_spheres: List[Sphere[Self.frame]]
+        var dummy_surfaces: List[UInt32]
+        var signed_radii: List[Float32]
         comptime if enabled:
             debug_assert["safe", _use_compiler_assume=True](
                 len(spheres) > 0 and len(surface_ids) == len(spheres),
                 "GPU sphere geometry requires one surface per sphere",
             )
             build_spheres = List[Sphere[Self.frame]](capacity=len(spheres))
+            dummy_surfaces = []
             signed_radii = List[Float32](capacity=len(spheres))
-            for i in range(len(spheres)):
-                ref sphere = spheres[i]
+            for sphere in spheres:
                 build_spheres.append(sphere_for_acceleration(sphere))
                 signed_radii.append(sphere.radius)
         else:
-            build_spheres.append(
-                Sphere[Self.frame](Point3f32[Self.frame](0.0), 1.0)
-            )
-            dummy_surfaces.append(UInt32(0))
-            signed_radii.append(1.0)
+            build_spheres = [Sphere(Point3f32(0.0), 1.0)]
+            dummy_surfaces = [UInt32(0)]
+            signed_radii = [1.0]
 
         self.bvh = build_sphere_bvh[
             Self.frame, Self.node_width, Self.leaf_width
-        ](ctx, build_spheres^)
+        ](ctx, build_spheres)
         comptime if enabled:
             self.surfaces = upload_surface_ids(ctx, surface_ids)
         else:

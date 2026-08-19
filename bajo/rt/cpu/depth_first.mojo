@@ -298,7 +298,7 @@ def write_ppm_from_colors(
     path: String,
     width: Int,
     height: Int,
-    pixels: List[Color],
+    pixels: ImmSpan[Color, _],
 ) raises:
     with open(path, "w") as f:
         var fd = FileDescriptor(f)

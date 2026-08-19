@@ -54,7 +54,7 @@ struct TlasColdInstance(Copyable):
 
 
 def _split_instances(
-    instances: List[Instance],
+    instances: ImmSpan[Instance, _],
     mut hot_instances: List[TlasHotInstance],
     mut cold_instances: List[TlasColdInstance],
 ):
@@ -72,7 +72,7 @@ def _tree[
     leaf_width: SIMDLength,
     split_method: String,
 ](
-    instances: List[TlasColdInstance],
+    instances: ImmSpan[TlasColdInstance, _],
     mut leaf_blocks: List[TlasLeafBlock[leaf_width]],
 ) -> BoundsBvh[Frame.WORLD, bounds_width]:
     var items = [
@@ -138,7 +138,7 @@ struct Tlas[
 
     def __init__[
         split_method: String = "lbvh"
-    ](out self, instances: List[Instance]):
+    ](out self, instances: ImmSpan[Instance, _]):
         self.hot_instances = []
         self.cold_instances = []
         _split_instances(instances, self.hot_instances, self.cold_instances)

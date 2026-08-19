@@ -85,7 +85,7 @@ struct _DirectLightBatch[length: SIMDLength]:
 def _accumulate_direct_light_packet[
     ALGORITHM: RENDER, length: SIMDLength
 ](
-    mut pixels: List[Color],
+    pixels: MutSpan[Color, _],
     paths: PathPacket[length],
     lights: _DirectLightBatch[length],
     lane_count: Int,
@@ -248,7 +248,7 @@ def _sample_bsdf_batch[
 def _accumulate_sky_packet[
     length: SIMDLength
 ](
-    mut pixels: List[Color],
+    pixels: MutSpan[Color, _],
     packet: PathPacket[length],
     lane_count: Int,
     misses: SIMD[DType.bool, length],
@@ -316,7 +316,7 @@ def _trace_path_packets[
 ](
     settings: RenderSettings,
     world: CpuScene[world_bvh_width, instance_bvh_width],
-    mut pixels: List[Color],
+    pixels: MutSpan[Color, _],
     mut active_paths: PacketPathQueue[length],
     mut next_paths: PacketPathQueue[length],
     mut lambertian_queue: PacketShadeQueue[length],

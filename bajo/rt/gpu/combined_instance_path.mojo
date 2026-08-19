@@ -119,7 +119,7 @@ struct GpuRtCombinedInstanceScene[
             Self.triangle_leaf_width,
             Self.triangle_build_method,
             Self.triangle_compressed,
-        ](ctx, triangle_vertices^)
+        ](ctx, triangle_vertices)
         self.blases = build_triangle_blas_set[
             Self.blas_node_width,
             Self.blas_leaf_width,

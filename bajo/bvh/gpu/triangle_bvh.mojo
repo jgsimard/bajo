@@ -260,7 +260,7 @@ def build_triangle_blas_set[
     compressed: Bool = False,
 ](
     mut ctx: DeviceContext,
-    vertex_sets: List[List[Point3f32[Frame.LOCAL]]],
+    vertex_sets: ImmSpan[List[Point3f32[Frame.LOCAL]], _],
 ) raises -> BlasSet[node_width, leaf_width]:
     debug_assert["safe", _use_compiler_assume=True](len(vertex_sets) > 0)
     comptime if compressed:

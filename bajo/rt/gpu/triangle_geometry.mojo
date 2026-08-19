@@ -33,7 +33,7 @@ struct GpuRtTriangleGeometry[
     def __init__(
         out self,
         mut ctx: DeviceContext,
-        vertices: List[Point3f32[Self.frame]],
+        vertices: ImmSpan[Point3f32[Self.frame], _],
     ) raises:
         var tri_count = len(vertices) / 3
         debug_assert["safe", _use_compiler_assume=True](

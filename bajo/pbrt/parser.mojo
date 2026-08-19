@@ -383,7 +383,7 @@ def _rotation(
     )
 
 
-def _matrix(values: List[String]) raises -> _Transform:
+def _matrix(values: ImmSpan[String, _]) raises -> _Transform:
     if len(values) != 16:
         raise Error("PBRT transform matrix requires 16 values")
     var m = List[Float32](capacity=16)

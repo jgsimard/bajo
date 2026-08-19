@@ -821,7 +821,7 @@ struct PackedWaveShadeQueue(Sized):
 
 
 def pack_wave_paths(
-    paths: List[WavePath], capacity: Int = -1
+    paths: ImmSpan[WavePath, _], capacity: Int = -1
 ) -> PackedWavePathQueue:
     """Convert the CPU AoS queue once at a host/device boundary."""
     var packed_capacity = max(len(paths), capacity)
@@ -866,7 +866,7 @@ def unpack_wave_paths(packed: PackedWavePathQueue) -> List[WavePath]:
 
 
 def pack_wave_shades(
-    works: List[WaveShade], capacity: Int = -1
+    works: ImmSpan[WaveShade, _], capacity: Int = -1
 ) -> PackedWaveShadeQueue:
     var packed_capacity = max(len(works), capacity)
     var packed = PackedWaveShadeQueue(packed_capacity)

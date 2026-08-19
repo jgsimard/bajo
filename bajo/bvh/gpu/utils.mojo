@@ -114,7 +114,7 @@ def upload_vertices[
     frame: Frame
 ](
     mut ctx: DeviceContext,
-    verts: List[Point3f32[frame]],
+    verts: ImmSpan[Point3f32[frame], _],
 ) raises -> DeviceBuffer[DType.float32]:
     var flat = List[Float32](capacity=len(verts) * 3)
     for v in verts:
@@ -128,10 +128,8 @@ def upload_rays[
     frame: Frame
 ](
     mut ctx: DeviceContext,
-    rays: List[Rayf32[frame]],
-) raises -> DeviceBuffer[
-    DType.float32
-]:
+    rays: ImmSpan[Rayf32[frame], _],
+) raises -> DeviceBuffer[DType.float32]:
     """Upload rays in the field-major, warp-coalesced tracing ABI."""
     var flat = List[Float32](capacity=len(rays) * Rayf32.STRIDE)
     for ray in rays:
@@ -157,12 +155,12 @@ def upload_list[
     dtype: DType
 ](
     mut ctx: DeviceContext,
-    a: List[Scalar[dtype]],
+    a: ImmSpan[Scalar[dtype], _],
 ) raises -> DeviceBuffer[
     dtype
 ]:
     var h_a = ctx.enqueue_create_host_buffer[dtype](len(a))
     var d_a = ctx.enqueue_create_buffer[dtype](len(a))
-    h_a.enqueue_copy_from(Span(a))
+    h_a.enqueue_copy_from(a)
     h_a.enqueue_copy_to(d_a)
     return d_a^

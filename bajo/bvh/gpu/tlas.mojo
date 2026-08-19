@@ -385,7 +385,7 @@ def build_typed_tlas_core[
     method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
 ](
     mut ctx: DeviceContext,
-    instances: List[Instance],
+    instances: ImmSpan[Instance, _],
 ) raises -> GpuTypedTlasCore[node_width, leaf_width]:
     var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
     return _build_typed_tlas_core[node_width, leaf_width, method](
@@ -399,7 +399,7 @@ def build_typed_tlas_core_measured[
     method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
 ](
     mut ctx: DeviceContext,
-    instances: List[Instance],
+    instances: ImmSpan[Instance, _],
     mut timings: GpuBuildTimings,
 ) raises -> GpuTypedTlasCore[node_width, leaf_width]:
     return _build_typed_tlas_core[node_width, leaf_width, method](
@@ -413,7 +413,7 @@ def _build_typed_tlas_core[
     method: GpuBvhBuildMethod,
 ](
     mut ctx: DeviceContext,
-    instances: List[Instance],
+    instances: ImmSpan[Instance, _],
     mut timings: GpuBuildTimings,
     measure_build: Bool,
 ) raises -> GpuTypedTlasCore[node_width, leaf_width]:
@@ -589,7 +589,7 @@ def build_triangle_tlas[
     blas_compressed: Bool = False,
 ](
     mut ctx: DeviceContext,
-    instances: List[Instance],
+    instances: ImmSpan[Instance, _],
 ) raises -> GpuTriangleTlas[
     tlas_node_width,
     blas_node_width,
@@ -618,7 +618,7 @@ def build_triangle_tlas_measured[
     blas_compressed: Bool = False,
 ](
     mut ctx: DeviceContext,
-    instances: List[Instance],
+    instances: ImmSpan[Instance, _],
     mut timings: GpuBuildTimings,
 ) raises -> GpuTriangleTlas[
     tlas_node_width,
@@ -647,7 +647,7 @@ def build_sphere_tlas[
     method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
 ](
     mut ctx: DeviceContext,
-    instances: List[Instance],
+    instances: ImmSpan[Instance, _],
 ) raises -> GpuSphereTlas[
     tlas_node_width, blas_node_width, tlas_leaf_width, blas_leaf_width
 ]:
@@ -667,7 +667,7 @@ def build_sphere_tlas_measured[
     method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
 ](
     mut ctx: DeviceContext,
-    instances: List[Instance],
+    instances: ImmSpan[Instance, _],
     mut timings: GpuBuildTimings,
 ) raises -> GpuSphereTlas[
     tlas_node_width, blas_node_width, tlas_leaf_width, blas_leaf_width

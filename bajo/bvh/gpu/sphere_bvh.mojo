@@ -45,7 +45,7 @@ def build_sphere_blas_set[
     leaf_width: SIMDLength = node_width,
 ](
     mut ctx: DeviceContext,
-    sphere_sets: List[List[Sphere[Frame.LOCAL]]],
+    sphere_sets: ImmSpan[List[Sphere[Frame.LOCAL]], _],
 ) raises -> BlasSet[node_width, leaf_width]:
     debug_assert["safe", _use_compiler_assume=True](len(sphere_sets) > 0)
 
@@ -176,10 +176,8 @@ def build_sphere_bvh[
     leaf_width: SIMDLength = node_width,
 ](
     mut ctx: DeviceContext,
-    spheres: List[Sphere[frame]],
-) raises -> GpuSphereBvh[
-    frame, node_width, leaf_width
-]:
+    spheres: ImmSpan[Sphere[frame], _],
+) raises -> GpuSphereBvh[frame, node_width, leaf_width]:
     var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
     return _build_sphere_bvh[frame, node_width, leaf_width](
         ctx, spheres, timings, False
@@ -192,7 +190,7 @@ def build_sphere_bvh_measured[
     leaf_width: SIMDLength = node_width,
 ](
     mut ctx: DeviceContext,
-    spheres: List[Sphere[frame]],
+    spheres: ImmSpan[Sphere[frame], _],
     mut timings: GpuBuildTimings,
 ) raises -> GpuSphereBvh[frame, node_width, leaf_width]:
     return _build_sphere_bvh[frame, node_width, leaf_width](
@@ -206,7 +204,7 @@ def _build_sphere_bvh[
     leaf_width: SIMDLength,
 ](
     mut ctx: DeviceContext,
-    spheres: List[Sphere[frame]],
+    spheres: ImmSpan[Sphere[frame], _],
     mut timings: GpuBuildTimings,
     measure_build: Bool,
 ) raises -> GpuSphereBvh[frame, node_width, leaf_width]:
@@ -433,7 +431,7 @@ def pack_sphere_leaf_lanes_kernel[
 
 def _flatten_spheres[
     frame: Frame
-](spheres: List[Sphere[frame]]) -> List[Float32]:
+](spheres: ImmSpan[Sphere[frame], _]) -> List[Float32]:
     var out = List[Float32](capacity=max(len(spheres), 1) * Sphere.STRIDE)
     for sphere in spheres:
         out.append(sphere.center.x)

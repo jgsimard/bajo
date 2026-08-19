@@ -28,14 +28,11 @@ def upload_surface_ids[
     width: SIMDLength,
 ](
     mut ctx: DeviceContext,
-    surfaces: List[SurfaceId[width]],
+    surfaces: ImmSpan[SurfaceId[width], _],
 ) raises -> DeviceBuffer[DType.uint32]:
     """Upload the packed scalar surface sidecar shared by GPU geometries."""
     comptime assert width == 1
-    var values = List[UInt32](capacity=len(surfaces))
-    for surface in surfaces:
-        values.append(surface.value[0])
-    return upload_list(ctx, values)
+    return upload_list(ctx, [surface.value[0] for surface in surfaces])
 
 
 struct GpuRtRenderTarget:

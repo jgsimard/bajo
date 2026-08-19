@@ -25,7 +25,7 @@ def _mut[
 
 
 @fieldwise_init
-struct GpuRtSphereView:
+struct GpuRtSphereView(TrivialRegisterPassable):
     """Host-side inputs for the sphere portion of a flat scene view."""
 
     var nodes: Pointer[Float32, ImmUntrackedOrigin]
@@ -36,7 +36,7 @@ struct GpuRtSphereView:
 
 
 @fieldwise_init
-struct GpuRtTriangleView:
+struct GpuRtTriangleView(TrivialRegisterPassable):
     """Host-side inputs for the static-triangle portion of a scene view."""
 
     var nodes: Pointer[Float32, ImmUntrackedOrigin]
@@ -46,7 +46,7 @@ struct GpuRtTriangleView:
 
 
 @fieldwise_init
-struct GpuRtInstanceView:
+struct GpuRtInstanceView(TrivialRegisterPassable):
     """Host-side inputs for the triangle-instance portion of a scene view."""
 
     var tlas_nodes: Pointer[Float32, ImmUntrackedOrigin]
@@ -76,33 +76,17 @@ struct GpuRtShadingView:
 
 
 @fieldwise_init
-struct GpuRtSceneView(DevicePassable, TrivialRegisterPassable):
-    """Non-owning pointers to every optional scene component.
+struct GpuRtSceneView(Copyable, DevicePassable):
+    """Non-owning optional geometry views and shared shading data.
 
     Geometry-presence parameters on traversal functions erase accesses to
     absent components, allowing one source implementation to specialize to
     spheres, triangles, instances, or any combination.
     """
 
-    var sphere_nodes: Pointer[Float32, ImmUntrackedOrigin]
-    var sphere_leaves: Pointer[Float32, ImmUntrackedOrigin]
-    var sphere_root: UInt32
-    var sphere_surfaces: Pointer[UInt32, ImmUntrackedOrigin]
-    var signed_radii: Pointer[Float32, ImmUntrackedOrigin]
-    var triangle_nodes: Pointer[Float32, ImmUntrackedOrigin]
-    var triangle_leaves: Pointer[Float32, ImmUntrackedOrigin]
-    var triangle_root: UInt32
-    var triangle_surfaces: Pointer[UInt32, ImmUntrackedOrigin]
-    var tlas_nodes: Pointer[Float32, ImmUntrackedOrigin]
-    var tlas_leaf_instances: Pointer[UInt32, ImmUntrackedOrigin]
-    var inst_inv_transform: Pointer[Float32, ImmUntrackedOrigin]
-    var inst_blas_indices: Pointer[UInt32, ImmUntrackedOrigin]
-    var blas_descs: Pointer[UInt32, ImmUntrackedOrigin]
-    var blas_nodes: Pointer[Float32, ImmUntrackedOrigin]
-    var blas_leaves: Pointer[Float32, ImmUntrackedOrigin]
-    var tlas_root: UInt32
-    var instance_count: Int32
-    var instance_surfaces: Pointer[UInt32, ImmUntrackedOrigin]
+    var spheres: Optional[GpuRtSphereView]
+    var triangles: Optional[GpuRtTriangleView]
+    var instances: Optional[GpuRtInstanceView]
     var emissives: Pointer[Float32, ImmUntrackedOrigin]
     var lambertians: Pointer[Float32, ImmUntrackedOrigin]
     var metals: Pointer[Float32, ImmUntrackedOrigin]
@@ -126,32 +110,16 @@ struct GpuRtSceneView(DevicePassable, TrivialRegisterPassable):
 
 @always_inline
 def gpu_rt_scene_view(
-    spheres: GpuRtSphereView,
-    triangles: GpuRtTriangleView,
-    instances: GpuRtInstanceView,
+    spheres: Optional[GpuRtSphereView],
+    triangles: Optional[GpuRtTriangleView],
+    instances: Optional[GpuRtInstanceView],
     shading: GpuRtShadingView,
 ) -> GpuRtSceneView:
-    """Flatten host-side component views into the stable device ABI."""
+    """Combine host-side component views into the device scene ABI."""
     return GpuRtSceneView(
-        spheres.nodes,
-        spheres.leaves,
-        spheres.root,
-        spheres.surfaces,
-        spheres.signed_radii,
-        triangles.nodes,
-        triangles.leaves,
-        triangles.root,
-        triangles.surfaces,
-        instances.tlas_nodes,
-        instances.tlas_leaf_instances,
-        instances.inv_transforms,
-        instances.blas_indices,
-        instances.blas_descs,
-        instances.blas_nodes,
-        instances.blas_leaves,
-        instances.tlas_root,
-        instances.count,
-        instances.surfaces,
+        spheres,
+        triangles,
+        instances,
         shading.emissives,
         shading.lambertians,
         shading.metals,
@@ -160,43 +128,6 @@ def gpu_rt_scene_view(
         shading.light_fields,
         shading.light_count,
         shading.total_light_weight,
-    )
-
-
-@always_inline
-def empty_gpu_rt_sphere_view(
-    dummy_f32: Pointer[Float32, ImmUntrackedOrigin],
-    dummy_u32: Pointer[UInt32, ImmUntrackedOrigin],
-) -> GpuRtSphereView:
-    return GpuRtSphereView(
-        dummy_f32, dummy_f32, UInt32(0), dummy_u32, dummy_f32
-    )
-
-
-@always_inline
-def empty_gpu_rt_triangle_view(
-    dummy_f32: Pointer[Float32, ImmUntrackedOrigin],
-    dummy_u32: Pointer[UInt32, ImmUntrackedOrigin],
-) -> GpuRtTriangleView:
-    return GpuRtTriangleView(dummy_f32, dummy_f32, UInt32(0), dummy_u32)
-
-
-@always_inline
-def empty_gpu_rt_instance_view(
-    dummy_f32: Pointer[Float32, ImmUntrackedOrigin],
-    dummy_u32: Pointer[UInt32, ImmUntrackedOrigin],
-) -> GpuRtInstanceView:
-    return GpuRtInstanceView(
-        dummy_f32,
-        dummy_u32,
-        dummy_f32,
-        dummy_u32,
-        dummy_u32,
-        dummy_f32,
-        dummy_f32,
-        UInt32(0),
-        Int32(0),
-        dummy_u32,
     )
 
 

@@ -25,10 +25,10 @@ from bajo.rt.gpu.resources import (
     upload_surface_ids,
 )
 from bajo.rt.gpu.views import (
+    GpuRtInstanceView,
+    GpuRtSphereView,
     GpuRtTriangleView,
     _immut,
-    empty_gpu_rt_instance_view,
-    empty_gpu_rt_sphere_view,
     gpu_rt_scene_view,
 )
 from bajo.rt.gpu.path_shading import (
@@ -102,17 +102,15 @@ def _enqueue_triangle_bounce[
     rng_seed: UInt64,
     bounce: UInt32,
 ) raises:
-    var dummy_f32 = _immut(world.geometry.nodes)
-    var dummy_u32 = _immut(world.triangle_surfaces)
     var scene = gpu_rt_scene_view(
-        empty_gpu_rt_sphere_view(dummy_f32, dummy_u32),
+        None,
         GpuRtTriangleView(
             _immut(world.geometry.nodes),
             _immut(world.geometry.leaves),
             world.geometry.root,
             _immut(world.triangle_surfaces),
         ),
-        empty_gpu_rt_instance_view(dummy_f32, dummy_u32),
+        None,
         world.shading.view(),
     )
     enqueue_gpu_rt_bounce[

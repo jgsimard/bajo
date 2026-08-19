@@ -26,9 +26,9 @@ from bajo.rt.gpu.resources import (
 )
 from bajo.rt.gpu.views import (
     GpuRtInstanceView,
+    GpuRtSphereView,
+    GpuRtTriangleView,
     _immut,
-    empty_gpu_rt_sphere_view,
-    empty_gpu_rt_triangle_view,
     gpu_rt_scene_view,
 )
 from bajo.rt.gpu.path_shading import (
@@ -122,11 +122,9 @@ def _enqueue_instance_bounce[
     rng_seed: UInt64,
     bounce: UInt32,
 ) raises:
-    var dummy_f32 = _immut(world.tlas.core.tree.wide_nodes)
-    var dummy_u32 = _immut(world.tlas.core.tree.leaf_block_indices)
     var scene = gpu_rt_scene_view(
-        empty_gpu_rt_sphere_view(dummy_f32, dummy_u32),
-        empty_gpu_rt_triangle_view(dummy_f32, dummy_u32),
+        None,
+        None,
         GpuRtInstanceView(
             _immut(world.tlas.core.tree.wide_nodes),
             _immut(world.tlas.core.tree.leaf_block_indices),

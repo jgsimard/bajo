@@ -74,19 +74,13 @@ comptime GPU_RT_LIGHT_E_Z = 12
 comptime GPU_RT_LIGHT_ALIAS_PROBABILITY = 13
 
 
-def _upload_nonempty_f32(
-    mut ctx: DeviceContext, var values: List[Float32]
-) raises -> DeviceBuffer[DType.float32]:
+def _upload_nonempty[
+    dtype: DType
+](
+    mut ctx: DeviceContext, var values: List[Scalar[dtype]]
+) raises -> DeviceBuffer[dtype]:
     if len(values) == 0:
-        values.append(0.0)
-    return upload_list(ctx, values)
-
-
-def _upload_nonempty_u32(
-    mut ctx: DeviceContext, var values: List[UInt32]
-) raises -> DeviceBuffer[DType.uint32]:
-    if len(values) == 0:
-        values.append(UInt32(0))
+        values.append(0)
     return upload_list(ctx, values)
 
 
@@ -139,14 +133,10 @@ struct GpuRtMaterials:
         mut ctx: DeviceContext,
         world: SceneData,
     ) raises:
-        self.lambertians = _upload_nonempty_f32(
-            ctx, _flatten_lambertians(world)
-        )
-        self.metals = _upload_nonempty_f32(ctx, _flatten_metals(world))
-        self.dielectrics = _upload_nonempty_f32(
-            ctx, _flatten_dielectrics(world)
-        )
-        self.emissives = _upload_nonempty_f32(ctx, _flatten_emissives(world))
+        self.lambertians = _upload_nonempty(ctx, _flatten_lambertians(world))
+        self.metals = _upload_nonempty(ctx, _flatten_metals(world))
+        self.dielectrics = _upload_nonempty(ctx, _flatten_dielectrics(world))
+        self.emissives = _upload_nonempty(ctx, _flatten_emissives(world))
         self.has_non_lambertian = (
             len(world.surfaces.metals) > 0
             or len(world.surfaces.dielectrics) > 0
@@ -215,8 +205,8 @@ struct GpuRtLights:
             fields.append(radiance.y)
             fields.append(radiance.z)
             fields.append(world.lights.alias_probabilities[light_idx])
-        self.kinds = _upload_nonempty_u32(ctx, kinds^)
-        self.fields = _upload_nonempty_f32(ctx, fields^)
+        self.kinds = _upload_nonempty(ctx, kinds^)
+        self.fields = _upload_nonempty(ctx, fields^)
         self.count = len(world.lights.records)
         self.total_weight = world.lights.total_weight
 

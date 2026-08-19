@@ -47,7 +47,7 @@ struct GpuRtSphereGeometry[
                 build_spheres.append(sphere_for_acceleration(sphere))
                 signed_radii.append(sphere.radius)
         else:
-            build_spheres = [Sphere(Point3f32(0.0), 1.0)]
+            build_spheres = [Sphere(Point3f32[Self.frame](0.0), 1.0)]
             dummy_surfaces = [UInt32(0)]
             signed_radii = [1.0]
 

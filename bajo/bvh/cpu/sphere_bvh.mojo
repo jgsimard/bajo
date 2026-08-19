@@ -103,12 +103,8 @@ struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
             if not valid[0]:
                 return Hit[Self.bvh_frame, length].miss(rays.t_max)
             var ray = Rayf32[Self.bvh_frame](
-                Point3f32[Self.bvh_frame](
-                    rays.o.x[0], rays.o.y[0], rays.o.z[0]
-                ),
-                Vec3[DType.float32, Self.bvh_frame](
-                    rays.d.x[0], rays.d.y[0], rays.d.z[0]
-                ),
+                [rays.o.x[0], rays.o.y[0], rays.o.z[0]],
+                [rays.d.x[0], rays.d.y[0], rays.d.z[0]],
                 rays.t_min[0],
                 rays.t_max[0],
             )

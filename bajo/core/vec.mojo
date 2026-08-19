@@ -120,6 +120,17 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
         self.y = SIMD[Self.dtype, Self.width](x)
         self.z = SIMD[Self.dtype, Self.width](x)
 
+    def __init__(
+        out self,
+        x: Scalar[Self.dtype],
+        y: Scalar[Self.dtype],
+        z: Scalar[Self.dtype],
+        __list_literal__: NoneType,
+    ):
+        self.x = x
+        self.y = y
+        self.z = z
+
     def unsafe_convert[
         new_kind: GeoKind = Self.kind, new_frame: Frame = Self.frame
     ](self) -> Geo3[Self.dtype, new_kind, new_frame, Self.width]:

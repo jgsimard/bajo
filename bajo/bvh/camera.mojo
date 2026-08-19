@@ -41,38 +41,38 @@ struct Camera(TrivialRegisterPassable, Writable):
             base >= 0 and base <= len(data) - Self.STRIDE,
             "Camera load is outside the input span",
         )
-        self.origin = Point3f32[Frame.WORLD](
+        self.origin = [
             data.unsafe_get(base + Camera.ORIGIN + 0),
             data.unsafe_get(base + Camera.ORIGIN + 1),
             data.unsafe_get(base + Camera.ORIGIN + 2),
-        )
-        self.forward = Vec3f32[Frame.WORLD](
+        ]
+        self.forward = [
             data.unsafe_get(base + Camera.FORWARD + 0),
             data.unsafe_get(base + Camera.FORWARD + 1),
             data.unsafe_get(base + Camera.FORWARD + 2),
-        )
-        self.right = Vec3f32[Frame.WORLD](
+        ]
+        self.right = [
             data.unsafe_get(base + Camera.RIGHT + 0),
             data.unsafe_get(base + Camera.RIGHT + 1),
             data.unsafe_get(base + Camera.RIGHT + 2),
-        )
-        self.up = Vec3f32[Frame.WORLD](
+        ]
+        self.up = [
             data.unsafe_get(base + Camera.UP + 0),
             data.unsafe_get(base + Camera.UP + 1),
             data.unsafe_get(base + Camera.UP + 2),
-        )
+        ]
         self.fov_scale = data.unsafe_get(base + Camera.FOV)
         self.focus_dist = data.unsafe_get(base + Camera.FOCUS_DIST)
-        self.defocus_disk_u = Vec3f32[Frame.WORLD](
+        self.defocus_disk_u = [
             data.unsafe_get(base + Camera.DEFOCUS_DISK_U + 0),
             data.unsafe_get(base + Camera.DEFOCUS_DISK_U + 1),
             data.unsafe_get(base + Camera.DEFOCUS_DISK_U + 2),
-        )
-        self.defocus_disk_v = Vec3f32[Frame.WORLD](
+        ]
+        self.defocus_disk_v = [
             data.unsafe_get(base + Camera.DEFOCUS_DISK_V + 0),
             data.unsafe_get(base + Camera.DEFOCUS_DISK_V + 1),
             data.unsafe_get(base + Camera.DEFOCUS_DISK_V + 2),
-        )
+        ]
 
     def __init__(
         out self,

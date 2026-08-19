@@ -295,12 +295,8 @@ struct TriangleBvh[
         comptime for lane in range(length):
             if valid[lane]:
                 var ray = Rayf32[Self.bvh_frame](
-                    Point3f32[Self.bvh_frame](
-                        rays.o.x[lane], rays.o.y[lane], rays.o.z[lane]
-                    ),
-                    Vec3f32[Self.bvh_frame](
-                        rays.d.x[lane], rays.d.y[lane], rays.d.z[lane]
-                    ),
+                    [rays.o.x[lane], rays.o.y[lane], rays.o.z[lane]],
+                    [rays.d.x[lane], rays.d.y[lane], rays.d.z[lane]],
                     rays.t_min[lane],
                     rays.t_max[lane],
                 )

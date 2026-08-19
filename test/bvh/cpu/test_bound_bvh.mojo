@@ -1,4 +1,9 @@
-from std.testing import TestSuite, assert_true, assert_almost_equal
+from std.testing import (
+    TestSuite,
+    assert_equal,
+    assert_true,
+    assert_almost_equal,
+)
 
 from bajo.core import (
     AABB,
@@ -8,7 +13,10 @@ from bajo.core import (
     Frame,
     Vec3W,
     Point3W,
+    Point3,
+    Ray,
     Rayf32,
+    Vec3,
 )
 from bajo.core.intersect import intersect_ray_aabb
 from bajo.bvh.types import Hit, Sphere
@@ -25,6 +33,11 @@ from bajo.bvh.tagged_ref import (
     is_leaf_ref,
 )
 from bajo.bvh.cpu.builder.builder import _partition_items_by_median_center
+from bajo.bvh.cpu.builder.lbvh import (
+    MortonItem,
+    _radix_sort_morton_pairs,
+    _radix_sort_morton_pairs_parallel,
+)
 from bajo.bvh.cpu.builder.sah import _find_sah_split, _partition_items_by_bin
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.cpu.sphere_bvh import SphereBvh
@@ -374,6 +387,70 @@ def test_parallel_sah_builder_leaf_invariants() raises:
     _assert_wide_leaf_ranges_at_most_width[Frame.WORLD, 16](wide)
 
 
+def test_parallel_median_builder_leaf_invariants() raises:
+    var verts = _make_random_xy_triangles[Frame.WORLD](1500, UInt64(919191))
+    var items = _make_bounds_items(verts)
+    var builder = BinaryBoundsBvh[Frame.WORLD, 16, "median"](items^)
+
+    assert_true(Int(builder.nodes_used) == len(builder.nodes))
+    _assert_builder_leaf_sizes_at_most(builder, UInt32(16))
+
+    var wide = BoundsBvh[Frame.WORLD, 16](builder)
+    _assert_wide_leaf_ranges_at_most_width[Frame.WORLD, 16](wide)
+
+
+def test_parallel_radix_lbvh_builder_leaf_invariants() raises:
+    var verts = _make_random_xy_triangles[Frame.WORLD](17000, UInt64(929292))
+    var items = _make_bounds_items(verts)
+    var builder = BinaryBoundsBvh[Frame.WORLD, 16, "lbvh"](items^)
+
+    assert_true(Int(builder.nodes_used) == len(builder.nodes))
+    _assert_builder_leaf_sizes_at_most(builder, UInt32(16))
+
+    var wide = BoundsBvh[Frame.WORLD, 16](builder)
+    _assert_wide_leaf_ranges_at_most_width[Frame.WORLD, 16](wide)
+
+
+def test_cpu_lbvh_radix_sort_orders_all_bytes() raises:
+    var pairs = List[MortonItem](capacity=7)
+    pairs.append(MortonItem(UInt32(0xFF000000), UInt32(0)))
+    pairs.append(MortonItem(UInt32(0x000000FF), UInt32(1)))
+    pairs.append(MortonItem(UInt32(0x00FF0000), UInt32(2)))
+    pairs.append(MortonItem(UInt32(0x0000FF00), UInt32(3)))
+    pairs.append(MortonItem(UInt32(0x00000000), UInt32(4)))
+    pairs.append(MortonItem(UInt32(0xFFFFFFFF), UInt32(5)))
+    pairs.append(MortonItem(UInt32(0x000000FF), UInt32(6)))
+    var expected_codes = [
+        UInt32(0x00000000),
+        UInt32(0x000000FF),
+        UInt32(0x000000FF),
+        UInt32(0x0000FF00),
+        UInt32(0x00FF0000),
+        UInt32(0xFF000000),
+        UInt32(0xFFFFFFFF),
+    ]
+    var expected_indices = [
+        UInt32(4),
+        UInt32(1),
+        UInt32(6),
+        UInt32(3),
+        UInt32(2),
+        UInt32(0),
+        UInt32(5),
+    ]
+
+    var serial = pairs.copy()
+    var parallel = pairs.copy()
+    _radix_sort_morton_pairs(serial)
+    _radix_sort_morton_pairs_parallel(parallel, 3)
+
+    for i in range(len(pairs)):
+        assert_equal(serial[i].code, expected_codes[i])
+        assert_equal(serial[i].item_idx, expected_indices[i])
+        assert_equal(parallel[i].code, expected_codes[i])
+        assert_equal(parallel[i].item_idx, expected_indices[i])
+
+
 def test_wide_bounds_root_bounds_is_valid() raises:
     var verts = _make_strip[Frame.WORLD](4)
     var items = _make_bounds_items(verts)
@@ -626,6 +703,50 @@ def test_triangle_bvh16_decoupled_leaf_widths() raises:
     comptime for leaf_width in [2, 4, 8, 16]:
         comptime for mode in ["median", "sah", "lbvh"]:
             _test_triangle_bvh16_leaf_width[leaf_width, mode]()
+
+
+def _assert_packet_hits_equal[
+    length: SIMDLength
+](actual: Hit[Frame.WORLD, length], expected: Hit[Frame.WORLD, length],) raises:
+    comptime for lane in range(length):
+        assert_true(actual.prim[lane] == expected.prim[lane])
+        assert_true(actual.inst[lane] == expected.inst[lane])
+        assert_true(actual.t[lane] == expected.t[lane])
+        assert_true(actual.u[lane] == expected.u[lane])
+        assert_true(actual.v[lane] == expected.v[lane])
+        assert_true(actual.normal.x[lane] == expected.normal.x[lane])
+        assert_true(actual.normal.y[lane] == expected.normal.y[lane])
+        assert_true(actual.normal.z[lane] == expected.normal.z[lane])
+
+
+def _test_triangle_packet_paths_match[length: SIMDLength]() raises:
+    var verts = _make_strip[Frame.WORLD](64)
+    var bvh = TriangleBvh[Frame.WORLD, 16, 16].__init__["sah"](verts)
+    var ox = SIMD[DType.float32, length](0.0)
+    var oy = SIMD[DType.float32, length](0.0)
+    comptime for lane in range(length):
+        if lane % 4 == 0:
+            ox[lane] = 1000.0 + Float32(lane)
+            oy[lane] = 1000.0
+        else:
+            var center = _triangle_center_xy(verts, (7 * lane) % 64)
+            ox[lane] = center.x
+            oy[lane] = center.y
+
+    var packet = Ray[DType.float32, Frame.WORLD, length](
+        Point3[DType.float32, Frame.WORLD, length](ox, oy, 0.0),
+        Vec3[DType.float32, Frame.WORLD, length](0.0, 0.0, 1.0),
+    )
+    var valid = SIMD[DType.bool, length](fill=True)
+    var production = bvh.trace[TRACE.CLOSEST_HIT](packet, valid)
+    var common_octant = bvh.trace_packet_common_octant(packet, valid)
+    _assert_packet_hits_equal(common_octant, production)
+
+
+def test_triangle_packet_paths_match() raises:
+    _test_triangle_packet_paths_match[4]()
+    _test_triangle_packet_paths_match[8]()
+    _test_triangle_packet_paths_match[16]()
 
 
 def _test_triangle_bvh_shadow_hit_and_miss[

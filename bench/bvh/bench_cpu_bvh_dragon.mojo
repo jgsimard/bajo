@@ -4,6 +4,7 @@ from std.time import perf_counter_ns
 from bajo.bvh.constants import TRACE, f32_max
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.host_utils import compute_bounds
+from bajo.bvh.types import Hit
 from bajo.obj.pack import pack_obj_triangles
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.core import Frame, Point3f32, Rayf32
@@ -28,6 +29,7 @@ struct SceneBenchResult(Copyable):
 def trace_scene[
     bounds_width: SIMDLength,
     leaf_width: SIMDLength,
+    unmasked: Bool = False,
 ](
     bvh: TriangleBvh[Frame.WORLD, bounds_width, leaf_width],
     rays: List[Rayf32[Frame.WORLD]],
@@ -36,7 +38,11 @@ def trace_scene[
     var hits = 0
 
     for ray in rays:
-        var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
+        var hit: Hit[Frame.WORLD]
+        comptime if unmasked:
+            hit = bvh.trace_scalar_unmasked[TRACE.CLOSEST_HIT](ray)
+        else:
+            hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
 
         if hit.t < f32_max:
             checksum += (
@@ -56,17 +62,18 @@ def trace_scene[
 def benchmark_scene[
     bounds_width: SIMDLength,
     leaf_width: SIMDLength,
+    unmasked: Bool = False,
 ](
     bvh: TriangleBvh[Frame.WORLD, bounds_width, leaf_width],
     rays: List[Rayf32[Frame.WORLD]],
 ) -> SceneBenchResult:
     # Warm-up.
-    var summary = trace_scene[bounds_width, leaf_width](bvh, rays)
+    var summary = trace_scene[bounds_width, leaf_width, unmasked](bvh, rays)
     var best_ns = Int.MAX
 
     for _ in range(TRAVERSAL_REPEATS):
         var t0 = perf_counter_ns()
-        summary = trace_scene[bounds_width, leaf_width](bvh, rays)
+        summary = trace_scene[bounds_width, leaf_width, unmasked](bvh, rays)
         var t1 = perf_counter_ns()
 
         var elapsed_ns = Int(t1 - t0)
@@ -83,6 +90,7 @@ def benchmark_scene[
 def print_case_result(
     table: TablePrinter,
     split_method: String,
+    traversal: String,
     bounds_width: Int,
     leaf_width: Int,
     build_ns: Int,
@@ -93,6 +101,7 @@ def print_case_result(
         split_method=split_method,
         bounds_width=String(bounds_width),
         leaf_width=String(leaf_width),
+        traversal=traversal,
         build_ms=String(round(ns_to_ms(build_ns), 3)),
         trace_ms=String(round(ns_to_ms(result.ns), 3)),
         MRay_s=String(
@@ -130,12 +139,28 @@ def benchmark_case[
     print_case_result(
         table,
         split_method,
+        "scalar1",
         bounds_width,
         leaf_width,
         Int(t1 - t0),
         result,
         len(rays),
     )
+
+    comptime if bounds_width == 16:
+        var unmasked = benchmark_scene[bounds_width, leaf_width, unmasked=True](
+            bvh, rays
+        )
+        print_case_result(
+            table,
+            split_method,
+            "unmasked-scalar",
+            bounds_width,
+            leaf_width,
+            Int(t1 - t0),
+            unmasked,
+            len(rays),
+        )
 
 
 def benchmark_configurations[
@@ -145,14 +170,9 @@ def benchmark_configurations[
     vertices: List[Point3f32[Frame.WORLD]],
     rays: List[Rayf32[Frame.WORLD]],
 ) raises:
-    comptime for bounds_width in [2, 4, 8]:
-        benchmark_case[bounds_width, bounds_width, split_method](
-            table,
-            vertices,
-            rays,
-        )
-
-    comptime for leaf_width in [2, 4, 8, 16]:
+    # BVH16/leaf16 is the general-purpose layout. Leaf32 is retained because
+    # it is the measured Dragon scalar winner despite its grid tradeoff.
+    comptime for leaf_width in [16, 32]:
         benchmark_case[16, leaf_width, split_method](
             table,
             vertices,
@@ -182,6 +202,7 @@ def main() raises:
         split_method=12,
         bounds_width=12,
         leaf_width=10,
+        traversal=17,
         build_ms=10,
         trace_ms=10,
         MRay_s=8,

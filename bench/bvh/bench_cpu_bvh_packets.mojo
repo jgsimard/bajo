@@ -7,6 +7,7 @@ from bajo.bvh.constants import TRACE, f32_max
 from bajo.core import Ray
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.host_utils import compute_bounds
+from bajo.bvh.types import Hit
 from bajo.core import Frame, Point3, Point3f32, Vec3, Rayf32
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.obj.pack import pack_obj_triangles
@@ -32,7 +33,9 @@ struct PacketTiming(Copyable):
 
 
 def trace_scalar[
-    bounds_width: SIMDLength, leaf_width: SIMDLength
+    bounds_width: SIMDLength,
+    leaf_width: SIMDLength,
+    unmasked: Bool = False,
 ](
     bvh: TriangleBvh[Frame.WORLD, bounds_width, leaf_width],
     rays: List[Rayf32[Frame.WORLD]],
@@ -40,7 +43,11 @@ def trace_scalar[
     var checksum = Float64(0.0)
     var hits = 0
     for ray in rays:
-        var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
+        var hit: Hit[Frame.WORLD]
+        comptime if unmasked:
+            hit = bvh.trace_scalar_unmasked[TRACE.CLOSEST_HIT](ray)
+        else:
+            hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
         if hit.t < f32_max:
             checksum += (
                 Float64(hit.t)
@@ -59,6 +66,7 @@ def trace_packet[
     bounds_width: SIMDLength,
     leaf_width: SIMDLength,
     length: SIMDLength,
+    common_octant: Bool,
 ](
     bvh: TriangleBvh[Frame.WORLD, bounds_width, leaf_width],
     rays: List[Rayf32[Frame.WORLD]],
@@ -94,7 +102,11 @@ def trace_packet[
             t_min,
             t_max,
         )
-        var packet_hit = bvh.trace[TRACE.CLOSEST_HIT](packet, valid)
+        var packet_hit: Hit[Frame.WORLD, length]
+        comptime if common_octant:
+            packet_hit = bvh.trace_packet_common_octant(packet, valid)
+        else:
+            packet_hit = bvh.trace[TRACE.CLOSEST_HIT](packet, valid)
         for lane in range(lane_count):
             if packet_hit.prim[lane] != UInt32(0xFFFFFFFF):
                 checksum += (
@@ -114,22 +126,32 @@ def benchmark[
     bounds_width: SIMDLength,
     leaf_width: SIMDLength,
     length: SIMDLength,
+    common_octant: Bool = False,
+    unmasked_scalar: Bool = False,
 ](
     bvh: TriangleBvh[Frame.WORLD, bounds_width, leaf_width],
     rays: List[Rayf32[Frame.WORLD]],
 ) -> PacketTiming:
     var summary: Tuple[Float64, Int]
     comptime if length == 1:
-        summary = trace_scalar[bounds_width, leaf_width](bvh, rays)
+        summary = trace_scalar[bounds_width, leaf_width, unmasked_scalar](
+            bvh, rays
+        )
     else:
-        summary = trace_packet[bounds_width, leaf_width, length](bvh, rays)
+        summary = trace_packet[bounds_width, leaf_width, length, common_octant](
+            bvh, rays
+        )
     var best = Int.MAX
     for _ in range(REPEATS):
         var t0 = perf_counter_ns()
         comptime if length == 1:
-            summary = trace_scalar[bounds_width, leaf_width](bvh, rays)
+            summary = trace_scalar[bounds_width, leaf_width, unmasked_scalar](
+                bvh, rays
+            )
         else:
-            summary = trace_packet[bounds_width, leaf_width, length](bvh, rays)
+            summary = trace_packet[
+                bounds_width, leaf_width, length, common_octant
+            ](bvh, rays)
         var elapsed = Int(perf_counter_ns() - t0)
         best = min(best, elapsed)
     return PacketTiming(best, summary[0], summary[1])
@@ -165,6 +187,11 @@ def benchmark_scene[
         len(rays),
     )
     print_timing(
+        "unmasked-scalar",
+        benchmark[bounds_width, leaf_width, 1, False, True](bvh, rays),
+        len(rays),
+    )
+    print_timing(
         "packet4",
         benchmark[bounds_width, leaf_width, 4](bvh, rays),
         len(rays),
@@ -177,6 +204,21 @@ def benchmark_scene[
     print_timing(
         "packet16",
         benchmark[bounds_width, leaf_width, 16](bvh, rays),
+        len(rays),
+    )
+    print_timing(
+        "coh-packet4",
+        benchmark[bounds_width, leaf_width, 4, True](bvh, rays),
+        len(rays),
+    )
+    print_timing(
+        "coh-packet8",
+        benchmark[bounds_width, leaf_width, 8, True](bvh, rays),
+        len(rays),
+    )
+    print_timing(
+        "coh-packet16",
+        benchmark[bounds_width, leaf_width, 16, True](bvh, rays),
         len(rays),
     )
 
@@ -197,17 +239,5 @@ def main() raises:
     )
     var dragon_rays = camera[0].copy()
     benchmark_scene[16, 16, "sah"](
-        "Dragon camera rays", dragon_vertices, dragon_rays
-    )
-    benchmark_scene[16, 8, "sah"](
-        "Dragon camera rays", dragon_vertices, dragon_rays
-    )
-    benchmark_scene[8, 8, "sah"](
-        "Dragon camera rays", dragon_vertices, dragon_rays
-    )
-    benchmark_scene[4, 4, "sah"](
-        "Dragon camera rays", dragon_vertices, dragon_rays
-    )
-    benchmark_scene[2, 2, "sah"](
         "Dragon camera rays", dragon_vertices, dragon_rays
     )

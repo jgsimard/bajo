@@ -37,16 +37,6 @@ comptime CWBVH_META_BASE = 6
 comptime CWBVH_QUANTIZED_BASE = 8
 
 
-def compressed_wide_node_stride[width: SIMDLength]() -> Int:
-    comptime assert width == CWBVH_WIDTH
-    return CWBVH_NODE_WORDS
-
-
-def compressed_wide_node_bytes[width: SIMDLength]() -> Int:
-    comptime assert width == CWBVH_WIDTH
-    return CWBVH_NODE_BYTES
-
-
 @always_inline
 def _float_bits(value: Float32) -> UInt32:
     return bitcast[DType.uint32, 1](SIMD[DType.float32, 1](value))[0]

@@ -12,7 +12,7 @@ from bajo.bvh.gpu.quality import (
 )
 from bajo.bvh.gpu.utils import upload_list
 from bajo.core import Frame
-from bajo.obj.pack import pack_obj_triangles
+from bajo.parser.obj.pack import pack_obj_triangles
 from bench.diagnostic.bvh.fixtures import flatten_triangle_bounds
 
 

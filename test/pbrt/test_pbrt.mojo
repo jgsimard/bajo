@@ -5,7 +5,7 @@ from std.testing import (
     assert_true,
 )
 
-from bajo.pbrt import MemoryPbrtTextLoader, parse_pbrt, read_pbrt
+from bajo.parser.pbrt import MemoryPbrtTextLoader, parse_pbrt, read_pbrt
 from bajo.rt import MAT, RENDER, render_wavefront
 
 

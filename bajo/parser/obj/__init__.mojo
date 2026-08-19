@@ -1,11 +1,11 @@
-from bajo.obj.types import ObjMesh, ObjIndex
-from bajo.obj.loaders import (
+from bajo.parser.obj.types import ObjMesh, ObjIndex
+from bajo.parser.obj.loaders import (
     PathObjTextLoader,
     ObjTextLoader,
     MemoryObjTextLoader,
 )
-from bajo.obj.obj import _parse_obj
-from bajo.obj.mmap import MMap
+from bajo.parser.obj.obj import _parse_obj
+from bajo.parser.obj.mmap import MMap
 
 
 def read_obj(path: String) raises -> ObjMesh:

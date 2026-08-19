@@ -1,6 +1,6 @@
 """Load and render a PBRT text scene with Bajo's MIS wavefront integrator."""
 
-from bajo.pbrt import read_pbrt
+from bajo.parser.pbrt import read_pbrt
 from bajo.rt import RENDER, render_wavefront, write_ppm_from_colors
 
 

@@ -1,7 +1,7 @@
 from std.benchmark import run, Unit, keep
 from std.pathlib import Path
 
-from bajo.obj import (
+from bajo.parser.obj import (
     ObjMesh,
     read_obj,
     parse_obj,

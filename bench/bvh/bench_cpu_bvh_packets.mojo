@@ -10,7 +10,7 @@ from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.types import Hit
 from bajo.core import Frame, Point3, Point3f32, Vec3, Rayf32
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
-from bajo.obj.pack import pack_obj_triangles
+from bajo.parser.obj.pack import pack_obj_triangles
 from bench.bvh.fixtures import (
     make_camera_rays_and_params,
     make_grid_triangles,

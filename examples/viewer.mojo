@@ -9,7 +9,7 @@ from bajo.core import (
     Vec3W,
 )
 from bajo.core.utils import degrees_to_radians, ns_to_ms
-from bajo.obj.f32 import parse_f32_at
+from bajo.parser.obj.f32 import parse_f32_at
 from bajo.rt import (
     Camera,
     RENDER,
@@ -24,7 +24,7 @@ from examples.rtiaw import make_weekend_world
 from examples.cornell_box import make_cornell_world
 from examples.mis_showcase import make_mis_showcase_world
 from examples.lbvh_scene import make_lbvh_world
-from bajo.pbrt import read_pbrt
+from bajo.parser.pbrt import read_pbrt
 
 
 comptime VIEWER_BACKEND = get_defined_int["VIEWER_BACKEND", 0]()

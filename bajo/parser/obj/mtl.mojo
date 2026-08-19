@@ -1,9 +1,9 @@
 import std.os
 
-from bajo.obj.types import ObjMaterial, ObjMesh
-from bajo.obj.loaders import ObjTextLoader
-from bajo.obj.cursor import ObjLineCursor
-from bajo.obj.constants import MINUS
+from bajo.parser.obj.types import ObjMaterial, ObjMesh
+from bajo.parser.obj.loaders import ObjTextLoader
+from bajo.parser.obj.cursor import ObjLineCursor
+from bajo.parser.obj.constants import MINUS
 
 
 def _map_name_from_tail(mut cur: ObjLineCursor) -> String:

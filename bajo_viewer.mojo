@@ -5,7 +5,7 @@ from std.time import perf_counter_ns
 
 from bajo.core import Point3W
 from bajo.core.utils import ns_to_ms
-from bajo.pbrt import read_pbrt
+from bajo.parser.pbrt import read_pbrt
 from examples.viewer import render_frame as _render_frame
 
 

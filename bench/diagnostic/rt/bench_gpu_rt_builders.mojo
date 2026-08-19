@@ -9,7 +9,7 @@ from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.host_utils import compute_bounds
 from bajo.core import Frame, Point3f32, Vec3f32
 from bajo.core.utils import ns_to_ms
-from bajo.obj.pack import pack_obj_triangles
+from bajo.parser.obj.pack import pack_obj_triangles
 from bajo.rt import (
     Camera,
     Color,

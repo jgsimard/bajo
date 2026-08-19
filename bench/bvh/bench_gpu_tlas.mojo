@@ -34,7 +34,7 @@ from bajo.bvh.gpu.triangle_bvh import (
     build_triangle_bvh_measured,
 )
 from bajo.bvh.constants import TRACE, Primitive, MISS_PRIM, f32_max
-from bajo.obj.pack import pack_obj_triangles
+from bajo.parser.obj.pack import pack_obj_triangles
 from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list, upload_vertices
 
 from bench.bvh.reporting import (

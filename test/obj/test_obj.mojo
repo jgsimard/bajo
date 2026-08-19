@@ -6,8 +6,8 @@ from std.testing import (
     assert_false,
 )
 
-from bajo.obj.loaders import MemoryObjTextLoader
-from bajo.obj import (
+from bajo.parser.obj.loaders import MemoryObjTextLoader
+from bajo.parser.obj import (
     ObjMesh,
     read_obj,
     parse_obj,

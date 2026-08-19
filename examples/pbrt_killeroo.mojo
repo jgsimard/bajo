@@ -6,7 +6,7 @@ geometry files downloaded by `pixi run download_assets`; only the expensive
 film and sampling settings are overridden for an interactive CPU render.
 """
 
-from bajo.pbrt import read_pbrt
+from bajo.parser.pbrt import read_pbrt
 from bajo.rt import (
     RENDER,
     RenderSettings,

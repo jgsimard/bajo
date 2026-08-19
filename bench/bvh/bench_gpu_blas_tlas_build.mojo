@@ -17,7 +17,7 @@ from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.types import Instance
 from bajo.core import AABB, Affine3f32, Frame, Point3f32, Vec3f32
 from bajo.core.utils import ns_to_ms
-from bajo.obj.pack import pack_obj_triangles
+from bajo.parser.obj.pack import pack_obj_triangles
 from bajo.rt.gpu.triangle_geometry import GpuRtTriangleGeometry
 
 

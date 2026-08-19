@@ -13,7 +13,7 @@ from bajo.core import (
 )
 from bajo.core.random import Rng
 from bajo.core.utils import degrees_to_radians
-from bajo.obj.pack import pack_obj_triangles
+from bajo.parser.obj.pack import pack_obj_triangles
 from bajo.rt import (
     Camera,
     Color,

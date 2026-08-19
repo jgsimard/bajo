@@ -6,7 +6,7 @@ from bajo.bvh.host_utils import compute_bounds
 from bajo.core import AABB, Affine3f32, Quat, Vec3f32
 from bajo.core.random import Rng
 from bajo.core.utils import ns_to_ms
-from bajo.obj.pack import pack_obj_triangles
+from bajo.parser.obj.pack import pack_obj_triangles
 from bajo.rt import (
     Color,
     Instance,

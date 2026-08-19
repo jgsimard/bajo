@@ -10,7 +10,7 @@ from bajo.bvh.gpu.utils import upload_list, upload_vertices
 from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.types import Hit
 from bajo.core import Frame
-from bajo.obj.pack import pack_obj_triangles
+from bajo.parser.obj.pack import pack_obj_triangles
 from bench.bvh.fixtures import make_camera_rays_and_params
 
 

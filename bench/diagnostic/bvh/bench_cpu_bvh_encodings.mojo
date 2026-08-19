@@ -40,7 +40,7 @@ from bajo.core.intersect import (
     intersect_ray_tri_edges_scaled,
 )
 from bajo.core.utils import ns_to_mrays_per_s
-from bajo.obj.pack import pack_obj_triangles
+from bajo.parser.obj.pack import pack_obj_triangles
 from bench.bvh.fixtures import (
     make_camera_rays_and_params,
     make_depth_overlap_rays,

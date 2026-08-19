@@ -1,5 +1,5 @@
 from bajo.core import Point3f32, Frame
-from bajo.obj import read_obj, triangulated_indices
+from bajo.parser.obj import read_obj, triangulated_indices
 
 
 def pack_obj_triangles[

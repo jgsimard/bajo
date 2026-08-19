@@ -23,7 +23,7 @@ from bajo.bvh.gpu.triangle_bvh import build_triangle_blas_set
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.types import Instance, Hit
-from bajo.obj.pack import pack_obj_triangles
+from bajo.parser.obj.pack import pack_obj_triangles
 from bajo.bvh.constants import Primitive, MISS_PRIM, TRACE
 from bajo.bvh.camera import Camera
 from bajo.bvh.gpu.utils import upload_list

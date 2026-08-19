@@ -64,7 +64,7 @@ from bench.bvh.reporting import (
     _print_gpu_result_validation_rows,
 )
 from bench.bvh.fixtures import make_camera_rays_and_params
-from bajo.obj.pack import pack_obj_triangles
+from bajo.parser.obj.pack import pack_obj_triangles
 
 
 # comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"

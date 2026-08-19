@@ -18,7 +18,7 @@ from bajo.core import (
     Rayf32,
     Vec3,
 )
-from bajo.core.intersect import intersect_ray_aabb
+from bajo.core.intersect import intersect_ray_aabb, intersect_ray_aabb_rcp
 from bajo.bvh.types import Hit, Sphere
 from bajo.core.random import Rng
 from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
@@ -26,6 +26,10 @@ from bajo.bvh.cpu.bounds_bvh import (
     BinaryBoundsBvh,
     BoundsItem,
     BoundsBvh,
+)
+from bajo.bvh.cpu.packet import (
+    _coherent_packet_frustum,
+    _intersect_coherent_packet_frustum,
 )
 from bajo.bvh.tagged_ref import (
     decode_ref_index,
@@ -747,6 +751,100 @@ def test_triangle_packet_paths_match() raises:
     _test_triangle_packet_paths_match[4]()
     _test_triangle_packet_paths_match[8]()
     _test_triangle_packet_paths_match[16]()
+
+
+def _test_coherent_packet_frustum_is_conservative[
+    positive_x: Bool,
+    positive_y: Bool,
+    positive_z: Bool,
+]() raises:
+    comptime length = 8
+    var sign_x = Float32(1.0)
+    var sign_y = Float32(1.0)
+    var sign_z = Float32(1.0)
+    comptime if not positive_x:
+        sign_x = -1.0
+    comptime if not positive_y:
+        sign_y = -1.0
+    comptime if not positive_z:
+        sign_z = -1.0
+
+    var ox = SIMD[DType.float32, length](0.0)
+    var oy = SIMD[DType.float32, length](0.0)
+    var oz = SIMD[DType.float32, length](0.0)
+    var dx = SIMD[DType.float32, length](0.0)
+    var dy = SIMD[DType.float32, length](0.0)
+    var dz = SIMD[DType.float32, length](0.0)
+    comptime for lane in range(length):
+        ox[lane] = -0.7 + 0.2 * Float32(lane)
+        oy[lane] = 0.5 - 0.15 * Float32(lane)
+        oz[lane] = -0.3 + 0.1 * Float32(lane)
+        dx[lane] = sign_x * (0.3 + 0.04 * Float32(lane))
+        dy[lane] = sign_y * (0.2 + 0.03 * Float32(lane))
+        dz[lane] = sign_z * (0.8 + 0.05 * Float32(lane))
+
+    var rays = Ray[DType.float32, Frame.WORLD, length](
+        Point3[DType.float32, Frame.WORLD, length](ox, oy, oz),
+        Vec3[DType.float32, Frame.WORLD, length](dx, dy, dz),
+    )
+    var valid = SIMD[DType.bool, length](fill=True)
+    valid[length - 1] = False
+    var reciprocal_direction = rays.reciprocal_direction()
+    var frustum = _coherent_packet_frustum[
+        Frame.WORLD, length, positive_x, positive_y, positive_z
+    ](rays, valid, reciprocal_direction)
+
+    var bounds_min = Point3[DType.float32, Frame.WORLD, length](0.0)
+    var bounds_max = Point3[DType.float32, Frame.WORLD, length](0.0)
+    comptime for child in range(length):
+        var distance = 2.0 + Float32(child)
+        var center_x = sign_x * distance * 0.4
+        var center_y = sign_y * distance * 0.3
+        var center_z = sign_z * distance
+        if child >= 6:
+            center_x += sign_x * 20.0
+        bounds_min.x[child] = center_x - 1.0
+        bounds_min.y[child] = center_y - 1.0
+        bounds_min.z[child] = center_z - 1.0
+        bounds_max.x[child] = center_x + 1.0
+        bounds_max.y[child] = center_y + 1.0
+        bounds_max.z[child] = center_z + 1.0
+
+    var frustum_mask = _intersect_coherent_packet_frustum[
+        Frame.WORLD, length, positive_x, positive_y, positive_z
+    ](bounds_min, bounds_max, frustum, Float32(f32_max))
+    var exact_child_hits = 0
+    comptime for child in range(length):
+        var exact = intersect_ray_aabb_rcp(
+            rays.o,
+            reciprocal_direction,
+            Point3[DType.float32, Frame.WORLD, length](
+                bounds_min.x[child],
+                bounds_min.y[child],
+                bounds_min.z[child],
+            ),
+            Point3[DType.float32, Frame.WORLD, length](
+                bounds_max.x[child],
+                bounds_max.y[child],
+                bounds_max.z[child],
+            ),
+            rays.t_max,
+        )
+        if (valid & exact.mask).reduce_or():
+            exact_child_hits += 1
+            assert_true(frustum_mask[child])
+    assert_true(exact_child_hits > 0)
+
+
+def test_coherent_packet_frustum_is_conservative() raises:
+    _test_coherent_packet_frustum_is_conservative[True, True, True]()
+    _test_coherent_packet_frustum_is_conservative[True, True, False]()
+    _test_coherent_packet_frustum_is_conservative[True, False, True]()
+    _test_coherent_packet_frustum_is_conservative[True, False, False]()
+    _test_coherent_packet_frustum_is_conservative[False, True, True]()
+    _test_coherent_packet_frustum_is_conservative[False, True, False]()
+    _test_coherent_packet_frustum_is_conservative[False, False, True]()
+    _test_coherent_packet_frustum_is_conservative[False, False, False]()
 
 
 def _test_triangle_bvh_shadow_hit_and_miss[

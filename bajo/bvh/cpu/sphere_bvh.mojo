@@ -256,16 +256,21 @@ struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
                             normal.z, packet_hit.normal.z
                         )
 
-        def unused_hybrid_fn(
-            _active: SIMD[DType.bool, length],
-            _child_ref: UInt32,
-            mut _packet_hit: Hit[Self.bvh_frame, length],
-        ):
-            pass
-
         trace_packet_stack_bounds_bvh[
             frame=Self.frame,
             bounds_width=Self.width,
             length=length,
-        ](self.tree, rays, valid, hit, leaf_fn, unused_hybrid_fn)
+        ](
+            self.tree,
+            rays,
+            valid,
+            hit,
+            leaf_fn,
+            lambda (
+                active: SIMD[DType.bool, length],
+                _child_ref: UInt32,
+                mut _packet_hit: Hit[Self.bvh_frame, length],
+            ): None,
+            lambda (_child_ref: UInt32): None,
+        )
         return hit

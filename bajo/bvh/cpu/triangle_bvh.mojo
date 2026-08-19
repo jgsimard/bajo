@@ -2,6 +2,7 @@ from max.algorithm import parallelize
 from std.bit import count_trailing_zeros
 from std.memory import pack_bits
 from std.sys import size_of
+from std.sys.intrinsics import prefetch
 
 from bajo.core import (
     GeoKind,
@@ -26,6 +27,7 @@ from bajo.bvh.cpu.bounds_bvh import (
     _checked_typed_leaf_range,
 )
 from bajo.bvh.types import Hit, TriangleLeafBlock, TypedBvh
+from bajo.bvh.tagged_ref import decode_ref_index, is_leaf_ref
 from bajo.core.intersect import (
     intersect_ray_tri_edges,
     intersect_ray_tri_edges_scaled,
@@ -482,6 +484,19 @@ struct TriangleBvh[
                 packet_hit.t[lane] = scalar_hit.t[0]
 
         @always_inline
+        def prefetch_fn(child_ref: UInt32) {imm}:
+            if is_leaf_ref(child_ref):
+                var leaf_ptr = self.leaf_blocks.unsafe_ptr().unsafe_offset(
+                    Int(decode_ref_index(child_ref))
+                )
+                prefetch(leaf_ptr.unsafe_bitcast[UInt8]())
+            else:
+                var node_ptr = self.tree.nodes.unsafe_ptr().unsafe_offset(
+                    Int(child_ref)
+                )
+                prefetch(node_ptr.unsafe_bitcast[UInt8]())
+
+        @always_inline
         def run_packet[
             use_octant_fma: Bool,
             positive_x: Bool = True,
@@ -490,7 +505,10 @@ struct TriangleBvh[
         ]() {imm, mut hit}:
             @always_inline
             def run_kernel[
-                hybrid_threshold: Int, root_scalar_max_tasks: Int
+                hybrid_threshold: Int,
+                root_scalar_max_tasks: Int,
+                use_frustum: Bool = False,
+                prefetch_tasks: Bool = False,
             ]() {imm, mut hit}:
                 trace_packet_stack_bounds_bvh[
                     frame=Self.frame,
@@ -503,7 +521,17 @@ struct TriangleBvh[
                     positive_y=positive_y,
                     positive_z=positive_z,
                     hybrid_leaves=common_octant_fma,
-                ](self.tree, rays, valid, hit, leaf_fn, hybrid_fn)
+                    coherent_frustum=use_frustum,
+                    prefetch_tasks=prefetch_tasks,
+                ](
+                    self.tree,
+                    rays,
+                    valid,
+                    hit,
+                    leaf_fn,
+                    hybrid_fn,
+                    prefetch_fn,
+                )
 
             comptime if Self.bounds_width == 16 and Self.leaf_width == 16:
                 if len(self.tree.nodes) >= HYBRID_TRIANGLE_MIN_NODES:
@@ -517,10 +545,28 @@ struct TriangleBvh[
                             run_kernel[3, 0]()
                         return
                     elif length == 8:
-                        run_kernel[7, 0]()
+                        comptime if use_octant_fma:
+                            if (
+                                len(self.tree.nodes)
+                                >= ROOT_SCALAR_TRIANGLE_MIN_NODES
+                            ):
+                                run_kernel[7, 0, True, True]()
+                            else:
+                                run_kernel[7, 0]()
+                        else:
+                            run_kernel[7, 0]()
                         return
                     elif length == 16:
-                        run_kernel[8, 0]()
+                        comptime if use_octant_fma:
+                            if (
+                                len(self.tree.nodes)
+                                >= ROOT_SCALAR_TRIANGLE_MIN_NODES
+                            ):
+                                run_kernel[8, 0, True, True]()
+                            else:
+                                run_kernel[8, 0]()
+                        else:
+                            run_kernel[8, 0]()
                         return
             run_kernel[0, 0]()
 

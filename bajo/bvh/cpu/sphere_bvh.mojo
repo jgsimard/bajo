@@ -21,7 +21,7 @@ from bajo.bvh.cpu.bounds_bvh import (
 )
 from bajo.bvh.cpu.trace import trace_sphere_bounds_bvh
 from bajo.bvh.cpu.packet import (
-    trace_shared_stack_bounds_bvh,
+    trace_packet_stack_bounds_bvh,
 )
 from bajo.bvh.types import Hit, Sphere, SphereLeafBlock, TypedBvh
 
@@ -260,9 +260,16 @@ struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
                             normal.z, packet_hit.normal.z
                         )
 
-        trace_shared_stack_bounds_bvh[
+        def unused_hybrid_fn(
+            _active: SIMD[DType.bool, length],
+            _child_ref: UInt32,
+            mut _packet_hit: Hit[Self.bvh_frame, length],
+        ):
+            pass
+
+        trace_packet_stack_bounds_bvh[
             frame=Self.frame,
             bounds_width=Self.width,
             length=length,
-        ](self.tree, rays, valid, hit, leaf_fn)
+        ](self.tree, rays, valid, hit, leaf_fn, unused_hybrid_fn)
         return hit

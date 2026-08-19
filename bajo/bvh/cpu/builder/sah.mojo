@@ -144,8 +144,10 @@ def _find_sah_split[
             if cost < best.cost:
                 best.axis = axis
                 best.bin = split_bin
-                best.pos = bin_min[axis] + Float32(i) / bin_scale[axis]
                 best.cost = cost
+                best.pos = (
+                    bin_min[axis] + Float32(split_bin + 1) / bin_scale[axis]
+                )
                 best.bin_min = bin_min[axis]
                 best.bin_scale = bin_scale[axis]
 
@@ -213,9 +215,11 @@ def _partition_items_by_bin[
         var item_idx = Int(node_indices.unsafe_get(i))
         ref item = items.unsafe_get(item_idx)
         var centroid = item.bounds.centroid()
-        var b_idx = _centroid_bin[BVH_BINS](centroid[axis], bin_min, bin_scale)
+        var goes_left = (centroid[axis] - bin_min) * bin_scale < Float32(
+            split_bin + 1
+        )
 
-        if b_idx <= split_bin:
+        if goes_left:
             _grow_partition_side(
                 item,
                 out.left_bounds,

@@ -1,3 +1,5 @@
+from max.algorithm import parallelize
+
 from bajo.core import AABB, AxisAlignedBoundingBox, Point3f32, Frame
 from bajo.bvh.constants import EMPTY_LANE, f32_max
 from bajo.bvh.cpu.builder import BinaryBoundsBvh, BoundsItem
@@ -7,6 +9,11 @@ from bajo.bvh.tagged_ref import (
     is_leaf_ref,
     decode_ref_index,
 )
+
+
+comptime PARALLEL_COLLAPSE_DP_MIN_NODES = UInt32(16384)
+comptime COLLAPSE_DP_FRONTIER_DEPTH = 3
+comptime COLLAPSE_DP_FRONTIER_CAPACITY = 1 << COLLAPSE_DP_FRONTIER_DEPTH
 
 
 @fieldwise_init
@@ -128,7 +135,7 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
         self.leaf_ranges = leaf_ranges^
 
     def __init__[
-        PackLeafFn: def(UInt32, UInt32) -> UInt32
+        PackLeafFn: def(UInt32, UInt32) -> UInt32,
     ](out self, bvh: BinaryBoundsBvh, ref pack_leaf_fn: PackLeafFn):
         """Collapse a binary BVH while packing its typed leaf payloads.
 
@@ -154,7 +161,10 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
     ](mut self, bvh: BinaryBoundsBvh, ref pack_leaf_fn: PackLeafFn):
         comptime if Self.width > 2:
             var dp = _WideCollapseDp(Int(bvh.nodes_used), Int(Self.width))
-            self._compute_collapse_dp(bvh, 0, dp)
+            if bvh.nodes_used >= PARALLEL_COLLAPSE_DP_MIN_NODES:
+                self._compute_collapse_dp_parallel(bvh, dp)
+            else:
+                self._compute_collapse_dp(bvh, 0, dp)
             _ = self._collapse_dp[
                 pack_leaves_before_children=pack_leaves_before_children
             ](bvh, 0, dp, pack_leaf_fn)
@@ -179,6 +189,71 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
         * Binary leaves and primitive ranges are unchanged by collapse, so leaf
           intersection cost is constant across alternatives.
         """
+        ref node = bvh.nodes[Int(bin_idx)]
+        if not node.is_leaf():
+            self._compute_collapse_dp(bvh, node.left_child(), dp)
+            self._compute_collapse_dp(bvh, node.right_child(), dp)
+        self._compute_collapse_dp_node(bvh, bin_idx, dp)
+
+    def _compute_collapse_dp_parallel(
+        self, bvh: BinaryBoundsBvh, mut dp: _WideCollapseDp
+    ):
+        var frontier = List[UInt32](capacity=COLLAPSE_DP_FRONTIER_CAPACITY)
+        self._collect_collapse_dp_frontier(
+            bvh, 0, COLLAPSE_DP_FRONTIER_DEPTH, frontier
+        )
+
+        def worker(task_idx: Int) {imm, mut dp}:
+            self._compute_collapse_dp(bvh, frontier[task_idx], dp)
+
+        var task_count = len(frontier)
+        parallelize(worker, task_count)
+        self._compute_collapse_dp_ancestors(
+            bvh, 0, COLLAPSE_DP_FRONTIER_DEPTH, dp
+        )
+
+    def _collect_collapse_dp_frontier(
+        self,
+        bvh: BinaryBoundsBvh,
+        bin_idx: UInt32,
+        depth: Int,
+        mut frontier: List[UInt32],
+    ):
+        ref node = bvh.nodes[Int(bin_idx)]
+        if node.is_leaf() or depth == 0:
+            frontier.append(bin_idx)
+            return
+        self._collect_collapse_dp_frontier(
+            bvh, node.left_child(), depth - 1, frontier
+        )
+        self._collect_collapse_dp_frontier(
+            bvh, node.right_child(), depth - 1, frontier
+        )
+
+    def _compute_collapse_dp_ancestors(
+        self,
+        bvh: BinaryBoundsBvh,
+        bin_idx: UInt32,
+        depth: Int,
+        mut dp: _WideCollapseDp,
+    ):
+        ref node = bvh.nodes[Int(bin_idx)]
+        if node.is_leaf() or depth == 0:
+            return
+        self._compute_collapse_dp_ancestors(
+            bvh, node.left_child(), depth - 1, dp
+        )
+        self._compute_collapse_dp_ancestors(
+            bvh, node.right_child(), depth - 1, dp
+        )
+        self._compute_collapse_dp_node(bvh, bin_idx, dp)
+
+    def _compute_collapse_dp_node(
+        self,
+        bvh: BinaryBoundsBvh,
+        bin_idx: UInt32,
+        mut dp: _WideCollapseDp,
+    ):
         var node_i = Int(bin_idx)
         var base = node_i * Int(Self.width)
         ref node = bvh.nodes[node_i]
@@ -191,9 +266,6 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
 
         var left_idx = node.left_child()
         var right_idx = node.right_child()
-
-        self._compute_collapse_dp(bvh, left_idx, dp)
-        self._compute_collapse_dp(bvh, right_idx, dp)
 
         var left_i = Int(left_idx)
         var right_i = Int(right_idx)

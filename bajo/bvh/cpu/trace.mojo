@@ -149,6 +149,9 @@ def _trace_bounds_bvh_impl[
     mode: TRACE,
     collect_stats: Bool,
     leaf_uses_rcp_direction: Bool,
+    single_child_fast_path: Bool,
+    terminal_mask_fast_path: Bool,
+    trust_invalid_child_bounds: Bool,
     LeafFn: def(
         Rayf32[frame],
         Point3[DType.float32, frame, leaf_width],
@@ -167,12 +170,14 @@ def _trace_bounds_bvh_impl[
     ray: Rayf32[frame],
     ray_a: SIMD[DType.float32, leaf_width],
     ray_inv_a: SIMD[DType.float32, leaf_width],
+    initial_ref: UInt32,
+    initial_hit: Hit[frame],
     mut stats: CpuBvhTraversalStats,
     ref leaf_fn: LeafFn,
 ) -> Hit[frame]:
     debug_assert["safe", _use_compiler_assume=True](len(tree.nodes) > 0)
 
-    var hit = Hit[frame].miss(ray.t_max)
+    var hit = initial_hit
 
     var stack_ptr = 0
 
@@ -237,8 +242,7 @@ def _trace_bounds_bvh_impl[
                 if stack_ptr > stats.max_stack_depth:
                     stats.max_stack_depth = stack_ptr
 
-        # root is an internal-node reference with index zero
-        var current_ref = UInt32(0)
+        var current_ref = initial_ref
 
         while True:
             if is_leaf_ref(current_ref):
@@ -316,17 +320,41 @@ def _trace_bounds_bvh_impl[
 
                 comptime if bounds_width == 16:
                     # BVH16 benefits from consuming only set mask bits: see benchmarks
-                    var bits = UInt32(pack_bits(mask)) & (
-                        tree.child_masks.unsafe_get(Int(current_ref))
-                    )
+                    var bits = UInt32(pack_bits(mask))
+                    comptime if not trust_invalid_child_bounds:
+                        bits &= tree.child_masks.unsafe_get(Int(current_ref))
 
-                    while bits != 0:
-                        var lane = Int(count_trailing_zeros(bits))
-                        bits &= bits - 1
-                        visit_closest_child(
-                            node_data_ptr[unsafe_offset=lane],
-                            _extract_f32_lane(aabb_hit.t, lane),
-                        )
+                    comptime if single_child_fast_path:
+                        # Camera rays overwhelmingly produce either zero or
+                        # one live BVH16 child. Avoid the general nearest-task
+                        # loop for that dominant one-bit mask.
+                        comptime if terminal_mask_fast_path:
+                            if bits == 0 and stack_ptr == 0:
+                                break
+
+                        if bits != 0 and (bits & (bits - 1)) == 0:
+                            var lane = Int(count_trailing_zeros(bits))
+                            var child_t = _extract_f32_lane(aabb_hit.t, lane)
+                            if child_t <= hit.t:
+                                nearest_ref = node_data_ptr[unsafe_offset=lane]
+                                nearest_t = child_t
+                                has_nearest = True
+                        else:
+                            while bits != 0:
+                                var lane = Int(count_trailing_zeros(bits))
+                                bits &= bits - 1
+                                visit_closest_child(
+                                    node_data_ptr[unsafe_offset=lane],
+                                    _extract_f32_lane(aabb_hit.t, lane),
+                                )
+                    else:
+                        while bits != 0:
+                            var lane = Int(count_trailing_zeros(bits))
+                            bits &= bits - 1
+                            visit_closest_child(
+                                node_data_ptr[unsafe_offset=lane],
+                                _extract_f32_lane(aabb_hit.t, lane),
+                            )
 
                 else:
                     # for BVH2/4/8, fully unrolled checks are faster: see benchmarks
@@ -375,7 +403,7 @@ def _trace_bounds_bvh_impl[
     else:
         # ANY_HIT : leaf-first behavior
         var stack = Array[UInt32, CPU_STACK_SIZE](uninitialized=True)
-        var n_idx = UInt32(0)
+        var n_idx = initial_ref
 
         while True:
             comptime if collect_stats:
@@ -507,11 +535,16 @@ def _trace_bounds_bvh_octant[
         mut CpuBvhTraversalStats,
         mut Hit[frame],
     ) -> Bool,
+    single_child_fast_path: Bool = False,
+    terminal_mask_fast_path: Bool = False,
+    trust_invalid_child_bounds: Bool = False,
 ](
     tree: BoundsBvh[frame, bounds_width],
     ray: Rayf32[frame],
     ray_a: SIMD[DType.float32, leaf_width],
     ray_inv_a: SIMD[DType.float32, leaf_width],
+    initial_ref: UInt32,
+    initial_hit: Hit[frame],
     mut stats: CpuBvhTraversalStats,
     ref leaf_fn: LeafFn,
 ) -> Hit[frame]:
@@ -526,10 +559,22 @@ def _trace_bounds_bvh_octant[
             mode=mode,
             collect_stats=collect_stats,
             leaf_uses_rcp_direction=leaf_uses_rcp_direction,
+            single_child_fast_path=single_child_fast_path,
+            terminal_mask_fast_path=terminal_mask_fast_path,
+            trust_invalid_child_bounds=trust_invalid_child_bounds,
             positive_x=positive_x,
             positive_y=positive_y,
             positive_z=positive_z,
-        ](tree, ray, ray_a, ray_inv_a, stats, leaf_fn)
+        ](
+            tree,
+            ray,
+            ray_a,
+            ray_inv_a,
+            initial_ref,
+            initial_hit,
+            stats,
+            leaf_fn,
+        )
 
     var positive_x = ray.d.x >= 0.0
     var positive_y = ray.d.y >= 0.0
@@ -608,7 +653,78 @@ def trace_bounds_bvh[
         mode=mode,
         collect_stats=False,
         leaf_uses_rcp_direction=False,
-    ](tree, ray, zero, zero, unused_stats, unmeasured_leaf_fn)
+    ](
+        tree,
+        ray,
+        zero,
+        zero,
+        UInt32(0),
+        Hit[frame].miss(ray.t_max),
+        unused_stats,
+        unmeasured_leaf_fn,
+    )
+
+
+def trace_bounds_bvh_from_ref[
+    frame: Frame,
+    bounds_width: SIMDLength,
+    leaf_width: SIMDLength,
+    LeafFn: def(
+        Rayf32[frame],
+        Point3[DType.float32, frame, leaf_width],
+        Vec3[DType.float32, frame, leaf_width],
+        SIMD[DType.float32, leaf_width],
+        SIMD[DType.float32, leaf_width],
+        UInt32,
+        mut Hit[frame],
+    ) -> Bool,
+    single_child_fast_path: Bool = False,
+    terminal_mask_fast_path: Bool = False,
+    trust_invalid_child_bounds: Bool = False,
+](
+    tree: BoundsBvh[frame, bounds_width],
+    ray: Rayf32[frame],
+    initial_ref: UInt32,
+    initial_hit: Hit[frame],
+    ref leaf_fn: LeafFn,
+) -> Hit[frame]:
+    """Continue closest-hit traversal at one tagged subtree reference."""
+
+    @always_inline
+    def unmeasured_leaf_fn(
+        ray: Rayf32[frame],
+        O: Point3[DType.float32, frame, leaf_width],
+        D: Vec3[DType.float32, frame, leaf_width],
+        ray_a: SIMD[DType.float32, leaf_width],
+        ray_inv_a: SIMD[DType.float32, leaf_width],
+        leaf_block_idx: UInt32,
+        mut _stats: CpuBvhTraversalStats,
+        mut hit: Hit[frame],
+    ) {imm} -> Bool:
+        return leaf_fn(ray, O, D, ray_a, ray_inv_a, leaf_block_idx, hit)
+
+    var zero = SIMD[DType.float32, leaf_width](0.0)
+    var unused_stats = CpuBvhTraversalStats()
+    return _trace_bounds_bvh_octant[
+        frame=frame,
+        bounds_width=bounds_width,
+        leaf_width=leaf_width,
+        mode=TRACE.CLOSEST_HIT,
+        collect_stats=False,
+        leaf_uses_rcp_direction=False,
+        single_child_fast_path=single_child_fast_path,
+        terminal_mask_fast_path=terminal_mask_fast_path,
+        trust_invalid_child_bounds=trust_invalid_child_bounds,
+    ](
+        tree,
+        ray,
+        zero,
+        zero,
+        initial_ref,
+        initial_hit,
+        unused_stats,
+        unmeasured_leaf_fn,
+    )
 
 
 def trace_bounds_bvh_measured[
@@ -646,7 +762,16 @@ def trace_bounds_bvh_measured[
         mode=mode,
         collect_stats=True,
         leaf_uses_rcp_direction=False,
-    ](tree, ray, zero, zero, stats, leaf_fn)
+    ](
+        tree,
+        ray,
+        zero,
+        zero,
+        UInt32(0),
+        Hit[frame].miss(ray.t_max),
+        stats,
+        leaf_fn,
+    )
 
 
 def trace_bounds_bvh_leaf_rcp[
@@ -692,7 +817,16 @@ def trace_bounds_bvh_leaf_rcp[
         mode=mode,
         collect_stats=False,
         leaf_uses_rcp_direction=True,
-    ](tree, ray, zero, zero, unused_stats, unmeasured_leaf_fn)
+    ](
+        tree,
+        ray,
+        zero,
+        zero,
+        UInt32(0),
+        Hit[frame].miss(ray.t_max),
+        unused_stats,
+        unmeasured_leaf_fn,
+    )
 
 
 def trace_sphere_bounds_bvh[
@@ -738,4 +872,13 @@ def trace_sphere_bounds_bvh[
         mode=mode,
         collect_stats=False,
         leaf_uses_rcp_direction=False,
-    ](tree, ray, ray_a, ray_inv_a, unused_stats, unmeasured_leaf_fn)
+    ](
+        tree,
+        ray,
+        ray_a,
+        ray_inv_a,
+        UInt32(0),
+        Hit[frame].miss(ray.t_max),
+        unused_stats,
+        unmeasured_leaf_fn,
+    )

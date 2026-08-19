@@ -231,6 +231,7 @@ def main() raises:
     benchmark_scene[8, 8, "median"]("Regular grid", grid_vertices, grid_rays)
     benchmark_scene[16, 16, "lbvh"]("Regular grid", grid_vertices, grid_rays)
     benchmark_scene[8, 8, "lbvh"]("Regular grid", grid_vertices, grid_rays)
+    benchmark_scene[16, 16, "hploc"]("Regular grid", grid_vertices, grid_rays)
 
     var dragon_vertices = pack_obj_triangles[Frame.WORLD](OBJ_PATH)
     var bounds = compute_bounds(dragon_vertices)
@@ -239,5 +240,8 @@ def main() raises:
     )
     var dragon_rays = camera[0].copy()
     benchmark_scene[16, 16, "sah"](
+        "Dragon camera rays", dragon_vertices, dragon_rays
+    )
+    benchmark_scene[16, 16, "hploc"](
         "Dragon camera rays", dragon_vertices, dragon_rays
     )

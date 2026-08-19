@@ -6,7 +6,7 @@ from max.gpu.host import DeviceContext
 from bajo.bvh.constants import LBVH_SENTINEL
 from bajo.bvh.gpu.diagnostics import build_bounds_bvh_for_diagnostics
 from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvh
-from bajo.bvh.gpu.builder.hploc_reference import build_hploc_reference
+from bajo.bvh.cpu.builder.hploc import build_hploc_topology
 from bajo.bvh.gpu.quality import measure_binary_bvh_quality
 from bajo.bvh.gpu.utils import upload_list
 from bajo.bvh.host_utils import triangle_bounds
@@ -27,7 +27,7 @@ def _identity_ids(count: Int) -> List[UInt32]:
     return ids^
 
 
-def test_hploc_reference_hierarchical_merging_exact_topology() raises:
+def test_hploc_topology_hierarchical_merging_exact_topology() raises:
     var centers: List[Float32] = [
         0.0,
         1.0,
@@ -44,7 +44,7 @@ def test_hploc_reference_hierarchical_merging_exact_topology() raises:
 
     var codes: List[UInt32] = [0, 1, 2, 3, 256, 257, 258, 259]
     var ids = _identity_ids(len(bounds))
-    var tree = build_hploc_reference(
+    var tree = build_hploc_topology(
         Span(bounds),
         Span(codes),
         Span(ids),
@@ -68,14 +68,14 @@ def test_hploc_reference_hierarchical_merging_exact_topology() raises:
         assert_equal(node.right, expected_right[internal])
 
 
-def test_hploc_reference_strict_ties_prefer_right_then_near() raises:
+def test_hploc_topology_strict_ties_prefer_right_then_near() raises:
     var bounds = List[AABB[Frame.WORLD]](capacity=4)
     for _ in range(4):
         bounds.append(_box(0.0))
     var codes: List[UInt32] = [7, 7, 7, 7]
     var ids = _identity_ids(4)
 
-    var tree = build_hploc_reference(
+    var tree = build_hploc_topology(
         Span(bounds), Span(codes), Span(ids), merging_threshold=16
     )
     assert_true(tree.validate())
@@ -91,7 +91,7 @@ def test_hploc_reference_strict_ties_prefer_right_then_near() raises:
     assert_equal(tree.root, UInt32(6))
 
 
-def test_hploc_reference_duplicate_codes_and_permutation_are_deterministic() raises:
+def test_hploc_topology_duplicate_codes_and_permutation_are_deterministic() raises:
     var bounds: List[AABB[Frame.WORLD]] = [
         _box(-6.0),
         _box(-2.0),
@@ -101,10 +101,10 @@ def test_hploc_reference_duplicate_codes_and_permutation_are_deterministic() rai
     var codes: List[UInt32] = [11, 11, 11, 11]
     var ids: List[UInt32] = [3, 1, 2, 0]
 
-    var first = build_hploc_reference(
+    var first = build_hploc_topology(
         Span(bounds), Span(codes), Span(ids), merging_threshold=2
     )
-    var second = build_hploc_reference(
+    var second = build_hploc_topology(
         Span(bounds), Span(codes), Span(ids), merging_threshold=2
     )
     assert_true(first.validate())
@@ -127,7 +127,7 @@ def _make_quality_triangles() -> List[AABB[Frame.WORLD]]:
     return bounds^
 
 
-def test_hploc_reference_matches_gpu_lbvh_inputs_and_quality_gate() raises:
+def test_hploc_topology_matches_gpu_lbvh_inputs_and_quality_gate() raises:
     var bounds = _make_quality_triangles()
     var flat_bounds = List[Float32](capacity=len(bounds) * AABB.STRIDE)
     var payloads = _identity_ids(len(bounds))
@@ -158,7 +158,7 @@ def test_hploc_reference_matches_gpu_lbvh_inputs_and_quality_gate() raises:
             for i in range(len(host_ids)):
                 sorted_ids.append(host_ids[i])
 
-        var hploc = build_hploc_reference(
+        var hploc = build_hploc_topology(
             Span(bounds), Span(codes), Span(sorted_ids)
         )
         var lbvh_quality = measure_binary_bvh_quality(binary)

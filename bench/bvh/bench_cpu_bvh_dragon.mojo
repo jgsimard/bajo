@@ -170,14 +170,18 @@ def benchmark_configurations[
     vertices: List[Point3f32[Frame.WORLD]],
     rays: List[Rayf32[Frame.WORLD]],
 ) raises:
-    # BVH16/leaf16 is the general-purpose layout. Leaf32 is retained because
-    # it is the measured Dragon scalar winner despite its grid tradeoff.
-    comptime for leaf_width in [16, 32]:
-        benchmark_case[16, leaf_width, split_method](
-            table,
-            vertices,
-            rays,
-        )
+    comptime if split_method == "hploc":
+        benchmark_case[16, 16, split_method](table, vertices, rays)
+    else:
+        # BVH16/leaf16 is the general-purpose layout. Leaf32 is retained
+        # because it is the measured Dragon scalar winner despite its grid
+        # tradeoff.
+        comptime for leaf_width in [16, 32]:
+            benchmark_case[16, leaf_width, split_method](
+                table,
+                vertices,
+                rays,
+            )
 
 
 def main() raises:
@@ -211,7 +215,7 @@ def main() raises:
     )
     table.header()
 
-    comptime for split_method in ["median", "sah", "lbvh"]:
+    comptime for split_method in ["median", "sah", "lbvh", "hploc"]:
         benchmark_configurations[split_method](
             table,
             vertices,

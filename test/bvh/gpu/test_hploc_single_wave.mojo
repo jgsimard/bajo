@@ -6,9 +6,9 @@ from max.gpu.host import DeviceContext
 from bajo.bvh.constants import LBVH_SENTINEL
 from bajo.bvh.gpu.diagnostics import build_bounds_bvh_for_diagnostics
 from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvh
-from bajo.bvh.gpu.builder.hploc_reference import (
-    HplocReferenceBvh,
-    build_hploc_reference,
+from bajo.bvh.cpu.builder.hploc import (
+    HplocTopology,
+    build_hploc_topology,
 )
 from bajo.bvh.gpu.builder.hploc_layout import (
     HPLOC_NODE_LEAF_ID,
@@ -69,7 +69,7 @@ def _bounds_match(
 
 def _assert_exact_gpu_tree(
     gpu: GpuHplocSingleWaveBvh,
-    reference: HplocReferenceBvh,
+    reference: HplocTopology[Frame.WORLD],
 ) raises:
     assert_equal(gpu.result_status(), UInt32(HPLOC_STATUS_OK))
     assert_equal(gpu.result_root(), reference.root)
@@ -116,7 +116,7 @@ def test_hploc_single_wave_matches_balanced_reference_exactly() raises:
         leaf_bounds.append(_box(center))
     var codes: List[UInt32] = [0, 1, 2, 3, 256, 257, 258, 259]
     var ids = _identity_ids(len(leaf_bounds))
-    var reference = build_hploc_reference(
+    var reference = build_hploc_topology(
         Span(leaf_bounds),
         Span(codes),
         Span(ids),
@@ -144,7 +144,7 @@ def test_hploc_single_wave_matches_strict_tie_reference_exactly() raises:
         leaf_bounds.append(_box(0.0))
     var codes: List[UInt32] = [7, 7, 7, 7]
     var ids = _identity_ids(4)
-    var reference = build_hploc_reference(
+    var reference = build_hploc_topology(
         Span(leaf_bounds), Span(codes), Span(ids)
     )
     var flat_bounds = _flatten_bounds(leaf_bounds)
@@ -169,7 +169,7 @@ def test_hploc_single_wave_duplicate_codes_and_permutation_repeat() raises:
     ]
     var codes: List[UInt32] = [11, 11, 11, 11]
     var ids: List[UInt32] = [3, 1, 2, 0]
-    var reference = build_hploc_reference(
+    var reference = build_hploc_topology(
         Span(leaf_bounds), Span(codes), Span(ids), merging_threshold=2
     )
     var flat_bounds = _flatten_bounds(leaf_bounds)
@@ -202,7 +202,7 @@ def test_hploc_single_wave_handles_one_leaf() raises:
     var leaf_bounds: List[AABB[Frame.WORLD]] = [_box(3.0)]
     var codes: List[UInt32] = [42]
     var ids: List[UInt32] = [0]
-    var reference = build_hploc_reference(
+    var reference = build_hploc_topology(
         Span(leaf_bounds), Span(codes), Span(ids)
     )
     var flat_bounds = _flatten_bounds(leaf_bounds)
@@ -267,7 +267,7 @@ def test_hploc_single_wave_matches_reference_from_gpu_lbvh_inputs() raises:
             for i in range(leaf_count):
                 sorted_ids.append(host_ids[i])
 
-        var reference = build_hploc_reference(
+        var reference = build_hploc_topology(
             Span(leaf_bounds), Span(codes), Span(sorted_ids)
         )
         var gpu = GpuHplocSingleWaveBvh(

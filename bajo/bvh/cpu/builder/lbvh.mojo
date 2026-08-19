@@ -162,15 +162,15 @@ def _lbvh_find_split(
     return split
 
 
-def _build_lbvh[
+def _sorted_morton_pairs[
     frame: Frame,
     leaf_size: Int,
     method: String,
 ](
-    mut builder: BinaryBoundsBvh[frame, leaf_size, method],
+    builder: BinaryBoundsBvh[frame, leaf_size, method],
     precomputed_centroid_bounds: AABB[frame],
-) where (method == "lbvh"):
-    """Build a binary LBVH using sorted Morton codes over item centers."""
+) -> List[MortonItem]:
+    """Generate stable sorted Morton/item pairs for linear CPU builders."""
     debug_assert["safe", _use_compiler_assume=True](builder.item_count > 0)
     var item_count = Int(builder.item_count)
     var centroid_bounds = precomputed_centroid_bounds
@@ -212,6 +212,21 @@ def _build_lbvh[
             _radix_sort_morton_pairs(pairs)
     else:
         sort(Span(pairs))
+    return pairs^
+
+
+def _build_lbvh[
+    frame: Frame,
+    leaf_size: Int,
+    method: String,
+](
+    mut builder: BinaryBoundsBvh[frame, leaf_size, method],
+    precomputed_centroid_bounds: AABB[frame],
+) where (method == "lbvh"):
+    """Build a binary LBVH using sorted Morton codes over item centers."""
+    var pairs = _sorted_morton_pairs(builder, precomputed_centroid_bounds)
+    var item_count = len(pairs)
+    var use_parallel_build = builder.item_count >= PARALLEL_LBVH_MIN_ITEMS
     if not use_parallel_build:
         for i in range(len(pairs)):
             builder.item_indices[i] = pairs[i].item_idx

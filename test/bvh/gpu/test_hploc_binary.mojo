@@ -13,9 +13,9 @@ from bajo.bvh.gpu.builder.binary_layout import (
     GpuBinaryBoundsBvh,
     GpuBinaryBuildWorkspace,
 )
-from bajo.bvh.gpu.builder.hploc_reference import (
-    HplocReferenceBvh,
-    build_hploc_reference,
+from bajo.bvh.cpu.builder.hploc import (
+    HplocTopology,
+    build_hploc_topology,
 )
 from bajo.bvh.gpu.quality import measure_binary_bvh_quality
 from bajo.bvh.gpu.diagnostics import validate_binary_bvh
@@ -92,7 +92,7 @@ def _inner_hash(left: UInt64, right: UInt64) -> UInt64:
     )
 
 
-def _reference_root_hash(reference: HplocReferenceBvh) -> UInt64:
+def _reference_root_hash(reference: HplocTopology[Frame.WORLD]) -> UInt64:
     var hashes = List[UInt64](length=len(reference.nodes), fill=UInt64(0))
     for i in range(len(reference.nodes)):
         var node = reference.nodes[i]
@@ -107,7 +107,7 @@ def _reference_root_hash(reference: HplocReferenceBvh) -> UInt64:
 
 def _assert_binary_matches_reference(
     build: _TestBinaryBuild,
-    reference: HplocReferenceBvh,
+    reference: HplocTopology[Frame.WORLD],
 ) raises:
     ref binary = build.binary
     var validation = validate_binary_bvh(
@@ -262,7 +262,7 @@ def _build_hploc_binary(
 def _reference_from_binary(
     build: _TestBinaryBuild,
     bounds: List[AABB[Frame.WORLD]],
-) raises -> HplocReferenceBvh:
+) raises -> HplocTopology[Frame.WORLD]:
     ref binary = build.binary
     var codes = List[UInt32](capacity=binary.leaf_count)
     var ids = List[UInt32](capacity=binary.leaf_count)
@@ -272,7 +272,7 @@ def _reference_from_binary(
     with binary.leaf_ids.map_to_host() as host_ids:
         for i in range(binary.leaf_count):
             ids.append(host_ids[i])
-    return build_hploc_reference(Span(bounds), Span(codes), Span(ids))
+    return build_hploc_topology(Span(bounds), Span(codes), Span(ids))
 
 
 def test_hploc_binary_layout_one_leaf() raises:

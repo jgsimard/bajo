@@ -353,7 +353,7 @@ def _test_bounds_bvh_leaf_invariant[
     width: SIMDLength,
     mode: String,
 ]() raises:
-    comptime assert mode in ["median", "sah", "lbvh"]
+    comptime assert mode in ["median", "sah", "lbvh", "hploc"]
 
     var verts = _make_random_xy_triangles[frame](
         24 * width, UInt64(606060 + width)
@@ -373,7 +373,7 @@ def _test_bounds_bvh_leaf_invariant[
 
 def test_bounds_bvh_leaf_invariants() raises:
     comptime for w in [2, 4, 8]:
-        comptime for mode in ["median", "sah", "lbvh"]:
+        comptime for mode in ["median", "sah", "lbvh", "hploc"]:
             _test_bounds_bvh_leaf_invariant[Frame.WORLD, w, mode]()
 
 
@@ -653,7 +653,7 @@ def _test_triangle_bvh_matches_bruteforce[
 
 def test_triangle_bvh_matches_bruteforce() raises:
     comptime for w in [2, 4, 8]:
-        comptime for mode in ["median", "sah", "lbvh"]:
+        comptime for mode in ["median", "sah", "lbvh", "hploc"]:
             _test_triangle_bvh_matches_bruteforce[w, mode]()
 
 
@@ -705,7 +705,7 @@ def _test_triangle_bvh16_leaf_width[
 
 def test_triangle_bvh16_decoupled_leaf_widths() raises:
     comptime for leaf_width in [2, 4, 8, 16]:
-        comptime for mode in ["median", "sah", "lbvh"]:
+        comptime for mode in ["median", "sah", "lbvh", "hploc"]:
             _test_triangle_bvh16_leaf_width[leaf_width, mode]()
 
 
@@ -867,7 +867,7 @@ def _test_triangle_bvh_shadow_hit_and_miss[
 
 def test_triangle_bvh_shadow_hit_and_miss() raises:
     comptime for w in [2, 4, 8]:
-        comptime for mode in ["median", "sah", "lbvh"]:
+        comptime for mode in ["median", "sah", "lbvh", "hploc"]:
             _test_triangle_bvh_shadow_hit_and_miss[w, mode]()
 
 
@@ -981,7 +981,7 @@ def _test_sphere_bvh_matches_bruteforce[
 
 def test_sphere_bvh_matches_bruteforce() raises:
     comptime for w in [2, 4, 8]:
-        comptime for mode in ["median", "sah", "lbvh"]:
+        comptime for mode in ["median", "sah", "lbvh", "hploc"]:
             _test_sphere_bvh_matches_bruteforce[w, mode]()
 
 
@@ -1005,7 +1005,7 @@ def _test_sphere_bvh_shadow_hit_and_miss[
 
 def test_sphere_bvh_shadow_hit_and_miss() raises:
     comptime for w in [2, 4, 8]:
-        comptime for mode in ["median", "sah", "lbvh"]:
+        comptime for mode in ["median", "sah", "lbvh", "hploc"]:
             _test_sphere_bvh_shadow_hit_and_miss[w, mode]()
 
 

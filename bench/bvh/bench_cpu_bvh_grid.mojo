@@ -173,7 +173,7 @@ def main() raises:
     )
     table.header()
 
-    comptime for split_method in ["median", "sah", "lbvh"]:
+    comptime for split_method in ["median", "sah", "lbvh", "hploc"]:
         benchmark_widths[split_method](
             table,
             vertices,

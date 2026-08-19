@@ -4,6 +4,7 @@ from std.atomic import Atomic, Ordering
 from bajo.core import AABB, longest_axis, Frame
 from bajo.sort.cpu.nth_element import nth_element
 from ..parallel import _worker_count
+from .hploc import _build_hploc
 from .lbvh import _build_lbvh
 from .types import BoundsBvhNode, BoundsItem
 
@@ -32,6 +33,7 @@ struct BinaryBoundsBvh[
         "median" -> top-down spatial median
         "sah"    -> top-down binned SAH
         "lbvh"   -> sorted-Morton recursive LBVH
+        "hploc"  -> Morton-guided hierarchical PLOC
     """
 
     var nodes: List[BoundsBvhNode[Self.frame]]
@@ -59,6 +61,13 @@ struct BinaryBoundsBvh[
         self.nodes_used = 1
         comptime if Self.method == "lbvh":
             _build_lbvh[
+                Self.frame,
+                Self.leaf_size,
+                Self.method,
+            ](self, centroid_bounds)
+
+        elif Self.method == "hploc":
+            _build_hploc[
                 Self.frame,
                 Self.leaf_size,
                 Self.method,

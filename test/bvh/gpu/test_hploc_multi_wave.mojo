@@ -12,9 +12,9 @@ from bajo.bvh.gpu.diagnostics import build_bounds_bvh_for_diagnostics
 from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvh
 from bajo.bvh.gpu.builder.hploc_layout import HPLOC_STATUS_OK
 from bajo.bvh.gpu.builder.hploc_multi_wave import GpuHplocMultiWaveBvh
-from bajo.bvh.gpu.builder.hploc_reference import (
-    HplocReferenceBvh,
-    build_hploc_reference,
+from bajo.bvh.cpu.builder.hploc import (
+    HplocTopology,
+    build_hploc_topology,
 )
 from bajo.bvh.gpu.utils import upload_list
 from bajo.bvh.host_utils import triangle_bounds
@@ -84,7 +84,7 @@ def _inner_hash(left: UInt64, right: UInt64) -> UInt64:
     )
 
 
-def _reference_root_hash(reference: HplocReferenceBvh) -> UInt64:
+def _reference_root_hash(reference: HplocTopology[Frame.WORLD]) -> UInt64:
     var hashes = List[UInt64](length=len(reference.nodes), fill=UInt64(0))
     for node_idx in range(len(reference.nodes)):
         var node = reference.nodes[node_idx]
@@ -102,7 +102,7 @@ def _assert_gpu_matches_reference[
     merging_threshold: Int,
 ](
     gpu: GpuHplocMultiWaveBvh[search_radius, merging_threshold],
-    reference: HplocReferenceBvh,
+    reference: HplocTopology[Frame.WORLD],
 ) raises -> UInt64:
     var internal_count = max(reference.leaf_count - 1, 0)
     assert_equal(gpu.result_status(), UInt32(HPLOC_STATUS_OK))
@@ -251,7 +251,7 @@ def test_hploc_multi_wave_one_leaf() raises:
     var flat = _flatten_bounds(bounds)
     var codes: List[UInt32] = [9]
     var ids: List[UInt32] = [0]
-    var reference = build_hploc_reference(Span(bounds), Span(codes), Span(ids))
+    var reference = build_hploc_topology(Span(bounds), Span(codes), Span(ids))
 
     with DeviceContext() as ctx:
         var gpu = GpuHplocMultiWaveBvh[](
@@ -272,7 +272,7 @@ def test_hploc_multi_wave_crosses_waves_at_64_leaves() raises:
         bounds.append(_box(Float32(i * 3)))
         codes.append(UInt32(i))
     var ids = _identity_ids(leaf_count)
-    var reference = build_hploc_reference(Span(bounds), Span(codes), Span(ids))
+    var reference = build_hploc_topology(Span(bounds), Span(codes), Span(ids))
     var flat = _flatten_bounds(bounds)
 
     with DeviceContext() as ctx:
@@ -296,7 +296,7 @@ def test_hploc_multi_wave_parameterized_policy() raises:
         bounds.append(_box(Float32(i * 3)))
         codes.append(UInt32(i))
     var ids = _identity_ids(leaf_count)
-    var reference = build_hploc_reference(
+    var reference = build_hploc_topology(
         Span(bounds),
         Span(codes),
         Span(ids),
@@ -325,7 +325,7 @@ def test_hploc_multi_wave_duplicate_codes_repeat_deterministically() raises:
         bounds.append(_box(Float32(i - 48)))
         codes.append(UInt32(11))
         ids.append(UInt32((i * 37) % leaf_count))
-    var reference = build_hploc_reference(Span(bounds), Span(codes), Span(ids))
+    var reference = build_hploc_topology(Span(bounds), Span(codes), Span(ids))
     var flat = _flatten_bounds(bounds)
 
     with DeviceContext() as ctx:
@@ -389,7 +389,7 @@ def test_hploc_multi_wave_crosses_blocks_with_gpu_lbvh_inputs() raises:
             for i in range(leaf_count):
                 sorted_ids.append(host_ids[i])
 
-        var reference = build_hploc_reference(
+        var reference = build_hploc_topology(
             Span(bounds), Span(codes), Span(sorted_ids)
         )
         var gpu = GpuHplocMultiWaveBvh[](
@@ -427,7 +427,7 @@ def test_hploc_multi_wave_stress_4097_triangles() raises:
             for i in range(leaf_count):
                 sorted_ids.append(host_ids[i])
 
-        var reference = build_hploc_reference(
+        var reference = build_hploc_topology(
             Span(bounds), Span(codes), Span(sorted_ids)
         )
         var gpu = GpuHplocMultiWaveBvh[](

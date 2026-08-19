@@ -105,7 +105,7 @@ struct TriangleBvh[
         ) {imm}:
             for i in range(tri_count):
                 var item = _make_triangle_bounds_item(vertices, i)
-                comptime if split_method != "lbvh":
+                comptime if split_method != "lbvh" and split_method != "hploc":
                     root_bounds.grow(item.bounds)
                 comptime if split_method != "median":
                     centroid_bounds.grow(item.bounds.centroid())
@@ -116,7 +116,7 @@ struct TriangleBvh[
             var worker_count = _worker_count(tri_count)
             var root_partials = List[AABB[Self.frame]]()
             var centroid_partials = List[AABB[Self.frame]]()
-            comptime if split_method != "lbvh":
+            comptime if split_method != "lbvh" and split_method != "hploc":
                 root_partials = List[AABB[Self.frame]](capacity=worker_count)
                 root_partials.resize(unsafe_uninit_length=worker_count)
             comptime if split_method != "median":
@@ -134,19 +134,19 @@ struct TriangleBvh[
                 var chunk_centroid_bounds = AABB[Self.frame].invalid()
                 for i in range(first, end):
                     var item = _make_triangle_bounds_item(vertices, i)
-                    comptime if split_method != "lbvh":
+                    comptime if split_method != "lbvh" and split_method != "hploc":
                         chunk_bounds.grow(item.bounds)
                     comptime if split_method != "median":
                         chunk_centroid_bounds.grow(item.bounds.centroid())
                     items[i] = item
-                comptime if split_method != "lbvh":
+                comptime if split_method != "lbvh" and split_method != "hploc":
                     root_partials[task_idx] = chunk_bounds
                 comptime if split_method != "median":
                     centroid_partials[task_idx] = chunk_centroid_bounds
 
             parallelize(item_chunk_worker, worker_count, worker_count)
             for worker_idx in range(worker_count):
-                comptime if split_method != "lbvh":
+                comptime if split_method != "lbvh" and split_method != "hploc":
                     root_bounds.grow(root_partials[worker_idx])
                 comptime if split_method != "median":
                     centroid_bounds.grow(centroid_partials[worker_idx])

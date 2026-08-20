@@ -55,7 +55,6 @@ from bajo.bvh.cpu.trace import (
     _extract_f32_lane,
     _extract_u32_lane,
 )
-from bajo.bvh.host_utils import triangle_bounds
 
 from test.bvh.fixtures import _brute_triangle_trace, _brute_sphere_trace
 
@@ -193,7 +192,7 @@ def _make_bounds_items[
         ref v1 = verts[i * 3 + 1]
         ref v2 = verts[i * 3 + 2]
 
-        items.append(BoundsItem(triangle_bounds(v0, v1, v2), UInt32(i)))
+        items.append(BoundsItem(AABB(v0, v1, v2), UInt32(i)))
 
     return items^
 
@@ -569,7 +568,7 @@ def test_ray_rcp_direction_uses_finite_parallel_axes() raises:
 
 
 def test_bounds_item_bounds_and_payload_mapping() raises:
-    var bounds = triangle_bounds(
+    var bounds = AABB(
         Point3W(-1.0, 2.0, 3.0),
         Point3W(2.0, -4.0, 5.0),
         Point3W(0.0, 1.0, -6.0),

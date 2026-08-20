@@ -23,7 +23,6 @@ from bajo.bvh.gpu.triangle_bvh import build_triangle_bvh
 from bajo.bvh.gpu.utils import upload_list, upload_vertices
 from bajo.bvh.gpu.trace import GpuTraversalAlgorithm
 from bajo.bvh.gpu.wide_meta import _wide_meta_count, _wide_meta_data
-from bajo.bvh.host_utils import triangle_bounds
 from bajo.bvh.types import Hit
 from bajo.core import AABB, Frame, Point3f32
 
@@ -82,9 +81,7 @@ def _flatten_triangle_bounds(
     var flat = List[Float32](capacity=tri_count * AABB.STRIDE)
     var payloads = List[UInt32](capacity=tri_count)
     for i in range(tri_count):
-        var bounds = triangle_bounds(
-            verts[i * 3], verts[i * 3 + 1], verts[i * 3 + 2]
-        )
+        var bounds = AABB(verts[i * 3], verts[i * 3 + 1], verts[i * 3 + 2])
         flat.append(bounds._min.x)
         flat.append(bounds._min.y)
         flat.append(bounds._min.z)
@@ -112,7 +109,7 @@ def _assert_literature_wide_invariants[
     var triangle_bounds_list = List[AABB[Frame.WORLD]](capacity=tri_count)
     for i in range(tri_count):
         triangle_bounds_list.append(
-            triangle_bounds(verts[i * 3], verts[i * 3 + 1], verts[i * 3 + 2])
+            AABB(verts[i * 3], verts[i * 3 + 1], verts[i * 3 + 2])
         )
 
     with tree.wide_nodes.map_to_host() as wide_nodes, tree.leaf_block_indices.map_to_host() as leaf_blocks:

@@ -9,7 +9,6 @@ from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvh
 from bajo.bvh.cpu.builder.hploc import build_hploc_topology
 from bajo.bvh.gpu.quality import measure_binary_bvh_quality
 from bajo.bvh.gpu.utils import upload_list
-from bajo.bvh.host_utils import triangle_bounds
 from bajo.core import AABB, Frame, Point3f32
 
 
@@ -117,7 +116,7 @@ def _make_quality_triangles() -> List[AABB[Frame.WORLD]]:
         var p0 = Point3f32[Frame.WORLD](x - scale, y - scale, z)
         var p1 = Point3f32[Frame.WORLD](x + scale, y - scale, z)
         var p2 = Point3f32[Frame.WORLD](x, y + scale, z + 0.1)
-        bounds.append(triangle_bounds(p0, p1, p2))
+        bounds.append(AABB(p0, p1, p2))
     return bounds^
 
 

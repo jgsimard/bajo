@@ -1,7 +1,6 @@
 """Shared inputs for GPU BVH diagnostics."""
 
-from bajo.bvh.host_utils import triangle_bounds
-from bajo.core import Frame, Point3f32
+from bajo.core import Frame, Point3f32, AABB
 
 
 def flatten_triangle_bounds(
@@ -11,7 +10,7 @@ def flatten_triangle_bounds(
     var bounds = List[Float32](capacity=triangle_count * 6)
     var payloads = List[UInt32](capacity=triangle_count)
     for i in range(triangle_count):
-        var box = triangle_bounds(
+        var box = AABB(
             vertices[i * 3], vertices[i * 3 + 1], vertices[i * 3 + 2]
         )
         bounds.append(box._min.x)

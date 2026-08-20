@@ -4,9 +4,9 @@ from std.sys import has_accelerator
 from std.testing import TestSuite, assert_true
 from max.gpu.host import DeviceContext, DeviceBuffer
 
-from bajo.core import Vec3f32, Point3f32, Frame
+from bajo.core import Vec3f32, Point3f32, Frame, AABB
 from bajo.bvh.types import Sphere, Hit
-from bajo.bvh.host_utils import sphere_bounds, triangle_bounds
+from bajo.bvh.host_utils import sphere_bounds
 from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
 from bajo.bvh.cpu.triangle_bvh import TriangleBvh
 from bajo.bvh.gpu.bounds_bvh import build_bounds_bvh
@@ -111,7 +111,7 @@ def _make_triangle_leaf_bounds(
         ref v1 = verts[i * 3 + 1]
         ref v2 = verts[i * 3 + 2]
 
-        var bounds = triangle_bounds(v0, v1, v2)
+        var bounds = AABB(v0, v1, v2)
 
         leaf_bounds.append(bounds._min.x)
         leaf_bounds.append(bounds._min.y)

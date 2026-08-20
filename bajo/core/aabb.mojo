@@ -13,6 +13,17 @@ struct AxisAlignedBoundingBox[
     var _min: Point3[Self.dtype, Self.frame, Self.width]
     var _max: Point3[Self.dtype, Self.frame, Self.width]
 
+    def __init__(
+        out self,
+        p0: Point3[Self.dtype, Self.frame, Self.width],
+        p1: Point3[Self.dtype, Self.frame, Self.width],
+        p2: Point3[Self.dtype, Self.frame, Self.width],
+    ):
+        return Self(
+            vmin(vmin(p0, p1), p2),
+            vmax(vmax(p0, p1), p2),
+        )
+
     @staticmethod
     def invalid() -> Self:
         comptime flt_max = max_finite[Self.dtype]()

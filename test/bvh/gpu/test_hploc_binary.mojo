@@ -20,7 +20,6 @@ from bajo.bvh.cpu.builder.hploc import (
 from bajo.bvh.gpu.quality import measure_binary_bvh_quality
 from bajo.bvh.gpu.diagnostics import validate_binary_bvh
 from bajo.bvh.gpu.utils import upload_list
-from bajo.bvh.host_utils import triangle_bounds
 from bajo.core import AABB, Frame, Point3f32
 
 
@@ -235,7 +234,7 @@ def _make_triangles(count: Int) -> List[AABB[Frame.WORLD]]:
         var z = Float32((i * 7) % 11)
         var scale = Float32(2.2) if i % 17 == 0 else Float32(0.7)
         bounds.append(
-            triangle_bounds(
+            AABB(
                 Point3f32[Frame.WORLD](x - scale, y - scale, z),
                 Point3f32[Frame.WORLD](x + scale, y - scale, z),
                 Point3f32[Frame.WORLD](x, y + scale, z + 0.1),
@@ -276,7 +275,7 @@ def _reference_from_binary(
 
 def test_hploc_binary_layout_one_leaf() raises:
     var bounds: List[AABB[Frame.WORLD]] = [
-        triangle_bounds(
+        AABB(
             Point3f32[Frame.WORLD](0.0, 0.0, 0.0),
             Point3f32[Frame.WORLD](1.0, 0.0, 0.0),
             Point3f32[Frame.WORLD](0.0, 1.0, 0.0),

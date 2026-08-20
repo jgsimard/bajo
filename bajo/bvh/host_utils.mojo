@@ -2,16 +2,6 @@ from bajo.core import AABB, Vec3f32, Point3f32, Frame
 from bajo.bvh.types import Sphere
 
 
-def triangle_bounds[
-    frame: Frame
-](v0: Point3f32[frame], v1: Point3f32[frame], v2: Point3f32[frame]) -> AABB[
-    frame
-]:
-    var bounds = AABB[frame].invalid()
-    bounds.grow(v0, v1, v2)
-    return bounds
-
-
 def compute_bounds[
     frame: Frame
 ](verts: ImmSpan[Point3f32[frame], _]) -> AABB[frame]:

@@ -61,8 +61,7 @@ def _make_triangle_bounds_item[
     ref v0 = vertices.unsafe_get(i * 3 + 0)
     ref v1 = vertices.unsafe_get(i * 3 + 1)
     ref v2 = vertices.unsafe_get(i * 3 + 2)
-    var bounds = AABB[frame].invalid()
-    bounds.grow(v0, v1, v2)
+    var bounds = AABB[frame](v0, v1, v2)
     return BoundsItem(bounds, UInt32(i))
 
 

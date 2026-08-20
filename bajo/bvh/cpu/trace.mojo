@@ -1,4 +1,4 @@
-from std.bit import count_trailing_zeros
+from std.bit import count_trailing_zeros, pop_count
 from std.memory import bitcast, pack_bits
 from std.sys.intrinsics import llvm_intrinsic
 from std.sys import size_of
@@ -69,11 +69,7 @@ struct CpuBvhTraversalStats(Copyable):
 
 @always_inline
 def _count_true_lanes[width: SIMDLength](mask: SIMD[DType.bool, width]) -> Int:
-    var count = 0
-    comptime for lane in range(width):
-        if mask[lane]:
-            count += 1
-    return count
+    return Int(pop_count(pack_bits(mask)))
 
 
 @always_inline

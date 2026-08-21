@@ -1,6 +1,6 @@
 from std.atomic import Atomic, Ordering
 from std.gpu import global_idx
-from std.math import ceil, ceildiv, floor, fma, max, min
+from std.math import ceil, ceildiv, floor, fma, max, min, clamp
 from std.memory import bitcast
 from max.gpu.host import DeviceBuffer, DeviceContext
 
@@ -38,37 +38,27 @@ comptime CWBVH_QUANTIZED_BASE = 8
 
 
 @always_inline
-def _float_bits(value: Float32) -> UInt32:
-    return bitcast[DType.uint32, 1](SIMD[DType.float32, 1](value))[0]
-
-
-@always_inline
-def _float_from_bits(value: UInt32) -> Float32:
-    return bitcast[DType.float32, 1](SIMD[DType.uint32, 1](value))[0]
-
-
-@always_inline
 def _power_of_two_scale_exponent(extent: Float32) -> UInt32:
     if extent <= 0.0:
-        return UInt32(127)  # 2^0
+        return 127  # 2^0
 
     var required = extent / 255.0
-    var bits = _float_bits(required)
-    var exponent = (bits >> UInt32(23)) & UInt32(0xFF)
-    if (bits & UInt32(0x007FFFFF)) != 0:
+    var bits = bitcast[DType.uint32](required)
+    var exponent = (bits >> 23) & 0xFF
+    if (bits & 0x007FFFFF) != 0:
         exponent += 1
-    return min(max(exponent, UInt32(1)), UInt32(254))
+    return clamp(exponent, 1, 254)
 
 
 @always_inline
 def _scale_from_exponent(exponent: UInt32) -> Float32:
-    return _float_from_bits(exponent << UInt32(23))
+    return bitcast[DType.float32](exponent << 23)
 
 
 @always_inline
 def _quantize_lower(value: Float32, start: Float32, scale: Float32) -> UInt32:
     var q = Int(floor((value - start) / scale))
-    q = max(0, min(q, 255))
+    q = clamp(q, 0, 255)
     if fma(Float32(q), scale, start) > value and q > 0:
         q -= 1
     return UInt32(q)
@@ -77,7 +67,7 @@ def _quantize_lower(value: Float32, start: Float32, scale: Float32) -> UInt32:
 @always_inline
 def _quantize_upper(value: Float32, start: Float32, scale: Float32) -> UInt32:
     var q = Int(ceil((value - start) / scale))
-    q = max(0, min(q, 255))
+    q = clamp(q, 0, 255)
     if fma(Float32(q), scale, start) < value and q < 255:
         q += 1
     return UInt32(q)
@@ -86,7 +76,7 @@ def _quantize_upper(value: Float32, start: Float32, scale: Float32) -> UInt32:
 @always_inline
 def _unary_triangle_count(count: UInt32) -> UInt32:
     # Paper encoding: 1 -> 001, 2 -> 011, 3 -> 111 in the high bits.
-    return ((UInt32(1) << count) - UInt32(1)) << UInt32(5)
+    return ((1 << count) - 1) << 5
 
 
 def encode_cwbvh8_nodes_kernel[

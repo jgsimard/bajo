@@ -293,10 +293,6 @@ def _trace_bounds_bvh_impl[
                 def visit_closest_child(
                     child_ref: UInt32, child_t: Float32
                 ) {imm, mut has_nearest, mut nearest_ref, mut nearest_t}:
-                    # hit.t can only become tighter after a deferred leaf is evaluated
-                    if child_t > hit.t:
-                        return
-
                     if not has_nearest:
                         nearest_ref = child_ref
                         nearest_t = child_t
@@ -479,13 +475,10 @@ def _trace_bounds_bvh_impl[
                 return False
 
             comptime if bounds_width == 16:
-                # BVH16: consume only active mask bits.
-                var bits = UInt32(pack_bits(mask)) & (
-                    tree.child_masks.unsafe_get(Int(n_idx))
-                )
+                var bits = UInt32(pack_bits(mask))
 
                 while bits != 0:
-                    var lane = Int(count_trailing_zeros(bits))
+                    var lane = count_trailing_zeros(bits)
                     bits &= bits - 1
 
                     if visit_any_child(node_data_ptr[unsafe_offset=lane]):

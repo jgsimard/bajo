@@ -56,6 +56,10 @@ struct AxisAlignedBoundingBox[
     def clear(mut self):
         self = Self.invalid()
 
+    def grow(mut self, v: Point3[Self.dtype, Self.frame, Self.width]):
+        self._min = vmin(self._min, v)
+        self._max = vmax(self._max, v)
+
     def grow(mut self, *vs: Point3[Self.dtype, Self.frame, Self.width]):
         for v in vs:
             self._min = vmin(self._min, v)

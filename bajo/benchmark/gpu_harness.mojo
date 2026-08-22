@@ -16,7 +16,7 @@ from bajo.rt import (
     Sphere,
     SurfaceId,
     SurfaceStore,
-    World,
+    CpuScene,
     add_triangle,
 )
 from bajo.rt.gpu.common_kernels import GPU_RT_MAX_BLOCKS
@@ -59,7 +59,7 @@ def gpu_rt_camera() -> Camera:
     )
 
 
-def make_many_light_world() -> World[]:
+def make_many_light_world() -> CpuScene[]:
     """Diffuse receiver plus 64 emissive triangles for selection scaling."""
     var store = SurfaceStore()
     var matte = store.add_lambertian(Color(0.7, 0.7, 0.7))
@@ -98,7 +98,7 @@ def make_many_light_world() -> World[]:
                 light,
             )
 
-    return World[](
+    return CpuScene[](
         List[Sphere[Frame.WORLD]](),
         List[SurfaceId[1]](),
         vertices^,

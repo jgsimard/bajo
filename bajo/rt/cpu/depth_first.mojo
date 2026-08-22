@@ -18,16 +18,14 @@ from bajo.rt.types import (
     RenderTimings,
     CpuScene,
 )
+from bajo.rt.common import path_stage_rng, russian_roulette, sky_color
 
 
 from .bsdf import sample_bsdf
 from .common import (
     _init_pixel_rngs,
     _make_primary_ray,
-    _path_stage_rng,
-    _russian_roulette,
     _shading_point,
-    _sky_color,
 )
 from .lighting import (
     _emissive_hit_weight,
@@ -79,8 +77,8 @@ def _trace_path[
                 radiance += throughput * emission * emission_weight
                 return radiance
             comptime if ALGORITHM != RENDER.PATH:
-                var light_rng = _path_stage_rng(
-                    settings,
+                var light_rng = path_stage_rng(
+                    settings.rng_seed,
                     path_id,
                     wavefront_rng_light_stage(UInt32(_bounce)),
                 )
@@ -101,8 +99,11 @@ def _trace_path[
             throughput *= scattered.weight
             previous_delta = scattered.delta
             previous_bsdf_pdf = scattered.pdf
-            var roulette = _russian_roulette(
-                settings, path_id, UInt32(_bounce + 1), throughput
+            var roulette = russian_roulette(
+                settings.rng_seed,
+                path_id,
+                UInt32(_bounce + 1),
+                throughput,
             )
             if not roulette.survived:
                 return radiance
@@ -111,7 +112,7 @@ def _trace_path[
                 point.p, scattered.direction, 0.001, f32_max
             )
         else:
-            return radiance + throughput * _sky_color(cur_ray.d)
+            return radiance + throughput * sky_color(cur_ray.d)
 
     return radiance
 
@@ -140,7 +141,7 @@ def _trace_ao[
 ) -> Color:
     var hit = world.trace_surface(ray)
     if not hit.hit:
-        return _sky_color(ray.d)
+        return sky_color(ray.d)
 
     var p = ray.o + hit.t * ray.d
     var ao_dir = random_on_hemisphere[Frame.WORLD](rng, hit.normal)

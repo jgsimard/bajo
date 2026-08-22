@@ -1,11 +1,11 @@
 from bajo.bvh.camera import Camera
-from bajo.rt.types import RenderSettings, World
+from bajo.rt.types import RenderSettings, CpuScene
 
 
 struct PbrtScene:
     """A parsed PBRT scene ready for Bajo's CPU renderers."""
 
-    var world: World[]
+    var world: CpuScene[]
     var camera: Camera
     var settings: RenderSettings
     var max_depth: Int
@@ -13,7 +13,7 @@ struct PbrtScene:
 
     def __init__(
         out self,
-        var world: World[],
+        var world: CpuScene[],
         camera: Camera,
         settings: RenderSettings,
         max_depth: Int,

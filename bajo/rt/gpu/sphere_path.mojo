@@ -14,7 +14,6 @@ from bajo.rt.types import (
     SceneData,
 )
 from bajo.rt.gpu.wavefront_contract import GpuWavefrontArena
-from bajo.rt.gpu.scene import GpuScene
 from bajo.rt.gpu.sphere_geometry import GpuRtSphereGeometry
 from bajo.rt.gpu.resources import (
     GpuRtRenderTarget,
@@ -37,10 +36,8 @@ from bajo.rt.gpu.bounce import enqueue_gpu_rt_bounce
 struct GpuRtSphereScene[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
-](GpuScene):
+]:
     """Device scene data for the sphere GPU RT specialization."""
-
-    comptime is_prepared_gpu_scene = True
 
     var geometry: GpuRtSphereGeometry[
         Frame.WORLD, Self.node_width, Self.leaf_width

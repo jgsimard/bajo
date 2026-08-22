@@ -17,7 +17,6 @@ from bajo.rt.types import (
     SceneData,
 )
 from bajo.rt.gpu.wavefront_contract import GpuWavefrontArena
-from bajo.rt.gpu.scene import GpuScene
 from bajo.rt.gpu.resources import (
     GpuRtRenderTarget,
     download_gpu_pixels,
@@ -45,10 +44,8 @@ struct GpuRtTriangleInstanceScene[
     blas_build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
     blas_compressed: Bool = blas_node_width == 8 and blas_leaf_width == 4,
     tlas_build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
-](GpuScene):
+]:
     """Packed triangle BLAS set, typed TLAS, surfaces, and materials."""
-
-    comptime is_prepared_gpu_scene = True
 
     var blases: GpuBlasSet[Self.blas_node_width, Self.blas_leaf_width]
     var tlas: GpuTriangleTlas[

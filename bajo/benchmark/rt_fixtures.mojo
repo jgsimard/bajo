@@ -19,7 +19,7 @@ from bajo.rt import (
     Color,
     SurfaceId,
     SurfaceStore,
-    World,
+    CpuScene,
     add_triangle,
     add_triangle_instance,
     add_triangle_mesh_instance,
@@ -69,7 +69,7 @@ def make_mixed_triangle_mesh() -> List[Point3f32[Frame.LOCAL]]:
     return vertices^
 
 
-def make_mixed_triangle_world() -> World[]:
+def make_mixed_triangle_world() -> CpuScene[]:
     var surfaces = SurfaceStore()
     var diffuse = surfaces.add_lambertian(Color(0.55, 0.32, 0.18))
     var ground = surfaces.add_lambertian(Color(0.35, 0.38, 0.32))
@@ -140,7 +140,7 @@ def make_mixed_triangle_world() -> World[]:
                 surface,
             )
 
-    return World[](
+    return CpuScene[](
         List[Sphere[Frame.WORLD]](),
         List[SurfaceId[1]](),
         triangle_vertices^,
@@ -152,7 +152,7 @@ def make_mixed_triangle_world() -> World[]:
     )
 
 
-def mixed_triangle_camera(world: World[]) -> Camera:
+def mixed_triangle_camera(world: CpuScene[]) -> Camera:
     var bounds = AABB[Frame.WORLD].invalid()
     for inst in world.scene.triangle_instances:
         bounds.grow(inst.bounds)
@@ -167,14 +167,14 @@ def mixed_triangle_camera(world: World[]) -> Camera:
     )
 
 
-def make_grid_triangle_world() -> World[]:
+def make_grid_triangle_world() -> CpuScene[]:
     var surfaces = SurfaceStore()
     var matte = surfaces.add_lambertian(Color(0.5))
     var vertices = make_grid_triangles()
     var triangle_surfaces = List[SurfaceId[1]](
         length=len(vertices) / 3, fill=matte
     )
-    return World[](
+    return CpuScene[](
         List[Sphere[Frame.WORLD]](),
         List[SurfaceId[1]](),
         vertices^,

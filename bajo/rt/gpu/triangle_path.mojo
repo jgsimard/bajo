@@ -15,7 +15,6 @@ from bajo.rt.types import (
     SceneData,
 )
 from bajo.rt.gpu.wavefront_contract import GpuWavefrontArena
-from bajo.rt.gpu.scene import GpuScene
 from bajo.rt.gpu.triangle_geometry import GpuRtTriangleGeometry
 from bajo.rt.gpu.common_kernels import GPU_RT_MAX_BLOCKS
 from bajo.rt.gpu.resources import (
@@ -42,10 +41,8 @@ struct GpuRtTriangleScene[
     leaf_width: SIMDLength = node_width,
     build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
     compressed: Bool = node_width == 8 and leaf_width == 4,
-](GpuScene):
+]:
     """Triangle BVH, surface sidecar, and shared material tables on device."""
-
-    comptime is_prepared_gpu_scene = True
 
     var geometry: GpuRtTriangleGeometry[
         Frame.WORLD,

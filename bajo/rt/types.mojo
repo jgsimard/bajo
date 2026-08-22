@@ -1034,10 +1034,6 @@ def _scene_triangle_area(scene: SceneData, triangle_index: Int) -> Float32:
     return 0.5 * sqrt(length2(cross(v1 - v0, v2 - v0)))
 
 
-# Compatibility alias for callers that have not yet migrated to `CpuScene`.
-comptime World = CpuScene
-
-
 def ray_at(ray: Rayf32[Frame.WORLD], t: Float32) -> Point3f32[Frame.WORLD]:
     return ray.o + t * ray.d
 

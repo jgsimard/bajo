@@ -23,6 +23,7 @@ from bajo.rt.types import (
     SurfaceStore,
     CpuScene,
 )
+from bajo.rt.common import path_stage_rng, russian_roulette, sky_color
 from bajo.rt.wavefront_queue import (
     PacketPathQueue,
     PacketShadeQueue,
@@ -35,11 +36,6 @@ from bajo.rt.wavefront_contract import wavefront_rng_light_stage
 from ..bsdf import (
     _evaluate_material,
     _sample_material,
-)
-from ..common import (
-    _path_stage_rng,
-    _russian_roulette,
-    _sky_color,
 )
 from ..lighting import (
     _DirectLightSample,
@@ -180,7 +176,7 @@ def _sample_bsdf_batch[
 
     for lane in range(lane_count):
         active[lane] = True
-        var rng = _path_stage_rng(settings, batch.path_ids[lane], stage)
+        var rng = path_stage_rng(settings.rng_seed, batch.path_ids[lane], stage)
         comptime if MATERIAL_KIND == MAT.LAMBERTIAN:
             ref material = surfaces.lambertians[
                 Int(batch.surface_indices[lane])
@@ -213,7 +209,9 @@ def _sample_bsdf_batch[
         var cannot_refract = (ri * sin_theta).gt(1.0)
         for lane in range(lane_count):
             if not cannot_refract[lane]:
-                var rng = _path_stage_rng(settings, batch.path_ids[lane], stage)
+                var rng = path_stage_rng(
+                    settings.rng_seed, batch.path_ids[lane], stage
+                )
                 random_u[lane] = rng.f32()
 
     var sampled = _sample_material[MATERIAL_KIND, length](
@@ -254,7 +252,7 @@ def _accumulate_sky_packet[
     misses: SIMD[DType.bool, length],
     samples_per_pixel: Int,
 ):
-    var sky = _sky_color(
+    var sky = sky_color(
         Vec3[DType.float32, Frame.WORLD, length](
             packet.dx, packet.dy, packet.dz
         )
@@ -292,8 +290,8 @@ def _shade_material_packets[
             var throughput = Color(
                 paths.tx[lane], paths.ty[lane], paths.tz[lane]
             )
-            var roulette = _russian_roulette(
-                settings,
+            var roulette = russian_roulette(
+                settings.rng_seed,
                 paths.path_ids[lane],
                 stage,
                 throughput,
@@ -396,8 +394,8 @@ def _trace_path_packets[
                             hit.normal,
                             hit.front_face,
                         )
-                        var light_rng = _path_stage_rng(
-                            settings,
+                        var light_rng = path_stage_rng(
+                            settings.rng_seed,
                             packet.path_ids[lane],
                             wavefront_rng_light_stage(UInt32(bounce)),
                         )

@@ -15,7 +15,6 @@ from bajo.rt.types import (
     SceneData,
 )
 from bajo.rt.gpu.wavefront_contract import GpuWavefrontArena
-from bajo.rt.gpu.scene import GpuScene
 from bajo.rt.gpu.triangle_geometry import GpuRtTriangleGeometry
 from bajo.rt.gpu.sphere_geometry import GpuRtSphereGeometry
 from bajo.rt.gpu.resources import (
@@ -45,10 +44,8 @@ struct GpuRtMixedScene[
     triangle_build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
     triangle_compressed: Bool = triangle_node_width == 8
     and triangle_leaf_width == 4,
-](GpuScene):
+]:
     """Sphere and triangle BVHs plus their compact surface sidecars."""
-
-    comptime is_prepared_gpu_scene = True
 
     var sphere_geometry: GpuRtSphereGeometry[
         Frame.WORLD, Self.node_width, Self.leaf_width

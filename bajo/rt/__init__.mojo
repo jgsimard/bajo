@@ -6,7 +6,7 @@ from .cpu import (
     sample_bsdf,
     write_ppm_from_colors,
 )
-from .gpu import GpuScene, render_gpu
+from .gpu import render_gpu
 from .types import (
     Color,
     CpuScene,
@@ -30,7 +30,6 @@ from .types import (
     SurfaceId,
     SurfaceHit,
     SurfaceStore,
-    World,
     add_sphere,
     add_triangle_instance,
     add_triangle,
@@ -38,19 +37,3 @@ from .types import (
     add_triangle_mesh_instance,
 )
 from bajo.bvh.types import Instance, Sphere
-from .wavefront_contract import (
-    DeviceWavePath,
-    DeviceWaveShade,
-    PackedWavePathQueue,
-    PackedWaveShadeQueue,
-    WavefrontCounterBlock,
-    WavefrontDispatchState,
-    pack_wave_paths,
-    pack_wave_shades,
-    unpack_wave_paths,
-    unpack_wave_shades,
-    wavefront_rng_stage,
-    wavefront_rng_light_stage,
-    wavefront_rng_roulette_stage,
-    wavefront_rng_subsequence,
-)

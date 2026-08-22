@@ -3,20 +3,7 @@
 from bajo.core import Frame, Rayf32
 from bajo.core.random import Rng, random_in_unit_disk
 from bajo.bvh.camera import Camera
-from bajo.rt.types import (
-    Color,
-    RenderSettings,
-    ShadingPoint,
-    SurfaceHit,
-)
-from bajo.rt.common import (
-    RussianRouletteResult,
-    path_stage_rng,
-    russian_roulette,
-    sky_color,
-)
-
-comptime _sky_color = sky_color
+from bajo.rt.types import RenderSettings, ShadingPoint, SurfaceHit
 
 
 def _shading_point(
@@ -34,22 +21,6 @@ def _init_pixel_rngs(settings: RenderSettings) -> List[Rng]:
         Rng(seed=settings.rng_seed, id=UInt64(i))
         for i in range(settings.image_width * settings.image_height)
     ]
-
-
-def _path_stage_rng(
-    settings: RenderSettings, path_id: UInt32, stage: UInt32
-) -> Rng:
-    return path_stage_rng(settings.rng_seed, path_id, stage)
-
-
-@always_inline
-def _russian_roulette(
-    settings: RenderSettings,
-    path_id: UInt32,
-    depth: UInt32,
-    throughput: Color,
-) -> RussianRouletteResult:
-    return russian_roulette(settings.rng_seed, path_id, depth, throughput)
 
 
 def _make_primary_ray(

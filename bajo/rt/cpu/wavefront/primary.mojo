@@ -4,9 +4,8 @@ from bajo.core import Frame
 from bajo.core.random import random_in_unit_disk
 from bajo.bvh.camera import Camera
 from bajo.rt.types import RenderSettings
+from bajo.rt.common import path_stage_rng
 from bajo.rt.wavefront_queue import PacketPathQueue, PathPacket
-
-from ..common import _path_stage_rng
 
 
 def _initialize_path_packets_range[
@@ -36,7 +35,9 @@ def _initialize_path_packets_range[
             var pixel_idx = path_idx / settings.samples_per_pixel
             px[lane] = Float32(pixel_idx % settings.image_width)
             py[lane] = Float32(pixel_idx / settings.image_width)
-            var rng = _path_stage_rng(settings, UInt32(path_idx), UInt32(0))
+            var rng = path_stage_rng(
+                settings.rng_seed, UInt32(path_idx), UInt32(0)
+            )
             var lens = random_in_unit_disk[Frame.WORLD](rng)
             lens_u[lane] = lens.x
             lens_v[lane] = lens.y

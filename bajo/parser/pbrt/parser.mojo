@@ -10,7 +10,7 @@ from bajo.rt.types import (
     RenderSettings,
     SurfaceId,
     SurfaceStore,
-    World,
+    CpuScene,
     add_sphere,
     add_triangle,
 )
@@ -271,7 +271,7 @@ struct _Builder:
         var meshes = List[List[Point3f32[_LOCAL]]]()
         var instances = List[Instance]()
         var instance_surfaces = List[SurfaceId[1]]()
-        var world = World[](
+        var world = CpuScene[](
             self.spheres.copy(),
             self.sphere_surfaces.copy(),
             self.triangle_vertices.copy(),

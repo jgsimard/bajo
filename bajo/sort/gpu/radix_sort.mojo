@@ -14,7 +14,7 @@ from max.gpu.memory import AddressSpace
 from std.gpu.primitives import warp
 from max.gpu.primitives import block
 from max.gpu.sync import barrier
-from std.math import ceildiv
+from std.math import ceildiv, max
 from std.memory import stack_allocation
 from std.sys.info import bit_width_of
 
@@ -183,10 +183,21 @@ def downsweep[
     comptime PART_SIZE = NUM_WARPS * WARP_PART_SIZE
     comptime TOTAL_WARP_HISTS_SIZE = NUM_WARPS * RADIX
 
-    # Shared memory allocations
-    var s_warp_histograms = stack_allocation[
-        PART_SIZE, UInt32, address_space=AddressSpace.SHARED
+    # histogramming, key staging, and value staging are separated in time,
+    # they reuse one aligned shared allocation sized for the widest phase so key
+    comptime KEY_BYTES = bit_width_of[keys_dtype]() / 8
+    comptime VAL_BYTES = bit_width_of[vals_dtype]() / 8
+    comptime STORAGE_BYTES = max(
+        TOTAL_WARP_HISTS_SIZE * 4,
+        max(PART_SIZE * KEY_BYTES, PART_SIZE * VAL_BYTES),
+    )
+    comptime STORAGE_WORDS = ceildiv(STORAGE_BYTES, 8)
+    var s_storage = stack_allocation[
+        STORAGE_WORDS, UInt64, address_space=AddressSpace.SHARED
     ]()
+    var s_warp_histograms = s_storage.unsafe_bitcast[UInt32]()
+    var s_keys = s_storage.unsafe_bitcast[Scalar[keys_dtype]]()
+    var s_values = s_storage.unsafe_bitcast[Scalar[vals_dtype]]()
     var s_local_histogram = stack_allocation[
         RADIX, UInt32, address_space=AddressSpace.SHARED
     ]()
@@ -282,7 +293,7 @@ def downsweep[
 
     # Scatter keys into shared memory then to device
     comptime for i in range(KEYS_PER_THREAD):
-        s_warp_histograms[unsafe_offset=Int(offsets[i])] = UInt32(keys[i])
+        s_keys[unsafe_offset=Int(offsets[i])] = keys[i]
     barrier()
 
     comptime if HAVE_PAYLOAD:
@@ -299,13 +310,15 @@ def downsweep[
         if bid < gdim - 1:
             comptime for i in range(KEYS_PER_THREAD):
                 var t = tid + (i * BLOCK_SIZE)
-                var key = s_warp_histograms[unsafe_offset=t]
-                var d = (key >> radix_shift) & UInt32(RADIX_MASK)
+                var key = s_keys[unsafe_offset=t]
+                var d = (key >> Scalar[keys_dtype](radix_shift)) & Scalar[
+                    keys_dtype
+                ](RADIX_MASK)
                 digits[i] = d.cast[DType.uint8]()
                 keys_alternate[
                     unsafe_offset=s_local_histogram[unsafe_offset=Int(d)]
                     + UInt32(t)
-                ] = Scalar[keys_dtype](key)
+                ] = key
             barrier()
 
             # Load payloads into registers
@@ -316,9 +329,7 @@ def downsweep[
 
             # Scatter payloads into shared memory
             comptime for i in range(KEYS_PER_THREAD):
-                s_warp_histograms[unsafe_offset=Int(offsets[i])] = UInt32(
-                    vals[i]
-                )
+                s_values[unsafe_offset=Int(offsets[i])] = vals[i]
             barrier()
 
             # Scatter payloads into device memory
@@ -327,7 +338,7 @@ def downsweep[
                 var d = Int(digits[i])
                 vals_alternate[
                     unsafe_offset=s_local_histogram[unsafe_offset=d] + UInt32(t)
-                ] = Scalar[vals_dtype](s_warp_histograms[unsafe_offset=t])
+                ] = s_values[unsafe_offset=t]
 
         # tail
         else:
@@ -335,13 +346,15 @@ def downsweep[
             comptime for i in range(KEYS_PER_THREAD):
                 var t = tid + (i * BLOCK_SIZE)
                 if t < final_part_size:
-                    var key = s_warp_histograms[unsafe_offset=t]
-                    var d = (key >> radix_shift) & UInt32(RADIX_MASK)
+                    var key = s_keys[unsafe_offset=t]
+                    var d = (key >> Scalar[keys_dtype](radix_shift)) & Scalar[
+                        keys_dtype
+                    ](RADIX_MASK)
                     digits[i] = d.cast[DType.uint8]()
                     keys_alternate[
                         unsafe_offset=s_local_histogram[unsafe_offset=Int(d)]
                         + UInt32(t)
-                    ] = Scalar[keys_dtype](key)
+                    ] = key
             barrier()
 
             # Load payloads into registers
@@ -353,9 +366,7 @@ def downsweep[
 
             # Scatter payloads into shared memory
             comptime for i in range(KEYS_PER_THREAD):
-                s_warp_histograms[unsafe_offset=Int(offsets[i])] = UInt32(
-                    vals[i]
-                )
+                s_values[unsafe_offset=Int(offsets[i])] = vals[i]
             barrier()
 
             # Scatter payloads into device memory
@@ -366,7 +377,7 @@ def downsweep[
                     vals_alternate[
                         unsafe_offset=s_local_histogram[unsafe_offset=d]
                         + UInt32(t)
-                    ] = Scalar[vals_dtype](s_warp_histograms[unsafe_offset=t])
+                    ] = s_values[unsafe_offset=t]
 
     else:
         # Scatter runs of keys into device memory (alt buffer)
@@ -374,10 +385,13 @@ def downsweep[
             PART_SIZE if bid < gdim - 1 else size_int - BIN_PART_START
         )
         for i in range(tid, upper_bound, BLOCK_SIZE):
-            var key = s_warp_histograms[unsafe_offset=i]
-            var digit = Int((key >> radix_shift) & UInt32(RADIX_MASK))
+            var key = s_keys[unsafe_offset=i]
+            var digit = Int(
+                (key >> Scalar[keys_dtype](radix_shift))
+                & Scalar[keys_dtype](RADIX_MASK)
+            )
             var dst = s_local_histogram[unsafe_offset=digit] + UInt32(i)
-            keys_alternate[unsafe_offset=dst] = Scalar[keys_dtype](key)
+            keys_alternate[unsafe_offset=dst] = key
 
 
 def device_radix_sort_keys[

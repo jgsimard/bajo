@@ -7,6 +7,7 @@ from std.testing import (
 from max.gpu.host import DeviceContext
 
 from bajo.sort.gpu.radix_sort import (
+    device_radix_sort_pairs,
     upsweep,
     scan,
     downsweep,
@@ -310,6 +311,38 @@ def test_downsweep_pairs_end_to_end() raises:
                         host_alt_vals[i] < host_alt_vals[i + 1],
                         msg="Sort not stable",
                     )
+
+
+def _composite_key(original_idx: UInt32) -> UInt64:
+    var segment = original_idx * UInt32(7) % UInt32(19)
+    var morton = (
+        original_idx * UInt32(2_654_435_761)
+        ^ (original_idx << UInt32(11))
+        ^ (original_idx >> UInt32(3))
+    )
+    return (UInt64(segment) << 32) | UInt64(morton)
+
+
+def test_uint64_composite_key_pairs_end_to_end() raises:
+    with DeviceContext() as ctx:
+        var size = 10_003
+        var keys = ctx.enqueue_create_buffer[DType.uint64](size)
+        var values = ctx.enqueue_create_buffer[DType.uint32](size)
+        with keys.map_to_host() as host_keys, values.map_to_host() as host_values:
+            for i in range(size):
+                host_values[i] = UInt32(i)
+                host_keys[i] = _composite_key(UInt32(i))
+
+        device_radix_sort_pairs[DType.uint64, DType.uint32](
+            ctx, keys, values, size
+        )
+        ctx.synchronize()
+
+        with keys.map_to_host() as host_keys, values.map_to_host() as host_values:
+            for i in range(size):
+                assert_equal(host_keys[i], _composite_key(host_values[i]))
+                if i > 0:
+                    assert_true(host_keys[i - 1] <= host_keys[i])
 
 
 def main() raises:

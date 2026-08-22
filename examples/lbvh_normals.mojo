@@ -17,12 +17,12 @@ from bajo.core import (
 )
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.bvh.cpu.tlas import Tlas
-from bajo.bvh.cpu.triangle_bvh import TriangleBvh
+from bajo.bvh.cpu.blas_set import build_triangle_blases
 from bajo.bvh.gpu.tlas import build_triangle_tlas
 from bajo.bvh.gpu.triangle_bvh import build_triangle_blas_set
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.host_utils import compute_bounds
-from bajo.bvh.types import Instance, Hit
+from bajo.bvh.types import CpuBlasSet, Instance, Hit
 from bajo.parser.obj.pack import pack_obj_triangles
 from bajo.bvh.constants import Primitive, MISS_PRIM, TRACE
 from bajo.bvh.camera import Camera
@@ -314,13 +314,8 @@ def print_hit_counts_by_blas(
 
 def _build_cpu_triangle_blas_set[
     width: SIMDLength
-](tri_vertex_sets: List[List[Point3f32[Frame.LOCAL]]]) -> List[
-    TriangleBvh[Frame.LOCAL, width]
-]:
-    return [
-        TriangleBvh[Frame.LOCAL, width].__init__["sah"](tri_vertices)
-        for tri_vertices in tri_vertex_sets
-    ]
+](tri_vertex_sets: List[List[Point3f32[Frame.LOCAL]]]) -> CpuBlasSet[width]:
+    return build_triangle_blases[width](tri_vertex_sets)
 
 
 def _trace_cpu_tlas_camera[
@@ -330,7 +325,7 @@ def _trace_cpu_tlas_camera[
     width: Int,
     height: Int,
     tlas: Tlas[tlas_width],
-    mut cpu_blases: List[TriangleBvh[Frame.LOCAL, blas_width]],
+    cpu_blases: CpuBlasSet[blas_width],
     camera: Camera,
     mut hits: List[Float32],
 ):
@@ -338,13 +333,9 @@ def _trace_cpu_tlas_camera[
         for px in range(width):
             var ray_idx = py * width + px
             var ray = camera.make_ray(px, py, width, height)
-            var hit = tlas.trace[
-                TriangleBvh[Frame.LOCAL, blas_width],
-                TRACE.CLOSEST_HIT,
-            ](
-                ray,
-                cpu_blases,
-            )
+            var hit = tlas.trace_triangle_blases[
+                blas_width, blas_width, TRACE.CLOSEST_HIT
+            ](ray, cpu_blases)
             hit.store(hits, ray_idx)
 
     parallelize(worker, height, height)

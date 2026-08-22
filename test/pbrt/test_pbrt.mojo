@@ -126,6 +126,8 @@ def test_rejects_unsupported_and_invalid_geometry() raises:
             'WorldBegin\nShape "trianglemesh" "point3 P" [0 0 0 1 0 0 0 1 0]'
             ' "integer indices" [0 1 3]'
         )
+    with assert_raises():
+        _ = parse_pbrt('WorldBegin\nShape "sphere" "float radius" [0]')
 
 
 def main() raises:

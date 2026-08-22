@@ -196,7 +196,9 @@ struct _GraphicsState(Copyable):
     var reverse_orientation: Bool
 
 
-struct _Builder:
+struct _Builder(
+    Deinitable where (False, "call finish() or abort() to consume the parser")
+):
     var spheres: List[Sphere[_WORLD]]
     var sphere_surfaces: List[SurfaceId[1]]
     var triangle_vertices: List[_PointW]
@@ -264,7 +266,7 @@ struct _Builder:
         self.triangle_vertices.append(v2)
         self.triangle_surfaces.append(surface.copy())
 
-    def finish(mut self) raises -> SceneDescription:
+    def finish(deinit self) raises -> SceneDescription:
         if len(self.attribute_stack) != 0 or len(self.transform_stack) != 0:
             raise Error("unclosed PBRT attribute or transform scope")
         if len(self.spheres) == 0 and len(self.triangle_vertices) == 0:
@@ -282,23 +284,20 @@ struct _Builder:
             UInt64(2026),
             self.max_depth,
         )
-        var surfaces = SurfaceStore()
-        surfaces.lambertians = self.surfaces.lambertians.copy()
-        surfaces.metals = self.surfaces.metals.copy()
-        surfaces.dielectrics = self.surfaces.dielectrics.copy()
-        surfaces.emissives = self.surfaces.emissives.copy()
+        # PBRT owns these authoring buffers exclusively. Transfer them through
+        # SceneBuilder so finalization validates in place without cloning data.
         var meshes = List[List[Point3f32[_LOCAL]]]()
         var instances = List[Instance]()
         var instance_surfaces = List[SurfaceId[1]]()
         var scene_builder = SceneBuilder(
-            self.spheres.copy(),
-            self.sphere_surfaces.copy(),
-            self.triangle_vertices.copy(),
-            self.triangle_surfaces.copy(),
+            self.spheres^,
+            self.sphere_surfaces^,
+            self.triangle_vertices^,
+            self.triangle_surfaces^,
             meshes^,
             instances^,
             instance_surfaces^,
-            surfaces^,
+            self.surfaces^,
         )
         var data = scene_builder^.finish()
         return SceneDescription(
@@ -307,6 +306,10 @@ struct _Builder:
             settings,
             self.integrator,
         )
+
+    def abort(deinit self):
+        """Consume and release a partially parsed scene after an error."""
+        pass
 
 
 def _parse_f32(text: String) raises -> Float32:
@@ -753,5 +756,9 @@ def _parse_pbrt[
     Loader: PbrtTextLoader
 ](text: String, path: String, loader: Loader) raises -> SceneDescription:
     var builder = _Builder()
-    _parse_text(builder, text, path, loader, 0)
-    return builder.finish()
+    try:
+        _parse_text(builder, text, path, loader, 0)
+    except error:
+        builder^.abort()
+        raise error
+    return builder^.finish()

@@ -20,6 +20,7 @@ from .vec import (
 from .mat import Mat
 from .frame import Frame
 from .ray import Ray
+from .segments import SegmentOffsets
 
 
 comptime AABB = AxisAlignedBoundingBox[DType.float32, _]

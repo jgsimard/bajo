@@ -8,9 +8,12 @@ from bajo.core import Vec3f32, Point3f32, Frame, AABB
 from bajo.bvh.types import Sphere, Hit
 from bajo.bvh.host_utils import sphere_bounds
 from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
-from bajo.bvh.cpu.triangle_bvh import TriangleBvh
-from bajo.bvh.gpu.bounds_bvh import build_bounds_bvh
+from bajo.bvh.cpu.blas_set import (
+    build_triangle_blases,
+    trace_triangle_blas_set,
+)
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
+from bajo.bvh.gpu.builder.segmented_build import build_single_segment_wide
 from bajo.bvh.gpu.wide_layout import (
     GpuWideBoundsBvh,
     _wide_node_load_meta,
@@ -23,16 +26,16 @@ from bajo.bvh.gpu.diagnostics import (
     build_bounds_bvh_for_diagnostics,
     validate_binary_bvh,
 )
-from bajo.bvh.gpu.wide_meta import _wide_meta_count, _wide_meta_data
+from bajo.bvh.wide_meta import _wide_meta_count, _wide_meta_data
 from bajo.bvh.gpu.sphere_bvh import build_sphere_bvh
-from bajo.bvh.gpu.triangle_bvh import (
-    GpuTriangleBvhBuildArena,
-    build_triangle_bvh,
-    enqueue_build_triangle_bvh,
-    enqueue_build_triangle_bvh_with_arena,
-)
+from bajo.bvh.gpu.triangle_bvh import build_triangle_bvh
 from bajo.bvh.gpu.trace import GpuTraversalStats
-from bajo.bvh.gpu.utils import upload_vertices, upload_rays, upload_list
+from bajo.bvh.gpu.utils import (
+    GpuBuildTimings,
+    upload_vertices,
+    upload_rays,
+    upload_list,
+)
 
 from test.bvh.fixtures import (
     _append_tri,
@@ -45,7 +48,7 @@ from test.bvh.fixtures import (
     _make_small_scene,
     _make_small_sphere_scene,
     _trace_cpu_spheres_bruteforce,
-    _trace_cpu_triangle_bvh,
+    _trace_cpu_triangle_blas,
 )
 
 
@@ -53,6 +56,13 @@ comptime GPU_BOUNDS_TEST_WIDTH = 64
 comptime GPU_BOUNDS_TEST_HEIGHT = 48
 comptime GPU_BOUNDS_TEST_VIEWS = 3
 comptime GPU_BOUNDS_TEST_EPS = 0.05
+
+
+def _triangle_bounds(verts: List[Point3f32[Frame.WORLD]]) -> AABB[Frame.WORLD]:
+    var bounds = AABB[Frame.WORLD].invalid()
+    for vertex in verts:
+        bounds.grow(vertex)
+    return bounds
 
 
 def _make_sphere_leaf_bounds(
@@ -147,16 +157,16 @@ def _assert_gpu_bounds_width[
         var leaf_bounds = build[0].copy()
         var payloads = build[1].copy()
 
-        var bvh = GpuWideBoundsBvh[node_width, leaf_width](ctx, len(payloads))
-        var diagnostic = build_bounds_bvh_for_diagnostics(
-            ctx, bvh, leaf_bounds, payloads
-        )
+        var diagnostic = build_bounds_bvh_for_diagnostics[
+            node_width, leaf_width, Int(leaf_width)
+        ](ctx, leaf_bounds, payloads)
+        ref bvh = diagnostic.wide
         var validation = validate_binary_bvh(
-            diagnostic.binary,
-            diagnostic.workspace,
-            diagnostic.binary.root_bounds(),
+            diagnostic.build.binary,
+            diagnostic.build.workspace,
+            diagnostic.build.binary.root_bounds(),
         )
-        var binary_quality = measure_binary_bvh_quality(diagnostic.binary)
+        var binary_quality = measure_binary_bvh_quality(diagnostic.build.binary)
         var wide_quality = measure_wide_bvh_quality(bvh)
 
         assert_true(validation.sorted_ok, "generic bounds keys sorted")
@@ -166,7 +176,7 @@ def _assert_gpu_bounds_width[
         assert_true(
             bvh.leaf_block_count > 0, "wide collapse produced leaf blocks"
         )
-        assert_true(bvh.leaf_block_count <= bvh.max_leaf_blocks)
+        assert_true(bvh.leaf_block_count <= bvh.leaf_count)
         assert_true(binary_quality.quality > 0.0)
         assert_true(wide_quality.quality > 0.0)
         assert_true(binary_quality.primitives == len(payloads))
@@ -186,8 +196,13 @@ def _assert_wide_lane_invariants[
         var leaf_bounds = build[0].copy()
         var payloads = build[1].copy()
 
-        var bvh = GpuWideBoundsBvh[node_width, leaf_width](ctx, len(payloads))
-        _ = build_bounds_bvh(ctx, bvh, leaf_bounds, payloads)
+        var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
+        var bvh = build_single_segment_wide[
+            node_width,
+            leaf_width,
+            Int(leaf_width),
+            GpuBvhBuildMethod.LBVH,
+        ](ctx, len(payloads), leaf_bounds^, payloads^, timings)
 
         var seen_live_lane = False
         with bvh.wide_nodes.map_to_host() as wide_nodes:
@@ -218,20 +233,20 @@ def _assert_gpu_triangle_matches_cpu_camera[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
 ](verts: List[Point3f32[Frame.WORLD]]) raises:
-    var cpu_bvh = TriangleBvh[Frame.WORLD, node_width, leaf_width].__init__[
-        "lbvh"
-    ](verts)
+    var cpu_blases = build_triangle_blases[
+        node_width, leaf_width, "lbvh", Frame.WORLD
+    ]([verts.copy()])
     var camera_data = _make_camera_rays_and_params(
-        cpu_bvh.bounds(),
+        _triangle_bounds(verts),
         GPU_BOUNDS_TEST_WIDTH,
         GPU_BOUNDS_TEST_HEIGHT,
         GPU_BOUNDS_TEST_VIEWS,
     )
     var rays = camera_data[0].copy()
     var camera_params = camera_data[1].copy()
-    var cpu_checksum = _trace_cpu_triangle_bvh[
+    var cpu_checksum = _trace_cpu_triangle_blas[
         Frame.WORLD, node_width, leaf_width
-    ](cpu_bvh, rays)
+    ](cpu_blases, rays)
 
     with DeviceContext() as ctx:
         var d_verts = upload_vertices(ctx, verts)
@@ -292,7 +307,9 @@ def _assert_gpu_triangle_matches_cpu_camera[
             var gpu_hits = Span(unsafe_ptr=hf.unsafe_ptr(), length=len(hf))
             for i, ray in enumerate(rays):
                 var gpu_hit = Hit[Frame.WORLD].load(gpu_hits, i)
-                var cpu_hit = cpu_bvh.trace[TRACE.CLOSEST_HIT](ray)
+                var cpu_hit = trace_triangle_blas_set[
+                    node_width, leaf_width, TRACE.CLOSEST_HIT, Frame.WORLD
+                ](cpu_blases, UInt32(0), ray)
                 var gpu_t = gpu_hit.t
                 var gpu_prim = gpu_hit.prim
                 var cpu_t = cpu_hit.t
@@ -341,33 +358,38 @@ def _assert_gpu_triangle_matches_cpu_camera[
                 )
                 for i, ray in enumerate(rays):
                     var gpu_hit = Hit[Frame.WORLD].load(packed_hits, i)
-                    var cpu_hit = cpu_bvh.trace[TRACE.ANY_HIT](ray)
+                    var cpu_hit = trace_triangle_blas_set[
+                        node_width, leaf_width, TRACE.ANY_HIT, Frame.WORLD
+                    ](cpu_blases, UInt32(0), ray)
                     assert_true(
                         gpu_hit.is_occluded() == cpu_hit.is_occluded(),
                         "packed-ray any-hit mismatch",
                     )
 
 
-def _assert_async_gpu_triangle_matches_cpu_camera[
+def _assert_segmented_gpu_triangle_matches_cpu_camera[
     build_method: GpuBvhBuildMethod,
 ](verts: List[Point3f32[Frame.WORLD]]) raises:
-    var cpu_bvh = TriangleBvh[Frame.WORLD, 2, 2].__init__["lbvh"](verts)
+    var cpu_blases = build_triangle_blases[2, 2, "lbvh", Frame.WORLD](
+        [verts.copy()]
+    )
     var camera_data = _make_camera_rays_and_params(
-        cpu_bvh.bounds(),
+        _triangle_bounds(verts),
         GPU_BOUNDS_TEST_WIDTH,
         GPU_BOUNDS_TEST_HEIGHT,
         GPU_BOUNDS_TEST_VIEWS,
     )
     var rays = camera_data[0].copy()
     var camera_params = camera_data[1].copy()
-    var cpu_checksum = _trace_cpu_triangle_bvh[Frame.WORLD, 2, 2](cpu_bvh, rays)
+    var cpu_checksum = _trace_cpu_triangle_blas[Frame.WORLD, 2, 2](
+        cpu_blases, rays
+    )
 
     with DeviceContext() as ctx:
         var d_verts = upload_vertices(ctx, verts)
-        var pending = enqueue_build_triangle_bvh[
-            Frame.WORLD, 2, 2, build_method
-        ](ctx, d_verts)
-        var gpu_bvh = pending^.wait(ctx)
+        var gpu_bvh = build_triangle_bvh[Frame.WORLD, 2, 2, build_method](
+            ctx, d_verts
+        )
         var d_camera = upload_list(ctx, camera_params)
         var d_hits = ctx.enqueue_create_buffer[DType.float32](
             len(rays) * Hit.STRIDE
@@ -387,7 +409,7 @@ def _assert_async_gpu_triangle_matches_cpu_camera[
         assert_true(gpu_bvh.tree.leaf_block_count > 0)
         assert_true(
             abs(gpu_result[0] - cpu_checksum) <= GPU_BOUNDS_TEST_EPS,
-            "asynchronous GpuTriangleBvh checksum",
+            "one-segment GpuTriangleBvh checksum",
         )
 
 
@@ -448,12 +470,14 @@ def _assert_gpu_sphere_bounds[
         var leaf_bounds = build[0].copy()
         var payloads = build[1].copy()
 
-        var bvh = GpuWideBoundsBvh[node_width, leaf_width](ctx, len(payloads))
-        var diagnostic = build_bounds_bvh_for_diagnostics(
-            ctx, bvh, leaf_bounds, payloads
-        )
+        var diagnostic = build_bounds_bvh_for_diagnostics[
+            node_width, leaf_width, Int(leaf_width)
+        ](ctx, leaf_bounds, payloads)
+        ref bvh = diagnostic.wide
         var validation = validate_binary_bvh(
-            diagnostic.binary, diagnostic.workspace, bvh.root_bounds()
+            diagnostic.build.binary,
+            diagnostic.build.workspace,
+            bvh.root_bounds(),
         )
 
         assert_true(validation.sorted_ok, "sphere bounds keys sorted")
@@ -541,31 +565,28 @@ def test_gpu_bvh_independent_node_and_leaf_widths() raises:
     _assert_sphere_matches_bruteforce_camera[4, 2](spheres)
 
 
-def test_gpu_triangle_bvh_async_build_methods() raises:
+def test_gpu_triangle_bvh_segmented_build_methods() raises:
     var scene = _make_small_scene[Frame.WORLD]()
-    _assert_async_gpu_triangle_matches_cpu_camera[GpuBvhBuildMethod.LBVH](scene)
-    _assert_async_gpu_triangle_matches_cpu_camera[GpuBvhBuildMethod.HPLOC](
+    _assert_segmented_gpu_triangle_matches_cpu_camera[GpuBvhBuildMethod.LBVH](
+        scene
+    )
+    _assert_segmented_gpu_triangle_matches_cpu_camera[GpuBvhBuildMethod.HPLOC](
         scene
     )
 
 
-def test_gpu_triangle_bvh_reuses_build_arena() raises:
+def test_gpu_triangle_bvh_repeated_segmented_builds() raises:
     var scene = _make_small_scene[Frame.WORLD]()
     with DeviceContext() as ctx:
         var vertices = upload_vertices(ctx, scene)
-        var triangle_count = len(scene) / 3
-        var arena = GpuTriangleBvhBuildArena(ctx, triangle_count)
-
-        var first = enqueue_build_triangle_bvh_with_arena[
+        var lbvh = build_triangle_bvh[
             Frame.WORLD, 2, 2, GpuBvhBuildMethod.LBVH
-        ](ctx, vertices, arena)
-        var lbvh = first^.wait(ctx)
+        ](ctx, vertices)
         assert_true(lbvh.tree.node_count > 0)
 
-        var second = enqueue_build_triangle_bvh_with_arena[
+        var hploc = build_triangle_bvh[
             Frame.WORLD, 2, 2, GpuBvhBuildMethod.HPLOC
-        ](ctx, vertices, arena)
-        var hploc = second^.wait(ctx)
+        ](ctx, vertices)
         assert_true(hploc.tree.node_count > 0)
 
 

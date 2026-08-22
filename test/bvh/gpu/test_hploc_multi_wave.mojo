@@ -9,7 +9,6 @@ from bajo.bvh.constants import (
 )
 from bajo.bvh.tagged_ref import decode_ref_index, encode_leaf_ref, is_leaf_ref
 from bajo.bvh.gpu.diagnostics import build_bounds_bvh_for_diagnostics
-from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvh
 from bajo.bvh.gpu.builder.hploc_layout import HPLOC_STATUS_OK
 from bajo.bvh.gpu.builder.hploc_multi_wave import GpuHplocMultiWaveBvh
 from bajo.bvh.cpu.builder.hploc import (
@@ -392,16 +391,15 @@ def test_hploc_multi_wave_crosses_blocks_with_gpu_lbvh_inputs() raises:
     with DeviceContext() as ctx:
         var device_bounds = upload_list(ctx, flat)
         var device_payloads = upload_list(ctx, payloads)
-        var wide = GpuWideBoundsBvh[2, 2](ctx, leaf_count)
-        var diagnostic = build_bounds_bvh_for_diagnostics(
-            ctx, wide, device_bounds, device_payloads
+        var diagnostic = build_bounds_bvh_for_diagnostics[2, 2, 2](
+            ctx, device_bounds, device_payloads
         )
-        ref binary = diagnostic.binary
+        ref binary = diagnostic.build.binary
         ctx.synchronize()
 
         var codes = List[UInt32](capacity=leaf_count)
         var sorted_ids = List[UInt32](capacity=leaf_count)
-        with diagnostic.workspace.topology.value().morton_keys.map_to_host() as host_codes:
+        with diagnostic.build.workspace.topology.value().morton_keys.map_to_host() as host_codes:
             for i in range(leaf_count):
                 codes.append(host_codes[i])
         with binary.leaf_ids.map_to_host() as host_ids:
@@ -412,7 +410,7 @@ def test_hploc_multi_wave_crosses_blocks_with_gpu_lbvh_inputs() raises:
         var gpu = GpuHplocMultiWaveBvh[](
             ctx,
             binary.leaf_bounds.copy(),
-            diagnostic.workspace.topology.value().morton_keys.copy(),
+            diagnostic.build.workspace.topology.value().morton_keys.copy(),
             binary.leaf_ids.copy(),
         )
         ctx.synchronize()
@@ -428,16 +426,15 @@ def test_hploc_multi_wave_stress_4097_triangles() raises:
     with DeviceContext() as ctx:
         var device_bounds = upload_list(ctx, flat)
         var device_payloads = upload_list(ctx, payloads)
-        var wide = GpuWideBoundsBvh[2, 2](ctx, leaf_count)
-        var diagnostic = build_bounds_bvh_for_diagnostics(
-            ctx, wide, device_bounds, device_payloads
+        var diagnostic = build_bounds_bvh_for_diagnostics[2, 2, 2](
+            ctx, device_bounds, device_payloads
         )
-        ref binary = diagnostic.binary
+        ref binary = diagnostic.build.binary
         ctx.synchronize()
 
         var codes = List[UInt32](capacity=leaf_count)
         var sorted_ids = List[UInt32](capacity=leaf_count)
-        with diagnostic.workspace.topology.value().morton_keys.map_to_host() as host_codes:
+        with diagnostic.build.workspace.topology.value().morton_keys.map_to_host() as host_codes:
             for i in range(leaf_count):
                 codes.append(host_codes[i])
         with binary.leaf_ids.map_to_host() as host_ids:
@@ -448,7 +445,7 @@ def test_hploc_multi_wave_stress_4097_triangles() raises:
         var gpu = GpuHplocMultiWaveBvh[](
             ctx,
             binary.leaf_bounds.copy(),
-            diagnostic.workspace.topology.value().morton_keys.copy(),
+            diagnostic.build.workspace.topology.value().morton_keys.copy(),
             binary.leaf_ids.copy(),
         )
         ctx.synchronize()

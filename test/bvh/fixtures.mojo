@@ -3,8 +3,8 @@ from max.gpu.host import DeviceBuffer
 
 from bajo.core import AABB, Vec3f32, Point3f32, Frame, Rayf32
 from bajo.bvh.camera import Camera
-from bajo.bvh.cpu.triangle_bvh import TriangleBvh
-from bajo.bvh.types import Sphere, Hit
+from bajo.bvh.cpu.blas_set import trace_triangle_blas_set
+from bajo.bvh.types import CpuBlasSet, Sphere, Hit
 from bajo.core.intersect import intersect_ray_tri, intersect_ray_sphere
 from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
 from bajo.bvh.host_utils import sphere_bounds
@@ -232,17 +232,19 @@ def _brute_sphere_trace[
     return hit
 
 
-def _trace_cpu_triangle_bvh[
+def _trace_cpu_triangle_blas[
     frame: Frame,
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
 ](
-    mut bvh: TriangleBvh[frame, node_width, leaf_width],
+    blases: CpuBlasSet[node_width, leaf_width],
     rays: List[Rayf32[frame]],
 ) -> Float64:
     var checksum = Float64(0.0)
     for ray in rays:
-        var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
+        var hit = trace_triangle_blas_set[
+            node_width, leaf_width, TRACE.CLOSEST_HIT, frame
+        ](blases, UInt32(0), ray)
         if hit.t < f32_max:
             checksum += Float64(hit.t)
     return checksum
@@ -251,7 +253,7 @@ def _trace_cpu_triangle_bvh[
 def _trace_cpu_triangle_camera[
     width: SIMDLength
 ](
-    mut bvh: TriangleBvh[Frame.WORLD, width],
+    blases: CpuBlasSet[width],
     camera: Camera,
     cwidth: Int,
     cheight: Int,
@@ -262,7 +264,9 @@ def _trace_cpu_triangle_camera[
     for py in range(cheight):
         for px in range(cwidth):
             var ray = camera.make_ray(px, py, cwidth, cheight)
-            var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
+            var hit = trace_triangle_blas_set[
+                width, width, TRACE.CLOSEST_HIT, Frame.WORLD
+            ](blases, UInt32(0), ray)
             if hit.t < f32_max:
                 checksum += Float64(hit.t)
                 hits += 1

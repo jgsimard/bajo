@@ -5,7 +5,6 @@ from max.gpu.host import DeviceContext
 
 from bajo.bvh.constants import LBVH_SENTINEL
 from bajo.bvh.gpu.diagnostics import build_bounds_bvh_for_diagnostics
-from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvh
 from bajo.bvh.cpu.builder.hploc import build_hploc_topology
 from bajo.bvh.gpu.quality import measure_binary_bvh_quality
 from bajo.bvh.gpu.utils import upload_list
@@ -135,16 +134,15 @@ def test_hploc_topology_matches_gpu_lbvh_inputs_and_quality_gate() raises:
     with DeviceContext() as ctx:
         var device_bounds = upload_list(ctx, flat_bounds)
         var device_payloads = upload_list(ctx, payloads)
-        var wide = GpuWideBoundsBvh[2, 2](ctx, len(bounds))
-        var diagnostic = build_bounds_bvh_for_diagnostics(
-            ctx, wide, device_bounds, device_payloads
+        var diagnostic = build_bounds_bvh_for_diagnostics[2, 2, 2](
+            ctx, device_bounds, device_payloads
         )
-        ref binary = diagnostic.binary
+        ref binary = diagnostic.build.binary
         ctx.synchronize()
 
         var codes = List[UInt32](capacity=len(bounds))
         var sorted_ids = List[UInt32](capacity=len(bounds))
-        with diagnostic.workspace.topology.value().morton_keys.map_to_host() as host_codes:
+        with diagnostic.build.workspace.topology.value().morton_keys.map_to_host() as host_codes:
             for i in range(len(host_codes)):
                 codes.append(host_codes[i])
         with binary.leaf_ids.map_to_host() as host_ids:

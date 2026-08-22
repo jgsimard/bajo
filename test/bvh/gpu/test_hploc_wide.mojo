@@ -9,22 +9,35 @@ from bajo.bvh.constants import (
     WideNode,
     f32_max,
 )
-from bajo.bvh.cpu.triangle_bvh import TriangleBvh
+from bajo.bvh.cpu.blas_set import (
+    build_triangle_blases,
+    trace_triangle_blas_set,
+)
 from bajo.bvh.gpu.diagnostics import build_bounds_bvh_for_diagnostics
-from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvh, _wide_node_base
-from bajo.bvh.gpu.builder import GpuBvhBuildMethod
+from bajo.bvh.gpu.wide_layout import (
+    GpuWideBoundsBvh,
+    GpuWideBoundsBvhBatch,
+)
+from bajo.bvh.gpu.builder import GpuBvhBuildMethod, build_binary_bvh
 from bajo.bvh.gpu.builder.binary_layout import (
+    GpuBinaryBoundsBvh,
+    GpuBinaryBuildWorkspace,
     _node_left,
     _node_right,
 )
+from bajo.bvh.gpu.builder.wide_collapse import collapse_binary_to_wide_batch
 from bajo.bvh.gpu.builder.binary_layout import _encoded_bounds
 from bajo.bvh.tagged_ref import is_leaf_ref
 from bajo.bvh.gpu.triangle_bvh import build_triangle_bvh
 from bajo.bvh.gpu.utils import upload_list, upload_vertices
 from bajo.bvh.gpu.trace import GpuTraversalAlgorithm
-from bajo.bvh.gpu.wide_meta import _wide_meta_count, _wide_meta_data
+from bajo.bvh.wide_meta import (
+    _wide_meta_count,
+    _wide_meta_data,
+    _wide_node_index,
+)
 from bajo.bvh.types import Hit
-from bajo.core import AABB, Frame, Point3f32
+from bajo.core import AABB, Frame, Point3f32, SegmentOffsets
 
 from test.bvh.fixtures import (
     _append_tri,
@@ -59,6 +72,31 @@ def _bounds_match(
     )
 
 
+def _load_wide_lane_bounds[
+    width: SIMDLength
+](nodes: Span[Float32, _], node_idx: UInt32, lane: Int) -> AABB[Frame.WORLD]:
+    var bounds = AABB[Frame.WORLD].invalid()
+    bounds._min.x = nodes[
+        _wide_node_index[width](node_idx, WideNode.MIN_X, lane)
+    ]
+    bounds._min.y = nodes[
+        _wide_node_index[width](node_idx, WideNode.MIN_Y, lane)
+    ]
+    bounds._min.z = nodes[
+        _wide_node_index[width](node_idx, WideNode.MIN_Z, lane)
+    ]
+    bounds._max.x = nodes[
+        _wide_node_index[width](node_idx, WideNode.MAX_X, lane)
+    ]
+    bounds._max.y = nodes[
+        _wide_node_index[width](node_idx, WideNode.MAX_Y, lane)
+    ]
+    bounds._max.z = nodes[
+        _wide_node_index[width](node_idx, WideNode.MAX_Z, lane)
+    ]
+    return bounds
+
+
 def _make_irregular_scene(
     count: Int,
 ) -> List[Point3f32[Frame.WORLD]]:
@@ -72,6 +110,13 @@ def _make_irregular_scene(
         verts.append(Point3f32[Frame.WORLD](x + scale, y - scale, z))
         verts.append(Point3f32[Frame.WORLD](x, y + scale, z + 0.1))
     return verts^
+
+
+def _triangle_bounds(verts: List[Point3f32[Frame.WORLD]]) -> AABB[Frame.WORLD]:
+    var bounds = AABB[Frame.WORLD].invalid()
+    for vertex in verts:
+        bounds.grow(vertex)
+    return bounds
 
 
 def _flatten_triangle_bounds(
@@ -125,12 +170,19 @@ def _assert_literature_wide_invariants[
             var node_union = AABB[Frame.WORLD].invalid()
             var live_lanes = 0
             comptime for lane in range(node_width):
-                var base = _wide_node_base[node_width](UInt32(node_idx), lane)
-                var meta = nodes_u32[unsafe_offset=base + WideNode.META]
+                var meta = nodes_u32[
+                    unsafe_offset=_wide_node_index[node_width](
+                        UInt32(node_idx), WideNode.META, lane
+                    )
+                ]
                 if _wide_meta_count(meta) == EMPTY_LANE:
                     continue
                 live_lanes += 1
-                node_union.grow(AABB[Frame.WORLD].load6(nodes_span, base))
+                node_union.grow(
+                    _load_wide_lane_bounds[node_width](
+                        nodes_span, UInt32(node_idx), lane
+                    )
+                )
             assert_true(live_lanes > 0)
             assert_true(live_lanes <= node_width)
             if tri_count > 1:
@@ -153,13 +205,18 @@ def _assert_literature_wide_invariants[
             visited_nodes += 1
 
             comptime for lane in range(node_width):
-                var base = _wide_node_base[node_width](node_idx, lane)
-                var meta = nodes_u32[unsafe_offset=base + WideNode.META]
+                var meta = nodes_u32[
+                    unsafe_offset=_wide_node_index[node_width](
+                        node_idx, WideNode.META, lane
+                    )
+                ]
                 var count = _wide_meta_count(meta)
                 if count == EMPTY_LANE:
                     continue
                 var data = _wide_meta_data(meta)
-                var lane_bounds = AABB[Frame.WORLD].load6(nodes_span, base)
+                var lane_bounds = _load_wide_lane_bounds[node_width](
+                    nodes_span, node_idx, lane
+                )
                 if count == 0:
                     assert_true(data < UInt32(tree.node_count))
                     assert_true(
@@ -197,7 +254,6 @@ def _assert_root_uses_largest_area_opening[
 ](verts: List[Point3f32[Frame.WORLD]]) raises:
     var build = _flatten_triangle_bounds(verts)
     with DeviceContext() as ctx:
-        var tree = GpuWideBoundsBvh[node_width, node_width](ctx, len(build[1]))
         var diagnostic = build_bounds_bvh_for_diagnostics[
             node_width,
             node_width,
@@ -205,12 +261,12 @@ def _assert_root_uses_largest_area_opening[
             GpuBvhBuildMethod.HPLOC,
         ](
             ctx,
-            tree,
             upload_list(ctx, build[0]),
             upload_list(ctx, build[1]),
         )
+        ref tree = diagnostic.wide
         ctx.synchronize()
-        ref binary = diagnostic.binary
+        ref binary = diagnostic.build.binary
         assert_equal(tree.leaf_block_count, len(verts) / 3)
 
         with binary.node_meta.map_to_host() as meta, binary.node_bounds.map_to_host() as node_bounds, binary.leaf_bounds.map_to_host() as leaf_bounds, binary.leaf_ids.map_to_host() as leaf_ids, tree.wide_nodes.map_to_host() as wide_nodes:
@@ -259,8 +315,9 @@ def _assert_root_uses_largest_area_opening[
             )
             var wide_u32 = wide_nodes.unsafe_ptr().unsafe_bitcast[UInt32]()
             for lane, candidate in enumerate(candidates):
-                var base = _wide_node_base[node_width](UInt32(0), lane)
-                var actual = AABB[Frame.WORLD].load6(wide_span, base)
+                var actual = _load_wide_lane_bounds[node_width](
+                    wide_span, UInt32(0), lane
+                )
                 var expected = _encoded_bounds(
                     candidate,
                     leaf_bounds_span,
@@ -269,7 +326,11 @@ def _assert_root_uses_largest_area_opening[
                 )
                 assert_true(_bounds_match(actual, expected))
                 var count = _wide_meta_count(
-                    wide_u32[unsafe_offset=base + WideNode.META]
+                    wide_u32[
+                        unsafe_offset=_wide_node_index[node_width](
+                            UInt32(0), WideNode.META, lane
+                        )
+                    ]
                 )
                 if is_leaf_ref(candidates[lane]):
                     assert_equal(count, UInt32(1))
@@ -286,11 +347,11 @@ def _assert_hploc_triangle_matches_cpu[
     comptime width = 32
     comptime height = 24
     comptime views = 2
-    var cpu = TriangleBvh[Frame.WORLD, node_width, leaf_width].__init__["lbvh"](
-        verts
-    )
+    var cpu = build_triangle_blases[
+        node_width, leaf_width, "lbvh", Frame.WORLD
+    ]([verts.copy()])
     var camera_data = _make_camera_rays_and_params(
-        cpu.bounds(), width, height, views
+        _triangle_bounds(verts), width, height, views
     )
     var rays = camera_data[0].copy()
     var camera_params = camera_data[1].copy()
@@ -325,7 +386,9 @@ def _assert_hploc_triangle_matches_cpu[
             )
             for i, ray in enumerate(rays):
                 var actual = Hit[Frame.WORLD].load(hit_span, i)
-                var expected = cpu.trace[TRACE.CLOSEST_HIT](ray)
+                var expected = trace_triangle_blas_set[
+                    node_width, leaf_width, TRACE.CLOSEST_HIT, Frame.WORLD
+                ](cpu, UInt32(0), ray)
                 var both_miss = actual.t >= f32_max and expected.t >= f32_max
                 if not both_miss:
                     assert_true(abs(Float64(actual.t - expected.t)) <= 1.0e-4)
@@ -342,6 +405,75 @@ def test_hploc_section_3_4_opens_largest_area_candidate() raises:
 def test_hploc_section_3_4_cross_block_invariants() raises:
     var scene = _make_irregular_scene(257)
     _assert_hploc_triangle_matches_cpu[8, 4, False, True](scene)
+
+
+def test_hploc_wide_collapse_is_segmented_and_packed() raises:
+    var segments = SegmentOffsets.from_counts([3, 1, 257])
+    var verts = _make_irregular_scene(segments.item_count())
+    var build = _flatten_triangle_bounds(verts)
+
+    with DeviceContext() as ctx:
+        var workspace = GpuBinaryBuildWorkspace(ctx, segments)
+        var binary = GpuBinaryBoundsBvh(
+            ctx,
+            upload_list(ctx, build[0]),
+            upload_list(ctx, build[1]),
+            workspace,
+        )
+        _ = build_binary_bvh[GpuBvhBuildMethod.HPLOC](ctx, binary, workspace)
+        var wide = GpuWideBoundsBvhBatch[8, 4, 4](ctx, segments)
+        collapse_binary_to_wide_batch[8, 4, 4, True](ctx, binary, wide)
+
+        with wide.wide_nodes.map_to_host() as nodes, wide.leaf_block_indices.map_to_host() as leaf_blocks, wide.node_counts.map_to_host() as node_counts, wide.leaf_block_counts.map_to_host() as leaf_counts:
+            var nodes_u32 = nodes.unsafe_ptr().unsafe_bitcast[UInt32]()
+            for segment_idx in range(segments.segment_count()):
+                var node_base = Int(wide.node_segments.begin(segment_idx))
+                var leaf_base = Int(wide.leaf_block_segments.begin(segment_idx))
+                var node_count = Int(node_counts[segment_idx])
+                var leaf_count = Int(leaf_counts[segment_idx])
+                assert_true(node_count > 0)
+                assert_true(leaf_count > 0)
+
+                var seen_nodes = List[Bool](length=node_count, fill=False)
+                var pending: List[UInt32] = [UInt32(0)]
+                var cursor = 0
+                var primitive_count = 0
+                while cursor < len(pending):
+                    var local_node = pending[cursor]
+                    cursor += 1
+                    assert_true(local_node < UInt32(node_count))
+                    assert_false(seen_nodes[Int(local_node)])
+                    seen_nodes[Int(local_node)] = True
+                    comptime for lane in range(8):
+                        var physical_node = UInt32(node_base) + local_node
+                        var meta = nodes_u32[
+                            unsafe_offset=_wide_node_index[8](
+                                physical_node, WideNode.META, lane
+                            )
+                        ]
+                        var count = _wide_meta_count(meta)
+                        if count == EMPTY_LANE:
+                            continue
+                        var data = _wide_meta_data(meta)
+                        if count == 0:
+                            assert_true(data < UInt32(node_count))
+                            pending.append(data)
+                        else:
+                            assert_true(data < UInt32(leaf_count))
+                            var block_base = (leaf_base + Int(data)) * 4
+                            for leaf_lane in range(Int(count)):
+                                var payload = Int(
+                                    leaf_blocks[block_base + leaf_lane]
+                                )
+                                assert_true(
+                                    payload >= Int(segments.begin(segment_idx))
+                                    and payload < Int(segments.end(segment_idx))
+                                )
+                                primitive_count += 1
+
+                assert_equal(primitive_count, Int(segments.count(segment_idx)))
+                for seen in seen_nodes:
+                    assert_true(seen)
 
 
 def test_hploc_triangle_opt_in_widths_match_cpu() raises:

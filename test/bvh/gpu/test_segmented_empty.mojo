@@ -1,0 +1,153 @@
+"""Empty-segment coverage for packed GPU BLAS construction and traversal."""
+
+from std.math import abs
+from std.testing import TestSuite, assert_equal, assert_true
+from max.gpu.host import DeviceBuffer, DeviceContext
+
+from bajo.bvh.camera import Camera
+from bajo.bvh.constants import Primitive
+from bajo.bvh.gpu.builder import GpuBvhBuildMethod
+from bajo.bvh.gpu.sphere_bvh import build_sphere_blas_set
+from bajo.bvh.gpu.tlas import build_sphere_tlas, build_triangle_tlas
+from bajo.bvh.gpu.triangle_bvh import build_triangle_blas_set
+from bajo.bvh.gpu.utils import upload_camera
+from bajo.bvh.host_utils import compute_bounds, sphere_bounds
+from bajo.bvh.types import BlasDescLayout, Hit, Instance, Sphere
+from bajo.core import AABB, Affine3f32, Frame, Point3f32, Vec3f32
+from test.bvh.fixtures import _make_camera_ray
+
+
+def _triangle() -> List[Point3f32[Frame.LOCAL]]:
+    return [
+        Point3f32[Frame.LOCAL](-1.0, -1.0, 6.0),
+        Point3f32[Frame.LOCAL](1.0, -1.0, 6.0),
+        Point3f32[Frame.LOCAL](0.0, 1.0, 6.0),
+    ]
+
+
+def _instance(
+    blas_idx: UInt32, bounds: AABB[Frame.LOCAL], kind: Primitive
+) -> Instance:
+    return Instance(
+        Affine3f32[Frame.LOCAL, Frame.WORLD].identity(),
+        blas_idx,
+        bounds,
+        kind,
+    )
+
+
+def _download_hit(
+    hits: DeviceBuffer[DType.float32],
+) raises -> Hit[Frame.WORLD]:
+    with hits.map_to_host() as host:
+        return Hit[Frame.WORLD].load(
+            Span(unsafe_ptr=host.unsafe_ptr(), length=len(host)), 0
+        )
+
+
+def _camera() -> Camera:
+    return _make_camera_ray(
+        Point3f32[Frame.WORLD](0.0, 0.0, 0.0),
+        Vec3f32[Frame.WORLD](0.0, 0.0, 1.0),
+    )
+
+
+def test_triangle_lbvh_empty_segments_trace_and_describe() raises:
+    var empty = List[Point3f32[Frame.LOCAL]]()
+    var vertices = _triangle()
+    var bounds = compute_bounds(vertices)
+    with DeviceContext() as ctx:
+        var blases = build_triangle_blas_set[4, 4, GpuBvhBuildMethod.LBVH](
+            ctx, [empty.copy(), vertices^, empty^]
+        )
+        with blases.descs.map_to_host() as descs:
+            assert_equal(descs[BlasDescLayout.PRIM_COUNT], UInt32(0))
+            assert_equal(
+                descs[BlasDescLayout.base(1) + BlasDescLayout.PRIM_COUNT],
+                UInt32(1),
+            )
+            assert_equal(
+                descs[BlasDescLayout.base(2) + BlasDescLayout.PRIM_COUNT],
+                UInt32(0),
+            )
+        var instances: List = [
+            _instance(0, bounds, Primitive.TRIANGLE),
+            _instance(1, bounds, Primitive.TRIANGLE),
+        ]
+        var tlas = build_triangle_tlas[4, 4](ctx, instances)
+        var hits = ctx.enqueue_create_buffer[DType.float32](Hit.STRIDE)
+        tlas.launch_camera(
+            ctx, blases, upload_camera(ctx, _camera()), hits, 1, 1, 1
+        )
+        ctx.synchronize()
+        var hit = _download_hit(hits)
+        assert_true(abs(hit.t - 6.0) < 1.0e-5)
+        assert_equal(hit.inst, UInt32(1))
+
+
+def test_triangle_hploc_cwbvh8_empty_segments_trace() raises:
+    var empty = List[Point3f32[Frame.LOCAL]]()
+    var vertices = _triangle()
+    var bounds = compute_bounds(vertices)
+    with DeviceContext() as ctx:
+        var blases = build_triangle_blas_set[
+            8, 4, GpuBvhBuildMethod.HPLOC, True
+        ](ctx, [empty.copy(), vertices^, empty^])
+        var instances: List = [
+            _instance(0, bounds, Primitive.TRIANGLE),
+            _instance(1, bounds, Primitive.TRIANGLE),
+        ]
+        var tlas = build_triangle_tlas[
+            2, 8, 2, 4, GpuBvhBuildMethod.LBVH, True
+        ](ctx, instances)
+        var hits = ctx.enqueue_create_buffer[DType.float32](Hit.STRIDE)
+        tlas.launch_camera(
+            ctx, blases, upload_camera(ctx, _camera()), hits, 1, 1, 1
+        )
+        ctx.synchronize()
+        var hit = _download_hit(hits)
+        assert_true(abs(hit.t - 6.0) < 1.0e-5)
+        assert_equal(hit.inst, UInt32(1))
+
+
+def test_sphere_hploc_empty_segments_trace() raises:
+    var empty = List[Sphere[Frame.LOCAL]]()
+    var spheres: List = [
+        Sphere[Frame.LOCAL](Point3f32[Frame.LOCAL](0.0, 0.0, 6.0), 1.0)
+    ]
+    var bounds = sphere_bounds(spheres)
+    with DeviceContext() as ctx:
+        var blases = build_sphere_blas_set[4, 4, GpuBvhBuildMethod.HPLOC](
+            ctx, [empty.copy(), spheres^, empty^]
+        )
+        var instances: List = [
+            _instance(0, bounds, Primitive.SPHERE),
+            _instance(1, bounds, Primitive.SPHERE),
+        ]
+        var tlas = build_sphere_tlas[4, 4](ctx, instances)
+        var hits = ctx.enqueue_create_buffer[DType.float32](Hit.STRIDE)
+        tlas.launch_camera(
+            ctx, blases, upload_camera(ctx, _camera()), hits, 1, 1, 1
+        )
+        ctx.synchronize()
+        var hit = _download_hit(hits)
+        assert_true(abs(hit.t - 5.0) < 1.0e-5)
+        assert_equal(hit.inst, UInt32(1))
+
+
+def test_all_empty_triangle_batch_has_zero_descriptors() raises:
+    var empty = List[Point3f32[Frame.LOCAL]]()
+    with DeviceContext() as ctx:
+        var blases = build_triangle_blas_set[
+            8, 4, GpuBvhBuildMethod.HPLOC, True
+        ](ctx, [empty.copy(), empty^])
+        assert_equal(blases.blas_count, 2)
+        assert_equal(len(blases.nodes), 1)
+        assert_equal(len(blases.leaves), 1)
+        with blases.descs.map_to_host() as descs:
+            for idx in range(len(descs)):
+                assert_equal(descs[idx], UInt32(0))
+
+
+def main() raises:
+    TestSuite.discover_tests[__functions_in_module()]().run()

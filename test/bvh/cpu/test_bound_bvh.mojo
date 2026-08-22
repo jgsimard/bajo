@@ -19,7 +19,7 @@ from bajo.core import (
     Vec3,
 )
 from bajo.core.intersect import intersect_ray_aabb, intersect_ray_aabb_rcp
-from bajo.bvh.types import Hit, Sphere
+from bajo.bvh.types import BlasDesc, CpuBlasSet, Hit, Sphere
 from bajo.core.random import Rng
 from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
 from bajo.bvh.cpu.bounds_bvh import (
@@ -33,7 +33,6 @@ from bajo.bvh.cpu.packet import (
 )
 from bajo.bvh.tagged_ref import (
     decode_ref_index,
-    encode_leaf_ref,
     is_leaf_ref,
 )
 from bajo.bvh.cpu.builder.builder import _partition_items_by_median_center
@@ -48,13 +47,15 @@ from bajo.bvh.cpu.builder.lbvh import (
     _radix_sort_morton_pairs_parallel,
 )
 from bajo.bvh.cpu.builder.sah import _find_sah_split, _partition_items_by_bin
-from bajo.bvh.cpu.triangle_bvh import TriangleBvh
-from bajo.bvh.cpu.sphere_bvh import SphereBvh
-from bajo.bvh.cpu.trace import (
-    CpuBvhTraversalStats,
-    _extract_f32_lane,
-    _extract_u32_lane,
+from bajo.bvh.cpu.blas_set import (
+    build_sphere_blases,
+    build_triangle_blases,
+    trace_sphere_blas_set,
+    trace_sphere_blas_set_packet,
+    trace_triangle_blas_set,
+    trace_triangle_blas_set_packet,
 )
+from bajo.bvh.cpu.trace import _extract_f32_lane, _extract_u32_lane
 
 from test.bvh.fixtures import _brute_triangle_trace, _brute_sphere_trace
 
@@ -169,18 +170,6 @@ def _make_depth_pair[frame: Frame]() -> List[Point3f32[frame]]:
     return verts^
 
 
-def _make_depth_stack[frame: Frame](count: Int) -> List[Point3f32[frame]]:
-    var verts = List[Point3f32[frame]](capacity=count * 3)
-
-    for i in range(count):
-        var z = 2.0 + Float32(i)
-        verts.append(Point3f32[frame](-1.0, -1.0, z))
-        verts.append(Point3f32[frame](1.0, -1.0, z))
-        verts.append(Point3f32[frame](0.0, 1.0, z))
-
-    return verts^
-
-
 def _make_bounds_items[
     frame: Frame
 ](verts: List[Point3f32[frame]]) -> List[BoundsItem[frame]]:
@@ -279,17 +268,19 @@ def _assert_wide_leaf_ranges_at_most_width[
         assert_true(wide.child_masks[node_idx] == expected_child_mask)
 
 
-def _assert_triangle_bvh_matches_bruteforce[
+def _assert_triangle_blas_matches_bruteforce[
     frame: Frame,
     bounds_width: SIMDLength,
     leaf_width: SIMDLength = bounds_width,
 ](
-    mut bvh: TriangleBvh[frame, bounds_width, leaf_width],
+    blases: CpuBlasSet[bounds_width, leaf_width],
     verts: List[Point3f32[frame]],
     origin: Point3f32[frame],
 ) raises:
     var ray = _z_ray(origin)
-    var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
+    var hit = trace_triangle_blas_set[
+        bounds_width, leaf_width, TRACE.CLOSEST_HIT, frame
+    ](blases, UInt32(0), ray)
 
     var brute = _brute_triangle_trace(
         verts,
@@ -302,13 +293,13 @@ def _assert_triangle_bvh_matches_bruteforce[
 
     assert_true(
         bvh_hit == brute_hit,
-        "TriangleBvh hit/miss differs from brute force",
+        "triangle CpuBlasSet hit/miss differs from brute force",
     )
 
     if brute_hit:
         assert_true(
             hit.prim == brute.prim,
-            "TriangleBvh returned the wrong primitive",
+            "triangle CpuBlasSet returned the wrong primitive",
         )
         assert_almost_equal(hit.t, brute.t)
         assert_almost_equal(
@@ -319,15 +310,17 @@ def _assert_triangle_bvh_matches_bruteforce[
         )
 
 
-def _assert_sphere_bvh_matches_bruteforce[
+def _assert_sphere_blas_matches_bruteforce[
     frame: Frame, width: SIMDLength
 ](
-    mut bvh: SphereBvh[frame, width],
+    blases: CpuBlasSet[width],
     spheres: List[Sphere[frame]],
     origin: Point3f32[frame],
 ) raises:
     var ray = _z_ray(origin)
-    var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
+    var hit = trace_sphere_blas_set[width, width, TRACE.CLOSEST_HIT, frame](
+        blases, UInt32(0), ray
+    )
 
     var brute = _brute_sphere_trace(
         spheres,
@@ -340,13 +333,13 @@ def _assert_sphere_bvh_matches_bruteforce[
 
     assert_true(
         bvh_hit == brute_hit,
-        "SphereBvh hit/miss differs from brute force",
+        "sphere CpuBlasSet hit/miss differs from brute force",
     )
 
     if brute_hit:
         assert_true(
             hit.prim == brute.prim,
-            "SphereBvh returned the wrong primitive",
+            "sphere CpuBlasSet returned the wrong primitive",
         )
         assert_almost_equal(hit.t, brute.t)
 
@@ -679,9 +672,11 @@ def test_bounds_partition_items_non_empty() raises:
 
 def test_triangle_bvh2_leaf_size_equals_width_returns_nearest_triangle() raises:
     var verts = _make_depth_pair[Frame.WORLD]()
-    var bvh = TriangleBvh[Frame.WORLD, 2].__init__["median"](verts)
+    var blases = build_triangle_blases[2, 2, "median", Frame.WORLD]([verts^])
 
-    var hit = bvh.trace[TRACE.CLOSEST_HIT](_z_ray(Point3W(0.0, 0.0, 0.0)))
+    var hit = trace_triangle_blas_set[2, 2, TRACE.CLOSEST_HIT, Frame.WORLD](
+        blases, UInt32(0), _z_ray(Point3W(0.0, 0.0, 0.0))
+    )
 
     assert_true(hit.is_hit())
     assert_true(hit.prim == 0)
@@ -694,18 +689,20 @@ def _test_triangle_bvh_matches_bruteforce[
 ]() raises:
     var n = {2: 24, 4: 32, 8: 40}[width]
     var verts = _make_strip[Frame.WORLD](n)
-    var bvh = TriangleBvh[Frame.WORLD, width].__init__[split_mode](verts)
+    var blases = build_triangle_blases[width, width, split_mode, Frame.WORLD](
+        [verts.copy()]
+    )
 
     for i in range(n):
-        _assert_triangle_bvh_matches_bruteforce[Frame.WORLD, width](
-            bvh,
+        _assert_triangle_blas_matches_bruteforce[Frame.WORLD, width](
+            blases,
             verts,
             _triangle_center_xy(verts, i),
         )
 
     for i in range(8):
-        _assert_triangle_bvh_matches_bruteforce[Frame.WORLD, width](
-            bvh,
+        _assert_triangle_blas_matches_bruteforce[Frame.WORLD, width](
+            blases,
             verts,
             Point3W(100.0 + Float32(i), 100.0, 0.0),
         )
@@ -723,42 +720,31 @@ def _test_triangle_bvh16_leaf_width[
 ]() raises:
     var n = 48
     var verts = _make_strip[Frame.WORLD](n)
-    var bvh = TriangleBvh[Frame.WORLD, 16, leaf_width].__init__[mode](verts)
-
-    assert_true(len(bvh.tree.leaf_ranges) == 0)
-    assert_true(len(bvh.tree.item_indices) == 0)
-    assert_true(len(bvh.tree.item_payloads) == 0)
-
-    var packed_primitive_count = 0
-    for ref block in bvh.leaf_blocks:
-        comptime for lane in range(leaf_width):
-            if block.prim_indices[lane] != EMPTY_LANE:
-                packed_primitive_count += 1
-    assert_true(packed_primitive_count == n)
-
-    for ref node in bvh.tree.nodes:
-        comptime for lane in range(16):
-            var child_ref = node.data[lane]
-            if child_ref != EMPTY_LANE and is_leaf_ref(child_ref):
-                assert_true(
-                    Int(decode_ref_index(child_ref)) < len(bvh.leaf_blocks)
-                )
+    var blases = build_triangle_blases[16, leaf_width, mode, Frame.WORLD](
+        [verts.copy()]
+    )
+    var desc = BlasDesc.load(blases.descs.unsafe_ptr(), UInt32(0))
+    assert_true(desc.prim_count == UInt32(n))
+    assert_true(desc.node_count > 0)
+    assert_true(desc.leaf_block_count > 0)
 
     for i in range(n):
-        _assert_triangle_bvh_matches_bruteforce[Frame.WORLD, 16, leaf_width](
-            bvh,
+        _assert_triangle_blas_matches_bruteforce[Frame.WORLD, 16, leaf_width](
+            blases,
             verts,
             _triangle_center_xy(verts, i),
         )
 
     assert_true(
-        bvh.trace[TRACE.ANY_HIT](
-            _z_ray(_triangle_center_xy(verts, 0))
+        trace_triangle_blas_set[16, leaf_width, TRACE.ANY_HIT, Frame.WORLD](
+            blases, UInt32(0), _z_ray(_triangle_center_xy(verts, 0))
         ).is_occluded()
     )
     assert_true(
-        not bvh.trace[TRACE.ANY_HIT](
-            _z_ray(Point3W(100.0, 100.0, 0.0))
+        not trace_triangle_blas_set[16, leaf_width, TRACE.ANY_HIT, Frame.WORLD](
+            blases,
+            UInt32(0),
+            _z_ray(Point3W(100.0, 100.0, 0.0)),
         ).is_occluded()
     )
 
@@ -785,7 +771,9 @@ def _assert_packet_hits_equal[
 
 def _test_triangle_packet_paths_match[length: SIMDLength]() raises:
     var verts = _make_strip[Frame.WORLD](64)
-    var bvh = TriangleBvh[Frame.WORLD, 16, 16].__init__["sah"](verts)
+    var blases = build_triangle_blases[16, 16, "sah", Frame.WORLD](
+        [verts.copy()]
+    )
     var ox = SIMD[DType.float32, length](0.0)
     var oy = SIMD[DType.float32, length](0.0)
     comptime for lane in range(length):
@@ -802,8 +790,12 @@ def _test_triangle_packet_paths_match[length: SIMDLength]() raises:
         Vec3[DType.float32, Frame.WORLD, length](0.0, 0.0, 1.0),
     )
     var valid = SIMD[DType.bool, length](fill=True)
-    var production = bvh.trace[TRACE.CLOSEST_HIT](packet, valid)
-    var common_octant = bvh.trace_packet_common_octant(packet, valid)
+    var production = trace_triangle_blas_set_packet[
+        16, 16, length, False, Frame.WORLD
+    ](blases, UInt32(0), packet, valid)
+    var common_octant = trace_triangle_blas_set_packet[
+        16, 16, length, True, Frame.WORLD
+    ](blases, UInt32(0), packet, valid)
     _assert_packet_hits_equal(common_octant, production)
 
 
@@ -811,6 +803,103 @@ def test_triangle_packet_paths_match() raises:
     _test_triangle_packet_paths_match[4]()
     _test_triangle_packet_paths_match[8]()
     _test_triangle_packet_paths_match[16]()
+
+
+def _check_packed_triangle_packet[
+    length: SIMDLength
+](host: CpuBlasSet[16]) raises:
+    var ox = SIMD[DType.float32, length](0.0)
+    var oy = SIMD[DType.float32, length](0.0)
+    comptime for lane in range(length):
+        if lane % 4 == 0:
+            ox[lane] = 1000.0
+            oy[lane] = 1000.0
+        else:
+            ox[lane] = Float32(lane)
+            oy[lane] = 0.25
+    var rays = Ray[DType.float32, Frame.WORLD, length](
+        Point3[DType.float32, Frame.WORLD, length](ox, oy, 0.0),
+        Vec3[DType.float32, Frame.WORLD, length](0.0, 0.0, 1.0),
+    )
+    var valid = SIMD[DType.bool, length](fill=True)
+    valid[length - 1] = False
+    var packet = trace_triangle_blas_set_packet[
+        16, 16, length, False, Frame.WORLD
+    ](host, UInt32(0), rays, valid)
+    var coherent = trace_triangle_blas_set_packet[
+        16, 16, length, True, Frame.WORLD
+    ](host, UInt32(0), rays, valid)
+    comptime for lane in range(length):
+        if valid[lane]:
+            var scalar = trace_triangle_blas_set[
+                16, 16, TRACE.CLOSEST_HIT, Frame.WORLD
+            ](
+                host,
+                UInt32(0),
+                Rayf32[Frame.WORLD](
+                    Point3f32[Frame.WORLD](ox[lane], oy[lane], 0.0),
+                    Vec3f32[Frame.WORLD](0.0, 0.0, 1.0),
+                ),
+            )
+            assert_true(packet.prim[lane] == scalar.prim[0])
+            assert_true(packet.t[lane] == scalar.t[0])
+            assert_true(coherent.prim[lane] == scalar.prim[0])
+            assert_true(coherent.t[lane] == scalar.t[0])
+        else:
+            assert_true(not packet.hit_mask()[lane])
+            assert_true(not coherent.hit_mask()[lane])
+
+
+def test_packed_triangle_packet_matches_scalar_widths() raises:
+    var verts = _make_strip[Frame.WORLD](64)
+    var host = build_triangle_blases[16, 16, "sah", Frame.WORLD]([verts^])
+    _check_packed_triangle_packet[4](host)
+    _check_packed_triangle_packet[8](host)
+    _check_packed_triangle_packet[16](host)
+
+
+def _check_packed_sphere_packet[
+    length: SIMDLength
+](host: CpuBlasSet[16]) raises:
+    var ox = SIMD[DType.float32, length](0.0)
+    comptime for lane in range(length):
+        if lane % 3 == 0:
+            ox[lane] = 100.0
+    var rays = Ray[DType.float32, Frame.WORLD, length](
+        Point3[DType.float32, Frame.WORLD, length](ox, 0.0, 0.0),
+        Vec3[DType.float32, Frame.WORLD, length](0.0, 0.0, 1.0),
+    )
+    var valid = SIMD[DType.bool, length](fill=True)
+    valid[length - 1] = False
+    var packet = trace_sphere_blas_set_packet[16, 16, length, Frame.WORLD](
+        host, UInt32(0), rays, valid
+    )
+    comptime for lane in range(length):
+        if valid[lane]:
+            var scalar = trace_sphere_blas_set[
+                16, 16, TRACE.CLOSEST_HIT, Frame.WORLD
+            ](
+                host,
+                UInt32(0),
+                Rayf32[Frame.WORLD](
+                    Point3f32[Frame.WORLD](ox[lane], 0.0, 0.0),
+                    Vec3f32[Frame.WORLD](0.0, 0.0, 1.0),
+                ),
+            )
+            assert_true(packet.prim[lane] == scalar.prim[0])
+            assert_true(packet.t[lane] == scalar.t[0])
+        else:
+            assert_true(not packet.hit_mask()[lane])
+
+
+def test_packed_sphere_packet_matches_scalar_widths() raises:
+    var spheres: List = [
+        Sphere[Frame.WORLD](Point3f32[Frame.WORLD](0.0, 0.0, 2.0), 1.0)
+    ]
+    var host = build_sphere_blases[16, "sah", Frame.WORLD]([spheres^])
+    _check_packed_sphere_packet[4](host)
+    _check_packed_sphere_packet[8](host)
+    _check_packed_sphere_packet[16](host)
 
 
 def _test_coherent_packet_frustum_is_conservative[
@@ -912,15 +1001,21 @@ def _test_triangle_bvh_shadow_hit_and_miss[
     mode: String,
 ]() raises:
     var verts = _make_strip[Frame.WORLD](2 * width)
-    var bvh = TriangleBvh[Frame.WORLD, width].__init__[mode](verts)
-
-    assert_true(
-        bvh.trace[TRACE.ANY_HIT](_z_ray(Point3W(0.0, 0.0, 0.0))).is_occluded()
+    var blases = build_triangle_blases[width, width, mode, Frame.WORLD](
+        [verts^]
     )
 
     assert_true(
-        not bvh.trace[TRACE.ANY_HIT](
-            _z_ray(Point3W(100.0, 100.0, 0.0))
+        trace_triangle_blas_set[width, width, TRACE.ANY_HIT, Frame.WORLD](
+            blases, UInt32(0), _z_ray(Point3W(0.0, 0.0, 0.0))
+        ).is_occluded()
+    )
+
+    assert_true(
+        not trace_triangle_blas_set[width, width, TRACE.ANY_HIT, Frame.WORLD](
+            blases,
+            UInt32(0),
+            _z_ray(Point3W(100.0, 100.0, 0.0)),
         ).is_occluded()
     )
 
@@ -929,50 +1024,6 @@ def test_triangle_bvh_shadow_hit_and_miss() raises:
     comptime for w in [2, 4, 8]:
         comptime for mode in ["median", "sah", "lbvh", "hploc"]:
             _test_triangle_bvh_shadow_hit_and_miss[w, mode]()
-
-
-def test_triangle_bvh_measured_trace_matches_normal_and_counts_work() raises:
-    var verts = _make_depth_stack[Frame.WORLD](64)
-    var bvh = TriangleBvh[Frame.WORLD, 16, 4].__init__["sah"](verts)
-    var hit_ray = _z_ray(Point3W(0.0, 0.0, 0.0))
-
-    var normal_hit = bvh.trace[TRACE.CLOSEST_HIT](hit_ray)
-    var stats = CpuBvhTraversalStats()
-    var measured_hit = bvh.trace_with_stats[TRACE.CLOSEST_HIT](hit_ray, stats)
-
-    assert_true(normal_hit.is_hit() == measured_hit.is_hit())
-    assert_true(normal_hit.prim == measured_hit.prim)
-    assert_almost_equal(normal_hit.t, measured_hit.t)
-    assert_almost_equal(normal_hit.u, measured_hit.u)
-    assert_almost_equal(normal_hit.v, measured_hit.v)
-
-    assert_true(stats.rays == 1)
-    assert_true(stats.internal_nodes > 0)
-    assert_true(stats.nodes_with_hits > 0)
-    assert_true(stats.aabb_packet_lanes == 16 * stats.internal_nodes)
-    assert_true(stats.active_child_lanes >= stats.aabb_hit_lanes)
-    assert_true(stats.leaf_blocks > 0)
-    assert_true(stats.primitive_packet_lanes == 4 * stats.leaf_blocks)
-    assert_true(stats.valid_primitives > 0)
-    assert_true(stats.valid_primitives <= stats.primitive_packet_lanes)
-    assert_true(stats.primitive_hit_candidates > 0)
-    assert_true(stats.closer_hit_updates > 0)
-    assert_true(stats.stack_pushes >= stats.stack_pops)
-    assert_true(stats.max_stack_depth <= stats.stack_pushes)
-
-    var miss_ray = _z_ray(Point3W(1000.0, 1000.0, 0.0))
-    var normal_miss = bvh.trace[TRACE.CLOSEST_HIT](miss_ray)
-    var measured_miss = bvh.trace_with_stats[TRACE.CLOSEST_HIT](miss_ray, stats)
-    assert_true(normal_miss.is_hit() == measured_miss.is_hit())
-    assert_true(stats.rays == 2)
-
-    var any_stats = CpuBvhTraversalStats()
-    var normal_any = bvh.trace[TRACE.ANY_HIT](hit_ray)
-    var measured_any = bvh.trace_with_stats[TRACE.ANY_HIT](hit_ray, any_stats)
-    assert_true(normal_any.is_occluded() == measured_any.is_occluded())
-    assert_true(any_stats.rays == 1)
-    assert_true(any_stats.primitive_hit_candidates > 0)
-    assert_true(any_stats.any_hit_early_exits == 1)
 
 
 def test_sphere_bounds() raises:
@@ -990,20 +1041,15 @@ def test_sphere_bounds() raises:
 
 def test_sphere_bvh4_single_leaf_layout_and_hit() raises:
     var spheres = _make_spheres[Frame.WORLD]()
-    var bvh = SphereBvh[Frame.WORLD, 4](spheres^)
+    var blases = build_sphere_blases[4, "sah", Frame.WORLD]([spheres^])
+    var desc = BlasDesc.load(blases.descs.unsafe_ptr(), UInt32(0))
+    assert_true(desc.node_count == 1)
+    assert_true(desc.leaf_block_count == 1)
+    assert_true(desc.prim_count == 4)
 
-    assert_true(len(bvh.tree.nodes) == 1)
-    assert_true(len(bvh.tree.leaf_ranges) == 0)
-    assert_true(len(bvh.tree.item_indices) == 0)
-    assert_true(len(bvh.tree.item_payloads) == 0)
-    assert_true(bvh.tree.nodes[0].data[0] == encode_leaf_ref(0))
-    assert_true(len(bvh.leaf_blocks) == 1)
-    assert_true(bvh.leaf_blocks[0].prim_indices[0] == 0)
-    assert_true(bvh.leaf_blocks[0].prim_indices[1] == 1)
-    assert_true(bvh.leaf_blocks[0].prim_indices[2] == 2)
-    assert_true(bvh.leaf_blocks[0].prim_indices[3] == 3)
-
-    var hit = bvh.trace[TRACE.CLOSEST_HIT](_z_ray(Point3W(0.0, 0.0, 0.0)))
+    var hit = trace_sphere_blas_set[4, 4, TRACE.CLOSEST_HIT, Frame.WORLD](
+        blases, UInt32(0), _z_ray(Point3W(0.0, 0.0, 0.0))
+    )
 
     assert_true(hit.is_hit())
     assert_true(hit.prim == 0)
@@ -1015,25 +1061,25 @@ def _test_sphere_bvh_matches_bruteforce[
     mode: String,
 ]() raises:
     var spheres = _make_spheres[Frame.WORLD]()
-    var bvh = SphereBvh[Frame.WORLD, width].__init__[mode](spheres.copy())
+    var blases = build_sphere_blases[width, mode, Frame.WORLD]([spheres.copy()])
 
-    _assert_sphere_bvh_matches_bruteforce[Frame.WORLD, width](
-        bvh,
+    _assert_sphere_blas_matches_bruteforce[Frame.WORLD, width](
+        blases,
         spheres,
         Point3W(0.0, 0.0, 0.0),
     )
-    _assert_sphere_bvh_matches_bruteforce[Frame.WORLD, width](
-        bvh,
+    _assert_sphere_blas_matches_bruteforce[Frame.WORLD, width](
+        blases,
         spheres,
         Point3W(4.0, 0.0, 0.0),
     )
-    _assert_sphere_bvh_matches_bruteforce[Frame.WORLD, width](
-        bvh,
+    _assert_sphere_blas_matches_bruteforce[Frame.WORLD, width](
+        blases,
         spheres,
         Point3W(-4.0, 0.0, 0.0),
     )
-    _assert_sphere_bvh_matches_bruteforce[Frame.WORLD, width](
-        bvh,
+    _assert_sphere_blas_matches_bruteforce[Frame.WORLD, width](
+        blases,
         spheres,
         Point3W(100.0, 0.0, 0.0),
     )
@@ -1050,15 +1096,17 @@ def _test_sphere_bvh_shadow_hit_and_miss[
     mode: String,
 ]() raises:
     var spheres = _make_spheres[Frame.WORLD]()
-    var bvh = SphereBvh[Frame.WORLD, width].__init__[mode](spheres^)
+    var blases = build_sphere_blases[width, mode, Frame.WORLD]([spheres^])
 
     assert_true(
-        bvh.trace[TRACE.ANY_HIT](_z_ray(Point3W(0.0, 0.0, 0.0))).is_occluded()
+        trace_sphere_blas_set[width, width, TRACE.ANY_HIT, Frame.WORLD](
+            blases, UInt32(0), _z_ray(Point3W(0.0, 0.0, 0.0))
+        ).is_occluded()
     )
 
     assert_true(
-        not bvh.trace[TRACE.ANY_HIT](
-            _z_ray(Point3W(100.0, 0.0, 0.0))
+        not trace_sphere_blas_set[width, width, TRACE.ANY_HIT, Frame.WORLD](
+            blases, UInt32(0), _z_ray(Point3W(100.0, 0.0, 0.0))
         ).is_occluded()
     )
 

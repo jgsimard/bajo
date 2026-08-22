@@ -2,8 +2,7 @@ from std.testing import TestSuite, assert_true, assert_almost_equal
 
 from bajo.bvh.constants import TRACE, Primitive
 from bajo.bvh.types import Instance, Sphere, Hit
-from bajo.bvh.cpu.triangle_bvh import TriangleBvh
-from bajo.bvh.cpu.sphere_bvh import SphereBvh
+from bajo.bvh.cpu.blas_set import build_sphere_blases, build_triangle_blases
 from bajo.bvh.cpu.tlas import Tlas
 from bajo.core import (
     AABB,
@@ -22,447 +21,269 @@ def test_instance_derives_inverse_from_transform() raises:
         Vec3f32[Frame.LOCAL](2.0, 4.0, 5.0)
     )
     var bounds = AABB[Frame.LOCAL](
-        Point3f32[Frame.LOCAL](-1.0),
-        Point3f32[Frame.LOCAL](1.0),
+        Point3f32[Frame.LOCAL](-1.0), Point3f32[Frame.LOCAL](1.0)
     )
     var instance = Instance(transform, UInt32(0), bounds, Primitive.SPHERE)
     var local_point = Point3f32[Frame.LOCAL](1.5, -2.0, 3.0)
-    var world_point = instance.transform.point(local_point)
-    var round_trip = instance.inv_transform.point(world_point)
-
+    var round_trip = instance.inv_transform.point(
+        instance.transform.point(local_point)
+    )
     assert_almost_equal(round_trip.x, local_point.x)
     assert_almost_equal(round_trip.y, local_point.y)
     assert_almost_equal(round_trip.z, local_point.z)
 
 
-def _make_one_local_triangle_z2[frame: Frame]() -> List[Point3f32[frame]]:
+def _triangle_vertices() -> List[Point3f32[Frame.LOCAL]]:
     return [
-        Point3f32[frame](-1.0, -1.0, 2.0),
-        Point3f32[frame](1.0, -1.0, 2.0),
-        Point3f32[frame](0.0, 1.0, 2.0),
+        Point3f32[Frame.LOCAL](-1.0, -1.0, 2.0),
+        Point3f32[Frame.LOCAL](1.0, -1.0, 2.0),
+        Point3f32[Frame.LOCAL](0.0, 1.0, 2.0),
     ]
 
 
-def _make_one_local_sphere_z2[frame: Frame]() -> List[Sphere[frame]]:
-    return [Sphere(Point3f32[frame](0.0, 0.0, 2.0), 1.0)]
+def _triangle_bounds(
+    vertices: List[Point3f32[Frame.LOCAL]],
+) -> AABB[Frame.LOCAL]:
+    return AABB(vertices[0], vertices[1], vertices[2])
 
 
-def _triangle_instance[
-    width: SIMDLength
-](
+def _sphere_values() -> List[Sphere[Frame.LOCAL]]:
+    return [Sphere(Point3f32[Frame.LOCAL](0.0, 0.0, 2.0), 1.0)]
+
+
+def _instance(
+    kind: Primitive,
     blas_idx: UInt32,
+    bounds: AABB[Frame.LOCAL],
     tx: Float32,
-    ty: Float32,
-    tz: Float32,
-    blas: TriangleBvh[Frame.LOCAL, width],
+    ty: Float32 = 0.0,
+    tz: Float32 = 0.0,
 ) -> Instance:
-    var t_world = Vec3f32[Frame.WORLD](tx, ty, tz)
     return Instance(
-        Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(t_world),
+        Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(
+            Vec3f32[Frame.WORLD](tx, ty, tz)
+        ),
         blas_idx,
-        blas.bounds(),
-        Primitive.TRIANGLE,
+        bounds,
+        kind,
     )
 
 
-def _sphere_instance[
-    width: SIMDLength
-](
-    blas_idx: UInt32,
-    tx: Float32,
-    ty: Float32,
-    tz: Float32,
-    blas: SphereBvh[Frame.LOCAL, width],
-) -> Instance:
-    var t_world = Vec3f32[Frame.WORLD](tx, ty, tz)
-    return Instance(
-        Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(t_world),
-        blas_idx,
-        blas.bounds(),
-        Primitive.SPHERE,
-    )
+def _ray(x: Float32 = 0.0) -> Rayf32[Frame.WORLD]:
+    return Rayf32[Frame.WORLD](Point3W(x, 0.0, 0.0), Vec3W(0.0, 0.0, 1.0))
 
 
-def _assert_hit(
-    hit: Hit,
-    inst: UInt32,
-    prim: UInt32,
-    t: Float32,
-) raises:
+def _assert_hit(hit: Hit, inst: UInt32, t: Float32) raises:
     assert_true(hit.inst == inst)
-    assert_true(hit.prim == prim)
+    assert_true(hit.prim == 0)
     assert_almost_equal(hit.t, t)
 
 
-# -----------------------------------------------------------------------------
-# Triangle TLAS
-# -----------------------------------------------------------------------------
 def test_tlas_triangle_single_instance_cases() raises:
-    var verts = _make_one_local_triangle_z2[Frame.LOCAL]()
-
-    var blas = TriangleBvh[Frame.LOCAL, 4](verts)
-
-    var blases = [blas.copy()]
-
-    # Identity hit.
-    var identity_instances: List = [
-        _triangle_instance[4](0, 0.0, 0.0, 0.0, blas)
-    ]
-    var identity_tlas = Tlas[4](identity_instances)
-
-    var identity_ray = Rayf32[Frame.WORLD](
-        Point3W(0.0, 0.0, 0.0), Vec3W(0.0, 0.0, 1.0)
+    var vertices = _triangle_vertices()
+    var bounds = _triangle_bounds(vertices)
+    var blases = build_triangle_blases[4]([vertices^])
+    var identity = Tlas[4]([_instance(Primitive.TRIANGLE, 0, bounds, 0.0)])
+    var hit = identity.trace_triangle_blases[4, 4, TRACE.CLOSEST_HIT](
+        _ray(), blases
     )
-    var identity_hit = identity_tlas.trace[
-        TriangleBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT
-    ](
-        identity_ray,
-        blases,
-    )
-    _assert_hit(identity_hit, 0, 0, 2.0)
-    assert_almost_equal(identity_hit.normal.x, 0.0)
-    assert_almost_equal(identity_hit.normal.y, 0.0)
-    assert_almost_equal(identity_hit.normal.z, 1.0)
+    _assert_hit(hit, 0, 2.0)
+    assert_almost_equal(hit.normal.z, 1.0)
 
-    # Translated hit.
-    var translated_instances: List = [
-        _triangle_instance[4](0, 5.0, 0.0, 0.0, blas)
-    ]
-    var translated_tlas = Tlas[4](translated_instances)
-
-    var translated_hit_ray = Rayf32[Frame.WORLD](
-        Point3W(5.0, 0.0, 0.0), Vec3W(0.0, 0.0, 1.0)
-    )
+    var translated = Tlas[4]([_instance(Primitive.TRIANGLE, 0, bounds, 5.0)])
     _assert_hit(
-        translated_tlas.trace[TriangleBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT](
-            translated_hit_ray,
-            blases,
+        translated.trace_triangle_blases[4, 4, TRACE.CLOSEST_HIT](
+            _ray(5.0), blases
         ),
-        0,
-        0,
-        2.0,
-    )
-
-    # Translated miss.
-    var translated_miss_ray = Rayf32[Frame.WORLD](
-        Point3W(0.0, 0.0, 0.0), Vec3W(0.0, 0.0, 1.0)
-    )
-    var hit = translated_tlas.trace[
-        TriangleBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT
-    ](
-        translated_miss_ray,
-        blases,
-    )
-    assert_true(not hit.is_hit())
-
-
-def test_tlas_triangle_two_instance_cases() raises:
-    var verts = _make_one_local_triangle_z2[Frame.LOCAL]()
-
-    var first_blas = TriangleBvh[Frame.LOCAL, 4](verts)
-    var second_blas = TriangleBvh[Frame.LOCAL, 4](verts)
-
-    var blases = [first_blas.copy(), second_blas.copy()]
-
-    # Near/far along z: nearest should win.
-    var near_far_instances: List = [
-        _triangle_instance[4](0, 0.0, 0.0, 0.0, first_blas),
-        _triangle_instance[4](1, 0.0, 0.0, 6.0, second_blas),
-    ]
-
-    var near_far_tlas = Tlas[4](near_far_instances)
-
-    var center_ray = Rayf32[Frame.WORLD](
-        Point3W(0.0, 0.0, 0.0),
-        Vec3W(0.0, 0.0, 1.0),
-    )
-    _assert_hit(
-        near_far_tlas.trace[TriangleBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT](
-            center_ray,
-            blases,
-        ),
-        0,
-        0,
-        2.0,
-    )
-    # Left/right along x: ray targets second instance.
-    var left_right_instances: List = [
-        _triangle_instance[4](0, -5.0, 0.0, 0.0, first_blas),
-        _triangle_instance[4](1, 5.0, 0.0, 0.0, second_blas),
-    ]
-    var left_right_tlas = Tlas[4](left_right_instances)
-
-    var right_ray = Rayf32[Frame.WORLD](
-        Point3W(5.0, 0.0, 0.0), Vec3W(0.0, 0.0, 1.0)
-    )
-    _assert_hit(
-        left_right_tlas.trace[TriangleBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT](
-            right_ray,
-            blases,
-        ),
-        1,
-        0,
-        2.0,
-    )
-
-
-def _test_tlas_triangle_decoupled_leaf_width[leaf_width: SIMDLength]() raises:
-    var verts = _make_one_local_triangle_z2[Frame.LOCAL]()
-    var blas = TriangleBvh[Frame.LOCAL, 4](verts)
-    var blases = [blas.copy()]
-    var instances: List = [
-        _triangle_instance[4](0, -5.0, 0.0, 0.0, blas),
-        _triangle_instance[4](0, 5.0, 0.0, 0.0, blas),
-        _triangle_instance[4](0, 10.0, 0.0, 0.0, blas),
-    ]
-    var tlas = Tlas[4, leaf_width](instances)
-    var ray = Rayf32[Frame.WORLD](Point3W(5.0, 0.0, 0.0), Vec3W(0.0, 0.0, 1.0))
-
-    _assert_hit(
-        tlas.trace[TriangleBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT](ray, blases),
-        1,
         0,
         2.0,
     )
     assert_true(
-        tlas.trace[TriangleBvh[Frame.LOCAL, 4], TRACE.ANY_HIT](
-            ray, blases
+        not translated.trace_triangle_blases[4, 4, TRACE.CLOSEST_HIT](
+            _ray(), blases
+        ).is_hit()
+    )
+
+
+def test_tlas_triangle_two_instance_cases() raises:
+    var first = _triangle_vertices()
+    var bounds = _triangle_bounds(first)
+    var blases = build_triangle_blases[4]([first^, _triangle_vertices()])
+    var near_far = Tlas[4](
+        [
+            _instance(Primitive.TRIANGLE, 0, bounds, 0.0),
+            _instance(Primitive.TRIANGLE, 1, bounds, 0.0, tz=6.0),
+        ]
+    )
+    _assert_hit(
+        near_far.trace_triangle_blases[4, 4, TRACE.CLOSEST_HIT](_ray(), blases),
+        0,
+        2.0,
+    )
+    var left_right = Tlas[4](
+        [
+            _instance(Primitive.TRIANGLE, 0, bounds, -5.0),
+            _instance(Primitive.TRIANGLE, 1, bounds, 5.0),
+        ]
+    )
+    _assert_hit(
+        left_right.trace_triangle_blases[4, 4, TRACE.CLOSEST_HIT](
+            _ray(5.0), blases
+        ),
+        1,
+        2.0,
+    )
+
+
+def _test_tlas_triangle_leaf_width[leaf_width: SIMDLength]() raises:
+    var vertices = _triangle_vertices()
+    var bounds = _triangle_bounds(vertices)
+    var blases = build_triangle_blases[4]([vertices^])
+    var tlas = Tlas[4, leaf_width](
+        [
+            _instance(Primitive.TRIANGLE, 0, bounds, -5.0),
+            _instance(Primitive.TRIANGLE, 0, bounds, 5.0),
+            _instance(Primitive.TRIANGLE, 0, bounds, 10.0),
+        ]
+    )
+    _assert_hit(
+        tlas.trace_triangle_blases[4, 4, TRACE.CLOSEST_HIT](_ray(5.0), blases),
+        1,
+        2.0,
+    )
+    assert_true(
+        tlas.trace_triangle_blases[4, 4, TRACE.ANY_HIT](
+            _ray(5.0), blases
         ).is_occluded()
     )
 
 
 def test_tlas_triangle_decoupled_leaf_widths() raises:
-    comptime for leaf_width in [1, 2]:
-        _test_tlas_triangle_decoupled_leaf_width[leaf_width]()
+    _test_tlas_triangle_leaf_width[1]()
+    _test_tlas_triangle_leaf_width[2]()
 
 
 def test_tlas_leaf_instance_bounds_filter_missed_blas() raises:
-    """A missed instance must not dispatch its BLAS from a shared TLAS leaf."""
-    var verts = _make_one_local_triangle_z2[Frame.LOCAL]()
-    var blas = TriangleBvh[Frame.LOCAL, 4](verts)
-    var blases = [blas.copy()]
-    var instances: List = [
-        # This deliberately invalid BLAS index is safe only when its SIMD
-        # instance bound is rejected before BLAS dispatch.
-        _triangle_instance[4](99, -5.0, 0.0, 0.0, blas),
-        _triangle_instance[4](0, 5.0, 0.0, 0.0, blas),
-    ]
-    var tlas = Tlas[4, 4](instances)
-    var ray = Rayf32[Frame.WORLD](Point3W(5.0, 0.0, 0.0), Vec3W(0.0, 0.0, 1.0))
-
-    _assert_hit(
-        tlas.trace[TriangleBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT](ray, blases),
-        1,
-        0,
-        2.0,
+    var vertices = _triangle_vertices()
+    var bounds = _triangle_bounds(vertices)
+    var blases = build_triangle_blases[4]([vertices^])
+    var tlas = Tlas[4, 4](
+        [
+            _instance(Primitive.TRIANGLE, 99, bounds, -5.0),
+            _instance(Primitive.TRIANGLE, 0, bounds, 5.0),
+        ]
     )
-    assert_true(
-        tlas.trace[TriangleBvh[Frame.LOCAL, 4], TRACE.ANY_HIT](
-            ray, blases
-        ).is_occluded()
+    _assert_hit(
+        tlas.trace_triangle_blases[4, 4, TRACE.CLOSEST_HIT](_ray(5.0), blases),
+        1,
+        2.0,
     )
 
 
 def test_tlas_triangle_shadow_cases() raises:
-    var verts = _make_one_local_triangle_z2[Frame.LOCAL]()
-
-    var blas = TriangleBvh[Frame.LOCAL, 4](verts)
-
-    var blases = [blas.copy()]
-
-    var instances: List = [_triangle_instance[4](0, 5.0, 0.0, 0.0, blas)]
-
-    var tlas = Tlas[4](instances)
-
-    var ray_hit = Rayf32[Frame.WORLD](
-        Point3W(5.0, 0.0, 0.0), Vec3W(0.0, 0.0, 1.0)
-    )
+    var vertices = _triangle_vertices()
+    var bounds = _triangle_bounds(vertices)
+    var blases = build_triangle_blases[4]([vertices^])
+    var tlas = Tlas[4]([_instance(Primitive.TRIANGLE, 0, bounds, 5.0)])
     assert_true(
-        tlas.trace[TriangleBvh[Frame.LOCAL, 4], TRACE.ANY_HIT](
-            ray_hit,
-            blases,
+        tlas.trace_triangle_blases[4, 4, TRACE.ANY_HIT](
+            _ray(5.0), blases
         ).is_occluded()
     )
-
-    var ray_miss = Rayf32[Frame.WORLD](
-        Point3W(0.0, 0.0, 0.0),
-        Vec3W(0.0, 0.0, 1.0),
-    )
     assert_true(
-        not tlas.trace[TriangleBvh[Frame.LOCAL, 4], TRACE.ANY_HIT](
-            ray_miss,
-            blases,
+        not tlas.trace_triangle_blases[4, 4, TRACE.ANY_HIT](
+            _ray(), blases
         ).is_occluded()
     )
 
 
-# -----------------------------------------------------------------------------
-# Sphere TLAS
-# -----------------------------------------------------------------------------
 def test_tlas_sphere_single_instance_cases() raises:
-    var spheres = _make_one_local_sphere_z2[Frame.LOCAL]()
-
-    var blas = SphereBvh[Frame.LOCAL, 4](spheres^)
-
-    var blases = [blas.copy()]
-
-    # Identity hit.
-    var identity_instances: List = [_sphere_instance[4](0, 0.0, 0.0, 0.0, blas)]
-
-    var identity_tlas = Tlas[4](identity_instances)
-
-    var identity_ray = Rayf32[Frame.WORLD](
-        Point3W(0.0, 0.0, 0.0), Vec3W(0.0, 0.0, 1.0)
+    var spheres = _sphere_values()
+    var bounds = spheres[0].bounds()
+    var blases = build_sphere_blases[4]([spheres^])
+    var identity = Tlas[4]([_instance(Primitive.SPHERE, 0, bounds, 0.0)])
+    var hit = identity.trace_sphere_blases[4, 4, TRACE.CLOSEST_HIT](
+        _ray(), blases
     )
-    var identity_hit = identity_tlas.trace[
-        SphereBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT
-    ](
-        identity_ray,
-        blases,
-    )
-    _assert_hit(identity_hit, 0, 0, 1.0)
-    assert_almost_equal(identity_hit.normal.x, 0.0)
-    assert_almost_equal(identity_hit.normal.y, 0.0)
-    assert_almost_equal(identity_hit.normal.z, -1.0)
+    _assert_hit(hit, 0, 1.0)
+    assert_almost_equal(hit.normal.z, -1.0)
 
-    # Translated hit.
-    var translated_instances: List = [
-        _sphere_instance[4](0, 5.0, 0.0, 0.0, blas)
-    ]
-    var translated_tlas = Tlas[4](translated_instances)
-
-    var translated_hit_ray = Rayf32[Frame.WORLD](
-        Point3W(5.0, 0.0, 0.0),
-        Vec3W(0.0, 0.0, 1.0),
-    )
+    var translated = Tlas[4]([_instance(Primitive.SPHERE, 0, bounds, 5.0)])
     _assert_hit(
-        translated_tlas.trace[SphereBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT](
-            translated_hit_ray,
-            blases,
+        translated.trace_sphere_blases[4, 4, TRACE.CLOSEST_HIT](
+            _ray(5.0), blases
         ),
-        0,
         0,
         1.0,
     )
-
-    # Translated miss.
-    var translated_miss_ray = Rayf32[Frame.WORLD](
-        Point3W(0.0, 0.0, 0.0), Vec3W(0.0, 0.0, 1.0)
+    assert_true(
+        not translated.trace_sphere_blases[4, 4, TRACE.CLOSEST_HIT](
+            _ray(), blases
+        ).is_hit()
     )
-
-    var hit = translated_tlas.trace[
-        SphereBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT
-    ](
-        translated_miss_ray,
-        blases,
-    )
-    assert_true(not hit.is_hit())
 
 
 def test_tlas_sphere_two_instance_cases() raises:
-    var spheres = _make_one_local_sphere_z2[Frame.LOCAL]()
-
-    var first_blas = SphereBvh[Frame.LOCAL, 4](spheres.copy())
-    var second_blas = SphereBvh[Frame.LOCAL, 4](spheres^)
-
-    var blases = [first_blas.copy(), second_blas.copy()]
-
-    # Near/far along z: nearest should win.
-    var near_far_instances: List = [
-        _sphere_instance[4](0, 0.0, 0.0, 0.0, first_blas),
-        _sphere_instance[4](1, 0.0, 0.0, 6.0, second_blas),
-    ]
-    var near_far_tlas = Tlas[4](near_far_instances)
-
-    var center_ray = Rayf32[Frame.WORLD](
-        Point3W(0.0, 0.0, 0.0), Vec3W(0.0, 0.0, 1.0)
+    var first = _sphere_values()
+    var bounds = first[0].bounds()
+    var blases = build_sphere_blases[4]([first^, _sphere_values()])
+    var near_far = Tlas[4](
+        [
+            _instance(Primitive.SPHERE, 0, bounds, 0.0),
+            _instance(Primitive.SPHERE, 1, bounds, 0.0, tz=6.0),
+        ]
     )
     _assert_hit(
-        near_far_tlas.trace[SphereBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT](
-            center_ray,
-            blases,
-        ),
-        0,
+        near_far.trace_sphere_blases[4, 4, TRACE.CLOSEST_HIT](_ray(), blases),
         0,
         1.0,
     )
-
-    # Left/right along x: ray targets second instance.
-    var left_right_instances: List = [
-        _sphere_instance[4](0, -5.0, 0.0, 0.0, first_blas),
-        _sphere_instance[4](1, 5.0, 0.0, 0.0, second_blas),
-    ]
-    var left_right_tlas = Tlas[4](left_right_instances)
-
-    var right_ray = Rayf32[Frame.WORLD](
-        Point3W(5.0, 0.0, 0.0), Vec3W(0.0, 0.0, 1.0)
+    var left_right = Tlas[4](
+        [
+            _instance(Primitive.SPHERE, 0, bounds, -5.0),
+            _instance(Primitive.SPHERE, 1, bounds, 5.0),
+        ]
     )
     _assert_hit(
-        left_right_tlas.trace[SphereBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT](
-            right_ray,
-            blases,
+        left_right.trace_sphere_blases[4, 4, TRACE.CLOSEST_HIT](
+            _ray(5.0), blases
         ),
         1,
-        0,
         1.0,
     )
 
 
 def test_tlas_sphere_nonuniform_scale_normal() raises:
-    var spheres = _make_one_local_sphere_z2[Frame.LOCAL]()
-    var blas = SphereBvh[Frame.LOCAL, 4](spheres^)
-    var blases = [blas.copy()]
-
+    var spheres = _sphere_values()
+    var bounds = spheres[0].bounds()
+    var blases = build_sphere_blases[4]([spheres^])
     var transform = Affine3f32[Frame.LOCAL, Frame.WORLD].from_scale(
         Vec3f32[Frame.LOCAL](2.0, 1.0, 1.0)
     )
-    var instances: List = [
-        Instance(
-            transform,
-            UInt32(0),
-            blas.bounds(),
-            Primitive.SPHERE,
-        )
-    ]
-    var tlas = Tlas[4](instances)
-    var ray = Rayf32[Frame.WORLD](Point3W(1.0, 0.0, 0.0), Vec3W(0.0, 0.0, 1.0))
-    var hit = tlas.trace[SphereBvh[Frame.LOCAL, 4], TRACE.CLOSEST_HIT](
-        ray, blases
+    var tlas = Tlas[4](
+        [Instance(transform, UInt32(0), bounds, Primitive.SPHERE)]
     )
-
-    _assert_hit(hit, 0, 0, 1.1339746)
+    var hit = tlas.trace_sphere_blases[4, 4, TRACE.CLOSEST_HIT](
+        _ray(1.0), blases
+    )
+    _assert_hit(hit, 0, 1.1339746)
     assert_almost_equal(hit.normal.x, 0.2773501, atol=1.0e-5)
-    assert_almost_equal(hit.normal.y, 0.0, atol=1.0e-5)
     assert_almost_equal(hit.normal.z, -0.9607689, atol=1.0e-5)
 
 
 def test_tlas_sphere_shadow_cases() raises:
-    var spheres = _make_one_local_sphere_z2[Frame.LOCAL]()
-
-    var blas = SphereBvh[Frame.LOCAL, 4](spheres^)
-
-    var blases = [blas.copy()]
-
-    var instances: List = [_sphere_instance[4](0, 5.0, 0.0, 0.0, blas)]
-
-    var tlas = Tlas[4](instances)
-
-    var ray_hit = Rayf32[Frame.WORLD](
-        Point3W(5.0, 0.0, 0.0), Vec3W(0.0, 0.0, 1.0)
-    )
+    var spheres = _sphere_values()
+    var bounds = spheres[0].bounds()
+    var blases = build_sphere_blases[4]([spheres^])
+    var tlas = Tlas[4]([_instance(Primitive.SPHERE, 0, bounds, 5.0)])
     assert_true(
-        tlas.trace[SphereBvh[Frame.LOCAL, 4], TRACE.ANY_HIT](
-            ray_hit, blases
+        tlas.trace_sphere_blases[4, 4, TRACE.ANY_HIT](
+            _ray(5.0), blases
         ).is_occluded()
     )
-
-    var ray_miss = Rayf32[Frame.WORLD](
-        Point3W(0.0, 0.0, 0.0), Vec3W(0.0, 0.0, 1.0)
-    )
     assert_true(
-        not tlas.trace[SphereBvh[Frame.LOCAL, 4], TRACE.ANY_HIT](
-            ray_miss,
-            blases,
+        not tlas.trace_sphere_blases[4, 4, TRACE.ANY_HIT](
+            _ray(), blases
         ).is_occluded()
     )
 

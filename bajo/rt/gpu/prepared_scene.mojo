@@ -1,4 +1,9 @@
-"""Compact construction policies for prepared GPU RT scenes."""
+"""Construction policies for immutable prepared GPU RT snapshots.
+
+Preparation uploads a snapshot of `SceneData`. Mutate authoring data before
+preparation and rebuild to observe later changes; there is no implicit device
+update, dirty tracking, or refit.
+"""
 
 from max.gpu.host import DeviceContext
 

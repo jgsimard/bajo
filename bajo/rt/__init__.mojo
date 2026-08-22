@@ -1,5 +1,6 @@
 from bajo.bvh.camera import Camera
 from .cpu import (
+    CpuScene,
     evaluate_bsdf,
     render_depth_first,
     render_wavefront,
@@ -7,9 +8,9 @@ from .cpu import (
     write_ppm_from_colors,
 )
 from .gpu import render_gpu
+from .scene_description import SceneDescription
 from .types import (
     Color,
-    CpuScene,
     BsdfEvaluation,
     BsdfSample,
     Dielectric,

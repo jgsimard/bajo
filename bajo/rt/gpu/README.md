@@ -76,11 +76,16 @@ pipelines. It accepts backend-neutral `SceneData`, so GPU-only callers do not
 construct or retain CPU BVHs. All geometry combinations are supported,
 including signed sphere radii and transformed triangle BLAS/TLAS instances.
 
-`CpuScene` consumes `SceneData` and prepares the CPU BVHs. The concrete
-device-resident scene specializations implement the `GpuScene` contract and
-retain GPU acceleration, material, and light buffers. A caller that needs both
-backends can prepare the GPU scene from `SceneData` first, then move the same
-data into `CpuScene`; a GPU-only caller never needs a `CpuScene`.
+`SceneData` is mutable authoring data. `CpuScene` consumes it into an immutable
+CPU-prepared snapshot and exposes only a read-only `scene_data()` view. The
+concrete device-resident scene specializations upload independent snapshots
+containing GPU acceleration, material, and light buffers. Mutate `SceneData`
+before preparation; rebuild a prepared scene to observe later changes. There
+is deliberately no implicit dirty tracking, update, or refit API yet.
+
+A caller that needs both backends can prepare the GPU scene from `SceneData`
+first, then move the same data into `CpuScene`; a GPU-only caller never needs a
+`CpuScene` or imports CPU acceleration code through the neutral type layer.
 
 Triangle-only rendering defaults to H-PLOC construction and native CWBVH8
 traversal (`node8/leaf4`). Instance rendering defaults to TLAS2/leaf1 and

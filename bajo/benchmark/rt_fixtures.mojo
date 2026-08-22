@@ -154,7 +154,7 @@ def make_mixed_triangle_world() -> CpuScene[]:
 
 def mixed_triangle_camera(world: CpuScene[]) -> Camera:
     var bounds = AABB[Frame.WORLD].invalid()
-    for inst in world.scene.triangle_instances:
+    for inst in world.scene_data().triangle_instances:
         bounds.grow(inst.bounds)
     var center = bounds.centroid()
     var extent = bounds.extent()

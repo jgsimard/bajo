@@ -9,20 +9,20 @@ control meshes are accepted as their unsmoothed triangle control cages.
 
 from .loaders import MemoryPbrtTextLoader, PathPbrtTextLoader, PbrtTextLoader
 from .parser import _parse_pbrt
-from .types import PbrtScene
+from bajo.rt.scene_description import SceneDescription
 
 
-def read_pbrt(path: String) raises -> PbrtScene:
+def read_pbrt(path: String) raises -> SceneDescription:
     var loader = PathPbrtTextLoader()
     return _parse_pbrt(loader.read_text(path), path, loader)
 
 
 def read_pbrt[
     Loader: PbrtTextLoader
-](path: String, loader: Loader) raises -> PbrtScene:
+](path: String, loader: Loader) raises -> SceneDescription:
     return _parse_pbrt(loader.read_text(path), path, loader)
 
 
-def parse_pbrt(text: String, path: String = "") raises -> PbrtScene:
+def parse_pbrt(text: String, path: String = "") raises -> SceneDescription:
     var loader = MemoryPbrtTextLoader()
     return _parse_pbrt(text, path, loader)

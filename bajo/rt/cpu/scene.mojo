@@ -1,0 +1,520 @@
+"""CPU-prepared scene ownership and traversal."""
+
+from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
+from bajo.bvh.cpu.tlas import Tlas
+from bajo.bvh.cpu.blas_set import (
+    build_sphere_blases,
+    build_triangle_blases,
+    trace_sphere_blas_set,
+    trace_sphere_blas_set_packet,
+    trace_triangle_blas_set,
+    trace_triangle_blas_set_packet,
+)
+from bajo.bvh.types import CpuBlasSet, Instance, Sphere
+from bajo.core import Frame, GeoKind, Point3f32, Ray, Rayf32, Vec3, Vec3f32
+from bajo.rt.geometry import orient_surface_normal, sphere_for_acceleration
+from bajo.rt.types import (
+    Color,
+    HitRecord,
+    MAT,
+    PRIM,
+    PrimitiveId,
+    SceneData,
+    SurfaceHit,
+    SurfaceId,
+    SurfaceStore,
+    ray_at,
+)
+
+
+@fieldwise_init
+struct _WorldHit(Copyable, Writable):
+    """Canonical closest-hit record shared by public and renderer queries."""
+
+    var primitive: PrimitiveId
+    var normal: Vec3f32[Frame.WORLD]
+    var surface: SurfaceId[1]
+    var t: Float32
+    var front_face: Bool
+    var hit: Bool
+
+    @staticmethod
+    def miss(t: Float32 = f32_max) -> Self:
+        return Self(
+            PrimitiveId(PRIM.SPHERE, UInt32(0)),
+            Vec3f32[Frame.WORLD](0.0),
+            SurfaceId(MAT.LAMBERTIAN, UInt32(0)),
+            t,
+            True,
+            False,
+        )
+
+
+struct CpuScene[
+    world_bvh_width: SIMDLength = 16,
+    instance_bvh_width: SIMDLength = 16,
+]:
+    """Immutable CPU-prepared snapshot with backend-specific acceleration.
+
+    The input `SceneData` is consumed into this owner. `scene_data()` exposes a
+    read-only view; geometry, surfaces, and lights cannot be mutated through the
+    public prepared-scene API.
+
+    `CpuScene[]` keeps the general-purpose BVH16/BVH16 policy for world geometry
+    and instance BLASes. CPU instance traversal uses one instance per TLAS leaf
+    independently of those SIMD widths. A packet-oriented scene can instead
+    select, for example, `CpuScene[8, 16]` without changing the packet length
+    passed to `render_wavefront`.
+    """
+
+    var sphere_bvh: Optional[CpuBlasSet[Self.world_bvh_width]]
+    var triangle_bvh: Optional[CpuBlasSet[Self.world_bvh_width]]
+    var triangle_tlas: Optional[Tlas[Self.instance_bvh_width, 1]]
+    var triangle_mesh_blases: Optional[CpuBlasSet[Self.instance_bvh_width]]
+    var _scene: SceneData
+
+    def __init__(out self, var scene: SceneData):
+        self._scene = scene^
+        self.sphere_bvh = Optional[CpuBlasSet[Self.world_bvh_width]]()
+        self.triangle_bvh = Optional[CpuBlasSet[Self.world_bvh_width]]()
+        self.triangle_tlas = Optional[Tlas[Self.instance_bvh_width, 1]]()
+        self.triangle_mesh_blases = Optional[
+            CpuBlasSet[Self.instance_bvh_width]
+        ]()
+        self._build_acceleration()
+
+    def __init__(
+        out self,
+        var spheres: List[Sphere[Frame.WORLD]],
+        var sphere_surfaces: List[SurfaceId[1]],
+        var triangle_vertices: List[Point3f32[Frame.WORLD]],
+        var triangle_surfaces: List[SurfaceId[1]],
+        var triangle_meshes: List[List[Point3f32[Frame.LOCAL]]],
+        var triangle_instances: List[Instance],
+        var triangle_instance_surfaces: List[SurfaceId[1]],
+        var surfaces: SurfaceStore,
+    ):
+        self._scene = SceneData(
+            spheres^,
+            sphere_surfaces^,
+            triangle_vertices^,
+            triangle_surfaces^,
+            triangle_meshes^,
+            triangle_instances^,
+            triangle_instance_surfaces^,
+            surfaces^,
+        )
+        self.sphere_bvh = Optional[CpuBlasSet[Self.world_bvh_width]]()
+        self.triangle_bvh = Optional[CpuBlasSet[Self.world_bvh_width]]()
+        self.triangle_tlas = Optional[Tlas[Self.instance_bvh_width, 1]]()
+        self.triangle_mesh_blases = Optional[
+            CpuBlasSet[Self.instance_bvh_width]
+        ]()
+        self._build_acceleration()
+
+    def scene_data(self) -> ref[self._scene] SceneData:
+        """Return the immutable authoring snapshot used for preparation."""
+        return self._scene
+
+    def _build_acceleration(mut self):
+        if len(self._scene.spheres) > 0:
+            var bvh_spheres = List[Sphere[Frame.WORLD]](
+                capacity=len(self._scene.spheres)
+            )
+            for s in self._scene.spheres:
+                bvh_spheres.append(sphere_for_acceleration(s))
+
+            self.sphere_bvh = Optional[CpuBlasSet[Self.world_bvh_width]](
+                build_sphere_blases[Self.world_bvh_width, "sah", Frame.WORLD](
+                    [bvh_spheres^]
+                )
+            )
+
+        if len(self._scene.triangle_vertices) > 0:
+            self.triangle_bvh = Optional[CpuBlasSet[Self.world_bvh_width]](
+                build_triangle_blases[
+                    Self.world_bvh_width,
+                    Self.world_bvh_width,
+                    "sah",
+                    Frame.WORLD,
+                ]([self._scene.triangle_vertices.copy()])
+            )
+
+        if len(self._scene.triangle_instances) > 0:
+            self.triangle_mesh_blases = Optional[
+                CpuBlasSet[Self.instance_bvh_width]
+            ](
+                build_triangle_blases[
+                    Self.instance_bvh_width,
+                    Self.instance_bvh_width,
+                    "sah",
+                    Frame.LOCAL,
+                ](self._scene.triangle_meshes)
+            )
+
+            self.triangle_tlas = Optional[Tlas[Self.instance_bvh_width, 1]](
+                Tlas[Self.instance_bvh_width, 1](self._scene.triangle_instances)
+            )
+
+    @always_inline
+    def occluded[
+        length: SIMDLength
+    ](
+        self,
+        rays: Ray[DType.float32, Frame.WORLD, length],
+        valid: SIMD[DType.bool, length] = SIMD[DType.bool, length](fill=True),
+    ) -> SIMD[DType.bool, length]:
+        """Trace bounded visibility rays together where packet BVHs exist."""
+        comptime if length == 1:
+            var result = SIMD[DType.bool, length](fill=False)
+            if not valid[0]:
+                return result
+            var ray = Rayf32[Frame.WORLD](
+                Point3f32[Frame.WORLD](rays.o.x[0], rays.o.y[0], rays.o.z[0]),
+                Vec3f32[Frame.WORLD](rays.d.x[0], rays.d.y[0], rays.d.z[0]),
+                rays.t_min[0],
+                rays.t_max[0],
+            )
+            if self.sphere_bvh:
+                var hit = trace_sphere_blas_set[
+                    Self.world_bvh_width,
+                    Self.world_bvh_width,
+                    TRACE.ANY_HIT,
+                    Frame.WORLD,
+                ](self.sphere_bvh.value(), UInt32(0), ray)
+                if hit.is_occluded():
+                    result[0] = True
+                    return result
+            if self.triangle_bvh:
+                var hit = trace_triangle_blas_set[
+                    Self.world_bvh_width,
+                    Self.world_bvh_width,
+                    TRACE.ANY_HIT,
+                    Frame.WORLD,
+                ](self.triangle_bvh.value(), UInt32(0), ray)
+                if hit.is_occluded():
+                    result[0] = True
+                    return result
+            if self.triangle_tlas and self.triangle_mesh_blases:
+                var hit = self.triangle_tlas.value().trace_triangle_blases[
+                    Self.instance_bvh_width,
+                    Self.instance_bvh_width,
+                    TRACE.ANY_HIT,
+                ](ray, self.triangle_mesh_blases.value())
+                if hit.is_occluded():
+                    result[0] = True
+            return result
+        else:
+            var result = SIMD[DType.bool, length](fill=False)
+            if self.sphere_bvh:
+                var hits = trace_sphere_blas_set_packet[
+                    Self.world_bvh_width,
+                    Self.world_bvh_width,
+                    length,
+                    Frame.WORLD,
+                ](self.sphere_bvh.value(), UInt32(0), rays, valid)
+                result |= hits.hit_mask()
+
+            if self.triangle_bvh:
+                var active = valid & ~result
+                if active.reduce_or():
+                    var hits = trace_triangle_blas_set_packet[
+                        Self.world_bvh_width,
+                        Self.world_bvh_width,
+                        length,
+                        False,
+                        Frame.WORLD,
+                    ](self.triangle_bvh.value(), UInt32(0), rays, active)
+                    result |= hits.hit_mask()
+
+            if self.triangle_tlas and self.triangle_mesh_blases:
+                for lane in range(length):
+                    if valid[lane] and not result[lane]:
+                        var ray = Rayf32[Frame.WORLD](
+                            Point3f32[Frame.WORLD](
+                                rays.o.x[lane],
+                                rays.o.y[lane],
+                                rays.o.z[lane],
+                            ),
+                            Vec3f32[Frame.WORLD](
+                                rays.d.x[lane],
+                                rays.d.y[lane],
+                                rays.d.z[lane],
+                            ),
+                            rays.t_min[lane],
+                            rays.t_max[lane],
+                        )
+                        result[lane] = (
+                            self.triangle_tlas.value()
+                            .trace_triangle_blases[
+                                Self.instance_bvh_width,
+                                Self.instance_bvh_width,
+                                TRACE.ANY_HIT,
+                            ](ray, self.triangle_mesh_blases.value())
+                            .is_occluded()
+                        )
+            return result
+
+    def _trace_closest(self, ray: Rayf32[Frame.WORLD]) -> _WorldHit:
+        var closest = self._trace_spheres(ray)
+        var triangle_hit = self._trace_triangles(ray)
+        if triangle_hit.hit and (not closest.hit or triangle_hit.t < closest.t):
+            closest = triangle_hit^
+
+        var instance_hit = self._trace_triangle_instances(ray)
+        if instance_hit.hit and (not closest.hit or instance_hit.t < closest.t):
+            closest = instance_hit^
+        return closest^
+
+    def trace(self, ray: Rayf32[Frame.WORLD]) -> Optional[HitRecord]:
+        var hit = self._trace_closest(ray)
+        if not hit.hit:
+            return None
+        return HitRecord(
+            hit.primitive.copy(),
+            ray_at(ray, hit.t),
+            hit.normal,
+            hit.surface.copy(),
+            hit.t,
+            hit.front_face,
+        )
+
+    @always_inline
+    def trace_surface[
+        length: SIMDLength
+    ](
+        self,
+        rays: Ray[DType.float32, Frame.WORLD, length],
+        valid: SIMD[DType.bool, length] = SIMD[DType.bool, length](fill=True),
+    ) -> SurfaceHit[length]:
+        comptime if length == 1:
+            if valid[0]:
+                var ray = Rayf32[Frame.WORLD](
+                    Point3f32[Frame.WORLD](
+                        rays.o.x[0], rays.o.y[0], rays.o.z[0]
+                    ),
+                    Vec3f32[Frame.WORLD](rays.d.x[0], rays.d.y[0], rays.d.z[0]),
+                    rays.t_min[0],
+                    rays.t_max[0],
+                )
+                var scalar_hit = self._trace_closest(ray)
+                var result = SurfaceHit[length](rays.t_max)
+                result.normal.x[0] = scalar_hit.normal.x
+                result.normal.y[0] = scalar_hit.normal.y
+                result.normal.z[0] = scalar_hit.normal.z
+                result.surface.value[0] = scalar_hit.surface.value
+                result.t[0] = scalar_hit.t
+                result.front_face[0] = scalar_hit.front_face
+                result.hit[0] = scalar_hit.hit
+                return result^
+            return SurfaceHit[length](rays.t_max)
+        else:
+            return self._trace_surface_shared_stack(rays, valid)
+
+    def _trace_surface_shared_stack[
+        length: SIMDLength
+    ](
+        self,
+        rays: Ray[DType.float32, Frame.WORLD, length],
+        valid: SIMD[DType.bool, length],
+    ) -> SurfaceHit[length]:
+        """Trace SIMD packets, with scalar TLAS fallback."""
+        comptime assert length > 1
+        var result = SurfaceHit[length](rays.t_max)
+        if self.sphere_bvh:
+            var sphere_hits = trace_sphere_blas_set_packet[
+                Self.world_bvh_width,
+                Self.world_bvh_width,
+                length,
+                Frame.WORLD,
+            ](self.sphere_bvh.value(), UInt32(0), rays, valid)
+            var sphere_mask = sphere_hits.hit_mask()
+            var center_x = SIMD[DType.float32, length](0.0)
+            var center_y = SIMD[DType.float32, length](0.0)
+            var center_z = SIMD[DType.float32, length](0.0)
+            var radius = SIMD[DType.float32, length](1.0)
+            var surface_values = SIMD[DType.uint32, length](0)
+            for lane in range(length):
+                if sphere_mask[lane]:
+                    var sphere_idx = Int(sphere_hits.prim[lane])
+                    ref sphere = self._scene.spheres[sphere_idx]
+                    center_x[lane] = sphere.center.x
+                    center_y[lane] = sphere.center.y
+                    center_z[lane] = sphere.center.z
+                    radius[lane] = sphere.radius
+                    surface_values[lane] = self._scene.sphere_surfaces[
+                        sphere_idx
+                    ].value
+            var inverse_radius = Float32(1.0) / radius
+            var outward_normal = Vec3[DType.float32, Frame.WORLD, length](
+                (rays.o.x + sphere_hits.t * rays.d.x - center_x)
+                * inverse_radius,
+                (rays.o.y + sphere_hits.t * rays.d.y - center_y)
+                * inverse_radius,
+                (rays.o.z + sphere_hits.t * rays.d.z - center_z)
+                * inverse_radius,
+            )
+            var oriented = orient_surface_normal(rays.d, outward_normal)
+            result.normal = Vec3.select(
+                sphere_mask, oriented.normal, result.normal
+            )
+            result.surface.value = sphere_mask.select(
+                surface_values, result.surface.value
+            )
+            result.t = sphere_mask.select(sphere_hits.t, result.t)
+            result.front_face = sphere_mask.select(
+                oriented.front_face, result.front_face
+            )
+            result.hit |= sphere_mask
+
+        if self.triangle_bvh:
+            var triangle_hits = trace_triangle_blas_set_packet[
+                Self.world_bvh_width,
+                Self.world_bvh_width,
+                length,
+                False,
+                Frame.WORLD,
+            ](self.triangle_bvh.value(), UInt32(0), rays, valid)
+            var triangle_mask = triangle_hits.hit_mask() & triangle_hits.t.lt(
+                result.t
+            )
+            var surface_values = SIMD[DType.uint32, length](0)
+            for lane in range(length):
+                if triangle_mask[lane]:
+                    var triangle_idx = Int(triangle_hits.prim[lane])
+                    surface_values[lane] = self._scene.triangle_surfaces[
+                        triangle_idx
+                    ].value
+            var triangle_normal = triangle_hits.normal.unsafe_convert[
+                new_kind=GeoKind.VECTOR
+            ]()
+            var oriented = orient_surface_normal(rays.d, triangle_normal)
+            result.normal = Vec3.select(
+                triangle_mask, oriented.normal, result.normal
+            )
+            result.surface.value = triangle_mask.select(
+                surface_values, result.surface.value
+            )
+            result.t = triangle_mask.select(triangle_hits.t, result.t)
+            result.front_face = triangle_mask.select(
+                oriented.front_face, result.front_face
+            )
+            result.hit |= triangle_mask
+
+        if self.triangle_tlas:
+            for lane in range(length):
+                if valid[lane]:
+                    var ray = Rayf32[Frame.WORLD](
+                        Point3f32[Frame.WORLD](
+                            rays.o.x[lane], rays.o.y[lane], rays.o.z[lane]
+                        ),
+                        Vec3f32[Frame.WORLD](
+                            rays.d.x[lane], rays.d.y[lane], rays.d.z[lane]
+                        ),
+                        rays.t_min[lane],
+                        result.t[lane],
+                    )
+                    var instance_hit = self._trace_triangle_instances(ray)
+                    if instance_hit.hit and instance_hit.t < result.t[lane]:
+                        result.normal.x[lane] = instance_hit.normal.x
+                        result.normal.y[lane] = instance_hit.normal.y
+                        result.normal.z[lane] = instance_hit.normal.z
+                        result.surface.value[lane] = instance_hit.surface.value
+                        result.t[lane] = instance_hit.t
+                        result.front_face[lane] = instance_hit.front_face
+                        result.hit[lane] = True
+
+        return result^
+
+    def _trace_spheres(self, ray: Rayf32[Frame.WORLD]) -> _WorldHit:
+        if not self.sphere_bvh:
+            return _WorldHit.miss(ray.t_max)
+
+        var bvh_hit = trace_sphere_blas_set[
+            Self.world_bvh_width,
+            Self.world_bvh_width,
+            TRACE.CLOSEST_HIT,
+            Frame.WORLD,
+        ](self.sphere_bvh.value(), UInt32(0), ray)
+        if not bvh_hit.is_hit():
+            return _WorldHit.miss(ray.t_max)
+
+        var sphere_idx = Int(bvh_hit.prim)
+        debug_assert["safe", _use_compiler_assume=True](
+            sphere_idx >= 0 and sphere_idx < len(self._scene.spheres),
+            "BVH returned an out-of-range sphere index",
+        )
+        ref sphere = self._scene.spheres[sphere_idx]
+        var p = ray_at(ray, bvh_hit.t)
+        var outward_normal = (p - sphere.center) / sphere.radius
+        var oriented = orient_surface_normal(ray.d, outward_normal)
+        return _WorldHit(
+            PrimitiveId(PRIM.SPHERE, bvh_hit.prim),
+            oriented.normal,
+            self._scene.sphere_surfaces[sphere_idx].copy(),
+            bvh_hit.t,
+            oriented.front_face,
+            True,
+        )
+
+    def _trace_triangles(self, ray: Rayf32[Frame.WORLD]) -> _WorldHit:
+        if not self.triangle_bvh:
+            return _WorldHit.miss(ray.t_max)
+
+        var bvh_hit = trace_triangle_blas_set[
+            Self.world_bvh_width,
+            Self.world_bvh_width,
+            TRACE.CLOSEST_HIT,
+            Frame.WORLD,
+        ](self.triangle_bvh.value(), UInt32(0), ray)
+        if not bvh_hit.is_hit():
+            return _WorldHit.miss(ray.t_max)
+
+        var tri_idx = Int(bvh_hit.prim)
+        debug_assert["safe", _use_compiler_assume=True](
+            tri_idx >= 0 and tri_idx < len(self._scene.triangle_surfaces),
+            "BVH returned an out-of-range triangle index",
+        )
+        var outward_normal = bvh_hit.normal.unsafe_convert[
+            new_kind=GeoKind.VECTOR
+        ]()
+        var oriented = orient_surface_normal(ray.d, outward_normal)
+        return _WorldHit(
+            PrimitiveId(PRIM.TRIANGLE, bvh_hit.prim),
+            oriented.normal,
+            self._scene.triangle_surfaces[tri_idx].copy(),
+            bvh_hit.t,
+            oriented.front_face,
+            True,
+        )
+
+    def _trace_triangle_instances(self, ray: Rayf32[Frame.WORLD]) -> _WorldHit:
+        if not self.triangle_tlas or not self.triangle_mesh_blases:
+            return _WorldHit.miss(ray.t_max)
+
+        var bvh_hit = self.triangle_tlas.value().trace_triangle_blases[
+            Self.instance_bvh_width,
+            Self.instance_bvh_width,
+            TRACE.CLOSEST_HIT,
+        ](ray, self.triangle_mesh_blases.value())
+        if not bvh_hit.is_hit() or bvh_hit.inst == EMPTY_LANE:
+            return _WorldHit.miss(ray.t_max)
+
+        var instance_idx = Int(bvh_hit.inst)
+        debug_assert["safe", _use_compiler_assume=True](
+            instance_idx >= 0
+            and instance_idx < len(self._scene.triangle_instances),
+            "TLAS returned an out-of-range triangle instance index",
+        )
+        var outward_normal = bvh_hit.normal.unsafe_convert[
+            new_kind=GeoKind.VECTOR
+        ]()
+        var oriented = orient_surface_normal(ray.d, outward_normal)
+        return _WorldHit(
+            PrimitiveId(PRIM.TRIANGLE_INSTANCE, bvh_hit.inst),
+            oriented.normal,
+            self._scene.triangle_instance_surfaces[instance_idx].copy(),
+            bvh_hit.t,
+            oriented.front_face,
+            True,
+        )

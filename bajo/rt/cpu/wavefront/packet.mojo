@@ -21,8 +21,8 @@ from bajo.rt.types import (
     RenderSettings,
     ShadingPoint,
     SurfaceStore,
-    CpuScene,
 )
+from ..scene import CpuScene
 from bajo.rt.common import path_stage_rng, russian_roulette, sky_color
 from bajo.rt.wavefront_queue import (
     PacketPathQueue,
@@ -381,7 +381,7 @@ def _trace_path_packets[
                             )
                             * emitted_radiance(
                                 hit.surface,
-                                world.scene.surfaces,
+                                world.scene_data().surfaces,
                                 hit.front_face,
                             )
                             * emission_weight
@@ -467,7 +467,7 @@ def _trace_path_packets[
                     packet,
                     direct_lights,
                     lane_count,
-                    world.scene.surfaces,
+                    world.scene_data().surfaces,
                     settings.samples_per_pixel,
                 )
             _accumulate_sky_packet[length](
@@ -481,21 +481,21 @@ def _trace_path_packets[
         _shade_material_packets[MAT.LAMBERTIAN, length](
             next_paths,
             lambertian_queue,
-            world.scene.surfaces,
+            world.scene_data().surfaces,
             settings,
             UInt32(bounce + 1),
         )
         _shade_material_packets[MAT.METAL, length](
             next_paths,
             metal_queue,
-            world.scene.surfaces,
+            world.scene_data().surfaces,
             settings,
             UInt32(bounce + 1),
         )
         _shade_material_packets[MAT.DIELECTRIC, length](
             next_paths,
             dielectric_queue,
-            world.scene.surfaces,
+            world.scene_data().surfaces,
             settings,
             UInt32(bounce + 1),
         )

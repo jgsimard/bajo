@@ -12,8 +12,8 @@ from bajo.rt.types import (
     RenderResult,
     RenderSettings,
     RenderTimings,
-    CpuScene,
 )
+from ..scene import CpuScene
 from bajo.rt.wavefront_queue import PacketPathQueue, PacketShadeQueue
 
 

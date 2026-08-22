@@ -7,16 +7,17 @@ from bajo.core import Affine3f32, Frame, Point3f32, Vec3f32
 from bajo.parser.obj.f32 import parse_f32_at
 from bajo.rt.types import (
     Color,
+    RENDER,
     RenderSettings,
+    SceneData,
     SurfaceId,
     SurfaceStore,
-    CpuScene,
     add_sphere,
     add_triangle,
 )
+from bajo.rt.scene_description import SceneDescription
 
 from .loaders import PbrtTextLoader
-from .types import PbrtScene
 
 
 comptime _LOCAL = Frame.LOCAL
@@ -216,7 +217,7 @@ struct _Builder:
     var image_height: Int
     var samples_per_pixel: Int
     var max_depth: Int
-    var integrator: String
+    var integrator: RENDER
 
     def __init__(out self):
         self.spheres = List[Sphere[_WORLD]]()
@@ -243,9 +244,9 @@ struct _Builder:
         self.image_height = 480
         self.samples_per_pixel = 16
         self.max_depth = 8
-        self.integrator = "path"
+        self.integrator = RENDER.PATH
 
-    def finish(mut self) raises -> PbrtScene:
+    def finish(mut self) raises -> SceneDescription:
         if len(self.attribute_stack) != 0 or len(self.transform_stack) != 0:
             raise Error("unclosed PBRT attribute or transform scope")
         if len(self.spheres) == 0 and len(self.triangle_vertices) == 0:
@@ -271,7 +272,7 @@ struct _Builder:
         var meshes = List[List[Point3f32[_LOCAL]]]()
         var instances = List[Instance]()
         var instance_surfaces = List[SurfaceId[1]]()
-        var world = CpuScene[](
+        var data = SceneData(
             self.spheres.copy(),
             self.sphere_surfaces.copy(),
             self.triangle_vertices.copy(),
@@ -281,11 +282,10 @@ struct _Builder:
             instance_surfaces^,
             surfaces^,
         )
-        return PbrtScene(
-            world^,
+        return SceneDescription(
+            data^,
             camera,
             settings,
-            self.max_depth,
             self.integrator,
         )
 
@@ -634,7 +634,10 @@ def _parse_text[
                 "integer pixelsamples", 16
             )
         elif command == "Integrator":
-            builder.integrator = lexer.next().value
+            var integrator_name = lexer.next().value
+            if integrator_name != "path":
+                raise Error("only the PBRT path integrator is supported")
+            builder.integrator = RENDER.PATH
             var params = _parse_params(lexer)
             builder.max_depth = params.integer("integer maxdepth", 8)
         elif command == "PixelFilter" or command == "Accelerator":
@@ -739,7 +742,7 @@ def _parse_text[
 
 def _parse_pbrt[
     Loader: PbrtTextLoader
-](text: String, path: String, loader: Loader) raises -> PbrtScene:
+](text: String, path: String, loader: Loader) raises -> SceneDescription:
     var builder = _Builder()
     _parse_text(builder, text, path, loader, 0)
     return builder.finish()

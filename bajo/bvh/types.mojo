@@ -1,4 +1,4 @@
-from max.gpu.host import DeviceBuffer
+from max.gpu.host import DeviceBuffer, DeviceContext, HostBuffer
 
 from bajo.core import (
     AABB,
@@ -206,12 +206,8 @@ trait TypedBvh:
         ...
 
 
-@fieldwise_init
-struct BlasSet[
-    node_width: SIMDLength,
-    leaf_width: SIMDLength = node_width,
-]:
-    comptime WIDE_NODE_BASE = 0
+struct BlasDescLayout:
+    comptime NODE_F32_BASE = 0
     comptime LEAF_F32_BASE = 1
     comptime ROOT_IDX = 2
     comptime NODE_COUNT = 3
@@ -219,7 +215,73 @@ struct BlasSet[
     comptime PRIM_COUNT = 5
     comptime STRIDE = 6
 
+    @staticmethod
+    def base(blas_idx: Int) -> Int:
+        return blas_idx * Self.STRIDE
+
+
+@fieldwise_init
+struct BlasDesc(TrivialRegisterPassable):
+    var node_f32_base: UInt32
+    var leaf_f32_base: UInt32
+    var root_idx: UInt32
+    var node_count: UInt32
+    var leaf_block_count: UInt32
+    var prim_count: UInt32
+
+    @staticmethod
+    def load(descs: ImmPointer[UInt32, _], blas_idx: UInt32) -> Self:
+        var base = BlasDescLayout.base(Int(blas_idx))
+        return Self(
+            descs[unsafe_offset=base + BlasDescLayout.NODE_F32_BASE],
+            descs[unsafe_offset=base + BlasDescLayout.LEAF_F32_BASE],
+            descs[unsafe_offset=base + BlasDescLayout.ROOT_IDX],
+            descs[unsafe_offset=base + BlasDescLayout.NODE_COUNT],
+            descs[unsafe_offset=base + BlasDescLayout.LEAF_BLOCK_COUNT],
+            descs[unsafe_offset=base + BlasDescLayout.PRIM_COUNT],
+        )
+
+
+@fieldwise_init
+struct CpuBlasSet[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength = node_width,
+]:
+    var descs: HostBuffer[DType.uint32]
+    var nodes: HostBuffer[DType.float32]
+    var leaves: HostBuffer[DType.float32]
+    var blas_count: Int
+
+
+@fieldwise_init
+struct GpuBlasSet[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength = node_width,
+]:
     var descs: DeviceBuffer[DType.uint32]
-    var wide_nodes: DeviceBuffer[DType.float32]
+    var nodes: DeviceBuffer[DType.float32]
     var leaves: DeviceBuffer[DType.float32]
     var blas_count: Int
+
+    @staticmethod
+    def empty(mut ctx: DeviceContext, blas_count: Int) raises -> Self:
+        var descs = ctx.enqueue_create_buffer[DType.uint32](
+            blas_count * BlasDescLayout.STRIDE
+        )
+        ctx.enqueue_memset(descs, 0)
+        var nodes = ctx.enqueue_create_buffer[DType.float32](1)
+        var leaves = ctx.enqueue_create_buffer[DType.float32](1)
+        return Self(descs^, nodes^, leaves^, blas_count)
+
+    @staticmethod
+    def from_host(
+        mut ctx: DeviceContext,
+        host: CpuBlasSet[Self.node_width, Self.leaf_width],
+    ) raises -> Self:
+        var descs = ctx.enqueue_create_buffer[DType.uint32](len(host.descs))
+        var nodes = ctx.enqueue_create_buffer[DType.float32](len(host.nodes))
+        var leaves = ctx.enqueue_create_buffer[DType.float32](len(host.leaves))
+        host.descs.enqueue_copy_to(descs)
+        host.nodes.enqueue_copy_to(nodes)
+        host.leaves.enqueue_copy_to(leaves)
+        return Self(descs^, nodes^, leaves^, host.blas_count)

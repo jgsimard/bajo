@@ -25,7 +25,7 @@ from bajo.rt.gpu.triangle_path import (
     GpuRtTriangleScene,
 )
 from bajo.rt.gpu.render import enqueue_render_gpu
-from bench.timing import summarize_timings
+from .timing import summarize_timings
 
 
 comptime IMAGE_WIDTH = 1024
@@ -39,7 +39,7 @@ comptime LEAF_WIDTH = 4
 
 
 @fieldwise_init
-struct GpuRtBenchResult:
+struct GpuRtBenchResult(Copyable):
     var median_submit_ns: Int
     var min_submit_ns: Int
     var max_submit_ns: Int

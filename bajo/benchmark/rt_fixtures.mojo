@@ -24,7 +24,7 @@ from bajo.rt import (
     add_triangle_instance,
     add_triangle_mesh_instance,
 )
-from bench.bvh.fixtures import make_grid_triangles, make_hit_and_miss_rays
+from .bvh_fixtures import make_grid_triangles, make_hit_and_miss_rays
 
 
 comptime TRIANGLE_GRID = 64

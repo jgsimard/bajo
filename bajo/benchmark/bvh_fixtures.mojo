@@ -1,8 +1,11 @@
+"""Geometry and ray fixtures shared by BVH benchmarks."""
+
 from std.math import max
 
 from bajo.bvh.constants import TRACE
 from bajo.bvh.camera import Camera
-from bajo.bvh.cpu.triangle_bvh import TriangleBvh
+from bajo.bvh.cpu.blas_set import trace_triangle_blas_set
+from bajo.bvh.types import CpuBlasSet
 from bajo.core import AABB, Frame, Point3f32, Rayf32, Vec3f32
 
 
@@ -92,13 +95,15 @@ def permute_rays(
 
 
 def select_and_repeat_hit_rays(
-    bvh: TriangleBvh[Frame.WORLD, 16, 16],
+    bvh: CpuBlasSet[16, 16],
     rays: List[Rayf32[Frame.WORLD]],
 ) -> List[Rayf32[Frame.WORLD]]:
     """Retain hit rays in order and repeat them to the original count."""
     var hit_rays = List[Rayf32[Frame.WORLD]](capacity=len(rays))
     for ray in rays:
-        if bvh.trace[TRACE.CLOSEST_HIT](ray).is_hit():
+        if trace_triangle_blas_set[16, 16, TRACE.CLOSEST_HIT, Frame.WORLD](
+            bvh, UInt32(0), ray
+        ).is_hit():
             hit_rays.append(ray.copy())
     debug_assert["safe", _use_compiler_assume=True](
         len(hit_rays) > 0, "high-hit benchmark found no intersections"

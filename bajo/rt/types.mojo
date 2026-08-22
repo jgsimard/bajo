@@ -379,18 +379,9 @@ struct RenderResult:
         self.timings = timings.copy()
 
 
-struct SceneData:
-    """Mutable backend-neutral scene authoring data.
-
-    Build or edit this data before preparation. `CpuScene` consumes it into an
-    immutable CPU snapshot, while GPU preparation uploads a device snapshot.
-    Later authoring changes are not reflected in prepared scenes: rebuild a
-    prepared scene to observe them. No implicit refit or dirty tracking exists.
-
-    `SceneData` performs no acceleration-structure construction, so it can be
-    prepared independently for either backend without paying for the other.
-    """
-
+struct SceneBuilder(
+    Deinitable where (False, "call finish() to validate and finalize the scene")
+):
     var spheres: List[Sphere[Frame.WORLD]]
     var sphere_surfaces: List[SurfaceId[1]]
     var triangle_vertices: List[Point3f32[Frame.WORLD]]
@@ -399,7 +390,16 @@ struct SceneData:
     var triangle_instances: List[Instance]
     var triangle_instance_surfaces: List[SurfaceId[1]]
     var surfaces: SurfaceStore
-    var lights: LightStore
+
+    def __init__(out self):
+        self.spheres = List[Sphere[Frame.WORLD]]()
+        self.sphere_surfaces = List[SurfaceId[1]]()
+        self.triangle_vertices = List[Point3f32[Frame.WORLD]]()
+        self.triangle_surfaces = List[SurfaceId[1]]()
+        self.triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
+        self.triangle_instances = List[Instance]()
+        self.triangle_instance_surfaces = List[SurfaceId[1]]()
+        self.surfaces = SurfaceStore()
 
     def __init__(
         out self,
@@ -412,29 +412,6 @@ struct SceneData:
         var triangle_instance_surfaces: List[SurfaceId[1]],
         var surfaces: SurfaceStore,
     ):
-        debug_assert["safe", _use_compiler_assume=True](
-            len(spheres) > 0
-            or len(triangle_vertices) > 0
-            or len(triangle_instances) > 0,
-            "scene requires at least one primitive",
-        )
-        debug_assert["safe", _use_compiler_assume=True](
-            len(spheres) == len(sphere_surfaces),
-            "sphere and surface sidecar lengths must match",
-        )
-        debug_assert["safe", _use_compiler_assume=True](
-            len(triangle_vertices) % 3 == 0,
-            "triangle vertex count must be a multiple of three",
-        )
-        debug_assert["safe", _use_compiler_assume=True](
-            len(triangle_vertices) / 3 == len(triangle_surfaces),
-            "triangle and surface sidecar lengths must match",
-        )
-        debug_assert["safe", _use_compiler_assume=True](
-            len(triangle_instances) == len(triangle_instance_surfaces),
-            "triangle instance and surface sidecar lengths must match",
-        )
-
         self.spheres = spheres^
         self.sphere_surfaces = sphere_surfaces^
         self.triangle_vertices = triangle_vertices^
@@ -443,61 +420,254 @@ struct SceneData:
         self.triangle_instances = triangle_instances^
         self.triangle_instance_surfaces = triangle_instance_surfaces^
         self.surfaces = surfaces^
-        self.lights = LightStore()
 
-        for i, sphere in enumerate(self.spheres):
-            debug_assert["safe", _use_compiler_assume=True](
-                sphere.radius != 0.0,
-                "sphere radius must be non-zero",
-            )
-            debug_assert["safe", _use_compiler_assume=True](
-                self.surfaces.validate(self.sphere_surfaces[i]),
-                "sphere surface id is out of range",
+    def add_lambertian(mut self, albedo: Color) -> SurfaceId[1]:
+        return self.surfaces.add_lambertian(albedo)
+
+    def add_metal(mut self, albedo: Color, fuzz: Float32) -> SurfaceId[1]:
+        return self.surfaces.add_metal(albedo, fuzz)
+
+    def add_dielectric(mut self, refraction_index: Float32) -> SurfaceId[1]:
+        return self.surfaces.add_dielectric(refraction_index)
+
+    def add_emissive(mut self, radiance: Color) -> SurfaceId[1]:
+        return self.surfaces.add_emissive(radiance)
+
+    def add_sphere(
+        mut self,
+        center: Point3f32[Frame.WORLD],
+        radius: Float32,
+        surface: SurfaceId[1],
+    ):
+        self.spheres.append(Sphere[Frame.WORLD](center, radius))
+        self.sphere_surfaces.append(surface.copy())
+
+    def add_triangle(
+        mut self,
+        v0: Point3f32[Frame.WORLD],
+        v1: Point3f32[Frame.WORLD],
+        v2: Point3f32[Frame.WORLD],
+        surface: SurfaceId[1],
+    ):
+        self.triangle_vertices.append(v0)
+        self.triangle_vertices.append(v1)
+        self.triangle_vertices.append(v2)
+        self.triangle_surfaces.append(surface.copy())
+
+    def add_quad(
+        mut self,
+        a: Point3f32[Frame.WORLD],
+        b: Point3f32[Frame.WORLD],
+        c: Point3f32[Frame.WORLD],
+        d: Point3f32[Frame.WORLD],
+        surface: SurfaceId[1],
+    ):
+        """Append two consistently wound triangles: `(a, b, c)` and `(a, c, d)`.
+        """
+        self.add_triangle(a, b, c, surface)
+        self.add_triangle(a, c, d, surface)
+
+    def add_triangle_mesh(
+        mut self,
+        vertices: ImmSpan[Point3f32[Frame.WORLD], _],
+        surface: SurfaceId[1],
+    ):
+        for v in vertices:
+            self.triangle_vertices.append(v)
+        for _ in range(len(vertices) / 3):
+            self.triangle_surfaces.append(surface.copy())
+
+    def add_triangle_mesh_instance(
+        mut self,
+        vertices: ImmSpan[Point3f32[Frame.LOCAL], _],
+        transform: Affine3f32[Frame.LOCAL, Frame.WORLD],
+        bounds: AABB[Frame.LOCAL],
+        surface: SurfaceId[1],
+    ) -> UInt32:
+        var mesh_idx = UInt32(len(self.triangle_meshes))
+        var owned_vertices = List[Point3f32[Frame.LOCAL]](
+            capacity=len(vertices)
+        )
+        owned_vertices.extend(vertices)
+        self.triangle_meshes.append(owned_vertices^)
+        self.triangle_instances.append(
+            Instance(transform, mesh_idx, bounds, Primitive.TRIANGLE)
+        )
+        self.triangle_instance_surfaces.append(surface.copy())
+        return mesh_idx
+
+    def add_triangle_instance(
+        mut self,
+        mesh_idx: UInt32,
+        transform: Affine3f32[Frame.LOCAL, Frame.WORLD],
+        mesh_bounds: AABB[Frame.LOCAL],
+        surface: SurfaceId[1],
+    ):
+        self.triangle_instances.append(
+            Instance(transform, mesh_idx, mesh_bounds, Primitive.TRIANGLE)
+        )
+        self.triangle_instance_surfaces.append(surface.copy())
+
+    def finish(deinit self) raises -> SceneData:
+        """Consume the builder and produce one validated immutable snapshot."""
+        return SceneData(
+            self.spheres^,
+            self.sphere_surfaces^,
+            self.triangle_vertices^,
+            self.triangle_surfaces^,
+            self.triangle_meshes^,
+            self.triangle_instances^,
+            self.triangle_instance_surfaces^,
+            self.surfaces^,
+        )
+
+
+struct SceneData:
+    """Validated backend-neutral scene snapshot.
+
+    All geometry and material mutation happens in `SceneBuilder`. This type owns
+    the finalized buffers plus the matching derived light distribution. CPU and
+    GPU preparation may read it independently; neither can observe stale
+    sidecars or alias weights.
+    """
+
+    var _spheres: List[Sphere[Frame.WORLD]]
+    var _sphere_surfaces: List[SurfaceId[1]]
+    var _triangle_vertices: List[Point3f32[Frame.WORLD]]
+    var _triangle_surfaces: List[SurfaceId[1]]
+    var _triangle_meshes: List[List[Point3f32[Frame.LOCAL]]]
+    var _triangle_instances: List[Instance]
+    var _triangle_instance_surfaces: List[SurfaceId[1]]
+    var _surfaces: SurfaceStore
+    var _lights: LightStore
+
+    def __init__(
+        out self,
+        var spheres: List[Sphere[Frame.WORLD]],
+        var sphere_surfaces: List[SurfaceId[1]],
+        var triangle_vertices: List[Point3f32[Frame.WORLD]],
+        var triangle_surfaces: List[SurfaceId[1]],
+        var triangle_meshes: List[List[Point3f32[Frame.LOCAL]]],
+        var triangle_instances: List[Instance],
+        var triangle_instance_surfaces: List[SurfaceId[1]],
+        var surfaces: SurfaceStore,
+    ) raises:
+        self._spheres = spheres^
+        self._sphere_surfaces = sphere_surfaces^
+        self._triangle_vertices = triangle_vertices^
+        self._triangle_surfaces = triangle_surfaces^
+        self._triangle_meshes = triangle_meshes^
+        self._triangle_instances = triangle_instances^
+        self._triangle_instance_surfaces = triangle_instance_surfaces^
+        self._surfaces = surfaces^
+        self._lights = LightStore()
+        self._validate()
+        self._build_light_store()
+        self._lights.build_alias_table()
+
+    def spheres(self) -> ref[self._spheres] List[Sphere[Frame.WORLD]]:
+        return self._spheres
+
+    def sphere_surfaces(
+        self,
+    ) -> ref[self._sphere_surfaces] List[SurfaceId[1]]:
+        return self._sphere_surfaces
+
+    def triangle_vertices(
+        self,
+    ) -> ref[self._triangle_vertices] List[Point3f32[Frame.WORLD]]:
+        return self._triangle_vertices
+
+    def triangle_surfaces(
+        self,
+    ) -> ref[self._triangle_surfaces] List[SurfaceId[1]]:
+        return self._triangle_surfaces
+
+    def triangle_meshes(
+        self,
+    ) -> ref[self._triangle_meshes] List[List[Point3f32[Frame.LOCAL]]]:
+        return self._triangle_meshes
+
+    def triangle_instances(
+        self,
+    ) -> ref[self._triangle_instances] List[Instance]:
+        return self._triangle_instances
+
+    def triangle_instance_surfaces(
+        self,
+    ) -> ref[self._triangle_instance_surfaces] List[SurfaceId[1]]:
+        return self._triangle_instance_surfaces
+
+    def surfaces(self) -> ref[self._surfaces] SurfaceStore:
+        return self._surfaces
+
+    def lights(self) -> ref[self._lights] LightStore:
+        return self._lights
+
+    def _validate(self) raises:
+        if (
+            len(self._spheres) == 0
+            and len(self._triangle_vertices) == 0
+            and len(self._triangle_instances) == 0
+        ):
+            raise Error("scene requires at least one primitive")
+        if len(self._spheres) != len(self._sphere_surfaces):
+            raise Error("sphere and surface sidecar lengths must match")
+        if len(self._triangle_vertices) % 3 != 0:
+            raise Error("triangle vertex count must be a multiple of three")
+        if len(self._triangle_vertices) / 3 != len(self._triangle_surfaces):
+            raise Error("triangle and surface sidecar lengths must match")
+        if len(self._triangle_instances) != len(
+            self._triangle_instance_surfaces
+        ):
+            raise Error(
+                "triangle instance and surface sidecar lengths must match"
             )
 
-        for surface in self.triangle_surfaces:
-            debug_assert["safe", _use_compiler_assume=True](
-                self.surfaces.validate(surface),
-                "triangle surface id is out of range",
-            )
+        for i, sphere in enumerate(self._spheres):
+            if sphere.radius == 0.0:
+                raise Error("sphere radius must be non-zero")
+            if not self._surfaces.validate(self._sphere_surfaces[i]):
+                raise Error("sphere surface id is out of range")
 
-        for vertices in self.triangle_meshes:
-            debug_assert["safe", _use_compiler_assume=True](
-                len(vertices) > 0 and len(vertices) % 3 == 0,
-                (
+        for surface in self._triangle_surfaces:
+            if not self._surfaces.validate(surface):
+                raise Error("triangle surface id is out of range")
+
+        for vertices in self._triangle_meshes:
+            if len(vertices) == 0 or len(vertices) % 3 != 0:
+                raise Error(
                     "triangle mesh vertex count must be a positive multiple of"
                     " three"
-                ),
-            )
+                )
 
-        for i, inst in enumerate(self.triangle_instances):
-            debug_assert["safe", _use_compiler_assume=True](
-                inst.kind == Primitive.TRIANGLE,
-                "triangle instance must have triangle primitive kind",
-            )
-            debug_assert["safe", _use_compiler_assume=True](
-                inst.blas_idx < UInt32(len(self.triangle_meshes)),
-                "triangle instance blas_idx is out of range",
-            )
-            debug_assert["safe", _use_compiler_assume=True](
-                self.surfaces.validate(self.triangle_instance_surfaces[i]),
-                "triangle instance surface id is out of range",
-            )
-
-        self._build_light_store()
-        self.lights.build_alias_table()
+        for i, inst in enumerate(self._triangle_instances):
+            if inst.kind != Primitive.TRIANGLE:
+                raise Error(
+                    "triangle instance must have triangle primitive kind"
+                )
+            if inst.blas_idx >= UInt32(len(self._triangle_meshes)):
+                raise Error("triangle instance blas_idx is out of range")
+            var surface = self._triangle_instance_surfaces[i].copy()
+            if not self._surfaces.validate(surface):
+                raise Error("triangle instance surface id is out of range")
+            if surface.kind() == MAT.EMISSIVE:
+                raise Error(
+                    "emissive triangle instances are not supported by the light"
+                    " sampler"
+                )
 
     def _build_light_store(mut self):
-        for idx, surface in enumerate(self.triangle_surfaces):
+        for idx, surface in enumerate(self._triangle_surfaces):
             if surface.kind() == MAT.EMISSIVE:
-                var radiance = self.surfaces.emissives[
+                var radiance = self._surfaces.emissives[
                     Int(surface.index())
                 ].radiance
                 var weight = _scene_triangle_area(self, idx) * (
                     _light_importance(radiance)
                 )
                 if weight > 0.0:
-                    self.lights.append(
+                    self._lights.append(
                         LightRecord(
                             PrimitiveId(PRIM.TRIANGLE, UInt32(idx)),
                             surface.copy(),
@@ -505,17 +675,17 @@ struct SceneData:
                         )
                     )
 
-        for idx, surface in enumerate(self.sphere_surfaces):
+        for idx, surface in enumerate(self._sphere_surfaces):
             if surface.kind() == MAT.EMISSIVE:
-                var radiance = self.surfaces.emissives[
+                var radiance = self._surfaces.emissives[
                     Int(surface.index())
                 ].radiance
-                var radius = sphere_unsigned_radius(self.spheres[idx])
+                var radius = sphere_unsigned_radius(self._spheres[idx])
                 var weight = (
                     4.0 * pi * radius * radius * _light_importance(radiance)
                 )
                 if weight > 0.0:
-                    self.lights.append(
+                    self._lights.append(
                         LightRecord(
                             PrimitiveId(PRIM.SPHERE, UInt32(idx)),
                             surface.copy(),
@@ -531,103 +701,11 @@ def _light_importance(radiance: Color) -> Float32:
 
 @always_inline
 def _scene_triangle_area(scene: SceneData, triangle_index: Int) -> Float32:
-    ref v0 = scene.triangle_vertices[3 * triangle_index + 0]
-    ref v1 = scene.triangle_vertices[3 * triangle_index + 1]
-    ref v2 = scene.triangle_vertices[3 * triangle_index + 2]
+    ref v0 = scene.triangle_vertices()[3 * triangle_index + 0]
+    ref v1 = scene.triangle_vertices()[3 * triangle_index + 1]
+    ref v2 = scene.triangle_vertices()[3 * triangle_index + 2]
     return 0.5 * sqrt(length2(cross(v1 - v0, v2 - v0)))
 
 
 def ray_at(ray: Rayf32[Frame.WORLD], t: Float32) -> Point3f32[Frame.WORLD]:
     return ray.o + t * ray.d
-
-
-def add_sphere(
-    mut spheres: List[Sphere[Frame.WORLD]],
-    mut sphere_surfaces: List[SurfaceId[1]],
-    center: Point3f32[Frame.WORLD],
-    radius: Float32,
-    surface: SurfaceId[1],
-):
-    debug_assert["safe", _use_compiler_assume=True](
-        radius != 0.0, "sphere radius must be non-zero"
-    )
-    spheres.append(Sphere[Frame.WORLD](center, radius))
-    sphere_surfaces.append(surface.copy())
-
-
-def add_triangle(
-    mut triangle_vertices: List[Point3f32[Frame.WORLD]],
-    mut triangle_surfaces: List[SurfaceId[1]],
-    v0: Point3f32[Frame.WORLD],
-    v1: Point3f32[Frame.WORLD],
-    v2: Point3f32[Frame.WORLD],
-    surface: SurfaceId[1],
-):
-    triangle_vertices.append(v0)
-    triangle_vertices.append(v1)
-    triangle_vertices.append(v2)
-    triangle_surfaces.append(surface.copy())
-
-
-def add_triangle_mesh(
-    mut triangle_vertices: List[Point3f32[Frame.WORLD]],
-    mut triangle_surfaces: List[SurfaceId[1]],
-    vertices: ImmSpan[Point3f32[Frame.WORLD], _],
-    surface: SurfaceId[1],
-):
-    debug_assert["safe", _use_compiler_assume=True](
-        len(vertices) % 3 == 0,
-        "triangle mesh vertex count must be a multiple of three",
-    )
-    for v in vertices:
-        triangle_vertices.append(v)
-    for _ in range(len(vertices) / 3):
-        triangle_surfaces.append(surface.copy())
-
-
-def add_triangle_mesh_instance(
-    mut triangle_meshes: List[List[Point3f32[Frame.LOCAL]]],
-    mut triangle_instances: List[Instance],
-    mut triangle_instance_surfaces: List[SurfaceId[1]],
-    vertices: ImmSpan[Point3f32[Frame.LOCAL], _],
-    transform: Affine3f32[Frame.LOCAL, Frame.WORLD],
-    bounds: AABB[Frame.LOCAL],
-    surface: SurfaceId[1],
-) -> UInt32:
-    debug_assert["safe", _use_compiler_assume=True](
-        len(vertices) > 0 and len(vertices) % 3 == 0,
-        "triangle mesh vertex count must be a positive multiple of three",
-    )
-    var mesh_idx = UInt32(len(triangle_meshes))
-    var owned_vertices = List[Point3f32[Frame.LOCAL]](capacity=len(vertices))
-    owned_vertices.extend(vertices)
-    triangle_meshes.append(owned_vertices^)
-    triangle_instances.append(
-        Instance(
-            transform,
-            mesh_idx,
-            bounds,
-            Primitive.TRIANGLE,
-        )
-    )
-    triangle_instance_surfaces.append(surface.copy())
-    return mesh_idx
-
-
-def add_triangle_instance(
-    mut triangle_instances: List[Instance],
-    mut triangle_instance_surfaces: List[SurfaceId[1]],
-    mesh_idx: UInt32,
-    transform: Affine3f32[Frame.LOCAL, Frame.WORLD],
-    mesh_bounds: AABB[Frame.LOCAL],
-    surface: SurfaceId[1],
-):
-    triangle_instances.append(
-        Instance(
-            transform,
-            mesh_idx,
-            mesh_bounds,
-            Primitive.TRIANGLE,
-        )
-    )
-    triangle_instance_surfaces.append(surface.copy())

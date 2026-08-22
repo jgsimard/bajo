@@ -85,8 +85,8 @@ def _upload_nonempty[
 
 
 def _flatten_lambertians(world: SceneData) -> List[Float32]:
-    var out = List[Float32](capacity=len(world.surfaces.lambertians) * 3)
-    for material in world.surfaces.lambertians:
+    var out = List[Float32](capacity=len(world.surfaces().lambertians) * 3)
+    for material in world.surfaces().lambertians:
         out.append(material.albedo.x)
         out.append(material.albedo.y)
         out.append(material.albedo.z)
@@ -94,8 +94,8 @@ def _flatten_lambertians(world: SceneData) -> List[Float32]:
 
 
 def _flatten_metals(world: SceneData) -> List[Float32]:
-    var out = List[Float32](capacity=len(world.surfaces.metals) * 4)
-    for material in world.surfaces.metals:
+    var out = List[Float32](capacity=len(world.surfaces().metals) * 4)
+    for material in world.surfaces().metals:
         out.append(material.albedo.x)
         out.append(material.albedo.y)
         out.append(material.albedo.z)
@@ -104,15 +104,15 @@ def _flatten_metals(world: SceneData) -> List[Float32]:
 
 
 def _flatten_dielectrics(world: SceneData) -> List[Float32]:
-    var out = List[Float32](capacity=len(world.surfaces.dielectrics))
-    for material in world.surfaces.dielectrics:
+    var out = List[Float32](capacity=len(world.surfaces().dielectrics))
+    for material in world.surfaces().dielectrics:
         out.append(material.refraction_index)
     return out^
 
 
 def _flatten_emissives(world: SceneData) -> List[Float32]:
-    var out = List[Float32](capacity=len(world.surfaces.emissives) * 3)
-    for material in world.surfaces.emissives:
+    var out = List[Float32](capacity=len(world.surfaces().emissives) * 3)
+    for material in world.surfaces().emissives:
         out.append(material.radiance.x)
         out.append(material.radiance.y)
         out.append(material.radiance.z)
@@ -138,8 +138,8 @@ struct GpuRtMaterials:
         self.dielectrics = _upload_nonempty(ctx, _flatten_dielectrics(world))
         self.emissives = _upload_nonempty(ctx, _flatten_emissives(world))
         self.has_non_lambertian = (
-            len(world.surfaces.metals) > 0
-            or len(world.surfaces.dielectrics) > 0
+            len(world.surfaces().metals) > 0
+            or len(world.surfaces().dielectrics) > 0
         )
 
 
@@ -156,15 +156,15 @@ struct GpuRtLights:
         mut ctx: DeviceContext,
         world: SceneData,
     ) raises:
-        var kinds = List[UInt32](capacity=len(world.lights.records))
+        var kinds = List[UInt32](capacity=len(world.lights().records))
         var fields = List[Float32](
-            capacity=len(world.lights.records) * GPU_RT_LIGHT_STRIDE
+            capacity=len(world.lights().records) * GPU_RT_LIGHT_STRIDE
         )
         debug_assert["safe", _use_compiler_assume=True](
-            len(world.lights.records) < (1 << 28),
+            len(world.lights().records) < (1 << 28),
             "GPU RT alias table supports fewer than 2^28 lights",
         )
-        for light_idx, light in enumerate(world.lights.records):
+        for light_idx, light in enumerate(world.lights().records):
             var kind = light.primitive.kind()
             var primitive_idx = Int(light.primitive.index())
             var p0: Point3f32[Frame.WORLD]
@@ -172,8 +172,8 @@ struct GpuRtLights:
             var p2 = Point3f32[Frame.WORLD](0.0)
             var radius = Float32(0.0)
             if kind == PRIM.SPHERE:
-                p0 = world.spheres[primitive_idx].center
-                radius = sphere_unsigned_radius(world.spheres[primitive_idx])
+                p0 = world.spheres()[primitive_idx].center
+                radius = sphere_unsigned_radius(world.spheres()[primitive_idx])
             else:
                 debug_assert["safe", _use_compiler_assume=True](
                     kind == PRIM.TRIANGLE,
@@ -182,14 +182,14 @@ struct GpuRtLights:
                         " lights"
                     ),
                 )
-                p0 = world.triangle_vertices[3 * primitive_idx + 0]
-                p1 = world.triangle_vertices[3 * primitive_idx + 1]
-                p2 = world.triangle_vertices[3 * primitive_idx + 2]
-            var radiance = world.surfaces.emissives[
-                Int(light.surface.index())
-            ].radiance
+                p0 = world.triangle_vertices()[3 * primitive_idx + 0]
+                p1 = world.triangle_vertices()[3 * primitive_idx + 1]
+                p2 = world.triangle_vertices()[3 * primitive_idx + 2]
+            var radiance = (
+                world.surfaces().emissives[Int(light.surface.index())].radiance
+            )
             kinds.append(
-                (world.lights.alias_indices[light_idx] << UInt32(4)) | kind.v
+                (world.lights().alias_indices[light_idx] << UInt32(4)) | kind.v
             )
             fields.append(p0.x)
             fields.append(p0.y)
@@ -204,11 +204,11 @@ struct GpuRtLights:
             fields.append(radiance.x)
             fields.append(radiance.y)
             fields.append(radiance.z)
-            fields.append(world.lights.alias_probabilities[light_idx])
+            fields.append(world.lights().alias_probabilities[light_idx])
         self.kinds = _upload_nonempty(ctx, kinds^)
         self.fields = _upload_nonempty(ctx, fields^)
-        self.count = len(world.lights.records)
-        self.total_weight = world.lights.total_weight
+        self.count = len(world.lights().records)
+        self.total_weight = world.lights().total_weight
 
 
 struct GpuRtShadingResources:

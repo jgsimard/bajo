@@ -74,11 +74,11 @@ struct GpuRtTriangleInstanceScene[
         world: SceneData,
     ) raises:
         debug_assert["safe", _use_compiler_assume=True](
-            len(world.triangle_instances) > 0,
+            len(world.triangle_instances()) > 0,
             "GPU instance RT requires triangle instances",
         )
         debug_assert["safe", _use_compiler_assume=True](
-            len(world.spheres) == 0 and len(world.triangle_vertices) == 0,
+            len(world.spheres()) == 0 and len(world.triangle_vertices()) == 0,
             "GPU instance RT currently accepts instance-only worlds",
         )
         self.blases = build_triangle_blas_set[
@@ -86,7 +86,7 @@ struct GpuRtTriangleInstanceScene[
             Self.blas_leaf_width,
             Self.blas_build_method,
             GpuBvhLayout(Self.blas_compressed),
-        ](ctx, world.triangle_meshes)
+        ](ctx, world.triangle_meshes())
         self.tlas = build_triangle_tlas[
             Self.tlas_node_width,
             Self.blas_node_width,
@@ -94,9 +94,9 @@ struct GpuRtTriangleInstanceScene[
             Self.blas_leaf_width,
             Self.tlas_build_method,
             GpuBvhLayout(Self.blas_compressed),
-        ](ctx, world.triangle_instances)
+        ](ctx, world.triangle_instances())
         self.instance_surfaces = upload_surface_ids(
-            ctx, world.triangle_instance_surfaces
+            ctx, world.triangle_instance_surfaces()
         )
         self.shading = GpuRtShadingResources(ctx, world)
 

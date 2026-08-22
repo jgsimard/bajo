@@ -155,7 +155,7 @@ def benchmark_world(
     print(t"checksum: {round(legacy.checksum, 3)}")
 
 
-def main():
+def main() raises:
     print("CPU ray tracer scheduling and image-tile benchmark")
     print(t"{WIDTH}x{HEIGHT} x {SPP} spp, path depth {MAX_DEPTH}")
     print(

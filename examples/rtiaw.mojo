@@ -1,19 +1,15 @@
 from std.time import perf_counter_ns
 
-from bajo.core import Vec3f32, length, Vec3W, Point3W, Frame, Point3, Point3f32
+from bajo.core import Vec3f32, length, Vec3W, Point3W, Frame, Point3
 from bajo.core.random import Rng
 from bajo.core.utils import ns_to_ms
 from bajo.rt import (
     Camera,
     Color,
-    Instance,
     RENDER,
     RenderSettings,
-    Sphere,
-    SurfaceId,
-    SurfaceStore,
+    SceneBuilder,
     CpuScene,
-    add_sphere,
     render_wavefront,
     write_ppm_from_colors,
 )
@@ -31,21 +27,12 @@ comptime RENDER_ALGORITHM = RENDER.PATH
 def make_weekend_world[
     world_bvh_width: SIMDLength = 16,
     instance_bvh_width: SIMDLength = 16,
-]() -> CpuScene[world_bvh_width, instance_bvh_width]:
+]() raises -> CpuScene[world_bvh_width, instance_bvh_width]:
     var rng = Rng(seed=42, id=7)
-    var surfaces = SurfaceStore()
-    var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId[1]]()
-    var triangle_vertices = List[Point3W]()
-    var triangle_surfaces = List[SurfaceId[1]]()
-    var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
-    var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId[1]]()
+    var builder = SceneBuilder()
 
-    var ground_surface = surfaces.add_lambertian(Color(0.5, 0.5, 0.5))
-    add_sphere(
-        spheres,
-        sphere_surfaces,
+    var ground_surface = builder.add_lambertian(Color(0.5, 0.5, 0.5))
+    builder.add_sphere(
         Point3W(0.0, -1000.0, 0.0),
         1000.0,
         ground_surface,
@@ -65,54 +52,40 @@ def make_weekend_world[
                     var albedo = (
                         rng.vec3f32[Frame.WORLD]() * rng.vec3f32[Frame.WORLD]()
                     )
-                    var surface = surfaces.add_lambertian(albedo)
-                    add_sphere(spheres, sphere_surfaces, center, 0.2, surface)
+                    var surface = builder.add_lambertian(albedo)
+                    builder.add_sphere(center, 0.2, surface)
                 elif choose_mat < 0.95:
                     var albedo = rng.vec3f32[Frame.WORLD](0.5, 1.0)
                     var fuzz = rng.f32(0.0, 0.5)
-                    var surface = surfaces.add_metal(albedo, fuzz)
-                    add_sphere(spheres, sphere_surfaces, center, 0.2, surface)
+                    var surface = builder.add_metal(albedo, fuzz)
+                    builder.add_sphere(center, 0.2, surface)
                 else:
-                    var surface = surfaces.add_dielectric(1.5)
-                    add_sphere(spheres, sphere_surfaces, center, 0.2, surface)
+                    var surface = builder.add_dielectric(1.5)
+                    builder.add_sphere(center, 0.2, surface)
 
-    var glass = surfaces.add_dielectric(1.5)
-    add_sphere(
-        spheres,
-        sphere_surfaces,
+    var glass = builder.add_dielectric(1.5)
+    builder.add_sphere(
         Point3W(0.0, 1.0, 0.0),
         1.0,
         glass,
     )
 
-    var diffuse = surfaces.add_lambertian(Color(0.4, 0.2, 0.1))
-    add_sphere(
-        spheres,
-        sphere_surfaces,
+    var diffuse = builder.add_lambertian(Color(0.4, 0.2, 0.1))
+    builder.add_sphere(
         Point3W(-4.0, 1.0, 0.0),
         1.0,
         diffuse,
     )
 
-    var metal = surfaces.add_metal(Color(0.7, 0.6, 0.5), 0.0)
-    add_sphere(
-        spheres,
-        sphere_surfaces,
+    var metal = builder.add_metal(Color(0.7, 0.6, 0.5), 0.0)
+    builder.add_sphere(
         Point3W(4.0, 1.0, 0.0),
         1.0,
         metal,
     )
 
-    return CpuScene[world_bvh_width, instance_bvh_width](
-        spheres^,
-        sphere_surfaces^,
-        triangle_vertices^,
-        triangle_surfaces^,
-        triangle_meshes^,
-        triangle_instances^,
-        triangle_instance_surfaces^,
-        surfaces^,
-    )
+    var scene = builder^.finish()
+    return CpuScene[world_bvh_width, instance_bvh_width](scene^)
 
 
 def main() raises:
@@ -139,10 +112,10 @@ def main() raises:
         0.6,
     )
 
-    print(t"spheres: {len(world.scene_data().spheres)}")
+    print(t"spheres: {len(world.scene_data().spheres())}")
     print(
         t"surfaces:"
-        t" {len(world.scene_data().surfaces.lambertians) + len(world.scene_data().surfaces.metals) + len(world.scene_data().surfaces.dielectrics)}"
+        t" {len(world.scene_data().surfaces().lambertians) + len(world.scene_data().surfaces().metals) + len(world.scene_data().surfaces().dielectrics)}"
     )
 
     var t0 = perf_counter_ns()

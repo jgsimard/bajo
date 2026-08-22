@@ -8,11 +8,9 @@ from bajo.rt.types import (
     Color,
     RENDER,
     RenderSettings,
-    SceneData,
+    SceneBuilder,
     SurfaceId,
     SurfaceStore,
-    add_sphere,
-    add_triangle,
 )
 from bajo.rt.scene_description import SceneDescription
 
@@ -245,6 +243,27 @@ struct _Builder:
         self.max_depth = 8
         self.integrator = RENDER.PATH
 
+    def add_sphere(
+        mut self,
+        center: _PointW,
+        radius: Float32,
+        surface: SurfaceId[1],
+    ):
+        self.spheres.append(Sphere[_WORLD](center, radius))
+        self.sphere_surfaces.append(surface.copy())
+
+    def add_triangle(
+        mut self,
+        v0: _PointW,
+        v1: _PointW,
+        v2: _PointW,
+        surface: SurfaceId[1],
+    ):
+        self.triangle_vertices.append(v0)
+        self.triangle_vertices.append(v1)
+        self.triangle_vertices.append(v2)
+        self.triangle_surfaces.append(surface.copy())
+
     def finish(mut self) raises -> SceneDescription:
         if len(self.attribute_stack) != 0 or len(self.transform_stack) != 0:
             raise Error("unclosed PBRT attribute or transform scope")
@@ -271,7 +290,7 @@ struct _Builder:
         var meshes = List[List[Point3f32[_LOCAL]]]()
         var instances = List[Instance]()
         var instance_surfaces = List[SurfaceId[1]]()
-        var data = SceneData(
+        var scene_builder = SceneBuilder(
             self.spheres.copy(),
             self.sphere_surfaces.copy(),
             self.triangle_vertices.copy(),
@@ -281,6 +300,7 @@ struct _Builder:
             instance_surfaces^,
             surfaces^,
         )
+        var data = scene_builder^.finish()
         return SceneDescription(
             data^,
             camera,
@@ -448,9 +468,7 @@ def _shape(mut builder: _Builder, kind: String, params: _Parameters) raises:
             raise Error(
                 "non-uniformly transformed PBRT spheres are not supported"
             )
-        add_sphere(
-            builder.spheres,
-            builder.sphere_surfaces,
+        builder.add_sphere(
             center,
             params.f32("float radius", 1.0) * sx,
             surface,
@@ -494,18 +512,14 @@ def _shape(mut builder: _Builder, kind: String, params: _Parameters) raises:
                     )
                 )
                 if builder.state.reverse_orientation:
-                    add_triangle(
-                        builder.triangle_vertices,
-                        builder.triangle_surfaces,
+                    builder.add_triangle(
                         p0,
                         p2,
                         p1,
                         surface,
                     )
                 else:
-                    add_triangle(
-                        builder.triangle_vertices,
-                        builder.triangle_surfaces,
+                    builder.add_triangle(
                         p0,
                         p1,
                         p2,
@@ -550,18 +564,14 @@ def _shape(mut builder: _Builder, kind: String, params: _Parameters) raises:
                 )
             )
             if builder.state.reverse_orientation:
-                add_triangle(
-                    builder.triangle_vertices,
-                    builder.triangle_surfaces,
+                builder.add_triangle(
                     p0,
                     p2,
                     p1,
                     surface,
                 )
             else:
-                add_triangle(
-                    builder.triangle_vertices,
-                    builder.triangle_surfaces,
+                builder.add_triangle(
                     p0,
                     p1,
                     p2,

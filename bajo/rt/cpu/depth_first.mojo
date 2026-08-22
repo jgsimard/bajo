@@ -63,7 +63,7 @@ def _trace_path[
         if hit.hit:
             var point = _shading_point(cur_ray, hit)
             var emission = emitted_radiance(
-                hit.surface, world.scene_data().surfaces, hit.front_face
+                hit.surface, world.scene_data().surfaces(), hit.front_face
             )
             if emission.x > 0.0 or emission.y > 0.0 or emission.z > 0.0:
                 var emission_weight = _emissive_hit_weight[ALGORITHM](
@@ -88,7 +88,7 @@ def _trace_path[
                 radiance += throughput * direct
             var scattered = sample_bsdf(
                 hit.surface,
-                world.scene_data().surfaces,
+                world.scene_data().surfaces(),
                 cur_ray,
                 point,
                 rng,

@@ -13,14 +13,10 @@ from bajo.parser.obj.pack import pack_obj_triangles
 from bajo.rt import (
     Camera,
     Color,
-    Instance,
     RENDER,
     RenderSettings,
-    Sphere,
-    SurfaceId,
-    SurfaceStore,
+    SceneBuilder,
     CpuScene,
-    add_triangle_mesh_instance,
 )
 from bajo.rt.gpu.instance_path import (
     GpuRtTriangleInstanceScene,
@@ -45,40 +41,22 @@ comptime DRAGON_PATH = "./assets/dragon/dragon.obj"
 
 
 def _dragon_instance_world() raises -> CpuScene[]:
-    var store = SurfaceStore()
-    var matte = store.add_lambertian(Color(0.65, 0.65, 0.65))
     var mesh = pack_obj_triangles[Frame.LOCAL](DRAGON_PATH)
     var bounds = compute_bounds(mesh)
-    var meshes = List[List[Point3f32[Frame.LOCAL]]]()
-    var instances = List[Instance]()
-    var instance_surfaces = List[SurfaceId[1]]()
-    _ = add_triangle_mesh_instance(
-        meshes,
-        instances,
-        instance_surfaces,
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.65, 0.65, 0.65))
+    _ = builder.add_triangle_mesh_instance(
         mesh,
         Affine3f32[Frame.LOCAL, Frame.WORLD].identity(),
         bounds,
         matte,
     )
-    var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId[1]]()
-    var vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId[1]]()
-    return CpuScene[](
-        spheres^,
-        sphere_surfaces^,
-        vertices^,
-        triangle_surfaces^,
-        meshes^,
-        instances^,
-        instance_surfaces^,
-        store^,
-    )
+    var scene = builder^.finish()
+    return CpuScene[](scene^)
 
 
 def _dragon_camera(world: CpuScene[]) -> Camera:
-    var bounds = compute_bounds(world.scene_data().triangle_meshes[0])
+    var bounds = compute_bounds(world.scene_data().triangle_meshes()[0])
     var center_local = bounds.centroid()
     var center = Point3f32[Frame.WORLD](
         center_local.x, center_local.y, center_local.z

@@ -63,14 +63,14 @@ def _viewer_bvh_stats[
     if BACKEND == 0:
         result = "CPU W" + String(Int(world_bvh_width))
         result += "/I" + String(Int(instance_bvh_width)) + " | "
-        if len(data.spheres) > 0:
+        if len(data.spheres()) > 0:
             result += "sphere" + String(Int(world_bvh_width)) + "/SAH"
-        if len(data.triangle_vertices) > 0:
-            if len(data.spheres) > 0:
+        if len(data.triangle_vertices()) > 0:
+            if len(data.spheres()) > 0:
                 result += " "
             result += "tri" + String(Int(world_bvh_width)) + "/SAH"
-        if len(data.triangle_instances) > 0:
-            if len(data.spheres) > 0 or len(data.triangle_vertices) > 0:
+        if len(data.triangle_instances()) > 0:
+            if len(data.spheres()) > 0 or len(data.triangle_vertices()) > 0:
                 result += " "
             result += (
                 "BLAS"
@@ -81,31 +81,31 @@ def _viewer_bvh_stats[
             )
     else:
         result = "GPU | "
-        if len(data.spheres) > 0:
+        if len(data.spheres()) > 0:
             result += "sphere4/4 LBVH"
-        if len(data.triangle_vertices) > 0:
-            if len(data.spheres) > 0:
+        if len(data.triangle_vertices()) > 0:
+            if len(data.spheres()) > 0:
                 result += " "
-            if len(data.triangle_vertices) / 3 >= 32:
+            if len(data.triangle_vertices()) / 3 >= 32:
                 result += "tri8/4 H-PLOC CWBVH8"
             else:
                 result += "tri4/4 LBVH"
-        if len(data.triangle_instances) > 0:
-            if len(data.spheres) > 0 or len(data.triangle_vertices) > 0:
+        if len(data.triangle_instances()) > 0:
+            if len(data.spheres()) > 0 or len(data.triangle_vertices()) > 0:
                 result += " "
             var weighted_triangles = 0
-            for instance in data.triangle_instances:
+            for instance in data.triangle_instances():
                 weighted_triangles += (
-                    len(data.triangle_meshes[Int(instance.blas_idx)]) / 3
+                    len(data.triangle_meshes()[Int(instance.blas_idx)]) / 3
                 )
-            if weighted_triangles >= len(data.triangle_instances) * 32:
+            if weighted_triangles >= len(data.triangle_instances()) * 32:
                 result += "BLAS8/4 H-PLOC CWBVH8"
             else:
                 result += "BLAS4/4 LBVH"
             result += " TLAS2/1 LBVH"
-    result += " | S" + String(len(data.spheres))
-    result += " T" + String(len(data.triangle_vertices) / 3)
-    result += " I" + String(len(data.triangle_instances))
+    result += " | S" + String(len(data.spheres()))
+    result += " T" + String(len(data.triangle_vertices()) / 3)
+    result += " I" + String(len(data.triangle_instances()))
     return result
 
 

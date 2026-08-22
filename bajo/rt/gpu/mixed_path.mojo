@@ -66,26 +66,26 @@ struct GpuRtMixedScene[
         world: SceneData,
     ) raises:
         debug_assert["safe", _use_compiler_assume=True](
-            len(world.spheres) > 0 and len(world.triangle_vertices) > 0,
+            len(world.spheres()) > 0 and len(world.triangle_vertices()) > 0,
             "GPU mixed RT requires spheres and world-space triangles",
         )
         debug_assert["safe", _use_compiler_assume=True](
-            len(world.triangle_instances) == 0,
+            len(world.triangle_instances()) == 0,
             "GPU mixed-static specialization excludes triangle instances",
         )
 
         self.sphere_geometry = GpuRtSphereGeometry[
             Frame.WORLD, Self.node_width, Self.leaf_width
-        ](ctx, world.spheres, world.sphere_surfaces)
+        ](ctx, world.spheres(), world.sphere_surfaces())
         self.triangle_geometry = GpuRtTriangleGeometry[
             Frame.WORLD,
             Self.triangle_node_width,
             Self.triangle_leaf_width,
             Self.triangle_build_method,
             Self.triangle_compressed,
-        ](ctx, world.triangle_vertices)
+        ](ctx, world.triangle_vertices())
         self.triangle_surfaces = upload_surface_ids(
-            ctx, world.triangle_surfaces
+            ctx, world.triangle_surfaces()
         )
         self.shading = GpuRtShadingResources(ctx, world)
 

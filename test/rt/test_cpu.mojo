@@ -2,6 +2,7 @@ from std.testing import (
     TestSuite,
     assert_almost_equal,
     assert_equal,
+    assert_raises,
     assert_true,
     assert_false,
 )
@@ -31,17 +32,13 @@ from bajo.rt import (
     PrimitiveId,
     RENDER,
     RenderSettings,
+    SceneBuilder,
     ShadingPoint,
     Sphere,
     SurfaceId,
     SurfaceHit,
     SurfaceStore,
     CpuScene,
-    add_sphere,
-    add_triangle,
-    add_triangle_instance,
-    add_triangle_mesh,
-    add_triangle_mesh_instance,
     evaluate_bsdf,
     render_depth_first,
     render_wavefront,
@@ -163,6 +160,47 @@ def test_light_alias_table_matches_power_distribution() raises:
     assert_almost_equal(reconstructed[0], 0.1, atol=1.0e-6)
     assert_almost_equal(reconstructed[1], 0.3, atol=1.0e-6)
     assert_almost_equal(reconstructed[2], 0.6, atol=1.0e-6)
+
+
+def test_scene_builder_finalizes_derived_lights() raises:
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.5))
+    var light = builder.add_emissive(Color(6.0, 4.0, 2.0))
+    builder.add_sphere(Point3f32[Frame.WORLD](0.0, 0.0, -1.0), 0.5, matte)
+    builder.add_sphere(Point3f32[Frame.WORLD](0.0, 2.0, -1.0), 0.25, light)
+    builder.add_quad(
+        Point3f32[Frame.WORLD](-1.0, -1.0, -2.0),
+        Point3f32[Frame.WORLD](1.0, -1.0, -2.0),
+        Point3f32[Frame.WORLD](1.0, 1.0, -2.0),
+        Point3f32[Frame.WORLD](-1.0, 1.0, -2.0),
+        matte,
+    )
+
+    var scene = builder^.finish()
+    assert_equal(len(scene.triangle_vertices()), 6)
+    assert_equal(len(scene.triangle_surfaces()), 2)
+    assert_equal(len(scene.lights().records), 1)
+    assert_equal(scene.lights().records[0].primitive.kind(), PRIM.SPHERE)
+    assert_true(scene.lights().total_weight > 0.0)
+
+
+def test_scene_builder_rejects_emissive_triangle_instances() raises:
+    var builder = SceneBuilder()
+    var light = builder.add_emissive(Color(4.0))
+    var mesh = List[Point3f32[Frame.LOCAL]]()
+    mesh.append(Point3f32[Frame.LOCAL](-1.0, -1.0, 0.0))
+    mesh.append(Point3f32[Frame.LOCAL](1.0, -1.0, 0.0))
+    mesh.append(Point3f32[Frame.LOCAL](0.0, 1.0, 0.0))
+    var bounds = compute_bounds(mesh)
+    _ = builder.add_triangle_mesh_instance(
+        mesh,
+        Affine3f32[Frame.LOCAL, Frame.WORLD].identity(),
+        bounds,
+        light,
+    )
+
+    with assert_raises():
+        _ = builder^.finish()
 
 
 def test_wavefront_philox_streams_are_deterministic_and_separate() raises:
@@ -287,48 +325,29 @@ def test_dielectric_scatter_is_explicit() raises:
 
 
 def test_world_hit_maps_material_and_normal() raises:
-    var surfaces = SurfaceStore()
-    var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId[1]]()
-    var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId[1]]()
-    var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
-    var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId[1]]()
-    var matte = surfaces.add_lambertian(Color(0.5))
-    var light = surfaces.add_emissive(Color(4.0))
-    add_sphere(
-        spheres,
-        sphere_surfaces,
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.5))
+    var light = builder.add_emissive(Color(4.0))
+    builder.add_sphere(
         Point3f32[Frame.WORLD](0.0, 0.0, -1.0),
         0.5,
         matte,
     )
-    add_sphere(
-        spheres,
-        sphere_surfaces,
+    builder.add_sphere(
         Point3f32[Frame.WORLD](10.0, 0.0, -1.0),
         0.25,
         light,
     )
-    var world = CpuScene[4, 8](
-        spheres^,
-        sphere_surfaces^,
-        triangle_vertices^,
-        triangle_surfaces^,
-        triangle_meshes^,
-        triangle_instances^,
-        triangle_instance_surfaces^,
-        surfaces^,
-    )
-    assert_equal(len(world.scene_data().lights.records), 1)
+    var scene = builder^.finish()
+    var world = CpuScene[4, 8](scene^)
+    assert_equal(len(world.scene_data().lights().records), 1)
     assert_equal(
-        world.scene_data().lights.records[0].primitive.kind(), PRIM.SPHERE
+        world.scene_data().lights().records[0].primitive.kind(), PRIM.SPHERE
     )
     assert_equal(
-        world.scene_data().lights.records[0].surface.value, light.value
+        world.scene_data().lights().records[0].surface.value, light.value
     )
-    assert_true(world.scene_data().lights.total_weight > 0.0)
+    assert_true(world.scene_data().lights().total_weight > 0.0)
 
     var hit = (
         world.trace(
@@ -360,32 +379,15 @@ def test_world_hit_maps_material_and_normal() raises:
 
 
 def test_world_preserves_signed_radius_normals() raises:
-    var surfaces = SurfaceStore()
-    var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId[1]]()
-    var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId[1]]()
-    var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
-    var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId[1]]()
-    var glass = surfaces.add_dielectric(1.5)
-    add_sphere(
-        spheres,
-        sphere_surfaces,
+    var builder = SceneBuilder()
+    var glass = builder.add_dielectric(1.5)
+    builder.add_sphere(
         Point3f32[Frame.WORLD](0.0, 0.0, -1.0),
         -0.5,
         glass,
     )
-    var world = CpuScene[](
-        spheres^,
-        sphere_surfaces^,
-        triangle_vertices^,
-        triangle_surfaces^,
-        triangle_meshes^,
-        triangle_instances^,
-        triangle_instance_surfaces^,
-        surfaces^,
-    )
+    var scene = builder^.finish()
+    var world = CpuScene[](scene^)
 
     var hit = (
         world.trace(
@@ -403,33 +405,16 @@ def test_world_preserves_signed_radius_normals() raises:
 
 
 def test_world_hits_triangle() raises:
-    var surfaces = SurfaceStore()
-    var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId[1]]()
-    var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId[1]]()
-    var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
-    var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId[1]]()
-    var matte = surfaces.add_lambertian(Color(0.25, 0.5, 0.75))
-    add_triangle(
-        triangle_vertices,
-        triangle_surfaces,
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.25, 0.5, 0.75))
+    builder.add_triangle(
         Point3f32[Frame.WORLD](-1.0, -1.0, -2.0),
         Point3f32[Frame.WORLD](1.0, -1.0, -2.0),
         Point3f32[Frame.WORLD](0.0, 1.0, -2.0),
         matte,
     )
-    var world = CpuScene[](
-        spheres^,
-        sphere_surfaces^,
-        triangle_vertices^,
-        triangle_surfaces^,
-        triangle_meshes^,
-        triangle_instances^,
-        triangle_instance_surfaces^,
-        surfaces^,
-    )
+    var scene = builder^.finish()
+    var world = CpuScene[](scene^)
 
     var hit = (
         world.trace(
@@ -474,42 +459,23 @@ def test_world_hits_triangle() raises:
 
 
 def test_world_picks_closest_sphere_or_triangle() raises:
-    var surfaces = SurfaceStore()
-    var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId[1]]()
-    var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId[1]]()
-    var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
-    var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId[1]]()
-    var sphere_surface = surfaces.add_lambertian(Color(0.5))
-    var tri_surface = surfaces.add_metal(Color(0.9), 0.0)
+    var builder = SceneBuilder()
+    var sphere_surface = builder.add_lambertian(Color(0.5))
+    var tri_surface = builder.add_metal(Color(0.9), 0.0)
 
-    add_sphere(
-        spheres,
-        sphere_surfaces,
+    builder.add_sphere(
         Point3f32[Frame.WORLD](0.0, 0.0, -1.0),
         0.25,
         sphere_surface,
     )
-    add_triangle(
-        triangle_vertices,
-        triangle_surfaces,
+    builder.add_triangle(
         Point3f32[Frame.WORLD](-1.0, -1.0, -2.0),
         Point3f32[Frame.WORLD](1.0, -1.0, -2.0),
         Point3f32[Frame.WORLD](0.0, 1.0, -2.0),
         tri_surface,
     )
-    var world = CpuScene[](
-        spheres^,
-        sphere_surfaces^,
-        triangle_vertices^,
-        triangle_surfaces^,
-        triangle_meshes^,
-        triangle_instances^,
-        triangle_instance_surfaces^,
-        surfaces^,
-    )
+    var scene = builder^.finish()
+    var world = CpuScene[](scene^)
 
     var hit = (
         world.trace(
@@ -527,15 +493,8 @@ def test_world_picks_closest_sphere_or_triangle() raises:
 
 
 def test_add_triangle_mesh_assigns_surface_per_triangle() raises:
-    var surfaces = SurfaceStore()
-    var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId[1]]()
-    var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId[1]]()
-    var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
-    var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId[1]]()
-    var matte = surfaces.add_lambertian(Color(0.3, 0.4, 0.5))
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.3, 0.4, 0.5))
     var mesh = List[Point3f32[Frame.WORLD]]()
     mesh.append(Point3f32[Frame.WORLD](-1.0, -1.0, -2.0))
     mesh.append(Point3f32[Frame.WORLD](1.0, -1.0, -2.0))
@@ -544,20 +503,11 @@ def test_add_triangle_mesh_assigns_surface_per_triangle() raises:
     mesh.append(Point3f32[Frame.WORLD](1.0, -1.0, -3.0))
     mesh.append(Point3f32[Frame.WORLD](0.0, 1.0, -3.0))
 
-    add_triangle_mesh(triangle_vertices, triangle_surfaces, mesh, matte)
-    assert_equal(len(triangle_vertices), 6)
-    assert_equal(len(triangle_surfaces), 2)
-
-    var world = CpuScene[](
-        spheres^,
-        sphere_surfaces^,
-        triangle_vertices^,
-        triangle_surfaces^,
-        triangle_meshes^,
-        triangle_instances^,
-        triangle_instance_surfaces^,
-        surfaces^,
-    )
+    builder.add_triangle_mesh(mesh, matte)
+    var scene = builder^.finish()
+    var world = CpuScene[](scene^)
+    assert_equal(len(world.scene_data().triangle_vertices()), 6)
+    assert_equal(len(world.scene_data().triangle_surfaces()), 2)
 
     var hit = (
         world.trace(
@@ -575,16 +525,9 @@ def test_add_triangle_mesh_assigns_surface_per_triangle() raises:
 
 
 def test_triangle_mesh_instances_use_instance_surfaces() raises:
-    var surfaces = SurfaceStore()
-    var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId[1]]()
-    var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId[1]]()
-    var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
-    var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId[1]]()
-    var matte = surfaces.add_lambertian(Color(0.2, 0.4, 0.8))
-    var metal = surfaces.add_metal(Color(0.9, 0.8, 0.7), 0.0)
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.2, 0.4, 0.8))
+    var metal = builder.add_metal(Color(0.9, 0.8, 0.7), 0.0)
 
     var mesh = List[Point3f32[Frame.LOCAL]]()
     mesh.append(Point3f32[Frame.LOCAL](-0.5, -0.5, -2.0))
@@ -593,10 +536,7 @@ def test_triangle_mesh_instances_use_instance_surfaces() raises:
     var mesh_bounds = compute_bounds(mesh)
 
     var transform = Affine3f32[Frame.LOCAL, Frame.WORLD].identity()
-    var mesh_idx = add_triangle_mesh_instance(
-        triangle_meshes,
-        triangle_instances,
-        triangle_instance_surfaces,
+    var mesh_idx = builder.add_triangle_mesh_instance(
         mesh,
         transform,
         mesh_bounds,
@@ -606,25 +546,15 @@ def test_triangle_mesh_instances_use_instance_surfaces() raises:
     var t = Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(
         Vec3f32[Frame.WORLD](1.5, 0.0, 0.0)
     )
-    add_triangle_instance(
-        triangle_instances,
-        triangle_instance_surfaces,
+    builder.add_triangle_instance(
         mesh_idx,
         t,
         mesh_bounds,
         metal,
     )
 
-    var world = CpuScene[4, 8](
-        spheres^,
-        sphere_surfaces^,
-        triangle_vertices^,
-        triangle_surfaces^,
-        triangle_meshes^,
-        triangle_instances^,
-        triangle_instance_surfaces^,
-        surfaces^,
-    )
+    var scene = builder^.finish()
+    var world = CpuScene[4, 8](scene^)
 
     var hit0 = (
         world.trace(
@@ -668,26 +598,15 @@ def test_triangle_mesh_instances_use_instance_surfaces() raises:
 
 
 def test_world_occluded_covers_all_geometry_and_ray_interval() raises:
-    var surfaces = SurfaceStore()
-    var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId[1]]()
-    var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId[1]]()
-    var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
-    var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId[1]]()
-    var matte = surfaces.add_lambertian(Color(0.5))
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.5))
 
-    add_sphere(
-        spheres,
-        sphere_surfaces,
+    builder.add_sphere(
         Point3f32[Frame.WORLD](-2.0, 0.0, -2.0),
         0.5,
         matte,
     )
-    add_triangle(
-        triangle_vertices,
-        triangle_surfaces,
+    builder.add_triangle(
         Point3f32[Frame.WORLD](-0.75, -0.75, -3.0),
         Point3f32[Frame.WORLD](0.75, -0.75, -3.0),
         Point3f32[Frame.WORLD](0.0, 0.75, -3.0),
@@ -702,26 +621,15 @@ def test_world_occluded_covers_all_geometry_and_ray_interval() raises:
     var transform = Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(
         Vec3f32[Frame.WORLD](2.0, 0.0, 0.0)
     )
-    _ = add_triangle_mesh_instance(
-        triangle_meshes,
-        triangle_instances,
-        triangle_instance_surfaces,
+    _ = builder.add_triangle_mesh_instance(
         mesh,
         transform,
         mesh_bounds,
         matte,
     )
 
-    var world = CpuScene[](
-        spheres^,
-        sphere_surfaces^,
-        triangle_vertices^,
-        triangle_surfaces^,
-        triangle_meshes^,
-        triangle_instances^,
-        triangle_instance_surfaces^,
-        surfaces^,
-    )
+    var scene = builder^.finish()
+    var world = CpuScene[](scene^)
 
     var sphere_ray = Rayf32[Frame.WORLD](
         Point3f32[Frame.WORLD](-2.0, 0.0, 0.0),
@@ -793,32 +701,15 @@ def test_render_settings_and_tiny_render() raises:
     assert_equal(settings.image_height, 2)
     assert_equal(settings.rng_seed, 9)
 
-    var surfaces = SurfaceStore()
-    var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId[1]]()
-    var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId[1]]()
-    var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
-    var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId[1]]()
-    var matte = surfaces.add_lambertian(Color(0.5))
-    add_sphere(
-        spheres,
-        sphere_surfaces,
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.5))
+    builder.add_sphere(
         Point3f32[Frame.WORLD](0.0, 0.0, -1.0),
         0.5,
         matte,
     )
-    var world = CpuScene[4, 8](
-        spheres^,
-        sphere_surfaces^,
-        triangle_vertices^,
-        triangle_surfaces^,
-        triangle_meshes^,
-        triangle_instances^,
-        triangle_instance_surfaces^,
-        surfaces^,
-    )
+    var scene = builder^.finish()
+    var world = CpuScene[4, 8](scene^)
     var camera = Camera.from_vfov(
         Point3f32[Frame.WORLD](0.0, 0.0, 0.0),
         Point3f32[Frame.WORLD](0.0, 0.0, -1.0),
@@ -850,32 +741,15 @@ def test_render_settings_and_tiny_render() raises:
 
 def test_render_can_select_normal_algorithm_at_compile_time() raises:
     var settings = RenderSettings(1, 1, 1, UInt64(11))
-    var surfaces = SurfaceStore()
-    var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId[1]]()
-    var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId[1]]()
-    var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
-    var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId[1]]()
-    var matte = surfaces.add_lambertian(Color(0.5))
-    add_sphere(
-        spheres,
-        sphere_surfaces,
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.5))
+    builder.add_sphere(
         Point3f32[Frame.WORLD](0.0, 0.0, -1.0),
         0.5,
         matte,
     )
-    var world = CpuScene[](
-        spheres^,
-        sphere_surfaces^,
-        triangle_vertices^,
-        triangle_surfaces^,
-        triangle_meshes^,
-        triangle_instances^,
-        triangle_instance_surfaces^,
-        surfaces^,
-    )
+    var scene = builder^.finish()
+    var world = CpuScene[](scene^)
     var camera = Camera.from_vfov(
         Point3f32[Frame.WORLD](0.0, 0.0, 0.0),
         Point3f32[Frame.WORLD](0.0, 0.0, -1.0),
@@ -890,32 +764,15 @@ def test_render_can_select_normal_algorithm_at_compile_time() raises:
 
 def test_render_can_select_ao_algorithm_at_compile_time() raises:
     var settings = RenderSettings(1, 1, 2, UInt64(12))
-    var surfaces = SurfaceStore()
-    var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId[1]]()
-    var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId[1]]()
-    var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
-    var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId[1]]()
-    var matte = surfaces.add_lambertian(Color(0.5))
-    add_sphere(
-        spheres,
-        sphere_surfaces,
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.5))
+    builder.add_sphere(
         Point3f32[Frame.WORLD](0.0, 0.0, -1.0),
         0.5,
         matte,
     )
-    var world = CpuScene[](
-        spheres^,
-        sphere_surfaces^,
-        triangle_vertices^,
-        triangle_surfaces^,
-        triangle_meshes^,
-        triangle_instances^,
-        triangle_instance_surfaces^,
-        surfaces^,
-    )
+    var scene = builder^.finish()
+    var world = CpuScene[](scene^)
     var camera = Camera.from_vfov(
         Point3f32[Frame.WORLD](0.0, 0.0, 0.0),
         Point3f32[Frame.WORLD](0.0, 0.0, -1.0),
@@ -934,32 +791,15 @@ def test_render_can_select_ao_algorithm_at_compile_time() raises:
 
 def test_wavefront_tiny_render() raises:
     var settings = RenderSettings(3, 2, 2, UInt64(9))
-    var surfaces = SurfaceStore()
-    var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId[1]]()
-    var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId[1]]()
-    var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
-    var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId[1]]()
-    var matte = surfaces.add_lambertian(Color(0.5))
-    add_sphere(
-        spheres,
-        sphere_surfaces,
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.5))
+    builder.add_sphere(
         Point3f32[Frame.WORLD](0.0, 0.0, -1.0),
         0.5,
         matte,
     )
-    var world = CpuScene[](
-        spheres^,
-        sphere_surfaces^,
-        triangle_vertices^,
-        triangle_surfaces^,
-        triangle_meshes^,
-        triangle_instances^,
-        triangle_instance_surfaces^,
-        surfaces^,
-    )
+    var scene = builder^.finish()
+    var world = CpuScene[](scene^)
     var camera = Camera.from_vfov(
         Point3f32[Frame.WORLD](0.0, 0.0, 0.0),
         Point3f32[Frame.WORLD](0.0, 0.0, -1.0),
@@ -1017,57 +857,34 @@ def test_wavefront_tiny_render() raises:
 
 def test_packet_widths_match_width1_for_mixed_bsdfs() raises:
     var settings = RenderSettings(9, 3, 3, UInt64(314159))
-    var surfaces = SurfaceStore()
-    var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId[1]]()
-    var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId[1]]()
-    var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
-    var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId[1]]()
+    var builder = SceneBuilder()
 
-    var ground = surfaces.add_lambertian(Color(0.5))
-    var diffuse = surfaces.add_lambertian(Color(0.7, 0.2, 0.1))
-    var rough_metal = surfaces.add_metal(Color(0.8, 0.75, 0.65), 0.35)
-    var glass = surfaces.add_dielectric(1.5)
-    add_sphere(
-        spheres,
-        sphere_surfaces,
+    var ground = builder.add_lambertian(Color(0.5))
+    var diffuse = builder.add_lambertian(Color(0.7, 0.2, 0.1))
+    var rough_metal = builder.add_metal(Color(0.8, 0.75, 0.65), 0.35)
+    var glass = builder.add_dielectric(1.5)
+    builder.add_sphere(
         Point3f32[Frame.WORLD](0.0, -100.6, -1.5),
         100.0,
         ground,
     )
-    add_sphere(
-        spheres,
-        sphere_surfaces,
+    builder.add_sphere(
         Point3f32[Frame.WORLD](-1.1, 0.0, -1.5),
         0.55,
         diffuse,
     )
-    add_sphere(
-        spheres,
-        sphere_surfaces,
+    builder.add_sphere(
         Point3f32[Frame.WORLD](0.0, 0.0, -1.5),
         0.55,
         rough_metal,
     )
-    add_sphere(
-        spheres,
-        sphere_surfaces,
+    builder.add_sphere(
         Point3f32[Frame.WORLD](1.1, 0.0, -1.5),
         0.55,
         glass,
     )
-    var world = CpuScene[](
-        spheres^,
-        sphere_surfaces^,
-        triangle_vertices^,
-        triangle_surfaces^,
-        triangle_meshes^,
-        triangle_instances^,
-        triangle_instance_surfaces^,
-        surfaces^,
-    )
+    var scene = builder^.finish()
+    var world = CpuScene[](scene^)
     var camera = Camera.from_vfov(
         Point3f32[Frame.WORLD](0.0, 0.35, 2.5),
         Point3f32[Frame.WORLD](0.0, 0.0, -1.5),
@@ -1104,9 +921,9 @@ def test_direct_light_algorithms_render_cornell() raises:
         4.2,
     )
     var result = render_wavefront[RENDER.NEE](settings, camera, world)
-    assert_true(len(world.scene_data().lights.records) > 0)
-    assert_true(world.scene_data().lights.total_weight > 0.0)
-    for light in world.scene_data().lights.records:
+    assert_true(len(world.scene_data().lights().records) > 0)
+    assert_true(world.scene_data().lights().total_weight > 0.0)
+    for light in world.scene_data().lights().records:
         assert_equal(light.surface.kind(), MAT.EMISSIVE)
         assert_true(light.weight > 0.0)
     var depth_first = render_depth_first[RENDER.NEE](settings, camera, world)

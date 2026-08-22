@@ -12,17 +12,10 @@ from bajo.core.utils import ns_to_ms
 from bajo.rt import (
     Camera,
     Color,
-    Instance,
     RENDER,
     RenderSettings,
-    Sphere,
-    SurfaceId,
-    SurfaceStore,
+    SceneBuilder,
     CpuScene,
-    add_sphere,
-    add_triangle,
-    add_triangle_instance,
-    add_triangle_mesh_instance,
 )
 from bajo.rt.gpu.combined_instance_path import (
     GpuRtCombinedInstanceScene,
@@ -43,11 +36,11 @@ from bajo.benchmark.gpu_harness import (
 )
 
 
-def _combined_grid_world() -> CpuScene[]:
-    var store = SurfaceStore()
-    var matte = store.add_lambertian(Color(0.62, 0.58, 0.50))
-    var wall = store.add_lambertian(Color(0.22, 0.28, 0.36))
-    var light = store.add_emissive(Color(5.0, 4.5, 3.8))
+def _combined_grid_world() raises -> CpuScene[]:
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.62, 0.58, 0.50))
+    var wall = builder.add_lambertian(Color(0.22, 0.28, 0.36))
+    var light = builder.add_emissive(Color(5.0, 4.5, 3.8))
 
     var mesh = List[Point3f32[Frame.LOCAL]]()
     mesh.append(Point3f32[Frame.LOCAL](-0.45, -0.45, 0.0))
@@ -57,13 +50,7 @@ def _combined_grid_world() -> CpuScene[]:
     mesh.append(Point3f32[Frame.LOCAL](0.45, 0.45, 0.0))
     mesh.append(Point3f32[Frame.LOCAL](-0.45, 0.45, 0.0))
     var mesh_bounds = compute_bounds(mesh)
-    var meshes = List[List[Point3f32[Frame.LOCAL]]]()
-    var instances = List[Instance]()
-    var instance_surfaces = List[SurfaceId[1]]()
-    var mesh_idx = add_triangle_mesh_instance(
-        meshes,
-        instances,
-        instance_surfaces,
+    var mesh_idx = builder.add_triangle_mesh_instance(
         mesh,
         Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(
             Vec3f32[Frame.WORLD](-7.5, -7.5, -5.0)
@@ -75,9 +62,7 @@ def _combined_grid_world() -> CpuScene[]:
         for x in range(16):
             if x == 0 and y == 0:
                 continue
-            add_triangle_instance(
-                instances,
-                instance_surfaces,
+            builder.add_triangle_instance(
                 mesh_idx,
                 Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(
                     Vec3f32[Frame.WORLD](
@@ -90,52 +75,27 @@ def _combined_grid_world() -> CpuScene[]:
                 matte,
             )
 
-    var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId[1]]()
     for x in range(7):
-        add_sphere(
-            spheres,
-            sphere_surfaces,
+        builder.add_sphere(
             Point3f32[Frame.WORLD](Float32(x) * 2.0 - 6.0, -8.4, -3.7),
             0.55,
             matte,
         )
-    add_sphere(
-        spheres,
-        sphere_surfaces,
+    builder.add_sphere(
         Point3f32[Frame.WORLD](0.0, 8.0, -3.5),
         0.8,
         light,
     )
 
-    var vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId[1]]()
-    add_triangle(
-        vertices,
-        triangle_surfaces,
+    builder.add_quad(
         Point3f32[Frame.WORLD](-10.0, -10.0, -6.0),
         Point3f32[Frame.WORLD](10.0, -10.0, -6.0),
-        Point3f32[Frame.WORLD](10.0, 10.0, -6.0),
-        wall,
-    )
-    add_triangle(
-        vertices,
-        triangle_surfaces,
-        Point3f32[Frame.WORLD](-10.0, -10.0, -6.0),
         Point3f32[Frame.WORLD](10.0, 10.0, -6.0),
         Point3f32[Frame.WORLD](-10.0, 10.0, -6.0),
         wall,
     )
-    return CpuScene[](
-        spheres^,
-        sphere_surfaces^,
-        vertices^,
-        triangle_surfaces^,
-        meshes^,
-        instances^,
-        instance_surfaces^,
-        store^,
-    )
+    var scene = builder^.finish()
+    return CpuScene[](scene^)
 
 
 def _camera() -> Camera:

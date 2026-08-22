@@ -1,8 +1,8 @@
 """Construction policies for immutable prepared GPU RT snapshots.
 
-Preparation uploads a snapshot of `SceneData`. Mutate authoring data before
-preparation and rebuild to observe later changes; there is no implicit device
-update, dirty tracking, or refit.
+Preparation uploads a finalized `SceneData` snapshot. Author with
+`SceneBuilder`, call its consuming `finish()`, and prepare each backend from the
+result; there is no implicit device update, dirty tracking, or refit.
 """
 
 from max.gpu.host import DeviceContext

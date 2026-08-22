@@ -41,19 +41,19 @@ comptime GPU_RT_CWBVH8_BLAS_TRIANGLE_THRESHOLD = 32
 
 def _prefer_cwbvh8_triangles(world: SceneData) -> Bool:
     return (
-        len(world.triangle_vertices) / 3
+        len(world.triangle_vertices()) / 3
         >= GPU_RT_CWBVH8_BLAS_TRIANGLE_THRESHOLD
     )
 
 
 def _prefer_cwbvh8_blases(world: SceneData) -> Bool:
     var weighted_triangles = 0
-    for instance in world.triangle_instances:
+    for instance in world.triangle_instances():
         weighted_triangles += (
-            len(world.triangle_meshes[Int(instance.blas_idx)]) / 3
+            len(world.triangle_meshes()[Int(instance.blas_idx)]) / 3
         )
     return weighted_triangles >= (
-        len(world.triangle_instances) * GPU_RT_CWBVH8_BLAS_TRIANGLE_THRESHOLD
+        len(world.triangle_instances()) * GPU_RT_CWBVH8_BLAS_TRIANGLE_THRESHOLD
     )
 
 
@@ -337,9 +337,9 @@ def render_gpu[
         RENDER.NEE,
         RENDER.MIS,
     )
-    if len(world.triangle_instances) > 0:
-        if len(world.spheres) > 0:
-            if len(world.triangle_vertices) > 0:
+    if len(world.triangle_instances()) > 0:
+        if len(world.spheres()) > 0:
+            if len(world.triangle_vertices()) > 0:
                 return _render_gpu_combined_default[
                     ALGORITHM,
                     True,
@@ -354,7 +354,7 @@ def render_gpu[
                 node_width,
                 leaf_width,
             ](settings, camera, world)
-        if len(world.triangle_vertices) > 0:
+        if len(world.triangle_vertices()) > 0:
             return _render_gpu_combined_default[
                 ALGORITHM,
                 False,
@@ -381,8 +381,8 @@ def render_gpu[
             GpuBvhBuildMethod.LBVH,
             False,
         ](settings, camera, world)
-    if len(world.spheres) > 0:
-        if len(world.triangle_vertices) > 0:
+    if len(world.spheres()) > 0:
+        if len(world.triangle_vertices()) > 0:
             if not _prefer_cwbvh8_triangles(world):
                 return render_gpu_mixed[
                     ALGORITHM,

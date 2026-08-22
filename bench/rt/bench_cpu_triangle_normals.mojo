@@ -39,9 +39,9 @@ def trace_recomputed_normal(
 
     var tri_idx = Int(bvh_hit.prim)
     var base = tri_idx * 3
-    ref v0 = world.scene_data().triangle_vertices[base + 0]
-    ref v1 = world.scene_data().triangle_vertices[base + 1]
-    ref v2 = world.scene_data().triangle_vertices[base + 2]
+    ref v0 = world.scene_data().triangle_vertices()[base + 0]
+    ref v1 = world.scene_data().triangle_vertices()[base + 1]
+    ref v2 = world.scene_data().triangle_vertices()[base + 2]
     var p = ray_at(ray, bvh_hit.t)
     var outward_normal = normalize(cross(v1 - v0, v2 - v0))
     var front_face = dot(ray.d, outward_normal) < 0.0
@@ -50,7 +50,7 @@ def trace_recomputed_normal(
         PrimitiveId(PRIM.TRIANGLE, bvh_hit.prim),
         p,
         normal,
-        world.scene_data().triangle_surfaces[tri_idx].copy(),
+        world.scene_data().triangle_surfaces()[tri_idx].copy(),
         bvh_hit.t,
         front_face,
     )
@@ -76,7 +76,7 @@ def trace_bvh_normal(
         PrimitiveId(PRIM.TRIANGLE, bvh_hit.prim),
         p,
         normal,
-        world.scene_data().triangle_surfaces[tri_idx].copy(),
+        world.scene_data().triangle_surfaces()[tri_idx].copy(),
         bvh_hit.t,
         front_face,
     )

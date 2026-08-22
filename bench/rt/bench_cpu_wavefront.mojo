@@ -179,7 +179,7 @@ def count_wavefront(
             )
             var scattered = sample_bsdf(
                 record.surface,
-                world.scene_data().surfaces,
+                world.scene_data().surfaces(),
                 ray,
                 ShadingPoint(record.p, record.normal, record.front_face),
                 rng,
@@ -317,7 +317,7 @@ def benchmark_direct_lighting(
     )
 
 
-def main():
+def main() raises:
     print("CPU serial wavefront benchmark")
     print(
         t"timing: {TIMING_WIDTH}x{TIMING_HEIGHT} x {TIMING_SPP} spp, "

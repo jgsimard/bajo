@@ -230,7 +230,7 @@ def benchmark_world(
     print(t"  checksum={round(checksum, 3)}")
 
 
-def main():
+def main() raises:
     print("CPU wavefront parallel chunk benchmark")
     print(
         t"{WIDTH}x{HEIGHT} x {SPP} spp, depth {MAX_DEPTH}; interleaved median"

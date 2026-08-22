@@ -186,10 +186,10 @@ def main() raises:
         t" depth={MAX_DEPTH}, two warmups + {PAIRED_REPEATS} alternating pairs"
     )
     print(
-        t"instances={len(world.scene_data().triangle_instances)},"
-        t" meshes={len(world.scene_data().triangle_meshes)},"
-        t" static triangles={len(world.scene_data().triangle_vertices) / 3},"
-        t" spheres={len(world.scene_data().spheres)}"
+        t"instances={len(world.scene_data().triangle_instances())},"
+        t" meshes={len(world.scene_data().triangle_meshes())},"
+        t" static triangles={len(world.scene_data().triangle_vertices()) / 3},"
+        t" spheres={len(world.scene_data().spheres())}"
     )
 
     with DeviceContext() as ctx:

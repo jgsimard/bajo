@@ -98,18 +98,18 @@ struct GpuRtCombinedInstanceScene[
         world: SceneData,
     ) raises:
         debug_assert["safe", _use_compiler_assume=True](
-            len(world.triangle_instances) > 0,
+            len(world.triangle_instances()) > 0,
             "combined GPU RT requires triangle instances",
         )
         debug_assert["safe", _use_compiler_assume=True](
-            (len(world.spheres) > 0) == Self.HAS_SPHERES
-            and (len(world.triangle_vertices) > 0) == Self.HAS_TRIANGLES,
+            (len(world.spheres()) > 0) == Self.HAS_SPHERES
+            and (len(world.triangle_vertices()) > 0) == Self.HAS_TRIANGLES,
             "combined GPU RT geometry flags do not match the world",
         )
 
         var triangle_vertices = List[Point3f32[Frame.WORLD]]()
         comptime if Self.HAS_TRIANGLES:
-            triangle_vertices = world.triangle_vertices.copy()
+            triangle_vertices = world.triangle_vertices().copy()
         else:
             triangle_vertices.append(Point3f32[Frame.WORLD](0.0, 0.0, 0.0))
             triangle_vertices.append(Point3f32[Frame.WORLD](1.0, 0.0, 0.0))
@@ -117,7 +117,9 @@ struct GpuRtCombinedInstanceScene[
 
         self.sphere_geometry = GpuRtSphereGeometry[
             Frame.WORLD, Self.node_width, Self.leaf_width
-        ].__init__[Self.HAS_SPHERES](ctx, world.spheres, world.sphere_surfaces)
+        ].__init__[Self.HAS_SPHERES](
+            ctx, world.spheres(), world.sphere_surfaces()
+        )
         self.triangle_geometry = GpuRtTriangleGeometry[
             Frame.WORLD,
             Self.triangle_node_width,
@@ -130,7 +132,7 @@ struct GpuRtCombinedInstanceScene[
             Self.blas_leaf_width,
             Self.blas_build_method,
             GpuBvhLayout(Self.blas_compressed),
-        ](ctx, world.triangle_meshes)
+        ](ctx, world.triangle_meshes())
         self.tlas = build_triangle_tlas[
             Self.tlas_node_width,
             Self.blas_node_width,
@@ -138,15 +140,15 @@ struct GpuRtCombinedInstanceScene[
             Self.blas_leaf_width,
             Self.tlas_build_method,
             GpuBvhLayout(Self.blas_compressed),
-        ](ctx, world.triangle_instances)
+        ](ctx, world.triangle_instances())
         comptime if Self.HAS_TRIANGLES:
             self.triangle_surfaces = upload_surface_ids(
-                ctx, world.triangle_surfaces
+                ctx, world.triangle_surfaces()
             )
         else:
             self.triangle_surfaces = upload_list(ctx, [UInt32(0)])
         self.instance_surfaces = upload_surface_ids(
-            ctx, world.triangle_instance_surfaces
+            ctx, world.triangle_instance_surfaces()
         )
         self.shading = GpuRtShadingResources(ctx, world)
 

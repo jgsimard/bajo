@@ -17,14 +17,8 @@ from bajo.parser.obj.pack import pack_obj_triangles
 from bajo.rt import (
     Camera,
     Color,
-    Instance,
-    Sphere,
-    SurfaceId,
-    SurfaceStore,
+    SceneBuilder,
     CpuScene,
-    add_sphere,
-    add_triangle,
-    add_triangle_instance,
 )
 
 
@@ -89,48 +83,35 @@ def make_lbvh_world[
     var bounds1 = compute_bounds(mesh1)
     var bounds2 = compute_bounds(mesh2)
 
-    var surfaces = SurfaceStore()
-    var bunny_surface = surfaces.add_lambertian(Color(0.72, 0.34, 0.12))
-    var buddha_surface = surfaces.add_lambertian(Color(0.18, 0.42, 0.78))
-    var dragon_surface = surfaces.add_lambertian(Color(0.68, 0.12, 0.10))
-    var ground_surface = surfaces.add_lambertian(Color(0.28, 0.30, 0.34))
-    var light_surface = surfaces.add_emissive(Color(18.0, 16.0, 13.0))
+    var builder = SceneBuilder()
+    var bunny_surface = builder.add_lambertian(Color(0.72, 0.34, 0.12))
+    var buddha_surface = builder.add_lambertian(Color(0.18, 0.42, 0.78))
+    var dragon_surface = builder.add_lambertian(Color(0.68, 0.12, 0.10))
+    var ground_surface = builder.add_lambertian(Color(0.28, 0.30, 0.34))
+    var light_surface = builder.add_emissive(Color(18.0, 16.0, 13.0))
 
-    var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId[1]]()
-    add_sphere(
-        spheres,
-        sphere_surfaces,
+    builder.add_sphere(
         Point3f32[Frame.WORLD](0.0, 12.0, 0.0),
         2.0,
         light_surface,
     )
 
-    var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId[1]]()
-    add_triangle(
-        triangle_vertices,
-        triangle_surfaces,
+    builder.add_triangle(
         Point3f32[Frame.WORLD](-26.0, 0.0, -26.0),
         Point3f32[Frame.WORLD](26.0, 0.0, -26.0),
         Point3f32[Frame.WORLD](26.0, 0.0, 26.0),
         ground_surface,
     )
-    add_triangle(
-        triangle_vertices,
-        triangle_surfaces,
+    builder.add_triangle(
         Point3f32[Frame.WORLD](-26.0, 0.0, -26.0),
         Point3f32[Frame.WORLD](26.0, 0.0, 26.0),
         Point3f32[Frame.WORLD](-26.0, 0.0, 26.0),
         ground_surface,
     )
 
-    var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]](capacity=3)
-    triangle_meshes.append(mesh0.copy())
-    triangle_meshes.append(mesh1.copy())
-    triangle_meshes.append(mesh2.copy())
-    var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId[1]]()
+    builder.triangle_meshes.append(mesh0.copy())
+    builder.triangle_meshes.append(mesh1.copy())
+    builder.triangle_meshes.append(mesh2.copy())
 
     var rng = Rng(123, 123)
     comptime TARGET_EXTENT = Float32(1.60)
@@ -175,22 +156,12 @@ def make_lbvh_world[
                     scale,
                     Vec3f32[Frame.WORLD](cell_x + local_x, 0.0, cell_z),
                 )
-                add_triangle_instance(
-                    triangle_instances,
-                    triangle_instance_surfaces,
+                builder.add_triangle_instance(
                     UInt32(mesh_idx),
                     transform,
                     bounds,
                     mesh_surfaces[mesh_idx],
                 )
 
-    return CpuScene[world_bvh_width, instance_bvh_width](
-        spheres^,
-        sphere_surfaces^,
-        triangle_vertices^,
-        triangle_surfaces^,
-        triangle_meshes^,
-        triangle_instances^,
-        triangle_instance_surfaces^,
-        surfaces^,
-    )
+    var scene = builder^.finish()
+    return CpuScene[world_bvh_width, instance_bvh_width](scene^)

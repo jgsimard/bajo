@@ -9,7 +9,6 @@ from max.gpu.host import DeviceContext
 from bajo.bvh.camera import Camera
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.host_utils import compute_bounds
-from bajo.bvh.types import Instance, Sphere
 from bajo.core import Affine3f32, Frame, Point3f32, Vec3f32
 from bajo.rt.cpu import CpuScene, render_depth_first, render_wavefront
 from bajo.rt.gpu import (
@@ -38,259 +37,141 @@ from bajo.rt.types import (
     Color,
     RENDER,
     RenderSettings,
+    SceneBuilder,
     SceneData,
-    SurfaceId,
-    SurfaceStore,
-    add_sphere,
-    add_triangle,
-    add_triangle_mesh_instance,
 )
 from examples.cornell_box import make_cornell_world
 
 
-def _sphere_scene_data() -> SceneData:
-    var surfaces = SurfaceStore()
-    var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId[1]]()
-    var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId[1]]()
-    var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
-    var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId[1]]()
-    var matte = surfaces.add_lambertian(Color(0.5, 0.6, 0.7))
-    add_sphere(
-        spheres,
-        sphere_surfaces,
+def _sphere_scene_data() raises -> SceneData:
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.5, 0.6, 0.7))
+    builder.add_sphere(
         Point3f32[Frame.WORLD](0.0, 0.0, -1.0),
         0.5,
         matte,
     )
-    add_sphere(
-        spheres,
-        sphere_surfaces,
+    builder.add_sphere(
         Point3f32[Frame.WORLD](0.0, -100.5, -1.0),
         100.0,
         matte,
     )
-    return SceneData(
-        spheres^,
-        sphere_surfaces^,
-        triangle_vertices^,
-        triangle_surfaces^,
-        triangle_meshes^,
-        triangle_instances^,
-        triangle_instance_surfaces^,
-        surfaces^,
-    )
+    return builder^.finish()
 
 
-def _sphere_world() -> CpuScene[4, 8]:
+def _sphere_world() raises -> CpuScene[4, 8]:
     return CpuScene[4, 8](_sphere_scene_data())
 
 
-def _material_sphere_world() -> CpuScene[4, 8]:
-    var surfaces = SurfaceStore()
-    var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId[1]]()
-    var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId[1]]()
-    var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
-    var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId[1]]()
-    var ground = surfaces.add_lambertian(Color(0.45, 0.45, 0.45))
-    var metal = surfaces.add_metal(Color(0.8, 0.65, 0.3), 0.2)
-    var glass = surfaces.add_dielectric(1.5)
-    var light = surfaces.add_emissive(Color(3.0, 2.0, 1.0))
-    add_sphere(
-        spheres,
-        sphere_surfaces,
+def _material_sphere_world() raises -> CpuScene[4, 8]:
+    var builder = SceneBuilder()
+    var ground = builder.add_lambertian(Color(0.45, 0.45, 0.45))
+    var metal = builder.add_metal(Color(0.8, 0.65, 0.3), 0.2)
+    var glass = builder.add_dielectric(1.5)
+    var light = builder.add_emissive(Color(3.0, 2.0, 1.0))
+    builder.add_sphere(
         Point3f32[Frame.WORLD](0.0, -100.5, -1.5),
         100.0,
         ground,
     )
-    add_sphere(
-        spheres,
-        sphere_surfaces,
+    builder.add_sphere(
         Point3f32[Frame.WORLD](-0.7, 0.0, -1.5),
         0.45,
         metal,
     )
-    add_sphere(
-        spheres,
-        sphere_surfaces,
+    builder.add_sphere(
         Point3f32[Frame.WORLD](0.25, 0.0, -1.25),
         0.45,
         glass,
     )
-    add_sphere(
-        spheres,
-        sphere_surfaces,
+    builder.add_sphere(
         Point3f32[Frame.WORLD](0.9, 0.35, -1.5),
         0.3,
         light,
     )
-    return CpuScene[4, 8](
-        spheres^,
-        sphere_surfaces^,
-        triangle_vertices^,
-        triangle_surfaces^,
-        triangle_meshes^,
-        triangle_instances^,
-        triangle_instance_surfaces^,
-        surfaces^,
-    )
+    var scene = builder^.finish()
+    return CpuScene[4, 8](scene^)
 
 
-def _triangle_scene_data() -> SceneData:
-    var surfaces = SurfaceStore()
-    var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId[1]]()
-    var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId[1]]()
-    var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
-    var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId[1]]()
-    var matte = surfaces.add_lambertian(Color(0.35, 0.65, 0.25))
-    add_triangle(
-        triangle_vertices,
-        triangle_surfaces,
+def _triangle_scene_data() raises -> SceneData:
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.35, 0.65, 0.25))
+    builder.add_triangle(
         Point3f32[Frame.WORLD](-1.5, -1.0, -1.0),
         Point3f32[Frame.WORLD](1.5, -1.0, -1.0),
         Point3f32[Frame.WORLD](1.5, 1.0, -1.0),
         matte,
     )
-    add_triangle(
-        triangle_vertices,
-        triangle_surfaces,
+    builder.add_triangle(
         Point3f32[Frame.WORLD](-1.5, -1.0, -1.0),
         Point3f32[Frame.WORLD](1.5, 1.0, -1.0),
         Point3f32[Frame.WORLD](-1.5, 1.0, -1.0),
         matte,
     )
-    return SceneData(
-        spheres^,
-        sphere_surfaces^,
-        triangle_vertices^,
-        triangle_surfaces^,
-        triangle_meshes^,
-        triangle_instances^,
-        triangle_instance_surfaces^,
-        surfaces^,
-    )
+    return builder^.finish()
 
 
-def _triangle_world() -> CpuScene[4, 8]:
+def _triangle_world() raises -> CpuScene[4, 8]:
     return CpuScene[4, 8](_triangle_scene_data())
 
 
-def _mixed_world() -> CpuScene[4, 8]:
-    var surfaces = SurfaceStore()
-    var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId[1]]()
-    var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId[1]]()
-    var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
-    var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId[1]]()
-    var sphere_matte = surfaces.add_lambertian(Color(0.7, 0.25, 0.2))
-    var back_matte = surfaces.add_lambertian(Color(0.2, 0.35, 0.7))
-    add_sphere(
-        spheres,
-        sphere_surfaces,
+def _mixed_world() raises -> CpuScene[4, 8]:
+    var builder = SceneBuilder()
+    var sphere_matte = builder.add_lambertian(Color(0.7, 0.25, 0.2))
+    var back_matte = builder.add_lambertian(Color(0.2, 0.35, 0.7))
+    builder.add_sphere(
         Point3f32[Frame.WORLD](0.0, 0.0, -1.0),
         0.4,
         sphere_matte,
     )
-    add_triangle(
-        triangle_vertices,
-        triangle_surfaces,
+    builder.add_triangle(
         Point3f32[Frame.WORLD](-2.0, -1.5, -2.0),
         Point3f32[Frame.WORLD](2.0, -1.5, -2.0),
         Point3f32[Frame.WORLD](2.0, 1.5, -2.0),
         back_matte,
     )
-    add_triangle(
-        triangle_vertices,
-        triangle_surfaces,
+    builder.add_triangle(
         Point3f32[Frame.WORLD](-2.0, -1.5, -2.0),
         Point3f32[Frame.WORLD](2.0, 1.5, -2.0),
         Point3f32[Frame.WORLD](-2.0, 1.5, -2.0),
         back_matte,
     )
-    return CpuScene[4, 8](
-        spheres^,
-        sphere_surfaces^,
-        triangle_vertices^,
-        triangle_surfaces^,
-        triangle_meshes^,
-        triangle_instances^,
-        triangle_instance_surfaces^,
-        surfaces^,
-    )
+    var scene = builder^.finish()
+    return CpuScene[4, 8](scene^)
 
 
-def _instance_scene_data() -> SceneData:
-    var surfaces = SurfaceStore()
-    var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId[1]]()
-    var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId[1]]()
-    var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
-    var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId[1]]()
-    var matte = surfaces.add_lambertian(Color(0.55, 0.3, 0.75))
+def _instance_scene_data() raises -> SceneData:
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.55, 0.3, 0.75))
     var mesh = List[Point3f32[Frame.LOCAL]]()
     mesh.append(Point3f32[Frame.LOCAL](-1.25, -1.0, -1.0))
     mesh.append(Point3f32[Frame.LOCAL](1.25, -1.0, -1.0))
     mesh.append(Point3f32[Frame.LOCAL](0.0, 1.0, -1.0))
     var bounds = compute_bounds(mesh)
-    _ = add_triangle_mesh_instance(
-        triangle_meshes,
-        triangle_instances,
-        triangle_instance_surfaces,
+    _ = builder.add_triangle_mesh_instance(
         mesh,
         Affine3f32[Frame.LOCAL, Frame.WORLD].identity(),
         bounds,
         matte,
     )
-    return SceneData(
-        spheres^,
-        sphere_surfaces^,
-        triangle_vertices^,
-        triangle_surfaces^,
-        triangle_meshes^,
-        triangle_instances^,
-        triangle_instance_surfaces^,
-        surfaces^,
-    )
+    return builder^.finish()
 
 
-def _instance_world() -> CpuScene[4, 8]:
+def _instance_world() raises -> CpuScene[4, 8]:
     return CpuScene[4, 8](_instance_scene_data())
 
 
-def _combined_instance_world() -> CpuScene[4, 8]:
-    var surfaces = SurfaceStore()
-    var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId[1]]()
-    var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId[1]]()
-    var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
-    var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId[1]]()
-    var red = surfaces.add_lambertian(Color(0.7, 0.2, 0.2))
-    var blue = surfaces.add_lambertian(Color(0.2, 0.3, 0.7))
-    var green = surfaces.add_lambertian(Color(0.2, 0.7, 0.3))
-    add_sphere(
-        spheres,
-        sphere_surfaces,
+def _combined_instance_world() raises -> CpuScene[4, 8]:
+    var builder = SceneBuilder()
+    var red = builder.add_lambertian(Color(0.7, 0.2, 0.2))
+    var blue = builder.add_lambertian(Color(0.2, 0.3, 0.7))
+    var green = builder.add_lambertian(Color(0.2, 0.7, 0.3))
+    builder.add_sphere(
         Point3f32[Frame.WORLD](-0.55, 0.0, -1.1),
         0.3,
         red,
     )
-    add_triangle(
-        triangle_vertices,
-        triangle_surfaces,
+    builder.add_triangle(
         Point3f32[Frame.WORLD](-2.0, -1.2, -2.0),
         Point3f32[Frame.WORLD](2.0, -1.2, -2.0),
         Point3f32[Frame.WORLD](0.0, 1.5, -2.0),
@@ -301,10 +182,7 @@ def _combined_instance_world() -> CpuScene[4, 8]:
     mesh.append(Point3f32[Frame.LOCAL](0.25, -0.35, -1.0))
     mesh.append(Point3f32[Frame.LOCAL](0.0, 0.35, -1.0))
     var bounds = compute_bounds(mesh)
-    _ = add_triangle_mesh_instance(
-        triangle_meshes,
-        triangle_instances,
-        triangle_instance_surfaces,
+    _ = builder.add_triangle_mesh_instance(
         mesh,
         Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(
             Vec3f32[Frame.WORLD](0.55, 0.0, 0.0)
@@ -312,16 +190,8 @@ def _combined_instance_world() -> CpuScene[4, 8]:
         bounds,
         green,
     )
-    return CpuScene[4, 8](
-        spheres^,
-        sphere_surfaces^,
-        triangle_vertices^,
-        triangle_surfaces^,
-        triangle_meshes^,
-        triangle_instances^,
-        triangle_instance_surfaces^,
-        surfaces^,
-    )
+    var scene = builder^.finish()
+    return CpuScene[4, 8](scene^)
 
 
 def _camera() -> Camera:
@@ -491,7 +361,7 @@ def test_prepared_scene_policy_and_common_enqueue_api() raises:
         assert_equal(len(pixels), settings.image_width * settings.image_height)
 
 
-def test_prepared_gpu_scene_is_snapshot_of_authoring_data() raises:
+def test_prepared_gpu_scene_is_stable_across_repeated_renders() raises:
     var settings = RenderSettings(3, 2, 1, UInt64(237))
     var data = _sphere_scene_data()
     with DeviceContext() as ctx:
@@ -500,11 +370,6 @@ def test_prepared_gpu_scene_is_snapshot_of_authoring_data() raises:
 
         enqueue_render_gpu[RENDER.NORMALS](ctx, target, scene, settings)
         var before = download_gpu_pixels(ctx, target)
-
-        data.spheres.append(
-            Sphere[Frame.WORLD](Point3f32[Frame.WORLD](0.0, 0.0, -0.25), 10.0)
-        )
-        data.sphere_surfaces.append(data.sphere_surfaces[0].copy())
 
         enqueue_render_gpu[RENDER.NORMALS](ctx, target, scene, settings)
         var after = download_gpu_pixels(ctx, target)
@@ -580,23 +445,38 @@ def test_gpu_triangle_instances_match_cpu_wavefront() raises:
 def test_gpu_instance_default_policy_keeps_micro_blas_wide() raises:
     var data = _instance_scene_data()
     assert_true(not _prefer_cwbvh8_blases(data))
-    for _ in range(31):
-        data.triangle_meshes[0].append(
-            Point3f32[Frame.LOCAL](-1.25, -1.0, -1.0)
-        )
-        data.triangle_meshes[0].append(Point3f32[Frame.LOCAL](1.25, -1.0, -1.0))
-        data.triangle_meshes[0].append(Point3f32[Frame.LOCAL](0.0, 1.0, -1.0))
-    assert_true(_prefer_cwbvh8_blases(data))
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.55, 0.3, 0.75))
+    var mesh = List[Point3f32[Frame.LOCAL]]()
+    for _ in range(32):
+        mesh.append(Point3f32[Frame.LOCAL](-1.25, -1.0, -1.0))
+        mesh.append(Point3f32[Frame.LOCAL](1.25, -1.0, -1.0))
+        mesh.append(Point3f32[Frame.LOCAL](0.0, 1.0, -1.0))
+    var bounds = compute_bounds(mesh)
+    _ = builder.add_triangle_mesh_instance(
+        mesh,
+        Affine3f32[Frame.LOCAL, Frame.WORLD].identity(),
+        bounds,
+        matte,
+    )
+    var large = builder^.finish()
+    assert_true(_prefer_cwbvh8_blases(large))
 
 
 def test_gpu_static_default_policy_keeps_micro_geometry_wide() raises:
     var data = _triangle_scene_data()
     assert_true(not _prefer_cwbvh8_triangles(data))
-    for _ in range(30):
-        data.triangle_vertices.append(Point3f32[Frame.WORLD](-1.5, -1.0, -1.0))
-        data.triangle_vertices.append(Point3f32[Frame.WORLD](1.5, -1.0, -1.0))
-        data.triangle_vertices.append(Point3f32[Frame.WORLD](0.0, 1.0, -1.0))
-    assert_true(_prefer_cwbvh8_triangles(data))
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.35, 0.65, 0.25))
+    for _ in range(32):
+        builder.add_triangle(
+            Point3f32[Frame.WORLD](-1.5, -1.0, -1.0),
+            Point3f32[Frame.WORLD](1.5, -1.0, -1.0),
+            Point3f32[Frame.WORLD](0.0, 1.0, -1.0),
+            matte,
+        )
+    var large = builder^.finish()
+    assert_true(_prefer_cwbvh8_triangles(large))
 
 
 def test_gpu_default_hploc_cwbvh8_instances_match_cpu_wavefront() raises:

@@ -10,14 +10,10 @@ from bajo.core.utils import ns_to_ms
 from bajo.rt import (
     Camera,
     Color,
-    Instance,
     RENDER,
     RenderSettings,
-    Sphere,
-    SurfaceId,
-    SurfaceStore,
+    SceneBuilder,
     CpuScene,
-    add_triangle,
 )
 from bajo.rt.gpu.common_kernels import GPU_RT_MAX_BLOCKS
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
@@ -59,26 +55,15 @@ def gpu_rt_camera() -> Camera:
     )
 
 
-def make_many_light_world() -> CpuScene[]:
+def make_many_light_world() raises -> CpuScene[]:
     """Diffuse receiver plus 64 emissive triangles for selection scaling."""
-    var store = SurfaceStore()
-    var matte = store.add_lambertian(Color(0.7, 0.7, 0.7))
-    var light = store.add_emissive(Color(8.0, 8.0, 8.0))
-    var vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId[1]]()
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.7, 0.7, 0.7))
+    var light = builder.add_emissive(Color(8.0, 8.0, 8.0))
 
-    add_triangle(
-        vertices,
-        triangle_surfaces,
+    builder.add_quad(
         Point3f32[Frame.WORLD](-1.2, 0.0, -2.0),
         Point3f32[Frame.WORLD](1.2, 0.0, -2.0),
-        Point3f32[Frame.WORLD](1.2, 2.0, -2.0),
-        matte,
-    )
-    add_triangle(
-        vertices,
-        triangle_surfaces,
-        Point3f32[Frame.WORLD](-1.2, 0.0, -2.0),
         Point3f32[Frame.WORLD](1.2, 2.0, -2.0),
         Point3f32[Frame.WORLD](-1.2, 2.0, -2.0),
         matte,
@@ -89,25 +74,15 @@ def make_many_light_world() -> CpuScene[]:
             var x = -0.84 + Float32(light_x) * 0.24
             var y = 0.20 + Float32(light_y) * 0.22
             var half_size = Float32(0.035)
-            add_triangle(
-                vertices,
-                triangle_surfaces,
+            builder.add_triangle(
                 Point3f32[Frame.WORLD](x - half_size, y - half_size, -1.45),
                 Point3f32[Frame.WORLD](x, y + half_size, -1.45),
                 Point3f32[Frame.WORLD](x + half_size, y - half_size, -1.45),
                 light,
             )
 
-    return CpuScene[](
-        List[Sphere[Frame.WORLD]](),
-        List[SurfaceId[1]](),
-        vertices^,
-        triangle_surfaces^,
-        List[List[Point3f32[Frame.LOCAL]]](),
-        List[Instance](),
-        List[SurfaceId[1]](),
-        store^,
-    )
+    var scene = builder^.finish()
+    return CpuScene[](scene^)
 
 
 def gpu_rt_checksum(pixels: List[Color]) -> Float64:

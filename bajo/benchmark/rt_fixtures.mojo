@@ -3,7 +3,6 @@
 from std.math import max
 
 from bajo.bvh.host_utils import compute_bounds
-from bajo.bvh import Instance, Sphere
 from bajo.core import (
     AABB,
     Affine3f32,
@@ -17,12 +16,8 @@ from bajo.core import (
 from bajo.rt import (
     Camera,
     Color,
-    SurfaceId,
-    SurfaceStore,
+    SceneBuilder,
     CpuScene,
-    add_triangle,
-    add_triangle_instance,
-    add_triangle_mesh_instance,
 )
 from .bvh_fixtures import make_grid_triangles, make_hit_and_miss_rays
 
@@ -69,29 +64,20 @@ def make_mixed_triangle_mesh() -> List[Point3f32[Frame.LOCAL]]:
     return vertices^
 
 
-def make_mixed_triangle_world() -> CpuScene[]:
-    var surfaces = SurfaceStore()
-    var diffuse = surfaces.add_lambertian(Color(0.55, 0.32, 0.18))
-    var ground = surfaces.add_lambertian(Color(0.35, 0.38, 0.32))
-    var metal = surfaces.add_metal(Color(0.75, 0.78, 0.82), 0.12)
-    var glass = surfaces.add_dielectric(1.45)
-    var triangle_vertices = List[Point3f32[Frame.WORLD]]()
-    var triangle_surfaces = List[SurfaceId[1]]()
-    var triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
-    var triangle_instances = List[Instance]()
-    var triangle_instance_surfaces = List[SurfaceId[1]]()
+def make_mixed_triangle_world() raises -> CpuScene[]:
+    var builder = SceneBuilder()
+    var diffuse = builder.add_lambertian(Color(0.55, 0.32, 0.18))
+    var ground = builder.add_lambertian(Color(0.35, 0.38, 0.32))
+    var metal = builder.add_metal(Color(0.75, 0.78, 0.82), 0.12)
+    var glass = builder.add_dielectric(1.45)
 
-    add_triangle(
-        triangle_vertices,
-        triangle_surfaces,
+    builder.add_triangle(
         Point3W(-7.0, -0.2, -7.0),
         Point3W(7.0, -0.2, 7.0),
         Point3W(7.0, -0.2, -7.0),
         ground,
     )
-    add_triangle(
-        triangle_vertices,
-        triangle_surfaces,
+    builder.add_triangle(
         Point3W(-7.0, -0.2, -7.0),
         Point3W(-7.0, -0.2, 7.0),
         Point3W(7.0, -0.2, 7.0),
@@ -103,10 +89,7 @@ def make_mixed_triangle_world() -> CpuScene[]:
     var first_transform = Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(
         Vec3f32[Frame.WORLD](-4.0, 0.0, -4.0)
     )
-    var mesh_idx = add_triangle_mesh_instance(
-        triangle_meshes,
-        triangle_instances,
-        triangle_instance_surfaces,
+    var mesh_idx = builder.add_triangle_mesh_instance(
         mesh,
         first_transform,
         mesh_bounds,
@@ -131,30 +114,20 @@ def make_mixed_triangle_world() -> CpuScene[]:
                 surface = metal.copy()
             elif selector == 2:
                 surface = glass.copy()
-            add_triangle_instance(
-                triangle_instances,
-                triangle_instance_surfaces,
+            builder.add_triangle_instance(
                 mesh_idx,
                 transform,
                 mesh_bounds,
                 surface,
             )
 
-    return CpuScene[](
-        List[Sphere[Frame.WORLD]](),
-        List[SurfaceId[1]](),
-        triangle_vertices^,
-        triangle_surfaces^,
-        triangle_meshes^,
-        triangle_instances^,
-        triangle_instance_surfaces^,
-        surfaces^,
-    )
+    var scene = builder^.finish()
+    return CpuScene[](scene^)
 
 
 def mixed_triangle_camera(world: CpuScene[]) -> Camera:
     var bounds = AABB[Frame.WORLD].invalid()
-    for inst in world.scene_data().triangle_instances:
+    for inst in world.scene_data().triangle_instances():
         bounds.grow(inst.bounds)
     var center = bounds.centroid()
     var extent = bounds.extent()
@@ -167,23 +140,13 @@ def mixed_triangle_camera(world: CpuScene[]) -> Camera:
     )
 
 
-def make_grid_triangle_world() -> CpuScene[]:
-    var surfaces = SurfaceStore()
-    var matte = surfaces.add_lambertian(Color(0.5))
+def make_grid_triangle_world() raises -> CpuScene[]:
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.5))
     var vertices = make_grid_triangles()
-    var triangle_surfaces = List[SurfaceId[1]](
-        length=len(vertices) / 3, fill=matte
-    )
-    return CpuScene[](
-        List[Sphere[Frame.WORLD]](),
-        List[SurfaceId[1]](),
-        vertices^,
-        triangle_surfaces^,
-        List[List[Point3f32[Frame.LOCAL]]](),
-        List[Instance](),
-        List[SurfaceId[1]](),
-        surfaces^,
-    )
+    builder.add_triangle_mesh(vertices, matte)
+    var scene = builder^.finish()
+    return CpuScene[](scene^)
 
 
 def make_bounded_grid_rays() -> List[Rayf32[Frame.WORLD]]:

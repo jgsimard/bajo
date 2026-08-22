@@ -3,20 +3,16 @@
 from std.math import round
 from std.time import perf_counter_ns
 
-from bajo.core import Frame, Point3W, Point3f32, Vec3W
+from bajo.core import Point3W, Vec3W
 from bajo.core.utils import ns_to_ms
 from bajo.rt import (
     Camera,
     Color,
-    Instance,
     RENDER,
     RenderSettings,
-    Sphere,
+    SceneBuilder,
     SurfaceId,
-    SurfaceStore,
     CpuScene,
-    add_sphere,
-    add_triangle,
     render_wavefront,
     write_ppm_from_colors,
 )
@@ -33,22 +29,8 @@ comptime MIS_OUTPUT = "mis_showcase_mis.ppm"
 comptime COMPARISON_OUTPUT = "mis_showcase_comparison.ppm"
 
 
-def _add_quad(
-    mut vertices: List[Point3W],
-    mut surfaces: List[SurfaceId[1]],
-    a: Point3W,
-    b: Point3W,
-    c: Point3W,
-    d: Point3W,
-    surface: SurfaceId[1],
-):
-    add_triangle(vertices, surfaces, a, b, c, surface)
-    add_triangle(vertices, surfaces, a, c, d, surface)
-
-
 def _add_box(
-    mut vertices: List[Point3W],
-    mut surfaces: List[SurfaceId[1]],
+    mut builder: SceneBuilder,
     minimum: Point3W,
     maximum: Point3W,
     surface: SurfaceId[1],
@@ -59,54 +41,42 @@ def _add_box(
     var x1 = maximum.x
     var y1 = maximum.y
     var z1 = maximum.z
-    _add_quad(
-        vertices,
-        surfaces,
+    builder.add_quad(
         Point3W(x0, y0, z0),
         Point3W(x1, y0, z0),
         Point3W(x1, y0, z1),
         Point3W(x0, y0, z1),
         surface,
     )
-    _add_quad(
-        vertices,
-        surfaces,
+    builder.add_quad(
         Point3W(x0, y1, z1),
         Point3W(x1, y1, z1),
         Point3W(x1, y1, z0),
         Point3W(x0, y1, z0),
         surface,
     )
-    _add_quad(
-        vertices,
-        surfaces,
+    builder.add_quad(
         Point3W(x0, y0, z1),
         Point3W(x1, y0, z1),
         Point3W(x1, y1, z1),
         Point3W(x0, y1, z1),
         surface,
     )
-    _add_quad(
-        vertices,
-        surfaces,
+    builder.add_quad(
         Point3W(x1, y0, z0),
         Point3W(x0, y0, z0),
         Point3W(x0, y1, z0),
         Point3W(x1, y1, z0),
         surface,
     )
-    _add_quad(
-        vertices,
-        surfaces,
+    builder.add_quad(
         Point3W(x0, y0, z0),
         Point3W(x0, y0, z1),
         Point3W(x0, y1, z1),
         Point3W(x0, y1, z0),
         surface,
     )
-    _add_quad(
-        vertices,
-        surfaces,
+    builder.add_quad(
         Point3W(x1, y0, z1),
         Point3W(x1, y0, z0),
         Point3W(x1, y1, z0),
@@ -118,84 +88,64 @@ def _add_box(
 def make_mis_showcase_world[
     world_bvh_width: SIMDLength = 16,
     instance_bvh_width: SIMDLength = 16,
-]() -> CpuScene[world_bvh_width, instance_bvh_width]:
-    var store = SurfaceStore()
-    var room = store.add_lambertian(Color(0.48, 0.48, 0.48))
-    var rough = store.add_metal(Color(0.64), 0.50)
-    var medium = store.add_metal(Color(0.64), 0.20)
-    var glossy = store.add_metal(Color(0.64), 0.10)
-    var polished = store.add_metal(Color(0.64), 0.01)
+]() raises -> CpuScene[world_bvh_width, instance_bvh_width]:
+    var builder = SceneBuilder()
+    var room = builder.add_lambertian(Color(0.48, 0.48, 0.48))
+    var rough = builder.add_metal(Color(0.64), 0.50)
+    var medium = builder.add_metal(Color(0.64), 0.20)
+    var glossy = builder.add_metal(Color(0.64), 0.10)
+    var polished = builder.add_metal(Color(0.64), 0.01)
 
     # Radiance is inversely proportional to sphere area, so each light has
     # roughly equal power while its apparent solid angle changes radically.
-    var point_like = store.add_emissive(Color(100.0))
-    var small = store.add_emissive(Color(20.0))
-    var medium_light = store.add_emissive(Color(10.0))
-    var large = store.add_emissive(Color(1.0))
+    var point_like = builder.add_emissive(Color(100.0))
+    var small = builder.add_emissive(Color(20.0))
+    var medium_light = builder.add_emissive(Color(10.0))
+    var large = builder.add_emissive(Color(1.0))
 
-    var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId[1]]()
-    add_sphere(
-        spheres,
-        sphere_surfaces,
+    builder.add_sphere(
         Point3W(-1.65, 2.65, -3.25),
         0.05,
         point_like,
     )
-    add_sphere(
-        spheres,
-        sphere_surfaces,
+    builder.add_sphere(
         Point3W(-0.55, 2.65, -3.25),
         0.12,
         small,
     )
-    add_sphere(
-        spheres,
-        sphere_surfaces,
+    builder.add_sphere(
         Point3W(0.60, 2.65, -3.25),
         0.20,
         medium_light,
     )
-    add_sphere(
-        spheres,
-        sphere_surfaces,
+    builder.add_sphere(
         Point3W(1.75, 2.65, -3.25),
         0.45,
         large,
     )
 
-    var vertices = List[Point3W]()
-    var surfaces = List[SurfaceId[1]]()
-    _add_quad(
-        vertices,
-        surfaces,
+    builder.add_quad(
         Point3W(-4.0, 0.0, 1.0),
         Point3W(4.0, 0.0, 1.0),
         Point3W(4.0, 0.0, -4.2),
         Point3W(-4.0, 0.0, -4.2),
         room,
     )
-    _add_quad(
-        vertices,
-        surfaces,
+    builder.add_quad(
         Point3W(-4.0, 0.0, 1.0),
         Point3W(-4.0, 0.0, -4.1),
         Point3W(-4.0, 4.0, -4.1),
         Point3W(-4.0, 4.0, 1.0),
         room,
     )
-    _add_quad(
-        vertices,
-        surfaces,
+    builder.add_quad(
         Point3W(4.0, 0.0, -4.1),
         Point3W(4.0, 0.0, 1.0),
         Point3W(4.0, 4.0, 1.0),
         Point3W(4.0, 4.0, -4.1),
         room,
     )
-    _add_quad(
-        vertices,
-        surfaces,
+    builder.add_quad(
         Point3W(-4.0, 0.0, -4.1),
         Point3W(4.0, 0.0, -4.1),
         Point3W(4.0, 4.0, -4.1),
@@ -205,36 +155,28 @@ def make_mis_showcase_world[
 
     # Rough at the back, polished at the front. The same four lights reflect
     # in every bar, covering both broad and sharply peaked BSDF distributions.
-    _add_quad(
-        vertices,
-        surfaces,
+    builder.add_quad(
         Point3W(-2.25, 0.82, -2.72),
         Point3W(2.25, 0.82, -2.72),
         Point3W(2.25, 1.22, -3.30),
         Point3W(-2.25, 1.22, -3.30),
         rough,
     )
-    _add_quad(
-        vertices,
-        surfaces,
+    builder.add_quad(
         Point3W(-2.45, 0.58, -1.80),
         Point3W(2.45, 0.58, -1.80),
         Point3W(2.45, 0.83, -2.42),
         Point3W(-2.45, 0.83, -2.42),
         medium,
     )
-    _add_quad(
-        vertices,
-        surfaces,
+    builder.add_quad(
         Point3W(-2.65, 0.34, -0.86),
         Point3W(2.65, 0.34, -0.86),
         Point3W(2.65, 0.50, -1.52),
         Point3W(-2.65, 0.50, -1.52),
         glossy,
     )
-    _add_quad(
-        vertices,
-        surfaces,
+    builder.add_quad(
         Point3W(-2.85, 0.12, 0.12),
         Point3W(2.85, 0.12, 0.12),
         Point3W(2.85, 0.21, -0.58),
@@ -242,19 +184,8 @@ def make_mis_showcase_world[
         polished,
     )
 
-    var meshes = List[List[Point3f32[Frame.LOCAL]]]()
-    var instances = List[Instance]()
-    var instance_surfaces = List[SurfaceId[1]]()
-    return CpuScene[world_bvh_width, instance_bvh_width](
-        spheres^,
-        sphere_surfaces^,
-        vertices^,
-        surfaces^,
-        meshes^,
-        instances^,
-        instance_surfaces^,
-        store^,
-    )
+    var scene = builder^.finish()
+    return CpuScene[world_bvh_width, instance_bvh_width](scene^)
 
 
 def _write_comparison(

@@ -60,11 +60,11 @@ struct GpuRtTriangleScene[
         world: SceneData,
     ) raises:
         debug_assert["safe", _use_compiler_assume=True](
-            len(world.triangle_vertices) > 0,
+            len(world.triangle_vertices()) > 0,
             "GPU triangle RT requires world-space triangles",
         )
         debug_assert["safe", _use_compiler_assume=True](
-            len(world.spheres) == 0 and len(world.triangle_instances) == 0,
+            len(world.spheres()) == 0 and len(world.triangle_instances()) == 0,
             "GPU triangle RT accepts triangle-only worlds",
         )
         self.geometry = GpuRtTriangleGeometry[
@@ -73,9 +73,9 @@ struct GpuRtTriangleScene[
             Self.leaf_width,
             Self.build_method,
             Self.compressed,
-        ](ctx, world.triangle_vertices)
+        ](ctx, world.triangle_vertices())
         self.triangle_surfaces = upload_surface_ids(
-            ctx, world.triangle_surfaces
+            ctx, world.triangle_surfaces()
         )
         self.shading = GpuRtShadingResources(ctx, world)
 

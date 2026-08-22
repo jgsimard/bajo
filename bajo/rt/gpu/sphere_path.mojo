@@ -50,17 +50,17 @@ struct GpuRtSphereScene[
         world: SceneData,
     ) raises:
         debug_assert["safe", _use_compiler_assume=True](
-            len(world.spheres) > 0, "GPU sphere RT requires spheres"
+            len(world.spheres()) > 0, "GPU sphere RT requires spheres"
         )
         debug_assert["safe", _use_compiler_assume=True](
-            len(world.triangle_vertices) == 0
-            and len(world.triangle_instances) == 0,
+            len(world.triangle_vertices()) == 0
+            and len(world.triangle_instances()) == 0,
             "GPU sphere specialization requires sphere-only geometry",
         )
 
         self.geometry = GpuRtSphereGeometry[
             Frame.WORLD, Self.node_width, Self.leaf_width
-        ](ctx, world.spheres, world.sphere_surfaces)
+        ](ctx, world.spheres(), world.sphere_surfaces())
         self.shading = GpuRtShadingResources(ctx, world)
 
 

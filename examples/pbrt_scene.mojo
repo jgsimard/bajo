@@ -25,7 +25,7 @@ def main() raises:
     print(
         t"PBRT: {settings.image_width}x{settings.image_height}, "
         t"{settings.samples_per_pixel} spp, "
-        t"{len(world.scene_data().spheres)} spheres, "
-        t"{len(world.scene_data().triangle_vertices) / 3} triangles"
+        t"{len(world.scene_data().spheres())} spheres, "
+        t"{len(world.scene_data().triangle_vertices()) / 3} triangles"
     )
     print("wrote " + OUTPUT_PATH)

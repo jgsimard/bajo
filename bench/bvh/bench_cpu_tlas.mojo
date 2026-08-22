@@ -191,14 +191,16 @@ def run_benchmark() raises:
             rays.append(camera.make_ray(px, py, IMAGE_WIDTH, IMAGE_HEIGHT))
 
     var build_start = perf_counter_ns()
-    var tlas_leaf1 = Tlas[width, 1](world.scene_data().triangle_instances)
+    var tlas_leaf1 = Tlas[width, 1](world.scene_data().triangle_instances())
     var leaf1_build_ns = Int(perf_counter_ns() - build_start)
     build_start = perf_counter_ns()
-    var tlas_native = Tlas[width, width](world.scene_data().triangle_instances)
+    var tlas_native = Tlas[width, width](
+        world.scene_data().triangle_instances()
+    )
     var native_build_ns = Int(perf_counter_ns() - build_start)
 
     print(
-        t"instances={len(world.scene_data().triangle_instances)},"
+        t"instances={len(world.scene_data().triangle_instances())},"
         t" rays={len(rays)}"
     )
     print(

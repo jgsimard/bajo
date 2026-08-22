@@ -1,7 +1,7 @@
 """CPU-prepared scene ownership and traversal."""
 
 from bajo.bvh.constants import EMPTY_LANE, Primitive, TRACE, f32_max
-from bajo.bvh import Instance, Sphere
+from bajo.bvh import Sphere
 from bajo.bvh.cpu import (
     CpuBlasSet,
     CpuBvhBuildMethod,
@@ -22,7 +22,6 @@ from bajo.rt.types import (
     SceneData,
     SurfaceHit,
     SurfaceId,
-    SurfaceStore,
     ray_at,
 )
 
@@ -91,49 +90,16 @@ struct CpuScene[
         ]()
         self._build_acceleration()
 
-    def __init__(
-        out self,
-        var spheres: List[Sphere[Frame.WORLD]],
-        var sphere_surfaces: List[SurfaceId[1]],
-        var triangle_vertices: List[Point3f32[Frame.WORLD]],
-        var triangle_surfaces: List[SurfaceId[1]],
-        var triangle_meshes: List[List[Point3f32[Frame.LOCAL]]],
-        var triangle_instances: List[Instance],
-        var triangle_instance_surfaces: List[SurfaceId[1]],
-        var surfaces: SurfaceStore,
-    ):
-        self._scene = SceneData(
-            spheres^,
-            sphere_surfaces^,
-            triangle_vertices^,
-            triangle_surfaces^,
-            triangle_meshes^,
-            triangle_instances^,
-            triangle_instance_surfaces^,
-            surfaces^,
-        )
-        self.sphere_bvh = Optional[
-            CpuBlasSet[Primitive.SPHERE, Self.world_bvh_width]
-        ]()
-        self.triangle_bvh = Optional[
-            CpuBlasSet[Primitive.TRIANGLE, Self.world_bvh_width]
-        ]()
-        self.triangle_tlas = Optional[Tlas[Self.instance_bvh_width, 1]]()
-        self.triangle_mesh_blases = Optional[
-            CpuBlasSet[Primitive.TRIANGLE, Self.instance_bvh_width]
-        ]()
-        self._build_acceleration()
-
     def scene_data(self) -> ref[self._scene] SceneData:
         """Return the immutable authoring snapshot used for preparation."""
         return self._scene
 
     def _build_acceleration(mut self):
-        if len(self._scene.spheres) > 0:
+        if len(self._scene.spheres()) > 0:
             var bvh_spheres = List[Sphere[Frame.WORLD]](
-                capacity=len(self._scene.spheres)
+                capacity=len(self._scene.spheres())
             )
-            for s in self._scene.spheres:
+            for s in self._scene.spheres():
                 bvh_spheres.append(sphere_for_acceleration(s))
 
             self.sphere_bvh = Optional[
@@ -144,7 +110,7 @@ struct CpuScene[
                 ]([bvh_spheres^])
             )
 
-        if len(self._scene.triangle_vertices) > 0:
+        if len(self._scene.triangle_vertices()) > 0:
             self.triangle_bvh = Optional[
                 CpuBlasSet[Primitive.TRIANGLE, Self.world_bvh_width]
             ](
@@ -153,10 +119,10 @@ struct CpuScene[
                     Self.world_bvh_width,
                     CpuBvhBuildMethod.SAH,
                     Frame.WORLD,
-                ]([self._scene.triangle_vertices.copy()])
+                ]([self._scene.triangle_vertices().copy()])
             )
 
-        if len(self._scene.triangle_instances) > 0:
+        if len(self._scene.triangle_instances()) > 0:
             self.triangle_mesh_blases = Optional[
                 CpuBlasSet[Primitive.TRIANGLE, Self.instance_bvh_width]
             ](
@@ -165,11 +131,13 @@ struct CpuScene[
                     Self.instance_bvh_width,
                     CpuBvhBuildMethod.SAH,
                     Frame.LOCAL,
-                ](self._scene.triangle_meshes)
+                ](self._scene.triangle_meshes())
             )
 
             self.triangle_tlas = Optional[Tlas[Self.instance_bvh_width, 1]](
-                Tlas[Self.instance_bvh_width, 1](self._scene.triangle_instances)
+                Tlas[Self.instance_bvh_width, 1](
+                    self._scene.triangle_instances()
+                )
             )
 
     @always_inline
@@ -353,12 +321,12 @@ struct CpuScene[
             for lane in range(length):
                 if sphere_mask[lane]:
                     var sphere_idx = Int(sphere_hits.prim[lane])
-                    ref sphere = self._scene.spheres[sphere_idx]
+                    ref sphere = self._scene.spheres()[sphere_idx]
                     center_x[lane] = sphere.center.x
                     center_y[lane] = sphere.center.y
                     center_z[lane] = sphere.center.z
                     radius[lane] = sphere.radius
-                    surface_values[lane] = self._scene.sphere_surfaces[
+                    surface_values[lane] = self._scene.sphere_surfaces()[
                         sphere_idx
                     ].value
             var inverse_radius = Float32(1.0) / radius
@@ -398,7 +366,7 @@ struct CpuScene[
             for lane in range(length):
                 if triangle_mask[lane]:
                     var triangle_idx = Int(triangle_hits.prim[lane])
-                    surface_values[lane] = self._scene.triangle_surfaces[
+                    surface_values[lane] = self._scene.triangle_surfaces()[
                         triangle_idx
                     ].value
             var triangle_normal = triangle_hits.normal.unsafe_convert[
@@ -457,17 +425,17 @@ struct CpuScene[
 
         var sphere_idx = Int(bvh_hit.prim)
         debug_assert["safe", _use_compiler_assume=True](
-            sphere_idx >= 0 and sphere_idx < len(self._scene.spheres),
+            sphere_idx >= 0 and sphere_idx < len(self._scene.spheres()),
             "BVH returned an out-of-range sphere index",
         )
-        ref sphere = self._scene.spheres[sphere_idx]
+        ref sphere = self._scene.spheres()[sphere_idx]
         var p = ray_at(ray, bvh_hit.t)
         var outward_normal = (p - sphere.center) / sphere.radius
         var oriented = orient_surface_normal(ray.d, outward_normal)
         return _WorldHit(
             PrimitiveId(PRIM.SPHERE, bvh_hit.prim),
             oriented.normal,
-            self._scene.sphere_surfaces[sphere_idx].copy(),
+            self._scene.sphere_surfaces()[sphere_idx].copy(),
             bvh_hit.t,
             oriented.front_face,
             True,
@@ -488,7 +456,7 @@ struct CpuScene[
 
         var tri_idx = Int(bvh_hit.prim)
         debug_assert["safe", _use_compiler_assume=True](
-            tri_idx >= 0 and tri_idx < len(self._scene.triangle_surfaces),
+            tri_idx >= 0 and tri_idx < len(self._scene.triangle_surfaces()),
             "BVH returned an out-of-range triangle index",
         )
         var outward_normal = bvh_hit.normal.unsafe_convert[
@@ -498,7 +466,7 @@ struct CpuScene[
         return _WorldHit(
             PrimitiveId(PRIM.TRIANGLE, bvh_hit.prim),
             oriented.normal,
-            self._scene.triangle_surfaces[tri_idx].copy(),
+            self._scene.triangle_surfaces()[tri_idx].copy(),
             bvh_hit.t,
             oriented.front_face,
             True,
@@ -519,7 +487,7 @@ struct CpuScene[
         var instance_idx = Int(bvh_hit.inst)
         debug_assert["safe", _use_compiler_assume=True](
             instance_idx >= 0
-            and instance_idx < len(self._scene.triangle_instances),
+            and instance_idx < len(self._scene.triangle_instances()),
             "TLAS returned an out-of-range triangle instance index",
         )
         var outward_normal = bvh_hit.normal.unsafe_convert[
@@ -529,7 +497,7 @@ struct CpuScene[
         return _WorldHit(
             PrimitiveId(PRIM.TRIANGLE_INSTANCE, bvh_hit.inst),
             oriented.normal,
-            self._scene.triangle_instance_surfaces[instance_idx].copy(),
+            self._scene.triangle_instance_surfaces()[instance_idx].copy(),
             bvh_hit.t,
             oriented.front_face,
             True,

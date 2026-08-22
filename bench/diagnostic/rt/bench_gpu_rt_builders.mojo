@@ -7,18 +7,15 @@ from max.gpu.host import DeviceContext
 
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.host_utils import compute_bounds
-from bajo.core import Frame, Point3f32, Vec3f32
+from bajo.core import Frame, Vec3f32
 from bajo.core.utils import ns_to_ms
 from bajo.parser.obj.pack import pack_obj_triangles
 from bajo.rt import (
     Camera,
     Color,
-    Instance,
     RENDER,
     RenderSettings,
-    Sphere,
-    SurfaceId,
-    SurfaceStore,
+    SceneBuilder,
     CpuScene,
 )
 from bajo.rt.gpu.common_kernels import GPU_RT_MAX_BLOCKS
@@ -44,31 +41,16 @@ comptime DRAGON_PATH = "./assets/dragon/dragon.obj"
 
 
 def _dragon_world() raises -> CpuScene[]:
-    var store = SurfaceStore()
-    var matte = store.add_lambertian(Color(0.65, 0.65, 0.65))
     var vertices = pack_obj_triangles[Frame.WORLD](DRAGON_PATH)
-    var triangle_surfaces = List[SurfaceId[1]](
-        length=len(vertices) / 3, fill=matte
-    )
-    var spheres = List[Sphere[Frame.WORLD]]()
-    var sphere_surfaces = List[SurfaceId[1]]()
-    var meshes = List[List[Point3f32[Frame.LOCAL]]]()
-    var instances = List[Instance]()
-    var instance_surfaces = List[SurfaceId[1]]()
-    return CpuScene[](
-        spheres^,
-        sphere_surfaces^,
-        vertices^,
-        triangle_surfaces^,
-        meshes^,
-        instances^,
-        instance_surfaces^,
-        store^,
-    )
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.65, 0.65, 0.65))
+    builder.add_triangle_mesh(vertices, matte)
+    var scene = builder^.finish()
+    return CpuScene[](scene^)
 
 
 def _dragon_camera(world: CpuScene[]) -> Camera:
-    var bounds = compute_bounds(world.scene_data().triangle_vertices)
+    var bounds = compute_bounds(world.scene_data().triangle_vertices())
     var center = bounds.centroid()
     var extent = bounds.extent()
     var scene_width = max(max(extent.x, extent.y), extent.z)

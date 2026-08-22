@@ -15,7 +15,6 @@ from bajo.core import (
 from bajo.bvh.gpu.utils import upload_list
 from bajo.core.intersect import (
     RayDistanceHit,
-    intersect_ray_aabb_octant_fma,
     intersect_ray_aabb_rcp,
 )
 
@@ -120,6 +119,18 @@ struct GpuWideBoundsBvhBatch[
         self.segments = segments.copy()
         self.node_segments = SegmentOffsets.from_counts(node_capacities^)
         self.leaf_block_segments = SegmentOffsets.from_counts(leaf_capacities^)
+        debug_assert["safe", _use_compiler_assume=True](
+            UInt64(self.node_segments.item_count())
+            * UInt64(Self.node_width * WideNode.CHILD_STRIDE)
+            <= UInt64(0xFFFFFFFF),
+            "segmented wide-node descriptor offsets exceed UInt32",
+        )
+        debug_assert["safe", _use_compiler_assume=True](
+            UInt64(self.leaf_block_segments.item_count())
+            * UInt64(Self.leaf_width)
+            <= UInt64(0xFFFFFFFF),
+            "segmented leaf descriptor offsets exceed UInt32",
+        )
         self.node_segment_offsets = upload_list(ctx, self.node_segments.offsets)
         self.leaf_block_segment_offsets = upload_list(
             ctx, self.leaf_block_segments.offsets
@@ -328,61 +339,6 @@ def _intersect_wide_node_precomputed[
 
     var bounds_hit = intersect_ray_aabb_rcp(
         bounds_origin,
-        rcp_direction,
-        block,
-        SIMD[DType.float32, width](t_max),
-    )
-    return WideNodeIntersection[width](bounds_hit, meta)
-
-
-@always_inline
-def _intersect_wide_node_precomputed_octant[
-    frame: Frame,
-    width: SIMDLength,
-    positive_x: Bool,
-    positive_y: Bool,
-    positive_z: Bool,
-](
-    wide_nodes: ImmPointer[Float32, _],
-    node_idx: UInt32,
-    origin_rcp_direction: Vec3[DType.float32, frame, width],
-    rcp_direction: Vec3[DType.float32, frame, width],
-    t_max: Float32,
-) -> WideNodeIntersection[width]:
-    """Intersect a wide node using ray data prepared once per query."""
-    var block = AxisAlignedBoundingBox[DType.float32, frame, width].invalid()
-    var base = _wide_node_base[width](node_idx)
-    block._min.x = wide_nodes.unsafe_load[width=width](
-        base + WideNode.MIN_X * width
-    )
-    block._min.y = wide_nodes.unsafe_load[width=width](
-        base + WideNode.MIN_Y * width
-    )
-    block._min.z = wide_nodes.unsafe_load[width=width](
-        base + WideNode.MIN_Z * width
-    )
-    block._max.x = wide_nodes.unsafe_load[width=width](
-        base + WideNode.MAX_X * width
-    )
-    block._max.y = wide_nodes.unsafe_load[width=width](
-        base + WideNode.MAX_Y * width
-    )
-    block._max.z = wide_nodes.unsafe_load[width=width](
-        base + WideNode.MAX_Z * width
-    )
-    var meta = wide_nodes.unsafe_bitcast[UInt32]().unsafe_load[width=width](
-        base + WideNode.META * width
-    )
-
-    var bounds_hit = intersect_ray_aabb_octant_fma[
-        DType.float32,
-        frame,
-        width,
-        positive_x,
-        positive_y,
-        positive_z,
-    ](
-        origin_rcp_direction,
         rcp_direction,
         block,
         SIMD[DType.float32, width](t_max),

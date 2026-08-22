@@ -399,7 +399,6 @@ def trace_sphere_bvh_camera_kernel[
             leaf_width,
             TRACE.CLOSEST_HIT,
         ],
-        True,
         node_width == 2,
     ](
         wide_nodes,

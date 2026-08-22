@@ -132,7 +132,6 @@ def _gpu_rt_scene_trace_one[
             node_width,
             TRACE.CLOSEST_HIT,
             _intersect_sphere_leaf[Frame.WORLD, leaf_width, TRACE.CLOSEST_HIT],
-            True,
             node_width == 2,
         ](sphere_nodes, leaf_spheres, sphere_root, ray)
         if sphere_hit.is_hit():
@@ -180,7 +179,6 @@ def _gpu_rt_scene_trace_one[
                     triangle_leaf_width > triangle_node_width
                     or triangle_leaf_width == 8,
                 ],
-                True,
                 triangle_node_width == 4,
             ](triangle_nodes, leaf_vertices, triangle_root, triangle_ray)
         if triangle_hit.is_hit() and triangle_hit.t < closest_t:
@@ -247,6 +245,7 @@ def _gpu_rt_scene_trace_one[
             blas_nodes,
             blas_leaves,
             Int(instance_count_i32),
+            Int(instances.blas_count),
             tlas_root,
             instance_ray,
         )
@@ -436,7 +435,6 @@ def _trace_scene_any[
             node_width,
             TRACE.ANY_HIT,
             _intersect_sphere_leaf[Frame.WORLD, leaf_width, TRACE.ANY_HIT],
-            True,
             node_width == 2,
         ](
             spheres.nodes.unsafe_origin_cast[ImmutAnyOrigin](),
@@ -472,7 +470,6 @@ def _trace_scene_any[
                     triangle_leaf_width > triangle_node_width
                     or triangle_leaf_width == 8,
                 ],
-                True,
                 triangle_node_width == 4,
             ](
                 triangles.nodes.unsafe_origin_cast[ImmutAnyOrigin](),
@@ -507,6 +504,7 @@ def _trace_scene_any[
             instances.blas_nodes.unsafe_origin_cast[ImmutAnyOrigin](),
             instances.blas_leaves.unsafe_origin_cast[ImmutAnyOrigin](),
             Int(instances.count),
+            Int(instances.blas_count),
             instances.tlas_root,
             ray,
         )

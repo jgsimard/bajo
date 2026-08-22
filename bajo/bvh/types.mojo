@@ -265,21 +265,29 @@ struct GpuBlasSet[
         host: CpuBlasSet[Self.node_width, Self.leaf_width],
     ) raises -> Self:
         var descs = ctx.enqueue_create_buffer[DType.uint32](len(host.descs))
-        var nodes = ctx.enqueue_create_buffer[DType.float32](len(host.nodes))
-        var leaves = ctx.enqueue_create_buffer[DType.float32](len(host.leaves))
+        var node_count = len(host.nodes) if len(host.nodes) > 0 else 1
+        var leaf_count = len(host.leaves) if len(host.leaves) > 0 else 1
+        var nodes = ctx.enqueue_create_buffer[DType.float32](node_count)
+        var leaves = ctx.enqueue_create_buffer[DType.float32](leaf_count)
         var h_descs = ctx.enqueue_create_host_buffer[DType.uint32](
             len(host.descs)
         )
-        var h_nodes = ctx.enqueue_create_host_buffer[DType.float32](
-            len(host.nodes)
-        )
-        var h_leaves = ctx.enqueue_create_host_buffer[DType.float32](
-            len(host.leaves)
-        )
         h_descs.enqueue_copy_from(host.descs)
-        h_nodes.enqueue_copy_from(host.nodes)
-        h_leaves.enqueue_copy_from(host.leaves)
         h_descs.enqueue_copy_to(descs)
-        h_nodes.enqueue_copy_to(nodes)
-        h_leaves.enqueue_copy_to(leaves)
+        if len(host.nodes) > 0:
+            var h_nodes = ctx.enqueue_create_host_buffer[DType.float32](
+                len(host.nodes)
+            )
+            h_nodes.enqueue_copy_from(host.nodes)
+            h_nodes.enqueue_copy_to(nodes)
+        else:
+            ctx.enqueue_memset(nodes, 0)
+        if len(host.leaves) > 0:
+            var h_leaves = ctx.enqueue_create_host_buffer[DType.float32](
+                len(host.leaves)
+            )
+            h_leaves.enqueue_copy_from(host.leaves)
+            h_leaves.enqueue_copy_to(leaves)
+        else:
+            ctx.enqueue_memset(leaves, 0)
         return Self(descs^, nodes^, leaves^, host.blas_count)

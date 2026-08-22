@@ -29,12 +29,26 @@ def emit_segmented_blas_descriptors_kernel[
     var desc_base = BlasDescLayout.base(segment_idx)
     var primitive_begin = primitive_segment_offsets.unsafe_get(segment_idx)
     var primitive_end = primitive_segment_offsets.unsafe_get(segment_idx + 1)
-    descs.unsafe_get(
-        desc_base + BlasDescLayout.NODE_F32_BASE
-    ) = node_segment_offsets.unsafe_get(segment_idx) * UInt32(node_f32_stride)
-    descs.unsafe_get(
-        desc_base + BlasDescLayout.LEAF_F32_BASE
-    ) = leaf_segment_offsets.unsafe_get(segment_idx) * UInt32(leaf_f32_stride)
+    var node_f32_base = UInt64(
+        node_segment_offsets.unsafe_get(segment_idx)
+    ) * UInt64(node_f32_stride)
+    var leaf_f32_base = UInt64(
+        leaf_segment_offsets.unsafe_get(segment_idx)
+    ) * UInt64(leaf_f32_stride)
+    debug_assert["safe", _use_compiler_assume=True](
+        node_f32_base <= UInt64(0xFFFFFFFF),
+        "segmented node descriptor offset exceeds UInt32",
+    )
+    debug_assert["safe", _use_compiler_assume=True](
+        leaf_f32_base <= UInt64(0xFFFFFFFF),
+        "segmented leaf descriptor offset exceeds UInt32",
+    )
+    descs.unsafe_get(desc_base + BlasDescLayout.NODE_F32_BASE) = UInt32(
+        node_f32_base
+    )
+    descs.unsafe_get(desc_base + BlasDescLayout.LEAF_F32_BASE) = UInt32(
+        leaf_f32_base
+    )
     descs.unsafe_get(desc_base + BlasDescLayout.ROOT_IDX) = UInt32(0)
     descs.unsafe_get(
         desc_base + BlasDescLayout.NODE_COUNT

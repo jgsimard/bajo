@@ -41,7 +41,7 @@ from bajo.bvh.types import (
     TriangleLeafBlock,
     Hit,
 )
-from bajo.bvh.wide_meta import _pack_wide_meta, _wide_node_index
+from bajo.bvh.wide_meta import _pack_wide_meta, _wide_node_base
 from bajo.core import (
     Frame,
     Normal3f32,
@@ -57,6 +57,34 @@ from bajo.core import (
 
 
 comptime CPU_BLAS_OUTER_PARALLEL_MIN_PRIMITIVES = 4096
+comptime _U32_MAX_AS_INT = Int(UInt32(0xFFFFFFFF))
+
+
+@always_inline
+def _store_empty_blas_desc(
+    descs: MutPointer[UInt32, _],
+    blas_idx: Int,
+    node_f32_base: Int,
+    leaf_f32_base: Int,
+):
+    var desc_base = BlasDescLayout.base(blas_idx)
+    descs[unsafe_offset=desc_base + BlasDescLayout.NODE_F32_BASE] = UInt32(
+        node_f32_base
+    )
+    descs[unsafe_offset=desc_base + BlasDescLayout.LEAF_F32_BASE] = UInt32(
+        leaf_f32_base
+    )
+    descs[unsafe_offset=desc_base + BlasDescLayout.ROOT_IDX] = UInt32(0)
+    descs[unsafe_offset=desc_base + BlasDescLayout.NODE_COUNT] = UInt32(0)
+    descs[unsafe_offset=desc_base + BlasDescLayout.LEAF_BLOCK_COUNT] = UInt32(0)
+    descs[unsafe_offset=desc_base + BlasDescLayout.PRIM_COUNT] = UInt32(0)
+
+
+@always_inline
+def _debug_check_blas_index(blas_idx: UInt32, blas_count: Int):
+    debug_assert["safe", _use_compiler_assume=True](
+        UInt64(blas_idx) < UInt64(blas_count), "CPU BLAS index is out of range"
+    )
 
 
 @always_inline
@@ -114,64 +142,45 @@ def _pack_triangle_blas[
     var nodes_u32 = nodes.unsafe_bitcast[UInt32]()
     for node_idx in range(len(bvh.tree.nodes)):
         ref node = bvh.tree.nodes[node_idx]
+        var local_node_idx = UInt32(node_idx)
+        var node_base = node_f32_base + _wide_node_base[node_width](
+            local_node_idx
+        )
+        nodes.unsafe_store[width=node_width](
+            node_base + WideNode.MIN_X * node_width, node.aabb._min.x
+        )
+        nodes.unsafe_store[width=node_width](
+            node_base + WideNode.MIN_Y * node_width, node.aabb._min.y
+        )
+        nodes.unsafe_store[width=node_width](
+            node_base + WideNode.MIN_Z * node_width, node.aabb._min.z
+        )
+        nodes.unsafe_store[width=node_width](
+            node_base + WideNode.MAX_X * node_width, node.aabb._max.x
+        )
+        nodes.unsafe_store[width=node_width](
+            node_base + WideNode.MAX_Y * node_width, node.aabb._max.y
+        )
+        nodes.unsafe_store[width=node_width](
+            node_base + WideNode.MAX_Z * node_width, node.aabb._max.z
+        )
+        var packed_meta = SIMD[DType.uint32, node_width](EMPTY_LANE)
         comptime for lane in range(node_width):
-            var local_node_idx = UInt32(node_idx)
-            nodes[
-                unsafe_offset=node_f32_base
-                + _wide_node_index[node_width](
-                    local_node_idx, WideNode.MIN_X, lane
-                )
-            ] = node.aabb._min.x[lane]
-            nodes[
-                unsafe_offset=node_f32_base
-                + _wide_node_index[node_width](
-                    local_node_idx, WideNode.MIN_Y, lane
-                )
-            ] = node.aabb._min.y[lane]
-            nodes[
-                unsafe_offset=node_f32_base
-                + _wide_node_index[node_width](
-                    local_node_idx, WideNode.MIN_Z, lane
-                )
-            ] = node.aabb._min.z[lane]
-            nodes[
-                unsafe_offset=node_f32_base
-                + _wide_node_index[node_width](
-                    local_node_idx, WideNode.MAX_X, lane
-                )
-            ] = node.aabb._max.x[lane]
-            nodes[
-                unsafe_offset=node_f32_base
-                + _wide_node_index[node_width](
-                    local_node_idx, WideNode.MAX_Y, lane
-                )
-            ] = node.aabb._max.y[lane]
-            nodes[
-                unsafe_offset=node_f32_base
-                + _wide_node_index[node_width](
-                    local_node_idx, WideNode.MAX_Z, lane
-                )
-            ] = node.aabb._max.z[lane]
-
             var data = node.data[lane]
-            var meta = EMPTY_LANE
             if data != EMPTY_LANE:
                 if is_leaf_ref(data):
                     var block_idx = decode_ref_index(data)
-                    meta = _pack_wide_meta(
+                    packed_meta[lane] = _pack_wide_meta(
                         block_idx,
                         _triangle_leaf_count[frame, leaf_width](
                             bvh.leaf_blocks[Int(block_idx)]
                         ),
                     )
                 else:
-                    meta = _pack_wide_meta(data, UInt32(0))
-            nodes_u32[
-                unsafe_offset=node_f32_base
-                + _wide_node_index[node_width](
-                    local_node_idx, WideNode.META, lane
-                )
-            ] = meta
+                    packed_meta[lane] = _pack_wide_meta(data, UInt32(0))
+        nodes_u32.unsafe_store[width=node_width](
+            node_base + WideNode.META * node_width, packed_meta
+        )
 
     var leaves_u32 = leaves.unsafe_bitcast[UInt32]()
     for block_idx in range(len(bvh.leaf_blocks)):
@@ -179,23 +188,24 @@ def _pack_triangle_blas[
         var out = (
             leaf_f32_base + block_idx * leaf_width * TRI_LEAF_PACKED_STRIDE
         )
-        comptime for lane in range(leaf_width):
-            leaves[unsafe_offset=out + 0 * leaf_width + lane] = block.v0.x[lane]
-            leaves[unsafe_offset=out + 1 * leaf_width + lane] = block.v0.y[lane]
-            leaves[unsafe_offset=out + 2 * leaf_width + lane] = block.v0.z[lane]
-            leaves_u32[
-                unsafe_offset=out + 3 * leaf_width + lane
-            ] = block.prim_indices[lane]
-            leaves[unsafe_offset=out + 4 * leaf_width + lane] = block.e1.x[lane]
-            leaves[unsafe_offset=out + 5 * leaf_width + lane] = block.e1.y[lane]
-            leaves[unsafe_offset=out + 6 * leaf_width + lane] = block.e1.z[lane]
-            leaves[unsafe_offset=out + 7 * leaf_width + lane] = 0.0
-            leaves[unsafe_offset=out + 8 * leaf_width + lane] = block.e2.x[lane]
-            leaves[unsafe_offset=out + 9 * leaf_width + lane] = block.e2.y[lane]
-            leaves[unsafe_offset=out + 10 * leaf_width + lane] = block.e2.z[
-                lane
-            ]
-            leaves[unsafe_offset=out + 11 * leaf_width + lane] = 0.0
+        leaves.unsafe_store[width=leaf_width](out + 0 * leaf_width, block.v0.x)
+        leaves.unsafe_store[width=leaf_width](out + 1 * leaf_width, block.v0.y)
+        leaves.unsafe_store[width=leaf_width](out + 2 * leaf_width, block.v0.z)
+        leaves_u32.unsafe_store[width=leaf_width](
+            out + 3 * leaf_width, block.prim_indices
+        )
+        leaves.unsafe_store[width=leaf_width](out + 4 * leaf_width, block.e1.x)
+        leaves.unsafe_store[width=leaf_width](out + 5 * leaf_width, block.e1.y)
+        leaves.unsafe_store[width=leaf_width](out + 6 * leaf_width, block.e1.z)
+        leaves.unsafe_store[width=leaf_width](
+            out + 7 * leaf_width, SIMD[DType.float32, leaf_width](0.0)
+        )
+        leaves.unsafe_store[width=leaf_width](out + 8 * leaf_width, block.e2.x)
+        leaves.unsafe_store[width=leaf_width](out + 9 * leaf_width, block.e2.y)
+        leaves.unsafe_store[width=leaf_width](out + 10 * leaf_width, block.e2.z)
+        leaves.unsafe_store[width=leaf_width](
+            out + 11 * leaf_width, SIMD[DType.float32, leaf_width](0.0)
+        )
 
     var desc_base = BlasDescLayout.base(blas_idx)
     descs[unsafe_offset=desc_base + BlasDescLayout.NODE_F32_BASE] = UInt32(
@@ -237,22 +247,27 @@ def build_triangle_blases[
     var total_triangle_count = 0
     for vertices in vertex_sets:
         debug_assert["safe", _use_compiler_assume=True](
-            len(vertices) > 0 and len(vertices) % 3 == 0,
-            "each CPU triangle BLAS must contain complete, nonempty triangles",
+            len(vertices) % 3 == 0,
+            "each CPU triangle BLAS must contain complete triangles",
         )
         var tri_count = len(vertices) / 3
         total_triangle_count += tri_count
         node_bases.append(node_f32_count)
         leaf_bases.append(leaf_f32_count)
-        node_f32_count += (
-            max(tri_count - 1, 1) * node_width * WideNode.CHILD_STRIDE
-        )
+        if tri_count > 0:
+            node_f32_count += (
+                max(tri_count - 1, 1) * node_width * WideNode.CHILD_STRIDE
+            )
         leaf_f32_count += tri_count * leaf_width * TRI_LEAF_PACKED_STRIDE
         if tri_count >= PARALLEL_TRIANGLE_BUILD_MIN_ITEMS:
             allow_across_blas_parallelism = False
 
     allow_across_blas_parallelism &= (
         total_triangle_count >= CPU_BLAS_OUTER_PARALLEL_MIN_PRIMITIVES
+    )
+    debug_assert["safe", _use_compiler_assume=True](
+        node_f32_count <= _U32_MAX_AS_INT and leaf_f32_count <= _U32_MAX_AS_INT,
+        "CPU triangle BLAS packed offsets exceed UInt32",
     )
 
     var descs = List[UInt32](
@@ -265,6 +280,14 @@ def build_triangle_blases[
     var leaves_ptr = leaves.unsafe_ptr()
 
     def build_one(blas_idx: Int) {imm}:
+        if len(vertex_sets[blas_idx]) == 0:
+            _store_empty_blas_desc(
+                descs_ptr,
+                blas_idx,
+                node_bases[blas_idx],
+                leaf_bases[blas_idx],
+            )
+            return
         _pack_triangle_blas[frame, node_width, leaf_width, split_method](
             vertex_sets[blas_idx],
             descs_ptr,
@@ -310,67 +333,59 @@ def _pack_sphere_blas[
     node_f32_base: Int,
     leaf_f32_base: Int,
 ):
-    var owned_spheres = [sphere.copy() for sphere in spheres]
-    var bvh = _SphereBuild[frame, width].__init__[split_method](owned_spheres^)
+    var bvh = _SphereBuild[frame, width].__init__[split_method](spheres)
     var nodes_u32 = nodes.unsafe_bitcast[UInt32]()
     for node_idx in range(len(bvh.tree.nodes)):
         ref node = bvh.tree.nodes[node_idx]
+        var local_node_idx = UInt32(node_idx)
+        var node_base = node_f32_base + _wide_node_base[width](local_node_idx)
+        nodes.unsafe_store[width=width](
+            node_base + WideNode.MIN_X * width, node.aabb._min.x
+        )
+        nodes.unsafe_store[width=width](
+            node_base + WideNode.MIN_Y * width, node.aabb._min.y
+        )
+        nodes.unsafe_store[width=width](
+            node_base + WideNode.MIN_Z * width, node.aabb._min.z
+        )
+        nodes.unsafe_store[width=width](
+            node_base + WideNode.MAX_X * width, node.aabb._max.x
+        )
+        nodes.unsafe_store[width=width](
+            node_base + WideNode.MAX_Y * width, node.aabb._max.y
+        )
+        nodes.unsafe_store[width=width](
+            node_base + WideNode.MAX_Z * width, node.aabb._max.z
+        )
+        var packed_meta = SIMD[DType.uint32, width](EMPTY_LANE)
         comptime for lane in range(width):
-            var local_node_idx = UInt32(node_idx)
-            nodes[
-                unsafe_offset=node_f32_base
-                + _wide_node_index[width](local_node_idx, WideNode.MIN_X, lane)
-            ] = node.aabb._min.x[lane]
-            nodes[
-                unsafe_offset=node_f32_base
-                + _wide_node_index[width](local_node_idx, WideNode.MIN_Y, lane)
-            ] = node.aabb._min.y[lane]
-            nodes[
-                unsafe_offset=node_f32_base
-                + _wide_node_index[width](local_node_idx, WideNode.MIN_Z, lane)
-            ] = node.aabb._min.z[lane]
-            nodes[
-                unsafe_offset=node_f32_base
-                + _wide_node_index[width](local_node_idx, WideNode.MAX_X, lane)
-            ] = node.aabb._max.x[lane]
-            nodes[
-                unsafe_offset=node_f32_base
-                + _wide_node_index[width](local_node_idx, WideNode.MAX_Y, lane)
-            ] = node.aabb._max.y[lane]
-            nodes[
-                unsafe_offset=node_f32_base
-                + _wide_node_index[width](local_node_idx, WideNode.MAX_Z, lane)
-            ] = node.aabb._max.z[lane]
             var data = node.data[lane]
-            var meta = EMPTY_LANE
             if data != EMPTY_LANE:
                 if is_leaf_ref(data):
                     var block_idx = decode_ref_index(data)
-                    meta = _pack_wide_meta(
+                    packed_meta[lane] = _pack_wide_meta(
                         block_idx,
                         _sphere_leaf_count[frame, width](
                             bvh.leaf_blocks[Int(block_idx)]
                         ),
                     )
                 else:
-                    meta = _pack_wide_meta(data, UInt32(0))
-            nodes_u32[
-                unsafe_offset=node_f32_base
-                + _wide_node_index[width](local_node_idx, WideNode.META, lane)
-            ] = meta
+                    packed_meta[lane] = _pack_wide_meta(data, UInt32(0))
+        nodes_u32.unsafe_store[width=width](
+            node_base + WideNode.META * width, packed_meta
+        )
 
     var leaves_u32 = leaves.unsafe_bitcast[UInt32]()
     for block_idx in range(len(bvh.leaf_blocks)):
         ref block = bvh.leaf_blocks[block_idx]
         var out = leaf_f32_base + block_idx * width * SPHERE_LEAF_PACKED_STRIDE
-        comptime for lane in range(width):
-            leaves[unsafe_offset=out + 0 * width + lane] = block.center.x[lane]
-            leaves[unsafe_offset=out + 1 * width + lane] = block.center.y[lane]
-            leaves[unsafe_offset=out + 2 * width + lane] = block.center.z[lane]
-            leaves[unsafe_offset=out + 3 * width + lane] = block.radius[lane]
-            leaves_u32[
-                unsafe_offset=out + 4 * width + lane
-            ] = block.prim_indices[lane]
+        leaves.unsafe_store[width=width](out + 0 * width, block.center.x)
+        leaves.unsafe_store[width=width](out + 1 * width, block.center.y)
+        leaves.unsafe_store[width=width](out + 2 * width, block.center.z)
+        leaves.unsafe_store[width=width](out + 3 * width, block.radius)
+        leaves_u32.unsafe_store[width=width](
+            out + 4 * width, block.prim_indices
+        )
 
     var desc_base = BlasDescLayout.base(blas_idx)
     descs[unsafe_offset=desc_base + BlasDescLayout.NODE_F32_BASE] = UInt32(
@@ -405,17 +420,20 @@ def build_sphere_blases[
     var leaf_f32_count = 0
     var total_sphere_count = 0
     for spheres in sphere_sets:
-        debug_assert["safe", _use_compiler_assume=True](
-            len(spheres) > 0, "each CPU sphere BLAS must be nonempty"
-        )
         var sphere_count = len(spheres)
         total_sphere_count += sphere_count
         node_bases.append(node_f32_count)
         leaf_bases.append(leaf_f32_count)
-        node_f32_count += (
-            max(sphere_count - 1, 1) * width * WideNode.CHILD_STRIDE
-        )
+        if sphere_count > 0:
+            node_f32_count += (
+                max(sphere_count - 1, 1) * width * WideNode.CHILD_STRIDE
+            )
         leaf_f32_count += sphere_count * width * SPHERE_LEAF_PACKED_STRIDE
+
+    debug_assert["safe", _use_compiler_assume=True](
+        node_f32_count <= _U32_MAX_AS_INT and leaf_f32_count <= _U32_MAX_AS_INT,
+        "CPU sphere BLAS packed offsets exceed UInt32",
+    )
 
     var descs = List[UInt32](
         length=len(sphere_sets) * BlasDescLayout.STRIDE, fill=0
@@ -427,6 +445,14 @@ def build_sphere_blases[
     var leaves_ptr = leaves.unsafe_ptr()
 
     def build_one(blas_idx: Int) {imm}:
+        if len(sphere_sets[blas_idx]) == 0:
+            _store_empty_blas_desc(
+                descs_ptr,
+                blas_idx,
+                node_bases[blas_idx],
+                leaf_bases[blas_idx],
+            )
+            return
         _pack_sphere_blas[frame, width, split_method](
             sphere_sets[blas_idx],
             descs_ptr,
@@ -517,7 +543,10 @@ def trace_triangle_blas_set[
     blas_idx: UInt32,
     ray: Rayf32[frame],
 ) -> Hit[frame]:
+    _debug_check_blas_index(blas_idx, blases.blas_count)
     var desc = BlasDesc.load(blases.descs.unsafe_ptr(), blas_idx)
+    if desc.prim_count == 0:
+        return Hit[frame].miss(ray.t_max)
     var nodes_ptr = (
         blases.nodes.unsafe_ptr()
         .unsafe_offset(Int(desc.node_f32_base))
@@ -582,7 +611,10 @@ def trace_triangle_blas_set_packet[
 ) -> Hit[frame, length]:
     """Trace packed storage through the production CPU packet algorithm."""
     comptime assert length > 1
+    _debug_check_blas_index(blas_idx, blases.blas_count)
     var desc = BlasDesc.load(blases.descs.unsafe_ptr(), blas_idx)
+    if desc.prim_count == 0:
+        return Hit[frame, length].miss(rays.t_max)
     var nodes_ptr = (
         blases.nodes.unsafe_ptr()
         .unsafe_offset(Int(desc.node_f32_base))
@@ -719,7 +751,10 @@ def trace_sphere_blas_set[
     blas_idx: UInt32,
     ray: Rayf32[frame],
 ) -> Hit[frame]:
+    _debug_check_blas_index(blas_idx, blases.blas_count)
     var desc = BlasDesc.load(blases.descs.unsafe_ptr(), blas_idx)
+    if desc.prim_count == 0:
+        return Hit[frame].miss(ray.t_max)
     var nodes_ptr = (
         blases.nodes.unsafe_ptr()
         .unsafe_offset(Int(desc.node_f32_base))
@@ -777,7 +812,10 @@ def trace_sphere_blas_set_packet[
 ) -> Hit[frame, length]:
     """Trace packed spheres through the production CPU packet algorithm."""
     comptime assert length > 1
+    _debug_check_blas_index(blas_idx, blases.blas_count)
     var desc = BlasDesc.load(blases.descs.unsafe_ptr(), blas_idx)
+    if desc.prim_count == 0:
+        return Hit[frame, length].miss(rays.t_max)
     var nodes_ptr = (
         blases.nodes.unsafe_ptr()
         .unsafe_offset(Int(desc.node_f32_base))

@@ -134,13 +134,19 @@ struct _SphereBuild[frame: Frame, width: SIMDLength](Copyable):
 
     def __init__[
         split_method: String = "median"
-    ](out self, var spheres: List[Sphere[Self.frame]]):
+    ](out self, spheres: ImmSpan[Sphere[Self.frame], _]):
         self.sphere_count = len(spheres)
         self.leaf_blocks = []
 
-        var items = [
-            BoundsItem(s.bounds(), UInt32(i)) for i, s in enumerate(spheres)
-        ]
+        var sphere_ptr = spheres.unsafe_ptr()
+        var items = List[BoundsItem[Self.frame]](capacity=len(spheres))
+        for sphere_idx in range(len(spheres)):
+            items.append(
+                BoundsItem(
+                    sphere_ptr[unsafe_offset=sphere_idx].bounds(),
+                    UInt32(sphere_idx),
+                )
+            )
 
         var builder = BinaryBoundsBvh[Self.frame, Self.width, split_method](
             items^
@@ -164,7 +170,7 @@ struct _SphereBuild[frame: Frame, width: SIMDLength](Copyable):
                 var item_ref = Int(builder.item_indices.unsafe_get(first + k))
                 # Typed items are created in primitive order.
                 var sphere_idx = UInt32(item_ref)
-                ref sphere = spheres.unsafe_get(Int(sphere_idx))
+                ref sphere = sphere_ptr[unsafe_offset=Int(sphere_idx)]
 
                 block.center.x[k] = sphere.center.x
                 block.center.y[k] = sphere.center.y

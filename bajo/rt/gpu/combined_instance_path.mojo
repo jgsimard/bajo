@@ -214,6 +214,7 @@ def _enqueue_combined_instance_bounce[
             _immut(world.blases.leaves),
             world.tlas.core.tree.root_idx,
             Int32(world.tlas.core.inst_count),
+            Int32(world.blases.blas_count),
             _immut(world.instance_surfaces),
         ),
         world.shading.view(),

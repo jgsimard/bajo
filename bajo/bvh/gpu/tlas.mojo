@@ -45,6 +45,7 @@ struct GpuTlasLeafState(TrivialRegisterPassable):
     var blas_wide_nodes: Pointer[Float32, ImmUntrackedOrigin]
     var blas_leaves: Pointer[Float32, ImmUntrackedOrigin]
     var instance_count: Int
+    var blas_count: Int
 
 
 @always_inline
@@ -63,6 +64,7 @@ def _intersect_tlas_instance_block[
     blas_wide_nodes: ImmPointer[Float32, _],
     blas_leaves: ImmPointer[Float32, _],
     instance_count: Int,
+    blas_count: Int,
     leaf_block_idx: UInt32,
     item_count: UInt32,
     ray: Rayf32[Frame.WORLD],
@@ -79,8 +81,16 @@ def _intersect_tlas_instance_block[
         var inst_idx = UInt32(tlas_leaf_instances[unsafe_offset=idx])
 
         if inst_idx != EMPTY_LANE:
+            debug_assert["safe", _use_compiler_assume=True](
+                Int(inst_idx) < instance_count,
+                "GPU TLAS instance index is out of range",
+            )
             var blas_idx = UInt32(
                 inst_blas_indices[unsafe_offset=Int(inst_idx)]
+            )
+            debug_assert["safe", _use_compiler_assume=True](
+                Int(blas_idx) < blas_count,
+                "GPU TLAS BLAS index is out of range",
             )
             var blas_desc = BlasDesc.load(blas_descs, blas_idx)
             if blas_desc.prim_count == 0:
@@ -153,6 +163,7 @@ def _intersect_tlas_leaf_state[
         state.blas_wide_nodes,
         state.blas_leaves,
         state.instance_count,
+        state.blas_count,
         leaf_block_idx,
         item_count,
         ray,
@@ -177,6 +188,7 @@ def _trace_tlas_ray[
     blas_wide_nodes: ImmPointer[Float32, _],
     blas_leaves: ImmPointer[Float32, _],
     instance_count: Int,
+    blas_count: Int,
     tlas_root_idx: UInt32,
     ray: Rayf32[Frame.WORLD],
 ) -> Hit[Frame.WORLD]:
@@ -188,6 +200,7 @@ def _trace_tlas_ray[
         blas_wide_nodes.unsafe_origin_cast[ImmUntrackedOrigin](),
         blas_leaves.unsafe_origin_cast[ImmUntrackedOrigin](),
         instance_count,
+        blas_count,
     )
     var hit = trace_bounds_bvh_state[
         Frame.WORLD,
@@ -235,6 +248,7 @@ def trace_triangle_tlas_camera_kernel[
     camera_params: Pointer[Float32, ImmutAnyOrigin],
     hits: Pointer[Float32, MutAnyOrigin],
     instance_count: Int32,
+    blas_count: Int32,
     ray_count: Int32,
     width: Int32,
     height: Int32,
@@ -278,6 +292,7 @@ def trace_triangle_tlas_camera_kernel[
         blas_wide_nodes,
         blas_leaf_vertices,
         Int(instance_count),
+        Int(blas_count),
         tlas_root_idx,
         ray,
     )
@@ -301,6 +316,7 @@ def trace_sphere_tlas_camera_kernel[
     camera_params: Pointer[Float32, ImmutAnyOrigin],
     hits: Pointer[Float32, MutAnyOrigin],
     instance_count: Int32,
+    blas_count: Int32,
     ray_count: Int32,
     width: Int32,
     height: Int32,
@@ -342,6 +358,7 @@ def trace_sphere_tlas_camera_kernel[
         blas_wide_nodes,
         blas_leaf_spheres,
         Int(instance_count),
+        Int(blas_count),
         tlas_root_idx,
         ray,
     )
@@ -490,6 +507,10 @@ struct GpuTriangleTlas[
         validate_camera_launch(
             d_camera_params, d_hits, ray_count, cwidth, cheight
         )
+        debug_assert["safe", _use_compiler_assume=True](
+            blases.blas_count > 0,
+            "GPU TLAS requires at least one BLAS descriptor",
+        )
         ctx.enqueue_function[
             trace_triangle_tlas_camera_kernel[
                 Self.tlas_node_width,
@@ -510,6 +531,7 @@ struct GpuTriangleTlas[
             d_camera_params,
             d_hits,
             Int32(self.core.inst_count),
+            Int32(blases.blas_count),
             Int32(ray_count),
             Int32(cwidth),
             Int32(cheight),
@@ -548,6 +570,10 @@ struct GpuSphereTlas[
         validate_camera_launch(
             d_camera_params, d_hits, ray_count, cwidth, cheight
         )
+        debug_assert["safe", _use_compiler_assume=True](
+            blases.blas_count > 0,
+            "GPU TLAS requires at least one BLAS descriptor",
+        )
         ctx.enqueue_function[
             trace_sphere_tlas_camera_kernel[
                 Self.tlas_node_width,
@@ -567,6 +593,7 @@ struct GpuSphereTlas[
             d_camera_params,
             d_hits,
             Int32(self.core.inst_count),
+            Int32(blases.blas_count),
             Int32(ray_count),
             Int32(cwidth),
             Int32(cheight),

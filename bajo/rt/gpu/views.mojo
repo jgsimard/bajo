@@ -58,6 +58,7 @@ struct GpuRtInstanceView(TrivialRegisterPassable):
     var blas_leaves: Pointer[Float32, ImmUntrackedOrigin]
     var tlas_root: UInt32
     var count: Int32
+    var blas_count: Int32
     var surfaces: Pointer[UInt32, ImmUntrackedOrigin]
 
 

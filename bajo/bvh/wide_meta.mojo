@@ -23,6 +23,12 @@ def _wide_node_index[
 def _pack_wide_meta(data: UInt32, count: UInt32) -> UInt32:
     if count == EMPTY_LANE:
         return EMPTY_LANE
+    debug_assert["safe", _use_compiler_assume=True](
+        data <= WIDE_META_INDEX_MASK, "wide BVH metadata index exceeds 27 bits"
+    )
+    debug_assert["safe", _use_compiler_assume=True](
+        count < UInt32(32), "wide BVH metadata count exceeds 5 bits"
+    )
     return (count << WIDE_META_COUNT_SHIFT) | (data & WIDE_META_INDEX_MASK)
 
 

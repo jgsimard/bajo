@@ -135,34 +135,17 @@ struct Tlas[
     var tree: BoundsBvh[Frame.WORLD, Self.bounds_width]
     # Hot records are compact and touched after an instance AABB survives.
     var hot_instances: List[TlasHotInstance]
-    # Cold records are bounds-only and used while building packed leaves.
-    var cold_instances: List[TlasColdInstance]
     var leaf_blocks: List[TlasLeafBlock[Self.leaf_width]]
-    var inst_count: Int
 
     def __init__[
         split_method: String = "lbvh"
     ](out self, instances: ImmSpan[Instance, _]):
         self.hot_instances = []
-        self.cold_instances = []
-        _split_instances(instances, self.hot_instances, self.cold_instances)
-        self.inst_count = len(self.cold_instances)
+        var cold_instances = List[TlasColdInstance]()
+        _split_instances(instances, self.hot_instances, cold_instances)
         self.leaf_blocks = []
         self.tree = _tree[Self.bounds_width, Self.leaf_width, split_method](
-            self.cold_instances, self.leaf_blocks
-        )
-
-    def add_instance(mut self, instance: Instance):
-        self.hot_instances.append(
-            TlasHotInstance(instance.inv_transform.copy(), instance.blas_idx)
-        )
-        self.cold_instances.append(TlasColdInstance(instance.bounds))
-        self.inst_count += 1
-
-    def build[split_method: String = "lbvh"](mut self):
-        self.leaf_blocks = []
-        self.tree = _tree[Self.bounds_width, Self.leaf_width, split_method](
-            self.cold_instances, self.leaf_blocks
+            cold_instances, self.leaf_blocks
         )
 
     def bounds(self) -> AABB[Frame.WORLD]:

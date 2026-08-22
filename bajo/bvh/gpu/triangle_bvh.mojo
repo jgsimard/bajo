@@ -65,10 +65,8 @@ from bajo.core.intersect import (
     intersect_ray_tri_edges_scaled,
 )
 from bajo.bvh.gpu.trace import (
-    GpuTraversalAlgorithm,
     GpuTraversalStats,
     trace_bounds_bvh,
-    trace_bounds_bvh_unified_closest,
     trace_bounds_bvh_with_stats,
 )
 
@@ -486,9 +484,7 @@ struct GpuTriangleBvh[
         self.leaf_vertices = leaf_vertices^
         self.tri_count = tri_count
 
-    def launch_camera[
-        algorithm: GpuTraversalAlgorithm = GpuTraversalAlgorithm.STANDARD,
-    ](
+    def launch_camera(
         self,
         ctx: DeviceContext,
         d_camera_params: DeviceBuffer[DType.float32],
@@ -503,11 +499,7 @@ struct GpuTriangleBvh[
         )
 
         ctx.enqueue_function[
-            trace_triangle_bvh_camera_kernel[
-                Self.node_width,
-                Self.leaf_width,
-                algorithm == GpuTraversalAlgorithm.UNIFIED_TASKS,
-            ]
+            trace_triangle_bvh_camera_kernel[Self.node_width, Self.leaf_width]
         ](
             self.tree.wide_nodes,
             self.leaf_vertices,
@@ -561,7 +553,6 @@ struct GpuTriangleBvh[
 
     def launch_rays[
         mode: TRACE = TRACE.CLOSEST_HIT,
-        algorithm: GpuTraversalAlgorithm = GpuTraversalAlgorithm.STANDARD,
     ](
         self,
         ctx: DeviceContext,
@@ -577,7 +568,6 @@ struct GpuTriangleBvh[
                 Self.node_width,
                 Self.leaf_width,
                 mode,
-                algorithm == GpuTraversalAlgorithm.UNIFIED_TASKS,
             ]
         ](
             self.tree.wide_nodes,
@@ -707,7 +697,6 @@ def compute_triangle_bounds_kernel[
 def trace_triangle_bvh_camera_kernel[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
-    unified_tasks: Bool = False,
 ](
     wide_nodes: Pointer[Float32, ImmutAnyOrigin],
     leaf_vertices: Pointer[Float32, ImmutAnyOrigin],
@@ -735,35 +724,21 @@ def trace_triangle_bvh_camera_kernel[
         inv_height,
     )
 
-    var hit = Hit[Frame.WORLD].miss(ray.t_max)
-    comptime if (unified_tasks and node_width == 2 and leaf_width == 4):
-        hit = trace_bounds_bvh_unified_closest[
+    # extra distance stack benchmarks positively for triangle BVH4;
+    # BVH8 retains the lower-memory stack specialization.
+    var hit = trace_bounds_bvh[
+        Frame.WORLD,
+        node_width,
+        TRACE.CLOSEST_HIT,
+        _intersect_triangle_leaf[
             Frame.WORLD,
-            node_width,
-            _intersect_triangle_leaf[
-                Frame.WORLD,
-                leaf_width,
-                TRACE.CLOSEST_HIT,
-                leaf_width > node_width or leaf_width == 8,
-            ],
-        ](wide_nodes, leaf_vertices, root_idx, ray)
-    else:
-        # extra distance stack benchmarks positively for triangle BVH4;
-        # BVH8 retains the lower-memory stack specialization.
-        hit = trace_bounds_bvh[
-            Frame.WORLD,
-            node_width,
+            leaf_width,
             TRACE.CLOSEST_HIT,
-            _intersect_triangle_leaf[
-                Frame.WORLD,
-                leaf_width,
-                TRACE.CLOSEST_HIT,
-                leaf_width > node_width or leaf_width == 8,
-            ],
-            True,
-            node_width == 4,
-            node_width == 2 and leaf_width == 2,
-        ](wide_nodes, leaf_vertices, root_idx, ray)
+            leaf_width > node_width or leaf_width == 8,
+        ],
+        node_width == 4,
+        node_width == 2 and leaf_width == 2,
+    ](wide_nodes, leaf_vertices, root_idx, ray)
     _store_camera_hit(hit, hits, ray_count_int, ray_idx)
 
 
@@ -772,7 +747,6 @@ def trace_triangle_bvh_rays_kernel[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
     mode: TRACE = TRACE.CLOSEST_HIT,
-    unified_tasks: Bool = False,
 ](
     wide_nodes: Pointer[Float32, ImmutAnyOrigin],
     leaf_vertices: Pointer[Float32, ImmutAnyOrigin],
@@ -787,38 +761,19 @@ def trace_triangle_bvh_rays_kernel[
         return
 
     var ray = _load_packed_ray[frame](rays, ray_count_int, ray_idx)
-    var hit = Hit[frame].miss(ray.t_max)
-    comptime if (
-        mode == TRACE.CLOSEST_HIT
-        and unified_tasks
-        and node_width == 2
-        and leaf_width == 4
-    ):
-        hit = trace_bounds_bvh_unified_closest[
+    var hit = trace_bounds_bvh[
+        frame,
+        node_width,
+        mode,
+        _intersect_triangle_leaf[
             frame,
-            node_width,
-            _intersect_triangle_leaf[
-                frame,
-                leaf_width,
-                TRACE.CLOSEST_HIT,
-                leaf_width > node_width or leaf_width == 8,
-            ],
-        ](wide_nodes, leaf_vertices, root_idx, ray)
-    else:
-        hit = trace_bounds_bvh[
-            frame,
-            node_width,
+            leaf_width,
             mode,
-            _intersect_triangle_leaf[
-                frame,
-                leaf_width,
-                mode,
-                leaf_width > node_width or leaf_width == 8,
-            ],
-            True,
-            node_width == 4,
-            mode == TRACE.CLOSEST_HIT and node_width == 2 and leaf_width == 2,
-        ](wide_nodes, leaf_vertices, root_idx, ray)
+            leaf_width > node_width or leaf_width == 8,
+        ],
+        node_width == 4,
+        mode == TRACE.CLOSEST_HIT and node_width == 2 and leaf_width == 2,
+    ](wide_nodes, leaf_vertices, root_idx, ray)
     _store_packed_hit[frame](hit, hits, ray_count_int, ray_idx)
 
 
@@ -863,7 +818,6 @@ def trace_triangle_bvh_camera_instrumented_kernel[
             TRACE.CLOSEST_HIT,
             leaf_width > node_width or leaf_width == 8,
         ],
-        True,
         node_width == 4,
     ](
         wide_nodes,

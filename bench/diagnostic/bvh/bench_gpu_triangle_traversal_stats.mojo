@@ -11,7 +11,7 @@ from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.types import Hit
 from bajo.core import Frame
 from bajo.parser.obj.pack import pack_obj_triangles
-from bench.bvh.fixtures import make_camera_rays_and_params
+from bajo.benchmark.bvh_fixtures import make_camera_rays_and_params
 
 
 comptime DEFAULT_OBJ_PATH = "./assets/dragon/dragon.obj"

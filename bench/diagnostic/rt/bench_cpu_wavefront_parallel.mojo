@@ -11,8 +11,8 @@ from bajo.rt.cpu.wavefront import (
     WAVE_PARALLEL_RUNTIME_DEFAULT,
     WAVE_PARALLEL_TASK_PARTITIONS,
 )
-from bench.rt.cpu_harness import pixel_checksum
-from bench.rt.fixtures import (
+from bajo.benchmark.cpu_harness import pixel_checksum
+from bajo.benchmark.rt_fixtures import (
     make_mixed_triangle_world,
     mixed_triangle_camera,
     weekend_camera,

@@ -5,7 +5,7 @@ from bajo.core import Frame, Rayf32
 from bajo.core.random import Rng, random_on_hemisphere
 from bajo.core.utils import ns_to_mrays_per_s
 from bajo.rt import World
-from bench.rt.fixtures import (
+from bajo.benchmark.rt_fixtures import (
     make_bounded_grid_rays,
     make_grid_triangle_world,
     weekend_camera,

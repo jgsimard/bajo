@@ -2,6 +2,7 @@ from std.math import round
 from std.time import perf_counter_ns
 
 from bajo.bvh.constants import TRACE
+from bajo.bvh.cpu.blas_set import trace_triangle_blas_set
 from bajo.core import Frame, GeoKind, Rayf32, cross, dot, normalize
 from bajo.core.utils import ns_to_mrays_per_s
 from bajo.rt.types import (
@@ -11,7 +12,7 @@ from bajo.rt.types import (
     World,
     ray_at,
 )
-from bench.rt.fixtures import (
+from bajo.benchmark.rt_fixtures import (
     make_bounded_grid_rays,
     make_grid_triangle_world,
 )
@@ -30,7 +31,9 @@ struct TimingResult(Copyable):
 def trace_recomputed_normal(
     world: World[], ray: Rayf32[Frame.WORLD]
 ) -> Optional[HitRecord]:
-    var bvh_hit = world.triangle_bvh.value().trace[TRACE.CLOSEST_HIT](ray)
+    var bvh_hit = trace_triangle_blas_set[
+        16, 16, TRACE.CLOSEST_HIT, Frame.WORLD
+    ](world.triangle_bvh.value(), UInt32(0), ray)
     if not bvh_hit.is_hit():
         return None
 
@@ -56,7 +59,9 @@ def trace_recomputed_normal(
 def trace_bvh_normal(
     world: World[], ray: Rayf32[Frame.WORLD]
 ) -> Optional[HitRecord]:
-    var bvh_hit = world.triangle_bvh.value().trace[TRACE.CLOSEST_HIT](ray)
+    var bvh_hit = trace_triangle_blas_set[
+        16, 16, TRACE.CLOSEST_HIT, Frame.WORLD
+    ](world.triangle_bvh.value(), UInt32(0), ray)
     if not bvh_hit.is_hit():
         return None
 
@@ -115,7 +120,7 @@ def time_rays[
     return TimingResult(best_ns, summary[0], summary[1])
 
 
-def main() raises:
+def run_benchmark() raises:
     print("CPU renderer standalone-triangle normal benchmark")
     print("identical BVH, rays, hit-record construction, and checksum")
     var world = make_grid_triangle_world()
@@ -136,3 +141,7 @@ def main() raises:
     )
     print(t"  checksum delta: {reused.checksum - recomputed.checksum}")
     print(t"  hit-count delta: {reused.hits - recomputed.hits}")
+
+
+def main() raises:
+    run_benchmark()

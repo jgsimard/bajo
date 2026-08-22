@@ -20,9 +20,9 @@ from bajo.rt.gpu.combined_instance_path import (
     enqueue_render_gpu_combined_instances,
 )
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
-from bench.bvh.reporting import TablePrinter
-from bench.rt.gpu_harness import gpu_rt_checksum
-from bench.timing import TimingSummary, summarize_timings
+from bajo.benchmark.bvh_reporting import TablePrinter
+from bajo.benchmark.gpu_harness import gpu_rt_checksum
+from bajo.benchmark.timing import TimingSummary, summarize_timings
 from examples.lbvh_scene import make_lbvh_camera, make_lbvh_world
 
 

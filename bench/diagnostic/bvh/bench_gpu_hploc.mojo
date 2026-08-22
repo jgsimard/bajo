@@ -6,7 +6,6 @@ from std.time import perf_counter_ns
 from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh.gpu.diagnostics import build_bounds_bvh_for_diagnostics
-from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvh
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.gpu.quality import (
     measure_binary_bvh_quality,
@@ -28,8 +27,8 @@ from bajo.bvh.types import Hit
 from bajo.core import Frame, Point3f32
 from bajo.core.utils import ns_to_mrays_per_s, ns_to_ms
 from bajo.parser.obj.pack import pack_obj_triangles
-from bench.bvh.fixtures import make_camera_rays_and_params
-from bench.diagnostic.bvh.fixtures import flatten_triangle_bounds
+from bajo.benchmark.bvh_fixtures import make_camera_rays_and_params
+from bajo.benchmark.gpu_bvh_fixtures import flatten_triangle_bounds
 
 
 comptime DRAGON_PATH = "./assets/dragon/dragon.obj"
@@ -116,13 +115,13 @@ def _run_case[
             best_timings = candidate_timings
 
     # Measure binary and final-wide quality independently of the timed build.
-    var quality_tree = GpuWideBoundsBvh[node_width, leaf_width, max_leaf_size](
-        ctx, triangle_count
-    )
     var quality_diagnostic = build_bounds_bvh_for_diagnostics[
         node_width, leaf_width, max_leaf_size, method, True
-    ](ctx, quality_tree, d_leaf_bounds.copy(), d_payloads.copy())
-    var binary_quality = measure_binary_bvh_quality(quality_diagnostic.binary)
+    ](ctx, d_leaf_bounds.copy(), d_payloads.copy())
+    ref quality_tree = quality_diagnostic.wide
+    var binary_quality = measure_binary_bvh_quality(
+        quality_diagnostic.build.binary
+    )
     var wide_quality = measure_wide_bvh_quality(quality_tree)
 
     var bvh = build_triangle_bvh[Frame.WORLD, node_width, leaf_width, method](

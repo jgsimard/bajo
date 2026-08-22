@@ -22,13 +22,13 @@ from bajo.rt.cpu import sample_bsdf
 from bajo.rt.cpu.common import _russian_roulette
 from bajo.rt.types import MAT, PRIM
 from examples.rtiaw import make_weekend_world
-from bench.rt.cpu_harness import pixel_checksum
-from bench.rt.fixtures import (
+from bajo.benchmark.cpu_harness import pixel_checksum
+from bajo.benchmark.rt_fixtures import (
     make_mixed_triangle_world,
     mixed_triangle_camera,
     weekend_camera,
 )
-from bench.timing import ratio
+from bajo.benchmark.timing import ratio
 
 
 comptime TIMING_WIDTH = 960
@@ -349,7 +349,7 @@ def print_ao_counters(label: String, counters: TraceCounters):
     )
 
 
-def main() raises:
+def run_benchmark() raises:
     print("CPU ray tracer end-to-end benchmark and deterministic counters")
     print(
         t"timing: {TIMING_WIDTH}x{TIMING_HEIGHT} x {TIMING_SPP} spp, "
@@ -434,3 +434,7 @@ def main() raises:
         "triangles / AO",
         count_ao(counter_settings, triangle_cam, triangle_world),
     )
+
+
+def main() raises:
+    run_benchmark()

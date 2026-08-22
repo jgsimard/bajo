@@ -5,13 +5,17 @@ from std.time import perf_counter_ns
 
 from bajo.bvh.constants import TRACE, f32_max
 from bajo.core import Ray
-from bajo.bvh.cpu.triangle_bvh import TriangleBvh
+from bajo.bvh.cpu.blas_set import (
+    build_triangle_blases,
+    trace_triangle_blas_set,
+    trace_triangle_blas_set_packet,
+)
 from bajo.bvh.host_utils import compute_bounds
-from bajo.bvh.types import Hit
+from bajo.bvh.types import CpuBlasSet, Hit
 from bajo.core import Frame, Point3, Point3f32, Vec3, Rayf32
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.parser.obj.pack import pack_obj_triangles
-from bench.bvh.fixtures import (
+from bajo.benchmark.bvh_fixtures import (
     make_camera_rays_and_params,
     make_grid_triangles,
     make_hit_and_miss_rays,
@@ -36,13 +40,18 @@ def trace_scalar[
     bounds_width: SIMDLength,
     leaf_width: SIMDLength,
 ](
-    bvh: TriangleBvh[Frame.WORLD, bounds_width, leaf_width],
+    bvh: CpuBlasSet[bounds_width, leaf_width],
     rays: List[Rayf32[Frame.WORLD]],
 ) -> Tuple[Float64, Int]:
     var checksum = Float64(0.0)
     var hits = 0
     for ray in rays:
-        var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
+        var hit = trace_triangle_blas_set[
+            bounds_width,
+            leaf_width,
+            TRACE.CLOSEST_HIT,
+            Frame.WORLD,
+        ](bvh, UInt32(0), ray)
         if hit.t < f32_max:
             checksum += (
                 Float64(hit.t)
@@ -63,7 +72,7 @@ def trace_packet[
     length: SIMDLength,
     common_octant: Bool,
 ](
-    bvh: TriangleBvh[Frame.WORLD, bounds_width, leaf_width],
+    bvh: CpuBlasSet[bounds_width, leaf_width],
     rays: List[Rayf32[Frame.WORLD]],
 ) -> Tuple[Float64, Int]:
     var checksum = Float64(0.0)
@@ -97,11 +106,13 @@ def trace_packet[
             t_min,
             t_max,
         )
-        var packet_hit: Hit[Frame.WORLD, length]
-        comptime if common_octant:
-            packet_hit = bvh.trace_packet_common_octant(packet, valid)
-        else:
-            packet_hit = bvh.trace[TRACE.CLOSEST_HIT](packet, valid)
+        var packet_hit = trace_triangle_blas_set_packet[
+            bounds_width,
+            leaf_width,
+            length,
+            common_octant,
+            Frame.WORLD,
+        ](bvh, UInt32(0), packet, valid)
         for lane in range(lane_count):
             if packet_hit.prim[lane] != UInt32(0xFFFFFFFF):
                 checksum += (
@@ -123,7 +134,7 @@ def benchmark[
     length: SIMDLength,
     common_octant: Bool = False,
 ](
-    bvh: TriangleBvh[Frame.WORLD, bounds_width, leaf_width],
+    bvh: CpuBlasSet[bounds_width, leaf_width],
     rays: List[Rayf32[Frame.WORLD]],
 ) -> PacketTiming:
     var summary: Tuple[Float64, Int]
@@ -163,28 +174,22 @@ def benchmark_scene[
     label: String,
     vertices: List[Point3f32[Frame.WORLD]],
     rays: List[Rayf32[Frame.WORLD]],
-):
+) raises:
     print(
         t"\n{label} / {split_method} / BVH{Int(bounds_width)} "
         t"leaf{Int(leaf_width)}"
     )
-    var bvh = TriangleBvh[Frame.WORLD, bounds_width, leaf_width].__init__[
-        split_method
-    ](vertices)
+    var bvh = build_triangle_blases[
+        bounds_width, leaf_width, split_method, Frame.WORLD
+    ]([vertices.copy()])
     print_timing(
-        "scalar",
-        benchmark[bounds_width, leaf_width, 1](bvh, rays),
-        len(rays),
+        "scalar", benchmark[bounds_width, leaf_width, 1](bvh, rays), len(rays)
     )
     print_timing(
-        "packet4",
-        benchmark[bounds_width, leaf_width, 4](bvh, rays),
-        len(rays),
+        "packet4", benchmark[bounds_width, leaf_width, 4](bvh, rays), len(rays)
     )
     print_timing(
-        "packet8",
-        benchmark[bounds_width, leaf_width, 8](bvh, rays),
-        len(rays),
+        "packet8", benchmark[bounds_width, leaf_width, 8](bvh, rays), len(rays)
     )
     print_timing(
         "packet16",
@@ -208,7 +213,7 @@ def benchmark_scene[
     )
 
 
-def main() raises:
+def run_benchmark() raises:
     print("CPU shared-stack packet BVH benchmark")
     var grid_vertices = make_grid_triangles()
     var grid_rays = make_hit_and_miss_rays()
@@ -230,3 +235,7 @@ def main() raises:
     benchmark_scene[16, 16, "hploc"](
         "Dragon camera rays", dragon_vertices, dragon_rays
     )
+
+
+def main() raises:
+    run_benchmark()

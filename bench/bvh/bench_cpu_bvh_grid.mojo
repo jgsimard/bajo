@@ -2,16 +2,17 @@ from std.math import round
 from std.time import perf_counter_ns
 
 from bajo.bvh.constants import TRACE, f32_max
-from bajo.bvh.cpu.triangle_bvh import TriangleBvh
+from bajo.bvh.cpu.blas_set import build_triangle_blases, trace_triangle_blas_set
+from bajo.bvh.types import BlasDesc, CpuBlasSet
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.core import Frame, Point3f32, Rayf32
-from bench.bvh.fixtures import (
+from bajo.benchmark.bvh_fixtures import (
     PRIM_COUNT,
     RAY_COUNT,
     make_grid_triangles,
     make_hit_and_miss_rays,
 )
-from bench.bvh.reporting import TablePrinter
+from bajo.benchmark.bvh_reporting import TablePrinter
 
 
 comptime TRAVERSAL_REPEATS = 8
@@ -25,14 +26,13 @@ struct PrimaryBenchResult(Copyable):
 
 def trace_triangle[
     width: SIMDLength
-](
-    bvh: TriangleBvh[Frame.WORLD, width],
-    rays: List[Rayf32[Frame.WORLD]],
-) -> Float64:
+](bvh: CpuBlasSet[width], rays: List[Rayf32[Frame.WORLD]],) -> Float64:
     var checksum = 0.0
 
     for ray in rays:
-        var hit = bvh.trace[TRACE.CLOSEST_HIT](ray)
+        var hit = trace_triangle_blas_set[
+            width, width, TRACE.CLOSEST_HIT, Frame.WORLD
+        ](bvh, UInt32(0), ray)
 
         if hit.t < f32_max:
             checksum += (
@@ -51,7 +51,7 @@ def trace_triangle[
 def benchmark_triangle[
     width: SIMDLength
 ](
-    bvh: TriangleBvh[Frame.WORLD, width],
+    bvh: CpuBlasSet[width],
     rays: List[Rayf32[Frame.WORLD]],
 ) -> PrimaryBenchResult:
     # Warm-up.
@@ -107,12 +107,9 @@ def benchmark_case[
     rays: List[Rayf32[Frame.WORLD]],
 ) raises:
     var t0 = perf_counter_ns()
-    var bvh = TriangleBvh[
-        Frame.WORLD,
-        width,
-    ].__init__[
-        split_method
-    ](vertices)
+    var bvh = build_triangle_blases[width, width, split_method, Frame.WORLD](
+        [vertices.copy()]
+    )
     var t1 = perf_counter_ns()
 
     var result = benchmark_triangle[width](bvh, rays)
@@ -122,8 +119,8 @@ def benchmark_case[
         width,
         split_method,
         Int(t1 - t0),
-        len(bvh.tree.nodes),
-        bvh.tri_count,
+        Int(BlasDesc.load(bvh.descs.unsafe_ptr(), UInt32(0)).node_count),
+        len(vertices) / 3,
         result,
         len(rays),
     )
@@ -144,7 +141,7 @@ def benchmark_widths[
         )
 
 
-def main() raises:
+def run_benchmark() raises:
     print("Primitive BoundsBvh benchmark")
     print(t"Primitives: {PRIM_COUNT}")
     print(t"Rays: {RAY_COUNT}")
@@ -179,3 +176,7 @@ def main() raises:
             vertices,
             rays,
         )
+
+
+def main() raises:
+    run_benchmark()

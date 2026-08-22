@@ -5,9 +5,9 @@ from std.sys import simd_width_of
 
 from bajo.core.utils import ns_to_ms
 from bajo.rt import RENDER, RenderSettings, render_depth_first
-from bench.bvh.reporting import TablePrinter
-from bench.rt.cpu_harness import pixel_checksum
-from bench.timing import summarize_timings
+from bajo.benchmark.bvh_reporting import TablePrinter
+from bajo.benchmark.cpu_harness import pixel_checksum
+from bajo.benchmark.timing import summarize_timings
 from examples.lbvh_scene import make_lbvh_camera, make_lbvh_world
 
 

@@ -7,11 +7,11 @@ from std.time import perf_counter_ns
 
 from bajo.bvh.constants import TRACE
 from bajo.bvh.cpu.tlas import Tlas
-from bajo.bvh.cpu.triangle_bvh import TriangleBvh
+from bajo.bvh.types import CpuBlasSet
 from bajo.core import Frame, Rayf32
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
-from bench.bvh.reporting import TablePrinter
-from bench.timing import TimingSummary, summarize_timings
+from bajo.benchmark.bvh_reporting import TablePrinter
+from bajo.benchmark.timing import TimingSummary, summarize_timings
 from examples.lbvh_scene import make_lbvh_camera, make_lbvh_world
 
 
@@ -34,14 +34,14 @@ def _trace[
     mode: TRACE,
 ](
     tlas: Tlas[width, leaf_width],
-    blases: List[TriangleBvh[Frame.LOCAL, width]],
+    blases: CpuBlasSet[width],
     rays: List[Rayf32[Frame.WORLD]],
 ) -> TraceChecksum:
     var distance = Float64(0.0)
     var hits = UInt64(0)
     var instances = UInt64(0)
     for ray in rays:
-        var hit = tlas.trace[TriangleBvh[Frame.LOCAL, width], mode](ray, blases)
+        var hit = tlas.trace_triangle_blases[width, width, mode](ray, blases)
         comptime if mode == TRACE.ANY_HIT:
             if hit.is_occluded():
                 hits += 1
@@ -63,7 +63,7 @@ def _timed_trace[
     mode: TRACE,
 ](
     tlas: Tlas[width, leaf_width],
-    blases: List[TriangleBvh[Frame.LOCAL, width]],
+    blases: CpuBlasSet[width],
     rays: List[Rayf32[Frame.WORLD]],
 ) -> Int:
     var start = perf_counter_ns()
@@ -101,7 +101,7 @@ def _benchmark_mode[
     label: String,
     tlas_leaf1: Tlas[width, 1],
     tlas_native: Tlas[width, width],
-    blases: List[TriangleBvh[Frame.LOCAL, width]],
+    blases: CpuBlasSet[width],
     rays: List[Rayf32[Frame.WORLD]],
 ) raises:
     for _ in range(WARMUPS):
@@ -174,7 +174,7 @@ def _benchmark_mode[
     )
 
 
-def main() raises:
+def run_benchmark() raises:
     comptime width = simd_width_of[DType.float32]()
     print("CPU TLAS leaf-width benchmark")
     print(
@@ -206,13 +206,17 @@ def main() raises:
         "Primary closest-hit",
         tlas_leaf1,
         tlas_native,
-        world.triangle_mesh_blases,
+        world.triangle_mesh_blases.value(),
         rays,
     )
     _benchmark_mode[width, TRACE.ANY_HIT](
         "Primary any-hit",
         tlas_leaf1,
         tlas_native,
-        world.triangle_mesh_blases,
+        world.triangle_mesh_blases.value(),
         rays,
     )
+
+
+def main() raises:
+    run_benchmark()

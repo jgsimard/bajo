@@ -18,8 +18,8 @@ from bajo.rt.cpu.common import _path_stage_rng, _russian_roulette
 from bajo.rt.cpu.wavefront.primary import _initialize_path_packets_range
 from bajo.rt.wavefront_queue import PacketPathQueue, PathPacket
 from bajo.rt.types import MAT
-from bench.rt.cpu_harness import pixel_checksum
-from bench.rt.fixtures import (
+from bajo.benchmark.cpu_harness import pixel_checksum
+from bajo.benchmark.rt_fixtures import (
     make_mixed_triangle_world,
     mixed_triangle_camera,
     weekend_camera,

@@ -27,7 +27,7 @@ from bajo.rt.gpu.instance_path import (
     enqueue_render_gpu_triangle_instances,
 )
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
-from bench.rt.gpu_harness import (
+from bajo.benchmark.gpu_harness import (
     BENCH_REPEATS,
     IMAGE_HEIGHT,
     IMAGE_WIDTH,

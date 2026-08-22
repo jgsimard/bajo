@@ -15,7 +15,7 @@ from bajo.rt.gpu.triangle_path import (
     GpuRtTriangleScene,
     enqueue_render_gpu_triangles,
 )
-from bench.rt.gpu_harness import (
+from bajo.benchmark.gpu_harness import (
     BENCH_REPEATS,
     IMAGE_HEIGHT,
     IMAGE_WIDTH,

@@ -5,8 +5,8 @@ from std.math import round
 from bajo.core.utils import ns_to_ms
 from bajo.rt import Camera, RENDER, RenderSettings, World
 from bajo.rt.cpu import render_depth_first
-from bench.rt.cpu_harness import pixel_checksum
-from bench.rt.fixtures import (
+from bajo.benchmark.cpu_harness import pixel_checksum
+from bajo.benchmark.rt_fixtures import (
     make_mixed_triangle_world,
     mixed_triangle_camera,
     weekend_camera,

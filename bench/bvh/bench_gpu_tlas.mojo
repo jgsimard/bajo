@@ -9,9 +9,9 @@ from bajo.core.utils import (
     ns_to_mrays_per_s,
 )
 from bajo.core import Frame, AABB, Vec3f32, Affine3f32, Point3f32, Rayf32
-from bajo.bvh.types import Sphere, Instance, BlasSet, Hit
+from bajo.bvh.types import CpuBlasSet, Sphere, Instance, GpuBlasSet, Hit
 from bajo.bvh.host_utils import compute_bounds
-from bajo.bvh.cpu.triangle_bvh import TriangleBvh
+from bajo.bvh.cpu.blas_set import build_triangle_blases
 from bajo.bvh.cpu.tlas import Tlas
 from bajo.bvh.gpu.tlas import (
     GpuTriangleTlas,
@@ -37,12 +37,12 @@ from bajo.bvh.constants import TRACE, Primitive, MISS_PRIM, f32_max
 from bajo.parser.obj.pack import pack_obj_triangles
 from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list, upload_vertices
 
-from bench.bvh.reporting import (
+from bajo.benchmark.bvh_reporting import (
     GpuBenchResult,
     TablePrinter,
 )
-from bench.bvh.fixtures import make_camera_rays_and_params
-from bench.timing import summarize_timings
+from bajo.benchmark.bvh_fixtures import make_camera_rays_and_params
+from bajo.benchmark.timing import summarize_timings
 
 
 comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"
@@ -150,25 +150,20 @@ def _cpu_tlas_triangle_reference[
     tlas_width: SIMDLength,
     blas_width: SIMDLength,
 ](
-    cpu_blas: TriangleBvh[Frame.LOCAL, blas_width],
+    cpu_blas: CpuBlasSet[blas_width],
     instances: List[Instance],
     rays: List[Rayf32[Frame.WORLD]],
 ) -> Tuple[Float64, UInt32, UInt64]:
     var tlas = Tlas[tlas_width](instances)
-
-    var blases = [cpu_blas.copy()]
 
     var checksum = Float64(0.0)
     var hits = UInt32(0)
     var inst_checksum = UInt64(0)
 
     for ray in rays:
-        var hit = tlas.trace[
-            TriangleBvh[Frame.LOCAL, blas_width], TRACE.CLOSEST_HIT
-        ](
-            ray,
-            blases,
-        )
+        var hit = tlas.trace_triangle_blases[
+            blas_width, blas_width, TRACE.CLOSEST_HIT
+        ](ray, cpu_blas)
         if hit.t < f32_max:
             checksum += Float64(hit.t)
             hits += 1
@@ -181,23 +176,18 @@ def _cpu_tlas_triangle_shadow_reference[
     tlas_width: SIMDLength,
     blas_width: SIMDLength,
 ](
-    cpu_blas: TriangleBvh[Frame.LOCAL, blas_width],
+    cpu_blas: CpuBlasSet[blas_width],
     instances: List[Instance],
     rays: List[Rayf32[Frame.WORLD]],
 ) -> UInt32:
     var tlas = Tlas[tlas_width](instances)
 
-    var blases = [cpu_blas.copy()]
-
     var occluded = UInt32(0)
 
     for ray in rays:
-        var hit = tlas.trace[
-            TriangleBvh[Frame.LOCAL, blas_width], TRACE.ANY_HIT
-        ](
-            ray,
-            blases,
-        )
+        var hit = tlas.trace_triangle_blases[
+            blas_width, blas_width, TRACE.ANY_HIT
+        ](ray, cpu_blas)
         if hit.is_occluded():
             occluded += 1
 
@@ -302,7 +292,7 @@ def _bench_tlas_triangles_camera[
 ](
     mut ctx: DeviceContext,
     tlas: GpuTriangleTlas[tlas_width, blas_width, tlas_leaf_width],
-    blases: BlasSet[blas_width],
+    blases: GpuBlasSet[blas_width],
     camera_params: List[Float32],
     ray_count: Int,
     width: Int,
@@ -416,7 +406,7 @@ def _bench_tlas_spheres_camera[
 ](
     mut ctx: DeviceContext,
     tlas: GpuSphereTlas[tlas_width, blas_width, tlas_leaf_width],
-    blases: BlasSet[blas_width],
+    blases: GpuBlasSet[blas_width],
     camera_params: List[Float32],
     ray_count: Int,
     width: Int,
@@ -714,7 +704,7 @@ def _run_triangle_tlas_width[
     tlas_leaf_width: SIMDLength = tlas_width,
 ](
     mut ctx: DeviceContext,
-    blases: BlasSet[blas_width],
+    blases: GpuBlasSet[blas_width],
     instances: List[Instance],
     camera_params: List[Float32],
     ray_count: Int,
@@ -774,7 +764,7 @@ def _run_sphere_tlas_width[
     tlas_leaf_width: SIMDLength = tlas_width,
 ](
     mut ctx: DeviceContext,
-    blases: BlasSet[blas_width],
+    blases: GpuBlasSet[blas_width],
     instances: List[Instance],
     camera_params: List[Float32],
     ray_count: Int,
@@ -829,7 +819,7 @@ def _run_sphere_tlas_width[
 
 def _bench_triangle_multi_blas_instance_set(
     mut ctx: DeviceContext,
-    blases: BlasSet[4],
+    blases: GpuBlasSet[4],
     blas_bounds: List[AABB[Frame.LOCAL]],
 ) raises:
     var instances = _make_multi_blas_grid_instances(blas_bounds, 32, 16)
@@ -929,8 +919,8 @@ def _bench_triangle_instance_set[
     side: Int
 ](
     mut ctx: DeviceContext,
-    blases: BlasSet[4],
-    cpu_blas: TriangleBvh[Frame.LOCAL, 8],
+    blases: GpuBlasSet[4],
+    cpu_blas: CpuBlasSet[8],
     blas_bounds: AABB[Frame.LOCAL],
 ) raises:
     var instances = _make_translated_grid_instances(
@@ -967,7 +957,7 @@ def _bench_triangle_instance_set[
         print("\nCPU reference")
         _print_cpu_reference_table_header()
         _print_cpu_reference_row(
-            "CPU Tlas[2]/TriangleBvh[Frame.LOCAL, 8]",
+            "CPU Tlas[2]/CpuBlasSet[8]",
             len(instances),
             ref_primary[0],
             ref_primary[1],
@@ -1038,7 +1028,7 @@ def _bench_triangle_instance_set[
     _print_tlas_results([tlas21^, tlas22^, tlas4^, tlas8^])
 
 
-def main() raises:
+def run_benchmark() raises:
     print("GPU TLAS benchmark")
     print(t"Path: {DEFAULT_OBJ_PATH}")
     print(t"Image rays: {PRIMARY_WIDTH} x {PRIMARY_HEIGHT} x {PRIMARY_VIEWS}")
@@ -1118,9 +1108,9 @@ def main() raises:
         )
         ctx.synchronize()
 
-        print("Building CPU TriangleBvh[8] LBVH reference for 4x4 grid...")
-        var cpu_blas = TriangleBvh[Frame.LOCAL, 8].__init__["lbvh"](
-            tri_vertices
+        print("Building CPU CpuBlasSet[8] LBVH reference for 4x4 grid...")
+        var cpu_blas = build_triangle_blases[8, 8, "lbvh", Frame.LOCAL](
+            [tri_vertices.copy()]
         )
 
         print("\nSingle instance triangle TLAS")
@@ -1261,7 +1251,7 @@ def main() raises:
             sphere_blas_timings,
         )
 
-        print("Building GpuSphere BlasSet[4]...")
+        print("Building GpuSphere GpuBlasSet[4]...")
         var sphere_blas_set = build_sphere_blas_set[4](
             ctx,
             [spheres_local[0].copy()],
@@ -1432,3 +1422,7 @@ def main() raises:
                 sph_grid_tlas8^,
             ]
         )
+
+
+def main() raises:
+    run_benchmark()

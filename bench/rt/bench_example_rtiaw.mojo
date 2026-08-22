@@ -16,8 +16,8 @@ from bajo.rt.cpu.wavefront import (
     CPU_WAVEFRONT_SERIAL_CHUNK_PATHS,
     WAVE_PARALLEL_TASK_PARTITIONS,
 )
-from bench.rt.cpu_harness import pixel_checksum
-from bench.rt.fixtures import weekend_camera
+from bajo.benchmark.cpu_harness import pixel_checksum
+from bajo.benchmark.rt_fixtures import weekend_camera
 from examples.rtiaw import make_weekend_world
 
 

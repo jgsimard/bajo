@@ -10,7 +10,7 @@ from bajo.core.utils import ns_to_ms
 from bajo.rt import Camera, RENDER, RenderSettings
 from bajo.rt.gpu.mixed_path import GpuRtMixedScene, enqueue_render_gpu_mixed
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
-from bench.rt.gpu_harness import (
+from bajo.benchmark.gpu_harness import (
     BENCH_REPEATS,
     IMAGE_HEIGHT,
     IMAGE_WIDTH,

@@ -4,7 +4,6 @@ from std.math import round
 from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh.gpu.diagnostics import build_bounds_bvh_for_diagnostics
-from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvh
 from bajo.bvh.gpu.quality import (
     GpuBvhQuality,
     measure_binary_bvh_quality,
@@ -13,7 +12,7 @@ from bajo.bvh.gpu.quality import (
 from bajo.bvh.gpu.utils import upload_list
 from bajo.core import Frame
 from bajo.parser.obj.pack import pack_obj_triangles
-from bench.diagnostic.bvh.fixtures import flatten_triangle_bounds
+from bajo.benchmark.gpu_bvh_fixtures import flatten_triangle_bounds
 
 
 comptime DEFAULT_OBJ_PATH = "./assets/dragon/dragon.obj"
@@ -48,18 +47,15 @@ def _measure_configuration[
 ) raises:
     var triangle_count = len(payloads)
 
-    var tree = GpuWideBoundsBvh[node_width, leaf_width, max_leaf_size](
-        ctx, triangle_count
-    )
-    var diagnostic = build_bounds_bvh_for_diagnostics(
-        ctx, tree, leaf_bounds.copy(), payloads.copy()
-    )
+    var diagnostic = build_bounds_bvh_for_diagnostics[
+        node_width, leaf_width, max_leaf_size
+    ](ctx, leaf_bounds.copy(), payloads.copy())
     ctx.synchronize()
 
     _print_quality_row(
-        label, "binary", measure_binary_bvh_quality(diagnostic.binary)
+        label, "binary", measure_binary_bvh_quality(diagnostic.build.binary)
     )
-    _print_quality_row(label, "wide", measure_wide_bvh_quality(tree))
+    _print_quality_row(label, "wide", measure_wide_bvh_quality(diagnostic.wide))
 
 
 def main() raises:

@@ -6,7 +6,7 @@ from max.gpu.host import DeviceContext
 from bajo.rt import RENDER, RenderSettings
 from bajo.rt.gpu.resources import GpuRtRenderTarget
 from bajo.rt.gpu.triangle_path import GpuRtTriangleScene
-from bench.rt.gpu_harness import (
+from bajo.benchmark.gpu_harness import (
     BENCH_REPEATS,
     IMAGE_HEIGHT,
     IMAGE_WIDTH,

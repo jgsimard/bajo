@@ -3,10 +3,7 @@
 from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
-from bajo.bvh.gpu.triangle_bvh import (
-    _build_segmented_compressed_triangle_blas_set,
-    _build_segmented_triangle_blas_set,
-)
+from bajo.bvh.gpu.triangle_bvh import build_triangle_blas_set
 from bajo.core import Frame, Point3f32
 
 
@@ -36,21 +33,13 @@ struct GpuRtTriangleGeometry[
         var owned_vertices = List[Point3f32[Self.frame]](capacity=len(vertices))
         for vertex in vertices:
             owned_vertices.append(vertex)
-        comptime if Self.compressed:
-            comptime assert Self.node_width == 8 and Self.leaf_width == 4
-            var packed = _build_segmented_compressed_triangle_blas_set[
-                Self.frame, 8, 4, Self.build_method
-            ](ctx, [owned_vertices^])
-            self.nodes = packed.nodes.copy()
-            self.leaves = packed.leaves.copy()
-            self.root = UInt32(0)
-        else:
-            var packed = _build_segmented_triangle_blas_set[
-                Self.frame,
-                Self.node_width,
-                Self.leaf_width,
-                Self.build_method,
-            ](ctx, [owned_vertices^])
-            self.nodes = packed.nodes.copy()
-            self.leaves = packed.leaves.copy()
-            self.root = UInt32(0)
+        var packed = build_triangle_blas_set[
+            Self.node_width,
+            Self.leaf_width,
+            Self.build_method,
+            Self.compressed,
+            Self.frame,
+        ](ctx, [owned_vertices^])
+        self.nodes = packed.nodes.copy()
+        self.leaves = packed.leaves.copy()
+        self.root = UInt32(0)

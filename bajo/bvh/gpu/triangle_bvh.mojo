@@ -44,7 +44,10 @@ from bajo.bvh.gpu.compressed_bounds_bvh import (
     _intersect_cwbvh8_node_tasks,
 )
 from bajo.bvh.gpu.builder.binary_layout import _segment_for_item
-from bajo.bvh.gpu.builder.segmented_build import enqueue_segmented_wide_build
+from bajo.bvh.gpu.builder.segmented_build import (
+    GpuSegmentedWideBuildTicket,
+    enqueue_segmented_wide_build,
+)
 from bajo.bvh.gpu.blas_desc import enqueue_segmented_blas_descriptors
 from bajo.bvh.gpu.camera_launch import (
     validate_camera_launch,
@@ -140,6 +143,194 @@ def pack_segmented_triangle_leaf_lanes_kernel[
     leaf_vertices[unsafe_offset=out_base + 11 * width + lane] = 0.0
 
 
+@fieldwise_init
+struct _TriangleHostSegments:
+    var segments: SegmentOffsets
+    var packed_vertices: List[Float32]
+
+
+def _flatten_triangle_sets[
+    frame: Frame,
+](vertex_sets: ImmSpan[List[Point3f32[frame]], _],) -> _TriangleHostSegments:
+    """Flatten host triangle sets and retain their primitive segmentation."""
+    var primitive_counts = List[Int](capacity=len(vertex_sets))
+    var total_vertex_count = 0
+    for vertices in vertex_sets:
+        debug_assert["safe", _use_compiler_assume=True](
+            len(vertices) % 3 == 0,
+            "each triangle BLAS must contain complete triangles",
+        )
+        primitive_counts.append(len(vertices) / 3)
+        total_vertex_count += len(vertices)
+
+    var packed_vertices = List[Float32](capacity=total_vertex_count * 3)
+    for vertices in vertex_sets:
+        for vertex in vertices:
+            packed_vertices.append(vertex.x)
+            packed_vertices.append(vertex.y)
+            packed_vertices.append(vertex.z)
+    return _TriangleHostSegments(
+        SegmentOffsets.from_counts(primitive_counts^), packed_vertices^
+    )
+
+
+@fieldwise_init
+struct _SegmentedTriangleWideBuild[
+    frame: Frame,
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+    build_method: GpuBvhBuildMethod,
+]:
+    var hierarchy: GpuSegmentedWideBuildTicket[
+        Self.node_width,
+        Self.leaf_width,
+        Int(Self.leaf_width),
+        Self.build_method,
+        True,
+        False,
+    ]
+    var leaf_vertices: DeviceBuffer[DType.float32]
+    var triangle_count: Int
+    var bounds_pack_ns: Int
+    var leaf_pack_start_ns: Int
+
+    def into_blas_set(
+        deinit self, mut ctx: DeviceContext
+    ) raises -> GpuBlasSet[Self.node_width, Self.leaf_width]:
+        """Finalize the adapter as a descriptor-backed BLAS set."""
+        ref binary = self.hierarchy.binary
+        ref wide = self.hierarchy.wide
+        var segment_count = wide.segments.segment_count()
+        var descs = enqueue_segmented_blas_descriptors[
+            Self.node_width * WideNode.CHILD_STRIDE,
+            Self.leaf_width * TRI_LEAF_PACKED_STRIDE,
+        ](
+            ctx,
+            wide.node_segment_offsets,
+            wide.leaf_block_segment_offsets,
+            binary.segment_offsets,
+            wide.node_counts,
+            wide.leaf_block_counts,
+            segment_count,
+        )
+        ctx.synchronize()
+        self.hierarchy.finish_synchronized()
+        return GpuBlasSet[Self.node_width, Self.leaf_width](
+            descs^,
+            wide.wide_nodes.copy(),
+            self.leaf_vertices^,
+            segment_count,
+        )
+
+    def into_bvh(
+        deinit self,
+        ctx: DeviceContext,
+        mut timings: GpuBuildTimings,
+        measure_build: Bool,
+    ) raises -> GpuTriangleBvh[Self.frame, Self.node_width, Self.leaf_width]:
+        """Finalize the adapter's only segment as a standalone BVH."""
+        if measure_build:
+            ctx.synchronize()
+            var leaf_pack_ns = Int(perf_counter_ns() - self.leaf_pack_start_ns)
+            var tree = self.hierarchy^.take_single_segment_synchronized(timings)
+            timings.bounds_pack_ns = self.bounds_pack_ns
+            timings.leaf_pack_ns = leaf_pack_ns
+            return GpuTriangleBvh[Self.frame, Self.node_width, Self.leaf_width](
+                tree^, self.leaf_vertices^, self.triangle_count
+            )
+
+        var tree = self.hierarchy^.wait_into_single_segment(ctx, timings)
+        return GpuTriangleBvh[Self.frame, Self.node_width, Self.leaf_width](
+            tree^, self.leaf_vertices^, self.triangle_count
+        )
+
+
+def _enqueue_segmented_triangle_wide[
+    frame: Frame,
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+    build_method: GpuBvhBuildMethod,
+](
+    mut ctx: DeviceContext,
+    vertices: DeviceBuffer[DType.float32],
+    segments: SegmentOffsets,
+    measure_build: Bool = False,
+) raises -> _SegmentedTriangleWideBuild[
+    frame, node_width, leaf_width, build_method
+]:
+    """Run the one ordinary-wide triangle adapter for any segment count."""
+    var triangle_count = segments.item_count()
+    debug_assert["safe", _use_compiler_assume=True](
+        triangle_count > 0,
+        "triangle wide build requires at least one primitive",
+    )
+    debug_assert["safe", _use_compiler_assume=True](
+        len(vertices) == triangle_count * TRI_LEAF_VERTEX_STRIDE,
+        "triangle vertex buffer does not match its segments",
+    )
+
+    var leaf_bounds = ctx.enqueue_create_buffer[DType.float32](
+        triangle_count * AABB[frame].STRIDE
+    )
+    var payloads = ctx.enqueue_create_buffer[DType.uint32](triangle_count)
+    var bounds_pack_start = Int(0)
+    var bounds_pack_ns = Int(0)
+    if measure_build:
+        ctx.synchronize()
+        bounds_pack_start = perf_counter_ns()
+    ctx.enqueue_function[compute_triangle_bounds_kernel[frame]](
+        _device_span[mut=False](vertices),
+        _device_span[mut=True](leaf_bounds),
+        _device_span[mut=True](payloads),
+        grid_dim=ceildiv(triangle_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
+        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+    )
+    if measure_build:
+        ctx.synchronize()
+        bounds_pack_ns = Int(perf_counter_ns() - bounds_pack_start)
+
+    var hierarchy = enqueue_segmented_wide_build[
+        node_width, leaf_width, Int(leaf_width), build_method, True
+    ](
+        ctx,
+        segments,
+        leaf_bounds^,
+        payloads^,
+        measure_build,
+    )
+    var leaf_lane_capacity = (
+        hierarchy.wide.leaf_block_segments.item_count() * leaf_width
+    )
+    var leaf_vertices = ctx.enqueue_create_buffer[DType.float32](
+        leaf_lane_capacity * TRI_LEAF_PACKED_STRIDE
+    )
+    if measure_build:
+        hierarchy.wait(ctx)
+    var leaf_pack_start_ns = Int(0)
+    if measure_build:
+        leaf_pack_start_ns = perf_counter_ns()
+    ctx.enqueue_function[pack_segmented_triangle_leaf_lanes_kernel[leaf_width]](
+        vertices,
+        _device_span[mut=False](hierarchy.binary.segment_offsets),
+        _device_span[mut=False](hierarchy.wide.leaf_block_segment_offsets),
+        hierarchy.wide.leaf_block_indices,
+        hierarchy.wide.leaf_block_counts,
+        leaf_vertices,
+        Int32(leaf_lane_capacity),
+        grid_dim=ceildiv(leaf_lane_capacity, GPU_BOUNDS_BVH_BLOCK_SIZE),
+        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+    )
+    return _SegmentedTriangleWideBuild[
+        frame, node_width, leaf_width, build_method
+    ](
+        hierarchy^,
+        leaf_vertices^,
+        triangle_count,
+        bounds_pack_ns,
+        leaf_pack_start_ns,
+    )
+
+
 def _build_segmented_triangle_blas_set[
     frame: Frame,
     node_width: SIMDLength,
@@ -150,85 +341,14 @@ def _build_segmented_triangle_blas_set[
     vertex_sets: ImmSpan[List[Point3f32[frame]], _],
 ) raises -> GpuBlasSet[node_width, leaf_width]:
     """Build ordinary wide BLASes as one segmented GPU workload."""
-    var primitive_counts = List[Int](capacity=len(vertex_sets))
-    var total_vertex_count = 0
-    for vertices in vertex_sets:
-        debug_assert["safe", _use_compiler_assume=True](
-            len(vertices) % 3 == 0,
-            "each triangle BLAS must contain complete triangles",
-        )
-        primitive_counts.append(len(vertices) / 3)
-        total_vertex_count += len(vertices)
-    if total_vertex_count == 0:
+    var inputs = _flatten_triangle_sets(vertex_sets)
+    if inputs.segments.item_count() == 0:
         return GpuBlasSet[node_width, leaf_width].empty(ctx, len(vertex_sets))
-    var packed_vertices = List[Float32](capacity=total_vertex_count * 3)
-    for vertices in vertex_sets:
-        for vertex in vertices:
-            packed_vertices.append(vertex.x)
-            packed_vertices.append(vertex.y)
-            packed_vertices.append(vertex.z)
-
-    var segments = SegmentOffsets.from_counts(primitive_counts)
-    var source_vertices = upload_list(ctx, packed_vertices)
-    var triangle_count = segments.item_count()
-    var leaf_bounds = ctx.enqueue_create_buffer[DType.float32](
-        triangle_count * AABB[frame].STRIDE
-    )
-    var payloads = ctx.enqueue_create_buffer[DType.uint32](triangle_count)
-    ctx.enqueue_function[compute_triangle_bounds_kernel[frame]](
-        _device_span[mut=False](source_vertices),
-        _device_span[mut=True](leaf_bounds),
-        _device_span[mut=True](payloads),
-        grid_dim=ceildiv(triangle_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
-        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-    )
-
-    var build = enqueue_segmented_wide_build[
-        node_width, leaf_width, Int(leaf_width), build_method, True
-    ](ctx, segments, leaf_bounds^, payloads^)
-    ref binary = build.binary
-    ref wide = build.wide
-
-    var leaf_lane_capacity = wide.leaf_block_segments.item_count() * leaf_width
-    var leaf_vertices = ctx.enqueue_create_buffer[DType.float32](
-        wide.leaf_block_segments.item_count()
-        * leaf_width
-        * TRI_LEAF_PACKED_STRIDE
-    )
-    ctx.enqueue_function[pack_segmented_triangle_leaf_lanes_kernel[leaf_width]](
-        source_vertices,
-        _device_span[mut=False](binary.segment_offsets),
-        _device_span[mut=False](wide.leaf_block_segment_offsets),
-        wide.leaf_block_indices,
-        wide.leaf_block_counts,
-        leaf_vertices,
-        Int32(leaf_lane_capacity),
-        grid_dim=ceildiv(leaf_lane_capacity, GPU_BOUNDS_BVH_BLOCK_SIZE),
-        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-    )
-
-    var descs = enqueue_segmented_blas_descriptors[
-        node_width * WideNode.CHILD_STRIDE,
-        leaf_width * TRI_LEAF_PACKED_STRIDE,
-    ](
-        ctx,
-        wide.node_segment_offsets,
-        wide.leaf_block_segment_offsets,
-        binary.segment_offsets,
-        wide.node_counts,
-        wide.leaf_block_counts,
-        segments.segment_count(),
-    )
-
-    ctx.synchronize()
-    build.finish_synchronized()
-
-    return GpuBlasSet[node_width, leaf_width](
-        descs^,
-        wide.wide_nodes.copy(),
-        leaf_vertices^,
-        segments.segment_count(),
-    )
+    var source_vertices = upload_list(ctx, inputs.packed_vertices)
+    var adapter = _enqueue_segmented_triangle_wide[
+        frame, node_width, leaf_width, build_method
+    ](ctx, source_vertices, inputs.segments)
+    return adapter^.into_blas_set(ctx)
 
 
 def _build_segmented_compressed_triangle_blas_set[
@@ -243,26 +363,11 @@ def _build_segmented_compressed_triangle_blas_set[
     """Build and encode every CWBVH8 BLAS as one segmented workload."""
     comptime assert node_width == 8 and leaf_width == 4
 
-    var primitive_counts = List[Int](capacity=len(vertex_sets))
-    var total_vertex_count = 0
-    for vertices in vertex_sets:
-        debug_assert["safe", _use_compiler_assume=True](
-            len(vertices) % 3 == 0,
-            "each triangle BLAS must contain complete triangles",
-        )
-        primitive_counts.append(len(vertices) / 3)
-        total_vertex_count += len(vertices)
-    if total_vertex_count == 0:
+    var inputs = _flatten_triangle_sets(vertex_sets)
+    if inputs.segments.item_count() == 0:
         return GpuBlasSet[node_width, leaf_width].empty(ctx, len(vertex_sets))
-    var packed_vertices = List[Float32](capacity=total_vertex_count * 3)
-    for vertices in vertex_sets:
-        for vertex in vertices:
-            packed_vertices.append(vertex.x)
-            packed_vertices.append(vertex.y)
-            packed_vertices.append(vertex.z)
-
-    var segments = SegmentOffsets.from_counts(primitive_counts)
-    var source_vertices = upload_list(ctx, packed_vertices)
+    ref segments = inputs.segments
+    var source_vertices = upload_list(ctx, inputs.packed_vertices)
     var triangle_count = segments.item_count()
     var leaf_bounds = ctx.enqueue_create_buffer[DType.float32](
         triangle_count * AABB[frame].STRIDE
@@ -334,19 +439,21 @@ def build_triangle_blas_set[
     leaf_width: SIMDLength = node_width,
     build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
     compressed: Bool = False,
+    frame: Frame = Frame.LOCAL,
 ](
     mut ctx: DeviceContext,
-    vertex_sets: ImmSpan[List[Point3f32[Frame.LOCAL]], _],
+    vertex_sets: ImmSpan[List[Point3f32[frame]], _],
 ) raises -> GpuBlasSet[node_width, leaf_width]:
+    """Select the representation around the shared triangle input adapter."""
     debug_assert["safe", _use_compiler_assume=True](len(vertex_sets) > 0)
     comptime if compressed:
         comptime assert node_width == 8 and leaf_width == 4
         return _build_segmented_compressed_triangle_blas_set[
-            Frame.LOCAL, node_width, leaf_width, build_method
+            frame, node_width, leaf_width, build_method
         ](ctx, vertex_sets)
     else:
         return _build_segmented_triangle_blas_set[
-            Frame.LOCAL, node_width, leaf_width, build_method
+            frame, node_width, leaf_width, build_method
         ](ctx, vertex_sets)
 
 
@@ -527,7 +634,7 @@ def _build_triangle_bvh_segmented[
     mut timings: GpuBuildTimings,
     measure_build: Bool,
 ) raises -> GpuTriangleBvh[frame, node_width, leaf_width]:
-    """Adapt triangle bounds and leaves around the shared segmented driver."""
+    """Build one segment through the same adapter used by BLAS batches."""
     debug_assert["safe", _use_compiler_assume=True](
         len(vertices) % TRI_LEAF_VERTEX_STRIDE == 0,
         "triangle vertex buffer must contain complete triangle records",
@@ -536,81 +643,15 @@ def _build_triangle_bvh_segmented[
     debug_assert["safe", _use_compiler_assume=True](
         tri_count > 0, "standalone triangle BVH requires nonempty input"
     )
-    var leaf_bounds = ctx.enqueue_create_buffer[DType.float32](
-        tri_count * AABB[frame].STRIDE
-    )
-    var payloads = ctx.enqueue_create_buffer[DType.uint32](tri_count)
-
-    var bounds_pack_start = Int(0)
-    var bounds_pack_ns = Int(0)
-    if measure_build:
-        ctx.synchronize()
-        bounds_pack_start = perf_counter_ns()
-
-    var blocks = ceildiv(tri_count, GPU_BOUNDS_BVH_BLOCK_SIZE)
-    ctx.enqueue_function[compute_triangle_bounds_kernel[frame]](
-        _device_span[mut=False](vertices),
-        _device_span[mut=True](leaf_bounds),
-        _device_span[mut=True](payloads),
-        grid_dim=blocks,
-        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-    )
-    if measure_build:
-        ctx.synchronize()
-        bounds_pack_ns = Int(perf_counter_ns() - bounds_pack_start)
-
-    var segments = SegmentOffsets.single(tri_count)
-    var build = enqueue_segmented_wide_build[
-        node_width,
-        leaf_width,
-        Int(leaf_width),
-        build_method,
-        True,
+    var adapter = _enqueue_segmented_triangle_wide[
+        frame, node_width, leaf_width, build_method
     ](
         ctx,
-        segments,
-        leaf_bounds^,
-        payloads^,
+        vertices,
+        SegmentOffsets.single(tri_count),
         measure_build,
     )
-
-    var leaf_lane_capacity = (
-        build.wide.leaf_block_segments.item_count() * leaf_width
-    )
-    var leaf_vertices = ctx.enqueue_create_buffer[DType.float32](
-        leaf_lane_capacity * TRI_LEAF_PACKED_STRIDE
-    )
-    if measure_build:
-        build.wait(ctx)
-    var leaf_pack_start = Int(0)
-    if measure_build:
-        leaf_pack_start = perf_counter_ns()
-    ctx.enqueue_function[pack_segmented_triangle_leaf_lanes_kernel[leaf_width]](
-        vertices,
-        _device_span[mut=False](build.binary.segment_offsets),
-        _device_span[mut=False](build.wide.leaf_block_segment_offsets),
-        build.wide.leaf_block_indices,
-        build.wide.leaf_block_counts,
-        leaf_vertices,
-        Int32(leaf_lane_capacity),
-        grid_dim=ceildiv(leaf_lane_capacity, GPU_BOUNDS_BVH_BLOCK_SIZE),
-        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-    )
-
-    if measure_build:
-        ctx.synchronize()
-        var leaf_pack_ns = Int(perf_counter_ns() - leaf_pack_start)
-        var tree = build^.take_single_segment_synchronized(timings)
-        timings.bounds_pack_ns = bounds_pack_ns
-        timings.leaf_pack_ns = leaf_pack_ns
-        return GpuTriangleBvh[frame, node_width, leaf_width](
-            tree^, leaf_vertices^, tri_count
-        )
-
-    var tree = build^.wait_into_single_segment(ctx, timings)
-    return GpuTriangleBvh[frame, node_width, leaf_width](
-        tree^, leaf_vertices^, tri_count
-    )
+    return adapter^.into_bvh(ctx, timings, measure_build)
 
 
 def compute_triangle_bounds_kernel[

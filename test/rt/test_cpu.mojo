@@ -6,10 +6,12 @@ from std.testing import (
     assert_true,
     assert_false,
 )
+from std.memory import bitcast
 
 from bajo.bvh.camera import Camera
 from bajo.bvh.host_utils import compute_bounds
 from bajo.core import (
+    AABB,
     Affine3f32,
     Frame,
     Vec3,
@@ -201,6 +203,147 @@ def test_scene_builder_rejects_emissive_triangle_instances() raises:
 
     with assert_raises():
         _ = builder^.finish()
+
+
+def test_scene_builder_rejects_invalid_material_domains() raises:
+    var invalid_albedo = SceneBuilder()
+    var albedo_surface = invalid_albedo.add_lambertian(Color(1.01, 0.5, 0.5))
+    invalid_albedo.add_sphere(Point3f32[Frame.WORLD](0.0), 1.0, albedo_surface)
+    with assert_raises():
+        _ = invalid_albedo^.finish()
+
+    var invalid_fuzz = SceneBuilder()
+    var metal_surface = invalid_fuzz.add_metal(Color(0.5), 1.01)
+    invalid_fuzz.add_sphere(Point3f32[Frame.WORLD](0.0), 1.0, metal_surface)
+    with assert_raises():
+        _ = invalid_fuzz^.finish()
+
+    var invalid_ior = SceneBuilder()
+    var glass_surface = invalid_ior.add_dielectric(0.0)
+    invalid_ior.add_sphere(Point3f32[Frame.WORLD](0.0), 1.0, glass_surface)
+    with assert_raises():
+        _ = invalid_ior^.finish()
+
+    var invalid_emission = SceneBuilder()
+    var light_surface = invalid_emission.add_emissive(Color(1.0, -0.1, 1.0))
+    invalid_emission.add_sphere(Point3f32[Frame.WORLD](0.0), 1.0, light_surface)
+    with assert_raises():
+        _ = invalid_emission^.finish()
+
+    var nonfinite_material = SceneBuilder()
+    var nan = bitcast[DType.float32](UInt32(0x7FC00000))
+    var nan_surface = nonfinite_material.add_lambertian(Color(nan, 0.5, 0.5))
+    nonfinite_material.add_sphere(Point3f32[Frame.WORLD](0.0), 1.0, nan_surface)
+    with assert_raises():
+        _ = nonfinite_material^.finish()
+
+    var overflowed_light = SceneBuilder()
+    var f32_max = bitcast[DType.float32](UInt32(0x7F7FFFFF))
+    var overflowed_surface = overflowed_light.add_emissive(Color(f32_max))
+    overflowed_light.add_sphere(
+        Point3f32[Frame.WORLD](0.0), 1.0, overflowed_surface
+    )
+    with assert_raises():
+        _ = overflowed_light^.finish()
+
+
+def test_scene_builder_rejects_invalid_geometry() raises:
+    var zero_radius = SceneBuilder()
+    var zero_radius_surface = zero_radius.add_lambertian(Color(0.5))
+    zero_radius.add_sphere(
+        Point3f32[Frame.WORLD](0.0), 0.0, zero_radius_surface
+    )
+    with assert_raises():
+        _ = zero_radius^.finish()
+
+    var nonfinite_sphere = SceneBuilder()
+    var nan = bitcast[DType.float32](UInt32(0x7FC00000))
+    var sphere_surface = nonfinite_sphere.add_lambertian(Color(0.5))
+    nonfinite_sphere.add_sphere(
+        Point3f32[Frame.WORLD](nan, 0.0, 0.0), 1.0, sphere_surface
+    )
+    with assert_raises():
+        _ = nonfinite_sphere^.finish()
+
+    var degenerate_triangle = SceneBuilder()
+    var triangle_surface = degenerate_triangle.add_lambertian(Color(0.5))
+    degenerate_triangle.add_triangle(
+        Point3f32[Frame.WORLD](0.0, 0.0, 0.0),
+        Point3f32[Frame.WORLD](1.0, 0.0, 0.0),
+        Point3f32[Frame.WORLD](2.0, 0.0, 0.0),
+        triangle_surface,
+    )
+    with assert_raises():
+        _ = degenerate_triangle^.finish()
+
+    var degenerate_mesh = SceneBuilder()
+    var mesh_surface = degenerate_mesh.add_lambertian(Color(0.5))
+    var vertices = List[Point3f32[Frame.LOCAL]]()
+    vertices.append(Point3f32[Frame.LOCAL](0.0, 0.0, 0.0))
+    vertices.append(Point3f32[Frame.LOCAL](1.0, 0.0, 0.0))
+    vertices.append(Point3f32[Frame.LOCAL](2.0, 0.0, 0.0))
+    _ = degenerate_mesh.add_triangle_mesh_instance(
+        vertices,
+        Affine3f32[Frame.LOCAL, Frame.WORLD].identity(),
+        compute_bounds(vertices),
+        mesh_surface,
+    )
+    with assert_raises():
+        _ = degenerate_mesh^.finish()
+
+
+def test_scene_builder_validates_and_rebuilds_instance_derivatives() raises:
+    var vertices = List[Point3f32[Frame.LOCAL]]()
+    vertices.append(Point3f32[Frame.LOCAL](-1.0, -2.0, 0.0))
+    vertices.append(Point3f32[Frame.LOCAL](3.0, -2.0, 0.0))
+    vertices.append(Point3f32[Frame.LOCAL](0.0, 4.0, 0.0))
+
+    var stale_bounds = SceneBuilder()
+    var stale_surface = stale_bounds.add_lambertian(Color(0.5))
+    _ = stale_bounds.add_triangle_mesh_instance(
+        vertices,
+        Affine3f32[Frame.LOCAL, Frame.WORLD].identity(),
+        AABB[Frame.LOCAL].invalid(),
+        stale_surface,
+    )
+    var scene = stale_bounds^.finish()
+    ref bounds = scene.triangle_instances()[0].bounds
+    assert_almost_equal(bounds._min.x[0], -1.0)
+    assert_almost_equal(bounds._min.y[0], -2.0)
+    assert_almost_equal(bounds._min.z[0], 0.0)
+    assert_almost_equal(bounds._max.x[0], 3.0)
+    assert_almost_equal(bounds._max.y[0], 4.0)
+    assert_almost_equal(bounds._max.z[0], 0.0)
+
+    var singular_transform = SceneBuilder()
+    var singular_surface = singular_transform.add_lambertian(Color(0.5))
+    var singular = Affine3f32[Frame.LOCAL, Frame.WORLD].from_scale(
+        Vec3f32[Frame.LOCAL](1.0, 0.0, 1.0)
+    )
+    _ = singular_transform.add_triangle_mesh_instance(
+        vertices, singular, compute_bounds(vertices), singular_surface
+    )
+    with assert_raises():
+        _ = singular_transform^.finish()
+
+    var overflowed_bounds = SceneBuilder()
+    var overflow_surface = overflowed_bounds.add_lambertian(Color(0.5))
+    var large_vertices = List[Point3f32[Frame.LOCAL]]()
+    large_vertices.append(Point3f32[Frame.LOCAL](1.0, 0.0, 0.0))
+    large_vertices.append(Point3f32[Frame.LOCAL](2.0, 0.0, 0.0))
+    large_vertices.append(Point3f32[Frame.LOCAL](1.0, 1.0, 0.0))
+    var f32_max = bitcast[DType.float32](UInt32(0x7F7FFFFF))
+    var enormous = Affine3f32[Frame.LOCAL, Frame.WORLD].from_scale(
+        Vec3f32[Frame.LOCAL](f32_max, 1.0, 1.0)
+    )
+    _ = overflowed_bounds.add_triangle_mesh_instance(
+        large_vertices,
+        enormous,
+        compute_bounds(large_vertices),
+        overflow_surface,
+    )
+    with assert_raises():
+        _ = overflowed_bounds^.finish()
 
 
 def test_wavefront_philox_streams_are_deterministic_and_separate() raises:

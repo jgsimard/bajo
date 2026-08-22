@@ -1,4 +1,5 @@
 from std.math import pi, sqrt
+from std.utils.numerics import isfinite
 
 from bajo.core import (
     AABB,
@@ -156,23 +157,16 @@ struct SurfaceStore:
         return SurfaceId(MAT.LAMBERTIAN, index)
 
     def add_metal(mut self, albedo: Color, fuzz: Float32) -> SurfaceId[1]:
-        debug_assert["safe", _use_compiler_assume=True](fuzz >= 0.0)
-        debug_assert["safe", _use_compiler_assume=True](fuzz <= 1.0)
         var index = UInt32(len(self.metals))
         self.metals.append(Metal(albedo, fuzz))
         return SurfaceId(MAT.METAL, index)
 
     def add_dielectric(mut self, refraction_index: Float32) -> SurfaceId[1]:
-        debug_assert["safe", _use_compiler_assume=True](refraction_index > 0.0)
         var index = UInt32(len(self.dielectrics))
         self.dielectrics.append(Dielectric(refraction_index))
         return SurfaceId(MAT.DIELECTRIC, index)
 
     def add_emissive(mut self, radiance: Color) -> SurfaceId[1]:
-        debug_assert["safe", _use_compiler_assume=True](
-            radiance.x >= 0.0 and radiance.y >= 0.0 and radiance.z >= 0.0,
-            "emissive radiance must be non-negative",
-        )
         var index = UInt32(len(self.emissives))
         self.emissives.append(Emissive(radiance))
         return SurfaceId(MAT.EMISSIVE, index)
@@ -490,9 +484,7 @@ struct SceneBuilder(
         )
         owned_vertices.extend(vertices)
         self.triangle_meshes.append(owned_vertices^)
-        self.triangle_instances.append(
-            Instance(transform, mesh_idx, bounds, Primitive.TRIANGLE)
-        )
+        self._add_triangle_instance_unchecked(mesh_idx, transform, bounds)
         self.triangle_instance_surfaces.append(surface.copy())
         return mesh_idx
 
@@ -503,10 +495,21 @@ struct SceneBuilder(
         mesh_bounds: AABB[Frame.LOCAL],
         surface: SurfaceId[1],
     ):
-        self.triangle_instances.append(
-            Instance(transform, mesh_idx, mesh_bounds, Primitive.TRIANGLE)
-        )
+        self._add_triangle_instance_unchecked(mesh_idx, transform, mesh_bounds)
         self.triangle_instance_surfaces.append(surface.copy())
+
+    def _add_triangle_instance_unchecked(
+        mut self,
+        mesh_idx: UInt32,
+        transform: Affine3f32[Frame.LOCAL, Frame.WORLD],
+        mesh_bounds: AABB[Frame.LOCAL],
+    ):
+        var instance = Instance()
+        instance.transform = transform.copy()
+        instance.bounds = mesh_bounds.apply_transform(transform)
+        instance.blas_idx = mesh_idx
+        instance.kind = Primitive.TRIANGLE
+        self.triangle_instances.append(instance^)
 
     def finish(deinit self) raises -> SceneData:
         """Consume the builder and produce one validated immutable snapshot."""
@@ -523,13 +526,7 @@ struct SceneBuilder(
 
 
 struct SceneData:
-    """Validated backend-neutral scene snapshot.
-
-    All geometry and material mutation happens in `SceneBuilder`. This type owns
-    the finalized buffers plus the matching derived light distribution. CPU and
-    GPU preparation may read it independently; neither can observe stale
-    sidecars or alias weights.
-    """
+    """Validated backend-neutral scene snapshot."""
 
     var _spheres: List[Sphere[Frame.WORLD]]
     var _sphere_surfaces: List[SurfaceId[1]]
@@ -604,7 +601,7 @@ struct SceneData:
     def lights(self) -> ref[self._lights] LightStore:
         return self._lights
 
-    def _validate(self) raises:
+    def _validate(mut self) raises:
         if (
             len(self._spheres) == 0
             and len(self._triangle_vertices) == 0
@@ -624,15 +621,40 @@ struct SceneData:
                 "triangle instance and surface sidecar lengths must match"
             )
 
+        self._validate_materials()
+
         for i, sphere in enumerate(self._spheres):
+            if not _point_is_finite(sphere.center):
+                raise Error("sphere center must be finite")
+            if not isfinite(sphere.radius):
+                raise Error("sphere radius must be finite")
             if sphere.radius == 0.0:
                 raise Error("sphere radius must be non-zero")
+            var radius = sphere_unsigned_radius(sphere)
+            if not (
+                isfinite(sphere.center.x[0] - radius)
+                and isfinite(sphere.center.y[0] - radius)
+                and isfinite(sphere.center.z[0] - radius)
+                and isfinite(sphere.center.x[0] + radius)
+                and isfinite(sphere.center.y[0] + radius)
+                and isfinite(sphere.center.z[0] + radius)
+            ):
+                raise Error("sphere bounds must be finite")
             if not self._surfaces.validate(self._sphere_surfaces[i]):
                 raise Error("sphere surface id is out of range")
 
-        for surface in self._triangle_surfaces:
+        for triangle_idx, surface in enumerate(self._triangle_surfaces):
             if not self._surfaces.validate(surface):
                 raise Error("triangle surface id is out of range")
+            var base = 3 * triangle_idx
+            if not _triangle_is_valid(
+                self._triangle_vertices[base],
+                self._triangle_vertices[base + 1],
+                self._triangle_vertices[base + 2],
+            ):
+                raise Error(
+                    "triangle vertices must be finite and non-degenerate"
+                )
 
         for vertices in self._triangle_meshes:
             if len(vertices) == 0 or len(vertices) % 3 != 0:
@@ -640,6 +662,15 @@ struct SceneData:
                     "triangle mesh vertex count must be a positive multiple of"
                     " three"
                 )
+            for triangle_idx in range(len(vertices) / 3):
+                var base = 3 * triangle_idx
+                if not _triangle_is_valid(
+                    vertices[base], vertices[base + 1], vertices[base + 2]
+                ):
+                    raise Error(
+                        "triangle mesh vertices must be finite and"
+                        " non-degenerate"
+                    )
 
         for i, inst in enumerate(self._triangle_instances):
             if inst.kind != Primitive.TRIANGLE:
@@ -657,7 +688,54 @@ struct SceneData:
                     " sampler"
                 )
 
-    def _build_light_store(mut self):
+            if not _transform_is_finite(inst.transform):
+                raise Error("triangle instance transform must be finite")
+            var inverse = inst.transform.inverse()
+            if not inverse.mask[0] or not _transform_is_finite(inverse.inv):
+                raise Error("triangle instance transform must be invertible")
+
+            ref vertices = self._triangle_meshes[Int(inst.blas_idx)]
+            var local_bounds = AABB[Frame.LOCAL].invalid()
+            for vertex in vertices:
+                local_bounds.grow(vertex)
+            var world_bounds = local_bounds.apply_transform(inst.transform)
+            if not _bounds_are_valid(world_bounds):
+                raise Error(
+                    "triangle instance transformed bounds must be finite"
+                )
+
+            ref finalized_instance = self._triangle_instances[i]
+            finalized_instance.inv_transform = inverse.inv.copy()
+            finalized_instance.bounds = world_bounds
+
+    def _validate_materials(self) raises:
+        for material in self._surfaces.lambertians:
+            if not _color_is_unit_interval(material.albedo):
+                raise Error(
+                    "lambertian albedo must be finite and within [0, 1]"
+                )
+
+        for material in self._surfaces.metals:
+            if not _color_is_unit_interval(material.albedo):
+                raise Error("metal albedo must be finite and within [0, 1]")
+            if not isfinite(material.fuzz) or not (
+                material.fuzz >= 0.0 and material.fuzz <= 1.0
+            ):
+                raise Error("metal fuzz must be finite and within [0, 1]")
+
+        for material in self._surfaces.dielectrics:
+            if not isfinite(material.refraction_index) or (
+                material.refraction_index <= 0.0
+            ):
+                raise Error(
+                    "dielectric refraction index must be finite and positive"
+                )
+
+        for material in self._surfaces.emissives:
+            if not _color_is_finite_nonnegative(material.radiance):
+                raise Error("emissive radiance must be finite and non-negative")
+
+    def _build_light_store(mut self) raises:
         for idx, surface in enumerate(self._triangle_surfaces):
             if surface.kind() == MAT.EMISSIVE:
                 var radiance = self._surfaces.emissives[
@@ -666,6 +744,8 @@ struct SceneData:
                 var weight = _scene_triangle_area(self, idx) * (
                     _light_importance(radiance)
                 )
+                if not isfinite(weight):
+                    raise Error("triangle light weight must be finite")
                 if weight > 0.0:
                     self._lights.append(
                         LightRecord(
@@ -674,6 +754,8 @@ struct SceneData:
                             weight,
                         )
                     )
+                    if not isfinite(self._lights.total_weight):
+                        raise Error("total light weight must be finite")
 
         for idx, surface in enumerate(self._sphere_surfaces):
             if surface.kind() == MAT.EMISSIVE:
@@ -684,6 +766,8 @@ struct SceneData:
                 var weight = (
                     4.0 * pi * radius * radius * _light_importance(radiance)
                 )
+                if not isfinite(weight):
+                    raise Error("sphere light weight must be finite")
                 if weight > 0.0:
                     self._lights.append(
                         LightRecord(
@@ -692,6 +776,85 @@ struct SceneData:
                             weight,
                         )
                     )
+                    if not isfinite(self._lights.total_weight):
+                        raise Error("total light weight must be finite")
+
+
+@always_inline
+def _point_is_finite[frame: Frame](point: Point3f32[frame]) -> Bool:
+    return (
+        isfinite(point.x[0]) and isfinite(point.y[0]) and isfinite(point.z[0])
+    )
+
+
+@always_inline
+def _color_is_unit_interval(color: Color) -> Bool:
+    return (
+        isfinite(color.x[0])
+        and isfinite(color.y[0])
+        and isfinite(color.z[0])
+        and color.x[0] >= 0.0
+        and color.x[0] <= 1.0
+        and color.y[0] >= 0.0
+        and color.y[0] <= 1.0
+        and color.z[0] >= 0.0
+        and color.z[0] <= 1.0
+    )
+
+
+@always_inline
+def _color_is_finite_nonnegative(color: Color) -> Bool:
+    return (
+        isfinite(color.x[0])
+        and isfinite(color.y[0])
+        and isfinite(color.z[0])
+        and color.x[0] >= 0.0
+        and color.y[0] >= 0.0
+        and color.z[0] >= 0.0
+    )
+
+
+@always_inline
+def _triangle_is_valid[
+    frame: Frame
+](v0: Point3f32[frame], v1: Point3f32[frame], v2: Point3f32[frame],) -> Bool:
+    if not (
+        _point_is_finite(v0) and _point_is_finite(v1) and _point_is_finite(v2)
+    ):
+        return False
+    var twice_area_squared = length2(cross(v1 - v0, v2 - v0))[0]
+    return isfinite(twice_area_squared) and twice_area_squared > 0.0
+
+
+@always_inline
+def _transform_is_finite[
+    From: Frame, To: Frame
+](transform: Affine3f32[From, To]) -> Bool:
+    return (
+        isfinite(transform.m00[0])
+        and isfinite(transform.m01[0])
+        and isfinite(transform.m02[0])
+        and isfinite(transform.tx[0])
+        and isfinite(transform.m10[0])
+        and isfinite(transform.m11[0])
+        and isfinite(transform.m12[0])
+        and isfinite(transform.ty[0])
+        and isfinite(transform.m20[0])
+        and isfinite(transform.m21[0])
+        and isfinite(transform.m22[0])
+        and isfinite(transform.tz[0])
+    )
+
+
+@always_inline
+def _bounds_are_valid[frame: Frame](bounds: AABB[frame]) -> Bool:
+    return (
+        _point_is_finite(bounds._min)
+        and _point_is_finite(bounds._max)
+        and bounds._min.x[0] <= bounds._max.x[0]
+        and bounds._min.y[0] <= bounds._max.y[0]
+        and bounds._min.z[0] <= bounds._max.z[0]
+    )
 
 
 @always_inline

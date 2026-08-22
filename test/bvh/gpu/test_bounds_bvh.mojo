@@ -7,7 +7,14 @@ from max.gpu.host import DeviceContext, DeviceBuffer
 from bajo.core import Vec3f32, Point3f32, Frame, AABB
 from bajo.bvh.types import Sphere, Hit
 from bajo.bvh.host_utils import sphere_bounds
-from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
+from bajo.bvh.constants import (
+    EMPTY_LANE,
+    SPHERE_LEAF_PACKED_STRIDE,
+    TRACE,
+    TRI_LEAF_PACKED_STRIDE,
+    WideNode,
+    f32_max,
+)
 from bajo.bvh.cpu.blas_set import (
     build_triangle_blases,
     trace_triangle_blas_set,
@@ -253,6 +260,20 @@ def _assert_gpu_triangle_matches_cpu_camera[
         var gpu_bvh = build_triangle_bvh[Frame.WORLD, node_width, leaf_width](
             ctx, d_verts
         )
+        assert_true(
+            len(gpu_bvh.tree.wide_nodes)
+            == gpu_bvh.tree.node_count * node_width * WideNode.CHILD_STRIDE
+        )
+        assert_true(
+            len(gpu_bvh.tree.leaf_block_indices)
+            == gpu_bvh.tree.leaf_block_count * leaf_width
+        )
+        assert_true(
+            len(gpu_bvh.leaf_vertices)
+            == gpu_bvh.tree.leaf_block_count
+            * leaf_width
+            * TRI_LEAF_PACKED_STRIDE
+        )
         var d_camera = upload_list(ctx, camera_params)
         var d_hits = ctx.enqueue_create_buffer[DType.float32](
             len(rays) * Hit.STRIDE
@@ -431,6 +452,20 @@ def _assert_sphere_matches_bruteforce_camera[
     with DeviceContext() as ctx:
         var gpu_bvh = build_sphere_bvh[Frame.WORLD, node_width, leaf_width](
             ctx, spheres
+        )
+        assert_true(
+            len(gpu_bvh.tree.wide_nodes)
+            == gpu_bvh.tree.node_count * node_width * WideNode.CHILD_STRIDE
+        )
+        assert_true(
+            len(gpu_bvh.tree.leaf_block_indices)
+            == gpu_bvh.tree.leaf_block_count * leaf_width
+        )
+        assert_true(
+            len(gpu_bvh.leaf_spheres)
+            == gpu_bvh.tree.leaf_block_count
+            * leaf_width
+            * SPHERE_LEAF_PACKED_STRIDE
         )
         var d_camera = upload_list(ctx, camera_params)
         var d_hits = ctx.enqueue_create_buffer[DType.float32](

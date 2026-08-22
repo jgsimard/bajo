@@ -30,7 +30,6 @@ from bajo.bvh.gpu.builder.binary_layout import _encoded_bounds
 from bajo.bvh.tagged_ref import is_leaf_ref
 from bajo.bvh.gpu.triangle_bvh import build_triangle_bvh
 from bajo.bvh.gpu.utils import upload_list, upload_vertices
-from bajo.bvh.gpu.trace import GpuTraversalAlgorithm
 from bajo.bvh.wide_meta import (
     _wide_meta_count,
     _wide_meta_data,
@@ -370,7 +369,7 @@ def _assert_hploc_triangle_matches_cpu[
         var hits = ctx.enqueue_create_buffer[DType.float32](
             len(rays) * Hit.STRIDE
         )
-        gpu.launch_camera[algorithm=GpuTraversalAlgorithm.UNIFIED_TASKS](
+        gpu.launch_camera(
             ctx,
             upload_list(ctx, camera_params),
             hits,

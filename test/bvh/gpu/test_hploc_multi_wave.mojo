@@ -1,7 +1,7 @@
 from std.math import abs, max
 from std.sys import has_accelerator
 from std.testing import TestSuite, assert_equal, assert_false, assert_true
-from max.gpu.host import DeviceContext
+from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh.constants import (
     BinaryBvhNode,
@@ -9,14 +9,87 @@ from bajo.bvh.constants import (
 )
 from bajo.bvh.tagged_ref import decode_ref_index, encode_leaf_ref, is_leaf_ref
 from bajo.bvh.gpu.diagnostics import build_bounds_bvh_for_diagnostics
-from bajo.bvh.gpu.builder.hploc_layout import HPLOC_STATUS_OK
-from bajo.bvh.gpu.builder.hploc_multi_wave import GpuHplocMultiWaveBvh
+from bajo.bvh.gpu.builder.hploc_layout import (
+    HPLOC_MERGING_THRESHOLD,
+    HPLOC_SEARCH_RADIUS,
+    HPLOC_STATUS_OK,
+)
+from bajo.bvh.gpu.builder.hploc_multi_wave import GpuHplocBuildState
 from bajo.bvh.cpu.builder.hploc import (
     HplocTopology,
     build_hploc_topology,
 )
 from bajo.bvh.gpu.utils import upload_list
 from bajo.core import AABB, Frame, Point3f32
+
+
+struct GpuHplocMultiWaveBvh[
+    search_radius: Int = HPLOC_SEARCH_RADIUS,
+    merging_threshold: Int = HPLOC_MERGING_THRESHOLD,
+]:
+    """Test fixture owning the direct-layout H-PLOC buffers."""
+
+    var leaf_count: Int
+    var leaf_bounds: DeviceBuffer[DType.float32]
+    var sorted_morton_codes: DeviceBuffer[DType.uint32]
+    var sorted_leaf_ids: DeviceBuffer[DType.uint32]
+    var node_meta: DeviceBuffer[DType.uint32]
+    var leaf_parent: DeviceBuffer[DType.uint32]
+    var node_bounds: DeviceBuffer[DType.float32]
+    var node_flags: DeviceBuffer[DType.uint32]
+    var node_leaf_counts: DeviceBuffer[DType.uint32]
+    var state: GpuHplocBuildState[Self.search_radius, Self.merging_threshold]
+
+    def __init__(
+        out self,
+        mut ctx: DeviceContext,
+        leaf_bounds: DeviceBuffer[DType.float32],
+        sorted_morton_codes: DeviceBuffer[DType.uint32],
+        sorted_leaf_ids: DeviceBuffer[DType.uint32],
+    ) raises:
+        self.leaf_count = len(sorted_leaf_ids)
+        self.leaf_bounds = leaf_bounds
+        self.sorted_morton_codes = sorted_morton_codes
+        self.sorted_leaf_ids = sorted_leaf_ids
+
+        var internal_capacity = max(self.leaf_count - 1, 1)
+        self.node_meta = ctx.enqueue_create_buffer[DType.uint32](
+            internal_capacity * BinaryBvhNode.META_STRIDE
+        )
+        self.leaf_parent = ctx.enqueue_create_buffer[DType.uint32](
+            self.leaf_count
+        )
+        self.node_bounds = ctx.enqueue_create_buffer[DType.float32](
+            internal_capacity * BinaryBvhNode.BOUNDS_STRIDE
+        )
+        self.node_flags = ctx.enqueue_create_buffer[DType.uint32](
+            internal_capacity
+        )
+        self.node_leaf_counts = ctx.enqueue_create_buffer[DType.uint32](
+            internal_capacity
+        )
+        self.state = GpuHplocBuildState[
+            Self.search_radius, Self.merging_threshold
+        ](
+            ctx,
+            self.leaf_bounds.copy(),
+            self.sorted_morton_codes.copy(),
+            self.sorted_leaf_ids.copy(),
+            self.node_meta.copy(),
+            self.leaf_parent.copy(),
+            self.node_bounds.copy(),
+            self.node_flags.copy(),
+            self.node_leaf_counts.copy(),
+        )
+
+    def result_status(self) raises -> UInt32:
+        return self.state.result_status()
+
+    def result_root(self) raises -> UInt32:
+        return self.state.result_root()
+
+    def result_node_count(self) raises -> UInt32:
+        return self.state.result_node_count()
 
 
 def _box(center_x: Float32) -> AABB[Frame.WORLD]:

@@ -21,7 +21,14 @@ from bajo.core import (
 from bajo.core.intersect import intersect_ray_aabb, intersect_ray_aabb_rcp
 from bajo.bvh.types import BlasDesc, CpuBlasSet, Hit, Sphere
 from bajo.core.random import Rng
-from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
+from bajo.bvh.constants import (
+    EMPTY_LANE,
+    SPHERE_LEAF_PACKED_STRIDE,
+    TRACE,
+    TRI_LEAF_PACKED_STRIDE,
+    WideNode,
+    f32_max,
+)
 from bajo.bvh.cpu.bounds_bvh import (
     BinaryBoundsBvh,
     BoundsItem,
@@ -34,6 +41,11 @@ from bajo.bvh.cpu.packet import (
 from bajo.bvh.tagged_ref import (
     decode_ref_index,
     is_leaf_ref,
+)
+from bajo.bvh.wide_meta import (
+    _pack_wide_meta,
+    _wide_meta_count,
+    _wide_meta_data,
 )
 from bajo.bvh.cpu.builder.builder import _partition_items_by_median_center
 from bajo.bvh.cpu.builder.hploc import (
@@ -106,6 +118,12 @@ def _test_extract_lane[width: SIMDLength]() raises:
 def test_extract_lane_all_cpu_bvh_widths() raises:
     comptime for width in [2, 4, 8, 16]:
         _test_extract_lane[width]()
+
+
+def test_wide_metadata_supports_leaf_width_32() raises:
+    var meta = _pack_wide_meta(UInt32(123), UInt32(32))
+    assert_true(_wide_meta_data(meta) == UInt32(123))
+    assert_true(_wide_meta_count(meta) == UInt32(32))
 
 
 def _rng_f32(mut rng: Rng, lo: Float32, hi: Float32) -> Float32:
@@ -1115,6 +1133,100 @@ def test_sphere_bvh_shadow_hit_and_miss() raises:
     comptime for w in [2, 4, 8]:
         comptime for mode in ["median", "sah", "lbvh", "hploc"]:
             _test_sphere_bvh_shadow_hit_and_miss[w, mode]()
+
+
+def test_segmented_triangle_blases_allow_empty_segments() raises:
+    var empty = List[Point3f32[Frame.WORLD]]()
+    var vertices = _make_strip[Frame.WORLD](2)
+    var blases = build_triangle_blases[4, 4, "sah", Frame.WORLD](
+        [empty^, vertices^]
+    )
+    var empty_desc = BlasDesc.load(blases.descs.unsafe_ptr(), UInt32(0))
+    var filled_desc = BlasDesc.load(blases.descs.unsafe_ptr(), UInt32(1))
+    assert_true(empty_desc.node_count == 0)
+    assert_true(empty_desc.leaf_block_count == 0)
+    assert_true(empty_desc.prim_count == 0)
+    assert_true(filled_desc.prim_count == 2)
+    assert_true(
+        len(blases.nodes)
+        == Int(filled_desc.node_count) * 4 * WideNode.CHILD_STRIDE
+    )
+    assert_true(
+        len(blases.leaves)
+        == Int(filled_desc.leaf_block_count) * 4 * TRI_LEAF_PACKED_STRIDE
+    )
+    assert_true(filled_desc.node_f32_base == 0)
+    assert_true(filled_desc.leaf_f32_base == 0)
+
+    var ray = _z_ray(Point3W(0.0, 0.0, 0.0))
+    assert_true(
+        not trace_triangle_blas_set[4, 4, TRACE.CLOSEST_HIT, Frame.WORLD](
+            blases, UInt32(0), ray
+        ).is_hit()
+    )
+    assert_true(
+        trace_triangle_blas_set[4, 4, TRACE.CLOSEST_HIT, Frame.WORLD](
+            blases, UInt32(1), ray
+        ).is_hit()
+    )
+    var rays = Ray[DType.float32, Frame.WORLD, 4](
+        Point3[DType.float32, Frame.WORLD, 4](0.0, 0.0, 0.0),
+        Vec3[DType.float32, Frame.WORLD, 4](0.0, 0.0, 1.0),
+    )
+    assert_true(
+        not trace_triangle_blas_set_packet[4, 4, 4, False, Frame.WORLD](
+            blases, UInt32(0), rays
+        )
+        .hit_mask()
+        .reduce_or()
+    )
+
+
+def test_segmented_sphere_blases_allow_empty_segments() raises:
+    var empty = List[Sphere[Frame.WORLD]]()
+    var spheres: List = [
+        Sphere[Frame.WORLD](Point3f32[Frame.WORLD](0.0, 0.0, 2.0), 1.0)
+    ]
+    var blases = build_sphere_blases[4, "sah", Frame.WORLD]([empty^, spheres^])
+    var empty_desc = BlasDesc.load(blases.descs.unsafe_ptr(), UInt32(0))
+    var filled_desc = BlasDesc.load(blases.descs.unsafe_ptr(), UInt32(1))
+    assert_true(empty_desc.node_count == 0)
+    assert_true(empty_desc.leaf_block_count == 0)
+    assert_true(empty_desc.prim_count == 0)
+    assert_true(filled_desc.prim_count == 1)
+    assert_true(
+        len(blases.nodes)
+        == Int(filled_desc.node_count) * 4 * WideNode.CHILD_STRIDE
+    )
+    assert_true(
+        len(blases.leaves)
+        == Int(filled_desc.leaf_block_count) * 4 * SPHERE_LEAF_PACKED_STRIDE
+    )
+    assert_true(filled_desc.node_f32_base == 0)
+    assert_true(filled_desc.leaf_f32_base == 0)
+
+    var ray = _z_ray(Point3W(0.0, 0.0, 0.0))
+    assert_true(
+        not trace_sphere_blas_set[4, 4, TRACE.CLOSEST_HIT, Frame.WORLD](
+            blases, UInt32(0), ray
+        ).is_hit()
+    )
+    assert_true(
+        trace_sphere_blas_set[4, 4, TRACE.CLOSEST_HIT, Frame.WORLD](
+            blases, UInt32(1), ray
+        ).is_hit()
+    )
+    var rays = Ray[DType.float32, Frame.WORLD, 4](
+        Point3[DType.float32, Frame.WORLD, 4](0.0, 0.0, 0.0),
+        Vec3[DType.float32, Frame.WORLD, 4](0.0, 0.0, 1.0),
+    )
+    assert_true(
+        not trace_sphere_blas_set_packet[4, 4, 4, Frame.WORLD](
+            blases, UInt32(0), rays
+        )
+        .hit_mask()
+        .reduce_or()
+    )
 
 
 def main() raises:

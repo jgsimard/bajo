@@ -11,7 +11,7 @@ from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.types import Instance, Sphere
 from bajo.core import Affine3f32, Frame, Point3f32, Vec3f32
-from bajo.rt.cpu import render_depth_first, render_wavefront
+from bajo.rt.cpu import CpuScene, render_depth_first, render_wavefront
 from bajo.rt.gpu import (
     GPU_RT_BVH_WIDE4_LBVH,
     GpuRtRenderTarget,
@@ -36,13 +36,11 @@ from bajo.rt.gpu.render import (
 )
 from bajo.rt.types import (
     Color,
-    CpuScene,
     RENDER,
     RenderSettings,
     SceneData,
     SurfaceId,
     SurfaceStore,
-    World,
     add_sphere,
     add_triangle,
     add_triangle_mesh_instance,
@@ -90,7 +88,7 @@ def _sphere_world() -> CpuScene[4, 8]:
     return CpuScene[4, 8](_sphere_scene_data())
 
 
-def _material_sphere_world() -> World[4, 8]:
+def _material_sphere_world() -> CpuScene[4, 8]:
     var surfaces = SurfaceStore()
     var spheres = List[Sphere[Frame.WORLD]]()
     var sphere_surfaces = List[SurfaceId[1]]()
@@ -131,7 +129,7 @@ def _material_sphere_world() -> World[4, 8]:
         0.3,
         light,
     )
-    return World[4, 8](
+    return CpuScene[4, 8](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -143,7 +141,7 @@ def _material_sphere_world() -> World[4, 8]:
     )
 
 
-def _triangle_world() -> World[4, 8]:
+def _triangle_scene_data() -> SceneData:
     var surfaces = SurfaceStore()
     var spheres = List[Sphere[Frame.WORLD]]()
     var sphere_surfaces = List[SurfaceId[1]]()
@@ -169,7 +167,7 @@ def _triangle_world() -> World[4, 8]:
         Point3f32[Frame.WORLD](-1.5, 1.0, -1.0),
         matte,
     )
-    return World[4, 8](
+    return SceneData(
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -181,7 +179,11 @@ def _triangle_world() -> World[4, 8]:
     )
 
 
-def _mixed_world() -> World[4, 8]:
+def _triangle_world() -> CpuScene[4, 8]:
+    return CpuScene[4, 8](_triangle_scene_data())
+
+
+def _mixed_world() -> CpuScene[4, 8]:
     var surfaces = SurfaceStore()
     var spheres = List[Sphere[Frame.WORLD]]()
     var sphere_surfaces = List[SurfaceId[1]]()
@@ -215,7 +217,7 @@ def _mixed_world() -> World[4, 8]:
         Point3f32[Frame.WORLD](-2.0, 1.5, -2.0),
         back_matte,
     )
-    return World[4, 8](
+    return CpuScene[4, 8](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -227,7 +229,7 @@ def _mixed_world() -> World[4, 8]:
     )
 
 
-def _instance_world() -> World[4, 8]:
+def _instance_scene_data() -> SceneData:
     var surfaces = SurfaceStore()
     var spheres = List[Sphere[Frame.WORLD]]()
     var sphere_surfaces = List[SurfaceId[1]]()
@@ -251,7 +253,7 @@ def _instance_world() -> World[4, 8]:
         bounds,
         matte,
     )
-    return World[4, 8](
+    return SceneData(
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -263,7 +265,11 @@ def _instance_world() -> World[4, 8]:
     )
 
 
-def _combined_instance_world() -> World[4, 8]:
+def _instance_world() -> CpuScene[4, 8]:
+    return CpuScene[4, 8](_instance_scene_data())
+
+
+def _combined_instance_world() -> CpuScene[4, 8]:
     var surfaces = SurfaceStore()
     var spheres = List[Sphere[Frame.WORLD]]()
     var sphere_surfaces = List[SurfaceId[1]]()
@@ -306,7 +312,7 @@ def _combined_instance_world() -> World[4, 8]:
         bounds,
         green,
     )
-    return World[4, 8](
+    return CpuScene[4, 8](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -345,7 +351,7 @@ def test_gpu_sphere_path_matches_cpu_wavefront() raises:
         settings, camera, world
     )
     var gpu = render_gpu_spheres[RENDER.PATH, 4, 4](
-        settings, camera, world.scene
+        settings, camera, world.scene_data()
     )
 
     assert_equal(len(gpu.pixels), len(cpu.pixels))
@@ -372,7 +378,7 @@ def test_gpu_materials_match_cpu_wavefront() raises:
         settings, camera, world
     )
     var gpu = render_gpu_spheres[RENDER.PATH, 4, 4](
-        settings, camera, world.scene
+        settings, camera, world.scene_data()
     )
 
     for i, cpu_pixel in enumerate(cpu.pixels):
@@ -389,7 +395,7 @@ def test_gpu_triangle_path_matches_cpu_wavefront() raises:
         settings, camera, world
     )
     var gpu = render_gpu_triangles[RENDER.PATH, 4, 4](
-        settings, camera, world.scene
+        settings, camera, world.scene_data()
     )
 
     for i, cpu_pixel in enumerate(cpu.pixels):
@@ -410,7 +416,7 @@ def test_gpu_triangle_hploc_path_matches_cpu_wavefront() raises:
         4,
         4,
         GpuBvhBuildMethod.HPLOC,
-    ](settings, camera, world.scene)
+    ](settings, camera, world.scene_data())
 
     for i, cpu_pixel in enumerate(cpu.pixels):
         assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=1.0e-5)
@@ -429,7 +435,7 @@ def test_gpu_triangle_default_hploc_cwbvh8_matches_cpu_wavefront() raises:
         RENDER.PATH,
         8,
         4,
-    ](settings, camera, world.scene)
+    ](settings, camera, world.scene_data())
 
     for i, cpu_pixel in enumerate(cpu.pixels):
         assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=1.0e-5)
@@ -442,7 +448,7 @@ def test_gpu_chunked_triangle_nee_matches_full_capacity() raises:
     var world = _triangle_world()
     var camera = _camera()
     with DeviceContext() as ctx:
-        var gpu_world = GpuRtTriangleScene[4, 4](ctx, world.scene)
+        var gpu_world = GpuRtTriangleScene[4, 4](ctx, world.scene_data())
         var full = GpuRtRenderTarget(
             ctx,
             settings,
@@ -477,12 +483,35 @@ def test_prepared_scene_policy_and_common_enqueue_api() raises:
     var world = _triangle_world()
     with DeviceContext() as ctx:
         var scene = prepare_gpu_triangle_scene[GPU_RT_BVH_WIDE4_LBVH](
-            ctx, world.scene
+            ctx, world.scene_data()
         )
         var target = GpuRtRenderTarget(ctx, settings, _camera())
         enqueue_render_gpu[RENDER.NORMALS](ctx, target, scene, settings)
         var pixels = download_gpu_pixels(ctx, target)
         assert_equal(len(pixels), settings.image_width * settings.image_height)
+
+
+def test_prepared_gpu_scene_is_snapshot_of_authoring_data() raises:
+    var settings = RenderSettings(3, 2, 1, UInt64(237))
+    var data = _sphere_scene_data()
+    with DeviceContext() as ctx:
+        var scene = prepare_gpu_sphere_scene(ctx, data)
+        var target = GpuRtRenderTarget(ctx, settings, _camera())
+
+        enqueue_render_gpu[RENDER.NORMALS](ctx, target, scene, settings)
+        var before = download_gpu_pixels(ctx, target)
+
+        data.spheres.append(
+            Sphere[Frame.WORLD](Point3f32[Frame.WORLD](0.0, 0.0, -0.25), 10.0)
+        )
+        data.sphere_surfaces.append(data.sphere_surfaces[0].copy())
+
+        enqueue_render_gpu[RENDER.NORMALS](ctx, target, scene, settings)
+        var after = download_gpu_pixels(ctx, target)
+        for i, pixel in enumerate(before):
+            assert_equal(after[i].x, pixel.x)
+            assert_equal(after[i].y, pixel.y)
+            assert_equal(after[i].z, pixel.z)
 
 
 def test_common_prepared_api_instantiates_every_scene_kind() raises:
@@ -491,22 +520,22 @@ def test_common_prepared_api_instantiates_every_scene_kind() raises:
         var target = GpuRtRenderTarget(ctx, settings, _camera())
 
         var sphere_data = _sphere_world()
-        var spheres = prepare_gpu_sphere_scene(ctx, sphere_data.scene)
+        var spheres = prepare_gpu_sphere_scene(ctx, sphere_data.scene_data())
         enqueue_render_gpu(ctx, target, spheres, settings)
 
         var mixed_data = _mixed_world()
-        var mixed = prepare_gpu_mixed_scene(ctx, mixed_data.scene)
+        var mixed = prepare_gpu_mixed_scene(ctx, mixed_data.scene_data())
         enqueue_render_gpu(ctx, target, mixed, settings)
 
         var instance_data = _instance_world()
         var instances = prepare_gpu_triangle_instance_scene(
-            ctx, instance_data.scene
+            ctx, instance_data.scene_data()
         )
         enqueue_render_gpu(ctx, target, instances, settings)
 
         var combined_data = _combined_instance_world()
         var combined = prepare_gpu_combined_instance_scene[True, True](
-            ctx, combined_data.scene
+            ctx, combined_data.scene_data()
         )
         enqueue_render_gpu[RENDER.NORMALS](ctx, target, combined, settings)
 
@@ -521,7 +550,9 @@ def test_gpu_mixed_path_matches_cpu_wavefront() raises:
     var cpu = render_wavefront[RENDER.PATH, 1, 64, False](
         settings, camera, world
     )
-    var gpu = render_gpu[RENDER.PATH, 4, 4](settings, camera, world.scene)
+    var gpu = render_gpu[RENDER.PATH, 4, 4](
+        settings, camera, world.scene_data()
+    )
 
     for i, cpu_pixel in enumerate(cpu.pixels):
         assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=1.0e-5)
@@ -536,7 +567,9 @@ def test_gpu_triangle_instances_match_cpu_wavefront() raises:
     var cpu = render_wavefront[RENDER.PATH, 1, 64, False](
         settings, camera, world
     )
-    var gpu = render_gpu[RENDER.PATH, 4, 4](settings, camera, world.scene)
+    var gpu = render_gpu[RENDER.PATH, 4, 4](
+        settings, camera, world.scene_data()
+    )
 
     for i, cpu_pixel in enumerate(cpu.pixels):
         assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=1.0e-5)
@@ -545,35 +578,25 @@ def test_gpu_triangle_instances_match_cpu_wavefront() raises:
 
 
 def test_gpu_instance_default_policy_keeps_micro_blas_wide() raises:
-    var world = _instance_world()
-    assert_true(not _prefer_cwbvh8_blases(world.scene))
+    var data = _instance_scene_data()
+    assert_true(not _prefer_cwbvh8_blases(data))
     for _ in range(31):
-        world.scene.triangle_meshes[0].append(
+        data.triangle_meshes[0].append(
             Point3f32[Frame.LOCAL](-1.25, -1.0, -1.0)
         )
-        world.scene.triangle_meshes[0].append(
-            Point3f32[Frame.LOCAL](1.25, -1.0, -1.0)
-        )
-        world.scene.triangle_meshes[0].append(
-            Point3f32[Frame.LOCAL](0.0, 1.0, -1.0)
-        )
-    assert_true(_prefer_cwbvh8_blases(world.scene))
+        data.triangle_meshes[0].append(Point3f32[Frame.LOCAL](1.25, -1.0, -1.0))
+        data.triangle_meshes[0].append(Point3f32[Frame.LOCAL](0.0, 1.0, -1.0))
+    assert_true(_prefer_cwbvh8_blases(data))
 
 
 def test_gpu_static_default_policy_keeps_micro_geometry_wide() raises:
-    var world = _triangle_world()
-    assert_true(not _prefer_cwbvh8_triangles(world.scene))
+    var data = _triangle_scene_data()
+    assert_true(not _prefer_cwbvh8_triangles(data))
     for _ in range(30):
-        world.scene.triangle_vertices.append(
-            Point3f32[Frame.WORLD](-1.5, -1.0, -1.0)
-        )
-        world.scene.triangle_vertices.append(
-            Point3f32[Frame.WORLD](1.5, -1.0, -1.0)
-        )
-        world.scene.triangle_vertices.append(
-            Point3f32[Frame.WORLD](0.0, 1.0, -1.0)
-        )
-    assert_true(_prefer_cwbvh8_triangles(world.scene))
+        data.triangle_vertices.append(Point3f32[Frame.WORLD](-1.5, -1.0, -1.0))
+        data.triangle_vertices.append(Point3f32[Frame.WORLD](1.5, -1.0, -1.0))
+        data.triangle_vertices.append(Point3f32[Frame.WORLD](0.0, 1.0, -1.0))
+    assert_true(_prefer_cwbvh8_triangles(data))
 
 
 def test_gpu_default_hploc_cwbvh8_instances_match_cpu_wavefront() raises:
@@ -589,7 +612,7 @@ def test_gpu_default_hploc_cwbvh8_instances_match_cpu_wavefront() raises:
         2,
         8,
         4,
-    ](settings, camera, world.scene)
+    ](settings, camera, world.scene_data())
 
     for i, cpu_pixel in enumerate(cpu.pixels):
         assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=1.0e-5)
@@ -604,7 +627,9 @@ def test_gpu_combined_instances_match_cpu_wavefront() raises:
     var cpu = render_wavefront[RENDER.PATH, 1, 64, False](
         settings, camera, world
     )
-    var gpu = render_gpu[RENDER.PATH, 4, 4](settings, camera, world.scene)
+    var gpu = render_gpu[RENDER.PATH, 4, 4](
+        settings, camera, world.scene_data()
+    )
     var gpu_hploc_tlas = render_gpu_combined_instances[
         RENDER.PATH,
         True,
@@ -622,7 +647,7 @@ def test_gpu_combined_instances_match_cpu_wavefront() raises:
         GpuBvhBuildMethod.HPLOC,
         True,
         GpuBvhBuildMethod.HPLOC,
-    ](settings, camera, world.scene)
+    ](settings, camera, world.scene_data())
     for i, cpu_pixel in enumerate(cpu.pixels):
         assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=1.0e-5)
         assert_almost_equal(gpu.pixels[i].y, cpu_pixel.y, atol=1.0e-5)
@@ -643,11 +668,11 @@ def test_gpu_combined_scene_instantiates_every_algorithm() raises:
     var world = _combined_instance_world()
     var camera = _camera()
     var normals = render_gpu[RENDER.NORMALS, 4, 4](
-        settings, camera, world.scene
+        settings, camera, world.scene_data()
     )
-    var ao = render_gpu[RENDER.AO, 4, 4](settings, camera, world.scene)
-    var nee = render_gpu[RENDER.NEE, 4, 4](settings, camera, world.scene)
-    var mis = render_gpu[RENDER.MIS, 4, 4](settings, camera, world.scene)
+    var ao = render_gpu[RENDER.AO, 4, 4](settings, camera, world.scene_data())
+    var nee = render_gpu[RENDER.NEE, 4, 4](settings, camera, world.scene_data())
+    var mis = render_gpu[RENDER.MIS, 4, 4](settings, camera, world.scene_data())
     assert_equal(len(normals.pixels), 1)
     assert_equal(len(ao.pixels), 1)
     assert_equal(len(nee.pixels), 1)
@@ -661,7 +686,7 @@ def test_gpu_ao_matches_unoccluded_cpu_reference() raises:
     var cpu = render_depth_first[RENDER.AO, 1, 1, 0, 4, 8](
         settings, camera, world
     )
-    var gpu = render_gpu[RENDER.AO, 4, 4](settings, camera, world.scene)
+    var gpu = render_gpu[RENDER.AO, 4, 4](settings, camera, world.scene_data())
     assert_almost_equal(gpu.pixels[0].x, cpu.pixels[0].x, atol=1.0e-5)
     assert_almost_equal(gpu.pixels[0].y, cpu.pixels[0].y, atol=1.0e-5)
     assert_almost_equal(gpu.pixels[0].z, cpu.pixels[0].z, atol=1.0e-5)
@@ -672,7 +697,7 @@ def _test_gpu_direct_light_matches_cpu[ALGORITHM: RENDER]() raises:
     var world = make_cornell_world()
     var camera = _cornell_camera()
     var cpu = render_wavefront[ALGORITHM, 1, 64, False](settings, camera, world)
-    var gpu = render_gpu[ALGORITHM](settings, camera, world.scene)
+    var gpu = render_gpu[ALGORITHM](settings, camera, world.scene_data())
     for i, cpu_pixel in enumerate(cpu.pixels):
         assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=1.0e-4)
         assert_almost_equal(gpu.pixels[i].y, cpu_pixel.y, atol=1.0e-4)
@@ -690,7 +715,7 @@ def test_gpu_sphere_nee_matches_cpu_wavefront() raises:
     var cpu = render_wavefront[RENDER.NEE, 1, 64, False](
         settings, camera, world
     )
-    var gpu = render_gpu[RENDER.NEE, 4, 4](settings, camera, world.scene)
+    var gpu = render_gpu[RENDER.NEE, 4, 4](settings, camera, world.scene_data())
     for i, cpu_pixel in enumerate(cpu.pixels):
         assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=1.0e-4)
         assert_almost_equal(gpu.pixels[i].y, cpu_pixel.y, atol=1.0e-4)

@@ -36,7 +36,7 @@ from bajo.rt import (
     SurfaceId,
     SurfaceHit,
     SurfaceStore,
-    World,
+    CpuScene,
     add_sphere,
     add_triangle,
     add_triangle_instance,
@@ -46,17 +46,17 @@ from bajo.rt import (
     render_depth_first,
     render_wavefront,
     sample_bsdf,
-    wavefront_rng_roulette_stage,
 )
 from examples.cornell_box import make_cornell_world
 from bajo.rt.cpu import reflect, reflectance
-from bajo.rt.cpu.common import _path_stage_rng, _russian_roulette
+from bajo.rt.common import path_stage_rng, russian_roulette
 from bajo.rt.geometry import (
     orient_surface_normal,
     sphere_for_acceleration,
     sphere_unsigned_radius,
 )
 from bajo.rt.types import MAT, PRIM
+from bajo.rt.wavefront_contract import wavefront_rng_roulette_stage
 
 
 def _front_point() -> ShadingPoint[1]:
@@ -167,11 +167,11 @@ def test_light_alias_table_matches_power_distribution() raises:
 
 def test_wavefront_philox_streams_are_deterministic_and_separate() raises:
     var settings = RenderSettings(1, 1, 1, UInt64(91))
-    var first = _path_stage_rng(settings, UInt32(7), UInt32(3))
-    var replay = _path_stage_rng(settings, UInt32(7), UInt32(3))
-    var next_stage = _path_stage_rng(settings, UInt32(7), UInt32(4))
-    var roulette = _path_stage_rng(
-        settings,
+    var first = path_stage_rng(settings.rng_seed, UInt32(7), UInt32(3))
+    var replay = path_stage_rng(settings.rng_seed, UInt32(7), UInt32(3))
+    var next_stage = path_stage_rng(settings.rng_seed, UInt32(7), UInt32(4))
+    var roulette = path_stage_rng(
+        settings.rng_seed,
         UInt32(7),
         wavefront_rng_roulette_stage(UInt32(2)),
     )
@@ -184,20 +184,26 @@ def test_wavefront_philox_streams_are_deterministic_and_separate() raises:
 def test_russian_roulette_is_deterministic_and_unbiased() raises:
     var settings = RenderSettings(1, 1, 1, UInt64(8128))
     var throughput = Color(0.25, 0.2, 0.1)
-    var early = _russian_roulette(settings, UInt32(17), UInt32(4), throughput)
+    var early = russian_roulette(
+        settings.rng_seed, UInt32(17), UInt32(4), throughput
+    )
     assert_true(early.survived)
     assert_vec_equal(early.throughput, throughput)
 
-    var first = _russian_roulette(settings, UInt32(17), UInt32(5), throughput)
-    var replay = _russian_roulette(settings, UInt32(17), UInt32(5), throughput)
+    var first = russian_roulette(
+        settings.rng_seed, UInt32(17), UInt32(5), throughput
+    )
+    var replay = russian_roulette(
+        settings.rng_seed, UInt32(17), UInt32(5), throughput
+    )
     assert_equal(first.survived, replay.survived)
     assert_vec_equal(first.throughput, replay.throughput)
 
     comptime TRIALS = 20000
     var weighted_sum = Float64(0.0)
     for path_idx in range(TRIALS):
-        var result = _russian_roulette(
-            settings, UInt32(path_idx), UInt32(5), throughput
+        var result = russian_roulette(
+            settings.rng_seed, UInt32(path_idx), UInt32(5), throughput
         )
         if result.survived:
             weighted_sum += Float64(result.throughput.x)
@@ -305,7 +311,7 @@ def test_world_hit_maps_material_and_normal() raises:
         0.25,
         light,
     )
-    var world = World[4, 8](
+    var world = CpuScene[4, 8](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -315,10 +321,14 @@ def test_world_hit_maps_material_and_normal() raises:
         triangle_instance_surfaces^,
         surfaces^,
     )
-    assert_equal(len(world.scene.lights.records), 1)
-    assert_equal(world.scene.lights.records[0].primitive.kind(), PRIM.SPHERE)
-    assert_equal(world.scene.lights.records[0].surface.value, light.value)
-    assert_true(world.scene.lights.total_weight > 0.0)
+    assert_equal(len(world.scene_data().lights.records), 1)
+    assert_equal(
+        world.scene_data().lights.records[0].primitive.kind(), PRIM.SPHERE
+    )
+    assert_equal(
+        world.scene_data().lights.records[0].surface.value, light.value
+    )
+    assert_true(world.scene_data().lights.total_weight > 0.0)
 
     var hit = (
         world.trace(
@@ -366,7 +376,7 @@ def test_world_preserves_signed_radius_normals() raises:
         -0.5,
         glass,
     )
-    var world = World[](
+    var world = CpuScene[](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -410,7 +420,7 @@ def test_world_hits_triangle() raises:
         Point3f32[Frame.WORLD](0.0, 1.0, -2.0),
         matte,
     )
-    var world = World[](
+    var world = CpuScene[](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -490,7 +500,7 @@ def test_world_picks_closest_sphere_or_triangle() raises:
         Point3f32[Frame.WORLD](0.0, 1.0, -2.0),
         tri_surface,
     )
-    var world = World[](
+    var world = CpuScene[](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -538,7 +548,7 @@ def test_add_triangle_mesh_assigns_surface_per_triangle() raises:
     assert_equal(len(triangle_vertices), 6)
     assert_equal(len(triangle_surfaces), 2)
 
-    var world = World[](
+    var world = CpuScene[](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -605,7 +615,7 @@ def test_triangle_mesh_instances_use_instance_surfaces() raises:
         metal,
     )
 
-    var world = World[4, 8](
+    var world = CpuScene[4, 8](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -702,7 +712,7 @@ def test_world_occluded_covers_all_geometry_and_ray_interval() raises:
         matte,
     )
 
-    var world = World[](
+    var world = CpuScene[](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -799,7 +809,7 @@ def test_render_settings_and_tiny_render() raises:
         0.5,
         matte,
     )
-    var world = World[4, 8](
+    var world = CpuScene[4, 8](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -856,7 +866,7 @@ def test_render_can_select_normal_algorithm_at_compile_time() raises:
         0.5,
         matte,
     )
-    var world = World[](
+    var world = CpuScene[](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -896,7 +906,7 @@ def test_render_can_select_ao_algorithm_at_compile_time() raises:
         0.5,
         matte,
     )
-    var world = World[](
+    var world = CpuScene[](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -940,7 +950,7 @@ def test_wavefront_tiny_render() raises:
         0.5,
         matte,
     )
-    var world = World[](
+    var world = CpuScene[](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -1048,7 +1058,7 @@ def test_packet_widths_match_width1_for_mixed_bsdfs() raises:
         0.55,
         glass,
     )
-    var world = World[](
+    var world = CpuScene[](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -1094,9 +1104,9 @@ def test_direct_light_algorithms_render_cornell() raises:
         4.2,
     )
     var result = render_wavefront[RENDER.NEE](settings, camera, world)
-    assert_true(len(world.scene.lights.records) > 0)
-    assert_true(world.scene.lights.total_weight > 0.0)
-    for light in world.scene.lights.records:
+    assert_true(len(world.scene_data().lights.records) > 0)
+    assert_true(world.scene_data().lights.total_weight > 0.0)
+    for light in world.scene_data().lights.records:
         assert_equal(light.surface.kind(), MAT.EMISSIVE)
         assert_true(light.weight > 0.0)
     var depth_first = render_depth_first[RENDER.NEE](settings, camera, world)

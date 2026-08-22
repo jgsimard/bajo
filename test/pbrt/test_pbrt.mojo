@@ -6,7 +6,7 @@ from std.testing import (
 )
 
 from bajo.parser.pbrt import MemoryPbrtTextLoader, parse_pbrt, read_pbrt
-from bajo.rt import MAT, RENDER, render_wavefront
+from bajo.rt import CpuScene, MAT, RENDER, render_wavefront
 
 
 def test_parse_checked_in_scene_with_include() raises:
@@ -14,15 +14,15 @@ def test_parse_checked_in_scene_with_include() raises:
     assert_true(scene.settings.image_width == 640)
     assert_true(scene.settings.image_height == 480)
     assert_true(scene.settings.samples_per_pixel == 64)
-    assert_true(scene.max_depth == 10)
-    assert_true(scene.integrator == "path")
-    assert_true(len(scene.world.scene.spheres) == 3)
-    assert_true(len(scene.world.scene.triangle_vertices) / 3 == 10)
-    assert_true(len(scene.world.scene.lights.records) == 2)
-    assert_true(len(scene.world.scene.surfaces.lambertians) == 4)
-    assert_true(len(scene.world.scene.surfaces.metals) == 1)
-    assert_true(len(scene.world.scene.surfaces.dielectrics) == 1)
-    assert_true(len(scene.world.scene.surfaces.emissives) == 1)
+    assert_true(scene.settings.max_depth == 10)
+    assert_true(scene.integrator == RENDER.PATH)
+    assert_true(len(scene.data.spheres) == 3)
+    assert_true(len(scene.data.triangle_vertices) / 3 == 10)
+    assert_true(len(scene.data.lights.records) == 2)
+    assert_true(len(scene.data.surfaces.lambertians) == 4)
+    assert_true(len(scene.data.surfaces.metals) == 1)
+    assert_true(len(scene.data.surfaces.dielectrics) == 1)
+    assert_true(len(scene.data.surfaces.emissives) == 1)
 
 
 def test_transform_and_named_material() raises:
@@ -43,12 +43,12 @@ WorldEnd
     var scene = parse_pbrt(source)
     assert_true(scene.settings.image_width == 4)
     assert_true(scene.settings.image_height == 3)
-    assert_true(len(scene.world.scene.spheres) == 1)
-    assert_almost_equal(scene.world.scene.spheres[0].center.x, 1.0)
-    assert_almost_equal(scene.world.scene.spheres[0].center.y, 2.0)
-    assert_almost_equal(scene.world.scene.spheres[0].center.z, 3.0)
-    assert_almost_equal(scene.world.scene.spheres[0].radius, 1.0)
-    assert_true(scene.world.scene.sphere_surfaces[0].kind() == MAT.LAMBERTIAN)
+    assert_true(len(scene.data.spheres) == 1)
+    assert_almost_equal(scene.data.spheres[0].center.x, 1.0)
+    assert_almost_equal(scene.data.spheres[0].center.y, 2.0)
+    assert_almost_equal(scene.data.spheres[0].center.z, 3.0)
+    assert_almost_equal(scene.data.spheres[0].radius, 1.0)
+    assert_true(scene.data.sphere_surfaces[0].kind() == MAT.LAMBERTIAN)
 
 
 def test_coateddiffuse_uses_diffuse_substrate() raises:
@@ -57,11 +57,9 @@ Material "coateddiffuse" "rgb reflectance" [0.4 0.2 0.1] "float roughness" [0.02
 Shape "sphere"
 """
     var scene = parse_pbrt(source)
-    var surface = scene.world.scene.sphere_surfaces[0].copy()
+    var surface = scene.data.sphere_surfaces[0].copy()
     assert_true(surface.kind() == MAT.LAMBERTIAN)
-    var albedo = scene.world.scene.surfaces.lambertians[
-        Int(surface.index())
-    ].albedo
+    var albedo = scene.data.surfaces.lambertians[Int(surface.index())].albedo
     assert_almost_equal(albedo.x, 0.4)
     assert_almost_equal(albedo.y, 0.2)
     assert_almost_equal(albedo.z, 0.1)
@@ -74,8 +72,8 @@ Shape "loopsubdiv" "integer levels" [1]
     "integer indices" [0 1 2]
 """
     var scene = parse_pbrt(source)
-    assert_true(len(scene.world.scene.triangle_vertices) == 3)
-    assert_true(len(scene.world.scene.triangle_surfaces) == 1)
+    assert_true(len(scene.data.triangle_vertices) == 3)
+    assert_true(len(scene.data.triangle_surfaces) == 1)
 
 
 def test_memory_include_and_mis_render() raises:
@@ -103,8 +101,11 @@ Shape "sphere" "float radius" 1
 """,
     )
     var scene = read_pbrt("scene/main.pbrt", loader)
+    var settings = scene.settings.copy()
+    var camera = scene.camera
+    var world = CpuScene[](scene^.take_data())
     var result = render_wavefront[RENDER.MIS, 1, 64, False](
-        scene.settings, scene.camera, scene.world
+        settings, camera, world
     )
     assert_true(len(result.pixels) == 16)
     var energy: Float32 = 0.0
@@ -114,6 +115,8 @@ Shape "sphere" "float radius" 1
 
 
 def test_rejects_unsupported_and_invalid_geometry() raises:
+    with assert_raises():
+        _ = parse_pbrt('Integrator "bdpt"\nWorldBegin\nShape "sphere"')
     with assert_raises():
         _ = parse_pbrt('WorldBegin\nShape "plymesh" "string filename" "x.ply"')
     with assert_raises():

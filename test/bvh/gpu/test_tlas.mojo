@@ -414,6 +414,18 @@ def test_gpu_tlas_sphere_nonuniform_scale_normal() raises:
             assert_almost_equal(gpu_hit.normal.z, -0.9607689, atol=1.0e-5)
 
 
+def test_all_empty_cpu_blas_set_upload_uses_dummy_device_storage() raises:
+    var empty = List[Point3f32[Frame.LOCAL]]()
+    var host = build_triangle_blases[4]([empty^])
+    assert_true(len(host.nodes) == 0)
+    assert_true(len(host.leaves) == 0)
+    with DeviceContext() as ctx:
+        var uploaded = GpuBlasSet[4].from_host(ctx, host)
+        assert_true(len(uploaded.nodes) == 1)
+        assert_true(len(uploaded.leaves) == 1)
+        assert_true(uploaded.blas_count == 1)
+
+
 def main() raises:
     comptime if not has_accelerator():
         raise "No Accelerator found"

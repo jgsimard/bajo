@@ -36,6 +36,7 @@ comptime BUDDHA_PATH = "./assets/buddha/buddha.obj"
 comptime DRAGON_PATH = "./assets/dragon/dragon.obj"
 comptime BENCH_REPEATS = 11
 comptime SHAPE_REPEATS = 7
+comptime TLAS_BUILD_BATCH_SIZE = 32
 
 
 def _make_mesh(triangle_count: Int, seed: Int) -> List[Point3f32[Frame.LOCAL]]:
@@ -263,6 +264,7 @@ def main() raises:
     )
     var cwbvh_times = List[Int](capacity=BENCH_REPEATS)
     var tlas_times = List[Int](capacity=BENCH_REPEATS)
+    var tlas_leaf1_batch_times = List[Int](capacity=BENCH_REPEATS)
     var geometry_times = List[Int](capacity=BENCH_REPEATS)
     var wide_times = List[Int](capacity=BENCH_REPEATS)
     with DeviceContext() as ctx:
@@ -272,6 +274,9 @@ def main() raises:
         ](ctx, vertex_sets)
         var warm_tlas = build_triangle_tlas[
             2, 8, 2, 4, GpuBvhBuildMethod.LBVH, GpuBvhLayout.CWBVH8
+        ](ctx, instances)
+        var warm_tlas_leaf1 = build_triangle_tlas[
+            2, 8, 1, 4, GpuBvhBuildMethod.LBVH, GpuBvhLayout.CWBVH8
         ](ctx, instances)
         var warm_geometry = GpuRtTriangleGeometry[
             Frame.LOCAL, 8, 4, GpuBvhBuildMethod.HPLOC, True
@@ -297,6 +302,19 @@ def main() raises:
             tlas_times.append(Int(perf_counter_ns() - start))
 
             start = perf_counter_ns()
+            for _ in range(TLAS_BUILD_BATCH_SIZE):
+                var tlas_leaf1 = build_triangle_tlas[
+                    2,
+                    8,
+                    1,
+                    4,
+                    GpuBvhBuildMethod.LBVH,
+                    GpuBvhLayout.CWBVH8,
+                ](ctx, instances)
+                ctx.synchronize()
+            tlas_leaf1_batch_times.append(Int(perf_counter_ns() - start))
+
+            start = perf_counter_ns()
             var geometry = GpuRtTriangleGeometry[
                 Frame.LOCAL, 8, 4, GpuBvhBuildMethod.HPLOC, True
             ](ctx, vertex_sets[2])
@@ -313,6 +331,7 @@ def main() raises:
     print("Case\tBuild median ms\tBuild min..max ms")
     _print_row("BLAS CWBVH8 segmented", cwbvh_times)
     _print_row("TLAS LBVH2 one segment", tlas_times)
+    _print_row("TLAS LBVH2/leaf1 batch x32", tlas_leaf1_batch_times)
     _print_row("Dragon geometry H-PLOC CWBVH8", geometry_times)
     _print_row("Dragon H-PLOC wide4 one segment", wide_times)
 

@@ -64,6 +64,36 @@ def _hploc_encoded_leaf_count(
     return node_leaf_counts[unsafe_offset=Int(decode_ref_index(encoded))]
 
 
+comptime HplocWideLeafDataFn = def(
+    UInt32,
+    UInt32,
+    ImmPointer[UInt32, _],
+    ImmPointer[UInt32, _],
+) thin -> UInt32
+
+
+@always_inline
+def _hploc_leaf_block_data(
+    encoded: UInt32,
+    leaf_block_idx: UInt32,
+    leaf_payloads: ImmPointer[UInt32, _],
+    leaf_ids: ImmPointer[UInt32, _],
+) -> UInt32:
+    return leaf_block_idx
+
+
+@always_inline
+def _hploc_embedded_leaf_payload(
+    encoded: UInt32,
+    leaf_block_idx: UInt32,
+    leaf_payloads: ImmPointer[UInt32, _],
+    leaf_ids: ImmPointer[UInt32, _],
+) -> UInt32:
+    var sorted_leaf_idx = decode_ref_index(encoded)
+    var item_idx = leaf_ids[unsafe_offset=Int(sorted_leaf_idx)]
+    return leaf_payloads[unsafe_offset=Int(item_idx)]
+
+
 def _write_hploc_terminal_leaf_block[
     leaf_width: SIMDLength,
 ](
@@ -151,6 +181,7 @@ def hploc_literature_to_wide_kernel[
     max_leaf_size: Int,
     fat_leaves: Bool,
     spatial_slots: Bool,
+    leaf_data_fn: HplocWideLeafDataFn,
     block_size: Int,
 ](
     leaf_bounds: Pointer[Float32, MutAnyOrigin],
@@ -284,6 +315,9 @@ def hploc_literature_to_wide_kernel[
                 Atomic.store[ordering=Ordering.RELEASE](
                     leaf_block_counter, UInt32(1)
                 )
+                var root_leaf_data = leaf_data_fn(
+                    encoded, UInt32(0), leaf_payloads, leaf_ids
+                )
                 _wide_node_store_child[node_width](
                     wide_nodes,
                     UInt32(0),
@@ -294,7 +328,7 @@ def hploc_literature_to_wide_kernel[
                         leaf_ids_span,
                         node_bounds_span,
                     ),
-                    _pack_wide_meta(UInt32(0), encoded_leaf_count),
+                    _pack_wide_meta(root_leaf_data, encoded_leaf_count),
                 )
                 comptime for lane in range(1, node_width):
                     _wide_node_store_child[node_width](
@@ -596,8 +630,11 @@ def hploc_literature_to_wide_kernel[
                 if child_is_leaf:
                     child_out_idx = leaf_block_base + leaf_rank
                     leaf_rank += 1
+                    var leaf_data = leaf_data_fn(
+                        child, child_out_idx, leaf_payloads, leaf_ids
+                    )
                     meta = _pack_wide_meta(
-                        child_out_idx, candidate_leaf_counts[child_pos]
+                        leaf_data, candidate_leaf_counts[child_pos]
                     )
                 else:
                     child_out_idx = child_node_base + inner_rank
@@ -758,8 +795,9 @@ def _enqueue_collapse_binary_to_packed[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
     max_leaf_size: Int,
-    fat_leaves: Bool = False,
-    spatial_slots: Bool = False,
+    fat_leaves: Bool,
+    spatial_slots: Bool,
+    leaf_data_fn: HplocWideLeafDataFn,
 ](
     mut ctx: DeviceContext,
     binary: GpuBinaryBoundsBvh,
@@ -820,6 +858,7 @@ def _enqueue_collapse_binary_to_packed[
             max_leaf_size,
             fat_leaves,
             spatial_slots,
+            leaf_data_fn,
             GPU_BOUNDS_BVH_BLOCK_SIZE,
         ]
     ](
@@ -870,7 +909,12 @@ def enqueue_collapse_binary_to_wide_batch_with_workspace[
 ) raises -> GpuWideCollapseState:
     out.bounds_device = binary.bounds_device.copy()
     return _enqueue_collapse_binary_to_packed[
-        node_width, leaf_width, max_leaf_size, fat_leaves, spatial_slots
+        node_width,
+        leaf_width,
+        max_leaf_size,
+        fat_leaves,
+        spatial_slots,
+        _hploc_leaf_block_data,
     ](
         ctx,
         binary,
@@ -897,10 +941,50 @@ def enqueue_collapse_binary_to_wide_batch[
     binary: GpuBinaryBoundsBvh,
     mut out: GpuWideBoundsBvhBatch[node_width, leaf_width, max_leaf_size],
 ) raises -> GpuWideCollapseState:
+    return _enqueue_collapse_binary_to_wide_batch[
+        node_width,
+        leaf_width,
+        max_leaf_size,
+        fat_leaves,
+        spatial_slots,
+        _hploc_leaf_block_data,
+    ](ctx, binary, out)
+
+
+def _enqueue_collapse_binary_to_wide_batch[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+    max_leaf_size: Int,
+    fat_leaves: Bool,
+    spatial_slots: Bool,
+    leaf_data_fn: HplocWideLeafDataFn,
+](
+    mut ctx: DeviceContext,
+    binary: GpuBinaryBoundsBvh,
+    mut out: GpuWideBoundsBvhBatch[node_width, leaf_width, max_leaf_size],
+) raises -> GpuWideCollapseState:
     var workspace = GpuWideCollapseWorkspace(ctx, binary.segments)
-    return enqueue_collapse_binary_to_wide_batch_with_workspace[
-        node_width, leaf_width, max_leaf_size, fat_leaves, spatial_slots
-    ](ctx, binary, out, workspace)
+    out.bounds_device = binary.bounds_device.copy()
+    return _enqueue_collapse_binary_to_packed[
+        node_width,
+        leaf_width,
+        max_leaf_size,
+        fat_leaves,
+        spatial_slots,
+        leaf_data_fn,
+    ](
+        ctx,
+        binary,
+        out.node_segments,
+        out.node_segment_offsets,
+        out.leaf_block_segments,
+        out.leaf_block_segment_offsets,
+        out.wide_nodes,
+        out.leaf_block_indices,
+        out.leaf_block_counts,
+        out.node_counts,
+        workspace,
+    )
 
 
 def collapse_binary_to_wide_batch[

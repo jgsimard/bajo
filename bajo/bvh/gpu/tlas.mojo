@@ -17,7 +17,10 @@ from bajo.bvh.tlas_common import (
 )
 from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvh
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
-from bajo.bvh.gpu.builder.segmented_build import build_single_segment_wide
+from bajo.bvh.gpu.builder.segmented_build import (
+    build_single_segment_wide,
+    build_single_segment_wide_embedded_leaf1,
+)
 from bajo.bvh.gpu.camera_launch import (
     validate_camera_launch,
     _camera_ray,
@@ -78,9 +81,16 @@ def _intersect_tlas_instance_block[
         length=instance_count * Affine3f32.STRIDE,
     )
 
+    var first_inst_idx = UInt32(0)
+    comptime if tlas_leaf_width == 1:
+        # Leaf1 embeds its sole instance id in wide-node metadata.
+        first_inst_idx = leaf_block_idx
+
     for lane in range(min(tlas_leaf_width, Int(item_count))):
-        var idx = Int(leaf_block_idx) * tlas_leaf_width + lane
-        var inst_idx = UInt32(tlas_leaf_instances[unsafe_offset=idx])
+        var inst_idx = first_inst_idx
+        comptime if tlas_leaf_width != 1:
+            var idx = Int(leaf_block_idx) * tlas_leaf_width + lane
+            inst_idx = UInt32(tlas_leaf_instances[unsafe_offset=idx])
 
         if inst_idx != EMPTY_LANE:
             debug_assert["safe", _use_compiler_assume=True](
@@ -455,20 +465,31 @@ def _build_typed_tlas_core[
         inv_transforms.extend(inst.inv_transform.flatten())
         blas_indices.append(inst.blas_idx)
 
-    var tree = build_single_segment_wide[
-        node_width,
-        leaf_width,
-        Int(leaf_width),
-        method,
-        True,
-    ](
-        ctx,
-        inst_count,
-        upload_list(ctx, leaf_bounds),
-        upload_list(ctx, payloads),
-        timings,
-        measure_build,
-    )
+    var d_leaf_bounds = upload_list(ctx, leaf_bounds)
+    var d_payloads = upload_list(ctx, payloads)
+    var tree: GpuWideBoundsBvh[node_width, leaf_width, Int(leaf_width)]
+    comptime if leaf_width == 1:
+        tree = build_single_segment_wide_embedded_leaf1[
+            node_width, leaf_width, Int(leaf_width), method
+        ](
+            ctx,
+            inst_count,
+            d_leaf_bounds^,
+            d_payloads^,
+            timings,
+            measure_build,
+        )
+    else:
+        tree = build_single_segment_wide[
+            node_width, leaf_width, Int(leaf_width), method, True, False
+        ](
+            ctx,
+            inst_count,
+            d_leaf_bounds^,
+            d_payloads^,
+            timings,
+            measure_build,
+        )
     var inst_inv_transform = upload_list(ctx, inv_transforms)
     var inst_blas_indices = upload_list(ctx, blas_indices)
     return GpuTypedTlasCore[node_width, leaf_width](

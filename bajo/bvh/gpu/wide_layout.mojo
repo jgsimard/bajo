@@ -297,6 +297,34 @@ struct GpuWideBoundsBvhBatch[
             compact_leaf_indices^,
         )
 
+    def into_exact_bvh2_leaf1(
+        deinit self,
+    ) -> GpuWideBoundsBvh[Self.node_width, Self.leaf_width, Self.max_leaf_size]:
+        """Consume an already exact one-segment BVH2/leaf1 allocation."""
+        comptime assert (
+            Self.node_width == 2
+            and Self.leaf_width == 1
+            and Self.max_leaf_size == 1
+        )
+        debug_assert["safe", _use_compiler_assume=True](
+            self.segments.segment_count() == 1,
+            "standalone BVH result requires exactly one segment",
+        )
+        var leaf_count = self.segments.item_count()
+        # A full binary hierarchy with one primitive per leaf has exactly
+        # n-1 internal nodes; the single-leaf representation owns one root.
+        var node_count = max(leaf_count - 1, 1)
+        return GpuWideBoundsBvh[
+            Self.node_width, Self.leaf_width, Self.max_leaf_size
+        ](
+            leaf_count,
+            node_count,
+            leaf_count,
+            self.bounds_device^,
+            self.wide_nodes^,
+            self.leaf_block_indices^,
+        )
+
     def single_segment_view(
         self,
     ) raises -> GpuWideBoundsBvh[

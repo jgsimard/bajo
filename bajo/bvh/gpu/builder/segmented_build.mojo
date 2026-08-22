@@ -17,7 +17,10 @@ from bajo.bvh.gpu.builder.hploc_multi_wave import GpuHplocBuildState
 from bajo.bvh.gpu.builder.lbvh import build_binary_bvh_with_lbvh
 from bajo.bvh.gpu.builder.wide_collapse import (
     GpuWideCollapseState,
-    enqueue_collapse_binary_to_wide_batch,
+    HplocWideLeafDataFn,
+    _hploc_leaf_block_data,
+    _hploc_embedded_leaf_payload,
+    _enqueue_collapse_binary_to_wide_batch,
 )
 from bajo.bvh.gpu.utils import GpuBuildTimings
 from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvh, GpuWideBoundsBvhBatch
@@ -76,6 +79,17 @@ struct GpuSegmentedWideBuildTicket[
         timings = self.timings
         return self.wide^.into_single_segment(ctx)
 
+    def wait_into_exact_bvh2_leaf1(
+        deinit self, mut ctx: DeviceContext, mut timings: GpuBuildTimings
+    ) raises -> GpuWideBoundsBvh[
+        Self.node_width, Self.leaf_width, Self.max_leaf_size
+    ]:
+        """Finish an already exact one-segment BVH2/leaf1 allocation."""
+        ctx.synchronize()
+        self.finish_synchronized()
+        timings = self.timings
+        return self.wide^.into_exact_bvh2_leaf1()
+
     def take_single_segment_synchronized(
         deinit self, mut ctx: DeviceContext, mut timings: GpuBuildTimings
     ) raises -> GpuWideBoundsBvh[
@@ -86,13 +100,14 @@ struct GpuSegmentedWideBuildTicket[
         return self.wide^.into_single_segment(ctx)
 
 
-def enqueue_segmented_wide_build[
+def _enqueue_segmented_wide_build[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
     max_leaf_size: Int,
     build_method: GpuBvhBuildMethod,
-    fat_leaves: Bool = False,
-    spatial_slots: Bool = False,
+    fat_leaves: Bool,
+    spatial_slots: Bool,
+    leaf_data_fn: HplocWideLeafDataFn,
 ](
     mut ctx: DeviceContext,
     segments: SegmentOffsets,
@@ -137,12 +152,13 @@ def enqueue_segmented_wide_build[
     if measure_stages:
         ctx.synchronize()
         collapse_start_ns = perf_counter_ns()
-    var collapse = enqueue_collapse_binary_to_wide_batch[
+    var collapse = _enqueue_collapse_binary_to_wide_batch[
         node_width,
         leaf_width,
         max_leaf_size,
         fat_leaves,
         spatial_slots,
+        leaf_data_fn,
     ](ctx, binary, wide)
     return GpuSegmentedWideBuildTicket[
         node_width,
@@ -159,6 +175,84 @@ def enqueue_segmented_wide_build[
         collapse^,
         timings,
         collapse_start_ns,
+    )
+
+
+def enqueue_segmented_wide_build[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+    max_leaf_size: Int,
+    build_method: GpuBvhBuildMethod,
+    fat_leaves: Bool = False,
+    spatial_slots: Bool = False,
+](
+    mut ctx: DeviceContext,
+    segments: SegmentOffsets,
+    var leaf_bounds: DeviceBuffer[DType.float32],
+    var leaf_payloads: DeviceBuffer[DType.uint32],
+    measure_stages: Bool = False,
+) raises -> GpuSegmentedWideBuildTicket[
+    node_width,
+    leaf_width,
+    max_leaf_size,
+    build_method,
+    fat_leaves,
+    spatial_slots,
+]:
+    return _enqueue_segmented_wide_build[
+        node_width,
+        leaf_width,
+        max_leaf_size,
+        build_method,
+        fat_leaves,
+        spatial_slots,
+        _hploc_leaf_block_data,
+    ](
+        ctx,
+        segments,
+        leaf_bounds^,
+        leaf_payloads^,
+        measure_stages,
+    )
+
+
+def enqueue_segmented_wide_build_embedded_leaf1[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+    max_leaf_size: Int,
+    build_method: GpuBvhBuildMethod,
+    fat_leaves: Bool = False,
+    spatial_slots: Bool = False,
+](
+    mut ctx: DeviceContext,
+    segments: SegmentOffsets,
+    var leaf_bounds: DeviceBuffer[DType.float32],
+    var leaf_payloads: DeviceBuffer[DType.uint32],
+    measure_stages: Bool = False,
+) raises -> GpuSegmentedWideBuildTicket[
+    node_width,
+    leaf_width,
+    max_leaf_size,
+    build_method,
+    fat_leaves,
+    spatial_slots,
+]:
+    """Queue a leaf1 build whose payload is the leaf metadata data field."""
+    comptime assert leaf_width == 1 and max_leaf_size == 1
+    return _enqueue_segmented_wide_build[
+        node_width,
+        leaf_width,
+        max_leaf_size,
+        build_method,
+        fat_leaves,
+        spatial_slots,
+        _hploc_embedded_leaf_payload,
+    ](
+        ctx,
+        segments,
+        leaf_bounds^,
+        leaf_payloads^,
+        measure_stages,
     )
 
 
@@ -195,4 +289,41 @@ def build_single_segment_wide[
         leaf_payloads^,
         measure_stages,
     )
+    return build^.wait_into_single_segment(ctx, timings)
+
+
+def build_single_segment_wide_embedded_leaf1[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+    max_leaf_size: Int,
+    build_method: GpuBvhBuildMethod,
+](
+    mut ctx: DeviceContext,
+    leaf_count: Int,
+    var leaf_bounds: DeviceBuffer[DType.float32],
+    var leaf_payloads: DeviceBuffer[DType.uint32],
+    mut timings: GpuBuildTimings,
+    measure_stages: Bool = False,
+) raises -> GpuWideBoundsBvh[node_width, leaf_width, max_leaf_size]:
+    """Build a standalone leaf1 BVH with payloads embedded in metadata."""
+    comptime assert leaf_width == 1 and max_leaf_size == 1
+    debug_assert["safe", _use_compiler_assume=True](
+        leaf_count > 0, "standalone BVH requires a nonempty segment"
+    )
+    var build = enqueue_segmented_wide_build_embedded_leaf1[
+        node_width,
+        leaf_width,
+        max_leaf_size,
+        build_method,
+        True,
+        False,
+    ](
+        ctx,
+        SegmentOffsets.single(leaf_count),
+        leaf_bounds^,
+        leaf_payloads^,
+        measure_stages,
+    )
+    comptime if node_width == 2:
+        return build^.wait_into_exact_bvh2_leaf1(ctx, timings)
     return build^.wait_into_single_segment(ctx, timings)

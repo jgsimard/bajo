@@ -33,6 +33,7 @@ from bajo.bvh.cpu.bounds_bvh import (
     BinaryBoundsBvh,
     BoundsItem,
     BoundsBvh,
+    WideLeafRange,
 )
 from bajo.bvh.cpu.packet import (
     _coherent_packet_frustum,
@@ -256,34 +257,39 @@ def _assert_builder_leaf_sizes_at_most(
 
 
 def _assert_wide_leaf_ranges_at_most_width[
-    frame: Frame, width: SIMDLength
-](wide: BoundsBvh[frame, width]) raises:
-    assert_true(len(wide.child_masks) == len(wide.nodes))
-    for node_idx, node in enumerate(wide.nodes):
-        var expected_child_mask = UInt32(0)
+    frame: Frame, width: SIMDLength, method: String
+](builder: BinaryBoundsBvh[frame, width, method]) raises:
+    var leaf_ranges = List[WideLeafRange]()
+
+    @always_inline
+    def pack_leaf_range(
+        first_item: UInt32, item_count: UInt32
+    ) {imm, mut leaf_ranges} -> UInt32:
+        var leaf_range_idx = UInt32(len(leaf_ranges))
+        leaf_ranges.append(WideLeafRange(first_item, item_count))
+        return leaf_range_idx
+
+    var wide = BoundsBvh[frame, width](builder, pack_leaf_range)
+    for node in wide.nodes:
         for lane in range(width):
             var child_ref = node.data[lane]
 
             if child_ref == EMPTY_LANE:
                 continue
 
-            expected_child_mask |= UInt32(1) << UInt32(lane)
-
             if is_leaf_ref(child_ref):
                 var leaf_range_idx = decode_ref_index(child_ref)
-                assert_true(Int(leaf_range_idx) < len(wide.leaf_ranges))
+                assert_true(Int(leaf_range_idx) < len(leaf_ranges))
 
-                ref leaf_range = wide.leaf_ranges[Int(leaf_range_idx)]
+                ref leaf_range = leaf_ranges[Int(leaf_range_idx)]
                 assert_true(leaf_range.item_count > 0)
                 assert_true(leaf_range.item_count <= UInt32(width))
                 assert_true(
                     Int(leaf_range.first_item) + Int(leaf_range.item_count)
-                    <= len(wide.item_indices)
+                    <= len(builder.item_indices)
                 )
             else:
                 assert_true(child_ref < UInt32(len(wide.nodes)))
-
-        assert_true(wide.child_masks[node_idx] == expected_child_mask)
 
 
 def _assert_triangle_blas_matches_bruteforce[
@@ -381,8 +387,7 @@ def _test_bounds_bvh_leaf_invariant[
 
     _assert_builder_leaf_sizes_at_most(builder, UInt32(width))
 
-    var wide = BoundsBvh[frame, width](builder)
-    _assert_wide_leaf_ranges_at_most_width[frame, width](wide)
+    _assert_wide_leaf_ranges_at_most_width[frame, width, mode](builder)
 
 
 def test_bounds_bvh_leaf_invariants() raises:
@@ -401,8 +406,7 @@ def test_parallel_sah_builder_leaf_invariants() raises:
     assert_true(Int(builder.nodes_used) == len(builder.nodes))
     _assert_builder_leaf_sizes_at_most(builder, UInt32(16))
 
-    var wide = BoundsBvh[Frame.WORLD, 16](builder)
-    _assert_wide_leaf_ranges_at_most_width[Frame.WORLD, 16](wide)
+    _assert_wide_leaf_ranges_at_most_width[Frame.WORLD, 16, "sah"](builder)
 
 
 def test_parallel_median_builder_leaf_invariants() raises:
@@ -413,8 +417,7 @@ def test_parallel_median_builder_leaf_invariants() raises:
     assert_true(Int(builder.nodes_used) == len(builder.nodes))
     _assert_builder_leaf_sizes_at_most(builder, UInt32(16))
 
-    var wide = BoundsBvh[Frame.WORLD, 16](builder)
-    _assert_wide_leaf_ranges_at_most_width[Frame.WORLD, 16](wide)
+    _assert_wide_leaf_ranges_at_most_width[Frame.WORLD, 16, "median"](builder)
 
 
 def test_parallel_radix_lbvh_builder_leaf_invariants() raises:
@@ -425,8 +428,7 @@ def test_parallel_radix_lbvh_builder_leaf_invariants() raises:
     assert_true(Int(builder.nodes_used) == len(builder.nodes))
     _assert_builder_leaf_sizes_at_most(builder, UInt32(16))
 
-    var wide = BoundsBvh[Frame.WORLD, 16](builder)
-    _assert_wide_leaf_ranges_at_most_width[Frame.WORLD, 16](wide)
+    _assert_wide_leaf_ranges_at_most_width[Frame.WORLD, 16, "lbvh"](builder)
 
 
 def test_parallel_hploc_builder_leaf_invariants() raises:
@@ -443,8 +445,7 @@ def test_parallel_hploc_builder_leaf_invariants() raises:
     for i, item_idx in enumerate(builder.item_indices):
         assert_equal(item_idx, repeated.item_indices[i])
 
-    var wide = BoundsBvh[Frame.WORLD, 16](builder)
-    _assert_wide_leaf_ranges_at_most_width[Frame.WORLD, 16](wide)
+    _assert_wide_leaf_ranges_at_most_width[Frame.WORLD, 16, "hploc"](builder)
 
 
 def test_hploc_simd_neighbors_match_scalar() raises:
@@ -532,7 +533,10 @@ def test_wide_bounds_root_bounds_is_valid() raises:
 
     var builder = BinaryBoundsBvh[Frame.WORLD, 4, "median"](items^)
 
-    var wide = BoundsBvh[Frame.WORLD, 4](builder)
+    def pack_leaf(_first_item: UInt32, _item_count: UInt32) -> UInt32:
+        return UInt32(0)
+
+    var wide = BoundsBvh[Frame.WORLD, 4](builder, pack_leaf)
     var bounds = wide.root_bounds()
 
     assert_true(bounds._min.x <= -9.0)

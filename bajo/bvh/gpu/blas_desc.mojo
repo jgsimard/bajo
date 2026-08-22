@@ -6,7 +6,7 @@ from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh.constants import GPU_BOUNDS_BVH_BLOCK_SIZE
 from bajo.bvh.gpu.utils import _device_span
-from bajo.bvh.types import BlasDescLayout
+from bajo.bvh.types import BlasDesc, BlasDescLayout
 
 
 def emit_segmented_blas_descriptors_kernel[
@@ -26,7 +26,6 @@ def emit_segmented_blas_descriptors_kernel[
     if segment_idx >= Int(segment_count):
         return
 
-    var desc_base = BlasDescLayout.base(segment_idx)
     var primitive_begin = primitive_segment_offsets.unsafe_get(segment_idx)
     var primitive_end = primitive_segment_offsets.unsafe_get(segment_idx + 1)
     var node_f32_base = UInt64(
@@ -43,22 +42,14 @@ def emit_segmented_blas_descriptors_kernel[
         leaf_f32_base <= UInt64(0xFFFFFFFF),
         "segmented leaf descriptor offset exceeds UInt32",
     )
-    descs.unsafe_get(desc_base + BlasDescLayout.NODE_F32_BASE) = UInt32(
-        node_f32_base
-    )
-    descs.unsafe_get(desc_base + BlasDescLayout.LEAF_F32_BASE) = UInt32(
-        leaf_f32_base
-    )
-    descs.unsafe_get(desc_base + BlasDescLayout.ROOT_IDX) = UInt32(0)
-    descs.unsafe_get(
-        desc_base + BlasDescLayout.NODE_COUNT
-    ) = node_counts.unsafe_get(segment_idx)
-    descs.unsafe_get(
-        desc_base + BlasDescLayout.LEAF_BLOCK_COUNT
-    ) = leaf_counts.unsafe_get(segment_idx)
-    descs.unsafe_get(desc_base + BlasDescLayout.PRIM_COUNT) = (
-        primitive_end - primitive_begin
-    )
+    BlasDesc(
+        UInt32(node_f32_base),
+        UInt32(leaf_f32_base),
+        UInt32(0),
+        node_counts.unsafe_get(segment_idx),
+        leaf_counts.unsafe_get(segment_idx),
+        primitive_end - primitive_begin,
+    ).store(descs.unsafe_ptr(), segment_idx)
 
 
 def enqueue_segmented_blas_descriptors[

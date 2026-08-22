@@ -216,6 +216,10 @@ struct BlasDesc(TrivialRegisterPassable):
     var prim_count: UInt32
 
     @staticmethod
+    def empty(node_f32_base: UInt32, leaf_f32_base: UInt32) -> Self:
+        return Self(node_f32_base, leaf_f32_base, 0, 0, 0, 0)
+
+    @staticmethod
     def load(descs: ImmPointer[UInt32, _], blas_idx: UInt32) -> Self:
         var base = BlasDescLayout.base(Int(blas_idx))
         return Self(
@@ -226,6 +230,22 @@ struct BlasDesc(TrivialRegisterPassable):
             descs[unsafe_offset=base + BlasDescLayout.LEAF_BLOCK_COUNT],
             descs[unsafe_offset=base + BlasDescLayout.PRIM_COUNT],
         )
+
+    @always_inline
+    def store(self, descs: MutPointer[UInt32, _], blas_idx: Int):
+        var base = BlasDescLayout.base(blas_idx)
+        descs[
+            unsafe_offset=base + BlasDescLayout.NODE_F32_BASE
+        ] = self.node_f32_base
+        descs[
+            unsafe_offset=base + BlasDescLayout.LEAF_F32_BASE
+        ] = self.leaf_f32_base
+        descs[unsafe_offset=base + BlasDescLayout.ROOT_IDX] = self.root_idx
+        descs[unsafe_offset=base + BlasDescLayout.NODE_COUNT] = self.node_count
+        descs[
+            unsafe_offset=base + BlasDescLayout.LEAF_BLOCK_COUNT
+        ] = self.leaf_block_count
+        descs[unsafe_offset=base + BlasDescLayout.PRIM_COUNT] = self.prim_count
 
 
 @fieldwise_init

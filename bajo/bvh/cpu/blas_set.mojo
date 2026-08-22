@@ -67,17 +67,9 @@ def _store_empty_blas_desc(
     node_f32_base: Int,
     leaf_f32_base: Int,
 ):
-    var desc_base = BlasDescLayout.base(blas_idx)
-    descs[unsafe_offset=desc_base + BlasDescLayout.NODE_F32_BASE] = UInt32(
-        node_f32_base
+    BlasDesc.empty(UInt32(node_f32_base), UInt32(leaf_f32_base)).store(
+        descs, blas_idx
     )
-    descs[unsafe_offset=desc_base + BlasDescLayout.LEAF_F32_BASE] = UInt32(
-        leaf_f32_base
-    )
-    descs[unsafe_offset=desc_base + BlasDescLayout.ROOT_IDX] = UInt32(0)
-    descs[unsafe_offset=desc_base + BlasDescLayout.NODE_COUNT] = UInt32(0)
-    descs[unsafe_offset=desc_base + BlasDescLayout.LEAF_BLOCK_COUNT] = UInt32(0)
-    descs[unsafe_offset=desc_base + BlasDescLayout.PRIM_COUNT] = UInt32(0)
 
 
 def _compact_blas_storage[
@@ -95,28 +87,20 @@ def _compact_blas_storage[
     var exact_node_count = 0
     var exact_leaf_count = 0
     for blas_idx in range(blas_count):
-        var base = BlasDescLayout.base(blas_idx)
-        exact_node_count += (
-            Int(descs[base + BlasDescLayout.NODE_COUNT]) * node_f32_stride
-        )
-        exact_leaf_count += (
-            Int(descs[base + BlasDescLayout.LEAF_BLOCK_COUNT]) * leaf_f32_stride
-        )
+        var desc = BlasDesc.load(descs.unsafe_ptr(), UInt32(blas_idx))
+        exact_node_count += Int(desc.node_count) * node_f32_stride
+        exact_leaf_count += Int(desc.leaf_block_count) * leaf_f32_stride
 
     compact_nodes.resize(unsafe_uninit_length=exact_node_count)
     compact_leaves.resize(unsafe_uninit_length=exact_leaf_count)
     var node_out = 0
     var leaf_out = 0
     for blas_idx in range(blas_count):
-        var base = BlasDescLayout.base(blas_idx)
-        var old_node_base = Int(descs[base + BlasDescLayout.NODE_F32_BASE])
-        var old_leaf_base = Int(descs[base + BlasDescLayout.LEAF_F32_BASE])
-        var node_count = (
-            Int(descs[base + BlasDescLayout.NODE_COUNT]) * node_f32_stride
-        )
-        var leaf_count = (
-            Int(descs[base + BlasDescLayout.LEAF_BLOCK_COUNT]) * leaf_f32_stride
-        )
+        var desc = BlasDesc.load(descs.unsafe_ptr(), UInt32(blas_idx))
+        var old_node_base = Int(desc.node_f32_base)
+        var old_leaf_base = Int(desc.leaf_f32_base)
+        var node_count = Int(desc.node_count) * node_f32_stride
+        var leaf_count = Int(desc.leaf_block_count) * leaf_f32_stride
         if node_count > 0:
             unsafe_memcpy(
                 dest=compact_nodes.unsafe_ptr().unsafe_offset(node_out),
@@ -129,8 +113,9 @@ def _compact_blas_storage[
                 src=leaves.unsafe_ptr().unsafe_offset(old_leaf_base),
                 count=leaf_count,
             )
-        descs[base + BlasDescLayout.NODE_F32_BASE] = UInt32(node_out)
-        descs[base + BlasDescLayout.LEAF_F32_BASE] = UInt32(leaf_out)
+        desc.node_f32_base = UInt32(node_out)
+        desc.leaf_f32_base = UInt32(leaf_out)
+        desc.store(descs.unsafe_ptr(), blas_idx)
         node_out += node_count
         leaf_out += leaf_count
 
@@ -262,23 +247,14 @@ def _pack_triangle_blas[
             out + 11 * leaf_width, SIMD[DType.float32, leaf_width](0.0)
         )
 
-    var desc_base = BlasDescLayout.base(blas_idx)
-    descs[unsafe_offset=desc_base + BlasDescLayout.NODE_F32_BASE] = UInt32(
-        node_f32_base
-    )
-    descs[unsafe_offset=desc_base + BlasDescLayout.LEAF_F32_BASE] = UInt32(
-        leaf_f32_base
-    )
-    descs[unsafe_offset=desc_base + BlasDescLayout.ROOT_IDX] = UInt32(0)
-    descs[unsafe_offset=desc_base + BlasDescLayout.NODE_COUNT] = UInt32(
-        len(bvh.tree.nodes)
-    )
-    descs[unsafe_offset=desc_base + BlasDescLayout.LEAF_BLOCK_COUNT] = UInt32(
-        len(bvh.leaf_blocks)
-    )
-    descs[unsafe_offset=desc_base + BlasDescLayout.PRIM_COUNT] = UInt32(
-        bvh.tri_count
-    )
+    BlasDesc(
+        UInt32(node_f32_base),
+        UInt32(leaf_f32_base),
+        UInt32(0),
+        UInt32(len(bvh.tree.nodes)),
+        UInt32(len(bvh.leaf_blocks)),
+        UInt32(bvh.tri_count),
+    ).store(descs, blas_idx)
 
 
 def build_triangle_blases[
@@ -455,23 +431,14 @@ def _pack_sphere_blas[
             out + 4 * width, block.prim_indices
         )
 
-    var desc_base = BlasDescLayout.base(blas_idx)
-    descs[unsafe_offset=desc_base + BlasDescLayout.NODE_F32_BASE] = UInt32(
-        node_f32_base
-    )
-    descs[unsafe_offset=desc_base + BlasDescLayout.LEAF_F32_BASE] = UInt32(
-        leaf_f32_base
-    )
-    descs[unsafe_offset=desc_base + BlasDescLayout.ROOT_IDX] = UInt32(0)
-    descs[unsafe_offset=desc_base + BlasDescLayout.NODE_COUNT] = UInt32(
-        len(bvh.tree.nodes)
-    )
-    descs[unsafe_offset=desc_base + BlasDescLayout.LEAF_BLOCK_COUNT] = UInt32(
-        len(bvh.leaf_blocks)
-    )
-    descs[unsafe_offset=desc_base + BlasDescLayout.PRIM_COUNT] = UInt32(
-        bvh.sphere_count
-    )
+    BlasDesc(
+        UInt32(node_f32_base),
+        UInt32(leaf_f32_base),
+        UInt32(0),
+        UInt32(len(bvh.tree.nodes)),
+        UInt32(len(bvh.leaf_blocks)),
+        UInt32(bvh.sphere_count),
+    ).store(descs, blas_idx)
 
 
 def build_sphere_blases[

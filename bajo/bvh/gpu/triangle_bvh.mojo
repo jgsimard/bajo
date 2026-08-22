@@ -53,6 +53,7 @@ from bajo.bvh.gpu.builder.segmented_build import (
     enqueue_segmented_wide_build,
 )
 from bajo.bvh.gpu.blas_desc import enqueue_segmented_blas_descriptors
+from bajo.bvh.gpu.blas_finalize import finalize_ordinary_wide_blas_set
 from bajo.bvh.gpu.camera_launch import (
     validate_camera_launch,
     _camera_ray,
@@ -199,54 +200,12 @@ struct _SegmentedTriangleWideBuild[
         deinit self, mut ctx: DeviceContext
     ) raises -> GpuBlasSet[Self.node_width, Self.leaf_width]:
         """Finalize the adapter as a descriptor-backed BLAS set."""
-        ctx.synchronize()
-        self.hierarchy.finish_synchronized()
-        ref binary = self.hierarchy.binary
-        ref wide = self.hierarchy.wide
-        var segment_count = wide.segments.segment_count()
-        var layout = GpuCompactWideLayout(
-            ctx, wide.node_counts, wide.leaf_block_counts, segment_count
-        )
-        var compact_nodes = enqueue_compact_segmented_buffer[
-            DType.float32, Self.node_width * WideNode.CHILD_STRIDE
-        ](
-            ctx,
-            wide.wide_nodes,
-            wide.node_segment_offsets,
-            layout.node_segment_offsets,
-            layout.node_segments.item_count(),
-            segment_count,
-        )
-        var compact_leaves = enqueue_compact_segmented_buffer[
-            DType.float32,
-            Self.leaf_width * TRI_LEAF_PACKED_STRIDE,
-        ](
-            ctx,
-            self.leaf_vertices,
-            wide.leaf_block_segment_offsets,
-            layout.leaf_block_segment_offsets,
-            layout.leaf_block_segments.item_count(),
-            segment_count,
-        )
-        var descs = enqueue_segmented_blas_descriptors[
-            Self.node_width * WideNode.CHILD_STRIDE,
-            Self.leaf_width * TRI_LEAF_PACKED_STRIDE,
-        ](
-            ctx,
-            layout.node_segment_offsets,
-            layout.leaf_block_segment_offsets,
-            binary.segment_offsets,
-            wide.node_counts,
-            wide.leaf_block_counts,
-            segment_count,
-        )
-        ctx.synchronize()
-        return GpuBlasSet[Self.node_width, Self.leaf_width](
-            descs^,
-            compact_nodes^,
-            compact_leaves^,
-            segment_count,
-        )
+        return finalize_ordinary_wide_blas_set[
+            Self.node_width,
+            Self.leaf_width,
+            Self.build_method,
+            TRI_LEAF_PACKED_STRIDE,
+        ](ctx, self.hierarchy^, self.leaf_vertices^)
 
     def into_bvh(
         deinit self,

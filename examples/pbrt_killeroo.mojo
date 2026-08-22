@@ -8,6 +8,7 @@ film and sampling settings are overridden for an interactive CPU render.
 
 from bajo.parser.pbrt import read_pbrt
 from bajo.rt import (
+    CpuScene,
     RENDER,
     RenderSettings,
     render_wavefront,
@@ -33,9 +34,10 @@ def main() raises:
         RNG_SEED,
         MAX_DEPTH,
     )
-    var result = render_wavefront[RENDER.MIS](
-        scene.settings, scene.camera, scene.world
-    )
+    var settings = scene.settings.copy()
+    var camera = scene.camera
+    var world = CpuScene[](scene^.take_data())
+    var result = render_wavefront[RENDER.MIS](settings, camera, world)
     write_ppm_from_colors(
         OUTPUT_PATH,
         IMAGE_WIDTH,
@@ -44,7 +46,7 @@ def main() raises:
     )
     print(
         t"Killeroo: {IMAGE_WIDTH}x{IMAGE_HEIGHT}, {SAMPLES_PER_PIXEL} spp, "
-        t"{len(scene.world.scene.spheres)} sphere, "
-        t"{len(scene.world.scene.triangle_vertices) / 3} triangles"
+        t"{len(world.scene_data().spheres)} sphere, "
+        t"{len(world.scene_data().triangle_vertices) / 3} triangles"
     )
     print("wrote " + OUTPUT_PATH)

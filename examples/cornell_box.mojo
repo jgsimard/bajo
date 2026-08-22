@@ -14,7 +14,7 @@ from bajo.rt import (
     Sphere,
     SurfaceId,
     SurfaceStore,
-    World,
+    CpuScene,
     add_triangle,
     render_wavefront,
     write_ppm_from_colors,
@@ -117,7 +117,7 @@ def _add_box(
 def make_cornell_world[
     world_bvh_width: SIMDLength = 16,
     instance_bvh_width: SIMDLength = 16,
-]() -> World[world_bvh_width, instance_bvh_width]:
+]() -> CpuScene[world_bvh_width, instance_bvh_width]:
     var store = SurfaceStore()
     var white = store.add_lambertian(Color(0.73, 0.73, 0.73))
     var red = store.add_lambertian(Color(0.65, 0.05, 0.05))
@@ -205,7 +205,7 @@ def make_cornell_world[
     var meshes = List[List[Point3f32[Frame.LOCAL]]]()
     var instances = List[Instance]()
     var instance_surfaces = List[SurfaceId[1]]()
-    return World[world_bvh_width, instance_bvh_width](
+    return CpuScene[world_bvh_width, instance_bvh_width](
         spheres^,
         sphere_surfaces^,
         vertices^,

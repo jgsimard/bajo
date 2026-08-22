@@ -15,7 +15,7 @@ from bajo.rt import (
     Sphere,
     SurfaceId,
     SurfaceStore,
-    World,
+    CpuScene,
     add_triangle,
     add_triangle_instance,
     render_depth_first,
@@ -268,15 +268,15 @@ def _instance_bounds(instances: List[Instance]) -> AABB:
     return bounds
 
 
-def _triangle_count(world: World[]) -> Int:
-    var total = len(world.scene.triangle_vertices) / 3
-    for inst in world.scene.triangle_instances:
-        total += len(world.scene.triangle_meshes[Int(inst.blas_idx)]) / 3
+def _triangle_count(world: CpuScene[]) -> Int:
+    var total = len(world.scene_data().triangle_vertices) / 3
+    for inst in world.scene_data().triangle_instances:
+        total += len(world.scene_data().triangle_meshes[Int(inst.blas_idx)]) / 3
     return total
 
 
 def _count_primary_hits(
-    settings: RenderSettings, camera: Camera, world: World[]
+    settings: RenderSettings, camera: Camera, world: CpuScene[]
 ) -> Int:
     var hits = 0
     for py in range(settings.image_height):
@@ -293,7 +293,7 @@ def _count_primary_hits(
     return hits
 
 
-def make_triangle_world() raises -> World[]:
+def make_triangle_world() raises -> CpuScene[]:
     var scene_rng = Rng(seed=99, id=17)
     var material_rng = Rng(seed=RNG_SEED, id=0)
     var surfaces = SurfaceStore()
@@ -414,7 +414,7 @@ def make_triangle_world() raises -> World[]:
     )
     _append_ground(triangle_vertices, triangle_surfaces, surfaces, scene_bounds)
 
-    return World[](
+    return CpuScene[](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -449,15 +449,15 @@ def main() raises:
     var build_t0 = perf_counter_ns()
     var world = make_triangle_world()
     var build_t1 = perf_counter_ns()
-    var bounds = _instance_bounds(world.scene.triangle_instances)
+    var bounds = _instance_bounds(world.scene_data().triangle_instances)
     var camera = _make_camera(bounds)
 
-    print(t"meshes: {len(world.scene.triangle_meshes)}")
-    print(t"instances: {len(world.scene.triangle_instances)}")
+    print(t"meshes: {len(world.scene_data().triangle_meshes)}")
+    print(t"instances: {len(world.scene_data().triangle_instances)}")
     print(t"triangles traced: {_triangle_count(world)}")
     print(
         t"surfaces:"
-        t" {len(world.scene.surfaces.lambertians) + len(world.scene.surfaces.metals) + len(world.scene.surfaces.dielectrics)}"
+        t" {len(world.scene_data().surfaces.lambertians) + len(world.scene_data().surfaces.metals) + len(world.scene_data().surfaces.dielectrics)}"
     )
     print(t"build ms: {round(ns_to_ms(Int(build_t1 - build_t0)), 3)}")
     print(t"primary hits: {_count_primary_hits(settings, camera, world)}")

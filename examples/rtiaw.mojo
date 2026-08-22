@@ -12,7 +12,7 @@ from bajo.rt import (
     Sphere,
     SurfaceId,
     SurfaceStore,
-    World,
+    CpuScene,
     add_sphere,
     render_wavefront,
     write_ppm_from_colors,
@@ -31,7 +31,7 @@ comptime RENDER_ALGORITHM = RENDER.PATH
 def make_weekend_world[
     world_bvh_width: SIMDLength = 16,
     instance_bvh_width: SIMDLength = 16,
-]() -> World[world_bvh_width, instance_bvh_width]:
+]() -> CpuScene[world_bvh_width, instance_bvh_width]:
     var rng = Rng(seed=42, id=7)
     var surfaces = SurfaceStore()
     var spheres = List[Sphere[Frame.WORLD]]()
@@ -103,7 +103,7 @@ def make_weekend_world[
         metal,
     )
 
-    return World[world_bvh_width, instance_bvh_width](
+    return CpuScene[world_bvh_width, instance_bvh_width](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,
@@ -139,10 +139,10 @@ def main() raises:
         0.6,
     )
 
-    print(t"spheres: {len(world.scene.spheres)}")
+    print(t"spheres: {len(world.scene_data().spheres)}")
     print(
         t"surfaces:"
-        t" {len(world.scene.surfaces.lambertians) + len(world.scene.surfaces.metals) + len(world.scene.surfaces.dielectrics)}"
+        t" {len(world.scene_data().surfaces.lambertians) + len(world.scene_data().surfaces.metals) + len(world.scene_data().surfaces.dielectrics)}"
     )
 
     var t0 = perf_counter_ns()

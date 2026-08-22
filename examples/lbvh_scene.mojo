@@ -21,7 +21,7 @@ from bajo.rt import (
     Sphere,
     SurfaceId,
     SurfaceStore,
-    World,
+    CpuScene,
     add_sphere,
     add_triangle,
     add_triangle_instance,
@@ -81,7 +81,7 @@ def make_lbvh_camera() -> Camera:
 def make_lbvh_world[
     world_bvh_width: SIMDLength = 16,
     instance_bvh_width: SIMDLength = 16,
-]() raises -> World[world_bvh_width, instance_bvh_width]:
+]() raises -> CpuScene[world_bvh_width, instance_bvh_width]:
     var mesh0 = pack_obj_triangles(LBVH_OBJ_PATH_0)
     var mesh1 = pack_obj_triangles(LBVH_OBJ_PATH_1)
     var mesh2 = pack_obj_triangles(LBVH_OBJ_PATH_2)
@@ -184,7 +184,7 @@ def make_lbvh_world[
                     mesh_surfaces[mesh_idx],
                 )
 
-    return World[world_bvh_width, instance_bvh_width](
+    return CpuScene[world_bvh_width, instance_bvh_width](
         spheres^,
         sphere_surfaces^,
         triangle_vertices^,

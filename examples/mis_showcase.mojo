@@ -14,7 +14,7 @@ from bajo.rt import (
     Sphere,
     SurfaceId,
     SurfaceStore,
-    World,
+    CpuScene,
     add_sphere,
     add_triangle,
     render_wavefront,
@@ -118,7 +118,7 @@ def _add_box(
 def make_mis_showcase_world[
     world_bvh_width: SIMDLength = 16,
     instance_bvh_width: SIMDLength = 16,
-]() -> World[world_bvh_width, instance_bvh_width]:
+]() -> CpuScene[world_bvh_width, instance_bvh_width]:
     var store = SurfaceStore()
     var room = store.add_lambertian(Color(0.48, 0.48, 0.48))
     var rough = store.add_metal(Color(0.64), 0.50)
@@ -245,7 +245,7 @@ def make_mis_showcase_world[
     var meshes = List[List[Point3f32[Frame.LOCAL]]]()
     var instances = List[Instance]()
     var instance_surfaces = List[SurfaceId[1]]()
-    return World[world_bvh_width, instance_bvh_width](
+    return CpuScene[world_bvh_width, instance_bvh_width](
         spheres^,
         sphere_surfaces^,
         vertices^,

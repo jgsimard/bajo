@@ -66,7 +66,7 @@ struct GpuSegmentedWideBuildTicket[
         self.finish_synchronized()
 
     def wait_into_single_segment(
-        deinit self, ctx: DeviceContext, mut timings: GpuBuildTimings
+        deinit self, mut ctx: DeviceContext, mut timings: GpuBuildTimings
     ) raises -> GpuWideBoundsBvh[
         Self.node_width, Self.leaf_width, Self.max_leaf_size
     ]:
@@ -74,16 +74,16 @@ struct GpuSegmentedWideBuildTicket[
         ctx.synchronize()
         self.finish_synchronized()
         timings = self.timings
-        return self.wide^.into_single_segment()
+        return self.wide^.into_single_segment(ctx)
 
     def take_single_segment_synchronized(
-        deinit self, mut timings: GpuBuildTimings
+        deinit self, mut ctx: DeviceContext, mut timings: GpuBuildTimings
     ) raises -> GpuWideBoundsBvh[
         Self.node_width, Self.leaf_width, Self.max_leaf_size
     ]:
         """Consume a ticket already completed by ``wait``."""
         timings = self.timings
-        return self.wide^.into_single_segment()
+        return self.wide^.into_single_segment(ctx)
 
 
 def enqueue_segmented_wide_build[

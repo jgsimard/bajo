@@ -1,4 +1,5 @@
-from std.math import max
+from std.math import ceildiv, max
+from std.gpu import global_idx
 from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh.constants import WideNode
@@ -12,11 +13,107 @@ from bajo.core import (
     SegmentOffsets,
     Vec3,
 )
-from bajo.bvh.gpu.utils import upload_list
+from bajo.bvh.gpu.builder.binary_layout import _segment_for_item
+from bajo.bvh.gpu.utils import _device_span, upload_list
 from bajo.core.intersect import (
     RayDistanceHit,
     intersect_ray_aabb_rcp,
 )
+
+
+comptime GPU_BVH_COMPACT_BLOCK_SIZE = 256
+
+
+def compact_segmented_buffer_kernel[
+    dtype: DType,
+    item_stride: Int,
+](
+    source: Pointer[Scalar[dtype], ImmutAnyOrigin],
+    source_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
+    target_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
+    target: Pointer[Scalar[dtype], MutAnyOrigin],
+    scalar_count: Int32,
+):
+    """Copy exact final fields in parallel while preserving segment order."""
+    var scalar_idx = global_idx.x
+    if scalar_idx >= Int(scalar_count):
+        return
+    var target_item = scalar_idx // item_stride
+    var field = scalar_idx % item_stride
+    var segment_idx = _segment_for_item(target_offsets, target_item)
+    var local_item = target_item - Int(target_offsets.unsafe_get(segment_idx))
+    var source_item = Int(source_offsets.unsafe_get(segment_idx)) + local_item
+    target[unsafe_offset=scalar_idx] = source[
+        unsafe_offset=source_item * item_stride + field
+    ]
+
+
+@fieldwise_init
+struct GpuCompactWideLayout:
+    """Exact host/device segment offsets for completed wide output."""
+
+    var node_segments: SegmentOffsets
+    var leaf_block_segments: SegmentOffsets
+    var node_segment_offsets: DeviceBuffer[DType.uint32]
+    var leaf_block_segment_offsets: DeviceBuffer[DType.uint32]
+
+    def __init__(
+        out self,
+        mut ctx: DeviceContext,
+        node_counts: DeviceBuffer[DType.uint32],
+        leaf_block_counts: DeviceBuffer[DType.uint32],
+        segment_count: Int,
+    ) raises:
+        var host_node_counts = List[Int](capacity=segment_count)
+        var host_leaf_counts = List[Int](capacity=segment_count)
+        with node_counts.map_to_host() as nodes, leaf_block_counts.map_to_host() as leaves:
+            for segment_idx in range(segment_count):
+                host_node_counts.append(Int(nodes[segment_idx]))
+                host_leaf_counts.append(Int(leaves[segment_idx]))
+        self.node_segments = SegmentOffsets.from_counts(host_node_counts^)
+        self.leaf_block_segments = SegmentOffsets.from_counts(host_leaf_counts^)
+        self.node_segment_offsets = upload_list(ctx, self.node_segments.offsets)
+        self.leaf_block_segment_offsets = upload_list(
+            ctx, self.leaf_block_segments.offsets
+        )
+
+
+def enqueue_compact_segmented_buffer[
+    dtype: DType,
+    item_stride: Int,
+](
+    mut ctx: DeviceContext,
+    source: DeviceBuffer[dtype],
+    source_offsets: DeviceBuffer[DType.uint32],
+    target_offsets: DeviceBuffer[DType.uint32],
+    target_item_count: Int,
+    segment_count: Int,
+) raises -> DeviceBuffer[dtype]:
+    """Enqueue an exact segment-preserving copy of a capacity buffer."""
+    comptime assert item_stride > 0
+    debug_assert["safe", _use_compiler_assume=True](
+        target_item_count > 0,
+        "nonempty segmented BVH compaction requires final output",
+    )
+    debug_assert["safe", _use_compiler_assume=True](
+        len(source_offsets) >= segment_count + 1
+        and len(target_offsets) >= segment_count + 1,
+        "segmented BVH compaction offsets are too short",
+    )
+    var target = ctx.enqueue_create_buffer[dtype](
+        target_item_count * item_stride
+    )
+    var scalar_count = target_item_count * item_stride
+    ctx.enqueue_function[compact_segmented_buffer_kernel[dtype, item_stride]](
+        source,
+        _device_span[mut=False](source_offsets),
+        _device_span[mut=False](target_offsets),
+        target,
+        Int32(scalar_count),
+        grid_dim=ceildiv(scalar_count, GPU_BVH_COMPACT_BLOCK_SIZE),
+        block_dim=GPU_BVH_COMPACT_BLOCK_SIZE,
+    )
+    return target^
 
 
 struct GpuWideBoundsBvh[
@@ -82,9 +179,9 @@ struct GpuWideBoundsBvhBatch[
 ]:
     """Packed destination for one segmented BVH2-to-wide conversion.
 
-    Node and leaf-block ranges are conservative capacities assigned by prefix
-    sum before collapse. Child metadata remains local to its segment, while the
-    backing buffers are one packed allocation suitable for ``GpuBlasSet``.
+    Node and leaf-block ranges are conservative scratch capacities assigned by
+    prefix sum before collapse. Final owners compact the used per-segment
+    prefixes and rewrite their descriptor bases at the completion boundary.
     """
 
     var segments: SegmentOffsets
@@ -154,20 +251,41 @@ struct GpuWideBoundsBvhBatch[
         )
 
     def into_single_segment(
-        deinit self,
+        deinit self, mut ctx: DeviceContext
     ) raises -> GpuWideBoundsBvh[
         Self.node_width, Self.leaf_width, Self.max_leaf_size
     ]:
-        """Consume a completed one-segment batch without copying its output."""
+        """Consume a completed one-segment batch as exact final storage."""
         debug_assert["safe", _use_compiler_assume=True](
             self.segments.segment_count() == 1,
             "standalone BVH result requires exactly one segment",
         )
-        var node_count: Int
-        var leaf_block_count: Int
-        with self.node_counts.map_to_host() as nodes, self.leaf_block_counts.map_to_host() as leaves:
-            node_count = Int(nodes[0])
-            leaf_block_count = Int(leaves[0])
+        var layout = GpuCompactWideLayout(
+            ctx, self.node_counts, self.leaf_block_counts, 1
+        )
+        var node_count = layout.node_segments.item_count()
+        var leaf_block_count = layout.leaf_block_segments.item_count()
+        var compact_nodes = enqueue_compact_segmented_buffer[
+            DType.float32, Self.node_width * WideNode.CHILD_STRIDE
+        ](
+            ctx,
+            self.wide_nodes,
+            self.node_segment_offsets,
+            layout.node_segment_offsets,
+            node_count,
+            1,
+        )
+        var compact_leaf_indices = enqueue_compact_segmented_buffer[
+            DType.uint32, Self.leaf_width
+        ](
+            ctx,
+            self.leaf_block_indices,
+            self.leaf_block_segment_offsets,
+            layout.leaf_block_segment_offsets,
+            leaf_block_count,
+            1,
+        )
+        ctx.synchronize()
         return GpuWideBoundsBvh[
             Self.node_width, Self.leaf_width, Self.max_leaf_size
         ](
@@ -175,8 +293,8 @@ struct GpuWideBoundsBvhBatch[
             node_count,
             leaf_block_count,
             self.bounds_device^,
-            self.wide_nodes^,
-            self.leaf_block_indices^,
+            compact_nodes^,
+            compact_leaf_indices^,
         )
 
     def single_segment_view(

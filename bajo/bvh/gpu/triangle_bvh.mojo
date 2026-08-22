@@ -35,7 +35,11 @@ from bajo.bvh.constants import (
     f32_max,
     WideNode,
 )
-from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvh
+from bajo.bvh.gpu.wide_layout import (
+    GpuCompactWideLayout,
+    GpuWideBoundsBvh,
+    enqueue_compact_segmented_buffer,
+)
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.gpu.compressed_bounds_bvh import (
     CWBVH_NODE_WORDS,
@@ -188,7 +192,6 @@ struct _SegmentedTriangleWideBuild[
         False,
     ]
     var leaf_vertices: DeviceBuffer[DType.float32]
-    var triangle_count: Int
     var bounds_pack_ns: Int
     var leaf_pack_start_ns: Int
 
@@ -196,50 +199,91 @@ struct _SegmentedTriangleWideBuild[
         deinit self, mut ctx: DeviceContext
     ) raises -> GpuBlasSet[Self.node_width, Self.leaf_width]:
         """Finalize the adapter as a descriptor-backed BLAS set."""
+        ctx.synchronize()
+        self.hierarchy.finish_synchronized()
         ref binary = self.hierarchy.binary
         ref wide = self.hierarchy.wide
         var segment_count = wide.segments.segment_count()
+        var layout = GpuCompactWideLayout(
+            ctx, wide.node_counts, wide.leaf_block_counts, segment_count
+        )
+        var compact_nodes = enqueue_compact_segmented_buffer[
+            DType.float32, Self.node_width * WideNode.CHILD_STRIDE
+        ](
+            ctx,
+            wide.wide_nodes,
+            wide.node_segment_offsets,
+            layout.node_segment_offsets,
+            layout.node_segments.item_count(),
+            segment_count,
+        )
+        var compact_leaves = enqueue_compact_segmented_buffer[
+            DType.float32,
+            Self.leaf_width * TRI_LEAF_PACKED_STRIDE,
+        ](
+            ctx,
+            self.leaf_vertices,
+            wide.leaf_block_segment_offsets,
+            layout.leaf_block_segment_offsets,
+            layout.leaf_block_segments.item_count(),
+            segment_count,
+        )
         var descs = enqueue_segmented_blas_descriptors[
             Self.node_width * WideNode.CHILD_STRIDE,
             Self.leaf_width * TRI_LEAF_PACKED_STRIDE,
         ](
             ctx,
-            wide.node_segment_offsets,
-            wide.leaf_block_segment_offsets,
+            layout.node_segment_offsets,
+            layout.leaf_block_segment_offsets,
             binary.segment_offsets,
             wide.node_counts,
             wide.leaf_block_counts,
             segment_count,
         )
         ctx.synchronize()
-        self.hierarchy.finish_synchronized()
         return GpuBlasSet[Self.node_width, Self.leaf_width](
             descs^,
-            wide.wide_nodes.copy(),
-            self.leaf_vertices^,
+            compact_nodes^,
+            compact_leaves^,
             segment_count,
         )
 
     def into_bvh(
         deinit self,
-        ctx: DeviceContext,
+        mut ctx: DeviceContext,
         mut timings: GpuBuildTimings,
         measure_build: Bool,
     ) raises -> GpuTriangleBvh[Self.frame, Self.node_width, Self.leaf_width]:
         """Finalize the adapter's only segment as a standalone BVH."""
         if measure_build:
             ctx.synchronize()
-            var leaf_pack_ns = Int(perf_counter_ns() - self.leaf_pack_start_ns)
-            var tree = self.hierarchy^.take_single_segment_synchronized(timings)
+        else:
+            self.hierarchy.wait(ctx)
+        ref wide = self.hierarchy.wide
+        var layout = GpuCompactWideLayout(
+            ctx, wide.node_counts, wide.leaf_block_counts, 1
+        )
+        var compact_leaves = enqueue_compact_segmented_buffer[
+            DType.float32,
+            Self.leaf_width * TRI_LEAF_PACKED_STRIDE,
+        ](
+            ctx,
+            self.leaf_vertices,
+            wide.leaf_block_segment_offsets,
+            layout.leaf_block_segment_offsets,
+            layout.leaf_block_segments.item_count(),
+            1,
+        )
+        var tree = self.hierarchy^.take_single_segment_synchronized(
+            ctx, timings
+        )
+        if measure_build:
             timings.bounds_pack_ns = self.bounds_pack_ns
-            timings.leaf_pack_ns = leaf_pack_ns
-            return GpuTriangleBvh[Self.frame, Self.node_width, Self.leaf_width](
-                tree^, self.leaf_vertices^, self.triangle_count
+            timings.leaf_pack_ns = Int(
+                perf_counter_ns() - self.leaf_pack_start_ns
             )
-
-        var tree = self.hierarchy^.wait_into_single_segment(ctx, timings)
         return GpuTriangleBvh[Self.frame, Self.node_width, Self.leaf_width](
-            tree^, self.leaf_vertices^, self.triangle_count
+            tree^, compact_leaves^
         )
 
 
@@ -323,7 +367,6 @@ def _enqueue_segmented_triangle_wide[
     ](
         hierarchy^,
         leaf_vertices^,
-        triangle_count,
         bounds_pack_ns,
         leaf_pack_start_ns,
     )
@@ -404,18 +447,6 @@ def _build_segmented_compressed_triangle_blas_set[
         triangles,
     )
 
-    var descs = enqueue_segmented_blas_descriptors[
-        CWBVH_NODE_WORDS, CWBVH_TRIANGLE_WORDS
-    ](
-        ctx,
-        wide.node_segment_offsets,
-        binary.segment_offsets,
-        binary.segment_offsets,
-        wide.node_counts,
-        triangle_counters,
-        segments.segment_count(),
-    )
-
     ctx.synchronize()
     build.finish_synchronized()
 
@@ -424,9 +455,38 @@ def _build_segmented_compressed_triangle_blas_set[
             if encoded_counts[segment_idx] != segments.count(segment_idx):
                 raise "segmented CWBVH8 encoding lost triangle records"
 
+    var layout = GpuCompactWideLayout(
+        ctx,
+        wide.node_counts,
+        wide.leaf_block_counts,
+        segments.segment_count(),
+    )
+    var compact_nodes = enqueue_compact_segmented_buffer[
+        DType.float32, CWBVH_NODE_WORDS
+    ](
+        ctx,
+        nodes,
+        wide.node_segment_offsets,
+        layout.node_segment_offsets,
+        layout.node_segments.item_count(),
+        segments.segment_count(),
+    )
+    var descs = enqueue_segmented_blas_descriptors[
+        CWBVH_NODE_WORDS, CWBVH_TRIANGLE_WORDS
+    ](
+        ctx,
+        layout.node_segment_offsets,
+        binary.segment_offsets,
+        binary.segment_offsets,
+        wide.node_counts,
+        triangle_counters,
+        segments.segment_count(),
+    )
+    ctx.synchronize()
+
     return GpuBlasSet[node_width, leaf_width](
         descs^,
-        nodes^,
+        compact_nodes^,
         triangles^,
         segments.segment_count(),
     )
@@ -468,7 +528,6 @@ struct GpuTriangleBvh[
         Int(Self.leaf_width),
     ]
     var leaf_vertices: DeviceBuffer[DType.float32]
-    var tri_count: Int
 
     def __init__(
         out self,
@@ -478,11 +537,9 @@ struct GpuTriangleBvh[
             Int(Self.leaf_width),
         ],
         var leaf_vertices: DeviceBuffer[DType.float32],
-        tri_count: Int,
     ):
         self.tree = tree^
         self.leaf_vertices = leaf_vertices^
-        self.tri_count = tri_count
 
     def launch_camera(
         self,

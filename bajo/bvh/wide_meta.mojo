@@ -1,10 +1,10 @@
 from bajo.bvh.constants import EMPTY_LANE, WideNode
 
 
-# Five count bits support independent leaf packets through width 16 while
-# retaining 27 bits (134 million entries) for node and leaf-block indices.
-comptime WIDE_META_INDEX_MASK = UInt32(0x07FFFFFF)
-comptime WIDE_META_COUNT_SHIFT = 27
+# Six count bits represent internal nodes (count zero) and leaf packets through
+# width 32 while retaining 26 bits (67 million entries) for local indices.
+comptime WIDE_META_INDEX_MASK = UInt32(0x03FFFFFF)
+comptime WIDE_META_COUNT_SHIFT = 26
 
 
 @always_inline
@@ -24,10 +24,10 @@ def _pack_wide_meta(data: UInt32, count: UInt32) -> UInt32:
     if count == EMPTY_LANE:
         return EMPTY_LANE
     debug_assert["safe", _use_compiler_assume=True](
-        data <= WIDE_META_INDEX_MASK, "wide BVH metadata index exceeds 27 bits"
+        data <= WIDE_META_INDEX_MASK, "wide BVH metadata index exceeds 26 bits"
     )
     debug_assert["safe", _use_compiler_assume=True](
-        count < UInt32(32), "wide BVH metadata count exceeds 5 bits"
+        count <= UInt32(32), "wide BVH metadata count exceeds leaf width 32"
     )
     return (count << WIDE_META_COUNT_SHIFT) | (data & WIDE_META_INDEX_MASK)
 

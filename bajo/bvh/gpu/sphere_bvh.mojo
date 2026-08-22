@@ -25,7 +25,11 @@ from bajo.core import (
 )
 from bajo.core.intersect import intersect_ray_sphere
 from bajo.bvh.types import GpuBlasSet, Hit, Sphere
-from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvh
+from bajo.bvh.gpu.wide_layout import (
+    GpuCompactWideLayout,
+    GpuWideBoundsBvh,
+    enqueue_compact_segmented_buffer,
+)
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.gpu.builder.binary_layout import _segment_for_item
 from bajo.bvh.gpu.builder.segmented_build import (
@@ -132,56 +136,96 @@ struct _SegmentedSphereWideBuild[
         False,
     ]
     var leaf_spheres: DeviceBuffer[DType.float32]
-    var sphere_count: Int
     var leaf_pack_start_ns: Int
 
     def into_blas_set(
         deinit self, mut ctx: DeviceContext
     ) raises -> GpuBlasSet[Self.node_width, Self.leaf_width]:
         """Finalize the adapter as a descriptor-backed sphere BLAS set."""
+        ctx.synchronize()
+        self.hierarchy.finish_synchronized()
         ref binary = self.hierarchy.binary
         ref wide = self.hierarchy.wide
         var segment_count = wide.segments.segment_count()
+        var layout = GpuCompactWideLayout(
+            ctx, wide.node_counts, wide.leaf_block_counts, segment_count
+        )
+        var compact_nodes = enqueue_compact_segmented_buffer[
+            DType.float32, Self.node_width * WideNode.CHILD_STRIDE
+        ](
+            ctx,
+            wide.wide_nodes,
+            wide.node_segment_offsets,
+            layout.node_segment_offsets,
+            layout.node_segments.item_count(),
+            segment_count,
+        )
+        var compact_leaves = enqueue_compact_segmented_buffer[
+            DType.float32,
+            Self.leaf_width * SPHERE_LEAF_PACKED_STRIDE,
+        ](
+            ctx,
+            self.leaf_spheres,
+            wide.leaf_block_segment_offsets,
+            layout.leaf_block_segment_offsets,
+            layout.leaf_block_segments.item_count(),
+            segment_count,
+        )
         var descs = enqueue_segmented_blas_descriptors[
             Self.node_width * WideNode.CHILD_STRIDE,
             Self.leaf_width * SPHERE_LEAF_PACKED_STRIDE,
         ](
             ctx,
-            wide.node_segment_offsets,
-            wide.leaf_block_segment_offsets,
+            layout.node_segment_offsets,
+            layout.leaf_block_segment_offsets,
             binary.segment_offsets,
             wide.node_counts,
             wide.leaf_block_counts,
             segment_count,
         )
         ctx.synchronize()
-        self.hierarchy.finish_synchronized()
         return GpuBlasSet[Self.node_width, Self.leaf_width](
             descs^,
-            wide.wide_nodes.copy(),
-            self.leaf_spheres^,
+            compact_nodes^,
+            compact_leaves^,
             segment_count,
         )
 
     def into_bvh(
         deinit self,
-        ctx: DeviceContext,
+        mut ctx: DeviceContext,
         mut timings: GpuBuildTimings,
         measure_build: Bool,
     ) raises -> GpuSphereBvh[Self.frame, Self.node_width, Self.leaf_width]:
         """Finalize the adapter's only segment as a standalone sphere BVH."""
         if measure_build:
             ctx.synchronize()
-            var leaf_pack_ns = Int(perf_counter_ns() - self.leaf_pack_start_ns)
-            var tree = self.hierarchy^.take_single_segment_synchronized(timings)
-            timings.leaf_pack_ns = leaf_pack_ns
-            return GpuSphereBvh[Self.frame, Self.node_width, Self.leaf_width](
-                tree^, self.leaf_spheres^, self.sphere_count
+        else:
+            self.hierarchy.wait(ctx)
+        ref wide = self.hierarchy.wide
+        var layout = GpuCompactWideLayout(
+            ctx, wide.node_counts, wide.leaf_block_counts, 1
+        )
+        var compact_leaves = enqueue_compact_segmented_buffer[
+            DType.float32,
+            Self.leaf_width * SPHERE_LEAF_PACKED_STRIDE,
+        ](
+            ctx,
+            self.leaf_spheres,
+            wide.leaf_block_segment_offsets,
+            layout.leaf_block_segment_offsets,
+            layout.leaf_block_segments.item_count(),
+            1,
+        )
+        var tree = self.hierarchy^.take_single_segment_synchronized(
+            ctx, timings
+        )
+        if measure_build:
+            timings.leaf_pack_ns = Int(
+                perf_counter_ns() - self.leaf_pack_start_ns
             )
-
-        var tree = self.hierarchy^.wait_into_single_segment(ctx, timings)
         return GpuSphereBvh[Self.frame, Self.node_width, Self.leaf_width](
-            tree^, self.leaf_spheres^, self.sphere_count
+            tree^, compact_leaves^
         )
 
 
@@ -236,7 +280,7 @@ def _enqueue_segmented_sphere_wide[
     )
     return _SegmentedSphereWideBuild[
         frame, node_width, leaf_width, build_method
-    ](hierarchy^, leaf_spheres^, sphere_count, leaf_pack_start_ns)
+    ](hierarchy^, leaf_spheres^, leaf_pack_start_ns)
 
 
 def build_sphere_blas_set[
@@ -264,17 +308,14 @@ struct GpuSphereBvh[
 ]:
     var tree: GpuWideBoundsBvh[Self.node_width, Self.leaf_width]
     var leaf_spheres: DeviceBuffer[DType.float32]
-    var sphere_count: Int
 
     def __init__(
         out self,
         var tree: GpuWideBoundsBvh[Self.node_width, Self.leaf_width],
         var leaf_spheres: DeviceBuffer[DType.float32],
-        sphere_count: Int,
     ):
         self.tree = tree^
         self.leaf_spheres = leaf_spheres^
-        self.sphere_count = sphere_count
 
     def launch_camera(
         self,

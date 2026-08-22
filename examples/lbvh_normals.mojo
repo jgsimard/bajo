@@ -16,16 +16,16 @@ from bajo.core import (
     Frame,
 )
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
-from bajo.bvh.cpu.tlas import Tlas
-from bajo.bvh.cpu.blas_set import build_triangle_blases
-from bajo.bvh.gpu.tlas import build_triangle_tlas
-from bajo.bvh.gpu.triangle_bvh import build_triangle_blas_set
-from bajo.bvh.gpu.builder import GpuBvhBuildMethod
+from bajo.bvh.cpu import CpuBlasSet, Tlas, build_triangle_blases
+from bajo.bvh.gpu import (
+    GpuBvhBuildMethod,
+    build_triangle_blas_set,
+    build_triangle_tlas,
+)
 from bajo.bvh.host_utils import compute_bounds
-from bajo.bvh.types import CpuBlasSet, Instance, Hit
+from bajo.bvh import Camera, Hit, Instance
 from bajo.parser.obj.pack import pack_obj_triangles
 from bajo.bvh.constants import Primitive, MISS_PRIM, TRACE
-from bajo.bvh.camera import Camera
 from bajo.bvh.gpu.utils import upload_list
 from bajo.core.random import Rng
 
@@ -634,7 +634,7 @@ def main() raises:
     var ray_count = WIDTH * HEIGHT
     var cpu_t1 = perf_counter_ns()
     print(
-        t"Host TLAS/camera setup: instances={cpu_tlas.inst_count} | "
+        t"Host TLAS/camera setup: instances={len(instances)} | "
         t"rays={ray_count} | "
         t"time={round(ns_to_ms(Int(cpu_t1 - cpu_t0)), 3)} ms"
     )

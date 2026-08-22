@@ -2,7 +2,7 @@
 
 from bajo.core import Frame
 from bajo.core.random import random_in_unit_disk
-from bajo.bvh.camera import Camera
+from bajo.bvh import Camera
 from bajo.rt.types import RenderSettings
 from bajo.rt.common import path_stage_rng
 from bajo.rt.wavefront_queue import PacketPathQueue, PathPacket

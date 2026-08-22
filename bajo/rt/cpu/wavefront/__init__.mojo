@@ -5,7 +5,7 @@ from std.math import ceildiv
 from std.sys import num_logical_cores
 from std.time import perf_counter_ns
 
-from bajo.bvh.camera import Camera
+from bajo.bvh import Camera
 from bajo.rt.types import (
     Color,
     RENDER,

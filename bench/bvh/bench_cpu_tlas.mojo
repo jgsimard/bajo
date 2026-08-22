@@ -7,7 +7,7 @@ from std.time import perf_counter_ns
 
 from bajo.bvh.constants import TRACE
 from bajo.bvh.cpu.tlas import Tlas
-from bajo.bvh.types import CpuBlasSet
+from bajo.bvh.cpu import CpuBlasSet
 from bajo.core import Frame, Rayf32
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.benchmark.bvh_reporting import TablePrinter

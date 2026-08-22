@@ -2,7 +2,7 @@
 
 from std.gpu import global_idx
 
-from bajo.bvh.camera import Camera
+from bajo.bvh import Camera
 from bajo.core import Frame
 from bajo.core.random import random_in_unit_disk
 from bajo.rt.common import path_stage_rng

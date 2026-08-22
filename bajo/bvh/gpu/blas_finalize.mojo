@@ -4,13 +4,13 @@ from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh.constants import WideNode
 from bajo.bvh.gpu.blas_desc import enqueue_segmented_blas_descriptors
+from bajo.bvh.gpu.blas_storage import GpuBlasSet
 from bajo.bvh.gpu.builder.binary_builder import GpuBvhBuildMethod
 from bajo.bvh.gpu.builder.segmented_build import GpuSegmentedWideBuildTicket
 from bajo.bvh.gpu.wide_layout import (
     GpuCompactWideLayout,
     enqueue_compact_segmented_buffer,
 )
-from bajo.bvh.types import GpuBlasSet
 
 
 def finalize_ordinary_wide_blas_set[

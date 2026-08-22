@@ -1,7 +1,7 @@
 """Generic GPU RT entry point selecting a geometry-specialized pipeline."""
 
-from bajo.bvh.camera import Camera
-from bajo.bvh.gpu.builder import GpuBvhBuildMethod
+from bajo.bvh import Camera
+from bajo.bvh.gpu import GpuBvhBuildMethod
 from max.gpu.host import DeviceContext
 from bajo.rt.types import RENDER, RenderResult, RenderSettings, SceneData
 from bajo.rt.gpu.common_kernels import GPU_RT_MAX_BLOCKS

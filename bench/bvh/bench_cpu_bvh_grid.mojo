@@ -3,7 +3,8 @@ from std.time import perf_counter_ns
 
 from bajo.bvh.constants import TRACE, f32_max
 from bajo.bvh.cpu.blas_set import build_triangle_blases, trace_triangle_blas_set
-from bajo.bvh.types import BlasDesc, CpuBlasSet
+from bajo.bvh.cpu import CpuBlasSet
+from bajo.bvh.types import BlasDesc
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.core import Frame, Point3f32, Rayf32
 from bajo.benchmark.bvh_fixtures import (

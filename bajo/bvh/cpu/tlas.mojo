@@ -9,7 +9,8 @@ from bajo.core import (
     Rayf32,
 )
 from bajo.core.intersect import intersect_ray_aabb_rcp
-from bajo.bvh.types import CpuBlasSet, Hit, Instance
+from bajo.bvh.cpu.blas_storage import CpuBlasSet
+from bajo.bvh.types import Hit, Instance
 from bajo.bvh.cpu.blas_set import (
     trace_sphere_blas_set,
     trace_triangle_blas_set,

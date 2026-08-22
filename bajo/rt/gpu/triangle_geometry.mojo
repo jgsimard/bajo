@@ -2,8 +2,7 @@
 
 from max.gpu.host import DeviceBuffer, DeviceContext
 
-from bajo.bvh.gpu.builder import GpuBvhBuildMethod
-from bajo.bvh.gpu.triangle_bvh import build_triangle_blas_set
+from bajo.bvh.gpu import GpuBvhBuildMethod, build_triangle_blas_set
 from bajo.core import Frame, Point3f32
 
 

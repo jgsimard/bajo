@@ -3,7 +3,7 @@
 from std.math import max
 
 from bajo.bvh.host_utils import compute_bounds
-from bajo.bvh.types import Instance, Sphere
+from bajo.bvh import Instance, Sphere
 from bajo.core import (
     AABB,
     Affine3f32,

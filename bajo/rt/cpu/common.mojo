@@ -2,7 +2,7 @@
 
 from bajo.core import Frame, Rayf32
 from bajo.core.random import Rng, random_in_unit_disk
-from bajo.bvh.camera import Camera
+from bajo.bvh import Camera
 from bajo.rt.types import RenderSettings, ShadingPoint, SurfaceHit
 
 

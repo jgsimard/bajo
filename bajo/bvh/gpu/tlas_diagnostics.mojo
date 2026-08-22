@@ -26,7 +26,8 @@ from bajo.bvh.tlas_common import (
     finalize_tlas_hit_normal,
     promote_tlas_local_hit,
 )
-from bajo.bvh.types import BlasDesc, GpuBlasSet, Hit
+from bajo.bvh.gpu.blas_storage import GpuBlasSet
+from bajo.bvh.types import BlasDesc, Hit
 from bajo.core import Affine3f32, Frame, Rayf32
 
 

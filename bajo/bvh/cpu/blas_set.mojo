@@ -15,6 +15,7 @@ from bajo.bvh.cpu.sphere_bvh import (
     _trace_sphere_leaf_block,
     _trace_sphere_packet_primitive,
 )
+from bajo.bvh.cpu.blas_storage import CpuBlasSet
 from bajo.bvh.cpu.triangle_bvh import (
     PARALLEL_TRIANGLE_BUILD_MIN_ITEMS,
     _TriangleBuild,
@@ -35,7 +36,6 @@ from bajo.bvh.tagged_ref import decode_ref_index, is_leaf_ref
 from bajo.bvh.types import (
     BlasDesc,
     BlasDescLayout,
-    CpuBlasSet,
     Sphere,
     SphereLeafBlock,
     TriangleLeafBlock,

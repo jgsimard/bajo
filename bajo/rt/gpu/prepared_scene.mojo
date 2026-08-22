@@ -7,7 +7,7 @@ update, dirty tracking, or refit.
 
 from max.gpu.host import DeviceContext
 
-from bajo.bvh.gpu.builder import GpuBvhBuildMethod
+from bajo.bvh.gpu import GpuBvhBuildMethod
 from bajo.rt.types import SceneData
 from bajo.rt.gpu.sphere_path import GpuRtSphereScene
 from bajo.rt.gpu.triangle_path import GpuRtTriangleScene

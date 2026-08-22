@@ -13,7 +13,8 @@ from bajo.bvh.constants import (
     TRI_LEAF_VERTEX_STRIDE,
     f32_max,
 )
-from bajo.bvh.types import CpuBlasSet, Hit, Sphere
+from bajo.bvh.cpu import CpuBlasSet
+from bajo.bvh.types import Hit, Sphere
 from bajo.bvh.cpu.blas_set import (
     build_sphere_blases,
     build_triangle_blases,

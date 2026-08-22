@@ -1,7 +1,7 @@
 from std.math import max, round
 from std.time import perf_counter_ns
 
-from bajo.bvh.camera import Camera
+from bajo.bvh import Camera
 from bajo.bvh.host_utils import compute_bounds
 from bajo.core import AABB, Affine3f32, Quat, Vec3f32
 from bajo.core.random import Rng

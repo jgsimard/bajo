@@ -23,7 +23,8 @@ from bajo.bvh.gpu.triangle_bvh import (
 )
 from bajo.bvh.gpu.utils import upload_vertices
 from bajo.bvh.host_utils import compute_bounds
-from bajo.bvh.types import BlasDescLayout, GpuBlasSet, Instance
+from bajo.bvh.gpu import GpuBlasSet
+from bajo.bvh.types import BlasDescLayout, Instance
 from bajo.core import AABB, Affine3f32, Frame, Point3f32
 from bajo.core.utils import ns_to_ms
 from bajo.parser.obj.pack import pack_obj_triangles

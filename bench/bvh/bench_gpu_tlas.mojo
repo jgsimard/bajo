@@ -9,7 +9,9 @@ from bajo.core.utils import (
     ns_to_mrays_per_s,
 )
 from bajo.core import Frame, AABB, Vec3f32, Affine3f32, Point3f32, Rayf32
-from bajo.bvh.types import CpuBlasSet, Sphere, Instance, GpuBlasSet, Hit
+from bajo.bvh.cpu import CpuBlasSet
+from bajo.bvh.gpu import GpuBlasSet
+from bajo.bvh.types import Sphere, Instance, Hit
 from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.cpu.blas_set import build_triangle_blases
 from bajo.bvh.cpu.tlas import Tlas

@@ -1,8 +1,10 @@
 """CPU-prepared scene ownership and traversal."""
 
 from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
-from bajo.bvh.cpu.tlas import Tlas
-from bajo.bvh.cpu.blas_set import (
+from bajo.bvh import Instance, Sphere
+from bajo.bvh.cpu import (
+    CpuBlasSet,
+    Tlas,
     build_sphere_blases,
     build_triangle_blases,
     trace_sphere_blas_set,
@@ -10,7 +12,6 @@ from bajo.bvh.cpu.blas_set import (
     trace_triangle_blas_set,
     trace_triangle_blas_set_packet,
 )
-from bajo.bvh.types import CpuBlasSet, Instance, Sphere
 from bajo.core import Frame, GeoKind, Point3f32, Ray, Rayf32, Vec3, Vec3f32
 from bajo.rt.geometry import orient_surface_normal, sphere_for_acceleration
 from bajo.rt.types import (

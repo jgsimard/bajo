@@ -3,9 +3,8 @@
 from std.math import max
 
 from bajo.bvh.constants import TRACE
-from bajo.bvh.camera import Camera
-from bajo.bvh.cpu.blas_set import trace_triangle_blas_set
-from bajo.bvh.types import CpuBlasSet
+from bajo.bvh import Camera
+from bajo.bvh.cpu import CpuBlasSet, trace_triangle_blas_set
 from bajo.core import AABB, Frame, Point3f32, Rayf32, Vec3f32
 
 

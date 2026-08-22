@@ -3,14 +3,15 @@
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceBuffer, DeviceContext
 
-from bajo.bvh.camera import Camera
-from bajo.bvh.gpu.tlas import GpuTriangleTlas, build_triangle_tlas
-from bajo.bvh.gpu.builder import GpuBvhBuildMethod
-from bajo.bvh.gpu.triangle_bvh import (
+from bajo.bvh import Camera
+from bajo.bvh.gpu import (
+    GpuBlasSet,
+    GpuBvhBuildMethod,
+    GpuTriangleTlas,
     build_triangle_blas_set,
+    build_triangle_tlas,
 )
 from bajo.bvh.gpu.utils import upload_list
-from bajo.bvh.types import GpuBlasSet
 from bajo.core import Frame, Point3f32
 from bajo.rt.types import (
     Color,

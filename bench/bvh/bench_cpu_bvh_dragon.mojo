@@ -4,7 +4,8 @@ from std.time import perf_counter_ns
 from bajo.bvh.constants import TRACE, f32_max
 from bajo.bvh.cpu.blas_set import build_triangle_blases, trace_triangle_blas_set
 from bajo.bvh.host_utils import compute_bounds
-from bajo.bvh.types import CpuBlasSet, Hit
+from bajo.bvh.cpu import CpuBlasSet
+from bajo.bvh.types import Hit
 from bajo.parser.obj.pack import pack_obj_triangles
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.core import Frame, Point3f32, Rayf32

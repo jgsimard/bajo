@@ -3,7 +3,7 @@
 from std.math import ceildiv, min
 from max.gpu.host import DeviceBuffer, DeviceContext
 
-from bajo.bvh.camera import Camera
+from bajo.bvh import Camera
 from bajo.bvh.gpu.utils import upload_camera, upload_list
 from bajo.rt.types import Color, RENDER, RenderSettings, SurfaceId
 from bajo.rt.wavefront_contract import WAVE_PATH_ID_MASK

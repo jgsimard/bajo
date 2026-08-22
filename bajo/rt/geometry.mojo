@@ -2,7 +2,7 @@
 
 from std.math import abs
 
-from bajo.bvh.types import Sphere
+from bajo.bvh import Sphere
 from bajo.core import Frame, Vec3, dot
 
 

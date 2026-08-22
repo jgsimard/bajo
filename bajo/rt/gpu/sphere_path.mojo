@@ -3,7 +3,7 @@
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceBuffer, DeviceContext
 
-from bajo.bvh.camera import Camera
+from bajo.bvh import Camera
 from bajo.core import Frame
 from bajo.rt.types import (
     Color,

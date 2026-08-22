@@ -9,7 +9,7 @@ from std.time import perf_counter_ns
 from bajo.bvh.constants import f32_max
 from bajo.core import Frame, Rayf32, normalize
 from bajo.core.random import Rng, random_on_hemisphere
-from bajo.bvh.camera import Camera
+from bajo.bvh import Camera
 from bajo.rt.types import (
     Color,
     RENDER,

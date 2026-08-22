@@ -13,7 +13,7 @@ from bajo.core import (
     Rayf32,
 )
 from bajo.bvh.constants import Primitive, f32_max
-from bajo.bvh.types import Instance, Sphere
+from bajo.bvh import Instance, Sphere
 from bajo.rt.geometry import sphere_unsigned_radius
 
 

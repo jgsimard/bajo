@@ -4,7 +4,7 @@ from std.math import round
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceContext
 
-from bajo.bvh.gpu.builder import GpuBvhBuildMethod
+from bajo.bvh.gpu import GpuBvhBuildMethod
 from bajo.core import Frame, Point3f32, Vec3f32
 from bajo.core.utils import ns_to_ms
 from bajo.rt import (

@@ -24,7 +24,8 @@ from bajo.core import (
     Rayf32,
     SegmentOffsets,
 )
-from bajo.bvh.types import GpuBlasSet, Hit, TriangleLeafBlock
+from bajo.bvh.gpu.blas_storage import GpuBlasSet
+from bajo.bvh.types import Hit
 from bajo.bvh.constants import (
     EMPTY_LANE,
     TRACE,

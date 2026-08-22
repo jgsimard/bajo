@@ -8,7 +8,8 @@ from bajo.bvh.constants import (
     EMPTY_LANE,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
-from bajo.bvh.types import BlasDesc, GpuBlasSet, Hit, Instance
+from bajo.bvh.gpu.blas_storage import GpuBlasSet
+from bajo.bvh.types import BlasDesc, Hit, Instance
 from bajo.bvh.tlas_common import (
     finalize_tlas_hit_normal,
     promote_tlas_local_hit,

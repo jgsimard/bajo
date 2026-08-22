@@ -19,7 +19,8 @@ from bajo.core import (
     Vec3,
 )
 from bajo.core.intersect import intersect_ray_aabb, intersect_ray_aabb_rcp
-from bajo.bvh.types import BlasDesc, CpuBlasSet, Hit, Sphere
+from bajo.bvh.cpu import CpuBlasSet
+from bajo.bvh.types import BlasDesc, Hit, Sphere
 from bajo.core.random import Rng
 from bajo.bvh.constants import (
     EMPTY_LANE,

@@ -2,9 +2,9 @@
 
 from max.gpu.host import DeviceBuffer, DeviceContext
 
-from bajo.bvh.gpu.sphere_bvh import GpuSphereBvh, build_sphere_bvh
+from bajo.bvh.gpu import GpuSphereBvh, build_sphere_bvh
 from bajo.bvh.gpu.utils import upload_list
-from bajo.bvh.types import Sphere
+from bajo.bvh import Sphere
 from bajo.core import Frame, Point3f32
 from bajo.rt.geometry import sphere_for_acceleration
 from bajo.rt.gpu.resources import upload_surface_ids

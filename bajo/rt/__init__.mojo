@@ -1,4 +1,4 @@
-from bajo.bvh.camera import Camera
+from bajo.bvh import Camera, Instance, Sphere
 from .cpu import (
     CpuScene,
     evaluate_bsdf,
@@ -37,4 +37,3 @@ from .types import (
     add_triangle_mesh,
     add_triangle_mesh_instance,
 )
-from bajo.bvh.types import Instance, Sphere

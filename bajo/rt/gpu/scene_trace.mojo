@@ -5,7 +5,7 @@ from std.math import ceildiv
 from max.gpu.host import DeviceContext
 
 from bajo.bvh.constants import TRACE
-from bajo.bvh.types import Hit
+from bajo.bvh import Hit
 from bajo.bvh.gpu.sphere_bvh import _intersect_sphere_leaf
 from bajo.bvh.gpu.tlas import _trace_tlas_ray
 from bajo.bvh.gpu.trace import trace_bounds_bvh

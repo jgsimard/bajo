@@ -13,7 +13,8 @@ from bajo.core import (
     Rayf32,
 )
 from bajo.bvh.constants import Primitive, TRACE, f32_max
-from bajo.bvh.types import GpuBlasSet, Hit, Instance, Sphere
+from bajo.bvh.gpu import GpuBlasSet
+from bajo.bvh.types import Hit, Instance, Sphere
 from bajo.bvh.host_utils import compute_bounds, sphere_bounds
 from bajo.bvh.cpu.tlas import Tlas
 from bajo.bvh.cpu.blas_set import (
@@ -196,7 +197,7 @@ def test_host_owned_blas_set_upload_preserves_gpu_traversal() raises:
         )
         assert_almost_equal(cpu_tlas_hit.t, 6.0)
         assert_true(cpu_tlas_hit.inst == UInt32(0))
-        var uploaded = GpuBlasSet[4].from_host(ctx, host)
+        var uploaded = GpuBlasSet[4].from_cpu(ctx, host)
         var tlas = build_triangle_tlas[4, 4](ctx, instances)
         var d_camera = upload_camera(ctx, camera)
         var d_hits = ctx.enqueue_create_buffer[DType.float32](Hit.STRIDE)
@@ -298,7 +299,7 @@ def test_cpu_sphere_blas_set_upload_preserves_gpu_traversal() raises:
         )
         assert_almost_equal(cpu_tlas_hit.t, 1.0)
         assert_true(cpu_tlas_hit.inst == UInt32(0))
-        var uploaded = GpuBlasSet[4].from_host(ctx, host)
+        var uploaded = GpuBlasSet[4].from_cpu(ctx, host)
         var tlas = build_sphere_tlas[4, 4](ctx, instances)
         var d_hits = ctx.enqueue_create_buffer[DType.float32](Hit.STRIDE)
         tlas.launch_camera(
@@ -420,7 +421,7 @@ def test_all_empty_cpu_blas_set_upload_uses_dummy_device_storage() raises:
     assert_true(len(host.nodes) == 0)
     assert_true(len(host.leaves) == 0)
     with DeviceContext() as ctx:
-        var uploaded = GpuBlasSet[4].from_host(ctx, host)
+        var uploaded = GpuBlasSet[4].from_cpu(ctx, host)
         assert_true(len(uploaded.nodes) == 1)
         assert_true(len(uploaded.leaves) == 1)
         assert_true(uploaded.blas_count == 1)

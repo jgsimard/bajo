@@ -16,10 +16,16 @@ from bajo.core import (
     Ray,
 )
 from bajo.bvh.constants import EMPTY_LANE, Primitive, TRACE, f32_max
-from bajo.bvh.cpu.sphere_bvh import SphereBvh
 from bajo.bvh.cpu.tlas import Tlas
-from bajo.bvh.cpu.triangle_bvh import TriangleBvh
-from bajo.bvh.types import Instance, Sphere
+from bajo.bvh.cpu.blas_set import (
+    build_sphere_blases,
+    build_triangle_blases,
+    trace_sphere_blas_set,
+    trace_sphere_blas_set_packet,
+    trace_triangle_blas_set,
+    trace_triangle_blas_set_packet,
+)
+from bajo.bvh.types import CpuBlasSet, Instance, Sphere
 from bajo.rt.geometry import (
     orient_surface_normal,
     sphere_for_acceleration,
@@ -566,25 +572,19 @@ struct CpuScene[
     passed to `render_wavefront`.
     """
 
-    var sphere_bvh: Optional[SphereBvh[Frame.WORLD, Self.world_bvh_width]]
-    var triangle_bvh: Optional[TriangleBvh[Frame.WORLD, Self.world_bvh_width]]
+    var sphere_bvh: Optional[CpuBlasSet[Self.world_bvh_width]]
+    var triangle_bvh: Optional[CpuBlasSet[Self.world_bvh_width]]
     var triangle_tlas: Optional[Tlas[Self.instance_bvh_width, 1]]
+    var triangle_mesh_blases: Optional[CpuBlasSet[Self.instance_bvh_width]]
     var scene: SceneData
-    var triangle_mesh_blases: List[
-        TriangleBvh[Frame.LOCAL, Self.instance_bvh_width]
-    ]
 
     def __init__(out self, var scene: SceneData):
         self.scene = scene^
-        self.sphere_bvh = Optional[
-            SphereBvh[Frame.WORLD, Self.world_bvh_width]
-        ]()
-        self.triangle_bvh = Optional[
-            TriangleBvh[Frame.WORLD, Self.world_bvh_width]
-        ]()
+        self.sphere_bvh = Optional[CpuBlasSet[Self.world_bvh_width]]()
+        self.triangle_bvh = Optional[CpuBlasSet[Self.world_bvh_width]]()
         self.triangle_tlas = Optional[Tlas[Self.instance_bvh_width, 1]]()
-        self.triangle_mesh_blases = List[
-            TriangleBvh[Frame.LOCAL, Self.instance_bvh_width]
+        self.triangle_mesh_blases = Optional[
+            CpuBlasSet[Self.instance_bvh_width]
         ]()
         self._build_acceleration()
 
@@ -609,15 +609,11 @@ struct CpuScene[
             triangle_instance_surfaces^,
             surfaces^,
         )
-        self.sphere_bvh = Optional[
-            SphereBvh[Frame.WORLD, Self.world_bvh_width]
-        ]()
-        self.triangle_bvh = Optional[
-            TriangleBvh[Frame.WORLD, Self.world_bvh_width]
-        ]()
+        self.sphere_bvh = Optional[CpuBlasSet[Self.world_bvh_width]]()
+        self.triangle_bvh = Optional[CpuBlasSet[Self.world_bvh_width]]()
         self.triangle_tlas = Optional[Tlas[Self.instance_bvh_width, 1]]()
-        self.triangle_mesh_blases = List[
-            TriangleBvh[Frame.LOCAL, Self.instance_bvh_width]
+        self.triangle_mesh_blases = Optional[
+            CpuBlasSet[Self.instance_bvh_width]
         ]()
         self._build_acceleration()
 
@@ -629,30 +625,33 @@ struct CpuScene[
             for s in self.scene.spheres:
                 bvh_spheres.append(sphere_for_acceleration(s))
 
-            self.sphere_bvh = Optional[
-                SphereBvh[Frame.WORLD, Self.world_bvh_width]
-            ](
-                SphereBvh[Frame.WORLD, Self.world_bvh_width].__init__["sah"](
-                    bvh_spheres^
+            self.sphere_bvh = Optional[CpuBlasSet[Self.world_bvh_width]](
+                build_sphere_blases[Self.world_bvh_width, "sah", Frame.WORLD](
+                    [bvh_spheres^]
                 )
             )
 
         if len(self.scene.triangle_vertices) > 0:
-            self.triangle_bvh = Optional[
-                TriangleBvh[Frame.WORLD, Self.world_bvh_width]
-            ](
-                TriangleBvh[Frame.WORLD, Self.world_bvh_width].__init__["sah"](
-                    self.scene.triangle_vertices
-                )
+            self.triangle_bvh = Optional[CpuBlasSet[Self.world_bvh_width]](
+                build_triangle_blases[
+                    Self.world_bvh_width,
+                    Self.world_bvh_width,
+                    "sah",
+                    Frame.WORLD,
+                ]([self.scene.triangle_vertices.copy()])
             )
 
         if len(self.scene.triangle_instances) > 0:
-            for vertices in self.scene.triangle_meshes:
-                self.triangle_mesh_blases.append(
-                    TriangleBvh[Frame.LOCAL, Self.instance_bvh_width].__init__[
-                        "sah"
-                    ](vertices)
-                )
+            self.triangle_mesh_blases = Optional[
+                CpuBlasSet[Self.instance_bvh_width]
+            ](
+                build_triangle_blases[
+                    Self.instance_bvh_width,
+                    Self.instance_bvh_width,
+                    "sah",
+                    Frame.LOCAL,
+                ](self.scene.triangle_meshes)
+            )
 
             self.triangle_tlas = Optional[Tlas[Self.instance_bvh_width, 1]](
                 Tlas[Self.instance_bvh_width, 1](self.scene.triangle_instances)
@@ -678,40 +677,58 @@ struct CpuScene[
                 rays.t_max[0],
             )
             if self.sphere_bvh:
-                var hit = self.sphere_bvh.value().trace[TRACE.ANY_HIT](ray)
+                var hit = trace_sphere_blas_set[
+                    Self.world_bvh_width,
+                    Self.world_bvh_width,
+                    TRACE.ANY_HIT,
+                    Frame.WORLD,
+                ](self.sphere_bvh.value(), UInt32(0), ray)
                 if hit.is_occluded():
                     result[0] = True
                     return result
             if self.triangle_bvh:
-                var hit = self.triangle_bvh.value().trace[TRACE.ANY_HIT](ray)
+                var hit = trace_triangle_blas_set[
+                    Self.world_bvh_width,
+                    Self.world_bvh_width,
+                    TRACE.ANY_HIT,
+                    Frame.WORLD,
+                ](self.triangle_bvh.value(), UInt32(0), ray)
                 if hit.is_occluded():
                     result[0] = True
                     return result
-            if self.triangle_tlas:
-                var hit = self.triangle_tlas.value().trace[
-                    TriangleBvh[Frame.LOCAL, Self.instance_bvh_width],
+            if self.triangle_tlas and self.triangle_mesh_blases:
+                var hit = self.triangle_tlas.value().trace_triangle_blases[
+                    Self.instance_bvh_width,
+                    Self.instance_bvh_width,
                     TRACE.ANY_HIT,
-                ](ray, self.triangle_mesh_blases)
+                ](ray, self.triangle_mesh_blases.value())
                 if hit.is_occluded():
                     result[0] = True
             return result
         else:
             var result = SIMD[DType.bool, length](fill=False)
             if self.sphere_bvh:
-                var hits = self.sphere_bvh.value().trace[TRACE.CLOSEST_HIT](
-                    rays, valid
-                )
+                var hits = trace_sphere_blas_set_packet[
+                    Self.world_bvh_width,
+                    Self.world_bvh_width,
+                    length,
+                    Frame.WORLD,
+                ](self.sphere_bvh.value(), UInt32(0), rays, valid)
                 result |= hits.hit_mask()
 
             if self.triangle_bvh:
                 var active = valid & ~result
                 if active.reduce_or():
-                    var hits = self.triangle_bvh.value().trace[
-                        TRACE.CLOSEST_HIT
-                    ](rays, active)
+                    var hits = trace_triangle_blas_set_packet[
+                        Self.world_bvh_width,
+                        Self.world_bvh_width,
+                        length,
+                        False,
+                        Frame.WORLD,
+                    ](self.triangle_bvh.value(), UInt32(0), rays, active)
                     result |= hits.hit_mask()
 
-            if self.triangle_tlas:
+            if self.triangle_tlas and self.triangle_mesh_blases:
                 for lane in range(length):
                     if valid[lane] and not result[lane]:
                         var ray = Rayf32[Frame.WORLD](
@@ -730,12 +747,11 @@ struct CpuScene[
                         )
                         result[lane] = (
                             self.triangle_tlas.value()
-                            .trace[
-                                TriangleBvh[
-                                    Frame.LOCAL, Self.instance_bvh_width
-                                ],
+                            .trace_triangle_blases[
+                                Self.instance_bvh_width,
+                                Self.instance_bvh_width,
                                 TRACE.ANY_HIT,
-                            ](ray, self.triangle_mesh_blases)
+                            ](ray, self.triangle_mesh_blases.value())
                             .is_occluded()
                         )
             return result
@@ -807,9 +823,12 @@ struct CpuScene[
         comptime assert length > 1
         var result = SurfaceHit[length](rays.t_max)
         if self.sphere_bvh:
-            var sphere_hits = self.sphere_bvh.value().trace[TRACE.CLOSEST_HIT](
-                rays, valid
-            )
+            var sphere_hits = trace_sphere_blas_set_packet[
+                Self.world_bvh_width,
+                Self.world_bvh_width,
+                length,
+                Frame.WORLD,
+            ](self.sphere_bvh.value(), UInt32(0), rays, valid)
             var sphere_mask = sphere_hits.hit_mask()
             var center_x = SIMD[DType.float32, length](0.0)
             var center_y = SIMD[DType.float32, length](0.0)
@@ -850,9 +869,13 @@ struct CpuScene[
             result.hit |= sphere_mask
 
         if self.triangle_bvh:
-            var triangle_hits = self.triangle_bvh.value().trace[
-                TRACE.CLOSEST_HIT
-            ](rays, valid)
+            var triangle_hits = trace_triangle_blas_set_packet[
+                Self.world_bvh_width,
+                Self.world_bvh_width,
+                length,
+                False,
+                Frame.WORLD,
+            ](self.triangle_bvh.value(), UInt32(0), rays, valid)
             var triangle_mask = triangle_hits.hit_mask() & triangle_hits.t.lt(
                 result.t
             )
@@ -908,7 +931,12 @@ struct CpuScene[
         if not self.sphere_bvh:
             return _WorldHit.miss(ray.t_max)
 
-        var bvh_hit = self.sphere_bvh.value().trace[TRACE.CLOSEST_HIT](ray)
+        var bvh_hit = trace_sphere_blas_set[
+            Self.world_bvh_width,
+            Self.world_bvh_width,
+            TRACE.CLOSEST_HIT,
+            Frame.WORLD,
+        ](self.sphere_bvh.value(), UInt32(0), ray)
         if not bvh_hit.is_hit():
             return _WorldHit.miss(ray.t_max)
 
@@ -934,7 +962,12 @@ struct CpuScene[
         if not self.triangle_bvh:
             return _WorldHit.miss(ray.t_max)
 
-        var bvh_hit = self.triangle_bvh.value().trace[TRACE.CLOSEST_HIT](ray)
+        var bvh_hit = trace_triangle_blas_set[
+            Self.world_bvh_width,
+            Self.world_bvh_width,
+            TRACE.CLOSEST_HIT,
+            Frame.WORLD,
+        ](self.triangle_bvh.value(), UInt32(0), ray)
         if not bvh_hit.is_hit():
             return _WorldHit.miss(ray.t_max)
 
@@ -957,13 +990,14 @@ struct CpuScene[
         )
 
     def _trace_triangle_instances(self, ray: Rayf32[Frame.WORLD]) -> _WorldHit:
-        if not self.triangle_tlas:
+        if not self.triangle_tlas or not self.triangle_mesh_blases:
             return _WorldHit.miss(ray.t_max)
 
-        var bvh_hit = self.triangle_tlas.value().trace[
-            TriangleBvh[Frame.LOCAL, Self.instance_bvh_width],
+        var bvh_hit = self.triangle_tlas.value().trace_triangle_blases[
+            Self.instance_bvh_width,
+            Self.instance_bvh_width,
             TRACE.CLOSEST_HIT,
-        ](ray, self.triangle_mesh_blases)
+        ](ray, self.triangle_mesh_blases.value())
         if not bvh_hit.is_hit() or bvh_hit.inst == EMPTY_LANE:
             return _WorldHit.miss(ray.t_max)
 

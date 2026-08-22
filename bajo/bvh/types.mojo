@@ -1,4 +1,4 @@
-from max.gpu.host import DeviceBuffer, DeviceContext, HostBuffer
+from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.core import (
     AABB,
@@ -192,20 +192,6 @@ struct Instance(Copyable):
         self.kind = kind
 
 
-# TODO: use parametric traits when they become available.
-trait TypedBvh:
-    comptime bvh_frame: Frame
-
-    def trace[
-        mode: TRACE, length: SIMDLength
-    ](
-        self,
-        ray: Ray[DType.float32, Self.bvh_frame, length],
-        valid: SIMD[DType.bool, length] = SIMD[DType.bool, length](fill=True),
-    ) -> Hit[Self.bvh_frame, length]:
-        ...
-
-
 struct BlasDescLayout:
     comptime NODE_F32_BASE = 0
     comptime LEAF_F32_BASE = 1
@@ -247,9 +233,9 @@ struct CpuBlasSet[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
 ]:
-    var descs: HostBuffer[DType.uint32]
-    var nodes: HostBuffer[DType.float32]
-    var leaves: HostBuffer[DType.float32]
+    var descs: List[UInt32]
+    var nodes: List[Float32]
+    var leaves: List[Float32]
     var blas_count: Int
 
 
@@ -281,7 +267,19 @@ struct GpuBlasSet[
         var descs = ctx.enqueue_create_buffer[DType.uint32](len(host.descs))
         var nodes = ctx.enqueue_create_buffer[DType.float32](len(host.nodes))
         var leaves = ctx.enqueue_create_buffer[DType.float32](len(host.leaves))
-        host.descs.enqueue_copy_to(descs)
-        host.nodes.enqueue_copy_to(nodes)
-        host.leaves.enqueue_copy_to(leaves)
+        var h_descs = ctx.enqueue_create_host_buffer[DType.uint32](
+            len(host.descs)
+        )
+        var h_nodes = ctx.enqueue_create_host_buffer[DType.float32](
+            len(host.nodes)
+        )
+        var h_leaves = ctx.enqueue_create_host_buffer[DType.float32](
+            len(host.leaves)
+        )
+        h_descs.enqueue_copy_from(host.descs)
+        h_nodes.enqueue_copy_from(host.nodes)
+        h_leaves.enqueue_copy_from(host.leaves)
+        h_descs.enqueue_copy_to(descs)
+        h_nodes.enqueue_copy_to(nodes)
+        h_leaves.enqueue_copy_to(leaves)
         return Self(descs^, nodes^, leaves^, host.blas_count)

@@ -1,4 +1,4 @@
-from std.bit import count_trailing_zeros, pop_count
+from std.bit import count_trailing_zeros
 from std.memory import bitcast, pack_bits
 from std.sys.intrinsics import llvm_intrinsic
 from std.sys import size_of
@@ -24,53 +24,6 @@ from bajo.bvh.cpu.bounds_bvh import (
 from bajo.bvh.constants import EMPTY_LANE, CPU_STACK_SIZE, TRACE
 from bajo.bvh.tagged_ref import decode_ref_index, encode_leaf_ref, is_leaf_ref
 from bajo.bvh.wide_meta import _wide_meta_count, _wide_meta_data
-
-
-@fieldwise_init
-struct CpuBvhTraversalStats(Copyable):
-    """Counters collected by an explicitly instrumented CPU BVH trace."""
-
-    var rays: Int
-    var internal_nodes: Int
-    var nodes_with_hits: Int
-    var aabb_packet_lanes: Int
-    var active_child_lanes: Int
-    var aabb_hit_lanes: Int
-    var leaf_blocks: Int
-    var primitive_packet_lanes: Int
-    var valid_primitives: Int
-    var primitive_hit_candidates: Int
-    var closer_hit_updates: Int
-    var stack_pushes: Int
-    var stack_insertion_shifts: Int
-    var stack_pops: Int
-    var stack_pruned_tasks: Int
-    var max_stack_depth: Int
-    var any_hit_early_exits: Int
-
-    def __init__(out self):
-        self.rays = 0
-        self.internal_nodes = 0
-        self.nodes_with_hits = 0
-        self.aabb_packet_lanes = 0
-        self.active_child_lanes = 0
-        self.aabb_hit_lanes = 0
-        self.leaf_blocks = 0
-        self.primitive_packet_lanes = 0
-        self.valid_primitives = 0
-        self.primitive_hit_candidates = 0
-        self.closer_hit_updates = 0
-        self.stack_pushes = 0
-        self.stack_insertion_shifts = 0
-        self.stack_pops = 0
-        self.stack_pruned_tasks = 0
-        self.max_stack_depth = 0
-        self.any_hit_early_exits = 0
-
-
-@always_inline
-def _count_true_lanes[width: SIMDLength](mask: SIMD[DType.bool, width]) -> Int:
-    return Int(pop_count(pack_bits(mask)))
 
 
 @always_inline
@@ -156,7 +109,6 @@ def _trace_bounds_bvh_impl[
     bounds_width: SIMDLength,
     leaf_width: SIMDLength,
     mode: TRACE,
-    collect_stats: Bool,
     leaf_uses_rcp_direction: Bool,
     single_child_fast_path: Bool,
     terminal_mask_fast_path: Bool,
@@ -168,7 +120,6 @@ def _trace_bounds_bvh_impl[
         SIMD[DType.float32, leaf_width],
         SIMD[DType.float32, leaf_width],
         UInt32,
-        mut CpuBvhTraversalStats,
         mut Hit[frame],
     ) -> Bool,
     positive_x: Bool,
@@ -181,7 +132,6 @@ def _trace_bounds_bvh_impl[
     ray_inv_a: SIMD[DType.float32, leaf_width],
     initial_ref: UInt32,
     initial_hit: Hit[frame],
-    mut stats: CpuBvhTraversalStats,
     ref leaf_fn: LeafFn,
 ) -> Hit[frame]:
     debug_assert["safe", _use_compiler_assume=True](len(nodes) > 0)
@@ -223,7 +173,7 @@ def _trace_bounds_bvh_impl[
         @always_inline
         def push_pending(
             child_ref: UInt32, child_t: Float32
-        ) {imm, mut stack_ptr, mut ordered_stack, mut stats}:
+        ) {imm, mut stack_ptr, mut ordered_stack}:
             debug_assert["safe", _use_compiler_assume=True](
                 stack_ptr < CPU_STACK_SIZE,
                 "CPU BVH traversal stack overflow",
@@ -244,11 +194,6 @@ def _trace_bounds_bvh_impl[
             ordered_stack.unsafe_get(insert_idx) = task
 
             stack_ptr += 1
-            comptime if collect_stats:
-                stats.stack_pushes += 1
-                stats.stack_insertion_shifts += stack_ptr - insert_idx - 1
-                if stack_ptr > stats.max_stack_depth:
-                    stats.max_stack_depth = stack_ptr
 
         var current_ref = initial_ref
 
@@ -256,8 +201,6 @@ def _trace_bounds_bvh_impl[
             if is_leaf_ref(current_ref):
                 # leaves are deferred exactly like internal nodes
                 # why: nearby internal subtree run before a distant triangle block
-                comptime if collect_stats:
-                    stats.leaf_blocks += 1
                 _ = leaf_fn(
                     ray,
                     leaf_O,
@@ -265,14 +208,10 @@ def _trace_bounds_bvh_impl[
                     ray_a,
                     ray_inv_a,
                     decode_ref_index(current_ref),
-                    stats,
                     hit,
                 )
 
             else:
-                comptime if collect_stats:
-                    stats.internal_nodes += 1
-                    stats.aabb_packet_lanes += Int(bounds_width)
                 ref node = nodes.unsafe_get(Int(current_ref))
                 comptime assert size_of[
                     WideBvhNode[frame, bounds_width]
@@ -288,14 +227,6 @@ def _trace_bounds_bvh_impl[
                 var mask = aabb_hit.mask
                 comptime if bounds_width != 16:
                     mask &= node.data.ne(EMPTY_LANE)
-
-                comptime if collect_stats:
-                    var active_mask = node.data.ne(EMPTY_LANE)
-                    stats.active_child_lanes += _count_true_lanes(active_mask)
-                    var hit_lanes = _count_true_lanes(mask)
-                    stats.aabb_hit_lanes += hit_lanes
-                    if hit_lanes > 0:
-                        stats.nodes_with_hits += 1
 
                 # internal children and leaves compete equally for the nearest task
                 # keep that task in registers and defer the others
@@ -382,8 +313,6 @@ def _trace_bounds_bvh_impl[
                         var pending = ordered_stack.unsafe_get(pending_idx)
                         if _pending_task_t(pending) < nearest_t:
                             stack_ptr = pending_idx
-                            comptime if collect_stats:
-                                stats.stack_pops += 1
                             push_pending(nearest_ref, nearest_t)
                             current_ref = _pending_task_ref(pending)
                             continue
@@ -399,15 +328,11 @@ def _trace_bounds_bvh_impl[
                 var task = ordered_stack.unsafe_get(next_idx)
                 if _pending_task_t(task) <= hit.t:
                     stack_ptr = next_idx
-                    comptime if collect_stats:
-                        stats.stack_pops += 1
                     current_ref = _pending_task_ref(task)
                     found_pending = True
                 else:
                     # The nearest pending task is already too far, so all
                     # other sorted tasks can be discarded at once.
-                    comptime if collect_stats:
-                        stats.stack_pruned_tasks += stack_ptr
                     stack_ptr = 0
 
             if not found_pending:
@@ -419,9 +344,6 @@ def _trace_bounds_bvh_impl[
         var n_idx = initial_ref
 
         while True:
-            comptime if collect_stats:
-                stats.internal_nodes += 1
-                stats.aabb_packet_lanes += Int(bounds_width)
             ref node = nodes.unsafe_get(Int(n_idx))
             comptime assert size_of[
                 WideBvhNode[frame, bounds_width]
@@ -438,14 +360,6 @@ def _trace_bounds_bvh_impl[
             comptime if bounds_width != 16:
                 mask &= node.data.ne(EMPTY_LANE)
 
-            comptime if collect_stats:
-                var active_mask = node.data.ne(EMPTY_LANE)
-                stats.active_child_lanes += _count_true_lanes(active_mask)
-                var hit_lanes = _count_true_lanes(mask)
-                stats.aabb_hit_lanes += hit_lanes
-                if hit_lanes > 0:
-                    stats.nodes_with_hits += 1
-
             # keep the internal child visited immediately out of the stack
             var has_next = False
             var next_idx = UInt32(0)
@@ -455,7 +369,6 @@ def _trace_bounds_bvh_impl[
                 child_ref: UInt32,
             ) {
                 imm,
-                mut stats,
                 mut hit,
                 mut has_next,
                 mut next_idx,
@@ -463,8 +376,6 @@ def _trace_bounds_bvh_impl[
                 mut stack_ptr,
             } -> Bool:
                 if is_leaf_ref(child_ref):
-                    comptime if collect_stats:
-                        stats.leaf_blocks += 1
                     var leaf_hit = leaf_fn(
                         ray,
                         leaf_O,
@@ -472,12 +383,8 @@ def _trace_bounds_bvh_impl[
                         ray_a,
                         ray_inv_a,
                         decode_ref_index(child_ref),
-                        stats,
                         hit,
                     )
-                    comptime if collect_stats:
-                        if leaf_hit:
-                            stats.any_hit_early_exits += 1
                     return leaf_hit
 
                 if has_next:
@@ -487,10 +394,6 @@ def _trace_bounds_bvh_impl[
                     )
                     stack.unsafe_get(stack_ptr) = next_idx
                     stack_ptr += 1
-                    comptime if collect_stats:
-                        stats.stack_pushes += 1
-                        if stack_ptr > stats.max_stack_depth:
-                            stats.max_stack_depth = stack_ptr
 
                 next_idx = child_ref
                 has_next = True
@@ -528,8 +431,6 @@ def _trace_bounds_bvh_impl[
                 break
 
             stack_ptr -= 1
-            comptime if collect_stats:
-                stats.stack_pops += 1
             n_idx = stack.unsafe_get(stack_ptr)
     return hit
 
@@ -539,7 +440,6 @@ def _trace_bounds_bvh_octant[
     bounds_width: SIMDLength,
     leaf_width: SIMDLength,
     mode: TRACE,
-    collect_stats: Bool,
     leaf_uses_rcp_direction: Bool,
     LeafFn: def(
         Rayf32[frame],
@@ -548,7 +448,6 @@ def _trace_bounds_bvh_octant[
         SIMD[DType.float32, leaf_width],
         SIMD[DType.float32, leaf_width],
         UInt32,
-        mut CpuBvhTraversalStats,
         mut Hit[frame],
     ) -> Bool,
     packed_meta: Bool = False,
@@ -561,19 +460,17 @@ def _trace_bounds_bvh_octant[
     ray_inv_a: SIMD[DType.float32, leaf_width],
     initial_ref: UInt32,
     initial_hit: Hit[frame],
-    mut stats: CpuBvhTraversalStats,
     ref leaf_fn: LeafFn,
 ) -> Hit[frame]:
     @always_inline
     def trace_octant[
         positive_x: Bool, positive_y: Bool, positive_z: Bool
-    ]() {imm, mut stats} -> Hit[frame]:
+    ]() {imm} -> Hit[frame]:
         return _trace_bounds_bvh_impl[
             frame=frame,
             bounds_width=bounds_width,
             leaf_width=leaf_width,
             mode=mode,
-            collect_stats=collect_stats,
             leaf_uses_rcp_direction=leaf_uses_rcp_direction,
             single_child_fast_path=single_child_fast_path,
             terminal_mask_fast_path=terminal_mask_fast_path,
@@ -588,7 +485,6 @@ def _trace_bounds_bvh_octant[
             ray_inv_a,
             initial_ref,
             initial_hit,
-            stats,
             leaf_fn,
         )
 
@@ -647,37 +543,21 @@ def trace_bounds_bvh[
     ray: Rayf32[frame],
     ref leaf_fn: LeafFn,
 ) -> Hit[frame]:
-    @always_inline
-    def unmeasured_leaf_fn(
-        ray: Rayf32[frame],
-        O: Point3[DType.float32, frame, leaf_width],
-        D: Vec3[DType.float32, frame, leaf_width],
-        ray_a: SIMD[DType.float32, leaf_width],
-        ray_inv_a: SIMD[DType.float32, leaf_width],
-        leaf_block_idx: UInt32,
-        mut _stats: CpuBvhTraversalStats,
-        mut hit: Hit[frame],
-    ) {imm} -> Bool:
-        return leaf_fn(ray, O, D, ray_a, ray_inv_a, leaf_block_idx, hit)
-
     var zero = SIMD[DType.float32, leaf_width](0.0)
-    var unused_stats = CpuBvhTraversalStats()
     return _trace_bounds_bvh_octant[
         frame=frame,
         bounds_width=bounds_width,
         leaf_width=leaf_width,
         mode=mode,
-        collect_stats=False,
         leaf_uses_rcp_direction=False,
     ](
-        Span(tree.nodes),
+        tree.nodes,
         ray,
         zero,
         zero,
         UInt32(0),
         Hit[frame].miss(ray.t_max),
-        unused_stats,
-        unmeasured_leaf_fn,
+        leaf_fn,
     )
 
 
@@ -702,27 +582,12 @@ def trace_packed_bounds_bvh[
 ) -> Hit[frame]:
     """Run the proven CPU traversal directly over common packed node bytes."""
 
-    @always_inline
-    def unmeasured_leaf_fn(
-        ray: Rayf32[frame],
-        O: Point3[DType.float32, frame, leaf_width],
-        D: Vec3[DType.float32, frame, leaf_width],
-        ray_a: SIMD[DType.float32, leaf_width],
-        ray_inv_a: SIMD[DType.float32, leaf_width],
-        leaf_block_idx: UInt32,
-        mut _stats: CpuBvhTraversalStats,
-        mut hit: Hit[frame],
-    ) {imm} -> Bool:
-        return leaf_fn(ray, O, D, ray_a, ray_inv_a, leaf_block_idx, hit)
-
     var zero = SIMD[DType.float32, leaf_width](0.0)
-    var unused_stats = CpuBvhTraversalStats()
     return _trace_bounds_bvh_octant[
         frame=frame,
         bounds_width=bounds_width,
         leaf_width=leaf_width,
         mode=mode,
-        collect_stats=False,
         leaf_uses_rcp_direction=False,
         packed_meta=True,
     ](
@@ -732,8 +597,7 @@ def trace_packed_bounds_bvh[
         zero,
         UInt32(0),
         Hit[frame].miss(ray.t_max),
-        unused_stats,
-        unmeasured_leaf_fn,
+        leaf_fn,
     )
 
 
@@ -752,8 +616,9 @@ def trace_bounds_bvh_from_ref[
     ) -> Bool,
     single_child_fast_path: Bool = False,
     terminal_mask_fast_path: Bool = False,
+    packed_meta: Bool = False,
 ](
-    tree: BoundsBvh[frame, bounds_width],
+    nodes: ImmSpan[WideBvhNode[frame, bounds_width], _],
     ray: Rayf32[frame],
     initial_ref: UInt32,
     initial_hit: Hit[frame],
@@ -761,85 +626,23 @@ def trace_bounds_bvh_from_ref[
 ) -> Hit[frame]:
     """Continue closest-hit traversal at one tagged subtree reference."""
 
-    @always_inline
-    def unmeasured_leaf_fn(
-        ray: Rayf32[frame],
-        O: Point3[DType.float32, frame, leaf_width],
-        D: Vec3[DType.float32, frame, leaf_width],
-        ray_a: SIMD[DType.float32, leaf_width],
-        ray_inv_a: SIMD[DType.float32, leaf_width],
-        leaf_block_idx: UInt32,
-        mut _stats: CpuBvhTraversalStats,
-        mut hit: Hit[frame],
-    ) {imm} -> Bool:
-        return leaf_fn(ray, O, D, ray_a, ray_inv_a, leaf_block_idx, hit)
-
     var zero = SIMD[DType.float32, leaf_width](0.0)
-    var unused_stats = CpuBvhTraversalStats()
     return _trace_bounds_bvh_octant[
         frame=frame,
         bounds_width=bounds_width,
         leaf_width=leaf_width,
         mode=TRACE.CLOSEST_HIT,
-        collect_stats=False,
         leaf_uses_rcp_direction=False,
         single_child_fast_path=single_child_fast_path,
         terminal_mask_fast_path=terminal_mask_fast_path,
+        packed_meta=packed_meta,
     ](
-        Span(tree.nodes),
+        nodes,
         ray,
         zero,
         zero,
         initial_ref,
         initial_hit,
-        unused_stats,
-        unmeasured_leaf_fn,
-    )
-
-
-def trace_bounds_bvh_measured[
-    frame: Frame,
-    bounds_width: SIMDLength,
-    leaf_width: SIMDLength,
-    mode: TRACE,
-    LeafFn: def(
-        Rayf32[frame],
-        Point3[DType.float32, frame, leaf_width],
-        Vec3[DType.float32, frame, leaf_width],
-        SIMD[DType.float32, leaf_width],
-        SIMD[DType.float32, leaf_width],
-        UInt32,
-        mut CpuBvhTraversalStats,
-        mut Hit[frame],
-    ) -> Bool,
-](
-    tree: BoundsBvh[frame, bounds_width],
-    ray: Rayf32[frame],
-    mut stats: CpuBvhTraversalStats,
-    ref leaf_fn: LeafFn,
-) -> Hit[frame]:
-    """Trace while accumulating diagnostic counters in `stats`.
-
-    This is intentionally a separate entry point so production traversal is
-    compiled with every counter update removed.
-    """
-    stats.rays += 1
-    var zero = SIMD[DType.float32, leaf_width](0.0)
-    return _trace_bounds_bvh_octant[
-        frame=frame,
-        bounds_width=bounds_width,
-        leaf_width=leaf_width,
-        mode=mode,
-        collect_stats=True,
-        leaf_uses_rcp_direction=False,
-    ](
-        Span(tree.nodes),
-        ray,
-        zero,
-        zero,
-        UInt32(0),
-        Hit[frame].miss(ray.t_max),
-        stats,
         leaf_fn,
     )
 
@@ -865,92 +668,21 @@ def trace_bounds_bvh_leaf_rcp[
 ) -> Hit[frame]:
     """Trace with reciprocal ray direction in the leaf direction argument."""
 
-    @always_inline
-    def unmeasured_leaf_fn(
-        ray: Rayf32[frame],
-        O: Point3[DType.float32, frame, leaf_width],
-        D: Vec3[DType.float32, frame, leaf_width],
-        ray_a: SIMD[DType.float32, leaf_width],
-        ray_inv_a: SIMD[DType.float32, leaf_width],
-        leaf_block_idx: UInt32,
-        mut _stats: CpuBvhTraversalStats,
-        mut hit: Hit[frame],
-    ) {imm} -> Bool:
-        return leaf_fn(ray, O, D, ray_a, ray_inv_a, leaf_block_idx, hit)
-
     var zero = SIMD[DType.float32, leaf_width](0.0)
-    var unused_stats = CpuBvhTraversalStats()
     return _trace_bounds_bvh_octant[
         frame=frame,
         bounds_width=bounds_width,
         leaf_width=leaf_width,
         mode=mode,
-        collect_stats=False,
         leaf_uses_rcp_direction=True,
     ](
-        Span(tree.nodes),
+        tree.nodes,
         ray,
         zero,
         zero,
         UInt32(0),
         Hit[frame].miss(ray.t_max),
-        unused_stats,
-        unmeasured_leaf_fn,
-    )
-
-
-def trace_sphere_bounds_bvh[
-    frame: Frame,
-    bounds_width: SIMDLength,
-    leaf_width: SIMDLength,
-    mode: TRACE,
-    LeafFn: def(
-        Rayf32[frame],
-        Point3[DType.float32, frame, leaf_width],
-        Vec3[DType.float32, frame, leaf_width],
-        SIMD[DType.float32, leaf_width],
-        SIMD[DType.float32, leaf_width],
-        UInt32,
-        mut Hit[frame],
-    ) -> Bool,
-](
-    tree: BoundsBvh[frame, bounds_width],
-    ray: Rayf32[frame],
-    ref leaf_fn: LeafFn,
-) -> Hit[frame]:
-    @always_inline
-    def unmeasured_leaf_fn(
-        ray: Rayf32[frame],
-        O: Point3[DType.float32, frame, leaf_width],
-        D: Vec3[DType.float32, frame, leaf_width],
-        ray_a: SIMD[DType.float32, leaf_width],
-        ray_inv_a: SIMD[DType.float32, leaf_width],
-        leaf_block_idx: UInt32,
-        mut _stats: CpuBvhTraversalStats,
-        mut hit: Hit[frame],
-    ) {imm} -> Bool:
-        return leaf_fn(ray, O, D, ray_a, ray_inv_a, leaf_block_idx, hit)
-
-    var leaf_D = ray.direction[leaf_width]()
-    var ray_a = dot(leaf_D, leaf_D)
-    var ray_inv_a = 1.0 / ray_a
-    var unused_stats = CpuBvhTraversalStats()
-    return _trace_bounds_bvh_octant[
-        frame=frame,
-        bounds_width=bounds_width,
-        leaf_width=leaf_width,
-        mode=mode,
-        collect_stats=False,
-        leaf_uses_rcp_direction=False,
-    ](
-        Span(tree.nodes),
-        ray,
-        ray_a,
-        ray_inv_a,
-        UInt32(0),
-        Hit[frame].miss(ray.t_max),
-        unused_stats,
-        unmeasured_leaf_fn,
+        leaf_fn,
     )
 
 
@@ -975,29 +707,14 @@ def trace_packed_sphere_bounds_bvh[
 ) -> Hit[frame]:
     """Run CPU sphere traversal directly over common packed node bytes."""
 
-    @always_inline
-    def unmeasured_leaf_fn(
-        ray: Rayf32[frame],
-        O: Point3[DType.float32, frame, leaf_width],
-        D: Vec3[DType.float32, frame, leaf_width],
-        ray_a: SIMD[DType.float32, leaf_width],
-        ray_inv_a: SIMD[DType.float32, leaf_width],
-        leaf_block_idx: UInt32,
-        mut _stats: CpuBvhTraversalStats,
-        mut hit: Hit[frame],
-    ) {imm} -> Bool:
-        return leaf_fn(ray, O, D, ray_a, ray_inv_a, leaf_block_idx, hit)
-
     var leaf_D = ray.direction[leaf_width]()
     var ray_a = dot(leaf_D, leaf_D)
     var ray_inv_a = 1.0 / ray_a
-    var unused_stats = CpuBvhTraversalStats()
     return _trace_bounds_bvh_octant[
         frame=frame,
         bounds_width=bounds_width,
         leaf_width=leaf_width,
         mode=mode,
-        collect_stats=False,
         leaf_uses_rcp_direction=False,
         packed_meta=True,
     ](
@@ -1007,6 +724,5 @@ def trace_packed_sphere_bounds_bvh[
         ray_inv_a,
         UInt32(0),
         Hit[frame].miss(ray.t_max),
-        unused_stats,
-        unmeasured_leaf_fn,
+        leaf_fn,
     )

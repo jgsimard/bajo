@@ -5,7 +5,8 @@ from std.math import fma
 from std.memory import pack_bits
 
 from bajo.bvh.constants import EMPTY_LANE, f32_min, f32_max
-from bajo.bvh.cpu.bounds_bvh import BoundsBvh
+from bajo.bvh.cpu.bounds_bvh import WideBvhNode
+from bajo.bvh.cpu.trace import _cpu_traversal_ref
 from bajo.bvh.types import Hit
 from bajo.bvh.tagged_ref import decode_ref_index, is_leaf_ref
 from bajo.core import Frame, Point3, Ray, Vec3
@@ -187,8 +188,9 @@ def trace_packet_stack_bounds_bvh[
     hybrid_leaves: Bool = False,
     coherent_frustum: Bool = False,
     prefetch_tasks: Bool = False,
+    packed_meta: Bool = False,
 ](
-    tree: BoundsBvh[frame, bounds_width],
+    nodes: ImmSpan[WideBvhNode[frame, bounds_width], _],
     rays: Ray[DType.float32, frame, length],
     valid: SIMD[DType.bool, length],
     mut hit: Hit[frame, length],
@@ -197,7 +199,7 @@ def trace_packet_stack_bounds_bvh[
     ref prefetch_fn: PrefetchFn,
 ):
     """Traverse one wide hierarchy with a shared stack and per-task ray mask."""
-    if len(tree.nodes) == 0:
+    if len(nodes) == 0:
         return
 
     if not valid.reduce_or():
@@ -302,7 +304,7 @@ def trace_packet_stack_bounds_bvh[
                 ).reduce_max()
             continue
 
-        ref node = tree.nodes.unsafe_get(Int(child_ref))
+        ref node = nodes.unsafe_get(Int(child_ref))
         comptime if coherent_frustum:
             comptime assert common_octant_fma
             var frustum_mask = _intersect_coherent_packet_frustum[
@@ -321,9 +323,10 @@ def trace_packet_stack_bounds_bvh[
             while child_bits != 0:
                 var child_lane = Int(count_trailing_zeros(child_bits))
                 child_bits &= child_bits - 1
-                var next_ref = node.data[child_lane]
-                if next_ref == EMPTY_LANE:
+                var data = node.data[child_lane]
+                if data == EMPTY_LANE:
                     continue
+                var next_ref = _cpu_traversal_ref[packed_meta](data)
                 var near_x = node.aabb._min.x[child_lane]
                 var far_x = node.aabb._max.x[child_lane]
                 var near_y = node.aabb._min.y[child_lane]
@@ -374,8 +377,9 @@ def trace_packet_stack_bounds_bvh[
                     push_task(next_ref, next_mask, bounds_t)
         else:
             comptime for child_lane in range(bounds_width):
-                var next_ref = node.data[child_lane]
-                if next_ref != EMPTY_LANE:
+                var data = node.data[child_lane]
+                if data != EMPTY_LANE:
+                    var next_ref = _cpu_traversal_ref[packed_meta](data)
                     var bounds_mask: SIMD[DType.bool, length]
                     var bounds_t: SIMD[DType.float32, length]
                     comptime if common_octant_fma:

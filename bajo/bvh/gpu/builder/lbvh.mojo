@@ -20,6 +20,7 @@ from bajo.bvh.gpu.builder.binary_layout import (
     _node_right,
     _write_child_bounds,
     _load_and_union_node_bounds,
+    _segment_for_item,
     GpuBinaryBoundsBvh,
     GpuBinaryBuildWorkspace,
     init_empty_bounds_kernel,
@@ -29,7 +30,8 @@ from bajo.bvh.gpu.builder.binary_layout import (
 def compute_bounds_morton_codes_kernel(
     leaf_bounds: ImmSpan[Float32, ImmutAnyOrigin],
     bounds_device: ImmSpan[Float32, ImmutAnyOrigin],
-    morton_codes: MutSpan[UInt32, MutAnyOrigin],
+    segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
+    composite_keys: MutSpan[UInt64, MutAnyOrigin],
     values: MutSpan[UInt32, MutAnyOrigin],
 ):
     var leaf_count = len(values)
@@ -38,10 +40,14 @@ def compute_bounds_morton_codes_kernel(
         return
 
     debug_assert["safe", _use_compiler_assume=True](
-        i < len(morton_codes) and i < len(values),
+        i < len(composite_keys) and i < len(values),
         "Morton output is outside a device span",
     )
-    var centroid_bounds = AABB[Frame.WORLD].load6(bounds_device, AABB.STRIDE)
+    var segment_idx = _segment_for_item(segment_offsets, i)
+    var centroid_bounds = AABB[Frame.WORLD].load6(
+        bounds_device,
+        segment_idx * 2 * AABB.STRIDE + AABB.STRIDE,
+    )
     var cmin = centroid_bounds._min
     var inv_extent = centroid_bounds.extent().safe_inv()
 
@@ -49,8 +55,62 @@ def compute_bounds_morton_codes_kernel(
     var bounds = AABB[Frame.WORLD].load6(leaf_bounds, b)
     var c = (bounds.centroid() - cmin) * inv_extent
 
-    morton_codes.unsafe_get(i) = morton3(c.x, c.y, c.z)
+    var morton_code = morton3(c.x, c.y, c.z)
+    composite_keys.unsafe_get(i) = (UInt64(UInt32(segment_idx)) << 32) | UInt64(
+        morton_code
+    )
     values.unsafe_get(i) = UInt32(i)
+
+
+def gather_sorted_morton_codes_kernel(
+    sorted_composite_keys: ImmSpan[UInt64, ImmutAnyOrigin],
+    sorted_morton_codes: MutSpan[UInt32, MutAnyOrigin],
+):
+    var sorted_idx = global_idx.x
+    if sorted_idx >= len(sorted_composite_keys):
+        return
+    sorted_morton_codes.unsafe_get(sorted_idx) = UInt32(
+        sorted_composite_keys.unsafe_get(sorted_idx) & UInt64(0xFFFFFFFF)
+    )
+
+
+def enqueue_segmented_morton_codes(
+    ctx: DeviceContext,
+    mut binary: GpuBinaryBoundsBvh,
+    mut workspace: GpuBinaryBuildWorkspace,
+) raises:
+    ref topology = workspace.topology.value()
+    ctx.enqueue_function[compute_bounds_morton_codes_kernel](
+        _device_span[mut=False](binary.leaf_bounds),
+        _device_span[mut=False](binary.bounds_device),
+        _device_span[mut=False](binary.segment_offsets),
+        _device_span[mut=True](topology.sort_keys),
+        _device_span[mut=True](binary.leaf_ids),
+        grid_dim=binary.blocks_leaves(),
+        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+    )
+
+
+def enqueue_segmented_morton_sort(
+    ctx: DeviceContext,
+    mut binary: GpuBinaryBoundsBvh,
+    mut workspace: GpuBinaryBuildWorkspace,
+) raises:
+    """Sort one UInt64 ``(segment_id, morton_code)`` composite key."""
+    ref topology = workspace.topology.value()
+    device_radix_sort_pairs[DType.uint64, DType.uint32](
+        ctx,
+        workspace.sort,
+        topology.sort_keys,
+        binary.leaf_ids,
+        binary.leaf_count,
+    )
+    ctx.enqueue_function[gather_sorted_morton_codes_kernel](
+        _device_span[mut=False](topology.sort_keys),
+        _device_span[mut=True](topology.morton_keys),
+        grid_dim=binary.blocks_leaves(),
+        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+    )
 
 
 def refit_lbvh_bounds_from_leaves_kernel(
@@ -172,27 +232,55 @@ def _common_prefix(
     return morton_common_prefix(a, UInt32(i), b, UInt32(j))
 
 
+def init_segmented_lbvh_roots_kernel(
+    segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
+    internal_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
+    roots: MutSpan[UInt32, MutAnyOrigin],
+    leaf_parent: MutSpan[UInt32, MutAnyOrigin],
+):
+    var segment_idx = global_idx.x
+    if segment_idx >= len(roots):
+        return
+    var leaf_begin = segment_offsets.unsafe_get(segment_idx)
+    var leaf_end = segment_offsets.unsafe_get(segment_idx + 1)
+    if leaf_end == leaf_begin:
+        roots.unsafe_get(segment_idx) = LBVH_SENTINEL
+    elif leaf_end - leaf_begin == UInt32(1):
+        roots.unsafe_get(segment_idx) = encode_leaf_ref(leaf_begin)
+        leaf_parent.unsafe_get(Int(leaf_begin)) = LBVH_SENTINEL
+    else:
+        roots.unsafe_get(segment_idx) = encode_internal_ref(
+            internal_segment_offsets.unsafe_get(segment_idx)
+        )
+
+
 def build_lbvh_topology_kernel(
     sorted_morton_codes: ImmSpan[UInt32, ImmutAnyOrigin],
+    segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
+    internal_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
     node_meta: MutSpan[UInt32, MutAnyOrigin],
     leaf_parent: MutSpan[UInt32, MutAnyOrigin],
     node_bounds: MutSpan[Float32, MutAnyOrigin],
     node_flags: MutSpan[UInt32, MutAnyOrigin],
     node_leaf_counts: MutSpan[UInt32, MutAnyOrigin],
-    input_leaf_count: Int32,
 ):
-    var leaf_count = Int(input_leaf_count)
-    debug_assert["safe", _use_compiler_assume=True](
-        leaf_count <= len(sorted_morton_codes),
-        "LBVH Morton scratch is smaller than the input",
-    )
-    var morton_codes = Span(
-        unsafe_ptr=sorted_morton_codes.unsafe_ptr(), length=leaf_count
-    )
     var i = global_idx.x
-    var internal_count = leaf_count - 1
+    var internal_count = Int(
+        internal_segment_offsets.unsafe_get(len(internal_segment_offsets) - 1)
+    )
     if i >= internal_count:
         return
+
+    var segment_idx = _segment_for_item(internal_segment_offsets, i)
+    var internal_begin = Int(internal_segment_offsets.unsafe_get(segment_idx))
+    var leaf_begin = Int(segment_offsets.unsafe_get(segment_idx))
+    var leaf_end = Int(segment_offsets.unsafe_get(segment_idx + 1))
+    var leaf_count = leaf_end - leaf_begin
+    var local_i = i - internal_begin
+    var morton_codes = Span(
+        unsafe_ptr=sorted_morton_codes.unsafe_ptr().unsafe_offset(leaf_begin),
+        length=leaf_count,
+    )
 
     debug_assert["safe", _use_compiler_assume=True](
         i < len(node_flags) and i < len(node_leaf_counts),
@@ -205,7 +293,7 @@ def build_lbvh_topology_kernel(
     invalid.store6(node_bounds, bounds_base)
     invalid.store6(node_bounds, bounds_base + AABB.STRIDE)
 
-    var first, last = _lbvh_find_range(morton_codes, i)
+    var first, last = _lbvh_find_range(morton_codes, local_i)
     node_leaf_counts.unsafe_get(i) = UInt32(last - first + 1)
 
     # only root parent is sentinel
@@ -214,27 +302,31 @@ def build_lbvh_topology_kernel(
 
     var split = _lbvh_find_split(morton_codes, first, last)
 
-    var left_encoded = encode_internal_ref(UInt32(split))
+    var left_encoded = encode_internal_ref(UInt32(internal_begin + split))
     if split == first:
-        left_encoded = encode_leaf_ref(UInt32(split))
-        leaf_parent.unsafe_get(split) = UInt32(i)
+        left_encoded = encode_leaf_ref(UInt32(leaf_begin + split))
+        leaf_parent.unsafe_get(leaf_begin + split) = UInt32(i)
     else:
-        node_meta.unsafe_get(_node_parent_index(UInt32(split))) = UInt32(i)
+        node_meta.unsafe_get(
+            _node_parent_index(UInt32(internal_begin + split))
+        ) = UInt32(i)
 
     var right_child = split + 1
-    var right_encoded = encode_internal_ref(UInt32(right_child))
+    var right_encoded = encode_internal_ref(
+        UInt32(internal_begin + right_child)
+    )
     if right_child == last:
-        right_encoded = encode_leaf_ref(UInt32(right_child))
-        leaf_parent.unsafe_get(right_child) = UInt32(i)
+        right_encoded = encode_leaf_ref(UInt32(leaf_begin + right_child))
+        leaf_parent.unsafe_get(leaf_begin + right_child) = UInt32(i)
     else:
-        node_meta.unsafe_get(_node_parent_index(UInt32(right_child))) = UInt32(
-            i
-        )
+        node_meta.unsafe_get(
+            _node_parent_index(UInt32(internal_begin + right_child))
+        ) = UInt32(i)
 
     var base = i * BinaryBvhNode.META_STRIDE
     node_meta.unsafe_get(base + BinaryBvhNode.LEFT) = left_encoded
     node_meta.unsafe_get(base + BinaryBvhNode.RIGHT) = right_encoded
-    node_meta.unsafe_get(base + BinaryBvhNode.FENCE) = UInt32(last)
+    node_meta.unsafe_get(base + BinaryBvhNode.FENCE) = UInt32(leaf_begin + last)
 
 
 def build_binary_bvh_with_lbvh(
@@ -265,14 +357,7 @@ def build_binary_bvh_with_lbvh(
 
     # morton codes
 
-    ctx.enqueue_function[compute_bounds_morton_codes_kernel](
-        _device_span[mut=False](binary.leaf_bounds),
-        _device_span[mut=False](binary.bounds_device),
-        _device_span[mut=True](topology.morton_keys),
-        _device_span[mut=True](binary.leaf_ids),
-        grid_dim=binary.blocks_leaves(),
-        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-    )
+    enqueue_segmented_morton_codes(ctx, binary, workspace)
     if measure_stages:
         ctx.synchronize()
         var stage_end = perf_counter_ns()
@@ -280,13 +365,7 @@ def build_binary_bvh_with_lbvh(
         stage_start = stage_end
 
     # sort by morton codes
-    device_radix_sort_pairs[DType.uint32, DType.uint32](
-        ctx,
-        workspace.sort,
-        topology.morton_keys,
-        binary.leaf_ids,
-        binary.leaf_count,
-    )
+    enqueue_segmented_morton_sort(ctx, binary, workspace)
 
     if measure_stages:
         ctx.synchronize()
@@ -294,16 +373,29 @@ def build_binary_bvh_with_lbvh(
         timings.sort_ns = Int(stage_end - stage_start)
         stage_start = stage_end
 
+    ctx.enqueue_function[init_segmented_lbvh_roots_kernel](
+        _device_span[mut=False](binary.segment_offsets),
+        _device_span[mut=False](binary.internal_segment_offsets),
+        _device_span[mut=True](binary.roots),
+        _device_span[mut=True](topology.leaf_parent),
+        grid_dim=(
+            binary.segments.segment_count() + GPU_BOUNDS_BVH_BLOCK_SIZE - 1
+        )
+        // GPU_BOUNDS_BVH_BLOCK_SIZE,
+        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+    )
+
     # merge nodes
     if binary.internal_count > 0:
         ctx.enqueue_function[build_lbvh_topology_kernel](
             _device_span[mut=False](topology.morton_keys),
+            _device_span[mut=False](binary.segment_offsets),
+            _device_span[mut=False](binary.internal_segment_offsets),
             _device_span[mut=True](binary.node_meta),
             _device_span[mut=True](topology.leaf_parent),
             _device_span[mut=True](binary.node_bounds),
             _device_span[mut=True](topology.node_flags),
             _device_span[mut=True](binary.node_leaf_counts),
-            Int32(binary.leaf_count),
             grid_dim=binary.blocks_internal(),
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )

@@ -9,7 +9,11 @@ from bajo.core import (
     Rayf32,
 )
 from bajo.core.intersect import intersect_ray_aabb_rcp
-from bajo.bvh.types import Hit, Instance, TypedBvh
+from bajo.bvh.types import CpuBlasSet, Hit, Instance, TypedBvh
+from bajo.bvh.cpu.blas_set import (
+    trace_sphere_blas_set,
+    trace_triangle_blas_set,
+)
 from bajo.bvh.constants import TRACE, EMPTY_LANE
 from bajo.bvh.tlas_common import (
     finalize_tlas_hit_normal,
@@ -261,3 +265,109 @@ struct Tlas[
                 finalize_tlas_hit_normal(hit, hot_inst.inv_transform)
 
         return hit
+
+    def _trace_packed_blases[
+        blas_node_width: SIMDLength,
+        blas_leaf_width: SIMDLength,
+        mode: TRACE,
+        triangle: Bool,
+    ](
+        self,
+        ray: Rayf32[Frame.WORLD],
+        blases: CpuBlasSet[blas_node_width, blas_leaf_width],
+    ) -> Hit[Frame.WORLD]:
+        """Shared TLAS traversal for descriptor-backed CPU BLAS sets."""
+
+        def leaf_fn(
+            ray: Rayf32[Frame.WORLD],
+            O: Point3[DType.float32, Frame.WORLD, Self.leaf_width],
+            D: Vec3[DType.float32, Frame.WORLD, Self.leaf_width],
+            _ray_a: SIMD[DType.float32, Self.leaf_width],
+            _ray_inv_a: SIMD[DType.float32, Self.leaf_width],
+            leaf_block_idx: UInt32,
+            mut hit: Hit[Frame.WORLD],
+        ) {imm} -> Bool:
+            ref block = self.leaf_blocks.unsafe_get(Int(leaf_block_idx))
+            var candidate_mask = block.inst_indices.ne(EMPTY_LANE)
+            var candidate_t = SIMD[DType.float32, Self.leaf_width](0.0)
+            comptime if Self.leaf_width > 1:
+                var bounds_hit = intersect_ray_aabb_rcp(
+                    O, D, block.bounds, hit.t
+                )
+                candidate_mask &= bounds_hit.mask
+                candidate_t = bounds_hit.t
+
+            var any_hit = False
+            comptime for lane in range(Self.leaf_width):
+                var inst_idx = block.inst_indices[lane]
+                var visit_candidate = candidate_mask[lane]
+                comptime if Self.leaf_width > 1:
+                    visit_candidate &= candidate_t[lane] <= hit.t
+                if visit_candidate:
+                    ref hot_inst = self.hot_instances.unsafe_get(Int(inst_idx))
+                    var local_ray = hot_inst.inv_transform.ray(ray, hit.t)
+                    var local_hit: Hit[Frame.LOCAL]
+                    comptime if triangle:
+                        local_hit = trace_triangle_blas_set[
+                            blas_node_width, blas_leaf_width, mode
+                        ](blases, hot_inst.blas_idx, local_ray)
+                    else:
+                        local_hit = trace_sphere_blas_set[
+                            blas_node_width, blas_leaf_width, mode
+                        ](blases, hot_inst.blas_idx, local_ray)
+
+                    comptime if mode == TRACE.ANY_HIT:
+                        if local_hit.is_occluded():
+                            return True
+                    else:
+                        if promote_tlas_local_hit(local_hit, inst_idx, hit):
+                            any_hit = True
+            return any_hit
+
+        var hit: Hit[Frame.WORLD]
+        comptime if Self.leaf_width == 1:
+            hit = trace_bounds_bvh[
+                frame=Frame.WORLD,
+                bounds_width=Self.bounds_width,
+                leaf_width=Self.leaf_width,
+                mode=mode,
+            ](self.tree, ray, leaf_fn)
+        else:
+            hit = trace_bounds_bvh_leaf_rcp[
+                frame=Frame.WORLD,
+                bounds_width=Self.bounds_width,
+                leaf_width=Self.leaf_width,
+                mode=mode,
+            ](self.tree, ray, leaf_fn)
+
+        comptime if mode == TRACE.CLOSEST_HIT:
+            if hit.is_hit():
+                ref hot_inst = self.hot_instances.unsafe_get(Int(hit.inst))
+                finalize_tlas_hit_normal(hit, hot_inst.inv_transform)
+        return hit
+
+    def trace_triangle_blases[
+        blas_node_width: SIMDLength,
+        blas_leaf_width: SIMDLength = blas_node_width,
+        mode: TRACE = TRACE.CLOSEST_HIT,
+    ](
+        self,
+        ray: Rayf32[Frame.WORLD],
+        blases: CpuBlasSet[blas_node_width, blas_leaf_width],
+    ) -> Hit[Frame.WORLD]:
+        return self._trace_packed_blases[
+            blas_node_width, blas_leaf_width, mode, True
+        ](ray, blases)
+
+    def trace_sphere_blases[
+        blas_node_width: SIMDLength,
+        blas_leaf_width: SIMDLength = blas_node_width,
+        mode: TRACE = TRACE.CLOSEST_HIT,
+    ](
+        self,
+        ray: Rayf32[Frame.WORLD],
+        blases: CpuBlasSet[blas_node_width, blas_leaf_width],
+    ) -> Hit[Frame.WORLD]:
+        return self._trace_packed_blases[
+            blas_node_width, blas_leaf_width, mode, False
+        ](ray, blases)

@@ -11,7 +11,9 @@ from bajo.bvh.constants import (
     f32_max,
 )
 from bajo.bvh.gpu.wide_layout import _wide_node_base
-from bajo.bvh.gpu.wide_meta import (
+from bajo.bvh.gpu.builder.binary_layout import _segment_for_item
+from bajo.bvh.gpu.utils import _device_span
+from bajo.bvh.wide_meta import (
     _wide_meta_count,
     _wide_meta_data,
 )
@@ -79,7 +81,7 @@ def _unary_triangle_count(count: UInt32) -> UInt32:
     return ((1 << count) - 1) << 5
 
 
-def encode_cwbvh8_nodes_kernel[
+def _encode_cwbvh8_node[
     leaf_width: SIMDLength,
 ](
     wide_nodes: Pointer[Float32, ImmutAnyOrigin],
@@ -87,14 +89,9 @@ def encode_cwbvh8_nodes_kernel[
     cwbvh_nodes: Pointer[Float32, MutAnyOrigin],
     compact_primitive_ids: Pointer[UInt32, MutAnyOrigin],
     triangle_counter: Pointer[UInt32, MutAnyOrigin],
-    node_count: Int32,
-    cwbvh_node_word_offset: Int32,
+    node_idx_i: Int,
 ):
     comptime assert leaf_width == CWBVH_LEAF_STORAGE_WIDTH
-    var node_idx_i = global_idx.x
-    if node_idx_i >= Int(node_count):
-        return
-
     var node_idx = UInt32(node_idx_i)
     var lo_x = f32_max
     var lo_y = f32_max
@@ -168,7 +165,7 @@ def encode_cwbvh8_nodes_kernel[
         exponent_z += 1
         scale_z = _scale_from_exponent(exponent_z)
 
-    var base = Int(cwbvh_node_word_offset) + node_idx_i * CWBVH_NODE_WORDS
+    var base = node_idx_i * CWBVH_NODE_WORDS
     cwbvh_nodes[unsafe_offset=base + CWBVH_PX] = lo_x
     cwbvh_nodes[unsafe_offset=base + CWBVH_PY] = lo_y
     cwbvh_nodes[unsafe_offset=base + CWBVH_PZ] = lo_z
@@ -262,24 +259,69 @@ def encode_cwbvh8_nodes_kernel[
             ] = packed
 
 
-def pack_cwbvh_triangles_kernel(
+def encode_segmented_cwbvh8_nodes_kernel[
+    leaf_width: SIMDLength,
+](
+    wide_nodes: Pointer[Float32, ImmutAnyOrigin],
+    leaf_block_indices: Pointer[UInt32, ImmutAnyOrigin],
+    node_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
+    leaf_block_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
+    primitive_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
+    node_counts: Pointer[UInt32, ImmutAnyOrigin],
+    cwbvh_nodes: Pointer[Float32, MutAnyOrigin],
+    compact_primitive_ids: Pointer[UInt32, MutAnyOrigin],
+    triangle_counters: Pointer[UInt32, MutAnyOrigin],
+):
+    """Encode packed wide segments while retaining local CWBVH indices."""
+    comptime assert leaf_width == CWBVH_LEAF_STORAGE_WIDTH
+    var physical_node = global_idx.x
+    var node_capacity = Int(
+        node_segment_offsets.unsafe_get(len(node_segment_offsets) - 1)
+    )
+    if physical_node >= node_capacity:
+        return
+
+    var segment_idx = _segment_for_item(node_segment_offsets, physical_node)
+    var node_begin = Int(node_segment_offsets.unsafe_get(segment_idx))
+    var local_node = physical_node - node_begin
+    if local_node >= Int(node_counts[unsafe_offset=segment_idx]):
+        return
+
+    var leaf_block_begin = Int(
+        leaf_block_segment_offsets.unsafe_get(segment_idx)
+    )
+    var primitive_begin = Int(primitive_segment_offsets.unsafe_get(segment_idx))
+    _encode_cwbvh8_node[leaf_width](
+        wide_nodes.unsafe_offset(
+            node_begin * CWBVH_WIDTH * WideNode.CHILD_STRIDE
+        ),
+        leaf_block_indices.unsafe_offset(leaf_block_begin * leaf_width),
+        cwbvh_nodes.unsafe_offset(node_begin * CWBVH_NODE_WORDS),
+        compact_primitive_ids.unsafe_offset(primitive_begin),
+        triangle_counters.unsafe_offset(segment_idx),
+        local_node,
+    )
+
+
+def pack_segmented_cwbvh_triangles_kernel(
     vertices: Pointer[Float32, ImmutAnyOrigin],
     primitive_ids: Pointer[UInt32, ImmutAnyOrigin],
+    primitive_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
     triangles: Pointer[Float32, MutAnyOrigin],
     triangle_count: Int32,
-    triangle_word_offset: Int32,
 ):
     var triangle_idx = global_idx.x
     if triangle_idx >= Int(triangle_count):
         return
 
+    var segment_idx = _segment_for_item(primitive_segment_offsets, triangle_idx)
+    var primitive_begin = Int(primitive_segment_offsets.unsafe_get(segment_idx))
     var prim = primitive_ids[unsafe_offset=triangle_idx]
     var src = Int(prim) * 9
-    var dst = Int(triangle_word_offset) + triangle_idx * CWBVH_TRIANGLE_WORDS
+    var dst = triangle_idx * CWBVH_TRIANGLE_WORDS
     var v0x = vertices[unsafe_offset=src + 0]
     var v0y = vertices[unsafe_offset=src + 1]
     var v0z = vertices[unsafe_offset=src + 2]
-    # Native CWBVH triangle layout: e1, e2, v0 as three aligned float4s.
     triangles[unsafe_offset=dst + 0] = vertices[unsafe_offset=src + 3] - v0x
     triangles[unsafe_offset=dst + 1] = vertices[unsafe_offset=src + 4] - v0y
     triangles[unsafe_offset=dst + 2] = vertices[unsafe_offset=src + 5] - v0z
@@ -291,47 +333,60 @@ def pack_cwbvh_triangles_kernel(
     triangles[unsafe_offset=dst + 8] = v0x
     triangles[unsafe_offset=dst + 9] = v0y
     triangles[unsafe_offset=dst + 10] = v0z
-    triangles.unsafe_bitcast[UInt32]()[unsafe_offset=dst + 11] = prim
+    triangles.unsafe_bitcast[UInt32]()[unsafe_offset=dst + 11] = prim - UInt32(
+        primitive_begin
+    )
 
 
-def build_cwbvh8_representation[
+def enqueue_segmented_cwbvh8_representation[
     leaf_width: SIMDLength,
 ](
     mut ctx: DeviceContext,
     wide_nodes: DeviceBuffer[DType.float32],
     leaf_block_indices: DeviceBuffer[DType.uint32],
+    node_segment_offsets: DeviceBuffer[DType.uint32],
+    leaf_block_segment_offsets: DeviceBuffer[DType.uint32],
+    primitive_segment_offsets: DeviceBuffer[DType.uint32],
+    node_counts: DeviceBuffer[DType.uint32],
     vertices: DeviceBuffer[DType.float32],
     cwbvh_nodes: DeviceBuffer[DType.float32],
     triangles: DeviceBuffer[DType.float32],
-    node_count: Int,
-    triangle_count: Int,
-    cwbvh_node_word_offset: Int = 0,
-    triangle_word_offset: Int = 0,
-) raises:
+) raises -> DeviceBuffer[DType.uint32]:
+    """Queue one CWBVH8 encoding and triangle pack for all segments."""
     comptime assert leaf_width == CWBVH_LEAF_STORAGE_WIDTH
-    var primitive_ids = ctx.enqueue_create_buffer[DType.uint32](triangle_count)
-    var triangle_counter = ctx.enqueue_create_buffer[DType.uint32](1)
-    ctx.enqueue_memset(triangle_counter, 0)
-    ctx.enqueue_function[encode_cwbvh8_nodes_kernel[leaf_width]](
+    var segment_count = len(primitive_segment_offsets) - 1
+    var node_capacity = len(cwbvh_nodes) / CWBVH_NODE_WORDS
+    var triangle_count = len(triangles) / CWBVH_TRIANGLE_WORDS
+    var compact_primitive_ids = ctx.enqueue_create_buffer[DType.uint32](
+        triangle_count
+    )
+    var triangle_counters = ctx.enqueue_create_buffer[DType.uint32](
+        segment_count
+    )
+    ctx.enqueue_memset(triangle_counters, 0)
+    ctx.enqueue_function[encode_segmented_cwbvh8_nodes_kernel[leaf_width]](
         wide_nodes,
         leaf_block_indices,
+        _device_span[mut=False](node_segment_offsets),
+        _device_span[mut=False](leaf_block_segment_offsets),
+        _device_span[mut=False](primitive_segment_offsets),
+        node_counts,
         cwbvh_nodes,
-        primitive_ids,
-        triangle_counter,
-        Int32(node_count),
-        Int32(cwbvh_node_word_offset),
-        grid_dim=ceildiv(node_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
+        compact_primitive_ids,
+        triangle_counters,
+        grid_dim=ceildiv(node_capacity, GPU_BOUNDS_BVH_BLOCK_SIZE),
         block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
     )
-    ctx.enqueue_function[pack_cwbvh_triangles_kernel](
+    ctx.enqueue_function[pack_segmented_cwbvh_triangles_kernel](
         vertices,
-        primitive_ids,
+        compact_primitive_ids,
+        _device_span[mut=False](primitive_segment_offsets),
         triangles,
         Int32(triangle_count),
-        Int32(triangle_word_offset),
         grid_dim=ceildiv(triangle_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
         block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
     )
+    return triangle_counters^
 
 
 @fieldwise_init

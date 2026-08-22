@@ -5,7 +5,7 @@ from bajo.bvh.constants import (
 )
 from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvh, _wide_node_base
 from bajo.bvh.gpu.builder.binary_layout import GpuBinaryBoundsBvh
-from bajo.bvh.gpu.wide_meta import _wide_meta_count, _wide_meta_data
+from bajo.bvh.wide_meta import _wide_meta_count, _wide_meta_data
 from bajo.core import AABB, Frame
 
 

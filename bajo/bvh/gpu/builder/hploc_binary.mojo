@@ -8,9 +8,11 @@ from bajo.bvh.gpu.builder.binary_layout import (
 )
 from bajo.bvh.gpu.builder.hploc_layout import HPLOC_STATUS_OK
 from bajo.bvh.gpu.builder.hploc_multi_wave import GpuHplocBuildState
-from bajo.bvh.gpu.builder.lbvh import compute_bounds_morton_codes_kernel
+from bajo.bvh.gpu.builder.lbvh import (
+    enqueue_segmented_morton_codes,
+    enqueue_segmented_morton_sort,
+)
 from bajo.bvh.gpu.utils import GpuBuildTimings, _device_span
-from bajo.sort.gpu.radix_sort import device_radix_sort_pairs
 
 
 def enqueue_binary_bvh_with_hploc(
@@ -20,32 +22,25 @@ def enqueue_binary_bvh_with_hploc(
 ) raises -> GpuHplocBuildState[]:
     """Queue H-PLOC without synchronizing or reading completion status."""
     ref topology = workspace.topology.value()
-    ctx.enqueue_function[compute_bounds_morton_codes_kernel](
-        _device_span[mut=False](binary.leaf_bounds),
-        _device_span[mut=False](binary.bounds_device),
-        _device_span[mut=True](topology.morton_keys),
-        _device_span[mut=True](binary.leaf_ids),
-        grid_dim=binary.blocks_leaves(),
-        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-    )
-    device_radix_sort_pairs[DType.uint32, DType.uint32](
-        ctx,
-        workspace.sort,
-        topology.morton_keys,
-        binary.leaf_ids,
-        binary.leaf_count,
-    )
-    return GpuHplocBuildState[](
+    enqueue_segmented_morton_codes(ctx, binary, workspace)
+    enqueue_segmented_morton_sort(ctx, binary, workspace)
+    var hploc = GpuHplocBuildState[](
         ctx,
         binary.leaf_bounds.copy(),
         topology.morton_keys.copy(),
         binary.leaf_ids.copy(),
+        binary.segments.copy(),
+        binary.segment_offsets.copy(),
+        binary.internal_segments.copy(),
+        binary.internal_segment_offsets.copy(),
         binary.node_meta.copy(),
         topology.leaf_parent.copy(),
         binary.node_bounds.copy(),
         topology.node_flags.copy(),
         binary.node_leaf_counts.copy(),
     )
+    binary.roots = hploc.root.copy()
+    return hploc^
 
 
 def build_binary_bvh_with_hploc(
@@ -63,27 +58,14 @@ def build_binary_bvh_with_hploc(
         ctx.synchronize()
         stage_start = perf_counter_ns()
 
-    ctx.enqueue_function[compute_bounds_morton_codes_kernel](
-        _device_span[mut=False](binary.leaf_bounds),
-        _device_span[mut=False](binary.bounds_device),
-        _device_span[mut=True](topology.morton_keys),
-        _device_span[mut=True](binary.leaf_ids),
-        grid_dim=binary.blocks_leaves(),
-        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-    )
+    enqueue_segmented_morton_codes(ctx, binary, workspace)
     if measure_stages:
         ctx.synchronize()
         var stage_end = perf_counter_ns()
         timings.morton_ns = Int(stage_end - stage_start)
         stage_start = stage_end
 
-    device_radix_sort_pairs[DType.uint32, DType.uint32](
-        ctx,
-        workspace.sort,
-        topology.morton_keys,
-        binary.leaf_ids,
-        binary.leaf_count,
-    )
+    enqueue_segmented_morton_sort(ctx, binary, workspace)
     if measure_stages:
         ctx.synchronize()
         var stage_end = perf_counter_ns()
@@ -95,12 +77,17 @@ def build_binary_bvh_with_hploc(
         binary.leaf_bounds.copy(),
         topology.morton_keys.copy(),
         binary.leaf_ids.copy(),
+        binary.segments.copy(),
+        binary.segment_offsets.copy(),
+        binary.internal_segments.copy(),
+        binary.internal_segment_offsets.copy(),
         binary.node_meta.copy(),
         topology.leaf_parent.copy(),
         binary.node_bounds.copy(),
         topology.node_flags.copy(),
         binary.node_leaf_counts.copy(),
     )
+    binary.roots = hploc.root.copy()
 
     # Keep construction scratch alive until the direct production writes finish
     # and turn a device-side failure into a normal raising API boundary.

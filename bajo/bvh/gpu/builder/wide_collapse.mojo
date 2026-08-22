@@ -1,5 +1,5 @@
 from std.atomic import Atomic, Ordering
-from std.gpu import global_idx, thread_idx
+from std.gpu import block_idx, global_idx, thread_idx
 from std.math import ceildiv, max, min
 from std.memory import stack_allocation
 from max.gpu.host import DeviceBuffer, DeviceContext
@@ -15,19 +15,20 @@ from bajo.bvh.constants import (
     f32_max,
 )
 from bajo.bvh.gpu.wide_layout import (
-    GpuWideBoundsBvh,
+    GpuWideBoundsBvhBatch,
     _wide_node_store_child,
 )
 from bajo.bvh.gpu.builder.binary_layout import (
     GpuBinaryBoundsBvh,
     _encoded_bounds,
     _node_left,
-    _node_parent_index,
     _node_right,
+    _segment_for_item,
 )
 from bajo.bvh.tagged_ref import decode_ref_index, is_leaf_ref
-from bajo.bvh.gpu.wide_meta import _pack_wide_meta
-from bajo.core import AABB, Frame
+from bajo.bvh.wide_meta import _pack_wide_meta
+from bajo.bvh.gpu.utils import _device_span, upload_list
+from bajo.core import AABB, Frame, SegmentOffsets
 
 
 comptime HPLOC_WIDE_STATUS_OK = UInt32(0)
@@ -104,81 +105,44 @@ def _write_hploc_terminal_leaf_block[
 
 
 def init_hploc_literature_wide_kernel(
-    node_meta: Pointer[UInt32, MutAnyOrigin],
-    index_pairs: Pointer[UInt64, MutAnyOrigin],
-    work_alloc_counter: Pointer[UInt32, MutAnyOrigin],
-    work_group_counter: Pointer[UInt32, MutAnyOrigin],
-    leaf_block_counter: Pointer[UInt32, MutAnyOrigin],
-    wide_node_counter: Pointer[UInt32, MutAnyOrigin],
-    status: Pointer[UInt32, MutAnyOrigin],
-    internal_count: Int32,
-    slot_count: Int32,
+    segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
+    index_pairs: MutSpan[UInt64, MutAnyOrigin],
+    work_alloc_counter: MutSpan[UInt32, MutAnyOrigin],
+    work_group_counter: MutSpan[UInt32, MutAnyOrigin],
+    leaf_block_counter: MutSpan[UInt32, MutAnyOrigin],
+    wide_node_counter: MutSpan[UInt32, MutAnyOrigin],
+    status: MutSpan[UInt32, MutAnyOrigin],
 ):
     var i = global_idx.x
-    var internal_count_int = Int(internal_count)
-    var slot_count_int = Int(slot_count)
-    # Slot zero is exclusively published by the thread that finds the root.
-    # Clearing it here as well would race that publication across the grid.
-    if i > 0 and i < slot_count_int:
-        index_pairs[unsafe_offset=i] = UInt64.MAX
-
-    if i == 0:
-        work_alloc_counter[unsafe_offset=0] = UInt32(1)
-        work_group_counter[unsafe_offset=0] = UInt32(0)
-        leaf_block_counter[unsafe_offset=0] = UInt32(0)
-        wide_node_counter[unsafe_offset=0] = UInt32(1)
-        status[unsafe_offset=0] = HPLOC_WIDE_STATUS_OK
-
-    if i >= internal_count_int:
-        return
-    var node_idx = UInt32(i)
-    if node_meta[unsafe_offset=_node_parent_index(node_idx)] == LBVH_SENTINEL:
-        index_pairs[unsafe_offset=0] = _pack_hploc_wide_pair(
-            node_idx, UInt32(0)
-        )
+    if i < len(index_pairs):
+        index_pairs.unsafe_get(i) = UInt64.MAX
+    if i < len(segment_offsets) - 1:
+        var leaf_count = segment_offsets.unsafe_get(
+            i + 1
+        ) - segment_offsets.unsafe_get(i)
+        work_alloc_counter.unsafe_get(i) = UInt32(1)
+        work_group_counter.unsafe_get(i) = UInt32(0)
+        leaf_block_counter.unsafe_get(i) = UInt32(0)
+        wide_node_counter.unsafe_get(i) = UInt32(
+            1
+        ) if leaf_count > 0 else UInt32(0)
+        status.unsafe_get(i) = HPLOC_WIDE_STATUS_OK
 
 
-def hploc_literature_wide_single_leaf_kernel[
-    node_width: SIMDLength,
-    leaf_width: SIMDLength,
-](
-    leaf_bounds: Pointer[Float32, ImmutAnyOrigin],
-    leaf_payloads: Pointer[UInt32, ImmutAnyOrigin],
-    leaf_ids: Pointer[UInt32, ImmutAnyOrigin],
-    wide_nodes: Pointer[Float32, MutAnyOrigin],
-    leaf_block_indices: Pointer[UInt32, MutAnyOrigin],
-    leaf_block_counter: Pointer[UInt32, MutAnyOrigin],
+def publish_hploc_literature_wide_roots_kernel(
+    roots: ImmSpan[UInt32, ImmutAnyOrigin],
+    segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
+    index_pairs: MutSpan[UInt64, MutAnyOrigin],
 ):
-    if global_idx.x != 0:
+    var segment_idx = global_idx.x
+    if segment_idx >= len(roots):
         return
-    var item_idx = leaf_ids[unsafe_offset=0]
-    var bounds_span = Span(unsafe_ptr=leaf_bounds, length=AABB.STRIDE)
-    var bounds = AABB[Frame.WORLD].load6(
-        bounds_span, Int(item_idx) * AABB.STRIDE
+    var work_base = Int(segment_offsets.unsafe_get(segment_idx))
+    if segment_offsets.unsafe_get(segment_idx + 1) == UInt32(work_base):
+        return
+    index_pairs.unsafe_get(work_base) = _pack_hploc_wide_pair(
+        roots.unsafe_get(segment_idx), UInt32(0)
     )
-    _wide_node_store_child[node_width](
-        wide_nodes,
-        UInt32(0),
-        0,
-        bounds,
-        _pack_wide_meta(UInt32(0), UInt32(1)),
-    )
-    comptime for lane in range(1, node_width):
-        _wide_node_store_child[node_width](
-            wide_nodes,
-            UInt32(0),
-            lane,
-            AABB[Frame.WORLD].invalid(),
-            _pack_wide_meta(UInt32(0), EMPTY_LANE),
-        )
-
-    leaf_block_indices.unsafe_offset(0).unsafe_store[width=leaf_width](
-        EMPTY_LANE
-    )
-    leaf_block_indices[unsafe_offset=0] = leaf_payloads[
-        unsafe_offset=Int(item_idx)
-    ]
-    leaf_block_counter[unsafe_offset=0] = UInt32(1)
 
 
 def hploc_literature_to_wide_kernel[
@@ -195,24 +159,57 @@ def hploc_literature_to_wide_kernel[
     node_meta: Pointer[UInt32, MutAnyOrigin],
     node_bounds: Pointer[Float32, MutAnyOrigin],
     node_leaf_counts: Pointer[UInt32, MutAnyOrigin],
-    index_pairs: Pointer[UInt64, MutAnyOrigin],
-    work_alloc_counter: Pointer[UInt32, MutAnyOrigin],
-    work_group_counter: Pointer[UInt32, MutAnyOrigin],
-    leaf_block_counter: Pointer[UInt32, MutAnyOrigin],
-    wide_node_counter: Pointer[UInt32, MutAnyOrigin],
-    status: Pointer[UInt32, MutAnyOrigin],
-    wide_nodes: Pointer[Float32, MutAnyOrigin],
-    leaf_block_indices: Pointer[UInt32, MutAnyOrigin],
-    leaf_count: Int32,
-    max_wide_nodes: Int32,
-    max_leaf_blocks: Int32,
+    segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
+    internal_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
+    block_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
+    node_output_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
+    leaf_output_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
+    all_index_pairs: Pointer[UInt64, MutAnyOrigin],
+    all_work_alloc_counters: Pointer[UInt32, MutAnyOrigin],
+    all_work_group_counters: Pointer[UInt32, MutAnyOrigin],
+    all_leaf_block_counters: Pointer[UInt32, MutAnyOrigin],
+    all_wide_node_counters: Pointer[UInt32, MutAnyOrigin],
+    all_status: Pointer[UInt32, MutAnyOrigin],
+    all_wide_nodes: Pointer[Float32, MutAnyOrigin],
+    all_leaf_block_indices: Pointer[UInt32, MutAnyOrigin],
 ):
-    """Paper §3.4: single-dispatch top-down BVH2-to-N-wide conversion."""
+    """Paper §3.4 for every segment in one top-down GPU dispatch."""
 
     comptime assert block_size == GPU_BOUNDS_BVH_BLOCK_SIZE
     comptime if spatial_slots:
         comptime assert node_width == 8
     comptime fat_leaf_limit = min(max_leaf_size, 4)
+    var physical_block = block_idx.x
+    var segment_idx = _segment_for_item(block_segment_offsets, physical_block)
+    var leaf_begin = Int(segment_offsets.unsafe_get(segment_idx))
+    var leaf_end = Int(segment_offsets.unsafe_get(segment_idx + 1))
+    var leaf_count_int = leaf_end - leaf_begin
+    var internal_count = Int(
+        internal_segment_offsets.unsafe_get(len(internal_segment_offsets) - 1)
+    )
+    var total_leaf_count = Int(
+        segment_offsets.unsafe_get(len(segment_offsets) - 1)
+    )
+    var node_output_base = Int(node_output_offsets.unsafe_get(segment_idx))
+    var leaf_output_base = Int(leaf_output_offsets.unsafe_get(segment_idx))
+    var max_wide_nodes_int = (
+        Int(node_output_offsets.unsafe_get(segment_idx + 1)) - node_output_base
+    )
+    var max_leaf_blocks_int = (
+        Int(leaf_output_offsets.unsafe_get(segment_idx + 1)) - leaf_output_base
+    )
+    var index_pairs = all_index_pairs.unsafe_offset(leaf_begin)
+    var work_alloc_counter = all_work_alloc_counters.unsafe_offset(segment_idx)
+    var work_group_counter = all_work_group_counters.unsafe_offset(segment_idx)
+    var leaf_block_counter = all_leaf_block_counters.unsafe_offset(segment_idx)
+    var wide_node_counter = all_wide_node_counters.unsafe_offset(segment_idx)
+    var status = all_status.unsafe_offset(segment_idx)
+    var wide_nodes = all_wide_nodes.unsafe_offset(
+        node_output_base * node_width * WideNode.CHILD_STRIDE
+    )
+    var leaf_block_indices = all_leaf_block_indices.unsafe_offset(
+        leaf_output_base * leaf_width
+    )
     var logical_block = stack_allocation[
         1, UInt32, address_space=AddressSpace.SHARED
     ]()
@@ -222,24 +219,20 @@ def hploc_literature_to_wide_kernel[
         ](work_group_counter, UInt32(1))
     barrier()
 
-    var leaf_count_int = Int(leaf_count)
     var work_id = (
         Int(logical_block[unsafe_offset=0]) * block_size + thread_idx.x
     )
     if work_id >= leaf_count_int:
         return
 
-    var internal_count = leaf_count_int - 1
     var leaf_bounds_span = Span(
-        unsafe_ptr=leaf_bounds, length=leaf_count_int * AABB.STRIDE
+        unsafe_ptr=leaf_bounds, length=total_leaf_count * AABB.STRIDE
     )
-    var leaf_ids_span = Span(unsafe_ptr=leaf_ids, length=leaf_count_int)
+    var leaf_ids_span = Span(unsafe_ptr=leaf_ids, length=total_leaf_count)
     var node_bounds_span = Span(
         unsafe_ptr=node_bounds,
         length=max(internal_count, 1) * BinaryBvhNode.BOUNDS_STRIDE,
     )
-    var max_wide_nodes_int = Int(max_wide_nodes)
-    var max_leaf_blocks_int = Int(max_leaf_blocks)
     var failsafe = 10000000
 
     while True:
@@ -653,8 +646,7 @@ def hploc_literature_to_wide_kernel[
 struct GpuWideCollapseState:
     """Owns device work queues until asynchronous wide conversion completes."""
 
-    var source_leaf_count: Int
-    var single_leaf: Bool
+    var segments: SegmentOffsets
     var index_pairs: DeviceBuffer[DType.uint64]
     var work_alloc_counter: DeviceBuffer[DType.uint32]
     var work_group_counter: DeviceBuffer[DType.uint32]
@@ -662,87 +654,107 @@ struct GpuWideCollapseState:
     var wide_node_counter: DeviceBuffer[DType.uint32]
     var status: DeviceBuffer[DType.uint32]
 
-    def finish_synchronized[
+    def finish_batch_synchronized[
         node_width: SIMDLength,
         leaf_width: SIMDLength,
         max_leaf_size: Int,
     ](
         self,
-        mut out: GpuWideBoundsBvh[node_width, leaf_width, max_leaf_size],
+        tree: GpuWideBoundsBvhBatch[node_width, leaf_width, max_leaf_size],
         fat_leaves: Bool,
     ) raises:
-        """Read completion state after the owning context has synchronized."""
-        if self.single_leaf:
-            out.root_idx = UInt32(0)
-            out.node_count = 1
-            out.leaf_block_count = 1
-            return
-
         with self.leaf_block_counter.map_to_host() as leaves, self.wide_node_counter.map_to_host() as nodes, self.status.map_to_host() as build_status:
-            if build_status[0] != HPLOC_WIDE_STATUS_OK:
-                raise String(
-                    t"BVH2-to-wide conversion status: {build_status[0]}"
-                )
-            if fat_leaves:
-                if (
-                    Int(leaves[0]) <= 0
-                    or Int(leaves[0]) > self.source_leaf_count
-                ):
-                    raise "fat-leaf conversion emitted an invalid leaf count"
-            elif Int(leaves[0]) != self.source_leaf_count:
-                raise "§3.4 conversion did not emit one leaf per primitive"
-            out.root_idx = UInt32(0)
-            out.node_count = Int(nodes[0])
-            out.leaf_block_count = Int(leaves[0])
+            for segment_idx in range(self.segments.segment_count()):
+                if build_status[segment_idx] != HPLOC_WIDE_STATUS_OK:
+                    raise String(
+                        t"Segment {segment_idx} BVH2-to-wide status:"
+                        t" {build_status[segment_idx]}"
+                    )
+                var source_count = Int(self.segments.count(segment_idx))
+                if source_count == 0:
+                    if (
+                        Int(nodes[segment_idx]) != 0
+                        or Int(leaves[segment_idx]) != 0
+                    ):
+                        raise "empty segment emitted wide output"
+                    continue
+                if Int(nodes[segment_idx]) <= 0 or Int(
+                    nodes[segment_idx]
+                ) > Int(tree.node_segments.count(segment_idx)):
+                    raise "segmented conversion emitted an invalid node count"
+                if fat_leaves:
+                    if (
+                        Int(leaves[segment_idx]) <= 0
+                        or Int(leaves[segment_idx]) > source_count
+                    ):
+                        raise "fat-leaf conversion emitted an invalid leaf count"
+                elif Int(leaves[segment_idx]) != source_count:
+                    raise "§3.4 conversion did not emit one leaf per primitive"
 
-    def wait[
+    def wait_batch[
         node_width: SIMDLength,
         leaf_width: SIMDLength,
         max_leaf_size: Int,
     ](
         self,
         ctx: DeviceContext,
-        mut out: GpuWideBoundsBvh[node_width, leaf_width, max_leaf_size],
+        tree: GpuWideBoundsBvhBatch[node_width, leaf_width, max_leaf_size],
         fat_leaves: Bool,
     ) raises:
         ctx.synchronize()
-        self.finish_synchronized(out, fat_leaves)
+        self.finish_batch_synchronized(tree, fat_leaves)
 
 
 struct GpuWideCollapseWorkspace:
-    """Reusable queues and counters for one fixed binary leaf capacity."""
+    """Reusable queues and counters for one fixed segmented workload."""
 
     var leaf_capacity: Int
+    var segments: SegmentOffsets
+    var block_segments: SegmentOffsets
+    var block_segment_offsets: DeviceBuffer[DType.uint32]
     var index_pairs: DeviceBuffer[DType.uint64]
     var work_alloc_counter: DeviceBuffer[DType.uint32]
     var work_group_counter: DeviceBuffer[DType.uint32]
     var wide_node_counter: DeviceBuffer[DType.uint32]
     var status: DeviceBuffer[DType.uint32]
 
-    def __init__(out self, mut ctx: DeviceContext, leaf_capacity: Int) raises:
+    def __init__(
+        out self,
+        mut ctx: DeviceContext,
+        segments: SegmentOffsets,
+    ) raises:
+        var leaf_capacity = segments.item_count()
         debug_assert["safe", _use_compiler_assume=True](
             leaf_capacity > 0, "wide workspace capacity must be positive"
         )
+        var block_counts = List[Int](capacity=segments.segment_count())
+        for segment_idx in range(segments.segment_count()):
+            var leaf_count = Int(segments.count(segment_idx))
+            block_counts.append(ceildiv(leaf_count, GPU_BOUNDS_BVH_BLOCK_SIZE))
         self.leaf_capacity = leaf_capacity
+        self.segments = segments.copy()
+        self.block_segments = SegmentOffsets.from_counts(block_counts^)
+        self.block_segment_offsets = upload_list(
+            ctx, self.block_segments.offsets
+        )
         self.index_pairs = ctx.enqueue_create_buffer[DType.uint64](
             leaf_capacity
         )
-        self.work_alloc_counter = ctx.enqueue_create_buffer[DType.uint32](1)
-        self.work_group_counter = ctx.enqueue_create_buffer[DType.uint32](1)
-        self.wide_node_counter = ctx.enqueue_create_buffer[DType.uint32](1)
-        self.status = ctx.enqueue_create_buffer[DType.uint32](1)
+        self.work_alloc_counter = ctx.enqueue_create_buffer[DType.uint32](
+            segments.segment_count()
+        )
+        self.work_group_counter = ctx.enqueue_create_buffer[DType.uint32](
+            segments.segment_count()
+        )
+        self.wide_node_counter = ctx.enqueue_create_buffer[DType.uint32](
+            segments.segment_count()
+        )
+        self.status = ctx.enqueue_create_buffer[DType.uint32](
+            segments.segment_count()
+        )
 
-    def __init__(out self, other: Self):
-        """Create a shared-storage lease that keeps arena buffers alive."""
-        self.leaf_capacity = other.leaf_capacity
-        self.index_pairs = other.index_pairs.copy()
-        self.work_alloc_counter = other.work_alloc_counter.copy()
-        self.work_group_counter = other.work_group_counter.copy()
-        self.wide_node_counter = other.wide_node_counter.copy()
-        self.status = other.status.copy()
 
-
-def enqueue_collapse_binary_to_wide_with_workspace[
+def _enqueue_collapse_binary_to_packed[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
     max_leaf_size: Int,
@@ -751,65 +763,54 @@ def enqueue_collapse_binary_to_wide_with_workspace[
 ](
     mut ctx: DeviceContext,
     binary: GpuBinaryBoundsBvh,
-    mut out: GpuWideBoundsBvh[node_width, leaf_width, max_leaf_size],
+    node_segments: SegmentOffsets,
+    node_segment_offsets: DeviceBuffer[DType.uint32],
+    leaf_block_segments: SegmentOffsets,
+    leaf_block_segment_offsets: DeviceBuffer[DType.uint32],
+    wide_nodes: DeviceBuffer[DType.float32],
+    leaf_block_indices: DeviceBuffer[DType.uint32],
+    leaf_block_counter_buffer: DeviceBuffer[DType.uint32],
+    wide_node_counter_buffer: DeviceBuffer[DType.uint32],
     workspace: GpuWideCollapseWorkspace,
 ) raises -> GpuWideCollapseState:
-    """Convert any supported BVH2 using the paper's §3.4 GPU method.
-
-    The optional triangle path follows HIPRT by retaining binary subtrees of
-    at most four primitives as packed leaves. The default remains the paper's
-    one-primitive-per-leaf baseline.
-    """
-
     debug_assert["safe", _use_compiler_assume=True](
-        workspace.leaf_capacity >= binary.leaf_count,
-        "wide workspace is smaller than the input",
+        workspace.leaf_capacity == binary.leaf_count
+        and workspace.segments.segment_count()
+        == binary.segments.segment_count(),
+        "wide workspace does not match the segmented input",
     )
-    var slot_count = binary.leaf_count
+    debug_assert["safe", _use_compiler_assume=True](
+        node_segments.segment_count() == binary.segments.segment_count()
+        and leaf_block_segments.segment_count()
+        == binary.segments.segment_count(),
+        "wide output ranges do not match the segmented input",
+    )
     var index_pairs = workspace.index_pairs.copy()
     var work_alloc_counter = workspace.work_alloc_counter.copy()
     var work_group_counter = workspace.work_group_counter.copy()
-    var leaf_block_counter = out.leaf_block_count_device.copy()
-    var wide_node_counter = workspace.wide_node_counter.copy()
+    var leaf_block_counter = leaf_block_counter_buffer.copy()
+    var wide_node_counter = wide_node_counter_buffer.copy()
     var status = workspace.status.copy()
-
-    if binary.leaf_count == 1:
-        ctx.enqueue_function[
-            hploc_literature_wide_single_leaf_kernel[node_width, leaf_width]
-        ](
-            binary.leaf_bounds,
-            binary.leaf_payloads,
-            binary.leaf_ids,
-            out.wide_nodes,
-            out.leaf_block_indices,
-            leaf_block_counter,
-            grid_dim=1,
-            block_dim=1,
-        )
-        return GpuWideCollapseState(
-            slot_count,
-            True,
-            index_pairs^,
-            work_alloc_counter^,
-            work_group_counter^,
-            leaf_block_counter^,
-            wide_node_counter^,
-            status^,
-        )
-
-    var blocks = ceildiv(slot_count, GPU_BOUNDS_BVH_BLOCK_SIZE)
+    var init_items = max(binary.leaf_count, binary.segments.segment_count())
 
     ctx.enqueue_function[init_hploc_literature_wide_kernel](
-        binary.node_meta,
-        index_pairs,
-        work_alloc_counter,
-        work_group_counter,
-        leaf_block_counter,
-        wide_node_counter,
-        status,
-        Int32(binary.internal_count),
-        Int32(slot_count),
-        grid_dim=blocks,
+        _device_span[mut=False](binary.segment_offsets),
+        _device_span[mut=True](index_pairs),
+        _device_span[mut=True](work_alloc_counter),
+        _device_span[mut=True](work_group_counter),
+        _device_span[mut=True](leaf_block_counter),
+        _device_span[mut=True](wide_node_counter),
+        _device_span[mut=True](status),
+        grid_dim=ceildiv(init_items, GPU_BOUNDS_BVH_BLOCK_SIZE),
+        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+    )
+    ctx.enqueue_function[publish_hploc_literature_wide_roots_kernel](
+        _device_span[mut=False](binary.roots),
+        _device_span[mut=False](binary.segment_offsets),
+        _device_span[mut=True](index_pairs),
+        grid_dim=ceildiv(
+            binary.segments.segment_count(), GPU_BOUNDS_BVH_BLOCK_SIZE
+        ),
         block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
     )
     ctx.enqueue_function[
@@ -828,23 +829,24 @@ def enqueue_collapse_binary_to_wide_with_workspace[
         binary.node_meta,
         binary.node_bounds,
         binary.node_leaf_counts,
+        _device_span[mut=False](binary.segment_offsets),
+        _device_span[mut=False](binary.internal_segment_offsets),
+        _device_span[mut=False](workspace.block_segment_offsets),
+        _device_span[mut=False](node_segment_offsets),
+        _device_span[mut=False](leaf_block_segment_offsets),
         index_pairs,
         work_alloc_counter,
         work_group_counter,
         leaf_block_counter,
         wide_node_counter,
         status,
-        out.wide_nodes,
-        out.leaf_block_indices,
-        Int32(slot_count),
-        Int32(out.max_wide_nodes),
-        Int32(out.max_leaf_blocks),
-        grid_dim=blocks,
+        wide_nodes,
+        leaf_block_indices,
+        grid_dim=workspace.block_segments.item_count(),
         block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
     )
     return GpuWideCollapseState(
-        slot_count,
-        False,
+        binary.segments.copy(),
         index_pairs^,
         work_alloc_counter^,
         work_group_counter^,
@@ -854,7 +856,7 @@ def enqueue_collapse_binary_to_wide_with_workspace[
     )
 
 
-def enqueue_collapse_binary_to_wide[
+def enqueue_collapse_binary_to_wide_batch_with_workspace[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
     max_leaf_size: Int,
@@ -863,16 +865,45 @@ def enqueue_collapse_binary_to_wide[
 ](
     mut ctx: DeviceContext,
     binary: GpuBinaryBoundsBvh,
-    mut out: GpuWideBoundsBvh[node_width, leaf_width, max_leaf_size],
+    mut out: GpuWideBoundsBvhBatch[node_width, leaf_width, max_leaf_size],
+    workspace: GpuWideCollapseWorkspace,
 ) raises -> GpuWideCollapseState:
-    """Queue wide conversion with an internally allocated workspace."""
-    var workspace = GpuWideCollapseWorkspace(ctx, binary.leaf_count)
-    return enqueue_collapse_binary_to_wide_with_workspace[
+    out.bounds_device = binary.bounds_device.copy()
+    return _enqueue_collapse_binary_to_packed[
+        node_width, leaf_width, max_leaf_size, fat_leaves, spatial_slots
+    ](
+        ctx,
+        binary,
+        out.node_segments,
+        out.node_segment_offsets,
+        out.leaf_block_segments,
+        out.leaf_block_segment_offsets,
+        out.wide_nodes,
+        out.leaf_block_indices,
+        out.leaf_block_counts,
+        out.node_counts,
+        workspace,
+    )
+
+
+def enqueue_collapse_binary_to_wide_batch[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+    max_leaf_size: Int,
+    fat_leaves: Bool = False,
+    spatial_slots: Bool = False,
+](
+    mut ctx: DeviceContext,
+    binary: GpuBinaryBoundsBvh,
+    mut out: GpuWideBoundsBvhBatch[node_width, leaf_width, max_leaf_size],
+) raises -> GpuWideCollapseState:
+    var workspace = GpuWideCollapseWorkspace(ctx, binary.segments)
+    return enqueue_collapse_binary_to_wide_batch_with_workspace[
         node_width, leaf_width, max_leaf_size, fat_leaves, spatial_slots
     ](ctx, binary, out, workspace)
 
 
-def collapse_binary_to_wide[
+def collapse_binary_to_wide_batch[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
     max_leaf_size: Int,
@@ -881,10 +912,9 @@ def collapse_binary_to_wide[
 ](
     mut ctx: DeviceContext,
     binary: GpuBinaryBoundsBvh,
-    mut out: GpuWideBoundsBvh[node_width, leaf_width, max_leaf_size],
+    mut out: GpuWideBoundsBvhBatch[node_width, leaf_width, max_leaf_size],
 ) raises:
-    """Synchronous compatibility wrapper around queued wide conversion."""
-    var pending = enqueue_collapse_binary_to_wide[
+    var pending = enqueue_collapse_binary_to_wide_batch[
         node_width, leaf_width, max_leaf_size, fat_leaves, spatial_slots
     ](ctx, binary, out)
-    pending.wait(ctx, out, fat_leaves)
+    pending.wait_batch(ctx, out, fat_leaves)

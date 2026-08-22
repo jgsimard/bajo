@@ -3,7 +3,7 @@ from bajo.bvh.gpu.wide_layout import (
     _intersect_wide_node_precomputed,
     _intersect_wide_node_precomputed_octant,
 )
-from bajo.bvh.gpu.wide_meta import (
+from bajo.bvh.wide_meta import (
     _pack_wide_meta,
     _wide_meta_count,
     _wide_meta_data,

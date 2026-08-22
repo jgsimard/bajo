@@ -21,12 +21,12 @@ from bajo.bvh.gpu.trace import (
 )
 from bajo.bvh.gpu.triangle_bvh import _intersect_cwbvh_triangle
 from bajo.bvh.gpu.tlas import GpuTriangleTlas
-from bajo.bvh.gpu.wide_meta import _wide_meta_count, _wide_meta_data
+from bajo.bvh.wide_meta import _wide_meta_count, _wide_meta_data
 from bajo.bvh.tlas_common import (
     finalize_tlas_hit_normal,
     promote_tlas_local_hit,
 )
-from bajo.bvh.types import BlasSet, Hit
+from bajo.bvh.types import BlasDesc, GpuBlasSet, Hit
 from bajo.core import Affine3f32, Frame, Rayf32
 
 
@@ -247,33 +247,19 @@ def _trace_tlas2_leaf1_cwbvh8_with_stats(
                         var blas_idx = UInt32(
                             inst_blas_indices[unsafe_offset=Int(inst_idx)]
                         )
-                        var desc_base = Int(blas_idx) * BlasSet.STRIDE
+                        var blas_desc = BlasDesc.load(blas_descs, blas_idx)
                         var inverse = Affine3f32[Frame.WORLD, Frame.LOCAL].load(
                             inverse_span,
                             Int(inst_idx) * Affine3f32.STRIDE,
                         )
                         var local_ray = inverse.ray(ray, hit.t)
                         var local_nodes = blas_nodes.unsafe_offset(
-                            Int(
-                                blas_descs[
-                                    unsafe_offset=desc_base
-                                    + BlasSet.WIDE_NODE_BASE
-                                ]
-                            )
+                            Int(blas_desc.node_f32_base)
                         )
                         var local_leaves = blas_leaves.unsafe_offset(
-                            Int(
-                                blas_descs[
-                                    unsafe_offset=desc_base
-                                    + BlasSet.LEAF_F32_BASE
-                                ]
-                            )
+                            Int(blas_desc.leaf_f32_base)
                         )
-                        var local_root = UInt32(
-                            blas_descs[
-                                unsafe_offset=desc_base + BlasSet.ROOT_IDX
-                            ]
-                        )
+                        var local_root = blas_desc.root_idx
                         var local = _trace_cwbvh8_with_stats(
                             local_nodes,
                             local_leaves,
@@ -379,7 +365,7 @@ def launch_triangle_tlas_camera_diagnostics[
 ](
     ctx: DeviceContext,
     tlas: GpuTriangleTlas[2, blas_node_width, 1, blas_leaf_width, True],
-    blases: BlasSet[blas_node_width, blas_leaf_width],
+    blases: GpuBlasSet[blas_node_width, blas_leaf_width],
     camera_params: DeviceBuffer[DType.float32],
     hits: DeviceBuffer[DType.float32],
     stats: DeviceBuffer[DType.uint32],
@@ -397,7 +383,7 @@ def launch_triangle_tlas_camera_diagnostics[
         tlas.core.inst_inv_transform,
         tlas.core.inst_blas_indices,
         blases.descs,
-        blases.wide_nodes,
+        blases.nodes,
         blases.leaves,
         tlas.core.tree.root_idx,
         camera_params,

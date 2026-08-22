@@ -21,12 +21,14 @@ from bajo.core import (
     GeoKind,
     normalize,
     Rayf32,
+    SegmentOffsets,
 )
 from bajo.core.intersect import intersect_ray_sphere
-from bajo.bvh.types import Sphere, Hit, BlasSet
-from bajo.bvh.gpu.bounds_bvh import build_bounds_bvh
+from bajo.bvh.types import BlasDescLayout, GpuBlasSet, Hit, Sphere
 from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvh
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
+from bajo.bvh.gpu.builder.binary_layout import _segment_for_item
+from bajo.bvh.gpu.builder.segmented_build import enqueue_segmented_wide_build
 from bajo.bvh.gpu.camera_launch import (
     validate_camera_launch,
     _camera_ray,
@@ -43,81 +45,96 @@ from bajo.bvh.gpu.utils import (
 def build_sphere_blas_set[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
+    build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
 ](
     mut ctx: DeviceContext,
     sphere_sets: ImmSpan[List[Sphere[Frame.LOCAL]], _],
-) raises -> BlasSet[node_width, leaf_width]:
+) raises -> GpuBlasSet[node_width, leaf_width]:
     debug_assert["safe", _use_compiler_assume=True](len(sphere_sets) > 0)
-
-    var descs = List[UInt32](capacity=len(sphere_sets) * BlasSet.STRIDE)
-
-    var total_wide_nodes = 0
-    var total_leaf_spheres = 0
-
-    # First pass: compute final packed offsets without building/downloading.
+    var primitive_counts = List[Int](capacity=len(sphere_sets))
+    var total_sphere_count = 0
     for spheres in sphere_sets:
         var sphere_count = len(spheres)
-        debug_assert["safe", _use_compiler_assume=True](sphere_count > 0)
+        primitive_counts.append(sphere_count)
+        total_sphere_count += sphere_count
+    if total_sphere_count == 0:
+        return GpuBlasSet[node_width, leaf_width].empty(ctx, len(sphere_sets))
 
-        var internal_count = sphere_count - 1
-        var max_wide_nodes = max(internal_count, 1)
-        var max_leaf_blocks = max(sphere_count, 1)
+    var flat_spheres = List[Float32](
+        capacity=total_sphere_count * Sphere.STRIDE
+    )
+    var leaf_bounds = List[Float32](
+        capacity=total_sphere_count * AABB[Frame.LOCAL].STRIDE
+    )
+    var payloads = List[UInt32](capacity=total_sphere_count)
+    for spheres in sphere_sets:
+        for sphere in spheres:
+            flat_spheres.append(sphere.center.x)
+            flat_spheres.append(sphere.center.y)
+            flat_spheres.append(sphere.center.z)
+            flat_spheres.append(sphere.radius)
+            leaf_bounds.append(sphere.center.x - sphere.radius)
+            leaf_bounds.append(sphere.center.y - sphere.radius)
+            leaf_bounds.append(sphere.center.z - sphere.radius)
+            leaf_bounds.append(sphere.center.x + sphere.radius)
+            leaf_bounds.append(sphere.center.y + sphere.radius)
+            leaf_bounds.append(sphere.center.z + sphere.radius)
+            payloads.append(UInt32(len(payloads)))
 
-        var wide_node_base = UInt32(total_wide_nodes)
-        var leaf_f32_base = UInt32(total_leaf_spheres)
+    var segments = SegmentOffsets.from_counts(primitive_counts)
+    var d_spheres = upload_list(ctx, flat_spheres)
+    var build = enqueue_segmented_wide_build[
+        node_width, leaf_width, Int(leaf_width), build_method, True
+    ](
+        ctx,
+        segments,
+        upload_list(ctx, leaf_bounds),
+        upload_list(ctx, payloads),
+    )
+    ref binary = build.binary
+    ref wide = build.wide
 
-        descs.append(wide_node_base)
-        descs.append(leaf_f32_base)
-
-        # Filled after the actual GPU BLAS build.
-        descs.append(UInt32(0))  # BlasSet.ROOT_IDX
-
-        descs.append(UInt32(max_wide_nodes))
-        descs.append(UInt32(max_leaf_blocks))
-        descs.append(UInt32(sphere_count))
-
-        total_wide_nodes += max_wide_nodes * node_width * WideNode.CHILD_STRIDE
-        total_leaf_spheres += (
-            max_leaf_blocks * leaf_width * SPHERE_LEAF_PACKED_STRIDE
-        )
-
-    var wide_nodes = ctx.enqueue_create_buffer[DType.float32](total_wide_nodes)
+    var leaf_lane_capacity = wide.leaf_block_segments.item_count() * leaf_width
     var leaf_spheres = ctx.enqueue_create_buffer[DType.float32](
-        total_leaf_spheres
+        wide.leaf_block_segments.item_count()
+        * leaf_width
+        * SPHERE_LEAF_PACKED_STRIDE
+    )
+    ctx.enqueue_function[pack_segmented_sphere_leaf_lanes_kernel[leaf_width]](
+        _device_span[mut=False](d_spheres),
+        _device_span[mut=False](binary.segment_offsets),
+        _device_span[mut=False](wide.leaf_block_segment_offsets),
+        wide.leaf_block_indices,
+        wide.leaf_block_counts,
+        leaf_spheres,
+        Int32(leaf_lane_capacity),
+        grid_dim=ceildiv(leaf_lane_capacity, GPU_BOUNDS_BVH_BLOCK_SIZE),
+        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
     )
 
-    # Second pass: build each BLAS, then copy its device buffers into the
-    # final packed device buffers.
-    for blas_idx, spheres in enumerate(sphere_sets):
-        var blas = build_sphere_bvh[Frame.LOCAL, node_width, leaf_width](
-            ctx, spheres
-        )
+    ctx.synchronize()
+    build.finish_synchronized()
 
-        var desc_base = blas_idx * BlasSet.STRIDE
+    var descs = List[UInt32](
+        capacity=segments.segment_count() * BlasDescLayout.STRIDE
+    )
+    with wide.node_counts.map_to_host() as node_counts, wide.leaf_block_counts.map_to_host() as leaf_counts:
+        for segment_idx in range(segments.segment_count()):
+            descs.append(wide.node_f32_base(segment_idx))
+            descs.append(
+                wide.leaf_block_segments.begin(segment_idx)
+                * UInt32(leaf_width * SPHERE_LEAF_PACKED_STRIDE)
+            )
+            descs.append(UInt32(0))
+            descs.append(node_counts[segment_idx])
+            descs.append(leaf_counts[segment_idx])
+            descs.append(segments.count(segment_idx))
 
-        descs[desc_base + BlasSet.ROOT_IDX] = blas.tree.root_idx
-        descs[desc_base + BlasSet.NODE_COUNT] = UInt32(blas.tree.node_count)
-        descs[desc_base + BlasSet.LEAF_BLOCK_COUNT] = UInt32(
-            blas.tree.leaf_block_count
-        )
-
-        var wide_node_base = Int(descs[desc_base + BlasSet.WIDE_NODE_BASE])
-        var leaf_f32_base = Int(descs[desc_base + BlasSet.LEAF_F32_BASE])
-
-        blas.tree.wide_nodes.enqueue_copy_to(
-            wide_nodes.unsafe_ptr().unsafe_offset(wide_node_base)
-        )
-        blas.leaf_spheres.enqueue_copy_to(
-            leaf_spheres.unsafe_ptr().unsafe_offset(leaf_f32_base)
-        )
-
-        ctx.synchronize()
-
-    return BlasSet[node_width, leaf_width](
+    return GpuBlasSet[node_width, leaf_width](
         upload_list(ctx, descs),
-        wide_nodes,
-        leaf_spheres,
-        len(sphere_sets),
+        wide.wide_nodes.copy(),
+        leaf_spheres^,
+        segments.segment_count(),
     )
 
 
@@ -209,6 +226,9 @@ def _build_sphere_bvh[
     measure_build: Bool,
 ) raises -> GpuSphereBvh[frame, node_width, leaf_width]:
     var sphere_count = len(spheres)
+    debug_assert["safe", _use_compiler_assume=True](
+        sphere_count > 0, "standalone sphere BVH requires nonempty input"
+    )
     var flat_spheres = _flatten_spheres(spheres)
     var d_spheres = upload_list(ctx, flat_spheres)
     var leaf_bounds = List[Float32](
@@ -224,10 +244,7 @@ def _build_sphere_bvh[
         leaf_bounds.append(s.center.z + s.radius)
         payloads.append(UInt32(i))
 
-    var d_payloads = upload_list(ctx, payloads)
-    var d_leaf_bounds = upload_list(ctx, leaf_bounds)
-    var tree = GpuWideBoundsBvh[node_width, leaf_width](ctx, sphere_count)
-    timings = build_bounds_bvh[
+    var build = enqueue_segmented_wide_build[
         node_width,
         leaf_width,
         Int(leaf_width),
@@ -235,30 +252,44 @@ def _build_sphere_bvh[
         True,
     ](
         ctx,
-        tree,
-        d_leaf_bounds,
-        d_payloads,
-        measure_build=measure_build,
+        SegmentOffsets.single(sphere_count),
+        upload_list(ctx, leaf_bounds),
+        upload_list(ctx, payloads),
+        measure_build,
     )
-    var leaf_block_capacity = max(tree.leaf_block_count, 1)
+    var leaf_lane_capacity = (
+        build.wide.leaf_block_segments.item_count() * leaf_width
+    )
     var leaf_spheres = ctx.enqueue_create_buffer[DType.float32](
-        leaf_block_capacity * leaf_width * SPHERE_LEAF_PACKED_STRIDE
+        leaf_lane_capacity * SPHERE_LEAF_PACKED_STRIDE
     )
-    var start = Int(0)
     if measure_build:
-        start = perf_counter_ns()
-    var leaf_lane_count = max(tree.leaf_block_count * leaf_width, 1)
-    var blocks = ceildiv(leaf_lane_count, GPU_BOUNDS_BVH_BLOCK_SIZE)
-    ctx.enqueue_function[pack_sphere_leaf_lanes_kernel[leaf_width]](
+        build.wait(ctx)
+    var leaf_pack_start = Int(0)
+    if measure_build:
+        leaf_pack_start = perf_counter_ns()
+    ctx.enqueue_function[pack_segmented_sphere_leaf_lanes_kernel[leaf_width]](
         _device_span[mut=False](d_spheres),
-        _device_span[mut=False](tree.leaf_block_indices),
-        _device_span[mut=True](leaf_spheres),
-        grid_dim=blocks,
+        _device_span[mut=False](build.binary.segment_offsets),
+        _device_span[mut=False](build.wide.leaf_block_segment_offsets),
+        build.wide.leaf_block_indices,
+        build.wide.leaf_block_counts,
+        leaf_spheres,
+        Int32(leaf_lane_capacity),
+        grid_dim=ceildiv(leaf_lane_capacity, GPU_BOUNDS_BVH_BLOCK_SIZE),
         block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
     )
-    ctx.synchronize()
+
     if measure_build:
-        timings.leaf_pack_ns = Int(perf_counter_ns() - start)
+        ctx.synchronize()
+        var leaf_pack_ns = Int(perf_counter_ns() - leaf_pack_start)
+        var tree = build^.take_single_segment_synchronized(timings)
+        timings.leaf_pack_ns = leaf_pack_ns
+        return GpuSphereBvh[frame, node_width, leaf_width](
+            tree^, leaf_spheres^, sphere_count
+        )
+
+    var tree = build^.wait_into_single_segment(ctx, timings)
     return GpuSphereBvh[frame, node_width, leaf_width](
         tree^, leaf_spheres^, sphere_count
     )
@@ -373,58 +404,55 @@ def _intersect_sphere_leaf[
     return True
 
 
-def pack_sphere_leaf_lanes_kernel[
+def pack_segmented_sphere_leaf_lanes_kernel[
     width: SIMDLength,
 ](
     spheres: ImmSpan[Float32, ImmutAnyOrigin],
-    leaf_block_indices: ImmSpan[UInt32, ImmutAnyOrigin],
-    leaf_spheres: MutSpan[Float32, MutAnyOrigin],
+    primitive_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
+    leaf_block_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
+    leaf_block_indices: Pointer[UInt32, ImmutAnyOrigin],
+    leaf_block_counts: Pointer[UInt32, ImmutAnyOrigin],
+    leaf_spheres: Pointer[Float32, MutAnyOrigin],
+    leaf_lane_capacity: Int32,
 ):
-    var leaf_lane_count = len(leaf_spheres) / SPHERE_LEAF_PACKED_STRIDE
+    """Pack all sphere BLAS leaf ranges and restore local primitive IDs."""
     var lane_idx = global_idx.x
-    if lane_idx >= leaf_lane_count:
+    if lane_idx >= Int(leaf_lane_capacity):
+        return
+
+    var physical_block = lane_idx / width
+    var segment_idx = _segment_for_item(
+        leaf_block_segment_offsets, physical_block
+    )
+    var block_begin = Int(leaf_block_segment_offsets.unsafe_get(segment_idx))
+    if physical_block - block_begin >= Int(
+        leaf_block_counts[unsafe_offset=segment_idx]
+    ):
         return
 
     var lane = lane_idx % width
-    var block_idx = lane_idx / width
-
-    var out_base = block_idx * SPHERE_LEAF_PACKED_STRIDE * width
-    debug_assert["safe", _use_compiler_assume=True](
-        lane_idx < len(leaf_block_indices)
-        and out_base <= len(leaf_spheres) - SPHERE_LEAF_PACKED_STRIDE * width,
-        "packed sphere output block is outside a device span",
-    )
-    var prim = UInt32(leaf_block_indices.unsafe_get(lane_idx))
-    var leaf_spheres_ptr = leaf_spheres.unsafe_ptr()
-    var leaf_spheres_u32 = leaf_spheres_ptr.unsafe_bitcast[UInt32]()
-
-    # AoSoA: [block][field][lane]
-    # Packed fields:
-    #   0..2 = center.xyz
-    #   3    = radius
-    #   4    = prim id bits
-    leaf_spheres_u32[unsafe_offset=out_base + 4 * width + lane] = prim
-
-    # traversal checks packed prim != EMPTY_LANE
+    var out_base = physical_block * SPHERE_LEAF_PACKED_STRIDE * width
+    var prim = leaf_block_indices[unsafe_offset=lane_idx]
+    var leaf_spheres_u32 = leaf_spheres.unsafe_bitcast[UInt32]()
     if prim == EMPTY_LANE:
+        leaf_spheres_u32[unsafe_offset=out_base + 4 * width + lane] = prim
         return
 
-    var in_base = Int(prim) * Sphere.STRIDE
-    debug_assert["safe", _use_compiler_assume=True](
-        in_base >= 0 and in_base <= len(spheres) - Sphere.STRIDE,
-        "sphere input record is outside the sphere span",
+    var primitive_begin = primitive_segment_offsets.unsafe_get(segment_idx)
+    leaf_spheres_u32[unsafe_offset=out_base + 4 * width + lane] = (
+        prim - primitive_begin
     )
-
-    leaf_spheres_ptr[
+    var in_base = Int(prim) * Sphere.STRIDE
+    leaf_spheres[
         unsafe_offset=out_base + 0 * width + lane
     ] = spheres.unsafe_get(in_base + 0)
-    leaf_spheres_ptr[
+    leaf_spheres[
         unsafe_offset=out_base + 1 * width + lane
     ] = spheres.unsafe_get(in_base + 1)
-    leaf_spheres_ptr[
+    leaf_spheres[
         unsafe_offset=out_base + 2 * width + lane
     ] = spheres.unsafe_get(in_base + 2)
-    leaf_spheres_ptr[
+    leaf_spheres[
         unsafe_offset=out_base + 3 * width + lane
     ] = spheres.unsafe_get(in_base + 3)
 

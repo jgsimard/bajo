@@ -19,7 +19,10 @@ from bajo.bvh.tagged_ref import (
     encode_leaf_ref,
     is_leaf_ref,
 )
-from bajo.bvh.gpu.builder.binary_layout import _node_parent_index
+from bajo.bvh.gpu.builder.binary_layout import (
+    _node_parent_index,
+    _segment_for_item,
+)
 from bajo.bvh.gpu.builder.hploc_layout import (
     HPLOC_STATUS_OK,
     HPLOC_STATUS_NO_PROGRESS,
@@ -34,8 +37,8 @@ from bajo.bvh.gpu.builder.hploc_wave import (
     hploc_wave_first_lane,
     hploc_wave_rank,
 )
-from bajo.bvh.gpu.utils import _device_span
-from bajo.core import AABB, Frame, Point3f32
+from bajo.bvh.gpu.utils import _device_span, upload_list
+from bajo.core import AABB, Frame, Point3f32, SegmentOffsets
 
 
 comptime HPLOC_MULTI_WAVE_BLOCK_SIZE = 256
@@ -124,10 +127,11 @@ def _hploc_find_parent_id(
     sorted_morton_codes: ImmSpan[UInt32, _],
     left: Int,
     right: Int,
+    segment_begin: Int,
+    segment_end: Int,
 ) -> Int:
-    var leaf_count = len(sorted_morton_codes)
-    if left == 0 or (
-        right != leaf_count - 1
+    if left == segment_begin or (
+        right + 1 != segment_end
         and _hploc_delta(sorted_morton_codes, right, right + 1)
         < _hploc_delta(sorted_morton_codes, left - 1, left)
     ):
@@ -152,8 +156,10 @@ def _hploc_atomic_exchange(
 
 def init_hploc_multi_wave_kernel(
     sorted_leaf_ids: ImmSpan[UInt32, ImmutAnyOrigin],
+    segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
     parent_slots: MutSpan[UInt32, MutAnyOrigin],
     cluster_indices: MutSpan[UInt32, MutAnyOrigin],
+    leaf_parent: MutSpan[UInt32, MutAnyOrigin],
     node_counter: MutSpan[UInt32, MutAnyOrigin],
     root: MutSpan[UInt32, MutAnyOrigin],
     status: MutSpan[UInt32, MutAnyOrigin],
@@ -162,16 +168,20 @@ def init_hploc_multi_wave_kernel(
     var leaf_count = len(sorted_leaf_ids)
     if sorted_pos < leaf_count:
         parent_slots.unsafe_get(sorted_pos) = LBVH_SENTINEL
+        leaf_parent.unsafe_get(sorted_pos) = LBVH_SENTINEL
         cluster_indices.unsafe_get(sorted_pos) = encode_leaf_ref(
             UInt32(sorted_pos)
         )
 
-    if sorted_pos == 0:
-        node_counter.unsafe_get(0) = UInt32(0)
-        root.unsafe_get(0) = (
-            encode_leaf_ref(UInt32(0)) if leaf_count == 1 else LBVH_SENTINEL
+    var segment_count = len(segment_offsets) - 1
+    if sorted_pos < segment_count:
+        var begin = segment_offsets.unsafe_get(sorted_pos)
+        var end = segment_offsets.unsafe_get(sorted_pos + 1)
+        node_counter.unsafe_get(sorted_pos) = UInt32(0)
+        root.unsafe_get(sorted_pos) = (
+            encode_leaf_ref(begin) if end - begin == 1 else LBVH_SENTINEL
         )
-        status.unsafe_get(0) = UInt32(HPLOC_STATUS_OK)
+        status.unsafe_get(sorted_pos) = UInt32(HPLOC_STATUS_OK)
 
 
 def build_hploc_multi_wave_kernel[
@@ -180,6 +190,8 @@ def build_hploc_multi_wave_kernel[
     merging_threshold: Int,
 ](
     sorted_morton_codes: ImmSpan[UInt32, ImmutAnyOrigin],
+    segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
+    internal_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
     leaf_bounds: ImmSpan[Float32, ImmutAnyOrigin],
     sorted_leaf_ids: ImmSpan[UInt32, ImmutAnyOrigin],
     parent_slots: MutSpan[UInt32, MutAnyOrigin],
@@ -245,11 +257,24 @@ def build_hploc_multi_wave_kernel[
     var right = idx
     var split = 0
     var lane_active = idx < leaf_count
+    var segment_idx = 0
+    var segment_begin = 0
+    var segment_end = 0
+    var segment_leaf_count = 0
+    if lane_active:
+        segment_idx = _segment_for_item(segment_offsets, idx)
+        segment_begin = Int(segment_offsets.unsafe_get(segment_idx))
+        segment_end = Int(segment_offsets.unsafe_get(segment_idx + 1))
+        segment_leaf_count = segment_end - segment_begin
     while hploc_wave_ballot(lane_active) != 0:
         if lane_active:
             var previous = LBVH_SENTINEL
             var parent_id = _hploc_find_parent_id(
-                sorted_morton_codes, left, right
+                sorted_morton_codes,
+                left,
+                right,
+                segment_begin,
+                segment_end,
             )
             if parent_id == right:
                 previous = _hploc_atomic_exchange(
@@ -272,7 +297,7 @@ def build_hploc_multi_wave_kernel[
                 lane_active = False
 
         var range_size = right - left + 1
-        var final = lane_active and range_size == leaf_count
+        var final = lane_active and range_size == segment_leaf_count
         var task_mask = hploc_wave_ballot(
             lane_active and (range_size > merging_threshold or final)
         )
@@ -290,6 +315,9 @@ def build_hploc_multi_wave_kernel[
             )
             var task_final = Bool(
                 warp.shuffle_idx(UInt32(final), UInt32(task_lane))
+            )
+            var task_segment = Int(
+                warp.shuffle_idx(UInt32(segment_idx), UInt32(task_lane))
             )
 
             # The two child lists are packed at their Morton range starts and
@@ -413,7 +441,9 @@ def build_hploc_multi_wave_kernel[
                 var merge_count = Int(pop_count(merge_mask))
 
                 if merge_count == 0:
-                    status.unsafe_get(0) = UInt32(HPLOC_STATUS_NO_PROGRESS)
+                    status.unsafe_get(task_segment) = UInt32(
+                        HPLOC_STATUS_NO_PROGRESS
+                    )
                     return
 
                 var allocation_base = UInt32(0)
@@ -421,7 +451,7 @@ def build_hploc_multi_wave_kernel[
                     allocation_base = Atomic.fetch_add[
                         ordering=Ordering.RELAXED
                     ](
-                        node_counter.unsafe_ptr(),
+                        node_counter.unsafe_ptr().unsafe_offset(task_segment),
                         UInt32(merge_count),
                     )
                 allocation_base = warp.shuffle_idx(allocation_base, 0)
@@ -436,8 +466,10 @@ def build_hploc_multi_wave_kernel[
                         shared_wave_base + nearest
                     )
                     output_bounds.grow(neighbor_bounds)
-                    var node_idx = allocation_base + UInt32(
-                        hploc_wave_rank(merge_mask, lane)
+                    var node_idx = (
+                        internal_segment_offsets.unsafe_get(task_segment)
+                        + allocation_base
+                        + UInt32(hploc_wave_rank(merge_mask, lane))
                     )
                     _hploc_store_bounds(scratch_bounds, node_idx, output_bounds)
 
@@ -508,25 +540,36 @@ def build_hploc_multi_wave_kernel[
             fence[ordering=Ordering.SEQUENTIAL]()
 
             if task_final and lane == 0:
-                root.unsafe_get(0) = cluster_idx
+                root.unsafe_get(task_segment) = cluster_idx
 
             task_mask &= task_mask - UInt64(1)
 
 
 def finalize_hploc_multi_wave_kernel(
+    segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
+    internal_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
     node_counter: ImmSpan[UInt32, ImmutAnyOrigin],
     root: ImmSpan[UInt32, ImmutAnyOrigin],
     status: MutSpan[UInt32, MutAnyOrigin],
-    leaf_count_i32: Int32,
 ):
-    if global_idx.x != 0 or status.unsafe_get(0) != UInt32(HPLOC_STATUS_OK):
+    var segment_idx = global_idx.x
+    if segment_idx >= len(segment_offsets) - 1 or status.unsafe_get(
+        segment_idx
+    ) != UInt32(HPLOC_STATUS_OK):
         return
-    var leaf_count = Int(leaf_count_i32)
+    var leaf_count = segment_offsets.unsafe_get(
+        segment_idx + 1
+    ) - segment_offsets.unsafe_get(segment_idx)
+    var internal_count = internal_segment_offsets.unsafe_get(
+        segment_idx + 1
+    ) - internal_segment_offsets.unsafe_get(segment_idx)
     if (
-        node_counter.unsafe_get(0) != UInt32(leaf_count - 1)
-        or root.unsafe_get(0) == LBVH_SENTINEL
+        node_counter.unsafe_get(segment_idx) != internal_count
+        or root.unsafe_get(segment_idx) == LBVH_SENTINEL
     ):
-        status.unsafe_get(0) = UInt32(HPLOC_STATUS_INVALID_RESULT)
+        if leaf_count == 0 and internal_count == 0:
+            return
+        status.unsafe_get(segment_idx) = UInt32(HPLOC_STATUS_INVALID_RESULT)
 
 
 struct GpuHplocBuildState[
@@ -536,6 +579,11 @@ struct GpuHplocBuildState[
     """Scratch and completion state for a direct production-layout build."""
 
     var leaf_count: Int
+    var internal_count: Int
+    var segments: SegmentOffsets
+    var internal_segments: SegmentOffsets
+    var segment_offsets: DeviceBuffer[DType.uint32]
+    var internal_segment_offsets: DeviceBuffer[DType.uint32]
     var scratch_bounds: DeviceBuffer[DType.float32]
     var parent_slots: DeviceBuffer[DType.uint32]
     var cluster_indices: DeviceBuffer[DType.uint32]
@@ -555,7 +603,52 @@ struct GpuHplocBuildState[
         node_flags: DeviceBuffer[DType.uint32],
         node_leaf_counts: DeviceBuffer[DType.uint32],
     ) raises:
+        var segments = SegmentOffsets.single(len(sorted_leaf_ids))
+        var internal_segments = SegmentOffsets.single(
+            max(len(sorted_leaf_ids) - 1, 0)
+        )
+        var segment_offsets = upload_list(ctx, segments.offsets)
+        var internal_segment_offsets = upload_list(
+            ctx, internal_segments.offsets
+        )
+        self = Self(
+            ctx,
+            leaf_bounds,
+            sorted_morton_codes,
+            sorted_leaf_ids,
+            segments,
+            segment_offsets,
+            internal_segments,
+            internal_segment_offsets,
+            node_meta,
+            leaf_parent,
+            node_bounds,
+            node_flags,
+            node_leaf_counts,
+        )
+
+    def __init__(
+        out self,
+        mut ctx: DeviceContext,
+        leaf_bounds: DeviceBuffer[DType.float32],
+        sorted_morton_codes: DeviceBuffer[DType.uint32],
+        sorted_leaf_ids: DeviceBuffer[DType.uint32],
+        segments: SegmentOffsets,
+        segment_offsets: DeviceBuffer[DType.uint32],
+        internal_segments: SegmentOffsets,
+        internal_segment_offsets: DeviceBuffer[DType.uint32],
+        node_meta: DeviceBuffer[DType.uint32],
+        leaf_parent: DeviceBuffer[DType.uint32],
+        node_bounds: DeviceBuffer[DType.float32],
+        node_flags: DeviceBuffer[DType.uint32],
+        node_leaf_counts: DeviceBuffer[DType.uint32],
+    ) raises:
         self.leaf_count = len(sorted_leaf_ids)
+        self.segments = segments.copy()
+        self.internal_segments = internal_segments.copy()
+        self.segment_offsets = segment_offsets
+        self.internal_segment_offsets = internal_segment_offsets
+        self.internal_count = self.internal_segments.item_count()
         if self.leaf_count <= 0:
             raise "multi-wave H-PLOC requires at least one leaf"
         if (
@@ -564,13 +657,23 @@ struct GpuHplocBuildState[
         ):
             raise "multi-wave H-PLOC input lengths do not match"
         if (
+            self.segments.segment_count() <= 0
+            or self.segments.item_count() != self.leaf_count
+            or self.internal_segments.segment_count()
+            != self.segments.segment_count()
+            or len(self.segment_offsets) != self.segments.segment_count() + 1
+            or len(self.internal_segment_offsets)
+            != self.segments.segment_count() + 1
+        ):
+            raise "multi-wave H-PLOC segment layout does not match input"
+        if (
             Self.search_radius <= 0
             or Self.merging_threshold <= 0
             or Self.merging_threshold > WARP_SIZE / 2
         ):
             raise "H-PLOC threshold must be in 1..WARP_SIZE/2"
 
-        var internal_capacity = max(self.leaf_count - 1, 1)
+        var internal_capacity = max(self.internal_count, 1)
         if (
             len(node_meta) < internal_capacity * BinaryBvhNode.META_STRIDE
             or len(leaf_parent) < self.leaf_count
@@ -590,21 +693,33 @@ struct GpuHplocBuildState[
         self.cluster_indices = ctx.enqueue_create_buffer[DType.uint32](
             self.leaf_count
         )
-        self.node_counter = ctx.enqueue_create_buffer[DType.uint32](1)
-        self.root = ctx.enqueue_create_buffer[DType.uint32](1)
-        self.status = ctx.enqueue_create_buffer[DType.uint32](1)
+        self.root = ctx.enqueue_create_buffer[DType.uint32](
+            self.segments.segment_count()
+        )
+        self.status = ctx.enqueue_create_buffer[DType.uint32](
+            self.segments.segment_count()
+        )
+        self.node_counter = ctx.enqueue_create_buffer[DType.uint32](
+            self.segments.segment_count()
+        )
 
-        var blocks = ceildiv(self.leaf_count, HPLOC_MULTI_WAVE_BLOCK_SIZE)
+        var init_blocks = ceildiv(
+            max(self.leaf_count, self.segments.segment_count()),
+            HPLOC_MULTI_WAVE_BLOCK_SIZE,
+        )
         ctx.enqueue_function[init_hploc_multi_wave_kernel](
             _device_span[mut=False](sorted_leaf_ids),
+            _device_span[mut=False](self.segment_offsets),
             _device_span[mut=True](self.parent_slots),
             _device_span[mut=True](self.cluster_indices),
+            _device_span[mut=True](leaf_parent),
             _device_span[mut=True](self.node_counter),
             _device_span[mut=True](self.root),
             _device_span[mut=True](self.status),
-            grid_dim=blocks,
+            grid_dim=init_blocks,
             block_dim=HPLOC_MULTI_WAVE_BLOCK_SIZE,
         )
+        var build_blocks = ceildiv(self.leaf_count, HPLOC_MULTI_WAVE_BLOCK_SIZE)
         ctx.enqueue_function[
             build_hploc_multi_wave_kernel[
                 HPLOC_MULTI_WAVE_BLOCK_SIZE,
@@ -613,6 +728,8 @@ struct GpuHplocBuildState[
             ]
         ](
             _device_span[mut=False](sorted_morton_codes),
+            _device_span[mut=False](self.segment_offsets),
+            _device_span[mut=False](self.internal_segment_offsets),
             _device_span[mut=False](leaf_bounds),
             _device_span[mut=False](sorted_leaf_ids),
             _device_span[mut=True](self.parent_slots),
@@ -626,29 +743,38 @@ struct GpuHplocBuildState[
             _device_span[mut=True](self.node_counter),
             _device_span[mut=True](self.root),
             _device_span[mut=True](self.status),
-            grid_dim=blocks,
+            grid_dim=build_blocks,
             block_dim=HPLOC_MULTI_WAVE_BLOCK_SIZE,
         )
         ctx.enqueue_function[finalize_hploc_multi_wave_kernel](
+            _device_span[mut=False](self.segment_offsets),
+            _device_span[mut=False](self.internal_segment_offsets),
             _device_span[mut=False](self.node_counter),
             _device_span[mut=False](self.root),
             _device_span[mut=True](self.status),
-            Int32(self.leaf_count),
-            grid_dim=1,
-            block_dim=1,
+            grid_dim=ceildiv(
+                self.segments.segment_count(), HPLOC_MULTI_WAVE_BLOCK_SIZE
+            ),
+            block_dim=HPLOC_MULTI_WAVE_BLOCK_SIZE,
         )
 
     def result_status(self) raises -> UInt32:
         with self.status.map_to_host() as host:
-            return host[0]
+            for segment_idx in range(len(host)):
+                if host[segment_idx] != UInt32(HPLOC_STATUS_OK):
+                    return host[segment_idx]
+            return UInt32(HPLOC_STATUS_OK)
 
-    def result_root(self) raises -> UInt32:
+    def result_root(self, segment_idx: Int = 0) raises -> UInt32:
         with self.root.map_to_host() as host:
-            return host[0]
+            return host[segment_idx]
 
     def result_node_count(self) raises -> UInt32:
         with self.node_counter.map_to_host() as host:
-            return host[0]
+            var total = UInt32(0)
+            for segment_idx in range(len(host)):
+                total += host[segment_idx]
+            return total
 
 
 struct GpuHplocMultiWaveBvh[

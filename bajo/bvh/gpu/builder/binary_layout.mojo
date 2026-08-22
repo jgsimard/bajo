@@ -2,14 +2,14 @@ from std.math import max, ceildiv
 from max.gpu.host import DeviceBuffer, DeviceContext
 from std.gpu import global_idx
 
-from bajo.core import AABB, Frame
+from bajo.core import AABB, Frame, SegmentOffsets
 from bajo.bvh.constants import (
     BinaryBvhNode,
     REDUCED_BOUNDS_STRIDE,
     BOUNDS_REDUCE_CHUNK,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
-from bajo.bvh.gpu.utils import _device_span
+from bajo.bvh.gpu.utils import _device_span, upload_list
 from bajo.bvh.tagged_ref import is_leaf_ref, decode_ref_index
 from bajo.sort.gpu.radix_sort import RadixSortWorkspace
 
@@ -113,17 +113,42 @@ def init_empty_bounds_kernel(bounds: MutSpan[Float32, MutAnyOrigin]):
     invalid.store6(bounds, b + AABB.STRIDE)
 
 
-def compute_bounds_partials_kernel(
+def _segment_for_item(offsets: ImmSpan[UInt32, _], item_idx: Int) -> Int:
+    var low = 0
+    var high = len(offsets) - 1
+    while low + 1 < high:
+        var mid = (low + high) // 2
+        if item_idx < Int(offsets.unsafe_get(mid)):
+            high = mid
+        else:
+            low = mid
+    return low
+
+
+def compute_segment_bounds_partials_kernel(
     leaf_bounds: ImmSpan[Float32, ImmutAnyOrigin],
+    leaf_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
+    partial_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
     out_partials: MutSpan[Float32, MutAnyOrigin],
 ):
-    var leaf_count = len(leaf_bounds) / AABB.STRIDE
-    var chunk = global_idx.x
-    var first = chunk * BOUNDS_REDUCE_CHUNK
-    if first >= leaf_count:
+    var partial_idx = global_idx.x
+    var partial_count = Int(
+        partial_segment_offsets.unsafe_get(len(partial_segment_offsets) - 1)
+    )
+    if partial_idx >= partial_count:
         return
 
-    var last = min(first + BOUNDS_REDUCE_CHUNK, leaf_count)
+    var segment_idx = _segment_for_item(partial_segment_offsets, partial_idx)
+    var segment_partial_begin = Int(
+        partial_segment_offsets.unsafe_get(segment_idx)
+    )
+    var segment_leaf_begin = Int(leaf_segment_offsets.unsafe_get(segment_idx))
+    var segment_leaf_end = Int(leaf_segment_offsets.unsafe_get(segment_idx + 1))
+    var first = (
+        segment_leaf_begin
+        + (partial_idx - segment_partial_begin) * BOUNDS_REDUCE_CHUNK
+    )
+    var last = min(first + BOUNDS_REDUCE_CHUNK, segment_leaf_end)
     var bounds = AABB[Frame.WORLD].invalid()
     var centroid_bounds = AABB[Frame.WORLD].invalid()
 
@@ -134,23 +159,32 @@ def compute_bounds_partials_kernel(
         bounds.grow(aabb)
         centroid_bounds.grow(aabb.centroid())
 
-    var out = chunk * REDUCED_BOUNDS_STRIDE
+    var out = partial_idx * REDUCED_BOUNDS_STRIDE
     bounds.store6(out_partials, out)
     centroid_bounds.store6(out_partials, out + AABB.STRIDE)
 
 
-def reduce_bounds_partials_kernel(
+def reduce_segment_bounds_partials_kernel(
     in_partials: ImmSpan[Float32, ImmutAnyOrigin],
+    in_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
+    out_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
     out_partials: MutSpan[Float32, MutAnyOrigin],
-    partial_count: Int32,
 ):
-    var partial_count_int = Int(partial_count)
-    var chunk = global_idx.x
-    var first = chunk * BOUNDS_REDUCE_CHUNK
-    if first >= partial_count_int:
+    var out_idx = global_idx.x
+    var out_count = Int(
+        out_segment_offsets.unsafe_get(len(out_segment_offsets) - 1)
+    )
+    if out_idx >= out_count:
         return
 
-    var last = min(first + BOUNDS_REDUCE_CHUNK, partial_count_int)
+    var segment_idx = _segment_for_item(out_segment_offsets, out_idx)
+    var segment_out_begin = Int(out_segment_offsets.unsafe_get(segment_idx))
+    var segment_in_begin = Int(in_segment_offsets.unsafe_get(segment_idx))
+    var segment_in_end = Int(in_segment_offsets.unsafe_get(segment_idx + 1))
+    var first = (
+        segment_in_begin + (out_idx - segment_out_begin) * BOUNDS_REDUCE_CHUNK
+    )
+    var last = min(first + BOUNDS_REDUCE_CHUNK, segment_in_end)
     var bounds = AABB[Frame.WORLD].invalid()
     var centroid_bounds = AABB[Frame.WORLD].invalid()
 
@@ -165,77 +199,104 @@ def reduce_bounds_partials_kernel(
         bounds.grow(partial_bounds)
         centroid_bounds.grow(partial_centroid_bounds)
 
-    var out = chunk * REDUCED_BOUNDS_STRIDE
+    var out = out_idx * REDUCED_BOUNDS_STRIDE
     bounds.store6(out_partials, out)
     centroid_bounds.store6(out_partials, out + AABB.STRIDE)
+
+
+def _reduced_segment_offsets(segments: SegmentOffsets) -> SegmentOffsets:
+    var counts = List[Int](capacity=segments.segment_count())
+    for segment_idx in range(segments.segment_count()):
+        counts.append(
+            max(
+                ceildiv(Int(segments.count(segment_idx)), BOUNDS_REDUCE_CHUNK),
+                1,
+            )
+        )
+    return SegmentOffsets.from_counts(counts^)
+
+
+def _internal_segment_offsets(segments: SegmentOffsets) -> SegmentOffsets:
+    var counts = List[Int](capacity=segments.segment_count())
+    for segment_idx in range(segments.segment_count()):
+        counts.append(max(Int(segments.count(segment_idx)) - 1, 0))
+    return SegmentOffsets.from_counts(counts^)
 
 
 struct GpuBinaryTopologyWorkspace(Copyable):
     """Transient Morton, parent, and refit state."""
 
     var morton_keys: DeviceBuffer[DType.uint32]
+    var sort_keys: DeviceBuffer[DType.uint64]
     var leaf_parent: DeviceBuffer[DType.uint32]
     var node_flags: DeviceBuffer[DType.uint32]
-
-    def __init__(out self, mut ctx: DeviceContext, leaf_capacity: Int) raises:
-        self.morton_keys = ctx.enqueue_create_buffer[DType.uint32](
-            leaf_capacity
-        )
-        self.leaf_parent = ctx.enqueue_create_buffer[DType.uint32](
-            leaf_capacity
-        )
-        self.node_flags = ctx.enqueue_create_buffer[DType.uint32](
-            max(leaf_capacity - 1, 1)
-        )
-
-
-struct GpuBinaryBuildWorkspace:
-    """Reusable scratch for binary builds with one fixed leaf capacity."""
-
-    var leaf_capacity: Int
-    var bounds_scratch_a: DeviceBuffer[DType.float32]
-    var bounds_scratch_b: DeviceBuffer[DType.float32]
-    var sort: RadixSortWorkspace[DType.uint32, DType.uint32]
-    var topology: Optional[GpuBinaryTopologyWorkspace]
 
     def __init__(
         out self,
         mut ctx: DeviceContext,
         leaf_capacity: Int,
+        internal_capacity: Int,
     ) raises:
+        self.morton_keys = ctx.enqueue_create_buffer[DType.uint32](
+            leaf_capacity
+        )
+        self.sort_keys = ctx.enqueue_create_buffer[DType.uint64](leaf_capacity)
+        self.leaf_parent = ctx.enqueue_create_buffer[DType.uint32](
+            leaf_capacity
+        )
+        self.node_flags = ctx.enqueue_create_buffer[DType.uint32](
+            max(internal_capacity, 1)
+        )
+
+
+struct GpuBinaryBuildWorkspace:
+    """Reusable scratch for one fixed segmented leaf workload."""
+
+    var leaf_capacity: Int
+    var internal_capacity: Int
+    var segments: SegmentOffsets
+    var segment_offsets: DeviceBuffer[DType.uint32]
+    var bounds_scratch_a: DeviceBuffer[DType.float32]
+    var bounds_scratch_b: DeviceBuffer[DType.float32]
+    var sort: RadixSortWorkspace[DType.uint64, DType.uint32]
+    var topology: Optional[GpuBinaryTopologyWorkspace]
+
+    def __init__(
+        out self,
+        mut ctx: DeviceContext,
+        segments: SegmentOffsets,
+    ) raises:
+        var leaf_capacity = segments.item_count()
         debug_assert["safe", _use_compiler_assume=True](
             leaf_capacity > 0, "binary workspace capacity must be positive"
         )
+        debug_assert["safe", _use_compiler_assume=True](
+            segments.segment_count() > 0,
+            "binary workspace requires at least one segment",
+        )
+        var partial_segments = _reduced_segment_offsets(segments)
+        var internal_segments = _internal_segment_offsets(segments)
         self.leaf_capacity = leaf_capacity
-        var partial_count = ceildiv(leaf_capacity, BOUNDS_REDUCE_CHUNK)
+        self.internal_capacity = internal_segments.item_count()
+        self.segments = segments.copy()
+        self.segment_offsets = upload_list(ctx, self.segments.offsets)
         self.bounds_scratch_a = ctx.enqueue_create_buffer[DType.float32](
-            max(partial_count, 1) * REDUCED_BOUNDS_STRIDE
+            max(partial_segments.item_count(), 1) * REDUCED_BOUNDS_STRIDE
         )
         self.bounds_scratch_b = ctx.enqueue_create_buffer[DType.float32](
-            max(ceildiv(partial_count, BOUNDS_REDUCE_CHUNK), 1)
-            * REDUCED_BOUNDS_STRIDE
+            max(partial_segments.item_count(), 1) * REDUCED_BOUNDS_STRIDE
         )
-        self.sort = RadixSortWorkspace[DType.uint32, DType.uint32](
+        self.sort = RadixSortWorkspace[DType.uint64, DType.uint32](
             ctx, leaf_capacity
         )
         self.topology = Optional[GpuBinaryTopologyWorkspace]()
 
-    def __init__(out self, other: Self):
-        """Create a shared-storage lease for a reusable build arena."""
-        self.leaf_capacity = other.leaf_capacity
-        self.bounds_scratch_a = other.bounds_scratch_a.copy()
-        self.bounds_scratch_b = other.bounds_scratch_b.copy()
-        self.sort = RadixSortWorkspace[DType.uint32, DType.uint32](other.sort)
-        self.topology = Optional[GpuBinaryTopologyWorkspace]()
-        if other.topology:
-            self.topology = Optional[GpuBinaryTopologyWorkspace](
-                other.topology.value().copy()
-            )
-
     def ensure_topology(mut self, mut ctx: DeviceContext) raises:
         if not self.topology:
             self.topology = Optional[GpuBinaryTopologyWorkspace](
-                GpuBinaryTopologyWorkspace(ctx, self.leaf_capacity)
+                GpuBinaryTopologyWorkspace(
+                    ctx, self.leaf_capacity, self.internal_capacity
+                )
             )
 
 
@@ -244,9 +305,14 @@ struct GpuBinaryBoundsBvh:
 
     var leaf_count: Int
     var internal_count: Int
+    var segments: SegmentOffsets
+    var segment_offsets: DeviceBuffer[DType.uint32]
+    var internal_segments: SegmentOffsets
+    var internal_segment_offsets: DeviceBuffer[DType.uint32]
+    var roots: DeviceBuffer[DType.uint32]
 
     var bounds_device: DeviceBuffer[DType.float32]
-    """[0..5]  = root bounds, [6..11] = centroid bounds."""
+    """Per segment: six root-bound then six centroid-bound values."""
 
     var leaf_bounds: DeviceBuffer[DType.float32]
     var leaf_payloads: DeviceBuffer[DType.uint32]
@@ -277,10 +343,23 @@ struct GpuBinaryBoundsBvh:
             len(leaf_bounds) == self.leaf_count * AABB.STRIDE,
             "leaf bounds buffer has the wrong length",
         )
-        self.internal_count = self.leaf_count - 1
         debug_assert["safe", _use_compiler_assume=True](
             workspace.leaf_capacity == self.leaf_count,
             "binary workspace capacity must match the input leaf count",
+        )
+        self.segments = workspace.segments.copy()
+        self.segment_offsets = workspace.segment_offsets.copy()
+        self.internal_segments = _internal_segment_offsets(self.segments)
+        self.internal_segment_offsets = upload_list(
+            ctx, self.internal_segments.offsets
+        )
+        self.roots = ctx.enqueue_create_buffer[DType.uint32](
+            self.segments.segment_count()
+        )
+        self.internal_count = self.internal_segments.item_count()
+        debug_assert["safe", _use_compiler_assume=True](
+            workspace.internal_capacity == self.internal_count,
+            "binary workspace internal capacity must match the segments",
         )
 
         var n_leaf = self.leaf_count
@@ -290,21 +369,21 @@ struct GpuBinaryBoundsBvh:
         self.leaf_payloads = leaf_payloads
 
         self.bounds_device = ctx.enqueue_create_buffer[DType.float32](
-            REDUCED_BOUNDS_STRIDE
+            self.segments.segment_count() * REDUCED_BOUNDS_STRIDE
         )
 
-        var partial_count = ceildiv(
-            self.leaf_count,
-            BOUNDS_REDUCE_CHUNK,
-        )
+        var partial_segments = _reduced_segment_offsets(self.segments)
+        var partial_offsets = upload_list(ctx, partial_segments.offsets)
 
         var reduce_grid = ceildiv(
-            partial_count,
+            partial_segments.item_count(),
             GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
 
-        ctx.enqueue_function[compute_bounds_partials_kernel](
+        ctx.enqueue_function[compute_segment_bounds_partials_kernel](
             _device_span[mut=False](self.leaf_bounds),
+            _device_span[mut=False](self.segment_offsets),
+            _device_span[mut=False](partial_offsets),
             _device_span[mut=True](workspace.bounds_scratch_a),
             grid_dim=reduce_grid,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
@@ -312,28 +391,27 @@ struct GpuBinaryBoundsBvh:
 
         var in_buf = workspace.bounds_scratch_a.copy()
         var out_buf = workspace.bounds_scratch_b.copy()
-        var count = partial_count
 
-        while count > 1:
-            var next_count = ceildiv(
-                count,
-                BOUNDS_REDUCE_CHUNK,
-            )
+        while partial_segments.item_count() > partial_segments.segment_count():
+            var next_segments = _reduced_segment_offsets(partial_segments)
+            var next_offsets = upload_list(ctx, next_segments.offsets)
             var grid = ceildiv(
-                next_count,
+                next_segments.item_count(),
                 GPU_BOUNDS_BVH_BLOCK_SIZE,
             )
 
-            ctx.enqueue_function[reduce_bounds_partials_kernel](
+            ctx.enqueue_function[reduce_segment_bounds_partials_kernel](
                 _device_span[mut=False](in_buf),
+                _device_span[mut=False](partial_offsets),
+                _device_span[mut=False](next_offsets),
                 _device_span[mut=True](out_buf),
-                Int32(count),
                 grid_dim=grid,
                 block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
             )
 
             swap(in_buf, out_buf)
-            count = next_count
+            partial_segments = next_segments^
+            partial_offsets = next_offsets^
         in_buf.enqueue_copy_to(self.bounds_device)
 
         self.leaf_ids = ctx.enqueue_create_buffer[DType.uint32](n_leaf)
@@ -355,14 +433,16 @@ struct GpuBinaryBoundsBvh:
     def blocks_internal(self) -> Int:
         return ceildiv(max(self.internal_count, 1), GPU_BOUNDS_BVH_BLOCK_SIZE)
 
-    def root_bounds(self) raises -> AABB[Frame.WORLD]:
+    def root_bounds(self, segment_idx: Int = 0) raises -> AABB[Frame.WORLD]:
         with self.bounds_device.map_to_host() as h:
             return AABB[Frame.WORLD].load6(
-                Span(unsafe_ptr=h.unsafe_ptr(), length=len(h)), 0
+                Span(unsafe_ptr=h.unsafe_ptr(), length=len(h)),
+                segment_idx * REDUCED_BOUNDS_STRIDE,
             )
 
-    def centroid_bounds(self) raises -> AABB[Frame.WORLD]:
+    def centroid_bounds(self, segment_idx: Int = 0) raises -> AABB[Frame.WORLD]:
         with self.bounds_device.map_to_host() as h:
             return AABB[Frame.WORLD].load6(
-                Span(unsafe_ptr=h.unsafe_ptr(), length=len(h)), AABB.STRIDE
+                Span(unsafe_ptr=h.unsafe_ptr(), length=len(h)),
+                segment_idx * REDUCED_BOUNDS_STRIDE + AABB.STRIDE,
             )

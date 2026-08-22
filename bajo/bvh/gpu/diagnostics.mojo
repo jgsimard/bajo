@@ -1,17 +1,16 @@
 """Host-side GPU BVH validation helpers; never imported by builders."""
 
-from std.math import max
 from max.gpu.host import DeviceBuffer, DeviceContext
 
-from bajo.bvh.gpu.builder.binary_builder import (
-    GpuBvhBuildMethod,
-    build_binary_bvh,
-)
+from bajo.bvh.gpu.builder.binary_builder import GpuBvhBuildMethod
 from bajo.bvh.gpu.builder.binary_layout import (
     GpuBinaryBoundsBvh,
     GpuBinaryBuildWorkspace,
 )
-from bajo.bvh.gpu.builder.wide_collapse import collapse_binary_to_wide
+from bajo.bvh.gpu.builder.segmented_build import (
+    GpuSegmentedWideBuildTicket,
+    enqueue_segmented_wide_build,
+)
 from bajo.bvh.gpu.utils import GpuBVHValidation
 from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvh
 from bajo.bvh.gpu.validate import (
@@ -19,15 +18,30 @@ from bajo.bvh.gpu.validate import (
     validate_topology,
     validate_refit_bounds,
 )
-from bajo.core import AABB
+from bajo.core import AABB, SegmentOffsets
 
 
 @fieldwise_init
-struct GpuBinaryDiagnosticBuild:
-    """Binary artifact plus retained construction state for validation."""
+struct GpuBinaryDiagnosticBuild[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+    max_leaf_size: Int,
+    method: GpuBvhBuildMethod,
+    pack_subtrees: Bool,
+]:
+    """Completed segmented build retained for validation."""
 
-    var binary: GpuBinaryBoundsBvh
-    var workspace: GpuBinaryBuildWorkspace
+    var wide: GpuWideBoundsBvh[
+        Self.node_width, Self.leaf_width, Self.max_leaf_size
+    ]
+    var build: GpuSegmentedWideBuildTicket[
+        Self.node_width,
+        Self.leaf_width,
+        Self.max_leaf_size,
+        Self.method,
+        Self.pack_subtrees,
+        False,
+    ]
 
 
 def build_bounds_bvh_for_diagnostics[
@@ -38,25 +52,29 @@ def build_bounds_bvh_for_diagnostics[
     pack_subtrees: Bool = False,
 ](
     mut ctx: DeviceContext,
-    mut out: GpuWideBoundsBvh[node_width, leaf_width, max_leaf_size],
     leaf_bounds: DeviceBuffer[DType.float32],
     leaf_payloads: DeviceBuffer[DType.uint32],
-) raises -> GpuBinaryDiagnosticBuild:
+) raises -> GpuBinaryDiagnosticBuild[
+    node_width, leaf_width, max_leaf_size, method, pack_subtrees
+]:
     """Build both final wide data and the diagnostic binary intermediate."""
+    var leaf_count = len(leaf_payloads)
     debug_assert["safe", _use_compiler_assume=True](
-        out.leaf_count > 0 and len(leaf_payloads) == out.leaf_count
+        leaf_count > 0 and len(leaf_bounds) == leaf_count * AABB.STRIDE
     )
-    var workspace = GpuBinaryBuildWorkspace(ctx, max(out.leaf_count, 1))
-    var binary = GpuBinaryBoundsBvh(ctx, leaf_bounds, leaf_payloads, workspace)
-    out.bounds_device = binary.bounds_device.copy()
-    _ = build_binary_bvh[method](ctx, binary, workspace)
-    collapse_binary_to_wide[
-        node_width,
-        leaf_width,
-        max_leaf_size,
-        pack_subtrees,
-    ](ctx, binary, out)
-    return GpuBinaryDiagnosticBuild(binary^, workspace^)
+    var build = enqueue_segmented_wide_build[
+        node_width, leaf_width, max_leaf_size, method, pack_subtrees
+    ](
+        ctx,
+        SegmentOffsets.single(leaf_count),
+        leaf_bounds.copy(),
+        leaf_payloads.copy(),
+    )
+    build.wait(ctx)
+    var wide = build.wide.single_segment_view()
+    return GpuBinaryDiagnosticBuild[
+        node_width, leaf_width, max_leaf_size, method, pack_subtrees
+    ](wide^, build^)
 
 
 def validate_binary_bvh(

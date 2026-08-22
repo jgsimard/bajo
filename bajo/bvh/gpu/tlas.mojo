@@ -8,14 +8,14 @@ from bajo.bvh.constants import (
     EMPTY_LANE,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
-from bajo.bvh.types import Hit, Instance, BlasSet
+from bajo.bvh.types import BlasDesc, GpuBlasSet, Hit, Instance
 from bajo.bvh.tlas_common import (
     finalize_tlas_hit_normal,
     promote_tlas_local_hit,
 )
-from bajo.bvh.gpu.bounds_bvh import build_bounds_bvh
 from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvh
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
+from bajo.bvh.gpu.builder.segmented_build import build_single_segment_wide
 from bajo.bvh.gpu.camera_launch import (
     validate_camera_launch,
     _camera_ray,
@@ -82,7 +82,9 @@ def _intersect_tlas_instance_block[
             var blas_idx = UInt32(
                 inst_blas_indices[unsafe_offset=Int(inst_idx)]
             )
-            var desc_base = Int(blas_idx) * BlasSet.STRIDE
+            var blas_desc = BlasDesc.load(blas_descs, blas_idx)
+            if blas_desc.prim_count == 0:
+                continue
             var transform_base = Int(inst_idx) * Affine3f32.STRIDE
             var inverse = Affine3f32[Frame.WORLD, Frame.LOCAL].load(
                 inst_inv_transform_span, transform_base
@@ -91,16 +93,12 @@ def _intersect_tlas_instance_block[
             var local_ray = inverse.ray(ray, hit.t)
 
             var local_nodes = blas_wide_nodes.unsafe_offset(
-                Int(
-                    blas_descs[unsafe_offset=desc_base + BlasSet.WIDE_NODE_BASE]
-                )
+                Int(blas_desc.node_f32_base)
             )
             var local_leaves = blas_leaves.unsafe_offset(
-                Int(blas_descs[unsafe_offset=desc_base + BlasSet.LEAF_F32_BASE])
+                Int(blas_desc.leaf_f32_base)
             )
-            var local_root = UInt32(
-                blas_descs[unsafe_offset=desc_base + BlasSet.ROOT_IDX]
-            )
+            var local_root = blas_desc.root_idx
             var local_hit: Hit[Frame.LOCAL]
             comptime if blas_compressed:
                 local_hit = trace_cwbvh8_triangles[Frame.LOCAL, mode](
@@ -438,10 +436,7 @@ def _build_typed_tlas_core[
         inv_transforms.extend(inst.inv_transform.flatten())
         blas_indices.append(inst.blas_idx)
 
-    var d_leaf_bounds = upload_list(ctx, leaf_bounds)
-    var d_payloads = upload_list(ctx, payloads)
-    var tree = GpuWideBoundsBvh[node_width, leaf_width](ctx, inst_count)
-    timings = build_bounds_bvh[
+    var tree = build_single_segment_wide[
         node_width,
         leaf_width,
         Int(leaf_width),
@@ -449,10 +444,11 @@ def _build_typed_tlas_core[
         True,
     ](
         ctx,
-        tree,
-        d_leaf_bounds,
-        d_payloads,
-        measure_build=measure_build,
+        inst_count,
+        upload_list(ctx, leaf_bounds),
+        upload_list(ctx, payloads),
+        timings,
+        measure_build,
     )
     var inst_inv_transform = upload_list(ctx, inv_transforms)
     var inst_blas_indices = upload_list(ctx, blas_indices)
@@ -484,7 +480,7 @@ struct GpuTriangleTlas[
     def launch_camera(
         self,
         ctx: DeviceContext,
-        blases: BlasSet[Self.blas_node_width, Self.blas_leaf_width],
+        blases: GpuBlasSet[Self.blas_node_width, Self.blas_leaf_width],
         d_camera_params: DeviceBuffer[DType.float32],
         d_hits: DeviceBuffer[DType.float32],
         ray_count: Int,
@@ -508,7 +504,7 @@ struct GpuTriangleTlas[
             self.core.inst_inv_transform,
             self.core.inst_blas_indices,
             blases.descs,
-            blases.wide_nodes,
+            blases.nodes,
             blases.leaves,
             self.core.tree.root_idx,
             d_camera_params,
@@ -542,7 +538,7 @@ struct GpuSphereTlas[
     def launch_camera(
         self,
         ctx: DeviceContext,
-        blases: BlasSet[Self.blas_node_width, Self.blas_leaf_width],
+        blases: GpuBlasSet[Self.blas_node_width, Self.blas_leaf_width],
         d_camera_params: DeviceBuffer[DType.float32],
         d_hits: DeviceBuffer[DType.float32],
         ray_count: Int,
@@ -565,7 +561,7 @@ struct GpuSphereTlas[
             self.core.inst_inv_transform,
             self.core.inst_blas_indices,
             blases.descs,
-            blases.wide_nodes,
+            blases.nodes,
             blases.leaves,
             self.core.tree.root_idx,
             d_camera_params,

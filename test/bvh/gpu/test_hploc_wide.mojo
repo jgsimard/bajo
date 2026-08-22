@@ -11,8 +11,9 @@ from bajo.bvh.constants import (
 )
 from bajo.bvh.cpu.blas_set import (
     build_triangle_blases,
-    trace_triangle_blas_set,
+    trace_blas_set,
 )
+from bajo.bvh.cpu import CpuBvhBuildMethod
 from bajo.bvh.gpu.diagnostics import build_bounds_bvh_for_diagnostics
 from bajo.bvh.gpu.wide_layout import (
     GpuWideBoundsBvh,
@@ -347,7 +348,7 @@ def _assert_hploc_triangle_matches_cpu[
     comptime height = 24
     comptime views = 2
     var cpu = build_triangle_blases[
-        node_width, leaf_width, "lbvh", Frame.WORLD
+        node_width, leaf_width, CpuBvhBuildMethod.LBVH, Frame.WORLD
     ]([verts.copy()])
     var camera_data = _make_camera_rays_and_params(
         _triangle_bounds(verts), width, height, views
@@ -385,7 +386,7 @@ def _assert_hploc_triangle_matches_cpu[
             )
             for i, ray in enumerate(rays):
                 var actual = Hit[Frame.WORLD].load(hit_span, i)
-                var expected = trace_triangle_blas_set[
+                var expected = trace_blas_set[
                     node_width, leaf_width, TRACE.CLOSEST_HIT, Frame.WORLD
                 ](cpu, UInt32(0), ray)
                 var both_miss = actual.t >= f32_max and expected.t >= f32_max

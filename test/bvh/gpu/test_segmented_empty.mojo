@@ -21,7 +21,7 @@ from bajo.bvh.gpu.tlas import build_sphere_tlas, build_triangle_tlas
 from bajo.bvh.gpu.triangle_bvh import build_triangle_blas_set
 from bajo.bvh.gpu.utils import upload_camera
 from bajo.bvh.host_utils import compute_bounds, sphere_bounds
-from bajo.bvh.gpu import GpuBlasSet
+from bajo.bvh.gpu import GpuBlasSet, GpuBvhLayout
 from bajo.bvh.types import BlasDescLayout, Hit, Instance, Sphere
 from bajo.core import AABB, Affine3f32, Frame, Point3f32, Vec3f32
 from test.bvh.fixtures import _make_camera_ray
@@ -46,10 +46,12 @@ def _triangles(count: Int, z: Float32) -> List[Point3f32[Frame.LOCAL]]:
 
 
 def _assert_exact_storage[
+    kind: Primitive,
+    layout: GpuBvhLayout,
     node_width: SIMDLength,
     leaf_width: SIMDLength,
 ](
-    blases: GpuBlasSet[node_width, leaf_width],
+    blases: GpuBlasSet[kind, layout, node_width, leaf_width],
     node_stride: Int,
     leaf_stride: Int,
 ) raises:
@@ -150,7 +152,7 @@ def test_triangle_hploc_cwbvh8_empty_segments_trace() raises:
     var bounds = compute_bounds(vertices)
     with DeviceContext() as ctx:
         var blases = build_triangle_blas_set[
-            8, 4, GpuBvhBuildMethod.HPLOC, True
+            8, 4, GpuBvhBuildMethod.HPLOC, GpuBvhLayout.CWBVH8
         ](ctx, [empty.copy(), vertices^, empty^])
         with blases.descs.map_to_host() as descs:
             var node_count = Int(
@@ -163,7 +165,7 @@ def test_triangle_hploc_cwbvh8_empty_segments_trace() raises:
             _instance(1, bounds, Primitive.TRIANGLE),
         ]
         var tlas = build_triangle_tlas[
-            2, 8, 2, 4, GpuBvhBuildMethod.LBVH, True
+            2, 8, 2, 4, GpuBvhBuildMethod.LBVH, GpuBvhLayout.CWBVH8
         ](ctx, instances)
         var hits = ctx.enqueue_create_buffer[DType.float32](Hit.STRIDE)
         tlas.launch_camera(
@@ -218,7 +220,7 @@ def test_all_empty_triangle_batch_has_zero_descriptors() raises:
     var empty = List[Point3f32[Frame.LOCAL]]()
     with DeviceContext() as ctx:
         var blases = build_triangle_blas_set[
-            8, 4, GpuBvhBuildMethod.HPLOC, True
+            8, 4, GpuBvhBuildMethod.HPLOC, GpuBvhLayout.CWBVH8
         ](ctx, [empty.copy(), empty^])
         assert_equal(blases.blas_count, 2)
         assert_equal(len(blases.nodes), 1)
@@ -242,7 +244,7 @@ def test_nonempty_segments_use_exact_consecutive_storage() raises:
         )
 
         var compressed = build_triangle_blas_set[
-            8, 4, GpuBvhBuildMethod.HPLOC, True
+            8, 4, GpuBvhBuildMethod.HPLOC, GpuBvhLayout.CWBVH8
         ](ctx, [first^, second^])
         _assert_exact_storage(
             compressed, CWBVH_NODE_WORDS, CWBVH_TRIANGLE_WORDS

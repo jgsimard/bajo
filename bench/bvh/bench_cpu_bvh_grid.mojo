@@ -1,9 +1,12 @@
 from std.math import round
 from std.time import perf_counter_ns
 
-from bajo.bvh.constants import TRACE, f32_max
-from bajo.bvh.cpu.blas_set import build_triangle_blases, trace_triangle_blas_set
-from bajo.bvh.cpu import CpuBlasSet
+from bajo.bvh.constants import Primitive, TRACE, f32_max
+from bajo.bvh.cpu.blas_set import build_triangle_blases, trace_blas_set
+from bajo.bvh.cpu import (
+    CpuBlasSet,
+    CpuBvhBuildMethod,
+)
 from bajo.bvh.types import BlasDesc
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.core import Frame, Point3f32, Rayf32
@@ -27,13 +30,16 @@ struct PrimaryBenchResult(Copyable):
 
 def trace_triangle[
     width: SIMDLength
-](bvh: CpuBlasSet[width], rays: List[Rayf32[Frame.WORLD]],) -> Float64:
+](
+    bvh: CpuBlasSet[Primitive.TRIANGLE, width],
+    rays: List[Rayf32[Frame.WORLD]],
+) -> Float64:
     var checksum = 0.0
 
     for ray in rays:
-        var hit = trace_triangle_blas_set[
-            width, width, TRACE.CLOSEST_HIT, Frame.WORLD
-        ](bvh, UInt32(0), ray)
+        var hit = trace_blas_set[width, width, TRACE.CLOSEST_HIT, Frame.WORLD](
+            bvh, UInt32(0), ray
+        )
 
         if hit.t < f32_max:
             checksum += (
@@ -52,7 +58,7 @@ def trace_triangle[
 def benchmark_triangle[
     width: SIMDLength
 ](
-    bvh: CpuBlasSet[width],
+    bvh: CpuBlasSet[Primitive.TRIANGLE, width],
     rays: List[Rayf32[Frame.WORLD]],
 ) -> PrimaryBenchResult:
     # Warm-up.
@@ -74,7 +80,7 @@ def benchmark_triangle[
 def print_case_result(
     table: TablePrinter,
     width: Int,
-    split_method: String,
+    build_name: String,
     build_ns: Int,
     nodes: Int,
     prims: Int,
@@ -83,7 +89,7 @@ def print_case_result(
 ) raises:
     table.result_line(
         prim="tri",
-        split_method=split_method,
+        split_method=build_name,
         width=String(width),
         build=String(round(ns_to_ms(build_ns), 3)),
         nodes=String(nodes),
@@ -101,14 +107,14 @@ def print_case_result(
 
 def benchmark_case[
     width: SIMDLength,
-    split_method: String,
+    method: CpuBvhBuildMethod,
 ](
     table: TablePrinter,
     vertices: List[Point3f32[Frame.WORLD]],
     rays: List[Rayf32[Frame.WORLD]],
 ) raises:
     var t0 = perf_counter_ns()
-    var bvh = build_triangle_blases[width, width, split_method, Frame.WORLD](
+    var bvh = build_triangle_blases[width, width, method, Frame.WORLD](
         [vertices.copy()]
     )
     var t1 = perf_counter_ns()
@@ -118,7 +124,7 @@ def benchmark_case[
     print_case_result(
         table,
         width,
-        split_method,
+        method.name(),
         Int(t1 - t0),
         Int(BlasDesc.load(bvh.descs.unsafe_ptr(), UInt32(0)).node_count),
         len(vertices) / 3,
@@ -128,14 +134,14 @@ def benchmark_case[
 
 
 def benchmark_widths[
-    split_method: String
+    method: CpuBvhBuildMethod
 ](
     table: TablePrinter,
     vertices: List[Point3f32[Frame.WORLD]],
     rays: List[Rayf32[Frame.WORLD]],
 ) raises:
     comptime for width in [2, 4, 8, 16]:
-        benchmark_case[width, split_method](
+        benchmark_case[width, method](
             table,
             vertices,
             rays,
@@ -171,12 +177,13 @@ def run_benchmark() raises:
     )
     table.header()
 
-    comptime for split_method in ["median", "sah", "lbvh", "hploc"]:
-        benchmark_widths[split_method](
-            table,
-            vertices,
-            rays,
-        )
+    comptime for method in [
+        CpuBvhBuildMethod.MEDIAN,
+        CpuBvhBuildMethod.SAH,
+        CpuBvhBuildMethod.LBVH,
+        CpuBvhBuildMethod.HPLOC,
+    ]:
+        benchmark_widths[method](table, vertices, rays)
 
 
 def main() raises:

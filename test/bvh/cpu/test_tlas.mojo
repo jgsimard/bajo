@@ -84,22 +84,18 @@ def test_tlas_triangle_single_instance_cases() raises:
     var bounds = _triangle_bounds(vertices)
     var blases = build_triangle_blases[4]([vertices^])
     var identity = Tlas[4]([_instance(Primitive.TRIANGLE, 0, bounds, 0.0)])
-    var hit = identity.trace_triangle_blases[4, 4, TRACE.CLOSEST_HIT](
-        _ray(), blases
-    )
+    var hit = identity.trace_blases[4, 4, TRACE.CLOSEST_HIT](_ray(), blases)
     _assert_hit(hit, 0, 2.0)
     assert_almost_equal(hit.normal.z, 1.0)
 
     var translated = Tlas[4]([_instance(Primitive.TRIANGLE, 0, bounds, 5.0)])
     _assert_hit(
-        translated.trace_triangle_blases[4, 4, TRACE.CLOSEST_HIT](
-            _ray(5.0), blases
-        ),
+        translated.trace_blases[4, 4, TRACE.CLOSEST_HIT](_ray(5.0), blases),
         0,
         2.0,
     )
     assert_true(
-        not translated.trace_triangle_blases[4, 4, TRACE.CLOSEST_HIT](
+        not translated.trace_blases[4, 4, TRACE.CLOSEST_HIT](
             _ray(), blases
         ).is_hit()
     )
@@ -116,7 +112,7 @@ def test_tlas_triangle_two_instance_cases() raises:
         ]
     )
     _assert_hit(
-        near_far.trace_triangle_blases[4, 4, TRACE.CLOSEST_HIT](_ray(), blases),
+        near_far.trace_blases[4, 4, TRACE.CLOSEST_HIT](_ray(), blases),
         0,
         2.0,
     )
@@ -127,9 +123,7 @@ def test_tlas_triangle_two_instance_cases() raises:
         ]
     )
     _assert_hit(
-        left_right.trace_triangle_blases[4, 4, TRACE.CLOSEST_HIT](
-            _ray(5.0), blases
-        ),
+        left_right.trace_blases[4, 4, TRACE.CLOSEST_HIT](_ray(5.0), blases),
         1,
         2.0,
     )
@@ -147,14 +141,12 @@ def _test_tlas_triangle_leaf_width[leaf_width: SIMDLength]() raises:
         ]
     )
     _assert_hit(
-        tlas.trace_triangle_blases[4, 4, TRACE.CLOSEST_HIT](_ray(5.0), blases),
+        tlas.trace_blases[4, 4, TRACE.CLOSEST_HIT](_ray(5.0), blases),
         1,
         2.0,
     )
     assert_true(
-        tlas.trace_triangle_blases[4, 4, TRACE.ANY_HIT](
-            _ray(5.0), blases
-        ).is_occluded()
+        tlas.trace_blases[4, 4, TRACE.ANY_HIT](_ray(5.0), blases).is_occluded()
     )
 
 
@@ -174,7 +166,7 @@ def test_tlas_leaf_instance_bounds_filter_missed_blas() raises:
         ]
     )
     _assert_hit(
-        tlas.trace_triangle_blases[4, 4, TRACE.CLOSEST_HIT](_ray(5.0), blases),
+        tlas.trace_blases[4, 4, TRACE.CLOSEST_HIT](_ray(5.0), blases),
         1,
         2.0,
     )
@@ -186,14 +178,10 @@ def test_tlas_triangle_shadow_cases() raises:
     var blases = build_triangle_blases[4]([vertices^])
     var tlas = Tlas[4]([_instance(Primitive.TRIANGLE, 0, bounds, 5.0)])
     assert_true(
-        tlas.trace_triangle_blases[4, 4, TRACE.ANY_HIT](
-            _ray(5.0), blases
-        ).is_occluded()
+        tlas.trace_blases[4, 4, TRACE.ANY_HIT](_ray(5.0), blases).is_occluded()
     )
     assert_true(
-        not tlas.trace_triangle_blases[4, 4, TRACE.ANY_HIT](
-            _ray(), blases
-        ).is_occluded()
+        not tlas.trace_blases[4, 4, TRACE.ANY_HIT](_ray(), blases).is_occluded()
     )
 
 
@@ -202,22 +190,18 @@ def test_tlas_sphere_single_instance_cases() raises:
     var bounds = spheres[0].bounds()
     var blases = build_sphere_blases[4]([spheres^])
     var identity = Tlas[4]([_instance(Primitive.SPHERE, 0, bounds, 0.0)])
-    var hit = identity.trace_sphere_blases[4, 4, TRACE.CLOSEST_HIT](
-        _ray(), blases
-    )
+    var hit = identity.trace_blases[4, 4, TRACE.CLOSEST_HIT](_ray(), blases)
     _assert_hit(hit, 0, 1.0)
     assert_almost_equal(hit.normal.z, -1.0)
 
     var translated = Tlas[4]([_instance(Primitive.SPHERE, 0, bounds, 5.0)])
     _assert_hit(
-        translated.trace_sphere_blases[4, 4, TRACE.CLOSEST_HIT](
-            _ray(5.0), blases
-        ),
+        translated.trace_blases[4, 4, TRACE.CLOSEST_HIT](_ray(5.0), blases),
         0,
         1.0,
     )
     assert_true(
-        not translated.trace_sphere_blases[4, 4, TRACE.CLOSEST_HIT](
+        not translated.trace_blases[4, 4, TRACE.CLOSEST_HIT](
             _ray(), blases
         ).is_hit()
     )
@@ -234,7 +218,7 @@ def test_tlas_sphere_two_instance_cases() raises:
         ]
     )
     _assert_hit(
-        near_far.trace_sphere_blases[4, 4, TRACE.CLOSEST_HIT](_ray(), blases),
+        near_far.trace_blases[4, 4, TRACE.CLOSEST_HIT](_ray(), blases),
         0,
         1.0,
     )
@@ -245,9 +229,7 @@ def test_tlas_sphere_two_instance_cases() raises:
         ]
     )
     _assert_hit(
-        left_right.trace_sphere_blases[4, 4, TRACE.CLOSEST_HIT](
-            _ray(5.0), blases
-        ),
+        left_right.trace_blases[4, 4, TRACE.CLOSEST_HIT](_ray(5.0), blases),
         1,
         1.0,
     )
@@ -263,9 +245,7 @@ def test_tlas_sphere_nonuniform_scale_normal() raises:
     var tlas = Tlas[4](
         [Instance(transform, UInt32(0), bounds, Primitive.SPHERE)]
     )
-    var hit = tlas.trace_sphere_blases[4, 4, TRACE.CLOSEST_HIT](
-        _ray(1.0), blases
-    )
+    var hit = tlas.trace_blases[4, 4, TRACE.CLOSEST_HIT](_ray(1.0), blases)
     _assert_hit(hit, 0, 1.1339746)
     assert_almost_equal(hit.normal.x, 0.2773501, atol=1.0e-5)
     assert_almost_equal(hit.normal.z, -0.9607689, atol=1.0e-5)
@@ -277,14 +257,10 @@ def test_tlas_sphere_shadow_cases() raises:
     var blases = build_sphere_blases[4]([spheres^])
     var tlas = Tlas[4]([_instance(Primitive.SPHERE, 0, bounds, 5.0)])
     assert_true(
-        tlas.trace_sphere_blases[4, 4, TRACE.ANY_HIT](
-            _ray(5.0), blases
-        ).is_occluded()
+        tlas.trace_blases[4, 4, TRACE.ANY_HIT](_ray(5.0), blases).is_occluded()
     )
     assert_true(
-        not tlas.trace_sphere_blases[4, 4, TRACE.ANY_HIT](
-            _ray(), blases
-        ).is_occluded()
+        not tlas.trace_blases[4, 4, TRACE.ANY_HIT](_ray(), blases).is_occluded()
     )
 
 

@@ -2,7 +2,11 @@
 
 from max.gpu.host import DeviceBuffer, DeviceContext
 
-from bajo.bvh.gpu import GpuBvhBuildMethod, build_triangle_blas_set
+from bajo.bvh.gpu import (
+    GpuBvhBuildMethod,
+    GpuBvhLayout,
+    build_triangle_blas_set,
+)
 from bajo.core import Frame, Point3f32
 
 
@@ -36,7 +40,7 @@ struct GpuRtTriangleGeometry[
             Self.node_width,
             Self.leaf_width,
             Self.build_method,
-            Self.compressed,
+            GpuBvhLayout(Self.compressed),
             Self.frame,
         ](ctx, [owned_vertices^])
         self.nodes = packed.nodes.copy()

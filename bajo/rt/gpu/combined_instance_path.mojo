@@ -4,9 +4,11 @@ from std.time import perf_counter_ns
 from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh import Camera
+from bajo.bvh.constants import Primitive
 from bajo.bvh.gpu import (
     GpuBlasSet,
     GpuBvhBuildMethod,
+    GpuBvhLayout,
     GpuTriangleTlas,
     build_triangle_blas_set,
     build_triangle_tlas,
@@ -73,13 +75,18 @@ struct GpuRtCombinedInstanceScene[
         Self.triangle_build_method,
         Self.triangle_compressed,
     ]
-    var blases: GpuBlasSet[Self.blas_node_width, Self.blas_leaf_width]
+    var blases: GpuBlasSet[
+        Primitive.TRIANGLE,
+        GpuBvhLayout(Self.blas_compressed),
+        Self.blas_node_width,
+        Self.blas_leaf_width,
+    ]
     var tlas: GpuTriangleTlas[
         Self.tlas_node_width,
         Self.blas_node_width,
         Self.tlas_leaf_width,
         Self.blas_leaf_width,
-        Self.blas_compressed,
+        GpuBvhLayout(Self.blas_compressed),
     ]
     var triangle_surfaces: DeviceBuffer[DType.uint32]
     var instance_surfaces: DeviceBuffer[DType.uint32]
@@ -122,7 +129,7 @@ struct GpuRtCombinedInstanceScene[
             Self.blas_node_width,
             Self.blas_leaf_width,
             Self.blas_build_method,
-            Self.blas_compressed,
+            GpuBvhLayout(Self.blas_compressed),
         ](ctx, world.triangle_meshes)
         self.tlas = build_triangle_tlas[
             Self.tlas_node_width,
@@ -130,7 +137,7 @@ struct GpuRtCombinedInstanceScene[
             Self.tlas_leaf_width,
             Self.blas_leaf_width,
             Self.tlas_build_method,
-            Self.blas_compressed,
+            GpuBvhLayout(Self.blas_compressed),
         ](ctx, world.triangle_instances)
         comptime if Self.HAS_TRIANGLES:
             self.triangle_surfaces = upload_surface_ids(

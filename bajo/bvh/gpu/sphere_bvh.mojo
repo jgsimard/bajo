@@ -5,6 +5,7 @@ from std.gpu import global_idx
 
 from bajo.bvh.constants import (
     EMPTY_LANE,
+    Primitive,
     TRACE,
     f32_max,
     SPHERE_LEAF_PACKED_STRIDE,
@@ -23,7 +24,7 @@ from bajo.core import (
     SegmentOffsets,
 )
 from bajo.core.intersect import intersect_ray_sphere
-from bajo.bvh.gpu.blas_storage import GpuBlasSet
+from bajo.bvh.gpu.blas_storage import GpuBlasSet, GpuBvhLayout
 from bajo.bvh.types import Hit, Sphere
 from bajo.bvh.gpu.wide_layout import (
     GpuCompactWideLayout,
@@ -140,12 +141,19 @@ struct _SegmentedSphereWideBuild[
 
     def into_blas_set(
         deinit self, mut ctx: DeviceContext
-    ) raises -> GpuBlasSet[Self.node_width, Self.leaf_width]:
+    ) raises -> GpuBlasSet[
+        Primitive.SPHERE,
+        GpuBvhLayout.WIDE,
+        Self.node_width,
+        Self.leaf_width,
+    ]:
         """Finalize the adapter as a descriptor-backed sphere BLAS set."""
         return finalize_ordinary_wide_blas_set[
             Self.node_width,
             Self.leaf_width,
             Self.build_method,
+            Primitive.SPHERE,
+            GpuBvhLayout.WIDE,
             SPHERE_LEAF_PACKED_STRIDE,
         ](ctx, self.hierarchy^, self.leaf_spheres^)
 
@@ -248,11 +256,15 @@ def build_sphere_blas_set[
 ](
     mut ctx: DeviceContext,
     sphere_sets: ImmSpan[List[Sphere[Frame.LOCAL]], _],
-) raises -> GpuBlasSet[node_width, leaf_width]:
+) raises -> GpuBlasSet[
+    Primitive.SPHERE, GpuBvhLayout.WIDE, node_width, leaf_width
+]:
     debug_assert["safe", _use_compiler_assume=True](len(sphere_sets) > 0)
     var inputs = _flatten_sphere_sets(sphere_sets)
     if inputs.segments.item_count() == 0:
-        return GpuBlasSet[node_width, leaf_width].empty(ctx, len(sphere_sets))
+        return GpuBlasSet[
+            Primitive.SPHERE, GpuBvhLayout.WIDE, node_width, leaf_width
+        ].empty(ctx, len(sphere_sets))
     var adapter = _enqueue_segmented_sphere_wide[
         Frame.LOCAL, node_width, leaf_width, build_method
     ](ctx, inputs^)

@@ -9,17 +9,17 @@ from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.bvh.host_utils import compute_bounds, sphere_bounds
 from bajo.bvh.constants import (
     GPU_BOUNDS_BVH_BLOCK_SIZE,
+    Primitive,
     TRACE,
     TRI_LEAF_VERTEX_STRIDE,
     f32_max,
 )
-from bajo.bvh.cpu import CpuBlasSet
+from bajo.bvh.cpu import CpuBlasSet, CpuBvhBuildMethod
 from bajo.bvh.types import Hit, Sphere
 from bajo.bvh.cpu.blas_set import (
     build_sphere_blases,
     build_triangle_blases,
-    trace_sphere_blas_set,
-    trace_triangle_blas_set,
+    trace_blas_set,
 )
 from bajo.bvh.gpu.sphere_bvh import (
     GpuSphereBvh,
@@ -318,16 +318,17 @@ def _trace_cwbvh8_rays_kernel[
 
 def _trace_cpu_triangle_bvh[
     width: SIMDLength
-](bvh: CpuBlasSet[width], rays: List[Rayf32[Frame.WORLD]]) -> Tuple[
-    Float64, UInt32
-]:
+](
+    bvh: CpuBlasSet[Primitive.TRIANGLE, width],
+    rays: List[Rayf32[Frame.WORLD]],
+) -> Tuple[Float64, UInt32]:
     var checksum = Float64(0.0)
     var hit_count = UInt32(0)
 
     for ray in rays:
-        var hit = trace_triangle_blas_set[
-            width, width, TRACE.CLOSEST_HIT, Frame.WORLD
-        ](bvh, UInt32(0), ray)
+        var hit = trace_blas_set[width, width, TRACE.CLOSEST_HIT, Frame.WORLD](
+            bvh, UInt32(0), ray
+        )
         if hit.t < f32_max:
             checksum += Float64(hit.t)
             hit_count += 1
@@ -337,16 +338,17 @@ def _trace_cpu_triangle_bvh[
 
 def _trace_cpu_sphere_bvh[
     width: SIMDLength
-](bvh: CpuBlasSet[width], rays: List[Rayf32[Frame.WORLD]]) -> Tuple[
-    Float64, UInt32
-]:
+](
+    bvh: CpuBlasSet[Primitive.SPHERE, width],
+    rays: List[Rayf32[Frame.WORLD]],
+) -> Tuple[Float64, UInt32]:
     var checksum = Float64(0.0)
     var hit_count = UInt32(0)
 
     for ray in rays:
-        var hit = trace_sphere_blas_set[
-            width, width, TRACE.CLOSEST_HIT, Frame.WORLD
-        ](bvh, UInt32(0), ray)
+        var hit = trace_blas_set[width, width, TRACE.CLOSEST_HIT, Frame.WORLD](
+            bvh, UInt32(0), ray
+        )
         if hit.t < f32_max:
             checksum += Float64(hit.t)
             hit_count += 1
@@ -388,9 +390,9 @@ def _print_cpu_triangle_reference[
     vertices: List[Point3f32[Frame.WORLD]],
     rays: List[Rayf32[Frame.WORLD]],
 ) -> Tuple[Float64, UInt32]:
-    var bvh = build_triangle_blases[width, width, "lbvh", Frame.WORLD](
-        [vertices.copy()]
-    )
+    var bvh = build_triangle_blases[
+        width, width, CpuBvhBuildMethod.LBVH, Frame.WORLD
+    ]([vertices.copy()])
     var t0 = perf_counter_ns()
     var result = _trace_cpu_triangle_bvh[width](bvh, rays)
     var t1 = perf_counter_ns()
@@ -406,7 +408,9 @@ def _print_cpu_sphere_reference[
     spheres: List[Sphere[Frame.WORLD]],
     rays: List[Rayf32[Frame.WORLD]],
 ) -> Tuple[Float64, UInt32]:
-    var bvh = build_sphere_blases[width, "lbvh", Frame.WORLD]([spheres.copy()])
+    var bvh = build_sphere_blases[width, CpuBvhBuildMethod.LBVH, Frame.WORLD](
+        [spheres.copy()]
+    )
     var t0 = perf_counter_ns()
     var result = _trace_cpu_sphere_bvh[width](bvh, rays)
     var t1 = perf_counter_ns()

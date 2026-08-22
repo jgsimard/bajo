@@ -2,14 +2,14 @@ from std.math import round
 from std.time import perf_counter_ns
 
 from bajo.bvh.constants import TRACE
-from bajo.bvh.cpu.blas_set import trace_triangle_blas_set
+from bajo.bvh.cpu.blas_set import trace_blas_set
 from bajo.core import Frame, GeoKind, Rayf32, cross, dot, normalize
 from bajo.core.utils import ns_to_mrays_per_s
+from bajo.rt import CpuScene
 from bajo.rt.types import (
     HitRecord,
     PRIM,
     PrimitiveId,
-    CpuScene,
     ray_at,
 )
 from bajo.benchmark.rt_fixtures import (
@@ -31,9 +31,9 @@ struct TimingResult(Copyable):
 def trace_recomputed_normal(
     world: CpuScene[], ray: Rayf32[Frame.WORLD]
 ) -> Optional[HitRecord]:
-    var bvh_hit = trace_triangle_blas_set[
-        16, 16, TRACE.CLOSEST_HIT, Frame.WORLD
-    ](world.triangle_bvh.value(), UInt32(0), ray)
+    var bvh_hit = trace_blas_set[16, 16, TRACE.CLOSEST_HIT, Frame.WORLD](
+        world.triangle_bvh.value(), UInt32(0), ray
+    )
     if not bvh_hit.is_hit():
         return None
 
@@ -59,9 +59,9 @@ def trace_recomputed_normal(
 def trace_bvh_normal(
     world: CpuScene[], ray: Rayf32[Frame.WORLD]
 ) -> Optional[HitRecord]:
-    var bvh_hit = trace_triangle_blas_set[
-        16, 16, TRACE.CLOSEST_HIT, Frame.WORLD
-    ](world.triangle_bvh.value(), UInt32(0), ray)
+    var bvh_hit = trace_blas_set[16, 16, TRACE.CLOSEST_HIT, Frame.WORLD](
+        world.triangle_bvh.value(), UInt32(0), ray
+    )
     if not bvh_hit.is_hit():
         return None
 

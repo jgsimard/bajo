@@ -11,6 +11,7 @@ from bajo.core import (
 from bajo.core.intersect import intersect_ray_sphere_coefficients
 from bajo.core.utils import min_argmin
 from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
+from bajo.bvh.cpu.build_method import CpuBvhBuildMethod
 from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvh,
     BoundsItem,
@@ -133,7 +134,7 @@ struct _SphereBuild[frame: Frame, width: SIMDLength](Copyable):
     var sphere_count: Int
 
     def __init__[
-        split_method: String = "median"
+        method: CpuBvhBuildMethod = CpuBvhBuildMethod.MEDIAN
     ](out self, spheres: ImmSpan[Sphere[Self.frame], _]):
         self.sphere_count = len(spheres)
         self.leaf_blocks = []
@@ -148,9 +149,7 @@ struct _SphereBuild[frame: Frame, width: SIMDLength](Copyable):
                 )
             )
 
-        var builder = BinaryBoundsBvh[Self.frame, Self.width, split_method](
-            items^
-        )
+        var builder = BinaryBoundsBvh[Self.frame, Self.width, method](items^)
 
         var leaf_blocks = List[SphereLeafBlock[Self.frame, Self.width]](
             capacity=(Int(builder.nodes_used) + 1) // 2

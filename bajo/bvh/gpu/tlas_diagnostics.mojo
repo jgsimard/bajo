@@ -9,6 +9,7 @@ from bajo.bvh.constants import (
     EMPTY_LANE,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
     GPU_STACK_SIZE,
+    Primitive,
     TRACE,
     f32_max,
 )
@@ -26,7 +27,7 @@ from bajo.bvh.tlas_common import (
     finalize_tlas_hit_normal,
     promote_tlas_local_hit,
 )
-from bajo.bvh.gpu.blas_storage import GpuBlasSet
+from bajo.bvh.gpu.blas_storage import GpuBlasSet, GpuBvhLayout
 from bajo.bvh.types import BlasDesc, Hit
 from bajo.core import Affine3f32, Frame, Rayf32
 
@@ -365,8 +366,19 @@ def launch_triangle_tlas_camera_diagnostics[
     blas_leaf_width: SIMDLength,
 ](
     ctx: DeviceContext,
-    tlas: GpuTriangleTlas[2, blas_node_width, 1, blas_leaf_width, True],
-    blases: GpuBlasSet[blas_node_width, blas_leaf_width],
+    tlas: GpuTriangleTlas[
+        2,
+        blas_node_width,
+        1,
+        blas_leaf_width,
+        GpuBvhLayout.CWBVH8,
+    ],
+    blases: GpuBlasSet[
+        Primitive.TRIANGLE,
+        GpuBvhLayout.CWBVH8,
+        blas_node_width,
+        blas_leaf_width,
+    ],
     camera_params: DeviceBuffer[DType.float32],
     hits: DeviceBuffer[DType.float32],
     stats: DeviceBuffer[DType.uint32],

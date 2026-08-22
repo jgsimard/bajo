@@ -24,10 +24,11 @@ from bajo.core import (
     Rayf32,
     SegmentOffsets,
 )
-from bajo.bvh.gpu.blas_storage import GpuBlasSet
+from bajo.bvh.gpu.blas_storage import GpuBlasSet, GpuBvhLayout
 from bajo.bvh.types import Hit
 from bajo.bvh.constants import (
     EMPTY_LANE,
+    Primitive,
     TRACE,
     TRI_LEAF_VERTEX_STRIDE,
     TRI_LEAF_PACKED_STRIDE,
@@ -197,14 +198,21 @@ struct _SegmentedTriangleWideBuild[
     var bounds_pack_ns: Int
     var leaf_pack_start_ns: Int
 
-    def into_blas_set(
-        deinit self, mut ctx: DeviceContext
-    ) raises -> GpuBlasSet[Self.node_width, Self.leaf_width]:
+    def into_blas_set[
+        layout: GpuBvhLayout
+    ](deinit self, mut ctx: DeviceContext) raises -> GpuBlasSet[
+        Primitive.TRIANGLE,
+        layout,
+        Self.node_width,
+        Self.leaf_width,
+    ]:
         """Finalize the adapter as a descriptor-backed BLAS set."""
         return finalize_ordinary_wide_blas_set[
             Self.node_width,
             Self.leaf_width,
             Self.build_method,
+            Primitive.TRIANGLE,
+            layout,
             TRI_LEAF_PACKED_STRIDE,
         ](ctx, self.hierarchy^, self.leaf_vertices^)
 
@@ -337,19 +345,22 @@ def _build_segmented_triangle_blas_set[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
     build_method: GpuBvhBuildMethod,
+    layout: GpuBvhLayout,
 ](
     mut ctx: DeviceContext,
     vertex_sets: ImmSpan[List[Point3f32[frame]], _],
-) raises -> GpuBlasSet[node_width, leaf_width]:
+) raises -> GpuBlasSet[Primitive.TRIANGLE, layout, node_width, leaf_width]:
     """Build ordinary wide BLASes as one segmented GPU workload."""
     var inputs = _flatten_triangle_sets(vertex_sets)
     if inputs.segments.item_count() == 0:
-        return GpuBlasSet[node_width, leaf_width].empty(ctx, len(vertex_sets))
+        return GpuBlasSet[
+            Primitive.TRIANGLE, layout, node_width, leaf_width
+        ].empty(ctx, len(vertex_sets))
     var source_vertices = upload_list(ctx, inputs.packed_vertices)
     var adapter = _enqueue_segmented_triangle_wide[
         frame, node_width, leaf_width, build_method
     ](ctx, source_vertices, inputs.segments)
-    return adapter^.into_blas_set(ctx)
+    return adapter^.into_blas_set[layout](ctx)
 
 
 def _build_segmented_compressed_triangle_blas_set[
@@ -357,16 +368,19 @@ def _build_segmented_compressed_triangle_blas_set[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
     build_method: GpuBvhBuildMethod,
+    layout: GpuBvhLayout,
 ](
     mut ctx: DeviceContext,
     vertex_sets: ImmSpan[List[Point3f32[frame]], _],
-) raises -> GpuBlasSet[node_width, leaf_width]:
+) raises -> GpuBlasSet[Primitive.TRIANGLE, layout, node_width, leaf_width]:
     """Build and encode every CWBVH8 BLAS as one segmented workload."""
     comptime assert node_width == 8 and leaf_width == 4
 
     var inputs = _flatten_triangle_sets(vertex_sets)
     if inputs.segments.item_count() == 0:
-        return GpuBlasSet[node_width, leaf_width].empty(ctx, len(vertex_sets))
+        return GpuBlasSet[
+            Primitive.TRIANGLE, layout, node_width, leaf_width
+        ].empty(ctx, len(vertex_sets))
     ref segments = inputs.segments
     var source_vertices = upload_list(ctx, inputs.packed_vertices)
     var triangle_count = segments.item_count()
@@ -415,7 +429,7 @@ def _build_segmented_compressed_triangle_blas_set[
             if encoded_counts[segment_idx] != segments.count(segment_idx):
                 raise "segmented CWBVH8 encoding lost triangle records"
 
-    var layout = GpuCompactWideLayout(
+    var compact_layout = GpuCompactWideLayout(
         ctx,
         wide.node_counts,
         wide.leaf_block_counts,
@@ -427,15 +441,15 @@ def _build_segmented_compressed_triangle_blas_set[
         ctx,
         nodes,
         wide.node_segment_offsets,
-        layout.node_segment_offsets,
-        layout.node_segments.item_count(),
+        compact_layout.node_segment_offsets,
+        compact_layout.node_segments.item_count(),
         segments.segment_count(),
     )
     var descs = enqueue_segmented_blas_descriptors[
         CWBVH_NODE_WORDS, CWBVH_TRIANGLE_WORDS
     ](
         ctx,
-        layout.node_segment_offsets,
+        compact_layout.node_segment_offsets,
         binary.segment_offsets,
         binary.segment_offsets,
         wide.node_counts,
@@ -444,7 +458,7 @@ def _build_segmented_compressed_triangle_blas_set[
     )
     ctx.synchronize()
 
-    return GpuBlasSet[node_width, leaf_width](
+    return GpuBlasSet[Primitive.TRIANGLE, layout, node_width, leaf_width](
         descs^,
         compact_nodes^,
         triangles^,
@@ -456,23 +470,25 @@ def build_triangle_blas_set[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
     build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
-    compressed: Bool = False,
+    layout: GpuBvhLayout = GpuBvhLayout.WIDE,
     frame: Frame = Frame.LOCAL,
 ](
     mut ctx: DeviceContext,
     vertex_sets: ImmSpan[List[Point3f32[frame]], _],
-) raises -> GpuBlasSet[node_width, leaf_width]:
+) raises -> GpuBlasSet[Primitive.TRIANGLE, layout, node_width, leaf_width]:
     """Select the representation around the shared triangle input adapter."""
     debug_assert["safe", _use_compiler_assume=True](len(vertex_sets) > 0)
-    comptime if compressed:
+    comptime if layout == GpuBvhLayout.CWBVH8:
         comptime assert node_width == 8 and leaf_width == 4
         return _build_segmented_compressed_triangle_blas_set[
-            frame, node_width, leaf_width, build_method
+            frame, node_width, leaf_width, build_method, layout
+        ](ctx, vertex_sets)
+    elif layout == GpuBvhLayout.WIDE:
+        return _build_segmented_triangle_blas_set[
+            frame, node_width, leaf_width, build_method, layout
         ](ctx, vertex_sets)
     else:
-        return _build_segmented_triangle_blas_set[
-            frame, node_width, leaf_width, build_method
-        ](ctx, vertex_sets)
+        comptime assert False, "unknown GPU BVH layout"
 
 
 struct GpuTriangleBvh[

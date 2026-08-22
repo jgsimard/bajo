@@ -5,6 +5,7 @@ from std.sys import simd_width_of
 
 from bajo.bvh.constants import LBVH_SENTINEL
 from bajo.core import AABB, Frame
+from bajo.bvh.cpu.build_method import CpuBvhBuildMethod
 from bajo.core.utils import fmax, fmin
 from ..parallel import _worker_count
 from .builder import BinaryBoundsBvh
@@ -936,14 +937,14 @@ def _write_hploc_leaf_indices[
 def _emit_hploc_node[
     frame: Frame,
     leaf_size: Int,
-    method: String,
+    method: CpuBvhBuildMethod,
 ](
     mut builder: BinaryBoundsBvh[frame, leaf_size, method],
     topology: HplocTopology[frame],
     topology_idx: UInt32,
     node_idx: UInt32,
     mut item_cursor: UInt32,
-) where (method == "hploc"):
+):
     var source = topology.nodes[Int(topology_idx)]
     builder.nodes[Int(node_idx)].aabb = source.bounds
 
@@ -979,7 +980,7 @@ def _emit_hploc_node[
 def _emit_hploc_node_parallel[
     frame: Frame,
     leaf_size: Int,
-    method: String,
+    method: CpuBvhBuildMethod,
 ](
     mut builder: BinaryBoundsBvh[frame, leaf_size, method],
     topology: HplocTopology[frame],
@@ -987,7 +988,7 @@ def _emit_hploc_node_parallel[
     node_idx: UInt32,
     first_item: UInt32,
     mut next_node: List[UInt32],
-) where (method == "hploc"):
+):
     var source = topology.nodes[Int(topology_idx)]
     builder.nodes[Int(node_idx)].aabb = source.bounds
 
@@ -1028,7 +1029,7 @@ def _emit_hploc_node_parallel[
 def _collect_hploc_emit_frontier[
     frame: Frame,
     leaf_size: Int,
-    method: String,
+    method: CpuBvhBuildMethod,
 ](
     mut builder: BinaryBoundsBvh[frame, leaf_size, method],
     topology: HplocTopology[frame],
@@ -1037,7 +1038,7 @@ def _collect_hploc_emit_frontier[
     first_item: UInt32,
     depth: Int,
     mut frontier: List[_HplocEmitTask],
-) where (method == "hploc"):
+):
     var source = topology.nodes[Int(topology_idx)]
     if source.leaf_count <= UInt32(leaf_size):
         builder.nodes[Int(node_idx)].aabb = source.bounds
@@ -1082,11 +1083,11 @@ def _collect_hploc_emit_frontier[
 def _build_hploc[
     frame: Frame,
     leaf_size: Int,
-    method: String,
+    method: CpuBvhBuildMethod,
 ](
     mut builder: BinaryBoundsBvh[frame, leaf_size, method],
     precomputed_centroid_bounds: AABB[frame],
-) where (method == "hploc"):
+):
     """Build H-PLOC and emit the standard CPU binary BVH with fat leaves."""
     var pairs = _sorted_morton_pairs(builder, precomputed_centroid_bounds)
     var leaf_count = len(pairs)

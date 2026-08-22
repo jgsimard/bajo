@@ -3,15 +3,28 @@
 from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh.cpu.blas_storage import CpuBlasSet
+from bajo.bvh.constants import Primitive
 from bajo.bvh.types import BlasDescLayout
 
 
 @fieldwise_init
+struct GpuBvhLayout(Equatable, ImplicitlyCopyable):
+    """Enum-like compile-time selector for GPU BLAS byte layout."""
+
+    comptime WIDE = Self(False)
+    comptime CWBVH8 = Self(True)
+
+    var compressed: Bool
+
+
+@fieldwise_init
 struct GpuBlasSet[
+    kind: Primitive,
+    layout: GpuBvhLayout,
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
 ]:
-    """Own descriptor, node, and leaf buffers on one GPU device."""
+    """Own primitive- and layout-typed BLAS buffers on one GPU device."""
 
     var descs: DeviceBuffer[DType.uint32]
     var nodes: DeviceBuffer[DType.float32]
@@ -32,9 +45,10 @@ struct GpuBlasSet[
     @staticmethod
     def from_cpu(
         mut ctx: DeviceContext,
-        host: CpuBlasSet[Self.node_width, Self.leaf_width],
+        host: CpuBlasSet[Self.kind, Self.node_width, Self.leaf_width],
     ) raises -> Self:
         """Copy a borrowed CPU BLAS set into device-owned buffers."""
+        comptime assert Self.layout == GpuBvhLayout.WIDE
         var descs = ctx.enqueue_create_buffer[DType.uint32](len(host.descs))
         var node_count = len(host.nodes) if len(host.nodes) > 0 else 1
         var leaf_count = len(host.leaves) if len(host.leaves) > 0 else 1

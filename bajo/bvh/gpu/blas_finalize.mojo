@@ -2,9 +2,9 @@
 
 from max.gpu.host import DeviceBuffer, DeviceContext
 
-from bajo.bvh.constants import WideNode
+from bajo.bvh.constants import Primitive, WideNode
 from bajo.bvh.gpu.blas_desc import enqueue_segmented_blas_descriptors
-from bajo.bvh.gpu.blas_storage import GpuBlasSet
+from bajo.bvh.gpu.blas_storage import GpuBlasSet, GpuBvhLayout
 from bajo.bvh.gpu.builder.binary_builder import GpuBvhBuildMethod
 from bajo.bvh.gpu.builder.segmented_build import GpuSegmentedWideBuildTicket
 from bajo.bvh.gpu.wide_layout import (
@@ -17,6 +17,8 @@ def finalize_ordinary_wide_blas_set[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
     build_method: GpuBvhBuildMethod,
+    kind: Primitive,
+    layout: GpuBvhLayout,
     leaf_record_stride: Int,
 ](
     mut ctx: DeviceContext,
@@ -29,7 +31,7 @@ def finalize_ordinary_wide_blas_set[
         False,
     ],
     var leaf_workspace: DeviceBuffer[DType.float32],
-) raises -> GpuBlasSet[node_width, leaf_width]:
+) raises -> GpuBlasSet[kind, layout, node_width, leaf_width]:
     """Compact a completed ordinary-wide build and emit its descriptors."""
     comptime assert leaf_record_stride > 0
     ctx.synchronize()
@@ -37,7 +39,7 @@ def finalize_ordinary_wide_blas_set[
     ref binary = hierarchy.binary
     ref wide = hierarchy.wide
     var segment_count = wide.segments.segment_count()
-    var layout = GpuCompactWideLayout(
+    var compact_layout = GpuCompactWideLayout(
         ctx, wide.node_counts, wide.leaf_block_counts, segment_count
     )
     var compact_nodes = enqueue_compact_segmented_buffer[
@@ -46,8 +48,8 @@ def finalize_ordinary_wide_blas_set[
         ctx,
         wide.wide_nodes,
         wide.node_segment_offsets,
-        layout.node_segment_offsets,
-        layout.node_segments.item_count(),
+        compact_layout.node_segment_offsets,
+        compact_layout.node_segments.item_count(),
         segment_count,
     )
     var compact_leaves = enqueue_compact_segmented_buffer[
@@ -56,8 +58,8 @@ def finalize_ordinary_wide_blas_set[
         ctx,
         leaf_workspace,
         wide.leaf_block_segment_offsets,
-        layout.leaf_block_segment_offsets,
-        layout.leaf_block_segments.item_count(),
+        compact_layout.leaf_block_segment_offsets,
+        compact_layout.leaf_block_segments.item_count(),
         segment_count,
     )
     var descs = enqueue_segmented_blas_descriptors[
@@ -65,15 +67,15 @@ def finalize_ordinary_wide_blas_set[
         leaf_width * leaf_record_stride,
     ](
         ctx,
-        layout.node_segment_offsets,
-        layout.leaf_block_segment_offsets,
+        compact_layout.node_segment_offsets,
+        compact_layout.leaf_block_segment_offsets,
         binary.segment_offsets,
         wide.node_counts,
         wide.leaf_block_counts,
         segment_count,
     )
     ctx.synchronize()
-    return GpuBlasSet[node_width, leaf_width](
+    return GpuBlasSet[kind, layout, node_width, leaf_width](
         descs^,
         compact_nodes^,
         compact_leaves^,

@@ -5,7 +5,7 @@ from std.math import round
 from std.sys import simd_width_of
 from std.time import perf_counter_ns
 
-from bajo.bvh.constants import TRACE
+from bajo.bvh.constants import Primitive, TRACE
 from bajo.bvh.cpu.tlas import Tlas
 from bajo.bvh.cpu import CpuBlasSet
 from bajo.core import Frame, Rayf32
@@ -34,14 +34,14 @@ def _trace[
     mode: TRACE,
 ](
     tlas: Tlas[width, leaf_width],
-    blases: CpuBlasSet[width],
+    blases: CpuBlasSet[Primitive.TRIANGLE, width],
     rays: List[Rayf32[Frame.WORLD]],
 ) -> TraceChecksum:
     var distance = Float64(0.0)
     var hits = UInt64(0)
     var instances = UInt64(0)
     for ray in rays:
-        var hit = tlas.trace_triangle_blases[width, width, mode](ray, blases)
+        var hit = tlas.trace_blases[width, width, mode](ray, blases)
         comptime if mode == TRACE.ANY_HIT:
             if hit.is_occluded():
                 hits += 1
@@ -63,7 +63,7 @@ def _timed_trace[
     mode: TRACE,
 ](
     tlas: Tlas[width, leaf_width],
-    blases: CpuBlasSet[width],
+    blases: CpuBlasSet[Primitive.TRIANGLE, width],
     rays: List[Rayf32[Frame.WORLD]],
 ) -> Int:
     var start = perf_counter_ns()
@@ -101,7 +101,7 @@ def _benchmark_mode[
     label: String,
     tlas_leaf1: Tlas[width, 1],
     tlas_native: Tlas[width, width],
-    blases: CpuBlasSet[width],
+    blases: CpuBlasSet[Primitive.TRIANGLE, width],
     rays: List[Rayf32[Frame.WORLD]],
 ) raises:
     for _ in range(WARMUPS):

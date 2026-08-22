@@ -1,10 +1,13 @@
 from std.math import round
 from std.time import perf_counter_ns
 
-from bajo.bvh.constants import TRACE, f32_max
-from bajo.bvh.cpu.blas_set import build_triangle_blases, trace_triangle_blas_set
+from bajo.bvh.constants import Primitive, TRACE, f32_max
+from bajo.bvh.cpu.blas_set import build_triangle_blases, trace_blas_set
 from bajo.bvh.host_utils import compute_bounds
-from bajo.bvh.cpu import CpuBlasSet
+from bajo.bvh.cpu import (
+    CpuBlasSet,
+    CpuBvhBuildMethod,
+)
 from bajo.bvh.types import Hit
 from bajo.parser.obj.pack import pack_obj_triangles
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
@@ -31,14 +34,14 @@ def trace_scene[
     bounds_width: SIMDLength,
     leaf_width: SIMDLength,
 ](
-    bvh: CpuBlasSet[bounds_width, leaf_width],
+    bvh: CpuBlasSet[Primitive.TRIANGLE, bounds_width, leaf_width],
     rays: List[Rayf32[Frame.WORLD]],
 ) -> Tuple[Float64, Int]:
     var checksum = 0.0
     var hits = 0
 
     for ray in rays:
-        var hit = trace_triangle_blas_set[
+        var hit = trace_blas_set[
             bounds_width, leaf_width, TRACE.CLOSEST_HIT, Frame.WORLD
         ](bvh, UInt32(0), ray)
 
@@ -61,7 +64,7 @@ def benchmark_scene[
     bounds_width: SIMDLength,
     leaf_width: SIMDLength,
 ](
-    bvh: CpuBlasSet[bounds_width, leaf_width],
+    bvh: CpuBlasSet[Primitive.TRIANGLE, bounds_width, leaf_width],
     rays: List[Rayf32[Frame.WORLD]],
 ) -> SceneBenchResult:
     # Warm-up.
@@ -86,7 +89,7 @@ def benchmark_scene[
 
 def print_case_result(
     table: TablePrinter,
-    split_method: String,
+    build_name: String,
     traversal: String,
     bounds_width: Int,
     leaf_width: Int,
@@ -95,7 +98,7 @@ def print_case_result(
     ray_count: Int,
 ) raises:
     table.result_line(
-        split_method=split_method,
+        split_method=build_name,
         bounds_width=String(bounds_width),
         leaf_width=String(leaf_width),
         traversal=traversal,
@@ -115,7 +118,7 @@ def print_case_result(
 def benchmark_case[
     bounds_width: SIMDLength,
     leaf_width: SIMDLength,
-    split_method: String,
+    method: CpuBvhBuildMethod,
 ](
     table: TablePrinter,
     vertices: List[Point3f32[Frame.WORLD]],
@@ -123,7 +126,7 @@ def benchmark_case[
 ) raises:
     var t0 = perf_counter_ns()
     var bvh = build_triangle_blases[
-        bounds_width, leaf_width, split_method, Frame.WORLD
+        bounds_width, leaf_width, method, Frame.WORLD
     ]([vertices.copy()])
     var t1 = perf_counter_ns()
 
@@ -131,7 +134,7 @@ def benchmark_case[
 
     print_case_result(
         table,
-        split_method,
+        method.name(),
         "scalar1",
         bounds_width,
         leaf_width,
@@ -142,20 +145,20 @@ def benchmark_case[
 
 
 def benchmark_configurations[
-    split_method: String
+    method: CpuBvhBuildMethod
 ](
     table: TablePrinter,
     vertices: List[Point3f32[Frame.WORLD]],
     rays: List[Rayf32[Frame.WORLD]],
 ) raises:
-    comptime if split_method == "hploc":
-        benchmark_case[16, 16, split_method](table, vertices, rays)
+    comptime if method == CpuBvhBuildMethod.HPLOC:
+        benchmark_case[16, 16, method](table, vertices, rays)
     else:
         # BVH16/leaf16 is the general-purpose layout. Leaf32 is retained
         # because it is the measured Dragon scalar winner despite its grid
         # tradeoff.
         comptime for leaf_width in [16, 32]:
-            benchmark_case[16, leaf_width, split_method](
+            benchmark_case[16, leaf_width, method](
                 table,
                 vertices,
                 rays,
@@ -193,12 +196,13 @@ def run_benchmark() raises:
     )
     table.header()
 
-    comptime for split_method in ["median", "sah", "lbvh", "hploc"]:
-        benchmark_configurations[split_method](
-            table,
-            vertices,
-            rays,
-        )
+    comptime for method in [
+        CpuBvhBuildMethod.MEDIAN,
+        CpuBvhBuildMethod.SAH,
+        CpuBvhBuildMethod.LBVH,
+        CpuBvhBuildMethod.HPLOC,
+    ]:
+        benchmark_configurations[method](table, vertices, rays)
 
 
 def main() raises:

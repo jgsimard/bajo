@@ -3,6 +3,7 @@ from std.atomic import Atomic, Ordering
 from std.sys import num_logical_cores
 
 from bajo.core import AABB, Frame
+from bajo.bvh.cpu.build_method import CpuBvhBuildMethod
 from bajo.core.morton import morton3, morton_common_prefix
 from ..parallel import _worker_count
 from .builder import BinaryBoundsBvh
@@ -165,7 +166,7 @@ def _lbvh_find_split(
 def _sorted_morton_pairs[
     frame: Frame,
     leaf_size: Int,
-    method: String,
+    method: CpuBvhBuildMethod,
 ](
     builder: BinaryBoundsBvh[frame, leaf_size, method],
     precomputed_centroid_bounds: AABB[frame],
@@ -218,11 +219,11 @@ def _sorted_morton_pairs[
 def _build_lbvh[
     frame: Frame,
     leaf_size: Int,
-    method: String,
+    method: CpuBvhBuildMethod,
 ](
     mut builder: BinaryBoundsBvh[frame, leaf_size, method],
     precomputed_centroid_bounds: AABB[frame],
-) where (method == "lbvh"):
+):
     """Build a binary LBVH using sorted Morton codes over item centers."""
     var pairs = _sorted_morton_pairs(builder, precomputed_centroid_bounds)
     var item_count = len(pairs)
@@ -250,13 +251,13 @@ def _build_lbvh[
 
 @always_inline
 def _build_lbvh_leaf[
-    frame: Frame, leaf_size: Int, method: String
+    frame: Frame, leaf_size: Int, method: CpuBvhBuildMethod
 ](
     mut builder: BinaryBoundsBvh[frame, leaf_size, method],
     node_idx: UInt32,
     first: Int,
     count: Int,
-) -> AABB[frame] where (method == "lbvh"):
+) -> AABB[frame]:
     ref leaf = builder.nodes[Int(node_idx)]
     leaf.set_leaf(UInt32(first), UInt32(count))
     leaf.aabb = AABB[frame].invalid()
@@ -267,14 +268,14 @@ def _build_lbvh_leaf[
 
 
 def _build_lbvh_recursive[
-    frame: Frame, leaf_size: Int, method: String
+    frame: Frame, leaf_size: Int, method: CpuBvhBuildMethod
 ](
     mut builder: BinaryBoundsBvh[frame, leaf_size, method],
     pairs: ImmSpan[MortonItem, _],
     node_idx: UInt32,
     first: Int,
     count: Int,
-) -> AABB[frame] where (method == "lbvh"):
+) -> AABB[frame]:
     debug_assert["safe", _use_compiler_assume=True](
         first >= 0
         and count > 0
@@ -315,11 +316,11 @@ def _build_lbvh_recursive[
 
 
 def _build_lbvh_parallel[
-    frame: Frame, leaf_size: Int, method: String
+    frame: Frame, leaf_size: Int, method: CpuBvhBuildMethod
 ](
     mut builder: BinaryBoundsBvh[frame, leaf_size, method],
     pairs: ImmSpan[MortonItem, _],
-) where (method == "lbvh"):
+):
     var max_nodes = Int(builder.item_count * 2 - 1)
     builder.nodes.resize(unsafe_uninit_length=max_nodes)
     var frontier = List[LbvhFrontierTask](capacity=PARALLEL_FRONTIER_CAPACITY)
@@ -358,7 +359,7 @@ def _build_lbvh_parallel[
 
 
 def _collect_lbvh_frontier[
-    frame: Frame, leaf_size: Int, method: String
+    frame: Frame, leaf_size: Int, method: CpuBvhBuildMethod
 ](
     mut builder: BinaryBoundsBvh[frame, leaf_size, method],
     pairs: ImmSpan[MortonItem, _],
@@ -367,7 +368,7 @@ def _collect_lbvh_frontier[
     count: Int,
     depth: Int,
     mut frontier: List[LbvhFrontierTask],
-) where (method == "lbvh"):
+):
     if count <= leaf_size or depth == 0:
         frontier.append(LbvhFrontierTask(node_idx, first, count))
         return
@@ -400,7 +401,7 @@ def _collect_lbvh_frontier[
 def _build_lbvh_recursive_parallel[
     frame: Frame,
     leaf_size: Int,
-    method: String,
+    method: CpuBvhBuildMethod,
     next_node_origin: MutOrigin,
 ](
     mut builder: BinaryBoundsBvh[frame, leaf_size, method],
@@ -409,7 +410,7 @@ def _build_lbvh_recursive_parallel[
     first: Int,
     count: Int,
     next_node: Pointer[UInt32, next_node_origin],
-) -> AABB[frame] where (method == "lbvh"):
+) -> AABB[frame]:
     if count <= leaf_size:
         return _build_lbvh_leaf(builder, node_idx, first, count)
 
@@ -437,12 +438,12 @@ def _build_lbvh_recursive_parallel[
 
 
 def _refit_lbvh_frontier[
-    frame: Frame, leaf_size: Int, method: String
+    frame: Frame, leaf_size: Int, method: CpuBvhBuildMethod
 ](
     mut builder: BinaryBoundsBvh[frame, leaf_size, method],
     node_idx: UInt32,
     depth: Int,
-) -> AABB[frame] where (method == "lbvh"):
+) -> AABB[frame]:
     var source_node = builder.nodes[Int(node_idx)]
     if depth == 0 or source_node.is_leaf():
         return source_node.aabb

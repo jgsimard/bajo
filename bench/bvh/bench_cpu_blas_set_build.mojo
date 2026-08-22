@@ -14,7 +14,7 @@ from bajo.bvh.constants import (
 from bajo.bvh.cpu.blas_set import (
     build_sphere_blases,
     build_triangle_blases,
-    trace_triangle_blas_set,
+    trace_blas_set,
 )
 from bajo.bvh.types import Sphere
 from bajo.core import Frame, Point3f32, Rayf32, Vec3f32
@@ -166,7 +166,7 @@ def _bench_trace(vertices: List[Point3f32[Frame.LOCAL]]) raises:
         var start = perf_counter_ns()
         var checksum = Float64(0.0)
         for ray in rays:
-            var hit = trace_triangle_blas_set(packed, UInt32(0), ray)
+            var hit = trace_blas_set(packed, UInt32(0), ray)
             if hit.t < f32_max:
                 checksum += Float64(hit.t)
         packed_times.append(Int(perf_counter_ns() - start))

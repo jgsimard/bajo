@@ -5,6 +5,7 @@ from std.sys.intrinsics import prefetch
 
 from bajo.bvh.constants import (
     EMPTY_LANE,
+    Primitive,
     SPHERE_LEAF_PACKED_STRIDE,
     TRACE,
     TRI_LEAF_PACKED_STRIDE,
@@ -16,6 +17,7 @@ from bajo.bvh.cpu.sphere_bvh import (
     _trace_sphere_packet_primitive,
 )
 from bajo.bvh.cpu.blas_storage import CpuBlasSet
+from bajo.bvh.cpu.build_method import CpuBvhBuildMethod
 from bajo.bvh.cpu.triangle_bvh import (
     PARALLEL_TRIANGLE_BUILD_MIN_ITEMS,
     _TriangleBuild,
@@ -166,7 +168,7 @@ def _pack_triangle_blas[
     frame: Frame,
     node_width: SIMDLength,
     leaf_width: SIMDLength,
-    split_method: String,
+    method: CpuBvhBuildMethod,
 ](
     vertices: ImmSpan[Point3f32[frame], _],
     descs: MutPointer[UInt32, _],
@@ -176,9 +178,9 @@ def _pack_triangle_blas[
     node_f32_base: Int,
     leaf_f32_base: Int,
 ):
-    var bvh = _TriangleBuild[frame, node_width, leaf_width].__init__[
-        split_method
-    ](vertices)
+    var bvh = _TriangleBuild[frame, node_width, leaf_width].__init__[method](
+        vertices
+    )
     var nodes_u32 = nodes.unsafe_bitcast[UInt32]()
     for node_idx in range(len(bvh.tree.nodes)):
         ref node = bvh.tree.nodes[node_idx]
@@ -260,12 +262,12 @@ def _pack_triangle_blas[
 def build_triangle_blases[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
-    split_method: String = "sah",
+    method: CpuBvhBuildMethod = CpuBvhBuildMethod.SAH,
     frame: Frame = Frame.LOCAL,
 ](
     vertex_sets: ImmSpan[List[Point3f32[frame]], _],
 ) -> CpuBlasSet[
-    node_width, leaf_width
+    Primitive.TRIANGLE, node_width, leaf_width
 ]:
     debug_assert["safe", _use_compiler_assume=True](
         len(vertex_sets) > 0, "CPU BLAS batch must be nonempty"
@@ -319,7 +321,7 @@ def build_triangle_blases[
                 leaf_bases[blas_idx],
             )
             return
-        _pack_triangle_blas[frame, node_width, leaf_width, split_method](
+        _pack_triangle_blas[frame, node_width, leaf_width, method](
             vertex_sets[blas_idx],
             descs_ptr,
             nodes_ptr,
@@ -348,7 +350,7 @@ def build_triangle_blases[
         compact_nodes,
         compact_leaves,
     )
-    return CpuBlasSet[node_width, leaf_width](
+    return CpuBlasSet[Primitive.TRIANGLE, node_width, leaf_width](
         descs^, compact_nodes^, compact_leaves^, len(vertex_sets)
     )
 
@@ -367,7 +369,7 @@ def _sphere_leaf_count[
 def _pack_sphere_blas[
     frame: Frame,
     width: SIMDLength,
-    split_method: String,
+    method: CpuBvhBuildMethod,
 ](
     spheres: ImmSpan[Sphere[frame], _],
     descs: MutPointer[UInt32, _],
@@ -377,7 +379,7 @@ def _pack_sphere_blas[
     node_f32_base: Int,
     leaf_f32_base: Int,
 ):
-    var bvh = _SphereBuild[frame, width].__init__[split_method](spheres)
+    var bvh = _SphereBuild[frame, width].__init__[method](spheres)
     var nodes_u32 = nodes.unsafe_bitcast[UInt32]()
     for node_idx in range(len(bvh.tree.nodes)):
         ref node = bvh.tree.nodes[node_idx]
@@ -443,9 +445,13 @@ def _pack_sphere_blas[
 
 def build_sphere_blases[
     width: SIMDLength,
-    split_method: String = "sah",
+    method: CpuBvhBuildMethod = CpuBvhBuildMethod.SAH,
     frame: Frame = Frame.LOCAL,
-](sphere_sets: ImmSpan[List[Sphere[frame]], _],) -> CpuBlasSet[width]:
+](
+    sphere_sets: ImmSpan[List[Sphere[frame]], _],
+) -> CpuBlasSet[
+    Primitive.SPHERE, width
+]:
     debug_assert["safe", _use_compiler_assume=True](
         len(sphere_sets) > 0, "CPU BLAS batch must be nonempty"
     )
@@ -488,7 +494,7 @@ def build_sphere_blases[
                 leaf_bases[blas_idx],
             )
             return
-        _pack_sphere_blas[frame, width, split_method](
+        _pack_sphere_blas[frame, width, method](
             sphere_sets[blas_idx],
             descs_ptr,
             nodes_ptr,
@@ -519,7 +525,7 @@ def build_sphere_blases[
         compact_nodes,
         compact_leaves,
     )
-    return CpuBlasSet[width](
+    return CpuBlasSet[Primitive.SPHERE, width](
         descs^, compact_nodes^, compact_leaves^, len(sphere_sets)
     )
 
@@ -583,13 +589,13 @@ def _trace_packed_triangle_from_ref[
     return hit
 
 
-def trace_triangle_blas_set[
+def trace_blas_set[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
     mode: TRACE = TRACE.CLOSEST_HIT,
     frame: Frame = Frame.LOCAL,
 ](
-    blases: CpuBlasSet[node_width, leaf_width],
+    blases: CpuBlasSet[Primitive.TRIANGLE, node_width, leaf_width],
     blas_idx: UInt32,
     ray: Rayf32[frame],
 ) -> Hit[frame]:
@@ -647,14 +653,14 @@ def trace_triangle_blas_set[
     ](nodes, ray, leaf_fn)
 
 
-def trace_triangle_blas_set_packet[
+def trace_blas_set_packet[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
     length: SIMDLength,
     common_octant_fma: Bool = False,
     frame: Frame = Frame.LOCAL,
 ](
-    blases: CpuBlasSet[node_width, leaf_width],
+    blases: CpuBlasSet[Primitive.TRIANGLE, node_width, leaf_width],
     blas_idx: UInt32,
     rays: Ray[DType.float32, frame, length],
     valid: SIMD[DType.bool, length] = SIMD[DType.bool, length](fill=True),
@@ -791,13 +797,13 @@ def trace_triangle_blas_set_packet[
     ](nodes, rays, valid, leaf_fn, hybrid_fn, prefetch_fn)
 
 
-def trace_sphere_blas_set[
+def trace_blas_set[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
     mode: TRACE = TRACE.CLOSEST_HIT,
     frame: Frame = Frame.LOCAL,
 ](
-    blases: CpuBlasSet[node_width, leaf_width],
+    blases: CpuBlasSet[Primitive.SPHERE, node_width, leaf_width],
     blas_idx: UInt32,
     ray: Rayf32[frame],
 ) -> Hit[frame]:
@@ -849,13 +855,13 @@ def trace_sphere_blas_set[
     ](nodes, ray, leaf_fn)
 
 
-def trace_sphere_blas_set_packet[
+def trace_blas_set_packet[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
     length: SIMDLength,
     frame: Frame = Frame.LOCAL,
 ](
-    blases: CpuBlasSet[node_width, leaf_width],
+    blases: CpuBlasSet[Primitive.SPHERE, node_width, leaf_width],
     blas_idx: UInt32,
     rays: Ray[DType.float32, frame, length],
     valid: SIMD[DType.bool, length] = SIMD[DType.bool, length](fill=True),

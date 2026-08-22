@@ -9,8 +9,8 @@ from bajo.core.utils import (
     ns_to_mrays_per_s,
 )
 from bajo.core import Frame, AABB, Vec3f32, Affine3f32, Point3f32, Rayf32
-from bajo.bvh.cpu import CpuBlasSet
-from bajo.bvh.gpu import GpuBlasSet
+from bajo.bvh.cpu import CpuBlasSet, CpuBvhBuildMethod
+from bajo.bvh.gpu import GpuBlasSet, GpuBvhLayout
 from bajo.bvh.types import Sphere, Instance, Hit
 from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.cpu.blas_set import build_triangle_blases
@@ -152,7 +152,7 @@ def _cpu_tlas_triangle_reference[
     tlas_width: SIMDLength,
     blas_width: SIMDLength,
 ](
-    cpu_blas: CpuBlasSet[blas_width],
+    cpu_blas: CpuBlasSet[Primitive.TRIANGLE, blas_width],
     instances: List[Instance],
     rays: List[Rayf32[Frame.WORLD]],
 ) -> Tuple[Float64, UInt32, UInt64]:
@@ -163,9 +163,9 @@ def _cpu_tlas_triangle_reference[
     var inst_checksum = UInt64(0)
 
     for ray in rays:
-        var hit = tlas.trace_triangle_blases[
-            blas_width, blas_width, TRACE.CLOSEST_HIT
-        ](ray, cpu_blas)
+        var hit = tlas.trace_blases[blas_width, blas_width, TRACE.CLOSEST_HIT](
+            ray, cpu_blas
+        )
         if hit.t < f32_max:
             checksum += Float64(hit.t)
             hits += 1
@@ -178,7 +178,7 @@ def _cpu_tlas_triangle_shadow_reference[
     tlas_width: SIMDLength,
     blas_width: SIMDLength,
 ](
-    cpu_blas: CpuBlasSet[blas_width],
+    cpu_blas: CpuBlasSet[Primitive.TRIANGLE, blas_width],
     instances: List[Instance],
     rays: List[Rayf32[Frame.WORLD]],
 ) -> UInt32:
@@ -187,9 +187,9 @@ def _cpu_tlas_triangle_shadow_reference[
     var occluded = UInt32(0)
 
     for ray in rays:
-        var hit = tlas.trace_triangle_blases[
-            blas_width, blas_width, TRACE.ANY_HIT
-        ](ray, cpu_blas)
+        var hit = tlas.trace_blases[blas_width, blas_width, TRACE.ANY_HIT](
+            ray, cpu_blas
+        )
         if hit.is_occluded():
             occluded += 1
 
@@ -294,7 +294,7 @@ def _bench_tlas_triangles_camera[
 ](
     mut ctx: DeviceContext,
     tlas: GpuTriangleTlas[tlas_width, blas_width, tlas_leaf_width],
-    blases: GpuBlasSet[blas_width],
+    blases: GpuBlasSet[Primitive.TRIANGLE, GpuBvhLayout.WIDE, blas_width],
     camera_params: List[Float32],
     ray_count: Int,
     width: Int,
@@ -408,7 +408,7 @@ def _bench_tlas_spheres_camera[
 ](
     mut ctx: DeviceContext,
     tlas: GpuSphereTlas[tlas_width, blas_width, tlas_leaf_width],
-    blases: GpuBlasSet[blas_width],
+    blases: GpuBlasSet[Primitive.SPHERE, GpuBvhLayout.WIDE, blas_width],
     camera_params: List[Float32],
     ray_count: Int,
     width: Int,
@@ -706,7 +706,7 @@ def _run_triangle_tlas_width[
     tlas_leaf_width: SIMDLength = tlas_width,
 ](
     mut ctx: DeviceContext,
-    blases: GpuBlasSet[blas_width],
+    blases: GpuBlasSet[Primitive.TRIANGLE, GpuBvhLayout.WIDE, blas_width],
     instances: List[Instance],
     camera_params: List[Float32],
     ray_count: Int,
@@ -766,7 +766,7 @@ def _run_sphere_tlas_width[
     tlas_leaf_width: SIMDLength = tlas_width,
 ](
     mut ctx: DeviceContext,
-    blases: GpuBlasSet[blas_width],
+    blases: GpuBlasSet[Primitive.SPHERE, GpuBvhLayout.WIDE, blas_width],
     instances: List[Instance],
     camera_params: List[Float32],
     ray_count: Int,
@@ -821,7 +821,7 @@ def _run_sphere_tlas_width[
 
 def _bench_triangle_multi_blas_instance_set(
     mut ctx: DeviceContext,
-    blases: GpuBlasSet[4],
+    blases: GpuBlasSet[Primitive.TRIANGLE, GpuBvhLayout.WIDE, 4],
     blas_bounds: List[AABB[Frame.LOCAL]],
 ) raises:
     var instances = _make_multi_blas_grid_instances(blas_bounds, 32, 16)
@@ -921,8 +921,8 @@ def _bench_triangle_instance_set[
     side: Int
 ](
     mut ctx: DeviceContext,
-    blases: GpuBlasSet[4],
-    cpu_blas: CpuBlasSet[8],
+    blases: GpuBlasSet[Primitive.TRIANGLE, GpuBvhLayout.WIDE, 4],
+    cpu_blas: CpuBlasSet[Primitive.TRIANGLE, 8],
     blas_bounds: AABB[Frame.LOCAL],
 ) raises:
     var instances = _make_translated_grid_instances(
@@ -1111,9 +1111,9 @@ def run_benchmark() raises:
         ctx.synchronize()
 
         print("Building CPU CpuBlasSet[8] LBVH reference for 4x4 grid...")
-        var cpu_blas = build_triangle_blases[8, 8, "lbvh", Frame.LOCAL](
-            [tri_vertices.copy()]
-        )
+        var cpu_blas = build_triangle_blases[
+            8, 8, CpuBvhBuildMethod.LBVH, Frame.LOCAL
+        ]([tri_vertices.copy()])
 
         print("\nSingle instance triangle TLAS")
         print("-----------------------------")

@@ -6,9 +6,10 @@ from bajo.core import AABB, Affine3f32, Frame, Rayf32
 from bajo.bvh.constants import (
     TRACE,
     EMPTY_LANE,
+    Primitive,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
-from bajo.bvh.gpu.blas_storage import GpuBlasSet
+from bajo.bvh.gpu.blas_storage import GpuBlasSet, GpuBvhLayout
 from bajo.bvh.types import BlasDesc, Hit, Instance
 from bajo.bvh.tlas_common import (
     finalize_tlas_hit_normal,
@@ -483,7 +484,7 @@ struct GpuTriangleTlas[
     blas_node_width: SIMDLength,
     tlas_leaf_width: SIMDLength = tlas_node_width,
     blas_leaf_width: SIMDLength = blas_node_width,
-    blas_compressed: Bool = False,
+    blas_layout: GpuBvhLayout = GpuBvhLayout.WIDE,
 ]:
     """Typed triangle TLAS over a descriptor-backed triangle BLAS set."""
 
@@ -498,7 +499,12 @@ struct GpuTriangleTlas[
     def launch_camera(
         self,
         ctx: DeviceContext,
-        blases: GpuBlasSet[Self.blas_node_width, Self.blas_leaf_width],
+        blases: GpuBlasSet[
+            Primitive.TRIANGLE,
+            Self.blas_layout,
+            Self.blas_node_width,
+            Self.blas_leaf_width,
+        ],
         d_camera_params: DeviceBuffer[DType.float32],
         d_hits: DeviceBuffer[DType.float32],
         ray_count: Int,
@@ -518,7 +524,7 @@ struct GpuTriangleTlas[
                 Self.tlas_leaf_width,
                 Self.blas_node_width,
                 Self.blas_leaf_width,
-                Self.blas_compressed,
+                Self.blas_layout.compressed,
             ]
         ](
             self.core.tree.wide_nodes,
@@ -561,7 +567,12 @@ struct GpuSphereTlas[
     def launch_camera(
         self,
         ctx: DeviceContext,
-        blases: GpuBlasSet[Self.blas_node_width, Self.blas_leaf_width],
+        blases: GpuBlasSet[
+            Primitive.SPHERE,
+            GpuBvhLayout.WIDE,
+            Self.blas_node_width,
+            Self.blas_leaf_width,
+        ],
         d_camera_params: DeviceBuffer[DType.float32],
         d_hits: DeviceBuffer[DType.float32],
         ray_count: Int,
@@ -610,7 +621,7 @@ def build_triangle_tlas[
     tlas_leaf_width: SIMDLength = tlas_node_width,
     blas_leaf_width: SIMDLength = blas_node_width,
     method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
-    blas_compressed: Bool = False,
+    blas_layout: GpuBvhLayout = GpuBvhLayout.WIDE,
 ](
     mut ctx: DeviceContext,
     instances: ImmSpan[Instance, _],
@@ -619,7 +630,7 @@ def build_triangle_tlas[
     blas_node_width,
     tlas_leaf_width,
     blas_leaf_width,
-    blas_compressed,
+    blas_layout,
 ]:
     var core = build_typed_tlas_core[tlas_node_width, tlas_leaf_width, method](
         ctx, instances
@@ -629,7 +640,7 @@ def build_triangle_tlas[
         blas_node_width,
         tlas_leaf_width,
         blas_leaf_width,
-        blas_compressed,
+        blas_layout,
     ](core^)
 
 
@@ -639,7 +650,7 @@ def build_triangle_tlas_measured[
     tlas_leaf_width: SIMDLength = tlas_node_width,
     blas_leaf_width: SIMDLength = blas_node_width,
     method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
-    blas_compressed: Bool = False,
+    blas_layout: GpuBvhLayout = GpuBvhLayout.WIDE,
 ](
     mut ctx: DeviceContext,
     instances: ImmSpan[Instance, _],
@@ -649,7 +660,7 @@ def build_triangle_tlas_measured[
     blas_node_width,
     tlas_leaf_width,
     blas_leaf_width,
-    blas_compressed,
+    blas_layout,
 ]:
     var core = build_typed_tlas_core_measured[
         tlas_node_width, tlas_leaf_width, method
@@ -659,7 +670,7 @@ def build_triangle_tlas_measured[
         blas_node_width,
         tlas_leaf_width,
         blas_leaf_width,
-        blas_compressed,
+        blas_layout,
     ](core^)
 
 

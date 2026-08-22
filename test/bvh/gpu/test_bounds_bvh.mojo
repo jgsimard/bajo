@@ -17,8 +17,9 @@ from bajo.bvh.constants import (
 )
 from bajo.bvh.cpu.blas_set import (
     build_triangle_blases,
-    trace_triangle_blas_set,
+    trace_blas_set,
 )
+from bajo.bvh.cpu import CpuBvhBuildMethod
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.gpu.builder.segmented_build import build_single_segment_wide
 from bajo.bvh.gpu.wide_layout import (
@@ -241,7 +242,7 @@ def _assert_gpu_triangle_matches_cpu_camera[
     leaf_width: SIMDLength = node_width,
 ](verts: List[Point3f32[Frame.WORLD]]) raises:
     var cpu_blases = build_triangle_blases[
-        node_width, leaf_width, "lbvh", Frame.WORLD
+        node_width, leaf_width, CpuBvhBuildMethod.LBVH, Frame.WORLD
     ]([verts.copy()])
     var camera_data = _make_camera_rays_and_params(
         _triangle_bounds(verts),
@@ -328,7 +329,7 @@ def _assert_gpu_triangle_matches_cpu_camera[
             var gpu_hits = Span(unsafe_ptr=hf.unsafe_ptr(), length=len(hf))
             for i, ray in enumerate(rays):
                 var gpu_hit = Hit[Frame.WORLD].load(gpu_hits, i)
-                var cpu_hit = trace_triangle_blas_set[
+                var cpu_hit = trace_blas_set[
                     node_width, leaf_width, TRACE.CLOSEST_HIT, Frame.WORLD
                 ](cpu_blases, UInt32(0), ray)
                 var gpu_t = gpu_hit.t
@@ -379,7 +380,7 @@ def _assert_gpu_triangle_matches_cpu_camera[
                 )
                 for i, ray in enumerate(rays):
                     var gpu_hit = Hit[Frame.WORLD].load(packed_hits, i)
-                    var cpu_hit = trace_triangle_blas_set[
+                    var cpu_hit = trace_blas_set[
                         node_width, leaf_width, TRACE.ANY_HIT, Frame.WORLD
                     ](cpu_blases, UInt32(0), ray)
                     assert_true(
@@ -391,9 +392,9 @@ def _assert_gpu_triangle_matches_cpu_camera[
 def _assert_segmented_gpu_triangle_matches_cpu_camera[
     build_method: GpuBvhBuildMethod,
 ](verts: List[Point3f32[Frame.WORLD]]) raises:
-    var cpu_blases = build_triangle_blases[2, 2, "lbvh", Frame.WORLD](
-        [verts.copy()]
-    )
+    var cpu_blases = build_triangle_blases[
+        2, 2, CpuBvhBuildMethod.LBVH, Frame.WORLD
+    ]([verts.copy()])
     var camera_data = _make_camera_rays_and_params(
         _triangle_bounds(verts),
         GPU_BOUNDS_TEST_WIDTH,

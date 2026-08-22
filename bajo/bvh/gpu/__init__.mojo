@@ -1,6 +1,6 @@
 """Public GPU BVH ownership and synchronous construction API."""
 
-from .blas_storage import GpuBlasSet
+from .blas_storage import GpuBlasSet, GpuBvhLayout
 from .builder import GpuBvhBuildMethod
 from .sphere_bvh import (
     GpuSphereBvh,

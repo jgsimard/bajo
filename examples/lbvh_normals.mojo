@@ -333,7 +333,7 @@ def _trace_cpu_tlas_camera[
         for px in range(width):
             var ray_idx = py * width + px
             var ray = camera.make_ray(px, py, width, height)
-            var hit = tlas.trace_triangle_blases[
+            var hit = tlas.trace_blases[
                 blas_width, blas_width, TRACE.CLOSEST_HIT
             ](ray, cpu_blases)
             hit.store(hits, ray_idx)

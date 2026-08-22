@@ -64,7 +64,7 @@ def main() raises:
     )
     with DeviceContext() as ctx:
         var gpu_world = GpuRtTriangleScene[NODE_WIDTH, LEAF_WIDTH](
-            ctx, world.scene
+            ctx, world.scene_data()
         )
         ctx.synchronize()
         _run_capacity[131072](

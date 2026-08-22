@@ -19,7 +19,7 @@ from bajo.rt import (
     Sphere,
     SurfaceId,
     SurfaceStore,
-    World,
+    CpuScene,
 )
 from bajo.rt.gpu.common_kernels import GPU_RT_MAX_BLOCKS
 from bajo.rt.gpu.resources import GpuRtRenderTarget
@@ -43,7 +43,7 @@ from examples.cornell_box import make_cornell_world
 comptime DRAGON_PATH = "./assets/dragon/dragon.obj"
 
 
-def _dragon_world() raises -> World[]:
+def _dragon_world() raises -> CpuScene[]:
     var store = SurfaceStore()
     var matte = store.add_lambertian(Color(0.65, 0.65, 0.65))
     var vertices = pack_obj_triangles[Frame.WORLD](DRAGON_PATH)
@@ -55,7 +55,7 @@ def _dragon_world() raises -> World[]:
     var meshes = List[List[Point3f32[Frame.LOCAL]]]()
     var instances = List[Instance]()
     var instance_surfaces = List[SurfaceId[1]]()
-    return World[](
+    return CpuScene[](
         spheres^,
         sphere_surfaces^,
         vertices^,
@@ -67,8 +67,8 @@ def _dragon_world() raises -> World[]:
     )
 
 
-def _dragon_camera(world: World[]) -> Camera:
-    var bounds = compute_bounds(world.scene.triangle_vertices)
+def _dragon_camera(world: CpuScene[]) -> Camera:
+    var bounds = compute_bounds(world.scene_data().triangle_vertices)
     var center = bounds.centroid()
     var extent = bounds.extent()
     var scene_width = max(max(extent.x, extent.y), extent.z)
@@ -86,7 +86,7 @@ def _run_builder[
 ](
     mut ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: World[],
+    world: CpuScene[],
     settings: RenderSettings,
     sample_count: Int,
     label: String,
@@ -94,7 +94,7 @@ def _run_builder[
     var build_t0 = perf_counter_ns()
     var gpu_world = GpuRtTriangleScene[
         NODE_WIDTH, LEAF_WIDTH, method, compressed
-    ](ctx, world.scene)
+    ](ctx, world.scene_data())
     ctx.synchronize()
     var build_ns = Int(perf_counter_ns() - build_t0)
     print(t"\n{label}: scene upload + BVH={round(ns_to_ms(build_ns), 3)} ms")

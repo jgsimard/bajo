@@ -11,10 +11,10 @@ from bajo.rt import (
     RENDER,
     RenderSettings,
     ShadingPoint,
-    World,
+    CpuScene,
 )
 from bajo.rt.cpu import render_wavefront, sample_bsdf
-from bajo.rt.cpu.common import _path_stage_rng, _russian_roulette
+from bajo.rt.common import path_stage_rng, russian_roulette
 from bajo.rt.cpu.wavefront.primary import _initialize_path_packets_range
 from bajo.rt.wavefront_queue import PacketPathQueue, PathPacket
 from bajo.rt.types import MAT
@@ -83,7 +83,7 @@ struct WaveCounters:
 
 def time_wavefront[
     length: SIMDLength, ALGORITHM: RENDER = RENDER.PATH
-](settings: RenderSettings, camera: Camera, world: World[]) -> WaveTiming:
+](settings: RenderSettings, camera: Camera, world: CpuScene[]) -> WaveTiming:
     var warmup = render_wavefront[ALGORITHM, length, CHUNK_PATHS, False](
         settings, camera, world
     )
@@ -120,7 +120,7 @@ def time_wavefront[
 
 
 def count_wavefront(
-    settings: RenderSettings, camera: Camera, world: World[]
+    settings: RenderSettings, camera: Camera, world: CpuScene[]
 ) -> WaveCounters:
     var counters = WaveCounters()
     var path_count = (
@@ -174,17 +174,19 @@ def count_wavefront(
                 counters.dielectric_hits += 1
                 dielectric_queue += 1
 
-            var rng = _path_stage_rng(settings, path_id, UInt32(_bounce + 1))
+            var rng = path_stage_rng(
+                settings.rng_seed, path_id, UInt32(_bounce + 1)
+            )
             var scattered = sample_bsdf(
                 record.surface,
-                world.scene.surfaces,
+                world.scene_data().surfaces,
                 ray,
                 ShadingPoint(record.p, record.normal, record.front_face),
                 rng,
             )
             if scattered.ok:
-                var roulette = _russian_roulette(
-                    settings,
+                var roulette = russian_roulette(
+                    settings.rng_seed,
                     path_id,
                     UInt32(_bounce + 1),
                     throughput * scattered.weight,
@@ -265,7 +267,7 @@ def benchmark_scene(
     timing_settings: RenderSettings,
     counter_settings: RenderSettings,
     camera: Camera,
-    world: World[],
+    world: CpuScene[],
 ):
     print_timing(
         label + " / packet width 1",
@@ -287,7 +289,7 @@ def benchmark_scene(
 
 
 def benchmark_direct_lighting(
-    settings: RenderSettings, camera: Camera, world: World[]
+    settings: RenderSettings, camera: Camera, world: CpuScene[]
 ):
     print_timing(
         "Cornell NEE / packet width 1",

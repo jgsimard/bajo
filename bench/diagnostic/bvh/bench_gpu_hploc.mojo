@@ -11,7 +11,7 @@ from bajo.bvh.gpu.quality import (
     measure_binary_bvh_quality,
     measure_wide_bvh_quality,
 )
-from bajo.bvh.gpu.trace import GpuTraversalAlgorithm, GpuTraversalStats
+from bajo.bvh.gpu.trace import GpuTraversalStats
 from bajo.bvh.gpu.triangle_bvh import (
     build_triangle_bvh,
     build_triangle_bvh_measured,
@@ -92,8 +92,6 @@ def _run_case[
     label: String,
 ) raises -> HplocBenchResult:
     comptime max_leaf_size = Int(leaf_width)
-    var triangle_count = len(d_payloads)
-
     # Warm every specialization before collecting build time.
     _ = build_triangle_bvh[Frame.WORLD, node_width, leaf_width, method](
         ctx, d_vertices
@@ -128,10 +126,7 @@ def _run_case[
         ctx, d_vertices
     )
     var hits = ctx.enqueue_create_buffer[DType.float32](ray_count * Hit.STRIDE)
-    bvh.launch_camera[
-        algorithm=GpuTraversalAlgorithm.UNIFIED_TASKS if method
-        == GpuBvhBuildMethod.HPLOC else GpuTraversalAlgorithm.STANDARD
-    ](
+    bvh.launch_camera(
         ctx,
         d_camera,
         hits,
@@ -144,10 +139,7 @@ def _run_case[
     var best_trace_ns = Int.MAX
     for _ in range(BENCH_REPEATS):
         var start = perf_counter_ns()
-        bvh.launch_camera[
-            algorithm=GpuTraversalAlgorithm.UNIFIED_TASKS if method
-            == GpuBvhBuildMethod.HPLOC else GpuTraversalAlgorithm.STANDARD
-        ](
+        bvh.launch_camera(
             ctx,
             d_camera,
             hits,

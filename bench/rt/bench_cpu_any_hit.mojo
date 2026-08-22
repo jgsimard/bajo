@@ -4,7 +4,7 @@ from std.time import perf_counter_ns
 from bajo.core import Frame, Rayf32
 from bajo.core.random import Rng, random_on_hemisphere
 from bajo.core.utils import ns_to_mrays_per_s
-from bajo.rt import World
+from bajo.rt import CpuScene
 from bajo.benchmark.rt_fixtures import (
     make_bounded_grid_rays,
     make_grid_triangle_world,
@@ -24,7 +24,7 @@ struct TimingResult(Copyable):
     var hits: Int
 
 
-def query_closest(world: World[], rays: List[Rayf32[Frame.WORLD]]) -> Int:
+def query_closest(world: CpuScene[], rays: List[Rayf32[Frame.WORLD]]) -> Int:
     var hits = 0
     for ray in rays:
         if world.trace(ray):
@@ -32,7 +32,7 @@ def query_closest(world: World[], rays: List[Rayf32[Frame.WORLD]]) -> Int:
     return hits
 
 
-def query_any(world: World[], rays: List[Rayf32[Frame.WORLD]]) -> Int:
+def query_any(world: CpuScene[], rays: List[Rayf32[Frame.WORLD]]) -> Int:
     var hits = 0
     for ray in rays:
         if world.occluded(ray):
@@ -41,7 +41,7 @@ def query_any(world: World[], rays: List[Rayf32[Frame.WORLD]]) -> Int:
 
 
 def time_closest(
-    world: World[], rays: List[Rayf32[Frame.WORLD]]
+    world: CpuScene[], rays: List[Rayf32[Frame.WORLD]]
 ) -> TimingResult:
     var hits = query_closest(world, rays)
     var best_ns = Int.MAX
@@ -54,7 +54,9 @@ def time_closest(
     return TimingResult(best_ns, hits)
 
 
-def time_any(world: World[], rays: List[Rayf32[Frame.WORLD]]) -> TimingResult:
+def time_any(
+    world: CpuScene[], rays: List[Rayf32[Frame.WORLD]]
+) -> TimingResult:
     var hits = query_any(world, rays)
     var best_ns = Int.MAX
     for _ in range(TIMING_REPEATS):
@@ -67,7 +69,7 @@ def time_any(world: World[], rays: List[Rayf32[Frame.WORLD]]) -> TimingResult:
 
 
 def print_case(
-    label: String, world: World[], rays: List[Rayf32[Frame.WORLD]]
+    label: String, world: CpuScene[], rays: List[Rayf32[Frame.WORLD]]
 ) raises:
     var closest = time_closest(world, rays)
     var any = time_any(world, rays)
@@ -82,7 +84,7 @@ def print_case(
 
 
 def make_weekend_ao_rays(
-    world: World[],
+    world: CpuScene[],
 ) -> List[Rayf32[Frame.WORLD]]:
     var camera = weekend_camera(0.0)
     var rays = List[Rayf32[Frame.WORLD]](capacity=AO_WIDTH * AO_HEIGHT)
@@ -109,7 +111,7 @@ def make_weekend_ao_rays(
 
 def main() raises:
     print("CPU renderer visibility query benchmark")
-    print("best of six; finite-distance rays; complete World API")
+    print("best of six; finite-distance rays; complete CpuScene API")
 
     var sphere_world = make_weekend_world()
     var ao_rays = make_weekend_ao_rays(sphere_world)

@@ -6,7 +6,7 @@ from std.time import perf_counter_ns
 from max.gpu.host import DeviceContext
 
 from bajo.core.utils import ns_to_ms
-from bajo.rt import RENDER, RenderSettings, World
+from bajo.rt import RENDER, RenderSettings, CpuScene
 from bajo.rt.gpu.resources import GpuRtRenderTarget
 from bajo.rt.gpu.triangle_path import GpuRtTriangleScene
 from bajo.benchmark.gpu_harness import (
@@ -29,13 +29,15 @@ def _run_layout[
 ](
     mut ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: World[],
+    world: CpuScene[],
     settings: RenderSettings,
     sample_count: Int,
     label: String,
 ) raises:
     var build_t0 = perf_counter_ns()
-    var gpu_world = GpuRtTriangleScene[node_width, leaf_width](ctx, world.scene)
+    var gpu_world = GpuRtTriangleScene[node_width, leaf_width](
+        ctx, world.scene_data()
+    )
     ctx.synchronize()
     var build_ns = Int(perf_counter_ns() - build_t0)
     print(t"\n{label}: scene upload + BVH={round(ns_to_ms(build_ns), 3)} ms")

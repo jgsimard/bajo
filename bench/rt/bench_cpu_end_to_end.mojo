@@ -15,11 +15,11 @@ from bajo.rt import (
     Camera,
     Color,
     RenderSettings,
-    World,
+    CpuScene,
     render_depth_first,
 )
 from bajo.rt.cpu import sample_bsdf
-from bajo.rt.cpu.common import _russian_roulette
+from bajo.rt.common import russian_roulette
 from bajo.rt.types import MAT, PRIM
 from examples.rtiaw import make_weekend_world
 from bajo.benchmark.cpu_harness import pixel_checksum
@@ -95,7 +95,7 @@ struct TraceCounters:
 
 def time_render[
     ALGORITHM: RENDER
-](settings: RenderSettings, camera: Camera, world: World[]) -> TimingResult:
+](settings: RenderSettings, camera: Camera, world: CpuScene[]) -> TimingResult:
     # Warm all compiled code and renderer-owned allocations before measuring.
     var warmup = render_depth_first[ALGORITHM](settings, camera, world)
     var checksum = pixel_checksum(warmup.pixels)
@@ -190,7 +190,7 @@ def count_hit(mut counters: TraceCounters, primitive: PRIM, material: MAT):
 
 def count_path[
     DEPTH: Int
-](settings: RenderSettings, camera: Camera, world: World[]) -> TraceCounters:
+](settings: RenderSettings, camera: Camera, world: CpuScene[]) -> TraceCounters:
     var counters = TraceCounters()
     for py in range(settings.image_height):
         for px in range(settings.image_width):
@@ -224,7 +224,7 @@ def count_path[
                     )
                     var scattered = sample_bsdf(
                         record.surface,
-                        world.scene.surfaces,
+                        world.scene_data().surfaces,
                         ray,
                         ShadingPoint(
                             record.p, record.normal, record.front_face
@@ -236,8 +236,8 @@ def count_path[
                         terminated = True
                         break
                     throughput *= scattered.weight
-                    var roulette = _russian_roulette(
-                        settings,
+                    var roulette = russian_roulette(
+                        settings.rng_seed,
                         path_id,
                         UInt32(bounce + 1),
                         throughput,
@@ -258,7 +258,7 @@ def count_path[
 
 
 def count_ao(
-    settings: RenderSettings, camera: Camera, world: World[]
+    settings: RenderSettings, camera: Camera, world: CpuScene[]
 ) -> TraceCounters:
     var counters = TraceCounters()
     for py in range(settings.image_height):

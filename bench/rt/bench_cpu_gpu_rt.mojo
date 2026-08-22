@@ -7,7 +7,14 @@ from max.gpu.host import DeviceContext
 
 from bajo.core.utils import ns_to_ms
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
-from bajo.rt import Camera, Color, RENDER, RenderResult, RenderSettings, World
+from bajo.rt import (
+    Camera,
+    Color,
+    RENDER,
+    RenderResult,
+    RenderSettings,
+    CpuScene,
+)
 from bajo.rt.cpu import render_depth_first, render_wavefront
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
 from bajo.rt.gpu.common_kernels import GPU_RT_MAX_BLOCKS
@@ -62,7 +69,7 @@ struct GpuTiming:
 
 def _render_cpu[
     ALGORITHM: RENDER
-](settings: RenderSettings, camera: Camera, world: World[]) -> RenderResult:
+](settings: RenderSettings, camera: Camera, world: CpuScene[]) -> RenderResult:
     comptime if ALGORITHM == RENDER.AO:
         return render_depth_first[ALGORITHM](settings, camera, world)
     else:
@@ -76,7 +83,7 @@ def _render_cpu[
 
 def _bench_cpu[
     ALGORITHM: RENDER
-](settings: RenderSettings, camera: Camera, world: World[]) -> CpuTiming:
+](settings: RenderSettings, camera: Camera, world: CpuScene[]) -> CpuTiming:
     var warmup = _render_cpu[ALGORITHM](settings, camera, world)
     var checksum = gpu_rt_checksum(warmup.pixels)
     var total_times = List[Int](capacity=BENCH_REPEATS)
@@ -246,17 +253,17 @@ def main() raises:
     with DeviceContext() as ctx:
         var gpu_world = GpuRtTriangleScene[
             NODE_WIDTH, LEAF_WIDTH, GpuBvhBuildMethod.LBVH, False
-        ](ctx, world.scene)
+        ](ctx, world.scene_data())
         var target = GpuRtRenderTarget(ctx, settings, camera)
         var many_gpu_world = GpuRtTriangleScene[
             NODE_WIDTH, LEAF_WIDTH, GpuBvhBuildMethod.LBVH, False
-        ](ctx, many_light_world.scene)
+        ](ctx, many_light_world.scene_data())
         var cwbvh_world = GpuRtTriangleScene[
             NODE_WIDTH, LEAF_WIDTH, GpuBvhBuildMethod.HPLOC, True
-        ](ctx, world.scene)
+        ](ctx, world.scene_data())
         var many_cwbvh_world = GpuRtTriangleScene[
             NODE_WIDTH, LEAF_WIDTH, GpuBvhBuildMethod.HPLOC, True
-        ](ctx, many_light_world.scene)
+        ](ctx, many_light_world.scene_data())
         ctx.synchronize()
         var gpu_path = _bench_gpu[RENDER.PATH](ctx, target, gpu_world, settings)
         var gpu_ao = _bench_gpu[RENDER.AO](ctx, target, gpu_world, settings)

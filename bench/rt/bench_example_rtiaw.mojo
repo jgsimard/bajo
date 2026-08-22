@@ -8,7 +8,7 @@ from bajo.rt import (
     RENDER,
     RenderResult,
     RenderSettings,
-    World,
+    CpuScene,
     render_depth_first,
 )
 from bajo.rt.cpu import render_wavefront
@@ -44,7 +44,7 @@ struct Timing(Copyable):
 
 def _render_mode[
     MODE: Int, CHUNK_PATHS: Int = 0
-](settings: RenderSettings, camera: Camera, world: World[]) -> RenderResult:
+](settings: RenderSettings, camera: Camera, world: CpuScene[]) -> RenderResult:
     comptime if MODE == MODE_DEPTH_FIRST:
         return render_depth_first[RENDER.PATH](settings, camera, world)
     elif MODE == MODE_WAVEFRONT_SERIAL:
@@ -68,7 +68,7 @@ def _render_mode[
 
 def _warmup[
     MODE: Int, CHUNK_PATHS: Int = 0
-](settings: RenderSettings, camera: Camera, world: World[]) -> Float64:
+](settings: RenderSettings, camera: Camera, world: CpuScene[]) -> Float64:
     return pixel_checksum(
         _render_mode[MODE, CHUNK_PATHS](settings, camera, world).pixels
     )
@@ -82,7 +82,7 @@ def _record[
     checksum: Float64,
     settings: RenderSettings,
     camera: Camera,
-    world: World[],
+    world: CpuScene[],
 ):
     var result = _render_mode[MODE, CHUNK_PATHS](settings, camera, world)
     debug_assert["safe", _use_compiler_assume=True](

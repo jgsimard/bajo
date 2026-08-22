@@ -3,7 +3,7 @@
 from std.math import abs, round
 
 from bajo.core.utils import ns_to_ms
-from bajo.rt import Camera, RENDER, RenderResult, RenderSettings, World
+from bajo.rt import Camera, RENDER, RenderResult, RenderSettings, CpuScene
 from bajo.rt.cpu import render_wavefront
 from bajo.rt.cpu.wavefront import (
     CPU_WAVEFRONT_SERIAL_CHUNK_PATHS,
@@ -41,7 +41,7 @@ def _render_configuration[
     length: SIMDLength = 1,
     SCHEDULER_MODE: Int = WAVE_PARALLEL_TASK_PARTITIONS,
     PARALLEL: Bool = True,
-](settings: RenderSettings, camera: Camera, world: World[]) -> RenderResult:
+](settings: RenderSettings, camera: Camera, world: CpuScene[]) -> RenderResult:
     return render_wavefront[
         RENDER.PATH,
         length,
@@ -61,7 +61,7 @@ def _record[
     checksum: Float64,
     settings: RenderSettings,
     camera: Camera,
-    world: World[],
+    world: CpuScene[],
 ):
     var result = _render_configuration[
         CHUNK_PATHS, length, SCHEDULER_MODE, PARALLEL
@@ -88,7 +88,7 @@ def _print(label: String, timing: Timing, serial: Timing):
 
 
 def benchmark_world(
-    label: String, settings: RenderSettings, camera: Camera, world: World[]
+    label: String, settings: RenderSettings, camera: Camera, world: CpuScene[]
 ):
     print(t"\n{label}")
     var warmup = _render_configuration[

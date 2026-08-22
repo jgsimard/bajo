@@ -18,7 +18,7 @@ from bajo.rt import (
     Sphere,
     SurfaceId,
     SurfaceStore,
-    World,
+    CpuScene,
     add_triangle_instance,
     add_triangle_mesh_instance,
 )
@@ -51,12 +51,12 @@ struct TlasRtLayoutResult(Copyable):
     var mis: GpuRtBenchResult
 
 
-def _warm_world_build(mut ctx: DeviceContext, world: World[]) raises:
-    _ = GpuRtTriangleInstanceScene[2, 4, 1, 4](ctx, world.scene)
+def _warm_world_build(mut ctx: DeviceContext, world: CpuScene[]) raises:
+    _ = GpuRtTriangleInstanceScene[2, 4, 1, 4](ctx, world.scene_data())
     ctx.synchronize()
 
 
-def _instance_grid_world() -> World[]:
+def _instance_grid_world() -> CpuScene[]:
     var store = SurfaceStore()
     var matte = store.add_lambertian(Color(0.62, 0.58, 0.50))
     var mesh = List[Point3f32[Frame.LOCAL]]()
@@ -103,7 +103,7 @@ def _instance_grid_world() -> World[]:
     var sphere_surfaces = List[SurfaceId[1]]()
     var vertices = List[Point3f32[Frame.WORLD]]()
     var triangle_surfaces = List[SurfaceId[1]]()
-    return World[](
+    return CpuScene[](
         spheres^,
         sphere_surfaces^,
         vertices^,
@@ -188,7 +188,7 @@ def _run_layout[
 ](
     mut ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: World[],
+    world: CpuScene[],
     settings: RenderSettings,
     label: String,
 ) raises -> TlasRtLayoutResult:
@@ -201,7 +201,7 @@ def _run_layout[
         GpuBvhBuildMethod.HPLOC,
         False,
         tlas_build_method,
-    ](ctx, world.scene)
+    ](ctx, world.scene_data())
     ctx.synchronize()
     var build_ns = Int(perf_counter_ns() - t0)
     var path = _bench_algorithm[

@@ -3,7 +3,7 @@
 from std.math import round
 
 from bajo.core.utils import ns_to_ms
-from bajo.rt import Camera, RENDER, RenderSettings, World
+from bajo.rt import Camera, RENDER, RenderSettings, CpuScene
 from bajo.rt.cpu import render_depth_first
 from bajo.benchmark.cpu_harness import pixel_checksum
 from bajo.benchmark.rt_fixtures import (
@@ -32,7 +32,7 @@ struct ScheduleResult(Copyable):
 
 def run_schedule[
     TILE_WIDTH: Int, TILE_HEIGHT: Int, SCHEDULER_MODE: Int
-](settings: RenderSettings, camera: Camera, world: World[]) -> Tuple[
+](settings: RenderSettings, camera: Camera, world: CpuScene[]) -> Tuple[
     Int, Float64
 ]:
     var result = render_depth_first[
@@ -51,7 +51,7 @@ def record_schedule[
     checksum: Float64,
     settings: RenderSettings,
     camera: Camera,
-    world: World[],
+    world: CpuScene[],
 ):
     var sample = run_schedule[TILE_WIDTH, TILE_HEIGHT, SCHEDULER_MODE](
         settings, camera, world
@@ -79,7 +79,7 @@ def print_result(
 
 
 def benchmark_world(
-    label: String, settings: RenderSettings, camera: Camera, world: World[]
+    label: String, settings: RenderSettings, camera: Camera, world: CpuScene[]
 ):
     print(t"\n{label}")
     # A tile wider than the image and one pixel high reproduces scanlines.

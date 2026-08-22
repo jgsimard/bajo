@@ -91,7 +91,7 @@ def main() raises:
     with DeviceContext() as ctx:
         var scene_t0 = perf_counter_ns()
         var gpu_world = GpuRtMixedScene[NODE_WIDTH, LEAF_WIDTH](
-            ctx, world.scene
+            ctx, world.scene_data()
         )
         ctx.synchronize()
         var scene_ns = Int(perf_counter_ns() - scene_t0)

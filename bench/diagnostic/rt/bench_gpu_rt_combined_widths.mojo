@@ -18,7 +18,7 @@ from bajo.rt import (
     Sphere,
     SurfaceId,
     SurfaceStore,
-    World,
+    CpuScene,
     add_sphere,
     add_triangle,
     add_triangle_instance,
@@ -43,7 +43,7 @@ from bajo.benchmark.gpu_harness import (
 )
 
 
-def _combined_grid_world() -> World[]:
+def _combined_grid_world() -> CpuScene[]:
     var store = SurfaceStore()
     var matte = store.add_lambertian(Color(0.62, 0.58, 0.50))
     var wall = store.add_lambertian(Color(0.22, 0.28, 0.36))
@@ -126,7 +126,7 @@ def _combined_grid_world() -> World[]:
         Point3f32[Frame.WORLD](-10.0, 10.0, -6.0),
         wall,
     )
-    return World[](
+    return CpuScene[](
         spheres^,
         sphere_surfaces^,
         vertices^,
@@ -234,7 +234,7 @@ def _run_layout[
 ](
     mut ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: World[],
+    world: CpuScene[],
     settings: RenderSettings,
     sample_count: Int,
     label: String,
@@ -255,7 +255,7 @@ def _run_layout[
         4,
         GpuBvhBuildMethod.LBVH,
         False,
-    ](ctx, world.scene)
+    ](ctx, world.scene_data())
     ctx.synchronize()
     print(
         t"\n{label}: build={round(ns_to_ms(Int(perf_counter_ns() - t0)), 3)} ms"

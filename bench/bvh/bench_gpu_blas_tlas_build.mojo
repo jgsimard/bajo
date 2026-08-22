@@ -1,12 +1,20 @@
 """Long-workload benchmark for the unified segmented GPU BVH pipeline."""
 
-from std.math import round
+from std.math import max, round
 from std.sys import has_accelerator
 from std.sys.arg import argv
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceContext
 
-from bajo.bvh.constants import Primitive
+from bajo.bvh.constants import (
+    Primitive,
+    TRI_LEAF_PACKED_STRIDE,
+    WideNode,
+)
+from bajo.bvh.gpu.compressed_bounds_bvh import (
+    CWBVH_NODE_WORDS,
+    CWBVH_TRIANGLE_WORDS,
+)
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.gpu.tlas import build_triangle_tlas
 from bajo.bvh.gpu.triangle_bvh import (
@@ -132,10 +140,22 @@ def _bench_wide_shape[
     var packed = build_triangle_blas_set[4, 4, build_method](ctx, vertex_sets)
     ctx.synchronize()
     var summary = _summarize_blas_set(packed)
+    var capacity_nodes = 0
+    for vertices in vertex_sets:
+        var count = len(vertices) / 3
+        if count > 0:
+            capacity_nodes += max(count - 1, 1)
+    var capacity_bytes = 4 * (
+        len(vertex_sets) * BlasDescLayout.STRIDE
+        + capacity_nodes * 4 * WideNode.CHILD_STRIDE
+        + triangle_count * 4 * TRI_LEAF_PACKED_STRIDE
+    )
+    var saved = 100.0 * (1.0 - Float64(summary.bytes) / Float64(capacity_bytes))
     print(
         t"{label}\t{len(vertex_sets)}\t{triangle_count}\t"
         t"{round(ns_to_ms(_median_ns(times)), 3)}\t"
-        t"{summary.nodes}\t{summary.leaf_blocks}\t{summary.bytes}"
+        t"{summary.nodes}\t{summary.leaf_blocks}\t{capacity_bytes}\t"
+        t"{summary.bytes}\t{round(saved, 1)}"
     )
 
 
@@ -164,10 +184,22 @@ def _bench_cwbvh_shape(
     )
     ctx.synchronize()
     var summary = _summarize_blas_set(packed)
+    var capacity_nodes = 0
+    for vertices in vertex_sets:
+        var count = len(vertices) / 3
+        if count > 0:
+            capacity_nodes += max(count - 1, 1)
+    var capacity_bytes = 4 * (
+        len(vertex_sets) * BlasDescLayout.STRIDE
+        + capacity_nodes * CWBVH_NODE_WORDS
+        + triangle_count * CWBVH_TRIANGLE_WORDS
+    )
+    var saved = 100.0 * (1.0 - Float64(summary.bytes) / Float64(capacity_bytes))
     print(
         t"{label}\t{len(vertex_sets)}\t{triangle_count}\t"
         t"{round(ns_to_ms(_median_ns(times)), 3)}\t"
-        t"{summary.nodes}\t{summary.leaf_blocks}\t{summary.bytes}"
+        t"{summary.nodes}\t{summary.leaf_blocks}\t{capacity_bytes}\t"
+        t"{summary.bytes}\t{round(saved, 1)}"
     )
 
 
@@ -290,7 +322,10 @@ def main() raises:
     with DeviceContext() as ctx:
         print("")
         print(t"Segmented LBVH wide4; median of {SHAPE_REPEATS}")
-        print("Case\tBLASes\tTriangles\tBuild ms\tNodes\tLeaf blocks\tBytes")
+        print(
+            "Case\tBLASes\tTriangles\tBuild ms\tNodes\tLeaf blocks\t"
+            "Capacity bytes\tFinal bytes\tSaved %"
+        )
         _bench_wide_shape[GpuBvhBuildMethod.LBVH](ctx, "one large", one_large)
         _bench_wide_shape[GpuBvhBuildMethod.LBVH](ctx, "many tiny", many_tiny)
         _bench_wide_shape[GpuBvhBuildMethod.LBVH](
@@ -300,7 +335,10 @@ def main() raises:
 
         print("")
         print(t"Segmented H-PLOC wide4; median of {SHAPE_REPEATS}")
-        print("Case\tBLASes\tTriangles\tBuild ms\tNodes\tLeaf blocks\tBytes")
+        print(
+            "Case\tBLASes\tTriangles\tBuild ms\tNodes\tLeaf blocks\t"
+            "Capacity bytes\tFinal bytes\tSaved %"
+        )
         _bench_wide_shape[GpuBvhBuildMethod.HPLOC](ctx, "one large", one_large)
         _bench_wide_shape[GpuBvhBuildMethod.HPLOC](ctx, "many tiny", many_tiny)
         _bench_wide_shape[GpuBvhBuildMethod.HPLOC](
@@ -310,7 +348,10 @@ def main() raises:
 
         print("")
         print(t"Segmented H-PLOC CWBVH8; median of {SHAPE_REPEATS}")
-        print("Case\tBLASes\tTriangles\tBuild ms\tNodes\tTriangles\tBytes")
+        print(
+            "Case\tBLASes\tTriangles\tBuild ms\tNodes\tTriangles\t"
+            "Capacity bytes\tFinal bytes\tSaved %"
+        )
         _bench_cwbvh_shape(ctx, "one large", one_large)
         _bench_cwbvh_shape(ctx, "many tiny", many_tiny)
         _bench_cwbvh_shape(ctx, "many medium", many_medium)

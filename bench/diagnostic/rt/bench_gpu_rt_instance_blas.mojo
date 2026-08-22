@@ -19,7 +19,7 @@ from bajo.rt import (
     Sphere,
     SurfaceId,
     SurfaceStore,
-    World,
+    CpuScene,
     add_triangle_mesh_instance,
 )
 from bajo.rt.gpu.instance_path import (
@@ -44,7 +44,7 @@ from bajo.benchmark.gpu_harness import (
 comptime DRAGON_PATH = "./assets/dragon/dragon.obj"
 
 
-def _dragon_instance_world() raises -> World[]:
+def _dragon_instance_world() raises -> CpuScene[]:
     var store = SurfaceStore()
     var matte = store.add_lambertian(Color(0.65, 0.65, 0.65))
     var mesh = pack_obj_triangles[Frame.LOCAL](DRAGON_PATH)
@@ -65,7 +65,7 @@ def _dragon_instance_world() raises -> World[]:
     var sphere_surfaces = List[SurfaceId[1]]()
     var vertices = List[Point3f32[Frame.WORLD]]()
     var triangle_surfaces = List[SurfaceId[1]]()
-    return World[](
+    return CpuScene[](
         spheres^,
         sphere_surfaces^,
         vertices^,
@@ -77,8 +77,8 @@ def _dragon_instance_world() raises -> World[]:
     )
 
 
-def _dragon_camera(world: World[]) -> Camera:
-    var bounds = compute_bounds(world.scene.triangle_meshes[0])
+def _dragon_camera(world: CpuScene[]) -> Camera:
+    var bounds = compute_bounds(world.scene_data().triangle_meshes[0])
     var center_local = bounds.centroid()
     var center = Point3f32[Frame.WORLD](
         center_local.x, center_local.y, center_local.z
@@ -153,7 +153,7 @@ def _run_layout[
 ](
     mut ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: World[],
+    world: CpuScene[],
     settings: RenderSettings,
     sample_count: Int,
     label: String,
@@ -162,7 +162,7 @@ def _run_layout[
     var t0 = perf_counter_ns()
     var gpu_world = GpuRtTriangleInstanceScene[
         2, effective_width, 2, blas_leaf_width, method, compressed
-    ](ctx, world.scene)
+    ](ctx, world.scene_data())
     ctx.synchronize()
     print(
         t"\n{label}: build={round(ns_to_ms(Int(perf_counter_ns() - t0)), 3)} ms"

@@ -14,7 +14,7 @@ from bajo.bvh.gpu.tlas_diagnostics import (
 from bajo.bvh.types import Hit
 from bajo.core import Frame
 from bajo.core.utils import ns_to_ms
-from bajo.rt import RENDER, RenderSettings, World
+from bajo.rt import RENDER, RenderSettings, CpuScene
 from bajo.rt.gpu.combined_instance_path import (
     GpuRtCombinedInstanceScene,
     enqueue_render_gpu_combined_instances,
@@ -40,7 +40,7 @@ def _warm_world_build[
     instance_bvh_width: SIMDLength,
 ](
     mut ctx: DeviceContext,
-    world: World[world_bvh_width, instance_bvh_width],
+    world: CpuScene[world_bvh_width, instance_bvh_width],
 ) raises:
     """Absorb one-time driver, allocator, and builder initialization."""
     _ = GpuRtCombinedInstanceScene[
@@ -59,7 +59,7 @@ def _warm_world_build[
         GpuBvhBuildMethod.LBVH,
         False,
         GpuBvhBuildMethod.LBVH,
-    ](ctx, world.scene)
+    ](ctx, world.scene_data())
     ctx.synchronize()
 
 
@@ -186,10 +186,10 @@ def main() raises:
         t" depth={MAX_DEPTH}, two warmups + {PAIRED_REPEATS} alternating pairs"
     )
     print(
-        t"instances={len(world.scene.triangle_instances)},"
-        t" meshes={len(world.scene.triangle_meshes)},"
-        t" static triangles={len(world.scene.triangle_vertices) / 3},"
-        t" spheres={len(world.scene.spheres)}"
+        t"instances={len(world.scene_data().triangle_instances)},"
+        t" meshes={len(world.scene_data().triangle_meshes)},"
+        t" static triangles={len(world.scene_data().triangle_vertices) / 3},"
+        t" spheres={len(world.scene_data().spheres)}"
     )
 
     with DeviceContext() as ctx:
@@ -212,7 +212,7 @@ def main() raises:
             GpuBvhBuildMethod.LBVH,
             False,
             GpuBvhBuildMethod.LBVH,
-        ](ctx, world.scene)
+        ](ctx, world.scene_data())
         ctx.synchronize()
         var build21_ns = Int(perf_counter_ns() - build21_t0)
 
@@ -233,7 +233,7 @@ def main() raises:
             GpuBvhBuildMethod.LBVH,
             False,
             GpuBvhBuildMethod.LBVH,
-        ](ctx, world.scene)
+        ](ctx, world.scene_data())
         ctx.synchronize()
         var build22_ns = Int(perf_counter_ns() - build22_t0)
 

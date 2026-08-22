@@ -24,11 +24,12 @@ from bajo.core import (
     SegmentOffsets,
 )
 from bajo.core.intersect import intersect_ray_sphere
-from bajo.bvh.types import BlasDescLayout, GpuBlasSet, Hit, Sphere
+from bajo.bvh.types import GpuBlasSet, Hit, Sphere
 from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvh
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.gpu.builder.binary_layout import _segment_for_item
 from bajo.bvh.gpu.builder.segmented_build import enqueue_segmented_wide_build
+from bajo.bvh.gpu.blas_desc import enqueue_segmented_blas_descriptors
 from bajo.bvh.gpu.camera_launch import (
     validate_camera_launch,
     _camera_ray,
@@ -112,26 +113,24 @@ def build_sphere_blas_set[
         block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
     )
 
+    var descs = enqueue_segmented_blas_descriptors[
+        node_width * WideNode.CHILD_STRIDE,
+        leaf_width * SPHERE_LEAF_PACKED_STRIDE,
+    ](
+        ctx,
+        wide.node_segment_offsets,
+        wide.leaf_block_segment_offsets,
+        binary.segment_offsets,
+        wide.node_counts,
+        wide.leaf_block_counts,
+        segments.segment_count(),
+    )
+
     ctx.synchronize()
     build.finish_synchronized()
 
-    var descs = List[UInt32](
-        capacity=segments.segment_count() * BlasDescLayout.STRIDE
-    )
-    with wide.node_counts.map_to_host() as node_counts, wide.leaf_block_counts.map_to_host() as leaf_counts:
-        for segment_idx in range(segments.segment_count()):
-            descs.append(wide.node_f32_base(segment_idx))
-            descs.append(
-                wide.leaf_block_segments.begin(segment_idx)
-                * UInt32(leaf_width * SPHERE_LEAF_PACKED_STRIDE)
-            )
-            descs.append(UInt32(0))
-            descs.append(node_counts[segment_idx])
-            descs.append(leaf_counts[segment_idx])
-            descs.append(segments.count(segment_idx))
-
     return GpuBlasSet[node_width, leaf_width](
-        upload_list(ctx, descs),
+        descs^,
         wide.wide_nodes.copy(),
         leaf_spheres^,
         segments.segment_count(),

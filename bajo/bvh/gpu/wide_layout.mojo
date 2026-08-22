@@ -142,16 +142,6 @@ struct GpuWideBoundsBvhBatch[
             self.segments.segment_count()
         )
 
-    def node_f32_base(self, segment_idx: Int) -> UInt32:
-        return self.node_segments.begin(segment_idx) * UInt32(
-            Self.node_width * WideNode.CHILD_STRIDE
-        )
-
-    def leaf_lane_base(self, segment_idx: Int) -> UInt32:
-        return self.leaf_block_segments.begin(segment_idx) * UInt32(
-            Self.leaf_width
-        )
-
     def into_single_segment(
         deinit self,
     ) raises -> GpuWideBoundsBvh[

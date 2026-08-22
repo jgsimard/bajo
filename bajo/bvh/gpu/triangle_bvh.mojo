@@ -24,12 +24,7 @@ from bajo.core import (
     Rayf32,
     SegmentOffsets,
 )
-from bajo.bvh.types import (
-    BlasDescLayout,
-    GpuBlasSet,
-    Hit,
-    TriangleLeafBlock,
-)
+from bajo.bvh.types import GpuBlasSet, Hit, TriangleLeafBlock
 from bajo.bvh.constants import (
     EMPTY_LANE,
     TRACE,
@@ -50,6 +45,7 @@ from bajo.bvh.gpu.compressed_bounds_bvh import (
 )
 from bajo.bvh.gpu.builder.binary_layout import _segment_for_item
 from bajo.bvh.gpu.builder.segmented_build import enqueue_segmented_wide_build
+from bajo.bvh.gpu.blas_desc import enqueue_segmented_blas_descriptors
 from bajo.bvh.gpu.camera_launch import (
     validate_camera_launch,
     _camera_ray,
@@ -211,26 +207,24 @@ def _build_segmented_triangle_blas_set[
         block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
     )
 
+    var descs = enqueue_segmented_blas_descriptors[
+        node_width * WideNode.CHILD_STRIDE,
+        leaf_width * TRI_LEAF_PACKED_STRIDE,
+    ](
+        ctx,
+        wide.node_segment_offsets,
+        wide.leaf_block_segment_offsets,
+        binary.segment_offsets,
+        wide.node_counts,
+        wide.leaf_block_counts,
+        segments.segment_count(),
+    )
+
     ctx.synchronize()
     build.finish_synchronized()
 
-    var descs = List[UInt32](
-        capacity=segments.segment_count() * BlasDescLayout.STRIDE
-    )
-    with wide.node_counts.map_to_host() as node_counts, wide.leaf_block_counts.map_to_host() as leaf_counts:
-        for segment_idx in range(segments.segment_count()):
-            descs.append(wide.node_f32_base(segment_idx))
-            descs.append(
-                wide.leaf_block_segments.begin(segment_idx)
-                * UInt32(leaf_width * TRI_LEAF_PACKED_STRIDE)
-            )
-            descs.append(UInt32(0))
-            descs.append(node_counts[segment_idx])
-            descs.append(leaf_counts[segment_idx])
-            descs.append(segments.count(segment_idx))
-
     return GpuBlasSet[node_width, leaf_width](
-        upload_list(ctx, descs),
+        descs^,
         wide.wide_nodes.copy(),
         leaf_vertices^,
         segments.segment_count(),
@@ -307,29 +301,28 @@ def _build_segmented_compressed_triangle_blas_set[
         triangles,
     )
 
+    var descs = enqueue_segmented_blas_descriptors[
+        CWBVH_NODE_WORDS, CWBVH_TRIANGLE_WORDS
+    ](
+        ctx,
+        wide.node_segment_offsets,
+        binary.segment_offsets,
+        binary.segment_offsets,
+        wide.node_counts,
+        triangle_counters,
+        segments.segment_count(),
+    )
+
     ctx.synchronize()
     build.finish_synchronized()
 
-    var descs = List[UInt32](
-        capacity=segments.segment_count() * BlasDescLayout.STRIDE
-    )
-    with wide.node_counts.map_to_host() as node_counts, triangle_counters.map_to_host() as encoded_counts:
+    with triangle_counters.map_to_host() as encoded_counts:
         for segment_idx in range(segments.segment_count()):
             if encoded_counts[segment_idx] != segments.count(segment_idx):
                 raise "segmented CWBVH8 encoding lost triangle records"
-            descs.append(
-                wide.node_segments.begin(segment_idx) * UInt32(CWBVH_NODE_WORDS)
-            )
-            descs.append(
-                segments.begin(segment_idx) * UInt32(CWBVH_TRIANGLE_WORDS)
-            )
-            descs.append(UInt32(0))
-            descs.append(node_counts[segment_idx])
-            descs.append(segments.count(segment_idx))
-            descs.append(segments.count(segment_idx))
 
     return GpuBlasSet[node_width, leaf_width](
-        upload_list(ctx, descs),
+        descs^,
         nodes^,
         triangles^,
         segments.segment_count(),

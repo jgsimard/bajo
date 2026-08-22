@@ -3,9 +3,13 @@ from bajo.bvh.constants import (
     EMPTY_LANE,
     WideNode,
 )
-from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvh, _wide_node_base
+from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvh
 from bajo.bvh.gpu.builder.binary_layout import GpuBinaryBoundsBvh
-from bajo.bvh.wide_meta import _wide_meta_count, _wide_meta_data
+from bajo.bvh.wide_meta import (
+    _wide_meta_count,
+    _wide_meta_data,
+    _wide_node_index,
+)
 from bajo.core import AABB, Frame
 
 
@@ -145,14 +149,35 @@ def measure_wide_bvh_quality[
             var node_bounds = AABB[Frame.WORLD].invalid()
             var live_lanes = 0
             comptime for lane in range(node_width):
-                var base = _wide_node_base[node_width](node_idx, lane)
-                var meta = nodes_u32[unsafe_offset=base + WideNode.META]
+                var meta = nodes_u32[
+                    unsafe_offset=_wide_node_index[node_width](
+                        node_idx, WideNode.META, lane
+                    )
+                ]
                 var count = _wide_meta_count(meta)
                 if count == EMPTY_LANE:
                     continue
 
                 live_lanes += 1
-                var child_bounds = AABB[Frame.WORLD].load6(bounds_span, base)
+                var child_bounds = AABB[Frame.WORLD].invalid()
+                child_bounds._min.x = bounds_span[
+                    _wide_node_index[node_width](node_idx, WideNode.MIN_X, lane)
+                ]
+                child_bounds._min.y = bounds_span[
+                    _wide_node_index[node_width](node_idx, WideNode.MIN_Y, lane)
+                ]
+                child_bounds._min.z = bounds_span[
+                    _wide_node_index[node_width](node_idx, WideNode.MIN_Z, lane)
+                ]
+                child_bounds._max.x = bounds_span[
+                    _wide_node_index[node_width](node_idx, WideNode.MAX_X, lane)
+                ]
+                child_bounds._max.y = bounds_span[
+                    _wide_node_index[node_width](node_idx, WideNode.MAX_Y, lane)
+                ]
+                child_bounds._max.z = bounds_span[
+                    _wide_node_index[node_width](node_idx, WideNode.MAX_Z, lane)
+                ]
                 node_bounds.grow(child_bounds)
                 if count == 0:
                     pending.append(_wide_meta_data(meta))

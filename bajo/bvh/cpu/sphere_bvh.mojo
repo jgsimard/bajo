@@ -26,6 +26,58 @@ from bajo.bvh.cpu.packet import (
 from bajo.bvh.types import Hit, Sphere, SphereLeafBlock, TypedBvh
 
 
+@always_inline
+def _trace_sphere_leaf_block[
+    frame: Frame,
+    width: SIMDLength,
+    mode: TRACE,
+](
+    ray: Rayf32[frame],
+    O: Point3[DType.float32, frame, width],
+    D: Vec3[DType.float32, frame, width],
+    ray_a: SIMD[DType.float32, width],
+    ray_inv_a: SIMD[DType.float32, width],
+    block: SphereLeafBlock[frame, width],
+    mut hit: Hit[frame],
+) -> Bool:
+    var sphere_hit = intersect_ray_sphere_coefficients(
+        O,
+        D,
+        block.center,
+        block.radius,
+        ray_a,
+        ray_inv_a,
+        hit.t,
+        ray.t_min,
+    )
+    var valid_lane = block.prim_indices.ne(EMPTY_LANE)
+    var hit_mask = sphere_hit.mask & valid_lane
+
+    if not hit_mask.reduce_or():
+        return False
+
+    comptime if mode == TRACE.CLOSEST_HIT:
+        var candidate_t = hit_mask.select(sphere_hit.t, f32_max)
+        var min_t, lane = min_argmin(candidate_t)
+
+        hit.t = min_t
+        hit.u = 0.0
+        hit.v = 0.0
+        hit.inst = EMPTY_LANE
+        hit.prim = block.prim_indices[lane]
+        var center = Point3f32[frame](
+            block.center.x[lane],
+            block.center.y[lane],
+            block.center.z[lane],
+        )
+        var p = ray.o + min_t * ray.d
+        hit.normal = normalize(p - center).unsafe_convert[
+            new_kind=GeoKind.NORMAL
+        ]()
+
+    return True
+
+
 struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
     comptime bvh_frame: Frame = Self.frame
 
@@ -138,43 +190,9 @@ struct SphereBvh[frame: Frame, width: SIMDLength](Copyable, TypedBvh):
         ) {imm} -> Bool:
             # Unsafe access avoids bounds checks in the traversal hot path.
             ref block = self.leaf_blocks.unsafe_get(Int(leaf_block_idx))
-
-            var sphere_hit = intersect_ray_sphere_coefficients(
-                O,
-                D,
-                block.center,
-                block.radius,
-                ray_a,
-                ray_inv_a,
-                hit.t,
-                ray.t_min,
+            return _trace_sphere_leaf_block[Self.bvh_frame, Self.width, mode](
+                ray, O, D, ray_a, ray_inv_a, block, hit
             )
-            var valid_lane = block.prim_indices.ne(EMPTY_LANE)
-            var hit_mask = sphere_hit.mask & valid_lane
-
-            if not hit_mask.reduce_or():
-                return False
-
-            comptime if mode == TRACE.CLOSEST_HIT:
-                var candidate_t = hit_mask.select(sphere_hit.t, f32_max)
-                var min_t, lane = min_argmin(candidate_t)
-
-                hit.t = min_t
-                hit.u = 0.0
-                hit.v = 0.0
-                hit.inst = EMPTY_LANE
-                hit.prim = block.prim_indices[lane]
-                var center = Point3f32[Self.bvh_frame](
-                    block.center.x[lane],
-                    block.center.y[lane],
-                    block.center.z[lane],
-                )
-                var p = ray.o + min_t * ray.d
-                hit.normal = normalize(p - center).unsafe_convert[
-                    new_kind=GeoKind.NORMAL
-                ]()
-
-            return True
 
         return trace_sphere_bounds_bvh[
             frame=Self.frame,

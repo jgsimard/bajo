@@ -2,6 +2,7 @@ from std.math import max
 from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh.constants import WideNode
+from bajo.bvh.wide_meta import _wide_node_base, _wide_node_index
 from bajo.core import (
     AABB,
     AxisAlignedBoundingBox,
@@ -24,10 +25,12 @@ struct GpuWideBoundsBvh[
     leaf_width: SIMDLength = node_width,
     max_leaf_size: Int = Int(leaf_width),
 ]:
-    """Final GPU BVH data consumed by traversal.
+    """Final field-major GPU BVH data consumed by traversal.
 
     This type owns no topology builder or temporary construction workspace.
     Node width, leaf storage width, and logical leaf size remain independent.
+    Each node stores ``min_x[W] .. max_z[W], meta[W]``, matching the CPU wide
+    node field order while retaining GPU-specific leaf storage.
     """
 
     var leaf_count: Int
@@ -202,14 +205,6 @@ struct GpuWideBoundsBvhBatch[
         )
 
 
-def _wide_lane_base[width: SIMDLength](node_idx: UInt32, lane: Int) -> Int:
-    return Int(node_idx) * width + lane
-
-
-def _wide_node_base[width: SIMDLength](node_idx: UInt32, lane: Int) -> Int:
-    return _wide_lane_base[width](node_idx, lane) * WideNode.CHILD_STRIDE
-
-
 def _wide_node_store_child[
     width: SIMDLength,
 ](
@@ -219,25 +214,34 @@ def _wide_node_store_child[
     bounds: AABB,
     meta: UInt32,
 ):
-    var base = _wide_node_base[width](node_idx, lane)
-
-    wide_nodes[unsafe_offset=base + WideNode.MIN_X] = bounds._min.x
-    wide_nodes[unsafe_offset=base + WideNode.MIN_Y] = bounds._min.y
-    wide_nodes[unsafe_offset=base + WideNode.MIN_Z] = bounds._min.z
-    wide_nodes[unsafe_offset=base + WideNode.MAX_X] = bounds._max.x
-    wide_nodes[unsafe_offset=base + WideNode.MAX_Y] = bounds._max.y
-    wide_nodes[unsafe_offset=base + WideNode.MAX_Z] = bounds._max.z
+    wide_nodes[
+        unsafe_offset=_wide_node_index[width](node_idx, WideNode.MIN_X, lane)
+    ] = bounds._min.x
+    wide_nodes[
+        unsafe_offset=_wide_node_index[width](node_idx, WideNode.MIN_Y, lane)
+    ] = bounds._min.y
+    wide_nodes[
+        unsafe_offset=_wide_node_index[width](node_idx, WideNode.MIN_Z, lane)
+    ] = bounds._min.z
+    wide_nodes[
+        unsafe_offset=_wide_node_index[width](node_idx, WideNode.MAX_X, lane)
+    ] = bounds._max.x
+    wide_nodes[
+        unsafe_offset=_wide_node_index[width](node_idx, WideNode.MAX_Y, lane)
+    ] = bounds._max.y
+    wide_nodes[
+        unsafe_offset=_wide_node_index[width](node_idx, WideNode.MAX_Z, lane)
+    ] = bounds._max.z
     wide_nodes.unsafe_bitcast[UInt32]()[
-        unsafe_offset=base + WideNode.META
+        unsafe_offset=_wide_node_index[width](node_idx, WideNode.META, lane)
     ] = meta
 
 
 def _wide_node_load_meta[
     width: SIMDLength,
 ](wide_nodes: ImmPointer[Float32, _], node_idx: UInt32, lane: Int) -> UInt32:
-    var base = _wide_node_base[width](node_idx, lane)
     return wide_nodes.unsafe_bitcast[UInt32]()[
-        unsafe_offset=base + WideNode.META
+        unsafe_offset=_wide_node_index[width](node_idx, WideNode.META, lane)
     ]
 
 
@@ -264,20 +268,28 @@ def _intersect_wide_node[
     t_max: Float32,
 ) -> WideNodeIntersection[width]:
     var block = AxisAlignedBoundingBox[DType.float32, frame, width].invalid()
-    var meta = SIMD[DType.uint32, width](0)
-
-    comptime for lane in range(width):
-        var base = _wide_node_base[width](node_idx, lane)
-
-        block._min.x[lane] = wide_nodes[unsafe_offset=base + WideNode.MIN_X]
-        block._min.y[lane] = wide_nodes[unsafe_offset=base + WideNode.MIN_Y]
-        block._min.z[lane] = wide_nodes[unsafe_offset=base + WideNode.MIN_Z]
-        block._max.x[lane] = wide_nodes[unsafe_offset=base + WideNode.MAX_X]
-        block._max.y[lane] = wide_nodes[unsafe_offset=base + WideNode.MAX_Y]
-        block._max.z[lane] = wide_nodes[unsafe_offset=base + WideNode.MAX_Z]
-        meta[lane] = wide_nodes.unsafe_bitcast[UInt32]()[
-            unsafe_offset=base + WideNode.META
-        ]
+    var base = _wide_node_base[width](node_idx)
+    block._min.x = wide_nodes.unsafe_load[width=width](
+        base + WideNode.MIN_X * width
+    )
+    block._min.y = wide_nodes.unsafe_load[width=width](
+        base + WideNode.MIN_Y * width
+    )
+    block._min.z = wide_nodes.unsafe_load[width=width](
+        base + WideNode.MIN_Z * width
+    )
+    block._max.x = wide_nodes.unsafe_load[width=width](
+        base + WideNode.MAX_X * width
+    )
+    block._max.y = wide_nodes.unsafe_load[width=width](
+        base + WideNode.MAX_Y * width
+    )
+    block._max.z = wide_nodes.unsafe_load[width=width](
+        base + WideNode.MAX_Z * width
+    )
+    var meta = wide_nodes.unsafe_bitcast[UInt32]().unsafe_load[width=width](
+        base + WideNode.META * width
+    )
     var bounds_hit = intersect_ray_aabb_rcp(
         ray.origin[width](),
         ray.rcp_direction[width](),
@@ -301,19 +313,28 @@ def _intersect_wide_node_precomputed[
 ) -> WideNodeIntersection[width]:
     """Intersect a wide node with reciprocal direction cached per query."""
     var block = AxisAlignedBoundingBox[DType.float32, frame, width].invalid()
-    var meta = SIMD[DType.uint32, width](0)
-
-    comptime for lane in range(width):
-        var base = _wide_node_base[width](node_idx, lane)
-        block._min.x[lane] = wide_nodes[unsafe_offset=base + WideNode.MIN_X]
-        block._min.y[lane] = wide_nodes[unsafe_offset=base + WideNode.MIN_Y]
-        block._min.z[lane] = wide_nodes[unsafe_offset=base + WideNode.MIN_Z]
-        block._max.x[lane] = wide_nodes[unsafe_offset=base + WideNode.MAX_X]
-        block._max.y[lane] = wide_nodes[unsafe_offset=base + WideNode.MAX_Y]
-        block._max.z[lane] = wide_nodes[unsafe_offset=base + WideNode.MAX_Z]
-        meta[lane] = wide_nodes.unsafe_bitcast[UInt32]()[
-            unsafe_offset=base + WideNode.META
-        ]
+    var base = _wide_node_base[width](node_idx)
+    block._min.x = wide_nodes.unsafe_load[width=width](
+        base + WideNode.MIN_X * width
+    )
+    block._min.y = wide_nodes.unsafe_load[width=width](
+        base + WideNode.MIN_Y * width
+    )
+    block._min.z = wide_nodes.unsafe_load[width=width](
+        base + WideNode.MIN_Z * width
+    )
+    block._max.x = wide_nodes.unsafe_load[width=width](
+        base + WideNode.MAX_X * width
+    )
+    block._max.y = wide_nodes.unsafe_load[width=width](
+        base + WideNode.MAX_Y * width
+    )
+    block._max.z = wide_nodes.unsafe_load[width=width](
+        base + WideNode.MAX_Z * width
+    )
+    var meta = wide_nodes.unsafe_bitcast[UInt32]().unsafe_load[width=width](
+        base + WideNode.META * width
+    )
 
     var bounds_hit = intersect_ray_aabb_rcp(
         bounds_origin,
@@ -340,20 +361,28 @@ def _intersect_wide_node_precomputed_octant[
 ) -> WideNodeIntersection[width]:
     """Intersect a wide node using ray data prepared once per query."""
     var block = AxisAlignedBoundingBox[DType.float32, frame, width].invalid()
-    var meta = SIMD[DType.uint32, width](0)
-
-    comptime for lane in range(width):
-        var base = _wide_node_base[width](node_idx, lane)
-
-        block._min.x[lane] = wide_nodes[unsafe_offset=base + WideNode.MIN_X]
-        block._min.y[lane] = wide_nodes[unsafe_offset=base + WideNode.MIN_Y]
-        block._min.z[lane] = wide_nodes[unsafe_offset=base + WideNode.MIN_Z]
-        block._max.x[lane] = wide_nodes[unsafe_offset=base + WideNode.MAX_X]
-        block._max.y[lane] = wide_nodes[unsafe_offset=base + WideNode.MAX_Y]
-        block._max.z[lane] = wide_nodes[unsafe_offset=base + WideNode.MAX_Z]
-        meta[lane] = wide_nodes.unsafe_bitcast[UInt32]()[
-            unsafe_offset=base + WideNode.META
-        ]
+    var base = _wide_node_base[width](node_idx)
+    block._min.x = wide_nodes.unsafe_load[width=width](
+        base + WideNode.MIN_X * width
+    )
+    block._min.y = wide_nodes.unsafe_load[width=width](
+        base + WideNode.MIN_Y * width
+    )
+    block._min.z = wide_nodes.unsafe_load[width=width](
+        base + WideNode.MIN_Z * width
+    )
+    block._max.x = wide_nodes.unsafe_load[width=width](
+        base + WideNode.MAX_X * width
+    )
+    block._max.y = wide_nodes.unsafe_load[width=width](
+        base + WideNode.MAX_Y * width
+    )
+    block._max.z = wide_nodes.unsafe_load[width=width](
+        base + WideNode.MAX_Z * width
+    )
+    var meta = wide_nodes.unsafe_bitcast[UInt32]().unsafe_load[width=width](
+        base + WideNode.META * width
+    )
 
     var bounds_hit = intersect_ray_aabb_octant_fma[
         DType.float32,

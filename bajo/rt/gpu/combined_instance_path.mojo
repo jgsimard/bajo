@@ -10,7 +10,7 @@ from bajo.bvh.gpu.triangle_bvh import (
     build_triangle_blas_set,
 )
 from bajo.bvh.gpu.utils import upload_list
-from bajo.bvh.types import BlasSet
+from bajo.bvh.types import GpuBlasSet
 from bajo.core import Frame, Point3f32
 from bajo.rt.types import (
     Color,
@@ -75,7 +75,7 @@ struct GpuRtCombinedInstanceScene[
         Self.triangle_build_method,
         Self.triangle_compressed,
     ]
-    var blases: BlasSet[Self.blas_node_width, Self.blas_leaf_width]
+    var blases: GpuBlasSet[Self.blas_node_width, Self.blas_leaf_width]
     var tlas: GpuTriangleTlas[
         Self.tlas_node_width,
         Self.blas_node_width,
@@ -210,7 +210,7 @@ def _enqueue_combined_instance_bounce[
             _immut(world.tlas.core.inst_inv_transform),
             _immut(world.tlas.core.inst_blas_indices),
             _immut(world.blases.descs),
-            _immut(world.blases.wide_nodes),
+            _immut(world.blases.nodes),
             _immut(world.blases.leaves),
             world.tlas.core.tree.root_idx,
             Int32(world.tlas.core.inst_count),

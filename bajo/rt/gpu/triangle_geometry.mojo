@@ -1,19 +1,12 @@
 """Reusable GPU RT trace representation for world/local triangle geometry."""
 
-from std.math import max
 from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
-from bajo.bvh.gpu.compressed_bounds_bvh import (
-    CWBVH_NODE_WORDS,
-    CWBVH_TRIANGLE_WORDS,
-    build_cwbvh8_representation,
-)
 from bajo.bvh.gpu.triangle_bvh import (
-    build_triangle_bvh,
-    enqueue_build_triangle_wide,
+    _build_segmented_compressed_triangle_blas_set,
+    _build_segmented_triangle_blas_set,
 )
-from bajo.bvh.gpu.utils import upload_vertices
 from bajo.core import Frame, Point3f32
 
 
@@ -40,38 +33,24 @@ struct GpuRtTriangleGeometry[
             tri_count > 0 and len(vertices) % 3 == 0,
             "GPU RT triangle geometry requires complete triangles",
         )
-        var device_vertices = upload_vertices(ctx, vertices)
+        var owned_vertices = List[Point3f32[Self.frame]](capacity=len(vertices))
+        for vertex in vertices:
+            owned_vertices.append(vertex)
         comptime if Self.compressed:
             comptime assert Self.node_width == 8 and Self.leaf_width == 4
-            var pending = enqueue_build_triangle_wide[
-                Self.frame, 8, 4, Self.build_method, 3, True
-            ](ctx, device_vertices)
-            ctx.synchronize()
-            pending.finish_synchronized()
-            self.nodes = ctx.enqueue_create_buffer[DType.float32](
-                max(pending.tree.node_count, 1) * CWBVH_NODE_WORDS
-            )
-            self.leaves = ctx.enqueue_create_buffer[DType.float32](
-                max(tri_count, 1) * CWBVH_TRIANGLE_WORDS
-            )
-            build_cwbvh8_representation[Self.leaf_width](
-                ctx,
-                pending.tree.wide_nodes,
-                pending.tree.leaf_block_indices,
-                pending.source_vertices,
-                self.nodes,
-                self.leaves,
-                pending.tree.node_count,
-                tri_count,
-            )
-            self.root = pending.tree.root_idx
+            var packed = _build_segmented_compressed_triangle_blas_set[
+                Self.frame, 8, 4, Self.build_method
+            ](ctx, [owned_vertices^])
+            self.nodes = packed.nodes.copy()
+            self.leaves = packed.leaves.copy()
+            self.root = UInt32(0)
         else:
-            var bvh = build_triangle_bvh[
+            var packed = _build_segmented_triangle_blas_set[
                 Self.frame,
                 Self.node_width,
                 Self.leaf_width,
                 Self.build_method,
-            ](ctx, device_vertices)
-            self.nodes = bvh.tree.wide_nodes.copy()
-            self.leaves = bvh.leaf_vertices.copy()
-            self.root = bvh.tree.root_idx
+            ](ctx, [owned_vertices^])
+            self.nodes = packed.nodes.copy()
+            self.leaves = packed.leaves.copy()
+            self.root = UInt32(0)

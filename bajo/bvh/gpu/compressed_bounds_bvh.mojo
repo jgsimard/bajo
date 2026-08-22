@@ -10,12 +10,12 @@ from bajo.bvh.constants import (
     WideNode,
     f32_max,
 )
-from bajo.bvh.gpu.wide_layout import _wide_node_base
 from bajo.bvh.gpu.builder.binary_layout import _segment_for_item
 from bajo.bvh.gpu.utils import _device_span
 from bajo.bvh.wide_meta import (
     _wide_meta_count,
     _wide_meta_data,
+    _wide_node_index,
 )
 from bajo.core import Frame, Rayf32
 from bajo.core.utils import fmax, fmin
@@ -107,9 +107,10 @@ def _encode_cwbvh8_node[
     var valid_count = 0
 
     comptime for lane in range(CWBVH_WIDTH):
-        var source = _wide_node_base[CWBVH_WIDTH](node_idx, lane)
         var meta = wide_nodes.unsafe_bitcast[UInt32]()[
-            unsafe_offset=source + WideNode.META
+            unsafe_offset=_wide_node_index[CWBVH_WIDTH](
+                node_idx, WideNode.META, lane
+            )
         ]
         metadata[lane] = meta
         var count = _wide_meta_count(meta)
@@ -117,12 +118,54 @@ def _encode_cwbvh8_node[
             continue
 
         valid_count += 1
-        lo_x = min(lo_x, wide_nodes[unsafe_offset=source + WideNode.MIN_X])
-        lo_y = min(lo_y, wide_nodes[unsafe_offset=source + WideNode.MIN_Y])
-        lo_z = min(lo_z, wide_nodes[unsafe_offset=source + WideNode.MIN_Z])
-        hi_x = max(hi_x, wide_nodes[unsafe_offset=source + WideNode.MAX_X])
-        hi_y = max(hi_y, wide_nodes[unsafe_offset=source + WideNode.MAX_Y])
-        hi_z = max(hi_z, wide_nodes[unsafe_offset=source + WideNode.MAX_Z])
+        lo_x = min(
+            lo_x,
+            wide_nodes[
+                unsafe_offset=_wide_node_index[CWBVH_WIDTH](
+                    node_idx, WideNode.MIN_X, lane
+                )
+            ],
+        )
+        lo_y = min(
+            lo_y,
+            wide_nodes[
+                unsafe_offset=_wide_node_index[CWBVH_WIDTH](
+                    node_idx, WideNode.MIN_Y, lane
+                )
+            ],
+        )
+        lo_z = min(
+            lo_z,
+            wide_nodes[
+                unsafe_offset=_wide_node_index[CWBVH_WIDTH](
+                    node_idx, WideNode.MIN_Z, lane
+                )
+            ],
+        )
+        hi_x = max(
+            hi_x,
+            wide_nodes[
+                unsafe_offset=_wide_node_index[CWBVH_WIDTH](
+                    node_idx, WideNode.MAX_X, lane
+                )
+            ],
+        )
+        hi_y = max(
+            hi_y,
+            wide_nodes[
+                unsafe_offset=_wide_node_index[CWBVH_WIDTH](
+                    node_idx, WideNode.MAX_Y, lane
+                )
+            ],
+        )
+        hi_z = max(
+            hi_z,
+            wide_nodes[
+                unsafe_offset=_wide_node_index[CWBVH_WIDTH](
+                    node_idx, WideNode.MAX_Z, lane
+                )
+            ],
+        )
 
         if count == 0:
             var child = _wide_meta_data(meta)
@@ -214,42 +257,65 @@ def _encode_cwbvh8_node[
             var packed = UInt32(0)
             comptime for byte_i in range(4):
                 comptime lane = group * 4 + byte_i
-                var source = _wide_node_base[CWBVH_WIDTH](node_idx, lane)
                 var q = UInt32(0)
                 if _wide_meta_count(metadata[lane]) != EMPTY_LANE:
                     comptime if plane == 0:
                         q = _quantize_lower(
-                            wide_nodes[unsafe_offset=source + WideNode.MIN_X],
+                            wide_nodes[
+                                unsafe_offset=_wide_node_index[CWBVH_WIDTH](
+                                    node_idx, WideNode.MIN_X, lane
+                                )
+                            ],
                             lo_x,
                             scale_x,
                         )
                     elif plane == 1:
                         q = _quantize_lower(
-                            wide_nodes[unsafe_offset=source + WideNode.MIN_Y],
+                            wide_nodes[
+                                unsafe_offset=_wide_node_index[CWBVH_WIDTH](
+                                    node_idx, WideNode.MIN_Y, lane
+                                )
+                            ],
                             lo_y,
                             scale_y,
                         )
                     elif plane == 2:
                         q = _quantize_lower(
-                            wide_nodes[unsafe_offset=source + WideNode.MIN_Z],
+                            wide_nodes[
+                                unsafe_offset=_wide_node_index[CWBVH_WIDTH](
+                                    node_idx, WideNode.MIN_Z, lane
+                                )
+                            ],
                             lo_z,
                             scale_z,
                         )
                     elif plane == 3:
                         q = _quantize_upper(
-                            wide_nodes[unsafe_offset=source + WideNode.MAX_X],
+                            wide_nodes[
+                                unsafe_offset=_wide_node_index[CWBVH_WIDTH](
+                                    node_idx, WideNode.MAX_X, lane
+                                )
+                            ],
                             lo_x,
                             scale_x,
                         )
                     elif plane == 4:
                         q = _quantize_upper(
-                            wide_nodes[unsafe_offset=source + WideNode.MAX_Y],
+                            wide_nodes[
+                                unsafe_offset=_wide_node_index[CWBVH_WIDTH](
+                                    node_idx, WideNode.MAX_Y, lane
+                                )
+                            ],
                             lo_y,
                             scale_y,
                         )
                     else:
                         q = _quantize_upper(
-                            wide_nodes[unsafe_offset=source + WideNode.MAX_Z],
+                            wide_nodes[
+                                unsafe_offset=_wide_node_index[CWBVH_WIDTH](
+                                    node_idx, WideNode.MAX_Z, lane
+                                )
+                            ],
                             lo_z,
                             scale_z,
                         )

@@ -35,6 +35,7 @@ from bajo.rt.gpu.render import (
 )
 from bajo.rt.types import (
     Color,
+    PRIM,
     RENDER,
     RenderSettings,
     SceneBuilder,
@@ -194,6 +195,48 @@ def _combined_instance_world() raises -> CpuScene[4, 8]:
     return CpuScene[4, 8](scene^)
 
 
+def _emissive_instance_world() raises -> CpuScene[4, 8]:
+    var builder = SceneBuilder()
+    var floor = builder.add_lambertian(Color(0.65, 0.65, 0.65))
+    var light = builder.add_emissive(Color(8.0, 6.0, 4.0))
+    builder.add_quad(
+        Point3f32[Frame.WORLD](-2.0, 0.0, -2.0),
+        Point3f32[Frame.WORLD](-2.0, 0.0, 2.0),
+        Point3f32[Frame.WORLD](2.0, 0.0, 2.0),
+        Point3f32[Frame.WORLD](2.0, 0.0, -2.0),
+        floor,
+    )
+
+    var mesh = List[Point3f32[Frame.LOCAL]]()
+    mesh.append(Point3f32[Frame.LOCAL](-0.5, 0.0, -0.5))
+    mesh.append(Point3f32[Frame.LOCAL](0.5, 0.0, -0.5))
+    mesh.append(Point3f32[Frame.LOCAL](0.5, 0.0, 0.5))
+    mesh.append(Point3f32[Frame.LOCAL](-0.5, 0.0, -0.5))
+    mesh.append(Point3f32[Frame.LOCAL](0.5, 0.0, 0.5))
+    mesh.append(Point3f32[Frame.LOCAL](-0.5, 0.0, 0.5))
+    _ = builder.add_triangle_mesh_instance(
+        mesh,
+        Affine3f32[Frame.LOCAL, Frame.WORLD](
+            1.5,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            2.0,
+            0.0,
+            0.0,
+            0.75,
+            0.0,
+        ),
+        compute_bounds(mesh),
+        light,
+    )
+    var scene = builder^.finish()
+    return CpuScene[4, 8](scene^)
+
+
 def _camera() -> Camera:
     return Camera.from_vfov(
         Point3f32[Frame.WORLD](0.0, 0.0, 0.0),
@@ -210,6 +253,16 @@ def _cornell_camera() -> Camera:
         Vec3f32[Frame.WORLD](0.0, 1.0, 0.0),
         28.0,
         4.2,
+    )
+
+
+def _emissive_instance_camera() -> Camera:
+    return Camera.from_vfov(
+        Point3f32[Frame.WORLD](0.0, 1.0, 3.0),
+        Point3f32[Frame.WORLD](0.0, 0.0, 0.0),
+        Vec3f32[Frame.WORLD](0.0, 1.0, 0.0),
+        35.0,
+        1.5,
     )
 
 
@@ -600,6 +653,32 @@ def test_gpu_sphere_nee_matches_cpu_wavefront() raises:
         assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=1.0e-4)
         assert_almost_equal(gpu.pixels[i].y, cpu_pixel.y, atol=1.0e-4)
         assert_almost_equal(gpu.pixels[i].z, cpu_pixel.z, atol=1.0e-4)
+
+
+def _test_gpu_emissive_instance_matches_cpu[ALGORITHM: RENDER]() raises:
+    var settings = RenderSettings(4, 3, 4, UInt64(631))
+    var world = _emissive_instance_world()
+    assert_equal(len(world.scene_data().lights().records), 2)
+    for light in world.scene_data().lights().records:
+        assert_equal(light.primitive.kind(), PRIM.TRIANGLE_INSTANCE)
+    var camera = _emissive_instance_camera()
+    var cpu = render_wavefront[ALGORITHM, 1, 64, False](settings, camera, world)
+    var gpu = render_gpu[ALGORITHM, 4, 4](settings, camera, world.scene_data())
+    var energy = Float32(0.0)
+    for i, cpu_pixel in enumerate(cpu.pixels):
+        energy += cpu_pixel.x + cpu_pixel.y + cpu_pixel.z
+        assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=1.0e-4)
+        assert_almost_equal(gpu.pixels[i].y, cpu_pixel.y, atol=1.0e-4)
+        assert_almost_equal(gpu.pixels[i].z, cpu_pixel.z, atol=1.0e-4)
+    assert_true(energy > 0.0)
+
+
+def test_gpu_emissive_instance_nee_matches_cpu_wavefront() raises:
+    _test_gpu_emissive_instance_matches_cpu[RENDER.NEE]()
+
+
+def test_gpu_emissive_instance_mis_matches_cpu_wavefront() raises:
+    _test_gpu_emissive_instance_matches_cpu[RENDER.MIS]()
 
 
 def test_gpu_mis_matches_cpu_wavefront() raises:

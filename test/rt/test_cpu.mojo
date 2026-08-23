@@ -49,6 +49,11 @@ from bajo.rt import (
 from examples.cornell_box import make_cornell_world
 from bajo.rt.cpu import reflect, reflectance
 from bajo.rt.common import path_stage_rng, russian_roulette
+from bajo.rt.lighting import (
+    _draw_alias_column,
+    _resolve_alias_draw,
+    _solid_angle_light_pdf,
+)
 from bajo.rt.geometry import (
     orient_surface_normal,
     sphere_for_acceleration,
@@ -138,13 +143,31 @@ def test_light_alias_table_matches_power_distribution() raises:
     var lights = LightStore()
     var surface = SurfaceId(MAT.EMISSIVE, UInt32(0))
     lights.append(
-        LightRecord(PrimitiveId(PRIM.SPHERE, UInt32(0)), surface.copy(), 1.0)
+        LightRecord.sphere(
+            PrimitiveId(PRIM.SPHERE, UInt32(0)),
+            surface.copy(),
+            1.0,
+            Point3f32[Frame.WORLD](0.0),
+            1.0,
+        )
     )
     lights.append(
-        LightRecord(PrimitiveId(PRIM.SPHERE, UInt32(1)), surface.copy(), 3.0)
+        LightRecord.sphere(
+            PrimitiveId(PRIM.SPHERE, UInt32(1)),
+            surface.copy(),
+            3.0,
+            Point3f32[Frame.WORLD](0.0),
+            1.0,
+        )
     )
     lights.append(
-        LightRecord(PrimitiveId(PRIM.SPHERE, UInt32(2)), surface.copy(), 6.0)
+        LightRecord.sphere(
+            PrimitiveId(PRIM.SPHERE, UInt32(2)),
+            surface.copy(),
+            6.0,
+            Point3f32[Frame.WORLD](0.0),
+            1.0,
+        )
     )
     lights.build_alias_table()
 
@@ -162,6 +185,15 @@ def test_light_alias_table_matches_power_distribution() raises:
     assert_almost_equal(reconstructed[0], 0.1, atol=1.0e-6)
     assert_almost_equal(reconstructed[1], 0.3, atol=1.0e-6)
     assert_almost_equal(reconstructed[2], 0.6, atol=1.0e-6)
+
+
+def test_shared_light_selection_and_pdf_contract() raises:
+    var draw = _draw_alias_column(0.45, 3)
+    assert_equal(draw.column, 1)
+    assert_almost_equal(draw.fraction, 0.35, atol=1.0e-6)
+    assert_equal(_resolve_alias_draw(draw, 0.25, UInt32(2)), 2)
+    assert_equal(_resolve_alias_draw(draw, 0.50, UInt32(2)), 1)
+    assert_almost_equal(_solid_angle_light_pdf(4.0, 0.5, Color(3.0), 6.0), 4.0)
 
 
 def test_scene_builder_finalizes_derived_lights() raises:
@@ -186,7 +218,7 @@ def test_scene_builder_finalizes_derived_lights() raises:
     assert_true(scene.lights().total_weight > 0.0)
 
 
-def test_scene_builder_rejects_emissive_triangle_instances() raises:
+def test_scene_builder_finalizes_emissive_triangle_instance_lights() raises:
     var builder = SceneBuilder()
     var light = builder.add_emissive(Color(4.0))
     var mesh = List[Point3f32[Frame.LOCAL]]()
@@ -196,13 +228,22 @@ def test_scene_builder_rejects_emissive_triangle_instances() raises:
     var bounds = compute_bounds(mesh)
     _ = builder.add_triangle_mesh_instance(
         mesh,
-        Affine3f32[Frame.LOCAL, Frame.WORLD].identity(),
+        Affine3f32[Frame.LOCAL, Frame.WORLD].from_scale(
+            Vec3f32[Frame.LOCAL](-1.0, 1.0, 1.0)
+        ),
         bounds,
         light,
     )
 
-    with assert_raises():
-        _ = builder^.finish()
+    var scene = builder^.finish()
+    assert_equal(len(scene.lights().records), 1)
+    ref record = scene.lights().records[0]
+    assert_equal(record.primitive.kind(), PRIM.TRIANGLE_INSTANCE)
+    assert_equal(record.primitive.index(), UInt32(0))
+    assert_almost_equal(record.weight, 8.0)
+    assert_vec_equal(record.p0, Point3f32[Frame.WORLD](1.0, -1.0, 0.0))
+    assert_vec_equal(record.p1, Point3f32[Frame.WORLD](0.0, 1.0, 0.0))
+    assert_vec_equal(record.p2, Point3f32[Frame.WORLD](-1.0, -1.0, 0.0))
 
 
 def test_scene_builder_rejects_invalid_material_domains() raises:

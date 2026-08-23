@@ -172,13 +172,63 @@ struct SurfaceStore:
         return SurfaceId(MAT.EMISSIVE, index)
 
 
-@fieldwise_init
 struct LightRecord(Copyable, Writable):
-    """Compact emissive-primitive entry suitable for device packing."""
+    """Finalized world-space emitter geometry and power-distribution entry."""
 
     var primitive: PrimitiveId
     var surface: SurfaceId[1]
     var weight: Float32
+    var p0: Point3f32[Frame.WORLD]
+    var p1: Point3f32[Frame.WORLD]
+    var p2: Point3f32[Frame.WORLD]
+    var radius: Float32
+
+    def __init__(
+        out self,
+        primitive: PrimitiveId,
+        surface: SurfaceId[1],
+        weight: Float32,
+        p0: Point3f32[Frame.WORLD],
+        p1: Point3f32[Frame.WORLD],
+        p2: Point3f32[Frame.WORLD],
+        radius: Float32,
+    ):
+        self.primitive = primitive.copy()
+        self.surface = surface.copy()
+        self.weight = weight
+        self.p0 = p0
+        self.p1 = p1
+        self.p2 = p2
+        self.radius = radius
+
+    @staticmethod
+    def triangle(
+        primitive: PrimitiveId,
+        surface: SurfaceId[1],
+        weight: Float32,
+        p0: Point3f32[Frame.WORLD],
+        p1: Point3f32[Frame.WORLD],
+        p2: Point3f32[Frame.WORLD],
+    ) -> Self:
+        return Self(primitive, surface, weight, p0, p1, p2, 0.0)
+
+    @staticmethod
+    def sphere(
+        primitive: PrimitiveId,
+        surface: SurfaceId[1],
+        weight: Float32,
+        center: Point3f32[Frame.WORLD],
+        radius: Float32,
+    ) -> Self:
+        return Self(
+            primitive,
+            surface,
+            weight,
+            center,
+            Point3f32[Frame.WORLD](0.0),
+            Point3f32[Frame.WORLD](0.0),
+            radius,
+        )
 
 
 struct LightStore:
@@ -682,11 +732,6 @@ struct SceneData:
             var surface = self._triangle_instance_surfaces[i].copy()
             if not self._surfaces.validate(surface):
                 raise Error("triangle instance surface id is out of range")
-            if surface.kind() == MAT.EMISSIVE:
-                raise Error(
-                    "emissive triangle instances are not supported by the light"
-                    " sampler"
-                )
 
             if not _transform_is_finite(inst.transform):
                 raise Error("triangle instance transform must be finite")
@@ -741,21 +786,25 @@ struct SceneData:
                 var radiance = self._surfaces.emissives[
                     Int(surface.index())
                 ].radiance
-                var weight = _scene_triangle_area(self, idx) * (
-                    _light_importance(radiance)
+                ref p0 = self._triangle_vertices[3 * idx + 0]
+                ref p1 = self._triangle_vertices[3 * idx + 1]
+                ref p2 = self._triangle_vertices[3 * idx + 2]
+                var weight = _triangle_area(p0, p1, p2) * _light_importance(
+                    radiance
                 )
                 if not isfinite(weight):
                     raise Error("triangle light weight must be finite")
                 if weight > 0.0:
-                    self._lights.append(
-                        LightRecord(
+                    self._append_light(
+                        LightRecord.triangle(
                             PrimitiveId(PRIM.TRIANGLE, UInt32(idx)),
                             surface.copy(),
                             weight,
+                            p0,
+                            p1,
+                            p2,
                         )
                     )
-                    if not isfinite(self._lights.total_weight):
-                        raise Error("total light weight must be finite")
 
         for idx, surface in enumerate(self._sphere_surfaces):
             if surface.kind() == MAT.EMISSIVE:
@@ -769,15 +818,70 @@ struct SceneData:
                 if not isfinite(weight):
                     raise Error("sphere light weight must be finite")
                 if weight > 0.0:
-                    self._lights.append(
-                        LightRecord(
+                    self._append_light(
+                        LightRecord.sphere(
                             PrimitiveId(PRIM.SPHERE, UInt32(idx)),
                             surface.copy(),
                             weight,
+                            self._spheres[idx].center,
+                            radius,
                         )
                     )
-                    if not isfinite(self._lights.total_weight):
-                        raise Error("total light weight must be finite")
+
+        for instance_idx, surface in enumerate(
+            self._triangle_instance_surfaces
+        ):
+            if surface.kind() != MAT.EMISSIVE:
+                continue
+            var radiance = self._surfaces.emissives[
+                Int(surface.index())
+            ].radiance
+            var transform = self._triangle_instances[
+                instance_idx
+            ].transform.copy()
+            var mesh_idx = Int(self._triangle_instances[instance_idx].blas_idx)
+            var reverses_orientation = _transform_reverses_orientation(
+                transform
+            )
+            var triangle_count = len(self._triangle_meshes[mesh_idx]) / 3
+            for triangle_idx in range(triangle_count):
+                var base = 3 * triangle_idx
+                var p0 = transform.point(
+                    self._triangle_meshes[mesh_idx][base + 0]
+                )
+                var p1 = transform.point(
+                    self._triangle_meshes[mesh_idx][base + 1]
+                )
+                var p2 = transform.point(
+                    self._triangle_meshes[mesh_idx][base + 2]
+                )
+                if reverses_orientation:
+                    var tmp = p1
+                    p1 = p2
+                    p2 = tmp
+                var weight = _triangle_area(p0, p1, p2) * (
+                    _light_importance(radiance)
+                )
+                if not isfinite(weight):
+                    raise Error("triangle instance light weight must be finite")
+                if weight > 0.0:
+                    self._append_light(
+                        LightRecord.triangle(
+                            PrimitiveId(
+                                PRIM.TRIANGLE_INSTANCE, UInt32(instance_idx)
+                            ),
+                            surface.copy(),
+                            weight,
+                            p0,
+                            p1,
+                            p2,
+                        )
+                    )
+
+    def _append_light(mut self, var light: LightRecord) raises:
+        self._lights.append(light^)
+        if not isfinite(self._lights.total_weight):
+            raise Error("total light weight must be finite")
 
 
 @always_inline
@@ -863,11 +967,25 @@ def _light_importance(radiance: Color) -> Float32:
 
 
 @always_inline
-def _scene_triangle_area(scene: SceneData, triangle_index: Int) -> Float32:
-    ref v0 = scene.triangle_vertices()[3 * triangle_index + 0]
-    ref v1 = scene.triangle_vertices()[3 * triangle_index + 1]
-    ref v2 = scene.triangle_vertices()[3 * triangle_index + 2]
+def _triangle_area[
+    frame: Frame
+](v0: Point3f32[frame], v1: Point3f32[frame], v2: Point3f32[frame]) -> Float32:
     return 0.5 * sqrt(length2(cross(v1 - v0, v2 - v0)))
+
+
+@always_inline
+def _transform_reverses_orientation(
+    transform: Affine3f32[Frame.LOCAL, Frame.WORLD],
+) -> Bool:
+    var determinant = (
+        transform.m00
+        * (transform.m11 * transform.m22 - transform.m12 * transform.m21)
+        - transform.m01
+        * (transform.m10 * transform.m22 - transform.m12 * transform.m20)
+        + transform.m02
+        * (transform.m10 * transform.m21 - transform.m11 * transform.m20)
+    )
+    return determinant[0] < 0.0
 
 
 def ray_at(ray: Rayf32[Frame.WORLD], t: Float32) -> Point3f32[Frame.WORLD]:

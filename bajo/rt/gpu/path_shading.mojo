@@ -11,15 +11,23 @@ from bajo.core import (
     Point3f32,
     Rayf32,
     Vec3f32,
-    cross,
     dot,
     length2,
     normalize,
 )
 from bajo.core.random import random_on_hemisphere, random_unit_vector
 from bajo.rt.common import path_stage_rng, russian_roulette, sky_color
-from bajo.rt.geometry import sphere_unsigned_radius
-from bajo.rt.lighting import _direct_light_scale, power_heuristic
+from bajo.rt.lighting import (
+    _direct_light_scale,
+    _draw_alias_column,
+    _finish_direct_light_geometry,
+    _LightSurfaceSample,
+    _resolve_alias_draw,
+    _sample_sphere_light_surface,
+    _sample_triangle_light_surface,
+    _solid_angle_light_pdf,
+    power_heuristic,
+)
 from bajo.rt.shading import _evaluate_material, _sample_material
 from bajo.rt.types import (
     Color,
@@ -166,41 +174,22 @@ struct GpuRtLights:
         )
         for light_idx, light in enumerate(world.lights().records):
             var kind = light.primitive.kind()
-            var primitive_idx = Int(light.primitive.index())
-            var p0: Point3f32[Frame.WORLD]
-            var p1 = Point3f32[Frame.WORLD](0.0)
-            var p2 = Point3f32[Frame.WORLD](0.0)
-            var radius = Float32(0.0)
-            if kind == PRIM.SPHERE:
-                p0 = world.spheres()[primitive_idx].center
-                radius = sphere_unsigned_radius(world.spheres()[primitive_idx])
-            else:
-                debug_assert["safe", _use_compiler_assume=True](
-                    kind == PRIM.TRIANGLE,
-                    (
-                        "GPU direct lighting supports static sphere/triangle"
-                        " lights"
-                    ),
-                )
-                p0 = world.triangle_vertices()[3 * primitive_idx + 0]
-                p1 = world.triangle_vertices()[3 * primitive_idx + 1]
-                p2 = world.triangle_vertices()[3 * primitive_idx + 2]
             var radiance = (
                 world.surfaces().emissives[Int(light.surface.index())].radiance
             )
             kinds.append(
                 (world.lights().alias_indices[light_idx] << UInt32(4)) | kind.v
             )
-            fields.append(p0.x)
-            fields.append(p0.y)
-            fields.append(p0.z)
-            fields.append(p1.x)
-            fields.append(p1.y)
-            fields.append(p1.z)
-            fields.append(p2.x)
-            fields.append(p2.y)
-            fields.append(p2.z)
-            fields.append(radius)
+            fields.append(light.p0.x)
+            fields.append(light.p0.y)
+            fields.append(light.p0.z)
+            fields.append(light.p1.x)
+            fields.append(light.p1.y)
+            fields.append(light.p1.z)
+            fields.append(light.p2.x)
+            fields.append(light.p2.y)
+            fields.append(light.p2.z)
+            fields.append(light.radius)
             fields.append(radiance.x)
             fields.append(radiance.y)
             fields.append(radiance.z)
@@ -283,16 +272,15 @@ def _sample_direct_light_candidate[
     var rng = path_stage_rng(
         rng_seed, path.path_id, wavefront_rng_light_stage(bounce)
     )
-    var alias_sample = rng.f32() * Float32(light_count)
-    var selected_idx = Int(alias_sample)
-    var alias_fraction = alias_sample - Float32(selected_idx)
-    var packed_column = light_kinds[unsafe_offset=selected_idx]
+    var draw = _draw_alias_column(rng.f32(), light_count)
+    var packed_column = light_kinds[unsafe_offset=draw.column]
     var alias_probability = light_fields[
-        unsafe_offset=selected_idx * GPU_RT_LIGHT_STRIDE
+        unsafe_offset=draw.column * GPU_RT_LIGHT_STRIDE
         + GPU_RT_LIGHT_ALIAS_PROBABILITY
     ]
-    if alias_fraction > alias_probability:
-        selected_idx = Int(packed_column >> UInt32(4))
+    var selected_idx = _resolve_alias_draw(
+        draw, alias_probability, packed_column >> UInt32(4)
+    )
 
     var base = selected_idx * GPU_RT_LIGHT_STRIDE
     var kind = PRIM(light_kinds[unsafe_offset=selected_idx] & UInt32(0xF))
@@ -301,12 +289,12 @@ def _sample_direct_light_candidate[
         light_fields[unsafe_offset=base + GPU_RT_LIGHT_P0_Y],
         light_fields[unsafe_offset=base + GPU_RT_LIGHT_P0_Z],
     )
-    var light_point = p0
-    var light_normal = Vec3f32[Frame.WORLD](0.0, 1.0, 0.0)
+    var surface_sample: _LightSurfaceSample
     if kind == PRIM.SPHERE:
         var radius = light_fields[unsafe_offset=base + GPU_RT_LIGHT_RADIUS]
-        light_normal = random_unit_vector[Frame.WORLD](rng)
-        light_point = p0 + radius * light_normal
+        surface_sample = _sample_sphere_light_surface(
+            p0, radius, random_unit_vector[Frame.WORLD](rng)
+        )
     else:
         var p1 = Point3f32[Frame.WORLD](
             light_fields[unsafe_offset=base + GPU_RT_LIGHT_P1_X],
@@ -318,43 +306,24 @@ def _sample_direct_light_candidate[
             light_fields[unsafe_offset=base + GPU_RT_LIGHT_P2_Y],
             light_fields[unsafe_offset=base + GPU_RT_LIGHT_P2_Z],
         )
-        var edge1 = p1 - p0
-        var edge2 = p2 - p0
-        var area_vector = cross(edge1, edge2)
-        var twice_area_squared = length2(area_vector)
-        if twice_area_squared <= 0.0:
-            return _empty_direct_light_sample()
-        light_normal = area_vector / sqrt(twice_area_squared)
-        var root_u = sqrt(rng.f32())
-        var barycentric1 = root_u * (1.0 - rng.f32())
-        var barycentric2 = root_u - barycentric1
-        light_point = p0 + barycentric1 * edge1 + barycentric2 * edge2
-
-    var point = incoming_ray.o + hit_t * incoming_ray.d
-    var to_light = light_point - point
-    var distance_squared = length2(to_light)
-    if distance_squared <= 1.0e-8:
-        return _empty_direct_light_sample()
-    var distance = sqrt(distance_squared)
-    var direction = to_light / distance
-    var surface_cosine = max(dot(normal, direction), 0.0)
-    var light_cosine = max(dot(light_normal, -direction), 0.0)
-    if surface_cosine <= 0.0 or light_cosine <= 0.0:
-        return _empty_direct_light_sample()
-    var shadow_t_max = distance - 0.002
-    if shadow_t_max <= 0.001:
-        return _empty_direct_light_sample()
+        surface_sample = _sample_triangle_light_surface(
+            p0, p1, p2, rng.f32(), rng.f32()
+        )
 
     var emission = Color(
         light_fields[unsafe_offset=base + GPU_RT_LIGHT_E_X],
         light_fields[unsafe_offset=base + GPU_RT_LIGHT_E_Y],
         light_fields[unsafe_offset=base + GPU_RT_LIGHT_E_Z],
     )
-    var light_pdf = (
-        distance_squared
-        * (emission.x + emission.y + emission.z)
-        / (3.0 * light_cosine * total_light_weight)
+    var geometry = _finish_direct_light_geometry(
+        incoming_ray.o + hit_t * incoming_ray.d,
+        normal,
+        surface_sample,
+        emission,
+        total_light_weight,
     )
+    if not geometry.valid:
+        return _empty_direct_light_sample()
     var surface_kind = MAT(surface_value >> UInt32(28))
     var material_idx = Int(surface_value & SURFACE_INDEX_MASK)
     var value = Color(0.0)
@@ -370,7 +339,7 @@ def _sample_direct_light_candidate[
                 lambertians[unsafe_offset=material_base + 2],
             ),
             1.0,
-            direction,
+            geometry.direction,
         )
         value = evaluation.value
         bsdf_pdf = evaluation.pdf
@@ -385,20 +354,20 @@ def _sample_direct_light_candidate[
                 metals[unsafe_offset=material_base + 2],
             ),
             metals[unsafe_offset=material_base + 3],
-            direction,
+            geometry.direction,
         )
         value = evaluation.value
         bsdf_pdf = evaluation.pdf
     else:
         return _empty_direct_light_sample()
     var scale = _direct_light_scale[ALGORITHM, 1](
-        surface_cosine, light_pdf, bsdf_pdf, True
+        geometry.surface_cosine, geometry.light_pdf, bsdf_pdf, True
     )
     return GpuDirectLightSample(
         scale > 0.0,
-        direction,
+        geometry.direction,
         Color(path.tx, path.ty, path.tz) * value * emission * scale,
-        shadow_t_max,
+        geometry.shadow_t_max,
     )
 
 
@@ -596,10 +565,11 @@ def _route_surface_hit[
                         var distance_squared = (
                             hit_t * hit_t * length2(ray_direction)
                         )
-                        light_pdf = (
-                            distance_squared
-                            * (radiance.x + radiance.y + radiance.z)
-                            / (3.0 * light_cosine * total_light_weight)
+                        light_pdf = _solid_angle_light_pdf(
+                            distance_squared,
+                            light_cosine,
+                            radiance,
+                            total_light_weight,
                         )
                     emission_weight = power_heuristic[1](
                         path.bsdf_pdf, light_pdf

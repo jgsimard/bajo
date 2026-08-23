@@ -23,19 +23,19 @@ struct WaveShade(Copyable, Writable):
 
 struct PathPacket[length: SIMDLength](Copyable):
     var path_ids: SIMD[DType.uint32, Self.length]
-    var ox: SIMD[DType.float32, Self.length]
-    var oy: SIMD[DType.float32, Self.length]
-    var oz: SIMD[DType.float32, Self.length]
-    var t_min: SIMD[DType.float32, Self.length]
-    var dx: SIMD[DType.float32, Self.length]
-    var dy: SIMD[DType.float32, Self.length]
-    var dz: SIMD[DType.float32, Self.length]
-    var t_max: SIMD[DType.float32, Self.length]
-    var tx: SIMD[DType.float32, Self.length]
-    var ty: SIMD[DType.float32, Self.length]
-    var tz: SIMD[DType.float32, Self.length]
-    var bsdf_pdfs: SIMD[DType.float32, Self.length]
-    var deltas: SIMD[DType.bool, Self.length]
+    var ox: SIMD[.float32, Self.length]
+    var oy: SIMD[.float32, Self.length]
+    var oz: SIMD[.float32, Self.length]
+    var t_min: SIMD[.float32, Self.length]
+    var dx: SIMD[.float32, Self.length]
+    var dy: SIMD[.float32, Self.length]
+    var dz: SIMD[.float32, Self.length]
+    var t_max: SIMD[.float32, Self.length]
+    var tx: SIMD[.float32, Self.length]
+    var ty: SIMD[.float32, Self.length]
+    var tz: SIMD[.float32, Self.length]
+    var bsdf_pdfs: SIMD[.float32, Self.length]
+    var deltas: SIMD[.bool, Self.length]
 
     def __init__(out self):
         self.path_ids = 0
@@ -51,7 +51,7 @@ struct PathPacket[length: SIMDLength](Copyable):
         self.ty = 0.0
         self.tz = 0.0
         self.bsdf_pdfs = 0.0
-        self.deltas = SIMD[DType.bool, Self.length](fill=True)
+        self.deltas = SIMD[.bool, Self.length](fill=True)
 
 
 struct PacketPathQueue[length: SIMDLength](Sized):
@@ -120,7 +120,7 @@ struct PacketPathQueue[length: SIMDLength](Sized):
     def append_packet_masked(
         mut self,
         var packet: PathPacket[Self.length],
-        mask: SIMD[DType.bool, Self.length],
+        mask: SIMD[.bool, Self.length],
         lane_count: Int,
     ):
         debug_assert["safe", _use_compiler_assume=True](
@@ -134,21 +134,21 @@ struct PacketPathQueue[length: SIMDLength](Sized):
 
 struct ShadePacket[length: SIMDLength](Copyable):
     var path_ids: SIMD[DType.uint32, Self.length]
-    var ox: SIMD[DType.float32, Self.length]
-    var oy: SIMD[DType.float32, Self.length]
-    var oz: SIMD[DType.float32, Self.length]
-    var dx: SIMD[DType.float32, Self.length]
-    var dy: SIMD[DType.float32, Self.length]
-    var dz: SIMD[DType.float32, Self.length]
-    var tx: SIMD[DType.float32, Self.length]
-    var ty: SIMD[DType.float32, Self.length]
-    var tz: SIMD[DType.float32, Self.length]
-    var nx: SIMD[DType.float32, Self.length]
-    var ny: SIMD[DType.float32, Self.length]
-    var nz: SIMD[DType.float32, Self.length]
-    var hit_t: SIMD[DType.float32, Self.length]
+    var ox: SIMD[.float32, Self.length]
+    var oy: SIMD[.float32, Self.length]
+    var oz: SIMD[.float32, Self.length]
+    var dx: SIMD[.float32, Self.length]
+    var dy: SIMD[.float32, Self.length]
+    var dz: SIMD[.float32, Self.length]
+    var tx: SIMD[.float32, Self.length]
+    var ty: SIMD[.float32, Self.length]
+    var tz: SIMD[.float32, Self.length]
+    var nx: SIMD[.float32, Self.length]
+    var ny: SIMD[.float32, Self.length]
+    var nz: SIMD[.float32, Self.length]
+    var hit_t: SIMD[.float32, Self.length]
     var surface_indices: SIMD[DType.uint32, Self.length]
-    var front_faces: SIMD[DType.bool, Self.length]
+    var front_faces: SIMD[.bool, Self.length]
 
     def __init__(out self):
         self.path_ids = 0
@@ -166,7 +166,7 @@ struct ShadePacket[length: SIMDLength](Copyable):
         self.nz = 0.0
         self.hit_t = 0.0
         self.surface_indices = 0
-        self.front_faces = SIMD[DType.bool, Self.length](fill=False)
+        self.front_faces = SIMD[.bool, Self.length](fill=False)
 
 
 struct PacketShadeQueue[length: SIMDLength](Sized):

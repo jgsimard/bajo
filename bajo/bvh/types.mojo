@@ -24,15 +24,15 @@ struct Hit[frame: Frame = .WORLD, length: SIMDLength = 1](
     comptime T = 7
     comptime STRIDE = 8
 
-    var u: SIMD[DType.float32, Self.length]
-    var v: SIMD[DType.float32, Self.length]
+    var u: SIMD[.float32, Self.length]
+    var v: SIMD[.float32, Self.length]
     var prim: SIMD[DType.uint32, Self.length]
     var inst: SIMD[DType.uint32, Self.length]
     var normal: Normal3[DType.float32, Self.frame, Self.length]
-    var t: SIMD[DType.float32, Self.length]
+    var t: SIMD[.float32, Self.length]
 
     @staticmethod
-    def miss(t: SIMD[DType.float32, Self.length] = f32_max) -> Self:
+    def miss(t: SIMD[.float32, Self.length] = f32_max) -> Self:
         return Self(
             0.0,
             0.0,
@@ -53,14 +53,14 @@ struct Hit[frame: Frame = .WORLD, length: SIMDLength = 1](
             0.0,
         )
 
-    def is_hit(self) -> SIMD[DType.bool, Self.length]:
+    def is_hit(self) -> SIMD[.bool, Self.length]:
         return self.prim.ne(EMPTY_LANE) & self.t.lt(f32_max)
 
     @always_inline
-    def hit_mask(self) -> SIMD[DType.bool, Self.length]:
+    def hit_mask(self) -> SIMD[.bool, Self.length]:
         return self.is_hit()
 
-    def is_occluded(self) -> SIMD[DType.bool, Self.length]:
+    def is_occluded(self) -> SIMD[.bool, Self.length]:
         return self.prim.eq(EMPTY_LANE) & self.t.eq(0.0)
 
     def store(self, hits: MutSpan[Float32, _], idx: Int):
@@ -127,12 +127,12 @@ struct Sphere[frame: Frame = .WORLD](TrivialRegisterPassable):
 @fieldwise_init
 struct SphereLeafBlock[frame: Frame, width: SIMDLength](Copyable):
     var center: Point3[DType.float32, Self.frame, Self.width]
-    var radius: SIMD[DType.float32, Self.width]
+    var radius: SIMD[.float32, Self.width]
     var prim_indices: SIMD[DType.uint32, Self.width]
 
     def __init__(out self):
         self.center = Point3[DType.float32, Self.frame, Self.width](0.0)
-        self.radius = SIMD[DType.float32, Self.width](0.0)
+        self.radius = SIMD[.float32, Self.width](0.0)
         self.prim_indices = SIMD[DType.uint32, Self.width](EMPTY_LANE)
 
 

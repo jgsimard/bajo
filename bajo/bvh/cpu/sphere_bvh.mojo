@@ -30,8 +30,8 @@ def _trace_sphere_leaf_block[
     ray: Rayf32[frame],
     O: Point3[DType.float32, frame, width],
     D: Vec3[.float32, frame, width],
-    ray_a: SIMD[DType.float32, width],
-    ray_inv_a: SIMD[DType.float32, width],
+    ray_a: SIMD[.float32, width],
+    ray_inv_a: SIMD[.float32, width],
     block: SphereLeafBlock[frame, width],
     mut hit: Hit[frame],
 ) -> Bool:
@@ -78,7 +78,7 @@ def _trace_sphere_packet_primitive[
     frame: Frame, length: SIMDLength
 ](
     rays: Ray[.float32, frame, length],
-    active: SIMD[DType.bool, length],
+    active: SIMD[.bool, length],
     ray_a: SIMD[.float32, length],
     ray_inv_a: SIMD[.float32, length],
     prim_idx: UInt32,

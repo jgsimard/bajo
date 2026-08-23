@@ -90,7 +90,7 @@ def trace_packet[
         var dz = SIMD[.float32, length](1.0)
         var t_min = SIMD[.float32, length](0.0)
         var t_max = SIMD[.float32, length](f32_max)
-        var valid = SIMD[DType.bool, length](fill=False)
+        var valid = SIMD[.bool, length](fill=False)
         var lane_count = min(length, len(rays) - base)
         for lane in range(lane_count):
             ref ray = rays[base + lane]

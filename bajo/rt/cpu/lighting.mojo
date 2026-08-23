@@ -38,12 +38,12 @@ from .bsdf import evaluate_bsdf
 struct _DirectLightSample[length: SIMDLength = 1](Copyable):
     """Visible light sample before applying the surface BSDF."""
 
-    var valid: SIMD[DType.bool, Self.length]
+    var valid: SIMD[.bool, Self.length]
     var direction: Vec3[.float32, .WORLD, Self.length]
     var emission: Vec3[.float32, .WORLD, Self.length]
-    var surface_cosine: SIMD[DType.float32, Self.length]
-    var light_pdf: SIMD[DType.float32, Self.length]
-    var shadow_t_max: SIMD[DType.float32, Self.length]
+    var surface_cosine: SIMD[.float32, Self.length]
+    var light_pdf: SIMD[.float32, Self.length]
+    var shadow_t_max: SIMD[.float32, Self.length]
 
 
 @always_inline
@@ -51,7 +51,7 @@ def _empty_direct_light_sample[
     length: SIMDLength = 1
 ]() -> _DirectLightSample[length]:
     return _DirectLightSample[length](
-        SIMD[DType.bool, length](fill=False),
+        SIMD[.bool, length](fill=False),
         Vec3[.float32, .WORLD, length](0.0),
         Vec3[.float32, .WORLD, length](0.0),
         0.0,

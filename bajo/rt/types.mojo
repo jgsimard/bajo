@@ -315,21 +315,21 @@ struct SurfaceHit[length: SIMDLength = 1](Copyable, Writable):
 
     var normal: Vec3[.float32, .WORLD, Self.length]
     var surface: SurfaceId[Self.length]
-    var t: SIMD[DType.float32, Self.length]
-    var front_face: SIMD[DType.bool, Self.length]
-    var hit: SIMD[DType.bool, Self.length]
+    var t: SIMD[.float32, Self.length]
+    var front_face: SIMD[.bool, Self.length]
+    var hit: SIMD[.bool, Self.length]
 
-    def __init__(out self, t_max: SIMD[DType.float32, Self.length]):
+    def __init__(out self, t_max: SIMD[.float32, Self.length]):
         self.normal = Vec3[.float32, .WORLD, Self.length](0.0)
         self.surface = SurfaceId[Self.length](
             SIMD[DType.uint32, Self.length](0)
         )
         self.t = t_max
-        self.front_face = SIMD[DType.bool, Self.length](fill=True)
-        self.hit = SIMD[DType.bool, Self.length](fill=False)
+        self.front_face = SIMD[.bool, Self.length](fill=True)
+        self.hit = SIMD[.bool, Self.length](fill=False)
 
     @staticmethod
-    def miss(t: SIMD[DType.float32, Self.length] = f32_max) -> Self:
+    def miss(t: SIMD[.float32, Self.length] = f32_max) -> Self:
         return Self(t)
 
     @always_inline
@@ -351,7 +351,7 @@ struct SurfaceHit[length: SIMDLength = 1](Copyable, Writable):
 struct ShadingPoint[length: SIMDLength = 1](Copyable, Writable):
     var p: Point3[DType.float32, .WORLD, Self.length]
     var normal: Vec3[.float32, .WORLD, Self.length]
-    var front_face: SIMD[DType.bool, Self.length]
+    var front_face: SIMD[.bool, Self.length]
 
 
 @fieldwise_init
@@ -360,9 +360,9 @@ struct BsdfSample[length: SIMDLength = 1](Copyable, Writable):
 
     var direction: Vec3[.float32, .WORLD, Self.length]
     var weight: Vec3[.float32, .WORLD, Self.length]
-    var pdf: SIMD[DType.float32, Self.length]
-    var delta: SIMD[DType.bool, Self.length]
-    var ok: SIMD[DType.bool, Self.length]
+    var pdf: SIMD[.float32, Self.length]
+    var delta: SIMD[.bool, Self.length]
+    var ok: SIMD[.bool, Self.length]
 
 
 @fieldwise_init
@@ -370,8 +370,8 @@ struct BsdfEvaluation[length: SIMDLength = 1](Copyable, Writable):
     """BSDF value and solid-angle PDF."""
 
     var value: Vec3[.float32, .WORLD, Self.length]
-    var pdf: SIMD[DType.float32, Self.length]
-    var delta: SIMD[DType.bool, Self.length]
+    var pdf: SIMD[.float32, Self.length]
+    var delta: SIMD[.bool, Self.length]
 
 
 struct RenderSettings(Copyable, Writable):

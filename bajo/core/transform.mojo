@@ -14,7 +14,7 @@ struct Affine3InverseResult[
     To: Frame,
     width: SIMDLength,
 ]:
-    var mask: SIMD[DType.bool, Self.width]
+    var mask: SIMD[.bool, Self.width]
     var inv: Affine3[Self.dtype, Self.From, Self.To, Self.width]
 
 

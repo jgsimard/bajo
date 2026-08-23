@@ -6,7 +6,7 @@ from bajo.core import Vec3f32, dot, Frame
 
 struct Rng:
     var _rng: Random[10]
-    var _buffer: SIMD[DType.float32, 4]
+    var _buffer: SIMD[.float32, 4]
     var _consumed: Int
 
     def __init__(out self, seed: UInt64, id: UInt64):

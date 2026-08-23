@@ -76,7 +76,7 @@ struct AxisAlignedBoundingBox[
     def extent(self) -> Vec3[Self.dtype, Self.frame, Self.width]:
         return self.edges()
 
-    def overlaps(self, o: Self) -> SIMD[DType.bool, Self.width]:
+    def overlaps(self, o: Self) -> SIMD[.bool, Self.width]:
         return (
             self._min.x.le(o._max.x)
             & o._min.x.le(self._max.x)
@@ -88,7 +88,7 @@ struct AxisAlignedBoundingBox[
 
     def contains_point(
         self, p: Point3[Self.dtype, Self.frame, Self.width]
-    ) -> SIMD[DType.bool, Self.width]:
+    ) -> SIMD[.bool, Self.width]:
         return (
             self._min.x.le(p.x)
             & p.x.le(self._max.x)

@@ -146,11 +146,11 @@ struct CpuScene[
     ](
         self,
         rays: Ray[.float32, .WORLD, length],
-        valid: SIMD[DType.bool, length] = SIMD[DType.bool, length](fill=True),
-    ) -> SIMD[DType.bool, length]:
+        valid: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
+    ) -> SIMD[.bool, length]:
         """Trace bounded visibility rays together where packet BVHs exist."""
         comptime if length == 1:
-            var result = SIMD[DType.bool, length](fill=False)
+            var result = SIMD[.bool, length](fill=False)
             if not valid[0]:
                 return result
             var ray = Rayf32[.WORLD](
@@ -189,7 +189,7 @@ struct CpuScene[
                     result[0] = True
             return result
         else:
-            var result = SIMD[DType.bool, length](fill=False)
+            var result = SIMD[.bool, length](fill=False)
             if self.sphere_bvh:
                 var hits = trace_blas_set_packet[
                     Self.world_bvh_width,
@@ -269,7 +269,7 @@ struct CpuScene[
     ](
         self,
         rays: Ray[.float32, .WORLD, length],
-        valid: SIMD[DType.bool, length] = SIMD[DType.bool, length](fill=True),
+        valid: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
     ) -> SurfaceHit[length]:
         comptime if length == 1:
             if valid[0]:
@@ -300,7 +300,7 @@ struct CpuScene[
     ](
         self,
         rays: Ray[.float32, .WORLD, length],
-        valid: SIMD[DType.bool, length],
+        valid: SIMD[.bool, length],
     ) -> SurfaceHit[length]:
         """Trace SIMD packets, with scalar TLAS fallback."""
         comptime assert length > 1

@@ -30,7 +30,7 @@ def evaluate_bsdf(
             ray.d,
             hit.normal,
             material.albedo,
-            SIMD[DType.float32, 1](1.0),
+            SIMD[.float32, 1](1.0),
             out_direction,
         )
     if surface.kind() == .METAL:
@@ -39,7 +39,7 @@ def evaluate_bsdf(
             ray.d,
             hit.normal,
             material.albedo,
-            SIMD[DType.float32, 1](material.fuzz),
+            SIMD[.float32, 1](material.fuzz),
             out_direction,
         )
 
@@ -48,7 +48,7 @@ def evaluate_bsdf(
             ray.d,
             hit.normal,
             Color(0.0),
-            SIMD[DType.float32, 1](1.0),
+            SIMD[.float32, 1](1.0),
             out_direction,
         )
 
@@ -57,7 +57,7 @@ def evaluate_bsdf(
             ray.d,
             hit.normal,
             Color(0.0),
-            SIMD[DType.float32, 1](1.0),
+            SIMD[.float32, 1](1.0),
             out_direction,
         )
 
@@ -80,10 +80,10 @@ def sample_bsdf(
             ray.d,
             hit.normal,
             material.albedo,
-            SIMD[DType.float32, 1](1.0),
+            SIMD[.float32, 1](1.0),
             hit.front_face,
-            SIMD[DType.float32, 1](rng.f32()),
-            SIMD[DType.float32, 1](rng.f32()),
+            SIMD[.float32, 1](rng.f32()),
+            SIMD[.float32, 1](rng.f32()),
         )
 
     if surface.kind() == .METAL:
@@ -100,10 +100,10 @@ def sample_bsdf(
             ray.d,
             hit.normal,
             material.albedo,
-            SIMD[DType.float32, 1](material.fuzz),
+            SIMD[.float32, 1](material.fuzz),
             hit.front_face,
-            SIMD[DType.float32, 1](random_u),
-            SIMD[DType.float32, 1](random_v),
+            SIMD[.float32, 1](random_u),
+            SIMD[.float32, 1](random_v),
         )
 
     if surface.kind() == .DIELECTRIC:
@@ -125,10 +125,10 @@ def sample_bsdf(
             ray.d,
             hit.normal,
             Color(0.0),
-            SIMD[DType.float32, 1](material.refraction_index),
+            SIMD[.float32, 1](material.refraction_index),
             hit.front_face,
-            SIMD[DType.float32, 1](random_u),
-            SIMD[DType.float32, 1](0.0),
+            SIMD[.float32, 1](random_u),
+            SIMD[.float32, 1](0.0),
         )
 
     if surface.kind() == .EMISSIVE:

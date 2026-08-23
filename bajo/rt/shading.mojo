@@ -21,7 +21,7 @@ def _evaluate_lambertian[
     return BsdfEvaluation[length](
         albedo * BSDF_INV_PI,
         cosine * BSDF_INV_PI,
-        SIMD[DType.bool, length](fill=False),
+        SIMD[.bool, length](fill=False),
     )
 
 
@@ -77,14 +77,14 @@ def _evaluate_material[
         return BsdfEvaluation[length](
             Vec3[.float32, .WORLD, length](0.0),
             SIMD[.float32, length](0.0),
-            SIMD[DType.bool, length](fill=True),
+            SIMD[.bool, length](fill=True),
         )
     else:
         comptime assert MATERIAL_KIND == .EMISSIVE
         return BsdfEvaluation[length](
             Vec3[.float32, .WORLD, length](0.0),
             SIMD[.float32, length](0.0),
-            SIMD[DType.bool, length](fill=False),
+            SIMD[.bool, length](fill=False),
         )
 
 
@@ -113,8 +113,8 @@ def _sample_lambertian[
         direction,
         albedo,
         evaluation.pdf,
-        SIMD[DType.bool, length](fill=False),
-        SIMD[DType.bool, length](fill=True),
+        SIMD[.bool, length](fill=False),
+        SIMD[.bool, length](fill=True),
     )
 
 
@@ -168,7 +168,7 @@ def _sample_dielectric[
     ray_direction: Vec3[.float32, .WORLD, length],
     normal: Vec3[.float32, .WORLD, length],
     refraction_index: SIMD[.float32, length],
-    front_face: SIMD[DType.bool, length],
+    front_face: SIMD[.bool, length],
     reflect_random: SIMD[.float32, length],
 ) -> BsdfSample[length]:
     var ri = front_face.select(
@@ -193,8 +193,8 @@ def _sample_dielectric[
         direction,
         Vec3[.float32, .WORLD, length](1.0, 1.0, 1.0),
         pdf,
-        SIMD[DType.bool, length](fill=True),
-        SIMD[DType.bool, length](fill=True),
+        SIMD[.bool, length](fill=True),
+        SIMD[.bool, length](fill=True),
     )
 
 
@@ -206,7 +206,7 @@ def _sample_material[
     normal: Vec3[.float32, .WORLD, length],
     albedo: Vec3[.float32, .WORLD, length],
     parameter: SIMD[.float32, length],
-    front_face: SIMD[DType.bool, length],
+    front_face: SIMD[.bool, length],
     random_u: SIMD[.float32, length],
     random_v: SIMD[.float32, length],
 ) -> BsdfSample[length]:

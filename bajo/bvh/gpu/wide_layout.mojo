@@ -487,6 +487,6 @@ def _intersect_wide_node_precomputed[
         bounds_origin,
         rcp_direction,
         block,
-        SIMD[DType.float32, width](t_max),
+        SIMD[.float32, width](t_max),
     )
     return WideNodeIntersection[width](bounds_hit, meta)

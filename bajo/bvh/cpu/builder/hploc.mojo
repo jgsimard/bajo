@@ -44,15 +44,15 @@ struct _HplocEmitTask(TrivialRegisterPassable):
 
 @fieldwise_init
 struct _HplocBoundsPacket[width: SIMDLength](TrivialRegisterPassable):
-    var min_x: SIMD[DType.float32, Self.width]
-    var min_y: SIMD[DType.float32, Self.width]
-    var min_z: SIMD[DType.float32, Self.width]
-    var max_x: SIMD[DType.float32, Self.width]
-    var max_y: SIMD[DType.float32, Self.width]
-    var max_z: SIMD[DType.float32, Self.width]
+    var min_x: SIMD[.float32, Self.width]
+    var min_y: SIMD[.float32, Self.width]
+    var min_z: SIMD[.float32, Self.width]
+    var max_x: SIMD[.float32, Self.width]
+    var max_y: SIMD[.float32, Self.width]
+    var max_z: SIMD[.float32, Self.width]
 
     @always_inline
-    def merged_area(self, rhs: Self) -> SIMD[DType.float32, Self.width]:
+    def merged_area(self, rhs: Self) -> SIMD[.float32, Self.width]:
         var dx = fmax(self.max_x, rhs.max_x) - fmin(self.min_x, rhs.min_x)
         var dy = fmax(self.max_y, rhs.max_y) - fmin(self.min_y, rhs.min_y)
         var dz = fmax(self.max_z, rhs.max_z) - fmin(self.min_z, rhs.min_z)
@@ -386,7 +386,7 @@ def _nearest_neighbors_simd(
         var own = cluster_bounds.load[_HPLOC_SIMD_WIDTH](
             _HPLOC_BOUNDS_PAD + cluster_base
         )
-        var best_areas = SIMD[DType.float32, _HPLOC_SIMD_WIDTH](Float32.MAX)
+        var best_areas = SIMD[.float32, _HPLOC_SIMD_WIDTH](Float32.MAX)
         var best_neighbors = SIMD[DType.int32, _HPLOC_SIMD_WIDTH](-1)
 
         for radius in range(1, search_radius + 1):

@@ -149,7 +149,7 @@ def bitonic_sort_shared[
                             ~sort_dir_vec & less_mask
                         )
 
-                        var is_lower = SIMD[DType.bool, ITEMS_PER_THREAD](
+                        var is_lower = SIMD[.bool, ITEMS_PER_THREAD](
                             fill=(tid & thread_j) == 0
                         )
                         var take_other = should_swap.eq(is_lower)

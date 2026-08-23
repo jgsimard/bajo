@@ -223,9 +223,9 @@ def apply_trs_affine3_v1_width[
     def _add_transformed_axis_width[
         i: Int,
     ](
-        m: SIMD[DType.float32, width],
-        lo: SIMD[DType.float32, width],
-        hi: SIMD[DType.float32, width],
+        m: SIMD[.float32, width],
+        lo: SIMD[.float32, width],
+        hi: SIMD[.float32, width],
     ) {mut}:
         var e = m * lo
         var f = m * hi

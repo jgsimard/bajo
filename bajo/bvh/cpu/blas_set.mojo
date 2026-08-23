@@ -239,15 +239,11 @@ def _pack_triangle_blas[
         leaves.unsafe_store[width=leaf_width](out + 4 * leaf_width, block.e1.x)
         leaves.unsafe_store[width=leaf_width](out + 5 * leaf_width, block.e1.y)
         leaves.unsafe_store[width=leaf_width](out + 6 * leaf_width, block.e1.z)
-        leaves.unsafe_store[width=leaf_width](
-            out + 7 * leaf_width, SIMD[DType.float32, leaf_width](0.0)
-        )
+        leaves.unsafe_store[width=leaf_width](out + 7 * leaf_width, 0.0)
         leaves.unsafe_store[width=leaf_width](out + 8 * leaf_width, block.e2.x)
         leaves.unsafe_store[width=leaf_width](out + 9 * leaf_width, block.e2.y)
         leaves.unsafe_store[width=leaf_width](out + 10 * leaf_width, block.e2.z)
-        leaves.unsafe_store[width=leaf_width](
-            out + 11 * leaf_width, SIMD[DType.float32, leaf_width](0.0)
-        )
+        leaves.unsafe_store[width=leaf_width](out + 11 * leaf_width, 0.0)
 
     BlasDesc(
         UInt32(node_f32_base),
@@ -549,8 +545,8 @@ def _trace_packed_triangle_from_ref[
         ray: Rayf32[frame],
         O: Point3[DType.float32, frame, leaf_width],
         D: Vec3[.float32, frame, leaf_width],
-        _ray_a: SIMD[DType.float32, leaf_width],
-        _ray_inv_a: SIMD[DType.float32, leaf_width],
+        _ray_a: SIMD[.float32, leaf_width],
+        _ray_inv_a: SIMD[.float32, leaf_width],
         leaf_block_idx: UInt32,
         mut hit: Hit[frame],
     ) {imm} -> Bool:
@@ -626,8 +622,8 @@ def trace_blas_set[
         ray: Rayf32[frame],
         O: Point3[DType.float32, frame, leaf_width],
         D: Vec3[.float32, frame, leaf_width],
-        _ray_a: SIMD[DType.float32, leaf_width],
-        _ray_inv_a: SIMD[DType.float32, leaf_width],
+        _ray_a: SIMD[.float32, leaf_width],
+        _ray_inv_a: SIMD[.float32, leaf_width],
         leaf_block_idx: UInt32,
         mut hit: Hit[frame],
     ) {imm} -> Bool:
@@ -663,7 +659,7 @@ def trace_blas_set_packet[
     blases: CpuBlasSet[.TRIANGLE, node_width, leaf_width],
     blas_idx: UInt32,
     rays: Ray[.float32, frame, length],
-    valid: SIMD[DType.bool, length] = SIMD[DType.bool, length](fill=True),
+    valid: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
 ) -> Hit[frame, length]:
     """Trace packed storage through the production CPU packet algorithm."""
     comptime assert length > 1
@@ -683,7 +679,7 @@ def trace_blas_set_packet[
 
     @always_inline
     def leaf_fn(
-        active: SIMD[DType.bool, length],
+        active: SIMD[.bool, length],
         leaf_block_idx: UInt32,
         mut packet_hit: Hit[frame, length],
     ) {imm}:
@@ -758,7 +754,7 @@ def trace_blas_set_packet[
         packet_hit.t[lane] = scalar_hit.t[0]
 
     def hybrid_fn(
-        active: SIMD[DType.bool, length],
+        active: SIMD[.bool, length],
         child_ref: UInt32,
         mut packet_hit: Hit[frame, length],
     ) {imm}:
@@ -826,8 +822,8 @@ def trace_blas_set[
         ray: Rayf32[frame],
         O: Point3[DType.float32, frame, leaf_width],
         D: Vec3[.float32, frame, leaf_width],
-        ray_a: SIMD[DType.float32, leaf_width],
-        ray_inv_a: SIMD[DType.float32, leaf_width],
+        ray_a: SIMD[.float32, leaf_width],
+        ray_inv_a: SIMD[.float32, leaf_width],
         leaf_block_idx: UInt32,
         mut hit: Hit[frame],
     ) {imm} -> Bool:
@@ -864,7 +860,7 @@ def trace_blas_set_packet[
     blases: CpuBlasSet[.SPHERE, node_width, leaf_width],
     blas_idx: UInt32,
     rays: Ray[.float32, frame, length],
-    valid: SIMD[DType.bool, length] = SIMD[DType.bool, length](fill=True),
+    valid: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
 ) -> Hit[frame, length]:
     """Trace packed spheres through the production CPU packet algorithm."""
     comptime assert length > 1
@@ -886,7 +882,7 @@ def trace_blas_set_packet[
     var ray_inv_a = Float32(1.0) / ray_a
 
     def leaf_fn(
-        active: SIMD[DType.bool, length],
+        active: SIMD[.bool, length],
         leaf_block_idx: UInt32,
         mut packet_hit: Hit[frame, length],
     ) {imm}:
@@ -924,7 +920,7 @@ def trace_blas_set_packet[
         hit,
         leaf_fn,
         lambda (
-            _active: SIMD[DType.bool, length],
+            _active: SIMD[.bool, length],
             _child_ref: UInt32,
             mut _packet_hit: Hit[frame, length],
         ): None,

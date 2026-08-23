@@ -282,7 +282,7 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
 
     @staticmethod
     def select(
-        mask: SIMD[DType.bool, Self.width],
+        mask: SIMD[.bool, Self.width],
         if_true: Self,
         if_false: Self,
     ) -> Self:
@@ -292,7 +292,7 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
             mask.select(if_true.z, if_false.z),
         )
 
-    def __eq__(self, rhs: Self) -> SIMD[DType.bool, Self.width]:
+    def __eq__(self, rhs: Self) -> SIMD[.bool, Self.width]:
         return self.x.eq(rhs.x) & self.y.eq(rhs.y) & self.z.eq(rhs.z)
 
     def __rtruediv__(self, lhs: SIMD[Self.dtype, Self.width]) -> Self:
@@ -365,7 +365,7 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
     def is_near_zero(
         self,
         eps: Scalar[Self.dtype] = 1.0e-8,
-    ) -> SIMD[DType.bool, Self.width]:
+    ) -> SIMD[.bool, Self.width]:
         var s = SIMD[Self.dtype, Self.width](eps)
 
         return abs(self.x).lt(s) & abs(self.y).lt(s) & abs(self.z).lt(s)

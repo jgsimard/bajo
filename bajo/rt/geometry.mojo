@@ -13,7 +13,7 @@ struct _OrientedSurfaceNormal[frame: Frame, length: SIMDLength = 1](
     """An outward normal oriented against the incident ray direction."""
 
     var normal: Vec3[.float32, Self.frame, Self.length]
-    var front_face: SIMD[DType.bool, Self.length]
+    var front_face: SIMD[.bool, Self.length]
 
 
 @always_inline

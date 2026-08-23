@@ -107,7 +107,7 @@ def test_hit_load_store_span_with_nonzero_index() raises:
 
 def _test_extract_lane[width: SIMDLength]() raises:
     var u32_values = SIMD[DType.uint32, width](0)
-    var f32_values = SIMD[DType.float32, width](0.0)
+    var f32_values = SIMD[.float32, width](0.0)
     comptime for lane in range(width):
         u32_values[lane] = UInt32(100 + lane)
         f32_values[lane] = Float32(lane) + 0.25
@@ -849,7 +849,7 @@ def _test_triangle_packet_paths_match[length: SIMDLength]() raises:
         Point3[DType.float32, .WORLD, length](ox, oy, 0.0),
         Vec3[.float32, .WORLD, length](0.0, 0.0, 1.0),
     )
-    var valid = SIMD[DType.bool, length](fill=True)
+    var valid = SIMD[.bool, length](fill=True)
     var production = trace_blas_set_packet[16, 16, length, False, .WORLD](
         blases, UInt32(0), packet, valid
     )
@@ -881,7 +881,7 @@ def _check_packed_triangle_packet[
         Point3[DType.float32, .WORLD, length](ox, oy, 0.0),
         Vec3[.float32, .WORLD, length](0.0, 0.0, 1.0),
     )
-    var valid = SIMD[DType.bool, length](fill=True)
+    var valid = SIMD[.bool, length](fill=True)
     valid[length - 1] = False
     var packet = trace_blas_set_packet[16, 16, length, False, .WORLD](
         host, UInt32(0), rays, valid
@@ -929,7 +929,7 @@ def _check_packed_sphere_packet[
         Point3[DType.float32, .WORLD, length](ox, 0.0, 0.0),
         Vec3[.float32, .WORLD, length](0.0, 0.0, 1.0),
     )
-    var valid = SIMD[DType.bool, length](fill=True)
+    var valid = SIMD[.bool, length](fill=True)
     valid[length - 1] = False
     var packet = trace_blas_set_packet[16, 16, length, Frame.WORLD](
         host, UInt32(0), rays, valid
@@ -996,7 +996,7 @@ def _test_coherent_packet_frustum_is_conservative[
         Point3[DType.float32, .WORLD, length](ox, oy, oz),
         Vec3[.float32, .WORLD, length](dx, dy, dz),
     )
-    var valid = SIMD[DType.bool, length](fill=True)
+    var valid = SIMD[.bool, length](fill=True)
     valid[length - 1] = False
     var reciprocal_direction = rays.reciprocal_direction()
     var frustum = _coherent_packet_frustum[

@@ -166,7 +166,7 @@ def _direct_light_scale[
     surface_cosine: SIMD[.float32, length],
     light_pdf: SIMD[.float32, length],
     bsdf_pdf: SIMD[.float32, length],
-    valid: SIMD[DType.bool, length],
+    valid: SIMD[.bool, length],
 ) -> SIMD[.float32, length]:
     comptime assert ALGORITHM in (RENDER.NEE, RENDER.MIS)
     var ok = valid & light_pdf.gt(0.0) & bsdf_pdf.gt(0.0)

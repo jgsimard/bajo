@@ -207,7 +207,7 @@ struct Mat[
 
         return res
 
-    def __eq__(self, other: Self) -> SIMD[DType.bool, Self.width]:
+    def __eq__(self, other: Self) -> SIMD[.bool, Self.width]:
         var mask = self[0][0].eq(other[0][0])
 
         comptime for i in range(Self.rows):
@@ -381,7 +381,7 @@ struct MatInverseResult[
     frame: Frame,
     width: SIMDLength,
 ]:
-    var mask: SIMD[DType.bool, Self.width]
+    var mask: SIMD[.bool, Self.width]
     var value: Mat[Self.dtype, Self.n, Self.n, Self.frame, Self.width]
 
 

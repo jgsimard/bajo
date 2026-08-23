@@ -80,9 +80,9 @@ def test_orient_surface_normal_is_width_generic() raises:
     assert_vec_equal(scalar.normal, Vec3f32[.WORLD](0.0, 0.0, 1.0))
 
     var directions = Vec3[.float32, .WORLD, 2](
-        SIMD[DType.float32, 2](0.0),
-        SIMD[DType.float32, 2](0.0),
-        SIMD[DType.float32, 2](-1.0, 1.0),
+        SIMD[.float32, 2](0.0),
+        SIMD[.float32, 2](0.0),
+        SIMD[.float32, 2](-1.0, 1.0),
     )
     var outward = Vec3[.float32, .WORLD, 2](0.0, 0.0, 1.0)
     var packet = orient_surface_normal(directions, outward)
@@ -121,7 +121,7 @@ def test_surface_id_is_packed() raises:
 
 
 def test_surface_hit_is_width_generic() raises:
-    var hits = SurfaceHit[4](SIMD[DType.float32, 4](100.0))
+    var hits = SurfaceHit[4](SIMD[.float32, 4](100.0))
     hits.normal.x[2] = 1.0
     hits.normal.y[2] = 2.0
     hits.normal.z[2] = 3.0

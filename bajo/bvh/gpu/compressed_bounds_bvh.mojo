@@ -496,12 +496,12 @@ def _intersect_cwbvh8_node_tasks[
         cwbvh_u32[unsafe_offset=base + CWBVH_META_BASE + 1],
     )
 
-    var qlo_x = SIMD[DType.float32, CWBVH_WIDTH](0.0)
-    var qlo_y = SIMD[DType.float32, CWBVH_WIDTH](0.0)
-    var qlo_z = SIMD[DType.float32, CWBVH_WIDTH](0.0)
-    var qhi_x = SIMD[DType.float32, CWBVH_WIDTH](0.0)
-    var qhi_y = SIMD[DType.float32, CWBVH_WIDTH](0.0)
-    var qhi_z = SIMD[DType.float32, CWBVH_WIDTH](0.0)
+    var qlo_x = SIMD[.float32, CWBVH_WIDTH](0.0)
+    var qlo_y = SIMD[.float32, CWBVH_WIDTH](0.0)
+    var qlo_z = SIMD[.float32, CWBVH_WIDTH](0.0)
+    var qhi_x = SIMD[.float32, CWBVH_WIDTH](0.0)
+    var qhi_y = SIMD[.float32, CWBVH_WIDTH](0.0)
+    var qhi_z = SIMD[.float32, CWBVH_WIDTH](0.0)
     comptime for lane in range(CWBVH_WIDTH):
         comptime qgroup = lane / 4
         comptime qshift = UInt32((lane % 4) * 8)
@@ -554,7 +554,7 @@ def _intersect_cwbvh8_node_tasks[
     var tnear = fmax(fmax(tnear_x, tnear_y), fmax(tnear_z, 0.0))
     var tfar = fmin(
         fmin(tfar_x, tfar_y),
-        fmin(tfar_z, SIMD[DType.float32, CWBVH_WIDTH](t_max)),
+        fmin(tfar_z, SIMD[.float32, CWBVH_WIDTH](t_max)),
     )
     var bounds_mask = tnear.le(tfar)
     var hitmask = UInt32(0)

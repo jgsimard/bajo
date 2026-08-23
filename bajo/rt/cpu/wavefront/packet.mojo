@@ -49,12 +49,12 @@ from ..lighting import (
 
 struct ScatterBatch[length: SIMDLength]:
     var paths: PathPacket[Self.length]
-    var ok: SIMD[DType.bool, Self.length]
+    var ok: SIMD[.bool, Self.length]
 
     def __init__(
         out self,
         var paths: PathPacket[Self.length],
-        ok: SIMD[DType.bool, Self.length],
+        ok: SIMD[.bool, Self.length],
     ):
         self.paths = paths^
         self.ok = ok
@@ -71,7 +71,7 @@ struct _DirectLightBatch[length: SIMDLength]:
         self.point = ShadingPoint[Self.length](
             Point3[DType.float32, .WORLD, Self.length](0.0),
             Vec3[.float32, .WORLD, Self.length](0.0),
-            SIMD[DType.bool, Self.length](fill=False),
+            SIMD[.bool, Self.length](fill=False),
         )
         self.surface_kinds = 0
         self.surface_indices = 0
@@ -172,7 +172,7 @@ def _sample_bsdf_batch[
     var parameter = SIMD[.float32, length](1.0)
     var random_u = SIMD[.float32, length](0.0)
     var random_v = SIMD[.float32, length](0.0)
-    var active = SIMD[DType.bool, length](fill=False)
+    var active = SIMD[.bool, length](fill=False)
 
     for lane in range(lane_count):
         active[lane] = True
@@ -249,7 +249,7 @@ def _accumulate_sky_packet[
     pixels: MutSpan[Color, _],
     packet: PathPacket[length],
     lane_count: Int,
-    misses: SIMD[DType.bool, length],
+    misses: SIMD[.bool, length],
     samples_per_pixel: Int,
 ):
     var sky = sky_color(
@@ -332,9 +332,9 @@ def _trace_path_packets[
             var lane_count = min(
                 length, len(active_paths) - packet_idx * length
             )
-            var misses = SIMD[DType.bool, length](fill=False)
+            var misses = SIMD[.bool, length](fill=False)
             var direct_lights = _DirectLightBatch[length]()
-            var valid_lanes = SIMD[DType.bool, length](fill=False)
+            var valid_lanes = SIMD[.bool, length](fill=False)
             for lane in range(lane_count):
                 valid_lanes[lane] = True
             var ray_packet = Ray[.float32, .WORLD, length](

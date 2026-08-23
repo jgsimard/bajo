@@ -19,13 +19,13 @@ from bajo.core import (
 
 def test_select_uses_mask_per_simd_lane() raises:
     var if_true = Vec3[.float32, .WORLD, 4](
-        SIMD[DType.float32, 4](1.0, 2.0, 3.0, 4.0),
-        SIMD[DType.float32, 4](5.0, 6.0, 7.0, 8.0),
-        SIMD[DType.float32, 4](9.0, 10.0, 11.0, 12.0),
+        SIMD[.float32, 4](1.0, 2.0, 3.0, 4.0),
+        SIMD[.float32, 4](5.0, 6.0, 7.0, 8.0),
+        SIMD[.float32, 4](9.0, 10.0, 11.0, 12.0),
     )
     var if_false = Vec3[.float32, .WORLD, 4](-1.0)
     var selected = Vec3.select(
-        SIMD[DType.bool, 4](True, False, True, False), if_true, if_false
+        SIMD[.bool, 4](True, False, True, False), if_true, if_false
     )
 
     assert_almost_equal(selected.x[0], 1.0)

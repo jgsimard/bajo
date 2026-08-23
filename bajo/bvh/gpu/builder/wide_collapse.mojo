@@ -497,7 +497,7 @@ def hploc_literature_to_wide_kernel[
         comptime if spatial_slots:
             var candidate_assigned_mask = UInt32(0)
             var occupied_slot_mask = UInt32(0)
-            var candidate_centers = Array[SIMD[DType.float32, 4], node_width](
+            var candidate_centers = Array[SIMD[.float32, 4], node_width](
                 uninitialized=True
             )
             var parent_center = _encoded_bounds(
@@ -513,7 +513,7 @@ def hploc_literature_to_wide_kernel[
                     leaf_ids_span,
                     node_bounds_span,
                 ).centroid()
-                candidate_centers[candidate_pos] = SIMD[DType.float32, 4](
+                candidate_centers[candidate_pos] = SIMD[.float32, 4](
                     center.x, center.y, center.z, 0.0
                 )
             for _ in range(child_count):

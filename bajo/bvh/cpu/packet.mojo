@@ -36,7 +36,7 @@ def _coherent_packet_frustum[
     positive_z: Bool,
 ](
     rays: Ray[.float32, frame, length],
-    valid: SIMD[DType.bool, length],
+    valid: SIMD[.bool, length],
     reciprocal_direction: Vec3[.float32, frame, length],
 ) -> CoherentPacketFrustum[frame]:
     var positive_fill = SIMD[.float32, length](f32_max)
@@ -102,7 +102,7 @@ def _intersect_coherent_packet_frustum[
     bounds_max: Point3[DType.float32, frame, bounds_width],
     frustum: CoherentPacketFrustum[frame],
     max_dist: Float32,
-) -> SIMD[DType.bool, bounds_width]:
+) -> SIMD[.bool, bounds_width]:
     var near_x = bounds_min.x
     var far_x = bounds_max.x
     var near_y = bounds_min.y
@@ -169,12 +169,12 @@ def trace_packet_stack_bounds_bvh[
     bounds_width: SIMDLength,
     length: SIMDLength,
     LeafFn: def(
-        SIMD[DType.bool, length],
+        SIMD[.bool, length],
         UInt32,
         mut Hit[frame, length],
     ),
     HybridFn: def(
-        SIMD[DType.bool, length],
+        SIMD[.bool, length],
         UInt32,
         mut Hit[frame, length],
     ),
@@ -192,7 +192,7 @@ def trace_packet_stack_bounds_bvh[
 ](
     nodes: ImmSpan[WideBvhNode[frame, bounds_width], _],
     rays: Ray[.float32, frame, length],
-    valid: SIMD[DType.bool, length],
+    valid: SIMD[.bool, length],
     mut hit: Hit[frame, length],
     ref leaf_fn: LeafFn,
     ref hybrid_fn: HybridFn,
@@ -229,7 +229,7 @@ def trace_packet_stack_bounds_bvh[
             rays.t_max, SIMD[.float32, length](f32_min)
         ).reduce_max()
     var stack_refs = Array[UInt32, CPU_PACKET_STACK_SIZE](uninitialized=True)
-    var stack_masks = Array[SIMD[DType.bool, length], CPU_PACKET_STACK_SIZE](
+    var stack_masks = Array[SIMD[.bool, length], CPU_PACKET_STACK_SIZE](
         uninitialized=True
     )
     var stack_priorities = Array[Float32, CPU_PACKET_STACK_SIZE](
@@ -243,7 +243,7 @@ def trace_packet_stack_bounds_bvh[
     @always_inline
     def push_task(
         child_ref: UInt32,
-        child_mask: SIMD[DType.bool, length],
+        child_mask: SIMD[.bool, length],
         child_near: SIMD[.float32, length],
     ) {
         imm,
@@ -380,7 +380,7 @@ def trace_packet_stack_bounds_bvh[
                 var data = node.data[child_lane]
                 if data != EMPTY_LANE:
                     var next_ref = _cpu_traversal_ref[packed_meta](data)
-                    var bounds_mask: SIMD[DType.bool, length]
+                    var bounds_mask: SIMD[.bool, length]
                     var bounds_t: SIMD[.float32, length]
                     comptime if common_octant_fma:
                         var near_x = node.aabb._min.x[child_lane]

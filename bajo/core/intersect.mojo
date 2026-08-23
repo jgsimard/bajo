@@ -22,7 +22,7 @@ from bajo.core.frame import Frame
 struct RayTriHit[dtype: DType, width: SIMDLength](
     TrivialRegisterPassable, Writable
 ):
-    var mask: SIMD[DType.bool, Self.width]
+    var mask: SIMD[.bool, Self.width]
     var t: SIMD[Self.dtype, Self.width]
     var u: SIMD[Self.dtype, Self.width]
     var v: SIMD[Self.dtype, Self.width]
@@ -38,7 +38,7 @@ struct RayTriScaledHit[dtype: DType, width: SIMDLength](
     lanes can be tested against abs_det without calculating a reciprocal.
     """
 
-    var mask: SIMD[DType.bool, Self.width]
+    var mask: SIMD[.bool, Self.width]
     var abs_det: SIMD[Self.dtype, Self.width]
     var t_scaled: SIMD[Self.dtype, Self.width]
     var u_scaled: SIMD[Self.dtype, Self.width]
@@ -49,11 +49,11 @@ struct RayTriScaledHit[dtype: DType, width: SIMDLength](
 struct RayDistanceHit[dtype: DType, width: SIMDLength](TrivialRegisterPassable):
     """RayDistanceHit.
 
-    - mask: SIMD[DType.bool, Self.width]
+    - mask: SIMD[.bool, Self.width]
     - t   : SIMD[Self.dtype, Self.width]
     """
 
-    var mask: SIMD[DType.bool, Self.width]
+    var mask: SIMD[.bool, Self.width]
     var t: SIMD[Self.dtype, Self.width]
 
 
@@ -295,7 +295,7 @@ def intersect_aabb_aabb[
     a_upper: Vec3[dtype, frame, width],
     b_lower: Vec3[dtype, frame, width],
     b_upper: Vec3[dtype, frame, width],
-) -> SIMD[DType.bool, width]:
+) -> SIMD[.bool, width]:
     return (
         a_lower.x.le(b_upper.x)
         & a_lower.y.le(b_upper.y)

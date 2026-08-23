@@ -61,9 +61,9 @@ def expand_bits_3d[
 def morton3[
     size: SIMDLength, dim: UInt32 = 1024
 ](
-    x: SIMD[DType.float32, size],
-    y: SIMD[DType.float32, size],
-    z: SIMD[DType.float32, size],
+    x: SIMD[.float32, size],
+    y: SIMD[.float32, size],
+    z: SIMD[.float32, size],
 ) -> SIMD[DType.uint32, size]:
     """Takes values in the range [0, 1] and assigns an index based Morton codes of length 3*log_base2(dim) bits.
     """
@@ -74,7 +74,7 @@ def morton3[
 
     comptime dimf = Float32(dim)
     comptime if size == 1:
-        var v = SIMD[DType.float32, 4](x[0], y[0], z[0], 0)
+        var v = SIMD[.float32, 4](x[0], y[0], z[0], 0)
         var u = clamp((v * dimf).cast[DType.uint32](), 0, dim - 1)
         var ex = expand_bits_3d(u)
         return (ex[2] << 2) | (ex[1] << 1) | ex[0]

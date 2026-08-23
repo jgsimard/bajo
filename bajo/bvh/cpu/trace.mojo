@@ -30,7 +30,7 @@ from bajo.bvh.wide_meta import _wide_meta_count, _wide_meta_data
 def _pack_pending_task(child_ref: UInt32, child_t: Float32) -> UInt64:
     # AABB entry distances are non-negative, so their Float32 bit patterns
     # preserve numeric ordering when placed in the high half of the task.
-    var t_bits = bitcast[DType.uint32, 1](SIMD[DType.float32, 1](child_t))[0]
+    var t_bits = bitcast[DType.uint32, 1](SIMD[.float32, 1](child_t))[0]
     return (UInt64(t_bits) << 32) | UInt64(child_ref)
 
 
@@ -71,7 +71,7 @@ def _extract_u32_lane[
         var floats = bitcast[DType.float32, width](values)
         var permuted = llvm_intrinsic[
             "llvm.x86.avx.vpermilvar.ps",
-            SIMD[DType.float32, width],
+            SIMD[.float32, width],
             has_side_effect=False,
         ](floats, indices)
         return bitcast[DType.uint32, width](permuted)[0]
@@ -86,7 +86,7 @@ def _extract_u32_lane[
 @always_inline
 def _extract_f32_lane[
     width: SIMDLength
-](values: SIMD[DType.float32, width], lane: Int) -> Float32:
+](values: SIMD[.float32, width], lane: Int) -> Float32:
     var bits = bitcast[DType.uint32, width](values)
     var extracted = _extract_u32_lane(bits, lane)
     return bitcast[DType.float32, 1](SIMD[DType.uint32, 1](extracted))[0]
@@ -117,8 +117,8 @@ def _trace_bounds_bvh_impl[
         Rayf32[frame],
         Point3[DType.float32, frame, leaf_width],
         Vec3[.float32, frame, leaf_width],
-        SIMD[DType.float32, leaf_width],
-        SIMD[DType.float32, leaf_width],
+        SIMD[.float32, leaf_width],
+        SIMD[.float32, leaf_width],
         UInt32,
         mut Hit[frame],
     ) -> Bool,
@@ -128,8 +128,8 @@ def _trace_bounds_bvh_impl[
 ](
     nodes: ImmSpan[WideBvhNode[frame, bounds_width], _],
     ray: Rayf32[frame],
-    ray_a: SIMD[DType.float32, leaf_width],
-    ray_inv_a: SIMD[DType.float32, leaf_width],
+    ray_a: SIMD[.float32, leaf_width],
+    ray_inv_a: SIMD[.float32, leaf_width],
     initial_ref: UInt32,
     initial_hit: Hit[frame],
     ref leaf_fn: LeafFn,
@@ -445,8 +445,8 @@ def _trace_bounds_bvh_octant[
         Rayf32[frame],
         Point3[DType.float32, frame, leaf_width],
         Vec3[.float32, frame, leaf_width],
-        SIMD[DType.float32, leaf_width],
-        SIMD[DType.float32, leaf_width],
+        SIMD[.float32, leaf_width],
+        SIMD[.float32, leaf_width],
         UInt32,
         mut Hit[frame],
     ) -> Bool,
@@ -456,8 +456,8 @@ def _trace_bounds_bvh_octant[
 ](
     nodes: ImmSpan[WideBvhNode[frame, bounds_width], _],
     ray: Rayf32[frame],
-    ray_a: SIMD[DType.float32, leaf_width],
-    ray_inv_a: SIMD[DType.float32, leaf_width],
+    ray_a: SIMD[.float32, leaf_width],
+    ray_inv_a: SIMD[.float32, leaf_width],
     initial_ref: UInt32,
     initial_hit: Hit[frame],
     ref leaf_fn: LeafFn,
@@ -533,8 +533,8 @@ def trace_bounds_bvh[
         Rayf32[frame],
         Point3[DType.float32, frame, leaf_width],
         Vec3[.float32, frame, leaf_width],
-        SIMD[DType.float32, leaf_width],
-        SIMD[DType.float32, leaf_width],
+        SIMD[.float32, leaf_width],
+        SIMD[.float32, leaf_width],
         UInt32,
         mut Hit[frame],
     ) -> Bool,
@@ -543,7 +543,7 @@ def trace_bounds_bvh[
     ray: Rayf32[frame],
     ref leaf_fn: LeafFn,
 ) -> Hit[frame]:
-    var zero = SIMD[DType.float32, leaf_width](0.0)
+    var zero = SIMD[.float32, leaf_width](0.0)
     return _trace_bounds_bvh_octant[
         frame=frame,
         bounds_width=bounds_width,
@@ -570,8 +570,8 @@ def trace_packed_bounds_bvh[
         Rayf32[frame],
         Point3[DType.float32, frame, leaf_width],
         Vec3[.float32, frame, leaf_width],
-        SIMD[DType.float32, leaf_width],
-        SIMD[DType.float32, leaf_width],
+        SIMD[.float32, leaf_width],
+        SIMD[.float32, leaf_width],
         UInt32,
         mut Hit[frame],
     ) -> Bool,
@@ -582,7 +582,7 @@ def trace_packed_bounds_bvh[
 ) -> Hit[frame]:
     """Run the proven CPU traversal directly over common packed node bytes."""
 
-    var zero = SIMD[DType.float32, leaf_width](0.0)
+    var zero = SIMD[.float32, leaf_width](0.0)
     return _trace_bounds_bvh_octant[
         frame=frame,
         bounds_width=bounds_width,
@@ -609,8 +609,8 @@ def trace_bounds_bvh_from_ref[
         Rayf32[frame],
         Point3[DType.float32, frame, leaf_width],
         Vec3[.float32, frame, leaf_width],
-        SIMD[DType.float32, leaf_width],
-        SIMD[DType.float32, leaf_width],
+        SIMD[.float32, leaf_width],
+        SIMD[.float32, leaf_width],
         UInt32,
         mut Hit[frame],
     ) -> Bool,
@@ -626,7 +626,7 @@ def trace_bounds_bvh_from_ref[
 ) -> Hit[frame]:
     """Continue closest-hit traversal at one tagged subtree reference."""
 
-    var zero = SIMD[DType.float32, leaf_width](0.0)
+    var zero = SIMD[.float32, leaf_width](0.0)
     return _trace_bounds_bvh_octant[
         frame=frame,
         bounds_width=bounds_width,
@@ -656,8 +656,8 @@ def trace_bounds_bvh_leaf_rcp[
         Rayf32[frame],
         Point3[DType.float32, frame, leaf_width],
         Vec3[.float32, frame, leaf_width],
-        SIMD[DType.float32, leaf_width],
-        SIMD[DType.float32, leaf_width],
+        SIMD[.float32, leaf_width],
+        SIMD[.float32, leaf_width],
         UInt32,
         mut Hit[frame],
     ) -> Bool,
@@ -668,7 +668,7 @@ def trace_bounds_bvh_leaf_rcp[
 ) -> Hit[frame]:
     """Trace with reciprocal ray direction in the leaf direction argument."""
 
-    var zero = SIMD[DType.float32, leaf_width](0.0)
+    var zero = SIMD[.float32, leaf_width](0.0)
     return _trace_bounds_bvh_octant[
         frame=frame,
         bounds_width=bounds_width,
@@ -695,8 +695,8 @@ def trace_packed_sphere_bounds_bvh[
         Rayf32[frame],
         Point3[DType.float32, frame, leaf_width],
         Vec3[.float32, frame, leaf_width],
-        SIMD[DType.float32, leaf_width],
-        SIMD[DType.float32, leaf_width],
+        SIMD[.float32, leaf_width],
+        SIMD[.float32, leaf_width],
         UInt32,
         mut Hit[frame],
     ) -> Bool,

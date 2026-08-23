@@ -83,7 +83,7 @@ struct Quaternion[dtype: DType, frame: Frame, width: SIMDLength = 1](
     def inverse(self) -> Self:
         return self.conjugate() * (1.0 / length2(self))
 
-    def __eq__(self, rhs: Self) -> SIMD[DType.bool, Self.width]:
+    def __eq__(self, rhs: Self) -> SIMD[.bool, Self.width]:
         return (
             self.x.eq(rhs.x)
             & self.y.eq(rhs.y)

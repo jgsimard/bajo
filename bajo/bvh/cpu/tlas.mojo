@@ -180,14 +180,14 @@ struct Tlas[
             ray: Rayf32[.WORLD],
             O: Point3[DType.float32, .WORLD, Self.leaf_width],
             D: Vec3[.float32, .WORLD, Self.leaf_width],
-            _ray_a: SIMD[DType.float32, Self.leaf_width],
-            _ray_inv_a: SIMD[DType.float32, Self.leaf_width],
+            _ray_a: SIMD[.float32, Self.leaf_width],
+            _ray_inv_a: SIMD[.float32, Self.leaf_width],
             leaf_block_idx: UInt32,
             mut hit: Hit[.WORLD],
         ) {imm} -> Bool:
             ref block = self.leaf_blocks.unsafe_get(Int(leaf_block_idx))
             var candidate_mask = block.inst_indices.ne(EMPTY_LANE)
-            var candidate_t = SIMD[DType.float32, Self.leaf_width](0.0)
+            var candidate_t = SIMD[.float32, Self.leaf_width](0.0)
             comptime if Self.leaf_width > 1:
                 var bounds_hit = intersect_ray_aabb_rcp(
                     O, D, block.bounds, hit.t

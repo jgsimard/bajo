@@ -3,9 +3,8 @@
 from std.math import ceildiv
 from max.gpu.host import DeviceBuffer, DeviceContext
 
-from bajo.bvh.gpu import GpuBvhLayout
 from bajo.rt.types import Integrator
-from bajo.rt.gpu.policy import GpuRtSceneKind
+from bajo.rt.gpu.config import GpuRtBvhFormat, GpuRtSceneKind
 from bajo.rt.gpu.common_kernels import GPU_RT_BLOCK_SIZE, GPU_RT_MAX_BLOCKS
 from bajo.rt.gpu.path_shading import GpuRtMaterials, _enqueue_material_shading
 from bajo.rt.gpu.scene_trace import (
@@ -20,18 +19,12 @@ from bajo.rt.gpu.wavefront_contract import GpuWavefrontArena
 def enqueue_gpu_rt_bounce[
     integrator: Integrator,
     scene_kind: GpuRtSceneKind,
-    sphere_node_width: SIMDLength,
-    sphere_leaf_width: SIMDLength,
-    triangle_node_width: SIMDLength,
-    triangle_leaf_width: SIMDLength,
-    tlas_node_width: SIMDLength,
-    tlas_leaf_width: SIMDLength,
-    blas_node_width: SIMDLength,
-    blas_leaf_width: SIMDLength,
+    sphere_format: GpuRtBvhFormat,
+    triangle_format: GpuRtBvhFormat,
+    tlas_format: GpuRtBvhFormat,
+    blas_format: GpuRtBvhFormat,
     MAX_BLOCKS: Int = GPU_RT_MAX_BLOCKS,
     SHADOW_MAX_BLOCKS: Int = MAX_BLOCKS,
-    triangle_layout: GpuBvhLayout = .WIDE,
-    blas_layout: GpuBvhLayout = .WIDE,
 ](
     ctx: DeviceContext,
     arena: GpuWavefrontArena,
@@ -57,16 +50,10 @@ def enqueue_gpu_rt_bounce[
         gpu_rt_scene_trace_kernel[
             integrator,
             scene_kind,
-            sphere_node_width,
-            sphere_leaf_width,
-            triangle_node_width,
-            triangle_leaf_width,
-            tlas_node_width,
-            tlas_leaf_width,
-            blas_node_width,
-            blas_leaf_width,
-            triangle_layout,
-            blas_layout,
+            sphere_format,
+            triangle_format,
+            tlas_format,
+            blas_format,
         ]
     ](
         scene,
@@ -79,17 +66,11 @@ def enqueue_gpu_rt_bounce[
     enqueue_gpu_shadows[
         integrator,
         scene_kind,
-        sphere_node_width,
-        sphere_leaf_width,
-        triangle_node_width,
-        triangle_leaf_width,
-        tlas_node_width,
-        tlas_leaf_width,
-        blas_node_width,
-        blas_leaf_width,
+        sphere_format,
+        triangle_format,
+        tlas_format,
+        blas_format,
         SHADOW_MAX_BLOCKS,
-        triangle_layout,
-        blas_layout,
     ](ctx, scene, queues, arena.capacity)
     comptime if integrator in (Integrator.PATH, Integrator.NEE, Integrator.MIS):
         _enqueue_material_shading[integrator, MAX_BLOCKS](

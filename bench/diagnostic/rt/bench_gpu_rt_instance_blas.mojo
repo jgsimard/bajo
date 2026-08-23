@@ -19,7 +19,7 @@ from bajo.rt import (
     SceneBuilder,
     CpuScene,
 )
-from bajo.rt.gpu.policy import (
+from bajo.rt.gpu.config import (
     GpuRtBvhFormat,
     GPU_RT_BVH_CWBVH8,
     GPU_RT_BVH_WIDE4,

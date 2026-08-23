@@ -1,11 +1,10 @@
 from .resources import (
-    GPU_RT_DEFAULT_PATH_CAPACITY,
     GpuRtRenderTarget,
     download_gpu_pixels,
     update_gpu_camera,
 )
 from .scene import GpuRtScene, prepare_gpu_scene
-from .policy import (
+from .config import (
     GpuRtSceneKind,
     GpuRtBvhFormat,
     GPU_RT_BVH_WIDE4,

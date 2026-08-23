@@ -8,7 +8,7 @@ from max.gpu.host import DeviceContext
 from bajo.bvh.gpu import GpuBvhLayout
 from bajo.core.utils import ns_to_ms
 from bajo.rt import RenderSettings, CpuScene
-from bajo.rt.gpu.policy import GpuRtBvhFormat
+from bajo.rt.gpu.config import GpuRtBvhFormat
 from bajo.rt.gpu.resources import GpuRtRenderTarget
 from bajo.rt.gpu.scene import prepare_gpu_scene
 from bajo.benchmark.gpu_harness import (

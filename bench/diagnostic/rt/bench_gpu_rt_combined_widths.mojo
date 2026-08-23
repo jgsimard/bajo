@@ -18,7 +18,7 @@ from bajo.rt import (
     SceneBuilder,
     CpuScene,
 )
-from bajo.rt.gpu.policy import GpuRtBvhFormat
+from bajo.rt.gpu.config import GpuRtBvhFormat
 from bajo.rt.gpu.render import enqueue_render_gpu
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
 from bajo.rt.gpu.scene import GpuRtScene, prepare_gpu_scene

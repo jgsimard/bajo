@@ -21,7 +21,7 @@ from bajo.rt.gpu.wavefront_contract import (
 )
 
 
-comptime GPU_RT_DEFAULT_PATH_CAPACITY = 262144
+comptime _GPU_RT_DEFAULT_PATH_CAPACITY = 262144
 
 
 def upload_surface_ids[
@@ -76,7 +76,7 @@ struct GpuRtRenderTarget:
             "GPU RT compact path IDs support at most 2^31-1 samples",
         )
         var requested_capacity = (
-            path_capacity if path_capacity > 0 else GPU_RT_DEFAULT_PATH_CAPACITY
+            path_capacity if path_capacity > 0 else _GPU_RT_DEFAULT_PATH_CAPACITY
         )
         var arena_capacity = min(requested_capacity, self.sample_count)
         arena_capacity = (
@@ -115,7 +115,7 @@ def update_gpu_camera(
             mapped[i] = value
 
 
-def enqueue_gpu_primary[
+def _enqueue_gpu_primary[
     integrator: Integrator,
 ](
     ctx: DeviceContext,
@@ -155,7 +155,7 @@ def enqueue_gpu_primary[
     )
 
 
-def enqueue_gpu_resolve(
+def _enqueue_gpu_resolve(
     ctx: DeviceContext,
     target: GpuRtRenderTarget,
     sample_begin: Int = 0,
@@ -213,7 +213,7 @@ def enqueue_gpu_wavefront[
         var chunk_sample_count = min(
             target.arena.capacity, target.sample_count - sample_begin
         )
-        enqueue_gpu_primary[integrator](
+        _enqueue_gpu_primary[integrator](
             ctx, target, settings, sample_begin, chunk_sample_count
         )
         comptime if integrator in (Integrator.NORMALS, Integrator.AO):
@@ -256,7 +256,7 @@ def enqueue_gpu_wavefront[
                         UInt32(bounce),
                     )
                 enqueue_wavefront_advance(ctx, target.arena)
-        enqueue_gpu_resolve(ctx, target, sample_begin, chunk_sample_count)
+        _enqueue_gpu_resolve(ctx, target, sample_begin, chunk_sample_count)
         sample_begin += chunk_sample_count
 
 

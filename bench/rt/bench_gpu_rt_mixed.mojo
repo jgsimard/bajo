@@ -8,7 +8,7 @@ from max.gpu.host import DeviceContext
 from bajo.core import Point3f32, Vec3f32
 from bajo.core.utils import ns_to_ms
 from bajo.rt import Camera, Integrator, RenderSettings
-from bajo.rt.gpu.policy import GpuRtBvhFormat
+from bajo.rt.gpu.config import GpuRtBvhFormat
 from bajo.rt.gpu.scene import GpuRtScene, prepare_gpu_scene
 from bajo.rt.gpu.render import enqueue_render_gpu
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels

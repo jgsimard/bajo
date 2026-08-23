@@ -19,7 +19,7 @@ from bajo.rt import (
     CpuScene,
 )
 from bajo.rt.gpu.common_kernels import GPU_RT_MAX_BLOCKS
-from bajo.rt.gpu.policy import GpuRtBvhFormat
+from bajo.rt.gpu.config import GpuRtBvhFormat
 from bajo.rt.gpu.resources import GpuRtRenderTarget
 from bajo.rt.gpu.scene import prepare_gpu_scene
 from bajo.benchmark.gpu_harness import (

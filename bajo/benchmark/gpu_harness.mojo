@@ -17,7 +17,7 @@ from bajo.rt import (
 )
 from bajo.rt.gpu.common_kernels import GPU_RT_MAX_BLOCKS
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
-from bajo.rt.gpu.policy import GpuRtBvhFormat, GPU_RT_BVH_WIDE4
+from bajo.rt.gpu.config import GpuRtBvhFormat, GPU_RT_BVH_WIDE4
 from bajo.rt.gpu.scene import GpuRtScene
 from bajo.rt.gpu.render import enqueue_render_gpu
 from .timing import summarize_timings

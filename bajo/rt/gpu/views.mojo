@@ -63,20 +63,6 @@ struct GpuRtInstanceView(TrivialRegisterPassable):
 
 
 @fieldwise_init
-struct GpuRtShadingView:
-    """Host-side inputs for material and direct-light tables."""
-
-    var emissives: Pointer[Float32, ImmUntrackedOrigin]
-    var lambertians: Pointer[Float32, ImmUntrackedOrigin]
-    var metals: Pointer[Float32, ImmUntrackedOrigin]
-    var dielectrics: Pointer[Float32, ImmUntrackedOrigin]
-    var light_kinds: Pointer[UInt32, ImmUntrackedOrigin]
-    var light_fields: Pointer[Float32, ImmUntrackedOrigin]
-    var light_count: Int32
-    var total_light_weight: Float32
-
-
-@fieldwise_init
 struct GpuRtSceneView(Copyable, DevicePassable):
     """Non-owning optional geometry views and shared shading data.
 
@@ -107,29 +93,6 @@ struct GpuRtSceneView(Copyable, DevicePassable):
     @staticmethod
     def get_type_name() -> String:
         return "GpuRtSceneView"
-
-
-@always_inline
-def gpu_rt_scene_view(
-    spheres: Optional[GpuRtSphereView],
-    triangles: Optional[GpuRtTriangleView],
-    instances: Optional[GpuRtInstanceView],
-    shading: GpuRtShadingView,
-) -> GpuRtSceneView:
-    """Combine host-side component views into the device scene ABI."""
-    return GpuRtSceneView(
-        spheres,
-        triangles,
-        instances,
-        shading.emissives,
-        shading.lambertians,
-        shading.metals,
-        shading.dielectrics,
-        shading.light_kinds,
-        shading.light_fields,
-        shading.light_count,
-        shading.total_light_weight,
-    )
 
 
 @fieldwise_init

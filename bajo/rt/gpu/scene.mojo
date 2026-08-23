@@ -15,8 +15,8 @@ from bajo.bvh.gpu import (
 from bajo.bvh.gpu.utils import upload_list
 from bajo.core import Point3f32
 from bajo.rt.geometry import sphere_for_acceleration
-from bajo.rt.gpu.path_shading import GpuRtShadingResources
-from bajo.rt.gpu.policy import (
+from bajo.rt.gpu.path_shading import GpuRtLights, GpuRtMaterials
+from bajo.rt.gpu.config import (
     GpuRtBvhFormat,
     GpuRtSceneKind,
     GPU_RT_BVH_CWBVH8,
@@ -30,7 +30,6 @@ from bajo.rt.gpu.views import (
     GpuRtSphereView,
     GpuRtTriangleView,
     _immut,
-    gpu_rt_scene_view,
 )
 from bajo.rt.types import SceneData
 
@@ -74,7 +73,8 @@ struct GpuRtScene[
         Self.blas_format.layout,
     ]]
     var _instance_surfaces: Optional[DeviceBuffer[.uint32]]
-    var shading: GpuRtShadingResources
+    var materials: GpuRtMaterials
+    var lights: GpuRtLights
 
     def view(self) -> GpuRtSceneView:
         """Borrow the selected owner fields through the common device ABI."""
@@ -127,8 +127,18 @@ struct GpuRtScene[
                 )
             )
 
-        return gpu_rt_scene_view(
-            spheres^, triangles^, instances^, self.shading.view()
+        return GpuRtSceneView(
+            spheres^,
+            triangles^,
+            instances^,
+            _immut(self.materials.emissives),
+            _immut(self.materials.lambertians),
+            _immut(self.materials.metals),
+            _immut(self.materials.dielectrics),
+            _immut(self.lights.kinds),
+            _immut(self.lights.fields),
+            Int32(self.lights.count),
+            self.lights.total_weight,
         )
 
 
@@ -244,7 +254,8 @@ def prepare_gpu_scene[
             upload_surface_ids(ctx, data.triangle_instance_surfaces())
         )
 
-    var shading = GpuRtShadingResources(ctx, data)
+    var materials = GpuRtMaterials(ctx, data)
+    var lights = GpuRtLights(ctx, data)
     return GpuRtScene[
         kind, sphere_format, triangle_format, tlas_format, blas_format
     ](
@@ -256,5 +267,6 @@ def prepare_gpu_scene[
         instance_blases^,
         tlas^,
         instance_surfaces^,
-        shading^,
+        materials^,
+        lights^,
     )

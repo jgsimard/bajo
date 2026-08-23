@@ -7,7 +7,7 @@ from bajo.bvh import Camera
 from bajo.bvh.gpu import GpuBvhBuildMethod
 from bajo.rt.gpu.bounce import enqueue_gpu_rt_bounce
 from bajo.rt.gpu.common_kernels import GPU_RT_MAX_BLOCKS
-from bajo.rt.gpu.policy import (
+from bajo.rt.gpu.config import (
     GpuRtBvhFormat,
     GpuRtSceneKind,
     GPU_RT_BVH_CWBVH8,
@@ -78,23 +78,17 @@ def _enqueue_scene_bounce[
     enqueue_gpu_rt_bounce[
         integrator,
         kind,
-        sphere_format.node_width,
-        sphere_format.leaf_width,
-        triangle_format.node_width,
-        triangle_format.leaf_width,
-        tlas_format.node_width,
-        tlas_format.leaf_width,
-        blas_format.node_width,
-        blas_format.leaf_width,
+        sphere_format,
+        triangle_format,
+        tlas_format,
+        blas_format,
         MAX_BLOCKS,
         SHADOW_MAX_BLOCKS,
-        triangle_format.layout,
-        blas_format.layout,
     ](
         ctx,
         arena,
         world.view(),
-        world.shading.materials,
+        world.materials,
         src_path_ids,
         src_path_fields,
         dst_path_ids,

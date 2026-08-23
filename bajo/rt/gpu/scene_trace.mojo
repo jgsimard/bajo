@@ -5,7 +5,6 @@ from std.math import ceildiv
 from max.gpu.host import DeviceContext
 
 from bajo.bvh import Hit
-from bajo.bvh.gpu import GpuBvhLayout
 from bajo.bvh.gpu.sphere_bvh import _intersect_sphere_leaf
 from bajo.bvh.gpu.tlas import _trace_tlas_ray
 from bajo.bvh.gpu.trace import trace_bounds_bvh
@@ -17,7 +16,7 @@ from bajo.core import GeoKind, Point3f32, Rayf32, Vec3f32
 from bajo.rt.common import sky_color
 from bajo.rt.geometry import orient_surface_normal
 from bajo.rt.types import Color, Integrator
-from bajo.rt.gpu.policy import GpuRtSceneKind
+from bajo.rt.gpu.config import GpuRtBvhFormat, GpuRtSceneKind
 from bajo.rt.wavefront_contract import (
     DeviceWaveShadow,
     WAVE_COUNTER,
@@ -42,16 +41,10 @@ from bajo.rt.gpu.views import GpuRtSceneView, GpuRtTraceQueueView
 def _gpu_rt_scene_trace_one[
     integrator: Integrator,
     scene_kind: GpuRtSceneKind,
-    node_width: SIMDLength,
-    leaf_width: SIMDLength,
-    triangle_node_width: SIMDLength,
-    triangle_leaf_width: SIMDLength,
-    tlas_node_width: SIMDLength,
-    tlas_leaf_width: SIMDLength,
-    blas_node_width: SIMDLength,
-    blas_leaf_width: SIMDLength,
-    triangle_layout: GpuBvhLayout,
-    blas_layout: GpuBvhLayout,
+    sphere_format: GpuRtBvhFormat,
+    triangle_format: GpuRtBvhFormat,
+    tlas_format: GpuRtBvhFormat,
+    blas_format: GpuRtBvhFormat,
 ](
     idx: Int,
     scene: GpuRtSceneView,
@@ -122,10 +115,12 @@ def _gpu_rt_scene_trace_one[
         ]()
         var sphere_hit = trace_bounds_bvh[
             .WORLD,
-            node_width,
+            sphere_format.node_width,
             .CLOSEST_HIT,
-            _intersect_sphere_leaf[.WORLD, leaf_width, .CLOSEST_HIT],
-            node_width == 2,
+            _intersect_sphere_leaf[
+                .WORLD, sphere_format.leaf_width, .CLOSEST_HIT
+            ],
+            sphere_format.node_width == 2,
         ](sphere_nodes, leaf_spheres, sphere_root, ray)
         if sphere_hit.is_hit():
             found = True
@@ -156,17 +151,17 @@ def _gpu_rt_scene_trace_one[
         )
         var triangle_hit = trace_gpu_blas[
             .WORLD,
-            triangle_node_width,
+            triangle_format.node_width,
             .CLOSEST_HIT,
             _intersect_triangle_leaf[
                 .WORLD,
-                triangle_leaf_width,
+                triangle_format.leaf_width,
                 .CLOSEST_HIT,
-                triangle_leaf_width > triangle_node_width
-                or triangle_leaf_width == 8,
+                triangle_format.leaf_width > triangle_format.node_width
+                or triangle_format.leaf_width == 8,
             ],
-            triangle_layout,
-            triangle_node_width == 4,
+            triangle_format.layout,
+            triangle_format.node_width == 4,
         ](triangle_nodes, leaf_vertices, triangle_root, triangle_ray)
         if triangle_hit.is_hit() and triangle_hit.t < closest_t:
             found = True
@@ -211,18 +206,19 @@ def _gpu_rt_scene_trace_one[
             ray.o, ray.d, ray.t_min, closest_t
         )
         var instance_hit = _trace_tlas_ray[
-            tlas_node_width,
-            tlas_leaf_width,
-            blas_node_width,
-            blas_leaf_width,
+            tlas_format.node_width,
+            tlas_format.leaf_width,
+            blas_format.node_width,
+            blas_format.leaf_width,
             .CLOSEST_HIT,
             _intersect_triangle_leaf[
                 .LOCAL,
-                blas_leaf_width,
+                blas_format.leaf_width,
                 .CLOSEST_HIT,
-                blas_leaf_width > blas_node_width or blas_leaf_width == 8,
+                blas_format.leaf_width > blas_format.node_width
+                or blas_format.leaf_width == 8,
             ],
-            blas_layout,
+            blas_format.layout,
         ](
             tlas_nodes,
             tlas_leaf_instances,
@@ -356,16 +352,10 @@ def _gpu_rt_scene_trace_one[
 def gpu_rt_scene_trace_kernel[
     integrator: Integrator,
     scene_kind: GpuRtSceneKind,
-    node_width: SIMDLength,
-    leaf_width: SIMDLength,
-    triangle_node_width: SIMDLength,
-    triangle_leaf_width: SIMDLength,
-    tlas_node_width: SIMDLength,
-    tlas_leaf_width: SIMDLength,
-    blas_node_width: SIMDLength,
-    blas_leaf_width: SIMDLength,
-    triangle_layout: GpuBvhLayout = .WIDE,
-    blas_layout: GpuBvhLayout = .WIDE,
+    sphere_format: GpuRtBvhFormat,
+    triangle_format: GpuRtBvhFormat,
+    tlas_format: GpuRtBvhFormat,
+    blas_format: GpuRtBvhFormat,
 ](
     scene: GpuRtSceneView,
     queues: GpuRtTraceQueueView,
@@ -380,16 +370,10 @@ def gpu_rt_scene_trace_kernel[
         _gpu_rt_scene_trace_one[
             integrator,
             scene_kind,
-            node_width,
-            leaf_width,
-            triangle_node_width,
-            triangle_leaf_width,
-            tlas_node_width,
-            tlas_leaf_width,
-            blas_node_width,
-            blas_leaf_width,
-            triangle_layout,
-            blas_layout,
+            sphere_format,
+            triangle_format,
+            tlas_format,
+            blas_format,
         ](idx, scene, queues, rng_seed, bounce)
         idx += stride
 
@@ -397,26 +381,22 @@ def gpu_rt_scene_trace_kernel[
 @always_inline
 def _trace_scene_any[
     scene_kind: GpuRtSceneKind,
-    node_width: SIMDLength,
-    leaf_width: SIMDLength,
-    triangle_node_width: SIMDLength,
-    triangle_leaf_width: SIMDLength,
-    tlas_node_width: SIMDLength,
-    tlas_leaf_width: SIMDLength,
-    blas_node_width: SIMDLength,
-    blas_leaf_width: SIMDLength,
-    triangle_layout: GpuBvhLayout,
-    blas_layout: GpuBvhLayout,
+    sphere_format: GpuRtBvhFormat,
+    triangle_format: GpuRtBvhFormat,
+    tlas_format: GpuRtBvhFormat,
+    blas_format: GpuRtBvhFormat,
 ](scene: GpuRtSceneView, ray: Rayf32[.WORLD]) -> Bool:
     comptime if scene_kind.has_spheres():
         debug_assert["safe", _use_compiler_assume=True](Bool(scene.spheres))
         var spheres = scene.spheres.unsafe_value()
         var hit = trace_bounds_bvh[
             .WORLD,
-            node_width,
+            sphere_format.node_width,
             .ANY_HIT,
-            _intersect_sphere_leaf[.WORLD, leaf_width, .ANY_HIT],
-            node_width == 2,
+            _intersect_sphere_leaf[
+                .WORLD, sphere_format.leaf_width, .ANY_HIT
+            ],
+            sphere_format.node_width == 2,
         ](
             spheres.nodes.unsafe_origin_cast[ImmutAnyOrigin](),
             spheres.leaves.unsafe_origin_cast[ImmutAnyOrigin](),
@@ -430,17 +410,17 @@ def _trace_scene_any[
         var triangles = scene.triangles.unsafe_value()
         var hit = trace_gpu_blas[
             .WORLD,
-            triangle_node_width,
+            triangle_format.node_width,
             .ANY_HIT,
             _intersect_triangle_leaf[
                 .WORLD,
-                triangle_leaf_width,
+                triangle_format.leaf_width,
                 .ANY_HIT,
-                triangle_leaf_width > triangle_node_width
-                or triangle_leaf_width == 8,
+                triangle_format.leaf_width > triangle_format.node_width
+                or triangle_format.leaf_width == 8,
             ],
-            triangle_layout,
-            triangle_node_width == 4,
+            triangle_format.layout,
+            triangle_format.node_width == 4,
         ](
             triangles.nodes.unsafe_origin_cast[ImmutAnyOrigin](),
             triangles.leaves.unsafe_origin_cast[ImmutAnyOrigin](),
@@ -453,18 +433,19 @@ def _trace_scene_any[
         debug_assert["safe", _use_compiler_assume=True](Bool(scene.instances))
         var instances = scene.instances.unsafe_value()
         var hit = _trace_tlas_ray[
-            tlas_node_width,
-            tlas_leaf_width,
-            blas_node_width,
-            blas_leaf_width,
+            tlas_format.node_width,
+            tlas_format.leaf_width,
+            blas_format.node_width,
+            blas_format.leaf_width,
             .ANY_HIT,
             _intersect_triangle_leaf[
                 .LOCAL,
-                blas_leaf_width,
+                blas_format.leaf_width,
                 .ANY_HIT,
-                blas_leaf_width > blas_node_width or blas_leaf_width == 8,
+                blas_format.leaf_width > blas_format.node_width
+                or blas_format.leaf_width == 8,
             ],
-            blas_layout,
+            blas_format.layout,
         ](
             instances.tlas_nodes.unsafe_origin_cast[ImmutAnyOrigin](),
             instances.tlas_leaf_instances.unsafe_origin_cast[ImmutAnyOrigin](),
@@ -487,16 +468,10 @@ def _trace_scene_any[
 def _gpu_rt_shadow_one[
     integrator: Integrator,
     scene_kind: GpuRtSceneKind,
-    node_width: SIMDLength,
-    leaf_width: SIMDLength,
-    triangle_node_width: SIMDLength,
-    triangle_leaf_width: SIMDLength,
-    tlas_node_width: SIMDLength,
-    tlas_leaf_width: SIMDLength,
-    blas_node_width: SIMDLength,
-    blas_leaf_width: SIMDLength,
-    triangle_layout: GpuBvhLayout,
-    blas_layout: GpuBvhLayout,
+    sphere_format: GpuRtBvhFormat,
+    triangle_format: GpuRtBvhFormat,
+    tlas_format: GpuRtBvhFormat,
+    blas_format: GpuRtBvhFormat,
 ](idx: Int, scene: GpuRtSceneView, queues: GpuRtTraceQueueView):
     comptime assert integrator in (Integrator.AO, Integrator.NEE, Integrator.MIS)
     var counters = queues.counters.unsafe_origin_cast[MutAnyOrigin]()
@@ -518,16 +493,10 @@ def _gpu_rt_shadow_one[
     )
     var occluded = _trace_scene_any[
         scene_kind,
-        node_width,
-        leaf_width,
-        triangle_node_width,
-        triangle_leaf_width,
-        tlas_node_width,
-        tlas_leaf_width,
-        blas_node_width,
-        blas_leaf_width,
-        triangle_layout,
-        blas_layout,
+        sphere_format,
+        triangle_format,
+        tlas_format,
+        blas_format,
     ](scene, ray)
     var sample_radiance = queues.sample_radiance.unsafe_origin_cast[
         MutAnyOrigin
@@ -552,16 +521,10 @@ def _gpu_rt_shadow_one[
 def gpu_rt_shadow_kernel[
     integrator: Integrator,
     scene_kind: GpuRtSceneKind,
-    node_width: SIMDLength,
-    leaf_width: SIMDLength,
-    triangle_node_width: SIMDLength,
-    triangle_leaf_width: SIMDLength,
-    tlas_node_width: SIMDLength,
-    tlas_leaf_width: SIMDLength,
-    blas_node_width: SIMDLength,
-    blas_leaf_width: SIMDLength,
-    triangle_layout: GpuBvhLayout = .WIDE,
-    blas_layout: GpuBvhLayout = .WIDE,
+    sphere_format: GpuRtBvhFormat,
+    triangle_format: GpuRtBvhFormat,
+    tlas_format: GpuRtBvhFormat,
+    blas_format: GpuRtBvhFormat,
 ](scene: GpuRtSceneView, queues: GpuRtTraceQueueView):
     var counters = queues.counters.unsafe_origin_cast[MutAnyOrigin]()
     var count = Int(counters[unsafe_offset=WAVE_COUNTER.SHADOW])
@@ -571,16 +534,10 @@ def gpu_rt_shadow_kernel[
         _gpu_rt_shadow_one[
             integrator,
             scene_kind,
-            node_width,
-            leaf_width,
-            triangle_node_width,
-            triangle_leaf_width,
-            tlas_node_width,
-            tlas_leaf_width,
-            blas_node_width,
-            blas_leaf_width,
-            triangle_layout,
-            blas_layout,
+            sphere_format,
+            triangle_format,
+            tlas_format,
+            blas_format,
         ](idx, scene, queues)
         idx += stride
 
@@ -588,17 +545,11 @@ def gpu_rt_shadow_kernel[
 def enqueue_gpu_shadows[
     integrator: Integrator,
     scene_kind: GpuRtSceneKind,
-    node_width: SIMDLength,
-    leaf_width: SIMDLength,
-    triangle_node_width: SIMDLength,
-    triangle_leaf_width: SIMDLength,
-    tlas_node_width: SIMDLength,
-    tlas_leaf_width: SIMDLength,
-    blas_node_width: SIMDLength,
-    blas_leaf_width: SIMDLength,
+    sphere_format: GpuRtBvhFormat,
+    triangle_format: GpuRtBvhFormat,
+    tlas_format: GpuRtBvhFormat,
+    blas_format: GpuRtBvhFormat,
     MAX_BLOCKS: Int = GPU_RT_MAX_BLOCKS,
-    triangle_layout: GpuBvhLayout = .WIDE,
-    blas_layout: GpuBvhLayout = .WIDE,
 ](
     ctx: DeviceContext,
     scene: GpuRtSceneView,
@@ -611,16 +562,10 @@ def enqueue_gpu_shadows[
             gpu_rt_shadow_kernel[
                 integrator,
                 scene_kind,
-                node_width,
-                leaf_width,
-                triangle_node_width,
-                triangle_leaf_width,
-                tlas_node_width,
-                tlas_leaf_width,
-                blas_node_width,
-                blas_leaf_width,
-                triangle_layout,
-                blas_layout,
+                sphere_format,
+                triangle_format,
+                tlas_format,
+                blas_format,
             ]
         ](
             scene,

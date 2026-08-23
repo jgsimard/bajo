@@ -106,7 +106,7 @@ instance-weighted mean mesh size is at least 32 triangles, otherwise
 LBVH+wide4 for micro-BLASes. This policy follows the measured crossover and
 adds no runtime format branch to device traversal. Explicit callers retain the
 full compile-time builder, node/leaf width, and compressed/wide overrides by
-constructing policy values.
+passing formats and build methods.
 
 Mixed and combined scenes specialize sphere BVH, static-triangle, TLAS, and
 BLAS widths independently. Their static triangles reuse the same wide/CWBVH

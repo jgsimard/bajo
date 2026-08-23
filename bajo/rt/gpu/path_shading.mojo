@@ -58,7 +58,6 @@ from bajo.rt.gpu.wavefront_contract import (
     store_gpu_rt_path,
     store_gpu_rt_shadow,
 )
-from bajo.rt.gpu.views import GpuRtShadingView, _immut
 
 
 comptime GPU_RT_SHADE_MAX_BLOCKS = GPU_RT_MAX_BLOCKS
@@ -198,34 +197,6 @@ struct GpuRtLights:
         self.fields = _upload_nonempty(ctx, fields^)
         self.count = len(world.lights().records)
         self.total_weight = world.lights().total_weight
-
-
-struct GpuRtShadingResources:
-    """Owned GPU material and lighting tables for one prepared scene."""
-
-    var materials: GpuRtMaterials
-    var lights: GpuRtLights
-
-    def __init__(
-        out self,
-        mut ctx: DeviceContext,
-        world: SceneData,
-    ) raises:
-        self.materials = GpuRtMaterials(ctx, world)
-        self.lights = GpuRtLights(ctx, world)
-
-    @always_inline
-    def view(self) -> GpuRtShadingView:
-        return GpuRtShadingView(
-            _immut(self.materials.emissives),
-            _immut(self.materials.lambertians),
-            _immut(self.materials.metals),
-            _immut(self.materials.dielectrics),
-            _immut(self.lights.kinds),
-            _immut(self.lights.fields),
-            Int32(self.lights.count),
-            self.lights.total_weight,
-        )
 
 
 @fieldwise_init

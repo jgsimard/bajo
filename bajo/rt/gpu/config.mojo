@@ -1,4 +1,4 @@
-"""Compile-time scene-shape and ready BVH formats for GPU ray tracing."""
+"""Compile-time scene shape and ready BVH formats for GPU ray tracing."""
 
 from bajo.bvh.gpu import GpuBvhLayout
 

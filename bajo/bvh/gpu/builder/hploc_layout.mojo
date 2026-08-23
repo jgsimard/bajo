@@ -1,4 +1,4 @@
-from bajo.core import AABB, Frame
+from bajo.core import AABB
 from std.gpu import WARP_SIZE
 
 

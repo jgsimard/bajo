@@ -8,7 +8,7 @@ from bajo.bvh.gpu.diagnostics import build_bounds_bvh_for_diagnostics
 from bajo.bvh.cpu.builder.hploc import build_hploc_topology
 from bajo.bvh.gpu.quality import measure_binary_bvh_quality
 from bajo.bvh.gpu.utils import upload_list
-from bajo.core import AABB, Frame, Point3f32
+from bajo.core import AABB, Point3f32
 
 
 def _box(center_x: Float32) -> AABB[.WORLD]:

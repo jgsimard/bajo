@@ -5,7 +5,7 @@ from max.gpu.host import DeviceBuffer
 
 from bajo.bvh.camera import Camera
 from bajo.bvh.types import Hit
-from bajo.core import Frame, Rayf32
+from bajo.core import Rayf32
 
 
 def validate_camera_launch(

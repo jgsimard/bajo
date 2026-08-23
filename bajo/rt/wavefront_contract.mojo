@@ -2,7 +2,7 @@
 
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 
-from bajo.core import Frame, Point3f32, Rayf32, Vec3f32
+from bajo.core import Point3f32, Rayf32, Vec3f32
 from bajo.rt.types import Color, SurfaceHit, SurfaceId, MaterialKind
 from bajo.rt.wavefront_queue import (
     FRONT_FACE_BIT,

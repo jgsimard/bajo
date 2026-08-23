@@ -5,7 +5,7 @@ from std.time import perf_counter_ns
 from max.gpu.host import DeviceContext
 
 from bajo.bvh.gpu import GpuBvhBuildMethod, GpuBvhLayout
-from bajo.core import Frame, Point3f32, Vec3f32
+from bajo.core import Point3f32, Vec3f32
 from bajo.core.utils import ns_to_ms
 from bajo.rt import (
     Camera,
@@ -17,9 +17,8 @@ from bajo.rt import (
 )
 from bajo.rt.gpu.common_kernels import GPU_RT_MAX_BLOCKS
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
-from bajo.rt.gpu.triangle_path import (
-    GpuRtTriangleScene,
-)
+from bajo.rt.gpu.policy import GpuRtBvhPolicy, GPU_RT_BVH_WIDE4_LBVH
+from bajo.rt.gpu.scene import GpuRtScene
 from bajo.rt.gpu.render import enqueue_render_gpu
 from .timing import summarize_timings
 
@@ -115,8 +114,8 @@ def finalize_gpu_rt_timings(
     )
 
 
-def bench_gpu_triangle_algorithm[
-    ALGORITHM: Integrator,
+def bench_gpu_triangle_integrator[
+    integrator: Integrator,
     node_width: SIMDLength = NODE_WIDTH,
     leaf_width: SIMDLength = LEAF_WIDTH,
     MAX_BLOCKS: Int = GPU_RT_MAX_BLOCKS,
@@ -128,17 +127,17 @@ def bench_gpu_triangle_algorithm[
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: GpuRtTriangleScene[node_width, leaf_width, build_method, layout],
+    world: GpuRtScene[
+        .TRIANGLES,
+        GPU_RT_BVH_WIDE4_LBVH,
+        GpuRtBvhPolicy(node_width, leaf_width, build_method, layout),
+    ],
     settings: RenderSettings,
 ) raises -> GpuRtBenchResult:
     enqueue_render_gpu[
-        ALGORITHM,
-        node_width,
-        leaf_width,
-        MAX_BLOCKS,
-        SHADOW_MAX_BLOCKS,
-        build_method,
-        layout,
+        integrator,
+        MAX_BLOCKS=MAX_BLOCKS,
+        SHADOW_MAX_BLOCKS=SHADOW_MAX_BLOCKS,
     ](ctx, target, world, settings)
     ctx.synchronize()
 
@@ -147,13 +146,9 @@ def bench_gpu_triangle_algorithm[
     for _ in range(BENCH_REPEATS):
         var render_t0 = perf_counter_ns()
         enqueue_render_gpu[
-            ALGORITHM,
-            node_width,
-            leaf_width,
-            MAX_BLOCKS,
-            SHADOW_MAX_BLOCKS,
-            build_method,
-            layout,
+            integrator,
+            MAX_BLOCKS=MAX_BLOCKS,
+            SHADOW_MAX_BLOCKS=SHADOW_MAX_BLOCKS,
         ](ctx, target, world, settings)
         var submit_t1 = perf_counter_ns()
         ctx.synchronize()

@@ -30,7 +30,7 @@ from bajo.parser.pbrt import read_pbrt
 
 
 comptime VIEWER_BACKEND = get_defined_int["VIEWER_BACKEND", 0]()
-comptime VIEWER_ALGORITHM = get_defined_int["VIEWER_ALGORITHM", 0]()
+comptime VIEWER_INTEGRATOR = get_defined_int["VIEWER_INTEGRATOR", 0]()
 
 
 @fieldwise_init
@@ -60,7 +60,7 @@ def _viewer_bvh_stats[
     world_bvh_width: SIMDLength = 16,
     instance_bvh_width: SIMDLength = 16,
 ](data: SceneData) -> String:
-    var result = String()
+    var result: String
     if BACKEND == 0:
         result = "CPU W" + String(Int(world_bvh_width))
         result += "/I" + String(Int(instance_bvh_width)) + " | "
@@ -135,7 +135,7 @@ def _viewer_camera(
 
 
 def _render_gpu_frame[
-    ALGORITHM: Integrator
+    integrator: Integrator
 ](
     output: String,
     width: Int,
@@ -156,14 +156,14 @@ def _render_gpu_frame[
         width, height, samples, UInt64(1234), max_depth
     )
     var t0 = perf_counter_ns()
-    var result = render_gpu[ALGORITHM](settings, camera, data)
+    var result = render_gpu[integrator](settings, camera, data)
     var t1 = perf_counter_ns()
     write_ppm_from_colors(output, width, height, result.pixels)
     return ViewerRenderStats(ns_to_ms(Int(t1 - t0)), _viewer_bvh_stats[1](data))
 
 
 def _render_frame[
-    ALGORITHM: Integrator,
+    integrator: Integrator,
     BACKEND: Int,
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
@@ -180,7 +180,7 @@ def _render_frame[
     world: CpuScene[world_bvh_width, instance_bvh_width],
 ) raises -> ViewerRenderStats:
     comptime if BACKEND == 1:
-        return _render_gpu_frame[ALGORITHM](
+        return _render_gpu_frame[integrator](
             output,
             width,
             height,
@@ -206,17 +206,17 @@ def _render_frame[
             width, height, samples, UInt64(1234), max_depth
         )
         var t0 = perf_counter_ns()
-        var t1 = 0
+        var t1: Int
         comptime if (
-            ALGORITHM == .PATH
-            or ALGORITHM == .NEE
-            or ALGORITHM == .MIS
+            integrator == .PATH
+            or integrator == .NEE
+            or integrator == .MIS
         ):
-            var result = render_wavefront[ALGORITHM](settings, camera, world)
+            var result = render_wavefront[integrator](settings, camera, world)
             t1 = perf_counter_ns()
             write_ppm_from_colors(output, width, height, result.pixels)
         else:
-            var result = render_depth_first[ALGORITHM](settings, camera, world)
+            var result = render_depth_first[integrator](settings, camera, world)
             t1 = perf_counter_ns()
             write_ppm_from_colors(output, width, height, result.pixels)
         return ViewerRenderStats(
@@ -243,13 +243,13 @@ struct _ViewerRenderRequest(Copyable):
 
 
 def _render_scene[
-    ALGORITHM: Integrator,
+    integrator: Integrator,
     BACKEND: Int,
 ](request: _ViewerRenderRequest) raises -> ViewerRenderStats:
     if request.scene == 5 or request.scene == 6:
         var parsed = read_pbrt(request.scene_path)
         comptime if BACKEND == 0:
-            return _render_frame[ALGORITHM, BACKEND](
+            return _render_frame[integrator, BACKEND](
                 request.output,
                 request.width,
                 request.height,
@@ -262,7 +262,7 @@ def _render_scene[
                 CpuScene[](parsed^.take_data()),
             )
         else:
-            return _render_gpu_frame[ALGORITHM](
+            return _render_gpu_frame[integrator](
                 request.output,
                 request.width,
                 request.height,
@@ -294,7 +294,7 @@ def _render_scene[
     else:
         raise Error("unsupported viewer scene")
 
-    return _render_frame[ALGORITHM, BACKEND](
+    return _render_frame[integrator, BACKEND](
         request.output,
         request.width,
         request.height,
@@ -322,7 +322,7 @@ def _render_frame_for_config(
     scene_path: String,
 ) raises -> ViewerRenderStats:
     comptime assert VIEWER_BACKEND >= 0 and VIEWER_BACKEND <= 1
-    comptime assert VIEWER_ALGORITHM >= 0 and VIEWER_ALGORITHM <= 4
+    comptime assert VIEWER_INTEGRATOR >= 0 and VIEWER_INTEGRATOR <= 4
     var request = _ViewerRenderRequest(
         output,
         width,
@@ -336,13 +336,13 @@ def _render_frame_for_config(
         scene,
         scene_path,
     )
-    comptime if VIEWER_ALGORITHM == 0:
+    comptime if VIEWER_INTEGRATOR == 0:
         return _render_scene[.PATH, VIEWER_BACKEND](request)
-    elif VIEWER_ALGORITHM == 1:
+    elif VIEWER_INTEGRATOR == 1:
         return _render_scene[.NEE, VIEWER_BACKEND](request)
-    elif VIEWER_ALGORITHM == 2:
+    elif VIEWER_INTEGRATOR == 2:
         return _render_scene[.MIS, VIEWER_BACKEND](request)
-    elif VIEWER_ALGORITHM == 3:
+    elif VIEWER_INTEGRATOR == 3:
         return _render_scene[.NORMALS, VIEWER_BACKEND](request)
     else:
         return _render_scene[.AO, VIEWER_BACKEND](request)

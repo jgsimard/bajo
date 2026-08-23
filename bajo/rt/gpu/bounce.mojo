@@ -5,6 +5,7 @@ from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh.gpu import GpuBvhLayout
 from bajo.rt.types import Integrator
+from bajo.rt.gpu.policy import GpuRtSceneKind
 from bajo.rt.gpu.common_kernels import GPU_RT_BLOCK_SIZE, GPU_RT_MAX_BLOCKS
 from bajo.rt.gpu.path_shading import GpuRtMaterials, _enqueue_material_shading
 from bajo.rt.gpu.scene_trace import (
@@ -17,10 +18,8 @@ from bajo.rt.gpu.wavefront_contract import GpuWavefrontArena
 
 @always_inline
 def enqueue_gpu_rt_bounce[
-    ALGORITHM: Integrator,
-    HAS_SPHERES: Bool,
-    HAS_TRIANGLES: Bool,
-    HAS_INSTANCES: Bool,
+    integrator: Integrator,
+    scene_kind: GpuRtSceneKind,
     sphere_node_width: SIMDLength,
     sphere_leaf_width: SIMDLength,
     triangle_node_width: SIMDLength,
@@ -56,10 +55,8 @@ def enqueue_gpu_rt_bounce[
     )
     ctx.enqueue_function[
         gpu_rt_scene_trace_kernel[
-            ALGORITHM,
-            HAS_SPHERES,
-            HAS_TRIANGLES,
-            HAS_INSTANCES,
+            integrator,
+            scene_kind,
             sphere_node_width,
             sphere_leaf_width,
             triangle_node_width,
@@ -80,10 +77,8 @@ def enqueue_gpu_rt_bounce[
         block_dim=GPU_RT_BLOCK_SIZE,
     )
     enqueue_gpu_shadows[
-        ALGORITHM,
-        HAS_SPHERES,
-        HAS_TRIANGLES,
-        HAS_INSTANCES,
+        integrator,
+        scene_kind,
         sphere_node_width,
         sphere_leaf_width,
         triangle_node_width,
@@ -96,8 +91,8 @@ def enqueue_gpu_rt_bounce[
         triangle_layout,
         blas_layout,
     ](ctx, scene, queues, arena.capacity)
-    comptime if ALGORITHM in (Integrator.PATH, Integrator.NEE, Integrator.MIS):
-        _enqueue_material_shading[ALGORITHM, MAX_BLOCKS](
+    comptime if integrator in (Integrator.PATH, Integrator.NEE, Integrator.MIS):
+        _enqueue_material_shading[integrator, MAX_BLOCKS](
             ctx,
             arena,
             materials,

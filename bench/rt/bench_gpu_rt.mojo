@@ -8,7 +8,7 @@ from max.gpu.host import DeviceContext
 from bajo.core.utils import ns_to_ms
 from bajo.rt import RenderSettings
 from bajo.rt.gpu.resources import GpuRtRenderTarget
-from bajo.rt.gpu.prepared_scene import prepare_gpu_triangle_scene
+from bajo.rt.gpu.scene import prepare_gpu_scene
 from bajo.benchmark.gpu_harness import (
     BENCH_REPEATS,
     IMAGE_HEIGHT,
@@ -18,7 +18,7 @@ from bajo.benchmark.gpu_harness import (
     NODE_WIDTH,
     RNG_SEED,
     SAMPLES_PER_PIXEL,
-    bench_gpu_triangle_algorithm,
+    bench_gpu_triangle_integrator,
     gpu_rt_camera,
     make_many_light_world,
     print_gpu_rt_result,
@@ -47,7 +47,9 @@ def main() raises:
 
     with DeviceContext() as ctx:
         var scene_t0 = perf_counter_ns()
-        var gpu_world = prepare_gpu_triangle_scene(ctx, world.scene_data())
+        var gpu_world = prepare_gpu_scene[.TRIANGLES](
+            ctx, world.scene_data()
+        )
         ctx.synchronize()
         var scene_ns = Int(perf_counter_ns() - scene_t0)
 
@@ -62,16 +64,16 @@ def main() raises:
             "hot timings exclude scene setup, target allocation, and download"
         )
 
-        var path = bench_gpu_triangle_algorithm[.PATH](
+        var path = bench_gpu_triangle_integrator[.PATH](
             ctx, target, gpu_world, settings
         )
-        var ao = bench_gpu_triangle_algorithm[.AO](
+        var ao = bench_gpu_triangle_integrator[.AO](
             ctx, target, gpu_world, settings
         )
-        var nee = bench_gpu_triangle_algorithm[.NEE](
+        var nee = bench_gpu_triangle_integrator[.NEE](
             ctx, target, gpu_world, settings
         )
-        var mis = bench_gpu_triangle_algorithm[.MIS](
+        var mis = bench_gpu_triangle_integrator[.MIS](
             ctx, target, gpu_world, settings
         )
 
@@ -82,12 +84,12 @@ def main() raises:
 
         var many_light_world = make_many_light_world()
         var many_scene_t0 = perf_counter_ns()
-        var many_gpu_world = prepare_gpu_triangle_scene(
+        var many_gpu_world = prepare_gpu_scene[.TRIANGLES](
             ctx, many_light_world.scene_data()
         )
         ctx.synchronize()
         var many_scene_ns = Int(perf_counter_ns() - many_scene_t0)
-        var many_light_nee = bench_gpu_triangle_algorithm[.NEE](
+        var many_light_nee = bench_gpu_triangle_integrator[.NEE](
             ctx, target, many_gpu_world, settings
         )
         print(

@@ -3,7 +3,7 @@
 from std.testing import TestSuite, assert_equal, assert_true
 from max.gpu.host import DeviceContext
 
-from bajo.core import Frame, Point3f32, Rayf32, Vec3f32
+from bajo.core import Point3f32, Rayf32, Vec3f32
 from bajo.rt.gpu.wavefront_contract import (
     GpuWaveShadeQueue,
     GpuWavefrontArena,

@@ -1,7 +1,7 @@
 from std.math import round
 from std.time import perf_counter_ns
 
-from bajo.core import Frame, Rayf32
+from bajo.core import Rayf32
 from bajo.core.random import Rng, random_on_hemisphere
 from bajo.core.utils import ns_to_mrays_per_s
 from bajo.rt import CpuScene

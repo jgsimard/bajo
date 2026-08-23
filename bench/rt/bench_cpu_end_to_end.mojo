@@ -3,7 +3,6 @@ from std.time import perf_counter_ns
 
 from bajo.bvh.constants import f32_max
 from bajo.core import (
-    Frame,
     Rayf32,
     normalize,
 )
@@ -94,17 +93,17 @@ struct TraceCounters:
 
 
 def time_render[
-    ALGORITHM: Integrator
+    integrator: Integrator
 ](settings: RenderSettings, camera: Camera, world: CpuScene[]) -> TimingResult:
     # Warm all compiled code and renderer-owned allocations before measuring.
-    var warmup = render_depth_first[ALGORITHM](settings, camera, world)
+    var warmup = render_depth_first[integrator](settings, camera, world)
     var checksum = pixel_checksum(warmup.pixels)
     var total_times = List[Int](capacity=TIMING_REPEATS)
     var init_times = List[Int](capacity=TIMING_REPEATS)
     var render_times = List[Int](capacity=TIMING_REPEATS)
 
     for _ in range(TIMING_REPEATS):
-        var result = render_depth_first[ALGORITHM](settings, camera, world)
+        var result = render_depth_first[integrator](settings, camera, world)
         var current_checksum = pixel_checksum(result.pixels)
         debug_assert["safe", _use_compiler_assume=True](
             current_checksum == checksum, "render checksum changed between runs"

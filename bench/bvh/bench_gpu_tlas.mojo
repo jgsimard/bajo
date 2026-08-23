@@ -23,14 +23,14 @@ from bajo.bvh.gpu.tlas import (
 from bajo.bvh.gpu.sphere_bvh import (
     GpuSphereBvh,
     build_gpu_sphere_blas_set,
-    build_sphere_bvh,
-    build_sphere_bvh_measured,
+    build_gpu_sphere_bvh,
+    build_gpu_sphere_bvh_measured,
 )
 from bajo.bvh.gpu.triangle_bvh import (
     GpuTriangleBvh,
     build_gpu_triangle_blas_set,
-    build_triangle_bvh,
-    build_triangle_bvh_measured,
+    build_gpu_triangle_bvh,
+    build_gpu_triangle_bvh_measured,
 )
 from bajo.bvh.constants import PrimitiveKind, MISS_PRIM, f32_max
 from bajo.parser.obj.pack import pack_obj_triangles
@@ -1076,12 +1076,12 @@ def run_benchmark() raises:
         ctx.synchronize()
 
         print("\nBuilding GpuTriangleBvh[4]...")
-        _ = build_triangle_bvh[.WORLD, 4](ctx, d_vertices)
+        _ = build_gpu_triangle_bvh[.WORLD, 4](ctx, d_vertices)
         ctx.synchronize()
 
         var blas_b0 = perf_counter_ns()
         var blas_timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
-        var blas = build_triangle_bvh_measured[.WORLD, 4](
+        var blas = build_gpu_triangle_bvh_measured[.WORLD, 4](
             ctx, d_vertices, blas_timings
         )
         ctx.synchronize()
@@ -1232,12 +1232,12 @@ def run_benchmark() raises:
         print("Sphere BLAS bounds max:", round(sphere_bounds._max, 3))
 
         print("Building GpuSphereBvh[4]...")
-        _ = build_sphere_bvh[.WORLD, 4](ctx, spheres)
+        _ = build_gpu_sphere_bvh[.WORLD, 4](ctx, spheres)
         ctx.synchronize()
 
         var sph_b0 = perf_counter_ns()
         var sphere_blas_timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
-        var sphere_blas = build_sphere_bvh_measured[.WORLD, 4](
+        var sphere_blas = build_gpu_sphere_bvh_measured[.WORLD, 4](
             ctx, spheres, sphere_blas_timings
         )
         ctx.synchronize()

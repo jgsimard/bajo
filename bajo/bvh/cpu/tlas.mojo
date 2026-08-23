@@ -4,8 +4,6 @@ from bajo.core import (
     AxisAlignedBoundingBox,
     Vec3,
     Point3,
-    Frame,
-    GeoKind,
     Rayf32,
 )
 from bajo.core.intersect import intersect_ray_aabb_rcp
@@ -129,6 +127,41 @@ def _tree[
     return tree^
 
 
+@always_inline
+def _trace_tlas_tree[
+    bounds_width: SIMDLength,
+    leaf_width: SIMDLength,
+    mode: TraceMode,
+    LeafFn: def(
+        Rayf32[.WORLD],
+        Point3[DType.float32, .WORLD, leaf_width],
+        Vec3[.float32, .WORLD, leaf_width],
+        SIMD[.float32, leaf_width],
+        SIMD[.float32, leaf_width],
+        UInt32,
+        mut Hit[.WORLD],
+    ) -> Bool,
+](
+    tree: BoundsBvh[.WORLD, bounds_width],
+    ray: Rayf32[.WORLD],
+    ref leaf_fn: LeafFn,
+) -> Hit[.WORLD]:
+    """Select the leaf-direction ABI while retaining one traversal call."""
+    comptime if leaf_width == 1:
+        return trace_bounds_bvh[
+            frame=.WORLD,
+            bounds_width=bounds_width,
+            leaf_width=leaf_width,
+            mode=mode,
+        ](tree, ray, leaf_fn)
+    return trace_bounds_bvh_leaf_rcp[
+        frame=.WORLD,
+        bounds_width=bounds_width,
+        leaf_width=leaf_width,
+        mode=mode,
+    ](tree, ray, leaf_fn)
+
+
 struct CpuTlas[
     bounds_width: SIMDLength,
     leaf_width: SIMDLength = bounds_width,
@@ -215,21 +248,9 @@ struct CpuTlas[
                             any_hit = True
             return any_hit
 
-        var hit: Hit[.WORLD]
-        comptime if Self.leaf_width == 1:
-            hit = trace_bounds_bvh[
-                frame=.WORLD,
-                bounds_width=Self.bounds_width,
-                leaf_width=Self.leaf_width,
-                mode=mode,
-            ](self.tree, ray, leaf_fn)
-        else:
-            hit = trace_bounds_bvh_leaf_rcp[
-                frame=.WORLD,
-                bounds_width=Self.bounds_width,
-                leaf_width=Self.leaf_width,
-                mode=mode,
-            ](self.tree, ray, leaf_fn)
+        var hit = _trace_tlas_tree[
+            Self.bounds_width, Self.leaf_width, mode
+        ](self.tree, ray, leaf_fn)
 
         comptime if mode == .CLOSEST_HIT:
             if hit.is_hit():

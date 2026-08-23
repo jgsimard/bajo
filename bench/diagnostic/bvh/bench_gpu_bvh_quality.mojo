@@ -10,7 +10,6 @@ from bajo.bvh.gpu.quality import (
     measure_wide_bvh_quality,
 )
 from bajo.bvh.gpu.utils import upload_list
-from bajo.core import Frame
 from bajo.parser.obj.pack import pack_obj_triangles
 from bajo.benchmark.gpu_bvh_fixtures import flatten_triangle_bounds
 

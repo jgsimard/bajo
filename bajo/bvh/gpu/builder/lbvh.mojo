@@ -4,7 +4,7 @@ from std.atomic import Atomic
 from max.gpu.host import DeviceBuffer, DeviceContext
 from std.gpu import global_idx
 
-from bajo.core import AABB, Vec3f32, Frame
+from bajo.core import AABB, Vec3f32
 from bajo.core.morton import morton3, morton_common_prefix
 from bajo.sort.gpu.radix_sort import device_radix_sort_pairs
 from bajo.bvh.constants import (

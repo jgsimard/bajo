@@ -6,7 +6,6 @@ from std.testing import (
 )
 
 from bajo.core import (
-    Frame,
     Vec3,
     Vec3W,
     dot,

@@ -16,7 +16,7 @@ from bajo.bvh.cpu import (
     CpuBvhBuildMethod,
 )
 from bajo.bvh.types import Hit
-from bajo.core import Frame, Point3, Point3f32, Vec3, Rayf32
+from bajo.core import Point3, Point3f32, Vec3, Rayf32
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.parser.obj.pack import pack_obj_triangles
 from bajo.benchmark.bvh_fixtures import (

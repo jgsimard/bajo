@@ -1,6 +1,6 @@
 """Host/device-safe path tracing helpers shared by CPU and GPU integrators."""
 
-from bajo.core import Frame, Vec3, normalize
+from bajo.core import Vec3, normalize
 from bajo.core.random import Rng
 from bajo.rt.types import Color
 from bajo.rt.wavefront_contract import (

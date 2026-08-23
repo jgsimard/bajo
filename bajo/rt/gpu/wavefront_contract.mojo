@@ -33,7 +33,7 @@ comptime WAVEFRONT_CONTRACT_BLOCK_SIZE = 128
 
 @always_inline
 def load_gpu_rt_path[
-    ALGORITHM: Integrator,
+    integrator: Integrator,
 ](
     path_ids: Pointer[UInt32, ImmutAnyOrigin],
     fields: Pointer[Float32, ImmutAnyOrigin],
@@ -41,12 +41,12 @@ def load_gpu_rt_path[
     idx: Int,
 ) -> DeviceWavePath:
     """Load only the path planes consumed by one compile-time integrator."""
-    comptime assert ALGORITHM.is_valid()
+    comptime assert integrator.is_valid()
     var packed_path_id = path_ids[unsafe_offset=idx]
     var tx = Float32(1.0)
     var ty = Float32(1.0)
     var tz = Float32(1.0)
-    comptime if ALGORITHM in (Integrator.PATH, Integrator.NEE, Integrator.MIS):
+    comptime if integrator in (Integrator.PATH, Integrator.NEE, Integrator.MIS):
         tx = fields[
             unsafe_offset=wavefront_plane_index(
                 WavePathFloatAbi.TX, capacity, idx
@@ -63,14 +63,14 @@ def load_gpu_rt_path[
             )
         ]
     var bsdf_pdf = Float32(0.0)
-    comptime if ALGORITHM == .MIS:
+    comptime if integrator == .MIS:
         bsdf_pdf = fields[
             unsafe_offset=wavefront_plane_index(
                 WavePathFloatAbi.BSDF_PDF, capacity, idx
             )
         ]
     var delta = True
-    comptime if ALGORITHM in (Integrator.NEE, Integrator.MIS):
+    comptime if integrator in (Integrator.NEE, Integrator.MIS):
         delta = (packed_path_id & WAVE_PATH_DELTA_BIT) != 0
     return DeviceWavePath(
         packed_path_id & WAVE_PATH_ID_MASK,
@@ -116,7 +116,7 @@ def load_gpu_rt_path[
 
 @always_inline
 def store_gpu_rt_path[
-    ALGORITHM: Integrator,
+    integrator: Integrator,
 ](
     path: DeviceWavePath,
     path_ids: Pointer[UInt32, MutAnyOrigin],
@@ -125,9 +125,9 @@ def store_gpu_rt_path[
     idx: Int,
 ):
     """Store only the path planes consumed by one compile-time integrator."""
-    comptime assert ALGORITHM.is_valid()
+    comptime assert integrator.is_valid()
     var packed_path_id = path.path_id & WAVE_PATH_ID_MASK
-    comptime if ALGORITHM in (Integrator.NEE, Integrator.MIS):
+    comptime if integrator in (Integrator.NEE, Integrator.MIS):
         if path.delta:
             packed_path_id |= WAVE_PATH_DELTA_BIT
     path_ids[unsafe_offset=idx] = packed_path_id
@@ -149,7 +149,7 @@ def store_gpu_rt_path[
     fields[
         unsafe_offset=wavefront_plane_index(WavePathFloatAbi.DZ, capacity, idx)
     ] = path.dz
-    comptime if ALGORITHM in (Integrator.PATH, Integrator.NEE, Integrator.MIS):
+    comptime if integrator in (Integrator.PATH, Integrator.NEE, Integrator.MIS):
         fields[
             unsafe_offset=wavefront_plane_index(
                 WavePathFloatAbi.TX, capacity, idx
@@ -165,7 +165,7 @@ def store_gpu_rt_path[
                 WavePathFloatAbi.TZ, capacity, idx
             )
         ] = path.tz
-    comptime if ALGORITHM == .MIS:
+    comptime if integrator == .MIS:
         fields[
             unsafe_offset=wavefront_plane_index(
                 WavePathFloatAbi.BSDF_PDF, capacity, idx

@@ -1,6 +1,6 @@
 """Packet queues and host/device wavefront boundary records."""
 
-from bajo.core import Frame, Rayf32
+from bajo.core import Rayf32
 from bajo.rt.types import Color, SurfaceHit
 
 

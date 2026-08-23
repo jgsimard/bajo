@@ -11,12 +11,13 @@ from bajo.bvh.gpu.tlas import _trace_tlas_ray
 from bajo.bvh.gpu.trace import trace_bounds_bvh
 from bajo.bvh.gpu.triangle_bvh import (
     _intersect_triangle_leaf,
-    trace_cwbvh8_triangles,
 )
-from bajo.core import Frame, GeoKind, Point3f32, Rayf32, Vec3f32
+from bajo.bvh.gpu.blas_trace import trace_gpu_blas
+from bajo.core import GeoKind, Point3f32, Rayf32, Vec3f32
 from bajo.rt.common import sky_color
 from bajo.rt.geometry import orient_surface_normal
 from bajo.rt.types import Color, Integrator
+from bajo.rt.gpu.policy import GpuRtSceneKind
 from bajo.rt.wavefront_contract import (
     DeviceWaveShadow,
     WAVE_COUNTER,
@@ -39,10 +40,8 @@ from bajo.rt.gpu.views import GpuRtSceneView, GpuRtTraceQueueView
 
 @always_inline
 def _gpu_rt_scene_trace_one[
-    ALGORITHM: Integrator,
-    HAS_SPHERES: Bool,
-    HAS_TRIANGLES: Bool,
-    HAS_INSTANCES: Bool,
+    integrator: Integrator,
+    scene_kind: GpuRtSceneKind,
     node_width: SIMDLength,
     leaf_width: SIMDLength,
     triangle_node_width: SIMDLength,
@@ -60,8 +59,8 @@ def _gpu_rt_scene_trace_one[
     rng_seed: UInt64,
     bounce: UInt32,
 ):
-    comptime assert ALGORITHM.is_valid()
-    comptime assert HAS_SPHERES or HAS_TRIANGLES or HAS_INSTANCES
+    comptime assert integrator.is_valid()
+    comptime assert scene_kind.has_spheres() or scene_kind.has_triangles() or scene_kind.has_instances()
     var emissives = scene.emissives.unsafe_origin_cast[ImmutAnyOrigin]()
     var lambertians = scene.lambertians.unsafe_origin_cast[ImmutAnyOrigin]()
     var metals = scene.metals.unsafe_origin_cast[ImmutAnyOrigin]()
@@ -95,7 +94,7 @@ def _gpu_rt_scene_trace_one[
     ]()
     var capacity = Int(queues.capacity)
     var sample_base = queues.sample_base
-    var path = load_gpu_rt_path[ALGORITHM](
+    var path = load_gpu_rt_path[integrator](
         src_path_ids, src_path_fields, capacity, idx
     )
     var ray = Rayf32[.WORLD](
@@ -109,7 +108,7 @@ def _gpu_rt_scene_trace_one[
     var outward = Vec3f32[.WORLD](0.0)
     var surface_value = UInt32(0)
 
-    comptime if HAS_SPHERES:
+    comptime if scene_kind.has_spheres():
         debug_assert["safe", _use_compiler_assume=True](Bool(scene.spheres))
         var spheres = scene.spheres.unsafe_value()
         var sphere_nodes = spheres.nodes.unsafe_origin_cast[ImmutAnyOrigin]()
@@ -139,7 +138,7 @@ def _gpu_rt_scene_trace_one[
                 outward = -outward
             surface_value = sphere_surfaces[unsafe_offset=sphere_idx]
 
-    comptime if HAS_TRIANGLES:
+    comptime if scene_kind.has_triangles():
         debug_assert["safe", _use_compiler_assume=True](Bool(scene.triangles))
         var triangles = scene.triangles.unsafe_value()
         var triangle_nodes = triangles.nodes.unsafe_origin_cast[
@@ -155,26 +154,20 @@ def _gpu_rt_scene_trace_one[
         var triangle_ray = Rayf32[.WORLD](
             ray.o, ray.d, ray.t_min, closest_t
         )
-        var triangle_hit = Hit[.WORLD].miss(closest_t)
-        comptime if triangle_layout.compressed:
-            triangle_hit = trace_cwbvh8_triangles[
+        var triangle_hit = trace_gpu_blas[
+            .WORLD,
+            triangle_node_width,
+            .CLOSEST_HIT,
+            _intersect_triangle_leaf[
                 .WORLD,
+                triangle_leaf_width,
                 .CLOSEST_HIT,
-            ](triangle_nodes, leaf_vertices, triangle_root, triangle_ray)
-        else:
-            triangle_hit = trace_bounds_bvh[
-                .WORLD,
-                triangle_node_width,
-                .CLOSEST_HIT,
-                _intersect_triangle_leaf[
-                    .WORLD,
-                    triangle_leaf_width,
-                    .CLOSEST_HIT,
-                    triangle_leaf_width > triangle_node_width
-                    or triangle_leaf_width == 8,
-                ],
-                triangle_node_width == 4,
-            ](triangle_nodes, leaf_vertices, triangle_root, triangle_ray)
+                triangle_leaf_width > triangle_node_width
+                or triangle_leaf_width == 8,
+            ],
+            triangle_layout,
+            triangle_node_width == 4,
+        ](triangle_nodes, leaf_vertices, triangle_root, triangle_ray)
         if triangle_hit.is_hit() and triangle_hit.t < closest_t:
             found = True
             closest_t = triangle_hit.t
@@ -185,7 +178,7 @@ def _gpu_rt_scene_trace_one[
                 unsafe_offset=Int(triangle_hit.prim)
             ]
 
-    comptime if HAS_INSTANCES:
+    comptime if scene_kind.has_instances():
         debug_assert["safe", _use_compiler_assume=True](Bool(scene.instances))
         var instances = scene.instances.unsafe_value()
         var tlas_nodes = instances.tlas_nodes.unsafe_origin_cast[
@@ -254,7 +247,7 @@ def _gpu_rt_scene_trace_one[
             ]
 
     if not found:
-        comptime if ALGORITHM in (Integrator.PATH, Integrator.NEE, Integrator.MIS):
+        comptime if integrator in (Integrator.PATH, Integrator.NEE, Integrator.MIS):
             _accumulate_sample(
                 sample_radiance,
                 capacity,
@@ -266,7 +259,7 @@ def _gpu_rt_scene_trace_one[
 
     var oriented = orient_surface_normal(ray.d, outward)
     var normal = oriented.normal
-    comptime if ALGORITHM == .AO:
+    comptime if integrator == .AO:
         var ao_ray = _make_ao_ray(rng_seed, path, ray, closest_t, normal)
         _append_shadow[False](
             DeviceWaveShadow(
@@ -290,8 +283,8 @@ def _gpu_rt_scene_trace_one[
         )
         return
 
-    comptime if ALGORITHM in (Integrator.NEE, Integrator.MIS):
-        var direct = _sample_direct_light_candidate[ALGORITHM](
+    comptime if integrator in (Integrator.NEE, Integrator.MIS):
+        var direct = _sample_direct_light_candidate[integrator](
             path,
             ray,
             closest_t,
@@ -335,7 +328,7 @@ def _gpu_rt_scene_trace_one[
                 capacity,
             )
 
-    _route_surface_hit[ALGORITHM](
+    _route_surface_hit[integrator](
         idx,
         path,
         ray.d,
@@ -361,10 +354,8 @@ def _gpu_rt_scene_trace_one[
 
 
 def gpu_rt_scene_trace_kernel[
-    ALGORITHM: Integrator,
-    HAS_SPHERES: Bool,
-    HAS_TRIANGLES: Bool,
-    HAS_INSTANCES: Bool,
+    integrator: Integrator,
+    scene_kind: GpuRtSceneKind,
     node_width: SIMDLength,
     leaf_width: SIMDLength,
     triangle_node_width: SIMDLength,
@@ -387,10 +378,8 @@ def gpu_rt_scene_trace_kernel[
     var stride = Int(grid_dim.x * block_dim.x)
     while idx < active_count:
         _gpu_rt_scene_trace_one[
-            ALGORITHM,
-            HAS_SPHERES,
-            HAS_TRIANGLES,
-            HAS_INSTANCES,
+            integrator,
+            scene_kind,
             node_width,
             leaf_width,
             triangle_node_width,
@@ -407,9 +396,7 @@ def gpu_rt_scene_trace_kernel[
 
 @always_inline
 def _trace_scene_any[
-    HAS_SPHERES: Bool,
-    HAS_TRIANGLES: Bool,
-    HAS_INSTANCES: Bool,
+    scene_kind: GpuRtSceneKind,
     node_width: SIMDLength,
     leaf_width: SIMDLength,
     triangle_node_width: SIMDLength,
@@ -421,7 +408,7 @@ def _trace_scene_any[
     triangle_layout: GpuBvhLayout,
     blas_layout: GpuBvhLayout,
 ](scene: GpuRtSceneView, ray: Rayf32[.WORLD]) -> Bool:
-    comptime if HAS_SPHERES:
+    comptime if scene_kind.has_spheres():
         debug_assert["safe", _use_compiler_assume=True](Bool(scene.spheres))
         var spheres = scene.spheres.unsafe_value()
         var hit = trace_bounds_bvh[
@@ -438,42 +425,31 @@ def _trace_scene_any[
         )
         if hit.is_occluded():
             return True
-    comptime if HAS_TRIANGLES:
+    comptime if scene_kind.has_triangles():
         debug_assert["safe", _use_compiler_assume=True](Bool(scene.triangles))
         var triangles = scene.triangles.unsafe_value()
-        var hit = Hit[.WORLD].miss(ray.t_max)
-        comptime if triangle_layout.compressed:
-            hit = trace_cwbvh8_triangles[
+        var hit = trace_gpu_blas[
+            .WORLD,
+            triangle_node_width,
+            .ANY_HIT,
+            _intersect_triangle_leaf[
                 .WORLD,
+                triangle_leaf_width,
                 .ANY_HIT,
-            ](
-                triangles.nodes.unsafe_origin_cast[ImmutAnyOrigin](),
-                triangles.leaves.unsafe_origin_cast[ImmutAnyOrigin](),
-                triangles.root,
-                ray,
-            )
-        else:
-            hit = trace_bounds_bvh[
-                .WORLD,
-                triangle_node_width,
-                .ANY_HIT,
-                _intersect_triangle_leaf[
-                    .WORLD,
-                    triangle_leaf_width,
-                    .ANY_HIT,
-                    triangle_leaf_width > triangle_node_width
-                    or triangle_leaf_width == 8,
-                ],
-                triangle_node_width == 4,
-            ](
-                triangles.nodes.unsafe_origin_cast[ImmutAnyOrigin](),
-                triangles.leaves.unsafe_origin_cast[ImmutAnyOrigin](),
-                triangles.root,
-                ray,
-            )
+                triangle_leaf_width > triangle_node_width
+                or triangle_leaf_width == 8,
+            ],
+            triangle_layout,
+            triangle_node_width == 4,
+        ](
+            triangles.nodes.unsafe_origin_cast[ImmutAnyOrigin](),
+            triangles.leaves.unsafe_origin_cast[ImmutAnyOrigin](),
+            triangles.root,
+            ray,
+        )
         if hit.is_occluded():
             return True
-    comptime if HAS_INSTANCES:
+    comptime if scene_kind.has_instances():
         debug_assert["safe", _use_compiler_assume=True](Bool(scene.instances))
         var instances = scene.instances.unsafe_value()
         var hit = _trace_tlas_ray[
@@ -509,10 +485,8 @@ def _trace_scene_any[
 
 @always_inline
 def _gpu_rt_shadow_one[
-    ALGORITHM: Integrator,
-    HAS_SPHERES: Bool,
-    HAS_TRIANGLES: Bool,
-    HAS_INSTANCES: Bool,
+    integrator: Integrator,
+    scene_kind: GpuRtSceneKind,
     node_width: SIMDLength,
     leaf_width: SIMDLength,
     triangle_node_width: SIMDLength,
@@ -524,7 +498,7 @@ def _gpu_rt_shadow_one[
     triangle_layout: GpuBvhLayout,
     blas_layout: GpuBvhLayout,
 ](idx: Int, scene: GpuRtSceneView, queues: GpuRtTraceQueueView):
-    comptime assert ALGORITHM in (Integrator.AO, Integrator.NEE, Integrator.MIS)
+    comptime assert integrator in (Integrator.AO, Integrator.NEE, Integrator.MIS)
     var counters = queues.counters.unsafe_origin_cast[MutAnyOrigin]()
     var capacity = Int(queues.capacity)
     var path_ids = queues.shadow_path_ids.unsafe_mut_cast[
@@ -533,7 +507,7 @@ def _gpu_rt_shadow_one[
     var fields = queues.shadow_fields.unsafe_mut_cast[
         False
     ]().unsafe_origin_cast[ImmutAnyOrigin]()
-    var work = load_gpu_rt_shadow[ALGORITHM != .AO](
+    var work = load_gpu_rt_shadow[integrator != .AO](
         path_ids, fields, capacity, idx
     )
     var ray = Rayf32[.WORLD](
@@ -543,9 +517,7 @@ def _gpu_rt_shadow_one[
         work.t_max,
     )
     var occluded = _trace_scene_any[
-        HAS_SPHERES,
-        HAS_TRIANGLES,
-        HAS_INSTANCES,
+        scene_kind,
         node_width,
         leaf_width,
         triangle_node_width,
@@ -561,7 +533,7 @@ def _gpu_rt_shadow_one[
         MutAnyOrigin
     ]()
     var sample_base = queues.sample_base
-    comptime if ALGORITHM == .AO:
+    comptime if integrator == .AO:
         var value = Color(0.08) if occluded else Color(1.0)
         _accumulate_sample(
             sample_radiance, capacity, sample_base, work.path_id, value
@@ -578,10 +550,8 @@ def _gpu_rt_shadow_one[
 
 
 def gpu_rt_shadow_kernel[
-    ALGORITHM: Integrator,
-    HAS_SPHERES: Bool,
-    HAS_TRIANGLES: Bool,
-    HAS_INSTANCES: Bool,
+    integrator: Integrator,
+    scene_kind: GpuRtSceneKind,
     node_width: SIMDLength,
     leaf_width: SIMDLength,
     triangle_node_width: SIMDLength,
@@ -599,10 +569,8 @@ def gpu_rt_shadow_kernel[
     var stride = Int(grid_dim.x * block_dim.x)
     while idx < count:
         _gpu_rt_shadow_one[
-            ALGORITHM,
-            HAS_SPHERES,
-            HAS_TRIANGLES,
-            HAS_INSTANCES,
+            integrator,
+            scene_kind,
             node_width,
             leaf_width,
             triangle_node_width,
@@ -618,10 +586,8 @@ def gpu_rt_shadow_kernel[
 
 
 def enqueue_gpu_shadows[
-    ALGORITHM: Integrator,
-    HAS_SPHERES: Bool,
-    HAS_TRIANGLES: Bool,
-    HAS_INSTANCES: Bool,
+    integrator: Integrator,
+    scene_kind: GpuRtSceneKind,
     node_width: SIMDLength,
     leaf_width: SIMDLength,
     triangle_node_width: SIMDLength,
@@ -639,14 +605,12 @@ def enqueue_gpu_shadows[
     queues: GpuRtTraceQueueView,
     capacity: Int,
 ) raises:
-    """Submit the compact visibility stage when the algorithm needs it."""
-    comptime if ALGORITHM in (Integrator.AO, Integrator.NEE, Integrator.MIS):
+    """Submit the compact visibility stage when the integrator needs it."""
+    comptime if integrator in (Integrator.AO, Integrator.NEE, Integrator.MIS):
         ctx.enqueue_function[
             gpu_rt_shadow_kernel[
-                ALGORITHM,
-                HAS_SPHERES,
-                HAS_TRIANGLES,
-                HAS_INSTANCES,
+                integrator,
+                scene_kind,
                 node_width,
                 leaf_width,
                 triangle_node_width,

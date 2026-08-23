@@ -19,10 +19,9 @@ from bajo.rt import (
 from bajo.rt.cpu import render_depth_first, render_wavefront
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
 from bajo.rt.gpu.common_kernels import GPU_RT_MAX_BLOCKS
-from bajo.rt.gpu.triangle_path import (
-    GpuRtTriangleScene,
-    enqueue_render_gpu_triangles,
-)
+from bajo.rt.gpu.policy import GpuRtBvhPolicy, GPU_RT_BVH_WIDE4_LBVH
+from bajo.rt.gpu.scene import GpuRtScene, prepare_gpu_scene
+from bajo.rt.gpu.render import enqueue_render_gpu
 from bajo.benchmark.gpu_harness import (
     BENCH_REPEATS,
     IMAGE_HEIGHT,
@@ -69,13 +68,13 @@ struct GpuTiming:
 
 
 def _render_cpu[
-    ALGORITHM: Integrator
+    integrator: Integrator
 ](settings: RenderSettings, camera: Camera, world: CpuScene[]) -> RenderResult:
-    comptime if ALGORITHM == .AO:
-        return render_depth_first[ALGORITHM](settings, camera, world)
+    comptime if integrator == .AO:
+        return render_depth_first[integrator](settings, camera, world)
     else:
         return render_wavefront[
-            ALGORITHM,
+            integrator,
             CPU_PACKET_WIDTH,
             CPU_CHUNK_PATHS,
             True,
@@ -83,14 +82,14 @@ def _render_cpu[
 
 
 def _bench_cpu[
-    ALGORITHM: Integrator
+    integrator: Integrator
 ](settings: RenderSettings, camera: Camera, world: CpuScene[]) -> CpuTiming:
-    var warmup = _render_cpu[ALGORITHM](settings, camera, world)
+    var warmup = _render_cpu[integrator](settings, camera, world)
     var checksum = gpu_rt_checksum(warmup.pixels)
     var total_times = List[Int](capacity=BENCH_REPEATS)
     var render_times = List[Int](capacity=BENCH_REPEATS)
     for _ in range(BENCH_REPEATS):
-        var result = _render_cpu[ALGORITHM](settings, camera, world)
+        var result = _render_cpu[integrator](settings, camera, world)
         var current_checksum = gpu_rt_checksum(result.pixels)
         debug_assert["safe", _use_compiler_assume=True](
             current_checksum == checksum,
@@ -113,24 +112,20 @@ def _bench_cpu[
 
 
 def _bench_gpu[
-    ALGORITHM: Integrator,
+    integrator: Integrator,
     build_method: GpuBvhBuildMethod = .LBVH,
     layout: GpuBvhLayout = .WIDE,
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: GpuRtTriangleScene[NODE_WIDTH, LEAF_WIDTH, build_method, layout],
+    world: GpuRtScene[
+        .TRIANGLES,
+        GPU_RT_BVH_WIDE4_LBVH,
+        GpuRtBvhPolicy(NODE_WIDTH, LEAF_WIDTH, build_method, layout),
+    ],
     settings: RenderSettings,
 ) raises -> GpuTiming:
-    enqueue_render_gpu_triangles[
-        ALGORITHM,
-        NODE_WIDTH,
-        LEAF_WIDTH,
-        GPU_RT_MAX_BLOCKS,
-        GPU_RT_MAX_BLOCKS,
-        build_method,
-        layout,
-    ](ctx, target, world, settings)
+    enqueue_render_gpu[integrator](ctx, target, world, settings)
     var warmup_pixels = download_gpu_pixels(ctx, target)
     var checksum = gpu_rt_checksum(warmup_pixels)
     var submit_times = List[Int](capacity=BENCH_REPEATS)
@@ -138,15 +133,7 @@ def _bench_gpu[
     var host_times = List[Int](capacity=BENCH_REPEATS)
     for _ in range(BENCH_REPEATS):
         var t0 = perf_counter_ns()
-        enqueue_render_gpu_triangles[
-            ALGORITHM,
-            NODE_WIDTH,
-            LEAF_WIDTH,
-            GPU_RT_MAX_BLOCKS,
-            GPU_RT_MAX_BLOCKS,
-            build_method,
-            layout,
-        ](ctx, target, world, settings)
+        enqueue_render_gpu[integrator](ctx, target, world, settings)
         var submit_t1 = perf_counter_ns()
         ctx.synchronize()
         var device_t1 = perf_counter_ns()
@@ -252,18 +239,30 @@ def main() raises:
     var cpu_nee_64 = _bench_cpu[.NEE](settings, camera, many_light_world)
 
     with DeviceContext() as ctx:
-        var gpu_world = GpuRtTriangleScene[
-            NODE_WIDTH, LEAF_WIDTH, .LBVH, .WIDE
+        var gpu_world = prepare_gpu_scene[
+            kind=.TRIANGLES,
+            triangle_policy=GpuRtBvhPolicy(
+                NODE_WIDTH, LEAF_WIDTH, .LBVH, .WIDE
+            ),
         ](ctx, world.scene_data())
         var target = GpuRtRenderTarget(ctx, settings, camera)
-        var many_gpu_world = GpuRtTriangleScene[
-            NODE_WIDTH, LEAF_WIDTH, .LBVH, .WIDE
+        var many_gpu_world = prepare_gpu_scene[
+            kind=.TRIANGLES,
+            triangle_policy=GpuRtBvhPolicy(
+                NODE_WIDTH, LEAF_WIDTH, .LBVH, .WIDE
+            ),
         ](ctx, many_light_world.scene_data())
-        var cwbvh_world = GpuRtTriangleScene[
-            NODE_WIDTH, LEAF_WIDTH, .HPLOC, .CWBVH8
+        var cwbvh_world = prepare_gpu_scene[
+            kind=.TRIANGLES,
+            triangle_policy=GpuRtBvhPolicy(
+                NODE_WIDTH, LEAF_WIDTH, .HPLOC, .CWBVH8
+            ),
         ](ctx, world.scene_data())
-        var many_cwbvh_world = GpuRtTriangleScene[
-            NODE_WIDTH, LEAF_WIDTH, .HPLOC, .CWBVH8
+        var many_cwbvh_world = prepare_gpu_scene[
+            kind=.TRIANGLES,
+            triangle_policy=GpuRtBvhPolicy(
+                NODE_WIDTH, LEAF_WIDTH, .HPLOC, .CWBVH8
+            ),
         ](ctx, many_light_world.scene_data())
         ctx.synchronize()
         var gpu_path = _bench_gpu[.PATH](ctx, target, gpu_world, settings)

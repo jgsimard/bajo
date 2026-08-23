@@ -29,7 +29,6 @@ from bajo.core import (
     Point3,
     Vec3W,
     Point3W,
-    Frame,
 )
 
 

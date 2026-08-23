@@ -25,7 +25,7 @@ from bajo.bvh.cpu.builder.hploc import (
 from bajo.bvh.gpu.quality import measure_binary_bvh_quality
 from bajo.bvh.gpu.diagnostics import validate_binary_bvh
 from bajo.bvh.gpu.utils import upload_list
-from bajo.core import AABB, Frame, Point3f32, SegmentOffsets
+from bajo.core import AABB, Point3f32, SegmentOffsets
 
 
 @fieldwise_init

@@ -1,7 +1,6 @@
 """Emission and next-event estimation for CPU path integrators."""
 
 from bajo.core import (
-    Frame,
     Rayf32,
     Vec3,
     dot,
@@ -72,7 +71,7 @@ def emitted_radiance(
 
 @always_inline
 def _emissive_hit_weight[
-    ALGORITHM: Integrator,
+    integrator: Integrator,
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
 ](
@@ -83,11 +82,11 @@ def _emissive_hit_weight[
     previous_bsdf_pdf: Float32,
     previous_delta: Bool,
 ) -> Float32:
-    comptime assert ALGORITHM in (Integrator.PATH, Integrator.NEE, Integrator.MIS)
-    comptime if ALGORITHM == .NEE:
+    comptime assert integrator in (Integrator.PATH, Integrator.NEE, Integrator.MIS)
+    comptime if integrator == .NEE:
         if bounce > 0 and not previous_delta:
             return 0.0
-    elif ALGORITHM == .MIS:
+    elif integrator == .MIS:
         if bounce > 0 and not previous_delta:
             return power_heuristic[1](
                 previous_bsdf_pdf,
@@ -204,7 +203,7 @@ def _sample_direct_light[
 
 
 def sample_direct_lighting[
-    ALGORITHM: Integrator,
+    integrator: Integrator,
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
 ](
@@ -215,7 +214,7 @@ def sample_direct_lighting[
     mut rng: Rng,
 ) -> Color:
     """Sample direct illumination and apply the scalar reference BSDF."""
-    comptime assert ALGORITHM in (Integrator.NEE, Integrator.MIS)
+    comptime assert integrator in (Integrator.NEE, Integrator.MIS)
     var light = _sample_direct_light(world, point, rng)
     if not light.valid:
         return Color(0.0)
@@ -226,7 +225,7 @@ def sample_direct_lighting[
         point,
         light.direction,
     )
-    var scale = _direct_light_scale[ALGORITHM, 1](
+    var scale = _direct_light_scale[integrator, 1](
         light.surface_cosine,
         light.light_pdf,
         evaluation.pdf,

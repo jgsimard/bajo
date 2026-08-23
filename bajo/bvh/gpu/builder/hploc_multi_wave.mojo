@@ -38,7 +38,7 @@ from bajo.bvh.gpu.builder.hploc_wave import (
     hploc_wave_rank,
 )
 from bajo.bvh.gpu.utils import _device_span, upload_list
-from bajo.core import AABB, Frame, Point3f32, SegmentOffsets
+from bajo.core import AABB, Point3f32, SegmentOffsets
 
 
 comptime HPLOC_MULTI_WAVE_BLOCK_SIZE = 256

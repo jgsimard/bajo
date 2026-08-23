@@ -22,7 +22,7 @@ from bajo.bvh.gpu.utils import upload_camera
 from bajo.bvh.host_utils import compute_bounds, sphere_bounds
 from bajo.bvh.gpu import GpuBlasSet, GpuBvhLayout
 from bajo.bvh.types import BlasDescLayout, Hit, Instance, Sphere
-from bajo.core import AABB, Affine3f32, Frame, Point3f32, Vec3f32
+from bajo.core import AABB, Affine3f32, Point3f32, Vec3f32
 from test.bvh.fixtures import _make_camera_ray
 
 

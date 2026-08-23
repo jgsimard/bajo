@@ -3,7 +3,6 @@
 from std.math import sqrt
 
 from bajo.core import (
-    Frame,
     Point3f32,
     Vec3f32,
     cross,
@@ -161,18 +160,18 @@ def power_heuristic[
 
 @always_inline
 def _direct_light_scale[
-    ALGORITHM: Integrator, length: SIMDLength
+    integrator: Integrator, length: SIMDLength
 ](
     surface_cosine: SIMD[.float32, length],
     light_pdf: SIMD[.float32, length],
     bsdf_pdf: SIMD[.float32, length],
     valid: SIMD[.bool, length],
 ) -> SIMD[.float32, length]:
-    comptime assert ALGORITHM in (Integrator.NEE, Integrator.MIS)
+    comptime assert integrator in (Integrator.NEE, Integrator.MIS)
     var ok = valid & light_pdf.gt(0.0) & bsdf_pdf.gt(0.0)
     var safe_light_pdf = ok.select(light_pdf, Float32(1.0))
     var estimator_weight = SIMD[.float32, length](1.0)
-    comptime if ALGORITHM == .MIS:
+    comptime if integrator == .MIS:
         estimator_weight = power_heuristic(light_pdf, bsdf_pdf)
     return ok.select(
         surface_cosine * estimator_weight / safe_light_pdf, Float32(0.0)

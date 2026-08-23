@@ -13,7 +13,6 @@ from bajo.bvh.host_utils import compute_bounds
 from bajo.core import (
     AABB,
     Affine3f32,
-    Frame,
     Vec3,
     Vec3f32,
     assert_vec_equal,
@@ -922,7 +921,7 @@ def test_render_settings_and_tiny_render() raises:
     assert_equal(len(packet_result.pixels), len(result.pixels))
 
 
-def test_render_can_select_normal_algorithm_at_compile_time() raises:
+def test_render_can_select_normal_integrator_at_compile_time() raises:
     var settings = RenderSettings(1, 1, 1, UInt64(11))
     var builder = SceneBuilder()
     var matte = builder.add_lambertian(Color(0.5))
@@ -945,7 +944,7 @@ def test_render_can_select_normal_algorithm_at_compile_time() raises:
     assert_true(result.pixels[0].z >= result.pixels[0].x)
 
 
-def test_render_can_select_ao_algorithm_at_compile_time() raises:
+def test_render_can_select_ao_integrator_at_compile_time() raises:
     var settings = RenderSettings(1, 1, 2, UInt64(12))
     var builder = SceneBuilder()
     var matte = builder.add_lambertian(Color(0.5))
@@ -1093,7 +1092,7 @@ def test_packet_widths_match_width1_for_mixed_bsdfs() raises:
         assert_vec_equal(packet16.pixels[pixel_idx], pixel)
 
 
-def test_direct_light_algorithms_render_cornell() raises:
+def test_direct_light_integrators_render_cornell() raises:
     var settings = RenderSettings(8, 8, 2, UInt64(2026))
     var world = make_cornell_world()
     var camera = Camera.from_vfov(

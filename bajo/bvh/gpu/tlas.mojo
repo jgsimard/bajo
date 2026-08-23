@@ -2,7 +2,7 @@ from std.math import ceildiv, min
 from max.gpu.host import DeviceBuffer, DeviceContext
 from std.gpu import global_idx
 
-from bajo.core import AABB, Affine3f32, Frame, Rayf32
+from bajo.core import AABB, Affine3f32, Rayf32
 from bajo.bvh.constants import (
     TraceMode,
     EMPTY_LANE,
@@ -27,9 +27,9 @@ from bajo.bvh.gpu.camera_launch import (
     _store_camera_hit,
 )
 from bajo.bvh.gpu.sphere_bvh import _intersect_sphere_leaf
+from bajo.bvh.gpu.blas_trace import trace_gpu_blas
 from bajo.bvh.gpu.triangle_bvh import (
     _intersect_triangle_leaf,
-    trace_cwbvh8_triangles,
 )
 from bajo.bvh.gpu.trace import (
     GpuLeafFn,
@@ -121,18 +121,13 @@ def _intersect_tlas_instance_block[
                 Int(blas_desc.leaf_f32_base)
             )
             var local_root = blas_desc.root_idx
-            var local_hit: Hit[.LOCAL]
-            comptime if blas_layout.compressed:
-                local_hit = trace_cwbvh8_triangles[.LOCAL, mode](
-                    local_nodes, local_leaves, local_root, local_ray
-                )
-            else:
-                local_hit = trace_bounds_bvh[
-                    .LOCAL,
-                    blas_node_width,
-                    mode,
-                    blas_leaf_fn,
-                ](local_nodes, local_leaves, local_root, local_ray)
+            var local_hit = trace_gpu_blas[
+                .LOCAL,
+                blas_node_width,
+                mode,
+                blas_leaf_fn,
+                blas_layout,
+            ](local_nodes, local_leaves, local_root, local_ray)
 
             comptime if mode == .ANY_HIT:
                 if local_hit.is_occluded():

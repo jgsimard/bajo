@@ -9,7 +9,6 @@ from bajo.core import (
     Vec3f32,
     Affine3f32,
     Point3f32,
-    Frame,
     Rayf32,
 )
 from bajo.bvh.constants import f32_max

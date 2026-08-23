@@ -1,6 +1,6 @@
 """Shared inputs for GPU BVH diagnostics."""
 
-from bajo.core import Frame, Point3f32, AABB
+from bajo.core import Point3f32, AABB
 
 
 def flatten_triangle_bounds(

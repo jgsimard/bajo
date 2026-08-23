@@ -1,6 +1,6 @@
 """Shared CPU path state, Philox stream selection, and ray helpers."""
 
-from bajo.core import Frame, Rayf32
+from bajo.core import Rayf32
 from bajo.core.random import Rng, random_in_unit_disk
 from bajo.bvh import Camera
 from bajo.rt.types import RenderSettings, ShadingPoint, SurfaceHit

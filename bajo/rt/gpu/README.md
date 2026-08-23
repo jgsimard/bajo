@@ -37,7 +37,7 @@ streams, or output order.
 1. Primary generation writes the active path queue and clears per-sample
    radiance.
 2. One compile-time-specialized scene-trace kernel reads active paths. Geometry
-   flags erase absent sphere, triangle, or instance paths at compile time. Hits
+   absent from `GpuRtSceneKind` is erased at compile time. Hits
    fuse Lambertian BSDF sampling into hit routing, append non-Lambertian tagged
    material records, and compact AO/direct-light visibility work.
 3. One any-hit shadow kernel consumes deferred visibility work.
@@ -69,7 +69,7 @@ together with their Philox subsequences.
 
 ## Renderer status
 
-`render_gpu[ALGORITHM, node_width, leaf_width]` is the general entry
+`render_gpu[integrator, node_width, leaf_width]` is the general entry
 point. It dispatches by scene contents to compile-time-specialized sphere,
 triangle, mixed-static, instance-only, or combined static-plus-instance
 pipelines. It accepts backend-neutral `SceneData`, so GPU-only callers do not
@@ -89,13 +89,23 @@ A caller that needs both backends can prepare the GPU scene from `SceneData`
 first, then move the same data into `CpuScene`; a GPU-only caller never needs a
 `CpuScene` or imports CPU acceleration code through the neutral type layer.
 
+`GpuRtScene[kind, sphere_policy, triangle_policy, tlas_policy, blas_policy]`
+is the sole prepared-scene owner. `prepare_gpu_scene` builds exactly the device
+resources selected by `kind`; absent geometry does not allocate dummy buffers
+or require a separate owner type. `GpuRtBvhPolicy` carries builder, layout, and
+node/leaf widths together instead of repeating positional generic parameters
+through every layer. `enqueue_render_gpu` submits every prepared scene through
+one API, while `render_gpu_scene` is the synchronous explicit-policy entry
+point.
+
 Triangle-only rendering defaults to H-PLOC construction and native CWBVH8
 traversal (`node8/leaf4`). Instance rendering defaults to TLAS2/leaf1 and
 selects its BLAS specialization once on the host: H-PLOC+CWBVH8 when the
 instance-weighted mean mesh size is at least 32 triangles, otherwise
 LBVH+wide4 for micro-BLASes. This policy follows the measured crossover and
-adds no format branch to device traversal. Geometry-specific APIs retain the
-full compile-time builder, node/leaf width, and compressed/wide overrides.
+adds no runtime format branch to device traversal. Explicit callers retain the
+full compile-time builder, node/leaf width, and compressed/wide overrides by
+constructing policy values.
 
 Mixed and combined scenes specialize sphere BVH, static-triangle, TLAS, and
 BLAS widths independently. Their static triangles reuse the same wide/CWBVH
@@ -113,14 +123,10 @@ BSDF, lighting, Philox-stage, sky, and Russian-roulette math from the shared RT
 namespace; GPU code does not depend on the CPU renderer namespace.
 
 `GpuRtRenderTarget` retains path/shade/shadow queues, camera data, and
-device-resident pixels. Each geometry specialization exposes an asynchronous
-`enqueue_render_gpu_*` API for hot submission. The convenience `render_gpu_*`
-functions keep the original allocate, synchronize, and download behavior.
-
-The geometry-specific `render_gpu_spheres`, `render_gpu_triangles`,
-`render_gpu_mixed`, `render_gpu_triangle_instances`, and
-`render_gpu_combined_instances` entry points remain public for callers that
-want an explicit specialization.
+device-resident pixels. `enqueue_render_gpu` is asynchronous for hot
+submission. `render_gpu_scene` allocates, synchronizes, and downloads for an
+explicit scene kind and policy set; `render_gpu` additionally selects the kind
+and size-sensitive default policies from backend-neutral `SceneData`.
 
 ## CPU/GPU performance comparison
 

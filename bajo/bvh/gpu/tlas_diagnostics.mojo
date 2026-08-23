@@ -27,7 +27,7 @@ from bajo.bvh.tlas_common import (
 )
 from bajo.bvh.gpu.blas_storage import GpuBlasSet, GpuBvhLayout
 from bajo.bvh.types import BlasDesc, Hit
-from bajo.core import Affine3f32, Frame, Rayf32
+from bajo.core import Affine3f32, Rayf32
 
 
 @fieldwise_init
@@ -360,21 +360,24 @@ def trace_tlas_camera_diagnostic_kernel(
 
 
 def launch_triangle_tlas_camera_diagnostics[
+    tlas_node_width: SIMDLength,
     blas_node_width: SIMDLength,
+    tlas_leaf_width: SIMDLength,
     blas_leaf_width: SIMDLength,
+    layout: GpuBvhLayout,
 ](
     ctx: DeviceContext,
     tlas: GpuTlas[
         .TRIANGLE,
-        2,
+        tlas_node_width,
         blas_node_width,
-        1,
+        tlas_leaf_width,
         blas_leaf_width,
-        GpuBvhLayout.CWBVH8,
+        layout,
     ],
     blases: GpuBlasSet[
         .TRIANGLE,
-        GpuBvhLayout.CWBVH8,
+        layout,
         blas_node_width,
         blas_leaf_width,
     ],
@@ -385,6 +388,9 @@ def launch_triangle_tlas_camera_diagnostics[
     width: Int,
     height: Int,
 ) raises:
+    comptime assert tlas_node_width == 2
+    comptime assert tlas_leaf_width == 1
+    comptime assert layout == .CWBVH8
     debug_assert["safe", _use_compiler_assume=True](
         len(stats) >= ray_count * GpuTlasTraversalStats.STRIDE,
         "TLAS diagnostic stats buffer is too short",

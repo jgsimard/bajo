@@ -5,11 +5,10 @@ from std.sys import has_accelerator
 from max.gpu.host import DeviceContext, DeviceBuffer
 
 from bajo.bvh.gpu.trace import GpuTraversalStats
-from bajo.bvh.gpu.triangle_bvh import build_triangle_bvh
+from bajo.bvh.gpu.triangle_bvh import build_gpu_triangle_bvh
 from bajo.bvh.gpu.utils import upload_list, upload_vertices
 from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.types import Hit
-from bajo.core import Frame
 from bajo.parser.obj.pack import pack_obj_triangles
 from bajo.benchmark.bvh_fixtures import make_camera_rays_and_params
 
@@ -30,7 +29,7 @@ def _collect_and_print_triangle_stats[
     d_camera_params: DeviceBuffer[.float32],
     ray_count: Int,
 ) raises:
-    var bvh = build_triangle_bvh[.WORLD, node_width, leaf_width](
+    var bvh = build_gpu_triangle_bvh[.WORLD, node_width, leaf_width](
         ctx, d_vertices
     )
     var d_hits = ctx.enqueue_create_buffer[.float32](

@@ -17,15 +17,15 @@ from bajo.core import (
     AABB,
     AxisAlignedBoundingBox,
     Mat33f32,
-    Frame,
     GeoKind,
+    Frame,
 )
 from bajo.core.random import Rng
 
 
 comptime num_elements = 100_000
 
-comptime BENCH_FRAME = .WORLD
+comptime BENCH_FRAME = Frame.WORLD
 comptime BenchAABB = AABB[BENCH_FRAME]
 comptime BenchVec3f32 = Vec3f32[BENCH_FRAME]
 comptime BenchPoint3f32 = Point3f32[BENCH_FRAME]

@@ -10,7 +10,7 @@ from bajo.bvh.wide_meta import (
     _wide_meta_data,
     _wide_node_index,
 )
-from bajo.core import AABB, Frame
+from bajo.core import AABB
 
 
 @fieldwise_init

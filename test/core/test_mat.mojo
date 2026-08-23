@@ -13,7 +13,6 @@ from bajo.core.mat import (
     assert_mat_equal,
 )
 from bajo.core.utils import degrees_to_radians
-from bajo.core.frame import Frame
 
 
 def test_basics() raises:

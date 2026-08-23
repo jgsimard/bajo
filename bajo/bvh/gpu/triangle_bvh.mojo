@@ -60,6 +60,7 @@ from bajo.bvh.gpu.camera_launch import (
     _camera_ray,
     _store_camera_hit,
 )
+from bajo.bvh.gpu.camera_trace import trace_bvh_camera_kernel
 from bajo.bvh.gpu.ray_launch import (
     validate_ray_launch,
     _load_packed_ray,
@@ -490,6 +491,7 @@ def build_gpu_triangle_blas_set[
         comptime assert False, "unknown GPU BVH layout"
 
 
+@fieldwise_init
 struct GpuTriangleBvh[
     frame: Frame,
     node_width: SIMDLength,
@@ -503,18 +505,6 @@ struct GpuTriangleBvh[
         Int(Self.leaf_width),
     ]
     var leaf_vertices: DeviceBuffer[.float32]
-
-    def __init__(
-        out self,
-        var tree: GpuWideBoundsBvh[
-            Self.node_width,
-            Self.leaf_width,
-            Int(Self.leaf_width),
-        ],
-        var leaf_vertices: DeviceBuffer[.float32],
-    ):
-        self.tree = tree^
-        self.leaf_vertices = leaf_vertices^
 
     def launch_camera(
         self,
@@ -530,9 +520,12 @@ struct GpuTriangleBvh[
             d_camera_params, d_hits, ray_count, cwidth, cheight
         )
 
-        ctx.enqueue_function[
-            trace_triangle_bvh_camera_kernel[Self.node_width, Self.leaf_width]
-        ](
+        comptime kernel = trace_bvh_camera_kernel[
+            _trace_triangle_bvh_camera_ray[
+                Self.node_width, Self.leaf_width
+            ]
+        ]
+        ctx.enqueue_function[kernel](
             self.tree.wide_nodes,
             self.leaf_vertices,
             self.tree.root_idx,
@@ -613,7 +606,7 @@ struct GpuTriangleBvh[
         )
 
 
-def build_triangle_bvh[
+def build_gpu_triangle_bvh[
     frame: Frame,
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
@@ -624,12 +617,12 @@ def build_triangle_bvh[
 ) raises -> GpuTriangleBvh[frame, node_width, leaf_width]:
     """Build one triangle segment through the unified segmented driver."""
     var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
-    return _build_triangle_bvh_segmented[
+    return _build_gpu_triangle_bvh[
         frame, node_width, leaf_width, build_method
     ](ctx, vertices, timings, False)
 
 
-def build_triangle_bvh_measured[
+def build_gpu_triangle_bvh_measured[
     frame: Frame,
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
@@ -640,12 +633,12 @@ def build_triangle_bvh_measured[
     mut timings: GpuBuildTimings,
 ) raises -> GpuTriangleBvh[frame, node_width, leaf_width]:
     """Build a ready triangle BVH and populate per-stage timings."""
-    return _build_triangle_bvh_segmented[
+    return _build_gpu_triangle_bvh[
         frame, node_width, leaf_width, build_method
     ](ctx, vertices, timings, True)
 
 
-def _build_triangle_bvh_segmented[
+def _build_gpu_triangle_bvh[
     frame: Frame,
     node_width: SIMDLength,
     leaf_width: SIMDLength,
@@ -726,39 +719,19 @@ def compute_triangle_bounds_kernel[
     payloads.unsafe_get(tri_idx) = UInt32(tri_idx)
 
 
-def trace_triangle_bvh_camera_kernel[
+@always_inline
+def _trace_triangle_bvh_camera_ray[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
 ](
     wide_nodes: Pointer[Float32, ImmutAnyOrigin],
     leaf_vertices: Pointer[Float32, ImmutAnyOrigin],
     root_idx: UInt32,
-    camera_params: Pointer[Float32, ImmutAnyOrigin],
-    hits: Pointer[Float32, MutAnyOrigin],
-    ray_count: Int32,
-    width_px: Int32,
-    height_px: Int32,
-    inv_height: Float32,
-):
-    var ray_count_int = Int(ray_count)
-    var width_px_int = Int(width_px)
-    var height_px_int = Int(height_px)
-    var ray_idx = global_idx.x
-    if ray_idx >= ray_count_int:
-        return
-
-    var ray = _camera_ray(
-        camera_params,
-        ray_count_int,
-        ray_idx,
-        width_px_int,
-        height_px_int,
-        inv_height,
-    )
-
+    ray: Rayf32[.WORLD],
+) -> Hit[.WORLD]:
     # extra distance stack benchmarks positively for triangle BVH4;
     # BVH8 retains the lower-memory stack specialization.
-    var hit = trace_bounds_bvh[
+    return trace_bounds_bvh[
         .WORLD,
         node_width,
         .CLOSEST_HIT,
@@ -771,7 +744,6 @@ def trace_triangle_bvh_camera_kernel[
         node_width == 4,
         node_width == 2 and leaf_width == 2,
     ](wide_nodes, leaf_vertices, root_idx, ray)
-    _store_camera_hit(hit, hits, ray_count_int, ray_idx)
 
 
 def trace_triangle_bvh_rays_kernel[

@@ -1,41 +1,35 @@
-"""Generic GPU RT entry point selecting a geometry-specialized pipeline."""
+"""Unified prepared and synchronous GPU RT entry points."""
+
+from std.time import perf_counter_ns
+from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh import Camera
-from bajo.bvh.gpu import GpuBvhBuildMethod, GpuBvhLayout
-from max.gpu.host import DeviceContext
-from bajo.rt.types import Integrator, RenderResult, RenderSettings, SceneData
+from bajo.rt.gpu.bounce import enqueue_gpu_rt_bounce
 from bajo.rt.gpu.common_kernels import GPU_RT_MAX_BLOCKS
-from bajo.rt.gpu.resources import GpuRtRenderTarget
-from bajo.rt.gpu.instance_path import (
-    GpuRtTriangleInstanceScene,
-    enqueue_render_gpu_triangle_instances,
-    render_gpu_triangle_instances,
+from bajo.rt.gpu.policy import (
+    GpuRtBvhPolicy,
+    GpuRtSceneKind,
+    GPU_RT_BVH_CWBVH8_HPLOC,
+    GPU_RT_BVH_TLAS2_LBVH,
+    GPU_RT_BVH_WIDE4_LBVH,
 )
-from bajo.rt.gpu.combined_instance_path import (
-    GpuRtCombinedInstanceScene,
-    enqueue_render_gpu_combined_instances,
-    render_gpu_combined_instances,
+from bajo.rt.gpu.resources import (
+    GpuRtRenderTarget,
+    download_gpu_pixels,
+    enqueue_gpu_wavefront,
 )
-from bajo.rt.gpu.mixed_path import (
-    GpuRtMixedScene,
-    enqueue_render_gpu_mixed,
-    render_gpu_mixed,
-)
-from bajo.rt.gpu.sphere_path import (
-    GpuRtSphereScene,
-    enqueue_render_gpu_spheres,
-    render_gpu_spheres,
-)
-from bajo.rt.gpu.triangle_path import (
-    GpuRtTriangleScene,
-    enqueue_render_gpu_triangles,
-    render_gpu_triangles,
+from bajo.rt.gpu.scene import GpuRtScene, prepare_gpu_scene
+from bajo.rt.gpu.wavefront_contract import GpuWavefrontArena
+from bajo.rt.types import (
+    Color,
+    Integrator,
+    RenderResult,
+    RenderSettings,
+    RenderTimings,
+    SceneData,
 )
 
 
-# A CWBVH node can encode up to 24 leaf triangles. Below this scale there is
-# little hierarchy to compress, and the task-mask setup costs more than wide4
-# traversal. Select once on the host so device kernels remain format-specialized.
 comptime GPU_RT_CWBVH8_BLAS_TRIANGLE_THRESHOLD = 32
 
 
@@ -53,282 +47,195 @@ def _prefer_cwbvh8_blases(world: SceneData) -> Bool:
             len(world.triangle_meshes()[Int(instance.blas_idx)]) / 3
         )
     return weighted_triangles >= (
-        len(world.triangle_instances()) * GPU_RT_CWBVH8_BLAS_TRIANGLE_THRESHOLD
+        len(world.triangle_instances())
+        * GPU_RT_CWBVH8_BLAS_TRIANGLE_THRESHOLD
     )
 
 
-@always_inline
-def enqueue_render_gpu[
-    ALGORITHM: Integrator = .PATH,
-    node_width: SIMDLength = 4,
-    leaf_width: SIMDLength = node_width,
+def _enqueue_scene_bounce[
+    integrator: Integrator,
+    kind: GpuRtSceneKind,
+    sphere_policy: GpuRtBvhPolicy,
+    triangle_policy: GpuRtBvhPolicy,
+    tlas_policy: GpuRtBvhPolicy,
+    blas_policy: GpuRtBvhPolicy,
+    MAX_BLOCKS: Int,
+    SHADOW_MAX_BLOCKS: Int,
 ](
     ctx: DeviceContext,
-    mut target: GpuRtRenderTarget,
-    scene: GpuRtSphereScene[node_width, leaf_width],
-    settings: RenderSettings,
+    arena: GpuWavefrontArena,
+    world: GpuRtScene[
+        kind, sphere_policy, triangle_policy, tlas_policy, blas_policy
+    ],
+    src_path_ids: DeviceBuffer[.uint32],
+    src_path_fields: DeviceBuffer[.float32],
+    dst_path_ids: DeviceBuffer[.uint32],
+    dst_path_fields: DeviceBuffer[.float32],
+    rng_seed: UInt64,
+    bounce: UInt32,
 ) raises:
-    """Submit a prepared sphere scene using the common GPU entry point."""
-    enqueue_render_gpu_spheres[ALGORITHM, node_width, leaf_width](
-        ctx, target, scene, settings
-    )
-
-
-@always_inline
-def enqueue_render_gpu[
-    ALGORITHM: Integrator = .PATH,
-    node_width: SIMDLength = 8,
-    leaf_width: SIMDLength = 4,
-    MAX_BLOCKS: Int = GPU_RT_MAX_BLOCKS,
-    SHADOW_MAX_BLOCKS: Int = MAX_BLOCKS,
-    build_method: GpuBvhBuildMethod = .HPLOC,
-    layout: GpuBvhLayout = GpuBvhLayout(
-        node_width == 8 and leaf_width == 4
-    ),
-](
-    ctx: DeviceContext,
-    mut target: GpuRtRenderTarget,
-    scene: GpuRtTriangleScene[node_width, leaf_width, build_method, layout],
-    settings: RenderSettings,
-) raises:
-    """Submit a prepared static-triangle scene."""
-    enqueue_render_gpu_triangles[
-        ALGORITHM,
-        node_width,
-        leaf_width,
+    enqueue_gpu_rt_bounce[
+        integrator,
+        kind,
+        sphere_policy.node_width,
+        sphere_policy.leaf_width,
+        triangle_policy.node_width,
+        triangle_policy.leaf_width,
+        tlas_policy.node_width,
+        tlas_policy.leaf_width,
+        blas_policy.node_width,
+        blas_policy.leaf_width,
         MAX_BLOCKS,
         SHADOW_MAX_BLOCKS,
-        build_method,
-        layout,
-    ](ctx, target, scene, settings)
+        triangle_policy.layout,
+        blas_policy.layout,
+    ](
+        ctx,
+        arena,
+        world.view(),
+        world.shading.materials,
+        src_path_ids,
+        src_path_fields,
+        dst_path_ids,
+        dst_path_fields,
+        rng_seed,
+        bounce,
+    )
 
 
-@always_inline
 def enqueue_render_gpu[
-    ALGORITHM: Integrator = .PATH,
-    node_width: SIMDLength = 4,
-    leaf_width: SIMDLength = node_width,
-    triangle_node_width: SIMDLength = 8,
-    triangle_leaf_width: SIMDLength = 4,
-    triangle_build_method: GpuBvhBuildMethod = .HPLOC,
-    triangle_layout: GpuBvhLayout = GpuBvhLayout(
-        triangle_node_width == 8 and triangle_leaf_width == 4
-    ),
+    integrator: Integrator = .PATH,
+    kind: GpuRtSceneKind = .ALL,
+    sphere_policy: GpuRtBvhPolicy = GPU_RT_BVH_WIDE4_LBVH,
+    triangle_policy: GpuRtBvhPolicy = GPU_RT_BVH_CWBVH8_HPLOC,
+    tlas_policy: GpuRtBvhPolicy = GPU_RT_BVH_TLAS2_LBVH,
+    blas_policy: GpuRtBvhPolicy = GPU_RT_BVH_CWBVH8_HPLOC,
+    MAX_BLOCKS: Int = GPU_RT_MAX_BLOCKS,
+    SHADOW_MAX_BLOCKS: Int = MAX_BLOCKS,
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    scene: GpuRtMixedScene[
-        node_width,
-        leaf_width,
-        triangle_node_width,
-        triangle_leaf_width,
-        triangle_build_method,
-        triangle_layout,
+    world: GpuRtScene[
+        kind, sphere_policy, triangle_policy, tlas_policy, blas_policy
     ],
     settings: RenderSettings,
 ) raises:
-    """Submit a prepared mixed static scene."""
-    enqueue_render_gpu_mixed[
-        ALGORITHM,
-        node_width,
-        leaf_width,
-        triangle_node_width,
-        triangle_leaf_width,
-        triangle_build_method,
-        triangle_layout,
-    ](ctx, target, scene, settings)
+    """Submit any prepared scene through one compile-time-specialized path."""
+    enqueue_gpu_wavefront[
+        integrator,
+        _enqueue_scene_bounce[
+            integrator,
+            kind,
+            sphere_policy,
+            triangle_policy,
+            tlas_policy,
+            blas_policy,
+            MAX_BLOCKS,
+            SHADOW_MAX_BLOCKS,
+        ],
+    ](ctx, target, world, settings)
 
 
-@always_inline
-def enqueue_render_gpu[
-    ALGORITHM: Integrator = .PATH,
-    tlas_node_width: SIMDLength = 2,
-    tlas_leaf_width: SIMDLength = tlas_node_width,
-    blas_node_width: SIMDLength = 8,
-    blas_leaf_width: SIMDLength = 4,
-    blas_build_method: GpuBvhBuildMethod = .HPLOC,
-    blas_layout: GpuBvhLayout = GpuBvhLayout(
-        blas_node_width == 8 and blas_leaf_width == 4
-    ),
-    tlas_build_method: GpuBvhBuildMethod = .LBVH,
-](
-    ctx: DeviceContext,
-    mut target: GpuRtRenderTarget,
-    scene: GpuRtTriangleInstanceScene[
-        tlas_node_width,
-        blas_node_width,
-        tlas_leaf_width,
-        blas_leaf_width,
-        blas_build_method,
-        blas_layout,
-        tlas_build_method,
-    ],
-    settings: RenderSettings,
-) raises:
-    """Submit a prepared triangle-instance scene."""
-    enqueue_render_gpu_triangle_instances[
-        ALGORITHM,
-        tlas_node_width,
-        tlas_leaf_width,
-        blas_node_width,
-        blas_leaf_width,
-        blas_build_method,
-        blas_layout,
-        tlas_build_method,
-    ](ctx, target, scene, settings)
-
-
-@always_inline
-def enqueue_render_gpu[
-    ALGORITHM: Integrator = .PATH,
-    HAS_SPHERES: Bool = False,
-    HAS_TRIANGLES: Bool = False,
-    node_width: SIMDLength = 4,
-    leaf_width: SIMDLength = node_width,
-    tlas_node_width: SIMDLength = 2,
-    tlas_leaf_width: SIMDLength = 2,
-    blas_node_width: SIMDLength = 8,
-    blas_leaf_width: SIMDLength = 4,
-    blas_build_method: GpuBvhBuildMethod = .HPLOC,
-    blas_layout: GpuBvhLayout = GpuBvhLayout(
-        blas_node_width == 8 and blas_leaf_width == 4
-    ),
-    triangle_node_width: SIMDLength = 8,
-    triangle_leaf_width: SIMDLength = 4,
-    triangle_build_method: GpuBvhBuildMethod = .HPLOC,
-    triangle_layout: GpuBvhLayout = GpuBvhLayout(
-        triangle_node_width == 8 and triangle_leaf_width == 4
-    ),
-    tlas_build_method: GpuBvhBuildMethod = .LBVH,
-](
-    ctx: DeviceContext,
-    mut target: GpuRtRenderTarget,
-    scene: GpuRtCombinedInstanceScene[
-        HAS_SPHERES,
-        HAS_TRIANGLES,
-        node_width,
-        leaf_width,
-        tlas_node_width,
-        tlas_leaf_width,
-        blas_node_width,
-        blas_leaf_width,
-        blas_build_method,
-        blas_layout,
-        triangle_node_width,
-        triangle_leaf_width,
-        triangle_build_method,
-        triangle_layout,
-        tlas_build_method,
-    ],
-    settings: RenderSettings,
-) raises:
-    """Submit a prepared static-plus-instanced scene."""
-    enqueue_render_gpu_combined_instances[
-        ALGORITHM,
-        HAS_SPHERES,
-        HAS_TRIANGLES,
-        node_width,
-        leaf_width,
-        tlas_node_width,
-        tlas_leaf_width,
-        blas_node_width,
-        blas_leaf_width,
-        blas_build_method,
-        blas_layout,
-        triangle_node_width,
-        triangle_leaf_width,
-        triangle_build_method,
-        triangle_layout,
-        tlas_build_method,
-    ](ctx, target, scene, settings)
-
-
-def _render_gpu_combined_default[
-    ALGORITHM: Integrator,
-    HAS_SPHERES: Bool,
-    HAS_TRIANGLES: Bool,
-    node_width: SIMDLength,
-    leaf_width: SIMDLength,
+def render_gpu_scene[
+    kind: GpuRtSceneKind,
+    integrator: Integrator = .PATH,
+    sphere_policy: GpuRtBvhPolicy = GPU_RT_BVH_WIDE4_LBVH,
+    triangle_policy: GpuRtBvhPolicy = GPU_RT_BVH_CWBVH8_HPLOC,
+    tlas_policy: GpuRtBvhPolicy = GPU_RT_BVH_TLAS2_LBVH,
+    blas_policy: GpuRtBvhPolicy = GPU_RT_BVH_CWBVH8_HPLOC,
 ](
     settings: RenderSettings,
     camera: Camera,
     world: SceneData,
 ) raises -> RenderResult:
+    """Render one explicitly selected scene shape and policy set."""
+    comptime assert integrator.is_valid()
+    var total_t0 = perf_counter_ns()
+    var pixel_count = settings.image_width * settings.image_height
+    var sample_count = pixel_count * settings.samples_per_pixel
+    var pixels: List[Color]
+    var init_ns: Int
+    var render_ns: Int
+
+    with DeviceContext() as ctx:
+        var init_t0 = perf_counter_ns()
+        var gpu_world = prepare_gpu_scene[
+            kind,
+            sphere_policy,
+            triangle_policy,
+            tlas_policy,
+            blas_policy,
+        ](ctx, world)
+        var target = GpuRtRenderTarget(ctx, settings, camera)
+        init_ns = Int(perf_counter_ns() - init_t0)
+
+        var render_t0 = perf_counter_ns()
+        enqueue_render_gpu[integrator](ctx, target, gpu_world, settings)
+        pixels = download_gpu_pixels(ctx, target)
+        render_ns = Int(perf_counter_ns() - render_t0)
+
+    return RenderResult(
+        pixels^,
+        RenderTimings(
+            Int(perf_counter_ns() - total_t0),
+            init_ns,
+            render_ns,
+            pixel_count,
+            sample_count,
+            settings.max_depth,
+        ),
+    )
+
+
+def _render_gpu_instances_default[
+    kind: GpuRtSceneKind,
+    integrator: Integrator,
+    sphere_policy: GpuRtBvhPolicy,
+](
+    settings: RenderSettings,
+    camera: Camera,
+    world: SceneData,
+) raises -> RenderResult:
+    comptime assert kind.has_instances()
     if _prefer_cwbvh8_blases(world):
-        if HAS_TRIANGLES and _prefer_cwbvh8_triangles(world):
-            return render_gpu_combined_instances[
-                ALGORITHM,
-                HAS_SPHERES,
-                HAS_TRIANGLES,
-                node_width,
-                leaf_width,
-                2,
-                1,
-                8,
-                4,
-                .HPLOC,
-                .CWBVH8,
-                8,
-                4,
-                .HPLOC,
-                .CWBVH8,
+        if kind.has_triangles() and _prefer_cwbvh8_triangles(world):
+            return render_gpu_scene[
+                kind,
+                integrator,
+                sphere_policy,
+                GPU_RT_BVH_CWBVH8_HPLOC,
+                GPU_RT_BVH_TLAS2_LBVH,
+                GPU_RT_BVH_CWBVH8_HPLOC,
             ](settings, camera, world)
-        return render_gpu_combined_instances[
-            ALGORITHM,
-            HAS_SPHERES,
-            HAS_TRIANGLES,
-            node_width,
-            leaf_width,
-            2,
-            1,
-            8,
-            4,
-            .HPLOC,
-            .CWBVH8,
-            4,
-            4,
-            .LBVH,
-            .WIDE,
+        return render_gpu_scene[
+            kind,
+            integrator,
+            sphere_policy,
+            GPU_RT_BVH_WIDE4_LBVH,
+            GPU_RT_BVH_TLAS2_LBVH,
+            GPU_RT_BVH_CWBVH8_HPLOC,
         ](settings, camera, world)
-    if HAS_TRIANGLES and _prefer_cwbvh8_triangles(world):
-        return render_gpu_combined_instances[
-            ALGORITHM,
-            HAS_SPHERES,
-            HAS_TRIANGLES,
-            node_width,
-            leaf_width,
-            2,
-            1,
-            4,
-            4,
-            .LBVH,
-            .WIDE,
-            8,
-            4,
-            .HPLOC,
-            .CWBVH8,
+    if kind.has_triangles() and _prefer_cwbvh8_triangles(world):
+        return render_gpu_scene[
+            kind,
+            integrator,
+            sphere_policy,
+            GPU_RT_BVH_CWBVH8_HPLOC,
+            GPU_RT_BVH_TLAS2_LBVH,
+            GPU_RT_BVH_WIDE4_LBVH,
         ](settings, camera, world)
-    return render_gpu_combined_instances[
-        ALGORITHM,
-        HAS_SPHERES,
-        HAS_TRIANGLES,
-        node_width,
-        leaf_width,
-        2,
-        1,
-        4,
-        4,
-        .LBVH,
-        .WIDE,
-        4,
-        4,
-        .LBVH,
-        .WIDE,
+    return render_gpu_scene[
+        kind,
+        integrator,
+        sphere_policy,
+        GPU_RT_BVH_WIDE4_LBVH,
+        GPU_RT_BVH_TLAS2_LBVH,
+        GPU_RT_BVH_WIDE4_LBVH,
     ](settings, camera, world)
 
 
 def render_gpu[
-    ALGORITHM: Integrator = .PATH,
+    integrator: Integrator = .PATH,
     node_width: SIMDLength = 4,
     leaf_width: SIMDLength = node_width,
 ](
@@ -336,88 +243,58 @@ def render_gpu[
     camera: Camera,
     world: SceneData,
 ) raises -> RenderResult:
-    """Render supported geometry with compile-time algorithm/BVH specialization.
-    """
-    comptime assert ALGORITHM.is_valid()
-    
+    """Select a scene shape on the host; all device paths remain specialized."""
+    comptime assert integrator.is_valid()
+    comptime sphere_policy = GpuRtBvhPolicy(
+        Int(node_width), Int(leaf_width), .LBVH, .WIDE
+    )
+
     if len(world.triangle_instances()) > 0:
         if len(world.spheres()) > 0:
             if len(world.triangle_vertices()) > 0:
-                return _render_gpu_combined_default[
-                    ALGORITHM,
-                    True,
-                    True,
-                    node_width,
-                    leaf_width,
+                return _render_gpu_instances_default[
+                    .ALL, integrator, sphere_policy
                 ](settings, camera, world)
-            return _render_gpu_combined_default[
-                ALGORITHM,
-                True,
-                False,
-                node_width,
-                leaf_width,
+            return _render_gpu_instances_default[
+                .SPHERES_INSTANCES, integrator, sphere_policy
             ](settings, camera, world)
         if len(world.triangle_vertices()) > 0:
-            return _render_gpu_combined_default[
-                ALGORITHM,
-                False,
-                True,
-                node_width,
-                leaf_width,
+            return _render_gpu_instances_default[
+                .TRIANGLES_INSTANCES, integrator, sphere_policy
             ](settings, camera, world)
-        if _prefer_cwbvh8_blases(world):
-            return render_gpu_triangle_instances[
-                ALGORITHM,
-                2,
-                1,
-                8,
-                4,
-                .HPLOC,
-                .CWBVH8,
-            ](settings, camera, world)
-        return render_gpu_triangle_instances[
-            ALGORITHM,
-            2,
-            1,
-            4,
-            4,
-            .LBVH,
-            .WIDE,
+        return _render_gpu_instances_default[
+            .INSTANCES, integrator, sphere_policy
         ](settings, camera, world)
+
     if len(world.spheres()) > 0:
         if len(world.triangle_vertices()) > 0:
-            if not _prefer_cwbvh8_triangles(world):
-                return render_gpu_mixed[
-                    ALGORITHM,
-                    node_width,
-                    leaf_width,
-                    4,
-                    4,
-                    .LBVH,
-                    .WIDE,
+            if _prefer_cwbvh8_triangles(world):
+                return render_gpu_scene[
+                    .SPHERES_TRIANGLES,
+                    integrator,
+                    sphere_policy,
+                    GPU_RT_BVH_CWBVH8_HPLOC,
                 ](settings, camera, world)
-            return render_gpu_mixed[
-                ALGORITHM,
-                node_width,
-                leaf_width,
+            return render_gpu_scene[
+                .SPHERES_TRIANGLES,
+                integrator,
+                sphere_policy,
+                GPU_RT_BVH_WIDE4_LBVH,
             ](settings, camera, world)
-        return render_gpu_spheres[
-            ALGORITHM,
-            node_width,
-            leaf_width,
-        ](settings, camera, world)
+        return render_gpu_scene[.SPHERES, integrator, sphere_policy](
+            settings, camera, world
+        )
+
     if _prefer_cwbvh8_triangles(world):
-        return render_gpu_triangles[
-            ALGORITHM,
-            8,
-            4,
-            .HPLOC,
-            .CWBVH8,
+        return render_gpu_scene[
+            .TRIANGLES,
+            integrator,
+            sphere_policy,
+            GPU_RT_BVH_CWBVH8_HPLOC,
         ](settings, camera, world)
-    return render_gpu_triangles[
-        ALGORITHM,
-        4,
-        4,
-        .LBVH,
-        .WIDE,
+    return render_gpu_scene[
+        .TRIANGLES,
+        integrator,
+        sphere_policy,
+        GPU_RT_BVH_WIDE4_LBVH,
     ](settings, camera, world)

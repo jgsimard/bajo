@@ -116,7 +116,7 @@ def update_gpu_camera(
 
 
 def enqueue_gpu_primary[
-    ALGORITHM: Integrator,
+    integrator: Integrator,
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
@@ -138,7 +138,7 @@ def enqueue_gpu_primary[
     )
     target.arena.sample_base = UInt32(sample_begin)
     enqueue_wavefront_begin(ctx, target.arena, active_count)
-    ctx.enqueue_function[gpu_rt_primary_kernel[ALGORITHM]](
+    ctx.enqueue_function[gpu_rt_primary_kernel[integrator]](
         target.camera,
         target.arena.path_a.path_ids,
         target.arena.path_a.fields,
@@ -187,7 +187,7 @@ def enqueue_gpu_resolve(
 def enqueue_gpu_wavefront[
     Scene: AnyType,
     //,
-    ALGORITHM: Integrator,
+    integrator: Integrator,
     bounce_fn: def(
         DeviceContext,
         GpuWavefrontArena,
@@ -206,17 +206,17 @@ def enqueue_gpu_wavefront[
     settings: RenderSettings,
 ) raises:
     """Compile-time scheduler shared by every geometry specialization."""
-    comptime assert ALGORITHM.is_valid()
+    comptime assert integrator.is_valid()
 
     var sample_begin = 0
     while sample_begin < target.sample_count:
         var chunk_sample_count = min(
             target.arena.capacity, target.sample_count - sample_begin
         )
-        enqueue_gpu_primary[ALGORITHM](
+        enqueue_gpu_primary[integrator](
             ctx, target, settings, sample_begin, chunk_sample_count
         )
-        comptime if ALGORITHM in (Integrator.NORMALS, Integrator.AO):
+        comptime if integrator in (Integrator.NORMALS, Integrator.AO):
             bounce_fn(
                 ctx,
                 target.arena,

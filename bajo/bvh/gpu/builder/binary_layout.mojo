@@ -2,7 +2,7 @@ from std.math import max, ceildiv
 from max.gpu.host import DeviceBuffer, DeviceContext
 from std.gpu import global_idx
 
-from bajo.core import AABB, Frame, SegmentOffsets
+from bajo.core import AABB, SegmentOffsets
 from bajo.bvh.constants import (
     BinaryBvhNode,
     REDUCED_BOUNDS_STRIDE,

@@ -7,7 +7,7 @@ from max.gpu.host import DeviceContext
 
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.host_utils import compute_bounds
-from bajo.core import Affine3f32, Frame, Point3f32, Vec3f32
+from bajo.core import Affine3f32, Point3f32, Vec3f32
 from bajo.core.utils import ns_to_ms
 from bajo.rt import (
     Camera,
@@ -17,11 +17,14 @@ from bajo.rt import (
     SceneBuilder,
     CpuScene,
 )
-from bajo.rt.gpu.instance_path import (
-    GpuRtTriangleInstanceScene,
-    enqueue_render_gpu_triangle_instances,
+from bajo.rt.gpu.policy import (
+    GpuRtBvhPolicy,
+    GPU_RT_BVH_CWBVH8_HPLOC,
+    GPU_RT_BVH_WIDE4_LBVH,
 )
+from bajo.rt.gpu.render import enqueue_render_gpu
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
+from bajo.rt.gpu.scene import GpuRtScene, prepare_gpu_scene
 from bajo.benchmark.gpu_harness import (
     BENCH_REPEATS,
     IMAGE_HEIGHT,
@@ -47,7 +50,11 @@ struct TlasRtLayoutResult(Copyable):
 
 
 def _warm_world_build(mut ctx: DeviceContext, world: CpuScene[]) raises:
-    _ = GpuRtTriangleInstanceScene[2, 4, 1, 4](ctx, world.scene_data())
+    _ = prepare_gpu_scene[
+        .INSTANCES,
+        tlas_policy=GpuRtBvhPolicy(2, 1, .LBVH, .WIDE),
+        blas_policy=GpuRtBvhPolicy(4, 4, .HPLOC, .WIDE),
+    ](ctx, world.scene_data())
     ctx.synchronize()
 
 
@@ -99,8 +106,8 @@ def _camera() -> Camera:
     )
 
 
-def _bench_algorithm[
-    ALGORITHM: Integrator,
+def _bench_integrator[
+    integrator: Integrator,
     tlas_node_width: SIMDLength,
     tlas_leaf_width: SIMDLength,
     blas_node_width: SIMDLength,
@@ -109,42 +116,26 @@ def _bench_algorithm[
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: GpuRtTriangleInstanceScene[
-        tlas_node_width,
-        blas_node_width,
-        tlas_leaf_width,
-        blas_leaf_width,
-        .HPLOC,
-        .WIDE,
-        tlas_build_method,
+    world: GpuRtScene[
+        .INSTANCES,
+        GPU_RT_BVH_WIDE4_LBVH,
+        GPU_RT_BVH_CWBVH8_HPLOC,
+        GpuRtBvhPolicy(
+            tlas_node_width, tlas_leaf_width, tlas_build_method, .WIDE
+        ),
+        GpuRtBvhPolicy(
+            blas_node_width, blas_leaf_width, .HPLOC, .WIDE
+        ),
     ],
     settings: RenderSettings,
 ) raises -> GpuRtBenchResult:
-    enqueue_render_gpu_triangle_instances[
-        ALGORITHM,
-        tlas_node_width,
-        tlas_leaf_width,
-        blas_node_width,
-        blas_leaf_width,
-        .HPLOC,
-        .WIDE,
-        tlas_build_method,
-    ](ctx, target, world, settings)
+    enqueue_render_gpu[integrator](ctx, target, world, settings)
     ctx.synchronize()
     var submit = List[Int](capacity=BENCH_REPEATS)
     var render = List[Int](capacity=BENCH_REPEATS)
     for _ in range(BENCH_REPEATS):
         var t0 = perf_counter_ns()
-        enqueue_render_gpu_triangle_instances[
-            ALGORITHM,
-            tlas_node_width,
-            tlas_leaf_width,
-            blas_node_width,
-            blas_leaf_width,
-            .HPLOC,
-            .WIDE,
-            tlas_build_method,
-        ](ctx, target, world, settings)
+        enqueue_render_gpu[integrator](ctx, target, world, settings)
         var t1 = perf_counter_ns()
         ctx.synchronize()
         var t2 = perf_counter_ns()
@@ -168,18 +159,18 @@ def _run_layout[
     label: String,
 ) raises -> TlasRtLayoutResult:
     var t0 = perf_counter_ns()
-    var gpu_world = GpuRtTriangleInstanceScene[
-        tlas_node_width,
-        blas_node_width,
-        tlas_leaf_width,
-        blas_leaf_width,
-        .HPLOC,
-        .WIDE,
-        tlas_build_method,
+    var gpu_world = prepare_gpu_scene[
+        .INSTANCES,
+        tlas_policy=GpuRtBvhPolicy(
+            tlas_node_width, tlas_leaf_width, tlas_build_method, .WIDE
+        ),
+        blas_policy=GpuRtBvhPolicy(
+            blas_node_width, blas_leaf_width, .HPLOC, .WIDE
+        ),
     ](ctx, world.scene_data())
     ctx.synchronize()
     var build_ns = Int(perf_counter_ns() - t0)
-    var path = _bench_algorithm[
+    var path = _bench_integrator[
         .PATH,
         tlas_node_width,
         tlas_leaf_width,
@@ -187,7 +178,7 @@ def _run_layout[
         blas_leaf_width,
         tlas_build_method,
     ](ctx, target, gpu_world, settings)
-    var ao = _bench_algorithm[
+    var ao = _bench_integrator[
         .AO,
         tlas_node_width,
         tlas_leaf_width,
@@ -195,7 +186,7 @@ def _run_layout[
         blas_leaf_width,
         tlas_build_method,
     ](ctx, target, gpu_world, settings)
-    var nee = _bench_algorithm[
+    var nee = _bench_integrator[
         .NEE,
         tlas_node_width,
         tlas_leaf_width,
@@ -203,7 +194,7 @@ def _run_layout[
         blas_leaf_width,
         tlas_build_method,
     ](ctx, target, gpu_world, settings)
-    var mis = _bench_algorithm[
+    var mis = _bench_integrator[
         .MIS,
         tlas_node_width,
         tlas_leaf_width,
@@ -214,10 +205,10 @@ def _run_layout[
     return TlasRtLayoutResult(label, build_ns, path^, ao^, nee^, mis^)
 
 
-def _print_algorithm_row(
+def _print_integrator_row(
     table: TablePrinter,
     layout: String,
-    algorithm: String,
+    integrator: String,
     build_ns: Int,
     result: GpuRtBenchResult,
     sample_count: Int,
@@ -227,7 +218,7 @@ def _print_algorithm_row(
     )
     table.result_line(
         layout=layout,
-        algorithm=algorithm,
+        integrator=integrator,
         build_ms=String(t"{round(ns_to_ms(build_ns), 3)}"),
         submit_ms=String(t"{round(ns_to_ms(result.median_submit_ns), 3)}"),
         render_ms=String(t"{round(ns_to_ms(result.median_render_ns), 3)}"),
@@ -243,16 +234,16 @@ def _print_layout(
     result: TlasRtLayoutResult,
     sample_count: Int,
 ) raises:
-    _print_algorithm_row(
+    _print_integrator_row(
         table, result.label, "PATH", result.build_ns, result.path, sample_count
     )
-    _print_algorithm_row(
+    _print_integrator_row(
         table, result.label, "AO", result.build_ns, result.ao, sample_count
     )
-    _print_algorithm_row(
+    _print_integrator_row(
         table, result.label, "NEE", result.build_ns, result.nee, sample_count
     )
-    _print_algorithm_row(
+    _print_integrator_row(
         table, result.label, "MIS", result.build_ns, result.mis, sample_count
     )
 
@@ -333,7 +324,7 @@ def main() raises:
 
         var table = TablePrinter(
             layout=32,
-            algorithm=9,
+            integrator=9,
             build_ms=9,
             submit_ms=10,
             render_ms=10,

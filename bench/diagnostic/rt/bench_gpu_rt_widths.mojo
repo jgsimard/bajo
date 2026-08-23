@@ -5,10 +5,12 @@ from std.sys import has_accelerator
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceContext
 
+from bajo.bvh.gpu import GpuBvhLayout
 from bajo.core.utils import ns_to_ms
 from bajo.rt import RenderSettings, CpuScene
+from bajo.rt.gpu.policy import GpuRtBvhPolicy
 from bajo.rt.gpu.resources import GpuRtRenderTarget
-from bajo.rt.gpu.triangle_path import GpuRtTriangleScene
+from bajo.rt.gpu.scene import prepare_gpu_scene
 from bajo.benchmark.gpu_harness import (
     BENCH_REPEATS,
     IMAGE_HEIGHT,
@@ -16,7 +18,7 @@ from bajo.benchmark.gpu_harness import (
     MAX_DEPTH,
     RNG_SEED,
     SAMPLES_PER_PIXEL,
-    bench_gpu_triangle_algorithm,
+    bench_gpu_triangle_integrator,
     gpu_rt_camera,
     print_gpu_rt_result,
 )
@@ -35,16 +37,22 @@ def _run_layout[
     label: String,
 ) raises:
     var build_t0 = perf_counter_ns()
-    var gpu_world = GpuRtTriangleScene[node_width, leaf_width](
-        ctx, world.scene_data()
-    )
+    var gpu_world = prepare_gpu_scene[
+        .TRIANGLES,
+        triangle_policy=GpuRtBvhPolicy(
+            node_width,
+            leaf_width,
+            .HPLOC,
+            GpuBvhLayout(node_width == 8 and leaf_width == 4),
+        ),
+    ](ctx, world.scene_data())
     ctx.synchronize()
     var build_ns = Int(perf_counter_ns() - build_t0)
     print(t"\n{label}: scene upload + BVH={round(ns_to_ms(build_ns), 3)} ms")
-    var path = bench_gpu_triangle_algorithm[
+    var path = bench_gpu_triangle_integrator[
         .PATH, node_width, leaf_width
     ](ctx, target, gpu_world, settings)
-    var nee = bench_gpu_triangle_algorithm[.NEE, node_width, leaf_width](
+    var nee = bench_gpu_triangle_integrator[.NEE, node_width, leaf_width](
         ctx, target, gpu_world, settings
     )
     print_gpu_rt_result("PATH", path, sample_count)

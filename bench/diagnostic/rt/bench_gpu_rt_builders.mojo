@@ -8,7 +8,7 @@ from max.gpu.host import DeviceContext
 from bajo.bvh.gpu import GpuBvhLayout
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.host_utils import compute_bounds
-from bajo.core import Frame, Vec3f32
+from bajo.core import Vec3f32
 from bajo.core.utils import ns_to_ms
 from bajo.parser.obj.pack import pack_obj_triangles
 from bajo.rt import (
@@ -19,8 +19,9 @@ from bajo.rt import (
     CpuScene,
 )
 from bajo.rt.gpu.common_kernels import GPU_RT_MAX_BLOCKS
+from bajo.rt.gpu.policy import GpuRtBvhPolicy
 from bajo.rt.gpu.resources import GpuRtRenderTarget
-from bajo.rt.gpu.triangle_path import GpuRtTriangleScene
+from bajo.rt.gpu.scene import prepare_gpu_scene
 from bajo.benchmark.gpu_harness import (
     BENCH_REPEATS,
     IMAGE_HEIGHT,
@@ -30,7 +31,7 @@ from bajo.benchmark.gpu_harness import (
     NODE_WIDTH,
     RNG_SEED,
     SAMPLES_PER_PIXEL,
-    bench_gpu_triangle_algorithm,
+    bench_gpu_triangle_integrator,
     gpu_rt_camera,
     print_gpu_rt_result,
 )
@@ -74,15 +75,18 @@ def _run_builder[
     label: String,
 ) raises:
     var build_t0 = perf_counter_ns()
-    var gpu_world = GpuRtTriangleScene[
-        NODE_WIDTH, LEAF_WIDTH, method, layout
+    var gpu_world = prepare_gpu_scene[
+        .TRIANGLES,
+        triangle_policy=GpuRtBvhPolicy(
+            NODE_WIDTH, LEAF_WIDTH, method, layout
+        ),
     ](ctx, world.scene_data())
     ctx.synchronize()
     var build_ns = Int(perf_counter_ns() - build_t0)
     print(t"\n{label}: scene upload + BVH={round(ns_to_ms(build_ns), 3)} ms")
     print_gpu_rt_result(
         "PATH",
-        bench_gpu_triangle_algorithm[
+        bench_gpu_triangle_integrator[
             .PATH,
             NODE_WIDTH,
             LEAF_WIDTH,
@@ -95,7 +99,7 @@ def _run_builder[
     )
     print_gpu_rt_result(
         "AO",
-        bench_gpu_triangle_algorithm[
+        bench_gpu_triangle_integrator[
             .AO,
             NODE_WIDTH,
             LEAF_WIDTH,
@@ -108,7 +112,7 @@ def _run_builder[
     )
     print_gpu_rt_result(
         "NEE",
-        bench_gpu_triangle_algorithm[
+        bench_gpu_triangle_integrator[
             .NEE,
             NODE_WIDTH,
             LEAF_WIDTH,
@@ -121,7 +125,7 @@ def _run_builder[
     )
     print_gpu_rt_result(
         "MIS",
-        bench_gpu_triangle_algorithm[
+        bench_gpu_triangle_integrator[
             .MIS,
             NODE_WIDTH,
             LEAF_WIDTH,

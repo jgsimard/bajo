@@ -6,7 +6,6 @@ from bajo.bvh.host_utils import compute_bounds
 from bajo.core import (
     AABB,
     Affine3f32,
-    Frame,
     Point3f32,
     Quat,
     Vec3f32,

@@ -4,7 +4,7 @@ from std.sys import has_accelerator
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceContext, DeviceBuffer
 
-from bajo.core import Frame, AABB, Vec3f32, Point3f32, Rayf32, SegmentOffsets
+from bajo.core import AABB, Vec3f32, Point3f32, Rayf32, SegmentOffsets
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.bvh.host_utils import compute_bounds, sphere_bounds
 from bajo.bvh.constants import (
@@ -22,13 +22,13 @@ from bajo.bvh.cpu.blas_set import (
 )
 from bajo.bvh.gpu.sphere_bvh import (
     GpuSphereBvh,
-    build_sphere_bvh,
-    build_sphere_bvh_measured,
+    build_gpu_sphere_bvh,
+    build_gpu_sphere_bvh_measured,
 )
 from bajo.bvh.gpu.triangle_bvh import (
     GpuTriangleBvh,
-    build_triangle_bvh,
-    build_triangle_bvh_measured,
+    build_gpu_triangle_bvh,
+    build_gpu_triangle_bvh_measured,
     compute_triangle_bounds_kernel,
     trace_cwbvh8_triangles,
 )
@@ -670,12 +670,12 @@ def _run_width[
     reference_hit_count: UInt32,
     repeats: Int,
 ) raises -> GpuBenchResult:
-    _ = build_triangle_bvh[.WORLD, node_width, leaf_width](ctx, d_vertices)
+    _ = build_gpu_triangle_bvh[.WORLD, node_width, leaf_width](ctx, d_vertices)
     ctx.synchronize()
 
     var build0 = perf_counter_ns()
     var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
-    var bvh = build_triangle_bvh_measured[.WORLD, node_width, leaf_width](
+    var bvh = build_gpu_triangle_bvh_measured[.WORLD, node_width, leaf_width](
         ctx, d_vertices, timings
     )
     ctx.synchronize()
@@ -803,12 +803,12 @@ def _run_sphere_width[
     reference_hit_count: UInt32,
     repeats: Int,
 ) raises -> GpuBenchResult:
-    _ = build_sphere_bvh[.WORLD, node_width, leaf_width](ctx, spheres)
+    _ = build_gpu_sphere_bvh[.WORLD, node_width, leaf_width](ctx, spheres)
     ctx.synchronize()
 
     var build0 = perf_counter_ns()
     var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
-    var bvh = build_sphere_bvh_measured[.WORLD, node_width, leaf_width](
+    var bvh = build_gpu_sphere_bvh_measured[.WORLD, node_width, leaf_width](
         ctx, spheres, timings
     )
     ctx.synchronize()
@@ -989,13 +989,13 @@ def run_benchmark() raises:
             len(rays) * Hit[.WORLD].STRIDE
         )
 
-        var any_bvh2 = build_triangle_bvh[.WORLD, 2, 2](ctx, d_vertices)
+        var any_bvh2 = build_gpu_triangle_bvh[.WORLD, 2, 2](ctx, d_vertices)
         ctx.synchronize()
         var any2 = _bench_any_hit_triangle[2, 2](
             ctx, any_bvh2, d_trace_rays, d_any_hits, len(rays), BENCH_REPEATS
         )
 
-        var any_bvh2_leaf4 = build_triangle_bvh[.WORLD, 2, 4](
+        var any_bvh2_leaf4 = build_gpu_triangle_bvh[.WORLD, 2, 4](
             ctx, d_vertices
         )
         ctx.synchronize()

@@ -39,9 +39,8 @@ from bajo.bvh.gpu.builder.segmented_build import (
 from bajo.bvh.gpu.blas_finalize import finalize_ordinary_wide_blas_set
 from bajo.bvh.gpu.camera_launch import (
     validate_camera_launch,
-    _camera_ray,
-    _store_camera_hit,
 )
+from bajo.bvh.gpu.camera_trace import trace_bvh_camera_kernel
 from bajo.bvh.gpu.trace import trace_bounds_bvh
 from bajo.bvh.gpu.utils import (
     GpuBuildTimings,
@@ -270,6 +269,7 @@ def build_gpu_sphere_blas_set[
     return adapter^.into_blas_set(ctx)
 
 
+@fieldwise_init
 struct GpuSphereBvh[
     frame: Frame,
     node_width: SIMDLength,
@@ -277,14 +277,6 @@ struct GpuSphereBvh[
 ]:
     var tree: GpuWideBoundsBvh[Self.node_width, Self.leaf_width]
     var leaf_spheres: DeviceBuffer[.float32]
-
-    def __init__(
-        out self,
-        var tree: GpuWideBoundsBvh[Self.node_width, Self.leaf_width],
-        var leaf_spheres: DeviceBuffer[.float32],
-    ):
-        self.tree = tree^
-        self.leaf_spheres = leaf_spheres^
 
     def launch_camera(
         self,
@@ -299,9 +291,10 @@ struct GpuSphereBvh[
         validate_camera_launch(
             d_camera_params, d_hits, ray_count, cwidth, cheight
         )
-        ctx.enqueue_function[
-            trace_sphere_bvh_camera_kernel[Self.node_width, Self.leaf_width]
-        ](
+        comptime kernel = trace_bvh_camera_kernel[
+            _trace_sphere_bvh_camera_ray[Self.node_width, Self.leaf_width]
+        ]
+        ctx.enqueue_function[kernel](
             self.tree.wide_nodes,
             self.leaf_spheres,
             self.tree.root_idx,
@@ -316,7 +309,7 @@ struct GpuSphereBvh[
         )
 
 
-def build_sphere_bvh[
+def build_gpu_sphere_bvh[
     frame: Frame,
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
@@ -325,12 +318,12 @@ def build_sphere_bvh[
     spheres: ImmSpan[Sphere[frame], _],
 ) raises -> GpuSphereBvh[frame, node_width, leaf_width]:
     var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
-    return _build_sphere_bvh[frame, node_width, leaf_width](
+    return _build_gpu_sphere_bvh[frame, node_width, leaf_width](
         ctx, spheres, timings, False
     )
 
 
-def build_sphere_bvh_measured[
+def build_gpu_sphere_bvh_measured[
     frame: Frame,
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
@@ -339,12 +332,12 @@ def build_sphere_bvh_measured[
     spheres: ImmSpan[Sphere[frame], _],
     mut timings: GpuBuildTimings,
 ) raises -> GpuSphereBvh[frame, node_width, leaf_width]:
-    return _build_sphere_bvh[frame, node_width, leaf_width](
+    return _build_gpu_sphere_bvh[frame, node_width, leaf_width](
         ctx, spheres, timings, True
     )
 
 
-def _build_sphere_bvh[
+def _build_gpu_sphere_bvh[
     frame: Frame,
     node_width: SIMDLength,
     leaf_width: SIMDLength,
@@ -368,39 +361,19 @@ def _build_sphere_bvh[
     return adapter^.into_bvh(ctx, timings, measure_build)
 
 
-def trace_sphere_bvh_camera_kernel[
+@always_inline
+def _trace_sphere_bvh_camera_ray[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
 ](
     wide_nodes: Pointer[Float32, ImmutAnyOrigin],
     leaf_spheres: Pointer[Float32, ImmutAnyOrigin],
     root_idx: UInt32,
-    camera_params: Pointer[Float32, ImmutAnyOrigin],
-    hits: Pointer[Float32, MutAnyOrigin],
-    ray_count: Int32,
-    width_px: Int32,
-    height_px: Int32,
-    inv_height: Float32,
-):
-    var ray_count_int = Int(ray_count)
-    var width_px_int = Int(width_px)
-    var height_px_int = Int(height_px)
-    var ray_idx = global_idx.x
-    if ray_idx >= ray_count_int:
-        return
-
-    var ray = _camera_ray(
-        camera_params,
-        ray_count_int,
-        ray_idx,
-        width_px_int,
-        height_px_int,
-        inv_height,
-    )
-
+    ray: Rayf32[.WORLD],
+) -> Hit[.WORLD]:
     # extra distance stack benchmarks positively for sphere BVH2
     # BVH4 and BVH8 retain the lower-memory stack specialization
-    var hit = trace_bounds_bvh[
+    return trace_bounds_bvh[
         .WORLD,
         node_width,
         .CLOSEST_HIT,
@@ -416,7 +389,6 @@ def trace_sphere_bvh_camera_kernel[
         root_idx,
         ray,
     )
-    _store_camera_hit(hit, hits, ray_count_int, ray_idx)
 
 
 def _intersect_sphere_leaf[

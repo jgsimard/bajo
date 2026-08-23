@@ -9,7 +9,7 @@ from bajo.bvh.cpu import (
 )
 from bajo.bvh.types import BlasDesc
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
-from bajo.core import Frame, Point3f32, Rayf32
+from bajo.core import Point3f32, Rayf32
 from bajo.benchmark.bvh_fixtures import (
     PRIM_COUNT,
     RAY_COUNT,

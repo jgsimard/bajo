@@ -4,7 +4,6 @@ from std.math import sqrt
 
 from bajo.bvh.constants import f32_max
 from bajo.core import (
-    Frame,
     Point3,
     Point3f32,
     Rayf32,
@@ -79,7 +78,7 @@ struct _DirectLightBatch[length: SIMDLength]:
 
 @always_inline
 def _accumulate_direct_light_packet[
-    ALGORITHM: Integrator, length: SIMDLength
+    integrator: Integrator, length: SIMDLength
 ](
     pixels: MutSpan[Color, _],
     paths: PathPacket[length],
@@ -89,7 +88,7 @@ def _accumulate_direct_light_packet[
     samples_per_pixel: Int,
 ):
     """Evaluate collected NEE candidates with packet-wide BSDF and MIS math."""
-    comptime assert ALGORITHM in (Integrator.NEE, Integrator.MIS)
+    comptime assert integrator in (Integrator.NEE, Integrator.MIS)
     var ray_direction = Vec3[.float32, .WORLD, length](
         paths.dx, paths.dy, paths.dz
     )
@@ -132,7 +131,7 @@ def _accumulate_direct_light_packet[
     var pdf = is_lambertian.select(lambertian.pdf, metal.pdf)
     var supported = is_lambertian | is_metal
     var ok = lights.sample.valid & supported & pdf.gt(0.0)
-    var scale = _direct_light_scale[ALGORITHM, length](
+    var scale = _direct_light_scale[integrator, length](
         lights.sample.surface_cosine,
         lights.sample.light_pdf,
         pdf,
@@ -307,7 +306,7 @@ def _shade_material_packets[
 
 def _trace_path_packets[
     length: SIMDLength,
-    ALGORITHM: Integrator,
+    integrator: Integrator,
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
 ](
@@ -320,7 +319,7 @@ def _trace_path_packets[
     mut metal_queue: PacketShadeQueue[length],
     mut dielectric_queue: PacketShadeQueue[length],
 ):
-    comptime assert ALGORITHM in (Integrator.PATH, Integrator.NEE, Integrator.MIS)
+    comptime assert integrator in (Integrator.PATH, Integrator.NEE, Integrator.MIS)
     for bounce in range(settings.max_depth):
         if len(active_paths) == 0:
             break
@@ -365,7 +364,7 @@ def _trace_path_packets[
                         Int(packet.path_ids[lane]) / settings.samples_per_pixel
                     )
                     if hit.surface.kind() == .EMISSIVE:
-                        var emission_weight = _emissive_hit_weight[ALGORITHM](
+                        var emission_weight = _emissive_hit_weight[integrator](
                             world,
                             ray,
                             hit,
@@ -388,7 +387,7 @@ def _trace_path_packets[
                         )
                         continue
 
-                    comptime if ALGORITHM != .PATH:
+                    comptime if integrator != .PATH:
                         var point = ShadingPoint(
                             ray.o + hit.t * ray.d,
                             hit.normal,
@@ -454,7 +453,7 @@ def _trace_path_packets[
                 else:
                     misses[lane] = True
 
-            comptime if ALGORITHM != .PATH:
+            comptime if integrator != .PATH:
                 var shadow_rays = Ray[.float32, .WORLD, length](
                     direct_lights.point.p,
                     direct_lights.sample.direction,
@@ -464,7 +463,7 @@ def _trace_path_packets[
                 direct_lights.sample.valid &= ~world.occluded(
                     shadow_rays, direct_lights.sample.valid
                 )
-                _accumulate_direct_light_packet[ALGORITHM, length](
+                _accumulate_direct_light_packet[integrator, length](
                     pixels,
                     packet,
                     direct_lights,

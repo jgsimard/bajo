@@ -4,7 +4,7 @@ from std.sys import has_accelerator
 from std.testing import TestSuite, assert_true
 from max.gpu.host import DeviceContext, DeviceBuffer
 
-from bajo.core import Vec3f32, Point3f32, Frame, AABB
+from bajo.core import Vec3f32, Point3f32, AABB
 from bajo.bvh.types import Sphere, Hit
 from bajo.bvh.host_utils import sphere_bounds
 from bajo.bvh.constants import (
@@ -33,8 +33,8 @@ from bajo.bvh.gpu.diagnostics import (
     validate_binary_bvh,
 )
 from bajo.bvh.wide_meta import _wide_meta_count, _wide_meta_data
-from bajo.bvh.gpu.sphere_bvh import build_sphere_bvh
-from bajo.bvh.gpu.triangle_bvh import build_triangle_bvh
+from bajo.bvh.gpu.sphere_bvh import build_gpu_sphere_bvh
+from bajo.bvh.gpu.triangle_bvh import build_gpu_triangle_bvh
 from bajo.bvh.gpu.trace import GpuTraversalStats
 from bajo.bvh.gpu.utils import (
     GpuBuildTimings,
@@ -256,7 +256,7 @@ def _assert_gpu_triangle_matches_cpu_camera[
 
     with DeviceContext() as ctx:
         var d_verts = upload_vertices(ctx, verts)
-        var gpu_bvh = build_triangle_bvh[.WORLD, node_width, leaf_width](
+        var gpu_bvh = build_gpu_triangle_bvh[.WORLD, node_width, leaf_width](
             ctx, d_verts
         )
         assert_true(
@@ -407,7 +407,7 @@ def _assert_segmented_gpu_triangle_matches_cpu_camera[
 
     with DeviceContext() as ctx:
         var d_verts = upload_vertices(ctx, verts)
-        var gpu_bvh = build_triangle_bvh[.WORLD, 2, 2, build_method](
+        var gpu_bvh = build_gpu_triangle_bvh[.WORLD, 2, 2, build_method](
             ctx, d_verts
         )
         var d_camera = upload_list(ctx, camera_params)
@@ -449,7 +449,7 @@ def _assert_sphere_matches_bruteforce_camera[
     var cpu_checksum = _trace_cpu_spheres_bruteforce(spheres, rays)
 
     with DeviceContext() as ctx:
-        var gpu_bvh = build_sphere_bvh[.WORLD, node_width, leaf_width](
+        var gpu_bvh = build_gpu_sphere_bvh[.WORLD, node_width, leaf_width](
             ctx, spheres
         )
         assert_true(
@@ -613,12 +613,12 @@ def test_gpu_triangle_bvh_repeated_segmented_builds() raises:
     var scene = _make_small_scene[.WORLD]()
     with DeviceContext() as ctx:
         var vertices = upload_vertices(ctx, scene)
-        var lbvh = build_triangle_bvh[
+        var lbvh = build_gpu_triangle_bvh[
             .WORLD, 2, 2, .LBVH
         ](ctx, vertices)
         assert_true(lbvh.tree.node_count > 0)
 
-        var hploc = build_triangle_bvh[
+        var hploc = build_gpu_triangle_bvh[
             .WORLD, 2, 2, .HPLOC
         ](ctx, vertices)
         assert_true(hploc.tree.node_count > 0)

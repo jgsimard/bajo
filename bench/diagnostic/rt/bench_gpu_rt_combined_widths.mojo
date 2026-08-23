@@ -8,7 +8,7 @@ from max.gpu.host import DeviceContext
 from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.gpu import GpuBvhLayout
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
-from bajo.core import Affine3f32, Frame, Point3f32, Vec3f32
+from bajo.core import Affine3f32, Point3f32, Vec3f32
 from bajo.core.utils import ns_to_ms
 from bajo.rt import (
     Camera,
@@ -18,11 +18,10 @@ from bajo.rt import (
     SceneBuilder,
     CpuScene,
 )
-from bajo.rt.gpu.combined_instance_path import (
-    GpuRtCombinedInstanceScene,
-    enqueue_render_gpu_combined_instances,
-)
+from bajo.rt.gpu.policy import GpuRtBvhPolicy
+from bajo.rt.gpu.render import enqueue_render_gpu
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
+from bajo.rt.gpu.scene import GpuRtScene, prepare_gpu_scene
 from bajo.benchmark.gpu_harness import (
     BENCH_REPEATS,
     IMAGE_HEIGHT,
@@ -108,8 +107,8 @@ def _camera() -> Camera:
     )
 
 
-def _bench_algorithm[
-    ALGORITHM: Integrator,
+def _bench_integrator[
+    integrator: Integrator,
     tlas_node_width: SIMDLength,
     tlas_leaf_width: SIMDLength,
     blas_node_width: SIMDLength = 4,
@@ -119,63 +118,29 @@ def _bench_algorithm[
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: GpuRtCombinedInstanceScene[
-        True,
-        True,
-        4,
-        4,
-        tlas_node_width,
-        tlas_leaf_width,
-        blas_node_width,
-        blas_leaf_width,
-        blas_build_method,
-        blas_layout,
-        4,
-        4,
-        .LBVH,
-        .WIDE,
+    world: GpuRtScene[
+        .ALL,
+        GpuRtBvhPolicy(4, 4, .LBVH, .WIDE),
+        GpuRtBvhPolicy(4, 4, .LBVH, .WIDE),
+        GpuRtBvhPolicy(
+            tlas_node_width, tlas_leaf_width, .LBVH, .WIDE
+        ),
+        GpuRtBvhPolicy(
+            blas_node_width,
+            blas_leaf_width,
+            blas_build_method,
+            blas_layout,
+        ),
     ],
     settings: RenderSettings,
 ) raises -> GpuRtBenchResult:
-    enqueue_render_gpu_combined_instances[
-        ALGORITHM,
-        True,
-        True,
-        4,
-        4,
-        tlas_node_width,
-        tlas_leaf_width,
-        blas_node_width,
-        blas_leaf_width,
-        blas_build_method,
-        blas_layout,
-        4,
-        4,
-        .LBVH,
-        .WIDE,
-    ](ctx, target, world, settings)
+    enqueue_render_gpu[integrator](ctx, target, world, settings)
     ctx.synchronize()
     var submit = List[Int](capacity=BENCH_REPEATS)
     var render = List[Int](capacity=BENCH_REPEATS)
     for _ in range(BENCH_REPEATS):
         var t0 = perf_counter_ns()
-        enqueue_render_gpu_combined_instances[
-            ALGORITHM,
-            True,
-            True,
-            4,
-            4,
-            tlas_node_width,
-            tlas_leaf_width,
-            blas_node_width,
-            blas_leaf_width,
-            blas_build_method,
-            blas_layout,
-            4,
-            4,
-            .LBVH,
-            .WIDE,
-        ](ctx, target, world, settings)
+        enqueue_render_gpu[integrator](ctx, target, world, settings)
         var t1 = perf_counter_ns()
         ctx.synchronize()
         var t2 = perf_counter_ns()
@@ -201,21 +166,19 @@ def _run_layout[
     label: String,
 ) raises:
     var t0 = perf_counter_ns()
-    var gpu_world = GpuRtCombinedInstanceScene[
-        True,
-        True,
-        4,
-        4,
-        tlas_node_width,
-        tlas_leaf_width,
-        blas_node_width,
-        blas_leaf_width,
-        blas_build_method,
-        blas_layout,
-        4,
-        4,
-        .LBVH,
-        .WIDE,
+    var gpu_world = prepare_gpu_scene[
+        .ALL,
+        sphere_policy=GpuRtBvhPolicy(4, 4, .LBVH, .WIDE),
+        triangle_policy=GpuRtBvhPolicy(4, 4, .LBVH, .WIDE),
+        tlas_policy=GpuRtBvhPolicy(
+            tlas_node_width, tlas_leaf_width, .LBVH, .WIDE
+        ),
+        blas_policy=GpuRtBvhPolicy(
+            blas_node_width,
+            blas_leaf_width,
+            blas_build_method,
+            blas_layout,
+        ),
     ](ctx, world.scene_data())
     ctx.synchronize()
     print(
@@ -223,7 +186,7 @@ def _run_layout[
     )
     print_gpu_rt_result(
         "PATH",
-        _bench_algorithm[
+        _bench_integrator[
             .PATH,
             tlas_node_width,
             tlas_leaf_width,
@@ -236,7 +199,7 @@ def _run_layout[
     )
     print_gpu_rt_result(
         "AO",
-        _bench_algorithm[
+        _bench_integrator[
             .AO,
             tlas_node_width,
             tlas_leaf_width,
@@ -249,7 +212,7 @@ def _run_layout[
     )
     print_gpu_rt_result(
         "NEE",
-        _bench_algorithm[
+        _bench_integrator[
             .NEE,
             tlas_node_width,
             tlas_leaf_width,
@@ -262,7 +225,7 @@ def _run_layout[
     )
     print_gpu_rt_result(
         "MIS",
-        _bench_algorithm[
+        _bench_integrator[
             .MIS,
             tlas_node_width,
             tlas_leaf_width,

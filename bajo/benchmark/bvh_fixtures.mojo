@@ -4,7 +4,7 @@ from std.math import max
 
 from bajo.bvh import Camera
 from bajo.bvh.cpu import CpuBlasSet, trace_blas_set
-from bajo.core import AABB, Frame, Point3f32, Rayf32, Vec3f32
+from bajo.core import AABB, Point3f32, Rayf32, Vec3f32
 
 
 comptime GRID_SIDE = 256

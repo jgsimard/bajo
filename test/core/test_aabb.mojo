@@ -14,7 +14,6 @@ from bajo.core import (
     Affine3,
     Point3W,
     Point3f32,
-    Frame,
 )
 from bajo.core.utils import degrees_to_radians
 

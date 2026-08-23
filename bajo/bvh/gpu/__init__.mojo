@@ -5,12 +5,12 @@ from .builder import GpuBvhBuildMethod
 from .sphere_bvh import (
     GpuSphereBvh,
     build_gpu_sphere_blas_set,
-    build_sphere_bvh,
+    build_gpu_sphere_bvh,
 )
 from .triangle_bvh import (
     GpuTriangleBvh,
     build_gpu_triangle_blas_set,
-    build_triangle_bvh,
+    build_gpu_triangle_bvh,
 )
 from .tlas import (
     GpuTlas,

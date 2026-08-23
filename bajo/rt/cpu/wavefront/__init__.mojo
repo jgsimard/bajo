@@ -55,7 +55,7 @@ struct _PacketQueueArena[length: SIMDLength]:
 
 def _trace_packet_range[
     length: SIMDLength,
-    ALGORITHM: Integrator,
+    integrator: Integrator,
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
 ](
@@ -72,7 +72,7 @@ def _trace_packet_range[
     )
     _trace_path_packets[
         length,
-        ALGORITHM,
+        integrator,
         world_bvh_width,
         instance_bvh_width,
     ](
@@ -88,7 +88,7 @@ def _trace_packet_range[
 
 
 def render_wavefront[
-    ALGORITHM: Integrator = .PATH,
+    integrator: Integrator = .PATH,
     length: SIMDLength = 16,
     CHUNK_PATHS: Int = CPU_WAVEFRONT_PARALLEL_CHUNK_PATHS,
     PARALLEL: Bool = True,
@@ -102,7 +102,7 @@ def render_wavefront[
 ) -> RenderResult:
     """Render with compile-time packet, chunk, and CPU scheduling choices."""
     comptime assert CHUNK_PATHS > 0, "wavefront chunk size must be positive"
-    comptime assert ALGORITHM in (Integrator.PATH, Integrator.NEE, Integrator.MIS)
+    comptime assert integrator in (Integrator.PATH, Integrator.NEE, Integrator.MIS)
     comptime if PARALLEL:
         comptime assert (
             WAVE_PARALLEL_RUNTIME_DEFAULT
@@ -132,7 +132,7 @@ def render_wavefront[
             var queues = _PacketQueueArena[length](path_end - path_begin)
             _trace_packet_range[
                 length,
-                ALGORITHM,
+                integrator,
                 world_bvh_width,
                 instance_bvh_width,
             ](
@@ -160,7 +160,7 @@ def render_wavefront[
             var path_end = min(path_begin + paths_per_chunk, path_count)
             _trace_packet_range[
                 length,
-                ALGORITHM,
+                integrator,
                 world_bvh_width,
                 instance_bvh_width,
             ](

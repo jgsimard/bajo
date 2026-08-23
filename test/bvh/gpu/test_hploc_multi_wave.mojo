@@ -20,7 +20,7 @@ from bajo.bvh.cpu.builder.hploc import (
     build_hploc_topology,
 )
 from bajo.bvh.gpu.utils import upload_list
-from bajo.core import AABB, Frame, Point3f32
+from bajo.core import AABB, Point3f32
 
 
 struct GpuHplocMultiWaveBvh[

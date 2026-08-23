@@ -9,7 +9,7 @@ from std.testing import (
 )
 from max.gpu.host import DeviceBuffer, DeviceContext
 
-from bajo.core import AABB, Vec3f32, Affine3f32, Point3f32, Frame
+from bajo.core import AABB, Vec3f32, Affine3f32, Point3f32
 from bajo.bvh.camera import Camera
 from bajo.bvh.constants import f32_max
 from bajo.bvh.host_utils import compute_bounds, sphere_bounds

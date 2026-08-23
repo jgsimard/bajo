@@ -19,16 +19,15 @@ from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.gpu.tlas import build_gpu_tlas
 from bajo.bvh.gpu.triangle_bvh import (
     build_gpu_triangle_blas_set,
-    build_triangle_bvh,
+    build_gpu_triangle_bvh,
 )
 from bajo.bvh.gpu.utils import upload_vertices
 from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.gpu import GpuBlasSet, GpuBvhLayout
 from bajo.bvh.types import BlasDescLayout, Instance
-from bajo.core import AABB, Affine3f32, Frame, Point3f32
+from bajo.core import AABB, Affine3f32, Point3f32
 from bajo.core.utils import ns_to_ms
 from bajo.parser.obj.pack import pack_obj_triangles
-from bajo.rt.gpu.triangle_geometry import GpuRtTriangleGeometry
 
 
 comptime BUNNY_PATH = "./assets/bunny/bunny.obj"
@@ -265,10 +264,12 @@ def main() raises:
     var cwbvh_times = List[Int](capacity=BENCH_REPEATS)
     var tlas_times = List[Int](capacity=BENCH_REPEATS)
     var tlas_leaf1_batch_times = List[Int](capacity=BENCH_REPEATS)
-    var geometry_times = List[Int](capacity=BENCH_REPEATS)
+    var single_blas_times = List[Int](capacity=BENCH_REPEATS)
     var wide_times = List[Int](capacity=BENCH_REPEATS)
     with DeviceContext() as ctx:
         var dragon_vertices = upload_vertices(ctx, vertex_sets[2])
+        var dragon_set = List[List[Point3f32[.LOCAL]]](capacity=1)
+        dragon_set.append(vertex_sets[2].copy())
         var warm_cwbvh = build_gpu_triangle_blas_set[
             8, 4, .HPLOC, GpuBvhLayout.CWBVH8
         ](ctx, vertex_sets)
@@ -278,10 +279,10 @@ def main() raises:
         var warm_tlas_leaf1 = build_gpu_tlas[.TRIANGLE,
             2, 8, 1, 4, .LBVH, GpuBvhLayout.CWBVH8
         ](ctx, instances)
-        var warm_geometry = GpuRtTriangleGeometry[
-            .LOCAL, 8, 4, .HPLOC, .CWBVH8
-        ](ctx, vertex_sets[2])
-        var warm_wide = build_triangle_bvh[
+        var warm_single_blas = build_gpu_triangle_blas_set[
+            8, 4, .HPLOC, .CWBVH8
+        ](ctx, dragon_set)
+        var warm_wide = build_gpu_triangle_bvh[
             .LOCAL, 4, 4, .HPLOC
         ](ctx, dragon_vertices)
         ctx.synchronize()
@@ -315,14 +316,14 @@ def main() raises:
             tlas_leaf1_batch_times.append(Int(perf_counter_ns() - start))
 
             start = perf_counter_ns()
-            var geometry = GpuRtTriangleGeometry[
-                .LOCAL, 8, 4, .HPLOC, .CWBVH8
-            ](ctx, vertex_sets[2])
+            var single_blas = build_gpu_triangle_blas_set[
+                8, 4, .HPLOC, .CWBVH8
+            ](ctx, dragon_set)
             ctx.synchronize()
-            geometry_times.append(Int(perf_counter_ns() - start))
+            single_blas_times.append(Int(perf_counter_ns() - start))
 
             start = perf_counter_ns()
-            var wide = build_triangle_bvh[
+            var wide = build_gpu_triangle_bvh[
                 .LOCAL, 4, 4, .HPLOC
             ](ctx, dragon_vertices)
             ctx.synchronize()
@@ -332,7 +333,7 @@ def main() raises:
     _print_row("BLAS CWBVH8 segmented", cwbvh_times)
     _print_row("TLAS LBVH2 one segment", tlas_times)
     _print_row("TLAS LBVH2/leaf1 batch x32", tlas_leaf1_batch_times)
-    _print_row("Dragon geometry H-PLOC CWBVH8", geometry_times)
+    _print_row("Dragon BLAS H-PLOC CWBVH8", single_blas_times)
     _print_row("Dragon H-PLOC wide4 one segment", wide_times)
 
     var one_large = _make_uniform_sets(1, 16384)

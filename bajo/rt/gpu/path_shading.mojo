@@ -7,7 +7,6 @@ from max.gpu.host import DeviceBuffer, DeviceContext
 from bajo.bvh.constants import f32_max
 from bajo.bvh.gpu.utils import upload_list
 from bajo.core import (
-    Frame,
     Point3f32,
     Rayf32,
     Vec3f32,
@@ -249,7 +248,7 @@ def _empty_direct_light_sample() -> GpuDirectLightSample:
 
 @always_inline
 def _sample_direct_light_candidate[
-    ALGORITHM: Integrator,
+    integrator: Integrator,
 ](
     path: DeviceWavePath,
     incoming_ray: Rayf32[.WORLD],
@@ -266,7 +265,7 @@ def _sample_direct_light_candidate[
     rng_seed: UInt64,
     bounce: UInt32,
 ) -> GpuDirectLightSample:
-    comptime assert ALGORITHM in (Integrator.NEE, Integrator.MIS)
+    comptime assert integrator in (Integrator.NEE, Integrator.MIS)
     if light_count <= 0 or total_light_weight <= 0.0:
         return _empty_direct_light_sample()
 
@@ -361,7 +360,7 @@ def _sample_direct_light_candidate[
         bsdf_pdf = evaluation.pdf
     else:
         return _empty_direct_light_sample()
-    var scale = _direct_light_scale[ALGORITHM, 1](
+    var scale = _direct_light_scale[integrator, 1](
         geometry.surface_cosine, geometry.light_pdf, bsdf_pdf, True
     )
     return GpuDirectLightSample(
@@ -431,7 +430,7 @@ def _append_shadow[
 
 @always_inline
 def _shade_lambertian_inline[
-    ALGORITHM: Integrator,
+    integrator: Integrator,
 ](
     path: DeviceWavePath,
     ray_direction: Vec3f32[.WORLD],
@@ -480,7 +479,7 @@ def _shade_lambertian_inline[
     if slot >= capacity:
         _mark_status(counters, WAVE_STATUS.PATH_OVERFLOW)
         return
-    store_gpu_rt_path[ALGORITHM](
+    store_gpu_rt_path[integrator](
         DeviceWavePath(
             path.path_id,
             path.ox + hit_t * path.dx,
@@ -506,7 +505,7 @@ def _shade_lambertian_inline[
 
 @always_inline
 def _route_surface_hit[
-    ALGORITHM: Integrator,
+    integrator: Integrator,
 ](
     active_path_idx: Int,
     path: DeviceWavePath,
@@ -532,7 +531,7 @@ def _route_surface_hit[
 ):
     """Route a geometry-independent oriented hit to output or a BSDF queue."""
 
-    comptime if ALGORITHM == .NORMALS:
+    comptime if integrator == .NORMALS:
         _accumulate_sample(
             sample_radiance,
             capacity,
@@ -553,10 +552,10 @@ def _route_surface_hit[
                 emissives[unsafe_offset=base + 2],
             )
             var emission_weight = Float32(1.0)
-            comptime if ALGORITHM == .NEE:
+            comptime if integrator == .NEE:
                 if bounce > 0 and not path.delta:
                     emission_weight = 0.0
-            elif ALGORITHM == .MIS:
+            elif integrator == .MIS:
                 if bounce > 0 and not path.delta:
                     var light_cosine = max(
                         dot(normal, -normalize(ray_direction)), 0.0
@@ -585,7 +584,7 @@ def _route_surface_hit[
         return
 
     if kind == .LAMBERTIAN:
-        _shade_lambertian_inline[ALGORITHM](
+        _shade_lambertian_inline[integrator](
             path,
             ray_direction,
             normal,
@@ -638,7 +637,7 @@ def _make_ao_ray(
 
 @always_inline
 def _gpu_rt_shade_one[
-    ALGORITHM: Integrator,
+    integrator: Integrator,
     MATERIAL_KIND: MaterialKind,
 ](
     idx: Int,
@@ -664,7 +663,7 @@ def _gpu_rt_shade_one[
         capacity,
         idx,
     )
-    var path = load_gpu_rt_path[ALGORITHM](
+    var path = load_gpu_rt_path[integrator](
         src_path_ids, src_path_fields, capacity, Int(work.path_idx)
     )
     var ray_direction = Vec3f32[.WORLD](path.dx, path.dy, path.dz)
@@ -730,7 +729,7 @@ def _gpu_rt_shade_one[
     if slot >= capacity:
         _mark_status(counters, WAVE_STATUS.PATH_OVERFLOW)
         return
-    store_gpu_rt_path[ALGORITHM](
+    store_gpu_rt_path[integrator](
         DeviceWavePath(
             path.path_id,
             path.ox + work.t * path.dx,
@@ -755,7 +754,7 @@ def _gpu_rt_shade_one[
 
 
 def gpu_rt_shade_dispatch_kernel[
-    ALGORITHM: Integrator,
+    integrator: Integrator,
 ](
     src_path_ids: Pointer[UInt32, ImmutAnyOrigin],
     src_path_fields: Pointer[Float32, ImmutAnyOrigin],
@@ -778,7 +777,7 @@ def gpu_rt_shade_dispatch_kernel[
         var surface_value = shade_surfaces[unsafe_offset=idx]
         var kind = MaterialKind(surface_value >> UInt32(28))
         if kind == .METAL:
-            _gpu_rt_shade_one[ALGORITHM, .METAL](
+            _gpu_rt_shade_one[integrator, .METAL](
                 idx,
                 src_path_ids,
                 src_path_fields,
@@ -794,7 +793,7 @@ def gpu_rt_shade_dispatch_kernel[
                 bounce,
             )
         else:
-            _gpu_rt_shade_one[ALGORITHM, .DIELECTRIC](
+            _gpu_rt_shade_one[integrator, .DIELECTRIC](
                 idx,
                 src_path_ids,
                 src_path_fields,
@@ -813,7 +812,7 @@ def gpu_rt_shade_dispatch_kernel[
 
 
 def _enqueue_material_shading[
-    ALGORITHM: Integrator,
+    integrator: Integrator,
     MAX_BLOCKS: Int = GPU_RT_SHADE_MAX_BLOCKS,
 ](
     ctx: DeviceContext,
@@ -832,7 +831,7 @@ def _enqueue_material_shading[
         ceildiv(arena.capacity, GPU_RT_BLOCK_SIZE),
         MAX_BLOCKS,
     )
-    ctx.enqueue_function[gpu_rt_shade_dispatch_kernel[ALGORITHM]](
+    ctx.enqueue_function[gpu_rt_shade_dispatch_kernel[integrator]](
         src_path_ids,
         src_path_fields,
         arena.shade.path_refs,

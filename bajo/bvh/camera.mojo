@@ -8,7 +8,6 @@ from bajo.core import (
     cross,
     Point3,
     Point3f32,
-    Frame,
     Ray,
     Rayf32,
 )

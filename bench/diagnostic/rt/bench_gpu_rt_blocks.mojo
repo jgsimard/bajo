@@ -5,7 +5,7 @@ from max.gpu.host import DeviceContext
 
 from bajo.rt import RenderSettings
 from bajo.rt.gpu.resources import GpuRtRenderTarget
-from bajo.rt.gpu.triangle_path import GpuRtTriangleScene
+from bajo.rt.gpu.scene import GpuRtScene, prepare_gpu_scene
 from bajo.benchmark.gpu_harness import (
     BENCH_REPEATS,
     IMAGE_HEIGHT,
@@ -15,7 +15,7 @@ from bajo.benchmark.gpu_harness import (
     NODE_WIDTH,
     RNG_SEED,
     SAMPLES_PER_PIXEL,
-    bench_gpu_triangle_algorithm,
+    bench_gpu_triangle_integrator,
     gpu_rt_camera,
     print_gpu_rt_result,
 )
@@ -28,20 +28,20 @@ def _run_cap[
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: GpuRtTriangleScene[NODE_WIDTH, LEAF_WIDTH],
+    world: GpuRtScene[.TRIANGLES],
     settings: RenderSettings,
     sample_count: Int,
     label: String,
 ) raises:
     print(t"\n{label}")
-    var path = bench_gpu_triangle_algorithm[
+    var path = bench_gpu_triangle_integrator[
         .PATH,
         NODE_WIDTH,
         LEAF_WIDTH,
         MAX_BLOCKS,
         SHADOW_MAX_BLOCKS,
     ](ctx, target, world, settings)
-    var nee = bench_gpu_triangle_algorithm[
+    var nee = bench_gpu_triangle_integrator[
         .NEE,
         NODE_WIDTH,
         LEAF_WIDTH,
@@ -70,7 +70,7 @@ def main() raises:
         t"depth={MAX_DEPTH}, median of {BENCH_REPEATS}"
     )
     with DeviceContext() as ctx:
-        var gpu_world = GpuRtTriangleScene[NODE_WIDTH, LEAF_WIDTH](
+        var gpu_world = prepare_gpu_scene[.TRIANGLES](
             ctx, world.scene_data()
         )
         var target = GpuRtRenderTarget(ctx, settings, camera)

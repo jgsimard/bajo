@@ -16,7 +16,7 @@ from bajo.bvh.cpu.blas_set import (
     trace_blas_set,
 )
 from bajo.bvh.types import Sphere
-from bajo.core import Frame, Point3f32, Rayf32, Vec3f32
+from bajo.core import Point3f32, Rayf32, Vec3f32
 from bajo.core.utils import ns_to_ms
 
 

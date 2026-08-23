@@ -8,7 +8,7 @@ from max.gpu.host import DeviceContext
 from bajo.bvh.gpu import GpuBvhLayout
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.host_utils import compute_bounds
-from bajo.core import Affine3f32, Frame, Point3f32, Vec3f32
+from bajo.core import Affine3f32, Point3f32, Vec3f32
 from bajo.core.utils import ns_to_ms
 from bajo.parser.obj.pack import pack_obj_triangles
 from bajo.rt import (
@@ -19,11 +19,14 @@ from bajo.rt import (
     SceneBuilder,
     CpuScene,
 )
-from bajo.rt.gpu.instance_path import (
-    GpuRtTriangleInstanceScene,
-    enqueue_render_gpu_triangle_instances,
+from bajo.rt.gpu.policy import (
+    GpuRtBvhPolicy,
+    GPU_RT_BVH_CWBVH8_HPLOC,
+    GPU_RT_BVH_WIDE4_LBVH,
 )
+from bajo.rt.gpu.render import enqueue_render_gpu
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
+from bajo.rt.gpu.scene import GpuRtScene, prepare_gpu_scene
 from bajo.benchmark.gpu_harness import (
     BENCH_REPEATS,
     IMAGE_HEIGHT,
@@ -72,8 +75,8 @@ def _dragon_camera(world: CpuScene[]) -> Camera:
     )
 
 
-def _bench_algorithm[
-    ALGORITHM: Integrator,
+def _bench_integrator[
+    integrator: Integrator,
     blas_node_width: SIMDLength,
     blas_leaf_width: SIMDLength,
     method: GpuBvhBuildMethod,
@@ -81,40 +84,28 @@ def _bench_algorithm[
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: GpuRtTriangleInstanceScene[
-        2,
-        8 if layout.compressed else blas_node_width,
-        2,
-        blas_leaf_width,
-        method,
-        layout,
+    world: GpuRtScene[
+        .INSTANCES,
+        GPU_RT_BVH_WIDE4_LBVH,
+        GPU_RT_BVH_CWBVH8_HPLOC,
+        GpuRtBvhPolicy(2, 2, .LBVH, .WIDE),
+        GpuRtBvhPolicy(
+            8 if layout.compressed else blas_node_width,
+            blas_leaf_width,
+            method,
+            layout,
+        ),
     ],
     settings: RenderSettings,
 ) raises -> GpuRtBenchResult:
     comptime effective_width = 8 if layout.compressed else blas_node_width
-    enqueue_render_gpu_triangle_instances[
-        ALGORITHM,
-        2,
-        2,
-        effective_width,
-        blas_leaf_width,
-        method,
-        layout,
-    ](ctx, target, world, settings)
+    enqueue_render_gpu[integrator](ctx, target, world, settings)
     ctx.synchronize()
     var submit = List[Int](capacity=BENCH_REPEATS)
     var render = List[Int](capacity=BENCH_REPEATS)
     for _ in range(BENCH_REPEATS):
         var t0 = perf_counter_ns()
-        enqueue_render_gpu_triangle_instances[
-            ALGORITHM,
-            2,
-            2,
-            effective_width,
-            blas_leaf_width,
-            method,
-            layout,
-        ](ctx, target, world, settings)
+        enqueue_render_gpu[integrator](ctx, target, world, settings)
         var t1 = perf_counter_ns()
         ctx.synchronize()
         var t2 = perf_counter_ns()
@@ -139,8 +130,12 @@ def _run_layout[
 ) raises:
     comptime effective_width = 8 if layout.compressed else blas_node_width
     var t0 = perf_counter_ns()
-    var gpu_world = GpuRtTriangleInstanceScene[
-        2, effective_width, 2, blas_leaf_width, method, layout
+    var gpu_world = prepare_gpu_scene[
+        .INSTANCES,
+        tlas_policy=GpuRtBvhPolicy(2, 2, .LBVH, .WIDE),
+        blas_policy=GpuRtBvhPolicy(
+            effective_width, blas_leaf_width, method, layout
+        ),
     ](ctx, world.scene_data())
     ctx.synchronize()
     print(
@@ -148,28 +143,28 @@ def _run_layout[
     )
     print_gpu_rt_result(
         "PATH",
-        _bench_algorithm[
+        _bench_integrator[
             .PATH, blas_node_width, blas_leaf_width, method, layout
         ](ctx, target, gpu_world, settings),
         sample_count,
     )
     print_gpu_rt_result(
         "AO",
-        _bench_algorithm[
+        _bench_integrator[
             .AO, blas_node_width, blas_leaf_width, method, layout
         ](ctx, target, gpu_world, settings),
         sample_count,
     )
     print_gpu_rt_result(
         "NEE",
-        _bench_algorithm[
+        _bench_integrator[
             .NEE, blas_node_width, blas_leaf_width, method, layout
         ](ctx, target, gpu_world, settings),
         sample_count,
     )
     print_gpu_rt_result(
         "MIS",
-        _bench_algorithm[
+        _bench_integrator[
             .MIS, blas_node_width, blas_leaf_width, method, layout
         ](ctx, target, gpu_world, settings),
         sample_count,

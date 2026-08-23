@@ -3,7 +3,7 @@
 from std.math import round
 
 from bajo.bvh.constants import f32_max
-from bajo.core import Frame, Point3W, Rayf32, Vec3W
+from bajo.core import Point3W, Rayf32, Vec3W
 from bajo.core.utils import ns_to_ms
 from bajo.rt import (
     Camera,
@@ -81,9 +81,9 @@ struct WaveCounters:
 
 
 def time_wavefront[
-    length: SIMDLength, ALGORITHM: Integrator = .PATH
+    length: SIMDLength, integrator: Integrator = .PATH
 ](settings: RenderSettings, camera: Camera, world: CpuScene[]) -> WaveTiming:
-    var warmup = render_wavefront[ALGORITHM, length, CHUNK_PATHS, False](
+    var warmup = render_wavefront[integrator, length, CHUNK_PATHS, False](
         settings, camera, world
     )
     var checksum = pixel_checksum(warmup.pixels)
@@ -92,7 +92,7 @@ def time_wavefront[
     var render_times = List[Int](capacity=TIMING_REPEATS)
 
     for _ in range(TIMING_REPEATS):
-        var result = render_wavefront[ALGORITHM, length, CHUNK_PATHS, False](
+        var result = render_wavefront[integrator, length, CHUNK_PATHS, False](
             settings, camera, world
         )
         var current_checksum = pixel_checksum(result.pixels)

@@ -25,7 +25,7 @@ BUILTIN_PBRT_SCENE = 5
 CUSTOM_PBRT_SCENE = 6
 SETTLE_DELAY_SECONDS = 0.25
 PREVIEW_INTERVAL_SECONDS = 0.08
-ALGORITHMS = ("PATH", "NEE", "MIS", "NORMALS", "AO")
+INTEGRATORS = ("PATH", "NEE", "MIS", "NORMALS", "AO")
 BACKENDS = ("CPU", "GPU")
 SCENES = (
     "RTIAW",
@@ -103,7 +103,7 @@ class Viewer:
         self.drag_anchor: tuple[int, int] | None = None
         self.dragging = False
         self.backend_index = backend_index
-        self.algorithm_index = 0
+        self.integrator_index = 0
         self.last_tick = time.monotonic()
         self.last_camera_change = self.last_tick
         self.render_generation = 0
@@ -118,9 +118,9 @@ class Viewer:
         self.output_path = Path(self.temp_dir.name) / "frame.ppm"
         self.renderer = self._load_renderer(
             self.backend_index,
-            self.algorithm_index,
+            self.integrator_index,
         )
-        self.renderer_config = (self.backend_index, self.algorithm_index)
+        self.renderer_config = (self.backend_index, self.integrator_index)
         if self.scene_index in (BUILTIN_PBRT_SCENE, CUSTOM_PBRT_SCENE) and self.pbrt_path:
             self.camera = camera_from_pbrt(
                 self.renderer.pbrt_camera(self.pbrt_path)
@@ -152,18 +152,18 @@ class Viewer:
         ).pack(side=tk.LEFT, padx=(0, 8), pady=2)
         tk.Label(
             toolbar,
-            text="Algorithm:",
+            text="Integrator:",
             padx=10,
             pady=4,
             fg="#dddddd",
             bg="#202020",
         ).pack(side=tk.LEFT)
-        self.algorithm_var = tk.StringVar(value=ALGORITHMS[self.algorithm_index])
+        self.integrator_var = tk.StringVar(value=INTEGRATORS[self.integrator_index])
         tk.OptionMenu(
             toolbar,
-            self.algorithm_var,
-            *ALGORITHMS,
-            command=self.on_algorithm_changed,
+            self.integrator_var,
+            *INTEGRATORS,
+            command=self.on_integrator_changed,
         ).pack(side=tk.LEFT, padx=(0, 8), pady=2)
         tk.Label(
             toolbar,
@@ -283,7 +283,7 @@ class Viewer:
         self.request_render()
         self.root.after(40, self.tick)
 
-    def _load_renderer(self, backend_index: int, algorithm_index: int):
+    def _load_renderer(self, backend_index: int, integrator_index: int):
         """Build and load the Mojo renderer as a Python extension module."""
         mojo = shutil.which("mojo")
         if mojo is None:
@@ -295,7 +295,7 @@ class Viewer:
         cache_dir.mkdir(exist_ok=True)
         cache_path = cache_dir / (
             f"bajo_viewer-{self.gpu_arch}-b{backend_index}"
-            f"-a{algorithm_index}.so"
+            f"-i{integrator_index}.so"
         )
         sources = [ROOT / "bajo_viewer.mojo"]
         sources.extend((ROOT / "bajo").rglob("*.mojo"))
@@ -315,7 +315,7 @@ class Viewer:
                 "-D",
                 f"VIEWER_BACKEND={backend_index}",
                 "-D",
-                f"VIEWER_ALGORITHM={algorithm_index}",
+                f"VIEWER_INTEGRATOR={integrator_index}",
                 "--emit",
                 "shared-lib",
                 "-o",
@@ -336,7 +336,7 @@ class Viewer:
             if result.returncode != 0:
                 details = (result.stderr or result.stdout).strip()
                 raise RuntimeError(
-                    f"could not build viewer for backend {backend_index}, algorithm {algorithm_index}: {details}"
+                    f"could not build viewer for backend {backend_index}, integrator {integrator_index}: {details}"
                 )
 
         spec = importlib.util.spec_from_file_location("bajo_viewer", cache_path)
@@ -372,7 +372,7 @@ class Viewer:
                 self.render_generation,
                 target_spp,
                 preview,
-                self.algorithm_index,
+                self.integrator_index,
                 self.backend_index,
             )
 
@@ -401,24 +401,24 @@ class Viewer:
                 generation,
                 target_spp,
                 preview,
-                algorithm_index,
+                integrator_index,
                 backend_index,
             ) = self.snapshot()
             started = time.monotonic()
             try:
                 renderer = self.renderer
-                requested_config = (backend_index, algorithm_index)
+                requested_config = (backend_index, integrator_index)
                 if self.renderer_config != requested_config:
                     self.root.after(
                         0,
-                        lambda backend=backend_index, algorithm=algorithm_index: self.update_status(
+                        lambda backend=backend_index, integrator=integrator_index: self.update_status(
                             f"Compiling {BACKENDS[backend]} / "
-                            f"{ALGORITHMS[algorithm]} ..... "
+                            f"{INTEGRATORS[integrator]} ..... "
                         ),
                     )
                     renderer = self._load_renderer(
                         backend_index,
-                        algorithm_index,
+                        integrator_index,
                     )
                     with self.lock:
                         if generation == self.render_generation:
@@ -497,7 +497,7 @@ class Viewer:
                         options.max_samples,
                         max_depth,
                         preview,
-                        algorithm_index,
+                        integrator_index,
                         backend_index,
                     ),
                 )
@@ -534,7 +534,7 @@ class Viewer:
         max_spp: int,
         max_depth: int,
         preview: bool,
-        algorithm_index: int,
+        integrator_index: int,
         backend_index: int,
     ) -> None:
         if self.closed:
@@ -554,7 +554,7 @@ class Viewer:
             if preview
             else f"accumulated {accumulated_spp}/{max_spp} spp"
         )
-        algorithm_name = ALGORITHMS[algorithm_index]
+        integrator_name = INTEGRATORS[integrator_index]
         backend_name = BACKENDS[backend_index]
         scene_name = (
             f"PBRT:{Path(self.pbrt_path).name}"
@@ -567,7 +567,7 @@ class Viewer:
             f"{self.image.width}×{self.image.height}  |  "
             f"FPS {fps:.1f}  |  "
             f"{backend_name}  |  "
-            f"{algorithm_name}  |  "
+            f"{integrator_name}  |  "
             f"{scene_name}  |  "
             f"Depth {max_depth}  |  "
             f"Build {float(build_ms):.1f} ms  |  "
@@ -625,7 +625,7 @@ class Viewer:
             self.camera = self.initial_camera.copy()
             self.mark_camera_changed()
         elif key in {"1", "2", "3", "4", "5"}:
-            self.set_algorithm(int(key) - 1)
+            self.set_integrator(int(key) - 1)
         elif key == "b":
             self.set_backend(1 - self.backend_index)
         elif key in {"plus", "equal"}:
@@ -640,18 +640,18 @@ class Viewer:
     def on_key_release(self, event: tk.Event) -> None:
         self.pressed.discard(event.keysym.lower())
 
-    def set_algorithm(self, index: int) -> None:
-        if index < 0 or index >= len(ALGORITHMS):
+    def set_integrator(self, index: int) -> None:
+        if index < 0 or index >= len(INTEGRATORS):
             return
-        if index == self.algorithm_index:
+        if index == self.integrator_index:
             return
-        self.algorithm_index = index
-        self.algorithm_var.set(ALGORITHMS[index])
+        self.integrator_index = index
+        self.integrator_var.set(INTEGRATORS[index])
         self.request_render()
 
-    def on_algorithm_changed(self, value: str) -> None:
-        if value in ALGORITHMS:
-            self.set_algorithm(ALGORITHMS.index(value))
+    def on_integrator_changed(self, value: str) -> None:
+        if value in INTEGRATORS:
+            self.set_integrator(INTEGRATORS.index(value))
 
     def set_backend(self, index: int) -> None:
         if index < 0 or index >= len(BACKENDS):

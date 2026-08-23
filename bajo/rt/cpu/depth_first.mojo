@@ -7,7 +7,7 @@ from std.sys import num_logical_cores
 from std.time import perf_counter_ns
 
 from bajo.bvh.constants import f32_max
-from bajo.core import Frame, Rayf32, normalize
+from bajo.core import Rayf32, normalize
 from bajo.core.random import Rng, random_on_hemisphere
 from bajo.bvh import Camera
 from bajo.rt.types import (
@@ -40,7 +40,7 @@ comptime CPU_RENDER_TILE_HEIGHT = 16
 
 
 def _trace_path[
-    ALGORITHM: Integrator,
+    integrator: Integrator,
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
 ](
@@ -50,7 +50,7 @@ def _trace_path[
     mut rng: Rng,
     path_id: UInt32,
 ) -> Color:
-    comptime assert ALGORITHM in (Integrator.PATH, Integrator.NEE, Integrator.MIS)
+    comptime assert integrator in (Integrator.PATH, Integrator.NEE, Integrator.MIS)
 
     var cur_ray = ray
     var throughput = Color(1.0)
@@ -66,7 +66,7 @@ def _trace_path[
                 hit.surface, world.scene_data().surfaces(), hit.front_face
             )
             if emission.x > 0.0 or emission.y > 0.0 or emission.z > 0.0:
-                var emission_weight = _emissive_hit_weight[ALGORITHM](
+                var emission_weight = _emissive_hit_weight[integrator](
                     world,
                     cur_ray,
                     hit,
@@ -76,13 +76,13 @@ def _trace_path[
                 )
                 radiance += throughput * emission * emission_weight
                 return radiance
-            comptime if ALGORITHM != .PATH:
+            comptime if integrator != .PATH:
                 var light_rng = path_stage_rng(
                     settings.rng_seed,
                     path_id,
                     wavefront_rng_light_stage(UInt32(_bounce)),
                 )
-                var direct = sample_direct_lighting[ALGORITHM](
+                var direct = sample_direct_lighting[integrator](
                     hit.surface, world, cur_ray, point, light_rng
                 )
                 radiance += throughput * direct
@@ -152,8 +152,8 @@ def _trace_ao[
     return Color(1.0)
 
 
-def _trace_algorithm[
-    ALGORITHM: Integrator,
+def _trace_integrator[
+    integrator: Integrator,
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
 ](
@@ -163,28 +163,28 @@ def _trace_algorithm[
     mut rng: Rng,
     path_id: UInt32,
 ) -> Color:
-    comptime if ALGORITHM == .PATH:
+    comptime if integrator == .PATH:
         return _trace_path[.PATH, world_bvh_width, instance_bvh_width](
             settings, world, ray, rng, path_id
         )
-    elif ALGORITHM == .NORMALS:
+    elif integrator == .NORMALS:
         return _trace_normals(world, ray)
-    elif ALGORITHM == .AO:
+    elif integrator == .AO:
         return _trace_ao(world, ray, rng)
-    elif ALGORITHM == .NEE:
+    elif integrator == .NEE:
         return _trace_path[.NEE, world_bvh_width, instance_bvh_width](
             settings, world, ray, rng, path_id
         )
-    elif ALGORITHM == .MIS:
+    elif integrator == .MIS:
         return _trace_path[.MIS, world_bvh_width, instance_bvh_width](
             settings, world, ray, rng, path_id
         )
     else:
-        comptime assert False, "unknown RT render algorithm"
+        comptime assert False, "unknown RT integrator"
 
 
 def _render_pixel[
-    ALGORITHM: Integrator,
+    integrator: Integrator,
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
 ](
@@ -203,15 +203,15 @@ def _render_pixel[
             pixel_idx * settings.samples_per_pixel + sample_idx
         )
         var ray = _make_primary_ray(settings, camera, px, py, rng)
-        pixel_color += _trace_algorithm[
-            ALGORITHM, world_bvh_width, instance_bvh_width
+        pixel_color += _trace_integrator[
+            integrator, world_bvh_width, instance_bvh_width
         ](settings, world, ray, rng, path_id)
 
     return pixel_color * (1.0 / Float32(settings.samples_per_pixel))
 
 
 def render_depth_first[
-    ALGORITHM: Integrator = .PATH,
+    integrator: Integrator = .PATH,
     TILE_WIDTH: Int = CPU_RENDER_TILE_WIDTH,
     TILE_HEIGHT: Int = CPU_RENDER_TILE_HEIGHT,
     SCHEDULER_MODE: Int = 2,
@@ -252,7 +252,7 @@ def render_depth_first[
                 var pixel_idx = py * settings.image_width + px
                 ref rng = rng_states[pixel_idx]
                 pixels[pixel_idx] = _render_pixel[
-                    ALGORITHM,
+                    integrator,
                     world_bvh_width,
                     instance_bvh_width,
                 ](

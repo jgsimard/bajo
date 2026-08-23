@@ -2,7 +2,7 @@ import std.os.path
 from std.math import abs, cos, pi, sin, sqrt
 
 from bajo.bvh import Camera, Instance, Sphere
-from bajo.core import Affine3f32, Frame, Point3f32, Vec3f32
+from bajo.core import Affine3f32, Point3f32, Vec3f32
 from bajo.parser.number import parse_f32_at
 from bajo.rt.types import (
     Color,

@@ -3,7 +3,7 @@ from std.time import perf_counter_ns
 
 from bajo.bvh import Camera, Instance
 from bajo.bvh.host_utils import compute_bounds
-from bajo.core import AABB, Affine3f32, Frame, Point3f32, Quat, Vec3f32
+from bajo.core import AABB, Affine3f32, Point3f32, Quat, Vec3f32
 from bajo.core.random import Rng
 from bajo.core.utils import ns_to_ms
 from bajo.parser.obj.pack import pack_obj_triangles

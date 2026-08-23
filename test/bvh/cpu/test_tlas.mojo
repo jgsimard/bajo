@@ -9,7 +9,6 @@ from bajo.core import (
     Affine3f32,
     Vec3f32,
     Point3f32,
-    Frame,
     Vec3W,
     Point3W,
     Rayf32,

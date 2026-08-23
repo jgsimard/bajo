@@ -13,8 +13,8 @@ from bajo.bvh.gpu.quality import (
 )
 from bajo.bvh.gpu.trace import GpuTraversalStats
 from bajo.bvh.gpu.triangle_bvh import (
-    build_triangle_bvh,
-    build_triangle_bvh_measured,
+    build_gpu_triangle_bvh,
+    build_gpu_triangle_bvh_measured,
 )
 from bajo.bvh.gpu.utils import (
     GpuBuildTimings,
@@ -24,7 +24,7 @@ from bajo.bvh.gpu.utils import (
 )
 from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.types import Hit
-from bajo.core import Frame, Point3f32
+from bajo.core import Point3f32
 from bajo.core.utils import ns_to_mrays_per_s, ns_to_ms
 from bajo.parser.obj.pack import pack_obj_triangles
 from bajo.benchmark.bvh_fixtures import make_camera_rays_and_params
@@ -93,7 +93,7 @@ def _run_case[
 ) raises -> HplocBenchResult:
     comptime max_leaf_size = Int(leaf_width)
     # Warm every specialization before collecting build time.
-    _ = build_triangle_bvh[.WORLD, node_width, leaf_width, method](
+    _ = build_gpu_triangle_bvh[.WORLD, node_width, leaf_width, method](
         ctx, d_vertices
     )
     ctx.synchronize()
@@ -103,7 +103,7 @@ def _run_case[
     for _ in range(BENCH_REPEATS):
         var start = perf_counter_ns()
         var candidate_timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
-        _ = build_triangle_bvh_measured[
+        _ = build_gpu_triangle_bvh_measured[
             .WORLD, node_width, leaf_width, method
         ](ctx, d_vertices, candidate_timings)
         ctx.synchronize()
@@ -122,7 +122,7 @@ def _run_case[
     )
     var wide_quality = measure_wide_bvh_quality(quality_tree)
 
-    var bvh = build_triangle_bvh[.WORLD, node_width, leaf_width, method](
+    var bvh = build_gpu_triangle_bvh[.WORLD, node_width, leaf_width, method](
         ctx, d_vertices
     )
     var hits = ctx.enqueue_create_buffer[.float32](ray_count * Hit.STRIDE)

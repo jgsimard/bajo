@@ -6,7 +6,7 @@ from std.testing import (
 )
 
 from bajo.parser.pbrt import MemoryTextLoader, parse_pbrt, read_pbrt
-from bajo.rt import CpuScene, Integrator, render_wavefront
+from bajo.rt import CpuScene, render_wavefront
 
 
 def test_parse_checked_in_scene_with_include() raises:

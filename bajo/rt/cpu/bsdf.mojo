@@ -2,7 +2,7 @@
 
 from std.math import sqrt
 
-from bajo.core import Vec3f32, dot, normalize, Frame, Rayf32
+from bajo.core import Vec3f32, dot, normalize, Rayf32
 from bajo.core.random import Rng
 from bajo.rt.shading import _evaluate_material, _sample_material
 from bajo.rt.types import (

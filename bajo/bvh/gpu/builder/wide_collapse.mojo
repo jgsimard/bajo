@@ -28,7 +28,7 @@ from bajo.bvh.gpu.builder.binary_layout import (
 from bajo.bvh.tagged_ref import decode_ref_index, is_leaf_ref
 from bajo.bvh.wide_meta import _pack_wide_meta
 from bajo.bvh.gpu.utils import _device_span, upload_list
-from bajo.core import AABB, Frame, SegmentOffsets
+from bajo.core import AABB, SegmentOffsets
 
 
 comptime HPLOC_WIDE_STATUS_OK = UInt32(0)

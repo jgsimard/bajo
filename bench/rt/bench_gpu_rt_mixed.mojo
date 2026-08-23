@@ -5,10 +5,12 @@ from std.sys import has_accelerator
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceContext
 
-from bajo.core import Frame, Point3f32, Vec3f32
+from bajo.core import Point3f32, Vec3f32
 from bajo.core.utils import ns_to_ms
 from bajo.rt import Camera, Integrator, RenderSettings
-from bajo.rt.gpu.mixed_path import GpuRtMixedScene, enqueue_render_gpu_mixed
+from bajo.rt.gpu.policy import GpuRtBvhPolicy
+from bajo.rt.gpu.scene import GpuRtScene, prepare_gpu_scene
+from bajo.rt.gpu.render import enqueue_render_gpu
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
 from bajo.benchmark.gpu_harness import (
     BENCH_REPEATS,
@@ -39,15 +41,18 @@ def _camera() -> Camera:
     )
 
 
-def _bench_algorithm[
-    ALGORITHM: Integrator,
+def _bench_integrator[
+    integrator: Integrator,
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: GpuRtMixedScene[NODE_WIDTH, LEAF_WIDTH],
+    world: GpuRtScene[
+        .SPHERES_TRIANGLES,
+        GpuRtBvhPolicy(NODE_WIDTH, LEAF_WIDTH, .LBVH, .WIDE),
+    ],
     settings: RenderSettings,
 ) raises -> GpuRtBenchResult:
-    enqueue_render_gpu_mixed[ALGORITHM, NODE_WIDTH, LEAF_WIDTH](
+    enqueue_render_gpu[integrator](
         ctx, target, world, settings
     )
     ctx.synchronize()
@@ -56,7 +61,7 @@ def _bench_algorithm[
     var render_times = List[Int](capacity=BENCH_REPEATS)
     for _ in range(BENCH_REPEATS):
         var render_t0 = perf_counter_ns()
-        enqueue_render_gpu_mixed[ALGORITHM, NODE_WIDTH, LEAF_WIDTH](
+        enqueue_render_gpu[integrator](
             ctx, target, world, settings
         )
         var submit_t1 = perf_counter_ns()
@@ -90,9 +95,12 @@ def main() raises:
 
     with DeviceContext() as ctx:
         var scene_t0 = perf_counter_ns()
-        var gpu_world = GpuRtMixedScene[NODE_WIDTH, LEAF_WIDTH](
-            ctx, world.scene_data()
-        )
+        var gpu_world = prepare_gpu_scene[
+            kind=.SPHERES_TRIANGLES,
+            sphere_policy=GpuRtBvhPolicy(
+                NODE_WIDTH, LEAF_WIDTH, .LBVH, .WIDE
+            ),
+        ](ctx, world.scene_data())
         ctx.synchronize()
         var scene_ns = Int(perf_counter_ns() - scene_t0)
         var target = GpuRtRenderTarget(ctx, settings, _camera())
@@ -104,21 +112,21 @@ def main() raises:
         )
         print_gpu_rt_result(
             "PATH",
-            _bench_algorithm[.PATH](ctx, target, gpu_world, settings),
+            _bench_integrator[.PATH](ctx, target, gpu_world, settings),
             sample_count,
         )
         print_gpu_rt_result(
             "AO",
-            _bench_algorithm[.AO](ctx, target, gpu_world, settings),
+            _bench_integrator[.AO](ctx, target, gpu_world, settings),
             sample_count,
         )
         print_gpu_rt_result(
             "NEE",
-            _bench_algorithm[.NEE](ctx, target, gpu_world, settings),
+            _bench_integrator[.NEE](ctx, target, gpu_world, settings),
             sample_count,
         )
         print_gpu_rt_result(
             "MIS",
-            _bench_algorithm[.MIS](ctx, target, gpu_world, settings),
+            _bench_integrator[.MIS](ctx, target, gpu_world, settings),
             sample_count,
         )

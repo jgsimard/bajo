@@ -27,7 +27,7 @@ from bajo.bvh.gpu.builder.binary_layout import (
 from bajo.bvh.gpu.builder.wide_collapse import collapse_binary_to_wide_batch
 from bajo.bvh.gpu.builder.binary_layout import _encoded_bounds
 from bajo.bvh.tagged_ref import is_leaf_ref
-from bajo.bvh.gpu.triangle_bvh import build_triangle_bvh
+from bajo.bvh.gpu.triangle_bvh import build_gpu_triangle_bvh
 from bajo.bvh.gpu.utils import upload_list, upload_vertices
 from bajo.bvh.wide_meta import (
     _wide_meta_count,
@@ -35,7 +35,7 @@ from bajo.bvh.wide_meta import (
     _wide_node_index,
 )
 from bajo.bvh.types import Hit
-from bajo.core import AABB, Frame, Point3f32, SegmentOffsets
+from bajo.core import AABB, Point3f32, SegmentOffsets
 
 from test.bvh.fixtures import (
     _append_tri,
@@ -355,7 +355,7 @@ def _assert_hploc_triangle_matches_cpu[
     var camera_params = camera_data[1].copy()
 
     with DeviceContext() as ctx:
-        var gpu = build_triangle_bvh[
+        var gpu = build_gpu_triangle_bvh[
             .WORLD,
             node_width,
             leaf_width,

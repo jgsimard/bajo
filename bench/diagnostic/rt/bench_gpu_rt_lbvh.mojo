@@ -11,14 +11,12 @@ from bajo.bvh.gpu.tlas_diagnostics import (
     summarize_tlas_diagnostics,
 )
 from bajo.bvh.types import Hit
-from bajo.core import Frame
 from bajo.core.utils import ns_to_ms
 from bajo.rt import RenderSettings, CpuScene
-from bajo.rt.gpu.combined_instance_path import (
-    GpuRtCombinedInstanceScene,
-    enqueue_render_gpu_combined_instances,
-)
+from bajo.rt.gpu.policy import GpuRtBvhPolicy
+from bajo.rt.gpu.render import enqueue_render_gpu
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
+from bajo.rt.gpu.scene import GpuRtScene, prepare_gpu_scene
 from bajo.benchmark.bvh_reporting import TablePrinter
 from bajo.benchmark.gpu_harness import gpu_rt_checksum
 from bajo.benchmark.timing import TimingSummary, summarize_timings
@@ -42,22 +40,12 @@ def _warm_world_build[
     world: CpuScene[world_bvh_width, instance_bvh_width],
 ) raises:
     """Absorb one-time driver, allocator, and builder initialization."""
-    _ = GpuRtCombinedInstanceScene[
-        True,
-        True,
-        4,
-        4,
-        2,
-        1,
-        8,
-        4,
-        .HPLOC,
-        .CWBVH8,
-        4,
-        4,
-        .LBVH,
-        .WIDE,
-        .LBVH,
+    _ = prepare_gpu_scene[
+        .ALL,
+        sphere_policy=GpuRtBvhPolicy(4, 4, .LBVH, .WIDE),
+        triangle_policy=GpuRtBvhPolicy(4, 4, .LBVH, .WIDE),
+        tlas_policy=GpuRtBvhPolicy(2, 1, .LBVH, .WIDE),
+        blas_policy=GpuRtBvhPolicy(8, 4, .HPLOC, .CWBVH8),
     ](ctx, world.scene_data())
     ctx.synchronize()
 
@@ -67,43 +55,16 @@ def _enqueue[
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: GpuRtCombinedInstanceScene[
-        True,
-        True,
-        4,
-        4,
-        2,
-        tlas_leaf_width,
-        8,
-        4,
-        .HPLOC,
-        .CWBVH8,
-        4,
-        4,
-        .LBVH,
-        .WIDE,
-        .LBVH,
+    world: GpuRtScene[
+        .ALL,
+        GpuRtBvhPolicy(4, 4, .LBVH, .WIDE),
+        GpuRtBvhPolicy(4, 4, .LBVH, .WIDE),
+        GpuRtBvhPolicy(2, tlas_leaf_width, .LBVH, .WIDE),
+        GpuRtBvhPolicy(8, 4, .HPLOC, .CWBVH8),
     ],
     settings: RenderSettings,
 ) raises:
-    enqueue_render_gpu_combined_instances[
-        .PATH,
-        True,
-        True,
-        4,
-        4,
-        2,
-        tlas_leaf_width,
-        8,
-        4,
-        .HPLOC,
-        .CWBVH8,
-        4,
-        4,
-        .LBVH,
-        .WIDE,
-        .LBVH,
-    ](ctx, target, world, settings)
+    enqueue_render_gpu[.PATH](ctx, target, world, settings)
 
 
 def _timed_enqueue[
@@ -111,22 +72,12 @@ def _timed_enqueue[
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: GpuRtCombinedInstanceScene[
-        True,
-        True,
-        4,
-        4,
-        2,
-        tlas_leaf_width,
-        8,
-        4,
-        .HPLOC,
-        .CWBVH8,
-        4,
-        4,
-        .LBVH,
-        .WIDE,
-        .LBVH,
+    world: GpuRtScene[
+        .ALL,
+        GpuRtBvhPolicy(4, 4, .LBVH, .WIDE),
+        GpuRtBvhPolicy(4, 4, .LBVH, .WIDE),
+        GpuRtBvhPolicy(2, tlas_leaf_width, .LBVH, .WIDE),
+        GpuRtBvhPolicy(8, 4, .HPLOC, .CWBVH8),
     ],
     settings: RenderSettings,
 ) raises -> Int:
@@ -195,43 +146,23 @@ def main() raises:
         _warm_world_build(ctx, world)
 
         var build21_t0 = perf_counter_ns()
-        var gpu21 = GpuRtCombinedInstanceScene[
-            True,
-            True,
-            4,
-            4,
-            2,
-            1,
-            8,
-            4,
-            .HPLOC,
-            .CWBVH8,
-            4,
-            4,
-            .LBVH,
-            .WIDE,
-            .LBVH,
+        var gpu21 = prepare_gpu_scene[
+            .ALL,
+            sphere_policy=GpuRtBvhPolicy(4, 4, .LBVH, .WIDE),
+            triangle_policy=GpuRtBvhPolicy(4, 4, .LBVH, .WIDE),
+            tlas_policy=GpuRtBvhPolicy(2, 1, .LBVH, .WIDE),
+            blas_policy=GpuRtBvhPolicy(8, 4, .HPLOC, .CWBVH8),
         ](ctx, world.scene_data())
         ctx.synchronize()
         var build21_ns = Int(perf_counter_ns() - build21_t0)
 
         var build22_t0 = perf_counter_ns()
-        var gpu22 = GpuRtCombinedInstanceScene[
-            True,
-            True,
-            4,
-            4,
-            2,
-            2,
-            8,
-            4,
-            .HPLOC,
-            .CWBVH8,
-            4,
-            4,
-            .LBVH,
-            .WIDE,
-            .LBVH,
+        var gpu22 = prepare_gpu_scene[
+            .ALL,
+            sphere_policy=GpuRtBvhPolicy(4, 4, .LBVH, .WIDE),
+            triangle_policy=GpuRtBvhPolicy(4, 4, .LBVH, .WIDE),
+            tlas_policy=GpuRtBvhPolicy(2, 2, .LBVH, .WIDE),
+            blas_policy=GpuRtBvhPolicy(8, 4, .HPLOC, .CWBVH8),
         ](ctx, world.scene_data())
         ctx.synchronize()
         var build22_ns = Int(perf_counter_ns() - build22_t0)
@@ -294,18 +225,18 @@ def main() raises:
             primary_ray_count * Hit[.WORLD].STRIDE
         )
         for _ in range(WARMUPS):
-            gpu21.tlas.launch_camera(
+            gpu21._tlas.value().launch_camera(
                 ctx,
-                gpu21.blases,
+                gpu21._instance_blases.value(),
                 target.camera,
                 diagnostic_hits,
                 primary_ray_count,
                 IMAGE_WIDTH,
                 IMAGE_HEIGHT,
             )
-            gpu22.tlas.launch_camera(
+            gpu22._tlas.value().launch_camera(
                 ctx,
-                gpu22.blases,
+                gpu22._instance_blases.value(),
                 target.camera,
                 diagnostic_hits,
                 primary_ray_count,
@@ -318,9 +249,9 @@ def main() raises:
         for pair in range(PAIRED_REPEATS):
             if pair % 2 == 0:
                 var t21 = perf_counter_ns()
-                gpu21.tlas.launch_camera(
+                gpu21._tlas.value().launch_camera(
                     ctx,
-                    gpu21.blases,
+                    gpu21._instance_blases.value(),
                     target.camera,
                     diagnostic_hits,
                     primary_ray_count,
@@ -330,9 +261,9 @@ def main() raises:
                 ctx.synchronize()
                 primary21.append(Int(perf_counter_ns() - t21))
                 var t22 = perf_counter_ns()
-                gpu22.tlas.launch_camera(
+                gpu22._tlas.value().launch_camera(
                     ctx,
-                    gpu22.blases,
+                    gpu22._instance_blases.value(),
                     target.camera,
                     diagnostic_hits,
                     primary_ray_count,
@@ -343,9 +274,9 @@ def main() raises:
                 primary22.append(Int(perf_counter_ns() - t22))
             else:
                 var t22 = perf_counter_ns()
-                gpu22.tlas.launch_camera(
+                gpu22._tlas.value().launch_camera(
                     ctx,
-                    gpu22.blases,
+                    gpu22._instance_blases.value(),
                     target.camera,
                     diagnostic_hits,
                     primary_ray_count,
@@ -355,9 +286,9 @@ def main() raises:
                 ctx.synchronize()
                 primary22.append(Int(perf_counter_ns() - t22))
                 var t21 = perf_counter_ns()
-                gpu21.tlas.launch_camera(
+                gpu21._tlas.value().launch_camera(
                     ctx,
-                    gpu21.blases,
+                    gpu21._instance_blases.value(),
                     target.camera,
                     diagnostic_hits,
                     primary_ray_count,
@@ -401,8 +332,8 @@ def main() raises:
         )
         launch_triangle_tlas_camera_diagnostics(
             ctx,
-            gpu21.tlas,
-            gpu21.blases,
+            gpu21._tlas.value(),
+            gpu21._instance_blases.value(),
             target.camera,
             diagnostic_hits,
             diagnostic_stats,

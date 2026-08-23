@@ -18,9 +18,9 @@ from bajo.rt import (
     CpuScene,
 )
 from bajo.rt.gpu.policy import (
-    GpuRtBvhPolicy,
-    GPU_RT_BVH_CWBVH8_HPLOC,
-    GPU_RT_BVH_WIDE4_LBVH,
+    GpuRtBvhFormat,
+    GPU_RT_BVH_CWBVH8,
+    GPU_RT_BVH_WIDE4,
 )
 from bajo.rt.gpu.render import enqueue_render_gpu
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
@@ -52,8 +52,8 @@ struct TlasRtLayoutResult(Copyable):
 def _warm_world_build(mut ctx: DeviceContext, world: CpuScene[]) raises:
     _ = prepare_gpu_scene[
         .INSTANCES,
-        tlas_policy=GpuRtBvhPolicy(2, 1, .LBVH, .WIDE),
-        blas_policy=GpuRtBvhPolicy(4, 4, .HPLOC, .WIDE),
+        tlas_format=GpuRtBvhFormat(2, 1, .WIDE),
+        blas_format=GpuRtBvhFormat(4, 4, .WIDE),
     ](ctx, world.scene_data())
     ctx.synchronize()
 
@@ -112,20 +112,15 @@ def _bench_integrator[
     tlas_leaf_width: SIMDLength,
     blas_node_width: SIMDLength,
     blas_leaf_width: SIMDLength,
-    tlas_build_method: GpuBvhBuildMethod,
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
     world: GpuRtScene[
         .INSTANCES,
-        GPU_RT_BVH_WIDE4_LBVH,
-        GPU_RT_BVH_CWBVH8_HPLOC,
-        GpuRtBvhPolicy(
-            tlas_node_width, tlas_leaf_width, tlas_build_method, .WIDE
-        ),
-        GpuRtBvhPolicy(
-            blas_node_width, blas_leaf_width, .HPLOC, .WIDE
-        ),
+        GPU_RT_BVH_WIDE4,
+        GPU_RT_BVH_CWBVH8,
+        GpuRtBvhFormat(tlas_node_width, tlas_leaf_width, .WIDE),
+        GpuRtBvhFormat(blas_node_width, blas_leaf_width, .WIDE),
     ],
     settings: RenderSettings,
 ) raises -> GpuRtBenchResult:
@@ -161,12 +156,13 @@ def _run_layout[
     var t0 = perf_counter_ns()
     var gpu_world = prepare_gpu_scene[
         .INSTANCES,
-        tlas_policy=GpuRtBvhPolicy(
-            tlas_node_width, tlas_leaf_width, tlas_build_method, .WIDE
+        tlas_format=GpuRtBvhFormat(
+            tlas_node_width, tlas_leaf_width, .WIDE
         ),
-        blas_policy=GpuRtBvhPolicy(
-            blas_node_width, blas_leaf_width, .HPLOC, .WIDE
+        blas_format=GpuRtBvhFormat(
+            blas_node_width, blas_leaf_width, .WIDE
         ),
+        tlas_build_method=tlas_build_method,
     ](ctx, world.scene_data())
     ctx.synchronize()
     var build_ns = Int(perf_counter_ns() - t0)
@@ -176,7 +172,6 @@ def _run_layout[
         tlas_leaf_width,
         blas_node_width,
         blas_leaf_width,
-        tlas_build_method,
     ](ctx, target, gpu_world, settings)
     var ao = _bench_integrator[
         .AO,
@@ -184,7 +179,6 @@ def _run_layout[
         tlas_leaf_width,
         blas_node_width,
         blas_leaf_width,
-        tlas_build_method,
     ](ctx, target, gpu_world, settings)
     var nee = _bench_integrator[
         .NEE,
@@ -192,7 +186,6 @@ def _run_layout[
         tlas_leaf_width,
         blas_node_width,
         blas_leaf_width,
-        tlas_build_method,
     ](ctx, target, gpu_world, settings)
     var mis = _bench_integrator[
         .MIS,
@@ -200,7 +193,6 @@ def _run_layout[
         tlas_leaf_width,
         blas_node_width,
         blas_leaf_width,
-        tlas_build_method,
     ](ctx, target, gpu_world, settings)
     return TlasRtLayoutResult(label, build_ns, path^, ao^, nee^, mis^)
 

@@ -8,7 +8,7 @@ from max.gpu.host import DeviceContext
 from bajo.bvh.gpu import GpuBvhLayout
 from bajo.core.utils import ns_to_ms
 from bajo.rt import RenderSettings, CpuScene
-from bajo.rt.gpu.policy import GpuRtBvhPolicy
+from bajo.rt.gpu.policy import GpuRtBvhFormat
 from bajo.rt.gpu.resources import GpuRtRenderTarget
 from bajo.rt.gpu.scene import prepare_gpu_scene
 from bajo.benchmark.gpu_harness import (
@@ -39,10 +39,9 @@ def _run_layout[
     var build_t0 = perf_counter_ns()
     var gpu_world = prepare_gpu_scene[
         .TRIANGLES,
-        triangle_policy=GpuRtBvhPolicy(
+        triangle_format=GpuRtBvhFormat(
             node_width,
             leaf_width,
-            .HPLOC,
             GpuBvhLayout(node_width == 8 and leaf_width == 4),
         ),
     ](ctx, world.scene_data())

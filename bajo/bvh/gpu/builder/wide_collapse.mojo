@@ -895,41 +895,6 @@ def _enqueue_collapse_binary_to_packed[
     )
 
 
-def enqueue_collapse_binary_to_wide_batch_with_workspace[
-    node_width: SIMDLength,
-    leaf_width: SIMDLength,
-    max_leaf_size: Int,
-    fat_leaves: Bool = False,
-    spatial_slots: Bool = False,
-](
-    mut ctx: DeviceContext,
-    binary: GpuBinaryBoundsBvh,
-    mut out: GpuWideBoundsBvhBatch[node_width, leaf_width, max_leaf_size],
-    workspace: GpuWideCollapseWorkspace,
-) raises -> GpuWideCollapseState:
-    out.bounds_device = binary.bounds_device.copy()
-    return _enqueue_collapse_binary_to_packed[
-        node_width,
-        leaf_width,
-        max_leaf_size,
-        fat_leaves,
-        spatial_slots,
-        _hploc_leaf_block_data,
-    ](
-        ctx,
-        binary,
-        out.node_segments,
-        out.node_segment_offsets,
-        out.leaf_block_segments,
-        out.leaf_block_segment_offsets,
-        out.wide_nodes,
-        out.leaf_block_indices,
-        out.leaf_block_counts,
-        out.node_counts,
-        workspace,
-    )
-
-
 def enqueue_collapse_binary_to_wide_batch[
     node_width: SIMDLength,
     leaf_width: SIMDLength,

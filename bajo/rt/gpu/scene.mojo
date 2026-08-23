@@ -5,6 +5,7 @@ from max.gpu.host import DeviceBuffer, DeviceContext
 from bajo.bvh import Sphere
 from bajo.bvh.gpu import (
     GpuBlasSet,
+    GpuBvhBuildMethod,
     GpuSphereBvh,
     GpuTlas,
     build_gpu_sphere_bvh,
@@ -16,11 +17,11 @@ from bajo.core import Point3f32
 from bajo.rt.geometry import sphere_for_acceleration
 from bajo.rt.gpu.path_shading import GpuRtShadingResources
 from bajo.rt.gpu.policy import (
-    GpuRtBvhPolicy,
+    GpuRtBvhFormat,
     GpuRtSceneKind,
-    GPU_RT_BVH_CWBVH8_HPLOC,
-    GPU_RT_BVH_TLAS2_LBVH,
-    GPU_RT_BVH_WIDE4_LBVH,
+    GPU_RT_BVH_CWBVH8,
+    GPU_RT_BVH_TLAS2,
+    GPU_RT_BVH_WIDE4,
 )
 from bajo.rt.gpu.resources import upload_surface_ids
 from bajo.rt.gpu.views import (
@@ -37,40 +38,40 @@ from bajo.rt.types import SceneData
 @fieldwise_init
 struct GpuRtScene[
     kind: GpuRtSceneKind,
-    sphere_policy: GpuRtBvhPolicy = GPU_RT_BVH_WIDE4_LBVH,
-    triangle_policy: GpuRtBvhPolicy = GPU_RT_BVH_CWBVH8_HPLOC,
-    tlas_policy: GpuRtBvhPolicy = GPU_RT_BVH_TLAS2_LBVH,
-    blas_policy: GpuRtBvhPolicy = GPU_RT_BVH_CWBVH8_HPLOC,
+    sphere_format: GpuRtBvhFormat = GPU_RT_BVH_WIDE4,
+    triangle_format: GpuRtBvhFormat = GPU_RT_BVH_CWBVH8,
+    tlas_format: GpuRtBvhFormat = GPU_RT_BVH_TLAS2,
+    blas_format: GpuRtBvhFormat = GPU_RT_BVH_CWBVH8,
 ]:
     """Own exactly the device resources selected by `kind`."""
 
     var _sphere_bvh: Optional[GpuSphereBvh[
         .WORLD,
-        Self.sphere_policy.node_width,
-        Self.sphere_policy.leaf_width,
+        Self.sphere_format.node_width,
+        Self.sphere_format.leaf_width,
     ]]
     var _sphere_surfaces: Optional[DeviceBuffer[.uint32]]
     var _signed_radii: Optional[DeviceBuffer[.float32]]
     var _triangle_blas: Optional[GpuBlasSet[
         .TRIANGLE,
-        Self.triangle_policy.layout,
-        Self.triangle_policy.node_width,
-        Self.triangle_policy.leaf_width,
+        Self.triangle_format.layout,
+        Self.triangle_format.node_width,
+        Self.triangle_format.leaf_width,
     ]]
     var _triangle_surfaces: Optional[DeviceBuffer[.uint32]]
     var _instance_blases: Optional[GpuBlasSet[
         .TRIANGLE,
-        Self.blas_policy.layout,
-        Self.blas_policy.node_width,
-        Self.blas_policy.leaf_width,
+        Self.blas_format.layout,
+        Self.blas_format.node_width,
+        Self.blas_format.leaf_width,
     ]]
     var _tlas: Optional[GpuTlas[
         .TRIANGLE,
-        Self.tlas_policy.node_width,
-        Self.blas_policy.node_width,
-        Self.tlas_policy.leaf_width,
-        Self.blas_policy.leaf_width,
-        Self.blas_policy.layout,
+        Self.tlas_format.node_width,
+        Self.blas_format.node_width,
+        Self.tlas_format.leaf_width,
+        Self.blas_format.leaf_width,
+        Self.blas_format.layout,
     ]]
     var _instance_surfaces: Optional[DeviceBuffer[.uint32]]
     var shading: GpuRtShadingResources
@@ -133,21 +134,23 @@ struct GpuRtScene[
 
 def prepare_gpu_scene[
     kind: GpuRtSceneKind,
-    sphere_policy: GpuRtBvhPolicy = GPU_RT_BVH_WIDE4_LBVH,
-    triangle_policy: GpuRtBvhPolicy = GPU_RT_BVH_CWBVH8_HPLOC,
-    tlas_policy: GpuRtBvhPolicy = GPU_RT_BVH_TLAS2_LBVH,
-    blas_policy: GpuRtBvhPolicy = GPU_RT_BVH_CWBVH8_HPLOC,
+    sphere_format: GpuRtBvhFormat = GPU_RT_BVH_WIDE4,
+    triangle_format: GpuRtBvhFormat = GPU_RT_BVH_CWBVH8,
+    tlas_format: GpuRtBvhFormat = GPU_RT_BVH_TLAS2,
+    blas_format: GpuRtBvhFormat = GPU_RT_BVH_CWBVH8,
+    triangle_build_method: GpuBvhBuildMethod = .HPLOC,
+    tlas_build_method: GpuBvhBuildMethod = .LBVH,
+    blas_build_method: GpuBvhBuildMethod = .HPLOC,
 ](
     mut ctx: DeviceContext,
     data: SceneData,
 ) raises -> GpuRtScene[
-    kind, sphere_policy, triangle_policy, tlas_policy, blas_policy
+    kind, sphere_format, triangle_format, tlas_format, blas_format
 ]:
-    """Build the one typed owner selected by scene shape and policies."""
+    """Build the typed owner selected by scene shape and ready BVH formats."""
     comptime assert kind.is_valid()
-    comptime assert sphere_policy.layout == .WIDE
-    comptime assert sphere_policy.build_method == .LBVH
-    comptime assert tlas_policy.layout == .WIDE
+    comptime assert sphere_format.layout == .WIDE
+    comptime assert tlas_format.layout == .WIDE
     debug_assert["safe", _use_compiler_assume=True](
         (len(data.spheres()) > 0) == kind.has_spheres()
         and (len(data.triangle_vertices()) > 0) == kind.has_triangles()
@@ -156,7 +159,7 @@ def prepare_gpu_scene[
     )
 
     var sphere_bvh = Optional[GpuSphereBvh[
-        .WORLD, sphere_policy.node_width, sphere_policy.leaf_width
+        .WORLD, sphere_format.node_width, sphere_format.leaf_width
     ]]()
     var sphere_surfaces = Optional[DeviceBuffer[.uint32]]()
     var signed_radii = Optional[DeviceBuffer[.float32]]()
@@ -168,7 +171,7 @@ def prepare_gpu_scene[
             host_signed_radii.append(sphere.radius)
         sphere_bvh = Optional(
             build_gpu_sphere_bvh[
-                .WORLD, sphere_policy.node_width, sphere_policy.leaf_width
+                .WORLD, sphere_format.node_width, sphere_format.leaf_width
             ](ctx, build_spheres)
         )
         sphere_surfaces = Optional(
@@ -178,9 +181,9 @@ def prepare_gpu_scene[
 
     var triangle_blas = Optional[GpuBlasSet[
         .TRIANGLE,
-        triangle_policy.layout,
-        triangle_policy.node_width,
-        triangle_policy.leaf_width,
+        triangle_format.layout,
+        triangle_format.node_width,
+        triangle_format.leaf_width,
     ]]()
     var triangle_surfaces = Optional[DeviceBuffer[.uint32]]()
     comptime if kind.has_triangles():
@@ -191,10 +194,10 @@ def prepare_gpu_scene[
             vertices.append(vertex)
         triangle_blas = Optional(
             build_gpu_triangle_blas_set[
-                triangle_policy.node_width,
-                triangle_policy.leaf_width,
-                triangle_policy.build_method,
-                triangle_policy.layout,
+                triangle_format.node_width,
+                triangle_format.leaf_width,
+                triangle_build_method,
+                triangle_format.layout,
                 .WORLD,
             ](ctx, [vertices^])
         )
@@ -204,37 +207,37 @@ def prepare_gpu_scene[
 
     var instance_blases = Optional[GpuBlasSet[
         .TRIANGLE,
-        blas_policy.layout,
-        blas_policy.node_width,
-        blas_policy.leaf_width,
+        blas_format.layout,
+        blas_format.node_width,
+        blas_format.leaf_width,
     ]]()
     var tlas = Optional[GpuTlas[
         .TRIANGLE,
-        tlas_policy.node_width,
-        blas_policy.node_width,
-        tlas_policy.leaf_width,
-        blas_policy.leaf_width,
-        blas_policy.layout,
+        tlas_format.node_width,
+        blas_format.node_width,
+        tlas_format.leaf_width,
+        blas_format.leaf_width,
+        blas_format.layout,
     ]]()
     var instance_surfaces = Optional[DeviceBuffer[.uint32]]()
     comptime if kind.has_instances():
         instance_blases = Optional(
             build_gpu_triangle_blas_set[
-                blas_policy.node_width,
-                blas_policy.leaf_width,
-                blas_policy.build_method,
-                blas_policy.layout,
+                blas_format.node_width,
+                blas_format.leaf_width,
+                blas_build_method,
+                blas_format.layout,
             ](ctx, data.triangle_meshes())
         )
         tlas = Optional(
             build_gpu_tlas[
                 .TRIANGLE,
-                tlas_policy.node_width,
-                blas_policy.node_width,
-                tlas_policy.leaf_width,
-                blas_policy.leaf_width,
-                tlas_policy.build_method,
-                blas_policy.layout,
+                tlas_format.node_width,
+                blas_format.node_width,
+                tlas_format.leaf_width,
+                blas_format.leaf_width,
+                tlas_build_method,
+                blas_format.layout,
             ](ctx, data.triangle_instances())
         )
         instance_surfaces = Optional(
@@ -243,7 +246,7 @@ def prepare_gpu_scene[
 
     var shading = GpuRtShadingResources(ctx, data)
     return GpuRtScene[
-        kind, sphere_policy, triangle_policy, tlas_policy, blas_policy
+        kind, sphere_format, triangle_format, tlas_format, blas_format
     ](
         sphere_bvh^,
         sphere_surfaces^,

@@ -9,7 +9,6 @@ from bajo.core import (
     AxisAlignedBoundingBox,
     Frame,
     Point3,
-    Rayf32,
     SegmentOffsets,
     Vec3,
 )
@@ -403,48 +402,6 @@ struct WideNodeIntersection[width: SIMDLength](TrivialRegisterPassable):
     ):
         self.bounds_hit = bounds_hit
         self.meta = meta
-
-
-def _intersect_wide_node[
-    frame: Frame,
-    width: SIMDLength,
-](
-    wide_nodes: ImmPointer[Float32, _],
-    node_idx: UInt32,
-    ray: Rayf32[frame],
-    t_max: Float32,
-) -> WideNodeIntersection[width]:
-    var block = AxisAlignedBoundingBox[DType.float32, frame, width].invalid()
-    var base = _wide_node_base[width](node_idx)
-    block._min.x = wide_nodes.unsafe_load[width=width](
-        base + WideNode.MIN_X * width
-    )
-    block._min.y = wide_nodes.unsafe_load[width=width](
-        base + WideNode.MIN_Y * width
-    )
-    block._min.z = wide_nodes.unsafe_load[width=width](
-        base + WideNode.MIN_Z * width
-    )
-    block._max.x = wide_nodes.unsafe_load[width=width](
-        base + WideNode.MAX_X * width
-    )
-    block._max.y = wide_nodes.unsafe_load[width=width](
-        base + WideNode.MAX_Y * width
-    )
-    block._max.z = wide_nodes.unsafe_load[width=width](
-        base + WideNode.MAX_Z * width
-    )
-    var meta = wide_nodes.unsafe_bitcast[UInt32]().unsafe_load[width=width](
-        base + WideNode.META * width
-    )
-    var bounds_hit = intersect_ray_aabb_rcp(
-        ray.origin[width](),
-        ray.reciprocal_direction[width](),
-        block._min,
-        block._max,
-        t_max,
-    )
-    return WideNodeIntersection[width](bounds_hit, meta)
 
 
 @always_inline

@@ -20,9 +20,9 @@ from bajo.rt import (
     CpuScene,
 )
 from bajo.rt.gpu.policy import (
-    GpuRtBvhPolicy,
-    GPU_RT_BVH_CWBVH8_HPLOC,
-    GPU_RT_BVH_WIDE4_LBVH,
+    GpuRtBvhFormat,
+    GPU_RT_BVH_CWBVH8,
+    GPU_RT_BVH_WIDE4,
 )
 from bajo.rt.gpu.render import enqueue_render_gpu
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
@@ -79,20 +79,18 @@ def _bench_integrator[
     integrator: Integrator,
     blas_node_width: SIMDLength,
     blas_leaf_width: SIMDLength,
-    method: GpuBvhBuildMethod,
     layout: GpuBvhLayout,
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
     world: GpuRtScene[
         .INSTANCES,
-        GPU_RT_BVH_WIDE4_LBVH,
-        GPU_RT_BVH_CWBVH8_HPLOC,
-        GpuRtBvhPolicy(2, 2, .LBVH, .WIDE),
-        GpuRtBvhPolicy(
+        GPU_RT_BVH_WIDE4,
+        GPU_RT_BVH_CWBVH8,
+        GpuRtBvhFormat(2, 2, .WIDE),
+        GpuRtBvhFormat(
             8 if layout.compressed else blas_node_width,
             blas_leaf_width,
-            method,
             layout,
         ),
     ],
@@ -132,10 +130,11 @@ def _run_layout[
     var t0 = perf_counter_ns()
     var gpu_world = prepare_gpu_scene[
         .INSTANCES,
-        tlas_policy=GpuRtBvhPolicy(2, 2, .LBVH, .WIDE),
-        blas_policy=GpuRtBvhPolicy(
-            effective_width, blas_leaf_width, method, layout
+        tlas_format=GpuRtBvhFormat(2, 2, .WIDE),
+        blas_format=GpuRtBvhFormat(
+            effective_width, blas_leaf_width, layout
         ),
+        blas_build_method=method,
     ](ctx, world.scene_data())
     ctx.synchronize()
     print(
@@ -144,28 +143,28 @@ def _run_layout[
     print_gpu_rt_result(
         "PATH",
         _bench_integrator[
-            .PATH, blas_node_width, blas_leaf_width, method, layout
+            .PATH, blas_node_width, blas_leaf_width, layout
         ](ctx, target, gpu_world, settings),
         sample_count,
     )
     print_gpu_rt_result(
         "AO",
         _bench_integrator[
-            .AO, blas_node_width, blas_leaf_width, method, layout
+            .AO, blas_node_width, blas_leaf_width, layout
         ](ctx, target, gpu_world, settings),
         sample_count,
     )
     print_gpu_rt_result(
         "NEE",
         _bench_integrator[
-            .NEE, blas_node_width, blas_leaf_width, method, layout
+            .NEE, blas_node_width, blas_leaf_width, layout
         ](ctx, target, gpu_world, settings),
         sample_count,
     )
     print_gpu_rt_result(
         "MIS",
         _bench_integrator[
-            .MIS, blas_node_width, blas_leaf_width, method, layout
+            .MIS, blas_node_width, blas_leaf_width, layout
         ](ctx, target, gpu_world, settings),
         sample_count,
     )

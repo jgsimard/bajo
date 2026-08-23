@@ -13,7 +13,7 @@ from bajo.bvh.gpu.tlas_diagnostics import (
 from bajo.bvh.types import Hit
 from bajo.core.utils import ns_to_ms
 from bajo.rt import RenderSettings, CpuScene
-from bajo.rt.gpu.policy import GpuRtBvhPolicy
+from bajo.rt.gpu.policy import GpuRtBvhFormat
 from bajo.rt.gpu.render import enqueue_render_gpu
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
 from bajo.rt.gpu.scene import GpuRtScene, prepare_gpu_scene
@@ -42,10 +42,11 @@ def _warm_world_build[
     """Absorb one-time driver, allocator, and builder initialization."""
     _ = prepare_gpu_scene[
         .ALL,
-        sphere_policy=GpuRtBvhPolicy(4, 4, .LBVH, .WIDE),
-        triangle_policy=GpuRtBvhPolicy(4, 4, .LBVH, .WIDE),
-        tlas_policy=GpuRtBvhPolicy(2, 1, .LBVH, .WIDE),
-        blas_policy=GpuRtBvhPolicy(8, 4, .HPLOC, .CWBVH8),
+        sphere_format=GpuRtBvhFormat(4, 4, .WIDE),
+        triangle_format=GpuRtBvhFormat(4, 4, .WIDE),
+        tlas_format=GpuRtBvhFormat(2, 1, .WIDE),
+        blas_format=GpuRtBvhFormat(8, 4, .CWBVH8),
+        triangle_build_method=.LBVH,
     ](ctx, world.scene_data())
     ctx.synchronize()
 
@@ -57,10 +58,10 @@ def _enqueue[
     mut target: GpuRtRenderTarget,
     world: GpuRtScene[
         .ALL,
-        GpuRtBvhPolicy(4, 4, .LBVH, .WIDE),
-        GpuRtBvhPolicy(4, 4, .LBVH, .WIDE),
-        GpuRtBvhPolicy(2, tlas_leaf_width, .LBVH, .WIDE),
-        GpuRtBvhPolicy(8, 4, .HPLOC, .CWBVH8),
+        GpuRtBvhFormat(4, 4, .WIDE),
+        GpuRtBvhFormat(4, 4, .WIDE),
+        GpuRtBvhFormat(2, tlas_leaf_width, .WIDE),
+        GpuRtBvhFormat(8, 4, .CWBVH8),
     ],
     settings: RenderSettings,
 ) raises:
@@ -74,10 +75,10 @@ def _timed_enqueue[
     mut target: GpuRtRenderTarget,
     world: GpuRtScene[
         .ALL,
-        GpuRtBvhPolicy(4, 4, .LBVH, .WIDE),
-        GpuRtBvhPolicy(4, 4, .LBVH, .WIDE),
-        GpuRtBvhPolicy(2, tlas_leaf_width, .LBVH, .WIDE),
-        GpuRtBvhPolicy(8, 4, .HPLOC, .CWBVH8),
+        GpuRtBvhFormat(4, 4, .WIDE),
+        GpuRtBvhFormat(4, 4, .WIDE),
+        GpuRtBvhFormat(2, tlas_leaf_width, .WIDE),
+        GpuRtBvhFormat(8, 4, .CWBVH8),
     ],
     settings: RenderSettings,
 ) raises -> Int:
@@ -148,10 +149,11 @@ def main() raises:
         var build21_t0 = perf_counter_ns()
         var gpu21 = prepare_gpu_scene[
             .ALL,
-            sphere_policy=GpuRtBvhPolicy(4, 4, .LBVH, .WIDE),
-            triangle_policy=GpuRtBvhPolicy(4, 4, .LBVH, .WIDE),
-            tlas_policy=GpuRtBvhPolicy(2, 1, .LBVH, .WIDE),
-            blas_policy=GpuRtBvhPolicy(8, 4, .HPLOC, .CWBVH8),
+            sphere_format=GpuRtBvhFormat(4, 4, .WIDE),
+            triangle_format=GpuRtBvhFormat(4, 4, .WIDE),
+            tlas_format=GpuRtBvhFormat(2, 1, .WIDE),
+            blas_format=GpuRtBvhFormat(8, 4, .CWBVH8),
+            triangle_build_method=.LBVH,
         ](ctx, world.scene_data())
         ctx.synchronize()
         var build21_ns = Int(perf_counter_ns() - build21_t0)
@@ -159,10 +161,11 @@ def main() raises:
         var build22_t0 = perf_counter_ns()
         var gpu22 = prepare_gpu_scene[
             .ALL,
-            sphere_policy=GpuRtBvhPolicy(4, 4, .LBVH, .WIDE),
-            triangle_policy=GpuRtBvhPolicy(4, 4, .LBVH, .WIDE),
-            tlas_policy=GpuRtBvhPolicy(2, 2, .LBVH, .WIDE),
-            blas_policy=GpuRtBvhPolicy(8, 4, .HPLOC, .CWBVH8),
+            sphere_format=GpuRtBvhFormat(4, 4, .WIDE),
+            triangle_format=GpuRtBvhFormat(4, 4, .WIDE),
+            tlas_format=GpuRtBvhFormat(2, 2, .WIDE),
+            blas_format=GpuRtBvhFormat(8, 4, .CWBVH8),
+            triangle_build_method=.LBVH,
         ](ctx, world.scene_data())
         ctx.synchronize()
         var build22_ns = Int(perf_counter_ns() - build22_t0)

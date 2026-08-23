@@ -1,6 +1,6 @@
-"""Compile-time scene-shape and BVH policies for GPU ray tracing."""
+"""Compile-time scene-shape and ready BVH formats for GPU ray tracing."""
 
-from bajo.bvh.gpu import GpuBvhBuildMethod, GpuBvhLayout
+from bajo.bvh.gpu import GpuBvhLayout
 
 
 @fieldwise_init
@@ -31,19 +31,14 @@ struct GpuRtSceneKind(Equatable, ImplicitlyCopyable):
 
 
 @fieldwise_init
-struct GpuRtBvhPolicy:
-    """Compile-time BVH layout and builder selection."""
+struct GpuRtBvhFormat:
+    """Compile-time layout of a ready-to-traverse GPU BVH."""
 
     var node_width: Int
     var leaf_width: Int
-    var build_method: GpuBvhBuildMethod
     var layout: GpuBvhLayout
 
 
-comptime GPU_RT_BVH_WIDE4_LBVH = GpuRtBvhPolicy(4, 4, .LBVH, .WIDE)
-comptime GPU_RT_BVH_CWBVH8_HPLOC = GpuRtBvhPolicy(
-    8, 4, .HPLOC, .CWBVH8
-)
-comptime GPU_RT_BVH_TLAS2_LBVH = GpuRtBvhPolicy(
-    2, 1, .LBVH, .WIDE
-)
+comptime GPU_RT_BVH_WIDE4 = GpuRtBvhFormat(4, 4, .WIDE)
+comptime GPU_RT_BVH_CWBVH8 = GpuRtBvhFormat(8, 4, .CWBVH8)
+comptime GPU_RT_BVH_TLAS2 = GpuRtBvhFormat(2, 1, .WIDE)

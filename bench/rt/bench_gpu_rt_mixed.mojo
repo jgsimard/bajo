@@ -8,7 +8,7 @@ from max.gpu.host import DeviceContext
 from bajo.core import Point3f32, Vec3f32
 from bajo.core.utils import ns_to_ms
 from bajo.rt import Camera, Integrator, RenderSettings
-from bajo.rt.gpu.policy import GpuRtBvhPolicy
+from bajo.rt.gpu.policy import GpuRtBvhFormat
 from bajo.rt.gpu.scene import GpuRtScene, prepare_gpu_scene
 from bajo.rt.gpu.render import enqueue_render_gpu
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
@@ -48,7 +48,7 @@ def _bench_integrator[
     mut target: GpuRtRenderTarget,
     world: GpuRtScene[
         .SPHERES_TRIANGLES,
-        GpuRtBvhPolicy(NODE_WIDTH, LEAF_WIDTH, .LBVH, .WIDE),
+        GpuRtBvhFormat(NODE_WIDTH, LEAF_WIDTH, .WIDE),
     ],
     settings: RenderSettings,
 ) raises -> GpuRtBenchResult:
@@ -97,9 +97,7 @@ def main() raises:
         var scene_t0 = perf_counter_ns()
         var gpu_world = prepare_gpu_scene[
             kind=.SPHERES_TRIANGLES,
-            sphere_policy=GpuRtBvhPolicy(
-                NODE_WIDTH, LEAF_WIDTH, .LBVH, .WIDE
-            ),
+            sphere_format=GpuRtBvhFormat(NODE_WIDTH, LEAF_WIDTH, .WIDE),
         ](ctx, world.scene_data())
         ctx.synchronize()
         var scene_ns = Int(perf_counter_ns() - scene_t0)

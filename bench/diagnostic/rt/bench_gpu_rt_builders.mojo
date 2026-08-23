@@ -19,7 +19,7 @@ from bajo.rt import (
     CpuScene,
 )
 from bajo.rt.gpu.common_kernels import GPU_RT_MAX_BLOCKS
-from bajo.rt.gpu.policy import GpuRtBvhPolicy
+from bajo.rt.gpu.policy import GpuRtBvhFormat
 from bajo.rt.gpu.resources import GpuRtRenderTarget
 from bajo.rt.gpu.scene import prepare_gpu_scene
 from bajo.benchmark.gpu_harness import (
@@ -77,9 +77,8 @@ def _run_builder[
     var build_t0 = perf_counter_ns()
     var gpu_world = prepare_gpu_scene[
         .TRIANGLES,
-        triangle_policy=GpuRtBvhPolicy(
-            NODE_WIDTH, LEAF_WIDTH, method, layout
-        ),
+        triangle_format=GpuRtBvhFormat(NODE_WIDTH, LEAF_WIDTH, layout),
+        triangle_build_method=method,
     ](ctx, world.scene_data())
     ctx.synchronize()
     var build_ns = Int(perf_counter_ns() - build_t0)
@@ -92,7 +91,6 @@ def _run_builder[
             LEAF_WIDTH,
             GPU_RT_MAX_BLOCKS,
             GPU_RT_MAX_BLOCKS,
-            method,
             layout,
         ](ctx, target, gpu_world, settings),
         sample_count,
@@ -105,7 +103,6 @@ def _run_builder[
             LEAF_WIDTH,
             GPU_RT_MAX_BLOCKS,
             GPU_RT_MAX_BLOCKS,
-            method,
             layout,
         ](ctx, target, gpu_world, settings),
         sample_count,
@@ -118,7 +115,6 @@ def _run_builder[
             LEAF_WIDTH,
             GPU_RT_MAX_BLOCKS,
             GPU_RT_MAX_BLOCKS,
-            method,
             layout,
         ](ctx, target, gpu_world, settings),
         sample_count,
@@ -131,7 +127,6 @@ def _run_builder[
             LEAF_WIDTH,
             GPU_RT_MAX_BLOCKS,
             GPU_RT_MAX_BLOCKS,
-            method,
             layout,
         ](ctx, target, gpu_world, settings),
         sample_count,

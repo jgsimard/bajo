@@ -18,7 +18,7 @@ from bajo.rt import (
     SceneBuilder,
     CpuScene,
 )
-from bajo.rt.gpu.policy import GpuRtBvhPolicy
+from bajo.rt.gpu.policy import GpuRtBvhFormat
 from bajo.rt.gpu.render import enqueue_render_gpu
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
 from bajo.rt.gpu.scene import GpuRtScene, prepare_gpu_scene
@@ -113,24 +113,16 @@ def _bench_integrator[
     tlas_leaf_width: SIMDLength,
     blas_node_width: SIMDLength = 4,
     blas_leaf_width: SIMDLength = 4,
-    blas_build_method: GpuBvhBuildMethod = .LBVH,
     blas_layout: GpuBvhLayout = .WIDE,
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
     world: GpuRtScene[
         .ALL,
-        GpuRtBvhPolicy(4, 4, .LBVH, .WIDE),
-        GpuRtBvhPolicy(4, 4, .LBVH, .WIDE),
-        GpuRtBvhPolicy(
-            tlas_node_width, tlas_leaf_width, .LBVH, .WIDE
-        ),
-        GpuRtBvhPolicy(
-            blas_node_width,
-            blas_leaf_width,
-            blas_build_method,
-            blas_layout,
-        ),
+        GpuRtBvhFormat(4, 4, .WIDE),
+        GpuRtBvhFormat(4, 4, .WIDE),
+        GpuRtBvhFormat(tlas_node_width, tlas_leaf_width, .WIDE),
+        GpuRtBvhFormat(blas_node_width, blas_leaf_width, blas_layout),
     ],
     settings: RenderSettings,
 ) raises -> GpuRtBenchResult:
@@ -168,17 +160,18 @@ def _run_layout[
     var t0 = perf_counter_ns()
     var gpu_world = prepare_gpu_scene[
         .ALL,
-        sphere_policy=GpuRtBvhPolicy(4, 4, .LBVH, .WIDE),
-        triangle_policy=GpuRtBvhPolicy(4, 4, .LBVH, .WIDE),
-        tlas_policy=GpuRtBvhPolicy(
-            tlas_node_width, tlas_leaf_width, .LBVH, .WIDE
+        sphere_format=GpuRtBvhFormat(4, 4, .WIDE),
+        triangle_format=GpuRtBvhFormat(4, 4, .WIDE),
+        tlas_format=GpuRtBvhFormat(
+            tlas_node_width, tlas_leaf_width, .WIDE
         ),
-        blas_policy=GpuRtBvhPolicy(
+        blas_format=GpuRtBvhFormat(
             blas_node_width,
             blas_leaf_width,
-            blas_build_method,
             blas_layout,
         ),
+        triangle_build_method=.LBVH,
+        blas_build_method=blas_build_method,
     ](ctx, world.scene_data())
     ctx.synchronize()
     print(
@@ -192,7 +185,6 @@ def _run_layout[
             tlas_leaf_width,
             blas_node_width,
             blas_leaf_width,
-            blas_build_method,
             blas_layout,
         ](ctx, target, gpu_world, settings),
         sample_count,
@@ -205,7 +197,6 @@ def _run_layout[
             tlas_leaf_width,
             blas_node_width,
             blas_leaf_width,
-            blas_build_method,
             blas_layout,
         ](ctx, target, gpu_world, settings),
         sample_count,
@@ -218,7 +209,6 @@ def _run_layout[
             tlas_leaf_width,
             blas_node_width,
             blas_leaf_width,
-            blas_build_method,
             blas_layout,
         ](ctx, target, gpu_world, settings),
         sample_count,
@@ -231,7 +221,6 @@ def _run_layout[
             tlas_leaf_width,
             blas_node_width,
             blas_leaf_width,
-            blas_build_method,
             blas_layout,
         ](ctx, target, gpu_world, settings),
         sample_count,

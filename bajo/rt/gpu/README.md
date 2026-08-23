@@ -89,14 +89,15 @@ A caller that needs both backends can prepare the GPU scene from `SceneData`
 first, then move the same data into `CpuScene`; a GPU-only caller never needs a
 `CpuScene` or imports CPU acceleration code through the neutral type layer.
 
-`GpuRtScene[kind, sphere_policy, triangle_policy, tlas_policy, blas_policy]`
+`GpuRtScene[kind, sphere_format, triangle_format, tlas_format, blas_format]`
 is the sole prepared-scene owner. `prepare_gpu_scene` builds exactly the device
 resources selected by `kind`; absent geometry does not allocate dummy buffers
-or require a separate owner type. `GpuRtBvhPolicy` carries builder, layout, and
-node/leaf widths together instead of repeating positional generic parameters
-through every layer. `enqueue_render_gpu` submits every prepared scene through
-one API, while `render_gpu_scene` is the synchronous explicit-policy entry
-point.
+or require a separate owner type. `GpuRtBvhFormat` carries only the layout and
+node/leaf widths needed for traversal. Builder methods are parameters of scene
+preparation, so identically laid-out BVHs share one prepared scene and kernel
+type regardless of how they were built. `enqueue_render_gpu` submits every
+prepared scene through one API, while `render_gpu_configured` is the synchronous
+explicit-format entry point.
 
 Triangle-only rendering defaults to H-PLOC construction and native CWBVH8
 traversal (`node8/leaf4`). Instance rendering defaults to TLAS2/leaf1 and
@@ -124,9 +125,9 @@ namespace; GPU code does not depend on the CPU renderer namespace.
 
 `GpuRtRenderTarget` retains path/shade/shadow queues, camera data, and
 device-resident pixels. `enqueue_render_gpu` is asynchronous for hot
-submission. `render_gpu_scene` allocates, synchronizes, and downloads for an
-explicit scene kind and policy set; `render_gpu` additionally selects the kind
-and size-sensitive default policies from backend-neutral `SceneData`.
+submission. `render_gpu_configured` allocates, synchronizes, and downloads for an
+explicit scene kind, format, and builder set; `render_gpu` additionally selects
+the kind and size-sensitive defaults from backend-neutral `SceneData`.
 
 ## CPU/GPU performance comparison
 

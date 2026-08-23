@@ -7,7 +7,6 @@ from max.gpu.host import DeviceContext
 
 from bajo.core.utils import ns_to_ms
 from bajo.bvh.gpu import GpuBvhLayout
-from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.rt import (
     Camera,
     Color,
@@ -19,7 +18,7 @@ from bajo.rt import (
 from bajo.rt.cpu import render_depth_first, render_wavefront
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
 from bajo.rt.gpu.common_kernels import GPU_RT_MAX_BLOCKS
-from bajo.rt.gpu.policy import GpuRtBvhPolicy, GPU_RT_BVH_WIDE4_LBVH
+from bajo.rt.gpu.policy import GpuRtBvhFormat, GPU_RT_BVH_WIDE4
 from bajo.rt.gpu.scene import GpuRtScene, prepare_gpu_scene
 from bajo.rt.gpu.render import enqueue_render_gpu
 from bajo.benchmark.gpu_harness import (
@@ -113,15 +112,14 @@ def _bench_cpu[
 
 def _bench_gpu[
     integrator: Integrator,
-    build_method: GpuBvhBuildMethod = .LBVH,
     layout: GpuBvhLayout = .WIDE,
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
     world: GpuRtScene[
         .TRIANGLES,
-        GPU_RT_BVH_WIDE4_LBVH,
-        GpuRtBvhPolicy(NODE_WIDTH, LEAF_WIDTH, build_method, layout),
+        GPU_RT_BVH_WIDE4,
+        GpuRtBvhFormat(NODE_WIDTH, LEAF_WIDTH, layout),
     ],
     settings: RenderSettings,
 ) raises -> GpuTiming:
@@ -241,28 +239,22 @@ def main() raises:
     with DeviceContext() as ctx:
         var gpu_world = prepare_gpu_scene[
             kind=.TRIANGLES,
-            triangle_policy=GpuRtBvhPolicy(
-                NODE_WIDTH, LEAF_WIDTH, .LBVH, .WIDE
-            ),
+            triangle_format=GpuRtBvhFormat(NODE_WIDTH, LEAF_WIDTH, .WIDE),
+            triangle_build_method=.LBVH,
         ](ctx, world.scene_data())
         var target = GpuRtRenderTarget(ctx, settings, camera)
         var many_gpu_world = prepare_gpu_scene[
             kind=.TRIANGLES,
-            triangle_policy=GpuRtBvhPolicy(
-                NODE_WIDTH, LEAF_WIDTH, .LBVH, .WIDE
-            ),
+            triangle_format=GpuRtBvhFormat(NODE_WIDTH, LEAF_WIDTH, .WIDE),
+            triangle_build_method=.LBVH,
         ](ctx, many_light_world.scene_data())
         var cwbvh_world = prepare_gpu_scene[
             kind=.TRIANGLES,
-            triangle_policy=GpuRtBvhPolicy(
-                NODE_WIDTH, LEAF_WIDTH, .HPLOC, .CWBVH8
-            ),
+            triangle_format=GpuRtBvhFormat(NODE_WIDTH, LEAF_WIDTH, .CWBVH8),
         ](ctx, world.scene_data())
         var many_cwbvh_world = prepare_gpu_scene[
             kind=.TRIANGLES,
-            triangle_policy=GpuRtBvhPolicy(
-                NODE_WIDTH, LEAF_WIDTH, .HPLOC, .CWBVH8
-            ),
+            triangle_format=GpuRtBvhFormat(NODE_WIDTH, LEAF_WIDTH, .CWBVH8),
         ](ctx, many_light_world.scene_data())
         ctx.synchronize()
         var gpu_path = _bench_gpu[.PATH](ctx, target, gpu_world, settings)
@@ -272,20 +264,20 @@ def main() raises:
         var gpu_nee_64 = _bench_gpu[.NEE](
             ctx, target, many_gpu_world, settings
         )
-        var cwbvh_path = _bench_gpu[.PATH, .HPLOC, .CWBVH8](
+        var cwbvh_path = _bench_gpu[.PATH, .CWBVH8](
             ctx, target, cwbvh_world, settings
         )
-        var cwbvh_ao = _bench_gpu[.AO, .HPLOC, .CWBVH8](
+        var cwbvh_ao = _bench_gpu[.AO, .CWBVH8](
             ctx, target, cwbvh_world, settings
         )
-        var cwbvh_nee = _bench_gpu[.NEE, .HPLOC, .CWBVH8](
+        var cwbvh_nee = _bench_gpu[.NEE, .CWBVH8](
             ctx, target, cwbvh_world, settings
         )
-        var cwbvh_mis = _bench_gpu[.MIS, .HPLOC, .CWBVH8](
+        var cwbvh_mis = _bench_gpu[.MIS, .CWBVH8](
             ctx, target, cwbvh_world, settings
         )
         var cwbvh_nee_64 = _bench_gpu[
-            .NEE, .HPLOC, .CWBVH8
+            .NEE, .CWBVH8
         ](ctx, target, many_cwbvh_world, settings)
 
         _print_comparison("PATH", cpu_path, gpu_path, sample_count)

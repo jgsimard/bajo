@@ -404,6 +404,81 @@ def pack_segmented_cwbvh_triangles_kernel(
     )
 
 
+struct GpuCwbvh8RepresentationWorkspace:
+    """Reusable primitive remap and per-segment counters for CWBVH8 encoding."""
+
+    var primitive_capacity: Int
+    var segment_capacity: Int
+    var compact_primitive_ids: DeviceBuffer[.uint32]
+    var triangle_counters: DeviceBuffer[.uint32]
+
+    def __init__(
+        out self,
+        mut ctx: DeviceContext,
+        primitive_capacity: Int,
+        segment_capacity: Int,
+    ) raises:
+        self.primitive_capacity = primitive_capacity
+        self.segment_capacity = segment_capacity
+        self.compact_primitive_ids = ctx.enqueue_create_buffer[.uint32](
+            primitive_capacity
+        )
+        self.triangle_counters = ctx.enqueue_create_buffer[.uint32](
+            segment_capacity
+        )
+
+
+def enqueue_segmented_cwbvh8_representation_with_workspace[
+    leaf_width: SIMDLength,
+](
+    mut ctx: DeviceContext,
+    wide_nodes: DeviceBuffer[.float32],
+    leaf_block_indices: DeviceBuffer[.uint32],
+    node_segment_offsets: DeviceBuffer[.uint32],
+    leaf_block_segment_offsets: DeviceBuffer[.uint32],
+    primitive_segment_offsets: DeviceBuffer[.uint32],
+    node_counts: DeviceBuffer[.uint32],
+    vertices: DeviceBuffer[.float32],
+    cwbvh_nodes: DeviceBuffer[.float32],
+    triangles: DeviceBuffer[.float32],
+    mut workspace: GpuCwbvh8RepresentationWorkspace,
+) raises -> DeviceBuffer[.uint32]:
+    """Queue CWBVH8 encoding while retaining remap and counter storage."""
+    comptime assert leaf_width == CWBVH_LEAF_STORAGE_WIDTH
+    var segment_count = len(primitive_segment_offsets) - 1
+    var node_capacity = len(cwbvh_nodes) / CWBVH_NODE_WORDS
+    var triangle_count = len(triangles) / CWBVH_TRIANGLE_WORDS
+    debug_assert["safe", _use_compiler_assume=True](
+        workspace.primitive_capacity >= triangle_count
+        and workspace.segment_capacity >= segment_count,
+        "CWBVH8 representation workspace is too small",
+    )
+    ctx.enqueue_memset(workspace.triangle_counters, 0)
+    ctx.enqueue_function[encode_segmented_cwbvh8_nodes_kernel[leaf_width]](
+        wide_nodes,
+        leaf_block_indices,
+        _device_span[mut=False](node_segment_offsets),
+        _device_span[mut=False](leaf_block_segment_offsets),
+        _device_span[mut=False](primitive_segment_offsets),
+        node_counts,
+        cwbvh_nodes,
+        workspace.compact_primitive_ids,
+        workspace.triangle_counters,
+        grid_dim=ceildiv(node_capacity, GPU_BOUNDS_BVH_BLOCK_SIZE),
+        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+    )
+    ctx.enqueue_function[pack_segmented_cwbvh_triangles_kernel](
+        vertices,
+        workspace.compact_primitive_ids,
+        _device_span[mut=False](primitive_segment_offsets),
+        triangles,
+        Int32(triangle_count),
+        grid_dim=ceildiv(triangle_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
+        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+    )
+    return workspace.triangle_counters.copy()
+
+
 def enqueue_segmented_cwbvh8_representation[
     leaf_width: SIMDLength,
 ](
@@ -419,40 +494,24 @@ def enqueue_segmented_cwbvh8_representation[
     triangles: DeviceBuffer[.float32],
 ) raises -> DeviceBuffer[.uint32]:
     """Queue one CWBVH8 encoding and triangle pack for all segments."""
-    comptime assert leaf_width == CWBVH_LEAF_STORAGE_WIDTH
-    var segment_count = len(primitive_segment_offsets) - 1
-    var node_capacity = len(cwbvh_nodes) / CWBVH_NODE_WORDS
-    var triangle_count = len(triangles) / CWBVH_TRIANGLE_WORDS
-    var compact_primitive_ids = ctx.enqueue_create_buffer[.uint32](
-        triangle_count
+    var workspace = GpuCwbvh8RepresentationWorkspace(
+        ctx,
+        len(triangles) / CWBVH_TRIANGLE_WORDS,
+        len(primitive_segment_offsets) - 1,
     )
-    var triangle_counters = ctx.enqueue_create_buffer[.uint32](
-        segment_count
-    )
-    ctx.enqueue_memset(triangle_counters, 0)
-    ctx.enqueue_function[encode_segmented_cwbvh8_nodes_kernel[leaf_width]](
+    return enqueue_segmented_cwbvh8_representation_with_workspace[leaf_width](
+        ctx,
         wide_nodes,
         leaf_block_indices,
-        _device_span[mut=False](node_segment_offsets),
-        _device_span[mut=False](leaf_block_segment_offsets),
-        _device_span[mut=False](primitive_segment_offsets),
+        node_segment_offsets,
+        leaf_block_segment_offsets,
+        primitive_segment_offsets,
         node_counts,
-        cwbvh_nodes,
-        compact_primitive_ids,
-        triangle_counters,
-        grid_dim=ceildiv(node_capacity, GPU_BOUNDS_BVH_BLOCK_SIZE),
-        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-    )
-    ctx.enqueue_function[pack_segmented_cwbvh_triangles_kernel](
         vertices,
-        compact_primitive_ids,
-        _device_span[mut=False](primitive_segment_offsets),
+        cwbvh_nodes,
         triangles,
-        Int32(triangle_count),
-        grid_dim=ceildiv(triangle_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
-        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+        workspace,
     )
-    return triangle_counters^
 
 
 @fieldwise_init
@@ -466,7 +525,7 @@ struct Cwbvh8NodeTasks(TrivialRegisterPassable):
 
 
 @always_inline
-def _intersect_cwbvh8_node_tasks[
+def _intersect_cwbvh8_node_tasks_legacy[
     frame: Frame,
 ](
     cwbvh_nodes: ImmPointer[Float32, _],
@@ -571,6 +630,132 @@ def _intersect_cwbvh8_node_tasks[
     return Cwbvh8NodeTasks(
         child_base,
         triangle_base,
+        (hitmask & UInt32(0xFF000000)) | imask,
+        hitmask & UInt32(0x00FFFFFF),
+    )
+
+
+@always_inline
+def _packed_byte(word: UInt32, lane: Int) -> UInt32:
+    return (word >> UInt32(lane * 8)) & UInt32(0xFF)
+
+
+@always_inline
+def _intersect_cwbvh8_node_tasks[
+    frame: Frame,
+](
+    cwbvh_nodes: ImmPointer[Float32, _],
+    node_idx: UInt32,
+    ray: Rayf32[frame],
+    rcp_x: Float32,
+    rcp_y: Float32,
+    rcp_z: Float32,
+    t_max: Float32,
+    octant_inverse: UInt32,
+) -> Cwbvh8NodeTasks:
+    """Intersect one node from five native four-word packed loads."""
+    var base = Int(node_idx) * CWBVH_NODE_WORDS
+    var p_exp = cwbvh_nodes.unsafe_load[width=4](base)
+    var child_tri_meta = cwbvh_nodes.unsafe_load[width=4](base + 4)
+    var qlox_qloy = cwbvh_nodes.unsafe_load[width=4](base + 8)
+    var qloz_qhix = cwbvh_nodes.unsafe_load[width=4](base + 12)
+    var qhiy_qhiz = cwbvh_nodes.unsafe_load[width=4](base + 16)
+    var p_exp_u32 = bitcast[DType.uint32](p_exp)
+    var child_tri_meta_u32 = bitcast[DType.uint32](child_tri_meta)
+    var qlox_qloy_u32 = bitcast[DType.uint32](qlox_qloy)
+    var qloz_qhix_u32 = bitcast[DType.uint32](qloz_qhix)
+    var qhiy_qhiz_u32 = bitcast[DType.uint32](qhiy_qhiz)
+
+    var exp_imask = p_exp_u32[3]
+    var idir_x = (
+        _scale_from_exponent(exp_imask & UInt32(0xFF)) * rcp_x
+    )
+    var idir_y = (
+        _scale_from_exponent(
+            (exp_imask >> UInt32(8)) & UInt32(0xFF)
+        ) * rcp_y
+    )
+    var idir_z = (
+        _scale_from_exponent(
+            (exp_imask >> UInt32(16)) & UInt32(0xFF)
+        ) * rcp_z
+    )
+    var origin_x = (p_exp[0] - ray.o.x) * rcp_x
+    var origin_y = (p_exp[1] - ray.o.y) * rcp_y
+    var origin_z = (p_exp[2] - ray.o.z) * rcp_z
+    var imask = exp_imask >> UInt32(24)
+    var hitmask = UInt32(0)
+
+    comptime for group in range(2):
+        var meta4 = child_tri_meta_u32[group + 2]
+        var qlo_x4 = qlox_qloy_u32[group]
+        var qlo_y4 = qlox_qloy_u32[group + 2]
+        var qlo_z4 = qloz_qhix_u32[group]
+        var qhi_x4 = qloz_qhix_u32[group + 2]
+        var qhi_y4 = qhiy_qhiz_u32[group]
+        var qhi_z4 = qhiy_qhiz_u32[group + 2]
+        var near_x4 = qlo_x4
+        var near_y4 = qlo_y4
+        var near_z4 = qlo_z4
+        var far_x4 = qhi_x4
+        var far_y4 = qhi_y4
+        var far_z4 = qhi_z4
+        if ray.d.x < 0.0:
+            near_x4 = qhi_x4
+            far_x4 = qlo_x4
+        if ray.d.y < 0.0:
+            near_y4 = qhi_y4
+            far_y4 = qlo_y4
+        if ray.d.z < 0.0:
+            near_z4 = qhi_z4
+            far_z4 = qlo_z4
+
+        comptime for packed_lane in range(4):
+            comptime lane = group * 4 + packed_lane
+            var meta_byte = _packed_byte(meta4, packed_lane)
+            if meta_byte == 0:
+                continue
+            var tnear_x = fma(
+                Float32(_packed_byte(near_x4, packed_lane)),
+                idir_x,
+                origin_x,
+            )
+            var tnear_y = fma(
+                Float32(_packed_byte(near_y4, packed_lane)),
+                idir_y,
+                origin_y,
+            )
+            var tnear_z = fma(
+                Float32(_packed_byte(near_z4, packed_lane)),
+                idir_z,
+                origin_z,
+            )
+            var tfar_x = fma(
+                Float32(_packed_byte(far_x4, packed_lane)),
+                idir_x,
+                origin_x,
+            )
+            var tfar_y = fma(
+                Float32(_packed_byte(far_y4, packed_lane)),
+                idir_y,
+                origin_y,
+            )
+            var tfar_z = fma(
+                Float32(_packed_byte(far_z4, packed_lane)),
+                idir_z,
+                origin_z,
+            )
+            var tnear = fmax(fmax(tnear_x, tnear_y), fmax(tnear_z, 0.0))
+            var tfar = fmin(fmin(tfar_x, tfar_y), fmin(tfar_z, t_max))
+            if tnear <= tfar:
+                var bit_index = meta_byte & UInt32(0x1F)
+                if (imask & (UInt32(1) << UInt32(lane))) != 0:
+                    bit_index ^= octant_inverse
+                hitmask |= (meta_byte >> UInt32(5)) << bit_index
+
+    return Cwbvh8NodeTasks(
+        child_tri_meta_u32[0],
+        child_tri_meta_u32[1],
         (hitmask & UInt32(0xFF000000)) | imask,
         hitmask & UInt32(0x00FFFFFF),
     )

@@ -101,6 +101,7 @@ Common benchmark tasks include:
 pixi run bench_all
 pixi run bench_bvh
 pixi run bench_bvh_cpu_report
+pixi run bench_bvh_gpu_nexus_compare
 pixi run bench_rt_cpu
 pixi run bench_rt_gpu
 pixi run bench_rt_cpu_gpu
@@ -112,12 +113,12 @@ uses Embree 4 and TinyBVH; the Embree task requires Embree 4 headers and
 `libembree4`. Recorded results are available in
 [`bench/results/`](bench/results/), including the [CPU BVH report](bench/results/bvh_cpu/bvh_cpu.md)
 and [CPU/GPU ray-tracing comparison](bench/results/rt_cpu_gpu/comparison.md).
+The NexusBVH comparison writes its [result table](bench/results/bvh_gpu_nexus/comparison.md).
 
 ## Repository layout
 
 - [`bajo/core`](bajo/core/) — vectors, matrices, quaternions, transforms, rays, and intersections
-- [`bajo/obj`](bajo/obj/) — pure-Mojo OBJ/MTL loading
-- [`bajo/pbrt`](bajo/pbrt/) — PBRT text-scene parsing and loading
+- [`bajo/parser`](bajo/parser/) — pure-Mojo OBJ/MTL/prt loading
 - [`bajo/bvh`](bajo/bvh/) — CPU/GPU BVH construction and traversal
 - [`bajo/rt`](bajo/rt/) — CPU and GPU ray-tracing and shading pipelines
 - [`bajo/sort`](bajo/sort/) — CPU and GPU sorting implementations

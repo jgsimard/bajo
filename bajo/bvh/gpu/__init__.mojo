@@ -2,6 +2,7 @@
 
 from .blas_storage import GpuBlasSet, GpuBvhLayout
 from .builder import GpuBvhBuildMethod
+from .cwbvh8_builder import GpuCwbvh8BuildArena
 from .sphere_bvh import (
     GpuSphereBvh,
     build_gpu_sphere_blas_set,

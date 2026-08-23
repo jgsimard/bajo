@@ -188,6 +188,7 @@ def build_hploc_multi_wave_kernel[
     block_size: Int,
     search_radius: Int,
     merging_threshold: Int,
+    compact_output: Bool,
 ](
     sorted_morton_codes: ImmSpan[UInt32, ImmutAnyOrigin],
     segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
@@ -197,6 +198,7 @@ def build_hploc_multi_wave_kernel[
     parent_slots: MutSpan[UInt32, MutAnyOrigin],
     cluster_indices: MutSpan[UInt32, MutAnyOrigin],
     scratch_bounds: MutSpan[Float32, MutAnyOrigin],
+    compact_children: MutSpan[UInt32, MutAnyOrigin],
     node_meta: MutSpan[UInt32, MutAnyOrigin],
     leaf_parent: MutSpan[UInt32, MutAnyOrigin],
     node_bounds: MutSpan[Float32, MutAnyOrigin],
@@ -213,9 +215,6 @@ def build_hploc_multi_wave_kernel[
         block_size * AABB.STRIDE,
         Float32,
         address_space=AddressSpace.SHARED,
-    ]()
-    var distance_offsets = stack_allocation[
-        block_size, UInt64, address_space=AddressSpace.SHARED
     ]()
     var node_indices_cache = stack_allocation[
         block_size, UInt32, address_space=AddressSpace.SHARED
@@ -378,63 +377,99 @@ def build_hploc_multi_wave_kernel[
                     cluster_idx = node_indices_cache[unsafe_offset=shared_lane]
                     own_bounds = load_cached_bounds(shared_lane)
 
-                distance_offsets[unsafe_offset=shared_lane] = UInt64.MAX
-                syncwarp()
-
-                # HIPRT-style pair ownership: lane i evaluates only j > i,
-                # then atomically publishes the same packed area to both
-                # endpoint minima. Each candidate pair is tested once.
+                # Keep this lane's AABB in registers and fetch neighboring
+                # AABBs with shuffles. Every lane evaluates both directions;
+                # this removes the shared UInt64 minima table and its atomic
+                # publications while retaining the exact packed tie ordering.
                 var own_minimum = UInt64.MAX
-                if active:
-                    var last_neighbor = min(
-                        lane + search_radius, cluster_count - 1
+                for neighbor_distance in range(1, search_radius + 1):
+                    var right_lane = min(lane + neighbor_distance, WARP_SIZE - 1)
+                    var right_bounds = AABB[.WORLD](
+                        Point3f32[.WORLD](
+                            warp.shuffle_idx(
+                                own_bounds._min.x, UInt32(right_lane)
+                            ),
+                            warp.shuffle_idx(
+                                own_bounds._min.y, UInt32(right_lane)
+                            ),
+                            warp.shuffle_idx(
+                                own_bounds._min.z, UInt32(right_lane)
+                            ),
+                        ),
+                        Point3f32[.WORLD](
+                            warp.shuffle_idx(
+                                own_bounds._max.x, UInt32(right_lane)
+                            ),
+                            warp.shuffle_idx(
+                                own_bounds._max.y, UInt32(right_lane)
+                            ),
+                            warp.shuffle_idx(
+                                own_bounds._max.z, UInt32(right_lane)
+                            ),
+                        ),
                     )
-                    for neighbor_lane in range(lane + 1, last_neighbor + 1):
-                        var neighbor_bounds = load_cached_bounds(
-                            shared_wave_base + neighbor_lane
-                        )
+                    if active and lane + neighbor_distance < cluster_count:
                         var merged = AABB[.WORLD].merge(
-                            own_bounds, neighbor_bounds
-                        )
-                        var area = merged.surface_area()[0]
-                        var right_offset = _hploc_encode_offset(
-                            lane, neighbor_lane
+                            own_bounds, right_bounds
                         )
                         own_minimum = min(
                             own_minimum,
-                            _hploc_pack_distance_offset(area, right_offset),
-                        )
-                        var left_offset = _hploc_encode_offset(
-                            neighbor_lane, lane
-                        )
-                        Atomic.min[ordering=Ordering.RELAXED](
-                            distance_offsets.unsafe_offset(
-                                shared_wave_base + neighbor_lane
+                            _hploc_pack_distance_offset(
+                                merged.surface_area()[0],
+                                _hploc_encode_offset(
+                                    lane, lane + neighbor_distance
+                                ),
                             ),
-                            _hploc_pack_distance_offset(area, left_offset),
                         )
-                    Atomic.min[ordering=Ordering.RELAXED](
-                        distance_offsets.unsafe_offset(shared_lane),
-                        own_minimum,
-                    )
-
-                syncwarp()
-
-                var nearest = WARP_SIZE
-                var neighbor_nearest = WARP_SIZE
-                if active:
-                    nearest = _hploc_decode_offset(
-                        lane,
-                        UInt32(distance_offsets[unsafe_offset=shared_lane]),
-                    )
-                    neighbor_nearest = _hploc_decode_offset(
-                        nearest,
-                        UInt32(
-                            distance_offsets[
-                                unsafe_offset=(shared_wave_base + nearest)
-                            ]
+                    var left_lane = max(lane - neighbor_distance, 0)
+                    var left_bounds = AABB[.WORLD](
+                        Point3f32[.WORLD](
+                            warp.shuffle_idx(
+                                own_bounds._min.x, UInt32(left_lane)
+                            ),
+                            warp.shuffle_idx(
+                                own_bounds._min.y, UInt32(left_lane)
+                            ),
+                            warp.shuffle_idx(
+                                own_bounds._min.z, UInt32(left_lane)
+                            ),
+                        ),
+                        Point3f32[.WORLD](
+                            warp.shuffle_idx(
+                                own_bounds._max.x, UInt32(left_lane)
+                            ),
+                            warp.shuffle_idx(
+                                own_bounds._max.y, UInt32(left_lane)
+                            ),
+                            warp.shuffle_idx(
+                                own_bounds._max.z, UInt32(left_lane)
+                            ),
                         ),
                     )
+                    if active and lane - neighbor_distance >= 0:
+                        var merged = AABB[.WORLD].merge(
+                            own_bounds, left_bounds
+                        )
+                        own_minimum = min(
+                            own_minimum,
+                            _hploc_pack_distance_offset(
+                                merged.surface_area()[0],
+                                _hploc_encode_offset(
+                                    lane, lane - neighbor_distance
+                                ),
+                            ),
+                        )
+
+                var nearest = WARP_SIZE
+                if active:
+                    nearest = _hploc_decode_offset(
+                        lane, UInt32(own_minimum)
+                    )
+                var neighbor_nearest = Int(
+                    warp.shuffle_idx(
+                        UInt32(nearest), UInt32(min(nearest, WARP_SIZE - 1))
+                    )
+                )
                 var mutual = active and lane == neighbor_nearest
                 var merge = mutual and lane < nearest
                 var merge_mask = hploc_wave_ballot(merge)
@@ -473,28 +508,35 @@ def build_hploc_multi_wave_kernel[
                     )
                     _hploc_store_bounds(scratch_bounds, node_idx, output_bounds)
 
-                    var meta = Int(node_idx) * BinaryBvhNode.META_STRIDE
-                    node_meta.unsafe_get(
-                        meta + BinaryBvhNode.PARENT
-                    ) = LBVH_SENTINEL
-                    node_meta.unsafe_get(
-                        meta + BinaryBvhNode.LEFT
-                    ) = cluster_idx
-                    node_meta.unsafe_get(
-                        meta + BinaryBvhNode.RIGHT
-                    ) = neighbor_idx
-                    node_meta.unsafe_get(
-                        meta + BinaryBvhNode.FENCE
-                    ) = LBVH_SENTINEL
+                    comptime if compact_output:
+                        var child_base = Int(node_idx) * 2
+                        compact_children.unsafe_get(child_base) = cluster_idx
+                        compact_children.unsafe_get(
+                            child_base + 1
+                        ) = neighbor_idx
+                    else:
+                        var meta = Int(node_idx) * BinaryBvhNode.META_STRIDE
+                        node_meta.unsafe_get(
+                            meta + BinaryBvhNode.PARENT
+                        ) = LBVH_SENTINEL
+                        node_meta.unsafe_get(
+                            meta + BinaryBvhNode.LEFT
+                        ) = cluster_idx
+                        node_meta.unsafe_get(
+                            meta + BinaryBvhNode.RIGHT
+                        ) = neighbor_idx
+                        node_meta.unsafe_get(
+                            meta + BinaryBvhNode.FENCE
+                        ) = LBVH_SENTINEL
 
-                    var bounds_base = (
-                        Int(node_idx) * BinaryBvhNode.BOUNDS_STRIDE
-                    )
-                    own_bounds.store6(node_bounds, bounds_base)
-                    neighbor_bounds.store6(
-                        node_bounds, bounds_base + AABB.STRIDE
-                    )
-                    node_flags.unsafe_get(Int(node_idx)) = UInt32(2)
+                        var bounds_base = (
+                            Int(node_idx) * BinaryBvhNode.BOUNDS_STRIDE
+                        )
+                        own_bounds.store6(node_bounds, bounds_base)
+                        neighbor_bounds.store6(
+                            node_bounds, bounds_base + AABB.STRIDE
+                        )
+                        node_flags.unsafe_get(Int(node_idx)) = UInt32(2)
                     node_leaf_counts.unsafe_get(
                         Int(node_idx)
                     ) = _hploc_cluster_leaf_count(
@@ -502,12 +544,13 @@ def build_hploc_multi_wave_kernel[
                     ) + _hploc_cluster_leaf_count(
                         neighbor_idx, node_leaf_counts
                     )
-                    _hploc_set_child_parent(
-                        cluster_idx, node_idx, node_meta, leaf_parent
-                    )
-                    _hploc_set_child_parent(
-                        neighbor_idx, node_idx, node_meta, leaf_parent
-                    )
+                    comptime if not compact_output:
+                        _hploc_set_child_parent(
+                            cluster_idx, node_idx, node_meta, leaf_parent
+                        )
+                        _hploc_set_child_parent(
+                            neighbor_idx, node_idx, node_meta, leaf_parent
+                        )
                     output_idx = encode_internal_ref(node_idx)
                 elif active and not mutual:
                     output_idx = cluster_idx
@@ -575,6 +618,7 @@ def finalize_hploc_multi_wave_kernel(
 struct GpuHplocBuildState[
     search_radius: Int = HPLOC_SEARCH_RADIUS,
     merging_threshold: Int = HPLOC_MERGING_THRESHOLD,
+    compact_output: Bool = False,
 ]:
     """Scratch and completion state for a direct production-layout build."""
 
@@ -585,6 +629,7 @@ struct GpuHplocBuildState[
     var segment_offsets: DeviceBuffer[.uint32]
     var internal_segment_offsets: DeviceBuffer[.uint32]
     var scratch_bounds: DeviceBuffer[.float32]
+    var compact_children: DeviceBuffer[.uint32]
     var parent_slots: DeviceBuffer[.uint32]
     var cluster_indices: DeviceBuffer[.uint32]
     var node_counter: DeviceBuffer[.uint32]
@@ -687,6 +732,9 @@ struct GpuHplocBuildState[
         self.scratch_bounds = ctx.enqueue_create_buffer[.float32](
             internal_capacity * AABB.STRIDE
         )
+        self.compact_children = ctx.enqueue_create_buffer[.uint32](
+            internal_capacity * 2 if Self.compact_output else 1
+        )
         self.parent_slots = ctx.enqueue_create_buffer[.uint32](
             self.leaf_count
         )
@@ -701,6 +749,38 @@ struct GpuHplocBuildState[
         )
         self.node_counter = ctx.enqueue_create_buffer[.uint32](
             self.segments.segment_count()
+        )
+
+        self.enqueue(
+            ctx,
+            leaf_bounds,
+            sorted_morton_codes,
+            sorted_leaf_ids,
+            node_meta,
+            leaf_parent,
+            node_bounds,
+            node_flags,
+            node_leaf_counts,
+        )
+
+    def enqueue(
+        mut self,
+        mut ctx: DeviceContext,
+        leaf_bounds: DeviceBuffer[.float32],
+        sorted_morton_codes: DeviceBuffer[.uint32],
+        sorted_leaf_ids: DeviceBuffer[.uint32],
+        node_meta: DeviceBuffer[.uint32],
+        leaf_parent: DeviceBuffer[.uint32],
+        node_bounds: DeviceBuffer[.float32],
+        node_flags: DeviceBuffer[.uint32],
+        node_leaf_counts: DeviceBuffer[.uint32],
+    ) raises:
+        """Queue another build while retaining all H-PLOC scratch buffers."""
+        debug_assert["safe", _use_compiler_assume=True](
+            len(sorted_leaf_ids) == self.leaf_count
+            and len(sorted_morton_codes) == self.leaf_count
+            and len(leaf_bounds) == self.leaf_count * AABB.STRIDE,
+            "reused H-PLOC inputs do not match the arena capacity",
         )
 
         var init_blocks = ceildiv(
@@ -725,6 +805,7 @@ struct GpuHplocBuildState[
                 HPLOC_MULTI_WAVE_BLOCK_SIZE,
                 Self.search_radius,
                 Self.merging_threshold,
+                Self.compact_output,
             ]
         ](
             _device_span[mut=False](sorted_morton_codes),
@@ -735,6 +816,7 @@ struct GpuHplocBuildState[
             _device_span[mut=True](self.parent_slots),
             _device_span[mut=True](self.cluster_indices),
             _device_span[mut=True](self.scratch_bounds),
+            _device_span[mut=True](self.compact_children),
             _device_span[mut=True](node_meta),
             _device_span[mut=True](leaf_parent),
             _device_span[mut=True](node_bounds),

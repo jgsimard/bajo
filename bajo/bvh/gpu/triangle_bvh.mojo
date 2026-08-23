@@ -45,8 +45,10 @@ from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.gpu.compressed_bounds_bvh import (
     CWBVH_NODE_WORDS,
     CWBVH_TRIANGLE_WORDS,
+    Cwbvh8NodeTasks,
     enqueue_segmented_cwbvh8_representation,
     _intersect_cwbvh8_node_tasks,
+    _intersect_cwbvh8_node_tasks_legacy,
 )
 from bajo.bvh.gpu.builder.binary_layout import _segment_for_item
 from bajo.bvh.gpu.builder.segmented_build import (
@@ -981,6 +983,7 @@ def _intersect_cwbvh_triangle[
 def trace_cwbvh8_triangles[
     frame: Frame,
     mode: TraceMode,
+    packed_decode: Bool = True,
 ](
     nodes: ImmPointer[Float32, _],
     triangles: ImmPointer[Float32, _],
@@ -1031,16 +1034,29 @@ def trace_cwbvh8_triangles[
             var node_t_max = hit.t
             comptime if mode == .ANY_HIT:
                 node_t_max = ray.t_max
-            var tasks = _intersect_cwbvh8_node_tasks[frame](
-                nodes,
-                node_idx,
-                ray,
-                ray_rcp.x,
-                ray_rcp.y,
-                ray_rcp.z,
-                node_t_max,
-                octant_inverse,
-            )
+            var tasks: Cwbvh8NodeTasks
+            comptime if packed_decode:
+                tasks = _intersect_cwbvh8_node_tasks[frame](
+                    nodes,
+                    node_idx,
+                    ray,
+                    ray_rcp.x,
+                    ray_rcp.y,
+                    ray_rcp.z,
+                    node_t_max,
+                    octant_inverse,
+                )
+            else:
+                tasks = _intersect_cwbvh8_node_tasks_legacy[frame](
+                    nodes,
+                    node_idx,
+                    ray,
+                    ray_rcp.x,
+                    ray_rcp.y,
+                    ray_rcp.z,
+                    node_t_max,
+                    octant_inverse,
+                )
             node_group_base = tasks.child_base
             node_group_mask = tasks.node_group_mask
             triangle_group_base = tasks.triangle_base

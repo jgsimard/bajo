@@ -1,13 +1,14 @@
 """Build and closest-hit traversal comparison for Bajo versus NexusBVH."""
 
-from std.math import ceildiv, round
-from std.sys import has_accelerator
+from std.math import ceildiv, max, round
+from std.sys import argv, has_accelerator
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.constants import GPU_BOUNDS_BVH_BLOCK_SIZE
 from bajo.bvh.gpu.triangle_bvh import build_gpu_triangle_bvh
+from bajo.bvh.gpu.trace import GpuTraversalStats
 from bajo.bvh.gpu.utils import (
     _download_full_hit_checksum,
     upload_list,
@@ -20,8 +21,11 @@ from bajo.core import Frame
 from bajo.core.utils import ns_to_mrays_per_s, ns_to_ms
 from bajo.parser.obj.pack import pack_obj_triangles
 from bajo.benchmark.gpu_bvh_fixtures import (
+    Cwbvh8BenchBvh,
     build_cwbvh8_bench_bvh,
+    create_cwbvh8_bench_arena,
     trace_cwbvh8_camera_kernel,
+    trace_cwbvh8_camera_stats_kernel,
 )
 
 
@@ -146,19 +150,35 @@ def _run_cwbvh8_case[
     var label = String(
         t"{label_prefix}-CWBVH8-n8-l4-m{max_leaf_size}"
     )
-    var warm = build_cwbvh8_bench_bvh[method, max_leaf_size](
-        ctx, d_vertices
-    )
-    ctx.synchronize()
-
+    var warm: Cwbvh8BenchBvh
     var build_timings = List[Int](capacity=BENCH_REPEATS)
-    for _ in range(BENCH_REPEATS):
-        var start = perf_counter_ns()
-        var bvh = build_cwbvh8_bench_bvh[method, max_leaf_size](
+    comptime if method == GpuBvhBuildMethod.HPLOC:
+        var arena = create_cwbvh8_bench_arena[max_leaf_size, True](
             ctx, d_vertices
         )
         ctx.synchronize()
-        build_timings.append(Int(perf_counter_ns() - start))
+        arena.finish_synchronized()
+        for _ in range(BENCH_REPEATS):
+            var start = perf_counter_ns()
+            arena.enqueue_rebuild(ctx, d_vertices)
+            ctx.synchronize()
+            build_timings.append(Int(perf_counter_ns() - start))
+        arena.finish_synchronized()
+        warm = Cwbvh8BenchBvh(
+            arena.nodes.copy(), arena.triangles.copy(), UInt32(0)
+        )
+    else:
+        warm = build_cwbvh8_bench_bvh[method, max_leaf_size](
+            ctx, d_vertices
+        )
+        ctx.synchronize()
+        for _ in range(BENCH_REPEATS):
+            var start = perf_counter_ns()
+            var bvh = build_cwbvh8_bench_bvh[method, max_leaf_size](
+                ctx, d_vertices
+            )
+            ctx.synchronize()
+            build_timings.append(Int(perf_counter_ns() - start))
 
     var build_values = build_timings.copy()
     sort(build_values)
@@ -211,6 +231,45 @@ def _run_cwbvh8_case[
     var trace_max_ms = ns_to_ms(trace_values[len(trace_values) - 1])
     var validation = _download_full_hit_checksum(ctx, d_hits, ray_count)
 
+    var d_stats = ctx.enqueue_create_buffer[DType.uint32](
+        ray_count * GpuTraversalStats.STRIDE
+    )
+    ctx.enqueue_function[trace_cwbvh8_camera_stats_kernel](
+        warm.nodes,
+        warm.triangles,
+        warm.root_idx,
+        d_camera,
+        d_hits,
+        d_stats,
+        Int32(ray_count),
+        Int32(RAY_WIDTH),
+        Int32(RAY_HEIGHT),
+        Float32(1.0) / Float32(RAY_HEIGHT),
+        grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
+        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+    )
+    ctx.synchronize()
+    var node_visits = UInt64(0)
+    var leaf_groups = UInt64(0)
+    var primitive_tests = UInt64(0)
+    var max_stack = UInt32(0)
+    with d_stats.map_to_host() as stats:
+        for ray_idx in range(ray_count):
+            var base = ray_idx * GpuTraversalStats.STRIDE
+            node_visits += UInt64(
+                stats[base + GpuTraversalStats.NODE_VISITS]
+            )
+            leaf_groups += UInt64(
+                stats[base + GpuTraversalStats.LEAF_BLOCKS]
+            )
+            primitive_tests += UInt64(
+                stats[base + GpuTraversalStats.PRIMITIVE_TESTS]
+            )
+            max_stack = max(
+                max_stack,
+                stats[base + GpuTraversalStats.MAX_STACK_DEPTH],
+            )
+
     print(
         label.ascii_ljust(25),
         String(round(build_median_ms, 3)).ascii_rjust(10),
@@ -219,6 +278,10 @@ def _run_cwbvh8_case[
             round(ns_to_mrays_per_s(trace_median_ns, ray_count), 1)
         ).ascii_rjust(12),
         String(validation[1]).ascii_rjust(8),
+    )
+    print(
+        t"PROFILE_TRAVERSAL\tbajo\t{label}\t{node_visits}\t"
+        t"{leaf_groups}\t{primitive_tests}\t{max_stack}"
     )
     print(
         t"RESULT\tbajo\t{label}\t{method_name}\tcwbvh8\t8\t4\t"
@@ -233,6 +296,15 @@ def _run_cwbvh8_case[
 def main() raises:
     comptime if not has_accelerator():
         raise "No Accelerator found"
+
+    var args = argv()
+    if len(args) > 2:
+        raise "usage: bench_gpu_nexus_bajo [hploc-cwbvh8-m1]"
+    var profile_hploc_cwbvh8_m1 = (
+        len(args) == 2 and args[1] == "hploc-cwbvh8-m1"
+    )
+    if len(args) == 2 and not profile_hploc_cwbvh8_m1:
+        raise "unknown benchmark configuration"
 
     var vertices = pack_obj_triangles[Frame.WORLD](DRAGON_PATH)
     var triangle_count = len(vertices) / 3
@@ -257,6 +329,12 @@ def main() raises:
         var d_vertices = upload_vertices(ctx, vertices)
         var d_camera = upload_list(ctx, camera[1])
         ctx.synchronize()
+
+        if profile_hploc_cwbvh8_m1:
+            _run_cwbvh8_case[.HPLOC, 1](
+                ctx, d_vertices, d_camera, triangle_count, ray_count
+            )
+            return
 
         _run_case[.LBVH, 2, 2](
             ctx, d_vertices, d_camera, triangle_count, ray_count

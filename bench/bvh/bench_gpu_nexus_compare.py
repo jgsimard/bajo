@@ -52,6 +52,16 @@ class Validation:
     mean_distance_delta: float
 
 
+@dataclass(frozen=True)
+class TraversalProfile:
+    implementation: str
+    label: str
+    node_visits: int
+    leaf_groups: int
+    primitive_tests: int
+    max_stack: int
+
+
 def run(command: list[str], *, capture: bool = False) -> str:
     process = subprocess.run(
         command,
@@ -115,6 +125,27 @@ def parse_results(output: str) -> list[Result]:
     return results
 
 
+def parse_traversal_profiles(output: str) -> list[TraversalProfile]:
+    profiles: list[TraversalProfile] = []
+    for line in output.splitlines():
+        if not line.startswith("PROFILE_TRAVERSAL\t"):
+            continue
+        fields = line.split("\t")
+        if len(fields) != 7:
+            raise RuntimeError(f"Malformed traversal profile: {line!r}")
+        profiles.append(
+            TraversalProfile(
+                implementation=fields[1],
+                label=fields[2],
+                node_visits=int(fields[3]),
+                leaf_groups=int(fields[4]),
+                primitive_tests=int(fields[5]),
+                max_stack=int(fields[6]),
+            )
+        )
+    return profiles
+
+
 def validate_results(
     bajo_results: list[Result], nexus: Result
 ) -> list[Validation]:
@@ -174,6 +205,7 @@ def write_report(
     bajo_results: list[Result],
     nexus: Result,
     validations: list[Validation],
+    traversal_profiles: list[TraversalProfile],
     nexusbvh_dir: Path,
 ) -> None:
     all_results = [nexus, *bajo_results]
@@ -191,11 +223,11 @@ def write_report(
     lines = [
         "# NexusBVH vs Bajo GPU BVH benchmark",
         "",
-        f"Generated: `{markdown_escape(generated)}`  ",
-        f"GPU: `{markdown_escape(gpu)}`  ",
-        f"Mojo: `{markdown_escape(mojo_version)}`  ",
-        f"Nexus checkout: `{markdown_escape(str(nexusbvh_dir))}`  ",
-        f"Nexus revision: `{markdown_escape(nexus_revision)}`",
+        f"- Generated: `{markdown_escape(generated)}`",
+        f"- GPU: `{markdown_escape(gpu)}`",
+        f"- Mojo: `{markdown_escape(mojo_version)}`",
+        f"- Nexus checkout: `{markdown_escape(str(nexusbvh_dir))}`",
+        f"- Nexus revision: `{markdown_escape(nexus_revision)}`",
         "",
         "## Summary",
         "",
@@ -253,6 +285,30 @@ def write_report(
     lines.extend(
         [
             "",
+            "## Traversal work",
+            "",
+            "The instrumented kernels run after timing. Counts cover every "
+            "camera ray and therefore do not perturb the headline traversal "
+            "measurements.",
+            "",
+            "| Implementation | Configuration | Nodes/ray | Leaf groups/ray | "
+            "Triangles/ray | Maximum stack |",
+            "|---|---|---:|---:|---:|---:|",
+        ]
+    )
+    for profile in traversal_profiles:
+        result = next(item for item in all_results if item.label == profile.label)
+        lines.append(
+            f"| {profile.implementation} | `{profile.label}` | "
+            f"{profile.node_visits / result.rays:.3f} | "
+            f"{profile.leaf_groups / result.rays:.3f} | "
+            f"{profile.primitive_tests / result.rays:.3f} | "
+            f"{profile.max_stack} |"
+        )
+
+    lines.extend(
+        [
+            "",
             "## Validation",
             "",
             "Every Bajo row is compared with NexusBVH. A one-hit difference "
@@ -283,10 +339,14 @@ def write_report(
             "camera rays with native packed CWBVH8 or ordinary-wide traversal.",
             "",
             "OBJ parsing, camera setup, and initial host-to-device upload are "
-            "outside the timed regions. Build timing includes the complete GPU "
-            "build and synchronization. Traversal timing includes kernel launch "
-            "and synchronization. Different builder/layout rows do not imply "
-            "equivalent hierarchy quality.",
+            "outside the timed regions. H-PLOC CWBVH8 timings are warm rebuilds "
+            "through a fixed-capacity arena: Morton generation/sort, H-PLOC, "
+            "direct CWBVH8 conversion, triangle repacking, and synchronization "
+            "are included; one-time allocation, invariant-offset upload, and "
+            "cached triangle/root bounds are excluded. Other Bajo rows retain "
+            "their allocation-owning build API. Traversal timing includes kernel "
+            "launch and synchronization. Different builder/layout rows do not "
+            "imply equivalent hierarchy quality.",
             "",
         ]
     )
@@ -340,13 +400,24 @@ def main() -> None:
 
     bajo_results = parse_results(bajo_output)
     nexus_results = parse_results(nexus_output)
+    traversal_profiles = [
+        *parse_traversal_profiles(nexus_output),
+        *parse_traversal_profiles(bajo_output),
+    ]
     if len(nexus_results) != 1:
         raise RuntimeError(
             f"Expected one NexusBVH result, got {len(nexus_results)}"
         )
     nexus = nexus_results[0]
     validations = validate_results(bajo_results, nexus)
-    write_report(report_path, bajo_results, nexus, validations, nexusbvh_dir)
+    write_report(
+        report_path,
+        bajo_results,
+        nexus,
+        validations,
+        traversal_profiles,
+        nexusbvh_dir,
+    )
 
     print("\n=== Fastest results ===")
     fastest_build = min(bajo_results, key=lambda item: item.build_median_ms)

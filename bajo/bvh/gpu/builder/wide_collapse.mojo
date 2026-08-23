@@ -1,6 +1,6 @@
 from std.atomic import Atomic, Ordering
 from std.gpu import block_idx, global_idx, thread_idx
-from std.math import ceildiv, max, min
+from std.math import ceildiv, fma, max, min
 from std.memory import stack_allocation
 from max.gpu.host import DeviceBuffer, DeviceContext
 from max.gpu.memory import AddressSpace
@@ -28,7 +28,23 @@ from bajo.bvh.gpu.builder.binary_layout import (
 from bajo.bvh.tagged_ref import decode_ref_index, is_leaf_ref
 from bajo.bvh.wide_meta import _pack_wide_meta
 from bajo.bvh.gpu.utils import _device_span, upload_list
-from bajo.core import AABB, SegmentOffsets
+from bajo.bvh.gpu.compressed_bounds_bvh import (
+    CWBVH_NODE_WORDS,
+    CWBVH_PX,
+    CWBVH_PY,
+    CWBVH_PZ,
+    CWBVH_EXP_IMASK,
+    CWBVH_CHILD_BASE,
+    CWBVH_TRIANGLE_BASE,
+    CWBVH_META_BASE,
+    CWBVH_QUANTIZED_BASE,
+    _power_of_two_scale_exponent,
+    _scale_from_exponent,
+    _quantize_lower,
+    _quantize_upper,
+    _unary_triangle_count,
+)
+from bajo.core import AABB, Point3f32, SegmentOffsets
 
 
 comptime HPLOC_WIDE_STATUS_OK = UInt32(0)
@@ -37,6 +53,233 @@ comptime HPLOC_WIDE_STATUS_OUT_OF_NODES = UInt32(2)
 comptime HPLOC_WIDE_STATUS_OUT_OF_LEAVES = UInt32(3)
 comptime HPLOC_WIDE_STATUS_TIMEOUT = UInt32(4)
 comptime HPLOC_WIDE_NOOP_ENCODED = LBVH_SENTINEL
+
+
+@always_inline
+def _collapse_node_left[compact_hploc: Bool](
+    node_meta: ImmPointer[UInt32, _],
+    compact_children: ImmPointer[UInt32, _],
+    node_idx: UInt32,
+) -> UInt32:
+    comptime if compact_hploc:
+        return compact_children[unsafe_offset=Int(node_idx) * 2]
+    return _node_left(node_meta, node_idx)
+
+
+@always_inline
+def _collapse_node_right[compact_hploc: Bool](
+    node_meta: ImmPointer[UInt32, _],
+    compact_children: ImmPointer[UInt32, _],
+    node_idx: UInt32,
+) -> UInt32:
+    comptime if compact_hploc:
+        return compact_children[unsafe_offset=Int(node_idx) * 2 + 1]
+    return _node_right(node_meta, node_idx)
+
+
+@always_inline
+def _collapse_encoded_bounds[compact_hploc: Bool](
+    encoded: UInt32,
+    leaf_bounds: ImmSpan[Float32, _],
+    leaf_ids: ImmSpan[UInt32, _],
+    node_bounds: ImmSpan[Float32, _],
+    compact_bounds: ImmPointer[Float32, _],
+) -> AABB[.WORLD]:
+    comptime if compact_hploc:
+        if is_leaf_ref(encoded):
+            var sorted_leaf_idx = decode_ref_index(encoded)
+            var item_idx = leaf_ids.unsafe_get(Int(sorted_leaf_idx))
+            return AABB[.WORLD].load6(
+                leaf_bounds, Int(item_idx) * AABB.STRIDE
+            )
+        var base = Int(decode_ref_index(encoded)) * AABB.STRIDE
+        return AABB[.WORLD](
+            Point3f32[.WORLD](
+                compact_bounds[unsafe_offset=base],
+                compact_bounds[unsafe_offset=base + 1],
+                compact_bounds[unsafe_offset=base + 2],
+            ),
+            Point3f32[.WORLD](
+                compact_bounds[unsafe_offset=base + 3],
+                compact_bounds[unsafe_offset=base + 4],
+                compact_bounds[unsafe_offset=base + 5],
+            ),
+        )
+    return _encoded_bounds(encoded, leaf_bounds, leaf_ids, node_bounds)
+
+
+def _write_hploc_terminal_primitive_ids[
+    compact_hploc: Bool,
+](
+    encoded: UInt32,
+    leaf_payloads: ImmPointer[UInt32, _],
+    leaf_ids: ImmPointer[UInt32, _],
+    node_meta: ImmPointer[UInt32, _],
+    compact_children: ImmPointer[UInt32, _],
+    output: MutPointer[UInt32, _],
+):
+    """Write one terminal subtree's primitive remap."""
+    var stack = Array[UInt32, 4](uninitialized=True)
+    var stack_size = 1
+    var out_count = 0
+    stack[0] = encoded
+    while stack_size > 0:
+        stack_size -= 1
+        var current = stack[stack_size]
+        if is_leaf_ref(current):
+            var sorted_leaf_idx = decode_ref_index(current)
+            var item_idx = leaf_ids[unsafe_offset=Int(sorted_leaf_idx)]
+            var prim = leaf_payloads[unsafe_offset=Int(item_idx)]
+            output[unsafe_offset=out_count] = prim
+            out_count += 1
+        else:
+            var node_idx = decode_ref_index(current)
+            stack[stack_size] = _collapse_node_right[compact_hploc](
+                node_meta, compact_children, node_idx
+            )
+            stack_size += 1
+            stack[stack_size] = _collapse_node_left[compact_hploc](
+                node_meta, compact_children, node_idx
+            )
+            stack_size += 1
+
+
+def _write_direct_cwbvh8_node[
+    compact_hploc: Bool,
+](
+    cwbvh_nodes: MutPointer[Float32, _],
+    compact_primitive_ids: MutPointer[UInt32, _],
+    triangle_counter: MutPointer[UInt32, _],
+    leaf_payloads: ImmPointer[UInt32, _],
+    leaf_ids: ImmPointer[UInt32, _],
+    node_meta: ImmPointer[UInt32, _],
+    compact_children: ImmPointer[UInt32, _],
+    out_idx: UInt32,
+    child_bounds: Array[AABB[.WORLD], 8],
+    child_encoded: Array[UInt32, 8],
+    child_data: Array[UInt32, 8],
+    child_counts: Array[UInt32, 8],
+    internal_mask: UInt32,
+):
+    """Encode one collapsed BVH2 frontier directly as an 80-byte CWBVH8 node."""
+    var lo_x = f32_max
+    var lo_y = f32_max
+    var lo_z = f32_max
+    var hi_x = -f32_max
+    var hi_y = -f32_max
+    var hi_z = -f32_max
+    var triangle_count = UInt32(0)
+    var child_base = UInt32(0)
+    var internal_count = UInt32(0)
+    var valid_count = 0
+    comptime for lane in range(8):
+        var count = child_counts[lane]
+        if count == EMPTY_LANE:
+            continue
+        valid_count += 1
+        var bounds = child_bounds[lane]
+        lo_x = min(lo_x, bounds._min.x)
+        lo_y = min(lo_y, bounds._min.y)
+        lo_z = min(lo_z, bounds._min.z)
+        hi_x = max(hi_x, bounds._max.x)
+        hi_y = max(hi_y, bounds._max.y)
+        hi_z = max(hi_z, bounds._max.z)
+        if (internal_mask & (UInt32(1) << UInt32(lane))) != 0:
+            if internal_count == 0:
+                child_base = child_data[lane]
+            debug_assert["safe", _use_compiler_assume=True](
+                child_data[lane] == child_base + internal_count,
+                "direct CWBVH8 children must be contiguous",
+            )
+            internal_count += 1
+        else:
+            triangle_count += count
+    debug_assert["safe", _use_compiler_assume=True](valid_count > 0)
+    var triangle_base = Atomic.fetch_add[ordering=Ordering.RELAXED](
+        triangle_counter, triangle_count
+    )
+    var exponent_x = _power_of_two_scale_exponent(hi_x - lo_x)
+    var exponent_y = _power_of_two_scale_exponent(hi_y - lo_y)
+    var exponent_z = _power_of_two_scale_exponent(hi_z - lo_z)
+    var scale_x = _scale_from_exponent(exponent_x)
+    var scale_y = _scale_from_exponent(exponent_y)
+    var scale_z = _scale_from_exponent(exponent_z)
+    if fma(Float32(255), scale_x, lo_x) < hi_x and exponent_x < UInt32(254):
+        exponent_x += 1
+        scale_x = _scale_from_exponent(exponent_x)
+    if fma(Float32(255), scale_y, lo_y) < hi_y and exponent_y < UInt32(254):
+        exponent_y += 1
+        scale_y = _scale_from_exponent(exponent_y)
+    if fma(Float32(255), scale_z, lo_z) < hi_z and exponent_z < UInt32(254):
+        exponent_z += 1
+        scale_z = _scale_from_exponent(exponent_z)
+
+    var base = Int(out_idx) * CWBVH_NODE_WORDS
+    cwbvh_nodes[unsafe_offset=base + CWBVH_PX] = lo_x
+    cwbvh_nodes[unsafe_offset=base + CWBVH_PY] = lo_y
+    cwbvh_nodes[unsafe_offset=base + CWBVH_PZ] = lo_z
+    var words = cwbvh_nodes.unsafe_bitcast[UInt32]()
+    words[unsafe_offset=base + CWBVH_EXP_IMASK] = (
+        exponent_x
+        | (exponent_y << UInt32(8))
+        | (exponent_z << UInt32(16))
+        | (internal_mask << UInt32(24))
+    )
+    words[unsafe_offset=base + CWBVH_CHILD_BASE] = child_base
+    words[unsafe_offset=base + CWBVH_TRIANGLE_BASE] = triangle_base
+
+    var leaf_offset = UInt32(0)
+    var packed_meta0 = UInt32(0)
+    var packed_meta1 = UInt32(0)
+    comptime for lane in range(8):
+        var count = child_counts[lane]
+        var byte = UInt32(0)
+        if (internal_mask & (UInt32(1) << UInt32(lane))) != 0:
+            byte = UInt32(0x20) | (UInt32(24) + UInt32(lane))
+        elif count != EMPTY_LANE:
+            byte = _unary_triangle_count(count) | leaf_offset
+            _write_hploc_terminal_primitive_ids[compact_hploc](
+                child_encoded[lane],
+                leaf_payloads,
+                leaf_ids,
+                node_meta,
+                compact_children,
+                compact_primitive_ids.unsafe_offset(
+                    Int(triangle_base + leaf_offset)
+                ),
+            )
+            leaf_offset += count
+        comptime if lane < 4:
+            packed_meta0 |= byte << UInt32(lane * 8)
+        else:
+            packed_meta1 |= byte << UInt32((lane - 4) * 8)
+    words[unsafe_offset=base + CWBVH_META_BASE] = packed_meta0
+    words[unsafe_offset=base + CWBVH_META_BASE + 1] = packed_meta1
+
+    comptime for plane in range(6):
+        comptime for group in range(2):
+            var packed = UInt32(0)
+            comptime for byte_i in range(4):
+                comptime lane = group * 4 + byte_i
+                var q = UInt32(0)
+                if child_counts[lane] != EMPTY_LANE:
+                    var bounds = child_bounds[lane]
+                    comptime if plane == 0:
+                        q = _quantize_lower(bounds._min.x, lo_x, scale_x)
+                    elif plane == 1:
+                        q = _quantize_lower(bounds._min.y, lo_y, scale_y)
+                    elif plane == 2:
+                        q = _quantize_lower(bounds._min.z, lo_z, scale_z)
+                    elif plane == 3:
+                        q = _quantize_upper(bounds._max.x, lo_x, scale_x)
+                    elif plane == 4:
+                        q = _quantize_upper(bounds._max.y, lo_y, scale_y)
+                    else:
+                        q = _quantize_upper(bounds._max.z, lo_z, scale_z)
+                packed |= q << UInt32(byte_i * 8)
+            words[
+                unsafe_offset=base + CWBVH_QUANTIZED_BASE + plane * 2 + group
+            ] = packed
 
 
 @always_inline
@@ -181,6 +424,8 @@ def hploc_literature_to_wide_kernel[
     max_leaf_size: Int,
     fat_leaves: Bool,
     spatial_slots: Bool,
+    direct_cwbvh8: Bool,
+    compact_hploc: Bool,
     leaf_data_fn: HplocWideLeafDataFn,
     block_size: Int,
 ](
@@ -190,6 +435,8 @@ def hploc_literature_to_wide_kernel[
     node_meta: Pointer[UInt32, MutAnyOrigin],
     node_bounds: Pointer[Float32, MutAnyOrigin],
     node_leaf_counts: Pointer[UInt32, MutAnyOrigin],
+    compact_children: Pointer[UInt32, MutAnyOrigin],
+    compact_bounds: Pointer[Float32, MutAnyOrigin],
     segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
     internal_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
     block_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
@@ -203,12 +450,17 @@ def hploc_literature_to_wide_kernel[
     all_status: Pointer[UInt32, MutAnyOrigin],
     all_wide_nodes: Pointer[Float32, MutAnyOrigin],
     all_leaf_block_indices: Pointer[UInt32, MutAnyOrigin],
+    all_cwbvh_nodes: Pointer[Float32, MutAnyOrigin],
+    all_compact_primitive_ids: Pointer[UInt32, MutAnyOrigin],
+    all_triangle_counters: Pointer[UInt32, MutAnyOrigin],
 ):
     """Paper §3.4 for every segment in one top-down GPU dispatch."""
 
     comptime assert block_size == GPU_BOUNDS_BVH_BLOCK_SIZE
     comptime if spatial_slots:
         comptime assert node_width == 8
+    comptime if direct_cwbvh8:
+        comptime assert node_width == 8 and leaf_width == 4
     comptime fat_leaf_limit = min(max_leaf_size, 4)
     var physical_block = block_idx.x
     var segment_idx = _segment_for_item(block_segment_offsets, physical_block)
@@ -241,6 +493,13 @@ def hploc_literature_to_wide_kernel[
     var leaf_block_indices = all_leaf_block_indices.unsafe_offset(
         leaf_output_base * leaf_width
     )
+    var cwbvh_nodes = all_cwbvh_nodes.unsafe_offset(
+        node_output_base * CWBVH_NODE_WORDS
+    )
+    var compact_primitive_ids = all_compact_primitive_ids.unsafe_offset(
+        leaf_begin
+    )
+    var triangle_counter = all_triangle_counters.unsafe_offset(segment_idx)
     var logical_block = stack_allocation[
         1, UInt32, address_space=AddressSpace.SHARED
     ]()
@@ -264,6 +523,16 @@ def hploc_literature_to_wide_kernel[
         unsafe_ptr=node_bounds,
         length=max(internal_count, 1) * BinaryBvhNode.BOUNDS_STRIDE,
     )
+
+    def load_encoded_bounds(encoded_ref: UInt32) {imm} -> AABB[.WORLD]:
+        return _collapse_encoded_bounds[compact_hploc](
+            encoded_ref,
+            leaf_bounds_span,
+            leaf_ids_span,
+            node_bounds_span,
+            compact_bounds,
+        )
+
     var failsafe = 10000000
 
     while True:
@@ -301,14 +570,15 @@ def hploc_literature_to_wide_kernel[
                     status, HPLOC_WIDE_STATUS_OUT_OF_LEAVES
                 )
                 return
-            _write_hploc_terminal_leaf_block[leaf_width](
-                encoded,
-                leaf_payloads,
-                leaf_ids,
-                node_meta,
-                leaf_block_indices,
-                out_idx,
-            )
+            comptime if not direct_cwbvh8:
+                _write_hploc_terminal_leaf_block[leaf_width](
+                    encoded,
+                    leaf_payloads,
+                    leaf_ids,
+                    node_meta,
+                    leaf_block_indices,
+                    out_idx,
+                )
             # The root has no parent task to publish the no-op jobs that make
             # one fixed paper work slot available per primitive.
             if work_id == 0 and encoded_leaf_count == UInt32(leaf_count_int):
@@ -318,26 +588,60 @@ def hploc_literature_to_wide_kernel[
                 var root_leaf_data = leaf_data_fn(
                     encoded, UInt32(0), leaf_payloads, leaf_ids
                 )
-                _wide_node_store_child[node_width](
-                    wide_nodes,
-                    UInt32(0),
-                    0,
-                    _encoded_bounds(
+                comptime if direct_cwbvh8:
+                    var direct_bounds = Array[AABB[.WORLD], 8](
+                        fill=AABB[.WORLD].invalid()
+                    )
+                    var direct_encoded = Array[UInt32, 8](fill=UInt32(0))
+                    var direct_data = Array[UInt32, 8](fill=UInt32(0))
+                    var direct_counts = Array[UInt32, 8](fill=EMPTY_LANE)
+                    direct_bounds[0] = _collapse_encoded_bounds[compact_hploc](
                         encoded,
                         leaf_bounds_span,
                         leaf_ids_span,
                         node_bounds_span,
-                    ),
-                    _pack_wide_meta(root_leaf_data, encoded_leaf_count),
-                )
-                comptime for lane in range(1, node_width):
+                        compact_bounds,
+                    )
+                    direct_encoded[0] = encoded
+                    direct_data[0] = root_leaf_data
+                    direct_counts[0] = encoded_leaf_count
+                    _write_direct_cwbvh8_node[compact_hploc](
+                        cwbvh_nodes,
+                        compact_primitive_ids,
+                        triangle_counter,
+                        leaf_payloads,
+                        leaf_ids,
+                        node_meta,
+                        compact_children,
+                        UInt32(0),
+                        direct_bounds,
+                        direct_encoded,
+                        direct_data,
+                        direct_counts,
+                        UInt32(0),
+                    )
+                else:
                     _wide_node_store_child[node_width](
                         wide_nodes,
                         UInt32(0),
-                        lane,
-                        AABB[.WORLD].invalid(),
-                        _pack_wide_meta(UInt32(0), EMPTY_LANE),
+                        0,
+                        _collapse_encoded_bounds[compact_hploc](
+                            encoded,
+                            leaf_bounds_span,
+                            leaf_ids_span,
+                            node_bounds_span,
+                            compact_bounds,
+                        ),
+                        _pack_wide_meta(root_leaf_data, encoded_leaf_count),
                     )
+                    comptime for lane in range(1, node_width):
+                        _wide_node_store_child[node_width](
+                            wide_nodes,
+                            UInt32(0),
+                            lane,
+                            AABB[.WORLD].invalid(),
+                            _pack_wide_meta(UInt32(0), EMPTY_LANE),
+                        )
                 for noop_id in range(1, leaf_count_int):
                     Atomic.store[ordering=Ordering.RELEASE](
                         index_pairs.unsafe_offset(noop_id),
@@ -359,8 +663,12 @@ def hploc_literature_to_wide_kernel[
         )
         var candidate_areas = Array[Float32, node_width](uninitialized=True)
         var node_idx = decode_ref_index(encoded)
-        candidates[0] = _node_left(node_meta, node_idx)
-        candidates[1] = _node_right(node_meta, node_idx)
+        candidates[0] = _collapse_node_left[compact_hploc](
+            node_meta, compact_children, node_idx
+        )
+        candidates[1] = _collapse_node_right[compact_hploc](
+            node_meta, compact_children, node_idx
+        )
         comptime if fat_leaves:
             candidate_leaf_counts[0] = _hploc_encoded_leaf_count(
                 candidates[0], node_leaf_counts
@@ -369,17 +677,11 @@ def hploc_literature_to_wide_kernel[
                 candidates[1], node_leaf_counts
             )
         comptime if spatial_slots:
-            candidate_areas[0] = _encoded_bounds(
-                candidates[0],
-                leaf_bounds_span,
-                leaf_ids_span,
-                node_bounds_span,
+            candidate_areas[0] = load_encoded_bounds(
+                candidates[0]
             ).surface_area()[0]
-            candidate_areas[1] = _encoded_bounds(
-                candidates[1],
-                leaf_bounds_span,
-                leaf_ids_span,
-                node_bounds_span,
+            candidate_areas[1] = load_encoded_bounds(
+                candidates[1]
             ).surface_area()[0]
         var child_count = 2
 
@@ -402,12 +704,7 @@ def hploc_literature_to_wide_kernel[
                 comptime if spatial_slots:
                     area = candidate_areas[candidate_pos]
                 else:
-                    area = _encoded_bounds(
-                        candidate,
-                        leaf_bounds_span,
-                        leaf_ids_span,
-                        node_bounds_span,
-                    ).surface_area()[0]
+                    area = load_encoded_bounds(candidate).surface_area()[0]
                 if area > largest_area:
                     largest_area = area
                     open_pos = candidate_pos
@@ -415,8 +712,12 @@ def hploc_literature_to_wide_kernel[
             if open_pos < 0:
                 break
             var opened_idx = decode_ref_index(candidates[open_pos])
-            candidates[open_pos] = _node_left(node_meta, opened_idx)
-            candidates[child_count] = _node_right(node_meta, opened_idx)
+            candidates[open_pos] = _collapse_node_left[compact_hploc](
+                node_meta, compact_children, opened_idx
+            )
+            candidates[child_count] = _collapse_node_right[compact_hploc](
+                node_meta, compact_children, opened_idx
+            )
             comptime if fat_leaves:
                 candidate_leaf_counts[open_pos] = _hploc_encoded_leaf_count(
                     candidates[open_pos], node_leaf_counts
@@ -425,17 +726,11 @@ def hploc_literature_to_wide_kernel[
                     candidates[child_count], node_leaf_counts
                 )
             comptime if spatial_slots:
-                candidate_areas[open_pos] = _encoded_bounds(
-                    candidates[open_pos],
-                    leaf_bounds_span,
-                    leaf_ids_span,
-                    node_bounds_span,
+                candidate_areas[open_pos] = load_encoded_bounds(
+                    candidates[open_pos]
                 ).surface_area()[0]
-                candidate_areas[child_count] = _encoded_bounds(
-                    candidates[child_count],
-                    leaf_bounds_span,
-                    leaf_ids_span,
-                    node_bounds_span,
+                candidate_areas[child_count] = load_encoded_bounds(
+                    candidates[child_count]
                 ).surface_area()[0]
             child_count += 1
 
@@ -453,12 +748,7 @@ def hploc_literature_to_wide_kernel[
                     comptime if spatial_slots:
                         area = candidate_areas[candidate_pos]
                     else:
-                        area = _encoded_bounds(
-                            candidate,
-                            leaf_bounds_span,
-                            leaf_ids_span,
-                            node_bounds_span,
-                        ).surface_area()[0]
+                        area = load_encoded_bounds(candidate).surface_area()[0]
                     if area > largest_area:
                         largest_area = area
                         open_pos = candidate_pos
@@ -466,8 +756,12 @@ def hploc_literature_to_wide_kernel[
                 if open_pos < 0:
                     break
                 var opened_idx = decode_ref_index(candidates[open_pos])
-                candidates[open_pos] = _node_left(node_meta, opened_idx)
-                candidates[child_count] = _node_right(node_meta, opened_idx)
+                candidates[open_pos] = _collapse_node_left[compact_hploc](
+                    node_meta, compact_children, opened_idx
+                )
+                candidates[child_count] = _collapse_node_right[compact_hploc](
+                    node_meta, compact_children, opened_idx
+                )
                 candidate_leaf_counts[open_pos] = _hploc_encoded_leaf_count(
                     candidates[open_pos], node_leaf_counts
                 )
@@ -475,17 +769,11 @@ def hploc_literature_to_wide_kernel[
                     candidates[child_count], node_leaf_counts
                 )
                 comptime if spatial_slots:
-                    candidate_areas[open_pos] = _encoded_bounds(
-                        candidates[open_pos],
-                        leaf_bounds_span,
-                        leaf_ids_span,
-                        node_bounds_span,
+                    candidate_areas[open_pos] = load_encoded_bounds(
+                        candidates[open_pos]
                     ).surface_area()[0]
-                    candidate_areas[child_count] = _encoded_bounds(
-                        candidates[child_count],
-                        leaf_bounds_span,
-                        leaf_ids_span,
-                        node_bounds_span,
+                    candidate_areas[child_count] = load_encoded_bounds(
+                        candidates[child_count]
                     ).surface_area()[0]
                 child_count += 1
 
@@ -500,18 +788,10 @@ def hploc_literature_to_wide_kernel[
             var candidate_centers = Array[SIMD[.float32, 4], node_width](
                 uninitialized=True
             )
-            var parent_center = _encoded_bounds(
-                encoded,
-                leaf_bounds_span,
-                leaf_ids_span,
-                node_bounds_span,
-            ).centroid()
+            var parent_center = load_encoded_bounds(encoded).centroid()
             for candidate_pos in range(child_count):
-                var center = _encoded_bounds(
-                    candidates[candidate_pos],
-                    leaf_bounds_span,
-                    leaf_ids_span,
-                    node_bounds_span,
+                var center = load_encoded_bounds(
+                    candidates[candidate_pos]
                 ).centroid()
                 candidate_centers[candidate_pos] = SIMD[.float32, 4](
                     center.x, center.y, center.z, 0.0
@@ -608,16 +888,24 @@ def hploc_literature_to_wide_kernel[
         var inner_rank = UInt32(0)
         var leaf_rank = UInt32(0)
         var publish_pos = 0
+        var direct_bounds = Array[AABB[.WORLD], 8](
+            fill=AABB[.WORLD].invalid()
+        )
+        var direct_encoded = Array[UInt32, 8](fill=UInt32(0))
+        var direct_data = Array[UInt32, 8](fill=UInt32(0))
+        var direct_counts = Array[UInt32, 8](fill=EMPTY_LANE)
+        var direct_internal_mask = UInt32(0)
         comptime for child_slot in range(node_width):
             var child_pos = slot_candidate[child_slot]
             if child_pos < 0:
-                _wide_node_store_child[node_width](
-                    wide_nodes,
-                    out_idx,
-                    child_slot,
-                    AABB[.WORLD].invalid(),
-                    _pack_wide_meta(UInt32(0), EMPTY_LANE),
-                )
+                comptime if not direct_cwbvh8:
+                    _wide_node_store_child[node_width](
+                        wide_nodes,
+                        out_idx,
+                        child_slot,
+                        AABB[.WORLD].invalid(),
+                        _pack_wide_meta(UInt32(0), EMPTY_LANE),
+                    )
             else:
                 var child = candidates[child_pos]
                 var child_is_leaf = is_leaf_ref(child)
@@ -641,19 +929,26 @@ def hploc_literature_to_wide_kernel[
                     inner_rank += 1
                     meta = _pack_wide_meta(child_out_idx, UInt32(0))
 
-                var bounds = _encoded_bounds(
-                    child,
-                    leaf_bounds_span,
-                    leaf_ids_span,
-                    node_bounds_span,
-                )
-                _wide_node_store_child[node_width](
-                    wide_nodes,
-                    out_idx,
-                    child_slot,
-                    bounds,
-                    meta,
-                )
+                var bounds = load_encoded_bounds(child)
+                comptime if direct_cwbvh8:
+                    direct_bounds[child_slot] = bounds
+                    direct_encoded[child_slot] = child
+                    direct_data[child_slot] = child_out_idx
+                    direct_counts[child_slot] = candidate_leaf_counts[
+                        child_pos
+                    ]
+                    if not child_is_leaf:
+                        direct_internal_mask |= UInt32(1) << UInt32(
+                            child_slot
+                        )
+                else:
+                    _wide_node_store_child[node_width](
+                        wide_nodes,
+                        out_idx,
+                        child_slot,
+                        bounds,
+                        meta,
+                    )
 
                 var child_work_id = work_id
                 if publish_pos > 0:
@@ -677,6 +972,23 @@ def hploc_literature_to_wide_kernel[
                             ),
                         )
                         publish_pos += 1
+
+        comptime if direct_cwbvh8:
+            _write_direct_cwbvh8_node[compact_hploc](
+                cwbvh_nodes,
+                compact_primitive_ids,
+                triangle_counter,
+                leaf_payloads,
+                leaf_ids,
+                node_meta,
+                compact_children,
+                out_idx,
+                direct_bounds,
+                direct_encoded,
+                direct_data,
+                direct_counts,
+                direct_internal_mask,
+            )
 
 
 @fieldwise_init
@@ -858,6 +1170,8 @@ def _enqueue_collapse_binary_to_packed[
             max_leaf_size,
             fat_leaves,
             spatial_slots,
+            False,
+            False,
             leaf_data_fn,
             GPU_BOUNDS_BVH_BLOCK_SIZE,
         ]
@@ -868,6 +1182,8 @@ def _enqueue_collapse_binary_to_packed[
         binary.node_meta,
         binary.node_bounds,
         binary.node_leaf_counts,
+        binary.node_meta,
+        binary.node_bounds,
         _device_span[mut=False](binary.segment_offsets),
         _device_span[mut=False](binary.internal_segment_offsets),
         _device_span[mut=False](workspace.block_segment_offsets),
@@ -881,6 +1197,9 @@ def _enqueue_collapse_binary_to_packed[
         status,
         wide_nodes,
         leaf_block_indices,
+        wide_nodes,
+        leaf_block_indices,
+        leaf_block_counter,
         grid_dim=workspace.block_segments.item_count(),
         block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
     )
@@ -914,6 +1233,106 @@ def enqueue_collapse_binary_to_wide_batch[
         spatial_slots,
         _hploc_leaf_block_data,
     ](ctx, binary, out)
+
+
+def enqueue_collapse_binary_to_cwbvh8[
+    max_leaf_size: Int,
+    compact_hploc: Bool = False,
+](
+    mut ctx: DeviceContext,
+    binary: GpuBinaryBoundsBvh,
+    node_segments: SegmentOffsets,
+    node_segment_offsets: DeviceBuffer[.uint32],
+    leaf_block_segments: SegmentOffsets,
+    leaf_block_segment_offsets: DeviceBuffer[.uint32],
+    leaf_block_counter_buffer: DeviceBuffer[.uint32],
+    wide_node_counter_buffer: DeviceBuffer[.uint32],
+    cwbvh_nodes: DeviceBuffer[.float32],
+    compact_primitive_ids: DeviceBuffer[.uint32],
+    triangle_counters: DeviceBuffer[.uint32],
+    compact_children: DeviceBuffer[.uint32],
+    compact_bounds: DeviceBuffer[.float32],
+    workspace: GpuWideCollapseWorkspace,
+) raises -> GpuWideCollapseState:
+    """Collapse BVH2 frontiers directly into compressed CWBVH8 nodes."""
+    comptime assert 1 <= max_leaf_size <= 3
+    var index_pairs = workspace.index_pairs.copy()
+    var work_alloc_counter = workspace.work_alloc_counter.copy()
+    var work_group_counter = workspace.work_group_counter.copy()
+    var leaf_block_counter = leaf_block_counter_buffer.copy()
+    var wide_node_counter = wide_node_counter_buffer.copy()
+    var status = workspace.status.copy()
+    ctx.enqueue_memset(triangle_counters, 0)
+    var init_items = max(binary.leaf_count, binary.segments.segment_count())
+    ctx.enqueue_function[init_hploc_literature_wide_kernel](
+        _device_span[mut=False](binary.segment_offsets),
+        _device_span[mut=True](index_pairs),
+        _device_span[mut=True](work_alloc_counter),
+        _device_span[mut=True](work_group_counter),
+        _device_span[mut=True](leaf_block_counter),
+        _device_span[mut=True](wide_node_counter),
+        _device_span[mut=True](status),
+        grid_dim=ceildiv(init_items, GPU_BOUNDS_BVH_BLOCK_SIZE),
+        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+    )
+    ctx.enqueue_function[publish_hploc_literature_wide_roots_kernel](
+        _device_span[mut=False](binary.roots),
+        _device_span[mut=False](binary.segment_offsets),
+        _device_span[mut=True](index_pairs),
+        grid_dim=ceildiv(
+            binary.segments.segment_count(), GPU_BOUNDS_BVH_BLOCK_SIZE
+        ),
+        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+    )
+    ctx.enqueue_function[
+        hploc_literature_to_wide_kernel[
+            8,
+            4,
+            max_leaf_size,
+            True,
+            True,
+            True,
+            compact_hploc,
+            _hploc_leaf_block_data,
+            GPU_BOUNDS_BVH_BLOCK_SIZE,
+        ]
+    ](
+        binary.leaf_bounds,
+        binary.leaf_payloads,
+        binary.leaf_ids,
+        binary.node_meta,
+        binary.node_bounds,
+        binary.node_leaf_counts,
+        compact_children,
+        compact_bounds,
+        _device_span[mut=False](binary.segment_offsets),
+        _device_span[mut=False](binary.internal_segment_offsets),
+        _device_span[mut=False](workspace.block_segment_offsets),
+        _device_span[mut=False](node_segment_offsets),
+        _device_span[mut=False](leaf_block_segment_offsets),
+        index_pairs,
+        work_alloc_counter,
+        work_group_counter,
+        leaf_block_counter,
+        wide_node_counter,
+        status,
+        cwbvh_nodes,
+        compact_primitive_ids,
+        cwbvh_nodes,
+        compact_primitive_ids,
+        triangle_counters,
+        grid_dim=workspace.block_segments.item_count(),
+        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+    )
+    return GpuWideCollapseState(
+        binary.segments.copy(),
+        index_pairs^,
+        work_alloc_counter^,
+        work_group_counter^,
+        leaf_block_counter^,
+        wide_node_counter^,
+        status^,
+    )
 
 
 def _enqueue_collapse_binary_to_wide_batch[

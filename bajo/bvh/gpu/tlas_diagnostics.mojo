@@ -27,7 +27,7 @@ from bajo.bvh.tlas_common import (
 )
 from bajo.bvh.gpu.blas_storage import GpuBlasSet, GpuBvhLayout
 from bajo.bvh.types import BlasDesc, Hit
-from bajo.core import Affine3f32, Rayf32
+from bajo.core import Affine3f32, Frame, Rayf32
 
 
 @fieldwise_init
@@ -108,7 +108,21 @@ def _trace_cwbvh8_with_stats(
     root_idx: UInt32,
     ray: Rayf32[.LOCAL],
 ) -> GpuTraceResult[.LOCAL]:
-    var hit = Hit[.LOCAL].miss(ray.t_max)
+    return _trace_cwbvh8_with_stats_in_frame[.LOCAL](
+        nodes, triangles, root_idx, ray
+    )
+
+
+@always_inline
+def _trace_cwbvh8_with_stats_in_frame[
+    frame: Frame,
+](
+    nodes: ImmPointer[Float32, _],
+    triangles: ImmPointer[Float32, _],
+    root_idx: UInt32,
+    ray: Rayf32[frame],
+) -> GpuTraceResult[frame]:
+    var hit = Hit[frame].miss(ray.t_max)
     var stats = GpuTraversalStats.zero()
     var stack_base = Array[UInt32, GPU_STACK_SIZE](uninitialized=True)
     var stack_mask = Array[UInt32, GPU_STACK_SIZE](uninitialized=True)
@@ -146,7 +160,7 @@ def _trace_cwbvh8_with_stats(
             var relative = UInt32(pop_count(group_imask & slots_before))
             var node_idx = node_group_base + relative
             stats.node_visits += 1
-            var tasks = _intersect_cwbvh8_node_tasks[.LOCAL](
+            var tasks = _intersect_cwbvh8_node_tasks[frame](
                 nodes,
                 node_idx,
                 ray,
@@ -173,7 +187,7 @@ def _trace_cwbvh8_with_stats(
             )
             triangle_group_mask &= ~(UInt32(1) << UInt32(triangle_bit))
             stats.primitive_tests += 1
-            _ = _intersect_cwbvh_triangle[.LOCAL, .CLOSEST_HIT](
+            _ = _intersect_cwbvh_triangle[frame, .CLOSEST_HIT](
                 triangles,
                 triangle_group_base + UInt32(triangle_bit),
                 ray,
@@ -187,7 +201,7 @@ def _trace_cwbvh8_with_stats(
             node_group_base = stack_base[stack_ptr]
             node_group_mask = stack_mask[stack_ptr]
 
-    return GpuTraceResult[.LOCAL](hit, stats)
+    return GpuTraceResult[frame](hit, stats)
 
 
 @always_inline

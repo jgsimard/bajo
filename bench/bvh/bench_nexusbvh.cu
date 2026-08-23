@@ -302,11 +302,15 @@ __device__ __forceinline__ void trace_triangle(
   hit = {u, v, primitive, UINT32_MAX, normal.x, normal.y, normal.z, t};
 }
 
+// The instrumented specialization runs after timing and does not perturb the
+// headline traversal kernel.
+template <bool CollectStats>
 __global__ void trace_camera_kernel(
     NXB::BVH8 bvh,
     const NXB::Triangle* triangles,
     Camera camera,
     HitRecord* hits,
+    uint4* stats,
     std::uint32_t ray_count,
     int ray_width,
     int ray_height) {
@@ -344,6 +348,10 @@ __global__ void trace_camera_kernel(
   int stack_size = 0;
   uint2 node_entry = make_uint2(0, 0x80000000);
   uint2 triangle_entry = make_uint2(0, 0);
+  std::uint32_t node_visits = 0;
+  std::uint32_t leaf_groups = 0;
+  std::uint32_t primitive_tests = 0;
+  std::uint32_t max_stack = 0;
 
   while (true) {
     if (node_entry.y & 0xff000000) {
@@ -354,10 +362,14 @@ __global__ void trace_camera_kernel(
           break;
         }
         stack[stack_size++] = node_entry;
+        if (std::uint32_t(stack_size) > max_stack) {
+          max_stack = std::uint32_t(stack_size);
+        }
       }
       const int node_slot = (node_offset - 24) ^ inverse_octant;
       const int relative_node =
           __popc(node_entry.y & ~(0xffffffffu << node_slot));
+      ++node_visits;
       trace_children(
           bvh.nodes,
           node_entry.x + relative_node,
@@ -373,11 +385,15 @@ __global__ void trace_camera_kernel(
       node_entry = make_uint2(0, 0);
     }
 
+    if (triangle_entry.y) {
+      ++leaf_groups;
+    }
     while (triangle_entry.y) {
       const int triangle_offset = 31 - __clz(triangle_entry.y);
       triangle_entry.y &= ~(1u << triangle_offset);
       const std::uint32_t primitive =
           bvh.primIdx[triangle_entry.x + triangle_offset];
+      ++primitive_tests;
       trace_triangle(
           triangles[primitive], camera.origin, direction, primitive, hit);
     }
@@ -391,6 +407,10 @@ __global__ void trace_camera_kernel(
   }
 
   hits[ray_index] = hit;
+  if constexpr (CollectStats) {
+    stats[ray_index] =
+        make_uint4(node_visits, leaf_groups, primitive_tests, max_stack);
+  }
 }
 
 struct TraceResult {
@@ -399,6 +419,10 @@ struct TraceResult {
   double maximum_ms;
   std::uint64_t hits;
   double checksum;
+  std::uint64_t node_visits;
+  std::uint64_t leaf_groups;
+  std::uint64_t primitive_tests;
+  std::uint32_t max_stack;
 };
 
 TraceResult benchmark_traversal(
@@ -412,11 +436,12 @@ TraceResult benchmark_traversal(
       "cudaMalloc hits");
   const int blocks = (kRayCount + kBlockSize - 1) / kBlockSize;
 
-  trace_camera_kernel<<<blocks, kBlockSize>>>(
+  trace_camera_kernel<false><<<blocks, kBlockSize>>>(
       bvh,
       device_triangles,
       camera,
       device_hits,
+      nullptr,
       kRayCount,
       kRayWidth,
       kRayHeight);
@@ -427,11 +452,12 @@ TraceResult benchmark_traversal(
   timings.reserve(kMeasuredTraces);
   for (int i = 0; i < kMeasuredTraces; ++i) {
     const auto start = std::chrono::steady_clock::now();
-    trace_camera_kernel<<<blocks, kBlockSize>>>(
+    trace_camera_kernel<false><<<blocks, kBlockSize>>>(
         bvh,
         device_triangles,
         camera,
         device_hits,
+        nullptr,
         kRayCount,
         kRayWidth,
         kRayHeight);
@@ -447,6 +473,28 @@ TraceResult benchmark_traversal(
       cudaMemcpy(hits.data(), device_hits, hits.size() * sizeof(HitRecord),
                  cudaMemcpyDeviceToHost),
       "cudaMemcpy hits");
+  uint4* device_stats = nullptr;
+  cuda_check(
+      cudaMalloc(reinterpret_cast<void**>(&device_stats),
+                 kRayCount * sizeof(uint4)),
+      "cudaMalloc traversal stats");
+  trace_camera_kernel<true><<<blocks, kBlockSize>>>(
+      bvh,
+      device_triangles,
+      camera,
+      device_hits,
+      device_stats,
+      kRayCount,
+      kRayWidth,
+      kRayHeight);
+  cuda_check(cudaGetLastError(), "launch traversal stats");
+  cuda_check(cudaDeviceSynchronize(), "traversal stats");
+  std::vector<uint4> stats(kRayCount);
+  cuda_check(
+      cudaMemcpy(stats.data(), device_stats, stats.size() * sizeof(uint4),
+                 cudaMemcpyDeviceToHost),
+      "cudaMemcpy traversal stats");
+  cuda_check(cudaFree(device_stats), "cudaFree traversal stats");
   cuda_check(cudaFree(device_hits), "cudaFree hits");
 
   std::uint64_t hit_count = 0;
@@ -457,9 +505,29 @@ TraceResult benchmark_traversal(
       checksum += hit.t;
     }
   }
+  std::uint64_t node_visits = 0;
+  std::uint64_t leaf_groups = 0;
+  std::uint64_t primitive_tests = 0;
+  std::uint32_t max_stack = 0;
+  for (const uint4 stat : stats) {
+    node_visits += stat.x;
+    leaf_groups += stat.y;
+    primitive_tests += stat.z;
+    max_stack = std::max(max_stack, stat.w);
+  }
   const auto [minimum, maximum] =
       std::minmax_element(timings.begin(), timings.end());
-  return {median(timings), *minimum, *maximum, hit_count, checksum};
+  return {
+      median(timings),
+      *minimum,
+      *maximum,
+      hit_count,
+      checksum,
+      node_visits,
+      leaf_groups,
+      primitive_tests,
+      max_stack,
+  };
 }
 
 }  // namespace
@@ -534,6 +602,10 @@ int main(int argc, char** argv) {
               << "Hits: " << trace.hits
               << ", t checksum: " << std::setprecision(9) << trace.checksum
               << '\n'
+              << "PROFILE_TRAVERSAL\tnexusbvh\t"
+                 "NexusBVH-H-PLOC-CWBVH8\t"
+              << trace.node_visits << '\t' << trace.leaf_groups << '\t'
+              << trace.primitive_tests << '\t' << trace.max_stack << '\n'
               << "RESULT\tnexusbvh\tNexusBVH-H-PLOC-CWBVH8\thploc\t"
                  "cwbvh8\t8\t1\t1\t"
               << triangle_count << '\t' << build_median_ms << '\t'

@@ -38,11 +38,7 @@ from bajo.bvh.gpu.compressed_bounds_bvh import (
     CWBVH_TRIANGLE_WORDS,
     enqueue_segmented_cwbvh8_representation,
 )
-from bajo.bvh.gpu.camera_launch import (
-    _camera_ray,
-    _store_camera_hit,
-    validate_camera_launch,
-)
+from bajo.bvh.gpu.camera_launch import validate_camera_launch
 from bajo.bvh.gpu.ray_launch import (
     _load_packed_ray,
     _store_packed_hit,
@@ -63,6 +59,11 @@ from bajo.benchmark.bvh_reporting import (
     _print_gpu_result_validation_rows,
 )
 from bajo.benchmark.bvh_fixtures import make_camera_rays_and_params
+from bajo.benchmark.gpu_bvh_fixtures import (
+    Cwbvh8BenchBvh,
+    build_cwbvh8_bench_bvh,
+    trace_cwbvh8_camera_kernel,
+)
 from bajo.parser.obj.pack import pack_obj_triangles
 
 
@@ -86,64 +87,10 @@ comptime SPHERE_HIT_REL_EPS = 1.0e-3
 
 
 @fieldwise_init
-struct Cwbvh8BenchBvh(Copyable):
-    var nodes: DeviceBuffer[.float32]
-    var triangles: DeviceBuffer[.float32]
-    var root_idx: UInt32
-
-
-@fieldwise_init
 struct Cwbvh8BuildTimings:
     var total_ns: Int
     var wide: GpuBuildTimings
     var encode_pack_ns: Int
-
-
-def _build_cwbvh8(
-    mut ctx: DeviceContext, d_vertices: DeviceBuffer[.float32]
-) raises -> Cwbvh8BenchBvh:
-    var tri_count = len(d_vertices) / TRI_LEAF_VERTEX_STRIDE
-    var leaf_bounds = ctx.enqueue_create_buffer[.float32](tri_count * 6)
-    var payloads = ctx.enqueue_create_buffer[.uint32](tri_count)
-    ctx.enqueue_function[compute_triangle_bounds_kernel[.WORLD]](
-        _device_span[mut=False](d_vertices),
-        _device_span[mut=True](leaf_bounds),
-        _device_span[mut=True](payloads),
-        grid_dim=ceildiv(tri_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
-        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-    )
-    var build = enqueue_segmented_wide_build[
-        8, 4, 3, .HPLOC, True, True
-    ](
-        ctx,
-        SegmentOffsets.single(tri_count),
-        leaf_bounds^,
-        payloads^,
-    )
-    var nodes = ctx.enqueue_create_buffer[.float32](
-        build.wide.node_segments.item_count() * CWBVH_NODE_WORDS
-    )
-    var triangles = ctx.enqueue_create_buffer[.float32](
-        tri_count * CWBVH_TRIANGLE_WORDS
-    )
-    var encoded_counts = enqueue_segmented_cwbvh8_representation[4](
-        ctx,
-        build.wide.wide_nodes,
-        build.wide.leaf_block_indices,
-        build.wide.node_segment_offsets,
-        build.wide.leaf_block_segment_offsets,
-        build.binary.segment_offsets,
-        build.wide.node_counts,
-        d_vertices,
-        nodes,
-        triangles,
-    )
-    ctx.synchronize()
-    build.finish_synchronized()
-    with encoded_counts.map_to_host() as counts:
-        if counts[0] != UInt32(tri_count):
-            raise "unified CWBVH8 encoding lost triangles"
-    return Cwbvh8BenchBvh(nodes^, triangles^, UInt32(0))
 
 
 def _build_cwbvh8_measured(
@@ -262,35 +209,6 @@ def _print_cwbvh8_stage(label: String, stage_ns: Int, total_ns: Int):
         String(round(ns_to_ms(stage_ns), 3)).ascii_rjust(6),
         String(round(percent, 1)).ascii_rjust(16),
     )
-
-
-def _trace_cwbvh8_camera_kernel(
-    nodes: Pointer[Float32, ImmutAnyOrigin],
-    triangles: Pointer[Float32, ImmutAnyOrigin],
-    root_idx: UInt32,
-    camera_params: Pointer[Float32, ImmutAnyOrigin],
-    hits: Pointer[Float32, MutAnyOrigin],
-    ray_count: Int32,
-    width_px: Int32,
-    height_px: Int32,
-    inv_height: Float32,
-):
-    var ray_count_int = Int(ray_count)
-    var ray_idx = global_idx.x
-    if ray_idx >= ray_count_int:
-        return
-    var ray = _camera_ray(
-        camera_params,
-        ray_count_int,
-        ray_idx,
-        Int(width_px),
-        Int(height_px),
-        inv_height,
-    )
-    var hit = trace_cwbvh8_triangles[.WORLD, .CLOSEST_HIT](
-        nodes, triangles, root_idx, ray
-    )
-    _store_camera_hit(hit, hits, ray_count_int, ray_idx)
 
 
 def _trace_cwbvh8_rays_kernel[
@@ -538,7 +456,7 @@ def _bench_camera_primary_cwbvh8(
     var hit_count = UInt32(0)
     for iteration in range(repeats + 1):
         var t0 = perf_counter_ns()
-        ctx.enqueue_function[_trace_cwbvh8_camera_kernel](
+        ctx.enqueue_function[trace_cwbvh8_camera_kernel](
             bvh.nodes,
             bvh.triangles,
             bvh.root_idx,
@@ -612,9 +530,9 @@ def _run_cwbvh8(
     reference_hit_count: UInt32,
     repeats: Int,
 ) raises -> Tuple[GpuBenchResult, Cwbvh8BenchBvh]:
-    _ = _build_cwbvh8(ctx, d_vertices)
+    _ = build_cwbvh8_bench_bvh(ctx, d_vertices)
     var build0 = perf_counter_ns()
-    var bvh = _build_cwbvh8(ctx, d_vertices)
+    var bvh = build_cwbvh8_bench_bvh(ctx, d_vertices)
     var build1 = perf_counter_ns()
     var d_hits = ctx.enqueue_create_buffer[.float32](
         ray_count * Hit[.WORLD].STRIDE

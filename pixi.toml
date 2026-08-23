@@ -71,6 +71,7 @@ bench_bvh_gpu_stats = { cmd = "mojo -I . bench/diagnostic/bvh/bench_gpu_triangle
 bench_bvh_gpu_quality = { cmd = "mojo run -I . bench/diagnostic/bvh/bench_gpu_bvh_quality.mojo", depends-on = ["download_assets"] }
 bench_bvh_gpu_hploc = { cmd = "mojo run -I . bench/diagnostic/bvh/bench_gpu_hploc.mojo", depends-on = ["download_assets"] }
 bench_bvh_gpu_blas_tlas_build = { cmd = "mojo -I . --target-accelerator sm_120 bench/bvh/bench_gpu_blas_tlas_build.mojo", depends-on = ["download_assets"] }
+bench_bvh_gpu_nexus_compare = { cmd = "python bench/bvh/bench_gpu_nexus_compare.py", depends-on = ["download_assets"] }
 
 # ray tracing cpu
 bench_rt_cpu_any_hit = "mojo -I . bench/rt/bench_cpu_any_hit.mojo"

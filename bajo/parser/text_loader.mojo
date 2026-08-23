@@ -1,18 +1,18 @@
 from std.pathlib import Path
 
 
-trait PbrtTextLoader:
+trait TextLoader:
     def read_text(self, path: String) raises -> String:
         ...
 
 
 @fieldwise_init
-struct PathPbrtTextLoader(Copyable, PbrtTextLoader):
+struct PathTextLoader(Copyable, TextLoader):
     def read_text(self, path: String) raises -> String:
         return Path(path).read_text()
 
 
-struct MemoryPbrtTextLoader(PbrtTextLoader):
+struct MemoryTextLoader(TextLoader):
     var files: Dict[String, String]
 
     def __init__(out self):
@@ -24,4 +24,4 @@ struct MemoryPbrtTextLoader(PbrtTextLoader):
     def read_text(self, path: String) raises -> String:
         if path in self.files:
             return self.files[path]
-        raise Error("MemoryPbrtTextLoader: file not found: " + path)
+        raise Error("MemoryTextLoader: file not found: " + path)

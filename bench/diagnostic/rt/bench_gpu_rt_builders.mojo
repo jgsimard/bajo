@@ -5,6 +5,7 @@ from std.sys import has_accelerator
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceContext
 
+from bajo.bvh.gpu import GpuBvhLayout
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.host_utils import compute_bounds
 from bajo.core import Frame, Vec3f32
@@ -13,7 +14,6 @@ from bajo.parser.obj.pack import pack_obj_triangles
 from bajo.rt import (
     Camera,
     Color,
-    RENDER,
     RenderSettings,
     SceneBuilder,
     CpuScene,
@@ -64,7 +64,7 @@ def _dragon_camera(world: CpuScene[]) -> Camera:
 
 def _run_builder[
     method: GpuBvhBuildMethod,
-    compressed: Bool = False,
+    layout: GpuBvhLayout = .WIDE,
 ](
     mut ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
@@ -75,7 +75,7 @@ def _run_builder[
 ) raises:
     var build_t0 = perf_counter_ns()
     var gpu_world = GpuRtTriangleScene[
-        NODE_WIDTH, LEAF_WIDTH, method, compressed
+        NODE_WIDTH, LEAF_WIDTH, method, layout
     ](ctx, world.scene_data())
     ctx.synchronize()
     var build_ns = Int(perf_counter_ns() - build_t0)
@@ -89,7 +89,7 @@ def _run_builder[
             GPU_RT_MAX_BLOCKS,
             GPU_RT_MAX_BLOCKS,
             method,
-            compressed,
+            layout,
         ](ctx, target, gpu_world, settings),
         sample_count,
     )
@@ -102,7 +102,7 @@ def _run_builder[
             GPU_RT_MAX_BLOCKS,
             GPU_RT_MAX_BLOCKS,
             method,
-            compressed,
+            layout,
         ](ctx, target, gpu_world, settings),
         sample_count,
     )
@@ -115,7 +115,7 @@ def _run_builder[
             GPU_RT_MAX_BLOCKS,
             GPU_RT_MAX_BLOCKS,
             method,
-            compressed,
+            layout,
         ](ctx, target, gpu_world, settings),
         sample_count,
     )
@@ -128,7 +128,7 @@ def _run_builder[
             GPU_RT_MAX_BLOCKS,
             GPU_RT_MAX_BLOCKS,
             method,
-            compressed,
+            layout,
         ](ctx, target, gpu_world, settings),
         sample_count,
     )
@@ -158,10 +158,10 @@ def main() raises:
         _run_builder[.HPLOC](
             ctx, target, world, settings, sample_count, "H-PLOC"
         )
-        _run_builder[.LBVH, True](
+        _run_builder[.LBVH, .CWBVH8](
             ctx, target, world, settings, sample_count, "LBVH CWBVH8"
         )
-        _run_builder[.HPLOC, True](
+        _run_builder[.HPLOC, .CWBVH8](
             ctx, target, world, settings, sample_count, "H-PLOC CWBVH8"
         )
 
@@ -176,10 +176,10 @@ def main() raises:
         _run_builder[.HPLOC](
             ctx, target, dragon, settings, sample_count, "Dragon H-PLOC"
         )
-        _run_builder[.LBVH, True](
+        _run_builder[.LBVH, .CWBVH8](
             ctx, target, dragon, settings, sample_count, "Dragon LBVH CWBVH8"
         )
-        _run_builder[.HPLOC, True](
+        _run_builder[.HPLOC, .CWBVH8](
             ctx,
             target,
             dragon,

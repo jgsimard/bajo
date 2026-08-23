@@ -1,7 +1,7 @@
 """Load and render a PBRT text scene with Bajo's MIS wavefront integrator."""
 
 from bajo.parser.pbrt import read_pbrt
-from bajo.rt import CpuScene, RENDER, render_wavefront, write_ppm_from_colors
+from bajo.rt import CpuScene, render_wavefront, write_ppm_from_colors
 
 
 comptime SCENE_PATH = "examples/scenes/pbrt_showcase.pbrt"

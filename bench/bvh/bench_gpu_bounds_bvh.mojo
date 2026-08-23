@@ -9,16 +9,15 @@ from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.bvh.host_utils import compute_bounds, sphere_bounds
 from bajo.bvh.constants import (
     GPU_BOUNDS_BVH_BLOCK_SIZE,
-    Primitive,
-    TRACE,
+    TraceMode,
     TRI_LEAF_VERTEX_STRIDE,
     f32_max,
 )
-from bajo.bvh.cpu import CpuBlasSet, CpuBvhBuildMethod
+from bajo.bvh.cpu import CpuBlasSet
 from bajo.bvh.types import Hit, Sphere
 from bajo.bvh.cpu.blas_set import (
-    build_sphere_blases,
-    build_triangle_blases,
+    build_cpu_sphere_blas_set,
+    build_cpu_triangle_blas_set,
     trace_blas_set,
 )
 from bajo.bvh.gpu.sphere_bvh import (
@@ -33,7 +32,6 @@ from bajo.bvh.gpu.triangle_bvh import (
     compute_triangle_bounds_kernel,
     trace_cwbvh8_triangles,
 )
-from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.gpu.builder.segmented_build import enqueue_segmented_wide_build
 from bajo.bvh.gpu.compressed_bounds_bvh import (
     CWBVH_NODE_WORDS,
@@ -296,7 +294,7 @@ def _trace_cwbvh8_camera_kernel(
 
 
 def _trace_cwbvh8_rays_kernel[
-    mode: TRACE,
+    mode: TraceMode,
 ](
     nodes: Pointer[Float32, ImmutAnyOrigin],
     triangles: Pointer[Float32, ImmutAnyOrigin],
@@ -390,7 +388,7 @@ def _print_cpu_triangle_reference[
     vertices: List[Point3f32[.WORLD]],
     rays: List[Rayf32[.WORLD]],
 ) -> Tuple[Float64, UInt32]:
-    var bvh = build_triangle_blases[
+    var bvh = build_cpu_triangle_blas_set[
         width, width, .LBVH, .WORLD
     ]([vertices.copy()])
     var t0 = perf_counter_ns()
@@ -408,7 +406,7 @@ def _print_cpu_sphere_reference[
     spheres: List[Sphere[.WORLD]],
     rays: List[Rayf32[.WORLD]],
 ) -> Tuple[Float64, UInt32]:
-    var bvh = build_sphere_blases[width, .LBVH, .WORLD](
+    var bvh = build_cpu_sphere_blas_set[width, .LBVH, .WORLD](
         [spheres.copy()]
     )
     var t0 = perf_counter_ns()

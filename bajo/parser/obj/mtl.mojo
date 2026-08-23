@@ -1,7 +1,7 @@
 import std.os
 
-from bajo.parser.obj.types import ObjMaterial, ObjMesh
-from bajo.parser.obj.loaders import ObjTextLoader
+from bajo.parser.obj.types import ObjMaterial, ObjMesh, ObjTexture
+from bajo.parser.text_loader import TextLoader
 from bajo.parser.obj.cursor import ObjLineCursor
 from bajo.parser.obj.constants import MINUS
 
@@ -20,6 +20,31 @@ def _map_name_from_tail(mut cur: ObjLineCursor) -> String:
             continue
         candidate = String(word)
     return candidate
+
+
+def _upsert_material(mut mesh: ObjMesh, material: ObjMaterial) raises -> Int:
+    if material.name in mesh.material_names:
+        var index = mesh.material_names[material.name]
+        if mesh.materials[index].fallback:
+            mesh.materials[index] = material.copy()
+            return index
+
+    var index = len(mesh.materials)
+    mesh.materials.append(material.copy())
+    if not (material.name in mesh.material_names):
+        mesh.material_names[material.name] = index
+    return index
+
+
+def _add_texture(mut mesh: ObjMesh, name: String, base: String) raises -> Int:
+    var path = std.os.path.join(base, name)
+    if path in mesh.texture_names:
+        return mesh.texture_names[path]
+
+    var index = len(mesh.textures)
+    mesh.textures.append(ObjTexture(name, path))
+    mesh.texture_names[path] = index
+    return index
 
 
 def _read_mtl_text(mut mesh: ObjMesh, base: String, text: String) raises:
@@ -47,7 +72,7 @@ def _read_mtl_text(mut mesh: ObjMesh, base: String, text: String) raises:
 
         if tag == "newmtl":
             if have_current:
-                _ = mesh._upsert_material(current)
+                _ = _upsert_material(mesh, current)
             var name = cur.joined_rest_of_line()
             current = ObjMaterial(name, fallback=False)
             have_current = True
@@ -83,7 +108,7 @@ def _read_mtl_text(mut mesh: ObjMesh, base: String, text: String) raises:
             elif tag[byte=:4] == "map_" or tag == "bump":
                 var name = _map_name_from_tail(cur)
                 if name.byte_length() > 0:
-                    var val = mesh._add_texture(name, base)
+                    var val = _add_texture(mesh, name, base)
                     if tag == "map_Ka":
                         current.map_Ka = val
                     elif tag == "map_Kd":
@@ -106,11 +131,11 @@ def _read_mtl_text(mut mesh: ObjMesh, base: String, text: String) raises:
         line_start = line_end + 1
 
     if have_current:
-        _ = mesh._upsert_material(current)
+        _ = _upsert_material(mesh, current)
 
 
 def _read_mtl_file[
-    Loader: ObjTextLoader
+    Loader: TextLoader
 ](mut mesh: ObjMesh, obj_path: String, mtl_name: String, loader: Loader) raises:
     var base = std.os.path.dirname(obj_path)
     var mtl_path = std.os.path.join(base, mtl_name)

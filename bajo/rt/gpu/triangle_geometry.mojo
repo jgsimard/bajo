@@ -5,7 +5,7 @@ from max.gpu.host import DeviceBuffer, DeviceContext
 from bajo.bvh.gpu import (
     GpuBvhBuildMethod,
     GpuBvhLayout,
-    build_triangle_blas_set,
+    build_gpu_triangle_blas_set,
 )
 from bajo.core import Frame, Point3f32
 
@@ -15,7 +15,9 @@ struct GpuRtTriangleGeometry[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
     build_method: GpuBvhBuildMethod = .HPLOC,
-    compressed: Bool = node_width == 8 and leaf_width == 4,
+    layout: GpuBvhLayout = GpuBvhLayout(
+        node_width == 8 and leaf_width == 4
+    ),
 ]:
     """Owned trace buffers selected entirely by compile-time policy."""
 
@@ -36,11 +38,11 @@ struct GpuRtTriangleGeometry[
         var owned_vertices = List[Point3f32[Self.frame]](capacity=len(vertices))
         for vertex in vertices:
             owned_vertices.append(vertex)
-        var packed = build_triangle_blas_set[
+        var packed = build_gpu_triangle_blas_set[
             Self.node_width,
             Self.leaf_width,
             Self.build_method,
-            GpuBvhLayout(Self.compressed),
+            Self.layout,
             Self.frame,
         ](ctx, [owned_vertices^])
         self.nodes = packed.nodes.copy()

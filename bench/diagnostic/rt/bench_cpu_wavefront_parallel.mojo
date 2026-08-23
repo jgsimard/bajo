@@ -3,7 +3,7 @@
 from std.math import abs, round
 
 from bajo.core.utils import ns_to_ms
-from bajo.rt import Camera, RENDER, RenderResult, RenderSettings, CpuScene
+from bajo.rt import Camera, RenderResult, RenderSettings, CpuScene
 from bajo.rt.cpu import render_wavefront
 from bajo.rt.cpu.wavefront import (
     CPU_WAVEFRONT_SERIAL_CHUNK_PATHS,

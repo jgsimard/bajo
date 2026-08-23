@@ -13,7 +13,7 @@ from bajo.bvh.cpu.blas_storage import CpuBlasSet
 from bajo.bvh.cpu.build_method import CpuBvhBuildMethod
 from bajo.bvh.types import Hit, Instance
 from bajo.bvh.cpu.blas_set import trace_blas_set
-from bajo.bvh.constants import TRACE, EMPTY_LANE, Primitive
+from bajo.bvh.constants import TraceMode, EMPTY_LANE, PrimitiveKind
 from bajo.bvh.tlas_common import (
     finalize_tlas_hit_normal,
     promote_tlas_local_hit,
@@ -28,7 +28,7 @@ from bajo.bvh.cpu.trace import trace_bounds_bvh, trace_bounds_bvh_leaf_rcp
 
 
 comptime CpuBlasTraceFn[
-    kind: Primitive,
+    kind: PrimitiveKind,
     node_width: SIMDLength,
     leaf_width: SIMDLength,
 ] = def(
@@ -129,7 +129,7 @@ def _tree[
     return tree^
 
 
-struct Tlas[
+struct CpuTlas[
     bounds_width: SIMDLength,
     leaf_width: SIMDLength = bounds_width,
 ](Copyable):
@@ -164,10 +164,10 @@ struct Tlas[
         return self.tree.root_bounds()
 
     def _trace_packed_blases[
-        kind: Primitive,
+        kind: PrimitiveKind,
         blas_node_width: SIMDLength,
         blas_leaf_width: SIMDLength,
-        mode: TRACE,
+        mode: TraceMode,
         trace_fn: CpuBlasTraceFn[kind, blas_node_width, blas_leaf_width],
     ](
         self,
@@ -240,7 +240,7 @@ struct Tlas[
     def trace_blases[
         blas_node_width: SIMDLength,
         blas_leaf_width: SIMDLength = blas_node_width,
-        mode: TRACE = .CLOSEST_HIT,
+        mode: TraceMode = .CLOSEST_HIT,
     ](
         self,
         ray: Rayf32[.WORLD],
@@ -259,7 +259,7 @@ struct Tlas[
     def trace_blases[
         blas_node_width: SIMDLength,
         blas_leaf_width: SIMDLength = blas_node_width,
-        mode: TRACE = .CLOSEST_HIT,
+        mode: TraceMode = .CLOSEST_HIT,
     ](
         self,
         ray: Rayf32[.WORLD],

@@ -8,7 +8,7 @@ from bajo.bvh.constants import (
     LBVH_SENTINEL,
 )
 from bajo.bvh.tagged_ref import decode_ref_index, is_leaf_ref
-from bajo.bvh.gpu.builder import GpuBvhBuildMethod, build_binary_bvh
+from bajo.bvh.gpu.builder import build_binary_bvh
 from bajo.bvh.gpu.builder.binary_layout import (
     GpuBinaryBoundsBvh,
     GpuBinaryBuildWorkspace,

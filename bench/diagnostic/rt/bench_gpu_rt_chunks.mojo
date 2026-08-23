@@ -3,7 +3,7 @@
 from std.sys import has_accelerator
 from max.gpu.host import DeviceContext
 
-from bajo.rt import RENDER, RenderSettings
+from bajo.rt import RenderSettings
 from bajo.rt.gpu.resources import GpuRtRenderTarget
 from bajo.rt.gpu.triangle_path import GpuRtTriangleScene
 from bajo.benchmark.gpu_harness import (

@@ -10,7 +10,7 @@ from bajo.core import (
 from bajo.core.random import Rng, random_in_unit_disk, random_on_hemisphere
 from bajo.core.utils import ns_to_ms
 from bajo.rt import (
-    RENDER,
+    Integrator,
     ShadingPoint,
     Camera,
     Color,
@@ -20,7 +20,7 @@ from bajo.rt import (
 )
 from bajo.rt.cpu import sample_bsdf
 from bajo.rt.common import russian_roulette
-from bajo.rt.types import MAT, PRIM
+from bajo.rt.types import MaterialKind, PrimitiveKind
 from examples.rtiaw import make_weekend_world
 from bajo.benchmark.cpu_harness import pixel_checksum
 from bajo.benchmark.rt_fixtures import (
@@ -94,7 +94,7 @@ struct TraceCounters:
 
 
 def time_render[
-    ALGORITHM: RENDER
+    ALGORITHM: Integrator
 ](settings: RenderSettings, camera: Camera, world: CpuScene[]) -> TimingResult:
     # Warm all compiled code and renderer-owned allocations before measuring.
     var warmup = render_depth_first[ALGORITHM](settings, camera, world)
@@ -171,13 +171,13 @@ def make_primary_ray(
     )
 
 
-def count_hit(mut counters: TraceCounters, primitive: PRIM, material: MAT):
+def count_hit(mut counters: TraceCounters, primitive: PrimitiveKind, material: MaterialKind):
     counters.hits += 1
-    if primitive == PRIM.SPHERE:
+    if primitive == PrimitiveKind.SPHERE:
         counters.sphere_hits += 1
-    elif primitive == PRIM.TRIANGLE:
+    elif primitive == PrimitiveKind.TRIANGLE:
         counters.triangle_hits += 1
-    elif primitive == PRIM.TRIANGLE_INSTANCE:
+    elif primitive == PrimitiveKind.TRIANGLE_INSTANCE:
         counters.instance_hits += 1
 
     if material == .LAMBERTIAN:

@@ -1,7 +1,16 @@
-from .constants import *
-from .primitives import _is_digit
-
+comptime _MINUS = UInt8(45)
+comptime _PLUS = UInt8(43)
+comptime _ZERO = UInt8(48)
+comptime _NINE = UInt8(57)
+comptime _DOT = UInt8(46)
+comptime _LOWER_E = UInt8(101)
+comptime _UPPER_E = UInt8(69)
 comptime _MAX_DECIMAL_EXPONENT = 308
+
+
+@always_inline
+def _is_digit(value: UInt8) -> Bool:
+    return value >= _ZERO and value <= _NINE
 
 
 @fieldwise_init
@@ -23,74 +32,74 @@ def parse_f32_at(bytes: ImmSpan[UInt8, _], pos: Int) raises -> F32ParseResult:
     var p = pos
     var sign: Float64 = 1.0
 
-    if bytes.unsafe_get(p) == MINUS:
+    if bytes.unsafe_get(p) == _MINUS:
         sign = -1.0
         p += 1
-    elif bytes.unsafe_get(p) == PLUS:
+    elif bytes.unsafe_get(p) == _PLUS:
         p += 1
 
     var num: Float64 = 0.0
     while p < end:
         var b = bytes.unsafe_get(p)
         if _is_digit(b):
-            num = num * 10.0 + Float64(Int(b - ZERO))
+            num = num * 10.0 + Float64(Int(b - _ZERO))
             p += 1
         else:
             break
 
-    if p < end and bytes.unsafe_get(p) == DOT:
+    if p < end and bytes.unsafe_get(p) == _DOT:
         p += 1
-        var fra: Float64 = 0.0
-        var div: Float64 = 1.0
+        var fraction: Float64 = 0.0
+        var divisor: Float64 = 1.0
 
         while p < end:
             var b = bytes.unsafe_get(p)
             if _is_digit(b):
-                fra = fra * 10.0 + Float64(Int(b - ZERO))
-                div *= 10.0
+                fraction = fraction * 10.0 + Float64(Int(b - _ZERO))
+                divisor *= 10.0
                 p += 1
             else:
                 break
 
-        num += fra / div
+        num += fraction / divisor
 
     if p < end:
         var b = bytes.unsafe_get(p)
-        if b == CHAR_e or b == CHAR_E:
+        if b == _LOWER_E or b == _UPPER_E:
             p += 1
-            var exp_sign = 1
+            var exponent_sign = 1
 
-            if p < end and bytes.unsafe_get(p) == MINUS:
-                exp_sign = -1
+            if p < end and bytes.unsafe_get(p) == _MINUS:
+                exponent_sign = -1
                 p += 1
-            elif p < end and bytes.unsafe_get(p) == PLUS:
+            elif p < end and bytes.unsafe_get(p) == _PLUS:
                 p += 1
 
-            var eval = 0
-            var has_exp_digit = False
+            var exponent = 0
+            var has_exponent_digit = False
             while p < end:
-                var eb = bytes.unsafe_get(p)
-                if _is_digit(eb):
-                    has_exp_digit = True
-                    var digit = Int(eb - ZERO)
-                    if eval > (_MAX_DECIMAL_EXPONENT - digit) // 10:
+                var exponent_byte = bytes.unsafe_get(p)
+                if _is_digit(exponent_byte):
+                    has_exponent_digit = True
+                    var digit = Int(exponent_byte - _ZERO)
+                    if exponent > (_MAX_DECIMAL_EXPONENT - digit) // 10:
                         raise String(
-                            t"OBJ decimal exponent exceeds "
+                            t"decimal exponent exceeds "
                             t"{_MAX_DECIMAL_EXPONENT}"
                         )
 
-                    eval = eval * 10 + digit
+                    exponent = exponent * 10 + digit
                     p += 1
                 else:
                     break
 
-            if not has_exp_digit:
-                raise String("missing OBJ decimal exponent digits")
+            if not has_exponent_digit:
+                raise String("missing decimal exponent digits")
 
-            if eval > 0:
+            if exponent > 0:
                 var power: Float64 = 1.0
                 var base: Float64 = 10.0
-                var remaining = eval
+                var remaining = exponent
 
                 while remaining > 0:
                     if remaining & 1:
@@ -99,7 +108,7 @@ def parse_f32_at(bytes: ImmSpan[UInt8, _], pos: Int) raises -> F32ParseResult:
                     if remaining > 0:
                         base *= base
 
-                if exp_sign == 1:
+                if exponent_sign == 1:
                     num *= power
                 else:
                     num /= power

@@ -1,9 +1,9 @@
 from std.testing import TestSuite, assert_true, assert_almost_equal
 
-from bajo.bvh.constants import TRACE, Primitive
+from bajo.bvh.constants import PrimitiveKind
 from bajo.bvh.types import Instance, Sphere, Hit
-from bajo.bvh.cpu.blas_set import build_sphere_blases, build_triangle_blases
-from bajo.bvh.cpu.tlas import Tlas
+from bajo.bvh.cpu.blas_set import build_cpu_sphere_blas_set, build_cpu_triangle_blas_set
+from bajo.bvh.cpu.tlas import CpuTlas
 from bajo.core import (
     AABB,
     Affine3f32,
@@ -52,7 +52,7 @@ def _sphere_values() -> List[Sphere[.LOCAL]]:
 
 
 def _instance(
-    kind: Primitive,
+    kind: PrimitiveKind,
     blas_idx: UInt32,
     bounds: AABB[.LOCAL],
     tx: Float32,
@@ -82,13 +82,13 @@ def _assert_hit(hit: Hit, inst: UInt32, t: Float32) raises:
 def test_tlas_triangle_single_instance_cases() raises:
     var vertices = _triangle_vertices()
     var bounds = _triangle_bounds(vertices)
-    var blases = build_triangle_blases[4]([vertices^])
-    var identity = Tlas[4]([_instance(.TRIANGLE, 0, bounds, 0.0)])
+    var blases = build_cpu_triangle_blas_set[4]([vertices^])
+    var identity = CpuTlas[4]([_instance(.TRIANGLE, 0, bounds, 0.0)])
     var hit = identity.trace_blases[4, 4, .CLOSEST_HIT](_ray(), blases)
     _assert_hit(hit, 0, 2.0)
     assert_almost_equal(hit.normal.z, 1.0)
 
-    var translated = Tlas[4]([_instance(.TRIANGLE, 0, bounds, 5.0)])
+    var translated = CpuTlas[4]([_instance(.TRIANGLE, 0, bounds, 5.0)])
     _assert_hit(
         translated.trace_blases[4, 4, .CLOSEST_HIT](_ray(5.0), blases),
         0,
@@ -104,8 +104,8 @@ def test_tlas_triangle_single_instance_cases() raises:
 def test_tlas_triangle_two_instance_cases() raises:
     var first = _triangle_vertices()
     var bounds = _triangle_bounds(first)
-    var blases = build_triangle_blases[4]([first^, _triangle_vertices()])
-    var near_far = Tlas[4](
+    var blases = build_cpu_triangle_blas_set[4]([first^, _triangle_vertices()])
+    var near_far = CpuTlas[4](
         [
             _instance(.TRIANGLE, 0, bounds, 0.0),
             _instance(.TRIANGLE, 1, bounds, 0.0, tz=6.0),
@@ -116,7 +116,7 @@ def test_tlas_triangle_two_instance_cases() raises:
         0,
         2.0,
     )
-    var left_right = Tlas[4](
+    var left_right = CpuTlas[4](
         [
             _instance(.TRIANGLE, 0, bounds, -5.0),
             _instance(.TRIANGLE, 1, bounds, 5.0),
@@ -132,8 +132,8 @@ def test_tlas_triangle_two_instance_cases() raises:
 def _test_tlas_triangle_leaf_width[leaf_width: SIMDLength]() raises:
     var vertices = _triangle_vertices()
     var bounds = _triangle_bounds(vertices)
-    var blases = build_triangle_blases[4]([vertices^])
-    var tlas = Tlas[4, leaf_width](
+    var blases = build_cpu_triangle_blas_set[4]([vertices^])
+    var tlas = CpuTlas[4, leaf_width](
         [
             _instance(.TRIANGLE, 0, bounds, -5.0),
             _instance(.TRIANGLE, 0, bounds, 5.0),
@@ -158,8 +158,8 @@ def test_tlas_triangle_decoupled_leaf_widths() raises:
 def test_tlas_leaf_instance_bounds_filter_missed_blas() raises:
     var vertices = _triangle_vertices()
     var bounds = _triangle_bounds(vertices)
-    var blases = build_triangle_blases[4]([vertices^])
-    var tlas = Tlas[4, 4](
+    var blases = build_cpu_triangle_blas_set[4]([vertices^])
+    var tlas = CpuTlas[4, 4](
         [
             _instance(.TRIANGLE, 99, bounds, -5.0),
             _instance(.TRIANGLE, 0, bounds, 5.0),
@@ -175,8 +175,8 @@ def test_tlas_leaf_instance_bounds_filter_missed_blas() raises:
 def test_tlas_triangle_shadow_cases() raises:
     var vertices = _triangle_vertices()
     var bounds = _triangle_bounds(vertices)
-    var blases = build_triangle_blases[4]([vertices^])
-    var tlas = Tlas[4]([_instance(.TRIANGLE, 0, bounds, 5.0)])
+    var blases = build_cpu_triangle_blas_set[4]([vertices^])
+    var tlas = CpuTlas[4]([_instance(.TRIANGLE, 0, bounds, 5.0)])
     assert_true(
         tlas.trace_blases[4, 4, .ANY_HIT](_ray(5.0), blases).is_occluded()
     )
@@ -188,13 +188,13 @@ def test_tlas_triangle_shadow_cases() raises:
 def test_tlas_sphere_single_instance_cases() raises:
     var spheres = _sphere_values()
     var bounds = spheres[0].bounds()
-    var blases = build_sphere_blases[4]([spheres^])
-    var identity = Tlas[4]([_instance(.SPHERE, 0, bounds, 0.0)])
+    var blases = build_cpu_sphere_blas_set[4]([spheres^])
+    var identity = CpuTlas[4]([_instance(.SPHERE, 0, bounds, 0.0)])
     var hit = identity.trace_blases[4, 4, .CLOSEST_HIT](_ray(), blases)
     _assert_hit(hit, 0, 1.0)
     assert_almost_equal(hit.normal.z, -1.0)
 
-    var translated = Tlas[4]([_instance(.SPHERE, 0, bounds, 5.0)])
+    var translated = CpuTlas[4]([_instance(.SPHERE, 0, bounds, 5.0)])
     _assert_hit(
         translated.trace_blases[4, 4, .CLOSEST_HIT](_ray(5.0), blases),
         0,
@@ -210,8 +210,8 @@ def test_tlas_sphere_single_instance_cases() raises:
 def test_tlas_sphere_two_instance_cases() raises:
     var first = _sphere_values()
     var bounds = first[0].bounds()
-    var blases = build_sphere_blases[4]([first^, _sphere_values()])
-    var near_far = Tlas[4](
+    var blases = build_cpu_sphere_blas_set[4]([first^, _sphere_values()])
+    var near_far = CpuTlas[4](
         [
             _instance(.SPHERE, 0, bounds, 0.0),
             _instance(.SPHERE, 1, bounds, 0.0, tz=6.0),
@@ -222,7 +222,7 @@ def test_tlas_sphere_two_instance_cases() raises:
         0,
         1.0,
     )
-    var left_right = Tlas[4](
+    var left_right = CpuTlas[4](
         [
             _instance(.SPHERE, 0, bounds, -5.0),
             _instance(.SPHERE, 1, bounds, 5.0),
@@ -238,11 +238,11 @@ def test_tlas_sphere_two_instance_cases() raises:
 def test_tlas_sphere_nonuniform_scale_normal() raises:
     var spheres = _sphere_values()
     var bounds = spheres[0].bounds()
-    var blases = build_sphere_blases[4]([spheres^])
+    var blases = build_cpu_sphere_blas_set[4]([spheres^])
     var transform = Affine3f32[.LOCAL, .WORLD].from_scale(
         Vec3f32[.LOCAL](2.0, 1.0, 1.0)
     )
-    var tlas = Tlas[4](
+    var tlas = CpuTlas[4](
         [Instance(transform, UInt32(0), bounds, .SPHERE)]
     )
     var hit = tlas.trace_blases[4, 4, .CLOSEST_HIT](_ray(1.0), blases)
@@ -254,8 +254,8 @@ def test_tlas_sphere_nonuniform_scale_normal() raises:
 def test_tlas_sphere_shadow_cases() raises:
     var spheres = _sphere_values()
     var bounds = spheres[0].bounds()
-    var blases = build_sphere_blases[4]([spheres^])
-    var tlas = Tlas[4]([_instance(.SPHERE, 0, bounds, 5.0)])
+    var blases = build_cpu_sphere_blas_set[4]([spheres^])
+    var tlas = CpuTlas[4]([_instance(.SPHERE, 0, bounds, 5.0)])
     assert_true(
         tlas.trace_blases[4, 4, .ANY_HIT](_ray(5.0), blases).is_occluded()
     )

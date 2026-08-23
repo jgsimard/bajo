@@ -4,9 +4,9 @@ from std.gpu import global_idx
 
 from bajo.core import AABB, Affine3f32, Frame, Rayf32
 from bajo.bvh.constants import (
-    TRACE,
+    TraceMode,
     EMPTY_LANE,
-    Primitive,
+    PrimitiveKind,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
 from bajo.bvh.gpu.blas_storage import GpuBlasSet, GpuBvhLayout
@@ -58,9 +58,9 @@ def _intersect_tlas_instance_block[
     tlas_leaf_width: SIMDLength,
     blas_node_width: SIMDLength,
     blas_leaf_width: SIMDLength,
-    mode: TRACE,
+    mode: TraceMode,
     blas_leaf_fn: GpuLeafFn[.LOCAL],
-    blas_compressed: Bool = False,
+    blas_layout: GpuBvhLayout = .WIDE,
 ](
     tlas_leaf_instances: ImmPointer[UInt32, _],
     inst_inv_transform: ImmPointer[Float32, _],
@@ -122,7 +122,7 @@ def _intersect_tlas_instance_block[
             )
             var local_root = blas_desc.root_idx
             var local_hit: Hit[.LOCAL]
-            comptime if blas_compressed:
+            comptime if blas_layout.compressed:
                 local_hit = trace_cwbvh8_triangles[.LOCAL, mode](
                     local_nodes, local_leaves, local_root, local_ray
                 )
@@ -150,9 +150,9 @@ def _intersect_tlas_leaf_state[
     tlas_leaf_width: SIMDLength,
     blas_node_width: SIMDLength,
     blas_leaf_width: SIMDLength,
-    mode: TRACE,
+    mode: TraceMode,
     blas_leaf_fn: GpuLeafFn[.LOCAL],
-    blas_compressed: Bool = False,
+    blas_layout: GpuBvhLayout = .WIDE,
 ](
     state: GpuTlasLeafState,
     leaf_block_idx: UInt32,
@@ -166,7 +166,7 @@ def _intersect_tlas_leaf_state[
         blas_leaf_width,
         mode,
         blas_leaf_fn,
-        blas_compressed,
+        blas_layout,
     ](
         state.leaf_instances,
         state.inst_inv_transform,
@@ -188,9 +188,9 @@ def _trace_tlas_ray[
     tlas_leaf_width: SIMDLength,
     blas_node_width: SIMDLength,
     blas_leaf_width: SIMDLength,
-    mode: TRACE,
+    mode: TraceMode,
     blas_leaf_fn: GpuLeafFn[.LOCAL],
-    blas_compressed: Bool = False,
+    blas_layout: GpuBvhLayout = .WIDE,
 ](
     tlas_wide_nodes: ImmPointer[Float32, _],
     tlas_leaf_instances: ImmPointer[UInt32, _],
@@ -225,7 +225,7 @@ def _trace_tlas_ray[
             blas_leaf_width,
             mode,
             blas_leaf_fn,
-            blas_compressed,
+            blas_layout,
         ],
         tlas_node_width == 2 and mode == .CLOSEST_HIT,
     ](tlas_wide_nodes, leaf_state, tlas_root_idx, ray)
@@ -242,12 +242,13 @@ def _trace_tlas_ray[
     return hit
 
 
-def trace_triangle_tlas_camera_kernel[
+def _trace_tlas_camera_kernel[
+    kind: PrimitiveKind,
     tlas_node_width: SIMDLength,
     tlas_leaf_width: SIMDLength,
     blas_node_width: SIMDLength,
     blas_leaf_width: SIMDLength,
-    blas_compressed: Bool = False,
+    blas_layout: GpuBvhLayout = .WIDE,
 ](
     tlas_wide_nodes: Pointer[Float32, ImmutAnyOrigin],
     tlas_leaf_instances: Pointer[UInt32, ImmutAnyOrigin],
@@ -255,7 +256,7 @@ def trace_triangle_tlas_camera_kernel[
     inst_blas_indices: Pointer[UInt32, ImmutAnyOrigin],
     blas_descs: Pointer[UInt32, ImmutAnyOrigin],
     blas_wide_nodes: Pointer[Float32, ImmutAnyOrigin],
-    blas_leaf_vertices: Pointer[Float32, ImmutAnyOrigin],
+    blas_leaves: Pointer[Float32, ImmutAnyOrigin],
     tlas_root_idx: UInt32,
     camera_params: Pointer[Float32, ImmutAnyOrigin],
     hits: Pointer[Float32, MutAnyOrigin],
@@ -282,27 +283,46 @@ def trace_triangle_tlas_camera_kernel[
         inv_height,
     )
 
-    var hit = _trace_tlas_ray[
-        tlas_node_width,
-        tlas_leaf_width,
-        blas_node_width,
-        blas_leaf_width,
-        .CLOSEST_HIT,
-        _intersect_triangle_leaf[
-            .LOCAL,
+    comptime assert kind == .TRIANGLE or kind == .SPHERE
+    comptime if kind == .SPHERE:
+        comptime assert blas_layout == .WIDE
+    comptime trace_ray = (
+        _trace_tlas_ray[
+            tlas_node_width,
+            tlas_leaf_width,
+            blas_node_width,
             blas_leaf_width,
             .CLOSEST_HIT,
-            blas_leaf_width > blas_node_width or blas_leaf_width == 8,
-        ],
-        blas_compressed,
-    ](
+            _intersect_sphere_leaf[
+                .LOCAL,
+                blas_leaf_width,
+                .CLOSEST_HIT,
+            ],
+        ]
+        if kind == .SPHERE
+        else _trace_tlas_ray[
+            tlas_node_width,
+            tlas_leaf_width,
+            blas_node_width,
+            blas_leaf_width,
+            .CLOSEST_HIT,
+            _intersect_triangle_leaf[
+                .LOCAL,
+                blas_leaf_width,
+                .CLOSEST_HIT,
+                blas_leaf_width > blas_node_width or blas_leaf_width == 8,
+            ],
+            blas_layout,
+        ]
+    )
+    var hit = trace_ray(
         tlas_wide_nodes,
         tlas_leaf_instances,
         inst_inv_transform,
         inst_blas_indices,
         blas_descs,
         blas_wide_nodes,
-        blas_leaf_vertices,
+        blas_leaves,
         Int(instance_count),
         Int(blas_count),
         tlas_root_idx,
@@ -311,139 +331,100 @@ def trace_triangle_tlas_camera_kernel[
     _store_camera_hit(hit, hits, ray_count_int, ray_idx)
 
 
-def trace_sphere_tlas_camera_kernel[
+@fieldwise_init
+struct GpuTlas[
+    kind: PrimitiveKind,
     tlas_node_width: SIMDLength,
-    tlas_leaf_width: SIMDLength,
     blas_node_width: SIMDLength,
-    blas_leaf_width: SIMDLength,
-](
-    tlas_wide_nodes: Pointer[Float32, ImmutAnyOrigin],
-    tlas_leaf_instances: Pointer[UInt32, ImmutAnyOrigin],
-    inst_inv_transform: Pointer[Float32, ImmutAnyOrigin],
-    inst_blas_indices: Pointer[UInt32, ImmutAnyOrigin],
-    blas_descs: Pointer[UInt32, ImmutAnyOrigin],
-    blas_wide_nodes: Pointer[Float32, ImmutAnyOrigin],
-    blas_leaf_spheres: Pointer[Float32, ImmutAnyOrigin],
-    tlas_root_idx: UInt32,
-    camera_params: Pointer[Float32, ImmutAnyOrigin],
-    hits: Pointer[Float32, MutAnyOrigin],
-    instance_count: Int32,
-    blas_count: Int32,
-    ray_count: Int32,
-    width: Int32,
-    height: Int32,
-    inv_height: Float32,
-):
-    var ray_count_int = Int(ray_count)
-    var width_int = Int(width)
-    var height_int = Int(height)
-    var ray_idx = global_idx.x
-    if ray_idx >= ray_count_int:
-        return
-
-    var ray = _camera_ray(
-        camera_params,
-        ray_count_int,
-        ray_idx,
-        width_int,
-        height_int,
-        inv_height,
-    )
-
-    var hit = _trace_tlas_ray[
-        tlas_node_width,
-        tlas_leaf_width,
-        blas_node_width,
-        blas_leaf_width,
-        .CLOSEST_HIT,
-        _intersect_sphere_leaf[
-            .LOCAL,
-            blas_leaf_width,
-            .CLOSEST_HIT,
-        ],
-    ](
-        tlas_wide_nodes,
-        tlas_leaf_instances,
-        inst_inv_transform,
-        inst_blas_indices,
-        blas_descs,
-        blas_wide_nodes,
-        blas_leaf_spheres,
-        Int(instance_count),
-        Int(blas_count),
-        tlas_root_idx,
-        ray,
-    )
-    _store_camera_hit(hit, hits, ray_count_int, ray_idx)
-
-
-struct GpuTypedTlasCore[
-    node_width: SIMDLength,
-    leaf_width: SIMDLength = node_width,
+    tlas_leaf_width: SIMDLength = tlas_node_width,
+    blas_leaf_width: SIMDLength = blas_node_width,
+    blas_layout: GpuBvhLayout = GpuBvhLayout.WIDE,
 ]:
-    """GPU TLAS core shared by typed TLAS wrappers.
+    """Primitive-typed TLAS owning its tree and instance buffers.
 
     Instance leaves are packed by the generic wide collapse:
-    `tree.leaf_block_indices[leaf_block * leaf_width + lane]` stores the
+    `_tree.leaf_block_indices[leaf_block * tlas_leaf_width + lane]` stores the
     instance id.
     """
 
-    var tree: GpuWideBoundsBvh[Self.node_width, Self.leaf_width]
-    var inst_inv_transform: DeviceBuffer[.float32]
-    var inst_blas_indices: DeviceBuffer[.uint32]
-    var inst_count: Int
+    var _tree: GpuWideBoundsBvh[Self.tlas_node_width, Self.tlas_leaf_width]
+    var _inst_inv_transform: DeviceBuffer[.float32]
+    var _inst_blas_indices: DeviceBuffer[.uint32]
+    var _inst_count: Int
 
-    def __init__(
-        out self,
-        var tree: GpuWideBoundsBvh[Self.node_width, Self.leaf_width],
-        var inst_inv_transform: DeviceBuffer[.float32],
-        var inst_blas_indices: DeviceBuffer[.uint32],
-        inst_count: Int,
-    ):
-        self.tree = tree^
-        self.inst_inv_transform = inst_inv_transform^
-        self.inst_blas_indices = inst_blas_indices^
-        self.inst_count = inst_count
+    def launch_camera(
+        self,
+        ctx: DeviceContext,
+        blases: GpuBlasSet[
+            Self.kind,
+            Self.blas_layout,
+            Self.blas_node_width,
+            Self.blas_leaf_width,
+        ],
+        d_camera_params: DeviceBuffer[.float32],
+        d_hits: DeviceBuffer[.float32],
+        ray_count: Int,
+        cwidth: Int,
+        cheight: Int,
+    ) raises:
+        validate_camera_launch(
+            d_camera_params, d_hits, ray_count, cwidth, cheight
+        )
+        debug_assert["safe", _use_compiler_assume=True](
+            blases.blas_count > 0,
+            "GPU TLAS requires at least one BLAS descriptor",
+        )
+        comptime kernel = _trace_tlas_camera_kernel[
+            Self.kind,
+            Self.tlas_node_width,
+            Self.tlas_leaf_width,
+            Self.blas_node_width,
+            Self.blas_leaf_width,
+            Self.blas_layout,
+        ]
+        ctx.enqueue_function[kernel](
+            self._tree.wide_nodes,
+            self._tree.leaf_block_indices,
+            self._inst_inv_transform,
+            self._inst_blas_indices,
+            blases.descs,
+            blases.nodes,
+            blases.leaves,
+            self._tree.root_idx,
+            d_camera_params,
+            d_hits,
+            Int32(self._inst_count),
+            Int32(blases.blas_count),
+            Int32(ray_count),
+            Int32(cwidth),
+            Int32(cheight),
+            Float32(1.0) / Float32(cheight),
+            grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
+            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+        )
 
 
-def build_typed_tlas_core[
-    node_width: SIMDLength,
-    leaf_width: SIMDLength = node_width,
-    method: GpuBvhBuildMethod = .LBVH,
-](
-    mut ctx: DeviceContext,
-    instances: ImmSpan[Instance, _],
-) raises -> GpuTypedTlasCore[node_width, leaf_width]:
-    var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
-    return _build_typed_tlas_core[node_width, leaf_width, method](
-        ctx, instances, timings, False
-    )
-
-
-def build_typed_tlas_core_measured[
-    node_width: SIMDLength,
-    leaf_width: SIMDLength = node_width,
-    method: GpuBvhBuildMethod = .LBVH,
-](
-    mut ctx: DeviceContext,
-    instances: ImmSpan[Instance, _],
-    mut timings: GpuBuildTimings,
-) raises -> GpuTypedTlasCore[node_width, leaf_width]:
-    return _build_typed_tlas_core[node_width, leaf_width, method](
-        ctx, instances, timings, True
-    )
-
-
-def _build_typed_tlas_core[
-    node_width: SIMDLength,
-    leaf_width: SIMDLength,
+def _build_gpu_tlas[
+    kind: PrimitiveKind,
+    tlas_node_width: SIMDLength,
+    blas_node_width: SIMDLength,
+    tlas_leaf_width: SIMDLength,
+    blas_leaf_width: SIMDLength,
     method: GpuBvhBuildMethod,
+    blas_layout: GpuBvhLayout,
 ](
     mut ctx: DeviceContext,
     instances: ImmSpan[Instance, _],
     mut timings: GpuBuildTimings,
     measure_build: Bool,
-) raises -> GpuTypedTlasCore[node_width, leaf_width]:
+) raises -> GpuTlas[
+    kind,
+    tlas_node_width,
+    blas_node_width,
+    tlas_leaf_width,
+    blas_leaf_width,
+    blas_layout,
+]:
     var inst_count = len(instances)
     debug_assert["safe", _use_compiler_assume=True](
         inst_count > 0, "passed empty input."
@@ -467,10 +448,15 @@ def _build_typed_tlas_core[
 
     var d_leaf_bounds = upload_list(ctx, leaf_bounds)
     var d_payloads = upload_list(ctx, payloads)
-    var tree: GpuWideBoundsBvh[node_width, leaf_width, Int(leaf_width)]
-    comptime if leaf_width == 1:
+    var tree: GpuWideBoundsBvh[
+        tlas_node_width, tlas_leaf_width, Int(tlas_leaf_width)
+    ]
+    comptime if tlas_leaf_width == 1:
         tree = build_single_segment_wide_embedded_leaf1[
-            node_width, leaf_width, Int(leaf_width), method
+            tlas_node_width,
+            tlas_leaf_width,
+            Int(tlas_leaf_width),
+            method,
         ](
             ctx,
             inst_count,
@@ -481,7 +467,12 @@ def _build_typed_tlas_core[
         )
     else:
         tree = build_single_segment_wide[
-            node_width, leaf_width, Int(leaf_width), method, True, False
+            tlas_node_width,
+            tlas_leaf_width,
+            Int(tlas_leaf_width),
+            method,
+            True,
+            False,
         ](
             ctx,
             inst_count,
@@ -492,7 +483,14 @@ def _build_typed_tlas_core[
         )
     var inst_inv_transform = upload_list(ctx, inv_transforms)
     var inst_blas_indices = upload_list(ctx, blas_indices)
-    return GpuTypedTlasCore[node_width, leaf_width](
+    return GpuTlas[
+        kind,
+        tlas_node_width,
+        blas_node_width,
+        tlas_leaf_width,
+        blas_leaf_width,
+        blas_layout,
+    ](
         tree^,
         inst_inv_transform^,
         inst_blas_indices^,
@@ -500,143 +498,8 @@ def _build_typed_tlas_core[
     )
 
 
-struct GpuTriangleTlas[
-    tlas_node_width: SIMDLength,
-    blas_node_width: SIMDLength,
-    tlas_leaf_width: SIMDLength = tlas_node_width,
-    blas_leaf_width: SIMDLength = blas_node_width,
-    blas_layout: GpuBvhLayout = GpuBvhLayout.WIDE,
-]:
-    """Typed triangle TLAS over a descriptor-backed triangle BLAS set."""
-
-    var core: GpuTypedTlasCore[Self.tlas_node_width, Self.tlas_leaf_width]
-
-    def __init__(
-        out self,
-        var core: GpuTypedTlasCore[Self.tlas_node_width, Self.tlas_leaf_width],
-    ):
-        self.core = core^
-
-    def launch_camera(
-        self,
-        ctx: DeviceContext,
-        blases: GpuBlasSet[
-            .TRIANGLE,
-            Self.blas_layout,
-            Self.blas_node_width,
-            Self.blas_leaf_width,
-        ],
-        d_camera_params: DeviceBuffer[.float32],
-        d_hits: DeviceBuffer[.float32],
-        ray_count: Int,
-        cwidth: Int,
-        cheight: Int,
-    ) raises:
-        validate_camera_launch(
-            d_camera_params, d_hits, ray_count, cwidth, cheight
-        )
-        debug_assert["safe", _use_compiler_assume=True](
-            blases.blas_count > 0,
-            "GPU TLAS requires at least one BLAS descriptor",
-        )
-        ctx.enqueue_function[
-            trace_triangle_tlas_camera_kernel[
-                Self.tlas_node_width,
-                Self.tlas_leaf_width,
-                Self.blas_node_width,
-                Self.blas_leaf_width,
-                Self.blas_layout.compressed,
-            ]
-        ](
-            self.core.tree.wide_nodes,
-            self.core.tree.leaf_block_indices,
-            self.core.inst_inv_transform,
-            self.core.inst_blas_indices,
-            blases.descs,
-            blases.nodes,
-            blases.leaves,
-            self.core.tree.root_idx,
-            d_camera_params,
-            d_hits,
-            Int32(self.core.inst_count),
-            Int32(blases.blas_count),
-            Int32(ray_count),
-            Int32(cwidth),
-            Int32(cheight),
-            Float32(1.0) / Float32(cheight),
-            grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
-            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-        )
-
-
-struct GpuSphereTlas[
-    tlas_node_width: SIMDLength,
-    blas_node_width: SIMDLength,
-    tlas_leaf_width: SIMDLength = tlas_node_width,
-    blas_leaf_width: SIMDLength = blas_node_width,
-]:
-    """Typed sphere TLAS over a descriptor-backed sphere BLAS set."""
-
-    var core: GpuTypedTlasCore[Self.tlas_node_width, Self.tlas_leaf_width]
-
-    def __init__(
-        out self,
-        var core: GpuTypedTlasCore[Self.tlas_node_width, Self.tlas_leaf_width],
-    ):
-        self.core = core^
-
-    def launch_camera(
-        self,
-        ctx: DeviceContext,
-        blases: GpuBlasSet[
-            .SPHERE,
-            GpuBvhLayout.WIDE,
-            Self.blas_node_width,
-            Self.blas_leaf_width,
-        ],
-        d_camera_params: DeviceBuffer[.float32],
-        d_hits: DeviceBuffer[.float32],
-        ray_count: Int,
-        cwidth: Int,
-        cheight: Int,
-    ) raises:
-        validate_camera_launch(
-            d_camera_params, d_hits, ray_count, cwidth, cheight
-        )
-        debug_assert["safe", _use_compiler_assume=True](
-            blases.blas_count > 0,
-            "GPU TLAS requires at least one BLAS descriptor",
-        )
-        ctx.enqueue_function[
-            trace_sphere_tlas_camera_kernel[
-                Self.tlas_node_width,
-                Self.tlas_leaf_width,
-                Self.blas_node_width,
-                Self.blas_leaf_width,
-            ]
-        ](
-            self.core.tree.wide_nodes,
-            self.core.tree.leaf_block_indices,
-            self.core.inst_inv_transform,
-            self.core.inst_blas_indices,
-            blases.descs,
-            blases.nodes,
-            blases.leaves,
-            self.core.tree.root_idx,
-            d_camera_params,
-            d_hits,
-            Int32(self.core.inst_count),
-            Int32(blases.blas_count),
-            Int32(ray_count),
-            Int32(cwidth),
-            Int32(cheight),
-            Float32(1.0) / Float32(cheight),
-            grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
-            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-        )
-
-
-def build_triangle_tlas[
+def build_gpu_tlas[
+    kind: PrimitiveKind,
     tlas_node_width: SIMDLength,
     blas_node_width: SIMDLength,
     tlas_leaf_width: SIMDLength = tlas_node_width,
@@ -646,26 +509,28 @@ def build_triangle_tlas[
 ](
     mut ctx: DeviceContext,
     instances: ImmSpan[Instance, _],
-) raises -> GpuTriangleTlas[
+) raises -> GpuTlas[
+    kind,
     tlas_node_width,
     blas_node_width,
     tlas_leaf_width,
     blas_leaf_width,
     blas_layout,
 ]:
-    var core = build_typed_tlas_core[tlas_node_width, tlas_leaf_width, method](
-        ctx, instances
-    )
-    return GpuTriangleTlas[
+    var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
+    return _build_gpu_tlas[
+        kind,
         tlas_node_width,
         blas_node_width,
         tlas_leaf_width,
         blas_leaf_width,
+        method,
         blas_layout,
-    ](core^)
+    ](ctx, instances, timings, False)
 
 
-def build_triangle_tlas_measured[
+def build_gpu_tlas_measured[
+    kind: PrimitiveKind,
     tlas_node_width: SIMDLength,
     blas_node_width: SIMDLength,
     tlas_leaf_width: SIMDLength = tlas_node_width,
@@ -676,61 +541,20 @@ def build_triangle_tlas_measured[
     mut ctx: DeviceContext,
     instances: ImmSpan[Instance, _],
     mut timings: GpuBuildTimings,
-) raises -> GpuTriangleTlas[
+) raises -> GpuTlas[
+    kind,
     tlas_node_width,
     blas_node_width,
     tlas_leaf_width,
     blas_leaf_width,
     blas_layout,
 ]:
-    var core = build_typed_tlas_core_measured[
-        tlas_node_width, tlas_leaf_width, method
-    ](ctx, instances, timings)
-    return GpuTriangleTlas[
+    return _build_gpu_tlas[
+        kind,
         tlas_node_width,
         blas_node_width,
         tlas_leaf_width,
         blas_leaf_width,
+        method,
         blas_layout,
-    ](core^)
-
-
-def build_sphere_tlas[
-    tlas_node_width: SIMDLength,
-    blas_node_width: SIMDLength,
-    tlas_leaf_width: SIMDLength = tlas_node_width,
-    blas_leaf_width: SIMDLength = blas_node_width,
-    method: GpuBvhBuildMethod = .LBVH,
-](
-    mut ctx: DeviceContext,
-    instances: ImmSpan[Instance, _],
-) raises -> GpuSphereTlas[
-    tlas_node_width, blas_node_width, tlas_leaf_width, blas_leaf_width
-]:
-    var core = build_typed_tlas_core[tlas_node_width, tlas_leaf_width, method](
-        ctx, instances
-    )
-    return GpuSphereTlas[
-        tlas_node_width, blas_node_width, tlas_leaf_width, blas_leaf_width
-    ](core^)
-
-
-def build_sphere_tlas_measured[
-    tlas_node_width: SIMDLength,
-    blas_node_width: SIMDLength,
-    tlas_leaf_width: SIMDLength = tlas_node_width,
-    blas_leaf_width: SIMDLength = blas_node_width,
-    method: GpuBvhBuildMethod = .LBVH,
-](
-    mut ctx: DeviceContext,
-    instances: ImmSpan[Instance, _],
-    mut timings: GpuBuildTimings,
-) raises -> GpuSphereTlas[
-    tlas_node_width, blas_node_width, tlas_leaf_width, blas_leaf_width
-]:
-    var core = build_typed_tlas_core_measured[
-        tlas_node_width, tlas_leaf_width, method
-    ](ctx, instances, timings)
-    return GpuSphereTlas[
-        tlas_node_width, blas_node_width, tlas_leaf_width, blas_leaf_width
-    ](core^)
+    ](ctx, instances, timings, True)

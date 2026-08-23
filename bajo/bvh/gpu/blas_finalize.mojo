@@ -2,7 +2,7 @@
 
 from max.gpu.host import DeviceBuffer, DeviceContext
 
-from bajo.bvh.constants import Primitive, WideNode
+from bajo.bvh.constants import PrimitiveKind, WideNode
 from bajo.bvh.gpu.blas_desc import enqueue_segmented_blas_descriptors
 from bajo.bvh.gpu.blas_storage import GpuBlasSet, GpuBvhLayout
 from bajo.bvh.gpu.builder.binary_builder import GpuBvhBuildMethod
@@ -17,7 +17,7 @@ def finalize_ordinary_wide_blas_set[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
     build_method: GpuBvhBuildMethod,
-    kind: Primitive,
+    kind: PrimitiveKind,
     layout: GpuBvhLayout,
     leaf_record_stride: Int,
 ](

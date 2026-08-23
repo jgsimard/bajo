@@ -16,7 +16,7 @@ from bajo.core import (
     Rayf32,
     Ray,
 )
-from bajo.bvh.constants import EMPTY_LANE, TRACE, TRI_LEAF_PACKED_STRIDE
+from bajo.bvh.constants import EMPTY_LANE, TraceMode, TRI_LEAF_PACKED_STRIDE
 from bajo.bvh.cpu.build_method import CpuBvhBuildMethod
 from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvh,
@@ -60,7 +60,7 @@ def _make_triangle_bounds_item[
 def _trace_triangle_leaf_block[
     frame: Frame,
     width: SIMDLength,
-    mode: TRACE,
+    mode: TraceMode,
     packed_layout: Bool = False,
 ](
     ray: Rayf32[frame],

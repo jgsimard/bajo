@@ -16,16 +16,15 @@ from bajo.core import (
     Frame,
 )
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
-from bajo.bvh.cpu import CpuBlasSet, Tlas, build_triangle_blases
+from bajo.bvh.cpu import CpuBlasSet, CpuTlas, build_cpu_triangle_blas_set
 from bajo.bvh.gpu import (
-    GpuBvhBuildMethod,
-    build_triangle_blas_set,
-    build_triangle_tlas,
+    build_gpu_triangle_blas_set,
+    build_gpu_tlas,
 )
 from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh import Camera, Hit, Instance
 from bajo.parser.obj.pack import pack_obj_triangles
-from bajo.bvh.constants import Primitive, MISS_PRIM, TRACE
+from bajo.bvh.constants import MISS_PRIM
 from bajo.bvh.gpu.utils import upload_list
 from bajo.core.random import Rng
 
@@ -158,7 +157,7 @@ def _make_instances(
     return instances^
 
 
-def _make_camera[width: SIMDLength](tlas: Tlas[width]) -> Camera:
+def _make_camera[width: SIMDLength](tlas: CpuTlas[width]) -> Camera:
     var bounds = tlas.bounds()
     var center = bounds.centroid()
     var extent = bounds.extent()
@@ -189,7 +188,7 @@ def _make_camera[width: SIMDLength](tlas: Tlas[width]) -> Camera:
     )
 
 
-def _make_camera_params[width: SIMDLength](tlas: Tlas[width]) -> List[Float32]:
+def _make_camera_params[width: SIMDLength](tlas: CpuTlas[width]) -> List[Float32]:
     return _make_camera(tlas).flatten()
 
 
@@ -314,8 +313,10 @@ def print_hit_counts_by_blas(
 
 def _build_cpu_triangle_blas_set[
     width: SIMDLength
-](tri_vertex_sets: List[List[Point3f32[.LOCAL]]]) -> CpuBlasSet[width]:
-    return build_triangle_blases[width](tri_vertex_sets)
+](tri_vertex_sets: List[List[Point3f32[.LOCAL]]]) -> CpuBlasSet[
+    .TRIANGLE, width
+]:
+    return build_cpu_triangle_blas_set[width](tri_vertex_sets)
 
 
 def _trace_cpu_tlas_camera[
@@ -324,8 +325,8 @@ def _trace_cpu_tlas_camera[
 ](
     width: Int,
     height: Int,
-    tlas: Tlas[tlas_width],
-    cpu_blases: CpuBlasSet[blas_width],
+    tlas: CpuTlas[tlas_width],
+    cpu_blases: CpuBlasSet[.TRIANGLE, blas_width],
     camera: Camera,
     mut hits: List[Float32],
 ):
@@ -382,7 +383,7 @@ def print_hit_counts_by_blas_host(
 def render_cpu(
     tri_vertex_sets: List[List[Point3f32[.LOCAL]]],
     instances: List[Instance],
-    cpu_tlas: Tlas[TLAS_WIDTH_CPU],
+    cpu_tlas: CpuTlas[TLAS_WIDTH_CPU],
     camera: Camera,
 ) raises:
     var ray_count = WIDTH * HEIGHT
@@ -460,11 +461,11 @@ def render_gpu(
 
         print("\nBuilding GPU BLAS set...")
         var blas_t0 = perf_counter_ns()
-        var gpu_blases = build_triangle_blas_set[
+        var gpu_blases = build_gpu_triangle_blas_set[
             BLAS_WIDTH_GPU,
             BLAS_LEAF_WIDTH_GPU,
             .HPLOC,
-            True,
+            .CWBVH8,
         ](ctx, tri_vertex_sets)
         ctx.synchronize()
         var blas_t1 = perf_counter_ns()
@@ -476,13 +477,14 @@ def render_gpu(
 
         print("\nBuilding GPU TLAS...")
         var tlas_t0 = perf_counter_ns()
-        var gpu_tlas = build_triangle_tlas[
+        var gpu_tlas = build_gpu_tlas[
+            .TRIANGLE,
             TLAS_WIDTH_GPU,
             BLAS_WIDTH_GPU,
             TLAS_WIDTH_GPU,
             BLAS_LEAF_WIDTH_GPU,
             .LBVH,
-            True,
+            .CWBVH8,
         ](ctx, instances)
         ctx.synchronize()
         var tlas_t1 = perf_counter_ns()
@@ -627,7 +629,7 @@ def main() raises:
     )
     _print_bounds_by_blas(instances)
 
-    var cpu_tlas = Tlas[TLAS_WIDTH_CPU](instances)
+    var cpu_tlas = CpuTlas[TLAS_WIDTH_CPU](instances)
     var camera = _make_camera(cpu_tlas)
     var camera_params = camera.flatten()
 

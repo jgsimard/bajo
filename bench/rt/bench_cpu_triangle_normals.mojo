@@ -1,14 +1,13 @@
 from std.math import round
 from std.time import perf_counter_ns
 
-from bajo.bvh.constants import TRACE
 from bajo.bvh.cpu.blas_set import trace_blas_set
 from bajo.core import Frame, GeoKind, Rayf32, cross, dot, normalize
 from bajo.core.utils import ns_to_mrays_per_s
 from bajo.rt import CpuScene
 from bajo.rt.types import (
     HitRecord,
-    PRIM,
+    PrimitiveKind,
     PrimitiveId,
     ray_at,
 )
@@ -47,7 +46,7 @@ def trace_recomputed_normal(
     var front_face = dot(ray.d, outward_normal) < 0.0
     var normal = outward_normal if front_face else -outward_normal
     return HitRecord(
-        PrimitiveId(PRIM.TRIANGLE, bvh_hit.prim),
+        PrimitiveId(PrimitiveKind.TRIANGLE, bvh_hit.prim),
         p,
         normal,
         world.scene_data().triangle_surfaces()[tri_idx].copy(),
@@ -73,7 +72,7 @@ def trace_bvh_normal(
     var front_face = dot(ray.d, outward_normal) < 0.0
     var normal = outward_normal if front_face else -outward_normal
     return HitRecord(
-        PrimitiveId(PRIM.TRIANGLE, bvh_hit.prim),
+        PrimitiveId(PrimitiveKind.TRIANGLE, bvh_hit.prim),
         p,
         normal,
         world.scene_data().triangle_surfaces()[tri_idx].copy(),

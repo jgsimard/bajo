@@ -7,7 +7,7 @@ from std.time import perf_counter_ns
 from max.gpu.host import DeviceContext
 
 from bajo.bvh.constants import (
-    Primitive,
+    PrimitiveKind,
     TRI_LEAF_PACKED_STRIDE,
     WideNode,
 )
@@ -16,9 +16,9 @@ from bajo.bvh.gpu.compressed_bounds_bvh import (
     CWBVH_TRIANGLE_WORDS,
 )
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
-from bajo.bvh.gpu.tlas import build_triangle_tlas
+from bajo.bvh.gpu.tlas import build_gpu_tlas
 from bajo.bvh.gpu.triangle_bvh import (
-    build_triangle_blas_set,
+    build_gpu_triangle_blas_set,
     build_triangle_bvh,
 )
 from bajo.bvh.gpu.utils import upload_vertices
@@ -103,7 +103,7 @@ struct BlasSetSummary(Copyable, Writable):
 
 
 def _summarize_blas_set[
-    kind: Primitive,
+    kind: PrimitiveKind,
     layout: GpuBvhLayout,
     node_width: SIMDLength,
     leaf_width: SIMDLength,
@@ -134,17 +134,17 @@ def _bench_wide_shape[
     var triangle_count = 0
     for vertices in vertex_sets:
         triangle_count += len(vertices) / 3
-    var warm = build_triangle_blas_set[4, 4, build_method](ctx, vertex_sets)
+    var warm = build_gpu_triangle_blas_set[4, 4, build_method](ctx, vertex_sets)
     ctx.synchronize()
     var times = List[Int](capacity=SHAPE_REPEATS)
     for _ in range(SHAPE_REPEATS):
         var start = perf_counter_ns()
-        var blases = build_triangle_blas_set[4, 4, build_method](
+        var blases = build_gpu_triangle_blas_set[4, 4, build_method](
             ctx, vertex_sets
         )
         ctx.synchronize()
         times.append(Int(perf_counter_ns() - start))
-    var packed = build_triangle_blas_set[4, 4, build_method](ctx, vertex_sets)
+    var packed = build_gpu_triangle_blas_set[4, 4, build_method](ctx, vertex_sets)
     ctx.synchronize()
     var summary = _summarize_blas_set(packed)
     var capacity_nodes = 0
@@ -174,19 +174,19 @@ def _bench_cwbvh_shape(
     var triangle_count = 0
     for vertices in vertex_sets:
         triangle_count += len(vertices) / 3
-    var warm = build_triangle_blas_set[
+    var warm = build_gpu_triangle_blas_set[
         8, 4, .HPLOC, GpuBvhLayout.CWBVH8
     ](ctx, vertex_sets)
     ctx.synchronize()
     var times = List[Int](capacity=SHAPE_REPEATS)
     for _ in range(SHAPE_REPEATS):
         var start = perf_counter_ns()
-        var blases = build_triangle_blas_set[
+        var blases = build_gpu_triangle_blas_set[
             8, 4, .HPLOC, GpuBvhLayout.CWBVH8
         ](ctx, vertex_sets)
         ctx.synchronize()
         times.append(Int(perf_counter_ns() - start))
-    var packed = build_triangle_blas_set[
+    var packed = build_gpu_triangle_blas_set[
         8, 4, .HPLOC, GpuBvhLayout.CWBVH8
     ](ctx, vertex_sets)
     ctx.synchronize()
@@ -215,21 +215,21 @@ def _run_dispatch_probe(mode: String) raises:
     var many_tiny = _make_uniform_sets(128, 4)
     with DeviceContext() as ctx:
         if mode == "lbvh-tiny":
-            var result = build_triangle_blas_set[4, 4, .LBVH](
+            var result = build_gpu_triangle_blas_set[4, 4, .LBVH](
                 ctx, many_tiny
             )
             ctx.synchronize()
             print(t"{mode}: {result.blas_count} BLASes")
             return
         if mode == "hploc-tiny":
-            var result = build_triangle_blas_set[4, 4, .HPLOC](
+            var result = build_gpu_triangle_blas_set[4, 4, .HPLOC](
                 ctx, many_tiny
             )
             ctx.synchronize()
             print(t"{mode}: {result.blas_count} BLASes")
             return
         if mode == "cwbvh-tiny":
-            var result = build_triangle_blas_set[
+            var result = build_gpu_triangle_blas_set[
                 8, 4, .HPLOC, GpuBvhLayout.CWBVH8
             ](ctx, many_tiny)
             ctx.synchronize()
@@ -269,17 +269,17 @@ def main() raises:
     var wide_times = List[Int](capacity=BENCH_REPEATS)
     with DeviceContext() as ctx:
         var dragon_vertices = upload_vertices(ctx, vertex_sets[2])
-        var warm_cwbvh = build_triangle_blas_set[
+        var warm_cwbvh = build_gpu_triangle_blas_set[
             8, 4, .HPLOC, GpuBvhLayout.CWBVH8
         ](ctx, vertex_sets)
-        var warm_tlas = build_triangle_tlas[
+        var warm_tlas = build_gpu_tlas[.TRIANGLE,
             2, 8, 2, 4, .LBVH, GpuBvhLayout.CWBVH8
         ](ctx, instances)
-        var warm_tlas_leaf1 = build_triangle_tlas[
+        var warm_tlas_leaf1 = build_gpu_tlas[.TRIANGLE,
             2, 8, 1, 4, .LBVH, GpuBvhLayout.CWBVH8
         ](ctx, instances)
         var warm_geometry = GpuRtTriangleGeometry[
-            .LOCAL, 8, 4, .HPLOC, True
+            .LOCAL, 8, 4, .HPLOC, .CWBVH8
         ](ctx, vertex_sets[2])
         var warm_wide = build_triangle_bvh[
             .LOCAL, 4, 4, .HPLOC
@@ -288,14 +288,14 @@ def main() raises:
 
         for _ in range(BENCH_REPEATS):
             var start = perf_counter_ns()
-            var cwbvh = build_triangle_blas_set[
+            var cwbvh = build_gpu_triangle_blas_set[
                 8, 4, .HPLOC, GpuBvhLayout.CWBVH8
             ](ctx, vertex_sets)
             ctx.synchronize()
             cwbvh_times.append(Int(perf_counter_ns() - start))
 
             start = perf_counter_ns()
-            var tlas = build_triangle_tlas[
+            var tlas = build_gpu_tlas[.TRIANGLE,
                 2, 8, 2, 4, .LBVH, GpuBvhLayout.CWBVH8
             ](ctx, instances)
             ctx.synchronize()
@@ -303,7 +303,7 @@ def main() raises:
 
             start = perf_counter_ns()
             for _ in range(TLAS_BUILD_BATCH_SIZE):
-                var tlas_leaf1 = build_triangle_tlas[
+                var tlas_leaf1 = build_gpu_tlas[.TRIANGLE,
                     2,
                     8,
                     1,
@@ -316,7 +316,7 @@ def main() raises:
 
             start = perf_counter_ns()
             var geometry = GpuRtTriangleGeometry[
-                .LOCAL, 8, 4, .HPLOC, True
+                .LOCAL, 8, 4, .HPLOC, .CWBVH8
             ](ctx, vertex_sets[2])
             ctx.synchronize()
             geometry_times.append(Int(perf_counter_ns() - start))

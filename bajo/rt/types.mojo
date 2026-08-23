@@ -13,7 +13,7 @@ from bajo.core import (
     Point3f32,
     Rayf32,
 )
-from bajo.bvh.constants import Primitive, f32_max
+from bajo.bvh.constants import PrimitiveKind, f32_max
 from bajo.bvh import Instance, Sphere
 from bajo.rt.geometry import sphere_unsigned_radius
 
@@ -22,8 +22,8 @@ comptime Color = Vec3f32[.WORLD]
 
 
 @fieldwise_init
-struct MAT(Equatable, TrivialRegisterPassable, Writable):
-    var v: UInt32
+struct MaterialKind(Equatable, TrivialRegisterPassable, Writable):
+    var value: UInt32
     comptime LAMBERTIAN = Self(0)
     comptime METAL = Self(1)
     comptime DIELECTRIC = Self(2)
@@ -35,22 +35,14 @@ comptime SURFACE_INDEX_BITS = 32 - SURFACE_KIND_BITS
 comptime SURFACE_INDEX_MASK = UInt32((1 << SURFACE_INDEX_BITS) - 1)
 
 
-@fieldwise_init
-struct PRIM(Equatable, TrivialRegisterPassable, Writable):
-    var v: UInt32
-    comptime SPHERE = Self(0)
-    comptime TRIANGLE = Self(1)
-    comptime TRIANGLE_INSTANCE = Self(2)
-
-
 comptime PRIMITIVE_KIND_BITS = UInt32(4)
 comptime PRIMITIVE_INDEX_BITS = 32 - PRIMITIVE_KIND_BITS
 comptime PRIMITIVE_INDEX_MASK = UInt32((1 << PRIMITIVE_INDEX_BITS) - 1)
 
 
 @fieldwise_init
-struct RENDER(Equatable, TrivialRegisterPassable, Writable):
-    var v: UInt32
+struct Integrator(Equatable, TrivialRegisterPassable, Writable):
+    var value: UInt32
     comptime PATH = Self(0)
     comptime NORMALS = Self(1)
     comptime AO = Self(2)
@@ -59,11 +51,11 @@ struct RENDER(Equatable, TrivialRegisterPassable, Writable):
 
     def is_valid(self) -> Bool:
         return self in (
-            RENDER.PATH,
-            RENDER.NORMALS,
-            RENDER.AO,
-            RENDER.NEE,
-            RENDER.MIS,
+            Integrator.PATH,
+            Integrator.NORMALS,
+            Integrator.AO,
+            Integrator.NEE,
+            Integrator.MIS,
         )
 
 
@@ -71,17 +63,17 @@ struct RENDER(Equatable, TrivialRegisterPassable, Writable):
 struct PrimitiveId(Copyable, Writable):
     var value: UInt32
 
-    def __init__(out self, kind: PRIM, index: UInt32):
+    def __init__(out self, kind: PrimitiveKind, index: UInt32):
         debug_assert["safe", _use_compiler_assume=True](
-            kind.v < (UInt32(1) << PRIMITIVE_KIND_BITS)
+            kind.value < (UInt32(1) << PRIMITIVE_KIND_BITS)
         )
         debug_assert["safe", _use_compiler_assume=True](
             index < (UInt32(1) << PRIMITIVE_INDEX_BITS)
         )
-        self.value = (kind.v << PRIMITIVE_INDEX_BITS) | index
+        self.value = (kind.value << PRIMITIVE_INDEX_BITS) | index
 
-    def kind(self) -> PRIM:
-        return PRIM(self.value >> PRIMITIVE_INDEX_BITS)
+    def kind(self) -> PrimitiveKind:
+        return PrimitiveKind(self.value >> PRIMITIVE_INDEX_BITS)
 
     def index(self) -> UInt32:
         return self.value & PRIMITIVE_INDEX_MASK
@@ -91,19 +83,19 @@ struct PrimitiveId(Copyable, Writable):
 struct SurfaceId[length: SIMDLength = 1](Copyable, Writable):
     var value: SIMD[DType.uint32, Self.length]
 
-    def __init__(out self, kind: MAT, index: UInt32):
+    def __init__(out self, kind: MaterialKind, index: UInt32):
         debug_assert["safe", _use_compiler_assume=True](
-            kind.v < (UInt32(1) << SURFACE_KIND_BITS)
+            kind.value < (UInt32(1) << SURFACE_KIND_BITS)
         )
         debug_assert["safe", _use_compiler_assume=True](
             index < (UInt32(1) << SURFACE_INDEX_BITS)
         )
-        self.value = (kind.v << SURFACE_INDEX_BITS) | index
+        self.value = (kind.value << SURFACE_INDEX_BITS) | index
 
     @always_inline
-    def kind(self) -> MAT:
+    def kind(self) -> MaterialKind:
         comptime assert Self.length == 1
-        return MAT(self.value[0] >> SURFACE_INDEX_BITS)
+        return MaterialKind(self.value[0] >> SURFACE_INDEX_BITS)
 
     @always_inline
     def index(self) -> UInt32:
@@ -806,7 +798,7 @@ struct SceneData:
                 if weight > 0.0:
                     self._append_light(
                         LightRecord.triangle(
-                            PrimitiveId(PRIM.TRIANGLE, UInt32(idx)),
+                            PrimitiveId(PrimitiveKind.TRIANGLE, UInt32(idx)),
                             surface.copy(),
                             weight,
                             p0,
@@ -829,7 +821,7 @@ struct SceneData:
                 if weight > 0.0:
                     self._append_light(
                         LightRecord.sphere(
-                            PrimitiveId(PRIM.SPHERE, UInt32(idx)),
+                            PrimitiveId(PrimitiveKind.SPHERE, UInt32(idx)),
                             surface.copy(),
                             weight,
                             self._spheres[idx].center,
@@ -877,7 +869,7 @@ struct SceneData:
                     self._append_light(
                         LightRecord.triangle(
                             PrimitiveId(
-                                PRIM.TRIANGLE_INSTANCE, UInt32(instance_idx)
+                                PrimitiveKind.TRIANGLE_INSTANCE, UInt32(instance_idx)
                             ),
                             surface.copy(),
                             weight,

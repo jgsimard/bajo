@@ -9,7 +9,7 @@ from bajo.core.utils import ns_to_ms
 from bajo.parser.obj.pack import pack_obj_triangles
 from bajo.rt import (
     Color,
-    RENDER,
+    Integrator,
     RenderSettings,
     SceneBuilder,
     SurfaceId,
@@ -32,7 +32,7 @@ comptime IMAGE_HEIGHT = 540
 comptime SAMPLES_PER_PIXEL = 50
 comptime MAX_DEPTH = 8
 comptime RNG_SEED = UInt64(2026)
-comptime RENDER_ALGORITHM = RENDER.PATH
+comptime INTEGRATOR = Integrator.PATH
 comptime MESH_COUNT = 7
 comptime COPY_COUNT = 3
 comptime TRIANGLE_SAMPLE_STRIDE = 1
@@ -395,7 +395,7 @@ def main() raises:
 
     var render_t0 = perf_counter_ns()
     settings.max_depth = MAX_DEPTH
-    var result = render_depth_first[RENDER_ALGORITHM](settings, camera, world)
+    var result = render_depth_first[INTEGRATOR](settings, camera, world)
     var render_t1 = perf_counter_ns()
 
     write_ppm_from_colors(

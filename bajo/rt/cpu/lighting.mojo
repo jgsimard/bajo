@@ -22,9 +22,8 @@ from bajo.rt.lighting import (
 )
 from bajo.rt.types import (
     Color,
-    MAT,
-    PRIM,
-    RENDER,
+    PrimitiveKind,
+    Integrator,
     ShadingPoint,
     SurfaceId,
     SurfaceHit,
@@ -73,7 +72,7 @@ def emitted_radiance(
 
 @always_inline
 def _emissive_hit_weight[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
 ](
@@ -84,7 +83,7 @@ def _emissive_hit_weight[
     previous_bsdf_pdf: Float32,
     previous_delta: Bool,
 ) -> Float32:
-    comptime assert ALGORITHM in (RENDER.PATH, RENDER.NEE, RENDER.MIS)
+    comptime assert ALGORITHM in (Integrator.PATH, Integrator.NEE, Integrator.MIS)
     comptime if ALGORITHM == .NEE:
         if bounce > 0 and not previous_delta:
             return 0.0
@@ -159,7 +158,7 @@ def _sample_direct_light_candidate[
         .radiance
     )
     var surface_sample: _LightSurfaceSample
-    if light.primitive.kind() == PRIM.SPHERE:
+    if light.primitive.kind() == PrimitiveKind.SPHERE:
         surface_sample = _sample_sphere_light_surface(
             light.p0,
             light.radius,
@@ -205,7 +204,7 @@ def _sample_direct_light[
 
 
 def sample_direct_lighting[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
 ](
@@ -216,7 +215,7 @@ def sample_direct_lighting[
     mut rng: Rng,
 ) -> Color:
     """Sample direct illumination and apply the scalar reference BSDF."""
-    comptime assert ALGORITHM in (RENDER.NEE, RENDER.MIS)
+    comptime assert ALGORITHM in (Integrator.NEE, Integrator.MIS)
     var light = _sample_direct_light(world, point, rng)
     if not light.valid:
         return Color(0.0)

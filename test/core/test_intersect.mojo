@@ -125,7 +125,7 @@ def _test_intersect_ray_aabb_octant_fma[
         Vec3W(dx, dy, dz),
     )
     var origin = ray.origin[1]()
-    var rcp_d = ray.rcp_direction[1]()
+    var rcp_d = ray.reciprocal_direction[1]()
     var origin_rcp_d = Vec3W(
         origin.x * rcp_d.x,
         origin.y * rcp_d.y,

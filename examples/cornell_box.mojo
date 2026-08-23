@@ -8,7 +8,6 @@ from bajo.core.utils import ns_to_ms
 from bajo.rt import (
     Camera,
     Color,
-    RENDER,
     RenderSettings,
     SceneBuilder,
     SurfaceId,

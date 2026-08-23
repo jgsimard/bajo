@@ -1,5 +1,5 @@
 from .types import ObjIndex
-from .f32 import parse_f32_at
+from bajo.parser.number import parse_f32_at
 from .primitives import (
     _fix_index,
     _is_digit,

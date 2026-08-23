@@ -9,7 +9,7 @@ from bajo.bvh.wide_meta import (
 from bajo.bvh.constants import (
     GPU_STACK_SIZE,
     f32_max,
-    TRACE,
+    TraceMode,
     EMPTY_LANE,
 )
 from bajo.bvh.types import Hit
@@ -42,7 +42,7 @@ struct GpuPrimitiveLeafState(TrivialRegisterPassable):
 @always_inline
 def _dispatch_primitive_leaf[
     frame: Frame,
-    mode: TRACE,
+    mode: TraceMode,
     leaf_fn: GpuLeafFn[frame],
 ](
     state: GpuPrimitiveLeafState,
@@ -106,18 +106,18 @@ def _intersect_trace_node_precomputed[
     wide_nodes: ImmPointer[Float32, _],
     node_idx: UInt32,
     bounds_origin: Point3[DType.float32, frame, width],
-    rcp_direction: Vec3[.float32, frame, width],
+    reciprocal_direction: Vec3[.float32, frame, width],
     t_max: Float32,
 ) -> WideNodeIntersection[width]:
     return _intersect_wide_node_precomputed[frame, width](
-        wide_nodes, node_idx, bounds_origin, rcp_direction, t_max
+        wide_nodes, node_idx, bounds_origin, reciprocal_direction, t_max
     )
 
 
 def _trace_bounds_bvh_distance_aware[
     frame: Frame,
     width: SIMDLength,
-    mode: TRACE,
+    mode: TraceMode,
     leaf_fn: GpuLeafFn[frame],
     collect_stats: Bool,
 ](
@@ -133,7 +133,7 @@ def _trace_bounds_bvh_distance_aware[
     var stack_ptr = 0
     var current = root_idx
     var bounds_origin = ray.origin[width]()
-    var rcp_direction = ray.rcp_direction[width]()
+    var reciprocal_direction = ray.reciprocal_direction[width]()
     while True:
         comptime if collect_stats:
             stats.node_visits += 1
@@ -142,7 +142,7 @@ def _trace_bounds_bvh_distance_aware[
             node_t_max = ray.t_max
 
         var node_hit = _intersect_trace_node_precomputed[frame, width](
-            wide_nodes, current, bounds_origin, rcp_direction, node_t_max
+            wide_nodes, current, bounds_origin, reciprocal_direction, node_t_max
         )
         var bounds_hit = node_hit.bounds_hit
         var child_valid = Array[Bool, width](fill=False)
@@ -229,7 +229,7 @@ def _trace_bounds_bvh_distance_aware[
 def _trace_bounds_bvh_with_counters[
     frame: Frame,
     width: SIMDLength,
-    mode: TRACE,
+    mode: TraceMode,
     leaf_fn: GpuLeafFn[frame],
     collect_stats: Bool,
     distance_aware: Bool = False,
@@ -251,7 +251,7 @@ def _trace_bounds_bvh_with_counters[
     var stack_ptr = 0
     var current = root_idx
     var bounds_origin = ray.origin[width]()
-    var rcp_direction = ray.rcp_direction[width]()
+    var reciprocal_direction = ray.reciprocal_direction[width]()
 
     while True:
         comptime if collect_stats:
@@ -261,7 +261,7 @@ def _trace_bounds_bvh_with_counters[
             node_t_max = ray.t_max
 
         var node_hit = _intersect_trace_node_precomputed[frame, width](
-            wide_nodes, current, bounds_origin, rcp_direction, node_t_max
+            wide_nodes, current, bounds_origin, reciprocal_direction, node_t_max
         )
         var bounds_hit = node_hit.bounds_hit
 
@@ -354,14 +354,14 @@ def _trace_bounds_bvh_state_bvh2[
     var stack_ptr = 0
     var current = root_idx
     var bounds_origin = ray.origin[2]()
-    var rcp_direction = ray.rcp_direction[2]()
+    var reciprocal_direction = ray.reciprocal_direction[2]()
 
     while True:
         var node_hit = _intersect_trace_node_precomputed[frame, 2](
             wide_nodes,
             current,
             bounds_origin,
-            rcp_direction,
+            reciprocal_direction,
             hit.t,
         )
 
@@ -431,7 +431,7 @@ def _trace_bounds_bvh_state_bvh2[
 def trace_bounds_bvh_state[
     frame: Frame,
     width: SIMDLength,
-    mode: TRACE,
+    mode: TraceMode,
     LeafState: AnyType,
     leaf_fn: GpuLeafStateFn[frame, LeafState],
     compact_bvh2: Bool = False,
@@ -453,7 +453,7 @@ def trace_bounds_bvh_state[
     var stack_ptr = 0
     var current = root_idx
     var bounds_origin = ray.origin[width]()
-    var rcp_direction = ray.rcp_direction[width]()
+    var reciprocal_direction = ray.reciprocal_direction[width]()
 
     while True:
         var node_t_max = hit.t
@@ -463,7 +463,7 @@ def trace_bounds_bvh_state[
             wide_nodes,
             current,
             bounds_origin,
-            rcp_direction,
+            reciprocal_direction,
             node_t_max,
         )
 
@@ -555,7 +555,7 @@ def trace_bounds_bvh_state[
 def trace_bounds_bvh[
     frame: Frame,
     width: SIMDLength,
-    mode: TRACE,
+    mode: TraceMode,
     leaf_fn: GpuLeafFn[frame],
     distance_aware: Bool = False,
     compact_bvh2: Bool = False,
@@ -589,7 +589,7 @@ def trace_bounds_bvh[
 def trace_bounds_bvh_with_stats[
     frame: Frame,
     width: SIMDLength,
-    mode: TRACE,
+    mode: TraceMode,
     leaf_fn: GpuLeafFn[frame],
     distance_aware: Bool = False,
 ](

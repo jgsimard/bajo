@@ -5,9 +5,8 @@ from std.sys.intrinsics import prefetch
 
 from bajo.bvh.constants import (
     EMPTY_LANE,
-    Primitive,
     SPHERE_LEAF_PACKED_STRIDE,
-    TRACE,
+    TraceMode,
     TRI_LEAF_PACKED_STRIDE,
     WideNode,
 )
@@ -255,7 +254,7 @@ def _pack_triangle_blas[
     ).store(descs, blas_idx)
 
 
-def build_triangle_blases[
+def build_cpu_triangle_blas_set[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
     method: CpuBvhBuildMethod = .SAH,
@@ -439,7 +438,7 @@ def _pack_sphere_blas[
     ).store(descs, blas_idx)
 
 
-def build_sphere_blases[
+def build_cpu_sphere_blas_set[
     width: SIMDLength,
     method: CpuBvhBuildMethod = .SAH,
     frame: Frame = .LOCAL,
@@ -588,7 +587,7 @@ def _trace_packed_triangle_from_ref[
 def trace_blas_set[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
-    mode: TRACE = .CLOSEST_HIT,
+    mode: TraceMode = .CLOSEST_HIT,
     frame: Frame = .LOCAL,
 ](
     blases: CpuBlasSet[.TRIANGLE, node_width, leaf_width],
@@ -796,7 +795,7 @@ def trace_blas_set_packet[
 def trace_blas_set[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
-    mode: TRACE = .CLOSEST_HIT,
+    mode: TraceMode = .CLOSEST_HIT,
     frame: Frame = .LOCAL,
 ](
     blases: CpuBlasSet[.SPHERE, node_width, leaf_width],

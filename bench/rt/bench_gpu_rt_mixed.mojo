@@ -7,7 +7,7 @@ from max.gpu.host import DeviceContext
 
 from bajo.core import Frame, Point3f32, Vec3f32
 from bajo.core.utils import ns_to_ms
-from bajo.rt import Camera, RENDER, RenderSettings
+from bajo.rt import Camera, Integrator, RenderSettings
 from bajo.rt.gpu.mixed_path import GpuRtMixedScene, enqueue_render_gpu_mixed
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
 from bajo.benchmark.gpu_harness import (
@@ -40,7 +40,7 @@ def _camera() -> Camera:
 
 
 def _bench_algorithm[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,

@@ -4,11 +4,11 @@ from std.time import perf_counter_ns
 from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh import Camera
-from bajo.bvh.gpu import GpuBvhBuildMethod
+from bajo.bvh.gpu import GpuBvhBuildMethod, GpuBvhLayout
 from bajo.core import Frame
 from bajo.rt.types import (
     Color,
-    RENDER,
+    Integrator,
     RenderResult,
     RenderSettings,
     RenderTimings,
@@ -42,8 +42,9 @@ struct GpuRtMixedScene[
     triangle_node_width: SIMDLength = 8,
     triangle_leaf_width: SIMDLength = 4,
     triangle_build_method: GpuBvhBuildMethod = .HPLOC,
-    triangle_compressed: Bool = triangle_node_width == 8
-    and triangle_leaf_width == 4,
+    triangle_layout: GpuBvhLayout = GpuBvhLayout(
+        triangle_node_width == 8 and triangle_leaf_width == 4
+    ),
 ]:
     """Sphere and triangle BVHs plus their compact surface sidecars."""
 
@@ -55,7 +56,7 @@ struct GpuRtMixedScene[
         Self.triangle_node_width,
         Self.triangle_leaf_width,
         Self.triangle_build_method,
-        Self.triangle_compressed,
+        Self.triangle_layout,
     ]
     var triangle_surfaces: DeviceBuffer[.uint32]
     var shading: GpuRtShadingResources
@@ -82,7 +83,7 @@ struct GpuRtMixedScene[
             Self.triangle_node_width,
             Self.triangle_leaf_width,
             Self.triangle_build_method,
-            Self.triangle_compressed,
+            Self.triangle_layout,
         ](ctx, world.triangle_vertices())
         self.triangle_surfaces = upload_surface_ids(
             ctx, world.triangle_surfaces()
@@ -91,13 +92,13 @@ struct GpuRtMixedScene[
 
 
 def _enqueue_mixed_bounce[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
     node_width: SIMDLength,
     leaf_width: SIMDLength,
     triangle_node_width: SIMDLength,
     triangle_leaf_width: SIMDLength,
     triangle_build_method: GpuBvhBuildMethod,
-    triangle_compressed: Bool,
+    triangle_layout: GpuBvhLayout,
 ](
     ctx: DeviceContext,
     arena: GpuWavefrontArena,
@@ -107,7 +108,7 @@ def _enqueue_mixed_bounce[
         triangle_node_width,
         triangle_leaf_width,
         triangle_build_method,
-        triangle_compressed,
+        triangle_layout,
     ],
     src_path_ids: DeviceBuffer[.uint32],
     src_path_fields: DeviceBuffer[.float32],
@@ -146,7 +147,7 @@ def _enqueue_mixed_bounce[
         leaf_width,
         node_width,
         leaf_width,
-        triangle_compressed=triangle_compressed,
+        triangle_layout=triangle_layout,
     ](
         ctx,
         arena,
@@ -162,14 +163,15 @@ def _enqueue_mixed_bounce[
 
 
 def enqueue_render_gpu_mixed[
-    ALGORITHM: RENDER = .PATH,
+    ALGORITHM: Integrator = .PATH,
     node_width: SIMDLength = 4,
     leaf_width: SIMDLength = node_width,
     triangle_node_width: SIMDLength = 8,
     triangle_leaf_width: SIMDLength = 4,
     triangle_build_method: GpuBvhBuildMethod = .HPLOC,
-    triangle_compressed: Bool = triangle_node_width == 8
-    and triangle_leaf_width == 4,
+    triangle_layout: GpuBvhLayout = GpuBvhLayout(
+        triangle_node_width == 8 and triangle_leaf_width == 4
+    ),
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
@@ -179,7 +181,7 @@ def enqueue_render_gpu_mixed[
         triangle_node_width,
         triangle_leaf_width,
         triangle_build_method,
-        triangle_compressed,
+        triangle_layout,
     ],
     settings: RenderSettings,
 ) raises:
@@ -193,20 +195,21 @@ def enqueue_render_gpu_mixed[
             triangle_node_width,
             triangle_leaf_width,
             triangle_build_method,
-            triangle_compressed,
+            triangle_layout,
         ],
     ](ctx, target, world, settings)
 
 
 def render_gpu_mixed[
-    ALGORITHM: RENDER = .PATH,
+    ALGORITHM: Integrator = .PATH,
     node_width: SIMDLength = 4,
     leaf_width: SIMDLength = node_width,
     triangle_node_width: SIMDLength = 8,
     triangle_leaf_width: SIMDLength = 4,
     triangle_build_method: GpuBvhBuildMethod = .HPLOC,
-    triangle_compressed: Bool = triangle_node_width == 8
-    and triangle_leaf_width == 4,
+    triangle_layout: GpuBvhLayout = GpuBvhLayout(
+        triangle_node_width == 8 and triangle_leaf_width == 4
+    ),
 ](
     settings: RenderSettings,
     camera: Camera,
@@ -229,7 +232,7 @@ def render_gpu_mixed[
             triangle_node_width,
             triangle_leaf_width,
             triangle_build_method,
-            triangle_compressed,
+            triangle_layout,
         ](ctx, world)
         var target = GpuRtRenderTarget(ctx, settings, camera)
         init_ns = Int(perf_counter_ns() - init_t0)
@@ -242,7 +245,7 @@ def render_gpu_mixed[
             triangle_node_width,
             triangle_leaf_width,
             triangle_build_method,
-            triangle_compressed,
+            triangle_layout,
         ](
             ctx,
             target,

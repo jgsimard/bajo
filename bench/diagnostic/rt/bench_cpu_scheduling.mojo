@@ -3,7 +3,7 @@
 from std.math import round
 
 from bajo.core.utils import ns_to_ms
-from bajo.rt import Camera, RENDER, RenderSettings, CpuScene
+from bajo.rt import Camera, RenderSettings, CpuScene
 from bajo.rt.cpu import render_depth_first
 from bajo.benchmark.cpu_harness import pixel_checksum
 from bajo.benchmark.rt_fixtures import (

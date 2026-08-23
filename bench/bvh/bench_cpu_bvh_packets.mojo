@@ -3,10 +3,10 @@
 from std.math import round
 from std.time import perf_counter_ns
 
-from bajo.bvh.constants import Primitive, TRACE, f32_max
+from bajo.bvh.constants import f32_max
 from bajo.core import Ray
 from bajo.bvh.cpu.blas_set import (
-    build_triangle_blases,
+    build_cpu_triangle_blas_set,
     trace_blas_set,
     trace_blas_set_packet,
 )
@@ -183,7 +183,7 @@ def benchmark_scene[
         t"\n{label} / {method.name()} / BVH{Int(bounds_width)} "
         t"leaf{Int(leaf_width)}"
     )
-    var bvh = build_triangle_blases[
+    var bvh = build_cpu_triangle_blas_set[
         bounds_width, leaf_width, method, .WORLD
     ]([vertices.copy()])
     print_timing(

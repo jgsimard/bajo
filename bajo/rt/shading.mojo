@@ -3,7 +3,7 @@
 from std.math import abs, cos, fma, pi, pow, sin, sqrt
 
 from bajo.core import dot, cross, length2, normalize, Frame, Vec3
-from bajo.rt.types import BsdfEvaluation, BsdfSample, MAT
+from bajo.rt.types import BsdfEvaluation, BsdfSample, MaterialKind
 
 
 comptime BSDF_INV_PI = Float32(0.3183098861837907)
@@ -58,7 +58,7 @@ def _evaluate_metal[
 
 @always_inline
 def _evaluate_material[
-    MATERIAL_KIND: MAT, length: SIMDLength
+    MATERIAL_KIND: MaterialKind, length: SIMDLength
 ](
     ray_direction: Vec3[.float32, .WORLD, length],
     normal: Vec3[.float32, .WORLD, length],
@@ -200,7 +200,7 @@ def _sample_dielectric[
 
 @always_inline
 def _sample_material[
-    MATERIAL_KIND: MAT, length: SIMDLength
+    MATERIAL_KIND: MaterialKind, length: SIMDLength
 ](
     ray_direction: Vec3[.float32, .WORLD, length],
     normal: Vec3[.float32, .WORLD, length],

@@ -4,8 +4,8 @@ from std.gpu import block_dim, global_idx, grid_dim
 from std.math import ceildiv
 from max.gpu.host import DeviceContext
 
-from bajo.bvh.constants import TRACE
 from bajo.bvh import Hit
+from bajo.bvh.gpu import GpuBvhLayout
 from bajo.bvh.gpu.sphere_bvh import _intersect_sphere_leaf
 from bajo.bvh.gpu.tlas import _trace_tlas_ray
 from bajo.bvh.gpu.trace import trace_bounds_bvh
@@ -16,7 +16,7 @@ from bajo.bvh.gpu.triangle_bvh import (
 from bajo.core import Frame, GeoKind, Point3f32, Rayf32, Vec3f32
 from bajo.rt.common import sky_color
 from bajo.rt.geometry import orient_surface_normal
-from bajo.rt.types import Color, RENDER
+from bajo.rt.types import Color, Integrator
 from bajo.rt.wavefront_contract import (
     DeviceWaveShadow,
     WAVE_COUNTER,
@@ -39,7 +39,7 @@ from bajo.rt.gpu.views import GpuRtSceneView, GpuRtTraceQueueView
 
 @always_inline
 def _gpu_rt_scene_trace_one[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
     HAS_SPHERES: Bool,
     HAS_TRIANGLES: Bool,
     HAS_INSTANCES: Bool,
@@ -51,8 +51,8 @@ def _gpu_rt_scene_trace_one[
     tlas_leaf_width: SIMDLength,
     blas_node_width: SIMDLength,
     blas_leaf_width: SIMDLength,
-    TRIANGLE_COMPRESSED: Bool,
-    BLAS_COMPRESSED: Bool,
+    triangle_layout: GpuBvhLayout,
+    blas_layout: GpuBvhLayout,
 ](
     idx: Int,
     scene: GpuRtSceneView,
@@ -156,7 +156,7 @@ def _gpu_rt_scene_trace_one[
             ray.o, ray.d, ray.t_min, closest_t
         )
         var triangle_hit = Hit[.WORLD].miss(closest_t)
-        comptime if TRIANGLE_COMPRESSED:
+        comptime if triangle_layout.compressed:
             triangle_hit = trace_cwbvh8_triangles[
                 .WORLD,
                 .CLOSEST_HIT,
@@ -229,7 +229,7 @@ def _gpu_rt_scene_trace_one[
                 .CLOSEST_HIT,
                 blas_leaf_width > blas_node_width or blas_leaf_width == 8,
             ],
-            BLAS_COMPRESSED,
+            blas_layout,
         ](
             tlas_nodes,
             tlas_leaf_instances,
@@ -254,7 +254,7 @@ def _gpu_rt_scene_trace_one[
             ]
 
     if not found:
-        comptime if ALGORITHM in (RENDER.PATH, RENDER.NEE, RENDER.MIS):
+        comptime if ALGORITHM in (Integrator.PATH, Integrator.NEE, Integrator.MIS):
             _accumulate_sample(
                 sample_radiance,
                 capacity,
@@ -290,7 +290,7 @@ def _gpu_rt_scene_trace_one[
         )
         return
 
-    comptime if ALGORITHM in (RENDER.NEE, RENDER.MIS):
+    comptime if ALGORITHM in (Integrator.NEE, Integrator.MIS):
         var direct = _sample_direct_light_candidate[ALGORITHM](
             path,
             ray,
@@ -361,7 +361,7 @@ def _gpu_rt_scene_trace_one[
 
 
 def gpu_rt_scene_trace_kernel[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
     HAS_SPHERES: Bool,
     HAS_TRIANGLES: Bool,
     HAS_INSTANCES: Bool,
@@ -373,8 +373,8 @@ def gpu_rt_scene_trace_kernel[
     tlas_leaf_width: SIMDLength,
     blas_node_width: SIMDLength,
     blas_leaf_width: SIMDLength,
-    TRIANGLE_COMPRESSED: Bool = False,
-    BLAS_COMPRESSED: Bool = False,
+    triangle_layout: GpuBvhLayout = .WIDE,
+    blas_layout: GpuBvhLayout = .WIDE,
 ](
     scene: GpuRtSceneView,
     queues: GpuRtTraceQueueView,
@@ -399,8 +399,8 @@ def gpu_rt_scene_trace_kernel[
             tlas_leaf_width,
             blas_node_width,
             blas_leaf_width,
-            TRIANGLE_COMPRESSED,
-            BLAS_COMPRESSED,
+            triangle_layout,
+            blas_layout,
         ](idx, scene, queues, rng_seed, bounce)
         idx += stride
 
@@ -418,8 +418,8 @@ def _trace_scene_any[
     tlas_leaf_width: SIMDLength,
     blas_node_width: SIMDLength,
     blas_leaf_width: SIMDLength,
-    TRIANGLE_COMPRESSED: Bool,
-    BLAS_COMPRESSED: Bool,
+    triangle_layout: GpuBvhLayout,
+    blas_layout: GpuBvhLayout,
 ](scene: GpuRtSceneView, ray: Rayf32[.WORLD]) -> Bool:
     comptime if HAS_SPHERES:
         debug_assert["safe", _use_compiler_assume=True](Bool(scene.spheres))
@@ -442,7 +442,7 @@ def _trace_scene_any[
         debug_assert["safe", _use_compiler_assume=True](Bool(scene.triangles))
         var triangles = scene.triangles.unsafe_value()
         var hit = Hit[.WORLD].miss(ray.t_max)
-        comptime if TRIANGLE_COMPRESSED:
+        comptime if triangle_layout.compressed:
             hit = trace_cwbvh8_triangles[
                 .WORLD,
                 .ANY_HIT,
@@ -488,7 +488,7 @@ def _trace_scene_any[
                 .ANY_HIT,
                 blas_leaf_width > blas_node_width or blas_leaf_width == 8,
             ],
-            BLAS_COMPRESSED,
+            blas_layout,
         ](
             instances.tlas_nodes.unsafe_origin_cast[ImmutAnyOrigin](),
             instances.tlas_leaf_instances.unsafe_origin_cast[ImmutAnyOrigin](),
@@ -509,7 +509,7 @@ def _trace_scene_any[
 
 @always_inline
 def _gpu_rt_shadow_one[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
     HAS_SPHERES: Bool,
     HAS_TRIANGLES: Bool,
     HAS_INSTANCES: Bool,
@@ -521,10 +521,10 @@ def _gpu_rt_shadow_one[
     tlas_leaf_width: SIMDLength,
     blas_node_width: SIMDLength,
     blas_leaf_width: SIMDLength,
-    TRIANGLE_COMPRESSED: Bool,
-    BLAS_COMPRESSED: Bool,
+    triangle_layout: GpuBvhLayout,
+    blas_layout: GpuBvhLayout,
 ](idx: Int, scene: GpuRtSceneView, queues: GpuRtTraceQueueView):
-    comptime assert ALGORITHM in (RENDER.AO, RENDER.NEE, RENDER.MIS)
+    comptime assert ALGORITHM in (Integrator.AO, Integrator.NEE, Integrator.MIS)
     var counters = queues.counters.unsafe_origin_cast[MutAnyOrigin]()
     var capacity = Int(queues.capacity)
     var path_ids = queues.shadow_path_ids.unsafe_mut_cast[
@@ -554,8 +554,8 @@ def _gpu_rt_shadow_one[
         tlas_leaf_width,
         blas_node_width,
         blas_leaf_width,
-        TRIANGLE_COMPRESSED,
-        BLAS_COMPRESSED,
+        triangle_layout,
+        blas_layout,
     ](scene, ray)
     var sample_radiance = queues.sample_radiance.unsafe_origin_cast[
         MutAnyOrigin
@@ -578,7 +578,7 @@ def _gpu_rt_shadow_one[
 
 
 def gpu_rt_shadow_kernel[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
     HAS_SPHERES: Bool,
     HAS_TRIANGLES: Bool,
     HAS_INSTANCES: Bool,
@@ -590,8 +590,8 @@ def gpu_rt_shadow_kernel[
     tlas_leaf_width: SIMDLength,
     blas_node_width: SIMDLength,
     blas_leaf_width: SIMDLength,
-    TRIANGLE_COMPRESSED: Bool = False,
-    BLAS_COMPRESSED: Bool = False,
+    triangle_layout: GpuBvhLayout = .WIDE,
+    blas_layout: GpuBvhLayout = .WIDE,
 ](scene: GpuRtSceneView, queues: GpuRtTraceQueueView):
     var counters = queues.counters.unsafe_origin_cast[MutAnyOrigin]()
     var count = Int(counters[unsafe_offset=WAVE_COUNTER.SHADOW])
@@ -611,14 +611,14 @@ def gpu_rt_shadow_kernel[
             tlas_leaf_width,
             blas_node_width,
             blas_leaf_width,
-            TRIANGLE_COMPRESSED,
-            BLAS_COMPRESSED,
+            triangle_layout,
+            blas_layout,
         ](idx, scene, queues)
         idx += stride
 
 
 def enqueue_gpu_shadows[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
     HAS_SPHERES: Bool,
     HAS_TRIANGLES: Bool,
     HAS_INSTANCES: Bool,
@@ -631,8 +631,8 @@ def enqueue_gpu_shadows[
     blas_node_width: SIMDLength,
     blas_leaf_width: SIMDLength,
     MAX_BLOCKS: Int = GPU_RT_MAX_BLOCKS,
-    TRIANGLE_COMPRESSED: Bool = False,
-    BLAS_COMPRESSED: Bool = False,
+    triangle_layout: GpuBvhLayout = .WIDE,
+    blas_layout: GpuBvhLayout = .WIDE,
 ](
     ctx: DeviceContext,
     scene: GpuRtSceneView,
@@ -640,7 +640,7 @@ def enqueue_gpu_shadows[
     capacity: Int,
 ) raises:
     """Submit the compact visibility stage when the algorithm needs it."""
-    comptime if ALGORITHM in (RENDER.AO, RENDER.NEE, RENDER.MIS):
+    comptime if ALGORITHM in (Integrator.AO, Integrator.NEE, Integrator.MIS):
         ctx.enqueue_function[
             gpu_rt_shadow_kernel[
                 ALGORITHM,
@@ -655,8 +655,8 @@ def enqueue_gpu_shadows[
                 tlas_leaf_width,
                 blas_node_width,
                 blas_leaf_width,
-                TRIANGLE_COMPRESSED,
-                BLAS_COMPRESSED,
+                triangle_layout,
+                blas_layout,
             ]
         ](
             scene,

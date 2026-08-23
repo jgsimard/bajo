@@ -6,13 +6,14 @@ from std.time import perf_counter_ns
 from max.gpu.host import DeviceContext
 
 from bajo.bvh.host_utils import compute_bounds
+from bajo.bvh.gpu import GpuBvhLayout
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.core import Affine3f32, Frame, Point3f32, Vec3f32
 from bajo.core.utils import ns_to_ms
 from bajo.rt import (
     Camera,
     Color,
-    RENDER,
+    Integrator,
     RenderSettings,
     SceneBuilder,
     CpuScene,
@@ -108,13 +109,13 @@ def _camera() -> Camera:
 
 
 def _bench_algorithm[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
     tlas_node_width: SIMDLength,
     tlas_leaf_width: SIMDLength,
     blas_node_width: SIMDLength = 4,
     blas_leaf_width: SIMDLength = 4,
     blas_build_method: GpuBvhBuildMethod = .LBVH,
-    blas_compressed: Bool = False,
+    blas_layout: GpuBvhLayout = .WIDE,
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
@@ -128,11 +129,11 @@ def _bench_algorithm[
         blas_node_width,
         blas_leaf_width,
         blas_build_method,
-        blas_compressed,
+        blas_layout,
         4,
         4,
         .LBVH,
-        False,
+        .WIDE,
     ],
     settings: RenderSettings,
 ) raises -> GpuRtBenchResult:
@@ -147,11 +148,11 @@ def _bench_algorithm[
         blas_node_width,
         blas_leaf_width,
         blas_build_method,
-        blas_compressed,
+        blas_layout,
         4,
         4,
         .LBVH,
-        False,
+        .WIDE,
     ](ctx, target, world, settings)
     ctx.synchronize()
     var submit = List[Int](capacity=BENCH_REPEATS)
@@ -169,11 +170,11 @@ def _bench_algorithm[
             blas_node_width,
             blas_leaf_width,
             blas_build_method,
-            blas_compressed,
+            blas_layout,
             4,
             4,
             .LBVH,
-            False,
+            .WIDE,
         ](ctx, target, world, settings)
         var t1 = perf_counter_ns()
         ctx.synchronize()
@@ -190,7 +191,7 @@ def _run_layout[
     blas_node_width: SIMDLength = 4,
     blas_leaf_width: SIMDLength = 4,
     blas_build_method: GpuBvhBuildMethod = .LBVH,
-    blas_compressed: Bool = False,
+    blas_layout: GpuBvhLayout = .WIDE,
 ](
     mut ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
@@ -210,11 +211,11 @@ def _run_layout[
         blas_node_width,
         blas_leaf_width,
         blas_build_method,
-        blas_compressed,
+        blas_layout,
         4,
         4,
         .LBVH,
-        False,
+        .WIDE,
     ](ctx, world.scene_data())
     ctx.synchronize()
     print(
@@ -229,7 +230,7 @@ def _run_layout[
             blas_node_width,
             blas_leaf_width,
             blas_build_method,
-            blas_compressed,
+            blas_layout,
         ](ctx, target, gpu_world, settings),
         sample_count,
     )
@@ -242,7 +243,7 @@ def _run_layout[
             blas_node_width,
             blas_leaf_width,
             blas_build_method,
-            blas_compressed,
+            blas_layout,
         ](ctx, target, gpu_world, settings),
         sample_count,
     )
@@ -255,7 +256,7 @@ def _run_layout[
             blas_node_width,
             blas_leaf_width,
             blas_build_method,
-            blas_compressed,
+            blas_layout,
         ](ctx, target, gpu_world, settings),
         sample_count,
     )
@@ -268,7 +269,7 @@ def _run_layout[
             blas_node_width,
             blas_leaf_width,
             blas_build_method,
-            blas_compressed,
+            blas_layout,
         ](ctx, target, gpu_world, settings),
         sample_count,
     )
@@ -301,7 +302,7 @@ def main() raises:
         _run_layout[2, 1](
             ctx, target, world, settings, sample_count, "Default TLAS2/1"
         )
-        _run_layout[2, 1, 8, 4, .HPLOC, True](
+        _run_layout[2, 1, 8, 4, .HPLOC, .CWBVH8](
             ctx,
             target,
             world,

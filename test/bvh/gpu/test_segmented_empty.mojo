@@ -6,19 +6,18 @@ from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh.camera import Camera
 from bajo.bvh.constants import (
-    Primitive,
+    PrimitiveKind,
     SPHERE_LEAF_PACKED_STRIDE,
     TRI_LEAF_PACKED_STRIDE,
     WideNode,
 )
-from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.gpu.compressed_bounds_bvh import (
     CWBVH_NODE_WORDS,
     CWBVH_TRIANGLE_WORDS,
 )
-from bajo.bvh.gpu.sphere_bvh import build_sphere_blas_set
-from bajo.bvh.gpu.tlas import build_sphere_tlas, build_triangle_tlas
-from bajo.bvh.gpu.triangle_bvh import build_triangle_blas_set
+from bajo.bvh.gpu.sphere_bvh import build_gpu_sphere_blas_set
+from bajo.bvh.gpu.tlas import build_gpu_tlas
+from bajo.bvh.gpu.triangle_bvh import build_gpu_triangle_blas_set
 from bajo.bvh.gpu.utils import upload_camera
 from bajo.bvh.host_utils import compute_bounds, sphere_bounds
 from bajo.bvh.gpu import GpuBlasSet, GpuBvhLayout
@@ -46,7 +45,7 @@ def _triangles(count: Int, z: Float32) -> List[Point3f32[.LOCAL]]:
 
 
 def _assert_exact_storage[
-    kind: Primitive,
+    kind: PrimitiveKind,
     layout: GpuBvhLayout,
     node_width: SIMDLength,
     leaf_width: SIMDLength,
@@ -75,7 +74,7 @@ def _assert_exact_storage[
 
 
 def _instance(
-    blas_idx: UInt32, bounds: AABB[.LOCAL], kind: Primitive
+    blas_idx: UInt32, bounds: AABB[.LOCAL], kind: PrimitiveKind
 ) -> Instance:
     return Instance(
         Affine3f32[.LOCAL, .WORLD].identity(),
@@ -106,7 +105,7 @@ def test_triangle_lbvh_empty_segments_trace_and_describe() raises:
     var vertices = _triangle()
     var bounds = compute_bounds(vertices)
     with DeviceContext() as ctx:
-        var blases = build_triangle_blas_set[4, 4, .LBVH](
+        var blases = build_gpu_triangle_blas_set[4, 4, .LBVH](
             ctx, [empty.copy(), vertices^, empty^]
         )
         var node_count: Int
@@ -135,7 +134,7 @@ def test_triangle_lbvh_empty_segments_trace_and_describe() raises:
             _instance(0, bounds, .TRIANGLE),
             _instance(1, bounds, .TRIANGLE),
         ]
-        var tlas = build_triangle_tlas[4, 4](ctx, instances)
+        var tlas = build_gpu_tlas[.TRIANGLE, 4, 4](ctx, instances)
         var hits = ctx.enqueue_create_buffer[.float32](Hit.STRIDE)
         tlas.launch_camera(
             ctx, blases, upload_camera(ctx, _camera()), hits, 1, 1, 1
@@ -151,7 +150,7 @@ def test_triangle_hploc_cwbvh8_empty_segments_trace() raises:
     var vertices = _triangle()
     var bounds = compute_bounds(vertices)
     with DeviceContext() as ctx:
-        var blases = build_triangle_blas_set[
+        var blases = build_gpu_triangle_blas_set[
             8, 4, .HPLOC, GpuBvhLayout.CWBVH8
         ](ctx, [empty.copy(), vertices^, empty^])
         with blases.descs.map_to_host() as descs:
@@ -164,7 +163,7 @@ def test_triangle_hploc_cwbvh8_empty_segments_trace() raises:
             _instance(0, bounds, .TRIANGLE),
             _instance(1, bounds, .TRIANGLE),
         ]
-        var tlas = build_triangle_tlas[
+        var tlas = build_gpu_tlas[.TRIANGLE,
             2, 8, 2, 4, .LBVH, GpuBvhLayout.CWBVH8
         ](ctx, instances)
         var hits = ctx.enqueue_create_buffer[.float32](Hit.STRIDE)
@@ -184,7 +183,7 @@ def test_sphere_hploc_empty_segments_trace() raises:
     ]
     var bounds = sphere_bounds(spheres)
     with DeviceContext() as ctx:
-        var blases = build_sphere_blas_set[4, 4, .HPLOC](
+        var blases = build_gpu_sphere_blas_set[4, 4, .HPLOC](
             ctx, [empty.copy(), spheres^, empty^]
         )
         with blases.descs.map_to_host() as descs:
@@ -205,7 +204,7 @@ def test_sphere_hploc_empty_segments_trace() raises:
             _instance(0, bounds, .SPHERE),
             _instance(1, bounds, .SPHERE),
         ]
-        var tlas = build_sphere_tlas[4, 4](ctx, instances)
+        var tlas = build_gpu_tlas[.SPHERE, 4, 4](ctx, instances)
         var hits = ctx.enqueue_create_buffer[.float32](Hit.STRIDE)
         tlas.launch_camera(
             ctx, blases, upload_camera(ctx, _camera()), hits, 1, 1, 1
@@ -219,7 +218,7 @@ def test_sphere_hploc_empty_segments_trace() raises:
 def test_all_empty_triangle_batch_has_zero_descriptors() raises:
     var empty = List[Point3f32[.LOCAL]]()
     with DeviceContext() as ctx:
-        var blases = build_triangle_blas_set[
+        var blases = build_gpu_triangle_blas_set[
             8, 4, .HPLOC, GpuBvhLayout.CWBVH8
         ](ctx, [empty.copy(), empty^])
         assert_equal(blases.blas_count, 2)
@@ -234,7 +233,7 @@ def test_nonempty_segments_use_exact_consecutive_storage() raises:
     var first = _triangles(5, 4.0)
     var second = _triangles(17, 8.0)
     with DeviceContext() as ctx:
-        var wide = build_triangle_blas_set[4, 4, .HPLOC](
+        var wide = build_gpu_triangle_blas_set[4, 4, .HPLOC](
             ctx, [first.copy(), second.copy()]
         )
         _assert_exact_storage(
@@ -243,7 +242,7 @@ def test_nonempty_segments_use_exact_consecutive_storage() raises:
             4 * TRI_LEAF_PACKED_STRIDE,
         )
 
-        var compressed = build_triangle_blas_set[
+        var compressed = build_gpu_triangle_blas_set[
             8, 4, .HPLOC, GpuBvhLayout.CWBVH8
         ](ctx, [first^, second^])
         _assert_exact_storage(

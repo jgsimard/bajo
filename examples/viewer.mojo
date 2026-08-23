@@ -9,10 +9,10 @@ from bajo.core import (
     Vec3W,
 )
 from bajo.core.utils import degrees_to_radians, ns_to_ms
-from bajo.parser.obj.f32 import parse_f32_at
+from bajo.parser.number import parse_f32_at
 from bajo.rt import (
     Camera,
-    RENDER,
+    Integrator,
     RenderSettings,
     SceneData,
     CpuScene,
@@ -135,7 +135,7 @@ def _viewer_camera(
 
 
 def _render_gpu_frame[
-    ALGORITHM: RENDER
+    ALGORITHM: Integrator
 ](
     output: String,
     width: Int,
@@ -163,7 +163,7 @@ def _render_gpu_frame[
 
 
 def _render_frame[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
     BACKEND: Int,
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
@@ -243,7 +243,7 @@ struct _ViewerRenderRequest(Copyable):
 
 
 def _render_scene[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
     BACKEND: Int,
 ](request: _ViewerRenderRequest) raises -> ViewerRenderStats:
     if request.scene == 5 or request.scene == 6:

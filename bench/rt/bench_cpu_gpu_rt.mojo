@@ -6,11 +6,12 @@ from std.time import perf_counter_ns
 from max.gpu.host import DeviceContext
 
 from bajo.core.utils import ns_to_ms
+from bajo.bvh.gpu import GpuBvhLayout
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.rt import (
     Camera,
     Color,
-    RENDER,
+    Integrator,
     RenderResult,
     RenderSettings,
     CpuScene,
@@ -68,7 +69,7 @@ struct GpuTiming:
 
 
 def _render_cpu[
-    ALGORITHM: RENDER
+    ALGORITHM: Integrator
 ](settings: RenderSettings, camera: Camera, world: CpuScene[]) -> RenderResult:
     comptime if ALGORITHM == .AO:
         return render_depth_first[ALGORITHM](settings, camera, world)
@@ -82,7 +83,7 @@ def _render_cpu[
 
 
 def _bench_cpu[
-    ALGORITHM: RENDER
+    ALGORITHM: Integrator
 ](settings: RenderSettings, camera: Camera, world: CpuScene[]) -> CpuTiming:
     var warmup = _render_cpu[ALGORITHM](settings, camera, world)
     var checksum = gpu_rt_checksum(warmup.pixels)
@@ -112,13 +113,13 @@ def _bench_cpu[
 
 
 def _bench_gpu[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
     build_method: GpuBvhBuildMethod = .LBVH,
-    compressed: Bool = False,
+    layout: GpuBvhLayout = .WIDE,
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: GpuRtTriangleScene[NODE_WIDTH, LEAF_WIDTH, build_method, compressed],
+    world: GpuRtTriangleScene[NODE_WIDTH, LEAF_WIDTH, build_method, layout],
     settings: RenderSettings,
 ) raises -> GpuTiming:
     enqueue_render_gpu_triangles[
@@ -128,7 +129,7 @@ def _bench_gpu[
         GPU_RT_MAX_BLOCKS,
         GPU_RT_MAX_BLOCKS,
         build_method,
-        compressed,
+        layout,
     ](ctx, target, world, settings)
     var warmup_pixels = download_gpu_pixels(ctx, target)
     var checksum = gpu_rt_checksum(warmup_pixels)
@@ -144,7 +145,7 @@ def _bench_gpu[
             GPU_RT_MAX_BLOCKS,
             GPU_RT_MAX_BLOCKS,
             build_method,
-            compressed,
+            layout,
         ](ctx, target, world, settings)
         var submit_t1 = perf_counter_ns()
         ctx.synchronize()
@@ -252,17 +253,17 @@ def main() raises:
 
     with DeviceContext() as ctx:
         var gpu_world = GpuRtTriangleScene[
-            NODE_WIDTH, LEAF_WIDTH, .LBVH, False
+            NODE_WIDTH, LEAF_WIDTH, .LBVH, .WIDE
         ](ctx, world.scene_data())
         var target = GpuRtRenderTarget(ctx, settings, camera)
         var many_gpu_world = GpuRtTriangleScene[
-            NODE_WIDTH, LEAF_WIDTH, .LBVH, False
+            NODE_WIDTH, LEAF_WIDTH, .LBVH, .WIDE
         ](ctx, many_light_world.scene_data())
         var cwbvh_world = GpuRtTriangleScene[
-            NODE_WIDTH, LEAF_WIDTH, .HPLOC, True
+            NODE_WIDTH, LEAF_WIDTH, .HPLOC, .CWBVH8
         ](ctx, world.scene_data())
         var many_cwbvh_world = GpuRtTriangleScene[
-            NODE_WIDTH, LEAF_WIDTH, .HPLOC, True
+            NODE_WIDTH, LEAF_WIDTH, .HPLOC, .CWBVH8
         ](ctx, many_light_world.scene_data())
         ctx.synchronize()
         var gpu_path = _bench_gpu[.PATH](ctx, target, gpu_world, settings)
@@ -272,20 +273,20 @@ def main() raises:
         var gpu_nee_64 = _bench_gpu[.NEE](
             ctx, target, many_gpu_world, settings
         )
-        var cwbvh_path = _bench_gpu[.PATH, .HPLOC, True](
+        var cwbvh_path = _bench_gpu[.PATH, .HPLOC, .CWBVH8](
             ctx, target, cwbvh_world, settings
         )
-        var cwbvh_ao = _bench_gpu[.AO, .HPLOC, True](
+        var cwbvh_ao = _bench_gpu[.AO, .HPLOC, .CWBVH8](
             ctx, target, cwbvh_world, settings
         )
-        var cwbvh_nee = _bench_gpu[.NEE, .HPLOC, True](
+        var cwbvh_nee = _bench_gpu[.NEE, .HPLOC, .CWBVH8](
             ctx, target, cwbvh_world, settings
         )
-        var cwbvh_mis = _bench_gpu[.MIS, .HPLOC, True](
+        var cwbvh_mis = _bench_gpu[.MIS, .HPLOC, .CWBVH8](
             ctx, target, cwbvh_world, settings
         )
         var cwbvh_nee_64 = _bench_gpu[
-            .NEE, .HPLOC, True
+            .NEE, .HPLOC, .CWBVH8
         ](ctx, target, many_cwbvh_world, settings)
 
         _print_comparison("PATH", cpu_path, gpu_path, sample_count)

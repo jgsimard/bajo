@@ -21,7 +21,7 @@ from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvh,
     WideBvhNode,
 )
-from bajo.bvh.constants import EMPTY_LANE, CPU_STACK_SIZE, TRACE
+from bajo.bvh.constants import EMPTY_LANE, CPU_STACK_SIZE, TraceMode
 from bajo.bvh.tagged_ref import decode_ref_index, encode_leaf_ref, is_leaf_ref
 from bajo.bvh.wide_meta import _wide_meta_count, _wide_meta_data
 
@@ -108,7 +108,7 @@ def _trace_bounds_bvh_impl[
     frame: Frame,
     bounds_width: SIMDLength,
     leaf_width: SIMDLength,
-    mode: TRACE,
+    mode: TraceMode,
     leaf_uses_rcp_direction: Bool,
     single_child_fast_path: Bool,
     terminal_mask_fast_path: Bool,
@@ -141,7 +141,7 @@ def _trace_bounds_bvh_impl[
     var stack_ptr = 0
 
     var bounds_O = ray.origin[bounds_width]()
-    var rcp_d = ray.rcp_direction[bounds_width]()
+    var rcp_d = ray.reciprocal_direction[bounds_width]()
     var origin_rcp_d = Vec3[.float32, frame, bounds_width](
         bounds_O.x * rcp_d.x,
         bounds_O.y * rcp_d.y,
@@ -439,7 +439,7 @@ def _trace_bounds_bvh_octant[
     frame: Frame,
     bounds_width: SIMDLength,
     leaf_width: SIMDLength,
-    mode: TRACE,
+    mode: TraceMode,
     leaf_uses_rcp_direction: Bool,
     LeafFn: def(
         Rayf32[frame],
@@ -528,7 +528,7 @@ def trace_bounds_bvh[
     frame: Frame,
     bounds_width: SIMDLength,
     leaf_width: SIMDLength,
-    mode: TRACE,
+    mode: TraceMode,
     LeafFn: def(
         Rayf32[frame],
         Point3[DType.float32, frame, leaf_width],
@@ -565,7 +565,7 @@ def trace_packed_bounds_bvh[
     frame: Frame,
     bounds_width: SIMDLength,
     leaf_width: SIMDLength,
-    mode: TRACE,
+    mode: TraceMode,
     LeafFn: def(
         Rayf32[frame],
         Point3[DType.float32, frame, leaf_width],
@@ -651,7 +651,7 @@ def trace_bounds_bvh_leaf_rcp[
     frame: Frame,
     bounds_width: SIMDLength,
     leaf_width: SIMDLength,
-    mode: TRACE,
+    mode: TraceMode,
     LeafFn: def(
         Rayf32[frame],
         Point3[DType.float32, frame, leaf_width],
@@ -690,7 +690,7 @@ def trace_packed_sphere_bounds_bvh[
     frame: Frame,
     bounds_width: SIMDLength,
     leaf_width: SIMDLength,
-    mode: TRACE,
+    mode: TraceMode,
     LeafFn: def(
         Rayf32[frame],
         Point3[DType.float32, frame, leaf_width],

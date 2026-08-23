@@ -1,11 +1,11 @@
 """CPU-native ownership for packed BLAS storage."""
 
-from bajo.bvh.constants import Primitive
+from bajo.bvh.constants import PrimitiveKind
 
 
 @fieldwise_init
 struct CpuBlasSet[
-    kind: Primitive,
+    kind: PrimitiveKind,
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
 ]:

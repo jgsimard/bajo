@@ -1,13 +1,12 @@
 """CPU-prepared scene ownership and traversal."""
 
-from bajo.bvh.constants import EMPTY_LANE, Primitive, TRACE, f32_max
+from bajo.bvh.constants import EMPTY_LANE, PrimitiveKind, f32_max
 from bajo.bvh import Sphere
 from bajo.bvh.cpu import (
     CpuBlasSet,
-    CpuBvhBuildMethod,
-    Tlas,
-    build_sphere_blases,
-    build_triangle_blases,
+    CpuTlas,
+    build_cpu_sphere_blas_set,
+    build_cpu_triangle_blas_set,
     trace_blas_set,
     trace_blas_set_packet,
 )
@@ -16,8 +15,7 @@ from bajo.rt.geometry import orient_surface_normal, sphere_for_acceleration
 from bajo.rt.types import (
     Color,
     HitRecord,
-    MAT,
-    PRIM,
+    PrimitiveKind,
     PrimitiveId,
     SceneData,
     SurfaceHit,
@@ -40,7 +38,7 @@ struct _WorldHit(Copyable, Writable):
     @staticmethod
     def miss(t: Float32 = f32_max) -> Self:
         return Self(
-            PrimitiveId(PRIM.SPHERE, UInt32(0)),
+            PrimitiveId(PrimitiveKind.SPHERE, UInt32(0)),
             Vec3f32[.WORLD](0.0),
             SurfaceId(.LAMBERTIAN, UInt32(0)),
             t,
@@ -70,7 +68,7 @@ struct CpuScene[
     var triangle_bvh: Optional[
         CpuBlasSet[.TRIANGLE, Self.world_bvh_width]
     ]
-    var triangle_tlas: Optional[Tlas[Self.instance_bvh_width, 1]]
+    var triangle_tlas: Optional[CpuTlas[Self.instance_bvh_width, 1]]
     var triangle_mesh_blases: Optional[
         CpuBlasSet[.TRIANGLE, Self.instance_bvh_width]
     ]
@@ -84,7 +82,7 @@ struct CpuScene[
         self.triangle_bvh = Optional[
             CpuBlasSet[.TRIANGLE, Self.world_bvh_width]
         ]()
-        self.triangle_tlas = Optional[Tlas[Self.instance_bvh_width, 1]]()
+        self.triangle_tlas = Optional[CpuTlas[Self.instance_bvh_width, 1]]()
         self.triangle_mesh_blases = Optional[
             CpuBlasSet[.TRIANGLE, Self.instance_bvh_width]
         ]()
@@ -105,7 +103,7 @@ struct CpuScene[
             self.sphere_bvh = Optional[
                 CpuBlasSet[.SPHERE, Self.world_bvh_width]
             ](
-                build_sphere_blases[
+                build_cpu_sphere_blas_set[
                     Self.world_bvh_width, .SAH, .WORLD
                 ]([bvh_spheres^])
             )
@@ -114,7 +112,7 @@ struct CpuScene[
             self.triangle_bvh = Optional[
                 CpuBlasSet[.TRIANGLE, Self.world_bvh_width]
             ](
-                build_triangle_blases[
+                build_cpu_triangle_blas_set[
                     Self.world_bvh_width,
                     Self.world_bvh_width,
                     .SAH,
@@ -126,7 +124,7 @@ struct CpuScene[
             self.triangle_mesh_blases = Optional[
                 CpuBlasSet[.TRIANGLE, Self.instance_bvh_width]
             ](
-                build_triangle_blases[
+                build_cpu_triangle_blas_set[
                     Self.instance_bvh_width,
                     Self.instance_bvh_width,
                     .SAH,
@@ -134,8 +132,8 @@ struct CpuScene[
                 ](self._scene.triangle_meshes())
             )
 
-            self.triangle_tlas = Optional[Tlas[Self.instance_bvh_width, 1]](
-                Tlas[Self.instance_bvh_width, 1](
+            self.triangle_tlas = Optional[CpuTlas[Self.instance_bvh_width, 1]](
+                CpuTlas[Self.instance_bvh_width, 1](
                     self._scene.triangle_instances()
                 )
             )
@@ -197,7 +195,7 @@ struct CpuScene[
                     length,
                     Frame.WORLD,
                 ](self.sphere_bvh.value(), UInt32(0), rays, valid)
-                result |= hits.hit_mask()
+                result |= hits.is_hit()
 
             if self.triangle_bvh:
                 var active = valid & ~result
@@ -209,7 +207,7 @@ struct CpuScene[
                         False,
                         .WORLD,
                     ](self.triangle_bvh.value(), UInt32(0), rays, active)
-                    result |= hits.hit_mask()
+                    result |= hits.is_hit()
 
             if self.triangle_tlas and self.triangle_mesh_blases:
                 for lane in range(length):
@@ -312,7 +310,7 @@ struct CpuScene[
                 length,
                 Frame.WORLD,
             ](self.sphere_bvh.value(), UInt32(0), rays, valid)
-            var sphere_mask = sphere_hits.hit_mask()
+            var sphere_mask = sphere_hits.is_hit()
             var center_x = SIMD[.float32, length](0.0)
             var center_y = SIMD[.float32, length](0.0)
             var center_z = SIMD[.float32, length](0.0)
@@ -359,7 +357,7 @@ struct CpuScene[
                 False,
                 .WORLD,
             ](self.triangle_bvh.value(), UInt32(0), rays, valid)
-            var triangle_mask = triangle_hits.hit_mask() & triangle_hits.t.lt(
+            var triangle_mask = triangle_hits.is_hit() & triangle_hits.t.lt(
                 result.t
             )
             var surface_values = SIMD[DType.uint32, length](0)
@@ -433,7 +431,7 @@ struct CpuScene[
         var outward_normal = (p - sphere.center) / sphere.radius
         var oriented = orient_surface_normal(ray.d, outward_normal)
         return _WorldHit(
-            PrimitiveId(PRIM.SPHERE, bvh_hit.prim),
+            PrimitiveId(PrimitiveKind.SPHERE, bvh_hit.prim),
             oriented.normal,
             self._scene.sphere_surfaces()[sphere_idx].copy(),
             bvh_hit.t,
@@ -464,7 +462,7 @@ struct CpuScene[
         ]()
         var oriented = orient_surface_normal(ray.d, outward_normal)
         return _WorldHit(
-            PrimitiveId(PRIM.TRIANGLE, bvh_hit.prim),
+            PrimitiveId(PrimitiveKind.TRIANGLE, bvh_hit.prim),
             oriented.normal,
             self._scene.triangle_surfaces()[tri_idx].copy(),
             bvh_hit.t,
@@ -495,7 +493,7 @@ struct CpuScene[
         ]()
         var oriented = orient_surface_normal(ray.d, outward_normal)
         return _WorldHit(
-            PrimitiveId(PRIM.TRIANGLE_INSTANCE, bvh_hit.inst),
+            PrimitiveId(PrimitiveKind.TRIANGLE_INSTANCE, bvh_hit.inst),
             oriented.normal,
             self._scene.triangle_instance_surfaces()[instance_idx].copy(),
             bvh_hit.t,

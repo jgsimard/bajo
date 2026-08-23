@@ -6,7 +6,7 @@ from bajo.bvh import Camera
 from bajo.core import Frame
 from bajo.core.random import random_in_unit_disk
 from bajo.rt.common import path_stage_rng
-from bajo.rt.types import RENDER
+from bajo.rt.types import Integrator
 from bajo.rt.wavefront_contract import (
     DeviceWavePath,
     WaveSampleFloatAbi,
@@ -20,7 +20,7 @@ comptime GPU_RT_MAX_BLOCKS = 1 << 30
 
 
 def gpu_rt_primary_kernel[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
 ](
     camera_params: Pointer[Float32, ImmutAnyOrigin],
     path_ids: Pointer[UInt32, MutAnyOrigin],

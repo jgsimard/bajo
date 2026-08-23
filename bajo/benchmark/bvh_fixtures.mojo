@@ -2,7 +2,6 @@
 
 from std.math import max
 
-from bajo.bvh.constants import Primitive, TRACE
 from bajo.bvh import Camera
 from bajo.bvh.cpu import CpuBlasSet, trace_blas_set
 from bajo.core import AABB, Frame, Point3f32, Rayf32, Vec3f32

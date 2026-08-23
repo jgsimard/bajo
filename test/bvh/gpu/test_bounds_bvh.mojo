@@ -10,16 +10,14 @@ from bajo.bvh.host_utils import sphere_bounds
 from bajo.bvh.constants import (
     EMPTY_LANE,
     SPHERE_LEAF_PACKED_STRIDE,
-    TRACE,
     TRI_LEAF_PACKED_STRIDE,
     WideNode,
     f32_max,
 )
 from bajo.bvh.cpu.blas_set import (
-    build_triangle_blases,
+    build_cpu_triangle_blas_set,
     trace_blas_set,
 )
-from bajo.bvh.cpu import CpuBvhBuildMethod
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.gpu.builder.segmented_build import build_single_segment_wide
 from bajo.bvh.gpu.wide_layout import (
@@ -241,7 +239,7 @@ def _assert_gpu_triangle_matches_cpu_camera[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
 ](verts: List[Point3f32[.WORLD]]) raises:
-    var cpu_blases = build_triangle_blases[
+    var cpu_blases = build_cpu_triangle_blas_set[
         node_width, leaf_width, .LBVH, .WORLD
     ]([verts.copy()])
     var camera_data = _make_camera_rays_and_params(
@@ -392,7 +390,7 @@ def _assert_gpu_triangle_matches_cpu_camera[
 def _assert_segmented_gpu_triangle_matches_cpu_camera[
     build_method: GpuBvhBuildMethod,
 ](verts: List[Point3f32[.WORLD]]) raises:
-    var cpu_blases = build_triangle_blases[
+    var cpu_blases = build_cpu_triangle_blas_set[
         2, 2, .LBVH, .WORLD
     ]([verts.copy()])
     var camera_data = _make_camera_rays_and_params(

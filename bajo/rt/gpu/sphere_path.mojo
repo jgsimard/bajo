@@ -7,7 +7,7 @@ from bajo.bvh import Camera
 from bajo.core import Frame
 from bajo.rt.types import (
     Color,
-    RENDER,
+    Integrator,
     RenderResult,
     RenderSettings,
     RenderTimings,
@@ -65,7 +65,7 @@ struct GpuRtSphereScene[
 
 
 def _enqueue_sphere_bounce[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
     node_width: SIMDLength,
     leaf_width: SIMDLength,
 ](
@@ -119,7 +119,7 @@ def _enqueue_sphere_bounce[
 
 
 def enqueue_render_gpu_spheres[
-    ALGORITHM: RENDER = .PATH,
+    ALGORITHM: Integrator = .PATH,
     node_width: SIMDLength = 4,
     leaf_width: SIMDLength = node_width,
 ](
@@ -136,7 +136,7 @@ def enqueue_render_gpu_spheres[
 
 
 def render_gpu_spheres[
-    ALGORITHM: RENDER = .PATH,
+    ALGORITHM: Integrator = .PATH,
     node_width: SIMDLength = 4,
     leaf_width: SIMDLength = node_width,
 ](

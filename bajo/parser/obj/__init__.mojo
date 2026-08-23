@@ -1,21 +1,21 @@
 from bajo.parser.obj.types import ObjMesh, ObjIndex
-from bajo.parser.obj.loaders import (
-    PathObjTextLoader,
-    ObjTextLoader,
-    MemoryObjTextLoader,
+from bajo.parser.text_loader import (
+    PathTextLoader,
+    TextLoader,
+    MemoryTextLoader,
 )
 from bajo.parser.obj.obj import _parse_obj
 from bajo.parser.obj.mmap import MMap
 
 
 def read_obj(path: String) raises -> ObjMesh:
-    var loader = PathObjTextLoader()
+    var loader = PathTextLoader()
     var mapped = MMap[ImmutAnyOrigin](path)
     return parse_obj(mapped.as_string_span(), path, loader)
 
 
 def read_obj[
-    Loader: ObjTextLoader
+    Loader: TextLoader
 ](path: String, loader: Loader) raises -> ObjMesh:
     var text = loader.read_text(path)
     return parse_obj(text, path, loader)
@@ -23,25 +23,25 @@ def read_obj[
 
 def parse_obj(text: String, path: String = "") raises -> ObjMesh:
     """Raw OBJ text. MTL files are ignored because no loader is provided."""
-    var loader = MemoryObjTextLoader()
+    var loader = MemoryTextLoader()
     return parse_obj(text, path, loader)
 
 
 def parse_obj(text: ImmStringSpan, path: String = "") raises -> ObjMesh:
     """Raw OBJ StringSpan."""
-    var loader = MemoryObjTextLoader()
+    var loader = MemoryTextLoader()
     return parse_obj(text, path, loader)
 
 
 def parse_obj[
-    Loader: ObjTextLoader
+    Loader: TextLoader
 ](text: String, path: String, loader: Loader) raises -> ObjMesh:
     """Raw OBJ text plus loader for mtllib resolution."""
     return _parse_obj(path, text, loader)
 
 
 def parse_obj[
-    Loader: ObjTextLoader
+    Loader: TextLoader
 ](text: ImmStringSpan, path: String, loader: Loader) raises -> ObjMesh:
     """Raw OBJ StringSpan plus loader for mtllib resolution."""
     return _parse_obj(path, text, loader)

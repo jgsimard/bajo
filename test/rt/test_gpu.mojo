@@ -7,7 +7,6 @@ from std.testing import (
 from max.gpu.host import DeviceContext
 
 from bajo.bvh.camera import Camera
-from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.host_utils import compute_bounds
 from bajo.core import Affine3f32, Frame, Point3f32, Vec3f32
 from bajo.rt.cpu import CpuScene, render_depth_first, render_wavefront
@@ -35,8 +34,8 @@ from bajo.rt.gpu.render import (
 )
 from bajo.rt.types import (
     Color,
-    PRIM,
-    RENDER,
+    PrimitiveKind,
+    Integrator,
     RenderSettings,
     SceneBuilder,
     SceneData,
@@ -574,11 +573,11 @@ def test_gpu_combined_instances_match_cpu_wavefront() raises:
         8,
         4,
         .HPLOC,
-        True,
+        .CWBVH8,
         8,
         4,
         .HPLOC,
-        True,
+        .CWBVH8,
         .HPLOC,
     ](settings, camera, world.scene_data())
     for i, cpu_pixel in enumerate(cpu.pixels):
@@ -625,7 +624,7 @@ def test_gpu_ao_matches_unoccluded_cpu_reference() raises:
     assert_almost_equal(gpu.pixels[0].z, cpu.pixels[0].z, atol=1.0e-5)
 
 
-def _test_gpu_direct_light_matches_cpu[ALGORITHM: RENDER]() raises:
+def _test_gpu_direct_light_matches_cpu[ALGORITHM: Integrator]() raises:
     var settings = RenderSettings(3, 3, 2, UInt64(601))
     var world = make_cornell_world()
     var camera = _cornell_camera()
@@ -655,12 +654,12 @@ def test_gpu_sphere_nee_matches_cpu_wavefront() raises:
         assert_almost_equal(gpu.pixels[i].z, cpu_pixel.z, atol=1.0e-4)
 
 
-def _test_gpu_emissive_instance_matches_cpu[ALGORITHM: RENDER]() raises:
+def _test_gpu_emissive_instance_matches_cpu[ALGORITHM: Integrator]() raises:
     var settings = RenderSettings(4, 3, 4, UInt64(631))
     var world = _emissive_instance_world()
     assert_equal(len(world.scene_data().lights().records), 2)
     for light in world.scene_data().lights().records:
-        assert_equal(light.primitive.kind(), PRIM.TRIANGLE_INSTANCE)
+        assert_equal(light.primitive.kind(), PrimitiveKind.TRIANGLE_INSTANCE)
     var camera = _emissive_instance_camera()
     var cpu = render_wavefront[ALGORITHM, 1, 64, False](settings, camera, world)
     var gpu = render_gpu[ALGORITHM, 4, 4](settings, camera, world.scene_data())

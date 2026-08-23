@@ -7,7 +7,7 @@ result; there is no implicit device update, dirty tracking, or refit.
 
 from max.gpu.host import DeviceContext
 
-from bajo.bvh.gpu import GpuBvhBuildMethod
+from bajo.bvh.gpu import GpuBvhBuildMethod, GpuBvhLayout
 from bajo.rt.types import SceneData
 from bajo.rt.gpu.sphere_path import GpuRtSphereScene
 from bajo.rt.gpu.triangle_path import GpuRtTriangleScene
@@ -23,17 +23,15 @@ struct GpuRtBvhPolicy:
     var node_width: Int
     var leaf_width: Int
     var build_method: GpuBvhBuildMethod
-    var compressed: Bool
+    var layout: GpuBvhLayout
 
 
-comptime GPU_RT_BVH_WIDE4_LBVH = GpuRtBvhPolicy(
-    4, 4, .LBVH, False
-)
+comptime GPU_RT_BVH_WIDE4_LBVH = GpuRtBvhPolicy(4, 4, .LBVH, .WIDE)
 comptime GPU_RT_BVH_CWBVH8_HPLOC = GpuRtBvhPolicy(
-    8, 4, .HPLOC, True
+    8, 4, .HPLOC, .CWBVH8
 )
 comptime GPU_RT_BVH_TLAS2_LBVH = GpuRtBvhPolicy(
-    2, 1, .LBVH, False
+    2, 1, .LBVH, .WIDE
 )
 
 
@@ -58,14 +56,14 @@ def prepare_gpu_triangle_scene[
     policy.node_width,
     policy.leaf_width,
     policy.build_method,
-    policy.compressed,
+    policy.layout,
 ]:
     """Upload a static-triangle scene using one BVH policy value."""
     return GpuRtTriangleScene[
         policy.node_width,
         policy.leaf_width,
         policy.build_method,
-        policy.compressed,
+        policy.layout,
     ](ctx, data)
 
 
@@ -81,7 +79,7 @@ def prepare_gpu_mixed_scene[
     triangle_policy.node_width,
     triangle_policy.leaf_width,
     triangle_policy.build_method,
-    triangle_policy.compressed,
+    triangle_policy.layout,
 ]:
     """Upload a mixed static scene using sphere and triangle policies."""
     return GpuRtMixedScene[
@@ -90,7 +88,7 @@ def prepare_gpu_mixed_scene[
         triangle_policy.node_width,
         triangle_policy.leaf_width,
         triangle_policy.build_method,
-        triangle_policy.compressed,
+        triangle_policy.layout,
     ](ctx, data)
 
 
@@ -106,7 +104,7 @@ def prepare_gpu_triangle_instance_scene[
     tlas_policy.leaf_width,
     blas_policy.leaf_width,
     blas_policy.build_method,
-    blas_policy.compressed,
+    blas_policy.layout,
     tlas_policy.build_method,
 ]:
     """Upload an instanced scene using one TLAS and one BLAS policy."""
@@ -116,7 +114,7 @@ def prepare_gpu_triangle_instance_scene[
         tlas_policy.leaf_width,
         blas_policy.leaf_width,
         blas_policy.build_method,
-        blas_policy.compressed,
+        blas_policy.layout,
         tlas_policy.build_method,
     ](ctx, data)
 
@@ -141,11 +139,11 @@ def prepare_gpu_combined_instance_scene[
     blas_policy.node_width,
     blas_policy.leaf_width,
     blas_policy.build_method,
-    blas_policy.compressed,
+    blas_policy.layout,
     triangle_policy.node_width,
     triangle_policy.leaf_width,
     triangle_policy.build_method,
-    triangle_policy.compressed,
+    triangle_policy.layout,
     tlas_policy.build_method,
 ]:
     """Upload the full scene with four named compile-time policies."""
@@ -159,10 +157,10 @@ def prepare_gpu_combined_instance_scene[
         blas_policy.node_width,
         blas_policy.leaf_width,
         blas_policy.build_method,
-        blas_policy.compressed,
+        blas_policy.layout,
         triangle_policy.node_width,
         triangle_policy.leaf_width,
         triangle_policy.build_method,
-        triangle_policy.compressed,
+        triangle_policy.layout,
         tlas_policy.build_method,
     ](ctx, data)

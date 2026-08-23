@@ -1,9 +1,9 @@
 """Generic GPU RT entry point selecting a geometry-specialized pipeline."""
 
 from bajo.bvh import Camera
-from bajo.bvh.gpu import GpuBvhBuildMethod
+from bajo.bvh.gpu import GpuBvhBuildMethod, GpuBvhLayout
 from max.gpu.host import DeviceContext
-from bajo.rt.types import RENDER, RenderResult, RenderSettings, SceneData
+from bajo.rt.types import Integrator, RenderResult, RenderSettings, SceneData
 from bajo.rt.gpu.common_kernels import GPU_RT_MAX_BLOCKS
 from bajo.rt.gpu.resources import GpuRtRenderTarget
 from bajo.rt.gpu.instance_path import (
@@ -59,7 +59,7 @@ def _prefer_cwbvh8_blases(world: SceneData) -> Bool:
 
 @always_inline
 def enqueue_render_gpu[
-    ALGORITHM: RENDER = .PATH,
+    ALGORITHM: Integrator = .PATH,
     node_width: SIMDLength = 4,
     leaf_width: SIMDLength = node_width,
 ](
@@ -76,17 +76,19 @@ def enqueue_render_gpu[
 
 @always_inline
 def enqueue_render_gpu[
-    ALGORITHM: RENDER = .PATH,
+    ALGORITHM: Integrator = .PATH,
     node_width: SIMDLength = 8,
     leaf_width: SIMDLength = 4,
     MAX_BLOCKS: Int = GPU_RT_MAX_BLOCKS,
     SHADOW_MAX_BLOCKS: Int = MAX_BLOCKS,
     build_method: GpuBvhBuildMethod = .HPLOC,
-    compressed: Bool = node_width == 8 and leaf_width == 4,
+    layout: GpuBvhLayout = GpuBvhLayout(
+        node_width == 8 and leaf_width == 4
+    ),
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    scene: GpuRtTriangleScene[node_width, leaf_width, build_method, compressed],
+    scene: GpuRtTriangleScene[node_width, leaf_width, build_method, layout],
     settings: RenderSettings,
 ) raises:
     """Submit a prepared static-triangle scene."""
@@ -97,20 +99,21 @@ def enqueue_render_gpu[
         MAX_BLOCKS,
         SHADOW_MAX_BLOCKS,
         build_method,
-        compressed,
+        layout,
     ](ctx, target, scene, settings)
 
 
 @always_inline
 def enqueue_render_gpu[
-    ALGORITHM: RENDER = .PATH,
+    ALGORITHM: Integrator = .PATH,
     node_width: SIMDLength = 4,
     leaf_width: SIMDLength = node_width,
     triangle_node_width: SIMDLength = 8,
     triangle_leaf_width: SIMDLength = 4,
     triangle_build_method: GpuBvhBuildMethod = .HPLOC,
-    triangle_compressed: Bool = triangle_node_width == 8
-    and triangle_leaf_width == 4,
+    triangle_layout: GpuBvhLayout = GpuBvhLayout(
+        triangle_node_width == 8 and triangle_leaf_width == 4
+    ),
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
@@ -120,7 +123,7 @@ def enqueue_render_gpu[
         triangle_node_width,
         triangle_leaf_width,
         triangle_build_method,
-        triangle_compressed,
+        triangle_layout,
     ],
     settings: RenderSettings,
 ) raises:
@@ -132,19 +135,21 @@ def enqueue_render_gpu[
         triangle_node_width,
         triangle_leaf_width,
         triangle_build_method,
-        triangle_compressed,
+        triangle_layout,
     ](ctx, target, scene, settings)
 
 
 @always_inline
 def enqueue_render_gpu[
-    ALGORITHM: RENDER = .PATH,
+    ALGORITHM: Integrator = .PATH,
     tlas_node_width: SIMDLength = 2,
     tlas_leaf_width: SIMDLength = tlas_node_width,
     blas_node_width: SIMDLength = 8,
     blas_leaf_width: SIMDLength = 4,
     blas_build_method: GpuBvhBuildMethod = .HPLOC,
-    blas_compressed: Bool = blas_node_width == 8 and blas_leaf_width == 4,
+    blas_layout: GpuBvhLayout = GpuBvhLayout(
+        blas_node_width == 8 and blas_leaf_width == 4
+    ),
     tlas_build_method: GpuBvhBuildMethod = .LBVH,
 ](
     ctx: DeviceContext,
@@ -155,7 +160,7 @@ def enqueue_render_gpu[
         tlas_leaf_width,
         blas_leaf_width,
         blas_build_method,
-        blas_compressed,
+        blas_layout,
         tlas_build_method,
     ],
     settings: RenderSettings,
@@ -168,14 +173,14 @@ def enqueue_render_gpu[
         blas_node_width,
         blas_leaf_width,
         blas_build_method,
-        blas_compressed,
+        blas_layout,
         tlas_build_method,
     ](ctx, target, scene, settings)
 
 
 @always_inline
 def enqueue_render_gpu[
-    ALGORITHM: RENDER = .PATH,
+    ALGORITHM: Integrator = .PATH,
     HAS_SPHERES: Bool = False,
     HAS_TRIANGLES: Bool = False,
     node_width: SIMDLength = 4,
@@ -185,12 +190,15 @@ def enqueue_render_gpu[
     blas_node_width: SIMDLength = 8,
     blas_leaf_width: SIMDLength = 4,
     blas_build_method: GpuBvhBuildMethod = .HPLOC,
-    blas_compressed: Bool = blas_node_width == 8 and blas_leaf_width == 4,
+    blas_layout: GpuBvhLayout = GpuBvhLayout(
+        blas_node_width == 8 and blas_leaf_width == 4
+    ),
     triangle_node_width: SIMDLength = 8,
     triangle_leaf_width: SIMDLength = 4,
     triangle_build_method: GpuBvhBuildMethod = .HPLOC,
-    triangle_compressed: Bool = triangle_node_width == 8
-    and triangle_leaf_width == 4,
+    triangle_layout: GpuBvhLayout = GpuBvhLayout(
+        triangle_node_width == 8 and triangle_leaf_width == 4
+    ),
     tlas_build_method: GpuBvhBuildMethod = .LBVH,
 ](
     ctx: DeviceContext,
@@ -205,11 +213,11 @@ def enqueue_render_gpu[
         blas_node_width,
         blas_leaf_width,
         blas_build_method,
-        blas_compressed,
+        blas_layout,
         triangle_node_width,
         triangle_leaf_width,
         triangle_build_method,
-        triangle_compressed,
+        triangle_layout,
         tlas_build_method,
     ],
     settings: RenderSettings,
@@ -226,17 +234,17 @@ def enqueue_render_gpu[
         blas_node_width,
         blas_leaf_width,
         blas_build_method,
-        blas_compressed,
+        blas_layout,
         triangle_node_width,
         triangle_leaf_width,
         triangle_build_method,
-        triangle_compressed,
+        triangle_layout,
         tlas_build_method,
     ](ctx, target, scene, settings)
 
 
 def _render_gpu_combined_default[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
     HAS_SPHERES: Bool,
     HAS_TRIANGLES: Bool,
     node_width: SIMDLength,
@@ -259,11 +267,11 @@ def _render_gpu_combined_default[
                 8,
                 4,
                 .HPLOC,
-                True,
+                .CWBVH8,
                 8,
                 4,
                 .HPLOC,
-                True,
+                .CWBVH8,
             ](settings, camera, world)
         return render_gpu_combined_instances[
             ALGORITHM,
@@ -276,11 +284,11 @@ def _render_gpu_combined_default[
             8,
             4,
             .HPLOC,
-            True,
+            .CWBVH8,
             4,
             4,
             .LBVH,
-            False,
+            .WIDE,
         ](settings, camera, world)
     if HAS_TRIANGLES and _prefer_cwbvh8_triangles(world):
         return render_gpu_combined_instances[
@@ -294,11 +302,11 @@ def _render_gpu_combined_default[
             4,
             4,
             .LBVH,
-            False,
+            .WIDE,
             8,
             4,
             .HPLOC,
-            True,
+            .CWBVH8,
         ](settings, camera, world)
     return render_gpu_combined_instances[
         ALGORITHM,
@@ -311,16 +319,16 @@ def _render_gpu_combined_default[
         4,
         4,
         .LBVH,
-        False,
+        .WIDE,
         4,
         4,
         .LBVH,
-        False,
+        .WIDE,
     ](settings, camera, world)
 
 
 def render_gpu[
-    ALGORITHM: RENDER = .PATH,
+    ALGORITHM: Integrator = .PATH,
     node_width: SIMDLength = 4,
     leaf_width: SIMDLength = node_width,
 ](
@@ -365,7 +373,7 @@ def render_gpu[
                 8,
                 4,
                 .HPLOC,
-                True,
+                .CWBVH8,
             ](settings, camera, world)
         return render_gpu_triangle_instances[
             ALGORITHM,
@@ -374,7 +382,7 @@ def render_gpu[
             4,
             4,
             .LBVH,
-            False,
+            .WIDE,
         ](settings, camera, world)
     if len(world.spheres()) > 0:
         if len(world.triangle_vertices()) > 0:
@@ -386,7 +394,7 @@ def render_gpu[
                     4,
                     4,
                     .LBVH,
-                    False,
+                    .WIDE,
                 ](settings, camera, world)
             return render_gpu_mixed[
                 ALGORITHM,
@@ -404,12 +412,12 @@ def render_gpu[
             8,
             4,
             .HPLOC,
-            True,
+            .CWBVH8,
         ](settings, camera, world)
     return render_gpu_triangles[
         ALGORITHM,
         4,
         4,
         .LBVH,
-        False,
+        .WIDE,
     ](settings, camera, world)

@@ -9,7 +9,6 @@ from bajo.rt.types import (
     BsdfEvaluation,
     BsdfSample,
     Color,
-    MAT,
     ShadingPoint,
     SurfaceId,
     SurfaceStore,

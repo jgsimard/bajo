@@ -8,7 +8,7 @@ from bajo.core.utils import ns_to_ms
 from bajo.rt import (
     Camera,
     Color,
-    RENDER,
+    Integrator,
     RenderSettings,
     ShadingPoint,
     CpuScene,
@@ -17,7 +17,6 @@ from bajo.rt.cpu import render_wavefront, sample_bsdf
 from bajo.rt.common import path_stage_rng, russian_roulette
 from bajo.rt.cpu.wavefront.primary import _initialize_path_packets_range
 from bajo.rt.wavefront_queue import PacketPathQueue, PathPacket
-from bajo.rt.types import MAT
 from bajo.benchmark.cpu_harness import pixel_checksum
 from bajo.benchmark.rt_fixtures import (
     make_mixed_triangle_world,
@@ -82,7 +81,7 @@ struct WaveCounters:
 
 
 def time_wavefront[
-    length: SIMDLength, ALGORITHM: RENDER = .PATH
+    length: SIMDLength, ALGORITHM: Integrator = .PATH
 ](settings: RenderSettings, camera: Camera, world: CpuScene[]) -> WaveTiming:
     var warmup = render_wavefront[ALGORITHM, length, CHUNK_PATHS, False](
         settings, camera, world

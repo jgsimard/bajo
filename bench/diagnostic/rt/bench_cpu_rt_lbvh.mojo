@@ -4,7 +4,7 @@ from std.math import round
 from std.sys import simd_width_of
 
 from bajo.core.utils import ns_to_ms
-from bajo.rt import RENDER, RenderSettings, render_depth_first
+from bajo.rt import RenderSettings, render_depth_first
 from bajo.benchmark.bvh_reporting import TablePrinter
 from bajo.benchmark.cpu_harness import pixel_checksum
 from bajo.benchmark.timing import summarize_timings

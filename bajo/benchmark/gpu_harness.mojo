@@ -4,13 +4,13 @@ from std.math import round
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceContext
 
-from bajo.bvh.gpu import GpuBvhBuildMethod
+from bajo.bvh.gpu import GpuBvhBuildMethod, GpuBvhLayout
 from bajo.core import Frame, Point3f32, Vec3f32
 from bajo.core.utils import ns_to_ms
 from bajo.rt import (
     Camera,
     Color,
-    RENDER,
+    Integrator,
     RenderSettings,
     SceneBuilder,
     CpuScene,
@@ -116,17 +116,19 @@ def finalize_gpu_rt_timings(
 
 
 def bench_gpu_triangle_algorithm[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
     node_width: SIMDLength = NODE_WIDTH,
     leaf_width: SIMDLength = LEAF_WIDTH,
     MAX_BLOCKS: Int = GPU_RT_MAX_BLOCKS,
     SHADOW_MAX_BLOCKS: Int = MAX_BLOCKS,
     build_method: GpuBvhBuildMethod = .HPLOC,
-    compressed: Bool = node_width == 8 and leaf_width == 4,
+    layout: GpuBvhLayout = GpuBvhLayout(
+        node_width == 8 and leaf_width == 4
+    ),
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: GpuRtTriangleScene[node_width, leaf_width, build_method, compressed],
+    world: GpuRtTriangleScene[node_width, leaf_width, build_method, layout],
     settings: RenderSettings,
 ) raises -> GpuRtBenchResult:
     enqueue_render_gpu[
@@ -136,7 +138,7 @@ def bench_gpu_triangle_algorithm[
         MAX_BLOCKS,
         SHADOW_MAX_BLOCKS,
         build_method,
-        compressed,
+        layout,
     ](ctx, target, world, settings)
     ctx.synchronize()
 
@@ -151,7 +153,7 @@ def bench_gpu_triangle_algorithm[
             MAX_BLOCKS,
             SHADOW_MAX_BLOCKS,
             build_method,
-            compressed,
+            layout,
         ](ctx, target, world, settings)
         var submit_t1 = perf_counter_ns()
         ctx.synchronize()

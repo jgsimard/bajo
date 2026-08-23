@@ -7,22 +7,22 @@ directives fail explicitly instead of being silently dropped. Loop subdivision
 control meshes are accepted as their unsmoothed triangle control cages.
 """
 
-from .loaders import MemoryPbrtTextLoader, PathPbrtTextLoader, PbrtTextLoader
+from bajo.parser.text_loader import MemoryTextLoader, PathTextLoader, TextLoader
 from .parser import _parse_pbrt
 from bajo.rt.scene_description import SceneDescription
 
 
 def read_pbrt(path: String) raises -> SceneDescription:
-    var loader = PathPbrtTextLoader()
+    var loader = PathTextLoader()
     return _parse_pbrt(loader.read_text(path), path, loader)
 
 
 def read_pbrt[
-    Loader: PbrtTextLoader
+    Loader: TextLoader
 ](path: String, loader: Loader) raises -> SceneDescription:
     return _parse_pbrt(loader.read_text(path), path, loader)
 
 
 def parse_pbrt(text: String, path: String = "") raises -> SceneDescription:
-    var loader = MemoryPbrtTextLoader()
+    var loader = MemoryTextLoader()
     return _parse_pbrt(text, path, loader)

@@ -28,8 +28,7 @@ from bajo.bvh.gpu.blas_storage import GpuBlasSet, GpuBvhLayout
 from bajo.bvh.types import Hit
 from bajo.bvh.constants import (
     EMPTY_LANE,
-    Primitive,
-    TRACE,
+    TraceMode,
     TRI_LEAF_VERTEX_STRIDE,
     TRI_LEAF_PACKED_STRIDE,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
@@ -466,7 +465,7 @@ def _build_segmented_compressed_triangle_blas_set[
     )
 
 
-def build_triangle_blas_set[
+def build_gpu_triangle_blas_set[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
     build_method: GpuBvhBuildMethod = .HPLOC,
@@ -585,7 +584,7 @@ struct GpuTriangleBvh[
         )
 
     def launch_rays[
-        mode: TRACE = .CLOSEST_HIT,
+        mode: TraceMode = .CLOSEST_HIT,
     ](
         self,
         ctx: DeviceContext,
@@ -779,7 +778,7 @@ def trace_triangle_bvh_rays_kernel[
     frame: Frame,
     node_width: SIMDLength,
     leaf_width: SIMDLength,
-    mode: TRACE = .CLOSEST_HIT,
+    mode: TraceMode = .CLOSEST_HIT,
 ](
     wide_nodes: Pointer[Float32, ImmutAnyOrigin],
     leaf_vertices: Pointer[Float32, ImmutAnyOrigin],
@@ -866,7 +865,7 @@ def trace_triangle_bvh_camera_instrumented_kernel[
 def _intersect_triangle_leaf[
     frame: Frame,
     width: SIMDLength,
-    mode: TRACE,
+    mode: TraceMode,
     division_free: Bool = False,
 ](
     leaf_vertices: ImmPointer[Float32, _],
@@ -961,7 +960,7 @@ def _intersect_triangle_leaf[
 @always_inline
 def _intersect_cwbvh_triangle[
     frame: Frame,
-    mode: TRACE,
+    mode: TraceMode,
 ](
     triangles: ImmPointer[Float32, _],
     triangle_idx: UInt32,
@@ -1009,7 +1008,7 @@ def _intersect_cwbvh_triangle[
 @always_inline
 def trace_cwbvh8_triangles[
     frame: Frame,
-    mode: TRACE,
+    mode: TraceMode,
 ](
     nodes: ImmPointer[Float32, _],
     triangles: ImmPointer[Float32, _],
@@ -1030,7 +1029,7 @@ def trace_cwbvh8_triangles[
     if ray.d.z < 0.0:
         sign_code |= UInt32(1)
     var octant_inverse = UInt32(7) - sign_code
-    var ray_rcp = ray.rcp_direction[1]()
+    var ray_rcp = ray.reciprocal_direction[1]()
 
     # The synthetic root task uses the same compact group representation as
     # internal children. Its relative index is always zero.

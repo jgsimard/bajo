@@ -6,14 +6,13 @@ from std.time import perf_counter_ns
 
 from bajo.bvh.constants import (
     SPHERE_LEAF_PACKED_STRIDE,
-    TRACE,
     TRI_LEAF_PACKED_STRIDE,
     WideNode,
     f32_max,
 )
 from bajo.bvh.cpu.blas_set import (
-    build_sphere_blases,
-    build_triangle_blases,
+    build_cpu_sphere_blas_set,
+    build_cpu_triangle_blas_set,
     trace_blas_set,
 )
 from bajo.bvh.types import Sphere
@@ -81,13 +80,13 @@ def _bench_case(
     for vertices in vertex_sets:
         triangle_count += len(vertices) / 3
 
-    var warm_batch = build_triangle_blases[WIDTH](vertex_sets)
+    var warm_batch = build_cpu_triangle_blas_set[WIDTH](vertex_sets)
     keep(warm_batch.blas_count)
 
     var batch_times = List[Int](capacity=REPEATS)
     for _ in range(REPEATS):
         var start = perf_counter_ns()
-        var batch = build_triangle_blases[WIDTH](vertex_sets)
+        var batch = build_cpu_triangle_blas_set[WIDTH](vertex_sets)
         batch_times.append(Int(perf_counter_ns() - start))
         keep(batch.blas_count)
 
@@ -115,13 +114,13 @@ def _bench_sphere_case(
     for spheres in sphere_sets:
         sphere_count += len(spheres)
 
-    var warm_batch = build_sphere_blases[WIDTH](sphere_sets)
+    var warm_batch = build_cpu_sphere_blas_set[WIDTH](sphere_sets)
     keep(warm_batch.blas_count)
 
     var batch_times = List[Int](capacity=REPEATS)
     for _ in range(REPEATS):
         var start = perf_counter_ns()
-        var batch = build_sphere_blases[WIDTH](sphere_sets)
+        var batch = build_cpu_sphere_blas_set[WIDTH](sphere_sets)
         batch_times.append(Int(perf_counter_ns() - start))
         keep(batch.blas_count)
 
@@ -158,7 +157,7 @@ def _make_rays(count: Int) -> List[Rayf32[.LOCAL]]:
 def _bench_trace(vertices: List[Point3f32[.LOCAL]]) raises:
     comptime RAY_COUNT = 65536
     var rays = _make_rays(RAY_COUNT)
-    var packed = build_triangle_blases[WIDTH]([vertices.copy()])
+    var packed = build_cpu_triangle_blas_set[WIDTH]([vertices.copy()])
     var packed_times = List[Int](capacity=REPEATS)
     var packed_checksum = Float64(0.0)
 

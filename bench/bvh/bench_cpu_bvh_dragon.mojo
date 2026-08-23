@@ -1,8 +1,8 @@
 from std.math import round
 from std.time import perf_counter_ns
 
-from bajo.bvh.constants import Primitive, TRACE, f32_max
-from bajo.bvh.cpu.blas_set import build_triangle_blases, trace_blas_set
+from bajo.bvh.constants import f32_max
+from bajo.bvh.cpu.blas_set import build_cpu_triangle_blas_set, trace_blas_set
 from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.cpu import (
     CpuBlasSet,
@@ -125,7 +125,7 @@ def benchmark_case[
     rays: List[Rayf32[.WORLD]],
 ) raises:
     var t0 = perf_counter_ns()
-    var bvh = build_triangle_blases[
+    var bvh = build_cpu_triangle_blas_set[
         bounds_width, leaf_width, method, .WORLD
     ]([vertices.copy()])
     var t1 = perf_counter_ns()

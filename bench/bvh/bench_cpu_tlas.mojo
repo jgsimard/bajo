@@ -5,8 +5,8 @@ from std.math import round
 from std.sys import simd_width_of
 from std.time import perf_counter_ns
 
-from bajo.bvh.constants import Primitive, TRACE
-from bajo.bvh.cpu.tlas import Tlas
+from bajo.bvh.constants import TraceMode
+from bajo.bvh.cpu.tlas import CpuTlas
 from bajo.bvh.cpu import CpuBlasSet
 from bajo.core import Frame, Rayf32
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
@@ -31,9 +31,9 @@ struct TraceChecksum(Copyable):
 def _trace[
     width: SIMDLength,
     leaf_width: SIMDLength,
-    mode: TRACE,
+    mode: TraceMode,
 ](
-    tlas: Tlas[width, leaf_width],
+    tlas: CpuTlas[width, leaf_width],
     blases: CpuBlasSet[.TRIANGLE, width],
     rays: List[Rayf32[.WORLD]],
 ) -> TraceChecksum:
@@ -60,9 +60,9 @@ def _trace[
 def _timed_trace[
     width: SIMDLength,
     leaf_width: SIMDLength,
-    mode: TRACE,
+    mode: TraceMode,
 ](
-    tlas: Tlas[width, leaf_width],
+    tlas: CpuTlas[width, leaf_width],
     blases: CpuBlasSet[.TRIANGLE, width],
     rays: List[Rayf32[.WORLD]],
 ) -> Int:
@@ -96,11 +96,11 @@ def _print_row(
 
 def _benchmark_mode[
     width: SIMDLength,
-    mode: TRACE,
+    mode: TraceMode,
 ](
     label: String,
-    tlas_leaf1: Tlas[width, 1],
-    tlas_native: Tlas[width, width],
+    tlas_leaf1: CpuTlas[width, 1],
+    tlas_native: CpuTlas[width, width],
     blases: CpuBlasSet[.TRIANGLE, width],
     rays: List[Rayf32[.WORLD]],
 ) raises:
@@ -191,10 +191,10 @@ def run_benchmark() raises:
             rays.append(camera.make_ray(px, py, IMAGE_WIDTH, IMAGE_HEIGHT))
 
     var build_start = perf_counter_ns()
-    var tlas_leaf1 = Tlas[width, 1](world.scene_data().triangle_instances())
+    var tlas_leaf1 = CpuTlas[width, 1](world.scene_data().triangle_instances())
     var leaf1_build_ns = Int(perf_counter_ns() - build_start)
     build_start = perf_counter_ns()
-    var tlas_native = Tlas[width, width](
+    var tlas_native = CpuTlas[width, width](
         world.scene_data().triangle_instances()
     )
     var native_build_ns = Int(perf_counter_ns() - build_start)

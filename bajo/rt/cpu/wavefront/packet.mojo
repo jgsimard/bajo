@@ -16,8 +16,8 @@ from bajo.core import (
 )
 from bajo.rt.types import (
     Color,
-    MAT,
-    RENDER,
+    MaterialKind,
+    Integrator,
     RenderSettings,
     ShadingPoint,
     SurfaceStore,
@@ -79,7 +79,7 @@ struct _DirectLightBatch[length: SIMDLength]:
 
 @always_inline
 def _accumulate_direct_light_packet[
-    ALGORITHM: RENDER, length: SIMDLength
+    ALGORITHM: Integrator, length: SIMDLength
 ](
     pixels: MutSpan[Color, _],
     paths: PathPacket[length],
@@ -89,7 +89,7 @@ def _accumulate_direct_light_packet[
     samples_per_pixel: Int,
 ):
     """Evaluate collected NEE candidates with packet-wide BSDF and MIS math."""
-    comptime assert ALGORITHM in (RENDER.NEE, RENDER.MIS)
+    comptime assert ALGORITHM in (Integrator.NEE, Integrator.MIS)
     var ray_direction = Vec3[.float32, .WORLD, length](
         paths.dx, paths.dy, paths.dz
     )
@@ -98,14 +98,14 @@ def _accumulate_direct_light_packet[
     for lane in range(lane_count):
         if not lights.sample.valid[lane]:
             continue
-        if lights.surface_kinds[lane] == MAT.LAMBERTIAN.v:
+        if lights.surface_kinds[lane] == MaterialKind.LAMBERTIAN.value:
             ref material = surfaces.lambertians[
                 Int(lights.surface_indices[lane])
             ]
             albedo.x[lane] = material.albedo.x
             albedo.y[lane] = material.albedo.y
             albedo.z[lane] = material.albedo.z
-        elif lights.surface_kinds[lane] == MAT.METAL.v:
+        elif lights.surface_kinds[lane] == MaterialKind.METAL.value:
             ref material = surfaces.metals[Int(lights.surface_indices[lane])]
             albedo.x[lane] = material.albedo.x
             albedo.y[lane] = material.albedo.y
@@ -126,8 +126,8 @@ def _accumulate_direct_light_packet[
         fuzz,
         lights.sample.direction,
     )
-    var is_lambertian = lights.surface_kinds.eq(MAT.LAMBERTIAN.v)
-    var is_metal = lights.surface_kinds.eq(MAT.METAL.v)
+    var is_lambertian = lights.surface_kinds.eq(MaterialKind.LAMBERTIAN.value)
+    var is_metal = lights.surface_kinds.eq(MaterialKind.METAL.value)
     var value = Vec3.select(is_lambertian, lambertian.value, metal.value)
     var pdf = is_lambertian.select(lambertian.pdf, metal.pdf)
     var supported = is_lambertian | is_metal
@@ -148,7 +148,7 @@ def _accumulate_direct_light_packet[
 
 
 def _sample_bsdf_batch[
-    MATERIAL_KIND: MAT, length: SIMDLength
+    MATERIAL_KIND: MaterialKind, length: SIMDLength
 ](
     batch: ShadePacket[length],
     lane_count: Int,
@@ -158,9 +158,9 @@ def _sample_bsdf_batch[
 ) -> ScatterBatch[length]:
     """Gather material/RNG state, then sample with BSDF math."""
     comptime assert MATERIAL_KIND in (
-        MAT.LAMBERTIAN,
-        MAT.METAL,
-        MAT.DIELECTRIC,
+        MaterialKind.LAMBERTIAN,
+        MaterialKind.METAL,
+        MaterialKind.DIELECTRIC,
     )
     var ray_direction = Vec3[.float32, .WORLD, length](
         batch.dx, batch.dy, batch.dz
@@ -268,7 +268,7 @@ def _accumulate_sky_packet[
 
 @always_inline
 def _shade_material_packets[
-    MATERIAL_KIND: MAT,
+    MATERIAL_KIND: MaterialKind,
     length: SIMDLength,
 ](
     mut next_paths: PacketPathQueue[length],
@@ -307,7 +307,7 @@ def _shade_material_packets[
 
 def _trace_path_packets[
     length: SIMDLength,
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
 ](
@@ -320,7 +320,7 @@ def _trace_path_packets[
     mut metal_queue: PacketShadeQueue[length],
     mut dielectric_queue: PacketShadeQueue[length],
 ):
-    comptime assert ALGORITHM in (RENDER.PATH, RENDER.NEE, RENDER.MIS)
+    comptime assert ALGORITHM in (Integrator.PATH, Integrator.NEE, Integrator.MIS)
     for bounce in range(settings.max_depth):
         if len(active_paths) == 0:
             break
@@ -406,7 +406,9 @@ def _trace_path_packets[
                         direct_lights.point.normal.y[lane] = hit.normal.y
                         direct_lights.point.normal.z[lane] = hit.normal.z
                         direct_lights.point.front_face[lane] = hit.front_face
-                        direct_lights.surface_kinds[lane] = hit.surface.kind().v
+                        direct_lights.surface_kinds[lane] = (
+                            hit.surface.kind().value
+                        )
                         direct_lights.surface_indices[
                             lane
                         ] = hit.surface.index()

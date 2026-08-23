@@ -7,10 +7,10 @@ comptime LBVH_SENTINEL = UInt32(0xFFFFFFFF)
 
 
 @fieldwise_init
-struct TRACE(Equatable):
+struct TraceMode(Equatable):
     comptime CLOSEST_HIT = Self(0)
     comptime ANY_HIT = Self(1)
-    var v: Int
+    var value: Int
 
 
 comptime GPU_STACK_SIZE = 24
@@ -28,11 +28,12 @@ comptime SPHERE_LEAF_PACKED_STRIDE = 5
 
 
 @fieldwise_init
-struct Primitive(Equatable, TrivialRegisterPassable):
-    comptime UNKNOWN = Self(-1)
+struct PrimitiveKind(Equatable, TrivialRegisterPassable, Writable):
+    comptime UNKNOWN = Self(UInt32(0xFFFFFFFF))
     comptime TRIANGLE = Self(0)
     comptime SPHERE = Self(1)
-    var v: Int32
+    comptime TRIANGLE_INSTANCE = Self(2)
+    var value: UInt32
 
 
 struct BinaryBvhNode:

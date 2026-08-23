@@ -12,7 +12,7 @@ from bajo.core.utils import ns_to_ms
 from bajo.rt import (
     Camera,
     Color,
-    RENDER,
+    Integrator,
     RenderSettings,
     SceneBuilder,
     CpuScene,
@@ -100,7 +100,7 @@ def _camera() -> Camera:
 
 
 def _bench_algorithm[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
     tlas_node_width: SIMDLength,
     tlas_leaf_width: SIMDLength,
     blas_node_width: SIMDLength,
@@ -115,7 +115,7 @@ def _bench_algorithm[
         tlas_leaf_width,
         blas_leaf_width,
         .HPLOC,
-        False,
+        .WIDE,
         tlas_build_method,
     ],
     settings: RenderSettings,
@@ -127,7 +127,7 @@ def _bench_algorithm[
         blas_node_width,
         blas_leaf_width,
         .HPLOC,
-        False,
+        .WIDE,
         tlas_build_method,
     ](ctx, target, world, settings)
     ctx.synchronize()
@@ -142,7 +142,7 @@ def _bench_algorithm[
             blas_node_width,
             blas_leaf_width,
             .HPLOC,
-            False,
+            .WIDE,
             tlas_build_method,
         ](ctx, target, world, settings)
         var t1 = perf_counter_ns()
@@ -174,7 +174,7 @@ def _run_layout[
         tlas_leaf_width,
         blas_leaf_width,
         .HPLOC,
-        False,
+        .WIDE,
         tlas_build_method,
     ](ctx, world.scene_data())
     ctx.synchronize()

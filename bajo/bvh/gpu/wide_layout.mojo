@@ -439,7 +439,7 @@ def _intersect_wide_node[
     )
     var bounds_hit = intersect_ray_aabb_rcp(
         ray.origin[width](),
-        ray.rcp_direction[width](),
+        ray.reciprocal_direction[width](),
         block._min,
         block._max,
         t_max,
@@ -455,7 +455,7 @@ def _intersect_wide_node_precomputed[
     wide_nodes: ImmPointer[Float32, _],
     node_idx: UInt32,
     bounds_origin: Point3[DType.float32, frame, width],
-    rcp_direction: Vec3[.float32, frame, width],
+    reciprocal_direction: Vec3[.float32, frame, width],
     t_max: Float32,
 ) -> WideNodeIntersection[width]:
     """Intersect a wide node with reciprocal direction cached per query."""
@@ -485,7 +485,7 @@ def _intersect_wide_node_precomputed[
 
     var bounds_hit = intersect_ray_aabb_rcp(
         bounds_origin,
-        rcp_direction,
+        reciprocal_direction,
         block,
         SIMD[.float32, width](t_max),
     )

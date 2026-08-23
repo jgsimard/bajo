@@ -83,27 +83,31 @@ struct Ray[dtype: DType, frame: Frame, length: SIMDLength = 1](
             self.d.x[0], self.d.y[0], self.d.z[0]
         )
 
-    def rcp_direction[
+    def reciprocal_direction[
         width: SIMDLength
-    ](self, eps: Scalar[Self.dtype] = 1.0e-9) -> Vec3[
+    ](
+        self, eps: Scalar[Self.dtype] = 1.0e-9
+    ) -> Vec3[
         Self.dtype, Self.frame, width
     ] where Self.dtype.is_floating_point():
-        var d = self.direction[width]()
+        comptime assert Self.length == 1
+        var direction = self.direction[width]()
+
         var e = SIMD[Self.dtype, width](eps)
         var large = SIMD[Self.dtype, width](1.0 / eps)
         var one = SIMD[Self.dtype, width](1.0)
 
-        var mx = abs(d.x).gt(e)
-        var my = abs(d.y).gt(e)
-        var mz = abs(d.z).gt(e)
+        var mx = abs(direction.x).gt(e)
+        var my = abs(direction.y).gt(e)
+        var mz = abs(direction.z).gt(e)
 
-        var sx = d.x.lt(0.0).select(-large, large)
-        var sy = d.y.lt(0.0).select(-large, large)
-        var sz = d.z.lt(0.0).select(-large, large)
+        var sx = direction.x.lt(0.0).select(-large, large)
+        var sy = direction.y.lt(0.0).select(-large, large)
+        var sz = direction.z.lt(0.0).select(-large, large)
 
-        var dx = mx.select(d.x, one)
-        var dy = my.select(d.y, one)
-        var dz = mz.select(d.z, one)
+        var dx = mx.select(direction.x, one)
+        var dy = my.select(direction.y, one)
+        var dz = mz.select(direction.z, one)
 
         return Vec3[Self.dtype, Self.frame, width](
             mx.select(one / dx, sx),

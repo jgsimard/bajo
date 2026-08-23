@@ -5,6 +5,7 @@ from std.sys import has_accelerator
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceContext
 
+from bajo.bvh.gpu import GpuBvhLayout
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.host_utils import compute_bounds
 from bajo.core import Affine3f32, Frame, Point3f32, Vec3f32
@@ -13,7 +14,7 @@ from bajo.parser.obj.pack import pack_obj_triangles
 from bajo.rt import (
     Camera,
     Color,
-    RENDER,
+    Integrator,
     RenderSettings,
     SceneBuilder,
     CpuScene,
@@ -72,25 +73,25 @@ def _dragon_camera(world: CpuScene[]) -> Camera:
 
 
 def _bench_algorithm[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
     blas_node_width: SIMDLength,
     blas_leaf_width: SIMDLength,
     method: GpuBvhBuildMethod,
-    compressed: Bool,
+    layout: GpuBvhLayout,
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
     world: GpuRtTriangleInstanceScene[
         2,
-        8 if compressed else blas_node_width,
+        8 if layout.compressed else blas_node_width,
         2,
         blas_leaf_width,
         method,
-        compressed,
+        layout,
     ],
     settings: RenderSettings,
 ) raises -> GpuRtBenchResult:
-    comptime effective_width = 8 if compressed else blas_node_width
+    comptime effective_width = 8 if layout.compressed else blas_node_width
     enqueue_render_gpu_triangle_instances[
         ALGORITHM,
         2,
@@ -98,7 +99,7 @@ def _bench_algorithm[
         effective_width,
         blas_leaf_width,
         method,
-        compressed,
+        layout,
     ](ctx, target, world, settings)
     ctx.synchronize()
     var submit = List[Int](capacity=BENCH_REPEATS)
@@ -112,7 +113,7 @@ def _bench_algorithm[
             effective_width,
             blas_leaf_width,
             method,
-            compressed,
+            layout,
         ](ctx, target, world, settings)
         var t1 = perf_counter_ns()
         ctx.synchronize()
@@ -127,7 +128,7 @@ def _run_layout[
     blas_node_width: SIMDLength,
     blas_leaf_width: SIMDLength,
     method: GpuBvhBuildMethod,
-    compressed: Bool = False,
+    layout: GpuBvhLayout = .WIDE,
 ](
     mut ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
@@ -136,10 +137,10 @@ def _run_layout[
     sample_count: Int,
     label: String,
 ) raises:
-    comptime effective_width = 8 if compressed else blas_node_width
+    comptime effective_width = 8 if layout.compressed else blas_node_width
     var t0 = perf_counter_ns()
     var gpu_world = GpuRtTriangleInstanceScene[
-        2, effective_width, 2, blas_leaf_width, method, compressed
+        2, effective_width, 2, blas_leaf_width, method, layout
     ](ctx, world.scene_data())
     ctx.synchronize()
     print(
@@ -148,28 +149,28 @@ def _run_layout[
     print_gpu_rt_result(
         "PATH",
         _bench_algorithm[
-            .PATH, blas_node_width, blas_leaf_width, method, compressed
+            .PATH, blas_node_width, blas_leaf_width, method, layout
         ](ctx, target, gpu_world, settings),
         sample_count,
     )
     print_gpu_rt_result(
         "AO",
         _bench_algorithm[
-            .AO, blas_node_width, blas_leaf_width, method, compressed
+            .AO, blas_node_width, blas_leaf_width, method, layout
         ](ctx, target, gpu_world, settings),
         sample_count,
     )
     print_gpu_rt_result(
         "NEE",
         _bench_algorithm[
-            .NEE, blas_node_width, blas_leaf_width, method, compressed
+            .NEE, blas_node_width, blas_leaf_width, method, layout
         ](ctx, target, gpu_world, settings),
         sample_count,
     )
     print_gpu_rt_result(
         "MIS",
         _bench_algorithm[
-            .MIS, blas_node_width, blas_leaf_width, method, compressed
+            .MIS, blas_node_width, blas_leaf_width, method, layout
         ](ctx, target, gpu_world, settings),
         sample_count,
     )
@@ -199,9 +200,9 @@ def main() raises:
         _run_layout[8, 4, .LBVH](
             ctx, target, world, settings, sample_count, "LBVH wide8/leaf4"
         )
-        _run_layout[8, 4, .LBVH, True](
+        _run_layout[8, 4, .LBVH, .CWBVH8](
             ctx, target, world, settings, sample_count, "LBVH CWBVH8"
         )
-        _run_layout[8, 4, .HPLOC, True](
+        _run_layout[8, 4, .HPLOC, .CWBVH8](
             ctx, target, world, settings, sample_count, "H-PLOC CWBVH8"
         )

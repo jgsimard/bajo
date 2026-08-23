@@ -12,7 +12,7 @@ from bajo.core.random import Rng, random_on_hemisphere
 from bajo.bvh import Camera
 from bajo.rt.types import (
     Color,
-    RENDER,
+    Integrator,
     RenderResult,
     RenderSettings,
     RenderTimings,
@@ -40,7 +40,7 @@ comptime CPU_RENDER_TILE_HEIGHT = 16
 
 
 def _trace_path[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
 ](
@@ -50,7 +50,7 @@ def _trace_path[
     mut rng: Rng,
     path_id: UInt32,
 ) -> Color:
-    comptime assert ALGORITHM in (RENDER.PATH, RENDER.NEE, RENDER.MIS)
+    comptime assert ALGORITHM in (Integrator.PATH, Integrator.NEE, Integrator.MIS)
 
     var cur_ray = ray
     var throughput = Color(1.0)
@@ -153,7 +153,7 @@ def _trace_ao[
 
 
 def _trace_algorithm[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
 ](
@@ -184,7 +184,7 @@ def _trace_algorithm[
 
 
 def _render_pixel[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
 ](
@@ -211,7 +211,7 @@ def _render_pixel[
 
 
 def render_depth_first[
-    ALGORITHM: RENDER = .PATH,
+    ALGORITHM: Integrator = .PATH,
     TILE_WIDTH: Int = CPU_RENDER_TILE_WIDTH,
     TILE_HEIGHT: Int = CPU_RENDER_TILE_HEIGHT,
     SCHEDULER_MODE: Int = 2,

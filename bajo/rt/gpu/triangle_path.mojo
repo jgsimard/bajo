@@ -4,11 +4,11 @@ from std.time import perf_counter_ns
 from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh import Camera
-from bajo.bvh.gpu import GpuBvhBuildMethod
+from bajo.bvh.gpu import GpuBvhBuildMethod, GpuBvhLayout
 from bajo.core import Frame
 from bajo.rt.types import (
     Color,
-    RENDER,
+    Integrator,
     RenderResult,
     RenderSettings,
     RenderTimings,
@@ -40,7 +40,9 @@ struct GpuRtTriangleScene[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
     build_method: GpuBvhBuildMethod = .HPLOC,
-    compressed: Bool = node_width == 8 and leaf_width == 4,
+    layout: GpuBvhLayout = GpuBvhLayout(
+        node_width == 8 and leaf_width == 4
+    ),
 ]:
     """Triangle BVH, surface sidecar, and shared material tables on device."""
 
@@ -49,7 +51,7 @@ struct GpuRtTriangleScene[
         Self.node_width,
         Self.leaf_width,
         Self.build_method,
-        Self.compressed,
+        Self.layout,
     ]
     var triangle_surfaces: DeviceBuffer[.uint32]
     var shading: GpuRtShadingResources
@@ -72,7 +74,7 @@ struct GpuRtTriangleScene[
             Self.node_width,
             Self.leaf_width,
             Self.build_method,
-            Self.compressed,
+            Self.layout,
         ](ctx, world.triangle_vertices())
         self.triangle_surfaces = upload_surface_ids(
             ctx, world.triangle_surfaces()
@@ -81,17 +83,19 @@ struct GpuRtTriangleScene[
 
 
 def _enqueue_triangle_bounce[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
     node_width: SIMDLength,
     leaf_width: SIMDLength,
     MAX_BLOCKS: Int = GPU_RT_MAX_BLOCKS,
     SHADOW_MAX_BLOCKS: Int = MAX_BLOCKS,
     build_method: GpuBvhBuildMethod = .HPLOC,
-    compressed: Bool = node_width == 8 and leaf_width == 4,
+    layout: GpuBvhLayout = GpuBvhLayout(
+        node_width == 8 and leaf_width == 4
+    ),
 ](
     ctx: DeviceContext,
     arena: GpuWavefrontArena,
-    world: GpuRtTriangleScene[node_width, leaf_width, build_method, compressed],
+    world: GpuRtTriangleScene[node_width, leaf_width, build_method, layout],
     src_path_ids: DeviceBuffer[.uint32],
     src_path_fields: DeviceBuffer[.float32],
     dst_path_ids: DeviceBuffer[.uint32],
@@ -125,7 +129,7 @@ def _enqueue_triangle_bounce[
         leaf_width,
         MAX_BLOCKS,
         SHADOW_MAX_BLOCKS,
-        compressed,
+        layout,
     ](
         ctx,
         arena,
@@ -141,17 +145,19 @@ def _enqueue_triangle_bounce[
 
 
 def enqueue_render_gpu_triangles[
-    ALGORITHM: RENDER = .PATH,
+    ALGORITHM: Integrator = .PATH,
     node_width: SIMDLength = 8,
     leaf_width: SIMDLength = 4,
     MAX_BLOCKS: Int = GPU_RT_MAX_BLOCKS,
     SHADOW_MAX_BLOCKS: Int = MAX_BLOCKS,
     build_method: GpuBvhBuildMethod = .HPLOC,
-    compressed: Bool = node_width == 8 and leaf_width == 4,
+    layout: GpuBvhLayout = GpuBvhLayout(
+        node_width == 8 and leaf_width == 4
+    ),
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: GpuRtTriangleScene[node_width, leaf_width, build_method, compressed],
+    world: GpuRtTriangleScene[node_width, leaf_width, build_method, layout],
     settings: RenderSettings,
 ) raises:
     """Submit a triangle render asynchronously into `target.pixels`."""
@@ -164,17 +170,19 @@ def enqueue_render_gpu_triangles[
             MAX_BLOCKS,
             SHADOW_MAX_BLOCKS,
             build_method,
-            compressed,
+            layout,
         ],
     ](ctx, target, world, settings)
 
 
 def render_gpu_triangles[
-    ALGORITHM: RENDER = .PATH,
+    ALGORITHM: Integrator = .PATH,
     node_width: SIMDLength = 8,
     leaf_width: SIMDLength = 4,
     build_method: GpuBvhBuildMethod = .HPLOC,
-    compressed: Bool = node_width == 8 and leaf_width == 4,
+    layout: GpuBvhLayout = GpuBvhLayout(
+        node_width == 8 and leaf_width == 4
+    ),
 ](
     settings: RenderSettings,
     camera: Camera,
@@ -192,7 +200,7 @@ def render_gpu_triangles[
     with DeviceContext() as ctx:
         var init_t0 = perf_counter_ns()
         var gpu_world = GpuRtTriangleScene[
-            node_width, leaf_width, build_method, compressed
+            node_width, leaf_width, build_method, layout
         ](ctx, world)
         var target = GpuRtRenderTarget(ctx, settings, camera)
         init_ns = Int(perf_counter_ns() - init_t0)
@@ -205,7 +213,7 @@ def render_gpu_triangles[
             GPU_RT_MAX_BLOCKS,
             GPU_RT_MAX_BLOCKS,
             build_method,
-            compressed,
+            layout,
         ](
             ctx,
             target,

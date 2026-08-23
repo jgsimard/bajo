@@ -6,7 +6,7 @@ from std.math import ceildiv
 from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh.constants import f32_max
-from bajo.rt.types import RENDER
+from bajo.rt.types import Integrator
 from bajo.rt.wavefront_contract import (
     DeviceWavePath,
     DeviceWaveShade,
@@ -33,7 +33,7 @@ comptime WAVEFRONT_CONTRACT_BLOCK_SIZE = 128
 
 @always_inline
 def load_gpu_rt_path[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
 ](
     path_ids: Pointer[UInt32, ImmutAnyOrigin],
     fields: Pointer[Float32, ImmutAnyOrigin],
@@ -46,7 +46,7 @@ def load_gpu_rt_path[
     var tx = Float32(1.0)
     var ty = Float32(1.0)
     var tz = Float32(1.0)
-    comptime if ALGORITHM in (RENDER.PATH, RENDER.NEE, RENDER.MIS):
+    comptime if ALGORITHM in (Integrator.PATH, Integrator.NEE, Integrator.MIS):
         tx = fields[
             unsafe_offset=wavefront_plane_index(
                 WavePathFloatAbi.TX, capacity, idx
@@ -70,7 +70,7 @@ def load_gpu_rt_path[
             )
         ]
     var delta = True
-    comptime if ALGORITHM in (RENDER.NEE, RENDER.MIS):
+    comptime if ALGORITHM in (Integrator.NEE, Integrator.MIS):
         delta = (packed_path_id & WAVE_PATH_DELTA_BIT) != 0
     return DeviceWavePath(
         packed_path_id & WAVE_PATH_ID_MASK,
@@ -116,7 +116,7 @@ def load_gpu_rt_path[
 
 @always_inline
 def store_gpu_rt_path[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
 ](
     path: DeviceWavePath,
     path_ids: Pointer[UInt32, MutAnyOrigin],
@@ -127,7 +127,7 @@ def store_gpu_rt_path[
     """Store only the path planes consumed by one compile-time integrator."""
     comptime assert ALGORITHM.is_valid()
     var packed_path_id = path.path_id & WAVE_PATH_ID_MASK
-    comptime if ALGORITHM in (RENDER.NEE, RENDER.MIS):
+    comptime if ALGORITHM in (Integrator.NEE, Integrator.MIS):
         if path.delta:
             packed_path_id |= WAVE_PATH_DELTA_BIT
     path_ids[unsafe_offset=idx] = packed_path_id
@@ -149,7 +149,7 @@ def store_gpu_rt_path[
     fields[
         unsafe_offset=wavefront_plane_index(WavePathFloatAbi.DZ, capacity, idx)
     ] = path.dz
-    comptime if ALGORITHM in (RENDER.PATH, RENDER.NEE, RENDER.MIS):
+    comptime if ALGORITHM in (Integrator.PATH, Integrator.NEE, Integrator.MIS):
         fields[
             unsafe_offset=wavefront_plane_index(
                 WavePathFloatAbi.TX, capacity, idx

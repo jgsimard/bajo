@@ -10,7 +10,7 @@ from bajo.core import (
 )
 from bajo.core.intersect import intersect_ray_sphere_coefficients
 from bajo.core.utils import min_argmin
-from bajo.bvh.constants import EMPTY_LANE, TRACE, f32_max
+from bajo.bvh.constants import EMPTY_LANE, TraceMode, f32_max
 from bajo.bvh.cpu.build_method import CpuBvhBuildMethod
 from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvh,
@@ -25,7 +25,7 @@ from bajo.bvh.types import Hit, Sphere, SphereLeafBlock
 def _trace_sphere_leaf_block[
     frame: Frame,
     width: SIMDLength,
-    mode: TRACE,
+    mode: TraceMode,
 ](
     ray: Rayf32[frame],
     O: Point3[DType.float32, frame, width],

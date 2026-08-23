@@ -1,7 +1,7 @@
 """Backend-neutral authored scene and render inputs."""
 
 from bajo.bvh import Camera
-from bajo.rt.types import RENDER, RenderSettings, SceneData
+from bajo.rt.types import Integrator, RenderSettings, SceneData
 
 
 struct SceneDescription:
@@ -15,14 +15,14 @@ struct SceneDescription:
     var data: SceneData
     var camera: Camera
     var settings: RenderSettings
-    var integrator: RENDER
+    var integrator: Integrator
 
     def __init__(
         out self,
         var data: SceneData,
         camera: Camera,
         settings: RenderSettings,
-        integrator: RENDER,
+        integrator: Integrator,
     ):
         self.data = data^
         self.camera = camera

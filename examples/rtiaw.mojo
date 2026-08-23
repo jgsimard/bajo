@@ -6,7 +6,7 @@ from bajo.core.utils import ns_to_ms
 from bajo.rt import (
     Camera,
     Color,
-    RENDER,
+    Integrator,
     RenderSettings,
     SceneBuilder,
     CpuScene,
@@ -21,7 +21,7 @@ comptime IMAGE_HEIGHT = 400
 comptime SAMPLES_PER_PIXEL = 10
 comptime MAX_DEPTH = 32
 comptime RNG_SEED = UInt64(1234)
-comptime RENDER_ALGORITHM = .PATH
+comptime INTEGRATOR = Integrator.PATH
 
 
 def make_weekend_world[
@@ -119,7 +119,7 @@ def main() raises:
     )
 
     var t0 = perf_counter_ns()
-    var result = render_wavefront[RENDER_ALGORITHM](settings, camera, world)
+    var result = render_wavefront[INTEGRATOR](settings, camera, world)
     var t1 = perf_counter_ns()
 
     write_ppm_from_colors(

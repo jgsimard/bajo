@@ -9,7 +9,6 @@ film and sampling settings are overridden for an interactive CPU render.
 from bajo.parser.pbrt import read_pbrt
 from bajo.rt import (
     CpuScene,
-    RENDER,
     RenderSettings,
     render_wavefront,
     write_ppm_from_colors,

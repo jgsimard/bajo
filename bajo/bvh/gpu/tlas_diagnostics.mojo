@@ -9,8 +9,6 @@ from bajo.bvh.constants import (
     EMPTY_LANE,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
     GPU_STACK_SIZE,
-    Primitive,
-    TRACE,
     f32_max,
 )
 from bajo.bvh.gpu.camera_launch import _camera_ray, _store_camera_hit
@@ -21,7 +19,7 @@ from bajo.bvh.gpu.trace import (
     _intersect_trace_node_precomputed,
 )
 from bajo.bvh.gpu.triangle_bvh import _intersect_cwbvh_triangle
-from bajo.bvh.gpu.tlas import GpuTriangleTlas
+from bajo.bvh.gpu.tlas import GpuTlas
 from bajo.bvh.wide_meta import _wide_meta_count, _wide_meta_data
 from bajo.bvh.tlas_common import (
     finalize_tlas_hit_normal,
@@ -124,7 +122,7 @@ def _trace_cwbvh8_with_stats(
     if ray.d.z < 0.0:
         sign_code |= UInt32(1)
     var octant_inverse = UInt32(7) - sign_code
-    var ray_rcp = ray.rcp_direction[1]()
+    var ray_rcp = ray.reciprocal_direction[1]()
 
     var node_group_base = root_idx
     var node_group_mask = UInt32(1) << UInt32(31)
@@ -211,7 +209,7 @@ def _trace_tlas2_leaf1_cwbvh8_with_stats(
     var stack_ptr = 0
     var current = tlas_root
     var bounds_origin = ray.origin[2]()
-    var rcp_direction = ray.rcp_direction[2]()
+    var reciprocal_direction = ray.reciprocal_direction[2]()
     var inverse_span = Span(
         unsafe_ptr=inst_inv_transform,
         length=instance_count * Affine3f32.STRIDE,
@@ -223,7 +221,7 @@ def _trace_tlas2_leaf1_cwbvh8_with_stats(
             tlas_nodes,
             current,
             bounds_origin,
-            rcp_direction,
+            reciprocal_direction,
             hit.t,
         )
         var child_valid = Array[Bool, 2](fill=False)
@@ -366,7 +364,8 @@ def launch_triangle_tlas_camera_diagnostics[
     blas_leaf_width: SIMDLength,
 ](
     ctx: DeviceContext,
-    tlas: GpuTriangleTlas[
+    tlas: GpuTlas[
+        .TRIANGLE,
         2,
         blas_node_width,
         1,
@@ -391,18 +390,18 @@ def launch_triangle_tlas_camera_diagnostics[
         "TLAS diagnostic stats buffer is too short",
     )
     ctx.enqueue_function[trace_tlas_camera_diagnostic_kernel](
-        tlas.core.tree.wide_nodes,
-        tlas.core.tree.leaf_block_indices,
-        tlas.core.inst_inv_transform,
-        tlas.core.inst_blas_indices,
+        tlas._tree.wide_nodes,
+        tlas._tree.leaf_block_indices,
+        tlas._inst_inv_transform,
+        tlas._inst_blas_indices,
         blases.descs,
         blases.nodes,
         blases.leaves,
-        tlas.core.tree.root_idx,
+        tlas._tree.root_idx,
         camera_params,
         hits,
         stats,
-        Int32(tlas.core.inst_count),
+        Int32(tlas._inst_count),
         Int32(ray_count),
         Int32(width),
         Int32(height),

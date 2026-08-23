@@ -3,7 +3,8 @@
 from std.math import ceildiv
 from max.gpu.host import DeviceBuffer, DeviceContext
 
-from bajo.rt.types import RENDER
+from bajo.bvh.gpu import GpuBvhLayout
+from bajo.rt.types import Integrator
 from bajo.rt.gpu.common_kernels import GPU_RT_BLOCK_SIZE, GPU_RT_MAX_BLOCKS
 from bajo.rt.gpu.path_shading import GpuRtMaterials, _enqueue_material_shading
 from bajo.rt.gpu.scene_trace import (
@@ -16,7 +17,7 @@ from bajo.rt.gpu.wavefront_contract import GpuWavefrontArena
 
 @always_inline
 def enqueue_gpu_rt_bounce[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
     HAS_SPHERES: Bool,
     HAS_TRIANGLES: Bool,
     HAS_INSTANCES: Bool,
@@ -30,8 +31,8 @@ def enqueue_gpu_rt_bounce[
     blas_leaf_width: SIMDLength,
     MAX_BLOCKS: Int = GPU_RT_MAX_BLOCKS,
     SHADOW_MAX_BLOCKS: Int = MAX_BLOCKS,
-    triangle_compressed: Bool = False,
-    blas_compressed: Bool = False,
+    triangle_layout: GpuBvhLayout = .WIDE,
+    blas_layout: GpuBvhLayout = .WIDE,
 ](
     ctx: DeviceContext,
     arena: GpuWavefrontArena,
@@ -67,8 +68,8 @@ def enqueue_gpu_rt_bounce[
             tlas_leaf_width,
             blas_node_width,
             blas_leaf_width,
-            triangle_compressed,
-            blas_compressed,
+            triangle_layout,
+            blas_layout,
         ]
     ](
         scene,
@@ -92,10 +93,10 @@ def enqueue_gpu_rt_bounce[
         blas_node_width,
         blas_leaf_width,
         SHADOW_MAX_BLOCKS,
-        triangle_compressed,
-        blas_compressed,
+        triangle_layout,
+        blas_layout,
     ](ctx, scene, queues, arena.capacity)
-    comptime if ALGORITHM in (RENDER.PATH, RENDER.NEE, RENDER.MIS):
+    comptime if ALGORITHM in (Integrator.PATH, Integrator.NEE, Integrator.MIS):
         _enqueue_material_shading[ALGORITHM, MAX_BLOCKS](
             ctx,
             arena,

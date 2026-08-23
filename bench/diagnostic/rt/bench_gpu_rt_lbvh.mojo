@@ -5,7 +5,6 @@ from std.sys import has_accelerator, simd_width_of
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceContext
 
-from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.gpu.tlas_diagnostics import (
     GpuTlasTraversalStats,
     launch_triangle_tlas_camera_diagnostics,
@@ -14,7 +13,7 @@ from bajo.bvh.gpu.tlas_diagnostics import (
 from bajo.bvh.types import Hit
 from bajo.core import Frame
 from bajo.core.utils import ns_to_ms
-from bajo.rt import RENDER, RenderSettings, CpuScene
+from bajo.rt import RenderSettings, CpuScene
 from bajo.rt.gpu.combined_instance_path import (
     GpuRtCombinedInstanceScene,
     enqueue_render_gpu_combined_instances,
@@ -53,11 +52,11 @@ def _warm_world_build[
         8,
         4,
         .HPLOC,
-        True,
+        .CWBVH8,
         4,
         4,
         .LBVH,
-        False,
+        .WIDE,
         .LBVH,
     ](ctx, world.scene_data())
     ctx.synchronize()
@@ -78,11 +77,11 @@ def _enqueue[
         8,
         4,
         .HPLOC,
-        True,
+        .CWBVH8,
         4,
         4,
         .LBVH,
-        False,
+        .WIDE,
         .LBVH,
     ],
     settings: RenderSettings,
@@ -98,11 +97,11 @@ def _enqueue[
         8,
         4,
         .HPLOC,
-        True,
+        .CWBVH8,
         4,
         4,
         .LBVH,
-        False,
+        .WIDE,
         .LBVH,
     ](ctx, target, world, settings)
 
@@ -122,11 +121,11 @@ def _timed_enqueue[
         8,
         4,
         .HPLOC,
-        True,
+        .CWBVH8,
         4,
         4,
         .LBVH,
-        False,
+        .WIDE,
         .LBVH,
     ],
     settings: RenderSettings,
@@ -206,11 +205,11 @@ def main() raises:
             8,
             4,
             .HPLOC,
-            True,
+            .CWBVH8,
             4,
             4,
             .LBVH,
-            False,
+            .WIDE,
             .LBVH,
         ](ctx, world.scene_data())
         ctx.synchronize()
@@ -227,11 +226,11 @@ def main() raises:
             8,
             4,
             .HPLOC,
-            True,
+            .CWBVH8,
             4,
             4,
             .LBVH,
-            False,
+            .WIDE,
             .LBVH,
         ](ctx, world.scene_data())
         ctx.synchronize()

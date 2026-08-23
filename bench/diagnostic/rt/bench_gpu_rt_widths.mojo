@@ -6,7 +6,7 @@ from std.time import perf_counter_ns
 from max.gpu.host import DeviceContext
 
 from bajo.core.utils import ns_to_ms
-from bajo.rt import RENDER, RenderSettings, CpuScene
+from bajo.rt import RenderSettings, CpuScene
 from bajo.rt.gpu.resources import GpuRtRenderTarget
 from bajo.rt.gpu.triangle_path import GpuRtTriangleScene
 from bajo.benchmark.gpu_harness import (

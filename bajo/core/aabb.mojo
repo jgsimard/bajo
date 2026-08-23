@@ -48,8 +48,6 @@ struct AxisAlignedBoundingBox[
         var d = self._max - self._min
         return 2.0 * (d.x * d.y + d.x * d.z + d.y * d.z)
 
-    comptime area = Self.surface_area
-
     def centroid(self) -> Point3[Self.dtype, Self.frame, Self.width]:
         return self._min.unsafe_add(self._max) * 0.5
 
@@ -70,11 +68,8 @@ struct AxisAlignedBoundingBox[
             self._min = vmin(self._min, other._min)
             self._max = vmax(self._max, other._max)
 
-    def edges(self) -> Vec3[Self.dtype, Self.frame, Self.width]:
-        return self._max - self._min
-
     def extent(self) -> Vec3[Self.dtype, Self.frame, Self.width]:
-        return self.edges()
+        return self._max - self._min
 
     def overlaps(self, o: Self) -> SIMD[.bool, Self.width]:
         return (

@@ -4,18 +4,17 @@ from std.time import perf_counter_ns
 from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh import Camera
-from bajo.bvh.constants import Primitive
 from bajo.bvh.gpu import (
     GpuBlasSet,
     GpuBvhBuildMethod,
     GpuBvhLayout,
-    GpuTriangleTlas,
-    build_triangle_blas_set,
-    build_triangle_tlas,
+    GpuTlas,
+    build_gpu_triangle_blas_set,
+    build_gpu_tlas,
 )
 from bajo.rt.types import (
     Color,
-    RENDER,
+    Integrator,
     RenderResult,
     RenderSettings,
     RenderTimings,
@@ -47,23 +46,26 @@ struct GpuRtTriangleInstanceScene[
     tlas_leaf_width: SIMDLength = tlas_node_width,
     blas_leaf_width: SIMDLength = blas_node_width,
     blas_build_method: GpuBvhBuildMethod = .HPLOC,
-    blas_compressed: Bool = blas_node_width == 8 and blas_leaf_width == 4,
+    blas_layout: GpuBvhLayout = GpuBvhLayout(
+        blas_node_width == 8 and blas_leaf_width == 4
+    ),
     tlas_build_method: GpuBvhBuildMethod = .LBVH,
 ]:
     """Packed triangle BLAS set, typed TLAS, surfaces, and materials."""
 
     var blases: GpuBlasSet[
         .TRIANGLE,
-        GpuBvhLayout(Self.blas_compressed),
+        Self.blas_layout,
         Self.blas_node_width,
         Self.blas_leaf_width,
     ]
-    var tlas: GpuTriangleTlas[
+    var tlas: GpuTlas[
+        .TRIANGLE,
         Self.tlas_node_width,
         Self.blas_node_width,
         Self.tlas_leaf_width,
         Self.blas_leaf_width,
-        GpuBvhLayout(Self.blas_compressed),
+        Self.blas_layout,
     ]
     var instance_surfaces: DeviceBuffer[.uint32]
     var shading: GpuRtShadingResources
@@ -81,19 +83,19 @@ struct GpuRtTriangleInstanceScene[
             len(world.spheres()) == 0 and len(world.triangle_vertices()) == 0,
             "GPU instance RT currently accepts instance-only worlds",
         )
-        self.blases = build_triangle_blas_set[
+        self.blases = build_gpu_triangle_blas_set[
             Self.blas_node_width,
             Self.blas_leaf_width,
             Self.blas_build_method,
-            GpuBvhLayout(Self.blas_compressed),
+            Self.blas_layout,
         ](ctx, world.triangle_meshes())
-        self.tlas = build_triangle_tlas[
+        self.tlas = build_gpu_tlas[.TRIANGLE,
             Self.tlas_node_width,
             Self.blas_node_width,
             Self.tlas_leaf_width,
             Self.blas_leaf_width,
             Self.tlas_build_method,
-            GpuBvhLayout(Self.blas_compressed),
+            Self.blas_layout,
         ](ctx, world.triangle_instances())
         self.instance_surfaces = upload_surface_ids(
             ctx, world.triangle_instance_surfaces()
@@ -102,13 +104,13 @@ struct GpuRtTriangleInstanceScene[
 
 
 def _enqueue_instance_bounce[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
     tlas_node_width: SIMDLength,
     tlas_leaf_width: SIMDLength,
     blas_node_width: SIMDLength,
     blas_leaf_width: SIMDLength,
     blas_build_method: GpuBvhBuildMethod,
-    blas_compressed: Bool,
+    blas_layout: GpuBvhLayout,
     tlas_build_method: GpuBvhBuildMethod,
 ](
     ctx: DeviceContext,
@@ -119,7 +121,7 @@ def _enqueue_instance_bounce[
         tlas_leaf_width,
         blas_leaf_width,
         blas_build_method,
-        blas_compressed,
+        blas_layout,
         tlas_build_method,
     ],
     src_path_ids: DeviceBuffer[.uint32],
@@ -133,15 +135,15 @@ def _enqueue_instance_bounce[
         None,
         None,
         GpuRtInstanceView(
-            _immut(world.tlas.core.tree.wide_nodes),
-            _immut(world.tlas.core.tree.leaf_block_indices),
-            _immut(world.tlas.core.inst_inv_transform),
-            _immut(world.tlas.core.inst_blas_indices),
+            _immut(world.tlas._tree.wide_nodes),
+            _immut(world.tlas._tree.leaf_block_indices),
+            _immut(world.tlas._inst_inv_transform),
+            _immut(world.tlas._inst_blas_indices),
             _immut(world.blases.descs),
             _immut(world.blases.nodes),
             _immut(world.blases.leaves),
-            world.tlas.core.tree.root_idx,
-            Int32(world.tlas.core.inst_count),
+            world.tlas._tree.root_idx,
+            Int32(world.tlas._inst_count),
             Int32(world.blases.blas_count),
             _immut(world.instance_surfaces),
         ),
@@ -160,7 +162,7 @@ def _enqueue_instance_bounce[
         tlas_leaf_width,
         blas_node_width,
         blas_leaf_width,
-        blas_compressed=blas_compressed,
+        blas_layout=blas_layout,
     ](
         ctx,
         arena,
@@ -176,13 +178,15 @@ def _enqueue_instance_bounce[
 
 
 def enqueue_render_gpu_triangle_instances[
-    ALGORITHM: RENDER = .PATH,
+    ALGORITHM: Integrator = .PATH,
     tlas_node_width: SIMDLength = 2,
     tlas_leaf_width: SIMDLength = tlas_node_width,
     blas_node_width: SIMDLength = 8,
     blas_leaf_width: SIMDLength = 4,
     blas_build_method: GpuBvhBuildMethod = .HPLOC,
-    blas_compressed: Bool = blas_node_width == 8 and blas_leaf_width == 4,
+    blas_layout: GpuBvhLayout = GpuBvhLayout(
+        blas_node_width == 8 and blas_leaf_width == 4
+    ),
     tlas_build_method: GpuBvhBuildMethod = .LBVH,
 ](
     ctx: DeviceContext,
@@ -193,7 +197,7 @@ def enqueue_render_gpu_triangle_instances[
         tlas_leaf_width,
         blas_leaf_width,
         blas_build_method,
-        blas_compressed,
+        blas_layout,
         tlas_build_method,
     ],
     settings: RenderSettings,
@@ -208,20 +212,22 @@ def enqueue_render_gpu_triangle_instances[
             blas_node_width,
             blas_leaf_width,
             blas_build_method,
-            blas_compressed,
+            blas_layout,
             tlas_build_method,
         ],
     ](ctx, target, world, settings)
 
 
 def render_gpu_triangle_instances[
-    ALGORITHM: RENDER = .PATH,
+    ALGORITHM: Integrator = .PATH,
     tlas_node_width: SIMDLength = 2,
     tlas_leaf_width: SIMDLength = tlas_node_width,
     blas_node_width: SIMDLength = 8,
     blas_leaf_width: SIMDLength = 4,
     blas_build_method: GpuBvhBuildMethod = .HPLOC,
-    blas_compressed: Bool = blas_node_width == 8 and blas_leaf_width == 4,
+    blas_layout: GpuBvhLayout = GpuBvhLayout(
+        blas_node_width == 8 and blas_leaf_width == 4
+    ),
     tlas_build_method: GpuBvhBuildMethod = .LBVH,
 ](
     settings: RenderSettings,
@@ -246,7 +252,7 @@ def render_gpu_triangle_instances[
             tlas_leaf_width,
             blas_leaf_width,
             blas_build_method,
-            blas_compressed,
+            blas_layout,
             tlas_build_method,
         ](ctx, world)
         var target = GpuRtRenderTarget(ctx, settings, camera)
@@ -260,7 +266,7 @@ def render_gpu_triangle_instances[
             blas_node_width,
             blas_leaf_width,
             blas_build_method,
-            blas_compressed,
+            blas_layout,
             tlas_build_method,
         ](
             ctx,

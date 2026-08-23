@@ -6,7 +6,7 @@ from std.testing import (
     assert_false,
 )
 
-from bajo.parser.obj.loaders import MemoryObjTextLoader
+from bajo.parser.text_loader import MemoryTextLoader
 from bajo.parser.obj import (
     ObjMesh,
     read_obj,
@@ -132,7 +132,7 @@ f 1 2 3"""
 
 
 def test_material_fallback_replacement_and_textures() raises:
-    var loader = MemoryObjTextLoader()
+    var loader = MemoryTextLoader()
 
     comptime obj = """usemtl matA
 mtllib matA.mtl
@@ -178,7 +178,7 @@ bump normal.png"""
 
 
 def test_memory_loader_mtllib_with_spaces_and_texture_dedup() raises:
-    var loader = MemoryObjTextLoader()
+    var loader = MemoryTextLoader()
 
     comptime obj = """mtllib material library.mtl
 usemtl matB
@@ -276,7 +276,7 @@ f 2 4 3"""
 
 
 def test_tr_only_transparency() raises:
-    var loader = MemoryObjTextLoader()
+    var loader = MemoryTextLoader()
 
     comptime obj = """mtllib glass.mtl
 usemtl glass
@@ -297,7 +297,7 @@ Tr 0.25"""
 
 
 def test_d_overrides_tr_order() raises:
-    var loader = MemoryObjTextLoader()
+    var loader = MemoryTextLoader()
 
     comptime obj = """mtllib mat.mtl
 usemtl mat

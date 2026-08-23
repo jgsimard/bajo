@@ -1,12 +1,89 @@
-from .types import ObjMesh
+from .types import ObjGroup, ObjMaterial, ObjMesh
 from .mtl import _read_mtl_file
 from .primitives import _is_ws_or_line_cut
 from .constants import *
 from .cursor import ObjIndexLimit, ObjLineCursor
-from .loaders import ObjTextLoader
+from bajo.parser.text_loader import TextLoader
 
 
 comptime _MAX_OBJ_INDEX = Int(0x7FFFFFFF)
+
+
+struct _ObjParserState:
+    var current_material: Int
+    var current_object: ObjGroup
+    var current_group: ObjGroup
+
+    def __init__(out self):
+        self.current_material = 0
+        self.current_object = ObjGroup("", 0, 0, 0)
+        self.current_group = ObjGroup("", 0, 0, 0)
+
+    def _flush_object(mut self, mut mesh: ObjMesh):
+        if self.current_object.face_count > 0:
+            mesh.objects.append(self.current_object.copy())
+        self.current_object = ObjGroup(
+            "", 0, len(mesh.face_vertices), len(mesh.indices)
+        )
+
+    def _flush_group(mut self, mut mesh: ObjMesh):
+        if self.current_group.face_count > 0:
+            mesh.groups.append(self.current_group.copy())
+        self.current_group = ObjGroup(
+            "", 0, len(mesh.face_vertices), len(mesh.indices)
+        )
+
+    def begin_object(mut self, mut mesh: ObjMesh, name: String):
+        self._flush_object(mesh)
+        self.current_object.name = name
+
+    def begin_group(mut self, mut mesh: ObjMesh, name: String):
+        self._flush_group(mesh)
+        self.current_group.name = name
+
+    def finish(mut self, mut mesh: ObjMesh):
+        self._flush_group(mesh)
+        self._flush_object(mesh)
+
+    def ensure_material(
+        mut self, mut mesh: ObjMesh, name: String, fallback: Bool = True
+    ) raises:
+        if name in mesh.material_names:
+            self.current_material = mesh.material_names[name]
+            return
+
+        var index = len(mesh.materials)
+        mesh.materials.append(ObjMaterial(name, fallback=fallback))
+        mesh.material_names[name] = index
+        self.current_material = index
+
+    def push_element_meta(
+        mut self, mut mesh: ObjMesh, count: Int, is_line: Bool = False
+    ):
+        if count == 0:
+            return
+        if not is_line and count < 3:
+            return
+        if is_line and count < 2:
+            return
+
+        mesh.face_vertices.append(count)
+        mesh.face_materials.append(self.current_material)
+
+        if is_line or len(mesh.face_lines) > 0:
+            while len(mesh.face_lines) < len(mesh.face_vertices) - 1:
+                mesh.face_lines.append(UInt8(0))
+            mesh.face_lines.append(UInt8(1) if is_line else UInt8(0))
+
+        self.current_group.face_count += 1
+        self.current_object.face_count += 1
+
+
+def _push_color(mut mesh: ObjMesh, r: Float32, g: Float32, b: Float32):
+    var target_before_this_color = len(mesh.positions) - 3
+    while len(mesh.colors) < target_before_this_color:
+        mesh.colors.append(1.0)
+    mesh.colors.extend([r, g, b])
 
 
 @always_inline
@@ -49,7 +126,7 @@ def _parse_v_cursor(mut mesh: ObjMesh, mut cur: ObjLineCursor) raises:
             cur.skip_ws()
             if cur.pos < len(cur.bytes):
                 var b = cur._next_f32_at_pos()
-                mesh._push_color(r, g, b)
+                _push_color(mesh, r, g, b)
 
 
 def _parse_vt_cursor(mut mesh: ObjMesh, mut cur: ObjLineCursor) raises:
@@ -93,24 +170,28 @@ def _parse_vn_cursor(mut mesh: ObjMesh, mut cur: ObjLineCursor) raises:
 
 def _finish_face_parse(
     mut mesh: ObjMesh,
+    mut state: _ObjParserState,
     index_start: Int,
     count: Int,
     is_line: Bool,
 ):
     if not is_line:
         if count >= 3:
-            mesh._push_element_meta(count, is_line=False)
+            state.push_element_meta(mesh, count, is_line=False)
         else:
             mesh.indices.shrink(index_start)
     else:
         if count >= 2:
-            mesh._push_element_meta(count, is_line=True)
+            state.push_element_meta(mesh, count, is_line=True)
         else:
             mesh.indices.shrink(index_start)
 
 
 def _parse_face_cursor(
-    mut mesh: ObjMesh, mut cur: ObjLineCursor, is_line: Bool = False
+    mut mesh: ObjMesh,
+    mut state: _ObjParserState,
+    mut cur: ObjLineCursor,
+    is_line: Bool = False,
 ) raises:
     var index_start = len(mesh.indices)
     var count = 0
@@ -120,7 +201,7 @@ def _parse_face_cursor(
 
     cur.skip_ws()
     if cur.pos >= len(cur.bytes):
-        _finish_face_parse(mesh, index_start, count, is_line)
+        _finish_face_parse(mesh, state, index_start, count, is_line)
         return
 
     var first = cur.next_first_face_index_at_token(
@@ -171,19 +252,20 @@ def _parse_face_cursor(
             )
             count += 1
 
-    _finish_face_parse(mesh, index_start, count, is_line)
+    _finish_face_parse(mesh, state, index_start, count, is_line)
 
 
 def _parse_obj[
-    Loader: ObjTextLoader
+    Loader: TextLoader
 ](path: String, text: String, loader: Loader) raises -> ObjMesh:
     return _parse_obj(path, StringSpan(text), loader)
 
 
 def _parse_obj[
-    Loader: ObjTextLoader
+    Loader: TextLoader
 ](path: String, text: ImmStringSpan, loader: Loader) raises -> ObjMesh:
     var mesh = ObjMesh()
+    var state = _ObjParserState()
     var est_elements = text.byte_length() / 15
     mesh.positions.reserve(est_elements * 3)
     mesh.texcoords.reserve(est_elements * 2)
@@ -226,16 +308,16 @@ def _parse_obj[
                         _parse_vn_cursor(mesh, cur)
             elif c0 == CHAR_f and _word_ends_here(cur.bytes, p + 1):
                 cur.pos = p + 1
-                _parse_face_cursor(mesh, cur, is_line=False)
+                _parse_face_cursor(mesh, state, cur, is_line=False)
             elif c0 == CHAR_l and _word_ends_here(cur.bytes, p + 1):
                 cur.pos = p + 1
-                _parse_face_cursor(mesh, cur, is_line=True)
+                _parse_face_cursor(mesh, state, cur, is_line=True)
             elif c0 == CHAR_g and _word_ends_here(cur.bytes, p + 1):
                 cur.pos = p + 1
-                mesh._begin_group(cur.joined_rest_of_line())
+                state.begin_group(mesh, cur.joined_rest_of_line())
             elif c0 == CHAR_o and _word_ends_here(cur.bytes, p + 1):
                 cur.pos = p + 1
-                mesh._begin_object(cur.joined_rest_of_line())
+                state.begin_object(mesh, cur.joined_rest_of_line())
             else:
                 var tag_start = p
                 var tag_end = p
@@ -250,9 +332,7 @@ def _parse_obj[
                 if tag == "usemtl":
                     var name = cur.joined_rest_of_line()
                     if name.byte_length() > 0:
-                        mesh._current_material = mesh._ensure_material(
-                            name, fallback=True
-                        )
+                        state.ensure_material(mesh, name, fallback=True)
                 elif tag == "mtllib":
                     var mtl_name = cur.joined_rest_of_line()
                     if mtl_name.byte_length() > 0:
@@ -263,5 +343,5 @@ def _parse_obj[
         while len(mesh.colors) < len(mesh.positions):
             mesh.colors.append(1.0)
 
-    mesh._finish()
+    state.finish(mesh)
     return mesh^

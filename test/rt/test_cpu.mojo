@@ -32,7 +32,6 @@ from bajo.rt import (
     LightStore,
     Metal,
     PrimitiveId,
-    RENDER,
     RenderSettings,
     SceneBuilder,
     ShadingPoint,
@@ -59,7 +58,7 @@ from bajo.rt.geometry import (
     sphere_for_acceleration,
     sphere_unsigned_radius,
 )
-from bajo.rt.types import MAT, PRIM
+from bajo.rt.types import MaterialKind, PrimitiveKind
 from bajo.rt.wavefront_contract import wavefront_rng_roulette_stage
 
 
@@ -114,8 +113,8 @@ def test_reflect_and_reflectance() raises:
 
 
 def test_surface_id_is_packed() raises:
-    var surface = SurfaceId(MAT(UInt32(2)), UInt32(123))
-    assert_equal(surface.kind().v, UInt32(2))
+    var surface = SurfaceId(MaterialKind(UInt32(2)), UInt32(123))
+    assert_equal(surface.kind().value, UInt32(2))
     assert_equal(surface.index(), UInt32(123))
     assert_equal(surface.value, (UInt32(2) << UInt32(28)) | UInt32(123))
 
@@ -144,7 +143,7 @@ def test_light_alias_table_matches_power_distribution() raises:
     var surface = SurfaceId(.EMISSIVE, UInt32(0))
     lights.append(
         LightRecord.sphere(
-            PrimitiveId(PRIM.SPHERE, UInt32(0)),
+            PrimitiveId(PrimitiveKind.SPHERE, UInt32(0)),
             surface.copy(),
             1.0,
             Point3f32[.WORLD](0.0),
@@ -153,7 +152,7 @@ def test_light_alias_table_matches_power_distribution() raises:
     )
     lights.append(
         LightRecord.sphere(
-            PrimitiveId(PRIM.SPHERE, UInt32(1)),
+            PrimitiveId(PrimitiveKind.SPHERE, UInt32(1)),
             surface.copy(),
             3.0,
             Point3f32[.WORLD](0.0),
@@ -162,7 +161,7 @@ def test_light_alias_table_matches_power_distribution() raises:
     )
     lights.append(
         LightRecord.sphere(
-            PrimitiveId(PRIM.SPHERE, UInt32(2)),
+            PrimitiveId(PrimitiveKind.SPHERE, UInt32(2)),
             surface.copy(),
             6.0,
             Point3f32[.WORLD](0.0),
@@ -214,7 +213,7 @@ def test_scene_builder_finalizes_derived_lights() raises:
     assert_equal(len(scene.triangle_vertices()), 6)
     assert_equal(len(scene.triangle_surfaces()), 2)
     assert_equal(len(scene.lights().records), 1)
-    assert_equal(scene.lights().records[0].primitive.kind(), PRIM.SPHERE)
+    assert_equal(scene.lights().records[0].primitive.kind(), PrimitiveKind.SPHERE)
     assert_true(scene.lights().total_weight > 0.0)
 
 
@@ -238,7 +237,7 @@ def test_scene_builder_finalizes_emissive_triangle_instance_lights() raises:
     var scene = builder^.finish()
     assert_equal(len(scene.lights().records), 1)
     ref record = scene.lights().records[0]
-    assert_equal(record.primitive.kind(), PRIM.TRIANGLE_INSTANCE)
+    assert_equal(record.primitive.kind(), PrimitiveKind.TRIANGLE_INSTANCE)
     assert_equal(record.primitive.index(), UInt32(0))
     assert_almost_equal(record.weight, 8.0)
     assert_vec_equal(record.p0, Point3f32[.WORLD](1.0, -1.0, 0.0))
@@ -526,7 +525,7 @@ def test_world_hit_maps_material_and_normal() raises:
     var world = CpuScene[4, 8](scene^)
     assert_equal(len(world.scene_data().lights().records), 1)
     assert_equal(
-        world.scene_data().lights().records[0].primitive.kind(), PRIM.SPHERE
+        world.scene_data().lights().records[0].primitive.kind(), PrimitiveKind.SPHERE
     )
     assert_equal(
         world.scene_data().lights().records[0].surface.value, light.value
@@ -543,7 +542,7 @@ def test_world_hit_maps_material_and_normal() raises:
         .value()
         .copy()
     )
-    assert_equal(hit.primitive.kind(), PRIM.SPHERE)
+    assert_equal(hit.primitive.kind(), PrimitiveKind.SPHERE)
     assert_equal(hit.primitive.index(), UInt32(0))
     assert_equal(hit.surface.kind(), matte.kind())
     assert_equal(hit.surface.index(), matte.index())
@@ -610,7 +609,7 @@ def test_world_hits_triangle() raises:
         .value()
         .copy()
     )
-    assert_equal(hit.primitive.kind(), PRIM.TRIANGLE)
+    assert_equal(hit.primitive.kind(), PrimitiveKind.TRIANGLE)
     assert_equal(hit.primitive.index(), UInt32(0))
     assert_equal(hit.surface.value, matte.value)
     assert_true(hit.front_face)
@@ -671,7 +670,7 @@ def test_world_picks_closest_sphere_or_triangle() raises:
         .value()
         .copy()
     )
-    assert_equal(hit.primitive.kind(), PRIM.SPHERE)
+    assert_equal(hit.primitive.kind(), PrimitiveKind.SPHERE)
     assert_equal(hit.surface.value, sphere_surface.value)
     assert_almost_equal(hit.t, 0.75)
 
@@ -703,7 +702,7 @@ def test_add_triangle_mesh_assigns_surface_per_triangle() raises:
         .value()
         .copy()
     )
-    assert_equal(hit.primitive.kind(), PRIM.TRIANGLE)
+    assert_equal(hit.primitive.kind(), PrimitiveKind.TRIANGLE)
     assert_equal(hit.surface.value, matte.value)
     assert_almost_equal(hit.t, 2.0)
 
@@ -750,7 +749,7 @@ def test_triangle_mesh_instances_use_instance_surfaces() raises:
         .value()
         .copy()
     )
-    assert_equal(hit0.primitive.kind(), PRIM.TRIANGLE_INSTANCE)
+    assert_equal(hit0.primitive.kind(), PrimitiveKind.TRIANGLE_INSTANCE)
     assert_equal(hit0.primitive.index(), UInt32(0))
     assert_equal(hit0.surface.value, matte.value)
     assert_almost_equal(hit0.t, 2.0)
@@ -765,7 +764,7 @@ def test_triangle_mesh_instances_use_instance_surfaces() raises:
         .value()
         .copy()
     )
-    assert_equal(hit1.primitive.kind(), PRIM.TRIANGLE_INSTANCE)
+    assert_equal(hit1.primitive.kind(), PrimitiveKind.TRIANGLE_INSTANCE)
     assert_equal(hit1.primitive.index(), UInt32(1))
     assert_equal(hit1.surface.value, metal.value)
     assert_almost_equal(hit1.t, 2.0)

@@ -3,7 +3,7 @@
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 
 from bajo.core import Frame, Point3f32, Rayf32, Vec3f32
-from bajo.rt.types import Color, SurfaceHit, SurfaceId, MAT
+from bajo.rt.types import Color, SurfaceHit, SurfaceId, MaterialKind
 from bajo.rt.wavefront_queue import (
     FRONT_FACE_BIT,
     PacketPathQueue,
@@ -236,7 +236,7 @@ struct DeviceWaveShade(DevicePassable, TrivialRegisterPassable, Writable):
             SurfaceHit(
                 Vec3f32[.WORLD](self.nx, self.ny, self.nz),
                 SurfaceId(
-                    MAT(self.surface_value >> UInt32(28)),
+                    MaterialKind(self.surface_value >> UInt32(28)),
                     self.surface_value & UInt32(0x0FFFFFFF),
                 ),
                 self.t,

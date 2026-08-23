@@ -5,7 +5,6 @@ from std.math import round
 from bajo.core.utils import ns_to_ms
 from bajo.rt import (
     Camera,
-    RENDER,
     RenderResult,
     RenderSettings,
     CpuScene,
@@ -119,7 +118,7 @@ def _print(label: String, timing: Timing):
     )
 
 
-def main():
+def main() raises:
     print("Ray Tracing in One Weekend CPU architecture benchmark")
     print(
         t"{WIDTH}x{HEIGHT} x {SPP} spp, depth {MAX_DEPTH}; interleaved median"

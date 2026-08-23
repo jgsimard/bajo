@@ -5,21 +5,19 @@ from max.gpu.host import DeviceContext
 
 from bajo.bvh.constants import (
     EMPTY_LANE,
-    TRACE,
     WideNode,
     f32_max,
 )
 from bajo.bvh.cpu.blas_set import (
-    build_triangle_blases,
+    build_cpu_triangle_blas_set,
     trace_blas_set,
 )
-from bajo.bvh.cpu import CpuBvhBuildMethod
 from bajo.bvh.gpu.diagnostics import build_bounds_bvh_for_diagnostics
 from bajo.bvh.gpu.wide_layout import (
     GpuWideBoundsBvh,
     GpuWideBoundsBvhBatch,
 )
-from bajo.bvh.gpu.builder import GpuBvhBuildMethod, build_binary_bvh
+from bajo.bvh.gpu.builder import build_binary_bvh
 from bajo.bvh.gpu.builder.binary_layout import (
     GpuBinaryBoundsBvh,
     GpuBinaryBuildWorkspace,
@@ -347,7 +345,7 @@ def _assert_hploc_triangle_matches_cpu[
     comptime width = 32
     comptime height = 24
     comptime views = 2
-    var cpu = build_triangle_blases[
+    var cpu = build_cpu_triangle_blas_set[
         node_width, leaf_width, .LBVH, .WORLD
     ]([verts.copy()])
     var camera_data = _make_camera_rays_and_params(

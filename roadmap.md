@@ -38,7 +38,7 @@ The current rendering and acceleration-structure foundations are strong enough t
 - ✅ Onesweep
 - ✅ Benchmark coverage
 - 🚧 API and workspace polish
-- ⬜ Segmented sort
+- 🚧 Segmented sort
 
 ### BVH and spatial acceleration
 

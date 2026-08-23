@@ -10,7 +10,7 @@ from bajo.core import (
     dot,
     length2,
 )
-from bajo.rt.types import Color, RENDER, _light_importance
+from bajo.rt.types import Color, Integrator, _light_importance
 
 
 @fieldwise_init
@@ -161,14 +161,14 @@ def power_heuristic[
 
 @always_inline
 def _direct_light_scale[
-    ALGORITHM: RENDER, length: SIMDLength
+    ALGORITHM: Integrator, length: SIMDLength
 ](
     surface_cosine: SIMD[.float32, length],
     light_pdf: SIMD[.float32, length],
     bsdf_pdf: SIMD[.float32, length],
     valid: SIMD[.bool, length],
 ) -> SIMD[.float32, length]:
-    comptime assert ALGORITHM in (RENDER.NEE, RENDER.MIS)
+    comptime assert ALGORITHM in (Integrator.NEE, Integrator.MIS)
     var ok = valid & light_pdf.gt(0.0) & bsdf_pdf.gt(0.0)
     var safe_light_pdf = ok.select(light_pdf, Float32(1.0))
     var estimator_weight = SIMD[.float32, length](1.0)

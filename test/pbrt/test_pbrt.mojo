@@ -5,8 +5,8 @@ from std.testing import (
     assert_true,
 )
 
-from bajo.parser.pbrt import MemoryPbrtTextLoader, parse_pbrt, read_pbrt
-from bajo.rt import CpuScene, MAT, RENDER, render_wavefront
+from bajo.parser.pbrt import MemoryTextLoader, parse_pbrt, read_pbrt
+from bajo.rt import CpuScene, Integrator, render_wavefront
 
 
 def test_parse_checked_in_scene_with_include() raises:
@@ -77,7 +77,7 @@ Shape "loopsubdiv" "integer levels" [1]
 
 
 def test_memory_include_and_mis_render() raises:
-    var loader = MemoryPbrtTextLoader()
+    var loader = MemoryTextLoader()
     loader.add_file(
         "scene/main.pbrt",
         """LookAt 0 0 4  0 0 0  0 1 0

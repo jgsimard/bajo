@@ -5,8 +5,7 @@ from std.gpu import global_idx
 
 from bajo.bvh.constants import (
     EMPTY_LANE,
-    Primitive,
-    TRACE,
+    TraceMode,
     f32_max,
     SPHERE_LEAF_PACKED_STRIDE,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
@@ -249,7 +248,7 @@ def _enqueue_segmented_sphere_wide[
     ](hierarchy^, leaf_spheres^, leaf_pack_start_ns)
 
 
-def build_sphere_blas_set[
+def build_gpu_sphere_blas_set[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
     build_method: GpuBvhBuildMethod = .HPLOC,
@@ -423,7 +422,7 @@ def trace_sphere_bvh_camera_kernel[
 def _intersect_sphere_leaf[
     frame: Frame,
     width: SIMDLength,
-    mode: TRACE,
+    mode: TraceMode,
 ](
     leaf_spheres: ImmPointer[Float32, _],
     leaf_block_idx: UInt32,

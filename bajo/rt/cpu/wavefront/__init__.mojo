@@ -8,7 +8,7 @@ from std.time import perf_counter_ns
 from bajo.bvh import Camera
 from bajo.rt.types import (
     Color,
-    RENDER,
+    Integrator,
     RenderResult,
     RenderSettings,
     RenderTimings,
@@ -55,7 +55,7 @@ struct _PacketQueueArena[length: SIMDLength]:
 
 def _trace_packet_range[
     length: SIMDLength,
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
 ](
@@ -88,7 +88,7 @@ def _trace_packet_range[
 
 
 def render_wavefront[
-    ALGORITHM: RENDER = .PATH,
+    ALGORITHM: Integrator = .PATH,
     length: SIMDLength = 16,
     CHUNK_PATHS: Int = CPU_WAVEFRONT_PARALLEL_CHUNK_PATHS,
     PARALLEL: Bool = True,
@@ -102,7 +102,7 @@ def render_wavefront[
 ) -> RenderResult:
     """Render with compile-time packet, chunk, and CPU scheduling choices."""
     comptime assert CHUNK_PATHS > 0, "wavefront chunk size must be positive"
-    comptime assert ALGORITHM in (RENDER.PATH, RENDER.NEE, RENDER.MIS)
+    comptime assert ALGORITHM in (Integrator.PATH, Integrator.NEE, Integrator.MIS)
     comptime if PARALLEL:
         comptime assert (
             WAVE_PARALLEL_RUNTIME_DEFAULT

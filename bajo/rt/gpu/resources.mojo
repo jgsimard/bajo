@@ -5,7 +5,7 @@ from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh import Camera
 from bajo.bvh.gpu.utils import upload_camera, upload_list
-from bajo.rt.types import Color, RENDER, RenderSettings, SurfaceId
+from bajo.rt.types import Color, Integrator, RenderSettings, SurfaceId
 from bajo.rt.wavefront_contract import WAVE_PATH_ID_MASK
 from bajo.rt.gpu.common_kernels import (
     GPU_RT_BLOCK_SIZE,
@@ -116,7 +116,7 @@ def update_gpu_camera(
 
 
 def enqueue_gpu_primary[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
@@ -187,7 +187,7 @@ def enqueue_gpu_resolve(
 def enqueue_gpu_wavefront[
     Scene: AnyType,
     //,
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
     bounce_fn: def(
         DeviceContext,
         GpuWavefrontArena,
@@ -216,7 +216,7 @@ def enqueue_gpu_wavefront[
         enqueue_gpu_primary[ALGORITHM](
             ctx, target, settings, sample_begin, chunk_sample_count
         )
-        comptime if ALGORITHM in (RENDER.NORMALS, RENDER.AO):
+        comptime if ALGORITHM in (Integrator.NORMALS, Integrator.AO):
             bounce_fn(
                 ctx,
                 target.arena,

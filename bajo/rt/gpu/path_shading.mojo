@@ -31,9 +31,9 @@ from bajo.rt.lighting import (
 from bajo.rt.shading import _evaluate_material, _sample_material
 from bajo.rt.types import (
     Color,
-    MAT,
-    PRIM,
-    RENDER,
+    MaterialKind,
+    PrimitiveKind,
+    Integrator,
     SURFACE_INDEX_MASK,
     SceneData,
 )
@@ -178,7 +178,8 @@ struct GpuRtLights:
                 world.surfaces().emissives[Int(light.surface.index())].radiance
             )
             kinds.append(
-                (world.lights().alias_indices[light_idx] << UInt32(4)) | kind.v
+                (world.lights().alias_indices[light_idx] << UInt32(4))
+                | kind.value
             )
             fields.append(light.p0.x)
             fields.append(light.p0.y)
@@ -248,7 +249,7 @@ def _empty_direct_light_sample() -> GpuDirectLightSample:
 
 @always_inline
 def _sample_direct_light_candidate[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
 ](
     path: DeviceWavePath,
     incoming_ray: Rayf32[.WORLD],
@@ -265,7 +266,7 @@ def _sample_direct_light_candidate[
     rng_seed: UInt64,
     bounce: UInt32,
 ) -> GpuDirectLightSample:
-    comptime assert ALGORITHM in (RENDER.NEE, RENDER.MIS)
+    comptime assert ALGORITHM in (Integrator.NEE, Integrator.MIS)
     if light_count <= 0 or total_light_weight <= 0.0:
         return _empty_direct_light_sample()
 
@@ -283,14 +284,14 @@ def _sample_direct_light_candidate[
     )
 
     var base = selected_idx * GPU_RT_LIGHT_STRIDE
-    var kind = PRIM(light_kinds[unsafe_offset=selected_idx] & UInt32(0xF))
+    var kind = PrimitiveKind(light_kinds[unsafe_offset=selected_idx] & UInt32(0xF))
     var p0 = Point3f32[.WORLD](
         light_fields[unsafe_offset=base + GPU_RT_LIGHT_P0_X],
         light_fields[unsafe_offset=base + GPU_RT_LIGHT_P0_Y],
         light_fields[unsafe_offset=base + GPU_RT_LIGHT_P0_Z],
     )
     var surface_sample: _LightSurfaceSample
-    if kind == PRIM.SPHERE:
+    if kind == PrimitiveKind.SPHERE:
         var radius = light_fields[unsafe_offset=base + GPU_RT_LIGHT_RADIUS]
         surface_sample = _sample_sphere_light_surface(
             p0, radius, random_unit_vector[.WORLD](rng)
@@ -324,7 +325,7 @@ def _sample_direct_light_candidate[
     )
     if not geometry.valid:
         return _empty_direct_light_sample()
-    var surface_kind = MAT(surface_value >> UInt32(28))
+    var surface_kind = MaterialKind(surface_value >> UInt32(28))
     var material_idx = Int(surface_value & SURFACE_INDEX_MASK)
     var value = Color(0.0)
     var bsdf_pdf = Float32(0.0)
@@ -430,7 +431,7 @@ def _append_shadow[
 
 @always_inline
 def _shade_lambertian_inline[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
 ](
     path: DeviceWavePath,
     ray_direction: Vec3f32[.WORLD],
@@ -505,7 +506,7 @@ def _shade_lambertian_inline[
 
 @always_inline
 def _route_surface_hit[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
 ](
     active_path_idx: Int,
     path: DeviceWavePath,
@@ -541,7 +542,7 @@ def _route_surface_hit[
         )
         return
 
-    var kind = MAT(surface_value >> UInt32(28))
+    var kind = MaterialKind(surface_value >> UInt32(28))
     if kind == .EMISSIVE:
         if front_face:
             var material_idx = Int(surface_value & SURFACE_INDEX_MASK)
@@ -637,8 +638,8 @@ def _make_ao_ray(
 
 @always_inline
 def _gpu_rt_shade_one[
-    ALGORITHM: RENDER,
-    MATERIAL_KIND: MAT,
+    ALGORITHM: Integrator,
+    MATERIAL_KIND: MaterialKind,
 ](
     idx: Int,
     src_path_ids: Pointer[UInt32, ImmutAnyOrigin],
@@ -654,7 +655,7 @@ def _gpu_rt_shade_one[
     rng_seed: UInt64,
     bounce: UInt32,
 ):
-    comptime assert MATERIAL_KIND in (MAT.LAMBERTIAN, MAT.METAL, MAT.DIELECTRIC)
+    comptime assert MATERIAL_KIND in (MaterialKind.LAMBERTIAN, MaterialKind.METAL, MaterialKind.DIELECTRIC)
     var capacity = Int(capacity_i32)
     var work = load_device_wave_shade(
         shade_path_refs,
@@ -754,7 +755,7 @@ def _gpu_rt_shade_one[
 
 
 def gpu_rt_shade_dispatch_kernel[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
 ](
     src_path_ids: Pointer[UInt32, ImmutAnyOrigin],
     src_path_fields: Pointer[Float32, ImmutAnyOrigin],
@@ -775,7 +776,7 @@ def gpu_rt_shade_dispatch_kernel[
     var stride = Int(grid_dim.x * block_dim.x)
     while idx < work_count:
         var surface_value = shade_surfaces[unsafe_offset=idx]
-        var kind = MAT(surface_value >> UInt32(28))
+        var kind = MaterialKind(surface_value >> UInt32(28))
         if kind == .METAL:
             _gpu_rt_shade_one[ALGORITHM, .METAL](
                 idx,
@@ -812,7 +813,7 @@ def gpu_rt_shade_dispatch_kernel[
 
 
 def _enqueue_material_shading[
-    ALGORITHM: RENDER,
+    ALGORITHM: Integrator,
     MAX_BLOCKS: Int = GPU_RT_SHADE_MAX_BLOCKS,
 ](
     ctx: DeviceContext,

@@ -27,9 +27,8 @@ from bajo.bvh.types import BlasDesc, Hit, Sphere
 from bajo.core.random import Rng
 from bajo.bvh.constants import (
     EMPTY_LANE,
-    Primitive,
+    PrimitiveKind,
     SPHERE_LEAF_PACKED_STRIDE,
-    TRACE,
     TRI_LEAF_PACKED_STRIDE,
     WideNode,
     f32_max,
@@ -66,8 +65,8 @@ from bajo.bvh.cpu.builder.lbvh import (
 )
 from bajo.bvh.cpu.builder.sah import _find_sah_split, _partition_items_by_bin
 from bajo.bvh.cpu.blas_set import (
-    build_sphere_blases,
-    build_triangle_blases,
+    build_cpu_sphere_blas_set,
+    build_cpu_triangle_blas_set,
     trace_blas_set,
     trace_blas_set_packet,
 )
@@ -163,7 +162,7 @@ def _make_random_xy_triangles[
 def _make_strip[frame: Frame](count: Int) -> List[Point3f32[frame]]:
     """Create `count` separated triangles at z = 2.
 
-    Primitive i is centered at x = i * 4 - count * 2.
+    PrimitiveKind i is centered at x = i * 4 - count * 2.
     """
     var verts = List[Point3f32[frame]](capacity=count * 3)
 
@@ -179,12 +178,12 @@ def _make_strip[frame: Frame](count: Int) -> List[Point3f32[frame]]:
 def _make_depth_pair[frame: Frame]() -> List[Point3f32[frame]]:
     var verts = List[Point3f32[frame]](capacity=6)
 
-    # Primitive 0 at z = 2.
+    # PrimitiveKind 0 at z = 2.
     verts.append(Point3f32[frame](-1.0, -1.0, 2.0))
     verts.append(Point3f32[frame](1.0, -1.0, 2.0))
     verts.append(Point3f32[frame](0.0, 1.0, 2.0))
 
-    # Primitive 1 at z = 4, behind primitive 0.
+    # PrimitiveKind 1 at z = 4, behind primitive 0.
     verts.append(Point3f32[frame](-1.0, -1.0, 4.0))
     verts.append(Point3f32[frame](1.0, -1.0, 4.0))
     verts.append(Point3f32[frame](0.0, 1.0, 4.0))
@@ -578,7 +577,7 @@ def test_bounds_ray_query_inside_outside_regression() raises:
     var query_ray = Rayf32[.WORLD](
         Point3W(0.0, 0.0, 0.0), Vec3W(1.0, 0.0, 0.0)
     )
-    var rcp_dir = query_ray.rcp_direction[1]()
+    var rcp_dir = query_ray.reciprocal_direction[1]()
 
     var hit_outside = intersect_ray_aabb(
         Point3W(0.0, 0.0, 0.0),
@@ -601,7 +600,7 @@ def test_bounds_ray_query_inside_outside_regression() raises:
 
 def test_ray_rcp_direction_uses_finite_parallel_axes() raises:
     var ray = Rayf32[.WORLD](Point3W(0.0), Vec3W(2.0, 0.0, -4.0))
-    var rcp_dir = ray.rcp_direction[4]()
+    var rcp_dir = ray.reciprocal_direction[4]()
 
     assert_almost_equal(rcp_dir.x, 0.5)
     assert_almost_equal(rcp_dir.y, 1.0e9)
@@ -720,7 +719,7 @@ def test_bounds_partition_items_non_empty() raises:
 
 def test_triangle_bvh2_leaf_size_equals_width_returns_nearest_triangle() raises:
     var verts = _make_depth_pair[.WORLD]()
-    var blases = build_triangle_blases[
+    var blases = build_cpu_triangle_blas_set[
         2, 2, .MEDIAN, .WORLD
     ]([verts^])
 
@@ -739,7 +738,7 @@ def _test_triangle_bvh_matches_bruteforce[
 ]() raises:
     var n = {2: 24, 4: 32, 8: 40}[width]
     var verts = _make_strip[.WORLD](n)
-    var blases = build_triangle_blases[width, width, method, .WORLD](
+    var blases = build_cpu_triangle_blas_set[width, width, method, .WORLD](
         [verts.copy()]
     )
 
@@ -775,7 +774,7 @@ def _test_triangle_bvh16_leaf_width[
 ]() raises:
     var n = 48
     var verts = _make_strip[.WORLD](n)
-    var blases = build_triangle_blases[16, leaf_width, method, .WORLD](
+    var blases = build_cpu_triangle_blas_set[16, leaf_width, method, .WORLD](
         [verts.copy()]
     )
     var desc = BlasDesc.load(blases.descs.unsafe_ptr(), UInt32(0))
@@ -831,7 +830,7 @@ def _assert_packet_hits_equal[
 
 def _test_triangle_packet_paths_match[length: SIMDLength]() raises:
     var verts = _make_strip[.WORLD](64)
-    var blases = build_triangle_blases[
+    var blases = build_cpu_triangle_blas_set[
         16, 16, .SAH, .WORLD
     ]([verts.copy()])
     var ox = SIMD[.float32, length](0.0)
@@ -904,13 +903,13 @@ def _check_packed_triangle_packet[
             assert_true(coherent.prim[lane] == scalar.prim[0])
             assert_true(coherent.t[lane] == scalar.t[0])
         else:
-            assert_true(not packet.hit_mask()[lane])
-            assert_true(not coherent.hit_mask()[lane])
+            assert_true(not packet.is_hit()[lane])
+            assert_true(not coherent.is_hit()[lane])
 
 
 def test_packed_triangle_packet_matches_scalar_widths() raises:
     var verts = _make_strip[.WORLD](64)
-    var host = build_triangle_blases[
+    var host = build_cpu_triangle_blas_set[
         16, 16, .SAH, .WORLD
     ]([verts^])
     _check_packed_triangle_packet[4](host)
@@ -947,14 +946,14 @@ def _check_packed_sphere_packet[
             assert_true(packet.prim[lane] == scalar.prim[0])
             assert_true(packet.t[lane] == scalar.t[0])
         else:
-            assert_true(not packet.hit_mask()[lane])
+            assert_true(not packet.is_hit()[lane])
 
 
 def test_packed_sphere_packet_matches_scalar_widths() raises:
     var spheres: List = [
         Sphere[.WORLD](Point3f32[.WORLD](0.0, 0.0, 2.0), 1.0)
     ]
-    var host = build_sphere_blases[16, .SAH, .WORLD](
+    var host = build_cpu_sphere_blas_set[16, .SAH, .WORLD](
         [spheres^]
     )
     _check_packed_sphere_packet[4](host)
@@ -1061,7 +1060,7 @@ def _test_triangle_bvh_shadow_hit_and_miss[
     method: CpuBvhBuildMethod,
 ]() raises:
     var verts = _make_strip[.WORLD](2 * width)
-    var blases = build_triangle_blases[width, width, method, .WORLD](
+    var blases = build_cpu_triangle_blas_set[width, width, method, .WORLD](
         [verts^]
     )
 
@@ -1106,7 +1105,7 @@ def test_sphere_bounds() raises:
 
 def test_sphere_bvh4_single_leaf_layout_and_hit() raises:
     var spheres = _make_spheres[.WORLD]()
-    var blases = build_sphere_blases[4, .SAH, .WORLD](
+    var blases = build_cpu_sphere_blas_set[4, .SAH, .WORLD](
         [spheres^]
     )
     var desc = BlasDesc.load(blases.descs.unsafe_ptr(), UInt32(0))
@@ -1128,7 +1127,7 @@ def _test_sphere_bvh_matches_bruteforce[
     method: CpuBvhBuildMethod,
 ]() raises:
     var spheres = _make_spheres[.WORLD]()
-    var blases = build_sphere_blases[width, method, .WORLD](
+    var blases = build_cpu_sphere_blas_set[width, method, .WORLD](
         [spheres.copy()]
     )
 
@@ -1170,7 +1169,7 @@ def _test_sphere_bvh_shadow_hit_and_miss[
     method: CpuBvhBuildMethod,
 ]() raises:
     var spheres = _make_spheres[.WORLD]()
-    var blases = build_sphere_blases[width, method, .WORLD]([spheres^])
+    var blases = build_cpu_sphere_blas_set[width, method, .WORLD]([spheres^])
 
     assert_true(
         trace_blas_set[width, width, .ANY_HIT, .WORLD](
@@ -1199,7 +1198,7 @@ def test_sphere_bvh_shadow_hit_and_miss() raises:
 def test_segmented_triangle_blases_allow_empty_segments() raises:
     var empty = List[Point3f32[.WORLD]]()
     var vertices = _make_strip[.WORLD](2)
-    var blases = build_triangle_blases[
+    var blases = build_cpu_triangle_blas_set[
         4, 4, .SAH, .WORLD
     ]([empty^, vertices^])
     var empty_desc = BlasDesc.load(blases.descs.unsafe_ptr(), UInt32(0))
@@ -1238,7 +1237,7 @@ def test_segmented_triangle_blases_allow_empty_segments() raises:
         not trace_blas_set_packet[4, 4, 4, False, .WORLD](
             blases, UInt32(0), rays
         )
-        .hit_mask()
+        .is_hit()
         .reduce_or()
     )
 
@@ -1248,7 +1247,7 @@ def test_segmented_sphere_blases_allow_empty_segments() raises:
     var spheres: List = [
         Sphere[.WORLD](Point3f32[.WORLD](0.0, 0.0, 2.0), 1.0)
     ]
-    var blases = build_sphere_blases[4, .SAH, .WORLD](
+    var blases = build_cpu_sphere_blas_set[4, .SAH, .WORLD](
         [empty^, spheres^]
     )
     var empty_desc = BlasDesc.load(blases.descs.unsafe_ptr(), UInt32(0))
@@ -1285,7 +1284,7 @@ def test_segmented_sphere_blases_allow_empty_segments() raises:
     )
     assert_true(
         not trace_blas_set_packet[4, 4, 4, Frame.WORLD](blases, UInt32(0), rays)
-        .hit_mask()
+        .is_hit()
         .reduce_or()
     )
 

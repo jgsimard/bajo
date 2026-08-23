@@ -3,10 +3,10 @@ from std.math import abs, cos, pi, sin, sqrt
 
 from bajo.bvh import Camera, Instance, Sphere
 from bajo.core import Affine3f32, Frame, Point3f32, Vec3f32
-from bajo.parser.obj.f32 import parse_f32_at
+from bajo.parser.number import parse_f32_at
 from bajo.rt.types import (
     Color,
-    RENDER,
+    Integrator,
     RenderSettings,
     SceneBuilder,
     SurfaceId,
@@ -14,7 +14,7 @@ from bajo.rt.types import (
 )
 from bajo.rt.scene_description import SceneDescription
 
-from .loaders import PbrtTextLoader
+from bajo.parser.text_loader import TextLoader
 
 
 comptime _Transform = Affine3f32[.LOCAL, .WORLD]
@@ -214,7 +214,7 @@ struct _Builder(
     var image_height: Int
     var samples_per_pixel: Int
     var max_depth: Int
-    var integrator: RENDER
+    var integrator: Integrator
 
     def __init__(out self):
         self.spheres = List[Sphere[.WORLD]]()
@@ -601,7 +601,7 @@ def _bracket_values(mut lexer: _Lexer) raises -> List[String]:
 
 
 def _parse_text[
-    Loader: PbrtTextLoader
+    Loader: TextLoader
 ](
     mut builder: _Builder,
     text: String,
@@ -751,7 +751,7 @@ def _parse_text[
 
 
 def _parse_pbrt[
-    Loader: PbrtTextLoader
+    Loader: TextLoader
 ](text: String, path: String, loader: Loader) raises -> SceneDescription:
     var builder = _Builder()
     try:

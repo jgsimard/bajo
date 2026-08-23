@@ -1,6 +1,3 @@
-import std.os.path
-
-
 @fieldwise_init
 struct ObjTexture(Copyable):
     var name: String
@@ -92,11 +89,6 @@ struct ObjMesh:
     var objects: List[ObjGroup]
     var groups: List[ObjGroup]
 
-    # parser state
-    var _current_material: Int
-    var _current_object: ObjGroup
-    var _current_group: ObjGroup
-
     def __init__(out self):
         self.positions = [0.0, 0.0, 0.0]
         self.texcoords = [0.0, 0.0]
@@ -114,10 +106,6 @@ struct ObjMesh:
         self.texture_names = Dict[String, Int]()
         self.objects = List[ObjGroup]()
         self.groups = List[ObjGroup]()
-
-        self._current_material = 0
-        self._current_object = ObjGroup("", 0, 0, 0)
-        self._current_group = ObjGroup("", 0, 0, 0)
 
     def position_count(self, include_dummy: Bool = True) -> Int:
         var n = len(self.positions) / 3
@@ -179,93 +167,3 @@ struct ObjMesh:
             t" - objects: {self.object_count()}\n"
             t" - groups:  {self.group_count()}"
         )
-
-    def _flush_object(mut self):
-        if self._current_object.face_count > 0:
-            self.objects.append(self._current_object.copy())
-        self._current_object = ObjGroup(
-            "", 0, len(self.face_vertices), len(self.indices)
-        )
-
-    def _flush_group(mut self):
-        if self._current_group.face_count > 0:
-            self.groups.append(self._current_group.copy())
-        self._current_group = ObjGroup(
-            "", 0, len(self.face_vertices), len(self.indices)
-        )
-
-    def _begin_object(mut self, name: String):
-        self._flush_object()
-        self._current_object.name = name
-
-    def _begin_group(mut self, name: String):
-        self._flush_group()
-        self._current_group.name = name
-
-    def _finish(mut self):
-        self._flush_group()
-        self._flush_object()
-
-    def _ensure_material(
-        mut self, name: String, fallback: Bool = True
-    ) raises -> Int:
-        if name in self.material_names:
-            return self.material_names[name]
-
-        var idx = len(self.materials)
-        self.materials.append(ObjMaterial(name, fallback=fallback))
-        self.material_names[name] = idx
-        return idx
-
-    def _upsert_material(mut self, material: ObjMaterial) raises -> Int:
-        if material.name in self.material_names:
-            var idx = self.material_names[material.name]
-            if self.materials[idx].fallback:
-                self.materials[idx] = material.copy()
-                return idx
-
-        var idx = len(self.materials)
-        self.materials.append(material.copy())
-        if not (material.name in self.material_names):
-            self.material_names[material.name] = idx
-        return idx
-
-    def _add_texture(mut self, name: String, base: String) raises -> Int:
-        var path = std.os.path.join(base, name)
-
-        if path in self.texture_names:
-            return self.texture_names[path]
-
-        var idx = len(self.textures)
-        self.textures.append(ObjTexture(name, path))
-        self.texture_names[path] = idx
-        return idx
-
-    def _push_color(mut self, r: Float32, g: Float32, b: Float32):
-        var target_before_this_color = len(self.positions) - 3
-        while len(self.colors) < target_before_this_color:
-            self.colors.append(1.0)
-        self.colors.extend([r, g, b])
-
-    def _push_element_meta(mut self, n: Int, is_line: Bool = False):
-        if n == 0:
-            return
-        if not is_line and n < 3:
-            return
-        if is_line and n < 2:
-            return
-
-        self.face_vertices.append(n)
-        self.face_materials.append(self._current_material)
-
-        if is_line or len(self.face_lines) > 0:
-            while len(self.face_lines) < len(self.face_vertices) - 1:
-                self.face_lines.append(UInt8(0))
-
-            if is_line:
-                self.face_lines.append(UInt8(1))
-            else:
-                self.face_lines.append(UInt8(0))
-
-        self._current_group.face_count += 1
-        self._current_object.face_count += 1

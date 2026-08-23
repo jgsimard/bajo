@@ -6,7 +6,7 @@ from bajo.bvh.camera import Camera
 from bajo.bvh.cpu import CpuBlasSet, trace_blas_set
 from bajo.bvh.types import Sphere, Hit
 from bajo.core.intersect import intersect_ray_tri, intersect_ray_sphere
-from bajo.bvh.constants import EMPTY_LANE, Primitive, TRACE, f32_max
+from bajo.bvh.constants import EMPTY_LANE, f32_max
 from bajo.bvh.host_utils import sphere_bounds
 
 

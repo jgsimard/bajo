@@ -8,7 +8,7 @@ from bajo.core import (
     Ray,
     Rayf32,
 )
-from bajo.bvh.constants import f32_max, EMPTY_LANE, Primitive, TRACE
+from bajo.bvh.constants import f32_max, EMPTY_LANE, PrimitiveKind
 from bajo.core.vec import Vec3, Point3, Normal3
 
 
@@ -18,7 +18,7 @@ struct Hit[frame: Frame = .WORLD, length: SIMDLength = 1](
 ):
     comptime U = 0
     comptime V = 1
-    comptime PRIM = 2
+    comptime PrimitiveKind = 2
     comptime INST = 3
     comptime NORMAL = 4
     comptime T = 7
@@ -57,9 +57,6 @@ struct Hit[frame: Frame = .WORLD, length: SIMDLength = 1](
         return self.prim.ne(EMPTY_LANE) & self.t.lt(f32_max)
 
     @always_inline
-    def hit_mask(self) -> SIMD[.bool, Self.length]:
-        return self.is_hit()
-
     def is_occluded(self) -> SIMD[.bool, Self.length]:
         return self.prim.eq(EMPTY_LANE) & self.t.eq(0.0)
 
@@ -85,7 +82,7 @@ struct Hit[frame: Frame = .WORLD, length: SIMDLength = 1](
         ptr[unsafe_offset=base + Hit.T] = self.t[0]
 
         var hits_u32 = ptr.unsafe_bitcast[UInt32]()
-        hits_u32[unsafe_offset=base + Hit.PRIM] = self.prim[0]
+        hits_u32[unsafe_offset=base + Hit.PrimitiveKind] = self.prim[0]
         hits_u32[unsafe_offset=base + Hit.INST] = self.inst[0]
 
     @staticmethod
@@ -102,7 +99,7 @@ struct Hit[frame: Frame = .WORLD, length: SIMDLength = 1](
         return Self(
             ptr[unsafe_offset=base + Hit.U],
             ptr[unsafe_offset=base + Hit.V],
-            hits_u32[unsafe_offset=base + Hit.PRIM],
+            hits_u32[unsafe_offset=base + Hit.PrimitiveKind],
             hits_u32[unsafe_offset=base + Hit.INST],
             Normal3[DType.float32, Self.frame, Self.length](
                 ptr[unsafe_offset=base + Hit.NORMAL + 0],
@@ -163,7 +160,7 @@ struct Instance(Copyable):
     var inv_transform: Affine3f32[.WORLD, .LOCAL]
     var bounds: AABB[.WORLD]
     var blas_idx: UInt32
-    var kind: Primitive
+    var kind: PrimitiveKind
 
     def __init__(out self):
         self.transform = Affine3f32[.LOCAL, .WORLD].identity()
@@ -177,7 +174,7 @@ struct Instance(Copyable):
         transform: Affine3f32[.LOCAL, .WORLD],
         blas_idx: UInt32,
         blas_bounds: AABB[.LOCAL],
-        kind: Primitive,
+        kind: PrimitiveKind,
     ):
         var inverse = transform.inverse()
         debug_assert["safe", _use_compiler_assume=True](

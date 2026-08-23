@@ -3,7 +3,7 @@
 from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh.cpu.blas_storage import CpuBlasSet
-from bajo.bvh.constants import Primitive
+from bajo.bvh.constants import PrimitiveKind
 from bajo.bvh.types import BlasDescLayout
 
 
@@ -19,7 +19,7 @@ struct GpuBvhLayout(Equatable, ImplicitlyCopyable):
 
 @fieldwise_init
 struct GpuBlasSet[
-    kind: Primitive,
+    kind: PrimitiveKind,
     layout: GpuBvhLayout,
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,

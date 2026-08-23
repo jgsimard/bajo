@@ -1,4 +1,4 @@
-"""Primitive-agnostic segmented GPU hierarchy orchestration."""
+"""PrimitiveKind-agnostic segmented GPU hierarchy orchestration."""
 
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceBuffer, DeviceContext
@@ -38,7 +38,7 @@ struct GpuSegmentedWideBuildTicket[
 ]:
     """Own one queued segmented binary build and packed wide collapse.
 
-    Primitive adapters may enqueue their leaf-packing work from ``binary`` and
+    PrimitiveKind adapters may enqueue their leaf-packing work from ``binary`` and
     ``wide`` before calling ``wait``.  This keeps one synchronization boundary
     for the whole BLAS batch without duplicating hierarchy scheduling.
     """

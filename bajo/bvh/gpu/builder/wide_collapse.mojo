@@ -335,7 +335,7 @@ def hploc_literature_to_wide_kernel[
                         wide_nodes,
                         UInt32(0),
                         lane,
-                        AABB[Frame.WORLD].invalid(),
+                        AABB[.WORLD].invalid(),
                         _pack_wide_meta(UInt32(0), EMPTY_LANE),
                     )
                 for noop_id in range(1, leaf_count_int):
@@ -615,7 +615,7 @@ def hploc_literature_to_wide_kernel[
                     wide_nodes,
                     out_idx,
                     child_slot,
-                    AABB[Frame.WORLD].invalid(),
+                    AABB[.WORLD].invalid(),
                     _pack_wide_meta(UInt32(0), EMPTY_LANE),
                 )
             else:
@@ -684,12 +684,12 @@ struct GpuWideCollapseState:
     """Owns device work queues until asynchronous wide conversion completes."""
 
     var segments: SegmentOffsets
-    var index_pairs: DeviceBuffer[DType.uint64]
-    var work_alloc_counter: DeviceBuffer[DType.uint32]
-    var work_group_counter: DeviceBuffer[DType.uint32]
-    var leaf_block_counter: DeviceBuffer[DType.uint32]
-    var wide_node_counter: DeviceBuffer[DType.uint32]
-    var status: DeviceBuffer[DType.uint32]
+    var index_pairs: DeviceBuffer[.uint64]
+    var work_alloc_counter: DeviceBuffer[.uint32]
+    var work_group_counter: DeviceBuffer[.uint32]
+    var leaf_block_counter: DeviceBuffer[.uint32]
+    var wide_node_counter: DeviceBuffer[.uint32]
+    var status: DeviceBuffer[.uint32]
 
     def finish_batch_synchronized[
         node_width: SIMDLength,
@@ -748,12 +748,12 @@ struct GpuWideCollapseWorkspace:
     var leaf_capacity: Int
     var segments: SegmentOffsets
     var block_segments: SegmentOffsets
-    var block_segment_offsets: DeviceBuffer[DType.uint32]
-    var index_pairs: DeviceBuffer[DType.uint64]
-    var work_alloc_counter: DeviceBuffer[DType.uint32]
-    var work_group_counter: DeviceBuffer[DType.uint32]
-    var wide_node_counter: DeviceBuffer[DType.uint32]
-    var status: DeviceBuffer[DType.uint32]
+    var block_segment_offsets: DeviceBuffer[.uint32]
+    var index_pairs: DeviceBuffer[.uint64]
+    var work_alloc_counter: DeviceBuffer[.uint32]
+    var work_group_counter: DeviceBuffer[.uint32]
+    var wide_node_counter: DeviceBuffer[.uint32]
+    var status: DeviceBuffer[.uint32]
 
     def __init__(
         out self,
@@ -774,19 +774,19 @@ struct GpuWideCollapseWorkspace:
         self.block_segment_offsets = upload_list(
             ctx, self.block_segments.offsets
         )
-        self.index_pairs = ctx.enqueue_create_buffer[DType.uint64](
+        self.index_pairs = ctx.enqueue_create_buffer[.uint64](
             leaf_capacity
         )
-        self.work_alloc_counter = ctx.enqueue_create_buffer[DType.uint32](
+        self.work_alloc_counter = ctx.enqueue_create_buffer[.uint32](
             segments.segment_count()
         )
-        self.work_group_counter = ctx.enqueue_create_buffer[DType.uint32](
+        self.work_group_counter = ctx.enqueue_create_buffer[.uint32](
             segments.segment_count()
         )
-        self.wide_node_counter = ctx.enqueue_create_buffer[DType.uint32](
+        self.wide_node_counter = ctx.enqueue_create_buffer[.uint32](
             segments.segment_count()
         )
-        self.status = ctx.enqueue_create_buffer[DType.uint32](
+        self.status = ctx.enqueue_create_buffer[.uint32](
             segments.segment_count()
         )
 
@@ -802,13 +802,13 @@ def _enqueue_collapse_binary_to_packed[
     mut ctx: DeviceContext,
     binary: GpuBinaryBoundsBvh,
     node_segments: SegmentOffsets,
-    node_segment_offsets: DeviceBuffer[DType.uint32],
+    node_segment_offsets: DeviceBuffer[.uint32],
     leaf_block_segments: SegmentOffsets,
-    leaf_block_segment_offsets: DeviceBuffer[DType.uint32],
-    wide_nodes: DeviceBuffer[DType.float32],
-    leaf_block_indices: DeviceBuffer[DType.uint32],
-    leaf_block_counter_buffer: DeviceBuffer[DType.uint32],
-    wide_node_counter_buffer: DeviceBuffer[DType.uint32],
+    leaf_block_segment_offsets: DeviceBuffer[.uint32],
+    wide_nodes: DeviceBuffer[.float32],
+    leaf_block_indices: DeviceBuffer[.uint32],
+    leaf_block_counter_buffer: DeviceBuffer[.uint32],
+    wide_node_counter_buffer: DeviceBuffer[.uint32],
     workspace: GpuWideCollapseWorkspace,
 ) raises -> GpuWideCollapseState:
     debug_assert["safe", _use_compiler_assume=True](

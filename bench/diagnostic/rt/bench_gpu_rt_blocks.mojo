@@ -35,14 +35,14 @@ def _run_cap[
 ) raises:
     print(t"\n{label}")
     var path = bench_gpu_triangle_algorithm[
-        RENDER.PATH,
+        .PATH,
         NODE_WIDTH,
         LEAF_WIDTH,
         MAX_BLOCKS,
         SHADOW_MAX_BLOCKS,
     ](ctx, target, world, settings)
     var nee = bench_gpu_triangle_algorithm[
-        RENDER.NEE,
+        .NEE,
         NODE_WIDTH,
         LEAF_WIDTH,
         MAX_BLOCKS,

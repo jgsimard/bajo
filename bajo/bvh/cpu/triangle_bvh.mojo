@@ -65,7 +65,7 @@ def _trace_triangle_leaf_block[
 ](
     ray: Rayf32[frame],
     O: Point3[DType.float32, frame, width],
-    D: Vec3[DType.float32, frame, width],
+    D: Vec3[.float32, frame, width],
     block: TriangleLeafBlock[frame, width],
     block_ptr: ImmPointer[Float32, _],
     mut hit: Hit[frame],
@@ -73,7 +73,7 @@ def _trace_triangle_leaf_block[
     """Shared proven CPU SIMD triangle-packet intersection kernel."""
     comptime omit_leaf_validity_mask = width == 16
 
-    comptime if mode == TRACE.ANY_HIT:
+    comptime if mode == .ANY_HIT:
         var tri_hit = intersect_ray_tri_edges(
             O,
             D,
@@ -105,7 +105,7 @@ def _trace_triangle_leaf_block[
     if not hit_mask.reduce_or():
         return False
 
-    comptime if mode == TRACE.CLOSEST_HIT:
+    comptime if mode == .CLOSEST_HIT:
         # Compare t_scaled / abs_det ratios without division, then calculate
         # one reciprocal for the winning scalar lane.
         var bits = pack_bits(hit_mask)
@@ -218,7 +218,7 @@ def _trace_triangle_packet_primitive[
     frame: Frame,
     length: SIMDLength,
 ](
-    rays: Ray[DType.float32, frame, length],
+    rays: Ray[.float32, frame, length],
     active: SIMD[DType.bool, length],
     prim_idx: UInt32,
     v0_scalar: Point3f32[frame],
@@ -229,10 +229,10 @@ def _trace_triangle_packet_primitive[
     var v0 = Point3[DType.float32, frame, length](
         v0_scalar.x, v0_scalar.y, v0_scalar.z
     )
-    var e1 = Vec3[DType.float32, frame, length](
+    var e1 = Vec3[.float32, frame, length](
         e1_scalar.x, e1_scalar.y, e1_scalar.z
     )
-    var e2 = Vec3[DType.float32, frame, length](
+    var e2 = Vec3[.float32, frame, length](
         e2_scalar.x, e2_scalar.y, e2_scalar.z
     )
     var candidate = intersect_ray_tri_edges_scaled(
@@ -283,7 +283,7 @@ def _trace_triangle_packet_policy[
     PrefetchFn: def(UInt32),
 ](
     nodes: ImmSpan[WideBvhNode[frame, bounds_width], _],
-    rays: Ray[DType.float32, frame, length],
+    rays: Ray[.float32, frame, length],
     valid: SIMD[DType.bool, length],
     ref leaf_fn: LeafFn,
     ref hybrid_fn: HybridFn,
@@ -413,7 +413,7 @@ struct _TriangleBuild[
     var tri_count: Int
 
     def __init__[
-        method: CpuBvhBuildMethod = CpuBvhBuildMethod.MEDIAN
+        method: CpuBvhBuildMethod = .MEDIAN
     ](out self, vertices: ImmSpan[Point3f32[Self.frame], _]):
         self.tri_count = len(vertices) / 3
         self.leaf_blocks = List[
@@ -433,11 +433,11 @@ struct _TriangleBuild[
             for i in range(tri_count):
                 var item = _make_triangle_bounds_item(vertices, i)
                 comptime if (
-                    method != CpuBvhBuildMethod.LBVH
-                    and method != CpuBvhBuildMethod.HPLOC
+                    method != .LBVH
+                    and method != .HPLOC
                 ):
                     root_bounds.grow(item.bounds)
-                comptime if method != CpuBvhBuildMethod.MEDIAN:
+                comptime if method != .MEDIAN:
                     centroid_bounds.grow(item.bounds.centroid())
                 items.append(item)
 
@@ -447,12 +447,12 @@ struct _TriangleBuild[
             var root_partials = List[AABB[Self.frame]]()
             var centroid_partials = List[AABB[Self.frame]]()
             comptime if (
-                method != CpuBvhBuildMethod.LBVH
-                and method != CpuBvhBuildMethod.HPLOC
+                method != .LBVH
+                and method != .HPLOC
             ):
                 root_partials = List[AABB[Self.frame]](capacity=worker_count)
                 root_partials.resize(unsafe_uninit_length=worker_count)
-            comptime if method != CpuBvhBuildMethod.MEDIAN:
+            comptime if method != .MEDIAN:
                 centroid_partials = List[AABB[Self.frame]](
                     capacity=worker_count
                 )
@@ -468,29 +468,29 @@ struct _TriangleBuild[
                 for i in range(first, end):
                     var item = _make_triangle_bounds_item(vertices, i)
                     comptime if (
-                        method != CpuBvhBuildMethod.LBVH
-                        and method != CpuBvhBuildMethod.HPLOC
+                        method != .LBVH
+                        and method != .HPLOC
                     ):
                         chunk_bounds.grow(item.bounds)
-                    comptime if method != CpuBvhBuildMethod.MEDIAN:
+                    comptime if method != .MEDIAN:
                         chunk_centroid_bounds.grow(item.bounds.centroid())
                     items[i] = item
                 comptime if (
-                    method != CpuBvhBuildMethod.LBVH
-                    and method != CpuBvhBuildMethod.HPLOC
+                    method != .LBVH
+                    and method != .HPLOC
                 ):
                     root_partials[task_idx] = chunk_bounds
-                comptime if method != CpuBvhBuildMethod.MEDIAN:
+                comptime if method != .MEDIAN:
                     centroid_partials[task_idx] = chunk_centroid_bounds
 
             parallelize(item_chunk_worker, worker_count, worker_count)
             for worker_idx in range(worker_count):
                 comptime if (
-                    method != CpuBvhBuildMethod.LBVH
-                    and method != CpuBvhBuildMethod.HPLOC
+                    method != .LBVH
+                    and method != .HPLOC
                 ):
                     root_bounds.grow(root_partials[worker_idx])
-                comptime if method != CpuBvhBuildMethod.MEDIAN:
+                comptime if method != .MEDIAN:
                     centroid_bounds.grow(centroid_partials[worker_idx])
         else:
             append_items(items, root_bounds, centroid_bounds)

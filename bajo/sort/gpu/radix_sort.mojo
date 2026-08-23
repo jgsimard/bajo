@@ -410,8 +410,8 @@ def device_radix_sort_keys[
 
     var db_keys = DoubleBuffer(keys.unsafe_ptr(), keys_alternate.unsafe_ptr())
 
-    var global_hist = ctx.enqueue_create_buffer[DType.uint32](GLOBAL_HIST)
-    var pass_hist = ctx.enqueue_create_buffer[DType.uint32](gdim * RADIX)
+    var global_hist = ctx.enqueue_create_buffer[.uint32](GLOBAL_HIST)
+    var pass_hist = ctx.enqueue_create_buffer[.uint32](gdim * RADIX)
 
     comptime UPSWEEP_BLOC_SIZE = 256
     comptime SCAN_BLOCK_SIZE = 256
@@ -479,8 +479,8 @@ struct RadixSortWorkspace[
 ]:
     var keys_alternate: DeviceBuffer[Self.keys_dtype]
     var vals_alternate: DeviceBuffer[Self.vals_dtype]
-    var global_hist: DeviceBuffer[DType.uint32]
-    var pass_hist: DeviceBuffer[DType.uint32]
+    var global_hist: DeviceBuffer[.uint32]
+    var pass_hist: DeviceBuffer[.uint32]
 
     def __init__(out self, ctx: DeviceContext, size: Int) raises:
         comptime NUM_PASSES = bit_width_of[
@@ -496,8 +496,8 @@ struct RadixSortWorkspace[
         self.keys_alternate = ctx.enqueue_create_buffer[Self.keys_dtype](size)
         self.vals_alternate = ctx.enqueue_create_buffer[Self.vals_dtype](size)
 
-        self.global_hist = ctx.enqueue_create_buffer[DType.uint32](GLOBAL_HIST)
-        self.pass_hist = ctx.enqueue_create_buffer[DType.uint32](gdim * RADIX)
+        self.global_hist = ctx.enqueue_create_buffer[.uint32](GLOBAL_HIST)
+        self.pass_hist = ctx.enqueue_create_buffer[.uint32](gdim * RADIX)
 
     def __init__(out self, other: Self):
         """Create a shared-storage lease for a reusable build arena."""

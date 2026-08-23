@@ -48,12 +48,12 @@ def build_bounds_bvh_for_diagnostics[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
     max_leaf_size: Int,
-    method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
+    method: GpuBvhBuildMethod = .LBVH,
     pack_subtrees: Bool = False,
 ](
     mut ctx: DeviceContext,
-    leaf_bounds: DeviceBuffer[DType.float32],
-    leaf_payloads: DeviceBuffer[DType.uint32],
+    leaf_bounds: DeviceBuffer[.float32],
+    leaf_payloads: DeviceBuffer[.uint32],
 ) raises -> GpuBinaryDiagnosticBuild[
     node_width, leaf_width, max_leaf_size, method, pack_subtrees
 ]:

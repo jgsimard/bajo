@@ -27,13 +27,13 @@ struct GpuRtBvhPolicy:
 
 
 comptime GPU_RT_BVH_WIDE4_LBVH = GpuRtBvhPolicy(
-    4, 4, GpuBvhBuildMethod.LBVH, False
+    4, 4, .LBVH, False
 )
 comptime GPU_RT_BVH_CWBVH8_HPLOC = GpuRtBvhPolicy(
-    8, 4, GpuBvhBuildMethod.HPLOC, True
+    8, 4, .HPLOC, True
 )
 comptime GPU_RT_BVH_TLAS2_LBVH = GpuRtBvhPolicy(
-    2, 1, GpuBvhBuildMethod.LBVH, False
+    2, 1, .LBVH, False
 )
 
 

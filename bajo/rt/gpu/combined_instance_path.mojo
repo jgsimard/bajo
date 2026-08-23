@@ -54,29 +54,29 @@ struct GpuRtCombinedInstanceScene[
     tlas_leaf_width: SIMDLength = 2,
     blas_node_width: SIMDLength = 8,
     blas_leaf_width: SIMDLength = 4,
-    blas_build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
+    blas_build_method: GpuBvhBuildMethod = .HPLOC,
     blas_compressed: Bool = blas_node_width == 8 and blas_leaf_width == 4,
     triangle_node_width: SIMDLength = 8,
     triangle_leaf_width: SIMDLength = 4,
-    triangle_build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
+    triangle_build_method: GpuBvhBuildMethod = .HPLOC,
     triangle_compressed: Bool = triangle_node_width == 8
     and triangle_leaf_width == 4,
-    tlas_build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
+    tlas_build_method: GpuBvhBuildMethod = .LBVH,
 ]:
     """Static BVHs plus a triangle TLAS, specialized by geometry presence."""
 
     var sphere_geometry: GpuRtSphereGeometry[
-        Frame.WORLD, Self.node_width, Self.leaf_width
+        .WORLD, Self.node_width, Self.leaf_width
     ]
     var triangle_geometry: GpuRtTriangleGeometry[
-        Frame.WORLD,
+        .WORLD,
         Self.triangle_node_width,
         Self.triangle_leaf_width,
         Self.triangle_build_method,
         Self.triangle_compressed,
     ]
     var blases: GpuBlasSet[
-        Primitive.TRIANGLE,
+        .TRIANGLE,
         GpuBvhLayout(Self.blas_compressed),
         Self.blas_node_width,
         Self.blas_leaf_width,
@@ -88,8 +88,8 @@ struct GpuRtCombinedInstanceScene[
         Self.blas_leaf_width,
         GpuBvhLayout(Self.blas_compressed),
     ]
-    var triangle_surfaces: DeviceBuffer[DType.uint32]
-    var instance_surfaces: DeviceBuffer[DType.uint32]
+    var triangle_surfaces: DeviceBuffer[.uint32]
+    var instance_surfaces: DeviceBuffer[.uint32]
     var shading: GpuRtShadingResources
 
     def __init__(
@@ -107,21 +107,21 @@ struct GpuRtCombinedInstanceScene[
             "combined GPU RT geometry flags do not match the world",
         )
 
-        var triangle_vertices = List[Point3f32[Frame.WORLD]]()
+        var triangle_vertices = List[Point3f32[.WORLD]]()
         comptime if Self.HAS_TRIANGLES:
             triangle_vertices = world.triangle_vertices().copy()
         else:
-            triangle_vertices.append(Point3f32[Frame.WORLD](0.0, 0.0, 0.0))
-            triangle_vertices.append(Point3f32[Frame.WORLD](1.0, 0.0, 0.0))
-            triangle_vertices.append(Point3f32[Frame.WORLD](0.0, 1.0, 0.0))
+            triangle_vertices.append(Point3f32[.WORLD](0.0, 0.0, 0.0))
+            triangle_vertices.append(Point3f32[.WORLD](1.0, 0.0, 0.0))
+            triangle_vertices.append(Point3f32[.WORLD](0.0, 1.0, 0.0))
 
         self.sphere_geometry = GpuRtSphereGeometry[
-            Frame.WORLD, Self.node_width, Self.leaf_width
+            .WORLD, Self.node_width, Self.leaf_width
         ].__init__[Self.HAS_SPHERES](
             ctx, world.spheres(), world.sphere_surfaces()
         )
         self.triangle_geometry = GpuRtTriangleGeometry[
-            Frame.WORLD,
+            .WORLD,
             Self.triangle_node_width,
             Self.triangle_leaf_width,
             Self.triangle_build_method,
@@ -190,10 +190,10 @@ def _enqueue_combined_instance_bounce[
         triangle_compressed,
         tlas_build_method,
     ],
-    src_path_ids: DeviceBuffer[DType.uint32],
-    src_path_fields: DeviceBuffer[DType.float32],
-    dst_path_ids: DeviceBuffer[DType.uint32],
-    dst_path_fields: DeviceBuffer[DType.float32],
+    src_path_ids: DeviceBuffer[.uint32],
+    src_path_fields: DeviceBuffer[.float32],
+    dst_path_ids: DeviceBuffer[.uint32],
+    dst_path_fields: DeviceBuffer[.float32],
     rng_seed: UInt64,
     bounce: UInt32,
 ) raises:
@@ -265,14 +265,14 @@ def enqueue_render_gpu_combined_instances[
     tlas_leaf_width: SIMDLength = 2,
     blas_node_width: SIMDLength = 8,
     blas_leaf_width: SIMDLength = 4,
-    blas_build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
+    blas_build_method: GpuBvhBuildMethod = .HPLOC,
     blas_compressed: Bool = blas_node_width == 8 and blas_leaf_width == 4,
     triangle_node_width: SIMDLength = 8,
     triangle_leaf_width: SIMDLength = 4,
-    triangle_build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
+    triangle_build_method: GpuBvhBuildMethod = .HPLOC,
     triangle_compressed: Bool = triangle_node_width == 8
     and triangle_leaf_width == 4,
-    tlas_build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
+    tlas_build_method: GpuBvhBuildMethod = .LBVH,
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
@@ -329,14 +329,14 @@ def render_gpu_combined_instances[
     tlas_leaf_width: SIMDLength = 2,
     blas_node_width: SIMDLength = 8,
     blas_leaf_width: SIMDLength = 4,
-    blas_build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
+    blas_build_method: GpuBvhBuildMethod = .HPLOC,
     blas_compressed: Bool = blas_node_width == 8 and blas_leaf_width == 4,
     triangle_node_width: SIMDLength = 8,
     triangle_leaf_width: SIMDLength = 4,
-    triangle_build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
+    triangle_build_method: GpuBvhBuildMethod = .HPLOC,
     triangle_compressed: Bool = triangle_node_width == 8
     and triangle_leaf_width == 4,
-    tlas_build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
+    tlas_build_method: GpuBvhBuildMethod = .LBVH,
 ](
     settings: RenderSettings,
     camera: Camera,

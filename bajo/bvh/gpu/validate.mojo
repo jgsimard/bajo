@@ -13,8 +13,8 @@ from bajo.core import Vec3f32, AABB
 
 
 def validate_sorted_keys(
-    keys: DeviceBuffer[DType.uint32],
-    values: DeviceBuffer[DType.uint32],
+    keys: DeviceBuffer[.uint32],
+    values: DeviceBuffer[.uint32],
     size: Int,
 ) raises -> SortedKeysValidation:
     var keys_sorted = True
@@ -60,8 +60,8 @@ def validate_sorted_keys(
 
 
 def validate_topology(
-    node_meta: DeviceBuffer[DType.uint32],
-    leaf_parent: DeviceBuffer[DType.uint32],
+    node_meta: DeviceBuffer[.uint32],
+    leaf_parent: DeviceBuffer[.uint32],
     leaf_count: Int,
 ) raises -> TopologyValidation:
     var ok = True
@@ -125,9 +125,9 @@ def validate_topology(
 
 
 def validate_refit_bounds(
-    node_bounds: DeviceBuffer[DType.float32],
-    node_flags: DeviceBuffer[DType.uint32],
-    node_meta: DeviceBuffer[DType.uint32],
+    node_bounds: DeviceBuffer[.float32],
+    node_flags: DeviceBuffer[.uint32],
+    node_meta: DeviceBuffer[.uint32],
     leaf_count: Int,
     scene_bounds: AABB,
 ) raises -> RefitBoundsValidation:

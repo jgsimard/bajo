@@ -39,7 +39,7 @@ def _identity_ids(count: Int) -> List[UInt32]:
 
 
 def _flatten_bounds(
-    bounds: List[AABB[Frame.WORLD]],
+    bounds: List[AABB[.WORLD]],
 ) -> List[Float32]:
     var flat = List[Float32](capacity=len(bounds) * AABB.STRIDE)
     for bound in bounds:
@@ -53,7 +53,7 @@ def _flatten_bounds(
 
 
 def _bounds_match(
-    actual: AABB[Frame.WORLD], expected: AABB[Frame.WORLD]
+    actual: AABB[.WORLD], expected: AABB[.WORLD]
 ) -> Bool:
     return (
         max(
@@ -96,7 +96,7 @@ def _inner_hash(left: UInt64, right: UInt64) -> UInt64:
     )
 
 
-def _reference_root_hash(reference: HplocTopology[Frame.WORLD]) -> UInt64:
+def _reference_root_hash(reference: HplocTopology[.WORLD]) -> UInt64:
     var hashes = List[UInt64](length=len(reference.nodes), fill=UInt64(0))
     for i, node in enumerate(reference.nodes):
         if node.left == LBVH_SENTINEL:
@@ -110,7 +110,7 @@ def _reference_root_hash(reference: HplocTopology[Frame.WORLD]) -> UInt64:
 
 def _assert_binary_matches_reference(
     build: _TestBinaryBuild,
-    reference: HplocTopology[Frame.WORLD],
+    reference: HplocTopology[.WORLD],
 ) raises:
     ref binary = build.binary
     var validation = validate_binary_bvh(
@@ -128,8 +128,8 @@ def _assert_binary_matches_reference(
     var root = UInt32(LBVH_SENTINEL)
     var hashes = List[UInt64](length=binary.internal_count, fill=UInt64(0))
     var counts = List[UInt32](length=binary.internal_count, fill=UInt32(0))
-    var subtree_bounds = List[AABB[Frame.WORLD]](
-        length=binary.internal_count, fill=AABB[Frame.WORLD].invalid()
+    var subtree_bounds = List[AABB[.WORLD]](
+        length=binary.internal_count, fill=AABB[.WORLD].invalid()
     )
 
     with binary.node_meta.map_to_host() as meta, binary.node_bounds.map_to_host() as node_bounds, binary.node_leaf_counts.map_to_host() as leaf_counts, binary.leaf_ids.map_to_host() as leaf_ids, binary.leaf_bounds.map_to_host() as leaf_bounds:
@@ -152,13 +152,13 @@ def _assert_binary_matches_reference(
 
             var left_hash: UInt64
             var left_count: UInt32
-            var left_bounds: AABB[Frame.WORLD]
+            var left_bounds: AABB[.WORLD]
             if is_leaf_ref(left):
                 var sorted_pos = Int(decode_ref_index(left))
                 var leaf_id = leaf_ids[sorted_pos]
                 left_hash = _leaf_hash(leaf_id)
                 left_count = UInt32(1)
-                left_bounds = AABB[Frame.WORLD].load6(
+                left_bounds = AABB[.WORLD].load6(
                     leaf_bounds_span, Int(leaf_id) * AABB.STRIDE
                 )
             else:
@@ -170,13 +170,13 @@ def _assert_binary_matches_reference(
 
             var right_hash: UInt64
             var right_count: UInt32
-            var right_bounds: AABB[Frame.WORLD]
+            var right_bounds: AABB[.WORLD]
             if is_leaf_ref(right):
                 var sorted_pos = Int(decode_ref_index(right))
                 var leaf_id = leaf_ids[sorted_pos]
                 right_hash = _leaf_hash(leaf_id)
                 right_count = UInt32(1)
-                right_bounds = AABB[Frame.WORLD].load6(
+                right_bounds = AABB[.WORLD].load6(
                     leaf_bounds_span, Int(leaf_id) * AABB.STRIDE
                 )
             else:
@@ -186,10 +186,10 @@ def _assert_binary_matches_reference(
                 right_count = counts[child]
                 right_bounds = subtree_bounds[child]
 
-            var stored_left = AABB[Frame.WORLD].load6(
+            var stored_left = AABB[.WORLD].load6(
                 node_bounds_span, node_idx * BinaryBvhNode.BOUNDS_STRIDE
             )
-            var stored_right = AABB[Frame.WORLD].load6(
+            var stored_right = AABB[.WORLD].load6(
                 node_bounds_span,
                 node_idx * BinaryBvhNode.BOUNDS_STRIDE + AABB.STRIDE,
             )
@@ -198,7 +198,7 @@ def _assert_binary_matches_reference(
 
             hashes[node_idx] = _inner_hash(left_hash, right_hash)
             counts[node_idx] = left_count + right_count
-            subtree_bounds[node_idx] = AABB[Frame.WORLD].merge(
+            subtree_bounds[node_idx] = AABB[.WORLD].merge(
                 left_bounds, right_bounds
             )
             assert_equal(leaf_counts[node_idx], counts[node_idx])
@@ -231,8 +231,8 @@ def _assert_binary_matches_reference(
     assert_true(abs(quality.quality - reference.quality()) <= 1.0e-4)
 
 
-def _make_triangles(count: Int) -> List[AABB[Frame.WORLD]]:
-    var bounds = List[AABB[Frame.WORLD]](capacity=count)
+def _make_triangles(count: Int) -> List[AABB[.WORLD]]:
+    var bounds = List[AABB[.WORLD]](capacity=count)
     for i in range(count):
         var x = Float32((i % 19) * 4 - 36)
         var y = Float32(((i / 19) % 14) * 4 - 26)
@@ -240,9 +240,9 @@ def _make_triangles(count: Int) -> List[AABB[Frame.WORLD]]:
         var scale = Float32(2.2) if i % 17 == 0 else Float32(0.7)
         bounds.append(
             AABB(
-                Point3f32[Frame.WORLD](x - scale, y - scale, z),
-                Point3f32[Frame.WORLD](x + scale, y - scale, z),
-                Point3f32[Frame.WORLD](x, y + scale, z + 0.1),
+                Point3f32[.WORLD](x - scale, y - scale, z),
+                Point3f32[.WORLD](x + scale, y - scale, z),
+                Point3f32[.WORLD](x, y + scale, z + 0.1),
             )
         )
     return bounds^
@@ -250,7 +250,7 @@ def _make_triangles(count: Int) -> List[AABB[Frame.WORLD]]:
 
 def _build_hploc_binary(
     mut ctx: DeviceContext,
-    bounds: List[AABB[Frame.WORLD]],
+    bounds: List[AABB[.WORLD]],
 ) raises -> _TestBinaryBuild:
     var flat = _flatten_bounds(bounds)
     var payloads = _identity_ids(len(bounds))
@@ -260,14 +260,14 @@ def _build_hploc_binary(
     var binary = GpuBinaryBoundsBvh(
         ctx, upload_list(ctx, flat), upload_list(ctx, payloads), workspace
     )
-    _ = build_binary_bvh[GpuBvhBuildMethod.HPLOC](ctx, binary, workspace)
+    _ = build_binary_bvh[.HPLOC](ctx, binary, workspace)
     return _TestBinaryBuild(binary^, workspace^)
 
 
 def _reference_from_binary(
     build: _TestBinaryBuild,
-    bounds: List[AABB[Frame.WORLD]],
-) raises -> HplocTopology[Frame.WORLD]:
+    bounds: List[AABB[.WORLD]],
+) raises -> HplocTopology[.WORLD]:
     ref binary = build.binary
     var codes = List[UInt32](capacity=binary.leaf_count)
     var ids = List[UInt32](capacity=binary.leaf_count)
@@ -281,11 +281,11 @@ def _reference_from_binary(
 
 
 def test_hploc_binary_layout_one_leaf() raises:
-    var bounds: List[AABB[Frame.WORLD]] = [
+    var bounds: List[AABB[.WORLD]] = [
         AABB(
-            Point3f32[Frame.WORLD](0.0, 0.0, 0.0),
-            Point3f32[Frame.WORLD](1.0, 0.0, 0.0),
-            Point3f32[Frame.WORLD](0.0, 1.0, 0.0),
+            Point3f32[.WORLD](0.0, 0.0, 0.0),
+            Point3f32[.WORLD](1.0, 0.0, 0.0),
+            Point3f32[.WORLD](0.0, 1.0, 0.0),
         )
     ]
     with DeviceContext() as ctx:
@@ -326,8 +326,8 @@ def test_binary_layout_reduces_bounds_per_segment() raises:
         assert_equal(binary.internal_segments.end(2), UInt32(3))
 
         for segment_idx in range(segments.segment_count()):
-            var expected_bounds = AABB[Frame.WORLD].invalid()
-            var expected_centroids = AABB[Frame.WORLD].invalid()
+            var expected_bounds = AABB[.WORLD].invalid()
+            var expected_centroids = AABB[.WORLD].invalid()
             for leaf_idx in range(
                 Int(segments.begin(segment_idx)),
                 Int(segments.end(segment_idx)),
@@ -454,7 +454,7 @@ def test_lbvh_builds_independent_segment_topologies() raises:
             upload_list(ctx, _identity_ids(len(bounds))),
             workspace,
         )
-        _ = build_binary_bvh[GpuBvhBuildMethod.LBVH](ctx, binary, workspace)
+        _ = build_binary_bvh[.LBVH](ctx, binary, workspace)
         ctx.synchronize()
 
         with binary.roots.map_to_host() as roots, binary.node_meta.map_to_host() as meta, workspace.topology.value().leaf_parent.map_to_host() as leaf_parent, binary.node_leaf_counts.map_to_host() as leaf_counts, binary.leaf_ids.map_to_host() as leaf_ids:

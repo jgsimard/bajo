@@ -15,7 +15,7 @@ def test_parse_checked_in_scene_with_include() raises:
     assert_true(scene.settings.image_height == 480)
     assert_true(scene.settings.samples_per_pixel == 64)
     assert_true(scene.settings.max_depth == 10)
-    assert_true(scene.integrator == RENDER.PATH)
+    assert_true(scene.integrator == .PATH)
     assert_true(len(scene.data.spheres()) == 3)
     assert_true(len(scene.data.triangle_vertices()) / 3 == 10)
     assert_true(len(scene.data.lights().records) == 2)
@@ -104,7 +104,7 @@ Shape "sphere" "float radius" 1
     var settings = scene.settings.copy()
     var camera = scene.camera
     var world = CpuScene[](scene^.take_data())
-    var result = render_wavefront[RENDER.MIS, 1, 64, False](
+    var result = render_wavefront[.MIS, 1, 64, False](
         settings, camera, world
     )
     assert_true(len(result.pixels) == 16)

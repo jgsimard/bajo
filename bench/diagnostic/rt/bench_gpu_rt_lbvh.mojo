@@ -52,13 +52,13 @@ def _warm_world_build[
         1,
         8,
         4,
-        GpuBvhBuildMethod.HPLOC,
+        .HPLOC,
         True,
         4,
         4,
-        GpuBvhBuildMethod.LBVH,
+        .LBVH,
         False,
-        GpuBvhBuildMethod.LBVH,
+        .LBVH,
     ](ctx, world.scene_data())
     ctx.synchronize()
 
@@ -77,18 +77,18 @@ def _enqueue[
         tlas_leaf_width,
         8,
         4,
-        GpuBvhBuildMethod.HPLOC,
+        .HPLOC,
         True,
         4,
         4,
-        GpuBvhBuildMethod.LBVH,
+        .LBVH,
         False,
-        GpuBvhBuildMethod.LBVH,
+        .LBVH,
     ],
     settings: RenderSettings,
 ) raises:
     enqueue_render_gpu_combined_instances[
-        RENDER.PATH,
+        .PATH,
         True,
         True,
         4,
@@ -97,13 +97,13 @@ def _enqueue[
         tlas_leaf_width,
         8,
         4,
-        GpuBvhBuildMethod.HPLOC,
+        .HPLOC,
         True,
         4,
         4,
-        GpuBvhBuildMethod.LBVH,
+        .LBVH,
         False,
-        GpuBvhBuildMethod.LBVH,
+        .LBVH,
     ](ctx, target, world, settings)
 
 
@@ -121,13 +121,13 @@ def _timed_enqueue[
         tlas_leaf_width,
         8,
         4,
-        GpuBvhBuildMethod.HPLOC,
+        .HPLOC,
         True,
         4,
         4,
-        GpuBvhBuildMethod.LBVH,
+        .LBVH,
         False,
-        GpuBvhBuildMethod.LBVH,
+        .LBVH,
     ],
     settings: RenderSettings,
 ) raises -> Int:
@@ -205,13 +205,13 @@ def main() raises:
             1,
             8,
             4,
-            GpuBvhBuildMethod.HPLOC,
+            .HPLOC,
             True,
             4,
             4,
-            GpuBvhBuildMethod.LBVH,
+            .LBVH,
             False,
-            GpuBvhBuildMethod.LBVH,
+            .LBVH,
         ](ctx, world.scene_data())
         ctx.synchronize()
         var build21_ns = Int(perf_counter_ns() - build21_t0)
@@ -226,13 +226,13 @@ def main() raises:
             2,
             8,
             4,
-            GpuBvhBuildMethod.HPLOC,
+            .HPLOC,
             True,
             4,
             4,
-            GpuBvhBuildMethod.LBVH,
+            .LBVH,
             False,
-            GpuBvhBuildMethod.LBVH,
+            .LBVH,
         ](ctx, world.scene_data())
         ctx.synchronize()
         var build22_ns = Int(perf_counter_ns() - build22_t0)
@@ -291,8 +291,8 @@ def main() raises:
         print(t"checksum delta: {round(checksum21 - checksum22, 6)}")
 
         var primary_ray_count = IMAGE_WIDTH * IMAGE_HEIGHT
-        var diagnostic_hits = ctx.enqueue_create_buffer[DType.float32](
-            primary_ray_count * Hit[Frame.WORLD].STRIDE
+        var diagnostic_hits = ctx.enqueue_create_buffer[.float32](
+            primary_ray_count * Hit[.WORLD].STRIDE
         )
         for _ in range(WARMUPS):
             gpu21.tlas.launch_camera(
@@ -397,7 +397,7 @@ def main() raises:
             ),
         )
 
-        var diagnostic_stats = ctx.enqueue_create_buffer[DType.uint32](
+        var diagnostic_stats = ctx.enqueue_create_buffer[.uint32](
             primary_ray_count * GpuTlasTraversalStats.STRIDE
         )
         launch_triangle_tlas_camera_diagnostics(

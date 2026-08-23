@@ -26,27 +26,27 @@ def quat_mul_0[
 
 
 struct BenchmarkData[width: SIMDLength](Copyable):
-    var src_a: List[Quaternion[dtype, Frame.WORLD, Self.width]]
-    var src_b: List[Quaternion[dtype, Frame.WORLD, Self.width]]
-    var dst: List[Quaternion[dtype, Frame.WORLD, Self.width]]
+    var src_a: List[Quaternion[dtype, .WORLD, Self.width]]
+    var src_b: List[Quaternion[dtype, .WORLD, Self.width]]
+    var dst: List[Quaternion[dtype, .WORLD, Self.width]]
 
     def __init__(out self):
         var rng = Rng(123, 123)
 
         self.src_a = [
-            Quaternion[dtype, Frame.WORLD, Self.width].from_axis_angle(
-                Vec3[dtype, Frame.WORLD, Self.width](1, 0, 0), rng.f32()
+            Quaternion[dtype, .WORLD, Self.width].from_axis_angle(
+                Vec3[dtype, .WORLD, Self.width](1, 0, 0), rng.f32()
             )
             for _ in range(num_elements / Self.width)
         ]
         self.src_b = [
-            Quaternion[dtype, Frame.WORLD, Self.width].from_axis_angle(
-                Vec3[dtype, Frame.WORLD, Self.width](0, 1, 0), rng.f32()
+            Quaternion[dtype, .WORLD, Self.width].from_axis_angle(
+                Vec3[dtype, .WORLD, Self.width](0, 1, 0), rng.f32()
             )
             for _ in range(num_elements / Self.width)
         ]
         self.dst = [
-            Quaternion[dtype, Frame.WORLD, Self.width].identity()
+            Quaternion[dtype, .WORLD, Self.width].identity()
             for _ in range(num_elements / Self.width)
         ]
 

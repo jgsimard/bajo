@@ -44,7 +44,7 @@ def compute_bounds_morton_codes_kernel(
         "Morton output is outside a device span",
     )
     var segment_idx = _segment_for_item(segment_offsets, i)
-    var centroid_bounds = AABB[Frame.WORLD].load6(
+    var centroid_bounds = AABB[.WORLD].load6(
         bounds_device,
         segment_idx * 2 * AABB.STRIDE + AABB.STRIDE,
     )
@@ -52,7 +52,7 @@ def compute_bounds_morton_codes_kernel(
     var inv_extent = centroid_bounds.extent().safe_inv()
 
     var b = i * AABB.STRIDE
-    var bounds = AABB[Frame.WORLD].load6(leaf_bounds, b)
+    var bounds = AABB[.WORLD].load6(leaf_bounds, b)
     var c = (bounds.centroid() - cmin) * inv_extent
 
     var morton_code = morton3(c.x, c.y, c.z)
@@ -132,7 +132,7 @@ def refit_lbvh_bounds_from_leaves_kernel(
     )
     var item_idx = UInt32(leaf_ids.unsafe_get(leaf_idx))
     var b = Int(item_idx) * AABB.STRIDE
-    var bounds = AABB[Frame.WORLD].load6(leaf_bounds, b)
+    var bounds = AABB[.WORLD].load6(leaf_bounds, b)
 
     var current_encoded = encode_leaf_ref(UInt32(leaf_idx))
     var parent = UInt32(leaf_parent.unsafe_get(leaf_idx))
@@ -288,7 +288,7 @@ def build_lbvh_topology_kernel(
     )
     node_flags.unsafe_get(i) = UInt32(0)
 
-    var invalid = AABB[Frame.WORLD].invalid()
+    var invalid = AABB[.WORLD].invalid()
     var bounds_base = i * BinaryBvhNode.BOUNDS_STRIDE
     invalid.store6(node_bounds, bounds_base)
     invalid.store6(node_bounds, bounds_base + AABB.STRIDE)

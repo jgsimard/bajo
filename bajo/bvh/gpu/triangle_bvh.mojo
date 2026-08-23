@@ -194,14 +194,14 @@ struct _SegmentedTriangleWideBuild[
         True,
         False,
     ]
-    var leaf_vertices: DeviceBuffer[DType.float32]
+    var leaf_vertices: DeviceBuffer[.float32]
     var bounds_pack_ns: Int
     var leaf_pack_start_ns: Int
 
     def into_blas_set[
         layout: GpuBvhLayout
     ](deinit self, mut ctx: DeviceContext) raises -> GpuBlasSet[
-        Primitive.TRIANGLE,
+        .TRIANGLE,
         layout,
         Self.node_width,
         Self.leaf_width,
@@ -211,7 +211,7 @@ struct _SegmentedTriangleWideBuild[
             Self.node_width,
             Self.leaf_width,
             Self.build_method,
-            Primitive.TRIANGLE,
+            .TRIANGLE,
             layout,
             TRI_LEAF_PACKED_STRIDE,
         ](ctx, self.hierarchy^, self.leaf_vertices^)
@@ -262,7 +262,7 @@ def _enqueue_segmented_triangle_wide[
     build_method: GpuBvhBuildMethod,
 ](
     mut ctx: DeviceContext,
-    vertices: DeviceBuffer[DType.float32],
+    vertices: DeviceBuffer[.float32],
     segments: SegmentOffsets,
     measure_build: Bool = False,
 ) raises -> _SegmentedTriangleWideBuild[
@@ -279,10 +279,10 @@ def _enqueue_segmented_triangle_wide[
         "triangle vertex buffer does not match its segments",
     )
 
-    var leaf_bounds = ctx.enqueue_create_buffer[DType.float32](
+    var leaf_bounds = ctx.enqueue_create_buffer[.float32](
         triangle_count * AABB[frame].STRIDE
     )
-    var payloads = ctx.enqueue_create_buffer[DType.uint32](triangle_count)
+    var payloads = ctx.enqueue_create_buffer[.uint32](triangle_count)
     var bounds_pack_start = Int(0)
     var bounds_pack_ns = Int(0)
     if measure_build:
@@ -311,7 +311,7 @@ def _enqueue_segmented_triangle_wide[
     var leaf_lane_capacity = (
         hierarchy.wide.leaf_block_segments.item_count() * leaf_width
     )
-    var leaf_vertices = ctx.enqueue_create_buffer[DType.float32](
+    var leaf_vertices = ctx.enqueue_create_buffer[.float32](
         leaf_lane_capacity * TRI_LEAF_PACKED_STRIDE
     )
     if measure_build:
@@ -349,12 +349,12 @@ def _build_segmented_triangle_blas_set[
 ](
     mut ctx: DeviceContext,
     vertex_sets: ImmSpan[List[Point3f32[frame]], _],
-) raises -> GpuBlasSet[Primitive.TRIANGLE, layout, node_width, leaf_width]:
+) raises -> GpuBlasSet[.TRIANGLE, layout, node_width, leaf_width]:
     """Build ordinary wide BLASes as one segmented GPU workload."""
     var inputs = _flatten_triangle_sets(vertex_sets)
     if inputs.segments.item_count() == 0:
         return GpuBlasSet[
-            Primitive.TRIANGLE, layout, node_width, leaf_width
+            .TRIANGLE, layout, node_width, leaf_width
         ].empty(ctx, len(vertex_sets))
     var source_vertices = upload_list(ctx, inputs.packed_vertices)
     var adapter = _enqueue_segmented_triangle_wide[
@@ -372,22 +372,22 @@ def _build_segmented_compressed_triangle_blas_set[
 ](
     mut ctx: DeviceContext,
     vertex_sets: ImmSpan[List[Point3f32[frame]], _],
-) raises -> GpuBlasSet[Primitive.TRIANGLE, layout, node_width, leaf_width]:
+) raises -> GpuBlasSet[.TRIANGLE, layout, node_width, leaf_width]:
     """Build and encode every CWBVH8 BLAS as one segmented workload."""
     comptime assert node_width == 8 and leaf_width == 4
 
     var inputs = _flatten_triangle_sets(vertex_sets)
     if inputs.segments.item_count() == 0:
         return GpuBlasSet[
-            Primitive.TRIANGLE, layout, node_width, leaf_width
+            .TRIANGLE, layout, node_width, leaf_width
         ].empty(ctx, len(vertex_sets))
     ref segments = inputs.segments
     var source_vertices = upload_list(ctx, inputs.packed_vertices)
     var triangle_count = segments.item_count()
-    var leaf_bounds = ctx.enqueue_create_buffer[DType.float32](
+    var leaf_bounds = ctx.enqueue_create_buffer[.float32](
         triangle_count * AABB[frame].STRIDE
     )
-    var payloads = ctx.enqueue_create_buffer[DType.uint32](triangle_count)
+    var payloads = ctx.enqueue_create_buffer[.uint32](triangle_count)
     ctx.enqueue_function[compute_triangle_bounds_kernel[frame]](
         _device_span[mut=False](source_vertices),
         _device_span[mut=True](leaf_bounds),
@@ -402,10 +402,10 @@ def _build_segmented_compressed_triangle_blas_set[
     ref binary = build.binary
     ref wide = build.wide
 
-    var nodes = ctx.enqueue_create_buffer[DType.float32](
+    var nodes = ctx.enqueue_create_buffer[.float32](
         wide.node_segments.item_count() * CWBVH_NODE_WORDS
     )
-    var triangles = ctx.enqueue_create_buffer[DType.float32](
+    var triangles = ctx.enqueue_create_buffer[.float32](
         triangle_count * CWBVH_TRIANGLE_WORDS
     )
     var triangle_counters = enqueue_segmented_cwbvh8_representation[leaf_width](
@@ -458,7 +458,7 @@ def _build_segmented_compressed_triangle_blas_set[
     )
     ctx.synchronize()
 
-    return GpuBlasSet[Primitive.TRIANGLE, layout, node_width, leaf_width](
+    return GpuBlasSet[.TRIANGLE, layout, node_width, leaf_width](
         descs^,
         compact_nodes^,
         triangles^,
@@ -469,13 +469,13 @@ def _build_segmented_compressed_triangle_blas_set[
 def build_triangle_blas_set[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
-    build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
+    build_method: GpuBvhBuildMethod = .HPLOC,
     layout: GpuBvhLayout = GpuBvhLayout.WIDE,
-    frame: Frame = Frame.LOCAL,
+    frame: Frame = .LOCAL,
 ](
     mut ctx: DeviceContext,
     vertex_sets: ImmSpan[List[Point3f32[frame]], _],
-) raises -> GpuBlasSet[Primitive.TRIANGLE, layout, node_width, leaf_width]:
+) raises -> GpuBlasSet[.TRIANGLE, layout, node_width, leaf_width]:
     """Select the representation around the shared triangle input adapter."""
     debug_assert["safe", _use_compiler_assume=True](len(vertex_sets) > 0)
     comptime if layout == GpuBvhLayout.CWBVH8:
@@ -503,7 +503,7 @@ struct GpuTriangleBvh[
         Self.leaf_width,
         Int(Self.leaf_width),
     ]
-    var leaf_vertices: DeviceBuffer[DType.float32]
+    var leaf_vertices: DeviceBuffer[.float32]
 
     def __init__(
         out self,
@@ -512,7 +512,7 @@ struct GpuTriangleBvh[
             Self.leaf_width,
             Int(Self.leaf_width),
         ],
-        var leaf_vertices: DeviceBuffer[DType.float32],
+        var leaf_vertices: DeviceBuffer[.float32],
     ):
         self.tree = tree^
         self.leaf_vertices = leaf_vertices^
@@ -520,13 +520,13 @@ struct GpuTriangleBvh[
     def launch_camera(
         self,
         ctx: DeviceContext,
-        d_camera_params: DeviceBuffer[DType.float32],
-        d_hits: DeviceBuffer[DType.float32],
+        d_camera_params: DeviceBuffer[.float32],
+        d_hits: DeviceBuffer[.float32],
         ray_count: Int,
         cwidth: Int,
         cheight: Int,
     ) raises:
-        comptime assert Self.frame == Frame.WORLD
+        comptime assert Self.frame == .WORLD
         validate_camera_launch(
             d_camera_params, d_hits, ray_count, cwidth, cheight
         )
@@ -550,14 +550,14 @@ struct GpuTriangleBvh[
     def launch_camera_instrumented(
         self,
         ctx: DeviceContext,
-        d_camera_params: DeviceBuffer[DType.float32],
-        d_hits: DeviceBuffer[DType.float32],
-        d_stats: DeviceBuffer[DType.uint32],
+        d_camera_params: DeviceBuffer[.float32],
+        d_hits: DeviceBuffer[.float32],
+        d_stats: DeviceBuffer[.uint32],
         ray_count: Int,
         cwidth: Int,
         cheight: Int,
     ) raises:
-        comptime assert Self.frame == Frame.WORLD
+        comptime assert Self.frame == .WORLD
         validate_camera_launch(
             d_camera_params, d_hits, ray_count, cwidth, cheight
         )
@@ -585,12 +585,12 @@ struct GpuTriangleBvh[
         )
 
     def launch_rays[
-        mode: TRACE = TRACE.CLOSEST_HIT,
+        mode: TRACE = .CLOSEST_HIT,
     ](
         self,
         ctx: DeviceContext,
-        d_rays: DeviceBuffer[DType.float32],
-        d_hits: DeviceBuffer[DType.float32],
+        d_rays: DeviceBuffer[.float32],
+        d_hits: DeviceBuffer[.float32],
         ray_count: Int,
     ) raises:
         """Trace a packed ray buffer without camera-generation assumptions."""
@@ -618,10 +618,10 @@ def build_triangle_bvh[
     frame: Frame,
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
-    build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
+    build_method: GpuBvhBuildMethod = .LBVH,
 ](
     mut ctx: DeviceContext,
-    vertices: DeviceBuffer[DType.float32],
+    vertices: DeviceBuffer[.float32],
 ) raises -> GpuTriangleBvh[frame, node_width, leaf_width]:
     """Build one triangle segment through the unified segmented driver."""
     var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
@@ -634,10 +634,10 @@ def build_triangle_bvh_measured[
     frame: Frame,
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
-    build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
+    build_method: GpuBvhBuildMethod = .LBVH,
 ](
     mut ctx: DeviceContext,
-    vertices: DeviceBuffer[DType.float32],
+    vertices: DeviceBuffer[.float32],
     mut timings: GpuBuildTimings,
 ) raises -> GpuTriangleBvh[frame, node_width, leaf_width]:
     """Build a ready triangle BVH and populate per-stage timings."""
@@ -653,7 +653,7 @@ def _build_triangle_bvh_segmented[
     build_method: GpuBvhBuildMethod,
 ](
     mut ctx: DeviceContext,
-    vertices: DeviceBuffer[DType.float32],
+    vertices: DeviceBuffer[.float32],
     mut timings: GpuBuildTimings,
     measure_build: Bool,
 ) raises -> GpuTriangleBvh[frame, node_width, leaf_width]:
@@ -760,13 +760,13 @@ def trace_triangle_bvh_camera_kernel[
     # extra distance stack benchmarks positively for triangle BVH4;
     # BVH8 retains the lower-memory stack specialization.
     var hit = trace_bounds_bvh[
-        Frame.WORLD,
+        .WORLD,
         node_width,
-        TRACE.CLOSEST_HIT,
+        .CLOSEST_HIT,
         _intersect_triangle_leaf[
-            Frame.WORLD,
+            .WORLD,
             leaf_width,
-            TRACE.CLOSEST_HIT,
+            .CLOSEST_HIT,
             leaf_width > node_width or leaf_width == 8,
         ],
         node_width == 4,
@@ -779,7 +779,7 @@ def trace_triangle_bvh_rays_kernel[
     frame: Frame,
     node_width: SIMDLength,
     leaf_width: SIMDLength,
-    mode: TRACE = TRACE.CLOSEST_HIT,
+    mode: TRACE = .CLOSEST_HIT,
 ](
     wide_nodes: Pointer[Float32, ImmutAnyOrigin],
     leaf_vertices: Pointer[Float32, ImmutAnyOrigin],
@@ -805,7 +805,7 @@ def trace_triangle_bvh_rays_kernel[
             leaf_width > node_width or leaf_width == 8,
         ],
         node_width == 4,
-        mode == TRACE.CLOSEST_HIT and node_width == 2 and leaf_width == 2,
+        mode == .CLOSEST_HIT and node_width == 2 and leaf_width == 2,
     ](wide_nodes, leaf_vertices, root_idx, ray)
     _store_packed_hit[frame](hit, hits, ray_count_int, ray_idx)
 
@@ -842,13 +842,13 @@ def trace_triangle_bvh_camera_instrumented_kernel[
     )
 
     var result = trace_bounds_bvh_with_stats[
-        Frame.WORLD,
+        .WORLD,
         node_width,
-        TRACE.CLOSEST_HIT,
+        .CLOSEST_HIT,
         _intersect_triangle_leaf[
-            Frame.WORLD,
+            .WORLD,
             leaf_width,
-            TRACE.CLOSEST_HIT,
+            .CLOSEST_HIT,
             leaf_width > node_width or leaf_width == 8,
         ],
         node_width == 4,
@@ -904,7 +904,7 @@ def _intersect_triangle_leaf[
         # Any-hit only needs the candidate mask, so it can always stay in
         # determinant-scaled space and return without paying for a reciprocal.
         # `division_free` remains the layout-tuned closest-hit policy.
-        comptime if mode == TRACE.ANY_HIT or division_free:
+        comptime if mode == .ANY_HIT or division_free:
             # Reject misses and farther candidates in determinant-scaled space.
             # Only a surviving closest-hit candidate pays for a reciprocal.
             var scaled_hit = intersect_ray_tri_edges_scaled(
@@ -918,7 +918,7 @@ def _intersect_triangle_leaf[
             )
 
             if scaled_hit.mask:
-                comptime if mode == TRACE.ANY_HIT:
+                comptime if mode == .ANY_HIT:
                     return True
                 else:
                     var inv_det = 1.0 / scaled_hit.abs_det
@@ -943,7 +943,7 @@ def _intersect_triangle_leaf[
             )
 
             if tri_hit.mask:
-                comptime if mode == TRACE.ANY_HIT:
+                comptime if mode == .ANY_HIT:
                     return True
                 else:
                     hit.t = tri_hit.t
@@ -990,7 +990,7 @@ def _intersect_cwbvh_triangle[
     )
     if not scaled_hit.mask:
         return False
-    comptime if mode == TRACE.ANY_HIT:
+    comptime if mode == .ANY_HIT:
         return True
     else:
         var prim = triangles.unsafe_bitcast[UInt32]()[unsafe_offset=base + 11]
@@ -1058,7 +1058,7 @@ def trace_cwbvh8_triangles[
             var relative = UInt32(pop_count(group_imask & slots_before))
             var node_idx = node_group_base + relative
             var node_t_max = hit.t
-            comptime if mode == TRACE.ANY_HIT:
+            comptime if mode == .ANY_HIT:
                 node_t_max = ray.t_max
             var tasks = _intersect_cwbvh8_node_tasks[frame](
                 nodes,
@@ -1090,7 +1090,7 @@ def trace_cwbvh8_triangles[
                 ray,
                 hit,
             )
-            comptime if mode == TRACE.ANY_HIT:
+            comptime if mode == .ANY_HIT:
                 if triangle_hit:
                     return Hit[frame].shadow_hit()
 

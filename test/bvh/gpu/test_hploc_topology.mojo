@@ -11,10 +11,10 @@ from bajo.bvh.gpu.utils import upload_list
 from bajo.core import AABB, Frame, Point3f32
 
 
-def _box(center_x: Float32) -> AABB[Frame.WORLD]:
-    return AABB[Frame.WORLD](
-        Point3f32[Frame.WORLD](center_x - 0.1, -0.1, -0.1),
-        Point3f32[Frame.WORLD](center_x + 0.1, 0.1, 0.1),
+def _box(center_x: Float32) -> AABB[.WORLD]:
+    return AABB[.WORLD](
+        Point3f32[.WORLD](center_x - 0.1, -0.1, -0.1),
+        Point3f32[.WORLD](center_x + 0.1, 0.1, 0.1),
     )
 
 
@@ -36,7 +36,7 @@ def test_hploc_topology_hierarchical_merging_exact_topology() raises:
         110.0,
         111.0,
     ]
-    var bounds = List[AABB[Frame.WORLD]](capacity=len(centers))
+    var bounds = List[AABB[.WORLD]](capacity=len(centers))
     for center in centers:
         bounds.append(_box(center))
 
@@ -67,7 +67,7 @@ def test_hploc_topology_hierarchical_merging_exact_topology() raises:
 
 
 def test_hploc_topology_strict_ties_prefer_right_then_near() raises:
-    var bounds = List[AABB[Frame.WORLD]](capacity=4)
+    var bounds = List[AABB[.WORLD]](capacity=4)
     for _ in range(4):
         bounds.append(_box(0.0))
     var codes: List[UInt32] = [7, 7, 7, 7]
@@ -88,7 +88,7 @@ def test_hploc_topology_strict_ties_prefer_right_then_near() raises:
 
 
 def test_hploc_topology_duplicate_codes_and_permutation_are_deterministic() raises:
-    var bounds: List[AABB[Frame.WORLD]] = [
+    var bounds: List[AABB[.WORLD]] = [
         _box(-6.0),
         _box(-2.0),
         _box(2.0),
@@ -105,16 +105,16 @@ def test_hploc_topology_duplicate_codes_and_permutation_are_deterministic() rais
     assert_equal(first.nodes[Int(first.root)].parent, LBVH_SENTINEL)
 
 
-def _make_quality_triangles() -> List[AABB[Frame.WORLD]]:
-    var bounds = List[AABB[Frame.WORLD]](capacity=64)
+def _make_quality_triangles() -> List[AABB[.WORLD]]:
+    var bounds = List[AABB[.WORLD]](capacity=64)
     for i in range(64):
         var x = Float32((i % 8) * 4 - 14)
         var y = Float32(((i / 8) % 8) * 4 - 14)
         var z = Float32((i * 7) % 5)
         var scale = Float32(2.5) if i % 9 == 0 else Float32(0.7)
-        var p0 = Point3f32[Frame.WORLD](x - scale, y - scale, z)
-        var p1 = Point3f32[Frame.WORLD](x + scale, y - scale, z)
-        var p2 = Point3f32[Frame.WORLD](x, y + scale, z + 0.1)
+        var p0 = Point3f32[.WORLD](x - scale, y - scale, z)
+        var p1 = Point3f32[.WORLD](x + scale, y - scale, z)
+        var p2 = Point3f32[.WORLD](x, y + scale, z + 0.1)
         bounds.append(AABB(p0, p1, p2))
     return bounds^
 

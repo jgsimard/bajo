@@ -185,9 +185,9 @@ struct DeviceWavePath(DevicePassable, TrivialRegisterPassable, Writable):
     def to_path(self) -> WavePath:
         return WavePath(
             self.path_id,
-            Rayf32[Frame.WORLD](
-                Point3f32[Frame.WORLD](self.ox, self.oy, self.oz),
-                Vec3f32[Frame.WORLD](self.dx, self.dy, self.dz),
+            Rayf32[.WORLD](
+                Point3f32[.WORLD](self.ox, self.oy, self.oz),
+                Vec3f32[.WORLD](self.dx, self.dy, self.dz),
                 self.t_min,
                 self.t_max,
             ),
@@ -234,7 +234,7 @@ struct DeviceWaveShade(DevicePassable, TrivialRegisterPassable, Writable):
         return WaveShade(
             self.path_idx,
             SurfaceHit(
-                Vec3f32[Frame.WORLD](self.nx, self.ny, self.nz),
+                Vec3f32[.WORLD](self.nx, self.ny, self.nz),
                 SurfaceId(
                     MAT(self.surface_value >> UInt32(28)),
                     self.surface_value & UInt32(0x0FFFFFFF),

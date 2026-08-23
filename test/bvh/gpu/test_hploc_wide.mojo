@@ -49,7 +49,7 @@ from test.bvh.fixtures import (
 
 
 def _bounds_match(
-    actual: AABB[Frame.WORLD], expected: AABB[Frame.WORLD]
+    actual: AABB[.WORLD], expected: AABB[.WORLD]
 ) -> Bool:
     return (
         max(
@@ -74,8 +74,8 @@ def _bounds_match(
 
 def _load_wide_lane_bounds[
     width: SIMDLength
-](nodes: Span[Float32, _], node_idx: UInt32, lane: Int) -> AABB[Frame.WORLD]:
-    var bounds = AABB[Frame.WORLD].invalid()
+](nodes: Span[Float32, _], node_idx: UInt32, lane: Int) -> AABB[.WORLD]:
+    var bounds = AABB[.WORLD].invalid()
     bounds._min.x = nodes[
         _wide_node_index[width](node_idx, WideNode.MIN_X, lane)
     ]
@@ -99,28 +99,28 @@ def _load_wide_lane_bounds[
 
 def _make_irregular_scene(
     count: Int,
-) -> List[Point3f32[Frame.WORLD]]:
-    var verts = List[Point3f32[Frame.WORLD]](capacity=count * 3)
+) -> List[Point3f32[.WORLD]]:
+    var verts = List[Point3f32[.WORLD]](capacity=count * 3)
     for i in range(count):
         var x = Float32((i % 19) * 4 - 36)
         var y = Float32(((i / 19) % 14) * 4 - 26)
         var z = Float32((i * 7) % 11 + 2)
         var scale = Float32(2.5) if i % 17 == 0 else Float32(0.7)
-        verts.append(Point3f32[Frame.WORLD](x - scale, y - scale, z))
-        verts.append(Point3f32[Frame.WORLD](x + scale, y - scale, z))
-        verts.append(Point3f32[Frame.WORLD](x, y + scale, z + 0.1))
+        verts.append(Point3f32[.WORLD](x - scale, y - scale, z))
+        verts.append(Point3f32[.WORLD](x + scale, y - scale, z))
+        verts.append(Point3f32[.WORLD](x, y + scale, z + 0.1))
     return verts^
 
 
-def _triangle_bounds(verts: List[Point3f32[Frame.WORLD]]) -> AABB[Frame.WORLD]:
-    var bounds = AABB[Frame.WORLD].invalid()
+def _triangle_bounds(verts: List[Point3f32[.WORLD]]) -> AABB[.WORLD]:
+    var bounds = AABB[.WORLD].invalid()
     for vertex in verts:
         bounds.grow(vertex)
     return bounds
 
 
 def _flatten_triangle_bounds(
-    verts: List[Point3f32[Frame.WORLD]],
+    verts: List[Point3f32[.WORLD]],
 ) -> Tuple[List[Float32], List[UInt32]]:
     var tri_count = len(verts) / 3
     var flat = List[Float32](capacity=tri_count * AABB.STRIDE)
@@ -143,7 +143,7 @@ def _assert_literature_wide_invariants[
     max_leaf_size: Int,
 ](
     tree: GpuWideBoundsBvh[node_width, leaf_width, max_leaf_size],
-    verts: List[Point3f32[Frame.WORLD]],
+    verts: List[Point3f32[.WORLD]],
 ) raises:
     var tri_count = len(verts) / 3
     comptime fat_leaf_limit = min(max_leaf_size, 4)
@@ -151,7 +151,7 @@ def _assert_literature_wide_invariants[
     assert_true(tree.leaf_block_count <= tri_count)
     assert_true(tree.node_count > 0)
 
-    var triangle_bounds_list = List[AABB[Frame.WORLD]](capacity=tri_count)
+    var triangle_bounds_list = List[AABB[.WORLD]](capacity=tri_count)
     for i in range(tri_count):
         triangle_bounds_list.append(
             AABB(verts[i * 3], verts[i * 3 + 1], verts[i * 3 + 2])
@@ -162,12 +162,12 @@ def _assert_literature_wide_invariants[
             unsafe_ptr=wide_nodes.unsafe_ptr(), length=len(wide_nodes)
         )
         var nodes_u32 = wide_nodes.unsafe_ptr().unsafe_bitcast[UInt32]()
-        var node_unions = List[AABB[Frame.WORLD]](
-            length=tree.node_count, fill=AABB[Frame.WORLD].invalid()
+        var node_unions = List[AABB[.WORLD]](
+            length=tree.node_count, fill=AABB[.WORLD].invalid()
         )
 
         for node_idx in range(tree.node_count):
-            var node_union = AABB[Frame.WORLD].invalid()
+            var node_union = AABB[.WORLD].invalid()
             var live_lanes = 0
             comptime for lane in range(node_width):
                 var meta = nodes_u32[
@@ -228,7 +228,7 @@ def _assert_literature_wide_invariants[
                     assert_true(count <= UInt32(fat_leaf_limit))
                     assert_true(data < UInt32(tree.leaf_block_count))
                     var block_base = Int(data) * leaf_width
-                    var leaf_union = AABB[Frame.WORLD].invalid()
+                    var leaf_union = AABB[.WORLD].invalid()
                     for leaf_lane in range(Int(count)):
                         var payload = leaf_blocks[block_base + leaf_lane]
                         assert_true(payload < UInt32(tri_count))
@@ -251,14 +251,14 @@ def _assert_literature_wide_invariants[
 
 def _assert_root_uses_largest_area_opening[
     node_width: SIMDLength,
-](verts: List[Point3f32[Frame.WORLD]]) raises:
+](verts: List[Point3f32[.WORLD]]) raises:
     var build = _flatten_triangle_bounds(verts)
     with DeviceContext() as ctx:
         var diagnostic = build_bounds_bvh_for_diagnostics[
             node_width,
             node_width,
             Int(node_width),
-            GpuBvhBuildMethod.HPLOC,
+            .HPLOC,
         ](
             ctx,
             upload_list(ctx, build[0]),
@@ -343,12 +343,12 @@ def _assert_hploc_triangle_matches_cpu[
     leaf_width: SIMDLength,
     allow_identical_primitive_ties: Bool = False,
     expect_packing: Bool = False,
-](verts: List[Point3f32[Frame.WORLD]]) raises:
+](verts: List[Point3f32[.WORLD]]) raises:
     comptime width = 32
     comptime height = 24
     comptime views = 2
     var cpu = build_triangle_blases[
-        node_width, leaf_width, CpuBvhBuildMethod.LBVH, Frame.WORLD
+        node_width, leaf_width, .LBVH, .WORLD
     ]([verts.copy()])
     var camera_data = _make_camera_rays_and_params(
         _triangle_bounds(verts), width, height, views
@@ -358,16 +358,16 @@ def _assert_hploc_triangle_matches_cpu[
 
     with DeviceContext() as ctx:
         var gpu = build_triangle_bvh[
-            Frame.WORLD,
+            .WORLD,
             node_width,
             leaf_width,
-            GpuBvhBuildMethod.HPLOC,
+            .HPLOC,
         ](ctx, upload_vertices(ctx, verts))
         _assert_literature_wide_invariants(gpu.tree, verts)
         comptime if expect_packing:
             assert_true(gpu.tree.leaf_block_count < len(verts) / 3)
 
-        var hits = ctx.enqueue_create_buffer[DType.float32](
+        var hits = ctx.enqueue_create_buffer[.float32](
             len(rays) * Hit.STRIDE
         )
         gpu.launch_camera(
@@ -385,9 +385,9 @@ def _assert_hploc_triangle_matches_cpu[
                 unsafe_ptr=host_hits.unsafe_ptr(), length=len(host_hits)
             )
             for i, ray in enumerate(rays):
-                var actual = Hit[Frame.WORLD].load(hit_span, i)
+                var actual = Hit[.WORLD].load(hit_span, i)
                 var expected = trace_blas_set[
-                    node_width, leaf_width, TRACE.CLOSEST_HIT, Frame.WORLD
+                    node_width, leaf_width, .CLOSEST_HIT, .WORLD
                 ](cpu, UInt32(0), ray)
                 var both_miss = actual.t >= f32_max and expected.t >= f32_max
                 if not both_miss:
@@ -420,7 +420,7 @@ def test_hploc_wide_collapse_is_segmented_and_packed() raises:
             upload_list(ctx, build[1]),
             workspace,
         )
-        _ = build_binary_bvh[GpuBvhBuildMethod.HPLOC](ctx, binary, workspace)
+        _ = build_binary_bvh[.HPLOC](ctx, binary, workspace)
         var wide = GpuWideBoundsBvhBatch[8, 4, 4](ctx, segments)
         collapse_binary_to_wide_batch[8, 4, 4, True](ctx, binary, wide)
 
@@ -477,7 +477,7 @@ def test_hploc_wide_collapse_is_segmented_and_packed() raises:
 
 
 def test_hploc_triangle_opt_in_widths_match_cpu() raises:
-    var scene = _make_small_scene[Frame.WORLD]()
+    var scene = _make_small_scene[.WORLD]()
     _assert_hploc_triangle_matches_cpu[2, 2](scene)
     _assert_hploc_triangle_matches_cpu[2, 4](scene)
     _assert_hploc_triangle_matches_cpu[4, 4](scene)
@@ -487,10 +487,10 @@ def test_hploc_triangle_opt_in_widths_match_cpu() raises:
 
 def test_hploc_triangle_opt_in_edge_cases() raises:
     _assert_hploc_triangle_matches_cpu[4, 4](
-        _make_single_triangle_scene[Frame.WORLD]()
+        _make_single_triangle_scene[.WORLD]()
     )
     _assert_hploc_triangle_matches_cpu[8, 4, True](
-        _make_duplicate_centroid_scene[Frame.WORLD]()
+        _make_duplicate_centroid_scene[.WORLD]()
     )
 
 

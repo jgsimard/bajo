@@ -26,7 +26,7 @@ comptime PARALLEL_FRONTIER_CAPACITY = 1 << PARALLEL_FRONTIER_DEPTH
 struct BinaryBoundsBvh[
     frame: Frame,
     leaf_size: Int,
-    method: CpuBvhBuildMethod = CpuBvhBuildMethod.MEDIAN,
+    method: CpuBvhBuildMethod = .MEDIAN,
 ](Copyable):
     """Generic binary BVH builder over AABBs/items.
 
@@ -60,21 +60,21 @@ struct BinaryBoundsBvh[
         self.nodes.append(BoundsBvhNode[Self.frame]())
 
         self.nodes_used = 1
-        comptime if Self.method == CpuBvhBuildMethod.LBVH:
+        comptime if Self.method == .LBVH:
             _build_lbvh[
                 Self.frame,
                 Self.leaf_size,
                 Self.method,
             ](self, centroid_bounds)
 
-        elif Self.method == CpuBvhBuildMethod.HPLOC:
+        elif Self.method == .HPLOC:
             _build_hploc[
                 Self.frame,
                 Self.leaf_size,
                 Self.method,
             ](self, centroid_bounds)
 
-        elif Self.method == CpuBvhBuildMethod.SAH:
+        elif Self.method == .SAH:
             self.nodes[0].set_leaf(0, self.item_count)
             var have_precomputed_bounds = (
                 root_bounds._min.x[0] <= root_bounds._max.x[0]
@@ -93,7 +93,7 @@ struct BinaryBoundsBvh[
             else:
                 self._subdivide(0, build_centroid_bounds)
 
-        elif Self.method == CpuBvhBuildMethod.MEDIAN:
+        elif Self.method == .MEDIAN:
             self.nodes[0].set_leaf(0, self.item_count)
             if root_bounds._min.x[0] <= root_bounds._max.x[0]:
                 self.nodes[0].aabb = root_bounds
@@ -149,8 +149,8 @@ struct BinaryBoundsBvh[
     def _build_parallel_top_down(
         mut self, root_centroid_bounds: AABB[Self.frame]
     ) where (
-        Self.method == CpuBvhBuildMethod.SAH
-        or Self.method == CpuBvhBuildMethod.MEDIAN
+        Self.method == .SAH
+        or Self.method == .MEDIAN
     ):
         # Parallel workers write disjoint item ranges and uniquely allocated
         # node pairs. Extending the node list without initialization keeps the
@@ -195,8 +195,8 @@ struct BinaryBoundsBvh[
         mut frontier_nodes: List[UInt32],
         mut frontier_centroid_bounds: List[AABB[Self.frame]],
     ) where (
-        Self.method == CpuBvhBuildMethod.SAH
-        or Self.method == CpuBvhBuildMethod.MEDIAN
+        Self.method == .SAH
+        or Self.method == .MEDIAN
     ):
         var source_node = self.nodes[Int(node_idx)]
         if source_node.item_count <= UInt32(Self.leaf_size):
@@ -234,8 +234,8 @@ struct BinaryBoundsBvh[
         centroid_bounds: AABB[Self.frame],
         next_node: Pointer[UInt32, next_node_origin],
     ) where (
-        Self.method == CpuBvhBuildMethod.SAH
-        or Self.method == CpuBvhBuildMethod.MEDIAN
+        Self.method == .SAH
+        or Self.method == .MEDIAN
     ):
         var source_node = self.nodes[Int(node_idx)]
         if source_node.item_count <= UInt32(Self.leaf_size):
@@ -313,10 +313,10 @@ struct BinaryBoundsBvh[
         node: BoundsBvhNode[Self.frame],
         centroid_bounds: AABB[Self.frame],
     ) -> BoundsPartitionResult[Self.frame]:
-        comptime if Self.method == CpuBvhBuildMethod.MEDIAN:
+        comptime if Self.method == .MEDIAN:
             return self._partition_node_by_median(node)
 
-        elif Self.method == CpuBvhBuildMethod.SAH:
+        elif Self.method == .SAH:
             var first = Int(node.first_item())
             var count = Int(node.item_count)
             comptime BVH_BINS = 16

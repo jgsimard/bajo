@@ -44,8 +44,8 @@ def trace_scalar[
     bounds_width: SIMDLength,
     leaf_width: SIMDLength,
 ](
-    bvh: CpuBlasSet[Primitive.TRIANGLE, bounds_width, leaf_width],
-    rays: List[Rayf32[Frame.WORLD]],
+    bvh: CpuBlasSet[.TRIANGLE, bounds_width, leaf_width],
+    rays: List[Rayf32[.WORLD]],
 ) -> Tuple[Float64, Int]:
     var checksum = Float64(0.0)
     var hits = 0
@@ -53,8 +53,8 @@ def trace_scalar[
         var hit = trace_blas_set[
             bounds_width,
             leaf_width,
-            TRACE.CLOSEST_HIT,
-            Frame.WORLD,
+            .CLOSEST_HIT,
+            .WORLD,
         ](bvh, UInt32(0), ray)
         if hit.t < f32_max:
             checksum += (
@@ -76,8 +76,8 @@ def trace_packet[
     length: SIMDLength,
     common_octant: Bool,
 ](
-    bvh: CpuBlasSet[Primitive.TRIANGLE, bounds_width, leaf_width],
-    rays: List[Rayf32[Frame.WORLD]],
+    bvh: CpuBlasSet[.TRIANGLE, bounds_width, leaf_width],
+    rays: List[Rayf32[.WORLD]],
 ) -> Tuple[Float64, Int]:
     var checksum = Float64(0.0)
     var hits = 0
@@ -104,9 +104,9 @@ def trace_packet[
             t_max[lane] = ray.t_max
             valid[lane] = True
 
-        var packet = Ray[DType.float32, Frame.WORLD, length](
-            Point3[DType.float32, Frame.WORLD, length](ox, oy, oz),
-            Vec3[DType.float32, Frame.WORLD, length](dx, dy, dz),
+        var packet = Ray[.float32, .WORLD, length](
+            Point3[DType.float32, .WORLD, length](ox, oy, oz),
+            Vec3[.float32, .WORLD, length](dx, dy, dz),
             t_min,
             t_max,
         )
@@ -115,7 +115,7 @@ def trace_packet[
             leaf_width,
             length,
             common_octant,
-            Frame.WORLD,
+            .WORLD,
         ](bvh, UInt32(0), packet, valid)
         for lane in range(lane_count):
             if packet_hit.prim[lane] != UInt32(0xFFFFFFFF):
@@ -138,8 +138,8 @@ def benchmark[
     length: SIMDLength,
     common_octant: Bool = False,
 ](
-    bvh: CpuBlasSet[Primitive.TRIANGLE, bounds_width, leaf_width],
-    rays: List[Rayf32[Frame.WORLD]],
+    bvh: CpuBlasSet[.TRIANGLE, bounds_width, leaf_width],
+    rays: List[Rayf32[.WORLD]],
 ) -> PacketTiming:
     var summary: Tuple[Float64, Int]
     comptime if length == 1:
@@ -176,15 +176,15 @@ def benchmark_scene[
     method: CpuBvhBuildMethod,
 ](
     label: String,
-    vertices: List[Point3f32[Frame.WORLD]],
-    rays: List[Rayf32[Frame.WORLD]],
+    vertices: List[Point3f32[.WORLD]],
+    rays: List[Rayf32[.WORLD]],
 ) raises:
     print(
         t"\n{label} / {method.name()} / BVH{Int(bounds_width)} "
         t"leaf{Int(leaf_width)}"
     )
     var bvh = build_triangle_blases[
-        bounds_width, leaf_width, method, Frame.WORLD
+        bounds_width, leaf_width, method, .WORLD
     ]([vertices.copy()])
     print_timing(
         "scalar", benchmark[bounds_width, leaf_width, 1](bvh, rays), len(rays)
@@ -221,32 +221,32 @@ def run_benchmark() raises:
     print("CPU shared-stack packet BVH benchmark")
     var grid_vertices = make_grid_triangles()
     var grid_rays = make_hit_and_miss_rays()
-    benchmark_scene[16, 16, CpuBvhBuildMethod.MEDIAN](
+    benchmark_scene[16, 16, .MEDIAN](
         "Regular grid", grid_vertices, grid_rays
     )
-    benchmark_scene[8, 8, CpuBvhBuildMethod.MEDIAN](
+    benchmark_scene[8, 8, .MEDIAN](
         "Regular grid", grid_vertices, grid_rays
     )
-    benchmark_scene[16, 16, CpuBvhBuildMethod.LBVH](
+    benchmark_scene[16, 16, .LBVH](
         "Regular grid", grid_vertices, grid_rays
     )
-    benchmark_scene[8, 8, CpuBvhBuildMethod.LBVH](
+    benchmark_scene[8, 8, .LBVH](
         "Regular grid", grid_vertices, grid_rays
     )
-    benchmark_scene[16, 16, CpuBvhBuildMethod.HPLOC](
+    benchmark_scene[16, 16, .HPLOC](
         "Regular grid", grid_vertices, grid_rays
     )
 
-    var dragon_vertices = pack_obj_triangles[Frame.WORLD](OBJ_PATH)
+    var dragon_vertices = pack_obj_triangles[.WORLD](OBJ_PATH)
     var bounds = compute_bounds(dragon_vertices)
     var camera = make_camera_rays_and_params(
         bounds, DRAGON_WIDTH, DRAGON_HEIGHT, 1, FOV_SCALE
     )
     var dragon_rays = camera[0].copy()
-    benchmark_scene[16, 16, CpuBvhBuildMethod.SAH](
+    benchmark_scene[16, 16, .SAH](
         "Dragon camera rays", dragon_vertices, dragon_rays
     )
-    benchmark_scene[16, 16, CpuBvhBuildMethod.HPLOC](
+    benchmark_scene[16, 16, .HPLOC](
         "Dragon camera rays", dragon_vertices, dragon_rays
     )
 

@@ -69,8 +69,8 @@ struct _DirectLightBatch[length: SIMDLength]:
     def __init__(out self):
         self.sample = _empty_direct_light_sample[Self.length]()
         self.point = ShadingPoint[Self.length](
-            Point3[DType.float32, Frame.WORLD, Self.length](0.0),
-            Vec3[DType.float32, Frame.WORLD, Self.length](0.0),
+            Point3[DType.float32, .WORLD, Self.length](0.0),
+            Vec3[.float32, .WORLD, Self.length](0.0),
             SIMD[DType.bool, Self.length](fill=False),
         )
         self.surface_kinds = 0
@@ -90,10 +90,10 @@ def _accumulate_direct_light_packet[
 ):
     """Evaluate collected NEE candidates with packet-wide BSDF and MIS math."""
     comptime assert ALGORITHM in (RENDER.NEE, RENDER.MIS)
-    var ray_direction = Vec3[DType.float32, Frame.WORLD, length](
+    var ray_direction = Vec3[.float32, .WORLD, length](
         paths.dx, paths.dy, paths.dz
     )
-    var albedo = Vec3[DType.float32, Frame.WORLD, length](0.0)
+    var albedo = Vec3[.float32, .WORLD, length](0.0)
     var fuzz = SIMD[DType.float32, length](1.0)
     for lane in range(lane_count):
         if not lights.sample.valid[lane]:
@@ -162,13 +162,13 @@ def _sample_bsdf_batch[
         MAT.METAL,
         MAT.DIELECTRIC,
     )
-    var ray_direction = Vec3[DType.float32, Frame.WORLD, length](
+    var ray_direction = Vec3[.float32, .WORLD, length](
         batch.dx, batch.dy, batch.dz
     )
-    var normal = Vec3[DType.float32, Frame.WORLD, length](
+    var normal = Vec3[.float32, .WORLD, length](
         batch.nx, batch.ny, batch.nz
     )
-    var albedo = Vec3[DType.float32, Frame.WORLD, length](0.0)
+    var albedo = Vec3[.float32, .WORLD, length](0.0)
     var parameter = SIMD[DType.float32, length](1.0)
     var random_u = SIMD[DType.float32, length](0.0)
     var random_v = SIMD[DType.float32, length](0.0)
@@ -253,7 +253,7 @@ def _accumulate_sky_packet[
     samples_per_pixel: Int,
 ):
     var sky = sky_color(
-        Vec3[DType.float32, Frame.WORLD, length](
+        Vec3[.float32, .WORLD, length](
             packet.dx, packet.dy, packet.dz
         )
     )
@@ -337,11 +337,11 @@ def _trace_path_packets[
             var valid_lanes = SIMD[DType.bool, length](fill=False)
             for lane in range(lane_count):
                 valid_lanes[lane] = True
-            var ray_packet = Ray[DType.float32, Frame.WORLD, length](
-                Point3[DType.float32, Frame.WORLD, length](
+            var ray_packet = Ray[.float32, .WORLD, length](
+                Point3[DType.float32, .WORLD, length](
                     packet.ox, packet.oy, packet.oz
                 ),
-                Vec3[DType.float32, Frame.WORLD, length](
+                Vec3[.float32, .WORLD, length](
                     packet.dx, packet.dy, packet.dz
                 ),
                 packet.t_min,
@@ -349,11 +349,11 @@ def _trace_path_packets[
             )
             var surface_hits = world.trace_surface(ray_packet, valid_lanes)
             for lane in range(lane_count):
-                var ray = Rayf32[Frame.WORLD](
-                    Point3f32[Frame.WORLD](
+                var ray = Rayf32[.WORLD](
+                    Point3f32[.WORLD](
                         packet.ox[lane], packet.oy[lane], packet.oz[lane]
                     ),
-                    Vec3f32[Frame.WORLD](
+                    Vec3f32[.WORLD](
                         packet.dx[lane], packet.dy[lane], packet.dz[lane]
                     ),
                     packet.t_min[lane],
@@ -388,7 +388,7 @@ def _trace_path_packets[
                         )
                         continue
 
-                    comptime if ALGORITHM != RENDER.PATH:
+                    comptime if ALGORITHM != .PATH:
                         var point = ShadingPoint(
                             ray.o + hit.t * ray.d,
                             hit.normal,
@@ -452,8 +452,8 @@ def _trace_path_packets[
                 else:
                     misses[lane] = True
 
-            comptime if ALGORITHM != RENDER.PATH:
-                var shadow_rays = Ray[DType.float32, Frame.WORLD, length](
+            comptime if ALGORITHM != .PATH:
+                var shadow_rays = Ray[.float32, .WORLD, length](
                     direct_lights.point.p,
                     direct_lights.sample.direction,
                     SIMD[DType.float32, length](0.001),

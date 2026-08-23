@@ -326,8 +326,8 @@ def _composite_key(original_idx: UInt32) -> UInt64:
 def test_uint64_composite_key_pairs_end_to_end() raises:
     with DeviceContext() as ctx:
         var size = 10_003
-        var keys = ctx.enqueue_create_buffer[DType.uint64](size)
-        var values = ctx.enqueue_create_buffer[DType.uint32](size)
+        var keys = ctx.enqueue_create_buffer[.uint64](size)
+        var values = ctx.enqueue_create_buffer[.uint32](size)
         with keys.map_to_host() as host_keys, values.map_to_host() as host_values:
             for i in range(size):
                 host_values[i] = UInt32(i)

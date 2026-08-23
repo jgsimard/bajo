@@ -116,7 +116,7 @@ def _trace_bounds_bvh_impl[
     LeafFn: def(
         Rayf32[frame],
         Point3[DType.float32, frame, leaf_width],
-        Vec3[DType.float32, frame, leaf_width],
+        Vec3[.float32, frame, leaf_width],
         SIMD[DType.float32, leaf_width],
         SIMD[DType.float32, leaf_width],
         UInt32,
@@ -142,7 +142,7 @@ def _trace_bounds_bvh_impl[
 
     var bounds_O = ray.origin[bounds_width]()
     var rcp_d = ray.rcp_direction[bounds_width]()
-    var origin_rcp_d = Vec3[DType.float32, frame, bounds_width](
+    var origin_rcp_d = Vec3[.float32, frame, bounds_width](
         bounds_O.x * rcp_d.x,
         bounds_O.y * rcp_d.y,
         bounds_O.z * rcp_d.z,
@@ -152,7 +152,7 @@ def _trace_bounds_bvh_impl[
     comptime if leaf_uses_rcp_direction:
         # `rcp_d` is splatted from one scalar ray, so lane zero can be
         # rebroadcast at a different leaf width without another reciprocal.
-        leaf_D = Vec3[DType.float32, frame, leaf_width](
+        leaf_D = Vec3[.float32, frame, leaf_width](
             rcp_d.x[0], rcp_d.y[0], rcp_d.z[0]
         )
 
@@ -166,7 +166,7 @@ def _trace_bounds_bvh_impl[
             positive_z=positive_z,
         ](origin_rcp_d, rcp_d, aabb, hit.t)
 
-    comptime if mode == TRACE.CLOSEST_HIT:
+    comptime if mode == .CLOSEST_HIT:
         # stack entries are tagged child references, so they can represent either an internal node or a packed leaf
         var ordered_stack = Array[UInt64, CPU_STACK_SIZE](uninitialized=True)
 
@@ -444,7 +444,7 @@ def _trace_bounds_bvh_octant[
     LeafFn: def(
         Rayf32[frame],
         Point3[DType.float32, frame, leaf_width],
-        Vec3[DType.float32, frame, leaf_width],
+        Vec3[.float32, frame, leaf_width],
         SIMD[DType.float32, leaf_width],
         SIMD[DType.float32, leaf_width],
         UInt32,
@@ -532,7 +532,7 @@ def trace_bounds_bvh[
     LeafFn: def(
         Rayf32[frame],
         Point3[DType.float32, frame, leaf_width],
-        Vec3[DType.float32, frame, leaf_width],
+        Vec3[.float32, frame, leaf_width],
         SIMD[DType.float32, leaf_width],
         SIMD[DType.float32, leaf_width],
         UInt32,
@@ -569,7 +569,7 @@ def trace_packed_bounds_bvh[
     LeafFn: def(
         Rayf32[frame],
         Point3[DType.float32, frame, leaf_width],
-        Vec3[DType.float32, frame, leaf_width],
+        Vec3[.float32, frame, leaf_width],
         SIMD[DType.float32, leaf_width],
         SIMD[DType.float32, leaf_width],
         UInt32,
@@ -608,7 +608,7 @@ def trace_bounds_bvh_from_ref[
     LeafFn: def(
         Rayf32[frame],
         Point3[DType.float32, frame, leaf_width],
-        Vec3[DType.float32, frame, leaf_width],
+        Vec3[.float32, frame, leaf_width],
         SIMD[DType.float32, leaf_width],
         SIMD[DType.float32, leaf_width],
         UInt32,
@@ -631,7 +631,7 @@ def trace_bounds_bvh_from_ref[
         frame=frame,
         bounds_width=bounds_width,
         leaf_width=leaf_width,
-        mode=TRACE.CLOSEST_HIT,
+        mode=.CLOSEST_HIT,
         leaf_uses_rcp_direction=False,
         single_child_fast_path=single_child_fast_path,
         terminal_mask_fast_path=terminal_mask_fast_path,
@@ -655,7 +655,7 @@ def trace_bounds_bvh_leaf_rcp[
     LeafFn: def(
         Rayf32[frame],
         Point3[DType.float32, frame, leaf_width],
-        Vec3[DType.float32, frame, leaf_width],
+        Vec3[.float32, frame, leaf_width],
         SIMD[DType.float32, leaf_width],
         SIMD[DType.float32, leaf_width],
         UInt32,
@@ -694,7 +694,7 @@ def trace_packed_sphere_bounds_bvh[
     LeafFn: def(
         Rayf32[frame],
         Point3[DType.float32, frame, leaf_width],
-        Vec3[DType.float32, frame, leaf_width],
+        Vec3[.float32, frame, leaf_width],
         SIMD[DType.float32, leaf_width],
         SIMD[DType.float32, leaf_width],
         UInt32,

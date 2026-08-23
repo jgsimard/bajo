@@ -11,7 +11,7 @@ comptime PATH_INDEX_MASK = UInt32(0x7FFFFFFF)
 @fieldwise_init
 struct WavePath(Copyable, Writable):
     var path_id: UInt32
-    var ray: Rayf32[Frame.WORLD]
+    var ray: Rayf32[.WORLD]
     var throughput: Color
 
 

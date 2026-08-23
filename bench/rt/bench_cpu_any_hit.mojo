@@ -24,7 +24,7 @@ struct TimingResult(Copyable):
     var hits: Int
 
 
-def query_closest(world: CpuScene[], rays: List[Rayf32[Frame.WORLD]]) -> Int:
+def query_closest(world: CpuScene[], rays: List[Rayf32[.WORLD]]) -> Int:
     var hits = 0
     for ray in rays:
         if world.trace(ray):
@@ -32,7 +32,7 @@ def query_closest(world: CpuScene[], rays: List[Rayf32[Frame.WORLD]]) -> Int:
     return hits
 
 
-def query_any(world: CpuScene[], rays: List[Rayf32[Frame.WORLD]]) -> Int:
+def query_any(world: CpuScene[], rays: List[Rayf32[.WORLD]]) -> Int:
     var hits = 0
     for ray in rays:
         if world.occluded(ray):
@@ -41,7 +41,7 @@ def query_any(world: CpuScene[], rays: List[Rayf32[Frame.WORLD]]) -> Int:
 
 
 def time_closest(
-    world: CpuScene[], rays: List[Rayf32[Frame.WORLD]]
+    world: CpuScene[], rays: List[Rayf32[.WORLD]]
 ) -> TimingResult:
     var hits = query_closest(world, rays)
     var best_ns = Int.MAX
@@ -55,7 +55,7 @@ def time_closest(
 
 
 def time_any(
-    world: CpuScene[], rays: List[Rayf32[Frame.WORLD]]
+    world: CpuScene[], rays: List[Rayf32[.WORLD]]
 ) -> TimingResult:
     var hits = query_any(world, rays)
     var best_ns = Int.MAX
@@ -69,7 +69,7 @@ def time_any(
 
 
 def print_case(
-    label: String, world: CpuScene[], rays: List[Rayf32[Frame.WORLD]]
+    label: String, world: CpuScene[], rays: List[Rayf32[.WORLD]]
 ) raises:
     var closest = time_closest(world, rays)
     var any = time_any(world, rays)
@@ -85,9 +85,9 @@ def print_case(
 
 def make_weekend_ao_rays(
     world: CpuScene[],
-) -> List[Rayf32[Frame.WORLD]]:
+) -> List[Rayf32[.WORLD]]:
     var camera = weekend_camera(0.0)
-    var rays = List[Rayf32[Frame.WORLD]](capacity=AO_WIDTH * AO_HEIGHT)
+    var rays = List[Rayf32[.WORLD]](capacity=AO_WIDTH * AO_HEIGHT)
     for py in range(AO_HEIGHT):
         for px in range(AO_WIDTH):
             var primary = camera.make_ray(px, py, AO_WIDTH, AO_HEIGHT)
@@ -95,11 +95,11 @@ def make_weekend_ao_rays(
             if hit:
                 ref record = hit.value()
                 var rng = Rng(seed=UInt64(2026), id=UInt64(py * AO_WIDTH + px))
-                var direction = random_on_hemisphere[Frame.WORLD](
+                var direction = random_on_hemisphere[.WORLD](
                     rng, record.normal
                 )
                 rays.append(
-                    Rayf32[Frame.WORLD](
+                    Rayf32[.WORLD](
                         record.p,
                         direction,
                         0.001,

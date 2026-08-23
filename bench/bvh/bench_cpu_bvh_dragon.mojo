@@ -34,15 +34,15 @@ def trace_scene[
     bounds_width: SIMDLength,
     leaf_width: SIMDLength,
 ](
-    bvh: CpuBlasSet[Primitive.TRIANGLE, bounds_width, leaf_width],
-    rays: List[Rayf32[Frame.WORLD]],
+    bvh: CpuBlasSet[.TRIANGLE, bounds_width, leaf_width],
+    rays: List[Rayf32[.WORLD]],
 ) -> Tuple[Float64, Int]:
     var checksum = 0.0
     var hits = 0
 
     for ray in rays:
         var hit = trace_blas_set[
-            bounds_width, leaf_width, TRACE.CLOSEST_HIT, Frame.WORLD
+            bounds_width, leaf_width, .CLOSEST_HIT, .WORLD
         ](bvh, UInt32(0), ray)
 
         if hit.t < f32_max:
@@ -64,8 +64,8 @@ def benchmark_scene[
     bounds_width: SIMDLength,
     leaf_width: SIMDLength,
 ](
-    bvh: CpuBlasSet[Primitive.TRIANGLE, bounds_width, leaf_width],
-    rays: List[Rayf32[Frame.WORLD]],
+    bvh: CpuBlasSet[.TRIANGLE, bounds_width, leaf_width],
+    rays: List[Rayf32[.WORLD]],
 ) -> SceneBenchResult:
     # Warm-up.
     var summary = trace_scene[bounds_width, leaf_width](bvh, rays)
@@ -121,12 +121,12 @@ def benchmark_case[
     method: CpuBvhBuildMethod,
 ](
     table: TablePrinter,
-    vertices: List[Point3f32[Frame.WORLD]],
-    rays: List[Rayf32[Frame.WORLD]],
+    vertices: List[Point3f32[.WORLD]],
+    rays: List[Rayf32[.WORLD]],
 ) raises:
     var t0 = perf_counter_ns()
     var bvh = build_triangle_blases[
-        bounds_width, leaf_width, method, Frame.WORLD
+        bounds_width, leaf_width, method, .WORLD
     ]([vertices.copy()])
     var t1 = perf_counter_ns()
 
@@ -148,10 +148,10 @@ def benchmark_configurations[
     method: CpuBvhBuildMethod
 ](
     table: TablePrinter,
-    vertices: List[Point3f32[Frame.WORLD]],
-    rays: List[Rayf32[Frame.WORLD]],
+    vertices: List[Point3f32[.WORLD]],
+    rays: List[Rayf32[.WORLD]],
 ) raises:
-    comptime if method == CpuBvhBuildMethod.HPLOC:
+    comptime if method == .HPLOC:
         benchmark_case[16, 16, method](table, vertices, rays)
     else:
         # BVH16/leaf16 is the general-purpose layout. Leaf32 is retained
@@ -169,7 +169,7 @@ def run_benchmark() raises:
     print("Representative Dragon camera-ray benchmark")
     print(t"OBJ: {OBJ_PATH}")
 
-    var vertices = pack_obj_triangles[Frame.WORLD](OBJ_PATH)
+    var vertices = pack_obj_triangles[.WORLD](OBJ_PATH)
     var bounds = compute_bounds(vertices)
     var camera = make_camera_rays_and_params(
         bounds,

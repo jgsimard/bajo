@@ -408,25 +408,25 @@ def enqueue_segmented_cwbvh8_representation[
     leaf_width: SIMDLength,
 ](
     mut ctx: DeviceContext,
-    wide_nodes: DeviceBuffer[DType.float32],
-    leaf_block_indices: DeviceBuffer[DType.uint32],
-    node_segment_offsets: DeviceBuffer[DType.uint32],
-    leaf_block_segment_offsets: DeviceBuffer[DType.uint32],
-    primitive_segment_offsets: DeviceBuffer[DType.uint32],
-    node_counts: DeviceBuffer[DType.uint32],
-    vertices: DeviceBuffer[DType.float32],
-    cwbvh_nodes: DeviceBuffer[DType.float32],
-    triangles: DeviceBuffer[DType.float32],
-) raises -> DeviceBuffer[DType.uint32]:
+    wide_nodes: DeviceBuffer[.float32],
+    leaf_block_indices: DeviceBuffer[.uint32],
+    node_segment_offsets: DeviceBuffer[.uint32],
+    leaf_block_segment_offsets: DeviceBuffer[.uint32],
+    primitive_segment_offsets: DeviceBuffer[.uint32],
+    node_counts: DeviceBuffer[.uint32],
+    vertices: DeviceBuffer[.float32],
+    cwbvh_nodes: DeviceBuffer[.float32],
+    triangles: DeviceBuffer[.float32],
+) raises -> DeviceBuffer[.uint32]:
     """Queue one CWBVH8 encoding and triangle pack for all segments."""
     comptime assert leaf_width == CWBVH_LEAF_STORAGE_WIDTH
     var segment_count = len(primitive_segment_offsets) - 1
     var node_capacity = len(cwbvh_nodes) / CWBVH_NODE_WORDS
     var triangle_count = len(triangles) / CWBVH_TRIANGLE_WORDS
-    var compact_primitive_ids = ctx.enqueue_create_buffer[DType.uint32](
+    var compact_primitive_ids = ctx.enqueue_create_buffer[.uint32](
         triangle_count
     )
-    var triangle_counters = ctx.enqueue_create_buffer[DType.uint32](
+    var triangle_counters = ctx.enqueue_create_buffer[.uint32](
         segment_count
     )
     ctx.enqueue_memset(triangle_counters, 0)

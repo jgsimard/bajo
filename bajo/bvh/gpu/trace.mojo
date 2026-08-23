@@ -52,7 +52,7 @@ def _dispatch_primitive_leaf[
     mut hit: Hit[frame],
 ) -> Bool:
     var found = leaf_fn(state.leaves, data, count, ray, hit)
-    comptime if mode == TRACE.ANY_HIT:
+    comptime if mode == .ANY_HIT:
         if found:
             hit = Hit[frame].shadow_hit()
     return found
@@ -106,7 +106,7 @@ def _intersect_trace_node_precomputed[
     wide_nodes: ImmPointer[Float32, _],
     node_idx: UInt32,
     bounds_origin: Point3[DType.float32, frame, width],
-    rcp_direction: Vec3[DType.float32, frame, width],
+    rcp_direction: Vec3[.float32, frame, width],
     t_max: Float32,
 ) -> WideNodeIntersection[width]:
     return _intersect_wide_node_precomputed[frame, width](
@@ -138,7 +138,7 @@ def _trace_bounds_bvh_distance_aware[
         comptime if collect_stats:
             stats.node_visits += 1
         var node_t_max = hit.t
-        comptime if mode == TRACE.ANY_HIT:
+        comptime if mode == .ANY_HIT:
             node_t_max = ray.t_max
 
         var node_hit = _intersect_trace_node_precomputed[frame, width](
@@ -166,7 +166,7 @@ def _trace_bounds_bvh_distance_aware[
                         stats.leaf_blocks += 1
                         stats.primitive_tests += count
                     var leaf_hit = leaf_fn(leaves, data, count, ray, hit)
-                    comptime if mode == TRACE.ANY_HIT:
+                    comptime if mode == .ANY_HIT:
                         if leaf_hit:
                             return GpuTraceResult[frame](
                                 Hit[frame].shadow_hit(), stats
@@ -181,7 +181,7 @@ def _trace_bounds_bvh_distance_aware[
 
         comptime for lane in range(width):
             if child_valid[lane] and lane != nearest_lane:
-                comptime if mode == TRACE.CLOSEST_HIT:
+                comptime if mode == .CLOSEST_HIT:
                     if child_t[lane] > hit.t:
                         continue
 
@@ -197,7 +197,7 @@ def _trace_bounds_bvh_distance_aware[
                         stats.max_stack_depth = UInt32(stack_ptr)
 
         if nearest_lane != -1:
-            comptime if mode == TRACE.CLOSEST_HIT:
+            comptime if mode == .CLOSEST_HIT:
                 if nearest_t > hit.t:
                     nearest_lane = -1
 
@@ -205,7 +205,7 @@ def _trace_bounds_bvh_distance_aware[
                 current = child_data[nearest_lane]
                 continue
 
-        comptime if mode == TRACE.CLOSEST_HIT:
+        comptime if mode == .CLOSEST_HIT:
             var found_pending = False
             while stack_ptr > 0:
                 stack_ptr -= 1
@@ -257,7 +257,7 @@ def _trace_bounds_bvh_with_counters[
         comptime if collect_stats:
             stats.node_visits += 1
         var node_t_max = hit.t
-        comptime if mode == TRACE.ANY_HIT:
+        comptime if mode == .ANY_HIT:
             node_t_max = ray.t_max
 
         var node_hit = _intersect_trace_node_precomputed[frame, width](
@@ -288,7 +288,7 @@ def _trace_bounds_bvh_with_counters[
                         stats.primitive_tests += count
                     var leaf_hit = leaf_fn(leaves, data, count, ray, hit)
 
-                    comptime if mode == TRACE.ANY_HIT:
+                    comptime if mode == .ANY_HIT:
                         if leaf_hit:
                             return GpuTraceResult[frame](
                                 Hit[frame].shadow_hit(), stats
@@ -305,7 +305,7 @@ def _trace_bounds_bvh_with_counters[
 
         comptime for lane in range(width):
             if child_valid[lane] and lane != nearest_lane:
-                comptime if mode != TRACE.ANY_HIT:
+                comptime if mode != .ANY_HIT:
                     if child_t[lane] > hit.t:
                         continue
 
@@ -320,7 +320,7 @@ def _trace_bounds_bvh_with_counters[
                         stats.max_stack_depth = UInt32(stack_ptr)
 
         if nearest_lane != -1:
-            comptime if mode == TRACE.CLOSEST_HIT:
+            comptime if mode == .CLOSEST_HIT:
                 if nearest_t > hit.t:
                     nearest_lane = -1
 
@@ -443,7 +443,7 @@ def trace_bounds_bvh_state[
 ) -> Hit[frame]:
     """Shared near-first BVH loop for primitive and instance leaf state."""
     comptime if compact_bvh2:
-        comptime assert width == 2 and mode == TRACE.CLOSEST_HIT
+        comptime assert width == 2 and mode == .CLOSEST_HIT
         return _trace_bounds_bvh_state_bvh2[frame, LeafState, leaf_fn](
             wide_nodes, leaf_state, root_idx, ray
         )
@@ -457,7 +457,7 @@ def trace_bounds_bvh_state[
 
     while True:
         var node_t_max = hit.t
-        comptime if mode == TRACE.ANY_HIT:
+        comptime if mode == .ANY_HIT:
             node_t_max = ray.t_max
         var node_hit = _intersect_trace_node_precomputed[frame, width](
             wide_nodes,
@@ -472,7 +472,7 @@ def trace_bounds_bvh_state[
         # child-distance arrays are unnecessary work here.  The comptime
         # split preserves the generic leaf callback and the shared stack
         # while specializing the generated kernel for the query mode.
-        comptime if mode == TRACE.ANY_HIT:
+        comptime if mode == .ANY_HIT:
             comptime for node_lane in range(width):
                 var meta = node_hit.meta[node_lane]
                 var count = _wide_meta_count(meta)
@@ -513,7 +513,7 @@ def trace_bounds_bvh_state[
                     child_t[node_lane] = node_hit.bounds_hit.t[node_lane]
                 else:
                     var leaf_hit = leaf_fn(leaf_state, data, count, ray, hit)
-                    comptime if mode == TRACE.ANY_HIT:
+                    comptime if mode == .ANY_HIT:
                         if leaf_hit:
                             return hit
 
@@ -526,7 +526,7 @@ def trace_bounds_bvh_state[
 
         comptime for lane in range(width):
             if child_valid[lane] and lane != nearest_lane:
-                comptime if mode == TRACE.CLOSEST_HIT:
+                comptime if mode == .CLOSEST_HIT:
                     if child_t[lane] > hit.t:
                         continue
                 debug_assert["safe", _use_compiler_assume=True](
@@ -537,7 +537,7 @@ def trace_bounds_bvh_state[
                 stack_ptr += 1
 
         if nearest_lane != -1:
-            comptime if mode == TRACE.CLOSEST_HIT:
+            comptime if mode == .CLOSEST_HIT:
                 if nearest_t > hit.t:
                     nearest_lane = -1
             if nearest_lane != -1:

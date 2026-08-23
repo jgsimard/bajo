@@ -60,13 +60,7 @@ def _gpu_rt_scene_trace_one[
     rng_seed: UInt64,
     bounce: UInt32,
 ):
-    comptime assert ALGORITHM in (
-        RENDER.PATH,
-        RENDER.NORMALS,
-        RENDER.AO,
-        RENDER.NEE,
-        RENDER.MIS,
-    )
+    comptime assert ALGORITHM.is_valid()
     comptime assert HAS_SPHERES or HAS_TRIANGLES or HAS_INSTANCES
     var emissives = scene.emissives.unsafe_origin_cast[ImmutAnyOrigin]()
     var lambertians = scene.lambertians.unsafe_origin_cast[ImmutAnyOrigin]()
@@ -104,15 +98,15 @@ def _gpu_rt_scene_trace_one[
     var path = load_gpu_rt_path[ALGORITHM](
         src_path_ids, src_path_fields, capacity, idx
     )
-    var ray = Rayf32[Frame.WORLD](
-        Point3f32[Frame.WORLD](path.ox, path.oy, path.oz),
-        Vec3f32[Frame.WORLD](path.dx, path.dy, path.dz),
+    var ray = Rayf32[.WORLD](
+        Point3f32[.WORLD](path.ox, path.oy, path.oz),
+        Vec3f32[.WORLD](path.dx, path.dy, path.dz),
         path.t_min,
         path.t_max,
     )
     var found = False
     var closest_t = ray.t_max
-    var outward = Vec3f32[Frame.WORLD](0.0)
+    var outward = Vec3f32[.WORLD](0.0)
     var surface_value = UInt32(0)
 
     comptime if HAS_SPHERES:
@@ -128,10 +122,10 @@ def _gpu_rt_scene_trace_one[
             ImmutAnyOrigin
         ]()
         var sphere_hit = trace_bounds_bvh[
-            Frame.WORLD,
+            .WORLD,
             node_width,
-            TRACE.CLOSEST_HIT,
-            _intersect_sphere_leaf[Frame.WORLD, leaf_width, TRACE.CLOSEST_HIT],
+            .CLOSEST_HIT,
+            _intersect_sphere_leaf[.WORLD, leaf_width, .CLOSEST_HIT],
             node_width == 2,
         ](sphere_nodes, leaf_spheres, sphere_root, ray)
         if sphere_hit.is_hit():
@@ -158,24 +152,24 @@ def _gpu_rt_scene_trace_one[
         var triangle_surfaces = triangles.surfaces.unsafe_origin_cast[
             ImmutAnyOrigin
         ]()
-        var triangle_ray = Rayf32[Frame.WORLD](
+        var triangle_ray = Rayf32[.WORLD](
             ray.o, ray.d, ray.t_min, closest_t
         )
-        var triangle_hit = Hit[Frame.WORLD].miss(closest_t)
+        var triangle_hit = Hit[.WORLD].miss(closest_t)
         comptime if TRIANGLE_COMPRESSED:
             triangle_hit = trace_cwbvh8_triangles[
-                Frame.WORLD,
-                TRACE.CLOSEST_HIT,
+                .WORLD,
+                .CLOSEST_HIT,
             ](triangle_nodes, leaf_vertices, triangle_root, triangle_ray)
         else:
             triangle_hit = trace_bounds_bvh[
-                Frame.WORLD,
+                .WORLD,
                 triangle_node_width,
-                TRACE.CLOSEST_HIT,
+                .CLOSEST_HIT,
                 _intersect_triangle_leaf[
-                    Frame.WORLD,
+                    .WORLD,
                     triangle_leaf_width,
-                    TRACE.CLOSEST_HIT,
+                    .CLOSEST_HIT,
                     triangle_leaf_width > triangle_node_width
                     or triangle_leaf_width == 8,
                 ],
@@ -220,7 +214,7 @@ def _gpu_rt_scene_trace_one[
         var instance_surfaces = instances.surfaces.unsafe_origin_cast[
             ImmutAnyOrigin
         ]()
-        var instance_ray = Rayf32[Frame.WORLD](
+        var instance_ray = Rayf32[.WORLD](
             ray.o, ray.d, ray.t_min, closest_t
         )
         var instance_hit = _trace_tlas_ray[
@@ -228,11 +222,11 @@ def _gpu_rt_scene_trace_one[
             tlas_leaf_width,
             blas_node_width,
             blas_leaf_width,
-            TRACE.CLOSEST_HIT,
+            .CLOSEST_HIT,
             _intersect_triangle_leaf[
-                Frame.LOCAL,
+                .LOCAL,
                 blas_leaf_width,
-                TRACE.CLOSEST_HIT,
+                .CLOSEST_HIT,
                 blas_leaf_width > blas_node_width or blas_leaf_width == 8,
             ],
             BLAS_COMPRESSED,
@@ -272,7 +266,7 @@ def _gpu_rt_scene_trace_one[
 
     var oriented = orient_surface_normal(ray.d, outward)
     var normal = oriented.normal
-    comptime if ALGORITHM == RENDER.AO:
+    comptime if ALGORITHM == .AO:
         var ao_ray = _make_ao_ray(rng_seed, path, ray, closest_t, normal)
         _append_shadow[False](
             DeviceWaveShadow(
@@ -314,7 +308,7 @@ def _gpu_rt_scene_trace_one[
             bounce,
         )
         if direct.valid:
-            var shadow_ray = Rayf32[Frame.WORLD](
+            var shadow_ray = Rayf32[.WORLD](
                 ray.o + closest_t * ray.d,
                 direct.direction,
                 0.001,
@@ -426,15 +420,15 @@ def _trace_scene_any[
     blas_leaf_width: SIMDLength,
     TRIANGLE_COMPRESSED: Bool,
     BLAS_COMPRESSED: Bool,
-](scene: GpuRtSceneView, ray: Rayf32[Frame.WORLD]) -> Bool:
+](scene: GpuRtSceneView, ray: Rayf32[.WORLD]) -> Bool:
     comptime if HAS_SPHERES:
         debug_assert["safe", _use_compiler_assume=True](Bool(scene.spheres))
         var spheres = scene.spheres.unsafe_value()
         var hit = trace_bounds_bvh[
-            Frame.WORLD,
+            .WORLD,
             node_width,
-            TRACE.ANY_HIT,
-            _intersect_sphere_leaf[Frame.WORLD, leaf_width, TRACE.ANY_HIT],
+            .ANY_HIT,
+            _intersect_sphere_leaf[.WORLD, leaf_width, .ANY_HIT],
             node_width == 2,
         ](
             spheres.nodes.unsafe_origin_cast[ImmutAnyOrigin](),
@@ -447,11 +441,11 @@ def _trace_scene_any[
     comptime if HAS_TRIANGLES:
         debug_assert["safe", _use_compiler_assume=True](Bool(scene.triangles))
         var triangles = scene.triangles.unsafe_value()
-        var hit = Hit[Frame.WORLD].miss(ray.t_max)
+        var hit = Hit[.WORLD].miss(ray.t_max)
         comptime if TRIANGLE_COMPRESSED:
             hit = trace_cwbvh8_triangles[
-                Frame.WORLD,
-                TRACE.ANY_HIT,
+                .WORLD,
+                .ANY_HIT,
             ](
                 triangles.nodes.unsafe_origin_cast[ImmutAnyOrigin](),
                 triangles.leaves.unsafe_origin_cast[ImmutAnyOrigin](),
@@ -460,13 +454,13 @@ def _trace_scene_any[
             )
         else:
             hit = trace_bounds_bvh[
-                Frame.WORLD,
+                .WORLD,
                 triangle_node_width,
-                TRACE.ANY_HIT,
+                .ANY_HIT,
                 _intersect_triangle_leaf[
-                    Frame.WORLD,
+                    .WORLD,
                     triangle_leaf_width,
-                    TRACE.ANY_HIT,
+                    .ANY_HIT,
                     triangle_leaf_width > triangle_node_width
                     or triangle_leaf_width == 8,
                 ],
@@ -487,11 +481,11 @@ def _trace_scene_any[
             tlas_leaf_width,
             blas_node_width,
             blas_leaf_width,
-            TRACE.ANY_HIT,
+            .ANY_HIT,
             _intersect_triangle_leaf[
-                Frame.LOCAL,
+                .LOCAL,
                 blas_leaf_width,
-                TRACE.ANY_HIT,
+                .ANY_HIT,
                 blas_leaf_width > blas_node_width or blas_leaf_width == 8,
             ],
             BLAS_COMPRESSED,
@@ -539,12 +533,12 @@ def _gpu_rt_shadow_one[
     var fields = queues.shadow_fields.unsafe_mut_cast[
         False
     ]().unsafe_origin_cast[ImmutAnyOrigin]()
-    var work = load_gpu_rt_shadow[ALGORITHM != RENDER.AO](
+    var work = load_gpu_rt_shadow[ALGORITHM != .AO](
         path_ids, fields, capacity, idx
     )
-    var ray = Rayf32[Frame.WORLD](
-        Point3f32[Frame.WORLD](work.ox, work.oy, work.oz),
-        Vec3f32[Frame.WORLD](work.dx, work.dy, work.dz),
+    var ray = Rayf32[.WORLD](
+        Point3f32[.WORLD](work.ox, work.oy, work.oz),
+        Vec3f32[.WORLD](work.dx, work.dy, work.dz),
         work.t_min,
         work.t_max,
     )
@@ -567,7 +561,7 @@ def _gpu_rt_shadow_one[
         MutAnyOrigin
     ]()
     var sample_base = queues.sample_base
-    comptime if ALGORITHM == RENDER.AO:
+    comptime if ALGORITHM == .AO:
         var value = Color(0.08) if occluded else Color(1.0)
         _accumulate_sample(
             sample_radiance, capacity, sample_base, work.path_id, value

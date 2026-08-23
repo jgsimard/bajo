@@ -36,10 +36,10 @@ def _run_capacity[
     )
     ctx.synchronize()
     print(t"\n{label}")
-    var path = bench_gpu_triangle_algorithm[RENDER.PATH](
+    var path = bench_gpu_triangle_algorithm[.PATH](
         ctx, target, world, settings
     )
-    var nee = bench_gpu_triangle_algorithm[RENDER.NEE](
+    var nee = bench_gpu_triangle_algorithm[.NEE](
         ctx, target, world, settings
     )
     print_gpu_rt_result("PATH", path, sample_count)

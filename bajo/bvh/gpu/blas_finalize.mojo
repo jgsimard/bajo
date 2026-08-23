@@ -30,7 +30,7 @@ def finalize_ordinary_wide_blas_set[
         True,
         False,
     ],
-    var leaf_workspace: DeviceBuffer[DType.float32],
+    var leaf_workspace: DeviceBuffer[.float32],
 ) raises -> GpuBlasSet[kind, layout, node_width, leaf_width]:
     """Compact a completed ordinary-wide build and emit its descriptors."""
     comptime assert leaf_record_stride > 0

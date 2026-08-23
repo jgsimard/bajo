@@ -36,8 +36,8 @@ def weekend_camera(aperture: Float32 = 0.6) -> Camera:
     )
 
 
-def make_mixed_triangle_mesh() -> List[Point3f32[Frame.LOCAL]]:
-    var vertices = List[Point3f32[Frame.LOCAL]](
+def make_mixed_triangle_mesh() -> List[Point3f32[.LOCAL]]:
+    var vertices = List[Point3f32[.LOCAL]](
         capacity=TRIANGLE_GRID * TRIANGLE_GRID * 6
     )
     var inv_grid = 1.0 / Float32(TRIANGLE_GRID)
@@ -51,10 +51,10 @@ def make_mixed_triangle_mesh() -> List[Point3f32[Frame.LOCAL]]:
             var y10 = Float32(0.08) if (x + 1 + z) % 7 == 0 else Float32(0.0)
             var y01 = Float32(0.08) if (x + z + 1) % 7 == 0 else Float32(0.0)
             var y11 = Float32(0.08) if (x + z + 2) % 7 == 0 else Float32(0.0)
-            var p00 = Point3f32[Frame.LOCAL](x0, y00, z0)
-            var p10 = Point3f32[Frame.LOCAL](x1, y10, z0)
-            var p01 = Point3f32[Frame.LOCAL](x0, y01, z1)
-            var p11 = Point3f32[Frame.LOCAL](x1, y11, z1)
+            var p00 = Point3f32[.LOCAL](x0, y00, z0)
+            var p10 = Point3f32[.LOCAL](x1, y10, z0)
+            var p01 = Point3f32[.LOCAL](x0, y01, z1)
+            var p11 = Point3f32[.LOCAL](x1, y11, z1)
             vertices.append(p00)
             vertices.append(p11)
             vertices.append(p10)
@@ -86,8 +86,8 @@ def make_mixed_triangle_world() raises -> CpuScene[]:
 
     var mesh = make_mixed_triangle_mesh()
     var mesh_bounds = compute_bounds(mesh)
-    var first_transform = Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(
-        Vec3f32[Frame.WORLD](-4.0, 0.0, -4.0)
+    var first_transform = Affine3f32[.LOCAL, .WORLD].from_translation(
+        Vec3f32[.WORLD](-4.0, 0.0, -4.0)
     )
     var mesh_idx = builder.add_triangle_mesh_instance(
         mesh,
@@ -100,9 +100,9 @@ def make_mixed_triangle_world() raises -> CpuScene[]:
             if ix == 0 and iz == 0:
                 continue
             var transform = Affine3f32[
-                Frame.LOCAL, Frame.WORLD
+                .LOCAL, .WORLD
             ].from_translation(
-                Vec3f32[Frame.WORLD](
+                Vec3f32[.WORLD](
                     Float32(ix) * 2.0 - 4.0,
                     0.0,
                     Float32(iz) * 2.0 - 4.0,
@@ -126,7 +126,7 @@ def make_mixed_triangle_world() raises -> CpuScene[]:
 
 
 def mixed_triangle_camera(world: CpuScene[]) -> Camera:
-    var bounds = AABB[Frame.WORLD].invalid()
+    var bounds = AABB[.WORLD].invalid()
     for inst in world.scene_data().triangle_instances():
         bounds.grow(inst.bounds)
     var center = bounds.centroid()
@@ -149,9 +149,9 @@ def make_grid_triangle_world() raises -> CpuScene[]:
     return CpuScene[](scene^)
 
 
-def make_bounded_grid_rays() -> List[Rayf32[Frame.WORLD]]:
+def make_bounded_grid_rays() -> List[Rayf32[.WORLD]]:
     var source = make_hit_and_miss_rays()
-    var rays = List[Rayf32[Frame.WORLD]](capacity=len(source))
+    var rays = List[Rayf32[.WORLD]](capacity=len(source))
     for ray in source:
-        rays.append(Rayf32[Frame.WORLD](ray.o, ray.d, ray.t_min, Float32(3.0)))
+        rays.append(Rayf32[.WORLD](ray.o, ray.d, ray.t_min, Float32(3.0)))
     return rays^

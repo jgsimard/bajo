@@ -120,7 +120,7 @@ def _test_intersect_ray_aabb_octant_fma[
     comptime dy: Float32 = 1.0 if positive_y else -1.0
     comptime dz: Float32 = 1.0 if positive_z else -1.0
 
-    var ray = Rayf32[Frame.WORLD](
+    var ray = Rayf32[.WORLD](
         Point3W(-3.0 * dx, -3.0 * dy, -3.0 * dz),
         Vec3W(dx, dy, dz),
     )
@@ -131,7 +131,7 @@ def _test_intersect_ray_aabb_octant_fma[
         origin.y * rcp_d.y,
         origin.z * rcp_d.z,
     )
-    var bounds = AABB[Frame.WORLD](Point3W(-1.0), Point3W(1.0))
+    var bounds = AABB[.WORLD](Point3W(-1.0), Point3W(1.0))
 
     var baseline = intersect_ray_aabb_rcp(origin, rcp_d, bounds, 100.0)
     var optimized = intersect_ray_aabb_octant_fma[
@@ -261,26 +261,26 @@ def test_scaled_ray_triangle_matches_eager_for_both_windings() raises:
 # Triangle / Triangle Intersection Tests
 def _test_no_div_tri_tri_isect[T: DType]() raises:
     # Base triangle on XY plane
-    var t1_0 = Vec3[T, Frame.WORLD](0.0, 0.0, 0.0)
-    var t1_1 = Vec3[T, Frame.WORLD](2.0, 0.0, 0.0)
-    var t1_2 = Vec3[T, Frame.WORLD](0.0, 2.0, 0.0)
+    var t1_0 = Vec3[T, .WORLD](0.0, 0.0, 0.0)
+    var t1_1 = Vec3[T, .WORLD](2.0, 0.0, 0.0)
+    var t1_2 = Vec3[T, .WORLD](0.0, 2.0, 0.0)
 
     # 1. Intersecting Triangle (pierces through the middle)
-    var t2_0 = Vec3[T, Frame.WORLD](0.5, 0.5, -1.0)
-    var t2_1 = Vec3[T, Frame.WORLD](0.5, 0.5, 1.0)
-    var t2_2 = Vec3[T, Frame.WORLD](2.0, 2.0, 0.0)
+    var t2_0 = Vec3[T, .WORLD](0.5, 0.5, -1.0)
+    var t2_1 = Vec3[T, .WORLD](0.5, 0.5, 1.0)
+    var t2_2 = Vec3[T, .WORLD](2.0, 2.0, 0.0)
     assert_true(no_div_tri_tri_isect(t1_0, t1_1, t1_2, t2_0, t2_1, t2_2))
 
     # 2. Separated Triangle (High above on Z axis)
-    var t3_0 = Vec3[T, Frame.WORLD](0.0, 0.0, 5.0)
-    var t3_1 = Vec3[T, Frame.WORLD](2.0, 0.0, 5.0)
-    var t3_2 = Vec3[T, Frame.WORLD](0.0, 2.0, 5.0)
+    var t3_0 = Vec3[T, .WORLD](0.0, 0.0, 5.0)
+    var t3_1 = Vec3[T, .WORLD](2.0, 0.0, 5.0)
+    var t3_2 = Vec3[T, .WORLD](0.0, 2.0, 5.0)
     assert_false(no_div_tri_tri_isect(t1_0, t1_1, t1_2, t3_0, t3_1, t3_2))
 
     # 3. Coplanar Intersecting (On same plane, overlapping)
-    var t4_0 = Vec3[T, Frame.WORLD](1.0, 1.0, 0.0)
-    var t4_1 = Vec3[T, Frame.WORLD](3.0, 1.0, 0.0)
-    var t4_2 = Vec3[T, Frame.WORLD](1.0, 3.0, 0.0)
+    var t4_0 = Vec3[T, .WORLD](1.0, 1.0, 0.0)
+    var t4_1 = Vec3[T, .WORLD](3.0, 1.0, 0.0)
+    var t4_2 = Vec3[T, .WORLD](1.0, 3.0, 0.0)
     assert_true(no_div_tri_tri_isect(t1_0, t1_1, t1_2, t4_0, t4_1, t4_2))
 
 
@@ -293,21 +293,21 @@ def test_no_div_tri_tri_isect() raises:
 def _test_intersect_tri_tri[T: DType]() raises:
     """From warp/warp/tests/test_intersect.py."""
 
-    var v0 = Vec3[T, Frame.WORLD](0.0, 0.0, 0.0)
-    var v1 = Vec3[T, Frame.WORLD](1.0, 0.0, 0.0)
-    var v2 = Vec3[T, Frame.WORLD](0.0, 0.0, 1.0)
-    var u0 = Vec3[T, Frame.WORLD](0.5, -0.5, 0.0)
-    var u1 = Vec3[T, Frame.WORLD](0.5, -0.5, 1.0)
-    var u2 = Vec3[T, Frame.WORLD](0.5, 0.5, 0.0)
+    var v0 = Vec3[T, .WORLD](0.0, 0.0, 0.0)
+    var v1 = Vec3[T, .WORLD](1.0, 0.0, 0.0)
+    var v2 = Vec3[T, .WORLD](0.0, 0.0, 1.0)
+    var u0 = Vec3[T, .WORLD](0.5, -0.5, 0.0)
+    var u1 = Vec3[T, .WORLD](0.5, -0.5, 1.0)
+    var u2 = Vec3[T, .WORLD](0.5, 0.5, 0.0)
 
     assert_true(intersect_tri_tri(v0, v1, v2, u0, u1, u2))
 
-    v0 = Vec3[T, Frame.WORLD](0.0, 0.0, 0.0)
-    v1 = Vec3[T, Frame.WORLD](1.0, 0.0, 0.0)
-    v2 = Vec3[T, Frame.WORLD](0.0, 0.0, 1.0)
-    u0 = Vec3[T, Frame.WORLD](-0.5, -0.5, 0.0)
-    u1 = Vec3[T, Frame.WORLD](-0.5, -0.5, 1.0)
-    u2 = Vec3[T, Frame.WORLD](-0.5, 0.5, 0.0)
+    v0 = Vec3[T, .WORLD](0.0, 0.0, 0.0)
+    v1 = Vec3[T, .WORLD](1.0, 0.0, 0.0)
+    v2 = Vec3[T, .WORLD](0.0, 0.0, 1.0)
+    u0 = Vec3[T, .WORLD](-0.5, -0.5, 0.0)
+    u1 = Vec3[T, .WORLD](-0.5, -0.5, 1.0)
+    u2 = Vec3[T, .WORLD](-0.5, 0.5, 0.0)
 
     assert_false(intersect_tri_tri(v0, v1, v2, u0, u1, u2))
 

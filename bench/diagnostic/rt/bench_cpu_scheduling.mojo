@@ -36,7 +36,7 @@ def run_schedule[
     Int, Float64
 ]:
     var result = render_depth_first[
-        RENDER.PATH,
+        .PATH,
         TILE_WIDTH,
         TILE_HEIGHT,
         SCHEDULER_MODE,

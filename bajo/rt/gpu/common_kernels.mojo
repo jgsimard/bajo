@@ -48,7 +48,7 @@ def gpu_rt_primary_kernel[
     var px = pixel_idx % width
     var py = pixel_idx / width
     var rng = path_stage_rng(rng_seed, path_id, UInt32(0))
-    var lens = random_in_unit_disk[Frame.WORLD](rng)
+    var lens = random_in_unit_disk[.WORLD](rng)
     var camera = Camera(Span(unsafe_ptr=camera_params, length=Camera.STRIDE))
     var ray = camera.make_ray_sampled(
         Float32(px),

@@ -136,13 +136,13 @@ struct _SegmentedSphereWideBuild[
         True,
         False,
     ]
-    var leaf_spheres: DeviceBuffer[DType.float32]
+    var leaf_spheres: DeviceBuffer[.float32]
     var leaf_pack_start_ns: Int
 
     def into_blas_set(
         deinit self, mut ctx: DeviceContext
     ) raises -> GpuBlasSet[
-        Primitive.SPHERE,
+        .SPHERE,
         GpuBvhLayout.WIDE,
         Self.node_width,
         Self.leaf_width,
@@ -152,7 +152,7 @@ struct _SegmentedSphereWideBuild[
             Self.node_width,
             Self.leaf_width,
             Self.build_method,
-            Primitive.SPHERE,
+            .SPHERE,
             GpuBvhLayout.WIDE,
             SPHERE_LEAF_PACKED_STRIDE,
         ](ctx, self.hierarchy^, self.leaf_spheres^)
@@ -225,7 +225,7 @@ def _enqueue_segmented_sphere_wide[
     var leaf_lane_capacity = (
         hierarchy.wide.leaf_block_segments.item_count() * leaf_width
     )
-    var leaf_spheres = ctx.enqueue_create_buffer[DType.float32](
+    var leaf_spheres = ctx.enqueue_create_buffer[.float32](
         leaf_lane_capacity * SPHERE_LEAF_PACKED_STRIDE
     )
     if measure_build:
@@ -252,21 +252,21 @@ def _enqueue_segmented_sphere_wide[
 def build_sphere_blas_set[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
-    build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
+    build_method: GpuBvhBuildMethod = .HPLOC,
 ](
     mut ctx: DeviceContext,
-    sphere_sets: ImmSpan[List[Sphere[Frame.LOCAL]], _],
+    sphere_sets: ImmSpan[List[Sphere[.LOCAL]], _],
 ) raises -> GpuBlasSet[
-    Primitive.SPHERE, GpuBvhLayout.WIDE, node_width, leaf_width
+    .SPHERE, GpuBvhLayout.WIDE, node_width, leaf_width
 ]:
     debug_assert["safe", _use_compiler_assume=True](len(sphere_sets) > 0)
     var inputs = _flatten_sphere_sets(sphere_sets)
     if inputs.segments.item_count() == 0:
         return GpuBlasSet[
-            Primitive.SPHERE, GpuBvhLayout.WIDE, node_width, leaf_width
+            .SPHERE, GpuBvhLayout.WIDE, node_width, leaf_width
         ].empty(ctx, len(sphere_sets))
     var adapter = _enqueue_segmented_sphere_wide[
-        Frame.LOCAL, node_width, leaf_width, build_method
+        .LOCAL, node_width, leaf_width, build_method
     ](ctx, inputs^)
     return adapter^.into_blas_set(ctx)
 
@@ -277,12 +277,12 @@ struct GpuSphereBvh[
     leaf_width: SIMDLength = node_width,
 ]:
     var tree: GpuWideBoundsBvh[Self.node_width, Self.leaf_width]
-    var leaf_spheres: DeviceBuffer[DType.float32]
+    var leaf_spheres: DeviceBuffer[.float32]
 
     def __init__(
         out self,
         var tree: GpuWideBoundsBvh[Self.node_width, Self.leaf_width],
-        var leaf_spheres: DeviceBuffer[DType.float32],
+        var leaf_spheres: DeviceBuffer[.float32],
     ):
         self.tree = tree^
         self.leaf_spheres = leaf_spheres^
@@ -290,13 +290,13 @@ struct GpuSphereBvh[
     def launch_camera(
         self,
         ctx: DeviceContext,
-        d_camera_params: DeviceBuffer[DType.float32],
-        d_hits: DeviceBuffer[DType.float32],
+        d_camera_params: DeviceBuffer[.float32],
+        d_hits: DeviceBuffer[.float32],
         ray_count: Int,
         cwidth: Int,
         cheight: Int,
     ) raises:
-        comptime assert Self.frame == Frame.WORLD
+        comptime assert Self.frame == .WORLD
         validate_camera_launch(
             d_camera_params, d_hits, ray_count, cwidth, cheight
         )
@@ -364,7 +364,7 @@ def _build_sphere_bvh[
         frame,
         node_width,
         leaf_width,
-        GpuBvhBuildMethod.LBVH,
+        .LBVH,
     ](ctx, inputs^, measure_build)
     return adapter^.into_bvh(ctx, timings, measure_build)
 
@@ -402,13 +402,13 @@ def trace_sphere_bvh_camera_kernel[
     # extra distance stack benchmarks positively for sphere BVH2
     # BVH4 and BVH8 retain the lower-memory stack specialization
     var hit = trace_bounds_bvh[
-        Frame.WORLD,
+        .WORLD,
         node_width,
-        TRACE.CLOSEST_HIT,
+        .CLOSEST_HIT,
         _intersect_sphere_leaf[
-            Frame.WORLD,
+            .WORLD,
             leaf_width,
-            TRACE.CLOSEST_HIT,
+            .CLOSEST_HIT,
         ],
         node_width == 2,
     ](
@@ -457,7 +457,7 @@ def _intersect_sphere_leaf[
     if not hit_mask.reduce_or():
         return False
 
-    comptime if mode == TRACE.CLOSEST_HIT:
+    comptime if mode == .CLOSEST_HIT:
         var _t = hit_mask.select(hit_sphere.t, f32_max)
         var min_t, lane = min_argmin(_t)
 

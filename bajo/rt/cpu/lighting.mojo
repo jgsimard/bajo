@@ -39,8 +39,8 @@ struct _DirectLightSample[length: SIMDLength = 1](Copyable):
     """Visible light sample before applying the surface BSDF."""
 
     var valid: SIMD[DType.bool, Self.length]
-    var direction: Vec3[DType.float32, Frame.WORLD, Self.length]
-    var emission: Vec3[DType.float32, Frame.WORLD, Self.length]
+    var direction: Vec3[.float32, .WORLD, Self.length]
+    var emission: Vec3[.float32, .WORLD, Self.length]
     var surface_cosine: SIMD[DType.float32, Self.length]
     var light_pdf: SIMD[DType.float32, Self.length]
     var shadow_t_max: SIMD[DType.float32, Self.length]
@@ -52,8 +52,8 @@ def _empty_direct_light_sample[
 ]() -> _DirectLightSample[length]:
     return _DirectLightSample[length](
         SIMD[DType.bool, length](fill=False),
-        Vec3[DType.float32, Frame.WORLD, length](0.0),
-        Vec3[DType.float32, Frame.WORLD, length](0.0),
+        Vec3[.float32, .WORLD, length](0.0),
+        Vec3[.float32, .WORLD, length](0.0),
         0.0,
         0.0,
         0.0,
@@ -78,17 +78,17 @@ def _emissive_hit_weight[
     instance_bvh_width: SIMDLength,
 ](
     world: CpuScene[world_bvh_width, instance_bvh_width],
-    ray: Rayf32[Frame.WORLD],
+    ray: Rayf32[.WORLD],
     hit: SurfaceHit[1],
     bounce: Int,
     previous_bsdf_pdf: Float32,
     previous_delta: Bool,
 ) -> Float32:
     comptime assert ALGORITHM in (RENDER.PATH, RENDER.NEE, RENDER.MIS)
-    comptime if ALGORITHM == RENDER.NEE:
+    comptime if ALGORITHM == .NEE:
         if bounce > 0 and not previous_delta:
             return 0.0
-    elif ALGORITHM == RENDER.MIS:
+    elif ALGORITHM == .MIS:
         if bounce > 0 and not previous_delta:
             return power_heuristic[1](
                 previous_bsdf_pdf,
@@ -102,7 +102,7 @@ def light_pdf_for_emissive_hit[
     instance_bvh_width: SIMDLength,
 ](
     world: CpuScene[world_bvh_width, instance_bvh_width],
-    ray: Rayf32[Frame.WORLD],
+    ray: Rayf32[.WORLD],
     hit: SurfaceHit[1],
 ) -> Float32:
     """Evaluate the triangle-light distribution in solid-angle measure."""
@@ -163,7 +163,7 @@ def _sample_direct_light_candidate[
         surface_sample = _sample_sphere_light_surface(
             light.p0,
             light.radius,
-            random_unit_vector[Frame.WORLD](rng),
+            random_unit_vector[.WORLD](rng),
         )
     else:
         surface_sample = _sample_triangle_light_surface(
@@ -196,7 +196,7 @@ def _sample_direct_light[
     var light = _sample_direct_light_candidate(world, point, rng)
     if not light.valid:
         return light^
-    var shadow_ray = Rayf32[Frame.WORLD](
+    var shadow_ray = Rayf32[.WORLD](
         point.p, light.direction, 0.001, light.shadow_t_max
     )
     if world.occluded(shadow_ray):
@@ -211,7 +211,7 @@ def sample_direct_lighting[
 ](
     surface: SurfaceId[1],
     world: CpuScene[world_bvh_width, instance_bvh_width],
-    incoming_ray: Rayf32[Frame.WORLD],
+    incoming_ray: Rayf32[.WORLD],
     point: ShadingPoint[1],
     mut rng: Rng,
 ) -> Color:

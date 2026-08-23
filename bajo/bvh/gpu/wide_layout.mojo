@@ -54,14 +54,14 @@ struct GpuCompactWideLayout:
 
     var node_segments: SegmentOffsets
     var leaf_block_segments: SegmentOffsets
-    var node_segment_offsets: DeviceBuffer[DType.uint32]
-    var leaf_block_segment_offsets: DeviceBuffer[DType.uint32]
+    var node_segment_offsets: DeviceBuffer[.uint32]
+    var leaf_block_segment_offsets: DeviceBuffer[.uint32]
 
     def __init__(
         out self,
         mut ctx: DeviceContext,
-        node_counts: DeviceBuffer[DType.uint32],
-        leaf_block_counts: DeviceBuffer[DType.uint32],
+        node_counts: DeviceBuffer[.uint32],
+        leaf_block_counts: DeviceBuffer[.uint32],
         segment_count: Int,
     ) raises:
         var host_node_counts = List[Int](capacity=segment_count)
@@ -84,8 +84,8 @@ def enqueue_compact_segmented_buffer[
 ](
     mut ctx: DeviceContext,
     source: DeviceBuffer[dtype],
-    source_offsets: DeviceBuffer[DType.uint32],
-    target_offsets: DeviceBuffer[DType.uint32],
+    source_offsets: DeviceBuffer[.uint32],
+    target_offsets: DeviceBuffer[.uint32],
     target_item_count: Int,
     segment_count: Int,
 ) raises -> DeviceBuffer[dtype]:
@@ -134,20 +134,20 @@ struct GpuWideBoundsBvh[
     var node_count: Int
     var leaf_block_count: Int
 
-    var bounds_device: DeviceBuffer[DType.float32]
+    var bounds_device: DeviceBuffer[.float32]
     """[0..5] = root bounds; [6..11] = centroid bounds."""
 
-    var wide_nodes: DeviceBuffer[DType.float32]
-    var leaf_block_indices: DeviceBuffer[DType.uint32]
+    var wide_nodes: DeviceBuffer[.float32]
+    var leaf_block_indices: DeviceBuffer[.uint32]
 
     def __init__(
         out self,
         leaf_count: Int,
         node_count: Int,
         leaf_block_count: Int,
-        var bounds_device: DeviceBuffer[DType.float32],
-        var wide_nodes: DeviceBuffer[DType.float32],
-        var leaf_block_indices: DeviceBuffer[DType.uint32],
+        var bounds_device: DeviceBuffer[.float32],
+        var wide_nodes: DeviceBuffer[.float32],
+        var leaf_block_indices: DeviceBuffer[.uint32],
     ):
         """Adopt the only segment of a completed segmented build."""
         self.leaf_count = leaf_count
@@ -158,17 +158,17 @@ struct GpuWideBoundsBvh[
         self.wide_nodes = wide_nodes^
         self.leaf_block_indices = leaf_block_indices^
 
-    def root_bounds(self) raises -> AABB[Frame.WORLD]:
+    def root_bounds(self) raises -> AABB[.WORLD]:
         with self.bounds_device.map_to_host() as host:
-            return AABB[Frame.WORLD].load6(
+            return AABB[.WORLD].load6(
                 Span(unsafe_ptr=host.unsafe_ptr(), length=len(host)), 0
             )
 
-    def centroid_bounds(self) raises -> AABB[Frame.WORLD]:
+    def centroid_bounds(self) raises -> AABB[.WORLD]:
         with self.bounds_device.map_to_host() as host:
-            return AABB[Frame.WORLD].load6(
+            return AABB[.WORLD].load6(
                 Span(unsafe_ptr=host.unsafe_ptr(), length=len(host)),
-                AABB[Frame.WORLD].STRIDE,
+                AABB[.WORLD].STRIDE,
             )
 
 
@@ -187,13 +187,13 @@ struct GpuWideBoundsBvhBatch[
     var segments: SegmentOffsets
     var node_segments: SegmentOffsets
     var leaf_block_segments: SegmentOffsets
-    var node_segment_offsets: DeviceBuffer[DType.uint32]
-    var leaf_block_segment_offsets: DeviceBuffer[DType.uint32]
-    var bounds_device: DeviceBuffer[DType.float32]
-    var wide_nodes: DeviceBuffer[DType.float32]
-    var leaf_block_indices: DeviceBuffer[DType.uint32]
-    var node_counts: DeviceBuffer[DType.uint32]
-    var leaf_block_counts: DeviceBuffer[DType.uint32]
+    var node_segment_offsets: DeviceBuffer[.uint32]
+    var leaf_block_segment_offsets: DeviceBuffer[.uint32]
+    var bounds_device: DeviceBuffer[.float32]
+    var wide_nodes: DeviceBuffer[.float32]
+    var leaf_block_indices: DeviceBuffer[.uint32]
+    var node_counts: DeviceBuffer[.uint32]
+    var leaf_block_counts: DeviceBuffer[.uint32]
 
     def __init__(
         out self,
@@ -232,21 +232,21 @@ struct GpuWideBoundsBvhBatch[
         self.leaf_block_segment_offsets = upload_list(
             ctx, self.leaf_block_segments.offsets
         )
-        self.bounds_device = ctx.enqueue_create_buffer[DType.float32](
+        self.bounds_device = ctx.enqueue_create_buffer[.float32](
             self.segments.segment_count() * 2 * AABB.STRIDE
         )
-        self.wide_nodes = ctx.enqueue_create_buffer[DType.float32](
+        self.wide_nodes = ctx.enqueue_create_buffer[.float32](
             self.node_segments.item_count()
             * Self.node_width
             * WideNode.CHILD_STRIDE
         )
-        self.leaf_block_indices = ctx.enqueue_create_buffer[DType.uint32](
+        self.leaf_block_indices = ctx.enqueue_create_buffer[.uint32](
             self.leaf_block_segments.item_count() * Self.leaf_width
         )
-        self.node_counts = ctx.enqueue_create_buffer[DType.uint32](
+        self.node_counts = ctx.enqueue_create_buffer[.uint32](
             self.segments.segment_count()
         )
-        self.leaf_block_counts = ctx.enqueue_create_buffer[DType.uint32](
+        self.leaf_block_counts = ctx.enqueue_create_buffer[.uint32](
             self.segments.segment_count()
         )
 
@@ -455,7 +455,7 @@ def _intersect_wide_node_precomputed[
     wide_nodes: ImmPointer[Float32, _],
     node_idx: UInt32,
     bounds_origin: Point3[DType.float32, frame, width],
-    rcp_direction: Vec3[DType.float32, frame, width],
+    rcp_direction: Vec3[.float32, frame, width],
     t_max: Float32,
 ) -> WideNodeIntersection[width]:
     """Intersect a wide node with reciprocal direction cached per query."""

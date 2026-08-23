@@ -31,13 +31,13 @@ struct PrimaryBenchResult(Copyable):
 def trace_triangle[
     width: SIMDLength
 ](
-    bvh: CpuBlasSet[Primitive.TRIANGLE, width],
-    rays: List[Rayf32[Frame.WORLD]],
+    bvh: CpuBlasSet[.TRIANGLE, width],
+    rays: List[Rayf32[.WORLD]],
 ) -> Float64:
     var checksum = 0.0
 
     for ray in rays:
-        var hit = trace_blas_set[width, width, TRACE.CLOSEST_HIT, Frame.WORLD](
+        var hit = trace_blas_set[width, width, .CLOSEST_HIT, .WORLD](
             bvh, UInt32(0), ray
         )
 
@@ -58,8 +58,8 @@ def trace_triangle[
 def benchmark_triangle[
     width: SIMDLength
 ](
-    bvh: CpuBlasSet[Primitive.TRIANGLE, width],
-    rays: List[Rayf32[Frame.WORLD]],
+    bvh: CpuBlasSet[.TRIANGLE, width],
+    rays: List[Rayf32[.WORLD]],
 ) -> PrimaryBenchResult:
     # Warm-up.
     var checksum = trace_triangle[width](bvh, rays)
@@ -110,11 +110,11 @@ def benchmark_case[
     method: CpuBvhBuildMethod,
 ](
     table: TablePrinter,
-    vertices: List[Point3f32[Frame.WORLD]],
-    rays: List[Rayf32[Frame.WORLD]],
+    vertices: List[Point3f32[.WORLD]],
+    rays: List[Rayf32[.WORLD]],
 ) raises:
     var t0 = perf_counter_ns()
-    var bvh = build_triangle_blases[width, width, method, Frame.WORLD](
+    var bvh = build_triangle_blases[width, width, method, .WORLD](
         [vertices.copy()]
     )
     var t1 = perf_counter_ns()
@@ -137,8 +137,8 @@ def benchmark_widths[
     method: CpuBvhBuildMethod
 ](
     table: TablePrinter,
-    vertices: List[Point3f32[Frame.WORLD]],
-    rays: List[Rayf32[Frame.WORLD]],
+    vertices: List[Point3f32[.WORLD]],
+    rays: List[Rayf32[.WORLD]],
 ) raises:
     comptime for width in [2, 4, 8, 16]:
         benchmark_case[width, method](

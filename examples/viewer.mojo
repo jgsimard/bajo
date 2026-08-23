@@ -208,9 +208,9 @@ def _render_frame[
         var t0 = perf_counter_ns()
         var t1 = 0
         comptime if (
-            ALGORITHM == RENDER.PATH
-            or ALGORITHM == RENDER.NEE
-            or ALGORITHM == RENDER.MIS
+            ALGORITHM == .PATH
+            or ALGORITHM == .NEE
+            or ALGORITHM == .MIS
         ):
             var result = render_wavefront[ALGORITHM](settings, camera, world)
             t1 = perf_counter_ns()
@@ -337,15 +337,15 @@ def _render_frame_for_config(
         scene_path,
     )
     comptime if VIEWER_ALGORITHM == 0:
-        return _render_scene[RENDER.PATH, VIEWER_BACKEND](request)
+        return _render_scene[.PATH, VIEWER_BACKEND](request)
     elif VIEWER_ALGORITHM == 1:
-        return _render_scene[RENDER.NEE, VIEWER_BACKEND](request)
+        return _render_scene[.NEE, VIEWER_BACKEND](request)
     elif VIEWER_ALGORITHM == 2:
-        return _render_scene[RENDER.MIS, VIEWER_BACKEND](request)
+        return _render_scene[.MIS, VIEWER_BACKEND](request)
     elif VIEWER_ALGORITHM == 3:
-        return _render_scene[RENDER.NORMALS, VIEWER_BACKEND](request)
+        return _render_scene[.NORMALS, VIEWER_BACKEND](request)
     else:
-        return _render_scene[RENDER.AO, VIEWER_BACKEND](request)
+        return _render_scene[.AO, VIEWER_BACKEND](request)
 
 
 def render_frame(

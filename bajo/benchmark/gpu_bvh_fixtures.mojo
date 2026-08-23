@@ -4,7 +4,7 @@ from bajo.core import Frame, Point3f32, AABB
 
 
 def flatten_triangle_bounds(
-    vertices: List[Point3f32[Frame.WORLD]],
+    vertices: List[Point3f32[.WORLD]],
 ) -> Tuple[List[Float32], List[UInt32]]:
     var triangle_count = len(vertices) / 3
     var bounds = List[Float32](capacity=triangle_count * 6)

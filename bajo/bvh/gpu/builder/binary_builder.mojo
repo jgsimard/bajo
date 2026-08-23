@@ -19,7 +19,7 @@ struct GpuBvhBuildMethod(Equatable):
 
 
 def build_binary_bvh[
-    method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
+    method: GpuBvhBuildMethod = .LBVH,
 ](
     mut ctx: DeviceContext,
     mut binary: GpuBinaryBoundsBvh,
@@ -28,11 +28,11 @@ def build_binary_bvh[
 ) raises -> GpuBuildTimings:
     """Select the binary topology builder at compile time; LBVH is default."""
 
-    comptime if method == GpuBvhBuildMethod.LBVH:
+    comptime if method == .LBVH:
         return build_binary_bvh_with_lbvh(
             ctx, binary, workspace, measure_stages
         )
-    elif method == GpuBvhBuildMethod.HPLOC:
+    elif method == .HPLOC:
         return build_binary_bvh_with_hploc(
             ctx, binary, workspace, measure_stages
         )

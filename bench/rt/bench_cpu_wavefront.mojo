@@ -82,7 +82,7 @@ struct WaveCounters:
 
 
 def time_wavefront[
-    length: SIMDLength, ALGORITHM: RENDER = RENDER.PATH
+    length: SIMDLength, ALGORITHM: RENDER = .PATH
 ](settings: RenderSettings, camera: Camera, world: CpuScene[]) -> WaveTiming:
     var warmup = render_wavefront[ALGORITHM, length, CHUNK_PATHS, False](
         settings, camera, world
@@ -147,7 +147,7 @@ def count_wavefront(
 
         for packet in active_paths.packets:
             var path_id = packet.path_ids[0]
-            var ray = Rayf32[Frame.WORLD](
+            var ray = Rayf32[.WORLD](
                 Point3W(packet.ox[0], packet.oy[0], packet.oz[0]),
                 Vec3W(packet.dx[0], packet.dy[0], packet.dz[0]),
                 packet.t_min[0],
@@ -293,27 +293,27 @@ def benchmark_direct_lighting(
 ):
     print_timing(
         "Cornell NEE / packet width 1",
-        time_wavefront[1, RENDER.NEE](settings, camera, world),
+        time_wavefront[1, .NEE](settings, camera, world),
     )
     print_timing(
         "Cornell NEE / packet width 8",
-        time_wavefront[8, RENDER.NEE](settings, camera, world),
+        time_wavefront[8, .NEE](settings, camera, world),
     )
     print_timing(
         "Cornell NEE / packet width 16",
-        time_wavefront[16, RENDER.NEE](settings, camera, world),
+        time_wavefront[16, .NEE](settings, camera, world),
     )
     print_timing(
         "Cornell MIS / packet width 1",
-        time_wavefront[1, RENDER.MIS](settings, camera, world),
+        time_wavefront[1, .MIS](settings, camera, world),
     )
     print_timing(
         "Cornell MIS / packet width 8",
-        time_wavefront[8, RENDER.MIS](settings, camera, world),
+        time_wavefront[8, .MIS](settings, camera, world),
     )
     print_timing(
         "Cornell MIS / packet width 16",
-        time_wavefront[16, RENDER.MIS](settings, camera, world),
+        time_wavefront[16, .MIS](settings, camera, world),
     )
 
 

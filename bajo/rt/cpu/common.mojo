@@ -7,7 +7,7 @@ from bajo.rt.types import RenderSettings, ShadingPoint, SurfaceHit
 
 
 def _shading_point(
-    ray: Rayf32[Frame.WORLD], hit: SurfaceHit[1]
+    ray: Rayf32[.WORLD], hit: SurfaceHit[1]
 ) -> ShadingPoint[1]:
     return ShadingPoint(
         ray.o + hit.t * ray.d,
@@ -29,8 +29,8 @@ def _make_primary_ray(
     px: Int,
     py: Int,
     mut rng: Rng,
-) -> Rayf32[Frame.WORLD]:
-    var lens = random_in_unit_disk[Frame.WORLD](rng)
+) -> Rayf32[.WORLD]:
+    var lens = random_in_unit_disk[.WORLD](rng)
     return camera.make_ray_sampled(
         Float32(px),
         Float32(py),

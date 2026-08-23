@@ -54,18 +54,18 @@ def _warm_world_build(mut ctx: DeviceContext, world: CpuScene[]) raises:
 def _instance_grid_world() raises -> CpuScene[]:
     var builder = SceneBuilder()
     var matte = builder.add_lambertian(Color(0.62, 0.58, 0.50))
-    var mesh = List[Point3f32[Frame.LOCAL]]()
-    mesh.append(Point3f32[Frame.LOCAL](-0.45, -0.45, 0.0))
-    mesh.append(Point3f32[Frame.LOCAL](0.45, -0.45, 0.0))
-    mesh.append(Point3f32[Frame.LOCAL](0.45, 0.45, 0.0))
-    mesh.append(Point3f32[Frame.LOCAL](-0.45, -0.45, 0.0))
-    mesh.append(Point3f32[Frame.LOCAL](0.45, 0.45, 0.0))
-    mesh.append(Point3f32[Frame.LOCAL](-0.45, 0.45, 0.0))
+    var mesh = List[Point3f32[.LOCAL]]()
+    mesh.append(Point3f32[.LOCAL](-0.45, -0.45, 0.0))
+    mesh.append(Point3f32[.LOCAL](0.45, -0.45, 0.0))
+    mesh.append(Point3f32[.LOCAL](0.45, 0.45, 0.0))
+    mesh.append(Point3f32[.LOCAL](-0.45, -0.45, 0.0))
+    mesh.append(Point3f32[.LOCAL](0.45, 0.45, 0.0))
+    mesh.append(Point3f32[.LOCAL](-0.45, 0.45, 0.0))
     var mesh_bounds = compute_bounds(mesh)
     var mesh_idx = builder.add_triangle_mesh_instance(
         mesh,
-        Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(
-            Vec3f32[Frame.WORLD](-7.5, -7.5, -5.0)
+        Affine3f32[.LOCAL, .WORLD].from_translation(
+            Vec3f32[.WORLD](-7.5, -7.5, -5.0)
         ),
         mesh_bounds,
         matte,
@@ -76,8 +76,8 @@ def _instance_grid_world() raises -> CpuScene[]:
                 continue
             builder.add_triangle_instance(
                 mesh_idx,
-                Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(
-                    Vec3f32[Frame.WORLD](
+                Affine3f32[.LOCAL, .WORLD].from_translation(
+                    Vec3f32[.WORLD](
                         Float32(x) - 7.5,
                         Float32(y) - 7.5,
                         -5.0 - 0.08 * Float32((x + 3 * y) % 5),
@@ -92,9 +92,9 @@ def _instance_grid_world() raises -> CpuScene[]:
 
 def _camera() -> Camera:
     return Camera.from_vfov(
-        Point3f32[Frame.WORLD](0.0, 0.0, 18.0),
-        Point3f32[Frame.WORLD](0.0, 0.0, -5.0),
-        Vec3f32[Frame.WORLD](0.0, 1.0, 0.0),
+        Point3f32[.WORLD](0.0, 0.0, 18.0),
+        Point3f32[.WORLD](0.0, 0.0, -5.0),
+        Vec3f32[.WORLD](0.0, 1.0, 0.0),
         42.0,
     )
 
@@ -114,7 +114,7 @@ def _bench_algorithm[
         blas_node_width,
         tlas_leaf_width,
         blas_leaf_width,
-        GpuBvhBuildMethod.HPLOC,
+        .HPLOC,
         False,
         tlas_build_method,
     ],
@@ -126,7 +126,7 @@ def _bench_algorithm[
         tlas_leaf_width,
         blas_node_width,
         blas_leaf_width,
-        GpuBvhBuildMethod.HPLOC,
+        .HPLOC,
         False,
         tlas_build_method,
     ](ctx, target, world, settings)
@@ -141,7 +141,7 @@ def _bench_algorithm[
             tlas_leaf_width,
             blas_node_width,
             blas_leaf_width,
-            GpuBvhBuildMethod.HPLOC,
+            .HPLOC,
             False,
             tlas_build_method,
         ](ctx, target, world, settings)
@@ -159,7 +159,7 @@ def _run_layout[
     tlas_leaf_width: SIMDLength,
     blas_node_width: SIMDLength,
     blas_leaf_width: SIMDLength,
-    tlas_build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
+    tlas_build_method: GpuBvhBuildMethod = .LBVH,
 ](
     mut ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
@@ -173,14 +173,14 @@ def _run_layout[
         blas_node_width,
         tlas_leaf_width,
         blas_leaf_width,
-        GpuBvhBuildMethod.HPLOC,
+        .HPLOC,
         False,
         tlas_build_method,
     ](ctx, world.scene_data())
     ctx.synchronize()
     var build_ns = Int(perf_counter_ns() - t0)
     var path = _bench_algorithm[
-        RENDER.PATH,
+        .PATH,
         tlas_node_width,
         tlas_leaf_width,
         blas_node_width,
@@ -188,7 +188,7 @@ def _run_layout[
         tlas_build_method,
     ](ctx, target, gpu_world, settings)
     var ao = _bench_algorithm[
-        RENDER.AO,
+        .AO,
         tlas_node_width,
         tlas_leaf_width,
         blas_node_width,
@@ -196,7 +196,7 @@ def _run_layout[
         tlas_build_method,
     ](ctx, target, gpu_world, settings)
     var nee = _bench_algorithm[
-        RENDER.NEE,
+        .NEE,
         tlas_node_width,
         tlas_leaf_width,
         blas_node_width,
@@ -204,7 +204,7 @@ def _run_layout[
         tlas_build_method,
     ](ctx, target, gpu_world, settings)
     var mis = _bench_algorithm[
-        RENDER.MIS,
+        .MIS,
         tlas_node_width,
         tlas_leaf_width,
         blas_node_width,
@@ -295,7 +295,7 @@ def main() raises:
             )
         )
         rows.append(
-            _run_layout[2, 1, 4, 4, GpuBvhBuildMethod.HPLOC](
+            _run_layout[2, 1, 4, 4, .HPLOC](
                 ctx,
                 target,
                 world,

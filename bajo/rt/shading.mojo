@@ -13,9 +13,9 @@ comptime BSDF_INV_PI = Float32(0.3183098861837907)
 def _evaluate_lambertian[
     length: SIMDLength
 ](
-    normal: Vec3[DType.float32, Frame.WORLD, length],
-    albedo: Vec3[DType.float32, Frame.WORLD, length],
-    out_direction: Vec3[DType.float32, Frame.WORLD, length],
+    normal: Vec3[.float32, .WORLD, length],
+    albedo: Vec3[.float32, .WORLD, length],
+    out_direction: Vec3[.float32, .WORLD, length],
 ) -> BsdfEvaluation[length]:
     var cosine = max(dot(normal, normalize(out_direction)), 0.0)
     return BsdfEvaluation[length](
@@ -29,11 +29,11 @@ def _evaluate_lambertian[
 def _evaluate_metal[
     length: SIMDLength
 ](
-    ray_direction: Vec3[DType.float32, Frame.WORLD, length],
-    normal: Vec3[DType.float32, Frame.WORLD, length],
-    albedo: Vec3[DType.float32, Frame.WORLD, length],
+    ray_direction: Vec3[.float32, .WORLD, length],
+    normal: Vec3[.float32, .WORLD, length],
+    albedo: Vec3[.float32, .WORLD, length],
     fuzz: SIMD[DType.float32, length],
-    out_direction: Vec3[DType.float32, Frame.WORLD, length],
+    out_direction: Vec3[.float32, .WORLD, length],
 ) -> BsdfEvaluation[length]:
     var smooth = fuzz.le(1.0e-4)
     var safe_fuzz = smooth.select(Float32(1.0), fuzz)
@@ -48,7 +48,7 @@ def _evaluate_metal[
     var value_scale = (exponent + 2.0) * lobe / Float32(2.0 * pi)
     var pdf = (exponent + 1.0) * lobe / Float32(2.0 * pi)
     var zero = SIMD[DType.float32, length](0.0)
-    var zero_value = Vec3[DType.float32, Frame.WORLD, length](0.0)
+    var zero_value = Vec3[.float32, .WORLD, length](0.0)
     return BsdfEvaluation[length](
         Vec3.select(valid, albedo * value_scale, zero_value),
         valid.select(pdf, zero),
@@ -60,11 +60,11 @@ def _evaluate_metal[
 def _evaluate_material[
     MATERIAL_KIND: MAT, length: SIMDLength
 ](
-    ray_direction: Vec3[DType.float32, Frame.WORLD, length],
-    normal: Vec3[DType.float32, Frame.WORLD, length],
-    albedo: Vec3[DType.float32, Frame.WORLD, length],
+    ray_direction: Vec3[.float32, .WORLD, length],
+    normal: Vec3[.float32, .WORLD, length],
+    albedo: Vec3[.float32, .WORLD, length],
     parameter: SIMD[DType.float32, length],
-    out_direction: Vec3[DType.float32, Frame.WORLD, length],
+    out_direction: Vec3[.float32, .WORLD, length],
 ) -> BsdfEvaluation[length]:
     """Evaluate one homogeneous material group at compile time."""
     comptime if MATERIAL_KIND == MAT.LAMBERTIAN:
@@ -75,14 +75,14 @@ def _evaluate_material[
         )
     elif MATERIAL_KIND == MAT.DIELECTRIC:
         return BsdfEvaluation[length](
-            Vec3[DType.float32, Frame.WORLD, length](0.0),
+            Vec3[.float32, .WORLD, length](0.0),
             SIMD[DType.float32, length](0.0),
             SIMD[DType.bool, length](fill=True),
         )
     else:
         comptime assert MATERIAL_KIND == MAT.EMISSIVE
         return BsdfEvaluation[length](
-            Vec3[DType.float32, Frame.WORLD, length](0.0),
+            Vec3[.float32, .WORLD, length](0.0),
             SIMD[DType.float32, length](0.0),
             SIMD[DType.bool, length](fill=False),
         )
@@ -92,15 +92,15 @@ def _evaluate_material[
 def _sample_lambertian[
     length: SIMDLength
 ](
-    normal: Vec3[DType.float32, Frame.WORLD, length],
-    albedo: Vec3[DType.float32, Frame.WORLD, length],
+    normal: Vec3[.float32, .WORLD, length],
+    albedo: Vec3[.float32, .WORLD, length],
     random_u: SIMD[DType.float32, length],
     random_v: SIMD[DType.float32, length],
 ) -> BsdfSample[length]:
     var theta = Float32(2.0 * pi) * random_u
     var z = 1.0 - 2.0 * random_v
     var radius = sqrt(max(1.0 - z * z, 0.0))
-    var random_direction = Vec3[DType.float32, Frame.WORLD, length](
+    var random_direction = Vec3[.float32, .WORLD, length](
         radius * cos(theta), radius * sin(theta), z
     )
     var scatter_direction = normal + random_direction
@@ -122,9 +122,9 @@ def _sample_lambertian[
 def _sample_metal[
     length: SIMDLength
 ](
-    ray_direction: Vec3[DType.float32, Frame.WORLD, length],
-    normal: Vec3[DType.float32, Frame.WORLD, length],
-    albedo: Vec3[DType.float32, Frame.WORLD, length],
+    ray_direction: Vec3[.float32, .WORLD, length],
+    normal: Vec3[.float32, .WORLD, length],
+    albedo: Vec3[.float32, .WORLD, length],
     fuzz: SIMD[DType.float32, length],
     random_u: SIMD[DType.float32, length],
     random_v: SIMD[DType.float32, length],
@@ -136,8 +136,8 @@ def _sample_metal[
     var cos_theta = pow(random_u, 1.0 / (exponent + 1.0))
     var sin_theta = sqrt(max(1.0 - cos_theta * cos_theta, 0.0))
     var phi = Float32(2.0 * pi) * random_v
-    var helper_y = Vec3[DType.float32, Frame.WORLD, length](0.0, 1.0, 0.0)
-    var helper_x = Vec3[DType.float32, Frame.WORLD, length](1.0, 0.0, 0.0)
+    var helper_y = Vec3[.float32, .WORLD, length](0.0, 1.0, 0.0)
+    var helper_x = Vec3[.float32, .WORLD, length](1.0, 0.0, 0.0)
     var helper = Vec3.select(abs(reflected.y).gt(0.99), helper_x, helper_y)
     var tangent = normalize(cross(helper, reflected))
     var bitangent = cross(reflected, tangent)
@@ -165,8 +165,8 @@ def _sample_metal[
 def _sample_dielectric[
     length: SIMDLength
 ](
-    ray_direction: Vec3[DType.float32, Frame.WORLD, length],
-    normal: Vec3[DType.float32, Frame.WORLD, length],
+    ray_direction: Vec3[.float32, .WORLD, length],
+    normal: Vec3[.float32, .WORLD, length],
     refraction_index: SIMD[DType.float32, length],
     front_face: SIMD[DType.bool, length],
     reflect_random: SIMD[DType.float32, length],
@@ -191,7 +191,7 @@ def _sample_dielectric[
     )
     return BsdfSample[length](
         direction,
-        Vec3[DType.float32, Frame.WORLD, length](1.0, 1.0, 1.0),
+        Vec3[.float32, .WORLD, length](1.0, 1.0, 1.0),
         pdf,
         SIMD[DType.bool, length](fill=True),
         SIMD[DType.bool, length](fill=True),
@@ -202,9 +202,9 @@ def _sample_dielectric[
 def _sample_material[
     MATERIAL_KIND: MAT, length: SIMDLength
 ](
-    ray_direction: Vec3[DType.float32, Frame.WORLD, length],
-    normal: Vec3[DType.float32, Frame.WORLD, length],
-    albedo: Vec3[DType.float32, Frame.WORLD, length],
+    ray_direction: Vec3[.float32, .WORLD, length],
+    normal: Vec3[.float32, .WORLD, length],
+    albedo: Vec3[.float32, .WORLD, length],
     parameter: SIMD[DType.float32, length],
     front_face: SIMD[DType.bool, length],
     random_u: SIMD[DType.float32, length],

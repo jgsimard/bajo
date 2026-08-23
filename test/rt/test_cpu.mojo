@@ -65,26 +65,26 @@ from bajo.rt.wavefront_contract import wavefront_rng_roulette_stage
 
 def _front_point() -> ShadingPoint[1]:
     return ShadingPoint(
-        Point3f32[Frame.WORLD](0.0, 0.0, -1.0),
-        Vec3f32[Frame.WORLD](0.0, 0.0, 1.0),
+        Point3f32[.WORLD](0.0, 0.0, -1.0),
+        Vec3f32[.WORLD](0.0, 0.0, 1.0),
         True,
     )
 
 
 def test_orient_surface_normal_is_width_generic() raises:
     var scalar = orient_surface_normal(
-        Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
-        Vec3f32[Frame.WORLD](0.0, 0.0, 1.0),
+        Vec3f32[.WORLD](0.0, 0.0, -1.0),
+        Vec3f32[.WORLD](0.0, 0.0, 1.0),
     )
     assert_true(scalar.front_face)
-    assert_vec_equal(scalar.normal, Vec3f32[Frame.WORLD](0.0, 0.0, 1.0))
+    assert_vec_equal(scalar.normal, Vec3f32[.WORLD](0.0, 0.0, 1.0))
 
-    var directions = Vec3[DType.float32, Frame.WORLD, 2](
+    var directions = Vec3[.float32, .WORLD, 2](
         SIMD[DType.float32, 2](0.0),
         SIMD[DType.float32, 2](0.0),
         SIMD[DType.float32, 2](-1.0, 1.0),
     )
-    var outward = Vec3[DType.float32, Frame.WORLD, 2](0.0, 0.0, 1.0)
+    var outward = Vec3[.float32, .WORLD, 2](0.0, 0.0, 1.0)
     var packet = orient_surface_normal(directions, outward)
     assert_true(packet.front_face[0])
     assert_false(packet.front_face[1])
@@ -93,8 +93,8 @@ def test_orient_surface_normal_is_width_generic() raises:
 
 
 def test_signed_sphere_acceleration_policy() raises:
-    var sphere = Sphere[Frame.WORLD](
-        Point3f32[Frame.WORLD](1.0, 2.0, 3.0), -2.5
+    var sphere = Sphere[.WORLD](
+        Point3f32[.WORLD](1.0, 2.0, 3.0), -2.5
     )
     var acceleration = sphere_for_acceleration(sphere)
     assert_almost_equal(sphere_unsigned_radius(sphere), 2.5)
@@ -105,10 +105,10 @@ def test_signed_sphere_acceleration_policy() raises:
 
 def test_reflect_and_reflectance() raises:
     var reflected = reflect(
-        Vec3f32[Frame.WORLD](1.0, -1.0, 0.0),
-        Vec3f32[Frame.WORLD](0.0, 1.0, 0.0),
+        Vec3f32[.WORLD](1.0, -1.0, 0.0),
+        Vec3f32[.WORLD](0.0, 1.0, 0.0),
     )
-    assert_vec_equal(reflected, Vec3f32[Frame.WORLD](1.0, 1.0, 0.0))
+    assert_vec_equal(reflected, Vec3f32[.WORLD](1.0, 1.0, 0.0))
 
     assert_almost_equal(reflectance(1.0, 1.5), 0.04, atol=1e-5)
 
@@ -131,7 +131,7 @@ def test_surface_hit_is_width_generic() raises:
     hits.hit[2] = True
 
     var lane = hits.get(2)
-    assert_vec_equal(lane.normal, Vec3f32[Frame.WORLD](1.0, 2.0, 3.0))
+    assert_vec_equal(lane.normal, Vec3f32[.WORLD](1.0, 2.0, 3.0))
     assert_equal(lane.surface.kind(), MAT.METAL)
     assert_equal(lane.surface.index(), UInt32(7))
     assert_almost_equal(lane.t, 4.5)
@@ -147,7 +147,7 @@ def test_light_alias_table_matches_power_distribution() raises:
             PrimitiveId(PRIM.SPHERE, UInt32(0)),
             surface.copy(),
             1.0,
-            Point3f32[Frame.WORLD](0.0),
+            Point3f32[.WORLD](0.0),
             1.0,
         )
     )
@@ -156,7 +156,7 @@ def test_light_alias_table_matches_power_distribution() raises:
             PrimitiveId(PRIM.SPHERE, UInt32(1)),
             surface.copy(),
             3.0,
-            Point3f32[Frame.WORLD](0.0),
+            Point3f32[.WORLD](0.0),
             1.0,
         )
     )
@@ -165,7 +165,7 @@ def test_light_alias_table_matches_power_distribution() raises:
             PrimitiveId(PRIM.SPHERE, UInt32(2)),
             surface.copy(),
             6.0,
-            Point3f32[Frame.WORLD](0.0),
+            Point3f32[.WORLD](0.0),
             1.0,
         )
     )
@@ -200,13 +200,13 @@ def test_scene_builder_finalizes_derived_lights() raises:
     var builder = SceneBuilder()
     var matte = builder.add_lambertian(Color(0.5))
     var light = builder.add_emissive(Color(6.0, 4.0, 2.0))
-    builder.add_sphere(Point3f32[Frame.WORLD](0.0, 0.0, -1.0), 0.5, matte)
-    builder.add_sphere(Point3f32[Frame.WORLD](0.0, 2.0, -1.0), 0.25, light)
+    builder.add_sphere(Point3f32[.WORLD](0.0, 0.0, -1.0), 0.5, matte)
+    builder.add_sphere(Point3f32[.WORLD](0.0, 2.0, -1.0), 0.25, light)
     builder.add_quad(
-        Point3f32[Frame.WORLD](-1.0, -1.0, -2.0),
-        Point3f32[Frame.WORLD](1.0, -1.0, -2.0),
-        Point3f32[Frame.WORLD](1.0, 1.0, -2.0),
-        Point3f32[Frame.WORLD](-1.0, 1.0, -2.0),
+        Point3f32[.WORLD](-1.0, -1.0, -2.0),
+        Point3f32[.WORLD](1.0, -1.0, -2.0),
+        Point3f32[.WORLD](1.0, 1.0, -2.0),
+        Point3f32[.WORLD](-1.0, 1.0, -2.0),
         matte,
     )
 
@@ -221,15 +221,15 @@ def test_scene_builder_finalizes_derived_lights() raises:
 def test_scene_builder_finalizes_emissive_triangle_instance_lights() raises:
     var builder = SceneBuilder()
     var light = builder.add_emissive(Color(4.0))
-    var mesh = List[Point3f32[Frame.LOCAL]]()
-    mesh.append(Point3f32[Frame.LOCAL](-1.0, -1.0, 0.0))
-    mesh.append(Point3f32[Frame.LOCAL](1.0, -1.0, 0.0))
-    mesh.append(Point3f32[Frame.LOCAL](0.0, 1.0, 0.0))
+    var mesh = List[Point3f32[.LOCAL]]()
+    mesh.append(Point3f32[.LOCAL](-1.0, -1.0, 0.0))
+    mesh.append(Point3f32[.LOCAL](1.0, -1.0, 0.0))
+    mesh.append(Point3f32[.LOCAL](0.0, 1.0, 0.0))
     var bounds = compute_bounds(mesh)
     _ = builder.add_triangle_mesh_instance(
         mesh,
-        Affine3f32[Frame.LOCAL, Frame.WORLD].from_scale(
-            Vec3f32[Frame.LOCAL](-1.0, 1.0, 1.0)
+        Affine3f32[.LOCAL, .WORLD].from_scale(
+            Vec3f32[.LOCAL](-1.0, 1.0, 1.0)
         ),
         bounds,
         light,
@@ -241,40 +241,40 @@ def test_scene_builder_finalizes_emissive_triangle_instance_lights() raises:
     assert_equal(record.primitive.kind(), PRIM.TRIANGLE_INSTANCE)
     assert_equal(record.primitive.index(), UInt32(0))
     assert_almost_equal(record.weight, 8.0)
-    assert_vec_equal(record.p0, Point3f32[Frame.WORLD](1.0, -1.0, 0.0))
-    assert_vec_equal(record.p1, Point3f32[Frame.WORLD](0.0, 1.0, 0.0))
-    assert_vec_equal(record.p2, Point3f32[Frame.WORLD](-1.0, -1.0, 0.0))
+    assert_vec_equal(record.p0, Point3f32[.WORLD](1.0, -1.0, 0.0))
+    assert_vec_equal(record.p1, Point3f32[.WORLD](0.0, 1.0, 0.0))
+    assert_vec_equal(record.p2, Point3f32[.WORLD](-1.0, -1.0, 0.0))
 
 
 def test_scene_builder_rejects_invalid_material_domains() raises:
     var invalid_albedo = SceneBuilder()
     var albedo_surface = invalid_albedo.add_lambertian(Color(1.01, 0.5, 0.5))
-    invalid_albedo.add_sphere(Point3f32[Frame.WORLD](0.0), 1.0, albedo_surface)
+    invalid_albedo.add_sphere(Point3f32[.WORLD](0.0), 1.0, albedo_surface)
     with assert_raises():
         _ = invalid_albedo^.finish()
 
     var invalid_fuzz = SceneBuilder()
     var metal_surface = invalid_fuzz.add_metal(Color(0.5), 1.01)
-    invalid_fuzz.add_sphere(Point3f32[Frame.WORLD](0.0), 1.0, metal_surface)
+    invalid_fuzz.add_sphere(Point3f32[.WORLD](0.0), 1.0, metal_surface)
     with assert_raises():
         _ = invalid_fuzz^.finish()
 
     var invalid_ior = SceneBuilder()
     var glass_surface = invalid_ior.add_dielectric(0.0)
-    invalid_ior.add_sphere(Point3f32[Frame.WORLD](0.0), 1.0, glass_surface)
+    invalid_ior.add_sphere(Point3f32[.WORLD](0.0), 1.0, glass_surface)
     with assert_raises():
         _ = invalid_ior^.finish()
 
     var invalid_emission = SceneBuilder()
     var light_surface = invalid_emission.add_emissive(Color(1.0, -0.1, 1.0))
-    invalid_emission.add_sphere(Point3f32[Frame.WORLD](0.0), 1.0, light_surface)
+    invalid_emission.add_sphere(Point3f32[.WORLD](0.0), 1.0, light_surface)
     with assert_raises():
         _ = invalid_emission^.finish()
 
     var nonfinite_material = SceneBuilder()
     var nan = bitcast[DType.float32](UInt32(0x7FC00000))
     var nan_surface = nonfinite_material.add_lambertian(Color(nan, 0.5, 0.5))
-    nonfinite_material.add_sphere(Point3f32[Frame.WORLD](0.0), 1.0, nan_surface)
+    nonfinite_material.add_sphere(Point3f32[.WORLD](0.0), 1.0, nan_surface)
     with assert_raises():
         _ = nonfinite_material^.finish()
 
@@ -282,7 +282,7 @@ def test_scene_builder_rejects_invalid_material_domains() raises:
     var f32_max = bitcast[DType.float32](UInt32(0x7F7FFFFF))
     var overflowed_surface = overflowed_light.add_emissive(Color(f32_max))
     overflowed_light.add_sphere(
-        Point3f32[Frame.WORLD](0.0), 1.0, overflowed_surface
+        Point3f32[.WORLD](0.0), 1.0, overflowed_surface
     )
     with assert_raises():
         _ = overflowed_light^.finish()
@@ -292,7 +292,7 @@ def test_scene_builder_rejects_invalid_geometry() raises:
     var zero_radius = SceneBuilder()
     var zero_radius_surface = zero_radius.add_lambertian(Color(0.5))
     zero_radius.add_sphere(
-        Point3f32[Frame.WORLD](0.0), 0.0, zero_radius_surface
+        Point3f32[.WORLD](0.0), 0.0, zero_radius_surface
     )
     with assert_raises():
         _ = zero_radius^.finish()
@@ -301,7 +301,7 @@ def test_scene_builder_rejects_invalid_geometry() raises:
     var nan = bitcast[DType.float32](UInt32(0x7FC00000))
     var sphere_surface = nonfinite_sphere.add_lambertian(Color(0.5))
     nonfinite_sphere.add_sphere(
-        Point3f32[Frame.WORLD](nan, 0.0, 0.0), 1.0, sphere_surface
+        Point3f32[.WORLD](nan, 0.0, 0.0), 1.0, sphere_surface
     )
     with assert_raises():
         _ = nonfinite_sphere^.finish()
@@ -309,9 +309,9 @@ def test_scene_builder_rejects_invalid_geometry() raises:
     var degenerate_triangle = SceneBuilder()
     var triangle_surface = degenerate_triangle.add_lambertian(Color(0.5))
     degenerate_triangle.add_triangle(
-        Point3f32[Frame.WORLD](0.0, 0.0, 0.0),
-        Point3f32[Frame.WORLD](1.0, 0.0, 0.0),
-        Point3f32[Frame.WORLD](2.0, 0.0, 0.0),
+        Point3f32[.WORLD](0.0, 0.0, 0.0),
+        Point3f32[.WORLD](1.0, 0.0, 0.0),
+        Point3f32[.WORLD](2.0, 0.0, 0.0),
         triangle_surface,
     )
     with assert_raises():
@@ -319,13 +319,13 @@ def test_scene_builder_rejects_invalid_geometry() raises:
 
     var degenerate_mesh = SceneBuilder()
     var mesh_surface = degenerate_mesh.add_lambertian(Color(0.5))
-    var vertices = List[Point3f32[Frame.LOCAL]]()
-    vertices.append(Point3f32[Frame.LOCAL](0.0, 0.0, 0.0))
-    vertices.append(Point3f32[Frame.LOCAL](1.0, 0.0, 0.0))
-    vertices.append(Point3f32[Frame.LOCAL](2.0, 0.0, 0.0))
+    var vertices = List[Point3f32[.LOCAL]]()
+    vertices.append(Point3f32[.LOCAL](0.0, 0.0, 0.0))
+    vertices.append(Point3f32[.LOCAL](1.0, 0.0, 0.0))
+    vertices.append(Point3f32[.LOCAL](2.0, 0.0, 0.0))
     _ = degenerate_mesh.add_triangle_mesh_instance(
         vertices,
-        Affine3f32[Frame.LOCAL, Frame.WORLD].identity(),
+        Affine3f32[.LOCAL, .WORLD].identity(),
         compute_bounds(vertices),
         mesh_surface,
     )
@@ -334,17 +334,17 @@ def test_scene_builder_rejects_invalid_geometry() raises:
 
 
 def test_scene_builder_validates_and_rebuilds_instance_derivatives() raises:
-    var vertices = List[Point3f32[Frame.LOCAL]]()
-    vertices.append(Point3f32[Frame.LOCAL](-1.0, -2.0, 0.0))
-    vertices.append(Point3f32[Frame.LOCAL](3.0, -2.0, 0.0))
-    vertices.append(Point3f32[Frame.LOCAL](0.0, 4.0, 0.0))
+    var vertices = List[Point3f32[.LOCAL]]()
+    vertices.append(Point3f32[.LOCAL](-1.0, -2.0, 0.0))
+    vertices.append(Point3f32[.LOCAL](3.0, -2.0, 0.0))
+    vertices.append(Point3f32[.LOCAL](0.0, 4.0, 0.0))
 
     var stale_bounds = SceneBuilder()
     var stale_surface = stale_bounds.add_lambertian(Color(0.5))
     _ = stale_bounds.add_triangle_mesh_instance(
         vertices,
-        Affine3f32[Frame.LOCAL, Frame.WORLD].identity(),
-        AABB[Frame.LOCAL].invalid(),
+        Affine3f32[.LOCAL, .WORLD].identity(),
+        AABB[.LOCAL].invalid(),
         stale_surface,
     )
     var scene = stale_bounds^.finish()
@@ -358,8 +358,8 @@ def test_scene_builder_validates_and_rebuilds_instance_derivatives() raises:
 
     var singular_transform = SceneBuilder()
     var singular_surface = singular_transform.add_lambertian(Color(0.5))
-    var singular = Affine3f32[Frame.LOCAL, Frame.WORLD].from_scale(
-        Vec3f32[Frame.LOCAL](1.0, 0.0, 1.0)
+    var singular = Affine3f32[.LOCAL, .WORLD].from_scale(
+        Vec3f32[.LOCAL](1.0, 0.0, 1.0)
     )
     _ = singular_transform.add_triangle_mesh_instance(
         vertices, singular, compute_bounds(vertices), singular_surface
@@ -369,13 +369,13 @@ def test_scene_builder_validates_and_rebuilds_instance_derivatives() raises:
 
     var overflowed_bounds = SceneBuilder()
     var overflow_surface = overflowed_bounds.add_lambertian(Color(0.5))
-    var large_vertices = List[Point3f32[Frame.LOCAL]]()
-    large_vertices.append(Point3f32[Frame.LOCAL](1.0, 0.0, 0.0))
-    large_vertices.append(Point3f32[Frame.LOCAL](2.0, 0.0, 0.0))
-    large_vertices.append(Point3f32[Frame.LOCAL](1.0, 1.0, 0.0))
+    var large_vertices = List[Point3f32[.LOCAL]]()
+    large_vertices.append(Point3f32[.LOCAL](1.0, 0.0, 0.0))
+    large_vertices.append(Point3f32[.LOCAL](2.0, 0.0, 0.0))
+    large_vertices.append(Point3f32[.LOCAL](1.0, 1.0, 0.0))
     var f32_max = bitcast[DType.float32](UInt32(0x7F7FFFFF))
-    var enormous = Affine3f32[Frame.LOCAL, Frame.WORLD].from_scale(
-        Vec3f32[Frame.LOCAL](f32_max, 1.0, 1.0)
+    var enormous = Affine3f32[.LOCAL, .WORLD].from_scale(
+        Vec3f32[.LOCAL](f32_max, 1.0, 1.0)
     )
     _ = overflowed_bounds.add_triangle_mesh_instance(
         large_vertices,
@@ -442,8 +442,8 @@ def test_lambertian_scatter_is_explicit() raises:
     var surfaces = SurfaceStore()
     var surface = surfaces.add_lambertian(material.albedo)
     var point = _front_point()
-    var incoming = Rayf32[Frame.WORLD](
-        Point3f32[Frame.WORLD](0.0), Vec3f32[Frame.WORLD](0.0, 0.0, -1.0)
+    var incoming = Rayf32[.WORLD](
+        Point3f32[.WORLD](0.0), Vec3f32[.WORLD](0.0, 0.0, -1.0)
     )
 
     var scattered = sample_bsdf(surface, surfaces, incoming, point, rng)
@@ -468,8 +468,8 @@ def test_metal_scatter_can_absorb() raises:
     var surfaces = SurfaceStore()
     var surface = surfaces.add_metal(material.albedo, material.fuzz)
     var point = _front_point()
-    var incoming = Rayf32[Frame.WORLD](
-        Point3f32[Frame.WORLD](0.0), Vec3f32[Frame.WORLD](0.0, 0.0, -1.0)
+    var incoming = Rayf32[.WORLD](
+        Point3f32[.WORLD](0.0), Vec3f32[.WORLD](0.0, 0.0, -1.0)
     )
 
     var scattered = sample_bsdf(surface, surfaces, incoming, point, rng)
@@ -492,8 +492,8 @@ def test_dielectric_scatter_is_explicit() raises:
     var surfaces = SurfaceStore()
     var surface = surfaces.add_dielectric(material.refraction_index)
     var point = _front_point()
-    var incoming = Rayf32[Frame.WORLD](
-        Point3f32[Frame.WORLD](0.0), Vec3f32[Frame.WORLD](0.0, 0.0, -1.0)
+    var incoming = Rayf32[.WORLD](
+        Point3f32[.WORLD](0.0), Vec3f32[.WORLD](0.0, 0.0, -1.0)
     )
 
     var scattered = sample_bsdf(surface, surfaces, incoming, point, rng)
@@ -513,12 +513,12 @@ def test_world_hit_maps_material_and_normal() raises:
     var matte = builder.add_lambertian(Color(0.5))
     var light = builder.add_emissive(Color(4.0))
     builder.add_sphere(
-        Point3f32[Frame.WORLD](0.0, 0.0, -1.0),
+        Point3f32[.WORLD](0.0, 0.0, -1.0),
         0.5,
         matte,
     )
     builder.add_sphere(
-        Point3f32[Frame.WORLD](10.0, 0.0, -1.0),
+        Point3f32[.WORLD](10.0, 0.0, -1.0),
         0.25,
         light,
     )
@@ -535,9 +535,9 @@ def test_world_hit_maps_material_and_normal() raises:
 
     var hit = (
         world.trace(
-            Rayf32[Frame.WORLD](
-                Point3f32[Frame.WORLD](0.0),
-                Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
+            Rayf32[.WORLD](
+                Point3f32[.WORLD](0.0),
+                Vec3f32[.WORLD](0.0, 0.0, -1.0),
             )
         )
         .value()
@@ -548,12 +548,12 @@ def test_world_hit_maps_material_and_normal() raises:
     assert_equal(hit.surface.kind(), matte.kind())
     assert_equal(hit.surface.index(), matte.index())
     assert_true(hit.front_face)
-    assert_vec_equal(hit.normal, Vec3f32[Frame.WORLD](0.0, 0.0, 1.0))
+    assert_vec_equal(hit.normal, Vec3f32[.WORLD](0.0, 0.0, 1.0))
     assert_almost_equal(hit.t, 0.5)
     var compact = world.trace_surface(
-        Rayf32[Frame.WORLD](
-            Point3f32[Frame.WORLD](0.0),
-            Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
+        Rayf32[.WORLD](
+            Point3f32[.WORLD](0.0),
+            Vec3f32[.WORLD](0.0, 0.0, -1.0),
         )
     )
     assert_true(compact.hit)
@@ -566,7 +566,7 @@ def test_world_preserves_signed_radius_normals() raises:
     var builder = SceneBuilder()
     var glass = builder.add_dielectric(1.5)
     builder.add_sphere(
-        Point3f32[Frame.WORLD](0.0, 0.0, -1.0),
+        Point3f32[.WORLD](0.0, 0.0, -1.0),
         -0.5,
         glass,
     )
@@ -575,16 +575,16 @@ def test_world_preserves_signed_radius_normals() raises:
 
     var hit = (
         world.trace(
-            Rayf32[Frame.WORLD](
-                Point3f32[Frame.WORLD](0.0),
-                Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
+            Rayf32[.WORLD](
+                Point3f32[.WORLD](0.0),
+                Vec3f32[.WORLD](0.0, 0.0, -1.0),
             )
         )
         .value()
         .copy()
     )
     assert_false(hit.front_face)
-    assert_vec_equal(hit.normal, Vec3f32[Frame.WORLD](0.0, 0.0, 1.0))
+    assert_vec_equal(hit.normal, Vec3f32[.WORLD](0.0, 0.0, 1.0))
     assert_almost_equal(hit.t, 0.5)
 
 
@@ -592,9 +592,9 @@ def test_world_hits_triangle() raises:
     var builder = SceneBuilder()
     var matte = builder.add_lambertian(Color(0.25, 0.5, 0.75))
     builder.add_triangle(
-        Point3f32[Frame.WORLD](-1.0, -1.0, -2.0),
-        Point3f32[Frame.WORLD](1.0, -1.0, -2.0),
-        Point3f32[Frame.WORLD](0.0, 1.0, -2.0),
+        Point3f32[.WORLD](-1.0, -1.0, -2.0),
+        Point3f32[.WORLD](1.0, -1.0, -2.0),
+        Point3f32[.WORLD](0.0, 1.0, -2.0),
         matte,
     )
     var scene = builder^.finish()
@@ -602,9 +602,9 @@ def test_world_hits_triangle() raises:
 
     var hit = (
         world.trace(
-            Rayf32[Frame.WORLD](
-                Point3f32[Frame.WORLD](0.0),
-                Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
+            Rayf32[.WORLD](
+                Point3f32[.WORLD](0.0),
+                Vec3f32[.WORLD](0.0, 0.0, -1.0),
             )
         )
         .value()
@@ -614,26 +614,26 @@ def test_world_hits_triangle() raises:
     assert_equal(hit.primitive.index(), UInt32(0))
     assert_equal(hit.surface.value, matte.value)
     assert_true(hit.front_face)
-    assert_vec_equal(hit.normal, Vec3f32[Frame.WORLD](0.0, 0.0, 1.0))
+    assert_vec_equal(hit.normal, Vec3f32[.WORLD](0.0, 0.0, 1.0))
     assert_almost_equal(hit.t, 2.0)
 
     var back_hit = (
         world.trace(
-            Rayf32[Frame.WORLD](
-                Point3f32[Frame.WORLD](0.0, 0.0, -4.0),
-                Vec3f32[Frame.WORLD](0.0, 0.0, 1.0),
+            Rayf32[.WORLD](
+                Point3f32[.WORLD](0.0, 0.0, -4.0),
+                Vec3f32[.WORLD](0.0, 0.0, 1.0),
             )
         )
         .value()
         .copy()
     )
     assert_false(back_hit.front_face)
-    assert_vec_equal(back_hit.normal, Vec3f32[Frame.WORLD](0.0, 0.0, -1.0))
+    assert_vec_equal(back_hit.normal, Vec3f32[.WORLD](0.0, 0.0, -1.0))
     assert_almost_equal(back_hit.t, 2.0)
     var compact = world.trace_surface(
-        Rayf32[Frame.WORLD](
-            Point3f32[Frame.WORLD](0.0),
-            Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
+        Rayf32[.WORLD](
+            Point3f32[.WORLD](0.0),
+            Vec3f32[.WORLD](0.0, 0.0, -1.0),
         )
     )
     assert_true(compact.hit)
@@ -648,14 +648,14 @@ def test_world_picks_closest_sphere_or_triangle() raises:
     var tri_surface = builder.add_metal(Color(0.9), 0.0)
 
     builder.add_sphere(
-        Point3f32[Frame.WORLD](0.0, 0.0, -1.0),
+        Point3f32[.WORLD](0.0, 0.0, -1.0),
         0.25,
         sphere_surface,
     )
     builder.add_triangle(
-        Point3f32[Frame.WORLD](-1.0, -1.0, -2.0),
-        Point3f32[Frame.WORLD](1.0, -1.0, -2.0),
-        Point3f32[Frame.WORLD](0.0, 1.0, -2.0),
+        Point3f32[.WORLD](-1.0, -1.0, -2.0),
+        Point3f32[.WORLD](1.0, -1.0, -2.0),
+        Point3f32[.WORLD](0.0, 1.0, -2.0),
         tri_surface,
     )
     var scene = builder^.finish()
@@ -663,9 +663,9 @@ def test_world_picks_closest_sphere_or_triangle() raises:
 
     var hit = (
         world.trace(
-            Rayf32[Frame.WORLD](
-                Point3f32[Frame.WORLD](0.0),
-                Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
+            Rayf32[.WORLD](
+                Point3f32[.WORLD](0.0),
+                Vec3f32[.WORLD](0.0, 0.0, -1.0),
             )
         )
         .value()
@@ -679,13 +679,13 @@ def test_world_picks_closest_sphere_or_triangle() raises:
 def test_add_triangle_mesh_assigns_surface_per_triangle() raises:
     var builder = SceneBuilder()
     var matte = builder.add_lambertian(Color(0.3, 0.4, 0.5))
-    var mesh = List[Point3f32[Frame.WORLD]]()
-    mesh.append(Point3f32[Frame.WORLD](-1.0, -1.0, -2.0))
-    mesh.append(Point3f32[Frame.WORLD](1.0, -1.0, -2.0))
-    mesh.append(Point3f32[Frame.WORLD](0.0, 1.0, -2.0))
-    mesh.append(Point3f32[Frame.WORLD](-1.0, -1.0, -3.0))
-    mesh.append(Point3f32[Frame.WORLD](1.0, -1.0, -3.0))
-    mesh.append(Point3f32[Frame.WORLD](0.0, 1.0, -3.0))
+    var mesh = List[Point3f32[.WORLD]]()
+    mesh.append(Point3f32[.WORLD](-1.0, -1.0, -2.0))
+    mesh.append(Point3f32[.WORLD](1.0, -1.0, -2.0))
+    mesh.append(Point3f32[.WORLD](0.0, 1.0, -2.0))
+    mesh.append(Point3f32[.WORLD](-1.0, -1.0, -3.0))
+    mesh.append(Point3f32[.WORLD](1.0, -1.0, -3.0))
+    mesh.append(Point3f32[.WORLD](0.0, 1.0, -3.0))
 
     builder.add_triangle_mesh(mesh, matte)
     var scene = builder^.finish()
@@ -695,9 +695,9 @@ def test_add_triangle_mesh_assigns_surface_per_triangle() raises:
 
     var hit = (
         world.trace(
-            Rayf32[Frame.WORLD](
-                Point3f32[Frame.WORLD](0.0),
-                Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
+            Rayf32[.WORLD](
+                Point3f32[.WORLD](0.0),
+                Vec3f32[.WORLD](0.0, 0.0, -1.0),
             )
         )
         .value()
@@ -713,13 +713,13 @@ def test_triangle_mesh_instances_use_instance_surfaces() raises:
     var matte = builder.add_lambertian(Color(0.2, 0.4, 0.8))
     var metal = builder.add_metal(Color(0.9, 0.8, 0.7), 0.0)
 
-    var mesh = List[Point3f32[Frame.LOCAL]]()
-    mesh.append(Point3f32[Frame.LOCAL](-0.5, -0.5, -2.0))
-    mesh.append(Point3f32[Frame.LOCAL](0.5, -0.5, -2.0))
-    mesh.append(Point3f32[Frame.LOCAL](0.0, 0.5, -2.0))
+    var mesh = List[Point3f32[.LOCAL]]()
+    mesh.append(Point3f32[.LOCAL](-0.5, -0.5, -2.0))
+    mesh.append(Point3f32[.LOCAL](0.5, -0.5, -2.0))
+    mesh.append(Point3f32[.LOCAL](0.0, 0.5, -2.0))
     var mesh_bounds = compute_bounds(mesh)
 
-    var transform = Affine3f32[Frame.LOCAL, Frame.WORLD].identity()
+    var transform = Affine3f32[.LOCAL, .WORLD].identity()
     var mesh_idx = builder.add_triangle_mesh_instance(
         mesh,
         transform,
@@ -727,8 +727,8 @@ def test_triangle_mesh_instances_use_instance_surfaces() raises:
         matte,
     )
 
-    var t = Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(
-        Vec3f32[Frame.WORLD](1.5, 0.0, 0.0)
+    var t = Affine3f32[.LOCAL, .WORLD].from_translation(
+        Vec3f32[.WORLD](1.5, 0.0, 0.0)
     )
     builder.add_triangle_instance(
         mesh_idx,
@@ -742,9 +742,9 @@ def test_triangle_mesh_instances_use_instance_surfaces() raises:
 
     var hit0 = (
         world.trace(
-            Rayf32[Frame.WORLD](
-                Point3f32[Frame.WORLD](0.0),
-                Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
+            Rayf32[.WORLD](
+                Point3f32[.WORLD](0.0),
+                Vec3f32[.WORLD](0.0, 0.0, -1.0),
             )
         )
         .value()
@@ -757,9 +757,9 @@ def test_triangle_mesh_instances_use_instance_surfaces() raises:
 
     var hit1 = (
         world.trace(
-            Rayf32[Frame.WORLD](
-                Point3f32[Frame.WORLD](1.5, 0.0, 0.0),
-                Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
+            Rayf32[.WORLD](
+                Point3f32[.WORLD](1.5, 0.0, 0.0),
+                Vec3f32[.WORLD](0.0, 0.0, -1.0),
             )
         )
         .value()
@@ -770,9 +770,9 @@ def test_triangle_mesh_instances_use_instance_surfaces() raises:
     assert_equal(hit1.surface.value, metal.value)
     assert_almost_equal(hit1.t, 2.0)
     var compact = world.trace_surface(
-        Rayf32[Frame.WORLD](
-            Point3f32[Frame.WORLD](1.5, 0.0, 0.0),
-            Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
+        Rayf32[.WORLD](
+            Point3f32[.WORLD](1.5, 0.0, 0.0),
+            Vec3f32[.WORLD](0.0, 0.0, -1.0),
         )
     )
     assert_true(compact.hit)
@@ -786,24 +786,24 @@ def test_world_occluded_covers_all_geometry_and_ray_interval() raises:
     var matte = builder.add_lambertian(Color(0.5))
 
     builder.add_sphere(
-        Point3f32[Frame.WORLD](-2.0, 0.0, -2.0),
+        Point3f32[.WORLD](-2.0, 0.0, -2.0),
         0.5,
         matte,
     )
     builder.add_triangle(
-        Point3f32[Frame.WORLD](-0.75, -0.75, -3.0),
-        Point3f32[Frame.WORLD](0.75, -0.75, -3.0),
-        Point3f32[Frame.WORLD](0.0, 0.75, -3.0),
+        Point3f32[.WORLD](-0.75, -0.75, -3.0),
+        Point3f32[.WORLD](0.75, -0.75, -3.0),
+        Point3f32[.WORLD](0.0, 0.75, -3.0),
         matte,
     )
 
-    var mesh = List[Point3f32[Frame.LOCAL]]()
-    mesh.append(Point3f32[Frame.LOCAL](-0.5, -0.5, -4.0))
-    mesh.append(Point3f32[Frame.LOCAL](0.5, -0.5, -4.0))
-    mesh.append(Point3f32[Frame.LOCAL](0.0, 0.5, -4.0))
+    var mesh = List[Point3f32[.LOCAL]]()
+    mesh.append(Point3f32[.LOCAL](-0.5, -0.5, -4.0))
+    mesh.append(Point3f32[.LOCAL](0.5, -0.5, -4.0))
+    mesh.append(Point3f32[.LOCAL](0.0, 0.5, -4.0))
     var mesh_bounds = compute_bounds(mesh)
-    var transform = Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(
-        Vec3f32[Frame.WORLD](2.0, 0.0, 0.0)
+    var transform = Affine3f32[.LOCAL, .WORLD].from_translation(
+        Vec3f32[.WORLD](2.0, 0.0, 0.0)
     )
     _ = builder.add_triangle_mesh_instance(
         mesh,
@@ -815,54 +815,54 @@ def test_world_occluded_covers_all_geometry_and_ray_interval() raises:
     var scene = builder^.finish()
     var world = CpuScene[](scene^)
 
-    var sphere_ray = Rayf32[Frame.WORLD](
-        Point3f32[Frame.WORLD](-2.0, 0.0, 0.0),
-        Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
+    var sphere_ray = Rayf32[.WORLD](
+        Point3f32[.WORLD](-2.0, 0.0, 0.0),
+        Vec3f32[.WORLD](0.0, 0.0, -1.0),
         0.001,
         3.0,
     )
     assert_true(world.occluded(sphere_ray))
     assert_false(
         world.occluded(
-            Rayf32[Frame.WORLD](
-                Point3f32[Frame.WORLD](-2.0, 0.0, 0.0),
-                Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
+            Rayf32[.WORLD](
+                Point3f32[.WORLD](-2.0, 0.0, 0.0),
+                Vec3f32[.WORLD](0.0, 0.0, -1.0),
                 0.001,
                 1.0,
             )
         )
     )
 
-    var triangle_ray = Rayf32[Frame.WORLD](
-        Point3f32[Frame.WORLD](0.0),
-        Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
+    var triangle_ray = Rayf32[.WORLD](
+        Point3f32[.WORLD](0.0),
+        Vec3f32[.WORLD](0.0, 0.0, -1.0),
         0.001,
         4.0,
     )
     assert_true(world.occluded(triangle_ray))
     assert_false(
         world.occluded(
-            Rayf32[Frame.WORLD](
-                Point3f32[Frame.WORLD](0.0),
-                Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
+            Rayf32[.WORLD](
+                Point3f32[.WORLD](0.0),
+                Vec3f32[.WORLD](0.0, 0.0, -1.0),
                 0.001,
                 2.0,
             )
         )
     )
 
-    var instance_ray = Rayf32[Frame.WORLD](
-        Point3f32[Frame.WORLD](2.0, 0.0, 0.0),
-        Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
+    var instance_ray = Rayf32[.WORLD](
+        Point3f32[.WORLD](2.0, 0.0, 0.0),
+        Vec3f32[.WORLD](0.0, 0.0, -1.0),
         0.001,
         5.0,
     )
     assert_true(world.occluded(instance_ray))
     assert_false(
         world.occluded(
-            Rayf32[Frame.WORLD](
-                Point3f32[Frame.WORLD](2.0, 0.0, 0.0),
-                Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
+            Rayf32[.WORLD](
+                Point3f32[.WORLD](2.0, 0.0, 0.0),
+                Vec3f32[.WORLD](0.0, 0.0, -1.0),
                 0.001,
                 3.0,
             )
@@ -871,9 +871,9 @@ def test_world_occluded_covers_all_geometry_and_ray_interval() raises:
 
     assert_false(
         world.occluded(
-            Rayf32[Frame.WORLD](
-                Point3f32[Frame.WORLD](5.0, 0.0, 0.0),
-                Vec3f32[Frame.WORLD](0.0, 0.0, -1.0),
+            Rayf32[.WORLD](
+                Point3f32[.WORLD](5.0, 0.0, 0.0),
+                Vec3f32[.WORLD](0.0, 0.0, -1.0),
             )
         )
     )
@@ -888,20 +888,20 @@ def test_render_settings_and_tiny_render() raises:
     var builder = SceneBuilder()
     var matte = builder.add_lambertian(Color(0.5))
     builder.add_sphere(
-        Point3f32[Frame.WORLD](0.0, 0.0, -1.0),
+        Point3f32[.WORLD](0.0, 0.0, -1.0),
         0.5,
         matte,
     )
     var scene = builder^.finish()
     var world = CpuScene[4, 8](scene^)
     var camera = Camera.from_vfov(
-        Point3f32[Frame.WORLD](0.0, 0.0, 0.0),
-        Point3f32[Frame.WORLD](0.0, 0.0, -1.0),
-        Vec3f32[Frame.WORLD](0.0, 1.0, 0.0),
+        Point3f32[.WORLD](0.0, 0.0, 0.0),
+        Point3f32[.WORLD](0.0, 0.0, -1.0),
+        Vec3f32[.WORLD](0.0, 1.0, 0.0),
         90.0,
     )
 
-    var result = render_depth_first[RENDER.PATH](settings, camera, world)
+    var result = render_depth_first[.PATH](settings, camera, world)
     assert_equal(len(result.pixels), 8)
     assert_equal(result.timings.pixel_count, 8)
     assert_equal(result.timings.sample_count, 16)
@@ -910,14 +910,14 @@ def test_render_settings_and_tiny_render() raises:
     for p in result.pixels:
         assert_true(p.x >= 0.0 and p.y >= 0.0 and p.z >= 0.0)
 
-    var one_pixel_tiles = render_depth_first[RENDER.PATH, 1, 1](
+    var one_pixel_tiles = render_depth_first[.PATH, 1, 1](
         settings, camera, world
     )
     for i, pixel in enumerate(result.pixels):
         assert_vec_equal(one_pixel_tiles.pixels[i], pixel)
 
     # Renderer packet length and both acceleration widths are independent.
-    var packet_result = render_wavefront[RENDER.PATH, 4, 16, False](
+    var packet_result = render_wavefront[.PATH, 4, 16, False](
         settings, camera, world
     )
     assert_equal(len(packet_result.pixels), len(result.pixels))
@@ -928,20 +928,20 @@ def test_render_can_select_normal_algorithm_at_compile_time() raises:
     var builder = SceneBuilder()
     var matte = builder.add_lambertian(Color(0.5))
     builder.add_sphere(
-        Point3f32[Frame.WORLD](0.0, 0.0, -1.0),
+        Point3f32[.WORLD](0.0, 0.0, -1.0),
         0.5,
         matte,
     )
     var scene = builder^.finish()
     var world = CpuScene[](scene^)
     var camera = Camera.from_vfov(
-        Point3f32[Frame.WORLD](0.0, 0.0, 0.0),
-        Point3f32[Frame.WORLD](0.0, 0.0, -1.0),
-        Vec3f32[Frame.WORLD](0.0, 1.0, 0.0),
+        Point3f32[.WORLD](0.0, 0.0, 0.0),
+        Point3f32[.WORLD](0.0, 0.0, -1.0),
+        Vec3f32[.WORLD](0.0, 1.0, 0.0),
         90.0,
     )
 
-    var result = render_depth_first[RENDER.NORMALS](settings, camera, world)
+    var result = render_depth_first[.NORMALS](settings, camera, world)
     assert_equal(len(result.pixels), 1)
     assert_true(result.pixels[0].z >= result.pixels[0].x)
 
@@ -951,20 +951,20 @@ def test_render_can_select_ao_algorithm_at_compile_time() raises:
     var builder = SceneBuilder()
     var matte = builder.add_lambertian(Color(0.5))
     builder.add_sphere(
-        Point3f32[Frame.WORLD](0.0, 0.0, -1.0),
+        Point3f32[.WORLD](0.0, 0.0, -1.0),
         0.5,
         matte,
     )
     var scene = builder^.finish()
     var world = CpuScene[](scene^)
     var camera = Camera.from_vfov(
-        Point3f32[Frame.WORLD](0.0, 0.0, 0.0),
-        Point3f32[Frame.WORLD](0.0, 0.0, -1.0),
-        Vec3f32[Frame.WORLD](0.0, 1.0, 0.0),
+        Point3f32[.WORLD](0.0, 0.0, 0.0),
+        Point3f32[.WORLD](0.0, 0.0, -1.0),
+        Vec3f32[.WORLD](0.0, 1.0, 0.0),
         90.0,
     )
 
-    var result = render_depth_first[RENDER.AO](settings, camera, world)
+    var result = render_depth_first[.AO](settings, camera, world)
     assert_equal(len(result.pixels), 1)
     assert_true(
         result.pixels[0].x >= 0.0
@@ -978,20 +978,20 @@ def test_wavefront_tiny_render() raises:
     var builder = SceneBuilder()
     var matte = builder.add_lambertian(Color(0.5))
     builder.add_sphere(
-        Point3f32[Frame.WORLD](0.0, 0.0, -1.0),
+        Point3f32[.WORLD](0.0, 0.0, -1.0),
         0.5,
         matte,
     )
     var scene = builder^.finish()
     var world = CpuScene[](scene^)
     var camera = Camera.from_vfov(
-        Point3f32[Frame.WORLD](0.0, 0.0, 0.0),
-        Point3f32[Frame.WORLD](0.0, 0.0, -1.0),
-        Vec3f32[Frame.WORLD](0.0, 1.0, 0.0),
+        Point3f32[.WORLD](0.0, 0.0, 0.0),
+        Point3f32[.WORLD](0.0, 0.0, -1.0),
+        Vec3f32[.WORLD](0.0, 1.0, 0.0),
         90.0,
     )
 
-    var result = render_wavefront[RENDER.PATH](settings, camera, world)
+    var result = render_wavefront[.PATH](settings, camera, world)
     assert_equal(len(result.pixels), 6)
     assert_equal(result.timings.sample_count, 12)
     for p in result.pixels:
@@ -1000,24 +1000,24 @@ def test_wavefront_tiny_render() raises:
     # Whole-pixel chunks preserve Philox stream ownership and accumulation
     # order. The small chunk also exercises a target not divisible by samples
     # per pixel.
-    var chunked = render_wavefront[RENDER.PATH, 1, 3, False](
+    var chunked = render_wavefront[.PATH, 1, 3, False](
         settings, camera, world
     )
-    var parallel = render_wavefront[RENDER.PATH, 1, 3, True](
+    var parallel = render_wavefront[.PATH, 1, 3, True](
         settings, camera, world
     )
     # Instantiate multiple packet widths and a six-path chunk so every width
     # exercises partial packets as well as the generic queue indexing.
-    var width1 = render_wavefront[RENDER.PATH, 1, 7, False](
+    var width1 = render_wavefront[.PATH, 1, 7, False](
         settings, camera, world
     )
-    var packet4 = render_wavefront[RENDER.PATH, 4, 7, False](
+    var packet4 = render_wavefront[.PATH, 4, 7, False](
         settings, camera, world
     )
-    var packet8 = render_wavefront[RENDER.PATH, 8, 7, False](
+    var packet8 = render_wavefront[.PATH, 8, 7, False](
         settings, camera, world
     )
-    var packet16 = render_wavefront[RENDER.PATH, 16, 7, False](
+    var packet16 = render_wavefront[.PATH, 16, 7, False](
         settings, camera, world
     )
     assert_equal(len(chunked.pixels), len(result.pixels))
@@ -1048,44 +1048,44 @@ def test_packet_widths_match_width1_for_mixed_bsdfs() raises:
     var rough_metal = builder.add_metal(Color(0.8, 0.75, 0.65), 0.35)
     var glass = builder.add_dielectric(1.5)
     builder.add_sphere(
-        Point3f32[Frame.WORLD](0.0, -100.6, -1.5),
+        Point3f32[.WORLD](0.0, -100.6, -1.5),
         100.0,
         ground,
     )
     builder.add_sphere(
-        Point3f32[Frame.WORLD](-1.1, 0.0, -1.5),
+        Point3f32[.WORLD](-1.1, 0.0, -1.5),
         0.55,
         diffuse,
     )
     builder.add_sphere(
-        Point3f32[Frame.WORLD](0.0, 0.0, -1.5),
+        Point3f32[.WORLD](0.0, 0.0, -1.5),
         0.55,
         rough_metal,
     )
     builder.add_sphere(
-        Point3f32[Frame.WORLD](1.1, 0.0, -1.5),
+        Point3f32[.WORLD](1.1, 0.0, -1.5),
         0.55,
         glass,
     )
     var scene = builder^.finish()
     var world = CpuScene[](scene^)
     var camera = Camera.from_vfov(
-        Point3f32[Frame.WORLD](0.0, 0.35, 2.5),
-        Point3f32[Frame.WORLD](0.0, 0.0, -1.5),
-        Vec3f32[Frame.WORLD](0.0, 1.0, 0.0),
+        Point3f32[.WORLD](0.0, 0.35, 2.5),
+        Point3f32[.WORLD](0.0, 0.0, -1.5),
+        Vec3f32[.WORLD](0.0, 1.0, 0.0),
         52.0,
     )
 
-    var packet1 = render_wavefront[RENDER.PATH, 1, 10, False](
+    var packet1 = render_wavefront[.PATH, 1, 10, False](
         settings, camera, world
     )
-    var packet4 = render_wavefront[RENDER.PATH, 4, 10, False](
+    var packet4 = render_wavefront[.PATH, 4, 10, False](
         settings, camera, world
     )
-    var packet8 = render_wavefront[RENDER.PATH, 8, 10, False](
+    var packet8 = render_wavefront[.PATH, 8, 10, False](
         settings, camera, world
     )
-    var packet16 = render_wavefront[RENDER.PATH, 16, 10, False](
+    var packet16 = render_wavefront[.PATH, 16, 10, False](
         settings, camera, world
     )
     for pixel_idx, pixel in enumerate(packet1.pixels):
@@ -1098,45 +1098,45 @@ def test_direct_light_algorithms_render_cornell() raises:
     var settings = RenderSettings(8, 8, 2, UInt64(2026))
     var world = make_cornell_world()
     var camera = Camera.from_vfov(
-        Point3f32[Frame.WORLD](0.0, 1.0, 3.2),
-        Point3f32[Frame.WORLD](0.0, 1.0, -1.0),
-        Vec3f32[Frame.WORLD](0.0, 1.0, 0.0),
+        Point3f32[.WORLD](0.0, 1.0, 3.2),
+        Point3f32[.WORLD](0.0, 1.0, -1.0),
+        Vec3f32[.WORLD](0.0, 1.0, 0.0),
         28.0,
         4.2,
     )
-    var result = render_wavefront[RENDER.NEE](settings, camera, world)
+    var result = render_wavefront[.NEE](settings, camera, world)
     assert_true(len(world.scene_data().lights().records) > 0)
     assert_true(world.scene_data().lights().total_weight > 0.0)
     for light in world.scene_data().lights().records:
         assert_equal(light.surface.kind(), MAT.EMISSIVE)
         assert_true(light.weight > 0.0)
-    var depth_first = render_depth_first[RENDER.NEE](settings, camera, world)
-    var mis = render_wavefront[RENDER.MIS](settings, camera, world)
-    var depth_first_mis = render_depth_first[RENDER.MIS](
+    var depth_first = render_depth_first[.NEE](settings, camera, world)
+    var mis = render_wavefront[.MIS](settings, camera, world)
+    var depth_first_mis = render_depth_first[.MIS](
         settings, camera, world
     )
-    var packet_nee1 = render_wavefront[RENDER.NEE, 1, 14, False](
+    var packet_nee1 = render_wavefront[.NEE, 1, 14, False](
         settings, camera, world
     )
-    var packet_nee4 = render_wavefront[RENDER.NEE, 4, 14, False](
+    var packet_nee4 = render_wavefront[.NEE, 4, 14, False](
         settings, camera, world
     )
-    var packet_nee8 = render_wavefront[RENDER.NEE, 8, 14, False](
+    var packet_nee8 = render_wavefront[.NEE, 8, 14, False](
         settings, camera, world
     )
-    var packet_nee16 = render_wavefront[RENDER.NEE, 16, 14, False](
+    var packet_nee16 = render_wavefront[.NEE, 16, 14, False](
         settings, camera, world
     )
-    var packet_mis1 = render_wavefront[RENDER.MIS, 1, 14, False](
+    var packet_mis1 = render_wavefront[.MIS, 1, 14, False](
         settings, camera, world
     )
-    var packet_mis4 = render_wavefront[RENDER.MIS, 4, 14, False](
+    var packet_mis4 = render_wavefront[.MIS, 4, 14, False](
         settings, camera, world
     )
-    var packet_mis8 = render_wavefront[RENDER.MIS, 8, 14, False](
+    var packet_mis8 = render_wavefront[.MIS, 8, 14, False](
         settings, camera, world
     )
-    var packet_mis16 = render_wavefront[RENDER.MIS, 16, 14, False](
+    var packet_mis16 = render_wavefront[.MIS, 16, 14, False](
         settings, camera, world
     )
     var total = Float32(0.0)

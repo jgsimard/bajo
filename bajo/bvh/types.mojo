@@ -13,7 +13,7 @@ from bajo.core.vec import Vec3, Point3, Normal3
 
 
 @fieldwise_init
-struct Hit[frame: Frame = Frame.WORLD, length: SIMDLength = 1](
+struct Hit[frame: Frame = .WORLD, length: SIMDLength = 1](
     TrivialRegisterPassable, Writable
 ):
     comptime U = 0
@@ -114,7 +114,7 @@ struct Hit[frame: Frame = Frame.WORLD, length: SIMDLength = 1](
 
 
 @fieldwise_init
-struct Sphere[frame: Frame = Frame.WORLD](TrivialRegisterPassable):
+struct Sphere[frame: Frame = .WORLD](TrivialRegisterPassable):
     comptime STRIDE = 4
     var center: Point3f32[Self.frame]
     var radius: Float32
@@ -139,14 +139,14 @@ struct SphereLeafBlock[frame: Frame, width: SIMDLength](Copyable):
 @fieldwise_init
 struct TriangleLeafBlock[frame: Frame, width: SIMDLength](Copyable):
     var v0: Point3[DType.float32, Self.frame, Self.width]
-    var e1: Vec3[DType.float32, Self.frame, Self.width]
-    var e2: Vec3[DType.float32, Self.frame, Self.width]
+    var e1: Vec3[.float32, Self.frame, Self.width]
+    var e2: Vec3[.float32, Self.frame, Self.width]
     var prim_indices: SIMD[DType.uint32, Self.width]
 
     def __init__(out self):
         self.v0 = Point3[DType.float32, Self.frame, Self.width](0.0)
-        self.e1 = Vec3[DType.float32, Self.frame, Self.width](0.0)
-        self.e2 = Vec3[DType.float32, Self.frame, Self.width](0.0)
+        self.e1 = Vec3[.float32, Self.frame, Self.width](0.0)
+        self.e2 = Vec3[.float32, Self.frame, Self.width](0.0)
         self.prim_indices = SIMD[DType.uint32, Self.width](EMPTY_LANE)
 
 
@@ -159,24 +159,24 @@ struct Instance(Copyable):
     - `blas_idx` indexes the BLAS array passed to traversal.
     """
 
-    var transform: Affine3f32[Frame.LOCAL, Frame.WORLD]
-    var inv_transform: Affine3f32[Frame.WORLD, Frame.LOCAL]
-    var bounds: AABB[Frame.WORLD]
+    var transform: Affine3f32[.LOCAL, .WORLD]
+    var inv_transform: Affine3f32[.WORLD, .LOCAL]
+    var bounds: AABB[.WORLD]
     var blas_idx: UInt32
     var kind: Primitive
 
     def __init__(out self):
-        self.transform = Affine3f32[Frame.LOCAL, Frame.WORLD].identity()
-        self.inv_transform = Affine3f32[Frame.WORLD, Frame.LOCAL].identity()
-        self.bounds = AABB[Frame.WORLD].invalid()
+        self.transform = Affine3f32[.LOCAL, .WORLD].identity()
+        self.inv_transform = Affine3f32[.WORLD, .LOCAL].identity()
+        self.bounds = AABB[.WORLD].invalid()
         self.blas_idx = 0
-        self.kind = Primitive.UNKNOWN
+        self.kind = .UNKNOWN
 
     def __init__(
         out self,
-        transform: Affine3f32[Frame.LOCAL, Frame.WORLD],
+        transform: Affine3f32[.LOCAL, .WORLD],
         blas_idx: UInt32,
-        blas_bounds: AABB[Frame.LOCAL],
+        blas_bounds: AABB[.LOCAL],
         kind: Primitive,
     ):
         var inverse = transform.inverse()

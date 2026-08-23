@@ -38,7 +38,7 @@ def _initialize_path_packets_range[
             var rng = path_stage_rng(
                 settings.rng_seed, UInt32(path_idx), UInt32(0)
             )
-            var lens = random_in_unit_disk[Frame.WORLD](rng)
+            var lens = random_in_unit_disk[.WORLD](rng)
             lens_u[lane] = lens.x
             lens_v[lane] = lens.y
             pixel_u[lane] = rng.f32()

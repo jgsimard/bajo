@@ -46,14 +46,14 @@ struct GpuRtTriangleInstanceScene[
     blas_node_width: SIMDLength,
     tlas_leaf_width: SIMDLength = tlas_node_width,
     blas_leaf_width: SIMDLength = blas_node_width,
-    blas_build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
+    blas_build_method: GpuBvhBuildMethod = .HPLOC,
     blas_compressed: Bool = blas_node_width == 8 and blas_leaf_width == 4,
-    tlas_build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
+    tlas_build_method: GpuBvhBuildMethod = .LBVH,
 ]:
     """Packed triangle BLAS set, typed TLAS, surfaces, and materials."""
 
     var blases: GpuBlasSet[
-        Primitive.TRIANGLE,
+        .TRIANGLE,
         GpuBvhLayout(Self.blas_compressed),
         Self.blas_node_width,
         Self.blas_leaf_width,
@@ -65,7 +65,7 @@ struct GpuRtTriangleInstanceScene[
         Self.blas_leaf_width,
         GpuBvhLayout(Self.blas_compressed),
     ]
-    var instance_surfaces: DeviceBuffer[DType.uint32]
+    var instance_surfaces: DeviceBuffer[.uint32]
     var shading: GpuRtShadingResources
 
     def __init__(
@@ -122,10 +122,10 @@ def _enqueue_instance_bounce[
         blas_compressed,
         tlas_build_method,
     ],
-    src_path_ids: DeviceBuffer[DType.uint32],
-    src_path_fields: DeviceBuffer[DType.float32],
-    dst_path_ids: DeviceBuffer[DType.uint32],
-    dst_path_fields: DeviceBuffer[DType.float32],
+    src_path_ids: DeviceBuffer[.uint32],
+    src_path_fields: DeviceBuffer[.float32],
+    dst_path_ids: DeviceBuffer[.uint32],
+    dst_path_fields: DeviceBuffer[.float32],
     rng_seed: UInt64,
     bounce: UInt32,
 ) raises:
@@ -176,14 +176,14 @@ def _enqueue_instance_bounce[
 
 
 def enqueue_render_gpu_triangle_instances[
-    ALGORITHM: RENDER = RENDER.PATH,
+    ALGORITHM: RENDER = .PATH,
     tlas_node_width: SIMDLength = 2,
     tlas_leaf_width: SIMDLength = tlas_node_width,
     blas_node_width: SIMDLength = 8,
     blas_leaf_width: SIMDLength = 4,
-    blas_build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
+    blas_build_method: GpuBvhBuildMethod = .HPLOC,
     blas_compressed: Bool = blas_node_width == 8 and blas_leaf_width == 4,
-    tlas_build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
+    tlas_build_method: GpuBvhBuildMethod = .LBVH,
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
@@ -215,27 +215,22 @@ def enqueue_render_gpu_triangle_instances[
 
 
 def render_gpu_triangle_instances[
-    ALGORITHM: RENDER = RENDER.PATH,
+    ALGORITHM: RENDER = .PATH,
     tlas_node_width: SIMDLength = 2,
     tlas_leaf_width: SIMDLength = tlas_node_width,
     blas_node_width: SIMDLength = 8,
     blas_leaf_width: SIMDLength = 4,
-    blas_build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
+    blas_build_method: GpuBvhBuildMethod = .HPLOC,
     blas_compressed: Bool = blas_node_width == 8 and blas_leaf_width == 4,
-    tlas_build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
+    tlas_build_method: GpuBvhBuildMethod = .LBVH,
 ](
     settings: RenderSettings,
     camera: Camera,
     world: SceneData,
 ) raises -> RenderResult:
     """Render an instance-only triangle scene through the shared RT stages."""
-    comptime assert ALGORITHM in (
-        RENDER.PATH,
-        RENDER.NORMALS,
-        RENDER.AO,
-        RENDER.NEE,
-        RENDER.MIS,
-    )
+    comptime assert ALGORITHM.is_valid()
+
     var total_t0 = perf_counter_ns()
     var pixel_count = settings.image_width * settings.image_height
     var sample_count = pixel_count * settings.samples_per_pixel

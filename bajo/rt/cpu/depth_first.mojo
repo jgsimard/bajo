@@ -46,7 +46,7 @@ def _trace_path[
 ](
     settings: RenderSettings,
     world: CpuScene[world_bvh_width, instance_bvh_width],
-    ray: Rayf32[Frame.WORLD],
+    ray: Rayf32[.WORLD],
     mut rng: Rng,
     path_id: UInt32,
 ) -> Color:
@@ -76,7 +76,7 @@ def _trace_path[
                 )
                 radiance += throughput * emission * emission_weight
                 return radiance
-            comptime if ALGORITHM != RENDER.PATH:
+            comptime if ALGORITHM != .PATH:
                 var light_rng = path_stage_rng(
                     settings.rng_seed,
                     path_id,
@@ -108,7 +108,7 @@ def _trace_path[
             if not roulette.survived:
                 return radiance
             throughput = roulette.throughput
-            cur_ray = Rayf32[Frame.WORLD](
+            cur_ray = Rayf32[.WORLD](
                 point.p, scattered.direction, 0.001, f32_max
             )
         else:
@@ -122,7 +122,7 @@ def _trace_normals[
     instance_bvh_width: SIMDLength,
 ](
     world: CpuScene[world_bvh_width, instance_bvh_width],
-    ray: Rayf32[Frame.WORLD],
+    ray: Rayf32[.WORLD],
 ) -> Color:
     var hit = world.trace_surface(ray)
     if not hit.hit:
@@ -136,7 +136,7 @@ def _trace_ao[
     instance_bvh_width: SIMDLength,
 ](
     world: CpuScene[world_bvh_width, instance_bvh_width],
-    ray: Rayf32[Frame.WORLD],
+    ray: Rayf32[.WORLD],
     mut rng: Rng,
 ) -> Color:
     var hit = world.trace_surface(ray)
@@ -144,8 +144,8 @@ def _trace_ao[
         return sky_color(ray.d)
 
     var p = ray.o + hit.t * ray.d
-    var ao_dir = random_on_hemisphere[Frame.WORLD](rng, hit.normal)
-    var ao_ray = Rayf32[Frame.WORLD](p, normalize(ao_dir), 0.001, 4.0)
+    var ao_dir = random_on_hemisphere[.WORLD](rng, hit.normal)
+    var ao_ray = Rayf32[.WORLD](p, normalize(ao_dir), 0.001, 4.0)
     if world.occluded(ao_ray):
         return Color(0.08)
 
@@ -159,24 +159,24 @@ def _trace_algorithm[
 ](
     settings: RenderSettings,
     world: CpuScene[world_bvh_width, instance_bvh_width],
-    ray: Rayf32[Frame.WORLD],
+    ray: Rayf32[.WORLD],
     mut rng: Rng,
     path_id: UInt32,
 ) -> Color:
-    comptime if ALGORITHM == RENDER.PATH:
-        return _trace_path[RENDER.PATH, world_bvh_width, instance_bvh_width](
+    comptime if ALGORITHM == .PATH:
+        return _trace_path[.PATH, world_bvh_width, instance_bvh_width](
             settings, world, ray, rng, path_id
         )
-    elif ALGORITHM == RENDER.NORMALS:
+    elif ALGORITHM == .NORMALS:
         return _trace_normals(world, ray)
-    elif ALGORITHM == RENDER.AO:
+    elif ALGORITHM == .AO:
         return _trace_ao(world, ray, rng)
-    elif ALGORITHM == RENDER.NEE:
-        return _trace_path[RENDER.NEE, world_bvh_width, instance_bvh_width](
+    elif ALGORITHM == .NEE:
+        return _trace_path[.NEE, world_bvh_width, instance_bvh_width](
             settings, world, ray, rng, path_id
         )
-    elif ALGORITHM == RENDER.MIS:
-        return _trace_path[RENDER.MIS, world_bvh_width, instance_bvh_width](
+    elif ALGORITHM == .MIS:
+        return _trace_path[.MIS, world_bvh_width, instance_bvh_width](
             settings, world, ray, rng, path_id
         )
     else:
@@ -211,7 +211,7 @@ def _render_pixel[
 
 
 def render_depth_first[
-    ALGORITHM: RENDER = RENDER.PATH,
+    ALGORITHM: RENDER = .PATH,
     TILE_WIDTH: Int = CPU_RENDER_TILE_WIDTH,
     TILE_HEIGHT: Int = CPU_RENDER_TILE_HEIGHT,
     SCHEDULER_MODE: Int = 2,

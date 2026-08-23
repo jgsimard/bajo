@@ -111,8 +111,8 @@ def _enqueue_segmented_wide_build[
 ](
     mut ctx: DeviceContext,
     segments: SegmentOffsets,
-    var leaf_bounds: DeviceBuffer[DType.float32],
-    var leaf_payloads: DeviceBuffer[DType.uint32],
+    var leaf_bounds: DeviceBuffer[.float32],
+    var leaf_payloads: DeviceBuffer[.uint32],
     measure_stages: Bool = False,
 ) raises -> GpuSegmentedWideBuildTicket[
     node_width,
@@ -131,11 +131,11 @@ def _enqueue_segmented_wide_build[
     )
     var hploc = Optional[GpuHplocBuildState[]]()
     var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
-    comptime if build_method == GpuBvhBuildMethod.LBVH:
+    comptime if build_method == .LBVH:
         timings = build_binary_bvh_with_lbvh(
             ctx, binary, workspace, measure_stages
         )
-    elif build_method == GpuBvhBuildMethod.HPLOC:
+    elif build_method == .HPLOC:
         if measure_stages:
             timings = build_binary_bvh_with_hploc(ctx, binary, workspace, True)
         else:
@@ -188,8 +188,8 @@ def enqueue_segmented_wide_build[
 ](
     mut ctx: DeviceContext,
     segments: SegmentOffsets,
-    var leaf_bounds: DeviceBuffer[DType.float32],
-    var leaf_payloads: DeviceBuffer[DType.uint32],
+    var leaf_bounds: DeviceBuffer[.float32],
+    var leaf_payloads: DeviceBuffer[.uint32],
     measure_stages: Bool = False,
 ) raises -> GpuSegmentedWideBuildTicket[
     node_width,
@@ -226,8 +226,8 @@ def enqueue_segmented_wide_build_embedded_leaf1[
 ](
     mut ctx: DeviceContext,
     segments: SegmentOffsets,
-    var leaf_bounds: DeviceBuffer[DType.float32],
-    var leaf_payloads: DeviceBuffer[DType.uint32],
+    var leaf_bounds: DeviceBuffer[.float32],
+    var leaf_payloads: DeviceBuffer[.uint32],
     measure_stages: Bool = False,
 ) raises -> GpuSegmentedWideBuildTicket[
     node_width,
@@ -266,8 +266,8 @@ def build_single_segment_wide[
 ](
     mut ctx: DeviceContext,
     leaf_count: Int,
-    var leaf_bounds: DeviceBuffer[DType.float32],
-    var leaf_payloads: DeviceBuffer[DType.uint32],
+    var leaf_bounds: DeviceBuffer[.float32],
+    var leaf_payloads: DeviceBuffer[.uint32],
     mut timings: GpuBuildTimings,
     measure_stages: Bool = False,
 ) raises -> GpuWideBoundsBvh[node_width, leaf_width, max_leaf_size]:
@@ -300,8 +300,8 @@ def build_single_segment_wide_embedded_leaf1[
 ](
     mut ctx: DeviceContext,
     leaf_count: Int,
-    var leaf_bounds: DeviceBuffer[DType.float32],
-    var leaf_payloads: DeviceBuffer[DType.uint32],
+    var leaf_bounds: DeviceBuffer[.float32],
+    var leaf_payloads: DeviceBuffer[.uint32],
     mut timings: GpuBuildTimings,
     measure_stages: Bool = False,
 ) raises -> GpuWideBoundsBvh[node_width, leaf_width, max_leaf_size]:

@@ -41,13 +41,13 @@ comptime DRAGON_PATH = "./assets/dragon/dragon.obj"
 
 
 def _dragon_instance_world() raises -> CpuScene[]:
-    var mesh = pack_obj_triangles[Frame.LOCAL](DRAGON_PATH)
+    var mesh = pack_obj_triangles[.LOCAL](DRAGON_PATH)
     var bounds = compute_bounds(mesh)
     var builder = SceneBuilder()
     var matte = builder.add_lambertian(Color(0.65, 0.65, 0.65))
     _ = builder.add_triangle_mesh_instance(
         mesh,
-        Affine3f32[Frame.LOCAL, Frame.WORLD].identity(),
+        Affine3f32[.LOCAL, .WORLD].identity(),
         bounds,
         matte,
     )
@@ -58,15 +58,15 @@ def _dragon_instance_world() raises -> CpuScene[]:
 def _dragon_camera(world: CpuScene[]) -> Camera:
     var bounds = compute_bounds(world.scene_data().triangle_meshes()[0])
     var center_local = bounds.centroid()
-    var center = Point3f32[Frame.WORLD](
+    var center = Point3f32[.WORLD](
         center_local.x, center_local.y, center_local.z
     )
     var extent = bounds.extent()
     var scene_width = max(max(extent.x, extent.y), extent.z)
     return Camera(
-        center + Vec3f32[Frame.WORLD](0.0, extent.y * 0.15, -2.5 * scene_width),
+        center + Vec3f32[.WORLD](0.0, extent.y * 0.15, -2.5 * scene_width),
         center,
-        Vec3f32[Frame.WORLD](0.0, 1.0, 0.0),
+        Vec3f32[.WORLD](0.0, 1.0, 0.0),
         0.20,
     )
 
@@ -148,28 +148,28 @@ def _run_layout[
     print_gpu_rt_result(
         "PATH",
         _bench_algorithm[
-            RENDER.PATH, blas_node_width, blas_leaf_width, method, compressed
+            .PATH, blas_node_width, blas_leaf_width, method, compressed
         ](ctx, target, gpu_world, settings),
         sample_count,
     )
     print_gpu_rt_result(
         "AO",
         _bench_algorithm[
-            RENDER.AO, blas_node_width, blas_leaf_width, method, compressed
+            .AO, blas_node_width, blas_leaf_width, method, compressed
         ](ctx, target, gpu_world, settings),
         sample_count,
     )
     print_gpu_rt_result(
         "NEE",
         _bench_algorithm[
-            RENDER.NEE, blas_node_width, blas_leaf_width, method, compressed
+            .NEE, blas_node_width, blas_leaf_width, method, compressed
         ](ctx, target, gpu_world, settings),
         sample_count,
     )
     print_gpu_rt_result(
         "MIS",
         _bench_algorithm[
-            RENDER.MIS, blas_node_width, blas_leaf_width, method, compressed
+            .MIS, blas_node_width, blas_leaf_width, method, compressed
         ](ctx, target, gpu_world, settings),
         sample_count,
     )
@@ -193,15 +193,15 @@ def main() raises:
     with DeviceContext() as ctx:
         var target = GpuRtRenderTarget(ctx, settings, _dragon_camera(world))
         ctx.synchronize()
-        _run_layout[4, 4, GpuBvhBuildMethod.LBVH](
+        _run_layout[4, 4, .LBVH](
             ctx, target, world, settings, sample_count, "LBVH wide4/leaf4"
         )
-        _run_layout[8, 4, GpuBvhBuildMethod.LBVH](
+        _run_layout[8, 4, .LBVH](
             ctx, target, world, settings, sample_count, "LBVH wide8/leaf4"
         )
-        _run_layout[8, 4, GpuBvhBuildMethod.LBVH, True](
+        _run_layout[8, 4, .LBVH, True](
             ctx, target, world, settings, sample_count, "LBVH CWBVH8"
         )
-        _run_layout[8, 4, GpuBvhBuildMethod.HPLOC, True](
+        _run_layout[8, 4, .HPLOC, True](
             ctx, target, world, settings, sample_count, "H-PLOC CWBVH8"
         )

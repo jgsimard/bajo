@@ -41,13 +41,7 @@ def load_gpu_rt_path[
     idx: Int,
 ) -> DeviceWavePath:
     """Load only the path planes consumed by one compile-time integrator."""
-    comptime assert ALGORITHM in (
-        RENDER.PATH,
-        RENDER.NORMALS,
-        RENDER.AO,
-        RENDER.NEE,
-        RENDER.MIS,
-    )
+    comptime assert ALGORITHM.is_valid()
     var packed_path_id = path_ids[unsafe_offset=idx]
     var tx = Float32(1.0)
     var ty = Float32(1.0)
@@ -69,7 +63,7 @@ def load_gpu_rt_path[
             )
         ]
     var bsdf_pdf = Float32(0.0)
-    comptime if ALGORITHM == RENDER.MIS:
+    comptime if ALGORITHM == .MIS:
         bsdf_pdf = fields[
             unsafe_offset=wavefront_plane_index(
                 WavePathFloatAbi.BSDF_PDF, capacity, idx
@@ -131,13 +125,7 @@ def store_gpu_rt_path[
     idx: Int,
 ):
     """Store only the path planes consumed by one compile-time integrator."""
-    comptime assert ALGORITHM in (
-        RENDER.PATH,
-        RENDER.NORMALS,
-        RENDER.AO,
-        RENDER.NEE,
-        RENDER.MIS,
-    )
+    comptime assert ALGORITHM.is_valid()
     var packed_path_id = path.path_id & WAVE_PATH_ID_MASK
     comptime if ALGORITHM in (RENDER.NEE, RENDER.MIS):
         if path.delta:
@@ -177,7 +165,7 @@ def store_gpu_rt_path[
                 WavePathFloatAbi.TZ, capacity, idx
             )
         ] = path.tz
-    comptime if ALGORITHM == RENDER.MIS:
+    comptime if ALGORITHM == .MIS:
         fields[
             unsafe_offset=wavefront_plane_index(
                 WavePathFloatAbi.BSDF_PDF, capacity, idx
@@ -325,44 +313,44 @@ def store_gpu_rt_shadow[
 
 struct GpuWavePathQueue:
     var capacity: Int
-    var path_ids: DeviceBuffer[DType.uint32]
-    var fields: DeviceBuffer[DType.float32]
+    var path_ids: DeviceBuffer[.uint32]
+    var fields: DeviceBuffer[.float32]
 
     def __init__(out self, mut ctx: DeviceContext, capacity: Int) raises:
         debug_assert["safe", _use_compiler_assume=True](capacity > 0)
         self.capacity = capacity
-        self.path_ids = ctx.enqueue_create_buffer[DType.uint32](capacity)
-        self.fields = ctx.enqueue_create_buffer[DType.float32](
+        self.path_ids = ctx.enqueue_create_buffer[.uint32](capacity)
+        self.fields = ctx.enqueue_create_buffer[.float32](
             capacity * WavePathFloatAbi.PLANES
         )
 
 
 struct GpuWaveShadeQueue:
     var capacity: Int
-    var path_refs: DeviceBuffer[DType.uint32]
-    var surface_values: DeviceBuffer[DType.uint32]
-    var fields: DeviceBuffer[DType.float32]
+    var path_refs: DeviceBuffer[.uint32]
+    var surface_values: DeviceBuffer[.uint32]
+    var fields: DeviceBuffer[.float32]
 
     def __init__(out self, mut ctx: DeviceContext, capacity: Int) raises:
         debug_assert["safe", _use_compiler_assume=True](capacity > 0)
         self.capacity = capacity
-        self.path_refs = ctx.enqueue_create_buffer[DType.uint32](capacity)
-        self.surface_values = ctx.enqueue_create_buffer[DType.uint32](capacity)
-        self.fields = ctx.enqueue_create_buffer[DType.float32](
+        self.path_refs = ctx.enqueue_create_buffer[.uint32](capacity)
+        self.surface_values = ctx.enqueue_create_buffer[.uint32](capacity)
+        self.fields = ctx.enqueue_create_buffer[.float32](
             capacity * WaveShadeFloatAbi.PLANES
         )
 
 
 struct GpuWaveShadowQueue:
     var capacity: Int
-    var path_ids: DeviceBuffer[DType.uint32]
-    var fields: DeviceBuffer[DType.float32]
+    var path_ids: DeviceBuffer[.uint32]
+    var fields: DeviceBuffer[.float32]
 
     def __init__(out self, mut ctx: DeviceContext, capacity: Int) raises:
         debug_assert["safe", _use_compiler_assume=True](capacity > 0)
         self.capacity = capacity
-        self.path_ids = ctx.enqueue_create_buffer[DType.uint32](capacity)
-        self.fields = ctx.enqueue_create_buffer[DType.float32](
+        self.path_ids = ctx.enqueue_create_buffer[.uint32](capacity)
+        self.fields = ctx.enqueue_create_buffer[.float32](
             capacity * WaveShadowFloatAbi.PLANES
         )
 
@@ -376,8 +364,8 @@ struct GpuWavefrontArena:
     var path_b: GpuWavePathQueue
     var shade: GpuWaveShadeQueue
     var shadow: GpuWaveShadowQueue
-    var counters: DeviceBuffer[DType.uint32]
-    var sample_radiance: DeviceBuffer[DType.float32]
+    var counters: DeviceBuffer[.uint32]
+    var sample_radiance: DeviceBuffer[.float32]
 
     def __init__(out self, mut ctx: DeviceContext, capacity: Int) raises:
         debug_assert["safe", _use_compiler_assume=True](capacity > 0)
@@ -387,10 +375,10 @@ struct GpuWavefrontArena:
         self.path_b = GpuWavePathQueue(ctx, capacity)
         self.shade = GpuWaveShadeQueue(ctx, capacity)
         self.shadow = GpuWaveShadowQueue(ctx, capacity)
-        self.counters = ctx.enqueue_create_buffer[DType.uint32](
+        self.counters = ctx.enqueue_create_buffer[.uint32](
             WAVE_COUNTER.COUNT
         )
-        self.sample_radiance = ctx.enqueue_create_buffer[DType.float32](
+        self.sample_radiance = ctx.enqueue_create_buffer[.float32](
             capacity * WaveSampleFloatAbi.PLANES
         )
 
@@ -537,7 +525,7 @@ def wavefront_contract_probe_kernel(
 def enqueue_wavefront_contract_probe(
     ctx: DeviceContext,
     mut arena: GpuWavefrontArena,
-    subsequences: DeviceBuffer[DType.uint64],
+    subsequences: DeviceBuffer[.uint64],
     active_count: Int,
     rng_stage: UInt32,
 ) raises:

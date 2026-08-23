@@ -26,17 +26,17 @@ def _collect_and_print_triangle_stats[
     leaf_width: SIMDLength = node_width,
 ](
     mut ctx: DeviceContext,
-    d_vertices: DeviceBuffer[DType.float32],
-    d_camera_params: DeviceBuffer[DType.float32],
+    d_vertices: DeviceBuffer[.float32],
+    d_camera_params: DeviceBuffer[.float32],
     ray_count: Int,
 ) raises:
-    var bvh = build_triangle_bvh[Frame.WORLD, node_width, leaf_width](
+    var bvh = build_triangle_bvh[.WORLD, node_width, leaf_width](
         ctx, d_vertices
     )
-    var d_hits = ctx.enqueue_create_buffer[DType.float32](
+    var d_hits = ctx.enqueue_create_buffer[.float32](
         ray_count * Hit.STRIDE
     )
-    var d_stats = ctx.enqueue_create_buffer[DType.uint32](
+    var d_stats = ctx.enqueue_create_buffer[.uint32](
         ray_count * GpuTraversalStats.STRIDE
     )
 
@@ -120,10 +120,10 @@ def main() raises:
     print("GPU triangle traversal instrumentation")
     print(t"OBJ path: {DEFAULT_OBJ_PATH}")
 
-    var vertices = pack_obj_triangles[Frame.WORLD](DEFAULT_OBJ_PATH)
+    var vertices = pack_obj_triangles[.WORLD](DEFAULT_OBJ_PATH)
     var bounds = compute_bounds(vertices)
     var camera = make_camera_rays_and_params(
-        bounds.unsafe_convert_frame[Frame.WORLD](),
+        bounds.unsafe_convert_frame[.WORLD](),
         PRIMARY_WIDTH,
         PRIMARY_HEIGHT,
         PRIMARY_VIEWS,

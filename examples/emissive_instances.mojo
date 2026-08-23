@@ -25,51 +25,51 @@ def make_emissive_instance_world[
     var light = builder.add_emissive(Color(12.0, 9.0, 6.0))
 
     builder.add_quad(
-        Point3f32[Frame.WORLD](-4.0, 0.0, -5.0),
-        Point3f32[Frame.WORLD](-4.0, 0.0, 2.0),
-        Point3f32[Frame.WORLD](4.0, 0.0, 2.0),
-        Point3f32[Frame.WORLD](4.0, 0.0, -5.0),
+        Point3f32[.WORLD](-4.0, 0.0, -5.0),
+        Point3f32[.WORLD](-4.0, 0.0, 2.0),
+        Point3f32[.WORLD](4.0, 0.0, 2.0),
+        Point3f32[.WORLD](4.0, 0.0, -5.0),
         white,
     )
     builder.add_quad(
-        Point3f32[Frame.WORLD](-4.0, 0.0, -5.0),
-        Point3f32[Frame.WORLD](4.0, 0.0, -5.0),
-        Point3f32[Frame.WORLD](4.0, 4.0, -5.0),
-        Point3f32[Frame.WORLD](-4.0, 4.0, -5.0),
+        Point3f32[.WORLD](-4.0, 0.0, -5.0),
+        Point3f32[.WORLD](4.0, 0.0, -5.0),
+        Point3f32[.WORLD](4.0, 4.0, -5.0),
+        Point3f32[.WORLD](-4.0, 4.0, -5.0),
         white,
     )
     builder.add_quad(
-        Point3f32[Frame.WORLD](-4.0, 0.0, 2.0),
-        Point3f32[Frame.WORLD](-4.0, 0.0, -5.0),
-        Point3f32[Frame.WORLD](-4.0, 4.0, -5.0),
-        Point3f32[Frame.WORLD](-4.0, 4.0, 2.0),
+        Point3f32[.WORLD](-4.0, 0.0, 2.0),
+        Point3f32[.WORLD](-4.0, 0.0, -5.0),
+        Point3f32[.WORLD](-4.0, 4.0, -5.0),
+        Point3f32[.WORLD](-4.0, 4.0, 2.0),
         warm,
     )
     builder.add_quad(
-        Point3f32[Frame.WORLD](4.0, 0.0, -5.0),
-        Point3f32[Frame.WORLD](4.0, 0.0, 2.0),
-        Point3f32[Frame.WORLD](4.0, 4.0, 2.0),
-        Point3f32[Frame.WORLD](4.0, 4.0, -5.0),
+        Point3f32[.WORLD](4.0, 0.0, -5.0),
+        Point3f32[.WORLD](4.0, 0.0, 2.0),
+        Point3f32[.WORLD](4.0, 4.0, 2.0),
+        Point3f32[.WORLD](4.0, 4.0, -5.0),
         cool,
     )
     builder.add_quad(
-        Point3f32[Frame.WORLD](-4.0, 4.0, -5.0),
-        Point3f32[Frame.WORLD](4.0, 4.0, -5.0),
-        Point3f32[Frame.WORLD](4.0, 4.0, 2.0),
-        Point3f32[Frame.WORLD](-4.0, 4.0, 2.0),
+        Point3f32[.WORLD](-4.0, 4.0, -5.0),
+        Point3f32[.WORLD](4.0, 4.0, -5.0),
+        Point3f32[.WORLD](4.0, 4.0, 2.0),
+        Point3f32[.WORLD](-4.0, 4.0, 2.0),
         white,
     )
 
-    builder.add_sphere(Point3f32[Frame.WORLD](-1.25, 0.75, -1.5), 0.75, metal)
-    builder.add_sphere(Point3f32[Frame.WORLD](1.05, 0.85, -2.2), 0.85, white)
-    builder.add_sphere(Point3f32[Frame.WORLD](0.35, 0.55, 0.0), 0.55, warm)
+    builder.add_sphere(Point3f32[.WORLD](-1.25, 0.75, -1.5), 0.75, metal)
+    builder.add_sphere(Point3f32[.WORLD](1.05, 0.85, -2.2), 0.85, white)
+    builder.add_sphere(Point3f32[.WORLD](0.35, 0.55, 0.0), 0.55, warm)
 
     var extent = bunny_bounds.extent()
     var local_extent = max(max(extent.x, extent.y), extent.z)
     var scale = 1.55 / local_extent
     var center = bunny_bounds.centroid()
-    var bunny_transform = Affine3f32[Frame.LOCAL, Frame.WORLD].from_scale(
-        Vec3f32[Frame.LOCAL](scale)
+    var bunny_transform = Affine3f32[.LOCAL, .WORLD].from_scale(
+        Vec3f32[.LOCAL](scale)
     )
     bunny_transform.tx = -scale * center.x
     bunny_transform.ty = 2.15 - scale * bunny_bounds._min.y

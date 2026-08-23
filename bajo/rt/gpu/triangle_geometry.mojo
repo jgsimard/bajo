@@ -14,13 +14,13 @@ struct GpuRtTriangleGeometry[
     frame: Frame,
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
-    build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
+    build_method: GpuBvhBuildMethod = .HPLOC,
     compressed: Bool = node_width == 8 and leaf_width == 4,
 ]:
     """Owned trace buffers selected entirely by compile-time policy."""
 
-    var nodes: DeviceBuffer[DType.float32]
-    var leaves: DeviceBuffer[DType.float32]
+    var nodes: DeviceBuffer[.float32]
+    var leaves: DeviceBuffer[.float32]
     var root: UInt32
 
     def __init__(

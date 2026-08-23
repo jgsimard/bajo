@@ -29,7 +29,7 @@ def _trace_sphere_leaf_block[
 ](
     ray: Rayf32[frame],
     O: Point3[DType.float32, frame, width],
-    D: Vec3[DType.float32, frame, width],
+    D: Vec3[.float32, frame, width],
     ray_a: SIMD[DType.float32, width],
     ray_inv_a: SIMD[DType.float32, width],
     block: SphereLeafBlock[frame, width],
@@ -51,7 +51,7 @@ def _trace_sphere_leaf_block[
     if not hit_mask.reduce_or():
         return False
 
-    comptime if mode == TRACE.CLOSEST_HIT:
+    comptime if mode == .CLOSEST_HIT:
         var candidate_t = hit_mask.select(sphere_hit.t, f32_max)
         var min_t, lane = min_argmin(candidate_t)
 
@@ -77,7 +77,7 @@ def _trace_sphere_leaf_block[
 def _trace_sphere_packet_primitive[
     frame: Frame, length: SIMDLength
 ](
-    rays: Ray[DType.float32, frame, length],
+    rays: Ray[.float32, frame, length],
     active: SIMD[DType.bool, length],
     ray_a: SIMD[DType.float32, length],
     ray_inv_a: SIMD[DType.float32, length],
@@ -134,7 +134,7 @@ struct _SphereBuild[frame: Frame, width: SIMDLength](Copyable):
     var sphere_count: Int
 
     def __init__[
-        method: CpuBvhBuildMethod = CpuBvhBuildMethod.MEDIAN
+        method: CpuBvhBuildMethod = .MEDIAN
     ](out self, spheres: ImmSpan[Sphere[Self.frame], _]):
         self.sphere_count = len(spheres)
         self.leaf_blocks = []

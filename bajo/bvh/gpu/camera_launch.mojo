@@ -9,8 +9,8 @@ from bajo.core import Frame, Rayf32
 
 
 def validate_camera_launch(
-    d_camera_params: DeviceBuffer[DType.float32],
-    d_hits: DeviceBuffer[DType.float32],
+    d_camera_params: DeviceBuffer[.float32],
+    d_hits: DeviceBuffer[.float32],
     ray_count: Int,
     width: Int,
     height: Int,
@@ -38,7 +38,7 @@ def _camera_ray(
     width: Int,
     height: Int,
     inv_height: Float32,
-) -> Rayf32[Frame.WORLD]:
+) -> Rayf32[.WORLD]:
     var pixels_per_view = width * height
     var view_idx = ray_idx / pixels_per_view
     var local_idx = ray_idx - view_idx * pixels_per_view
@@ -57,7 +57,7 @@ def _camera_ray(
 
 @always_inline
 def _store_camera_hit(
-    hit: Hit[Frame.WORLD],
+    hit: Hit[.WORLD],
     hits: MutPointer[Float32, _],
     ray_count: Int,
     ray_idx: Int,

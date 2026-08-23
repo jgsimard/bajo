@@ -41,7 +41,7 @@ comptime DRAGON_PATH = "./assets/dragon/dragon.obj"
 
 
 def _dragon_world() raises -> CpuScene[]:
-    var vertices = pack_obj_triangles[Frame.WORLD](DRAGON_PATH)
+    var vertices = pack_obj_triangles[.WORLD](DRAGON_PATH)
     var builder = SceneBuilder()
     var matte = builder.add_lambertian(Color(0.65, 0.65, 0.65))
     builder.add_triangle_mesh(vertices, matte)
@@ -55,9 +55,9 @@ def _dragon_camera(world: CpuScene[]) -> Camera:
     var extent = bounds.extent()
     var scene_width = max(max(extent.x, extent.y), extent.z)
     return Camera(
-        center + Vec3f32[Frame.WORLD](0.0, extent.y * 0.15, -2.5 * scene_width),
+        center + Vec3f32[.WORLD](0.0, extent.y * 0.15, -2.5 * scene_width),
         center,
-        Vec3f32[Frame.WORLD](0.0, 1.0, 0.0),
+        Vec3f32[.WORLD](0.0, 1.0, 0.0),
         0.20,
     )
 
@@ -83,7 +83,7 @@ def _run_builder[
     print_gpu_rt_result(
         "PATH",
         bench_gpu_triangle_algorithm[
-            RENDER.PATH,
+            .PATH,
             NODE_WIDTH,
             LEAF_WIDTH,
             GPU_RT_MAX_BLOCKS,
@@ -96,7 +96,7 @@ def _run_builder[
     print_gpu_rt_result(
         "AO",
         bench_gpu_triangle_algorithm[
-            RENDER.AO,
+            .AO,
             NODE_WIDTH,
             LEAF_WIDTH,
             GPU_RT_MAX_BLOCKS,
@@ -109,7 +109,7 @@ def _run_builder[
     print_gpu_rt_result(
         "NEE",
         bench_gpu_triangle_algorithm[
-            RENDER.NEE,
+            .NEE,
             NODE_WIDTH,
             LEAF_WIDTH,
             GPU_RT_MAX_BLOCKS,
@@ -122,7 +122,7 @@ def _run_builder[
     print_gpu_rt_result(
         "MIS",
         bench_gpu_triangle_algorithm[
-            RENDER.MIS,
+            .MIS,
             NODE_WIDTH,
             LEAF_WIDTH,
             GPU_RT_MAX_BLOCKS,
@@ -152,16 +152,16 @@ def main() raises:
     with DeviceContext() as ctx:
         var target = GpuRtRenderTarget(ctx, settings, gpu_rt_camera())
         ctx.synchronize()
-        _run_builder[GpuBvhBuildMethod.LBVH](
+        _run_builder[.LBVH](
             ctx, target, world, settings, sample_count, "LBVH"
         )
-        _run_builder[GpuBvhBuildMethod.HPLOC](
+        _run_builder[.HPLOC](
             ctx, target, world, settings, sample_count, "H-PLOC"
         )
-        _run_builder[GpuBvhBuildMethod.LBVH, True](
+        _run_builder[.LBVH, True](
             ctx, target, world, settings, sample_count, "LBVH CWBVH8"
         )
-        _run_builder[GpuBvhBuildMethod.HPLOC, True](
+        _run_builder[.HPLOC, True](
             ctx, target, world, settings, sample_count, "H-PLOC CWBVH8"
         )
 
@@ -170,16 +170,16 @@ def main() raises:
     with DeviceContext() as ctx:
         var target = GpuRtRenderTarget(ctx, settings, _dragon_camera(dragon))
         ctx.synchronize()
-        _run_builder[GpuBvhBuildMethod.LBVH](
+        _run_builder[.LBVH](
             ctx, target, dragon, settings, sample_count, "Dragon LBVH"
         )
-        _run_builder[GpuBvhBuildMethod.HPLOC](
+        _run_builder[.HPLOC](
             ctx, target, dragon, settings, sample_count, "Dragon H-PLOC"
         )
-        _run_builder[GpuBvhBuildMethod.LBVH, True](
+        _run_builder[.LBVH, True](
             ctx, target, dragon, settings, sample_count, "Dragon LBVH CWBVH8"
         )
-        _run_builder[GpuBvhBuildMethod.HPLOC, True](
+        _run_builder[.HPLOC, True](
             ctx,
             target,
             dragon,

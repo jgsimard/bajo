@@ -19,8 +19,8 @@ struct GpuRtSphereGeometry[
     """Sphere BVH plus surface and signed-radius trace sidecars."""
 
     var bvh: GpuSphereBvh[Self.frame, Self.node_width, Self.leaf_width]
-    var surfaces: DeviceBuffer[DType.uint32]
-    var signed_radii: DeviceBuffer[DType.float32]
+    var surfaces: DeviceBuffer[.uint32]
+    var signed_radii: DeviceBuffer[.float32]
 
     def __init__[
         enabled: Bool = True,

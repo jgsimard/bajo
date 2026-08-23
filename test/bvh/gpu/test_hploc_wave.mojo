@@ -150,13 +150,13 @@ def test_hploc_shuffle_scan_and_reduction() raises:
     assert_true(HPLOC_WAVE_SIZE == 32 or HPLOC_WAVE_SIZE == 64)
 
     with DeviceContext() as ctx:
-        var output = ctx.enqueue_create_buffer[DType.uint64](
+        var output = ctx.enqueue_create_buffer[.uint64](
             HPLOC_WAVE_TEST_THREADS * HplocShuffleProbe.STRIDE
         )
-        var scans = ctx.enqueue_create_buffer[DType.uint32](
+        var scans = ctx.enqueue_create_buffer[.uint32](
             HPLOC_WAVE_TEST_THREADS * HplocScanProbe.STRIDE
         )
-        var reductions = ctx.enqueue_create_buffer[DType.uint32](
+        var reductions = ctx.enqueue_create_buffer[.uint32](
             HPLOC_WAVE_TEST_THREADS
         )
         ctx.enqueue_function[
@@ -226,7 +226,7 @@ def test_hploc_shuffle_scan_and_reduction() raises:
 
 def test_hploc_ballot_rank_and_leader_election() raises:
     with DeviceContext() as ctx:
-        var output = ctx.enqueue_create_buffer[DType.uint64](
+        var output = ctx.enqueue_create_buffer[.uint64](
             HPLOC_WAVE_TEST_THREADS * HplocElectionProbe.STRIDE
         )
         ctx.enqueue_function[

@@ -38,15 +38,15 @@ def _resolve_alias_draw(
 @fieldwise_init
 struct _LightSurfaceSample(TrivialRegisterPassable):
     var valid: Bool
-    var point: Point3f32[Frame.WORLD]
-    var normal: Vec3f32[Frame.WORLD]
+    var point: Point3f32[.WORLD]
+    var normal: Vec3f32[.WORLD]
 
 
 @always_inline
 def _sample_triangle_light_surface(
-    p0: Point3f32[Frame.WORLD],
-    p1: Point3f32[Frame.WORLD],
-    p2: Point3f32[Frame.WORLD],
+    p0: Point3f32[.WORLD],
+    p1: Point3f32[.WORLD],
+    p2: Point3f32[.WORLD],
     random_u: Float32,
     random_v: Float32,
 ) -> _LightSurfaceSample:
@@ -56,7 +56,7 @@ def _sample_triangle_light_surface(
     var twice_area_squared = length2(area_vector)
     if twice_area_squared <= 0.0:
         return _LightSurfaceSample(
-            False, p0, Vec3f32[Frame.WORLD](0.0, 1.0, 0.0)
+            False, p0, Vec3f32[.WORLD](0.0, 1.0, 0.0)
         )
     var root_u = sqrt(random_u)
     var barycentric1 = root_u * (1.0 - random_v)
@@ -70,9 +70,9 @@ def _sample_triangle_light_surface(
 
 @always_inline
 def _sample_sphere_light_surface(
-    center: Point3f32[Frame.WORLD],
+    center: Point3f32[.WORLD],
     radius: Float32,
-    normal: Vec3f32[Frame.WORLD],
+    normal: Vec3f32[.WORLD],
 ) -> _LightSurfaceSample:
     return _LightSurfaceSample(True, center + radius * normal, normal)
 
@@ -80,7 +80,7 @@ def _sample_sphere_light_surface(
 @fieldwise_init
 struct _DirectLightGeometrySample(TrivialRegisterPassable):
     var valid: Bool
-    var direction: Vec3f32[Frame.WORLD]
+    var direction: Vec3f32[.WORLD]
     var surface_cosine: Float32
     var light_pdf: Float32
     var shadow_t_max: Float32
@@ -89,7 +89,7 @@ struct _DirectLightGeometrySample(TrivialRegisterPassable):
 @always_inline
 def _empty_direct_light_geometry() -> _DirectLightGeometrySample:
     return _DirectLightGeometrySample(
-        False, Vec3f32[Frame.WORLD](0.0), 0.0, 0.0, 0.0
+        False, Vec3f32[.WORLD](0.0), 0.0, 0.0, 0.0
     )
 
 
@@ -111,8 +111,8 @@ def _solid_angle_light_pdf(
 
 @always_inline
 def _finish_direct_light_geometry(
-    point: Point3f32[Frame.WORLD],
-    normal: Vec3f32[Frame.WORLD],
+    point: Point3f32[.WORLD],
+    normal: Vec3f32[.WORLD],
     light: _LightSurfaceSample,
     emission: Color,
     total_light_weight: Float32,
@@ -172,7 +172,7 @@ def _direct_light_scale[
     var ok = valid & light_pdf.gt(0.0) & bsdf_pdf.gt(0.0)
     var safe_light_pdf = ok.select(light_pdf, Float32(1.0))
     var estimator_weight = SIMD[DType.float32, length](1.0)
-    comptime if ALGORITHM == RENDER.MIS:
+    comptime if ALGORITHM == .MIS:
         estimator_weight = power_heuristic(light_pdf, bsdf_pdf)
     return ok.select(
         surface_cosine * estimator_weight / safe_light_pdf, Float32(0.0)

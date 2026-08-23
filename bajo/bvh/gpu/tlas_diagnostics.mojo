@@ -108,9 +108,9 @@ def _trace_cwbvh8_with_stats(
     nodes: ImmPointer[Float32, _],
     triangles: ImmPointer[Float32, _],
     root_idx: UInt32,
-    ray: Rayf32[Frame.LOCAL],
-) -> GpuTraceResult[Frame.LOCAL]:
-    var hit = Hit[Frame.LOCAL].miss(ray.t_max)
+    ray: Rayf32[.LOCAL],
+) -> GpuTraceResult[.LOCAL]:
+    var hit = Hit[.LOCAL].miss(ray.t_max)
     var stats = GpuTraversalStats.zero()
     var stack_base = Array[UInt32, GPU_STACK_SIZE](uninitialized=True)
     var stack_mask = Array[UInt32, GPU_STACK_SIZE](uninitialized=True)
@@ -148,7 +148,7 @@ def _trace_cwbvh8_with_stats(
             var relative = UInt32(pop_count(group_imask & slots_before))
             var node_idx = node_group_base + relative
             stats.node_visits += 1
-            var tasks = _intersect_cwbvh8_node_tasks[Frame.LOCAL](
+            var tasks = _intersect_cwbvh8_node_tasks[.LOCAL](
                 nodes,
                 node_idx,
                 ray,
@@ -175,7 +175,7 @@ def _trace_cwbvh8_with_stats(
             )
             triangle_group_mask &= ~(UInt32(1) << UInt32(triangle_bit))
             stats.primitive_tests += 1
-            _ = _intersect_cwbvh_triangle[Frame.LOCAL, TRACE.CLOSEST_HIT](
+            _ = _intersect_cwbvh_triangle[.LOCAL, .CLOSEST_HIT](
                 triangles,
                 triangle_group_base + UInt32(triangle_bit),
                 ray,
@@ -189,7 +189,7 @@ def _trace_cwbvh8_with_stats(
             node_group_base = stack_base[stack_ptr]
             node_group_mask = stack_mask[stack_ptr]
 
-    return GpuTraceResult[Frame.LOCAL](hit, stats)
+    return GpuTraceResult[.LOCAL](hit, stats)
 
 
 @always_inline
@@ -203,9 +203,9 @@ def _trace_tlas2_leaf1_cwbvh8_with_stats(
     blas_leaves: ImmPointer[Float32, _],
     instance_count: Int,
     tlas_root: UInt32,
-    ray: Rayf32[Frame.WORLD],
-) -> Tuple[Hit[Frame.WORLD], GpuTlasTraversalStats]:
-    var hit = Hit[Frame.WORLD].miss(ray.t_max)
+    ray: Rayf32[.WORLD],
+) -> Tuple[Hit[.WORLD], GpuTlasTraversalStats]:
+    var hit = Hit[.WORLD].miss(ray.t_max)
     var stats = GpuTlasTraversalStats.zero()
     var stack = Array[UInt32, GPU_STACK_SIZE](uninitialized=True)
     var stack_ptr = 0
@@ -219,7 +219,7 @@ def _trace_tlas2_leaf1_cwbvh8_with_stats(
 
     while True:
         stats.tlas_node_visits += 1
-        var node_hit = _intersect_trace_node_precomputed[Frame.WORLD, 2](
+        var node_hit = _intersect_trace_node_precomputed[.WORLD, 2](
             tlas_nodes,
             current,
             bounds_origin,
@@ -250,7 +250,7 @@ def _trace_tlas2_leaf1_cwbvh8_with_stats(
                             inst_blas_indices[unsafe_offset=Int(inst_idx)]
                         )
                         var blas_desc = BlasDesc.load(blas_descs, blas_idx)
-                        var inverse = Affine3f32[Frame.WORLD, Frame.LOCAL].load(
+                        var inverse = Affine3f32[.WORLD, .LOCAL].load(
                             inverse_span,
                             Int(inst_idx) * Affine3f32.STRIDE,
                         )
@@ -308,7 +308,7 @@ def _trace_tlas2_leaf1_cwbvh8_with_stats(
         current = stack[stack_ptr]
 
     if hit.is_hit():
-        var inverse = Affine3f32[Frame.WORLD, Frame.LOCAL].load(
+        var inverse = Affine3f32[.WORLD, .LOCAL].load(
             inverse_span,
             Int(hit.inst) * Affine3f32.STRIDE,
         )
@@ -374,14 +374,14 @@ def launch_triangle_tlas_camera_diagnostics[
         GpuBvhLayout.CWBVH8,
     ],
     blases: GpuBlasSet[
-        Primitive.TRIANGLE,
+        .TRIANGLE,
         GpuBvhLayout.CWBVH8,
         blas_node_width,
         blas_leaf_width,
     ],
-    camera_params: DeviceBuffer[DType.float32],
-    hits: DeviceBuffer[DType.float32],
-    stats: DeviceBuffer[DType.uint32],
+    camera_params: DeviceBuffer[.float32],
+    hits: DeviceBuffer[.float32],
+    stats: DeviceBuffer[.uint32],
     ray_count: Int,
     width: Int,
     height: Int,
@@ -413,7 +413,7 @@ def launch_triangle_tlas_camera_diagnostics[
 
 
 def summarize_tlas_diagnostics(
-    stats: DeviceBuffer[DType.uint32],
+    stats: DeviceBuffer[.uint32],
     ray_count: Int,
 ) raises -> GpuTlasStatsSummary:
     var out = GpuTlasStatsSummary(

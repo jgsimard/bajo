@@ -130,10 +130,10 @@ def _flatten_emissives(world: SceneData) -> List[Float32]:
 struct GpuRtMaterials:
     """Flattened device material tables shared by all GPU geometry backends."""
 
-    var lambertians: DeviceBuffer[DType.float32]
-    var metals: DeviceBuffer[DType.float32]
-    var dielectrics: DeviceBuffer[DType.float32]
-    var emissives: DeviceBuffer[DType.float32]
+    var lambertians: DeviceBuffer[.float32]
+    var metals: DeviceBuffer[.float32]
+    var dielectrics: DeviceBuffer[.float32]
+    var emissives: DeviceBuffer[.float32]
     var has_non_lambertian: Bool
 
     def __init__(
@@ -154,8 +154,8 @@ struct GpuRtMaterials:
 struct GpuRtLights:
     """Compact device light records matching the CPU power distribution."""
 
-    var kinds: DeviceBuffer[DType.uint32]
-    var fields: DeviceBuffer[DType.float32]
+    var kinds: DeviceBuffer[.uint32]
+    var fields: DeviceBuffer[.float32]
     var count: Int
     var total_weight: Float32
 
@@ -231,7 +231,7 @@ struct GpuRtShadingResources:
 @fieldwise_init
 struct GpuDirectLightSample(TrivialRegisterPassable):
     var valid: Bool
-    var direction: Vec3f32[Frame.WORLD]
+    var direction: Vec3f32[.WORLD]
     var contribution: Color
     var shadow_t_max: Float32
 
@@ -240,7 +240,7 @@ struct GpuDirectLightSample(TrivialRegisterPassable):
 def _empty_direct_light_sample() -> GpuDirectLightSample:
     return GpuDirectLightSample(
         False,
-        Vec3f32[Frame.WORLD](0.0),
+        Vec3f32[.WORLD](0.0),
         Color(0.0),
         0.0,
     )
@@ -251,9 +251,9 @@ def _sample_direct_light_candidate[
     ALGORITHM: RENDER,
 ](
     path: DeviceWavePath,
-    incoming_ray: Rayf32[Frame.WORLD],
+    incoming_ray: Rayf32[.WORLD],
     hit_t: Float32,
-    normal: Vec3f32[Frame.WORLD],
+    normal: Vec3f32[.WORLD],
     surface_value: UInt32,
     lambertians: Pointer[Float32, ImmutAnyOrigin],
     metals: Pointer[Float32, ImmutAnyOrigin],
@@ -284,7 +284,7 @@ def _sample_direct_light_candidate[
 
     var base = selected_idx * GPU_RT_LIGHT_STRIDE
     var kind = PRIM(light_kinds[unsafe_offset=selected_idx] & UInt32(0xF))
-    var p0 = Point3f32[Frame.WORLD](
+    var p0 = Point3f32[.WORLD](
         light_fields[unsafe_offset=base + GPU_RT_LIGHT_P0_X],
         light_fields[unsafe_offset=base + GPU_RT_LIGHT_P0_Y],
         light_fields[unsafe_offset=base + GPU_RT_LIGHT_P0_Z],
@@ -293,15 +293,15 @@ def _sample_direct_light_candidate[
     if kind == PRIM.SPHERE:
         var radius = light_fields[unsafe_offset=base + GPU_RT_LIGHT_RADIUS]
         surface_sample = _sample_sphere_light_surface(
-            p0, radius, random_unit_vector[Frame.WORLD](rng)
+            p0, radius, random_unit_vector[.WORLD](rng)
         )
     else:
-        var p1 = Point3f32[Frame.WORLD](
+        var p1 = Point3f32[.WORLD](
             light_fields[unsafe_offset=base + GPU_RT_LIGHT_P1_X],
             light_fields[unsafe_offset=base + GPU_RT_LIGHT_P1_Y],
             light_fields[unsafe_offset=base + GPU_RT_LIGHT_P1_Z],
         )
-        var p2 = Point3f32[Frame.WORLD](
+        var p2 = Point3f32[.WORLD](
             light_fields[unsafe_offset=base + GPU_RT_LIGHT_P2_X],
             light_fields[unsafe_offset=base + GPU_RT_LIGHT_P2_Y],
             light_fields[unsafe_offset=base + GPU_RT_LIGHT_P2_Z],
@@ -433,8 +433,8 @@ def _shade_lambertian_inline[
     ALGORITHM: RENDER,
 ](
     path: DeviceWavePath,
-    ray_direction: Vec3f32[Frame.WORLD],
-    normal: Vec3f32[Frame.WORLD],
+    ray_direction: Vec3f32[.WORLD],
+    normal: Vec3f32[.WORLD],
     hit_t: Float32,
     surface_value: UInt32,
     lambertians: Pointer[Float32, ImmutAnyOrigin],
@@ -509,8 +509,8 @@ def _route_surface_hit[
 ](
     active_path_idx: Int,
     path: DeviceWavePath,
-    ray_direction: Vec3f32[Frame.WORLD],
-    normal: Vec3f32[Frame.WORLD],
+    ray_direction: Vec3f32[.WORLD],
+    normal: Vec3f32[.WORLD],
     front_face: Bool,
     hit_t: Float32,
     surface_value: UInt32,
@@ -531,7 +531,7 @@ def _route_surface_hit[
 ):
     """Route a geometry-independent oriented hit to output or a BSDF queue."""
 
-    comptime if ALGORITHM == RENDER.NORMALS:
+    comptime if ALGORITHM == .NORMALS:
         _accumulate_sample(
             sample_radiance,
             capacity,
@@ -552,10 +552,10 @@ def _route_surface_hit[
                 emissives[unsafe_offset=base + 2],
             )
             var emission_weight = Float32(1.0)
-            comptime if ALGORITHM == RENDER.NEE:
+            comptime if ALGORITHM == .NEE:
                 if bounce > 0 and not path.delta:
                     emission_weight = 0.0
-            elif ALGORITHM == RENDER.MIS:
+            elif ALGORITHM == .MIS:
                 if bounce > 0 and not path.delta:
                     var light_cosine = max(
                         dot(normal, -normalize(ray_direction)), 0.0
@@ -621,13 +621,13 @@ def _route_surface_hit[
 def _make_ao_ray(
     rng_seed: UInt64,
     path: DeviceWavePath,
-    incoming_ray: Rayf32[Frame.WORLD],
+    incoming_ray: Rayf32[.WORLD],
     hit_t: Float32,
-    normal: Vec3f32[Frame.WORLD],
-) -> Rayf32[Frame.WORLD]:
+    normal: Vec3f32[.WORLD],
+) -> Rayf32[.WORLD]:
     var rng = path_stage_rng(rng_seed, path.path_id, UInt32(1))
-    var direction = random_on_hemisphere[Frame.WORLD](rng, normal)
-    return Rayf32[Frame.WORLD](
+    var direction = random_on_hemisphere[.WORLD](rng, normal)
+    return Rayf32[.WORLD](
         incoming_ray.o + hit_t * incoming_ray.d,
         direction,
         0.001,
@@ -666,8 +666,8 @@ def _gpu_rt_shade_one[
     var path = load_gpu_rt_path[ALGORITHM](
         src_path_ids, src_path_fields, capacity, Int(work.path_idx)
     )
-    var ray_direction = Vec3f32[Frame.WORLD](path.dx, path.dy, path.dz)
-    var normal = Vec3f32[Frame.WORLD](work.nx, work.ny, work.nz)
+    var ray_direction = Vec3f32[.WORLD](path.dx, path.dy, path.dz)
+    var normal = Vec3f32[.WORLD](work.nx, work.ny, work.nz)
     var albedo = Color(0.0)
     var parameter = Float32(1.0)
     var random_u = Float32(0.0)
@@ -818,10 +818,10 @@ def _enqueue_material_shading[
     ctx: DeviceContext,
     arena: GpuWavefrontArena,
     materials: GpuRtMaterials,
-    src_path_ids: DeviceBuffer[DType.uint32],
-    src_path_fields: DeviceBuffer[DType.float32],
-    dst_path_ids: DeviceBuffer[DType.uint32],
-    dst_path_fields: DeviceBuffer[DType.float32],
+    src_path_ids: DeviceBuffer[.uint32],
+    src_path_fields: DeviceBuffer[.float32],
+    dst_path_ids: DeviceBuffer[.uint32],
+    dst_path_fields: DeviceBuffer[.float32],
     rng_seed: UInt64,
     bounce: UInt32,
 ) raises:

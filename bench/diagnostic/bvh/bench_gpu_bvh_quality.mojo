@@ -41,8 +41,8 @@ def _measure_configuration[
     max_leaf_size: Int = Int(leaf_width),
 ](
     mut ctx: DeviceContext,
-    leaf_bounds: DeviceBuffer[DType.float32],
-    payloads: DeviceBuffer[DType.uint32],
+    leaf_bounds: DeviceBuffer[.float32],
+    payloads: DeviceBuffer[.uint32],
     label: String,
 ) raises:
     var triangle_count = len(payloads)
@@ -59,7 +59,7 @@ def _measure_configuration[
 
 
 def main() raises:
-    var vertices = pack_obj_triangles[Frame.WORLD](DEFAULT_OBJ_PATH)
+    var vertices = pack_obj_triangles[.WORLD](DEFAULT_OBJ_PATH)
     var flat = flatten_triangle_bounds(vertices)
 
     print("GPU LBVH quality baseline")

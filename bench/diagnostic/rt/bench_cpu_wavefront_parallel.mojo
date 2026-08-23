@@ -43,7 +43,7 @@ def _render_configuration[
     PARALLEL: Bool = True,
 ](settings: RenderSettings, camera: Camera, world: CpuScene[]) -> RenderResult:
     return render_wavefront[
-        RENDER.PATH,
+        .PATH,
         length,
         CHUNK_PATHS,
         PARALLEL,

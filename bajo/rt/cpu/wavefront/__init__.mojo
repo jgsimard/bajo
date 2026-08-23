@@ -88,7 +88,7 @@ def _trace_packet_range[
 
 
 def render_wavefront[
-    ALGORITHM: RENDER = RENDER.PATH,
+    ALGORITHM: RENDER = .PATH,
     length: SIMDLength = 16,
     CHUNK_PATHS: Int = CPU_WAVEFRONT_PARALLEL_CHUNK_PATHS,
     PARALLEL: Bool = True,

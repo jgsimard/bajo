@@ -3,7 +3,7 @@ from bajo.parser.obj import read_obj, triangulated_indices
 
 
 def pack_obj_triangles[
-    frame: Frame = Frame.LOCAL
+    frame: Frame = .LOCAL
 ](path: String) raises -> List[Point3f32[frame]]:
     var mesh = read_obj(path)
     var idx = triangulated_indices(mesh)

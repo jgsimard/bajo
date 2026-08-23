@@ -57,13 +57,13 @@ def enqueue_segmented_blas_descriptors[
     leaf_f32_stride: Int,
 ](
     mut ctx: DeviceContext,
-    node_segment_offsets: DeviceBuffer[DType.uint32],
-    leaf_segment_offsets: DeviceBuffer[DType.uint32],
-    primitive_segment_offsets: DeviceBuffer[DType.uint32],
-    node_counts: DeviceBuffer[DType.uint32],
-    leaf_counts: DeviceBuffer[DType.uint32],
+    node_segment_offsets: DeviceBuffer[.uint32],
+    leaf_segment_offsets: DeviceBuffer[.uint32],
+    primitive_segment_offsets: DeviceBuffer[.uint32],
+    node_counts: DeviceBuffer[.uint32],
+    leaf_counts: DeviceBuffer[.uint32],
     segment_count: Int,
-) raises -> DeviceBuffer[DType.uint32]:
+) raises -> DeviceBuffer[.uint32]:
     """Enqueue descriptor generation without a device-to-host round trip."""
     comptime assert node_f32_stride > 0
     comptime assert leaf_f32_stride > 0
@@ -87,7 +87,7 @@ def enqueue_segmented_blas_descriptors[
         "descriptor count buffers are too short",
     )
 
-    var descs = ctx.enqueue_create_buffer[DType.uint32](
+    var descs = ctx.enqueue_create_buffer[.uint32](
         segment_count * BlasDescLayout.STRIDE
     )
     ctx.enqueue_function[

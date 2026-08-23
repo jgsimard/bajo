@@ -27,13 +27,13 @@ comptime AABB = AxisAlignedBoundingBox[DType.float32, _]
 comptime Quat = Quaternion[DType.float32, _]
 comptime Affine3f32 = Affine3[DType.float32, _, _]
 comptime Vec2f32 = Vec2[DType.float32, _]
-comptime Vec3f32 = Vec3[DType.float32, _]
+comptime Vec3f32 = Vec3[.float32, _]
 comptime Point3f32 = Point3[DType.float32, _]
 comptime Normal3f32 = Normal3[DType.float32, _]
-comptime Rayf32 = Ray[DType.float32, _]
+comptime Rayf32 = Ray[.float32, _]
 
-comptime Vec3W = Vec3[DType.float32, Frame.WORLD]
-comptime Point3W = Point3[DType.float32, Frame.WORLD]
+comptime Vec3W = Vec3[.float32, .WORLD]
+comptime Point3W = Point3[DType.float32, .WORLD]
 
 
 comptime Mat22 = Mat[_, 2, 2, _]

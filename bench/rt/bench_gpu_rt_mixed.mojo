@@ -31,9 +31,9 @@ comptime LEAF_WIDTH = 4
 
 def _camera() -> Camera:
     return Camera.from_vfov(
-        Point3f32[Frame.WORLD](0.0, 3.0, 6.2),
-        Point3f32[Frame.WORLD](0.0, 0.85, -1.65),
-        Vec3f32[Frame.WORLD](0.0, 1.0, 0.0),
+        Point3f32[.WORLD](0.0, 3.0, 6.2),
+        Point3f32[.WORLD](0.0, 0.85, -1.65),
+        Vec3f32[.WORLD](0.0, 1.0, 0.0),
         31.0,
         8.10,
     )
@@ -104,21 +104,21 @@ def main() raises:
         )
         print_gpu_rt_result(
             "PATH",
-            _bench_algorithm[RENDER.PATH](ctx, target, gpu_world, settings),
+            _bench_algorithm[.PATH](ctx, target, gpu_world, settings),
             sample_count,
         )
         print_gpu_rt_result(
             "AO",
-            _bench_algorithm[RENDER.AO](ctx, target, gpu_world, settings),
+            _bench_algorithm[.AO](ctx, target, gpu_world, settings),
             sample_count,
         )
         print_gpu_rt_result(
             "NEE",
-            _bench_algorithm[RENDER.NEE](ctx, target, gpu_world, settings),
+            _bench_algorithm[.NEE](ctx, target, gpu_world, settings),
             sample_count,
         )
         print_gpu_rt_result(
             "MIS",
-            _bench_algorithm[RENDER.MIS](ctx, target, gpu_world, settings),
+            _bench_algorithm[.MIS](ctx, target, gpu_world, settings),
             sample_count,
         )

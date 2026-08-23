@@ -155,9 +155,9 @@ def make_primary_ray(
     px: Int,
     py: Int,
     mut rng: Rng,
-) -> Rayf32[Frame.WORLD]:
+) -> Rayf32[.WORLD]:
     # Keep this byte-for-byte equivalent to the production depth-first path.
-    var lens = random_in_unit_disk[Frame.WORLD](rng)
+    var lens = random_in_unit_disk[.WORLD](rng)
     return camera.make_ray_sampled(
         Float32(px),
         Float32(py),
@@ -247,7 +247,7 @@ def count_path[
                         terminated = True
                         break
                     throughput = roulette.throughput
-                    ray = Rayf32[Frame.WORLD](
+                    ray = Rayf32[.WORLD](
                         record.p, scattered.direction, 0.001, f32_max
                     )
 
@@ -283,10 +283,10 @@ def count_ao(
                     record.primitive.kind(),
                     record.surface.kind(),
                 )
-                var ao_dir = random_on_hemisphere[Frame.WORLD](
+                var ao_dir = random_on_hemisphere[.WORLD](
                     rng, record.normal
                 )
-                var ao_ray = Rayf32[Frame.WORLD](
+                var ao_ray = Rayf32[.WORLD](
                     record.p, normalize(ao_dir), 0.001, 4.0
                 )
                 counters.shadow_rays += 1
@@ -381,34 +381,34 @@ def run_benchmark() raises:
     )
     print_timing(
         "sphere / path",
-        time_render[RENDER.PATH](timing_settings, sphere_camera, sphere_world),
+        time_render[.PATH](timing_settings, sphere_camera, sphere_world),
         sample_count,
     )
     print_timing(
         "sphere / AO",
-        time_render[RENDER.AO](timing_settings, sphere_camera, sphere_world),
+        time_render[.AO](timing_settings, sphere_camera, sphere_world),
         sample_count,
     )
     print_timing(
         "sphere / normals",
-        time_render[RENDER.NORMALS](
+        time_render[.NORMALS](
             timing_settings, sphere_camera, sphere_world
         ),
         sample_count,
     )
     print_timing(
         "triangles / path",
-        time_render[RENDER.PATH](timing_settings, triangle_cam, triangle_world),
+        time_render[.PATH](timing_settings, triangle_cam, triangle_world),
         sample_count,
     )
     print_timing(
         "triangles / AO",
-        time_render[RENDER.AO](timing_settings, triangle_cam, triangle_world),
+        time_render[.AO](timing_settings, triangle_cam, triangle_world),
         sample_count,
     )
     print_timing(
         "triangles / normals",
-        time_render[RENDER.NORMALS](
+        time_render[.NORMALS](
             timing_settings, triangle_cam, triangle_world
         ),
         sample_count,

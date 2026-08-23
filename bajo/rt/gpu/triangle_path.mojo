@@ -39,19 +39,19 @@ from bajo.rt.gpu.bounce import enqueue_gpu_rt_bounce
 struct GpuRtTriangleScene[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
-    build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
+    build_method: GpuBvhBuildMethod = .HPLOC,
     compressed: Bool = node_width == 8 and leaf_width == 4,
 ]:
     """Triangle BVH, surface sidecar, and shared material tables on device."""
 
     var geometry: GpuRtTriangleGeometry[
-        Frame.WORLD,
+        .WORLD,
         Self.node_width,
         Self.leaf_width,
         Self.build_method,
         Self.compressed,
     ]
-    var triangle_surfaces: DeviceBuffer[DType.uint32]
+    var triangle_surfaces: DeviceBuffer[.uint32]
     var shading: GpuRtShadingResources
 
     def __init__(
@@ -68,7 +68,7 @@ struct GpuRtTriangleScene[
             "GPU triangle RT accepts triangle-only worlds",
         )
         self.geometry = GpuRtTriangleGeometry[
-            Frame.WORLD,
+            .WORLD,
             Self.node_width,
             Self.leaf_width,
             Self.build_method,
@@ -86,16 +86,16 @@ def _enqueue_triangle_bounce[
     leaf_width: SIMDLength,
     MAX_BLOCKS: Int = GPU_RT_MAX_BLOCKS,
     SHADOW_MAX_BLOCKS: Int = MAX_BLOCKS,
-    build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
+    build_method: GpuBvhBuildMethod = .HPLOC,
     compressed: Bool = node_width == 8 and leaf_width == 4,
 ](
     ctx: DeviceContext,
     arena: GpuWavefrontArena,
     world: GpuRtTriangleScene[node_width, leaf_width, build_method, compressed],
-    src_path_ids: DeviceBuffer[DType.uint32],
-    src_path_fields: DeviceBuffer[DType.float32],
-    dst_path_ids: DeviceBuffer[DType.uint32],
-    dst_path_fields: DeviceBuffer[DType.float32],
+    src_path_ids: DeviceBuffer[.uint32],
+    src_path_fields: DeviceBuffer[.float32],
+    dst_path_ids: DeviceBuffer[.uint32],
+    dst_path_fields: DeviceBuffer[.float32],
     rng_seed: UInt64,
     bounce: UInt32,
 ) raises:
@@ -141,12 +141,12 @@ def _enqueue_triangle_bounce[
 
 
 def enqueue_render_gpu_triangles[
-    ALGORITHM: RENDER = RENDER.PATH,
+    ALGORITHM: RENDER = .PATH,
     node_width: SIMDLength = 8,
     leaf_width: SIMDLength = 4,
     MAX_BLOCKS: Int = GPU_RT_MAX_BLOCKS,
     SHADOW_MAX_BLOCKS: Int = MAX_BLOCKS,
-    build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
+    build_method: GpuBvhBuildMethod = .HPLOC,
     compressed: Bool = node_width == 8 and leaf_width == 4,
 ](
     ctx: DeviceContext,
@@ -170,10 +170,10 @@ def enqueue_render_gpu_triangles[
 
 
 def render_gpu_triangles[
-    ALGORITHM: RENDER = RENDER.PATH,
+    ALGORITHM: RENDER = .PATH,
     node_width: SIMDLength = 8,
     leaf_width: SIMDLength = 4,
-    build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
+    build_method: GpuBvhBuildMethod = .HPLOC,
     compressed: Bool = node_width == 8 and leaf_width == 4,
 ](
     settings: RenderSettings,
@@ -181,13 +181,7 @@ def render_gpu_triangles[
     world: SceneData,
 ) raises -> RenderResult:
     """Render a triangle-only `SceneData` with the shared wavefront stages."""
-    comptime assert ALGORITHM in (
-        RENDER.PATH,
-        RENDER.NORMALS,
-        RENDER.AO,
-        RENDER.NEE,
-        RENDER.MIS,
-    )
+    comptime assert ALGORITHM.is_valid()
     var total_t0 = perf_counter_ns()
     var pixel_count = settings.image_width * settings.image_height
     var sample_count = pixel_count * settings.samples_per_pixel

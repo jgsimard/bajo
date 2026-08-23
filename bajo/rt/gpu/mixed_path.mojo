@@ -41,23 +41,23 @@ struct GpuRtMixedScene[
     leaf_width: SIMDLength = node_width,
     triangle_node_width: SIMDLength = 8,
     triangle_leaf_width: SIMDLength = 4,
-    triangle_build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
+    triangle_build_method: GpuBvhBuildMethod = .HPLOC,
     triangle_compressed: Bool = triangle_node_width == 8
     and triangle_leaf_width == 4,
 ]:
     """Sphere and triangle BVHs plus their compact surface sidecars."""
 
     var sphere_geometry: GpuRtSphereGeometry[
-        Frame.WORLD, Self.node_width, Self.leaf_width
+        .WORLD, Self.node_width, Self.leaf_width
     ]
     var triangle_geometry: GpuRtTriangleGeometry[
-        Frame.WORLD,
+        .WORLD,
         Self.triangle_node_width,
         Self.triangle_leaf_width,
         Self.triangle_build_method,
         Self.triangle_compressed,
     ]
-    var triangle_surfaces: DeviceBuffer[DType.uint32]
+    var triangle_surfaces: DeviceBuffer[.uint32]
     var shading: GpuRtShadingResources
 
     def __init__(
@@ -75,10 +75,10 @@ struct GpuRtMixedScene[
         )
 
         self.sphere_geometry = GpuRtSphereGeometry[
-            Frame.WORLD, Self.node_width, Self.leaf_width
+            .WORLD, Self.node_width, Self.leaf_width
         ](ctx, world.spheres(), world.sphere_surfaces())
         self.triangle_geometry = GpuRtTriangleGeometry[
-            Frame.WORLD,
+            .WORLD,
             Self.triangle_node_width,
             Self.triangle_leaf_width,
             Self.triangle_build_method,
@@ -109,10 +109,10 @@ def _enqueue_mixed_bounce[
         triangle_build_method,
         triangle_compressed,
     ],
-    src_path_ids: DeviceBuffer[DType.uint32],
-    src_path_fields: DeviceBuffer[DType.float32],
-    dst_path_ids: DeviceBuffer[DType.uint32],
-    dst_path_fields: DeviceBuffer[DType.float32],
+    src_path_ids: DeviceBuffer[.uint32],
+    src_path_fields: DeviceBuffer[.float32],
+    dst_path_ids: DeviceBuffer[.uint32],
+    dst_path_fields: DeviceBuffer[.float32],
     rng_seed: UInt64,
     bounce: UInt32,
 ) raises:
@@ -162,12 +162,12 @@ def _enqueue_mixed_bounce[
 
 
 def enqueue_render_gpu_mixed[
-    ALGORITHM: RENDER = RENDER.PATH,
+    ALGORITHM: RENDER = .PATH,
     node_width: SIMDLength = 4,
     leaf_width: SIMDLength = node_width,
     triangle_node_width: SIMDLength = 8,
     triangle_leaf_width: SIMDLength = 4,
-    triangle_build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
+    triangle_build_method: GpuBvhBuildMethod = .HPLOC,
     triangle_compressed: Bool = triangle_node_width == 8
     and triangle_leaf_width == 4,
 ](
@@ -199,12 +199,12 @@ def enqueue_render_gpu_mixed[
 
 
 def render_gpu_mixed[
-    ALGORITHM: RENDER = RENDER.PATH,
+    ALGORITHM: RENDER = .PATH,
     node_width: SIMDLength = 4,
     leaf_width: SIMDLength = node_width,
     triangle_node_width: SIMDLength = 8,
     triangle_leaf_width: SIMDLength = 4,
-    triangle_build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
+    triangle_build_method: GpuBvhBuildMethod = .HPLOC,
     triangle_compressed: Bool = triangle_node_width == 8
     and triangle_leaf_width == 4,
 ](
@@ -213,13 +213,7 @@ def render_gpu_mixed[
     world: SceneData,
 ) raises -> RenderResult:
     """Render a world containing both spheres and world-space triangles."""
-    comptime assert ALGORITHM in (
-        RENDER.PATH,
-        RENDER.NORMALS,
-        RENDER.AO,
-        RENDER.NEE,
-        RENDER.MIS,
-    )
+    comptime assert ALGORITHM.is_valid()
     var total_t0 = perf_counter_ns()
     var pixel_count = settings.image_width * settings.image_height
     var sample_count = pixel_count * settings.samples_per_pixel

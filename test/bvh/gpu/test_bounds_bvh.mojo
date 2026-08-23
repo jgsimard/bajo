@@ -66,8 +66,8 @@ comptime GPU_BOUNDS_TEST_VIEWS = 3
 comptime GPU_BOUNDS_TEST_EPS = 0.05
 
 
-def _triangle_bounds(verts: List[Point3f32[Frame.WORLD]]) -> AABB[Frame.WORLD]:
-    var bounds = AABB[Frame.WORLD].invalid()
+def _triangle_bounds(verts: List[Point3f32[.WORLD]]) -> AABB[.WORLD]:
+    var bounds = AABB[.WORLD].invalid()
     for vertex in verts:
         bounds.grow(vertex)
     return bounds
@@ -75,8 +75,8 @@ def _triangle_bounds(verts: List[Point3f32[Frame.WORLD]]) -> AABB[Frame.WORLD]:
 
 def _make_sphere_leaf_bounds(
     mut ctx: DeviceContext,
-    spheres: List[Sphere[Frame.WORLD]],
-) raises -> Tuple[DeviceBuffer[DType.float32], DeviceBuffer[DType.uint32]]:
+    spheres: List[Sphere[.WORLD]],
+) raises -> Tuple[DeviceBuffer[.float32], DeviceBuffer[.uint32]]:
     var leaf_bounds = List[Float32](capacity=max(len(spheres), 1) * 6)
     var payloads = List[UInt32](capacity=max(len(spheres), 1))
 
@@ -91,14 +91,14 @@ def _make_sphere_leaf_bounds(
         leaf_bounds.append(s.center.z + r)
         payloads.append(UInt32(i))
 
-    var h_leaf_bounds = ctx.enqueue_create_host_buffer[DType.float32](
+    var h_leaf_bounds = ctx.enqueue_create_host_buffer[.float32](
         len(leaf_bounds)
     )
-    var h_payloads = ctx.enqueue_create_host_buffer[DType.uint32](len(payloads))
-    var d_leaf_bounds = ctx.enqueue_create_buffer[DType.float32](
+    var h_payloads = ctx.enqueue_create_host_buffer[.uint32](len(payloads))
+    var d_leaf_bounds = ctx.enqueue_create_buffer[.float32](
         len(leaf_bounds)
     )
-    var d_payloads = ctx.enqueue_create_buffer[DType.uint32](len(payloads))
+    var d_payloads = ctx.enqueue_create_buffer[.uint32](len(payloads))
     h_leaf_bounds.enqueue_copy_from(leaf_bounds)
     h_payloads.enqueue_copy_from(payloads)
 
@@ -108,8 +108,8 @@ def _make_sphere_leaf_bounds(
     return (d_leaf_bounds^, d_payloads^)
 
 
-def _make_degenerate_axis_scene() -> List[Point3f32[Frame.WORLD]]:
-    var verts = List[Point3f32[Frame.WORLD]](capacity=16 * 3)
+def _make_degenerate_axis_scene() -> List[Point3f32[.WORLD]]:
+    var verts = List[Point3f32[.WORLD]](capacity=16 * 3)
     for i in range(16):
         var cx = Float32(i * 2 - 15)
         _append_tri(verts, cx, 0.0, 2.0)
@@ -118,8 +118,8 @@ def _make_degenerate_axis_scene() -> List[Point3f32[Frame.WORLD]]:
 
 def _make_triangle_leaf_bounds(
     mut ctx: DeviceContext,
-    verts: List[Point3f32[Frame.WORLD]],
-) raises -> Tuple[DeviceBuffer[DType.float32], DeviceBuffer[DType.uint32]]:
+    verts: List[Point3f32[.WORLD]],
+) raises -> Tuple[DeviceBuffer[.float32], DeviceBuffer[.uint32]]:
     var tri_count = len(verts) / 3
     var leaf_bounds = List[Float32](capacity=max(tri_count, 1) * 6)
     var payloads = List[UInt32](capacity=max(tri_count, 1))
@@ -139,14 +139,14 @@ def _make_triangle_leaf_bounds(
         leaf_bounds.append(bounds._max.z)
         payloads.append(UInt32(i))
 
-    var h_leaf_bounds = ctx.enqueue_create_host_buffer[DType.float32](
+    var h_leaf_bounds = ctx.enqueue_create_host_buffer[.float32](
         len(leaf_bounds)
     )
-    var h_payloads = ctx.enqueue_create_host_buffer[DType.uint32](len(payloads))
-    var d_leaf_bounds = ctx.enqueue_create_buffer[DType.float32](
+    var h_payloads = ctx.enqueue_create_host_buffer[.uint32](len(payloads))
+    var d_leaf_bounds = ctx.enqueue_create_buffer[.float32](
         len(leaf_bounds)
     )
-    var d_payloads = ctx.enqueue_create_buffer[DType.uint32](len(payloads))
+    var d_payloads = ctx.enqueue_create_buffer[.uint32](len(payloads))
     h_leaf_bounds.enqueue_copy_from(leaf_bounds)
     h_payloads.enqueue_copy_from(payloads)
 
@@ -159,7 +159,7 @@ def _make_triangle_leaf_bounds(
 def _assert_gpu_bounds_width[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
-](verts: List[Point3f32[Frame.WORLD]]) raises:
+](verts: List[Point3f32[.WORLD]]) raises:
     with DeviceContext() as ctx:
         var build = _make_triangle_leaf_bounds(ctx, verts)
         var leaf_bounds = build[0].copy()
@@ -198,7 +198,7 @@ def _assert_gpu_bounds_width[
 def _assert_wide_lane_invariants[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
-](verts: List[Point3f32[Frame.WORLD]]) raises:
+](verts: List[Point3f32[.WORLD]]) raises:
     with DeviceContext() as ctx:
         var build = _make_triangle_leaf_bounds(ctx, verts)
         var leaf_bounds = build[0].copy()
@@ -209,7 +209,7 @@ def _assert_wide_lane_invariants[
             node_width,
             leaf_width,
             Int(leaf_width),
-            GpuBvhBuildMethod.LBVH,
+            .LBVH,
         ](ctx, len(payloads), leaf_bounds^, payloads^, timings)
 
         var seen_live_lane = False
@@ -240,9 +240,9 @@ def _assert_wide_lane_invariants[
 def _assert_gpu_triangle_matches_cpu_camera[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
-](verts: List[Point3f32[Frame.WORLD]]) raises:
+](verts: List[Point3f32[.WORLD]]) raises:
     var cpu_blases = build_triangle_blases[
-        node_width, leaf_width, CpuBvhBuildMethod.LBVH, Frame.WORLD
+        node_width, leaf_width, .LBVH, .WORLD
     ]([verts.copy()])
     var camera_data = _make_camera_rays_and_params(
         _triangle_bounds(verts),
@@ -253,12 +253,12 @@ def _assert_gpu_triangle_matches_cpu_camera[
     var rays = camera_data[0].copy()
     var camera_params = camera_data[1].copy()
     var cpu_checksum = _trace_cpu_triangle_blas[
-        Frame.WORLD, node_width, leaf_width
+        .WORLD, node_width, leaf_width
     ](cpu_blases, rays)
 
     with DeviceContext() as ctx:
         var d_verts = upload_vertices(ctx, verts)
-        var gpu_bvh = build_triangle_bvh[Frame.WORLD, node_width, leaf_width](
+        var gpu_bvh = build_triangle_bvh[.WORLD, node_width, leaf_width](
             ctx, d_verts
         )
         assert_true(
@@ -276,7 +276,7 @@ def _assert_gpu_triangle_matches_cpu_camera[
             * TRI_LEAF_PACKED_STRIDE
         )
         var d_camera = upload_list(ctx, camera_params)
-        var d_hits = ctx.enqueue_create_buffer[DType.float32](
+        var d_hits = ctx.enqueue_create_buffer[.float32](
             len(rays) * Hit.STRIDE
         )
 
@@ -290,7 +290,7 @@ def _assert_gpu_triangle_matches_cpu_camera[
         )
         ctx.synchronize()
 
-        var d_stats = ctx.enqueue_create_buffer[DType.uint32](
+        var d_stats = ctx.enqueue_create_buffer[.uint32](
             len(rays) * GpuTraversalStats.STRIDE
         )
         gpu_bvh.launch_camera_instrumented(
@@ -328,9 +328,9 @@ def _assert_gpu_triangle_matches_cpu_camera[
         with d_hits.map_to_host() as hf:
             var gpu_hits = Span(unsafe_ptr=hf.unsafe_ptr(), length=len(hf))
             for i, ray in enumerate(rays):
-                var gpu_hit = Hit[Frame.WORLD].load(gpu_hits, i)
+                var gpu_hit = Hit[.WORLD].load(gpu_hits, i)
                 var cpu_hit = trace_blas_set[
-                    node_width, leaf_width, TRACE.CLOSEST_HIT, Frame.WORLD
+                    node_width, leaf_width, .CLOSEST_HIT, .WORLD
                 ](cpu_blases, UInt32(0), ray)
                 var gpu_t = gpu_hit.t
                 var gpu_prim = gpu_hit.prim
@@ -370,7 +370,7 @@ def _assert_gpu_triangle_matches_cpu_camera[
         )
 
         comptime if node_width == 2 and leaf_width == 2:
-            gpu_bvh.launch_rays[mode=TRACE.ANY_HIT](
+            gpu_bvh.launch_rays[mode=.ANY_HIT](
                 ctx, d_rays, d_hits, len(rays)
             )
             ctx.synchronize()
@@ -379,9 +379,9 @@ def _assert_gpu_triangle_matches_cpu_camera[
                     unsafe_ptr=hf.unsafe_ptr(), length=len(hf)
                 )
                 for i, ray in enumerate(rays):
-                    var gpu_hit = Hit[Frame.WORLD].load(packed_hits, i)
+                    var gpu_hit = Hit[.WORLD].load(packed_hits, i)
                     var cpu_hit = trace_blas_set[
-                        node_width, leaf_width, TRACE.ANY_HIT, Frame.WORLD
+                        node_width, leaf_width, .ANY_HIT, .WORLD
                     ](cpu_blases, UInt32(0), ray)
                     assert_true(
                         gpu_hit.is_occluded() == cpu_hit.is_occluded(),
@@ -391,9 +391,9 @@ def _assert_gpu_triangle_matches_cpu_camera[
 
 def _assert_segmented_gpu_triangle_matches_cpu_camera[
     build_method: GpuBvhBuildMethod,
-](verts: List[Point3f32[Frame.WORLD]]) raises:
+](verts: List[Point3f32[.WORLD]]) raises:
     var cpu_blases = build_triangle_blases[
-        2, 2, CpuBvhBuildMethod.LBVH, Frame.WORLD
+        2, 2, .LBVH, .WORLD
     ]([verts.copy()])
     var camera_data = _make_camera_rays_and_params(
         _triangle_bounds(verts),
@@ -403,17 +403,17 @@ def _assert_segmented_gpu_triangle_matches_cpu_camera[
     )
     var rays = camera_data[0].copy()
     var camera_params = camera_data[1].copy()
-    var cpu_checksum = _trace_cpu_triangle_blas[Frame.WORLD, 2, 2](
+    var cpu_checksum = _trace_cpu_triangle_blas[.WORLD, 2, 2](
         cpu_blases, rays
     )
 
     with DeviceContext() as ctx:
         var d_verts = upload_vertices(ctx, verts)
-        var gpu_bvh = build_triangle_bvh[Frame.WORLD, 2, 2, build_method](
+        var gpu_bvh = build_triangle_bvh[.WORLD, 2, 2, build_method](
             ctx, d_verts
         )
         var d_camera = upload_list(ctx, camera_params)
-        var d_hits = ctx.enqueue_create_buffer[DType.float32](
+        var d_hits = ctx.enqueue_create_buffer[.float32](
             len(rays) * Hit.STRIDE
         )
         gpu_bvh.launch_camera(
@@ -438,7 +438,7 @@ def _assert_segmented_gpu_triangle_matches_cpu_camera[
 def _assert_sphere_matches_bruteforce_camera[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
-](spheres: List[Sphere[Frame.WORLD]]) raises:
+](spheres: List[Sphere[.WORLD]]) raises:
     var bounds = sphere_bounds(spheres)
     var camera_data = _make_camera_rays_and_params(
         bounds,
@@ -451,7 +451,7 @@ def _assert_sphere_matches_bruteforce_camera[
     var cpu_checksum = _trace_cpu_spheres_bruteforce(spheres, rays)
 
     with DeviceContext() as ctx:
-        var gpu_bvh = build_sphere_bvh[Frame.WORLD, node_width, leaf_width](
+        var gpu_bvh = build_sphere_bvh[.WORLD, node_width, leaf_width](
             ctx, spheres
         )
         assert_true(
@@ -469,7 +469,7 @@ def _assert_sphere_matches_bruteforce_camera[
             * SPHERE_LEAF_PACKED_STRIDE
         )
         var d_camera = upload_list(ctx, camera_params)
-        var d_hits = ctx.enqueue_create_buffer[DType.float32](
+        var d_hits = ctx.enqueue_create_buffer[.float32](
             len(rays) * Hit.STRIDE
         )
 
@@ -500,7 +500,7 @@ def _assert_sphere_matches_bruteforce_camera[
 def _assert_gpu_sphere_bounds[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
-](spheres: List[Sphere[Frame.WORLD]]) raises:
+](spheres: List[Sphere[.WORLD]]) raises:
     with DeviceContext() as ctx:
         var build = _make_sphere_leaf_bounds(ctx, spheres)
         var leaf_bounds = build[0].copy()
@@ -528,20 +528,20 @@ def _assert_gpu_sphere_bounds[
 
 
 def test_gpu_bounds_bvh_build_validate_small_scene() raises:
-    var scene = _make_small_scene[Frame.WORLD]()
+    var scene = _make_small_scene[.WORLD]()
     comptime for N in [2, 4, 8]:
         _assert_gpu_bounds_width[N](scene)
 
 
 def test_gpu_bounds_bvh_single_triangle() raises:
-    var scene = _make_single_triangle_scene[Frame.WORLD]()
+    var scene = _make_single_triangle_scene[.WORLD]()
     comptime for N in [2, 4, 8]:
         _assert_gpu_bounds_width[N](scene)
         _assert_gpu_triangle_matches_cpu_camera[N](scene)
 
 
 def test_gpu_bounds_bvh_duplicate_morton_codes() raises:
-    var scene = _make_duplicate_centroid_scene[Frame.WORLD]()
+    var scene = _make_duplicate_centroid_scene[.WORLD]()
     comptime for N in [2, 4, 8]:
         _assert_gpu_bounds_width[N](scene)
         _assert_wide_lane_invariants[N](scene)
@@ -555,40 +555,40 @@ def test_gpu_bounds_bvh_degenerate_axis() raises:
 
 
 def test_gpu_bounds_bvh_wide_lane_invariants() raises:
-    var scene = _make_small_scene[Frame.WORLD]()
+    var scene = _make_small_scene[.WORLD]()
     comptime for N in [2, 4, 8]:
         _assert_wide_lane_invariants[N](scene)
 
 
 def test_gpu_triangle_bvh_camera_primary_matches_cpu() raises:
-    var scene = _make_small_scene[Frame.WORLD]()
+    var scene = _make_small_scene[.WORLD]()
     comptime for N in [2, 4, 8]:
         _assert_gpu_triangle_matches_cpu_camera[N](scene)
 
 
 def test_gpu_sphere_bvh_camera_primary_matches_bruteforce() raises:
-    var scene = _make_small_sphere_scene[Frame.WORLD]()
+    var scene = _make_small_sphere_scene[.WORLD]()
     comptime for N in [2, 4, 8]:
         _assert_sphere_matches_bruteforce_camera[N](scene)
 
 
 def test_gpu_sphere_bvh_single_sphere() raises:
-    var scene = _make_single_sphere_scene[Frame.WORLD]()
+    var scene = _make_single_sphere_scene[.WORLD]()
     comptime for N in [2, 4, 8]:
         _assert_gpu_sphere_bounds[N](scene)
         _assert_sphere_matches_bruteforce_camera[N](scene)
 
 
 def test_gpu_sphere_bvh_duplicate_morton_codes() raises:
-    var scene = _make_duplicate_sphere_centroid_scene[Frame.WORLD]()
+    var scene = _make_duplicate_sphere_centroid_scene[.WORLD]()
     comptime for N in [2, 4, 8]:
         _assert_gpu_sphere_bounds[N](scene)
         _assert_sphere_matches_bruteforce_camera[N](scene)
 
 
 def test_gpu_bvh_independent_node_and_leaf_widths() raises:
-    var triangles = _make_small_scene[Frame.WORLD]()
-    var spheres = _make_small_sphere_scene[Frame.WORLD]()
+    var triangles = _make_small_scene[.WORLD]()
+    var spheres = _make_small_sphere_scene[.WORLD]()
 
     _assert_gpu_bounds_width[2, 4](triangles)
     _assert_wide_lane_invariants[2, 4](triangles)
@@ -602,26 +602,26 @@ def test_gpu_bvh_independent_node_and_leaf_widths() raises:
 
 
 def test_gpu_triangle_bvh_segmented_build_methods() raises:
-    var scene = _make_small_scene[Frame.WORLD]()
-    _assert_segmented_gpu_triangle_matches_cpu_camera[GpuBvhBuildMethod.LBVH](
+    var scene = _make_small_scene[.WORLD]()
+    _assert_segmented_gpu_triangle_matches_cpu_camera[.LBVH](
         scene
     )
-    _assert_segmented_gpu_triangle_matches_cpu_camera[GpuBvhBuildMethod.HPLOC](
+    _assert_segmented_gpu_triangle_matches_cpu_camera[.HPLOC](
         scene
     )
 
 
 def test_gpu_triangle_bvh_repeated_segmented_builds() raises:
-    var scene = _make_small_scene[Frame.WORLD]()
+    var scene = _make_small_scene[.WORLD]()
     with DeviceContext() as ctx:
         var vertices = upload_vertices(ctx, scene)
         var lbvh = build_triangle_bvh[
-            Frame.WORLD, 2, 2, GpuBvhBuildMethod.LBVH
+            .WORLD, 2, 2, .LBVH
         ](ctx, vertices)
         assert_true(lbvh.tree.node_count > 0)
 
         var hploc = build_triangle_bvh[
-            Frame.WORLD, 2, 2, GpuBvhBuildMethod.HPLOC
+            .WORLD, 2, 2, .HPLOC
         ](ctx, vertices)
         assert_true(hploc.tree.node_count > 0)
 

@@ -63,16 +63,16 @@ struct HplocBenchResult(Copyable, Writable):
 
 def _make_synthetic_triangles(
     count: Int,
-) -> List[Point3f32[Frame.WORLD]]:
-    var vertices = List[Point3f32[Frame.WORLD]](capacity=count * 3)
+) -> List[Point3f32[.WORLD]]:
+    var vertices = List[Point3f32[.WORLD]](capacity=count * 3)
     for i in range(count):
         var x = Float32((i % 64) * 4 - 126)
         var y = Float32(((i / 64) % 64) * 4 - 126)
         var z = Float32((i * 7) % 17)
         var scale = Float32(2.5) if i % 29 == 0 else Float32(0.7)
-        vertices.append(Point3f32[Frame.WORLD](x - scale, y - scale, z))
-        vertices.append(Point3f32[Frame.WORLD](x + scale, y - scale, z))
-        vertices.append(Point3f32[Frame.WORLD](x, y + scale, z + 0.1))
+        vertices.append(Point3f32[.WORLD](x - scale, y - scale, z))
+        vertices.append(Point3f32[.WORLD](x + scale, y - scale, z))
+        vertices.append(Point3f32[.WORLD](x, y + scale, z + 0.1))
     return vertices^
 
 
@@ -82,10 +82,10 @@ def _run_case[
     leaf_width: SIMDLength,
 ](
     mut ctx: DeviceContext,
-    d_vertices: DeviceBuffer[DType.float32],
-    d_leaf_bounds: DeviceBuffer[DType.float32],
-    d_payloads: DeviceBuffer[DType.uint32],
-    d_camera: DeviceBuffer[DType.float32],
+    d_vertices: DeviceBuffer[.float32],
+    d_leaf_bounds: DeviceBuffer[.float32],
+    d_payloads: DeviceBuffer[.uint32],
+    d_camera: DeviceBuffer[.float32],
     ray_count: Int,
     image_width: Int,
     image_height: Int,
@@ -93,7 +93,7 @@ def _run_case[
 ) raises -> HplocBenchResult:
     comptime max_leaf_size = Int(leaf_width)
     # Warm every specialization before collecting build time.
-    _ = build_triangle_bvh[Frame.WORLD, node_width, leaf_width, method](
+    _ = build_triangle_bvh[.WORLD, node_width, leaf_width, method](
         ctx, d_vertices
     )
     ctx.synchronize()
@@ -104,7 +104,7 @@ def _run_case[
         var start = perf_counter_ns()
         var candidate_timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
         _ = build_triangle_bvh_measured[
-            Frame.WORLD, node_width, leaf_width, method
+            .WORLD, node_width, leaf_width, method
         ](ctx, d_vertices, candidate_timings)
         ctx.synchronize()
         var elapsed = Int(perf_counter_ns() - start)
@@ -122,10 +122,10 @@ def _run_case[
     )
     var wide_quality = measure_wide_bvh_quality(quality_tree)
 
-    var bvh = build_triangle_bvh[Frame.WORLD, node_width, leaf_width, method](
+    var bvh = build_triangle_bvh[.WORLD, node_width, leaf_width, method](
         ctx, d_vertices
     )
-    var hits = ctx.enqueue_create_buffer[DType.float32](ray_count * Hit.STRIDE)
+    var hits = ctx.enqueue_create_buffer[.float32](ray_count * Hit.STRIDE)
     bvh.launch_camera(
         ctx,
         d_camera,
@@ -151,7 +151,7 @@ def _run_case[
         best_trace_ns = min(best_trace_ns, Int(perf_counter_ns() - start))
 
     var hit_result = _download_full_hit_checksum(ctx, hits, ray_count)
-    var stats = ctx.enqueue_create_buffer[DType.uint32](
+    var stats = ctx.enqueue_create_buffer[.uint32](
         ray_count * GpuTraversalStats.STRIDE
     )
     bvh.launch_camera_instrumented(
@@ -235,14 +235,14 @@ def _validate_against(
 
 def _run_scene(
     name: String,
-    vertices: List[Point3f32[Frame.WORLD]],
+    vertices: List[Point3f32[.WORLD]],
     image_width: Int,
     image_height: Int,
     views: Int,
 ) raises:
     var scene_bounds = compute_bounds(vertices)
     var camera = make_camera_rays_and_params(
-        scene_bounds.unsafe_convert_frame[Frame.WORLD](),
+        scene_bounds.unsafe_convert_frame[.WORLD](),
         image_width,
         image_height,
         views,
@@ -267,7 +267,7 @@ def _run_scene(
         var d_camera = upload_list(ctx, camera[1])
         ctx.synchronize()
 
-        var lbvh2l2 = _run_case[GpuBvhBuildMethod.LBVH, 2, 2](
+        var lbvh2l2 = _run_case[.LBVH, 2, 2](
             ctx,
             d_vertices,
             d_leaf_bounds,
@@ -278,7 +278,7 @@ def _run_scene(
             image_height,
             "LBVH n2/l2",
         )
-        var hploc2l2 = _run_case[GpuBvhBuildMethod.HPLOC, 2, 2](
+        var hploc2l2 = _run_case[.HPLOC, 2, 2](
             ctx,
             d_vertices,
             d_leaf_bounds,
@@ -289,7 +289,7 @@ def _run_scene(
             image_height,
             "HPLOC n2/l2",
         )
-        var lbvh2 = _run_case[GpuBvhBuildMethod.LBVH, 2, 4](
+        var lbvh2 = _run_case[.LBVH, 2, 4](
             ctx,
             d_vertices,
             d_leaf_bounds,
@@ -300,7 +300,7 @@ def _run_scene(
             image_height,
             "LBVH n2/l4",
         )
-        var hploc2 = _run_case[GpuBvhBuildMethod.HPLOC, 2, 4](
+        var hploc2 = _run_case[.HPLOC, 2, 4](
             ctx,
             d_vertices,
             d_leaf_bounds,
@@ -311,7 +311,7 @@ def _run_scene(
             image_height,
             "HPLOC n2/l4",
         )
-        var lbvh4 = _run_case[GpuBvhBuildMethod.LBVH, 4, 4](
+        var lbvh4 = _run_case[.LBVH, 4, 4](
             ctx,
             d_vertices,
             d_leaf_bounds,
@@ -322,7 +322,7 @@ def _run_scene(
             image_height,
             "LBVH n4/l4",
         )
-        var hploc4 = _run_case[GpuBvhBuildMethod.HPLOC, 4, 4](
+        var hploc4 = _run_case[.HPLOC, 4, 4](
             ctx,
             d_vertices,
             d_leaf_bounds,
@@ -363,7 +363,7 @@ def main() raises:
     )
     _run_scene(
         "dragon",
-        pack_obj_triangles[Frame.WORLD](DRAGON_PATH),
+        pack_obj_triangles[.WORLD](DRAGON_PATH),
         DRAGON_WIDTH,
         DRAGON_HEIGHT,
         DRAGON_VIEWS,

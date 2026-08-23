@@ -78,12 +78,12 @@ def measure_binary_bvh_quality(
             )
             for node_idx in range(binary.internal_count):
                 var base = node_idx * BinaryBvhNode.BOUNDS_STRIDE
-                var left = AABB[Frame.WORLD].load6(bounds_span, base)
-                var right = AABB[Frame.WORLD].load6(
+                var left = AABB[.WORLD].load6(bounds_span, base)
+                var right = AABB[.WORLD].load6(
                     bounds_span, base + AABB.STRIDE
                 )
                 internal_area += Float64(
-                    AABB[Frame.WORLD].merge(left, right).surface_area()[0]
+                    AABB[.WORLD].merge(left, right).surface_area()[0]
                 )
 
     with binary.leaf_bounds.map_to_host() as leaf_bounds:
@@ -92,7 +92,7 @@ def measure_binary_bvh_quality(
         )
         for leaf_idx in range(binary.leaf_count):
             primitive_area += Float64(
-                AABB[Frame.WORLD]
+                AABB[.WORLD]
                 .load6(leaf_span, leaf_idx * AABB.STRIDE)
                 .surface_area()[0]
             )
@@ -146,7 +146,7 @@ def measure_wide_bvh_quality[
             visited[Int(node_idx)] = True
             internal_nodes += 1
 
-            var node_bounds = AABB[Frame.WORLD].invalid()
+            var node_bounds = AABB[.WORLD].invalid()
             var live_lanes = 0
             comptime for lane in range(node_width):
                 var meta = nodes_u32[
@@ -159,7 +159,7 @@ def measure_wide_bvh_quality[
                     continue
 
                 live_lanes += 1
-                var child_bounds = AABB[Frame.WORLD].invalid()
+                var child_bounds = AABB[.WORLD].invalid()
                 child_bounds._min.x = bounds_span[
                     _wide_node_index[node_width](node_idx, WideNode.MIN_X, lane)
                 ]

@@ -31,9 +31,9 @@ from bajo.rt.wavefront_queue import FRONT_FACE_BIT, WavePath, WaveShade
 def _path(path_id: UInt32) -> WavePath:
     return WavePath(
         path_id,
-        Rayf32[Frame.WORLD](
-            Point3f32[Frame.WORLD](1.0, 2.0, 3.0),
-            Vec3f32[Frame.WORLD](-4.0, 5.0, -6.0),
+        Rayf32[.WORLD](
+            Point3f32[.WORLD](1.0, 2.0, 3.0),
+            Vec3f32[.WORLD](-4.0, 5.0, -6.0),
             0.125,
             99.0,
         ),
@@ -99,7 +99,7 @@ def test_wavefront_path_field_major_roundtrip() raises:
 
 def test_wavefront_shade_field_major_roundtrip() raises:
     var hit = SurfaceHit(
-        Vec3f32[Frame.WORLD](0.0, 1.0, 0.0),
+        Vec3f32[.WORLD](0.0, 1.0, 0.0),
         SurfaceId(MAT.METAL, UInt32(9)),
         3.5,
         True,
@@ -175,7 +175,7 @@ def test_cpu_aos_boundary_adapters() raises:
     assert_equal(restored_paths[1].path_id, UInt32(47))
 
     var hit = SurfaceHit(
-        Vec3f32[Frame.WORLD](1.0, 0.0, 0.0),
+        Vec3f32[.WORLD](1.0, 0.0, 0.0),
         SurfaceId(MAT.METAL, UInt32(4)),
         2.25,
         False,

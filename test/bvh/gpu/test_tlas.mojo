@@ -46,13 +46,13 @@ comptime EPS = 0.05
 
 
 def test_gpu_tlas_triangle_camera_single_identity_matches_cpu_blas() raises:
-    var local_verts = _make_small_scene[Frame.LOCAL]()
-    var world_verts = _make_small_scene[Frame.WORLD]()
+    var local_verts = _make_small_scene[.LOCAL]()
+    var world_verts = _make_small_scene[.WORLD]()
     var local_bounds = compute_bounds(local_verts)
     var world_bounds = compute_bounds(world_verts)
     var camera = _camera_for_bounds(world_bounds, 2.0)
     var cpu_blases = build_triangle_blases[
-        4, 4, CpuBvhBuildMethod.LBVH, Frame.WORLD
+        4, 4, .LBVH, .WORLD
     ]([world_verts^])
     var cpu_res = _trace_cpu_triangle_camera[4](
         cpu_blases, camera, WIDTH, HEIGHT
@@ -60,10 +60,10 @@ def test_gpu_tlas_triangle_camera_single_identity_matches_cpu_blas() raises:
 
     var instances: List = [
         Instance(
-            Affine3f32[Frame.LOCAL, Frame.WORLD].identity(),
+            Affine3f32[.LOCAL, .WORLD].identity(),
             UInt32(0),
             local_bounds,
-            Primitive.TRIANGLE,
+            .TRIANGLE,
         )
     ]
 
@@ -73,7 +73,7 @@ def test_gpu_tlas_triangle_camera_single_identity_matches_cpu_blas() raises:
         var d_camera = upload_camera(ctx, camera)
 
         var ray_count = WIDTH * HEIGHT
-        var d_hits = ctx.enqueue_create_buffer[DType.float32](
+        var d_hits = ctx.enqueue_create_buffer[.float32](
             ray_count * Hit.STRIDE
         )
         tlas.launch_camera(
@@ -87,7 +87,7 @@ def test_gpu_tlas_triangle_camera_single_identity_matches_cpu_blas() raises:
         )
         ctx.synchronize()
 
-        var tlas_res = _download_tlas_checksum[Frame.WORLD](d_hits, ray_count)
+        var tlas_res = _download_tlas_checksum[.WORLD](d_hits, ray_count)
 
         assert_true(abs(cpu_res[0] - tlas_res[0]) <= EPS)
         assert_true(cpu_res[1] == tlas_res[1])
@@ -95,17 +95,17 @@ def test_gpu_tlas_triangle_camera_single_identity_matches_cpu_blas() raises:
 
 
 def test_gpu_tlas_triangle_camera_translated_single_instance_hit() raises:
-    var verts = _make_single_triangle_scene[Frame.LOCAL]()
+    var verts = _make_single_triangle_scene[.LOCAL]()
     var bounds = compute_bounds(verts)
-    var t = Point3f32[Frame.WORLD](10.0, 0.0, 0.0)
-    var camera = _make_camera_ray(t, Vec3f32[Frame.WORLD](0.0, 0.0, 1.0))
+    var t = Point3f32[.WORLD](10.0, 0.0, 0.0)
+    var camera = _make_camera_ray(t, Vec3f32[.WORLD](0.0, 0.0, 1.0))
 
     var instances: List = [
         Instance(
-            Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(t),
+            Affine3f32[.LOCAL, .WORLD].from_translation(t),
             UInt32(0),
             bounds,
-            Primitive.TRIANGLE,
+            .TRIANGLE,
         )
     ]
 
@@ -114,7 +114,7 @@ def test_gpu_tlas_triangle_camera_translated_single_instance_hit() raises:
         var tlas = build_triangle_tlas[4, 4](ctx, instances)
         var d_camera = upload_camera(ctx, camera)
 
-        var d_hits = ctx.enqueue_create_buffer[DType.float32](Hit.STRIDE)
+        var d_hits = ctx.enqueue_create_buffer[.float32](Hit.STRIDE)
 
         tlas.launch_camera(
             ctx,
@@ -128,7 +128,7 @@ def test_gpu_tlas_triangle_camera_translated_single_instance_hit() raises:
         ctx.synchronize()
 
         with d_hits.map_to_host() as hf:
-            var gpu_hit = Hit[Frame.WORLD].load(
+            var gpu_hit = Hit[.WORLD].load(
                 Span(unsafe_ptr=hf.unsafe_ptr(), length=len(hf)), 0
             )
 
@@ -142,27 +142,27 @@ def test_gpu_tlas_triangle_camera_translated_single_instance_hit() raises:
 
 def test_host_owned_blas_set_upload_preserves_gpu_traversal() raises:
     """The compatible host/device owners transfer packed storage verbatim."""
-    var near_verts = _make_single_triangle_scene[Frame.LOCAL]()
-    var far_verts = List[Point3f32[Frame.LOCAL]](capacity=6)
+    var near_verts = _make_single_triangle_scene[.LOCAL]()
+    var far_verts = List[Point3f32[.LOCAL]](capacity=6)
     for vertex in near_verts:
         far_verts.append(
-            Point3f32[Frame.LOCAL](vertex.x, vertex.y, vertex.z + 4.0)
+            Point3f32[.LOCAL](vertex.x, vertex.y, vertex.z + 4.0)
         )
     for vertex in near_verts:
         far_verts.append(
-            Point3f32[Frame.LOCAL](vertex.x + 10.0, vertex.y, vertex.z + 4.0)
+            Point3f32[.LOCAL](vertex.x + 10.0, vertex.y, vertex.z + 4.0)
         )
     var bounds = compute_bounds(far_verts)
     var camera = _make_camera_ray(
-        Point3f32[Frame.WORLD](0.0, 0.0, 0.0),
-        Vec3f32[Frame.WORLD](0.0, 0.0, 1.0),
+        Point3f32[.WORLD](0.0, 0.0, 0.0),
+        Vec3f32[.WORLD](0.0, 0.0, 1.0),
     )
     var instances: List = [
         Instance(
-            Affine3f32[Frame.LOCAL, Frame.WORLD].identity(),
+            Affine3f32[.LOCAL, .WORLD].identity(),
             UInt32(1),
             bounds,
-            Primitive.TRIANGLE,
+            .TRIANGLE,
         )
     ]
 
@@ -171,43 +171,43 @@ def test_host_owned_blas_set_upload_preserves_gpu_traversal() raises:
         var cpu_hit = trace_blas_set(
             host,
             UInt32(1),
-            Rayf32[Frame.LOCAL](
-                Point3f32[Frame.LOCAL](0.0, 0.0, 0.0),
-                Vec3f32[Frame.LOCAL](0.0, 0.0, 1.0),
+            Rayf32[.LOCAL](
+                Point3f32[.LOCAL](0.0, 0.0, 0.0),
+                Vec3f32[.LOCAL](0.0, 0.0, 1.0),
             ),
         )
         assert_almost_equal(cpu_hit.t, 6.0)
         assert_true(cpu_hit.prim == UInt32(0))
-        var any_hit = trace_blas_set[4, 4, TRACE.ANY_HIT](
+        var any_hit = trace_blas_set[4, 4, .ANY_HIT](
             host,
             UInt32(1),
-            Rayf32[Frame.LOCAL](
-                Point3f32[Frame.LOCAL](0.0, 0.0, 0.0),
-                Vec3f32[Frame.LOCAL](0.0, 0.0, 1.0),
+            Rayf32[.LOCAL](
+                Point3f32[.LOCAL](0.0, 0.0, 0.0),
+                Vec3f32[.LOCAL](0.0, 0.0, 1.0),
             ),
         )
         assert_true(any_hit.is_occluded())
         var cpu_tlas = Tlas[4](instances)
         var cpu_tlas_hit = cpu_tlas.trace_blases(
-            Rayf32[Frame.WORLD](
-                Point3f32[Frame.WORLD](0.0, 0.0, 0.0),
-                Vec3f32[Frame.WORLD](0.0, 0.0, 1.0),
+            Rayf32[.WORLD](
+                Point3f32[.WORLD](0.0, 0.0, 0.0),
+                Vec3f32[.WORLD](0.0, 0.0, 1.0),
             ),
             host,
         )
         assert_almost_equal(cpu_tlas_hit.t, 6.0)
         assert_true(cpu_tlas_hit.inst == UInt32(0))
         var uploaded = GpuBlasSet[
-            Primitive.TRIANGLE, GpuBvhLayout.WIDE, 4
+            .TRIANGLE, GpuBvhLayout.WIDE, 4
         ].from_cpu(ctx, host)
         var tlas = build_triangle_tlas[4, 4](ctx, instances)
         var d_camera = upload_camera(ctx, camera)
-        var d_hits = ctx.enqueue_create_buffer[DType.float32](Hit.STRIDE)
+        var d_hits = ctx.enqueue_create_buffer[.float32](Hit.STRIDE)
         tlas.launch_camera(ctx, uploaded, d_camera, d_hits, 1, 1, 1)
         ctx.synchronize()
 
         with d_hits.map_to_host() as hf:
-            var hit = Hit[Frame.WORLD].load(
+            var hit = Hit[.WORLD].load(
                 Span(unsafe_ptr=hf.unsafe_ptr(), length=len(hf)), 0
             )
             assert_almost_equal(hit.t, 6.0)
@@ -216,8 +216,8 @@ def test_host_owned_blas_set_upload_preserves_gpu_traversal() raises:
 
 
 def test_gpu_tlas_sphere_camera_single_identity_matches_cpu_bruteforce() raises:
-    var local_scene = _make_small_sphere_scene_with_bounds[Frame.LOCAL]()
-    var world_scene = _make_small_sphere_scene_with_bounds[Frame.WORLD]()
+    var local_scene = _make_small_sphere_scene_with_bounds[.LOCAL]()
+    var world_scene = _make_small_sphere_scene_with_bounds[.WORLD]()
     var spheres = local_scene[0].copy()
     var bounds = local_scene[1].copy()
     var world_spheres = world_scene[0].copy()
@@ -227,10 +227,10 @@ def test_gpu_tlas_sphere_camera_single_identity_matches_cpu_bruteforce() raises:
 
     var instances: List = [
         Instance(
-            Affine3f32[Frame.LOCAL, Frame.WORLD].identity(),
+            Affine3f32[.LOCAL, .WORLD].identity(),
             UInt32(0),
             bounds,
-            Primitive.SPHERE,
+            .SPHERE,
         )
     ]
 
@@ -240,7 +240,7 @@ def test_gpu_tlas_sphere_camera_single_identity_matches_cpu_bruteforce() raises:
         var d_camera = upload_camera(ctx, camera)
 
         var ray_count = WIDTH * HEIGHT
-        var d_hits = ctx.enqueue_create_buffer[DType.float32](
+        var d_hits = ctx.enqueue_create_buffer[.float32](
             ray_count * Hit.STRIDE
         )
 
@@ -255,7 +255,7 @@ def test_gpu_tlas_sphere_camera_single_identity_matches_cpu_bruteforce() raises:
         )
         ctx.synchronize()
 
-        var tlas_res = _download_tlas_checksum[Frame.WORLD](d_hits, ray_count)
+        var tlas_res = _download_tlas_checksum[.WORLD](d_hits, ray_count)
 
         assert_true(abs(cpu_res[0] - tlas_res[0]) <= EPS)
         assert_true(cpu_res[1] == tlas_res[1])
@@ -264,48 +264,48 @@ def test_gpu_tlas_sphere_camera_single_identity_matches_cpu_bruteforce() raises:
 
 def test_cpu_sphere_blas_set_upload_preserves_gpu_traversal() raises:
     var spheres: List = [
-        Sphere[Frame.LOCAL](Point3f32[Frame.LOCAL](0.0, 0.0, 2.0), 1.0)
+        Sphere[.LOCAL](Point3f32[.LOCAL](0.0, 0.0, 2.0), 1.0)
     ]
     var bounds = sphere_bounds(spheres)
     var instances: List = [
         Instance(
-            Affine3f32[Frame.LOCAL, Frame.WORLD].identity(),
+            Affine3f32[.LOCAL, .WORLD].identity(),
             UInt32(0),
             bounds,
-            Primitive.SPHERE,
+            .SPHERE,
         )
     ]
     var camera = _make_camera_ray(
-        Point3f32[Frame.WORLD](0.0, 0.0, 0.0),
-        Vec3f32[Frame.WORLD](0.0, 0.0, 1.0),
+        Point3f32[.WORLD](0.0, 0.0, 0.0),
+        Vec3f32[.WORLD](0.0, 0.0, 1.0),
     )
     with DeviceContext() as ctx:
         var host = build_sphere_blases[4]([spheres^])
         var cpu_hit = trace_blas_set(
             host,
             UInt32(0),
-            Rayf32[Frame.LOCAL](
-                Point3f32[Frame.LOCAL](0.0, 0.0, 0.0),
-                Vec3f32[Frame.LOCAL](0.0, 0.0, 1.0),
+            Rayf32[.LOCAL](
+                Point3f32[.LOCAL](0.0, 0.0, 0.0),
+                Vec3f32[.LOCAL](0.0, 0.0, 1.0),
             ),
         )
         assert_almost_equal(cpu_hit.t, 1.0)
         assert_true(cpu_hit.prim == UInt32(0))
         var cpu_tlas = Tlas[4](instances)
         var cpu_tlas_hit = cpu_tlas.trace_blases(
-            Rayf32[Frame.WORLD](
-                Point3f32[Frame.WORLD](0.0, 0.0, 0.0),
-                Vec3f32[Frame.WORLD](0.0, 0.0, 1.0),
+            Rayf32[.WORLD](
+                Point3f32[.WORLD](0.0, 0.0, 0.0),
+                Vec3f32[.WORLD](0.0, 0.0, 1.0),
             ),
             host,
         )
         assert_almost_equal(cpu_tlas_hit.t, 1.0)
         assert_true(cpu_tlas_hit.inst == UInt32(0))
         var uploaded = GpuBlasSet[
-            Primitive.SPHERE, GpuBvhLayout.WIDE, 4
+            .SPHERE, GpuBvhLayout.WIDE, 4
         ].from_cpu(ctx, host)
         var tlas = build_sphere_tlas[4, 4](ctx, instances)
-        var d_hits = ctx.enqueue_create_buffer[DType.float32](Hit.STRIDE)
+        var d_hits = ctx.enqueue_create_buffer[.float32](Hit.STRIDE)
         tlas.launch_camera(
             ctx,
             uploaded,
@@ -317,7 +317,7 @@ def test_cpu_sphere_blas_set_upload_preserves_gpu_traversal() raises:
         )
         ctx.synchronize()
         with d_hits.map_to_host() as hf:
-            var hit = Hit[Frame.WORLD].load(
+            var hit = Hit[.WORLD].load(
                 Span(unsafe_ptr=hf.unsafe_ptr(), length=len(hf)), 0
             )
             assert_almost_equal(hit.t, 1.0)
@@ -327,21 +327,21 @@ def test_cpu_sphere_blas_set_upload_preserves_gpu_traversal() raises:
 
 def test_gpu_tlas_sphere_camera_translated_single_instance_hit() raises:
     var spheres: List = [
-        Sphere[Frame.LOCAL](Point3f32[Frame.LOCAL](0.0, 0.0, 2.0), 1.0)
+        Sphere[.LOCAL](Point3f32[.LOCAL](0.0, 0.0, 2.0), 1.0)
     ]
-    var bounds = AABB[Frame.LOCAL](
-        Point3f32[Frame.LOCAL](-1.0, -1.0, 1.0),
-        Point3f32[Frame.LOCAL](1.0, 1.0, 3.0),
+    var bounds = AABB[.LOCAL](
+        Point3f32[.LOCAL](-1.0, -1.0, 1.0),
+        Point3f32[.LOCAL](1.0, 1.0, 3.0),
     )
-    var t = Point3f32[Frame.WORLD](10.0, 0.0, 0.0)
-    var camera = _make_camera_ray(t, Vec3f32[Frame.WORLD](0.0, 0.0, 1.0))
+    var t = Point3f32[.WORLD](10.0, 0.0, 0.0)
+    var camera = _make_camera_ray(t, Vec3f32[.WORLD](0.0, 0.0, 1.0))
 
     var instances: List = [
         Instance(
-            Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(t),
+            Affine3f32[.LOCAL, .WORLD].from_translation(t),
             UInt32(0),
             bounds,
-            Primitive.SPHERE,
+            .SPHERE,
         )
     ]
 
@@ -350,7 +350,7 @@ def test_gpu_tlas_sphere_camera_translated_single_instance_hit() raises:
         var tlas = build_sphere_tlas[4, 4](ctx, instances)
         var d_camera = upload_camera(ctx, camera)
 
-        var d_hits = ctx.enqueue_create_buffer[DType.float32](Hit.STRIDE)
+        var d_hits = ctx.enqueue_create_buffer[.float32](Hit.STRIDE)
 
         tlas.launch_camera(
             ctx,
@@ -364,7 +364,7 @@ def test_gpu_tlas_sphere_camera_translated_single_instance_hit() raises:
         ctx.synchronize()
 
         with d_hits.map_to_host() as hf:
-            var gpu_hit = Hit[Frame.WORLD].load(
+            var gpu_hit = Hit[.WORLD].load(
                 Span(unsafe_ptr=hf.unsafe_ptr(), length=len(hf)), 0
             )
 
@@ -378,39 +378,39 @@ def test_gpu_tlas_sphere_camera_translated_single_instance_hit() raises:
 
 def test_gpu_tlas_sphere_nonuniform_scale_normal() raises:
     var spheres: List = [
-        Sphere[Frame.LOCAL](Point3f32[Frame.LOCAL](0.0, 0.0, 2.0), 1.0)
+        Sphere[.LOCAL](Point3f32[.LOCAL](0.0, 0.0, 2.0), 1.0)
     ]
-    var bounds = AABB[Frame.LOCAL](
-        Point3f32[Frame.LOCAL](-1.0, -1.0, 1.0),
-        Point3f32[Frame.LOCAL](1.0, 1.0, 3.0),
+    var bounds = AABB[.LOCAL](
+        Point3f32[.LOCAL](-1.0, -1.0, 1.0),
+        Point3f32[.LOCAL](1.0, 1.0, 3.0),
     )
-    var transform = Affine3f32[Frame.LOCAL, Frame.WORLD].from_scale(
-        Vec3f32[Frame.LOCAL](2.0, 1.0, 1.0)
+    var transform = Affine3f32[.LOCAL, .WORLD].from_scale(
+        Vec3f32[.LOCAL](2.0, 1.0, 1.0)
     )
     var instances: List = [
         Instance(
             transform,
             UInt32(0),
             bounds,
-            Primitive.SPHERE,
+            .SPHERE,
         )
     ]
     var camera = _make_camera_ray(
-        Point3f32[Frame.WORLD](1.0, 0.0, 0.0),
-        Vec3f32[Frame.WORLD](0.0, 0.0, 1.0),
+        Point3f32[.WORLD](1.0, 0.0, 0.0),
+        Vec3f32[.WORLD](0.0, 0.0, 1.0),
     )
 
     with DeviceContext() as ctx:
         var blases = build_sphere_blas_set[4](ctx, [spheres^])
         var tlas = build_sphere_tlas[4, 4](ctx, instances)
         var d_camera = upload_camera(ctx, camera)
-        var d_hits = ctx.enqueue_create_buffer[DType.float32](Hit.STRIDE)
+        var d_hits = ctx.enqueue_create_buffer[.float32](Hit.STRIDE)
 
         tlas.launch_camera(ctx, blases, d_camera, d_hits, 1, 1, 1)
         ctx.synchronize()
 
         with d_hits.map_to_host() as hf:
-            var gpu_hit = Hit[Frame.WORLD].load(
+            var gpu_hit = Hit[.WORLD].load(
                 Span(unsafe_ptr=hf.unsafe_ptr(), length=len(hf)), 0
             )
             assert_almost_equal(gpu_hit.t, 1.1339746, atol=1.0e-5)
@@ -420,13 +420,13 @@ def test_gpu_tlas_sphere_nonuniform_scale_normal() raises:
 
 
 def test_all_empty_cpu_blas_set_upload_uses_dummy_device_storage() raises:
-    var empty = List[Point3f32[Frame.LOCAL]]()
+    var empty = List[Point3f32[.LOCAL]]()
     var host = build_triangle_blases[4]([empty^])
     assert_true(len(host.nodes) == 0)
     assert_true(len(host.leaves) == 0)
     with DeviceContext() as ctx:
         var uploaded = GpuBlasSet[
-            Primitive.TRIANGLE, GpuBvhLayout.WIDE, 4
+            .TRIANGLE, GpuBvhLayout.WIDE, 4
         ].from_cpu(ctx, host)
         assert_true(len(uploaded.nodes) == 1)
         assert_true(len(uploaded.leaves) == 1)

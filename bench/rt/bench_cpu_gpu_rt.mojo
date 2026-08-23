@@ -70,7 +70,7 @@ struct GpuTiming:
 def _render_cpu[
     ALGORITHM: RENDER
 ](settings: RenderSettings, camera: Camera, world: CpuScene[]) -> RenderResult:
-    comptime if ALGORITHM == RENDER.AO:
+    comptime if ALGORITHM == .AO:
         return render_depth_first[ALGORITHM](settings, camera, world)
     else:
         return render_wavefront[
@@ -113,7 +113,7 @@ def _bench_cpu[
 
 def _bench_gpu[
     ALGORITHM: RENDER,
-    build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
+    build_method: GpuBvhBuildMethod = .LBVH,
     compressed: Bool = False,
 ](
     ctx: DeviceContext,
@@ -243,49 +243,49 @@ def main() raises:
         "includes synchronization and pixel download"
     )
 
-    var cpu_path = _bench_cpu[RENDER.PATH](settings, camera, world)
-    var cpu_ao = _bench_cpu[RENDER.AO](settings, camera, world)
-    var cpu_nee = _bench_cpu[RENDER.NEE](settings, camera, world)
-    var cpu_mis = _bench_cpu[RENDER.MIS](settings, camera, world)
+    var cpu_path = _bench_cpu[.PATH](settings, camera, world)
+    var cpu_ao = _bench_cpu[.AO](settings, camera, world)
+    var cpu_nee = _bench_cpu[.NEE](settings, camera, world)
+    var cpu_mis = _bench_cpu[.MIS](settings, camera, world)
     var many_light_world = make_many_light_world()
-    var cpu_nee_64 = _bench_cpu[RENDER.NEE](settings, camera, many_light_world)
+    var cpu_nee_64 = _bench_cpu[.NEE](settings, camera, many_light_world)
 
     with DeviceContext() as ctx:
         var gpu_world = GpuRtTriangleScene[
-            NODE_WIDTH, LEAF_WIDTH, GpuBvhBuildMethod.LBVH, False
+            NODE_WIDTH, LEAF_WIDTH, .LBVH, False
         ](ctx, world.scene_data())
         var target = GpuRtRenderTarget(ctx, settings, camera)
         var many_gpu_world = GpuRtTriangleScene[
-            NODE_WIDTH, LEAF_WIDTH, GpuBvhBuildMethod.LBVH, False
+            NODE_WIDTH, LEAF_WIDTH, .LBVH, False
         ](ctx, many_light_world.scene_data())
         var cwbvh_world = GpuRtTriangleScene[
-            NODE_WIDTH, LEAF_WIDTH, GpuBvhBuildMethod.HPLOC, True
+            NODE_WIDTH, LEAF_WIDTH, .HPLOC, True
         ](ctx, world.scene_data())
         var many_cwbvh_world = GpuRtTriangleScene[
-            NODE_WIDTH, LEAF_WIDTH, GpuBvhBuildMethod.HPLOC, True
+            NODE_WIDTH, LEAF_WIDTH, .HPLOC, True
         ](ctx, many_light_world.scene_data())
         ctx.synchronize()
-        var gpu_path = _bench_gpu[RENDER.PATH](ctx, target, gpu_world, settings)
-        var gpu_ao = _bench_gpu[RENDER.AO](ctx, target, gpu_world, settings)
-        var gpu_nee = _bench_gpu[RENDER.NEE](ctx, target, gpu_world, settings)
-        var gpu_mis = _bench_gpu[RENDER.MIS](ctx, target, gpu_world, settings)
-        var gpu_nee_64 = _bench_gpu[RENDER.NEE](
+        var gpu_path = _bench_gpu[.PATH](ctx, target, gpu_world, settings)
+        var gpu_ao = _bench_gpu[.AO](ctx, target, gpu_world, settings)
+        var gpu_nee = _bench_gpu[.NEE](ctx, target, gpu_world, settings)
+        var gpu_mis = _bench_gpu[.MIS](ctx, target, gpu_world, settings)
+        var gpu_nee_64 = _bench_gpu[.NEE](
             ctx, target, many_gpu_world, settings
         )
-        var cwbvh_path = _bench_gpu[RENDER.PATH, GpuBvhBuildMethod.HPLOC, True](
+        var cwbvh_path = _bench_gpu[.PATH, .HPLOC, True](
             ctx, target, cwbvh_world, settings
         )
-        var cwbvh_ao = _bench_gpu[RENDER.AO, GpuBvhBuildMethod.HPLOC, True](
+        var cwbvh_ao = _bench_gpu[.AO, .HPLOC, True](
             ctx, target, cwbvh_world, settings
         )
-        var cwbvh_nee = _bench_gpu[RENDER.NEE, GpuBvhBuildMethod.HPLOC, True](
+        var cwbvh_nee = _bench_gpu[.NEE, .HPLOC, True](
             ctx, target, cwbvh_world, settings
         )
-        var cwbvh_mis = _bench_gpu[RENDER.MIS, GpuBvhBuildMethod.HPLOC, True](
+        var cwbvh_mis = _bench_gpu[.MIS, .HPLOC, True](
             ctx, target, cwbvh_world, settings
         )
         var cwbvh_nee_64 = _bench_gpu[
-            RENDER.NEE, GpuBvhBuildMethod.HPLOC, True
+            .NEE, .HPLOC, True
         ](ctx, target, many_cwbvh_world, settings)
 
         _print_comparison("PATH", cpu_path, gpu_path, sample_count)

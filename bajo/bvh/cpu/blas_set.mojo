@@ -262,12 +262,12 @@ def _pack_triangle_blas[
 def build_triangle_blases[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
-    method: CpuBvhBuildMethod = CpuBvhBuildMethod.SAH,
-    frame: Frame = Frame.LOCAL,
+    method: CpuBvhBuildMethod = .SAH,
+    frame: Frame = .LOCAL,
 ](
     vertex_sets: ImmSpan[List[Point3f32[frame]], _],
 ) -> CpuBlasSet[
-    Primitive.TRIANGLE, node_width, leaf_width
+    .TRIANGLE, node_width, leaf_width
 ]:
     debug_assert["safe", _use_compiler_assume=True](
         len(vertex_sets) > 0, "CPU BLAS batch must be nonempty"
@@ -350,7 +350,7 @@ def build_triangle_blases[
         compact_nodes,
         compact_leaves,
     )
-    return CpuBlasSet[Primitive.TRIANGLE, node_width, leaf_width](
+    return CpuBlasSet[.TRIANGLE, node_width, leaf_width](
         descs^, compact_nodes^, compact_leaves^, len(vertex_sets)
     )
 
@@ -445,12 +445,12 @@ def _pack_sphere_blas[
 
 def build_sphere_blases[
     width: SIMDLength,
-    method: CpuBvhBuildMethod = CpuBvhBuildMethod.SAH,
-    frame: Frame = Frame.LOCAL,
+    method: CpuBvhBuildMethod = .SAH,
+    frame: Frame = .LOCAL,
 ](
     sphere_sets: ImmSpan[List[Sphere[frame]], _],
 ) -> CpuBlasSet[
-    Primitive.SPHERE, width
+    .SPHERE, width
 ]:
     debug_assert["safe", _use_compiler_assume=True](
         len(sphere_sets) > 0, "CPU BLAS batch must be nonempty"
@@ -525,7 +525,7 @@ def build_sphere_blases[
         compact_nodes,
         compact_leaves,
     )
-    return CpuBlasSet[Primitive.SPHERE, width](
+    return CpuBlasSet[.SPHERE, width](
         descs^, compact_nodes^, compact_leaves^, len(sphere_sets)
     )
 
@@ -548,7 +548,7 @@ def _trace_packed_triangle_from_ref[
     def leaf_fn(
         ray: Rayf32[frame],
         O: Point3[DType.float32, frame, leaf_width],
-        D: Vec3[DType.float32, frame, leaf_width],
+        D: Vec3[.float32, frame, leaf_width],
         _ray_a: SIMD[DType.float32, leaf_width],
         _ray_inv_a: SIMD[DType.float32, leaf_width],
         leaf_block_idx: UInt32,
@@ -564,7 +564,7 @@ def _trace_packed_triangle_from_ref[
         return _trace_triangle_leaf_block[
             frame,
             leaf_width,
-            TRACE.CLOSEST_HIT,
+            .CLOSEST_HIT,
             packed_layout=True,
         ](ray, O, D, block, block_ptr, hit)
 
@@ -592,10 +592,10 @@ def _trace_packed_triangle_from_ref[
 def trace_blas_set[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
-    mode: TRACE = TRACE.CLOSEST_HIT,
-    frame: Frame = Frame.LOCAL,
+    mode: TRACE = .CLOSEST_HIT,
+    frame: Frame = .LOCAL,
 ](
-    blases: CpuBlasSet[Primitive.TRIANGLE, node_width, leaf_width],
+    blases: CpuBlasSet[.TRIANGLE, node_width, leaf_width],
     blas_idx: UInt32,
     ray: Rayf32[frame],
 ) -> Hit[frame]:
@@ -612,7 +612,7 @@ def trace_blas_set[
     var leaves = blases.leaves.unsafe_ptr().unsafe_offset(
         Int(desc.leaf_f32_base)
     )
-    comptime if mode == TRACE.CLOSEST_HIT:
+    comptime if mode == .CLOSEST_HIT:
         return _trace_packed_triangle_from_ref[frame, node_width, leaf_width](
             nodes,
             leaves,
@@ -625,7 +625,7 @@ def trace_blas_set[
     def leaf_fn(
         ray: Rayf32[frame],
         O: Point3[DType.float32, frame, leaf_width],
-        D: Vec3[DType.float32, frame, leaf_width],
+        D: Vec3[.float32, frame, leaf_width],
         _ray_a: SIMD[DType.float32, leaf_width],
         _ray_inv_a: SIMD[DType.float32, leaf_width],
         leaf_block_idx: UInt32,
@@ -658,11 +658,11 @@ def trace_blas_set_packet[
     leaf_width: SIMDLength,
     length: SIMDLength,
     common_octant_fma: Bool = False,
-    frame: Frame = Frame.LOCAL,
+    frame: Frame = .LOCAL,
 ](
-    blases: CpuBlasSet[Primitive.TRIANGLE, node_width, leaf_width],
+    blases: CpuBlasSet[.TRIANGLE, node_width, leaf_width],
     blas_idx: UInt32,
-    rays: Ray[DType.float32, frame, length],
+    rays: Ray[.float32, frame, length],
     valid: SIMD[DType.bool, length] = SIMD[DType.bool, length](fill=True),
 ) -> Hit[frame, length]:
     """Trace packed storage through the production CPU packet algorithm."""
@@ -800,10 +800,10 @@ def trace_blas_set_packet[
 def trace_blas_set[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
-    mode: TRACE = TRACE.CLOSEST_HIT,
-    frame: Frame = Frame.LOCAL,
+    mode: TRACE = .CLOSEST_HIT,
+    frame: Frame = .LOCAL,
 ](
-    blases: CpuBlasSet[Primitive.SPHERE, node_width, leaf_width],
+    blases: CpuBlasSet[.SPHERE, node_width, leaf_width],
     blas_idx: UInt32,
     ray: Rayf32[frame],
 ) -> Hit[frame]:
@@ -825,7 +825,7 @@ def trace_blas_set[
     def leaf_fn(
         ray: Rayf32[frame],
         O: Point3[DType.float32, frame, leaf_width],
-        D: Vec3[DType.float32, frame, leaf_width],
+        D: Vec3[.float32, frame, leaf_width],
         ray_a: SIMD[DType.float32, leaf_width],
         ray_inv_a: SIMD[DType.float32, leaf_width],
         leaf_block_idx: UInt32,
@@ -859,11 +859,11 @@ def trace_blas_set_packet[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
     length: SIMDLength,
-    frame: Frame = Frame.LOCAL,
+    frame: Frame = .LOCAL,
 ](
-    blases: CpuBlasSet[Primitive.SPHERE, node_width, leaf_width],
+    blases: CpuBlasSet[.SPHERE, node_width, leaf_width],
     blas_idx: UInt32,
-    rays: Ray[DType.float32, frame, length],
+    rays: Ray[.float32, frame, length],
     valid: SIMD[DType.bool, length] = SIMD[DType.bool, length](fill=True),
 ) -> Hit[frame, length]:
     """Trace packed spheres through the production CPU packet algorithm."""

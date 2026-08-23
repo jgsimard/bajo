@@ -17,13 +17,11 @@ from bajo.rt.scene_description import SceneDescription
 from .loaders import PbrtTextLoader
 
 
-comptime _LOCAL = Frame.LOCAL
-comptime _WORLD = Frame.WORLD
-comptime _Transform = Affine3f32[_LOCAL, _WORLD]
-comptime _PointL = Point3f32[_LOCAL]
-comptime _PointW = Point3f32[_WORLD]
-comptime _VecL = Vec3f32[_LOCAL]
-comptime _VecW = Vec3f32[_WORLD]
+comptime _Transform = Affine3f32[.LOCAL, .WORLD]
+comptime _PointL = Point3f32[.LOCAL]
+comptime _PointW = Point3f32[.WORLD]
+comptime _VecL = Vec3f32[.LOCAL]
+comptime _VecW = Vec3f32[.WORLD]
 
 
 @fieldwise_init
@@ -199,7 +197,7 @@ struct _GraphicsState(Copyable):
 struct _Builder(
     Deinitable where (False, "call finish() or abort() to consume the parser")
 ):
-    var spheres: List[Sphere[_WORLD]]
+    var spheres: List[Sphere[.WORLD]]
     var sphere_surfaces: List[SurfaceId[1]]
     var triangle_vertices: List[_PointW]
     var triangle_surfaces: List[SurfaceId[1]]
@@ -219,7 +217,7 @@ struct _Builder(
     var integrator: RENDER
 
     def __init__(out self):
-        self.spheres = List[Sphere[_WORLD]]()
+        self.spheres = List[Sphere[.WORLD]]()
         self.sphere_surfaces = List[SurfaceId[1]]()
         self.triangle_vertices = List[_PointW]()
         self.triangle_surfaces = List[SurfaceId[1]]()
@@ -243,7 +241,7 @@ struct _Builder(
         self.image_height = 480
         self.samples_per_pixel = 16
         self.max_depth = 8
-        self.integrator = RENDER.PATH
+        self.integrator = .PATH
 
     def add_sphere(
         mut self,
@@ -251,7 +249,7 @@ struct _Builder(
         radius: Float32,
         surface: SurfaceId[1],
     ):
-        self.spheres.append(Sphere[_WORLD](center, radius))
+        self.spheres.append(Sphere[.WORLD](center, radius))
         self.sphere_surfaces.append(surface.copy())
 
     def add_triangle(
@@ -286,7 +284,7 @@ struct _Builder(
         )
         # PBRT owns these authoring buffers exclusively. Transfer them through
         # SceneBuilder so finalization validates in place without cloning data.
-        var meshes = List[List[Point3f32[_LOCAL]]]()
+        var meshes = List[List[Point3f32[.LOCAL]]]()
         var instances = List[Instance]()
         var instance_surfaces = List[SurfaceId[1]]()
         var scene_builder = SceneBuilder(
@@ -649,7 +647,7 @@ def _parse_text[
             var integrator_name = lexer.next().value
             if integrator_name != "path":
                 raise Error("only the PBRT path integrator is supported")
-            builder.integrator = RENDER.PATH
+            builder.integrator = .PATH
             var params = _parse_params(lexer)
             builder.max_depth = params.integer("integer maxdepth", 8)
         elif command == "PixelFilter" or command == "Accelerator":

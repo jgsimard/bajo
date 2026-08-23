@@ -25,43 +25,43 @@ comptime WIDTH = 4
 comptime REPEATS = 7
 
 
-def _make_mesh(triangle_count: Int, seed: Int) -> List[Point3f32[Frame.LOCAL]]:
-    var vertices = List[Point3f32[Frame.LOCAL]](capacity=triangle_count * 3)
+def _make_mesh(triangle_count: Int, seed: Int) -> List[Point3f32[.LOCAL]]:
+    var vertices = List[Point3f32[.LOCAL]](capacity=triangle_count * 3)
     for i in range(triangle_count):
         var x = Float32((i * 17 + seed * 13) % 257) * 0.25
         var y = Float32((i * 29 + seed * 7) % 251) * 0.25
         var z = Float32((i * 11 + seed * 19) % 127) * 0.125
-        vertices.append(Point3f32[Frame.LOCAL](x - 0.2, y - 0.1, z))
-        vertices.append(Point3f32[Frame.LOCAL](x + 0.2, y - 0.1, z))
-        vertices.append(Point3f32[Frame.LOCAL](x, y + 0.2, z + 0.05))
+        vertices.append(Point3f32[.LOCAL](x - 0.2, y - 0.1, z))
+        vertices.append(Point3f32[.LOCAL](x + 0.2, y - 0.1, z))
+        vertices.append(Point3f32[.LOCAL](x, y + 0.2, z + 0.05))
     return vertices^
 
 
 def _make_uniform_sets(
     blas_count: Int, triangles_per_blas: Int
-) -> List[List[Point3f32[Frame.LOCAL]]]:
-    var sets = List[List[Point3f32[Frame.LOCAL]]](capacity=blas_count)
+) -> List[List[Point3f32[.LOCAL]]]:
+    var sets = List[List[Point3f32[.LOCAL]]](capacity=blas_count)
     for blas_idx in range(blas_count):
         sets.append(_make_mesh(triangles_per_blas, blas_idx))
     return sets^
 
 
-def _make_spheres(sphere_count: Int, seed: Int) -> List[Sphere[Frame.LOCAL]]:
-    var spheres = List[Sphere[Frame.LOCAL]](capacity=sphere_count)
+def _make_spheres(sphere_count: Int, seed: Int) -> List[Sphere[.LOCAL]]:
+    var spheres = List[Sphere[.LOCAL]](capacity=sphere_count)
     for i in range(sphere_count):
         var x = Float32((i * 17 + seed * 13) % 257) * 0.25
         var y = Float32((i * 29 + seed * 7) % 251) * 0.25
         var z = Float32((i * 11 + seed * 19) % 127) * 0.125
         spheres.append(
-            Sphere[Frame.LOCAL](Point3f32[Frame.LOCAL](x, y, z), 0.2)
+            Sphere[.LOCAL](Point3f32[.LOCAL](x, y, z), 0.2)
         )
     return spheres^
 
 
 def _make_uniform_sphere_sets(
     blas_count: Int, spheres_per_blas: Int
-) -> List[List[Sphere[Frame.LOCAL]]]:
-    var sets = List[List[Sphere[Frame.LOCAL]]](capacity=blas_count)
+) -> List[List[Sphere[.LOCAL]]]:
+    var sets = List[List[Sphere[.LOCAL]]](capacity=blas_count)
     for blas_idx in range(blas_count):
         sets.append(_make_spheres(spheres_per_blas, blas_idx))
     return sets^
@@ -75,7 +75,7 @@ def _median(values: List[Int]) -> Int:
 
 def _bench_case(
     label: String,
-    vertex_sets: List[List[Point3f32[Frame.LOCAL]]],
+    vertex_sets: List[List[Point3f32[.LOCAL]]],
 ) raises:
     var triangle_count = 0
     for vertices in vertex_sets:
@@ -109,7 +109,7 @@ def _bench_case(
 
 def _bench_sphere_case(
     label: String,
-    sphere_sets: List[List[Sphere[Frame.LOCAL]]],
+    sphere_sets: List[List[Sphere[.LOCAL]]],
 ) raises:
     var sphere_count = 0
     for spheres in sphere_sets:
@@ -141,21 +141,21 @@ def _bench_sphere_case(
     )
 
 
-def _make_rays(count: Int) -> List[Rayf32[Frame.LOCAL]]:
-    var rays = List[Rayf32[Frame.LOCAL]](capacity=count)
+def _make_rays(count: Int) -> List[Rayf32[.LOCAL]]:
+    var rays = List[Rayf32[.LOCAL]](capacity=count)
     for i in range(count):
         var x = Float32(i % 256) * 0.25
         var y = Float32((i / 256) % 256) * 0.25
         rays.append(
-            Rayf32[Frame.LOCAL](
-                Point3f32[Frame.LOCAL](x, y, -1.0),
-                Vec3f32[Frame.LOCAL](0.0, 0.0, 1.0),
+            Rayf32[.LOCAL](
+                Point3f32[.LOCAL](x, y, -1.0),
+                Vec3f32[.LOCAL](0.0, 0.0, 1.0),
             )
         )
     return rays^
 
 
-def _bench_trace(vertices: List[Point3f32[Frame.LOCAL]]) raises:
+def _bench_trace(vertices: List[Point3f32[.LOCAL]]) raises:
     comptime RAY_COUNT = 65536
     var rays = _make_rays(RAY_COUNT)
     var packed = build_triangle_blases[WIDTH]([vertices.copy()])
@@ -184,7 +184,7 @@ def run_benchmark() raises:
     var one_large = _make_uniform_sets(1, 16384)
     var many_tiny = _make_uniform_sets(128, 4)
     var many_medium = _make_uniform_sets(16, 1024)
-    var mixed = List[List[Point3f32[Frame.LOCAL]]]()
+    var mixed = List[List[Point3f32[.LOCAL]]]()
     mixed.append(_make_mesh(1, 0))
     mixed.append(_make_mesh(17, 1))
     mixed.append(_make_mesh(257, 2))
@@ -204,7 +204,7 @@ def run_benchmark() raises:
     var one_large_spheres = _make_uniform_sphere_sets(1, 16384)
     var many_tiny_spheres = _make_uniform_sphere_sets(128, 4)
     var many_medium_spheres = _make_uniform_sphere_sets(16, 1024)
-    var mixed_spheres = List[List[Sphere[Frame.LOCAL]]]()
+    var mixed_spheres = List[List[Sphere[.LOCAL]]]()
     mixed_spheres.append(_make_spheres(1, 0))
     mixed_spheres.append(_make_spheres(17, 1))
     mixed_spheres.append(_make_spheres(257, 2))

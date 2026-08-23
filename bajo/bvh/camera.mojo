@@ -27,14 +27,14 @@ struct Camera(TrivialRegisterPassable, Writable):
     comptime DEFOCUS_DISK_U = 14
     comptime DEFOCUS_DISK_V = 17
 
-    var origin: Point3f32[Frame.WORLD]
-    var forward: Vec3f32[Frame.WORLD]
-    var right: Vec3f32[Frame.WORLD]
-    var up: Vec3f32[Frame.WORLD]
+    var origin: Point3f32[.WORLD]
+    var forward: Vec3f32[.WORLD]
+    var right: Vec3f32[.WORLD]
+    var up: Vec3f32[.WORLD]
     var fov_scale: Float32
     var focus_dist: Float32
-    var defocus_disk_u: Vec3f32[Frame.WORLD]
-    var defocus_disk_v: Vec3f32[Frame.WORLD]
+    var defocus_disk_u: Vec3f32[.WORLD]
+    var defocus_disk_v: Vec3f32[.WORLD]
 
     def __init__(out self, data: ImmSpan[Float32, _], base: Int = 0):
         debug_assert["safe", _use_compiler_assume=True](
@@ -76,9 +76,9 @@ struct Camera(TrivialRegisterPassable, Writable):
 
     def __init__(
         out self,
-        origin: Point3f32[Frame.WORLD],
-        target: Point3f32[Frame.WORLD],
-        world_up: Vec3f32[Frame.WORLD],
+        origin: Point3f32[.WORLD],
+        target: Point3f32[.WORLD],
+        world_up: Vec3f32[.WORLD],
         fov_scale: Float32,
         focus_dist: Float32 = 1.0,
         defocus_angle: Float32 = 0.0,
@@ -98,9 +98,9 @@ struct Camera(TrivialRegisterPassable, Writable):
 
     @staticmethod
     def from_vfov(
-        origin: Point3f32[Frame.WORLD],
-        target: Point3f32[Frame.WORLD],
-        world_up: Vec3f32[Frame.WORLD],
+        origin: Point3f32[.WORLD],
+        target: Point3f32[.WORLD],
+        world_up: Vec3f32[.WORLD],
         vfov: Float32,
         focus_dist: Float32 = 1.0,
         defocus_angle: Float32 = 0.0,
@@ -121,7 +121,7 @@ struct Camera(TrivialRegisterPassable, Writable):
         py_i: Int,
         width: Int,
         height: Int,
-    ) -> Rayf32[Frame.WORLD]:
+    ) -> Rayf32[.WORLD]:
         return self.make_ray_sampled(
             Float32(px_i),
             Float32(py_i),
@@ -140,7 +140,7 @@ struct Camera(TrivialRegisterPassable, Writable):
         py_i: Int,
         width: Int,
         inv_height: Float32,
-    ) -> Rayf32[Frame.WORLD]:
+    ) -> Rayf32[.WORLD]:
         var screen_x = (
             2.0 * (Float32(px_i) + 0.5) - Float32(width)
         ) * inv_height
@@ -151,43 +151,43 @@ struct Camera(TrivialRegisterPassable, Writable):
             + self.right * (screen_x * self.fov_scale)
             + self.up * (screen_y * self.fov_scale)
         )
-        return Rayf32[Frame.WORLD](self.origin, direction, 0.0, f32_max)
+        return Rayf32[.WORLD](self.origin, direction, 0.0, f32_max)
 
     def make_ray_sampled[
         length: SIMDLength = 1
     ](
         self,
-        px: SIMD[DType.float32, length],
-        py: SIMD[DType.float32, length],
+        px: SIMD[.float32, length],
+        py: SIMD[.float32, length],
         width: Float32,
         height: Float32,
-        pixel_u: SIMD[DType.float32, length],
-        pixel_v: SIMD[DType.float32, length],
-        lens_u: SIMD[DType.float32, length] = 0.0,
-        lens_v: SIMD[DType.float32, length] = 0.0,
-        t_min: SIMD[DType.float32, length] = 0.0,
-    ) -> Ray[DType.float32, Frame.WORLD, length]:
+        pixel_u: SIMD[.float32, length],
+        pixel_v: SIMD[.float32, length],
+        lens_u: SIMD[.float32, length] = 0.0,
+        lens_v: SIMD[.float32, length] = 0.0,
+        t_min: SIMD[.float32, length] = 0.0,
+    ) -> Ray[.float32, .WORLD, length]:
         var aspect = width / height
         var sx = ((px + pixel_u) / width) * 2.0 - 1.0
         var sy = 1.0 - ((py + pixel_v) / height) * 2.0
-        var origin = Point3[DType.float32, Frame.WORLD, length](
+        var origin = Point3[.float32, .WORLD, length](
             self.origin.x, self.origin.y, self.origin.z
         )
-        var forward = Vec3[DType.float32, Frame.WORLD, length](
+        var forward = Vec3[.float32, .WORLD, length](
             self.forward.x, self.forward.y, self.forward.z
         )
-        var right = Vec3[DType.float32, Frame.WORLD, length](
+        var right = Vec3[.float32, .WORLD, length](
             self.right.x, self.right.y, self.right.z
         )
-        var up = Vec3[DType.float32, Frame.WORLD, length](
+        var up = Vec3[.float32, .WORLD, length](
             self.up.x, self.up.y, self.up.z
         )
-        var disk_u = Vec3[DType.float32, Frame.WORLD, length](
+        var disk_u = Vec3[.float32, .WORLD, length](
             self.defocus_disk_u.x,
             self.defocus_disk_u.y,
             self.defocus_disk_u.z,
         )
-        var disk_v = Vec3[DType.float32, Frame.WORLD, length](
+        var disk_v = Vec3[.float32, .WORLD, length](
             self.defocus_disk_v.x,
             self.defocus_disk_v.y,
             self.defocus_disk_v.z,
@@ -200,7 +200,7 @@ struct Camera(TrivialRegisterPassable, Writable):
         var ray_origin = origin + lens_u * disk_u + lens_v * disk_v
         var dir = focal_point - ray_origin
 
-        return Ray[DType.float32, Frame.WORLD, length](
+        return Ray[.float32, .WORLD, length](
             ray_origin,
             normalize(dir),
             t_min,

@@ -7,8 +7,8 @@ from bajo.core import Frame, Point3f32, Rayf32, Vec3f32
 
 
 def validate_ray_launch(
-    d_rays: DeviceBuffer[DType.float32],
-    d_hits: DeviceBuffer[DType.float32],
+    d_rays: DeviceBuffer[.float32],
+    d_hits: DeviceBuffer[.float32],
     ray_count: Int,
 ) raises:
     debug_assert["safe", _use_compiler_assume=True](

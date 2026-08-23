@@ -36,15 +36,13 @@ comptime RENDER_ALGORITHM = RENDER.PATH
 comptime MESH_COUNT = 7
 comptime COPY_COUNT = 3
 comptime TRIANGLE_SAMPLE_STRIDE = 1
-comptime _LOCAL = Frame.LOCAL
-comptime _WORLD = Frame.WORLD
-comptime _PointL = Point3f32[_LOCAL]
-comptime _PointW = Point3f32[_WORLD]
-comptime _VecL = Vec3f32[_LOCAL]
-comptime _VecW = Vec3f32[_WORLD]
-comptime _BoundsL = AABB[_LOCAL]
-comptime _BoundsW = AABB[_WORLD]
-comptime _Transform = Affine3f32[_LOCAL, _WORLD]
+comptime _PointL = Point3f32[.LOCAL]
+comptime _PointW = Point3f32[.WORLD]
+comptime _VecL = Vec3f32[.LOCAL]
+comptime _VecW = Vec3f32[.WORLD]
+comptime _BoundsL = AABB[.LOCAL]
+comptime _BoundsW = AABB[.WORLD]
+comptime _Transform = Affine3f32[.LOCAL, .WORLD]
 
 
 def _normalized_instance_scale(
@@ -81,13 +79,13 @@ def _make_centered_transform(
 def _random_surface(mut builder: SceneBuilder, mut rng: Rng) -> SurfaceId[1]:
     var choose = rng.f32()
     if choose < 0.58:
-        var albedo = rng.vec3f32[_WORLD](0.15, 0.95) * rng.vec3f32[_WORLD](
+        var albedo = rng.vec3f32[.WORLD](0.15, 0.95) * rng.vec3f32[.WORLD](
             0.35, 1.0
         )
         return builder.add_lambertian(albedo)
 
     if choose < 0.88:
-        var albedo = rng.vec3f32[_WORLD](0.45, 1.0)
+        var albedo = rng.vec3f32[.WORLD](0.45, 1.0)
         var fuzz = rng.f32(0.0, 0.22)
         return builder.add_metal(albedo, fuzz)
 

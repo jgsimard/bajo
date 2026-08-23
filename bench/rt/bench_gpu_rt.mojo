@@ -62,16 +62,16 @@ def main() raises:
             "hot timings exclude scene setup, target allocation, and download"
         )
 
-        var path = bench_gpu_triangle_algorithm[RENDER.PATH](
+        var path = bench_gpu_triangle_algorithm[.PATH](
             ctx, target, gpu_world, settings
         )
-        var ao = bench_gpu_triangle_algorithm[RENDER.AO](
+        var ao = bench_gpu_triangle_algorithm[.AO](
             ctx, target, gpu_world, settings
         )
-        var nee = bench_gpu_triangle_algorithm[RENDER.NEE](
+        var nee = bench_gpu_triangle_algorithm[.NEE](
             ctx, target, gpu_world, settings
         )
-        var mis = bench_gpu_triangle_algorithm[RENDER.MIS](
+        var mis = bench_gpu_triangle_algorithm[.MIS](
             ctx, target, gpu_world, settings
         )
 
@@ -87,7 +87,7 @@ def main() raises:
         )
         ctx.synchronize()
         var many_scene_ns = Int(perf_counter_ns() - many_scene_t0)
-        var many_light_nee = bench_gpu_triangle_algorithm[RENDER.NEE](
+        var many_light_nee = bench_gpu_triangle_algorithm[.NEE](
             ctx, target, many_gpu_world, settings
         )
         print(

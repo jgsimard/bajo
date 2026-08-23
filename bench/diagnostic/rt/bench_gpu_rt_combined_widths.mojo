@@ -42,18 +42,18 @@ def _combined_grid_world() raises -> CpuScene[]:
     var wall = builder.add_lambertian(Color(0.22, 0.28, 0.36))
     var light = builder.add_emissive(Color(5.0, 4.5, 3.8))
 
-    var mesh = List[Point3f32[Frame.LOCAL]]()
-    mesh.append(Point3f32[Frame.LOCAL](-0.45, -0.45, 0.0))
-    mesh.append(Point3f32[Frame.LOCAL](0.45, -0.45, 0.0))
-    mesh.append(Point3f32[Frame.LOCAL](0.45, 0.45, 0.0))
-    mesh.append(Point3f32[Frame.LOCAL](-0.45, -0.45, 0.0))
-    mesh.append(Point3f32[Frame.LOCAL](0.45, 0.45, 0.0))
-    mesh.append(Point3f32[Frame.LOCAL](-0.45, 0.45, 0.0))
+    var mesh = List[Point3f32[.LOCAL]]()
+    mesh.append(Point3f32[.LOCAL](-0.45, -0.45, 0.0))
+    mesh.append(Point3f32[.LOCAL](0.45, -0.45, 0.0))
+    mesh.append(Point3f32[.LOCAL](0.45, 0.45, 0.0))
+    mesh.append(Point3f32[.LOCAL](-0.45, -0.45, 0.0))
+    mesh.append(Point3f32[.LOCAL](0.45, 0.45, 0.0))
+    mesh.append(Point3f32[.LOCAL](-0.45, 0.45, 0.0))
     var mesh_bounds = compute_bounds(mesh)
     var mesh_idx = builder.add_triangle_mesh_instance(
         mesh,
-        Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(
-            Vec3f32[Frame.WORLD](-7.5, -7.5, -5.0)
+        Affine3f32[.LOCAL, .WORLD].from_translation(
+            Vec3f32[.WORLD](-7.5, -7.5, -5.0)
         ),
         mesh_bounds,
         matte,
@@ -64,8 +64,8 @@ def _combined_grid_world() raises -> CpuScene[]:
                 continue
             builder.add_triangle_instance(
                 mesh_idx,
-                Affine3f32[Frame.LOCAL, Frame.WORLD].from_translation(
-                    Vec3f32[Frame.WORLD](
+                Affine3f32[.LOCAL, .WORLD].from_translation(
+                    Vec3f32[.WORLD](
                         Float32(x) - 7.5,
                         Float32(y) - 7.5,
                         -5.0 - 0.08 * Float32((x + 3 * y) % 5),
@@ -77,21 +77,21 @@ def _combined_grid_world() raises -> CpuScene[]:
 
     for x in range(7):
         builder.add_sphere(
-            Point3f32[Frame.WORLD](Float32(x) * 2.0 - 6.0, -8.4, -3.7),
+            Point3f32[.WORLD](Float32(x) * 2.0 - 6.0, -8.4, -3.7),
             0.55,
             matte,
         )
     builder.add_sphere(
-        Point3f32[Frame.WORLD](0.0, 8.0, -3.5),
+        Point3f32[.WORLD](0.0, 8.0, -3.5),
         0.8,
         light,
     )
 
     builder.add_quad(
-        Point3f32[Frame.WORLD](-10.0, -10.0, -6.0),
-        Point3f32[Frame.WORLD](10.0, -10.0, -6.0),
-        Point3f32[Frame.WORLD](10.0, 10.0, -6.0),
-        Point3f32[Frame.WORLD](-10.0, 10.0, -6.0),
+        Point3f32[.WORLD](-10.0, -10.0, -6.0),
+        Point3f32[.WORLD](10.0, -10.0, -6.0),
+        Point3f32[.WORLD](10.0, 10.0, -6.0),
+        Point3f32[.WORLD](-10.0, 10.0, -6.0),
         wall,
     )
     var scene = builder^.finish()
@@ -100,9 +100,9 @@ def _combined_grid_world() raises -> CpuScene[]:
 
 def _camera() -> Camera:
     return Camera.from_vfov(
-        Point3f32[Frame.WORLD](0.0, 0.0, 18.0),
-        Point3f32[Frame.WORLD](0.0, 0.0, -5.0),
-        Vec3f32[Frame.WORLD](0.0, 1.0, 0.0),
+        Point3f32[.WORLD](0.0, 0.0, 18.0),
+        Point3f32[.WORLD](0.0, 0.0, -5.0),
+        Vec3f32[.WORLD](0.0, 1.0, 0.0),
         42.0,
     )
 
@@ -113,7 +113,7 @@ def _bench_algorithm[
     tlas_leaf_width: SIMDLength,
     blas_node_width: SIMDLength = 4,
     blas_leaf_width: SIMDLength = 4,
-    blas_build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
+    blas_build_method: GpuBvhBuildMethod = .LBVH,
     blas_compressed: Bool = False,
 ](
     ctx: DeviceContext,
@@ -131,7 +131,7 @@ def _bench_algorithm[
         blas_compressed,
         4,
         4,
-        GpuBvhBuildMethod.LBVH,
+        .LBVH,
         False,
     ],
     settings: RenderSettings,
@@ -150,7 +150,7 @@ def _bench_algorithm[
         blas_compressed,
         4,
         4,
-        GpuBvhBuildMethod.LBVH,
+        .LBVH,
         False,
     ](ctx, target, world, settings)
     ctx.synchronize()
@@ -172,7 +172,7 @@ def _bench_algorithm[
             blas_compressed,
             4,
             4,
-            GpuBvhBuildMethod.LBVH,
+            .LBVH,
             False,
         ](ctx, target, world, settings)
         var t1 = perf_counter_ns()
@@ -189,7 +189,7 @@ def _run_layout[
     tlas_leaf_width: SIMDLength,
     blas_node_width: SIMDLength = 4,
     blas_leaf_width: SIMDLength = 4,
-    blas_build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.LBVH,
+    blas_build_method: GpuBvhBuildMethod = .LBVH,
     blas_compressed: Bool = False,
 ](
     mut ctx: DeviceContext,
@@ -213,7 +213,7 @@ def _run_layout[
         blas_compressed,
         4,
         4,
-        GpuBvhBuildMethod.LBVH,
+        .LBVH,
         False,
     ](ctx, world.scene_data())
     ctx.synchronize()
@@ -223,7 +223,7 @@ def _run_layout[
     print_gpu_rt_result(
         "PATH",
         _bench_algorithm[
-            RENDER.PATH,
+            .PATH,
             tlas_node_width,
             tlas_leaf_width,
             blas_node_width,
@@ -236,7 +236,7 @@ def _run_layout[
     print_gpu_rt_result(
         "AO",
         _bench_algorithm[
-            RENDER.AO,
+            .AO,
             tlas_node_width,
             tlas_leaf_width,
             blas_node_width,
@@ -249,7 +249,7 @@ def _run_layout[
     print_gpu_rt_result(
         "NEE",
         _bench_algorithm[
-            RENDER.NEE,
+            .NEE,
             tlas_node_width,
             tlas_leaf_width,
             blas_node_width,
@@ -262,7 +262,7 @@ def _run_layout[
     print_gpu_rt_result(
         "MIS",
         _bench_algorithm[
-            RENDER.MIS,
+            .MIS,
             tlas_node_width,
             tlas_leaf_width,
             blas_node_width,
@@ -301,7 +301,7 @@ def main() raises:
         _run_layout[2, 1](
             ctx, target, world, settings, sample_count, "Default TLAS2/1"
         )
-        _run_layout[2, 1, 8, 4, GpuBvhBuildMethod.HPLOC, True](
+        _run_layout[2, 1, 8, 4, .HPLOC, True](
             ctx,
             target,
             world,

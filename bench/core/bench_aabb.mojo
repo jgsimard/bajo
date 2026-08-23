@@ -25,7 +25,7 @@ from bajo.core.random import Rng
 
 comptime num_elements = 100_000
 
-comptime BENCH_FRAME = Frame.WORLD
+comptime BENCH_FRAME = .WORLD
 comptime BenchAABB = AABB[BENCH_FRAME]
 comptime BenchVec3f32 = Vec3f32[BENCH_FRAME]
 comptime BenchPoint3f32 = Point3f32[BENCH_FRAME]
@@ -155,9 +155,9 @@ def apply_trs_affine3_v0_width[
     width: SIMDLength
 ](
     box: AxisAlignedBoundingBox[DType.float32, BENCH_FRAME, width],
-    translation: Vec3[DType.float32, BENCH_FRAME, width],
+    translation: Vec3[.float32, BENCH_FRAME, width],
     rotation: Quaternion[DType.float32, BENCH_FRAME, width],
-    scale: Vec3[DType.float32, BENCH_FRAME, width],
+    scale: Vec3[.float32, BENCH_FRAME, width],
 ) -> AxisAlignedBoundingBox[DType.float32, BENCH_FRAME, width]:
     var transform = Affine3[
         DType.float32,
@@ -170,7 +170,7 @@ def apply_trs_affine3_v0_width[
     var new_max = translation.copy()
 
     # X column
-    var c0 = Vec3[DType.float32, BENCH_FRAME, width](
+    var c0 = Vec3[.float32, BENCH_FRAME, width](
         transform.m00, transform.m10, transform.m20
     )
     var c0_a = c0 * box._min.x
@@ -179,7 +179,7 @@ def apply_trs_affine3_v0_width[
     new_max += vmax(c0_a, c0_b)
 
     # Y column
-    var c1 = Vec3[DType.float32, BENCH_FRAME, width](
+    var c1 = Vec3[.float32, BENCH_FRAME, width](
         transform.m01, transform.m11, transform.m21
     )
     var c1_a = c1 * box._min.y
@@ -188,7 +188,7 @@ def apply_trs_affine3_v0_width[
     new_max += vmax(c1_a, c1_b)
 
     # Z column
-    var c2 = Vec3[DType.float32, BENCH_FRAME, width](
+    var c2 = Vec3[.float32, BENCH_FRAME, width](
         transform.m02, transform.m12, transform.m22
     )
     var c2_a = c2 * box._min.z
@@ -206,9 +206,9 @@ def apply_trs_affine3_v1_width[
     width: SIMDLength
 ](
     box: AxisAlignedBoundingBox[DType.float32, BENCH_FRAME, width],
-    translation: Vec3[DType.float32, BENCH_FRAME, width],
+    translation: Vec3[.float32, BENCH_FRAME, width],
     rotation: Quaternion[DType.float32, BENCH_FRAME, width],
-    scale: Vec3[DType.float32, BENCH_FRAME, width],
+    scale: Vec3[.float32, BENCH_FRAME, width],
 ) -> AxisAlignedBoundingBox[DType.float32, BENCH_FRAME, width]:
     var transform = Affine3[
         DType.float32,
@@ -268,9 +268,9 @@ def dispatch_affine3_width[
     width: SIMDLength,
 ](
     box: AxisAlignedBoundingBox[DType.float32, BENCH_FRAME, width],
-    translation: Vec3[DType.float32, BENCH_FRAME, width],
+    translation: Vec3[.float32, BENCH_FRAME, width],
     rotation: Quaternion[DType.float32, BENCH_FRAME, width],
-    scale: Vec3[DType.float32, BENCH_FRAME, width],
+    scale: Vec3[.float32, BENCH_FRAME, width],
 ) -> AxisAlignedBoundingBox[DType.float32, BENCH_FRAME, width]:
     comptime if version == 0:
         return apply_trs_affine3_v0_width[width](
@@ -290,9 +290,9 @@ struct Affine3WidthBenchmarkData[width: SIMDLength]:
     ]
 
     var boxes: List[Self.aabb]
-    var translations: List[Vec3[DType.float32, BENCH_FRAME, Self.width]]
+    var translations: List[Vec3[.float32, BENCH_FRAME, Self.width]]
     var rotations: List[Quaternion[DType.float32, BENCH_FRAME, Self.width]]
-    var scales: List[Vec3[DType.float32, BENCH_FRAME, Self.width]]
+    var scales: List[Vec3[.float32, BENCH_FRAME, Self.width]]
     var dst: List[Self.aabb]
 
     def __init__(out self):
@@ -314,7 +314,7 @@ struct Affine3WidthBenchmarkData[width: SIMDLength]:
             )
 
             self.translations.append(
-                Vec3[DType.float32, BENCH_FRAME, Self.width](
+                Vec3[.float32, BENCH_FRAME, Self.width](
                     rng.f32(),
                     rng.f32(),
                     rng.f32(),
@@ -327,13 +327,13 @@ struct Affine3WidthBenchmarkData[width: SIMDLength]:
                     BENCH_FRAME,
                     Self.width,
                 ].from_axis_angle(
-                    Vec3[DType.float32, BENCH_FRAME, Self.width](0, 1, 0),
+                    Vec3[.float32, BENCH_FRAME, Self.width](0, 1, 0),
                     rng.f32(),
                 )
             )
 
             self.scales.append(
-                Vec3[DType.float32, BENCH_FRAME, Self.width](
+                Vec3[.float32, BENCH_FRAME, Self.width](
                     rng.f32(),
                     rng.f32(),
                     rng.f32(),

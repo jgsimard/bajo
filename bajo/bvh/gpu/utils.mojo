@@ -87,7 +87,7 @@ struct GpuBVHValidation(TrivialRegisterPassable):
 
 def _download_full_hit_checksum(
     ctx: DeviceContext,
-    d_hits: DeviceBuffer[DType.float32],
+    d_hits: DeviceBuffer[.float32],
     ray_count: Int,
 ) raises -> Tuple[Float64, UInt32]:
     var checksum = 0.0
@@ -105,7 +105,7 @@ def _download_full_hit_checksum(
 def upload_camera(
     mut ctx: DeviceContext,
     camera: Camera,
-) raises -> DeviceBuffer[DType.float32]:
+) raises -> DeviceBuffer[.float32]:
     var params = camera.flatten()
     return upload_list(ctx, params)
 
@@ -115,7 +115,7 @@ def upload_vertices[
 ](
     mut ctx: DeviceContext,
     verts: ImmSpan[Point3f32[frame], _],
-) raises -> DeviceBuffer[DType.float32]:
+) raises -> DeviceBuffer[.float32]:
     var flat = List[Float32](capacity=len(verts) * 3)
     for v in verts:
         flat.append(v.x)
@@ -129,7 +129,7 @@ def upload_rays[
 ](
     mut ctx: DeviceContext,
     rays: ImmSpan[Rayf32[frame], _],
-) raises -> DeviceBuffer[DType.float32]:
+) raises -> DeviceBuffer[.float32]:
     """Upload rays in the field-major, warp-coalesced tracing ABI."""
     var flat = List[Float32](capacity=len(rays) * Rayf32.STRIDE)
     for ray in rays:

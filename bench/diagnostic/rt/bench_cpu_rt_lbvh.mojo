@@ -40,13 +40,13 @@ def main() raises:
     print(t"{WARMUPS} warmups + {REPEATS} measured renders")
 
     for _ in range(WARMUPS):
-        _ = render_depth_first[RENDER.PATH](settings, camera, world)
+        _ = render_depth_first[.PATH](settings, camera, world)
 
     var render_times = List[Int](capacity=REPEATS)
     var total_times = List[Int](capacity=REPEATS)
     var checksum = Float64(0.0)
     for _ in range(REPEATS):
-        var result = render_depth_first[RENDER.PATH](settings, camera, world)
+        var result = render_depth_first[.PATH](settings, camera, world)
         render_times.append(result.timings.render_ns)
         total_times.append(result.timings.total_ns)
         checksum = pixel_checksum(result.pixels)

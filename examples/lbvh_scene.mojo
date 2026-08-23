@@ -30,18 +30,18 @@ comptime LBVH_GRID_Z = 6
 
 
 def _lbvh_centered_transform(
-    bounds: AABB[Frame.LOCAL],
+    bounds: AABB[.LOCAL],
     rotation: Quat,
-    scale: Vec3f32[Frame.LOCAL],
-    bottom_center: Vec3f32[Frame.WORLD],
-) -> Affine3f32[Frame.LOCAL, Frame.WORLD]:
+    scale: Vec3f32[.LOCAL],
+    bottom_center: Vec3f32[.WORLD],
+) -> Affine3f32[.LOCAL, .WORLD]:
     var transform = Affine3f32[
-        Frame.LOCAL, Frame.WORLD
+        .LOCAL, .WORLD
     ].from_rotation_scale_translation(
-        rotation, scale, Vec3f32[Frame.WORLD](0.0)
+        rotation, scale, Vec3f32[.WORLD](0.0)
     )
     var center = bounds.centroid()
-    var local_anchor = Vec3f32[Frame.LOCAL](center.x, bounds._min.y, center.z)
+    var local_anchor = Vec3f32[.LOCAL](center.x, bounds._min.y, center.z)
     var anchor_delta = transform.vector(local_anchor)
     transform.tx = bottom_center.x - anchor_delta.x
     transform.ty = bottom_center.y - anchor_delta.y
@@ -56,8 +56,8 @@ def make_lbvh_camera() -> Camera:
     var yaw = degrees_to_radians(yaw_degrees)
     var pitch = degrees_to_radians(pitch_degrees)
     var cos_pitch = cos(pitch)
-    var origin = Point3f32[Frame.WORLD](0.0, 6.0, -28.0)
-    var forward = Vec3f32[Frame.WORLD](
+    var origin = Point3f32[.WORLD](0.0, 6.0, -28.0)
+    var forward = Vec3f32[.WORLD](
         sin(yaw) * cos_pitch,
         sin(pitch),
         -cos(yaw) * cos_pitch,
@@ -65,7 +65,7 @@ def make_lbvh_camera() -> Camera:
     return Camera.from_vfov(
         origin,
         origin + forward,
-        Vec3f32[Frame.WORLD](0.0, 1.0, 0.0),
+        Vec3f32[.WORLD](0.0, 1.0, 0.0),
         35.0,
         10.0,
         0.0,
@@ -91,21 +91,21 @@ def make_lbvh_world[
     var light_surface = builder.add_emissive(Color(18.0, 16.0, 13.0))
 
     builder.add_sphere(
-        Point3f32[Frame.WORLD](0.0, 12.0, 0.0),
+        Point3f32[.WORLD](0.0, 12.0, 0.0),
         2.0,
         light_surface,
     )
 
     builder.add_triangle(
-        Point3f32[Frame.WORLD](-26.0, 0.0, -26.0),
-        Point3f32[Frame.WORLD](26.0, 0.0, -26.0),
-        Point3f32[Frame.WORLD](26.0, 0.0, 26.0),
+        Point3f32[.WORLD](-26.0, 0.0, -26.0),
+        Point3f32[.WORLD](26.0, 0.0, -26.0),
+        Point3f32[.WORLD](26.0, 0.0, 26.0),
         ground_surface,
     )
     builder.add_triangle(
-        Point3f32[Frame.WORLD](-26.0, 0.0, -26.0),
-        Point3f32[Frame.WORLD](26.0, 0.0, 26.0),
-        Point3f32[Frame.WORLD](-26.0, 0.0, 26.0),
+        Point3f32[.WORLD](-26.0, 0.0, -26.0),
+        Point3f32[.WORLD](26.0, 0.0, 26.0),
+        Point3f32[.WORLD](-26.0, 0.0, 26.0),
         ground_surface,
     )
 
@@ -134,12 +134,12 @@ def make_lbvh_world[
                 var variation = Float32(1.0) + Float32(
                     (x + z * LBVH_GRID_X) % 3
                 ) * Float32(0.025)
-                var scale = Vec3f32[Frame.LOCAL](
+                var scale = Vec3f32[.LOCAL](
                     TARGET_EXTENT / local_extent * variation * 1.5
                 )
                 var angle = rng.f32(-1.0, 1.0)
                 var rotation = Quat.from_axis_angle(
-                    Vec3f32[Frame.LOCAL](0.0, 1.0, 0.0), angle
+                    Vec3f32[.LOCAL](0.0, 1.0, 0.0), angle
                 )
                 var cell_x = (
                     Float32(x) - Float32(LBVH_GRID_X - 1) * 0.5
@@ -154,7 +154,7 @@ def make_lbvh_world[
                     bounds,
                     rotation,
                     scale,
-                    Vec3f32[Frame.WORLD](cell_x + local_x, 0.0, cell_z),
+                    Vec3f32[.WORLD](cell_x + local_x, 0.0, cell_z),
                 )
                 builder.add_triangle_instance(
                     UInt32(mesh_idx),

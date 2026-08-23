@@ -19,9 +19,9 @@ from bajo.rt.types import (
 def evaluate_bsdf(
     surface: SurfaceId[1],
     surfaces: SurfaceStore,
-    ray: Rayf32[Frame.WORLD],
+    ray: Rayf32[.WORLD],
     hit: ShadingPoint[1],
-    out_direction: Vec3f32[Frame.WORLD],
+    out_direction: Vec3f32[.WORLD],
 ) -> BsdfEvaluation[1]:
     """Evaluate the non-delta BSDF and its solid-angle sampling PDF."""
     if surface.kind() == MAT.LAMBERTIAN:
@@ -70,7 +70,7 @@ def evaluate_bsdf(
 def sample_bsdf(
     surface: SurfaceId[1],
     surfaces: SurfaceStore,
-    ray: Rayf32[Frame.WORLD],
+    ray: Rayf32[.WORLD],
     hit: ShadingPoint[1],
     mut rng: Rng,
 ) -> BsdfSample[1]:

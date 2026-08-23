@@ -67,7 +67,7 @@ def _encoded_bounds(
     leaf_bounds: ImmSpan[Float32, _],
     leaf_ids: ImmSpan[UInt32, _],
     node_bounds: ImmSpan[Float32, _],
-) -> AABB[Frame.WORLD]:
+) -> AABB[.WORLD]:
     """Load bounds for either encoded leaf or internal binary topology."""
     if is_leaf_ref(encoded):
         var sorted_leaf_idx = decode_ref_index(encoded)
@@ -76,7 +76,7 @@ def _encoded_bounds(
             "encoded leaf index is outside the leaf-id span",
         )
         var item_idx = UInt32(leaf_ids.unsafe_get(Int(sorted_leaf_idx)))
-        return AABB[Frame.WORLD].load6(leaf_bounds, Int(item_idx) * AABB.STRIDE)
+        return AABB[.WORLD].load6(leaf_bounds, Int(item_idx) * AABB.STRIDE)
     return _load_and_union_node_bounds(node_bounds, decode_ref_index(encoded))
 
 
@@ -94,10 +94,10 @@ def _write_child_bounds(
 
 def _load_and_union_node_bounds(
     node_bounds: ImmSpan[Float32, _], parent: UInt32
-) -> AABB[Frame.WORLD]:
+) -> AABB[.WORLD]:
     var b = _node_bounds_base(parent)
-    var b1 = AABB[Frame.WORLD].load6(node_bounds, b)
-    var b2 = AABB[Frame.WORLD].load6(node_bounds, b + 6)
+    var b1 = AABB[.WORLD].load6(node_bounds, b)
+    var b2 = AABB[.WORLD].load6(node_bounds, b + 6)
     return AABB.merge(b1, b2)
 
 
@@ -108,7 +108,7 @@ def init_empty_bounds_kernel(bounds: MutSpan[Float32, MutAnyOrigin]):
         return
 
     var b = i * BinaryBvhNode.BOUNDS_STRIDE
-    var invalid = AABB[Frame.WORLD].invalid()
+    var invalid = AABB[.WORLD].invalid()
     invalid.store6(bounds, b)
     invalid.store6(bounds, b + AABB.STRIDE)
 
@@ -149,12 +149,12 @@ def compute_segment_bounds_partials_kernel(
         + (partial_idx - segment_partial_begin) * BOUNDS_REDUCE_CHUNK
     )
     var last = min(first + BOUNDS_REDUCE_CHUNK, segment_leaf_end)
-    var bounds = AABB[Frame.WORLD].invalid()
-    var centroid_bounds = AABB[Frame.WORLD].invalid()
+    var bounds = AABB[.WORLD].invalid()
+    var centroid_bounds = AABB[.WORLD].invalid()
 
     for leaf_idx in range(first, last):
         var b = leaf_idx * AABB.STRIDE
-        var aabb = AABB[Frame.WORLD].load6(leaf_bounds, b)
+        var aabb = AABB[.WORLD].load6(leaf_bounds, b)
 
         bounds.grow(aabb)
         centroid_bounds.grow(aabb.centroid())
@@ -185,14 +185,14 @@ def reduce_segment_bounds_partials_kernel(
         segment_in_begin + (out_idx - segment_out_begin) * BOUNDS_REDUCE_CHUNK
     )
     var last = min(first + BOUNDS_REDUCE_CHUNK, segment_in_end)
-    var bounds = AABB[Frame.WORLD].invalid()
-    var centroid_bounds = AABB[Frame.WORLD].invalid()
+    var bounds = AABB[.WORLD].invalid()
+    var centroid_bounds = AABB[.WORLD].invalid()
 
     for i in range(first, last):
         var b = i * REDUCED_BOUNDS_STRIDE
 
-        var partial_bounds = AABB[Frame.WORLD].load6(in_partials, b)
-        var partial_centroid_bounds = AABB[Frame.WORLD].load6(
+        var partial_bounds = AABB[.WORLD].load6(in_partials, b)
+        var partial_centroid_bounds = AABB[.WORLD].load6(
             in_partials, b + AABB.STRIDE
         )
 
@@ -226,10 +226,10 @@ def _internal_segment_offsets(segments: SegmentOffsets) -> SegmentOffsets:
 struct GpuBinaryTopologyWorkspace(Copyable):
     """Transient Morton, parent, and refit state."""
 
-    var morton_keys: DeviceBuffer[DType.uint32]
-    var sort_keys: DeviceBuffer[DType.uint64]
-    var leaf_parent: DeviceBuffer[DType.uint32]
-    var node_flags: DeviceBuffer[DType.uint32]
+    var morton_keys: DeviceBuffer[.uint32]
+    var sort_keys: DeviceBuffer[.uint64]
+    var leaf_parent: DeviceBuffer[.uint32]
+    var node_flags: DeviceBuffer[.uint32]
 
     def __init__(
         out self,
@@ -237,14 +237,14 @@ struct GpuBinaryTopologyWorkspace(Copyable):
         leaf_capacity: Int,
         internal_capacity: Int,
     ) raises:
-        self.morton_keys = ctx.enqueue_create_buffer[DType.uint32](
+        self.morton_keys = ctx.enqueue_create_buffer[.uint32](
             leaf_capacity
         )
-        self.sort_keys = ctx.enqueue_create_buffer[DType.uint64](leaf_capacity)
-        self.leaf_parent = ctx.enqueue_create_buffer[DType.uint32](
+        self.sort_keys = ctx.enqueue_create_buffer[.uint64](leaf_capacity)
+        self.leaf_parent = ctx.enqueue_create_buffer[.uint32](
             leaf_capacity
         )
-        self.node_flags = ctx.enqueue_create_buffer[DType.uint32](
+        self.node_flags = ctx.enqueue_create_buffer[.uint32](
             max(internal_capacity, 1)
         )
 
@@ -255,9 +255,9 @@ struct GpuBinaryBuildWorkspace:
     var leaf_capacity: Int
     var internal_capacity: Int
     var segments: SegmentOffsets
-    var segment_offsets: DeviceBuffer[DType.uint32]
-    var bounds_scratch_a: DeviceBuffer[DType.float32]
-    var bounds_scratch_b: DeviceBuffer[DType.float32]
+    var segment_offsets: DeviceBuffer[.uint32]
+    var bounds_scratch_a: DeviceBuffer[.float32]
+    var bounds_scratch_b: DeviceBuffer[.float32]
     var sort: RadixSortWorkspace[DType.uint64, DType.uint32]
     var topology: Optional[GpuBinaryTopologyWorkspace]
 
@@ -280,10 +280,10 @@ struct GpuBinaryBuildWorkspace:
         self.internal_capacity = internal_segments.item_count()
         self.segments = segments.copy()
         self.segment_offsets = upload_list(ctx, self.segments.offsets)
-        self.bounds_scratch_a = ctx.enqueue_create_buffer[DType.float32](
+        self.bounds_scratch_a = ctx.enqueue_create_buffer[.float32](
             max(partial_segments.item_count(), 1) * REDUCED_BOUNDS_STRIDE
         )
-        self.bounds_scratch_b = ctx.enqueue_create_buffer[DType.float32](
+        self.bounds_scratch_b = ctx.enqueue_create_buffer[.float32](
             max(partial_segments.item_count(), 1) * REDUCED_BOUNDS_STRIDE
         )
         self.sort = RadixSortWorkspace[DType.uint64, DType.uint32](
@@ -306,33 +306,33 @@ struct GpuBinaryBoundsBvh:
     var leaf_count: Int
     var internal_count: Int
     var segments: SegmentOffsets
-    var segment_offsets: DeviceBuffer[DType.uint32]
+    var segment_offsets: DeviceBuffer[.uint32]
     var internal_segments: SegmentOffsets
-    var internal_segment_offsets: DeviceBuffer[DType.uint32]
-    var roots: DeviceBuffer[DType.uint32]
+    var internal_segment_offsets: DeviceBuffer[.uint32]
+    var roots: DeviceBuffer[.uint32]
 
-    var bounds_device: DeviceBuffer[DType.float32]
+    var bounds_device: DeviceBuffer[.float32]
     """Per segment: six root-bound then six centroid-bound values."""
 
-    var leaf_bounds: DeviceBuffer[DType.float32]
-    var leaf_payloads: DeviceBuffer[DType.uint32]
+    var leaf_bounds: DeviceBuffer[.float32]
+    var leaf_payloads: DeviceBuffer[.uint32]
 
-    var leaf_ids: DeviceBuffer[DType.uint32]
+    var leaf_ids: DeviceBuffer[.uint32]
 
     # Binary node layout:
     #   node_meta   : parent, left encoded child, right encoded child, fence/range end
     #   leaf_parent : parent internal node for each sorted leaf
     #   node_bounds : two child AABBs per internal node, 12 floats total
     #   node_flags  : refit synchronization flags
-    var node_meta: DeviceBuffer[DType.uint32]
-    var node_bounds: DeviceBuffer[DType.float32]
-    var node_leaf_counts: DeviceBuffer[DType.uint32]
+    var node_meta: DeviceBuffer[.uint32]
+    var node_bounds: DeviceBuffer[.float32]
+    var node_leaf_counts: DeviceBuffer[.uint32]
 
     def __init__(
         out self,
         mut ctx: DeviceContext,
-        leaf_bounds: DeviceBuffer[DType.float32],
-        leaf_payloads: DeviceBuffer[DType.uint32],
+        leaf_bounds: DeviceBuffer[.float32],
+        leaf_payloads: DeviceBuffer[.uint32],
         mut workspace: GpuBinaryBuildWorkspace,
     ) raises:
         self.leaf_count = len(leaf_payloads)
@@ -353,7 +353,7 @@ struct GpuBinaryBoundsBvh:
         self.internal_segment_offsets = upload_list(
             ctx, self.internal_segments.offsets
         )
-        self.roots = ctx.enqueue_create_buffer[DType.uint32](
+        self.roots = ctx.enqueue_create_buffer[.uint32](
             self.segments.segment_count()
         )
         self.internal_count = self.internal_segments.item_count()
@@ -368,7 +368,7 @@ struct GpuBinaryBoundsBvh:
         self.leaf_bounds = leaf_bounds
         self.leaf_payloads = leaf_payloads
 
-        self.bounds_device = ctx.enqueue_create_buffer[DType.float32](
+        self.bounds_device = ctx.enqueue_create_buffer[.float32](
             self.segments.segment_count() * REDUCED_BOUNDS_STRIDE
         )
 
@@ -414,15 +414,15 @@ struct GpuBinaryBoundsBvh:
             partial_offsets = next_offsets^
         in_buf.enqueue_copy_to(self.bounds_device)
 
-        self.leaf_ids = ctx.enqueue_create_buffer[DType.uint32](n_leaf)
+        self.leaf_ids = ctx.enqueue_create_buffer[.uint32](n_leaf)
 
-        self.node_meta = ctx.enqueue_create_buffer[DType.uint32](
+        self.node_meta = ctx.enqueue_create_buffer[.uint32](
             n_internal * BinaryBvhNode.META_STRIDE
         )
-        self.node_leaf_counts = ctx.enqueue_create_buffer[DType.uint32](
+        self.node_leaf_counts = ctx.enqueue_create_buffer[.uint32](
             n_internal
         )
-        self.node_bounds = ctx.enqueue_create_buffer[DType.float32](
+        self.node_bounds = ctx.enqueue_create_buffer[.float32](
             n_internal * BinaryBvhNode.BOUNDS_STRIDE
         )
         workspace.ensure_topology(ctx)
@@ -433,16 +433,16 @@ struct GpuBinaryBoundsBvh:
     def blocks_internal(self) -> Int:
         return ceildiv(max(self.internal_count, 1), GPU_BOUNDS_BVH_BLOCK_SIZE)
 
-    def root_bounds(self, segment_idx: Int = 0) raises -> AABB[Frame.WORLD]:
+    def root_bounds(self, segment_idx: Int = 0) raises -> AABB[.WORLD]:
         with self.bounds_device.map_to_host() as h:
-            return AABB[Frame.WORLD].load6(
+            return AABB[.WORLD].load6(
                 Span(unsafe_ptr=h.unsafe_ptr(), length=len(h)),
                 segment_idx * REDUCED_BOUNDS_STRIDE,
             )
 
-    def centroid_bounds(self, segment_idx: Int = 0) raises -> AABB[Frame.WORLD]:
+    def centroid_bounds(self, segment_idx: Int = 0) raises -> AABB[.WORLD]:
         with self.bounds_device.map_to_host() as h:
-            return AABB[Frame.WORLD].load6(
+            return AABB[.WORLD].load6(
                 Span(unsafe_ptr=h.unsafe_ptr(), length=len(h)),
                 segment_idx * REDUCED_BOUNDS_STRIDE + AABB.STRIDE,
             )

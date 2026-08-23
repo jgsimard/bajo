@@ -31,7 +31,7 @@ struct _WorldHit(Copyable, Writable):
     """Canonical closest-hit record shared by public and renderer queries."""
 
     var primitive: PrimitiveId
-    var normal: Vec3f32[Frame.WORLD]
+    var normal: Vec3f32[.WORLD]
     var surface: SurfaceId[1]
     var t: Float32
     var front_face: Bool
@@ -41,7 +41,7 @@ struct _WorldHit(Copyable, Writable):
     def miss(t: Float32 = f32_max) -> Self:
         return Self(
             PrimitiveId(PRIM.SPHERE, UInt32(0)),
-            Vec3f32[Frame.WORLD](0.0),
+            Vec3f32[.WORLD](0.0),
             SurfaceId(MAT.LAMBERTIAN, UInt32(0)),
             t,
             True,
@@ -66,27 +66,27 @@ struct CpuScene[
     passed to `render_wavefront`.
     """
 
-    var sphere_bvh: Optional[CpuBlasSet[Primitive.SPHERE, Self.world_bvh_width]]
+    var sphere_bvh: Optional[CpuBlasSet[.SPHERE, Self.world_bvh_width]]
     var triangle_bvh: Optional[
-        CpuBlasSet[Primitive.TRIANGLE, Self.world_bvh_width]
+        CpuBlasSet[.TRIANGLE, Self.world_bvh_width]
     ]
     var triangle_tlas: Optional[Tlas[Self.instance_bvh_width, 1]]
     var triangle_mesh_blases: Optional[
-        CpuBlasSet[Primitive.TRIANGLE, Self.instance_bvh_width]
+        CpuBlasSet[.TRIANGLE, Self.instance_bvh_width]
     ]
     var _scene: SceneData
 
     def __init__(out self, var scene: SceneData):
         self._scene = scene^
         self.sphere_bvh = Optional[
-            CpuBlasSet[Primitive.SPHERE, Self.world_bvh_width]
+            CpuBlasSet[.SPHERE, Self.world_bvh_width]
         ]()
         self.triangle_bvh = Optional[
-            CpuBlasSet[Primitive.TRIANGLE, Self.world_bvh_width]
+            CpuBlasSet[.TRIANGLE, Self.world_bvh_width]
         ]()
         self.triangle_tlas = Optional[Tlas[Self.instance_bvh_width, 1]]()
         self.triangle_mesh_blases = Optional[
-            CpuBlasSet[Primitive.TRIANGLE, Self.instance_bvh_width]
+            CpuBlasSet[.TRIANGLE, Self.instance_bvh_width]
         ]()
         self._build_acceleration()
 
@@ -96,41 +96,41 @@ struct CpuScene[
 
     def _build_acceleration(mut self):
         if len(self._scene.spheres()) > 0:
-            var bvh_spheres = List[Sphere[Frame.WORLD]](
+            var bvh_spheres = List[Sphere[.WORLD]](
                 capacity=len(self._scene.spheres())
             )
             for s in self._scene.spheres():
                 bvh_spheres.append(sphere_for_acceleration(s))
 
             self.sphere_bvh = Optional[
-                CpuBlasSet[Primitive.SPHERE, Self.world_bvh_width]
+                CpuBlasSet[.SPHERE, Self.world_bvh_width]
             ](
                 build_sphere_blases[
-                    Self.world_bvh_width, CpuBvhBuildMethod.SAH, Frame.WORLD
+                    Self.world_bvh_width, .SAH, .WORLD
                 ]([bvh_spheres^])
             )
 
         if len(self._scene.triangle_vertices()) > 0:
             self.triangle_bvh = Optional[
-                CpuBlasSet[Primitive.TRIANGLE, Self.world_bvh_width]
+                CpuBlasSet[.TRIANGLE, Self.world_bvh_width]
             ](
                 build_triangle_blases[
                     Self.world_bvh_width,
                     Self.world_bvh_width,
-                    CpuBvhBuildMethod.SAH,
-                    Frame.WORLD,
+                    .SAH,
+                    .WORLD,
                 ]([self._scene.triangle_vertices().copy()])
             )
 
         if len(self._scene.triangle_instances()) > 0:
             self.triangle_mesh_blases = Optional[
-                CpuBlasSet[Primitive.TRIANGLE, Self.instance_bvh_width]
+                CpuBlasSet[.TRIANGLE, Self.instance_bvh_width]
             ](
                 build_triangle_blases[
                     Self.instance_bvh_width,
                     Self.instance_bvh_width,
-                    CpuBvhBuildMethod.SAH,
-                    Frame.LOCAL,
+                    .SAH,
+                    .LOCAL,
                 ](self._scene.triangle_meshes())
             )
 
@@ -145,7 +145,7 @@ struct CpuScene[
         length: SIMDLength
     ](
         self,
-        rays: Ray[DType.float32, Frame.WORLD, length],
+        rays: Ray[.float32, .WORLD, length],
         valid: SIMD[DType.bool, length] = SIMD[DType.bool, length](fill=True),
     ) -> SIMD[DType.bool, length]:
         """Trace bounded visibility rays together where packet BVHs exist."""
@@ -153,9 +153,9 @@ struct CpuScene[
             var result = SIMD[DType.bool, length](fill=False)
             if not valid[0]:
                 return result
-            var ray = Rayf32[Frame.WORLD](
-                Point3f32[Frame.WORLD](rays.o.x[0], rays.o.y[0], rays.o.z[0]),
-                Vec3f32[Frame.WORLD](rays.d.x[0], rays.d.y[0], rays.d.z[0]),
+            var ray = Rayf32[.WORLD](
+                Point3f32[.WORLD](rays.o.x[0], rays.o.y[0], rays.o.z[0]),
+                Vec3f32[.WORLD](rays.d.x[0], rays.d.y[0], rays.d.z[0]),
                 rays.t_min[0],
                 rays.t_max[0],
             )
@@ -163,8 +163,8 @@ struct CpuScene[
                 var hit = trace_blas_set[
                     Self.world_bvh_width,
                     Self.world_bvh_width,
-                    TRACE.ANY_HIT,
-                    Frame.WORLD,
+                    .ANY_HIT,
+                    .WORLD,
                 ](self.sphere_bvh.value(), UInt32(0), ray)
                 if hit.is_occluded():
                     result[0] = True
@@ -173,8 +173,8 @@ struct CpuScene[
                 var hit = trace_blas_set[
                     Self.world_bvh_width,
                     Self.world_bvh_width,
-                    TRACE.ANY_HIT,
-                    Frame.WORLD,
+                    .ANY_HIT,
+                    .WORLD,
                 ](self.triangle_bvh.value(), UInt32(0), ray)
                 if hit.is_occluded():
                     result[0] = True
@@ -183,7 +183,7 @@ struct CpuScene[
                 var hit = self.triangle_tlas.value().trace_blases[
                     Self.instance_bvh_width,
                     Self.instance_bvh_width,
-                    TRACE.ANY_HIT,
+                    .ANY_HIT,
                 ](ray, self.triangle_mesh_blases.value())
                 if hit.is_occluded():
                     result[0] = True
@@ -207,20 +207,20 @@ struct CpuScene[
                         Self.world_bvh_width,
                         length,
                         False,
-                        Frame.WORLD,
+                        .WORLD,
                     ](self.triangle_bvh.value(), UInt32(0), rays, active)
                     result |= hits.hit_mask()
 
             if self.triangle_tlas and self.triangle_mesh_blases:
                 for lane in range(length):
                     if valid[lane] and not result[lane]:
-                        var ray = Rayf32[Frame.WORLD](
-                            Point3f32[Frame.WORLD](
+                        var ray = Rayf32[.WORLD](
+                            Point3f32[.WORLD](
                                 rays.o.x[lane],
                                 rays.o.y[lane],
                                 rays.o.z[lane],
                             ),
-                            Vec3f32[Frame.WORLD](
+                            Vec3f32[.WORLD](
                                 rays.d.x[lane],
                                 rays.d.y[lane],
                                 rays.d.z[lane],
@@ -233,13 +233,13 @@ struct CpuScene[
                             .trace_blases[
                                 Self.instance_bvh_width,
                                 Self.instance_bvh_width,
-                                TRACE.ANY_HIT,
+                                .ANY_HIT,
                             ](ray, self.triangle_mesh_blases.value())
                             .is_occluded()
                         )
             return result
 
-    def _trace_closest(self, ray: Rayf32[Frame.WORLD]) -> _WorldHit:
+    def _trace_closest(self, ray: Rayf32[.WORLD]) -> _WorldHit:
         var closest = self._trace_spheres(ray)
         var triangle_hit = self._trace_triangles(ray)
         if triangle_hit.hit and (not closest.hit or triangle_hit.t < closest.t):
@@ -250,7 +250,7 @@ struct CpuScene[
             closest = instance_hit^
         return closest^
 
-    def trace(self, ray: Rayf32[Frame.WORLD]) -> Optional[HitRecord]:
+    def trace(self, ray: Rayf32[.WORLD]) -> Optional[HitRecord]:
         var hit = self._trace_closest(ray)
         if not hit.hit:
             return None
@@ -268,16 +268,16 @@ struct CpuScene[
         length: SIMDLength
     ](
         self,
-        rays: Ray[DType.float32, Frame.WORLD, length],
+        rays: Ray[.float32, .WORLD, length],
         valid: SIMD[DType.bool, length] = SIMD[DType.bool, length](fill=True),
     ) -> SurfaceHit[length]:
         comptime if length == 1:
             if valid[0]:
-                var ray = Rayf32[Frame.WORLD](
-                    Point3f32[Frame.WORLD](
+                var ray = Rayf32[.WORLD](
+                    Point3f32[.WORLD](
                         rays.o.x[0], rays.o.y[0], rays.o.z[0]
                     ),
-                    Vec3f32[Frame.WORLD](rays.d.x[0], rays.d.y[0], rays.d.z[0]),
+                    Vec3f32[.WORLD](rays.d.x[0], rays.d.y[0], rays.d.z[0]),
                     rays.t_min[0],
                     rays.t_max[0],
                 )
@@ -299,7 +299,7 @@ struct CpuScene[
         length: SIMDLength
     ](
         self,
-        rays: Ray[DType.float32, Frame.WORLD, length],
+        rays: Ray[.float32, .WORLD, length],
         valid: SIMD[DType.bool, length],
     ) -> SurfaceHit[length]:
         """Trace SIMD packets, with scalar TLAS fallback."""
@@ -330,7 +330,7 @@ struct CpuScene[
                         sphere_idx
                     ].value
             var inverse_radius = Float32(1.0) / radius
-            var outward_normal = Vec3[DType.float32, Frame.WORLD, length](
+            var outward_normal = Vec3[.float32, .WORLD, length](
                 (rays.o.x + sphere_hits.t * rays.d.x - center_x)
                 * inverse_radius,
                 (rays.o.y + sphere_hits.t * rays.d.y - center_y)
@@ -357,7 +357,7 @@ struct CpuScene[
                 Self.world_bvh_width,
                 length,
                 False,
-                Frame.WORLD,
+                .WORLD,
             ](self.triangle_bvh.value(), UInt32(0), rays, valid)
             var triangle_mask = triangle_hits.hit_mask() & triangle_hits.t.lt(
                 result.t
@@ -388,11 +388,11 @@ struct CpuScene[
         if self.triangle_tlas:
             for lane in range(length):
                 if valid[lane]:
-                    var ray = Rayf32[Frame.WORLD](
-                        Point3f32[Frame.WORLD](
+                    var ray = Rayf32[.WORLD](
+                        Point3f32[.WORLD](
                             rays.o.x[lane], rays.o.y[lane], rays.o.z[lane]
                         ),
-                        Vec3f32[Frame.WORLD](
+                        Vec3f32[.WORLD](
                             rays.d.x[lane], rays.d.y[lane], rays.d.z[lane]
                         ),
                         rays.t_min[lane],
@@ -410,15 +410,15 @@ struct CpuScene[
 
         return result^
 
-    def _trace_spheres(self, ray: Rayf32[Frame.WORLD]) -> _WorldHit:
+    def _trace_spheres(self, ray: Rayf32[.WORLD]) -> _WorldHit:
         if not self.sphere_bvh:
             return _WorldHit.miss(ray.t_max)
 
         var bvh_hit = trace_blas_set[
             Self.world_bvh_width,
             Self.world_bvh_width,
-            TRACE.CLOSEST_HIT,
-            Frame.WORLD,
+            .CLOSEST_HIT,
+            .WORLD,
         ](self.sphere_bvh.value(), UInt32(0), ray)
         if not bvh_hit.is_hit():
             return _WorldHit.miss(ray.t_max)
@@ -441,15 +441,15 @@ struct CpuScene[
             True,
         )
 
-    def _trace_triangles(self, ray: Rayf32[Frame.WORLD]) -> _WorldHit:
+    def _trace_triangles(self, ray: Rayf32[.WORLD]) -> _WorldHit:
         if not self.triangle_bvh:
             return _WorldHit.miss(ray.t_max)
 
         var bvh_hit = trace_blas_set[
             Self.world_bvh_width,
             Self.world_bvh_width,
-            TRACE.CLOSEST_HIT,
-            Frame.WORLD,
+            .CLOSEST_HIT,
+            .WORLD,
         ](self.triangle_bvh.value(), UInt32(0), ray)
         if not bvh_hit.is_hit():
             return _WorldHit.miss(ray.t_max)
@@ -472,14 +472,14 @@ struct CpuScene[
             True,
         )
 
-    def _trace_triangle_instances(self, ray: Rayf32[Frame.WORLD]) -> _WorldHit:
+    def _trace_triangle_instances(self, ray: Rayf32[.WORLD]) -> _WorldHit:
         if not self.triangle_tlas or not self.triangle_mesh_blases:
             return _WorldHit.miss(ray.t_max)
 
         var bvh_hit = self.triangle_tlas.value().trace_blases[
             Self.instance_bvh_width,
             Self.instance_bvh_width,
-            TRACE.CLOSEST_HIT,
+            .CLOSEST_HIT,
         ](ray, self.triangle_mesh_blases.value())
         if not bvh_hit.is_hit() or bvh_hit.inst == EMPTY_LANE:
             return _WorldHit.miss(ray.t_max)

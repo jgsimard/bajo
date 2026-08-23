@@ -18,7 +18,7 @@ from bajo.bvh import Instance, Sphere
 from bajo.rt.geometry import sphere_unsigned_radius
 
 
-comptime Color = Vec3f32[Frame.WORLD]
+comptime Color = Vec3f32[.WORLD]
 
 
 @fieldwise_init
@@ -56,6 +56,15 @@ struct RENDER(Equatable, TrivialRegisterPassable, Writable):
     comptime AO = Self(2)
     comptime NEE = Self(3)
     comptime MIS = Self(4)
+
+    def is_valid(self) -> Bool:
+        return self in (
+            RENDER.PATH,
+            RENDER.NORMALS,
+            RENDER.AO,
+            RENDER.NEE,
+            RENDER.MIS,
+        )
 
 
 @fieldwise_init
@@ -178,9 +187,9 @@ struct LightRecord(Copyable, Writable):
     var primitive: PrimitiveId
     var surface: SurfaceId[1]
     var weight: Float32
-    var p0: Point3f32[Frame.WORLD]
-    var p1: Point3f32[Frame.WORLD]
-    var p2: Point3f32[Frame.WORLD]
+    var p0: Point3f32[.WORLD]
+    var p1: Point3f32[.WORLD]
+    var p2: Point3f32[.WORLD]
     var radius: Float32
 
     def __init__(
@@ -188,9 +197,9 @@ struct LightRecord(Copyable, Writable):
         primitive: PrimitiveId,
         surface: SurfaceId[1],
         weight: Float32,
-        p0: Point3f32[Frame.WORLD],
-        p1: Point3f32[Frame.WORLD],
-        p2: Point3f32[Frame.WORLD],
+        p0: Point3f32[.WORLD],
+        p1: Point3f32[.WORLD],
+        p2: Point3f32[.WORLD],
         radius: Float32,
     ):
         self.primitive = primitive.copy()
@@ -206,9 +215,9 @@ struct LightRecord(Copyable, Writable):
         primitive: PrimitiveId,
         surface: SurfaceId[1],
         weight: Float32,
-        p0: Point3f32[Frame.WORLD],
-        p1: Point3f32[Frame.WORLD],
-        p2: Point3f32[Frame.WORLD],
+        p0: Point3f32[.WORLD],
+        p1: Point3f32[.WORLD],
+        p2: Point3f32[.WORLD],
     ) -> Self:
         return Self(primitive, surface, weight, p0, p1, p2, 0.0)
 
@@ -217,7 +226,7 @@ struct LightRecord(Copyable, Writable):
         primitive: PrimitiveId,
         surface: SurfaceId[1],
         weight: Float32,
-        center: Point3f32[Frame.WORLD],
+        center: Point3f32[.WORLD],
         radius: Float32,
     ) -> Self:
         return Self(
@@ -225,8 +234,8 @@ struct LightRecord(Copyable, Writable):
             surface,
             weight,
             center,
-            Point3f32[Frame.WORLD](0.0),
-            Point3f32[Frame.WORLD](0.0),
+            Point3f32[.WORLD](0.0),
+            Point3f32[.WORLD](0.0),
             radius,
         )
 
@@ -293,8 +302,8 @@ struct LightStore:
 @fieldwise_init
 struct HitRecord(Copyable, Writable):
     var primitive: PrimitiveId
-    var p: Point3f32[Frame.WORLD]
-    var normal: Vec3f32[Frame.WORLD]
+    var p: Point3f32[.WORLD]
+    var normal: Vec3f32[.WORLD]
     var surface: SurfaceId[1]
     var t: Float32
     var front_face: Bool
@@ -304,14 +313,14 @@ struct HitRecord(Copyable, Writable):
 struct SurfaceHit[length: SIMDLength = 1](Copyable, Writable):
     """Renderer hit without primitive identity or position."""
 
-    var normal: Vec3[DType.float32, Frame.WORLD, Self.length]
+    var normal: Vec3[.float32, .WORLD, Self.length]
     var surface: SurfaceId[Self.length]
     var t: SIMD[DType.float32, Self.length]
     var front_face: SIMD[DType.bool, Self.length]
     var hit: SIMD[DType.bool, Self.length]
 
     def __init__(out self, t_max: SIMD[DType.float32, Self.length]):
-        self.normal = Vec3[DType.float32, Frame.WORLD, Self.length](0.0)
+        self.normal = Vec3[.float32, .WORLD, Self.length](0.0)
         self.surface = SurfaceId[Self.length](
             SIMD[DType.uint32, Self.length](0)
         )
@@ -326,7 +335,7 @@ struct SurfaceHit[length: SIMDLength = 1](Copyable, Writable):
     @always_inline
     def get(self, lane: Int) -> SurfaceHit[1]:
         return SurfaceHit[1](
-            Vec3f32[Frame.WORLD](
+            Vec3f32[.WORLD](
                 self.normal.x[lane],
                 self.normal.y[lane],
                 self.normal.z[lane],
@@ -340,8 +349,8 @@ struct SurfaceHit[length: SIMDLength = 1](Copyable, Writable):
 
 @fieldwise_init
 struct ShadingPoint[length: SIMDLength = 1](Copyable, Writable):
-    var p: Point3[DType.float32, Frame.WORLD, Self.length]
-    var normal: Vec3[DType.float32, Frame.WORLD, Self.length]
+    var p: Point3[DType.float32, .WORLD, Self.length]
+    var normal: Vec3[.float32, .WORLD, Self.length]
     var front_face: SIMD[DType.bool, Self.length]
 
 
@@ -349,8 +358,8 @@ struct ShadingPoint[length: SIMDLength = 1](Copyable, Writable):
 struct BsdfSample[length: SIMDLength = 1](Copyable, Writable):
     """Sampled direction and throughput/PDF metadata."""
 
-    var direction: Vec3[DType.float32, Frame.WORLD, Self.length]
-    var weight: Vec3[DType.float32, Frame.WORLD, Self.length]
+    var direction: Vec3[.float32, .WORLD, Self.length]
+    var weight: Vec3[.float32, .WORLD, Self.length]
     var pdf: SIMD[DType.float32, Self.length]
     var delta: SIMD[DType.bool, Self.length]
     var ok: SIMD[DType.bool, Self.length]
@@ -360,7 +369,7 @@ struct BsdfSample[length: SIMDLength = 1](Copyable, Writable):
 struct BsdfEvaluation[length: SIMDLength = 1](Copyable, Writable):
     """BSDF value and solid-angle PDF."""
 
-    var value: Vec3[DType.float32, Frame.WORLD, Self.length]
+    var value: Vec3[.float32, .WORLD, Self.length]
     var pdf: SIMD[DType.float32, Self.length]
     var delta: SIMD[DType.bool, Self.length]
 
@@ -426,32 +435,32 @@ struct RenderResult:
 struct SceneBuilder(
     Deinitable where (False, "call finish() to validate and finalize the scene")
 ):
-    var spheres: List[Sphere[Frame.WORLD]]
+    var spheres: List[Sphere[.WORLD]]
     var sphere_surfaces: List[SurfaceId[1]]
-    var triangle_vertices: List[Point3f32[Frame.WORLD]]
+    var triangle_vertices: List[Point3f32[.WORLD]]
     var triangle_surfaces: List[SurfaceId[1]]
-    var triangle_meshes: List[List[Point3f32[Frame.LOCAL]]]
+    var triangle_meshes: List[List[Point3f32[.LOCAL]]]
     var triangle_instances: List[Instance]
     var triangle_instance_surfaces: List[SurfaceId[1]]
     var surfaces: SurfaceStore
 
     def __init__(out self):
-        self.spheres = List[Sphere[Frame.WORLD]]()
+        self.spheres = List[Sphere[.WORLD]]()
         self.sphere_surfaces = List[SurfaceId[1]]()
-        self.triangle_vertices = List[Point3f32[Frame.WORLD]]()
+        self.triangle_vertices = List[Point3f32[.WORLD]]()
         self.triangle_surfaces = List[SurfaceId[1]]()
-        self.triangle_meshes = List[List[Point3f32[Frame.LOCAL]]]()
+        self.triangle_meshes = List[List[Point3f32[.LOCAL]]]()
         self.triangle_instances = List[Instance]()
         self.triangle_instance_surfaces = List[SurfaceId[1]]()
         self.surfaces = SurfaceStore()
 
     def __init__(
         out self,
-        var spheres: List[Sphere[Frame.WORLD]],
+        var spheres: List[Sphere[.WORLD]],
         var sphere_surfaces: List[SurfaceId[1]],
-        var triangle_vertices: List[Point3f32[Frame.WORLD]],
+        var triangle_vertices: List[Point3f32[.WORLD]],
         var triangle_surfaces: List[SurfaceId[1]],
-        var triangle_meshes: List[List[Point3f32[Frame.LOCAL]]],
+        var triangle_meshes: List[List[Point3f32[.LOCAL]]],
         var triangle_instances: List[Instance],
         var triangle_instance_surfaces: List[SurfaceId[1]],
         var surfaces: SurfaceStore,
@@ -479,18 +488,18 @@ struct SceneBuilder(
 
     def add_sphere(
         mut self,
-        center: Point3f32[Frame.WORLD],
+        center: Point3f32[.WORLD],
         radius: Float32,
         surface: SurfaceId[1],
     ):
-        self.spheres.append(Sphere[Frame.WORLD](center, radius))
+        self.spheres.append(Sphere[.WORLD](center, radius))
         self.sphere_surfaces.append(surface.copy())
 
     def add_triangle(
         mut self,
-        v0: Point3f32[Frame.WORLD],
-        v1: Point3f32[Frame.WORLD],
-        v2: Point3f32[Frame.WORLD],
+        v0: Point3f32[.WORLD],
+        v1: Point3f32[.WORLD],
+        v2: Point3f32[.WORLD],
         surface: SurfaceId[1],
     ):
         self.triangle_vertices.append(v0)
@@ -500,10 +509,10 @@ struct SceneBuilder(
 
     def add_quad(
         mut self,
-        a: Point3f32[Frame.WORLD],
-        b: Point3f32[Frame.WORLD],
-        c: Point3f32[Frame.WORLD],
-        d: Point3f32[Frame.WORLD],
+        a: Point3f32[.WORLD],
+        b: Point3f32[.WORLD],
+        c: Point3f32[.WORLD],
+        d: Point3f32[.WORLD],
         surface: SurfaceId[1],
     ):
         """Append two consistently wound triangles: `(a, b, c)` and `(a, c, d)`.
@@ -513,7 +522,7 @@ struct SceneBuilder(
 
     def add_triangle_mesh(
         mut self,
-        vertices: ImmSpan[Point3f32[Frame.WORLD], _],
+        vertices: ImmSpan[Point3f32[.WORLD], _],
         surface: SurfaceId[1],
     ):
         for v in vertices:
@@ -523,13 +532,13 @@ struct SceneBuilder(
 
     def add_triangle_mesh_instance(
         mut self,
-        vertices: ImmSpan[Point3f32[Frame.LOCAL], _],
-        transform: Affine3f32[Frame.LOCAL, Frame.WORLD],
-        bounds: AABB[Frame.LOCAL],
+        vertices: ImmSpan[Point3f32[.LOCAL], _],
+        transform: Affine3f32[.LOCAL, .WORLD],
+        bounds: AABB[.LOCAL],
         surface: SurfaceId[1],
     ) -> UInt32:
         var mesh_idx = UInt32(len(self.triangle_meshes))
-        var owned_vertices = List[Point3f32[Frame.LOCAL]](
+        var owned_vertices = List[Point3f32[.LOCAL]](
             capacity=len(vertices)
         )
         owned_vertices.extend(vertices)
@@ -541,8 +550,8 @@ struct SceneBuilder(
     def add_triangle_instance(
         mut self,
         mesh_idx: UInt32,
-        transform: Affine3f32[Frame.LOCAL, Frame.WORLD],
-        mesh_bounds: AABB[Frame.LOCAL],
+        transform: Affine3f32[.LOCAL, .WORLD],
+        mesh_bounds: AABB[.LOCAL],
         surface: SurfaceId[1],
     ):
         self._add_triangle_instance_unchecked(mesh_idx, transform, mesh_bounds)
@@ -551,14 +560,14 @@ struct SceneBuilder(
     def _add_triangle_instance_unchecked(
         mut self,
         mesh_idx: UInt32,
-        transform: Affine3f32[Frame.LOCAL, Frame.WORLD],
-        mesh_bounds: AABB[Frame.LOCAL],
+        transform: Affine3f32[.LOCAL, .WORLD],
+        mesh_bounds: AABB[.LOCAL],
     ):
         var instance = Instance()
         instance.transform = transform.copy()
         instance.bounds = mesh_bounds.apply_transform(transform)
         instance.blas_idx = mesh_idx
-        instance.kind = Primitive.TRIANGLE
+        instance.kind = .TRIANGLE
         self.triangle_instances.append(instance^)
 
     def finish(deinit self) raises -> SceneData:
@@ -578,11 +587,11 @@ struct SceneBuilder(
 struct SceneData:
     """Validated backend-neutral scene snapshot."""
 
-    var _spheres: List[Sphere[Frame.WORLD]]
+    var _spheres: List[Sphere[.WORLD]]
     var _sphere_surfaces: List[SurfaceId[1]]
-    var _triangle_vertices: List[Point3f32[Frame.WORLD]]
+    var _triangle_vertices: List[Point3f32[.WORLD]]
     var _triangle_surfaces: List[SurfaceId[1]]
-    var _triangle_meshes: List[List[Point3f32[Frame.LOCAL]]]
+    var _triangle_meshes: List[List[Point3f32[.LOCAL]]]
     var _triangle_instances: List[Instance]
     var _triangle_instance_surfaces: List[SurfaceId[1]]
     var _surfaces: SurfaceStore
@@ -590,11 +599,11 @@ struct SceneData:
 
     def __init__(
         out self,
-        var spheres: List[Sphere[Frame.WORLD]],
+        var spheres: List[Sphere[.WORLD]],
         var sphere_surfaces: List[SurfaceId[1]],
-        var triangle_vertices: List[Point3f32[Frame.WORLD]],
+        var triangle_vertices: List[Point3f32[.WORLD]],
         var triangle_surfaces: List[SurfaceId[1]],
-        var triangle_meshes: List[List[Point3f32[Frame.LOCAL]]],
+        var triangle_meshes: List[List[Point3f32[.LOCAL]]],
         var triangle_instances: List[Instance],
         var triangle_instance_surfaces: List[SurfaceId[1]],
         var surfaces: SurfaceStore,
@@ -612,7 +621,7 @@ struct SceneData:
         self._build_light_store()
         self._lights.build_alias_table()
 
-    def spheres(self) -> ref[self._spheres] List[Sphere[Frame.WORLD]]:
+    def spheres(self) -> ref[self._spheres] List[Sphere[.WORLD]]:
         return self._spheres
 
     def sphere_surfaces(
@@ -622,7 +631,7 @@ struct SceneData:
 
     def triangle_vertices(
         self,
-    ) -> ref[self._triangle_vertices] List[Point3f32[Frame.WORLD]]:
+    ) -> ref[self._triangle_vertices] List[Point3f32[.WORLD]]:
         return self._triangle_vertices
 
     def triangle_surfaces(
@@ -632,7 +641,7 @@ struct SceneData:
 
     def triangle_meshes(
         self,
-    ) -> ref[self._triangle_meshes] List[List[Point3f32[Frame.LOCAL]]]:
+    ) -> ref[self._triangle_meshes] List[List[Point3f32[.LOCAL]]]:
         return self._triangle_meshes
 
     def triangle_instances(
@@ -723,7 +732,7 @@ struct SceneData:
                     )
 
         for i, inst in enumerate(self._triangle_instances):
-            if inst.kind != Primitive.TRIANGLE:
+            if inst.kind != .TRIANGLE:
                 raise Error(
                     "triangle instance must have triangle primitive kind"
                 )
@@ -740,7 +749,7 @@ struct SceneData:
                 raise Error("triangle instance transform must be invertible")
 
             ref vertices = self._triangle_meshes[Int(inst.blas_idx)]
-            var local_bounds = AABB[Frame.LOCAL].invalid()
+            var local_bounds = AABB[.LOCAL].invalid()
             for vertex in vertices:
                 local_bounds.grow(vertex)
             var world_bounds = local_bounds.apply_transform(inst.transform)
@@ -975,7 +984,7 @@ def _triangle_area[
 
 @always_inline
 def _transform_reverses_orientation(
-    transform: Affine3f32[Frame.LOCAL, Frame.WORLD],
+    transform: Affine3f32[.LOCAL, .WORLD],
 ) -> Bool:
     var determinant = (
         transform.m00
@@ -988,5 +997,5 @@ def _transform_reverses_orientation(
     return determinant[0] < 0.0
 
 
-def ray_at(ray: Rayf32[Frame.WORLD], t: Float32) -> Point3f32[Frame.WORLD]:
+def ray_at(ray: Rayf32[.WORLD], t: Float32) -> Point3f32[.WORLD]:
     return ray.o + t * ray.d

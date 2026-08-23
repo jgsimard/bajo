@@ -47,9 +47,9 @@ struct GpuRtBenchResult(Copyable):
 
 def gpu_rt_camera() -> Camera:
     return Camera.from_vfov(
-        Point3f32[Frame.WORLD](0.0, 1.0, 3.2),
-        Point3f32[Frame.WORLD](0.0, 1.0, -1.0),
-        Vec3f32[Frame.WORLD](0.0, 1.0, 0.0),
+        Point3f32[.WORLD](0.0, 1.0, 3.2),
+        Point3f32[.WORLD](0.0, 1.0, -1.0),
+        Vec3f32[.WORLD](0.0, 1.0, 0.0),
         28.0,
         4.2,
     )
@@ -62,10 +62,10 @@ def make_many_light_world() raises -> CpuScene[]:
     var light = builder.add_emissive(Color(8.0, 8.0, 8.0))
 
     builder.add_quad(
-        Point3f32[Frame.WORLD](-1.2, 0.0, -2.0),
-        Point3f32[Frame.WORLD](1.2, 0.0, -2.0),
-        Point3f32[Frame.WORLD](1.2, 2.0, -2.0),
-        Point3f32[Frame.WORLD](-1.2, 2.0, -2.0),
+        Point3f32[.WORLD](-1.2, 0.0, -2.0),
+        Point3f32[.WORLD](1.2, 0.0, -2.0),
+        Point3f32[.WORLD](1.2, 2.0, -2.0),
+        Point3f32[.WORLD](-1.2, 2.0, -2.0),
         matte,
     )
 
@@ -75,9 +75,9 @@ def make_many_light_world() raises -> CpuScene[]:
             var y = 0.20 + Float32(light_y) * 0.22
             var half_size = Float32(0.035)
             builder.add_triangle(
-                Point3f32[Frame.WORLD](x - half_size, y - half_size, -1.45),
-                Point3f32[Frame.WORLD](x, y + half_size, -1.45),
-                Point3f32[Frame.WORLD](x + half_size, y - half_size, -1.45),
+                Point3f32[.WORLD](x - half_size, y - half_size, -1.45),
+                Point3f32[.WORLD](x, y + half_size, -1.45),
+                Point3f32[.WORLD](x + half_size, y - half_size, -1.45),
                 light,
             )
 
@@ -121,7 +121,7 @@ def bench_gpu_triangle_algorithm[
     leaf_width: SIMDLength = LEAF_WIDTH,
     MAX_BLOCKS: Int = GPU_RT_MAX_BLOCKS,
     SHADOW_MAX_BLOCKS: Int = MAX_BLOCKS,
-    build_method: GpuBvhBuildMethod = GpuBvhBuildMethod.HPLOC,
+    build_method: GpuBvhBuildMethod = .HPLOC,
     compressed: Bool = node_width == 8 and leaf_width == 4,
 ](
     ctx: DeviceContext,

@@ -15,7 +15,7 @@ def main() raises:
     var settings = scene.settings.copy()
     var camera = scene.camera
     var world = CpuScene[](scene^.take_data())
-    var result = render_wavefront[RENDER.MIS](settings, camera, world)
+    var result = render_wavefront[.MIS](settings, camera, world)
     write_ppm_from_colors(
         OUTPUT_PATH,
         settings.image_width,

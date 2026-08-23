@@ -78,11 +78,11 @@ def _hploc_cluster_bounds(
     leaf_bounds: ImmSpan[Float32, _],
     sorted_leaf_ids: ImmSpan[UInt32, _],
     scratch_bounds: ImmSpan[Float32, _],
-) -> AABB[Frame.WORLD]:
+) -> AABB[.WORLD]:
     var cluster_idx = decode_ref_index(encoded)
     if is_leaf_ref(encoded):
         var leaf_id = sorted_leaf_ids.unsafe_get(Int(cluster_idx))
-        return AABB[Frame.WORLD].load6(leaf_bounds, Int(leaf_id) * AABB.STRIDE)
+        return AABB[.WORLD].load6(leaf_bounds, Int(leaf_id) * AABB.STRIDE)
     return _hploc_load_bounds(scratch_bounds, cluster_idx)
 
 
@@ -221,22 +221,22 @@ def build_hploc_multi_wave_kernel[
         block_size, UInt32, address_space=AddressSpace.SHARED
     ]()
 
-    def load_cached_bounds(slot: Int) {imm} -> AABB[Frame.WORLD]:
+    def load_cached_bounds(slot: Int) {imm} -> AABB[.WORLD]:
         var base = slot * AABB.STRIDE
-        return AABB[Frame.WORLD](
-            Point3f32[Frame.WORLD](
+        return AABB[.WORLD](
+            Point3f32[.WORLD](
                 boxes_cache[unsafe_offset=base + 0],
                 boxes_cache[unsafe_offset=base + 1],
                 boxes_cache[unsafe_offset=base + 2],
             ),
-            Point3f32[Frame.WORLD](
+            Point3f32[.WORLD](
                 boxes_cache[unsafe_offset=base + 3],
                 boxes_cache[unsafe_offset=base + 4],
                 boxes_cache[unsafe_offset=base + 5],
             ),
         )
 
-    def store_cached_bounds(slot: Int, bounds: AABB[Frame.WORLD]) {imm}:
+    def store_cached_bounds(slot: Int, bounds: AABB[.WORLD]) {imm}:
         var base = slot * AABB.STRIDE
         boxes_cache[unsafe_offset=base + 0] = bounds._min.x
         boxes_cache[unsafe_offset=base + 1] = bounds._min.y
@@ -368,12 +368,12 @@ def build_hploc_multi_wave_kernel[
                 )
             else:
                 node_indices_cache[unsafe_offset=shared_lane] = LBVH_SENTINEL
-                store_cached_bounds(shared_lane, AABB[Frame.WORLD].invalid())
+                store_cached_bounds(shared_lane, AABB[.WORLD].invalid())
             syncwarp()
 
             while cluster_count > threshold:
                 var active = lane < cluster_count
-                var own_bounds = AABB[Frame.WORLD].invalid()
+                var own_bounds = AABB[.WORLD].invalid()
                 if active:
                     cluster_idx = node_indices_cache[unsafe_offset=shared_lane]
                     own_bounds = load_cached_bounds(shared_lane)
@@ -393,7 +393,7 @@ def build_hploc_multi_wave_kernel[
                         var neighbor_bounds = load_cached_bounds(
                             shared_wave_base + neighbor_lane
                         )
-                        var merged = AABB[Frame.WORLD].merge(
+                        var merged = AABB[.WORLD].merge(
                             own_bounds, neighbor_bounds
                         )
                         var area = merged.surface_area()[0]
@@ -582,26 +582,26 @@ struct GpuHplocBuildState[
     var internal_count: Int
     var segments: SegmentOffsets
     var internal_segments: SegmentOffsets
-    var segment_offsets: DeviceBuffer[DType.uint32]
-    var internal_segment_offsets: DeviceBuffer[DType.uint32]
-    var scratch_bounds: DeviceBuffer[DType.float32]
-    var parent_slots: DeviceBuffer[DType.uint32]
-    var cluster_indices: DeviceBuffer[DType.uint32]
-    var node_counter: DeviceBuffer[DType.uint32]
-    var root: DeviceBuffer[DType.uint32]
-    var status: DeviceBuffer[DType.uint32]
+    var segment_offsets: DeviceBuffer[.uint32]
+    var internal_segment_offsets: DeviceBuffer[.uint32]
+    var scratch_bounds: DeviceBuffer[.float32]
+    var parent_slots: DeviceBuffer[.uint32]
+    var cluster_indices: DeviceBuffer[.uint32]
+    var node_counter: DeviceBuffer[.uint32]
+    var root: DeviceBuffer[.uint32]
+    var status: DeviceBuffer[.uint32]
 
     def __init__(
         out self,
         mut ctx: DeviceContext,
-        leaf_bounds: DeviceBuffer[DType.float32],
-        sorted_morton_codes: DeviceBuffer[DType.uint32],
-        sorted_leaf_ids: DeviceBuffer[DType.uint32],
-        node_meta: DeviceBuffer[DType.uint32],
-        leaf_parent: DeviceBuffer[DType.uint32],
-        node_bounds: DeviceBuffer[DType.float32],
-        node_flags: DeviceBuffer[DType.uint32],
-        node_leaf_counts: DeviceBuffer[DType.uint32],
+        leaf_bounds: DeviceBuffer[.float32],
+        sorted_morton_codes: DeviceBuffer[.uint32],
+        sorted_leaf_ids: DeviceBuffer[.uint32],
+        node_meta: DeviceBuffer[.uint32],
+        leaf_parent: DeviceBuffer[.uint32],
+        node_bounds: DeviceBuffer[.float32],
+        node_flags: DeviceBuffer[.uint32],
+        node_leaf_counts: DeviceBuffer[.uint32],
     ) raises:
         var segments = SegmentOffsets.single(len(sorted_leaf_ids))
         var internal_segments = SegmentOffsets.single(
@@ -630,18 +630,18 @@ struct GpuHplocBuildState[
     def __init__(
         out self,
         mut ctx: DeviceContext,
-        leaf_bounds: DeviceBuffer[DType.float32],
-        sorted_morton_codes: DeviceBuffer[DType.uint32],
-        sorted_leaf_ids: DeviceBuffer[DType.uint32],
+        leaf_bounds: DeviceBuffer[.float32],
+        sorted_morton_codes: DeviceBuffer[.uint32],
+        sorted_leaf_ids: DeviceBuffer[.uint32],
         segments: SegmentOffsets,
-        segment_offsets: DeviceBuffer[DType.uint32],
+        segment_offsets: DeviceBuffer[.uint32],
         internal_segments: SegmentOffsets,
-        internal_segment_offsets: DeviceBuffer[DType.uint32],
-        node_meta: DeviceBuffer[DType.uint32],
-        leaf_parent: DeviceBuffer[DType.uint32],
-        node_bounds: DeviceBuffer[DType.float32],
-        node_flags: DeviceBuffer[DType.uint32],
-        node_leaf_counts: DeviceBuffer[DType.uint32],
+        internal_segment_offsets: DeviceBuffer[.uint32],
+        node_meta: DeviceBuffer[.uint32],
+        leaf_parent: DeviceBuffer[.uint32],
+        node_bounds: DeviceBuffer[.float32],
+        node_flags: DeviceBuffer[.uint32],
+        node_leaf_counts: DeviceBuffer[.uint32],
     ) raises:
         self.leaf_count = len(sorted_leaf_ids)
         self.segments = segments.copy()
@@ -684,22 +684,22 @@ struct GpuHplocBuildState[
         ):
             raise "multi-wave H-PLOC production output is too short"
 
-        self.scratch_bounds = ctx.enqueue_create_buffer[DType.float32](
+        self.scratch_bounds = ctx.enqueue_create_buffer[.float32](
             internal_capacity * AABB.STRIDE
         )
-        self.parent_slots = ctx.enqueue_create_buffer[DType.uint32](
+        self.parent_slots = ctx.enqueue_create_buffer[.uint32](
             self.leaf_count
         )
-        self.cluster_indices = ctx.enqueue_create_buffer[DType.uint32](
+        self.cluster_indices = ctx.enqueue_create_buffer[.uint32](
             self.leaf_count
         )
-        self.root = ctx.enqueue_create_buffer[DType.uint32](
+        self.root = ctx.enqueue_create_buffer[.uint32](
             self.segments.segment_count()
         )
-        self.status = ctx.enqueue_create_buffer[DType.uint32](
+        self.status = ctx.enqueue_create_buffer[.uint32](
             self.segments.segment_count()
         )
-        self.node_counter = ctx.enqueue_create_buffer[DType.uint32](
+        self.node_counter = ctx.enqueue_create_buffer[.uint32](
             self.segments.segment_count()
         )
 

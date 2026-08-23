@@ -23,13 +23,13 @@ struct RussianRouletteResult(Copyable, Writable):
 @always_inline
 def sky_color[
     length: SIMDLength
-](direction: Vec3[DType.float32, Frame.WORLD, length]) -> Vec3[
-    DType.float32, Frame.WORLD, length
+](direction: Vec3[.float32, .WORLD, length]) -> Vec3[
+    DType.float32, .WORLD, length
 ]:
     var unit_direction = normalize(direction)
     var a = 0.5 * (unit_direction.y + 1.0)
-    return (1.0 - a) * Vec3[DType.float32, Frame.WORLD, length](1.0) + a * Vec3[
-        DType.float32, Frame.WORLD, length
+    return (1.0 - a) * Vec3[.float32, .WORLD, length](1.0) + a * Vec3[
+        DType.float32, .WORLD, length
     ](0.5, 0.7, 1.0)
 
 

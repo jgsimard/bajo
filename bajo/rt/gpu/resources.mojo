@@ -29,7 +29,7 @@ def upload_surface_ids[
 ](
     mut ctx: DeviceContext,
     surfaces: ImmSpan[SurfaceId[width], _],
-) raises -> DeviceBuffer[DType.uint32]:
+) raises -> DeviceBuffer[.uint32]:
     """Upload the packed scalar surface sidecar shared by GPU geometries."""
     comptime assert width == 1
     return upload_list(ctx, [surface.value[0] for surface in surfaces])
@@ -50,8 +50,8 @@ struct GpuRtRenderTarget:
     var pixel_count: Int
     var sample_count: Int
     var arena: GpuWavefrontArena
-    var camera: DeviceBuffer[DType.float32]
-    var pixels: DeviceBuffer[DType.float32]
+    var camera: DeviceBuffer[.float32]
+    var pixels: DeviceBuffer[.float32]
 
     def __init__(
         out self,
@@ -86,7 +86,7 @@ struct GpuRtRenderTarget:
             arena_capacity = self.samples_per_pixel
         self.arena = GpuWavefrontArena(ctx, arena_capacity)
         self.camera = upload_camera(ctx, camera)
-        self.pixels = ctx.enqueue_create_buffer[DType.float32](
+        self.pixels = ctx.enqueue_create_buffer[.float32](
             self.pixel_count * 3
         )
 
@@ -192,10 +192,10 @@ def enqueue_gpu_wavefront[
         DeviceContext,
         GpuWavefrontArena,
         Scene,
-        DeviceBuffer[DType.uint32],
-        DeviceBuffer[DType.float32],
-        DeviceBuffer[DType.uint32],
-        DeviceBuffer[DType.float32],
+        DeviceBuffer[.uint32],
+        DeviceBuffer[.float32],
+        DeviceBuffer[.uint32],
+        DeviceBuffer[.float32],
         UInt64,
         UInt32,
     ) raises thin -> None,
@@ -206,13 +206,8 @@ def enqueue_gpu_wavefront[
     settings: RenderSettings,
 ) raises:
     """Compile-time scheduler shared by every geometry specialization."""
-    comptime assert ALGORITHM in (
-        RENDER.PATH,
-        RENDER.NORMALS,
-        RENDER.AO,
-        RENDER.NEE,
-        RENDER.MIS,
-    )
+    comptime assert ALGORITHM.is_valid()
+
     var sample_begin = 0
     while sample_begin < target.sample_count:
         var chunk_sample_count = min(

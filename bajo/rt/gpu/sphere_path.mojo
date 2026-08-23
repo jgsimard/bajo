@@ -40,7 +40,7 @@ struct GpuRtSphereScene[
     """Device scene data for the sphere GPU RT specialization."""
 
     var geometry: GpuRtSphereGeometry[
-        Frame.WORLD, Self.node_width, Self.leaf_width
+        .WORLD, Self.node_width, Self.leaf_width
     ]
     var shading: GpuRtShadingResources
 
@@ -59,7 +59,7 @@ struct GpuRtSphereScene[
         )
 
         self.geometry = GpuRtSphereGeometry[
-            Frame.WORLD, Self.node_width, Self.leaf_width
+            .WORLD, Self.node_width, Self.leaf_width
         ](ctx, world.spheres(), world.sphere_surfaces())
         self.shading = GpuRtShadingResources(ctx, world)
 
@@ -72,10 +72,10 @@ def _enqueue_sphere_bounce[
     ctx: DeviceContext,
     arena: GpuWavefrontArena,
     world: GpuRtSphereScene[node_width, leaf_width],
-    src_path_ids: DeviceBuffer[DType.uint32],
-    src_path_fields: DeviceBuffer[DType.float32],
-    dst_path_ids: DeviceBuffer[DType.uint32],
-    dst_path_fields: DeviceBuffer[DType.float32],
+    src_path_ids: DeviceBuffer[.uint32],
+    src_path_fields: DeviceBuffer[.float32],
+    dst_path_ids: DeviceBuffer[.uint32],
+    dst_path_fields: DeviceBuffer[.float32],
     rng_seed: UInt64,
     bounce: UInt32,
 ) raises:
@@ -119,7 +119,7 @@ def _enqueue_sphere_bounce[
 
 
 def enqueue_render_gpu_spheres[
-    ALGORITHM: RENDER = RENDER.PATH,
+    ALGORITHM: RENDER = .PATH,
     node_width: SIMDLength = 4,
     leaf_width: SIMDLength = node_width,
 ](
@@ -136,7 +136,7 @@ def enqueue_render_gpu_spheres[
 
 
 def render_gpu_spheres[
-    ALGORITHM: RENDER = RENDER.PATH,
+    ALGORITHM: RENDER = .PATH,
     node_width: SIMDLength = 4,
     leaf_width: SIMDLength = node_width,
 ](
@@ -145,13 +145,7 @@ def render_gpu_spheres[
     world: SceneData,
 ) raises -> RenderResult:
     """Render a sphere-only `SceneData` with the shared wavefront contract."""
-    comptime assert ALGORITHM in (
-        RENDER.PATH,
-        RENDER.NORMALS,
-        RENDER.AO,
-        RENDER.NEE,
-        RENDER.MIS,
-    )
+    comptime assert ALGORITHM.is_valid()
     var total_t0 = perf_counter_ns()
     var pixel_count = settings.image_width * settings.image_height
     var sample_count = pixel_count * settings.samples_per_pixel

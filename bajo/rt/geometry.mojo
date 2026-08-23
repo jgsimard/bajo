@@ -12,7 +12,7 @@ struct _OrientedSurfaceNormal[frame: Frame, length: SIMDLength = 1](
 ):
     """An outward normal oriented against the incident ray direction."""
 
-    var normal: Vec3[DType.float32, Self.frame, Self.length]
+    var normal: Vec3[.float32, Self.frame, Self.length]
     var front_face: SIMD[DType.bool, Self.length]
 
 
@@ -20,8 +20,8 @@ struct _OrientedSurfaceNormal[frame: Frame, length: SIMDLength = 1](
 def orient_surface_normal[
     frame: Frame, length: SIMDLength
 ](
-    ray_direction: Vec3[DType.float32, frame, length],
-    outward_normal: Vec3[DType.float32, frame, length],
+    ray_direction: Vec3[.float32, frame, length],
+    outward_normal: Vec3[.float32, frame, length],
 ) -> _OrientedSurfaceNormal[frame, length]:
     """Return the consistently oriented normal and front-face classification."""
     var front_face = dot(ray_direction, outward_normal).lt(0.0)

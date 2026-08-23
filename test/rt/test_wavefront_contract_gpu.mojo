@@ -39,9 +39,9 @@ def _path(path_id: UInt32) -> WavePath:
     var x = Float32(path_id)
     return WavePath(
         path_id,
-        Rayf32[Frame.WORLD](
-            Point3f32[Frame.WORLD](x, x + 1.0, x + 2.0),
-            Vec3f32[Frame.WORLD](x + 3.0, -(x + 4.0), x + 5.0),
+        Rayf32[.WORLD](
+            Point3f32[.WORLD](x, x + 1.0, x + 2.0),
+            Vec3f32[.WORLD](x + 3.0, -(x + 4.0), x + 5.0),
             0.01,
             x + 1000.0,
         ),
@@ -137,7 +137,7 @@ def test_gpu_wavefront_contract_atomic_roundtrip() raises:
         )
 
         arena.upload_active(ctx, source)
-        var subsequences = ctx.enqueue_create_buffer[DType.uint64](CAPACITY)
+        var subsequences = ctx.enqueue_create_buffer[.uint64](CAPACITY)
         enqueue_wavefront_contract_probe(
             ctx, arena, subsequences, ACTIVE_COUNT, RNG_STAGE
         )

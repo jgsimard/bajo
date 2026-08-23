@@ -110,7 +110,7 @@ def _make_duplicate_sphere_centroid_scene[
 
 
 def _camera_for_bounds(
-    bounds: AABB[Frame.WORLD], distance: Float32 = 2.5
+    bounds: AABB[.WORLD], distance: Float32 = 2.5
 ) -> Camera:
     var center = bounds.centroid()
     var extent = bounds.extent()
@@ -118,32 +118,32 @@ def _camera_for_bounds(
     if scene_w < 1.0:
         scene_w = 1.0
 
-    var eye = center + Vec3f32[Frame.WORLD](0.0, 0.0, -scene_w * distance)
+    var eye = center + Vec3f32[.WORLD](0.0, 0.0, -scene_w * distance)
     return Camera(
         eye,
         center,
-        Vec3f32[Frame.WORLD](0.0, 1.0, 0.0),
+        Vec3f32[.WORLD](0.0, 1.0, 0.0),
         Float32(0.75),
     )
 
 
 def _make_camera_ray(
-    origin: Point3f32[Frame.WORLD], direction: Vec3f32[Frame.WORLD]
+    origin: Point3f32[.WORLD], direction: Vec3f32[.WORLD]
 ) -> Camera:
     return Camera(
         origin,
         origin + direction,
-        Vec3f32[Frame.WORLD](0.0, 1.0, 0.0),
+        Vec3f32[.WORLD](0.0, 1.0, 0.0),
         Float32(0.75),
     )
 
 
 def _make_camera_rays_and_params(
-    bounds: AABB[Frame.WORLD],
+    bounds: AABB[.WORLD],
     width: Int,
     height: Int,
     views: Int,
-) -> Tuple[List[Rayf32[Frame.WORLD]], List[Float32]]:
+) -> Tuple[List[Rayf32[.WORLD]], List[Float32]]:
     var center = bounds.centroid()
     var extent = bounds.extent()
 
@@ -151,12 +151,12 @@ def _make_camera_rays_and_params(
     if scene_w < 1.0:
         scene_w = 1.0
 
-    var rays = List[Rayf32[Frame.WORLD]](capacity=width * height * views)
+    var rays = List[Rayf32[.WORLD]](capacity=width * height * views)
     var params = List[Float32](capacity=views * Camera.STRIDE)
 
     for view in range(views):
         var view_offset = Float32(view) - Float32(views - 1) * 0.5
-        var eye = center + Vec3f32[Frame.WORLD](
+        var eye = center + Vec3f32[.WORLD](
             view_offset * scene_w * 0.30,
             extent.y * 0.20,
             -scene_w * 2.50,
@@ -164,7 +164,7 @@ def _make_camera_rays_and_params(
         var camera = Camera(
             eye,
             center,
-            Vec3f32[Frame.WORLD](0.0, 1.0, 0.0),
+            Vec3f32[.WORLD](0.0, 1.0, 0.0),
             Float32(0.75),
         )
         params.extend(camera.flatten())
@@ -237,13 +237,13 @@ def _trace_cpu_triangle_blas[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
 ](
-    blases: CpuBlasSet[Primitive.TRIANGLE, node_width, leaf_width],
+    blases: CpuBlasSet[.TRIANGLE, node_width, leaf_width],
     rays: List[Rayf32[frame]],
 ) -> Float64:
     var checksum = Float64(0.0)
     for ray in rays:
         var hit = trace_blas_set[
-            node_width, leaf_width, TRACE.CLOSEST_HIT, frame
+            node_width, leaf_width, .CLOSEST_HIT, frame
         ](blases, UInt32(0), ray)
         if hit.t < f32_max:
             checksum += Float64(hit.t)
@@ -253,7 +253,7 @@ def _trace_cpu_triangle_blas[
 def _trace_cpu_triangle_camera[
     width: SIMDLength
 ](
-    blases: CpuBlasSet[Primitive.TRIANGLE, width],
+    blases: CpuBlasSet[.TRIANGLE, width],
     camera: Camera,
     cwidth: Int,
     cheight: Int,
@@ -265,7 +265,7 @@ def _trace_cpu_triangle_camera[
         for px in range(cwidth):
             var ray = camera.make_ray(px, py, cwidth, cheight)
             var hit = trace_blas_set[
-                width, width, TRACE.CLOSEST_HIT, Frame.WORLD
+                width, width, .CLOSEST_HIT, .WORLD
             ](blases, UInt32(0), ray)
             if hit.t < f32_max:
                 checksum += Float64(hit.t)
@@ -275,7 +275,7 @@ def _trace_cpu_triangle_camera[
 
 
 def _trace_cpu_sphere_camera(
-    spheres: List[Sphere[Frame.WORLD]],
+    spheres: List[Sphere[.WORLD]],
     camera: Camera,
     cwidth: Int,
     cheight: Int,
@@ -307,7 +307,7 @@ def _trace_cpu_spheres_bruteforce[
 
 
 def _download_hit_checksum(
-    hits_f32: DeviceBuffer[DType.float32],
+    hits_f32: DeviceBuffer[.float32],
     ray_count: Int,
 ) raises -> Tuple[Float64, UInt32]:
     var checksum = Float64(0.0)
@@ -325,9 +325,9 @@ def _download_hit_checksum(
 
 
 def _download_tlas_checksum[
-    frame: Frame = Frame.WORLD
+    frame: Frame = .WORLD
 ](
-    d_hits: DeviceBuffer[DType.float32],
+    d_hits: DeviceBuffer[.float32],
     ray_count: Int,
 ) raises -> Tuple[
     Float64, UInt32, UInt64

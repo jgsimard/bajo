@@ -42,9 +42,9 @@ def _run_layout[
     var build_ns = Int(perf_counter_ns() - build_t0)
     print(t"\n{label}: scene upload + BVH={round(ns_to_ms(build_ns), 3)} ms")
     var path = bench_gpu_triangle_algorithm[
-        RENDER.PATH, node_width, leaf_width
+        .PATH, node_width, leaf_width
     ](ctx, target, gpu_world, settings)
-    var nee = bench_gpu_triangle_algorithm[RENDER.NEE, node_width, leaf_width](
+    var nee = bench_gpu_triangle_algorithm[.NEE, node_width, leaf_width](
         ctx, target, gpu_world, settings
     )
     print_gpu_rt_result("PATH", path, sample_count)

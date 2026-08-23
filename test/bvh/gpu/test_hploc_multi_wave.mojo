@@ -30,22 +30,22 @@ struct GpuHplocMultiWaveBvh[
     """Test fixture owning the direct-layout H-PLOC buffers."""
 
     var leaf_count: Int
-    var leaf_bounds: DeviceBuffer[DType.float32]
-    var sorted_morton_codes: DeviceBuffer[DType.uint32]
-    var sorted_leaf_ids: DeviceBuffer[DType.uint32]
-    var node_meta: DeviceBuffer[DType.uint32]
-    var leaf_parent: DeviceBuffer[DType.uint32]
-    var node_bounds: DeviceBuffer[DType.float32]
-    var node_flags: DeviceBuffer[DType.uint32]
-    var node_leaf_counts: DeviceBuffer[DType.uint32]
+    var leaf_bounds: DeviceBuffer[.float32]
+    var sorted_morton_codes: DeviceBuffer[.uint32]
+    var sorted_leaf_ids: DeviceBuffer[.uint32]
+    var node_meta: DeviceBuffer[.uint32]
+    var leaf_parent: DeviceBuffer[.uint32]
+    var node_bounds: DeviceBuffer[.float32]
+    var node_flags: DeviceBuffer[.uint32]
+    var node_leaf_counts: DeviceBuffer[.uint32]
     var state: GpuHplocBuildState[Self.search_radius, Self.merging_threshold]
 
     def __init__(
         out self,
         mut ctx: DeviceContext,
-        leaf_bounds: DeviceBuffer[DType.float32],
-        sorted_morton_codes: DeviceBuffer[DType.uint32],
-        sorted_leaf_ids: DeviceBuffer[DType.uint32],
+        leaf_bounds: DeviceBuffer[.float32],
+        sorted_morton_codes: DeviceBuffer[.uint32],
+        sorted_leaf_ids: DeviceBuffer[.uint32],
     ) raises:
         self.leaf_count = len(sorted_leaf_ids)
         self.leaf_bounds = leaf_bounds
@@ -53,19 +53,19 @@ struct GpuHplocMultiWaveBvh[
         self.sorted_leaf_ids = sorted_leaf_ids
 
         var internal_capacity = max(self.leaf_count - 1, 1)
-        self.node_meta = ctx.enqueue_create_buffer[DType.uint32](
+        self.node_meta = ctx.enqueue_create_buffer[.uint32](
             internal_capacity * BinaryBvhNode.META_STRIDE
         )
-        self.leaf_parent = ctx.enqueue_create_buffer[DType.uint32](
+        self.leaf_parent = ctx.enqueue_create_buffer[.uint32](
             self.leaf_count
         )
-        self.node_bounds = ctx.enqueue_create_buffer[DType.float32](
+        self.node_bounds = ctx.enqueue_create_buffer[.float32](
             internal_capacity * BinaryBvhNode.BOUNDS_STRIDE
         )
-        self.node_flags = ctx.enqueue_create_buffer[DType.uint32](
+        self.node_flags = ctx.enqueue_create_buffer[.uint32](
             internal_capacity
         )
-        self.node_leaf_counts = ctx.enqueue_create_buffer[DType.uint32](
+        self.node_leaf_counts = ctx.enqueue_create_buffer[.uint32](
             internal_capacity
         )
         self.state = GpuHplocBuildState[
@@ -92,10 +92,10 @@ struct GpuHplocMultiWaveBvh[
         return self.state.result_node_count()
 
 
-def _box(center_x: Float32) -> AABB[Frame.WORLD]:
-    return AABB[Frame.WORLD](
-        Point3f32[Frame.WORLD](center_x - 0.1, -0.1, -0.1),
-        Point3f32[Frame.WORLD](center_x + 0.1, 0.1, 0.1),
+def _box(center_x: Float32) -> AABB[.WORLD]:
+    return AABB[.WORLD](
+        Point3f32[.WORLD](center_x - 0.1, -0.1, -0.1),
+        Point3f32[.WORLD](center_x + 0.1, 0.1, 0.1),
     )
 
 
@@ -107,7 +107,7 @@ def _identity_ids(count: Int) -> List[UInt32]:
 
 
 def _flatten_bounds(
-    bounds: List[AABB[Frame.WORLD]],
+    bounds: List[AABB[.WORLD]],
 ) -> List[Float32]:
     var flat = List[Float32](capacity=len(bounds) * AABB.STRIDE)
     for bound in bounds:
@@ -121,8 +121,8 @@ def _flatten_bounds(
 
 
 def _bounds_match(
-    actual: AABB[Frame.WORLD],
-    expected: AABB[Frame.WORLD],
+    actual: AABB[.WORLD],
+    expected: AABB[.WORLD],
     tolerance: Float64 = 1.0e-4,
 ) -> Bool:
     return (
@@ -155,7 +155,7 @@ def _inner_hash(left: UInt64, right: UInt64) -> UInt64:
     )
 
 
-def _reference_root_hash(reference: HplocTopology[Frame.WORLD]) -> UInt64:
+def _reference_root_hash(reference: HplocTopology[.WORLD]) -> UInt64:
     var hashes = List[UInt64](length=len(reference.nodes), fill=UInt64(0))
     for node_idx, node in enumerate(reference.nodes):
         if node.left == LBVH_SENTINEL:
@@ -172,7 +172,7 @@ def _assert_gpu_matches_reference[
     merging_threshold: Int,
 ](
     gpu: GpuHplocMultiWaveBvh[search_radius, merging_threshold],
-    reference: HplocTopology[Frame.WORLD],
+    reference: HplocTopology[.WORLD],
 ) raises -> UInt64:
     var internal_count = max(reference.leaf_count - 1, 0)
     assert_equal(gpu.result_status(), UInt32(HPLOC_STATUS_OK))
@@ -189,8 +189,8 @@ def _assert_gpu_matches_reference[
     with gpu.node_meta.map_to_host() as meta, gpu.leaf_parent.map_to_host() as leaf_parent, gpu.node_bounds.map_to_host() as flat_bounds, gpu.node_flags.map_to_host() as flags, gpu.node_leaf_counts.map_to_host() as leaf_counts, gpu.sorted_leaf_ids.map_to_host() as leaf_ids, gpu.leaf_bounds.map_to_host() as leaf_bounds:
         var hashes = List[UInt64](length=internal_count, fill=UInt64(0))
         var counts = List[UInt32](length=internal_count, fill=UInt32(0))
-        var subtree_bounds = List[AABB[Frame.WORLD]](
-            length=internal_count, fill=AABB[Frame.WORLD].invalid()
+        var subtree_bounds = List[AABB[.WORLD]](
+            length=internal_count, fill=AABB[.WORLD].invalid()
         )
         var seen_leaves = List[Bool](length=reference.leaf_count, fill=False)
         var node_area_sum = Float64(0.0)
@@ -210,7 +210,7 @@ def _assert_gpu_matches_reference[
 
             var left_hash: UInt64
             var left_count: UInt32
-            var left_bounds: AABB[Frame.WORLD]
+            var left_bounds: AABB[.WORLD]
             if is_leaf_ref(left):
                 var sorted_pos = Int(decode_ref_index(left))
                 var leaf_id = leaf_ids[sorted_pos]
@@ -219,7 +219,7 @@ def _assert_gpu_matches_reference[
                 seen_leaves[Int(leaf_id)] = True
                 left_hash = _leaf_hash(leaf_id)
                 left_count = UInt32(1)
-                left_bounds = AABB[Frame.WORLD].load6(
+                left_bounds = AABB[.WORLD].load6(
                     leaf_bounds_span, Int(leaf_id) * AABB.STRIDE
                 )
                 node_area_sum += Float64(left_bounds.surface_area()[0])
@@ -238,7 +238,7 @@ def _assert_gpu_matches_reference[
 
             var right_hash: UInt64
             var right_count: UInt32
-            var right_bounds: AABB[Frame.WORLD]
+            var right_bounds: AABB[.WORLD]
             if is_leaf_ref(right):
                 var sorted_pos = Int(decode_ref_index(right))
                 var leaf_id = leaf_ids[sorted_pos]
@@ -247,7 +247,7 @@ def _assert_gpu_matches_reference[
                 seen_leaves[Int(leaf_id)] = True
                 right_hash = _leaf_hash(leaf_id)
                 right_count = UInt32(1)
-                right_bounds = AABB[Frame.WORLD].load6(
+                right_bounds = AABB[.WORLD].load6(
                     leaf_bounds_span, Int(leaf_id) * AABB.STRIDE
                 )
                 node_area_sum += Float64(right_bounds.surface_area()[0])
@@ -264,10 +264,10 @@ def _assert_gpu_matches_reference[
                 right_count = counts[child]
                 right_bounds = subtree_bounds[child]
 
-            var stored_left = AABB[Frame.WORLD].load6(
+            var stored_left = AABB[.WORLD].load6(
                 node_bounds_span, node_idx * BinaryBvhNode.BOUNDS_STRIDE
             )
-            var stored_right = AABB[Frame.WORLD].load6(
+            var stored_right = AABB[.WORLD].load6(
                 node_bounds_span,
                 node_idx * BinaryBvhNode.BOUNDS_STRIDE + AABB.STRIDE,
             )
@@ -276,7 +276,7 @@ def _assert_gpu_matches_reference[
 
             hashes[node_idx] = _inner_hash(left_hash, right_hash)
             counts[node_idx] = left_count + right_count
-            subtree_bounds[node_idx] = AABB[Frame.WORLD].merge(
+            subtree_bounds[node_idx] = AABB[.WORLD].merge(
                 left_bounds, right_bounds
             )
             node_area_sum += Float64(subtree_bounds[node_idx].surface_area()[0])
@@ -317,7 +317,7 @@ def _assert_gpu_matches_reference[
 
 
 def test_hploc_multi_wave_one_leaf() raises:
-    var bounds: List[AABB[Frame.WORLD]] = [_box(2.0)]
+    var bounds: List[AABB[.WORLD]] = [_box(2.0)]
     var flat = _flatten_bounds(bounds)
     var codes: List[UInt32] = [9]
     var ids: List[UInt32] = [0]
@@ -336,7 +336,7 @@ def test_hploc_multi_wave_one_leaf() raises:
 
 def test_hploc_multi_wave_strict_ties_match_reference() raises:
     comptime leaf_count = 4
-    var bounds = List[AABB[Frame.WORLD]](capacity=leaf_count)
+    var bounds = List[AABB[.WORLD]](capacity=leaf_count)
     for _ in range(leaf_count):
         bounds.append(_box(0.0))
     var flat = _flatten_bounds(bounds)
@@ -357,7 +357,7 @@ def test_hploc_multi_wave_strict_ties_match_reference() raises:
 
 def test_hploc_multi_wave_crosses_waves_at_64_leaves() raises:
     comptime leaf_count = 64
-    var bounds = List[AABB[Frame.WORLD]](capacity=leaf_count)
+    var bounds = List[AABB[.WORLD]](capacity=leaf_count)
     var codes = List[UInt32](capacity=leaf_count)
     for i in range(leaf_count):
         bounds.append(_box(Float32(i * 3)))
@@ -381,7 +381,7 @@ def test_hploc_multi_wave_parameterized_policy() raises:
     comptime leaf_count = 48
     comptime search_radius = 4
     comptime merging_threshold = 8
-    var bounds = List[AABB[Frame.WORLD]](capacity=leaf_count)
+    var bounds = List[AABB[.WORLD]](capacity=leaf_count)
     var codes = List[UInt32](capacity=leaf_count)
     for i in range(leaf_count):
         bounds.append(_box(Float32(i * 3)))
@@ -409,7 +409,7 @@ def test_hploc_multi_wave_parameterized_policy() raises:
 
 def test_hploc_multi_wave_duplicate_codes_repeat_deterministically() raises:
     comptime leaf_count = 96
-    var bounds = List[AABB[Frame.WORLD]](capacity=leaf_count)
+    var bounds = List[AABB[.WORLD]](capacity=leaf_count)
     var codes = List[UInt32](capacity=leaf_count)
     var ids = List[UInt32](capacity=leaf_count)
     for i in range(leaf_count):
@@ -438,8 +438,8 @@ def test_hploc_multi_wave_duplicate_codes_repeat_deterministically() raises:
         assert_equal(first_hash, second_hash)
 
 
-def _make_triangles(count: Int) -> List[AABB[Frame.WORLD]]:
-    var bounds = List[AABB[Frame.WORLD]](capacity=count)
+def _make_triangles(count: Int) -> List[AABB[.WORLD]]:
+    var bounds = List[AABB[.WORLD]](capacity=count)
     for i in range(count):
         var x = Float32((i % 19) * 4 - 36)
         var y = Float32(((i / 19) % 14) * 4 - 26)
@@ -447,9 +447,9 @@ def _make_triangles(count: Int) -> List[AABB[Frame.WORLD]]:
         var scale = Float32(2.2) if i % 17 == 0 else Float32(0.7)
         bounds.append(
             AABB(
-                Point3f32[Frame.WORLD](x - scale, y - scale, z),
-                Point3f32[Frame.WORLD](x + scale, y - scale, z),
-                Point3f32[Frame.WORLD](x, y + scale, z + 0.1),
+                Point3f32[.WORLD](x - scale, y - scale, z),
+                Point3f32[.WORLD](x + scale, y - scale, z),
+                Point3f32[.WORLD](x, y + scale, z + 0.1),
             )
         )
     return bounds^

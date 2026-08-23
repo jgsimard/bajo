@@ -21,10 +21,10 @@ comptime CPU_PACKET_STACK_SIZE = 256
 struct CoherentPacketFrustum[frame: Frame](TrivialRegisterPassable):
     """Conservative origin/direction intervals for one ray octant."""
 
-    var near_rdir: Vec3[DType.float32, Self.frame]
-    var far_rdir: Vec3[DType.float32, Self.frame]
-    var near_org_rdir: Vec3[DType.float32, Self.frame]
-    var far_org_rdir: Vec3[DType.float32, Self.frame]
+    var near_rdir: Vec3[.float32, Self.frame]
+    var far_rdir: Vec3[.float32, Self.frame]
+    var near_org_rdir: Vec3[.float32, Self.frame]
+    var far_org_rdir: Vec3[.float32, Self.frame]
 
 
 @always_inline
@@ -35,28 +35,28 @@ def _coherent_packet_frustum[
     positive_y: Bool,
     positive_z: Bool,
 ](
-    rays: Ray[DType.float32, frame, length],
+    rays: Ray[.float32, frame, length],
     valid: SIMD[DType.bool, length],
-    reciprocal_direction: Vec3[DType.float32, frame, length],
+    reciprocal_direction: Vec3[.float32, frame, length],
 ) -> CoherentPacketFrustum[frame]:
     var positive_fill = SIMD[DType.float32, length](f32_max)
     var negative_fill = SIMD[DType.float32, length](f32_min)
-    var min_origin = Vec3[DType.float32, frame](
+    var min_origin = Vec3[.float32, frame](
         valid.select(rays.o.x, positive_fill).reduce_min(),
         valid.select(rays.o.y, positive_fill).reduce_min(),
         valid.select(rays.o.z, positive_fill).reduce_min(),
     )
-    var max_origin = Vec3[DType.float32, frame](
+    var max_origin = Vec3[.float32, frame](
         valid.select(rays.o.x, negative_fill).reduce_max(),
         valid.select(rays.o.y, negative_fill).reduce_max(),
         valid.select(rays.o.z, negative_fill).reduce_max(),
     )
-    var min_rdir = Vec3[DType.float32, frame](
+    var min_rdir = Vec3[.float32, frame](
         valid.select(reciprocal_direction.x, positive_fill).reduce_min(),
         valid.select(reciprocal_direction.y, positive_fill).reduce_min(),
         valid.select(reciprocal_direction.z, positive_fill).reduce_min(),
     )
-    var max_rdir = Vec3[DType.float32, frame](
+    var max_rdir = Vec3[.float32, frame](
         valid.select(reciprocal_direction.x, negative_fill).reduce_max(),
         valid.select(reciprocal_direction.y, negative_fill).reduce_max(),
         valid.select(reciprocal_direction.z, negative_fill).reduce_max(),
@@ -191,7 +191,7 @@ def trace_packet_stack_bounds_bvh[
     packed_meta: Bool = False,
 ](
     nodes: ImmSpan[WideBvhNode[frame, bounds_width], _],
-    rays: Ray[DType.float32, frame, length],
+    rays: Ray[.float32, frame, length],
     valid: SIMD[DType.bool, length],
     mut hit: Hit[frame, length],
     ref leaf_fn: LeafFn,
@@ -206,18 +206,18 @@ def trace_packet_stack_bounds_bvh[
         return
 
     var reciprocal_direction = rays.reciprocal_direction()
-    var origin_rcp_direction = Vec3[DType.float32, frame, length](0.0)
+    var origin_rcp_direction = Vec3[.float32, frame, length](0.0)
     comptime if common_octant_fma:
-        origin_rcp_direction = Vec3[DType.float32, frame, length](
+        origin_rcp_direction = Vec3[.float32, frame, length](
             rays.o.x * reciprocal_direction.x,
             rays.o.y * reciprocal_direction.y,
             rays.o.z * reciprocal_direction.z,
         )
     var frustum = CoherentPacketFrustum[frame](
-        Vec3[DType.float32, frame](0.0),
-        Vec3[DType.float32, frame](0.0),
-        Vec3[DType.float32, frame](0.0),
-        Vec3[DType.float32, frame](0.0),
+        Vec3[.float32, frame](0.0),
+        Vec3[.float32, frame](0.0),
+        Vec3[.float32, frame](0.0),
+        Vec3[.float32, frame](0.0),
     )
     var frustum_max_dist = Float32(f32_max)
     comptime if coherent_frustum:

@@ -165,10 +165,10 @@ struct GpuRtTraceQueueView(DevicePassable, TrivialRegisterPassable):
 @always_inline
 def gpu_rt_trace_queue_view(
     arena: GpuWavefrontArena,
-    src_path_ids: DeviceBuffer[DType.uint32],
-    src_path_fields: DeviceBuffer[DType.float32],
-    dst_path_ids: DeviceBuffer[DType.uint32],
-    dst_path_fields: DeviceBuffer[DType.float32],
+    src_path_ids: DeviceBuffer[.uint32],
+    src_path_fields: DeviceBuffer[.float32],
+    dst_path_ids: DeviceBuffer[.uint32],
+    dst_path_fields: DeviceBuffer[.float32],
 ) -> GpuRtTraceQueueView:
     """Assemble the shared wavefront queues for one bounce submission."""
     return GpuRtTraceQueueView(

@@ -122,8 +122,8 @@ bench_bvh = { depends-on = [
 ] }
 
 [dependencies]
-mojo = ">=1.1.0.dev2026082218,<2"
-max = ">=26.6.0.dev2026082218,<27"
+mojo = ">=1.1.0.dev2026082305,<2"
+max = ">=26.6.0.dev2026082305,<27"
 python = ">=3.14.7,<3.15"
 polars = ">=1.43.2,<2"
 matplotlib = ">=3.11.1,<4"

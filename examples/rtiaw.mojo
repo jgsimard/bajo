@@ -21,7 +21,7 @@ comptime IMAGE_HEIGHT = 400
 comptime SAMPLES_PER_PIXEL = 10
 comptime MAX_DEPTH = 32
 comptime RNG_SEED = UInt64(1234)
-comptime RENDER_ALGORITHM = RENDER.PATH
+comptime RENDER_ALGORITHM = .PATH
 
 
 def make_weekend_world[
@@ -50,12 +50,12 @@ def make_weekend_world[
             if length(center - Point3W(4.0, 0.2, 0.0)) > 0.9:
                 if choose_mat < 0.8:
                     var albedo = (
-                        rng.vec3f32[Frame.WORLD]() * rng.vec3f32[Frame.WORLD]()
+                        rng.vec3f32[.WORLD]() * rng.vec3f32[.WORLD]()
                     )
                     var surface = builder.add_lambertian(albedo)
                     builder.add_sphere(center, 0.2, surface)
                 elif choose_mat < 0.95:
-                    var albedo = rng.vec3f32[Frame.WORLD](0.5, 1.0)
+                    var albedo = rng.vec3f32[.WORLD](0.5, 1.0)
                     var fuzz = rng.f32(0.0, 0.5)
                     var surface = builder.add_metal(albedo, fuzz)
                     builder.add_sphere(center, 0.2, surface)

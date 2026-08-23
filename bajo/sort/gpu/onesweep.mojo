@@ -336,9 +336,9 @@ struct OneSweepWorkspace[
 ]:
     var keys_alternate: DeviceBuffer[Self.keys_dtype]
     var vals_alternate: DeviceBuffer[Self.vals_dtype]
-    var global_hist: DeviceBuffer[DType.uint32]
-    var pass_hist: DeviceBuffer[DType.uint32]
-    var index: DeviceBuffer[DType.uint32]
+    var global_hist: DeviceBuffer[.uint32]
+    var pass_hist: DeviceBuffer[.uint32]
+    var index: DeviceBuffer[.uint32]
 
     def __init__(out self, ctx: DeviceContext, size: Int) raises:
         comptime RADIX = 256
@@ -350,13 +350,13 @@ struct OneSweepWorkspace[
 
         self.keys_alternate = ctx.enqueue_create_buffer[Self.keys_dtype](size)
         self.vals_alternate = ctx.enqueue_create_buffer[Self.vals_dtype](size)
-        self.global_hist = ctx.enqueue_create_buffer[DType.uint32](
+        self.global_hist = ctx.enqueue_create_buffer[.uint32](
             RADIX * NUM_PASSES
         )
-        self.pass_hist = ctx.enqueue_create_buffer[DType.uint32](
+        self.pass_hist = ctx.enqueue_create_buffer[.uint32](
             hist_blocks * RADIX * NUM_PASSES
         )
-        self.index = ctx.enqueue_create_buffer[DType.uint32](NUM_PASSES)
+        self.index = ctx.enqueue_create_buffer[.uint32](NUM_PASSES)
 
 
 def onesweep_radix_sort_keys[

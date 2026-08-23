@@ -834,8 +834,8 @@ def _test_triangle_packet_paths_match[length: SIMDLength]() raises:
     var blases = build_triangle_blases[
         16, 16, .SAH, .WORLD
     ]([verts.copy()])
-    var ox = SIMD[DType.float32, length](0.0)
-    var oy = SIMD[DType.float32, length](0.0)
+    var ox = SIMD[.float32, length](0.0)
+    var oy = SIMD[.float32, length](0.0)
     comptime for lane in range(length):
         if lane % 4 == 0:
             ox[lane] = 1000.0 + Float32(lane)
@@ -868,8 +868,8 @@ def test_triangle_packet_paths_match() raises:
 def _check_packed_triangle_packet[
     length: SIMDLength
 ](host: CpuBlasSet[.TRIANGLE, 16]) raises:
-    var ox = SIMD[DType.float32, length](0.0)
-    var oy = SIMD[DType.float32, length](0.0)
+    var ox = SIMD[.float32, length](0.0)
+    var oy = SIMD[.float32, length](0.0)
     comptime for lane in range(length):
         if lane % 4 == 0:
             ox[lane] = 1000.0
@@ -921,7 +921,7 @@ def test_packed_triangle_packet_matches_scalar_widths() raises:
 def _check_packed_sphere_packet[
     length: SIMDLength
 ](host: CpuBlasSet[.SPHERE, 16]) raises:
-    var ox = SIMD[DType.float32, length](0.0)
+    var ox = SIMD[.float32, length](0.0)
     comptime for lane in range(length):
         if lane % 3 == 0:
             ox[lane] = 100.0
@@ -978,12 +978,12 @@ def _test_coherent_packet_frustum_is_conservative[
     comptime if not positive_z:
         sign_z = -1.0
 
-    var ox = SIMD[DType.float32, length](0.0)
-    var oy = SIMD[DType.float32, length](0.0)
-    var oz = SIMD[DType.float32, length](0.0)
-    var dx = SIMD[DType.float32, length](0.0)
-    var dy = SIMD[DType.float32, length](0.0)
-    var dz = SIMD[DType.float32, length](0.0)
+    var ox = SIMD[.float32, length](0.0)
+    var oy = SIMD[.float32, length](0.0)
+    var oz = SIMD[.float32, length](0.0)
+    var dx = SIMD[.float32, length](0.0)
+    var dy = SIMD[.float32, length](0.0)
+    var dz = SIMD[.float32, length](0.0)
     comptime for lane in range(length):
         ox[lane] = -0.7 + 0.2 * Float32(lane)
         oy[lane] = 0.5 - 0.15 * Float32(lane)

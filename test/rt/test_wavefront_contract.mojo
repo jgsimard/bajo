@@ -100,7 +100,7 @@ def test_wavefront_path_field_major_roundtrip() raises:
 def test_wavefront_shade_field_major_roundtrip() raises:
     var hit = SurfaceHit(
         Vec3f32[.WORLD](0.0, 1.0, 0.0),
-        SurfaceId(MAT.METAL, UInt32(9)),
+        SurfaceId(.METAL, UInt32(9)),
         3.5,
         True,
         True,
@@ -176,7 +176,7 @@ def test_cpu_aos_boundary_adapters() raises:
 
     var hit = SurfaceHit(
         Vec3f32[.WORLD](1.0, 0.0, 0.0),
-        SurfaceId(MAT.METAL, UInt32(4)),
+        SurfaceId(.METAL, UInt32(4)),
         2.25,
         False,
         True,

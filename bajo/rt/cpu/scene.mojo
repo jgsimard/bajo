@@ -42,7 +42,7 @@ struct _WorldHit(Copyable, Writable):
         return Self(
             PrimitiveId(PRIM.SPHERE, UInt32(0)),
             Vec3f32[.WORLD](0.0),
-            SurfaceId(MAT.LAMBERTIAN, UInt32(0)),
+            SurfaceId(.LAMBERTIAN, UInt32(0)),
             t,
             True,
             False,
@@ -313,10 +313,10 @@ struct CpuScene[
                 Frame.WORLD,
             ](self.sphere_bvh.value(), UInt32(0), rays, valid)
             var sphere_mask = sphere_hits.hit_mask()
-            var center_x = SIMD[DType.float32, length](0.0)
-            var center_y = SIMD[DType.float32, length](0.0)
-            var center_z = SIMD[DType.float32, length](0.0)
-            var radius = SIMD[DType.float32, length](1.0)
+            var center_x = SIMD[.float32, length](0.0)
+            var center_y = SIMD[.float32, length](0.0)
+            var center_z = SIMD[.float32, length](0.0)
+            var radius = SIMD[.float32, length](1.0)
             var surface_values = SIMD[DType.uint32, length](0)
             for lane in range(length):
                 if sphere_mask[lane]:

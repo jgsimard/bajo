@@ -23,12 +23,12 @@ def _initialize_path_packets_range[
     var height = Float32(settings.image_height)
     for packet_begin in range(path_begin, path_end, length):
         var lane_count = min(length, path_end - packet_begin)
-        var px = SIMD[DType.float32, length](0.0)
-        var py = SIMD[DType.float32, length](0.0)
-        var pixel_u = SIMD[DType.float32, length](0.0)
-        var pixel_v = SIMD[DType.float32, length](0.0)
-        var lens_u = SIMD[DType.float32, length](0.0)
-        var lens_v = SIMD[DType.float32, length](0.0)
+        var px = SIMD[.float32, length](0.0)
+        var py = SIMD[.float32, length](0.0)
+        var pixel_u = SIMD[.float32, length](0.0)
+        var pixel_v = SIMD[.float32, length](0.0)
+        var lens_u = SIMD[.float32, length](0.0)
+        var lens_v = SIMD[.float32, length](0.0)
         var packet = PathPacket[length]()
         for lane in range(lane_count):
             var path_idx = packet_begin + lane

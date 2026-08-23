@@ -328,9 +328,9 @@ def _sample_direct_light_candidate[
     var material_idx = Int(surface_value & SURFACE_INDEX_MASK)
     var value = Color(0.0)
     var bsdf_pdf = Float32(0.0)
-    if surface_kind == MAT.LAMBERTIAN:
+    if surface_kind == .LAMBERTIAN:
         var material_base = 3 * material_idx
-        var evaluation = _evaluate_material[MAT.LAMBERTIAN, 1](
+        var evaluation = _evaluate_material[.LAMBERTIAN, 1](
             incoming_ray.d,
             normal,
             Color(
@@ -343,9 +343,9 @@ def _sample_direct_light_candidate[
         )
         value = evaluation.value
         bsdf_pdf = evaluation.pdf
-    elif surface_kind == MAT.METAL:
+    elif surface_kind == .METAL:
         var material_base = 4 * material_idx
-        var evaluation = _evaluate_material[MAT.METAL, 1](
+        var evaluation = _evaluate_material[.METAL, 1](
             incoming_ray.d,
             normal,
             Color(
@@ -458,7 +458,7 @@ def _shade_lambertian_inline[
     )
     var random_u = rng.f32()
     var random_v = rng.f32()
-    var sampled = _sample_material[MAT.LAMBERTIAN, 1](
+    var sampled = _sample_material[.LAMBERTIAN, 1](
         ray_direction,
         normal,
         albedo,
@@ -542,7 +542,7 @@ def _route_surface_hit[
         return
 
     var kind = MAT(surface_value >> UInt32(28))
-    if kind == MAT.EMISSIVE:
+    if kind == .EMISSIVE:
         if front_face:
             var material_idx = Int(surface_value & SURFACE_INDEX_MASK)
             var base = 3 * material_idx
@@ -583,7 +583,7 @@ def _route_surface_hit[
             )
         return
 
-    if kind == MAT.LAMBERTIAN:
+    if kind == .LAMBERTIAN:
         _shade_lambertian_inline[ALGORITHM](
             path,
             ray_direction,
@@ -598,7 +598,7 @@ def _route_surface_hit[
             rng_seed,
             bounce,
         )
-    elif kind == MAT.METAL or kind == MAT.DIELECTRIC:
+    elif kind == .METAL or kind == .DIELECTRIC:
         _append_shade(
             DeviceWaveShade(
                 UInt32(active_path_idx),
@@ -677,7 +677,7 @@ def _gpu_rt_shade_one[
         rng_seed, path.path_id, wavefront_rng_stage(bounce)
     )
 
-    comptime if MATERIAL_KIND == MAT.LAMBERTIAN:
+    comptime if MATERIAL_KIND == .LAMBERTIAN:
         var base = 3 * material_idx
         albedo = Color(
             material_data[unsafe_offset=base + 0],
@@ -686,7 +686,7 @@ def _gpu_rt_shade_one[
         )
         random_u = rng.f32()
         random_v = rng.f32()
-    elif MATERIAL_KIND == MAT.METAL:
+    elif MATERIAL_KIND == .METAL:
         var base = 4 * material_idx
         albedo = Color(
             material_data[unsafe_offset=base + 0],
@@ -776,8 +776,8 @@ def gpu_rt_shade_dispatch_kernel[
     while idx < work_count:
         var surface_value = shade_surfaces[unsafe_offset=idx]
         var kind = MAT(surface_value >> UInt32(28))
-        if kind == MAT.METAL:
-            _gpu_rt_shade_one[ALGORITHM, MAT.METAL](
+        if kind == .METAL:
+            _gpu_rt_shade_one[ALGORITHM, .METAL](
                 idx,
                 src_path_ids,
                 src_path_fields,
@@ -793,7 +793,7 @@ def gpu_rt_shade_dispatch_kernel[
                 bounce,
             )
         else:
-            _gpu_rt_shade_one[ALGORITHM, MAT.DIELECTRIC](
+            _gpu_rt_shade_one[ALGORITHM, .DIELECTRIC](
                 idx,
                 src_path_ids,
                 src_path_fields,

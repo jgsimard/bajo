@@ -149,13 +149,13 @@ struct SurfaceStore:
         self.emissives = List[Emissive]()
 
     def validate(self, surface: SurfaceId[1]) -> Bool:
-        if surface.kind() == MAT.LAMBERTIAN:
+        if surface.kind() == .LAMBERTIAN:
             return surface.index() < UInt32(len(self.lambertians))
-        elif surface.kind() == MAT.METAL:
+        elif surface.kind() == .METAL:
             return surface.index() < UInt32(len(self.metals))
-        elif surface.kind() == MAT.DIELECTRIC:
+        elif surface.kind() == .DIELECTRIC:
             return surface.index() < UInt32(len(self.dielectrics))
-        elif surface.kind() == MAT.EMISSIVE:
+        elif surface.kind() == .EMISSIVE:
             return surface.index() < UInt32(len(self.emissives))
 
         return False
@@ -163,22 +163,22 @@ struct SurfaceStore:
     def add_lambertian(mut self, albedo: Color) -> SurfaceId[1]:
         var index = UInt32(len(self.lambertians))
         self.lambertians.append(Lambertian(albedo))
-        return SurfaceId(MAT.LAMBERTIAN, index)
+        return SurfaceId(.LAMBERTIAN, index)
 
     def add_metal(mut self, albedo: Color, fuzz: Float32) -> SurfaceId[1]:
         var index = UInt32(len(self.metals))
         self.metals.append(Metal(albedo, fuzz))
-        return SurfaceId(MAT.METAL, index)
+        return SurfaceId(.METAL, index)
 
     def add_dielectric(mut self, refraction_index: Float32) -> SurfaceId[1]:
         var index = UInt32(len(self.dielectrics))
         self.dielectrics.append(Dielectric(refraction_index))
-        return SurfaceId(MAT.DIELECTRIC, index)
+        return SurfaceId(.DIELECTRIC, index)
 
     def add_emissive(mut self, radiance: Color) -> SurfaceId[1]:
         var index = UInt32(len(self.emissives))
         self.emissives.append(Emissive(radiance))
-        return SurfaceId(MAT.EMISSIVE, index)
+        return SurfaceId(.EMISSIVE, index)
 
 
 struct LightRecord(Copyable, Writable):
@@ -791,7 +791,7 @@ struct SceneData:
 
     def _build_light_store(mut self) raises:
         for idx, surface in enumerate(self._triangle_surfaces):
-            if surface.kind() == MAT.EMISSIVE:
+            if surface.kind() == .EMISSIVE:
                 var radiance = self._surfaces.emissives[
                     Int(surface.index())
                 ].radiance
@@ -816,7 +816,7 @@ struct SceneData:
                     )
 
         for idx, surface in enumerate(self._sphere_surfaces):
-            if surface.kind() == MAT.EMISSIVE:
+            if surface.kind() == .EMISSIVE:
                 var radiance = self._surfaces.emissives[
                     Int(surface.index())
                 ].radiance
@@ -840,7 +840,7 @@ struct SceneData:
         for instance_idx, surface in enumerate(
             self._triangle_instance_surfaces
         ):
-            if surface.kind() != MAT.EMISSIVE:
+            if surface.kind() != .EMISSIVE:
                 continue
             var radiance = self._surfaces.emissives[
                 Int(surface.index())

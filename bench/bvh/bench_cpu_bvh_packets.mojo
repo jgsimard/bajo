@@ -82,14 +82,14 @@ def trace_packet[
     var checksum = Float64(0.0)
     var hits = 0
     for base in range(0, len(rays), length):
-        var ox = SIMD[DType.float32, length](0.0)
-        var oy = SIMD[DType.float32, length](0.0)
-        var oz = SIMD[DType.float32, length](0.0)
-        var dx = SIMD[DType.float32, length](0.0)
-        var dy = SIMD[DType.float32, length](0.0)
-        var dz = SIMD[DType.float32, length](1.0)
-        var t_min = SIMD[DType.float32, length](0.0)
-        var t_max = SIMD[DType.float32, length](f32_max)
+        var ox = SIMD[.float32, length](0.0)
+        var oy = SIMD[.float32, length](0.0)
+        var oz = SIMD[.float32, length](0.0)
+        var dx = SIMD[.float32, length](0.0)
+        var dy = SIMD[.float32, length](0.0)
+        var dz = SIMD[.float32, length](1.0)
+        var t_min = SIMD[.float32, length](0.0)
+        var t_max = SIMD[.float32, length](f32_max)
         var valid = SIMD[DType.bool, length](fill=False)
         var lane_count = min(length, len(rays) - base)
         for lane in range(lane_count):

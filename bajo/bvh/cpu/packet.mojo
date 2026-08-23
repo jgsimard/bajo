@@ -39,8 +39,8 @@ def _coherent_packet_frustum[
     valid: SIMD[DType.bool, length],
     reciprocal_direction: Vec3[.float32, frame, length],
 ) -> CoherentPacketFrustum[frame]:
-    var positive_fill = SIMD[DType.float32, length](f32_max)
-    var negative_fill = SIMD[DType.float32, length](f32_min)
+    var positive_fill = SIMD[.float32, length](f32_max)
+    var negative_fill = SIMD[.float32, length](f32_min)
     var min_origin = Vec3[.float32, frame](
         valid.select(rays.o.x, positive_fill).reduce_min(),
         valid.select(rays.o.y, positive_fill).reduce_min(),
@@ -226,7 +226,7 @@ def trace_packet_stack_bounds_bvh[
             frame, length, positive_x, positive_y, positive_z
         ](rays, valid, reciprocal_direction)
         frustum_max_dist = valid.select(
-            rays.t_max, SIMD[DType.float32, length](f32_min)
+            rays.t_max, SIMD[.float32, length](f32_min)
         ).reduce_max()
     var stack_refs = Array[UInt32, CPU_PACKET_STACK_SIZE](uninitialized=True)
     var stack_masks = Array[SIMD[DType.bool, length], CPU_PACKET_STACK_SIZE](
@@ -244,7 +244,7 @@ def trace_packet_stack_bounds_bvh[
     def push_task(
         child_ref: UInt32,
         child_mask: SIMD[DType.bool, length],
-        child_near: SIMD[DType.float32, length],
+        child_near: SIMD[.float32, length],
     ) {
         imm,
         mut stack_ptr,
@@ -283,7 +283,7 @@ def trace_packet_stack_bounds_bvh[
         stack_ptr -= 1
         var child_ref = stack_refs.unsafe_get(stack_ptr)
         var active = stack_masks.unsafe_get(stack_ptr)
-        active &= SIMD[DType.float32, length](
+        active &= SIMD[.float32, length](
             stack_priorities.unsafe_get(stack_ptr)
         ).le(hit.t)
         if not active.reduce_or():
@@ -300,7 +300,7 @@ def trace_packet_stack_bounds_bvh[
             leaf_fn(active, decode_ref_index(child_ref), hit)
             comptime if coherent_frustum:
                 frustum_max_dist = valid.select(
-                    hit.t, SIMD[DType.float32, length](f32_min)
+                    hit.t, SIMD[.float32, length](f32_min)
                 ).reduce_max()
             continue
 
@@ -341,32 +341,32 @@ def trace_packet_stack_bounds_bvh[
                     near_z, far_z = far_z, near_z
 
                 var tx_near = fma(
-                    SIMD[DType.float32, length](near_x),
+                    SIMD[.float32, length](near_x),
                     reciprocal_direction.x,
                     -origin_rcp_direction.x,
                 )
                 var tx_far = fma(
-                    SIMD[DType.float32, length](far_x),
+                    SIMD[.float32, length](far_x),
                     reciprocal_direction.x,
                     -origin_rcp_direction.x,
                 )
                 var ty_near = fma(
-                    SIMD[DType.float32, length](near_y),
+                    SIMD[.float32, length](near_y),
                     reciprocal_direction.y,
                     -origin_rcp_direction.y,
                 )
                 var ty_far = fma(
-                    SIMD[DType.float32, length](far_y),
+                    SIMD[.float32, length](far_y),
                     reciprocal_direction.y,
                     -origin_rcp_direction.y,
                 )
                 var tz_near = fma(
-                    SIMD[DType.float32, length](near_z),
+                    SIMD[.float32, length](near_z),
                     reciprocal_direction.z,
                     -origin_rcp_direction.z,
                 )
                 var tz_far = fma(
-                    SIMD[DType.float32, length](far_z),
+                    SIMD[.float32, length](far_z),
                     reciprocal_direction.z,
                     -origin_rcp_direction.z,
                 )
@@ -381,7 +381,7 @@ def trace_packet_stack_bounds_bvh[
                 if data != EMPTY_LANE:
                     var next_ref = _cpu_traversal_ref[packed_meta](data)
                     var bounds_mask: SIMD[DType.bool, length]
-                    var bounds_t: SIMD[DType.float32, length]
+                    var bounds_t: SIMD[.float32, length]
                     comptime if common_octant_fma:
                         var near_x = node.aabb._min.x[child_lane]
                         var far_x = node.aabb._max.x[child_lane]
@@ -397,32 +397,32 @@ def trace_packet_stack_bounds_bvh[
                             near_z, far_z = far_z, near_z
 
                         var tx_near = fma(
-                            SIMD[DType.float32, length](near_x),
+                            SIMD[.float32, length](near_x),
                             reciprocal_direction.x,
                             -origin_rcp_direction.x,
                         )
                         var tx_far = fma(
-                            SIMD[DType.float32, length](far_x),
+                            SIMD[.float32, length](far_x),
                             reciprocal_direction.x,
                             -origin_rcp_direction.x,
                         )
                         var ty_near = fma(
-                            SIMD[DType.float32, length](near_y),
+                            SIMD[.float32, length](near_y),
                             reciprocal_direction.y,
                             -origin_rcp_direction.y,
                         )
                         var ty_far = fma(
-                            SIMD[DType.float32, length](far_y),
+                            SIMD[.float32, length](far_y),
                             reciprocal_direction.y,
                             -origin_rcp_direction.y,
                         )
                         var tz_near = fma(
-                            SIMD[DType.float32, length](near_z),
+                            SIMD[.float32, length](near_z),
                             reciprocal_direction.z,
                             -origin_rcp_direction.z,
                         )
                         var tz_far = fma(
-                            SIMD[DType.float32, length](far_z),
+                            SIMD[.float32, length](far_z),
                             reciprocal_direction.z,
                             -origin_rcp_direction.z,
                         )

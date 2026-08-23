@@ -48,7 +48,7 @@ WorldEnd
     assert_almost_equal(scene.data.spheres()[0].center.y, 2.0)
     assert_almost_equal(scene.data.spheres()[0].center.z, 3.0)
     assert_almost_equal(scene.data.spheres()[0].radius, 1.0)
-    assert_true(scene.data.sphere_surfaces()[0].kind() == MAT.LAMBERTIAN)
+    assert_true(scene.data.sphere_surfaces()[0].kind() == .LAMBERTIAN)
 
 
 def test_coateddiffuse_uses_diffuse_substrate() raises:
@@ -58,7 +58,7 @@ Shape "sphere"
 """
     var scene = parse_pbrt(source)
     var surface = scene.data.sphere_surfaces()[0].copy()
-    assert_true(surface.kind() == MAT.LAMBERTIAN)
+    assert_true(surface.kind() == .LAMBERTIAN)
     var albedo = scene.data.surfaces().lambertians[Int(surface.index())].albedo
     assert_almost_equal(albedo.x, 0.4)
     assert_almost_equal(albedo.y, 0.2)

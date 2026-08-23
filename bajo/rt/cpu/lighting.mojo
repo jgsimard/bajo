@@ -66,7 +66,7 @@ def emitted_radiance(
     front_face: Bool,
 ) -> Color:
     """Return one-sided surface emission."""
-    if surface.kind() == MAT.EMISSIVE and front_face:
+    if surface.kind() == .EMISSIVE and front_face:
         return surfaces.emissives[Int(surface.index())].radiance
     return Color(0.0)
 
@@ -106,7 +106,7 @@ def light_pdf_for_emissive_hit[
     hit: SurfaceHit[1],
 ) -> Float32:
     """Evaluate the triangle-light distribution in solid-angle measure."""
-    if hit.surface.kind() != MAT.EMISSIVE or not hit.front_face:
+    if hit.surface.kind() != .EMISSIVE or not hit.front_face:
         return 0.0
     var total_weight = world.scene_data().lights().total_weight
     if total_weight <= 0.0:

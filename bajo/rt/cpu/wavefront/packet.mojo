@@ -94,7 +94,7 @@ def _accumulate_direct_light_packet[
         paths.dx, paths.dy, paths.dz
     )
     var albedo = Vec3[.float32, .WORLD, length](0.0)
-    var fuzz = SIMD[DType.float32, length](1.0)
+    var fuzz = SIMD[.float32, length](1.0)
     for lane in range(lane_count):
         if not lights.sample.valid[lane]:
             continue
@@ -112,14 +112,14 @@ def _accumulate_direct_light_packet[
             albedo.z[lane] = material.albedo.z
             fuzz[lane] = material.fuzz
 
-    var lambertian = _evaluate_material[MAT.LAMBERTIAN, length](
+    var lambertian = _evaluate_material[.LAMBERTIAN, length](
         ray_direction,
         lights.point.normal,
         albedo,
         fuzz,
         lights.sample.direction,
     )
-    var metal = _evaluate_material[MAT.METAL, length](
+    var metal = _evaluate_material[.METAL, length](
         ray_direction,
         lights.point.normal,
         albedo,
@@ -169,15 +169,15 @@ def _sample_bsdf_batch[
         batch.nx, batch.ny, batch.nz
     )
     var albedo = Vec3[.float32, .WORLD, length](0.0)
-    var parameter = SIMD[DType.float32, length](1.0)
-    var random_u = SIMD[DType.float32, length](0.0)
-    var random_v = SIMD[DType.float32, length](0.0)
+    var parameter = SIMD[.float32, length](1.0)
+    var random_u = SIMD[.float32, length](0.0)
+    var random_v = SIMD[.float32, length](0.0)
     var active = SIMD[DType.bool, length](fill=False)
 
     for lane in range(lane_count):
         active[lane] = True
         var rng = path_stage_rng(settings.rng_seed, batch.path_ids[lane], stage)
-        comptime if MATERIAL_KIND == MAT.LAMBERTIAN:
+        comptime if MATERIAL_KIND == .LAMBERTIAN:
             ref material = surfaces.lambertians[
                 Int(batch.surface_indices[lane])
             ]
@@ -186,7 +186,7 @@ def _sample_bsdf_batch[
             albedo.z[lane] = material.albedo.z
             random_u[lane] = rng.f32()
             random_v[lane] = rng.f32()
-        elif MATERIAL_KIND == MAT.METAL:
+        elif MATERIAL_KIND == .METAL:
             ref material = surfaces.metals[Int(batch.surface_indices[lane])]
             albedo.x[lane] = material.albedo.x
             albedo.y[lane] = material.albedo.y
@@ -201,7 +201,7 @@ def _sample_bsdf_batch[
             ]
             parameter[lane] = material.refraction_index
 
-    comptime if MATERIAL_KIND == MAT.DIELECTRIC:
+    comptime if MATERIAL_KIND == .DIELECTRIC:
         var ri = batch.front_faces.select(Float32(1.0) / parameter, parameter)
         var unit_direction = normalize(ray_direction)
         var cos_theta = min(dot(-unit_direction, normal), 1.0)
@@ -364,7 +364,7 @@ def _trace_path_packets[
                     var pixel_idx = (
                         Int(packet.path_ids[lane]) / settings.samples_per_pixel
                     )
-                    if hit.surface.kind() == MAT.EMISSIVE:
+                    if hit.surface.kind() == .EMISSIVE:
                         var emission_weight = _emissive_hit_weight[ALGORITHM](
                             world,
                             ray,
@@ -443,11 +443,11 @@ def _trace_path_packets[
                                 lane
                             ] = direct.shadow_t_max
 
-                    if hit.surface.kind() == MAT.LAMBERTIAN:
+                    if hit.surface.kind() == .LAMBERTIAN:
                         lambertian_queue.append(packet, lane, hit)
-                    elif hit.surface.kind() == MAT.METAL:
+                    elif hit.surface.kind() == .METAL:
                         metal_queue.append(packet, lane, hit)
-                    elif hit.surface.kind() == MAT.DIELECTRIC:
+                    elif hit.surface.kind() == .DIELECTRIC:
                         dielectric_queue.append(packet, lane, hit)
                 else:
                     misses[lane] = True
@@ -456,7 +456,7 @@ def _trace_path_packets[
                 var shadow_rays = Ray[.float32, .WORLD, length](
                     direct_lights.point.p,
                     direct_lights.sample.direction,
-                    SIMD[DType.float32, length](0.001),
+                    SIMD[.float32, length](0.001),
                     direct_lights.sample.shadow_t_max,
                 )
                 direct_lights.sample.valid &= ~world.occluded(
@@ -478,21 +478,21 @@ def _trace_path_packets[
                 settings.samples_per_pixel,
             )
 
-        _shade_material_packets[MAT.LAMBERTIAN, length](
+        _shade_material_packets[.LAMBERTIAN, length](
             next_paths,
             lambertian_queue,
             world.scene_data().surfaces(),
             settings,
             UInt32(bounce + 1),
         )
-        _shade_material_packets[MAT.METAL, length](
+        _shade_material_packets[.METAL, length](
             next_paths,
             metal_queue,
             world.scene_data().surfaces(),
             settings,
             UInt32(bounce + 1),
         )
-        _shade_material_packets[MAT.DIELECTRIC, length](
+        _shade_material_packets[.DIELECTRIC, length](
             next_paths,
             dielectric_queue,
             world.scene_data().surfaces(),

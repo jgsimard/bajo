@@ -32,7 +32,7 @@ def _evaluate_metal[
     ray_direction: Vec3[.float32, .WORLD, length],
     normal: Vec3[.float32, .WORLD, length],
     albedo: Vec3[.float32, .WORLD, length],
-    fuzz: SIMD[DType.float32, length],
+    fuzz: SIMD[.float32, length],
     out_direction: Vec3[.float32, .WORLD, length],
 ) -> BsdfEvaluation[length]:
     var smooth = fuzz.le(1.0e-4)
@@ -47,7 +47,7 @@ def _evaluate_metal[
     var valid = (~smooth) & surface_valid & lobe_valid
     var value_scale = (exponent + 2.0) * lobe / Float32(2.0 * pi)
     var pdf = (exponent + 1.0) * lobe / Float32(2.0 * pi)
-    var zero = SIMD[DType.float32, length](0.0)
+    var zero = SIMD[.float32, length](0.0)
     var zero_value = Vec3[.float32, .WORLD, length](0.0)
     return BsdfEvaluation[length](
         Vec3.select(valid, albedo * value_scale, zero_value),
@@ -63,27 +63,27 @@ def _evaluate_material[
     ray_direction: Vec3[.float32, .WORLD, length],
     normal: Vec3[.float32, .WORLD, length],
     albedo: Vec3[.float32, .WORLD, length],
-    parameter: SIMD[DType.float32, length],
+    parameter: SIMD[.float32, length],
     out_direction: Vec3[.float32, .WORLD, length],
 ) -> BsdfEvaluation[length]:
     """Evaluate one homogeneous material group at compile time."""
-    comptime if MATERIAL_KIND == MAT.LAMBERTIAN:
+    comptime if MATERIAL_KIND == .LAMBERTIAN:
         return _evaluate_lambertian(normal, albedo, out_direction)
-    elif MATERIAL_KIND == MAT.METAL:
+    elif MATERIAL_KIND == .METAL:
         return _evaluate_metal(
             ray_direction, normal, albedo, parameter, out_direction
         )
-    elif MATERIAL_KIND == MAT.DIELECTRIC:
+    elif MATERIAL_KIND == .DIELECTRIC:
         return BsdfEvaluation[length](
             Vec3[.float32, .WORLD, length](0.0),
-            SIMD[DType.float32, length](0.0),
+            SIMD[.float32, length](0.0),
             SIMD[DType.bool, length](fill=True),
         )
     else:
-        comptime assert MATERIAL_KIND == MAT.EMISSIVE
+        comptime assert MATERIAL_KIND == .EMISSIVE
         return BsdfEvaluation[length](
             Vec3[.float32, .WORLD, length](0.0),
-            SIMD[DType.float32, length](0.0),
+            SIMD[.float32, length](0.0),
             SIMD[DType.bool, length](fill=False),
         )
 
@@ -94,8 +94,8 @@ def _sample_lambertian[
 ](
     normal: Vec3[.float32, .WORLD, length],
     albedo: Vec3[.float32, .WORLD, length],
-    random_u: SIMD[DType.float32, length],
-    random_v: SIMD[DType.float32, length],
+    random_u: SIMD[.float32, length],
+    random_v: SIMD[.float32, length],
 ) -> BsdfSample[length]:
     var theta = Float32(2.0 * pi) * random_u
     var z = 1.0 - 2.0 * random_v
@@ -125,9 +125,9 @@ def _sample_metal[
     ray_direction: Vec3[.float32, .WORLD, length],
     normal: Vec3[.float32, .WORLD, length],
     albedo: Vec3[.float32, .WORLD, length],
-    fuzz: SIMD[DType.float32, length],
-    random_u: SIMD[DType.float32, length],
-    random_v: SIMD[DType.float32, length],
+    fuzz: SIMD[.float32, length],
+    random_u: SIMD[.float32, length],
+    random_v: SIMD[.float32, length],
 ) -> BsdfSample[length]:
     var reflected = normalize(reflect(normalize(ray_direction), normal))
     var smooth = fuzz.le(1.0e-4)
@@ -167,9 +167,9 @@ def _sample_dielectric[
 ](
     ray_direction: Vec3[.float32, .WORLD, length],
     normal: Vec3[.float32, .WORLD, length],
-    refraction_index: SIMD[DType.float32, length],
+    refraction_index: SIMD[.float32, length],
     front_face: SIMD[DType.bool, length],
-    reflect_random: SIMD[DType.float32, length],
+    reflect_random: SIMD[.float32, length],
 ) -> BsdfSample[length]:
     var ri = front_face.select(
         Float32(1.0) / refraction_index, refraction_index
@@ -205,20 +205,20 @@ def _sample_material[
     ray_direction: Vec3[.float32, .WORLD, length],
     normal: Vec3[.float32, .WORLD, length],
     albedo: Vec3[.float32, .WORLD, length],
-    parameter: SIMD[DType.float32, length],
+    parameter: SIMD[.float32, length],
     front_face: SIMD[DType.bool, length],
-    random_u: SIMD[DType.float32, length],
-    random_v: SIMD[DType.float32, length],
+    random_u: SIMD[.float32, length],
+    random_v: SIMD[.float32, length],
 ) -> BsdfSample[length]:
     """Dispatch one homogeneous SIMD material group at compile time."""
-    comptime if MATERIAL_KIND == MAT.LAMBERTIAN:
+    comptime if MATERIAL_KIND == .LAMBERTIAN:
         return _sample_lambertian(normal, albedo, random_u, random_v)
-    elif MATERIAL_KIND == MAT.METAL:
+    elif MATERIAL_KIND == .METAL:
         return _sample_metal(
             ray_direction, normal, albedo, parameter, random_u, random_v
         )
     else:
-        comptime assert MATERIAL_KIND == MAT.DIELECTRIC
+        comptime assert MATERIAL_KIND == .DIELECTRIC
         return _sample_dielectric(
             ray_direction, normal, parameter, front_face, random_u
         )

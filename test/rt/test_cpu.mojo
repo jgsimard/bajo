@@ -125,14 +125,14 @@ def test_surface_hit_is_width_generic() raises:
     hits.normal.x[2] = 1.0
     hits.normal.y[2] = 2.0
     hits.normal.z[2] = 3.0
-    hits.surface.value[2] = SurfaceId(MAT.METAL, UInt32(7)).value
+    hits.surface.value[2] = SurfaceId(.METAL, UInt32(7)).value
     hits.t[2] = 4.5
     hits.front_face[2] = False
     hits.hit[2] = True
 
     var lane = hits.get(2)
     assert_vec_equal(lane.normal, Vec3f32[.WORLD](1.0, 2.0, 3.0))
-    assert_equal(lane.surface.kind(), MAT.METAL)
+    assert_equal(lane.surface.kind(), .METAL)
     assert_equal(lane.surface.index(), UInt32(7))
     assert_almost_equal(lane.t, 4.5)
     assert_false(lane.front_face)
@@ -141,7 +141,7 @@ def test_surface_hit_is_width_generic() raises:
 
 def test_light_alias_table_matches_power_distribution() raises:
     var lights = LightStore()
-    var surface = SurfaceId(MAT.EMISSIVE, UInt32(0))
+    var surface = SurfaceId(.EMISSIVE, UInt32(0))
     lights.append(
         LightRecord.sphere(
             PrimitiveId(PRIM.SPHERE, UInt32(0)),
@@ -1108,7 +1108,7 @@ def test_direct_light_algorithms_render_cornell() raises:
     assert_true(len(world.scene_data().lights().records) > 0)
     assert_true(world.scene_data().lights().total_weight > 0.0)
     for light in world.scene_data().lights().records:
-        assert_equal(light.surface.kind(), MAT.EMISSIVE)
+        assert_equal(light.surface.kind(), .EMISSIVE)
         assert_true(light.weight > 0.0)
     var depth_first = render_depth_first[.NEE](settings, camera, world)
     var mis = render_wavefront[.MIS](settings, camera, world)

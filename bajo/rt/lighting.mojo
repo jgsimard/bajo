@@ -147,9 +147,9 @@ def _finish_direct_light_geometry(
 def power_heuristic[
     length: SIMDLength = 1
 ](
-    pdf_a: SIMD[DType.float32, length],
-    pdf_b: SIMD[DType.float32, length],
-) -> SIMD[DType.float32, length]:
+    pdf_a: SIMD[.float32, length],
+    pdf_b: SIMD[.float32, length],
+) -> SIMD[.float32, length]:
     var a2 = pdf_a * pdf_a
     var b2 = pdf_b * pdf_b
     var denominator = a2 + b2
@@ -163,15 +163,15 @@ def power_heuristic[
 def _direct_light_scale[
     ALGORITHM: RENDER, length: SIMDLength
 ](
-    surface_cosine: SIMD[DType.float32, length],
-    light_pdf: SIMD[DType.float32, length],
-    bsdf_pdf: SIMD[DType.float32, length],
+    surface_cosine: SIMD[.float32, length],
+    light_pdf: SIMD[.float32, length],
+    bsdf_pdf: SIMD[.float32, length],
     valid: SIMD[DType.bool, length],
-) -> SIMD[DType.float32, length]:
+) -> SIMD[.float32, length]:
     comptime assert ALGORITHM in (RENDER.NEE, RENDER.MIS)
     var ok = valid & light_pdf.gt(0.0) & bsdf_pdf.gt(0.0)
     var safe_light_pdf = ok.select(light_pdf, Float32(1.0))
-    var estimator_weight = SIMD[DType.float32, length](1.0)
+    var estimator_weight = SIMD[.float32, length](1.0)
     comptime if ALGORITHM == .MIS:
         estimator_weight = power_heuristic(light_pdf, bsdf_pdf)
     return ok.select(

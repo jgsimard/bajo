@@ -180,11 +180,11 @@ def count_hit(mut counters: TraceCounters, primitive: PRIM, material: MAT):
     elif primitive == PRIM.TRIANGLE_INSTANCE:
         counters.instance_hits += 1
 
-    if material == MAT.LAMBERTIAN:
+    if material == .LAMBERTIAN:
         counters.lambertian_hits += 1
-    elif material == MAT.METAL:
+    elif material == .METAL:
         counters.metal_hits += 1
-    elif material == MAT.DIELECTRIC:
+    elif material == .DIELECTRIC:
         counters.dielectric_hits += 1
 
 

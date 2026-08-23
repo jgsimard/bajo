@@ -164,13 +164,13 @@ def count_wavefront(
             counters.hits += 1
             ref record = hit.value()
             var material_kind = record.surface.kind()
-            if material_kind == MAT.LAMBERTIAN:
+            if material_kind == .LAMBERTIAN:
                 counters.lambertian_hits += 1
                 lambertian_queue += 1
-            elif material_kind == MAT.METAL:
+            elif material_kind == .METAL:
                 counters.metal_hits += 1
                 metal_queue += 1
-            elif material_kind == MAT.DIELECTRIC:
+            elif material_kind == .DIELECTRIC:
                 counters.dielectric_hits += 1
                 dielectric_queue += 1
 

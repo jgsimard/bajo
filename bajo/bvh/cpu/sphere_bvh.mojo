@@ -79,8 +79,8 @@ def _trace_sphere_packet_primitive[
 ](
     rays: Ray[.float32, frame, length],
     active: SIMD[DType.bool, length],
-    ray_a: SIMD[DType.float32, length],
-    ray_inv_a: SIMD[DType.float32, length],
+    ray_a: SIMD[.float32, length],
+    ray_inv_a: SIMD[.float32, length],
     prim_idx: UInt32,
     center_scalar: Point3f32[frame],
     radius_scalar: Float32,
@@ -89,7 +89,7 @@ def _trace_sphere_packet_primitive[
     var center = Point3[DType.float32, frame, length](
         center_scalar.x, center_scalar.y, center_scalar.z
     )
-    var radius = SIMD[DType.float32, length](radius_scalar)
+    var radius = SIMD[.float32, length](radius_scalar)
     var candidate = intersect_ray_sphere_coefficients(
         rays.o,
         rays.d,
@@ -104,10 +104,10 @@ def _trace_sphere_packet_primitive[
     if closer.reduce_or():
         packet_hit.t = closer.select(candidate.t, packet_hit.t)
         packet_hit.u = closer.select(
-            SIMD[DType.float32, length](0.0), packet_hit.u
+            SIMD[.float32, length](0.0), packet_hit.u
         )
         packet_hit.v = closer.select(
-            SIMD[DType.float32, length](0.0), packet_hit.v
+            SIMD[.float32, length](0.0), packet_hit.v
         )
         packet_hit.prim = closer.select(
             SIMD[DType.uint32, length](prim_idx), packet_hit.prim

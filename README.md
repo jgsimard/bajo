@@ -38,12 +38,14 @@ pixi run viewer
 
 The viewer supports CPU and GPU backends, the `PATH`, `NEE`, `MIS`, `NORMALS`,
 and `AO` algorithms, progressive accumulation, Cornell/Veach/RTIAW scenes,
-the built-in PBRT showcase, and custom PBRT files.
+an emissive triangle-instance showcase, the built-in PBRT showcase, and custom
+PBRT files.
 
 Useful command-line options:
 
 ```bash
 pixi run viewer --scene cornell --spp 4 --max-spp 256
+pixi run viewer --scene emissive-instance --backend gpu
 pixi run viewer --scene lbvh --backend gpu --gpu-arch sm_120
 pixi run viewer --pbrt path/to/scene.pbrt --backend gpu
 ```

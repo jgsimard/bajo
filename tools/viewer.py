@@ -20,8 +20,9 @@ from PIL import Image, ImageTk
 ROOT = Path(__file__).resolve().parents[1]
 BUILTIN_PBRT_PATH = ROOT / "examples" / "scenes" / "pbrt_showcase.pbrt"
 LBVH_SCENE = 3
-BUILTIN_PBRT_SCENE = 4
-CUSTOM_PBRT_SCENE = 5
+EMISSIVE_INSTANCE_SCENE = 4
+BUILTIN_PBRT_SCENE = 5
+CUSTOM_PBRT_SCENE = 6
 SETTLE_DELAY_SECONDS = 0.25
 PREVIEW_INTERVAL_SECONDS = 0.08
 ALGORITHMS = ("PATH", "NEE", "MIS", "NORMALS", "AO")
@@ -31,6 +32,7 @@ SCENES = (
     "CORNELL",
     "VEACH",
     "LBVH MESHES",
+    "EMISSIVE INSTANCE",
     "PBRT MESHES",
     "LOAD PBRT…",
 )
@@ -66,6 +68,8 @@ def default_camera(scene_index: int) -> Camera:
         return Camera(x=0.0, y=3.0, z=6.2, yaw=0.0, pitch=-12.0, vfov=31.0)
     if scene_index == LBVH_SCENE:
         return Camera(x=0.0, y=6.0, z=-28.0, yaw=180.0, pitch=-8.0, vfov=35.0)
+    if scene_index == EMISSIVE_INSTANCE_SCENE:
+        return Camera(x=0.0, y=1.6, z=5.8, yaw=0.0, pitch=-7.0, vfov=42.0)
     return Camera()
 
 
@@ -839,7 +843,14 @@ def main() -> None:
     )
     parser.add_argument(
         "--scene",
-        choices=("rtiaw", "cornell", "veach", "lbvh", "pbrt"),
+        choices=(
+            "rtiaw",
+            "cornell",
+            "veach",
+            "lbvh",
+            "emissive-instance",
+            "pbrt",
+        ),
         default="rtiaw",
         help="initial scene (default: rtiaw)",
     )
@@ -874,6 +885,7 @@ def main() -> None:
         "cornell": 1,
         "veach": 2,
         "lbvh": LBVH_SCENE,
+        "emissive-instance": EMISSIVE_INSTANCE_SCENE,
         "pbrt": BUILTIN_PBRT_SCENE,
     }[args.scene]
     if args.pbrt is not None:

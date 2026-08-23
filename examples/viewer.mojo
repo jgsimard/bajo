@@ -25,6 +25,7 @@ from examples.rtiaw import make_weekend_world
 from examples.cornell_box import make_cornell_world
 from examples.mis_showcase import make_mis_showcase_world
 from examples.lbvh_scene import make_lbvh_world
+from examples.emissive_instances import make_emissive_instance_world
 from bajo.parser.pbrt import read_pbrt
 
 
@@ -245,7 +246,7 @@ def _render_scene[
     ALGORITHM: RENDER,
     BACKEND: Int,
 ](request: _ViewerRenderRequest) raises -> ViewerRenderStats:
-    if request.scene == 4 or request.scene == 5:
+    if request.scene == 5 or request.scene == 6:
         var parsed = read_pbrt(request.scene_path)
         comptime if BACKEND == 0:
             return _render_frame[ALGORITHM, BACKEND](
@@ -286,6 +287,10 @@ def _render_scene[
         world = make_mis_showcase_world[world_bvh_width, instance_bvh_width]()
     elif request.scene == 3:
         world = make_lbvh_world[world_bvh_width, instance_bvh_width]()
+    elif request.scene == 4:
+        world = make_emissive_instance_world[
+            world_bvh_width, instance_bvh_width
+        ]()
     else:
         raise Error("unsupported viewer scene")
 

@@ -40,5 +40,6 @@ struct GpuRtBvhFormat:
 
 
 comptime GPU_RT_BVH_WIDE4 = GpuRtBvhFormat(4, 4, .WIDE)
+comptime GPU_RT_BVH_WIDE2_LEAF4 = GpuRtBvhFormat(2, 4, .WIDE)
 comptime GPU_RT_BVH_CWBVH8 = GpuRtBvhFormat(8, 4, .CWBVH8)
 comptime GPU_RT_BVH_TLAS2 = GpuRtBvhFormat(2, 1, .WIDE)

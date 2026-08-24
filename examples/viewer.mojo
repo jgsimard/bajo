@@ -17,7 +17,7 @@ from bajo.rt import (
     SceneData,
     CpuScene,
     render_depth_first,
-    render_gpu,
+    render_gpu_viewer,
     render_wavefront,
     write_ppm_from_colors,
 )
@@ -87,10 +87,7 @@ def _viewer_bvh_stats[
         if len(data.triangle_vertices()) > 0:
             if len(data.spheres()) > 0:
                 result += " "
-            if len(data.triangle_vertices()) / 3 >= 32:
-                result += "tri8/4 H-PLOC CWBVH8"
-            else:
-                result += "tri4/4 LBVH"
+            result += "tri2/4 H-PLOC"
         if len(data.triangle_instances()) > 0:
             if len(data.spheres()) > 0 or len(data.triangle_vertices()) > 0:
                 result += " "
@@ -156,7 +153,7 @@ def _render_gpu_frame[
         width, height, samples, UInt64(1234), max_depth
     )
     var t0 = perf_counter_ns()
-    var result = render_gpu[integrator](settings, camera, data)
+    var result = render_gpu_viewer[integrator](settings, camera, data)
     var t1 = perf_counter_ns()
     write_ppm_from_colors(output, width, height, result.pixels)
     return ViewerRenderStats(ns_to_ms(Int(t1 - t0)), _viewer_bvh_stats[1](data))

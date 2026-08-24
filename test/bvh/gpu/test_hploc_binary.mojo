@@ -264,6 +264,22 @@ def _build_hploc_binary(
     return _TestBinaryBuild(binary^, workspace^)
 
 
+def _build_lbvh_binary(
+    mut ctx: DeviceContext,
+    bounds: List[AABB[.WORLD]],
+) raises -> _TestBinaryBuild:
+    var flat = _flatten_bounds(bounds)
+    var payloads = _identity_ids(len(bounds))
+    var workspace = GpuBinaryBuildWorkspace(
+        ctx, SegmentOffsets.single(len(bounds))
+    )
+    var binary = GpuBinaryBoundsBvh(
+        ctx, upload_list(ctx, flat), upload_list(ctx, payloads), workspace
+    )
+    _ = build_binary_bvh[.LBVH](ctx, binary, workspace)
+    return _TestBinaryBuild(binary^, workspace^)
+
+
 def _reference_from_binary(
     build: _TestBinaryBuild,
     bounds: List[AABB[.WORLD]],
@@ -300,6 +316,47 @@ def test_hploc_binary_layout_cross_block_matches_reference() raises:
         var build = _build_hploc_binary(ctx, bounds)
         var reference = _reference_from_binary(build, bounds)
         _assert_binary_matches_reference(build, reference)
+
+
+def test_lbvh_fuses_topology_and_bounds() raises:
+    var bounds = _make_triangles(257)
+    with DeviceContext() as ctx:
+        var build = _build_lbvh_binary(ctx, bounds)
+        ctx.synchronize()
+        var validation = validate_binary_bvh(
+            build.binary, build.workspace, build.binary.root_bounds()
+        )
+        assert_true(validation.sorted_ok)
+        assert_true(validation.values_ok)
+        assert_true(validation.topology_ok)
+        assert_true(validation.bounds_ok)
+        with build.binary.roots.map_to_host() as roots:
+            assert_false(is_leaf_ref(roots[0]))
+            assert_equal(
+                decode_ref_index(roots[0]), validation.topology_root_idx
+            )
+
+
+def test_lbvh_duplicate_morton_codes() raises:
+    var bounds = List[AABB[.WORLD]](capacity=65)
+    for i in range(65):
+        var scale = Float32(i + 1) * 0.01
+        bounds.append(
+            AABB(
+                Point3f32[.WORLD](-scale, -scale, 0.0),
+                Point3f32[.WORLD](scale, -scale, 0.0),
+                Point3f32[.WORLD](0.0, scale, 0.1),
+            )
+        )
+    with DeviceContext() as ctx:
+        var build = _build_lbvh_binary(ctx, bounds)
+        ctx.synchronize()
+        var validation = validate_binary_bvh(
+            build.binary, build.workspace, build.binary.root_bounds()
+        )
+        assert_true(validation.sorted_ok)
+        assert_true(validation.topology_ok)
+        assert_true(validation.bounds_ok)
 
 
 def test_binary_layout_reduces_bounds_per_segment() raises:
@@ -445,7 +502,7 @@ def test_hploc_builds_independent_segment_topologies() raises:
 
 def test_lbvh_builds_independent_segment_topologies() raises:
     var bounds = _make_triangles(9)
-    var segments = SegmentOffsets.from_counts([3, 1, 5])
+    var segments = SegmentOffsets.from_counts([0, 3, 1, 0, 5])
     with DeviceContext() as ctx:
         var workspace = GpuBinaryBuildWorkspace(ctx, segments)
         var binary = GpuBinaryBoundsBvh(
@@ -457,58 +514,103 @@ def test_lbvh_builds_independent_segment_topologies() raises:
         _ = build_binary_bvh[.LBVH](ctx, binary, workspace)
         ctx.synchronize()
 
-        with binary.roots.map_to_host() as roots, binary.node_meta.map_to_host() as meta, workspace.topology.value().leaf_parent.map_to_host() as leaf_parent, binary.node_leaf_counts.map_to_host() as leaf_counts, binary.leaf_ids.map_to_host() as leaf_ids:
-            for segment_idx in range(segments.segment_count()):
-                var leaf_begin = Int(segments.begin(segment_idx))
-                var leaf_end = Int(segments.end(segment_idx))
-                var node_begin = Int(
-                    binary.internal_segments.begin(segment_idx)
-                )
-                var node_end = Int(binary.internal_segments.end(segment_idx))
-                var root = roots[segment_idx]
-                var root_idx = Int(decode_ref_index(root))
-
-                for sorted_idx in range(leaf_begin, leaf_end):
-                    var item_idx = Int(leaf_ids[sorted_idx])
-                    assert_true(item_idx >= leaf_begin and item_idx < leaf_end)
-
-                if leaf_end - leaf_begin == 1:
-                    assert_true(is_leaf_ref(root))
-                    assert_equal(root_idx, leaf_begin)
-                    assert_equal(leaf_parent[leaf_begin], LBVH_SENTINEL)
-                    continue
-
-                assert_false(is_leaf_ref(root))
-                assert_equal(root_idx, node_begin)
-                assert_equal(
-                    meta[root_idx * BinaryBvhNode.META_STRIDE], LBVH_SENTINEL
-                )
-                assert_equal(
-                    leaf_counts[root_idx], UInt32(leaf_end - leaf_begin)
-                )
-                for sorted_idx in range(leaf_begin, leaf_end):
-                    var parent = Int(leaf_parent[sorted_idx])
-                    assert_true(parent >= node_begin and parent < node_end)
-                for node_idx in range(node_begin, node_end):
-                    var base = node_idx * BinaryBvhNode.META_STRIDE
-                    var parent = meta[base + BinaryBvhNode.PARENT]
-                    if node_idx != root_idx:
-                        assert_true(
-                            Int(parent) >= node_begin and Int(parent) < node_end
+        with binary.roots.map_to_host() as roots, binary.node_meta.map_to_host() as meta, binary.node_bounds.map_to_host() as node_bounds:
+            with workspace.topology.value().leaf_parent.map_to_host() as leaf_parent, workspace.topology.value().node_flags.map_to_host() as node_flags:
+                with binary.node_leaf_counts.map_to_host() as leaf_counts, binary.leaf_ids.map_to_host() as leaf_ids:
+                    var node_bounds_span = Span(
+                        unsafe_ptr=node_bounds.unsafe_ptr(),
+                        length=len(node_bounds),
+                    )
+                    for segment_idx in range(segments.segment_count()):
+                        var leaf_begin = Int(segments.begin(segment_idx))
+                        var leaf_end = Int(segments.end(segment_idx))
+                        var node_begin = Int(
+                            binary.internal_segments.begin(segment_idx)
                         )
-                    for child_slot in range(
-                        BinaryBvhNode.LEFT, BinaryBvhNode.RIGHT + 1
-                    ):
-                        var child = meta[base + child_slot]
-                        var child_idx = Int(decode_ref_index(child))
-                        if is_leaf_ref(child):
+                        var node_end = Int(
+                            binary.internal_segments.end(segment_idx)
+                        )
+                        var root = roots[segment_idx]
+                        if leaf_end == leaf_begin:
+                            assert_equal(root, LBVH_SENTINEL)
+                            continue
+
+                        var root_idx = Int(decode_ref_index(root))
+                        for sorted_idx in range(leaf_begin, leaf_end):
+                            var item_idx = Int(leaf_ids[sorted_idx])
                             assert_true(
-                                child_idx >= leaf_begin and child_idx < leaf_end
+                                item_idx >= leaf_begin and item_idx < leaf_end
                             )
-                        else:
+
+                        if leaf_end - leaf_begin == 1:
+                            assert_true(is_leaf_ref(root))
+                            assert_equal(root_idx, leaf_begin)
+                            assert_equal(
+                                leaf_parent[leaf_begin], LBVH_SENTINEL
+                            )
+                            continue
+
+                        assert_false(is_leaf_ref(root))
+                        assert_true(
+                            root_idx >= node_begin and root_idx < node_end
+                        )
+                        assert_equal(
+                            meta[root_idx * BinaryBvhNode.META_STRIDE],
+                            LBVH_SENTINEL,
+                        )
+                        assert_equal(
+                            leaf_counts[root_idx],
+                            UInt32(leaf_end - leaf_begin),
+                        )
+                        var root_bounds = AABB[.WORLD].merge(
+                            AABB[.WORLD].load6(
+                                node_bounds_span,
+                                root_idx * BinaryBvhNode.BOUNDS_STRIDE,
+                            ),
+                            AABB[.WORLD].load6(
+                                node_bounds_span,
+                                root_idx * BinaryBvhNode.BOUNDS_STRIDE
+                                + AABB.STRIDE,
+                            ),
+                        )
+                        assert_true(
+                            _bounds_match(
+                                root_bounds,
+                                binary.root_bounds(segment_idx),
+                            )
+                        )
+                        for sorted_idx in range(leaf_begin, leaf_end):
+                            var parent = Int(leaf_parent[sorted_idx])
                             assert_true(
-                                child_idx >= node_begin and child_idx < node_end
+                                parent >= node_begin and parent < node_end
                             )
+                        for node_idx in range(node_begin, node_end):
+                            assert_equal(node_flags[node_idx], UInt32(2))
+                            var base = (
+                                node_idx * BinaryBvhNode.META_STRIDE
+                            )
+                            var parent = meta[base + BinaryBvhNode.PARENT]
+                            if node_idx != root_idx:
+                                assert_true(
+                                    Int(parent) >= node_begin
+                                    and Int(parent) < node_end
+                                )
+                            for child_slot in range(
+                                BinaryBvhNode.LEFT,
+                                BinaryBvhNode.RIGHT + 1,
+                            ):
+                                var child = meta[base + child_slot]
+                                var child_idx = Int(decode_ref_index(child))
+                                if is_leaf_ref(child):
+                                    assert_true(
+                                        child_idx >= leaf_begin
+                                        and child_idx < leaf_end
+                                    )
+                                else:
+                                    assert_true(
+                                        child_idx >= node_begin
+                                        and child_idx < node_end
+                                    )
 
 
 def test_hploc_binary_selector_default_remains_lbvh_and_quality_improves() raises:

@@ -33,6 +33,7 @@ from bajo.bvh.gpu.triangle_bvh import (
     trace_cwbvh8_triangles,
 )
 from bajo.bvh.gpu.builder.segmented_build import enqueue_segmented_wide_build
+from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.gpu.compressed_bounds_bvh import (
     CWBVH_NODE_WORDS,
     CWBVH_TRIANGLE_WORDS,
@@ -54,9 +55,7 @@ from bajo.bvh.gpu.utils import (
 )
 from bajo.benchmark.bvh_reporting import (
     GpuBenchResult,
-    print_transposed_header,
-    _print_gpu_result_trace_rows,
-    _print_gpu_result_validation_rows,
+    TablePrinter,
 )
 from bajo.benchmark.bvh_fixtures import make_camera_rays_and_params
 from bajo.benchmark.gpu_bvh_fixtures import (
@@ -170,7 +169,7 @@ def _build_cwbvh8_measured(
 
 def _print_cwbvh8_build_breakdown(
     hot_total_ns: Int, measured: Cwbvh8BuildTimings
-):
+) raises:
     var tracked_ns = measured.wide.total() + measured.encode_pack_ns
     var overhead_ns = max(measured.total_ns - tracked_ns, 0)
     print("\nH-PLOC CWBVH8 instrumented build breakdown")
@@ -178,36 +177,54 @@ def _print_cwbvh8_build_breakdown(
         t"production total: {round(ns_to_ms(hot_total_ns), 3)} ms; "
         t"instrumented total: {round(ns_to_ms(measured.total_ns), 3)} ms"
     )
-    print("stage                    ms    % instrumented")
-    print("-------------------- ------ ----------------")
+    var table = TablePrinter(stage=20, ms=8, percent=16)
+    table.header()
     _print_cwbvh8_stage(
-        "bounds packing", measured.wide.bounds_pack_ns, measured.total_ns
+        table,
+        "bounds packing",
+        measured.wide.bounds_pack_ns,
+        measured.total_ns,
     )
     _print_cwbvh8_stage(
-        "Morton keys", measured.wide.morton_ns, measured.total_ns
-    )
-    _print_cwbvh8_stage("radix sort", measured.wide.sort_ns, measured.total_ns)
-    _print_cwbvh8_stage(
-        "H-PLOC topology", measured.wide.topology_ns, measured.total_ns
+        table, "Morton keys", measured.wide.morton_ns, measured.total_ns
     )
     _print_cwbvh8_stage(
-        "binary refit", measured.wide.refit_ns, measured.total_ns
+        table, "radix sort", measured.wide.sort_ns, measured.total_ns
     )
     _print_cwbvh8_stage(
-        "wide collapse", measured.wide.collapse_ns, measured.total_ns
+        table,
+        "H-PLOC topology",
+        measured.wide.topology_ns,
+        measured.total_ns,
     )
     _print_cwbvh8_stage(
-        "CWBVH encode+pack", measured.encode_pack_ns, measured.total_ns
+        table, "binary refit", measured.wide.refit_ns, measured.total_ns
     )
-    _print_cwbvh8_stage("allocation + host", overhead_ns, measured.total_ns)
+    _print_cwbvh8_stage(
+        table,
+        "wide collapse",
+        measured.wide.collapse_ns,
+        measured.total_ns,
+    )
+    _print_cwbvh8_stage(
+        table,
+        "CWBVH encode+pack",
+        measured.encode_pack_ns,
+        measured.total_ns,
+    )
+    _print_cwbvh8_stage(
+        table, "allocation + host", overhead_ns, measured.total_ns
+    )
 
 
-def _print_cwbvh8_stage(label: String, stage_ns: Int, total_ns: Int):
+def _print_cwbvh8_stage(
+    table: TablePrinter, label: String, stage_ns: Int, total_ns: Int
+) raises:
     var percent = Float64(stage_ns) / Float64(total_ns) * 100.0
-    print(
-        label.ascii_ljust(20),
-        String(round(ns_to_ms(stage_ns), 3)).ascii_rjust(6),
-        String(round(percent, 1)).ascii_rjust(16),
+    table.result_line(
+        stage=label,
+        ms=String(t"{round(ns_to_ms(stage_ns), 3)}"),
+        percent=String(t"{round(percent, 1)}"),
     )
 
 
@@ -272,40 +289,37 @@ def _trace_cpu_sphere_bvh[
     return (checksum, hit_count)
 
 
-def _print_cpu_ref_header():
-    var c0 = String("case").ascii_ljust(22)
-    var c1 = String("trace").ascii_rjust(8)
-    var c2 = String("hits").ascii_rjust(8)
-    var c3 = String("checksum").ascii_rjust(12)
-
-    print(t"{c0} {c1} {c2} {c3}")
-    print("---------------------- -------- -------- ------------")
+def _print_cpu_ref_header() -> TablePrinter:
+    var table = TablePrinter(config=22, trace_ms=8, hits=8, checksum=12)
+    table.header()
+    return table^
 
 
 def _print_cpu_ref_row(
+    table: TablePrinter,
     label: String,
     traversal_ns: Int,
     hit_count: UInt32,
     checksum: Float64,
-):
+) raises:
     var trace_ms = round(ns_to_ms(traversal_ns), 3)
     var checksum_r = round(checksum, 3)
-
-    var c0 = label.ascii_ljust(22)
-    var c1 = String(t"{trace_ms}").ascii_rjust(8)
-    var c2 = String(t"{hit_count}").ascii_rjust(8)
-    var c3 = String(t"{checksum_r}").ascii_rjust(12)
-
-    print(t"{c0} {c1} {c2} {c3}")
+    table.result_line(
+        config=label,
+        trace_ms=String(t"{trace_ms}"),
+        hits=String(t"{hit_count}"),
+        checksum=String(t"{checksum_r}"),
+    )
 
 
 def _print_cpu_triangle_reference[
     width: SIMDLength
 ](
+    table: TablePrinter,
     label: String,
     vertices: List[Point3f32[.WORLD]],
     rays: List[Rayf32[.WORLD]],
-) -> Tuple[Float64, UInt32]:
+) raises -> Tuple[Float64, UInt32]:
     var bvh = build_cpu_triangle_blas_set[
         width, width, .LBVH, .WORLD
     ]([vertices.copy()])
@@ -313,17 +327,18 @@ def _print_cpu_triangle_reference[
     var result = _trace_cpu_triangle_bvh[width](bvh, rays)
     var t1 = perf_counter_ns()
 
-    _print_cpu_ref_row(label, Int(t1 - t0), result[1], result[0])
+    _print_cpu_ref_row(table, label, Int(t1 - t0), result[1], result[0])
     return result
 
 
 def _print_cpu_sphere_reference[
     width: SIMDLength
 ](
+    table: TablePrinter,
     label: String,
     spheres: List[Sphere[.WORLD]],
     rays: List[Rayf32[.WORLD]],
-) -> Tuple[Float64, UInt32]:
+) raises -> Tuple[Float64, UInt32]:
     var bvh = build_cpu_sphere_blas_set[width, .LBVH, .WORLD](
         [spheres.copy()]
     )
@@ -331,25 +346,79 @@ def _print_cpu_sphere_reference[
     var result = _trace_cpu_sphere_bvh[width](bvh, rays)
     var t1 = perf_counter_ns()
 
-    _print_cpu_ref_row(label, Int(t1 - t0), result[1], result[0])
+    _print_cpu_ref_row(table, label, Int(t1 - t0), result[1], result[0])
     return result
 
 
-def _print_gpu_results_transposed(
-    row0: GpuBenchResult,
-    row1: GpuBenchResult,
-    row2: GpuBenchResult,
-):
-    var value_width = 15
+def _gpu_ms(ns: Int) -> String:
+    return String(t"{round(ns_to_ms(ns), 3)}")
 
-    print_transposed_header(
-        value_width,
-        row0.label,
-        row1.label,
-        row2.label,
+
+def _print_gpu_result_row(
+    table: TablePrinter, row: GpuBenchResult, build_alg: String
+) raises:
+    table.result_line(
+        config=row.label,
+        build_alg=build_alg,
+        build_ms=_gpu_ms(row.build_ns),
+        bounds=_gpu_ms(row.timings.bounds_pack_ns),
+        morton=_gpu_ms(row.timings.morton_ns),
+        sort=_gpu_ms(row.timings.sort_ns),
+        topology=_gpu_ms(row.timings.topology_ns),
+        collapse=_gpu_ms(row.timings.collapse_ns),
+        pack=_gpu_ms(row.timings.leaf_pack_ns),
+        other=_gpu_ms(row.build_ns - row.timings.total()),
+        camera_ms=_gpu_ms(row.kernel_ns),
+        MRay_s=String(
+            t"{round(ns_to_mrays_per_s(row.kernel_ns, row.ray_count), 3)}"
+        ),
+        hits=String(t"{row.hit_count}"),
+        checksum=String(t"{round(row.checksum, 3)}"),
+        dhit=String(t"{row.hit_diff()}"),
+        rel_dhit=String(t"{round(row.rel_hit_diff(), 6)}"),
+        status=row.status(),
     )
-    _print_gpu_result_trace_rows(row0, row1, row2, value_width)
-    _print_gpu_result_validation_rows(row0, row1, row2, value_width)
+
+
+def _gpu_results_table() -> TablePrinter:
+    var table = TablePrinter(
+        config=16,
+        build_alg=9,
+        build_ms=9,
+        bounds=8,
+        morton=8,
+        sort=8,
+        topology=8,
+        collapse=8,
+        pack=8,
+        other=8,
+        camera_ms=9,
+        MRay_s=9,
+        hits=8,
+        checksum=15,
+        dhit=6,
+        rel_dhit=10,
+        status=7,
+    )
+    return table^
+
+
+def _print_any_hit_result(
+    table: TablePrinter,
+    config: String,
+    build_alg: String,
+    result: Tuple[Int, UInt32],
+    ray_count: Int,
+) raises:
+    table.result_line(
+        config=config,
+        build_alg=build_alg,
+        best_ms=_gpu_ms(result[0]),
+        MRay_s=String(
+            t"{round(ns_to_mrays_per_s(result[0], ray_count), 1)}"
+        ),
+        hits=String(t"{result[1]}"),
+    )
 
 
 def _bench_camera_primary_triangle[
@@ -436,6 +505,27 @@ def _bench_any_hit_triangle[
     return (best_kernel_ns, hit_count)
 
 
+def _run_any_hit_width[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength = node_width,
+    build_method: GpuBvhBuildMethod = .LBVH,
+](
+    mut ctx: DeviceContext,
+    d_vertices: DeviceBuffer[.float32],
+    d_rays: DeviceBuffer[.float32],
+    d_hits: DeviceBuffer[.float32],
+    ray_count: Int,
+    repeats: Int,
+) raises -> Tuple[Int, UInt32]:
+    var bvh = build_gpu_triangle_bvh[
+        .WORLD, node_width, leaf_width, build_method
+    ](ctx, d_vertices)
+    ctx.synchronize()
+    return _bench_any_hit_triangle[node_width, leaf_width](
+        ctx, bvh, d_rays, d_hits, ray_count, repeats
+    )
+
+
 def _bench_camera_primary_cwbvh8(
     mut ctx: DeviceContext,
     bvh: Cwbvh8BenchBvh,
@@ -519,7 +609,9 @@ def _bench_any_hit_cwbvh8(
     return (best_kernel_ns, hit_count)
 
 
-def _run_cwbvh8(
+def _run_cwbvh8[
+    build_method: GpuBvhBuildMethod,
+](
     mut ctx: DeviceContext,
     d_vertices: DeviceBuffer[.float32],
     d_camera_params: DeviceBuffer[.float32],
@@ -530,9 +622,9 @@ def _run_cwbvh8(
     reference_hit_count: UInt32,
     repeats: Int,
 ) raises -> Tuple[GpuBenchResult, Cwbvh8BenchBvh]:
-    _ = build_cwbvh8_bench_bvh(ctx, d_vertices)
+    _ = build_cwbvh8_bench_bvh[build_method](ctx, d_vertices)
     var build0 = perf_counter_ns()
-    var bvh = build_cwbvh8_bench_bvh(ctx, d_vertices)
+    var bvh = build_cwbvh8_bench_bvh[build_method](ctx, d_vertices)
     var build1 = perf_counter_ns()
     var d_hits = ctx.enqueue_create_buffer[.float32](
         ray_count * Hit[.WORLD].STRIDE
@@ -548,17 +640,18 @@ def _run_cwbvh8(
         reference_checksum,
         repeats,
     )
-    var measured = Cwbvh8BuildTimings(
-        0, GpuBuildTimings(0, 0, 0, 0, 0, 0, 0), 0
-    )
-    # The measured path has different staged specializations from production.
-    # Warm those kernels before recording the attribution run.
-    _ = _build_cwbvh8_measured(ctx, d_vertices, measured)
-    _ = _build_cwbvh8_measured(ctx, d_vertices, measured)
-    _print_cwbvh8_build_breakdown(Int(build1 - build0), measured)
+    comptime if build_method == .HPLOC:
+        var measured = Cwbvh8BuildTimings(
+            0, GpuBuildTimings(0, 0, 0, 0, 0, 0, 0), 0
+        )
+        # The measured path has different staged specializations from
+        # production. Warm those kernels before recording the attribution run.
+        _ = _build_cwbvh8_measured(ctx, d_vertices, measured)
+        _ = _build_cwbvh8_measured(ctx, d_vertices, measured)
+        _print_cwbvh8_build_breakdown(Int(build1 - build0), measured)
     return (
         GpuBenchResult(
-            String("tri H-CWBVH8"),
+            String("tri CWBVH8"),
             Int(build1 - build0),
             GpuBuildTimings(0, 0, 0, 0, 0, 0, 0),
             trace[0],
@@ -577,6 +670,7 @@ def _run_cwbvh8(
 def _run_width[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
+    build_method: GpuBvhBuildMethod = .LBVH,
 ](
     mut ctx: DeviceContext,
     d_vertices: DeviceBuffer[.float32],
@@ -588,14 +682,16 @@ def _run_width[
     reference_hit_count: UInt32,
     repeats: Int,
 ) raises -> GpuBenchResult:
-    _ = build_gpu_triangle_bvh[.WORLD, node_width, leaf_width](ctx, d_vertices)
+    _ = build_gpu_triangle_bvh[
+        .WORLD, node_width, leaf_width, build_method
+    ](ctx, d_vertices)
     ctx.synchronize()
 
     var build0 = perf_counter_ns()
     var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
-    var bvh = build_gpu_triangle_bvh_measured[.WORLD, node_width, leaf_width](
-        ctx, d_vertices, timings
-    )
+    var bvh = build_gpu_triangle_bvh_measured[
+        .WORLD, node_width, leaf_width, build_method
+    ](ctx, d_vertices, timings)
     ctx.synchronize()
     var build1 = perf_counter_ns()
 
@@ -801,8 +897,9 @@ def run_benchmark() raises:
     print("\nGPU triangle BLAS[width]")
     print("----------------------")
     print("\nCPU reference")
-    _print_cpu_ref_header()
+    var cpu_triangle_table = _print_cpu_ref_header()
     var reference = _print_cpu_triangle_reference[8](
+        cpu_triangle_table,
         String("CpuBlasSet[8] lbvh"),
         tri_vertices,
         rays,
@@ -830,7 +927,29 @@ def run_benchmark() raises:
             reference_hit_count,
             BENCH_REPEATS,
         )
+        var tri2_hploc = _run_width[2, 2, .HPLOC](
+            ctx,
+            d_vertices,
+            d_camera_params,
+            len(rays),
+            PRIMARY_WIDTH,
+            PRIMARY_HEIGHT,
+            reference_checksum,
+            reference_hit_count,
+            BENCH_REPEATS,
+        )
         var tri4 = _run_width[4](
+            ctx,
+            d_vertices,
+            d_camera_params,
+            len(rays),
+            PRIMARY_WIDTH,
+            PRIMARY_HEIGHT,
+            reference_checksum,
+            reference_hit_count,
+            BENCH_REPEATS,
+        )
+        var tri4_hploc = _run_width[4, 4, .HPLOC](
             ctx,
             d_vertices,
             d_camera_params,
@@ -852,8 +971,17 @@ def run_benchmark() raises:
             reference_hit_count,
             BENCH_REPEATS,
         )
-
-        _print_gpu_results_transposed(tri2, tri4, tri8)
+        var tri8_hploc = _run_width[8, 8, .HPLOC](
+            ctx,
+            d_vertices,
+            d_camera_params,
+            len(rays),
+            PRIMARY_WIDTH,
+            PRIMARY_HEIGHT,
+            reference_checksum,
+            reference_hit_count,
+            BENCH_REPEATS,
+        )
 
         var tri2_leaf4 = _run_width[2, 4](
             ctx,
@@ -866,8 +994,17 @@ def run_benchmark() raises:
             reference_hit_count,
             BENCH_REPEATS,
         )
-        print("\nIndependent node/leaf width comparison")
-        _print_gpu_results_transposed(tri2, tri2_leaf4, tri4)
+        var tri2_leaf4_hploc = _run_width[2, 4, .HPLOC](
+            ctx,
+            d_vertices,
+            d_camera_params,
+            len(rays),
+            PRIMARY_WIDTH,
+            PRIMARY_HEIGHT,
+            reference_checksum,
+            reference_hit_count,
+            BENCH_REPEATS,
+        )
 
         var tri8_leaf4 = _run_width[8, 4](
             ctx,
@@ -880,10 +1017,7 @@ def run_benchmark() raises:
             reference_hit_count,
             BENCH_REPEATS,
         )
-        print("\nAdditional node/leaf width comparison")
-        _print_gpu_results_transposed(tri2_leaf4, tri4, tri8_leaf4)
-
-        var cwbvh8_result = _run_cwbvh8(
+        var tri8_leaf4_hploc = _run_width[8, 4, .HPLOC](
             ctx,
             d_vertices,
             d_camera_params,
@@ -894,11 +1028,51 @@ def run_benchmark() raises:
             reference_hit_count,
             BENCH_REPEATS,
         )
-        var cwbvh8_row = cwbvh8_result[0].copy()
-        var cwbvh8 = cwbvh8_result[1].copy()
-        print("\nPreferred H-PLOC CWBVH8 comparison")
+
+        var hploc_cwbvh8_result = _run_cwbvh8[.HPLOC](
+            ctx,
+            d_vertices,
+            d_camera_params,
+            len(rays),
+            PRIMARY_WIDTH,
+            PRIMARY_HEIGHT,
+            reference_checksum,
+            reference_hit_count,
+            BENCH_REPEATS,
+        )
+        var hploc_cwbvh8_row = hploc_cwbvh8_result[0].copy()
+        var hploc_cwbvh8 = hploc_cwbvh8_result[1].copy()
+        var lbvh_cwbvh8_result = _run_cwbvh8[.LBVH](
+            ctx,
+            d_vertices,
+            d_camera_params,
+            len(rays),
+            PRIMARY_WIDTH,
+            PRIMARY_HEIGHT,
+            reference_checksum,
+            reference_hit_count,
+            BENCH_REPEATS,
+        )
+        var lbvh_cwbvh8_row = lbvh_cwbvh8_result[0].copy()
+        var lbvh_cwbvh8 = lbvh_cwbvh8_result[1].copy()
+        print("\nGPU triangle configurations")
         print("CWBVH8 build stages are reported together as '- other'.")
-        _print_gpu_results_transposed(tri2_leaf4, tri8_leaf4, cwbvh8_row)
+        var triangle_table = _gpu_results_table()
+        triangle_table.header()
+        _print_gpu_result_row(triangle_table, tri2, "LBVH")
+        _print_gpu_result_row(triangle_table, tri2_hploc, "H-PLOC")
+        _print_gpu_result_row(triangle_table, tri2_leaf4, "LBVH")
+        _print_gpu_result_row(triangle_table, tri2_leaf4_hploc, "H-PLOC")
+        _print_gpu_result_row(triangle_table, tri4, "LBVH")
+        _print_gpu_result_row(triangle_table, tri4_hploc, "H-PLOC")
+        _print_gpu_result_row(triangle_table, tri8_leaf4, "LBVH")
+        _print_gpu_result_row(triangle_table, tri8_leaf4_hploc, "H-PLOC")
+        _print_gpu_result_row(triangle_table, tri8, "LBVH")
+        _print_gpu_result_row(triangle_table, tri8_hploc, "H-PLOC")
+        _print_gpu_result_row(triangle_table, lbvh_cwbvh8_row, "LBVH")
+        _print_gpu_result_row(
+            triangle_table, hploc_cwbvh8_row, "H-PLOC"
+        )
 
         print("\nGPU any-hit traversal (packed rays)")
         print("---------------------------------")
@@ -907,48 +1081,112 @@ def run_benchmark() raises:
             len(rays) * Hit[.WORLD].STRIDE
         )
 
-        var any_bvh2 = build_gpu_triangle_bvh[.WORLD, 2, 2](ctx, d_vertices)
-        ctx.synchronize()
-        var any2 = _bench_any_hit_triangle[2, 2](
-            ctx, any_bvh2, d_trace_rays, d_any_hits, len(rays), BENCH_REPEATS
+        var any2_lbvh = _run_any_hit_width[2, 2, .LBVH](
+            ctx, d_vertices, d_trace_rays, d_any_hits, len(rays), BENCH_REPEATS
         )
-
-        var any_bvh2_leaf4 = build_gpu_triangle_bvh[.WORLD, 2, 4](
-            ctx, d_vertices
+        var any2_hploc = _run_any_hit_width[2, 2, .HPLOC](
+            ctx, d_vertices, d_trace_rays, d_any_hits, len(rays), BENCH_REPEATS
         )
-        ctx.synchronize()
-        var any2_leaf4 = _bench_any_hit_triangle[2, 4](
+        var any2_leaf4_lbvh = _run_any_hit_width[2, 4, .LBVH](
+            ctx, d_vertices, d_trace_rays, d_any_hits, len(rays), BENCH_REPEATS
+        )
+        var any2_leaf4_hploc = _run_any_hit_width[2, 4, .HPLOC](
+            ctx, d_vertices, d_trace_rays, d_any_hits, len(rays), BENCH_REPEATS
+        )
+        var any4_lbvh = _run_any_hit_width[4, 4, .LBVH](
+            ctx, d_vertices, d_trace_rays, d_any_hits, len(rays), BENCH_REPEATS
+        )
+        var any4_hploc = _run_any_hit_width[4, 4, .HPLOC](
+            ctx, d_vertices, d_trace_rays, d_any_hits, len(rays), BENCH_REPEATS
+        )
+        var any8_leaf4_lbvh = _run_any_hit_width[8, 4, .LBVH](
+            ctx, d_vertices, d_trace_rays, d_any_hits, len(rays), BENCH_REPEATS
+        )
+        var any8_leaf4_hploc = _run_any_hit_width[8, 4, .HPLOC](
+            ctx, d_vertices, d_trace_rays, d_any_hits, len(rays), BENCH_REPEATS
+        )
+        var any8_lbvh = _run_any_hit_width[8, 8, .LBVH](
+            ctx, d_vertices, d_trace_rays, d_any_hits, len(rays), BENCH_REPEATS
+        )
+        var any8_hploc = _run_any_hit_width[8, 8, .HPLOC](
+            ctx, d_vertices, d_trace_rays, d_any_hits, len(rays), BENCH_REPEATS
+        )
+        var any_hploc_cwbvh8 = _bench_any_hit_cwbvh8(
             ctx,
-            any_bvh2_leaf4,
+            hploc_cwbvh8,
             d_trace_rays,
             d_any_hits,
             len(rays),
             BENCH_REPEATS,
         )
-        var any_cwbvh8 = _bench_any_hit_cwbvh8(
+        var any_lbvh_cwbvh8 = _bench_any_hit_cwbvh8(
             ctx,
-            cwbvh8,
+            lbvh_cwbvh8,
             d_trace_rays,
             d_any_hits,
             len(rays),
             BENCH_REPEATS,
         )
 
-        print("layout                 best ms       MRay/s       hits")
-        print(
-            t"n2/l2                  {round(ns_to_ms(any2[0]), 3)}"
-            t"     {round(ns_to_mrays_per_s(any2[0], len(rays)), 1)}"
-            t"     {any2[1]}"
+        var any_hit_table = TablePrinter(
+            config=16, build_alg=9, best_ms=9, MRay_s=9, hits=8
         )
-        print(
-            t"n2/l4                  {round(ns_to_ms(any2_leaf4[0]), 3)}"
-            t"     {round(ns_to_mrays_per_s(any2_leaf4[0], len(rays)), 1)}"
-            t"     {any2_leaf4[1]}"
+        any_hit_table.header()
+        _print_any_hit_result(
+            any_hit_table, "n2/l2", "LBVH", any2_lbvh, len(rays)
         )
-        print(
-            t"H-PLOC CWBVH8          {round(ns_to_ms(any_cwbvh8[0]), 3)}"
-            t"     {round(ns_to_mrays_per_s(any_cwbvh8[0], len(rays)), 1)}"
-            t"     {any_cwbvh8[1]}"
+        _print_any_hit_result(
+            any_hit_table, "n2/l2", "H-PLOC", any2_hploc, len(rays)
+        )
+        _print_any_hit_result(
+            any_hit_table, "n2/l4", "LBVH", any2_leaf4_lbvh, len(rays)
+        )
+        _print_any_hit_result(
+            any_hit_table,
+            "n2/l4",
+            "H-PLOC",
+            any2_leaf4_hploc,
+            len(rays),
+        )
+        _print_any_hit_result(
+            any_hit_table, "n4/l4", "LBVH", any4_lbvh, len(rays)
+        )
+        _print_any_hit_result(
+            any_hit_table, "n4/l4", "H-PLOC", any4_hploc, len(rays)
+        )
+        _print_any_hit_result(
+            any_hit_table,
+            "n8/l4",
+            "LBVH",
+            any8_leaf4_lbvh,
+            len(rays),
+        )
+        _print_any_hit_result(
+            any_hit_table,
+            "n8/l4",
+            "H-PLOC",
+            any8_leaf4_hploc,
+            len(rays),
+        )
+        _print_any_hit_result(
+            any_hit_table, "n8/l8", "LBVH", any8_lbvh, len(rays)
+        )
+        _print_any_hit_result(
+            any_hit_table, "n8/l8", "H-PLOC", any8_hploc, len(rays)
+        )
+        _print_any_hit_result(
+            any_hit_table,
+            "CWBVH8",
+            "LBVH",
+            any_lbvh_cwbvh8,
+            len(rays),
+        )
+        _print_any_hit_result(
+            any_hit_table,
+            "CWBVH8",
+            "H-PLOC",
+            any_hploc_cwbvh8,
+            len(rays),
         )
 
         print("\nGPU sphere BLAS[width]")
@@ -974,25 +1212,26 @@ def run_benchmark() raises:
         print(t"sphere rays : {len(sphere_rays)}")
 
         print("\nCPU sphere reference")
-        _print_cpu_ref_header()
+        var cpu_sphere_table = _print_cpu_ref_header()
 
         var sphere_reference2 = _print_cpu_sphere_reference[2](
+            cpu_sphere_table,
             String("CpuBlasSet[2] lbvh"),
             spheres,
             sphere_rays,
         )
         var sphere_reference4 = _print_cpu_sphere_reference[4](
+            cpu_sphere_table,
             String("CpuBlasSet[4] lbvh"),
             spheres,
             sphere_rays,
         )
         var sphere_reference8 = _print_cpu_sphere_reference[8](
+            cpu_sphere_table,
             String("CpuBlasSet[8] lbvh"),
             spheres,
             sphere_rays,
         )
-
-        print("\n")
         var sph2 = _run_sphere_width[2](
             ctx,
             spheres,
@@ -1026,7 +1265,6 @@ def run_benchmark() raises:
             sphere_reference8[1],
             BENCH_REPEATS,
         )
-        _print_gpu_results_transposed(sph2, sph4, sph8)
 
         var sph2_leaf4 = _run_sphere_width[2, 4](
             ctx,
@@ -1039,8 +1277,13 @@ def run_benchmark() raises:
             sphere_reference4[1],
             BENCH_REPEATS,
         )
-        print("\nIndependent node/leaf width comparison")
-        _print_gpu_results_transposed(sph2, sph2_leaf4, sph4)
+        print("\nGPU sphere configurations")
+        var sphere_table = _gpu_results_table()
+        sphere_table.header()
+        _print_gpu_result_row(sphere_table, sph2, "LBVH")
+        _print_gpu_result_row(sphere_table, sph2_leaf4, "LBVH")
+        _print_gpu_result_row(sphere_table, sph4, "LBVH")
+        _print_gpu_result_row(sphere_table, sph8, "LBVH")
 
 
 def main() raises:

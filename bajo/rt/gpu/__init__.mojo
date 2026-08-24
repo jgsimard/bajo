@@ -8,7 +8,13 @@ from .config import (
     GpuRtSceneKind,
     GpuRtBvhFormat,
     GPU_RT_BVH_WIDE4,
+    GPU_RT_BVH_WIDE2_LEAF4,
     GPU_RT_BVH_CWBVH8,
     GPU_RT_BVH_TLAS2,
 )
-from .render import enqueue_render_gpu, render_gpu, render_gpu_configured
+from .render import (
+    enqueue_render_gpu,
+    render_gpu,
+    render_gpu_configured,
+    render_gpu_viewer,
+)

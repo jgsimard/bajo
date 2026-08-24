@@ -60,6 +60,7 @@ def make_camera_rays_and_params(
     height: Int,
     views: Int,
     fov_scale: Float32 = 0.75,
+    raster_rays: Bool = False,
 ) -> Tuple[List[Rayf32[.WORLD]], List[Float32]]:
     var center = bounds.centroid()
     var extent = bounds.extent()
@@ -88,6 +89,13 @@ def make_camera_rays_and_params(
 
         for py in range(height):
             for px in range(width):
-                rays.append(camera.make_ray(px, py, width, height))
+                if raster_rays:
+                    rays.append(
+                        camera.make_ray_raster(
+                            px, py, width, Float32(1.0) / Float32(height)
+                        )
+                    )
+                else:
+                    rays.append(camera.make_ray(px, py, width, height))
 
     return (rays^, params^)

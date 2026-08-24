@@ -10,7 +10,11 @@ from bajo.benchmark.gpu_bvh_fixtures import (
     trace_cwbvh8_indexed_camera_kernel,
     trace_cwbvh8_camera_legacy_decode_kernel,
 )
-from bajo.bvh.constants import BinaryBvhNode, GPU_BOUNDS_BVH_BLOCK_SIZE
+from bajo.bvh.constants import (
+    BinaryBvhNode,
+    GPU_BOUNDS_BVH_BLOCK_SIZE,
+    GPU_STACK_SIZE,
+)
 from bajo.bvh.gpu.utils import upload_list, upload_vertices
 from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.types import Hit
@@ -177,7 +181,9 @@ def test_packed_cwbvh8_decoder_matches_legacy_hits() raises:
         var legacy_hits = ctx.enqueue_create_buffer[.float32](
             ray_count * Hit.STRIDE
         )
-        ctx.enqueue_function[trace_cwbvh8_camera_kernel[3]](
+        ctx.enqueue_function[
+            trace_cwbvh8_camera_kernel[3, GPU_STACK_SIZE, False]
+        ](
             arena.nodes,
             arena.triangles,
             UInt32(0),
@@ -191,7 +197,7 @@ def test_packed_cwbvh8_decoder_matches_legacy_hits() raises:
             // GPU_BOUNDS_BVH_BLOCK_SIZE,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
-        ctx.enqueue_function[trace_cwbvh8_camera_legacy_decode_kernel](
+        ctx.enqueue_function[trace_cwbvh8_camera_legacy_decode_kernel[False]](
             arena.nodes,
             arena.triangles,
             UInt32(0),

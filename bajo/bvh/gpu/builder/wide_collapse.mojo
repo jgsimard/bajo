@@ -1,7 +1,7 @@
 from std.atomic import Atomic, Ordering
 from std.gpu import block_idx, global_idx, thread_idx
 from std.math import ceildiv, fma, max, min
-from std.memory import stack_allocation
+from std.memory import bitcast, stack_allocation
 from max.gpu.host import DeviceBuffer, DeviceContext
 from max.gpu.memory import AddressSpace
 from max.gpu.sync import barrier
@@ -45,6 +45,7 @@ from bajo.bvh.gpu.compressed_bounds_bvh import (
     _unary_triangle_count,
 )
 from bajo.core import AABB, Point3f32, SegmentOffsets
+from bajo.core.utils import min_argmin
 
 
 comptime HPLOC_WIDE_STATUS_OK = UInt32(0)
@@ -176,12 +177,10 @@ def _write_direct_cwbvh8_node[
     var triangle_count = UInt32(0)
     var child_base = UInt32(0)
     var internal_count = UInt32(0)
-    var valid_count = 0
     comptime for lane in range(8):
         var count = child_counts[lane]
         if count == EMPTY_LANE:
             continue
-        valid_count += 1
         var bounds = child_bounds[lane]
         lo_x = min(lo_x, bounds._min.x)
         lo_y = min(lo_y, bounds._min.y)
@@ -199,7 +198,9 @@ def _write_direct_cwbvh8_node[
             internal_count += 1
         else:
             triangle_count += count
-    debug_assert["safe", _use_compiler_assume=True](valid_count > 0)
+    debug_assert["safe", _use_compiler_assume=True](
+        internal_mask != 0 or triangle_count != 0
+    )
     var triangle_base = Atomic.fetch_add[ordering=Ordering.RELAXED](
         triangle_counter, triangle_count
     )
@@ -234,8 +235,7 @@ def _write_direct_cwbvh8_node[
     words[unsafe_offset=base + CWBVH_TRIANGLE_BASE] = triangle_base
 
     var leaf_offset = UInt32(0)
-    var packed_meta0 = UInt32(0)
-    var packed_meta1 = UInt32(0)
+    var meta_bytes = SIMD[DType.uint8, 8](0)
     comptime for lane in range(8):
         var count = child_counts[lane]
         var byte = UInt32(0)
@@ -254,37 +254,35 @@ def _write_direct_cwbvh8_node[
                 ),
             )
             leaf_offset += count
-        comptime if lane < 4:
-            packed_meta0 |= byte << UInt32(lane * 8)
-        else:
-            packed_meta1 |= byte << UInt32((lane - 4) * 8)
-    words[unsafe_offset=base + CWBVH_META_BASE] = packed_meta0
-    words[unsafe_offset=base + CWBVH_META_BASE + 1] = packed_meta1
+        meta_bytes[lane] = UInt8(byte)
+    var packed_meta = bitcast[DType.uint32, 2](meta_bytes)
+    words[unsafe_offset=base + CWBVH_META_BASE] = packed_meta[0]
+    words[unsafe_offset=base + CWBVH_META_BASE + 1] = packed_meta[1]
 
     comptime for plane in range(6):
-        comptime for group in range(2):
-            var packed = UInt32(0)
-            comptime for byte_i in range(4):
-                comptime lane = group * 4 + byte_i
-                var q = UInt32(0)
-                if child_counts[lane] != EMPTY_LANE:
-                    var bounds = child_bounds[lane]
-                    comptime if plane == 0:
-                        q = _quantize_lower(bounds._min.x, lo_x, scale_x)
-                    elif plane == 1:
-                        q = _quantize_lower(bounds._min.y, lo_y, scale_y)
-                    elif plane == 2:
-                        q = _quantize_lower(bounds._min.z, lo_z, scale_z)
-                    elif plane == 3:
-                        q = _quantize_upper(bounds._max.x, lo_x, scale_x)
-                    elif plane == 4:
-                        q = _quantize_upper(bounds._max.y, lo_y, scale_y)
-                    else:
-                        q = _quantize_upper(bounds._max.z, lo_z, scale_z)
-                packed |= q << UInt32(byte_i * 8)
-            words[
-                unsafe_offset=base + CWBVH_QUANTIZED_BASE + plane * 2 + group
-            ] = packed
+        var quantized = SIMD[DType.uint8, 8](0)
+        comptime for lane in range(8):
+            var q = UInt32(0)
+            if child_counts[lane] != EMPTY_LANE:
+                var bounds = child_bounds[lane]
+                comptime if plane == 0:
+                    q = _quantize_lower(bounds._min.x, lo_x, scale_x)
+                elif plane == 1:
+                    q = _quantize_lower(bounds._min.y, lo_y, scale_y)
+                elif plane == 2:
+                    q = _quantize_lower(bounds._min.z, lo_z, scale_z)
+                elif plane == 3:
+                    q = _quantize_upper(bounds._max.x, lo_x, scale_x)
+                elif plane == 4:
+                    q = _quantize_upper(bounds._max.y, lo_y, scale_y)
+                else:
+                    q = _quantize_upper(bounds._max.z, lo_z, scale_z)
+            quantized[lane] = UInt8(q)
+        var packed = bitcast[DType.uint32, 2](quantized)
+        words[unsafe_offset=base + CWBVH_QUANTIZED_BASE + plane * 2] = packed[0]
+        words[
+            unsafe_offset=base + CWBVH_QUANTIZED_BASE + plane * 2 + 1
+        ] = packed[1]
 
 
 @always_inline
@@ -555,15 +553,14 @@ def hploc_literature_to_wide_kernel[
     var failsafe = 10000000
 
     while True:
-        if Atomic.load[ordering=Ordering.ACQUIRE](status) != (
-            HPLOC_WIDE_STATUS_OK
-        ):
-            return
-
         var pair = Atomic.load[ordering=Ordering.ACQUIRE](
             index_pairs.unsafe_offset(work_id)
         )
         if pair == UInt64.MAX:
+            if Atomic.load[ordering=Ordering.ACQUIRE](status) != (
+                HPLOC_WIDE_STATUS_OK
+            ):
+                return
             failsafe -= 1
             if failsafe == 0:
                 Atomic.store[ordering=Ordering.RELEASE](
@@ -802,7 +799,10 @@ def hploc_literature_to_wide_kernel[
         # matching Nexus's converter loop shape. Node ids are allocated later
         # in ascending slot order, preserving compact child-base+imask
         # addressing.
-        var slot_candidate = Array[Int, node_width](fill=-1)
+        # One four-bit candidate index per physical CWBVH child slot. 0xf is
+        # invalid; valid frontier indices are in 0..7.
+        var slot_candidates = UInt32.MAX
+        var wide_slot_candidates = Array[Int, node_width](fill=-1)
         comptime if spatial_slots:
             var occupied_slot_mask = UInt32(0)
             var parent_center = load_encoded_bounds(encoded).centroid()
@@ -810,38 +810,46 @@ def hploc_literature_to_wide_kernel[
                 var center = load_encoded_bounds(
                     candidates[candidate_pos]
                 ).centroid()
-                var best_cost = f32_max
-                var best_slot = -1
-                comptime for slot in range(node_width):
-                    var slot_bit = UInt32(1) << UInt32(slot)
-                    if (occupied_slot_mask & slot_bit) != 0:
-                        continue
-                    var sx = Float32(1.0)
-                    var sy = Float32(1.0)
-                    var sz = Float32(1.0)
-                    if (slot & 4) != 0:
-                        sx = -1.0
-                    if (slot & 2) != 0:
-                        sy = -1.0
-                    if (slot & 1) != 0:
-                        sz = -1.0
-                    var cost = (
-                        (center.x - parent_center.x) * sx
-                        + (center.y - parent_center.y) * sy
-                        + (center.z - parent_center.z) * sz
+                var costs = (
+                    (center.x - parent_center.x)
+                    * SIMD[DType.float32, 8](
+                        1.0, 1.0, 1.0, 1.0, -1.0, -1.0, -1.0, -1.0
                     )
-                    if cost < best_cost:
-                        best_cost = cost
-                        best_slot = slot
+                    + (center.y - parent_center.y)
+                    * SIMD[DType.float32, 8](
+                        1.0, 1.0, -1.0, -1.0, 1.0, 1.0, -1.0, -1.0
+                    )
+                    + (center.z - parent_center.z)
+                    * SIMD[DType.float32, 8](
+                        1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0
+                    )
+                )
+                var slot_bits = SIMD[DType.uint32, 8](
+                    1, 2, 4, 8, 16, 32, 64, 128
+                )
+                var occupied = (
+                    SIMD[DType.uint32, 8](occupied_slot_mask) & slot_bits
+                ).ne(0)
+                costs = occupied.select(f32_max, costs)
+                var best_cost, best_slot = min_argmin(costs)
                 debug_assert["safe", _use_compiler_assume=True](
-                    best_slot >= 0,
+                    best_cost != f32_max,
                     "CWBVH spatial child assignment failed",
                 )
                 occupied_slot_mask |= UInt32(1) << UInt32(best_slot)
-                slot_candidate[best_slot] = candidate_pos
+                var shift = UInt32(best_slot * 4)
+                slot_candidates = (
+                    slot_candidates & ~(UInt32(0xF) << shift)
+                ) | (UInt32(candidate_pos) << shift)
         else:
             for candidate_pos in range(child_count):
-                slot_candidate[candidate_pos] = candidate_pos
+                comptime if node_width <= 8:
+                    var shift = UInt32(candidate_pos * 4)
+                    slot_candidates = (
+                        slot_candidates & ~(UInt32(0xF) << shift)
+                    ) | (UInt32(candidate_pos) << shift)
+                else:
+                    wide_slot_candidates[candidate_pos] = candidate_pos
 
         var inner_count = 0
         var leaf_count_in_node = 0
@@ -900,8 +908,17 @@ def hploc_literature_to_wide_kernel[
         var direct_counts = Array[UInt32, 8](fill=EMPTY_LANE)
         var direct_internal_mask = UInt32(0)
         comptime for child_slot in range(node_width):
-            var child_pos = slot_candidate[child_slot]
-            if child_pos < 0:
+            var child_pos: Int
+            comptime if node_width <= 8:
+                child_pos = Int(
+                    (slot_candidates >> UInt32(child_slot * 4)) & UInt32(0xF)
+                )
+            else:
+                child_pos = wide_slot_candidates[child_slot]
+            var empty_slot = child_pos == 0xF
+            comptime if node_width > 8:
+                empty_slot = child_pos < 0
+            if empty_slot:
                 comptime if not direct_cwbvh8:
                     _wide_node_store_child[node_width](
                         wide_nodes,

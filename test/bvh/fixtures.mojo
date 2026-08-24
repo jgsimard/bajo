@@ -169,7 +169,11 @@ def _make_camera_rays_and_params(
 
         for py in range(height):
             for px in range(width):
-                rays.append(camera.make_ray(px, py, width, height))
+                rays.append(
+                    camera.make_ray_raster(
+                        px, py, width, Float32(1.0) / Float32(height)
+                    )
+                )
 
     return (rays^, params^)
 

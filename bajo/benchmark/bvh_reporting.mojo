@@ -41,10 +41,16 @@ struct GpuBenchResult(Copyable, Writable):
     def status(self) -> String:
         comptime CHECKSUM_ABS_EPS = 1.0e-3
         comptime CHECKSUM_PER_HIT_EPS = 1.0e-6
+        comptime CHECKSUM_REL_EPS = 1.0e-7
 
         var per_hit_diff = Float64(0.0)
         if self.hit_count > 0:
             per_hit_diff = self.diff / Float64(self.hit_count)
+
+        var reference_magnitude = abs(self.reference_checksum)
+        var relative_checksum_diff = self.diff
+        if reference_magnitude > 1.0:
+            relative_checksum_diff /= reference_magnitude
 
         var hit_diff = Int(self.hit_count) - Int(self.reference_hit_count)
         var abs_hit_diff = hit_diff
@@ -64,9 +70,14 @@ struct GpuBenchResult(Copyable, Writable):
             return String("CHECK")
 
         if hit_diff == 0 and (
-            self.diff > CHECKSUM_ABS_EPS and per_hit_diff > CHECKSUM_PER_HIT_EPS
+            self.diff > CHECKSUM_ABS_EPS
+            and per_hit_diff > CHECKSUM_PER_HIT_EPS
+            and relative_checksum_diff > CHECKSUM_REL_EPS
         ):
             return String("CHECK")
+
+        if hit_diff != 0:
+            return String("TOL")
 
         return String("OK")
 

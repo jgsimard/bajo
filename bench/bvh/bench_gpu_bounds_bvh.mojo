@@ -9,6 +9,7 @@ from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.bvh.host_utils import compute_bounds, sphere_bounds
 from bajo.bvh.constants import (
     GPU_BOUNDS_BVH_BLOCK_SIZE,
+    GPU_STACK_SIZE,
     TraceMode,
     TRI_LEAF_VERTEX_STRIDE,
     f32_max,
@@ -75,6 +76,7 @@ comptime PRIMARY_HEIGHT = 640
 comptime FOV_SCALE = 0.2
 comptime PRIMARY_VIEWS = 3
 comptime BENCH_REPEATS = 8
+comptime BUILD_REPEATS = 11
 comptime SPHERE_GRID_X = 64
 comptime SPHERE_GRID_Y = 64
 comptime SPHERE_RAY_WIDTH = 1280
@@ -90,6 +92,63 @@ struct Cwbvh8BuildTimings:
     var total_ns: Int
     var wide: GpuBuildTimings
     var encode_pack_ns: Int
+
+
+def _median_ns(values: List[Int]) -> Int:
+    var sorted_values = values.copy()
+    sort(sorted_values)
+    return sorted_values[(len(sorted_values) - 1) >> 1]
+
+
+def _median_build_sample(
+    totals: List[Int], timings: List[GpuBuildTimings]
+) raises -> Tuple[Int, GpuBuildTimings]:
+    if len(totals) == 0 or len(totals) != len(timings):
+        raise "build timing samples are empty or mismatched"
+    var morton = List[Int](capacity=len(timings))
+    var radix = List[Int](capacity=len(timings))
+    var topology = List[Int](capacity=len(timings))
+    var refit = List[Int](capacity=len(timings))
+    var collapse = List[Int](capacity=len(timings))
+    var bounds = List[Int](capacity=len(timings))
+    var leaf_pack = List[Int](capacity=len(timings))
+    for sample in timings:
+        morton.append(sample.morton_ns)
+        radix.append(sample.sort_ns)
+        topology.append(sample.topology_ns)
+        refit.append(sample.refit_ns)
+        collapse.append(sample.collapse_ns)
+        bounds.append(sample.bounds_pack_ns)
+        leaf_pack.append(sample.leaf_pack_ns)
+    return (
+        _median_ns(totals),
+        GpuBuildTimings(
+            _median_ns(morton),
+            _median_ns(radix),
+            _median_ns(topology),
+            _median_ns(refit),
+            _median_ns(collapse),
+            _median_ns(bounds),
+            _median_ns(leaf_pack),
+        ),
+    )
+
+
+def _median_cwbvh8_samples(
+    samples: List[Cwbvh8BuildTimings],
+) raises -> Cwbvh8BuildTimings:
+    if len(samples) == 0:
+        raise "CWBVH8 timing samples are empty"
+    var totals = List[Int](capacity=len(samples))
+    var wide = List[GpuBuildTimings](capacity=len(samples))
+    var encode_pack = List[Int](capacity=len(samples))
+    for i in range(len(samples)):
+        ref sample = samples[i]
+        totals.append(sample.total_ns)
+        wide.append(sample.wide)
+        encode_pack.append(sample.encode_pack_ns)
+    var selected = _median_build_sample(totals, wide)
+    return Cwbvh8BuildTimings(selected[0], selected[1], _median_ns(encode_pack))
 
 
 def _build_cwbvh8_measured(
@@ -380,6 +439,29 @@ def _print_gpu_result_row(
     )
 
 
+def _require_valid_result(row: GpuBenchResult) raises:
+    if row.status() != "OK":
+        raise Error(
+            String(
+                t"{row.label} failed benchmark validation: "
+                t"hits={row.hit_count}, expected={row.reference_hit_count}, "
+                t"checksum_diff={row.diff}"
+            )
+        )
+
+
+def _require_hit_count(
+    label: String, hit_count: UInt32, expected: UInt32
+) raises:
+    if hit_count != expected:
+        raise Error(
+            String(
+                t"{label} any-hit mismatch: hits={hit_count}, "
+                t"expected={expected}"
+            )
+        )
+
+
 def _gpu_results_table() -> TablePrinter:
     var table = TablePrinter(
         config=16,
@@ -413,7 +495,7 @@ def _print_any_hit_result(
     table.result_line(
         config=config,
         build_alg=build_alg,
-        best_ms=_gpu_ms(result[0]),
+        median_ms=_gpu_ms(result[0]),
         MRay_s=String(t"{round(ns_to_mrays_per_s(result[0], ray_count), 1)}"),
         hits=String(t"{result[1]}"),
     )
@@ -443,7 +525,7 @@ def _bench_camera_primary_triangle[
     )
     ctx.synchronize()
 
-    var best_kernel_ns = Int.MAX
+    var kernel_timings = List[Int](capacity=repeats)
     var checksum = Float64(0.0)
     var hit_count = UInt32(0)
 
@@ -459,14 +541,14 @@ def _bench_camera_primary_triangle[
         )
         ctx.synchronize()
         var t1 = perf_counter_ns()
-        best_kernel_ns = min(best_kernel_ns, Int(t1 - t0))
+        kernel_timings.append(Int(t1 - t0))
 
         var downloaded = _download_full_hit_checksum(ctx, d_hits, ray_count)
         checksum = downloaded[0]
         hit_count = downloaded[1]
 
     return (
-        best_kernel_ns,
+        _median_ns(kernel_timings),
         checksum,
         hit_count,
         abs(checksum - reference_checksum),
@@ -487,7 +569,7 @@ def _bench_any_hit_triangle[
     bvh.launch_rays[mode=.ANY_HIT](ctx, d_rays, d_hits, ray_count)
     ctx.synchronize()
 
-    var best_kernel_ns = Int.MAX
+    var kernel_timings = List[Int](capacity=repeats)
     var hit_count = UInt32(0)
 
     for _ in range(repeats):
@@ -495,12 +577,12 @@ def _bench_any_hit_triangle[
         bvh.launch_rays[mode=.ANY_HIT](ctx, d_rays, d_hits, ray_count)
         ctx.synchronize()
         var t1 = perf_counter_ns()
-        best_kernel_ns = min(best_kernel_ns, Int(t1 - t0))
+        kernel_timings.append(Int(t1 - t0))
 
         var downloaded = _download_full_hit_checksum(ctx, d_hits, ray_count)
         hit_count = downloaded[1]
 
-    return (best_kernel_ns, hit_count)
+    return (_median_ns(kernel_timings), hit_count)
 
 
 def _run_any_hit_width[
@@ -539,12 +621,14 @@ def _bench_camera_primary_cwbvh8(
         d_camera_params, d_hits, ray_count, image_width, image_height
     )
 
-    var best_kernel_ns = Int.MAX
+    var kernel_timings = List[Int](capacity=repeats)
     var checksum = Float64(0.0)
     var hit_count = UInt32(0)
     for iteration in range(repeats + 1):
         var t0 = perf_counter_ns()
-        ctx.enqueue_function[trace_cwbvh8_camera_kernel[3]](
+        ctx.enqueue_function[
+            trace_cwbvh8_camera_kernel[3, GPU_STACK_SIZE, False]
+        ](
             bvh.nodes,
             bvh.triangles,
             bvh.root_idx,
@@ -560,13 +644,13 @@ def _bench_camera_primary_cwbvh8(
         ctx.synchronize()
         var t1 = perf_counter_ns()
         if iteration > 0:
-            best_kernel_ns = min(best_kernel_ns, Int(t1 - t0))
+            kernel_timings.append(Int(t1 - t0))
             var downloaded = _download_full_hit_checksum(ctx, d_hits, ray_count)
             checksum = downloaded[0]
             hit_count = downloaded[1]
 
     return (
-        best_kernel_ns,
+        _median_ns(kernel_timings),
         checksum,
         hit_count,
         abs(checksum - reference_checksum),
@@ -583,7 +667,7 @@ def _bench_any_hit_cwbvh8(
 ) raises -> Tuple[Int, UInt32]:
     validate_ray_launch(d_rays, d_hits, ray_count)
 
-    var best_kernel_ns = Int.MAX
+    var kernel_timings = List[Int](capacity=repeats)
     var hit_count = UInt32(0)
     for iteration in range(repeats + 1):
         var t0 = perf_counter_ns()
@@ -600,11 +684,11 @@ def _bench_any_hit_cwbvh8(
         ctx.synchronize()
         var t1 = perf_counter_ns()
         if iteration > 0:
-            best_kernel_ns = min(best_kernel_ns, Int(t1 - t0))
+            kernel_timings.append(Int(t1 - t0))
             var downloaded = _download_full_hit_checksum(ctx, d_hits, ray_count)
             hit_count = downloaded[1]
 
-    return (best_kernel_ns, hit_count)
+    return (_median_ns(kernel_timings), hit_count)
 
 
 def _run_cwbvh8[
@@ -620,10 +704,13 @@ def _run_cwbvh8[
     reference_hit_count: UInt32,
     repeats: Int,
 ) raises -> Tuple[GpuBenchResult, Cwbvh8BenchBvh]:
-    _ = build_cwbvh8_bench_bvh[build_method](ctx, d_vertices)
-    var build0 = perf_counter_ns()
     var bvh = build_cwbvh8_bench_bvh[build_method](ctx, d_vertices)
-    var build1 = perf_counter_ns()
+    var build_timings = List[Int](capacity=BUILD_REPEATS)
+    for _ in range(BUILD_REPEATS):
+        var build0 = perf_counter_ns()
+        _ = build_cwbvh8_bench_bvh[build_method](ctx, d_vertices)
+        build_timings.append(Int(perf_counter_ns() - build0))
+    var build_ns = _median_ns(build_timings)
     var d_hits = ctx.enqueue_create_buffer[.float32](
         ray_count * Hit[.WORLD].STRIDE
     )
@@ -639,18 +726,25 @@ def _run_cwbvh8[
         repeats,
     )
     comptime if build_method == .HPLOC:
-        var measured = Cwbvh8BuildTimings(
+        var warm_measured = Cwbvh8BuildTimings(
             0, GpuBuildTimings(0, 0, 0, 0, 0, 0, 0), 0
         )
         # The measured path has different staged specializations from
         # production. Warm those kernels before recording the attribution run.
-        _ = _build_cwbvh8_measured(ctx, d_vertices, measured)
-        _ = _build_cwbvh8_measured(ctx, d_vertices, measured)
-        _print_cwbvh8_build_breakdown(Int(build1 - build0), measured)
+        _ = _build_cwbvh8_measured(ctx, d_vertices, warm_measured)
+        var measured_samples = List[Cwbvh8BuildTimings](capacity=BUILD_REPEATS)
+        for _ in range(BUILD_REPEATS):
+            var sample = Cwbvh8BuildTimings(
+                0, GpuBuildTimings(0, 0, 0, 0, 0, 0, 0), 0
+            )
+            _ = _build_cwbvh8_measured(ctx, d_vertices, sample)
+            measured_samples.append(sample^)
+        var measured = _median_cwbvh8_samples(measured_samples)
+        _print_cwbvh8_build_breakdown(build_ns, measured)
     return (
         GpuBenchResult(
             String("tri CWBVH8"),
-            Int(build1 - build0),
+            build_ns,
             GpuBuildTimings(0, 0, 0, 0, 0, 0, 0),
             trace[0],
             ray_count,
@@ -680,18 +774,25 @@ def _run_width[
     reference_hit_count: UInt32,
     repeats: Int,
 ) raises -> GpuBenchResult:
-    _ = build_gpu_triangle_bvh[.WORLD, node_width, leaf_width, build_method](
-        ctx, d_vertices
-    )
+    var bvh = build_gpu_triangle_bvh[
+        .WORLD, node_width, leaf_width, build_method
+    ](ctx, d_vertices)
     ctx.synchronize()
 
-    var build0 = perf_counter_ns()
-    var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
-    var bvh = build_gpu_triangle_bvh_measured[
-        .WORLD, node_width, leaf_width, build_method
-    ](ctx, d_vertices, timings)
-    ctx.synchronize()
-    var build1 = perf_counter_ns()
+    var build_samples = List[Int](capacity=BUILD_REPEATS)
+    var timing_samples = List[GpuBuildTimings](capacity=BUILD_REPEATS)
+    for _ in range(BUILD_REPEATS):
+        var sample = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
+        var build0 = perf_counter_ns()
+        _ = build_gpu_triangle_bvh_measured[
+            .WORLD, node_width, leaf_width, build_method
+        ](ctx, d_vertices, sample)
+        ctx.synchronize()
+        build_samples.append(Int(perf_counter_ns() - build0))
+        timing_samples.append(sample)
+    var selected = _median_build_sample(build_samples, timing_samples)
+    var build_ns = selected[0]
+    var timings = selected[1]
 
     var d_hits = ctx.enqueue_create_buffer[.float32](
         ray_count * Hit[.WORLD].STRIDE
@@ -711,7 +812,7 @@ def _run_width[
 
     return GpuBenchResult(
         String(t"tri n{Int(node_width)}/l{Int(leaf_width)}"),
-        Int(build1 - build0),
+        build_ns,
         timings,
         res[0],
         ray_count,
@@ -767,7 +868,7 @@ def _bench_camera_primary_sphere[
     )
     ctx.synchronize()
 
-    var best_kernel_ns = Int.MAX
+    var kernel_timings = List[Int](capacity=repeats)
     var checksum = Float64(0.0)
     var hit_count = UInt32(0)
 
@@ -783,14 +884,14 @@ def _bench_camera_primary_sphere[
         )
         ctx.synchronize()
         var t1 = perf_counter_ns()
-        best_kernel_ns = min(best_kernel_ns, Int(t1 - t0))
+        kernel_timings.append(Int(t1 - t0))
 
         var downloaded = _download_full_hit_checksum(ctx, d_hits, ray_count)
         checksum = downloaded[0]
         hit_count = downloaded[1]
 
     return (
-        best_kernel_ns,
+        _median_ns(kernel_timings),
         checksum,
         hit_count,
         abs(checksum - reference_checksum),
@@ -811,16 +912,23 @@ def _run_sphere_width[
     reference_hit_count: UInt32,
     repeats: Int,
 ) raises -> GpuBenchResult:
-    _ = build_gpu_sphere_bvh[.WORLD, node_width, leaf_width](ctx, spheres)
+    var bvh = build_gpu_sphere_bvh[.WORLD, node_width, leaf_width](ctx, spheres)
     ctx.synchronize()
 
-    var build0 = perf_counter_ns()
-    var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
-    var bvh = build_gpu_sphere_bvh_measured[.WORLD, node_width, leaf_width](
-        ctx, spheres, timings
-    )
-    ctx.synchronize()
-    var build1 = perf_counter_ns()
+    var build_samples = List[Int](capacity=BUILD_REPEATS)
+    var timing_samples = List[GpuBuildTimings](capacity=BUILD_REPEATS)
+    for _ in range(BUILD_REPEATS):
+        var sample = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
+        var build0 = perf_counter_ns()
+        _ = build_gpu_sphere_bvh_measured[.WORLD, node_width, leaf_width](
+            ctx, spheres, sample
+        )
+        ctx.synchronize()
+        build_samples.append(Int(perf_counter_ns() - build0))
+        timing_samples.append(sample)
+    var selected = _median_build_sample(build_samples, timing_samples)
+    var build_ns = selected[0]
+    var timings = selected[1]
 
     var d_hits = ctx.enqueue_create_buffer[.float32](
         ray_count * Hit[.WORLD].STRIDE
@@ -840,7 +948,7 @@ def _run_sphere_width[
 
     return GpuBenchResult(
         String(t"sph n{Int(node_width)}/l{Int(leaf_width)}"),
-        Int(build1 - build0),
+        build_ns,
         timings,
         res[0],
         ray_count,
@@ -862,7 +970,8 @@ def run_benchmark() raises:
         t"triangle camera rays : {PRIMARY_WIDTH} x {PRIMARY_HEIGHT} x"
         t" {PRIMARY_VIEWS}"
     )
-    print(t"repeats : {BENCH_REPEATS}")
+    print(t"build repeats : {BUILD_REPEATS} (median)")
+    print(t"traversal repeats : {BENCH_REPEATS} (median)")
 
     print("\nLoading + packing OBJ...")
     var load_t0 = perf_counter_ns()
@@ -883,6 +992,7 @@ def run_benchmark() raises:
         PRIMARY_HEIGHT,
         PRIMARY_VIEWS,
         FOV_SCALE,
+        True,
     )
     var rays = camera[0].copy()
     var camera_params = camera[1].copy()
@@ -1049,6 +1159,18 @@ def run_benchmark() raises:
         )
         var lbvh_cwbvh8_row = lbvh_cwbvh8_result[0].copy()
         var lbvh_cwbvh8 = lbvh_cwbvh8_result[1].copy()
+        _require_valid_result(tri2)
+        _require_valid_result(tri2_hploc)
+        _require_valid_result(tri2_leaf4)
+        _require_valid_result(tri2_leaf4_hploc)
+        _require_valid_result(tri4)
+        _require_valid_result(tri4_hploc)
+        _require_valid_result(tri8_leaf4)
+        _require_valid_result(tri8_leaf4_hploc)
+        _require_valid_result(tri8)
+        _require_valid_result(tri8_hploc)
+        _require_valid_result(lbvh_cwbvh8_row)
+        _require_valid_result(hploc_cwbvh8_row)
         print("\nGPU triangle configurations")
         print("CWBVH8 build stages are reported together as '- other'.")
         var triangle_table = _gpu_results_table()
@@ -1119,9 +1241,33 @@ def run_benchmark() raises:
             len(rays),
             BENCH_REPEATS,
         )
+        _require_hit_count("n2/l2 LBVH", any2_lbvh[1], reference_hit_count)
+        _require_hit_count("n2/l2 H-PLOC", any2_hploc[1], reference_hit_count)
+        _require_hit_count(
+            "n2/l4 LBVH", any2_leaf4_lbvh[1], reference_hit_count
+        )
+        _require_hit_count(
+            "n2/l4 H-PLOC", any2_leaf4_hploc[1], reference_hit_count
+        )
+        _require_hit_count("n4/l4 LBVH", any4_lbvh[1], reference_hit_count)
+        _require_hit_count("n4/l4 H-PLOC", any4_hploc[1], reference_hit_count)
+        _require_hit_count(
+            "n8/l4 LBVH", any8_leaf4_lbvh[1], reference_hit_count
+        )
+        _require_hit_count(
+            "n8/l4 H-PLOC", any8_leaf4_hploc[1], reference_hit_count
+        )
+        _require_hit_count("n8/l8 LBVH", any8_lbvh[1], reference_hit_count)
+        _require_hit_count("n8/l8 H-PLOC", any8_hploc[1], reference_hit_count)
+        _require_hit_count(
+            "CWBVH8 LBVH", any_lbvh_cwbvh8[1], reference_hit_count
+        )
+        _require_hit_count(
+            "CWBVH8 H-PLOC", any_hploc_cwbvh8[1], reference_hit_count
+        )
 
         var any_hit_table = TablePrinter(
-            config=16, build_alg=9, best_ms=9, MRay_s=9, hits=8
+            config=16, build_alg=9, median_ms=9, MRay_s=9, hits=8
         )
         any_hit_table.header()
         _print_any_hit_result(
@@ -1191,6 +1337,7 @@ def run_benchmark() raises:
             SPHERE_RAY_HEIGHT,
             SPHERE_RAY_VIEWS,
             FOV_SCALE,
+            True,
         )
         var sphere_rays = sphere_camera[0].copy()
         var sphere_camera_params = sphere_camera[1].copy()
@@ -1270,6 +1417,7 @@ def run_benchmark() raises:
             BENCH_REPEATS,
         )
         print("\nGPU sphere configurations")
+        print("TOL marks a nonzero hit delta within the numerical tolerance.")
         var sphere_table = _gpu_results_table()
         sphere_table.header()
         _print_gpu_result_row(sphere_table, sph2, "LBVH")

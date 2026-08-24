@@ -1,6 +1,6 @@
 from std.atomic import Atomic, Ordering
 from std.gpu import global_idx
-from std.math import ceil, ceildiv, floor, fma, max, min, clamp
+from std.math import ceil, ceildiv, floor, fma, clamp
 from std.memory import bitcast
 from max.gpu.host import DeviceBuffer, DeviceContext
 
@@ -93,79 +93,45 @@ def _encode_cwbvh8_node[
 ):
     comptime assert leaf_width == CWBVH_LEAF_STORAGE_WIDTH
     var node_idx = UInt32(node_idx_i)
-    var lo_x = f32_max
-    var lo_y = f32_max
-    var lo_z = f32_max
-    var hi_x = -f32_max
-    var hi_y = -f32_max
-    var hi_z = -f32_max
-    var metadata = SIMD[DType.uint32, CWBVH_WIDTH](0)
+    var node_base = _wide_node_index[CWBVH_WIDTH](node_idx, 0, 0)
+    var metadata = wide_nodes.unsafe_bitcast[UInt32]().unsafe_load[
+        width=CWBVH_WIDTH
+    ](node_base + WideNode.META * CWBVH_WIDTH)
+    var valid = metadata.ne(EMPTY_LANE)
+    var min_x = wide_nodes.unsafe_load[width=CWBVH_WIDTH](
+        node_base + WideNode.MIN_X * CWBVH_WIDTH
+    )
+    var min_y = wide_nodes.unsafe_load[width=CWBVH_WIDTH](
+        node_base + WideNode.MIN_Y * CWBVH_WIDTH
+    )
+    var min_z = wide_nodes.unsafe_load[width=CWBVH_WIDTH](
+        node_base + WideNode.MIN_Z * CWBVH_WIDTH
+    )
+    var max_x = wide_nodes.unsafe_load[width=CWBVH_WIDTH](
+        node_base + WideNode.MAX_X * CWBVH_WIDTH
+    )
+    var max_y = wide_nodes.unsafe_load[width=CWBVH_WIDTH](
+        node_base + WideNode.MAX_Y * CWBVH_WIDTH
+    )
+    var max_z = wide_nodes.unsafe_load[width=CWBVH_WIDTH](
+        node_base + WideNode.MAX_Z * CWBVH_WIDTH
+    )
+    var lo_x = valid.select(min_x, f32_max).reduce_min()
+    var lo_y = valid.select(min_y, f32_max).reduce_min()
+    var lo_z = valid.select(min_z, f32_max).reduce_min()
+    var hi_x = valid.select(max_x, -f32_max).reduce_max()
+    var hi_y = valid.select(max_y, -f32_max).reduce_max()
+    var hi_z = valid.select(max_z, -f32_max).reduce_max()
     var leaf_triangle_count = UInt32(0)
     var child_base = UInt32(0)
     var internal_count = UInt32(0)
     var imask = UInt32(0)
-    var valid_count = 0
 
     comptime for lane in range(CWBVH_WIDTH):
-        var meta = wide_nodes.unsafe_bitcast[UInt32]()[
-            unsafe_offset=_wide_node_index[CWBVH_WIDTH](
-                node_idx, WideNode.META, lane
-            )
-        ]
-        metadata[lane] = meta
+        var meta = metadata[lane]
         var count = _wide_meta_count(meta)
         if count == EMPTY_LANE:
             continue
-
-        valid_count += 1
-        lo_x = min(
-            lo_x,
-            wide_nodes[
-                unsafe_offset=_wide_node_index[CWBVH_WIDTH](
-                    node_idx, WideNode.MIN_X, lane
-                )
-            ],
-        )
-        lo_y = min(
-            lo_y,
-            wide_nodes[
-                unsafe_offset=_wide_node_index[CWBVH_WIDTH](
-                    node_idx, WideNode.MIN_Y, lane
-                )
-            ],
-        )
-        lo_z = min(
-            lo_z,
-            wide_nodes[
-                unsafe_offset=_wide_node_index[CWBVH_WIDTH](
-                    node_idx, WideNode.MIN_Z, lane
-                )
-            ],
-        )
-        hi_x = max(
-            hi_x,
-            wide_nodes[
-                unsafe_offset=_wide_node_index[CWBVH_WIDTH](
-                    node_idx, WideNode.MAX_X, lane
-                )
-            ],
-        )
-        hi_y = max(
-            hi_y,
-            wide_nodes[
-                unsafe_offset=_wide_node_index[CWBVH_WIDTH](
-                    node_idx, WideNode.MAX_Y, lane
-                )
-            ],
-        )
-        hi_z = max(
-            hi_z,
-            wide_nodes[
-                unsafe_offset=_wide_node_index[CWBVH_WIDTH](
-                    node_idx, WideNode.MAX_Z, lane
-                )
-            ],
-        )
 
         if count == 0:
             var child = _wide_meta_data(meta)
@@ -183,7 +149,7 @@ def _encode_cwbvh8_node[
             )
             leaf_triangle_count += count
 
-    debug_assert["safe", _use_compiler_assume=True](valid_count > 0)
+    debug_assert["safe", _use_compiler_assume=True](valid.reduce_or())
     debug_assert["safe", _use_compiler_assume=True](
         leaf_triangle_count <= UInt32(24),
         "CWBVH8 supports at most 24 triangles referenced by one node",
@@ -223,8 +189,7 @@ def _encode_cwbvh8_node[
     cwbvh_u32[unsafe_offset=base + CWBVH_TRIANGLE_BASE] = triangle_base
 
     var leaf_offset = UInt32(0)
-    var packed_meta0 = UInt32(0)
-    var packed_meta1 = UInt32(0)
+    var meta_bytes = SIMD[DType.uint8, CWBVH_WIDTH](0)
     comptime for lane in range(CWBVH_WIDTH):
         var source_meta = metadata[lane]
         var count = _wide_meta_count(source_meta)
@@ -244,85 +209,37 @@ def _encode_cwbvh8_node[
                 ]
             leaf_offset += count
 
-        comptime if lane < 4:
-            packed_meta0 |= byte << UInt32(lane * 8)
-        else:
-            packed_meta1 |= byte << UInt32((lane - 4) * 8)
+        meta_bytes[lane] = UInt8(byte)
 
-    cwbvh_u32[unsafe_offset=base + CWBVH_META_BASE + 0] = packed_meta0
-    cwbvh_u32[unsafe_offset=base + CWBVH_META_BASE + 1] = packed_meta1
+    var packed_meta = bitcast[DType.uint32, 2](meta_bytes)
+    cwbvh_u32[unsafe_offset=base + CWBVH_META_BASE + 0] = packed_meta[0]
+    cwbvh_u32[unsafe_offset=base + CWBVH_META_BASE + 1] = packed_meta[1]
 
     comptime for plane in range(6):
-        comptime for group in range(2):
-            var packed = UInt32(0)
-            comptime for byte_i in range(4):
-                comptime lane = group * 4 + byte_i
-                var q = UInt32(0)
-                if _wide_meta_count(metadata[lane]) != EMPTY_LANE:
-                    comptime if plane == 0:
-                        q = _quantize_lower(
-                            wide_nodes[
-                                unsafe_offset=_wide_node_index[CWBVH_WIDTH](
-                                    node_idx, WideNode.MIN_X, lane
-                                )
-                            ],
-                            lo_x,
-                            scale_x,
-                        )
-                    elif plane == 1:
-                        q = _quantize_lower(
-                            wide_nodes[
-                                unsafe_offset=_wide_node_index[CWBVH_WIDTH](
-                                    node_idx, WideNode.MIN_Y, lane
-                                )
-                            ],
-                            lo_y,
-                            scale_y,
-                        )
-                    elif plane == 2:
-                        q = _quantize_lower(
-                            wide_nodes[
-                                unsafe_offset=_wide_node_index[CWBVH_WIDTH](
-                                    node_idx, WideNode.MIN_Z, lane
-                                )
-                            ],
-                            lo_z,
-                            scale_z,
-                        )
-                    elif plane == 3:
-                        q = _quantize_upper(
-                            wide_nodes[
-                                unsafe_offset=_wide_node_index[CWBVH_WIDTH](
-                                    node_idx, WideNode.MAX_X, lane
-                                )
-                            ],
-                            lo_x,
-                            scale_x,
-                        )
-                    elif plane == 4:
-                        q = _quantize_upper(
-                            wide_nodes[
-                                unsafe_offset=_wide_node_index[CWBVH_WIDTH](
-                                    node_idx, WideNode.MAX_Y, lane
-                                )
-                            ],
-                            lo_y,
-                            scale_y,
-                        )
-                    else:
-                        q = _quantize_upper(
-                            wide_nodes[
-                                unsafe_offset=_wide_node_index[CWBVH_WIDTH](
-                                    node_idx, WideNode.MAX_Z, lane
-                                )
-                            ],
-                            lo_z,
-                            scale_z,
-                        )
-                packed |= q << UInt32(byte_i * 8)
-            cwbvh_u32[
-                unsafe_offset=base + CWBVH_QUANTIZED_BASE + plane * 2 + group
-            ] = packed
+        var quantized = SIMD[DType.uint8, CWBVH_WIDTH](0)
+        comptime for lane in range(CWBVH_WIDTH):
+            var q = UInt32(0)
+            if _wide_meta_count(metadata[lane]) != EMPTY_LANE:
+                comptime if plane == 0:
+                    q = _quantize_lower(min_x[lane], lo_x, scale_x)
+                elif plane == 1:
+                    q = _quantize_lower(min_y[lane], lo_y, scale_y)
+                elif plane == 2:
+                    q = _quantize_lower(min_z[lane], lo_z, scale_z)
+                elif plane == 3:
+                    q = _quantize_upper(max_x[lane], lo_x, scale_x)
+                elif plane == 4:
+                    q = _quantize_upper(max_y[lane], lo_y, scale_y)
+                else:
+                    q = _quantize_upper(max_z[lane], lo_z, scale_z)
+            quantized[lane] = UInt8(q)
+        var packed = bitcast[DType.uint32, 2](quantized)
+        cwbvh_u32[
+            unsafe_offset=base + CWBVH_QUANTIZED_BASE + plane * 2
+        ] = packed[0]
+        cwbvh_u32[
+            unsafe_offset=base + CWBVH_QUANTIZED_BASE + plane * 2 + 1
+        ] = packed[1]
 
 
 def encode_segmented_cwbvh8_nodes_kernel[

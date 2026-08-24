@@ -145,10 +145,10 @@ def _hploc_atomic_exchange(
 ) -> UInt32:
     """Atomic exchange expressed through the current std.atomic CAS API."""
 
-    var expected = Atomic.load[ordering=Ordering.ACQUIRE](ptr)
+    var expected = Atomic.load[ordering=Ordering.RELAXED](ptr)
     while not Atomic.compare_exchange[
         success_ordering=Ordering.ACQUIRE_RELEASE,
-        failure_ordering=Ordering.ACQUIRE,
+        failure_ordering=Ordering.RELAXED,
     ](ptr, expected, desired):
         pass
     return expected

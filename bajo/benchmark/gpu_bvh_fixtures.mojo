@@ -12,6 +12,7 @@ from bajo.bvh.constants import (
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.gpu.builder.segmented_build import enqueue_segmented_wide_build
 from bajo.bvh.gpu.camera_launch import (
+    _camera_ray,
     _camera_ray_single_view,
     _store_camera_hit,
 )
@@ -30,7 +31,7 @@ from bajo.bvh.gpu.triangle_bvh import (
 from bajo.bvh.gpu.tlas_diagnostics import _trace_cwbvh8_with_stats_in_frame
 from bajo.bvh.gpu.trace import GpuTraversalStats
 from bajo.bvh.gpu.utils import _device_span
-from bajo.core import AABB, Point3f32, SegmentOffsets
+from bajo.core import AABB, Point3f32, Rayf32, SegmentOffsets
 
 
 @fieldwise_init
@@ -127,6 +128,7 @@ def build_cwbvh8_bench_bvh[
 def trace_cwbvh8_camera_kernel[
     max_leaf_size: Int = 3,
     stack_capacity: Int = GPU_STACK_SIZE,
+    single_view: Bool = True,
 ](
     nodes: Pointer[Float32, ImmutAnyOrigin],
     triangles: Pointer[Float32, ImmutAnyOrigin],
@@ -143,19 +145,32 @@ def trace_cwbvh8_camera_kernel[
     var ray_idx = global_idx.x
     if ray_idx >= ray_count_int:
         return
-    var ray = _camera_ray_single_view(
-        camera_params,
-        Int32(ray_idx),
-        width_px,
-        inv_height,
-    )
+    var ray: Rayf32[.WORLD]
+    comptime if single_view:
+        ray = _camera_ray_single_view(
+            camera_params,
+            Int32(ray_idx),
+            width_px,
+            inv_height,
+        )
+    else:
+        ray = _camera_ray(
+            camera_params,
+            ray_count_int,
+            ray_idx,
+            Int(width_px),
+            Int(height_px),
+            inv_height,
+        )
     var hit = trace_cwbvh8_triangles[
         .WORLD, .CLOSEST_HIT, True, max_leaf_size, stack_capacity
     ](nodes, triangles, root_idx, ray)
     _store_camera_hit(hit, hits, ray_count_int, ray_idx)
 
 
-def trace_cwbvh8_camera_legacy_decode_kernel(
+def trace_cwbvh8_camera_legacy_decode_kernel[
+    single_view: Bool = True,
+](
     nodes: Pointer[Float32, ImmutAnyOrigin],
     triangles: Pointer[Float32, ImmutAnyOrigin],
     root_idx: UInt32,
@@ -171,12 +186,23 @@ def trace_cwbvh8_camera_legacy_decode_kernel(
     var ray_idx = global_idx.x
     if ray_idx >= ray_count_int:
         return
-    var ray = _camera_ray_single_view(
-        camera_params,
-        Int32(ray_idx),
-        width_px,
-        inv_height,
-    )
+    var ray: Rayf32[.WORLD]
+    comptime if single_view:
+        ray = _camera_ray_single_view(
+            camera_params,
+            Int32(ray_idx),
+            width_px,
+            inv_height,
+        )
+    else:
+        ray = _camera_ray(
+            camera_params,
+            ray_count_int,
+            ray_idx,
+            Int(width_px),
+            Int(height_px),
+            inv_height,
+        )
     var hit = trace_cwbvh8_triangles[.WORLD, .CLOSEST_HIT, False](
         nodes, triangles, root_idx, ray
     )

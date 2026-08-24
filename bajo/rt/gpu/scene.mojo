@@ -44,34 +44,42 @@ struct GpuRtScene[
 ]:
     """Own exactly the device resources selected by `kind`."""
 
-    var _sphere_bvh: Optional[GpuSphereBvh[
-        .WORLD,
-        Self.sphere_format.node_width,
-        Self.sphere_format.leaf_width,
-    ]]
+    var _sphere_bvh: Optional[
+        GpuSphereBvh[
+            .WORLD,
+            Self.sphere_format.node_width,
+            Self.sphere_format.leaf_width,
+        ]
+    ]
     var _sphere_surfaces: Optional[DeviceBuffer[.uint32]]
     var _signed_radii: Optional[DeviceBuffer[.float32]]
-    var _triangle_blas: Optional[GpuBlasSet[
-        .TRIANGLE,
-        Self.triangle_format.layout,
-        Self.triangle_format.node_width,
-        Self.triangle_format.leaf_width,
-    ]]
+    var _triangle_blas: Optional[
+        GpuBlasSet[
+            .TRIANGLE,
+            Self.triangle_format.layout,
+            Self.triangle_format.node_width,
+            Self.triangle_format.leaf_width,
+        ]
+    ]
     var _triangle_surfaces: Optional[DeviceBuffer[.uint32]]
-    var _instance_blases: Optional[GpuBlasSet[
-        .TRIANGLE,
-        Self.blas_format.layout,
-        Self.blas_format.node_width,
-        Self.blas_format.leaf_width,
-    ]]
-    var _tlas: Optional[GpuTlas[
-        .TRIANGLE,
-        Self.tlas_format.node_width,
-        Self.blas_format.node_width,
-        Self.tlas_format.leaf_width,
-        Self.blas_format.leaf_width,
-        Self.blas_format.layout,
-    ]]
+    var _instance_blases: Optional[
+        GpuBlasSet[
+            .TRIANGLE,
+            Self.blas_format.layout,
+            Self.blas_format.node_width,
+            Self.blas_format.leaf_width,
+        ]
+    ]
+    var _tlas: Optional[
+        GpuTlas[
+            .TRIANGLE,
+            Self.tlas_format.node_width,
+            Self.blas_format.node_width,
+            Self.tlas_format.leaf_width,
+            Self.blas_format.leaf_width,
+            Self.blas_format.layout,
+        ]
+    ]
     var _instance_surfaces: Optional[DeviceBuffer[.uint32]]
     var materials: GpuRtMaterials
     var lights: GpuRtLights
@@ -168,9 +176,9 @@ def prepare_gpu_scene[
         "GPU RT scene kind does not match the scene geometry",
     )
 
-    var sphere_bvh = Optional[GpuSphereBvh[
-        .WORLD, sphere_format.node_width, sphere_format.leaf_width
-    ]]()
+    var sphere_bvh = Optional[
+        GpuSphereBvh[.WORLD, sphere_format.node_width, sphere_format.leaf_width]
+    ]()
     var sphere_surfaces = Optional[DeviceBuffer[.uint32]]()
     var signed_radii = Optional[DeviceBuffer[.float32]]()
     comptime if kind.has_spheres():
@@ -189,12 +197,14 @@ def prepare_gpu_scene[
         )
         signed_radii = Optional(upload_list(ctx, host_signed_radii))
 
-    var triangle_blas = Optional[GpuBlasSet[
-        .TRIANGLE,
-        triangle_format.layout,
-        triangle_format.node_width,
-        triangle_format.leaf_width,
-    ]]()
+    var triangle_blas = Optional[
+        GpuBlasSet[
+            .TRIANGLE,
+            triangle_format.layout,
+            triangle_format.node_width,
+            triangle_format.leaf_width,
+        ]
+    ]()
     var triangle_surfaces = Optional[DeviceBuffer[.uint32]]()
     comptime if kind.has_triangles():
         var vertices = List[Point3f32[.WORLD]](
@@ -215,20 +225,24 @@ def prepare_gpu_scene[
             upload_surface_ids(ctx, data.triangle_surfaces())
         )
 
-    var instance_blases = Optional[GpuBlasSet[
-        .TRIANGLE,
-        blas_format.layout,
-        blas_format.node_width,
-        blas_format.leaf_width,
-    ]]()
-    var tlas = Optional[GpuTlas[
-        .TRIANGLE,
-        tlas_format.node_width,
-        blas_format.node_width,
-        tlas_format.leaf_width,
-        blas_format.leaf_width,
-        blas_format.layout,
-    ]]()
+    var instance_blases = Optional[
+        GpuBlasSet[
+            .TRIANGLE,
+            blas_format.layout,
+            blas_format.node_width,
+            blas_format.leaf_width,
+        ]
+    ]()
+    var tlas = Optional[
+        GpuTlas[
+            .TRIANGLE,
+            tlas_format.node_width,
+            blas_format.node_width,
+            tlas_format.leaf_width,
+            blas_format.leaf_width,
+            blas_format.layout,
+        ]
+    ]()
     var instance_surfaces = Optional[DeviceBuffer[.uint32]]()
     comptime if kind.has_instances():
         instance_blases = Optional(

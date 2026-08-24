@@ -369,7 +369,9 @@ def encode_segmented_cwbvh8_nodes_kernel[
     )
 
 
-def pack_segmented_cwbvh_triangles_kernel(
+def pack_segmented_cwbvh_triangles_kernel[
+    single_segment: Bool = False,
+](
     vertices: Pointer[Float32, ImmutAnyOrigin],
     primitive_ids: Pointer[UInt32, ImmutAnyOrigin],
     primitive_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
@@ -380,8 +382,12 @@ def pack_segmented_cwbvh_triangles_kernel(
     if triangle_idx >= Int(triangle_count):
         return
 
-    var segment_idx = _segment_for_item(primitive_segment_offsets, triangle_idx)
-    var primitive_begin = Int(primitive_segment_offsets.unsafe_get(segment_idx))
+    var primitive_begin = 0
+    comptime if not single_segment:
+        var segment_idx = _segment_for_item(
+            primitive_segment_offsets, triangle_idx
+        )
+        primitive_begin = Int(primitive_segment_offsets.unsafe_get(segment_idx))
     var prim = primitive_ids[unsafe_offset=triangle_idx]
     var src = Int(prim) * 9
     var dst = triangle_idx * CWBVH_TRIANGLE_WORDS
@@ -467,7 +473,7 @@ def enqueue_segmented_cwbvh8_representation_with_workspace[
         grid_dim=ceildiv(node_capacity, GPU_BOUNDS_BVH_BLOCK_SIZE),
         block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
     )
-    ctx.enqueue_function[pack_segmented_cwbvh_triangles_kernel](
+    ctx.enqueue_function[pack_segmented_cwbvh_triangles_kernel[False]](
         vertices,
         workspace.compact_primitive_ids,
         _device_span[mut=False](primitive_segment_offsets),
@@ -643,6 +649,7 @@ def _packed_byte(word: UInt32, lane: Int) -> UInt32:
 @always_inline
 def _intersect_cwbvh8_node_tasks[
     frame: Frame,
+    max_leaf_size: Int = CWBVH_MAX_LEAF_SIZE,
 ](
     cwbvh_nodes: ImmPointer[Float32, _],
     node_idx: UInt32,
@@ -667,18 +674,12 @@ def _intersect_cwbvh8_node_tasks[
     var qhiy_qhiz_u32 = bitcast[DType.uint32](qhiy_qhiz)
 
     var exp_imask = p_exp_u32[3]
-    var idir_x = (
-        _scale_from_exponent(exp_imask & UInt32(0xFF)) * rcp_x
-    )
+    var idir_x = _scale_from_exponent(exp_imask & UInt32(0xFF)) * rcp_x
     var idir_y = (
-        _scale_from_exponent(
-            (exp_imask >> UInt32(8)) & UInt32(0xFF)
-        ) * rcp_y
+        _scale_from_exponent((exp_imask >> UInt32(8)) & UInt32(0xFF)) * rcp_y
     )
     var idir_z = (
-        _scale_from_exponent(
-            (exp_imask >> UInt32(16)) & UInt32(0xFF)
-        ) * rcp_z
+        _scale_from_exponent((exp_imask >> UInt32(16)) & UInt32(0xFF)) * rcp_z
     )
     var origin_x = (p_exp[0] - ray.o.x) * rcp_x
     var origin_y = (p_exp[1] - ray.o.y) * rcp_y
@@ -751,7 +752,10 @@ def _intersect_cwbvh8_node_tasks[
                 var bit_index = meta_byte & UInt32(0x1F)
                 if (imask & (UInt32(1) << UInt32(lane))) != 0:
                     bit_index ^= octant_inverse
-                hitmask |= (meta_byte >> UInt32(5)) << bit_index
+                comptime if max_leaf_size == 1:
+                    hitmask |= UInt32(1) << bit_index
+                else:
+                    hitmask |= (meta_byte >> UInt32(5)) << bit_index
 
     return Cwbvh8NodeTasks(
         child_tri_meta_u32[0],

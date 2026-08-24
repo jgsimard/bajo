@@ -104,9 +104,7 @@ Shape "sphere" "float radius" 1
     var settings = scene.settings.copy()
     var camera = scene.camera
     var world = CpuScene[](scene^.take_data())
-    var result = render_wavefront[.MIS, 1, 64, False](
-        settings, camera, world
-    )
+    var result = render_wavefront[.MIS, 1, 64, False](settings, camera, world)
     assert_true(len(result.pixels) == 16)
     var energy: Float32 = 0.0
     for pixel in result.pixels:

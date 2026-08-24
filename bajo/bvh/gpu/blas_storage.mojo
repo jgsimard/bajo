@@ -54,9 +54,7 @@ struct GpuBlasSet[
         var leaf_count = len(host.leaves) if len(host.leaves) > 0 else 1
         var nodes = ctx.enqueue_create_buffer[.float32](node_count)
         var leaves = ctx.enqueue_create_buffer[.float32](leaf_count)
-        var h_descs = ctx.enqueue_create_host_buffer[.uint32](
-            len(host.descs)
-        )
+        var h_descs = ctx.enqueue_create_host_buffer[.uint32](len(host.descs))
         h_descs.enqueue_copy_from(host.descs)
         h_descs.enqueue_copy_to(descs)
         if len(host.nodes) > 0:

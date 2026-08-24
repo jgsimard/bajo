@@ -30,10 +30,7 @@ struct PrimaryBenchResult(Copyable):
 
 def trace_triangle[
     width: SIMDLength
-](
-    bvh: CpuBlasSet[.TRIANGLE, width],
-    rays: List[Rayf32[.WORLD]],
-) -> Float64:
+](bvh: CpuBlasSet[.TRIANGLE, width], rays: List[Rayf32[.WORLD]],) -> Float64:
     var checksum = 0.0
 
     for ray in rays:

@@ -83,9 +83,7 @@ def _make_centered_transform(
     scale: Vec3f32[.LOCAL],
     bottom_center: Vec3f32[.WORLD],
 ) -> Affine3f32[.LOCAL, .WORLD]:
-    var transform = Affine3f32[
-        .LOCAL, .WORLD
-    ].from_rotation_scale_translation(
+    var transform = Affine3f32[.LOCAL, .WORLD].from_rotation_scale_translation(
         rotation, scale, Vec3f32[.WORLD](0.0)
     )
     var c = bounds.centroid()
@@ -188,7 +186,9 @@ def _make_camera[width: SIMDLength](tlas: CpuTlas[width]) -> Camera:
     )
 
 
-def _make_camera_params[width: SIMDLength](tlas: CpuTlas[width]) -> List[Float32]:
+def _make_camera_params[
+    width: SIMDLength
+](tlas: CpuTlas[width]) -> List[Float32]:
     return _make_camera(tlas).flatten()
 
 
@@ -334,9 +334,9 @@ def _trace_cpu_tlas_camera[
         for px in range(width):
             var ray_idx = py * width + px
             var ray = camera.make_ray(px, py, width, height)
-            var hit = tlas.trace_blases[
-                blas_width, blas_width, .CLOSEST_HIT
-            ](ray, cpu_blases)
+            var hit = tlas.trace_blases[blas_width, blas_width, .CLOSEST_HIT](
+                ray, cpu_blases
+            )
             hit.store(hits, ray_idx)
 
     parallelize(worker, height, height)
@@ -498,9 +498,7 @@ def render_gpu(
         var setup_t0 = perf_counter_ns()
         var d_camera_params = upload_list(ctx, camera_params)
 
-        var d_hits = ctx.enqueue_create_buffer[.float32](
-            ray_count * Hit.STRIDE
-        )
+        var d_hits = ctx.enqueue_create_buffer[.float32](ray_count * Hit.STRIDE)
         ctx.synchronize()
         var setup_t1 = perf_counter_ns()
         print(

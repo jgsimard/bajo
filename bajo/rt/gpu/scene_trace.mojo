@@ -5,6 +5,7 @@ from std.math import ceildiv
 from max.gpu.host import DeviceContext
 
 from bajo.bvh import Hit
+from bajo.bvh.constants import PrimitiveKind
 from bajo.bvh.gpu.sphere_bvh import _intersect_sphere_leaf
 from bajo.bvh.gpu.tlas import _trace_tlas_ray
 from bajo.bvh.gpu.trace import trace_bounds_bvh
@@ -18,6 +19,7 @@ from bajo.rt.geometry import orient_surface_normal
 from bajo.rt.types import Color, Integrator
 from bajo.rt.gpu.config import GpuRtBvhFormat, GpuRtSceneKind
 from bajo.rt.wavefront_contract import (
+    DeviceWavePath,
     DeviceWaveShadow,
     WAVE_COUNTER,
 )
@@ -25,8 +27,14 @@ from bajo.rt.gpu.wavefront_contract import (
     _reserve_slot,
     load_gpu_rt_path,
     load_gpu_rt_shadow,
+    store_gpu_rt_path,
 )
-from bajo.rt.gpu.common_kernels import GPU_RT_BLOCK_SIZE, GPU_RT_MAX_BLOCKS
+from bajo.rt.gpu.common_kernels import (
+    GPU_RT_BLOCK_SIZE,
+    GPU_RT_MAX_BLOCKS,
+    clear_gpu_rt_sample,
+    make_gpu_rt_primary_path,
+)
 from bajo.rt.gpu.path_shading import (
     _accumulate_sample,
     _append_shadow,
@@ -37,23 +45,32 @@ from bajo.rt.gpu.path_shading import (
 from bajo.rt.gpu.views import GpuRtSceneView, GpuRtTraceQueueView
 
 
+comptime GPU_RT_SHADOW_BLOCK_SIZE = 128
+
+
 @always_inline
-def _gpu_rt_scene_trace_one[
+def _gpu_rt_scene_trace_path[
     integrator: Integrator,
     scene_kind: GpuRtSceneKind,
     sphere_format: GpuRtBvhFormat,
     triangle_format: GpuRtBvhFormat,
     tlas_format: GpuRtBvhFormat,
     blas_format: GpuRtBvhFormat,
+    light_kind: PrimitiveKind = .UNKNOWN,
 ](
     idx: Int,
+    path: DeviceWavePath,
     scene: GpuRtSceneView,
     queues: GpuRtTraceQueueView,
     rng_seed: UInt64,
     bounce: UInt32,
 ):
     comptime assert integrator.is_valid()
-    comptime assert scene_kind.has_spheres() or scene_kind.has_triangles() or scene_kind.has_instances()
+    comptime assert (
+        scene_kind.has_spheres()
+        or scene_kind.has_triangles()
+        or scene_kind.has_instances()
+    )
     var emissives = scene.emissives.unsafe_origin_cast[ImmutAnyOrigin]()
     var lambertians = scene.lambertians.unsafe_origin_cast[ImmutAnyOrigin]()
     var metals = scene.metals.unsafe_origin_cast[ImmutAnyOrigin]()
@@ -62,10 +79,6 @@ def _gpu_rt_scene_trace_one[
     var light_fields = scene.light_fields.unsafe_origin_cast[ImmutAnyOrigin]()
     var light_count_i32 = scene.light_count
     var total_light_weight = scene.total_light_weight
-    var src_path_ids = queues.src_path_ids.unsafe_origin_cast[ImmutAnyOrigin]()
-    var src_path_fields = queues.src_path_fields.unsafe_origin_cast[
-        ImmutAnyOrigin
-    ]()
     var dst_path_ids = queues.dst_path_ids.unsafe_origin_cast[MutAnyOrigin]()
     var dst_path_fields = queues.dst_path_fields.unsafe_origin_cast[
         MutAnyOrigin
@@ -87,9 +100,6 @@ def _gpu_rt_scene_trace_one[
     ]()
     var capacity = Int(queues.capacity)
     var sample_base = queues.sample_base
-    var path = load_gpu_rt_path[integrator](
-        src_path_ids, src_path_fields, capacity, idx
-    )
     var ray = Rayf32[.WORLD](
         Point3f32[.WORLD](path.ox, path.oy, path.oz),
         Vec3f32[.WORLD](path.dx, path.dy, path.dz),
@@ -146,9 +156,7 @@ def _gpu_rt_scene_trace_one[
         var triangle_surfaces = triangles.surfaces.unsafe_origin_cast[
             ImmutAnyOrigin
         ]()
-        var triangle_ray = Rayf32[.WORLD](
-            ray.o, ray.d, ray.t_min, closest_t
-        )
+        var triangle_ray = Rayf32[.WORLD](ray.o, ray.d, ray.t_min, closest_t)
         var triangle_hit = trace_gpu_blas[
             .WORLD,
             triangle_format.node_width,
@@ -202,9 +210,7 @@ def _gpu_rt_scene_trace_one[
         var instance_surfaces = instances.surfaces.unsafe_origin_cast[
             ImmutAnyOrigin
         ]()
-        var instance_ray = Rayf32[.WORLD](
-            ray.o, ray.d, ray.t_min, closest_t
-        )
+        var instance_ray = Rayf32[.WORLD](ray.o, ray.d, ray.t_min, closest_t)
         var instance_hit = _trace_tlas_ray[
             tlas_format.node_width,
             tlas_format.leaf_width,
@@ -243,7 +249,11 @@ def _gpu_rt_scene_trace_one[
             ]
 
     if not found:
-        comptime if integrator in (Integrator.PATH, Integrator.NEE, Integrator.MIS):
+        comptime if integrator in (
+            Integrator.PATH,
+            Integrator.NEE,
+            Integrator.MIS,
+        ):
             _accumulate_sample(
                 sample_radiance,
                 capacity,
@@ -280,7 +290,7 @@ def _gpu_rt_scene_trace_one[
         return
 
     comptime if integrator in (Integrator.NEE, Integrator.MIS):
-        var direct = _sample_direct_light_candidate[integrator](
+        var direct = _sample_direct_light_candidate[integrator, light_kind](
             path,
             ray,
             closest_t,
@@ -349,6 +359,99 @@ def _gpu_rt_scene_trace_one[
     )
 
 
+@always_inline
+def _gpu_rt_scene_trace_one[
+    integrator: Integrator,
+    scene_kind: GpuRtSceneKind,
+    sphere_format: GpuRtBvhFormat,
+    triangle_format: GpuRtBvhFormat,
+    tlas_format: GpuRtBvhFormat,
+    blas_format: GpuRtBvhFormat,
+    light_kind: PrimitiveKind = .UNKNOWN,
+](
+    idx: Int,
+    scene: GpuRtSceneView,
+    queues: GpuRtTraceQueueView,
+    rng_seed: UInt64,
+    bounce: UInt32,
+):
+    var src_path_ids = queues.src_path_ids.unsafe_origin_cast[ImmutAnyOrigin]()
+    var src_path_fields = queues.src_path_fields.unsafe_origin_cast[
+        ImmutAnyOrigin
+    ]()
+    var path = load_gpu_rt_path[integrator](
+        src_path_ids, src_path_fields, Int(queues.capacity), idx
+    )
+    _gpu_rt_scene_trace_path[
+        integrator,
+        scene_kind,
+        sphere_format,
+        triangle_format,
+        tlas_format,
+        blas_format,
+        light_kind,
+    ](idx, path, scene, queues, rng_seed, bounce)
+
+
+def gpu_rt_primary_scene_trace_kernel[
+    integrator: Integrator,
+    scene_kind: GpuRtSceneKind,
+    sphere_format: GpuRtBvhFormat,
+    triangle_format: GpuRtBvhFormat,
+    tlas_format: GpuRtBvhFormat,
+    blas_format: GpuRtBvhFormat,
+    store_source_path: Bool,
+    light_kind: PrimitiveKind = .UNKNOWN,
+](
+    camera_params: Pointer[Float32, ImmutAnyOrigin],
+    source_path_ids: Pointer[UInt32, MutAnyOrigin],
+    source_path_fields: Pointer[Float32, MutAnyOrigin],
+    scene: GpuRtSceneView,
+    queues: GpuRtTraceQueueView,
+    width_i32: Int32,
+    height_i32: Int32,
+    samples_per_pixel_i32: Int32,
+    rng_seed: UInt64,
+):
+    var counters = queues.counters.unsafe_origin_cast[MutAnyOrigin]()
+    var active_count = Int(counters[unsafe_offset=WAVE_COUNTER.ACTIVE])
+    var idx = global_idx.x
+    if idx >= active_count:
+        return
+    var capacity = Int(queues.capacity)
+    var path = make_gpu_rt_primary_path(
+        camera_params,
+        queues.sample_base,
+        idx,
+        width_i32,
+        height_i32,
+        samples_per_pixel_i32,
+        rng_seed,
+    )
+    clear_gpu_rt_sample(
+        queues.sample_radiance.unsafe_origin_cast[MutAnyOrigin](),
+        capacity,
+        idx,
+    )
+    comptime if store_source_path:
+        store_gpu_rt_path[integrator](
+            path,
+            source_path_ids,
+            source_path_fields,
+            capacity,
+            idx,
+        )
+    _gpu_rt_scene_trace_path[
+        integrator,
+        scene_kind,
+        sphere_format,
+        triangle_format,
+        tlas_format,
+        blas_format,
+        light_kind,
+    ](idx, path, scene, queues, rng_seed, UInt32(0))
+
+
 def gpu_rt_scene_trace_kernel[
     integrator: Integrator,
     scene_kind: GpuRtSceneKind,
@@ -356,6 +459,7 @@ def gpu_rt_scene_trace_kernel[
     triangle_format: GpuRtBvhFormat,
     tlas_format: GpuRtBvhFormat,
     blas_format: GpuRtBvhFormat,
+    light_kind: PrimitiveKind = .UNKNOWN,
 ](
     scene: GpuRtSceneView,
     queues: GpuRtTraceQueueView,
@@ -374,6 +478,7 @@ def gpu_rt_scene_trace_kernel[
             triangle_format,
             tlas_format,
             blas_format,
+            light_kind,
         ](idx, scene, queues, rng_seed, bounce)
         idx += stride
 
@@ -393,9 +498,7 @@ def _trace_scene_any[
             .WORLD,
             sphere_format.node_width,
             .ANY_HIT,
-            _intersect_sphere_leaf[
-                .WORLD, sphere_format.leaf_width, .ANY_HIT
-            ],
+            _intersect_sphere_leaf[.WORLD, sphere_format.leaf_width, .ANY_HIT],
             sphere_format.node_width == 2,
         ](
             spheres.nodes.unsafe_origin_cast[ImmutAnyOrigin](),
@@ -473,7 +576,11 @@ def _gpu_rt_shadow_one[
     tlas_format: GpuRtBvhFormat,
     blas_format: GpuRtBvhFormat,
 ](idx: Int, scene: GpuRtSceneView, queues: GpuRtTraceQueueView):
-    comptime assert integrator in (Integrator.AO, Integrator.NEE, Integrator.MIS)
+    comptime assert integrator in (
+        Integrator.AO,
+        Integrator.NEE,
+        Integrator.MIS,
+    )
     var counters = queues.counters.unsafe_origin_cast[MutAnyOrigin]()
     var capacity = Int(queues.capacity)
     var path_ids = queues.shadow_path_ids.unsafe_mut_cast[
@@ -570,6 +677,8 @@ def enqueue_gpu_shadows[
         ](
             scene,
             queues,
-            grid_dim=min(ceildiv(capacity, GPU_RT_BLOCK_SIZE), MAX_BLOCKS),
-            block_dim=GPU_RT_BLOCK_SIZE,
+            grid_dim=min(
+                ceildiv(capacity, GPU_RT_SHADOW_BLOCK_SIZE), MAX_BLOCKS
+            ),
+            block_dim=GPU_RT_SHADOW_BLOCK_SIZE,
         )

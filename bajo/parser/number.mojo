@@ -84,8 +84,7 @@ def parse_f32_at(bytes: ImmSpan[UInt8, _], pos: Int) raises -> F32ParseResult:
                     var digit = Int(exponent_byte - _ZERO)
                     if exponent > (_MAX_DECIMAL_EXPONENT - digit) // 10:
                         raise String(
-                            t"decimal exponent exceeds "
-                            t"{_MAX_DECIMAL_EXPONENT}"
+                            t"decimal exponent exceeds {_MAX_DECIMAL_EXPONENT}"
                         )
 
                     exponent = exponent * 10 + digit

@@ -178,9 +178,7 @@ struct Camera(TrivialRegisterPassable, Writable):
         var right = Vec3[.float32, .WORLD, length](
             self.right.x, self.right.y, self.right.z
         )
-        var up = Vec3[.float32, .WORLD, length](
-            self.up.x, self.up.y, self.up.z
-        )
+        var up = Vec3[.float32, .WORLD, length](self.up.x, self.up.y, self.up.z)
         var disk_u = Vec3[.float32, .WORLD, length](
             self.defocus_disk_u.x,
             self.defocus_disk_u.y,

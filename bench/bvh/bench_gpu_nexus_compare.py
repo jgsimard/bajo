@@ -330,13 +330,17 @@ def write_report(
             "",
             "## Methodology",
             "",
-            "Bajo covers LBVH and H-PLOC ordinary-wide combinations, an "
-            "H-PLOC 8/1/1 row matching NexusBVH's one-triangle leaves, and "
-            "LBVH/H-PLOC CWBVH8. Bajo CWBVH8 uses storage leaf width 4 and is "
-            "measured with maximum encoded leaf sizes 3 and 1. NexusBVH uses "
-            "its H-PLOC CWBVH8 builder and currently stores exactly one "
-            "triangle per leaf. Both implementations trace the same generated "
-            "camera rays with native packed CWBVH8 or ordinary-wide traversal.",
+            "Bajo's LBVH is Apetrei's 2014 agglomerative algorithm, which "
+            "fuses binary topology construction and bounds propagation in one "
+            "leaf-driven kernel. Bajo compares it with H-PLOC across "
+            "ordinary-wide combinations; both builders then use Bajo's "
+            "existing H-PLOC-derived wide collapse. H-PLOC includes an 8/1/1 "
+            "row matching NexusBVH's one-triangle leaves. Bajo also measures "
+            "LBVH and H-PLOC with CWBVH8; storage leaf width is 4 and maximum "
+            "encoded leaf sizes are 3 and 1 where listed. NexusBVH uses its "
+            "H-PLOC CWBVH8 builder and currently stores exactly one triangle "
+            "per leaf. Both implementations trace the same generated camera "
+            "rays with native packed CWBVH8 or ordinary-wide traversal.",
             "",
             "OBJ parsing, camera setup, and initial host-to-device upload are "
             "outside the timed regions. H-PLOC CWBVH8 timings are warm rebuilds "
@@ -386,7 +390,7 @@ def main() -> None:
 
     print("\n=== Bajo parameter sweep ===")
     bajo_output = run(
-        ["mojo", "-I", ".", "bench/bvh/bench_gpu_nexus_bajo.mojo"],
+        ["mojo", "run", "-I", ".", "bench/bvh/bench_gpu_nexus_bajo.mojo"],
         capture=True,
     )
     print("\n=== NexusBVH ===")

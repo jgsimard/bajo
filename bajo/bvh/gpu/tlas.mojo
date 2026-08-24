@@ -24,6 +24,7 @@ from bajo.bvh.gpu.builder.segmented_build import (
 from bajo.bvh.gpu.camera_launch import (
     validate_camera_launch,
     _camera_ray,
+    _camera_ray_single_view,
     _store_camera_hit,
 )
 from bajo.bvh.gpu.sphere_bvh import _intersect_sphere_leaf
@@ -244,6 +245,7 @@ def _trace_tlas_camera_kernel[
     blas_node_width: SIMDLength,
     blas_leaf_width: SIMDLength,
     blas_layout: GpuBvhLayout = .WIDE,
+    single_view: Bool = False,
 ](
     tlas_wide_nodes: Pointer[Float32, ImmutAnyOrigin],
     tlas_leaf_instances: Pointer[UInt32, ImmutAnyOrigin],
@@ -263,20 +265,27 @@ def _trace_tlas_camera_kernel[
     inv_height: Float32,
 ):
     var ray_count_int = Int(ray_count)
-    var width_int = Int(width)
-    var height_int = Int(height)
     var ray_idx = global_idx.x
     if ray_idx >= ray_count_int:
         return
 
-    var ray = _camera_ray(
-        camera_params,
-        ray_count_int,
-        ray_idx,
-        width_int,
-        height_int,
-        inv_height,
-    )
+    var ray: Rayf32[.WORLD]
+    comptime if single_view:
+        ray = _camera_ray_single_view(
+            camera_params,
+            Int32(ray_idx),
+            width,
+            inv_height,
+        )
+    else:
+        ray = _camera_ray(
+            camera_params,
+            ray_count_int,
+            ray_idx,
+            Int(width),
+            Int(height),
+            inv_height,
+        )
 
     comptime assert kind == .TRIANGLE or kind == .SPHERE
     comptime if kind == .SPHERE:
@@ -293,9 +302,8 @@ def _trace_tlas_camera_kernel[
                 blas_leaf_width,
                 .CLOSEST_HIT,
             ],
-        ]
-        if kind == .SPHERE
-        else _trace_tlas_ray[
+        ] if kind
+        == .SPHERE else _trace_tlas_ray[
             tlas_node_width,
             tlas_leaf_width,
             blas_node_width,
@@ -369,6 +377,38 @@ struct GpuTlas[
             blases.blas_count > 0,
             "GPU TLAS requires at least one BLAS descriptor",
         )
+        if ray_count == cwidth * cheight:
+            comptime single_view_kernel = _trace_tlas_camera_kernel[
+                Self.kind,
+                Self.tlas_node_width,
+                Self.tlas_leaf_width,
+                Self.blas_node_width,
+                Self.blas_leaf_width,
+                Self.blas_layout,
+                True,
+            ]
+            ctx.enqueue_function[single_view_kernel](
+                self._tree.wide_nodes,
+                self._tree.leaf_block_indices,
+                self._inst_inv_transform,
+                self._inst_blas_indices,
+                blases.descs,
+                blases.nodes,
+                blases.leaves,
+                self._tree.root_idx,
+                d_camera_params,
+                d_hits,
+                Int32(self._inst_count),
+                Int32(blases.blas_count),
+                Int32(ray_count),
+                Int32(cwidth),
+                Int32(cheight),
+                Float32(1.0) / Float32(cheight),
+                grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
+                block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+            )
+            return
+
         comptime kernel = _trace_tlas_camera_kernel[
             Self.kind,
             Self.tlas_node_width,
@@ -424,9 +464,7 @@ def _build_gpu_tlas[
     debug_assert["safe", _use_compiler_assume=True](
         inst_count > 0, "passed empty input."
     )
-    var leaf_bounds = List[Float32](
-        capacity=inst_count * AABB[.WORLD].STRIDE
-    )
+    var leaf_bounds = List[Float32](capacity=inst_count * AABB[.WORLD].STRIDE)
     var payloads = List[UInt32](capacity=inst_count)
     var inv_transforms = List[Float32](capacity=inst_count * Affine3f32.STRIDE)
     var blas_indices = List[UInt32](capacity=inst_count)

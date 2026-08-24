@@ -85,9 +85,7 @@ struct Ray[dtype: DType, frame: Frame, length: SIMDLength = 1](
 
     def reciprocal_direction[
         width: SIMDLength
-    ](
-        self, eps: Scalar[Self.dtype] = 1.0e-9
-    ) -> Vec3[
+    ](self, eps: Scalar[Self.dtype] = 1.0e-9) -> Vec3[
         Self.dtype, Self.frame, width
     ] where Self.dtype.is_floating_point():
         comptime assert Self.length == 1

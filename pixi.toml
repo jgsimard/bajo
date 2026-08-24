@@ -85,6 +85,8 @@ bench_rt_cpu_wavefront_parallel = "mojo -I . bench/diagnostic/rt/bench_cpu_wavef
 # ray tracing gpu
 bench_rt_gpu = "mojo -I . bench/rt/bench_gpu_rt.mojo"
 bench_rt_gpu_mixed = "mojo -I . bench/rt/bench_gpu_rt_mixed.mojo"
+bench_rt_gpu_materials = "mojo -I . bench/diagnostic/rt/bench_gpu_rt_materials.mojo"
+bench_rt_gpu_sphere_lights = "mojo -I . bench/diagnostic/rt/bench_gpu_rt_sphere_lights.mojo"
 bench_rt_gpu_builders = "mojo -I . bench/diagnostic/rt/bench_gpu_rt_builders.mojo"
 bench_rt_gpu_tlas = "mojo -I . bench/diagnostic/rt/bench_gpu_rt_tlas.mojo"
 bench_rt_gpu_tlas_lbvh = { cmd = "mojo -I . --target-accelerator sm_120 bench/diagnostic/rt/bench_gpu_rt_lbvh.mojo", depends-on = ["download_assets"] }
@@ -123,8 +125,8 @@ bench_bvh = { depends-on = [
 ] }
 
 [dependencies]
-mojo = ">=1.1.0.dev2026082305,<2"
-max = ">=26.6.0.dev2026082305,<27"
+mojo = ">=1.1.0.dev2026082405,<2"
+max = ">=26.6.0.dev2026082405,<27"
 python = ">=3.14.7,<3.15"
 polars = ">=1.43.2,<2"
 matplotlib = ">=3.11.1,<4"

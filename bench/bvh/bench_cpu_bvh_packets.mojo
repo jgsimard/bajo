@@ -221,21 +221,11 @@ def run_benchmark() raises:
     print("CPU shared-stack packet BVH benchmark")
     var grid_vertices = make_grid_triangles()
     var grid_rays = make_hit_and_miss_rays()
-    benchmark_scene[16, 16, .MEDIAN](
-        "Regular grid", grid_vertices, grid_rays
-    )
-    benchmark_scene[8, 8, .MEDIAN](
-        "Regular grid", grid_vertices, grid_rays
-    )
-    benchmark_scene[16, 16, .LBVH](
-        "Regular grid", grid_vertices, grid_rays
-    )
-    benchmark_scene[8, 8, .LBVH](
-        "Regular grid", grid_vertices, grid_rays
-    )
-    benchmark_scene[16, 16, .HPLOC](
-        "Regular grid", grid_vertices, grid_rays
-    )
+    benchmark_scene[16, 16, .MEDIAN]("Regular grid", grid_vertices, grid_rays)
+    benchmark_scene[8, 8, .MEDIAN]("Regular grid", grid_vertices, grid_rays)
+    benchmark_scene[16, 16, .LBVH]("Regular grid", grid_vertices, grid_rays)
+    benchmark_scene[8, 8, .LBVH]("Regular grid", grid_vertices, grid_rays)
+    benchmark_scene[16, 16, .HPLOC]("Regular grid", grid_vertices, grid_rays)
 
     var dragon_vertices = pack_obj_triangles[.WORLD](OBJ_PATH)
     var bounds = compute_bounds(dragon_vertices)

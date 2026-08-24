@@ -2,7 +2,10 @@ from std.testing import TestSuite, assert_true, assert_almost_equal
 
 from bajo.bvh.constants import PrimitiveKind
 from bajo.bvh.types import Instance, Sphere, Hit
-from bajo.bvh.cpu.blas_set import build_cpu_sphere_blas_set, build_cpu_triangle_blas_set
+from bajo.bvh.cpu.blas_set import (
+    build_cpu_sphere_blas_set,
+    build_cpu_triangle_blas_set,
+)
 from bajo.bvh.cpu.tlas import CpuTlas
 from bajo.core import (
     AABB,
@@ -19,9 +22,7 @@ def test_instance_derives_inverse_from_transform() raises:
     var transform = Affine3f32[.LOCAL, .WORLD].from_scale(
         Vec3f32[.LOCAL](2.0, 4.0, 5.0)
     )
-    var bounds = AABB[.LOCAL](
-        Point3f32[.LOCAL](-1.0), Point3f32[.LOCAL](1.0)
-    )
+    var bounds = AABB[.LOCAL](Point3f32[.LOCAL](-1.0), Point3f32[.LOCAL](1.0))
     var instance = Instance(transform, UInt32(0), bounds, .SPHERE)
     var local_point = Point3f32[.LOCAL](1.5, -2.0, 3.0)
     var round_trip = instance.inv_transform.point(
@@ -94,9 +95,7 @@ def test_tlas_triangle_single_instance_cases() raises:
         2.0,
     )
     assert_true(
-        not translated.trace_blases[4, 4, .CLOSEST_HIT](
-            _ray(), blases
-        ).is_hit()
+        not translated.trace_blases[4, 4, .CLOSEST_HIT](_ray(), blases).is_hit()
     )
 
 
@@ -200,9 +199,7 @@ def test_tlas_sphere_single_instance_cases() raises:
         1.0,
     )
     assert_true(
-        not translated.trace_blases[4, 4, .CLOSEST_HIT](
-            _ray(), blases
-        ).is_hit()
+        not translated.trace_blases[4, 4, .CLOSEST_HIT](_ray(), blases).is_hit()
     )
 
 
@@ -241,9 +238,7 @@ def test_tlas_sphere_nonuniform_scale_normal() raises:
     var transform = Affine3f32[.LOCAL, .WORLD].from_scale(
         Vec3f32[.LOCAL](2.0, 1.0, 1.0)
     )
-    var tlas = CpuTlas[4](
-        [Instance(transform, UInt32(0), bounds, .SPHERE)]
-    )
+    var tlas = CpuTlas[4]([Instance(transform, UInt32(0), bounds, .SPHERE)])
     var hit = tlas.trace_blases[4, 4, .CLOSEST_HIT](_ray(1.0), blases)
     _assert_hit(hit, 0, 1.1339746)
     assert_almost_equal(hit.normal.x, 0.2773501, atol=1.0e-5)

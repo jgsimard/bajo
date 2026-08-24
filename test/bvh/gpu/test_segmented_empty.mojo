@@ -163,8 +163,8 @@ def test_triangle_hploc_cwbvh8_empty_segments_trace() raises:
             _instance(0, bounds, .TRIANGLE),
             _instance(1, bounds, .TRIANGLE),
         ]
-        var tlas = build_gpu_tlas[.TRIANGLE,
-            2, 8, 2, 4, .LBVH, GpuBvhLayout.CWBVH8
+        var tlas = build_gpu_tlas[
+            .TRIANGLE, 2, 8, 2, 4, .LBVH, GpuBvhLayout.CWBVH8
         ](ctx, instances)
         var hits = ctx.enqueue_create_buffer[.float32](Hit.STRIDE)
         tlas.launch_camera(
@@ -178,9 +178,7 @@ def test_triangle_hploc_cwbvh8_empty_segments_trace() raises:
 
 def test_sphere_hploc_empty_segments_trace() raises:
     var empty = List[Sphere[.LOCAL]]()
-    var spheres: List = [
-        Sphere[.LOCAL](Point3f32[.LOCAL](0.0, 0.0, 6.0), 1.0)
-    ]
+    var spheres: List = [Sphere[.LOCAL](Point3f32[.LOCAL](0.0, 0.0, 6.0), 1.0)]
     var bounds = sphere_bounds(spheres)
     with DeviceContext() as ctx:
         var blases = build_gpu_sphere_blas_set[4, 4, .HPLOC](

@@ -51,9 +51,7 @@ def _make_spheres(sphere_count: Int, seed: Int) -> List[Sphere[.LOCAL]]:
         var x = Float32((i * 17 + seed * 13) % 257) * 0.25
         var y = Float32((i * 29 + seed * 7) % 251) * 0.25
         var z = Float32((i * 11 + seed * 19) % 127) * 0.125
-        spheres.append(
-            Sphere[.LOCAL](Point3f32[.LOCAL](x, y, z), 0.2)
-        )
+        spheres.append(Sphere[.LOCAL](Point3f32[.LOCAL](x, y, z), 0.2))
     return spheres^
 
 

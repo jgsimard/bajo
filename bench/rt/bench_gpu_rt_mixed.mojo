@@ -52,18 +52,14 @@ def _bench_integrator[
     ],
     settings: RenderSettings,
 ) raises -> GpuRtBenchResult:
-    enqueue_render_gpu[integrator](
-        ctx, target, world, settings
-    )
+    enqueue_render_gpu[integrator](ctx, target, world, settings)
     ctx.synchronize()
 
     var submit_times = List[Int](capacity=BENCH_REPEATS)
     var render_times = List[Int](capacity=BENCH_REPEATS)
     for _ in range(BENCH_REPEATS):
         var render_t0 = perf_counter_ns()
-        enqueue_render_gpu[integrator](
-            ctx, target, world, settings
-        )
+        enqueue_render_gpu[integrator](ctx, target, world, settings)
         var submit_t1 = perf_counter_ns()
         ctx.synchronize()
         var render_t1 = perf_counter_ns()

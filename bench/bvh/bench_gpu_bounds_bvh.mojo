@@ -119,9 +119,7 @@ def _build_cwbvh8_measured(
     ctx.synchronize()
     var bounds_ns = Int(perf_counter_ns() - bounds_start)
 
-    var build = enqueue_segmented_wide_build[
-        8, 4, 3, .HPLOC, True, True
-    ](
+    var build = enqueue_segmented_wide_build[8, 4, 3, .HPLOC, True, True](
         ctx,
         SegmentOffsets.single(tri_count),
         leaf_bounds^,
@@ -254,7 +252,9 @@ def _trace_cpu_triangle_bvh[
 ](
     bvh: CpuBlasSet[.TRIANGLE, width],
     rays: List[Rayf32[.WORLD]],
-) -> Tuple[Float64, UInt32]:
+) -> Tuple[
+    Float64, UInt32
+]:
     var checksum = Float64(0.0)
     var hit_count = UInt32(0)
 
@@ -274,7 +274,9 @@ def _trace_cpu_sphere_bvh[
 ](
     bvh: CpuBlasSet[.SPHERE, width],
     rays: List[Rayf32[.WORLD]],
-) -> Tuple[Float64, UInt32]:
+) -> Tuple[
+    Float64, UInt32
+]:
     var checksum = Float64(0.0)
     var hit_count = UInt32(0)
 
@@ -320,9 +322,9 @@ def _print_cpu_triangle_reference[
     vertices: List[Point3f32[.WORLD]],
     rays: List[Rayf32[.WORLD]],
 ) raises -> Tuple[Float64, UInt32]:
-    var bvh = build_cpu_triangle_blas_set[
-        width, width, .LBVH, .WORLD
-    ]([vertices.copy()])
+    var bvh = build_cpu_triangle_blas_set[width, width, .LBVH, .WORLD](
+        [vertices.copy()]
+    )
     var t0 = perf_counter_ns()
     var result = _trace_cpu_triangle_bvh[width](bvh, rays)
     var t1 = perf_counter_ns()
@@ -339,9 +341,7 @@ def _print_cpu_sphere_reference[
     spheres: List[Sphere[.WORLD]],
     rays: List[Rayf32[.WORLD]],
 ) raises -> Tuple[Float64, UInt32]:
-    var bvh = build_cpu_sphere_blas_set[width, .LBVH, .WORLD](
-        [spheres.copy()]
-    )
+    var bvh = build_cpu_sphere_blas_set[width, .LBVH, .WORLD]([spheres.copy()])
     var t0 = perf_counter_ns()
     var result = _trace_cpu_sphere_bvh[width](bvh, rays)
     var t1 = perf_counter_ns()
@@ -414,9 +414,7 @@ def _print_any_hit_result(
         config=config,
         build_alg=build_alg,
         best_ms=_gpu_ms(result[0]),
-        MRay_s=String(
-            t"{round(ns_to_mrays_per_s(result[0], ray_count), 1)}"
-        ),
+        MRay_s=String(t"{round(ns_to_mrays_per_s(result[0], ray_count), 1)}"),
         hits=String(t"{result[1]}"),
     )
 
@@ -546,7 +544,7 @@ def _bench_camera_primary_cwbvh8(
     var hit_count = UInt32(0)
     for iteration in range(repeats + 1):
         var t0 = perf_counter_ns()
-        ctx.enqueue_function[trace_cwbvh8_camera_kernel](
+        ctx.enqueue_function[trace_cwbvh8_camera_kernel[3]](
             bvh.nodes,
             bvh.triangles,
             bvh.root_idx,
@@ -682,9 +680,9 @@ def _run_width[
     reference_hit_count: UInt32,
     repeats: Int,
 ) raises -> GpuBenchResult:
-    _ = build_gpu_triangle_bvh[
-        .WORLD, node_width, leaf_width, build_method
-    ](ctx, d_vertices)
+    _ = build_gpu_triangle_bvh[.WORLD, node_width, leaf_width, build_method](
+        ctx, d_vertices
+    )
     ctx.synchronize()
 
     var build0 = perf_counter_ns()
@@ -726,9 +724,7 @@ def _run_width[
     )
 
 
-def _make_sphere_grid_sized(
-    grid_x: Int, grid_y: Int
-) -> List[Sphere[.WORLD]]:
+def _make_sphere_grid_sized(grid_x: Int, grid_y: Int) -> List[Sphere[.WORLD]]:
     var spheres = List[Sphere[.WORLD]](capacity=grid_x * grid_y)
 
     for y in range(grid_y):
@@ -737,9 +733,7 @@ def _make_sphere_grid_sized(
             var fy = Float32(y) - Float32(grid_y) * 0.5
             var z = Float32(4 + ((x + y) % 8))
             spheres.append(
-                Sphere[.WORLD](
-                    Point3f32[.WORLD](fx * 2.5, fy * 2.5, z), 0.75
-                )
+                Sphere[.WORLD](Point3f32[.WORLD](fx * 2.5, fy * 2.5, z), 0.75)
             )
 
     return spheres^
@@ -1070,9 +1064,7 @@ def run_benchmark() raises:
         _print_gpu_result_row(triangle_table, tri8, "LBVH")
         _print_gpu_result_row(triangle_table, tri8_hploc, "H-PLOC")
         _print_gpu_result_row(triangle_table, lbvh_cwbvh8_row, "LBVH")
-        _print_gpu_result_row(
-            triangle_table, hploc_cwbvh8_row, "H-PLOC"
-        )
+        _print_gpu_result_row(triangle_table, hploc_cwbvh8_row, "H-PLOC")
 
         print("\nGPU any-hit traversal (packed rays)")
         print("---------------------------------")

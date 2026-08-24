@@ -34,9 +34,12 @@ streams, or output order.
 
 ## Stage sequence
 
-1. Primary generation writes the active path queue and clears per-sample
-   radiance.
-2. One compile-time-specialized scene-trace kernel reads active paths. Geometry
+1. PATH primary generation writes the active path queue with a lean standalone
+   kernel. NORMALS, AO, NEE, and MIS fuse primary generation into bounce-zero
+   scene tracing, avoiding one launch and the initial path-queue round trip.
+   The fused specialization stores source paths only when deferred metal or
+   dielectric shading requires them. Both paths clear per-sample radiance.
+2. Compile-time-specialized scene tracing processes active paths. Geometry
    absent from `GpuRtSceneKind` is erased at compile time. Hits
    fuse Lambertian BSDF sampling into hit routing, append non-Lambertian tagged
    material records, and compact AO/direct-light visibility work.
@@ -50,10 +53,18 @@ streams, or output order.
 6. A final kernel reduces one complete-pixel chunk into its disjoint range of
    device-resident pixels before the next chunk reuses the arena.
 
-Trace, shade, and shadow use grid-stride launches with 64-thread blocks. The
-grid cap remains a compile-time benchmark override, while the production
-default exposes enough blocks to cover the working set. Direct-light selection
-uses a Walker-Vose alias table built once with the scene and sampled in O(1).
+Trace uses grid-stride launches with 64-thread blocks; the independently tuned
+shade and shadow stages use 128-thread blocks. The grid cap remains a
+compile-time benchmark override, while the production default exposes enough
+blocks to cover the working set. Direct-light selection uses a Walker-Vose
+alias table built once with the scene and sampled in O(1).
+Prepared scenes also classify their lights by surface-sampling primitive. NEE
+and MIS select a host-side compile-time kernel specialization for homogeneous
+sphere or triangle-based lights, erasing the per-hit primitive branch and its
+kind-table read; mixed light sets retain generic device dispatch.
+Alias probabilities occupy a dense prefix in the existing light-field buffer,
+so random alias-column reads are contiguous while selected-light geometry and
+emission remain in the existing array-of-structures records.
 
 Queue ordering is intentionally unspecified. Every path retains its global
 path ID. BSDF sampling uses the existing `bounce + 1` stage, while Russian
@@ -136,3 +147,11 @@ of PATH, AO, NEE, MIS, and the 64-light NEE guard. It reports CPU render and
 host-output total time, GPU device-resident time, GPU time including host pixel
 download, throughput, speedup, and cross-backend checksum deltas. Results are
 recorded in `bench/results/rt_cpu_gpu/comparison.md`.
+
+Run `pixi run bench_rt_gpu_materials` for shade-heavy metal and dielectric
+sphere guardrails under PATH, NEE, and MIS. The scenes include an emissive
+sphere so the benchmark also covers direct-light sampling.
+
+Run `pixi run bench_rt_gpu_sphere_lights` for the 64-emissive-sphere NEE/MIS
+scalability guard. It uses 64 spp so small light-record and selection changes
+are measured over a longer, less noisy workload.

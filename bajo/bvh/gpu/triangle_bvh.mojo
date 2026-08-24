@@ -1,4 +1,5 @@
 from std.math import ceildiv, max
+from std.memory import bitcast
 from std.bit import count_leading_zeros, pop_count
 from std.time import perf_counter_ns
 from std.gpu import global_idx
@@ -355,9 +356,9 @@ def _build_segmented_triangle_blas_set[
     """Build ordinary wide BLASes as one segmented GPU workload."""
     var inputs = _flatten_triangle_sets(vertex_sets)
     if inputs.segments.item_count() == 0:
-        return GpuBlasSet[
-            .TRIANGLE, layout, node_width, leaf_width
-        ].empty(ctx, len(vertex_sets))
+        return GpuBlasSet[.TRIANGLE, layout, node_width, leaf_width].empty(
+            ctx, len(vertex_sets)
+        )
     var source_vertices = upload_list(ctx, inputs.packed_vertices)
     var adapter = _enqueue_segmented_triangle_wide[
         frame, node_width, leaf_width, build_method
@@ -380,9 +381,9 @@ def _build_segmented_compressed_triangle_blas_set[
 
     var inputs = _flatten_triangle_sets(vertex_sets)
     if inputs.segments.item_count() == 0:
-        return GpuBlasSet[
-            .TRIANGLE, layout, node_width, leaf_width
-        ].empty(ctx, len(vertex_sets))
+        return GpuBlasSet[.TRIANGLE, layout, node_width, leaf_width].empty(
+            ctx, len(vertex_sets)
+        )
     ref segments = inputs.segments
     var source_vertices = upload_list(ctx, inputs.packed_vertices)
     var triangle_count = segments.item_count()
@@ -522,10 +523,30 @@ struct GpuTriangleBvh[
             d_camera_params, d_hits, ray_count, cwidth, cheight
         )
 
-        comptime kernel = trace_bvh_camera_kernel[
-            _trace_triangle_bvh_camera_ray[
-                Self.node_width, Self.leaf_width
+        if ray_count == cwidth * cheight:
+            comptime single_view_kernel = trace_bvh_camera_kernel[
+                _trace_triangle_bvh_camera_ray[
+                    Self.node_width, Self.leaf_width
+                ],
+                True,
             ]
+            ctx.enqueue_function[single_view_kernel](
+                self.tree.wide_nodes,
+                self.leaf_vertices,
+                self.tree.root_idx,
+                d_camera_params,
+                d_hits,
+                Int32(ray_count),
+                Int32(cwidth),
+                Int32(cheight),
+                Float32(1.0) / Float32(cheight),
+                grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
+                block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+            )
+            return
+
+        comptime kernel = trace_bvh_camera_kernel[
+            _trace_triangle_bvh_camera_ray[Self.node_width, Self.leaf_width]
         ]
         ctx.enqueue_function[kernel](
             self.tree.wide_nodes,
@@ -619,9 +640,9 @@ def build_gpu_triangle_bvh[
 ) raises -> GpuTriangleBvh[frame, node_width, leaf_width]:
     """Build one triangle segment through the unified segmented driver."""
     var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
-    return _build_gpu_triangle_bvh[
-        frame, node_width, leaf_width, build_method
-    ](ctx, vertices, timings, False)
+    return _build_gpu_triangle_bvh[frame, node_width, leaf_width, build_method](
+        ctx, vertices, timings, False
+    )
 
 
 def build_gpu_triangle_bvh_measured[
@@ -635,9 +656,9 @@ def build_gpu_triangle_bvh_measured[
     mut timings: GpuBuildTimings,
 ) raises -> GpuTriangleBvh[frame, node_width, leaf_width]:
     """Build a ready triangle BVH and populate per-stage timings."""
-    return _build_gpu_triangle_bvh[
-        frame, node_width, leaf_width, build_method
-    ](ctx, vertices, timings, True)
+    return _build_gpu_triangle_bvh[frame, node_width, leaf_width, build_method](
+        ctx, vertices, timings, True
+    )
 
 
 def _build_gpu_triangle_bvh[
@@ -745,6 +766,7 @@ def _trace_triangle_bvh_camera_ray[
         ],
         node_width == 4,
         node_width == 2 and leaf_width == 2,
+        node_width == 4 and leaf_width == 2,
     ](wide_nodes, leaf_vertices, root_idx, ray)
 
 
@@ -779,6 +801,7 @@ def trace_triangle_bvh_rays_kernel[
         ],
         node_width == 4,
         mode == .CLOSEST_HIT and node_width == 2 and leaf_width == 2,
+        mode == .CLOSEST_HIT and node_width == 4 and leaf_width == 2,
     ](wide_nodes, leaf_vertices, root_idx, ray)
     _store_packed_hit[frame](hit, hits, ray_count_int, ray_idx)
 
@@ -943,20 +966,23 @@ def _intersect_cwbvh_triangle[
 ) -> Bool:
     """Intersect one aligned e1/e2/v0 CWBVH triangle record."""
     var base = Int(triangle_idx) * CWBVH_TRIANGLE_WORDS
+    var e1_record = triangles.unsafe_load[width=4, alignment=16](base)
+    var e2_record = triangles.unsafe_load[width=4, alignment=16](base + 4)
+    var v0_record = triangles.unsafe_load[width=4, alignment=16](base + 8)
     var e1 = Vec3f32[frame](
-        triangles[unsafe_offset=base + 0],
-        triangles[unsafe_offset=base + 1],
-        triangles[unsafe_offset=base + 2],
+        e1_record[0],
+        e1_record[1],
+        e1_record[2],
     )
     var e2 = Vec3f32[frame](
-        triangles[unsafe_offset=base + 4],
-        triangles[unsafe_offset=base + 5],
-        triangles[unsafe_offset=base + 6],
+        e2_record[0],
+        e2_record[1],
+        e2_record[2],
     )
     var v0 = Point3f32[frame](
-        triangles[unsafe_offset=base + 8],
-        triangles[unsafe_offset=base + 9],
-        triangles[unsafe_offset=base + 10],
+        v0_record[0],
+        v0_record[1],
+        v0_record[2],
     )
     var scaled_hit = intersect_ray_tri_edges_scaled(
         ray.o, ray.d, v0, e1, e2, hit.t, ray.t_min
@@ -966,7 +992,7 @@ def _intersect_cwbvh_triangle[
     comptime if mode == .ANY_HIT:
         return True
     else:
-        var prim = triangles.unsafe_bitcast[UInt32]()[unsafe_offset=base + 11]
+        var prim = bitcast[DType.uint32](v0_record)[3]
         var inv_det = 1.0 / scaled_hit.abs_det
         hit.t = scaled_hit.t_scaled * inv_det
         hit.u = scaled_hit.u_scaled * inv_det
@@ -980,20 +1006,75 @@ def _intersect_cwbvh_triangle[
 
 
 @always_inline
-def trace_cwbvh8_triangles[
+def _intersect_cwbvh_indexed_triangle[
+    frame: Frame,
+    mode: TraceMode,
+](
+    primitive_ids: ImmPointer[UInt32, _],
+    vertices: ImmPointer[Float32, _],
+    triangle_idx: UInt32,
+    ray: Rayf32[frame],
+    mut hit: Hit[frame],
+) -> Bool:
+    var prim = primitive_ids[unsafe_offset=Int(triangle_idx)]
+    var base = Int(prim) * TRI_LEAF_VERTEX_STRIDE
+    var v0 = Point3f32[frame](
+        vertices[unsafe_offset=base + 0],
+        vertices[unsafe_offset=base + 1],
+        vertices[unsafe_offset=base + 2],
+    )
+    var e1 = Vec3f32[frame](
+        vertices[unsafe_offset=base + 3] - v0.x,
+        vertices[unsafe_offset=base + 4] - v0.y,
+        vertices[unsafe_offset=base + 5] - v0.z,
+    )
+    var e2 = Vec3f32[frame](
+        vertices[unsafe_offset=base + 6] - v0.x,
+        vertices[unsafe_offset=base + 7] - v0.y,
+        vertices[unsafe_offset=base + 8] - v0.z,
+    )
+    var scaled_hit = intersect_ray_tri_edges_scaled(
+        ray.o, ray.d, v0, e1, e2, hit.t, ray.t_min
+    )
+    if not scaled_hit.mask:
+        return False
+    comptime if mode == .ANY_HIT:
+        return True
+    else:
+        var inv_det = 1.0 / scaled_hit.abs_det
+        hit.t = scaled_hit.t_scaled * inv_det
+        hit.u = scaled_hit.u_scaled * inv_det
+        hit.v = scaled_hit.v_scaled * inv_det
+        hit.prim = prim
+        hit.inst = EMPTY_LANE
+        hit.normal = normalize(cross(e1, e2)).unsafe_convert[
+            new_kind=GeoKind.NORMAL
+        ]()
+        return True
+
+
+@always_inline
+def _trace_cwbvh8_triangles_impl[
     frame: Frame,
     mode: TraceMode,
     packed_decode: Bool = True,
+    max_leaf_size: Int = 3,
+    stack_capacity: Int = GPU_STACK_SIZE,
+    indexed_triangles: Bool = False,
 ](
     nodes: ImmPointer[Float32, _],
     triangles: ImmPointer[Float32, _],
+    primitive_ids: ImmPointer[UInt32, _],
+    vertices: ImmPointer[Float32, _],
     root_idx: UInt32,
     ray: Rayf32[frame],
 ) -> Hit[frame]:
     """Traverse CWBVH8 with compressed node/triangle task masks."""
     var hit = Hit[frame].miss(ray.t_max)
-    var stack_base = Array[UInt32, GPU_STACK_SIZE](uninitialized=True)
-    var stack_mask = Array[UInt32, GPU_STACK_SIZE](uninitialized=True)
+    # One packed task encourages a single 64-bit local-memory transaction for
+    # each deferred node group instead of separate base and mask accesses.
+    comptime assert stack_capacity > 0 and stack_capacity <= GPU_STACK_SIZE
+    var stack = Array[UInt64, stack_capacity](uninitialized=True)
     var stack_ptr = 0
 
     var sign_code = UInt32(0)
@@ -1020,11 +1101,12 @@ def trace_cwbvh8_triangles[
             node_group_mask &= ~(UInt32(1) << UInt32(child_bit))
             if node_group_mask > UInt32(0x00FFFFFF):
                 debug_assert["safe", _use_compiler_assume=True](
-                    stack_ptr < GPU_STACK_SIZE,
+                    stack_ptr < stack_capacity,
                     "GPU CWBVH8 traversal stack overflow",
                 )
-                stack_base[stack_ptr] = node_group_base
-                stack_mask[stack_ptr] = node_group_mask
+                stack[stack_ptr] = UInt64(node_group_base) | (
+                    UInt64(node_group_mask) << UInt64(32)
+                )
                 stack_ptr += 1
 
             var slot = UInt32(child_bit - 24) ^ octant_inverse
@@ -1036,7 +1118,7 @@ def trace_cwbvh8_triangles[
                 node_t_max = ray.t_max
             var tasks: Cwbvh8NodeTasks
             comptime if packed_decode:
-                tasks = _intersect_cwbvh8_node_tasks[frame](
+                tasks = _intersect_cwbvh8_node_tasks[frame, max_leaf_size](
                     nodes,
                     node_idx,
                     ray,
@@ -1071,12 +1153,22 @@ def trace_cwbvh8_triangles[
                 count_leading_zeros(triangle_group_mask)
             )
             triangle_group_mask &= ~(UInt32(1) << UInt32(triangle_bit))
-            var triangle_hit = _intersect_cwbvh_triangle[frame, mode](
-                triangles,
-                triangle_group_base + UInt32(triangle_bit),
-                ray,
-                hit,
-            )
+            var triangle_hit: Bool
+            comptime if indexed_triangles:
+                triangle_hit = _intersect_cwbvh_indexed_triangle[frame, mode](
+                    primitive_ids,
+                    vertices,
+                    triangle_group_base + UInt32(triangle_bit),
+                    ray,
+                    hit,
+                )
+            else:
+                triangle_hit = _intersect_cwbvh_triangle[frame, mode](
+                    triangles,
+                    triangle_group_base + UInt32(triangle_bit),
+                    ray,
+                    hit,
+                )
             comptime if mode == .ANY_HIT:
                 if triangle_hit:
                     return Hit[frame].shadow_hit()
@@ -1085,7 +1177,58 @@ def trace_cwbvh8_triangles[
             if stack_ptr == 0:
                 break
             stack_ptr -= 1
-            node_group_base = stack_base[stack_ptr]
-            node_group_mask = stack_mask[stack_ptr]
+            var task = stack[stack_ptr]
+            node_group_base = UInt32(task)
+            node_group_mask = UInt32(task >> UInt64(32))
 
     return hit
+
+
+@always_inline
+def trace_cwbvh8_triangles[
+    frame: Frame,
+    mode: TraceMode,
+    packed_decode: Bool = True,
+    max_leaf_size: Int = 3,
+    stack_capacity: Int = GPU_STACK_SIZE,
+](
+    nodes: ImmPointer[Float32, _],
+    triangles: ImmPointer[Float32, _],
+    root_idx: UInt32,
+    ray: Rayf32[frame],
+) -> Hit[frame]:
+    return _trace_cwbvh8_triangles_impl[
+        frame, mode, packed_decode, max_leaf_size, stack_capacity, False
+    ](
+        nodes,
+        triangles,
+        triangles.unsafe_bitcast[UInt32](),
+        triangles,
+        root_idx,
+        ray,
+    )
+
+
+@always_inline
+def trace_cwbvh8_indexed_triangles[
+    frame: Frame,
+    mode: TraceMode,
+    max_leaf_size: Int = 3,
+    stack_capacity: Int = GPU_STACK_SIZE,
+](
+    nodes: ImmPointer[Float32, _],
+    primitive_ids: ImmPointer[UInt32, _],
+    vertices: ImmPointer[Float32, _],
+    root_idx: UInt32,
+    ray: Rayf32[frame],
+) -> Hit[frame]:
+    return _trace_cwbvh8_triangles_impl[
+        frame, mode, True, max_leaf_size, stack_capacity, True
+    ](
+        nodes,
+        vertices,
+        primitive_ids,
+        vertices,
+        root_idx,
+        ray,
+    )

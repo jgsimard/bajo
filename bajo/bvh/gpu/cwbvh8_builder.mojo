@@ -10,7 +10,6 @@ from bajo.bvh.gpu.builder.binary_layout import (
 )
 from bajo.bvh.gpu.builder.hploc_layout import (
     HPLOC_MERGING_THRESHOLD,
-    HPLOC_SEARCH_RADIUS,
     HPLOC_STATUS_OK,
 )
 from bajo.bvh.gpu.builder.hploc_multi_wave import GpuHplocBuildState
@@ -19,6 +18,7 @@ from bajo.bvh.gpu.builder.lbvh import (
     enqueue_segmented_morton_sort,
 )
 from bajo.bvh.gpu.builder.wide_collapse import (
+    CWBVH_COLLAPSE_BLOCK_SIZE,
     GpuWideCollapseState,
     GpuWideCollapseWorkspace,
     enqueue_collapse_binary_to_cwbvh8,
@@ -38,9 +38,16 @@ from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvhBatch
 from bajo.core import SegmentOffsets
 
 
+comptime CWBVH_HPLOC_SEARCH_RADIUS = 4
+
+
 struct GpuCwbvh8BuildArena[
     max_leaf_size: Int = 3,
     direct_conversion: Bool = True,
+    indexed_triangle_layout: Bool = False,
+    spatial_slots: Bool = True,
+    search_radius: Int = CWBVH_HPLOC_SEARCH_RADIUS,
+    merging_threshold: Int = HPLOC_MERGING_THRESHOLD,
 ]:
     """All persistent storage and cached offsets for one H-PLOC CWBVH8.
 
@@ -54,11 +61,15 @@ struct GpuCwbvh8BuildArena[
     var workspace: GpuBinaryBuildWorkspace
     var binary: GpuBinaryBoundsBvh
     var hploc: GpuHplocBuildState[
-        HPLOC_SEARCH_RADIUS,
-        HPLOC_MERGING_THRESHOLD,
+        Self.search_radius,
+        Self.merging_threshold,
         Self.direct_conversion,
+        True,
+        True,
     ]
-    var wide: GpuWideBoundsBvhBatch[8, CWBVH_LEAF_STORAGE_WIDTH, Self.max_leaf_size]
+    var wide: GpuWideBoundsBvhBatch[
+        8, CWBVH_LEAF_STORAGE_WIDTH, Self.max_leaf_size
+    ]
     var collapse_workspace: GpuWideCollapseWorkspace
     var collapse: GpuWideCollapseState
     var representation_workspace: GpuCwbvh8RepresentationWorkspace
@@ -85,9 +96,11 @@ struct GpuCwbvh8BuildArena[
         enqueue_segmented_morton_sort(ctx, binary, workspace)
         ref topology = workspace.topology.value()
         var hploc = GpuHplocBuildState[
-            HPLOC_SEARCH_RADIUS,
-            HPLOC_MERGING_THRESHOLD,
+            Self.search_radius,
+            Self.merging_threshold,
             Self.direct_conversion,
+            True,
+            True,
         ](
             ctx,
             binary.leaf_bounds.copy(),
@@ -109,7 +122,12 @@ struct GpuCwbvh8BuildArena[
             8, CWBVH_LEAF_STORAGE_WIDTH, Self.max_leaf_size
         ](ctx, segments)
         wide.bounds_device = binary.bounds_device.copy()
-        var collapse_workspace = GpuWideCollapseWorkspace(ctx, segments)
+        var collapse_block_size = GPU_BOUNDS_BVH_BLOCK_SIZE
+        comptime if Self.direct_conversion:
+            collapse_block_size = CWBVH_COLLAPSE_BLOCK_SIZE
+        var collapse_workspace = GpuWideCollapseWorkspace(
+            ctx, segments, collapse_block_size
+        )
         var nodes = ctx.enqueue_create_buffer[.float32](
             wide.node_segments.item_count() * CWBVH_NODE_WORDS
         )
@@ -123,7 +141,10 @@ struct GpuCwbvh8BuildArena[
         var encoded_counts: DeviceBuffer[.uint32]
         comptime if Self.direct_conversion:
             collapse = enqueue_collapse_binary_to_cwbvh8[
-                Self.max_leaf_size, True
+                Self.max_leaf_size,
+                True,
+                True,
+                Self.spatial_slots,
             ](
                 ctx,
                 binary,
@@ -140,17 +161,18 @@ struct GpuCwbvh8BuildArena[
                 hploc.scratch_bounds,
                 collapse_workspace,
             )
-            ctx.enqueue_function[pack_segmented_cwbvh_triangles_kernel](
-                vertices,
-                representation_workspace.compact_primitive_ids,
-                _device_span[mut=False](binary.segment_offsets),
-                triangles,
-                Int32(triangle_count),
-                grid_dim=ceildiv(
-                    triangle_count, GPU_BOUNDS_BVH_BLOCK_SIZE
-                ),
-                block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-            )
+            comptime if not Self.indexed_triangle_layout:
+                ctx.enqueue_function[
+                    pack_segmented_cwbvh_triangles_kernel[True]
+                ](
+                    vertices,
+                    representation_workspace.compact_primitive_ids,
+                    _device_span[mut=False](binary.segment_offsets),
+                    triangles,
+                    Int32(triangle_count),
+                    grid_dim=ceildiv(triangle_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
+                    block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+                )
             encoded_counts = representation_workspace.triangle_counters.copy()
         else:
             collapse = _enqueue_collapse_binary_to_packed[
@@ -173,20 +195,22 @@ struct GpuCwbvh8BuildArena[
                 wide.node_counts,
                 collapse_workspace,
             )
-            encoded_counts = enqueue_segmented_cwbvh8_representation_with_workspace[
-                CWBVH_LEAF_STORAGE_WIDTH
-            ](
-                ctx,
-                wide.wide_nodes,
-                wide.leaf_block_indices,
-                wide.node_segment_offsets,
-                wide.leaf_block_segment_offsets,
-                binary.segment_offsets,
-                wide.node_counts,
-                vertices,
-                nodes,
-                triangles,
-                representation_workspace,
+            encoded_counts = (
+                enqueue_segmented_cwbvh8_representation_with_workspace[
+                    CWBVH_LEAF_STORAGE_WIDTH
+                ](
+                    ctx,
+                    wide.wide_nodes,
+                    wide.leaf_block_indices,
+                    wide.node_segment_offsets,
+                    wide.leaf_block_segment_offsets,
+                    binary.segment_offsets,
+                    wide.node_counts,
+                    vertices,
+                    nodes,
+                    triangles,
+                    representation_workspace,
+                )
             )
         self.triangle_count = triangle_count
         self.workspace = workspace^
@@ -222,7 +246,10 @@ struct GpuCwbvh8BuildArena[
         )
         comptime if Self.direct_conversion:
             self.collapse = enqueue_collapse_binary_to_cwbvh8[
-                Self.max_leaf_size, True
+                Self.max_leaf_size,
+                True,
+                True,
+                Self.spatial_slots,
             ](
                 ctx,
                 self.binary,
@@ -239,17 +266,20 @@ struct GpuCwbvh8BuildArena[
                 self.hploc.scratch_bounds,
                 self.collapse_workspace,
             )
-            ctx.enqueue_function[pack_segmented_cwbvh_triangles_kernel](
-                vertices,
-                self.representation_workspace.compact_primitive_ids,
-                _device_span[mut=False](self.binary.segment_offsets),
-                self.triangles,
-                Int32(self.triangle_count),
-                grid_dim=ceildiv(
-                    self.triangle_count, GPU_BOUNDS_BVH_BLOCK_SIZE
-                ),
-                block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-            )
+            comptime if not Self.indexed_triangle_layout:
+                ctx.enqueue_function[
+                    pack_segmented_cwbvh_triangles_kernel[True]
+                ](
+                    vertices,
+                    self.representation_workspace.compact_primitive_ids,
+                    _device_span[mut=False](self.binary.segment_offsets),
+                    self.triangles,
+                    Int32(self.triangle_count),
+                    grid_dim=ceildiv(
+                        self.triangle_count, GPU_BOUNDS_BVH_BLOCK_SIZE
+                    ),
+                    block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+                )
             self.encoded_counts = (
                 self.representation_workspace.triangle_counters.copy()
             )
@@ -274,20 +304,22 @@ struct GpuCwbvh8BuildArena[
                 self.wide.node_counts,
                 self.collapse_workspace,
             )
-            self.encoded_counts = enqueue_segmented_cwbvh8_representation_with_workspace[
-                CWBVH_LEAF_STORAGE_WIDTH
-            ](
-                ctx,
-                self.wide.wide_nodes,
-                self.wide.leaf_block_indices,
-                self.wide.node_segment_offsets,
-                self.wide.leaf_block_segment_offsets,
-                self.binary.segment_offsets,
-                self.wide.node_counts,
-                vertices,
-                self.nodes,
-                self.triangles,
-                self.representation_workspace,
+            self.encoded_counts = (
+                enqueue_segmented_cwbvh8_representation_with_workspace[
+                    CWBVH_LEAF_STORAGE_WIDTH
+                ](
+                    ctx,
+                    self.wide.wide_nodes,
+                    self.wide.leaf_block_indices,
+                    self.wide.node_segment_offsets,
+                    self.wide.leaf_block_segment_offsets,
+                    self.binary.segment_offsets,
+                    self.wide.node_counts,
+                    vertices,
+                    self.nodes,
+                    self.triangles,
+                    self.representation_workspace,
+                )
             )
 
     def finish_synchronized(self) raises:

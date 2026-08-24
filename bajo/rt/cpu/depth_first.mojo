@@ -50,7 +50,11 @@ def _trace_path[
     mut rng: Rng,
     path_id: UInt32,
 ) -> Color:
-    comptime assert integrator in (Integrator.PATH, Integrator.NEE, Integrator.MIS)
+    comptime assert integrator in (
+        Integrator.PATH,
+        Integrator.NEE,
+        Integrator.MIS,
+    )
 
     var cur_ray = ray
     var throughput = Color(1.0)

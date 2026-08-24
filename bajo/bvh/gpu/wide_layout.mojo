@@ -418,27 +418,28 @@ def _intersect_wide_node_precomputed[
     """Intersect a wide node with reciprocal direction cached per query."""
     var block = AxisAlignedBoundingBox[DType.float32, frame, width].invalid()
     var base = _wide_node_base[width](node_idx)
-    block._min.x = wide_nodes.unsafe_load[width=width](
-        base + WideNode.MIN_X * width
-    )
-    block._min.y = wide_nodes.unsafe_load[width=width](
-        base + WideNode.MIN_Y * width
-    )
-    block._min.z = wide_nodes.unsafe_load[width=width](
-        base + WideNode.MIN_Z * width
-    )
-    block._max.x = wide_nodes.unsafe_load[width=width](
-        base + WideNode.MAX_X * width
-    )
-    block._max.y = wide_nodes.unsafe_load[width=width](
-        base + WideNode.MAX_Y * width
-    )
-    block._max.z = wide_nodes.unsafe_load[width=width](
-        base + WideNode.MAX_Z * width
-    )
-    var meta = wide_nodes.unsafe_bitcast[UInt32]().unsafe_load[width=width](
-        base + WideNode.META * width
-    )
+    comptime field_alignment = Int(width) * 4
+    block._min.x = wide_nodes.unsafe_load[
+        width=width, alignment=field_alignment
+    ](base + WideNode.MIN_X * width)
+    block._min.y = wide_nodes.unsafe_load[
+        width=width, alignment=field_alignment
+    ](base + WideNode.MIN_Y * width)
+    block._min.z = wide_nodes.unsafe_load[
+        width=width, alignment=field_alignment
+    ](base + WideNode.MIN_Z * width)
+    block._max.x = wide_nodes.unsafe_load[
+        width=width, alignment=field_alignment
+    ](base + WideNode.MAX_X * width)
+    block._max.y = wide_nodes.unsafe_load[
+        width=width, alignment=field_alignment
+    ](base + WideNode.MAX_Y * width)
+    block._max.z = wide_nodes.unsafe_load[
+        width=width, alignment=field_alignment
+    ](base + WideNode.MAX_Z * width)
+    var meta = wide_nodes.unsafe_bitcast[UInt32]().unsafe_load[
+        width=width, alignment=field_alignment
+    ](base + WideNode.META * width)
 
     var bounds_hit = intersect_ray_aabb_rcp(
         bounds_origin,

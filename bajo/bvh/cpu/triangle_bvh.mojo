@@ -432,10 +432,7 @@ struct _TriangleBuild[
         ) {imm}:
             for i in range(tri_count):
                 var item = _make_triangle_bounds_item(vertices, i)
-                comptime if (
-                    method != .LBVH
-                    and method != .HPLOC
-                ):
+                comptime if (method != .LBVH and method != .HPLOC):
                     root_bounds.grow(item.bounds)
                 comptime if method != .MEDIAN:
                     centroid_bounds.grow(item.bounds.centroid())
@@ -446,10 +443,7 @@ struct _TriangleBuild[
             var worker_count = _worker_count(tri_count)
             var root_partials = List[AABB[Self.frame]]()
             var centroid_partials = List[AABB[Self.frame]]()
-            comptime if (
-                method != .LBVH
-                and method != .HPLOC
-            ):
+            comptime if (method != .LBVH and method != .HPLOC):
                 root_partials = List[AABB[Self.frame]](capacity=worker_count)
                 root_partials.resize(unsafe_uninit_length=worker_count)
             comptime if method != .MEDIAN:
@@ -467,28 +461,19 @@ struct _TriangleBuild[
                 var chunk_centroid_bounds = AABB[Self.frame].invalid()
                 for i in range(first, end):
                     var item = _make_triangle_bounds_item(vertices, i)
-                    comptime if (
-                        method != .LBVH
-                        and method != .HPLOC
-                    ):
+                    comptime if (method != .LBVH and method != .HPLOC):
                         chunk_bounds.grow(item.bounds)
                     comptime if method != .MEDIAN:
                         chunk_centroid_bounds.grow(item.bounds.centroid())
                     items[i] = item
-                comptime if (
-                    method != .LBVH
-                    and method != .HPLOC
-                ):
+                comptime if (method != .LBVH and method != .HPLOC):
                     root_partials[task_idx] = chunk_bounds
                 comptime if method != .MEDIAN:
                     centroid_partials[task_idx] = chunk_centroid_bounds
 
             parallelize(item_chunk_worker, worker_count, worker_count)
             for worker_idx in range(worker_count):
-                comptime if (
-                    method != .LBVH
-                    and method != .HPLOC
-                ):
+                comptime if (method != .LBVH and method != .HPLOC):
                     root_bounds.grow(root_partials[worker_idx])
                 comptime if method != .MEDIAN:
                     centroid_bounds.grow(centroid_partials[worker_idx])

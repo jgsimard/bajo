@@ -49,7 +49,7 @@ from bajo.rt.wavefront_contract import (
     wavefront_rng_light_stage,
     wavefront_rng_stage,
 )
-from bajo.rt.gpu.common_kernels import GPU_RT_BLOCK_SIZE, GPU_RT_MAX_BLOCKS
+from bajo.rt.gpu.common_kernels import GPU_RT_MAX_BLOCKS
 from bajo.rt.gpu.wavefront_contract import (
     GpuWavefrontArena,
     _mark_status,
@@ -61,6 +61,7 @@ from bajo.rt.gpu.wavefront_contract import (
 
 
 comptime GPU_RT_SHADE_MAX_BLOCKS = GPU_RT_MAX_BLOCKS
+comptime GPU_RT_SHADE_BLOCK_SIZE = 128
 
 
 comptime GPU_RT_LIGHT_STRIDE = 14
@@ -77,6 +78,8 @@ comptime GPU_RT_LIGHT_RADIUS = 9
 comptime GPU_RT_LIGHT_E_X = 10
 comptime GPU_RT_LIGHT_E_Y = 11
 comptime GPU_RT_LIGHT_E_Z = 12
+# Retained in each record to preserve the proven 14-float AoS stride. The
+# selection hot path reads the duplicated dense probability prefix instead.
 comptime GPU_RT_LIGHT_ALIAS_PROBABILITY = 13
 
 
@@ -156,6 +159,7 @@ struct GpuRtLights:
     var fields: DeviceBuffer[.float32]
     var count: Int
     var total_weight: Float32
+    var uniform_sampling_kind: PrimitiveKind
 
     def __init__(
         out self,
@@ -164,14 +168,26 @@ struct GpuRtLights:
     ) raises:
         var kinds = List[UInt32](capacity=len(world.lights().records))
         var fields = List[Float32](
-            capacity=len(world.lights().records) * GPU_RT_LIGHT_STRIDE
+            capacity=len(world.lights().records) * (GPU_RT_LIGHT_STRIDE + 1)
         )
         debug_assert["safe", _use_compiler_assume=True](
             len(world.lights().records) < (1 << 28),
             "GPU RT alias table supports fewer than 2^28 lights",
         )
+        for probability in world.lights().alias_probabilities:
+            fields.append(probability)
+        var uniform_kind = PrimitiveKind.UNKNOWN
+        var homogeneous = True
         for light_idx, light in enumerate(world.lights().records):
             var kind = light.primitive.kind()
+            var sampling_kind = (
+                PrimitiveKind.SPHERE if kind
+                == PrimitiveKind.SPHERE else PrimitiveKind.TRIANGLE
+            )
+            if light_idx == 0:
+                uniform_kind = sampling_kind
+            elif sampling_kind != uniform_kind:
+                homogeneous = False
             var radiance = (
                 world.surfaces().emissives[Int(light.surface.index())].radiance
             )
@@ -197,6 +213,9 @@ struct GpuRtLights:
         self.fields = _upload_nonempty(ctx, fields^)
         self.count = len(world.lights().records)
         self.total_weight = world.lights().total_weight
+        self.uniform_sampling_kind = (
+            uniform_kind if homogeneous else PrimitiveKind.UNKNOWN
+        )
 
 
 @fieldwise_init
@@ -220,6 +239,7 @@ def _empty_direct_light_sample() -> GpuDirectLightSample:
 @always_inline
 def _sample_direct_light_candidate[
     integrator: Integrator,
+    light_kind: PrimitiveKind = .UNKNOWN,
 ](
     path: DeviceWavePath,
     incoming_ray: Rayf32[.WORLD],
@@ -237,6 +257,11 @@ def _sample_direct_light_candidate[
     bounce: UInt32,
 ) -> GpuDirectLightSample:
     comptime assert integrator in (Integrator.NEE, Integrator.MIS)
+    comptime assert light_kind in (
+        PrimitiveKind.UNKNOWN,
+        PrimitiveKind.SPHERE,
+        PrimitiveKind.TRIANGLE,
+    )
     if light_count <= 0 or total_light_weight <= 0.0:
         return _empty_direct_light_sample()
 
@@ -245,28 +270,24 @@ def _sample_direct_light_candidate[
     )
     var draw = _draw_alias_column(rng.f32(), light_count)
     var packed_column = light_kinds[unsafe_offset=draw.column]
-    var alias_probability = light_fields[
-        unsafe_offset=draw.column * GPU_RT_LIGHT_STRIDE
-        + GPU_RT_LIGHT_ALIAS_PROBABILITY
-    ]
+    var alias_probability = light_fields[unsafe_offset=draw.column]
     var selected_idx = _resolve_alias_draw(
         draw, alias_probability, packed_column >> UInt32(4)
     )
 
-    var base = selected_idx * GPU_RT_LIGHT_STRIDE
-    var kind = PrimitiveKind(light_kinds[unsafe_offset=selected_idx] & UInt32(0xF))
+    var base = light_count + selected_idx * GPU_RT_LIGHT_STRIDE
     var p0 = Point3f32[.WORLD](
         light_fields[unsafe_offset=base + GPU_RT_LIGHT_P0_X],
         light_fields[unsafe_offset=base + GPU_RT_LIGHT_P0_Y],
         light_fields[unsafe_offset=base + GPU_RT_LIGHT_P0_Z],
     )
     var surface_sample: _LightSurfaceSample
-    if kind == PrimitiveKind.SPHERE:
+    comptime if light_kind == .SPHERE:
         var radius = light_fields[unsafe_offset=base + GPU_RT_LIGHT_RADIUS]
         surface_sample = _sample_sphere_light_surface(
             p0, radius, random_unit_vector[.WORLD](rng)
         )
-    else:
+    elif light_kind == .TRIANGLE:
         var p1 = Point3f32[.WORLD](
             light_fields[unsafe_offset=base + GPU_RT_LIGHT_P1_X],
             light_fields[unsafe_offset=base + GPU_RT_LIGHT_P1_Y],
@@ -280,6 +301,29 @@ def _sample_direct_light_candidate[
         surface_sample = _sample_triangle_light_surface(
             p0, p1, p2, rng.f32(), rng.f32()
         )
+    else:
+        var kind = PrimitiveKind(
+            light_kinds[unsafe_offset=selected_idx] & UInt32(0xF)
+        )
+        if kind == PrimitiveKind.SPHERE:
+            var radius = light_fields[unsafe_offset=base + GPU_RT_LIGHT_RADIUS]
+            surface_sample = _sample_sphere_light_surface(
+                p0, radius, random_unit_vector[.WORLD](rng)
+            )
+        else:
+            var p1 = Point3f32[.WORLD](
+                light_fields[unsafe_offset=base + GPU_RT_LIGHT_P1_X],
+                light_fields[unsafe_offset=base + GPU_RT_LIGHT_P1_Y],
+                light_fields[unsafe_offset=base + GPU_RT_LIGHT_P1_Z],
+            )
+            var p2 = Point3f32[.WORLD](
+                light_fields[unsafe_offset=base + GPU_RT_LIGHT_P2_X],
+                light_fields[unsafe_offset=base + GPU_RT_LIGHT_P2_Y],
+                light_fields[unsafe_offset=base + GPU_RT_LIGHT_P2_Z],
+            )
+            surface_sample = _sample_triangle_light_surface(
+                p0, p1, p2, rng.f32(), rng.f32()
+            )
 
     var emission = Color(
         light_fields[unsafe_offset=base + GPU_RT_LIGHT_E_X],
@@ -625,7 +669,11 @@ def _gpu_rt_shade_one[
     rng_seed: UInt64,
     bounce: UInt32,
 ):
-    comptime assert MATERIAL_KIND in (MaterialKind.LAMBERTIAN, MaterialKind.METAL, MaterialKind.DIELECTRIC)
+    comptime assert MATERIAL_KIND in (
+        MaterialKind.LAMBERTIAN,
+        MaterialKind.METAL,
+        MaterialKind.DIELECTRIC,
+    )
     var capacity = Int(capacity_i32)
     var work = load_device_wave_shade(
         shade_path_refs,
@@ -799,7 +847,7 @@ def _enqueue_material_shading[
     if not materials.has_non_lambertian:
         return
     var blocks = min(
-        ceildiv(arena.capacity, GPU_RT_BLOCK_SIZE),
+        ceildiv(arena.capacity, GPU_RT_SHADE_BLOCK_SIZE),
         MAX_BLOCKS,
     )
     ctx.enqueue_function[gpu_rt_shade_dispatch_kernel[integrator]](
@@ -817,5 +865,5 @@ def _enqueue_material_shading[
         rng_seed,
         bounce,
         grid_dim=blocks,
-        block_dim=GPU_RT_BLOCK_SIZE,
+        block_dim=GPU_RT_SHADE_BLOCK_SIZE,
     )

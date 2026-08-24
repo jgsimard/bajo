@@ -54,9 +54,7 @@ def _sample_triangle_light_surface(
     var area_vector = cross(edge1, edge2)
     var twice_area_squared = length2(area_vector)
     if twice_area_squared <= 0.0:
-        return _LightSurfaceSample(
-            False, p0, Vec3f32[.WORLD](0.0, 1.0, 0.0)
-        )
+        return _LightSurfaceSample(False, p0, Vec3f32[.WORLD](0.0, 1.0, 0.0))
     var root_u = sqrt(random_u)
     var barycentric1 = root_u * (1.0 - random_v)
     var barycentric2 = root_u - barycentric1
@@ -148,7 +146,9 @@ def power_heuristic[
 ](
     pdf_a: SIMD[.float32, length],
     pdf_b: SIMD[.float32, length],
-) -> SIMD[.float32, length]:
+) -> SIMD[
+    .float32, length
+]:
     var a2 = pdf_a * pdf_a
     var b2 = pdf_b * pdf_b
     var denominator = a2 + b2

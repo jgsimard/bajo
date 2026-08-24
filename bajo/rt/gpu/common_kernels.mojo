@@ -18,27 +18,16 @@ comptime GPU_RT_BLOCK_SIZE = 64
 comptime GPU_RT_MAX_BLOCKS = 1 << 30
 
 
-def gpu_rt_primary_kernel[
-    integrator: Integrator,
-](
+@always_inline
+def make_gpu_rt_primary_path(
     camera_params: Pointer[Float32, ImmutAnyOrigin],
-    path_ids: Pointer[UInt32, MutAnyOrigin],
-    path_fields: Pointer[Float32, MutAnyOrigin],
-    sample_radiance: Pointer[Float32, MutAnyOrigin],
-    capacity_i32: Int32,
-    active_count_i32: Int32,
     sample_base: UInt32,
+    idx: Int,
     width_i32: Int32,
     height_i32: Int32,
     samples_per_pixel_i32: Int32,
     rng_seed: UInt64,
-):
-    var idx = global_idx.x
-    var capacity = Int(capacity_i32)
-    var active_count = Int(active_count_i32)
-    if idx >= active_count:
-        return
-
+) -> DeviceWavePath:
     var width = Int(width_i32)
     var height = Int(height_i32)
     var samples_per_pixel = Int(samples_per_pixel_i32)
@@ -60,28 +49,30 @@ def gpu_rt_primary_kernel[
         lens.y,
         0.001,
     )
-    store_gpu_rt_path[integrator](
-        DeviceWavePath(
-            path_id,
-            ray.o.x,
-            ray.o.y,
-            ray.o.z,
-            ray.t_min,
-            ray.d.x,
-            ray.d.y,
-            ray.d.z,
-            ray.t_max,
-            1.0,
-            1.0,
-            1.0,
-            0.0,
-            True,
-        ),
-        path_ids,
-        path_fields,
-        capacity,
-        idx,
+    return DeviceWavePath(
+        path_id,
+        ray.o.x,
+        ray.o.y,
+        ray.o.z,
+        ray.t_min,
+        ray.d.x,
+        ray.d.y,
+        ray.d.z,
+        ray.t_max,
+        1.0,
+        1.0,
+        1.0,
+        0.0,
+        True,
     )
+
+
+@always_inline
+def clear_gpu_rt_sample(
+    sample_radiance: Pointer[Float32, MutAnyOrigin],
+    capacity: Int,
+    idx: Int,
+):
     sample_radiance[
         unsafe_offset=wavefront_plane_index(WaveSampleFloatAbi.R, capacity, idx)
     ] = 0.0
@@ -91,6 +82,45 @@ def gpu_rt_primary_kernel[
     sample_radiance[
         unsafe_offset=wavefront_plane_index(WaveSampleFloatAbi.B, capacity, idx)
     ] = 0.0
+
+
+def gpu_rt_primary_kernel[
+    integrator: Integrator,
+](
+    camera_params: Pointer[Float32, ImmutAnyOrigin],
+    path_ids: Pointer[UInt32, MutAnyOrigin],
+    path_fields: Pointer[Float32, MutAnyOrigin],
+    sample_radiance: Pointer[Float32, MutAnyOrigin],
+    capacity_i32: Int32,
+    active_count_i32: Int32,
+    sample_base: UInt32,
+    width_i32: Int32,
+    height_i32: Int32,
+    samples_per_pixel_i32: Int32,
+    rng_seed: UInt64,
+):
+    var idx = global_idx.x
+    var capacity = Int(capacity_i32)
+    var active_count = Int(active_count_i32)
+    if idx >= active_count:
+        return
+
+    store_gpu_rt_path[integrator](
+        make_gpu_rt_primary_path(
+            camera_params,
+            sample_base,
+            idx,
+            width_i32,
+            height_i32,
+            samples_per_pixel_i32,
+            rng_seed,
+        ),
+        path_ids,
+        path_fields,
+        capacity,
+        idx,
+    )
+    clear_gpu_rt_sample(sample_radiance, capacity, idx)
 
 
 def gpu_rt_resolve_kernel(

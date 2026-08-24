@@ -109,9 +109,7 @@ def _make_duplicate_sphere_centroid_scene[
     ]
 
 
-def _camera_for_bounds(
-    bounds: AABB[.WORLD], distance: Float32 = 2.5
-) -> Camera:
+def _camera_for_bounds(bounds: AABB[.WORLD], distance: Float32 = 2.5) -> Camera:
     var center = bounds.centroid()
     var extent = bounds.extent()
     var scene_w = max(max(extent.x, extent.y), extent.z)
@@ -242,9 +240,9 @@ def _trace_cpu_triangle_blas[
 ) -> Float64:
     var checksum = Float64(0.0)
     for ray in rays:
-        var hit = trace_blas_set[
-            node_width, leaf_width, .CLOSEST_HIT, frame
-        ](blases, UInt32(0), ray)
+        var hit = trace_blas_set[node_width, leaf_width, .CLOSEST_HIT, frame](
+            blases, UInt32(0), ray
+        )
         if hit.t < f32_max:
             checksum += Float64(hit.t)
     return checksum
@@ -264,9 +262,9 @@ def _trace_cpu_triangle_camera[
     for py in range(cheight):
         for px in range(cwidth):
             var ray = camera.make_ray(px, py, cwidth, cheight)
-            var hit = trace_blas_set[
-                width, width, .CLOSEST_HIT, .WORLD
-            ](blases, UInt32(0), ray)
+            var hit = trace_blas_set[width, width, .CLOSEST_HIT, .WORLD](
+                blases, UInt32(0), ray
+            )
             if hit.t < f32_max:
                 checksum += Float64(hit.t)
                 hits += 1

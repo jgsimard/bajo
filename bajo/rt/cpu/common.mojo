@@ -6,9 +6,7 @@ from bajo.bvh import Camera
 from bajo.rt.types import RenderSettings, ShadingPoint, SurfaceHit
 
 
-def _shading_point(
-    ray: Rayf32[.WORLD], hit: SurfaceHit[1]
-) -> ShadingPoint[1]:
+def _shading_point(ray: Rayf32[.WORLD], hit: SurfaceHit[1]) -> ShadingPoint[1]:
     return ShadingPoint(
         ray.o + hit.t * ray.d,
         hit.normal,

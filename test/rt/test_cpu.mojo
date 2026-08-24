@@ -91,9 +91,7 @@ def test_orient_surface_normal_is_width_generic() raises:
 
 
 def test_signed_sphere_acceleration_policy() raises:
-    var sphere = Sphere[.WORLD](
-        Point3f32[.WORLD](1.0, 2.0, 3.0), -2.5
-    )
+    var sphere = Sphere[.WORLD](Point3f32[.WORLD](1.0, 2.0, 3.0), -2.5)
     var acceleration = sphere_for_acceleration(sphere)
     assert_almost_equal(sphere_unsigned_radius(sphere), 2.5)
     assert_almost_equal(acceleration.radius, 2.5)
@@ -212,7 +210,9 @@ def test_scene_builder_finalizes_derived_lights() raises:
     assert_equal(len(scene.triangle_vertices()), 6)
     assert_equal(len(scene.triangle_surfaces()), 2)
     assert_equal(len(scene.lights().records), 1)
-    assert_equal(scene.lights().records[0].primitive.kind(), PrimitiveKind.SPHERE)
+    assert_equal(
+        scene.lights().records[0].primitive.kind(), PrimitiveKind.SPHERE
+    )
     assert_true(scene.lights().total_weight > 0.0)
 
 
@@ -226,9 +226,7 @@ def test_scene_builder_finalizes_emissive_triangle_instance_lights() raises:
     var bounds = compute_bounds(mesh)
     _ = builder.add_triangle_mesh_instance(
         mesh,
-        Affine3f32[.LOCAL, .WORLD].from_scale(
-            Vec3f32[.LOCAL](-1.0, 1.0, 1.0)
-        ),
+        Affine3f32[.LOCAL, .WORLD].from_scale(Vec3f32[.LOCAL](-1.0, 1.0, 1.0)),
         bounds,
         light,
     )
@@ -279,9 +277,7 @@ def test_scene_builder_rejects_invalid_material_domains() raises:
     var overflowed_light = SceneBuilder()
     var f32_max = bitcast[DType.float32](UInt32(0x7F7FFFFF))
     var overflowed_surface = overflowed_light.add_emissive(Color(f32_max))
-    overflowed_light.add_sphere(
-        Point3f32[.WORLD](0.0), 1.0, overflowed_surface
-    )
+    overflowed_light.add_sphere(Point3f32[.WORLD](0.0), 1.0, overflowed_surface)
     with assert_raises():
         _ = overflowed_light^.finish()
 
@@ -289,9 +285,7 @@ def test_scene_builder_rejects_invalid_material_domains() raises:
 def test_scene_builder_rejects_invalid_geometry() raises:
     var zero_radius = SceneBuilder()
     var zero_radius_surface = zero_radius.add_lambertian(Color(0.5))
-    zero_radius.add_sphere(
-        Point3f32[.WORLD](0.0), 0.0, zero_radius_surface
-    )
+    zero_radius.add_sphere(Point3f32[.WORLD](0.0), 0.0, zero_radius_surface)
     with assert_raises():
         _ = zero_radius^.finish()
 
@@ -524,7 +518,8 @@ def test_world_hit_maps_material_and_normal() raises:
     var world = CpuScene[4, 8](scene^)
     assert_equal(len(world.scene_data().lights().records), 1)
     assert_equal(
-        world.scene_data().lights().records[0].primitive.kind(), PrimitiveKind.SPHERE
+        world.scene_data().lights().records[0].primitive.kind(),
+        PrimitiveKind.SPHERE,
     )
     assert_equal(
         world.scene_data().lights().records[0].surface.value, light.value
@@ -998,23 +993,13 @@ def test_wavefront_tiny_render() raises:
     # Whole-pixel chunks preserve Philox stream ownership and accumulation
     # order. The small chunk also exercises a target not divisible by samples
     # per pixel.
-    var chunked = render_wavefront[.PATH, 1, 3, False](
-        settings, camera, world
-    )
-    var parallel = render_wavefront[.PATH, 1, 3, True](
-        settings, camera, world
-    )
+    var chunked = render_wavefront[.PATH, 1, 3, False](settings, camera, world)
+    var parallel = render_wavefront[.PATH, 1, 3, True](settings, camera, world)
     # Instantiate multiple packet widths and a six-path chunk so every width
     # exercises partial packets as well as the generic queue indexing.
-    var width1 = render_wavefront[.PATH, 1, 7, False](
-        settings, camera, world
-    )
-    var packet4 = render_wavefront[.PATH, 4, 7, False](
-        settings, camera, world
-    )
-    var packet8 = render_wavefront[.PATH, 8, 7, False](
-        settings, camera, world
-    )
+    var width1 = render_wavefront[.PATH, 1, 7, False](settings, camera, world)
+    var packet4 = render_wavefront[.PATH, 4, 7, False](settings, camera, world)
+    var packet8 = render_wavefront[.PATH, 8, 7, False](settings, camera, world)
     var packet16 = render_wavefront[.PATH, 16, 7, False](
         settings, camera, world
     )
@@ -1074,15 +1059,9 @@ def test_packet_widths_match_width1_for_mixed_bsdfs() raises:
         52.0,
     )
 
-    var packet1 = render_wavefront[.PATH, 1, 10, False](
-        settings, camera, world
-    )
-    var packet4 = render_wavefront[.PATH, 4, 10, False](
-        settings, camera, world
-    )
-    var packet8 = render_wavefront[.PATH, 8, 10, False](
-        settings, camera, world
-    )
+    var packet1 = render_wavefront[.PATH, 1, 10, False](settings, camera, world)
+    var packet4 = render_wavefront[.PATH, 4, 10, False](settings, camera, world)
+    var packet8 = render_wavefront[.PATH, 8, 10, False](settings, camera, world)
     var packet16 = render_wavefront[.PATH, 16, 10, False](
         settings, camera, world
     )
@@ -1110,9 +1089,7 @@ def test_direct_light_integrators_render_cornell() raises:
         assert_true(light.weight > 0.0)
     var depth_first = render_depth_first[.NEE](settings, camera, world)
     var mis = render_wavefront[.MIS](settings, camera, world)
-    var depth_first_mis = render_depth_first[.MIS](
-        settings, camera, world
-    )
+    var depth_first_mis = render_depth_first[.MIS](settings, camera, world)
     var packet_nee1 = render_wavefront[.NEE, 1, 14, False](
         settings, camera, world
     )

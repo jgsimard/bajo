@@ -211,14 +211,10 @@ def build_lbvh_topology_and_bounds_kernel(
     var leaf_end = Int(segment_offsets.unsafe_get(segment_idx + 1))
     if leaf_end - leaf_begin <= 1:
         return
-    var internal_begin = Int(
-        internal_segment_offsets.unsafe_get(segment_idx)
-    )
+    var internal_begin = Int(internal_segment_offsets.unsafe_get(segment_idx))
 
     var item_idx = Int(sorted_leaf_ids.unsafe_get(sorted_idx))
-    var bounds = AABB[.WORLD].load6(
-        leaf_bounds, item_idx * AABB.STRIDE
-    )
+    var bounds = AABB[.WORLD].load6(leaf_bounds, item_idx * AABB.STRIDE)
     var current_encoded = encode_leaf_ref(UInt32(sorted_idx))
     var range_left = sorted_idx
     var range_right = sorted_idx
@@ -231,12 +227,8 @@ def build_lbvh_topology_and_bounds_kernel(
             sorted_morton_codes, range_right, leaf_begin, leaf_end
         )
         var attach_on_left = delta_right < delta_left
-        var parent_boundary = (
-            range_right if attach_on_left else range_left - 1
-        )
-        var parent = UInt32(
-            internal_begin + parent_boundary - leaf_begin
-        )
+        var parent_boundary = range_right if attach_on_left else range_left - 1
+        var parent = UInt32(internal_begin + parent_boundary - leaf_begin)
         var parent_base = Int(parent) * BinaryBvhNode.META_STRIDE
 
         if attach_on_left:
@@ -266,9 +258,9 @@ def build_lbvh_topology_and_bounds_kernel(
         node_leaf_counts.unsafe_get(Int(parent)) = UInt32(
             range_right - range_left + 1
         )
-        node_meta.unsafe_get(
-            parent_base + BinaryBvhNode.FENCE
-        ) = UInt32(range_right)
+        node_meta.unsafe_get(parent_base + BinaryBvhNode.FENCE) = UInt32(
+            range_right
+        )
         arrival_slots.unsafe_get(Int(parent)) = UInt32(2)
         bounds = _load_and_union_node_bounds(node_bounds, parent)
         current_encoded = encode_internal_ref(parent)

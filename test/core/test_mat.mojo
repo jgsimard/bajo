@@ -42,9 +42,7 @@ def test_basics() raises:
     assert_almost_equal(determinant(m3), -3.0)
     assert_almost_equal(determinant(_matmul(m3, inverse(m3))), 1.0)
 
-    var m4 = Mat44[T, .WORLD](
-        1, 3, 5, 9, 1, 3, 1, 7, 4, 3, 9, 7, 5, 2, 0, 9
-    )
+    var m4 = Mat44[T, .WORLD](1, 3, 5, 9, 1, 3, 1, 7, 4, 3, 9, 7, 5, 2, 0, 9)
     assert_almost_equal(determinant(m4), -376.0)
     assert_almost_equal(determinant(_matmul(m4, inverse(m4))), 1.0)
 

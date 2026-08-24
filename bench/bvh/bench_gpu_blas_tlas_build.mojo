@@ -143,7 +143,9 @@ def _bench_wide_shape[
         )
         ctx.synchronize()
         times.append(Int(perf_counter_ns() - start))
-    var packed = build_gpu_triangle_blas_set[4, 4, build_method](ctx, vertex_sets)
+    var packed = build_gpu_triangle_blas_set[4, 4, build_method](
+        ctx, vertex_sets
+    )
     ctx.synchronize()
     var summary = _summarize_blas_set(packed)
     var capacity_nodes = 0
@@ -173,9 +175,9 @@ def _bench_cwbvh_shape(
     var triangle_count = 0
     for vertices in vertex_sets:
         triangle_count += len(vertices) / 3
-    var warm = build_gpu_triangle_blas_set[
-        8, 4, .HPLOC, GpuBvhLayout.CWBVH8
-    ](ctx, vertex_sets)
+    var warm = build_gpu_triangle_blas_set[8, 4, .HPLOC, GpuBvhLayout.CWBVH8](
+        ctx, vertex_sets
+    )
     ctx.synchronize()
     var times = List[Int](capacity=SHAPE_REPEATS)
     for _ in range(SHAPE_REPEATS):
@@ -185,9 +187,9 @@ def _bench_cwbvh_shape(
         ](ctx, vertex_sets)
         ctx.synchronize()
         times.append(Int(perf_counter_ns() - start))
-    var packed = build_gpu_triangle_blas_set[
-        8, 4, .HPLOC, GpuBvhLayout.CWBVH8
-    ](ctx, vertex_sets)
+    var packed = build_gpu_triangle_blas_set[8, 4, .HPLOC, GpuBvhLayout.CWBVH8](
+        ctx, vertex_sets
+    )
     ctx.synchronize()
     var summary = _summarize_blas_set(packed)
     var capacity_nodes = 0
@@ -273,18 +275,18 @@ def main() raises:
         var warm_cwbvh = build_gpu_triangle_blas_set[
             8, 4, .HPLOC, GpuBvhLayout.CWBVH8
         ](ctx, vertex_sets)
-        var warm_tlas = build_gpu_tlas[.TRIANGLE,
-            2, 8, 2, 4, .LBVH, GpuBvhLayout.CWBVH8
+        var warm_tlas = build_gpu_tlas[
+            .TRIANGLE, 2, 8, 2, 4, .LBVH, GpuBvhLayout.CWBVH8
         ](ctx, instances)
-        var warm_tlas_leaf1 = build_gpu_tlas[.TRIANGLE,
-            2, 8, 1, 4, .LBVH, GpuBvhLayout.CWBVH8
+        var warm_tlas_leaf1 = build_gpu_tlas[
+            .TRIANGLE, 2, 8, 1, 4, .LBVH, GpuBvhLayout.CWBVH8
         ](ctx, instances)
         var warm_single_blas = build_gpu_triangle_blas_set[
             8, 4, .HPLOC, .CWBVH8
         ](ctx, dragon_set)
-        var warm_wide = build_gpu_triangle_bvh[
-            .LOCAL, 4, 4, .HPLOC
-        ](ctx, dragon_vertices)
+        var warm_wide = build_gpu_triangle_bvh[.LOCAL, 4, 4, .HPLOC](
+            ctx, dragon_vertices
+        )
         ctx.synchronize()
 
         for _ in range(BENCH_REPEATS):
@@ -296,15 +298,16 @@ def main() raises:
             cwbvh_times.append(Int(perf_counter_ns() - start))
 
             start = perf_counter_ns()
-            var tlas = build_gpu_tlas[.TRIANGLE,
-                2, 8, 2, 4, .LBVH, GpuBvhLayout.CWBVH8
+            var tlas = build_gpu_tlas[
+                .TRIANGLE, 2, 8, 2, 4, .LBVH, GpuBvhLayout.CWBVH8
             ](ctx, instances)
             ctx.synchronize()
             tlas_times.append(Int(perf_counter_ns() - start))
 
             start = perf_counter_ns()
             for _ in range(TLAS_BUILD_BATCH_SIZE):
-                var tlas_leaf1 = build_gpu_tlas[.TRIANGLE,
+                var tlas_leaf1 = build_gpu_tlas[
+                    .TRIANGLE,
                     2,
                     8,
                     1,
@@ -323,9 +326,9 @@ def main() raises:
             single_blas_times.append(Int(perf_counter_ns() - start))
 
             start = perf_counter_ns()
-            var wide = build_gpu_triangle_bvh[
-                .LOCAL, 4, 4, .HPLOC
-            ](ctx, dragon_vertices)
+            var wide = build_gpu_triangle_bvh[.LOCAL, 4, 4, .HPLOC](
+                ctx, dragon_vertices
+            )
             ctx.synchronize()
             wide_times.append(Int(perf_counter_ns() - start))
 
@@ -354,9 +357,7 @@ def main() raises:
         )
         _bench_wide_shape[.LBVH](ctx, "one large", one_large)
         _bench_wide_shape[.LBVH](ctx, "many tiny", many_tiny)
-        _bench_wide_shape[.LBVH](
-            ctx, "many medium", many_medium
-        )
+        _bench_wide_shape[.LBVH](ctx, "many medium", many_medium)
         _bench_wide_shape[.LBVH](ctx, "mixed", mixed)
 
         print("")
@@ -367,9 +368,7 @@ def main() raises:
         )
         _bench_wide_shape[.HPLOC](ctx, "one large", one_large)
         _bench_wide_shape[.HPLOC](ctx, "many tiny", many_tiny)
-        _bench_wide_shape[.HPLOC](
-            ctx, "many medium", many_medium
-        )
+        _bench_wide_shape[.HPLOC](ctx, "many medium", many_medium)
         _bench_wide_shape[.HPLOC](ctx, "mixed", mixed)
 
         print("")

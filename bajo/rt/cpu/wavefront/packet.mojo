@@ -164,9 +164,7 @@ def _sample_bsdf_batch[
     var ray_direction = Vec3[.float32, .WORLD, length](
         batch.dx, batch.dy, batch.dz
     )
-    var normal = Vec3[.float32, .WORLD, length](
-        batch.nx, batch.ny, batch.nz
-    )
+    var normal = Vec3[.float32, .WORLD, length](batch.nx, batch.ny, batch.nz)
     var albedo = Vec3[.float32, .WORLD, length](0.0)
     var parameter = SIMD[.float32, length](1.0)
     var random_u = SIMD[.float32, length](0.0)
@@ -252,9 +250,7 @@ def _accumulate_sky_packet[
     samples_per_pixel: Int,
 ):
     var sky = sky_color(
-        Vec3[.float32, .WORLD, length](
-            packet.dx, packet.dy, packet.dz
-        )
+        Vec3[.float32, .WORLD, length](packet.dx, packet.dy, packet.dz)
     )
     var red = packet.tx * sky.x
     var green = packet.ty * sky.y
@@ -319,7 +315,11 @@ def _trace_path_packets[
     mut metal_queue: PacketShadeQueue[length],
     mut dielectric_queue: PacketShadeQueue[length],
 ):
-    comptime assert integrator in (Integrator.PATH, Integrator.NEE, Integrator.MIS)
+    comptime assert integrator in (
+        Integrator.PATH,
+        Integrator.NEE,
+        Integrator.MIS,
+    )
     for bounce in range(settings.max_depth):
         if len(active_paths) == 0:
             break
@@ -340,9 +340,7 @@ def _trace_path_packets[
                 Point3[DType.float32, .WORLD, length](
                     packet.ox, packet.oy, packet.oz
                 ),
-                Vec3[.float32, .WORLD, length](
-                    packet.dx, packet.dy, packet.dz
-                ),
+                Vec3[.float32, .WORLD, length](packet.dx, packet.dy, packet.dz),
                 packet.t_min,
                 packet.t_max,
             )
@@ -405,9 +403,9 @@ def _trace_path_packets[
                         direct_lights.point.normal.y[lane] = hit.normal.y
                         direct_lights.point.normal.z[lane] = hit.normal.z
                         direct_lights.point.front_face[lane] = hit.front_face
-                        direct_lights.surface_kinds[lane] = (
-                            hit.surface.kind().value
-                        )
+                        direct_lights.surface_kinds[
+                            lane
+                        ] = hit.surface.kind().value
                         direct_lights.surface_indices[
                             lane
                         ] = hit.surface.index()

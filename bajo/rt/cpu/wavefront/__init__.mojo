@@ -102,7 +102,11 @@ def render_wavefront[
 ) -> RenderResult:
     """Render with compile-time packet, chunk, and CPU scheduling choices."""
     comptime assert CHUNK_PATHS > 0, "wavefront chunk size must be positive"
-    comptime assert integrator in (Integrator.PATH, Integrator.NEE, Integrator.MIS)
+    comptime assert integrator in (
+        Integrator.PATH,
+        Integrator.NEE,
+        Integrator.MIS,
+    )
     comptime if PARALLEL:
         comptime assert (
             WAVE_PARALLEL_RUNTIME_DEFAULT

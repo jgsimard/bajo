@@ -54,9 +54,7 @@ def test_apply_trs_rotated() raises:
 
     # the corners should move to ±sqrt(2)
     var sqrt_2 = Float32(sqrt(2.0))
-    assert_vec_equal(
-        new_box._min, Point3f32[.CAMERA](-sqrt_2, -sqrt_2, -1.0)
-    )
+    assert_vec_equal(new_box._min, Point3f32[.CAMERA](-sqrt_2, -sqrt_2, -1.0))
     assert_vec_equal(new_box._max, Point3f32[.CAMERA](sqrt_2, sqrt_2, 1.0))
 
 

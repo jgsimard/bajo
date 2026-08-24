@@ -103,12 +103,8 @@ def _trace_sphere_packet_primitive[
     var closer = active & candidate.mask
     if closer.reduce_or():
         packet_hit.t = closer.select(candidate.t, packet_hit.t)
-        packet_hit.u = closer.select(
-            SIMD[.float32, length](0.0), packet_hit.u
-        )
-        packet_hit.v = closer.select(
-            SIMD[.float32, length](0.0), packet_hit.v
-        )
+        packet_hit.u = closer.select(SIMD[.float32, length](0.0), packet_hit.u)
+        packet_hit.v = closer.select(SIMD[.float32, length](0.0), packet_hit.v)
         packet_hit.prim = closer.select(
             SIMD[DType.uint32, length](prim_idx), packet_hit.prim
         )

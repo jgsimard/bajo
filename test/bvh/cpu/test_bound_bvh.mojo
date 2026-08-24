@@ -304,9 +304,9 @@ def _assert_triangle_blas_matches_bruteforce[
     origin: Point3f32[frame],
 ) raises:
     var ray = _z_ray(origin)
-    var hit = trace_blas_set[
-        bounds_width, leaf_width, .CLOSEST_HIT, frame
-    ](blases, UInt32(0), ray)
+    var hit = trace_blas_set[bounds_width, leaf_width, .CLOSEST_HIT, frame](
+        blases, UInt32(0), ray
+    )
 
     var brute = _brute_triangle_trace(
         verts,
@@ -406,46 +406,34 @@ def test_parallel_sah_builder_leaf_invariants() raises:
     # binary storage and the final wide leaf ranges.
     var verts = _make_random_xy_triangles[.WORLD](5000, UInt64(909090))
     var items = _make_bounds_items(verts)
-    var builder = BinaryBoundsBvh[.WORLD, 16, .SAH](
-        items^
-    )
+    var builder = BinaryBoundsBvh[.WORLD, 16, .SAH](items^)
 
     assert_true(Int(builder.nodes_used) == len(builder.nodes))
     _assert_builder_leaf_sizes_at_most(builder, UInt32(16))
 
-    _assert_wide_leaf_ranges_at_most_width[
-        .WORLD, 16, .SAH
-    ](builder)
+    _assert_wide_leaf_ranges_at_most_width[.WORLD, 16, .SAH](builder)
 
 
 def test_parallel_median_builder_leaf_invariants() raises:
     var verts = _make_random_xy_triangles[.WORLD](1500, UInt64(919191))
     var items = _make_bounds_items(verts)
-    var builder = BinaryBoundsBvh[.WORLD, 16, .MEDIAN](
-        items^
-    )
+    var builder = BinaryBoundsBvh[.WORLD, 16, .MEDIAN](items^)
 
     assert_true(Int(builder.nodes_used) == len(builder.nodes))
     _assert_builder_leaf_sizes_at_most(builder, UInt32(16))
 
-    _assert_wide_leaf_ranges_at_most_width[
-        .WORLD, 16, .MEDIAN
-    ](builder)
+    _assert_wide_leaf_ranges_at_most_width[.WORLD, 16, .MEDIAN](builder)
 
 
 def test_parallel_radix_lbvh_builder_leaf_invariants() raises:
     var verts = _make_random_xy_triangles[.WORLD](17000, UInt64(929292))
     var items = _make_bounds_items(verts)
-    var builder = BinaryBoundsBvh[.WORLD, 16, .LBVH](
-        items^
-    )
+    var builder = BinaryBoundsBvh[.WORLD, 16, .LBVH](items^)
 
     assert_true(Int(builder.nodes_used) == len(builder.nodes))
     _assert_builder_leaf_sizes_at_most(builder, UInt32(16))
 
-    _assert_wide_leaf_ranges_at_most_width[
-        .WORLD, 16, .LBVH
-    ](builder)
+    _assert_wide_leaf_ranges_at_most_width[.WORLD, 16, .LBVH](builder)
 
 
 def test_parallel_hploc_builder_leaf_invariants() raises:
@@ -453,12 +441,8 @@ def test_parallel_hploc_builder_leaf_invariants() raises:
     # compacted binary storage and final wide leaf ranges.
     var verts = _make_random_xy_triangles[.WORLD](5000, UInt64(939393))
     var items = _make_bounds_items(verts)
-    var builder = BinaryBoundsBvh[.WORLD, 16, .HPLOC](
-        items.copy()
-    )
-    var repeated = BinaryBoundsBvh[.WORLD, 16, .HPLOC](
-        items^
-    )
+    var builder = BinaryBoundsBvh[.WORLD, 16, .HPLOC](items.copy())
+    var repeated = BinaryBoundsBvh[.WORLD, 16, .HPLOC](items^)
 
     assert_true(Int(builder.nodes_used) == len(builder.nodes))
     _assert_builder_leaf_sizes_at_most(builder, UInt32(16))
@@ -466,9 +450,7 @@ def test_parallel_hploc_builder_leaf_invariants() raises:
     for i, item_idx in enumerate(builder.item_indices):
         assert_equal(item_idx, repeated.item_indices[i])
 
-    _assert_wide_leaf_ranges_at_most_width[
-        .WORLD, 16, .HPLOC
-    ](builder)
+    _assert_wide_leaf_ranges_at_most_width[.WORLD, 16, .HPLOC](builder)
 
 
 def test_hploc_simd_neighbors_match_scalar() raises:
@@ -554,9 +536,7 @@ def test_wide_bounds_root_bounds_is_valid() raises:
     var verts = _make_strip[.WORLD](4)
     var items = _make_bounds_items(verts)
 
-    var builder = BinaryBoundsBvh[.WORLD, 4, .MEDIAN](
-        items^
-    )
+    var builder = BinaryBoundsBvh[.WORLD, 4, .MEDIAN](items^)
 
     def pack_leaf(_first_item: UInt32, _item_count: UInt32) -> UInt32:
         return UInt32(0)
@@ -574,9 +554,7 @@ def test_bounds_ray_query_inside_outside_regression() raises:
     var lower = Point3W(0.5, -1.0, -1.0)
     var upper = Point3W(1.0, 1.0, 1.0)
 
-    var query_ray = Rayf32[.WORLD](
-        Point3W(0.0, 0.0, 0.0), Vec3W(1.0, 0.0, 0.0)
-    )
+    var query_ray = Rayf32[.WORLD](Point3W(0.0, 0.0, 0.0), Vec3W(1.0, 0.0, 0.0))
     var rcp_dir = query_ray.reciprocal_direction[1]()
 
     var hit_outside = intersect_ray_aabb(
@@ -719,9 +697,7 @@ def test_bounds_partition_items_non_empty() raises:
 
 def test_triangle_bvh2_leaf_size_equals_width_returns_nearest_triangle() raises:
     var verts = _make_depth_pair[.WORLD]()
-    var blases = build_cpu_triangle_blas_set[
-        2, 2, .MEDIAN, .WORLD
-    ]([verts^])
+    var blases = build_cpu_triangle_blas_set[2, 2, .MEDIAN, .WORLD]([verts^])
 
     var hit = trace_blas_set[2, 2, .CLOSEST_HIT, .WORLD](
         blases, UInt32(0), _z_ray(Point3W(0.0, 0.0, 0.0))
@@ -830,9 +806,9 @@ def _assert_packet_hits_equal[
 
 def _test_triangle_packet_paths_match[length: SIMDLength]() raises:
     var verts = _make_strip[.WORLD](64)
-    var blases = build_cpu_triangle_blas_set[
-        16, 16, .SAH, .WORLD
-    ]([verts.copy()])
+    var blases = build_cpu_triangle_blas_set[16, 16, .SAH, .WORLD](
+        [verts.copy()]
+    )
     var ox = SIMD[.float32, length](0.0)
     var oy = SIMD[.float32, length](0.0)
     comptime for lane in range(length):
@@ -852,9 +828,9 @@ def _test_triangle_packet_paths_match[length: SIMDLength]() raises:
     var production = trace_blas_set_packet[16, 16, length, False, .WORLD](
         blases, UInt32(0), packet, valid
     )
-    var common_octant = trace_blas_set_packet[
-        16, 16, length, True, .WORLD
-    ](blases, UInt32(0), packet, valid)
+    var common_octant = trace_blas_set_packet[16, 16, length, True, .WORLD](
+        blases, UInt32(0), packet, valid
+    )
     _assert_packet_hits_equal(common_octant, production)
 
 
@@ -909,9 +885,7 @@ def _check_packed_triangle_packet[
 
 def test_packed_triangle_packet_matches_scalar_widths() raises:
     var verts = _make_strip[.WORLD](64)
-    var host = build_cpu_triangle_blas_set[
-        16, 16, .SAH, .WORLD
-    ]([verts^])
+    var host = build_cpu_triangle_blas_set[16, 16, .SAH, .WORLD]([verts^])
     _check_packed_triangle_packet[4](host)
     _check_packed_triangle_packet[8](host)
     _check_packed_triangle_packet[16](host)
@@ -950,12 +924,8 @@ def _check_packed_sphere_packet[
 
 
 def test_packed_sphere_packet_matches_scalar_widths() raises:
-    var spheres: List = [
-        Sphere[.WORLD](Point3f32[.WORLD](0.0, 0.0, 2.0), 1.0)
-    ]
-    var host = build_cpu_sphere_blas_set[16, .SAH, .WORLD](
-        [spheres^]
-    )
+    var spheres: List = [Sphere[.WORLD](Point3f32[.WORLD](0.0, 0.0, 2.0), 1.0)]
+    var host = build_cpu_sphere_blas_set[16, .SAH, .WORLD]([spheres^])
     _check_packed_sphere_packet[4](host)
     _check_packed_sphere_packet[8](host)
     _check_packed_sphere_packet[16](host)
@@ -1105,9 +1075,7 @@ def test_sphere_bounds() raises:
 
 def test_sphere_bvh4_single_leaf_layout_and_hit() raises:
     var spheres = _make_spheres[.WORLD]()
-    var blases = build_cpu_sphere_blas_set[4, .SAH, .WORLD](
-        [spheres^]
-    )
+    var blases = build_cpu_sphere_blas_set[4, .SAH, .WORLD]([spheres^])
     var desc = BlasDesc.load(blases.descs.unsafe_ptr(), UInt32(0))
     assert_true(desc.node_count == 1)
     assert_true(desc.leaf_block_count == 1)
@@ -1198,9 +1166,9 @@ def test_sphere_bvh_shadow_hit_and_miss() raises:
 def test_segmented_triangle_blases_allow_empty_segments() raises:
     var empty = List[Point3f32[.WORLD]]()
     var vertices = _make_strip[.WORLD](2)
-    var blases = build_cpu_triangle_blas_set[
-        4, 4, .SAH, .WORLD
-    ]([empty^, vertices^])
+    var blases = build_cpu_triangle_blas_set[4, 4, .SAH, .WORLD](
+        [empty^, vertices^]
+    )
     var empty_desc = BlasDesc.load(blases.descs.unsafe_ptr(), UInt32(0))
     var filled_desc = BlasDesc.load(blases.descs.unsafe_ptr(), UInt32(1))
     assert_true(empty_desc.node_count == 0)
@@ -1244,12 +1212,8 @@ def test_segmented_triangle_blases_allow_empty_segments() raises:
 
 def test_segmented_sphere_blases_allow_empty_segments() raises:
     var empty = List[Sphere[.WORLD]]()
-    var spheres: List = [
-        Sphere[.WORLD](Point3f32[.WORLD](0.0, 0.0, 2.0), 1.0)
-    ]
-    var blases = build_cpu_sphere_blas_set[4, .SAH, .WORLD](
-        [empty^, spheres^]
-    )
+    var spheres: List = [Sphere[.WORLD](Point3f32[.WORLD](0.0, 0.0, 2.0), 1.0)]
+    var blases = build_cpu_sphere_blas_set[4, .SAH, .WORLD]([empty^, spheres^])
     var empty_desc = BlasDesc.load(blases.descs.unsafe_ptr(), UInt32(0))
     var filled_desc = BlasDesc.load(blases.descs.unsafe_ptr(), UInt32(1))
     assert_true(empty_desc.node_count == 0)

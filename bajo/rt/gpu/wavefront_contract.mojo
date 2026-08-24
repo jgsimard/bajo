@@ -375,9 +375,7 @@ struct GpuWavefrontArena:
         self.path_b = GpuWavePathQueue(ctx, capacity)
         self.shade = GpuWaveShadeQueue(ctx, capacity)
         self.shadow = GpuWaveShadowQueue(ctx, capacity)
-        self.counters = ctx.enqueue_create_buffer[.uint32](
-            WAVE_COUNTER.COUNT
-        )
+        self.counters = ctx.enqueue_create_buffer[.uint32](WAVE_COUNTER.COUNT)
         self.sample_radiance = ctx.enqueue_create_buffer[.float32](
             capacity * WaveSampleFloatAbi.PLANES
         )

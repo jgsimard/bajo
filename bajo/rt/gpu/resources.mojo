@@ -76,7 +76,8 @@ struct GpuRtRenderTarget:
             "GPU RT compact path IDs support at most 2^31-1 samples",
         )
         var requested_capacity = (
-            path_capacity if path_capacity > 0 else _GPU_RT_DEFAULT_PATH_CAPACITY
+            path_capacity if path_capacity
+            > 0 else _GPU_RT_DEFAULT_PATH_CAPACITY
         )
         var arena_capacity = min(requested_capacity, self.sample_count)
         arena_capacity = (
@@ -86,9 +87,7 @@ struct GpuRtRenderTarget:
             arena_capacity = self.samples_per_pixel
         self.arena = GpuWavefrontArena(ctx, arena_capacity)
         self.camera = upload_camera(ctx, camera)
-        self.pixels = ctx.enqueue_create_buffer[.float32](
-            self.pixel_count * 3
-        )
+        self.pixels = ctx.enqueue_create_buffer[.float32](self.pixel_count * 3)
 
     def validate(self, settings: RenderSettings):
         debug_assert["safe", _use_compiler_assume=True](
@@ -188,6 +187,21 @@ def enqueue_gpu_wavefront[
     Scene: AnyType,
     //,
     integrator: Integrator,
+    primary_bounce_fn: def(
+        DeviceContext,
+        GpuWavefrontArena,
+        DeviceBuffer[.float32],
+        Scene,
+        DeviceBuffer[.uint32],
+        DeviceBuffer[.float32],
+        DeviceBuffer[.uint32],
+        DeviceBuffer[.float32],
+        Int,
+        Int,
+        Int,
+        Int,
+        UInt64,
+    ) raises thin -> None,
     bounce_fn: def(
         DeviceContext,
         GpuWavefrontArena,
@@ -213,23 +227,12 @@ def enqueue_gpu_wavefront[
         var chunk_sample_count = min(
             target.arena.capacity, target.sample_count - sample_begin
         )
-        _enqueue_gpu_primary[integrator](
-            ctx, target, settings, sample_begin, chunk_sample_count
-        )
-        comptime if integrator in (Integrator.NORMALS, Integrator.AO):
-            bounce_fn(
-                ctx,
-                target.arena,
-                scene,
-                target.arena.path_a.path_ids,
-                target.arena.path_a.fields,
-                target.arena.path_b.path_ids,
-                target.arena.path_b.fields,
-                settings.rng_seed,
-                UInt32(0),
+        comptime if integrator == Integrator.PATH:
+            # The register-heavier fused primary traversal loses on PATH.
+            # Keep its lean primary queue producer and start tracing at zero.
+            _enqueue_gpu_primary[integrator](
+                ctx, target, settings, sample_begin, chunk_sample_count
             )
-            enqueue_wavefront_advance(ctx, target.arena)
-        else:
             for bounce in range(settings.max_depth):
                 if bounce % 2 == 0:
                     bounce_fn(
@@ -256,6 +259,64 @@ def enqueue_gpu_wavefront[
                         UInt32(bounce),
                     )
                 enqueue_wavefront_advance(ctx, target.arena)
+        else:
+            if (
+                integrator in (Integrator.NEE, Integrator.MIS)
+                and settings.max_depth == 0
+            ):
+                _enqueue_gpu_primary[integrator](
+                    ctx, target, settings, sample_begin, chunk_sample_count
+                )
+            else:
+                target.validate(settings)
+                target.arena.sample_base = UInt32(sample_begin)
+                enqueue_wavefront_begin(ctx, target.arena, chunk_sample_count)
+                primary_bounce_fn(
+                    ctx,
+                    target.arena,
+                    target.camera,
+                    scene,
+                    target.arena.path_a.path_ids,
+                    target.arena.path_a.fields,
+                    target.arena.path_b.path_ids,
+                    target.arena.path_b.fields,
+                    chunk_sample_count,
+                    target.image_width,
+                    target.image_height,
+                    target.samples_per_pixel,
+                    settings.rng_seed,
+                )
+                enqueue_wavefront_advance(ctx, target.arena)
+                comptime if integrator not in (
+                    Integrator.NORMALS,
+                    Integrator.AO,
+                ):
+                    for bounce in range(1, settings.max_depth):
+                        if bounce % 2 == 0:
+                            bounce_fn(
+                                ctx,
+                                target.arena,
+                                scene,
+                                target.arena.path_a.path_ids,
+                                target.arena.path_a.fields,
+                                target.arena.path_b.path_ids,
+                                target.arena.path_b.fields,
+                                settings.rng_seed,
+                                UInt32(bounce),
+                            )
+                        else:
+                            bounce_fn(
+                                ctx,
+                                target.arena,
+                                scene,
+                                target.arena.path_b.path_ids,
+                                target.arena.path_b.fields,
+                                target.arena.path_a.path_ids,
+                                target.arena.path_a.fields,
+                                settings.rng_seed,
+                                UInt32(bounce),
+                            )
+                        enqueue_wavefront_advance(ctx, target.arena)
         _enqueue_gpu_resolve(ctx, target, sample_begin, chunk_sample_count)
         sample_begin += chunk_sample_count
 

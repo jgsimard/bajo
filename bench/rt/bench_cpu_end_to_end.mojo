@@ -170,7 +170,11 @@ def make_primary_ray(
     )
 
 
-def count_hit(mut counters: TraceCounters, primitive: PrimitiveKind, material: MaterialKind):
+def count_hit(
+    mut counters: TraceCounters,
+    primitive: PrimitiveKind,
+    material: MaterialKind,
+):
     counters.hits += 1
     if primitive == PrimitiveKind.SPHERE:
         counters.sphere_hits += 1
@@ -282,9 +286,7 @@ def count_ao(
                     record.primitive.kind(),
                     record.surface.kind(),
                 )
-                var ao_dir = random_on_hemisphere[.WORLD](
-                    rng, record.normal
-                )
+                var ao_dir = random_on_hemisphere[.WORLD](rng, record.normal)
                 var ao_ray = Rayf32[.WORLD](
                     record.p, normalize(ao_dir), 0.001, 4.0
                 )
@@ -390,9 +392,7 @@ def run_benchmark() raises:
     )
     print_timing(
         "sphere / normals",
-        time_render[.NORMALS](
-            timing_settings, sphere_camera, sphere_world
-        ),
+        time_render[.NORMALS](timing_settings, sphere_camera, sphere_world),
         sample_count,
     )
     print_timing(
@@ -407,9 +407,7 @@ def run_benchmark() raises:
     )
     print_timing(
         "triangles / normals",
-        time_render[.NORMALS](
-            timing_settings, triangle_cam, triangle_world
-        ),
+        time_render[.NORMALS](timing_settings, triangle_cam, triangle_world),
         sample_count,
     )
 

@@ -120,9 +120,7 @@ def bench_gpu_triangle_integrator[
     leaf_width: SIMDLength = LEAF_WIDTH,
     MAX_BLOCKS: Int = GPU_RT_MAX_BLOCKS,
     SHADOW_MAX_BLOCKS: Int = MAX_BLOCKS,
-    layout: GpuBvhLayout = GpuBvhLayout(
-        node_width == 8 and leaf_width == 4
-    ),
+    layout: GpuBvhLayout = GpuBvhLayout(node_width == 8 and leaf_width == 4),
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,

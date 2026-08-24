@@ -237,13 +237,9 @@ struct GpuBinaryTopologyWorkspace(Copyable):
         leaf_capacity: Int,
         internal_capacity: Int,
     ) raises:
-        self.morton_keys = ctx.enqueue_create_buffer[.uint32](
-            leaf_capacity
-        )
+        self.morton_keys = ctx.enqueue_create_buffer[.uint32](leaf_capacity)
         self.sort_keys = ctx.enqueue_create_buffer[.uint64](leaf_capacity)
-        self.leaf_parent = ctx.enqueue_create_buffer[.uint32](
-            leaf_capacity
-        )
+        self.leaf_parent = ctx.enqueue_create_buffer[.uint32](leaf_capacity)
         self.node_flags = ctx.enqueue_create_buffer[.uint32](
             max(internal_capacity, 1)
         )
@@ -419,9 +415,7 @@ struct GpuBinaryBoundsBvh:
         self.node_meta = ctx.enqueue_create_buffer[.uint32](
             n_internal * BinaryBvhNode.META_STRIDE
         )
-        self.node_leaf_counts = ctx.enqueue_create_buffer[.uint32](
-            n_internal
-        )
+        self.node_leaf_counts = ctx.enqueue_create_buffer[.uint32](n_internal)
         self.node_bounds = ctx.enqueue_create_buffer[.float32](
             n_internal * BinaryBvhNode.BOUNDS_STRIDE
         )

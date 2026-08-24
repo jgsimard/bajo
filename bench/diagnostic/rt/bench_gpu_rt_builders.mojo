@@ -151,9 +151,7 @@ def main() raises:
     with DeviceContext() as ctx:
         var target = GpuRtRenderTarget(ctx, settings, gpu_rt_camera())
         ctx.synchronize()
-        _run_builder[.LBVH](
-            ctx, target, world, settings, sample_count, "LBVH"
-        )
+        _run_builder[.LBVH](ctx, target, world, settings, sample_count, "LBVH")
         _run_builder[.HPLOC](
             ctx, target, world, settings, sample_count, "H-PLOC"
         )

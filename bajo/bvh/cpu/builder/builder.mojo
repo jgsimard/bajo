@@ -148,10 +148,7 @@ struct BinaryBoundsBvh[
 
     def _build_parallel_top_down(
         mut self, root_centroid_bounds: AABB[Self.frame]
-    ) where (
-        Self.method == .SAH
-        or Self.method == .MEDIAN
-    ):
+    ) where Self.method == .SAH or Self.method == .MEDIAN:
         # Parallel workers write disjoint item ranges and uniquely allocated
         # node pairs. Extending the node list without initialization keeps the
         # old no-worst-case-initialization property while making its storage
@@ -194,10 +191,7 @@ struct BinaryBoundsBvh[
         depth: Int,
         mut frontier_nodes: List[UInt32],
         mut frontier_centroid_bounds: List[AABB[Self.frame]],
-    ) where (
-        Self.method == .SAH
-        or Self.method == .MEDIAN
-    ):
+    ) where Self.method == .SAH or Self.method == .MEDIAN:
         var source_node = self.nodes[Int(node_idx)]
         if source_node.item_count <= UInt32(Self.leaf_size):
             return
@@ -233,10 +227,7 @@ struct BinaryBoundsBvh[
         node_idx: UInt32,
         centroid_bounds: AABB[Self.frame],
         next_node: Pointer[UInt32, next_node_origin],
-    ) where (
-        Self.method == .SAH
-        or Self.method == .MEDIAN
-    ):
+    ) where (Self.method == .SAH or Self.method == .MEDIAN):
         var source_node = self.nodes[Int(node_idx)]
         if source_node.item_count <= UInt32(Self.leaf_size):
             return

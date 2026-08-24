@@ -2,7 +2,11 @@
 
 from std.gpu import global_idx
 
-from bajo.bvh.gpu.camera_launch import _camera_ray, _store_camera_hit
+from bajo.bvh.gpu.camera_launch import (
+    _camera_ray,
+    _camera_ray_single_view,
+    _store_camera_hit,
+)
 from bajo.bvh.types import Hit
 from bajo.core import Rayf32
 
@@ -17,6 +21,7 @@ comptime GpuCameraTraceFn = def(
 
 def trace_bvh_camera_kernel[
     trace_ray: GpuCameraTraceFn,
+    single_view: Bool = False,
 ](
     nodes: Pointer[Float32, ImmutAnyOrigin],
     leaves: Pointer[Float32, ImmutAnyOrigin],
@@ -33,13 +38,22 @@ def trace_bvh_camera_kernel[
     if ray_idx >= ray_count_int:
         return
 
-    var ray = _camera_ray(
-        camera_params,
-        ray_count_int,
-        ray_idx,
-        Int(width_px),
-        Int(height_px),
-        inv_height,
-    )
+    var ray: Rayf32[.WORLD]
+    comptime if single_view:
+        ray = _camera_ray_single_view(
+            camera_params,
+            Int32(ray_idx),
+            width_px,
+            inv_height,
+        )
+    else:
+        ray = _camera_ray(
+            camera_params,
+            ray_count_int,
+            ray_idx,
+            Int(width_px),
+            Int(height_px),
+            inv_height,
+        )
     var hit = trace_ray(nodes, leaves, root_idx, ray)
     _store_camera_hit(hit, hits, ray_count_int, ray_idx)

@@ -248,9 +248,9 @@ struct CpuTlas[
                             any_hit = True
             return any_hit
 
-        var hit = _trace_tlas_tree[
-            Self.bounds_width, Self.leaf_width, mode
-        ](self.tree, ray, leaf_fn)
+        var hit = _trace_tlas_tree[Self.bounds_width, Self.leaf_width, mode](
+            self.tree, ray, leaf_fn
+        )
 
         comptime if mode == .CLOSEST_HIT:
             if hit.is_hit():
@@ -265,9 +265,7 @@ struct CpuTlas[
     ](
         self,
         ray: Rayf32[.WORLD],
-        blases: CpuBlasSet[
-            .TRIANGLE, blas_node_width, blas_leaf_width
-        ],
+        blases: CpuBlasSet[.TRIANGLE, blas_node_width, blas_leaf_width],
     ) -> Hit[.WORLD]:
         return self._trace_packed_blases[
             .TRIANGLE,

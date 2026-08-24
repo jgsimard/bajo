@@ -261,9 +261,7 @@ def main() raises:
         var gpu_ao = _bench_gpu[.AO](ctx, target, gpu_world, settings)
         var gpu_nee = _bench_gpu[.NEE](ctx, target, gpu_world, settings)
         var gpu_mis = _bench_gpu[.MIS](ctx, target, gpu_world, settings)
-        var gpu_nee_64 = _bench_gpu[.NEE](
-            ctx, target, many_gpu_world, settings
-        )
+        var gpu_nee_64 = _bench_gpu[.NEE](ctx, target, many_gpu_world, settings)
         var cwbvh_path = _bench_gpu[.PATH, .CWBVH8](
             ctx, target, cwbvh_world, settings
         )
@@ -276,9 +274,9 @@ def main() raises:
         var cwbvh_mis = _bench_gpu[.MIS, .CWBVH8](
             ctx, target, cwbvh_world, settings
         )
-        var cwbvh_nee_64 = _bench_gpu[
-            .NEE, .CWBVH8
-        ](ctx, target, many_cwbvh_world, settings)
+        var cwbvh_nee_64 = _bench_gpu[.NEE, .CWBVH8](
+            ctx, target, many_cwbvh_world, settings
+        )
 
         _print_comparison("PATH", cpu_path, gpu_path, sample_count)
         _print_comparison("AO", cpu_ao, gpu_ao, sample_count)

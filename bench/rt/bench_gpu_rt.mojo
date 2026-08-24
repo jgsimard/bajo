@@ -47,9 +47,7 @@ def main() raises:
 
     with DeviceContext() as ctx:
         var scene_t0 = perf_counter_ns()
-        var gpu_world = prepare_gpu_scene[.TRIANGLES](
-            ctx, world.scene_data()
-        )
+        var gpu_world = prepare_gpu_scene[.TRIANGLES](ctx, world.scene_data())
         ctx.synchronize()
         var scene_ns = Int(perf_counter_ns() - scene_t0)
 

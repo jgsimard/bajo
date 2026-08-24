@@ -254,9 +254,7 @@ def build_gpu_sphere_blas_set[
 ](
     mut ctx: DeviceContext,
     sphere_sets: ImmSpan[List[Sphere[.LOCAL]], _],
-) raises -> GpuBlasSet[
-    .SPHERE, GpuBvhLayout.WIDE, node_width, leaf_width
-]:
+) raises -> GpuBlasSet[.SPHERE, GpuBvhLayout.WIDE, node_width, leaf_width]:
     debug_assert["safe", _use_compiler_assume=True](len(sphere_sets) > 0)
     var inputs = _flatten_sphere_sets(sphere_sets)
     if inputs.segments.item_count() == 0:
@@ -291,6 +289,26 @@ struct GpuSphereBvh[
         validate_camera_launch(
             d_camera_params, d_hits, ray_count, cwidth, cheight
         )
+        if ray_count == cwidth * cheight:
+            comptime single_view_kernel = trace_bvh_camera_kernel[
+                _trace_sphere_bvh_camera_ray[Self.node_width, Self.leaf_width],
+                True,
+            ]
+            ctx.enqueue_function[single_view_kernel](
+                self.tree.wide_nodes,
+                self.leaf_spheres,
+                self.tree.root_idx,
+                d_camera_params,
+                d_hits,
+                Int32(ray_count),
+                Int32(cwidth),
+                Int32(cheight),
+                Float32(1.0) / Float32(cheight),
+                grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
+                block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+            )
+            return
+
         comptime kernel = trace_bvh_camera_kernel[
             _trace_sphere_bvh_camera_ray[Self.node_width, Self.leaf_width]
         ]

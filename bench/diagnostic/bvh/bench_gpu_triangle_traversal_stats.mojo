@@ -32,9 +32,7 @@ def _collect_and_print_triangle_stats[
     var bvh = build_gpu_triangle_bvh[.WORLD, node_width, leaf_width](
         ctx, d_vertices
     )
-    var d_hits = ctx.enqueue_create_buffer[.float32](
-        ray_count * Hit.STRIDE
-    )
+    var d_hits = ctx.enqueue_create_buffer[.float32](ray_count * Hit.STRIDE)
     var d_stats = ctx.enqueue_create_buffer[.uint32](
         ray_count * GpuTraversalStats.STRIDE
     )

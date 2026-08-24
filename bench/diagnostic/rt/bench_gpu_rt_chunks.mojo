@@ -39,9 +39,7 @@ def _run_capacity[
     var path = bench_gpu_triangle_integrator[.PATH](
         ctx, target, world, settings
     )
-    var nee = bench_gpu_triangle_integrator[.NEE](
-        ctx, target, world, settings
-    )
+    var nee = bench_gpu_triangle_integrator[.NEE](ctx, target, world, settings)
     print_gpu_rt_result("PATH", path, sample_count)
     print_gpu_rt_result("NEE", nee, sample_count)
 
@@ -63,15 +61,28 @@ def main() raises:
         t"median of {BENCH_REPEATS}; total samples={sample_count}"
     )
     with DeviceContext() as ctx:
-        var gpu_world = prepare_gpu_scene[.TRIANGLES](
-            ctx, world.scene_data()
-        )
+        var gpu_world = prepare_gpu_scene[.TRIANGLES](ctx, world.scene_data())
         ctx.synchronize()
         _run_capacity[131072](
             ctx, gpu_world, settings, sample_count, "128K paths (64 chunks)"
         )
+        _run_capacity[196608](
+            ctx, gpu_world, settings, sample_count, "192K paths"
+        )
+        _run_capacity[229376](
+            ctx, gpu_world, settings, sample_count, "224K paths"
+        )
         _run_capacity[262144](
             ctx, gpu_world, settings, sample_count, "256K paths (32 chunks)"
+        )
+        _run_capacity[327680](
+            ctx, gpu_world, settings, sample_count, "320K paths"
+        )
+        _run_capacity[393216](
+            ctx, gpu_world, settings, sample_count, "384K paths"
+        )
+        _run_capacity[458752](
+            ctx, gpu_world, settings, sample_count, "448K paths"
         )
         _run_capacity[524288](
             ctx, gpu_world, settings, sample_count, "512K paths (16 chunks)"

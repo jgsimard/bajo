@@ -10,6 +10,8 @@ comptime GRID_SIDE = 256
 comptime PRIM_COUNT = GRID_SIDE * GRID_SIDE
 comptime RAY_REPEATS_PER_PRIM = 4
 comptime RAY_COUNT = PRIM_COUNT * RAY_REPEATS_PER_PRIM
+
+
 def _grid_x(i: Int) -> Float32:
     return (Float32(i % GRID_SIDE) - Float32(GRID_SIDE) * 0.5) * 3.0
 

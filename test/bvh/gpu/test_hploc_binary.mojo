@@ -52,9 +52,7 @@ def _flatten_bounds(
     return flat^
 
 
-def _bounds_match(
-    actual: AABB[.WORLD], expected: AABB[.WORLD]
-) -> Bool:
+def _bounds_match(actual: AABB[.WORLD], expected: AABB[.WORLD]) -> Bool:
     return (
         max(
             max(
@@ -545,9 +543,7 @@ def test_lbvh_builds_independent_segment_topologies() raises:
                         if leaf_end - leaf_begin == 1:
                             assert_true(is_leaf_ref(root))
                             assert_equal(root_idx, leaf_begin)
-                            assert_equal(
-                                leaf_parent[leaf_begin], LBVH_SENTINEL
-                            )
+                            assert_equal(leaf_parent[leaf_begin], LBVH_SENTINEL)
                             continue
 
                         assert_false(is_leaf_ref(root))
@@ -586,9 +582,7 @@ def test_lbvh_builds_independent_segment_topologies() raises:
                             )
                         for node_idx in range(node_begin, node_end):
                             assert_equal(node_flags[node_idx], UInt32(2))
-                            var base = (
-                                node_idx * BinaryBvhNode.META_STRIDE
-                            )
+                            var base = node_idx * BinaryBvhNode.META_STRIDE
                             var parent = meta[base + BinaryBvhNode.PARENT]
                             if node_idx != root_idx:
                                 assert_true(

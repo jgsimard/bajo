@@ -205,9 +205,7 @@ def _render_frame[
         var t0 = perf_counter_ns()
         var t1: Int
         comptime if (
-            integrator == .PATH
-            or integrator == .NEE
-            or integrator == .MIS
+            integrator == .PATH or integrator == .NEE or integrator == .MIS
         ):
             var result = render_wavefront[integrator](settings, camera, world)
             t1 = perf_counter_ns()

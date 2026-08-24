@@ -5,7 +5,10 @@ from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh import Camera
 from bajo.bvh.gpu import GpuBvhBuildMethod
-from bajo.rt.gpu.bounce import enqueue_gpu_rt_bounce
+from bajo.rt.gpu.bounce import (
+    enqueue_gpu_rt_bounce,
+    enqueue_gpu_rt_primary_bounce,
+)
 from bajo.rt.gpu.common_kernels import GPU_RT_MAX_BLOCKS
 from bajo.rt.gpu.config import (
     GpuRtBvhFormat,
@@ -49,8 +52,7 @@ def _prefer_cwbvh8_blases(world: SceneData) -> Bool:
             len(world.triangle_meshes()[Int(instance.blas_idx)]) / 3
         )
     return weighted_triangles >= (
-        len(world.triangle_instances())
-        * GPU_RT_CWBVH8_BLAS_TRIANGLE_THRESHOLD
+        len(world.triangle_instances()) * GPU_RT_CWBVH8_BLAS_TRIANGLE_THRESHOLD
     )
 
 
@@ -90,12 +92,67 @@ def _enqueue_scene_bounce[
         arena,
         world.view(),
         world.materials,
+        world.lights.uniform_sampling_kind,
         src_path_ids,
         src_path_fields,
         dst_path_ids,
         dst_path_fields,
         rng_seed,
         bounce,
+    )
+
+
+def _enqueue_scene_primary_bounce[
+    integrator: Integrator,
+    kind: GpuRtSceneKind,
+    sphere_format: GpuRtBvhFormat,
+    triangle_format: GpuRtBvhFormat,
+    tlas_format: GpuRtBvhFormat,
+    blas_format: GpuRtBvhFormat,
+    MAX_BLOCKS: Int,
+    SHADOW_MAX_BLOCKS: Int,
+](
+    ctx: DeviceContext,
+    arena: GpuWavefrontArena,
+    camera: DeviceBuffer[.float32],
+    world: GpuRtScene[
+        kind, sphere_format, triangle_format, tlas_format, blas_format
+    ],
+    src_path_ids: DeviceBuffer[.uint32],
+    src_path_fields: DeviceBuffer[.float32],
+    dst_path_ids: DeviceBuffer[.uint32],
+    dst_path_fields: DeviceBuffer[.float32],
+    active_count: Int,
+    image_width: Int,
+    image_height: Int,
+    samples_per_pixel: Int,
+    rng_seed: UInt64,
+) raises:
+    enqueue_gpu_rt_primary_bounce[
+        integrator,
+        kind,
+        sphere_format,
+        triangle_format,
+        tlas_format,
+        blas_format,
+        MAX_BLOCKS,
+        SHADOW_MAX_BLOCKS,
+    ](
+        ctx,
+        arena,
+        world.view(),
+        world.materials,
+        world.lights.uniform_sampling_kind,
+        camera,
+        src_path_ids,
+        src_path_fields,
+        dst_path_ids,
+        dst_path_fields,
+        active_count,
+        image_width,
+        image_height,
+        samples_per_pixel,
+        rng_seed,
     )
 
 
@@ -119,6 +176,16 @@ def enqueue_render_gpu[
     """Submit any prepared scene through one compile-time-specialized path."""
     enqueue_gpu_wavefront[
         integrator,
+        _enqueue_scene_primary_bounce[
+            integrator,
+            kind,
+            sphere_format,
+            triangle_format,
+            tlas_format,
+            blas_format,
+            MAX_BLOCKS,
+            SHADOW_MAX_BLOCKS,
+        ],
         _enqueue_scene_bounce[
             integrator,
             kind,

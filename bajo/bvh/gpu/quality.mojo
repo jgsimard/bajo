@@ -79,9 +79,7 @@ def measure_binary_bvh_quality(
             for node_idx in range(binary.internal_count):
                 var base = node_idx * BinaryBvhNode.BOUNDS_STRIDE
                 var left = AABB[.WORLD].load6(bounds_span, base)
-                var right = AABB[.WORLD].load6(
-                    bounds_span, base + AABB.STRIDE
-                )
+                var right = AABB[.WORLD].load6(bounds_span, base + AABB.STRIDE)
                 internal_area += Float64(
                     AABB[.WORLD].merge(left, right).surface_area()[0]
                 )

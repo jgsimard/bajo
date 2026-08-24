@@ -530,9 +530,7 @@ struct SceneBuilder(
         surface: SurfaceId[1],
     ) -> UInt32:
         var mesh_idx = UInt32(len(self.triangle_meshes))
-        var owned_vertices = List[Point3f32[.LOCAL]](
-            capacity=len(vertices)
-        )
+        var owned_vertices = List[Point3f32[.LOCAL]](capacity=len(vertices))
         owned_vertices.extend(vertices)
         self.triangle_meshes.append(owned_vertices^)
         self._add_triangle_instance_unchecked(mesh_idx, transform, bounds)
@@ -869,7 +867,8 @@ struct SceneData:
                     self._append_light(
                         LightRecord.triangle(
                             PrimitiveId(
-                                PrimitiveKind.TRIANGLE_INSTANCE, UInt32(instance_idx)
+                                PrimitiveKind.TRIANGLE_INSTANCE,
+                                UInt32(instance_idx),
                             ),
                             surface.copy(),
                             weight,

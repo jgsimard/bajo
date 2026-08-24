@@ -85,9 +85,7 @@ def test_rotation_scale_translation_from_quat() raises:
     var v = Vec3W(1, 2, 3)
     var p = Point3W(1, 2, 3)
 
-    var m = Affine3f32[
-        .WORLD, .CAMERA
-    ].from_rotation_scale_translation(q, s, t)
+    var m = Affine3f32[.WORLD, .CAMERA].from_rotation_scale_translation(q, s, t)
 
     var expected_v = q.rotate(Vec3W(p.x * s.x, p.y * s.y, p.z * s.z))
     var expected_p = (expected_v + t).unsafe_convert[
@@ -98,9 +96,7 @@ def test_rotation_scale_translation_from_quat() raises:
         m.vector(v), expected_v.unsafe_convert[new_frame=.CAMERA]()
     )
     assert_vec_equal(m.point(p), expected_p)
-    assert_vec_equal(
-        m.translation(), t.unsafe_convert[new_frame=.CAMERA]()
-    )
+    assert_vec_equal(m.translation(), t.unsafe_convert[new_frame=.CAMERA]())
 
 
 def test_width4_translation_and_scale() raises:
@@ -136,9 +132,7 @@ def test_width4_translation_and_scale() raises:
 
 
 def test_normal_uses_inverse_transpose_for_nonuniform_scale() raises:
-    var transform = Affine3f32[.WORLD, .CAMERA].from_scale(
-        Vec3W(2.0, 3.0, 4.0)
-    )
+    var transform = Affine3f32[.WORLD, .CAMERA].from_scale(Vec3W(2.0, 3.0, 4.0))
     var inverse = Affine3f32[.CAMERA, .WORLD].from_scale(
         Vec3f32[.CAMERA](0.5, 1.0 / 3.0, 0.25)
     )
@@ -224,9 +218,7 @@ def test_inverse_translation_scale() raises:
     var t = Vec3W(10, 20, 30)
     var p = Point3W(1, 2, 3)
 
-    var m = Affine3f32[
-        .WORLD, .CAMERA
-    ].from_rotation_scale_translation(
+    var m = Affine3f32[.WORLD, .CAMERA].from_rotation_scale_translation(
         Quat[.WORLD].identity(),
         s,
         t,
@@ -249,9 +241,7 @@ def test_inverse_rotation_scale_translation() raises:
     var t = Vec3W(10, 20, 30)
     var p = Point3W(1, 2, 3)
 
-    var m = Affine3f32[
-        .WORLD, .CAMERA
-    ].from_rotation_scale_translation(q, s, t)
+    var m = Affine3f32[.WORLD, .CAMERA].from_rotation_scale_translation(q, s, t)
     var res = m.inverse()
 
     assert_true(res.mask[0])
@@ -295,12 +285,8 @@ def test_ray_transform() raises:
     # fmt: on
     var transformed = transform.ray(ray, 7)
 
-    assert_vec_equal(
-        transformed.o, Point3[DType.float64, .CAMERA](12, 4, 15)
-    )
-    assert_vec_equal(
-        transformed.d, Vec3[.float64, .CAMERA](8, 15, 24)
-    )
+    assert_vec_equal(transformed.o, Point3[DType.float64, .CAMERA](12, 4, 15))
+    assert_vec_equal(transformed.d, Vec3[.float64, .CAMERA](8, 15, 24))
     assert_almost_equal(transformed.t_min, 0.25)
     assert_almost_equal(transformed.t_max, 7)
 

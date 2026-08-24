@@ -1,3 +1,5 @@
+from std.memory import bitcast
+
 from bajo.bvh.gpu.wide_layout import (
     WideNodeIntersection,
     _intersect_wide_node_precomputed,
@@ -99,6 +101,23 @@ struct GpuTraceResult[frame: Frame](TrivialRegisterPassable):
 
 
 @always_inline
+def _pack_gpu_pending_task(child_ref: UInt32, child_t: Float32) -> UInt64:
+    var t_bits = bitcast[DType.uint32, 1](SIMD[.float32, 1](child_t))[0]
+    return UInt64(child_ref) | (UInt64(t_bits) << UInt64(32))
+
+
+@always_inline
+def _gpu_pending_task_ref(task: UInt64) -> UInt32:
+    return UInt32(task)
+
+
+@always_inline
+def _gpu_pending_task_t(task: UInt64) -> Float32:
+    var bits = SIMD[DType.uint32, 1](UInt32(task >> UInt64(32)))
+    return bitcast[DType.float32, 1](bits)[0]
+
+
+@always_inline
 def _intersect_trace_node_precomputed[
     frame: Frame,
     width: SIMDLength,
@@ -120,6 +139,7 @@ def _trace_bounds_bvh_distance_aware[
     mode: TraceMode,
     leaf_fn: GpuLeafFn[frame],
     collect_stats: Bool,
+    packed_stack: Bool = False,
 ](
     wide_nodes: ImmPointer[Float32, _],
     leaves: ImmPointer[Float32, _],
@@ -128,6 +148,8 @@ def _trace_bounds_bvh_distance_aware[
 ) -> GpuTraceResult[frame]:
     var hit = Hit[frame].miss(ray.t_max)
     var stats = GpuTraversalStats.zero()
+    # Comptime specialization removes the unused representation.
+    var packed_tasks = Array[UInt64, GPU_STACK_SIZE](uninitialized=True)
     var stack = Array[UInt32, GPU_STACK_SIZE](uninitialized=True)
     var stack_near = Array[Float32, GPU_STACK_SIZE](uninitialized=True)
     var stack_ptr = 0
@@ -189,8 +211,13 @@ def _trace_bounds_bvh_distance_aware[
                     stack_ptr < GPU_STACK_SIZE,
                     "GPU BVH traversal stack overflow",
                 )
-                stack[stack_ptr] = child_data[lane]
-                stack_near[stack_ptr] = child_t[lane]
+                comptime if packed_stack:
+                    packed_tasks[stack_ptr] = _pack_gpu_pending_task(
+                        child_data[lane], child_t[lane]
+                    )
+                else:
+                    stack[stack_ptr] = child_data[lane]
+                    stack_near[stack_ptr] = child_t[lane]
                 stack_ptr += 1
                 comptime if collect_stats:
                     if UInt32(stack_ptr) > stats.max_stack_depth:
@@ -209,10 +236,17 @@ def _trace_bounds_bvh_distance_aware[
             var found_pending = False
             while stack_ptr > 0:
                 stack_ptr -= 1
-                if stack_near[stack_ptr] <= hit.t:
-                    current = stack[stack_ptr]
-                    found_pending = True
-                    break
+                comptime if packed_stack:
+                    var task = packed_tasks[stack_ptr]
+                    if _gpu_pending_task_t(task) <= hit.t:
+                        current = _gpu_pending_task_ref(task)
+                        found_pending = True
+                        break
+                else:
+                    if stack_near[stack_ptr] <= hit.t:
+                        current = stack[stack_ptr]
+                        found_pending = True
+                        break
 
             if not found_pending:
                 break
@@ -221,7 +255,10 @@ def _trace_bounds_bvh_distance_aware[
                 break
 
             stack_ptr -= 1
-            current = stack[stack_ptr]
+            comptime if packed_stack:
+                current = _gpu_pending_task_ref(packed_tasks[stack_ptr])
+            else:
+                current = stack[stack_ptr]
 
     return GpuTraceResult[frame](hit, stats)
 
@@ -233,6 +270,7 @@ def _trace_bounds_bvh_with_counters[
     leaf_fn: GpuLeafFn[frame],
     collect_stats: Bool,
     distance_aware: Bool = False,
+    packed_distance_stack: Bool = False,
 ](
     wide_nodes: ImmPointer[Float32, _],
     leaves: ImmPointer[Float32, _],
@@ -241,7 +279,12 @@ def _trace_bounds_bvh_with_counters[
 ) -> GpuTraceResult[frame]:
     comptime if distance_aware:
         return _trace_bounds_bvh_distance_aware[
-            frame, width, mode, leaf_fn, collect_stats
+            frame,
+            width,
+            mode,
+            leaf_fn,
+            collect_stats,
+            packed_distance_stack,
         ](wide_nodes, leaves, root_idx, ray)
 
     var hit = Hit[frame].miss(ray.t_max)
@@ -559,6 +602,7 @@ def trace_bounds_bvh[
     leaf_fn: GpuLeafFn[frame],
     distance_aware: Bool = False,
     compact_bvh2: Bool = False,
+    packed_distance_stack: Bool = False,
 ](
     wide_nodes: ImmPointer[Float32, _],
     leaves: ImmPointer[Float32, _],
@@ -582,7 +626,13 @@ def trace_bounds_bvh[
             ray,
         )
     return _trace_bounds_bvh_with_counters[
-        frame, width, mode, leaf_fn, False, distance_aware
+        frame,
+        width,
+        mode,
+        leaf_fn,
+        False,
+        distance_aware,
+        packed_distance_stack,
     ](wide_nodes, leaves, root_idx, ray).hit
 
 

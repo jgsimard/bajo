@@ -442,11 +442,7 @@ def build_cpu_sphere_blas_set[
     width: SIMDLength,
     method: CpuBvhBuildMethod = .SAH,
     frame: Frame = .LOCAL,
-](
-    sphere_sets: ImmSpan[List[Sphere[frame]], _],
-) -> CpuBlasSet[
-    .SPHERE, width
-]:
+](sphere_sets: ImmSpan[List[Sphere[frame]], _],) -> CpuBlasSet[.SPHERE, width]:
     debug_assert["safe", _use_compiler_assume=True](
         len(sphere_sets) > 0, "CPU BLAS batch must be nonempty"
     )

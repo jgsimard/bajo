@@ -25,9 +25,7 @@ def trace_gpu_blas[
 ) -> Hit[frame]:
     """Select the storage-specific traversal while keeping one call ABI."""
     comptime if layout.compressed:
-        return trace_cwbvh8_triangles[frame, mode](
-            nodes, leaves, root_idx, ray
-        )
+        return trace_cwbvh8_triangles[frame, mode](nodes, leaves, root_idx, ray)
     return trace_bounds_bvh[
         frame,
         node_width,

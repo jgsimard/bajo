@@ -6,19 +6,25 @@ from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh.constants import (
     GPU_BOUNDS_BVH_BLOCK_SIZE,
+    GPU_STACK_SIZE,
     TRI_LEAF_VERTEX_STRIDE,
 )
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.gpu.builder.segmented_build import enqueue_segmented_wide_build
-from bajo.bvh.gpu.camera_launch import _camera_ray, _store_camera_hit
+from bajo.bvh.gpu.camera_launch import (
+    _camera_ray_single_view,
+    _store_camera_hit,
+)
 from bajo.bvh.gpu.compressed_bounds_bvh import (
     CWBVH_NODE_WORDS,
     CWBVH_TRIANGLE_WORDS,
     enqueue_segmented_cwbvh8_representation,
 )
 from bajo.bvh.gpu.cwbvh8_builder import GpuCwbvh8BuildArena
+from bajo.bvh.gpu.builder.hploc_layout import HPLOC_MERGING_THRESHOLD
 from bajo.bvh.gpu.triangle_bvh import (
     compute_triangle_bounds_kernel,
+    trace_cwbvh8_indexed_triangles,
     trace_cwbvh8_triangles,
 )
 from bajo.bvh.gpu.tlas_diagnostics import _trace_cwbvh8_with_stats_in_frame
@@ -37,9 +43,19 @@ struct Cwbvh8BenchBvh(Copyable):
 def create_cwbvh8_bench_arena[
     max_leaf_size: Int = 3,
     direct_conversion: Bool = True,
+    indexed_triangle_layout: Bool = False,
+    spatial_slots: Bool = True,
+    merging_threshold: Int = HPLOC_MERGING_THRESHOLD,
 ](
     mut ctx: DeviceContext, d_vertices: DeviceBuffer[.float32]
-) raises -> GpuCwbvh8BuildArena[max_leaf_size, direct_conversion]:
+) raises -> GpuCwbvh8BuildArena[
+    max_leaf_size,
+    direct_conversion,
+    indexed_triangle_layout,
+    spatial_slots,
+    4,
+    merging_threshold,
+]:
     """Create a fixed-capacity H-PLOC arena and queue its initial build."""
     var tri_count = len(d_vertices) / TRI_LEAF_VERTEX_STRIDE
     var leaf_bounds = ctx.enqueue_create_buffer[.float32](tri_count * 6)
@@ -51,9 +67,14 @@ def create_cwbvh8_bench_arena[
         grid_dim=ceildiv(tri_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
         block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
     )
-    return GpuCwbvh8BuildArena[max_leaf_size, direct_conversion](
-        ctx, leaf_bounds^, payloads^, d_vertices
-    )
+    return GpuCwbvh8BuildArena[
+        max_leaf_size,
+        direct_conversion,
+        indexed_triangle_layout,
+        spatial_slots,
+        4,
+        merging_threshold,
+    ](ctx, leaf_bounds^, payloads^, d_vertices)
 
 
 def build_cwbvh8_bench_bvh[
@@ -103,7 +124,10 @@ def build_cwbvh8_bench_bvh[
     return Cwbvh8BenchBvh(nodes^, triangles^, UInt32(0))
 
 
-def trace_cwbvh8_camera_kernel(
+def trace_cwbvh8_camera_kernel[
+    max_leaf_size: Int = 3,
+    stack_capacity: Int = GPU_STACK_SIZE,
+](
     nodes: Pointer[Float32, ImmutAnyOrigin],
     triangles: Pointer[Float32, ImmutAnyOrigin],
     root_idx: UInt32,
@@ -119,17 +143,15 @@ def trace_cwbvh8_camera_kernel(
     var ray_idx = global_idx.x
     if ray_idx >= ray_count_int:
         return
-    var ray = _camera_ray(
+    var ray = _camera_ray_single_view(
         camera_params,
-        ray_count_int,
-        ray_idx,
-        Int(width_px),
-        Int(height_px),
+        Int32(ray_idx),
+        width_px,
         inv_height,
     )
-    var hit = trace_cwbvh8_triangles[.WORLD, .CLOSEST_HIT](
-        nodes, triangles, root_idx, ray
-    )
+    var hit = trace_cwbvh8_triangles[
+        .WORLD, .CLOSEST_HIT, True, max_leaf_size, stack_capacity
+    ](nodes, triangles, root_idx, ray)
     _store_camera_hit(hit, hits, ray_count_int, ray_idx)
 
 
@@ -149,18 +171,43 @@ def trace_cwbvh8_camera_legacy_decode_kernel(
     var ray_idx = global_idx.x
     if ray_idx >= ray_count_int:
         return
-    var ray = _camera_ray(
+    var ray = _camera_ray_single_view(
         camera_params,
-        ray_count_int,
-        ray_idx,
-        Int(width_px),
-        Int(height_px),
+        Int32(ray_idx),
+        width_px,
         inv_height,
     )
     var hit = trace_cwbvh8_triangles[.WORLD, .CLOSEST_HIT, False](
         nodes, triangles, root_idx, ray
     )
     _store_camera_hit(hit, hits, ray_count_int, ray_idx)
+
+
+def trace_cwbvh8_indexed_camera_kernel[
+    max_leaf_size: Int = 3,
+    stack_capacity: Int = GPU_STACK_SIZE,
+](
+    nodes: Pointer[Float32, ImmutAnyOrigin],
+    primitive_ids: Pointer[UInt32, ImmutAnyOrigin],
+    vertices: Pointer[Float32, ImmutAnyOrigin],
+    root_idx: UInt32,
+    camera_params: Pointer[Float32, ImmutAnyOrigin],
+    hits: Pointer[Float32, MutAnyOrigin],
+    ray_count: Int32,
+    width_px: Int32,
+    height_px: Int32,
+    inv_height: Float32,
+):
+    var ray_idx = global_idx.x
+    if ray_idx >= Int(ray_count):
+        return
+    var ray = _camera_ray_single_view(
+        camera_params, Int32(ray_idx), width_px, inv_height
+    )
+    var hit = trace_cwbvh8_indexed_triangles[
+        .WORLD, .CLOSEST_HIT, max_leaf_size, stack_capacity
+    ](nodes, primitive_ids, vertices, root_idx, ray)
+    _store_camera_hit(hit, hits, Int(ray_count), ray_idx)
 
 
 def trace_cwbvh8_camera_stats_kernel(
@@ -180,12 +227,10 @@ def trace_cwbvh8_camera_stats_kernel(
     var ray_idx = global_idx.x
     if ray_idx >= ray_count_int:
         return
-    var ray = _camera_ray(
+    var ray = _camera_ray_single_view(
         camera_params,
-        ray_count_int,
-        ray_idx,
-        Int(width_px),
-        Int(height_px),
+        Int32(ray_idx),
+        width_px,
         inv_height,
     )
     var result = _trace_cwbvh8_with_stats_in_frame[.WORLD](

@@ -162,9 +162,7 @@ def _run_layout[
         .ALL,
         sphere_format=GpuRtBvhFormat(4, 4, .WIDE),
         triangle_format=GpuRtBvhFormat(4, 4, .WIDE),
-        tlas_format=GpuRtBvhFormat(
-            tlas_node_width, tlas_leaf_width, .WIDE
-        ),
+        tlas_format=GpuRtBvhFormat(tlas_node_width, tlas_leaf_width, .WIDE),
         blas_format=GpuRtBvhFormat(
             blas_node_width,
             blas_leaf_width,

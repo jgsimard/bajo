@@ -49,9 +49,7 @@ def make_weekend_world[
 
             if length(center - Point3W(4.0, 0.2, 0.0)) > 0.9:
                 if choose_mat < 0.8:
-                    var albedo = (
-                        rng.vec3f32[.WORLD]() * rng.vec3f32[.WORLD]()
-                    )
+                    var albedo = rng.vec3f32[.WORLD]() * rng.vec3f32[.WORLD]()
                     var surface = builder.add_lambertian(albedo)
                     builder.add_sphere(center, 0.2, surface)
                 elif choose_mat < 0.95:

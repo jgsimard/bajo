@@ -46,9 +46,7 @@ from test.bvh.fixtures import (
 )
 
 
-def _bounds_match(
-    actual: AABB[.WORLD], expected: AABB[.WORLD]
-) -> Bool:
+def _bounds_match(actual: AABB[.WORLD], expected: AABB[.WORLD]) -> Bool:
     return (
         max(
             max(
@@ -365,9 +363,7 @@ def _assert_hploc_triangle_matches_cpu[
         comptime if expect_packing:
             assert_true(gpu.tree.leaf_block_count < len(verts) / 3)
 
-        var hits = ctx.enqueue_create_buffer[.float32](
-            len(rays) * Hit.STRIDE
-        )
+        var hits = ctx.enqueue_create_buffer[.float32](len(rays) * Hit.STRIDE)
         gpu.launch_camera(
             ctx,
             upload_list(ctx, camera_params),

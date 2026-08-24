@@ -65,9 +65,7 @@ struct CpuScene[
     """
 
     var sphere_bvh: Optional[CpuBlasSet[.SPHERE, Self.world_bvh_width]]
-    var triangle_bvh: Optional[
-        CpuBlasSet[.TRIANGLE, Self.world_bvh_width]
-    ]
+    var triangle_bvh: Optional[CpuBlasSet[.TRIANGLE, Self.world_bvh_width]]
     var triangle_tlas: Optional[CpuTlas[Self.instance_bvh_width, 1]]
     var triangle_mesh_blases: Optional[
         CpuBlasSet[.TRIANGLE, Self.instance_bvh_width]
@@ -76,9 +74,7 @@ struct CpuScene[
 
     def __init__(out self, var scene: SceneData):
         self._scene = scene^
-        self.sphere_bvh = Optional[
-            CpuBlasSet[.SPHERE, Self.world_bvh_width]
-        ]()
+        self.sphere_bvh = Optional[CpuBlasSet[.SPHERE, Self.world_bvh_width]]()
         self.triangle_bvh = Optional[
             CpuBlasSet[.TRIANGLE, Self.world_bvh_width]
         ]()
@@ -103,9 +99,9 @@ struct CpuScene[
             self.sphere_bvh = Optional[
                 CpuBlasSet[.SPHERE, Self.world_bvh_width]
             ](
-                build_cpu_sphere_blas_set[
-                    Self.world_bvh_width, .SAH, .WORLD
-                ]([bvh_spheres^])
+                build_cpu_sphere_blas_set[Self.world_bvh_width, .SAH, .WORLD](
+                    [bvh_spheres^]
+                )
             )
 
         if len(self._scene.triangle_vertices()) > 0:
@@ -272,9 +268,7 @@ struct CpuScene[
         comptime if length == 1:
             if valid[0]:
                 var ray = Rayf32[.WORLD](
-                    Point3f32[.WORLD](
-                        rays.o.x[0], rays.o.y[0], rays.o.z[0]
-                    ),
+                    Point3f32[.WORLD](rays.o.x[0], rays.o.y[0], rays.o.z[0]),
                     Vec3f32[.WORLD](rays.d.x[0], rays.d.y[0], rays.d.z[0]),
                     rays.t_min[0],
                     rays.t_max[0],

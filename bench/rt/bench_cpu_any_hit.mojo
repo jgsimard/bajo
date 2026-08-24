@@ -40,9 +40,7 @@ def query_any(world: CpuScene[], rays: List[Rayf32[.WORLD]]) -> Int:
     return hits
 
 
-def time_closest(
-    world: CpuScene[], rays: List[Rayf32[.WORLD]]
-) -> TimingResult:
+def time_closest(world: CpuScene[], rays: List[Rayf32[.WORLD]]) -> TimingResult:
     var hits = query_closest(world, rays)
     var best_ns = Int.MAX
     for _ in range(TIMING_REPEATS):
@@ -54,9 +52,7 @@ def time_closest(
     return TimingResult(best_ns, hits)
 
 
-def time_any(
-    world: CpuScene[], rays: List[Rayf32[.WORLD]]
-) -> TimingResult:
+def time_any(world: CpuScene[], rays: List[Rayf32[.WORLD]]) -> TimingResult:
     var hits = query_any(world, rays)
     var best_ns = Int.MAX
     for _ in range(TIMING_REPEATS):
@@ -95,9 +91,7 @@ def make_weekend_ao_rays(
             if hit:
                 ref record = hit.value()
                 var rng = Rng(seed=UInt64(2026), id=UInt64(py * AO_WIDTH + px))
-                var direction = random_on_hemisphere[.WORLD](
-                    rng, record.normal
-                )
+                var direction = random_on_hemisphere[.WORLD](rng, record.normal)
                 rays.append(
                     Rayf32[.WORLD](
                         record.p,

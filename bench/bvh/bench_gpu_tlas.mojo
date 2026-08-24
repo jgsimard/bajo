@@ -721,8 +721,8 @@ def _run_triangle_tlas_width[
 
     var b0 = perf_counter_ns()
     var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
-    var tlas = build_gpu_tlas_measured[.TRIANGLE,
-        tlas_width, blas_width, tlas_leaf_width
+    var tlas = build_gpu_tlas_measured[
+        .TRIANGLE, tlas_width, blas_width, tlas_leaf_width
     ](ctx, instances, timings)
     ctx.synchronize()
     var b1 = perf_counter_ns()
@@ -780,8 +780,8 @@ def _run_sphere_tlas_width[
 
     var b0 = perf_counter_ns()
     var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
-    var tlas = build_gpu_tlas_measured[.SPHERE,
-        tlas_width, blas_width, tlas_leaf_width
+    var tlas = build_gpu_tlas_measured[
+        .SPHERE, tlas_width, blas_width, tlas_leaf_width
     ](ctx, instances, timings)
     ctx.synchronize()
     var b1 = perf_counter_ns()
@@ -1108,9 +1108,9 @@ def run_benchmark() raises:
         ctx.synchronize()
 
         print("Building CPU CpuBlasSet[8] LBVH reference for 4x4 grid...")
-        var cpu_blas = build_cpu_triangle_blas_set[
-            8, 8, .LBVH, .LOCAL
-        ]([tri_vertices.copy()])
+        var cpu_blas = build_cpu_triangle_blas_set[8, 8, .LBVH, .LOCAL](
+            [tri_vertices.copy()]
+        )
 
         print("\nSingle instance triangle TLAS")
         print("-----------------------------")

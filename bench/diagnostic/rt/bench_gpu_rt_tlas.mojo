@@ -156,12 +156,8 @@ def _run_layout[
     var t0 = perf_counter_ns()
     var gpu_world = prepare_gpu_scene[
         .INSTANCES,
-        tlas_format=GpuRtBvhFormat(
-            tlas_node_width, tlas_leaf_width, .WIDE
-        ),
-        blas_format=GpuRtBvhFormat(
-            blas_node_width, blas_leaf_width, .WIDE
-        ),
+        tlas_format=GpuRtBvhFormat(tlas_node_width, tlas_leaf_width, .WIDE),
+        blas_format=GpuRtBvhFormat(blas_node_width, blas_leaf_width, .WIDE),
         tlas_build_method=tlas_build_method,
     ](ctx, world.scene_data())
     ctx.synchronize()

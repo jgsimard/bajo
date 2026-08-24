@@ -41,7 +41,7 @@ from bajo.bvh.gpu.utils import _device_span, upload_list
 from bajo.core import AABB, Point3f32, SegmentOffsets
 
 
-comptime HPLOC_MULTI_WAVE_BLOCK_SIZE = 256
+comptime HPLOC_MULTI_WAVE_BLOCK_SIZE = 64
 
 
 @always_inline
@@ -189,6 +189,8 @@ def build_hploc_multi_wave_kernel[
     search_radius: Int,
     merging_threshold: Int,
     compact_output: Bool,
+    single_segment: Bool,
+    pair_once_search: Bool,
 ](
     sorted_morton_codes: ImmSpan[UInt32, ImmutAnyOrigin],
     segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
@@ -261,9 +263,14 @@ def build_hploc_multi_wave_kernel[
     var segment_end = 0
     var segment_leaf_count = 0
     if lane_active:
-        segment_idx = _segment_for_item(segment_offsets, idx)
-        segment_begin = Int(segment_offsets.unsafe_get(segment_idx))
-        segment_end = Int(segment_offsets.unsafe_get(segment_idx + 1))
+        comptime if single_segment:
+            segment_idx = 0
+            segment_begin = 0
+            segment_end = leaf_count
+        else:
+            segment_idx = _segment_for_item(segment_offsets, idx)
+            segment_begin = Int(segment_offsets.unsafe_get(segment_idx))
+            segment_end = Int(segment_offsets.unsafe_get(segment_idx + 1))
         segment_leaf_count = segment_end - segment_begin
     while hploc_wave_ballot(lane_active) != 0:
         if lane_active:
@@ -377,94 +384,157 @@ def build_hploc_multi_wave_kernel[
                     cluster_idx = node_indices_cache[unsafe_offset=shared_lane]
                     own_bounds = load_cached_bounds(shared_lane)
 
-                # Keep this lane's AABB in registers and fetch neighboring
-                # AABBs with shuffles. Every lane evaluates both directions;
-                # this removes the shared UInt64 minima table and its atomic
-                # publications while retaining the exact packed tie ordering.
-                var own_minimum = UInt64.MAX
-                for neighbor_distance in range(1, search_radius + 1):
-                    var right_lane = min(lane + neighbor_distance, WARP_SIZE - 1)
-                    var right_bounds = AABB[.WORLD](
-                        Point3f32[.WORLD](
-                            warp.shuffle_idx(
-                                own_bounds._min.x, UInt32(right_lane)
-                            ),
-                            warp.shuffle_idx(
-                                own_bounds._min.y, UInt32(right_lane)
-                            ),
-                            warp.shuffle_idx(
-                                own_bounds._min.z, UInt32(right_lane)
-                            ),
-                        ),
-                        Point3f32[.WORLD](
-                            warp.shuffle_idx(
-                                own_bounds._max.x, UInt32(right_lane)
-                            ),
-                            warp.shuffle_idx(
-                                own_bounds._max.y, UInt32(right_lane)
-                            ),
-                            warp.shuffle_idx(
-                                own_bounds._max.z, UInt32(right_lane)
-                            ),
-                        ),
-                    )
-                    if active and lane + neighbor_distance < cluster_count:
-                        var merged = AABB[.WORLD].merge(
-                            own_bounds, right_bounds
-                        )
-                        own_minimum = min(
-                            own_minimum,
-                            _hploc_pack_distance_offset(
-                                merged.surface_area()[0],
-                                _hploc_encode_offset(
-                                    lane, lane + neighbor_distance
-                                ),
-                            ),
-                        )
-                    var left_lane = max(lane - neighbor_distance, 0)
-                    var left_bounds = AABB[.WORLD](
-                        Point3f32[.WORLD](
-                            warp.shuffle_idx(
-                                own_bounds._min.x, UInt32(left_lane)
-                            ),
-                            warp.shuffle_idx(
-                                own_bounds._min.y, UInt32(left_lane)
-                            ),
-                            warp.shuffle_idx(
-                                own_bounds._min.z, UInt32(left_lane)
-                            ),
-                        ),
-                        Point3f32[.WORLD](
-                            warp.shuffle_idx(
-                                own_bounds._max.x, UInt32(left_lane)
-                            ),
-                            warp.shuffle_idx(
-                                own_bounds._max.y, UInt32(left_lane)
-                            ),
-                            warp.shuffle_idx(
-                                own_bounds._max.z, UInt32(left_lane)
-                            ),
-                        ),
-                    )
-                    if active and lane - neighbor_distance >= 0:
-                        var merged = AABB[.WORLD].merge(
-                            own_bounds, left_bounds
-                        )
-                        own_minimum = min(
-                            own_minimum,
-                            _hploc_pack_distance_offset(
-                                merged.surface_area()[0],
-                                _hploc_encode_offset(
-                                    lane, lane - neighbor_distance
-                                ),
-                            ),
-                        )
-
                 var nearest = WARP_SIZE
-                if active:
-                    nearest = _hploc_decode_offset(
-                        lane, UInt32(own_minimum)
-                    )
+                comptime if pair_once_search:
+                    var minimum_area = UInt32.MAX
+                    for neighbor_distance in range(1, search_radius + 1):
+                        var right_lane = lane + neighbor_distance
+                        var right_bounds = AABB[.WORLD](
+                            Point3f32[.WORLD](
+                                warp.shuffle_idx(
+                                    own_bounds._min.x, UInt32(right_lane)
+                                ),
+                                warp.shuffle_idx(
+                                    own_bounds._min.y, UInt32(right_lane)
+                                ),
+                                warp.shuffle_idx(
+                                    own_bounds._min.z, UInt32(right_lane)
+                                ),
+                            ),
+                            Point3f32[.WORLD](
+                                warp.shuffle_idx(
+                                    own_bounds._max.x, UInt32(right_lane)
+                                ),
+                                warp.shuffle_idx(
+                                    own_bounds._max.y, UInt32(right_lane)
+                                ),
+                                warp.shuffle_idx(
+                                    own_bounds._max.z, UInt32(right_lane)
+                                ),
+                            ),
+                        )
+                        var area_bits = UInt32.MAX
+                        if active and lane + neighbor_distance < cluster_count:
+                            var merged = AABB[.WORLD].merge(
+                                own_bounds, right_bounds
+                            )
+                            area_bits = bitcast[DType.uint32](
+                                merged.surface_area()[0]
+                            )
+                            if area_bits < minimum_area:
+                                minimum_area = area_bits
+                                nearest = lane + neighbor_distance
+
+                        var neighbor_minimum = warp.shuffle_idx(
+                            minimum_area, UInt32(right_lane)
+                        )
+                        var neighbor_nearest = Int(
+                            warp.shuffle_idx(
+                                UInt32(nearest), UInt32(right_lane)
+                            )
+                        )
+                        if area_bits < neighbor_minimum:
+                            neighbor_minimum = area_bits
+                            neighbor_nearest = lane
+
+                        minimum_area = warp.shuffle_idx(
+                            neighbor_minimum,
+                            UInt32(lane - neighbor_distance),
+                        )
+                        nearest = Int(
+                            warp.shuffle_idx(
+                                UInt32(neighbor_nearest),
+                                UInt32(lane - neighbor_distance),
+                            )
+                        )
+                else:
+                    # Keep this lane's AABB in registers and fetch neighboring
+                    # AABBs with shuffles. Every lane evaluates both directions
+                    # to retain the exact packed tie ordering.
+                    var own_minimum = UInt64.MAX
+                    for neighbor_distance in range(1, search_radius + 1):
+                        var right_lane = min(
+                            lane + neighbor_distance, WARP_SIZE - 1
+                        )
+                        var right_bounds = AABB[.WORLD](
+                            Point3f32[.WORLD](
+                                warp.shuffle_idx(
+                                    own_bounds._min.x, UInt32(right_lane)
+                                ),
+                                warp.shuffle_idx(
+                                    own_bounds._min.y, UInt32(right_lane)
+                                ),
+                                warp.shuffle_idx(
+                                    own_bounds._min.z, UInt32(right_lane)
+                                ),
+                            ),
+                            Point3f32[.WORLD](
+                                warp.shuffle_idx(
+                                    own_bounds._max.x, UInt32(right_lane)
+                                ),
+                                warp.shuffle_idx(
+                                    own_bounds._max.y, UInt32(right_lane)
+                                ),
+                                warp.shuffle_idx(
+                                    own_bounds._max.z, UInt32(right_lane)
+                                ),
+                            ),
+                        )
+                        if active and lane + neighbor_distance < cluster_count:
+                            var merged = AABB[.WORLD].merge(
+                                own_bounds, right_bounds
+                            )
+                            own_minimum = min(
+                                own_minimum,
+                                _hploc_pack_distance_offset(
+                                    merged.surface_area()[0],
+                                    _hploc_encode_offset(
+                                        lane, lane + neighbor_distance
+                                    ),
+                                ),
+                            )
+                        var left_lane = max(lane - neighbor_distance, 0)
+                        var left_bounds = AABB[.WORLD](
+                            Point3f32[.WORLD](
+                                warp.shuffle_idx(
+                                    own_bounds._min.x, UInt32(left_lane)
+                                ),
+                                warp.shuffle_idx(
+                                    own_bounds._min.y, UInt32(left_lane)
+                                ),
+                                warp.shuffle_idx(
+                                    own_bounds._min.z, UInt32(left_lane)
+                                ),
+                            ),
+                            Point3f32[.WORLD](
+                                warp.shuffle_idx(
+                                    own_bounds._max.x, UInt32(left_lane)
+                                ),
+                                warp.shuffle_idx(
+                                    own_bounds._max.y, UInt32(left_lane)
+                                ),
+                                warp.shuffle_idx(
+                                    own_bounds._max.z, UInt32(left_lane)
+                                ),
+                            ),
+                        )
+                        if active and lane - neighbor_distance >= 0:
+                            var merged = AABB[.WORLD].merge(
+                                own_bounds, left_bounds
+                            )
+                            own_minimum = min(
+                                own_minimum,
+                                _hploc_pack_distance_offset(
+                                    merged.surface_area()[0],
+                                    _hploc_encode_offset(
+                                        lane, lane - neighbor_distance
+                                    ),
+                                ),
+                            )
+                    if active:
+                        nearest = _hploc_decode_offset(
+                            lane, UInt32(own_minimum)
+                        )
                 var neighbor_nearest = Int(
                     warp.shuffle_idx(
                         UInt32(nearest), UInt32(min(nearest, WARP_SIZE - 1))
@@ -619,6 +689,8 @@ struct GpuHplocBuildState[
     search_radius: Int = HPLOC_SEARCH_RADIUS,
     merging_threshold: Int = HPLOC_MERGING_THRESHOLD,
     compact_output: Bool = False,
+    single_segment: Bool = False,
+    pair_once_search: Bool = False,
 ]:
     """Scratch and completion state for a direct production-layout build."""
 
@@ -711,6 +783,9 @@ struct GpuHplocBuildState[
             != self.segments.segment_count() + 1
         ):
             raise "multi-wave H-PLOC segment layout does not match input"
+        comptime if Self.single_segment:
+            if self.segments.segment_count() != 1:
+                raise "single-segment H-PLOC requires exactly one segment"
         if (
             Self.search_radius <= 0
             or Self.merging_threshold <= 0
@@ -735,9 +810,7 @@ struct GpuHplocBuildState[
         self.compact_children = ctx.enqueue_create_buffer[.uint32](
             internal_capacity * 2 if Self.compact_output else 1
         )
-        self.parent_slots = ctx.enqueue_create_buffer[.uint32](
-            self.leaf_count
-        )
+        self.parent_slots = ctx.enqueue_create_buffer[.uint32](self.leaf_count)
         self.cluster_indices = ctx.enqueue_create_buffer[.uint32](
             self.leaf_count
         )
@@ -806,6 +879,8 @@ struct GpuHplocBuildState[
                 Self.search_radius,
                 Self.merging_threshold,
                 Self.compact_output,
+                Self.single_segment,
+                Self.pair_once_search,
             ]
         ](
             _device_span[mut=False](sorted_morton_codes),
@@ -845,7 +920,7 @@ struct GpuHplocBuildState[
             for segment_idx in range(len(host)):
                 if host[segment_idx] != UInt32(HPLOC_STATUS_OK):
                     return host[segment_idx]
-            return UInt32(HPLOC_STATUS_OK)
+        return UInt32(HPLOC_STATUS_OK)
 
     def result_root(self, segment_idx: Int = 0) raises -> UInt32:
         with self.root.map_to_host() as host:

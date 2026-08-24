@@ -1,7 +1,7 @@
 from std.utils.numerics import max_finite, min_finite
 
-comptime f32_max = max_finite[DType.float32]()
-comptime f32_min = min_finite[DType.float32]()
+comptime f32_max = max_finite[.float32]()
+comptime f32_min = min_finite[.float32]()
 
 comptime LBVH_SENTINEL = UInt32(0xFFFFFFFF)
 

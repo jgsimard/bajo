@@ -98,9 +98,7 @@ def make_mixed_triangle_world() raises -> CpuScene[]:
         for ix in range(5):
             if ix == 0 and iz == 0:
                 continue
-            var transform = Affine3f32[
-                .LOCAL, .WORLD
-            ].from_translation(
+            var transform = Affine3f32[.LOCAL, .WORLD].from_translation(
                 Vec3f32[.WORLD](
                     Float32(ix) * 2.0 - 4.0,
                     0.0,

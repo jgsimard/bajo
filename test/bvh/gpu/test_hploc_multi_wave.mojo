@@ -56,15 +56,11 @@ struct GpuHplocMultiWaveBvh[
         self.node_meta = ctx.enqueue_create_buffer[.uint32](
             internal_capacity * BinaryBvhNode.META_STRIDE
         )
-        self.leaf_parent = ctx.enqueue_create_buffer[.uint32](
-            self.leaf_count
-        )
+        self.leaf_parent = ctx.enqueue_create_buffer[.uint32](self.leaf_count)
         self.node_bounds = ctx.enqueue_create_buffer[.float32](
             internal_capacity * BinaryBvhNode.BOUNDS_STRIDE
         )
-        self.node_flags = ctx.enqueue_create_buffer[.uint32](
-            internal_capacity
-        )
+        self.node_flags = ctx.enqueue_create_buffer[.uint32](internal_capacity)
         self.node_leaf_counts = ctx.enqueue_create_buffer[.uint32](
             internal_capacity
         )

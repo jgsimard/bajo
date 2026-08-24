@@ -34,9 +34,7 @@ def _lbvh_centered_transform(
     scale: Vec3f32[.LOCAL],
     bottom_center: Vec3f32[.WORLD],
 ) -> Affine3f32[.LOCAL, .WORLD]:
-    var transform = Affine3f32[
-        .LOCAL, .WORLD
-    ].from_rotation_scale_translation(
+    var transform = Affine3f32[.LOCAL, .WORLD].from_rotation_scale_translation(
         rotation, scale, Vec3f32[.WORLD](0.0)
     )
     var center = bounds.centroid()

@@ -265,7 +265,7 @@ struct GpuWideBoundsBvhBatch[
         var node_count = layout.node_segments.item_count()
         var leaf_block_count = layout.leaf_block_segments.item_count()
         var compact_nodes = enqueue_compact_segmented_buffer[
-            DType.float32, Self.node_width * WideNode.CHILD_STRIDE
+            .float32, Self.node_width * WideNode.CHILD_STRIDE
         ](
             ctx,
             self.wide_nodes,
@@ -275,7 +275,7 @@ struct GpuWideBoundsBvhBatch[
             1,
         )
         var compact_leaf_indices = enqueue_compact_segmented_buffer[
-            DType.uint32, Self.leaf_width
+            .uint32, Self.leaf_width
         ](
             ctx,
             self.leaf_block_indices,
@@ -392,13 +392,13 @@ def _wide_node_load_meta[
 
 
 struct WideNodeIntersection[width: SIMDLength](TrivialRegisterPassable):
-    var bounds_hit: RayDistanceHit[DType.float32, Self.width]
-    var meta: SIMD[DType.uint32, Self.width]
+    var bounds_hit: RayDistanceHit[.float32, Self.width]
+    var meta: SIMD[.uint32, Self.width]
 
     def __init__(
         out self,
-        bounds_hit: RayDistanceHit[DType.float32, Self.width],
-        meta: SIMD[DType.uint32, Self.width],
+        bounds_hit: RayDistanceHit[.float32, Self.width],
+        meta: SIMD[.uint32, Self.width],
     ):
         self.bounds_hit = bounds_hit
         self.meta = meta
@@ -411,12 +411,12 @@ def _intersect_wide_node_precomputed[
 ](
     wide_nodes: ImmPointer[Float32, _],
     node_idx: UInt32,
-    bounds_origin: Point3[DType.float32, frame, width],
+    bounds_origin: Point3[.float32, frame, width],
     reciprocal_direction: Vec3[.float32, frame, width],
     t_max: Float32,
 ) -> WideNodeIntersection[width]:
     """Intersect a wide node with reciprocal direction cached per query."""
-    var block = AxisAlignedBoundingBox[DType.float32, frame, width].invalid()
+    var block = AxisAlignedBoundingBox[.float32, frame, width].invalid()
     var base = _wide_node_base[width](node_idx)
     comptime field_alignment = Int(width) * 4
     block._min.x = wide_nodes.unsafe_load[

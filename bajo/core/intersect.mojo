@@ -200,7 +200,7 @@ def intersect_ray_aabb_rcp[
     t_max: SIMD[dtype, width],
 ) -> RayDistanceHit[dtype, width]:
     """Intersect a ray with an AABB using precomputed reciprocal direction."""
-    comptime assert dtype in [DType.float32, DType.float64]
+    comptime assert dtype.is_floating_point()
 
     var t0 = (bmin - o) * rcp_d
     var t1 = (bmax - o) * rcp_d
@@ -318,7 +318,7 @@ def intersect_ray_sphere[
     t_max: SIMD[dtype, width],
     t_min: SIMD[dtype, width] = SIMD[dtype, width](1.0e-4),
 ) -> RayDistanceHit[dtype, width]:
-    comptime assert dtype in [DType.float32, DType.float64]
+    comptime assert dtype.is_floating_point()
 
     var oc = o - center
 
@@ -363,7 +363,7 @@ def intersect_ray_sphere_coefficients[
     t_max: SIMD[dtype, width],
     t_min: SIMD[dtype, width] = SIMD[dtype, width](1.0e-4),
 ) -> RayDistanceHit[dtype, width]:
-    comptime assert dtype in [DType.float32, DType.float64]
+    comptime assert dtype.is_floating_point()
 
     var oc = o - center
 
@@ -425,7 +425,7 @@ def intersect_ray_tri_edges[
 ) -> RayTriHit[dtype, width]:
     """Moller-Trumbore intersection with precomputed triangle edges."""
     comptime assert dtype.is_floating_point()
-    comptime EPSILON = Scalar[dtype](1e-8 if dtype == DType.float32 else 1e-16)
+    comptime EPSILON = Scalar[dtype](1e-8 if dtype == .float32 else 1e-16)
     comptime INF = max_finite[dtype]()
 
     var p = cross(d, e2)
@@ -472,7 +472,7 @@ def intersect_ray_tri_edges_scaled[
 ) -> RayTriScaledHit[dtype, width]:
     """Return determinant-scaled Moller-Trumbore candidates."""
     comptime assert dtype.is_floating_point()
-    comptime EPSILON = Scalar[dtype](1e-8 if dtype == DType.float32 else 1e-16)
+    comptime EPSILON = Scalar[dtype](1e-8 if dtype == .float32 else 1e-16)
 
     var p = cross(d, e2)
     var det = dot(e1, p)

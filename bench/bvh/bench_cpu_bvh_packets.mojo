@@ -105,7 +105,7 @@ def trace_packet[
             valid[lane] = True
 
         var packet = Ray[.float32, .WORLD, length](
-            Point3[DType.float32, .WORLD, length](ox, oy, oz),
+            Point3[.float32, .WORLD, length](ox, oy, oz),
             Vec3[.float32, .WORLD, length](dx, dy, dz),
             t_min,
             t_max,

@@ -28,7 +28,7 @@ def _trace_sphere_leaf_block[
     mode: TraceMode,
 ](
     ray: Rayf32[frame],
-    O: Point3[DType.float32, frame, width],
+    O: Point3[.float32, frame, width],
     D: Vec3[.float32, frame, width],
     ray_a: SIMD[.float32, width],
     ray_inv_a: SIMD[.float32, width],
@@ -86,7 +86,7 @@ def _trace_sphere_packet_primitive[
     radius_scalar: Float32,
     mut packet_hit: Hit[frame, length],
 ):
-    var center = Point3[DType.float32, frame, length](
+    var center = Point3[.float32, frame, length](
         center_scalar.x, center_scalar.y, center_scalar.z
     )
     var radius = SIMD[.float32, length](radius_scalar)
@@ -106,10 +106,10 @@ def _trace_sphere_packet_primitive[
         packet_hit.u = closer.select(SIMD[.float32, length](0.0), packet_hit.u)
         packet_hit.v = closer.select(SIMD[.float32, length](0.0), packet_hit.v)
         packet_hit.prim = closer.select(
-            SIMD[DType.uint32, length](prim_idx), packet_hit.prim
+            SIMD[.uint32, length](prim_idx), packet_hit.prim
         )
         packet_hit.inst = closer.select(
-            SIMD[DType.uint32, length](EMPTY_LANE), packet_hit.inst
+            SIMD[.uint32, length](EMPTY_LANE), packet_hit.inst
         )
         var p = rays.o + candidate.t * rays.d
         var normal = normalize(p - center)

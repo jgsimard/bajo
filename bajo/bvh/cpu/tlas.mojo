@@ -42,14 +42,14 @@ comptime CpuBlasTraceFn[
 struct TlasLeafBlock[width: SIMDLength](Copyable):
     """SIMD instance bounds and indices consumed together during traversal."""
 
-    var bounds: AxisAlignedBoundingBox[DType.float32, .WORLD, Self.width]
-    var inst_indices: SIMD[DType.uint32, Self.width]
+    var bounds: AxisAlignedBoundingBox[.float32, .WORLD, Self.width]
+    var inst_indices: SIMD[.uint32, Self.width]
 
     def __init__(out self):
         self.bounds = AxisAlignedBoundingBox[
-            DType.float32, .WORLD, Self.width
+            .float32, .WORLD, Self.width
         ].invalid()
-        self.inst_indices = SIMD[DType.uint32, Self.width](EMPTY_LANE)
+        self.inst_indices = SIMD[.uint32, Self.width](EMPTY_LANE)
 
 
 @fieldwise_init
@@ -134,7 +134,7 @@ def _trace_tlas_tree[
     mode: TraceMode,
     LeafFn: def(
         Rayf32[.WORLD],
-        Point3[DType.float32, .WORLD, leaf_width],
+        Point3[.float32, .WORLD, leaf_width],
         Vec3[.float32, .WORLD, leaf_width],
         SIMD[.float32, leaf_width],
         SIMD[.float32, leaf_width],
@@ -211,7 +211,7 @@ struct CpuTlas[
 
         def leaf_fn(
             ray: Rayf32[.WORLD],
-            O: Point3[DType.float32, .WORLD, Self.leaf_width],
+            O: Point3[.float32, .WORLD, Self.leaf_width],
             D: Vec3[.float32, .WORLD, Self.leaf_width],
             _ray_a: SIMD[.float32, Self.leaf_width],
             _ray_inv_a: SIMD[.float32, Self.leaf_width],

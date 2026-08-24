@@ -105,7 +105,7 @@ def test_hit_load_store_span_with_nonzero_index() raises:
 
 
 def _test_extract_lane[width: SIMDLength]() raises:
-    var u32_values = SIMD[DType.uint32, width](0)
+    var u32_values = SIMD[.uint32, width](0)
     var f32_values = SIMD[.float32, width](0.0)
     comptime for lane in range(width):
         u32_values[lane] = UInt32(100 + lane)
@@ -821,7 +821,7 @@ def _test_triangle_packet_paths_match[length: SIMDLength]() raises:
             oy[lane] = center.y
 
     var packet = Ray[.float32, .WORLD, length](
-        Point3[DType.float32, .WORLD, length](ox, oy, 0.0),
+        Point3[.float32, .WORLD, length](ox, oy, 0.0),
         Vec3[.float32, .WORLD, length](0.0, 0.0, 1.0),
     )
     var valid = SIMD[.bool, length](fill=True)
@@ -853,7 +853,7 @@ def _check_packed_triangle_packet[
             ox[lane] = Float32(lane)
             oy[lane] = 0.25
     var rays = Ray[.float32, .WORLD, length](
-        Point3[DType.float32, .WORLD, length](ox, oy, 0.0),
+        Point3[.float32, .WORLD, length](ox, oy, 0.0),
         Vec3[.float32, .WORLD, length](0.0, 0.0, 1.0),
     )
     var valid = SIMD[.bool, length](fill=True)
@@ -899,7 +899,7 @@ def _check_packed_sphere_packet[
         if lane % 3 == 0:
             ox[lane] = 100.0
     var rays = Ray[.float32, .WORLD, length](
-        Point3[DType.float32, .WORLD, length](ox, 0.0, 0.0),
+        Point3[.float32, .WORLD, length](ox, 0.0, 0.0),
         Vec3[.float32, .WORLD, length](0.0, 0.0, 1.0),
     )
     var valid = SIMD[.bool, length](fill=True)
@@ -962,7 +962,7 @@ def _test_coherent_packet_frustum_is_conservative[
         dz[lane] = sign_z * (0.8 + 0.05 * Float32(lane))
 
     var rays = Ray[.float32, .WORLD, length](
-        Point3[DType.float32, .WORLD, length](ox, oy, oz),
+        Point3[.float32, .WORLD, length](ox, oy, oz),
         Vec3[.float32, .WORLD, length](dx, dy, dz),
     )
     var valid = SIMD[.bool, length](fill=True)
@@ -972,8 +972,8 @@ def _test_coherent_packet_frustum_is_conservative[
         .WORLD, length, positive_x, positive_y, positive_z
     ](rays, valid, reciprocal_direction)
 
-    var bounds_min = Point3[DType.float32, .WORLD, length](0.0)
-    var bounds_max = Point3[DType.float32, .WORLD, length](0.0)
+    var bounds_min = Point3[.float32, .WORLD, length](0.0)
+    var bounds_max = Point3[.float32, .WORLD, length](0.0)
     comptime for child in range(length):
         var distance = 2.0 + Float32(child)
         var center_x = sign_x * distance * 0.4
@@ -996,12 +996,12 @@ def _test_coherent_packet_frustum_is_conservative[
         var exact = intersect_ray_aabb_rcp(
             rays.o,
             reciprocal_direction,
-            Point3[DType.float32, .WORLD, length](
+            Point3[.float32, .WORLD, length](
                 bounds_min.x[child],
                 bounds_min.y[child],
                 bounds_min.z[child],
             ),
-            Point3[DType.float32, .WORLD, length](
+            Point3[.float32, .WORLD, length](
                 bounds_max.x[child],
                 bounds_max.y[child],
                 bounds_max.z[child],
@@ -1198,7 +1198,7 @@ def test_segmented_triangle_blases_allow_empty_segments() raises:
         ).is_hit()
     )
     var rays = Ray[.float32, .WORLD, 4](
-        Point3[DType.float32, .WORLD, 4](0.0, 0.0, 0.0),
+        Point3[.float32, .WORLD, 4](0.0, 0.0, 0.0),
         Vec3[.float32, .WORLD, 4](0.0, 0.0, 1.0),
     )
     assert_true(
@@ -1243,7 +1243,7 @@ def test_segmented_sphere_blases_allow_empty_segments() raises:
         ).is_hit()
     )
     var rays = Ray[.float32, .WORLD, 4](
-        Point3[DType.float32, .WORLD, 4](0.0, 0.0, 0.0),
+        Point3[.float32, .WORLD, 4](0.0, 0.0, 0.0),
         Vec3[.float32, .WORLD, 4](0.0, 0.0, 1.0),
     )
     assert_true(

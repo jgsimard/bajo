@@ -43,7 +43,7 @@ def finalize_ordinary_wide_blas_set[
         ctx, wide.node_counts, wide.leaf_block_counts, segment_count
     )
     var compact_nodes = enqueue_compact_segmented_buffer[
-        DType.float32, node_width * WideNode.CHILD_STRIDE
+        .float32, node_width * WideNode.CHILD_STRIDE
     ](
         ctx,
         wide.wide_nodes,
@@ -53,7 +53,7 @@ def finalize_ordinary_wide_blas_set[
         segment_count,
     )
     var compact_leaves = enqueue_compact_segmented_buffer[
-        DType.float32, leaf_width * leaf_record_stride
+        .float32, leaf_width * leaf_record_stride
     ](
         ctx,
         leaf_workspace,

@@ -22,7 +22,7 @@ struct WaveShade(Copyable, Writable):
 
 
 struct PathPacket[length: SIMDLength](Copyable):
-    var path_ids: SIMD[DType.uint32, Self.length]
+    var path_ids: SIMD[.uint32, Self.length]
     var ox: SIMD[.float32, Self.length]
     var oy: SIMD[.float32, Self.length]
     var oz: SIMD[.float32, Self.length]
@@ -133,7 +133,7 @@ struct PacketPathQueue[length: SIMDLength](Sized):
 
 
 struct ShadePacket[length: SIMDLength](Copyable):
-    var path_ids: SIMD[DType.uint32, Self.length]
+    var path_ids: SIMD[.uint32, Self.length]
     var ox: SIMD[.float32, Self.length]
     var oy: SIMD[.float32, Self.length]
     var oz: SIMD[.float32, Self.length]
@@ -147,7 +147,7 @@ struct ShadePacket[length: SIMDLength](Copyable):
     var ny: SIMD[.float32, Self.length]
     var nz: SIMD[.float32, Self.length]
     var hit_t: SIMD[.float32, Self.length]
-    var surface_indices: SIMD[DType.uint32, Self.length]
+    var surface_indices: SIMD[.uint32, Self.length]
     var front_faces: SIMD[.bool, Self.length]
 
     def __init__(out self):

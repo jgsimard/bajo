@@ -98,8 +98,8 @@ def _intersect_coherent_packet_frustum[
     positive_y: Bool,
     positive_z: Bool,
 ](
-    bounds_min: Point3[DType.float32, frame, bounds_width],
-    bounds_max: Point3[DType.float32, frame, bounds_width],
+    bounds_min: Point3[.float32, frame, bounds_width],
+    bounds_max: Point3[.float32, frame, bounds_width],
     frustum: CoherentPacketFrustum[frame],
     max_dist: Float32,
 ) -> SIMD[.bool, bounds_width]:
@@ -434,12 +434,12 @@ def trace_packet_stack_bounds_bvh[
                         )
                         bounds_mask = bounds_t.le(bounds_far)
                     else:
-                        var bmin = Point3[DType.float32, frame, length](
+                        var bmin = Point3[.float32, frame, length](
                             node.aabb._min.x[child_lane],
                             node.aabb._min.y[child_lane],
                             node.aabb._min.z[child_lane],
                         )
-                        var bmax = Point3[DType.float32, frame, length](
+                        var bmax = Point3[.float32, frame, length](
                             node.aabb._max.x[child_lane],
                             node.aabb._max.y[child_lane],
                             node.aabb._max.z[child_lane],

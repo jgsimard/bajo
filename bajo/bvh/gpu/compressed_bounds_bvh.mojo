@@ -45,7 +45,7 @@ def _power_of_two_scale_exponent(extent: Float32) -> UInt32:
         return 127  # 2^0
 
     var required = extent / 255.0
-    var bits = bitcast[DType.uint32](required)
+    var bits = bitcast[.uint32](required)
     var exponent = (bits >> 23) & 0xFF
     if (bits & 0x007FFFFF) != 0:
         exponent += 1
@@ -54,7 +54,7 @@ def _power_of_two_scale_exponent(extent: Float32) -> UInt32:
 
 @always_inline
 def _scale_from_exponent(exponent: UInt32) -> Float32:
-    return bitcast[DType.float32](exponent << 23)
+    return bitcast[.float32](exponent << 23)
 
 
 @always_inline
@@ -189,7 +189,7 @@ def _encode_cwbvh8_node[
     cwbvh_u32[unsafe_offset=base + CWBVH_TRIANGLE_BASE] = triangle_base
 
     var leaf_offset = UInt32(0)
-    var meta_bytes = SIMD[DType.uint8, CWBVH_WIDTH](0)
+    var meta_bytes = SIMD[.uint8, CWBVH_WIDTH](0)
     comptime for lane in range(CWBVH_WIDTH):
         var source_meta = metadata[lane]
         var count = _wide_meta_count(source_meta)
@@ -211,12 +211,12 @@ def _encode_cwbvh8_node[
 
         meta_bytes[lane] = UInt8(byte)
 
-    var packed_meta = bitcast[DType.uint32, 2](meta_bytes)
+    var packed_meta = bitcast[.uint32, 2](meta_bytes)
     cwbvh_u32[unsafe_offset=base + CWBVH_META_BASE + 0] = packed_meta[0]
     cwbvh_u32[unsafe_offset=base + CWBVH_META_BASE + 1] = packed_meta[1]
 
     comptime for plane in range(6):
-        var quantized = SIMD[DType.uint8, CWBVH_WIDTH](0)
+        var quantized = SIMD[.uint8, CWBVH_WIDTH](0)
         comptime for lane in range(CWBVH_WIDTH):
             var q = UInt32(0)
             if _wide_meta_count(metadata[lane]) != EMPTY_LANE:
@@ -233,7 +233,7 @@ def _encode_cwbvh8_node[
                 else:
                     q = _quantize_upper(max_z[lane], lo_z, scale_z)
             quantized[lane] = UInt8(q)
-        var packed = bitcast[DType.uint32, 2](quantized)
+        var packed = bitcast[.uint32, 2](quantized)
         cwbvh_u32[
             unsafe_offset=base + CWBVH_QUANTIZED_BASE + plane * 2
         ] = packed[0]
@@ -473,7 +473,7 @@ def _intersect_cwbvh8_node_tasks_legacy[
     var imask = exp_imask >> UInt32(24)
     var child_base = cwbvh_u32[unsafe_offset=base + CWBVH_CHILD_BASE]
     var triangle_base = cwbvh_u32[unsafe_offset=base + CWBVH_TRIANGLE_BASE]
-    var meta_words = SIMD[DType.uint32, 2](
+    var meta_words = SIMD[.uint32, 2](
         cwbvh_u32[unsafe_offset=base + CWBVH_META_BASE + 0],
         cwbvh_u32[unsafe_offset=base + CWBVH_META_BASE + 1],
     )
@@ -584,11 +584,11 @@ def _intersect_cwbvh8_node_tasks[
     var qlox_qloy = cwbvh_nodes.unsafe_load[width=4](base + 8)
     var qloz_qhix = cwbvh_nodes.unsafe_load[width=4](base + 12)
     var qhiy_qhiz = cwbvh_nodes.unsafe_load[width=4](base + 16)
-    var p_exp_u32 = bitcast[DType.uint32](p_exp)
-    var child_tri_meta_u32 = bitcast[DType.uint32](child_tri_meta)
-    var qlox_qloy_u32 = bitcast[DType.uint32](qlox_qloy)
-    var qloz_qhix_u32 = bitcast[DType.uint32](qloz_qhix)
-    var qhiy_qhiz_u32 = bitcast[DType.uint32](qhiy_qhiz)
+    var p_exp_u32 = bitcast[.uint32](p_exp)
+    var child_tri_meta_u32 = bitcast[.uint32](child_tri_meta)
+    var qlox_qloy_u32 = bitcast[.uint32](qlox_qloy)
+    var qloz_qhix_u32 = bitcast[.uint32](qloz_qhix)
+    var qhiy_qhiz_u32 = bitcast[.uint32](qhiy_qhiz)
 
     var exp_imask = p_exp_u32[3]
     var idir_x = _scale_from_exponent(exp_imask & UInt32(0xFF)) * rcp_x

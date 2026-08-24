@@ -81,7 +81,7 @@ struct PrimitiveId(Copyable, Writable):
 
 @fieldwise_init
 struct SurfaceId[length: SIMDLength = 1](Copyable, Writable):
-    var value: SIMD[DType.uint32, Self.length]
+    var value: SIMD[.uint32, Self.length]
 
     def __init__(out self, kind: MaterialKind, index: UInt32):
         debug_assert["safe", _use_compiler_assume=True](
@@ -313,9 +313,7 @@ struct SurfaceHit[length: SIMDLength = 1](Copyable, Writable):
 
     def __init__(out self, t_max: SIMD[.float32, Self.length]):
         self.normal = Vec3[.float32, .WORLD, Self.length](0.0)
-        self.surface = SurfaceId[Self.length](
-            SIMD[DType.uint32, Self.length](0)
-        )
+        self.surface = SurfaceId[Self.length](SIMD[.uint32, Self.length](0))
         self.t = t_max
         self.front_face = SIMD[.bool, Self.length](fill=True)
         self.hit = SIMD[.bool, Self.length](fill=False)
@@ -341,7 +339,7 @@ struct SurfaceHit[length: SIMDLength = 1](Copyable, Writable):
 
 @fieldwise_init
 struct ShadingPoint[length: SIMDLength = 1](Copyable, Writable):
-    var p: Point3[DType.float32, .WORLD, Self.length]
+    var p: Point3[.float32, .WORLD, Self.length]
     var normal: Vec3[.float32, .WORLD, Self.length]
     var front_face: SIMD[.bool, Self.length]
 

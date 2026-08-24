@@ -271,13 +271,13 @@ def test_inverse_identity() raises:
 
 def test_ray_transform() raises:
     var ray = Ray[.float64, .WORLD](
-        Point3[DType.float64, .WORLD](1, 2, 3),
+        Point3[.float64, .WORLD](1, 2, 3),
         Vec3[.float64, .WORLD](4, 5, 6),
         0.25,
         10,
     )
     # fmt: off
-    var transform = Affine3[DType.float64, .WORLD, .CAMERA](
+    var transform = Affine3[.float64, .WORLD, .CAMERA](
         2, 0, 0, 10,
         0, 3, 0, -2,
         0, 0, 4, 3,
@@ -285,7 +285,7 @@ def test_ray_transform() raises:
     # fmt: on
     var transformed = transform.ray(ray, 7)
 
-    assert_vec_equal(transformed.o, Point3[DType.float64, .CAMERA](12, 4, 15))
+    assert_vec_equal(transformed.o, Point3[.float64, .CAMERA](12, 4, 15))
     assert_vec_equal(transformed.d, Vec3[.float64, .CAMERA](8, 15, 24))
     assert_almost_equal(transformed.t_min, 0.25)
     assert_almost_equal(transformed.t_max, 7)

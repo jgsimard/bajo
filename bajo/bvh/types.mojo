@@ -26,9 +26,9 @@ struct Hit[frame: Frame = .WORLD, length: SIMDLength = 1](
 
     var u: SIMD[.float32, Self.length]
     var v: SIMD[.float32, Self.length]
-    var prim: SIMD[DType.uint32, Self.length]
-    var inst: SIMD[DType.uint32, Self.length]
-    var normal: Normal3[DType.float32, Self.frame, Self.length]
+    var prim: SIMD[.uint32, Self.length]
+    var inst: SIMD[.uint32, Self.length]
+    var normal: Normal3[.float32, Self.frame, Self.length]
     var t: SIMD[.float32, Self.length]
 
     @staticmethod
@@ -38,7 +38,7 @@ struct Hit[frame: Frame = .WORLD, length: SIMDLength = 1](
             0.0,
             EMPTY_LANE,
             EMPTY_LANE,
-            Normal3[DType.float32, Self.frame, Self.length](0),
+            Normal3[.float32, Self.frame, Self.length](0),
             t,
         )
 
@@ -49,7 +49,7 @@ struct Hit[frame: Frame = .WORLD, length: SIMDLength = 1](
             0.0,
             EMPTY_LANE,
             EMPTY_LANE,
-            Normal3[DType.float32, Self.frame, Self.length](0),
+            Normal3[.float32, Self.frame, Self.length](0),
             0.0,
         )
 
@@ -101,7 +101,7 @@ struct Hit[frame: Frame = .WORLD, length: SIMDLength = 1](
             ptr[unsafe_offset=base + Hit.V],
             hits_u32[unsafe_offset=base + Hit.PrimitiveKind],
             hits_u32[unsafe_offset=base + Hit.INST],
-            Normal3[DType.float32, Self.frame, Self.length](
+            Normal3[.float32, Self.frame, Self.length](
                 ptr[unsafe_offset=base + Hit.NORMAL + 0],
                 ptr[unsafe_offset=base + Hit.NORMAL + 1],
                 ptr[unsafe_offset=base + Hit.NORMAL + 2],
@@ -123,28 +123,28 @@ struct Sphere[frame: Frame = .WORLD](TrivialRegisterPassable):
 
 @fieldwise_init
 struct SphereLeafBlock[frame: Frame, width: SIMDLength](Copyable):
-    var center: Point3[DType.float32, Self.frame, Self.width]
+    var center: Point3[.float32, Self.frame, Self.width]
     var radius: SIMD[.float32, Self.width]
-    var prim_indices: SIMD[DType.uint32, Self.width]
+    var prim_indices: SIMD[.uint32, Self.width]
 
     def __init__(out self):
-        self.center = Point3[DType.float32, Self.frame, Self.width](0.0)
+        self.center = Point3[.float32, Self.frame, Self.width](0.0)
         self.radius = SIMD[.float32, Self.width](0.0)
-        self.prim_indices = SIMD[DType.uint32, Self.width](EMPTY_LANE)
+        self.prim_indices = SIMD[.uint32, Self.width](EMPTY_LANE)
 
 
 @fieldwise_init
 struct TriangleLeafBlock[frame: Frame, width: SIMDLength](Copyable):
-    var v0: Point3[DType.float32, Self.frame, Self.width]
+    var v0: Point3[.float32, Self.frame, Self.width]
     var e1: Vec3[.float32, Self.frame, Self.width]
     var e2: Vec3[.float32, Self.frame, Self.width]
-    var prim_indices: SIMD[DType.uint32, Self.width]
+    var prim_indices: SIMD[.uint32, Self.width]
 
     def __init__(out self):
-        self.v0 = Point3[DType.float32, Self.frame, Self.width](0.0)
+        self.v0 = Point3[.float32, Self.frame, Self.width](0.0)
         self.e1 = Vec3[.float32, Self.frame, Self.width](0.0)
         self.e2 = Vec3[.float32, Self.frame, Self.width](0.0)
-        self.prim_indices = SIMD[DType.uint32, Self.width](EMPTY_LANE)
+        self.prim_indices = SIMD[.uint32, Self.width](EMPTY_LANE)
 
 
 struct Instance(Copyable):

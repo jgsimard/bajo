@@ -309,7 +309,7 @@ struct CpuScene[
             var center_y = SIMD[.float32, length](0.0)
             var center_z = SIMD[.float32, length](0.0)
             var radius = SIMD[.float32, length](1.0)
-            var surface_values = SIMD[DType.uint32, length](0)
+            var surface_values = SIMD[.uint32, length](0)
             for lane in range(length):
                 if sphere_mask[lane]:
                     var sphere_idx = Int(sphere_hits.prim[lane])
@@ -354,7 +354,7 @@ struct CpuScene[
             var triangle_mask = triangle_hits.is_hit() & triangle_hits.t.lt(
                 result.t
             )
-            var surface_values = SIMD[DType.uint32, length](0)
+            var surface_values = SIMD[.uint32, length](0)
             for lane in range(length):
                 if triangle_mask[lane]:
                     var triangle_idx = Int(triangle_hits.prim[lane])

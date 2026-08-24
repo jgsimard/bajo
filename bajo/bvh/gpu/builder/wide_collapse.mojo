@@ -235,7 +235,7 @@ def _write_direct_cwbvh8_node[
     words[unsafe_offset=base + CWBVH_TRIANGLE_BASE] = triangle_base
 
     var leaf_offset = UInt32(0)
-    var meta_bytes = SIMD[DType.uint8, 8](0)
+    var meta_bytes = SIMD[.uint8, 8](0)
     comptime for lane in range(8):
         var count = child_counts[lane]
         var byte = UInt32(0)
@@ -255,12 +255,12 @@ def _write_direct_cwbvh8_node[
             )
             leaf_offset += count
         meta_bytes[lane] = UInt8(byte)
-    var packed_meta = bitcast[DType.uint32, 2](meta_bytes)
+    var packed_meta = bitcast[.uint32, 2](meta_bytes)
     words[unsafe_offset=base + CWBVH_META_BASE] = packed_meta[0]
     words[unsafe_offset=base + CWBVH_META_BASE + 1] = packed_meta[1]
 
     comptime for plane in range(6):
-        var quantized = SIMD[DType.uint8, 8](0)
+        var quantized = SIMD[.uint8, 8](0)
         comptime for lane in range(8):
             var q = UInt32(0)
             if child_counts[lane] != EMPTY_LANE:
@@ -278,7 +278,7 @@ def _write_direct_cwbvh8_node[
                 else:
                     q = _quantize_upper(bounds._max.z, lo_z, scale_z)
             quantized[lane] = UInt8(q)
-        var packed = bitcast[DType.uint32, 2](quantized)
+        var packed = bitcast[.uint32, 2](quantized)
         words[unsafe_offset=base + CWBVH_QUANTIZED_BASE + plane * 2] = packed[0]
         words[
             unsafe_offset=base + CWBVH_QUANTIZED_BASE + plane * 2 + 1
@@ -812,23 +812,21 @@ def hploc_literature_to_wide_kernel[
                 ).centroid()
                 var costs = (
                     (center.x - parent_center.x)
-                    * SIMD[DType.float32, 8](
+                    * SIMD[.float32, 8](
                         1.0, 1.0, 1.0, 1.0, -1.0, -1.0, -1.0, -1.0
                     )
                     + (center.y - parent_center.y)
-                    * SIMD[DType.float32, 8](
+                    * SIMD[.float32, 8](
                         1.0, 1.0, -1.0, -1.0, 1.0, 1.0, -1.0, -1.0
                     )
                     + (center.z - parent_center.z)
-                    * SIMD[DType.float32, 8](
+                    * SIMD[.float32, 8](
                         1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0
                     )
                 )
-                var slot_bits = SIMD[DType.uint32, 8](
-                    1, 2, 4, 8, 16, 32, 64, 128
-                )
+                var slot_bits = SIMD[.uint32, 8](1, 2, 4, 8, 16, 32, 64, 128)
                 var occupied = (
-                    SIMD[DType.uint32, 8](occupied_slot_mask) & slot_bits
+                    SIMD[.uint32, 8](occupied_slot_mask) & slot_bits
                 ).ne(0)
                 costs = occupied.select(f32_max, costs)
                 var best_cost, best_slot = min_argmin(costs)

@@ -15,9 +15,9 @@ def hploc_wave_ballot(predicate: Bool) -> UInt64:
     """Return the subgroup vote as a backend-independent UInt64 mask."""
 
     comptime if WARP_SIZE > 32:
-        return UInt64(warp.vote[DType.uint64](predicate))
+        return UInt64(warp.vote[.uint64](predicate))
     else:
-        return UInt64(warp.vote[DType.uint32](predicate))
+        return UInt64(warp.vote[.uint32](predicate))
 
 
 @always_inline

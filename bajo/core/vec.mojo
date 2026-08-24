@@ -531,7 +531,7 @@ def normalize[
 ](v: Vec3[dtype, frame, width], threshold: Scalar[dtype] = 1.0e-20) -> Vec3[
     dtype, frame, width
 ]:
-    comptime assert dtype in [DType.float32, DType.float64]
+    comptime assert dtype.is_floating_point()
 
     var l = length(v)
     var mask = l.gt(threshold)

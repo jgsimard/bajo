@@ -333,9 +333,7 @@ def test_uint64_composite_key_pairs_end_to_end() raises:
                 host_values[i] = UInt32(i)
                 host_keys[i] = _composite_key(UInt32(i))
 
-        device_radix_sort_pairs[DType.uint64, DType.uint32](
-            ctx, keys, values, size
-        )
+        device_radix_sort_pairs[.uint64, .uint32](ctx, keys, values, size)
         ctx.synchronize()
 
         with keys.map_to_host() as host_keys, values.map_to_host() as host_values:

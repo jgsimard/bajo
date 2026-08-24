@@ -102,7 +102,7 @@ struct GpuTraceResult[frame: Frame](TrivialRegisterPassable):
 
 @always_inline
 def _pack_gpu_pending_task(child_ref: UInt32, child_t: Float32) -> UInt64:
-    var t_bits = bitcast[DType.uint32, 1](SIMD[.float32, 1](child_t))[0]
+    var t_bits = bitcast[.uint32, 1](SIMD[.float32, 1](child_t))[0]
     return UInt64(child_ref) | (UInt64(t_bits) << UInt64(32))
 
 
@@ -113,8 +113,8 @@ def _gpu_pending_task_ref(task: UInt64) -> UInt32:
 
 @always_inline
 def _gpu_pending_task_t(task: UInt64) -> Float32:
-    var bits = SIMD[DType.uint32, 1](UInt32(task >> UInt64(32)))
-    return bitcast[DType.float32, 1](bits)[0]
+    var bits = SIMD[.uint32, 1](UInt32(task >> UInt64(32)))
+    return bitcast[.float32, 1](bits)[0]
 
 
 @always_inline
@@ -124,7 +124,7 @@ def _intersect_trace_node_precomputed[
 ](
     wide_nodes: ImmPointer[Float32, _],
     node_idx: UInt32,
-    bounds_origin: Point3[DType.float32, frame, width],
+    bounds_origin: Point3[.float32, frame, width],
     reciprocal_direction: Vec3[.float32, frame, width],
     t_max: Float32,
 ) -> WideNodeIntersection[width]:

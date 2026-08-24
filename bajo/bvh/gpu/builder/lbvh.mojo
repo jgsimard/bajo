@@ -104,7 +104,7 @@ def enqueue_segmented_morton_sort(
 ) raises:
     """Sort one UInt64 ``(segment_id, morton_code)`` composite key."""
     ref topology = workspace.topology.value()
-    device_radix_sort_pairs[DType.uint64, DType.uint32](
+    device_radix_sort_pairs[.uint64, .uint32](
         ctx,
         workspace.sort,
         topology.sort_keys,

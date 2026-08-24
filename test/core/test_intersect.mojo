@@ -284,9 +284,9 @@ def _test_no_div_tri_tri_isect[T: DType]() raises:
 
 
 def test_no_div_tri_tri_isect() raises:
-    _test_no_div_tri_tri_isect[DType.float16]()
-    _test_no_div_tri_tri_isect[DType.float32]()
-    _test_no_div_tri_tri_isect[DType.float64]()
+    _test_no_div_tri_tri_isect[.float16]()
+    _test_no_div_tri_tri_isect[.float32]()
+    _test_no_div_tri_tri_isect[.float64]()
 
 
 def _test_intersect_tri_tri[T: DType]() raises:
@@ -314,9 +314,9 @@ def _test_intersect_tri_tri[T: DType]() raises:
 def test_intersect_tri_tri() raises:
     """From warp/warp/tests/test_intersect.py."""
 
-    _test_intersect_tri_tri[DType.float16]()
-    _test_intersect_tri_tri[DType.float32]()
-    _test_intersect_tri_tri[DType.float64]()
+    _test_intersect_tri_tri[.float16]()
+    _test_intersect_tri_tri[.float32]()
+    _test_intersect_tri_tri[.float64]()
 
 
 def main() raises:

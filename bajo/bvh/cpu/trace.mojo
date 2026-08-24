@@ -30,7 +30,7 @@ from bajo.bvh.wide_meta import _wide_meta_count, _wide_meta_data
 def _pack_pending_task(child_ref: UInt32, child_t: Float32) -> UInt64:
     # AABB entry distances are non-negative, so their Float32 bit patterns
     # preserve numeric ordering when placed in the high half of the task.
-    var t_bits = bitcast[DType.uint32, 1](SIMD[.float32, 1](child_t))[0]
+    var t_bits = bitcast[.uint32, 1](SIMD[.float32, 1](child_t))[0]
     return (UInt64(t_bits) << 32) | UInt64(child_ref)
 
 
@@ -41,40 +41,40 @@ def _pending_task_ref(task: UInt64) -> UInt32:
 
 @always_inline
 def _pending_task_t(task: UInt64) -> Float32:
-    var bits = SIMD[DType.uint32, 1](UInt32(task >> 32))
-    return bitcast[DType.float32, 1](bits)[0]
+    var bits = SIMD[.uint32, 1](UInt32(task >> 32))
+    return bitcast[.float32, 1](bits)[0]
 
 
 @always_inline
 def _extract_u32_lane[
     width: SIMDLength
-](values: SIMD[DType.uint32, width], lane: Int) -> UInt32:
+](values: SIMD[.uint32, width], lane: Int) -> UInt32:
     """Extract a dynamic SIMD lane without forcing a vector spill."""
     comptime assert width in [2, 4, 8, 16]
 
     comptime if width == 16 and CompilationTarget.has_avx512f():
-        var indices = SIMD[DType.uint32, width](UInt32(lane))
+        var indices = SIMD[.uint32, width](UInt32(lane))
         return llvm_intrinsic[
             "llvm.x86.avx512.permvar.si.512",
-            SIMD[DType.uint32, width],
+            SIMD[.uint32, width],
             has_side_effect=False,
         ](values, indices)[0]
     elif width == 8 and CompilationTarget.has_avx2():
-        var indices = SIMD[DType.uint32, width](UInt32(lane))
+        var indices = SIMD[.uint32, width](UInt32(lane))
         return llvm_intrinsic[
             "llvm.x86.avx2.permd",
-            SIMD[DType.uint32, width],
+            SIMD[.uint32, width],
             has_side_effect=False,
         ](values, indices)[0]
     elif width == 4 and CompilationTarget.has_avx():
-        var indices = SIMD[DType.int32, width](Int32(lane))
-        var floats = bitcast[DType.float32, width](values)
+        var indices = SIMD[.int32, width](Int32(lane))
+        var floats = bitcast[.float32, width](values)
         var permuted = llvm_intrinsic[
             "llvm.x86.avx.vpermilvar.ps",
             SIMD[.float32, width],
             has_side_effect=False,
         ](floats, indices)
-        return bitcast[DType.uint32, width](permuted)[0]
+        return bitcast[.uint32, width](permuted)[0]
     # elif width == 2:
     #     if lane == 0:
     #         return values[0]
@@ -87,9 +87,9 @@ def _extract_u32_lane[
 def _extract_f32_lane[
     width: SIMDLength
 ](values: SIMD[.float32, width], lane: Int) -> Float32:
-    var bits = bitcast[DType.uint32, width](values)
+    var bits = bitcast[.uint32, width](values)
     var extracted = _extract_u32_lane(bits, lane)
-    return bitcast[DType.float32, 1](SIMD[DType.uint32, 1](extracted))[0]
+    return bitcast[.float32, 1](SIMD[.uint32, 1](extracted))[0]
 
 
 @always_inline
@@ -115,7 +115,7 @@ def _trace_bounds_bvh_impl[
     packed_meta: Bool,
     LeafFn: def(
         Rayf32[frame],
-        Point3[DType.float32, frame, leaf_width],
+        Point3[.float32, frame, leaf_width],
         Vec3[.float32, frame, leaf_width],
         SIMD[.float32, leaf_width],
         SIMD[.float32, leaf_width],
@@ -158,8 +158,8 @@ def _trace_bounds_bvh_impl[
 
     @always_inline
     def intersect_node(
-        aabb: AxisAlignedBoundingBox[DType.float32, frame, bounds_width]
-    ) {imm} -> RayDistanceHit[DType.float32, bounds_width]:
+        aabb: AxisAlignedBoundingBox[.float32, frame, bounds_width]
+    ) {imm} -> RayDistanceHit[.float32, bounds_width]:
         return intersect_ray_aabb_octant_fma[
             positive_x=positive_x,
             positive_y=positive_y,
@@ -443,7 +443,7 @@ def _trace_bounds_bvh_octant[
     leaf_uses_rcp_direction: Bool,
     LeafFn: def(
         Rayf32[frame],
-        Point3[DType.float32, frame, leaf_width],
+        Point3[.float32, frame, leaf_width],
         Vec3[.float32, frame, leaf_width],
         SIMD[.float32, leaf_width],
         SIMD[.float32, leaf_width],
@@ -531,7 +531,7 @@ def trace_bounds_bvh[
     mode: TraceMode,
     LeafFn: def(
         Rayf32[frame],
-        Point3[DType.float32, frame, leaf_width],
+        Point3[.float32, frame, leaf_width],
         Vec3[.float32, frame, leaf_width],
         SIMD[.float32, leaf_width],
         SIMD[.float32, leaf_width],
@@ -568,7 +568,7 @@ def trace_packed_bounds_bvh[
     mode: TraceMode,
     LeafFn: def(
         Rayf32[frame],
-        Point3[DType.float32, frame, leaf_width],
+        Point3[.float32, frame, leaf_width],
         Vec3[.float32, frame, leaf_width],
         SIMD[.float32, leaf_width],
         SIMD[.float32, leaf_width],
@@ -607,7 +607,7 @@ def trace_bounds_bvh_from_ref[
     leaf_width: SIMDLength,
     LeafFn: def(
         Rayf32[frame],
-        Point3[DType.float32, frame, leaf_width],
+        Point3[.float32, frame, leaf_width],
         Vec3[.float32, frame, leaf_width],
         SIMD[.float32, leaf_width],
         SIMD[.float32, leaf_width],
@@ -654,7 +654,7 @@ def trace_bounds_bvh_leaf_rcp[
     mode: TraceMode,
     LeafFn: def(
         Rayf32[frame],
-        Point3[DType.float32, frame, leaf_width],
+        Point3[.float32, frame, leaf_width],
         Vec3[.float32, frame, leaf_width],
         SIMD[.float32, leaf_width],
         SIMD[.float32, leaf_width],
@@ -693,7 +693,7 @@ def trace_packed_sphere_bounds_bvh[
     mode: TraceMode,
     LeafFn: def(
         Rayf32[frame],
-        Point3[DType.float32, frame, leaf_width],
+        Point3[.float32, frame, leaf_width],
         Vec3[.float32, frame, leaf_width],
         SIMD[.float32, leaf_width],
         SIMD[.float32, leaf_width],

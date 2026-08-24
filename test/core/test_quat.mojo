@@ -38,9 +38,9 @@ def _test_from_axis_angle_mul[T: DType]() raises where T.is_floating_point():
 
 
 def test_from_axis_angle_mul() raises:
-    # _test_from_axis_angle_mul[DType.float16]() # does not pass !
-    _test_from_axis_angle_mul[DType.float32]()
-    _test_from_axis_angle_mul[DType.float64]()
+    # _test_from_axis_angle_mul[.float16]() # does not pass !
+    _test_from_axis_angle_mul[.float32]()
+    _test_from_axis_angle_mul[.float64]()
 
 
 def test_mul_rotate() raises:
@@ -77,9 +77,9 @@ def _test_rotate[T: DType]() raises where T.is_floating_point():
 
 
 def test_rotate() raises:
-    _test_rotate[DType.float16]()
-    _test_rotate[DType.float32]()
-    _test_rotate[DType.float64]()
+    _test_rotate[.float16]()
+    _test_rotate[.float32]()
+    _test_rotate[.float64]()
 
 
 def main() raises:

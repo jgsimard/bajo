@@ -64,7 +64,7 @@ def global_histogram[
 
     def _accumulate_hist[width: SIMDLength](i: Int) {imm}:
         var _t = sort.unsafe_load[width=width](i)
-        var t = bitcast[DType.uint8, width * BYTES_PER_KEY](_t)
+        var t = bitcast[.uint8, width * BYTES_PER_KEY](_t)
 
         comptime for v in range(width):
             comptime for b in range(BYTES_PER_KEY):
@@ -292,7 +292,7 @@ def digit_binning[
             if t_idx < part_size:
                 var key = s_warp_histograms[unsafe_offset=t_idx]
                 var d = (key >> radix_shift) & UInt32(RADIX_MASK)
-                digits[i] = d.cast[DType.uint8]()
+                digits[i] = d.cast[.uint8]()
                 keys_alternate[
                     unsafe_offset=s_local_histogram[unsafe_offset=Int(d)]
                     + UInt32(t_idx)

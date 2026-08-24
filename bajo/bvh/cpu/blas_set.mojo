@@ -205,7 +205,7 @@ def _pack_triangle_blas[
         nodes.unsafe_store[width=node_width](
             node_base + WideNode.MAX_Z * node_width, node.aabb._max.z
         )
-        var packed_meta = SIMD[DType.uint32, node_width](EMPTY_LANE)
+        var packed_meta = SIMD[.uint32, node_width](EMPTY_LANE)
         comptime for lane in range(node_width):
             var data = node.data[lane]
             if data != EMPTY_LANE:
@@ -398,7 +398,7 @@ def _pack_sphere_blas[
         nodes.unsafe_store[width=width](
             node_base + WideNode.MAX_Z * width, node.aabb._max.z
         )
-        var packed_meta = SIMD[DType.uint32, width](EMPTY_LANE)
+        var packed_meta = SIMD[.uint32, width](EMPTY_LANE)
         comptime for lane in range(width):
             var data = node.data[lane]
             if data != EMPTY_LANE:
@@ -538,7 +538,7 @@ def _trace_packed_triangle_from_ref[
     @always_inline
     def leaf_fn(
         ray: Rayf32[frame],
-        O: Point3[DType.float32, frame, leaf_width],
+        O: Point3[.float32, frame, leaf_width],
         D: Vec3[.float32, frame, leaf_width],
         _ray_a: SIMD[.float32, leaf_width],
         _ray_inv_a: SIMD[.float32, leaf_width],
@@ -615,7 +615,7 @@ def trace_blas_set[
     @always_inline
     def leaf_fn(
         ray: Rayf32[frame],
-        O: Point3[DType.float32, frame, leaf_width],
+        O: Point3[.float32, frame, leaf_width],
         D: Vec3[.float32, frame, leaf_width],
         _ray_a: SIMD[.float32, leaf_width],
         _ray_inv_a: SIMD[.float32, leaf_width],
@@ -815,7 +815,7 @@ def trace_blas_set[
     @always_inline
     def leaf_fn(
         ray: Rayf32[frame],
-        O: Point3[DType.float32, frame, leaf_width],
+        O: Point3[.float32, frame, leaf_width],
         D: Vec3[.float32, frame, leaf_width],
         ray_a: SIMD[.float32, leaf_width],
         ray_inv_a: SIMD[.float32, leaf_width],

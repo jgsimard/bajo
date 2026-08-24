@@ -23,20 +23,20 @@ from .ray import Ray
 from .segments import SegmentOffsets
 
 
-comptime AABB = AxisAlignedBoundingBox[DType.float32, _]
-comptime Quat = Quaternion[DType.float32, _]
-comptime Affine3f32 = Affine3[DType.float32, _, _]
-comptime Vec2f32 = Vec2[DType.float32, _]
+comptime AABB = AxisAlignedBoundingBox[.float32, _]
+comptime Quat = Quaternion[.float32, _]
+comptime Affine3f32 = Affine3[.float32, _, _]
+comptime Vec2f32 = Vec2[.float32, _]
 comptime Vec3f32 = Vec3[.float32, _]
-comptime Point3f32 = Point3[DType.float32, _]
-comptime Normal3f32 = Normal3[DType.float32, _]
+comptime Point3f32 = Point3[.float32, _]
+comptime Normal3f32 = Normal3[.float32, _]
 comptime Rayf32 = Ray[.float32, _]
 
 comptime Vec3W = Vec3[.float32, .WORLD]
-comptime Point3W = Point3[DType.float32, .WORLD]
+comptime Point3W = Point3[.float32, .WORLD]
 
 
 comptime Mat22 = Mat[_, 2, 2, _]
 comptime Mat33 = Mat[_, 3, 3, _]
 comptime Mat44 = Mat[_, 4, 4, _]
-comptime Mat33f32 = Mat[DType.float32, 3, 3, _]
+comptime Mat33f32 = Mat[.float32, 3, 3, _]

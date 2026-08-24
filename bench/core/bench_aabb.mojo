@@ -154,13 +154,13 @@ def apply_trs_arvo_v1_______(
 def apply_trs_affine3_v0_width[
     width: SIMDLength
 ](
-    box: AxisAlignedBoundingBox[DType.float32, BENCH_FRAME, width],
+    box: AxisAlignedBoundingBox[.float32, BENCH_FRAME, width],
     translation: Vec3[.float32, BENCH_FRAME, width],
-    rotation: Quaternion[DType.float32, BENCH_FRAME, width],
+    rotation: Quaternion[.float32, BENCH_FRAME, width],
     scale: Vec3[.float32, BENCH_FRAME, width],
-) -> AxisAlignedBoundingBox[DType.float32, BENCH_FRAME, width]:
+) -> AxisAlignedBoundingBox[.float32, BENCH_FRAME, width]:
     var transform = Affine3[
-        DType.float32,
+        .float32,
         BENCH_FRAME,
         BENCH_FRAME,
         width,
@@ -196,7 +196,7 @@ def apply_trs_affine3_v0_width[
     new_min += vmin(c2_a, c2_b)
     new_max += vmax(c2_a, c2_b)
 
-    return AxisAlignedBoundingBox[DType.float32, BENCH_FRAME, width](
+    return AxisAlignedBoundingBox[.float32, BENCH_FRAME, width](
         new_min.unsafe_convert[new_kind=GeoKind.POINT](),
         new_max.unsafe_convert[new_kind=GeoKind.POINT](),
     )
@@ -205,13 +205,13 @@ def apply_trs_affine3_v0_width[
 def apply_trs_affine3_v1_width[
     width: SIMDLength
 ](
-    box: AxisAlignedBoundingBox[DType.float32, BENCH_FRAME, width],
+    box: AxisAlignedBoundingBox[.float32, BENCH_FRAME, width],
     translation: Vec3[.float32, BENCH_FRAME, width],
-    rotation: Quaternion[DType.float32, BENCH_FRAME, width],
+    rotation: Quaternion[.float32, BENCH_FRAME, width],
     scale: Vec3[.float32, BENCH_FRAME, width],
-) -> AxisAlignedBoundingBox[DType.float32, BENCH_FRAME, width]:
+) -> AxisAlignedBoundingBox[.float32, BENCH_FRAME, width]:
     var transform = Affine3[
-        DType.float32,
+        .float32,
         BENCH_FRAME,
         BENCH_FRAME,
         width,
@@ -257,7 +257,7 @@ def apply_trs_affine3_v1_width[
     _add_transformed_axis_width[1](transform.m12, box._min.z, box._max.z)
     _add_transformed_axis_width[2](transform.m22, box._min.z, box._max.z)
 
-    return AxisAlignedBoundingBox[DType.float32, BENCH_FRAME, width](
+    return AxisAlignedBoundingBox[.float32, BENCH_FRAME, width](
         new_min.unsafe_convert[new_kind=GeoKind.POINT](),
         new_max.unsafe_convert[new_kind=GeoKind.POINT](),
     )
@@ -267,11 +267,11 @@ def dispatch_affine3_width[
     version: Int,
     width: SIMDLength,
 ](
-    box: AxisAlignedBoundingBox[DType.float32, BENCH_FRAME, width],
+    box: AxisAlignedBoundingBox[.float32, BENCH_FRAME, width],
     translation: Vec3[.float32, BENCH_FRAME, width],
-    rotation: Quaternion[DType.float32, BENCH_FRAME, width],
+    rotation: Quaternion[.float32, BENCH_FRAME, width],
     scale: Vec3[.float32, BENCH_FRAME, width],
-) -> AxisAlignedBoundingBox[DType.float32, BENCH_FRAME, width]:
+) -> AxisAlignedBoundingBox[.float32, BENCH_FRAME, width]:
     comptime if version == 0:
         return apply_trs_affine3_v0_width[width](
             box, translation, rotation, scale
@@ -284,14 +284,14 @@ def dispatch_affine3_width[
 
 struct Affine3WidthBenchmarkData[width: SIMDLength]:
     comptime aabb = AxisAlignedBoundingBox[
-        DType.float32,
+        .float32,
         BENCH_FRAME,
         Self.width,
     ]
 
     var boxes: List[Self.aabb]
     var translations: List[Vec3[.float32, BENCH_FRAME, Self.width]]
-    var rotations: List[Quaternion[DType.float32, BENCH_FRAME, Self.width]]
+    var rotations: List[Quaternion[.float32, BENCH_FRAME, Self.width]]
     var scales: List[Vec3[.float32, BENCH_FRAME, Self.width]]
     var dst: List[Self.aabb]
 
@@ -308,8 +308,8 @@ struct Affine3WidthBenchmarkData[width: SIMDLength]:
         for _ in range(packet_count):
             self.boxes.append(
                 Self.aabb(
-                    Point3[DType.float32, BENCH_FRAME, Self.width](-1),
-                    Point3[DType.float32, BENCH_FRAME, Self.width](1),
+                    Point3[.float32, BENCH_FRAME, Self.width](-1),
+                    Point3[.float32, BENCH_FRAME, Self.width](1),
                 )
             )
 
@@ -323,7 +323,7 @@ struct Affine3WidthBenchmarkData[width: SIMDLength]:
 
             self.rotations.append(
                 Quaternion[
-                    DType.float32,
+                    .float32,
                     BENCH_FRAME,
                     Self.width,
                 ].from_axis_angle(

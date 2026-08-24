@@ -314,7 +314,7 @@ def downsweep[
                 var d = (key >> Scalar[keys_dtype](radix_shift)) & Scalar[
                     keys_dtype
                 ](RADIX_MASK)
-                digits[i] = d.cast[DType.uint8]()
+                digits[i] = d.cast[.uint8]()
                 keys_alternate[
                     unsafe_offset=s_local_histogram[unsafe_offset=Int(d)]
                     + UInt32(t)
@@ -350,7 +350,7 @@ def downsweep[
                     var d = (key >> Scalar[keys_dtype](radix_shift)) & Scalar[
                         keys_dtype
                     ](RADIX_MASK)
-                    digits[i] = d.cast[DType.uint8]()
+                    digits[i] = d.cast[.uint8]()
                     keys_alternate[
                         unsafe_offset=s_local_histogram[unsafe_offset=Int(d)]
                         + UInt32(t)

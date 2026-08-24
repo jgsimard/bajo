@@ -62,13 +62,13 @@ struct ScatterBatch[length: SIMDLength]:
 struct _DirectLightBatch[length: SIMDLength]:
     var sample: _DirectLightSample[Self.length]
     var point: ShadingPoint[Self.length]
-    var surface_kinds: SIMD[DType.uint32, Self.length]
-    var surface_indices: SIMD[DType.uint32, Self.length]
+    var surface_kinds: SIMD[.uint32, Self.length]
+    var surface_indices: SIMD[.uint32, Self.length]
 
     def __init__(out self):
         self.sample = _empty_direct_light_sample[Self.length]()
         self.point = ShadingPoint[Self.length](
-            Point3[DType.float32, .WORLD, Self.length](0.0),
+            Point3[.float32, .WORLD, Self.length](0.0),
             Vec3[.float32, .WORLD, Self.length](0.0),
             SIMD[.bool, Self.length](fill=False),
         )
@@ -337,7 +337,7 @@ def _trace_path_packets[
             for lane in range(lane_count):
                 valid_lanes[lane] = True
             var ray_packet = Ray[.float32, .WORLD, length](
-                Point3[DType.float32, .WORLD, length](
+                Point3[.float32, .WORLD, length](
                     packet.ox, packet.oy, packet.oz
                 ),
                 Vec3[.float32, .WORLD, length](packet.dx, packet.dy, packet.dz),

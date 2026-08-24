@@ -171,7 +171,7 @@ struct _SegmentedSphereWideBuild[
             ctx, wide.node_counts, wide.leaf_block_counts, 1
         )
         var compact_leaves = enqueue_compact_segmented_buffer[
-            DType.float32,
+            .float32,
             Self.leaf_width * SPHERE_LEAF_PACKED_STRIDE,
         ](
             ctx,
@@ -424,7 +424,7 @@ def _intersect_sphere_leaf[
     var block_base = Int(leaf_block_idx) * SPHERE_LEAF_PACKED_STRIDE * width
     var leaf_spheres_u32 = leaf_spheres.unsafe_bitcast[UInt32]()
 
-    var center = Point3[DType.float32, frame, width](
+    var center = Point3[.float32, frame, width](
         leaf_spheres.unsafe_load[width=width](block_base + 0 * width),
         leaf_spheres.unsafe_load[width=width](block_base + 1 * width),
         leaf_spheres.unsafe_load[width=width](block_base + 2 * width),

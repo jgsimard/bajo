@@ -64,7 +64,7 @@ def _trace_triangle_leaf_block[
     packed_layout: Bool = False,
 ](
     ray: Rayf32[frame],
-    O: Point3[DType.float32, frame, width],
+    O: Point3[.float32, frame, width],
     D: Vec3[.float32, frame, width],
     block: TriangleLeafBlock[frame, width],
     block_ptr: ImmPointer[Float32, _],
@@ -226,7 +226,7 @@ def _trace_triangle_packet_primitive[
     e2_scalar: Vec3f32[frame],
     mut packet_hit: Hit[frame, length],
 ):
-    var v0 = Point3[DType.float32, frame, length](
+    var v0 = Point3[.float32, frame, length](
         v0_scalar.x, v0_scalar.y, v0_scalar.z
     )
     var e1 = Vec3[.float32, frame, length](
@@ -253,10 +253,10 @@ def _trace_triangle_packet_primitive[
         packet_hit.u = closer.select(candidate.u_scaled * inv_det, packet_hit.u)
         packet_hit.v = closer.select(candidate.v_scaled * inv_det, packet_hit.v)
         packet_hit.prim = closer.select(
-            SIMD[DType.uint32, length](prim_idx), packet_hit.prim
+            SIMD[.uint32, length](prim_idx), packet_hit.prim
         )
         packet_hit.inst = closer.select(
-            SIMD[DType.uint32, length](EMPTY_LANE), packet_hit.inst
+            SIMD[.uint32, length](EMPTY_LANE), packet_hit.inst
         )
         var geometric_normal = normalize(cross(e1_scalar, e2_scalar))
         packet_hit.normal.x = closer.select(

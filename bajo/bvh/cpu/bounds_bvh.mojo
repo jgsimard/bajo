@@ -32,14 +32,14 @@ struct WideBvhNode[frame: Frame, width: SIMDLength](Copyable):
         is_leaf_ref(data[i]) == True   -> leaf payload index
     """
 
-    var aabb: AxisAlignedBoundingBox[DType.float32, Self.frame, Self.width]
-    var data: SIMD[DType.uint32, Self.width]
+    var aabb: AxisAlignedBoundingBox[.float32, Self.frame, Self.width]
+    var data: SIMD[.uint32, Self.width]
 
     def __init__(out self):
         self.aabb = AxisAlignedBoundingBox[
-            DType.float32, Self.frame, Self.width
+            .float32, Self.frame, Self.width
         ].invalid()
-        self.data = SIMD[DType.uint32, Self.width](EMPTY_LANE)
+        self.data = SIMD[.uint32, Self.width](EMPTY_LANE)
 
 
 @always_inline

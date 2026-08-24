@@ -50,8 +50,8 @@ def _run_case[
     leaf_width: SIMDLength,
 ](
     mut ctx: DeviceContext,
-    d_vertices: DeviceBuffer[DType.float32],
-    d_camera: DeviceBuffer[DType.float32],
+    d_vertices: DeviceBuffer[.float32],
+    d_camera: DeviceBuffer[.float32],
     triangle_count: Int,
     ray_count: Int,
 ) raises:
@@ -85,9 +85,7 @@ def _run_case[
     var build_min_ms = ns_to_ms(build_values[0])
     var build_max_ms = ns_to_ms(build_values[len(build_values) - 1])
 
-    var d_hits = ctx.enqueue_create_buffer[DType.float32](
-        ray_count * Hit.STRIDE
-    )
+    var d_hits = ctx.enqueue_create_buffer[.float32](ray_count * Hit.STRIDE)
     warm.launch_camera(ctx, d_camera, d_hits, ray_count, RAY_WIDTH, RAY_HEIGHT)
     ctx.synchronize()
 
@@ -136,8 +134,8 @@ def _run_cwbvh8_case[
     merging_threshold: Int = HPLOC_MERGING_THRESHOLD,
 ](
     mut ctx: DeviceContext,
-    d_vertices: DeviceBuffer[DType.float32],
-    d_camera: DeviceBuffer[DType.float32],
+    d_vertices: DeviceBuffer[.float32],
+    d_camera: DeviceBuffer[.float32],
     triangle_count: Int,
     ray_count: Int,
 ) raises:
@@ -159,7 +157,7 @@ def _run_cwbvh8_case[
     comptime if merging_threshold != HPLOC_MERGING_THRESHOLD:
         label += String(t"-mt{merging_threshold}")
     var warm: Cwbvh8BenchBvh
-    var primitive_ids = ctx.enqueue_create_buffer[DType.uint32](
+    var primitive_ids = ctx.enqueue_create_buffer[.uint32](
         max(triangle_count, 1)
     )
     var emitted_node_count = 0
@@ -205,9 +203,7 @@ def _run_cwbvh8_case[
     var build_min_ms = ns_to_ms(build_values[0])
     var build_max_ms = ns_to_ms(build_values[len(build_values) - 1])
 
-    var d_hits = ctx.enqueue_create_buffer[DType.float32](
-        ray_count * Hit.STRIDE
-    )
+    var d_hits = ctx.enqueue_create_buffer[.float32](ray_count * Hit.STRIDE)
     comptime if indexed_triangles:
         ctx.enqueue_function[
             trace_cwbvh8_indexed_camera_kernel[max_leaf_size, 8]
@@ -291,7 +287,7 @@ def _run_cwbvh8_case[
     var primitive_tests = UInt64(0)
     var max_stack = UInt32(0)
     comptime if not indexed_triangles:
-        var d_stats = ctx.enqueue_create_buffer[DType.uint32](
+        var d_stats = ctx.enqueue_create_buffer[.uint32](
             ray_count * GpuTraversalStats.STRIDE
         )
         ctx.enqueue_function[trace_cwbvh8_camera_stats_kernel](

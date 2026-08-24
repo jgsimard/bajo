@@ -254,7 +254,7 @@ struct GpuBinaryBuildWorkspace:
     var segment_offsets: DeviceBuffer[.uint32]
     var bounds_scratch_a: DeviceBuffer[.float32]
     var bounds_scratch_b: DeviceBuffer[.float32]
-    var sort: RadixSortWorkspace[DType.uint64, DType.uint32]
+    var sort: RadixSortWorkspace[.uint64, .uint32]
     var topology: Optional[GpuBinaryTopologyWorkspace]
 
     def __init__(
@@ -282,9 +282,7 @@ struct GpuBinaryBuildWorkspace:
         self.bounds_scratch_b = ctx.enqueue_create_buffer[.float32](
             max(partial_segments.item_count(), 1) * REDUCED_BOUNDS_STRIDE
         )
-        self.sort = RadixSortWorkspace[DType.uint64, DType.uint32](
-            ctx, leaf_capacity
-        )
+        self.sort = RadixSortWorkspace[.uint64, .uint32](ctx, leaf_capacity)
         self.topology = Optional[GpuBinaryTopologyWorkspace]()
 
     def ensure_topology(mut self, mut ctx: DeviceContext) raises:

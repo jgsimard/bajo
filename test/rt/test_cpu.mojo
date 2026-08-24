@@ -268,14 +268,14 @@ def test_scene_builder_rejects_invalid_material_domains() raises:
         _ = invalid_emission^.finish()
 
     var nonfinite_material = SceneBuilder()
-    var nan = bitcast[DType.float32](UInt32(0x7FC00000))
+    var nan = bitcast[.float32](UInt32(0x7FC00000))
     var nan_surface = nonfinite_material.add_lambertian(Color(nan, 0.5, 0.5))
     nonfinite_material.add_sphere(Point3f32[.WORLD](0.0), 1.0, nan_surface)
     with assert_raises():
         _ = nonfinite_material^.finish()
 
     var overflowed_light = SceneBuilder()
-    var f32_max = bitcast[DType.float32](UInt32(0x7F7FFFFF))
+    var f32_max = bitcast[.float32](UInt32(0x7F7FFFFF))
     var overflowed_surface = overflowed_light.add_emissive(Color(f32_max))
     overflowed_light.add_sphere(Point3f32[.WORLD](0.0), 1.0, overflowed_surface)
     with assert_raises():
@@ -290,7 +290,7 @@ def test_scene_builder_rejects_invalid_geometry() raises:
         _ = zero_radius^.finish()
 
     var nonfinite_sphere = SceneBuilder()
-    var nan = bitcast[DType.float32](UInt32(0x7FC00000))
+    var nan = bitcast[.float32](UInt32(0x7FC00000))
     var sphere_surface = nonfinite_sphere.add_lambertian(Color(0.5))
     nonfinite_sphere.add_sphere(
         Point3f32[.WORLD](nan, 0.0, 0.0), 1.0, sphere_surface
@@ -365,7 +365,7 @@ def test_scene_builder_validates_and_rebuilds_instance_derivatives() raises:
     large_vertices.append(Point3f32[.LOCAL](1.0, 0.0, 0.0))
     large_vertices.append(Point3f32[.LOCAL](2.0, 0.0, 0.0))
     large_vertices.append(Point3f32[.LOCAL](1.0, 1.0, 0.0))
-    var f32_max = bitcast[DType.float32](UInt32(0x7F7FFFFF))
+    var f32_max = bitcast[.float32](UInt32(0x7F7FFFFF))
     var enormous = Affine3f32[.LOCAL, .WORLD].from_scale(
         Vec3f32[.LOCAL](f32_max, 1.0, 1.0)
     )

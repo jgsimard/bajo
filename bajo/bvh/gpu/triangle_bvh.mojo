@@ -235,7 +235,7 @@ struct _SegmentedTriangleWideBuild[
             ctx, wide.node_counts, wide.leaf_block_counts, 1
         )
         var compact_leaves = enqueue_compact_segmented_buffer[
-            DType.float32,
+            .float32,
             Self.leaf_width * TRI_LEAF_PACKED_STRIDE,
         ](
             ctx,
@@ -439,7 +439,7 @@ def _build_segmented_compressed_triangle_blas_set[
         segments.segment_count(),
     )
     var compact_nodes = enqueue_compact_segmented_buffer[
-        DType.float32, CWBVH_NODE_WORDS
+        .float32, CWBVH_NODE_WORDS
     ](
         ctx,
         nodes,
@@ -992,7 +992,7 @@ def _intersect_cwbvh_triangle[
     comptime if mode == .ANY_HIT:
         return True
     else:
-        var prim = bitcast[DType.uint32](v0_record)[3]
+        var prim = bitcast[.uint32](v0_record)[3]
         var inv_det = 1.0 / scaled_hit.abs_det
         hit.t = scaled_hit.t_scaled * inv_det
         hit.u = scaled_hit.u_scaled * inv_det

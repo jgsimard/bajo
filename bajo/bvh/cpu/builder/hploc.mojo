@@ -378,7 +378,7 @@ def _nearest_neighbors_simd(
     var nearest = Array[Int, _HPLOC_CLUSTER_CAPACITY](uninitialized=True)
 
     for cluster_base in range(0, cluster_count, _HPLOC_SIMD_WIDTH):
-        var positions = SIMD[DType.int32, _HPLOC_SIMD_WIDTH](0)
+        var positions = SIMD[.int32, _HPLOC_SIMD_WIDTH](0)
         comptime for lane in range(_HPLOC_SIMD_WIDTH):
             positions[lane] = Int32(cluster_base + lane)
 
@@ -387,7 +387,7 @@ def _nearest_neighbors_simd(
             _HPLOC_BOUNDS_PAD + cluster_base
         )
         var best_areas = SIMD[.float32, _HPLOC_SIMD_WIDTH](Float32.MAX)
-        var best_neighbors = SIMD[DType.int32, _HPLOC_SIMD_WIDTH](-1)
+        var best_neighbors = SIMD[.int32, _HPLOC_SIMD_WIDTH](-1)
 
         for radius in range(1, search_radius + 1):
             var right_positions = positions + Int32(radius)

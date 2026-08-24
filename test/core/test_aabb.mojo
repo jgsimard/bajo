@@ -47,7 +47,7 @@ def test_apply_trs_rotated() raises:
     var t = Vec3W(0)
     var s = Vec3W(1)
     var transform = Affine3[
-        DType.float32, .WORLD, .CAMERA
+        .float32, .WORLD, .CAMERA
     ].from_rotation_scale_translation(r, s, t)
 
     var new_box = box.apply_transform(transform)

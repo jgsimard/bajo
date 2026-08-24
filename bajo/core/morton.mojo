@@ -33,7 +33,7 @@ def morton_common_prefix(
 
 def expand_bits_2d[
     size: SIMDLength
-](n_in: SIMD[DType.uint32, size]) -> SIMD[DType.uint32, size]:
+](n_in: SIMD[.uint32, size]) -> SIMD[.uint32, size]:
     # 0000 0000 0000 0000 gfed cba9 8675 4321
     # 0g0f 0e0d 0c0b 0a09 0807 0605 0403 0201
     var n = n_in
@@ -47,7 +47,7 @@ def expand_bits_2d[
 
 def expand_bits_3d[
     size: SIMDLength
-](n_in: SIMD[DType.uint32, size]) -> SIMD[DType.uint32, size]:
+](n_in: SIMD[.uint32, size]) -> SIMD[.uint32, size]:
     # 0000 0000 0000 0000 0000 00a9 8675 4321
     # 0000 a009 0080 0700 6005 0040 0300 2001
     var n = n_in
@@ -64,7 +64,7 @@ def morton3[
     x: SIMD[.float32, size],
     y: SIMD[.float32, size],
     z: SIMD[.float32, size],
-) -> SIMD[DType.uint32, size]:
+) -> SIMD[.uint32, size]:
     """Takes values in the range [0, 1] and assigns an index based Morton codes of length 3*log_base2(dim) bits.
     """
     # masks for ux, uy, uz use 3*log_base2(dim) = 3*log_base2(1024) = 3*10 = 30 bits
@@ -75,13 +75,13 @@ def morton3[
     comptime dimf = Float32(dim)
     comptime if size == 1:
         var v = SIMD[.float32, 4](x[0], y[0], z[0], 0)
-        var u = clamp((v * dimf).cast[DType.uint32](), 0, dim - 1)
+        var u = clamp((v * dimf).cast[.uint32](), 0, dim - 1)
         var ex = expand_bits_3d(u)
         return (ex[2] << 2) | (ex[1] << 1) | ex[0]
     else:
-        var ux = clamp((x * dimf).cast[DType.uint32](), 0, dim - 1)
-        var uy = clamp((y * dimf).cast[DType.uint32](), 0, dim - 1)
-        var uz = clamp((z * dimf).cast[DType.uint32](), 0, dim - 1)
+        var ux = clamp((x * dimf).cast[.uint32](), 0, dim - 1)
+        var uy = clamp((y * dimf).cast[.uint32](), 0, dim - 1)
+        var uz = clamp((z * dimf).cast[.uint32](), 0, dim - 1)
         return (
             (expand_bits_3d(uz) << 2)
             | (expand_bits_3d(uy) << 1)

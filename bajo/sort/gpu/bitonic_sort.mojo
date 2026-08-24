@@ -93,7 +93,7 @@ def bitonic_sort_shared[
                     comptime j = 1 << (stage - 1 - step_idx)
                     comptime if j < ITEMS_PER_THREAD:
                         # Stage 1: SIMD sort
-                        comptime i_vec = iota[DType.uint32, ITEMS_PER_THREAD]()
+                        comptime i_vec = iota[.uint32, ITEMS_PER_THREAD]()
                         comptime is_lower_vec = (i_vec & UInt32(j)).eq(0)
 
                         var other_keys = SIMD[keys_dtype, ITEMS_PER_THREAD]()
@@ -138,7 +138,7 @@ def bitonic_sort_shared[
                         var thread_g_base = UInt32(
                             block_start + tid * ITEMS_PER_THREAD
                         )
-                        comptime i_vec = iota[DType.uint32, ITEMS_PER_THREAD]()
+                        comptime i_vec = iota[.uint32, ITEMS_PER_THREAD]()
                         var sort_dir_vec = (
                             (thread_g_base + i_vec) & UInt32(k)
                         ).eq(0)

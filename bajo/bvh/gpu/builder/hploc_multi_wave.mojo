@@ -68,7 +68,7 @@ def _hploc_pack_distance_offset(
     # Positive IEEE-754 bit patterns preserve numerical ordering. HIPRT packs
     # both fields into 32 bits and quantizes the low area bits; keep a 64-bit
     # key so production selection remains exact with the literature oracle.
-    var area_bits = bitcast[DType.uint32](area)
+    var area_bits = bitcast[.uint32](area)
     return (UInt64(area_bits) << 32) | UInt64(encoded_offset)
 
 
@@ -418,7 +418,7 @@ def build_hploc_multi_wave_kernel[
                             var merged = AABB[.WORLD].merge(
                                 own_bounds, right_bounds
                             )
-                            area_bits = bitcast[DType.uint32](
+                            area_bits = bitcast[.uint32](
                                 merged.surface_area()[0]
                             )
                             if area_bits < minimum_area:

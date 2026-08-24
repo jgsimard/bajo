@@ -15,7 +15,6 @@ from bajo.rt.gpu.config import (
     GpuRtSceneKind,
     GPU_RT_BVH_CWBVH8,
     GPU_RT_BVH_TLAS2,
-    GPU_RT_BVH_WIDE2_LEAF4,
     GPU_RT_BVH_WIDE4,
 )
 from bajo.rt.gpu.resources import (
@@ -283,7 +282,6 @@ def _render_gpu_instances_default[
             GPU_RT_BVH_WIDE4,
             GPU_RT_BVH_TLAS2,
             GPU_RT_BVH_CWBVH8,
-            triangle_build_method=.LBVH,
         ](settings, camera, world)
     if kind.has_triangles() and _prefer_cwbvh8_triangles(world):
         return render_gpu_configured[
@@ -293,7 +291,6 @@ def _render_gpu_instances_default[
             GPU_RT_BVH_CWBVH8,
             GPU_RT_BVH_TLAS2,
             GPU_RT_BVH_WIDE4,
-            blas_build_method=.LBVH,
         ](settings, camera, world)
     return render_gpu_configured[
         kind,
@@ -302,8 +299,6 @@ def _render_gpu_instances_default[
         GPU_RT_BVH_WIDE4,
         GPU_RT_BVH_TLAS2,
         GPU_RT_BVH_WIDE4,
-        triangle_build_method=.LBVH,
-        blas_build_method=.LBVH,
     ](settings, camera, world)
 
 
@@ -353,7 +348,6 @@ def render_gpu[
                 integrator,
                 sphere_format,
                 GPU_RT_BVH_WIDE4,
-                triangle_build_method=.LBVH,
             ](settings, camera, world)
         return render_gpu_configured[.SPHERES, integrator, sphere_format](
             settings, camera, world
@@ -371,37 +365,6 @@ def render_gpu[
         integrator,
         sphere_format,
         GPU_RT_BVH_WIDE4,
-        triangle_build_method=.LBVH,
-    ](settings, camera, world)
-
-
-def _render_gpu_viewer_instances[
-    kind: GpuRtSceneKind,
-    integrator: Integrator,
-    sphere_format: GpuRtBvhFormat,
-](
-    settings: RenderSettings,
-    camera: Camera,
-    world: SceneData,
-) raises -> RenderResult:
-    comptime assert kind.has_instances()
-    if _prefer_cwbvh8_blases(world):
-        return render_gpu_configured[
-            kind,
-            integrator,
-            sphere_format,
-            GPU_RT_BVH_WIDE2_LEAF4,
-            GPU_RT_BVH_TLAS2,
-            GPU_RT_BVH_CWBVH8,
-        ](settings, camera, world)
-    return render_gpu_configured[
-        kind,
-        integrator,
-        sphere_format,
-        GPU_RT_BVH_WIDE2_LEAF4,
-        GPU_RT_BVH_TLAS2,
-        GPU_RT_BVH_WIDE4,
-        blas_build_method=.LBVH,
     ](settings, camera, world)
 
 
@@ -414,44 +377,7 @@ def render_gpu_viewer[
     camera: Camera,
     world: SceneData,
 ) raises -> RenderResult:
-    """Render the viewer with H-PLOC BVH2/leaf4 static triangles."""
-    comptime assert integrator.is_valid()
-    comptime sphere_format = GpuRtBvhFormat(
-        Int(node_width), Int(leaf_width), .WIDE
+    """Render the viewer with the measured default GPU BVH policy."""
+    return render_gpu[integrator, node_width, leaf_width](
+        settings, camera, world
     )
-
-    if len(world.triangle_instances()) > 0:
-        if len(world.spheres()) > 0:
-            if len(world.triangle_vertices()) > 0:
-                return _render_gpu_viewer_instances[
-                    .ALL, integrator, sphere_format
-                ](settings, camera, world)
-            return _render_gpu_viewer_instances[
-                .SPHERES_INSTANCES, integrator, sphere_format
-            ](settings, camera, world)
-        if len(world.triangle_vertices()) > 0:
-            return _render_gpu_viewer_instances[
-                .TRIANGLES_INSTANCES, integrator, sphere_format
-            ](settings, camera, world)
-        return _render_gpu_viewer_instances[
-            .INSTANCES, integrator, sphere_format
-        ](settings, camera, world)
-
-    if len(world.spheres()) > 0:
-        if len(world.triangle_vertices()) > 0:
-            return render_gpu_configured[
-                .SPHERES_TRIANGLES,
-                integrator,
-                sphere_format,
-                GPU_RT_BVH_WIDE2_LEAF4,
-            ](settings, camera, world)
-        return render_gpu_configured[.SPHERES, integrator, sphere_format](
-            settings, camera, world
-        )
-
-    return render_gpu_configured[
-        .TRIANGLES,
-        integrator,
-        sphere_format,
-        GPU_RT_BVH_WIDE2_LEAF4,
-    ](settings, camera, world)

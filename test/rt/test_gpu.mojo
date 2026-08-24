@@ -11,7 +11,6 @@ from bajo.bvh.host_utils import compute_bounds
 from bajo.core import Affine3f32, Point3f32, Vec3f32
 from bajo.rt.cpu import CpuScene, render_depth_first, render_wavefront
 from bajo.rt.gpu import (
-    GPU_RT_BVH_WIDE2_LEAF4,
     GPU_RT_BVH_WIDE4,
     GpuRtBvhFormat,
     GpuRtRenderTarget,
@@ -347,7 +346,7 @@ def test_gpu_triangle_path_matches_cpu_wavefront() raises:
         assert_almost_equal(gpu.pixels[i].z, cpu_pixel.z, atol=1.0e-5)
 
 
-def test_gpu_viewer_triangle_hploc_bvh2_leaf4_matches_cpu_wavefront() raises:
+def test_gpu_viewer_micro_triangle_policy_matches_cpu_wavefront() raises:
     var settings = RenderSettings(5, 3, 2, UInt64(223))
     var world = _triangle_world()
     var camera = _camera()
@@ -536,9 +535,26 @@ def test_gpu_static_default_policy_keeps_micro_geometry_wide() raises:
     assert_true(_prefer_cwbvh8_triangles(large))
 
 
-def test_gpu_viewer_static_format_is_bvh2_leaf4() raises:
-    assert_equal(GPU_RT_BVH_WIDE2_LEAF4.node_width, 2)
-    assert_equal(GPU_RT_BVH_WIDE2_LEAF4.leaf_width, 4)
+def test_gpu_viewer_large_triangle_policy_matches_cpu_wavefront() raises:
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.35, 0.65, 0.25))
+    for _ in range(32):
+        builder.add_triangle(
+            Point3f32[.WORLD](-1.5, -1.0, -1.0),
+            Point3f32[.WORLD](1.5, -1.0, -1.0),
+            Point3f32[.WORLD](0.0, 1.0, -1.0),
+            matte,
+        )
+    var world = CpuScene[4, 8](builder^.finish())
+    var settings = RenderSettings(5, 3, 2, UInt64(229))
+    var camera = _camera()
+    var cpu = render_wavefront[.PATH, 1, 64, False](settings, camera, world)
+    var gpu = render_gpu_viewer[.PATH](settings, camera, world.scene_data())
+
+    for i, cpu_pixel in enumerate(cpu.pixels):
+        assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=1.0e-5)
+        assert_almost_equal(gpu.pixels[i].y, cpu_pixel.y, atol=1.0e-5)
+        assert_almost_equal(gpu.pixels[i].z, cpu_pixel.z, atol=1.0e-5)
 
 
 def test_gpu_default_hploc_cwbvh8_instances_match_cpu_wavefront() raises:

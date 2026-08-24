@@ -110,14 +110,14 @@ type regardless of how they were built. `enqueue_render_gpu` submits every
 prepared scene through one API, while `render_gpu_configured` is the synchronous
 explicit-format entry point.
 
-Triangle-only rendering defaults to H-PLOC construction and native CWBVH8
-traversal (`node8/leaf4`). Instance rendering defaults to TLAS2/leaf1 and
-selects its BLAS specialization once on the host: H-PLOC+CWBVH8 when the
-instance-weighted mean mesh size is at least 32 triangles, otherwise
-LBVH+wide4 for micro-BLASes. This policy follows the measured crossover and
-adds no runtime format branch to device traversal. Explicit callers retain the
-full compile-time builder, node/leaf width, and compressed/wide overrides by
-passing formats and build methods.
+Triangle rendering defaults to H-PLOC construction and selects its layout once
+on the host: native CWBVH8 (`node8/leaf4`) for at least 32 triangles, otherwise
+wide4 for micro geometry. Instance rendering defaults to TLAS2/leaf1 and uses
+the same H-PLOC+CWBVH8 versus H-PLOC+wide4 policy for BLASes based on their
+instance-weighted mean mesh size. This follows the measured layout crossover
+and adds no runtime format branch to device traversal. Explicit callers retain
+the full compile-time builder, node/leaf width, and compressed/wide overrides
+by passing formats and build methods.
 
 Mixed and combined scenes specialize sphere BVH, static-triangle, TLAS, and
 BLAS widths independently. Their static triangles reuse the same wide/CWBVH

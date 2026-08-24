@@ -87,7 +87,10 @@ def _viewer_bvh_stats[
         if len(data.triangle_vertices()) > 0:
             if len(data.spheres()) > 0:
                 result += " "
-            result += "tri2/4 H-PLOC"
+            if len(data.triangle_vertices()) / 3 >= 32:
+                result += "tri8/4 H-PLOC CWBVH8"
+            else:
+                result += "tri4/4 H-PLOC"
         if len(data.triangle_instances()) > 0:
             if len(data.spheres()) > 0 or len(data.triangle_vertices()) > 0:
                 result += " "
@@ -99,7 +102,7 @@ def _viewer_bvh_stats[
             if weighted_triangles >= len(data.triangle_instances()) * 32:
                 result += "BLAS8/4 H-PLOC CWBVH8"
             else:
-                result += "BLAS4/4 LBVH"
+                result += "BLAS4/4 H-PLOC"
             result += " TLAS2/1 LBVH"
     result += " | S" + String(len(data.spheres()))
     result += " T" + String(len(data.triangle_vertices()) / 3)

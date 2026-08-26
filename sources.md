@@ -31,6 +31,9 @@
 ### Graphics
 - [Ray Tracing Gems Series](https://www.realtimerendering.com/raytracinggems/)
 - [Ray Tracing in One Weekend Series](https://raytracing.github.io/)
+- [Practical Hash-based Owen Scrambling](https://jcgt.org/published/0009/04/01/)
+- [SZ Sequences: Binary-Constructed (0, 2^q)-Sequences](https://research.nvidia.com/labs/rtr/publication/ahmed2025/)
+- [Scalar Spatiotemporal Blue Noise Masks](https://research.nvidia.com/publication/2021-12_scalar-spatiotemporal-blue-noise-masks)
 - [Graphics Gems Series](https://www.realtimerendering.com/resources/GraphicsGems/)
 - [HIPRT](https://gpuopen.com/hiprt/): HIP RT is a ray tracing library for HIP
 - [Yocto/GL](https://github.com/xelatihy/yocto-gl) Tiny C++ Libraries for Data-Driven Physically-based Graphics 

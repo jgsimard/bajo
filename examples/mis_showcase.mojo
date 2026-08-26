@@ -12,6 +12,8 @@ from bajo.rt import (
     SceneBuilder,
     SurfaceId,
     CpuScene,
+    CpuSceneConfig,
+    CPU_SCENE_DEFAULT_CONFIG,
     render_wavefront,
     write_ppm_from_colors,
 )
@@ -87,6 +89,7 @@ def _add_box(
 def make_mis_showcase_world[
     world_bvh_width: SIMDLength = 16,
     instance_bvh_width: SIMDLength = 16,
+    config: CpuSceneConfig = CPU_SCENE_DEFAULT_CONFIG,
 ]() raises -> CpuScene[world_bvh_width, instance_bvh_width]:
     var builder = SceneBuilder()
     var room = builder.add_lambertian(Color(0.48, 0.48, 0.48))
@@ -184,7 +187,9 @@ def make_mis_showcase_world[
     )
 
     var scene = builder^.finish()
-    return CpuScene[world_bvh_width, instance_bvh_width](scene^)
+    return CpuScene[world_bvh_width, instance_bvh_width].__init__[config](
+        scene^
+    )
 
 
 def _write_comparison(

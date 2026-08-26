@@ -13,8 +13,8 @@ from bajo.rt import (
 from bajo.rt.cpu import render_wavefront
 from bajo.rt.cpu.wavefront import (
     CPU_WAVEFRONT_SERIAL_CHUNK_PATHS,
-    WAVE_PARALLEL_TASK_PARTITIONS,
 )
+from bajo.rt.cpu.scheduler_mode import CpuSchedulerMode
 from bajo.benchmark.cpu_harness import pixel_checksum
 from bajo.benchmark.rt_fixtures import weekend_camera
 from examples.rtiaw import make_weekend_world
@@ -61,7 +61,7 @@ def _render_mode[
             16,
             CHUNK_PATHS,
             True,
-            WAVE_PARALLEL_TASK_PARTITIONS,
+            CpuSchedulerMode.TASK_PARTITIONS,
         ](settings, camera, world)
 
 

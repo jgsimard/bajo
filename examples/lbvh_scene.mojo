@@ -18,6 +18,8 @@ from bajo.rt import (
     Color,
     SceneBuilder,
     CpuScene,
+    CpuSceneConfig,
+    CPU_SCENE_DEFAULT_CONFIG,
 )
 
 
@@ -72,6 +74,7 @@ def make_lbvh_camera() -> Camera:
 def make_lbvh_world[
     world_bvh_width: SIMDLength = 16,
     instance_bvh_width: SIMDLength = 16,
+    config: CpuSceneConfig = CPU_SCENE_DEFAULT_CONFIG,
 ]() raises -> CpuScene[world_bvh_width, instance_bvh_width]:
     var mesh0 = pack_obj_triangles(LBVH_OBJ_PATH_0)
     var mesh1 = pack_obj_triangles(LBVH_OBJ_PATH_1)
@@ -161,4 +164,6 @@ def make_lbvh_world[
                 )
 
     var scene = builder^.finish()
-    return CpuScene[world_bvh_width, instance_bvh_width](scene^)
+    return CpuScene[world_bvh_width, instance_bvh_width].__init__[config](
+        scene^
+    )

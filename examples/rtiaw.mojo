@@ -10,6 +10,8 @@ from bajo.rt import (
     RenderSettings,
     SceneBuilder,
     CpuScene,
+    CpuSceneConfig,
+    CPU_SCENE_DEFAULT_CONFIG,
     render_wavefront,
     write_ppm_from_colors,
 )
@@ -27,6 +29,7 @@ comptime INTEGRATOR = Integrator.PATH
 def make_weekend_world[
     world_bvh_width: SIMDLength = 16,
     instance_bvh_width: SIMDLength = 16,
+    config: CpuSceneConfig = CPU_SCENE_DEFAULT_CONFIG,
 ]() raises -> CpuScene[world_bvh_width, instance_bvh_width]:
     var rng = Rng(seed=42, id=7)
     var builder = SceneBuilder()
@@ -83,7 +86,9 @@ def make_weekend_world[
     )
 
     var scene = builder^.finish()
-    return CpuScene[world_bvh_width, instance_bvh_width](scene^)
+    return CpuScene[world_bvh_width, instance_bvh_width].__init__[config](
+        scene^
+    )
 
 
 def main() raises:

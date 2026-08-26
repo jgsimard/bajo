@@ -5,7 +5,13 @@ from std.math import max
 from bajo.bvh.host_utils import compute_bounds
 from bajo.core import Affine3f32, Point3f32, Vec3f32
 from bajo.parser.obj.pack import pack_obj_triangles
-from bajo.rt import Color, CpuScene, SceneBuilder
+from bajo.rt import (
+    CPU_SCENE_DEFAULT_CONFIG,
+    Color,
+    CpuScene,
+    CpuSceneConfig,
+    SceneBuilder,
+)
 
 
 comptime EMISSIVE_BUNNY_PATH = "assets/bunny/bunny.obj"
@@ -14,6 +20,7 @@ comptime EMISSIVE_BUNNY_PATH = "assets/bunny/bunny.obj"
 def make_emissive_instance_world[
     world_bvh_width: SIMDLength = 16,
     instance_bvh_width: SIMDLength = 16,
+    config: CpuSceneConfig = CPU_SCENE_DEFAULT_CONFIG,
 ]() raises -> CpuScene[world_bvh_width, instance_bvh_width]:
     var bunny = pack_obj_triangles(EMISSIVE_BUNNY_PATH)
     var bunny_bounds = compute_bounds(bunny)
@@ -82,4 +89,6 @@ def make_emissive_instance_world[
     )
 
     var scene = builder^.finish()
-    return CpuScene[world_bvh_width, instance_bvh_width](scene^)
+    return CpuScene[world_bvh_width, instance_bvh_width].__init__[config](
+        scene^
+    )

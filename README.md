@@ -37,23 +37,28 @@ pixi run viewer
 ![renderer_viwer](renders/renderer_viwer.png)
 
 The viewer supports CPU and GPU backends, the `PATH`, `NEE`, `MIS`, `NORMALS`,
-and `AO` algorithms, progressive accumulation, Cornell/Veach/RTIAW scenes,
+and `AO` algorithms, linear progressive accumulation, independent, Halton, R2,
+Owen-Sobol, SZ, and procedural STBN sample sequences, Cornell/Veach/RTIAW scenes,
 an emissive triangle-instance showcase, the built-in PBRT showcase, and custom
 PBRT files.
 
 Useful command-line options:
 
-```bash
-pixi run viewer --scene cornell --spp 4 --max-spp 256
-pixi run viewer --scene emissive-instance --backend gpu
-pixi run viewer --scene lbvh --backend gpu --gpu-arch sm_120
-pixi run viewer --pbrt path/to/scene.pbrt --backend gpu
-```
 
 Use `W/S`, `A/D`, and `Q/E` to move; drag with the left mouse button to look
 around. `R` resets the camera, `B` toggles CPU/GPU, `1`–`5` select an algorithm,
-`+`/`-` adjust SPP, and `Esc` closes the viewer. The status bar reports build
-time, render time, FPS, and MRays/s.
+`+`/`-` adjust the number of progressive batches, and `Esc` closes the viewer.
+One batch renders all `max-spp` samples in one pass; larger values divide that
+same sample sequence across multiple updates. The status bar reports build time,
+render time, FPS, and MRays/s.
+
+The built-in stress scenes isolate different renderer limits:
+
+| Scene | Contents | What to compare |
+| --- | --- | --- |
+| `MANY LIGHTS` | 528 spheres and 96 small colored emitters | PATH struggles to discover emitters; compare NEE/MIS and sampler convergence |
+| `INDIRECT HALL` | Alternating diffuse baffles hiding four area lights | NEE only solves visible direct lighting; deep indirect transport remains noisy |
+| `SPECULAR TRANSPORT` | Hollow glass shells, glossy reflectors, blockers, and tiny lights | Exposes caustics, fireflies, missing shadow transmission, and difficult delta paths |
 
 For a GPU target other than the default, pass `--gpu-arch` or set
 `BAJO_GPU_ARCH`.

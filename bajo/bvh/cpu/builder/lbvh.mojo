@@ -13,7 +13,7 @@ comptime PARALLEL_LBVH_MIN_ITEMS = UInt32(4096)
 comptime RADIX_LBVH_MIN_ITEMS = UInt32(16384)
 comptime PARALLEL_RADIX_LBVH_MIN_ITEMS = UInt32(32768)
 comptime PARALLEL_RADIX_LBVH_MIN_LOGICAL_CORES = 16
-comptime PARALLEL_FRONTIER_DEPTH = 3
+comptime PARALLEL_FRONTIER_DEPTH = 4
 comptime PARALLEL_FRONTIER_CAPACITY = 1 << PARALLEL_FRONTIER_DEPTH
 
 
@@ -167,8 +167,9 @@ def _sorted_morton_pairs[
     frame: Frame,
     leaf_size: Int,
     method: CpuBvhBuildMethod,
+    hploc_microleaf_size: Int,
 ](
-    builder: BinaryBoundsBvh[frame, leaf_size, method],
+    builder: BinaryBoundsBvh[frame, leaf_size, method, hploc_microleaf_size],
     precomputed_centroid_bounds: AABB[frame],
 ) -> List[MortonItem]:
     """Generate stable sorted Morton/item pairs for linear CPU builders."""
@@ -177,7 +178,7 @@ def _sorted_morton_pairs[
     var centroid_bounds = precomputed_centroid_bounds
     if centroid_bounds._min.x[0] > centroid_bounds._max.x[0]:
         for item in builder.items:
-            centroid_bounds.grow(item.bounds.centroid())
+            centroid_bounds.grow(item.centroid)
 
     var extent = centroid_bounds.extent()
     var inv = extent.safe_inv()
@@ -192,14 +193,14 @@ def _sorted_morton_pairs[
             var end = item_count * (task_idx + 1) // worker_count
             for i in range(first, end):
                 ref item = builder.items[i]
-                var centroid = item.bounds.centroid()
+                var centroid = item.centroid
                 var c = (centroid - centroid_bounds._min) * inv
                 pairs[i] = MortonItem(morton3(c.x, c.y, c.z), UInt32(i))
 
         parallelize(morton_worker, worker_count, worker_count)
     else:
         for i, item in enumerate(builder.items):
-            var centroid = item.bounds.centroid()
+            var centroid = item.centroid
             var c = (centroid - centroid_bounds._min) * inv
             pairs.append(MortonItem(morton3(c.x, c.y, c.z), UInt32(i)))
     if builder.item_count >= RADIX_LBVH_MIN_ITEMS:
@@ -220,8 +221,11 @@ def _build_lbvh[
     frame: Frame,
     leaf_size: Int,
     method: CpuBvhBuildMethod,
+    hploc_microleaf_size: Int,
 ](
-    mut builder: BinaryBoundsBvh[frame, leaf_size, method],
+    mut builder: BinaryBoundsBvh[
+        frame, leaf_size, method, hploc_microleaf_size
+    ],
     precomputed_centroid_bounds: AABB[frame],
 ):
     """Build a binary LBVH using sorted Morton codes over item centers."""
@@ -244,16 +248,21 @@ def _build_lbvh[
     if use_parallel_build:
         _build_lbvh_parallel(builder, Span(pairs))
     else:
-        _ = _build_lbvh_recursive[frame, leaf_size, method](
-            builder, Span(pairs), 0, 0, item_count
-        )
+        _ = _build_lbvh_recursive[
+            frame, leaf_size, method, hploc_microleaf_size
+        ](builder, Span(pairs), 0, 0, item_count)
 
 
 @always_inline
 def _build_lbvh_leaf[
-    frame: Frame, leaf_size: Int, method: CpuBvhBuildMethod
+    frame: Frame,
+    leaf_size: Int,
+    method: CpuBvhBuildMethod,
+    hploc_microleaf_size: Int,
 ](
-    mut builder: BinaryBoundsBvh[frame, leaf_size, method],
+    mut builder: BinaryBoundsBvh[
+        frame, leaf_size, method, hploc_microleaf_size
+    ],
     node_idx: UInt32,
     first: Int,
     count: Int,
@@ -268,9 +277,14 @@ def _build_lbvh_leaf[
 
 
 def _build_lbvh_recursive[
-    frame: Frame, leaf_size: Int, method: CpuBvhBuildMethod
+    frame: Frame,
+    leaf_size: Int,
+    method: CpuBvhBuildMethod,
+    hploc_microleaf_size: Int,
 ](
-    mut builder: BinaryBoundsBvh[frame, leaf_size, method],
+    mut builder: BinaryBoundsBvh[
+        frame, leaf_size, method, hploc_microleaf_size
+    ],
     pairs: ImmSpan[MortonItem, _],
     node_idx: UInt32,
     first: Int,
@@ -316,9 +330,14 @@ def _build_lbvh_recursive[
 
 
 def _build_lbvh_parallel[
-    frame: Frame, leaf_size: Int, method: CpuBvhBuildMethod
+    frame: Frame,
+    leaf_size: Int,
+    method: CpuBvhBuildMethod,
+    hploc_microleaf_size: Int,
 ](
-    mut builder: BinaryBoundsBvh[frame, leaf_size, method],
+    mut builder: BinaryBoundsBvh[
+        frame, leaf_size, method, hploc_microleaf_size
+    ],
     pairs: ImmSpan[MortonItem, _],
 ):
     var max_nodes = Int(builder.item_count * 2 - 1)
@@ -359,9 +378,14 @@ def _build_lbvh_parallel[
 
 
 def _collect_lbvh_frontier[
-    frame: Frame, leaf_size: Int, method: CpuBvhBuildMethod
+    frame: Frame,
+    leaf_size: Int,
+    method: CpuBvhBuildMethod,
+    hploc_microleaf_size: Int,
 ](
-    mut builder: BinaryBoundsBvh[frame, leaf_size, method],
+    mut builder: BinaryBoundsBvh[
+        frame, leaf_size, method, hploc_microleaf_size
+    ],
     pairs: ImmSpan[MortonItem, _],
     node_idx: UInt32,
     first: Int,
@@ -402,9 +426,12 @@ def _build_lbvh_recursive_parallel[
     frame: Frame,
     leaf_size: Int,
     method: CpuBvhBuildMethod,
+    hploc_microleaf_size: Int,
     next_node_origin: MutOrigin,
 ](
-    mut builder: BinaryBoundsBvh[frame, leaf_size, method],
+    mut builder: BinaryBoundsBvh[
+        frame, leaf_size, method, hploc_microleaf_size
+    ],
     pairs: ImmSpan[MortonItem, _],
     node_idx: UInt32,
     first: Int,
@@ -438,9 +465,14 @@ def _build_lbvh_recursive_parallel[
 
 
 def _refit_lbvh_frontier[
-    frame: Frame, leaf_size: Int, method: CpuBvhBuildMethod
+    frame: Frame,
+    leaf_size: Int,
+    method: CpuBvhBuildMethod,
+    hploc_microleaf_size: Int,
 ](
-    mut builder: BinaryBoundsBvh[frame, leaf_size, method],
+    mut builder: BinaryBoundsBvh[
+        frame, leaf_size, method, hploc_microleaf_size
+    ],
     node_idx: UInt32,
     depth: Int,
 ) -> AABB[frame]:

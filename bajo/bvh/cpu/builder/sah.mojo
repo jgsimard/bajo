@@ -1,3 +1,4 @@
+from max.algorithm import parallelize
 from std.math import clamp
 
 from bajo.core import AABB, Frame
@@ -90,7 +91,7 @@ def _find_sah_split[
     for item_idx_u32 in node_indices:
         var item_idx = Int(item_idx_u32)
         ref item = items.unsafe_get(item_idx)
-        var centroid = item.bounds.centroid()
+        var centroid = item.centroid
 
         comptime for axis in range(3):
             if centroid_extent[axis] > 0.0:
@@ -169,7 +170,7 @@ def _grow_partition_side[
     mut centroid_bounds: AABB[frame],
 ):
     item.grow_into(bounds)
-    centroid_bounds.grow(item.bounds.centroid())
+    centroid_bounds.grow(item.centroid)
 
 
 def _partition_items_by_bin[
@@ -214,7 +215,7 @@ def _partition_items_by_bin[
     while i <= j:
         var item_idx = Int(node_indices.unsafe_get(i))
         ref item = items.unsafe_get(item_idx)
-        var centroid = item.bounds.centroid()
+        var centroid = item.centroid
         var goes_left = (centroid[axis] - bin_min) * bin_scale < Float32(
             split_bin + 1
         )
@@ -236,6 +237,115 @@ def _partition_items_by_bin[
             j -= 1
 
     out.split_idx = first + i
+    return out^
+
+
+def _partition_items_by_bin_parallel[
+    frame: Frame, BVH_BINS: Int
+](
+    indices: MutSpan[UInt32, _],
+    items: ImmSpan[BoundsItem[frame], _],
+    first: Int,
+    count: Int,
+    axis: Int,
+    split_bin: Int,
+    bin_min: Float32,
+    bin_scale: Float32,
+    worker_count: Int,
+) -> BoundsPartitionResult[frame]:
+    """Parallel out-of-place partition for a large top-level SAH range."""
+    var left_items = List[UInt32](capacity=count)
+    var right_items = List[UInt32](capacity=count)
+    left_items.resize(unsafe_uninit_length=count)
+    right_items.resize(unsafe_uninit_length=count)
+    var left_counts = [Int(0) for _ in range(worker_count)]
+    var right_counts = [Int(0) for _ in range(worker_count)]
+    var partials = [
+        BoundsPartitionResult[frame](0) for _ in range(worker_count)
+    ]
+
+    def classify_worker(
+        task_idx: Int,
+    ) {
+        imm,
+        mut left_items,
+        mut right_items,
+        mut left_counts,
+        mut right_counts,
+        mut partials,
+    }:
+        var chunk_first = count * task_idx // worker_count
+        var chunk_end = count * (task_idx + 1) // worker_count
+        var left_count = 0
+        var right_count = 0
+        var partial = BoundsPartitionResult[frame](0)
+        for offset in range(chunk_first, chunk_end):
+            var item_idx_u32 = indices.unsafe_get(first + offset)
+            var item_idx = Int(item_idx_u32)
+            ref item = items.unsafe_get(item_idx)
+            var goes_left = (
+                item.centroid[axis] - bin_min
+            ) * bin_scale < Float32(split_bin + 1)
+            if goes_left:
+                left_items[chunk_first + left_count] = item_idx_u32
+                left_count += 1
+                _grow_partition_side(
+                    item,
+                    partial.left_bounds,
+                    partial.left_centroid_bounds,
+                )
+            else:
+                right_items[chunk_first + right_count] = item_idx_u32
+                right_count += 1
+                _grow_partition_side(
+                    item,
+                    partial.right_bounds,
+                    partial.right_centroid_bounds,
+                )
+        left_counts[task_idx] = left_count
+        right_counts[task_idx] = right_count
+        partials[task_idx] = partial^
+
+    parallelize(classify_worker, worker_count, worker_count)
+
+    var left_offsets = [Int(0) for _ in range(worker_count)]
+    var right_offsets = [Int(0) for _ in range(worker_count)]
+    var total_left = 0
+    var total_right = 0
+    var out = BoundsPartitionResult[frame](first)
+    for worker_idx in range(worker_count):
+        left_offsets[worker_idx] = total_left
+        right_offsets[worker_idx] = total_right
+        total_left += left_counts[worker_idx]
+        total_right += right_counts[worker_idx]
+        out.left_bounds.grow(partials[worker_idx].left_bounds)
+        out.right_bounds.grow(partials[worker_idx].right_bounds)
+        out.left_centroid_bounds.grow(partials[worker_idx].left_centroid_bounds)
+        out.right_centroid_bounds.grow(
+            partials[worker_idx].right_centroid_bounds
+        )
+
+    var indices_ptr = indices.unsafe_ptr()
+
+    def copy_worker(task_idx: Int) {imm}:
+        var chunk_first = count * task_idx // worker_count
+        var left_out = first + left_offsets[task_idx]
+        var right_out = first + total_left + right_offsets[task_idx]
+        for i in range(left_counts[task_idx]):
+            indices_ptr[unsafe_offset=left_out + i] = left_items[
+                chunk_first + i
+            ]
+        for i in range(right_counts[task_idx]):
+            indices_ptr[unsafe_offset=right_out + i] = right_items[
+                chunk_first + i
+            ]
+
+    parallelize(copy_worker, worker_count, worker_count)
+    debug_assert["safe", _use_compiler_assume=True](
+        total_left + total_right == count,
+        "parallel SAH partition lost items",
+    )
+    out.split_idx = first + total_left
     return out^
 
 

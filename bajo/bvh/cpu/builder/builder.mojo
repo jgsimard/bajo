@@ -14,6 +14,7 @@ from .sah import (
     _calculate_partition_bounds,
     _find_sah_split,
     _partition_items_by_bin,
+    _partition_items_by_bin_parallel,
 )
 
 
@@ -21,12 +22,14 @@ comptime PARALLEL_SAH_MIN_ITEMS = UInt32(4096)
 comptime PARALLEL_MEDIAN_MIN_ITEMS = UInt32(1024)
 comptime PARALLEL_FRONTIER_DEPTH = 3
 comptime PARALLEL_FRONTIER_CAPACITY = 1 << PARALLEL_FRONTIER_DEPTH
+comptime PARALLEL_ROOT_SAH_PARTITION_MIN_ITEMS = UInt32(65536)
 
 
 struct BinaryBoundsBvh[
     frame: Frame,
     leaf_size: Int,
     method: CpuBvhBuildMethod = .MEDIAN,
+    hploc_microleaf_size: Int = 1,
 ](Copyable):
     """Generic binary BVH builder over AABBs/items.
 
@@ -65,13 +68,19 @@ struct BinaryBoundsBvh[
                 Self.frame,
                 Self.leaf_size,
                 Self.method,
+                Self.hploc_microleaf_size,
             ](self, centroid_bounds)
 
         elif Self.method == .HPLOC:
+            comptime assert (
+                Self.hploc_microleaf_size > 0
+                and Self.hploc_microleaf_size <= Self.leaf_size
+            ), "H-PLOC microleaf size must fit the final leaf"
             _build_hploc[
                 Self.frame,
                 Self.leaf_size,
                 Self.method,
+                Self.hploc_microleaf_size,
             ](self, centroid_bounds)
 
         elif Self.method == .SAH:
@@ -142,7 +151,7 @@ struct BinaryBoundsBvh[
             var item_idx = Int(self.item_indices[first + i])
             ref item = self.items[item_idx]
             item.grow_into(node.aabb)
-            centroid_bounds.grow(item.bounds.centroid())
+            centroid_bounds.grow(item.centroid)
 
         return centroid_bounds
 
@@ -260,7 +269,12 @@ struct BinaryBoundsBvh[
         var first = Int(source_node.first_item())
         var first_item = source_node.first_item()
         var item_count = source_node.item_count
-        var partition = self._partition_node(source_node, centroid_bounds)
+        var partition = self._partition_node(
+            source_node,
+            centroid_bounds,
+            node_idx == 0
+            and source_node.item_count >= PARALLEL_ROOT_SAH_PARTITION_MIN_ITEMS,
+        )
         var left_count = UInt32(partition.split_idx - first)
 
         if left_count == 0 or left_count == item_count:
@@ -303,6 +317,7 @@ struct BinaryBoundsBvh[
         mut self,
         node: BoundsBvhNode[Self.frame],
         centroid_bounds: AABB[Self.frame],
+        parallel_root: Bool = False,
     ) -> BoundsPartitionResult[Self.frame]:
         comptime if Self.method == .MEDIAN:
             return self._partition_node_by_median(node)
@@ -319,6 +334,22 @@ struct BinaryBoundsBvh[
             )
 
             if split.valid():
+                if parallel_root:
+                    var worker_count = _worker_count(count)
+                    return _partition_items_by_bin_parallel[
+                        Self.frame,
+                        BVH_BINS,
+                    ](
+                        self.item_indices,
+                        self.items,
+                        first,
+                        count,
+                        split.axis,
+                        split.bin,
+                        split.bin_min,
+                        split.bin_scale,
+                        worker_count,
+                    )
                 return _partition_items_by_bin[
                     Self.frame,
                     BVH_BINS,
@@ -405,8 +436,8 @@ def _partition_items_by_median_center[
     def cmp(a_idx: UInt32, b_idx: UInt32) {items, axis} -> Bool:
         ref a_item = items.unsafe_get(Int(a_idx))
         ref b_item = items.unsafe_get(Int(b_idx))
-        var a = a_item.bounds._min[axis] + a_item.bounds._max[axis]
-        var b = b_item.bounds._min[axis] + b_item.bounds._max[axis]
+        var a = a_item.centroid[axis]
+        var b = b_item.centroid[axis]
 
         if a == b:
             return a_idx < b_idx

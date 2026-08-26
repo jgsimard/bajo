@@ -1,15 +1,25 @@
-from bajo.core import AABB, Frame, vmin, vmax
+from bajo.core import AABB, Frame, Point3f32, vmin, vmax
 
 
-@fieldwise_init
 struct BoundsItem[frame: Frame](TrivialRegisterPassable):
     """Generic build item pairing bounds with a caller-owned payload."""
 
     var bounds: AABB[Self.frame]
+    var centroid: Point3f32[Self.frame]
     var payload: UInt32
 
+    @always_inline
+    def __init__(
+        out self,
+        bounds: AABB[Self.frame],
+        payload: UInt32,
+    ):
+        self.bounds = bounds
+        self.centroid = bounds.centroid()
+        self.payload = payload
+
     def center_axis(self, axis: Int) -> Float32:
-        return (self.bounds._min[axis] + self.bounds._max[axis]) * 0.5
+        return self.centroid[axis]
 
     def grow_into(self, mut aabb: AABB[Self.frame]):
         aabb._min = vmin(aabb._min, self.bounds._min)

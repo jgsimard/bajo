@@ -20,9 +20,7 @@ from bajo.rt import (
     RenderSettings,
     SceneData,
     CpuScene,
-    CpuSceneConfig,
     CpuSchedulerMode,
-    CPU_SCENE_DEFAULT_CONFIG,
     render_depth_first,
     render_gpu_viewer,
     render_wavefront,
@@ -56,9 +54,6 @@ comptime CPU_VIEWER_TRAVERSAL_MODE = (
     CpuTraversalMode.AUTO_COHERENT if VIEWER_TRAVERSAL
     == 0 else CpuTraversalMode.FIXED_PACKET if VIEWER_TRAVERSAL
     == 1 else CpuTraversalMode.ADAPTIVE
-)
-comptime CPU_VIEWER_SCENE_CONFIG = CpuSceneConfig(
-    CPU_VIEWER_BUILD_METHOD, CPU_VIEWER_TRAVERSAL_MODE
 )
 
 
@@ -119,7 +114,8 @@ def _viewer_bvh_stats[
     BACKEND: Int,
     world_bvh_width: SIMDLength = 16,
     instance_bvh_width: SIMDLength = 16,
-    config: CpuSceneConfig = CPU_SCENE_DEFAULT_CONFIG,
+    build_method: CpuBvhBuildMethod = .SAH,
+    traversal_mode: CpuTraversalMode = .AUTO_COHERENT,
 ](data: SceneData) -> String:
     var result: String
     if BACKEND == 0:
@@ -130,16 +126,13 @@ def _viewer_bvh_stats[
                 "sphere"
                 + String(Int(world_bvh_width))
                 + "/"
-                + config.build_method.name()
+                + build_method.name()
             )
         if len(data.triangle_vertices()) > 0:
             if len(data.spheres()) > 0:
                 result += " "
             result += (
-                "tri"
-                + String(Int(world_bvh_width))
-                + "/"
-                + config.build_method.name()
+                "tri" + String(Int(world_bvh_width)) + "/" + build_method.name()
             )
         if len(data.triangle_instances()) > 0:
             if len(data.spheres()) > 0 or len(data.triangle_vertices()) > 0:
@@ -148,15 +141,15 @@ def _viewer_bvh_stats[
                 "BLAS"
                 + String(Int(instance_bvh_width))
                 + "/"
-                + config.build_method.name()
+                + build_method.name()
                 + " TLAS"
                 + String(Int(instance_bvh_width))
                 + "/1 LBVH"
             )
-        comptime if config.traversal_mode == .ADAPTIVE:
+        comptime if traversal_mode == .ADAPTIVE:
             result += " | traversal adaptive-16-8-4-scalar"
         else:
-            result += " | traversal " + config.traversal_mode.name()
+            result += " | traversal " + traversal_mode.name()
     else:
         result = "GPU | "
         if len(data.spheres()) > 0:
@@ -214,33 +207,39 @@ def _viewer_camera(
 def _make_viewer_world[
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
-    config: CpuSceneConfig,
+    build_method: CpuBvhBuildMethod,
 ](scene: Int) raises -> CpuScene[world_bvh_width, instance_bvh_width]:
     if scene == 0:
-        return make_weekend_world[world_bvh_width, instance_bvh_width, config]()
+        return make_weekend_world[
+            world_bvh_width, instance_bvh_width, build_method
+        ]()
     elif scene == 1:
-        return make_cornell_world[world_bvh_width, instance_bvh_width, config]()
+        return make_cornell_world[
+            world_bvh_width, instance_bvh_width, build_method
+        ]()
     elif scene == 2:
         return make_mis_showcase_world[
-            world_bvh_width, instance_bvh_width, config
+            world_bvh_width, instance_bvh_width, build_method
         ]()
     elif scene == 3:
-        return make_lbvh_world[world_bvh_width, instance_bvh_width, config]()
+        return make_lbvh_world[
+            world_bvh_width, instance_bvh_width, build_method
+        ]()
     elif scene == 4:
         return make_emissive_instance_world[
-            world_bvh_width, instance_bvh_width, config
+            world_bvh_width, instance_bvh_width, build_method
         ]()
     elif scene == 5:
         return make_many_lights_world[
-            world_bvh_width, instance_bvh_width, config
+            world_bvh_width, instance_bvh_width, build_method
         ]()
     elif scene == 6:
         return make_indirect_hall_world[
-            world_bvh_width, instance_bvh_width, config
+            world_bvh_width, instance_bvh_width, build_method
         ]()
     elif scene == 7:
         return make_specular_transport_world[
-            world_bvh_width, instance_bvh_width, config
+            world_bvh_width, instance_bvh_width, build_method
         ]()
     raise Error("unsupported viewer scene")
 
@@ -252,7 +251,7 @@ def load_viewer_scene_data(scene: Int, scene_path: String) raises -> SceneData:
         return parsed^.take_data()
 
     comptime width = simd_width_of[DType.float32]()
-    var world = _make_viewer_world[width, width, CPU_VIEWER_SCENE_CONFIG](scene)
+    var world = _make_viewer_world[width, width, CPU_VIEWER_BUILD_METHOD](scene)
     return world^.take_data()
 
 
@@ -300,7 +299,8 @@ def _render_frame[
     BACKEND: Int,
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
-    config: CpuSceneConfig,
+    build_method: CpuBvhBuildMethod,
+    traversal_mode: CpuTraversalMode,
     *adaptive_packet_sizes: SIMDLength,
 ](
     output: String,
@@ -361,7 +361,7 @@ def _render_frame[
             integrator == .PATH or integrator == .NEE or integrator == .MIS
         ):
             var result = render_wavefront_configured[
-                config,
+                traversal_mode,
                 integrator,
                 16,
                 1024,
@@ -387,7 +387,8 @@ def _render_frame[
                 0,
                 world_bvh_width,
                 instance_bvh_width,
-                config,
+                build_method,
+                traversal_mode,
             ](world.scene_data()),
         )
 
@@ -414,7 +415,8 @@ struct _ViewerRenderRequest(Copyable):
 def _render_scene[
     integrator: Integrator,
     BACKEND: Int,
-    config: CpuSceneConfig,
+    build_method: CpuBvhBuildMethod,
+    traversal_mode: CpuTraversalMode,
     *adaptive_packet_sizes: SIMDLength,
 ](request: _ViewerRenderRequest) raises -> ViewerRenderStats:
     if request.scene == 8 or request.scene == 9:
@@ -425,7 +427,8 @@ def _render_scene[
                 BACKEND,
                 16,
                 16,
-                config,
+                build_method,
+                traversal_mode,
                 *adaptive_packet_sizes,
             ](
                 request.output,
@@ -437,7 +440,7 @@ def _render_scene[
                 request.yaw_degrees,
                 request.pitch_degrees,
                 request.vfov,
-                CpuScene[].__init__[config](parsed^.take_data()),
+                CpuScene[].__init__[build_method](parsed^.take_data()),
                 request.sampler,
                 request.sample_offset,
                 request.sample_sequence_length,
@@ -464,16 +467,17 @@ def _render_scene[
     comptime world_bvh_width = simd_width_of[DType.float32]()
     comptime instance_bvh_width = simd_width_of[DType.float32]()
 
-    var world = _make_viewer_world[world_bvh_width, instance_bvh_width, config](
-        request.scene
-    )
+    var world = _make_viewer_world[
+        world_bvh_width, instance_bvh_width, build_method
+    ](request.scene)
 
     return _render_frame[
         integrator,
         BACKEND,
         world_bvh_width,
         instance_bvh_width,
-        config,
+        build_method,
+        traversal_mode,
         *adaptive_packet_sizes,
     ](
         request.output,
@@ -499,7 +503,8 @@ def _render_scene_for_policy[
     return _render_scene[
         integrator,
         VIEWER_BACKEND,
-        CPU_VIEWER_SCENE_CONFIG,
+        CPU_VIEWER_BUILD_METHOD,
+        CPU_VIEWER_TRAVERSAL_MODE,
         16,
         8,
         4,

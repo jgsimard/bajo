@@ -6,6 +6,7 @@ from std.sys import num_logical_cores
 from std.time import perf_counter_ns
 
 from bajo.bvh import Camera
+from bajo.bvh.cpu.traversal_mode import CpuTraversalMode
 from bajo.rt.types import (
     Color,
     Integrator,
@@ -13,7 +14,7 @@ from bajo.rt.types import (
     RenderSettings,
     RenderTimings,
 )
-from ..scene import CpuScene, CpuSceneConfig, CPU_SCENE_DEFAULT_CONFIG
+from ..scene import CpuScene
 from ..scheduler_mode import CpuSchedulerMode
 from bajo.rt.wavefront_queue import PacketPathQueue, PacketShadeQueue
 
@@ -55,7 +56,7 @@ def _trace_packet_range[
     integrator: Integrator,
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
-    config: CpuSceneConfig,
+    traversal_mode: CpuTraversalMode,
     *adaptive_packet_sizes: SIMDLength,
 ](
     settings: RenderSettings,
@@ -74,7 +75,7 @@ def _trace_packet_range[
         integrator,
         world_bvh_width,
         instance_bvh_width,
-        config,
+        traversal_mode,
         *adaptive_packet_sizes,
     ](
         settings,
@@ -89,7 +90,7 @@ def _trace_packet_range[
 
 
 def render_wavefront_configured[
-    config: CpuSceneConfig,
+    traversal_mode: CpuTraversalMode,
     integrator: Integrator = .PATH,
     length: SIMDLength = 16,
     CHUNK_PATHS: Int = CPU_WAVEFRONT_PARALLEL_CHUNK_PATHS,
@@ -142,7 +143,7 @@ def render_wavefront_configured[
                 integrator,
                 world_bvh_width,
                 instance_bvh_width,
-                config,
+                traversal_mode,
                 *adaptive_packet_sizes,
             ](
                 settings,
@@ -172,7 +173,7 @@ def render_wavefront_configured[
                 integrator,
                 world_bvh_width,
                 instance_bvh_width,
-                config,
+                traversal_mode,
                 *adaptive_packet_sizes,
             ](
                 settings,
@@ -218,7 +219,7 @@ def render_wavefront[
 ) -> RenderResult:
     """Render with the default auto-coherent CPU scene traversal."""
     return render_wavefront_configured[
-        CPU_SCENE_DEFAULT_CONFIG,
+        CpuTraversalMode.AUTO_COHERENT,
         integrator,
         length,
         CHUNK_PATHS,

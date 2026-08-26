@@ -1,11 +1,10 @@
 """Procedural viewer scenes that expose current light-transport limits."""
 
+from bajo.bvh.cpu import CpuBvhBuildMethod
 from bajo.core import Point3W
 from bajo.rt import (
-    CPU_SCENE_DEFAULT_CONFIG,
     Color,
     CpuScene,
-    CpuSceneConfig,
     SceneBuilder,
     SurfaceId,
 )
@@ -118,7 +117,7 @@ def _add_room(
 def make_many_lights_world[
     world_bvh_width: SIMDLength = 16,
     instance_bvh_width: SIMDLength = 16,
-    config: CpuSceneConfig = CPU_SCENE_DEFAULT_CONFIG,
+    build_method: CpuBvhBuildMethod = .SAH,
 ]() raises -> CpuScene[world_bvh_width, instance_bvh_width]:
     """Dense mixed-material field illuminated by 96 small colored lights."""
     var builder = SceneBuilder()
@@ -195,7 +194,7 @@ def make_many_lights_world[
             )
 
     var scene = builder^.finish()
-    return CpuScene[world_bvh_width, instance_bvh_width].__init__[config](
+    return CpuScene[world_bvh_width, instance_bvh_width].__init__[build_method](
         scene^
     )
 
@@ -203,7 +202,7 @@ def make_many_lights_world[
 def make_indirect_hall_world[
     world_bvh_width: SIMDLength = 16,
     instance_bvh_width: SIMDLength = 16,
-    config: CpuSceneConfig = CPU_SCENE_DEFAULT_CONFIG,
+    build_method: CpuBvhBuildMethod = .SAH,
 ]() raises -> CpuScene[world_bvh_width, instance_bvh_width]:
     """Alternating baffles hide the emitters behind several diffuse bounces."""
     var builder = SceneBuilder()
@@ -253,7 +252,7 @@ def make_indirect_hall_world[
     )
 
     var scene = builder^.finish()
-    return CpuScene[world_bvh_width, instance_bvh_width].__init__[config](
+    return CpuScene[world_bvh_width, instance_bvh_width].__init__[build_method](
         scene^
     )
 
@@ -261,7 +260,7 @@ def make_indirect_hall_world[
 def make_specular_transport_world[
     world_bvh_width: SIMDLength = 16,
     instance_bvh_width: SIMDLength = 16,
-    config: CpuSceneConfig = CPU_SCENE_DEFAULT_CONFIG,
+    build_method: CpuBvhBuildMethod = .SAH,
 ]() raises -> CpuScene[world_bvh_width, instance_bvh_width]:
     """Glass shells, glossy reflectors, and tiny emitters stress path sampling.
     """
@@ -318,6 +317,6 @@ def make_specular_transport_world[
     _add_box(builder, Point3W(-4.7, 0.0, -8.9), Point3W(-3.2, 2.8, -8.5), dark)
 
     var scene = builder^.finish()
-    return CpuScene[world_bvh_width, instance_bvh_width].__init__[config](
+    return CpuScene[world_bvh_width, instance_bvh_width].__init__[build_method](
         scene^
     )

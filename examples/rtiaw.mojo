@@ -1,5 +1,6 @@
 from std.time import perf_counter_ns
 
+from bajo.bvh.cpu import CpuBvhBuildMethod
 from bajo.core import Vec3f32, length, Vec3W, Point3W, Point3
 from bajo.core.random import Rng
 from bajo.core.utils import ns_to_ms
@@ -10,8 +11,6 @@ from bajo.rt import (
     RenderSettings,
     SceneBuilder,
     CpuScene,
-    CpuSceneConfig,
-    CPU_SCENE_DEFAULT_CONFIG,
     render_wavefront,
     write_ppm_from_colors,
 )
@@ -29,7 +28,7 @@ comptime INTEGRATOR = Integrator.PATH
 def make_weekend_world[
     world_bvh_width: SIMDLength = 16,
     instance_bvh_width: SIMDLength = 16,
-    config: CpuSceneConfig = CPU_SCENE_DEFAULT_CONFIG,
+    build_method: CpuBvhBuildMethod = .SAH,
 ]() raises -> CpuScene[world_bvh_width, instance_bvh_width]:
     var rng = Rng(seed=42, id=7)
     var builder = SceneBuilder()
@@ -86,7 +85,7 @@ def make_weekend_world[
     )
 
     var scene = builder^.finish()
-    return CpuScene[world_bvh_width, instance_bvh_width].__init__[config](
+    return CpuScene[world_bvh_width, instance_bvh_width].__init__[build_method](
         scene^
     )
 

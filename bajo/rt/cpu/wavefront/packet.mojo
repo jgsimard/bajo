@@ -3,6 +3,7 @@
 from std.math import sqrt
 
 from bajo.bvh.constants import f32_max
+from bajo.bvh.cpu.traversal_mode import CpuTraversalMode
 from bajo.core import (
     Point3,
     Point3f32,
@@ -23,7 +24,7 @@ from bajo.rt.types import (
     SurfaceStore,
     sampling_config,
 )
-from ..scene import CpuScene, CpuSceneConfig
+from ..scene import CpuScene
 from bajo.rt.common import path_stage_rng, russian_roulette, sky_color
 from bajo.rt.wavefront_queue import (
     PacketPathQueue,
@@ -304,7 +305,7 @@ def _trace_path_packets[
     integrator: Integrator,
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
-    config: CpuSceneConfig,
+    traversal_mode: CpuTraversalMode,
     *adaptive_packet_sizes: SIMDLength,
 ](
     settings: RenderSettings,
@@ -347,7 +348,7 @@ def _trace_path_packets[
                 packet.t_max,
             )
             var surface_hits = world.trace_surface_configured[
-                length, config, *adaptive_packet_sizes
+                length, traversal_mode, *adaptive_packet_sizes
             ](ray_packet, valid_lanes)
             for lane in range(lane_count):
                 var ray = Rayf32[.WORLD](

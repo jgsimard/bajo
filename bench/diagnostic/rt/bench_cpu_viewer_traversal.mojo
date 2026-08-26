@@ -7,7 +7,6 @@ from std.sys.defines import get_defined_int
 from bajo.core.utils import ns_to_ms
 from bajo.bvh.cpu import CpuBvhBuildMethod, CpuTraversalMode
 from bajo.rt import (
-    CpuSceneConfig,
     CpuSchedulerMode,
     RenderSettings,
     render_wavefront_configured,
@@ -27,14 +26,16 @@ comptime WARMUPS = 2
 comptime REPEATS = 12
 comptime VIEWER_BUILD = get_defined_int["VIEWER_BUILD", 0]()
 comptime VIEWER_TRAVERSAL = get_defined_int["VIEWER_TRAVERSAL", 0]()
-comptime BENCH_SCENE_CONFIG = CpuSceneConfig(
+comptime BENCH_BUILD_METHOD = (
     CpuBvhBuildMethod.SAH if VIEWER_BUILD
     == 0 else CpuBvhBuildMethod.LBVH if VIEWER_BUILD
     == 1 else CpuBvhBuildMethod.HPLOC if VIEWER_BUILD
-    == 2 else CpuBvhBuildMethod.MEDIAN,
+    == 2 else CpuBvhBuildMethod.MEDIAN
+)
+comptime BENCH_TRAVERSAL_MODE = (
     CpuTraversalMode.AUTO_COHERENT if VIEWER_TRAVERSAL
     == 0 else CpuTraversalMode.FIXED_PACKET if VIEWER_TRAVERSAL
-    == 1 else CpuTraversalMode.ADAPTIVE,
+    == 1 else CpuTraversalMode.ADAPTIVE
 )
 
 
@@ -48,7 +49,7 @@ def main() raises:
         MAX_DEPTH,
     )
     var camera = make_lbvh_camera()
-    var world = make_lbvh_world[width, width, BENCH_SCENE_CONFIG]()
+    var world = make_lbvh_world[width, width, BENCH_BUILD_METHOD]()
 
     print("CPU viewer traversal benchmark")
     print(
@@ -72,7 +73,7 @@ def main() raises:
     ](label: String) raises {imm}:
         for _ in range(WARMUPS):
             _ = render_wavefront_configured[
-                BENCH_SCENE_CONFIG,
+                BENCH_TRAVERSAL_MODE,
                 .PATH,
                 16,
                 1024,
@@ -90,7 +91,7 @@ def main() raises:
         var checksum = Float64(0.0)
         for _ in range(REPEATS):
             var result = render_wavefront_configured[
-                BENCH_SCENE_CONFIG,
+                BENCH_TRAVERSAL_MODE,
                 .PATH,
                 16,
                 1024,

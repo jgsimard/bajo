@@ -68,10 +68,14 @@ emission remain in the existing array-of-structures records.
 
 Queue ordering is intentionally unspecified. Every path retains its global
 path ID. BSDF sampling uses the existing `bounce + 1` stage, while Russian
-roulette uses the independent `0x40000000 | (bounce + 1)` domain. Both feed
-`wavefront_rng_subsequence(path_id, stage)`. The generator remains
-`std.random.Random` (Philox), so scheduling and atomic append order cannot
-change either random stream.
+roulette uses the independent `0x40000000 | (bounce + 1)` domain. Independent
+sampling feeds the canonical pixel/sample ID and stage into
+`std.random.Random` (Philox). Halton and R2 use per-pixel, per-stage Philox
+shifts around their deterministic sequences. Owen-Sobol and SZ use hash-based
+Owen permutations, while STBN combines spatially ordered values with a
+progressive temporal recurrence. Absolute sample offsets make all six sequences
+invariant to viewer batch boundaries, while path IDs keep them invariant to
+scheduling and atomic append order.
 
 `test_wavefront_contract_gpu.mojo` is an explicit diagnostic: paths are loaded
 from field-major planes, atomically compacted into a ping-pong queue, tagged as

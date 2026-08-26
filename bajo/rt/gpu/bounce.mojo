@@ -4,7 +4,7 @@ from std.math import ceildiv
 from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh.constants import PrimitiveKind
-from bajo.rt.types import Integrator
+from bajo.rt.types import Integrator, SamplingConfig
 from bajo.rt.gpu.config import GpuRtBvhFormat, GpuRtSceneKind
 from bajo.rt.gpu.common_kernels import GPU_RT_BLOCK_SIZE, GPU_RT_MAX_BLOCKS
 from bajo.rt.gpu.path_shading import GpuRtMaterials, _enqueue_material_shading
@@ -41,7 +41,7 @@ def _enqueue_primary_trace[
     image_width: Int,
     image_height: Int,
     samples_per_pixel: Int,
-    rng_seed: UInt64,
+    sampling: SamplingConfig,
     blocks: Int,
 ) raises:
     ctx.enqueue_function[
@@ -64,7 +64,7 @@ def _enqueue_primary_trace[
         Int32(image_width),
         Int32(image_height),
         Int32(samples_per_pixel),
-        rng_seed,
+        sampling,
         grid_dim=blocks,
         block_dim=GPU_RT_BLOCK_SIZE,
     )
@@ -90,7 +90,7 @@ def _enqueue_primary_trace_by_light_kind[
     image_width: Int,
     image_height: Int,
     samples_per_pixel: Int,
-    rng_seed: UInt64,
+    sampling: SamplingConfig,
     blocks: Int,
 ) raises:
     comptime if integrator in (Integrator.NEE, Integrator.MIS):
@@ -114,7 +114,7 @@ def _enqueue_primary_trace_by_light_kind[
                 image_width,
                 image_height,
                 samples_per_pixel,
-                rng_seed,
+                sampling,
                 blocks,
             )
         elif uniform_sampling_kind == .TRIANGLE:
@@ -137,7 +137,7 @@ def _enqueue_primary_trace_by_light_kind[
                 image_width,
                 image_height,
                 samples_per_pixel,
-                rng_seed,
+                sampling,
                 blocks,
             )
         else:
@@ -160,7 +160,7 @@ def _enqueue_primary_trace_by_light_kind[
                 image_width,
                 image_height,
                 samples_per_pixel,
-                rng_seed,
+                sampling,
                 blocks,
             )
     else:
@@ -183,7 +183,7 @@ def _enqueue_primary_trace_by_light_kind[
             image_width,
             image_height,
             samples_per_pixel,
-            rng_seed,
+            sampling,
             blocks,
         )
 
@@ -213,7 +213,7 @@ def enqueue_gpu_rt_primary_bounce[
     image_width: Int,
     image_height: Int,
     samples_per_pixel: Int,
-    rng_seed: UInt64,
+    sampling: SamplingConfig,
 ) raises:
     """Generate and trace primary paths without a queue round trip."""
     var queues = gpu_rt_trace_queue_view(
@@ -244,7 +244,7 @@ def enqueue_gpu_rt_primary_bounce[
             image_width,
             image_height,
             samples_per_pixel,
-            rng_seed,
+            sampling,
             blocks,
         )
     else:
@@ -267,7 +267,7 @@ def enqueue_gpu_rt_primary_bounce[
             image_width,
             image_height,
             samples_per_pixel,
-            rng_seed,
+            sampling,
             blocks,
         )
     enqueue_gpu_shadows[
@@ -288,7 +288,7 @@ def enqueue_gpu_rt_primary_bounce[
             src_path_fields,
             dst_path_ids,
             dst_path_fields,
-            rng_seed,
+            sampling,
             UInt32(0),
         )
 
@@ -313,7 +313,7 @@ def enqueue_gpu_rt_bounce[
     src_path_fields: DeviceBuffer[.float32],
     dst_path_ids: DeviceBuffer[.uint32],
     dst_path_fields: DeviceBuffer[.float32],
-    rng_seed: UInt64,
+    sampling: SamplingConfig,
     bounce: UInt32,
 ) raises:
     """Enqueue trace, shadow, and material stages with one launch contract."""
@@ -340,7 +340,7 @@ def enqueue_gpu_rt_bounce[
             ](
                 scene,
                 queues,
-                rng_seed,
+                sampling,
                 bounce,
                 grid_dim=blocks,
                 block_dim=GPU_RT_BLOCK_SIZE,
@@ -359,7 +359,7 @@ def enqueue_gpu_rt_bounce[
             ](
                 scene,
                 queues,
-                rng_seed,
+                sampling,
                 bounce,
                 grid_dim=blocks,
                 block_dim=GPU_RT_BLOCK_SIZE,
@@ -378,7 +378,7 @@ def enqueue_gpu_rt_bounce[
             ](
                 scene,
                 queues,
-                rng_seed,
+                sampling,
                 bounce,
                 grid_dim=blocks,
                 block_dim=GPU_RT_BLOCK_SIZE,
@@ -397,7 +397,7 @@ def enqueue_gpu_rt_bounce[
         ](
             scene,
             queues,
-            rng_seed,
+            sampling,
             bounce,
             grid_dim=blocks,
             block_dim=GPU_RT_BLOCK_SIZE,
@@ -420,6 +420,6 @@ def enqueue_gpu_rt_bounce[
             src_path_fields,
             dst_path_ids,
             dst_path_fields,
-            rng_seed,
+            sampling,
             bounce,
         )

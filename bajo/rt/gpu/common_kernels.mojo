@@ -5,7 +5,7 @@ from std.gpu import global_idx
 from bajo.bvh import Camera
 from bajo.core.random import random_in_unit_disk
 from bajo.rt.common import path_stage_rng
-from bajo.rt.types import Integrator
+from bajo.rt.types import Integrator, SamplingConfig
 from bajo.rt.wavefront_contract import (
     DeviceWavePath,
     WaveSampleFloatAbi,
@@ -26,7 +26,7 @@ def make_gpu_rt_primary_path(
     width_i32: Int32,
     height_i32: Int32,
     samples_per_pixel_i32: Int32,
-    rng_seed: UInt64,
+    sampling: SamplingConfig,
 ) -> DeviceWavePath:
     var width = Int(width_i32)
     var height = Int(height_i32)
@@ -35,7 +35,7 @@ def make_gpu_rt_primary_path(
     var pixel_idx = Int(path_id) / samples_per_pixel
     var px = pixel_idx % width
     var py = pixel_idx / width
-    var rng = path_stage_rng(rng_seed, path_id, UInt32(0))
+    var rng = path_stage_rng(sampling, path_id, UInt32(0))
     var lens = random_in_unit_disk[.WORLD](rng)
     var camera = Camera(Span(unsafe_ptr=camera_params, length=Camera.STRIDE))
     var ray = camera.make_ray_sampled(
@@ -97,7 +97,7 @@ def gpu_rt_primary_kernel[
     width_i32: Int32,
     height_i32: Int32,
     samples_per_pixel_i32: Int32,
-    rng_seed: UInt64,
+    sampling: SamplingConfig,
 ):
     var idx = global_idx.x
     var capacity = Int(capacity_i32)
@@ -113,7 +113,7 @@ def gpu_rt_primary_kernel[
             width_i32,
             height_i32,
             samples_per_pixel_i32,
-            rng_seed,
+            sampling,
         ),
         path_ids,
         path_fields,

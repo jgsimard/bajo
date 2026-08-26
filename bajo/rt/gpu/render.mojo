@@ -30,6 +30,7 @@ from bajo.rt.types import (
     RenderResult,
     RenderSettings,
     RenderTimings,
+    SamplingConfig,
     SceneData,
 )
 
@@ -74,7 +75,7 @@ def _enqueue_scene_bounce[
     src_path_fields: DeviceBuffer[.float32],
     dst_path_ids: DeviceBuffer[.uint32],
     dst_path_fields: DeviceBuffer[.float32],
-    rng_seed: UInt64,
+    sampling: SamplingConfig,
     bounce: UInt32,
 ) raises:
     enqueue_gpu_rt_bounce[
@@ -96,7 +97,7 @@ def _enqueue_scene_bounce[
         src_path_fields,
         dst_path_ids,
         dst_path_fields,
-        rng_seed,
+        sampling,
         bounce,
     )
 
@@ -125,7 +126,7 @@ def _enqueue_scene_primary_bounce[
     image_width: Int,
     image_height: Int,
     samples_per_pixel: Int,
-    rng_seed: UInt64,
+    sampling: SamplingConfig,
 ) raises:
     enqueue_gpu_rt_primary_bounce[
         integrator,
@@ -151,7 +152,7 @@ def _enqueue_scene_primary_bounce[
         image_width,
         image_height,
         samples_per_pixel,
-        rng_seed,
+        sampling,
     )
 
 

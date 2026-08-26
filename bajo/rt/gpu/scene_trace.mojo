@@ -16,7 +16,7 @@ from bajo.bvh.gpu.blas_trace import trace_gpu_blas
 from bajo.core import GeoKind, Point3f32, Rayf32, Vec3f32
 from bajo.rt.common import sky_color
 from bajo.rt.geometry import orient_surface_normal
-from bajo.rt.types import Color, Integrator
+from bajo.rt.types import Color, Integrator, SamplingConfig
 from bajo.rt.gpu.config import GpuRtBvhFormat, GpuRtSceneKind
 from bajo.rt.wavefront_contract import (
     DeviceWavePath,
@@ -62,7 +62,7 @@ def _gpu_rt_scene_trace_path[
     path: DeviceWavePath,
     scene: GpuRtSceneView,
     queues: GpuRtTraceQueueView,
-    rng_seed: UInt64,
+    sampling: SamplingConfig,
     bounce: UInt32,
 ):
     comptime assert integrator.is_valid()
@@ -266,7 +266,7 @@ def _gpu_rt_scene_trace_path[
     var oriented = orient_surface_normal(ray.d, outward)
     var normal = oriented.normal
     comptime if integrator == .AO:
-        var ao_ray = _make_ao_ray(rng_seed, path, ray, closest_t, normal)
+        var ao_ray = _make_ao_ray(sampling, path, ray, closest_t, normal)
         _append_shadow[False](
             DeviceWaveShadow(
                 path.path_id,
@@ -303,7 +303,7 @@ def _gpu_rt_scene_trace_path[
             light_fields,
             Int(light_count_i32),
             total_light_weight,
-            rng_seed,
+            sampling,
             bounce,
         )
         if direct.valid:
@@ -355,7 +355,7 @@ def _gpu_rt_scene_trace_path[
         sample_radiance,
         capacity,
         sample_base,
-        rng_seed,
+        sampling,
     )
 
 
@@ -372,7 +372,7 @@ def _gpu_rt_scene_trace_one[
     idx: Int,
     scene: GpuRtSceneView,
     queues: GpuRtTraceQueueView,
-    rng_seed: UInt64,
+    sampling: SamplingConfig,
     bounce: UInt32,
 ):
     var src_path_ids = queues.src_path_ids.unsafe_origin_cast[ImmutAnyOrigin]()
@@ -390,7 +390,7 @@ def _gpu_rt_scene_trace_one[
         tlas_format,
         blas_format,
         light_kind,
-    ](idx, path, scene, queues, rng_seed, bounce)
+    ](idx, path, scene, queues, sampling, bounce)
 
 
 def gpu_rt_primary_scene_trace_kernel[
@@ -411,7 +411,7 @@ def gpu_rt_primary_scene_trace_kernel[
     width_i32: Int32,
     height_i32: Int32,
     samples_per_pixel_i32: Int32,
-    rng_seed: UInt64,
+    sampling: SamplingConfig,
 ):
     var counters = queues.counters.unsafe_origin_cast[MutAnyOrigin]()
     var active_count = Int(counters[unsafe_offset=WAVE_COUNTER.ACTIVE])
@@ -426,7 +426,7 @@ def gpu_rt_primary_scene_trace_kernel[
         width_i32,
         height_i32,
         samples_per_pixel_i32,
-        rng_seed,
+        sampling,
     )
     clear_gpu_rt_sample(
         queues.sample_radiance.unsafe_origin_cast[MutAnyOrigin](),
@@ -449,7 +449,7 @@ def gpu_rt_primary_scene_trace_kernel[
         tlas_format,
         blas_format,
         light_kind,
-    ](idx, path, scene, queues, rng_seed, UInt32(0))
+    ](idx, path, scene, queues, sampling, UInt32(0))
 
 
 def gpu_rt_scene_trace_kernel[
@@ -463,7 +463,7 @@ def gpu_rt_scene_trace_kernel[
 ](
     scene: GpuRtSceneView,
     queues: GpuRtTraceQueueView,
-    rng_seed: UInt64,
+    sampling: SamplingConfig,
     bounce: UInt32,
 ):
     var counters = queues.counters.unsafe_origin_cast[MutAnyOrigin]()
@@ -479,7 +479,7 @@ def gpu_rt_scene_trace_kernel[
             tlas_format,
             blas_format,
             light_kind,
-        ](idx, scene, queues, rng_seed, bounce)
+        ](idx, scene, queues, sampling, bounce)
         idx += stride
 
 

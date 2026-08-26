@@ -35,6 +35,7 @@ from bajo.rt.types import (
     Integrator,
     SURFACE_INDEX_MASK,
     SceneData,
+    SamplingConfig,
 )
 from bajo.rt.wavefront_contract import (
     DeviceWavePath,
@@ -253,7 +254,7 @@ def _sample_direct_light_candidate[
     light_fields: Pointer[Float32, ImmutAnyOrigin],
     light_count: Int,
     total_light_weight: Float32,
-    rng_seed: UInt64,
+    sampling: SamplingConfig,
     bounce: UInt32,
 ) -> GpuDirectLightSample:
     comptime assert integrator in (Integrator.NEE, Integrator.MIS)
@@ -266,7 +267,7 @@ def _sample_direct_light_candidate[
         return _empty_direct_light_sample()
 
     var rng = path_stage_rng(
-        rng_seed, path.path_id, wavefront_rng_light_stage(bounce)
+        sampling, path.path_id, wavefront_rng_light_stage(bounce)
     )
     var draw = _draw_alias_column(rng.f32(), light_count)
     var packed_column = light_kinds[unsafe_offset=draw.column]
@@ -457,7 +458,7 @@ def _shade_lambertian_inline[
     dst_path_fields: Pointer[Float32, MutAnyOrigin],
     counters: Pointer[UInt32, MutAnyOrigin],
     capacity: Int,
-    rng_seed: UInt64,
+    sampling: SamplingConfig,
     bounce: UInt32,
 ):
     """Fuse the dominant diffuse shade operation into closest-hit routing."""
@@ -469,7 +470,7 @@ def _shade_lambertian_inline[
         lambertians[unsafe_offset=base + 2],
     )
     var rng = path_stage_rng(
-        rng_seed, path.path_id, wavefront_rng_stage(bounce)
+        sampling, path.path_id, wavefront_rng_stage(bounce)
     )
     var random_u = rng.f32()
     var random_v = rng.f32()
@@ -486,7 +487,7 @@ def _shade_lambertian_inline[
         return
     var throughput = Color(path.tx, path.ty, path.tz) * sampled.weight
     var roulette = russian_roulette(
-        rng_seed, path.path_id, bounce + UInt32(1), throughput
+        sampling, path.path_id, bounce + UInt32(1), throughput
     )
     if not roulette.survived:
         return
@@ -542,7 +543,7 @@ def _route_surface_hit[
     sample_radiance: Pointer[Float32, MutAnyOrigin],
     capacity: Int,
     sample_base: UInt32,
-    rng_seed: UInt64,
+    sampling: SamplingConfig,
 ):
     """Route a geometry-independent oriented hit to output or a BSDF queue."""
 
@@ -610,7 +611,7 @@ def _route_surface_hit[
             dst_path_fields,
             counters,
             capacity,
-            rng_seed,
+            sampling,
             bounce,
         )
     elif kind == .METAL or kind == .DIELECTRIC:
@@ -634,13 +635,13 @@ def _route_surface_hit[
 
 @always_inline
 def _make_ao_ray(
-    rng_seed: UInt64,
+    sampling: SamplingConfig,
     path: DeviceWavePath,
     incoming_ray: Rayf32[.WORLD],
     hit_t: Float32,
     normal: Vec3f32[.WORLD],
 ) -> Rayf32[.WORLD]:
-    var rng = path_stage_rng(rng_seed, path.path_id, UInt32(1))
+    var rng = path_stage_rng(sampling, path.path_id, UInt32(1))
     var direction = random_on_hemisphere[.WORLD](rng, normal)
     return Rayf32[.WORLD](
         incoming_ray.o + hit_t * incoming_ray.d,
@@ -666,7 +667,7 @@ def _gpu_rt_shade_one[
     dst_path_fields: Pointer[Float32, MutAnyOrigin],
     counters: Pointer[UInt32, MutAnyOrigin],
     capacity_i32: Int32,
-    rng_seed: UInt64,
+    sampling: SamplingConfig,
     bounce: UInt32,
 ):
     comptime assert MATERIAL_KIND in (
@@ -693,7 +694,7 @@ def _gpu_rt_shade_one[
     var random_v = Float32(0.0)
     var material_idx = Int(work.surface_value & SURFACE_INDEX_MASK)
     var rng = path_stage_rng(
-        rng_seed, path.path_id, wavefront_rng_stage(bounce)
+        sampling, path.path_id, wavefront_rng_stage(bounce)
     )
 
     comptime if MATERIAL_KIND == .LAMBERTIAN:
@@ -739,7 +740,7 @@ def _gpu_rt_shade_one[
 
     var throughput = Color(path.tx, path.ty, path.tz) * sampled.weight
     var roulette = russian_roulette(
-        rng_seed, path.path_id, bounce + UInt32(1), throughput
+        sampling, path.path_id, bounce + UInt32(1), throughput
     )
     if not roulette.survived:
         return
@@ -786,7 +787,7 @@ def gpu_rt_shade_dispatch_kernel[
     dst_path_fields: Pointer[Float32, MutAnyOrigin],
     counters: Pointer[UInt32, MutAnyOrigin],
     capacity_i32: Int32,
-    rng_seed: UInt64,
+    sampling: SamplingConfig,
     bounce: UInt32,
 ):
     var work_count = Int(counters[unsafe_offset=WAVE_COUNTER.SHADE])
@@ -808,7 +809,7 @@ def gpu_rt_shade_dispatch_kernel[
                 dst_path_fields,
                 counters,
                 capacity_i32,
-                rng_seed,
+                sampling,
                 bounce,
             )
         else:
@@ -824,7 +825,7 @@ def gpu_rt_shade_dispatch_kernel[
                 dst_path_fields,
                 counters,
                 capacity_i32,
-                rng_seed,
+                sampling,
                 bounce,
             )
         idx += stride
@@ -841,7 +842,7 @@ def _enqueue_material_shading[
     src_path_fields: DeviceBuffer[.float32],
     dst_path_ids: DeviceBuffer[.uint32],
     dst_path_fields: DeviceBuffer[.float32],
-    rng_seed: UInt64,
+    sampling: SamplingConfig,
     bounce: UInt32,
 ) raises:
     if not materials.has_non_lambertian:
@@ -862,7 +863,7 @@ def _enqueue_material_shading[
         dst_path_fields,
         arena.counters,
         Int32(arena.capacity),
-        rng_seed,
+        sampling,
         bounce,
         grid_dim=blocks,
         block_dim=GPU_RT_SHADE_BLOCK_SIZE,

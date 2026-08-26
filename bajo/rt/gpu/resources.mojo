@@ -5,7 +5,14 @@ from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh import Camera
 from bajo.bvh.gpu.utils import upload_camera, upload_list
-from bajo.rt.types import Color, Integrator, RenderSettings, SurfaceId
+from bajo.rt.types import (
+    Color,
+    Integrator,
+    RenderSettings,
+    SamplingConfig,
+    SurfaceId,
+    sampling_config,
+)
 from bajo.rt.wavefront_contract import WAVE_PATH_ID_MASK
 from bajo.rt.gpu.common_kernels import (
     GPU_RT_BLOCK_SIZE,
@@ -148,7 +155,7 @@ def _enqueue_gpu_primary[
         Int32(target.image_width),
         Int32(target.image_height),
         Int32(target.samples_per_pixel),
-        settings.rng_seed,
+        sampling_config(settings),
         grid_dim=ceildiv(active_count, GPU_RT_BLOCK_SIZE),
         block_dim=GPU_RT_BLOCK_SIZE,
     )
@@ -200,7 +207,7 @@ def enqueue_gpu_wavefront[
         Int,
         Int,
         Int,
-        UInt64,
+        SamplingConfig,
     ) raises thin -> None,
     bounce_fn: def(
         DeviceContext,
@@ -210,7 +217,7 @@ def enqueue_gpu_wavefront[
         DeviceBuffer[.float32],
         DeviceBuffer[.uint32],
         DeviceBuffer[.float32],
-        UInt64,
+        SamplingConfig,
         UInt32,
     ) raises thin -> None,
 ](
@@ -222,6 +229,7 @@ def enqueue_gpu_wavefront[
     """Compile-time scheduler shared by every geometry specialization."""
     comptime assert integrator.is_valid()
 
+    var sampling = sampling_config(settings)
     var sample_begin = 0
     while sample_begin < target.sample_count:
         var chunk_sample_count = min(
@@ -243,7 +251,7 @@ def enqueue_gpu_wavefront[
                         target.arena.path_a.fields,
                         target.arena.path_b.path_ids,
                         target.arena.path_b.fields,
-                        settings.rng_seed,
+                        sampling,
                         UInt32(bounce),
                     )
                 else:
@@ -255,7 +263,7 @@ def enqueue_gpu_wavefront[
                         target.arena.path_b.fields,
                         target.arena.path_a.path_ids,
                         target.arena.path_a.fields,
-                        settings.rng_seed,
+                        sampling,
                         UInt32(bounce),
                     )
                 enqueue_wavefront_advance(ctx, target.arena)
@@ -284,7 +292,7 @@ def enqueue_gpu_wavefront[
                     target.image_width,
                     target.image_height,
                     target.samples_per_pixel,
-                    settings.rng_seed,
+                    sampling,
                 )
                 enqueue_wavefront_advance(ctx, target.arena)
                 comptime if integrator not in (
@@ -301,7 +309,7 @@ def enqueue_gpu_wavefront[
                                 target.arena.path_a.fields,
                                 target.arena.path_b.path_ids,
                                 target.arena.path_b.fields,
-                                settings.rng_seed,
+                                sampling,
                                 UInt32(bounce),
                             )
                         else:
@@ -313,7 +321,7 @@ def enqueue_gpu_wavefront[
                                 target.arena.path_b.fields,
                                 target.arena.path_a.path_ids,
                                 target.arena.path_a.fields,
-                                settings.rng_seed,
+                                sampling,
                                 UInt32(bounce),
                             )
                         enqueue_wavefront_advance(ctx, target.arena)

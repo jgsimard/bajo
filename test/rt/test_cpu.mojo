@@ -21,7 +21,7 @@ from bajo.core import (
     Point3f32,
     Rayf32,
 )
-from bajo.core.random import Rng
+from bajo.core.random import Rng, Sampler, _sobol_bits, _sz_bits
 from bajo.rt import (
     Color,
     Dielectric,
@@ -57,7 +57,7 @@ from bajo.rt.geometry import (
     sphere_for_acceleration,
     sphere_unsigned_radius,
 )
-from bajo.rt.types import MaterialKind, PrimitiveKind
+from bajo.rt.types import MaterialKind, PrimitiveKind, sampling_config
 from bajo.rt.wavefront_contract import wavefront_rng_roulette_stage
 
 
@@ -393,6 +393,54 @@ def test_wavefront_philox_streams_are_deterministic_and_separate() raises:
     assert_equal(first.f32(), replay.f32())
     assert_true(first.f32() != next_stage.f32())
     assert_true(replay.f32() != roulette.f32())
+
+
+def test_sample_sequences_are_deterministic_and_batch_invariant() raises:
+    for sampler_idx in range(6):
+        var sampler = Sampler(UInt32(sampler_idx))
+        var full = RenderSettings(3, 1, 4, UInt64(123), 2, sampler, 0, 4)
+        var first = RenderSettings(3, 1, 2, UInt64(123), 2, sampler, 0, 4)
+        var second = RenderSettings(3, 1, 2, UInt64(123), 2, sampler, 2, 4)
+        for pixel in range(3):
+            for sample in range(4):
+                var full_path = UInt32(pixel * 4 + sample)
+                var batch_path = UInt32(pixel * 2 + sample % 2)
+                var batch_config = sampling_config(first)
+                if sample >= 2:
+                    batch_config = sampling_config(second)
+                var expected = path_stage_rng(
+                    sampling_config(full), full_path, UInt32(7)
+                )
+                var actual = path_stage_rng(batch_config, batch_path, UInt32(7))
+                for _ in range(4):
+                    assert_equal(actual.f32(), expected.f32())
+
+
+def test_sobol_direction_numbers_match_known_prefix() raises:
+    assert_equal(_sobol_bits(UInt32(0), 0), UInt32(0x00000000))
+    assert_equal(_sobol_bits(UInt32(1), 0), UInt32(0x80000000))
+    assert_equal(_sobol_bits(UInt32(2), 0), UInt32(0x40000000))
+    assert_equal(_sobol_bits(UInt32(3), 0), UInt32(0xC0000000))
+    assert_equal(_sobol_bits(UInt32(1), 1), UInt32(0x80000000))
+    assert_equal(_sobol_bits(UInt32(2), 1), UInt32(0xC0000000))
+
+
+def test_sz_prefix_is_a_four_dimensional_base4_net() raises:
+    # The first 4^4 points contain every combination of the leading base-4
+    # digit in the four dimensions exactly once.
+    for first in range(256):
+        var first_cell = UInt32(0)
+        for dimension in range(4):
+            first_cell |= (
+                _sz_bits(UInt32(first), dimension) >> UInt32(30)
+            ) << UInt32(2 * dimension)
+        for second in range(first + 1, 256):
+            var second_cell = UInt32(0)
+            for dimension in range(4):
+                second_cell |= (
+                    _sz_bits(UInt32(second), dimension) >> UInt32(30)
+                ) << UInt32(2 * dimension)
+            assert_true(first_cell != second_cell)
 
 
 def test_russian_roulette_is_deterministic_and_unbiased() raises:

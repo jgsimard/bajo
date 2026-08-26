@@ -22,6 +22,7 @@ from bajo.core.intersect import intersect_ray_aabb, intersect_ray_aabb_rcp
 from bajo.bvh.cpu import (
     CpuBlasSet,
     CpuBvhBuildMethod,
+    CpuTraversalMode,
 )
 from bajo.bvh.types import BlasDesc, Hit, Sphere
 from bajo.core.random import Rng
@@ -65,10 +66,14 @@ from bajo.bvh.cpu.builder.lbvh import (
 )
 from bajo.bvh.cpu.builder.sah import _find_sah_split, _partition_items_by_bin
 from bajo.bvh.cpu.blas_set import (
+    AdaptiveStreamHitSink,
     build_cpu_sphere_blas_set,
     build_cpu_triangle_blas_set,
     trace_blas_set,
+    trace_blas_set_adaptive_stream,
     trace_blas_set_packet,
+    trace_blas_set_packet_adaptive,
+    trace_blas_set_packet_selected,
 )
 from bajo.bvh.cpu.trace import _extract_f32_lane, _extract_u32_lane
 
@@ -790,6 +795,36 @@ def test_triangle_bvh16_decoupled_leaf_widths() raises:
             _test_triangle_bvh16_leaf_width[leaf_width, method]()
 
 
+def test_large_triangle_bvh16_parallel_emit_matches_known_rays() raises:
+    # Cross the parallel wide-emission node threshold in the production
+    # single-BLAS path and validate both a camera-space hit and miss.
+    var tri_count = 131073
+    var target_prim = 65536
+    var verts = _make_strip[.WORLD](tri_count)
+    var blases = build_cpu_triangle_blas_set[16, 16, .LBVH, .WORLD](
+        [verts.copy()]
+    )
+    var desc = BlasDesc.load(blases.descs.unsafe_ptr(), UInt32(0))
+    assert_true(desc.prim_count == UInt32(tri_count))
+    assert_true(desc.node_count > UInt32(0))
+
+    var hit = trace_blas_set[16, 16, .CLOSEST_HIT, .WORLD](
+        blases,
+        UInt32(0),
+        _z_ray(_triangle_center_xy(verts, target_prim)),
+    )
+    assert_true(hit.is_hit())
+    assert_true(hit.prim == UInt32(target_prim))
+    assert_almost_equal(hit.t, 2.0)
+    assert_true(
+        not trace_blas_set[16, 16, .ANY_HIT, .WORLD](
+            blases,
+            UInt32(0),
+            _z_ray(Point3W(0.0, 100.0, 0.0)),
+        ).is_occluded()
+    )
+
+
 def _assert_packet_hits_equal[
     length: SIMDLength
 ](actual: Hit[.WORLD, length], expected: Hit[.WORLD, length],) raises:
@@ -840,6 +875,70 @@ def test_triangle_packet_paths_match() raises:
     _test_triangle_packet_paths_match[16]()
 
 
+struct _AdaptiveStreamTestSink(AdaptiveStreamHitSink):
+    var prims: List[UInt32]
+    var distances: List[Float32]
+
+    def __init__(out self, count: Int):
+        self.prims = List[UInt32](length=count, fill=EMPTY_LANE)
+        self.distances = List[Float32](length=count, fill=f32_max)
+
+    def write[
+        length: SIMDLength,
+        frame: Frame,
+    ](mut self, base: Int, hit: Hit[frame, length]):
+        comptime for lane in range(length):
+            self.prims[base + lane] = hit.prim[lane]
+            self.distances[base + lane] = hit.t[lane]
+
+
+def _test_adaptive_stream_matches_scalar[
+    size_sequence: Int,
+]() raises:
+    var verts = _make_strip[.WORLD](64)
+    var blases = build_cpu_triangle_blas_set[16, 16, .SAH, .WORLD](
+        [verts.copy()]
+    )
+    var rays = List[Rayf32[.WORLD]](capacity=37)
+    for i in range(37):
+        var center = _triangle_center_xy(verts, (7 * i) % 64)
+        var dx = Float32(0.001)
+        var dy = Float32(0.001)
+        if i % 11 == 7:
+            dx = -0.001
+        if i % 13 == 9:
+            dy = -0.001
+        if i % 10 == 0:
+            center = Point3W(1000.0, 1000.0, 0.0)
+        rays.append(Rayf32[.WORLD](center, Vec3f32[.WORLD](dx, dy, 1.0)))
+
+    var sink = _AdaptiveStreamTestSink(len(rays))
+    comptime if size_sequence == 0:
+        trace_blas_set_adaptive_stream[16, 16, 16, 8](
+            blases, UInt32(0), rays, sink
+        )
+    elif size_sequence == 1:
+        trace_blas_set_adaptive_stream[16, 16, 16, 8, 4](
+            blases, UInt32(0), rays, sink
+        )
+    else:
+        trace_blas_set_adaptive_stream[16, 16, 8, 4](
+            blases, UInt32(0), rays, sink
+        )
+    for i in range(len(rays)):
+        var expected = trace_blas_set[16, 16, .CLOSEST_HIT, .WORLD](
+            blases, UInt32(0), rays[i]
+        )
+        assert_true(sink.prims[i] == expected.prim)
+        assert_true(sink.distances[i] == expected.t)
+
+
+def test_adaptive_stream_matches_scalar() raises:
+    _test_adaptive_stream_matches_scalar[0]()
+    _test_adaptive_stream_matches_scalar[1]()
+    _test_adaptive_stream_matches_scalar[2]()
+
+
 def _check_packed_triangle_packet[
     length: SIMDLength
 ](host: CpuBlasSet[.TRIANGLE, 16]) raises:
@@ -864,6 +963,26 @@ def _check_packed_triangle_packet[
     var coherent = trace_blas_set_packet[16, 16, length, True, .WORLD](
         host, UInt32(0), rays, valid
     )
+    var fixed = trace_blas_set_packet_selected[
+        16, 16, length, CpuTraversalMode.FIXED_PACKET, .WORLD
+    ](host, UInt32(0), rays, valid)
+    var automatic = trace_blas_set_packet_selected[
+        16, 16, length, CpuTraversalMode.AUTO_COHERENT, .WORLD
+    ](host, UInt32(0), rays, valid)
+    var adaptive_168 = trace_blas_set_packet_adaptive[
+        16, 16, length, 16, 8, frame=.WORLD
+    ](host, UInt32(0), rays, valid)
+    var adaptive_1684 = trace_blas_set_packet_adaptive[
+        16, 16, length, 16, 8, 4, frame=.WORLD
+    ](host, UInt32(0), rays, valid)
+    var adaptive_84 = trace_blas_set_packet_adaptive[
+        16, 16, length, 8, 4, frame=.WORLD
+    ](host, UInt32(0), rays, valid)
+    _assert_packet_hits_equal(fixed, packet)
+    _assert_packet_hits_equal(automatic, packet)
+    _assert_packet_hits_equal(adaptive_168, packet)
+    _assert_packet_hits_equal(adaptive_1684, packet)
+    _assert_packet_hits_equal(adaptive_84, packet)
     comptime for lane in range(length):
         if valid[lane]:
             var scalar = trace_blas_set[16, 16, .CLOSEST_HIT, .WORLD](

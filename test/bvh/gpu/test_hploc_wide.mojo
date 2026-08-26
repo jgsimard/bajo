@@ -18,6 +18,7 @@ from bajo.bvh.gpu.wide_layout import (
     GpuWideBoundsBvhBatch,
 )
 from bajo.bvh.gpu.builder import build_binary_bvh
+from bajo.bvh.gpu.builder.segmented_build import GpuWideBuildArena
 from bajo.bvh.gpu.builder.binary_layout import (
     GpuBinaryBoundsBvh,
     GpuBinaryBuildWorkspace,
@@ -468,6 +469,76 @@ def test_hploc_wide_collapse_is_segmented_and_packed() raises:
                 assert_equal(primitive_count, Int(segments.count(segment_idx)))
                 for seen in seen_nodes:
                     assert_true(seen)
+
+
+def test_hploc_wide_arena_rebuild_is_exact() raises:
+    var verts = _make_irregular_scene(257)
+    var build = _flatten_triangle_bounds(verts)
+    var segments = SegmentOffsets.single(257)
+
+    with DeviceContext() as ctx:
+        var arena = GpuWideBuildArena[4, 4, 4, .HPLOC, True](
+            ctx,
+            segments,
+            upload_list(ctx, build[0]),
+            upload_list(ctx, build[1]),
+        )
+        ctx.synchronize()
+        arena.finish_synchronized()
+        var expected = UInt64(0)
+        with arena.wide.wide_nodes.map_to_host() as nodes, arena.wide.leaf_block_indices.map_to_host() as leaves, arena.wide.node_counts.map_to_host() as node_counts, arena.wide.leaf_block_counts.map_to_host() as leaf_counts:
+            var node_words = Int(node_counts[0]) * 4 * WideNode.CHILD_STRIDE
+            var leaf_words = Int(leaf_counts[0]) * 4
+            var node_u32 = nodes.unsafe_ptr().unsafe_bitcast[UInt32]()
+            for i in range(node_words):
+                expected += UInt64(node_u32[unsafe_offset=i])
+            for i in range(leaf_words):
+                expected += UInt64(leaves[i])
+
+        for _ in range(3):
+            arena.enqueue_rebuild(ctx)
+            ctx.synchronize()
+        arena.finish_synchronized()
+        var actual = UInt64(0)
+        with arena.wide.wide_nodes.map_to_host() as nodes, arena.wide.leaf_block_indices.map_to_host() as leaves, arena.wide.node_counts.map_to_host() as node_counts, arena.wide.leaf_block_counts.map_to_host() as leaf_counts:
+            var node_words = Int(node_counts[0]) * 4 * WideNode.CHILD_STRIDE
+            var leaf_words = Int(leaf_counts[0]) * 4
+            var node_u32 = nodes.unsafe_ptr().unsafe_bitcast[UInt32]()
+            for i in range(node_words):
+                actual += UInt64(node_u32[unsafe_offset=i])
+            for i in range(leaf_words):
+                actual += UInt64(leaves[i])
+        assert_equal(actual, expected)
+
+
+def test_lbvh_wide_arena_rebuild_is_exact() raises:
+    var verts = _make_irregular_scene(257)
+    var build = _flatten_triangle_bounds(verts)
+    with DeviceContext() as ctx:
+        var arena = GpuWideBuildArena[2, 1, 1, .LBVH](
+            ctx,
+            SegmentOffsets.single(257),
+            upload_list(ctx, build[0]),
+            upload_list(ctx, build[1]),
+        )
+        ctx.synchronize()
+        arena.finish_synchronized()
+        var expected = UInt64(0)
+        with arena.wide.wide_nodes.map_to_host() as nodes:
+            var words = 256 * 2 * WideNode.CHILD_STRIDE
+            var node_u32 = nodes.unsafe_ptr().unsafe_bitcast[UInt32]()
+            for i in range(words):
+                expected += UInt64(node_u32[unsafe_offset=i])
+        arena.enqueue_rebuild(ctx)
+        ctx.synchronize()
+        arena.finish_synchronized()
+        var actual = UInt64(0)
+        with arena.wide.wide_nodes.map_to_host() as nodes:
+            var words = 256 * 2 * WideNode.CHILD_STRIDE
+            var node_u32 = nodes.unsafe_ptr().unsafe_bitcast[UInt32]()
+            for i in range(words):
+                actual += UInt64(node_u32[unsafe_offset=i])
+        assert_equal(actual, expected)
 
 
 def test_hploc_triangle_opt_in_widths_match_cpu() raises:

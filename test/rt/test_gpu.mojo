@@ -8,8 +8,14 @@ from max.gpu.host import DeviceContext
 
 from bajo.bvh.camera import Camera
 from bajo.bvh.host_utils import compute_bounds
-from bajo.core import Affine3f32, Point3f32, Vec3f32
-from bajo.rt.cpu import CpuScene, render_depth_first, render_wavefront
+from bajo.core import Affine3f32, Point3f32, Point3W, Vec3f32, Vec3W
+from bajo.core.random import Sampler
+from bajo.rt.cpu import (
+    CpuScene,
+    CpuSchedulerMode,
+    render_depth_first,
+    render_wavefront,
+)
 from bajo.rt.gpu import (
     GPU_RT_BVH_WIDE4,
     GpuRtBvhFormat,
@@ -30,11 +36,17 @@ from bajo.rt.types import (
     Color,
     PrimitiveKind,
     Integrator,
+    RenderResult,
     RenderSettings,
     SceneBuilder,
     SceneData,
 )
 from examples.cornell_box import make_cornell_world
+from examples.stress_scenes import (
+    make_indirect_hall_world,
+    make_many_lights_world,
+    make_specular_transport_world,
+)
 
 
 def _sphere_scene_data() raises -> SceneData:
@@ -309,6 +321,62 @@ def test_gpu_sphere_path_matches_cpu_wavefront() raises:
         assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=1.0e-5)
         assert_almost_equal(gpu.pixels[i].y, cpu_pixel.y, atol=1.0e-5)
         assert_almost_equal(gpu.pixels[i].z, cpu_pixel.z, atol=1.0e-5)
+
+
+def test_gpu_sample_sequences_are_batch_invariant() raises:
+    var world = _sphere_world()
+    var camera = _camera()
+    for sampler_idx in range(1, 6):
+        var sampler = Sampler(UInt32(sampler_idx))
+        var full_settings = RenderSettings(
+            4, 3, 4, UInt64(97), 4, sampler, 0, 4
+        )
+        var first_settings = RenderSettings(
+            4, 3, 2, UInt64(97), 4, sampler, 0, 4
+        )
+        var second_settings = RenderSettings(
+            4, 3, 2, UInt64(97), 4, sampler, 2, 4
+        )
+        var full = render_gpu_configured[
+            kind=.SPHERES,
+            integrator=.PATH,
+            sphere_format=GPU_RT_BVH_WIDE4,
+        ](full_settings, camera, world.scene_data())
+        var first = render_gpu_configured[
+            kind=.SPHERES,
+            integrator=.PATH,
+            sphere_format=GPU_RT_BVH_WIDE4,
+        ](first_settings, camera, world.scene_data())
+        var second = render_gpu_configured[
+            kind=.SPHERES,
+            integrator=.PATH,
+            sphere_format=GPU_RT_BVH_WIDE4,
+        ](second_settings, camera, world.scene_data())
+        var cpu = render_wavefront[.PATH, 1, 64, False](
+            full_settings, camera, world
+        )
+        for pixel_idx in range(len(full.pixels)):
+            var accumulated = 0.5 * (
+                first.pixels[pixel_idx] + second.pixels[pixel_idx]
+            )
+            assert_almost_equal(
+                accumulated.x, full.pixels[pixel_idx].x, atol=1.0e-5
+            )
+            assert_almost_equal(
+                accumulated.y, full.pixels[pixel_idx].y, atol=1.0e-5
+            )
+            assert_almost_equal(
+                accumulated.z, full.pixels[pixel_idx].z, atol=1.0e-5
+            )
+            assert_almost_equal(
+                cpu.pixels[pixel_idx].x, full.pixels[pixel_idx].x, atol=1.0e-5
+            )
+            assert_almost_equal(
+                cpu.pixels[pixel_idx].y, full.pixels[pixel_idx].y, atol=1.0e-5
+            )
+            assert_almost_equal(
+                cpu.pixels[pixel_idx].z, full.pixels[pixel_idx].z, atol=1.0e-5
+            )
 
 
 def test_gpu_materials_match_cpu_wavefront() raises:
@@ -621,7 +689,9 @@ def test_gpu_ao_matches_unoccluded_cpu_reference() raises:
     var settings = RenderSettings(1, 1, 1, UInt64(509))
     var world = _triangle_world()
     var camera = _camera()
-    var cpu = render_depth_first[.AO, 1, 1, 0, 4, 8](settings, camera, world)
+    var cpu = render_depth_first[
+        .AO, 1, 1, CpuSchedulerMode.RUNTIME_DEFAULT, 4, 8
+    ](settings, camera, world)
     var gpu = render_gpu[.AO, 4, 4](settings, camera, world.scene_data())
     assert_almost_equal(gpu.pixels[0].x, cpu.pixels[0].x, atol=1.0e-5)
     assert_almost_equal(gpu.pixels[0].y, cpu.pixels[0].y, atol=1.0e-5)
@@ -783,6 +853,59 @@ def test_gpu_sphere_normals_render() raises:
         assert_true(pixel.z >= 0.0 and pixel.z <= 1.0)
         nonzero |= pixel.x > 0.0 or pixel.y > 0.0 or pixel.z > 0.0
     assert_true(nonzero)
+
+
+def _assert_nonzero_result(result: RenderResult) raises:
+    assert_equal(len(result.pixels), 40)
+    var nonzero = False
+    for pixel in result.pixels:
+        assert_true(pixel.x >= 0.0 and pixel.y >= 0.0 and pixel.z >= 0.0)
+        nonzero |= pixel.x > 0.0 or pixel.y > 0.0 or pixel.z > 0.0
+    assert_true(nonzero)
+
+
+def test_gpu_viewer_renders_all_procedural_stress_scenes() raises:
+    var settings = RenderSettings(8, 5, 1, UInt64(2026), 6, .OWEN_SOBOL)
+
+    var many_lights = make_many_lights_world()
+    var many_camera = Camera.from_vfov(
+        Point3W(0.0, 4.3, 11.0),
+        Point3W(0.0, 1.8, -2.0),
+        Vec3W(0.0, 1.0, 0.0),
+        52.0,
+        18.0,
+    )
+    var many = render_gpu_viewer[.MIS](
+        settings, many_camera, many_lights.scene_data()
+    )
+
+    var indirect_hall = make_indirect_hall_world()
+    var indirect_camera = Camera.from_vfov(
+        Point3W(0.0, 2.2, 8.0),
+        Point3W(0.0, 1.8, -5.0),
+        Vec3W(0.0, 1.0, 0.0),
+        55.0,
+        22.0,
+    )
+    var indirect = render_gpu_viewer[.MIS](
+        settings, indirect_camera, indirect_hall.scene_data()
+    )
+
+    var specular = make_specular_transport_world()
+    var specular_camera = Camera.from_vfov(
+        Point3W(0.0, 2.7, 9.5),
+        Point3W(0.0, 1.4, -4.5),
+        Vec3W(0.0, 1.0, 0.0),
+        48.0,
+        20.0,
+    )
+    var difficult = render_gpu_viewer[.MIS](
+        settings, specular_camera, specular.scene_data()
+    )
+
+    _assert_nonzero_result(many^)
+    _assert_nonzero_result(indirect^)
+    _assert_nonzero_result(difficult^)
 
 
 def main() raises:

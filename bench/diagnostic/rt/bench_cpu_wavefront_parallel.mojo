@@ -7,10 +7,8 @@ from bajo.rt import Camera, RenderResult, RenderSettings, CpuScene
 from bajo.rt.cpu import render_wavefront
 from bajo.rt.cpu.wavefront import (
     CPU_WAVEFRONT_SERIAL_CHUNK_PATHS,
-    WAVE_PARALLEL_LOGICAL_CORES,
-    WAVE_PARALLEL_RUNTIME_DEFAULT,
-    WAVE_PARALLEL_TASK_PARTITIONS,
 )
+from bajo.rt.cpu.scheduler_mode import CpuSchedulerMode
 from bajo.benchmark.cpu_harness import pixel_checksum
 from bajo.benchmark.rt_fixtures import (
     make_mixed_triangle_world,
@@ -39,7 +37,7 @@ struct Timing(Copyable):
 def _render_configuration[
     CHUNK_PATHS: Int,
     length: SIMDLength = 1,
-    SCHEDULER_MODE: Int = WAVE_PARALLEL_TASK_PARTITIONS,
+    scheduler_mode: CpuSchedulerMode = .TASK_PARTITIONS,
     PARALLEL: Bool = True,
 ](settings: RenderSettings, camera: Camera, world: CpuScene[]) -> RenderResult:
     return render_wavefront[
@@ -47,14 +45,14 @@ def _render_configuration[
         length,
         CHUNK_PATHS,
         PARALLEL,
-        SCHEDULER_MODE,
+        scheduler_mode,
     ](settings, camera, world)
 
 
 def _record[
     CHUNK_PATHS: Int,
     length: SIMDLength = 1,
-    SCHEDULER_MODE: Int = WAVE_PARALLEL_TASK_PARTITIONS,
+    scheduler_mode: CpuSchedulerMode = .TASK_PARTITIONS,
     PARALLEL: Bool = True,
 ](
     mut times: List[Int],
@@ -64,7 +62,7 @@ def _record[
     world: CpuScene[],
 ):
     var result = _render_configuration[
-        CHUNK_PATHS, length, SCHEDULER_MODE, PARALLEL
+        CHUNK_PATHS, length, scheduler_mode, PARALLEL
     ](settings, camera, world)
     debug_assert["safe", _use_compiler_assume=True](
         abs(pixel_checksum(result.pixels) - checksum) <= 0.2,
@@ -94,7 +92,7 @@ def benchmark_world(
     var warmup = _render_configuration[
         CPU_WAVEFRONT_SERIAL_CHUNK_PATHS,
         1,
-        WAVE_PARALLEL_TASK_PARTITIONS,
+        CpuSchedulerMode.TASK_PARTITIONS,
         False,
     ](settings, camera, world)
     var checksum = pixel_checksum(warmup.pixels)
@@ -103,10 +101,10 @@ def benchmark_world(
     _ = _render_configuration[2048](settings, camera, world)
     _ = _render_configuration[4096](settings, camera, world)
     _ = _render_configuration[8192](settings, camera, world)
-    _ = _render_configuration[8192, 1, WAVE_PARALLEL_RUNTIME_DEFAULT](
+    _ = _render_configuration[8192, 1, CpuSchedulerMode.RUNTIME_DEFAULT](
         settings, camera, world
     )
-    _ = _render_configuration[8192, 1, WAVE_PARALLEL_LOGICAL_CORES](
+    _ = _render_configuration[8192, 1, CpuSchedulerMode.LOGICAL_CORES](
         settings, camera, world
     )
     _ = _render_configuration[512, 16](settings, camera, world)
@@ -131,7 +129,7 @@ def benchmark_world(
             _record[
                 CPU_WAVEFRONT_SERIAL_CHUNK_PATHS,
                 1,
-                WAVE_PARALLEL_TASK_PARTITIONS,
+                CpuSchedulerMode.TASK_PARTITIONS,
                 False,
             ](serial_times, checksum, settings, camera, world)
             _record[512](parallel512_times, checksum, settings, camera, world)
@@ -139,10 +137,10 @@ def benchmark_world(
             _record[2048](parallel2k_times, checksum, settings, camera, world)
             _record[4096](parallel4k_times, checksum, settings, camera, world)
             _record[8192](parallel8k_times, checksum, settings, camera, world)
-            _record[8192, 1, WAVE_PARALLEL_RUNTIME_DEFAULT](
+            _record[8192, 1, CpuSchedulerMode.RUNTIME_DEFAULT](
                 default_times, checksum, settings, camera, world
             )
-            _record[8192, 1, WAVE_PARALLEL_LOGICAL_CORES](
+            _record[8192, 1, CpuSchedulerMode.LOGICAL_CORES](
                 core_times, checksum, settings, camera, world
             )
             _record[512, 16](packet512_times, checksum, settings, camera, world)
@@ -154,10 +152,10 @@ def benchmark_world(
             _record[2048, 16](packet2k_times, checksum, settings, camera, world)
             _record[1024, 16](packet1k_times, checksum, settings, camera, world)
             _record[512, 16](packet512_times, checksum, settings, camera, world)
-            _record[8192, 1, WAVE_PARALLEL_LOGICAL_CORES](
+            _record[8192, 1, CpuSchedulerMode.LOGICAL_CORES](
                 core_times, checksum, settings, camera, world
             )
-            _record[8192, 1, WAVE_PARALLEL_RUNTIME_DEFAULT](
+            _record[8192, 1, CpuSchedulerMode.RUNTIME_DEFAULT](
                 default_times, checksum, settings, camera, world
             )
             _record[8192](parallel8k_times, checksum, settings, camera, world)
@@ -168,7 +166,7 @@ def benchmark_world(
             _record[
                 CPU_WAVEFRONT_SERIAL_CHUNK_PATHS,
                 1,
-                WAVE_PARALLEL_TASK_PARTITIONS,
+                CpuSchedulerMode.TASK_PARTITIONS,
                 False,
             ](serial_times, checksum, settings, camera, world)
 

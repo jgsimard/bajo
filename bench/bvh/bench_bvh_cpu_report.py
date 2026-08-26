@@ -22,9 +22,15 @@ PACKET_SECTION = re.compile(
     r"^(Regular grid|Dragon camera rays) / ([^/]+) / BVH(\d+) leaf(\d+)$"
 )
 PACKET_TIMING = re.compile(
-    r"^((?:unmasked-)?scalar|(?:coh-)?packet(\d+)): "
-    r"([0-9.]+) ms, ([0-9.]+) MRay/s, "
-    r"hits=(\d+), checksum=([-+0-9.eE]+)$"
+    r"^(?P<traversal>"
+    r"(?:unmasked-)?scalar|"
+    r"(?:coh-)?packet(?P<packet_width>\d+)|"
+    r"adaptive-(?P<adaptive_widths>\d+(?:-\d+)*)-scalar"
+    r"): "
+    r"(?P<trace_ms>[0-9.]+) ms, "
+    r"(?P<mrays_s>[0-9.]+) MRay/s, "
+    r"hits=(?P<hits>\d+), "
+    r"checksum=(?P<checksum>[-+0-9.eE]+)$"
 )
 BUILD_THREAD_MODE = re.compile(
     r"^=== BVH build threads: (1|all); available CPUs: (\d+); "
@@ -116,14 +122,16 @@ def parse_benchmark_output(output: str) -> pl.DataFrame:
 
         # Mojo runtime diagnostics can be emitted between benchmark processes
         # without a separating blank line. They are not part of any table.
-        if (
-            (line.startswith("[") and ":ERROR " in line)
-            or line.startswith("Failed to initialize Crashpad.")
+        if (line.startswith("[") and ":ERROR " in line) or line.startswith(
+            "Failed to initialize Crashpad."
         ):
             continue
 
         # Implementation and benchmark sections.
-        if line == "Primitive BoundsBvh benchmark":
+        if line in (
+            "Primitive BoundsBvh benchmark",
+            "PrimitiveKind BoundsBvh benchmark",
+        ):
             implementation = "bajo"
             version = None
             benchmark = "grid"
@@ -132,9 +140,8 @@ def parse_benchmark_output(output: str) -> pl.DataFrame:
             table_kind = None
             continue
 
-        if (
-            line.startswith("Embree ")
-            and line.endswith(" CPU triangle benchmark")
+        if line.startswith("Embree ") and line.endswith(
+            " CPU triangle benchmark"
         ):
             implementation = "embree"
             version = line.removesuffix(" CPU triangle benchmark")
@@ -142,9 +149,8 @@ def parse_benchmark_output(output: str) -> pl.DataFrame:
             table_kind = None
             continue
 
-        if (
-            line.startswith("TinyBVH ")
-            and line.endswith(" CPU triangle benchmark")
+        if line.startswith("TinyBVH ") and line.endswith(
+            " CPU triangle benchmark"
         ):
             implementation = "tinybvh"
             version = line.removesuffix(" CPU triangle benchmark")
@@ -164,9 +170,8 @@ def parse_benchmark_output(output: str) -> pl.DataFrame:
         packet_section = PACKET_SECTION.fullmatch(line)
         if packet_section is not None:
             benchmark = (
-                "grid"
-                if packet_section.group(1) == "Regular grid"
-                else "dragon"
+                "grid" if packet_section.group(1)
+                == "Regular grid" else "dragon"
             )
             packet_build_method = packet_section.group(2).strip()
             packet_bounds_width = int(packet_section.group(3))
@@ -300,7 +305,8 @@ def parse_benchmark_output(output: str) -> pl.DataFrame:
 
                 # Scalar controls are already present in the primary Bajo
                 # tables. Keep only the additional packet configurations.
-                if timing.group(1) == "scalar":
+                traversal = timing.group("traversal")
+                if traversal == "scalar":
                     continue
 
                 if (
@@ -310,21 +316,26 @@ def parse_benchmark_output(output: str) -> pl.DataFrame:
                 ):
                     raise ValueError("packet section metadata is incomplete")
 
-                ray_width = (
-                    1 if timing.group(2) is None else int(timing.group(2))
-                )
+                packet_width = timing.group("packet_width")
+                adaptive_widths = timing.group("adaptive_widths")
+                if packet_width is not None:
+                    ray_width = int(packet_width)
+                elif adaptive_widths is not None:
+                    ray_width = int(adaptive_widths.split("-", 1)[0])
+                else:
+                    ray_width = 1
                 row = base | {
                     "build_method": packet_build_method,
                     "layout": f"bvh{packet_bounds_width}",
                     "width": packet_bounds_width,
                     "leaf_width": packet_leaf_width,
-                    "traversal": timing.group(1),
+                    "traversal": traversal,
                     "ray_width": ray_width,
                     "build_ms": None,
-                    "trace_ms": float(timing.group(3)),
-                    "mrays_s": float(timing.group(4)),
-                    "hits": int(timing.group(5)),
-                    "checksum": float(timing.group(6)),
+                    "trace_ms": float(timing.group("trace_ms")),
+                    "mrays_s": float(timing.group("mrays_s")),
+                    "hits": int(timing.group("hits")),
+                    "checksum": float(timing.group("checksum")),
                 }
 
             elif table_kind in ("embree", "tinybvh"):
@@ -335,9 +346,8 @@ def parse_benchmark_output(output: str) -> pl.DataFrame:
 
                 traversal = values[1] if table_kind == "embree" else "scalar1"
                 ray_width = (
-                    width_from_layout(values[1])
-                    if table_kind == "embree"
-                    else 1
+                    width_from_layout(values[1]) if table_kind
+                    == "embree" else 1
                 )
                 row = base | {
                     "build_method": values[0],
@@ -345,9 +355,8 @@ def parse_benchmark_output(output: str) -> pl.DataFrame:
                         "native" if table_kind == "embree" else values[1]
                     ),
                     "width": (
-                        None
-                        if table_kind == "embree"
-                        else width_from_layout(values[1])
+                        None if table_kind
+                        == "embree" else width_from_layout(values[1])
                     ),
                     "leaf_width": None,
                     "traversal": traversal,
@@ -406,10 +415,7 @@ def parse_benchmark_output(output: str) -> pl.DataFrame:
         )
         row["build_ms"] = bajo_build_times.get(key)
 
-    return pl.DataFrame(
-        rows,
-        infer_schema_length=None,
-    ).sort(
+    return pl.DataFrame(rows, infer_schema_length=None,).sort(
         [
             "benchmark",
             "build_threads",
@@ -460,13 +466,10 @@ def best_results(frame: pl.DataFrame) -> pl.DataFrame:
     benchmarks = frame.get_column("benchmark").unique().sort().to_list()
 
     for benchmark in benchmarks:
-        benchmark_frame = frame.filter(
-            pl.col("benchmark") == benchmark
-        )
+        benchmark_frame = frame.filter(pl.col("benchmark") == benchmark)
 
         implementations = (
-            benchmark_frame
-            .get_column("implementation")
+            benchmark_frame.get_column("implementation")
             .unique()
             .sort()
             .to_list()
@@ -474,8 +477,9 @@ def best_results(frame: pl.DataFrame) -> pl.DataFrame:
 
         for implementation in implementations:
             best = (
-                benchmark_frame
-                .filter(pl.col("implementation") == implementation)
+                benchmark_frame.filter(
+                    pl.col("implementation") == implementation
+                )
                 .sort("mrays_s", descending=True)
                 .head(1)
             )
@@ -483,28 +487,22 @@ def best_results(frame: pl.DataFrame) -> pl.DataFrame:
 
     best = pl.concat(selections)
 
-    bajo_reference = (
-        best
-        .filter(pl.col("implementation") == "bajo")
-        .select(
-            "benchmark",
-            pl.col("mrays_s").alias("bajo_mrays_s"),
-        )
+    bajo_reference = best.filter(pl.col("implementation") == "bajo").select(
+        "benchmark",
+        pl.col("mrays_s").alias("bajo_mrays_s"),
     )
 
     return (
-        best
-        .join(
+        best.join(
             bajo_reference,
             on="benchmark",
             how="left",
             validate="m:1",
         )
         .with_columns(
-            (
-                (pl.col("mrays_s") / pl.col("bajo_mrays_s") - 1.0)
-                * 100.0
-            ).alias("vs_bajo_pct")
+            ((pl.col("mrays_s") / pl.col("bajo_mrays_s") - 1.0) * 100.0).alias(
+                "vs_bajo_pct"
+            )
         )
         .drop("bajo_mrays_s")
         .sort(
@@ -534,15 +532,13 @@ def merge_build_modes(frame: pl.DataFrame) -> pl.DataFrame:
     ]
 
     single = (
-        frame
-        .filter(pl.col("build_threads") == SINGLE_THREAD_MODE)
+        frame.filter(pl.col("build_threads") == SINGLE_THREAD_MODE)
         .sort("mrays_s", descending=True)
         .unique(subset=identity, keep="first", maintain_order=True)
         .rename({"build_ms": "build_ms_1"})
     )
     all_builds = (
-        frame
-        .filter(pl.col("build_threads") == ALL_THREAD_MODE)
+        frame.filter(pl.col("build_threads") == ALL_THREAD_MODE)
         .sort("mrays_s", descending=True)
         .unique(subset=identity, keep="first", maintain_order=True)
         .select(identity + [pl.col("build_ms").alias("build_ms_all")])
@@ -556,22 +552,20 @@ def merge_build_modes(frame: pl.DataFrame) -> pl.DataFrame:
         nulls_equal=True,
     )
     if merged.get_column("build_ms_all").null_count() != 0:
-        raise ValueError("Every traversal row requires an all-thread build time")
-
-    return (
-        merged
-        .drop("build_threads", "available_cpus", "cpu_affinity")
-        .sort(
-            [
-                "benchmark",
-                "implementation",
-                "build_method",
-                "width",
-                "leaf_width",
-                "traversal",
-                "ray_width",
-            ]
+        raise ValueError(
+            "Every traversal row requires an all-thread build time"
         )
+
+    return merged.drop("build_threads", "available_cpus", "cpu_affinity").sort(
+        [
+            "benchmark",
+            "implementation",
+            "build_method",
+            "width",
+            "leaf_width",
+            "traversal",
+            "ray_width",
+        ]
     )
 
 
@@ -656,9 +650,7 @@ def generate_report(
     single_threaded = frame.filter(
         pl.col("build_threads") == SINGLE_THREAD_MODE
     )
-    multithreaded = frame.filter(
-        pl.col("build_threads") == ALL_THREAD_MODE
-    )
+    multithreaded = frame.filter(pl.col("build_threads") == ALL_THREAD_MODE)
     if single_threaded.is_empty() or multithreaded.is_empty():
         raise ValueError("Report requires both single- and all-thread results")
     merged = merge_build_modes(frame)

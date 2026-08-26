@@ -6,17 +6,19 @@ from std.time import perf_counter_ns
 from bajo.bvh.constants import f32_max
 from bajo.core import Ray
 from bajo.bvh.cpu.blas_set import (
+    AdaptiveStreamHitSink,
     build_cpu_triangle_blas_set,
     trace_blas_set,
+    trace_blas_set_adaptive_stream,
     trace_blas_set_packet,
 )
+from bajo.bvh.types import Hit
 from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.cpu import (
     CpuBlasSet,
     CpuBvhBuildMethod,
 )
-from bajo.bvh.types import Hit
-from bajo.core import Point3, Point3f32, Vec3, Rayf32
+from bajo.core import Frame, Point3, Point3f32, Vec3, Rayf32
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.parser.obj.pack import pack_obj_triangles
 from bajo.benchmark.bvh_fixtures import (
@@ -132,6 +134,33 @@ def trace_packet[
     return (checksum, hits)
 
 
+struct AdaptiveBenchmarkSink(AdaptiveStreamHitSink):
+    var checksum: Float64
+    var hits: Int
+
+    def __init__(out self):
+        self.checksum = 0.0
+        self.hits = 0
+
+    @always_inline
+    def write[
+        length: SIMDLength,
+        frame: Frame,
+    ](mut self, base: Int, hit: Hit[frame, length]):
+        comptime for lane in range(length):
+            if hit.prim[lane] != UInt32(0xFFFFFFFF):
+                self.checksum += (
+                    Float64(hit.t[lane])
+                    + Float64(hit.u[lane])
+                    + Float64(hit.v[lane])
+                    + Float64(hit.normal.x[lane])
+                    + Float64(hit.normal.y[lane])
+                    + Float64(hit.normal.z[lane])
+                    + Float64(hit.prim[lane])
+                )
+                self.hits += 1
+
+
 def benchmark[
     bounds_width: SIMDLength,
     leaf_width: SIMDLength,
@@ -162,12 +191,58 @@ def benchmark[
     return PacketTiming(best, summary[0], summary[1])
 
 
+def benchmark_adaptive[
+    bounds_width: SIMDLength,
+    leaf_width: SIMDLength,
+    *packet_sizes: SIMDLength,
+](
+    bvh: CpuBlasSet[.TRIANGLE, bounds_width, leaf_width],
+    rays: List[Rayf32[.WORLD]],
+) -> PacketTiming:
+    @always_inline
+    def trace(mut sink: AdaptiveBenchmarkSink) {bvh, rays}:
+        trace_blas_set_adaptive_stream[bounds_width, leaf_width, *packet_sizes](
+            bvh, UInt32(0), rays, sink
+        )
+
+    var sink = AdaptiveBenchmarkSink()
+    trace(sink)
+    var best = Int.MAX
+    for _ in range(REPEATS):
+        sink = AdaptiveBenchmarkSink()
+        var t0 = perf_counter_ns()
+        trace(sink)
+        best = min(best, Int(perf_counter_ns() - t0))
+    return PacketTiming(best, sink.checksum, sink.hits)
+
+
 def print_timing(label: String, result: PacketTiming, ray_count: Int):
     print(
         t"  {label}: {round(ns_to_ms(result.ns), 3)} ms, "
         t"{round(ns_to_mrays_per_s(result.ns, ray_count), 3)} MRay/s, "
         t"hits={result.hits}, checksum={round(result.checksum, 3)}"
     )
+
+
+def print_packet_widths[
+    bounds_width: SIMDLength,
+    leaf_width: SIMDLength,
+    common_octant: Bool,
+    *packet_sizes: SIMDLength,
+](
+    prefix: String,
+    bvh: CpuBlasSet[.TRIANGLE, bounds_width, leaf_width],
+    rays: List[Rayf32[.WORLD]],
+):
+    """Print a compile-time packet-width sweep."""
+    comptime for packet_size in packet_sizes:
+        print_timing(
+            prefix + "packet" + String(Int(packet_size)),
+            benchmark[bounds_width, leaf_width, packet_size, common_octant](
+                bvh, rays
+            ),
+            len(rays),
+        )
 
 
 def benchmark_scene[
@@ -189,30 +264,20 @@ def benchmark_scene[
     print_timing(
         "scalar", benchmark[bounds_width, leaf_width, 1](bvh, rays), len(rays)
     )
-    print_timing(
-        "packet4", benchmark[bounds_width, leaf_width, 4](bvh, rays), len(rays)
+    print_packet_widths[bounds_width, leaf_width, False, 4, 8, 16](
+        "", bvh, rays
+    )
+    print_packet_widths[bounds_width, leaf_width, True, 4, 8, 16](
+        "coh-", bvh, rays
     )
     print_timing(
-        "packet8", benchmark[bounds_width, leaf_width, 8](bvh, rays), len(rays)
-    )
-    print_timing(
-        "packet16",
-        benchmark[bounds_width, leaf_width, 16](bvh, rays),
+        "adaptive-16-8-scalar",
+        benchmark_adaptive[bounds_width, leaf_width, 16, 8](bvh, rays),
         len(rays),
     )
     print_timing(
-        "coh-packet4",
-        benchmark[bounds_width, leaf_width, 4, True](bvh, rays),
-        len(rays),
-    )
-    print_timing(
-        "coh-packet8",
-        benchmark[bounds_width, leaf_width, 8, True](bvh, rays),
-        len(rays),
-    )
-    print_timing(
-        "coh-packet16",
-        benchmark[bounds_width, leaf_width, 16, True](bvh, rays),
+        "adaptive-16-8-4-scalar",
+        benchmark_adaptive[bounds_width, leaf_width, 16, 8, 4](bvh, rays),
         len(rays),
     )
 
@@ -234,6 +299,9 @@ def run_benchmark() raises:
     )
     var dragon_rays = camera[0].copy()
     benchmark_scene[16, 16, .SAH](
+        "Dragon camera rays", dragon_vertices, dragon_rays
+    )
+    benchmark_scene[16, 16, .LBVH](
         "Dragon camera rays", dragon_vertices, dragon_rays
     )
     benchmark_scene[16, 16, .HPLOC](

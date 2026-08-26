@@ -4,7 +4,7 @@ from std.math import round
 
 from bajo.core.utils import ns_to_ms
 from bajo.rt import Camera, RenderSettings, CpuScene
-from bajo.rt.cpu import render_depth_first
+from bajo.rt.cpu import CpuSchedulerMode, render_depth_first
 from bajo.benchmark.cpu_harness import pixel_checksum
 from bajo.benchmark.rt_fixtures import (
     make_mixed_triangle_world,
@@ -31,7 +31,7 @@ struct ScheduleResult(Copyable):
 
 
 def run_schedule[
-    TILE_WIDTH: Int, TILE_HEIGHT: Int, SCHEDULER_MODE: Int
+    TILE_WIDTH: Int, TILE_HEIGHT: Int, scheduler_mode: CpuSchedulerMode
 ](settings: RenderSettings, camera: Camera, world: CpuScene[]) -> Tuple[
     Int, Float64
 ]:
@@ -39,13 +39,13 @@ def run_schedule[
         .PATH,
         TILE_WIDTH,
         TILE_HEIGHT,
-        SCHEDULER_MODE,
+        scheduler_mode,
     ](settings, camera, world)
     return (result.timings.render_ns, pixel_checksum(result.pixels))
 
 
 def record_schedule[
-    TILE_WIDTH: Int, TILE_HEIGHT: Int, SCHEDULER_MODE: Int
+    TILE_WIDTH: Int, TILE_HEIGHT: Int, scheduler_mode: CpuSchedulerMode
 ](
     mut times: List[Int],
     checksum: Float64,
@@ -53,7 +53,7 @@ def record_schedule[
     camera: Camera,
     world: CpuScene[],
 ):
-    var sample = run_schedule[TILE_WIDTH, TILE_HEIGHT, SCHEDULER_MODE](
+    var sample = run_schedule[TILE_WIDTH, TILE_HEIGHT, scheduler_mode](
         settings, camera, world
     )
     debug_assert["safe", _use_compiler_assume=True](
@@ -83,12 +83,22 @@ def benchmark_world(
 ):
     print(t"\n{label}")
     # A tile wider than the image and one pixel high reproduces scanlines.
-    var legacy_warmup = run_schedule[4096, 1, 2](settings, camera, world)
+    var legacy_warmup = run_schedule[4096, 1, CpuSchedulerMode.TASK_PARTITIONS](
+        settings, camera, world
+    )
     var checksum = legacy_warmup[1]
-    _ = run_schedule[4096, 1, 1](settings, camera, world)
-    _ = run_schedule[16, 16, 2](settings, camera, world)
-    _ = run_schedule[32, 8, 2](settings, camera, world)
-    _ = run_schedule[64, 8, 2](settings, camera, world)
+    _ = run_schedule[4096, 1, CpuSchedulerMode.LOGICAL_CORES](
+        settings, camera, world
+    )
+    _ = run_schedule[16, 16, CpuSchedulerMode.TASK_PARTITIONS](
+        settings, camera, world
+    )
+    _ = run_schedule[32, 8, CpuSchedulerMode.TASK_PARTITIONS](
+        settings, camera, world
+    )
+    _ = run_schedule[64, 8, CpuSchedulerMode.TASK_PARTITIONS](
+        settings, camera, world
+    )
 
     var legacy_times = List[Int](capacity=REPEATS)
     var core_times = List[Int](capacity=REPEATS)
@@ -97,35 +107,35 @@ def benchmark_world(
     var tile64_times = List[Int](capacity=REPEATS)
     for iteration in range(REPEATS):
         if iteration % 2 == 0:
-            record_schedule[4096, 1, 2](
+            record_schedule[4096, 1, CpuSchedulerMode.TASK_PARTITIONS](
                 legacy_times, checksum, settings, camera, world
             )
-            record_schedule[4096, 1, 1](
+            record_schedule[4096, 1, CpuSchedulerMode.LOGICAL_CORES](
                 core_times, checksum, settings, camera, world
             )
-            record_schedule[16, 16, 2](
+            record_schedule[16, 16, CpuSchedulerMode.TASK_PARTITIONS](
                 tile16_times, checksum, settings, camera, world
             )
-            record_schedule[32, 8, 2](
+            record_schedule[32, 8, CpuSchedulerMode.TASK_PARTITIONS](
                 tile32_times, checksum, settings, camera, world
             )
-            record_schedule[64, 8, 2](
+            record_schedule[64, 8, CpuSchedulerMode.TASK_PARTITIONS](
                 tile64_times, checksum, settings, camera, world
             )
         else:
-            record_schedule[64, 8, 2](
+            record_schedule[64, 8, CpuSchedulerMode.TASK_PARTITIONS](
                 tile64_times, checksum, settings, camera, world
             )
-            record_schedule[32, 8, 2](
+            record_schedule[32, 8, CpuSchedulerMode.TASK_PARTITIONS](
                 tile32_times, checksum, settings, camera, world
             )
-            record_schedule[16, 16, 2](
+            record_schedule[16, 16, CpuSchedulerMode.TASK_PARTITIONS](
                 tile16_times, checksum, settings, camera, world
             )
-            record_schedule[4096, 1, 1](
+            record_schedule[4096, 1, CpuSchedulerMode.LOGICAL_CORES](
                 core_times, checksum, settings, camera, world
             )
-            record_schedule[4096, 1, 2](
+            record_schedule[4096, 1, CpuSchedulerMode.TASK_PARTITIONS](
                 legacy_times, checksum, settings, camera, world
             )
 

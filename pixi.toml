@@ -80,6 +80,7 @@ bench_rt_cpu_end_to_end = "mojo -I . bench/rt/bench_cpu_end_to_end.mojo"
 bench_rt_cpu_tlas_lbvh = { cmd = "mojo -I . bench/diagnostic/rt/bench_cpu_rt_lbvh.mojo", depends-on = ["download_assets"] }
 bench_rt_cpu_scheduling = "mojo -I . bench/diagnostic/rt/bench_cpu_scheduling.mojo"
 bench_rt_cpu_wavefront = "mojo -I . bench/rt/bench_cpu_wavefront.mojo"
+bench_rt_cpu_viewer_traversal = "mojo -I . bench/diagnostic/rt/bench_cpu_viewer_traversal.mojo"
 bench_rt_cpu_wavefront_parallel = "mojo -I . bench/diagnostic/rt/bench_cpu_wavefront_parallel.mojo"
 
 # ray tracing gpu
@@ -125,8 +126,9 @@ bench_bvh = { depends-on = [
 ] }
 
 [dependencies]
-mojo = ">=1.1.0.dev2026082405,<2"
-max = ">=26.6.0.dev2026082405,<27"
+mojo = ">=1.1.0.dev2026082605,<2"
+max = ">=26.6.0.dev2026082605,<27"
 python = ">=3.14.7,<3.15"
-polars = ">=1.43.2,<2"
+polars = ">=1.44.0,<2"
 matplotlib = ">=3.11.1,<4"
+numpy = ">=2.5.2,<3"

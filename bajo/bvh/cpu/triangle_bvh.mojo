@@ -1,4 +1,5 @@
 from max.algorithm import parallelize
+from std.atomic import Atomic, Ordering
 from std.bit import count_trailing_zeros
 from std.memory import pack_bits
 from std.sys import size_of
@@ -17,7 +18,7 @@ from bajo.core import (
     Ray,
 )
 from bajo.bvh.constants import EMPTY_LANE, TraceMode, TRI_LEAF_PACKED_STRIDE
-from bajo.bvh.cpu.build_method import CpuBvhBuildMethod
+from bajo.bvh.cpu.build_method import CpuBvhBuildMethod, CpuBvhBuildTraits
 from bajo.bvh.cpu.bounds_bvh import (
     BoundsBvh,
     BoundsItem,
@@ -32,15 +33,106 @@ from bajo.core.intersect import (
     intersect_ray_tri_edges_scaled,
 )
 from bajo.bvh.cpu.trace import _extract_f32_lane
-from bajo.bvh.cpu.packet import (
-    trace_packet_stack_bounds_bvh,
-)
+from bajo.bvh.cpu.packet import trace_packet_stack_bounds_bvh
 from bajo.bvh.cpu.parallel import _worker_count
 
 
 comptime PARALLEL_TRIANGLE_BUILD_MIN_ITEMS = 4096
+comptime PARALLEL_COLLAPSE_EMIT_MIN_NODES = UInt32(16384)
+comptime HPLOC_TRIANGLE_MICROLEAF_SIZE = 4
 comptime HYBRID_TRIANGLE_MIN_NODES = 1024
 comptime ROOT_SCALAR_TRIANGLE_MIN_NODES = 2048
+comptime PACKET16_SCALAR_LEAF_MAX_NODES = 2400
+comptime PACKET8_SCALAR_LEAF_MAX_NODES = 1800
+comptime PACKET4_SCALAR_LEAF_THRESHOLD = 3
+comptime PACKET8_SCALAR_LEAF_THRESHOLD = 4
+comptime PACKET16_SCALAR_LEAF_THRESHOLD = 12
+
+
+@fieldwise_init
+struct TrianglePacketConfig(ImplicitlyCopyable):
+    """Compile-time triangle packet-kernel specialization."""
+
+    comptime PRODUCTION = Self(True, 0, 0, True, False, False)
+    comptime PURE = Self(False, 0, 0, True, False, True)
+
+    var use_production_tuning: Bool
+    var hybrid_threshold: Int
+    var root_scalar_max_tasks: Int
+    var hybrid_internals: Bool
+    var hybrid_leaves: Bool
+    var coherent_optimizations: Bool
+
+    @staticmethod
+    def scalar_leaves[threshold: Int]() -> Self:
+        return Self(False, threshold, 0, False, True, True)
+
+    @staticmethod
+    def scalar_continuation[threshold: Int]() -> Self:
+        return Self(False, threshold, 0, True, False, True)
+
+    @staticmethod
+    def scalar_both[threshold: Int]() -> Self:
+        return Self(False, threshold, 0, True, True, True)
+
+    @staticmethod
+    def scalar_root[max_tasks: Int]() -> Self:
+        return Self(False, 0, max_tasks, True, False, True)
+
+
+struct _PacketKernelTuning[length: SIMDLength]:
+    """Compile-time production tuning for one triangle packet width."""
+
+    comptime enabled = (
+        Self.length == 4 or Self.length == 8 or Self.length == 16
+    )
+    comptime coherent_leaf_threshold = (
+        PACKET4_SCALAR_LEAF_THRESHOLD if Self.length
+        == 4 else PACKET8_SCALAR_LEAF_THRESHOLD if Self.length
+        == 8 else PACKET16_SCALAR_LEAF_THRESHOLD if Self.length
+        == 16 else 0
+    )
+    comptime coherent_leaf_max_nodes = (
+        PACKET8_SCALAR_LEAF_MAX_NODES if Self.length
+        == 8 else PACKET16_SCALAR_LEAF_MAX_NODES
+    )
+    comptime coherent_continuation_threshold = 7 if Self.length == 8 else 0
+    comptime coherent_continuation_max_nodes = (
+        PACKET16_SCALAR_LEAF_MAX_NODES if Self.length == 8 else 0
+    )
+    comptime noncoherent_threshold = (
+        3 if Self.length
+        == 4 else 7 if Self.length
+        == 8 else 8 if Self.length
+        == 16 else 0
+    )
+    comptime root_scalar_max_tasks = 4 if Self.length == 4 else 0
+    comptime root_scalar_min_nodes = (
+        ROOT_SCALAR_TRIANGLE_MIN_NODES if Self.length == 4 else 0
+    )
+    comptime unroll_root_hybrid = Self.length == 4
+
+
+struct _TriangleBuildTuning[
+    bounds_width: SIMDLength,
+    leaf_width: SIMDLength,
+    method: CpuBvhBuildMethod,
+    requested_microleaf_size: Int,
+]:
+    """Compile-time triangle build choices beyond generic builder traits."""
+
+    comptime resolved_microleaf_size = (
+        HPLOC_TRIANGLE_MICROLEAF_SIZE if Self.requested_microleaf_size == 0
+        and Self.method == .HPLOC
+        and Int(Self.leaf_width)
+        >= 16 else (
+            1 if Self.requested_microleaf_size
+            == 0 else Self.requested_microleaf_size
+        )
+    )
+    comptime parallel_collapse_enabled = (
+        Self.bounds_width == 16 and Self.leaf_width == 16
+    )
 
 
 @always_inline
@@ -278,6 +370,12 @@ def _trace_triangle_packet_policy[
     length: SIMDLength,
     common_octant_fma: Bool,
     packed_meta: Bool,
+    use_production_tuning: Bool,
+    diagnostic_hybrid_threshold: Int,
+    diagnostic_root_scalar_max_tasks: Int,
+    diagnostic_hybrid_internals: Bool,
+    diagnostic_hybrid_leaves: Bool,
+    diagnostic_coherent_optimizations: Bool,
     LeafFn: def(SIMD[.bool, length], UInt32, mut Hit[frame, length]),
     HybridFn: def(SIMD[.bool, length], UInt32, mut Hit[frame, length]),
     PrefetchFn: def(UInt32),
@@ -305,6 +403,8 @@ def _trace_triangle_packet_policy[
             root_scalar_max_tasks: Int,
             use_frustum: Bool = False,
             prefetch_tasks: Bool = False,
+            hybrid_internals: Bool = True,
+            hybrid_leaves: Bool = False,
         ]() {imm, mut hit}:
             trace_packet_stack_bounds_bvh[
                 frame=frame,
@@ -316,7 +416,8 @@ def _trace_triangle_packet_policy[
                 positive_x=positive_x,
                 positive_y=positive_y,
                 positive_z=positive_z,
-                hybrid_leaves=common_octant_fma,
+                hybrid_internals=hybrid_internals,
+                hybrid_leaves=hybrid_leaves,
                 coherent_frustum=use_frustum,
                 prefetch_tasks=prefetch_tasks,
                 packed_meta=packed_meta,
@@ -330,32 +431,92 @@ def _trace_triangle_packet_policy[
                 prefetch_fn,
             )
 
+        comptime if not use_production_tuning:
+            run_kernel[
+                diagnostic_hybrid_threshold,
+                diagnostic_root_scalar_max_tasks,
+                diagnostic_coherent_optimizations and use_octant_fma,
+                diagnostic_coherent_optimizations and use_octant_fma,
+                diagnostic_hybrid_internals,
+                diagnostic_hybrid_leaves,
+            ]()
+            return
+
         comptime if bounds_width == 16 and leaf_width == 16:
-            if len(nodes) >= HYBRID_TRIANGLE_MIN_NODES:
-                comptime if length == 4:
-                    if len(nodes) >= ROOT_SCALAR_TRIANGLE_MIN_NODES:
-                        run_kernel[3, 4]()
-                    else:
-                        run_kernel[3, 0]()
+            comptime if _PacketKernelTuning[length].enabled:
+                if len(nodes) < HYBRID_TRIANGLE_MIN_NODES:
+                    run_kernel[0, 0]()
                     return
-                elif length == 8:
-                    comptime if use_octant_fma:
-                        if len(nodes) >= ROOT_SCALAR_TRIANGLE_MIN_NODES:
-                            run_kernel[7, 0, True, True]()
+
+                comptime if use_octant_fma:
+                    if (
+                        len(nodes)
+                        < _PacketKernelTuning[length].coherent_leaf_max_nodes
+                    ):
+                        run_kernel[
+                            _PacketKernelTuning[length].coherent_leaf_threshold,
+                            0,
+                            True,
+                            True,
+                            False,
+                            True,
+                        ]()
+                    else:
+                        comptime if (
+                            _PacketKernelTuning[
+                                length
+                            ].coherent_continuation_max_nodes
+                            > 0
+                        ):
+                            if (
+                                len(nodes)
+                                < _PacketKernelTuning[
+                                    length
+                                ].coherent_continuation_max_nodes
+                            ):
+                                run_kernel[
+                                    _PacketKernelTuning[
+                                        length
+                                    ].coherent_continuation_threshold,
+                                    0,
+                                    True,
+                                    True,
+                                    True,
+                                    True,
+                                ]()
+                            else:
+                                run_kernel[0, 0, True, True]()
                         else:
-                            run_kernel[7, 0]()
-                    else:
-                        run_kernel[7, 0]()
-                    return
-                elif length == 16:
-                    comptime if use_octant_fma:
-                        if len(nodes) >= ROOT_SCALAR_TRIANGLE_MIN_NODES:
-                            run_kernel[8, 0, True, True]()
+                            run_kernel[0, 0, True, True]()
+                else:
+                    comptime if (
+                        _PacketKernelTuning[length].root_scalar_max_tasks > 0
+                    ):
+                        if (
+                            len(nodes)
+                            >= _PacketKernelTuning[length].root_scalar_min_nodes
+                        ):
+                            run_kernel[
+                                _PacketKernelTuning[
+                                    length
+                                ].noncoherent_threshold,
+                                _PacketKernelTuning[
+                                    length
+                                ].root_scalar_max_tasks,
+                            ]()
                         else:
-                            run_kernel[8, 0]()
+                            run_kernel[
+                                _PacketKernelTuning[
+                                    length
+                                ].noncoherent_threshold,
+                                0,
+                            ]()
                     else:
-                        run_kernel[8, 0]()
-                    return
+                        run_kernel[
+                            _PacketKernelTuning[length].noncoherent_threshold,
+                            0,
+                        ]()
+                return
         run_kernel[0, 0]()
 
     comptime if common_octant_fma:
@@ -397,6 +558,7 @@ struct _TriangleBuild[
     frame: Frame,
     bounds_width: SIMDLength,
     leaf_width: SIMDLength = bounds_width,
+    hploc_microleaf_size: Int = 0,
 ](Copyable):
     """Private typed build result consumed immediately by `CpuBlasSet` packing.
 
@@ -432,10 +594,10 @@ struct _TriangleBuild[
         ) {imm}:
             for i in range(tri_count):
                 var item = _make_triangle_bounds_item(vertices, i)
-                comptime if (method != .LBVH and method != .HPLOC):
+                comptime if CpuBvhBuildTraits[method].needs_root_bounds:
                     root_bounds.grow(item.bounds)
-                comptime if method != .MEDIAN:
-                    centroid_bounds.grow(item.bounds.centroid())
+                comptime if CpuBvhBuildTraits[method].needs_centroid_bounds:
+                    centroid_bounds.grow(item.centroid)
                 items.append(item)
 
         if tri_count >= PARALLEL_TRIANGLE_BUILD_MIN_ITEMS:
@@ -443,10 +605,10 @@ struct _TriangleBuild[
             var worker_count = _worker_count(tri_count)
             var root_partials = List[AABB[Self.frame]]()
             var centroid_partials = List[AABB[Self.frame]]()
-            comptime if (method != .LBVH and method != .HPLOC):
+            comptime if CpuBvhBuildTraits[method].needs_root_bounds:
                 root_partials = List[AABB[Self.frame]](capacity=worker_count)
                 root_partials.resize(unsafe_uninit_length=worker_count)
-            comptime if method != .MEDIAN:
+            comptime if CpuBvhBuildTraits[method].needs_centroid_bounds:
                 centroid_partials = List[AABB[Self.frame]](
                     capacity=worker_count
                 )
@@ -461,28 +623,37 @@ struct _TriangleBuild[
                 var chunk_centroid_bounds = AABB[Self.frame].invalid()
                 for i in range(first, end):
                     var item = _make_triangle_bounds_item(vertices, i)
-                    comptime if (method != .LBVH and method != .HPLOC):
+                    comptime if CpuBvhBuildTraits[method].needs_root_bounds:
                         chunk_bounds.grow(item.bounds)
-                    comptime if method != .MEDIAN:
-                        chunk_centroid_bounds.grow(item.bounds.centroid())
+                    comptime if CpuBvhBuildTraits[method].needs_centroid_bounds:
+                        chunk_centroid_bounds.grow(item.centroid)
                     items[i] = item
-                comptime if (method != .LBVH and method != .HPLOC):
+                comptime if CpuBvhBuildTraits[method].needs_root_bounds:
                     root_partials[task_idx] = chunk_bounds
-                comptime if method != .MEDIAN:
+                comptime if CpuBvhBuildTraits[method].needs_centroid_bounds:
                     centroid_partials[task_idx] = chunk_centroid_bounds
 
             parallelize(item_chunk_worker, worker_count, worker_count)
             for worker_idx in range(worker_count):
-                comptime if (method != .LBVH and method != .HPLOC):
+                comptime if CpuBvhBuildTraits[method].needs_root_bounds:
                     root_bounds.grow(root_partials[worker_idx])
-                comptime if method != .MEDIAN:
+                comptime if CpuBvhBuildTraits[method].needs_centroid_bounds:
                     centroid_bounds.grow(centroid_partials[worker_idx])
         else:
             append_items(items, root_bounds, centroid_bounds)
 
-        var builder = BinaryBoundsBvh[Self.frame, Int(Self.leaf_width), method](
-            items^, root_bounds, centroid_bounds
-        )
+        comptime resolved_microleaf_size = _TriangleBuildTuning[
+            Self.bounds_width,
+            Self.leaf_width,
+            method,
+            Self.hploc_microleaf_size,
+        ].resolved_microleaf_size
+        var builder = BinaryBoundsBvh[
+            Self.frame,
+            Int(Self.leaf_width),
+            method,
+            resolved_microleaf_size,
+        ](items^, root_bounds, centroid_bounds)
 
         var leaf_blocks = List[TriangleLeafBlock[Self.frame, Self.leaf_width]](
             capacity=(Int(builder.nodes_used) + 1) // 2
@@ -541,16 +712,62 @@ struct _TriangleBuild[
             var leaf_ranges = List[WideLeafRange]()
 
             @always_inline
-            def record_leaf_range(
+            def record_serial_leaf_range(
                 first_item: UInt32, item_count: UInt32
             ) {imm, mut leaf_ranges} -> UInt32:
                 var block_idx = UInt32(len(leaf_ranges))
                 leaf_ranges.append(WideLeafRange(first_item, item_count))
                 return block_idx
 
-            self.tree = BoundsBvh[Self.frame, Self.bounds_width](
-                builder, record_leaf_range
-            )
+            comptime if _TriangleBuildTuning[
+                Self.bounds_width,
+                Self.leaf_width,
+                method,
+                Self.hploc_microleaf_size,
+            ].parallel_collapse_enabled:
+                if builder.nodes_used >= PARALLEL_COLLAPSE_EMIT_MIN_NODES:
+                    var binary_leaf_count = 0
+                    for node_idx in range(Int(builder.nodes_used)):
+                        if builder.nodes[node_idx].is_leaf():
+                            binary_leaf_count += 1
+                    leaf_ranges = List[WideLeafRange](
+                        capacity=binary_leaf_count
+                    )
+                    leaf_ranges.resize(unsafe_uninit_length=binary_leaf_count)
+                    var next_leaf = [UInt32(0)]
+
+                    @always_inline
+                    def record_parallel_leaf_range(
+                        first_item: UInt32, item_count: UInt32
+                    ) {imm, mut leaf_ranges, mut next_leaf} -> UInt32:
+                        var block_idx = Atomic.fetch_add[
+                            ordering=Ordering.RELAXED
+                        ](next_leaf.unsafe_ptr(), UInt32(1))
+                        leaf_ranges[Int(block_idx)] = WideLeafRange(
+                            first_item, item_count
+                        )
+                        return block_idx
+
+                    self.tree = BoundsBvh[
+                        Self.frame, Self.bounds_width
+                    ].__init__[parallel_emit=True](
+                        builder, record_parallel_leaf_range
+                    )
+                    debug_assert["safe", _use_compiler_assume=True](
+                        next_leaf[0] == UInt32(binary_leaf_count),
+                        (
+                            "parallel wide collapse did not emit every triangle"
+                            " leaf"
+                        ),
+                    )
+                else:
+                    self.tree = BoundsBvh[Self.frame, Self.bounds_width](
+                        builder, record_serial_leaf_range
+                    )
+            else:
+                self.tree = BoundsBvh[Self.frame, Self.bounds_width](
+                    builder, record_serial_leaf_range
+                )
             leaf_blocks.resize(unsafe_uninit_length=len(leaf_ranges))
 
             var task_count = len(leaf_ranges)

@@ -22,3 +22,10 @@ struct CpuBvhBuildMethod(Equatable, ImplicitlyCopyable):
         if self == Self.HPLOC:
             return "hploc"
         return "unknown"
+
+
+struct CpuBvhBuildTraits[method: CpuBvhBuildMethod]:
+    """Compile-time inputs required by one CPU topology builder."""
+
+    comptime needs_root_bounds = (Self.method == .MEDIAN or Self.method == .SAH)
+    comptime needs_centroid_bounds = Self.method != .MEDIAN

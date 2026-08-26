@@ -1,4 +1,5 @@
 from max.algorithm import parallelize
+from std.atomic import Atomic, Ordering
 
 from bajo.core import AABB, AxisAlignedBoundingBox, Point3f32, Frame
 from bajo.bvh.constants import EMPTY_LANE, f32_max
@@ -101,15 +102,17 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
 
     def __init__[
         PackLeafFn: def(UInt32, UInt32) -> UInt32,
+        parallel_emit: Bool = False,
     ](out self, bvh: BinaryBoundsBvh, ref pack_leaf_fn: PackLeafFn):
         """Collapse a binary BVH while packing its final leaf payloads."""
         self.nodes = List[WideBvhNode[Self.frame, Self.width]]()
 
         if bvh.nodes_used > 0:
-            self._collapse_root(bvh, pack_leaf_fn)
+            self._collapse_root[PackLeafFn, parallel_emit](bvh, pack_leaf_fn)
 
     def _collapse_root[
         PackLeafFn: def(UInt32, UInt32) -> UInt32,
+        parallel_emit: Bool,
     ](mut self, bvh: BinaryBoundsBvh, ref pack_leaf_fn: PackLeafFn):
         comptime if Self.width > 2:
             var dp = _WideCollapseDp(Int(bvh.nodes_used), Int(Self.width))
@@ -117,7 +120,10 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
                 self._compute_collapse_dp_parallel(bvh, dp)
             else:
                 self._compute_collapse_dp(bvh, 0, dp)
-            _ = self._collapse_dp(bvh, 0, dp, pack_leaf_fn)
+            comptime if parallel_emit:
+                self._collapse_dp_parallel_root(bvh, dp, pack_leaf_fn)
+            else:
+                _ = self._collapse_dp(bvh, 0, dp, pack_leaf_fn)
 
         else:
             _ = self._collapse_greedy(bvh, 0, pack_leaf_fn)
@@ -388,6 +394,111 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
 
         self.nodes[wide_idx] = node^
         return UInt32(wide_idx)
+
+    def _collapse_dp_parallel_root[
+        PackLeafFn: def(UInt32, UInt32) -> UInt32,
+    ](
+        mut self,
+        bvh: BinaryBoundsBvh,
+        ref dp: _WideCollapseDp,
+        ref pack_leaf_fn: PackLeafFn,
+    ):
+        """Emit independent root subtrees concurrently into pre-sized nodes."""
+        self.nodes.resize(unsafe_uninit_length=Int(bvh.nodes_used))
+        var frontier = self._dp_frontier(bvh, 0, dp)
+        var pool = frontier[0].copy()
+        var p_size = frontier[1]
+        var root = WideBvhNode[Self.frame, Self.width]()
+        var task_bins = List[UInt32](capacity=Int(Self.width))
+        var task_wide_indices = List[UInt32](capacity=Int(Self.width))
+
+        comptime for lane in range(Self.width):
+            if lane < p_size:
+                ref node = bvh.nodes[Int(pool[lane])]
+                root.aabb._min.x[lane] = node.aabb._min.x
+                root.aabb._min.y[lane] = node.aabb._min.y
+                root.aabb._min.z[lane] = node.aabb._min.z
+                root.aabb._max.x[lane] = node.aabb._max.x
+                root.aabb._max.y[lane] = node.aabb._max.y
+                root.aabb._max.z[lane] = node.aabb._max.z
+                if node.is_leaf():
+                    root.data[lane] = encode_leaf_ref(
+                        pack_leaf_fn(node.first_item(), node.item_count)
+                    )
+                else:
+                    var child_wide_idx = UInt32(len(task_bins) + 1)
+                    root.data[lane] = encode_internal_ref(child_wide_idx)
+                    task_bins.append(pool[lane])
+                    task_wide_indices.append(child_wide_idx)
+
+        self.nodes[0] = root^
+        var next_node = [UInt32(len(task_bins) + 1)]
+
+        def emit_worker(task_idx: Int) {imm, mut self, mut next_node}:
+            self._collapse_dp_parallel_subtree(
+                bvh,
+                task_bins[task_idx],
+                task_wide_indices[task_idx],
+                dp,
+                next_node.unsafe_ptr(),
+                pack_leaf_fn,
+            )
+
+        if len(task_bins) > 0:
+            parallelize(emit_worker, len(task_bins))
+        self.nodes.shrink(Int(next_node[0]))
+
+    def _collapse_dp_parallel_subtree[
+        next_node_origin: MutOrigin,
+        PackLeafFn: def(UInt32, UInt32) -> UInt32,
+    ](
+        mut self,
+        bvh: BinaryBoundsBvh,
+        bin_idx: UInt32,
+        wide_idx: UInt32,
+        ref dp: _WideCollapseDp,
+        next_node: Pointer[UInt32, next_node_origin],
+        ref pack_leaf_fn: PackLeafFn,
+    ):
+        var frontier = self._dp_frontier(bvh, bin_idx, dp)
+        var pool = frontier[0].copy()
+        var p_size = frontier[1]
+        var node = WideBvhNode[Self.frame, Self.width]()
+
+        comptime for lane in range(Self.width):
+            if lane < p_size:
+                ref binary_node = bvh.nodes[Int(pool[lane])]
+                node.aabb._min.x[lane] = binary_node.aabb._min.x
+                node.aabb._min.y[lane] = binary_node.aabb._min.y
+                node.aabb._min.z[lane] = binary_node.aabb._min.z
+                node.aabb._max.x[lane] = binary_node.aabb._max.x
+                node.aabb._max.y[lane] = binary_node.aabb._max.y
+                node.aabb._max.z[lane] = binary_node.aabb._max.z
+                if binary_node.is_leaf():
+                    node.data[lane] = encode_leaf_ref(
+                        pack_leaf_fn(
+                            binary_node.first_item(), binary_node.item_count
+                        )
+                    )
+
+        comptime for lane in range(Self.width):
+            if lane < p_size:
+                ref binary_node = bvh.nodes[Int(pool[lane])]
+                if not binary_node.is_leaf():
+                    var child_wide_idx = Atomic.fetch_add[
+                        ordering=Ordering.RELAXED
+                    ](next_node, UInt32(1))
+                    node.data[lane] = encode_internal_ref(child_wide_idx)
+                    self._collapse_dp_parallel_subtree(
+                        bvh,
+                        pool[lane],
+                        child_wide_idx,
+                        dp,
+                        next_node,
+                        pack_leaf_fn,
+                    )
+
+        self.nodes[Int(wide_idx)] = node^
 
     def _collapse_greedy[
         PackLeafFn: def(UInt32, UInt32) -> UInt32,

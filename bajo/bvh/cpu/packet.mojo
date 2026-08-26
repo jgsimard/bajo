@@ -185,6 +185,7 @@ def trace_packet_stack_bounds_bvh[
     positive_x: Bool = True,
     positive_y: Bool = True,
     positive_z: Bool = True,
+    hybrid_internals: Bool = True,
     hybrid_leaves: Bool = False,
     coherent_frustum: Bool = False,
     prefetch_tasks: Bool = False,
@@ -290,7 +291,10 @@ def trace_packet_stack_bounds_bvh[
             continue
 
         comptime if hybrid_threshold > 0:
-            if (hybrid_leaves or not is_leaf_ref(child_ref)) and stack_ptr >= 4:
+            if (
+                (hybrid_leaves and is_leaf_ref(child_ref))
+                or (hybrid_internals and not is_leaf_ref(child_ref))
+            ) and stack_ptr >= 4:
                 var active_count = pop_count(Int(pack_bits(active)))
                 if active_count <= hybrid_threshold:
                     hybrid_fn(active, child_ref, hit)

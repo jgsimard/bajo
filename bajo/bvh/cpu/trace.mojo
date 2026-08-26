@@ -46,6 +46,30 @@ def _pending_task_t(task: UInt64) -> Float32:
 
 
 @always_inline
+def _visit_set_lanes[VisitFn: def(Int)](bits: UInt32, ref visit: VisitFn):
+    """Visit each active lane in a packed SIMD mask."""
+    var remaining = bits
+    while remaining != 0:
+        var lane = Int(count_trailing_zeros(remaining))
+        remaining &= remaining - 1
+        visit(lane)
+
+
+@always_inline
+def _visit_set_lanes_until[
+    VisitFn: def(Int) -> Bool
+](bits: UInt32, ref visit: VisitFn) -> Bool:
+    """Visit active lanes until the callback reports completion."""
+    var remaining = bits
+    while remaining != 0:
+        var lane = Int(count_trailing_zeros(remaining))
+        remaining &= remaining - 1
+        if visit(lane):
+            return True
+    return False
+
+
+@always_inline
 def _extract_u32_lane[
     width: SIMDLength
 ](values: SIMD[.uint32, width], lane: Int) -> UInt32:
@@ -256,6 +280,15 @@ def _trace_bounds_bvh_impl[
                         aabb_hit.t[i],
                     )
 
+                @always_inline
+                def visit_closest_bvh16_lane(lane: Int) {imm}:
+                    visit_closest_child(
+                        _cpu_traversal_ref[packed_meta](
+                            node_data_ptr[unsafe_offset=lane]
+                        ),
+                        _extract_f32_lane(aabb_hit.t, lane),
+                    )
+
                 comptime if bounds_width == 16:
                     # Inactive lanes retain the invalid bounds installed by
                     # WideBvhNode.__init__, so the intersection mask is the
@@ -280,25 +313,9 @@ def _trace_bounds_bvh_impl[
                                 nearest_t = child_t
                                 has_nearest = True
                         else:
-                            while bits != 0:
-                                var lane = Int(count_trailing_zeros(bits))
-                                bits &= bits - 1
-                                visit_closest_child(
-                                    _cpu_traversal_ref[packed_meta](
-                                        node_data_ptr[unsafe_offset=lane]
-                                    ),
-                                    _extract_f32_lane(aabb_hit.t, lane),
-                                )
+                            _visit_set_lanes(bits, visit_closest_bvh16_lane)
                     else:
-                        while bits != 0:
-                            var lane = Int(count_trailing_zeros(bits))
-                            bits &= bits - 1
-                            visit_closest_child(
-                                _cpu_traversal_ref[packed_meta](
-                                    node_data_ptr[unsafe_offset=lane]
-                                ),
-                                _extract_f32_lane(aabb_hit.t, lane),
-                            )
+                        _visit_set_lanes(bits, visit_closest_bvh16_lane)
 
                 else:
                     # for BVH2/4/8, fully unrolled checks are faster: see benchmarks
@@ -402,16 +419,16 @@ def _trace_bounds_bvh_impl[
             comptime if bounds_width == 16:
                 var bits = UInt32(pack_bits(mask))
 
-                while bits != 0:
-                    var lane = count_trailing_zeros(bits)
-                    bits &= bits - 1
-
-                    if visit_any_child(
+                @always_inline
+                def visit_any_bvh16_lane(lane: Int) {imm} -> Bool:
+                    return visit_any_child(
                         _cpu_traversal_ref[packed_meta](
                             node_data_ptr[unsafe_offset=lane]
                         )
-                    ):
-                        return Hit[frame].shadow_hit()
+                    )
+
+                if _visit_set_lanes_until(bits, visit_any_bvh16_lane):
+                    return Hit[frame].shadow_hit()
 
             else:
                 # BVH2/4/8: fully unrolled lane checks are faster

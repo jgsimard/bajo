@@ -1,4 +1,4 @@
-from std.math import ceildiv
+from std.math import ceildiv, iota
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceBuffer, DeviceContext
 from std.gpu import global_idx
@@ -420,7 +420,6 @@ def _intersect_sphere_leaf[
     ray: Rayf32[frame],
     mut hit: Hit[frame],
 ) -> Bool:
-    _ = item_count
     var block_base = Int(leaf_block_idx) * SPHERE_LEAF_PACKED_STRIDE * width
     var leaf_spheres_u32 = leaf_spheres.unsafe_bitcast[UInt32]()
 
@@ -430,10 +429,11 @@ def _intersect_sphere_leaf[
         leaf_spheres.unsafe_load[width=width](block_base + 2 * width),
     )
     var radius = leaf_spheres.unsafe_load[width=width](block_base + 3 * width)
-    var prim_indices = leaf_spheres_u32.unsafe_load[width=width](
-        block_base + 4 * width
-    )
-
+    var prim_indices = SIMD[.uint32, width](EMPTY_LANE)
+    comptime if width != 4:
+        prim_indices = leaf_spheres_u32.unsafe_load[width=width](
+            block_base + 4 * width
+        )
     var O = ray.origin[width]()
     var D = ray.direction[width]()
 
@@ -441,12 +441,19 @@ def _intersect_sphere_leaf[
         O, D, center, radius, hit.t, ray.t_min
     )
     var valid_lanes = prim_indices.ne(EMPTY_LANE)
+    comptime if width == 4:
+        comptime lane_ids = iota[.uint32, width]()
+        valid_lanes = lane_ids.lt(item_count)
     var hit_mask = hit_sphere.mask & valid_lanes
 
     if not hit_mask.reduce_or():
         return False
 
     comptime if mode == .CLOSEST_HIT:
+        comptime if width == 4:
+            prim_indices = leaf_spheres_u32.unsafe_load[width=width](
+                block_base + 4 * width
+            )
         var _t = hit_mask.select(hit_sphere.t, f32_max)
         var min_t, lane = min_argmin(_t)
 

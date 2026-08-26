@@ -17,9 +17,12 @@ from bajo.bvh.cpu.sphere_bvh import (
 )
 from bajo.bvh.cpu.blas_storage import CpuBlasSet
 from bajo.bvh.cpu.build_method import CpuBvhBuildMethod
+from bajo.bvh.cpu.traversal_mode import CpuTraversalMode
 from bajo.bvh.cpu.triangle_bvh import (
     PARALLEL_TRIANGLE_BUILD_MIN_ITEMS,
+    TrianglePacketConfig,
     _TriangleBuild,
+    _PacketKernelTuning,
     _trace_triangle_leaf_block,
     _trace_triangle_packet_policy,
     _trace_triangle_packet_primitive,
@@ -59,6 +62,16 @@ from bajo.core import (
 
 comptime CPU_BLAS_OUTER_PARALLEL_MIN_PRIMITIVES = 4096
 comptime _U32_MAX_AS_INT = Int(UInt32(0xFFFFFFFF))
+
+
+trait AdaptiveStreamHitSink:
+    """Compile-time hit consumer for adaptive stream traversal."""
+
+    def write[
+        length: SIMDLength,
+        frame: Frame,
+    ](mut self, base: Int, hit: Hit[frame, length]):
+        ...
 
 
 @always_inline
@@ -163,13 +176,13 @@ def _triangle_leaf_count[
     return count
 
 
-def _pack_triangle_blas[
+def _pack_built_triangle_blas[
     frame: Frame,
     node_width: SIMDLength,
     leaf_width: SIMDLength,
-    method: CpuBvhBuildMethod,
+    hploc_microleaf_size: Int,
 ](
-    vertices: ImmSpan[Point3f32[frame], _],
+    bvh: _TriangleBuild[frame, node_width, leaf_width, hploc_microleaf_size],
     descs: MutPointer[UInt32, _],
     nodes: MutPointer[Float32, _],
     leaves: MutPointer[Float32, _],
@@ -177,9 +190,6 @@ def _pack_triangle_blas[
     node_f32_base: Int,
     leaf_f32_base: Int,
 ):
-    var bvh = _TriangleBuild[frame, node_width, leaf_width].__init__[method](
-        vertices
-    )
     var nodes_u32 = nodes.unsafe_bitcast[UInt32]()
     for node_idx in range(len(bvh.tree.nodes)):
         ref node = bvh.tree.nodes[node_idx]
@@ -254,11 +264,43 @@ def _pack_triangle_blas[
     ).store(descs, blas_idx)
 
 
+def _pack_triangle_blas[
+    frame: Frame,
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+    method: CpuBvhBuildMethod,
+    hploc_microleaf_size: Int,
+](
+    vertices: ImmSpan[Point3f32[frame], _],
+    descs: MutPointer[UInt32, _],
+    nodes: MutPointer[Float32, _],
+    leaves: MutPointer[Float32, _],
+    blas_idx: Int,
+    node_f32_base: Int,
+    leaf_f32_base: Int,
+):
+    var bvh = _TriangleBuild[
+        frame, node_width, leaf_width, hploc_microleaf_size
+    ].__init__[method](vertices)
+    _pack_built_triangle_blas[
+        frame, node_width, leaf_width, hploc_microleaf_size
+    ](
+        bvh,
+        descs,
+        nodes,
+        leaves,
+        blas_idx,
+        node_f32_base,
+        leaf_f32_base,
+    )
+
+
 def build_cpu_triangle_blas_set[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
     method: CpuBvhBuildMethod = .SAH,
     frame: Frame = .LOCAL,
+    hploc_microleaf_size: Int = 0,
 ](
     vertex_sets: ImmSpan[List[Point3f32[frame]], _],
 ) -> CpuBlasSet[
@@ -267,6 +309,45 @@ def build_cpu_triangle_blas_set[
     debug_assert["safe", _use_compiler_assume=True](
         len(vertex_sets) > 0, "CPU BLAS batch must be nonempty"
     )
+
+    # A single BLAS needs no preassigned inter-BLAS offsets. Build its topology
+    # first, then allocate exact uninitialized packed buffers and write once.
+    if len(vertex_sets) == 1:
+        var descs = List[UInt32](length=BlasDescLayout.STRIDE, fill=0)
+        if len(vertex_sets[0]) == 0:
+            _store_empty_blas_desc(descs.unsafe_ptr(), 0, 0, 0)
+            return CpuBlasSet[.TRIANGLE, node_width, leaf_width](
+                descs^, List[Float32](), List[Float32](), 1
+            )
+
+        var bvh = _TriangleBuild[
+            frame, node_width, leaf_width, hploc_microleaf_size
+        ].__init__[method](vertex_sets[0])
+        var exact_node_count = (
+            len(bvh.tree.nodes) * node_width * WideNode.CHILD_STRIDE
+        )
+        var exact_leaf_count = (
+            len(bvh.leaf_blocks) * leaf_width * TRI_LEAF_PACKED_STRIDE
+        )
+        var nodes = List[Float32](capacity=exact_node_count)
+        var leaves = List[Float32](capacity=exact_leaf_count)
+        nodes.resize(unsafe_uninit_length=exact_node_count)
+        leaves.resize(unsafe_uninit_length=exact_leaf_count)
+        _pack_built_triangle_blas[
+            frame, node_width, leaf_width, hploc_microleaf_size
+        ](
+            bvh,
+            descs.unsafe_ptr(),
+            nodes.unsafe_ptr(),
+            leaves.unsafe_ptr(),
+            0,
+            0,
+            0,
+        )
+        return CpuBlasSet[.TRIANGLE, node_width, leaf_width](
+            descs^, nodes^, leaves^, 1
+        )
+
     var node_bases = List[Int](capacity=len(vertex_sets))
     var leaf_bases = List[Int](capacity=len(vertex_sets))
     var node_f32_count = 0
@@ -316,7 +397,13 @@ def build_cpu_triangle_blas_set[
                 leaf_bases[blas_idx],
             )
             return
-        _pack_triangle_blas[frame, node_width, leaf_width, method](
+        _pack_triangle_blas[
+            frame,
+            node_width,
+            leaf_width,
+            method,
+            hploc_microleaf_size,
+        ](
             vertex_sets[blas_idx],
             descs_ptr,
             nodes_ptr,
@@ -361,12 +448,11 @@ def _sphere_leaf_count[
     return count
 
 
-def _pack_sphere_blas[
+def _pack_built_sphere_blas[
     frame: Frame,
     width: SIMDLength,
-    method: CpuBvhBuildMethod,
 ](
-    spheres: ImmSpan[Sphere[frame], _],
+    bvh: _SphereBuild[frame, width],
     descs: MutPointer[UInt32, _],
     nodes: MutPointer[Float32, _],
     leaves: MutPointer[Float32, _],
@@ -374,7 +460,6 @@ def _pack_sphere_blas[
     node_f32_base: Int,
     leaf_f32_base: Int,
 ):
-    var bvh = _SphereBuild[frame, width].__init__[method](spheres)
     var nodes_u32 = nodes.unsafe_bitcast[UInt32]()
     for node_idx in range(len(bvh.tree.nodes)):
         ref node = bvh.tree.nodes[node_idx]
@@ -438,6 +523,31 @@ def _pack_sphere_blas[
     ).store(descs, blas_idx)
 
 
+def _pack_sphere_blas[
+    frame: Frame,
+    width: SIMDLength,
+    method: CpuBvhBuildMethod,
+](
+    spheres: ImmSpan[Sphere[frame], _],
+    descs: MutPointer[UInt32, _],
+    nodes: MutPointer[Float32, _],
+    leaves: MutPointer[Float32, _],
+    blas_idx: Int,
+    node_f32_base: Int,
+    leaf_f32_base: Int,
+):
+    var bvh = _SphereBuild[frame, width].__init__[method](spheres)
+    _pack_built_sphere_blas[frame, width](
+        bvh,
+        descs,
+        nodes,
+        leaves,
+        blas_idx,
+        node_f32_base,
+        leaf_f32_base,
+    )
+
+
 def build_cpu_sphere_blas_set[
     width: SIMDLength,
     method: CpuBvhBuildMethod = .SAH,
@@ -446,6 +556,37 @@ def build_cpu_sphere_blas_set[
     debug_assert["safe", _use_compiler_assume=True](
         len(sphere_sets) > 0, "CPU BLAS batch must be nonempty"
     )
+
+    if len(sphere_sets) == 1:
+        var descs = List[UInt32](length=BlasDescLayout.STRIDE, fill=0)
+        if len(sphere_sets[0]) == 0:
+            _store_empty_blas_desc(descs.unsafe_ptr(), 0, 0, 0)
+            return CpuBlasSet[.SPHERE, width](
+                descs^, List[Float32](), List[Float32](), 1
+            )
+
+        var bvh = _SphereBuild[frame, width].__init__[method](sphere_sets[0])
+        var exact_node_count = (
+            len(bvh.tree.nodes) * width * WideNode.CHILD_STRIDE
+        )
+        var exact_leaf_count = (
+            len(bvh.leaf_blocks) * width * SPHERE_LEAF_PACKED_STRIDE
+        )
+        var nodes = List[Float32](capacity=exact_node_count)
+        var leaves = List[Float32](capacity=exact_leaf_count)
+        nodes.resize(unsafe_uninit_length=exact_node_count)
+        leaves.resize(unsafe_uninit_length=exact_leaf_count)
+        _pack_built_sphere_blas[frame, width](
+            bvh,
+            descs.unsafe_ptr(),
+            nodes.unsafe_ptr(),
+            leaves.unsafe_ptr(),
+            0,
+            0,
+            0,
+        )
+        return CpuBlasSet[.SPHERE, width](descs^, nodes^, leaves^, 1)
+
     var node_bases = List[Int](capacity=len(sphere_sets))
     var leaf_bases = List[Int](capacity=len(sphere_sets))
     var node_f32_count = 0
@@ -503,6 +644,7 @@ def build_cpu_sphere_blas_set[
     else:
         for blas_idx in range(len(sphere_sets)):
             build_one(blas_idx)
+
     var compact_nodes = List[Float32]()
     var compact_leaves = List[Float32]()
     _compact_blas_storage[
@@ -644,12 +786,13 @@ def trace_blas_set[
     ](nodes, ray, leaf_fn)
 
 
-def trace_blas_set_packet[
+def _trace_blas_set_packet_policy[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
     length: SIMDLength,
     common_octant_fma: Bool = False,
     frame: Frame = .LOCAL,
+    config: TrianglePacketConfig = .PRODUCTION,
 ](
     blases: CpuBlasSet[.TRIANGLE, node_width, leaf_width],
     blas_idx: UInt32,
@@ -753,7 +896,7 @@ def trace_blas_set_packet[
         child_ref: UInt32,
         mut packet_hit: Hit[frame, length],
     ) {imm}:
-        comptime if length == 4:
+        comptime if _PacketKernelTuning[length].unroll_root_hybrid:
             if child_ref == 0:
                 comptime for lane in range(length):
                     if active[lane]:
@@ -785,7 +928,35 @@ def trace_blas_set_packet[
         length,
         common_octant_fma,
         True,
+        config.use_production_tuning,
+        config.hybrid_threshold,
+        config.root_scalar_max_tasks,
+        config.hybrid_internals,
+        config.hybrid_leaves,
+        config.coherent_optimizations,
     ](nodes, rays, valid, leaf_fn, hybrid_fn, prefetch_fn)
+
+
+def trace_blas_set_packet[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+    length: SIMDLength,
+    common_octant_fma: Bool = False,
+    frame: Frame = .LOCAL,
+](
+    blases: CpuBlasSet[.TRIANGLE, node_width, leaf_width],
+    blas_idx: UInt32,
+    rays: Ray[.float32, frame, length],
+    valid: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
+) -> Hit[frame, length]:
+    """Trace packed storage through the production CPU packet algorithm."""
+    return _trace_blas_set_packet_policy[
+        node_width,
+        leaf_width,
+        length,
+        common_octant_fma,
+        frame,
+    ](blases, blas_idx, rays, valid)
 
 
 def trace_blas_set[
@@ -922,3 +1093,378 @@ def trace_blas_set_packet[
         lambda (_child_ref: UInt32): None,
     )
     return hit
+
+
+@always_inline
+def _packet_range_has_common_octant[
+    frame: Frame,
+    length: SIMDLength,
+    range_length: SIMDLength,
+](
+    rays: Ray[.float32, frame, length],
+    valid: SIMD[.bool, length],
+    base: Int,
+) -> Bool:
+    """Return true when a complete active range shares direction signs."""
+    if base + range_length > length or not valid[base]:
+        return False
+    var positive_x = rays.d.x[base] >= 0.0
+    var positive_y = rays.d.y[base] >= 0.0
+    var positive_z = rays.d.z[base] >= 0.0
+    comptime for offset in range(1, range_length):
+        var lane = base + offset
+        if (
+            not valid[lane]
+            or (rays.d.x[lane] >= 0.0) != positive_x
+            or (rays.d.y[lane] >= 0.0) != positive_y
+            or (rays.d.z[lane] >= 0.0) != positive_z
+        ):
+            return False
+    return True
+
+
+@always_inline
+def _extract_ray_range[
+    frame: Frame,
+    length: SIMDLength,
+    range_length: SIMDLength,
+](rays: Ray[.float32, frame, length], base: Int) -> Ray[
+    .float32, frame, range_length
+]:
+    var ox = SIMD[.float32, range_length](0.0)
+    var oy = SIMD[.float32, range_length](0.0)
+    var oz = SIMD[.float32, range_length](0.0)
+    var dx = SIMD[.float32, range_length](0.0)
+    var dy = SIMD[.float32, range_length](0.0)
+    var dz = SIMD[.float32, range_length](0.0)
+    var t_min = SIMD[.float32, range_length](0.0)
+    var t_max = SIMD[.float32, range_length](0.0)
+    comptime for offset in range(range_length):
+        var lane = base + offset
+        ox[offset] = rays.o.x[lane]
+        oy[offset] = rays.o.y[lane]
+        oz[offset] = rays.o.z[lane]
+        dx[offset] = rays.d.x[lane]
+        dy[offset] = rays.d.y[lane]
+        dz[offset] = rays.d.z[lane]
+        t_min[offset] = rays.t_min[lane]
+        t_max[offset] = rays.t_max[lane]
+    return Ray[.float32, frame, range_length](
+        Point3[.float32, frame, range_length](ox, oy, oz),
+        Vec3[.float32, frame, range_length](dx, dy, dz),
+        t_min,
+        t_max,
+    )
+
+
+@always_inline
+def _store_hit_range[
+    frame: Frame,
+    length: SIMDLength,
+    range_length: SIMDLength,
+](
+    mut destination: Hit[frame, length],
+    source: Hit[frame, range_length],
+    base: Int,
+):
+    comptime for offset in range(range_length):
+        var lane = base + offset
+        destination.u[lane] = source.u[offset]
+        destination.v[lane] = source.v[offset]
+        destination.prim[lane] = source.prim[offset]
+        destination.inst[lane] = source.inst[offset]
+        destination.normal.x[lane] = source.normal.x[offset]
+        destination.normal.y[lane] = source.normal.y[offset]
+        destination.normal.z[lane] = source.normal.z[offset]
+        destination.t[lane] = source.t[offset]
+
+
+@always_inline
+def _trace_first_coherent_packet_range[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+    length: SIMDLength,
+    index: Int,
+    *packet_sizes: SIMDLength,
+    frame: Frame = .LOCAL,
+](
+    blases: CpuBlasSet[.TRIANGLE, node_width, leaf_width],
+    blas_idx: UInt32,
+    rays: Ray[.float32, frame, length],
+    valid: SIMD[.bool, length],
+    base: Int,
+    mut result: Hit[frame, length],
+) -> Int:
+    """Trace the first applicable configured subpacket, fully specialized."""
+    comptime if index == len(packet_sizes):
+        return 0
+    else:
+        comptime packet_size = packet_sizes[index]
+        comptime if packet_size >= length:
+            return _trace_first_coherent_packet_range[
+                node_width,
+                leaf_width,
+                length,
+                index + 1,
+                *packet_sizes,
+                frame=frame,
+            ](blases, blas_idx, rays, valid, base, result)
+        else:
+            if _packet_range_has_common_octant[frame, length, packet_size](
+                rays, valid, base
+            ):
+                var packet = _extract_ray_range[frame, length, packet_size](
+                    rays, base
+                )
+                var packet_hit = trace_blas_set_packet[
+                    node_width,
+                    leaf_width,
+                    packet_size,
+                    True,
+                    frame,
+                ](
+                    blases,
+                    blas_idx,
+                    packet,
+                    SIMD[.bool, packet_size](fill=True),
+                )
+                _store_hit_range[frame, length, packet_size](
+                    result, packet_hit, base
+                )
+                return packet_size
+            return _trace_first_coherent_packet_range[
+                node_width,
+                leaf_width,
+                length,
+                index + 1,
+                *packet_sizes,
+                frame=frame,
+            ](blases, blas_idx, rays, valid, base, result)
+
+
+def trace_blas_set_packet_adaptive[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+    length: SIMDLength,
+    *packet_sizes: SIMDLength,
+    frame: Frame = .LOCAL,
+](
+    blases: CpuBlasSet[.TRIANGLE, node_width, leaf_width],
+    blas_idx: UInt32,
+    rays: Ray[.float32, frame, length],
+    valid: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
+) -> Hit[frame, length]:
+    """Adapt within a SIMD packet using a compile-time size sequence.
+
+    `packet_sizes` is strictly descending; complete coherent ranges use the
+    first applicable packet width and remaining active lanes trace scalar.
+    """
+    comptime assert length > 1
+    comptime assert len(packet_sizes) > 0
+    comptime for index in range(len(packet_sizes)):
+        comptime assert packet_sizes[index] > 1
+        comptime if index > 0:
+            comptime assert packet_sizes[index - 1] > packet_sizes[index]
+
+    # Preserve the input packet when a configured width matches it exactly.
+    comptime for packet_size in packet_sizes:
+        comptime if packet_size == length:
+            if _packet_range_has_common_octant[frame, length, packet_size](
+                rays, valid, 0
+            ):
+                return trace_blas_set_packet[
+                    node_width, leaf_width, length, True, frame
+                ](blases, blas_idx, rays, valid)
+
+    var result = Hit[frame, length].miss(rays.t_max)
+    var base = 0
+    while base < length:
+        var consumed = _trace_first_coherent_packet_range[
+            node_width,
+            leaf_width,
+            length,
+            0,
+            *packet_sizes,
+            frame=frame,
+        ](blases, blas_idx, rays, valid, base, result)
+        if consumed != 0:
+            base += consumed
+            continue
+        if valid[base]:
+            var ray = Rayf32[frame](
+                Point3f32[frame](
+                    rays.o.x[base], rays.o.y[base], rays.o.z[base]
+                ),
+                Vec3f32[frame](rays.d.x[base], rays.d.y[base], rays.d.z[base]),
+                rays.t_min[base],
+                rays.t_max[base],
+            )
+            var hit = trace_blas_set[
+                node_width, leaf_width, .CLOSEST_HIT, frame
+            ](blases, blas_idx, ray)
+            _store_hit_range[frame, length, 1](result, hit, base)
+        base += 1
+    return result
+
+
+def trace_blas_set_packet_selected[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+    length: SIMDLength,
+    mode: CpuTraversalMode = .AUTO_COHERENT,
+    frame: Frame = .LOCAL,
+](
+    blases: CpuBlasSet[.TRIANGLE, node_width, leaf_width],
+    blas_idx: UInt32,
+    rays: Ray[.float32, frame, length],
+    valid: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
+) -> Hit[frame, length]:
+    """Trace triangles with fixed or automatically coherent packet dispatch."""
+    comptime assert length > 1
+    comptime assert mode == .FIXED_PACKET or mode == .AUTO_COHERENT
+
+    comptime if mode == .FIXED_PACKET:
+        return trace_blas_set_packet[
+            node_width, leaf_width, length, False, frame
+        ](blases, blas_idx, rays, valid)
+    else:
+        if _packet_range_has_common_octant[frame, length, length](
+            rays, valid, 0
+        ):
+            return trace_blas_set_packet[
+                node_width, leaf_width, length, True, frame
+            ](blases, blas_idx, rays, valid)
+        return trace_blas_set_packet[
+            node_width, leaf_width, length, False, frame
+        ](blases, blas_idx, rays, valid)
+
+
+@always_inline
+def _stream_ray_octant[frame: Frame](ray: Rayf32[frame]) -> Int:
+    return (
+        Int(ray.d.x >= 0.0)
+        | (Int(ray.d.y >= 0.0) << 1)
+        | (Int(ray.d.z >= 0.0) << 2)
+    )
+
+
+@always_inline
+def _stream_range_has_common_octant[
+    frame: Frame,
+    range_length: SIMDLength,
+](rays: List[Rayf32[frame]], base: Int, octant: Int) -> Bool:
+    comptime for lane in range(1, range_length):
+        if _stream_ray_octant(rays.unsafe_get(base + lane)) != octant:
+            return False
+    return True
+
+
+def trace_blas_set_adaptive_stream[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+    *packet_sizes: SIMDLength,
+    sink_type: AdaptiveStreamHitSink,
+    frame: Frame = .LOCAL,
+](
+    blases: CpuBlasSet[.TRIANGLE, node_width, leaf_width],
+    blas_idx: UInt32,
+    rays: List[Rayf32[frame]],
+    mut sink: sink_type,
+):
+    """Trace a continuous AoS ray stream with adaptive coherent packets.
+
+    `packet_sizes` is a strictly descending compile-time sequence, for example
+    `16, 8, 4`; scalar traversal is the implicit final fallback. The sink must
+    provide
+    `write[range_length, frame](base, hit)`. Keeping consumption generic lets
+    renderers fuse hit processing without allocating or rereading a hit array.
+    """
+    comptime assert len(packet_sizes) > 0
+    comptime for index in range(len(packet_sizes)):
+        comptime assert packet_sizes[index] > 1
+        comptime if index > 0:
+            comptime assert packet_sizes[index - 1] > packet_sizes[index]
+    var ray_count = len(rays)
+
+    @always_inline
+    def trace_range[
+        range_length: SIMDLength,
+    ](base: Int) {imm, mut sink}:
+        var ox = SIMD[.float32, range_length](0.0)
+        var oy = SIMD[.float32, range_length](0.0)
+        var oz = SIMD[.float32, range_length](0.0)
+        var dx = SIMD[.float32, range_length](0.0)
+        var dy = SIMD[.float32, range_length](0.0)
+        var dz = SIMD[.float32, range_length](1.0)
+        var t_min = SIMD[.float32, range_length](0.0)
+        var t_max = SIMD[.float32, range_length](0.0)
+        comptime for lane in range(range_length):
+            ref ray = rays.unsafe_get(base + lane)
+            ox[lane] = ray.o.x
+            oy[lane] = ray.o.y
+            oz[lane] = ray.o.z
+            dx[lane] = ray.d.x
+            dy[lane] = ray.d.y
+            dz[lane] = ray.d.z
+            t_min[lane] = ray.t_min
+            t_max[lane] = ray.t_max
+
+        var packet = Ray[.float32, frame, range_length](
+            Point3[.float32, frame, range_length](ox, oy, oz),
+            Vec3[.float32, frame, range_length](dx, dy, dz),
+            t_min,
+            t_max,
+        )
+        var packet_hit = trace_blas_set_packet[
+            node_width,
+            leaf_width,
+            range_length,
+            True,
+            frame,
+        ](blases, blas_idx, packet)
+        sink.write[range_length, frame](base, packet_hit)
+
+    @always_inline
+    def trace_one(base: Int) {imm, mut sink}:
+        var hit = trace_blas_set[
+            node_width,
+            leaf_width,
+            .CLOSEST_HIT,
+            frame,
+        ](blases, blas_idx, rays.unsafe_get(base))
+        sink.write[1, frame](base, hit)
+
+    var base = 0
+    comptime largest_packet = packet_sizes[0]
+    while base + largest_packet <= ray_count:
+        var octant = _stream_ray_octant(rays.unsafe_get(base))
+        var consumed = 0
+        comptime for packet_size in packet_sizes:
+            if consumed == 0 and _stream_range_has_common_octant[
+                frame, packet_size
+            ](rays, base, octant):
+                trace_range[packet_size](base)
+                consumed = packet_size
+        if consumed == 0:
+            trace_one(base)
+            base += 1
+        else:
+            base += consumed
+    while base < ray_count:
+        var octant = _stream_ray_octant(rays.unsafe_get(base))
+        var consumed = 0
+        comptime for packet_size in packet_sizes:
+            if (
+                consumed == 0
+                and base + packet_size <= ray_count
+                and _stream_range_has_common_octant[frame, packet_size](
+                    rays, base, octant
+                )
+            ):
+                trace_range[packet_size](base)
+                consumed = packet_size
+        if consumed == 0:
+            trace_one(base)
+            base += 1
+        else:
+            base += consumed

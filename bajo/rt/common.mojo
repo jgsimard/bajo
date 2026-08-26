@@ -1,8 +1,8 @@
 """Host/device-safe path tracing helpers shared by CPU and GPU integrators."""
 
 from bajo.core import Vec3, normalize
-from bajo.core.random import Rng
-from bajo.rt.types import Color
+from bajo.core.random import Rng, Sampler
+from bajo.rt.types import Color, SamplingConfig
 from bajo.rt.wavefront_contract import (
     wavefront_rng_roulette_stage,
     wavefront_rng_subsequence,
@@ -34,7 +34,39 @@ def sky_color[
 @always_inline
 def path_stage_rng(seed: UInt64, path_id: UInt32, stage: UInt32) -> Rng:
     """Create the deterministic Philox stream owned by one path stage."""
-    return Rng(seed=seed, id=wavefront_rng_subsequence(path_id, stage))
+    return path_stage_rng(
+        SamplingConfig(seed, Sampler.INDEPENDENT.value, 1, 0, 1, 1),
+        path_id,
+        stage,
+    )
+
+
+@always_inline
+def path_stage_rng(
+    sampling: SamplingConfig, path_id: UInt32, stage: UInt32
+) -> Rng:
+    """Create a batch-invariant stream for one pixel sample and path stage."""
+    var batch_spp = sampling.samples_per_pixel
+    var pixel_id = path_id / batch_spp
+    var sample_index = sampling.sample_offset + path_id % batch_spp
+    var sampler = Sampler(sampling.sampler_value)
+    if sampler == .INDEPENDENT:
+        var canonical_path_id = (
+            pixel_id * sampling.sequence_length + sample_index
+        )
+        return Rng(
+            seed=sampling.seed,
+            id=wavefront_rng_subsequence(canonical_path_id, stage),
+        )
+    return Rng(
+        seed=sampling.seed,
+        id=wavefront_rng_subsequence(pixel_id, stage),
+        sampler=sampler,
+        sample_index=UInt64(sample_index),
+        pixel_id=pixel_id,
+        image_width=sampling.image_width,
+        stage=stage,
+    )
 
 
 @always_inline
@@ -45,6 +77,22 @@ def russian_roulette(
     throughput: Color,
 ) -> RussianRouletteResult:
     """Unbiased continuation using a stream separate from BSDF sampling."""
+    return russian_roulette(
+        SamplingConfig(seed, Sampler.INDEPENDENT.value, 1, 0, 1, 1),
+        path_id,
+        depth,
+        throughput,
+    )
+
+
+@always_inline
+def russian_roulette(
+    sampling: SamplingConfig,
+    path_id: UInt32,
+    depth: UInt32,
+    throughput: Color,
+) -> RussianRouletteResult:
+    """Batch-invariant continuation using the configured sample sequence."""
     if depth < RUSSIAN_ROULETTE_START_DEPTH:
         return RussianRouletteResult(True, throughput)
 
@@ -56,7 +104,7 @@ def russian_roulette(
         RUSSIAN_ROULETTE_MAX_SURVIVAL,
     )
     var rng = path_stage_rng(
-        seed,
+        sampling,
         path_id,
         wavefront_rng_roulette_stage(depth - UInt32(1)),
     )

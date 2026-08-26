@@ -4,24 +4,48 @@ from bajo.bvh.constants import EMPTY_LANE, PrimitiveKind, f32_max
 from bajo.bvh import Sphere
 from bajo.bvh.cpu import (
     CpuBlasSet,
+    CpuBvhBuildMethod,
+    CpuTraversalMode,
     CpuTlas,
     build_cpu_sphere_blas_set,
     build_cpu_triangle_blas_set,
     trace_blas_set,
     trace_blas_set_packet,
+    trace_blas_set_packet_adaptive,
+    trace_blas_set_packet_selected,
 )
-from bajo.core import Frame, GeoKind, Point3f32, Ray, Rayf32, Vec3, Vec3f32
+from bajo.bvh.types import Hit
+from bajo.core import (
+    Frame,
+    GeoKind,
+    Point3,
+    Point3f32,
+    Ray,
+    Rayf32,
+    Vec3,
+    Vec3f32,
+)
 from bajo.rt.geometry import orient_surface_normal, sphere_for_acceleration
 from bajo.rt.types import (
     Color,
     HitRecord,
-    PrimitiveKind,
     PrimitiveId,
     SceneData,
     SurfaceHit,
     SurfaceId,
     ray_at,
 )
+
+
+@fieldwise_init
+struct CpuSceneConfig(ImplicitlyCopyable):
+    """Compile-time CPU scene build and packet traversal specialization."""
+
+    var build_method: CpuBvhBuildMethod
+    var traversal_mode: CpuTraversalMode
+
+
+comptime CPU_SCENE_DEFAULT_CONFIG = CpuSceneConfig(.SAH, .AUTO_COHERENT)
 
 
 @fieldwise_init
@@ -72,7 +96,9 @@ struct CpuScene[
     ]
     var _scene: SceneData
 
-    def __init__(out self, var scene: SceneData):
+    def __init__[
+        config: CpuSceneConfig = CPU_SCENE_DEFAULT_CONFIG
+    ](out self, var scene: SceneData):
         self._scene = scene^
         self.sphere_bvh = Optional[CpuBlasSet[.SPHERE, Self.world_bvh_width]]()
         self.triangle_bvh = Optional[
@@ -82,13 +108,17 @@ struct CpuScene[
         self.triangle_mesh_blases = Optional[
             CpuBlasSet[.TRIANGLE, Self.instance_bvh_width]
         ]()
-        self._build_acceleration()
+        self._build_acceleration[config]()
 
     def scene_data(self) -> ref[self._scene] SceneData:
         """Return the immutable authoring snapshot used for preparation."""
         return self._scene
 
-    def _build_acceleration(mut self):
+    def take_data(deinit self) -> SceneData:
+        """Consume the CPU owner and recover its authoring snapshot."""
+        return self._scene^
+
+    def _build_acceleration[config: CpuSceneConfig](mut self):
         if len(self._scene.spheres()) > 0:
             var bvh_spheres = List[Sphere[.WORLD]](
                 capacity=len(self._scene.spheres())
@@ -99,9 +129,9 @@ struct CpuScene[
             self.sphere_bvh = Optional[
                 CpuBlasSet[.SPHERE, Self.world_bvh_width]
             ](
-                build_cpu_sphere_blas_set[Self.world_bvh_width, .SAH, .WORLD](
-                    [bvh_spheres^]
-                )
+                build_cpu_sphere_blas_set[
+                    Self.world_bvh_width, config.build_method, .WORLD
+                ]([bvh_spheres^])
             )
 
         if len(self._scene.triangle_vertices()) > 0:
@@ -111,7 +141,7 @@ struct CpuScene[
                 build_cpu_triangle_blas_set[
                     Self.world_bvh_width,
                     Self.world_bvh_width,
-                    .SAH,
+                    config.build_method,
                     .WORLD,
                 ]([self._scene.triangle_vertices().copy()])
             )
@@ -123,7 +153,7 @@ struct CpuScene[
                 build_cpu_triangle_blas_set[
                     Self.instance_bvh_width,
                     Self.instance_bvh_width,
-                    .SAH,
+                    config.build_method,
                     .LOCAL,
                 ](self._scene.triangle_meshes())
             )
@@ -285,10 +315,61 @@ struct CpuScene[
                 return result^
             return SurfaceHit[length](rays.t_max)
         else:
-            return self._trace_surface_shared_stack(rays, valid)
+            return self._trace_surface_shared_stack[
+                length, CPU_SCENE_DEFAULT_CONFIG, 16, 8, 4
+            ](rays, valid)
+
+    @always_inline
+    def trace_surface_configured[
+        length: SIMDLength,
+        config: CpuSceneConfig,
+        *adaptive_packet_sizes: SIMDLength,
+    ](
+        self,
+        rays: Ray[.float32, .WORLD, length],
+        valid: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
+    ) -> SurfaceHit[length]:
+        """Trace using an explicit compile-time traversal configuration."""
+        comptime if length == 1:
+            return self.trace_surface(rays, valid)
+        else:
+            return self._trace_surface_shared_stack[
+                length, config, *adaptive_packet_sizes
+            ](rays, valid)
+
+    @always_inline
+    def _trace_world_triangle_packet[
+        length: SIMDLength,
+        config: CpuSceneConfig,
+        *adaptive_packet_sizes: SIMDLength,
+    ](
+        self,
+        rays: Ray[.float32, .WORLD, length],
+        valid: SIMD[.bool, length],
+    ) -> Hit[.WORLD, length]:
+        """Instantiate the viewer-selected triangle packet traversal."""
+        comptime if config.traversal_mode == .ADAPTIVE:
+            comptime assert len(adaptive_packet_sizes) > 0
+            return trace_blas_set_packet_adaptive[
+                Self.world_bvh_width,
+                Self.world_bvh_width,
+                length,
+                *adaptive_packet_sizes,
+                frame=.WORLD,
+            ](self.triangle_bvh.value(), UInt32(0), rays, valid)
+        else:
+            return trace_blas_set_packet_selected[
+                Self.world_bvh_width,
+                Self.world_bvh_width,
+                length,
+                config.traversal_mode,
+                .WORLD,
+            ](self.triangle_bvh.value(), UInt32(0), rays, valid)
 
     def _trace_surface_shared_stack[
-        length: SIMDLength
+        length: SIMDLength,
+        config: CpuSceneConfig,
+        *adaptive_packet_sizes: SIMDLength,
     ](
         self,
         rays: Ray[.float32, .WORLD, length],
@@ -344,13 +425,9 @@ struct CpuScene[
             result.hit |= sphere_mask
 
         if self.triangle_bvh:
-            var triangle_hits = trace_blas_set_packet[
-                Self.world_bvh_width,
-                Self.world_bvh_width,
-                length,
-                False,
-                .WORLD,
-            ](self.triangle_bvh.value(), UInt32(0), rays, valid)
+            var triangle_hits = self._trace_world_triangle_packet[
+                length, config, *adaptive_packet_sizes
+            ](rays, valid)
             var triangle_mask = triangle_hits.is_hit() & triangle_hits.t.lt(
                 result.t
             )

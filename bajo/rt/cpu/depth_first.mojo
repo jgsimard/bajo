@@ -16,14 +16,15 @@ from bajo.rt.types import (
     RenderResult,
     RenderSettings,
     RenderTimings,
+    sampling_config,
 )
 from .scene import CpuScene
+from .scheduler_mode import CpuSchedulerMode
 from bajo.rt.common import path_stage_rng, russian_roulette, sky_color
 
 
 from .bsdf import sample_bsdf
 from .common import (
-    _init_pixel_rngs,
     _make_primary_ray,
     _shading_point,
 )
@@ -32,7 +33,10 @@ from .lighting import (
     emitted_radiance,
     sample_direct_lighting,
 )
-from bajo.rt.wavefront_contract import wavefront_rng_light_stage
+from bajo.rt.wavefront_contract import (
+    wavefront_rng_light_stage,
+    wavefront_rng_stage,
+)
 
 
 comptime CPU_RENDER_TILE_WIDTH = 16
@@ -47,7 +51,6 @@ def _trace_path[
     settings: RenderSettings,
     world: CpuScene[world_bvh_width, instance_bvh_width],
     ray: Rayf32[.WORLD],
-    mut rng: Rng,
     path_id: UInt32,
 ) -> Color:
     comptime assert integrator in (
@@ -61,6 +64,7 @@ def _trace_path[
     var radiance = Color(0.0)
     var previous_delta = True
     var previous_bsdf_pdf = Float32(0.0)
+    var sampling = sampling_config(settings)
 
     for _bounce in range(settings.max_depth):
         var hit = world.trace_surface(cur_ray)
@@ -82,7 +86,7 @@ def _trace_path[
                 return radiance
             comptime if integrator != .PATH:
                 var light_rng = path_stage_rng(
-                    settings.rng_seed,
+                    sampling,
                     path_id,
                     wavefront_rng_light_stage(UInt32(_bounce)),
                 )
@@ -90,12 +94,17 @@ def _trace_path[
                     hit.surface, world, cur_ray, point, light_rng
                 )
                 radiance += throughput * direct
+            var bsdf_rng = path_stage_rng(
+                sampling,
+                path_id,
+                wavefront_rng_stage(UInt32(_bounce)),
+            )
             var scattered = sample_bsdf(
                 hit.surface,
                 world.scene_data().surfaces(),
                 cur_ray,
                 point,
-                rng,
+                bsdf_rng,
             )
             if not scattered.ok:
                 return radiance
@@ -104,7 +113,7 @@ def _trace_path[
             previous_delta = scattered.delta
             previous_bsdf_pdf = scattered.pdf
             var roulette = russian_roulette(
-                settings.rng_seed,
+                sampling,
                 path_id,
                 UInt32(_bounce + 1),
                 throughput,
@@ -164,24 +173,26 @@ def _trace_integrator[
     settings: RenderSettings,
     world: CpuScene[world_bvh_width, instance_bvh_width],
     ray: Rayf32[.WORLD],
-    mut rng: Rng,
     path_id: UInt32,
 ) -> Color:
     comptime if integrator == .PATH:
         return _trace_path[.PATH, world_bvh_width, instance_bvh_width](
-            settings, world, ray, rng, path_id
+            settings, world, ray, path_id
         )
     elif integrator == .NORMALS:
         return _trace_normals(world, ray)
     elif integrator == .AO:
-        return _trace_ao(world, ray, rng)
+        var ao_rng = path_stage_rng(
+            sampling_config(settings), path_id, UInt32(1)
+        )
+        return _trace_ao(world, ray, ao_rng)
     elif integrator == .NEE:
         return _trace_path[.NEE, world_bvh_width, instance_bvh_width](
-            settings, world, ray, rng, path_id
+            settings, world, ray, path_id
         )
     elif integrator == .MIS:
         return _trace_path[.MIS, world_bvh_width, instance_bvh_width](
-            settings, world, ray, rng, path_id
+            settings, world, ray, path_id
         )
     else:
         comptime assert False, "unknown RT integrator"
@@ -197,7 +208,6 @@ def _render_pixel[
     world: CpuScene[world_bvh_width, instance_bvh_width],
     px: Int,
     py: Int,
-    mut rng: Rng,
 ) -> Color:
     var pixel_color = Color(0.0)
 
@@ -206,10 +216,11 @@ def _render_pixel[
         var path_id = UInt32(
             pixel_idx * settings.samples_per_pixel + sample_idx
         )
+        var rng = path_stage_rng(sampling_config(settings), path_id, UInt32(0))
         var ray = _make_primary_ray(settings, camera, px, py, rng)
         pixel_color += _trace_integrator[
             integrator, world_bvh_width, instance_bvh_width
-        ](settings, world, ray, rng, path_id)
+        ](settings, world, ray, path_id)
 
     return pixel_color * (1.0 / Float32(settings.samples_per_pixel))
 
@@ -218,7 +229,7 @@ def render_depth_first[
     integrator: Integrator = .PATH,
     TILE_WIDTH: Int = CPU_RENDER_TILE_WIDTH,
     TILE_HEIGHT: Int = CPU_RENDER_TILE_HEIGHT,
-    SCHEDULER_MODE: Int = 2,
+    scheduler_mode: CpuSchedulerMode = .TASK_PARTITIONS,
     world_bvh_width: SIMDLength = 16,
     instance_bvh_width: SIMDLength = 16,
 ](
@@ -227,16 +238,17 @@ def render_depth_first[
     world: CpuScene[world_bvh_width, instance_bvh_width],
 ) -> RenderResult:
     """Render depth-first using compile-time tile and scheduling choices."""
-    # Mode 0 uses the runtime default, 1 caps workers to logical cores, and 2
-    # exposes one worker per tile.
     comptime assert TILE_WIDTH > 0, "tile width must be positive"
     comptime assert TILE_HEIGHT > 0, "tile height must be positive"
-    comptime assert 0 <= SCHEDULER_MODE <= 2, "unknown scheduler mode"
+    comptime assert scheduler_mode in (
+        CpuSchedulerMode.RUNTIME_DEFAULT,
+        CpuSchedulerMode.LOGICAL_CORES,
+        CpuSchedulerMode.TASK_PARTITIONS,
+    ), "unknown scheduler mode"
 
     var total_t0 = perf_counter_ns()
     var pixel_count = settings.image_width * settings.image_height
     var init_t0 = perf_counter_ns()
-    var rng_states = _init_pixel_rngs(settings)
     var pixels = List[Color](length=pixel_count, fill=Color(0.0))
     var init_t1 = perf_counter_ns()
 
@@ -244,7 +256,7 @@ def render_depth_first[
     var tiles_y = ceildiv(settings.image_height, TILE_HEIGHT)
     var tile_count = tiles_x * tiles_y
 
-    def worker(tile_idx: Int) {imm, mut pixels, mut rng_states}:
+    def worker(tile_idx: Int) {imm, mut pixels}:
         var tile_x = tile_idx % tiles_x
         var tile_y = tile_idx / tiles_x
         var x0 = tile_x * TILE_WIDTH
@@ -254,7 +266,6 @@ def render_depth_first[
         for py in range(y0, y1):
             for px in range(x0, x1):
                 var pixel_idx = py * settings.image_width + px
-                ref rng = rng_states[pixel_idx]
                 pixels[pixel_idx] = _render_pixel[
                     integrator,
                     world_bvh_width,
@@ -265,13 +276,12 @@ def render_depth_first[
                     world,
                     px,
                     py,
-                    rng,
                 )
 
     var render_t0 = perf_counter_ns()
-    comptime if SCHEDULER_MODE == 1:
+    comptime if scheduler_mode == .LOGICAL_CORES:
         parallelize(worker, tile_count, min(num_logical_cores(), tile_count))
-    elif SCHEDULER_MODE == 2:
+    elif scheduler_mode == .TASK_PARTITIONS:
         parallelize(worker, tile_count, tile_count)
     else:
         parallelize(worker, tile_count)

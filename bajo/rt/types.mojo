@@ -1,4 +1,5 @@
 from std.math import pi, sqrt
+from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.utils.numerics import isfinite
 
 from bajo.core import (
@@ -15,6 +16,7 @@ from bajo.core import (
 )
 from bajo.bvh.constants import PrimitiveKind, f32_max
 from bajo.bvh import Instance, Sphere
+from bajo.core.random import Sampler
 from bajo.rt.geometry import sphere_unsigned_radius
 
 
@@ -370,6 +372,9 @@ struct RenderSettings(Copyable, Writable):
     var samples_per_pixel: Int
     var rng_seed: UInt64
     var max_depth: Int
+    var sampler: Sampler
+    var sample_offset: Int
+    var sample_sequence_length: Int
 
     def __init__(
         out self,
@@ -378,6 +383,9 @@ struct RenderSettings(Copyable, Writable):
         samples_per_pixel: Int,
         rng_seed: UInt64,
         max_depth: Int = 8,
+        sampler: Sampler = .INDEPENDENT,
+        sample_offset: Int = 0,
+        sample_sequence_length: Int = 0,
     ):
         debug_assert["safe", _use_compiler_assume=True](
             image_width > 0, "image width must be positive"
@@ -391,12 +399,62 @@ struct RenderSettings(Copyable, Writable):
         debug_assert["safe", _use_compiler_assume=True](
             max_depth >= 0, "max depth must be non-negative"
         )
+        var sequence_length = sample_sequence_length
+        if sequence_length == 0:
+            sequence_length = samples_per_pixel
+        debug_assert["safe", _use_compiler_assume=True](
+            sampler.is_valid(), "unknown sampler"
+        )
+        debug_assert["safe", _use_compiler_assume=True](
+            sample_offset >= 0
+            and sample_offset + samples_per_pixel <= sequence_length,
+            "sample batch is outside the sample sequence",
+        )
 
         self.image_width = image_width
         self.image_height = image_height
         self.samples_per_pixel = samples_per_pixel
         self.rng_seed = rng_seed
         self.max_depth = max_depth
+        self.sampler = sampler
+        self.sample_offset = sample_offset
+        self.sample_sequence_length = sequence_length
+
+
+@fieldwise_init
+struct SamplingConfig(
+    Copyable, DevicePassable, TrivialRegisterPassable, Writable
+):
+    """Compact CPU/GPU description of one batch in a pixel sample sequence."""
+
+    var seed: UInt64
+    var sampler_value: UInt32
+    var samples_per_pixel: UInt32
+    var sample_offset: UInt32
+    var sequence_length: UInt32
+    var image_width: UInt32
+
+    comptime device_type: AnyType = Self
+
+    def _to_device_type(
+        self, mut encoder: Some[DeviceTypeEncoder], target: MutOpaquePointer[_]
+    ):
+        encoder.encode(self, target)
+
+    @staticmethod
+    def get_type_name() -> String:
+        return "SamplingConfig"
+
+
+def sampling_config(settings: RenderSettings) -> SamplingConfig:
+    return SamplingConfig(
+        settings.rng_seed,
+        settings.sampler.value,
+        UInt32(settings.samples_per_pixel),
+        UInt32(settings.sample_offset),
+        UInt32(settings.sample_sequence_length),
+        UInt32(settings.image_width),
+    )
 
 
 @fieldwise_init

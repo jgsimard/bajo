@@ -18,10 +18,12 @@ from bajo.rt.types import (
     MaterialKind,
     Integrator,
     RenderSettings,
+    SamplingConfig,
     ShadingPoint,
     SurfaceStore,
+    sampling_config,
 )
-from ..scene import CpuScene
+from ..scene import CpuScene, CpuSceneConfig
 from bajo.rt.common import path_stage_rng, russian_roulette, sky_color
 from bajo.rt.wavefront_queue import (
     PacketPathQueue,
@@ -152,7 +154,7 @@ def _sample_bsdf_batch[
     batch: ShadePacket[length],
     lane_count: Int,
     surfaces: SurfaceStore,
-    settings: RenderSettings,
+    sampling: SamplingConfig,
     stage: UInt32,
 ) -> ScatterBatch[length]:
     """Gather material/RNG state, then sample with BSDF math."""
@@ -170,10 +172,9 @@ def _sample_bsdf_batch[
     var random_u = SIMD[.float32, length](0.0)
     var random_v = SIMD[.float32, length](0.0)
     var active = SIMD[.bool, length](fill=False)
-
     for lane in range(lane_count):
         active[lane] = True
-        var rng = path_stage_rng(settings.rng_seed, batch.path_ids[lane], stage)
+        var rng = path_stage_rng(sampling, batch.path_ids[lane], stage)
         comptime if MATERIAL_KIND == .LAMBERTIAN:
             ref material = surfaces.lambertians[
                 Int(batch.surface_indices[lane])
@@ -206,9 +207,7 @@ def _sample_bsdf_batch[
         var cannot_refract = (ri * sin_theta).gt(1.0)
         for lane in range(lane_count):
             if not cannot_refract[lane]:
-                var rng = path_stage_rng(
-                    settings.rng_seed, batch.path_ids[lane], stage
-                )
+                var rng = path_stage_rng(sampling, batch.path_ids[lane], stage)
                 random_u[lane] = rng.f32()
 
     var sampled = _sample_material[MATERIAL_KIND, length](
@@ -269,13 +268,13 @@ def _shade_material_packets[
     mut next_paths: PacketPathQueue[length],
     queue: PacketShadeQueue[length],
     surfaces: SurfaceStore,
-    settings: RenderSettings,
+    sampling: SamplingConfig,
     stage: UInt32,
 ):
     for packet_idx, batch in enumerate(queue.packets):
         var lane_count = min(length, len(queue) - packet_idx * length)
         var scattered = _sample_bsdf_batch[MATERIAL_KIND, length](
-            batch, lane_count, surfaces, settings, stage
+            batch, lane_count, surfaces, sampling, stage
         )
         var paths = scattered.paths.copy()
         var ok = scattered.ok
@@ -286,7 +285,7 @@ def _shade_material_packets[
                 paths.tx[lane], paths.ty[lane], paths.tz[lane]
             )
             var roulette = russian_roulette(
-                settings.rng_seed,
+                sampling,
                 paths.path_ids[lane],
                 stage,
                 throughput,
@@ -305,6 +304,8 @@ def _trace_path_packets[
     integrator: Integrator,
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
+    config: CpuSceneConfig,
+    *adaptive_packet_sizes: SIMDLength,
 ](
     settings: RenderSettings,
     world: CpuScene[world_bvh_width, instance_bvh_width],
@@ -320,6 +321,7 @@ def _trace_path_packets[
         Integrator.NEE,
         Integrator.MIS,
     )
+    var sampling = sampling_config(settings)
     for bounce in range(settings.max_depth):
         if len(active_paths) == 0:
             break
@@ -344,7 +346,9 @@ def _trace_path_packets[
                 packet.t_min,
                 packet.t_max,
             )
-            var surface_hits = world.trace_surface(ray_packet, valid_lanes)
+            var surface_hits = world.trace_surface_configured[
+                length, config, *adaptive_packet_sizes
+            ](ray_packet, valid_lanes)
             for lane in range(lane_count):
                 var ray = Rayf32[.WORLD](
                     Point3f32[.WORLD](
@@ -392,7 +396,7 @@ def _trace_path_packets[
                             hit.front_face,
                         )
                         var light_rng = path_stage_rng(
-                            settings.rng_seed,
+                            sampling,
                             packet.path_ids[lane],
                             wavefront_rng_light_stage(UInt32(bounce)),
                         )
@@ -481,21 +485,21 @@ def _trace_path_packets[
             next_paths,
             lambertian_queue,
             world.scene_data().surfaces(),
-            settings,
+            sampling,
             UInt32(bounce + 1),
         )
         _shade_material_packets[.METAL, length](
             next_paths,
             metal_queue,
             world.scene_data().surfaces(),
-            settings,
+            sampling,
             UInt32(bounce + 1),
         )
         _shade_material_packets[.DIELECTRIC, length](
             next_paths,
             dielectric_queue,
             world.scene_data().surfaces(),
-            settings,
+            sampling,
             UInt32(bounce + 1),
         )
         swap(active_paths, next_paths)

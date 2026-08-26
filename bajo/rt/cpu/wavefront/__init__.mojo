@@ -13,7 +13,8 @@ from bajo.rt.types import (
     RenderSettings,
     RenderTimings,
 )
-from ..scene import CpuScene
+from ..scene import CpuScene, CpuSceneConfig, CPU_SCENE_DEFAULT_CONFIG
+from ..scheduler_mode import CpuSchedulerMode
 from bajo.rt.wavefront_queue import PacketPathQueue, PacketShadeQueue
 
 
@@ -23,10 +24,6 @@ from .packet import _trace_path_packets
 
 comptime CPU_WAVEFRONT_SERIAL_CHUNK_PATHS = 8192
 comptime CPU_WAVEFRONT_PARALLEL_CHUNK_PATHS = 1024
-
-comptime WAVE_PARALLEL_RUNTIME_DEFAULT = 0
-comptime WAVE_PARALLEL_LOGICAL_CORES = 1
-comptime WAVE_PARALLEL_TASK_PARTITIONS = 2
 
 
 def _whole_pixel_chunk_paths(samples_per_pixel: Int, target_paths: Int) -> Int:
@@ -58,6 +55,8 @@ def _trace_packet_range[
     integrator: Integrator,
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
+    config: CpuSceneConfig,
+    *adaptive_packet_sizes: SIMDLength,
 ](
     settings: RenderSettings,
     camera: Camera,
@@ -75,6 +74,8 @@ def _trace_packet_range[
         integrator,
         world_bvh_width,
         instance_bvh_width,
+        config,
+        *adaptive_packet_sizes,
     ](
         settings,
         world,
@@ -87,14 +88,16 @@ def _trace_packet_range[
     )
 
 
-def render_wavefront[
+def render_wavefront_configured[
+    config: CpuSceneConfig,
     integrator: Integrator = .PATH,
     length: SIMDLength = 16,
     CHUNK_PATHS: Int = CPU_WAVEFRONT_PARALLEL_CHUNK_PATHS,
     PARALLEL: Bool = True,
-    SCHEDULER_MODE: Int = WAVE_PARALLEL_TASK_PARTITIONS,
+    scheduler_mode: CpuSchedulerMode = .TASK_PARTITIONS,
     world_bvh_width: SIMDLength = 16,
     instance_bvh_width: SIMDLength = 16,
+    *adaptive_packet_sizes: SIMDLength,
 ](
     settings: RenderSettings,
     camera: Camera,
@@ -108,10 +111,10 @@ def render_wavefront[
         Integrator.MIS,
     )
     comptime if PARALLEL:
-        comptime assert (
-            WAVE_PARALLEL_RUNTIME_DEFAULT
-            <= SCHEDULER_MODE
-            <= WAVE_PARALLEL_TASK_PARTITIONS
+        comptime assert scheduler_mode in (
+            CpuSchedulerMode.RUNTIME_DEFAULT,
+            CpuSchedulerMode.LOGICAL_CORES,
+            CpuSchedulerMode.TASK_PARTITIONS,
         ), "unknown parallel wavefront scheduler mode"
 
     var total_t0 = perf_counter_ns()
@@ -139,6 +142,8 @@ def render_wavefront[
                 integrator,
                 world_bvh_width,
                 instance_bvh_width,
+                config,
+                *adaptive_packet_sizes,
             ](
                 settings,
                 camera,
@@ -149,11 +154,11 @@ def render_wavefront[
                 queues,
             )
 
-        comptime if SCHEDULER_MODE == WAVE_PARALLEL_LOGICAL_CORES:
+        comptime if scheduler_mode == .LOGICAL_CORES:
             parallelize(
                 worker, chunk_count, min(num_logical_cores(), chunk_count)
             )
-        elif SCHEDULER_MODE == WAVE_PARALLEL_TASK_PARTITIONS:
+        elif scheduler_mode == .TASK_PARTITIONS:
             parallelize(worker, chunk_count, chunk_count)
         else:
             parallelize(worker, chunk_count)
@@ -167,6 +172,8 @@ def render_wavefront[
                 integrator,
                 world_bvh_width,
                 instance_bvh_width,
+                config,
+                *adaptive_packet_sizes,
             ](
                 settings,
                 camera,
@@ -194,3 +201,32 @@ def render_wavefront[
             settings.max_depth,
         ),
     )
+
+
+def render_wavefront[
+    integrator: Integrator = .PATH,
+    length: SIMDLength = 16,
+    CHUNK_PATHS: Int = CPU_WAVEFRONT_PARALLEL_CHUNK_PATHS,
+    PARALLEL: Bool = True,
+    scheduler_mode: CpuSchedulerMode = .TASK_PARTITIONS,
+    world_bvh_width: SIMDLength = 16,
+    instance_bvh_width: SIMDLength = 16,
+](
+    settings: RenderSettings,
+    camera: Camera,
+    world: CpuScene[world_bvh_width, instance_bvh_width],
+) -> RenderResult:
+    """Render with the default auto-coherent CPU scene traversal."""
+    return render_wavefront_configured[
+        CPU_SCENE_DEFAULT_CONFIG,
+        integrator,
+        length,
+        CHUNK_PATHS,
+        PARALLEL,
+        scheduler_mode,
+        world_bvh_width,
+        instance_bvh_width,
+        16,
+        8,
+        4,
+    ](settings, camera, world)

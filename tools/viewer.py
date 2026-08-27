@@ -121,6 +121,7 @@ class RenderOptions:
     batches: int = 4
     max_samples: int = 32
     max_depth: int = 8
+    moving_samples: int = 1
 
 
 @dataclass
@@ -402,6 +403,30 @@ class Viewer:
             command=self.on_sampler_changed,
         )
         self.sampler_menu.pack(side=tk.LEFT, padx=(0, 12), pady=2)
+        tk.Label(
+            policybar,
+            text="Moving spp:",
+            padx=6,
+            pady=4,
+            fg="#dddddd",
+            bg="#181818",
+        ).pack(side=tk.LEFT)
+        self.moving_spp_var = tk.StringVar(
+            value=str(self.options.moving_samples)
+        )
+        self.moving_spp_spinbox = tk.Spinbox(
+            policybar,
+            from_=1,
+            to=1_000_000,
+            width=7,
+            textvariable=self.moving_spp_var,
+            command=self.on_moving_spp_changed,
+        )
+        self.moving_spp_spinbox.pack(side=tk.LEFT, padx=(0, 12), pady=2)
+        self.moving_spp_spinbox.bind("<Return>", self.on_moving_spp_changed)
+        self.moving_spp_spinbox.bind(
+            "<FocusOut>", self.on_moving_spp_changed
+        )
         self._update_policy_controls()
 
         self.image_canvas = tk.Canvas(
@@ -534,6 +559,7 @@ class Viewer:
                 self.options.batches,
                 self.options.max_samples,
                 self.options.max_depth,
+                self.options.moving_samples,
             )
             preview = (
                 self.dragging
@@ -542,7 +568,7 @@ class Viewer:
                 < SETTLE_DELAY_SECONDS
             )
             if preview:
-                batch_spp = 1
+                batch_spp = options.moving_samples
             else:
                 batch_count = min(options.batches, options.max_samples)
                 next_batch = min(self.completed_batches + 1, batch_count)
@@ -593,7 +619,9 @@ class Viewer:
             "samples": work.batch_spp,
             "sample_offset": work.sample_offset,
             "sample_sequence_length": (
-                work.options.max_samples if not work.preview else 1
+                work.options.max_samples
+                if not work.preview
+                else work.options.moving_samples
             ),
             "sampler": work.sampler_index,
             "max_depth": work.options.max_depth,
@@ -828,7 +856,9 @@ class Viewer:
         else:
             fps = 0.0
         spp_text = (
-            "preview" if work.preview else f"accumulated {accumulated_spp}/{work.options.max_samples} spp"
+            f"moving {work.batch_spp} spp"
+            if work.preview
+            else f"accumulated {accumulated_spp}/{work.options.max_samples} spp"
         )
         integrator_name = INTEGRATORS[work.integrator_index]
         backend_name = BACKENDS[work.backend_index]
@@ -1054,6 +1084,21 @@ class Viewer:
         self.max_depth_var.set(str(value))
         self.request_render()
 
+    def on_moving_spp_changed(self, _event=None) -> None:
+        try:
+            value = int(self.moving_spp_var.get())
+        except ValueError:
+            self.moving_spp_var.set(str(self.options.moving_samples))
+            return
+        if value <= 0:
+            self.moving_spp_var.set(str(self.options.moving_samples))
+            return
+        if value == self.options.moving_samples:
+            return
+        self.options.moving_samples = value
+        self.moving_spp_var.set(str(value))
+        self.request_render()
+
     def on_batches_changed(self, _event=None) -> None:
         try:
             value = int(self.batches_var.get())
@@ -1169,6 +1214,12 @@ def main() -> None:
         help="total samples accumulated at one camera pose (default: 32)",
     )
     parser.add_argument(
+        "--moving-spp",
+        type=int,
+        default=1,
+        help="samples per frame while moving the camera (default: 1)",
+    )
+    parser.add_argument(
         "--max-depth",
         type=int,
         default=8,
@@ -1220,18 +1271,25 @@ def main() -> None:
         or args.height <= 0
         or args.batches <= 0
         or args.max_spp <= 0
+        or args.moving_spp <= 0
         or args.max_depth < 1
         or args.max_depth > 16
     ):
         parser.error(
-            "width, height, batches, max-spp, and max-depth must be valid"
+            "width, height, batches, max-spp, moving-spp, and max-depth "
+            "must be valid"
         )
     scene_index = SCENE_INDEX_BY_CLI[args.scene]
     if args.pbrt is not None:
         scene_index = CUSTOM_PBRT_SCENE
     Viewer(
         RenderOptions(
-            args.width, args.height, args.batches, args.max_spp, args.max_depth
+            args.width,
+            args.height,
+            args.batches,
+            args.max_spp,
+            args.max_depth,
+            args.moving_spp,
         ),
         scene_index,
         str(args.pbrt) if args.pbrt is not None else None,

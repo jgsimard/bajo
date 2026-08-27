@@ -48,6 +48,8 @@ Useful command-line options:
 Use `W/S`, `A/D`, and `Q/E` to move; drag with the left mouse button to look
 around. `R` resets the camera, `B` toggles CPU/GPU, `1`–`5` select an algorithm,
 `+`/`-` adjust the number of progressive batches, and `Esc` closes the viewer.
+The `Moving spp` selector controls samples per frame while the camera is moving;
+it can also be set at startup with `--moving-spp`.
 One batch renders all `max-spp` samples in one pass; larger values divide that
 same sample sequence across multiple updates. The status bar reports build time,
 render time, FPS, and MRays/s.

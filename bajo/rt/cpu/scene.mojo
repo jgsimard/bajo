@@ -11,6 +11,7 @@ from bajo.bvh.cpu import (
     build_cpu_triangle_blas_set,
     trace_blas_set,
     trace_blas_set_packet,
+    trace_blas_set_packet_any_hit,
     trace_blas_set_packet_adaptive,
     trace_blas_set_packet_selected,
 )
@@ -204,52 +205,36 @@ struct CpuScene[
         else:
             var result = SIMD[.bool, length](fill=False)
             if self.sphere_bvh:
-                var hits = trace_blas_set_packet[
+                var sphere_occluded = trace_blas_set_packet_any_hit[
                     Self.world_bvh_width,
                     Self.world_bvh_width,
                     length,
                     Frame.WORLD,
                 ](self.sphere_bvh.value(), UInt32(0), rays, valid)
-                result |= hits.is_hit()
+                result |= sphere_occluded
 
             if self.triangle_bvh:
                 var active = valid & ~result
                 if active.reduce_or():
-                    var hits = trace_blas_set_packet[
+                    var triangle_occluded = trace_blas_set_packet_any_hit[
                         Self.world_bvh_width,
                         Self.world_bvh_width,
                         length,
                         False,
                         .WORLD,
                     ](self.triangle_bvh.value(), UInt32(0), rays, active)
-                    result |= hits.is_hit()
+                    result |= triangle_occluded
 
             if self.triangle_tlas and self.triangle_mesh_blases:
-                for lane in range(length):
-                    if valid[lane] and not result[lane]:
-                        var ray = Rayf32[.WORLD](
-                            Point3f32[.WORLD](
-                                rays.o.x[lane],
-                                rays.o.y[lane],
-                                rays.o.z[lane],
-                            ),
-                            Vec3f32[.WORLD](
-                                rays.d.x[lane],
-                                rays.d.y[lane],
-                                rays.d.z[lane],
-                            ),
-                            rays.t_min[lane],
-                            rays.t_max[lane],
-                        )
-                        result[lane] = (
-                            self.triangle_tlas.value()
-                            .trace_blases[
-                                Self.instance_bvh_width,
-                                Self.instance_bvh_width,
-                                .ANY_HIT,
-                            ](ray, self.triangle_mesh_blases.value())
-                            .is_occluded()
-                        )
+                var active = valid & ~result
+                if active.reduce_or():
+                    result |= (
+                        self.triangle_tlas.value().trace_blases_packet_any_hit[
+                            Self.instance_bvh_width,
+                            Self.instance_bvh_width,
+                            length,
+                        ](rays, self.triangle_mesh_blases.value(), active)
+                    )
             return result
 
     def _trace_closest(self, ray: Rayf32[.WORLD]) -> _WorldHit:
@@ -364,7 +349,7 @@ struct CpuScene[
         rays: Ray[.float32, .WORLD, length],
         valid: SIMD[.bool, length],
     ) -> SurfaceHit[length]:
-        """Trace SIMD packets, with scalar TLAS fallback."""
+        """Trace SIMD packets through world and instance acceleration."""
         comptime assert length > 1
         var result = SurfaceHit[length](rays.t_max)
         if self.sphere_bvh:
@@ -443,28 +428,41 @@ struct CpuScene[
             )
             result.hit |= triangle_mask
 
-        if self.triangle_tlas:
+        if self.triangle_tlas and self.triangle_mesh_blases:
+            var bounded_rays = Ray[.float32, .WORLD, length](
+                rays.o, rays.d, rays.t_min, result.t
+            )
+            var instance_hits = self.triangle_tlas.value().trace_blases_packet[
+                Self.instance_bvh_width,
+                Self.instance_bvh_width,
+                length,
+            ](bounded_rays, self.triangle_mesh_blases.value(), valid)
+            var instance_mask = instance_hits.is_hit()
+            instance_mask &= instance_hits.t.lt(result.t)
+            var surface_values = SIMD[.uint32, length](0)
             for lane in range(length):
-                if valid[lane]:
-                    var ray = Rayf32[.WORLD](
-                        Point3f32[.WORLD](
-                            rays.o.x[lane], rays.o.y[lane], rays.o.z[lane]
-                        ),
-                        Vec3f32[.WORLD](
-                            rays.d.x[lane], rays.d.y[lane], rays.d.z[lane]
-                        ),
-                        rays.t_min[lane],
-                        result.t[lane],
-                    )
-                    var instance_hit = self._trace_triangle_instances(ray)
-                    if instance_hit.hit and instance_hit.t < result.t[lane]:
-                        result.normal.x[lane] = instance_hit.normal.x
-                        result.normal.y[lane] = instance_hit.normal.y
-                        result.normal.z[lane] = instance_hit.normal.z
-                        result.surface.value[lane] = instance_hit.surface.value
-                        result.t[lane] = instance_hit.t
-                        result.front_face[lane] = instance_hit.front_face
-                        result.hit[lane] = True
+                if instance_mask[lane]:
+                    var instance_idx = Int(instance_hits.inst[lane])
+                    surface_values[
+                        lane
+                    ] = self._scene.triangle_instance_surfaces()[
+                        instance_idx
+                    ].value
+            var instance_normal = instance_hits.normal.unsafe_convert[
+                new_kind=GeoKind.VECTOR
+            ]()
+            var oriented = orient_surface_normal(rays.d, instance_normal)
+            result.normal = Vec3.select(
+                instance_mask, oriented.normal, result.normal
+            )
+            result.surface.value = instance_mask.select(
+                surface_values, result.surface.value
+            )
+            result.t = instance_mask.select(instance_hits.t, result.t)
+            result.front_face = instance_mask.select(
+                oriented.front_face, result.front_face
+            )
+            result.hit |= instance_mask
 
         return result^
 

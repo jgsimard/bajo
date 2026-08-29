@@ -48,7 +48,9 @@ def _make_items(
 
 def _bench_method[
     method: CpuBvhBuildMethod,
+    hploc_balance_tasks: Int = 0,
 ](
+    method_label: String,
     label: String,
     items: List[BoundsItem[.WORLD]],
     root_bounds: AABB[.WORLD],
@@ -63,9 +65,9 @@ def _bench_method[
     for _ in range(REPEATS):
         var build_items = items.copy()
         var start = perf_counter_ns()
-        var builder = BinaryBoundsBvh[.WORLD, LEAF_SIZE, method](
-            build_items^, root_bounds, centroid_bounds
-        )
+        var builder = BinaryBoundsBvh[.WORLD, LEAF_SIZE, method].__init__[
+            hploc_balance_tasks
+        ](build_items^, root_bounds, centroid_bounds)
         binary_times.append(Int(perf_counter_ns() - start))
 
         var leaf_count = [0]
@@ -88,7 +90,7 @@ def _bench_method[
         keep(wide_nodes)
 
     print(
-        t"{label}\t{method.name()}\t{len(items)}\t"
+        t"{label}\t{method_label}\t{len(items)}\t"
         t"{round(ns_to_ms(_median(binary_times)), 3)}\t"
         t"{round(ns_to_ms(_median(collapse_times)), 3)}\t"
         t"{binary_nodes}\t{wide_nodes}\t{leaves}"
@@ -107,10 +109,19 @@ def _bench_scene(
         "Scene\tBuilder\tTriangles\tBinary ms\tCollapse ms\tBinary nodes\tWide"
         " nodes\tLeaves"
     )
-    _bench_method[.MEDIAN](label, items, prepared[1], prepared[2])
-    _bench_method[.SAH](label, items, prepared[1], prepared[2])
-    _bench_method[.LBVH](label, items, prepared[1], prepared[2])
-    _bench_method[.HPLOC](label, items, prepared[1], prepared[2])
+    _bench_method[.MEDIAN]("median", label, items, prepared[1], prepared[2])
+    _bench_method[.SAH]("sah", label, items, prepared[1], prepared[2])
+    _bench_method[.LBVH]("lbvh", label, items, prepared[1], prepared[2])
+    _bench_method[.HPLOC]("hploc-fixed", label, items, prepared[1], prepared[2])
+    _bench_method[.HPLOC, 8](
+        "hploc-balanced8", label, items, prepared[1], prepared[2]
+    )
+    _bench_method[.HPLOC, 16](
+        "hploc-balanced16", label, items, prepared[1], prepared[2]
+    )
+    _bench_method[.HPLOC, 32](
+        "hploc-balanced32", label, items, prepared[1], prepared[2]
+    )
 
 
 def main() raises:

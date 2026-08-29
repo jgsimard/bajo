@@ -190,6 +190,7 @@ def trace_packet_stack_bounds_bvh[
     coherent_frustum: Bool = False,
     prefetch_tasks: Bool = False,
     packed_meta: Bool = False,
+    any_hit: Bool = False,
 ](
     nodes: ImmSpan[WideBvhNode[frame, bounds_width], _],
     rays: Ray[.float32, frame, length],
@@ -287,6 +288,8 @@ def trace_packet_stack_bounds_bvh[
         active &= SIMD[.float32, length](
             stack_priorities.unsafe_get(stack_ptr)
         ).le(hit.t)
+        comptime if any_hit:
+            active &= hit.t.ne(0.0)
         if not active.reduce_or():
             continue
 
@@ -302,6 +305,9 @@ def trace_packet_stack_bounds_bvh[
 
         if is_leaf_ref(child_ref):
             leaf_fn(active, decode_ref_index(child_ref), hit)
+            comptime if any_hit:
+                if not (valid & hit.t.ne(0.0)).reduce_or():
+                    return
             comptime if coherent_frustum:
                 frustum_max_dist = valid.select(
                     hit.t, SIMD[.float32, length](f32_min)

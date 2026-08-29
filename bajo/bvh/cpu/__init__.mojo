@@ -10,6 +10,7 @@ from .blas_set import (
     trace_blas_set,
     trace_blas_set_adaptive_stream,
     trace_blas_set_packet,
+    trace_blas_set_packet_any_hit,
     trace_blas_set_packet_adaptive,
     trace_blas_set_packet_selected,
 )

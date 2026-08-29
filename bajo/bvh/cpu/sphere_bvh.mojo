@@ -118,6 +118,36 @@ def _trace_sphere_packet_primitive[
         packet_hit.normal.z = closer.select(normal.z, packet_hit.normal.z)
 
 
+@always_inline
+def _occlude_sphere_packet_primitive[
+    frame: Frame, length: SIMDLength
+](
+    rays: Ray[.float32, frame, length],
+    active: SIMD[.bool, length],
+    ray_a: SIMD[.float32, length],
+    ray_inv_a: SIMD[.float32, length],
+    center_scalar: Point3f32[frame],
+    radius_scalar: Float32,
+    mut packet_hit: Hit[frame, length],
+):
+    var center = Point3[.float32, frame, length](
+        center_scalar.x, center_scalar.y, center_scalar.z
+    )
+    var radius = SIMD[.float32, length](radius_scalar)
+    var candidate = intersect_ray_sphere_coefficients(
+        rays.o,
+        rays.d,
+        center,
+        radius,
+        ray_a,
+        ray_inv_a,
+        packet_hit.t,
+        rays.t_min,
+    )
+    var occluded = active & candidate.mask
+    packet_hit.t = occluded.select(Float32(0.0), packet_hit.t)
+
+
 struct _SphereBuild[frame: Frame, width: SIMDLength](Copyable):
     """Private typed build result consumed immediately by `CpuBlasSet` packing.
 

@@ -363,6 +363,41 @@ def _trace_triangle_packet_primitive[
 
 
 @always_inline
+def _occlude_triangle_packet_primitive[
+    frame: Frame,
+    length: SIMDLength,
+](
+    rays: Ray[.float32, frame, length],
+    active: SIMD[.bool, length],
+    v0_scalar: Point3f32[frame],
+    e1_scalar: Vec3f32[frame],
+    e2_scalar: Vec3f32[frame],
+    mut packet_hit: Hit[frame, length],
+):
+    """Mark packet lanes whose bounded ray intersects one triangle."""
+    var v0 = Point3[.float32, frame, length](
+        v0_scalar.x, v0_scalar.y, v0_scalar.z
+    )
+    var e1 = Vec3[.float32, frame, length](
+        e1_scalar.x, e1_scalar.y, e1_scalar.z
+    )
+    var e2 = Vec3[.float32, frame, length](
+        e2_scalar.x, e2_scalar.y, e2_scalar.z
+    )
+    var candidate = intersect_ray_tri_edges_scaled(
+        rays.o,
+        rays.d,
+        v0,
+        e1,
+        e2,
+        packet_hit.t,
+        rays.t_min,
+    )
+    var occluded = active & candidate.mask
+    packet_hit.t = occluded.select(Float32(0.0), packet_hit.t)
+
+
+@always_inline
 def _trace_triangle_packet_policy[
     frame: Frame,
     bounds_width: SIMDLength,
@@ -376,6 +411,7 @@ def _trace_triangle_packet_policy[
     diagnostic_hybrid_internals: Bool,
     diagnostic_hybrid_leaves: Bool,
     diagnostic_coherent_optimizations: Bool,
+    mode: TraceMode,
     LeafFn: def(SIMD[.bool, length], UInt32, mut Hit[frame, length]),
     HybridFn: def(SIMD[.bool, length], UInt32, mut Hit[frame, length]),
     PrefetchFn: def(UInt32),
@@ -421,6 +457,7 @@ def _trace_triangle_packet_policy[
                 coherent_frustum=use_frustum,
                 prefetch_tasks=prefetch_tasks,
                 packed_meta=packed_meta,
+                any_hit=mode == .ANY_HIT,
             ](
                 nodes,
                 rays,

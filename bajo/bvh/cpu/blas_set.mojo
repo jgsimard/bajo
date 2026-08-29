@@ -12,6 +12,7 @@ from bajo.bvh.constants import (
 )
 from bajo.bvh.cpu.sphere_bvh import (
     _SphereBuild,
+    _occlude_sphere_packet_primitive,
     _trace_sphere_leaf_block,
     _trace_sphere_packet_primitive,
 )
@@ -23,6 +24,7 @@ from bajo.bvh.cpu.triangle_bvh import (
     TrianglePacketConfig,
     _TriangleBuild,
     _PacketKernelTuning,
+    _occlude_triangle_packet_primitive,
     _trace_triangle_leaf_block,
     _trace_triangle_packet_policy,
     _trace_triangle_packet_primitive,
@@ -61,6 +63,7 @@ from bajo.core import (
 
 
 comptime CPU_BLAS_OUTER_PARALLEL_MIN_PRIMITIVES = 4096
+comptime EXACT_MULTI_BLAS_MIN_PRIMITIVES = 4096
 comptime _U32_MAX_AS_INT = Int(UInt32(0xFFFFFFFF))
 
 
@@ -295,12 +298,153 @@ def _pack_triangle_blas[
     )
 
 
+def _build_single_triangle_blas[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+    method: CpuBvhBuildMethod,
+    frame: Frame,
+    hploc_microleaf_size: Int,
+](
+    vertices: ImmSpan[Point3f32[frame], _],
+) -> CpuBlasSet[
+    .TRIANGLE, node_width, leaf_width
+]:
+    """Build one BLAS into exact private packed storage."""
+    var descs = List[UInt32](length=BlasDescLayout.STRIDE, fill=0)
+    if len(vertices) == 0:
+        _store_empty_blas_desc(descs.unsafe_ptr(), 0, 0, 0)
+        return CpuBlasSet[.TRIANGLE, node_width, leaf_width](
+            descs^, List[Float32](), List[Float32](), 1
+        )
+
+    var bvh = _TriangleBuild[
+        frame, node_width, leaf_width, hploc_microleaf_size
+    ].__init__[method](vertices)
+    var exact_node_count = (
+        len(bvh.tree.nodes) * node_width * WideNode.CHILD_STRIDE
+    )
+    var exact_leaf_count = (
+        len(bvh.leaf_blocks) * leaf_width * TRI_LEAF_PACKED_STRIDE
+    )
+    var nodes = List[Float32](capacity=exact_node_count)
+    var leaves = List[Float32](capacity=exact_leaf_count)
+    nodes.resize(unsafe_uninit_length=exact_node_count)
+    leaves.resize(unsafe_uninit_length=exact_leaf_count)
+    _pack_built_triangle_blas[
+        frame, node_width, leaf_width, hploc_microleaf_size
+    ](
+        bvh,
+        descs.unsafe_ptr(),
+        nodes.unsafe_ptr(),
+        leaves.unsafe_ptr(),
+        0,
+        0,
+        0,
+    )
+    return CpuBlasSet[.TRIANGLE, node_width, leaf_width](
+        descs^, nodes^, leaves^, 1
+    )
+
+
+def _build_exact_triangle_blas_batch[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+    method: CpuBvhBuildMethod,
+    frame: Frame,
+    hploc_microleaf_size: Int,
+](
+    vertex_sets: ImmSpan[List[Point3f32[frame]], _],
+) -> CpuBlasSet[
+    .TRIANGLE, node_width, leaf_width
+]:
+    """Build private exact BLASes, prefix their sizes, then concatenate once."""
+    var built = List[CpuBlasSet[.TRIANGLE, node_width, leaf_width]](
+        capacity=len(vertex_sets)
+    )
+    for _ in range(len(vertex_sets)):
+        built.append(
+            CpuBlasSet[.TRIANGLE, node_width, leaf_width](
+                List[UInt32](), List[Float32](), List[Float32](), 1
+            )
+        )
+    var total_triangle_count = 0
+    var allow_across_blas_parallelism = len(vertex_sets) > 1
+    for vertices in vertex_sets:
+        var tri_count = len(vertices) / 3
+        total_triangle_count += tri_count
+        if tri_count >= PARALLEL_TRIANGLE_BUILD_MIN_ITEMS:
+            allow_across_blas_parallelism = False
+    allow_across_blas_parallelism &= (
+        total_triangle_count >= CPU_BLAS_OUTER_PARALLEL_MIN_PRIMITIVES
+    )
+
+    def build_one(blas_idx: Int) {imm, mut built}:
+        built[blas_idx] = _build_single_triangle_blas[
+            node_width,
+            leaf_width,
+            method,
+            frame,
+            hploc_microleaf_size,
+        ](vertex_sets[blas_idx])
+
+    if allow_across_blas_parallelism:
+        parallelize(build_one, len(vertex_sets))
+    else:
+        for blas_idx in range(len(vertex_sets)):
+            build_one(blas_idx)
+
+    var node_count = 0
+    var leaf_count = 0
+    for blas_idx in range(len(built)):
+        node_count += len(built[blas_idx].nodes)
+        leaf_count += len(built[blas_idx].leaves)
+    debug_assert["safe", _use_compiler_assume=True](
+        node_count <= _U32_MAX_AS_INT and leaf_count <= _U32_MAX_AS_INT,
+        "CPU triangle BLAS packed offsets exceed UInt32",
+    )
+
+    var descs = List[UInt32](
+        length=len(vertex_sets) * BlasDescLayout.STRIDE, fill=0
+    )
+    var nodes = List[Float32](capacity=node_count)
+    var leaves = List[Float32](capacity=leaf_count)
+    nodes.resize(unsafe_uninit_length=node_count)
+    leaves.resize(unsafe_uninit_length=leaf_count)
+    var node_base = 0
+    var leaf_base = 0
+    for blas_idx in range(len(built)):
+        ref local = built[blas_idx]
+        var desc = BlasDesc.load(local.descs.unsafe_ptr(), UInt32(0))
+        if len(local.nodes) > 0:
+            unsafe_memcpy(
+                dest=nodes.unsafe_ptr().unsafe_offset(node_base),
+                src=local.nodes.unsafe_ptr(),
+                count=len(local.nodes),
+            )
+        if len(local.leaves) > 0:
+            unsafe_memcpy(
+                dest=leaves.unsafe_ptr().unsafe_offset(leaf_base),
+                src=local.leaves.unsafe_ptr(),
+                count=len(local.leaves),
+            )
+        desc.node_f32_base = UInt32(node_base)
+        desc.leaf_f32_base = UInt32(leaf_base)
+        desc.store(descs.unsafe_ptr(), blas_idx)
+        node_base += len(local.nodes)
+        leaf_base += len(local.leaves)
+
+    return CpuBlasSet[.TRIANGLE, node_width, leaf_width](
+        descs^, nodes^, leaves^, len(vertex_sets)
+    )
+
+
 def build_cpu_triangle_blas_set[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
     method: CpuBvhBuildMethod = .SAH,
     frame: Frame = .LOCAL,
     hploc_microleaf_size: Int = 0,
+    exact_multi: Bool = True,
 ](
     vertex_sets: ImmSpan[List[Point3f32[frame]], _],
 ) -> CpuBlasSet[
@@ -313,40 +457,26 @@ def build_cpu_triangle_blas_set[
     # A single BLAS needs no preassigned inter-BLAS offsets. Build its topology
     # first, then allocate exact uninitialized packed buffers and write once.
     if len(vertex_sets) == 1:
-        var descs = List[UInt32](length=BlasDescLayout.STRIDE, fill=0)
-        if len(vertex_sets[0]) == 0:
-            _store_empty_blas_desc(descs.unsafe_ptr(), 0, 0, 0)
-            return CpuBlasSet[.TRIANGLE, node_width, leaf_width](
-                descs^, List[Float32](), List[Float32](), 1
-            )
+        return _build_single_triangle_blas[
+            node_width,
+            leaf_width,
+            method,
+            frame,
+            hploc_microleaf_size,
+        ](vertex_sets[0])
 
-        var bvh = _TriangleBuild[
-            frame, node_width, leaf_width, hploc_microleaf_size
-        ].__init__[method](vertex_sets[0])
-        var exact_node_count = (
-            len(bvh.tree.nodes) * node_width * WideNode.CHILD_STRIDE
-        )
-        var exact_leaf_count = (
-            len(bvh.leaf_blocks) * leaf_width * TRI_LEAF_PACKED_STRIDE
-        )
-        var nodes = List[Float32](capacity=exact_node_count)
-        var leaves = List[Float32](capacity=exact_leaf_count)
-        nodes.resize(unsafe_uninit_length=exact_node_count)
-        leaves.resize(unsafe_uninit_length=exact_leaf_count)
-        _pack_built_triangle_blas[
-            frame, node_width, leaf_width, hploc_microleaf_size
-        ](
-            bvh,
-            descs.unsafe_ptr(),
-            nodes.unsafe_ptr(),
-            leaves.unsafe_ptr(),
-            0,
-            0,
-            0,
-        )
-        return CpuBlasSet[.TRIANGLE, node_width, leaf_width](
-            descs^, nodes^, leaves^, 1
-        )
+    var exact_candidate_count = 0
+    for vertices in vertex_sets:
+        exact_candidate_count += len(vertices) / 3
+    comptime if exact_multi:
+        if exact_candidate_count >= EXACT_MULTI_BLAS_MIN_PRIMITIVES:
+            return _build_exact_triangle_blas_batch[
+                node_width,
+                leaf_width,
+                method,
+                frame,
+                hploc_microleaf_size,
+            ](vertex_sets)
 
     var node_bases = List[Int](capacity=len(vertex_sets))
     var leaf_bases = List[Int](capacity=len(vertex_sets))
@@ -548,10 +678,108 @@ def _pack_sphere_blas[
     )
 
 
+def _build_single_sphere_blas[
+    width: SIMDLength,
+    method: CpuBvhBuildMethod,
+    frame: Frame,
+](spheres: ImmSpan[Sphere[frame], _]) -> CpuBlasSet[.SPHERE, width]:
+    """Build one sphere BLAS into exact private packed storage."""
+    var descs = List[UInt32](length=BlasDescLayout.STRIDE, fill=0)
+    if len(spheres) == 0:
+        _store_empty_blas_desc(descs.unsafe_ptr(), 0, 0, 0)
+        return CpuBlasSet[.SPHERE, width](
+            descs^, List[Float32](), List[Float32](), 1
+        )
+
+    var bvh = _SphereBuild[frame, width].__init__[method](spheres)
+    var exact_node_count = len(bvh.tree.nodes) * width * WideNode.CHILD_STRIDE
+    var exact_leaf_count = (
+        len(bvh.leaf_blocks) * width * SPHERE_LEAF_PACKED_STRIDE
+    )
+    var nodes = List[Float32](capacity=exact_node_count)
+    var leaves = List[Float32](capacity=exact_leaf_count)
+    nodes.resize(unsafe_uninit_length=exact_node_count)
+    leaves.resize(unsafe_uninit_length=exact_leaf_count)
+    _pack_built_sphere_blas[frame, width](
+        bvh,
+        descs.unsafe_ptr(),
+        nodes.unsafe_ptr(),
+        leaves.unsafe_ptr(),
+        0,
+        0,
+        0,
+    )
+    return CpuBlasSet[.SPHERE, width](descs^, nodes^, leaves^, 1)
+
+
+def _build_exact_sphere_blas_batch[
+    width: SIMDLength,
+    method: CpuBvhBuildMethod,
+    frame: Frame,
+](sphere_sets: ImmSpan[List[Sphere[frame]], _]) -> CpuBlasSet[.SPHERE, width]:
+    var built = List[CpuBlasSet[.SPHERE, width]](capacity=len(sphere_sets))
+    for _ in range(len(sphere_sets)):
+        built.append(
+            CpuBlasSet[.SPHERE, width](
+                List[UInt32](), List[Float32](), List[Float32](), 1
+            )
+        )
+
+    def build_one(blas_idx: Int) {imm, mut built}:
+        built[blas_idx] = _build_single_sphere_blas[width, method, frame](
+            sphere_sets[blas_idx]
+        )
+
+    parallelize(build_one, len(sphere_sets))
+
+    var node_count = 0
+    var leaf_count = 0
+    for blas_idx in range(len(built)):
+        node_count += len(built[blas_idx].nodes)
+        leaf_count += len(built[blas_idx].leaves)
+    debug_assert["safe", _use_compiler_assume=True](
+        node_count <= _U32_MAX_AS_INT and leaf_count <= _U32_MAX_AS_INT,
+        "CPU sphere BLAS packed offsets exceed UInt32",
+    )
+
+    var descs = List[UInt32](
+        length=len(sphere_sets) * BlasDescLayout.STRIDE, fill=0
+    )
+    var nodes = List[Float32](capacity=node_count)
+    var leaves = List[Float32](capacity=leaf_count)
+    nodes.resize(unsafe_uninit_length=node_count)
+    leaves.resize(unsafe_uninit_length=leaf_count)
+    var node_base = 0
+    var leaf_base = 0
+    for blas_idx in range(len(built)):
+        ref local = built[blas_idx]
+        var desc = BlasDesc.load(local.descs.unsafe_ptr(), UInt32(0))
+        if len(local.nodes) > 0:
+            unsafe_memcpy(
+                dest=nodes.unsafe_ptr().unsafe_offset(node_base),
+                src=local.nodes.unsafe_ptr(),
+                count=len(local.nodes),
+            )
+        if len(local.leaves) > 0:
+            unsafe_memcpy(
+                dest=leaves.unsafe_ptr().unsafe_offset(leaf_base),
+                src=local.leaves.unsafe_ptr(),
+                count=len(local.leaves),
+            )
+        desc.node_f32_base = UInt32(node_base)
+        desc.leaf_f32_base = UInt32(leaf_base)
+        desc.store(descs.unsafe_ptr(), blas_idx)
+        node_base += len(local.nodes)
+        leaf_base += len(local.leaves)
+
+    return CpuBlasSet[.SPHERE, width](descs^, nodes^, leaves^, len(sphere_sets))
+
+
 def build_cpu_sphere_blas_set[
     width: SIMDLength,
     method: CpuBvhBuildMethod = .SAH,
     frame: Frame = .LOCAL,
+    exact_multi: Bool = True,
 ](sphere_sets: ImmSpan[List[Sphere[frame]], _],) -> CpuBlasSet[.SPHERE, width]:
     debug_assert["safe", _use_compiler_assume=True](
         len(sphere_sets) > 0, "CPU BLAS batch must be nonempty"
@@ -586,6 +814,15 @@ def build_cpu_sphere_blas_set[
             0,
         )
         return CpuBlasSet[.SPHERE, width](descs^, nodes^, leaves^, 1)
+
+    var exact_candidate_count = 0
+    for spheres in sphere_sets:
+        exact_candidate_count += len(spheres)
+    comptime if exact_multi:
+        if exact_candidate_count >= EXACT_MULTI_BLAS_MIN_PRIMITIVES:
+            return _build_exact_sphere_blas_batch[width, method, frame](
+                sphere_sets
+            )
 
     var node_bases = List[Int](capacity=len(sphere_sets))
     var leaf_bases = List[Int](capacity=len(sphere_sets))
@@ -722,6 +959,58 @@ def _trace_packed_triangle_from_ref[
     return hit
 
 
+@always_inline
+def _trace_packed_triangle_any_from_ref[
+    frame: Frame,
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+](
+    nodes: ImmSpan[WideBvhNode[frame, node_width], _],
+    leaves: ImmPointer[Float32, _],
+    ray: Rayf32[frame],
+    initial_ref: UInt32,
+) -> Bool:
+    """Continue scalar any-hit traversal over one packed internal subtree."""
+
+    @always_inline
+    def leaf_fn(
+        ray: Rayf32[frame],
+        O: Point3[.float32, frame, leaf_width],
+        D: Vec3[.float32, frame, leaf_width],
+        _ray_a: SIMD[.float32, leaf_width],
+        _ray_inv_a: SIMD[.float32, leaf_width],
+        leaf_block_idx: UInt32,
+        mut hit: Hit[frame],
+    ) {imm} -> Bool:
+        var block_base = (
+            Int(leaf_block_idx) * TRI_LEAF_PACKED_STRIDE * leaf_width
+        )
+        var block_ptr = leaves.unsafe_offset(block_base)
+        var block = _load_packed_triangle_leaf[frame, leaf_width](
+            leaves, leaf_block_idx
+        )
+        return _trace_triangle_leaf_block[
+            frame,
+            leaf_width,
+            .ANY_HIT,
+            packed_layout=True,
+        ](ray, O, D, block, block_ptr, hit)
+
+    return trace_bounds_bvh_from_ref[
+        frame=frame,
+        bounds_width=node_width,
+        leaf_width=leaf_width,
+        packed_meta=True,
+        mode=.ANY_HIT,
+    ](
+        nodes,
+        ray,
+        initial_ref,
+        Hit[frame].miss(ray.t_max),
+        leaf_fn,
+    ).is_occluded()
+
+
 def trace_blas_set[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
@@ -793,6 +1082,7 @@ def _trace_blas_set_packet_policy[
     common_octant_fma: Bool = False,
     frame: Frame = .LOCAL,
     config: TrianglePacketConfig = .PRODUCTION,
+    mode: TraceMode = .CLOSEST_HIT,
 ](
     blases: CpuBlasSet[.TRIANGLE, node_width, leaf_width],
     blas_idx: UInt32,
@@ -843,9 +1133,16 @@ def _trace_blas_set_packet_policy[
                     block_ptr[unsafe_offset=9 * leaf_width + prim_lane],
                     block_ptr[unsafe_offset=10 * leaf_width + prim_lane],
                 )
-                _trace_triangle_packet_primitive[frame, length](
-                    rays, active, prim_idx, v0, e1, e2, packet_hit
-                )
+                comptime if mode == .ANY_HIT:
+                    var live = active & packet_hit.t.ne(0.0)
+                    if live.reduce_or():
+                        _occlude_triangle_packet_primitive[frame, length](
+                            rays, live, v0, e1, e2, packet_hit
+                        )
+                else:
+                    _trace_triangle_packet_primitive[frame, length](
+                        rays, active, prim_idx, v0, e1, e2, packet_hit
+                    )
 
     @always_inline
     def trace_lane(
@@ -867,6 +1164,12 @@ def _trace_blas_set_packet_policy[
             _extract_f32_lane(rays.t_min, lane),
             _extract_f32_lane(rays.t_max, lane),
         )
+        comptime if mode == .ANY_HIT:
+            if _trace_packed_triangle_any_from_ref[
+                frame, node_width, leaf_width
+            ](nodes, leaves, ray, child_ref):
+                packet_hit.t[lane] = 0.0
+            return
         var initial_hit = Hit[frame](
             _extract_f32_lane(packet_hit.u, lane),
             _extract_f32_lane(packet_hit.v, lane),
@@ -934,6 +1237,7 @@ def _trace_blas_set_packet_policy[
         config.hybrid_internals,
         config.hybrid_leaves,
         config.coherent_optimizations,
+        mode,
     ](nodes, rays, valid, leaf_fn, hybrid_fn, prefetch_fn)
 
 
@@ -957,6 +1261,31 @@ def trace_blas_set_packet[
         common_octant_fma,
         frame,
     ](blases, blas_idx, rays, valid)
+
+
+def trace_blas_set_packet_any_hit[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+    length: SIMDLength,
+    common_octant_fma: Bool = False,
+    frame: Frame = .LOCAL,
+](
+    blases: CpuBlasSet[.TRIANGLE, node_width, leaf_width],
+    blas_idx: UInt32,
+    rays: Ray[.float32, frame, length],
+    valid: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
+) -> SIMD[.bool, length]:
+    """Trace bounded triangle visibility rays without materializing hits."""
+    var hit = _trace_blas_set_packet_policy[
+        node_width,
+        leaf_width,
+        length,
+        common_octant_fma,
+        frame,
+        TrianglePacketConfig.PRODUCTION,
+        .ANY_HIT,
+    ](blases, blas_idx, rays, valid)
+    return valid & hit.t.eq(0.0)
 
 
 def trace_blas_set[
@@ -1017,10 +1346,11 @@ def trace_blas_set[
     ](nodes, ray, leaf_fn)
 
 
-def trace_blas_set_packet[
+def _trace_sphere_blas_set_packet_policy[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
     length: SIMDLength,
+    mode: TraceMode,
     frame: Frame = .LOCAL,
 ](
     blases: CpuBlasSet[.SPHERE, node_width, leaf_width],
@@ -1028,7 +1358,7 @@ def trace_blas_set_packet[
     rays: Ray[.float32, frame, length],
     valid: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
 ) -> Hit[frame, length]:
-    """Trace packed spheres through the production CPU packet algorithm."""
+    """Trace packed spheres with a compile-time closest/any-hit policy."""
     comptime assert length > 1
     _debug_check_blas_index(blas_idx, blases.blas_count)
     var desc = BlasDesc.load(blases.descs.unsafe_ptr(), blas_idx)
@@ -1059,26 +1389,42 @@ def trace_blas_set_packet[
         comptime for prim_lane in range(leaf_width):
             var prim_idx = block_u32[unsafe_offset=4 * leaf_width + prim_lane]
             if prim_idx != EMPTY_LANE:
-                _trace_sphere_packet_primitive[frame, length](
-                    rays,
-                    active,
-                    ray_a,
-                    ray_inv_a,
-                    prim_idx,
-                    Point3f32[frame](
-                        block_ptr[unsafe_offset=0 * leaf_width + prim_lane],
-                        block_ptr[unsafe_offset=1 * leaf_width + prim_lane],
-                        block_ptr[unsafe_offset=2 * leaf_width + prim_lane],
-                    ),
-                    block_ptr[unsafe_offset=3 * leaf_width + prim_lane],
-                    packet_hit,
+                var center = Point3f32[frame](
+                    block_ptr[unsafe_offset=0 * leaf_width + prim_lane],
+                    block_ptr[unsafe_offset=1 * leaf_width + prim_lane],
+                    block_ptr[unsafe_offset=2 * leaf_width + prim_lane],
                 )
+                var radius = block_ptr[unsafe_offset=3 * leaf_width + prim_lane]
+                comptime if mode == .ANY_HIT:
+                    var live = active & packet_hit.t.ne(0.0)
+                    if live.reduce_or():
+                        _occlude_sphere_packet_primitive[frame, length](
+                            rays,
+                            live,
+                            ray_a,
+                            ray_inv_a,
+                            center,
+                            radius,
+                            packet_hit,
+                        )
+                else:
+                    _trace_sphere_packet_primitive[frame, length](
+                        rays,
+                        active,
+                        ray_a,
+                        ray_inv_a,
+                        prim_idx,
+                        center,
+                        radius,
+                        packet_hit,
+                    )
 
     trace_packet_stack_bounds_bvh[
         frame=frame,
         bounds_width=node_width,
         length=length,
         packed_meta=True,
+        any_hit=mode == .ANY_HIT,
     ](
         nodes,
         rays,
@@ -1093,6 +1439,39 @@ def trace_blas_set_packet[
         lambda (_child_ref: UInt32): None,
     )
     return hit
+
+
+def trace_blas_set_packet[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+    length: SIMDLength,
+    frame: Frame = .LOCAL,
+](
+    blases: CpuBlasSet[.SPHERE, node_width, leaf_width],
+    blas_idx: UInt32,
+    rays: Ray[.float32, frame, length],
+    valid: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
+) -> Hit[frame, length]:
+    return _trace_sphere_blas_set_packet_policy[
+        node_width, leaf_width, length, .CLOSEST_HIT, frame
+    ](blases, blas_idx, rays, valid)
+
+
+def trace_blas_set_packet_any_hit[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+    length: SIMDLength,
+    frame: Frame = .LOCAL,
+](
+    blases: CpuBlasSet[.SPHERE, node_width, leaf_width],
+    blas_idx: UInt32,
+    rays: Ray[.float32, frame, length],
+    valid: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
+) -> SIMD[.bool, length]:
+    var hit = _trace_sphere_blas_set_packet_policy[
+        node_width, leaf_width, length, .ANY_HIT, frame
+    ](blases, blas_idx, rays, valid)
+    return valid & hit.t.eq(0.0)
 
 
 @always_inline

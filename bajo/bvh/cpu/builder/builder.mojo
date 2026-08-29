@@ -10,9 +10,11 @@ from .lbvh import _build_lbvh
 from .types import BoundsBvhNode, BoundsItem
 
 from .sah import (
+    BoundsSplitResult,
     BoundsPartitionResult,
     _calculate_partition_bounds,
     _find_sah_split,
+    _find_sah_split_parallel,
     _partition_items_by_bin,
     _partition_items_by_bin_parallel,
 )
@@ -46,7 +48,9 @@ struct BinaryBoundsBvh[
     var item_count: UInt32
     var nodes_used: UInt32
 
-    def __init__(
+    def __init__[
+        hploc_balance_tasks: Int = 32,
+    ](
         out self,
         var items: List[BoundsItem[Self.frame]],
         root_bounds: AABB[Self.frame] = AABB[Self.frame].invalid(),
@@ -81,6 +85,7 @@ struct BinaryBoundsBvh[
                 Self.leaf_size,
                 Self.method,
                 Self.hploc_microleaf_size,
+                hploc_balance_tasks,
             ](self, centroid_bounds)
 
         elif Self.method == .SAH:
@@ -326,12 +331,22 @@ struct BinaryBoundsBvh[
             var first = Int(node.first_item())
             var count = Int(node.item_count)
             comptime BVH_BINS = 16
-            var split = _find_sah_split[Self.frame, BVH_BINS](
-                node,
-                centroid_bounds,
-                self.item_indices,
-                self.items,
-            )
+            var split: BoundsSplitResult[Self.frame]
+            if parallel_root:
+                split = _find_sah_split_parallel[Self.frame, BVH_BINS](
+                    node,
+                    centroid_bounds,
+                    self.item_indices,
+                    self.items,
+                    _worker_count(count),
+                )
+            else:
+                split = _find_sah_split[Self.frame, BVH_BINS](
+                    node,
+                    centroid_bounds,
+                    self.item_indices,
+                    self.items,
+                )
 
             if split.valid():
                 if parallel_root:

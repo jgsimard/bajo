@@ -8,7 +8,8 @@ from std.time import perf_counter_ns
 from bajo.bvh.constants import TraceMode
 from bajo.bvh.cpu.tlas import CpuTlas
 from bajo.bvh.cpu import CpuBlasSet
-from bajo.core import Rayf32
+from bajo.bvh.types import Instance
+from bajo.core import Point3, Ray, Rayf32, Vec3
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.benchmark.bvh_reporting import TablePrinter
 from bajo.benchmark.timing import TimingSummary, summarize_timings
@@ -69,6 +70,286 @@ def _timed_trace[
     var start = perf_counter_ns()
     _ = _trace[width, leaf_width, mode](tlas, blases, rays)
     return Int(perf_counter_ns() - start)
+
+
+def _trace_packet[
+    width: SIMDLength,
+    length: SIMDLength,
+    simd_normal_transforms: Bool = False,
+](
+    tlas: CpuTlas[width, 1],
+    blases: CpuBlasSet[.TRIANGLE, width],
+    rays: List[Rayf32[.WORLD]],
+) -> TraceChecksum:
+    var distance = Float64(0.0)
+    var hits = UInt64(0)
+    var instances = UInt64(0)
+    for base in range(0, len(rays), length):
+        var ox = SIMD[.float32, length](0.0)
+        var oy = SIMD[.float32, length](0.0)
+        var oz = SIMD[.float32, length](0.0)
+        var dx = SIMD[.float32, length](0.0)
+        var dy = SIMD[.float32, length](0.0)
+        var dz = SIMD[.float32, length](1.0)
+        var t_min = SIMD[.float32, length](0.0)
+        var t_max = SIMD[.float32, length](0.0)
+        var valid = SIMD[.bool, length](fill=False)
+        var lane_count = min(length, len(rays) - base)
+        for lane in range(lane_count):
+            ref ray = rays[base + lane]
+            ox[lane] = ray.o.x
+            oy[lane] = ray.o.y
+            oz[lane] = ray.o.z
+            dx[lane] = ray.d.x
+            dy[lane] = ray.d.y
+            dz[lane] = ray.d.z
+            t_min[lane] = ray.t_min
+            t_max[lane] = ray.t_max
+            valid[lane] = True
+        var packet = Ray[.float32, .WORLD, length](
+            Point3[.float32, .WORLD, length](ox, oy, oz),
+            Vec3[.float32, .WORLD, length](dx, dy, dz),
+            t_min,
+            t_max,
+        )
+        var packet_hit = tlas.trace_blases_packet[
+            width,
+            width,
+            length,
+            simd_normal_transforms,
+        ](packet, blases, valid)
+        for lane in range(lane_count):
+            if packet_hit.is_hit()[lane]:
+                distance += Float64(packet_hit.t[lane])
+                hits += 1
+                instances += UInt64(packet_hit.inst[lane])
+    keep(distance)
+    keep(hits)
+    keep(instances)
+    return TraceChecksum(distance, hits, instances)
+
+
+def _benchmark_packet[
+    width: SIMDLength,
+](
+    tlas: CpuTlas[width, 1],
+    blases: CpuBlasSet[.TRIANGLE, width],
+    rays: List[Rayf32[.WORLD]],
+):
+    comptime length = 16
+    _ = _trace_packet[width, length, False](tlas, blases, rays)
+    _ = _trace_packet[width, length, True](tlas, blases, rays)
+    var scalar_times = List[Int](capacity=PAIRED_REPEATS)
+    var simd_times = List[Int](capacity=PAIRED_REPEATS)
+    for pair in range(PAIRED_REPEATS):
+        var start = perf_counter_ns()
+        if pair % 2 == 0:
+            _ = _trace_packet[width, length, False](tlas, blases, rays)
+            scalar_times.append(Int(perf_counter_ns() - start))
+            start = perf_counter_ns()
+            _ = _trace_packet[width, length, True](tlas, blases, rays)
+            simd_times.append(Int(perf_counter_ns() - start))
+        else:
+            _ = _trace_packet[width, length, True](tlas, blases, rays)
+            simd_times.append(Int(perf_counter_ns() - start))
+            start = perf_counter_ns()
+            _ = _trace_packet[width, length, False](tlas, blases, rays)
+            scalar_times.append(Int(perf_counter_ns() - start))
+    var scalar_summary = summarize_timings(scalar_times)
+    var simd_summary = summarize_timings(simd_times)
+    var scalar_checksum = _trace_packet[width, length, False](
+        tlas, blases, rays
+    )
+    var simd_checksum = _trace_packet[width, length, True](tlas, blases, rays)
+    print("\nPacket TLAS; scalar vs SIMD normal finalization")
+    print(
+        t"scalar median={round(ns_to_ms(scalar_summary.median_ns), 3)} ms, "
+        t"simd median={round(ns_to_ms(simd_summary.median_ns), 3)} ms, "
+        t"delta={round(Float64(simd_summary.median_ns - scalar_summary.median_ns) * 100.0 / Float64(scalar_summary.median_ns), 3)}%"
+    )
+    print(
+        t"scalar hits/checksum/inst={scalar_checksum.hits}/"
+        t"{round(scalar_checksum.distance, 3)}/{scalar_checksum.instances}; "
+        t"simd={simd_checksum.hits}/"
+        t"{round(simd_checksum.distance, 3)}/{simd_checksum.instances}"
+    )
+
+
+def _trace_packet_any_hit_reference[
+    width: SIMDLength,
+    length: SIMDLength,
+](
+    tlas: CpuTlas[width, 1],
+    blases: CpuBlasSet[.TRIANGLE, width],
+    rays: List[Rayf32[.WORLD]],
+) -> UInt64:
+    var hits = UInt64(0)
+    for base in range(0, len(rays), length):
+        var lane_count = min(length, len(rays) - base)
+        for lane in range(lane_count):
+            if tlas.trace_blases[width, width, .ANY_HIT](
+                rays[base + lane], blases
+            ).is_occluded():
+                hits += 1
+    keep(hits)
+    return hits
+
+
+def _trace_packet_any_hit[
+    width: SIMDLength,
+    length: SIMDLength,
+](
+    tlas: CpuTlas[width, 1],
+    blases: CpuBlasSet[.TRIANGLE, width],
+    rays: List[Rayf32[.WORLD]],
+) -> UInt64:
+    var hits = UInt64(0)
+    for base in range(0, len(rays), length):
+        var ox = SIMD[.float32, length](0.0)
+        var oy = SIMD[.float32, length](0.0)
+        var oz = SIMD[.float32, length](0.0)
+        var dx = SIMD[.float32, length](0.0)
+        var dy = SIMD[.float32, length](0.0)
+        var dz = SIMD[.float32, length](1.0)
+        var t_min = SIMD[.float32, length](0.0)
+        var t_max = SIMD[.float32, length](0.0)
+        var valid = SIMD[.bool, length](fill=False)
+        var lane_count = min(length, len(rays) - base)
+        for lane in range(lane_count):
+            ref ray = rays[base + lane]
+            ox[lane] = ray.o.x
+            oy[lane] = ray.o.y
+            oz[lane] = ray.o.z
+            dx[lane] = ray.d.x
+            dy[lane] = ray.d.y
+            dz[lane] = ray.d.z
+            t_min[lane] = ray.t_min
+            t_max[lane] = ray.t_max
+            valid[lane] = True
+        var packet = Ray[.float32, .WORLD, length](
+            Point3[.float32, .WORLD, length](ox, oy, oz),
+            Vec3[.float32, .WORLD, length](dx, dy, dz),
+            t_min,
+            t_max,
+        )
+        var occluded = tlas.trace_blases_packet_any_hit[width, width, length](
+            packet, blases, valid
+        )
+        hits += UInt64(occluded.cast[.uint64]().reduce_add())
+    keep(hits)
+    return hits
+
+
+def _timed_packet_any_hit_reference[
+    width: SIMDLength,
+    length: SIMDLength,
+](
+    tlas: CpuTlas[width, 1],
+    blases: CpuBlasSet[.TRIANGLE, width],
+    rays: List[Rayf32[.WORLD]],
+) -> Int:
+    var start = perf_counter_ns()
+    _ = _trace_packet_any_hit_reference[width, length](tlas, blases, rays)
+    return Int(perf_counter_ns() - start)
+
+
+def _timed_packet_any_hit[
+    width: SIMDLength,
+    length: SIMDLength,
+](
+    tlas: CpuTlas[width, 1],
+    blases: CpuBlasSet[.TRIANGLE, width],
+    rays: List[Rayf32[.WORLD]],
+) -> Int:
+    var start = perf_counter_ns()
+    _ = _trace_packet_any_hit[width, length](tlas, blases, rays)
+    return Int(perf_counter_ns() - start)
+
+
+def _benchmark_packet_any_hit[
+    width: SIMDLength,
+](
+    tlas: CpuTlas[width, 1],
+    blases: CpuBlasSet[.TRIANGLE, width],
+    rays: List[Rayf32[.WORLD]],
+):
+    comptime length = 16
+    _ = _trace_packet_any_hit_reference[width, length](tlas, blases, rays)
+    _ = _trace_packet_any_hit[width, length](tlas, blases, rays)
+    var reference_times = List[Int](capacity=PAIRED_REPEATS)
+    var packet_times = List[Int](capacity=PAIRED_REPEATS)
+    for pair in range(PAIRED_REPEATS):
+        if pair % 2 == 0:
+            reference_times.append(
+                _timed_packet_any_hit_reference[width, length](
+                    tlas, blases, rays
+                )
+            )
+            packet_times.append(
+                _timed_packet_any_hit[width, length](tlas, blases, rays)
+            )
+        else:
+            packet_times.append(
+                _timed_packet_any_hit[width, length](tlas, blases, rays)
+            )
+            reference_times.append(
+                _timed_packet_any_hit_reference[width, length](
+                    tlas, blases, rays
+                )
+            )
+    var reference = summarize_timings(reference_times)
+    var packet = summarize_timings(packet_times)
+    var reference_hits = _trace_packet_any_hit_reference[width, length](
+        tlas, blases, rays
+    )
+    var packet_hits = _trace_packet_any_hit[width, length](tlas, blases, rays)
+    print("\nPacket TLAS any-hit; scalar-per-lane reference vs shared stack")
+    print(
+        t"reference median={round(ns_to_ms(reference.median_ns), 3)} ms,"
+        t" packet16 median={round(ns_to_ms(packet.median_ns), 3)} ms,"
+        t" delta={round(Float64(packet.median_ns - reference.median_ns) * 100.0 / Float64(reference.median_ns), 3)}%,"
+        t" hits={reference_hits}/{packet_hits}"
+    )
+
+
+def _benchmark_refit[
+    width: SIMDLength,
+](instances: List[Instance]) raises:
+    var tlas = CpuTlas[width, 1](instances)
+    tlas.refit(instances)
+    var warm_rebuild = CpuTlas[width, 1](instances)
+    keep(warm_rebuild.bounds().surface_area())
+
+    var rebuild_times = List[Int](capacity=PAIRED_REPEATS)
+    var refit_times = List[Int](capacity=PAIRED_REPEATS)
+    for pair in range(PAIRED_REPEATS):
+        if pair % 2 == 0:
+            var start = perf_counter_ns()
+            var rebuilt = CpuTlas[width, 1](instances)
+            rebuild_times.append(Int(perf_counter_ns() - start))
+            keep(rebuilt.bounds().surface_area())
+            start = perf_counter_ns()
+            tlas.refit(instances)
+            refit_times.append(Int(perf_counter_ns() - start))
+        else:
+            var start = perf_counter_ns()
+            tlas.refit(instances)
+            refit_times.append(Int(perf_counter_ns() - start))
+            start = perf_counter_ns()
+            var rebuilt = CpuTlas[width, 1](instances)
+            rebuild_times.append(Int(perf_counter_ns() - start))
+            keep(rebuilt.bounds().surface_area())
+
+    var rebuild = summarize_timings(rebuild_times)
+    var refit = summarize_timings(refit_times)
+    print(
+        "\nDynamic TLAS update; full LBVH rebuild vs topology-preserving refit"
+    )
+    print(
+        t"rebuild median={round(ns_to_ms(rebuild.median_ns), 6)} ms, "
+        t"refit median={round(ns_to_ms(refit.median_ns), 6)} ms, "
+        t"delta={round(Float64(refit.median_ns - rebuild.median_ns) * 100.0 / Float64(rebuild.median_ns), 3)}%"
+    )
 
 
 def _print_row(
@@ -207,6 +488,7 @@ def run_benchmark() raises:
         t"build leaf1/native: {round(ns_to_ms(leaf1_build_ns), 3)} / "
         t"{round(ns_to_ms(native_build_ns), 3)} ms"
     )
+    _benchmark_refit[width](world.scene_data().triangle_instances())
     _benchmark_mode[width, .CLOSEST_HIT](
         "Primary closest-hit",
         tlas_leaf1,
@@ -220,6 +502,12 @@ def run_benchmark() raises:
         tlas_native,
         world.triangle_mesh_blases.value(),
         rays,
+    )
+    _benchmark_packet[width](
+        tlas_leaf1, world.triangle_mesh_blases.value(), rays
+    )
+    _benchmark_packet_any_hit[width](
+        tlas_leaf1, world.triangle_mesh_blases.value(), rays
     )
 
 

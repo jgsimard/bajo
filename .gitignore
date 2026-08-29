@@ -215,6 +215,7 @@ __marimo__/
 scrap.mojo
 scratch.md
 *.txt
+!bench/bvh/nexusbvh/CMakeLists.txt
 
 *kgen.trace.json.time-events.txt
 *kgen.trace.json.time-trace
@@ -242,3 +243,4 @@ bench_tinybvh
 # benchmarks results
 bench/results/bvh_cpu/bvh_cpu_*
 bench/results/bvh_cpu/latest*
+*_log.md

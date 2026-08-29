@@ -634,6 +634,7 @@ def trace_bounds_bvh_from_ref[
     single_child_fast_path: Bool = False,
     terminal_mask_fast_path: Bool = False,
     packed_meta: Bool = False,
+    mode: TraceMode = .CLOSEST_HIT,
 ](
     nodes: ImmSpan[WideBvhNode[frame, bounds_width], _],
     ray: Rayf32[frame],
@@ -641,14 +642,14 @@ def trace_bounds_bvh_from_ref[
     initial_hit: Hit[frame],
     ref leaf_fn: LeafFn,
 ) -> Hit[frame]:
-    """Continue closest-hit traversal at one tagged subtree reference."""
+    """Continue traversal at one tagged internal subtree reference."""
 
     var zero = SIMD[.float32, leaf_width](0.0)
     return _trace_bounds_bvh_octant[
         frame=frame,
         bounds_width=bounds_width,
         leaf_width=leaf_width,
-        mode=.CLOSEST_HIT,
+        mode=mode,
         leaf_uses_rcp_direction=False,
         single_child_fast_path=single_child_fast_path,
         terminal_mask_fast_path=terminal_mask_fast_path,

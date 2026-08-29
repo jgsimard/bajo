@@ -703,6 +703,26 @@ def _collect_hploc_frontier(
     _collect_hploc_frontier(pairs, split + 1, last, depth - 1, frontier)
 
 
+def _collect_hploc_count_balanced_frontier(
+    pairs: ImmSpan[MortonItem, _],
+    first: Int,
+    last: Int,
+    target_count: Int,
+    mut frontier: List[_HplocFrontierTask],
+):
+    """Cut the Morton guide tree when a task reaches the target item count."""
+    if last - first + 1 <= target_count:
+        frontier.append(_HplocFrontierTask(first, last))
+        return
+    var split = _lbvh_find_split(pairs, first, last)
+    _collect_hploc_count_balanced_frontier(
+        pairs, first, split, target_count, frontier
+    )
+    _collect_hploc_count_balanced_frontier(
+        pairs, split + 1, last, target_count, frontier
+    )
+
+
 def _finish_hploc_frontier_ancestors[
     frame: Frame
 ](
@@ -768,9 +788,76 @@ def _finish_hploc_frontier_ancestors[
     )
 
 
+def _finish_hploc_count_balanced_ancestors[
+    frame: Frame
+](
+    mut nodes: List[HplocNode[frame]],
+    pairs: ImmSpan[MortonItem, _],
+    cluster_indices: MutSpan[UInt32, _],
+    first: Int,
+    last: Int,
+    frontier: ImmSpan[_HplocFrontierTask, _],
+    frontier_counts: ImmSpan[Int, _],
+    mut frontier_cursor: Int,
+    mut stats: HplocStats,
+    mut next_node: List[UInt32],
+) -> Int:
+    ref next_task = frontier.unsafe_get(frontier_cursor)
+    if next_task.first == first and next_task.last == last:
+        var count = frontier_counts.unsafe_get(frontier_cursor)
+        frontier_cursor += 1
+        return count
+
+    var split = _lbvh_find_split(pairs, first, last)
+    var left_count = _finish_hploc_count_balanced_ancestors(
+        nodes,
+        pairs,
+        cluster_indices,
+        first,
+        split,
+        frontier,
+        frontier_counts,
+        frontier_cursor,
+        stats,
+        next_node,
+    )
+    var right_count = _finish_hploc_count_balanced_ancestors(
+        nodes,
+        pairs,
+        cluster_indices,
+        split + 1,
+        last,
+        frontier,
+        frontier_counts,
+        frontier_cursor,
+        stats,
+        next_node,
+    )
+
+    for i in range(right_count):
+        cluster_indices.unsafe_get(
+            first + left_count + i
+        ) = cluster_indices.unsafe_get(split + 1 + i)
+
+    var final = first == 0 and last == len(pairs) - 1
+    var threshold = 1 if final else HPLOC_MERGING_THRESHOLD
+    return _reduce_clusters[frame, False, False](
+        nodes,
+        cluster_indices,
+        first,
+        left_count + right_count,
+        threshold,
+        HPLOC_SEARCH_RADIUS,
+        final,
+        stats,
+        next_node,
+    )
+
+
 def _finish_hploc_topology[
     frame: Frame,
     build_metadata: Bool,
+    balance_tasks: Int = 0,
 ](
     var nodes: List[HplocNode[frame]],
     pairs: ImmSpan[MortonItem, _],
@@ -799,15 +886,26 @@ def _finish_hploc_topology[
     else:
         if leaf_count >= PARALLEL_HPLOC_MIN_ITEMS:
             var frontier = List[_HplocFrontierTask](
-                capacity=_PARALLEL_HPLOC_FRONTIER_CAPACITY
+                capacity=(
+                    _PARALLEL_HPLOC_FRONTIER_CAPACITY if balance_tasks
+                    == 0 else balance_tasks * 2
+                )
             )
-            _collect_hploc_frontier(
-                pairs,
-                0,
-                leaf_count - 1,
-                PARALLEL_HPLOC_FRONTIER_DEPTH,
-                frontier,
-            )
+            comptime if balance_tasks > 0:
+                var target_count = (
+                    leaf_count + balance_tasks - 1
+                ) // balance_tasks
+                _collect_hploc_count_balanced_frontier(
+                    pairs, 0, leaf_count - 1, target_count, frontier
+                )
+            else:
+                _collect_hploc_frontier(
+                    pairs,
+                    0,
+                    leaf_count - 1,
+                    PARALLEL_HPLOC_FRONTIER_DEPTH,
+                    frontier,
+                )
             var frontier_counts = List[Int](capacity=len(frontier))
             frontier_counts.resize(unsafe_uninit_length=len(frontier))
 
@@ -839,18 +937,32 @@ def _finish_hploc_topology[
             var task_count = len(frontier)
             parallelize(worker, task_count, _worker_count(task_count))
             var frontier_cursor = 0
-            root_count = _finish_hploc_frontier_ancestors(
-                nodes,
-                pairs,
-                cluster_indices,
-                0,
-                leaf_count - 1,
-                PARALLEL_HPLOC_FRONTIER_DEPTH,
-                frontier_counts,
-                frontier_cursor,
-                stats,
-                next_node,
-            )
+            comptime if balance_tasks > 0:
+                root_count = _finish_hploc_count_balanced_ancestors(
+                    nodes,
+                    pairs,
+                    cluster_indices,
+                    0,
+                    leaf_count - 1,
+                    frontier,
+                    frontier_counts,
+                    frontier_cursor,
+                    stats,
+                    next_node,
+                )
+            else:
+                root_count = _finish_hploc_frontier_ancestors(
+                    nodes,
+                    pairs,
+                    cluster_indices,
+                    0,
+                    leaf_count - 1,
+                    PARALLEL_HPLOC_FRONTIER_DEPTH,
+                    frontier_counts,
+                    frontier_cursor,
+                    stats,
+                    next_node,
+                )
         else:
             root_count = _build_hploc_range[frame, False, False](
                 nodes,
@@ -1135,6 +1247,7 @@ def _build_hploc[
     leaf_size: Int,
     method: CpuBvhBuildMethod,
     microleaf_size: Int,
+    balance_tasks: Int,
 ](
     mut builder: BinaryBoundsBvh[frame, leaf_size, method, microleaf_size],
     precomputed_centroid_bounds: AABB[frame],
@@ -1156,7 +1269,7 @@ def _build_hploc[
                     UInt32(1),
                 )
             )
-        topology = _finish_hploc_topology[frame, False](
+        topology = _finish_hploc_topology[frame, False, balance_tasks](
             topology_nodes^,
             pairs,
             HPLOC_SEARCH_RADIUS,
@@ -1193,7 +1306,7 @@ def _build_hploc[
             guide_pairs.append(
                 MortonItem(pairs[representative].code, UInt32(microleaf_idx))
             )
-        topology = _finish_hploc_topology[frame, False](
+        topology = _finish_hploc_topology[frame, False, balance_tasks](
             topology_nodes^,
             guide_pairs,
             HPLOC_SEARCH_RADIUS,

@@ -155,6 +155,105 @@ def _find_sah_split[
     return best^
 
 
+def _find_sah_split_parallel[
+    frame: Frame, BVH_BINS: Int
+](
+    node: BoundsBvhNode,
+    centroid_bounds: AABB[frame],
+    indices: ImmSpan[UInt32, _],
+    items: ImmSpan[BoundsItem[frame], _],
+    worker_count: Int,
+) -> BoundsSplitResult[frame]:
+    """Build a root SAH histogram in parallel, then reduce it deterministically.
+    """
+    var first = Int(node.first_item())
+    var count = Int(node.item_count)
+    var bin_min = centroid_bounds._min
+    var centroid_extent = centroid_bounds.extent()
+    var bin_scale = centroid_extent
+    comptime for axis in range(3):
+        if centroid_extent[axis] > 0.0:
+            bin_scale.set_axis[axis](Float32(BVH_BINS) / centroid_extent[axis])
+        else:
+            bin_scale.set_axis[axis](0.0)
+
+    comptime bins_per_worker = 3 * BVH_BINS
+    var partial_bins = List[BoundsBin[frame]](
+        length=worker_count * bins_per_worker,
+        fill=BoundsBin[frame](),
+    )
+
+    def worker(task_idx: Int) {imm, mut partial_bins}:
+        var chunk_first = count * task_idx // worker_count
+        var chunk_end = count * (task_idx + 1) // worker_count
+        var worker_base = task_idx * bins_per_worker
+        for offset in range(chunk_first, chunk_end):
+            var item_idx = Int(indices.unsafe_get(first + offset))
+            ref item = items.unsafe_get(item_idx)
+            var centroid = item.centroid
+            comptime for axis in range(3):
+                if centroid_extent[axis] > 0.0:
+                    var b_idx = _centroid_bin[BVH_BINS](
+                        centroid[axis], bin_min[axis], bin_scale[axis]
+                    )
+                    ref bin = partial_bins[
+                        worker_base + axis * BVH_BINS + b_idx
+                    ]
+                    bin.item_count += 1
+                    item.grow_into(bin.bounds)
+
+    parallelize(worker, worker_count, worker_count)
+
+    var bins = Array[BoundsBin[frame], bins_per_worker](fill=BoundsBin[frame]())
+    for worker_idx in range(worker_count):
+        var worker_base = worker_idx * bins_per_worker
+        comptime for flat_idx in range(bins_per_worker):
+            ref partial = partial_bins[worker_base + flat_idx]
+            bins[flat_idx].item_count += partial.item_count
+            bins[flat_idx].bounds.grow(partial.bounds)
+
+    var best = BoundsSplitResult[frame]()
+    comptime for axis in range(3):
+        if centroid_extent[axis] == 0.0:
+            continue
+        var axis_base = axis * BVH_BINS
+        var left_prefix = Array[BoundsBin[frame], BVH_BINS](
+            fill=BoundsBin[frame]()
+        )
+        var left_box = AABB[frame].invalid()
+        var left_count = UInt32(0)
+        for i in range(BVH_BINS - 1):
+            ref bin = bins[axis_base + i]
+            left_count += bin.item_count
+            left_box.grow(bin.bounds)
+            left_prefix[i].item_count = left_count
+            left_prefix[i].bounds = left_box
+
+        var right_box = AABB[frame].invalid()
+        var right_count = UInt32(0)
+        for i in range(BVH_BINS - 1, 0, -1):
+            ref bin = bins[axis_base + i]
+            right_count += bin.item_count
+            right_box.grow(bin.bounds)
+            var split_bin = i - 1
+            var left = left_prefix[split_bin]
+            if left.item_count == 0 or right_count == 0:
+                continue
+            var cost = left.bounds.surface_area()[0] * Float32(
+                left.item_count
+            ) + right_box.surface_area()[0] * Float32(right_count)
+            if cost < best.cost:
+                best.axis = axis
+                best.bin = split_bin
+                best.cost = cost
+                best.pos = (
+                    bin_min[axis] + Float32(split_bin + 1) / bin_scale[axis]
+                )
+                best.bin_min = bin_min[axis]
+                best.bin_scale = bin_scale[axis]
+    return best^
+
+
 def _centroid_bin[
     BVH_BINS: Int
 ](centroid: Float32, bin_min: Float32, bin_scale: Float32) -> Int:

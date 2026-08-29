@@ -78,7 +78,7 @@ def _trace_path[
                 )
                 radiance += throughput * emission * emission_weight
                 return radiance
-            comptime if integrator != .PATH:
+            comptime if Integrator.uses_direct_lighting[integrator]:
                 var light_rng = path_stage_rng(
                     sampling,
                     path_id,
@@ -238,11 +238,9 @@ def render_depth_first[
     "tile height must be positive",
 ):
     """Render depth-first using compile-time tile and scheduling choices."""
-    comptime assert scheduler_mode in (
-        CpuSchedulerMode.RUNTIME_DEFAULT,
-        CpuSchedulerMode.LOGICAL_CORES,
-        CpuSchedulerMode.TASK_PARTITIONS,
-    ), "unknown scheduler mode"
+    comptime assert CpuSchedulerMode.is_valid[
+        scheduler_mode
+    ], "unknown scheduler mode"
 
     var total_t0 = perf_counter_ns()
     var pixel_count = settings.image_width * settings.image_height

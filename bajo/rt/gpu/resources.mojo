@@ -269,7 +269,7 @@ def enqueue_gpu_wavefront[
                 enqueue_wavefront_advance(ctx, target.arena)
         else:
             if (
-                integrator in (Integrator.NEE, Integrator.MIS)
+                Integrator.uses_direct_lighting[integrator]
                 and settings.max_depth == 0
             ):
                 _enqueue_gpu_primary[integrator](
@@ -295,10 +295,7 @@ def enqueue_gpu_wavefront[
                     sampling,
                 )
                 enqueue_wavefront_advance(ctx, target.arena)
-                comptime if integrator not in (
-                    Integrator.NORMALS,
-                    Integrator.AO,
-                ):
+                comptime if Integrator.is_path_tracing[integrator]:
                     for bounce in range(1, settings.max_depth):
                         if bounce % 2 == 0:
                             bounce_fn(

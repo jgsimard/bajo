@@ -70,7 +70,7 @@ def load_gpu_rt_path[
             )
         ]
     var delta = True
-    comptime if integrator in (Integrator.NEE, Integrator.MIS):
+    comptime if Integrator.uses_direct_lighting[integrator]:
         delta = (packed_path_id & WAVE_PATH_DELTA_BIT) != 0
     return DeviceWavePath(
         packed_path_id & WAVE_PATH_ID_MASK,
@@ -127,7 +127,7 @@ def store_gpu_rt_path[
     """Store only the path planes consumed by one compile-time integrator."""
     comptime assert integrator.is_valid()
     var packed_path_id = path.path_id & WAVE_PATH_ID_MASK
-    comptime if integrator in (Integrator.NEE, Integrator.MIS):
+    comptime if Integrator.uses_direct_lighting[integrator]:
         if path.delta:
             packed_path_id |= WAVE_PATH_DELTA_BIT
     path_ids[unsafe_offset=idx] = packed_path_id

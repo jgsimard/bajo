@@ -257,7 +257,7 @@ def _sample_direct_light_candidate[
     sampling: SamplingConfig,
     bounce: UInt32,
 ) -> GpuDirectLightSample:
-    comptime assert integrator in (Integrator.NEE, Integrator.MIS)
+    comptime assert Integrator.uses_direct_lighting[integrator]
     comptime assert light_kind in (
         PrimitiveKind.UNKNOWN,
         PrimitiveKind.SPHERE,
@@ -670,11 +670,7 @@ def _gpu_rt_shade_one[
     sampling: SamplingConfig,
     bounce: UInt32,
 ):
-    comptime assert MATERIAL_KIND in (
-        MaterialKind.LAMBERTIAN,
-        MaterialKind.METAL,
-        MaterialKind.DIELECTRIC,
-    )
+    comptime assert MaterialKind.has_bsdf[MATERIAL_KIND]
     var capacity = Int(capacity_i32)
     var work = load_device_wave_shade(
         shade_path_refs,

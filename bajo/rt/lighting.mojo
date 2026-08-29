@@ -167,7 +167,7 @@ def _direct_light_scale[
     bsdf_pdf: SIMD[.float32, length],
     valid: SIMD[.bool, length],
 ) -> SIMD[.float32, length]:
-    comptime assert integrator in (Integrator.NEE, Integrator.MIS)
+    comptime assert Integrator.uses_direct_lighting[integrator]
     var ok = valid & light_pdf.gt(0.0) & bsdf_pdf.gt(0.0)
     var safe_light_pdf = ok.select(light_pdf, Float32(1.0))
     var estimator_weight = SIMD[.float32, length](1.0)

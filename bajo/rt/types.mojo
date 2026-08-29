@@ -30,6 +30,11 @@ struct MaterialKind(Equatable, TrivialRegisterPassable, Writable):
     comptime METAL = Self(1)
     comptime DIELECTRIC = Self(2)
     comptime EMISSIVE = Self(3)
+    comptime has_bsdf[kind: Self] = (
+        kind.value == Self.LAMBERTIAN.value
+        or kind.value == Self.METAL.value
+        or kind.value == Self.DIELECTRIC.value
+    )
 
 
 comptime SURFACE_KIND_BITS = UInt32(4)
@@ -54,6 +59,13 @@ struct Integrator(Equatable, TrivialRegisterPassable, Writable):
         integrator.value == Self.PATH.value
         or integrator.value == Self.NEE.value
         or integrator.value == Self.MIS.value
+    )
+    comptime uses_direct_lighting[integrator: Self] = (
+        integrator.value == Self.NEE.value or integrator.value == Self.MIS.value
+    )
+    comptime uses_visibility[integrator: Self] = (
+        integrator.value == Self.AO.value
+        or Self.uses_direct_lighting[integrator]
     )
 
     def is_valid(self) -> Bool:

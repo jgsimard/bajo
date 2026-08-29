@@ -214,7 +214,7 @@ def sample_direct_lighting[
     mut rng: Rng,
 ) -> Color:
     """Sample direct illumination and apply the scalar reference BSDF."""
-    comptime assert integrator in (Integrator.NEE, Integrator.MIS)
+    comptime assert Integrator.uses_direct_lighting[integrator]
     var light = _sample_direct_light(world, point, rng)
     if not light.valid:
         return Color(0.0)

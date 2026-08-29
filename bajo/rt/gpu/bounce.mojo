@@ -93,7 +93,7 @@ def _enqueue_primary_trace_by_light_kind[
     sampling: SamplingConfig,
     blocks: Int,
 ) raises:
-    comptime if integrator in (Integrator.NEE, Integrator.MIS):
+    comptime if Integrator.uses_direct_lighting[integrator]:
         if uniform_sampling_kind == .SPHERE:
             _enqueue_primary_trace[
                 integrator,
@@ -325,7 +325,7 @@ def enqueue_gpu_rt_bounce[
         dst_path_ids,
         dst_path_fields,
     )
-    comptime if integrator in (Integrator.NEE, Integrator.MIS):
+    comptime if Integrator.uses_direct_lighting[integrator]:
         if uniform_sampling_kind == .SPHERE:
             ctx.enqueue_function[
                 gpu_rt_scene_trace_kernel[

@@ -108,11 +108,9 @@ def render_wavefront_configured[
     comptime assert CHUNK_PATHS > 0, "wavefront chunk size must be positive"
     comptime assert Integrator.is_path_tracing[integrator]
     comptime if PARALLEL:
-        comptime assert scheduler_mode in (
-            CpuSchedulerMode.RUNTIME_DEFAULT,
-            CpuSchedulerMode.LOGICAL_CORES,
-            CpuSchedulerMode.TASK_PARTITIONS,
-        ), "unknown parallel wavefront scheduler mode"
+        comptime assert CpuSchedulerMode.is_valid[
+            scheduler_mode
+        ], "unknown parallel wavefront scheduler mode"
 
     var total_t0 = perf_counter_ns()
     var pixel_count = settings.image_width * settings.image_height

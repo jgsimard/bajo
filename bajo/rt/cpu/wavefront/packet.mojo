@@ -91,7 +91,7 @@ def _accumulate_direct_light_packet[
     samples_per_pixel: Int,
 ):
     """Evaluate collected NEE candidates with packet-wide BSDF and MIS math."""
-    comptime assert integrator in (Integrator.NEE, Integrator.MIS)
+    comptime assert Integrator.uses_direct_lighting[integrator]
     var ray_direction = Vec3[.float32, .WORLD, length](
         paths.dx, paths.dy, paths.dz
     )
@@ -159,11 +159,7 @@ def _sample_bsdf_batch[
     stage: UInt32,
 ) -> ScatterBatch[length]:
     """Gather material/RNG state, then sample with BSDF math."""
-    comptime assert MATERIAL_KIND in (
-        MaterialKind.LAMBERTIAN,
-        MaterialKind.METAL,
-        MaterialKind.DIELECTRIC,
-    )
+    comptime assert MaterialKind.has_bsdf[MATERIAL_KIND]
     var ray_direction = Vec3[.float32, .WORLD, length](
         batch.dx, batch.dy, batch.dz
     )
@@ -386,7 +382,7 @@ def _trace_path_packets[
                         )
                         continue
 
-                    comptime if integrator != .PATH:
+                    comptime if Integrator.uses_direct_lighting[integrator]:
                         var point = ShadingPoint(
                             ray.o + hit.t * ray.d,
                             hit.normal,
@@ -452,7 +448,7 @@ def _trace_path_packets[
                 else:
                     misses[lane] = True
 
-            comptime if integrator != .PATH:
+            comptime if Integrator.uses_direct_lighting[integrator]:
                 var shadow_rays = Ray[.float32, .WORLD, length](
                     direct_lights.point.p,
                     direct_lights.sample.direction,

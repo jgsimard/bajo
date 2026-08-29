@@ -285,7 +285,7 @@ def _gpu_rt_scene_trace_path[
         )
         return
 
-    comptime if integrator in (Integrator.NEE, Integrator.MIS):
+    comptime if Integrator.uses_direct_lighting[integrator]:
         var direct = _sample_direct_light_candidate[integrator, light_kind](
             path,
             ray,
@@ -572,11 +572,7 @@ def _gpu_rt_shadow_one[
     tlas_format: GpuRtBvhFormat,
     blas_format: GpuRtBvhFormat,
 ](idx: Int, scene: GpuRtSceneView, queues: GpuRtTraceQueueView):
-    comptime assert integrator in (
-        Integrator.AO,
-        Integrator.NEE,
-        Integrator.MIS,
-    )
+    comptime assert Integrator.uses_visibility[integrator]
     var counters = queues.counters.unsafe_origin_cast[MutAnyOrigin]()
     var capacity = Int(queues.capacity)
     var path_ids = queues.shadow_path_ids.unsafe_mut_cast[
@@ -660,7 +656,7 @@ def enqueue_gpu_shadows[
     capacity: Int,
 ) raises:
     """Submit the compact visibility stage when the integrator needs it."""
-    comptime if integrator in (Integrator.AO, Integrator.NEE, Integrator.MIS):
+    comptime if Integrator.uses_visibility[integrator]:
         ctx.enqueue_function[
             gpu_rt_shadow_kernel[
                 integrator,

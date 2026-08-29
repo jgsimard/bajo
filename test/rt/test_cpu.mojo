@@ -25,6 +25,7 @@ from bajo.core.random import Rng, Sampler, _sobol_bits, _sz_bits
 from bajo.rt import (
     Color,
     Dielectric,
+    Integrator,
     Instance,
     Lambertian,
     LightRecord,
@@ -918,6 +919,14 @@ def test_world_occluded_covers_all_geometry_and_ray_interval() raises:
             )
         )
     )
+
+
+def test_integrator_path_tracing_classification() raises:
+    comptime assert Integrator.is_path_tracing[Integrator.PATH]
+    comptime assert Integrator.is_path_tracing[Integrator.NEE]
+    comptime assert Integrator.is_path_tracing[Integrator.MIS]
+    comptime assert not Integrator.is_path_tracing[Integrator.NORMALS]
+    comptime assert not Integrator.is_path_tracing[Integrator.AO]
 
 
 def test_render_settings_and_tiny_render() raises:

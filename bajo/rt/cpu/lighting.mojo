@@ -82,11 +82,7 @@ def _emissive_hit_weight[
     previous_bsdf_pdf: Float32,
     previous_delta: Bool,
 ) -> Float32:
-    comptime assert integrator in (
-        Integrator.PATH,
-        Integrator.NEE,
-        Integrator.MIS,
-    )
+    comptime assert Integrator.is_path_tracing[integrator]
     comptime if integrator == .NEE:
         if bounce > 0 and not previous_delta:
             return 0.0

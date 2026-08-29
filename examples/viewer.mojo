@@ -357,9 +357,7 @@ def _render_frame[
         )
         var t0 = perf_counter_ns()
         var t1: Int
-        comptime if (
-            integrator == .PATH or integrator == .NEE or integrator == .MIS
-        ):
+        comptime if Integrator.is_path_tracing[integrator]:
             var result = render_wavefront_configured[
                 traversal_mode,
                 integrator,

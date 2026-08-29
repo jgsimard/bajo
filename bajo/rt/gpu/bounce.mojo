@@ -279,7 +279,7 @@ def enqueue_gpu_rt_primary_bounce[
         blas_format,
         SHADOW_MAX_BLOCKS,
     ](ctx, scene, queues, arena.capacity)
-    comptime if integrator in (Integrator.PATH, Integrator.NEE, Integrator.MIS):
+    comptime if Integrator.is_path_tracing[integrator]:
         _enqueue_material_shading[integrator, MAX_BLOCKS](
             ctx,
             arena,
@@ -411,7 +411,7 @@ def enqueue_gpu_rt_bounce[
         blas_format,
         SHADOW_MAX_BLOCKS,
     ](ctx, scene, queues, arena.capacity)
-    comptime if integrator in (Integrator.PATH, Integrator.NEE, Integrator.MIS):
+    comptime if Integrator.is_path_tracing[integrator]:
         _enqueue_material_shading[integrator, MAX_BLOCKS](
             ctx,
             arena,

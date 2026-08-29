@@ -249,11 +249,7 @@ def _gpu_rt_scene_trace_path[
             ]
 
     if not found:
-        comptime if integrator in (
-            Integrator.PATH,
-            Integrator.NEE,
-            Integrator.MIS,
-        ):
+        comptime if Integrator.is_path_tracing[integrator]:
             _accumulate_sample(
                 sample_radiance,
                 capacity,

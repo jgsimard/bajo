@@ -106,11 +106,7 @@ def render_wavefront_configured[
 ) -> RenderResult:
     """Render with compile-time packet, chunk, and CPU scheduling choices."""
     comptime assert CHUNK_PATHS > 0, "wavefront chunk size must be positive"
-    comptime assert integrator in (
-        Integrator.PATH,
-        Integrator.NEE,
-        Integrator.MIS,
-    )
+    comptime assert Integrator.is_path_tracing[integrator]
     comptime if PARALLEL:
         comptime assert scheduler_mode in (
             CpuSchedulerMode.RUNTIME_DEFAULT,

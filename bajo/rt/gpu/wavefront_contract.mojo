@@ -46,7 +46,7 @@ def load_gpu_rt_path[
     var tx = Float32(1.0)
     var ty = Float32(1.0)
     var tz = Float32(1.0)
-    comptime if integrator in (Integrator.PATH, Integrator.NEE, Integrator.MIS):
+    comptime if Integrator.is_path_tracing[integrator]:
         tx = fields[
             unsafe_offset=wavefront_plane_index(
                 WavePathFloatAbi.TX, capacity, idx
@@ -149,7 +149,7 @@ def store_gpu_rt_path[
     fields[
         unsafe_offset=wavefront_plane_index(WavePathFloatAbi.DZ, capacity, idx)
     ] = path.dz
-    comptime if integrator in (Integrator.PATH, Integrator.NEE, Integrator.MIS):
+    comptime if Integrator.is_path_tracing[integrator]:
         fields[
             unsafe_offset=wavefront_plane_index(
                 WavePathFloatAbi.TX, capacity, idx

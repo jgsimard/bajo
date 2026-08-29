@@ -34,7 +34,10 @@ def run_schedule[
     TILE_WIDTH: Int, TILE_HEIGHT: Int, scheduler_mode: CpuSchedulerMode
 ](settings: RenderSettings, camera: Camera, world: CpuScene[]) -> Tuple[
     Int, Float64
-]:
+] where (TILE_WIDTH > 0, "tile width must be positive") where (
+    TILE_HEIGHT > 0,
+    "tile height must be positive",
+):
     var result = render_depth_first[
         .PATH,
         TILE_WIDTH,
@@ -52,6 +55,9 @@ def record_schedule[
     settings: RenderSettings,
     camera: Camera,
     world: CpuScene[],
+) where (TILE_WIDTH > 0, "tile width must be positive") where (
+    TILE_HEIGHT > 0,
+    "tile height must be positive",
 ):
     var sample = run_schedule[TILE_WIDTH, TILE_HEIGHT, scheduler_mode](
         settings, camera, world

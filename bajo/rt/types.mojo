@@ -50,6 +50,11 @@ struct Integrator(Equatable, TrivialRegisterPassable, Writable):
     comptime AO = Self(2)
     comptime NEE = Self(3)
     comptime MIS = Self(4)
+    comptime is_path_tracing[integrator: Self] = (
+        integrator.value == Self.PATH.value
+        or integrator.value == Self.NEE.value
+        or integrator.value == Self.MIS.value
+    )
 
     def is_valid(self) -> Bool:
         return self in (

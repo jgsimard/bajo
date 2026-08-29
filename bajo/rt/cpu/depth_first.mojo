@@ -52,13 +52,7 @@ def _trace_path[
     world: CpuScene[world_bvh_width, instance_bvh_width],
     ray: Rayf32[.WORLD],
     path_id: UInt32,
-) -> Color:
-    comptime assert integrator in (
-        Integrator.PATH,
-        Integrator.NEE,
-        Integrator.MIS,
-    )
-
+) -> Color where Integrator.is_path_tracing[integrator]:
     var cur_ray = ray
     var throughput = Color(1.0)
     var radiance = Color(0.0)
@@ -236,10 +230,14 @@ def render_depth_first[
     settings: RenderSettings,
     camera: Camera,
     world: CpuScene[world_bvh_width, instance_bvh_width],
-) -> RenderResult:
+) -> RenderResult where (
+    TILE_WIDTH > 0,
+    "tile width must be positive",
+) where (
+    TILE_HEIGHT > 0,
+    "tile height must be positive",
+):
     """Render depth-first using compile-time tile and scheduling choices."""
-    comptime assert TILE_WIDTH > 0, "tile width must be positive"
-    comptime assert TILE_HEIGHT > 0, "tile height must be positive"
     comptime assert scheduler_mode in (
         CpuSchedulerMode.RUNTIME_DEFAULT,
         CpuSchedulerMode.LOGICAL_CORES,

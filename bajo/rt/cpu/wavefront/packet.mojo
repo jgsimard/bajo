@@ -317,11 +317,7 @@ def _trace_path_packets[
     mut metal_queue: PacketShadeQueue[length],
     mut dielectric_queue: PacketShadeQueue[length],
 ):
-    comptime assert integrator in (
-        Integrator.PATH,
-        Integrator.NEE,
-        Integrator.MIS,
-    )
+    comptime assert Integrator.is_path_tracing[integrator]
     var sampling = sampling_config(settings)
     for bounce in range(settings.max_depth):
         if len(active_paths) == 0:

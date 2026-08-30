@@ -39,7 +39,9 @@ def _render_configuration[
     length: SIMDLength = 1,
     scheduler_mode: CpuSchedulerMode = .TASK_PARTITIONS,
     PARALLEL: Bool = True,
-](settings: RenderSettings, camera: Camera, world: CpuScene[]) -> RenderResult:
+](
+    settings: RenderSettings, camera: Camera, world: CpuScene[]
+) raises -> RenderResult:
     return render_wavefront[
         .PATH,
         length,
@@ -60,7 +62,7 @@ def _record[
     settings: RenderSettings,
     camera: Camera,
     world: CpuScene[],
-):
+) raises:
     var result = _render_configuration[
         CHUNK_PATHS, length, scheduler_mode, PARALLEL
     ](settings, camera, world)
@@ -87,7 +89,7 @@ def _print(label: String, timing: Timing, serial: Timing):
 
 def benchmark_world(
     label: String, settings: RenderSettings, camera: Camera, world: CpuScene[]
-):
+) raises:
     print(t"\n{label}")
     var warmup = _render_configuration[
         CPU_WAVEFRONT_SERIAL_CHUNK_PATHS,

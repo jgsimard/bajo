@@ -48,6 +48,7 @@ def _trace_path[
     instance_bvh_width: SIMDLength,
 ](
     settings: RenderSettings,
+    sampling: SamplingConfig,
     world: CpuScene[world_bvh_width, instance_bvh_width],
     ray: Rayf32[.WORLD],
     path_id: UInt32,
@@ -57,8 +58,6 @@ def _trace_path[
     var radiance = Color(0.0)
     var previous_delta = True
     var previous_bsdf_pdf = Float32(0.0)
-    var sampling = SamplingConfig.from_settings(settings)
-
     for _bounce in range(settings.max_depth):
         var hit = world.trace_surface(cur_ray)
         if hit.hit:
@@ -162,28 +161,27 @@ def _trace_integrator[
     instance_bvh_width: SIMDLength,
 ](
     settings: RenderSettings,
+    sampling: SamplingConfig,
     world: CpuScene[world_bvh_width, instance_bvh_width],
     ray: Rayf32[.WORLD],
     path_id: UInt32,
 ) -> Color:
     comptime if integrator == .PATH:
         return _trace_path[.PATH, world_bvh_width, instance_bvh_width](
-            settings, world, ray, path_id
+            settings, sampling, world, ray, path_id
         )
     elif integrator == .NORMALS:
         return _trace_normals(world, ray)
     elif integrator == .AO:
-        var ao_rng = path_stage_rng(
-            SamplingConfig.from_settings(settings), path_id, UInt32(1)
-        )
+        var ao_rng = path_stage_rng(sampling, path_id, UInt32(1))
         return _trace_ao(world, ray, ao_rng)
     elif integrator == .NEE:
         return _trace_path[.NEE, world_bvh_width, instance_bvh_width](
-            settings, world, ray, path_id
+            settings, sampling, world, ray, path_id
         )
     elif integrator == .MIS:
         return _trace_path[.MIS, world_bvh_width, instance_bvh_width](
-            settings, world, ray, path_id
+            settings, sampling, world, ray, path_id
         )
     else:
         comptime assert False, "unknown RT integrator"
@@ -195,6 +193,7 @@ def _render_pixel[
     instance_bvh_width: SIMDLength,
 ](
     settings: RenderSettings,
+    sampling: SamplingConfig,
     camera: Camera,
     world: CpuScene[world_bvh_width, instance_bvh_width],
     px: Int,
@@ -207,13 +206,11 @@ def _render_pixel[
         var path_id = UInt32(
             pixel_idx * settings.samples_per_pixel + sample_idx
         )
-        var rng = path_stage_rng(
-            SamplingConfig.from_settings(settings), path_id, 0
-        )
+        var rng = path_stage_rng(sampling, path_id, 0)
         var ray = _make_primary_ray(settings, camera, px, py, rng)
         pixel_color += _trace_integrator[
             integrator, world_bvh_width, instance_bvh_width
-        ](settings, world, ray, path_id)
+        ](settings, sampling, world, ray, path_id)
 
     return pixel_color * (1.0 / Float32(settings.samples_per_pixel))
 
@@ -229,7 +226,7 @@ def render_depth_first[
     settings: RenderSettings,
     camera: Camera,
     world: CpuScene[world_bvh_width, instance_bvh_width],
-) -> RenderResult where (
+) raises -> RenderResult where (
     TILE_WIDTH > 0,
     "tile width must be positive",
 ) where (
@@ -241,6 +238,8 @@ def render_depth_first[
         scheduler_mode
     ], "unknown scheduler mode"
 
+    settings.validate()
+    var sampling = SamplingConfig.from_settings(settings)
     var total_t0 = perf_counter_ns()
     var pixel_count = settings.image_width * settings.image_height
     var init_t0 = perf_counter_ns()
@@ -267,6 +266,7 @@ def render_depth_first[
                     instance_bvh_width,
                 ](
                     settings,
+                    sampling,
                     camera,
                     world,
                     px,

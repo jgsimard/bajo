@@ -13,6 +13,7 @@ from bajo.rt import (
     ShadingPoint,
     CpuScene,
 )
+from bajo.rt.types import SamplingConfig
 from bajo.rt.cpu import render_wavefront, sample_bsdf
 from bajo.rt.common import path_stage_rng, russian_roulette
 from bajo.rt.cpu.wavefront.primary import _initialize_path_packets_range
@@ -82,7 +83,9 @@ struct WaveCounters:
 
 def time_wavefront[
     length: SIMDLength, integrator: Integrator = .PATH
-](settings: RenderSettings, camera: Camera, world: CpuScene[]) -> WaveTiming:
+](
+    settings: RenderSettings, camera: Camera, world: CpuScene[]
+) raises -> WaveTiming:
     var warmup = render_wavefront[integrator, length, CHUNK_PATHS, False](
         settings, camera, world
     )
@@ -129,8 +132,9 @@ def count_wavefront(
     )
     var active_paths = PacketPathQueue[1](path_count)
     var next_paths = PacketPathQueue[1](path_count)
+    var sampling = SamplingConfig.from_settings(settings)
     _initialize_path_packets_range[1](
-        active_paths, settings, camera, 0, path_count
+        active_paths, settings, sampling, camera, 0, path_count
     )
     counters.primary_paths = len(active_paths)
 
@@ -267,7 +271,7 @@ def benchmark_scene(
     counter_settings: RenderSettings,
     camera: Camera,
     world: CpuScene[],
-):
+) raises:
     print_timing(
         label + " / packet width 1",
         time_wavefront[1](timing_settings, camera, world),
@@ -289,7 +293,7 @@ def benchmark_scene(
 
 def benchmark_direct_lighting(
     settings: RenderSettings, camera: Camera, world: CpuScene[]
-):
+) raises:
     print_timing(
         "Cornell NEE / packet width 1",
         time_wavefront[1, .NEE](settings, camera, world),

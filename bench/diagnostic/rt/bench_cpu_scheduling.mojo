@@ -32,7 +32,7 @@ struct ScheduleResult(Copyable):
 
 def run_schedule[
     TILE_WIDTH: Int, TILE_HEIGHT: Int, scheduler_mode: CpuSchedulerMode
-](settings: RenderSettings, camera: Camera, world: CpuScene[]) -> Tuple[
+](settings: RenderSettings, camera: Camera, world: CpuScene[]) raises -> Tuple[
     Int, Float64
 ] where (TILE_WIDTH > 0, "tile width must be positive") where (
     TILE_HEIGHT > 0,
@@ -55,7 +55,7 @@ def record_schedule[
     settings: RenderSettings,
     camera: Camera,
     world: CpuScene[],
-) where (TILE_WIDTH > 0, "tile width must be positive") where (
+) raises where (TILE_WIDTH > 0, "tile width must be positive") where (
     TILE_HEIGHT > 0,
     "tile height must be positive",
 ):
@@ -86,7 +86,7 @@ def print_result(
 
 def benchmark_world(
     label: String, settings: RenderSettings, camera: Camera, world: CpuScene[]
-):
+) raises:
     print(t"\n{label}")
     # A tile wider than the image and one pixel high reproduces scanlines.
     var legacy_warmup = run_schedule[4096, 1, CpuSchedulerMode.TASK_PARTITIONS](

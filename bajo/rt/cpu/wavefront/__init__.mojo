@@ -13,6 +13,7 @@ from bajo.rt.types import (
     RenderResult,
     RenderSettings,
     RenderTimings,
+    SamplingConfig,
 )
 from ..scene import CpuScene
 from ..scheduler_mode import CpuSchedulerMode
@@ -60,6 +61,7 @@ def _trace_packet_range[
     *adaptive_packet_sizes: SIMDLength,
 ](
     settings: RenderSettings,
+    sampling: SamplingConfig,
     camera: Camera,
     world: CpuScene[world_bvh_width, instance_bvh_width],
     pixels: MutSpan[Color, _],
@@ -68,7 +70,7 @@ def _trace_packet_range[
     mut queues: _PacketQueueArena[length],
 ):
     _initialize_path_packets_range[length](
-        queues.active_paths, settings, camera, path_begin, path_end
+        queues.active_paths, settings, sampling, camera, path_begin, path_end
     )
     _trace_path_packets[
         length,
@@ -79,6 +81,7 @@ def _trace_packet_range[
         *adaptive_packet_sizes,
     ](
         settings,
+        sampling,
         world,
         pixels,
         queues.active_paths,
@@ -103,7 +106,7 @@ def render_wavefront_configured[
     settings: RenderSettings,
     camera: Camera,
     world: CpuScene[world_bvh_width, instance_bvh_width],
-) -> RenderResult:
+) raises -> RenderResult:
     """Render with compile-time packet, chunk, and CPU scheduling choices."""
     comptime assert CHUNK_PATHS > 0, "wavefront chunk size must be positive"
     comptime assert Integrator.is_path_tracing[integrator]
@@ -112,6 +115,8 @@ def render_wavefront_configured[
             scheduler_mode
         ], "unknown parallel wavefront scheduler mode"
 
+    settings.validate()
+    var sampling = SamplingConfig.from_settings(settings)
     var total_t0 = perf_counter_ns()
     var pixel_count = settings.image_width * settings.image_height
     var path_count = pixel_count * settings.samples_per_pixel
@@ -141,6 +146,7 @@ def render_wavefront_configured[
                 *adaptive_packet_sizes,
             ](
                 settings,
+                sampling,
                 camera,
                 world,
                 pixels,
@@ -171,6 +177,7 @@ def render_wavefront_configured[
                 *adaptive_packet_sizes,
             ](
                 settings,
+                sampling,
                 camera,
                 world,
                 pixels,
@@ -210,7 +217,7 @@ def render_wavefront[
     settings: RenderSettings,
     camera: Camera,
     world: CpuScene[world_bvh_width, instance_bvh_width],
-) -> RenderResult:
+) raises -> RenderResult:
     """Render with the default auto-coherent CPU scene traversal."""
     return render_wavefront_configured[
         CpuTraversalMode.AUTO_COHERENT,

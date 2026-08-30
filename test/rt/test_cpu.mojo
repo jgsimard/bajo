@@ -160,6 +160,7 @@ def test_materials_own_domain_validation() raises:
 
     var surfaces = SurfaceStore()
     var light = surfaces.add_emissive(Color(2.0, 3.0, 4.0))
+    assert_true(surfaces.contains(light))
     assert_vec_equal(
         surfaces.emitted_radiance(light, True), Color(2.0, 3.0, 4.0)
     )
@@ -181,6 +182,12 @@ def test_surface_id_is_packed() raises:
     assert_equal(surface.kind().value, UInt32(2))
     assert_equal(surface.index(), UInt32(123))
     assert_equal(surface.value, (UInt32(2) << UInt32(28)) | UInt32(123))
+    var decoded = SurfaceId.from_raw(surface.value[0])
+    assert_equal(decoded.kind(), surface.kind())
+    assert_equal(decoded.index(), surface.index())
+    assert_equal(
+        SurfaceId.pack_raw(surface.kind(), surface.index()), surface.value[0]
+    )
 
 
 def test_surface_hit_is_width_generic() raises:
@@ -1056,9 +1063,16 @@ def test_compile_time_semantic_classifications() raises:
 
 def test_render_settings_and_tiny_render() raises:
     var settings = RenderSettings(4, 2, 2, UInt64(9), 2)
+    settings.validate()
     assert_equal(settings.image_width, 4)
     assert_equal(settings.image_height, 2)
     assert_equal(settings.rng_seed, 9)
+
+    var invalid_settings = settings.copy()
+    invalid_settings.sample_offset = 2
+    invalid_settings.sample_sequence_length = 3
+    with assert_raises():
+        invalid_settings.validate()
 
     var builder = SceneBuilder()
     var matte = builder.add_lambertian(Color(0.5))

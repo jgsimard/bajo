@@ -66,21 +66,16 @@ struct GpuRtRenderTarget:
         camera: Camera,
         path_capacity: Int = 0,
     ) raises:
-        debug_assert["safe", _use_compiler_assume=True](
-            settings.image_width > 0
-            and settings.image_height > 0
-            and settings.samples_per_pixel > 0,
-            "GPU RT render dimensions and sample count must be positive",
-        )
+        settings.validate()
         self.image_width = settings.image_width
         self.image_height = settings.image_height
         self.samples_per_pixel = settings.samples_per_pixel
         self.pixel_count = self.image_width * self.image_height
         self.sample_count = self.pixel_count * self.samples_per_pixel
-        debug_assert["safe", _use_compiler_assume=True](
-            UInt64(self.sample_count) <= UInt64(WAVE_PATH_ID_MASK),
-            "GPU RT compact path IDs support at most 2^31-1 samples",
-        )
+        if UInt64(self.sample_count) > UInt64(WAVE_PATH_ID_MASK):
+            raise Error(
+                "GPU RT compact path IDs support at most 2^31-1 samples"
+            )
         var requested_capacity = (
             path_capacity if path_capacity
             > 0 else _GPU_RT_DEFAULT_PATH_CAPACITY
@@ -95,13 +90,16 @@ struct GpuRtRenderTarget:
         self.camera = upload_camera(ctx, camera)
         self.pixels = ctx.enqueue_create_buffer[.float32](self.pixel_count * 3)
 
-    def validate(self, settings: RenderSettings):
-        debug_assert["safe", _use_compiler_assume=True](
-            settings.image_width == self.image_width
-            and settings.image_height == self.image_height
-            and settings.samples_per_pixel == self.samples_per_pixel,
-            "GPU RT settings must match the persistent render target",
-        )
+    def validate_compatible(self, settings: RenderSettings) raises:
+        settings.validate()
+        if (
+            settings.image_width != self.image_width
+            or settings.image_height != self.image_height
+            or settings.samples_per_pixel != self.samples_per_pixel
+        ):
+            raise Error(
+                "GPU RT settings must match the persistent render target"
+            )
 
 
 def update_gpu_camera(
@@ -125,12 +123,11 @@ def _enqueue_gpu_primary[
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    settings: RenderSettings,
+    sampling: SamplingConfig,
     sample_begin: Int = 0,
     chunk_sample_count: Int = -1,
 ) raises:
     """Reset queues and enqueue primary rays without synchronizing."""
-    target.validate(settings)
     var active_count = chunk_sample_count
     if active_count < 0:
         active_count = min(target.arena.capacity, target.sample_count)
@@ -154,7 +151,7 @@ def _enqueue_gpu_primary[
         Int32(target.image_width),
         Int32(target.image_height),
         Int32(target.samples_per_pixel),
-        SamplingConfig.from_settings(settings),
+        sampling,
         grid_dim=ceildiv(active_count, GPU_RT_BLOCK_SIZE),
         block_dim=GPU_RT_BLOCK_SIZE,
     )
@@ -228,6 +225,7 @@ def enqueue_gpu_wavefront[
     """Compile-time scheduler shared by every geometry specialization."""
     comptime assert integrator.is_valid()
 
+    target.validate_compatible(settings)
     var sampling = SamplingConfig.from_settings(settings)
     var sample_begin = 0
     while sample_begin < target.sample_count:
@@ -238,7 +236,7 @@ def enqueue_gpu_wavefront[
             # The register-heavier fused primary traversal loses on PATH.
             # Keep its lean primary queue producer and start tracing at zero.
             _enqueue_gpu_primary[integrator](
-                ctx, target, settings, sample_begin, chunk_sample_count
+                ctx, target, sampling, sample_begin, chunk_sample_count
             )
             for bounce in range(settings.max_depth):
                 if bounce % 2 == 0:
@@ -272,10 +270,9 @@ def enqueue_gpu_wavefront[
                 and settings.max_depth == 0
             ):
                 _enqueue_gpu_primary[integrator](
-                    ctx, target, settings, sample_begin, chunk_sample_count
+                    ctx, target, sampling, sample_begin, chunk_sample_count
                 )
             else:
-                target.validate(settings)
                 target.arena.sample_base = UInt32(sample_begin)
                 enqueue_wavefront_begin(ctx, target.arena, chunk_sample_count)
                 primary_bounce_fn(

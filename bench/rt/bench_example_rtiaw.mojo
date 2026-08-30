@@ -43,7 +43,9 @@ struct Timing(Copyable):
 
 def _render_mode[
     MODE: Int, CHUNK_PATHS: Int = 0
-](settings: RenderSettings, camera: Camera, world: CpuScene[]) -> RenderResult:
+](
+    settings: RenderSettings, camera: Camera, world: CpuScene[]
+) raises -> RenderResult:
     comptime if MODE == MODE_DEPTH_FIRST:
         return render_depth_first[.PATH](settings, camera, world)
     elif MODE == MODE_WAVEFRONT_SERIAL:
@@ -67,7 +69,9 @@ def _render_mode[
 
 def _warmup[
     MODE: Int, CHUNK_PATHS: Int = 0
-](settings: RenderSettings, camera: Camera, world: CpuScene[]) -> Float64:
+](
+    settings: RenderSettings, camera: Camera, world: CpuScene[]
+) raises -> Float64:
     return pixel_checksum(
         _render_mode[MODE, CHUNK_PATHS](settings, camera, world).pixels
     )
@@ -82,7 +86,7 @@ def _record[
     settings: RenderSettings,
     camera: Camera,
     world: CpuScene[],
-):
+) raises:
     var result = _render_mode[MODE, CHUNK_PATHS](settings, camera, world)
     debug_assert["safe", _use_compiler_assume=True](
         pixel_checksum(result.pixels) == checksum,

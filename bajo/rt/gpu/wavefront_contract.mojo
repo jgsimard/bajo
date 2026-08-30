@@ -7,7 +7,7 @@ from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh.constants import f32_max
 from bajo.rt.rays import RT_RAY_T_MIN
-from bajo.rt.types import Integrator
+from bajo.rt.types import Integrator, MaterialKind, SurfaceId
 from bajo.rt.wavefront_contract import (
     DeviceWavePath,
     DeviceWaveShade,
@@ -503,7 +503,9 @@ def wavefront_contract_probe_kernel(
         -path.dx,
         -path.dy,
         -path.dz,
-        (kind << UInt32(28)) | (path.path_id & UInt32(0x0FFFFFFF)),
+        SurfaceId.pack_raw(
+            MaterialKind(kind), SurfaceId.index_from_raw(path.path_id)
+        ),
         path.t_min + Float32(idx),
         (path.path_id & UInt32(1)) == 0,
     )

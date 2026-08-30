@@ -13,6 +13,7 @@ def _initialize_path_packets_range[
 ](
     mut paths: PacketPathQueue[length],
     settings: RenderSettings,
+    sampling: SamplingConfig,
     camera: Camera,
     path_begin: Int,
     path_end: Int,
@@ -35,11 +36,7 @@ def _initialize_path_packets_range[
             var pixel_idx = path_idx / settings.samples_per_pixel
             px[lane] = Float32(pixel_idx % settings.image_width)
             py[lane] = Float32(pixel_idx / settings.image_width)
-            var rng = path_stage_rng(
-                SamplingConfig.from_settings(settings),
-                UInt32(path_idx),
-                UInt32(0),
-            )
+            var rng = path_stage_rng(sampling, UInt32(path_idx), UInt32(0))
             var lens = random_in_unit_disk[.WORLD](rng)
             lens_u[lane] = lens.x
             lens_v[lane] = lens.y

@@ -10,12 +10,9 @@ from bajo.rt.wavefront_contract import (
     PackedWavePathQueue,
     PackedWaveShadeQueue,
     WAVE_COUNTER,
-    WAVE_STATUS,
     WavePathFloatAbi,
     WaveShadeFloatAbi,
     WaveShadowFloatAbi,
-    WavefrontCounterBlock,
-    WavefrontDispatchState,
     pack_wave_paths,
     pack_wave_shades,
     unpack_wave_paths,
@@ -135,32 +132,6 @@ def test_wavefront_shade_field_major_roundtrip() raises:
     packed.append(back)
     assert_false((packed.path_refs[1] & FRONT_FACE_BIT) != 0)
     assert_false(packed.get(1).hit.front_face)
-
-
-def test_wavefront_counter_and_dispatch_transitions() raises:
-    var counters = WavefrontCounterBlock()
-    counters.begin(UInt32(128))
-    assert_equal(counters.values[WAVE_COUNTER.ACTIVE], UInt32(128))
-    assert_equal(counters.values[WAVE_COUNTER.STATUS], WAVE_STATUS.OK)
-    counters.values[WAVE_COUNTER.NEXT] = UInt32(73)
-    counters.values[WAVE_COUNTER.SHADE] = UInt32(20)
-    counters.values[WAVE_COUNTER.SHADOW] = UInt32(13)
-    counters.finish_bounce()
-    assert_equal(counters.values[WAVE_COUNTER.ACTIVE], UInt32(73))
-    assert_equal(counters.values[WAVE_COUNTER.NEXT], UInt32(0))
-    assert_equal(counters.values[WAVE_COUNTER.SHADE], UInt32(0))
-    assert_equal(counters.values[WAVE_COUNTER.SHADOW], UInt32(0))
-
-    var dispatch = WavefrontDispatchState(
-        UInt32(8192), UInt32(512), UInt32(0), UInt32(0)
-    )
-    assert_equal(dispatch.rng_stage(), UInt32(1))
-    dispatch.advance_bounce()
-    assert_equal(dispatch.bounce, UInt32(1))
-    assert_equal(dispatch.active_slot, UInt32(1))
-    assert_equal(dispatch.rng_stage(), UInt32(2))
-    dispatch.advance_bounce()
-    assert_equal(dispatch.active_slot, UInt32(0))
 
 
 def test_cpu_aos_boundary_adapters() raises:

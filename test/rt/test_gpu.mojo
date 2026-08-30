@@ -2,6 +2,7 @@ from std.testing import (
     TestSuite,
     assert_almost_equal,
     assert_equal,
+    assert_raises,
     assert_true,
 )
 from max.gpu.host import DeviceContext
@@ -476,6 +477,21 @@ def test_gpu_chunked_triangle_nee_matches_full_capacity() raises:
             assert_equal(chunked_pixels[i].x, full_pixel.x)
             assert_equal(chunked_pixels[i].y, full_pixel.y)
             assert_equal(chunked_pixels[i].z, full_pixel.z)
+
+
+def test_gpu_host_boundaries_raise_validation_errors() raises:
+    var settings = RenderSettings(2, 2, 1, UInt64(230))
+    var camera = _camera()
+    var data = _triangle_scene_data()
+    with DeviceContext() as ctx:
+        with assert_raises():
+            _ = prepare_gpu_scene[.SPHERES](ctx, data)
+
+        var target = GpuRtRenderTarget(ctx, settings, camera)
+        var incompatible = settings.copy()
+        incompatible.samples_per_pixel = 2
+        with assert_raises():
+            target.validate_compatible(incompatible)
 
 
 def test_prepared_scene_format_and_common_enqueue_api() raises:

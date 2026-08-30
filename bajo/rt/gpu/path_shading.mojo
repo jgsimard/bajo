@@ -13,7 +13,7 @@ from bajo.core import (
     normalize,
 )
 from bajo.core.random import random_unit_vector
-from bajo.rt.common import path_stage_rng, russian_roulette, sky_color
+from bajo.rt.common import path_stage_rng, russian_roulette
 from bajo.rt.lighting import (
     _direct_light_scale,
     _draw_alias_column,
@@ -32,9 +32,9 @@ from bajo.rt.types import (
     MaterialKind,
     PrimitiveKind,
     Integrator,
-    SURFACE_INDEX_MASK,
     SceneData,
     SamplingConfig,
+    SurfaceId,
 )
 from bajo.rt.wavefront_contract import (
     DeviceWavePath,
@@ -248,7 +248,6 @@ def _sample_direct_light_candidate[
     surface_value: UInt32,
     lambertians: Pointer[Float32, ImmutAnyOrigin],
     metals: Pointer[Float32, ImmutAnyOrigin],
-    dielectrics: Pointer[Float32, ImmutAnyOrigin],
     light_kinds: Pointer[UInt32, ImmutAnyOrigin],
     light_fields: Pointer[Float32, ImmutAnyOrigin],
     light_count: Int,
@@ -339,8 +338,8 @@ def _sample_direct_light_candidate[
     )
     if not geometry.valid:
         return _empty_direct_light_sample()
-    var surface_kind = MaterialKind(surface_value >> UInt32(28))
-    var material_idx = Int(surface_value & SURFACE_INDEX_MASK)
+    var surface_kind = SurfaceId.kind_from_raw(surface_value)
+    var material_idx = Int(SurfaceId.index_from_raw(surface_value))
     var value = Color(0.0)
     var bsdf_pdf = Float32(0.0)
     if surface_kind == .LAMBERTIAN:
@@ -461,7 +460,7 @@ def _shade_lambertian_inline[
     bounce: UInt32,
 ):
     """Fuse the dominant diffuse shade operation into closest-hit routing."""
-    var material_idx = Int(surface_value & SURFACE_INDEX_MASK)
+    var material_idx = Int(SurfaceId.index_from_raw(surface_value))
     var base = 3 * material_idx
     var albedo = Color(
         lambertians[unsafe_offset=base + 0],
@@ -564,10 +563,10 @@ def _route_surface_hit[
         )
         return
 
-    var kind = MaterialKind(surface_value >> UInt32(28))
+    var kind = SurfaceId.kind_from_raw(surface_value)
     if kind == .EMISSIVE:
         if front_face:
-            var material_idx = Int(surface_value & SURFACE_INDEX_MASK)
+            var material_idx = Int(SurfaceId.index_from_raw(surface_value))
             var base = 3 * material_idx
             var radiance = Color(
                 emissives[unsafe_offset=base + 0],
@@ -667,7 +666,7 @@ def _gpu_rt_shade_one[
     var parameter = Float32(1.0)
     var random_u = Float32(0.0)
     var random_v = Float32(0.0)
-    var material_idx = Int(work.surface_value & SURFACE_INDEX_MASK)
+    var material_idx = Int(SurfaceId.index_from_raw(work.surface_value))
     var rng = path_stage_rng(
         sampling, path.path_id, wavefront_rng_stage(bounce)
     )
@@ -778,7 +777,7 @@ def gpu_rt_shade_dispatch_kernel[
     var stride = Int(grid_dim.x * block_dim.x)
     while idx < work_count:
         var surface_value = shade_surfaces[unsafe_offset=idx]
-        var kind = MaterialKind(surface_value >> UInt32(28))
+        var kind = SurfaceId.kind_from_raw(surface_value)
         if kind == .METAL:
             _gpu_rt_shade_one[integrator, .METAL](
                 idx,

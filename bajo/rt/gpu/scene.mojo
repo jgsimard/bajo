@@ -168,12 +168,12 @@ def prepare_gpu_scene[
     comptime assert kind.is_valid()
     comptime assert sphere_format.layout == .WIDE
     comptime assert tlas_format.layout == .WIDE
-    debug_assert["safe", _use_compiler_assume=True](
+    if not (
         (len(data.spheres()) > 0) == kind.has_spheres()
         and (len(data.triangle_vertices()) > 0) == kind.has_triangles()
-        and (len(data.triangle_instances()) > 0) == kind.has_instances(),
-        "GPU RT scene kind does not match the scene geometry",
-    )
+        and (len(data.triangle_instances()) > 0) == kind.has_instances()
+    ):
+        raise Error("GPU RT scene kind does not match the scene geometry")
 
     var sphere_bvh = Optional[
         GpuSphereBvh[.WORLD, sphere_format.node_width, sphere_format.leaf_width]

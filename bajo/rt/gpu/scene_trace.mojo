@@ -74,7 +74,6 @@ def _gpu_rt_scene_trace_path[
     var emissives = scene.emissives.unsafe_origin_cast[ImmutAnyOrigin]()
     var lambertians = scene.lambertians.unsafe_origin_cast[ImmutAnyOrigin]()
     var metals = scene.metals.unsafe_origin_cast[ImmutAnyOrigin]()
-    var dielectrics = scene.dielectrics.unsafe_origin_cast[ImmutAnyOrigin]()
     var light_kinds = scene.light_kinds.unsafe_origin_cast[ImmutAnyOrigin]()
     var light_fields = scene.light_fields.unsafe_origin_cast[ImmutAnyOrigin]()
     var light_count_i32 = scene.light_count
@@ -295,7 +294,6 @@ def _gpu_rt_scene_trace_path[
             surface_value,
             lambertians,
             metals,
-            dielectrics,
             light_kinds,
             light_fields,
             Int(light_count_i32),

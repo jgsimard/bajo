@@ -94,7 +94,9 @@ struct TraceCounters:
 
 def time_render[
     integrator: Integrator
-](settings: RenderSettings, camera: Camera, world: CpuScene[]) -> TimingResult:
+](
+    settings: RenderSettings, camera: Camera, world: CpuScene[]
+) raises -> TimingResult:
     # Warm all compiled code and renderer-owned allocations before measuring.
     var warmup = render_depth_first[integrator](settings, camera, world)
     var checksum = pixel_checksum(warmup.pixels)

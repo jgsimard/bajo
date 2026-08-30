@@ -10,7 +10,7 @@ from bajo.rt.gpu.wavefront_contract import (
     enqueue_wavefront_advance,
     enqueue_wavefront_contract_probe,
 )
-from bajo.rt.types import Color
+from bajo.rt.types import Color, SurfaceId
 from bajo.rt.wavefront_contract import (
     PackedWavePathQueue,
     WAVE_COUNTER,
@@ -76,8 +76,10 @@ def _assert_tagged_shade_queue(
             assert_true(path_idx >= 0 and path_idx < len(source))
             var path = source.get(path_idx)
             var expected_kind = path.path_id % UInt32(3)
-            assert_equal(surfaces[slot] >> UInt32(28), expected_kind)
-            assert_equal(surfaces[slot] & UInt32(0x0FFFFFFF), path.path_id)
+            assert_equal(
+                SurfaceId.kind_from_raw(surfaces[slot]).value, expected_kind
+            )
+            assert_equal(SurfaceId.index_from_raw(surfaces[slot]), path.path_id)
             assert_equal(
                 fields[
                     wavefront_plane_index(

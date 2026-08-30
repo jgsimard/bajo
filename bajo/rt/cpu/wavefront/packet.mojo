@@ -24,7 +24,9 @@ from bajo.rt.types import (
 )
 from ..scene import CpuScene
 from bajo.rt.common import path_stage_rng, russian_roulette, sky_color
+from bajo.rt.lighting import _direct_light_scale
 from bajo.rt.rays import spawn_surface_ray
+from bajo.rt.shading import _evaluate_material, _sample_material
 from bajo.rt.wavefront_queue import (
     PacketPathQueue,
     PacketShadeQueue,
@@ -34,13 +36,8 @@ from bajo.rt.wavefront_queue import (
 from bajo.rt.wavefront_contract import wavefront_rng_light_stage
 
 
-from ..bsdf import (
-    _evaluate_material,
-    _sample_material,
-)
 from ..lighting import (
     _DirectLightSample,
-    _direct_light_scale,
     _empty_direct_light_sample,
     _sample_direct_light_candidate,
     _emissive_hit_weight,
@@ -169,8 +166,8 @@ def _sample_bsdf_batch[
     var active = SIMD[.bool, length](fill=False)
     for lane in range(lane_count):
         active[lane] = True
-        var rng = path_stage_rng(sampling, batch.path_ids[lane], stage)
         comptime if MATERIAL_KIND == .LAMBERTIAN:
+            var rng = path_stage_rng(sampling, batch.path_ids[lane], stage)
             ref material = surfaces.lambertians[
                 Int(batch.surface_indices[lane])
             ]
@@ -180,6 +177,7 @@ def _sample_bsdf_batch[
             random_u[lane] = rng.f32()
             random_v[lane] = rng.f32()
         elif MATERIAL_KIND == .METAL:
+            var rng = path_stage_rng(sampling, batch.path_ids[lane], stage)
             ref material = surfaces.metals[Int(batch.surface_indices[lane])]
             albedo.x[lane] = material.albedo.x
             albedo.y[lane] = material.albedo.y
@@ -311,6 +309,7 @@ def _trace_path_packets[
     *adaptive_packet_sizes: SIMDLength,
 ](
     settings: RenderSettings,
+    sampling: SamplingConfig,
     world: CpuScene[world_bvh_width, instance_bvh_width],
     pixels: MutSpan[Color, _],
     mut active_paths: PacketPathQueue[length],
@@ -320,7 +319,6 @@ def _trace_path_packets[
     mut dielectric_queue: PacketShadeQueue[length],
 ):
     comptime assert Integrator.is_path_tracing[integrator]
-    var sampling = SamplingConfig.from_settings(settings)
     for bounce in range(settings.max_depth):
         if len(active_paths) == 0:
             break
@@ -402,7 +400,6 @@ def _trace_path_packets[
                         direct_lights.point.normal.x[lane] = hit.normal.x
                         direct_lights.point.normal.y[lane] = hit.normal.y
                         direct_lights.point.normal.z[lane] = hit.normal.z
-                        direct_lights.point.front_face[lane] = hit.front_face
                         direct_lights.surface_kinds[
                             lane
                         ] = hit.surface.kind().value

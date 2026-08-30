@@ -11,7 +11,7 @@ from bajo.core import (
     Point3f32,
     Ray,
 )
-from bajo.bvh.constants import PrimitiveKind, f32_max
+from bajo.bvh.constants import PrimitiveKind
 from bajo.bvh import Instance, Sphere
 from bajo.core.random import Sampler
 from bajo.rt.geometry import triangle_area, triangle_is_valid
@@ -106,17 +106,37 @@ struct SurfaceId[length: SIMDLength = 1](Copyable, Writable):
         debug_assert["safe", _use_compiler_assume=True](
             index < (UInt32(1) << SURFACE_INDEX_BITS)
         )
-        self.value = (kind.value << SURFACE_INDEX_BITS) | index
+        self.value = Self.pack_raw(kind, index)
+
+    @staticmethod
+    @always_inline
+    def pack_raw(kind: MaterialKind, index: UInt32) -> UInt32:
+        return (kind.value << SURFACE_INDEX_BITS) | index
 
     @always_inline
     def kind(self) -> MaterialKind:
         comptime assert Self.length == 1
-        return MaterialKind(self.value[0] >> SURFACE_INDEX_BITS)
+        return Self.kind_from_raw(self.value[0])
 
     @always_inline
     def index(self) -> UInt32:
         comptime assert Self.length == 1
-        return self.value[0] & SURFACE_INDEX_MASK
+        return Self.index_from_raw(self.value[0])
+
+    @staticmethod
+    @always_inline
+    def from_raw(value: UInt32) -> SurfaceId[1]:
+        return SurfaceId[1](SIMD[.uint32, 1](value))
+
+    @staticmethod
+    @always_inline
+    def kind_from_raw(value: UInt32) -> MaterialKind:
+        return MaterialKind(value >> SURFACE_INDEX_BITS)
+
+    @staticmethod
+    @always_inline
+    def index_from_raw(value: UInt32) -> UInt32:
+        return value & SURFACE_INDEX_MASK
 
     @always_inline
     def get(self, lane: Int) -> SurfaceId[1]:
@@ -202,7 +222,7 @@ struct SurfaceStore:
         self.dielectrics = List[Dielectric]()
         self.emissives = List[Emissive]()
 
-    def validate(self, surface: SurfaceId[1]) -> Bool:
+    def contains(self, surface: SurfaceId[1]) -> Bool:
         if surface.kind() == .LAMBERTIAN:
             return surface.index() < UInt32(len(self.lambertians))
         elif surface.kind() == .METAL:
@@ -387,10 +407,6 @@ struct SurfaceHit[length: SIMDLength = 1](Copyable, Writable):
         self.front_face = SIMD[.bool, Self.length](fill=True)
         self.hit = SIMD[.bool, Self.length](fill=False)
 
-    @staticmethod
-    def miss(t: SIMD[.float32, Self.length] = f32_max) -> Self:
-        return Self(t)
-
     @always_inline
     def get(self, lane: Int) -> SurfaceHit[1]:
         return SurfaceHit[1](
@@ -492,6 +508,44 @@ struct RenderSettings(Copyable, Writable):
         self.sampler = sampler
         self.sample_offset = sample_offset
         self.sample_sequence_length = sequence_length
+
+    def validate(self) raises:
+        """Validate mutable render settings at a host API boundary."""
+        if self.image_width <= 0:
+            raise Error("image width must be positive")
+        if self.image_height <= 0:
+            raise Error("image height must be positive")
+        if self.samples_per_pixel <= 0:
+            raise Error("samples per pixel must be positive")
+        if self.max_depth < 0:
+            raise Error("max depth must be non-negative")
+        if not self.sampler.is_valid():
+            raise Error("unknown sampler")
+        if self.sample_offset < 0:
+            raise Error("sample offset must be non-negative")
+        if self.sample_sequence_length <= 0:
+            raise Error("sample sequence length must be positive")
+        if (
+            self.sample_offset > self.sample_sequence_length
+            or self.samples_per_pixel
+            > self.sample_sequence_length - self.sample_offset
+        ):
+            raise Error("sample batch is outside the sample sequence")
+
+        var u32_max = UInt64(UInt32.MAX)
+        if (
+            UInt64(self.image_width) > u32_max
+            or UInt64(self.image_height) > u32_max
+            or UInt64(self.samples_per_pixel) > u32_max
+            or UInt64(self.max_depth) > u32_max
+            or UInt64(self.sample_offset) > u32_max
+            or UInt64(self.sample_sequence_length) > u32_max
+        ):
+            raise Error("render settings exceed the 32-bit sampling contract")
+
+        var pixel_count = UInt64(self.image_width) * UInt64(self.image_height)
+        if pixel_count > u32_max / UInt64(self.samples_per_pixel):
+            raise Error("render requires more than 2^32-1 sample paths")
 
 
 @fieldwise_init
@@ -818,11 +872,11 @@ struct SceneData:
                 and isfinite(sphere.center.z[0] + radius)
             ):
                 raise Error("sphere bounds must be finite")
-            if not self._surfaces.validate(self._sphere_surfaces[i]):
+            if not self._surfaces.contains(self._sphere_surfaces[i]):
                 raise Error("sphere surface id is out of range")
 
         for triangle_idx, surface in enumerate(self._triangle_surfaces):
-            if not self._surfaces.validate(surface):
+            if not self._surfaces.contains(surface):
                 raise Error("triangle surface id is out of range")
             var base = 3 * triangle_idx
             if not triangle_is_valid(
@@ -858,7 +912,7 @@ struct SceneData:
             if inst.blas_idx >= UInt32(len(self._triangle_meshes)):
                 raise Error("triangle instance blas_idx is out of range")
             var surface = self._triangle_instance_surfaces[i].copy()
-            if not self._surfaces.validate(surface):
+            if not self._surfaces.contains(surface):
                 raise Error("triangle instance surface id is out of range")
 
             if not inst.transform.is_finite()[0]:

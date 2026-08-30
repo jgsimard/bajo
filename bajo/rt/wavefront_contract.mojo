@@ -3,7 +3,7 @@
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 
 from bajo.core import Point3f32, Rayf32, Vec3f32
-from bajo.rt.types import Color, SurfaceHit, SurfaceId, MaterialKind
+from bajo.rt.types import Color, SurfaceHit, SurfaceId
 from bajo.rt.wavefront_queue import (
     FRONT_FACE_BIT,
     PacketPathQueue,
@@ -235,10 +235,7 @@ struct DeviceWaveShade(DevicePassable, TrivialRegisterPassable, Writable):
             self.path_idx,
             SurfaceHit(
                 Vec3f32[.WORLD](self.nx, self.ny, self.nz),
-                SurfaceId(
-                    MaterialKind(self.surface_value >> UInt32(28)),
-                    self.surface_value & UInt32(0x0FFFFFFF),
-                ),
+                SurfaceId.from_raw(self.surface_value),
                 self.t,
                 self.front_face,
                 True,
@@ -708,42 +705,3 @@ def unpack_wave_shades(packed: PackedWaveShadeQueue) -> List[WaveShade]:
     for i in range(len(packed)):
         works.append(packed.get(i))
     return works^
-
-
-struct WavefrontCounterBlock:
-    """Host mirror of the device atomic counter block."""
-
-    var values: List[UInt32]
-
-    def __init__(out self):
-        self.values = List[UInt32](length=WAVE_COUNTER.COUNT, fill=UInt32(0))
-
-    def reset_outputs(mut self):
-        for i in range(1, WAVE_COUNTER.COUNT):
-            self.values[i] = UInt32(0)
-
-    def begin(mut self, active_count: UInt32):
-        self.values[WAVE_COUNTER.ACTIVE] = active_count
-        self.reset_outputs()
-        self.values[WAVE_COUNTER.STATUS] = WAVE_STATUS.OK
-
-    def finish_bounce(mut self):
-        self.values[WAVE_COUNTER.ACTIVE] = self.values[WAVE_COUNTER.NEXT]
-        self.reset_outputs()
-
-
-@fieldwise_init
-struct WavefrontDispatchState(Copyable, Writable):
-    """Host stage state; buffers ping-pong instead of moving path records."""
-
-    var chunk_path_begin: UInt32
-    var chunk_path_count: UInt32
-    var bounce: UInt32
-    var active_slot: UInt32
-
-    def rng_stage(self) -> UInt32:
-        return wavefront_rng_stage(self.bounce)
-
-    def advance_bounce(mut self):
-        self.bounce += UInt32(1)
-        self.active_slot ^= UInt32(1)

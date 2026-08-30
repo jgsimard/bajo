@@ -90,12 +90,21 @@ struct Ray[dtype: DType, frame: Frame, length: SIMDLength = 1](
         )
 
     def reciprocal_direction[
-        width: SIMDLength
+        width: SIMDLength = Self.length
     ](self, eps: Scalar[Self.dtype] = 1.0e-9) -> Vec3[
         Self.dtype, Self.frame, width
     ] where Self.dtype.is_floating_point():
-        comptime assert Self.length == 1
-        var direction = self.direction[width]()
+        comptime assert Self.length == 1 or width == Self.length
+        var direction = Vec3[Self.dtype, Self.frame, width](0.0)
+        comptime for lane in range(width):
+            comptime if Self.length == 1:
+                direction.x[lane] = self.d.x[0]
+                direction.y[lane] = self.d.y[0]
+                direction.z[lane] = self.d.z[0]
+            else:
+                direction.x[lane] = self.d.x[lane]
+                direction.y[lane] = self.d.y[lane]
+                direction.z[lane] = self.d.z[lane]
 
         var e = SIMD[Self.dtype, width](eps)
         var large = SIMD[Self.dtype, width](1.0 / eps)
@@ -114,33 +123,6 @@ struct Ray[dtype: DType, frame: Frame, length: SIMDLength = 1](
         var dz = mz.select(direction.z, one)
 
         return Vec3[Self.dtype, Self.frame, width](
-            mx.select(one / dx, sx),
-            my.select(one / dy, sy),
-            mz.select(one / dz, sz),
-        )
-
-    def reciprocal_direction(
-        self, eps: Scalar[Self.dtype] = 1.0e-9
-    ) -> Vec3[
-        Self.dtype, Self.frame, Self.length
-    ] where Self.dtype.is_floating_point():
-        var e = SIMD[Self.dtype, Self.length](eps)
-        var large = SIMD[Self.dtype, Self.length](1.0 / eps)
-        var one = SIMD[Self.dtype, Self.length](1.0)
-
-        var mx = abs(self.d.x).gt(e)
-        var my = abs(self.d.y).gt(e)
-        var mz = abs(self.d.z).gt(e)
-
-        var sx = self.d.x.lt(0.0).select(-large, large)
-        var sy = self.d.y.lt(0.0).select(-large, large)
-        var sz = self.d.z.lt(0.0).select(-large, large)
-
-        var dx = mx.select(self.d.x, one)
-        var dy = my.select(self.d.y, one)
-        var dz = mz.select(self.d.z, one)
-
-        return Vec3[Self.dtype, Self.frame, Self.length](
             mx.select(one / dx, sx),
             my.select(one / dy, sy),
             mz.select(one / dz, sz),

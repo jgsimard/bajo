@@ -1,5 +1,6 @@
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.math import abs, fma
+from std.utils.numerics import max_finite
 
 from bajo.core.vec import Vec3, Normal3, Point3, Geo3, GeoKind, normalize
 from bajo.core.quat import Quaternion
@@ -85,6 +86,36 @@ struct Affine3[dtype: DType, From: Frame, To: Frame, width: SIMDLength = 1](
         m.m22 = 1.0
 
         return m^
+
+    @always_inline
+    def is_finite(
+        self,
+    ) -> SIMD[.bool, Self.width] where Self.dtype.is_floating_point():
+        comptime limit = max_finite[Self.dtype]()
+        return (
+            abs(self.m00).le(limit)
+            & abs(self.m01).le(limit)
+            & abs(self.m02).le(limit)
+            & abs(self.tx).le(limit)
+            & abs(self.m10).le(limit)
+            & abs(self.m11).le(limit)
+            & abs(self.m12).le(limit)
+            & abs(self.ty).le(limit)
+            & abs(self.m20).le(limit)
+            & abs(self.m21).le(limit)
+            & abs(self.m22).le(limit)
+            & abs(self.tz).le(limit)
+        )
+
+    @always_inline
+    def reverses_orientation(self) -> SIMD[.bool, Self.width]:
+        """Return whether the linear part has negative determinant."""
+        var determinant = (
+            self.m00 * (self.m11 * self.m22 - self.m12 * self.m21)
+            - self.m01 * (self.m10 * self.m22 - self.m12 * self.m20)
+            + self.m02 * (self.m10 * self.m21 - self.m11 * self.m20)
+        )
+        return determinant.lt(0.0)
 
     @staticmethod
     def from_translation(

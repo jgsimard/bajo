@@ -3,12 +3,13 @@
 from bajo.core import Rayf32
 from bajo.core.random import Rng, random_in_unit_disk
 from bajo.bvh import Camera
+from bajo.rt.rays import make_camera_ray_from_samples
 from bajo.rt.types import RenderSettings, ShadingPoint, SurfaceHit
 
 
 def _shading_point(ray: Rayf32[.WORLD], hit: SurfaceHit[1]) -> ShadingPoint[1]:
     return ShadingPoint(
-        ray.o + hit.t * ray.d,
+        ray.at(hit.t),
         hit.normal,
         hit.front_face,
     )
@@ -29,7 +30,8 @@ def _make_primary_ray(
     mut rng: Rng,
 ) -> Rayf32[.WORLD]:
     var lens = random_in_unit_disk[.WORLD](rng)
-    return camera.make_ray_sampled(
+    return make_camera_ray_from_samples(
+        camera,
         Float32(px),
         Float32(py),
         Float32(settings.image_width),
@@ -38,5 +40,4 @@ def _make_primary_ray(
         rng.f32(),
         lens.x,
         lens.y,
-        0.001,
     )

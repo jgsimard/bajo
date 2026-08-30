@@ -2,7 +2,6 @@
 
 from std.math import sqrt
 
-from bajo.bvh.constants import f32_max
 from bajo.bvh.cpu.traversal_mode import CpuTraversalMode
 from bajo.core import (
     Point3,
@@ -26,6 +25,7 @@ from bajo.rt.types import (
 )
 from ..scene import CpuScene
 from bajo.rt.common import path_stage_rng, russian_roulette, sky_color
+from bajo.rt.rays import spawn_surface_ray
 from bajo.rt.wavefront_queue import (
     PacketPathQueue,
     PacketShadeQueue,
@@ -219,14 +219,22 @@ def _sample_bsdf_batch[
 
     var out = PathPacket[length]()
     out.path_ids = batch.path_ids
-    out.ox = batch.ox + batch.hit_t * batch.dx
-    out.oy = batch.oy + batch.hit_t * batch.dy
-    out.oz = batch.oz + batch.hit_t * batch.dz
-    out.t_min = 0.001
-    out.dx = sampled.direction.x
-    out.dy = sampled.direction.y
-    out.dz = sampled.direction.z
-    out.t_max = f32_max
+    var next_ray = spawn_surface_ray(
+        Point3[.float32, .WORLD, length](
+            batch.ox + batch.hit_t * batch.dx,
+            batch.oy + batch.hit_t * batch.dy,
+            batch.oz + batch.hit_t * batch.dz,
+        ),
+        sampled.direction,
+    )
+    out.ox = next_ray.o.x
+    out.oy = next_ray.o.y
+    out.oz = next_ray.o.z
+    out.t_min = next_ray.t_min
+    out.dx = next_ray.d.x
+    out.dy = next_ray.d.y
+    out.dz = next_ray.d.z
+    out.t_max = next_ray.t_max
     out.tx = batch.tx * sampled.weight.x
     out.ty = batch.ty * sampled.weight.y
     out.tz = batch.tz * sampled.weight.z
@@ -384,7 +392,7 @@ def _trace_path_packets[
 
                     comptime if Integrator.uses_direct_lighting[integrator]:
                         var point = ShadingPoint(
-                            ray.o + hit.t * ray.d,
+                            ray.at(hit.t),
                             hit.normal,
                             hit.front_face,
                         )
@@ -449,10 +457,9 @@ def _trace_path_packets[
                     misses[lane] = True
 
             comptime if Integrator.uses_direct_lighting[integrator]:
-                var shadow_rays = Ray[.float32, .WORLD, length](
+                var shadow_rays = spawn_surface_ray(
                     direct_lights.point.p,
                     direct_lights.sample.direction,
-                    SIMD[.float32, length](0.001),
                     direct_lights.sample.shadow_t_max,
                 )
                 direct_lights.sample.valid &= ~world.occluded(

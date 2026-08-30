@@ -51,6 +51,8 @@ from bajo.rt.cpu import reflect, reflectance
 from bajo.rt.common import path_stage_rng, russian_roulette
 from bajo.rt.lighting import (
     _draw_alias_column,
+    _emissive_hit_light_pdf,
+    _emissive_hit_weight_from_pdf,
     _resolve_alias_draw,
     _solid_angle_light_pdf,
 )
@@ -99,6 +101,26 @@ def test_signed_sphere_acceleration_policy() raises:
     assert_almost_equal(acceleration.radius, 2.5)
     assert_vec_equal(acceleration.center, sphere.center)
     assert_almost_equal(sphere.radius, -2.5)
+
+
+def test_geometry_structs_own_validity_and_orientation_queries() raises:
+    var identity = Affine3f32[.LOCAL, .WORLD].identity()
+    assert_true(identity.is_finite()[0])
+    assert_false(identity.reverses_orientation()[0])
+
+    var mirrored = Affine3f32[.LOCAL, .WORLD].from_scale(
+        Vec3f32[.LOCAL](-1.0, 1.0, 1.0)
+    )
+    assert_true(mirrored.reverses_orientation()[0])
+
+    var finite_bounds = AABB[.WORLD].point(Point3f32[.WORLD](1.0, 2.0, 3.0))
+    assert_true(finite_bounds.is_finite()[0])
+    assert_true(finite_bounds.is_valid()[0])
+    assert_false(AABB[.WORLD].invalid().is_valid()[0])
+
+    var nonfinite = identity.copy()
+    nonfinite.m00 = bitcast[.float32](UInt32(0x7FC00000))
+    assert_false(nonfinite.is_finite()[0])
 
 
 def test_reflect_and_reflectance() raises:
@@ -475,6 +497,38 @@ def test_russian_roulette_is_deterministic_and_unbiased() raises:
         weighted_sum / Float64(TRIALS),
         Float64(throughput.x),
         atol=0.01,
+    )
+
+
+def test_emissive_hit_pdf_and_integrator_weight_are_shared() raises:
+    var light_pdf = _emissive_hit_light_pdf(
+        Vec3f32[.WORLD](0.0, 0.0, -2.0),
+        3.0,
+        Vec3f32[.WORLD](0.0, 0.0, 1.0),
+        Color(2.0),
+        4.0,
+    )
+    assert_almost_equal(light_pdf, 18.0)
+    assert_almost_equal(
+        _emissive_hit_weight_from_pdf[.PATH](UInt32(1), False, 6.0, light_pdf),
+        1.0,
+    )
+    assert_almost_equal(
+        _emissive_hit_weight_from_pdf[.NEE](UInt32(1), False, 6.0, light_pdf),
+        0.0,
+    )
+    assert_almost_equal(
+        _emissive_hit_weight_from_pdf[.MIS](UInt32(1), False, 6.0, 8.0),
+        0.36,
+        atol=1.0e-6,
+    )
+    assert_almost_equal(
+        _emissive_hit_weight_from_pdf[.MIS](UInt32(0), False, 6.0, 8.0),
+        1.0,
+    )
+    assert_almost_equal(
+        _emissive_hit_weight_from_pdf[.MIS](UInt32(1), True, 6.0, 8.0),
+        1.0,
     )
 
 

@@ -9,7 +9,6 @@ from bajo.rt.types import (
     HitRecord,
     PrimitiveKind,
     PrimitiveId,
-    ray_at,
 )
 from bajo.benchmark.rt_fixtures import (
     make_bounded_grid_rays,
@@ -41,7 +40,7 @@ def trace_recomputed_normal(
     ref v0 = world.scene_data().triangle_vertices()[base + 0]
     ref v1 = world.scene_data().triangle_vertices()[base + 1]
     ref v2 = world.scene_data().triangle_vertices()[base + 2]
-    var p = ray_at(ray, bvh_hit.t)
+    var p = ray.at(bvh_hit.t)
     var outward_normal = normalize(cross(v1 - v0, v2 - v0))
     var front_face = dot(ray.d, outward_normal) < 0.0
     var normal = outward_normal if front_face else -outward_normal
@@ -65,7 +64,7 @@ def trace_bvh_normal(
         return None
 
     var tri_idx = Int(bvh_hit.prim)
-    var p = ray_at(ray, bvh_hit.t)
+    var p = ray.at(bvh_hit.t)
     var outward_normal = bvh_hit.normal.unsafe_convert[
         new_kind=GeoKind.VECTOR
     ]()

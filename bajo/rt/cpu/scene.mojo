@@ -34,7 +34,6 @@ from bajo.rt.types import (
     SceneData,
     SurfaceHit,
     SurfaceId,
-    ray_at,
 )
 
 
@@ -254,7 +253,7 @@ struct CpuScene[
             return None
         return HitRecord(
             hit.primitive.copy(),
-            ray_at(ray, hit.t),
+            ray.at(hit.t),
             hit.normal,
             hit.surface.copy(),
             hit.t,
@@ -485,7 +484,7 @@ struct CpuScene[
             "BVH returned an out-of-range sphere index",
         )
         ref sphere = self._scene.spheres()[sphere_idx]
-        var p = ray_at(ray, bvh_hit.t)
+        var p = ray.at(bvh_hit.t)
         var outward_normal = (p - sphere.center) / sphere.radius
         var oriented = orient_surface_normal(ray.d, outward_normal)
         return _WorldHit(

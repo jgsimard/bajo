@@ -4,29 +4,28 @@ from std.gpu import block_dim, global_idx, grid_dim
 from std.math import ceildiv, sqrt
 from max.gpu.host import DeviceBuffer, DeviceContext
 
-from bajo.bvh.constants import f32_max
 from bajo.bvh.gpu.utils import upload_list
 from bajo.core import (
     Point3f32,
     Rayf32,
     Vec3f32,
     dot,
-    length2,
     normalize,
 )
-from bajo.core.random import random_on_hemisphere, random_unit_vector
+from bajo.core.random import random_unit_vector
 from bajo.rt.common import path_stage_rng, russian_roulette, sky_color
 from bajo.rt.lighting import (
     _direct_light_scale,
     _draw_alias_column,
+    _emissive_hit_light_pdf,
+    _emissive_hit_weight_from_pdf,
     _finish_direct_light_geometry,
     _LightSurfaceSample,
     _resolve_alias_draw,
     _sample_sphere_light_surface,
     _sample_triangle_light_surface,
-    _solid_angle_light_pdf,
-    power_heuristic,
 )
+from bajo.rt.rays import spawn_surface_ray
 from bajo.rt.shading import _evaluate_material, _sample_material
 from bajo.rt.types import (
     Color,
@@ -332,7 +331,7 @@ def _sample_direct_light_candidate[
         light_fields[unsafe_offset=base + GPU_RT_LIGHT_E_Z],
     )
     var geometry = _finish_direct_light_geometry(
-        incoming_ray.o + hit_t * incoming_ray.d,
+        incoming_ray.at(hit_t),
         normal,
         surface_sample,
         emission,
@@ -495,17 +494,25 @@ def _shade_lambertian_inline[
     if slot >= capacity:
         _mark_status(counters, WAVE_STATUS.PATH_OVERFLOW)
         return
-    store_gpu_rt_path[integrator](
-        DeviceWavePath(
-            path.path_id,
+    var next_ray = spawn_surface_ray(
+        Point3f32[.WORLD](
             path.ox + hit_t * path.dx,
             path.oy + hit_t * path.dy,
             path.oz + hit_t * path.dz,
-            0.001,
-            sampled.direction.x,
-            sampled.direction.y,
-            sampled.direction.z,
-            f32_max,
+        ),
+        sampled.direction,
+    )
+    store_gpu_rt_path[integrator](
+        DeviceWavePath(
+            path.path_id,
+            next_ray.o.x,
+            next_ray.o.y,
+            next_ray.o.z,
+            next_ray.t_min,
+            next_ray.d.x,
+            next_ray.d.y,
+            next_ray.d.z,
+            next_ray.t_max,
             roulette.throughput.x,
             roulette.throughput.y,
             roulette.throughput.z,
@@ -567,29 +574,19 @@ def _route_surface_hit[
                 emissives[unsafe_offset=base + 1],
                 emissives[unsafe_offset=base + 2],
             )
-            var emission_weight = Float32(1.0)
-            comptime if integrator == .NEE:
+            var light_pdf = Float32(0.0)
+            comptime if integrator == .MIS:
                 if bounce > 0 and not path.delta:
-                    emission_weight = 0.0
-            elif integrator == .MIS:
-                if bounce > 0 and not path.delta:
-                    var light_cosine = max(
-                        dot(normal, -normalize(ray_direction)), 0.0
+                    light_pdf = _emissive_hit_light_pdf(
+                        ray_direction,
+                        hit_t,
+                        normal,
+                        radiance,
+                        total_light_weight,
                     )
-                    var light_pdf = Float32(0.0)
-                    if light_cosine > 0.0 and total_light_weight > 0.0:
-                        var distance_squared = (
-                            hit_t * hit_t * length2(ray_direction)
-                        )
-                        light_pdf = _solid_angle_light_pdf(
-                            distance_squared,
-                            light_cosine,
-                            radiance,
-                            total_light_weight,
-                        )
-                    emission_weight = power_heuristic[1](
-                        path.bsdf_pdf, light_pdf
-                    )
+            var emission_weight = _emissive_hit_weight_from_pdf[integrator](
+                bounce, path.delta, path.bsdf_pdf, light_pdf
+            )
             _accumulate_sample(
                 sample_radiance,
                 capacity,
@@ -631,24 +628,6 @@ def _route_surface_hit[
             counters,
             capacity,
         )
-
-
-@always_inline
-def _make_ao_ray(
-    sampling: SamplingConfig,
-    path: DeviceWavePath,
-    incoming_ray: Rayf32[.WORLD],
-    hit_t: Float32,
-    normal: Vec3f32[.WORLD],
-) -> Rayf32[.WORLD]:
-    var rng = path_stage_rng(sampling, path.path_id, UInt32(1))
-    var direction = random_on_hemisphere[.WORLD](rng, normal)
-    return Rayf32[.WORLD](
-        incoming_ray.o + hit_t * incoming_ray.d,
-        direction,
-        0.001,
-        4.0,
-    )
 
 
 @always_inline
@@ -745,17 +724,25 @@ def _gpu_rt_shade_one[
     if slot >= capacity:
         _mark_status(counters, WAVE_STATUS.PATH_OVERFLOW)
         return
-    store_gpu_rt_path[integrator](
-        DeviceWavePath(
-            path.path_id,
+    var next_ray = spawn_surface_ray(
+        Point3f32[.WORLD](
             path.ox + work.t * path.dx,
             path.oy + work.t * path.dy,
             path.oz + work.t * path.dz,
-            0.001,
-            sampled.direction.x,
-            sampled.direction.y,
-            sampled.direction.z,
-            f32_max,
+        ),
+        sampled.direction,
+    )
+    store_gpu_rt_path[integrator](
+        DeviceWavePath(
+            path.path_id,
+            next_ray.o.x,
+            next_ray.o.y,
+            next_ray.o.z,
+            next_ray.t_min,
+            next_ray.d.x,
+            next_ray.d.y,
+            next_ray.d.z,
+            next_ray.t_max,
             roulette.throughput.x,
             roulette.throughput.y,
             roulette.throughput.z,

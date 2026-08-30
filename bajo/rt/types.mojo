@@ -805,10 +805,10 @@ struct SceneData:
             if not self._surfaces.validate(surface):
                 raise Error("triangle instance surface id is out of range")
 
-            if not _transform_is_finite(inst.transform):
+            if not inst.transform.is_finite()[0]:
                 raise Error("triangle instance transform must be finite")
             var inverse = inst.transform.inverse()
-            if not inverse.mask[0] or not _transform_is_finite(inverse.inv):
+            if not inverse.mask[0] or not inverse.inv.is_finite()[0]:
                 raise Error("triangle instance transform must be invertible")
 
             ref vertices = self._triangle_meshes[Int(inst.blas_idx)]
@@ -816,7 +816,7 @@ struct SceneData:
             for vertex in vertices:
                 local_bounds.grow(vertex)
             var world_bounds = local_bounds.apply_transform(inst.transform)
-            if not _bounds_are_valid(world_bounds):
+            if not world_bounds.is_valid()[0]:
                 raise Error(
                     "triangle instance transformed bounds must be finite"
                 )
@@ -912,9 +912,7 @@ struct SceneData:
                 instance_idx
             ].transform.copy()
             var mesh_idx = Int(self._triangle_instances[instance_idx].blas_idx)
-            var reverses_orientation = _transform_reverses_orientation(
-                transform
-            )
+            var reverses_orientation = transform.reverses_orientation()[0]
             var triangle_count = len(self._triangle_meshes[mesh_idx]) / 3
             for triangle_idx in range(triangle_count):
                 var base = 3 * triangle_idx
@@ -1004,37 +1002,6 @@ def _triangle_is_valid[
 
 
 @always_inline
-def _transform_is_finite[
-    From: Frame, To: Frame
-](transform: Affine3f32[From, To]) -> Bool:
-    return (
-        isfinite(transform.m00[0])
-        and isfinite(transform.m01[0])
-        and isfinite(transform.m02[0])
-        and isfinite(transform.tx[0])
-        and isfinite(transform.m10[0])
-        and isfinite(transform.m11[0])
-        and isfinite(transform.m12[0])
-        and isfinite(transform.ty[0])
-        and isfinite(transform.m20[0])
-        and isfinite(transform.m21[0])
-        and isfinite(transform.m22[0])
-        and isfinite(transform.tz[0])
-    )
-
-
-@always_inline
-def _bounds_are_valid[frame: Frame](bounds: AABB[frame]) -> Bool:
-    return (
-        _point_is_finite(bounds._min)
-        and _point_is_finite(bounds._max)
-        and bounds._min.x[0] <= bounds._max.x[0]
-        and bounds._min.y[0] <= bounds._max.y[0]
-        and bounds._min.z[0] <= bounds._max.z[0]
-    )
-
-
-@always_inline
 def _light_importance(radiance: Color) -> Float32:
     return max((radiance.x + radiance.y + radiance.z) / 3.0, 0.0)
 
@@ -1044,22 +1011,3 @@ def _triangle_area[
     frame: Frame
 ](v0: Point3f32[frame], v1: Point3f32[frame], v2: Point3f32[frame]) -> Float32:
     return 0.5 * sqrt(length2(cross(v1 - v0, v2 - v0)))
-
-
-@always_inline
-def _transform_reverses_orientation(
-    transform: Affine3f32[.LOCAL, .WORLD],
-) -> Bool:
-    var determinant = (
-        transform.m00
-        * (transform.m11 * transform.m22 - transform.m12 * transform.m21)
-        - transform.m01
-        * (transform.m10 * transform.m22 - transform.m12 * transform.m20)
-        + transform.m02
-        * (transform.m10 * transform.m21 - transform.m11 * transform.m20)
-    )
-    return determinant[0] < 0.0
-
-
-def ray_at(ray: Rayf32[.WORLD], t: Float32) -> Point3f32[.WORLD]:
-    return ray.o + t * ray.d

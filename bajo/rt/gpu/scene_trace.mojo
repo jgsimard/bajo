@@ -14,8 +14,9 @@ from bajo.bvh.gpu.triangle_bvh import (
 )
 from bajo.bvh.gpu.blas_trace import trace_gpu_blas
 from bajo.core import GeoKind, Point3f32, Rayf32, Vec3f32
-from bajo.rt.common import sky_color
+from bajo.rt.common import path_stage_rng, sky_color
 from bajo.rt.geometry import orient_surface_normal
+from bajo.rt.rays import make_ao_ray, spawn_surface_ray
 from bajo.rt.types import Color, Integrator, SamplingConfig
 from bajo.rt.gpu.config import GpuRtBvhFormat, GpuRtSceneKind
 from bajo.rt.wavefront_contract import (
@@ -38,7 +39,6 @@ from bajo.rt.gpu.common_kernels import (
 from bajo.rt.gpu.path_shading import (
     _accumulate_sample,
     _append_shadow,
-    _make_ao_ray,
     _route_surface_hit,
     _sample_direct_light_candidate,
 )
@@ -262,7 +262,8 @@ def _gpu_rt_scene_trace_path[
     var oriented = orient_surface_normal(ray.d, outward)
     var normal = oriented.normal
     comptime if integrator == .AO:
-        var ao_ray = _make_ao_ray(sampling, path, ray, closest_t, normal)
+        var ao_rng = path_stage_rng(sampling, path.path_id, UInt32(1))
+        var ao_ray = make_ao_ray(ray.at(closest_t), normal, ao_rng)
         _append_shadow[False](
             DeviceWaveShadow(
                 path.path_id,
@@ -303,10 +304,9 @@ def _gpu_rt_scene_trace_path[
             bounce,
         )
         if direct.valid:
-            var shadow_ray = Rayf32[.WORLD](
-                ray.o + closest_t * ray.d,
+            var shadow_ray = spawn_surface_ray(
+                ray.at(closest_t),
                 direct.direction,
-                0.001,
                 direct.shadow_t_max,
             )
             _append_shadow(

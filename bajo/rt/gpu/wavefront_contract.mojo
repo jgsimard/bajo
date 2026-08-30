@@ -6,6 +6,7 @@ from std.math import ceildiv
 from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh.constants import f32_max
+from bajo.rt.rays import RT_RAY_T_MIN
 from bajo.rt.types import Integrator
 from bajo.rt.wavefront_contract import (
     DeviceWavePath,
@@ -89,7 +90,7 @@ def load_gpu_rt_path[
                 WavePathFloatAbi.OZ, capacity, idx
             )
         ],
-        0.001,
+        RT_RAY_T_MIN,
         fields[
             unsafe_offset=wavefront_plane_index(
                 WavePathFloatAbi.DX, capacity, idx
@@ -219,7 +220,7 @@ def load_gpu_rt_shadow[
                 WaveShadowFloatAbi.OZ, capacity, idx
             )
         ],
-        0.001,
+        RT_RAY_T_MIN,
         fields[
             unsafe_offset=wavefront_plane_index(
                 WaveShadowFloatAbi.DX, capacity, idx

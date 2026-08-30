@@ -8,7 +8,9 @@ from bajo.core import (
     cross,
     dot,
     length2,
+    normalize,
 )
+from bajo.rt.rays import RT_RAY_T_MIN, RT_SHADOW_END_OFFSET
 from bajo.rt.types import Color, Integrator, _light_importance
 
 
@@ -126,8 +128,8 @@ def _finish_direct_light_geometry(
     var light_cosine = max(dot(light.normal, -direction), 0.0)
     if surface_cosine <= 0.0 or light_cosine <= 0.0:
         return _empty_direct_light_geometry()
-    var shadow_t_max = distance - 0.002
-    if shadow_t_max <= 0.001:
+    var shadow_t_max = distance - RT_SHADOW_END_OFFSET
+    if shadow_t_max <= RT_RAY_T_MIN:
         return _empty_direct_light_geometry()
     return _DirectLightGeometrySample(
         True,
@@ -156,6 +158,45 @@ def power_heuristic[
     return nonzero.select(
         a2 / nonzero.select(denominator, Float32(1.0)), Float32(0.0)
     )
+
+
+@always_inline
+def _emissive_hit_light_pdf(
+    ray_direction: Vec3f32[.WORLD],
+    hit_t: Float32,
+    normal: Vec3f32[.WORLD],
+    emission: Color,
+    total_light_weight: Float32,
+) -> Float32:
+    """Evaluate an emissive-hit light PDF in solid-angle measure."""
+    var light_cosine = max(dot(normal, -normalize(ray_direction)), 0.0)
+    if light_cosine <= 0.0 or total_light_weight <= 0.0:
+        return 0.0
+    return _solid_angle_light_pdf(
+        hit_t * hit_t * length2(ray_direction),
+        light_cosine,
+        emission,
+        total_light_weight,
+    )
+
+
+@always_inline
+def _emissive_hit_weight_from_pdf[
+    integrator: Integrator,
+](
+    bounce: UInt32,
+    previous_delta: Bool,
+    previous_bsdf_pdf: Float32,
+    light_pdf: Float32,
+) -> Float32:
+    """Apply the shared NEE/MIS policy to an emissive surface hit."""
+    comptime if integrator == .NEE:
+        if bounce > 0 and not previous_delta:
+            return 0.0
+    elif integrator == .MIS:
+        if bounce > 0 and not previous_delta:
+            return power_heuristic[1](previous_bsdf_pdf, light_pdf)
+    return 1.0
 
 
 @always_inline

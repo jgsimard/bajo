@@ -5,6 +5,7 @@ from std.gpu import global_idx
 from bajo.bvh import Camera
 from bajo.core.random import random_in_unit_disk
 from bajo.rt.common import path_stage_rng
+from bajo.rt.rays import make_camera_ray_from_samples
 from bajo.rt.types import Integrator, SamplingConfig
 from bajo.rt.wavefront_contract import (
     DeviceWavePath,
@@ -38,7 +39,8 @@ def make_gpu_rt_primary_path(
     var rng = path_stage_rng(sampling, path_id, UInt32(0))
     var lens = random_in_unit_disk[.WORLD](rng)
     var camera = Camera(Span(unsafe_ptr=camera_params, length=Camera.STRIDE))
-    var ray = camera.make_ray_sampled(
+    var ray = make_camera_ray_from_samples(
+        camera,
         Float32(px),
         Float32(py),
         Float32(width),
@@ -47,7 +49,6 @@ def make_gpu_rt_primary_path(
         rng.f32(),
         lens.x,
         lens.y,
-        0.001,
     )
     return DeviceWavePath(
         path_id,

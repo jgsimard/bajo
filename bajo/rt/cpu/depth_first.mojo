@@ -6,9 +6,8 @@ from std.math import ceildiv, sqrt
 from std.sys import num_logical_cores
 from std.time import perf_counter_ns
 
-from bajo.bvh.constants import f32_max
-from bajo.core import Rayf32, normalize
-from bajo.core.random import Rng, random_on_hemisphere
+from bajo.core import Rayf32
+from bajo.core.random import Rng
 from bajo.bvh import Camera
 from bajo.rt.types import (
     Color,
@@ -21,6 +20,7 @@ from bajo.rt.types import (
 from .scene import CpuScene
 from .scheduler_mode import CpuSchedulerMode
 from bajo.rt.common import path_stage_rng, russian_roulette, sky_color
+from bajo.rt.rays import make_ao_ray, spawn_surface_ray
 
 
 from .bsdf import sample_bsdf
@@ -115,9 +115,7 @@ def _trace_path[
             if not roulette.survived:
                 return radiance
             throughput = roulette.throughput
-            cur_ray = Rayf32[.WORLD](
-                point.p, scattered.direction, 0.001, f32_max
-            )
+            cur_ray = spawn_surface_ray(point.p, scattered.direction)
         else:
             return radiance + throughput * sky_color(cur_ray.d)
 
@@ -150,9 +148,7 @@ def _trace_ao[
     if not hit.hit:
         return sky_color(ray.d)
 
-    var p = ray.o + hit.t * ray.d
-    var ao_dir = random_on_hemisphere[.WORLD](rng, hit.normal)
-    var ao_ray = Rayf32[.WORLD](p, normalize(ao_dir), 0.001, 4.0)
+    var ao_ray = make_ao_ray(ray.at(hit.t), hit.normal, rng)
     if world.occluded(ao_ray):
         return Color(0.08)
 

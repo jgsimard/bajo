@@ -1,4 +1,5 @@
 from std.utils.numerics import max_finite, min_finite
+from std.math import abs
 
 from bajo.core.transform import Affine3
 from bajo.core.vec import Vec3, vmin, vmax, Point3, GeoKind
@@ -36,6 +37,31 @@ struct AxisAlignedBoundingBox[
     @staticmethod
     def point(p: Point3[Self.dtype, Self.frame, Self.width]) -> Self:
         return Self(p, p)
+
+    @always_inline
+    def is_finite(
+        self,
+    ) -> SIMD[.bool, Self.width] where Self.dtype.is_floating_point():
+        comptime limit = max_finite[Self.dtype]()
+        return (
+            abs(self._min.x).le(limit)
+            & abs(self._min.y).le(limit)
+            & abs(self._min.z).le(limit)
+            & abs(self._max.x).le(limit)
+            & abs(self._max.y).le(limit)
+            & abs(self._max.z).le(limit)
+        )
+
+    @always_inline
+    def is_valid(
+        self,
+    ) -> SIMD[.bool, Self.width] where Self.dtype.is_floating_point():
+        return (
+            self.is_finite()
+            & self._min.x.le(self._max.x)
+            & self._min.y.le(self._max.y)
+            & self._min.z.le(self._max.z)
+        )
 
     @staticmethod
     def merge(a: Self, b: Self) -> Self:

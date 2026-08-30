@@ -3,22 +3,20 @@
 from bajo.core import (
     Rayf32,
     Vec3,
-    dot,
-    length2,
-    normalize,
 )
 from bajo.core.random import Rng, random_unit_vector
 from bajo.rt.lighting import (
     _direct_light_scale,
     _draw_alias_column,
+    _emissive_hit_light_pdf,
+    _emissive_hit_weight_from_pdf,
     _finish_direct_light_geometry,
     _LightSurfaceSample,
     _resolve_alias_draw,
     _sample_sphere_light_surface,
     _sample_triangle_light_surface,
-    _solid_angle_light_pdf,
-    power_heuristic,
 )
+from bajo.rt.rays import spawn_surface_ray
 from bajo.rt.types import (
     Color,
     PrimitiveKind,
@@ -82,17 +80,13 @@ def _emissive_hit_weight[
     previous_bsdf_pdf: Float32,
     previous_delta: Bool,
 ) -> Float32:
-    comptime assert Integrator.is_path_tracing[integrator]
-    comptime if integrator == .NEE:
+    var light_pdf = Float32(0.0)
+    comptime if integrator == .MIS:
         if bounce > 0 and not previous_delta:
-            return 0.0
-    elif integrator == .MIS:
-        if bounce > 0 and not previous_delta:
-            return power_heuristic[1](
-                previous_bsdf_pdf,
-                light_pdf_for_emissive_hit(world, ray, hit),
-            )
-    return 1.0
+            light_pdf = light_pdf_for_emissive_hit(world, ray, hit)
+    return _emissive_hit_weight_from_pdf[integrator](
+        UInt32(bounce), previous_delta, previous_bsdf_pdf, light_pdf
+    )
 
 
 def light_pdf_for_emissive_hit[
@@ -107,20 +101,14 @@ def light_pdf_for_emissive_hit[
     if hit.surface.kind() != .EMISSIVE or not hit.front_face:
         return 0.0
     var total_weight = world.scene_data().lights().total_weight
-    if total_weight <= 0.0:
-        return 0.0
-    var light_cosine = max(dot(hit.normal, -normalize(ray.d)), 0.0)
-    if light_cosine <= 0.0:
-        return 0.0
-    var distance_squared = hit.t * hit.t * length2(ray.d)
     var radiance = (
         world.scene_data()
         .surfaces()
         .emissives[Int(hit.surface.index())]
         .radiance
     )
-    return _solid_angle_light_pdf(
-        distance_squared, light_cosine, radiance, total_weight
+    return _emissive_hit_light_pdf(
+        ray.d, hit.t, hit.normal, radiance, total_weight
     )
 
 
@@ -194,8 +182,8 @@ def _sample_direct_light[
     var light = _sample_direct_light_candidate(world, point, rng)
     if not light.valid:
         return light^
-    var shadow_ray = Rayf32[.WORLD](
-        point.p, light.direction, 0.001, light.shadow_t_max
+    var shadow_ray = spawn_surface_ray(
+        point.p, light.direction, light.shadow_t_max
     )
     if world.occluded(shadow_ray):
         return _empty_direct_light_sample[1]()

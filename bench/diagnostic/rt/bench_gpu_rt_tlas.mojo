@@ -49,7 +49,7 @@ struct TlasRtLayoutResult(Copyable):
     var mis: GpuRtBenchResult
 
 
-def _warm_world_build(mut ctx: DeviceContext, world: CpuScene[]) raises:
+def _warm_world_build(mut ctx: DeviceContext, world: CpuScene[16, 16]) raises:
     _ = prepare_gpu_scene[
         .INSTANCES,
         tlas_format=GpuRtBvhFormat(2, 1, .WIDE),
@@ -58,7 +58,7 @@ def _warm_world_build(mut ctx: DeviceContext, world: CpuScene[]) raises:
     ctx.synchronize()
 
 
-def _instance_grid_world() raises -> CpuScene[]:
+def _instance_grid_world() raises -> CpuScene[16, 16]:
     var builder = SceneBuilder()
     var matte = builder.add_lambertian(Color(0.62, 0.58, 0.50))
     var mesh = List[Point3f32[.LOCAL]]()
@@ -94,7 +94,7 @@ def _instance_grid_world() raises -> CpuScene[]:
                 matte,
             )
     var scene = builder^.finish()
-    return CpuScene[](scene^)
+    return CpuScene[16, 16](scene^)
 
 
 def _camera() -> Camera:
@@ -149,7 +149,7 @@ def _run_layout[
 ](
     mut ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: CpuScene[],
+    world: CpuScene[16, 16],
     settings: RenderSettings,
     label: String,
 ) raises -> TlasRtLayoutResult:

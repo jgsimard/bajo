@@ -61,20 +61,14 @@ struct _WorldHit(Copyable, Writable):
 
 
 struct CpuScene[
-    world_bvh_width: SIMDLength = 16,
-    instance_bvh_width: SIMDLength = 16,
+    world_bvh_width: SIMDLength,
+    instance_bvh_width: SIMDLength,
 ]:
     """Immutable CPU-prepared snapshot with backend-specific acceleration.
 
     The input `SceneData` is consumed into this owner. `scene_data()` exposes a
     read-only view; geometry, surfaces, and lights cannot be mutated through the
     public prepared-scene API.
-
-    `CpuScene[]` keeps the general-purpose BVH16/BVH16 policy for world geometry
-    and instance BLASes. CPU instance traversal uses one instance per TLAS leaf
-    independently of those SIMD widths. A packet-oriented scene can instead
-    select, for example, `CpuScene[8, 16]` without changing the packet length
-    passed to `render_wavefront`.
     """
 
     var sphere_bvh: Optional[CpuBlasSet[.SPHERE, Self.world_bvh_width]]

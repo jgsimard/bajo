@@ -36,7 +36,7 @@ from bajo.benchmark.gpu_harness import (
 )
 
 
-def _combined_grid_world() raises -> CpuScene[]:
+def _combined_grid_world() raises -> CpuScene[16, 16]:
     var builder = SceneBuilder()
     var matte = builder.add_lambertian(Color(0.62, 0.58, 0.50))
     var wall = builder.add_lambertian(Color(0.22, 0.28, 0.36))
@@ -95,7 +95,7 @@ def _combined_grid_world() raises -> CpuScene[]:
         wall,
     )
     var scene = builder^.finish()
-    return CpuScene[](scene^)
+    return CpuScene[16, 16](scene^)
 
 
 def _camera() -> Camera:
@@ -152,7 +152,7 @@ def _run_layout[
 ](
     mut ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: CpuScene[],
+    world: CpuScene[16, 16],
     settings: RenderSettings,
     sample_count: Int,
     label: String,

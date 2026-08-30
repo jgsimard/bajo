@@ -63,7 +63,7 @@ def make_mixed_triangle_mesh() -> List[Point3f32[.LOCAL]]:
     return vertices^
 
 
-def make_mixed_triangle_world() raises -> CpuScene[]:
+def make_mixed_triangle_world() raises -> CpuScene[16, 16]:
     var builder = SceneBuilder()
     var diffuse = builder.add_lambertian(Color(0.55, 0.32, 0.18))
     var ground = builder.add_lambertian(Color(0.35, 0.38, 0.32))
@@ -119,10 +119,10 @@ def make_mixed_triangle_world() raises -> CpuScene[]:
             )
 
     var scene = builder^.finish()
-    return CpuScene[](scene^)
+    return CpuScene[16, 16](scene^)
 
 
-def mixed_triangle_camera(world: CpuScene[]) -> Camera:
+def mixed_triangle_camera(world: CpuScene[16, 16]) -> Camera:
     var bounds = AABB[.WORLD].invalid()
     for inst in world.scene_data().triangle_instances():
         bounds.grow(inst.bounds)
@@ -137,13 +137,13 @@ def mixed_triangle_camera(world: CpuScene[]) -> Camera:
     )
 
 
-def make_grid_triangle_world() raises -> CpuScene[]:
+def make_grid_triangle_world() raises -> CpuScene[16, 16]:
     var builder = SceneBuilder()
     var matte = builder.add_lambertian(Color(0.5))
     var vertices = make_grid_triangles()
     builder.add_triangle_mesh(vertices, matte)
     var scene = builder^.finish()
-    return CpuScene[](scene^)
+    return CpuScene[16, 16](scene^)
 
 
 def make_bounded_grid_rays() -> List[Rayf32[.WORLD]]:

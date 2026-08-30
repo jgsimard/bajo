@@ -95,7 +95,7 @@ struct TraceCounters:
 def time_render[
     integrator: Integrator
 ](
-    settings: RenderSettings, camera: Camera, world: CpuScene[]
+    settings: RenderSettings, camera: Camera, world: CpuScene[16, 16]
 ) raises -> TimingResult:
     # Warm all compiled code and renderer-owned allocations before measuring.
     var warmup = render_depth_first[integrator](settings, camera, world)
@@ -195,7 +195,9 @@ def count_hit(
 
 def count_path[
     DEPTH: Int
-](settings: RenderSettings, camera: Camera, world: CpuScene[]) -> TraceCounters:
+](
+    settings: RenderSettings, camera: Camera, world: CpuScene[16, 16]
+) -> TraceCounters:
     var counters = TraceCounters()
     for py in range(settings.image_height):
         for px in range(settings.image_width):
@@ -263,7 +265,7 @@ def count_path[
 
 
 def count_ao(
-    settings: RenderSettings, camera: Camera, world: CpuScene[]
+    settings: RenderSettings, camera: Camera, world: CpuScene[16, 16]
 ) -> TraceCounters:
     var counters = TraceCounters()
     for py in range(settings.image_height):

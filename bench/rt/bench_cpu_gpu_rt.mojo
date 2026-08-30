@@ -69,7 +69,7 @@ struct GpuTiming:
 def _render_cpu[
     integrator: Integrator
 ](
-    settings: RenderSettings, camera: Camera, world: CpuScene[]
+    settings: RenderSettings, camera: Camera, world: CpuScene[16, 16]
 ) raises -> RenderResult:
     comptime if integrator == .AO:
         return render_depth_first[integrator](settings, camera, world)
@@ -85,7 +85,7 @@ def _render_cpu[
 def _bench_cpu[
     integrator: Integrator
 ](
-    settings: RenderSettings, camera: Camera, world: CpuScene[]
+    settings: RenderSettings, camera: Camera, world: CpuScene[16, 16]
 ) raises -> CpuTiming:
     var warmup = _render_cpu[integrator](settings, camera, world)
     var checksum = gpu_rt_checksum(warmup.pixels)

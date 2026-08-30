@@ -30,7 +30,7 @@ struct Timing(Copyable):
     var hits: Int
 
 
-def trace_scalar(world: CpuScene[], rays: List[Rayf32[.WORLD]]) -> Int:
+def trace_scalar(world: CpuScene[16, 16], rays: List[Rayf32[.WORLD]]) -> Int:
     var hits = 0
     for ray in rays:
         if world.occluded(ray):
@@ -38,7 +38,7 @@ def trace_scalar(world: CpuScene[], rays: List[Rayf32[.WORLD]]) -> Int:
     return hits
 
 
-def trace_packet(world: CpuScene[], rays: List[Rayf32[.WORLD]]) -> Int:
+def trace_packet(world: CpuScene[16, 16], rays: List[Rayf32[.WORLD]]) -> Int:
     var hits = 0
     for base in range(0, len(rays), PACKET_WIDTH):
         var ox = SIMD[.float32, PACKET_WIDTH](0.0)
@@ -136,7 +136,9 @@ def trace_low_level_packet[
     return hits
 
 
-def benchmark_scalar(world: CpuScene[], rays: List[Rayf32[.WORLD]]) -> Timing:
+def benchmark_scalar(
+    world: CpuScene[16, 16], rays: List[Rayf32[.WORLD]]
+) -> Timing:
     var hits = trace_scalar(world, rays)
     var best = Int.MAX
     for _ in range(REPEATS):
@@ -146,7 +148,9 @@ def benchmark_scalar(world: CpuScene[], rays: List[Rayf32[.WORLD]]) -> Timing:
     return Timing(best, hits)
 
 
-def benchmark_packet(world: CpuScene[], rays: List[Rayf32[.WORLD]]) -> Timing:
+def benchmark_packet(
+    world: CpuScene[16, 16], rays: List[Rayf32[.WORLD]]
+) -> Timing:
     var hits = trace_packet(world, rays)
     var best = Int.MAX
     for _ in range(REPEATS):

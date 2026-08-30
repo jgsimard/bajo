@@ -32,9 +32,12 @@ struct ScheduleResult(Copyable):
 
 def run_schedule[
     TILE_WIDTH: Int, TILE_HEIGHT: Int, scheduler_mode: CpuSchedulerMode
-](settings: RenderSettings, camera: Camera, world: CpuScene[]) raises -> Tuple[
-    Int, Float64
-] where (TILE_WIDTH > 0, "tile width must be positive") where (
+](
+    settings: RenderSettings, camera: Camera, world: CpuScene[16, 16]
+) raises -> Tuple[Int, Float64] where (
+    TILE_WIDTH > 0,
+    "tile width must be positive",
+) where (
     TILE_HEIGHT > 0,
     "tile height must be positive",
 ):
@@ -54,7 +57,7 @@ def record_schedule[
     checksum: Float64,
     settings: RenderSettings,
     camera: Camera,
-    world: CpuScene[],
+    world: CpuScene[16, 16],
 ) raises where (TILE_WIDTH > 0, "tile width must be positive") where (
     TILE_HEIGHT > 0,
     "tile height must be positive",
@@ -85,7 +88,10 @@ def print_result(
 
 
 def benchmark_world(
-    label: String, settings: RenderSettings, camera: Camera, world: CpuScene[]
+    label: String,
+    settings: RenderSettings,
+    camera: Camera,
+    world: CpuScene[16, 16],
 ) raises:
     print(t"\n{label}")
     # A tile wider than the image and one pixel high reproduces scanlines.

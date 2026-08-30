@@ -228,7 +228,7 @@ def _instance_bounds(instances: List[Instance]) -> _BoundsW:
     return bounds
 
 
-def _triangle_count(world: CpuScene[]) -> Int:
+def _triangle_count(world: CpuScene[16, 16]) -> Int:
     var total = len(world.scene_data().triangle_vertices()) / 3
     for inst in world.scene_data().triangle_instances():
         total += (
@@ -238,7 +238,7 @@ def _triangle_count(world: CpuScene[]) -> Int:
 
 
 def _count_primary_hits(
-    settings: RenderSettings, camera: Camera, world: CpuScene[]
+    settings: RenderSettings, camera: Camera, world: CpuScene[16, 16]
 ) -> Int:
     var hits = 0
     for py in range(settings.image_height):
@@ -255,7 +255,7 @@ def _count_primary_hits(
     return hits
 
 
-def make_triangle_world() raises -> CpuScene[]:
+def make_triangle_world() raises -> CpuScene[16, 16]:
     var scene_rng = Rng(seed=99, id=17)
     var material_rng = Rng(seed=RNG_SEED, id=0)
 
@@ -354,7 +354,7 @@ def make_triangle_world() raises -> CpuScene[]:
     _append_ground(builder, scene_bounds)
 
     var scene = builder^.finish()
-    return CpuScene[](scene^)
+    return CpuScene[16, 16](scene^)
 
 
 def main() raises:

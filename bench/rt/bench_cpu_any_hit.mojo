@@ -24,7 +24,7 @@ struct TimingResult(Copyable):
     var hits: Int
 
 
-def query_closest(world: CpuScene[], rays: List[Rayf32[.WORLD]]) -> Int:
+def query_closest(world: CpuScene[16, 16], rays: List[Rayf32[.WORLD]]) -> Int:
     var hits = 0
     for ray in rays:
         if world.trace(ray):
@@ -32,7 +32,7 @@ def query_closest(world: CpuScene[], rays: List[Rayf32[.WORLD]]) -> Int:
     return hits
 
 
-def query_any(world: CpuScene[], rays: List[Rayf32[.WORLD]]) -> Int:
+def query_any(world: CpuScene[16, 16], rays: List[Rayf32[.WORLD]]) -> Int:
     var hits = 0
     for ray in rays:
         if world.occluded(ray):
@@ -40,7 +40,9 @@ def query_any(world: CpuScene[], rays: List[Rayf32[.WORLD]]) -> Int:
     return hits
 
 
-def time_closest(world: CpuScene[], rays: List[Rayf32[.WORLD]]) -> TimingResult:
+def time_closest(
+    world: CpuScene[16, 16], rays: List[Rayf32[.WORLD]]
+) -> TimingResult:
     var hits = query_closest(world, rays)
     var best_ns = Int.MAX
     for _ in range(TIMING_REPEATS):
@@ -52,7 +54,9 @@ def time_closest(world: CpuScene[], rays: List[Rayf32[.WORLD]]) -> TimingResult:
     return TimingResult(best_ns, hits)
 
 
-def time_any(world: CpuScene[], rays: List[Rayf32[.WORLD]]) -> TimingResult:
+def time_any(
+    world: CpuScene[16, 16], rays: List[Rayf32[.WORLD]]
+) -> TimingResult:
     var hits = query_any(world, rays)
     var best_ns = Int.MAX
     for _ in range(TIMING_REPEATS):
@@ -65,7 +69,7 @@ def time_any(world: CpuScene[], rays: List[Rayf32[.WORLD]]) -> TimingResult:
 
 
 def print_case(
-    label: String, world: CpuScene[], rays: List[Rayf32[.WORLD]]
+    label: String, world: CpuScene[16, 16], rays: List[Rayf32[.WORLD]]
 ) raises:
     var closest = time_closest(world, rays)
     var any = time_any(world, rays)
@@ -80,7 +84,7 @@ def print_case(
 
 
 def make_weekend_ao_rays(
-    world: CpuScene[],
+    world: CpuScene[16, 16],
 ) -> List[Rayf32[.WORLD]]:
     var camera = weekend_camera(0.0)
     var rays = List[Rayf32[.WORLD]](capacity=AO_WIDTH * AO_HEIGHT)

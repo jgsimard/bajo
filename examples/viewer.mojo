@@ -438,7 +438,7 @@ def _render_scene[
                 request.yaw_degrees,
                 request.pitch_degrees,
                 request.vfov,
-                CpuScene[].__init__[build_method](parsed^.take_data()),
+                CpuScene[16, 16].__init__[build_method](parsed^.take_data()),
                 request.sampler,
                 request.sample_offset,
                 request.sample_sequence_length,

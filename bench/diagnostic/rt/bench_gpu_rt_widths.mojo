@@ -31,7 +31,7 @@ def _run_layout[
 ](
     mut ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: CpuScene[],
+    world: CpuScene[16, 16],
     settings: RenderSettings,
     sample_count: Int,
     label: String,

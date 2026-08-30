@@ -41,16 +41,16 @@ from examples.cornell_box import make_cornell_world
 comptime DRAGON_PATH = "./assets/dragon/dragon.obj"
 
 
-def _dragon_world() raises -> CpuScene[]:
+def _dragon_world() raises -> CpuScene[16, 16]:
     var vertices = pack_obj_triangles[.WORLD](DRAGON_PATH)
     var builder = SceneBuilder()
     var matte = builder.add_lambertian(Color(0.65, 0.65, 0.65))
     builder.add_triangle_mesh(vertices, matte)
     var scene = builder^.finish()
-    return CpuScene[](scene^)
+    return CpuScene[16, 16](scene^)
 
 
-def _dragon_camera(world: CpuScene[]) -> Camera:
+def _dragon_camera(world: CpuScene[16, 16]) -> Camera:
     var bounds = compute_bounds(world.scene_data().triangle_vertices())
     var center = bounds.centroid()
     var extent = bounds.extent()
@@ -69,7 +69,7 @@ def _run_builder[
 ](
     mut ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: CpuScene[],
+    world: CpuScene[16, 16],
     settings: RenderSettings,
     sample_count: Int,
     label: String,

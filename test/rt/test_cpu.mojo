@@ -727,7 +727,7 @@ def test_world_preserves_signed_radius_normals() raises:
         glass,
     )
     var scene = builder^.finish()
-    var world = CpuScene[](scene^)
+    var world = CpuScene[16, 16](scene^)
 
     var hit = (
         world.trace(
@@ -754,7 +754,7 @@ def test_world_hits_triangle() raises:
         matte,
     )
     var scene = builder^.finish()
-    var world = CpuScene[](scene^)
+    var world = CpuScene[16, 16](scene^)
 
     var hit = (
         world.trace(
@@ -815,7 +815,7 @@ def test_world_picks_closest_sphere_or_triangle() raises:
         tri_surface,
     )
     var scene = builder^.finish()
-    var world = CpuScene[](scene^)
+    var world = CpuScene[16, 16](scene^)
 
     var hit = (
         world.trace(
@@ -845,7 +845,7 @@ def test_add_triangle_mesh_assigns_surface_per_triangle() raises:
 
     builder.add_triangle_mesh(mesh, matte)
     var scene = builder^.finish()
-    var world = CpuScene[](scene^)
+    var world = CpuScene[16, 16](scene^)
     assert_equal(len(world.scene_data().triangle_vertices()), 6)
     assert_equal(len(world.scene_data().triangle_surfaces()), 2)
 
@@ -969,7 +969,7 @@ def test_world_occluded_covers_all_geometry_and_ray_interval() raises:
     )
 
     var scene = builder^.finish()
-    var world = CpuScene[](scene^)
+    var world = CpuScene[16, 16](scene^)
 
     var sphere_ray = Rayf32[.WORLD](
         Point3f32[.WORLD](-2.0, 0.0, 0.0),
@@ -1122,7 +1122,7 @@ def test_render_can_select_normal_integrator_at_compile_time() raises:
         matte,
     )
     var scene = builder^.finish()
-    var world = CpuScene[](scene^)
+    var world = CpuScene[16, 16](scene^)
     var camera = Camera.from_vfov(
         Point3f32[.WORLD](0.0, 0.0, 0.0),
         Point3f32[.WORLD](0.0, 0.0, -1.0),
@@ -1145,7 +1145,7 @@ def test_render_can_select_ao_integrator_at_compile_time() raises:
         matte,
     )
     var scene = builder^.finish()
-    var world = CpuScene[](scene^)
+    var world = CpuScene[16, 16](scene^)
     var camera = Camera.from_vfov(
         Point3f32[.WORLD](0.0, 0.0, 0.0),
         Point3f32[.WORLD](0.0, 0.0, -1.0),
@@ -1172,7 +1172,7 @@ def test_wavefront_tiny_render() raises:
         matte,
     )
     var scene = builder^.finish()
-    var world = CpuScene[](scene^)
+    var world = CpuScene[16, 16](scene^)
     var camera = Camera.from_vfov(
         Point3f32[.WORLD](0.0, 0.0, 0.0),
         Point3f32[.WORLD](0.0, 0.0, -1.0),
@@ -1247,7 +1247,7 @@ def test_packet_widths_match_width1_for_mixed_bsdfs() raises:
         glass,
     )
     var scene = builder^.finish()
-    var world = CpuScene[](scene^)
+    var world = CpuScene[16, 16](scene^)
     var camera = Camera.from_vfov(
         Point3f32[.WORLD](0.0, 0.35, 2.5),
         Point3f32[.WORLD](0.0, 0.0, -1.5),

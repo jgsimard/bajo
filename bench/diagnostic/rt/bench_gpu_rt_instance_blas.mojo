@@ -44,7 +44,7 @@ from bajo.benchmark.gpu_harness import (
 comptime DRAGON_PATH = "./assets/dragon/dragon.obj"
 
 
-def _dragon_instance_world() raises -> CpuScene[]:
+def _dragon_instance_world() raises -> CpuScene[16, 16]:
     var mesh = pack_obj_triangles[.LOCAL](DRAGON_PATH)
     var bounds = compute_bounds(mesh)
     var builder = SceneBuilder()
@@ -56,10 +56,10 @@ def _dragon_instance_world() raises -> CpuScene[]:
         matte,
     )
     var scene = builder^.finish()
-    return CpuScene[](scene^)
+    return CpuScene[16, 16](scene^)
 
 
-def _dragon_camera(world: CpuScene[]) -> Camera:
+def _dragon_camera(world: CpuScene[16, 16]) -> Camera:
     var bounds = compute_bounds(world.scene_data().triangle_meshes()[0])
     var center_local = bounds.centroid()
     var center = Point3f32[.WORLD](
@@ -121,7 +121,7 @@ def _run_layout[
 ](
     mut ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    world: CpuScene[],
+    world: CpuScene[16, 16],
     settings: RenderSettings,
     sample_count: Int,
     label: String,

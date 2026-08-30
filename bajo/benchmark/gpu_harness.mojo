@@ -54,7 +54,7 @@ def gpu_rt_camera() -> Camera:
     )
 
 
-def make_many_light_world() raises -> CpuScene[]:
+def make_many_light_world() raises -> CpuScene[16, 16]:
     """Diffuse receiver plus 64 emissive triangles for selection scaling."""
     var builder = SceneBuilder()
     var matte = builder.add_lambertian(Color(0.7, 0.7, 0.7))
@@ -81,7 +81,7 @@ def make_many_light_world() raises -> CpuScene[]:
             )
 
     var scene = builder^.finish()
-    return CpuScene[](scene^)
+    return CpuScene[16, 16](scene^)
 
 
 def gpu_rt_checksum(pixels: List[Color]) -> Float64:

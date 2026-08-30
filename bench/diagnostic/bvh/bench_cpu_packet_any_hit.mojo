@@ -13,8 +13,10 @@ from bajo.bvh.cpu import (
     CpuBvhBuildMethod,
     build_cpu_triangle_blas_set,
     trace_blas_set_packet,
-    trace_blas_set_packet_any_hit,
 )
+from bajo.bvh.cpu.blas_set import _trace_blas_set_packet_policy
+from bajo.bvh.cpu.triangle_bvh import TrianglePacketConfig
+from bajo.bvh.types import BlasDesc
 from bajo.core import Point3, Ray, Rayf32, Vec3
 from bajo.core.utils import ns_to_mrays_per_s
 from bajo.rt import CpuScene
@@ -77,7 +79,9 @@ def trace_packet(world: CpuScene[16, 16], rays: List[Rayf32[.WORLD]]) -> Int:
 
 
 def trace_low_level_packet[
-    any_hit: Bool
+    any_hit: Bool,
+    config: TrianglePacketConfig = .PRODUCTION,
+    common_octant: Bool = False,
 ](
     bvh: CpuBlasSet[.TRIANGLE, PACKET_WIDTH, PACKET_WIDTH],
     rays: List[Rayf32[.WORLD]],
@@ -115,13 +119,16 @@ def trace_low_level_packet[
         )
         var occluded: SIMD[.bool, PACKET_WIDTH]
         comptime if any_hit:
-            occluded = trace_blas_set_packet_any_hit[
+            var hit = _trace_blas_set_packet_policy[
                 PACKET_WIDTH,
                 PACKET_WIDTH,
                 PACKET_WIDTH,
-                False,
+                common_octant,
                 .WORLD,
+                config,
+                .ANY_HIT,
             ](bvh, UInt32(0), packet, valid)
+            occluded = valid & hit.t.eq(0.0)
         else:
             occluded = trace_blas_set_packet[
                 PACKET_WIDTH,
@@ -161,18 +168,53 @@ def benchmark_packet(
 
 
 def benchmark_low_level_packet[
-    any_hit: Bool
+    any_hit: Bool,
+    config: TrianglePacketConfig = .PRODUCTION,
+    common_octant: Bool = False,
 ](
     bvh: CpuBlasSet[.TRIANGLE, PACKET_WIDTH, PACKET_WIDTH],
     rays: List[Rayf32[.WORLD]],
 ) -> Timing:
-    var hits = trace_low_level_packet[any_hit](bvh, rays)
+    var hits = trace_low_level_packet[any_hit, config, common_octant](bvh, rays)
     var best = Int.MAX
     for _ in range(REPEATS):
         var start = perf_counter_ns()
-        hits = trace_low_level_packet[any_hit](bvh, rays)
+        hits = trace_low_level_packet[any_hit, config, common_octant](bvh, rays)
         best = min(best, Int(perf_counter_ns() - start))
     return Timing(best, hits)
+
+
+def benchmark_size_sweep(
+    vertices: List[Point3[.float32, .WORLD]],
+    rays: List[Rayf32[.WORLD]],
+    prim_count: Int,
+) raises:
+    var subset_vertices = List[Point3[.float32, .WORLD]](
+        capacity=prim_count * 3
+    )
+    for i in range(prim_count * 3):
+        subset_vertices.append(vertices[i])
+    var total_prims = len(vertices) // 3
+    var subset_rays = List[Rayf32[.WORLD]](capacity=prim_count * 4)
+    for i in range(len(rays)):
+        if i % total_prims < prim_count:
+            subset_rays.append(rays[i])
+
+    var bvh = build_cpu_triangle_blas_set[
+        PACKET_WIDTH,
+        PACKET_WIDTH,
+        CpuBvhBuildMethod.SAH,
+        .WORLD,
+    ]([subset_vertices^])
+    var packet = benchmark_low_level_packet[True](bvh, subset_rays)
+    var scalar_root = benchmark_low_level_packet[
+        True, TrianglePacketConfig.scalar_root[4]()
+    ](bvh, subset_rays)
+    var desc = BlasDesc.load(bvh.descs.unsafe_ptr(), UInt32(0))
+    print(
+        t"{prim_count}\t{desc.node_count}\t{len(subset_rays)}\t"
+        t"{packet.ns}\t{scalar_root.ns}"
+    )
 
 
 def main() raises:
@@ -184,15 +226,29 @@ def main() raises:
         PACKET_WIDTH,
         CpuBvhBuildMethod.SAH,
         .WORLD,
-    ]([vertices^])
+    ]([vertices.copy()])
     var scalar = benchmark_scalar(world, rays)
     var packet = benchmark_packet(world, rays)
     var reference = benchmark_low_level_packet[False](bvh, rays)
     var specialized = benchmark_low_level_packet[True](bvh, rays)
+    var scalar_root_4 = benchmark_low_level_packet[
+        True, TrianglePacketConfig.scalar_root[4]()
+    ](bvh, rays)
+    var scalar_root_16 = benchmark_low_level_packet[
+        True, TrianglePacketConfig.scalar_root[16]()
+    ](bvh, rays)
+    var scalar_continuation_12 = benchmark_low_level_packet[
+        True, TrianglePacketConfig.scalar_continuation[12]()
+    ](bvh, rays)
+    var common_octant = benchmark_low_level_packet[
+        True, TrianglePacketConfig.PRODUCTION, True
+    ](bvh, rays)
+    var desc = BlasDesc.load(bvh.descs.unsafe_ptr(), UInt32(0))
 
     print("CPU packet any-hit benchmark; regular triangle scene; best of 8")
     print(
-        t"rays={len(rays)} scalar_hits={scalar.hits} packet_hits={packet.hits}"
+        t"rays={len(rays)} nodes={desc.node_count} scalar_hits={scalar.hits} "
+        t"packet_hits={packet.hits}"
     )
     print(
         t"scalar_ns={scalar.ns} scalar_mray_s="
@@ -208,3 +264,28 @@ def main() raises:
     print(
         t"specialized_any_ns={specialized.ns} specialized_hits={specialized.hits}"
     )
+    print(
+        t"scalar_root_4_ns={scalar_root_4.ns} scalar_root_4_hits="
+        t"{scalar_root_4.hits}"
+    )
+    print(
+        t"scalar_root_16_ns={scalar_root_16.ns} scalar_root_16_hits="
+        t"{scalar_root_16.hits}"
+    )
+    print(
+        t"scalar_continuation_12_ns={scalar_continuation_12.ns} "
+        t"scalar_continuation_12_hits={scalar_continuation_12.hits}"
+    )
+    print(
+        t"common_octant_ns={common_octant.ns} common_octant_hits="
+        t"{common_octant.hits}"
+    )
+    print("\nprimitives\tnodes\trays\tpacket_ns\tscalar_root_ns")
+    benchmark_size_sweep(vertices, rays, 256)
+    benchmark_size_sweep(vertices, rays, 1024)
+    benchmark_size_sweep(vertices, rays, 4096)
+    benchmark_size_sweep(vertices, rays, 16384)
+    benchmark_size_sweep(vertices, rays, 24576)
+    benchmark_size_sweep(vertices, rays, 32768)
+    benchmark_size_sweep(vertices, rays, 49152)
+    benchmark_size_sweep(vertices, rays, 65536)

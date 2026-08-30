@@ -72,6 +72,7 @@ from bajo.bvh.cpu.blas_set import (
     trace_blas_set,
     trace_blas_set_adaptive_stream,
     trace_blas_set_packet,
+    trace_blas_set_packet_any_hit,
     trace_blas_set_packet_adaptive,
     trace_blas_set_packet_selected,
 )
@@ -873,6 +874,56 @@ def test_triangle_packet_paths_match() raises:
     _test_triangle_packet_paths_match[4]()
     _test_triangle_packet_paths_match[8]()
     _test_triangle_packet_paths_match[16]()
+
+
+def _test_triangle_packet_any_hit_matches_scalar[length: SIMDLength]() raises:
+    var verts = _make_strip[.WORLD](64)
+    var blases = build_cpu_triangle_blas_set[16, 16, .SAH, .WORLD](
+        [verts.copy()]
+    )
+    var ox = SIMD[.float32, length](0.0)
+    var oy = SIMD[.float32, length](0.0)
+    comptime for lane in range(length):
+        if lane % 4 == 0:
+            ox[lane] = 1000.0 + Float32(lane)
+            oy[lane] = 1000.0
+        else:
+            var center = _triangle_center_xy(verts, (7 * lane) % 64)
+            ox[lane] = center.x
+            oy[lane] = center.y
+
+    var packet = Ray[.float32, .WORLD, length](
+        Point3[.float32, .WORLD, length](ox, oy, 0.0),
+        Vec3[.float32, .WORLD, length](0.0, 0.0, 1.0),
+    )
+    var valid = SIMD[.bool, length](fill=True)
+    valid[length - 1] = False
+    var packet_occluded = trace_blas_set_packet_any_hit[
+        16, 16, length, False, .WORLD
+    ](blases, UInt32(0), packet, valid)
+    var coherent_occluded = trace_blas_set_packet_any_hit[
+        16, 16, length, True, .WORLD
+    ](blases, UInt32(0), packet, valid)
+
+    comptime for lane in range(length):
+        var scalar_occluded = False
+        if valid[lane]:
+            scalar_occluded = trace_blas_set[16, 16, .ANY_HIT, .WORLD](
+                blases,
+                UInt32(0),
+                Rayf32[.WORLD](
+                    Point3f32[.WORLD](ox[lane], oy[lane], 0.0),
+                    Vec3f32[.WORLD](0.0, 0.0, 1.0),
+                ),
+            ).is_occluded()
+        assert_true(packet_occluded[lane] == scalar_occluded)
+        assert_true(coherent_occluded[lane] == scalar_occluded)
+
+
+def test_triangle_packet_any_hit_matches_scalar() raises:
+    _test_triangle_packet_any_hit_matches_scalar[4]()
+    _test_triangle_packet_any_hit_matches_scalar[8]()
+    _test_triangle_packet_any_hit_matches_scalar[16]()
 
 
 struct _AdaptiveStreamTestSink(AdaptiveStreamHitSink):

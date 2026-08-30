@@ -29,7 +29,6 @@ from bajo.bvh.cpu.bounds_bvh import (
 )
 from bajo.bvh.types import Hit, TriangleLeafBlock
 from bajo.core.intersect import (
-    intersect_ray_tri_edges,
     intersect_ray_tri_edges_scaled,
 )
 from bajo.bvh.cpu.trace import _extract_f32_lane
@@ -166,7 +165,10 @@ def _trace_triangle_leaf_block[
     comptime omit_leaf_validity_mask = width == 16
 
     comptime if mode == .ANY_HIT:
-        var tri_hit = intersect_ray_tri_edges(
+        # Visibility only needs the candidate mask.  Keep all barycentric and
+        # distance comparisons determinant-scaled so no SIMD division is
+        # issued for leaf candidates.
+        var tri_hit = intersect_ray_tri_edges_scaled(
             O,
             D,
             block.v0,

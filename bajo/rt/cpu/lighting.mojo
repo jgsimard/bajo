@@ -56,17 +56,6 @@ def _empty_direct_light_sample[
     )
 
 
-def emitted_radiance(
-    surface: SurfaceId[1],
-    surfaces: SurfaceStore,
-    front_face: Bool,
-) -> Color:
-    """Return one-sided surface emission."""
-    if surface.kind() == .EMISSIVE and front_face:
-        return surfaces.emissives[Int(surface.index())].radiance
-    return Color(0.0)
-
-
 @always_inline
 def _emissive_hit_weight[
     integrator: Integrator,

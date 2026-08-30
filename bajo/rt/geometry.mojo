@@ -1,9 +1,9 @@
 """Host/device-safe geometry policies shared by CPU and GPU RT."""
 
-from std.math import abs
+from std.math import sqrt
+from std.utils.numerics import isfinite
 
-from bajo.bvh import Sphere
-from bajo.core import Frame, Vec3, dot
+from bajo.core import Frame, Point3f32, Vec3, cross, dot, length2
 
 
 @fieldwise_init
@@ -31,16 +31,17 @@ def orient_surface_normal[
 
 
 @always_inline
-def sphere_unsigned_radius[frame: Frame](sphere: Sphere[frame]) -> Float32:
-    """Return the physical radius while preserving the stored orientation sign.
-    """
-    return abs(sphere.radius)
+def triangle_is_valid[
+    frame: Frame
+](v0: Point3f32[frame], v1: Point3f32[frame], v2: Point3f32[frame]) -> Bool:
+    if not (v0.is_finite()[0] and v1.is_finite()[0] and v2.is_finite()[0]):
+        return False
+    var twice_area_squared = length2(cross(v1 - v0, v2 - v0))[0]
+    return isfinite(twice_area_squared) and twice_area_squared > 0.0
 
 
 @always_inline
-def sphere_for_acceleration[
+def triangle_area[
     frame: Frame
-](sphere: Sphere[frame]) -> Sphere[frame]:
-    """Preserve signed-radius shading semantics outside the acceleration data.
-    """
-    return Sphere[frame](sphere.center, sphere_unsigned_radius(sphere))
+](v0: Point3f32[frame], v1: Point3f32[frame], v2: Point3f32[frame]) -> Float32:
+    return 0.5 * sqrt(length2(cross(v1 - v0, v2 - v0)))

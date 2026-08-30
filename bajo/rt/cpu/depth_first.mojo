@@ -15,7 +15,8 @@ from bajo.rt.types import (
     RenderResult,
     RenderSettings,
     RenderTimings,
-    sampling_config,
+    SamplingConfig,
+    ShadingPoint,
 )
 from .scene import CpuScene
 from .scheduler_mode import CpuSchedulerMode
@@ -26,11 +27,9 @@ from bajo.rt.rays import make_ao_ray, spawn_surface_ray
 from .bsdf import sample_bsdf
 from .common import (
     _make_primary_ray,
-    _shading_point,
 )
 from .lighting import (
     _emissive_hit_weight,
-    emitted_radiance,
     sample_direct_lighting,
 )
 from bajo.rt.wavefront_contract import (
@@ -58,14 +57,16 @@ def _trace_path[
     var radiance = Color(0.0)
     var previous_delta = True
     var previous_bsdf_pdf = Float32(0.0)
-    var sampling = sampling_config(settings)
+    var sampling = SamplingConfig.from_settings(settings)
 
     for _bounce in range(settings.max_depth):
         var hit = world.trace_surface(cur_ray)
         if hit.hit:
-            var point = _shading_point(cur_ray, hit)
-            var emission = emitted_radiance(
-                hit.surface, world.scene_data().surfaces(), hit.front_face
+            var point = ShadingPoint.from_hit(cur_ray, hit)
+            var emission = (
+                world.scene_data()
+                .surfaces()
+                .emitted_radiance(hit.surface, hit.front_face)
             )
             if emission.x > 0.0 or emission.y > 0.0 or emission.z > 0.0:
                 var emission_weight = _emissive_hit_weight[integrator](
@@ -173,7 +174,7 @@ def _trace_integrator[
         return _trace_normals(world, ray)
     elif integrator == .AO:
         var ao_rng = path_stage_rng(
-            sampling_config(settings), path_id, UInt32(1)
+            SamplingConfig.from_settings(settings), path_id, UInt32(1)
         )
         return _trace_ao(world, ray, ao_rng)
     elif integrator == .NEE:
@@ -206,7 +207,9 @@ def _render_pixel[
         var path_id = UInt32(
             pixel_idx * settings.samples_per_pixel + sample_idx
         )
-        var rng = path_stage_rng(sampling_config(settings), path_id, UInt32(0))
+        var rng = path_stage_rng(
+            SamplingConfig.from_settings(settings), path_id, 0
+        )
         var ray = _make_primary_ray(settings, camera, px, py, rng)
         pixel_color += _trace_integrator[
             integrator, world_bvh_width, instance_bvh_width

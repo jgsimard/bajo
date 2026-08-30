@@ -1,23 +1,20 @@
-from std.math import pi, sqrt
+from std.math import pi
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.utils.numerics import isfinite
 
 from bajo.core import (
     AABB,
     Affine3f32,
-    Frame,
     Vec3,
     Vec3f32,
-    cross,
-    length2,
     Point3,
     Point3f32,
-    Rayf32,
+    Ray,
 )
 from bajo.bvh.constants import PrimitiveKind, f32_max
 from bajo.bvh import Instance, Sphere
 from bajo.core.random import Sampler
-from bajo.rt.geometry import sphere_unsigned_radius
+from bajo.rt.geometry import triangle_area, triangle_is_valid
 
 
 comptime Color = Vec3f32[.WORLD]
@@ -217,6 +214,13 @@ struct SurfaceStore:
 
         return False
 
+    def emitted_radiance(
+        self, surface: SurfaceId[1], front_face: Bool
+    ) -> Color:
+        if surface.kind() == .EMISSIVE and front_face:
+            return self.emissives[Int(surface.index())].radiance
+        return Color(0.0)
+
     def add_lambertian(mut self, albedo: Color) -> SurfaceId[1]:
         var index = UInt32(len(self.lambertians))
         self.lambertians.append(Lambertian(albedo))
@@ -408,6 +412,12 @@ struct ShadingPoint[length: SIMDLength = 1](Copyable, Writable):
     var normal: Vec3[.float32, .WORLD, Self.length]
     var front_face: SIMD[.bool, Self.length]
 
+    @staticmethod
+    def from_hit(
+        ray: Ray[.float32, .WORLD, Self.length], hit: SurfaceHit[Self.length]
+    ) -> Self:
+        return Self(ray.at(hit.t), hit.normal, hit.front_face)
+
 
 @fieldwise_init
 struct BsdfSample[length: SIMDLength = 1](Copyable, Writable):
@@ -508,16 +518,16 @@ struct SamplingConfig(
     def get_type_name() -> String:
         return "SamplingConfig"
 
-
-def sampling_config(settings: RenderSettings) -> SamplingConfig:
-    return SamplingConfig(
-        settings.rng_seed,
-        settings.sampler.value,
-        UInt32(settings.samples_per_pixel),
-        UInt32(settings.sample_offset),
-        UInt32(settings.sample_sequence_length),
-        UInt32(settings.image_width),
-    )
+    @staticmethod
+    def from_settings(settings: RenderSettings) -> Self:
+        return Self(
+            settings.rng_seed,
+            settings.sampler.value,
+            UInt32(settings.samples_per_pixel),
+            UInt32(settings.sample_offset),
+            UInt32(settings.sample_sequence_length),
+            UInt32(settings.image_width),
+        )
 
 
 @fieldwise_init
@@ -798,7 +808,7 @@ struct SceneData:
                 raise Error("sphere radius must be finite")
             if sphere.radius == 0.0:
                 raise Error("sphere radius must be non-zero")
-            var radius = sphere_unsigned_radius(sphere)
+            var radius = sphere.physical_radius()
             if not (
                 isfinite(sphere.center.x[0] - radius)
                 and isfinite(sphere.center.y[0] - radius)
@@ -815,7 +825,7 @@ struct SceneData:
             if not self._surfaces.validate(surface):
                 raise Error("triangle surface id is out of range")
             var base = 3 * triangle_idx
-            if not _triangle_is_valid(
+            if not triangle_is_valid(
                 self._triangle_vertices[base],
                 self._triangle_vertices[base + 1],
                 self._triangle_vertices[base + 2],
@@ -832,7 +842,7 @@ struct SceneData:
                 )
             for triangle_idx in range(len(vertices) / 3):
                 var base = 3 * triangle_idx
-                if not _triangle_is_valid(
+                if not triangle_is_valid(
                     vertices[base], vertices[base + 1], vertices[base + 2]
                 ):
                     raise Error(
@@ -893,7 +903,7 @@ struct SceneData:
                 ref p0 = self._triangle_vertices[3 * idx + 0]
                 ref p1 = self._triangle_vertices[3 * idx + 1]
                 ref p2 = self._triangle_vertices[3 * idx + 2]
-                var weight = _triangle_area(p0, p1, p2) * _light_importance(
+                var weight = triangle_area(p0, p1, p2) * _light_importance(
                     radiance
                 )
                 if not isfinite(weight):
@@ -915,7 +925,7 @@ struct SceneData:
                 var radiance = self._surfaces.emissives[
                     Int(surface.index())
                 ].radiance
-                var radius = sphere_unsigned_radius(self._spheres[idx])
+                var radius = self._spheres[idx].physical_radius()
                 var weight = (
                     4.0 * pi * radius * radius * _light_importance(radiance)
                 )
@@ -961,7 +971,7 @@ struct SceneData:
                     var tmp = p1
                     p1 = p2
                     p2 = tmp
-                var weight = _triangle_area(p0, p1, p2) * (
+                var weight = triangle_area(p0, p1, p2) * (
                     _light_importance(radiance)
                 )
                 if not isfinite(weight):
@@ -987,23 +997,5 @@ struct SceneData:
             raise Error("total light weight must be finite")
 
 
-@always_inline
-def _triangle_is_valid[
-    frame: Frame
-](v0: Point3f32[frame], v1: Point3f32[frame], v2: Point3f32[frame]) -> Bool:
-    if not (v0.is_finite()[0] and v1.is_finite()[0] and v2.is_finite()[0]):
-        return False
-    var twice_area_squared = length2(cross(v1 - v0, v2 - v0))[0]
-    return isfinite(twice_area_squared) and twice_area_squared > 0.0
-
-
-@always_inline
 def _light_importance(radiance: Color) -> Float32:
     return max((radiance.x + radiance.y + radiance.z) / 3.0, 0.0)
-
-
-@always_inline
-def _triangle_area[
-    frame: Frame
-](v0: Point3f32[frame], v1: Point3f32[frame], v2: Point3f32[frame]) -> Float32:
-    return 0.5 * sqrt(length2(cross(v1 - v0, v2 - v0)))

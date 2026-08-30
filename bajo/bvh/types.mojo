@@ -1,3 +1,5 @@
+from std.math import abs
+
 from bajo.core import (
     AABB,
     Vec3f32,
@@ -116,8 +118,15 @@ struct Sphere[frame: Frame = .WORLD](TrivialRegisterPassable):
     var center: Point3f32[Self.frame]
     var radius: Float32
 
+    def physical_radius(self) -> Float32:
+        return abs(self.radius)
+
+    def for_acceleration(self) -> Self:
+        """Return acceleration geometry without the shading-orientation sign."""
+        return Self(self.center, self.physical_radius())
+
     def bounds(self) -> AABB[Self.frame]:
-        var r = Vec3f32[Self.frame](self.radius)
+        var r = Vec3f32[Self.frame](self.physical_radius())
         return AABB[Self.frame](self.center - r, self.center + r)
 
 

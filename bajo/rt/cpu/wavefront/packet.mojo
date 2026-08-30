@@ -21,7 +21,6 @@ from bajo.rt.types import (
     SamplingConfig,
     ShadingPoint,
     SurfaceStore,
-    sampling_config,
 )
 from ..scene import CpuScene
 from bajo.rt.common import path_stage_rng, russian_roulette, sky_color
@@ -45,7 +44,6 @@ from ..lighting import (
     _empty_direct_light_sample,
     _sample_direct_light_candidate,
     _emissive_hit_weight,
-    emitted_radiance,
 )
 
 
@@ -322,7 +320,7 @@ def _trace_path_packets[
     mut dielectric_queue: PacketShadeQueue[length],
 ):
     comptime assert Integrator.is_path_tracing[integrator]
-    var sampling = sampling_config(settings)
+    var sampling = SamplingConfig.from_settings(settings)
     for bounce in range(settings.max_depth):
         if len(active_paths) == 0:
             break
@@ -381,9 +379,10 @@ def _trace_path_packets[
                                 packet.ty[lane],
                                 packet.tz[lane],
                             )
-                            * emitted_radiance(
+                            * world.scene_data()
+                            .surfaces()
+                            .emitted_radiance(
                                 hit.surface,
-                                world.scene_data().surfaces(),
                                 hit.front_face,
                             )
                             * emission_weight
@@ -391,11 +390,7 @@ def _trace_path_packets[
                         continue
 
                     comptime if Integrator.uses_direct_lighting[integrator]:
-                        var point = ShadingPoint(
-                            ray.at(hit.t),
-                            hit.normal,
-                            hit.front_face,
-                        )
+                        var point = ShadingPoint.from_hit(ray, hit)
                         var light_rng = path_stage_rng(
                             sampling,
                             packet.path_ids[lane],

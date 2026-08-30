@@ -59,10 +59,10 @@ from bajo.rt.lighting import (
 )
 from bajo.rt.geometry import (
     orient_surface_normal,
-    sphere_for_acceleration,
-    sphere_unsigned_radius,
+    triangle_area,
+    triangle_is_valid,
 )
-from bajo.rt.types import MaterialKind, PrimitiveKind, sampling_config
+from bajo.rt.types import MaterialKind, PrimitiveKind, SamplingConfig
 from bajo.rt.wavefront_contract import wavefront_rng_roulette_stage
 
 
@@ -97,11 +97,21 @@ def test_orient_surface_normal_is_width_generic() raises:
 
 def test_signed_sphere_acceleration_policy() raises:
     var sphere = Sphere[.WORLD](Point3f32[.WORLD](1.0, 2.0, 3.0), -2.5)
-    var acceleration = sphere_for_acceleration(sphere)
-    assert_almost_equal(sphere_unsigned_radius(sphere), 2.5)
+    var acceleration = sphere.for_acceleration()
+    assert_almost_equal(sphere.physical_radius(), 2.5)
     assert_almost_equal(acceleration.radius, 2.5)
     assert_vec_equal(acceleration.center, sphere.center)
     assert_almost_equal(sphere.radius, -2.5)
+    assert_true(sphere.bounds().is_valid()[0])
+
+
+def test_triangle_geometry_policy() raises:
+    var v0 = Point3f32[.WORLD](0.0, 0.0, 0.0)
+    var v1 = Point3f32[.WORLD](1.0, 0.0, 0.0)
+    var v2 = Point3f32[.WORLD](0.0, 1.0, 0.0)
+    assert_true(triangle_is_valid(v0, v1, v2))
+    assert_almost_equal(triangle_area(v0, v1, v2), 0.5)
+    assert_false(triangle_is_valid(v0, v1, Point3f32[.WORLD](2.0, 0.0, 0.0)))
 
 
 def test_geometry_structs_own_validity_and_orientation_queries() raises:
@@ -148,6 +158,13 @@ def test_materials_own_domain_validation() raises:
     with assert_raises():
         Emissive(Color(1.0, -0.1, 1.0)).validate()
 
+    var surfaces = SurfaceStore()
+    var light = surfaces.add_emissive(Color(2.0, 3.0, 4.0))
+    assert_vec_equal(
+        surfaces.emitted_radiance(light, True), Color(2.0, 3.0, 4.0)
+    )
+    assert_vec_equal(surfaces.emitted_radiance(light, False), Color(0.0))
+
 
 def test_reflect_and_reflectance() raises:
     var reflected = reflect(
@@ -183,6 +200,15 @@ def test_surface_hit_is_width_generic() raises:
     assert_almost_equal(lane.t, 4.5)
     assert_false(lane.front_face)
     assert_true(lane.hit)
+
+    var ray = Rayf32[.WORLD](
+        Point3f32[.WORLD](0.0, 0.0, 1.0),
+        Vec3f32[.WORLD](0.0, 0.0, 2.0),
+    )
+    var shading = ShadingPoint.from_hit(ray, lane)
+    assert_vec_equal(shading.p, Point3f32[.WORLD](0.0, 0.0, 10.0))
+    assert_vec_equal(shading.normal, lane.normal)
+    assert_false(shading.front_face)
 
 
 def test_light_alias_table_matches_power_distribution() raises:
@@ -455,11 +481,11 @@ def test_sample_sequences_are_deterministic_and_batch_invariant() raises:
             for sample in range(4):
                 var full_path = UInt32(pixel * 4 + sample)
                 var batch_path = UInt32(pixel * 2 + sample % 2)
-                var batch_config = sampling_config(first)
+                var batch_config = SamplingConfig.from_settings(first)
                 if sample >= 2:
-                    batch_config = sampling_config(second)
+                    batch_config = SamplingConfig.from_settings(second)
                 var expected = path_stage_rng(
-                    sampling_config(full), full_path, UInt32(7)
+                    SamplingConfig.from_settings(full), full_path, UInt32(7)
                 )
                 var actual = path_stage_rng(batch_config, batch_path, UInt32(7))
                 for _ in range(4):

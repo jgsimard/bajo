@@ -26,7 +26,7 @@ from bajo.core import (
     Vec3,
     Vec3f32,
 )
-from bajo.rt.geometry import orient_surface_normal, sphere_for_acceleration
+from bajo.rt.geometry import orient_surface_normal
 from bajo.rt.types import (
     Color,
     HitRecord,
@@ -113,7 +113,7 @@ struct CpuScene[
                 capacity=len(self._scene.spheres())
             )
             for s in self._scene.spheres():
-                bvh_spheres.append(sphere_for_acceleration(s))
+                bvh_spheres.append(s.for_acceleration())
 
             self.sphere_bvh = Optional[
                 CpuBlasSet[.SPHERE, Self.world_bvh_width]

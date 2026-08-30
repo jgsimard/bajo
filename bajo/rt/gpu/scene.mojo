@@ -14,7 +14,6 @@ from bajo.bvh.gpu import (
 )
 from bajo.bvh.gpu.utils import upload_list
 from bajo.core import Point3f32
-from bajo.rt.geometry import sphere_for_acceleration
 from bajo.rt.gpu.path_shading import GpuRtLights, GpuRtMaterials
 from bajo.rt.gpu.config import (
     GpuRtBvhFormat,
@@ -185,7 +184,7 @@ def prepare_gpu_scene[
         var build_spheres = List[Sphere[.WORLD]](capacity=len(data.spheres()))
         var host_signed_radii = List[Float32](capacity=len(data.spheres()))
         for sphere in data.spheres():
-            build_spheres.append(sphere_for_acceleration(sphere))
+            build_spheres.append(sphere.for_acceleration())
             host_signed_radii.append(sphere.radius)
         sphere_bvh = Optional(
             build_gpu_sphere_bvh[

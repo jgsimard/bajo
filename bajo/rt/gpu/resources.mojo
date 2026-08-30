@@ -11,7 +11,6 @@ from bajo.rt.types import (
     RenderSettings,
     SamplingConfig,
     SurfaceId,
-    sampling_config,
 )
 from bajo.rt.wavefront_contract import WAVE_PATH_ID_MASK
 from bajo.rt.gpu.common_kernels import (
@@ -155,7 +154,7 @@ def _enqueue_gpu_primary[
         Int32(target.image_width),
         Int32(target.image_height),
         Int32(target.samples_per_pixel),
-        sampling_config(settings),
+        SamplingConfig.from_settings(settings),
         grid_dim=ceildiv(active_count, GPU_RT_BLOCK_SIZE),
         block_dim=GPU_RT_BLOCK_SIZE,
     )
@@ -229,7 +228,7 @@ def enqueue_gpu_wavefront[
     """Compile-time scheduler shared by every geometry specialization."""
     comptime assert integrator.is_valid()
 
-    var sampling = sampling_config(settings)
+    var sampling = SamplingConfig.from_settings(settings)
     var sample_begin = 0
     while sample_begin < target.sample_count:
         var chunk_sample_count = min(

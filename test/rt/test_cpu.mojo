@@ -26,6 +26,7 @@ from bajo.rt import (
     Color,
     CpuSchedulerMode,
     Dielectric,
+    Emissive,
     Integrator,
     Instance,
     Lambertian,
@@ -121,6 +122,31 @@ def test_geometry_structs_own_validity_and_orientation_queries() raises:
     var nonfinite = identity.copy()
     nonfinite.m00 = bitcast[.float32](UInt32(0x7FC00000))
     assert_false(nonfinite.is_finite()[0])
+
+    var points = Vec3[.float32, .WORLD, 2](
+        SIMD[.float32, 2](1.0, nonfinite.m00[0]),
+        SIMD[.float32, 2](2.0),
+        SIMD[.float32, 2](3.0),
+    )
+    var finite_lanes = points.is_finite()
+    assert_true(finite_lanes[0])
+    assert_false(finite_lanes[1])
+
+
+def test_materials_own_domain_validation() raises:
+    Lambertian(Color(0.5)).validate()
+    Metal(Color(0.5), 0.25).validate()
+    Dielectric(1.5).validate()
+    Emissive(Color(2.0)).validate()
+
+    with assert_raises():
+        Lambertian(Color(-0.1, 0.5, 0.5)).validate()
+    with assert_raises():
+        Metal(Color(0.5), 1.1).validate()
+    with assert_raises():
+        Dielectric(0.0).validate()
+    with assert_raises():
+        Emissive(Color(1.0, -0.1, 1.0)).validate()
 
 
 def test_reflect_and_reflectance() raises:

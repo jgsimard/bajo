@@ -130,21 +130,67 @@ struct SurfaceId[length: SIMDLength = 1](Copyable, Writable):
 struct Lambertian(Copyable, Writable):
     var albedo: Color
 
+    def validate(self) raises:
+        if not self.albedo.is_finite()[0]:
+            raise Error("lambertian albedo must be finite")
+        if (
+            self.albedo.x[0] < 0.0
+            or self.albedo.x[0] > 1.0
+            or self.albedo.y[0] < 0.0
+            or self.albedo.y[0] > 1.0
+            or self.albedo.z[0] < 0.0
+            or self.albedo.z[0] > 1.0
+        ):
+            raise Error("lambertian albedo must be within [0, 1]")
+
 
 @fieldwise_init
 struct Metal(Copyable, Writable):
     var albedo: Color
     var fuzz: Float32
 
+    def validate(self) raises:
+        if not self.albedo.is_finite()[0]:
+            raise Error("metal albedo must be finite")
+        if (
+            self.albedo.x[0] < 0.0
+            or self.albedo.x[0] > 1.0
+            or self.albedo.y[0] < 0.0
+            or self.albedo.y[0] > 1.0
+            or self.albedo.z[0] < 0.0
+            or self.albedo.z[0] > 1.0
+        ):
+            raise Error("metal albedo must be within [0, 1]")
+        if not isfinite(self.fuzz):
+            raise Error("metal fuzz must be finite")
+        if self.fuzz < 0.0 or self.fuzz > 1.0:
+            raise Error("metal fuzz must be within [0, 1]")
+
 
 @fieldwise_init
 struct Dielectric(Copyable, Writable):
     var refraction_index: Float32
 
+    def validate(self) raises:
+        if not isfinite(self.refraction_index):
+            raise Error("dielectric refraction index must be finite")
+        if self.refraction_index <= 0.0:
+            raise Error("dielectric refraction index must be positive")
+
 
 @fieldwise_init
 struct Emissive(Copyable, Writable):
     var radiance: Color
+
+    def validate(self) raises:
+        if not self.radiance.is_finite()[0]:
+            raise Error("emissive radiance must be finite")
+        if (
+            self.radiance.x[0] < 0.0
+            or self.radiance.y[0] < 0.0
+            or self.radiance.z[0] < 0.0
+        ):
+            raise Error("emissive radiance must be non-negative")
 
 
 struct SurfaceStore:
@@ -746,7 +792,7 @@ struct SceneData:
         self._validate_materials()
 
         for i, sphere in enumerate(self._spheres):
-            if not _point_is_finite(sphere.center):
+            if not sphere.center.is_finite()[0]:
                 raise Error("sphere center must be finite")
             if not isfinite(sphere.radius):
                 raise Error("sphere radius must be finite")
@@ -827,30 +873,16 @@ struct SceneData:
 
     def _validate_materials(self) raises:
         for material in self._surfaces.lambertians:
-            if not _color_is_unit_interval(material.albedo):
-                raise Error(
-                    "lambertian albedo must be finite and within [0, 1]"
-                )
+            material.validate()
 
         for material in self._surfaces.metals:
-            if not _color_is_unit_interval(material.albedo):
-                raise Error("metal albedo must be finite and within [0, 1]")
-            if not isfinite(material.fuzz) or not (
-                material.fuzz >= 0.0 and material.fuzz <= 1.0
-            ):
-                raise Error("metal fuzz must be finite and within [0, 1]")
+            material.validate()
 
         for material in self._surfaces.dielectrics:
-            if not isfinite(material.refraction_index) or (
-                material.refraction_index <= 0.0
-            ):
-                raise Error(
-                    "dielectric refraction index must be finite and positive"
-                )
+            material.validate()
 
         for material in self._surfaces.emissives:
-            if not _color_is_finite_nonnegative(material.radiance):
-                raise Error("emissive radiance must be finite and non-negative")
+            material.validate()
 
     def _build_light_store(mut self) raises:
         for idx, surface in enumerate(self._triangle_surfaces):
@@ -956,46 +988,10 @@ struct SceneData:
 
 
 @always_inline
-def _point_is_finite[frame: Frame](point: Point3f32[frame]) -> Bool:
-    return (
-        isfinite(point.x[0]) and isfinite(point.y[0]) and isfinite(point.z[0])
-    )
-
-
-@always_inline
-def _color_is_unit_interval(color: Color) -> Bool:
-    return (
-        isfinite(color.x[0])
-        and isfinite(color.y[0])
-        and isfinite(color.z[0])
-        and color.x[0] >= 0.0
-        and color.x[0] <= 1.0
-        and color.y[0] >= 0.0
-        and color.y[0] <= 1.0
-        and color.z[0] >= 0.0
-        and color.z[0] <= 1.0
-    )
-
-
-@always_inline
-def _color_is_finite_nonnegative(color: Color) -> Bool:
-    return (
-        isfinite(color.x[0])
-        and isfinite(color.y[0])
-        and isfinite(color.z[0])
-        and color.x[0] >= 0.0
-        and color.y[0] >= 0.0
-        and color.z[0] >= 0.0
-    )
-
-
-@always_inline
 def _triangle_is_valid[
     frame: Frame
-](v0: Point3f32[frame], v1: Point3f32[frame], v2: Point3f32[frame],) -> Bool:
-    if not (
-        _point_is_finite(v0) and _point_is_finite(v1) and _point_is_finite(v2)
-    ):
+](v0: Point3f32[frame], v1: Point3f32[frame], v2: Point3f32[frame]) -> Bool:
+    if not (v0.is_finite()[0] and v1.is_finite()[0] and v2.is_finite()[0]):
         return False
     var twice_area_squared = length2(cross(v1 - v0, v2 - v0))[0]
     return isfinite(twice_area_squared) and twice_area_squared > 0.0

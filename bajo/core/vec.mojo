@@ -1,6 +1,7 @@
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
-from std.math import fma, sqrt
+from std.math import abs, fma, sqrt
 from std.testing import assert_almost_equal
+from std.utils.numerics import max_finite
 
 from bajo.core.utils import fmin, fmax
 from bajo.core.frame import Frame
@@ -369,6 +370,16 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
         var s = SIMD[Self.dtype, Self.width](eps)
 
         return abs(self.x).lt(s) & abs(self.y).lt(s) & abs(self.z).lt(s)
+
+    def is_finite(
+        self,
+    ) -> SIMD[.bool, Self.width] where Self.dtype.is_floating_point():
+        comptime limit = max_finite[Self.dtype]()
+        return (
+            abs(self.x).le(limit)
+            & abs(self.y).le(limit)
+            & abs(self.z).le(limit)
+        )
 
     def safe_inv(
         self,

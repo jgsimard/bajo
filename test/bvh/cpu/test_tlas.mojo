@@ -232,6 +232,62 @@ def test_tlas_triangle_packet_any_hit_matches_scalar() raises:
         assert_true(packet_occluded[lane] == scalar_occluded)
 
 
+def test_tlas_triangle_packet_skips_empty_blas() raises:
+    var empty_vertices = List[Point3f32[.LOCAL]]()
+    var blases = build_cpu_triangle_blas_set[4]([empty_vertices^])
+    var bounds = _triangle_bounds(_triangle_vertices())
+    var tlas = CpuTlas[4, 1]([_instance(.TRIANGLE, 0, bounds, 0.0)])
+    var rays = Ray[.float32, .WORLD, 4](
+        Point3[.float32, .WORLD, 4](0.0, 0.0, 0.0),
+        Vec3[.float32, .WORLD, 4](0.0, 0.0, 1.0),
+    )
+
+    var packet_hit = tlas.trace_blases_packet[4, 4, 4](rays, blases)
+    var packet_occluded = tlas.trace_blases_packet_any_hit[4, 4, 4](
+        rays, blases
+    )
+    for lane in range(4):
+        assert_true(not packet_hit.is_hit()[lane])
+        assert_true(not packet_occluded[lane])
+
+
+def test_tlas_packet_candidate_queue_overflow_matches_scalar() raises:
+    var vertices = _triangle_vertices()
+    var bounds = _triangle_bounds(vertices)
+    var blases = build_cpu_triangle_blas_set[4]([vertices^])
+    var instances = List[Instance](capacity=20)
+    for inst_idx in range(20):
+        instances.append(
+            _instance(
+                .TRIANGLE,
+                0,
+                bounds,
+                0.0,
+                tz=Float32(inst_idx) * 4.0,
+            )
+        )
+    var tlas = CpuTlas[4, 1](instances)
+    var rays = Ray[.float32, .WORLD, 4](
+        Point3[.float32, .WORLD, 4](0.0, 0.0, 0.0),
+        Vec3[.float32, .WORLD, 4](0.0, 0.0, 1.0),
+    )
+
+    var packet_hit = tlas.trace_blases_packet[4, 4, 4](rays, blases)
+    var packet_occluded = tlas.trace_blases_packet_any_hit[4, 4, 4](
+        rays, blases
+    )
+    for lane in range(4):
+        var scalar_hit = tlas.trace_blases[4, 4, .CLOSEST_HIT](_ray(), blases)
+        var scalar_occluded = tlas.trace_blases[4, 4, .ANY_HIT](
+            _ray(), blases
+        ).is_occluded()
+        assert_true(packet_hit.is_hit()[lane] == scalar_hit.is_hit())
+        assert_true(packet_hit.inst[lane] == scalar_hit.inst)
+        assert_true(packet_hit.prim[lane] == scalar_hit.prim)
+        assert_almost_equal(packet_hit.t[lane], scalar_hit.t)
+        assert_true(packet_occluded[lane] == scalar_occluded)
+
+
 def _test_tlas_triangle_leaf_width[leaf_width: SIMDLength]() raises:
     var vertices = _triangle_vertices()
     var bounds = _triangle_bounds(vertices)

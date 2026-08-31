@@ -30,9 +30,15 @@ constexpr std::size_t kPrimitiveCount = kGridSide * kGridSide;
 constexpr std::size_t kRayRepeatsPerPrimitive = 4;
 constexpr std::size_t kRayCount = kPrimitiveCount * kRayRepeatsPerPrimitive;
 constexpr int kTraversalRepeats = 8;
+constexpr int kBuildRepeats = 5;
 constexpr std::size_t kRepresentativeRayWidth = 1024;
 constexpr std::size_t kRepresentativeRayHeight = 576;
 constexpr float kRepresentativeFovScale = 0.2f;
+constexpr std::size_t kInstanceX = 12;
+constexpr std::size_t kInstanceY = 9;
+constexpr std::size_t kInstanceCount = kInstanceX * kInstanceY;
+constexpr std::size_t kInstanceRayWidth = 512;
+constexpr std::size_t kInstanceRayHeight = 288;
 
 struct Vertex {
   float x, y, z;
@@ -257,6 +263,74 @@ std::vector<InputRay> make_representative_camera_rays(
   return rays;
 }
 
+std::vector<InputRay> make_instanced_camera_rays(
+    const std::vector<Vertex>& vertices) {
+  Vec3 lower = {std::numeric_limits<float>::max(),
+                std::numeric_limits<float>::max(),
+                std::numeric_limits<float>::max()};
+  Vec3 upper = {-std::numeric_limits<float>::max(),
+                -std::numeric_limits<float>::max(),
+                -std::numeric_limits<float>::max()};
+  for (const Vertex& vertex : vertices) {
+    lower.x = std::min(lower.x, vertex.x);
+    lower.y = std::min(lower.y, vertex.y);
+    lower.z = std::min(lower.z, vertex.z);
+    upper.x = std::max(upper.x, vertex.x);
+    upper.y = std::max(upper.y, vertex.y);
+    upper.z = std::max(upper.z, vertex.z);
+  }
+  const Vec3 local_extent = upper - lower;
+  const float spacing_x = std::max(local_extent.x, 1.0e-6f) * 1.25f;
+  const float spacing_y = std::max(local_extent.y, 1.0e-6f) * 1.25f;
+  lower.x -= static_cast<float>(kInstanceX - 1) * 0.5f * spacing_x;
+  upper.x += static_cast<float>(kInstanceX - 1) * 0.5f * spacing_x;
+  lower.y -= static_cast<float>(kInstanceY - 1) * 0.5f * spacing_y;
+  upper.y += static_cast<float>(kInstanceY - 1) * 0.5f * spacing_y;
+
+  const Vec3 center = (lower + upper) * 0.5f;
+  const Vec3 extent = upper - lower;
+  const float scene_width =
+      std::max(1.0f, std::max(extent.x, std::max(extent.y, extent.z)));
+  const Vec3 origin =
+      center + Vec3{0.0f, extent.y * 0.2f, -scene_width * 2.5f};
+  const Vec3 forward = normalize(center - origin);
+  const Vec3 right = normalize(cross(forward, {0.0f, 1.0f, 0.0f}));
+  const Vec3 up = normalize(cross(right, forward));
+  const float aspect = static_cast<float>(kInstanceRayWidth) /
+                       static_cast<float>(kInstanceRayHeight);
+
+  std::vector<InputRay> rays;
+  rays.reserve(kInstanceRayWidth * kInstanceRayHeight);
+  for (std::size_t py = 0; py < kInstanceRayHeight; ++py) {
+    for (std::size_t px = 0; px < kInstanceRayWidth; ++px) {
+      const float sx =
+          ((static_cast<float>(px) + 0.5f) /
+               static_cast<float>(kInstanceRayWidth)) *
+               2.0f -
+           1.0f;
+      const float sy =
+          1.0f - ((static_cast<float>(py) + 0.5f) /
+                      static_cast<float>(kInstanceRayHeight)) *
+                     2.0f;
+      const Vec3 direction = normalize(
+          forward + right * (sx * aspect * kRepresentativeFovScale) +
+          up * (sy * kRepresentativeFovScale));
+      rays.push_back(
+          {origin.x, origin.y, origin.z, direction.x, direction.y, direction.z});
+    }
+  }
+  return rays;
+}
+
+std::vector<InputRay> permute_rays(const std::vector<InputRay>& rays) {
+  std::vector<InputRay> shuffled;
+  shuffled.reserve(rays.size());
+  for (std::size_t i = 0; i < rays.size(); ++i) {
+    shuffled.push_back(rays[(i * 65537) % rays.size()]);
+  }
+  return shuffled;
+}
+
 std::vector<tinybvh::bvhvec4> pack_vertices(
     const std::vector<Vertex>& vertices) {
   std::vector<tinybvh::bvhvec4> packed;
@@ -353,6 +427,19 @@ TraceSummary trace_once(const BVHType& bvh,
   return result;
 }
 
+template <typename BVHType>
+TraceSummary trace_occluded_once(
+    const BVHType& bvh, const std::vector<tinybvh::Ray>& rays) {
+  TraceSummary result;
+  for (const tinybvh::Ray& ray : rays) {
+    if (bvh.IsOccluded(ray)) {
+      ++result.hits;
+    }
+  }
+  result.checksum = static_cast<double>(result.hits);
+  return result;
+}
+
 template <typename TraceFunction>
 TraceResult benchmark_trace(TraceFunction&& trace) {
   TraceSummary summary = trace();
@@ -395,26 +482,91 @@ void benchmark_layout(std::string_view quality_name,
                       std::string_view layout_name,
                       const std::vector<tinybvh::bvhvec4>& packed_vertices,
                       const std::vector<Vertex>& vertices,
-                      std::vector<tinybvh::Ray>& rays) {
+                      std::vector<tinybvh::Ray>& rays,
+                      bool any_hit, bool instanced) {
   const std::uint32_t triangle_count =
       static_cast<std::uint32_t>(packed_vertices.size() / 3);
 
   BVHType bvh;
-  const auto build_start = std::chrono::steady_clock::now();
+  const auto build_blas = [&] {
+    if (quality == BuildQuality::Sah) {
+      bvh.Build(packed_vertices.data(), triangle_count);
+    } else {
+      bvh.BuildHQ(packed_vertices.data(), triangle_count);
+    }
+  };
+  build_blas();
 
-  if (quality == BuildQuality::Sah) {
-    bvh.Build(packed_vertices.data(), triangle_count);
-  } else {
-    bvh.BuildHQ(packed_vertices.data(), triangle_count);
+  std::vector<tinybvh::BLASInstance> instances;
+  tinybvh::BVH tlas;
+  std::array<tinybvh::BVHBase*, 1> blasses = {&bvh};
+  if (instanced) {
+    Vec3 lower = {std::numeric_limits<float>::max(),
+                  std::numeric_limits<float>::max(),
+                  std::numeric_limits<float>::max()};
+    Vec3 upper = {-std::numeric_limits<float>::max(),
+                  -std::numeric_limits<float>::max(),
+                  -std::numeric_limits<float>::max()};
+    for (const Vertex& vertex : vertices) {
+      lower.x = std::min(lower.x, vertex.x);
+      lower.y = std::min(lower.y, vertex.y);
+      lower.z = std::min(lower.z, vertex.z);
+      upper.x = std::max(upper.x, vertex.x);
+      upper.y = std::max(upper.y, vertex.y);
+      upper.z = std::max(upper.z, vertex.z);
+    }
+    const Vec3 extent = upper - lower;
+    const float spacing_x = std::max(extent.x, 1.0e-6f) * 1.25f;
+    const float spacing_y = std::max(extent.y, 1.0e-6f) * 1.25f;
+    instances.reserve(kInstanceCount);
+    for (std::size_t y = 0; y < kInstanceY; ++y) {
+      for (std::size_t x = 0; x < kInstanceX; ++x) {
+        tinybvh::BLASInstance instance(0);
+        instance.transform[3] =
+            (static_cast<float>(x) -
+             static_cast<float>(kInstanceX - 1) * 0.5f) *
+            spacing_x;
+        instance.transform[7] =
+            (static_cast<float>(y) -
+             static_cast<float>(kInstanceY - 1) * 0.5f) *
+            spacing_y;
+        instances.push_back(instance);
+      }
+    }
+    tlas.Build(instances.data(), static_cast<std::uint32_t>(instances.size()),
+               blasses.data(), static_cast<std::uint32_t>(blasses.size()));
   }
 
-  const auto build_stop = std::chrono::steady_clock::now();
-  const double build_ms =
-      std::chrono::duration<double, std::milli>(build_stop - build_start)
-          .count();
+  std::array<double, kBuildRepeats> build_samples{};
+  for (int i = 0; i < kBuildRepeats; ++i) {
+    const auto build_start = std::chrono::steady_clock::now();
+    build_blas();
+    if (instanced) {
+      tlas.Build(instances.data(), static_cast<std::uint32_t>(instances.size()),
+                 blasses.data(), static_cast<std::uint32_t>(blasses.size()));
+    }
+    const auto build_stop = std::chrono::steady_clock::now();
+    build_samples[static_cast<std::size_t>(i)] =
+        std::chrono::duration<double, std::milli>(build_stop - build_start)
+            .count();
+  }
+  std::sort(build_samples.begin(), build_samples.end());
+  const double build_ms = build_samples[build_samples.size() / 2];
 
-  const TraceResult trace = benchmark_trace(
-      [&] { return trace_once(bvh, rays, vertices); });
+  TraceResult trace;
+  if (any_hit) {
+    trace = instanced
+                ? benchmark_trace(
+                      [&] { return trace_occluded_once(tlas, rays); })
+                : benchmark_trace(
+                      [&] { return trace_occluded_once(bvh, rays); });
+  } else {
+    trace = instanced
+                ? benchmark_trace(
+                      [&] { return trace_once(tlas, rays, vertices); })
+                : benchmark_trace(
+                      [&] { return trace_once(bvh, rays, vertices); });
+  }
 
   print_result(
       quality_name,
@@ -426,7 +578,8 @@ void benchmark_layout(std::string_view quality_name,
 
 void benchmark_case(std::string_view name,
                     const std::vector<Vertex>& vertices,
-                    const std::vector<InputRay>& input_rays) {
+                    const std::vector<InputRay>& input_rays,
+                    bool any_hit = false, bool instanced = false) {
   if (vertices.size() % 3 != 0) {
     throw std::runtime_error("Vertex count must be divisible by three");
   }
@@ -437,6 +590,7 @@ void benchmark_case(std::string_view name,
 
   std::cout << "\n" << name << "\n"
             << "Triangles: " << vertices.size() / 3 << "\n"
+            << "Instances: " << (instanced ? kInstanceCount : 1) << "\n"
             << "Rays: " << rays.size() << "\n"
             << std::left << std::setw(9) << "quality"
             << std::setw(10) << "layout"
@@ -447,18 +601,24 @@ void benchmark_case(std::string_view name,
             << std::setw(15) << "checksum" << '\n';
 
   benchmark_layout<tinybvh::BVH>(
-      "sah", BuildQuality::Sah, "bvh2", packed_vertices, vertices, rays);
+      "sah", BuildQuality::Sah, "bvh2", packed_vertices, vertices, rays,
+      any_hit, instanced);
   benchmark_layout<tinybvh::BVH4_CPU>(
-      "sah", BuildQuality::Sah, "bvh4", packed_vertices, vertices, rays);
+      "sah", BuildQuality::Sah, "bvh4", packed_vertices, vertices, rays,
+      any_hit, instanced);
   benchmark_layout<tinybvh::BVH8_CPU>(
-      "sah", BuildQuality::Sah, "bvh8", packed_vertices, vertices, rays);
+      "sah", BuildQuality::Sah, "bvh8", packed_vertices, vertices, rays,
+      any_hit, instanced);
 
   benchmark_layout<tinybvh::BVH>(
-      "high", BuildQuality::High, "bvh2", packed_vertices, vertices, rays);
+      "high", BuildQuality::High, "bvh2", packed_vertices, vertices, rays,
+      any_hit, instanced);
   benchmark_layout<tinybvh::BVH4_CPU>(
-      "high", BuildQuality::High, "bvh4", packed_vertices, vertices, rays);
+      "high", BuildQuality::High, "bvh4", packed_vertices, vertices, rays,
+      any_hit, instanced);
   benchmark_layout<tinybvh::BVH8_CPU>(
-      "high", BuildQuality::High, "bvh8", packed_vertices, vertices, rays);
+      "high", BuildQuality::High, "bvh8", packed_vertices, vertices, rays,
+      any_hit, instanced);
 }
 
 }  // namespace
@@ -487,19 +647,54 @@ int main(int argc, char** argv) {
               << "Traversal repeats: " << kTraversalRepeats << "\n";
 
     benchmark_case(
-        "Regular-grid microbenchmark",
+        "Regular-grid closest-hit benchmark",
         grid_vertices,
         grid_rays);
+    benchmark_case(
+        "Regular-grid any-hit benchmark",
+        grid_vertices,
+        grid_rays,
+        true);
 
     if (argc > 1) {
       const PackedMesh mesh = load_packed_obj(argv[1]);
       const std::vector<InputRay> representative_rays =
           make_representative_camera_rays(mesh.vertices);
+      const std::vector<InputRay> shuffled_rays =
+          permute_rays(representative_rays);
+      const std::vector<InputRay> instanced_rays =
+          make_instanced_camera_rays(mesh.vertices);
 
       benchmark_case(
-          "Representative Dragon camera-ray benchmark",
+          "Dragon camera closest-hit benchmark",
           mesh.vertices,
           representative_rays);
+      benchmark_case(
+          "Dragon camera any-hit benchmark",
+          mesh.vertices,
+          representative_rays,
+          true);
+      benchmark_case(
+          "Dragon shuffled closest-hit benchmark",
+          mesh.vertices,
+          shuffled_rays);
+      benchmark_case(
+          "Dragon shuffled any-hit benchmark",
+          mesh.vertices,
+          shuffled_rays,
+          true);
+      benchmark_case(
+          "Instanced Dragon closest-hit benchmark",
+          mesh.vertices,
+          instanced_rays,
+          false,
+          true);
+      benchmark_case(
+          "Instanced Dragon any-hit benchmark",
+          mesh.vertices,
+          instanced_rays,
+          true,
+          true);
     }
 
     return 0;

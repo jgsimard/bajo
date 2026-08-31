@@ -62,6 +62,7 @@ run_suite() {
     taskset -c "${affinity}" mojo -I . bench/bvh/bench_cpu_bvh_grid.mojo
     taskset -c "${affinity}" mojo -I . bench/bvh/bench_cpu_bvh_dragon.mojo
     taskset -c "${affinity}" mojo -I . bench/bvh/bench_cpu_bvh_packets.mojo
+    taskset -c "${affinity}" mojo -I . bench/bvh/bench_cpu_bvh_instances.mojo
     env BVH_BUILD_THREADS="${embree_threads}" taskset -c "${affinity}" \
         "${EMBREE_OUTPUT}" "${OBJ_PATH}"
     taskset -c "${affinity}" "${tinybvh_output}" "${OBJ_PATH}"

@@ -49,6 +49,72 @@ class CpuBvhReportTest(unittest.TestCase):
         self.assertEqual(adaptive["build_ms_1"].item(), 5.0)
         self.assertEqual(adaptive["build_ms_all"].item(), 2.0)
 
+    def test_shuffled_closest_hit_keeps_scalar_baseline(self) -> None:
+        output = """\
+=== BVH build threads: 1; available CPUs: 1; affinity: 0 ===
+CPU shared-stack packet BVH benchmark
+
+Dragon shuffled closest-hit / sah / BVH16 leaf16
+  scalar: 14.0 ms, 42.0 MRay/s, hits=71597, checksum=7943562615.175
+"""
+        parsed = parse_benchmark_output(output)
+
+        self.assertEqual(parsed.height, 1)
+        self.assertEqual(parsed["benchmark"].item(), "dragon_shuffled_closest")
+        self.assertEqual(parsed["traversal"].item(), "scalar1")
+        self.assertEqual(parsed["ray_width"].item(), 1)
+
+    def test_instanced_section_metadata_and_packet_width(self) -> None:
+        output = """\
+=== BVH build threads: 1; available CPUs: 1; affinity: 0 ===
+CPU instanced Dragon BVH benchmark
+
+Instanced Dragon closest-hit benchmark
+Triangles: 249882
+Instances: 108
+Rays: 147456
+split_method bounds_width leaf_width traversal build_ms trace_ms MRay_s hits checksum
+sah 16 1 packet16 22.0 2.0 73.0 8250 1022292856.0
+"""
+        parsed = parse_benchmark_output(output)
+
+        self.assertEqual(parsed["benchmark"].item(), "dragon_instances_closest")
+        self.assertEqual(parsed["instance_count"].item(), 108)
+        self.assertEqual(parsed["ray_width"].item(), 16)
+
+    def test_instanced_triangle_and_flattened_controls(self) -> None:
+        output = """\
+=== BVH build threads: 1; available CPUs: 1; affinity: 0 ===
+CPU instanced closest-hit diagnostic benchmark
+
+Instanced triangle closest-hit benchmark
+Triangles: 1
+Instances: 108
+Rays: 147456
+split_method bounds_width leaf_width traversal build_ms trace_ms MRay_s hits checksum
+sah 16 1 packet8 0.02 2.1 70.0 20416 1177505.9
+
+Flattened triangle grid closest-hit benchmark
+Triangles: 108
+Instances: 1
+Rays: 147456
+split_method bounds_width leaf_width traversal build_ms trace_ms MRay_s hits checksum
+sah 16 16 packet16 0.03 1.0 147.0 20416 2281401.9
+"""
+        parsed = parse_benchmark_output(output)
+
+        controls = {
+            row["benchmark"]: (row["instance_count"], row["ray_width"])
+            for row in parsed.to_dicts()
+        }
+        self.assertEqual(
+            controls,
+            {
+                "triangle_instances_closest": (108, 8),
+                "triangle_grid_closest": (1, 16),
+            },
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

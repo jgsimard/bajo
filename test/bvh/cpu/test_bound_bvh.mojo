@@ -30,7 +30,7 @@ from bajo.bvh.constants import (
     EMPTY_LANE,
     PrimitiveKind,
     SPHERE_LEAF_PACKED_STRIDE,
-    TRI_LEAF_PACKED_STRIDE,
+    CPU_TRI_LEAF_PACKED_STRIDE,
     WideNode,
     f32_max,
 )
@@ -47,11 +47,6 @@ from bajo.bvh.cpu.packet import (
 from bajo.bvh.tagged_ref import (
     decode_ref_index,
     is_leaf_ref,
-)
-from bajo.bvh.wide_meta import (
-    _pack_wide_meta,
-    _wide_meta_count,
-    _wide_meta_data,
 )
 from bajo.bvh.cpu.builder.builder import _partition_items_by_median_center
 from bajo.bvh.cpu.builder.hploc import (
@@ -127,12 +122,6 @@ def _test_extract_lane[width: SIMDLength]() raises:
 def test_extract_lane_all_cpu_bvh_widths() raises:
     comptime for width in [2, 4, 8, 16]:
         _test_extract_lane[width]()
-
-
-def test_wide_metadata_supports_leaf_width_32() raises:
-    var meta = _pack_wide_meta(UInt32(123), UInt32(32))
-    assert_true(_wide_meta_data(meta) == UInt32(123))
-    assert_true(_wide_meta_count(meta) == UInt32(32))
 
 
 def _rng_f32(mut rng: Rng, lo: Float32, hi: Float32) -> Float32:
@@ -796,6 +785,27 @@ def test_triangle_bvh16_decoupled_leaf_widths() raises:
             _test_triangle_bvh16_leaf_width[leaf_width, method]()
 
 
+def test_triangle_bvh16_greedy_lbvh_collapse_matches_bruteforce() raises:
+    var n = 257
+    var verts = _make_strip[.WORLD](n)
+    var greedy = build_cpu_triangle_blas_set[16, 16, .LBVH, .WORLD, 0, False](
+        [verts.copy()]
+    )
+    for i in range(n):
+        _assert_triangle_blas_matches_bruteforce[.WORLD, 16, 16](
+            greedy,
+            verts,
+            _triangle_center_xy(verts, i),
+        )
+    assert_true(
+        not trace_blas_set[16, 16, .ANY_HIT, .WORLD](
+            greedy,
+            UInt32(0),
+            _z_ray(Point3W(1000.0, 1000.0, 0.0)),
+        ).is_occluded()
+    )
+
+
 def test_large_triangle_bvh16_parallel_emit_matches_known_rays() raises:
     # Cross the parallel wide-emission node threshold in the production
     # single-BLAS path and validate both a camera-space hit and miss.
@@ -809,6 +819,32 @@ def test_large_triangle_bvh16_parallel_emit_matches_known_rays() raises:
     assert_true(desc.prim_count == UInt32(tri_count))
     assert_true(desc.node_count > UInt32(0))
 
+    var hit = trace_blas_set[16, 16, .CLOSEST_HIT, .WORLD](
+        blases,
+        UInt32(0),
+        _z_ray(_triangle_center_xy(verts, target_prim)),
+    )
+    assert_true(hit.is_hit())
+    assert_true(hit.prim == UInt32(target_prim))
+    assert_almost_equal(hit.t, 2.0)
+    assert_true(
+        not trace_blas_set[16, 16, .ANY_HIT, .WORLD](
+            blases,
+            UInt32(0),
+            _z_ray(Point3W(0.0, 100.0, 0.0)),
+        ).is_occluded()
+    )
+
+
+def test_large_lbvh_radix_scratch_matches_known_rays() raises:
+    # Cross the production single-allocation radix threshold on a
+    # non-power-of-two primitive count.
+    var tri_count = 131073
+    var target_prim = 65536
+    var verts = _make_strip[.WORLD](tri_count)
+    var blases = build_cpu_triangle_blas_set[16, 16, .LBVH, .WORLD](
+        [verts.copy()]
+    )
     var hit = trace_blas_set[16, 16, .CLOSEST_HIT, .WORLD](
         blases,
         UInt32(0),
@@ -1351,7 +1387,7 @@ def test_segmented_triangle_blases_allow_empty_segments() raises:
     )
     assert_true(
         len(blases.leaves)
-        == Int(filled_desc.leaf_block_count) * 4 * TRI_LEAF_PACKED_STRIDE
+        == Int(filled_desc.leaf_block_count) * 4 * CPU_TRI_LEAF_PACKED_STRIDE
     )
     assert_true(filled_desc.node_f32_base == 0)
     assert_true(filled_desc.leaf_f32_base == 0)

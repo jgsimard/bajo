@@ -21,6 +21,7 @@ comptime RAY_WIDTH = 1024
 comptime RAY_HEIGHT = 576
 comptime FOV_SCALE = 0.2
 comptime TRAVERSAL_REPEATS = 8
+comptime BUILD_REPEATS = 5
 
 
 @fieldwise_init
@@ -28,6 +29,12 @@ struct SceneBenchResult(Copyable):
     var ns: Int
     var checksum: Float64
     var hits: Int
+
+
+def _median_ns(values: List[Int]) -> Int:
+    var sorted_values = values.copy()
+    sort(sorted_values)
+    return sorted_values[len(sorted_values) / 2]
 
 
 def trace_scene[
@@ -42,7 +49,10 @@ def trace_scene[
 
     for ray in rays:
         var hit = trace_blas_set[
-            bounds_width, leaf_width, .CLOSEST_HIT, .WORLD
+            bounds_width,
+            leaf_width,
+            .CLOSEST_HIT,
+            .WORLD,
         ](bvh, UInt32(0), ray)
 
         if hit.t < f32_max:
@@ -124,11 +134,20 @@ def benchmark_case[
     vertices: List[Point3f32[.WORLD]],
     rays: List[Rayf32[.WORLD]],
 ) raises:
-    var t0 = perf_counter_ns()
+    # Warm the allocator and parallel runtime before measuring fresh builds.
     var bvh = build_cpu_triangle_blas_set[
         bounds_width, leaf_width, method, .WORLD
     ]([vertices.copy()])
-    var t1 = perf_counter_ns()
+    var build_times = List[Int](capacity=BUILD_REPEATS)
+    for _ in range(BUILD_REPEATS):
+        var t0 = perf_counter_ns()
+        var sample = build_cpu_triangle_blas_set[
+            bounds_width, leaf_width, method, .WORLD
+        ]([vertices.copy()])
+        var t1 = perf_counter_ns()
+        build_times.append(Int(t1 - t0))
+        bvh = sample^
+    var build_ns = _median_ns(build_times)
 
     var result = benchmark_scene[bounds_width, leaf_width](bvh, rays)
 
@@ -138,7 +157,7 @@ def benchmark_case[
         "scalar1",
         bounds_width,
         leaf_width,
-        Int(t1 - t0),
+        build_ns,
         result,
         len(rays),
     )
@@ -151,18 +170,7 @@ def benchmark_configurations[
     vertices: List[Point3f32[.WORLD]],
     rays: List[Rayf32[.WORLD]],
 ) raises:
-    comptime if method == .HPLOC:
-        benchmark_case[16, 16, method](table, vertices, rays)
-    else:
-        # BVH16/leaf16 is the general-purpose layout. Leaf32 is retained
-        # because it is the measured Dragon scalar winner despite its grid
-        # tradeoff.
-        comptime for leaf_width in [16, 32]:
-            benchmark_case[16, leaf_width, method](
-                table,
-                vertices,
-                rays,
-            )
+    benchmark_case[16, 16, method](table, vertices, rays)
 
 
 def run_benchmark() raises:

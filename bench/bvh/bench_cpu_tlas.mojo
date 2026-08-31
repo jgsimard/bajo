@@ -9,17 +9,18 @@ from bajo.bvh.constants import TraceMode
 from bajo.bvh.cpu.tlas import CpuTlas
 from bajo.bvh.cpu import CpuBlasSet
 from bajo.bvh.types import Instance
-from bajo.core import Point3, Ray, Rayf32, Vec3
+from bajo.core import AABB, Point3, Ray, Rayf32, Vec3
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.benchmark.bvh_reporting import TablePrinter
 from bajo.benchmark.timing import TimingSummary, summarize_timings
+from bajo.rt import CpuScene
 from examples.lbvh_scene import make_lbvh_camera, make_lbvh_world
 
 
 comptime IMAGE_WIDTH = 320
 comptime IMAGE_HEIGHT = 214
 comptime WARMUPS = 2
-comptime PAIRED_REPEATS = 12
+comptime PAIRED_REPEATS = 31
 
 
 @fieldwise_init
@@ -27,6 +28,85 @@ struct TraceChecksum(Copyable):
     var distance: Float64
     var hits: UInt64
     var instances: UInt64
+
+
+def _instance_bounds_recomputed[
+    width: SIMDLength,
+](world: CpuScene[width, width]) -> Float64:
+    var checksum = Float64(0.0)
+    for instance in world.scene_data().triangle_instances():
+        ref vertices = world.scene_data().triangle_meshes()[
+            Int(instance.blas_idx)
+        ]
+        var local_bounds = AABB[.LOCAL].invalid()
+        for vertex in vertices:
+            local_bounds.grow(vertex)
+        var world_bounds = local_bounds.apply_transform(instance.transform)
+        checksum += Float64(world_bounds.surface_area())
+    keep(checksum)
+    return checksum
+
+
+def _instance_bounds_cached[
+    width: SIMDLength,
+](world: CpuScene[width, width]) -> Float64:
+    var local_bounds = List[AABB[.LOCAL]](
+        capacity=len(world.scene_data().triangle_meshes())
+    )
+    for vertices in world.scene_data().triangle_meshes():
+        var bounds = AABB[.LOCAL].invalid()
+        for vertex in vertices:
+            bounds.grow(vertex)
+        local_bounds.append(bounds)
+    var checksum = Float64(0.0)
+    for instance in world.scene_data().triangle_instances():
+        var world_bounds = local_bounds[Int(instance.blas_idx)].apply_transform(
+            instance.transform
+        )
+        checksum += Float64(world_bounds.surface_area())
+    keep(checksum)
+    return checksum
+
+
+def _benchmark_cached_instance_bounds[
+    width: SIMDLength,
+](world: CpuScene[width, width]):
+    _ = _instance_bounds_recomputed(world)
+    _ = _instance_bounds_cached(world)
+    var recomputed_times = List[Int](capacity=PAIRED_REPEATS)
+    var cached_times = List[Int](capacity=PAIRED_REPEATS)
+    for sample in range(PAIRED_REPEATS):
+        if sample % 2 == 0:
+            var start = perf_counter_ns()
+            _ = _instance_bounds_recomputed(world)
+            recomputed_times.append(Int(perf_counter_ns() - start))
+            start = perf_counter_ns()
+            _ = _instance_bounds_cached(world)
+            cached_times.append(Int(perf_counter_ns() - start))
+        else:
+            var start = perf_counter_ns()
+            _ = _instance_bounds_cached(world)
+            cached_times.append(Int(perf_counter_ns() - start))
+            start = perf_counter_ns()
+            _ = _instance_bounds_recomputed(world)
+            recomputed_times.append(Int(perf_counter_ns() - start))
+    var recomputed = summarize_timings(recomputed_times)
+    var cached = summarize_timings(cached_times)
+    var recomputed_checksum = _instance_bounds_recomputed(world)
+    var cached_checksum = _instance_bounds_cached(world)
+    print("\nScene validation instance bounds; recomputed vs mesh-cached")
+    print(
+        t"recomputed median={round(ns_to_ms(recomputed.median_ns), 6)} ms, "
+        t"cached median={round(ns_to_ms(cached.median_ns), 6)} ms, delta="
+        t"{round(Float64(cached.median_ns - recomputed.median_ns) * 100.0 / Float64(recomputed.median_ns), 3)}%"
+    )
+    print(
+        t"ranges recomputed={round(ns_to_ms(recomputed.min_ns), 6)}.."
+        t"{round(ns_to_ms(recomputed.max_ns), 6)} ms, cached="
+        t"{round(ns_to_ms(cached.min_ns), 6)}.."
+        t"{round(ns_to_ms(cached.max_ns), 6)} ms, checksum delta="
+        t"{cached_checksum - recomputed_checksum}"
+    )
 
 
 def _trace[
@@ -96,7 +176,7 @@ def _trace_packet[
         var valid = SIMD[.bool, length](fill=False)
         var lane_count = min(length, len(rays) - base)
         for lane in range(lane_count):
-            ref ray = rays[base + lane]
+            ref ray = rays.unsafe_get(base + lane)
             ox[lane] = ray.o.x
             oy[lane] = ray.o.y
             oz[lane] = ray.o.z
@@ -188,7 +268,7 @@ def _trace_packet_any_hit_reference[
         var lane_count = min(length, len(rays) - base)
         for lane in range(lane_count):
             if tlas.trace_blases[width, width, .ANY_HIT](
-                rays[base + lane], blases
+                rays.unsafe_get(base + lane), blases
             ).is_occluded():
                 hits += 1
     keep(hits)
@@ -216,7 +296,7 @@ def _trace_packet_any_hit[
         var valid = SIMD[.bool, length](fill=False)
         var lane_count = min(length, len(rays) - base)
         for lane in range(lane_count):
-            ref ray = rays[base + lane]
+            ref ray = rays.unsafe_get(base + lane)
             ox[lane] = ray.o.x
             oy[lane] = ray.o.y
             oz[lane] = ray.o.z
@@ -303,12 +383,16 @@ def _benchmark_packet_any_hit[
         tlas, blases, rays
     )
     var packet_hits = _trace_packet_any_hit[width, length](tlas, blases, rays)
-    print("\nPacket TLAS any-hit; scalar-per-lane reference vs shared stack")
+    print("\nPacket TLAS any-hit; scalar reference vs production packet")
     print(
-        t"reference median={round(ns_to_ms(reference.median_ns), 3)} ms,"
-        t" packet16 median={round(ns_to_ms(packet.median_ns), 3)} ms,"
+        t"reference median={round(ns_to_ms(reference.median_ns), 3)} ms, packet"
+        t" median={round(ns_to_ms(packet.median_ns), 3)} ms,"
         t" delta={round(Float64(packet.median_ns - reference.median_ns) * 100.0 / Float64(reference.median_ns), 3)}%,"
         t" hits={reference_hits}/{packet_hits}"
+    )
+    print(
+        t"packet range={round(ns_to_ms(packet.min_ns), 3)}.."
+        t"{round(ns_to_ms(packet.max_ns), 3)} ms"
     )
 
 
@@ -455,6 +539,139 @@ def _benchmark_mode[
     )
 
 
+def _benchmark_leaf_sweep_mode[
+    width: SIMDLength,
+    mode: TraceMode,
+](
+    label: String,
+    tlas1: CpuTlas[width, 1],
+    tlas2: CpuTlas[width, 2],
+    tlas4: CpuTlas[width, 4],
+    tlas8: CpuTlas[width, 8],
+    tlas16: CpuTlas[width, 16],
+    blases: CpuBlasSet[.TRIANGLE, width],
+    rays: List[Rayf32[.WORLD]],
+) raises:
+    for _ in range(WARMUPS):
+        _ = _trace[width, 1, mode](tlas1, blases, rays)
+        _ = _trace[width, 2, mode](tlas2, blases, rays)
+        _ = _trace[width, 4, mode](tlas4, blases, rays)
+        _ = _trace[width, 8, mode](tlas8, blases, rays)
+        _ = _trace[width, 16, mode](tlas16, blases, rays)
+
+    var times1 = List[Int](capacity=PAIRED_REPEATS)
+    var times2 = List[Int](capacity=PAIRED_REPEATS)
+    var times4 = List[Int](capacity=PAIRED_REPEATS)
+    var times8 = List[Int](capacity=PAIRED_REPEATS)
+    var times16 = List[Int](capacity=PAIRED_REPEATS)
+    for sample in range(PAIRED_REPEATS):
+        if sample % 5 == 0:
+            times1.append(_timed_trace[width, 1, mode](tlas1, blases, rays))
+            times2.append(_timed_trace[width, 2, mode](tlas2, blases, rays))
+            times4.append(_timed_trace[width, 4, mode](tlas4, blases, rays))
+            times8.append(_timed_trace[width, 8, mode](tlas8, blases, rays))
+            times16.append(_timed_trace[width, 16, mode](tlas16, blases, rays))
+        elif sample % 5 == 1:
+            times2.append(_timed_trace[width, 2, mode](tlas2, blases, rays))
+            times4.append(_timed_trace[width, 4, mode](tlas4, blases, rays))
+            times8.append(_timed_trace[width, 8, mode](tlas8, blases, rays))
+            times16.append(_timed_trace[width, 16, mode](tlas16, blases, rays))
+            times1.append(_timed_trace[width, 1, mode](tlas1, blases, rays))
+        elif sample % 5 == 2:
+            times4.append(_timed_trace[width, 4, mode](tlas4, blases, rays))
+            times8.append(_timed_trace[width, 8, mode](tlas8, blases, rays))
+            times16.append(_timed_trace[width, 16, mode](tlas16, blases, rays))
+            times1.append(_timed_trace[width, 1, mode](tlas1, blases, rays))
+            times2.append(_timed_trace[width, 2, mode](tlas2, blases, rays))
+        elif sample % 5 == 3:
+            times8.append(_timed_trace[width, 8, mode](tlas8, blases, rays))
+            times16.append(_timed_trace[width, 16, mode](tlas16, blases, rays))
+            times1.append(_timed_trace[width, 1, mode](tlas1, blases, rays))
+            times2.append(_timed_trace[width, 2, mode](tlas2, blases, rays))
+            times4.append(_timed_trace[width, 4, mode](tlas4, blases, rays))
+        else:
+            times16.append(_timed_trace[width, 16, mode](tlas16, blases, rays))
+            times1.append(_timed_trace[width, 1, mode](tlas1, blases, rays))
+            times2.append(_timed_trace[width, 2, mode](tlas2, blases, rays))
+            times4.append(_timed_trace[width, 4, mode](tlas4, blases, rays))
+            times8.append(_timed_trace[width, 8, mode](tlas8, blases, rays))
+
+    var summary1 = summarize_timings(times1)
+    var summary2 = summarize_timings(times2)
+    var summary4 = summarize_timings(times4)
+    var summary8 = summarize_timings(times8)
+    var summary16 = summarize_timings(times16)
+    var checksum1 = _trace[width, 1, mode](tlas1, blases, rays)
+    var checksum2 = _trace[width, 2, mode](tlas2, blases, rays)
+    var checksum4 = _trace[width, 4, mode](tlas4, blases, rays)
+    var checksum8 = _trace[width, 8, mode](tlas8, blases, rays)
+    var checksum16 = _trace[width, 16, mode](tlas16, blases, rays)
+
+    print(t"\n{label}")
+    var table = TablePrinter(
+        layout=18,
+        median_ms=10,
+        min_ms=10,
+        max_ms=10,
+        MRay_s=10,
+        delta_pct=10,
+        hits=8,
+        checksum=16,
+        inst_sum=12,
+    )
+    table.header()
+    _print_row(table, "TLAS16/leaf1", summary1, len(rays), 0.0, checksum1)
+    _print_row(
+        table,
+        "TLAS16/leaf2",
+        summary2,
+        len(rays),
+        Float64(summary2.median_ns - summary1.median_ns)
+        * 100.0
+        / Float64(summary1.median_ns),
+        checksum2,
+    )
+    _print_row(
+        table,
+        "TLAS16/leaf4",
+        summary4,
+        len(rays),
+        Float64(summary4.median_ns - summary1.median_ns)
+        * 100.0
+        / Float64(summary1.median_ns),
+        checksum4,
+    )
+    _print_row(
+        table,
+        "TLAS16/leaf8",
+        summary8,
+        len(rays),
+        Float64(summary8.median_ns - summary1.median_ns)
+        * 100.0
+        / Float64(summary1.median_ns),
+        checksum8,
+    )
+    _print_row(
+        table,
+        "TLAS16/leaf16",
+        summary16,
+        len(rays),
+        Float64(summary16.median_ns - summary1.median_ns)
+        * 100.0
+        / Float64(summary1.median_ns),
+        checksum16,
+    )
+    print(
+        t"leaf1/2/4/8/16 hits={checksum1.hits}/{checksum2.hits}/"
+        t"{checksum4.hits}/{checksum8.hits}/{checksum16.hits}, distance="
+        t"{round(checksum1.distance, 3)}/{round(checksum2.distance, 3)}/"
+        t"{round(checksum4.distance, 3)}/{round(checksum8.distance, 3)}/"
+        t"{round(checksum16.distance, 3)}, instances={checksum1.instances}/"
+        t"{checksum2.instances}/{checksum4.instances}/{checksum8.instances}/"
+        t"{checksum16.instances}"
+    )
+
+
 def run_benchmark() raises:
     comptime width = simd_width_of[DType.float32]()
     print("CPU TLAS leaf-width benchmark")
@@ -475,31 +692,50 @@ def run_benchmark() raises:
     var tlas_leaf1 = CpuTlas[width, 1](world.scene_data().triangle_instances())
     var leaf1_build_ns = Int(perf_counter_ns() - build_start)
     build_start = perf_counter_ns()
-    var tlas_native = CpuTlas[width, width](
+    var tlas_leaf2 = CpuTlas[width, 2](world.scene_data().triangle_instances())
+    var leaf2_build_ns = Int(perf_counter_ns() - build_start)
+    build_start = perf_counter_ns()
+    var tlas_leaf4 = CpuTlas[width, 4](world.scene_data().triangle_instances())
+    var leaf4_build_ns = Int(perf_counter_ns() - build_start)
+    build_start = perf_counter_ns()
+    var tlas_leaf8 = CpuTlas[width, 8](world.scene_data().triangle_instances())
+    var leaf8_build_ns = Int(perf_counter_ns() - build_start)
+    build_start = perf_counter_ns()
+    var tlas_leaf16 = CpuTlas[width, 16](
         world.scene_data().triangle_instances()
     )
-    var native_build_ns = Int(perf_counter_ns() - build_start)
+    var leaf16_build_ns = Int(perf_counter_ns() - build_start)
 
     print(
         t"instances={len(world.scene_data().triangle_instances())},"
         t" rays={len(rays)}"
     )
     print(
-        t"build leaf1/native: {round(ns_to_ms(leaf1_build_ns), 3)} / "
-        t"{round(ns_to_ms(native_build_ns), 3)} ms"
+        t"build leaf1/2/4/8/16: {round(ns_to_ms(leaf1_build_ns), 3)} / "
+        t"{round(ns_to_ms(leaf2_build_ns), 3)} / "
+        t"{round(ns_to_ms(leaf4_build_ns), 3)} / "
+        t"{round(ns_to_ms(leaf8_build_ns), 3)} / "
+        t"{round(ns_to_ms(leaf16_build_ns), 3)} ms"
     )
+    _benchmark_cached_instance_bounds[width](world)
     _benchmark_refit[width](world.scene_data().triangle_instances())
-    _benchmark_mode[width, .CLOSEST_HIT](
-        "Primary closest-hit",
+    _benchmark_leaf_sweep_mode[width, .CLOSEST_HIT](
+        "Primary closest-hit leaf-width sweep",
         tlas_leaf1,
-        tlas_native,
+        tlas_leaf2,
+        tlas_leaf4,
+        tlas_leaf8,
+        tlas_leaf16,
         world.triangle_mesh_blases.value(),
         rays,
     )
-    _benchmark_mode[width, .ANY_HIT](
-        "Primary any-hit",
+    _benchmark_leaf_sweep_mode[width, .ANY_HIT](
+        "Primary any-hit leaf-width sweep",
         tlas_leaf1,
-        tlas_native,
+        tlas_leaf2,
+        tlas_leaf4,
+        tlas_leaf8,
+        tlas_leaf16,
         world.triangle_mesh_blases.value(),
         rays,
     )

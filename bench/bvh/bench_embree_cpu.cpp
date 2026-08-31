@@ -25,9 +25,17 @@ constexpr std::size_t kPrimitiveCount = kGridSide * kGridSide;
 constexpr std::size_t kRayRepeatsPerPrimitive = 4;
 constexpr std::size_t kRayCount = kPrimitiveCount * kRayRepeatsPerPrimitive;
 constexpr int kTraversalRepeats = 8;
+constexpr int kDiagnosticTraversalBatches = 8;
+constexpr int kBuildRepeats = 5;
+int traversal_batches = 1;
 constexpr std::size_t kRepresentativeRayWidth = 1024;
 constexpr std::size_t kRepresentativeRayHeight = 576;
 constexpr float kRepresentativeFovScale = 0.2f;
+constexpr std::size_t kInstanceX = 12;
+constexpr std::size_t kInstanceY = 9;
+constexpr std::size_t kInstanceCount = kInstanceX * kInstanceY;
+constexpr std::size_t kInstanceRayWidth = 512;
+constexpr std::size_t kInstanceRayHeight = 288;
 
 struct Vertex {
   float x, y, z;
@@ -53,6 +61,7 @@ struct PackedMesh {
 
 struct Scene {
   RTCScene handle = nullptr;
+  RTCScene child = nullptr;
   double build_ms = 0.0;
 };
 
@@ -113,6 +122,39 @@ std::vector<Triangle> make_triangles() {
     triangles[i] = {base, base + 1, base + 2};
   }
   return triangles;
+}
+
+PackedMesh make_single_triangle() {
+  // Minimal BLAS: leaves only TLAS, transform, and hit-payload overhead.
+  return {{{-0.75f, -0.75f, 0.0f},
+           {0.75f, -0.75f, 0.0f},
+           {0.0f, 0.75f, 0.0f}},
+          {{0, 1, 2}}};
+}
+
+PackedMesh make_flattened_triangle_grid() {
+  // Same world geometry as the instances, stored in one packet BVH.
+  PackedMesh mesh;
+  mesh.vertices.reserve(kInstanceCount * 3);
+  mesh.triangles.reserve(kInstanceCount);
+  constexpr float spacing = 1.5f * 1.25f;
+  for (std::size_t y = 0; y < kInstanceY; ++y) {
+    for (std::size_t x = 0; x < kInstanceX; ++x) {
+      const float tx =
+          (static_cast<float>(x) - static_cast<float>(kInstanceX - 1) * 0.5f) *
+          spacing;
+      const float ty =
+          (static_cast<float>(y) - static_cast<float>(kInstanceY - 1) * 0.5f) *
+          spacing;
+      const std::uint32_t base =
+          static_cast<std::uint32_t>(mesh.vertices.size());
+      mesh.vertices.push_back({tx - 0.75f, ty - 0.75f, 0.0f});
+      mesh.vertices.push_back({tx + 0.75f, ty - 0.75f, 0.0f});
+      mesh.vertices.push_back({tx, ty + 0.75f, 0.0f});
+      mesh.triangles.push_back({base, base + 1, base + 2});
+    }
+  }
+  return mesh;
 }
 
 std::vector<InputRay> make_hit_and_miss_rays() {
@@ -266,6 +308,74 @@ std::vector<InputRay> make_representative_camera_rays(
   return rays;
 }
 
+std::vector<InputRay> make_instanced_camera_rays(
+    const std::vector<Vertex>& vertices) {
+  Vec3 lower = {std::numeric_limits<float>::max(),
+                std::numeric_limits<float>::max(),
+                std::numeric_limits<float>::max()};
+  Vec3 upper = {-std::numeric_limits<float>::max(),
+                -std::numeric_limits<float>::max(),
+                -std::numeric_limits<float>::max()};
+  for (const Vertex& vertex : vertices) {
+    lower.x = std::min(lower.x, vertex.x);
+    lower.y = std::min(lower.y, vertex.y);
+    lower.z = std::min(lower.z, vertex.z);
+    upper.x = std::max(upper.x, vertex.x);
+    upper.y = std::max(upper.y, vertex.y);
+    upper.z = std::max(upper.z, vertex.z);
+  }
+  const Vec3 local_extent = upper - lower;
+  const float spacing_x = std::max(local_extent.x, 1.0e-6f) * 1.25f;
+  const float spacing_y = std::max(local_extent.y, 1.0e-6f) * 1.25f;
+  lower.x -= static_cast<float>(kInstanceX - 1) * 0.5f * spacing_x;
+  upper.x += static_cast<float>(kInstanceX - 1) * 0.5f * spacing_x;
+  lower.y -= static_cast<float>(kInstanceY - 1) * 0.5f * spacing_y;
+  upper.y += static_cast<float>(kInstanceY - 1) * 0.5f * spacing_y;
+
+  const Vec3 center = (lower + upper) * 0.5f;
+  const Vec3 extent = upper - lower;
+  const float scene_width =
+      std::max(1.0f, std::max(extent.x, std::max(extent.y, extent.z)));
+  const Vec3 origin =
+      center + Vec3{0.0f, extent.y * 0.2f, -scene_width * 2.5f};
+  const Vec3 forward = normalize(center - origin);
+  const Vec3 right = normalize(cross(forward, {0.0f, 1.0f, 0.0f}));
+  const Vec3 up = normalize(cross(right, forward));
+  const float aspect = static_cast<float>(kInstanceRayWidth) /
+                       static_cast<float>(kInstanceRayHeight);
+
+  std::vector<InputRay> rays;
+  rays.reserve(kInstanceRayWidth * kInstanceRayHeight);
+  for (std::size_t py = 0; py < kInstanceRayHeight; ++py) {
+    for (std::size_t px = 0; px < kInstanceRayWidth; ++px) {
+      const float sx =
+          ((static_cast<float>(px) + 0.5f) /
+               static_cast<float>(kInstanceRayWidth)) *
+               2.0f -
+           1.0f;
+      const float sy =
+          1.0f - ((static_cast<float>(py) + 0.5f) /
+                      static_cast<float>(kInstanceRayHeight)) *
+                     2.0f;
+      const Vec3 direction = normalize(
+          forward + right * (sx * aspect * kRepresentativeFovScale) +
+          up * (sy * kRepresentativeFovScale));
+      rays.push_back(
+          {origin.x, origin.y, origin.z, direction.x, direction.y, direction.z});
+    }
+  }
+  return rays;
+}
+
+std::vector<InputRay> permute_rays(const std::vector<InputRay>& rays) {
+  std::vector<InputRay> shuffled;
+  shuffled.reserve(rays.size());
+  for (std::size_t i = 0; i < rays.size(); ++i) {
+    shuffled.push_back(rays[(i * 65537) % rays.size()]);
+  }
+  return shuffled;
+}
+
 Scene build_scene(RTCDevice device, RTCBuildQuality quality,
                   const std::vector<Vertex>& vertices,
                   const std::vector<Triangle>& triangles) {
@@ -300,7 +410,115 @@ Scene build_scene(RTCDevice device, RTCBuildQuality quality,
     rtcReleaseScene(scene);
     throw std::runtime_error("Embree failed while building the scene");
   }
-  return {scene, build_ms};
+  return {scene, nullptr, build_ms};
+}
+
+Scene build_instanced_scene(RTCDevice device, RTCBuildQuality quality,
+                            const std::vector<Vertex>& vertices,
+                            const std::vector<Triangle>& triangles) {
+  const auto start = std::chrono::steady_clock::now();
+
+  RTCScene child = rtcNewScene(device);
+  rtcSetSceneBuildQuality(child, quality);
+  RTCGeometry mesh = rtcNewGeometry(device, RTC_GEOMETRY_TYPE_TRIANGLE);
+  rtcSetGeometryBuildQuality(mesh, quality);
+  void* vertex_buffer = rtcSetNewGeometryBuffer(
+      mesh, RTC_BUFFER_TYPE_VERTEX, 0, RTC_FORMAT_FLOAT3, sizeof(Vertex),
+      vertices.size());
+  void* index_buffer = rtcSetNewGeometryBuffer(
+      mesh, RTC_BUFFER_TYPE_INDEX, 0, RTC_FORMAT_UINT3, sizeof(Triangle),
+      triangles.size());
+  std::memcpy(vertex_buffer, vertices.data(), vertices.size() * sizeof(Vertex));
+  std::memcpy(index_buffer, triangles.data(),
+              triangles.size() * sizeof(Triangle));
+  rtcCommitGeometry(mesh);
+  rtcAttachGeometry(child, mesh);
+  rtcReleaseGeometry(mesh);
+  rtcCommitScene(child);
+
+  Vec3 lower = {std::numeric_limits<float>::max(),
+                std::numeric_limits<float>::max(),
+                std::numeric_limits<float>::max()};
+  Vec3 upper = {-std::numeric_limits<float>::max(),
+                -std::numeric_limits<float>::max(),
+                -std::numeric_limits<float>::max()};
+  for (const Vertex& vertex : vertices) {
+    lower.x = std::min(lower.x, vertex.x);
+    lower.y = std::min(lower.y, vertex.y);
+    lower.z = std::min(lower.z, vertex.z);
+    upper.x = std::max(upper.x, vertex.x);
+    upper.y = std::max(upper.y, vertex.y);
+    upper.z = std::max(upper.z, vertex.z);
+  }
+  const Vec3 extent = upper - lower;
+  const float spacing_x = std::max(extent.x, 1.0e-6f) * 1.25f;
+  const float spacing_y = std::max(extent.y, 1.0e-6f) * 1.25f;
+
+  RTCScene scene = rtcNewScene(device);
+  rtcSetSceneBuildQuality(scene, quality);
+  for (std::size_t y = 0; y < kInstanceY; ++y) {
+    for (std::size_t x = 0; x < kInstanceX; ++x) {
+      const float tx =
+          (static_cast<float>(x) - static_cast<float>(kInstanceX - 1) * 0.5f) *
+          spacing_x;
+      const float ty =
+          (static_cast<float>(y) - static_cast<float>(kInstanceY - 1) * 0.5f) *
+          spacing_y;
+      const float transform[12] = {
+          1.0f, 0.0f, 0.0f, tx,
+          0.0f, 1.0f, 0.0f, ty,
+          0.0f, 0.0f, 1.0f, 0.0f,
+      };
+      RTCGeometry instance =
+          rtcNewGeometry(device, RTC_GEOMETRY_TYPE_INSTANCE);
+      rtcSetGeometryInstancedScene(instance, child);
+      rtcSetGeometryTransform(instance, 0, RTC_FORMAT_FLOAT3X4_ROW_MAJOR,
+                              transform);
+      rtcCommitGeometry(instance);
+      rtcAttachGeometry(scene, instance);
+      rtcReleaseGeometry(instance);
+    }
+  }
+  rtcCommitScene(scene);
+
+  const auto stop = std::chrono::steady_clock::now();
+  const double build_ms =
+      std::chrono::duration<double, std::milli>(stop - start).count();
+  if (rtcGetDeviceError(device) != RTC_ERROR_NONE) {
+    rtcReleaseScene(scene);
+    rtcReleaseScene(child);
+    throw std::runtime_error("Embree failed while building instanced scene");
+  }
+  return {scene, child, build_ms};
+}
+
+void release_scene(Scene& scene) {
+  rtcReleaseScene(scene.handle);
+  if (scene.child != nullptr) {
+    rtcReleaseScene(scene.child);
+  }
+  scene.handle = nullptr;
+  scene.child = nullptr;
+}
+
+template <typename Builder>
+Scene build_repeated(Builder&& builder) {
+  Scene warm = builder();
+  release_scene(warm);
+
+  std::array<double, kBuildRepeats> samples{};
+  Scene retained;
+  for (int i = 0; i < kBuildRepeats; ++i) {
+    Scene sample = builder();
+    samples[static_cast<std::size_t>(i)] = sample.build_ms;
+    if (retained.handle != nullptr) {
+      release_scene(retained);
+    }
+    retained = sample;
+  }
+  std::sort(samples.begin(), samples.end());
+  retained.build_ms = samples[samples.size() / 2];
+  return retained;
 }
 
 RTCRayHit make_ray_hit(const InputRay& input) {
@@ -355,6 +573,63 @@ TraceSummary trace_scalar_once(RTCScene scene,
       ++result.hits;
     }
   }
+  return result;
+}
+
+TraceSummary trace_occluded_scalar_once(
+    RTCScene scene, const std::vector<InputRay>& rays) {
+  RTCOccludedArguments arguments;
+  rtcInitOccludedArguments(&arguments);
+
+  TraceSummary result;
+  for (const InputRay& input : rays) {
+    RTCRayHit ray_hit = make_ray_hit(input);
+    rtcOccluded1(scene, &ray_hit.ray, &arguments);
+    if (ray_hit.ray.tfar < 0.0f) {
+      ++result.hits;
+    }
+  }
+  result.checksum = static_cast<double>(result.hits);
+  return result;
+}
+
+template <std::size_t Width, typename Packet, typename OccludedFunction>
+TraceSummary trace_occluded_packet_once(
+    RTCScene scene, const std::vector<InputRay>& rays, bool coherent,
+    OccludedFunction occluded) {
+  RTCOccludedArguments arguments;
+  rtcInitOccludedArguments(&arguments);
+  arguments.flags = coherent ? RTC_RAY_QUERY_FLAG_COHERENT
+                             : RTC_RAY_QUERY_FLAG_INCOHERENT;
+
+  alignas(64) std::array<int, Width> valid;
+  valid.fill(-1);
+  TraceSummary result;
+  for (std::size_t base = 0; base < rays.size(); base += Width) {
+    alignas(64) Packet packet{};
+    for (std::size_t lane = 0; lane < Width; ++lane) {
+      const InputRay& input = rays[base + lane];
+      packet.org_x[lane] = input.ox;
+      packet.org_y[lane] = input.oy;
+      packet.org_z[lane] = input.oz;
+      packet.tnear[lane] = 0.0f;
+      packet.dir_x[lane] = input.dx;
+      packet.dir_y[lane] = input.dy;
+      packet.dir_z[lane] = input.dz;
+      packet.time[lane] = 0.0f;
+      packet.tfar[lane] = std::numeric_limits<float>::max();
+      packet.mask[lane] = 0xffffffffu;
+      packet.id[lane] = 0;
+      packet.flags[lane] = 0;
+    }
+    occluded(valid.data(), scene, &packet, &arguments);
+    for (std::size_t lane = 0; lane < Width; ++lane) {
+      if (packet.tfar[lane] < 0.0f) {
+        ++result.hits;
+      }
+    }
+  }
+  result.checksum = static_cast<double>(result.hits);
   return result;
 }
 
@@ -547,16 +822,19 @@ TraceSummary trace_packet16_once(RTCScene scene,
 template <typename TraceFunction>
 TraceResult benchmark_trace(TraceFunction trace) {
   TraceSummary summary = trace();
-  double best_ms = std::numeric_limits<double>::max();
+  std::array<double, kTraversalRepeats> samples{};
   for (int repeat = 0; repeat < kTraversalRepeats; ++repeat) {
     const auto start = std::chrono::steady_clock::now();
-    summary = trace();
+    for (int batch = 0; batch < traversal_batches; ++batch) {
+      summary = trace();
+    }
     const auto stop = std::chrono::steady_clock::now();
-    best_ms = std::min(
-        best_ms,
-        std::chrono::duration<double, std::milli>(stop - start).count());
+    samples[static_cast<std::size_t>(repeat)] =
+        std::chrono::duration<double, std::milli>(stop - start).count() /
+        static_cast<double>(traversal_batches);
   }
-  return {best_ms, summary.checksum, summary.hits};
+  std::sort(samples.begin(), samples.end());
+  return {samples[samples.size() / 2], summary.checksum, summary.hits};
 }
 
 void print_result(std::string_view quality, std::string_view traversal,
@@ -575,8 +853,58 @@ void benchmark_quality(RTCDevice device, RTCBuildQuality quality,
                        std::string_view quality_name,
                        const std::vector<Vertex>& vertices,
                        const std::vector<Triangle>& triangles,
-                       const std::vector<InputRay>& rays) {
-  Scene scene = build_scene(device, quality, vertices, triangles);
+                       const std::vector<InputRay>& rays,
+                       bool any_hit, bool instanced) {
+  Scene scene = build_repeated([&] {
+    return instanced
+               ? build_instanced_scene(device, quality, vertices, triangles)
+               : build_scene(device, quality, vertices, triangles);
+  });
+
+  if (any_hit) {
+    const TraceResult scalar = benchmark_trace(
+        [&] { return trace_occluded_scalar_once(scene.handle, rays); });
+    const TraceResult packet4_incoherent = benchmark_trace([&] {
+      return trace_occluded_packet_once<4, RTCRay4>(
+          scene.handle, rays, false, rtcOccluded4);
+    });
+    const TraceResult packet4_coherent = benchmark_trace([&] {
+      return trace_occluded_packet_once<4, RTCRay4>(
+          scene.handle, rays, true, rtcOccluded4);
+    });
+    const TraceResult packet8_incoherent = benchmark_trace([&] {
+      return trace_occluded_packet_once<8, RTCRay8>(
+          scene.handle, rays, false, rtcOccluded8);
+    });
+    const TraceResult packet8_coherent = benchmark_trace([&] {
+      return trace_occluded_packet_once<8, RTCRay8>(
+          scene.handle, rays, true, rtcOccluded8);
+    });
+    const TraceResult packet16_incoherent = benchmark_trace([&] {
+      return trace_occluded_packet_once<16, RTCRay16>(
+          scene.handle, rays, false, rtcOccluded16);
+    });
+    const TraceResult packet16_coherent = benchmark_trace([&] {
+      return trace_occluded_packet_once<16, RTCRay16>(
+          scene.handle, rays, true, rtcOccluded16);
+    });
+
+    print_result(quality_name, "scalar1", scene.build_ms, rays.size(), scalar);
+    print_result(quality_name, "inc-packet4", scene.build_ms, rays.size(),
+                 packet4_incoherent);
+    print_result(quality_name, "coh-packet4", scene.build_ms, rays.size(),
+                 packet4_coherent);
+    print_result(quality_name, "inc-packet8", scene.build_ms, rays.size(),
+                 packet8_incoherent);
+    print_result(quality_name, "coh-packet8", scene.build_ms, rays.size(),
+                 packet8_coherent);
+    print_result(quality_name, "inc-packet16", scene.build_ms, rays.size(),
+                 packet16_incoherent);
+    print_result(quality_name, "coh-packet16", scene.build_ms, rays.size(),
+                 packet16_coherent);
+    release_scene(scene);
+    return;
+  }
 
   const TraceResult scalar = benchmark_trace(
       [&] { return trace_scalar_once(scene.handle, rays); });
@@ -613,29 +941,34 @@ void benchmark_quality(RTCDevice device, RTCBuildQuality quality,
   print_result(quality_name, "coh-packet16", scene.build_ms, rays.size(),
                packet16_coherent);
 
-  rtcReleaseScene(scene.handle);
+  release_scene(scene);
 }
 
 void benchmark_case(RTCDevice device, std::string_view name,
                     const std::vector<Vertex>& vertices,
                     const std::vector<Triangle>& triangles,
-                    const std::vector<InputRay>& rays) {
+                    const std::vector<InputRay>& rays,
+                    bool any_hit = false, bool instanced = false,
+                    int timing_batches = 1) {
   if (rays.size() % 16 != 0) {
     throw std::runtime_error("Ray count must be divisible by sixteen");
   }
 
+  traversal_batches = timing_batches;
   std::cout << "\n" << name << "\n"
             << "Triangles: " << triangles.size() << "\n"
+            << "Instances: " << (instanced ? kInstanceCount : 1) << "\n"
             << "Rays: " << rays.size() << "\n"
+            << "Timing batches: " << timing_batches << "\n"
             << std::left << std::setw(9) << "quality" << std::setw(14)
             << "traversal" << std::right << std::setw(11) << "build ms"
             << std::setw(12) << "trace ms" << std::setw(12) << "MRay/s"
             << std::setw(11) << "hits" << std::setw(15) << "checksum" << '\n';
 
   benchmark_quality(device, RTC_BUILD_QUALITY_MEDIUM, "medium", vertices,
-                    triangles, rays);
+                    triangles, rays, any_hit, instanced);
   benchmark_quality(device, RTC_BUILD_QUALITY_HIGH, "high", vertices,
-                    triangles, rays);
+                    triangles, rays, any_hit, instanced);
 }
 
 }  // namespace
@@ -676,15 +1009,53 @@ int main(int argc, char** argv) {
               << "\n"
               << "Traversal repeats: " << kTraversalRepeats << "\n";
 
-    benchmark_case(device, "Regular-grid microbenchmark", vertices, triangles,
-                   rays);
+    benchmark_case(device, "Regular-grid closest-hit benchmark", vertices,
+                   triangles, rays);
+    benchmark_case(device, "Regular-grid any-hit benchmark", vertices,
+                   triangles, rays, true);
 
     if (argc > 1) {
       const PackedMesh mesh = load_packed_obj(argv[1]);
       const std::vector<InputRay> representative_rays =
           make_representative_camera_rays(mesh.vertices);
-      benchmark_case(device, "Representative Dragon camera-ray benchmark",
+      const std::vector<InputRay> shuffled_rays =
+          permute_rays(representative_rays);
+      const std::vector<InputRay> instanced_rays =
+          make_instanced_camera_rays(mesh.vertices);
+      benchmark_case(device, "Dragon camera closest-hit benchmark",
                      mesh.vertices, mesh.triangles, representative_rays);
+      benchmark_case(device, "Dragon camera any-hit benchmark", mesh.vertices,
+                     mesh.triangles, representative_rays, true);
+      benchmark_case(device, "Dragon shuffled closest-hit benchmark",
+                     mesh.vertices, mesh.triangles, shuffled_rays);
+      benchmark_case(device, "Dragon shuffled any-hit benchmark", mesh.vertices,
+                     mesh.triangles, shuffled_rays, true);
+      benchmark_case(device, "Instanced Dragon closest-hit benchmark",
+                     mesh.vertices, mesh.triangles, instanced_rays, false, true,
+                     kDiagnosticTraversalBatches);
+      benchmark_case(device, "Instanced Dragon any-hit benchmark", mesh.vertices,
+                     mesh.triangles, instanced_rays, true, true,
+                     kDiagnosticTraversalBatches);
+      const PackedMesh triangle = make_single_triangle();
+      const std::vector<InputRay> triangle_instance_rays =
+          make_instanced_camera_rays(triangle.vertices);
+      benchmark_case(device, "Instanced triangle closest-hit benchmark",
+                     triangle.vertices, triangle.triangles,
+                     triangle_instance_rays, false, true,
+                     kDiagnosticTraversalBatches);
+      benchmark_case(device, "Instanced triangle any-hit benchmark",
+                     triangle.vertices, triangle.triangles,
+                     triangle_instance_rays, true, true,
+                     kDiagnosticTraversalBatches);
+      const PackedMesh flattened = make_flattened_triangle_grid();
+      benchmark_case(device, "Flattened triangle grid closest-hit benchmark",
+                     flattened.vertices, flattened.triangles,
+                     triangle_instance_rays, false, false,
+                     kDiagnosticTraversalBatches);
+      benchmark_case(device, "Flattened triangle grid any-hit benchmark",
+                     flattened.vertices, flattened.triangles,
+                     triangle_instance_rays, true, false,
+                     kDiagnosticTraversalBatches);
     }
 
     rtcReleaseDevice(device);

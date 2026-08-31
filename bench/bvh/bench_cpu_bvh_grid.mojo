@@ -20,6 +20,7 @@ from bajo.benchmark.bvh_reporting import TablePrinter
 
 
 comptime TRAVERSAL_REPEATS = 8
+comptime BUILD_REPEATS = 5
 
 
 @fieldwise_init
@@ -28,13 +29,23 @@ struct PrimaryBenchResult(Copyable):
     var checksum: Float64
 
 
+def _median_ns(values: List[Int]) -> Int:
+    var sorted_values = values.copy()
+    sort(sorted_values)
+    return sorted_values[len(sorted_values) / 2]
+
+
 def trace_triangle[
-    width: SIMDLength
-](bvh: CpuBlasSet[.TRIANGLE, width], rays: List[Rayf32[.WORLD]],) -> Float64:
+    width: SIMDLength,
+    leaf_width: SIMDLength = width,
+](
+    bvh: CpuBlasSet[.TRIANGLE, width, leaf_width],
+    rays: List[Rayf32[.WORLD]],
+) -> Float64:
     var checksum = 0.0
 
     for ray in rays:
-        var hit = trace_blas_set[width, width, .CLOSEST_HIT, .WORLD](
+        var hit = trace_blas_set[width, leaf_width, .CLOSEST_HIT, .WORLD](
             bvh, UInt32(0), ray
         )
 
@@ -110,11 +121,19 @@ def benchmark_case[
     vertices: List[Point3f32[.WORLD]],
     rays: List[Rayf32[.WORLD]],
 ) raises:
-    var t0 = perf_counter_ns()
     var bvh = build_cpu_triangle_blas_set[width, width, method, .WORLD](
         [vertices.copy()]
     )
-    var t1 = perf_counter_ns()
+    var build_times = List[Int](capacity=BUILD_REPEATS)
+    for _ in range(BUILD_REPEATS):
+        var t0 = perf_counter_ns()
+        var sample = build_cpu_triangle_blas_set[width, width, method, .WORLD](
+            [vertices.copy()]
+        )
+        var t1 = perf_counter_ns()
+        build_times.append(Int(t1 - t0))
+        bvh = sample^
+    var build_ns = _median_ns(build_times)
 
     var result = benchmark_triangle[width](bvh, rays)
 
@@ -122,7 +141,7 @@ def benchmark_case[
         table,
         width,
         method.name(),
-        Int(t1 - t0),
+        build_ns,
         Int(BlasDesc.load(bvh.descs.unsafe_ptr(), UInt32(0)).node_count),
         len(vertices) / 3,
         result,

@@ -6,7 +6,7 @@ from std.time import perf_counter_ns
 
 from bajo.bvh.constants import (
     SPHERE_LEAF_PACKED_STRIDE,
-    TRI_LEAF_PACKED_STRIDE,
+    CPU_TRI_LEAF_PACKED_STRIDE,
     WideNode,
     f32_max,
 )
@@ -15,7 +15,6 @@ from bajo.bvh.cpu.blas_set import (
     build_cpu_triangle_blas_set,
     trace_blas_set,
 )
-from bajo.bvh.cpu.build_method import CpuBvhBuildMethod
 from bajo.bvh.types import Sphere
 from bajo.core import Point3f32, Rayf32, Vec3f32
 from bajo.core.utils import ns_to_ms
@@ -80,49 +79,26 @@ def _bench_case(
         triangle_count += len(vertices) / 3
 
     var warm_batch = build_cpu_triangle_blas_set[WIDTH](vertex_sets)
-    var warm_reference = build_cpu_triangle_blas_set[
-        WIDTH,
-        WIDTH,
-        CpuBvhBuildMethod.SAH,
-        .LOCAL,
-        0,
-        False,
-    ](vertex_sets)
     keep(warm_batch.blas_count)
-    keep(warm_reference.blas_count)
 
     var batch_times = List[Int](capacity=REPEATS)
-    var reference_times = List[Int](capacity=REPEATS)
     for _ in range(REPEATS):
         var start = perf_counter_ns()
         var batch = build_cpu_triangle_blas_set[WIDTH](vertex_sets)
         batch_times.append(Int(perf_counter_ns() - start))
         keep(batch.blas_count)
-        start = perf_counter_ns()
-        var reference = build_cpu_triangle_blas_set[
-            WIDTH,
-            WIDTH,
-            CpuBvhBuildMethod.SAH,
-            .LOCAL,
-            0,
-            False,
-        ](vertex_sets)
-        reference_times.append(Int(perf_counter_ns() - start))
-        keep(reference.blas_count)
 
     var batch_ns = _median(batch_times)
-    var reference_ns = _median(reference_times)
     var capacity_f32 = 0
     for vertices in vertex_sets:
         var count = len(vertices) / 3
         if count > 0:
             capacity_f32 += max(count - 1, 1) * WIDTH * WideNode.CHILD_STRIDE
-        capacity_f32 += count * WIDTH * TRI_LEAF_PACKED_STRIDE
+        capacity_f32 += count * WIDTH * CPU_TRI_LEAF_PACKED_STRIDE
     var final_f32 = len(warm_batch.nodes) + len(warm_batch.leaves)
     var saved = 100.0 * (1.0 - Float64(final_f32) / Float64(capacity_f32))
     print(
         t"{label}\t{len(vertex_sets)}\t{triangle_count}\t"
-        t"{round(ns_to_ms(reference_ns), 3)}\t"
         t"{round(ns_to_ms(batch_ns), 3)}\t{capacity_f32 * 4}\t"
         t"{final_f32 * 4}\t{round(saved, 1)}"
     )
@@ -137,28 +113,16 @@ def _bench_sphere_case(
         sphere_count += len(spheres)
 
     var warm_batch = build_cpu_sphere_blas_set[WIDTH](sphere_sets)
-    var warm_reference = build_cpu_sphere_blas_set[
-        WIDTH, CpuBvhBuildMethod.SAH, .LOCAL, False
-    ](sphere_sets)
     keep(warm_batch.blas_count)
-    keep(warm_reference.blas_count)
 
     var batch_times = List[Int](capacity=REPEATS)
-    var reference_times = List[Int](capacity=REPEATS)
     for _ in range(REPEATS):
         var start = perf_counter_ns()
         var batch = build_cpu_sphere_blas_set[WIDTH](sphere_sets)
         batch_times.append(Int(perf_counter_ns() - start))
         keep(batch.blas_count)
-        start = perf_counter_ns()
-        var reference = build_cpu_sphere_blas_set[
-            WIDTH, CpuBvhBuildMethod.SAH, .LOCAL, False
-        ](sphere_sets)
-        reference_times.append(Int(perf_counter_ns() - start))
-        keep(reference.blas_count)
 
     var batch_ns = _median(batch_times)
-    var reference_ns = _median(reference_times)
     var capacity_f32 = 0
     for spheres in sphere_sets:
         var count = len(spheres)
@@ -169,7 +133,6 @@ def _bench_sphere_case(
     var saved = 100.0 * (1.0 - Float64(final_f32) / Float64(capacity_f32))
     print(
         t"{label}\t{len(sphere_sets)}\t{sphere_count}\t"
-        t"{round(ns_to_ms(reference_ns), 3)}\t"
         t"{round(ns_to_ms(batch_ns), 3)}\t{capacity_f32 * 4}\t"
         t"{final_f32 * 4}\t{round(saved, 1)}"
     )
@@ -214,72 +177,6 @@ def _bench_trace(vertices: List[Point3f32[.LOCAL]]) raises:
     print(t"CpuBlasSet\t{round(packed_mrays, 3)}\t{round(packed_checksum, 6)}")
 
 
-def _bench_triangle_width16(
-    vertex_sets: List[List[Point3f32[.LOCAL]]],
-):
-    comptime WIDE = 16
-    var warm_exact = build_cpu_triangle_blas_set[
-        WIDE, WIDE, CpuBvhBuildMethod.SAH, .LOCAL, 0, True
-    ](vertex_sets)
-    var warm_reference = build_cpu_triangle_blas_set[
-        WIDE, WIDE, CpuBvhBuildMethod.SAH, .LOCAL, 0, False
-    ](vertex_sets)
-    keep(warm_exact.blas_count)
-    keep(warm_reference.blas_count)
-    var exact_times = List[Int](capacity=REPEATS)
-    var reference_times = List[Int](capacity=REPEATS)
-    for _ in range(REPEATS):
-        var start = perf_counter_ns()
-        var exact = build_cpu_triangle_blas_set[
-            WIDE, WIDE, CpuBvhBuildMethod.SAH, .LOCAL, 0, True
-        ](vertex_sets)
-        exact_times.append(Int(perf_counter_ns() - start))
-        start = perf_counter_ns()
-        var reference = build_cpu_triangle_blas_set[
-            WIDE, WIDE, CpuBvhBuildMethod.SAH, .LOCAL, 0, False
-        ](vertex_sets)
-        reference_times.append(Int(perf_counter_ns() - start))
-        keep(exact.blas_count)
-        keep(reference.blas_count)
-    print(
-        t"many medium width16\t{round(ns_to_ms(_median(reference_times)), 3)}\t"
-        t"{round(ns_to_ms(_median(exact_times)), 3)}"
-    )
-
-
-def _bench_sphere_width16(
-    sphere_sets: List[List[Sphere[.LOCAL]]],
-):
-    comptime WIDE = 16
-    var warm_exact = build_cpu_sphere_blas_set[
-        WIDE, CpuBvhBuildMethod.SAH, .LOCAL, True
-    ](sphere_sets)
-    var warm_reference = build_cpu_sphere_blas_set[
-        WIDE, CpuBvhBuildMethod.SAH, .LOCAL, False
-    ](sphere_sets)
-    keep(warm_exact.blas_count)
-    keep(warm_reference.blas_count)
-    var exact_times = List[Int](capacity=REPEATS)
-    var reference_times = List[Int](capacity=REPEATS)
-    for _ in range(REPEATS):
-        var start = perf_counter_ns()
-        var exact = build_cpu_sphere_blas_set[
-            WIDE, CpuBvhBuildMethod.SAH, .LOCAL, True
-        ](sphere_sets)
-        exact_times.append(Int(perf_counter_ns() - start))
-        start = perf_counter_ns()
-        var reference = build_cpu_sphere_blas_set[
-            WIDE, CpuBvhBuildMethod.SAH, .LOCAL, False
-        ](sphere_sets)
-        reference_times.append(Int(perf_counter_ns() - start))
-        keep(exact.blas_count)
-        keep(reference.blas_count)
-    print(
-        t"many medium width16\t{round(ns_to_ms(_median(reference_times)), 3)}\t"
-        t"{round(ns_to_ms(_median(exact_times)), 3)}"
-    )
-
-
 def run_benchmark() raises:
     var one_large = _make_uniform_sets(1, 16384)
     var many_tiny = _make_uniform_sets(128, 4)
@@ -292,15 +189,13 @@ def run_benchmark() raises:
 
     print("CPU triangle BLAS build benchmark; SAH width4; median of 7")
     print(
-        "Case\tBLASes\tTriangles\tWorkspace ms\tExact ms\tCapacity bytes\tFinal"
+        "Case\tBLASes\tTriangles\tBuild ms\tCapacity bytes\tFinal"
         " bytes\tSaved %"
     )
     _bench_case("one large", one_large)
     _bench_case("many tiny", many_tiny)
     _bench_case("many medium", many_medium)
     _bench_case("mixed", mixed)
-    print("Width16 case\tWorkspace ms\tExact ms")
-    _bench_triangle_width16(many_medium)
     _bench_trace(one_large[0].copy())
 
     var one_large_spheres = _make_uniform_sphere_sets(1, 16384)
@@ -315,15 +210,12 @@ def run_benchmark() raises:
     print("")
     print("CPU sphere BLAS build benchmark; SAH width4; median of 7")
     print(
-        "Case\tBLASes\tSpheres\tWorkspace ms\tExact ms\tCapacity bytes\tFinal"
-        " bytes\tSaved %"
+        "Case\tBLASes\tSpheres\tBuild ms\tCapacity bytes\tFinal bytes\tSaved %"
     )
     _bench_sphere_case("one large", one_large_spheres)
     _bench_sphere_case("many tiny", many_tiny_spheres)
     _bench_sphere_case("many medium", many_medium_spheres)
     _bench_sphere_case("mixed", mixed_spheres)
-    print("Width16 case\tWorkspace ms\tExact ms")
-    _bench_sphere_width16(many_medium_spheres)
 
 
 def main() raises:

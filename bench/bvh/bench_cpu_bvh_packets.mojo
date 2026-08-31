@@ -11,6 +11,7 @@ from bajo.bvh.cpu.blas_set import (
     trace_blas_set,
     trace_blas_set_adaptive_stream,
     trace_blas_set_packet,
+    trace_blas_set_packet_any_hit,
 )
 from bajo.bvh.types import Hit
 from bajo.bvh.host_utils import compute_bounds
@@ -95,7 +96,7 @@ def trace_packet[
         var valid = SIMD[.bool, length](fill=False)
         var lane_count = min(length, len(rays) - base)
         for lane in range(lane_count):
-            ref ray = rays[base + lane]
+            ref ray = rays.unsafe_get(base + lane)
             ox[lane] = ray.o.x
             oy[lane] = ray.o.y
             oz[lane] = ray.o.z
@@ -132,6 +133,75 @@ def trace_packet[
                 )
                 hits += 1
     return (checksum, hits)
+
+
+def trace_scalar_any_hit[
+    bounds_width: SIMDLength,
+    leaf_width: SIMDLength,
+](
+    bvh: CpuBlasSet[.TRIANGLE, bounds_width, leaf_width],
+    rays: List[Rayf32[.WORLD]],
+) -> Int:
+    var hits = 0
+    for ray in rays:
+        if trace_blas_set[
+            bounds_width,
+            leaf_width,
+            .ANY_HIT,
+            .WORLD,
+        ](bvh, UInt32(0), ray).is_occluded():
+            hits += 1
+    return hits
+
+
+def trace_packet_any_hit[
+    bounds_width: SIMDLength,
+    leaf_width: SIMDLength,
+    length: SIMDLength,
+    common_octant: Bool,
+](
+    bvh: CpuBlasSet[.TRIANGLE, bounds_width, leaf_width],
+    rays: List[Rayf32[.WORLD]],
+) -> Int:
+    var hits = 0
+    for base in range(0, len(rays), length):
+        var ox = SIMD[.float32, length](0.0)
+        var oy = SIMD[.float32, length](0.0)
+        var oz = SIMD[.float32, length](0.0)
+        var dx = SIMD[.float32, length](0.0)
+        var dy = SIMD[.float32, length](0.0)
+        var dz = SIMD[.float32, length](1.0)
+        var t_min = SIMD[.float32, length](0.0)
+        var t_max = SIMD[.float32, length](f32_max)
+        var valid = SIMD[.bool, length](fill=False)
+        var lane_count = min(length, len(rays) - base)
+        for lane in range(lane_count):
+            ref ray = rays.unsafe_get(base + lane)
+            ox[lane] = ray.o.x
+            oy[lane] = ray.o.y
+            oz[lane] = ray.o.z
+            dx[lane] = ray.d.x
+            dy[lane] = ray.d.y
+            dz[lane] = ray.d.z
+            t_min[lane] = ray.t_min
+            t_max[lane] = ray.t_max
+            valid[lane] = True
+
+        var packet = Ray[.float32, .WORLD, length](
+            Point3[.float32, .WORLD, length](ox, oy, oz),
+            Vec3[.float32, .WORLD, length](dx, dy, dz),
+            t_min,
+            t_max,
+        )
+        var occluded = trace_blas_set_packet_any_hit[
+            bounds_width,
+            leaf_width,
+            length,
+            common_octant,
+            .WORLD,
+        ](bvh, UInt32(0), packet, valid)
+        hits += Int(occluded.cast[.uint32]().reduce_add())
+    return hits
 
 
 struct AdaptiveBenchmarkSink(AdaptiveStreamHitSink):
@@ -216,6 +286,35 @@ def benchmark_adaptive[
     return PacketTiming(best, sink.checksum, sink.hits)
 
 
+def benchmark_any_hit[
+    bounds_width: SIMDLength,
+    leaf_width: SIMDLength,
+    length: SIMDLength,
+    common_octant: Bool = False,
+](
+    bvh: CpuBlasSet[.TRIANGLE, bounds_width, leaf_width],
+    rays: List[Rayf32[.WORLD]],
+) -> PacketTiming:
+    var hits: Int
+    comptime if length == 1:
+        hits = trace_scalar_any_hit[bounds_width, leaf_width](bvh, rays)
+    else:
+        hits = trace_packet_any_hit[
+            bounds_width, leaf_width, length, common_octant
+        ](bvh, rays)
+    var best = Int.MAX
+    for _ in range(REPEATS):
+        var t0 = perf_counter_ns()
+        comptime if length == 1:
+            hits = trace_scalar_any_hit[bounds_width, leaf_width](bvh, rays)
+        else:
+            hits = trace_packet_any_hit[
+                bounds_width, leaf_width, length, common_octant
+            ](bvh, rays)
+        best = min(best, Int(perf_counter_ns() - t0))
+    return PacketTiming(best, Float64(hits), hits)
+
+
 def print_timing(label: String, result: PacketTiming, ray_count: Int):
     print(
         t"  {label}: {round(ns_to_ms(result.ns), 3)} ms, "
@@ -245,10 +344,31 @@ def print_packet_widths[
         )
 
 
+def print_any_hit_packet_widths[
+    bounds_width: SIMDLength,
+    leaf_width: SIMDLength,
+    common_octant: Bool,
+    *packet_sizes: SIMDLength,
+](
+    prefix: String,
+    bvh: CpuBlasSet[.TRIANGLE, bounds_width, leaf_width],
+    rays: List[Rayf32[.WORLD]],
+):
+    comptime for packet_size in packet_sizes:
+        print_timing(
+            prefix + "packet" + String(Int(packet_size)),
+            benchmark_any_hit[
+                bounds_width, leaf_width, packet_size, common_octant
+            ](bvh, rays),
+            len(rays),
+        )
+
+
 def benchmark_scene[
     bounds_width: SIMDLength,
     leaf_width: SIMDLength,
     method: CpuBvhBuildMethod,
+    include_common_octant: Bool = True,
 ](
     label: String,
     vertices: List[Point3f32[.WORLD]],
@@ -267,9 +387,10 @@ def benchmark_scene[
     print_packet_widths[bounds_width, leaf_width, False, 4, 8, 16](
         "", bvh, rays
     )
-    print_packet_widths[bounds_width, leaf_width, True, 4, 8, 16](
-        "coh-", bvh, rays
-    )
+    comptime if include_common_octant:
+        print_packet_widths[bounds_width, leaf_width, True, 4, 8, 16](
+            "coh-", bvh, rays
+        )
     print_timing(
         "adaptive-16-8-scalar",
         benchmark_adaptive[bounds_width, leaf_width, 16, 8](bvh, rays),
@@ -282,15 +403,73 @@ def benchmark_scene[
     )
 
 
+def benchmark_scene_any_hit[
+    bounds_width: SIMDLength,
+    leaf_width: SIMDLength,
+    method: CpuBvhBuildMethod,
+    include_common_octant: Bool = True,
+](
+    label: String,
+    vertices: List[Point3f32[.WORLD]],
+    rays: List[Rayf32[.WORLD]],
+) raises:
+    print(
+        t"\n{label} / {method.name()} / BVH{Int(bounds_width)} "
+        t"leaf{Int(leaf_width)}"
+    )
+    var bvh = build_cpu_triangle_blas_set[
+        bounds_width, leaf_width, method, .WORLD
+    ]([vertices.copy()])
+    print_timing(
+        "scalar",
+        benchmark_any_hit[bounds_width, leaf_width, 1](bvh, rays),
+        len(rays),
+    )
+    print_any_hit_packet_widths[bounds_width, leaf_width, False, 4, 8, 16](
+        "", bvh, rays
+    )
+    comptime if include_common_octant:
+        print_any_hit_packet_widths[bounds_width, leaf_width, True, 16](
+            "coh-", bvh, rays
+        )
+
+
+def permute_rays(rays: List[Rayf32[.WORLD]]) -> List[Rayf32[.WORLD]]:
+    """Destroy neighboring-ray coherence without changing the ray set."""
+    var shuffled = List[Rayf32[.WORLD]](capacity=len(rays))
+    for i in range(len(rays)):
+        shuffled.append(rays[(i * 65537) % len(rays)])
+    return shuffled^
+
+
 def run_benchmark() raises:
     print("CPU shared-stack packet BVH benchmark")
     var grid_vertices = make_grid_triangles()
     var grid_rays = make_hit_and_miss_rays()
-    benchmark_scene[16, 16, .MEDIAN]("Regular grid", grid_vertices, grid_rays)
-    benchmark_scene[8, 8, .MEDIAN]("Regular grid", grid_vertices, grid_rays)
-    benchmark_scene[16, 16, .LBVH]("Regular grid", grid_vertices, grid_rays)
-    benchmark_scene[8, 8, .LBVH]("Regular grid", grid_vertices, grid_rays)
-    benchmark_scene[16, 16, .HPLOC]("Regular grid", grid_vertices, grid_rays)
+    benchmark_scene[16, 16, .MEDIAN](
+        "Regular grid closest-hit", grid_vertices, grid_rays
+    )
+    benchmark_scene[8, 8, .MEDIAN](
+        "Regular grid closest-hit", grid_vertices, grid_rays
+    )
+    benchmark_scene[16, 16, .LBVH](
+        "Regular grid closest-hit", grid_vertices, grid_rays
+    )
+    benchmark_scene[8, 8, .LBVH](
+        "Regular grid closest-hit", grid_vertices, grid_rays
+    )
+    benchmark_scene[16, 16, .HPLOC](
+        "Regular grid closest-hit", grid_vertices, grid_rays
+    )
+    benchmark_scene_any_hit[16, 16, .MEDIAN](
+        "Regular grid any-hit", grid_vertices, grid_rays
+    )
+    benchmark_scene_any_hit[16, 16, .LBVH](
+        "Regular grid any-hit", grid_vertices, grid_rays
+    )
+    benchmark_scene_any_hit[16, 16, .HPLOC](
+        "Regular grid any-hit", grid_vertices, grid_rays
+    )
 
     var dragon_vertices = pack_obj_triangles[.WORLD](OBJ_PATH)
     var bounds = compute_bounds(dragon_vertices)
@@ -298,14 +477,42 @@ def run_benchmark() raises:
         bounds, DRAGON_WIDTH, DRAGON_HEIGHT, 1, FOV_SCALE
     )
     var dragon_rays = camera[0].copy()
+    var shuffled_rays = permute_rays(dragon_rays)
     benchmark_scene[16, 16, .SAH](
-        "Dragon camera rays", dragon_vertices, dragon_rays
+        "Dragon camera closest-hit", dragon_vertices, dragon_rays
     )
     benchmark_scene[16, 16, .LBVH](
-        "Dragon camera rays", dragon_vertices, dragon_rays
+        "Dragon camera closest-hit", dragon_vertices, dragon_rays
     )
     benchmark_scene[16, 16, .HPLOC](
-        "Dragon camera rays", dragon_vertices, dragon_rays
+        "Dragon camera closest-hit", dragon_vertices, dragon_rays
+    )
+    benchmark_scene_any_hit[16, 16, .SAH](
+        "Dragon camera any-hit", dragon_vertices, dragon_rays
+    )
+    benchmark_scene_any_hit[16, 16, .LBVH](
+        "Dragon camera any-hit", dragon_vertices, dragon_rays
+    )
+    benchmark_scene_any_hit[16, 16, .HPLOC](
+        "Dragon camera any-hit", dragon_vertices, dragon_rays
+    )
+    benchmark_scene[16, 16, .SAH, False](
+        "Dragon shuffled closest-hit", dragon_vertices, shuffled_rays
+    )
+    benchmark_scene[16, 16, .LBVH, False](
+        "Dragon shuffled closest-hit", dragon_vertices, shuffled_rays
+    )
+    benchmark_scene[16, 16, .HPLOC, False](
+        "Dragon shuffled closest-hit", dragon_vertices, shuffled_rays
+    )
+    benchmark_scene_any_hit[16, 16, .SAH, False](
+        "Dragon shuffled any-hit", dragon_vertices, shuffled_rays
+    )
+    benchmark_scene_any_hit[16, 16, .LBVH, False](
+        "Dragon shuffled any-hit", dragon_vertices, shuffled_rays
+    )
+    benchmark_scene_any_hit[16, 16, .HPLOC, False](
+        "Dragon shuffled any-hit", dragon_vertices, shuffled_rays
     )
 
 

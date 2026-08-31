@@ -180,6 +180,7 @@ def trace_packet_stack_bounds_bvh[
     ),
     PrefetchFn: def(UInt32),
     hybrid_threshold: Int = 0,
+    hybrid_min_stack_tasks: Int = 4,
     root_scalar_max_tasks: Int = 0,
     common_octant_fma: Bool = False,
     positive_x: Bool = True,
@@ -191,23 +192,29 @@ def trace_packet_stack_bounds_bvh[
     prefetch_tasks: Bool = False,
     packed_meta: Bool = False,
     any_hit: Bool = False,
+    ordered_tasks: Bool = True,
 ](
     nodes: ImmSpan[WideBvhNode[frame, bounds_width], _],
     rays: Ray[.float32, frame, length],
+    reciprocal_direction: Vec3[.float32, frame, length],
     valid: SIMD[.bool, length],
     mut hit: Hit[frame, length],
     ref leaf_fn: LeafFn,
     ref hybrid_fn: HybridFn,
     ref prefetch_fn: PrefetchFn,
 ):
-    """Traverse one wide hierarchy with a shared stack and per-task ray mask."""
+    """Traverse one wide hierarchy with a shared stack and per-task ray mask.
+
+    ``ordered_tasks=False`` is for callers that defer all hit work until this
+    traversal returns. Such callers cannot tighten ``hit.t`` while walking the
+    hierarchy, so near-order sorting and priority pruning are pure overhead.
+    """
     if len(nodes) == 0:
         return
 
     if not valid.reduce_or():
         return
 
-    var reciprocal_direction = rays.reciprocal_direction()
     var origin_rcp_direction = Vec3[.float32, frame, length](0.0)
     comptime if common_octant_fma:
         origin_rcp_direction = Vec3[.float32, frame, length](
@@ -260,34 +267,39 @@ def trace_packet_stack_bounds_bvh[
         )
         comptime if prefetch_tasks:
             prefetch_fn(child_ref)
-        var priority = child_mask.select(child_near, f32_max).reduce_min()
-        var insert_idx = stack_ptr
-        while insert_idx > 0:
-            var previous_idx = insert_idx - 1
-            if stack_priorities.unsafe_get(previous_idx) >= priority:
-                break
-            stack_refs.unsafe_get(insert_idx) = stack_refs.unsafe_get(
-                previous_idx
-            )
-            stack_masks.unsafe_get(insert_idx) = stack_masks.unsafe_get(
-                previous_idx
-            )
-            stack_priorities.unsafe_get(
-                insert_idx
-            ) = stack_priorities.unsafe_get(previous_idx)
-            insert_idx = previous_idx
-        stack_refs.unsafe_get(insert_idx) = child_ref
-        stack_masks.unsafe_get(insert_idx) = child_mask
-        stack_priorities.unsafe_get(insert_idx) = priority
+        comptime if ordered_tasks:
+            var priority = child_mask.select(child_near, f32_max).reduce_min()
+            var insert_idx = stack_ptr
+            while insert_idx > 0:
+                var previous_idx = insert_idx - 1
+                if stack_priorities.unsafe_get(previous_idx) >= priority:
+                    break
+                stack_refs.unsafe_get(insert_idx) = stack_refs.unsafe_get(
+                    previous_idx
+                )
+                stack_masks.unsafe_get(insert_idx) = stack_masks.unsafe_get(
+                    previous_idx
+                )
+                stack_priorities.unsafe_get(
+                    insert_idx
+                ) = stack_priorities.unsafe_get(previous_idx)
+                insert_idx = previous_idx
+            stack_refs.unsafe_get(insert_idx) = child_ref
+            stack_masks.unsafe_get(insert_idx) = child_mask
+            stack_priorities.unsafe_get(insert_idx) = priority
+        else:
+            stack_refs.unsafe_get(stack_ptr) = child_ref
+            stack_masks.unsafe_get(stack_ptr) = child_mask
         stack_ptr += 1
 
     while stack_ptr > 0:
         stack_ptr -= 1
         var child_ref = stack_refs.unsafe_get(stack_ptr)
         var active = stack_masks.unsafe_get(stack_ptr)
-        active &= SIMD[.float32, length](
-            stack_priorities.unsafe_get(stack_ptr)
-        ).le(hit.t)
+        comptime if ordered_tasks:
+            active &= SIMD[.float32, length](
+                stack_priorities.unsafe_get(stack_ptr)
+            ).le(hit.t)
         comptime if any_hit:
             active &= hit.t.ne(0.0)
         if not active.reduce_or():
@@ -297,7 +309,7 @@ def trace_packet_stack_bounds_bvh[
             if (
                 (hybrid_leaves and is_leaf_ref(child_ref))
                 or (hybrid_internals and not is_leaf_ref(child_ref))
-            ) and stack_ptr >= 4:
+            ) and stack_ptr >= hybrid_min_stack_tasks:
                 var active_count = pop_count(Int(pack_bits(active)))
                 if active_count <= hybrid_threshold:
                     hybrid_fn(active, child_ref, hit)

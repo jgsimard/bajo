@@ -103,18 +103,27 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
     def __init__[
         PackLeafFn: def(UInt32, UInt32) -> UInt32,
         parallel_emit: Bool = False,
+        use_dp_collapse: Bool = True,
     ](out self, bvh: BinaryBoundsBvh, ref pack_leaf_fn: PackLeafFn):
-        """Collapse a binary BVH while packing its final leaf payloads."""
+        """Collapse a binary BVH while packing its final leaf payloads.
+
+        The default dynamic-programming collapse minimizes the internal-node
+        SAH cost. Disable it only for workloads that prioritize build latency;
+        the greedy collapse is faster but can reduce traversal quality.
+        """
         self.nodes = List[WideBvhNode[Self.frame, Self.width]]()
 
         if bvh.nodes_used > 0:
-            self._collapse_root[PackLeafFn, parallel_emit](bvh, pack_leaf_fn)
+            self._collapse_root[PackLeafFn, parallel_emit, use_dp_collapse](
+                bvh, pack_leaf_fn
+            )
 
     def _collapse_root[
         PackLeafFn: def(UInt32, UInt32) -> UInt32,
         parallel_emit: Bool,
+        use_dp_collapse: Bool,
     ](mut self, bvh: BinaryBoundsBvh, ref pack_leaf_fn: PackLeafFn):
-        comptime if Self.width > 2:
+        comptime if Self.width > 2 and use_dp_collapse:
             var dp = _WideCollapseDp(Int(bvh.nodes_used), Int(Self.width))
             if bvh.nodes_used >= PARALLEL_COLLAPSE_DP_MIN_NODES:
                 self._compute_collapse_dp_parallel(bvh, dp)

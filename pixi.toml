@@ -55,6 +55,7 @@ bench_obj = { cmd = "mojo -I. bench/obj/bench_obj.mojo", depends-on = ["download
 bench_bvh_cpu_grid = "mojo -I . bench/bvh/bench_cpu_bvh_grid.mojo"
 bench_bvh_cpu_dragon = { cmd = "mojo -I . bench/bvh/bench_cpu_bvh_dragon.mojo", depends-on = ["download_assets"] }
 bench_bvh_cpu_packets = { cmd = "mojo -I . bench/bvh/bench_cpu_bvh_packets.mojo", depends-on = ["download_assets"] }
+bench_bvh_cpu_instances = { cmd = "mojo -I . bench/bvh/bench_cpu_bvh_instances.mojo", depends-on = ["download_assets"] }
 bench_bvh_cpu_blas_set = "mojo -I . bench/bvh/bench_cpu_blas_set_build.mojo"
 bench_bvh_cpu_tlas = { cmd = "mojo -I . bench/bvh/bench_cpu_tlas.mojo", depends-on = ["download_assets"] }
 bench_bvh_cpu_build_optimizations = { cmd = "mojo -I . bench/diagnostic/bvh/bench_cpu_bvh_build_optimizations.mojo", depends-on = ["download_assets"] }

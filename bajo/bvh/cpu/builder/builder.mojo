@@ -49,7 +49,7 @@ struct BinaryBoundsBvh[
     var nodes_used: UInt32
 
     def __init__[
-        hploc_balance_tasks: Int = 32,
+        hploc_balance_tasks: Int = 32
     ](
         out self,
         var items: List[BoundsItem[Self.frame]],
@@ -74,7 +74,6 @@ struct BinaryBoundsBvh[
                 Self.method,
                 Self.hploc_microleaf_size,
             ](self, centroid_bounds)
-
         elif Self.method == .HPLOC:
             comptime assert (
                 Self.hploc_microleaf_size > 0
@@ -330,7 +329,7 @@ struct BinaryBoundsBvh[
         elif Self.method == .SAH:
             var first = Int(node.first_item())
             var count = Int(node.item_count)
-            comptime BVH_BINS = 16
+            comptime BVH_BINS = 32
             var split: BoundsSplitResult[Self.frame]
             if parallel_root:
                 split = _find_sah_split_parallel[Self.frame, BVH_BINS](

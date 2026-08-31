@@ -7,7 +7,7 @@ from bajo.bvh.constants import (
     EMPTY_LANE,
     SPHERE_LEAF_PACKED_STRIDE,
     TraceMode,
-    TRI_LEAF_PACKED_STRIDE,
+    CPU_TRI_LEAF_PACKED_STRIDE,
     WideNode,
 )
 from bajo.bvh.cpu.sphere_bvh import (
@@ -35,9 +35,11 @@ from bajo.bvh.cpu.trace import (
     _extract_u32_lane,
     trace_bounds_bvh_from_ref,
     trace_packed_bounds_bvh,
+    trace_packed_bounds_bvh_rcp,
     trace_packed_sphere_bounds_bvh,
 )
 from bajo.bvh.cpu.packet import trace_packet_stack_bounds_bvh
+from bajo.bvh.cpu.parallel import _worker_count
 from bajo.bvh.tagged_ref import decode_ref_index, is_leaf_ref
 from bajo.bvh.types import (
     BlasDesc,
@@ -60,7 +62,6 @@ from bajo.core import (
     dot,
     normalize,
 )
-
 
 comptime CPU_BLAS_OUTER_PARALLEL_MIN_PRIMITIVES = 4096
 comptime EXACT_MULTI_BLAS_MIN_PRIMITIVES = 4096
@@ -146,25 +147,32 @@ def _debug_check_blas_index(blas_idx: UInt32, blas_count: Int):
 
 @always_inline
 def _load_packed_triangle_leaf[
-    frame: Frame, leaf_width: SIMDLength
+    frame: Frame,
+    leaf_width: SIMDLength,
+    load_primitive_indices: Bool = True,
 ](leaves: ImmPointer[Float32, _], leaf_block_idx: UInt32) -> TriangleLeafBlock[
     frame, leaf_width
 ]:
-    var block_base = Int(leaf_block_idx) * TRI_LEAF_PACKED_STRIDE * leaf_width
+    var block_base = (
+        Int(leaf_block_idx) * CPU_TRI_LEAF_PACKED_STRIDE * leaf_width
+    )
     var block_ptr = leaves.unsafe_offset(block_base)
     var block = TriangleLeafBlock[frame, leaf_width]()
     block.v0.x = block_ptr.unsafe_load[width=leaf_width](0 * leaf_width)
     block.v0.y = block_ptr.unsafe_load[width=leaf_width](1 * leaf_width)
     block.v0.z = block_ptr.unsafe_load[width=leaf_width](2 * leaf_width)
-    block.prim_indices = block_ptr.unsafe_bitcast[UInt32]().unsafe_load[
-        width=leaf_width
-    ](3 * leaf_width)
+    comptime if load_primitive_indices:
+        block.prim_indices = block_ptr.unsafe_bitcast[UInt32]().unsafe_load[
+            width=leaf_width
+        ](3 * leaf_width)
+    else:
+        comptime assert leaf_width == 16
     block.e1.x = block_ptr.unsafe_load[width=leaf_width](4 * leaf_width)
     block.e1.y = block_ptr.unsafe_load[width=leaf_width](5 * leaf_width)
     block.e1.z = block_ptr.unsafe_load[width=leaf_width](6 * leaf_width)
-    block.e2.x = block_ptr.unsafe_load[width=leaf_width](8 * leaf_width)
-    block.e2.y = block_ptr.unsafe_load[width=leaf_width](9 * leaf_width)
-    block.e2.z = block_ptr.unsafe_load[width=leaf_width](10 * leaf_width)
+    block.e2.x = block_ptr.unsafe_load[width=leaf_width](7 * leaf_width)
+    block.e2.y = block_ptr.unsafe_load[width=leaf_width](8 * leaf_width)
+    block.e2.z = block_ptr.unsafe_load[width=leaf_width](9 * leaf_width)
     return block^
 
 
@@ -184,8 +192,16 @@ def _pack_built_triangle_blas[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
     hploc_microleaf_size: Int,
+    use_dp_collapse: Bool,
+    copy_leaves: Bool = True,
 ](
-    bvh: _TriangleBuild[frame, node_width, leaf_width, hploc_microleaf_size],
+    bvh: _TriangleBuild[
+        frame,
+        node_width,
+        leaf_width,
+        hploc_microleaf_size,
+        use_dp_collapse,
+    ],
     descs: MutPointer[UInt32, _],
     nodes: MutPointer[Float32, _],
     leaves: MutPointer[Float32, _],
@@ -193,8 +209,7 @@ def _pack_built_triangle_blas[
     node_f32_base: Int,
     leaf_f32_base: Int,
 ):
-    var nodes_u32 = nodes.unsafe_bitcast[UInt32]()
-    for node_idx in range(len(bvh.tree.nodes)):
+    def pack_node(node_idx: Int) {imm}:
         ref node = bvh.tree.nodes[node_idx]
         var local_node_idx = UInt32(node_idx)
         var node_base = node_f32_base + _wide_node_base[node_width](
@@ -226,43 +241,70 @@ def _pack_built_triangle_blas[
                     var block_idx = decode_ref_index(data)
                     packed_meta[lane] = _pack_wide_meta(
                         block_idx,
-                        _triangle_leaf_count[frame, leaf_width](
-                            bvh.leaf_blocks[Int(block_idx)]
-                        ),
+                        bvh.leaf_primitive_count(Int(block_idx)),
                     )
                 else:
                     packed_meta[lane] = _pack_wide_meta(data, UInt32(0))
-        nodes_u32.unsafe_store[width=node_width](
+        nodes.unsafe_bitcast[UInt32]().unsafe_store[width=node_width](
             node_base + WideNode.META * node_width, packed_meta
         )
 
-    var leaves_u32 = leaves.unsafe_bitcast[UInt32]()
-    for block_idx in range(len(bvh.leaf_blocks)):
+    def pack_leaf(block_idx: Int) {imm}:
+        if len(bvh.packed_leaf_blocks) > 0:
+            var block_stride = leaf_width * CPU_TRI_LEAF_PACKED_STRIDE
+            unsafe_memcpy(
+                dest=leaves.unsafe_offset(
+                    leaf_f32_base + block_idx * block_stride
+                ),
+                src=bvh.packed_leaf_blocks.unsafe_ptr().unsafe_offset(
+                    block_idx * block_stride
+                ),
+                count=block_stride,
+            )
+            return
         ref block = bvh.leaf_blocks[block_idx]
         var out = (
-            leaf_f32_base + block_idx * leaf_width * TRI_LEAF_PACKED_STRIDE
+            leaf_f32_base + block_idx * leaf_width * CPU_TRI_LEAF_PACKED_STRIDE
         )
         leaves.unsafe_store[width=leaf_width](out + 0 * leaf_width, block.v0.x)
         leaves.unsafe_store[width=leaf_width](out + 1 * leaf_width, block.v0.y)
         leaves.unsafe_store[width=leaf_width](out + 2 * leaf_width, block.v0.z)
-        leaves_u32.unsafe_store[width=leaf_width](
+        leaves.unsafe_bitcast[UInt32]().unsafe_store[width=leaf_width](
             out + 3 * leaf_width, block.prim_indices
         )
         leaves.unsafe_store[width=leaf_width](out + 4 * leaf_width, block.e1.x)
         leaves.unsafe_store[width=leaf_width](out + 5 * leaf_width, block.e1.y)
         leaves.unsafe_store[width=leaf_width](out + 6 * leaf_width, block.e1.z)
-        leaves.unsafe_store[width=leaf_width](out + 7 * leaf_width, 0.0)
-        leaves.unsafe_store[width=leaf_width](out + 8 * leaf_width, block.e2.x)
-        leaves.unsafe_store[width=leaf_width](out + 9 * leaf_width, block.e2.y)
-        leaves.unsafe_store[width=leaf_width](out + 10 * leaf_width, block.e2.z)
-        leaves.unsafe_store[width=leaf_width](out + 11 * leaf_width, 0.0)
+        leaves.unsafe_store[width=leaf_width](out + 7 * leaf_width, block.e2.x)
+        leaves.unsafe_store[width=leaf_width](out + 8 * leaf_width, block.e2.y)
+        leaves.unsafe_store[width=leaf_width](out + 9 * leaf_width, block.e2.z)
+
+    var node_count = len(bvh.tree.nodes)
+    var leaf_count = bvh.leaf_block_count()
+    comptime if not copy_leaves:
+        leaf_count = 0
+    var pack_count = node_count + leaf_count
+    if bvh.tri_count >= PARALLEL_TRIANGLE_BUILD_MIN_ITEMS:
+
+        def pack_item(item_idx: Int) {imm}:
+            if item_idx < node_count:
+                pack_node(item_idx)
+            else:
+                pack_leaf(item_idx - node_count)
+
+        parallelize(pack_item, pack_count, _worker_count(pack_count))
+    else:
+        for node_idx in range(node_count):
+            pack_node(node_idx)
+        for block_idx in range(leaf_count):
+            pack_leaf(block_idx)
 
     BlasDesc(
         UInt32(node_f32_base),
         UInt32(leaf_f32_base),
         UInt32(0),
         UInt32(len(bvh.tree.nodes)),
-        UInt32(len(bvh.leaf_blocks)),
+        UInt32(bvh.leaf_block_count()),
         UInt32(bvh.tri_count),
     ).store(descs, blas_idx)
 
@@ -273,6 +315,7 @@ def _pack_triangle_blas[
     leaf_width: SIMDLength,
     method: CpuBvhBuildMethod,
     hploc_microleaf_size: Int,
+    use_dp_collapse: Bool,
 ](
     vertices: ImmSpan[Point3f32[frame], _],
     descs: MutPointer[UInt32, _],
@@ -283,10 +326,18 @@ def _pack_triangle_blas[
     leaf_f32_base: Int,
 ):
     var bvh = _TriangleBuild[
-        frame, node_width, leaf_width, hploc_microleaf_size
+        frame,
+        node_width,
+        leaf_width,
+        hploc_microleaf_size,
+        use_dp_collapse,
     ].__init__[method](vertices)
     _pack_built_triangle_blas[
-        frame, node_width, leaf_width, hploc_microleaf_size
+        frame,
+        node_width,
+        leaf_width,
+        hploc_microleaf_size,
+        use_dp_collapse,
     ](
         bvh,
         descs,
@@ -304,6 +355,7 @@ def _build_single_triangle_blas[
     method: CpuBvhBuildMethod,
     frame: Frame,
     hploc_microleaf_size: Int,
+    use_dp_collapse: Bool,
 ](
     vertices: ImmSpan[Point3f32[frame], _],
 ) -> CpuBlasSet[
@@ -318,29 +370,58 @@ def _build_single_triangle_blas[
         )
 
     var bvh = _TriangleBuild[
-        frame, node_width, leaf_width, hploc_microleaf_size
+        frame,
+        node_width,
+        leaf_width,
+        hploc_microleaf_size,
+        use_dp_collapse,
     ].__init__[method](vertices)
     var exact_node_count = (
         len(bvh.tree.nodes) * node_width * WideNode.CHILD_STRIDE
     )
     var exact_leaf_count = (
-        len(bvh.leaf_blocks) * leaf_width * TRI_LEAF_PACKED_STRIDE
+        bvh.leaf_block_count() * leaf_width * CPU_TRI_LEAF_PACKED_STRIDE
     )
     var nodes = List[Float32](capacity=exact_node_count)
-    var leaves = List[Float32](capacity=exact_leaf_count)
+    var leaves: List[Float32]
     nodes.resize(unsafe_uninit_length=exact_node_count)
-    leaves.resize(unsafe_uninit_length=exact_leaf_count)
-    _pack_built_triangle_blas[
-        frame, node_width, leaf_width, hploc_microleaf_size
-    ](
-        bvh,
-        descs.unsafe_ptr(),
-        nodes.unsafe_ptr(),
-        leaves.unsafe_ptr(),
-        0,
-        0,
-        0,
-    )
+    if len(bvh.packed_leaf_blocks) > 0:
+        var unused_leaf = List[Float32](length=1, fill=0.0)
+        _pack_built_triangle_blas[
+            frame,
+            node_width,
+            leaf_width,
+            hploc_microleaf_size,
+            use_dp_collapse,
+            copy_leaves=False,
+        ](
+            bvh,
+            descs.unsafe_ptr(),
+            nodes.unsafe_ptr(),
+            unused_leaf.unsafe_ptr(),
+            0,
+            0,
+            0,
+        )
+        leaves = bvh.take_packed_leaf_blocks()
+    else:
+        leaves = List[Float32](capacity=exact_leaf_count)
+        leaves.resize(unsafe_uninit_length=exact_leaf_count)
+        _pack_built_triangle_blas[
+            frame,
+            node_width,
+            leaf_width,
+            hploc_microleaf_size,
+            use_dp_collapse,
+        ](
+            bvh,
+            descs.unsafe_ptr(),
+            nodes.unsafe_ptr(),
+            leaves.unsafe_ptr(),
+            0,
+            0,
+            0,
+        )
     return CpuBlasSet[.TRIANGLE, node_width, leaf_width](
         descs^, nodes^, leaves^, 1
     )
@@ -352,6 +433,7 @@ def _build_exact_triangle_blas_batch[
     method: CpuBvhBuildMethod,
     frame: Frame,
     hploc_microleaf_size: Int,
+    use_dp_collapse: Bool,
 ](
     vertex_sets: ImmSpan[List[Point3f32[frame]], _],
 ) -> CpuBlasSet[
@@ -385,6 +467,7 @@ def _build_exact_triangle_blas_batch[
             method,
             frame,
             hploc_microleaf_size,
+            use_dp_collapse,
         ](vertex_sets[blas_idx])
 
     if allow_across_blas_parallelism:
@@ -444,7 +527,7 @@ def build_cpu_triangle_blas_set[
     method: CpuBvhBuildMethod = .SAH,
     frame: Frame = .LOCAL,
     hploc_microleaf_size: Int = 0,
-    exact_multi: Bool = True,
+    use_dp_collapse: Bool = method != .LBVH,
 ](
     vertex_sets: ImmSpan[List[Point3f32[frame]], _],
 ) -> CpuBlasSet[
@@ -463,20 +546,21 @@ def build_cpu_triangle_blas_set[
             method,
             frame,
             hploc_microleaf_size,
+            use_dp_collapse,
         ](vertex_sets[0])
 
     var exact_candidate_count = 0
     for vertices in vertex_sets:
         exact_candidate_count += len(vertices) / 3
-    comptime if exact_multi:
-        if exact_candidate_count >= EXACT_MULTI_BLAS_MIN_PRIMITIVES:
-            return _build_exact_triangle_blas_batch[
-                node_width,
-                leaf_width,
-                method,
-                frame,
-                hploc_microleaf_size,
-            ](vertex_sets)
+    if exact_candidate_count >= EXACT_MULTI_BLAS_MIN_PRIMITIVES:
+        return _build_exact_triangle_blas_batch[
+            node_width,
+            leaf_width,
+            method,
+            frame,
+            hploc_microleaf_size,
+            use_dp_collapse,
+        ](vertex_sets)
 
     var node_bases = List[Int](capacity=len(vertex_sets))
     var leaf_bases = List[Int](capacity=len(vertex_sets))
@@ -497,7 +581,7 @@ def build_cpu_triangle_blas_set[
             node_f32_count += (
                 max(tri_count - 1, 1) * node_width * WideNode.CHILD_STRIDE
             )
-        leaf_f32_count += tri_count * leaf_width * TRI_LEAF_PACKED_STRIDE
+        leaf_f32_count += tri_count * leaf_width * CPU_TRI_LEAF_PACKED_STRIDE
         if tri_count >= PARALLEL_TRIANGLE_BUILD_MIN_ITEMS:
             allow_across_blas_parallelism = False
 
@@ -533,6 +617,7 @@ def build_cpu_triangle_blas_set[
             leaf_width,
             method,
             hploc_microleaf_size,
+            use_dp_collapse,
         ](
             vertex_sets[blas_idx],
             descs_ptr,
@@ -553,7 +638,7 @@ def build_cpu_triangle_blas_set[
     var compact_leaves = List[Float32]()
     _compact_blas_storage[
         node_width * WideNode.CHILD_STRIDE,
-        leaf_width * TRI_LEAF_PACKED_STRIDE,
+        leaf_width * CPU_TRI_LEAF_PACKED_STRIDE,
     ](
         descs,
         nodes,
@@ -779,7 +864,6 @@ def build_cpu_sphere_blas_set[
     width: SIMDLength,
     method: CpuBvhBuildMethod = .SAH,
     frame: Frame = .LOCAL,
-    exact_multi: Bool = True,
 ](sphere_sets: ImmSpan[List[Sphere[frame]], _],) -> CpuBlasSet[.SPHERE, width]:
     debug_assert["safe", _use_compiler_assume=True](
         len(sphere_sets) > 0, "CPU BLAS batch must be nonempty"
@@ -818,11 +902,8 @@ def build_cpu_sphere_blas_set[
     var exact_candidate_count = 0
     for spheres in sphere_sets:
         exact_candidate_count += len(spheres)
-    comptime if exact_multi:
-        if exact_candidate_count >= EXACT_MULTI_BLAS_MIN_PRIMITIVES:
-            return _build_exact_sphere_blas_batch[width, method, frame](
-                sphere_sets
-            )
+    if exact_candidate_count >= EXACT_MULTI_BLAS_MIN_PRIMITIVES:
+        return _build_exact_sphere_blas_batch[width, method, frame](sphere_sets)
 
     var node_bases = List[Int](capacity=len(sphere_sets))
     var leaf_bases = List[Int](capacity=len(sphere_sets))
@@ -925,7 +1006,7 @@ def _trace_packed_triangle_from_ref[
         mut hit: Hit[frame],
     ) {imm} -> Bool:
         var block_base = (
-            Int(leaf_block_idx) * TRI_LEAF_PACKED_STRIDE * leaf_width
+            Int(leaf_block_idx) * CPU_TRI_LEAF_PACKED_STRIDE * leaf_width
         )
         var block_ptr = leaves.unsafe_offset(block_base)
         var block = _load_packed_triangle_leaf[frame, leaf_width](
@@ -959,7 +1040,6 @@ def _trace_packed_triangle_from_ref[
     return hit
 
 
-@always_inline
 def _trace_packed_triangle_any_from_ref[
     frame: Frame,
     node_width: SIMDLength,
@@ -983,12 +1063,14 @@ def _trace_packed_triangle_any_from_ref[
         mut hit: Hit[frame],
     ) {imm} -> Bool:
         var block_base = (
-            Int(leaf_block_idx) * TRI_LEAF_PACKED_STRIDE * leaf_width
+            Int(leaf_block_idx) * CPU_TRI_LEAF_PACKED_STRIDE * leaf_width
         )
         var block_ptr = leaves.unsafe_offset(block_base)
-        var block = _load_packed_triangle_leaf[frame, leaf_width](
-            leaves, leaf_block_idx
-        )
+        var block = _load_packed_triangle_leaf[
+            frame,
+            leaf_width,
+            leaf_width != 16,
+        ](leaves, leaf_block_idx)
         return _trace_triangle_leaf_block[
             frame,
             leaf_width,
@@ -1002,6 +1084,7 @@ def _trace_packed_triangle_any_from_ref[
         leaf_width=leaf_width,
         packed_meta=True,
         mode=.ANY_HIT,
+        reverse_any_order=True,
     ](
         nodes,
         ray,
@@ -1054,12 +1137,14 @@ def trace_blas_set[
         mut hit: Hit[frame],
     ) {imm} -> Bool:
         var block_base = (
-            Int(leaf_block_idx) * TRI_LEAF_PACKED_STRIDE * leaf_width
+            Int(leaf_block_idx) * CPU_TRI_LEAF_PACKED_STRIDE * leaf_width
         )
         var block_ptr = leaves.unsafe_offset(block_base)
-        var block = _load_packed_triangle_leaf[frame, leaf_width](
-            leaves, leaf_block_idx
-        )
+        var block = _load_packed_triangle_leaf[
+            frame,
+            leaf_width,
+            mode != .ANY_HIT or leaf_width != 16,
+        ](leaves, leaf_block_idx)
         return _trace_triangle_leaf_block[
             frame,
             leaf_width,
@@ -1073,6 +1158,105 @@ def trace_blas_set[
         leaf_width,
         mode,
     ](nodes, ray, leaf_fn)
+
+
+@always_inline
+def _trace_blas_desc_precomputed_rcp[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+    mode: TraceMode,
+    frame: Frame,
+](
+    blases: CpuBlasSet[.TRIANGLE, node_width, leaf_width],
+    desc: BlasDesc,
+    ray: Rayf32[frame],
+    reciprocal_direction: Vec3[.float32, frame, node_width],
+) -> Hit[frame]:
+    """Trace a resolved nonempty BLAS without recomputing reciprocals."""
+
+    var nodes_ptr = (
+        blases.nodes.unsafe_ptr()
+        .unsafe_offset(Int(desc.node_f32_base))
+        .unsafe_bitcast[WideBvhNode[frame, node_width]]()
+    )
+    var nodes = Span(unsafe_ptr=nodes_ptr, length=Int(desc.node_count))
+    var leaves = blases.leaves.unsafe_ptr().unsafe_offset(
+        Int(desc.leaf_f32_base)
+    )
+
+    @always_inline
+    def leaf_fn(
+        ray: Rayf32[frame],
+        O: Point3[.float32, frame, leaf_width],
+        D: Vec3[.float32, frame, leaf_width],
+        _ray_a: SIMD[.float32, leaf_width],
+        _ray_inv_a: SIMD[.float32, leaf_width],
+        leaf_block_idx: UInt32,
+        mut hit: Hit[frame],
+    ) {imm} -> Bool:
+        var block_base = (
+            Int(leaf_block_idx) * CPU_TRI_LEAF_PACKED_STRIDE * leaf_width
+        )
+        var block_ptr = leaves.unsafe_offset(block_base)
+        var block = _load_packed_triangle_leaf[
+            frame,
+            leaf_width,
+            mode != .ANY_HIT or leaf_width != 16,
+        ](leaves, leaf_block_idx)
+        return _trace_triangle_leaf_block[
+            frame,
+            leaf_width,
+            mode,
+            packed_layout=True,
+        ](ray, O, D, block, block_ptr, hit)
+
+    var hit = trace_packed_bounds_bvh_rcp[
+        frame=frame,
+        bounds_width=node_width,
+        leaf_width=leaf_width,
+        mode=mode,
+        single_child_fast_path=mode == .CLOSEST_HIT,
+        terminal_mask_fast_path=mode == .CLOSEST_HIT,
+    ](
+        nodes,
+        ray,
+        reciprocal_direction,
+        leaf_fn,
+    )
+    comptime if mode == .CLOSEST_HIT:
+        if hit.is_hit():
+            var geometric_normal = Vec3f32[frame](
+                hit.normal.x, hit.normal.y, hit.normal.z
+            )
+            var unit_normal = normalize(geometric_normal)
+            hit.normal = Normal3f32[frame](
+                unit_normal.x, unit_normal.y, unit_normal.z
+            )
+    return hit
+
+
+@always_inline
+def _trace_blas_set_precomputed_rcp[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+    mode: TraceMode,
+    frame: Frame,
+](
+    blases: CpuBlasSet[.TRIANGLE, node_width, leaf_width],
+    blas_idx: UInt32,
+    ray: Rayf32[frame],
+    reciprocal_direction: Vec3[.float32, frame, node_width],
+) -> Hit[frame]:
+    """Resolve one BLAS and trace it without recomputing reciprocals.
+
+    The caller validates ``blas_idx`` and the descriptor once before a batch
+    of ray continuations.
+    """
+
+    var desc = BlasDesc.load(blases.descs.unsafe_ptr(), blas_idx)
+    return _trace_blas_desc_precomputed_rcp[
+        node_width, leaf_width, mode, frame
+    ](blases, desc, ray, reciprocal_direction)
 
 
 def _trace_blas_set_packet_policy[
@@ -1112,12 +1296,20 @@ def _trace_blas_set_packet_policy[
         mut packet_hit: Hit[frame, length],
     ) {imm}:
         var block_ptr = leaves.unsafe_offset(
-            Int(leaf_block_idx) * TRI_LEAF_PACKED_STRIDE * leaf_width
+            Int(leaf_block_idx) * CPU_TRI_LEAF_PACKED_STRIDE * leaf_width
         )
         var block_u32 = block_ptr.unsafe_bitcast[UInt32]()
-        comptime for prim_lane in range(leaf_width):
-            var prim_idx = block_u32[unsafe_offset=3 * leaf_width + prim_lane]
-            if prim_idx != EMPTY_LANE:
+        comptime if mode == .ANY_HIT and leaf_width == 16:
+            var prim_lane = 0
+            while prim_lane < Int(leaf_width):
+                var live = active & packet_hit.t.ne(0.0)
+                if not live.reduce_or():
+                    break
+                var prim_idx = block_u32[
+                    unsafe_offset=3 * leaf_width + prim_lane
+                ]
+                if prim_idx == EMPTY_LANE:
+                    break
                 var v0 = Point3f32[frame](
                     block_ptr[unsafe_offset=0 * leaf_width + prim_lane],
                     block_ptr[unsafe_offset=1 * leaf_width + prim_lane],
@@ -1129,20 +1321,45 @@ def _trace_blas_set_packet_policy[
                     block_ptr[unsafe_offset=6 * leaf_width + prim_lane],
                 )
                 var e2 = Vec3f32[frame](
+                    block_ptr[unsafe_offset=7 * leaf_width + prim_lane],
                     block_ptr[unsafe_offset=8 * leaf_width + prim_lane],
                     block_ptr[unsafe_offset=9 * leaf_width + prim_lane],
-                    block_ptr[unsafe_offset=10 * leaf_width + prim_lane],
                 )
-                comptime if mode == .ANY_HIT:
-                    var live = active & packet_hit.t.ne(0.0)
-                    if live.reduce_or():
-                        _occlude_triangle_packet_primitive[frame, length](
-                            rays, live, v0, e1, e2, packet_hit
-                        )
-                else:
-                    _trace_triangle_packet_primitive[frame, length](
-                        rays, active, prim_idx, v0, e1, e2, packet_hit
+                _occlude_triangle_packet_primitive[frame, length](
+                    rays, live, v0, e1, e2, packet_hit
+                )
+                prim_lane += 1
+        else:
+            comptime for prim_lane in range(leaf_width):
+                var prim_idx = block_u32[
+                    unsafe_offset=3 * leaf_width + prim_lane
+                ]
+                if prim_idx != EMPTY_LANE:
+                    var v0 = Point3f32[frame](
+                        block_ptr[unsafe_offset=0 * leaf_width + prim_lane],
+                        block_ptr[unsafe_offset=1 * leaf_width + prim_lane],
+                        block_ptr[unsafe_offset=2 * leaf_width + prim_lane],
                     )
+                    var e1 = Vec3f32[frame](
+                        block_ptr[unsafe_offset=4 * leaf_width + prim_lane],
+                        block_ptr[unsafe_offset=5 * leaf_width + prim_lane],
+                        block_ptr[unsafe_offset=6 * leaf_width + prim_lane],
+                    )
+                    var e2 = Vec3f32[frame](
+                        block_ptr[unsafe_offset=7 * leaf_width + prim_lane],
+                        block_ptr[unsafe_offset=8 * leaf_width + prim_lane],
+                        block_ptr[unsafe_offset=9 * leaf_width + prim_lane],
+                    )
+                    comptime if mode == .ANY_HIT:
+                        var live = active & packet_hit.t.ne(0.0)
+                        if live.reduce_or():
+                            _occlude_triangle_packet_primitive[frame, length](
+                                rays, live, v0, e1, e2, packet_hit
+                            )
+                    else:
+                        _trace_triangle_packet_primitive[frame, length](
+                            rays, active, prim_idx, v0, e1, e2, packet_hit
+                        )
 
     @always_inline
     def trace_lane(
@@ -1216,7 +1433,7 @@ def _trace_blas_set_packet_policy[
         if is_leaf_ref(child_ref):
             var leaf_ptr = leaves.unsafe_offset(
                 Int(decode_ref_index(child_ref))
-                * TRI_LEAF_PACKED_STRIDE
+                * CPU_TRI_LEAF_PACKED_STRIDE
                 * leaf_width
             )
             prefetch(leaf_ptr.unsafe_bitcast[UInt8]())
@@ -1237,6 +1454,7 @@ def _trace_blas_set_packet_policy[
         config.hybrid_internals,
         config.hybrid_leaves,
         config.coherent_optimizations,
+        config.hybrid_min_stack_tasks,
         mode,
     ](nodes, rays, valid, leaf_fn, hybrid_fn, prefetch_fn)
 
@@ -1276,15 +1494,31 @@ def trace_blas_set_packet_any_hit[
     valid: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
 ) -> SIMD[.bool, length]:
     """Trace bounded triangle visibility rays without materializing hits."""
-    var hit = _trace_blas_set_packet_policy[
-        node_width,
-        leaf_width,
-        length,
-        common_octant_fma,
-        frame,
-        TrianglePacketConfig.PRODUCTION,
-        .ANY_HIT,
-    ](blases, blas_idx, rays, valid)
+    var hit: Hit[frame, length]
+    comptime if common_octant_fma:
+        # The closest-hit coherent frustum policy can accumulate excessive
+        # pending work after any-hit lanes terminate. Use the dedicated
+        # visibility policy: octant-specialized slabs plus scalar continuation
+        # for sparse internal subtrees.
+        hit = _trace_blas_set_packet_policy[
+            node_width,
+            leaf_width,
+            length,
+            common_octant_fma,
+            frame,
+            TrianglePacketConfig.ANY_HIT_COHERENT,
+            .ANY_HIT,
+        ](blases, blas_idx, rays, valid)
+    else:
+        hit = _trace_blas_set_packet_policy[
+            node_width,
+            leaf_width,
+            length,
+            common_octant_fma,
+            frame,
+            TrianglePacketConfig.PRODUCTION,
+            .ANY_HIT,
+        ](blases, blas_idx, rays, valid)
     return valid & hit.t.eq(0.0)
 
 
@@ -1376,6 +1610,7 @@ def _trace_sphere_blas_set_packet_policy[
     var hit = Hit[frame, length].miss(rays.t_max)
     var ray_a = dot(rays.d, rays.d)
     var ray_inv_a = Float32(1.0) / ray_a
+    var reciprocal_direction = rays.reciprocal_direction()
 
     def leaf_fn(
         active: SIMD[.bool, length],
@@ -1428,6 +1663,7 @@ def _trace_sphere_blas_set_packet_policy[
     ](
         nodes,
         rays,
+        reciprocal_direction,
         valid,
         hit,
         leaf_fn,

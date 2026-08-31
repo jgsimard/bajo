@@ -888,12 +888,16 @@ struct SceneData:
                     "triangle vertices must be finite and non-degenerate"
                 )
 
+        var triangle_mesh_bounds = List[AABB[.LOCAL]](
+            capacity=len(self._triangle_meshes)
+        )
         for vertices in self._triangle_meshes:
             if len(vertices) == 0 or len(vertices) % 3 != 0:
                 raise Error(
                     "triangle mesh vertex count must be a positive multiple of"
                     " three"
                 )
+            var local_bounds = AABB[.LOCAL].invalid()
             for triangle_idx in range(len(vertices) / 3):
                 var base = 3 * triangle_idx
                 if not triangle_is_valid(
@@ -903,6 +907,10 @@ struct SceneData:
                         "triangle mesh vertices must be finite and"
                         " non-degenerate"
                     )
+                local_bounds.grow(vertices[base])
+                local_bounds.grow(vertices[base + 1])
+                local_bounds.grow(vertices[base + 2])
+            triangle_mesh_bounds.append(local_bounds)
 
         for i, inst in enumerate(self._triangle_instances):
             if inst.kind != .TRIANGLE:
@@ -921,11 +929,9 @@ struct SceneData:
             if not inverse.mask[0] or not inverse.inv.is_finite()[0]:
                 raise Error("triangle instance transform must be invertible")
 
-            ref vertices = self._triangle_meshes[Int(inst.blas_idx)]
-            var local_bounds = AABB[.LOCAL].invalid()
-            for vertex in vertices:
-                local_bounds.grow(vertex)
-            var world_bounds = local_bounds.apply_transform(inst.transform)
+            var world_bounds = triangle_mesh_bounds[
+                Int(inst.blas_idx)
+            ].apply_transform(inst.transform)
             if not world_bounds.is_valid()[0]:
                 raise Error(
                     "triangle instance transformed bounds must be finite"

@@ -12,6 +12,7 @@ from .builder import BinaryBoundsBvh
 comptime PARALLEL_LBVH_MIN_ITEMS = UInt32(4096)
 comptime RADIX_LBVH_MIN_ITEMS = UInt32(16384)
 comptime PARALLEL_RADIX_LBVH_MIN_ITEMS = UInt32(32768)
+comptime INLINE_RADIX_SCRATCH_MIN_ITEMS = UInt32(131072)
 comptime PARALLEL_RADIX_LBVH_MIN_LOGICAL_CORES = 16
 comptime PARALLEL_FRONTIER_DEPTH = 4
 comptime PARALLEL_FRONTIER_CAPACITY = 1 << PARALLEL_FRONTIER_DEPTH
@@ -133,6 +134,74 @@ def _radix_sort_morton_pairs_parallel(
     )
 
 
+def _radix_sort_morton_storage_pass[
+    shift: Int
+](
+    mut storage: List[MortonItem],
+    count: Int,
+    src_base: Int,
+    dst_base: Int,
+    mut counts: List[UInt32],
+    mut offsets: List[Int],
+    worker_count: Int,
+):
+    def histogram_worker(task_idx: Int) {imm, mut counts}:
+        var counts_base = task_idx * 256
+        for bucket in range(256):
+            counts.unsafe_get(counts_base + bucket) = 0
+        var first = count * task_idx // worker_count
+        var end = count * (task_idx + 1) // worker_count
+        for i in range(first, end):
+            var bucket = Int(
+                (storage.unsafe_get(src_base + i).code >> UInt32(shift))
+                & UInt32(0xFF)
+            )
+            counts.unsafe_get(counts_base + bucket) += 1
+
+    parallelize(histogram_worker, worker_count, worker_count)
+    var output_offset = 0
+    for bucket in range(256):
+        for worker_idx in range(worker_count):
+            var idx = worker_idx * 256 + bucket
+            offsets.unsafe_get(idx) = output_offset
+            output_offset += Int(counts.unsafe_get(idx))
+
+    def scatter_worker(task_idx: Int) {imm, mut storage}:
+        var offsets_base = task_idx * 256
+        var worker_offsets = Array[Int, 256](fill=0)
+        for bucket in range(256):
+            worker_offsets[bucket] = offsets.unsafe_get(offsets_base + bucket)
+        var first = count * task_idx // worker_count
+        var end = count * (task_idx + 1) // worker_count
+        for i in range(first, end):
+            var item = storage.unsafe_get(src_base + i)
+            var bucket = Int((item.code >> UInt32(shift)) & UInt32(0xFF))
+            storage.unsafe_get(dst_base + worker_offsets[bucket]) = item
+            worker_offsets[bucket] += 1
+
+    parallelize(scatter_worker, worker_count, worker_count)
+
+
+def _radix_sort_morton_pairs_inline_scratch(
+    mut storage: List[MortonItem], count: Int, worker_count: Int
+):
+    var counts = [UInt32(0) for _ in range(worker_count * 256)]
+    var offsets = [Int(0) for _ in range(worker_count * 256)]
+    _radix_sort_morton_storage_pass[0](
+        storage, count, 0, count, counts, offsets, worker_count
+    )
+    _radix_sort_morton_storage_pass[8](
+        storage, count, count, 0, counts, offsets, worker_count
+    )
+    _radix_sort_morton_storage_pass[16](
+        storage, count, 0, count, counts, offsets, worker_count
+    )
+    _radix_sort_morton_storage_pass[24](
+        storage, count, count, 0, counts, offsets, worker_count
+    )
+    storage.shrink(count)
+
+
 def _common_prefix(pairs: ImmSpan[MortonItem, _], i: Int, j: Int) -> Int:
     if j < 0 or j >= len(pairs):
         return -1
@@ -182,10 +251,15 @@ def _sorted_morton_pairs[
 
     var extent = centroid_bounds.extent()
     var inv = extent.safe_inv()
-    var pairs = List[MortonItem](capacity=item_count)
+    var use_inline_scratch = (
+        UInt32(item_count) >= INLINE_RADIX_SCRATCH_MIN_ITEMS
+        and num_logical_cores() >= PARALLEL_RADIX_LBVH_MIN_LOGICAL_CORES
+    )
+    var storage_count = item_count * (2 if use_inline_scratch else 1)
+    var pairs = List[MortonItem](capacity=storage_count)
     var use_parallel_build = builder.item_count >= PARALLEL_LBVH_MIN_ITEMS
     if use_parallel_build:
-        pairs.resize(unsafe_uninit_length=item_count)
+        pairs.resize(unsafe_uninit_length=storage_count)
         var worker_count = _worker_count(item_count)
 
         def morton_worker(task_idx: Int) {imm, mut pairs}:
@@ -209,7 +283,12 @@ def _sorted_morton_pairs[
             builder.item_count >= PARALLEL_RADIX_LBVH_MIN_ITEMS
             and num_logical_cores() >= PARALLEL_RADIX_LBVH_MIN_LOGICAL_CORES
         ):
-            _radix_sort_morton_pairs_parallel(pairs, radix_worker_count)
+            if use_inline_scratch:
+                _radix_sort_morton_pairs_inline_scratch(
+                    pairs, item_count, radix_worker_count
+                )
+            else:
+                _radix_sort_morton_pairs_parallel(pairs, radix_worker_count)
         else:
             _radix_sort_morton_pairs(pairs)
     else:
@@ -229,7 +308,12 @@ def _build_lbvh[
     precomputed_centroid_bounds: AABB[frame],
 ):
     """Build a binary LBVH using sorted Morton codes over item centers."""
-    var pairs = _sorted_morton_pairs(builder, precomputed_centroid_bounds)
+    var pairs = _sorted_morton_pairs[
+        frame,
+        leaf_size,
+        method,
+        hploc_microleaf_size,
+    ](builder, precomputed_centroid_bounds)
     var item_count = len(pairs)
     var use_parallel_build = builder.item_count >= PARALLEL_LBVH_MIN_ITEMS
     if not use_parallel_build:

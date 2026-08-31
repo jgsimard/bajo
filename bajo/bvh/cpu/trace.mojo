@@ -1,4 +1,4 @@
-from std.bit import count_trailing_zeros
+from std.bit import count_leading_zeros, count_trailing_zeros
 from std.memory import bitcast, pack_bits
 from std.sys.intrinsics import llvm_intrinsic
 from std.sys import size_of
@@ -57,13 +57,19 @@ def _visit_set_lanes[VisitFn: def(Int)](bits: UInt32, ref visit: VisitFn):
 
 @always_inline
 def _visit_set_lanes_until[
-    VisitFn: def(Int) -> Bool
+    VisitFn: def(Int) -> Bool,
+    reverse: Bool = False,
 ](bits: UInt32, ref visit: VisitFn) -> Bool:
     """Visit active lanes until the callback reports completion."""
     var remaining = bits
     while remaining != 0:
-        var lane = Int(count_trailing_zeros(remaining))
-        remaining &= remaining - 1
+        var lane: Int
+        comptime if reverse:
+            lane = 31 - Int(count_leading_zeros(remaining))
+            remaining &= ~(UInt32(1) << UInt32(lane))
+        else:
+            lane = Int(count_trailing_zeros(remaining))
+            remaining &= remaining - 1
         if visit(lane):
             return True
     return False
@@ -137,6 +143,11 @@ def _trace_bounds_bvh_impl[
     single_child_fast_path: Bool,
     terminal_mask_fast_path: Bool,
     packed_meta: Bool,
+    use_precomputed_rcp: Bool,
+    reverse_any_order: Bool,
+    positive_x: Bool,
+    positive_y: Bool,
+    positive_z: Bool,
     LeafFn: def(
         Rayf32[frame],
         Point3[.float32, frame, leaf_width],
@@ -146,14 +157,12 @@ def _trace_bounds_bvh_impl[
         UInt32,
         mut Hit[frame],
     ) -> Bool,
-    positive_x: Bool,
-    positive_y: Bool,
-    positive_z: Bool,
 ](
     nodes: ImmSpan[WideBvhNode[frame, bounds_width], _],
     ray: Rayf32[frame],
     ray_a: SIMD[.float32, leaf_width],
     ray_inv_a: SIMD[.float32, leaf_width],
+    precomputed_rcp: Vec3[.float32, frame, bounds_width],
     initial_ref: UInt32,
     initial_hit: Hit[frame],
     ref leaf_fn: LeafFn,
@@ -165,7 +174,11 @@ def _trace_bounds_bvh_impl[
     var stack_ptr = 0
 
     var bounds_O = ray.origin[bounds_width]()
-    var rcp_d = ray.reciprocal_direction[bounds_width]()
+    var rcp_d: Vec3[.float32, frame, bounds_width]
+    comptime if use_precomputed_rcp:
+        rcp_d = precomputed_rcp
+    else:
+        rcp_d = ray.reciprocal_direction[bounds_width]()
     var origin_rcp_d = Vec3[.float32, frame, bounds_width](
         bounds_O.x * rcp_d.x,
         bounds_O.y * rcp_d.y,
@@ -427,7 +440,9 @@ def _trace_bounds_bvh_impl[
                         )
                     )
 
-                if _visit_set_lanes_until(bits, visit_any_bvh16_lane):
+                if _visit_set_lanes_until[reverse=reverse_any_order](
+                    bits, visit_any_bvh16_lane
+                ):
                     return Hit[frame].shadow_hit()
 
             else:
@@ -470,11 +485,14 @@ def _trace_bounds_bvh_octant[
     packed_meta: Bool = False,
     single_child_fast_path: Bool = False,
     terminal_mask_fast_path: Bool = False,
+    use_precomputed_rcp: Bool = False,
+    reverse_any_order: Bool = False,
 ](
     nodes: ImmSpan[WideBvhNode[frame, bounds_width], _],
     ray: Rayf32[frame],
     ray_a: SIMD[.float32, leaf_width],
     ray_inv_a: SIMD[.float32, leaf_width],
+    precomputed_rcp: Vec3[.float32, frame, bounds_width],
     initial_ref: UInt32,
     initial_hit: Hit[frame],
     ref leaf_fn: LeafFn,
@@ -492,6 +510,8 @@ def _trace_bounds_bvh_octant[
             single_child_fast_path=single_child_fast_path,
             terminal_mask_fast_path=terminal_mask_fast_path,
             packed_meta=packed_meta,
+            use_precomputed_rcp=use_precomputed_rcp,
+            reverse_any_order=reverse_any_order,
             positive_x=positive_x,
             positive_y=positive_y,
             positive_z=positive_z,
@@ -500,6 +520,7 @@ def _trace_bounds_bvh_octant[
             ray,
             ray_a,
             ray_inv_a,
+            precomputed_rcp,
             initial_ref,
             initial_hit,
             leaf_fn,
@@ -561,6 +582,7 @@ def trace_bounds_bvh[
     ref leaf_fn: LeafFn,
 ) -> Hit[frame]:
     var zero = SIMD[.float32, leaf_width](0.0)
+    var zero_rcp = Vec3[.float32, frame, bounds_width](0.0)
     return _trace_bounds_bvh_octant[
         frame=frame,
         bounds_width=bounds_width,
@@ -572,6 +594,7 @@ def trace_bounds_bvh[
         ray,
         zero,
         zero,
+        zero_rcp,
         UInt32(0),
         Hit[frame].miss(ray.t_max),
         leaf_fn,
@@ -600,6 +623,7 @@ def trace_packed_bounds_bvh[
     """Run the proven CPU traversal directly over common packed node bytes."""
 
     var zero = SIMD[.float32, leaf_width](0.0)
+    var zero_rcp = Vec3[.float32, frame, bounds_width](0.0)
     return _trace_bounds_bvh_octant[
         frame=frame,
         bounds_width=bounds_width,
@@ -612,6 +636,54 @@ def trace_packed_bounds_bvh[
         ray,
         zero,
         zero,
+        zero_rcp,
+        UInt32(0),
+        Hit[frame].miss(ray.t_max),
+        leaf_fn,
+    )
+
+
+def trace_packed_bounds_bvh_rcp[
+    frame: Frame,
+    bounds_width: SIMDLength,
+    leaf_width: SIMDLength,
+    mode: TraceMode,
+    LeafFn: def(
+        Rayf32[frame],
+        Point3[.float32, frame, leaf_width],
+        Vec3[.float32, frame, leaf_width],
+        SIMD[.float32, leaf_width],
+        SIMD[.float32, leaf_width],
+        UInt32,
+        mut Hit[frame],
+    ) -> Bool,
+    single_child_fast_path: Bool = False,
+    terminal_mask_fast_path: Bool = False,
+](
+    nodes: ImmSpan[WideBvhNode[frame, bounds_width], _],
+    ray: Rayf32[frame],
+    reciprocal_direction: Vec3[.float32, frame, bounds_width],
+    ref leaf_fn: LeafFn,
+) -> Hit[frame]:
+    """Traverse packed nodes using an already computed reciprocal direction."""
+
+    var zero = SIMD[.float32, leaf_width](0.0)
+    return _trace_bounds_bvh_octant[
+        frame=frame,
+        bounds_width=bounds_width,
+        leaf_width=leaf_width,
+        mode=mode,
+        leaf_uses_rcp_direction=False,
+        packed_meta=True,
+        single_child_fast_path=single_child_fast_path,
+        terminal_mask_fast_path=terminal_mask_fast_path,
+        use_precomputed_rcp=True,
+    ](
+        nodes,
+        ray,
+        zero,
+        zero,
+        reciprocal_direction,
         UInt32(0),
         Hit[frame].miss(ray.t_max),
         leaf_fn,
@@ -635,6 +707,7 @@ def trace_bounds_bvh_from_ref[
     terminal_mask_fast_path: Bool = False,
     packed_meta: Bool = False,
     mode: TraceMode = .CLOSEST_HIT,
+    reverse_any_order: Bool = False,
 ](
     nodes: ImmSpan[WideBvhNode[frame, bounds_width], _],
     ray: Rayf32[frame],
@@ -645,6 +718,7 @@ def trace_bounds_bvh_from_ref[
     """Continue traversal at one tagged internal subtree reference."""
 
     var zero = SIMD[.float32, leaf_width](0.0)
+    var zero_rcp = Vec3[.float32, frame, bounds_width](0.0)
     return _trace_bounds_bvh_octant[
         frame=frame,
         bounds_width=bounds_width,
@@ -654,11 +728,13 @@ def trace_bounds_bvh_from_ref[
         single_child_fast_path=single_child_fast_path,
         terminal_mask_fast_path=terminal_mask_fast_path,
         packed_meta=packed_meta,
+        reverse_any_order=reverse_any_order,
     ](
         nodes,
         ray,
         zero,
         zero,
+        zero_rcp,
         initial_ref,
         initial_hit,
         leaf_fn,
@@ -687,6 +763,7 @@ def trace_bounds_bvh_leaf_rcp[
     """Trace with reciprocal ray direction in the leaf direction argument."""
 
     var zero = SIMD[.float32, leaf_width](0.0)
+    var zero_rcp = Vec3[.float32, frame, bounds_width](0.0)
     return _trace_bounds_bvh_octant[
         frame=frame,
         bounds_width=bounds_width,
@@ -698,6 +775,7 @@ def trace_bounds_bvh_leaf_rcp[
         ray,
         zero,
         zero,
+        zero_rcp,
         UInt32(0),
         Hit[frame].miss(ray.t_max),
         leaf_fn,
@@ -728,6 +806,7 @@ def trace_packed_sphere_bounds_bvh[
     var leaf_D = ray.direction[leaf_width]()
     var ray_a = dot(leaf_D, leaf_D)
     var ray_inv_a = 1.0 / ray_a
+    var zero_rcp = Vec3[.float32, frame, bounds_width](0.0)
     return _trace_bounds_bvh_octant[
         frame=frame,
         bounds_width=bounds_width,
@@ -740,6 +819,7 @@ def trace_packed_sphere_bounds_bvh[
         ray,
         ray_a,
         ray_inv_a,
+        zero_rcp,
         UInt32(0),
         Hit[frame].miss(ray.t_max),
         leaf_fn,

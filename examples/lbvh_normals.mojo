@@ -155,7 +155,7 @@ def _make_instances(
     return instances^
 
 
-def _make_camera[width: SIMDLength](tlas: CpuTlas[width]) -> Camera:
+def _make_camera[width: SIMDLength](tlas: CpuTlas[width, _]) -> Camera:
     var bounds = tlas.bounds()
     var center = bounds.centroid()
     var extent = bounds.extent()
@@ -188,7 +188,7 @@ def _make_camera[width: SIMDLength](tlas: CpuTlas[width]) -> Camera:
 
 def _make_camera_params[
     width: SIMDLength
-](tlas: CpuTlas[width]) -> List[Float32]:
+](tlas: CpuTlas[width, _]) -> List[Float32]:
     return _make_camera(tlas).flatten()
 
 
@@ -316,7 +316,7 @@ def _build_cpu_triangle_blas_set[
 ](tri_vertex_sets: List[List[Point3f32[.LOCAL]]]) -> CpuBlasSet[
     .TRIANGLE, width
 ]:
-    return build_cpu_triangle_blas_set[width](tri_vertex_sets)
+    return build_cpu_triangle_blas_set[width, method=.HPLOC](tri_vertex_sets)
 
 
 def _trace_cpu_tlas_camera[
@@ -325,7 +325,7 @@ def _trace_cpu_tlas_camera[
 ](
     width: Int,
     height: Int,
-    tlas: CpuTlas[tlas_width],
+    tlas: CpuTlas[tlas_width, 1],
     cpu_blases: CpuBlasSet[.TRIANGLE, blas_width],
     camera: Camera,
     mut hits: List[Float32],
@@ -383,7 +383,7 @@ def print_hit_counts_by_blas_host(
 def render_cpu(
     tri_vertex_sets: List[List[Point3f32[.LOCAL]]],
     instances: List[Instance],
-    cpu_tlas: CpuTlas[TLAS_WIDTH_CPU],
+    cpu_tlas: CpuTlas[TLAS_WIDTH_CPU, 1],
     camera: Camera,
 ) raises:
     var ray_count = WIDTH * HEIGHT
@@ -627,7 +627,7 @@ def main() raises:
     )
     _print_bounds_by_blas(instances)
 
-    var cpu_tlas = CpuTlas[TLAS_WIDTH_CPU](instances)
+    var cpu_tlas = CpuTlas[TLAS_WIDTH_CPU, 1](instances)
     var camera = _make_camera(cpu_tlas)
     var camera_params = camera.flatten()
 

@@ -1,6 +1,6 @@
 """Compile-time-specialized traversal kernel for all GPU RT scene shapes."""
 
-from std.gpu import block_dim, global_idx, grid_dim
+from max.gpu import block_dim, global_idx, grid_dim
 from std.math import ceildiv
 from max.gpu.host import DeviceContext
 

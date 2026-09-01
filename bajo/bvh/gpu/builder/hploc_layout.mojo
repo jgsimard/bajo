@@ -1,5 +1,5 @@
 from bajo.core import AABB
-from std.gpu import WARP_SIZE
+from max.gpu import WARP_SIZE
 
 
 comptime HPLOC_SEARCH_RADIUS = 8

@@ -1,6 +1,6 @@
 """On-device descriptor emission for segmented packed BLAS storage."""
 
-from std.gpu import global_idx
+from max.gpu import global_idx
 from std.math import ceildiv
 from max.gpu.host import DeviceBuffer, DeviceContext
 

@@ -1,4 +1,4 @@
-from std.gpu import global_idx
+from max.gpu import global_idx
 from std.math import abs, ceildiv, round, min, max
 from std.sys import has_accelerator
 from std.time import perf_counter_ns

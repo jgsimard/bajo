@@ -1,6 +1,6 @@
 """Shared camera kernel ABI for standalone GPU BVH owners."""
 
-from std.gpu import global_idx
+from max.gpu import global_idx
 
 from bajo.bvh.gpu.camera_launch import (
     _camera_ray,

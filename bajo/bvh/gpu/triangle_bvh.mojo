@@ -2,7 +2,7 @@ from std.math import ceildiv, max
 from std.memory import bitcast
 from std.bit import count_leading_zeros, pop_count
 from std.time import perf_counter_ns
-from std.gpu import global_idx
+from max.gpu import global_idx
 from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh.gpu.utils import (

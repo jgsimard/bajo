@@ -1,6 +1,6 @@
 from std.bit import count_trailing_zeros
-from std.gpu import WARP_SIZE, global_idx, lane_id, warp_id
-from std.gpu.primitives import warp
+from max.gpu import WARP_SIZE, global_idx, lane_id, warp_id
+from max.gpu.primitives import warp
 from std.math import min
 from std.sys import has_accelerator
 from std.testing import TestSuite, assert_equal, assert_false, assert_true

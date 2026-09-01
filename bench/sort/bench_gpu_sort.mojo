@@ -1,5 +1,5 @@
 from std.time import perf_counter_ns
-from std.gpu import global_idx
+from max.gpu import global_idx
 from max.gpu.host import DeviceContext, DeviceBuffer
 from std.math import ceildiv
 

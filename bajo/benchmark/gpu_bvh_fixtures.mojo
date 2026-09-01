@@ -1,6 +1,6 @@
 """Shared inputs and adapters for GPU BVH diagnostics."""
 
-from std.gpu import global_idx
+from max.gpu import global_idx
 from std.math import ceildiv
 from max.gpu.host import DeviceBuffer, DeviceContext
 

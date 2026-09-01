@@ -1,5 +1,5 @@
 from std.atomic import Atomic, Ordering
-from std.gpu import block_idx, global_idx, thread_idx
+from max.gpu import block_idx, global_idx, thread_idx
 from std.math import ceildiv, fma, max, min
 from std.memory import bitcast, stack_allocation
 from max.gpu.host import DeviceBuffer, DeviceContext

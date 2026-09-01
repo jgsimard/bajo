@@ -1,6 +1,6 @@
 """Geometry-independent GPU RT kernels."""
 
-from std.gpu import global_idx
+from max.gpu import global_idx
 
 from bajo.bvh import Camera
 from bajo.core.random import random_in_unit_disk

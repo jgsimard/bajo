@@ -1,7 +1,7 @@
 """GPU arena and executable probe for the shared wavefront ABI."""
 
 from std.atomic import Atomic, Ordering
-from std.gpu import global_idx
+from max.gpu import global_idx
 from std.math import ceildiv
 from max.gpu.host import DeviceBuffer, DeviceContext
 

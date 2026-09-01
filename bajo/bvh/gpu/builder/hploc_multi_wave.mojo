@@ -1,7 +1,7 @@
 from std.atomic import Atomic, Ordering, fence
 from std.bit import pop_count
-from std.gpu import WARP_SIZE, global_idx, lane_id, thread_idx
-from std.gpu.primitives import warp
+from max.gpu import WARP_SIZE, global_idx, lane_id, thread_idx
+from max.gpu.primitives import warp
 from std.math import abs, ceildiv, max, min
 from std.memory import bitcast, stack_allocation
 from max.gpu.host import DeviceBuffer, DeviceContext

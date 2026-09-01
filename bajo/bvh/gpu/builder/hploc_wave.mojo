@@ -1,6 +1,6 @@
 from std.bit import count_trailing_zeros, pop_count
-from std.gpu import WARP_SIZE
-from std.gpu.primitives import warp
+from max.gpu import WARP_SIZE
+from max.gpu.primitives import warp
 
 
 # Kernels using these helpers must have a comptime specialization parameter,

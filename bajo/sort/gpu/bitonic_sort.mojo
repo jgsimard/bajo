@@ -1,5 +1,5 @@
 from std.bit import count_trailing_zeros
-from std.gpu import (
+from max.gpu import (
     thread_idx,
     block_idx,
     global_idx,
@@ -8,7 +8,7 @@ from std.gpu import (
 from max.gpu import barrier
 from max.gpu.host import DeviceContext, DeviceBuffer
 from max.gpu.memory import AddressSpace
-from std.gpu.primitives import warp
+from max.gpu.primitives import warp
 from std.math import iota
 from std.memory import stack_allocation
 

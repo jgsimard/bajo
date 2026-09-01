@@ -137,7 +137,7 @@ def test_gpu_tlas_triangle_camera_translated_single_instance_hit() raises:
 
 
 def test_host_owned_blas_set_upload_preserves_gpu_traversal() raises:
-    """The compatible host/device owners transfer packed storage verbatim."""
+    """CPU triangle leaves are adapted to the padded GPU leaf layout."""
     var near_verts = _make_single_triangle_scene[.LOCAL]()
     var far_verts = List[Point3f32[.LOCAL]](capacity=6)
     for vertex in near_verts:

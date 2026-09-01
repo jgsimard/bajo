@@ -1,6 +1,6 @@
 from std.atomic import Atomic, Ordering
 from std.bit import pop_count, count_trailing_zeros
-from std.gpu import (
+from max.gpu import (
     thread_idx,
     block_idx,
     block_dim,
@@ -11,8 +11,7 @@ from std.gpu import (
 )
 from max.gpu.host import DeviceContext, DeviceBuffer
 from max.gpu.memory import AddressSpace
-from std.gpu.primitives import warp
-from max.gpu.primitives import block
+from max.gpu.primitives import warp, block
 from max.gpu.sync import barrier
 from std.math import ceildiv, max
 from std.memory import stack_allocation

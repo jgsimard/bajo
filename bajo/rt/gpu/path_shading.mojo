@@ -1,6 +1,6 @@
 """Shared GPU RT material, lighting, routing, and shading kernels."""
 
-from std.gpu import block_dim, global_idx, grid_dim
+from max.gpu import block_dim, global_idx, grid_dim
 from std.math import ceildiv, sqrt
 from max.gpu.host import DeviceBuffer, DeviceContext
 

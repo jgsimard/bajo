@@ -6,7 +6,7 @@ from std.math import max
 from std.time import perf_counter_ns
 from std.atomic import Atomic, Ordering, fence
 from max.gpu.host import DeviceContext
-from std.gpu import global_idx
+from max.gpu import global_idx
 
 from bajo.core import AABB
 from bajo.core.morton import morton3, morton_key_delta

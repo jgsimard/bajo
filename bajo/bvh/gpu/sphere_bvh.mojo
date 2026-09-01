@@ -1,7 +1,7 @@
 from std.math import ceildiv, iota
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceBuffer, DeviceContext
-from std.gpu import global_idx
+from max.gpu import global_idx
 
 from bajo.bvh.constants import (
     EMPTY_LANE,

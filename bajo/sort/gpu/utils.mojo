@@ -1,6 +1,6 @@
 from std.bit import pop_count, count_trailing_zeros
-from std.gpu import WARP_SIZE, lane_id
-from std.gpu.primitives import warp, block
+from max.gpu import WARP_SIZE, lane_id
+from max.gpu.primitives import warp, block
 from std.atomic import Atomic, Ordering
 from std.reflection import SourceLocation, call_location
 

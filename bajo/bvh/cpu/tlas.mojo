@@ -55,6 +55,14 @@ comptime CpuBlasTraceFn[
 ]
 
 
+__extension SIMD:
+    @always_inline
+    def to_array(self) -> Array[Scalar[Self.dtype], Self.length]:
+        return Array[Scalar[Self.dtype], Self.length](
+            fill_with=lambda (i: Int) -> Scalar[Self.dtype]: self[i]
+        )
+
+
 @fieldwise_init
 struct TlasLeafBlock[width: SIMDLength](Copyable):
     """SIMD instance bounds and indices consumed together during traversal."""
@@ -589,10 +597,9 @@ struct CpuTlas[
         if candidate_count == 0:
             return hit
 
-        var closest_t = Array[Float32, length](uninitialized=True)
+        var closest_t = hit.t.to_array()
         var scalar_rays = Array[Float32, 10 * length](uninitialized=True)
         comptime for lane in range(length):
-            closest_t.unsafe_get(lane) = hit.t[lane]
             scalar_rays.unsafe_get(0 * Int(length) + lane) = rays.o.x[lane]
             scalar_rays.unsafe_get(1 * Int(length) + lane) = rays.o.y[lane]
             scalar_rays.unsafe_get(2 * Int(length) + lane) = rays.o.z[lane]
@@ -610,21 +617,13 @@ struct CpuTlas[
                 9 * Int(length) + lane
             ) = reciprocal_direction.z[lane]
         var scalar_rays_ptr = scalar_rays.unsafe_ptr()
-        var result_u = Array[Float32, length](uninitialized=True)
-        var result_v = Array[Float32, length](uninitialized=True)
-        var result_prim = Array[UInt32, length](uninitialized=True)
-        var result_inst = Array[UInt32, length](uninitialized=True)
-        var result_nx = Array[Float32, length](uninitialized=True)
-        var result_ny = Array[Float32, length](uninitialized=True)
-        var result_nz = Array[Float32, length](uninitialized=True)
-        comptime for lane in range(length):
-            result_u.unsafe_get(lane) = hit.u[lane]
-            result_v.unsafe_get(lane) = hit.v[lane]
-            result_prim.unsafe_get(lane) = hit.prim[lane]
-            result_inst.unsafe_get(lane) = hit.inst[lane]
-            result_nx.unsafe_get(lane) = hit.normal.x[lane]
-            result_ny.unsafe_get(lane) = hit.normal.y[lane]
-            result_nz.unsafe_get(lane) = hit.normal.z[lane]
+        var result_u = hit.u.to_array()
+        var result_v = hit.v.to_array()
+        var result_prim = hit.prim.to_array()
+        var result_inst = hit.inst.to_array()
+        var result_nx = hit.normal.x.to_array()
+        var result_ny = hit.normal.y.to_array()
+        var result_nz = hit.normal.z.to_array()
 
         @always_inline
         def consume_candidates() {

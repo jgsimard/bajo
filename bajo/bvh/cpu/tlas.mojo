@@ -39,6 +39,10 @@ from bajo.bvh.cpu.trace import (
     trace_bounds_bvh_leaf_rcp,
 )
 from bajo.bvh.cpu.packet import trace_packet_stack_bounds_bvh
+from bajo.bvh.cpu.triangle_bvh import (
+    _occlude_triangle_packet_primitive,
+    _trace_triangle_packet_primitive,
+)
 from bajo.bvh.tagged_ref import decode_ref_index, is_leaf_ref
 
 
@@ -506,6 +510,114 @@ struct CpuTlas[
             trace_blas_set[blas_node_width, blas_leaf_width, mode, .LOCAL],
         ](ray, blases)
 
+    @always_inline
+    def _trace_single_triangle_blas_packet[
+        blas_node_width: SIMDLength,
+        blas_leaf_width: SIMDLength,
+        length: SIMDLength,
+        mode: TraceMode,
+    ](
+        self,
+        rays: Ray[.float32, .WORLD, length],
+        blases: CpuBlasSet[.TRIANGLE, blas_node_width, blas_leaf_width],
+        valid: SIMD[.bool, length],
+    ) -> Hit[.WORLD, length]:
+        """Trace a translation-only, one-triangle BLAS without BLAS setup."""
+        var desc = BlasDesc.load(blases.descs.unsafe_ptr(), UInt32(0))
+        var block_ptr = blases.leaves.unsafe_ptr().unsafe_offset(
+            Int(desc.leaf_f32_base)
+        )
+        var block_u32 = block_ptr.unsafe_bitcast[UInt32]()
+        var prim_idx = block_u32[unsafe_offset=3 * blas_leaf_width]
+        var v0 = Point3[.float32, .LOCAL](
+            block_ptr[unsafe_offset=0 * blas_leaf_width],
+            block_ptr[unsafe_offset=1 * blas_leaf_width],
+            block_ptr[unsafe_offset=2 * blas_leaf_width],
+        )
+        var e1 = Vec3[.float32, .LOCAL](
+            block_ptr[unsafe_offset=4 * blas_leaf_width],
+            block_ptr[unsafe_offset=5 * blas_leaf_width],
+            block_ptr[unsafe_offset=6 * blas_leaf_width],
+        )
+        var e2 = Vec3[.float32, .LOCAL](
+            block_ptr[unsafe_offset=7 * blas_leaf_width],
+            block_ptr[unsafe_offset=8 * blas_leaf_width],
+            block_ptr[unsafe_offset=9 * blas_leaf_width],
+        )
+        var hit = Hit[.WORLD, length].miss(rays.t_max)
+        var reciprocal_direction = rays.reciprocal_direction()
+
+        @always_inline
+        def leaf_fn(
+            active: SIMD[.bool, length],
+            leaf_block_idx: UInt32,
+            mut packet_hit: Hit[.WORLD, length],
+        ) {imm}:
+            ref block = self.leaf_blocks.unsafe_get(Int(leaf_block_idx))
+            comptime for inst_lane in range(Self.leaf_width):
+                var inst_idx = block.inst_indices[inst_lane]
+                if inst_idx == EMPTY_LANE:
+                    continue
+                ref hot_inst = self.hot_instances.unsafe_get(Int(inst_idx))
+                var local_rays = _translate_world_ray_packet[length](
+                    hot_inst.inv_transform, rays, packet_hit.t
+                )
+                var local_hit = Hit[.LOCAL, length].miss(packet_hit.t)
+                comptime if mode == .ANY_HIT:
+                    _occlude_triangle_packet_primitive[.LOCAL, length](
+                        local_rays, active, v0, e1, e2, local_hit
+                    )
+                    var occluded = active & local_hit.t.eq(0.0)
+                    packet_hit.t = occluded.select(Float32(0.0), packet_hit.t)
+                else:
+                    _trace_triangle_packet_primitive[.LOCAL, length](
+                        local_rays,
+                        active,
+                        prim_idx,
+                        v0,
+                        e1,
+                        e2,
+                        local_hit,
+                    )
+                    var closer = active & local_hit.is_hit()
+                    packet_hit.t = closer.select(local_hit.t, packet_hit.t)
+                    packet_hit.u = closer.select(local_hit.u, packet_hit.u)
+                    packet_hit.v = closer.select(local_hit.v, packet_hit.v)
+                    packet_hit.prim = closer.select(
+                        local_hit.prim, packet_hit.prim
+                    )
+                    packet_hit.inst = closer.select(inst_idx, packet_hit.inst)
+                    packet_hit.normal.x = closer.select(
+                        local_hit.normal.x, packet_hit.normal.x
+                    )
+                    packet_hit.normal.y = closer.select(
+                        local_hit.normal.y, packet_hit.normal.y
+                    )
+                    packet_hit.normal.z = closer.select(
+                        local_hit.normal.z, packet_hit.normal.z
+                    )
+
+        trace_packet_stack_bounds_bvh[
+            frame=.WORLD,
+            bounds_width=Self.bounds_width,
+            length=length,
+            any_hit=mode == .ANY_HIT,
+        ](
+            self.tree.nodes,
+            rays,
+            reciprocal_direction,
+            valid,
+            hit,
+            leaf_fn,
+            lambda (
+                _active: SIMD[.bool, length],
+                _child_ref: UInt32,
+                mut _packet_hit: Hit[.WORLD, length],
+            ): None,
+            lambda (_child_ref: UInt32): None,
+        )
+        return hit
+
     def _trace_blases_packet_impl[
         blas_node_width: SIMDLength,
         blas_leaf_width: SIMDLength,
@@ -878,6 +990,15 @@ struct CpuTlas[
     ) -> Hit[.WORLD, length]:
         """Dispatch a specialized translation-only instancing fast path."""
         if self.all_translation_only:
+            if blases.blas_count == 1:
+                var desc = BlasDesc.load(blases.descs.unsafe_ptr(), UInt32(0))
+                if desc.prim_count == 1:
+                    return self._trace_single_triangle_blas_packet[
+                        blas_node_width,
+                        blas_leaf_width,
+                        length,
+                        .CLOSEST_HIT,
+                    ](rays, blases, valid)
             return self._trace_blases_packet_impl[
                 blas_node_width,
                 blas_leaf_width,
@@ -905,10 +1026,18 @@ struct CpuTlas[
     ) -> SIMD[.bool, length]:
         """Traverse packet visibility rays through the TLAS once.
 
-        BLAS continuation remains scalar per surviving lane. Ray transforms
-        are computed SIMD-wide once per candidate instance.
+        BLAS continuation remains scalar per surviving lane except for the
+        translation-only one-triangle fast path. Ray transforms are computed
+        SIMD-wide once per candidate instance.
         """
         comptime assert length > 1
+        if self.all_translation_only and blases.blas_count == 1:
+            var desc = BlasDesc.load(blases.descs.unsafe_ptr(), UInt32(0))
+            if desc.prim_count == 1:
+                var single_hit = self._trace_single_triangle_blas_packet[
+                    blas_node_width, blas_leaf_width, length, .ANY_HIT
+                ](rays, blases, valid)
+                return valid & single_hit.t.eq(0.0)
         var hit = Hit[.WORLD, length].miss(rays.t_max)
         var reciprocal_direction = rays.reciprocal_direction()
         comptime any_candidate_capacity = 16

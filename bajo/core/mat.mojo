@@ -22,13 +22,7 @@ struct Mat[
         comptime assert Self.rows >= 1
         comptime assert Self.cols >= 1
 
-        self.data = Self.Data(uninitialized=True)
-
-        comptime for i in range(Self.rows):
-            var row = Self.Row(uninitialized=True)
-            comptime for j in range(Self.cols):
-                row[j] = Self.Elem(s)
-            self.data[i] = row^
+        self.data = Self.Data(fill=Self.Row(fill=Self.Elem(s)))
 
     def __init__(out self, uninitialized: Bool):
         comptime assert Self.rows >= 1
@@ -47,16 +41,13 @@ struct Mat[
             ),
         )
 
-        self.data = Self.Data(uninitialized=True)
-
-        comptime for i in range(Self.rows):
-            var row = Self.Row(uninitialized=True)
-
-            comptime for j in range(Self.cols):
-                comptime flat_idx = i * Self.cols + j
-                row[j] = Self.Elem(elems[flat_idx])
-
-            self.data[i] = row^
+        self.data = Self.Data(
+            fill_with=lambda (i: Int) -> Self.Row: Self.Row(
+                fill_with=lambda (j: Int) -> Self.Elem: Self.Elem(
+                    elems[i * Self.cols + j]
+                )
+            )
+        )
 
     @staticmethod
     def identity() -> Self:
@@ -93,6 +84,28 @@ struct Mat[
 
         return m^
 
+    @staticmethod
+    def _from_function[Op: def(Int, Int) -> Self.Elem](ref op: Op) -> Self:
+        var res = Self(uninitialized=True)
+        res.data = Self.Data(
+            fill_with=lambda (i: Int) -> Self.Row: Self.Row(
+                fill_with=lambda (j: Int) -> Self.Elem: op(i, j)
+            )
+        )
+        return res^
+
+    def _elementwise[Op: def(Self.Elem) -> Self.Elem](self, ref op: Op) -> Self:
+        return Self._from_function(
+            lambda (i: Int, j: Int) -> Self.Elem: op(self[i][j])
+        )
+
+    def _elementwise[
+        Op: def(Self.Elem, Self.Elem) -> Self.Elem
+    ](self, other: Self, ref op: Op) -> Self:
+        return Self._from_function(
+            lambda (i: Int, j: Int) -> Self.Elem: op(self[i][j], other[i][j])
+        )
+
     def __getitem_param__[i: Int](ref self) -> ref[self.data] Self.Row:
         return self.data[i]
 
@@ -100,70 +113,31 @@ struct Mat[
         return self.data[i]
 
     def __neg__(self) -> Self:
-        var res = Self(uninitialized=True)
-
-        comptime for i in range(Self.rows):
-            var row = Self.Row(uninitialized=True)
-            comptime for j in range(Self.cols):
-                row[j] = -self[i][j]
-            res.data[i] = row^
-
-        return res^
+        return self._elementwise(lambda (x: Self.Elem) -> Self.Elem: -x)
 
     def __add__(self, other: Self) -> Self:
-        var res = Self(uninitialized=True)
-
-        comptime for i in range(Self.rows):
-            var row = Self.Row(uninitialized=True)
-            comptime for j in range(Self.cols):
-                row[j] = self[i][j] + other[i][j]
-            res.data[i] = row^
-
-        return res^
+        return self._elementwise(
+            other,
+            lambda (x: Self.Elem, y: Self.Elem) -> Self.Elem: x + y,
+        )
 
     def __sub__(self, other: Self) -> Self:
-        var res = Self(uninitialized=True)
-
-        comptime for i in range(Self.rows):
-            var row = Self.Row(uninitialized=True)
-            comptime for j in range(Self.cols):
-                row[j] = self[i][j] - other[i][j]
-            res.data[i] = row^
-
-        return res^
+        return self._elementwise(
+            other,
+            lambda (x: Self.Elem, y: Self.Elem) -> Self.Elem: x - y,
+        )
 
     def __mul__(self, s: SIMD[Self.dtype, Self.width]) -> Self:
-        var res = Self(uninitialized=True)
-
-        comptime for i in range(Self.rows):
-            var row = Self.Row(uninitialized=True)
-            comptime for j in range(Self.cols):
-                row[j] = self[i][j] * s
-            res.data[i] = row^
-
-        return res^
+        return self._elementwise(lambda (x: Self.Elem) -> Self.Elem: x * s)
 
     def __truediv__(self, s: SIMD[Self.dtype, Self.width]) -> Self:
-        var res = Self(uninitialized=True)
-
-        comptime for i in range(Self.rows):
-            var row = Self.Row(uninitialized=True)
-            comptime for j in range(Self.cols):
-                row[j] = self[i][j] / s
-            res.data[i] = row^
-
-        return res^
+        return self._elementwise(lambda (x: Self.Elem) -> Self.Elem: x / s)
 
     def elem_mul(self, other: Self) -> Self:
-        var res = Self(uninitialized=True)
-
-        comptime for i in range(Self.rows):
-            var row = Self.Row(uninitialized=True)
-            comptime for j in range(Self.cols):
-                row[j] = self[i][j] * other[i][j]
-            res.data[i] = row^
-
-        return res^
+        return self._elementwise(
+            other,
+            lambda (x: Self.Elem, y: Self.Elem) -> Self.Elem: x * y,
+        )
 
     def col[j: Int](self) -> Vec3[Self.dtype, Self.frame, Self.width]:
         comptime assert Self.rows == 3
@@ -179,15 +153,12 @@ struct Mat[
     def transpose(
         self,
     ) -> Mat[Self.dtype, Self.cols, Self.rows, Self.frame, Self.width]:
-        var res = Mat[Self.dtype, Self.cols, Self.rows, Self.frame, Self.width](
-            uninitialized=True
+        comptime Result = Mat[
+            Self.dtype, Self.cols, Self.rows, Self.frame, Self.width
+        ]
+        return Result._from_function(
+            lambda (i: Int, j: Int) -> Self.Elem: self[j][i]
         )
-
-        comptime for i in range(Self.rows):
-            comptime for j in range(Self.cols):
-                res[j][i] = self[i][j]
-
-        return res^
 
     def trace(self) -> SIMD[Self.dtype, Self.width]:
         comptime msize = Self.rows if Self.rows < Self.cols else Self.cols

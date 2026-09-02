@@ -175,21 +175,16 @@ def digit_binning[
     )
 
     # load keys
-    var keys = Array[Scalar[keys_dtype], KEYS_PER_THREAD](uninitialized=True)
     var BIN_SUB_PART_START = wid * WARP_PART_SIZE
     var BIN_PART_START = partition_index * PART_SIZE
     var t_base = lid + BIN_SUB_PART_START + BIN_PART_START
-
-    var t = t_base
-    comptime for i in range(KEYS_PER_THREAD):
-        if partition_index < gdim - 1:
-            keys[i] = keys_current[unsafe_offset=t]
-        else:
-            keys[i] = (
-                keys_current[unsafe_offset=t] if t
-                < size_int else Scalar[keys_dtype].MAX
-            )
-        t += WARP_SIZE
+    var full_partition = partition_index < gdim - 1
+    var keys = Array[Scalar[keys_dtype], KEYS_PER_THREAD](
+        fill_with=lambda (i: Int) -> Scalar[keys_dtype]: keys_current[
+            unsafe_offset=t_base + i * WARP_SIZE
+        ] if full_partition
+        or t_base + i * WARP_SIZE < size_int else Scalar[keys_dtype].MAX
+    )
 
     # Warp-Level Multi-Split (WLMS)
     var offsets = warp_level_multi_split[

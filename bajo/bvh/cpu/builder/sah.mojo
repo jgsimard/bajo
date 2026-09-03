@@ -14,6 +14,8 @@ struct BoundsSplitResult[frame: Frame]:
     var cost: Float32
     var bin_min: Float32
     var bin_scale: Float32
+    var left_bounds: AABB[Self.frame]
+    var right_bounds: AABB[Self.frame]
 
     def __init__(out self):
         self.axis = -1
@@ -22,6 +24,8 @@ struct BoundsSplitResult[frame: Frame]:
         self.cost = f32_max
         self.bin_min = 0.0
         self.bin_scale = 0.0
+        self.left_bounds = AABB[Self.frame].invalid()
+        self.right_bounds = AABB[Self.frame].invalid()
 
     def valid(self) -> Bool:
         return self.axis >= 0 and self.bin >= 0
@@ -151,6 +155,8 @@ def _find_sah_split[
                 )
                 best.bin_min = bin_min[axis]
                 best.bin_scale = bin_scale[axis]
+                best.left_bounds = left.bounds
+                best.right_bounds = right_box
 
     return best^
 
@@ -251,6 +257,8 @@ def _find_sah_split_parallel[
                 )
                 best.bin_min = bin_min[axis]
                 best.bin_scale = bin_scale[axis]
+                best.left_bounds = left.bounds
+                best.right_bounds = right_box
     return best^
 
 
@@ -273,7 +281,7 @@ def _grow_partition_side[
 
 
 def _partition_items_by_bin[
-    frame: Frame, BVH_BINS: Int
+    frame: Frame, BVH_BINS: Int, use_precomputed_bounds: Bool = False
 ](
     indices: MutSpan[UInt32, _],
     items: ImmSpan[BoundsItem[frame], _],
@@ -283,6 +291,8 @@ def _partition_items_by_bin[
     split_bin: Int,
     bin_min: Float32,
     bin_scale: Float32,
+    left_bounds: AABB[frame] = AABB[frame].invalid(),
+    right_bounds: AABB[frame] = AABB[frame].invalid(),
 ) -> BoundsPartitionResult[frame]:
     debug_assert["safe", _use_compiler_assume=True](
         first >= 0
@@ -320,27 +330,36 @@ def _partition_items_by_bin[
         )
 
         if goes_left:
-            _grow_partition_side(
-                item,
-                out.left_bounds,
-                out.left_centroid_bounds,
-            )
+            comptime if use_precomputed_bounds:
+                out.left_centroid_bounds.grow(item.centroid)
+            else:
+                _grow_partition_side(
+                    item,
+                    out.left_bounds,
+                    out.left_centroid_bounds,
+                )
             i += 1
         else:
-            _grow_partition_side(
-                item,
-                out.right_bounds,
-                out.right_centroid_bounds,
-            )
+            comptime if use_precomputed_bounds:
+                out.right_centroid_bounds.grow(item.centroid)
+            else:
+                _grow_partition_side(
+                    item,
+                    out.right_bounds,
+                    out.right_centroid_bounds,
+                )
             node_indices.unsafe_swap_elements(i, j)
             j -= 1
 
     out.split_idx = first + i
+    comptime if use_precomputed_bounds:
+        out.left_bounds = left_bounds
+        out.right_bounds = right_bounds
     return out^
 
 
 def _partition_items_by_bin_parallel[
-    frame: Frame, BVH_BINS: Int
+    frame: Frame, BVH_BINS: Int, use_precomputed_bounds: Bool = False
 ](
     indices: MutSpan[UInt32, _],
     items: ImmSpan[BoundsItem[frame], _],
@@ -351,6 +370,8 @@ def _partition_items_by_bin_parallel[
     bin_min: Float32,
     bin_scale: Float32,
     worker_count: Int,
+    left_bounds: AABB[frame] = AABB[frame].invalid(),
+    right_bounds: AABB[frame] = AABB[frame].invalid(),
 ) -> BoundsPartitionResult[frame]:
     """Parallel out-of-place partition for a large top-level SAH range."""
     var left_items = List[UInt32](capacity=count)
@@ -388,19 +409,25 @@ def _partition_items_by_bin_parallel[
             if goes_left:
                 left_items[chunk_first + left_count] = item_idx_u32
                 left_count += 1
-                _grow_partition_side(
-                    item,
-                    partial.left_bounds,
-                    partial.left_centroid_bounds,
-                )
+                comptime if use_precomputed_bounds:
+                    partial.left_centroid_bounds.grow(item.centroid)
+                else:
+                    _grow_partition_side(
+                        item,
+                        partial.left_bounds,
+                        partial.left_centroid_bounds,
+                    )
             else:
                 right_items[chunk_first + right_count] = item_idx_u32
                 right_count += 1
-                _grow_partition_side(
-                    item,
-                    partial.right_bounds,
-                    partial.right_centroid_bounds,
-                )
+                comptime if use_precomputed_bounds:
+                    partial.right_centroid_bounds.grow(item.centroid)
+                else:
+                    _grow_partition_side(
+                        item,
+                        partial.right_bounds,
+                        partial.right_centroid_bounds,
+                    )
         left_counts[task_idx] = left_count
         right_counts[task_idx] = right_count
         partials[task_idx] = partial^
@@ -417,12 +444,22 @@ def _partition_items_by_bin_parallel[
         right_offsets[worker_idx] = total_right
         total_left += left_counts[worker_idx]
         total_right += right_counts[worker_idx]
-        out.left_bounds.grow(partials[worker_idx].left_bounds)
-        out.right_bounds.grow(partials[worker_idx].right_bounds)
-        out.left_centroid_bounds.grow(partials[worker_idx].left_centroid_bounds)
-        out.right_centroid_bounds.grow(
-            partials[worker_idx].right_centroid_bounds
-        )
+        comptime if use_precomputed_bounds:
+            out.left_centroid_bounds.grow(
+                partials[worker_idx].left_centroid_bounds
+            )
+            out.right_centroid_bounds.grow(
+                partials[worker_idx].right_centroid_bounds
+            )
+        else:
+            out.left_bounds.grow(partials[worker_idx].left_bounds)
+            out.right_bounds.grow(partials[worker_idx].right_bounds)
+            out.left_centroid_bounds.grow(
+                partials[worker_idx].left_centroid_bounds
+            )
+            out.right_centroid_bounds.grow(
+                partials[worker_idx].right_centroid_bounds
+            )
 
     var indices_ptr = indices.unsafe_ptr()
 
@@ -445,6 +482,9 @@ def _partition_items_by_bin_parallel[
         "parallel SAH partition lost items",
     )
     out.split_idx = first + total_left
+    comptime if use_precomputed_bounds:
+        out.left_bounds = left_bounds
+        out.right_bounds = right_bounds
     return out^
 
 

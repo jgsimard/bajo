@@ -850,10 +850,9 @@ struct _TriangleBuild[
                 Self.hploc_microleaf_size,
             ].parallel_collapse_enabled:
                 if builder.nodes_used >= PARALLEL_COLLAPSE_EMIT_MIN_NODES:
-                    var binary_leaf_count = 0
-                    for node_idx in range(Int(builder.nodes_used)):
-                        if builder.nodes[node_idx].is_leaf():
-                            binary_leaf_count += 1
+                    # A binary BVH is a full tree, so leaves = internals + 1.
+                    # Avoid rescanning every node before the parallel collapse.
+                    var binary_leaf_count = (Int(builder.nodes_used) + 1) // 2
                     leaf_ranges = List[WideLeafRange](
                         capacity=binary_leaf_count
                     )

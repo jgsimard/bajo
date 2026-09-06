@@ -27,6 +27,9 @@ The current rendering and acceleration-structure foundations are strong enough t
   - ✅ lines, groups, objects, materials, and texture references
   - ✅ negative indices and triangulation
   - ✅ mmap loading
+- ✅ Binary little-endian PLY loading
+  - ✅ indexed polygon triangulation
+  - ✅ per-vertex positions, normals, and texture coordinates
 - ✅ PBRT text-scene parsing and loading
 - 🚧 Parser polish and diagnostics
 - ⬜ Parallel OBJ/MTL parsing

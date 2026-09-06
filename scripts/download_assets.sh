@@ -11,8 +11,6 @@ mkdir -p \
   assets/igea \
   assets/nefertiti \
   assets/armadillo \
-  assets/crown \
-  assets/pbrt/killeroos/geometry \
   .cache/assets
 
 # Bunny
@@ -99,33 +97,41 @@ if [ ! -f assets/armadillo/armadillo.obj ]; then
     https://raw.githubusercontent.com/alecjacobson/common-3d-test-models/master/data/armadillo.obj
 fi
 
-# Complete PBRT-v4 Crown scene: scene description, 794 PLY meshes, and 40
-# textures. Use a sparse checkout so the other large scene assets in the
-# repository are not downloaded. The pinned revision keeps benchmarks stable.
-if [ ! -f assets/crown/crown.pbrt ]; then
-  crown_checkout=.cache/assets/pbrt-v4-scenes-crown
-  crown_revision=30cf4a0346ae5a80a2d7a530a3ef7d0fa4f70572
+# Fetch one complete directory from pbrt-v4-scenes without downloading the
+# other multi-gigabyte scenes. Pinning the revision keeps tests and benchmarks
+# reproducible.
+download_pbrt_scene() {
+  local scene_name=$1
+  local destination=$2
+  local sentinel=$3
+  local revision=30cf4a0346ae5a80a2d7a530a3ef7d0fa4f70572
+  local checkout=.cache/assets/pbrt-v4-scenes-$scene_name
 
-  rm -rf "$crown_checkout"
-  git init -q "$crown_checkout"
-  git -C "$crown_checkout" remote add origin https://github.com/mmp/pbrt-v4-scenes.git
-  git -C "$crown_checkout" sparse-checkout init --cone
-  git -C "$crown_checkout" sparse-checkout set crown
-  git -C "$crown_checkout" fetch -q --depth 1 --filter=blob:none origin "$crown_revision"
-  git -C "$crown_checkout" checkout -q --detach FETCH_HEAD
-  cp -r "$crown_checkout/crown/." assets/crown/
-fi
+  if [ -f "$destination/$sentinel" ]; then
+    return
+  fi
 
-# PBRT-v4 Killeroo gallery scene. Model courtesy of headus; scene maintained
-# by the official pbrt-v4-scenes repository.
-if [ ! -f assets/pbrt/killeroos/killeroo-simple.pbrt ]; then
-  curl -L --fail \
-    -o assets/pbrt/killeroos/killeroo-simple.pbrt \
-    https://raw.githubusercontent.com/mmp/pbrt-v4-scenes/master/killeroos/killeroo-simple.pbrt
-fi
-if [ ! -f assets/pbrt/killeroos/geometry/killeroo.pbrt ]; then
-  curl -L --fail \
-    -o assets/pbrt/killeroos/geometry/killeroo.pbrt \
-    https://raw.githubusercontent.com/mmp/pbrt-v4-scenes/master/killeroos/geometry/killeroo.pbrt
-fi
+  rm -rf "$checkout"
+  git init -q "$checkout"
+  git -C "$checkout" remote add origin https://github.com/mmp/pbrt-v4-scenes.git
+  git -C "$checkout" sparse-checkout init --cone
+  git -C "$checkout" sparse-checkout set "$scene_name"
+  git -C "$checkout" fetch -q --depth 1 --filter=blob:none origin "$revision"
+  git -C "$checkout" checkout -q --detach FETCH_HEAD
+  mkdir -p "$destination"
+  cp -r "$checkout/$scene_name/." "$destination/"
+}
+
+# Progression scenes, from the nearly-supported Killeroos scene through PLY,
+# textures, large mesh sets, environment lighting, media, and full stress cases.
+download_pbrt_scene killeroos assets/pbrt/killeroos killeroo-gold.pbrt
+download_pbrt_scene pbrt-book assets/pbrt/pbrt-book book.pbrt
+download_pbrt_scene \
+  contemporary-bathroom \
+  assets/pbrt/contemporary-bathroom \
+  contemporary-bathroom.pbrt
+download_pbrt_scene bmw-m6 assets/pbrt/bmw-m6 bmw-m6.pbrt
+download_pbrt_scene crown assets/crown crown.pbrt
+download_pbrt_scene bistro assets/bistro bistro_cafe.pbrt
+
 echo "Assets downloaded."

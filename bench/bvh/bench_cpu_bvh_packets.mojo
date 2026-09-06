@@ -200,7 +200,7 @@ def trace_packet_any_hit[
             common_octant,
             .WORLD,
         ](bvh, UInt32(0), packet, valid)
-        hits += Int(occluded.cast[.uint32]().reduce_add())
+        hits += occluded.reduce_bit_count()
     return hits
 
 

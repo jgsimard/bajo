@@ -1,6 +1,6 @@
 """Shared-stack SIMD ray-packet traversal for CPU wide BVHs."""
 
-from std.bit import count_trailing_zeros, pop_count
+from std.bit import count_trailing_zeros
 from std.math import fma
 from std.memory import pack_bits
 
@@ -310,7 +310,7 @@ def trace_packet_stack_bounds_bvh[
                 (hybrid_leaves and is_leaf_ref(child_ref))
                 or (hybrid_internals and not is_leaf_ref(child_ref))
             ) and stack_ptr >= hybrid_min_stack_tasks:
-                var active_count = pop_count(Int(pack_bits(active)))
+                var active_count = active.reduce_bit_count()
                 if active_count <= hybrid_threshold:
                     hybrid_fn(active, child_ref, hit)
                     continue

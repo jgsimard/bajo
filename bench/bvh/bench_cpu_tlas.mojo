@@ -315,7 +315,7 @@ def _trace_packet_any_hit[
         var occluded = tlas.trace_blases_packet_any_hit[width, width, length](
             packet, blases, valid
         )
-        hits += UInt64(occluded.cast[.uint64]().reduce_add())
+        hits += UInt64(occluded.reduce_bit_count())
     keep(hits)
     return hits
 

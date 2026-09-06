@@ -205,7 +205,7 @@ def trace_packet_any[
         var occluded = tlas.trace_blases_packet_any_hit[16, 16, length](
             packet, blases, valid
         )
-        hits += Int(occluded.cast[.uint32]().reduce_add())
+        hits += occluded.reduce_bit_count()
     return (Float64(hits), hits)
 
 
@@ -300,7 +300,7 @@ def trace_flat_packet[
             var occluded = trace_blas_set_packet_any_hit[
                 16, leaf_width, length, common_octant, .WORLD
             ](blas, UInt32(0), packet, valid)
-            hits += Int(occluded.cast[.uint32]().reduce_add())
+            hits += occluded.reduce_bit_count()
         else:
             var hit = trace_blas_set_packet[
                 16, leaf_width, length, common_octant, .WORLD

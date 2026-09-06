@@ -167,13 +167,20 @@ def _flatten_emissives(world: SceneData) -> List[Float32]:
 
 
 def _flatten_coated_diffuses(world: SceneData) -> List[Float32]:
-    var out = List[Float32](capacity=len(world.surfaces().coated_diffuses) * 8)
+    var out = List[Float32](capacity=len(world.surfaces().coated_diffuses) * 15)
     for material in world.surfaces().coated_diffuses:
         out.append(material.albedo.x)
         out.append(material.albedo.y)
         out.append(material.albedo.z)
         out.append(material.roughness)
         out.append(material.eta)
+        out.append(material.thickness)
+        out.append(material.layer_albedo.x)
+        out.append(material.layer_albedo.y)
+        out.append(material.layer_albedo.z)
+        out.append(material.g)
+        out.append(Float32(material.max_depth))
+        out.append(Float32(material.n_samples))
         out.append(material.displacement_scale)
         out.append(material.displacement_u_scale)
         out.append(material.displacement_v_scale)
@@ -297,7 +304,7 @@ def _sample_gpu_coated_albedo(
     texture_pixels: Pointer[Float32, ImmutAnyOrigin],
 ) -> Color:
     var material_idx = Int(SurfaceId.index_from_raw(surface_value))
-    var material_base = 8 * material_idx
+    var material_base = 15 * material_idx
     var albedo = Color(
         coated_diffuses[unsafe_offset=material_base + 0],
         coated_diffuses[unsafe_offset=material_base + 1],
@@ -325,13 +332,13 @@ def _gpu_coated_shading_normal(
     if SurfaceId.kind_from_raw(surface_value) != .COATED_DIFFUSE:
         return normal
     var material_idx = Int(SurfaceId.index_from_raw(surface_value))
-    var material_base = 8 * material_idx
+    var material_base = 15 * material_idx
     var texture_idx = texture_indices[unsafe_offset=2 * material_idx + 1]
-    var scale = coated_diffuses[unsafe_offset=material_base + 5]
+    var scale = coated_diffuses[unsafe_offset=material_base + 12]
     if texture_idx == NO_TEXTURE or scale == 0.0:
         return normal
-    var u_scale = coated_diffuses[unsafe_offset=material_base + 6]
-    var v_scale = coated_diffuses[unsafe_offset=material_base + 7]
+    var u_scale = coated_diffuses[unsafe_offset=material_base + 13]
+    var v_scale = coated_diffuses[unsafe_offset=material_base + 14]
     var desc_base = 3 * Int(texture_idx)
     var width = Float32(texture_descs[unsafe_offset=desc_base + 1])
     var height = Float32(texture_descs[unsafe_offset=desc_base + 2])
@@ -626,7 +633,7 @@ def _sample_direct_light_candidate[
         value = evaluation.value
         bsdf_pdf = evaluation.pdf
     elif surface_kind == .COATED_DIFFUSE:
-        var material_base = 8 * material_idx
+        var material_base = 15 * material_idx
         var evaluation = _evaluate_coated_diffuse(
             incoming_ray.d,
             normal,
@@ -641,6 +648,15 @@ def _sample_direct_light_candidate[
             ),
             coated_diffuses[unsafe_offset=material_base + 3],
             coated_diffuses[unsafe_offset=material_base + 4],
+            coated_diffuses[unsafe_offset=material_base + 5],
+            Color(
+                coated_diffuses[unsafe_offset=material_base + 6],
+                coated_diffuses[unsafe_offset=material_base + 7],
+                coated_diffuses[unsafe_offset=material_base + 8],
+            ),
+            coated_diffuses[unsafe_offset=material_base + 9],
+            coated_diffuses[unsafe_offset=material_base + 10],
+            coated_diffuses[unsafe_offset=material_base + 11],
             geometry.direction,
         )
         value = evaluation.value
@@ -828,7 +844,7 @@ def _shade_coated_diffuse_inline[
     bounce: UInt32,
 ):
     var material_idx = Int(SurfaceId.index_from_raw(surface_value))
-    var material_base = 8 * material_idx
+    var material_base = 15 * material_idx
     var albedo = _sample_gpu_coated_albedo(
         surface_value,
         uv_u,
@@ -847,6 +863,15 @@ def _shade_coated_diffuse_inline[
         albedo,
         coated_diffuses[unsafe_offset=material_base + 3],
         coated_diffuses[unsafe_offset=material_base + 4],
+        coated_diffuses[unsafe_offset=material_base + 5],
+        Color(
+            coated_diffuses[unsafe_offset=material_base + 6],
+            coated_diffuses[unsafe_offset=material_base + 7],
+            coated_diffuses[unsafe_offset=material_base + 8],
+        ),
+        coated_diffuses[unsafe_offset=material_base + 9],
+        coated_diffuses[unsafe_offset=material_base + 10],
+        coated_diffuses[unsafe_offset=material_base + 11],
         rng.f32(),
         rng.f32(),
     )

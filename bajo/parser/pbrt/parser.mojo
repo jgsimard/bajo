@@ -1,6 +1,6 @@
 import std.os.path
 from max.algorithm import parallelize
-from std.math import abs, cos, log, pi, sin, sqrt
+from std.math import abs, cos, pi, sin, sqrt
 from std.sys import num_logical_cores
 
 from bajo.bvh import Camera, Instance, Sphere
@@ -605,15 +605,8 @@ def _scalar_parameter(
 
 
 def _roughness_to_alpha(roughness: Float32) -> Float32:
-    """PBRT's perceptual roughness remapping for microfacet materials."""
-    var x = log(max(roughness, 1.0e-3))
-    return (
-        1.62142
-        + 0.819955 * x
-        + 0.1734 * x * x
-        + 0.0171201 * x * x * x
-        + 0.000640711 * x * x * x * x
-    ).clamp(0.0, 1.0)
+    """PBRT v4's Trowbridge-Reitz perceptual roughness mapping."""
+    return sqrt(max(roughness, 0.0))
 
 
 def _texture(
@@ -732,6 +725,11 @@ def _surface(
             displacement.scale,
             displacement.u_scale,
             displacement.v_scale,
+            params.f32("float thickness", 0.01),
+            params.color("albedo", Color(0.0)),
+            params.f32("float g", 0.0),
+            params.integer("integer maxdepth", 10),
+            params.integer("integer nsamples", 1),
         )
     if model == "diffuse" or model == "matte":
         var reflectance = _color_texture_parameter(

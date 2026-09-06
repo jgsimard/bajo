@@ -253,6 +253,11 @@ struct CoatedDiffuse(Copyable, Writable):
     var displacement_scale: Float32
     var displacement_u_scale: Float32
     var displacement_v_scale: Float32
+    var thickness: Float32
+    var layer_albedo: Color
+    var g: Float32
+    var max_depth: Int
+    var n_samples: Int
 
     def validate(self) raises:
         if not self.albedo.is_finite()[0]:
@@ -274,6 +279,24 @@ struct CoatedDiffuse(Copyable, Writable):
             raise Error("coated diffuse roughness must be within [0, 1]")
         if not isfinite(self.eta) or self.eta <= 0.0:
             raise Error("coated diffuse eta must be positive")
+        if not isfinite(self.thickness) or self.thickness < 0.0:
+            raise Error("coated diffuse thickness must be non-negative")
+        if (
+            not self.layer_albedo.is_finite()[0]
+            or self.layer_albedo.x[0] < 0.0
+            or self.layer_albedo.x[0] > 1.0
+            or self.layer_albedo.y[0] < 0.0
+            or self.layer_albedo.y[0] > 1.0
+            or self.layer_albedo.z[0] < 0.0
+            or self.layer_albedo.z[0] > 1.0
+        ):
+            raise Error("coated diffuse layer albedo must be within [0, 1]")
+        if not isfinite(self.g) or self.g < -1.0 or self.g > 1.0:
+            raise Error("coated diffuse g must be within [-1, 1]")
+        if self.max_depth <= 0:
+            raise Error("coated diffuse max depth must be positive")
+        if self.n_samples <= 0:
+            raise Error("coated diffuse sample count must be positive")
         if (
             not isfinite(self.displacement_scale)
             or not isfinite(self.displacement_u_scale)
@@ -455,6 +478,11 @@ struct SurfaceStore:
         displacement_scale: Float32 = 0.0,
         displacement_u_scale: Float32 = 1.0,
         displacement_v_scale: Float32 = 1.0,
+        thickness: Float32 = 0.01,
+        layer_albedo: Color = Color(0.0),
+        g: Float32 = 0.0,
+        max_depth: Int = 10,
+        n_samples: Int = 1,
     ) -> SurfaceId[1]:
         var index = UInt32(len(self.coated_diffuses))
         self.coated_diffuses.append(
@@ -467,6 +495,11 @@ struct SurfaceStore:
                 displacement_scale,
                 displacement_u_scale,
                 displacement_v_scale,
+                thickness,
+                layer_albedo,
+                g,
+                max_depth,
+                n_samples,
             )
         )
         return SurfaceId(.COATED_DIFFUSE, index)

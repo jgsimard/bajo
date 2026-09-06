@@ -131,6 +131,18 @@ class GpuState:
     tag: int
     key: tuple[object, ...]
     bvh_stats: str
+    parse_ms: float
+    bvh_ms: float
+
+
+@dataclass
+class CpuState:
+    renderer: object
+    handle: int
+    key: tuple[object, ...]
+    bvh_stats: str
+    parse_ms: float
+    bvh_ms: float
 
 
 @dataclass(frozen=True)
@@ -153,7 +165,9 @@ class RenderSnapshot:
 @dataclass(frozen=True)
 class RenderStats:
     render_ms: float
-    build_ms: float
+    parse_ms: float
+    bvh_ms: float
+    init_ms: float
     mrays: float
     bvh_stats: str
 
@@ -212,6 +226,7 @@ class Viewer:
         self.image: Image.Image | None = None
         self.photo: ImageTk.PhotoImage | None = None
         self.gpu_state: GpuState | None = None
+        self.cpu_state: CpuState | None = None
         self.temp_dir = tempfile.TemporaryDirectory(prefix="bajo-viewer-")
         self.output_path = Path(self.temp_dir.name) / "frame.rgb32"
         self.renderer = self._load_renderer(
@@ -643,8 +658,8 @@ class Viewer:
         render_config: dict[str, object],
     ) -> RenderStats:
         if work.backend_index == 1:
+            self._destroy_cpu_state()
             state_key = (renderer_config, work.scene_index, work.scene_path)
-            state_build_ms = 0.0
             if self.gpu_state is None or self.gpu_state.key != state_key:
                 self._destroy_gpu_state()
                 created = renderer.create_gpu_state(render_config)
@@ -653,9 +668,10 @@ class Viewer:
                     handle=int(created[0]),
                     tag=int(created[1]),
                     key=state_key,
-                    bvh_stats=str(created[3]),
+                    bvh_stats=str(created[4]),
+                    parse_ms=float(created[2]),
+                    bvh_ms=float(created[3]),
                 )
-                state_build_ms = float(created[2])
             state = self.gpu_state
             assert state is not None
             raw_stats = renderer.render_gpu_state(
@@ -663,18 +679,36 @@ class Viewer:
             )
             return RenderStats(
                 render_ms=float(raw_stats[0]),
-                build_ms=state_build_ms + float(raw_stats[1]),
+                parse_ms=state.parse_ms,
+                bvh_ms=state.bvh_ms,
+                init_ms=float(raw_stats[1]),
                 mrays=float(raw_stats[2]),
                 bvh_stats=state.bvh_stats,
             )
 
         self._destroy_gpu_state()
-        raw_stats = renderer.render_frame(render_config)
+        state_key = (renderer_config, work.scene_index, work.scene_path)
+        if self.cpu_state is None or self.cpu_state.key != state_key:
+            self._destroy_cpu_state()
+            created = renderer.create_cpu_state(render_config)
+            self.cpu_state = CpuState(
+                renderer=renderer,
+                handle=int(created[0]),
+                key=state_key,
+                bvh_stats=str(created[3]),
+                parse_ms=float(created[1]),
+                bvh_ms=float(created[2]),
+            )
+        state = self.cpu_state
+        assert state is not None
+        raw_stats = renderer.render_cpu_state(state.handle, render_config)
         return RenderStats(
             render_ms=float(raw_stats[0]),
-            build_ms=float(raw_stats[1]),
+            parse_ms=state.parse_ms,
+            bvh_ms=state.bvh_ms,
+            init_ms=float(raw_stats[1]),
             mrays=float(raw_stats[2]),
-            bvh_stats=str(raw_stats[3]),
+            bvh_stats=state.bvh_stats,
         )
 
     def _read_frame(self, options: RenderOptions) -> np.ndarray:
@@ -716,6 +750,7 @@ class Viewer:
                 )
                 if self.renderer_config != requested_config:
                     self._destroy_gpu_state()
+                    self._destroy_cpu_state()
                     self.root.after(
                         0,
                         lambda backend=work.backend_index, integrator=work.integrator_index, traversal=work.traversal_index, build=work.build_index: self.update_status(
@@ -833,6 +868,13 @@ class Viewer:
         self.gpu_state = None
         state.renderer.destroy_gpu_state(state.handle, state.tag)
 
+    def _destroy_cpu_state(self) -> None:
+        state = self.cpu_state
+        if state is None:
+            return
+        self.cpu_state = None
+        state.renderer.destroy_cpu_state(state.handle)
+
     def show_frame(
         self,
         frame: Image.Image,
@@ -862,6 +904,9 @@ class Viewer:
         )
         integrator_name = INTEGRATORS[work.integrator_index]
         backend_name = BACKENDS[work.backend_index]
+        preparation_name = (
+            "BVH once" if work.backend_index == 0 else "GPU prepare once"
+        )
         sampler_name = SAMPLERS[work.sampler_index]
         scene_name = (
             f"PBRT:{Path(work.scene_path).name}" if work.scene_index
@@ -878,7 +923,9 @@ class Viewer:
             f"{sampler_name}  |  "
             f"{scene_name}  |  "
             f"Depth {work.options.max_depth}  |  "
-            f"Build {stats.build_ms:.1f} ms  |  "
+            f"Parse once {stats.parse_ms:.1f} ms  |  "
+            f"{preparation_name} {stats.bvh_ms:.1f} ms  |  "
+            f"Init {stats.init_ms:.1f} ms  |  "
             f"Render {stats.render_ms:.2f} ms  |  "
             f"{stats.mrays:.2f} MRays/s  |  "
             f"Wall {elapsed_ms:.2f}ms  |  "
@@ -1195,6 +1242,7 @@ class Viewer:
         self.closed = True
         if not self.rendering:
             self._destroy_gpu_state()
+            self._destroy_cpu_state()
         self.temp_dir.cleanup()
         self.root.destroy()
 

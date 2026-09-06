@@ -54,6 +54,11 @@ def evaluate_bsdf(
             surfaces.sample_albedo(surface, hit.uv_u[0], hit.uv_v[0]),
             SIMD[.float32, 1](material.roughness),
             SIMD[.float32, 1](material.eta),
+            SIMD[.float32, 1](material.thickness),
+            material.layer_albedo,
+            SIMD[.float32, 1](material.g),
+            SIMD[.float32, 1](Float32(material.max_depth)),
+            SIMD[.float32, 1](Float32(material.n_samples)),
             out_direction,
         )
 
@@ -127,6 +132,11 @@ def sample_bsdf(
             surfaces.sample_albedo(surface, hit.uv_u[0], hit.uv_v[0]),
             SIMD[.float32, 1](material.roughness),
             SIMD[.float32, 1](material.eta),
+            SIMD[.float32, 1](material.thickness),
+            material.layer_albedo,
+            SIMD[.float32, 1](material.g),
+            SIMD[.float32, 1](Float32(material.max_depth)),
+            SIMD[.float32, 1](Float32(material.n_samples)),
             SIMD[.float32, 1](rng.f32()),
             SIMD[.float32, 1](rng.f32()),
         )

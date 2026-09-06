@@ -100,6 +100,11 @@ def _accumulate_direct_light_packet[
     var albedo = Vec3[.float32, .WORLD, length](0.0)
     var fuzz = SIMD[.float32, length](1.0)
     var eta = SIMD[.float32, length](1.5)
+    var thickness = SIMD[.float32, length](0.01)
+    var layer_albedo = Vec3[.float32, .WORLD, length](0.0)
+    var g = SIMD[.float32, length](0.0)
+    var layer_max_depth = SIMD[.float32, length](10.0)
+    var layer_samples = SIMD[.float32, length](1.0)
     for lane in range(lane_count):
         if not lights.sample.valid[lane]:
             continue
@@ -137,6 +142,13 @@ def _accumulate_direct_light_packet[
             albedo.z[lane] = sampled.z
             fuzz[lane] = material.roughness
             eta[lane] = material.eta
+            thickness[lane] = material.thickness
+            layer_albedo.x[lane] = material.layer_albedo.x
+            layer_albedo.y[lane] = material.layer_albedo.y
+            layer_albedo.z[lane] = material.layer_albedo.z
+            g[lane] = material.g
+            layer_max_depth[lane] = Float32(material.max_depth)
+            layer_samples[lane] = Float32(material.n_samples)
 
     var lambertian = _evaluate_material[.LAMBERTIAN, length](
         ray_direction,
@@ -158,6 +170,11 @@ def _accumulate_direct_light_packet[
         albedo,
         fuzz,
         eta,
+        thickness,
+        layer_albedo,
+        g,
+        layer_max_depth,
+        layer_samples,
         lights.sample.direction,
     )
     var is_lambertian = lights.surface_kinds.eq(MaterialKind.LAMBERTIAN.value)
@@ -206,6 +223,11 @@ def _sample_bsdf_batch[
     var albedo = Vec3[.float32, .WORLD, length](0.0)
     var parameter = SIMD[.float32, length](1.0)
     var eta = SIMD[.float32, length](1.5)
+    var thickness = SIMD[.float32, length](0.01)
+    var layer_albedo = Vec3[.float32, .WORLD, length](0.0)
+    var g = SIMD[.float32, length](0.0)
+    var layer_max_depth = SIMD[.float32, length](10.0)
+    var layer_samples = SIMD[.float32, length](1.0)
     var random_u = SIMD[.float32, length](0.0)
     var random_v = SIMD[.float32, length](0.0)
     var active = SIMD[.bool, length](fill=False)
@@ -259,6 +281,13 @@ def _sample_bsdf_batch[
             albedo.z[lane] = sampled.z
             parameter[lane] = material.roughness
             eta[lane] = material.eta
+            thickness[lane] = material.thickness
+            layer_albedo.x[lane] = material.layer_albedo.x
+            layer_albedo.y[lane] = material.layer_albedo.y
+            layer_albedo.z[lane] = material.layer_albedo.z
+            g[lane] = material.g
+            layer_max_depth[lane] = Float32(material.max_depth)
+            layer_samples[lane] = Float32(material.n_samples)
             random_u[lane] = rng.f32()
             random_v[lane] = rng.f32()
 
@@ -281,6 +310,11 @@ def _sample_bsdf_batch[
             albedo,
             parameter,
             eta,
+            thickness,
+            layer_albedo,
+            g,
+            layer_max_depth,
+            layer_samples,
             random_u,
             random_v,
         )

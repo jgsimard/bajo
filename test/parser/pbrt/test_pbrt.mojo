@@ -1,4 +1,5 @@
 from std.memory import bitcast
+from std.math import sqrt
 from std.testing import (
     TestSuite,
     assert_almost_equal,
@@ -131,6 +132,8 @@ WorldEnd
 def test_coateddiffuse_material() raises:
     comptime source = """WorldBegin
 Material "coateddiffuse" "rgb reflectance" [0.4 0.2 0.1] "float roughness" [0.025]
+    "float thickness" [0.03] "rgb albedo" [0.1 0.2 0.3] "float g" [0.4]
+    "integer maxdepth" [7] "integer nsamples" [3]
 Shape "sphere"
 """
     var scene = parse_pbrt(source)
@@ -141,9 +144,15 @@ Shape "sphere"
     assert_almost_equal(albedo.x, 0.4)
     assert_almost_equal(albedo.y, 0.2)
     assert_almost_equal(albedo.z, 0.1)
-    assert_true(material.roughness > 0.025)
-    assert_true(material.roughness < 1.0)
+    assert_almost_equal(material.roughness, sqrt(Float32(0.025)))
     assert_almost_equal(material.eta, 1.5)
+    assert_almost_equal(material.thickness, 0.03)
+    assert_almost_equal(material.layer_albedo.x, 0.1)
+    assert_almost_equal(material.layer_albedo.y, 0.2)
+    assert_almost_equal(material.layer_albedo.z, 0.3)
+    assert_almost_equal(material.g, 0.4)
+    assert_true(material.max_depth == 7)
+    assert_true(material.n_samples == 3)
 
 
 def test_texture_graph_loads_imagemap() raises:

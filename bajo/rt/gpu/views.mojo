@@ -56,6 +56,10 @@ struct GpuRtInstanceView(TrivialRegisterPassable):
     var blas_descs: Pointer[UInt32, ImmUntrackedOrigin]
     var blas_nodes: Pointer[Float32, ImmUntrackedOrigin]
     var blas_leaves: Pointer[Float32, ImmUntrackedOrigin]
+    var normal_offsets: Pointer[UInt32, ImmUntrackedOrigin]
+    var normals: Pointer[Float32, ImmUntrackedOrigin]
+    var texcoord_offsets: Pointer[UInt32, ImmUntrackedOrigin]
+    var texcoords: Pointer[Float32, ImmUntrackedOrigin]
     var tlas_root: UInt32
     var count: Int32
     var blas_count: Int32
@@ -78,6 +82,9 @@ struct GpuRtSceneView(Copyable, DevicePassable):
     var lambertians: Pointer[Float32, ImmUntrackedOrigin]
     var metals: Pointer[Float32, ImmUntrackedOrigin]
     var dielectrics: Pointer[Float32, ImmUntrackedOrigin]
+    var lambertian_texture_indices: Pointer[UInt32, ImmUntrackedOrigin]
+    var texture_descs: Pointer[UInt32, ImmUntrackedOrigin]
+    var texture_pixels: Pointer[Float32, ImmUntrackedOrigin]
     var light_kinds: Pointer[UInt32, ImmUntrackedOrigin]
     var light_fields: Pointer[Float32, ImmUntrackedOrigin]
     var light_count: Int32

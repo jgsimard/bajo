@@ -19,12 +19,14 @@ from bajo.bvh.types import Hit
 from bajo.core import (
     Frame,
     GeoKind,
+    Normal3f32,
     Point3,
     Point3f32,
     Ray,
     Rayf32,
     Vec3,
     Vec3f32,
+    dot,
 )
 from bajo.rt.geometry import orient_surface_normal
 from bajo.rt.types import (
@@ -44,6 +46,8 @@ struct _WorldHit(Copyable, Writable):
     var primitive: PrimitiveId
     var normal: Vec3f32[.WORLD]
     var surface: SurfaceId[1]
+    var uv_u: Float32
+    var uv_v: Float32
     var t: Float32
     var front_face: Bool
     var hit: Bool
@@ -54,6 +58,8 @@ struct _WorldHit(Copyable, Writable):
             PrimitiveId(PrimitiveKind.SPHERE, UInt32(0)),
             Vec3f32[.WORLD](0.0),
             SurfaceId(.LAMBERTIAN, UInt32(0)),
+            0.0,
+            0.0,
             t,
             True,
             False,
@@ -276,6 +282,8 @@ struct CpuScene[
                 result.normal.y[0] = scalar_hit.normal.y
                 result.normal.z[0] = scalar_hit.normal.z
                 result.surface.value[0] = scalar_hit.surface.value
+                result.uv_u[0] = scalar_hit.uv_u
+                result.uv_v[0] = scalar_hit.uv_v
                 result.t[0] = scalar_hit.t
                 result.front_face[0] = scalar_hit.front_face
                 result.hit[0] = scalar_hit.hit
@@ -433,17 +441,73 @@ struct CpuScene[
             var instance_mask = instance_hits.is_hit()
             instance_mask &= instance_hits.t.lt(result.t)
             var surface_values = SIMD[.uint32, length](0)
+            var texture_u = SIMD[.float32, length](0.0)
+            var texture_v = SIMD[.float32, length](0.0)
+            var instance_normal = instance_hits.normal.unsafe_convert[
+                new_kind=GeoKind.VECTOR
+            ]()
             for lane in range(length):
                 if instance_mask[lane]:
                     var instance_idx = Int(instance_hits.inst[lane])
+                    ref instance = self._scene.triangle_instances()[
+                        instance_idx
+                    ]
+                    var mesh_idx = Int(instance.blas_idx)
+                    var triangle_idx = Int(instance_hits.prim[lane])
+                    var b0 = (
+                        Float32(1.0)
+                        - instance_hits.u[lane]
+                        - instance_hits.v[lane]
+                    )
+                    var b1 = instance_hits.u[lane]
+                    var b2 = instance_hits.v[lane]
+                    ref texcoords = self._scene.triangle_mesh_texcoords()[
+                        mesh_idx
+                    ]
+                    if len(texcoords) != 0:
+                        var base = 6 * triangle_idx
+                        texture_u[lane] = (
+                            b0 * texcoords[base]
+                            + b1 * texcoords[base + 2]
+                            + b2 * texcoords[base + 4]
+                        )
+                        texture_v[lane] = (
+                            b0 * texcoords[base + 1]
+                            + b1 * texcoords[base + 3]
+                            + b2 * texcoords[base + 5]
+                        )
+                    ref normals = self._scene.triangle_mesh_normals()[mesh_idx]
+                    if len(normals) != 0:
+                        var base = 9 * triangle_idx
+                        var local_normal = Normal3f32[.LOCAL](
+                            b0 * normals[base]
+                            + b1 * normals[base + 3]
+                            + b2 * normals[base + 6],
+                            b0 * normals[base + 1]
+                            + b1 * normals[base + 4]
+                            + b2 * normals[base + 7],
+                            b0 * normals[base + 2]
+                            + b1 * normals[base + 5]
+                            + b2 * normals[base + 8],
+                        )
+                        var world_normal = instance.transform.normal(
+                            local_normal, instance.inv_transform
+                        ).unsafe_convert[new_kind=GeoKind.VECTOR]()
+                        var geometric = Vec3f32[.WORLD](
+                            instance_hits.normal.x[lane],
+                            instance_hits.normal.y[lane],
+                            instance_hits.normal.z[lane],
+                        )
+                        if dot(world_normal, geometric) < 0.0:
+                            world_normal = -world_normal
+                        instance_normal.x[lane] = world_normal.x
+                        instance_normal.y[lane] = world_normal.y
+                        instance_normal.z[lane] = world_normal.z
                     surface_values[
                         lane
                     ] = self._scene.triangle_instance_surfaces()[
                         instance_idx
                     ].value
-            var instance_normal = instance_hits.normal.unsafe_convert[
-                new_kind=GeoKind.VECTOR
-            ]()
             var oriented = orient_surface_normal(rays.d, instance_normal)
             result.normal = Vec3.select(
                 instance_mask, oriented.normal, result.normal
@@ -451,6 +515,8 @@ struct CpuScene[
             result.surface.value = instance_mask.select(
                 surface_values, result.surface.value
             )
+            result.uv_u = instance_mask.select(texture_u, result.uv_u)
+            result.uv_v = instance_mask.select(texture_v, result.uv_v)
             result.t = instance_mask.select(instance_hits.t, result.t)
             result.front_face = instance_mask.select(
                 oriented.front_face, result.front_face
@@ -485,6 +551,8 @@ struct CpuScene[
             PrimitiveId(PrimitiveKind.SPHERE, bvh_hit.prim),
             oriented.normal,
             self._scene.sphere_surfaces()[sphere_idx].copy(),
+            0.0,
+            0.0,
             bvh_hit.t,
             oriented.front_face,
             True,
@@ -516,6 +584,8 @@ struct CpuScene[
             PrimitiveId(PrimitiveKind.TRIANGLE, bvh_hit.prim),
             oriented.normal,
             self._scene.triangle_surfaces()[tri_idx].copy(),
+            0.0,
+            0.0,
             bvh_hit.t,
             oriented.front_face,
             True,
@@ -539,14 +609,57 @@ struct CpuScene[
             and instance_idx < len(self._scene.triangle_instances()),
             "TLAS returned an out-of-range triangle instance index",
         )
-        var outward_normal = bvh_hit.normal.unsafe_convert[
+        var geometric_normal = bvh_hit.normal.unsafe_convert[
             new_kind=GeoKind.VECTOR
         ]()
+        var outward_normal = geometric_normal
+        ref instance = self._scene.triangle_instances()[instance_idx]
+        var mesh_idx = Int(instance.blas_idx)
+        var triangle_idx = Int(bvh_hit.prim)
+        var b0 = Float32(1.0) - bvh_hit.u - bvh_hit.v
+        var b1 = bvh_hit.u
+        var b2 = bvh_hit.v
+        ref normals = self._scene.triangle_mesh_normals()[mesh_idx]
+        if len(normals) != 0:
+            var base = 9 * triangle_idx
+            var local_normal = Normal3f32[.LOCAL](
+                b0 * normals[base]
+                + b1 * normals[base + 3]
+                + b2 * normals[base + 6],
+                b0 * normals[base + 1]
+                + b1 * normals[base + 4]
+                + b2 * normals[base + 7],
+                b0 * normals[base + 2]
+                + b1 * normals[base + 5]
+                + b2 * normals[base + 8],
+            )
+            outward_normal = instance.transform.normal(
+                local_normal, instance.inv_transform
+            ).unsafe_convert[new_kind=GeoKind.VECTOR]()
+            if dot(outward_normal, geometric_normal) < 0.0:
+                outward_normal = -outward_normal
+        var texture_u = Float32(0.0)
+        var texture_v = Float32(0.0)
+        ref texcoords = self._scene.triangle_mesh_texcoords()[mesh_idx]
+        if len(texcoords) != 0:
+            var base = 6 * triangle_idx
+            texture_u = (
+                b0 * texcoords[base]
+                + b1 * texcoords[base + 2]
+                + b2 * texcoords[base + 4]
+            )
+            texture_v = (
+                b0 * texcoords[base + 1]
+                + b1 * texcoords[base + 3]
+                + b2 * texcoords[base + 5]
+            )
         var oriented = orient_surface_normal(ray.d, outward_normal)
         return _WorldHit(
             PrimitiveId(PrimitiveKind.TRIANGLE_INSTANCE, bvh_hit.inst),
             oriented.normal,
             self._scene.triangle_instance_surfaces()[instance_idx].copy(),
+            texture_u,
+            texture_v,
             bvh_hit.t,
             oriented.front_face,
             True,

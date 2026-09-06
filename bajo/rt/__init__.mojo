@@ -19,6 +19,7 @@ from .types import (
     Dielectric,
     Emissive,
     HitRecord,
+    ImageTexture,
     Lambertian,
     LightRecord,
     LightStore,

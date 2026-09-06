@@ -1,7 +1,7 @@
 """Shared GPU RT material, lighting, routing, and shading kernels."""
 
 from max.gpu import block_dim, global_idx, grid_dim
-from std.math import ceildiv, sqrt
+from std.math import ceildiv, floor, sqrt
 from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh.gpu.utils import upload_list
@@ -30,6 +30,7 @@ from bajo.rt.shading import _evaluate_material, _sample_material
 from bajo.rt.types import (
     Color,
     MaterialKind,
+    NO_TEXTURE,
     PrimitiveKind,
     Integrator,
     SceneData,
@@ -102,6 +103,37 @@ def _flatten_lambertians(world: SceneData) -> List[Float32]:
     return out^
 
 
+def _flatten_lambertian_texture_indices(world: SceneData) -> List[UInt32]:
+    var out = List[UInt32](capacity=len(world.surfaces().lambertians))
+    for material in world.surfaces().lambertians:
+        out.append(material.texture_index)
+    return out^
+
+
+def _flatten_texture_descs(world: SceneData) -> List[UInt32]:
+    var out = List[UInt32](capacity=len(world.surfaces().image_textures) * 3)
+    var pixel_offset = UInt32(0)
+    for texture_idx in range(len(world.surfaces().image_textures)):
+        ref texture = world.surfaces().image_textures[texture_idx]
+        out.append(pixel_offset)
+        out.append(UInt32(texture.width))
+        out.append(UInt32(texture.height))
+        pixel_offset += UInt32(len(texture.pixels))
+    return out^
+
+
+def _flatten_texture_pixels(world: SceneData) -> List[Float32]:
+    var count = 0
+    for texture_idx in range(len(world.surfaces().image_textures)):
+        count += len(world.surfaces().image_textures[texture_idx].pixels)
+    var out = List[Float32](capacity=count)
+    for texture_idx in range(len(world.surfaces().image_textures)):
+        ref texture = world.surfaces().image_textures[texture_idx]
+        for value in texture.pixels:
+            out.append(value)
+    return out^
+
+
 def _flatten_metals(world: SceneData) -> List[Float32]:
     var out = List[Float32](capacity=len(world.surfaces().metals) * 4)
     for material in world.surfaces().metals:
@@ -135,6 +167,9 @@ struct GpuRtMaterials:
     var metals: DeviceBuffer[.float32]
     var dielectrics: DeviceBuffer[.float32]
     var emissives: DeviceBuffer[.float32]
+    var lambertian_texture_indices: DeviceBuffer[.uint32]
+    var texture_descs: DeviceBuffer[.uint32]
+    var texture_pixels: DeviceBuffer[.float32]
     var has_non_lambertian: Bool
 
     def __init__(
@@ -142,14 +177,63 @@ struct GpuRtMaterials:
         mut ctx: DeviceContext,
         world: SceneData,
     ) raises:
+        for material in world.surfaces().metals:
+            if material.texture_index != NO_TEXTURE:
+                raise Error("GPU metal image textures are not yet supported")
         self.lambertians = _upload_nonempty(ctx, _flatten_lambertians(world))
         self.metals = _upload_nonempty(ctx, _flatten_metals(world))
         self.dielectrics = _upload_nonempty(ctx, _flatten_dielectrics(world))
         self.emissives = _upload_nonempty(ctx, _flatten_emissives(world))
+        self.lambertian_texture_indices = _upload_nonempty(
+            ctx, _flatten_lambertian_texture_indices(world)
+        )
+        self.texture_descs = _upload_nonempty(
+            ctx, _flatten_texture_descs(world)
+        )
+        self.texture_pixels = _upload_nonempty(
+            ctx, _flatten_texture_pixels(world)
+        )
         self.has_non_lambertian = (
             len(world.surfaces().metals) > 0
             or len(world.surfaces().dielectrics) > 0
         )
+
+
+@always_inline
+def _sample_gpu_lambertian(
+    surface_value: UInt32,
+    u: Float32,
+    v: Float32,
+    lambertians: Pointer[Float32, ImmutAnyOrigin],
+    texture_indices: Pointer[UInt32, ImmutAnyOrigin],
+    texture_descs: Pointer[UInt32, ImmutAnyOrigin],
+    texture_pixels: Pointer[Float32, ImmutAnyOrigin],
+) -> Color:
+    var material_idx = Int(SurfaceId.index_from_raw(surface_value))
+    var material_base = 3 * material_idx
+    var albedo = Color(
+        lambertians[unsafe_offset=material_base + 0],
+        lambertians[unsafe_offset=material_base + 1],
+        lambertians[unsafe_offset=material_base + 2],
+    )
+    var texture_idx = texture_indices[unsafe_offset=material_idx]
+    if texture_idx == NO_TEXTURE:
+        return albedo
+
+    var desc_base = 3 * Int(texture_idx)
+    var pixel_offset = Int(texture_descs[unsafe_offset=desc_base])
+    var width = Int(texture_descs[unsafe_offset=desc_base + 1])
+    var height = Int(texture_descs[unsafe_offset=desc_base + 2])
+    var wrapped_u = u - floor(u)
+    var wrapped_v = v - floor(v)
+    var x = min(Int(wrapped_u * Float32(width)), width - 1)
+    var y = min(Int((Float32(1.0) - wrapped_v) * Float32(height)), height - 1)
+    var base = pixel_offset + 3 * (y * width + x)
+    return albedo * Color(
+        texture_pixels[unsafe_offset=base],
+        texture_pixels[unsafe_offset=base + 1],
+        texture_pixels[unsafe_offset=base + 2],
+    )
 
 
 struct GpuRtLights:
@@ -245,8 +329,13 @@ def _sample_direct_light_candidate[
     incoming_ray: Rayf32[.WORLD],
     hit_t: Float32,
     normal: Vec3f32[.WORLD],
+    uv_u: Float32,
+    uv_v: Float32,
     surface_value: UInt32,
     lambertians: Pointer[Float32, ImmutAnyOrigin],
+    lambertian_texture_indices: Pointer[UInt32, ImmutAnyOrigin],
+    texture_descs: Pointer[UInt32, ImmutAnyOrigin],
+    texture_pixels: Pointer[Float32, ImmutAnyOrigin],
     metals: Pointer[Float32, ImmutAnyOrigin],
     light_kinds: Pointer[UInt32, ImmutAnyOrigin],
     light_fields: Pointer[Float32, ImmutAnyOrigin],
@@ -343,14 +432,17 @@ def _sample_direct_light_candidate[
     var value = Color(0.0)
     var bsdf_pdf = Float32(0.0)
     if surface_kind == .LAMBERTIAN:
-        var material_base = 3 * material_idx
         var evaluation = _evaluate_material[.LAMBERTIAN, 1](
             incoming_ray.d,
             normal,
-            Color(
-                lambertians[unsafe_offset=material_base + 0],
-                lambertians[unsafe_offset=material_base + 1],
-                lambertians[unsafe_offset=material_base + 2],
+            _sample_gpu_lambertian(
+                surface_value,
+                uv_u,
+                uv_v,
+                lambertians,
+                lambertian_texture_indices,
+                texture_descs,
+                texture_pixels,
             ),
             1.0,
             geometry.direction,
@@ -449,9 +541,14 @@ def _shade_lambertian_inline[
     path: DeviceWavePath,
     ray_direction: Vec3f32[.WORLD],
     normal: Vec3f32[.WORLD],
+    uv_u: Float32,
+    uv_v: Float32,
     hit_t: Float32,
     surface_value: UInt32,
     lambertians: Pointer[Float32, ImmutAnyOrigin],
+    lambertian_texture_indices: Pointer[UInt32, ImmutAnyOrigin],
+    texture_descs: Pointer[UInt32, ImmutAnyOrigin],
+    texture_pixels: Pointer[Float32, ImmutAnyOrigin],
     dst_path_ids: Pointer[UInt32, MutAnyOrigin],
     dst_path_fields: Pointer[Float32, MutAnyOrigin],
     counters: Pointer[UInt32, MutAnyOrigin],
@@ -460,12 +557,14 @@ def _shade_lambertian_inline[
     bounce: UInt32,
 ):
     """Fuse the dominant diffuse shade operation into closest-hit routing."""
-    var material_idx = Int(SurfaceId.index_from_raw(surface_value))
-    var base = 3 * material_idx
-    var albedo = Color(
-        lambertians[unsafe_offset=base + 0],
-        lambertians[unsafe_offset=base + 1],
-        lambertians[unsafe_offset=base + 2],
+    var albedo = _sample_gpu_lambertian(
+        surface_value,
+        uv_u,
+        uv_v,
+        lambertians,
+        lambertian_texture_indices,
+        texture_descs,
+        texture_pixels,
     )
     var rng = path_stage_rng(
         sampling, path.path_id, wavefront_rng_stage(bounce)
@@ -534,12 +633,17 @@ def _route_surface_hit[
     ray_direction: Vec3f32[.WORLD],
     normal: Vec3f32[.WORLD],
     front_face: Bool,
+    uv_u: Float32,
+    uv_v: Float32,
     hit_t: Float32,
     surface_value: UInt32,
     bounce: UInt32,
     total_light_weight: Float32,
     emissives: Pointer[Float32, ImmutAnyOrigin],
     lambertians: Pointer[Float32, ImmutAnyOrigin],
+    lambertian_texture_indices: Pointer[UInt32, ImmutAnyOrigin],
+    texture_descs: Pointer[UInt32, ImmutAnyOrigin],
+    texture_pixels: Pointer[Float32, ImmutAnyOrigin],
     dst_path_ids: Pointer[UInt32, MutAnyOrigin],
     dst_path_fields: Pointer[Float32, MutAnyOrigin],
     shade_path_refs: Pointer[UInt32, MutAnyOrigin],
@@ -600,9 +704,14 @@ def _route_surface_hit[
             path,
             ray_direction,
             normal,
+            uv_u,
+            uv_v,
             hit_t,
             surface_value,
             lambertians,
+            lambertian_texture_indices,
+            texture_descs,
+            texture_pixels,
             dst_path_ids,
             dst_path_fields,
             counters,

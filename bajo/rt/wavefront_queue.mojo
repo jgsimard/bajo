@@ -146,6 +146,8 @@ struct ShadePacket[length: SIMDLength](Copyable):
     var nx: SIMD[.float32, Self.length]
     var ny: SIMD[.float32, Self.length]
     var nz: SIMD[.float32, Self.length]
+    var uv_u: SIMD[.float32, Self.length]
+    var uv_v: SIMD[.float32, Self.length]
     var hit_t: SIMD[.float32, Self.length]
     var surface_indices: SIMD[.uint32, Self.length]
     var front_faces: SIMD[.bool, Self.length]
@@ -164,6 +166,8 @@ struct ShadePacket[length: SIMDLength](Copyable):
         self.nx = 0.0
         self.ny = 0.0
         self.nz = 0.0
+        self.uv_u = 0.0
+        self.uv_v = 0.0
         self.hit_t = 0.0
         self.surface_indices = 0
         self.front_faces = SIMD[.bool, Self.length](fill=False)
@@ -212,6 +216,8 @@ struct PacketShadeQueue[length: SIMDLength](Sized):
         shade.nx[shade_lane] = hit.normal.x
         shade.ny[shade_lane] = hit.normal.y
         shade.nz[shade_lane] = hit.normal.z
+        shade.uv_u[shade_lane] = hit.uv_u
+        shade.uv_v[shade_lane] = hit.uv_v
         shade.hit_t[shade_lane] = hit.t
         shade.surface_indices[shade_lane] = hit.surface.index()
         shade.front_faces[shade_lane] = hit.front_face

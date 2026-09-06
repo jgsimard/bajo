@@ -24,11 +24,10 @@ def evaluate_bsdf(
 ) -> BsdfEvaluation[1]:
     """Evaluate the non-delta BSDF and its solid-angle sampling PDF."""
     if surface.kind() == .LAMBERTIAN:
-        ref material = surfaces.lambertians[Int(surface.index())]
         return _evaluate_material[.LAMBERTIAN, 1](
             ray.d,
             hit.normal,
-            material.albedo,
+            surfaces.sample_albedo(surface, hit.uv_u[0], hit.uv_v[0]),
             SIMD[.float32, 1](1.0),
             out_direction,
         )
@@ -37,7 +36,7 @@ def evaluate_bsdf(
         return _evaluate_material[.METAL, 1](
             ray.d,
             hit.normal,
-            material.albedo,
+            surfaces.sample_albedo(surface, hit.uv_u[0], hit.uv_v[0]),
             SIMD[.float32, 1](material.fuzz),
             out_direction,
         )
@@ -74,11 +73,10 @@ def sample_bsdf(
     mut rng: Rng,
 ) -> BsdfSample[1]:
     if surface.kind() == .LAMBERTIAN:
-        ref material = surfaces.lambertians[Int(surface.index())]
         return _sample_material[.LAMBERTIAN, 1](
             ray.d,
             hit.normal,
-            material.albedo,
+            surfaces.sample_albedo(surface, hit.uv_u[0], hit.uv_v[0]),
             SIMD[.float32, 1](1.0),
             hit.front_face,
             SIMD[.float32, 1](rng.f32()),
@@ -98,7 +96,7 @@ def sample_bsdf(
         return _sample_material[.METAL, 1](
             ray.d,
             hit.normal,
-            material.albedo,
+            surfaces.sample_albedo(surface, hit.uv_u[0], hit.uv_v[0]),
             SIMD[.float32, 1](material.fuzz),
             hit.front_face,
             SIMD[.float32, 1](random_u),

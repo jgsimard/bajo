@@ -1117,9 +1117,14 @@ class Viewer:
     def choose_pbrt(self) -> None:
         from tkinter import filedialog
 
+        pbrt_assets = ROOT / "assets" / "pbrt"
         path = filedialog.askopenfilename(
             title="Open PBRT scene",
-            filetypes=[("PBRT scenes", "*.pbrt *.pbrt-v4"), ("All files", "*")],
+            initialdir=str(pbrt_assets if pbrt_assets.is_dir() else ROOT),
+            filetypes=[
+                ("PBRT scenes", "*.pbrt *.pbrt-v4"),
+                ("All files", "*"),
+            ],
         )
         if not path:
             current = (

@@ -1,4 +1,4 @@
-from std.math import pi
+from std.math import floor, pi
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.utils.numerics import isfinite
 
@@ -18,6 +18,37 @@ from bajo.rt.geometry import triangle_area, triangle_is_valid
 
 
 comptime Color = Vec3f32[.WORLD]
+comptime NO_TEXTURE = UInt32.MAX
+
+
+struct ImageTexture:
+    """Linear RGB image used by host-side material sampling."""
+
+    var width: Int
+    var height: Int
+    var pixels: List[Float32]
+
+    def __init__(out self, width: Int, height: Int, var pixels: List[Float32]):
+        self.width = width
+        self.height = height
+        self.pixels = pixels^
+
+    def sample(self, u: Float32, v: Float32) -> Color:
+        # PBRT repeats UV image maps. PNG scanlines are top-to-bottom while
+        # PBRT's texture coordinate origin is at the lower left.
+        var wrapped_u = u - floor(u)
+        var wrapped_v = v - floor(v)
+        var x = min(Int(wrapped_u * Float32(self.width)), self.width - 1)
+        var y = min(
+            Int((Float32(1.0) - wrapped_v) * Float32(self.height)),
+            self.height - 1,
+        )
+        var base = 3 * (y * self.width + x)
+        return Color(
+            self.pixels[base],
+            self.pixels[base + 1],
+            self.pixels[base + 2],
+        )
 
 
 @fieldwise_init
@@ -143,9 +174,13 @@ struct SurfaceId[length: SIMDLength = 1](Copyable, Writable):
         return SurfaceId[1](self.value[lane])
 
 
-@fieldwise_init
 struct Lambertian(Copyable, Writable):
     var albedo: Color
+    var texture_index: UInt32
+
+    def __init__(out self, albedo: Color, texture_index: UInt32 = NO_TEXTURE):
+        self.albedo = albedo
+        self.texture_index = texture_index
 
     def validate(self) raises:
         if not self.albedo.is_finite()[0]:
@@ -161,10 +196,20 @@ struct Lambertian(Copyable, Writable):
             raise Error("lambertian albedo must be within [0, 1]")
 
 
-@fieldwise_init
 struct Metal(Copyable, Writable):
     var albedo: Color
     var fuzz: Float32
+    var texture_index: UInt32
+
+    def __init__(
+        out self,
+        albedo: Color,
+        fuzz: Float32,
+        texture_index: UInt32 = NO_TEXTURE,
+    ):
+        self.albedo = albedo
+        self.fuzz = fuzz
+        self.texture_index = texture_index
 
     def validate(self) raises:
         if not self.albedo.is_finite()[0]:
@@ -215,12 +260,14 @@ struct SurfaceStore:
     var metals: List[Metal]
     var dielectrics: List[Dielectric]
     var emissives: List[Emissive]
+    var image_textures: List[ImageTexture]
 
     def __init__(out self):
         self.lambertians = List[Lambertian]()
         self.metals = List[Metal]()
         self.dielectrics = List[Dielectric]()
         self.emissives = List[Emissive]()
+        self.image_textures = List[ImageTexture]()
 
     def contains(self, surface: SurfaceId[1]) -> Bool:
         if surface.kind() == .LAMBERTIAN:
@@ -241,14 +288,45 @@ struct SurfaceStore:
             return self.emissives[Int(surface.index())].radiance
         return Color(0.0)
 
-    def add_lambertian(mut self, albedo: Color) -> SurfaceId[1]:
+    def add_image_texture(mut self, var texture: ImageTexture) -> UInt32:
+        var index = UInt32(len(self.image_textures))
+        self.image_textures.append(texture^)
+        return index
+
+    def sample_albedo(
+        self, surface: SurfaceId[1], u: Float32, v: Float32
+    ) -> Color:
+        if surface.kind() == .LAMBERTIAN:
+            ref material = self.lambertians[Int(surface.index())]
+            if material.texture_index != NO_TEXTURE:
+                return material.albedo * self.image_textures[
+                    Int(material.texture_index)
+                ].sample(u, v)
+            return material.albedo
+        if surface.kind() == .METAL:
+            ref material = self.metals[Int(surface.index())]
+            if material.texture_index != NO_TEXTURE:
+                return material.albedo * self.image_textures[
+                    Int(material.texture_index)
+                ].sample(u, v)
+            return material.albedo
+        return Color(0.0)
+
+    def add_lambertian(
+        mut self, albedo: Color, texture_index: UInt32 = NO_TEXTURE
+    ) -> SurfaceId[1]:
         var index = UInt32(len(self.lambertians))
-        self.lambertians.append(Lambertian(albedo))
+        self.lambertians.append(Lambertian(albedo, texture_index))
         return SurfaceId(.LAMBERTIAN, index)
 
-    def add_metal(mut self, albedo: Color, fuzz: Float32) -> SurfaceId[1]:
+    def add_metal(
+        mut self,
+        albedo: Color,
+        fuzz: Float32,
+        texture_index: UInt32 = NO_TEXTURE,
+    ) -> SurfaceId[1]:
         var index = UInt32(len(self.metals))
-        self.metals.append(Metal(albedo, fuzz))
+        self.metals.append(Metal(albedo, fuzz, texture_index))
         return SurfaceId(.METAL, index)
 
     def add_dielectric(mut self, refraction_index: Float32) -> SurfaceId[1]:
@@ -396,6 +474,8 @@ struct SurfaceHit[length: SIMDLength = 1](Copyable, Writable):
 
     var normal: Vec3[.float32, .WORLD, Self.length]
     var surface: SurfaceId[Self.length]
+    var uv_u: SIMD[.float32, Self.length]
+    var uv_v: SIMD[.float32, Self.length]
     var t: SIMD[.float32, Self.length]
     var front_face: SIMD[.bool, Self.length]
     var hit: SIMD[.bool, Self.length]
@@ -403,9 +483,27 @@ struct SurfaceHit[length: SIMDLength = 1](Copyable, Writable):
     def __init__(out self, t_max: SIMD[.float32, Self.length]):
         self.normal = Vec3[.float32, .WORLD, Self.length](0.0)
         self.surface = SurfaceId[Self.length](SIMD[.uint32, Self.length](0))
+        self.uv_u = 0.0
+        self.uv_v = 0.0
         self.t = t_max
         self.front_face = SIMD[.bool, Self.length](fill=True)
         self.hit = SIMD[.bool, Self.length](fill=False)
+
+    def __init__(
+        out self,
+        normal: Vec3[.float32, .WORLD, Self.length],
+        surface: SurfaceId[Self.length],
+        t: SIMD[.float32, Self.length],
+        front_face: SIMD[.bool, Self.length],
+        hit: SIMD[.bool, Self.length],
+    ):
+        self.normal = normal
+        self.surface = surface.copy()
+        self.uv_u = 0.0
+        self.uv_v = 0.0
+        self.t = t
+        self.front_face = front_face
+        self.hit = hit
 
     @always_inline
     def get(self, lane: Int) -> SurfaceHit[1]:
@@ -416,23 +514,46 @@ struct SurfaceHit[length: SIMDLength = 1](Copyable, Writable):
                 self.normal.z[lane],
             ),
             self.surface.get(lane),
+            self.uv_u[lane],
+            self.uv_v[lane],
             self.t[lane],
             self.front_face[lane],
             self.hit[lane],
         )
 
 
-@fieldwise_init
 struct ShadingPoint[length: SIMDLength = 1](Copyable, Writable):
     var p: Point3[.float32, .WORLD, Self.length]
     var normal: Vec3[.float32, .WORLD, Self.length]
     var front_face: SIMD[.bool, Self.length]
+    var uv_u: SIMD[.float32, Self.length]
+    var uv_v: SIMD[.float32, Self.length]
+
+    def __init__(
+        out self,
+        p: Point3[.float32, .WORLD, Self.length],
+        normal: Vec3[.float32, .WORLD, Self.length],
+        front_face: SIMD[.bool, Self.length],
+        uv_u: SIMD[.float32, Self.length] = 0.0,
+        uv_v: SIMD[.float32, Self.length] = 0.0,
+    ):
+        self.p = p
+        self.normal = normal
+        self.front_face = front_face
+        self.uv_u = uv_u
+        self.uv_v = uv_v
 
     @staticmethod
     def from_hit(
         ray: Ray[.float32, .WORLD, Self.length], hit: SurfaceHit[Self.length]
     ) -> Self:
-        return Self(ray.at(hit.t), hit.normal, hit.front_face)
+        return Self(
+            ray.at(hit.t),
+            hit.normal,
+            hit.front_face,
+            hit.uv_u,
+            hit.uv_v,
+        )
 
 
 @fieldwise_init
@@ -615,6 +736,8 @@ struct SceneBuilder(
     var triangle_vertices: List[Point3f32[.WORLD]]
     var triangle_surfaces: List[SurfaceId[1]]
     var triangle_meshes: List[List[Point3f32[.LOCAL]]]
+    var triangle_mesh_normals: List[List[Float32]]
+    var triangle_mesh_texcoords: List[List[Float32]]
     var triangle_instances: List[Instance]
     var triangle_instance_surfaces: List[SurfaceId[1]]
     var surfaces: SurfaceStore
@@ -625,6 +748,8 @@ struct SceneBuilder(
         self.triangle_vertices = List[Point3f32[.WORLD]]()
         self.triangle_surfaces = List[SurfaceId[1]]()
         self.triangle_meshes = List[List[Point3f32[.LOCAL]]]()
+        self.triangle_mesh_normals = List[List[Float32]]()
+        self.triangle_mesh_texcoords = List[List[Float32]]()
         self.triangle_instances = List[Instance]()
         self.triangle_instance_surfaces = List[SurfaceId[1]]()
         self.surfaces = SurfaceStore()
@@ -636,6 +761,8 @@ struct SceneBuilder(
         var triangle_vertices: List[Point3f32[.WORLD]],
         var triangle_surfaces: List[SurfaceId[1]],
         var triangle_meshes: List[List[Point3f32[.LOCAL]]],
+        var triangle_mesh_normals: List[List[Float32]],
+        var triangle_mesh_texcoords: List[List[Float32]],
         var triangle_instances: List[Instance],
         var triangle_instance_surfaces: List[SurfaceId[1]],
         var surfaces: SurfaceStore,
@@ -645,6 +772,8 @@ struct SceneBuilder(
         self.triangle_vertices = triangle_vertices^
         self.triangle_surfaces = triangle_surfaces^
         self.triangle_meshes = triangle_meshes^
+        self.triangle_mesh_normals = triangle_mesh_normals^
+        self.triangle_mesh_texcoords = triangle_mesh_texcoords^
         self.triangle_instances = triangle_instances^
         self.triangle_instance_surfaces = triangle_instance_surfaces^
         self.surfaces = surfaces^
@@ -716,6 +845,8 @@ struct SceneBuilder(
         var owned_vertices = List[Point3f32[.LOCAL]](capacity=len(vertices))
         owned_vertices.extend(vertices)
         self.triangle_meshes.append(owned_vertices^)
+        self.triangle_mesh_normals.append(List[Float32]())
+        self.triangle_mesh_texcoords.append(List[Float32]())
         self._add_triangle_instance_unchecked(mesh_idx, transform, bounds)
         self.triangle_instance_surfaces.append(surface.copy())
         return mesh_idx
@@ -751,6 +882,8 @@ struct SceneBuilder(
             self.triangle_vertices^,
             self.triangle_surfaces^,
             self.triangle_meshes^,
+            self.triangle_mesh_normals^,
+            self.triangle_mesh_texcoords^,
             self.triangle_instances^,
             self.triangle_instance_surfaces^,
             self.surfaces^,
@@ -765,6 +898,8 @@ struct SceneData:
     var _triangle_vertices: List[Point3f32[.WORLD]]
     var _triangle_surfaces: List[SurfaceId[1]]
     var _triangle_meshes: List[List[Point3f32[.LOCAL]]]
+    var _triangle_mesh_normals: List[List[Float32]]
+    var _triangle_mesh_texcoords: List[List[Float32]]
     var _triangle_instances: List[Instance]
     var _triangle_instance_surfaces: List[SurfaceId[1]]
     var _surfaces: SurfaceStore
@@ -777,6 +912,8 @@ struct SceneData:
         var triangle_vertices: List[Point3f32[.WORLD]],
         var triangle_surfaces: List[SurfaceId[1]],
         var triangle_meshes: List[List[Point3f32[.LOCAL]]],
+        var triangle_mesh_normals: List[List[Float32]],
+        var triangle_mesh_texcoords: List[List[Float32]],
         var triangle_instances: List[Instance],
         var triangle_instance_surfaces: List[SurfaceId[1]],
         var surfaces: SurfaceStore,
@@ -786,6 +923,8 @@ struct SceneData:
         self._triangle_vertices = triangle_vertices^
         self._triangle_surfaces = triangle_surfaces^
         self._triangle_meshes = triangle_meshes^
+        self._triangle_mesh_normals = triangle_mesh_normals^
+        self._triangle_mesh_texcoords = triangle_mesh_texcoords^
         self._triangle_instances = triangle_instances^
         self._triangle_instance_surfaces = triangle_instance_surfaces^
         self._surfaces = surfaces^
@@ -816,6 +955,16 @@ struct SceneData:
         self,
     ) -> ref[self._triangle_meshes] List[List[Point3f32[.LOCAL]]]:
         return self._triangle_meshes
+
+    def triangle_mesh_normals(
+        self,
+    ) -> ref[self._triangle_mesh_normals] List[List[Float32]]:
+        return self._triangle_mesh_normals
+
+    def triangle_mesh_texcoords(
+        self,
+    ) -> ref[self._triangle_mesh_texcoords] List[List[Float32]]:
+        return self._triangle_mesh_texcoords
 
     def triangle_instances(
         self,
@@ -852,6 +1001,10 @@ struct SceneData:
             raise Error(
                 "triangle instance and surface sidecar lengths must match"
             )
+        if len(self._triangle_meshes) != len(self._triangle_mesh_normals):
+            raise Error("triangle mesh normal sidecar lengths must match")
+        if len(self._triangle_meshes) != len(self._triangle_mesh_texcoords):
+            raise Error("triangle mesh texcoord sidecar lengths must match")
 
         self._validate_materials()
 
@@ -891,11 +1044,19 @@ struct SceneData:
         var triangle_mesh_bounds = List[AABB[.LOCAL]](
             capacity=len(self._triangle_meshes)
         )
-        for vertices in self._triangle_meshes:
+        for mesh_idx, vertices in enumerate(self._triangle_meshes):
             if len(vertices) == 0 or len(vertices) % 3 != 0:
                 raise Error(
                     "triangle mesh vertex count must be a positive multiple of"
                     " three"
+                )
+            ref normals = self._triangle_mesh_normals[mesh_idx]
+            ref texcoords = self._triangle_mesh_texcoords[mesh_idx]
+            if len(normals) != 0 and len(normals) != 3 * len(vertices):
+                raise Error("triangle mesh normals must contain xyz per vertex")
+            if len(texcoords) != 0 and len(texcoords) != 2 * len(vertices):
+                raise Error(
+                    "triangle mesh texcoords must contain uv per vertex"
                 )
             var local_bounds = AABB[.LOCAL].invalid()
             for triangle_idx in range(len(vertices) / 3):
@@ -944,15 +1105,39 @@ struct SceneData:
     def _validate_materials(self) raises:
         for material in self._surfaces.lambertians:
             material.validate()
+            if (
+                material.texture_index != NO_TEXTURE
+                and material.texture_index
+                >= UInt32(len(self._surfaces.image_textures))
+            ):
+                raise Error("lambertian texture index is out of range")
 
         for material in self._surfaces.metals:
             material.validate()
+            if (
+                material.texture_index != NO_TEXTURE
+                and material.texture_index
+                >= UInt32(len(self._surfaces.image_textures))
+            ):
+                raise Error("metal texture index is out of range")
 
         for material in self._surfaces.dielectrics:
             material.validate()
 
         for material in self._surfaces.emissives:
             material.validate()
+
+        for texture_idx in range(len(self._surfaces.image_textures)):
+            ref texture = self._surfaces.image_textures[texture_idx]
+            if texture.width <= 0 or texture.height <= 0:
+                raise Error("image texture dimensions must be positive")
+            if len(texture.pixels) != 3 * texture.width * texture.height:
+                raise Error("image texture RGB storage has an invalid length")
+            for channel in texture.pixels:
+                if not isfinite(channel) or channel < 0.0:
+                    raise Error(
+                        "image texture channels must be finite and non-negative"
+                    )
 
     def _build_light_store(mut self) raises:
         for idx, surface in enumerate(self._triangle_surfaces):

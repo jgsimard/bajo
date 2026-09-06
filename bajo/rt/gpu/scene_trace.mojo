@@ -13,7 +13,15 @@ from bajo.bvh.gpu.triangle_bvh import (
     _intersect_triangle_leaf,
 )
 from bajo.bvh.gpu.blas_trace import trace_gpu_blas
-from bajo.core import GeoKind, Point3f32, Rayf32, Vec3f32
+from bajo.core import (
+    Affine3f32,
+    GeoKind,
+    Normal3f32,
+    Point3f32,
+    Rayf32,
+    Vec3f32,
+    dot,
+)
 from bajo.rt.common import path_stage_rng, sky_color
 from bajo.rt.geometry import orient_surface_normal
 from bajo.rt.rays import make_ao_ray, spawn_surface_ray
@@ -74,6 +82,13 @@ def _gpu_rt_scene_trace_path[
     var emissives = scene.emissives.unsafe_origin_cast[ImmutAnyOrigin]()
     var lambertians = scene.lambertians.unsafe_origin_cast[ImmutAnyOrigin]()
     var metals = scene.metals.unsafe_origin_cast[ImmutAnyOrigin]()
+    var lambertian_texture_indices = (
+        scene.lambertian_texture_indices.unsafe_origin_cast[ImmutAnyOrigin]()
+    )
+    var texture_descs = scene.texture_descs.unsafe_origin_cast[ImmutAnyOrigin]()
+    var texture_pixels = scene.texture_pixels.unsafe_origin_cast[
+        ImmutAnyOrigin
+    ]()
     var light_kinds = scene.light_kinds.unsafe_origin_cast[ImmutAnyOrigin]()
     var light_fields = scene.light_fields.unsafe_origin_cast[ImmutAnyOrigin]()
     var light_count_i32 = scene.light_count
@@ -109,6 +124,8 @@ def _gpu_rt_scene_trace_path[
     var closest_t = ray.t_max
     var outward = Vec3f32[.WORLD](0.0)
     var surface_value = UInt32(0)
+    var uv_u = Float32(0.0)
+    var uv_v = Float32(0.0)
 
     comptime if scene_kind.has_spheres():
         debug_assert["safe", _use_compiler_assume=True](Bool(scene.spheres))
@@ -204,6 +221,18 @@ def _gpu_rt_scene_trace_path[
         var blas_leaves = instances.blas_leaves.unsafe_origin_cast[
             ImmutAnyOrigin
         ]()
+        var normal_offsets = instances.normal_offsets.unsafe_origin_cast[
+            ImmutAnyOrigin
+        ]()
+        var vertex_normals = instances.normals.unsafe_origin_cast[
+            ImmutAnyOrigin
+        ]()
+        var texcoord_offsets = instances.texcoord_offsets.unsafe_origin_cast[
+            ImmutAnyOrigin
+        ]()
+        var vertex_texcoords = instances.texcoords.unsafe_origin_cast[
+            ImmutAnyOrigin
+        ]()
         var tlas_root = instances.tlas_root
         var instance_count_i32 = instances.count
         var instance_surfaces = instances.surfaces.unsafe_origin_cast[
@@ -243,9 +272,55 @@ def _gpu_rt_scene_trace_path[
             outward = instance_hit.normal.unsafe_convert[
                 new_kind=GeoKind.VECTOR
             ]()
-            surface_value = instance_surfaces[
-                unsafe_offset=Int(instance_hit.inst)
-            ]
+            var instance_idx = Int(instance_hit.inst)
+            var mesh_idx = Int(inst_blas_indices[unsafe_offset=instance_idx])
+            var triangle_idx = Int(instance_hit.prim)
+            var b0 = Float32(1.0) - instance_hit.u - instance_hit.v
+            var b1 = instance_hit.u
+            var b2 = instance_hit.v
+            var texcoord_offset = texcoord_offsets[unsafe_offset=mesh_idx]
+            if texcoord_offset != UInt32.MAX:
+                var base = Int(texcoord_offset) + 6 * triangle_idx
+                uv_u = (
+                    b0 * vertex_texcoords[unsafe_offset=base]
+                    + b1 * vertex_texcoords[unsafe_offset=base + 2]
+                    + b2 * vertex_texcoords[unsafe_offset=base + 4]
+                )
+                uv_v = (
+                    b0 * vertex_texcoords[unsafe_offset=base + 1]
+                    + b1 * vertex_texcoords[unsafe_offset=base + 3]
+                    + b2 * vertex_texcoords[unsafe_offset=base + 5]
+                )
+            var normal_offset = normal_offsets[unsafe_offset=mesh_idx]
+            if normal_offset != UInt32.MAX:
+                var base = Int(normal_offset) + 9 * triangle_idx
+                var local_normal = Normal3f32[.LOCAL](
+                    b0 * vertex_normals[unsafe_offset=base]
+                    + b1 * vertex_normals[unsafe_offset=base + 3]
+                    + b2 * vertex_normals[unsafe_offset=base + 6],
+                    b0 * vertex_normals[unsafe_offset=base + 1]
+                    + b1 * vertex_normals[unsafe_offset=base + 4]
+                    + b2 * vertex_normals[unsafe_offset=base + 7],
+                    b0 * vertex_normals[unsafe_offset=base + 2]
+                    + b1 * vertex_normals[unsafe_offset=base + 5]
+                    + b2 * vertex_normals[unsafe_offset=base + 8],
+                )
+                var inverse_span = Span(
+                    unsafe_ptr=inst_inv_transform,
+                    length=Int(instance_count_i32) * Affine3f32.STRIDE,
+                )
+                var inverse = Affine3f32[.WORLD, .LOCAL].load(
+                    inverse_span, instance_idx * Affine3f32.STRIDE
+                )
+                var shading_normal = (
+                    Affine3f32[.LOCAL, .WORLD]
+                    .normal_from_inverse(local_normal, inverse)
+                    .unsafe_convert[new_kind=GeoKind.VECTOR]()
+                )
+                if dot(shading_normal, outward) < 0.0:
+                    shading_normal = -shading_normal
+                outward = shading_normal
+            surface_value = instance_surfaces[unsafe_offset=instance_idx]
 
     if not found:
         comptime if Integrator.is_path_tracing[integrator]:
@@ -291,8 +366,13 @@ def _gpu_rt_scene_trace_path[
             ray,
             closest_t,
             normal,
+            uv_u,
+            uv_v,
             surface_value,
             lambertians,
+            lambertian_texture_indices,
+            texture_descs,
+            texture_pixels,
             metals,
             light_kinds,
             light_fields,
@@ -334,12 +414,17 @@ def _gpu_rt_scene_trace_path[
         ray.d,
         normal,
         oriented.front_face,
+        uv_u,
+        uv_v,
         closest_t,
         surface_value,
         bounce,
         total_light_weight,
         emissives,
         lambertians,
+        lambertian_texture_indices,
+        texture_descs,
+        texture_pixels,
         dst_path_ids,
         dst_path_fields,
         shade_path_refs,

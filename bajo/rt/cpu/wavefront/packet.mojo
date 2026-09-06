@@ -20,6 +20,7 @@ from bajo.rt.types import (
     RenderSettings,
     SamplingConfig,
     ShadingPoint,
+    SurfaceId,
     SurfaceStore,
 )
 from ..scene import CpuScene
@@ -96,17 +97,24 @@ def _accumulate_direct_light_packet[
         if not lights.sample.valid[lane]:
             continue
         if lights.surface_kinds[lane] == MaterialKind.LAMBERTIAN.value:
-            ref material = surfaces.lambertians[
-                Int(lights.surface_indices[lane])
-            ]
-            albedo.x[lane] = material.albedo.x
-            albedo.y[lane] = material.albedo.y
-            albedo.z[lane] = material.albedo.z
+            var sampled = surfaces.sample_albedo(
+                SurfaceId(.LAMBERTIAN, lights.surface_indices[lane]),
+                lights.point.uv_u[lane],
+                lights.point.uv_v[lane],
+            )
+            albedo.x[lane] = sampled.x
+            albedo.y[lane] = sampled.y
+            albedo.z[lane] = sampled.z
         elif lights.surface_kinds[lane] == MaterialKind.METAL.value:
             ref material = surfaces.metals[Int(lights.surface_indices[lane])]
-            albedo.x[lane] = material.albedo.x
-            albedo.y[lane] = material.albedo.y
-            albedo.z[lane] = material.albedo.z
+            var sampled = surfaces.sample_albedo(
+                SurfaceId(.METAL, lights.surface_indices[lane]),
+                lights.point.uv_u[lane],
+                lights.point.uv_v[lane],
+            )
+            albedo.x[lane] = sampled.x
+            albedo.y[lane] = sampled.y
+            albedo.z[lane] = sampled.z
             fuzz[lane] = material.fuzz
 
     var lambertian = _evaluate_material[.LAMBERTIAN, length](
@@ -168,20 +176,27 @@ def _sample_bsdf_batch[
         active[lane] = True
         comptime if MATERIAL_KIND == .LAMBERTIAN:
             var rng = path_stage_rng(sampling, batch.path_ids[lane], stage)
-            ref material = surfaces.lambertians[
-                Int(batch.surface_indices[lane])
-            ]
-            albedo.x[lane] = material.albedo.x
-            albedo.y[lane] = material.albedo.y
-            albedo.z[lane] = material.albedo.z
+            var sampled = surfaces.sample_albedo(
+                SurfaceId(.LAMBERTIAN, batch.surface_indices[lane]),
+                batch.uv_u[lane],
+                batch.uv_v[lane],
+            )
+            albedo.x[lane] = sampled.x
+            albedo.y[lane] = sampled.y
+            albedo.z[lane] = sampled.z
             random_u[lane] = rng.f32()
             random_v[lane] = rng.f32()
         elif MATERIAL_KIND == .METAL:
             var rng = path_stage_rng(sampling, batch.path_ids[lane], stage)
             ref material = surfaces.metals[Int(batch.surface_indices[lane])]
-            albedo.x[lane] = material.albedo.x
-            albedo.y[lane] = material.albedo.y
-            albedo.z[lane] = material.albedo.z
+            var sampled = surfaces.sample_albedo(
+                SurfaceId(.METAL, batch.surface_indices[lane]),
+                batch.uv_u[lane],
+                batch.uv_v[lane],
+            )
+            albedo.x[lane] = sampled.x
+            albedo.y[lane] = sampled.y
+            albedo.z[lane] = sampled.z
             parameter[lane] = material.fuzz
             if material.fuzz > 1.0e-4:
                 random_u[lane] = rng.f32()
@@ -400,6 +415,8 @@ def _trace_path_packets[
                         direct_lights.point.normal.x[lane] = hit.normal.x
                         direct_lights.point.normal.y[lane] = hit.normal.y
                         direct_lights.point.normal.z[lane] = hit.normal.z
+                        direct_lights.point.uv_u[lane] = hit.uv_u
+                        direct_lights.point.uv_v[lane] = hit.uv_v
                         direct_lights.surface_kinds[
                             lane
                         ] = hit.surface.kind().value

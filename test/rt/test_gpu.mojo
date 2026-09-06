@@ -35,6 +35,7 @@ from bajo.rt.gpu.render import (
 from bajo.rt.gpu.path_shading import GpuRtLights
 from bajo.rt.types import (
     Color,
+    ImageTexture,
     PrimitiveKind,
     Integrator,
     RenderResult,
@@ -191,6 +192,56 @@ def _instance_scene_data() raises -> SceneData:
 
 def _instance_world() raises -> CpuScene[4, 8]:
     return CpuScene[4, 8](_instance_scene_data())
+
+
+def _textured_instance_world() raises -> CpuScene[4, 8]:
+    var builder = SceneBuilder()
+    var pixels: List[Float32] = [
+        0.9,
+        0.1,
+        0.1,
+        0.1,
+        0.9,
+        0.1,
+        0.1,
+        0.1,
+        0.9,
+        0.9,
+        0.9,
+        0.1,
+    ]
+    var texture_idx = builder.surfaces.add_image_texture(
+        ImageTexture(2, 2, pixels^)
+    )
+    var matte = builder.surfaces.add_lambertian(
+        Color(0.8, 0.7, 0.6), texture_idx
+    )
+    var mesh: List[Point3f32[.LOCAL]] = [
+        Point3f32[.LOCAL](-1.25, -1.0, -1.0),
+        Point3f32[.LOCAL](1.25, -1.0, -1.0),
+        Point3f32[.LOCAL](0.0, 1.0, -1.0),
+    ]
+    var mesh_idx = builder.add_triangle_mesh_instance(
+        mesh,
+        Affine3f32[.LOCAL, .WORLD].identity(),
+        compute_bounds(mesh),
+        matte,
+    )
+    var normals: List[Float32] = [
+        -0.2,
+        0.0,
+        0.98,
+        0.2,
+        0.0,
+        0.98,
+        0.0,
+        0.2,
+        0.98,
+    ]
+    var texcoords: List[Float32] = [0.0, 0.0, 1.0, 0.0, 0.5, 1.0]
+    builder.triangle_mesh_normals[Int(mesh_idx)] = normals^
+    builder.triangle_mesh_texcoords[Int(mesh_idx)] = texcoords^
+    return CpuScene[4, 8](builder^.finish())
 
 
 def _combined_instance_world() raises -> CpuScene[4, 8]:
@@ -580,6 +631,29 @@ def test_gpu_triangle_instances_match_cpu_wavefront() raises:
         assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=1.0e-5)
         assert_almost_equal(gpu.pixels[i].y, cpu_pixel.y, atol=1.0e-5)
         assert_almost_equal(gpu.pixels[i].z, cpu_pixel.z, atol=1.0e-5)
+
+
+def test_gpu_textured_instance_matches_cpu_uvs_and_normals() raises:
+    var settings = RenderSettings(5, 3, 2, UInt64(409))
+    var world = _textured_instance_world()
+    var camera = _camera()
+    var cpu = render_wavefront[.PATH, 1, 64, False](settings, camera, world)
+    var gpu = render_gpu[.PATH, 4, 4](settings, camera, world.scene_data())
+    for i, cpu_pixel in enumerate(cpu.pixels):
+        assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=1.0e-5)
+        assert_almost_equal(gpu.pixels[i].y, cpu_pixel.y, atol=1.0e-5)
+        assert_almost_equal(gpu.pixels[i].z, cpu_pixel.z, atol=1.0e-5)
+
+    var cpu_normals = render_depth_first[
+        .NORMALS, 1, 1, CpuSchedulerMode.RUNTIME_DEFAULT, 4, 8
+    ](settings, camera, world)
+    var gpu_normals = render_gpu[.NORMALS, 4, 4](
+        settings, camera, world.scene_data()
+    )
+    for i, cpu_pixel in enumerate(cpu_normals.pixels):
+        assert_almost_equal(gpu_normals.pixels[i].x, cpu_pixel.x, atol=1.0e-5)
+        assert_almost_equal(gpu_normals.pixels[i].y, cpu_pixel.y, atol=1.0e-5)
+        assert_almost_equal(gpu_normals.pixels[i].z, cpu_pixel.z, atol=1.0e-5)
 
 
 def test_gpu_instance_default_policy_keeps_micro_blas_wide() raises:

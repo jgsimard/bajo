@@ -2,11 +2,14 @@ import std.os.path
 from std.math import abs, cos, pi, sin, sqrt
 
 from bajo.bvh import Camera, Instance, Sphere
+from bajo.bvh.host_utils import compute_bounds
 from bajo.core import Affine3f32, Point3f32, Vec3f32
 from bajo.parser.number import parse_f32_at
+from bajo.parser.ply import PlyMesh
 from bajo.rt.types import (
     Color,
     Integrator,
+    NO_TEXTURE,
     RenderSettings,
     SceneBuilder,
     SurfaceId,
@@ -194,6 +197,12 @@ struct _GraphicsState(Copyable):
     var reverse_orientation: Bool
 
 
+@fieldwise_init
+struct _ColorTexture(Copyable):
+    var scale: Color
+    var image_index: UInt32
+
+
 struct _Builder(
     Deinitable where (False, "call finish() or abort() to consume the parser")
 ):
@@ -201,8 +210,15 @@ struct _Builder(
     var sphere_surfaces: List[SurfaceId[1]]
     var triangle_vertices: List[_PointW]
     var triangle_surfaces: List[SurfaceId[1]]
+    var triangle_meshes: List[List[_PointL]]
+    var triangle_mesh_normals: List[List[Float32]]
+    var triangle_mesh_texcoords: List[List[Float32]]
+    var triangle_instances: List[Instance]
+    var triangle_instance_surfaces: List[SurfaceId[1]]
     var surfaces: SurfaceStore
     var named_materials: Dict[String, SurfaceId[1]]
+    var color_textures: Dict[String, _ColorTexture]
+    var scalar_textures: Dict[String, Float32]
     var state: _GraphicsState
     var attribute_stack: List[_GraphicsState]
     var transform_stack: List[_Transform]
@@ -221,8 +237,15 @@ struct _Builder(
         self.sphere_surfaces = List[SurfaceId[1]]()
         self.triangle_vertices = List[_PointW]()
         self.triangle_surfaces = List[SurfaceId[1]]()
+        self.triangle_meshes = List[List[_PointL]]()
+        self.triangle_mesh_normals = List[List[Float32]]()
+        self.triangle_mesh_texcoords = List[List[Float32]]()
+        self.triangle_instances = List[Instance]()
+        self.triangle_instance_surfaces = List[SurfaceId[1]]()
         self.surfaces = SurfaceStore()
         self.named_materials = Dict[String, SurfaceId[1]]()
+        self.color_textures = Dict[String, _ColorTexture]()
+        self.scalar_textures = Dict[String, Float32]()
         var default_surface = self.surfaces.add_lambertian(Color(0.5))
         self.state = _GraphicsState(
             _Transform.identity(),
@@ -264,10 +287,77 @@ struct _Builder(
         self.triangle_vertices.append(v2)
         self.triangle_surfaces.append(surface.copy())
 
+    def add_ply_mesh(
+        mut self,
+        mesh: PlyMesh,
+        surface: SurfaceId[1],
+    ) raises:
+        if len(mesh.indices) == 0:
+            raise Error("PBRT plymesh must contain at least one triangle")
+
+        # Bajo's current triangle BLAS consumes triangle soup. Expand the PLY
+        # index stream in local space and keep the PBRT transform on an instance.
+        var vertices = List[_PointL](capacity=len(mesh.indices))
+        var normals = List[Float32]()
+        var texcoords = List[Float32]()
+        if mesh.has_normals():
+            normals = List[Float32](capacity=3 * len(mesh.indices))
+        if mesh.has_texcoords():
+            texcoords = List[Float32](capacity=2 * len(mesh.indices))
+        for base in range(0, len(mesh.indices), 3):
+            var i0 = Int(mesh.indices[base])
+            var i1 = Int(mesh.indices[base + 1])
+            var i2 = Int(mesh.indices[base + 2])
+            if self.state.reverse_orientation:
+                var tmp = i1
+                i1 = i2
+                i2 = tmp
+            for lane in range(3):
+                var index = i0
+                if lane == 1:
+                    index = i1
+                elif lane == 2:
+                    index = i2
+                var position_base = 3 * index
+                vertices.append(
+                    _PointL(
+                        mesh.positions[position_base],
+                        mesh.positions[position_base + 1],
+                        mesh.positions[position_base + 2],
+                    )
+                )
+                if mesh.has_normals():
+                    var normal_base = 3 * index
+                    normals.append(mesh.normals[normal_base])
+                    normals.append(mesh.normals[normal_base + 1])
+                    normals.append(mesh.normals[normal_base + 2])
+                if mesh.has_texcoords():
+                    var texcoord_base = 2 * index
+                    texcoords.append(mesh.texcoords[texcoord_base])
+                    texcoords.append(mesh.texcoords[texcoord_base + 1])
+
+        var mesh_idx = UInt32(len(self.triangle_meshes))
+        var bounds = compute_bounds(vertices)
+        self.triangle_meshes.append(vertices^)
+        self.triangle_mesh_normals.append(normals^)
+        self.triangle_mesh_texcoords.append(texcoords^)
+
+        var instance = Instance()
+        instance.transform = self.state.transform.copy()
+        instance.bounds = bounds.apply_transform(self.state.transform)
+        instance.blas_idx = mesh_idx
+        instance.kind = .TRIANGLE
+        self.triangle_instances.append(instance^)
+        self.triangle_instance_surfaces.append(surface.copy())
+
     def finish(deinit self) raises -> SceneDescription:
         if len(self.attribute_stack) != 0 or len(self.transform_stack) != 0:
             raise Error("unclosed PBRT attribute or transform scope")
-        if len(self.spheres) == 0 and len(self.triangle_vertices) == 0:
+        if (
+            len(self.spheres) == 0
+            and len(self.triangle_vertices) == 0
+            and len(self.triangle_instances) == 0
+        ):
             raise Error("PBRT scene contains no supported shapes")
         var camera = Camera.from_vfov(
             self.camera_origin,
@@ -284,17 +374,16 @@ struct _Builder(
         )
         # PBRT owns these authoring buffers exclusively. Transfer them through
         # SceneBuilder so finalization validates in place without cloning data.
-        var meshes = List[List[Point3f32[.LOCAL]]]()
-        var instances = List[Instance]()
-        var instance_surfaces = List[SurfaceId[1]]()
         var scene_builder = SceneBuilder(
             self.spheres^,
             self.sphere_surfaces^,
             self.triangle_vertices^,
             self.triangle_surfaces^,
-            meshes^,
-            instances^,
-            instance_surfaces^,
+            self.triangle_meshes^,
+            self.triangle_mesh_normals^,
+            self.triangle_mesh_texcoords^,
+            self.triangle_instances^,
+            self.triangle_instance_surfaces^,
             self.surfaces^,
         )
         var data = scene_builder^.finish()
@@ -427,26 +516,137 @@ def _matrix(values: ImmSpan[String, _]) raises -> _Transform:
     )
 
 
+def _color_texture_parameter(
+    builder: _Builder,
+    params: _Parameters,
+    name: String,
+    default: Color,
+) raises -> _ColorTexture:
+    var texture_name = params.string("texture " + name, "")
+    if texture_name.byte_length() != 0:
+        if texture_name not in builder.color_textures:
+            raise Error("unknown PBRT spectrum texture: " + texture_name)
+        return builder.color_textures[texture_name].copy()
+    return _ColorTexture(params.color(name, default), NO_TEXTURE)
+
+
+def _scalar_parameter(
+    builder: _Builder,
+    params: _Parameters,
+    name: String,
+    default: Float32,
+) raises -> Float32:
+    var texture_name = params.string("texture " + name, "")
+    if texture_name.byte_length() != 0:
+        if texture_name not in builder.scalar_textures:
+            raise Error("unknown PBRT float texture: " + texture_name)
+        return builder.scalar_textures[texture_name]
+    return params.f32("float " + name, default)
+
+
+def _texture[
+    Loader: TextLoader
+](
+    mut builder: _Builder,
+    name: String,
+    value_type: String,
+    implementation: String,
+    params: _Parameters,
+    source_path: String,
+    loader: Loader,
+) raises:
+    if value_type == "spectrum" or value_type == "color":
+        var value: _ColorTexture
+        if implementation == "constant":
+            value = _ColorTexture(params.color("value", Color(1.0)), NO_TEXTURE)
+        elif implementation == "scale":
+            var tex = _color_texture_parameter(
+                builder, params, "tex", Color(1.0)
+            )
+            var scale = _color_texture_parameter(
+                builder, params, "scale", Color(1.0)
+            )
+            if (
+                tex.image_index != NO_TEXTURE
+                and scale.image_index != NO_TEXTURE
+            ):
+                raise Error("PBRT scale of two image textures is not supported")
+            value = _ColorTexture(tex.scale * scale.scale, tex.image_index)
+            if value.image_index == NO_TEXTURE:
+                value.image_index = scale.image_index
+        elif implementation == "imagemap":
+            var filename = params.string("string filename", "")
+            if filename.byte_length() == 0:
+                raise Error("PBRT imagemap texture requires a filename")
+            var image_path = std.os.path.join(
+                std.os.path.dirname(source_path), filename
+            )
+            var image = loader.read_image_texture(image_path)
+            value = _ColorTexture(
+                Color(1.0), builder.surfaces.add_image_texture(image^)
+            )
+        else:
+            raise Error("unsupported PBRT spectrum texture: " + implementation)
+        builder.color_textures[name] = value.copy()
+        return
+
+    if value_type == "float":
+        var value: Float32
+        if implementation == "constant":
+            value = params.f32("float value", 1.0)
+        elif implementation == "scale":
+            value = _scalar_parameter(builder, params, "tex", 1.0)
+            value *= _scalar_parameter(builder, params, "scale", 1.0)
+        elif implementation == "imagemap":
+            if params.string("string filename", "").byte_length() == 0:
+                raise Error("PBRT imagemap texture requires a filename")
+            value = 1.0
+        else:
+            raise Error("unsupported PBRT float texture: " + implementation)
+        builder.scalar_textures[name] = value
+        return
+
+    raise Error("unsupported PBRT texture value type: " + value_type)
+
+
 def _surface(
     mut builder: _Builder, model: String, params: _Parameters
 ) raises -> SurfaceId[1]:
     if model == "diffuse" or model == "matte" or model == "coateddiffuse":
         # Bajo does not have a layered dielectric coating yet. Preserve the
         # diffuse substrate so official scenes remain useful in the meantime.
+        if model == "coateddiffuse":
+            # Resolve the graph even though geometric displacement is not yet
+            # represented, so broken PBRT texture references still fail early.
+            _ = _scalar_parameter(builder, params, "displacement", 0.0)
+        var reflectance = _color_texture_parameter(
+            builder, params, "reflectance", Color(0.5)
+        )
         return builder.surfaces.add_lambertian(
-            params.color("reflectance", Color(0.5))
+            reflectance.scale, reflectance.image_index
         )
     if model == "conductor" or model == "metal":
         var roughness = params.f32("float roughness", 0.05).clamp(0.0, 1.0)
+        var reflectance = _color_texture_parameter(
+            builder, params, "reflectance", Color(0.9)
+        )
         return builder.surfaces.add_metal(
-            params.color("reflectance", Color(0.9)), roughness
+            reflectance.scale, roughness, reflectance.image_index
         )
     if model == "dielectric" or model == "glass":
         return builder.surfaces.add_dielectric(params.f32("float eta", 1.5))
     raise Error("unsupported PBRT material: " + model)
 
 
-def _shape(mut builder: _Builder, kind: String, params: _Parameters) raises:
+def _shape[
+    Loader: TextLoader
+](
+    mut builder: _Builder,
+    kind: String,
+    params: _Parameters,
+    source_path: String,
+    loader: Loader,
+) raises:
     var surface = builder.state.surface.copy()
     if builder.state.area_light:
         surface = builder.surfaces.add_emissive(builder.state.emission)
@@ -474,6 +674,17 @@ def _shape(mut builder: _Builder, kind: String, params: _Parameters) raises:
             params.f32("float radius", 1.0) * sx,
             surface,
         )
+        return
+
+    if kind == "plymesh":
+        var filename = params.string("string filename", "")
+        if filename.byte_length() == 0:
+            raise Error("PBRT plymesh requires a string filename")
+        var mesh_path = std.os.path.join(
+            std.os.path.dirname(source_path), filename
+        )
+        var mesh = loader.read_ply_mesh(mesh_path)
+        builder.add_ply_mesh(mesh, surface)
         return
 
     if kind == "trianglemesh" or kind == "loopsubdiv":
@@ -703,6 +914,16 @@ def _parse_text[
             builder.state.reverse_orientation = (
                 not builder.state.reverse_orientation
             )
+        elif command == "Texture":
+            _texture(
+                builder,
+                lexer.next().value,
+                lexer.next().value,
+                lexer.next().value,
+                _parse_params(lexer),
+                path,
+                loader,
+            )
         elif command == "Material":
             var model = lexer.next().value
             builder.state.surface = _surface(
@@ -728,7 +949,13 @@ def _parse_text[
                 "float scale", 1.0
             )
         elif command == "Shape":
-            _shape(builder, lexer.next().value, _parse_params(lexer))
+            _shape(
+                builder,
+                lexer.next().value,
+                _parse_params(lexer),
+                path,
+                loader,
+            )
         elif command == "Include":
             var include_name = lexer.next().value
             var include_path = std.os.path.join(

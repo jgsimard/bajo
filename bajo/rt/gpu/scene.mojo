@@ -80,6 +80,10 @@ struct GpuRtScene[
         ]
     ]
     var _instance_surfaces: Optional[DeviceBuffer[.uint32]]
+    var _instance_normal_offsets: Optional[DeviceBuffer[.uint32]]
+    var _instance_normals: Optional[DeviceBuffer[.float32]]
+    var _instance_texcoord_offsets: Optional[DeviceBuffer[.uint32]]
+    var _instance_texcoords: Optional[DeviceBuffer[.float32]]
     var materials: GpuRtMaterials
     var lights: GpuRtLights
 
@@ -118,6 +122,10 @@ struct GpuRtScene[
             ref blases = self._instance_blases.value()
             ref tlas = self._tlas.value()
             ref surfaces = self._instance_surfaces.value()
+            ref normal_offsets = self._instance_normal_offsets.value()
+            ref normals = self._instance_normals.value()
+            ref texcoord_offsets = self._instance_texcoord_offsets.value()
+            ref texcoords = self._instance_texcoords.value()
             instances = Optional(
                 GpuRtInstanceView(
                     _immut(tlas._tree.wide_nodes),
@@ -127,6 +135,10 @@ struct GpuRtScene[
                     _immut(blases.descs),
                     _immut(blases.nodes),
                     _immut(blases.leaves),
+                    _immut(normal_offsets),
+                    _immut(normals),
+                    _immut(texcoord_offsets),
+                    _immut(texcoords),
                     tlas._tree.root_idx,
                     Int32(tlas._inst_count),
                     Int32(blases.blas_count),
@@ -142,6 +154,9 @@ struct GpuRtScene[
             _immut(self.materials.lambertians),
             _immut(self.materials.metals),
             _immut(self.materials.dielectrics),
+            _immut(self.materials.lambertian_texture_indices),
+            _immut(self.materials.texture_descs),
+            _immut(self.materials.texture_pixels),
             _immut(self.lights.kinds),
             _immut(self.lights.fields),
             Int32(self.lights.count),
@@ -243,6 +258,10 @@ def prepare_gpu_scene[
         ]
     ]()
     var instance_surfaces = Optional[DeviceBuffer[.uint32]]()
+    var instance_normal_offsets = Optional[DeviceBuffer[.uint32]]()
+    var instance_normals = Optional[DeviceBuffer[.float32]]()
+    var instance_texcoord_offsets = Optional[DeviceBuffer[.uint32]]()
+    var instance_texcoords = Optional[DeviceBuffer[.float32]]()
     comptime if kind.has_instances():
         instance_blases = Optional(
             build_gpu_triangle_blas_set[
@@ -266,6 +285,35 @@ def prepare_gpu_scene[
         instance_surfaces = Optional(
             upload_surface_ids(ctx, data.triangle_instance_surfaces())
         )
+        var normal_offsets = List[UInt32](capacity=len(data.triangle_meshes()))
+        var normals = List[Float32]()
+        var texcoord_offsets = List[UInt32](
+            capacity=len(data.triangle_meshes())
+        )
+        var texcoords = List[Float32]()
+        for mesh_idx in range(len(data.triangle_meshes())):
+            ref mesh_normals = data.triangle_mesh_normals()[mesh_idx]
+            if len(mesh_normals) == 0:
+                normal_offsets.append(UInt32.MAX)
+            else:
+                normal_offsets.append(UInt32(len(normals)))
+                for value in mesh_normals:
+                    normals.append(value)
+            ref mesh_texcoords = data.triangle_mesh_texcoords()[mesh_idx]
+            if len(mesh_texcoords) == 0:
+                texcoord_offsets.append(UInt32.MAX)
+            else:
+                texcoord_offsets.append(UInt32(len(texcoords)))
+                for value in mesh_texcoords:
+                    texcoords.append(value)
+        if len(normals) == 0:
+            normals.append(0.0)
+        if len(texcoords) == 0:
+            texcoords.append(0.0)
+        instance_normal_offsets = Optional(upload_list(ctx, normal_offsets))
+        instance_normals = Optional(upload_list(ctx, normals))
+        instance_texcoord_offsets = Optional(upload_list(ctx, texcoord_offsets))
+        instance_texcoords = Optional(upload_list(ctx, texcoords))
 
     var materials = GpuRtMaterials(ctx, data)
     var lights = GpuRtLights(ctx, data)
@@ -280,6 +328,10 @@ def prepare_gpu_scene[
         instance_blases^,
         tlas^,
         instance_surfaces^,
+        instance_normal_offsets^,
+        instance_normals^,
+        instance_texcoord_offsets^,
+        instance_texcoords^,
         materials^,
         lights^,
     )

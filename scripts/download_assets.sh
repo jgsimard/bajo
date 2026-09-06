@@ -11,6 +11,7 @@ mkdir -p \
   assets/igea \
   assets/nefertiti \
   assets/armadillo \
+  assets/crown \
   assets/pbrt/killeroos/geometry \
   .cache/assets
 
@@ -96,6 +97,23 @@ if [ ! -f assets/armadillo/armadillo.obj ]; then
   curl -L --fail \
     -o assets/armadillo/armadillo.obj \
     https://raw.githubusercontent.com/alecjacobson/common-3d-test-models/master/data/armadillo.obj
+fi
+
+# Complete PBRT-v4 Crown scene: scene description, 794 PLY meshes, and 40
+# textures. Use a sparse checkout so the other large scene assets in the
+# repository are not downloaded. The pinned revision keeps benchmarks stable.
+if [ ! -f assets/crown/crown.pbrt ]; then
+  crown_checkout=.cache/assets/pbrt-v4-scenes-crown
+  crown_revision=30cf4a0346ae5a80a2d7a530a3ef7d0fa4f70572
+
+  rm -rf "$crown_checkout"
+  git init -q "$crown_checkout"
+  git -C "$crown_checkout" remote add origin https://github.com/mmp/pbrt-v4-scenes.git
+  git -C "$crown_checkout" sparse-checkout init --cone
+  git -C "$crown_checkout" sparse-checkout set crown
+  git -C "$crown_checkout" fetch -q --depth 1 --filter=blob:none origin "$crown_revision"
+  git -C "$crown_checkout" checkout -q --detach FETCH_HEAD
+  cp -r "$crown_checkout/crown/." assets/crown/
 fi
 
 # PBRT-v4 Killeroo gallery scene. Model courtesy of headus; scene maintained

@@ -6,7 +6,12 @@ from std.testing import (
     assert_true,
 )
 
-from bajo.parser.pbrt import MemoryTextLoader, parse_pbrt, read_pbrt
+from bajo.parser.pbrt import (
+    MemoryTextLoader,
+    parse_pbrt,
+    read_pbrt,
+    read_pbrt_camera,
+)
 from bajo.core import Point3f32, Rayf32, Vec3f32
 from bajo.rt import CpuScene, render_wavefront
 
@@ -80,6 +85,23 @@ def test_parse_checked_in_scene_with_include() raises:
     assert_true(len(scene.data.surfaces().emissives) == 1)
 
 
+def test_camera_read_stops_before_scene_assets() raises:
+    var loader = MemoryTextLoader()
+    loader.add_file(
+        "camera-only.pbrt",
+        """LookAt 1 2 3  1 2 2  0 1 0
+Camera "perspective" "float fov" [31]
+WorldBegin
+Texture "missing" "spectrum" "imagemap" "string filename" "missing.png"
+Shape "plymesh" "string filename" "missing.ply"
+""",
+    )
+    var camera = read_pbrt_camera("camera-only.pbrt", loader)
+    assert_almost_equal(camera.origin.x, 1.0)
+    assert_almost_equal(camera.origin.y, 2.0)
+    assert_almost_equal(camera.origin.z, 3.0)
+
+
 def test_transform_and_named_material() raises:
     comptime source = """Film "rgb" "integer xresolution" [4] "integer yresolution" [3]
 ColorSpace "srgb"
@@ -106,18 +128,22 @@ WorldEnd
     assert_true(scene.data.sphere_surfaces()[0].kind() == .LAMBERTIAN)
 
 
-def test_coateddiffuse_uses_diffuse_substrate() raises:
+def test_coateddiffuse_material() raises:
     comptime source = """WorldBegin
 Material "coateddiffuse" "rgb reflectance" [0.4 0.2 0.1] "float roughness" [0.025]
 Shape "sphere"
 """
     var scene = parse_pbrt(source)
     var surface = scene.data.sphere_surfaces()[0].copy()
-    assert_true(surface.kind() == .LAMBERTIAN)
-    var albedo = scene.data.surfaces().lambertians[Int(surface.index())].albedo
+    assert_true(surface.kind() == .COATED_DIFFUSE)
+    ref material = scene.data.surfaces().coated_diffuses[Int(surface.index())]
+    var albedo = material.albedo
     assert_almost_equal(albedo.x, 0.4)
     assert_almost_equal(albedo.y, 0.2)
     assert_almost_equal(albedo.z, 0.1)
+    assert_true(material.roughness > 0.025)
+    assert_true(material.roughness < 1.0)
+    assert_almost_equal(material.eta, 1.5)
 
 
 def test_texture_graph_loads_imagemap() raises:
@@ -144,80 +170,81 @@ AttributeEnd
 """
     var loader = MemoryTextLoader()
     loader.add_file("scene.pbrt", source)
-    loader.add_image_file(
-        "cover.png",
-        [
-            137,
-            80,
-            78,
-            71,
-            13,
-            10,
-            26,
-            10,
-            0,
-            0,
-            0,
-            13,
-            73,
-            72,
-            68,
-            82,
-            0,
-            0,
-            0,
-            1,
-            0,
-            0,
-            0,
-            1,
-            8,
-            2,
-            0,
-            0,
-            0,
-            144,
-            119,
-            83,
-            222,
-            0,
-            0,
-            0,
-            12,
-            73,
-            68,
-            65,
-            84,
-            120,
-            156,
-            99,
-            104,
-            112,
-            80,
-            0,
-            0,
-            2,
-            36,
-            0,
-            225,
-            171,
-            89,
-            98,
-            39,
-            0,
-            0,
-            0,
-            0,
-            73,
-            69,
-            78,
-            68,
-            174,
-            66,
-            96,
-            130,
-        ],
-    )
+    var png = List[UInt8]()
+    for value in [
+        137,
+        80,
+        78,
+        71,
+        13,
+        10,
+        26,
+        10,
+        0,
+        0,
+        0,
+        13,
+        73,
+        72,
+        68,
+        82,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1,
+        8,
+        2,
+        0,
+        0,
+        0,
+        144,
+        119,
+        83,
+        222,
+        0,
+        0,
+        0,
+        12,
+        73,
+        68,
+        65,
+        84,
+        120,
+        156,
+        99,
+        104,
+        112,
+        80,
+        0,
+        0,
+        2,
+        36,
+        0,
+        225,
+        171,
+        89,
+        98,
+        39,
+        0,
+        0,
+        0,
+        0,
+        73,
+        69,
+        78,
+        68,
+        174,
+        66,
+        96,
+        130,
+    ]:
+        png.append(UInt8(value))
+    loader.add_image_file("cover.png", png.copy())
+    loader.add_image_file("bump.png", png^)
     var scene = read_pbrt("scene.pbrt", loader)
     assert_true(len(scene.data.spheres()) == 2)
     var first = scene.data.sphere_surfaces()[0].copy()
@@ -229,9 +256,11 @@ AttributeEnd
     assert_almost_equal(first_albedo.z, 0.1)
 
     var second = scene.data.sphere_surfaces()[1].copy()
-    var second_albedo = (
-        scene.data.surfaces().lambertians[Int(second.index())].albedo
-    )
+    assert_true(second.kind() == .COATED_DIFFUSE)
+    ref second_material = scene.data.surfaces().coated_diffuses[
+        Int(second.index())
+    ]
+    var second_albedo = second_material.albedo
     assert_almost_equal(second_albedo.x, 1.0)
     assert_almost_equal(second_albedo.y, 1.0)
     assert_almost_equal(second_albedo.z, 1.0)
@@ -239,6 +268,8 @@ AttributeEnd
     assert_almost_equal(sampled.x, 0.21586, atol=0.0001)
     assert_almost_equal(sampled.y, 0.05127, atol=0.0001)
     assert_almost_equal(sampled.z, 0.01444, atol=0.0001)
+    assert_true(second_material.displacement_texture_index != UInt32.MAX)
+    assert_almost_equal(second_material.displacement_scale, 0.1)
 
 
 def test_loopsubdiv_loads_control_cage() raises:

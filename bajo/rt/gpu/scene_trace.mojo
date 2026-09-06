@@ -47,6 +47,7 @@ from bajo.rt.gpu.common_kernels import (
 from bajo.rt.gpu.path_shading import (
     _accumulate_sample,
     _append_shadow,
+    _gpu_coated_shading_normal,
     _route_surface_hit,
     _sample_direct_light_candidate,
 )
@@ -82,8 +83,16 @@ def _gpu_rt_scene_trace_path[
     var emissives = scene.emissives.unsafe_origin_cast[ImmutAnyOrigin]()
     var lambertians = scene.lambertians.unsafe_origin_cast[ImmutAnyOrigin]()
     var metals = scene.metals.unsafe_origin_cast[ImmutAnyOrigin]()
+    var coated_diffuses = scene.coated_diffuses.unsafe_origin_cast[
+        ImmutAnyOrigin
+    ]()
     var lambertian_texture_indices = (
         scene.lambertian_texture_indices.unsafe_origin_cast[ImmutAnyOrigin]()
+    )
+    var coated_diffuse_texture_indices = (
+        scene.coated_diffuse_texture_indices.unsafe_origin_cast[
+            ImmutAnyOrigin
+        ]()
     )
     var texture_descs = scene.texture_descs.unsafe_origin_cast[ImmutAnyOrigin]()
     var texture_pixels = scene.texture_pixels.unsafe_origin_cast[
@@ -335,6 +344,16 @@ def _gpu_rt_scene_trace_path[
 
     var oriented = orient_surface_normal(ray.d, outward)
     var normal = oriented.normal
+    normal = _gpu_coated_shading_normal(
+        surface_value,
+        normal,
+        uv_u,
+        uv_v,
+        coated_diffuses,
+        coated_diffuse_texture_indices,
+        texture_descs,
+        texture_pixels,
+    )
     comptime if integrator == .AO:
         var ao_rng = path_stage_rng(sampling, path.path_id, UInt32(1))
         var ao_ray = make_ao_ray(ray.at(closest_t), normal, ao_rng)
@@ -374,6 +393,8 @@ def _gpu_rt_scene_trace_path[
             texture_descs,
             texture_pixels,
             metals,
+            coated_diffuses,
+            coated_diffuse_texture_indices,
             light_kinds,
             light_fields,
             Int(light_count_i32),
@@ -425,6 +446,8 @@ def _gpu_rt_scene_trace_path[
         lambertian_texture_indices,
         texture_descs,
         texture_pixels,
+        coated_diffuses,
+        coated_diffuse_texture_indices,
         dst_path_ids,
         dst_path_fields,
         shade_path_refs,

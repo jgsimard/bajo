@@ -14,6 +14,7 @@ from bajo.core import (
     normalize,
 )
 from bajo.rt.types import (
+    BsdfSample,
     Color,
     MaterialKind,
     Integrator,
@@ -27,7 +28,12 @@ from ..scene import CpuScene
 from bajo.rt.common import path_stage_rng, russian_roulette, sky_color
 from bajo.rt.lighting import _direct_light_scale
 from bajo.rt.rays import spawn_surface_ray
-from bajo.rt.shading import _evaluate_material, _sample_material
+from bajo.rt.shading import (
+    _evaluate_coated_diffuse,
+    _evaluate_material,
+    _sample_coated_diffuse,
+    _sample_material,
+)
 from bajo.rt.wavefront_queue import (
     PacketPathQueue,
     PacketShadeQueue,
@@ -93,6 +99,7 @@ def _accumulate_direct_light_packet[
     )
     var albedo = Vec3[.float32, .WORLD, length](0.0)
     var fuzz = SIMD[.float32, length](1.0)
+    var eta = SIMD[.float32, length](1.5)
     for lane in range(lane_count):
         if not lights.sample.valid[lane]:
             continue
@@ -116,6 +123,20 @@ def _accumulate_direct_light_packet[
             albedo.y[lane] = sampled.y
             albedo.z[lane] = sampled.z
             fuzz[lane] = material.fuzz
+        elif lights.surface_kinds[lane] == MaterialKind.COATED_DIFFUSE.value:
+            ref material = surfaces.coated_diffuses[
+                Int(lights.surface_indices[lane])
+            ]
+            var sampled = surfaces.sample_albedo(
+                SurfaceId(.COATED_DIFFUSE, lights.surface_indices[lane]),
+                lights.point.uv_u[lane],
+                lights.point.uv_v[lane],
+            )
+            albedo.x[lane] = sampled.x
+            albedo.y[lane] = sampled.y
+            albedo.z[lane] = sampled.z
+            fuzz[lane] = material.roughness
+            eta[lane] = material.eta
 
     var lambertian = _evaluate_material[.LAMBERTIAN, length](
         ray_direction,
@@ -131,11 +152,26 @@ def _accumulate_direct_light_packet[
         fuzz,
         lights.sample.direction,
     )
+    var coated = _evaluate_coated_diffuse(
+        ray_direction,
+        lights.point.normal,
+        albedo,
+        fuzz,
+        eta,
+        lights.sample.direction,
+    )
     var is_lambertian = lights.surface_kinds.eq(MaterialKind.LAMBERTIAN.value)
     var is_metal = lights.surface_kinds.eq(MaterialKind.METAL.value)
-    var value = Vec3.select(is_lambertian, lambertian.value, metal.value)
-    var pdf = is_lambertian.select(lambertian.pdf, metal.pdf)
-    var supported = is_lambertian | is_metal
+    var is_coated = lights.surface_kinds.eq(MaterialKind.COATED_DIFFUSE.value)
+    var value = Vec3.select(
+        is_coated,
+        coated.value,
+        Vec3.select(is_lambertian, lambertian.value, metal.value),
+    )
+    var pdf = is_coated.select(
+        coated.pdf, is_lambertian.select(lambertian.pdf, metal.pdf)
+    )
+    var supported = is_lambertian | is_metal | is_coated
     var ok = lights.sample.valid & supported & pdf.gt(0.0)
     var scale = _direct_light_scale[integrator, length](
         lights.sample.surface_cosine,
@@ -169,6 +205,7 @@ def _sample_bsdf_batch[
     var normal = Vec3[.float32, .WORLD, length](batch.nx, batch.ny, batch.nz)
     var albedo = Vec3[.float32, .WORLD, length](0.0)
     var parameter = SIMD[.float32, length](1.0)
+    var eta = SIMD[.float32, length](1.5)
     var random_u = SIMD[.float32, length](0.0)
     var random_v = SIMD[.float32, length](0.0)
     var active = SIMD[.bool, length](fill=False)
@@ -201,11 +238,29 @@ def _sample_bsdf_batch[
             if material.fuzz > 1.0e-4:
                 random_u[lane] = rng.f32()
                 random_v[lane] = rng.f32()
-        else:
+        elif MATERIAL_KIND == .DIELECTRIC:
             ref material = surfaces.dielectrics[
                 Int(batch.surface_indices[lane])
             ]
             parameter[lane] = material.refraction_index
+        else:
+            comptime assert MATERIAL_KIND == .COATED_DIFFUSE
+            var rng = path_stage_rng(sampling, batch.path_ids[lane], stage)
+            ref material = surfaces.coated_diffuses[
+                Int(batch.surface_indices[lane])
+            ]
+            var sampled = surfaces.sample_albedo(
+                SurfaceId(.COATED_DIFFUSE, batch.surface_indices[lane]),
+                batch.uv_u[lane],
+                batch.uv_v[lane],
+            )
+            albedo.x[lane] = sampled.x
+            albedo.y[lane] = sampled.y
+            albedo.z[lane] = sampled.z
+            parameter[lane] = material.roughness
+            eta[lane] = material.eta
+            random_u[lane] = rng.f32()
+            random_v[lane] = rng.f32()
 
     comptime if MATERIAL_KIND == .DIELECTRIC:
         var ri = batch.front_faces.select(Float32(1.0) / parameter, parameter)
@@ -218,15 +273,27 @@ def _sample_bsdf_batch[
                 var rng = path_stage_rng(sampling, batch.path_ids[lane], stage)
                 random_u[lane] = rng.f32()
 
-    var sampled = _sample_material[MATERIAL_KIND, length](
-        ray_direction,
-        normal,
-        albedo,
-        parameter,
-        batch.front_faces,
-        random_u,
-        random_v,
-    )
+    var sampled: BsdfSample[length]
+    comptime if MATERIAL_KIND == .COATED_DIFFUSE:
+        sampled = _sample_coated_diffuse(
+            ray_direction,
+            normal,
+            albedo,
+            parameter,
+            eta,
+            random_u,
+            random_v,
+        )
+    else:
+        sampled = _sample_material[MATERIAL_KIND, length](
+            ray_direction,
+            normal,
+            albedo,
+            parameter,
+            batch.front_faces,
+            random_u,
+            random_v,
+        )
 
     var out = PathPacket[length]()
     out.path_ids = batch.path_ids
@@ -332,6 +399,7 @@ def _trace_path_packets[
     mut lambertian_queue: PacketShadeQueue[length],
     mut metal_queue: PacketShadeQueue[length],
     mut dielectric_queue: PacketShadeQueue[length],
+    mut coated_diffuse_queue: PacketShadeQueue[length],
 ):
     comptime assert Integrator.is_path_tracing[integrator]
     for bounce in range(settings.max_depth):
@@ -340,6 +408,7 @@ def _trace_path_packets[
         lambertian_queue.clear()
         metal_queue.clear()
         dielectric_queue.clear()
+        coated_diffuse_queue.clear()
         next_paths.clear()
         for packet_idx, packet in enumerate(active_paths.packets):
             var lane_count = min(
@@ -374,6 +443,13 @@ def _trace_path_packets[
                 )
                 var hit = surface_hits.get(lane)
                 if hit.hit:
+                    hit.normal = (
+                        world.scene_data()
+                        .surfaces()
+                        .shading_normal(
+                            hit.surface, hit.normal, hit.uv_u, hit.uv_v
+                        )
+                    )
                     var pixel_idx = (
                         Int(packet.path_ids[lane]) / settings.samples_per_pixel
                     )
@@ -462,6 +538,8 @@ def _trace_path_packets[
                         metal_queue.append(packet, lane, hit)
                     elif hit.surface.kind() == .DIELECTRIC:
                         dielectric_queue.append(packet, lane, hit)
+                    elif hit.surface.kind() == .COATED_DIFFUSE:
+                        coated_diffuse_queue.append(packet, lane, hit)
                 else:
                     misses[lane] = True
 
@@ -507,6 +585,13 @@ def _trace_path_packets[
         _shade_material_packets[.DIELECTRIC, length](
             next_paths,
             dielectric_queue,
+            world.scene_data().surfaces(),
+            sampling,
+            UInt32(bounce + 1),
+        )
+        _shade_material_packets[.COATED_DIFFUSE, length](
+            next_paths,
+            coated_diffuse_queue,
             world.scene_data().surfaces(),
             sampling,
             UInt32(bounce + 1),

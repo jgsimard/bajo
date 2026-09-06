@@ -1,5 +1,7 @@
 import std.os.path
-from std.math import abs, cos, pi, sin, sqrt
+from max.algorithm import parallelize
+from std.math import abs, cos, log, pi, sin, sqrt
+from std.sys import num_logical_cores
 
 from bajo.bvh import Camera, Instance, Sphere
 from bajo.bvh.host_utils import compute_bounds
@@ -8,6 +10,7 @@ from bajo.parser.number import parse_f32_at
 from bajo.parser.ply import PlyMesh
 from bajo.rt.types import (
     Color,
+    ImageTexture,
     Integrator,
     NO_TEXTURE,
     RenderSettings,
@@ -203,6 +206,14 @@ struct _ColorTexture(Copyable):
     var image_index: UInt32
 
 
+@fieldwise_init
+struct _FloatTexture(Copyable):
+    var scale: Float32
+    var image_index: UInt32
+    var u_scale: Float32
+    var v_scale: Float32
+
+
 struct _Builder(
     Deinitable where (False, "call finish() or abort() to consume the parser")
 ):
@@ -218,7 +229,8 @@ struct _Builder(
     var surfaces: SurfaceStore
     var named_materials: Dict[String, SurfaceId[1]]
     var color_textures: Dict[String, _ColorTexture]
-    var scalar_textures: Dict[String, Float32]
+    var scalar_textures: Dict[String, _FloatTexture]
+    var image_paths: List[String]
     var state: _GraphicsState
     var attribute_stack: List[_GraphicsState]
     var transform_stack: List[_Transform]
@@ -245,7 +257,8 @@ struct _Builder(
         self.surfaces = SurfaceStore()
         self.named_materials = Dict[String, SurfaceId[1]]()
         self.color_textures = Dict[String, _ColorTexture]()
-        self.scalar_textures = Dict[String, Float32]()
+        self.scalar_textures = Dict[String, _FloatTexture]()
+        self.image_paths = List[String]()
         var default_surface = self.surfaces.add_lambertian(Color(0.5))
         self.state = _GraphicsState(
             _Transform.identity(),
@@ -350,7 +363,9 @@ struct _Builder(
         self.triangle_instances.append(instance^)
         self.triangle_instance_surfaces.append(surface.copy())
 
-    def finish(deinit self) raises -> SceneDescription:
+    def finish[
+        Loader: TextLoader
+    ](deinit self, loader: Loader) raises -> SceneDescription:
         if len(self.attribute_stack) != 0 or len(self.transform_stack) != 0:
             raise Error("unclosed PBRT attribute or transform scope")
         if (
@@ -359,6 +374,49 @@ struct _Builder(
             and len(self.triangle_instances) == 0
         ):
             raise Error("PBRT scene contains no supported shapes")
+        var loaded_images = List[Optional[ImageTexture]](
+            length=len(self.image_paths),
+            fill_with=lambda (index: Int) -> Optional[ImageTexture]: Optional[
+                ImageTexture
+            ](),
+        )
+        var image_errors = List[String](length=len(self.image_paths), fill="")
+
+        def load_image(
+            image_idx: Int,
+        ) {imm, mut loaded_images, mut image_errors}:
+            try:
+                var image = loader.read_image_texture(
+                    self.image_paths[image_idx]
+                )
+                loaded_images[image_idx] = image^
+            except error:
+                image_errors[image_idx] = String(error)
+
+        if len(self.image_paths) > 1:
+            parallelize(
+                load_image,
+                len(self.image_paths),
+                min(num_logical_cores(), len(self.image_paths)),
+            )
+        elif len(self.image_paths) == 1:
+            load_image(0)
+
+        for image_idx in range(len(self.image_paths)):
+            if image_errors[image_idx].byte_length() != 0:
+                raise Error(
+                    "failed to load PBRT image '"
+                    + self.image_paths[image_idx]
+                    + "': "
+                    + image_errors[image_idx]
+                )
+            if not loaded_images[image_idx]:
+                raise Error("PBRT image loader returned no image")
+            var stored_idx = self.surfaces.add_image_texture(
+                loaded_images[image_idx].take()
+            )
+            debug_assert(stored_idx == UInt32(image_idx))
+
         var camera = Camera.from_vfov(
             self.camera_origin,
             self.camera_target,
@@ -535,25 +593,36 @@ def _scalar_parameter(
     params: _Parameters,
     name: String,
     default: Float32,
-) raises -> Float32:
+) raises -> _FloatTexture:
     var texture_name = params.string("texture " + name, "")
     if texture_name.byte_length() != 0:
         if texture_name not in builder.scalar_textures:
             raise Error("unknown PBRT float texture: " + texture_name)
-        return builder.scalar_textures[texture_name]
-    return params.f32("float " + name, default)
+        return builder.scalar_textures[texture_name].copy()
+    return _FloatTexture(
+        params.f32("float " + name, default), NO_TEXTURE, 1.0, 1.0
+    )
 
 
-def _texture[
-    Loader: TextLoader
-](
+def _roughness_to_alpha(roughness: Float32) -> Float32:
+    """PBRT's perceptual roughness remapping for microfacet materials."""
+    var x = log(max(roughness, 1.0e-3))
+    return (
+        1.62142
+        + 0.819955 * x
+        + 0.1734 * x * x
+        + 0.0171201 * x * x * x
+        + 0.000640711 * x * x * x * x
+    ).clamp(0.0, 1.0)
+
+
+def _texture(
     mut builder: _Builder,
     name: String,
     value_type: String,
     implementation: String,
     params: _Parameters,
     source_path: String,
-    loader: Loader,
 ) raises:
     if value_type == "spectrum" or value_type == "color":
         var value: _ColorTexture
@@ -581,29 +650,56 @@ def _texture[
             var image_path = std.os.path.join(
                 std.os.path.dirname(source_path), filename
             )
-            var image = loader.read_image_texture(image_path)
-            value = _ColorTexture(
-                Color(1.0), builder.surfaces.add_image_texture(image^)
-            )
+            var image_index = UInt32(len(builder.image_paths))
+            builder.image_paths.append(image_path)
+            value = _ColorTexture(Color(1.0), image_index)
         else:
             raise Error("unsupported PBRT spectrum texture: " + implementation)
         builder.color_textures[name] = value.copy()
         return
 
     if value_type == "float":
-        var value: Float32
+        var value: _FloatTexture
         if implementation == "constant":
-            value = params.f32("float value", 1.0)
+            value = _FloatTexture(
+                params.f32("float value", 1.0), NO_TEXTURE, 1.0, 1.0
+            )
         elif implementation == "scale":
-            value = _scalar_parameter(builder, params, "tex", 1.0)
-            value *= _scalar_parameter(builder, params, "scale", 1.0)
+            var tex = _scalar_parameter(builder, params, "tex", 1.0)
+            var scale = _scalar_parameter(builder, params, "scale", 1.0)
+            if (
+                tex.image_index != NO_TEXTURE
+                and scale.image_index != NO_TEXTURE
+            ):
+                raise Error("PBRT scale of two image textures is not supported")
+            value = _FloatTexture(
+                tex.scale * scale.scale,
+                tex.image_index,
+                tex.u_scale,
+                tex.v_scale,
+            )
+            if value.image_index == NO_TEXTURE:
+                value.image_index = scale.image_index
+                value.u_scale = scale.u_scale
+                value.v_scale = scale.v_scale
         elif implementation == "imagemap":
-            if params.string("string filename", "").byte_length() == 0:
+            var filename = params.string("string filename", "")
+            if filename.byte_length() == 0:
                 raise Error("PBRT imagemap texture requires a filename")
-            value = 1.0
+            var image_path = std.os.path.join(
+                std.os.path.dirname(source_path), filename
+            )
+            var image_index = UInt32(len(builder.image_paths))
+            builder.image_paths.append(image_path)
+            value = _FloatTexture(
+                params.f32("float scale", 1.0),
+                image_index,
+                params.f32("float uscale", 1.0),
+                params.f32("float vscale", 1.0),
+            )
         else:
             raise Error("unsupported PBRT float texture: " + implementation)
-        builder.scalar_textures[name] = value
+        builder.scalar_textures[name] = value.copy()
         return
 
     raise Error("unsupported PBRT texture value type: " + value_type)
@@ -612,13 +708,32 @@ def _texture[
 def _surface(
     mut builder: _Builder, model: String, params: _Parameters
 ) raises -> SurfaceId[1]:
-    if model == "diffuse" or model == "matte" or model == "coateddiffuse":
-        # Bajo does not have a layered dielectric coating yet. Preserve the
-        # diffuse substrate so official scenes remain useful in the meantime.
-        if model == "coateddiffuse":
-            # Resolve the graph even though geometric displacement is not yet
-            # represented, so broken PBRT texture references still fail early.
-            _ = _scalar_parameter(builder, params, "displacement", 0.0)
+    if model == "coateddiffuse":
+        var reflectance = _color_texture_parameter(
+            builder, params, "reflectance", Color(0.5)
+        )
+        var displacement = _scalar_parameter(
+            builder, params, "displacement", 0.0
+        )
+        var roughness = params.f32("float roughness", 0.0)
+        var u_roughness = params.f32("float uroughness", roughness)
+        var v_roughness = params.f32("float vroughness", roughness)
+        roughness = sqrt(max(u_roughness, 0.0) * max(v_roughness, 0.0)).clamp(
+            0.0, 1.0
+        )
+        if params.string("bool remaproughness", "true") != "false":
+            roughness = _roughness_to_alpha(roughness)
+        return builder.surfaces.add_coated_diffuse(
+            reflectance.scale,
+            roughness,
+            params.f32("float eta", 1.5),
+            reflectance.image_index,
+            displacement.image_index,
+            displacement.scale,
+            displacement.u_scale,
+            displacement.v_scale,
+        )
+    if model == "diffuse" or model == "matte":
         var reflectance = _color_texture_parameter(
             builder, params, "reflectance", Color(0.5)
         )
@@ -922,7 +1037,6 @@ def _parse_text[
                 lexer.next().value,
                 _parse_params(lexer),
                 path,
-                loader,
             )
         elif command == "Material":
             var model = lexer.next().value
@@ -986,4 +1100,100 @@ def _parse_pbrt[
     except error:
         builder^.abort()
         raise error
-    return builder^.finish()
+    return builder^.finish(loader)
+
+
+def _parse_camera_text[
+    Loader: TextLoader
+](
+    mut builder: _Builder,
+    text: String,
+    path: String,
+    loader: Loader,
+    depth: Int,
+) raises -> Bool:
+    """Parse only the PBRT options block, stopping before scene assets."""
+    if depth > 32:
+        raise Error("PBRT Include nesting exceeds 32 files")
+    var span = StringSpan(text)
+    var lexer = _Lexer(span.as_bytes())
+    while lexer.has_next():
+        var command_token = lexer.next()
+        if command_token.quoted:
+            raise Error(t"expected PBRT directive at line {command_token.line}")
+        var command = command_token.value
+        if command == "WorldBegin":
+            return True
+        if command == "LookAt":
+            var values = _fixed_f32(lexer, 9)
+            builder.camera_origin = _PointW(values[0], values[1], values[2])
+            builder.camera_target = _PointW(values[3], values[4], values[5])
+            builder.camera_up = _VecW(values[6], values[7], values[8])
+        elif command == "Camera":
+            var kind = lexer.next().value
+            if kind != "perspective":
+                raise Error("only PBRT perspective cameras are supported")
+            var params = _parse_params(lexer)
+            builder.camera_fov = params.f32("float fov", 45.0)
+        elif command == "Film":
+            _ = lexer.next()
+            _ = _parse_params(lexer)
+        elif command == "Sampler":
+            _ = lexer.next()
+            _ = _parse_params(lexer)
+        elif command == "Integrator":
+            _ = lexer.next()
+            _ = _parse_params(lexer)
+        elif command == "PixelFilter" or command == "Accelerator":
+            _ = lexer.next()
+            _ = _parse_params(lexer)
+        elif command == "ColorSpace":
+            _ = lexer.next()
+        elif command == "Option":
+            _ = _parse_params(lexer)
+        elif command == "Identity":
+            pass
+        elif command == "Translate" or command == "Scale":
+            _ = _fixed_f32(lexer, 3)
+        elif command == "Rotate":
+            _ = _fixed_f32(lexer, 4)
+        elif command == "Transform" or command == "ConcatTransform":
+            _ = _bracket_values(lexer)
+        elif command == "Include":
+            var include_name = lexer.next().value
+            var include_path = std.os.path.join(
+                std.os.path.dirname(path), include_name
+            )
+            if _parse_camera_text(
+                builder,
+                loader.read_text(include_path),
+                include_path,
+                loader,
+                depth + 1,
+            ):
+                return True
+        else:
+            raise Error(
+                t"unsupported PBRT options directive '{command}' at line"
+                t" {command_token.line}"
+            )
+    return False
+
+
+def _parse_pbrt_camera[
+    Loader: TextLoader
+](text: String, path: String, loader: Loader) raises -> Camera:
+    var builder = _Builder()
+    try:
+        _ = _parse_camera_text(builder, text, path, loader, 0)
+        var camera = Camera.from_vfov(
+            builder.camera_origin,
+            builder.camera_target,
+            builder.camera_up,
+            builder.camera_fov,
+        )
+        builder^.abort()
+        return camera
+    except error:
+        builder^.abort()
+        raise error

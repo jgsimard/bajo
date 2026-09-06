@@ -101,6 +101,66 @@ def _material_sphere_world() raises -> CpuScene[4, 8]:
     return CpuScene[4, 8](scene^)
 
 
+def _coated_sphere_world() raises -> CpuScene[4, 8]:
+    var builder = SceneBuilder()
+    var albedo_pixels: List[Float32] = [
+        0.9,
+        0.2,
+        0.1,
+        0.2,
+        0.8,
+        0.3,
+        0.1,
+        0.3,
+        0.9,
+        0.8,
+        0.7,
+        0.2,
+    ]
+    var bump_pixels: List[Float32] = [
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        1.0,
+        1.0,
+        0.25,
+        0.25,
+        0.25,
+        0.75,
+        0.75,
+        0.75,
+    ]
+    var albedo_texture = builder.surfaces.add_image_texture(
+        ImageTexture(2, 2, albedo_pixels^)
+    )
+    var bump_texture = builder.surfaces.add_image_texture(
+        ImageTexture(2, 2, bump_pixels^)
+    )
+    var coated = builder.surfaces.add_coated_diffuse(
+        Color(0.8, 0.7, 0.6),
+        0.2,
+        1.5,
+        albedo_texture,
+        bump_texture,
+        0.08,
+        1.5,
+        1.5,
+    )
+    var light = builder.add_emissive(Color(4.0, 3.0, 2.0))
+    builder.add_sphere(
+        Point3f32[.WORLD](0.0, 0.0, -1.0),
+        0.5,
+        coated,
+    )
+    builder.add_sphere(
+        Point3f32[.WORLD](0.9, 0.8, -0.5),
+        0.2,
+        light,
+    )
+    return CpuScene[4, 8](builder^.finish())
+
+
 def _mixed_light_world() raises -> CpuScene[4, 8]:
     var builder = SceneBuilder()
     var matte = builder.add_lambertian(Color(0.55, 0.58, 0.62))
@@ -446,6 +506,35 @@ def test_gpu_materials_match_cpu_wavefront() raises:
         assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=1.0e-5)
         assert_almost_equal(gpu.pixels[i].y, cpu_pixel.y, atol=1.0e-5)
         assert_almost_equal(gpu.pixels[i].z, cpu_pixel.z, atol=1.0e-5)
+
+
+def test_gpu_coated_diffuse_and_bump_match_cpu() raises:
+    var settings = RenderSettings(8, 4, 4, UInt64(127))
+    var world = _coated_sphere_world()
+    var camera = _camera()
+    var cpu = render_wavefront[.MIS, 1, 64, False](settings, camera, world)
+    var gpu = render_gpu_configured[
+        kind=.SPHERES,
+        integrator=.MIS,
+        sphere_format=GPU_RT_BVH_WIDE4,
+    ](settings, camera, world.scene_data())
+    for i, cpu_pixel in enumerate(cpu.pixels):
+        assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=1.0e-5)
+        assert_almost_equal(gpu.pixels[i].y, cpu_pixel.y, atol=1.0e-5)
+        assert_almost_equal(gpu.pixels[i].z, cpu_pixel.z, atol=1.0e-5)
+
+    var cpu_normals = render_depth_first[
+        .NORMALS, 1, 1, CpuSchedulerMode.RUNTIME_DEFAULT, 4, 8
+    ](settings, camera, world)
+    var gpu_normals = render_gpu_configured[
+        kind=.SPHERES,
+        integrator=.NORMALS,
+        sphere_format=GPU_RT_BVH_WIDE4,
+    ](settings, camera, world.scene_data())
+    for i, cpu_pixel in enumerate(cpu_normals.pixels):
+        assert_almost_equal(gpu_normals.pixels[i].x, cpu_pixel.x, atol=1.0e-5)
+        assert_almost_equal(gpu_normals.pixels[i].y, cpu_pixel.y, atol=1.0e-5)
+        assert_almost_equal(gpu_normals.pixels[i].z, cpu_pixel.z, atol=1.0e-5)
 
 
 def test_gpu_triangle_path_matches_cpu_wavefront() raises:

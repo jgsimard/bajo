@@ -6,12 +6,14 @@ from std.os import abort
 from std.sys.defines import get_defined_int
 from std.time import perf_counter_ns
 
+from bajo.bvh.cpu import CpuBvhBuildMethod, CpuTraversalMode
 from bajo.core import Point3W
 from bajo.core.random import Sampler
 from bajo.core.utils import ns_to_ms
-from bajo.parser.pbrt import read_pbrt
+from bajo.parser.pbrt import read_pbrt, read_pbrt_camera
 from bajo.rt import (
     Camera,
+    CpuScene,
     Integrator,
     RenderSettings,
     SceneData,
@@ -29,9 +31,11 @@ from bajo.rt.gpu.render import (
     _prefer_cwbvh8_triangles,
 )
 from examples.viewer import (
+    _render_frame as _render_cpu_frame,
     _write_linear_frame,
     _viewer_bvh_stats,
     _viewer_camera,
+    _make_viewer_world,
     load_viewer_scene_data,
     render_frame as _render_frame,
 )
@@ -39,6 +43,19 @@ from examples.viewer import (
 
 comptime VIEWER_BACKEND = get_defined_int["VIEWER_BACKEND", 0]()
 comptime VIEWER_INTEGRATOR = get_defined_int["VIEWER_INTEGRATOR", 0]()
+comptime VIEWER_BUILD = get_defined_int["VIEWER_BUILD", 0]()
+comptime VIEWER_TRAVERSAL = get_defined_int["VIEWER_TRAVERSAL", 0]()
+comptime CPU_VIEWER_BUILD_METHOD = (
+    CpuBvhBuildMethod.SAH if VIEWER_BUILD
+    == 0 else CpuBvhBuildMethod.LBVH if VIEWER_BUILD
+    == 1 else CpuBvhBuildMethod.HPLOC if VIEWER_BUILD
+    == 2 else CpuBvhBuildMethod.MEDIAN
+)
+comptime CPU_VIEWER_TRAVERSAL_MODE = (
+    CpuTraversalMode.AUTO_COHERENT if VIEWER_TRAVERSAL
+    == 0 else CpuTraversalMode.FIXED_PACKET if VIEWER_TRAVERSAL
+    == 1 else CpuTraversalMode.ADAPTIVE
+)
 comptime STATE_KIND_MASK = 7
 comptime STATE_COMPRESSED_TRIANGLES = 8
 comptime STATE_COMPRESSED_BLASES = 16
@@ -195,14 +212,133 @@ def create_gpu_state(config: PythonObject) raises -> PythonObject:
         raise Error("persistent GPU state requires the GPU viewer backend")
     var settings = _settings(config)
     var camera = _camera(config)
-    var t0 = perf_counter_ns()
-    var data = load_viewer_scene_data(
-        Int(py=config["scene"]), String(py=config["scene_path"])
-    )
+    var scene = Int(py=config["scene"])
+    var scene_path = String(py=config["scene_path"])
+    var parse_ms = Float64(0.0)
+    var data: SceneData
+    var build_t0 = perf_counter_ns()
+    if scene == 8 or scene == 9:
+        var parse_t0 = perf_counter_ns()
+        data = load_viewer_scene_data(scene, scene_path)
+        parse_ms = ns_to_ms(Int(perf_counter_ns() - parse_t0))
+        build_t0 = perf_counter_ns()
+    else:
+        data = load_viewer_scene_data(scene, scene_path)
     var bvh_stats = _viewer_bvh_stats[1](data)
     var state = _create_gpu_state(settings, camera, data)
-    var build_ms = ns_to_ms(Int(perf_counter_ns() - t0))
-    return Python.list(state[0], state[1], build_ms, bvh_stats)
+    var build_ms = ns_to_ms(Int(perf_counter_ns() - build_t0))
+    return Python.list(state[0], state[1], parse_ms, build_ms, bvh_stats)
+
+
+struct CpuViewerState:
+    var world: CpuScene[16, 16]
+
+    def __init__(out self, var world: CpuScene[16, 16]):
+        self.world = world^
+
+
+def create_cpu_state(config: PythonObject) raises -> PythonObject:
+    comptime if VIEWER_BACKEND != 0:
+        raise Error("persistent CPU state requires the CPU viewer backend")
+    var scene = Int(py=config["scene"])
+    var scene_path = String(py=config["scene_path"])
+    var parse_ms = Float64(0.0)
+    var world: CpuScene[16, 16]
+    var build_t0: Int
+    if scene == 8 or scene == 9:
+        var parse_t0 = perf_counter_ns()
+        var parsed = read_pbrt(scene_path)
+        parse_ms = ns_to_ms(Int(perf_counter_ns() - parse_t0))
+        build_t0 = perf_counter_ns()
+        world = CpuScene[16, 16].__init__[CPU_VIEWER_BUILD_METHOD](
+            parsed^.take_data()
+        )
+    else:
+        build_t0 = perf_counter_ns()
+        world = _make_viewer_world[16, 16, CPU_VIEWER_BUILD_METHOD](scene)
+    var bvh_stats = _viewer_bvh_stats[
+        0,
+        16,
+        16,
+        CPU_VIEWER_BUILD_METHOD,
+        CPU_VIEWER_TRAVERSAL_MODE,
+    ](world.scene_data())
+    var ptr = unsafe_alloc[CpuViewerState](1)
+    ptr.unsafe_write(CpuViewerState(world^))
+    var build_ms = ns_to_ms(Int(perf_counter_ns() - build_t0))
+    return Python.list(Int(ptr), parse_ms, build_ms, bvh_stats)
+
+
+def _render_cpu_state[
+    integrator: Integrator
+](handle: Int, config: PythonObject) raises -> PythonObject:
+    var ptr = Pointer[CpuViewerState, MutUntrackedOrigin](
+        unsafe_from_address=handle
+    )
+    var settings = _settings(config)
+    var result = _render_cpu_frame[
+        integrator,
+        0,
+        16,
+        16,
+        CPU_VIEWER_BUILD_METHOD,
+        CPU_VIEWER_TRAVERSAL_MODE,
+        16,
+        8,
+        4,
+    ](
+        String(py=config["output"]),
+        settings.image_width,
+        settings.image_height,
+        settings.samples_per_pixel,
+        settings.max_depth,
+        Point3W(
+            Float32(py=config["x"]),
+            Float32(py=config["y"]),
+            Float32(py=config["z"]),
+        ),
+        Float32(py=config["yaw"]),
+        Float32(py=config["pitch"]),
+        Float32(py=config["vfov"]),
+        ptr[].world,
+        settings.sampler,
+        settings.sample_offset,
+        settings.sample_sequence_length,
+        True,
+    )
+    var primary_rays = (
+        settings.image_width
+        * settings.image_height
+        * settings.samples_per_pixel
+    )
+    var mrays = Float64(0.0)
+    if result.render_ms > 0.0:
+        mrays = Float64(primary_rays) / (result.render_ms * 1000.0)
+    return Python.list(result.render_ms, Float64(0.0), mrays)
+
+
+def render_cpu_state(
+    handle: PythonObject, config: PythonObject
+) raises -> PythonObject:
+    var address = Int(py=handle)
+    comptime if VIEWER_INTEGRATOR == 0:
+        return _render_cpu_state[.PATH](address, config)
+    elif VIEWER_INTEGRATOR == 1:
+        return _render_cpu_state[.NEE](address, config)
+    elif VIEWER_INTEGRATOR == 2:
+        return _render_cpu_state[.MIS](address, config)
+    elif VIEWER_INTEGRATOR == 3:
+        return _render_cpu_state[.NORMALS](address, config)
+    else:
+        return _render_cpu_state[.AO](address, config)
+
+
+def destroy_cpu_state(handle: PythonObject) raises:
+    var ptr = Pointer[CpuViewerState, MutUntrackedOrigin](
+        unsafe_from_address=Int(py=handle)
+    )
+    ptr.unsafe_deinit_pointee()
+    ptr.unsafe_free()
 
 
 def _render_state[
@@ -410,8 +546,7 @@ def render_frame(config: PythonObject) raises -> PythonObject:
 
 
 def pbrt_camera(path: PythonObject) raises -> PythonObject:
-    var scene = read_pbrt(String(py=path))
-    var camera = scene.camera
+    var camera = read_pbrt_camera(String(py=path))
     return Python.list(
         camera.origin.x,
         camera.origin.y,
@@ -432,6 +567,10 @@ def PyInit_bajo_viewer() abi("C") -> PythonObject:
             module.def_function[create_gpu_state]("create_gpu_state")
             module.def_function[render_gpu_state]("render_gpu_state")
             module.def_function[destroy_gpu_state]("destroy_gpu_state")
+        else:
+            module.def_function[create_cpu_state]("create_cpu_state")
+            module.def_function[render_cpu_state]("render_cpu_state")
+            module.def_function[destroy_cpu_state]("destroy_cpu_state")
         module.def_function[pbrt_camera]("pbrt_camera")
         return module.finalize()
     except e:

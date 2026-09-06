@@ -57,6 +57,45 @@ def _evaluate_metal[
 
 
 @always_inline
+def _evaluate_coated_diffuse[
+    length: SIMDLength
+](
+    ray_direction: Vec3[.float32, .WORLD, length],
+    normal: Vec3[.float32, .WORLD, length],
+    albedo: Vec3[.float32, .WORLD, length],
+    roughness: SIMD[.float32, length],
+    eta: SIMD[.float32, length],
+    out_direction: Vec3[.float32, .WORLD, length],
+) -> BsdfEvaluation[length]:
+    """Approximate a dielectric coat over a Lambertian substrate.
+
+    The glossy and diffuse lobes share an energy-conserving Fresnel mixture.
+    """
+    var incoming_cosine = max(dot(normal, -normalize(ray_direction)), 0.0)
+    var outgoing_cosine = max(dot(normal, normalize(out_direction)), 0.0)
+    var incoming_fresnel = reflectance(incoming_cosine, 1.0 / eta)
+    var outgoing_fresnel = reflectance(outgoing_cosine, 1.0 / eta)
+    var specular = _evaluate_metal(
+        ray_direction,
+        normal,
+        Vec3[.float32, .WORLD, length](1.0),
+        roughness,
+        out_direction,
+    )
+    var diffuse = _evaluate_lambertian(normal, albedo, out_direction)
+    var diffuse_transmission = (1.0 - incoming_fresnel) * (
+        1.0 - outgoing_fresnel
+    )
+    var value = (
+        specular.value * incoming_fresnel + diffuse.value * diffuse_transmission
+    )
+    var pdf = specular.pdf * incoming_fresnel + diffuse.pdf * (
+        1.0 - incoming_fresnel
+    )
+    return BsdfEvaluation[length](value, pdf, specular.delta)
+
+
+@always_inline
 def _evaluate_material[
     MATERIAL_KIND: MaterialKind, length: SIMDLength
 ](
@@ -159,6 +198,54 @@ def _sample_metal[
     var pdf = smooth.select(Float32(1.0), evaluation.pdf)
     var ok = smooth.select(dot(reflected, normal).gt(0.0), rough_ok)
     return BsdfSample[length](direction, weight, pdf, smooth, ok)
+
+
+@always_inline
+def _sample_coated_diffuse[
+    length: SIMDLength
+](
+    ray_direction: Vec3[.float32, .WORLD, length],
+    normal: Vec3[.float32, .WORLD, length],
+    albedo: Vec3[.float32, .WORLD, length],
+    roughness: SIMD[.float32, length],
+    eta: SIMD[.float32, length],
+    random_u: SIMD[.float32, length],
+    random_v: SIMD[.float32, length],
+) -> BsdfSample[length]:
+    var incoming_cosine = max(dot(normal, -normalize(ray_direction)), 0.0)
+    var specular_probability = reflectance(incoming_cosine, 1.0 / eta)
+    var choose_specular = random_u.lt(specular_probability)
+    var safe_specular_probability = max(specular_probability, 1.0e-6)
+    var safe_diffuse_probability = max(1.0 - specular_probability, 1.0e-6)
+    var specular_u = random_u / safe_specular_probability
+    var diffuse_u = (random_u - specular_probability) / safe_diffuse_probability
+    var specular_sample = _sample_metal(
+        ray_direction,
+        normal,
+        Vec3[.float32, .WORLD, length](1.0),
+        roughness,
+        specular_u,
+        random_v,
+    )
+    var diffuse_sample = _sample_lambertian(normal, albedo, diffuse_u, random_v)
+    var direction = Vec3.select(
+        choose_specular, specular_sample.direction, diffuse_sample.direction
+    )
+    var evaluation = _evaluate_coated_diffuse(
+        ray_direction, normal, albedo, roughness, eta, direction
+    )
+    var cosine = max(dot(normal, direction), 0.0)
+    var safe_pdf = max(evaluation.pdf, 1.0e-20)
+    var rough_weight = evaluation.value * (cosine / safe_pdf)
+    var smooth_specular = choose_specular & roughness.le(1.0e-4)
+    var weight = Vec3.select(
+        smooth_specular,
+        Vec3[.float32, .WORLD, length](1.0),
+        rough_weight,
+    )
+    var pdf = smooth_specular.select(specular_probability, evaluation.pdf)
+    var ok = smooth_specular | pdf.gt(0.0)
+    return BsdfSample[length](direction, weight, pdf, smooth_specular, ok)
 
 
 @always_inline

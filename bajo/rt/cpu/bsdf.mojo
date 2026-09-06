@@ -4,7 +4,12 @@ from std.math import sqrt
 
 from bajo.core import Vec3f32, dot, normalize, Rayf32
 from bajo.core.random import Rng
-from bajo.rt.shading import _evaluate_material, _sample_material
+from bajo.rt.shading import (
+    _evaluate_coated_diffuse,
+    _evaluate_material,
+    _sample_coated_diffuse,
+    _sample_material,
+)
 from bajo.rt.types import (
     BsdfEvaluation,
     BsdfSample,
@@ -38,6 +43,17 @@ def evaluate_bsdf(
             hit.normal,
             surfaces.sample_albedo(surface, hit.uv_u[0], hit.uv_v[0]),
             SIMD[.float32, 1](material.fuzz),
+            out_direction,
+        )
+
+    if surface.kind() == .COATED_DIFFUSE:
+        ref material = surfaces.coated_diffuses[Int(surface.index())]
+        return _evaluate_coated_diffuse(
+            ray.d,
+            hit.normal,
+            surfaces.sample_albedo(surface, hit.uv_u[0], hit.uv_v[0]),
+            SIMD[.float32, 1](material.roughness),
+            SIMD[.float32, 1](material.eta),
             out_direction,
         )
 
@@ -101,6 +117,18 @@ def sample_bsdf(
             hit.front_face,
             SIMD[.float32, 1](random_u),
             SIMD[.float32, 1](random_v),
+        )
+
+    if surface.kind() == .COATED_DIFFUSE:
+        ref material = surfaces.coated_diffuses[Int(surface.index())]
+        return _sample_coated_diffuse(
+            ray.d,
+            hit.normal,
+            surfaces.sample_albedo(surface, hit.uv_u[0], hit.uv_v[0]),
+            SIMD[.float32, 1](material.roughness),
+            SIMD[.float32, 1](material.eta),
+            SIMD[.float32, 1](rng.f32()),
+            SIMD[.float32, 1](rng.f32()),
         )
 
     if surface.kind() == .DIELECTRIC:

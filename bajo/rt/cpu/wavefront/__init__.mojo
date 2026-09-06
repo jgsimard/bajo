@@ -41,6 +41,7 @@ struct _PacketQueueArena[length: SIMDLength]:
     var lambertian: PacketShadeQueue[Self.length]
     var metal: PacketShadeQueue[Self.length]
     var dielectric: PacketShadeQueue[Self.length]
+    var coated_diffuse: PacketShadeQueue[Self.length]
 
     def __init__(out self, capacity: Int):
         # Two path buffers ping-pong between bounces. Material queues reserve
@@ -50,6 +51,7 @@ struct _PacketQueueArena[length: SIMDLength]:
         self.lambertian = PacketShadeQueue[Self.length](capacity)
         self.metal = PacketShadeQueue[Self.length](capacity)
         self.dielectric = PacketShadeQueue[Self.length](capacity)
+        self.coated_diffuse = PacketShadeQueue[Self.length](capacity)
 
 
 def _trace_packet_range[
@@ -89,6 +91,7 @@ def _trace_packet_range[
         queues.lambertian,
         queues.metal,
         queues.dielectric,
+        queues.coated_diffuse,
     )
 
 

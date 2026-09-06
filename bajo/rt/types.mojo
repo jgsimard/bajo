@@ -1,4 +1,4 @@
-from std.math import floor, pi
+from std.math import abs, floor, pi
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.utils.numerics import isfinite
 
@@ -10,6 +10,8 @@ from bajo.core import (
     Point3,
     Point3f32,
     Ray,
+    cross,
+    normalize,
 )
 from bajo.bvh.constants import PrimitiveKind
 from bajo.bvh import Instance, Sphere
@@ -50,6 +52,14 @@ struct ImageTexture:
             self.pixels[base + 2],
         )
 
+    def sample_scalar(self, u: Float32, v: Float32) -> Float32:
+        var color = self.sample(u, v)
+        return (
+            Float32(0.2126) * color.x[0]
+            + Float32(0.7152) * color.y[0]
+            + Float32(0.0722) * color.z[0]
+        )
+
 
 @fieldwise_init
 struct MaterialKind(Equatable, TrivialRegisterPassable, Writable):
@@ -58,10 +68,12 @@ struct MaterialKind(Equatable, TrivialRegisterPassable, Writable):
     comptime METAL = Self(1)
     comptime DIELECTRIC = Self(2)
     comptime EMISSIVE = Self(3)
+    comptime COATED_DIFFUSE = Self(4)
     comptime has_bsdf[kind: Self] = (
         kind.value == Self.LAMBERTIAN.value
         or kind.value == Self.METAL.value
         or kind.value == Self.DIELECTRIC.value
+        or kind.value == Self.COATED_DIFFUSE.value
     )
 
 
@@ -230,6 +242,47 @@ struct Metal(Copyable, Writable):
 
 
 @fieldwise_init
+struct CoatedDiffuse(Copyable, Writable):
+    """Diffuse substrate below a rough dielectric coating."""
+
+    var albedo: Color
+    var roughness: Float32
+    var eta: Float32
+    var texture_index: UInt32
+    var displacement_texture_index: UInt32
+    var displacement_scale: Float32
+    var displacement_u_scale: Float32
+    var displacement_v_scale: Float32
+
+    def validate(self) raises:
+        if not self.albedo.is_finite()[0]:
+            raise Error("coated diffuse albedo must be finite")
+        if (
+            self.albedo.x[0] < 0.0
+            or self.albedo.x[0] > 1.0
+            or self.albedo.y[0] < 0.0
+            or self.albedo.y[0] > 1.0
+            or self.albedo.z[0] < 0.0
+            or self.albedo.z[0] > 1.0
+        ):
+            raise Error("coated diffuse albedo must be within [0, 1]")
+        if (
+            not isfinite(self.roughness)
+            or self.roughness < 0.0
+            or self.roughness > 1.0
+        ):
+            raise Error("coated diffuse roughness must be within [0, 1]")
+        if not isfinite(self.eta) or self.eta <= 0.0:
+            raise Error("coated diffuse eta must be positive")
+        if (
+            not isfinite(self.displacement_scale)
+            or not isfinite(self.displacement_u_scale)
+            or not isfinite(self.displacement_v_scale)
+        ):
+            raise Error("coated diffuse displacement parameters must be finite")
+
+
+@fieldwise_init
 struct Dielectric(Copyable, Writable):
     var refraction_index: Float32
 
@@ -260,6 +313,7 @@ struct SurfaceStore:
     var metals: List[Metal]
     var dielectrics: List[Dielectric]
     var emissives: List[Emissive]
+    var coated_diffuses: List[CoatedDiffuse]
     var image_textures: List[ImageTexture]
 
     def __init__(out self):
@@ -267,6 +321,7 @@ struct SurfaceStore:
         self.metals = List[Metal]()
         self.dielectrics = List[Dielectric]()
         self.emissives = List[Emissive]()
+        self.coated_diffuses = List[CoatedDiffuse]()
         self.image_textures = List[ImageTexture]()
 
     def contains(self, surface: SurfaceId[1]) -> Bool:
@@ -278,6 +333,8 @@ struct SurfaceStore:
             return surface.index() < UInt32(len(self.dielectrics))
         elif surface.kind() == .EMISSIVE:
             return surface.index() < UInt32(len(self.emissives))
+        elif surface.kind() == .COATED_DIFFUSE:
+            return surface.index() < UInt32(len(self.coated_diffuses))
 
         return False
 
@@ -310,7 +367,61 @@ struct SurfaceStore:
                     Int(material.texture_index)
                 ].sample(u, v)
             return material.albedo
+        if surface.kind() == .COATED_DIFFUSE:
+            ref material = self.coated_diffuses[Int(surface.index())]
+            if material.texture_index != NO_TEXTURE:
+                return material.albedo * self.image_textures[
+                    Int(material.texture_index)
+                ].sample(u, v)
+            return material.albedo
         return Color(0.0)
+
+    def shading_normal(
+        self,
+        surface: SurfaceId[1],
+        normal: Vec3f32[.WORLD],
+        u: Float32,
+        v: Float32,
+    ) -> Vec3f32[.WORLD]:
+        if surface.kind() != .COATED_DIFFUSE:
+            return normal
+        ref material = self.coated_diffuses[Int(surface.index())]
+        if (
+            material.displacement_texture_index == NO_TEXTURE
+            or material.displacement_scale == 0.0
+        ):
+            return normal
+        ref texture = self.image_textures[
+            Int(material.displacement_texture_index)
+        ]
+        var texture_u = u * material.displacement_u_scale
+        var texture_v = v * material.displacement_v_scale
+        var du = Float32(0.5) / Float32(texture.width)
+        var dv = Float32(0.5) / Float32(texture.height)
+        var slope_u = (
+            (
+                texture.sample_scalar(texture_u + du, texture_v)
+                - texture.sample_scalar(texture_u - du, texture_v)
+            )
+            * Float32(texture.width)
+            * material.displacement_u_scale
+            * material.displacement_scale
+        )
+        var slope_v = (
+            (
+                texture.sample_scalar(texture_u, texture_v + dv)
+                - texture.sample_scalar(texture_u, texture_v - dv)
+            )
+            * Float32(texture.height)
+            * material.displacement_v_scale
+            * material.displacement_scale
+        )
+        var helper = Vec3f32[.WORLD](0.0, 1.0, 0.0)
+        if abs(normal.y[0]) > 0.99:
+            helper = Vec3f32[.WORLD](1.0, 0.0, 0.0)
+        var tangent = normalize(cross(helper, normal))
+        var bitangent = cross(normal, tangent)
+        return normalize(normal - tangent * slope_u - bitangent * slope_v)
 
     def add_lambertian(
         mut self, albedo: Color, texture_index: UInt32 = NO_TEXTURE
@@ -333,6 +444,32 @@ struct SurfaceStore:
         var index = UInt32(len(self.dielectrics))
         self.dielectrics.append(Dielectric(refraction_index))
         return SurfaceId(.DIELECTRIC, index)
+
+    def add_coated_diffuse(
+        mut self,
+        albedo: Color,
+        roughness: Float32,
+        eta: Float32,
+        texture_index: UInt32 = NO_TEXTURE,
+        displacement_texture_index: UInt32 = NO_TEXTURE,
+        displacement_scale: Float32 = 0.0,
+        displacement_u_scale: Float32 = 1.0,
+        displacement_v_scale: Float32 = 1.0,
+    ) -> SurfaceId[1]:
+        var index = UInt32(len(self.coated_diffuses))
+        self.coated_diffuses.append(
+            CoatedDiffuse(
+                albedo,
+                roughness,
+                eta,
+                texture_index,
+                displacement_texture_index,
+                displacement_scale,
+                displacement_u_scale,
+                displacement_v_scale,
+            )
+        )
+        return SurfaceId(.COATED_DIFFUSE, index)
 
     def add_emissive(mut self, radiance: Color) -> SurfaceId[1]:
         var index = UInt32(len(self.emissives))
@@ -787,6 +924,11 @@ struct SceneBuilder(
     def add_dielectric(mut self, refraction_index: Float32) -> SurfaceId[1]:
         return self.surfaces.add_dielectric(refraction_index)
 
+    def add_coated_diffuse(
+        mut self, albedo: Color, roughness: Float32, eta: Float32
+    ) -> SurfaceId[1]:
+        return self.surfaces.add_coated_diffuse(albedo, roughness, eta)
+
     def add_emissive(mut self, radiance: Color) -> SurfaceId[1]:
         return self.surfaces.add_emissive(radiance)
 
@@ -1123,6 +1265,23 @@ struct SceneData:
 
         for material in self._surfaces.dielectrics:
             material.validate()
+
+        for material in self._surfaces.coated_diffuses:
+            material.validate()
+            if (
+                material.texture_index != NO_TEXTURE
+                and material.texture_index
+                >= UInt32(len(self._surfaces.image_textures))
+            ):
+                raise Error("coated diffuse texture index is out of range")
+            if (
+                material.displacement_texture_index != NO_TEXTURE
+                and material.displacement_texture_index
+                >= UInt32(len(self._surfaces.image_textures))
+            ):
+                raise Error(
+                    "coated diffuse displacement texture index is out of range"
+                )
 
         for material in self._surfaces.emissives:
             material.validate()

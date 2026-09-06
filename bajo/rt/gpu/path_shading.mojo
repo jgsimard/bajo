@@ -1,7 +1,7 @@
 """Shared GPU RT material, lighting, routing, and shading kernels."""
 
 from max.gpu import block_dim, global_idx, grid_dim
-from std.math import ceildiv, floor, sqrt
+from std.math import abs, ceildiv, floor, sqrt
 from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh.gpu.utils import upload_list
@@ -9,6 +9,7 @@ from bajo.core import (
     Point3f32,
     Rayf32,
     Vec3f32,
+    cross,
     dot,
     normalize,
 )
@@ -26,7 +27,12 @@ from bajo.rt.lighting import (
     _sample_triangle_light_surface,
 )
 from bajo.rt.rays import spawn_surface_ray
-from bajo.rt.shading import _evaluate_material, _sample_material
+from bajo.rt.shading import (
+    _evaluate_coated_diffuse,
+    _evaluate_material,
+    _sample_coated_diffuse,
+    _sample_material,
+)
 from bajo.rt.types import (
     Color,
     MaterialKind,
@@ -160,6 +166,30 @@ def _flatten_emissives(world: SceneData) -> List[Float32]:
     return out^
 
 
+def _flatten_coated_diffuses(world: SceneData) -> List[Float32]:
+    var out = List[Float32](capacity=len(world.surfaces().coated_diffuses) * 8)
+    for material in world.surfaces().coated_diffuses:
+        out.append(material.albedo.x)
+        out.append(material.albedo.y)
+        out.append(material.albedo.z)
+        out.append(material.roughness)
+        out.append(material.eta)
+        out.append(material.displacement_scale)
+        out.append(material.displacement_u_scale)
+        out.append(material.displacement_v_scale)
+    return out^
+
+
+def _flatten_coated_diffuse_texture_indices(
+    world: SceneData,
+) -> List[UInt32]:
+    var out = List[UInt32](capacity=len(world.surfaces().coated_diffuses) * 2)
+    for material in world.surfaces().coated_diffuses:
+        out.append(material.texture_index)
+        out.append(material.displacement_texture_index)
+    return out^
+
+
 struct GpuRtMaterials:
     """Flattened device material tables shared by all GPU geometry backends."""
 
@@ -167,7 +197,9 @@ struct GpuRtMaterials:
     var metals: DeviceBuffer[.float32]
     var dielectrics: DeviceBuffer[.float32]
     var emissives: DeviceBuffer[.float32]
+    var coated_diffuses: DeviceBuffer[.float32]
     var lambertian_texture_indices: DeviceBuffer[.uint32]
+    var coated_diffuse_texture_indices: DeviceBuffer[.uint32]
     var texture_descs: DeviceBuffer[.uint32]
     var texture_pixels: DeviceBuffer[.float32]
     var has_non_lambertian: Bool
@@ -184,8 +216,14 @@ struct GpuRtMaterials:
         self.metals = _upload_nonempty(ctx, _flatten_metals(world))
         self.dielectrics = _upload_nonempty(ctx, _flatten_dielectrics(world))
         self.emissives = _upload_nonempty(ctx, _flatten_emissives(world))
+        self.coated_diffuses = _upload_nonempty(
+            ctx, _flatten_coated_diffuses(world)
+        )
         self.lambertian_texture_indices = _upload_nonempty(
             ctx, _flatten_lambertian_texture_indices(world)
+        )
+        self.coated_diffuse_texture_indices = _upload_nonempty(
+            ctx, _flatten_coated_diffuse_texture_indices(world)
         )
         self.texture_descs = _upload_nonempty(
             ctx, _flatten_texture_descs(world)
@@ -197,6 +235,30 @@ struct GpuRtMaterials:
             len(world.surfaces().metals) > 0
             or len(world.surfaces().dielectrics) > 0
         )
+
+
+@always_inline
+def _sample_gpu_image_texture(
+    texture_idx: UInt32,
+    u: Float32,
+    v: Float32,
+    texture_descs: Pointer[UInt32, ImmutAnyOrigin],
+    texture_pixels: Pointer[Float32, ImmutAnyOrigin],
+) -> Color:
+    var desc_base = 3 * Int(texture_idx)
+    var pixel_offset = Int(texture_descs[unsafe_offset=desc_base])
+    var width = Int(texture_descs[unsafe_offset=desc_base + 1])
+    var height = Int(texture_descs[unsafe_offset=desc_base + 2])
+    var wrapped_u = u - floor(u)
+    var wrapped_v = v - floor(v)
+    var x = min(Int(wrapped_u * Float32(width)), width - 1)
+    var y = min(Int((Float32(1.0) - wrapped_v) * Float32(height)), height - 1)
+    var base = pixel_offset + 3 * (y * width + x)
+    return Color(
+        texture_pixels[unsafe_offset=base],
+        texture_pixels[unsafe_offset=base + 1],
+        texture_pixels[unsafe_offset=base + 2],
+    )
 
 
 @always_inline
@@ -219,21 +281,118 @@ def _sample_gpu_lambertian(
     var texture_idx = texture_indices[unsafe_offset=material_idx]
     if texture_idx == NO_TEXTURE:
         return albedo
-
-    var desc_base = 3 * Int(texture_idx)
-    var pixel_offset = Int(texture_descs[unsafe_offset=desc_base])
-    var width = Int(texture_descs[unsafe_offset=desc_base + 1])
-    var height = Int(texture_descs[unsafe_offset=desc_base + 2])
-    var wrapped_u = u - floor(u)
-    var wrapped_v = v - floor(v)
-    var x = min(Int(wrapped_u * Float32(width)), width - 1)
-    var y = min(Int((Float32(1.0) - wrapped_v) * Float32(height)), height - 1)
-    var base = pixel_offset + 3 * (y * width + x)
-    return albedo * Color(
-        texture_pixels[unsafe_offset=base],
-        texture_pixels[unsafe_offset=base + 1],
-        texture_pixels[unsafe_offset=base + 2],
+    return albedo * _sample_gpu_image_texture(
+        texture_idx, u, v, texture_descs, texture_pixels
     )
+
+
+@always_inline
+def _sample_gpu_coated_albedo(
+    surface_value: UInt32,
+    u: Float32,
+    v: Float32,
+    coated_diffuses: Pointer[Float32, ImmutAnyOrigin],
+    texture_indices: Pointer[UInt32, ImmutAnyOrigin],
+    texture_descs: Pointer[UInt32, ImmutAnyOrigin],
+    texture_pixels: Pointer[Float32, ImmutAnyOrigin],
+) -> Color:
+    var material_idx = Int(SurfaceId.index_from_raw(surface_value))
+    var material_base = 8 * material_idx
+    var albedo = Color(
+        coated_diffuses[unsafe_offset=material_base + 0],
+        coated_diffuses[unsafe_offset=material_base + 1],
+        coated_diffuses[unsafe_offset=material_base + 2],
+    )
+    var texture_idx = texture_indices[unsafe_offset=2 * material_idx]
+    if texture_idx == NO_TEXTURE:
+        return albedo
+    return albedo * _sample_gpu_image_texture(
+        texture_idx, u, v, texture_descs, texture_pixels
+    )
+
+
+@always_inline
+def _gpu_coated_shading_normal(
+    surface_value: UInt32,
+    normal: Vec3f32[.WORLD],
+    u: Float32,
+    v: Float32,
+    coated_diffuses: Pointer[Float32, ImmutAnyOrigin],
+    texture_indices: Pointer[UInt32, ImmutAnyOrigin],
+    texture_descs: Pointer[UInt32, ImmutAnyOrigin],
+    texture_pixels: Pointer[Float32, ImmutAnyOrigin],
+) -> Vec3f32[.WORLD]:
+    if SurfaceId.kind_from_raw(surface_value) != .COATED_DIFFUSE:
+        return normal
+    var material_idx = Int(SurfaceId.index_from_raw(surface_value))
+    var material_base = 8 * material_idx
+    var texture_idx = texture_indices[unsafe_offset=2 * material_idx + 1]
+    var scale = coated_diffuses[unsafe_offset=material_base + 5]
+    if texture_idx == NO_TEXTURE or scale == 0.0:
+        return normal
+    var u_scale = coated_diffuses[unsafe_offset=material_base + 6]
+    var v_scale = coated_diffuses[unsafe_offset=material_base + 7]
+    var desc_base = 3 * Int(texture_idx)
+    var width = Float32(texture_descs[unsafe_offset=desc_base + 1])
+    var height = Float32(texture_descs[unsafe_offset=desc_base + 2])
+    var texture_u = u * u_scale
+    var texture_v = v * v_scale
+    var color_u0 = _sample_gpu_image_texture(
+        texture_idx,
+        texture_u - Float32(0.5) / width,
+        texture_v,
+        texture_descs,
+        texture_pixels,
+    )
+    var color_u1 = _sample_gpu_image_texture(
+        texture_idx,
+        texture_u + Float32(0.5) / width,
+        texture_v,
+        texture_descs,
+        texture_pixels,
+    )
+    var color_v0 = _sample_gpu_image_texture(
+        texture_idx,
+        texture_u,
+        texture_v - Float32(0.5) / height,
+        texture_descs,
+        texture_pixels,
+    )
+    var color_v1 = _sample_gpu_image_texture(
+        texture_idx,
+        texture_u,
+        texture_v + Float32(0.5) / height,
+        texture_descs,
+        texture_pixels,
+    )
+    var value_u0 = (
+        Float32(0.2126) * color_u0.x
+        + Float32(0.7152) * color_u0.y
+        + Float32(0.0722) * color_u0.z
+    )
+    var value_u1 = (
+        Float32(0.2126) * color_u1.x
+        + Float32(0.7152) * color_u1.y
+        + Float32(0.0722) * color_u1.z
+    )
+    var value_v0 = (
+        Float32(0.2126) * color_v0.x
+        + Float32(0.7152) * color_v0.y
+        + Float32(0.0722) * color_v0.z
+    )
+    var value_v1 = (
+        Float32(0.2126) * color_v1.x
+        + Float32(0.7152) * color_v1.y
+        + Float32(0.0722) * color_v1.z
+    )
+    var slope_u = (value_u1 - value_u0) * width * u_scale * scale
+    var slope_v = (value_v1 - value_v0) * height * v_scale * scale
+    var helper = Vec3f32[.WORLD](0.0, 1.0, 0.0)
+    if abs(normal.y) > 0.99:
+        helper = Vec3f32[.WORLD](1.0, 0.0, 0.0)
+    var tangent = normalize(cross(helper, normal))
+    var bitangent = cross(normal, tangent)
+    return normalize(normal - tangent * slope_u - bitangent * slope_v)
 
 
 struct GpuRtLights:
@@ -337,6 +496,8 @@ def _sample_direct_light_candidate[
     texture_descs: Pointer[UInt32, ImmutAnyOrigin],
     texture_pixels: Pointer[Float32, ImmutAnyOrigin],
     metals: Pointer[Float32, ImmutAnyOrigin],
+    coated_diffuses: Pointer[Float32, ImmutAnyOrigin],
+    coated_diffuse_texture_indices: Pointer[UInt32, ImmutAnyOrigin],
     light_kinds: Pointer[UInt32, ImmutAnyOrigin],
     light_fields: Pointer[Float32, ImmutAnyOrigin],
     light_count: Int,
@@ -460,6 +621,26 @@ def _sample_direct_light_candidate[
                 metals[unsafe_offset=material_base + 2],
             ),
             metals[unsafe_offset=material_base + 3],
+            geometry.direction,
+        )
+        value = evaluation.value
+        bsdf_pdf = evaluation.pdf
+    elif surface_kind == .COATED_DIFFUSE:
+        var material_base = 8 * material_idx
+        var evaluation = _evaluate_coated_diffuse(
+            incoming_ray.d,
+            normal,
+            _sample_gpu_coated_albedo(
+                surface_value,
+                uv_u,
+                uv_v,
+                coated_diffuses,
+                coated_diffuse_texture_indices,
+                texture_descs,
+                texture_pixels,
+            ),
+            coated_diffuses[unsafe_offset=material_base + 3],
+            coated_diffuses[unsafe_offset=material_base + 4],
             geometry.direction,
         )
         value = evaluation.value
@@ -625,6 +806,95 @@ def _shade_lambertian_inline[
 
 
 @always_inline
+def _shade_coated_diffuse_inline[
+    integrator: Integrator,
+](
+    path: DeviceWavePath,
+    ray_direction: Vec3f32[.WORLD],
+    normal: Vec3f32[.WORLD],
+    uv_u: Float32,
+    uv_v: Float32,
+    hit_t: Float32,
+    surface_value: UInt32,
+    coated_diffuses: Pointer[Float32, ImmutAnyOrigin],
+    coated_diffuse_texture_indices: Pointer[UInt32, ImmutAnyOrigin],
+    texture_descs: Pointer[UInt32, ImmutAnyOrigin],
+    texture_pixels: Pointer[Float32, ImmutAnyOrigin],
+    dst_path_ids: Pointer[UInt32, MutAnyOrigin],
+    dst_path_fields: Pointer[Float32, MutAnyOrigin],
+    counters: Pointer[UInt32, MutAnyOrigin],
+    capacity: Int,
+    sampling: SamplingConfig,
+    bounce: UInt32,
+):
+    var material_idx = Int(SurfaceId.index_from_raw(surface_value))
+    var material_base = 8 * material_idx
+    var albedo = _sample_gpu_coated_albedo(
+        surface_value,
+        uv_u,
+        uv_v,
+        coated_diffuses,
+        coated_diffuse_texture_indices,
+        texture_descs,
+        texture_pixels,
+    )
+    var rng = path_stage_rng(
+        sampling, path.path_id, wavefront_rng_stage(bounce)
+    )
+    var sampled = _sample_coated_diffuse(
+        ray_direction,
+        normal,
+        albedo,
+        coated_diffuses[unsafe_offset=material_base + 3],
+        coated_diffuses[unsafe_offset=material_base + 4],
+        rng.f32(),
+        rng.f32(),
+    )
+    if not sampled.ok:
+        return
+    var throughput = Color(path.tx, path.ty, path.tz) * sampled.weight
+    var roulette = russian_roulette(
+        sampling, path.path_id, bounce + UInt32(1), throughput
+    )
+    if not roulette.survived:
+        return
+    var slot = _reserve_slot(counters, WAVE_COUNTER.NEXT)
+    if slot >= capacity:
+        _mark_status(counters, WAVE_STATUS.PATH_OVERFLOW)
+        return
+    var next_ray = spawn_surface_ray(
+        Point3f32[.WORLD](
+            path.ox + hit_t * path.dx,
+            path.oy + hit_t * path.dy,
+            path.oz + hit_t * path.dz,
+        ),
+        sampled.direction,
+    )
+    store_gpu_rt_path[integrator](
+        DeviceWavePath(
+            path.path_id,
+            next_ray.o.x,
+            next_ray.o.y,
+            next_ray.o.z,
+            next_ray.t_min,
+            next_ray.d.x,
+            next_ray.d.y,
+            next_ray.d.z,
+            next_ray.t_max,
+            roulette.throughput.x,
+            roulette.throughput.y,
+            roulette.throughput.z,
+            sampled.pdf,
+            sampled.delta,
+        ),
+        dst_path_ids,
+        dst_path_fields,
+        capacity,
+        slot,
+    )
+
+
+@always_inline
 def _route_surface_hit[
     integrator: Integrator,
 ](
@@ -644,6 +914,8 @@ def _route_surface_hit[
     lambertian_texture_indices: Pointer[UInt32, ImmutAnyOrigin],
     texture_descs: Pointer[UInt32, ImmutAnyOrigin],
     texture_pixels: Pointer[Float32, ImmutAnyOrigin],
+    coated_diffuses: Pointer[Float32, ImmutAnyOrigin],
+    coated_diffuse_texture_indices: Pointer[UInt32, ImmutAnyOrigin],
     dst_path_ids: Pointer[UInt32, MutAnyOrigin],
     dst_path_fields: Pointer[Float32, MutAnyOrigin],
     shade_path_refs: Pointer[UInt32, MutAnyOrigin],
@@ -710,6 +982,26 @@ def _route_surface_hit[
             surface_value,
             lambertians,
             lambertian_texture_indices,
+            texture_descs,
+            texture_pixels,
+            dst_path_ids,
+            dst_path_fields,
+            counters,
+            capacity,
+            sampling,
+            bounce,
+        )
+    elif kind == .COATED_DIFFUSE:
+        _shade_coated_diffuse_inline[integrator](
+            path,
+            ray_direction,
+            normal,
+            uv_u,
+            uv_v,
+            hit_t,
+            surface_value,
+            coated_diffuses,
+            coated_diffuse_texture_indices,
             texture_descs,
             texture_pixels,
             dst_path_ids,

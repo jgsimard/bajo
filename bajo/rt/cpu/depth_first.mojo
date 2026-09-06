@@ -62,6 +62,11 @@ def _trace_path[
         var hit = world.trace_surface(cur_ray)
         if hit.hit:
             var point = ShadingPoint.from_hit(cur_ray, hit)
+            point.normal = (
+                world.scene_data()
+                .surfaces()
+                .shading_normal(hit.surface, point.normal, hit.uv_u, hit.uv_v)
+            )
             var emission = (
                 world.scene_data()
                 .surfaces()
@@ -132,8 +137,12 @@ def _trace_normals[
     var hit = world.trace_surface(ray)
     if not hit.hit:
         return Color(0.0)
-
-    return 0.5 * (hit.normal + Color(1.0))
+    var normal = (
+        world.scene_data()
+        .surfaces()
+        .shading_normal(hit.surface, hit.normal, hit.uv_u, hit.uv_v)
+    )
+    return 0.5 * (normal + Color(1.0))
 
 
 def _trace_ao[
@@ -148,7 +157,12 @@ def _trace_ao[
     if not hit.hit:
         return sky_color(ray.d)
 
-    var ao_ray = make_ao_ray(ray.at(hit.t), hit.normal, rng)
+    var normal = (
+        world.scene_data()
+        .surfaces()
+        .shading_normal(hit.surface, hit.normal, hit.uv_u, hit.uv_v)
+    )
+    var ao_ray = make_ao_ray(ray.at(hit.t), normal, rng)
     if world.occluded(ao_ray):
         return Color(0.08)
 

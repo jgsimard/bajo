@@ -61,7 +61,5 @@ def parse_png[
 
 
 def read_png(path: String) raises -> ImageTexture:
-    var mapped = MMap[ImmutAnyOrigin](path)
-    var texture = parse_png(mapped.as_bytes_span())
-    _ = mapped.byte_length()
-    return texture^
+    var mapped = MMap(path)
+    return parse_png(mapped.as_bytes_span())

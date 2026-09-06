@@ -10,7 +10,7 @@ from bajo.parser.obj.mmap import MMap
 
 def read_obj(path: String) raises -> ObjMesh:
     var loader = PathTextLoader()
-    var mapped = MMap[ImmutAnyOrigin](path)
+    var mapped = MMap(path)
     return parse_obj(mapped.as_string_span(), path, loader)
 
 

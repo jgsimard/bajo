@@ -6,7 +6,7 @@ from bajo.parser.ply.types import PlyMesh
 
 
 def read_ply(path: String) raises -> PlyMesh:
-    var mapped = MMap[ImmutAnyOrigin](path)
+    var mapped = MMap(path)
     return _parse_ply(mapped.as_bytes_span())
 
 

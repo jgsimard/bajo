@@ -48,7 +48,7 @@ def main() raises:
     var path = String(DEFAULT_PLY_PATH)
     if len(args) == 2:
         path = String(args[1])
-    var mapped = MMap[ImmutAnyOrigin](path)
+    var mapped = MMap(path)
     var bytes = mapped.as_bytes_span()
     var mesh = parse_ply(bytes)
 

@@ -414,15 +414,16 @@ struct SurfaceStore:
         self.image_textures = List[ImageTexture]()
 
     def contains(self, surface: SurfaceId[1]) -> Bool:
-        if surface.kind() == .LAMBERTIAN:
+        __match surface.kind():
+        case .LAMBERTIAN:
             return surface.index() < UInt32(len(self.lambertians))
-        elif surface.kind() == .METAL:
+        case .METAL:
             return surface.index() < UInt32(len(self.metals))
-        elif surface.kind() == .DIELECTRIC:
+        case .DIELECTRIC:
             return surface.index() < UInt32(len(self.dielectrics))
-        elif surface.kind() == .EMISSIVE:
+        case .EMISSIVE:
             return surface.index() < UInt32(len(self.emissives))
-        elif surface.kind() == .COATED_DIFFUSE:
+        case .COATED_DIFFUSE:
             return surface.index() < UInt32(len(self.coated_diffuses))
 
         return False
